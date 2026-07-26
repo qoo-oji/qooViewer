@@ -468,21 +468,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 200])
     }
 
-    /// macOSの「ウインドウの状態を保存して次回起動時に復元する」機能(NSPersistentUIManager)を
-    /// 無効にする。これを実装せずtrueのまま(既定)にしていると、Xcodeの停止ボタンなど、
-    /// アプリを正常な手順でNSApp.terminateさせずに強制終了した場合、直前のウインドウ構成
-    /// (本来1つのはずが、デバッグ中に一時的に2つ以上開いていた状態なども含む)がディスクに
-    /// 保存されたままになり、次回起動時にAppKitがそれを勝手に復元して、意図しない余分な
-    /// ウインドウ(ウェルカム画面)がいきなり複数開いた状態で起動してしまうことがある。
-    /// falseを返すことでこの保存・復元の仕組みごと無効化し、毎回の起動が必ずWindowGroupの
-    /// 既定どおり単一のウインドウから始まるようにする。
-    /// (Finderから別の本を開いたときに余分なウインドウが増える不具合を長らく調査していたが、
-    /// 実際にはapplication(_:open:)などのFinderオープン処理そのものではなく、この状態復元
-    /// によって「元々2つウインドウがあった」ことが根本原因だった。診断ログで
-    /// application(_:open:)の処理前後でウインドウ数が全く変化していないことが確認できた
-    /// ため特定できた)
+    /// macOSの「ウインドウのサイズ・位置などの状態を保存して次回起動時に復元する」機能
+    /// (secure state restoration)に対応していることを表明する。trueを返すことで、通常どおり
+    /// 前回終了時のウインドウサイズ・位置が次回起動時に復元されるようにする。
+    /// (Finderから別の本を開いたときに余分な空ウインドウが増える不具合の調査中、一時的に
+    /// これをfalseにして「状態復元の仕組みそのものが原因では」と検証したことがあったが、
+    /// 実際の原因は別(ContentView.onAppear/WindowAccessorの実行順序の問題)だったと判明した。
+    /// falseのままにしていると状態復元の仕組みごと無効になり、ウインドウのサイズ・位置の
+    /// 記憶も一緒に失われてしまう副作用があったため、trueに戻した)
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
-        false
+        true
     }
 
     /// Finderから(すでに起動済みの)qooViewerに別のファイルを渡して開こうとしたとき、
