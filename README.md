@@ -1,7 +1,7 @@
 # qooViewer
 
 macOS向けの漫画ビューアアプリです。フォルダ、zip/cbz、rar/cbr、7z/cb7、PDFに対応しています。
-cooViewer(https://github.com/coo-ona/cooViewer)を参考に、その操作性・機能を元に作られています。 素晴らしいアプリを公開してくださった作者の coo-ona 氏に感謝します。
+cooViewer (https://github.com/coo-ona/cooViewer) を参考に、その操作性・機能を元に作られています。 素晴らしいアプリを公開してくださった作者の coo-ona 氏に感謝します。
 
 ## 対応環境
 
