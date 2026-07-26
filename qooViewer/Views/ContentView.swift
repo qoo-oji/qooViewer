@@ -68,29 +68,6 @@ struct ContentView: View {
         .background(WindowAccessor { window in
             guard appState.hostWindow !== window else { return }
             appState.hostWindow = window
-            // すでに主ウインドウ(primaryAppState)が存在するのに、URLの指定なしで
-            // 「main」ウインドウグループの新しいインスタンス(=このContentView)が
-            // 生成された場合、それはこのアプリが意図して作ったものではない
-            // (詳細はonAppear側のコメント参照)。WindowAccessorはonAppearより先に
-            // (ウインドウ生成後すぐに)呼ばれるため、ここで即座に隠すことで、
-            // ユーザーの目にウェルカム画面が一瞬映ってしまう時間をできるだけ短くする。
-            //
-            // 「primaryAppState === appState」も許可条件に含めているのは、WindowAccessorと
-            // onAppearの実行順序がSwiftUI側で保証されていないため。もしonAppear(自分自身を
-            // primaryAppStateとして登録する処理を含む)が先に走ったあとにこのWindowAccessorの
-            // コールバックが呼ばれると、「primaryAppStateはすでにこの自分自身」という状態に
-            // なる。これを「他の余分なウインドウ」と誤判定しないよう、自分自身が
-            // primaryAppStateである場合は正規のウインドウとして扱う(これが無いと、アプリ起動時
-            // の最初の1枚目のウインドウまで誤って閉じてしまい、「すべてのウインドウを閉じたら
-            // 終了する」設定がONの場合にアプリが起動直後に終了してしまう不具合が起きる)。
-            guard launchCoordinator.primaryAppState == nil
-                || launchCoordinator.primaryAppState === appState
-                || initialURL != nil
-            else {
-                window?.orderOut(nil)
-                window?.close()
-                return
-            }
             // ウインドウのサイズ・位置を次回起動時に記憶する。AppKit標準の
             // NSWindow.setFrameAutosaveName/setFrameUsingNameを試したが、Dockに寄せて
             // 終了しても次回起動時にDockから離れて復元される不具合があった(setFrameUsingName
@@ -98,26 +75,31 @@ struct ContentView: View {
             // 余分な余白ができてしまっていたと考えられる)。そのため、ここでは自前でUserDefaultsに
             // 生のフレーム座標(NSStringFromRect)を保存・復元する、より単純で予測可能な方式に
             // 切り替える。"book"ウインドウグループ(新しいウインドウ/タブで開く。initialURLが
-            // 入る)の方は、元のウインドウのサイズをコピーする既存の仕組みがあるため、
-            // ここでは主ウインドウ(initialURLがnil)にだけ適用する。
-            if initialURL == nil, let window {
+            // 入る)の方や、タブバーの「+」で追加された新しいタブ(下のonAppear参照)には
+            // 適用したくないため、主ウインドウ自身(1枚目、またはすでにprimaryAppStateとして
+            // 登録済みの自分自身)の場合にだけ適用する。
+            if initialURL == nil,
+               launchCoordinator.primaryAppState == nil || launchCoordinator.primaryAppState === appState,
+               let window {
                 restoreMainWindowFrameIfNeeded(window)
                 observeMainWindowFrameChanges(window)
             }
         })
         .onAppear {
-            // 上のWindowAccessor側の早期チェックと同じ条件(理由も同上)。WindowAccessorが
-            // 間に合わないごくまれなケースの保険として、ここでも同じ判定をもう一度行う(詳細は
-            // WindowAccessor側のコメント参照。調査の結果、Finderの登録ファイルをDockアイコンへ
-            // ドラッグ&ドロップして開いたときに、AppKit/SwiftUI側がapplication(_:open:)の
-            // 呼び出しとは別に、原因不明のままこの「空のmainウインドウ」をもう1つ自動的に
-            // 開いてしまうことがあると判明した。applicationShouldOpenUntitledFile /
-            // applicationShouldHandleReopenをどちらもfalseにしても防げなかった)。
-            guard launchCoordinator.primaryAppState == nil
-                || launchCoordinator.primaryAppState === appState
-                || initialURL != nil
-            else {
-                closeSpuriousUntitledWindow()
+            // すでに主ウインドウ(primaryAppState)が存在するのに、URLの指定なしで
+            // 「main」ウインドウグループの新しいインスタンス(=このContentView)が
+            // 生成されるケースには、実は2通りある。
+            // (a) タブバーの「+」ボタンでユーザーが明示的に新しいタブを追加した(正当。
+            //     ウェルカム画面のタブが増えることが期待される動作)
+            // (b) Finderの登録ファイルをDockアイコンへドラッグ&ドロップして開いたときなどに、
+            //     AppKit/SwiftUI側がapplication(_:open:)の呼び出しとは別に、原因不明のまま
+            //     この「空のmainウインドウ」をもう1つ自動的に開いてしまう(不正。
+            //     applicationShouldOpenUntitledFile/applicationShouldHandleReopenをどちらも
+            //     falseにしても防げなかった)
+            // この時点(初期化直後)ではどちらも見分けが付かないため、少し待って判定する
+            // (resolveAmbiguousNewMainWindow参照)。
+            guard launchCoordinator.primaryAppState == nil || launchCoordinator.primaryAppState === appState || initialURL != nil else {
+                resolveAmbiguousNewMainWindow()
                 return
             }
             appState.preferences = preferences
@@ -179,19 +161,53 @@ struct ContentView: View {
         }
     }
 
-    /// 主ウインドウがすでに存在するのに現れてしまった、意図しない空の「main」ウインドウ
-    /// (上のonAppear参照)を自動的に閉じる。appState.hostWindowは同じタイミングで動く
-    /// .background(WindowAccessor{...})経由で設定されるため、設定が間に合っていない
-    /// ごく短い間だけ待ってから閉じる。
-    private func closeSpuriousUntitledWindow() {
+    /// 主ウインドウ以外に現れた、URL指定なしの新しい「main」ウインドウ(上のonAppear参照)を、
+    /// 正当なもの(タブバーの「+」で追加された新しいタブ)か、不正なもの(Finderからの
+    /// ファイルオープン時などにAppKit/SwiftUIが原因不明のまま追加してしまう余分な空
+    /// ウインドウ)かを判別し、正当なら通常どおりセットアップして表示し、不正なら閉じる。
+    ///
+    /// 見分け方: 正当な新しいタブは、AppKitによってすぐに既存のウインドウのタブグループへ
+    /// 自動的に追加される(NSWindow.tabbedWindowsが2つ以上になる)。不正な方はどのタブ
+    /// グループにも属さない単独のウインドウのままなので、少し待っても2つ以上にならない。
+    ///
+    /// 判定が終わるまでウインドウを一瞬隠しておき(orderOut)、正当と分かればすぐに
+    /// 表示し直す(makeKeyAndOrderFront)ことで、不正な場合に「一瞬だけ表示されてすぐ
+    /// 消える空ウインドウ」がユーザーの目にできるだけ見えないようにする。
+    private func resolveAmbiguousNewMainWindow() {
         Task { @MainActor in
+            // appState.hostWindowはWindowAccessor経由で設定されるため、間に合っていない
+            // ごく短い間だけ待つ。
+            var window: NSWindow?
             for _ in 0..<20 {
-                if let window = appState.hostWindow {
-                    window.close()
+                if let found = appState.hostWindow {
+                    window = found
+                    break
+                }
+                try? await Task.sleep(nanoseconds: 25_000_000)
+            }
+            guard let window else { return }
+            // ここでorderOut(隠す)をしてしまうと、タブグループへの参加自体が解除されて
+            // しまうらしく、下のtabbedWindows判定が常に「単独」と誤判定されてしまうことが
+            // 分かった。そのため、判定が終わるまで何もせずそのまま(表示された状態)で待つ
+            // (不正なケースでは、閉じるまでのごく短い間だけ画面に映ってしまうが許容する)。
+
+            // タブグループへの追加が完了するまで、少し待ちながら繰り返し確認する。
+            for _ in 0..<20 {
+                if (window.tabbedWindows?.count ?? 1) > 1 {
+                    // 正当な新しいタブ。主ウインドウとして登録したりperformLaunchActionsIfNeeded
+                    // を行ったりはせず、通常のウインドウ/タブと同様に最低限のセットアップだけ
+                    // 行う(すでに表示されているので、あらためて表示し直す必要はない)。
+                    appState.preferences = preferences
+                    appState.recentFiles = recentFiles
+                    appState.folderAccess = folderAccess
+                    appState.hideToolbar = preferences.hideToolbar
+                    appState.hideProgressBar = preferences.hideProgressBar
                     return
                 }
-                try? await Task.sleep(nanoseconds: 50_000_000)
+                try? await Task.sleep(nanoseconds: 25_000_000)
             }
+            // 最後までどのタブグループにも加わらなければ、不正な空ウインドウと判断して閉じる。
+            window.close()
         }
     }
 
