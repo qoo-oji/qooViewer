@@ -57,8 +57,8 @@ struct QooViewerApp: App {
                     // Finderから別の本を開こうとしたとき(環境設定「Finderから開いたとき」が
                     // 「新しいタブ/ウインドウで開く」の場合)に、AppDelegate自身は持たない
                     // openWindow環境値を使ってウインドウ/タブを作るための橋渡し。
-                    appDelegate.openInNewWindowOrTab = { url, asTab in
-                        openURLInNewWindow(url, asTab: asTab)
+                    appDelegate.openInNewWindowOrTab = { url, asTab, tabTarget in
+                        openURLInNewWindow(url, asTab: asTab, tabTarget: tabTarget)
                     }
                 }
         }
@@ -386,7 +386,7 @@ struct QooViewerApp: App {
             locale: locale
         )
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        openURLInNewWindow(url, asTab: asTab)
+        openURLInNewWindow(url, asTab: asTab, tabTarget: nil)
     }
 
     /// 指定したURLを、新しいウインドウ(またはタブ)で開く実際の処理。上のメニュー
@@ -395,10 +395,16 @@ struct QooViewerApp: App {
     /// 「Finderから開いたとき」が「新しいタブ/ウインドウで開く」の場合にも使う
     /// (AppDelegate.openInNewWindowOrTab経由。AppDelegate自身はSwiftUIのopenWindow環境値を
     /// 持てないため、その処理自体はこちらに委譲している)。
-    private func openURLInNewWindow(_ url: URL, asTab: Bool) {
+    ///
+    /// - Parameter tabTarget: タブとして追加する先を明示的に指定したい場合に渡す
+    ///   (Finderからの「開く」で、本を開いているAppStateのウインドウへ確実に追加するために使う。
+    ///   詳細はAppState.hostWindowのコメント参照)。nilの場合は、これまで通り呼び出し時点の
+    ///   NSApp.keyWindowを使う(メニューからの「新しいタブで開く」は、操作時に必ずこのアプリが
+    ///   最前面にあるため、この既定の挙動で問題ない)。
+    private func openURLInNewWindow(_ url: URL, asTab: Bool, tabTarget: NSWindow?) {
         _ = url.startAccessingSecurityScopedResource()
 
-        let previousKeyWindow = NSApp.keyWindow
+        let previousKeyWindow = tabTarget ?? NSApp.keyWindow
         let existingWindowIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
 
         openWindow(id: "book", value: url)
@@ -416,9 +422,10 @@ struct QooViewerApp: App {
             }
             guard let newWindow else { return }
 
-            // 新しいウインドウのサイズは、元になったウインドウ(今アクティブだったウインドウ)と
-            // 同じ大きさにする。元のウインドウが見つからない場合(環境設定ウインドウが
-            // アクティブだった場合など)はSwiftUIの既定サイズのままにする。
+            // 新しいウインドウのサイズは、元になったウインドウ(今アクティブだったウインドウ、
+            // またはtabTargetで明示的に指定されたウインドウ)と同じ大きさにする。元のウインドウが
+            // 見つからない場合(環境設定ウインドウがアクティブだった場合など)はSwiftUIの
+            // 既定サイズのままにする。
             if let previousKeyWindow {
                 var frame = newWindow.frame
                 frame.size = previousKeyWindow.frame.size
@@ -443,10 +450,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var launchCoordinator: LaunchCoordinator?
     /// Finderから(ダブルクリックや「このアプリケーションで開く」で)別の本を開こうとしたときの
     /// 環境設定「Finderから開いたとき」が「新しいタブ/ウインドウで開く」の場合に使う、実際に
-    /// ウインドウ/タブを開くためのクロージャ(QooViewerApp.openURLInNewWindow(_:asTab:)への
-    /// 橋渡し。AppDelegate自身はSwiftUIのopenWindow環境値を持てないため)。
-    /// 第2引数はasTab(trueなら新しいタブ、falseなら新しいウインドウ)。
-    var openInNewWindowOrTab: ((URL, Bool) -> Void)?
+    /// ウインドウ/タブを開くためのクロージャ(QooViewerApp.openURLInNewWindow(_:asTab:tabTarget:)
+    /// への橋渡し。AppDelegate自身はSwiftUIのopenWindow環境値を持てないため)。
+    /// 第2引数はasTab(trueなら新しいタブ、falseなら新しいウインドウ)、第3引数は
+    /// タブとして追加する先を明示的に指定する場合のウインドウ(通常はprimaryAppState.hostWindow。
+    /// nilならNSApp.keyWindowが使われる)。
+    var openInNewWindowOrTab: ((URL, Bool, NSWindow?) -> Void)?
 
     /// ツールバー・プログレスバーなど、`.help()`で付けたツールチップが表示されるまでの
     /// 待ち時間を短くする。SwiftUI/AppKitにはこの待ち時間を直接指定する公開APIがないため、
@@ -457,6 +466,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// registerはあくまで「まだ値がない場合の既定値」を与えるだけなので、他の設定と衝突しない。
     func applicationWillFinishLaunching(_ notification: Notification) {
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 200])
+    }
+
+    /// macOSの「ウインドウの状態を保存して次回起動時に復元する」機能(NSPersistentUIManager)を
+    /// 無効にする。これを実装せずtrueのまま(既定)にしていると、Xcodeの停止ボタンなど、
+    /// アプリを正常な手順でNSApp.terminateさせずに強制終了した場合、直前のウインドウ構成
+    /// (本来1つのはずが、デバッグ中に一時的に2つ以上開いていた状態なども含む)がディスクに
+    /// 保存されたままになり、次回起動時にAppKitがそれを勝手に復元して、意図しない余分な
+    /// ウインドウ(ウェルカム画面)がいきなり複数開いた状態で起動してしまうことがある。
+    /// falseを返すことでこの保存・復元の仕組みごと無効化し、毎回の起動が必ずWindowGroupの
+    /// 既定どおり単一のウインドウから始まるようにする。
+    /// (Finderから別の本を開いたときに余分なウインドウが増える不具合を長らく調査していたが、
+    /// 実際にはapplication(_:open:)などのFinderオープン処理そのものではなく、この状態復元
+    /// によって「元々2つウインドウがあった」ことが根本原因だった。診断ログで
+    /// application(_:open:)の処理前後でウインドウ数が全く変化していないことが確認できた
+    /// ため特定できた)
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
+        false
+    }
+
+    /// Finderから(すでに起動済みの)qooViewerに別のファイルを渡して開こうとしたとき、
+    /// このアプリ自身はapplication(_:open:)で明示的にウインドウ/タブを開いているにも
+    /// 関わらず、AppKit/SwiftUIのWindowGroupが標準の「ウインドウが1つも無いなら新しい
+    /// (空の)ウインドウを自動的に開く」という既定動作もあわせて行ってしまい、意図しない
+    /// ウェルカム画面のウインドウがもう1つ余分に開いてしまう不具合があった。
+    /// falseを返すことでこの既定動作を無効にし、ウインドウ管理は常にこのアプリ自身の
+    /// コード(application(_:open:)・ContentView.performLaunchActionsIfNeededなど)だけで
+    /// 行うようにする。
+    /// (Dockアイコンをクリックしてウインドウが1つも無い状態から復帰する場合は、こちらとは
+    /// 別のapplicationShouldHandleReopen(_:hasVisibleWindows:)が担当するため、既定のまま
+    /// 変更していない。そちらまでfalseにすると、ウインドウをすべて閉じたあとDockアイコンを
+    /// クリックしても何も起きなくなってしまうため)
+    func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    /// Finderからファイルを渡してqooViewerを前面に呼び出す(再アクティブ化する)ときにも、
+    /// AppKitは上のapplicationShouldOpenUntitledFileとは別の経路でウインドウの自動作成を
+    /// 行うことがある(このアプリの既存ウインドウがすでに存在していても、再アクティブ化の
+    /// タイミングによっては「表示中のウインドウが無い」と判定され、標準のWindowGroupが
+    /// 新しい空ウインドウ=ウェルカム画面をもう1つ開いてしまうことがあった)。
+    /// ここで既存ウインドウの有無を自前で確認し、1つでもあれば既定の自動オープンを
+    /// 行わないようにする(既存ウインドウはこの後のapplication(_:open:)、または通常の
+    /// 再アクティブ化そのものによって前面に来るので、それで十分)。
+    /// ウインドウが本当に1つも無い場合(すべて閉じたあとDockアイコンをクリックした場合など)は
+    /// 既定の動作(true)のままにし、新しいウインドウが開かれるようにする。
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        NSApp.windows.isEmpty
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -473,9 +529,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .replaceCurrentBook:
             primaryAppState.open(url: url)
         case .newTab:
-            openInNewWindowOrTab?(url, true)
+            // タブの追加先は、その時点でのNSApp.keyWindow(Finderから開いた直後は、まだ
+            // 本来のウインドウがキーウインドウになっていないことがあり、不確実)ではなく、
+            // 「本を開いていると確認したAppStateそのもの」が持つウインドウを明示的に渡す。
+            openInNewWindowOrTab?(url, true, primaryAppState.hostWindow)
         case .newWindow:
-            openInNewWindowOrTab?(url, false)
+            openInNewWindowOrTab?(url, false, primaryAppState.hostWindow)
         }
     }
 
