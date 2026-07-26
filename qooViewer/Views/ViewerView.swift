@@ -10,6 +10,12 @@ struct ViewerView: View {
     @EnvironmentObject private var keyBindingStore: KeyBindingStore
     @FocusState private var isFocused: Bool
     @State private var scrollMonitor: Any?
+    /// 直前にスクロールホイールでページ送りを実行した時刻。一部のマウス/ドライバが
+    /// 1ノッチの回転を複数の細かいscrollWheelイベントに分けて送ってくることがあり、
+    /// それによって1ノッチのつもりが2回ページ送りされてしまう現象を防ぐために使う
+    /// (handleScroll参照)。
+    @State private var lastWheelActionAt: Date?
+    private let wheelActionCooldown: TimeInterval = 0.04
     @State private var isCursorHidden = false
     @State private var cursorHideTask: Task<Void, Never>?
     /// メニューバーのメニュー(このアプリのもの)が現在開いているかどうか。開いている間は
@@ -132,19 +138,36 @@ struct ViewerView: View {
                 readingDirection: viewModel.readingDirection,
                 scalingMode: viewModel.scalingMode
             )
-            scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .swipe, .mouseMoved]) { event in
+            scrollMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.scrollWheel, .swipe, .mouseMoved, .keyDown]
+            ) { event in
                 // NSEvent.addLocalMonitorForEventsは「このアプリのどのウインドウ宛てのイベントか」に
                 // 関わらず、アプリ全体のイベントを受け取ってしまう。複数のウインドウ(タブ)を
                 // 開けるようになったため、ここでイベント自身の宛先ウインドウ(event.window)が
                 // 自分自身のウインドウ(hostWindow)と一致するときだけ処理するようにする。
                 // これがないと、スクロール操作が他のqooViewerウインドウはもちろん、
-                // 環境設定ウインドウやファイル選択パネルにまで影響してしまう。
+                // 環境設定ウインドウやファイル選択パネルにまで影響してしまう
+                // (キー入力も同様。ブックマーク名の変更などシート内のテキストフィールドは
+                // 別のNSWindowとして表示されるため、event.windowがhostWindowと一致せず、
+                // ここでの処理には影響しない)。
                 guard let hostWindow, event.window === hostWindow else { return event }
                 switch event.type {
                 case .scrollWheel:
                     handleScroll(deltaY: event.scrollingDeltaY)
                 case .swipe:
                     handleSwipe(deltaX: event.deltaX)
+                case .keyDown:
+                    // キー入力の検知は、以前はSwiftUIの.onKeyPressで行っていたが、
+                    // 環境によっては矢印キーがそちらまで届かない(ビープ音が鳴るだけで
+                    // 何も起きない)不具合があったため、動作が確実なこちらのNSEventベースの
+                    // 経路に統合した(詳細はRemappableKey.from(nsEvent:)のコメント参照)。
+                    if let key = RemappableKey.from(nsEvent: event),
+                       let action = keyBindingStore.action(for: key) {
+                        perform(action)
+                        // イベントをここで消費し、これ以上(標準のフォーカス移動や
+                        // ビープ音などへ)伝播させない。
+                        return nil
+                    }
                 default:
                     registerMouseActivity()
                     updateAutoHiddenChromeVisibility(forMouseLocationInWindow: event.locationInWindow)
@@ -177,12 +200,9 @@ struct ViewerView: View {
             }
             windowObservers = []
         }
-        .onKeyPress(phases: .down) { press in
-            guard let key = RemappableKey.from(press) else { return .ignored }
-            guard let action = keyBindingStore.action(for: key) else { return .ignored }
-            perform(action)
-            return .handled
-        }
+        // キー入力の検知はonAppear内のNSEventローカルモニタ(.keyDownケース)に統合したため、
+        // 以前ここにあった.onKeyPressは削除した(矢印キーがそちらまで届かない不具合があり、
+        // 二重に処理してしまうのを避けるため)。
         // ブックマークの追加/削除/名前変更のたびに、メニューバーの「ブックマーク」メニュー
         // 下部の一覧を最新の内容に更新する。
         .onChange(of: viewModel.bookmarks) { _, newValue in
@@ -495,6 +515,12 @@ struct ViewerView: View {
                 }
 
                 // クリックでのページ送り(画面内に収めるモードのみ。他のモードはスクロール操作を優先する)
+                //
+                // .focusable(false): この2つのボタンが左右に並んでいるため、これを付けないと
+                // macOSがLeft/Right矢印キーを「ボタン間のフォーカス移動」として横取りしてしまい、
+                // 矢印キーに割り当てたページ送りショートカットが反応しなくなる不具合があった。
+                // ボタン自体はクリックだけで使うものでキーボードフォーカスを受け取る必要がないため、
+                // フォーカス移動の対象から外すことで、矢印キーがonKeyPress側に正しく届くようにする。
                 HStack(spacing: 0) {
                     Button {
                         perform(keyBindingStore.action(for: .clickLeftZone))
@@ -504,6 +530,7 @@ struct ViewerView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .focusable(false)
 
                     Button {
                         perform(keyBindingStore.action(for: .clickRightZone))
@@ -513,6 +540,7 @@ struct ViewerView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .focusable(false)
                 }
                 .allowsHitTesting(viewModel.scalingMode == .fitToScreen)
             }
@@ -547,14 +575,28 @@ struct ViewerView: View {
     private func handleScroll(deltaY: CGFloat) {
         // 横幅フィット/拡大縮小しないモードではScrollView自体がホイール操作を処理するため、
         // ここでのページ送りは「画面内に収める」モードのときだけ行う
-        //
+        guard viewModel.scalingMode == .fitToScreen else { return }
+
         // NSEvent.scrollingDeltaYの符号は、ホイールを物理的に上へ回す(指を上に動かす)と
         // 正の値になる(以前の実装ではここが逆になっており、ホイールを上に回すと.wheelDownに
         // 割り当てた操作が実行されてしまっていた。設定画面の「Scroll Wheel Up」という表示と
         // 実際の動作が食い違うバグだったため、対応する分岐を入れ替えて修正している)。
-        if deltaY > 2 {
+        guard deltaY > 2 || deltaY < -2 else { return }
+
+        // 一部のマウス/ドライバでは、物理的には1ノッチしか回していなくても、その回転が
+        // ごく短い間隔の複数のscrollWheelイベントに分かれて届くことがある。それらを
+        // まとめて1回のページ送りとして扱うため、直前のページ送りからこの間隔未満での
+        // 連続発火は無視する(意図的に素早く連続でノッチを回したときの間隔は、通常
+        // これよりも空くため、そちらは取りこぼさない)。
+        let now = Date()
+        if let lastWheelActionAt, now.timeIntervalSince(lastWheelActionAt) < wheelActionCooldown {
+            return
+        }
+        lastWheelActionAt = now
+
+        if deltaY > 0 {
             perform(keyBindingStore.action(for: .wheelUp))
-        } else if deltaY < -2 {
+        } else {
             perform(keyBindingStore.action(for: .wheelDown))
         }
     }
