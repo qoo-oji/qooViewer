@@ -91,6 +91,19 @@ struct ContentView: View {
                 window?.close()
                 return
             }
+            // ウインドウのサイズ・位置を次回起動時に記憶する。AppKit標準の
+            // NSWindow.setFrameAutosaveName/setFrameUsingNameを試したが、Dockに寄せて
+            // 終了しても次回起動時にDockから離れて復元される不具合があった(setFrameUsingName
+            // 内部で、画面の「表示可能領域」を基準に位置を自動調整する処理が働き、想定より
+            // 余分な余白ができてしまっていたと考えられる)。そのため、ここでは自前でUserDefaultsに
+            // 生のフレーム座標(NSStringFromRect)を保存・復元する、より単純で予測可能な方式に
+            // 切り替える。"book"ウインドウグループ(新しいウインドウ/タブで開く。initialURLが
+            // 入る)の方は、元のウインドウのサイズをコピーする既存の仕組みがあるため、
+            // ここでは主ウインドウ(initialURLがnil)にだけ適用する。
+            if initialURL == nil, let window {
+                restoreMainWindowFrameIfNeeded(window)
+                observeMainWindowFrameChanges(window)
+            }
         })
         .onAppear {
             // 上のWindowAccessor側の早期チェックと同じ条件(理由も同上)。WindowAccessorが
@@ -180,5 +193,38 @@ struct ContentView: View {
                 try? await Task.sleep(nanoseconds: 50_000_000)
             }
         }
+    }
+
+    /// 主ウインドウのサイズ・位置を記憶するためのUserDefaultsキー。値は
+    /// NSStringFromRectで文字列化した生のフレーム座標をそのまま保存する。
+    private static let mainWindowFrameDefaultsKey = "qooViewer.mainWindowFrame"
+
+    /// 前回終了時に保存しておいたウインドウのフレーム(位置・サイズ)があれば、そのまま
+    /// 適用する。AppKit標準のNSWindow.setFrameUsingNameも試したが、内部で「画面の
+    /// 表示可能領域を基準に位置を自動調整する」処理が働くらしく、Dockに隙間なく
+    /// 寄せて終了しても次回起動時にDockから離れて復元されてしまう不具合があったため、
+    /// ここでは生のCGRectをそのまま渡す、より単純で予測可能な方式にしている。
+    private func restoreMainWindowFrameIfNeeded(_ window: NSWindow) {
+        guard let saved = UserDefaults.standard.string(forKey: Self.mainWindowFrameDefaultsKey) else { return }
+        let rect = NSRectFromString(saved)
+        guard rect.width > 0, rect.height > 0 else { return }
+        window.setFrame(rect, display: true)
+    }
+
+    /// ウインドウの移動・リサイズのたびに、そのときのフレームをUserDefaultsへ保存する。
+    /// windowはNotificationCenterへweakに保持されるだけなので、ウインドウが閉じられれば
+    /// 監視も自然に無意味になる(主ウインドウは通常アプリの生存中1つだけのため、
+    /// 明示的なremoveObserverは行っていない)。
+    private func observeMainWindowFrameChanges(_ window: NSWindow) {
+        let save: (Notification) -> Void = { notification in
+            guard let window = notification.object as? NSWindow else { return }
+            UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: Self.mainWindowFrameDefaultsKey)
+        }
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification, object: window, queue: .main, using: save
+        )
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didResizeNotification, object: window, queue: .main, using: save
+        )
     }
 }
