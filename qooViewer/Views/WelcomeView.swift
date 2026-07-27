@@ -13,7 +13,7 @@ struct WelcomeView: View {
             Image(systemName: "books.vertical")
                 .font(.system(size: 56))
                 .foregroundStyle(.secondary)
-            Text("Open a manga folder, or a\nzip/cbz, rar/cbr, 7z/cb7, or PDF file")
+            Text("Open a manga folder, or a\nzip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
             Button("Open…") {

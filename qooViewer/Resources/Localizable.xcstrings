@@ -403,18 +403,18 @@
         }
       }
     },
-    "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, or PDF file." : {
+    "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, or PDF file."
+            "value" : "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "漫画のフォルダ、またはzip/cbz・rar/cbr・7z/cb7・PDFファイルを選んでください"
+            "value" : "漫画のフォルダ、またはzip/cbz・rar/cbr・7z/cb7・PDF・EPUBファイルを選んでください"
           }
         }
       }
@@ -1355,6 +1355,7 @@
       }
     },
     "Next Image by One (to adjust misaligned spread pairs)" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1418,18 +1419,18 @@
         }
       }
     },
-    "No supported images were found. (Supports image folders, zip/cbz, rar/cbr, 7z/cb7, and PDF.)" : {
+    "No supported images were found. (Supports image folders, zip/cbz, rar/cbr, 7z/cb7, PDF, and EPUB.)" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No supported images were found. (Supports image folders, zip/cbz, rar/cbr, 7z/cb7, and PDF.)"
+            "value" : "No supported images were found. (Supports image folders, zip/cbz, rar/cbr, 7z/cb7, PDF, and EPUB.)"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "対応する画像が見つかりませんでした(画像フォルダ / zip・cbz / rar・cbr / 7z・cb7 / PDFに対応しています)。"
+            "value" : "対応する画像が見つかりませんでした(画像フォルダ / zip・cbz / rar・cbr / 7z・cb7 / PDF / EPUBに対応しています)。"
           }
         }
       }
@@ -1469,18 +1470,18 @@
         }
       }
     },
-    "Open a manga folder, or a\nzip/cbz, rar/cbr, 7z/cb7, or PDF file" : {
+    "Open a manga folder, or a\nzip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Open a manga folder, or a\nzip/cbz, rar/cbr, 7z/cb7, or PDF file"
+            "value" : "Open a manga folder, or a\nzip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "漫画のフォルダ、または\nzip/cbz・rar/cbr・7z/cb7・PDFファイルを\n開いてください"
+            "value" : "漫画のフォルダ、または\nzip/cbz・rar/cbr・7z/cb7・PDF・EPUBファイルを\n開いてください"
           }
         }
       }
@@ -1758,6 +1759,7 @@
       }
     },
     "Previous Image by One (to adjust misaligned spread pairs)" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2459,6 +2461,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ファイルまたはフォルダが見つかりませんでした。"
+          }
+        }
+      }
+    },
+    "This EPUB doesn't appear to be an image-based comic (fixed-layout) book, so it couldn't be opened. Text-based reflowable EPUBs and DRM-protected EPUBs are not supported." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This EPUB doesn't appear to be an image-based comic (fixed-layout) book, so it couldn't be opened. Text-based reflowable EPUBs and DRM-protected EPUBs are not supported."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このEPUBは画像ベースの固定レイアウトコミックではないため開けませんでした。文章主体のリフロー型EPUB、およびDRM付きEPUBには対応していません。"
           }
         }
       }

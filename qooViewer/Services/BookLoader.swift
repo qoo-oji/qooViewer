@@ -29,6 +29,9 @@ nonisolated enum BookLoader {
         if isPDFFile(url.lastPathComponent) {
             return try loadPDF(url)
         }
+        if isEpubFile(url.lastPathComponent) {
+            return try loadEpub(url)
+        }
         return try loadArchive(url)
     }
 
@@ -103,11 +106,54 @@ nonisolated enum BookLoader {
             pages: pages
         )
     }
+
+    /// EPUBファイルを1冊の本として読み込む。EPUB自体はzipコンテナのため、内部の読み出しは
+    /// ZipArchiveReaderをそのまま使う。ただしcbz(loadArchive)のように「zip内の画像を名前順に
+    /// 並べる」のではなく、container.xml/package documentが定義する正しい読み順(spine)を
+    /// 解決してからページを組み立てる必要があるため、専用の読み込み経路にしている
+    /// (詳細はEpubStructureResolver.swift参照)。
+    ///
+    /// 対象は「固定レイアウトの画像ベースのコミックEPUB」のみで、文章主体のリフロー型EPUBの
+    /// 本文レンダリングやDRM付きEPUBには対応していない。spineのどの項目からも画像を
+    /// 1枚も特定できなかった場合は、通常のnoPagesとは区別してepubNotPictureBookを返し、
+    /// ユーザーに理由が伝わるようにする。
+    private static func loadEpub(_ url: URL) throws -> MangaBook {
+        let reader = try ZipArchiveReader(url: url)
+        let structure: EpubStructure
+        do {
+            structure = try EpubStructureResolver.resolve(reader: reader)
+        } catch {
+            throw BookLoaderError.epubNotPictureBook
+        }
+        guard !structure.pages.isEmpty else { throw BookLoaderError.epubNotPictureBook }
+
+        let pages = structure.pages.enumerated().map { index, page in
+            PageRef(
+                id: "\(url.path)#\(page.entryPath)",
+                sortKey: String(format: "%06d", index),
+                source: .zip(archiveURL: url, entryPath: page.entryPath),
+                epubSpreadPosition: page.spreadPosition
+            )
+        }
+        return MangaBook(
+            id: url.path,
+            title: url.deletingPathExtension().lastPathComponent,
+            sourceURL: url,
+            pages: pages,
+            epubLayoutHint: EpubLayoutHint(
+                pageProgressionDirection: structure.pageProgressionDirection,
+                forcedDisplayMode: structure.forcedDisplayMode
+            )
+        )
+    }
 }
 
 enum BookLoaderError: LocalizedError {
     case notFound
     case noPages
+    /// EPUBとしては開けたが、画像ベースの固定レイアウトコミックとしてページを1枚も
+    /// 特定できなかった場合(リフロー型の小説EPUB、DRM付きEPUBなど)。
+    case epubNotPictureBook
 
     // Note: ここでは preferences.effectiveLocale(アプリ内の表示言語設定)ではなく
     // デフォルトのLocale解決(システムのロケールに従う)を使っている。BookLoaderは
@@ -121,7 +167,11 @@ enum BookLoaderError: LocalizedError {
             return String(localized: "The file or folder could not be found.")
         case .noPages:
             return String(
-                localized: "No supported images were found. (Supports image folders, zip/cbz, rar/cbr, 7z/cb7, and PDF.)"
+                localized: "No supported images were found. (Supports image folders, zip/cbz, rar/cbr, 7z/cb7, PDF, and EPUB.)"
+            )
+        case .epubNotPictureBook:
+            return String(
+                localized: "This EPUB doesn't appear to be an image-based comic (fixed-layout) book, so it couldn't be opened. Text-based reflowable EPUBs and DRM-protected EPUBs are not supported."
             )
         }
     }

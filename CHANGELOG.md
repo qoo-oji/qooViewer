@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+### 追加
+
+- EPUB(固定レイアウトの画像ベースのコミックEPUB)に対応しました。container.xml/package documentのspineを解決して正しい読み順でページを表示します。EPUBがpage-progression-direction(読み方向)・rendition:spread(見開き/単ページ)・page-spread-left/right/rendition:page-spread-center(ページの見開き内配置)を指定している場合は、それをqooViewer側の設定より優先して自動反映し、競合するツールバー・メニューバー・右クリックメニューの項目は無効化(グレーアウト)します。文章主体のリフロー型EPUB、およびDRM付きEPUBには対応していません。
+
 ## [0.98] - 2026-07-27
 
 ### 追加

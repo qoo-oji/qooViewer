@@ -40,10 +40,21 @@ nonisolated func isPDFFile(_ path: String) -> Bool {
     (path as NSString).pathExtension.lowercased() == "pdf"
 }
 
-/// 拡張子を見て、適切な ArchiveReading の実装を返す
+/// EPUBファイルかどうか。EPUB自体はzipコンテナ(=archiveExtensionsのzip/cbzと読み出し方法は
+/// 共通)だが、「zip内の画像ファイルを名前順に並べる」だけのcbz/cbrとは異なり、
+/// container.xml/package documentが定義する正しい読み順(spine)を解決する必要があるため、
+/// archiveExtensionsには含めず、BookLoader.loadEpubという専用の読み込み経路にしている
+/// (詳細はEpubStructureResolver.swift参照)。
+nonisolated func isEpubFile(_ path: String) -> Bool {
+    (path as NSString).pathExtension.lowercased() == "epub"
+}
+
+/// 拡張子を見て、適切な ArchiveReading の実装を返す。
+/// EPUBはzipコンテナなのでZipArchiveReaderをそのまま流用できる(ページの読み順の解決は
+/// BookLoader.loadEpub/EpubStructureResolver側の責務で、ここでは単なるzip展開として扱ってよい)。
 nonisolated func makeArchiveReader(for url: URL) throws -> ArchiveReading {
     switch url.pathExtension.lowercased() {
-    case "zip", "cbz":
+    case "zip", "cbz", "epub":
         return try ZipArchiveReader(url: url)
     case "7z", "cb7":
         return try SevenZipArchiveReader(url: url)
@@ -54,10 +65,11 @@ nonisolated func makeArchiveReader(for url: URL) throws -> ArchiveReading {
     }
 }
 
-/// アーカイブの拡張子から、そのアーカイブ内エントリ用の PageSource を作る
+/// アーカイブの拡張子から、そのアーカイブ内エントリ用の PageSource を作る。
+/// EPUBもzipコンテナとして読み出すため、cbz等と同じ.zipケースを使う。
 nonisolated func pageSource(for archiveURL: URL, entryPath: String) -> PageSource {
     switch archiveURL.pathExtension.lowercased() {
-    case "zip", "cbz":
+    case "zip", "cbz", "epub":
         return .zip(archiveURL: archiveURL, entryPath: entryPath)
     case "7z", "cb7":
         return .sevenZip(archiveURL: archiveURL, entryPath: entryPath)

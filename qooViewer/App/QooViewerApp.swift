@@ -193,6 +193,9 @@ struct QooViewerApp: App {
 
                 // 見開き/単ページも同様に、ON/OFFのチェックマークで表す
                 // (ONのとき見開き表示、OFFのとき単ページ表示)。
+                // EPUBがrendition:spreadで本全体の見開き/単ページを強制している間は、
+                // 設定を無視して強制値に従うことをグレーアウトで示す
+                // (詳細はViewerViewModel.isDisplayModeLocked参照)。
                 Toggle(
                     "Spread",
                     isOn: Binding(
@@ -200,11 +203,12 @@ struct QooViewerApp: App {
                         set: { _ in focusedAppState?.performViewerAction?(.toggleDisplayMode) }
                     )
                 )
-                .disabled(!hasBook)
+                .disabled(!hasBook || (menuCheckmarkState?.isDisplayModeLocked ?? false))
 
                 // 読み方向も同様に、現在右から左かどうかというON/OFF状態をチェックマークで表す
                 // (ONのとき右から左=マンガの標準的な読み方向。「移動」メニューの各項目の
                 // 左右の意味も、この値によって切り替わる)。
+                // EPUBがpage-progression-directionで読み方向を明示している間は同様にグレーアウトする。
                 Toggle(
                     "Right-to-Left",
                     isOn: Binding(
@@ -212,7 +216,7 @@ struct QooViewerApp: App {
                         set: { _ in focusedAppState?.performViewerAction?(.toggleReadingDirection) }
                     )
                 )
-                .disabled(!hasBook)
+                .disabled(!hasBook || (menuCheckmarkState?.isReadingDirectionLocked ?? false))
 
                 // 表示モードの切り替え(画面に合わせる/幅に合わせる/拡大縮小なし)は3択のため、
                 // 単純なON/OFFのToggleではなく、3つから直接選べるサブメニューにし、
@@ -261,15 +265,18 @@ struct QooViewerApp: App {
 
                 Divider()
 
+                // EPUBが見開き内の配置(page-spread-left/right/center)を明示している場合、
+                // この調整でその組み合わせを崩してしまわないよう無効化する
+                // (詳細はViewerViewModel.isPageShiftLocked参照)。
                 Button("Shift One Page to Next") {
                     focusedAppState?.performViewerAction?(isRightToLeft ? .shiftOnePageLeft : .shiftOnePageRight)
                 }
-                .disabled(!hasBook)
+                .disabled(!hasBook || (menuCheckmarkState?.isPageShiftLocked ?? false))
 
                 Button("Shift One Page to Previous") {
                     focusedAppState?.performViewerAction?(isRightToLeft ? .shiftOnePageRight : .shiftOnePageLeft)
                 }
-                .disabled(!hasBook)
+                .disabled(!hasBook || (menuCheckmarkState?.isPageShiftLocked ?? false))
 
                 Divider()
 
@@ -391,7 +398,7 @@ struct QooViewerApp: App {
         panel.allowsMultipleSelection = false
         panel.prompt = String(localized: "Open", locale: locale)
         panel.message = String(
-            localized: "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, or PDF file.",
+            localized: "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file.",
             locale: locale
         )
         guard panel.runModal() == .OK, let url = panel.url else { return }

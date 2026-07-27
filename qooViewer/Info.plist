@@ -7,6 +7,7 @@
 		<dict>
 			<key>CFBundleTypeExtensions</key>
 			<array>
+				<string>epub</string>
 				<string>pdf</string>
 				<string>cb7</string>
 				<string>7z</string>

@@ -143,13 +143,8 @@ struct ViewerView: View {
                 viewModel.setScalingMode(mode)
             }
             // メニューバーの「スライドショー」「見開き」「右から左へ」「表示モード切替」の
-            // 左に表示するチェックマークのための、現在値の初期反映。
-            appState.updateMenuCheckmarkState(
-                isSlideshowActive: viewModel.isSlideshowActive,
-                displayMode: viewModel.displayMode,
-                readingDirection: viewModel.readingDirection,
-                scalingMode: viewModel.scalingMode
-            )
+            // 左に表示するチェックマーク、およびEPUBによるグレーアウト状態の、現在値の初期反映。
+            syncMenuCheckmarkState()
             scrollMonitor = NSEvent.addLocalMonitorForEvents(
                 matching: [.scrollWheel, .swipe, .mouseMoved, .keyDown]
             ) { event in
@@ -256,38 +251,13 @@ struct ViewerView: View {
         }
         // スライドショー実行中/表示モード/読み方向/拡大縮小モードが変わるたびに、
         // メニューバーの該当項目のチェックマークを最新の状態に更新する。
-        .onChange(of: viewModel.isSlideshowActive) { _, newValue in
-            appState.updateMenuCheckmarkState(
-                isSlideshowActive: newValue,
-                displayMode: viewModel.displayMode,
-                readingDirection: viewModel.readingDirection,
-                scalingMode: viewModel.scalingMode
-            )
-        }
-        .onChange(of: viewModel.displayMode) { _, newValue in
-            appState.updateMenuCheckmarkState(
-                isSlideshowActive: viewModel.isSlideshowActive,
-                displayMode: newValue,
-                readingDirection: viewModel.readingDirection,
-                scalingMode: viewModel.scalingMode
-            )
-        }
-        .onChange(of: viewModel.readingDirection) { _, newValue in
-            appState.updateMenuCheckmarkState(
-                isSlideshowActive: viewModel.isSlideshowActive,
-                displayMode: viewModel.displayMode,
-                readingDirection: newValue,
-                scalingMode: viewModel.scalingMode
-            )
-        }
-        .onChange(of: viewModel.scalingMode) { _, newValue in
-            appState.updateMenuCheckmarkState(
-                isSlideshowActive: viewModel.isSlideshowActive,
-                displayMode: viewModel.displayMode,
-                readingDirection: viewModel.readingDirection,
-                scalingMode: newValue
-            )
-        }
+        .onChange(of: viewModel.isSlideshowActive) { _, _ in syncMenuCheckmarkState() }
+        .onChange(of: viewModel.displayMode) { _, _ in syncMenuCheckmarkState() }
+        .onChange(of: viewModel.readingDirection) { _, _ in syncMenuCheckmarkState() }
+        .onChange(of: viewModel.scalingMode) { _, _ in syncMenuCheckmarkState() }
+        // isPageShiftLocked(「1ページだけ送る」のグレーアウト判定)はcurrentIndexにも依存する
+        // ため、ページ送り自体でもメニューバーの状態を更新し直す必要がある。
+        .onChange(of: viewModel.currentIndex) { _, _ in syncMenuCheckmarkState() }
         .sheet(isPresented: $showThumbnailGrid) {
             ThumbnailGridView(viewModel: viewModel)
         }
@@ -346,30 +316,24 @@ struct ViewerView: View {
                 )
             }
 
-            // 1枚だけ次の画像/前の画像(見開きのページの組み合わせがずれたときの調整用)
+            // 1枚だけ次の画像/前の画像(見開きのページの組み合わせがずれたときの調整用)。
+            // EPUBが見開き内の配置(page-spread-left/right/center)を明示している場合、
+            // この調整でその組み合わせを崩してしまわないよう無効化する
+            // (詳細はViewerViewModel.isPageShiftLocked参照)。
             HStack(spacing: 4) {
                 Button {
                     viewModel.shiftByOnePage(forward: viewModel.readingDirection == .rightToLeft)
                 } label: {
                     Image(systemName: "chevron.left")
                 }
-                .help(
-                    viewModel.readingDirection == .rightToLeft
-                        ? "Next Image by One (to adjust misaligned spread pairs)"
-                        : "Previous Image by One (to adjust misaligned spread pairs)"
-                )
 
                 Button {
                     viewModel.shiftByOnePage(forward: viewModel.readingDirection == .leftToRight)
                 } label: {
                     Image(systemName: "chevron.right")
                 }
-                .help(
-                    viewModel.readingDirection == .leftToRight
-                        ? "Next Image by One (to adjust misaligned spread pairs)"
-                        : "Previous Image by One (to adjust misaligned spread pairs)"
-                )
             }
+            .disabled(viewModel.isPageShiftLocked)
 
             // 前の本へ/次の本へ(同じフォルダ内の、同じ種類[アーカイブ/PDFファイルまたはフォルダ]の
             // 本の間を移動する。読み方向に関係なく、上が前、下が次。詳細はSiblingFinder参照)
@@ -455,9 +419,11 @@ struct ViewerView: View {
             Button("Shift One Page to Next") {
                 perform(isRightToLeft ? .shiftOnePageLeft : .shiftOnePageRight)
             }
+            .disabled(viewModel.isPageShiftLocked)
             Button("Shift One Page to Previous") {
                 perform(isRightToLeft ? .shiftOnePageRight : .shiftOnePageLeft)
             }
+            .disabled(viewModel.isPageShiftLocked)
 
             Divider()
 
@@ -487,6 +453,7 @@ struct ViewerView: View {
                 set: { _ in perform(.toggleDisplayMode) }
             )
         )
+        .disabled(viewModel.isDisplayModeLocked)
 
         Toggle(
             "Right-to-Left",
@@ -495,6 +462,7 @@ struct ViewerView: View {
                 set: { _ in perform(.toggleReadingDirection) }
             )
         )
+        .disabled(viewModel.isReadingDirectionLocked)
 
         Divider()
 
@@ -880,6 +848,23 @@ struct ViewerView: View {
         if isAutoHiddenChromeRevealed != shouldShow {
             isAutoHiddenChromeRevealed = shouldShow
         }
+    }
+
+    /// メニューバーの各種チェックマーク・グレーアウト状態を、現在のviewModelの値で更新する。
+    /// スライドショー/表示モード/読み方向/拡大縮小モード/現在ページ(EPUBによる各種ロック状態の
+    /// 判定に必要)のいずれかが変化するたびに呼ぶ(onAppearでの初期反映、および各onChangeから
+    /// 使う)。呼び出し箇所を1つにまとめることで、新しい状態を追加したときに一部のonChangeだけ
+    /// 直し忘れる、というミスを防ぐ。
+    private func syncMenuCheckmarkState() {
+        appState.updateMenuCheckmarkState(
+            isSlideshowActive: viewModel.isSlideshowActive,
+            displayMode: viewModel.displayMode,
+            readingDirection: viewModel.readingDirection,
+            scalingMode: viewModel.scalingMode,
+            isReadingDirectionLocked: viewModel.isReadingDirectionLocked,
+            isDisplayModeLocked: viewModel.isDisplayModeLocked,
+            isPageShiftLocked: viewModel.isPageShiftLocked
+        )
     }
 
     /// 操作(キー/マウス)に対応する実際の処理を行う

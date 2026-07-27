@@ -61,7 +61,10 @@ struct ContentView: View {
                 isSlideshowActive: appState.isSlideshowActive,
                 isSpreadMode: appState.isSpreadMode,
                 isRightToLeft: appState.isRightToLeft,
-                scalingMode: appState.currentScalingMode
+                scalingMode: appState.currentScalingMode,
+                isReadingDirectionLocked: appState.isReadingDirectionLocked,
+                isDisplayModeLocked: appState.isDisplayModeLocked,
+                isPageShiftLocked: appState.isPageShiftLocked
             )
         )
         .frame(minWidth: 900, minHeight: 640)

@@ -155,11 +155,19 @@ final class ViewerViewModel: ObservableObject {
             needsConfirmation = isReturningToKnownBook && restoredIndex > 0
         }
 
-        self.currentIndex = initialIndex
-        self.displayMode = state.displayMode
-        self.readingDirection = state.readingDirection
+        // EPUBがpage-progression-direction/rendition:spreadを明示している場合、保存されていた
+        // 設定より優先してその値を採用する(値が無い項目は、これまで通りSwiftDataの保存値に従う)。
+        // 対応する切り替え操作(toggleReadingDirection/toggleDisplayMode)自体も、この値が
+        // 強制されている間は無効化する(isReadingDirectionLocked/isDisplayModeLocked参照)。
+        self.displayMode = book.epubLayoutHint?.forcedDisplayMode ?? state.displayMode
+        self.readingDirection = book.epubLayoutHint?.pageProgressionDirection ?? state.readingDirection
         self.scalingMode = state.scalingMode
         self.needsResumeConfirmation = needsConfirmation
+        // 保存されていた(または直前に計算した)ページ位置が、EPUBのpage-spread-right指定を
+        // 持つページをそのまま指していると、そのページ単体が見開きの起点であるかのように
+        // 扱われてしまい、本来組になるはずの1つ前のページが表示されない状態になる。
+        // jump(toPageIndex:)と同じ補正をここでも適用しておく(詳細はnormalizedAnchorIndex参照)。
+        self.currentIndex = Self.normalizedAnchorIndex(initialIndex, in: book)
 
         Task { [weak self] in
             await self?.loadCurrentSpread()
@@ -272,7 +280,7 @@ final class ViewerViewModel: ObservableObject {
     private func loadTransitFrame(at index: Int) async {
         guard let firstImage = await pageLoader.pageImage(at: index) else { return }
         var images = [firstImage]
-        if displayMode == .spread, !isWideImage(firstImage), index + 1 < book.pages.count,
+        if shouldPairWithNextPage(at: index, firstImage: firstImage),
            let secondImage = await pageLoader.pageImage(at: index + 1) {
             images.append(secondImage)
         }
@@ -292,7 +300,7 @@ final class ViewerViewModel: ObservableObject {
     /// 見開きのページの組み合わせ(奇数/偶数ペア)がずれてしまったときに、手動で調整するための操作。
     /// (advanceと違い、ページ境界に達しても隣の本へは移動しない。あくまで微調整用)
     func shiftByOnePage(forward: Bool) {
-        guard !book.pages.isEmpty else { return }
+        guard !book.pages.isEmpty, !isPageShiftLocked else { return }
         cancelPendingPageFlip()
         if forward {
             guard currentIndex + 1 < book.pages.count else { return }
@@ -305,18 +313,47 @@ final class ViewerViewModel: ObservableObject {
         reloadAsync()
     }
 
-    /// プログレスバーをクリック/ドラッグした位置のページへ直接ジャンプする
+    /// プログレスバーをクリック/ドラッグした位置のページへ直接ジャンプする。
+    /// 着地先はnormalizedAnchorIndexで補正するため、EPUBがpage-spread-rightを指定している
+    /// ページを直接指定しても、実際にはその1つ前(組になるページ)へ着地し、正しい組み合わせで
+    /// 表示される。
     func jump(toPageIndex index: Int) {
         guard !book.pages.isEmpty else { return }
         cancelPendingPageFlip()
         let clamped = max(0, min(index, book.pages.count - 1))
-        guard clamped != currentIndex else { return }
-        currentIndex = clamped
+        let normalized = Self.normalizedAnchorIndex(clamped, in: book)
+        guard normalized != currentIndex else { return }
+        currentIndex = normalized
         persistState()
         reloadAsync()
     }
 
+    /// EPUBがrendition:spreadで本全体の見開き/単ページを強制している間はtrue。
+    /// trueの間はtoggleDisplayMode()自体が何もしない(呼び出し元のUIも合わせて
+    /// グレーアウトする。ViewerView/QooViewerAppの`.disabled()`参照)。
+    var isDisplayModeLocked: Bool {
+        book.epubLayoutHint?.forcedDisplayMode != nil
+    }
+
+    /// EPUBがpage-progression-directionで読み方向を明示している間はtrue。
+    /// trueの間はtoggleReadingDirection()自体が何もしない。
+    var isReadingDirectionLocked: Bool {
+        book.epubLayoutHint?.pageProgressionDirection != nil
+    }
+
+    /// 現在表示中の見開きに、EPUBのpage-spread-left/right/rendition:page-spread-center指定を
+    /// 持つページが含まれている間はtrue。この状態で「1ページだけ送る」調整を行うと、
+    /// 著者が指定したページの組み合わせが崩れてしまうため、shiftByOnePage()自体が何もしない。
+    var isPageShiftLocked: Bool {
+        guard displayMode == .spread, book.pages.indices.contains(currentIndex) else { return false }
+        if book.pages[currentIndex].epubSpreadPosition != nil { return true }
+        let partnerIndex = currentIndex + 1
+        guard currentImages.count > 1, book.pages.indices.contains(partnerIndex) else { return false }
+        return book.pages[partnerIndex].epubSpreadPosition != nil
+    }
+
     func toggleDisplayMode() {
+        guard !isDisplayModeLocked else { return }
         cancelPendingPageFlip()
         displayMode = (displayMode == .spread) ? .single : .spread
         persistState()
@@ -324,6 +361,7 @@ final class ViewerViewModel: ObservableObject {
     }
 
     func toggleReadingDirection() {
+        guard !isReadingDirectionLocked else { return }
         // 表示中の画像自体は変わらず、並び順だけがViewer側で反転するので再読み込みは不要
         readingDirection = (readingDirection == .rightToLeft) ? .leftToRight : .rightToLeft
         persistState()
@@ -446,7 +484,7 @@ final class ViewerViewModel: ObservableObject {
         switch preferences.loopBehavior {
         case .loop:
             cancelPendingPageFlip()
-            currentIndex = 0
+            currentIndex = Self.normalizedAnchorIndex(0, in: book)
             persistState()
             reloadAsync()
         case .nextBookFirstPage, .nextBook:
@@ -461,7 +499,10 @@ final class ViewerViewModel: ObservableObject {
         case .loop:
             cancelPendingPageFlip()
             let step = max(currentImages.count, 1)
-            currentIndex = max(0, book.pages.count - step)
+            let rawIndex = max(0, book.pages.count - step)
+            // ページ数と表示枚数だけから計算した折り返し先は、EPUBのpage-spread-right指定を
+            // 持つページに直接着地する可能性がある(詳細はnormalizedAnchorIndexのコメント参照)。
+            currentIndex = Self.normalizedAnchorIndex(rawIndex, in: book)
             persistState()
             reloadAsync()
         case .nextBookFirstPage, .nextBook:
@@ -516,7 +557,6 @@ final class ViewerViewModel: ObservableObject {
         loadGeneration += 1
         let generation = loadGeneration
         let targetIndex = currentIndex
-        let isSpread = displayMode == .spread
 
         guard !Task.isCancelled else { return }
 
@@ -525,9 +565,8 @@ final class ViewerViewModel: ObservableObject {
             guard !Task.isCancelled else { return }
             images.append(firstImage)
 
-            // 見開き設定でも、横長(横÷縦が設定値以上)の画像は単ページ表示のままにする
-            let showAsPairedSpread = isSpread && !isWideImage(firstImage) && targetIndex + 1 < book.pages.count
-            if showAsPairedSpread, let secondImage = await pageLoader.pageImage(at: targetIndex + 1) {
+            if shouldPairWithNextPage(at: targetIndex, firstImage: firstImage),
+               let secondImage = await pageLoader.pageImage(at: targetIndex + 1) {
                 images.append(secondImage)
             }
         }
@@ -548,5 +587,51 @@ final class ViewerViewModel: ObservableObject {
         guard image.height > 0 else { return false }
         let ratio = Double(image.width) / Double(image.height)
         return ratio >= preferences.singlePageAspectRatioThreshold
+    }
+
+    /// targetIndexのページを、次のページ(targetIndex + 1)と組にして見開き表示すべきかどうかを
+    /// 判定する。loadCurrentSpread(実際に止まったページの表示)とloadTransitFrame(通過中の
+    /// コマの簡易表示)の両方から共通で使う(ロジックが分かれていると、どちらかだけ直し忘れる
+    /// バグの元になるため)。
+    ///
+    /// EPUBのpage-spread-left/right/rendition:page-spread-center指定がある場合は、その指定を
+    /// 横長画像の自動単ページ化ヒューリスティック(isWideImage)より優先する。
+    /// - targetIndex自身がcenter/right指定なら、そのページは見開きの起点(1枚目)にはなれない
+    ///   (rightは常に直前のページと組むページであり、targetIndexより後ろのページとは組まない)。
+    /// - 次のページ(targetIndex + 1)がcenter/left指定なら、そちらは単独表示、または
+    ///   自分より後ろのページと組むべきページなので、targetIndexとは組まない。
+    /// - どちらのページにもEPUBの明示指定が無い場合(CBZ等、EPUB以外のソースを含む)だけ、
+    ///   従来通り横長画像なら単ページ扱いにするヒューリスティックを適用する。
+    private func shouldPairWithNextPage(at targetIndex: Int, firstImage: CGImage) -> Bool {
+        guard displayMode == .spread, targetIndex + 1 < book.pages.count else { return false }
+
+        let currentPosition = book.pages[targetIndex].epubSpreadPosition
+        let nextPosition = book.pages[targetIndex + 1].epubSpreadPosition
+
+        if currentPosition == .center || currentPosition == .right { return false }
+        if nextPosition == .center || nextPosition == .left { return false }
+
+        if currentPosition != nil || nextPosition != nil { return true }
+
+        return !isWideImage(firstImage)
+    }
+
+    /// 生のページインデックスを、そのページがEPUBのpage-spread-right指定を持つ場合に、
+    /// 正しい組み合わせの起点(1つ前のページ)へ補正する。
+    ///
+    /// page-spread-rightは「このページは見開きの右側に配置する」という指定であり、常に
+    /// その直前のページと組みになる(shouldPairWithNextPage参照)。そのため、このページを
+    /// そのままcurrentIndex(=見開きの起点/1枚目)として扱ってしまうと、本来一緒に表示される
+    /// はずの直前のページが表示されないまま、指定されたページだけが単独表示されてしまう。
+    ///
+    /// 通常のページ送り(advance)は、直前の見開き判定(shouldPairWithNextPage)に基づいて
+    /// 表示枚数(1枚か2枚か)を決めてから次の目的地を計算するため、自然に正しい起点に
+    /// 着地する。この補正が必要になるのは、それまでの経緯を無視してどこか任意のページへ
+    /// 直接着地する経路(jump(toPageIndex:)、本を開いたときの再開位置、ページ境界での
+    /// ループ折り返し)だけである。
+    private static func normalizedAnchorIndex(_ rawIndex: Int, in book: MangaBook) -> Int {
+        guard book.pages.indices.contains(rawIndex), rawIndex > 0 else { return rawIndex }
+        guard book.pages[rawIndex].epubSpreadPosition == .right else { return rawIndex }
+        return rawIndex - 1
     }
 }

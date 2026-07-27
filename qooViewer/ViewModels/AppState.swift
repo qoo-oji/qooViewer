@@ -68,23 +68,35 @@ final class AppState: ObservableObject {
     /// メニューバーの「表示モード切替」サブメニューで、現在のモードにチェックマークを
     /// 表示するための値。
     @Published private(set) var currentScalingMode: ScalingMode = .fitToScreen
+    /// EPUBが読み方向/見開きを明示している間、メニューバーの該当項目をグレーアウトするための値。
+    /// 詳細はViewerViewModel.isReadingDirectionLocked/isDisplayModeLocked/isPageShiftLocked参照。
+    @Published private(set) var isReadingDirectionLocked = false
+    @Published private(set) var isDisplayModeLocked = false
+    @Published private(set) var isPageShiftLocked = false
 
     /// メニューバーの「表示モード切替」サブメニューから、特定のモードへ直接切り替えるための
     /// 橋渡し。ViewerViewが表示されている間だけ自分自身を登録し、閉じるときにnilへ戻す。
     var setScalingMode: ((ScalingMode) -> Void)?
 
-    /// ViewerViewから、スライドショー/表示モード/読み方向/拡大縮小モードの現在値を反映する
-    /// ために呼ばれる。メニューバーのチェックマーク表示に使う(currentBookmarksと同じ仕組み)。
+    /// ViewerViewから、スライドショー/表示モード/読み方向/拡大縮小モードの現在値、および
+    /// EPUBによる各種ロック状態を反映するために呼ばれる。メニューバーのチェックマーク表示・
+    /// グレーアウトに使う(currentBookmarksと同じ仕組み)。
     func updateMenuCheckmarkState(
         isSlideshowActive: Bool,
         displayMode: DisplayMode,
         readingDirection: ReadingDirection,
-        scalingMode: ScalingMode
+        scalingMode: ScalingMode,
+        isReadingDirectionLocked: Bool,
+        isDisplayModeLocked: Bool,
+        isPageShiftLocked: Bool
     ) {
         self.isSlideshowActive = isSlideshowActive
         self.isSpreadMode = displayMode == .spread
         self.isRightToLeft = readingDirection == .rightToLeft
         self.currentScalingMode = scalingMode
+        self.isReadingDirectionLocked = isReadingDirectionLocked
+        self.isDisplayModeLocked = isDisplayModeLocked
+        self.isPageShiftLocked = isPageShiftLocked
     }
 
     /// ViewerViewが閉じるとき(本を閉じたとき)に、メニューバーのチェックマーク状態をクリアする。
@@ -93,6 +105,9 @@ final class AppState: ObservableObject {
         isSpreadMode = false
         isRightToLeft = false
         currentScalingMode = .fitToScreen
+        isReadingDirectionLocked = false
+        isDisplayModeLocked = false
+        isPageShiftLocked = false
     }
 
     /// NSOpenPanelの文言など、SwiftUIのView階層外で組み立てる文字列を
@@ -132,7 +147,7 @@ final class AppState: ObservableObject {
         panel.allowsMultipleSelection = false
         panel.prompt = String(localized: "Open", locale: locale)
         panel.message = String(
-            localized: "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, or PDF file.",
+            localized: "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file.",
             locale: locale
         )
         guard panel.runModal() == .OK, let url = panel.url else { return }
@@ -294,6 +309,11 @@ struct MenuCheckmarkState: Equatable {
     var isSpreadMode = false
     var isRightToLeft = false
     var scalingMode: ScalingMode = .fitToScreen
+    /// EPUBが読み方向/見開きを明示している間trueになり、メニューバーの該当項目を
+    /// グレーアウトする(詳細はViewerViewModelの同名プロパティ参照)。
+    var isReadingDirectionLocked = false
+    var isDisplayModeLocked = false
+    var isPageShiftLocked = false
 }
 
 private struct MenuCheckmarkStateFocusedValueKey: FocusedValueKey {

@@ -27,7 +27,9 @@ nonisolated enum SiblingFinder {
                 ))?.contains { isImageFile($0.lastPathComponent) } ?? false
                 return hasImage
             } else {
-                return isArchiveFile(child.lastPathComponent) || isPDFFile(child.lastPathComponent)
+                return isArchiveFile(child.lastPathComponent)
+                    || isPDFFile(child.lastPathComponent)
+                    || isEpubFile(child.lastPathComponent)
             }
         }
         return books.sorted {
