@@ -17,8 +17,8 @@ struct ReadingSettingsView: View {
                         Text(behavior.titleKey).tag(behavior)
                     }
                 }
-                Toggle("Treat trackpad flicks as wheel scrolling", isOn: $preferences.treatTrackpadFlickAsWheel)
-                Text("Uses the Mac “swipe between pages” gesture (flicking on the trackpad) with the same assignment as the scroll wheel (page turning by default).")
+                Toggle("Turn pages using trackpad flicks", isOn: $preferences.treatTrackpadFlickAsWheel)
+                Text("When turned on, page turning on the trackpad uses the “swipe between pages” gesture (a left/right flick) instead of two-finger vertical scrolling; two-finger vertical scrolling on the trackpad is ignored. The physical scroll wheel is not affected and always turns pages by scrolling.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

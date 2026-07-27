@@ -16,6 +16,18 @@ struct ViewerView: View {
     /// (handleScroll参照)。
     @State private var lastWheelActionAt: Date?
     private let wheelActionCooldown: TimeInterval = 0.04
+    /// 直前にトラックパッドのスワイプ(3本指/4本指設定の場合)でページ送りを実行した時刻
+    /// (handleSwipe参照)。
+    @State private var lastSwipeActionAt: Date?
+    /// handleSwipe(3本指/4本指設定の場合の.swipeイベント)用の連続発火防止の間隔。
+    /// 2本指設定の場合(handleTrackpadScrollGesture)はジェスチャー全体を1回だけ判定する
+    /// 作りになっており、この定数は使わない(詳細はhandleSwipeのコメント参照)。
+    private let swipeActionCooldown: TimeInterval = 0.3
+    /// 現在進行中の2本指トラックパッド操作(.scrollWheelイベントのphaseで区切られる
+    /// 一連のジェスチャー)における、縦横それぞれの動きの累計値
+    /// (handleTrackpadScrollGesture参照)。
+    @State private var trackpadGestureDeltaX: CGFloat = 0
+    @State private var trackpadGestureDeltaY: CGFloat = 0
     @State private var isCursorHidden = false
     @State private var cursorHideTask: Task<Void, Never>?
     /// メニューバーのメニュー(このアプリのもの)が現在開いているかどうか。開いている間は
@@ -153,8 +165,42 @@ struct ViewerView: View {
                 guard let hostWindow, event.window === hostWindow else { return event }
                 switch event.type {
                 case .scrollWheel:
+                    // トラックパッド(またはMagic Mouseなど)由来のスクロールイベントには
+                    // phase/momentumPhase(.began/.changed/.ended/momentum中など)が付与される。
+                    // 通常の物理マウスホイールのノッチ操作では、これらは常に空(.phase == [])。
+                    //
+                    // 【調査で判明した重要な事実】「システム設定」>「トラックパッド」の
+                    // 「ページ間をスワイプ」が2本指設定の場合、その操作は専用のイベント種別
+                    // (NSEvent.swipe)としては届かず、通常の.scrollWheelイベントの並びとして
+                    // 届く(ログで確認済み。横方向にスワイプしていても、deltaXが大きい
+                    // .scrollWheelイベントが連続するだけで、.swipeイベントは一切発生しない)。
+                    // そのため、1個ずつの.scrollWheelイベントのdeltaYだけを見てページ送りする
+                    // 従来のhandleScrollのロジックのままでは、意図的な横方向スワイプの最中に
+                    // 生じるわずかな縦方向のぶれ(deltaY)にまで反応してしまい、1回のつもりの
+                    // スワイプで複数回・意図しないページ送りが発生する原因になっていた
+                    // (これが一連の不具合報告の実際の原因だった)。
+                    //
+                    // 「スワイプでページ送り」がONのときは、トラックパッド由来の
+                    // .scrollWheelイベントをhandleScrollには渡さず、代わりに
+                    // handleTrackpadScrollGestureへ渡す。そちらでは指が触れてから離れるまでの
+                    // 一連のイベント(1回のジェスチャー全体)をまとめて扱い、ジェスチャー全体で
+                    // 見て横方向優位だった場合にだけ、ジェスチャーの終わりに1回だけページ送りを
+                    // 行う。縦方向優位だった場合(2本指の縦スクロール)は何もしない
+                    // (完全に無視する)。物理マウスホイールでのページ送りはこれまでどおり
+                    // 影響を受けない。
+                    let isTrackpadOriginated = !event.phase.isEmpty || !event.momentumPhase.isEmpty
+                    if preferences.treatTrackpadFlickAsWheel && isTrackpadOriginated {
+                        handleTrackpadScrollGesture(
+                            phase: event.phase,
+                            deltaX: event.scrollingDeltaX,
+                            deltaY: event.scrollingDeltaY
+                        )
+                        break
+                    }
                     handleScroll(deltaY: event.scrollingDeltaY)
                 case .swipe:
+                    // 「ページ間をスワイプ」が3本指/4本指設定の場合は、こちらの専用イベントで
+                    // 届く(2本指設定の場合の扱いは上のhandleTrackpadScrollGesture参照)。
                     handleSwipe(deltaX: event.deltaX)
                 case .keyDown:
                     // キー入力の検知は、以前はSwiftUIの.onKeyPressで行っていたが、
@@ -615,16 +661,77 @@ struct ViewerView: View {
         }
     }
 
-    /// トラックパッドの「ページ間をスワイプ」ジェスチャー(3本指スワイプ等、指を払うフリック操作)。
+    /// トラックパッドの「ページ間をスワイプ」ジェスチャーが3本指/4本指設定になっている
+    /// 場合の処理。この場合はNSEvent.swipeという専用のイベント種別で届く(2本指設定の
+    /// 場合は専用イベントではなく通常の.scrollWheelイベントとして届くため、
+    /// handleTrackpadScrollGestureで別途処理している。詳細は呼び出し元のコメント参照)。
     /// 設定がONのときだけ、ホイールと同じ割り当て(既定はページ送り)として扱う。
-    /// 2本指の通常スクロールとは別のイベント種別(NSEvent.swipe)なので、
-    /// 横幅フィット/拡大縮小しないモードでのスクロール操作とは競合しない。
+    ///
+    /// 2本指設定の場合(handleTrackpadScrollGesture)は、ジェスチャー全体をまとめて
+    /// 一度だけ判定する作りになっているため、1回のスワイプで複数回反応してしまう心配は
+    /// 構造的にない。一方、この3本指/4本指設定の場合に.swipeイベントが1回のフリックに対して
+    /// 実際に何回発生するのかは動作確認ができておらず不明なため、念のため
+    /// swipeActionCooldownによる連続発火防止を残している(handleScrollのwheelActionCooldownと
+    /// 同じ考え方)。
     private func handleSwipe(deltaX: CGFloat) {
         guard preferences.treatTrackpadFlickAsWheel else { return }
+
+        let now = Date()
+        if let lastSwipeActionAt, now.timeIntervalSince(lastSwipeActionAt) < swipeActionCooldown {
+            return
+        }
+        lastSwipeActionAt = now
+
+        // NSEvent.swipeのdeltaXは、指を左から右へ払う(スワイプする)と正の値になる。
         if deltaX > 0 {
-            perform(keyBindingStore.action(for: .wheelDown))
-        } else if deltaX < 0 {
             perform(keyBindingStore.action(for: .wheelUp))
+        } else if deltaX < 0 {
+            perform(keyBindingStore.action(for: .wheelDown))
+        }
+    }
+
+    /// トラックパッドの「ページ間をスワイプ」ジェスチャーが2本指設定になっている場合の処理。
+    /// 呼び出し元(scrollMonitorの.scrollWheelケース)のコメントに書いたとおり、この場合の
+    /// ジェスチャーは専用のイベント種別ではなく、通常の.scrollWheelイベントの並びとして届く。
+    /// 指が触れてから離れるまで(phaseが.beganで始まり.endedで終わる一連のイベント)を
+    /// 1回のジェスチャーとしてまとめ、その間のdeltaX/deltaYを積算しておいて、ジェスチャーが
+    /// 終わった時点で初めて「横方向優位だったか、縦方向優位だったか」を判定する。
+    ///
+    /// - 横方向優位だった場合: 意図的なページ送りスワイプとみなし、その時点で1回だけ
+    ///   ページ送りを行う(1個ずつのイベントに反応するわけではないので、1回のスワイプで
+    ///   複数回ページ送りされてしまうことはない)。
+    /// - 縦方向優位だった場合: 2本指の縦スクロールとみなし、何もしない(完全に無視する)。
+    ///
+    /// 指を離した後の慣性スクロール(momentumPhase)中のイベントは、呼び出し元で
+    /// phaseが空になるため、ここではそのまま無視される(判定は指を離した瞬間の
+    /// ジェスチャーの向きだけで決まる)。
+    private func handleTrackpadScrollGesture(phase: NSEvent.Phase, deltaX: CGFloat, deltaY: CGFloat) {
+        if phase.contains(.began) {
+            trackpadGestureDeltaX = 0
+            trackpadGestureDeltaY = 0
+        }
+        guard !phase.isEmpty else { return }
+        trackpadGestureDeltaX += deltaX
+        trackpadGestureDeltaY += deltaY
+
+        guard phase.contains(.ended) else { return }
+        defer {
+            trackpadGestureDeltaX = 0
+            trackpadGestureDeltaY = 0
+        }
+
+        // 極端に小さい動き(触れただけ、など)まで反応しないよう、最低限の移動量を求める。
+        guard abs(trackpadGestureDeltaX) >= 10 else { return }
+        guard abs(trackpadGestureDeltaX) > abs(trackpadGestureDeltaY) else { return }
+
+        // ジェスチャー全体につき、ここに到達するのは(.endedを受け取る)1回だけなので、
+        // handleSwipeのような連続発火防止のクールダウンは不要。
+
+        // 指を左から右へ払う(スワイプする)と、積算したdeltaXは正の値になる。
+        if trackpadGestureDeltaX > 0 {
+            perform(keyBindingStore.action(for: .wheelUp))
+        } else {
+            perform(keyBindingStore.action(for: .wheelDown))
         }
     }
 
