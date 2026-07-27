@@ -71,12 +71,37 @@ private struct KeyBindingRow: View {
     let action: ViewerAction
     @ObservedObject var store: KeyBindingStore
 
-    /// まだどの操作にも割り当てられていないキー(追加用Pickerの選択肢)。
-    /// 既に他の操作へ割り当て済みのキーをここに出すと、選ぶだけで元の操作から
-    /// 無言で奪ってしまい紛らわしいため、この行の追加用Pickerには出さない
-    /// (奪いたい場合は、まず元の操作側で×ボタンを押して外してから追加する)。
+    /// 追加用メニューに表示するキーの一覧。この操作に既に割り当て済みのキーは、上の
+    /// チップとして表示されているため、ここでは除外する(重複表示を避けるため)。
+    /// 他の操作に割り当て済みのキーは、以前はここで非表示にして選べないようにしていたが、
+    /// 「どのキーが既に使われているか分からない」という分かりにくさがあったため、あえて
+    /// 一覧には残しておき、選んだ時点でaddKeyBindingIfAvailableが競合を検出して警告を出し、
+    /// 割り当てを拒否する(元の操作から無言で奪うことはない)。
     private var availableKeysToAdd: [RemappableKey] {
-        RemappableKey.selectable.filter { store.keyBindings[$0.id] == nil }
+        RemappableKey.selectable.filter { store.keyBindings[$0.id] != action }
+    }
+
+    /// 追加しようとしたキーが既に別の操作に割り当てられていた場合に、警告アラートへ
+    /// 渡すための情報。どのキーが、どの操作に割り当て済みかをアラートの文面で示すために
+    /// 両方保持しておく。
+    private struct ConflictingKeyAssignment: Identifiable {
+        var id: String { key.id }
+        let key: RemappableKey
+        let existingAction: ViewerAction
+    }
+
+    @State private var conflictingKey: ConflictingKeyAssignment?
+
+    /// 選んだキーを実際にこの操作へ割り当てる前に、既に別の操作へ割り当て済みでないか
+    /// 確認する。割り当て済みの場合は追加を行わず(拒否)、どの操作に割り当てられているかを
+    /// 示す警告アラートを表示するだけにする。同じ操作への割り当てなら(通常この一覧には
+    /// 出てこないが念のため)そのままstore.addKeyBindingへ委ねる。
+    private func addKeyBindingIfAvailable(_ key: RemappableKey) {
+        if let existingAction = store.action(for: key), existingAction != action {
+            conflictingKey = ConflictingKeyAssignment(key: key, existingAction: existingAction)
+            return
+        }
+        store.addKeyBinding(action, for: key)
     }
 
     var body: some View {
@@ -115,7 +140,7 @@ private struct KeyBindingRow: View {
                 Menu {
                     ForEach(availableKeysToAdd) { key in
                         Button(key.displayName) {
-                            store.addKeyBinding(action, for: key)
+                            addKeyBindingIfAvailable(key)
                         }
                     }
                 } label: {
@@ -126,6 +151,18 @@ private struct KeyBindingRow: View {
                 .help("Add a Key")
             }
             .gridColumnAlignment(.leading)
+        }
+        // 選んだキーが既に別の操作へ割り当て済みだった場合の警告。どのキーがどの操作に
+        // 割り当てられているかを文面に含めることで、ユーザーが次にどう対処すべきか
+        // (先にその操作側で外すか、別のキーを選ぶか)判断できるようにする。
+        .alert(item: $conflictingKey) { conflict in
+            Alert(
+                title: Text("Shortcut Already In Use"),
+                message: Text("“") + Text(conflict.key.displayName)
+                    + Text("” is already assigned to “") + Text(conflict.existingAction.titleKey)
+                    + Text("”."),
+                dismissButton: .default(Text("OK"))
+            )
         }
     }
 }

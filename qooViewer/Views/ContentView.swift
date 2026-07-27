@@ -136,6 +136,10 @@ struct ContentView: View {
             if launchCoordinator.primaryAppState == nil {
                 launchCoordinator.primaryAppState = appState
             }
+            // 「すでに開いている本を新しいウインドウ/タブで開こうとしたときに、既存の
+            // ウインドウ/タブをアクティブにする」機能のために、このウインドウ/タブのAppStateを
+            // 開いている一覧へ登録する(QooViewerApp.openURLInNewWindow参照)。
+            launchCoordinator.registerOpenAppState(appState)
             if let initialURL {
                 appState.open(url: initialURL)
             } else {
@@ -221,6 +225,7 @@ struct ContentView: View {
                     appState.folderAccess = folderAccess
                     appState.hideToolbar = preferences.hideToolbar
                     appState.hideProgressBar = preferences.hideProgressBar
+                    launchCoordinator.registerOpenAppState(appState)
                     return
                 }
                 try? await Task.sleep(nanoseconds: 25_000_000)

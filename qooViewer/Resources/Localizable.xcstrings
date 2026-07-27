@@ -33,6 +33,54 @@
         }
       }
     },
+    "“" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「"
+          }
+        }
+      }
+    },
+    "” is already assigned to “" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "” is already assigned to “"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "」は既に「"
+          }
+        }
+      }
+    },
+    "”." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "”."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "」に割り当て済みです。"
+          }
+        }
+      }
+    },
     "(None)" : {
       "localizations" : {
         "en" : {
@@ -2187,6 +2235,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "1ページだけ前へ移動"
+          }
+        }
+      }
+    },
+    "Shortcut Already In Use" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shortcut Already In Use"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このショートカットは既に使用されています"
           }
         }
       }

@@ -417,7 +417,22 @@ struct QooViewerApp: App {
     ///   詳細はAppState.hostWindowのコメント参照)。nilの場合は、これまで通り呼び出し時点の
     ///   NSApp.keyWindowを使う(メニューからの「新しいタブで開く」は、操作時に必ずこのアプリが
     ///   最前面にあるため、この既定の挙動で問題ない)。
+    ///
+    /// なお、指定したURLの本がすでに他のウインドウ/タブで開かれている場合は、新しく
+    /// ウインドウ/タブを作らず、既存のものをアクティブにするだけにする
+    /// (LaunchCoordinator.registerOpenAppState/openAppState(forBookAt:)参照)。
     private func openURLInNewWindow(_ url: URL, asTab: Bool, tabTarget: NSWindow?) {
+        // すでにこの本を(このウインドウ以外の別のウインドウ/タブで)開いている場合は、
+        // 同じ本をもう1つ開いてしまわないよう、新しいウインドウ/タブを作る代わりに
+        // そのウインドウ/タブをアクティブにするだけにする(タブの場合、makeKeyAndOrderFrontで
+        // そのタブ自体も自動的に最前面に選択される)。
+        if let existingAppState = launchCoordinator.openAppState(forBookAt: url),
+           let existingWindow = existingAppState.hostWindow {
+            existingWindow.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
         _ = url.startAccessingSecurityScopedResource()
 
         let previousKeyWindow = tabTarget ?? NSApp.keyWindow

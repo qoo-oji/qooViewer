@@ -20,4 +20,34 @@ final class LaunchCoordinator: ObservableObject {
     /// アプリ起動時、最初に作られたウインドウのAppState。2つ目以降の(新しいウインドウ/タブで
     /// 開いた)ウインドウでは上書きしない。
     weak var primaryAppState: AppState?
+
+    /// 現在開いているすべてのウインドウ/タブのAppStateへの弱参照一覧。
+    /// 「すでに開いている本を新しいウインドウ/タブで開こうとしたときに、それを開いている
+    /// 既存のウインドウ/タブをアクティブにする」機能のために保持する
+    /// (QooViewerApp.openURLInNewWindow参照)。ウインドウが閉じられればAppStateも解放される
+    /// べきなので、配列の要素はweakで保持し、参照が外れたものは都度取り除く
+    /// (明示的なunregisterは行わない)。
+    private var openAppStates: [WeakAppStateBox] = []
+
+    /// このウインドウ/タブのAppStateを、開いているウインドウの一覧に登録する。
+    /// ContentView.onAppearで、このウインドウ/タブが正当なものと確認できた時点
+    /// (isConfirmedLegitimateWindow参照)で呼ぶ。
+    func registerOpenAppState(_ appState: AppState) {
+        openAppStates.removeAll { $0.appState == nil }
+        guard !openAppStates.contains(where: { $0.appState === appState }) else { return }
+        openAppStates.append(WeakAppStateBox(appState: appState))
+    }
+
+    /// 指定したURLの本をすでに開いているウインドウ/タブがあれば、そのAppStateを返す。
+    /// 「同じ本」かどうかは、プロジェクト内の他の同種の判定(RecentFilesStore・
+    /// LastActiveBookStoreなど)に合わせて、URLを正規化などはせずURL.pathの文字列一致で行う。
+    func openAppState(forBookAt url: URL) -> AppState? {
+        openAppStates.removeAll { $0.appState == nil }
+        return openAppStates.first { $0.appState?.currentBook?.sourceURL.path == url.path }?.appState
+    }
+}
+
+/// 配列の要素自体をweakにはできないため、AppStateへの弱参照を1つ持つだけの箱として使う。
+private struct WeakAppStateBox {
+    weak var appState: AppState?
 }
