@@ -298,22 +298,14 @@ struct ViewerView: View {
                 } label: {
                     Image(systemName: "chevron.left.2")
                 }
-                .help(
-                    viewModel.readingDirection == .rightToLeft
-                        ? "Next Image (2 in spread view, 1 in single-page view)"
-                        : "Previous Image (2 in spread view, 1 in single-page view)"
-                )
+                .help(viewModel.readingDirection == .rightToLeft ? "Next Image" : "Previous Image")
 
                 Button {
                     viewModel.advance(forward: viewModel.readingDirection == .leftToRight)
                 } label: {
                     Image(systemName: "chevron.right.2")
                 }
-                .help(
-                    viewModel.readingDirection == .leftToRight
-                        ? "Next Image (2 in spread view, 1 in single-page view)"
-                        : "Previous Image (2 in spread view, 1 in single-page view)"
-                )
+                .help(viewModel.readingDirection == .leftToRight ? "Next Image" : "Previous Image")
             }
 
             // 1枚だけ次の画像/前の画像(見開きのページの組み合わせがずれたときの調整用)。
@@ -326,12 +318,14 @@ struct ViewerView: View {
                 } label: {
                     Image(systemName: "chevron.left")
                 }
+                .help(viewModel.readingDirection == .rightToLeft ? "Next Image by One" : "Previous Image by One")
 
                 Button {
                     viewModel.shiftByOnePage(forward: viewModel.readingDirection == .leftToRight)
                 } label: {
                     Image(systemName: "chevron.right")
                 }
+                .help(viewModel.readingDirection == .leftToRight ? "Next Image by One" : "Previous Image by One")
             }
             .disabled(viewModel.isPageShiftLocked)
 

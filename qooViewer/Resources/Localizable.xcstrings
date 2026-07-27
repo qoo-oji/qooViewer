@@ -1338,35 +1338,34 @@
         }
       }
     },
-    "Next Image (2 in spread view, 1 in single-page view)" : {
+    "Next Image" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Next Image (2 in spread view, 1 in single-page view)"
+            "value" : "Next Image"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "次の画像へ(見開き時2枚、単ページ時1枚)"
+            "value" : "次の画像へ"
           }
         }
       }
     },
-    "Next Image by One (to adjust misaligned spread pairs)" : {
-      "extractionState" : "stale",
+    "Next Image by One" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Next Image by One (to adjust misaligned spread pairs)"
+            "value" : "Next Image by One"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "1枚だけ次の画像へ(見開きのページの組み合わせがずれたときの調整用)"
+            "value" : "1枚だけ次の画像へ"
           }
         }
       }
@@ -1742,35 +1741,34 @@
         }
       }
     },
-    "Previous Image (2 in spread view, 1 in single-page view)" : {
+    "Previous Image" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Previous Image (2 in spread view, 1 in single-page view)"
+            "value" : "Previous Image"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "前の画像へ(見開き時2枚、単ページ時1枚)"
+            "value" : "前の画像へ"
           }
         }
       }
     },
-    "Previous Image by One (to adjust misaligned spread pairs)" : {
-      "extractionState" : "stale",
+    "Previous Image by One" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Previous Image by One (to adjust misaligned spread pairs)"
+            "value" : "Previous Image by One"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "1枚だけ前の画像へ(見開きのページの組み合わせがずれたときの調整用)"
+            "value" : "1枚だけ前の画像へ"
           }
         }
       }
