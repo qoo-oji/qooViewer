@@ -299,7 +299,7 @@ struct ViewerView: View {
             ThumbnailGridView(viewModel: viewModel)
         }
         .sheet(isPresented: $showBookmarkList) {
-            BookmarkListView(viewModel: viewModel)
+            BookmarkListView(viewModel: viewModel, preferences: preferences)
         }
         // お気に入りへの登録(要望2)。登録先フォルダの選択・新規フォルダ作成・重複確認は
         // FavoriteFolderPickerView側で完結する。
