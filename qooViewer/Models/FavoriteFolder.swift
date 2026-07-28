@@ -8,9 +8,21 @@ import SwiftData
 final class FavoriteFolder {
     @Attribute(.unique) var id: UUID
     var name: String
-    /// 同じ階層内での並び順(小さいほど上に表示)。
+    /// 同じ階層内へ登録/移動された順番(小さいほど先)。現在は表示の並び替えには使っていない
+    /// (表示順はFavoritesStore.sortOption/foldersAlwaysOnTopに従う。FavoriteBook.sortOrderの
+    /// コメントと同じ理由)。
     var sortOrder: Int
     var createdAt: Date
+    /// 最後に更新された日時。並び替え基準「更新順」に使う。このフォルダ「直下」への
+    /// お気に入り/サブフォルダの追加・移動・削除のたびに更新される(FavoritesStoreの
+    /// createFolder/forceAddFavorite/move/deleteの各メソッド参照)。フォルダ自身がよそへ
+    /// 移動されたりリネームされたりしただけでは更新しない(このフォルダの中身自体は
+    /// 変わっていないため)。作成時点ではcreatedAtと同じ値。
+    ///
+    /// `= Date()`という宣言時のデフォルト値は、FavoriteBook.updatedAtと同じ理由で必須
+    /// (この属性を後から追加したことによるライトウェイトマイグレーションのため。詳細は
+    /// FavoriteBook.updatedAtのコメント参照)。
+    var updatedAt: Date = Date()
 
     /// 親フォルダ。nilならルート直下のフォルダを表す。
     var parent: FavoriteFolder?
@@ -30,7 +42,9 @@ final class FavoriteFolder {
         self.name = name
         self.parent = parent
         self.sortOrder = sortOrder
-        self.createdAt = Date()
+        let now = Date()
+        self.createdAt = now
+        self.updatedAt = now
     }
 
     /// ルートから自分自身までの深さ。ルート直下のフォルダを1階層目として数える

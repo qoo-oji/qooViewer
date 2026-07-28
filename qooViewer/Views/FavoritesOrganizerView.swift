@@ -97,58 +97,65 @@ struct FavoritesOrganizerView: View {
             // 「新規フォルダ」は既に分かりやすく提供できているため、ツールバーのボタン自体を
             // 削除して「>>」も出ないようにした。
         } detail: {
+            // フォルダ・お気に入りの両方をFavoritesStore.entries(in:)で1つの並びとして取得し、
+            // switchでそれぞれの見た目(フォルダ行/お気に入り行)を出し分ける。以前はフォルダ用・
+            // お気に入り用の2つのForEachに分かれていたが、フォルダを常に先頭にするかどうか
+            // (foldersAlwaysOnTop)を切り替え可能にしたことで、両者が混在した1つの並びを
+            // そのまま描画する必要が生じたため、1つのForEachにまとめた。
             List {
-                ForEach(favoritesStore.subfolders(of: selectedFolder), id: \.id) { folder in
-                    let itemCount = favoritesStore.subfolders(of: folder).count + favoritesStore.books(in: folder).count
-                    HStack {
-                        Image(systemName: "folder")
-                        Text(folder.name)
-                        Spacer()
-                        Text("\(itemCount)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture(count: 2) { selectedFolder = folder }
-                    .contextMenu {
-                        Button("Rename") {
-                            renameText = folder.name
-                            renamingFolder = folder
-                        }
-                        Button("Delete", role: .destructive) {
-                            folderPendingDeletion = folder
-                        }
-                    }
-                    .onDrag { NSItemProvider(object: "favoriteFolder:\(folder.id.uuidString)" as NSString) }
-                    .onDrop(of: [.text], isTargeted: nil) { providers in
-                        handleDrop(providers: providers, targetFolder: folder)
-                    }
-                }
-
-                ForEach(favoritesStore.books(in: selectedFolder), id: \.id) { favorite in
-                    // 実体ファイルが見つからない項目はグレー表示で区別する
-                    // (要望3の追加要件。fileExistsはその都度security-scoped resourceへ
-                    // 一時的にアクセスして確認するため、件数が多い場合は表示に多少時間が
-                    // かかる可能性がある。フォルダを開いたときだけ表示対象を評価するため、
-                    // 通常は許容範囲のはず)。
-                    let exists = favoritesStore.fileExists(for: favorite)
-                    HStack {
-                        Image(systemName: "book.closed")
-                        Text(favorite.title)
-                        if !exists {
+                ForEach(favoritesStore.entries(in: selectedFolder)) { entry in
+                    switch entry {
+                    case .folder(let folder):
+                        let itemCount = favoritesStore.subfolders(of: folder).count + favoritesStore.books(in: folder).count
+                        HStack {
+                            Image(systemName: "folder")
+                            Text(folder.name)
                             Spacer()
-                            Text("Not Found")
+                            Text("\(itemCount)")
                                 .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
-                    }
-                    .foregroundStyle(exists ? .primary : .secondary)
-                    .opacity(exists ? 1 : 0.6)
-                    .contextMenu {
-                        Button("Remove from Favorites", role: .destructive) {
-                            bookPendingDeletion = favorite
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 2) { selectedFolder = folder }
+                        .contextMenu {
+                            Button("Rename") {
+                                renameText = folder.name
+                                renamingFolder = folder
+                            }
+                            Button("Delete", role: .destructive) {
+                                folderPendingDeletion = folder
+                            }
                         }
+                        .onDrag { NSItemProvider(object: "favoriteFolder:\(folder.id.uuidString)" as NSString) }
+                        .onDrop(of: [.text], isTargeted: nil) { providers in
+                            handleDrop(providers: providers, targetFolder: folder)
+                        }
+
+                    case .book(let favorite):
+                        // 実体ファイルが見つからない項目はグレー表示で区別する
+                        // (要望3の追加要件。fileExistsはその都度security-scoped resourceへ
+                        // 一時的にアクセスして確認するため、件数が多い場合は表示に多少時間が
+                        // かかる可能性がある。フォルダを開いたときだけ表示対象を評価するため、
+                        // 通常は許容範囲のはず)。
+                        let exists = favoritesStore.fileExists(for: favorite)
+                        HStack {
+                            Image(systemName: "book.closed")
+                            Text(favorite.title)
+                            if !exists {
+                                Spacer()
+                                Text("Not Found")
+                                    .font(.caption)
+                            }
+                        }
+                        .foregroundStyle(exists ? .primary : .secondary)
+                        .opacity(exists ? 1 : 0.6)
+                        .contextMenu {
+                            Button("Remove from Favorites", role: .destructive) {
+                                bookPendingDeletion = favorite
+                            }
+                        }
+                        .onDrag { NSItemProvider(object: "favoriteBook:\(favorite.id.uuidString)" as NSString) }
                     }
-                    .onDrag { NSItemProvider(object: "favoriteBook:\(favorite.id.uuidString)" as NSString) }
                 }
             }
             // 詳細ペインの空白部分を右クリックした場合も、現在選択中のフォルダの直下に
@@ -159,6 +166,37 @@ struct FavoritesOrganizerView: View {
                     isShowingNewFolderPrompt = true
                 }
                 .disabled(!favoritesStore.canCreateSubfolder(in: selectedFolder))
+            }
+            // 並び順(ファイル名/追加日時の昇順・降順)と、フォルダを常に上に表示するかを
+            // 切り替えるコントロール。フォルダ単位の設定ではなく、お気に入り全体に対する設定であり、
+            // 変更するとメニューバー・ツールバーのサブメニュー側にも即座に反映される
+            // (FavoritesStore.sortOption/foldersAlwaysOnTopのコメント参照)。ツールバーへ
+            // 文字付きボタンを足すと折りたたみ("...")が発生してしまう問題が既にあった
+            // (サイドバー側のNew Folderボタンについての同様のコメント参照)ため、ここでも
+            // 同じくsafeAreaInsetでリスト上部に常時表示する形にしている。
+            .safeAreaInset(edge: .top) {
+                HStack {
+                    Toggle("Folders on Top", isOn: $favoritesStore.foldersAlwaysOnTop)
+                        .toggleStyle(.checkbox)
+                    Spacer()
+                    Picker(selection: $favoritesStore.sortOption) {
+                        ForEach(FavoritesSortOption.allCases) { option in
+                            Label {
+                                Text(option.titleKey)
+                            } icon: {
+                                Image(systemName: option.systemImage)
+                            }
+                            .tag(option)
+                        }
+                    } label: {
+                        Label("Sort By", systemImage: "arrow.up.arrow.down")
+                    }
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.bar)
             }
             .navigationTitle(selectedFolder?.breadcrumb ?? String(localized: "Favorites (Top Level)"))
         }

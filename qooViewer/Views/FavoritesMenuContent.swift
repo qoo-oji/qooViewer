@@ -8,6 +8,10 @@ import SwiftUI
 /// 行わない。フォルダの作成・削除・移動・並べ替えは「お気に入りの編集」ウインドウ
 /// (FavoritesOrganizerView)側の役割)。
 ///
+/// 表示順はFavoritesStore.entries(in:)がまとめて決めるので、ここでは結果をそのままswitchして
+/// 描画するだけでよい(フォルダ/お気に入りをどちらを先に表示するか・名前や追加日時のどちらで
+/// 並べるかは、すべてFavoritesStore側の設定(sortOption/foldersAlwaysOnTop)に従う)。
+///
 /// 開く際に「そのまま開く/新しいウインドウ/新しいタブ」のどれにするかは、以前はお気に入りごとに
 /// サブメニューから毎回選ぶ形式だったが、Finderから開いたときの環境設定(finderOpenBehavior)と
 /// 同じ考え方で、環境設定「お気に入りを開くとき」(favoriteOpenBehavior)1箇所に統一した。
@@ -22,19 +26,29 @@ struct FavoritesMenuContent: View {
     let onOpen: (FavoriteBook) -> Void
 
     var body: some View {
-        if favoritesStore.rootFolders.isEmpty && favoritesStore.rootBooks.isEmpty {
+        let entries = favoritesStore.entries(in: nil)
+        if entries.isEmpty {
             Text("(No Favorites)")
         } else {
-            ForEach(favoritesStore.rootFolders, id: \.id) { folder in
-                FavoriteFolderMenu(
-                    folder: folder,
-                    favoritesStore: favoritesStore,
-                    onOpen: onOpen
-                )
+            ForEach(entries) { entry in
+                FavoriteEntryMenuItem(entry: entry, favoritesStore: favoritesStore, onOpen: onOpen)
             }
-            ForEach(favoritesStore.rootBooks, id: \.id) { favorite in
-                FavoriteBookMenuItem(favorite: favorite, onOpen: onOpen)
-            }
+        }
+    }
+}
+
+/// FavoriteListEntry1件分の表示を、フォルダ/お気に入りそれぞれに応じて出し分ける。
+private struct FavoriteEntryMenuItem: View {
+    let entry: FavoriteListEntry
+    @ObservedObject var favoritesStore: FavoritesStore
+    let onOpen: (FavoriteBook) -> Void
+
+    var body: some View {
+        switch entry {
+        case .folder(let folder):
+            FavoriteFolderMenu(folder: folder, favoritesStore: favoritesStore, onOpen: onOpen)
+        case .book(let favorite):
+            FavoriteBookMenuItem(favorite: favorite, onOpen: onOpen)
         }
     }
 }
@@ -46,22 +60,12 @@ private struct FavoriteFolderMenu: View {
 
     var body: some View {
         Menu(folder.name) {
-            let subfolders = favoritesStore.subfolders(of: folder)
-            let books = favoritesStore.books(in: folder)
-
-            if subfolders.isEmpty && books.isEmpty {
+            let entries = favoritesStore.entries(in: folder)
+            if entries.isEmpty {
                 Text("(Empty)")
             }
-
-            ForEach(subfolders, id: \.id) { child in
-                FavoriteFolderMenu(
-                    folder: child,
-                    favoritesStore: favoritesStore,
-                    onOpen: onOpen
-                )
-            }
-            ForEach(books, id: \.id) { favorite in
-                FavoriteBookMenuItem(favorite: favorite, onOpen: onOpen)
+            ForEach(entries) { entry in
+                FavoriteEntryMenuItem(entry: entry, favoritesStore: favoritesStore, onOpen: onOpen)
             }
         }
     }

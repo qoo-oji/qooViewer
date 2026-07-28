@@ -41,7 +41,7 @@ final class FavoritesNSMenuBridge: NSObject {
     private func buildMenu() -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
-        populate(menu, folders: favoritesStore.rootFolders, books: favoritesStore.rootBooks)
+        populate(menu, entries: favoritesStore.entries(in: nil))
         if menu.items.isEmpty {
             let empty = NSMenuItem(title: String(localized: "(No Favorites)"), action: nil, keyEquivalent: "")
             empty.isEnabled = false
@@ -50,31 +50,34 @@ final class FavoritesNSMenuBridge: NSObject {
         return menu
     }
 
-    /// フォルダ・お気に入りの一覧を、指定したNSMenuへ再帰的に追加していく。
+    /// フォルダ・お気に入りの一覧(FavoritesStore.entries(in:)がまとめて並び順を決めたもの)を、
+    /// 指定したNSMenuへ再帰的に追加していく。表示順そのものはFavoritesStore側の設定
+    /// (sortOption/foldersAlwaysOnTop)に従うだけで、ここでは関知しない。
     /// (SwiftUI版のFavoritesMenuContent/FavoriteFolderMenuと同じ考え方だが、NSMenuItemを
     /// 直接組み立てるため、`some View`の再帰呼び出し制約は関係なく、通常の再帰関数でよい)
-    private func populate(_ menu: NSMenu, folders: [FavoriteFolder], books: [FavoriteBook]) {
-        for folder in folders {
-            let folderItem = NSMenuItem(title: folder.name, action: nil, keyEquivalent: "")
-            let submenu = NSMenu()
-            submenu.autoenablesItems = false
-            let subfolders = favoritesStore.subfolders(of: folder)
-            let subbooks = favoritesStore.books(in: folder)
-            if subfolders.isEmpty && subbooks.isEmpty {
-                let empty = NSMenuItem(title: String(localized: "(Empty)"), action: nil, keyEquivalent: "")
-                empty.isEnabled = false
-                submenu.addItem(empty)
-            } else {
-                populate(submenu, folders: subfolders, books: subbooks)
+    private func populate(_ menu: NSMenu, entries: [FavoriteListEntry]) {
+        for entry in entries {
+            switch entry {
+            case .folder(let folder):
+                let folderItem = NSMenuItem(title: folder.name, action: nil, keyEquivalent: "")
+                let submenu = NSMenu()
+                submenu.autoenablesItems = false
+                let childEntries = favoritesStore.entries(in: folder)
+                if childEntries.isEmpty {
+                    let empty = NSMenuItem(title: String(localized: "(Empty)"), action: nil, keyEquivalent: "")
+                    empty.isEnabled = false
+                    submenu.addItem(empty)
+                } else {
+                    populate(submenu, entries: childEntries)
+                }
+                folderItem.submenu = submenu
+                menu.addItem(folderItem)
+            case .book(let favorite):
+                let item = NSMenuItem(title: favorite.title, action: #selector(selectFavorite(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = favorite
+                menu.addItem(item)
             }
-            folderItem.submenu = submenu
-            menu.addItem(folderItem)
-        }
-        for favorite in books {
-            let item = NSMenuItem(title: favorite.title, action: #selector(selectFavorite(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = favorite
-            menu.addItem(item)
         }
     }
 

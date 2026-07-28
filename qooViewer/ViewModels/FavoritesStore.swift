@@ -42,6 +42,47 @@ enum FavoritesLimitError: LocalizedError {
     }
 }
 
+/// お気に入り一覧を1つの並びとして扱うための、フォルダ/お気に入りをまとめた列挙。
+/// FavoritesStore.entries(in:)が返す。メニューバー・ツールバーのサブメニュー、
+/// 「お気に入りの整理」ウインドウのどちらも、フォルダとお気に入りをそれぞれ別の見た目
+/// (サブメニュー vs クリックで開く項目、フォルダアイコン vs 本アイコン)で表示する必要が
+/// あるため、呼び出し側でswitchして分岐させる。
+enum FavoriteListEntry: Identifiable {
+    case folder(FavoriteFolder)
+    case book(FavoriteBook)
+
+    var id: UUID {
+        switch self {
+        case .folder(let folder): return folder.id
+        case .book(let book): return book.id
+        }
+    }
+
+    /// 並び替えの基準として使う名前(フォルダ名/本のタイトル)。
+    fileprivate var sortName: String {
+        switch self {
+        case .folder(let folder): return folder.name
+        case .book(let book): return book.title
+        }
+    }
+
+    /// 並び替えの基準として使う「追加日時」(フォルダの作成日時/お気に入り登録日時)。
+    fileprivate var dateAdded: Date {
+        switch self {
+        case .folder(let folder): return folder.createdAt
+        case .book(let book): return book.addedAt
+        }
+    }
+
+    /// 並び替えの基準として使う「更新日時」(フォルダ/お気に入りのupdatedAt)。
+    fileprivate var dateUpdated: Date {
+        switch self {
+        case .folder(let folder): return folder.updatedAt
+        case .book(let book): return book.updatedAt
+        }
+    }
+}
+
 /// 「登録しようとした本がすでにお気に入りに登録されている」ことを呼び出し側(UI層)へ知らせるための結果。
 enum FavoriteAddOutcome {
     /// 新規に登録できた。
@@ -69,10 +110,38 @@ enum FavoriteAddOutcome {
 /// アプリ全体で1つだけのインスタンスとして扱う(QooViewerAppの@StateObject)。
 @MainActor
 final class FavoritesStore: ObservableObject {
-    /// ルート直下のフォルダ一覧(親を持たないFavoriteFolder)。sortOrder順。
+    /// ルート直下のフォルダ一覧(親を持たないFavoriteFolder)。sortOptionの並び順。
     @Published private(set) var rootFolders: [FavoriteFolder] = []
-    /// ルート直下に直接置かれているお気に入り(フォルダに属さないFavoriteBook)。sortOrder順。
+    /// ルート直下に直接置かれているお気に入り(フォルダに属さないFavoriteBook)。sortOptionの並び順。
     @Published private(set) var rootBooks: [FavoriteBook] = []
+
+    /// お気に入り一覧(このViewModelが公開するすべてのリスト)の並び順。変更すると即座に
+    /// reload()し、「お気に入りの整理」ウインドウ・メニューバー/ツールバーのサブメニューの
+    /// 両方に反映される(どちらもこのストアが公開するrootFolders/rootBooks、および
+    /// subfolders(of:)/books(in:)経由でソート済みの結果を取得するだけのため、
+    /// このプロパティ以外に変更箇所は不要)。
+    @Published var sortOption: FavoritesSortOption {
+        didSet {
+            guard sortOption != oldValue else { return }
+            UserDefaults.standard.set(sortOption.rawValue, forKey: Self.sortOptionDefaultsKey)
+            reload()
+        }
+    }
+
+    /// フォルダとお気に入りを、sortOptionの基準に関わらず常にフォルダを先に表示するか
+    /// (既定はtrue。従来通り「フォルダ一覧の後にお気に入り一覧」という見た目になる)。
+    /// falseにすると、フォルダ・お気に入りを区別せずsortOptionの基準(名前/追加日時/更新日時)
+    /// だけで混在させて1つの並びにする(entries(in:)参照)。こちらはfetch結果自体は変わらないため
+    /// reload()は不要で、@Publishedによる再描画だけで反映される。
+    @Published var foldersAlwaysOnTop: Bool {
+        didSet {
+            guard foldersAlwaysOnTop != oldValue else { return }
+            UserDefaults.standard.set(foldersAlwaysOnTop, forKey: Self.foldersAlwaysOnTopDefaultsKey)
+        }
+    }
+
+    private static let sortOptionDefaultsKey = "qooViewer.pref.favoritesSortOption"
+    private static let foldersAlwaysOnTopDefaultsKey = "qooViewer.pref.favoritesFoldersAlwaysOnTop"
 
     private let modelContext: ModelContext
     /// メニューが開かれる直前に一覧を再読み込みするための監視トークン。
@@ -82,6 +151,13 @@ final class FavoritesStore: ObservableObject {
 
     init(modelContext: ModelContext) {
         self.modelContext = modelContext
+        // didSetは(型自身のinit内で)ここで直接代入する分には呼ばれないため、reload()は
+        // このあと明示的に1回呼ぶ必要がある。
+        self.sortOption = FavoritesSortOption(
+            rawValue: UserDefaults.standard.string(forKey: Self.sortOptionDefaultsKey) ?? ""
+        ) ?? .nameAscending
+        self.foldersAlwaysOnTop =
+            UserDefaults.standard.object(forKey: Self.foldersAlwaysOnTopDefaultsKey) as? Bool ?? true
         reload()
         // RecentFilesStore.swiftの同様のオブザーバーと同じ書き方(queue: .mainを指定した
         // NotificationCenterのクロージャは実行時にはメインスレッドで呼ばれるため、
@@ -98,29 +174,101 @@ final class FavoritesStore: ObservableObject {
     /// ルート直下のフォルダ・お気に入りを読み込み直す。フォルダの中身(children/books)は
     /// SwiftDataのリレーションシップ経由でその都度取得できるため、ここでは読み込まない。
     func reload() {
-        var folderDescriptor = FetchDescriptor<FavoriteFolder>(
+        let folderDescriptor = FetchDescriptor<FavoriteFolder>(
             predicate: #Predicate<FavoriteFolder> { $0.parent == nil }
         )
-        folderDescriptor.sortBy = [SortDescriptor(\.sortOrder)]
-        rootFolders = (try? modelContext.fetch(folderDescriptor)) ?? []
+        rootFolders = sorted((try? modelContext.fetch(folderDescriptor)) ?? [])
 
-        var bookDescriptor = FetchDescriptor<FavoriteBook>(
+        let bookDescriptor = FetchDescriptor<FavoriteBook>(
             predicate: #Predicate<FavoriteBook> { $0.folder == nil }
         )
-        bookDescriptor.sortBy = [SortDescriptor(\.sortOrder)]
-        rootBooks = (try? modelContext.fetch(bookDescriptor)) ?? []
+        rootBooks = sorted((try? modelContext.fetch(bookDescriptor)) ?? [])
     }
 
-    /// 指定したフォルダの直下のサブフォルダ一覧(sortOrder順)。nilを渡すとルート直下を返す。
+    /// 指定したフォルダの直下のサブフォルダ一覧(sortOptionの並び順)。nilを渡すとルート直下を返す。
     func subfolders(of folder: FavoriteFolder?) -> [FavoriteFolder] {
         guard let folder else { return rootFolders }
-        return folder.children.sorted { $0.sortOrder < $1.sortOrder }
+        return sorted(folder.children)
     }
 
-    /// 指定したフォルダの直下のお気に入り一覧(sortOrder順)。nilを渡すとルート直下を返す。
+    /// 指定したフォルダの直下のお気に入り一覧(sortOptionの並び順)。nilを渡すとルート直下を返す。
     func books(in folder: FavoriteFolder?) -> [FavoriteBook] {
         guard let folder else { return rootBooks }
-        return folder.books.sorted { $0.sortOrder < $1.sortOrder }
+        return sorted(folder.books)
+    }
+
+    /// 指定したフォルダ直下のサブフォルダ・お気に入りをまとめて1つの並びにしたもの。
+    /// メニューバー・ツールバーのサブメニュー、「お気に入りの整理」ウインドウの詳細ペインは、
+    /// どちらもこのメソッドの結果をそのまま描画するだけでよい(呼び出し側でswitchして
+    /// フォルダ/お気に入りそれぞれの見た目を出し分ける)。
+    ///
+    /// foldersAlwaysOnTopがtrueの場合は「フォルダ一覧(sortOption順) → お気に入り一覧
+    /// (sortOption順)」という従来通りの見た目に、falseの場合はフォルダ・お気に入りを
+    /// 区別せずsortOptionの基準だけで混在させた1つの並びになる。
+    func entries(in folder: FavoriteFolder?) -> [FavoriteListEntry] {
+        let folders = subfolders(of: folder)
+        let books = books(in: folder)
+        if foldersAlwaysOnTop {
+            return folders.map { .folder($0) } + books.map { .book($0) }
+        }
+        var entries: [FavoriteListEntry] = folders.map { .folder($0) } + books.map { .book($0) }
+        switch sortOption {
+        case .nameAscending:
+            entries.sort { $0.sortName.localizedStandardCompare($1.sortName) == .orderedAscending }
+        case .nameDescending:
+            entries.sort { $0.sortName.localizedStandardCompare($1.sortName) == .orderedDescending }
+        case .dateAddedAscending:
+            entries.sort { $0.dateAdded < $1.dateAdded }
+        case .dateAddedDescending:
+            entries.sort { $0.dateAdded > $1.dateAdded }
+        case .dateUpdatedAscending:
+            entries.sort { $0.dateUpdated < $1.dateUpdated }
+        case .dateUpdatedDescending:
+            entries.sort { $0.dateUpdated > $1.dateUpdated }
+        }
+        return entries
+    }
+
+    // MARK: - 並び順(sortOption)の適用
+
+    /// フォルダ一覧を現在のsortOptionに従って並べ替える。
+    /// ファイル名相当としてfolder.nameを、追加日時相当としてfolder.createdAtを使う
+    /// (FavoriteBookのtitle/addedAtと対になる考え方)。
+    private func sorted(_ folders: [FavoriteFolder]) -> [FavoriteFolder] {
+        switch sortOption {
+        case .nameAscending:
+            return folders.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        case .nameDescending:
+            return folders.sorted { $0.name.localizedStandardCompare($1.name) == .orderedDescending }
+        case .dateAddedAscending:
+            return folders.sorted { $0.createdAt < $1.createdAt }
+        case .dateAddedDescending:
+            return folders.sorted { $0.createdAt > $1.createdAt }
+        case .dateUpdatedAscending:
+            return folders.sorted { $0.updatedAt < $1.updatedAt }
+        case .dateUpdatedDescending:
+            return folders.sorted { $0.updatedAt > $1.updatedAt }
+        }
+    }
+
+    /// お気に入り一覧を現在のsortOptionに従って並べ替える。
+    /// ファイル名の比較にはlocalizedStandardCompareを使う(数字を含む名前を「2, 10」のように
+    /// 自然な順序で扱う、Finderのファイル名ソートと同じ挙動)。
+    private func sorted(_ books: [FavoriteBook]) -> [FavoriteBook] {
+        switch sortOption {
+        case .nameAscending:
+            return books.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        case .nameDescending:
+            return books.sorted { $0.title.localizedStandardCompare($1.title) == .orderedDescending }
+        case .dateAddedAscending:
+            return books.sorted { $0.addedAt < $1.addedAt }
+        case .dateAddedDescending:
+            return books.sorted { $0.addedAt > $1.addedAt }
+        case .dateUpdatedAscending:
+            return books.sorted { $0.updatedAt < $1.updatedAt }
+        case .dateUpdatedDescending:
+            return books.sorted { $0.updatedAt > $1.updatedAt }
+        }
     }
 
     // MARK: - 件数・階層の上限チェック
@@ -150,6 +298,9 @@ final class FavoritesStore: ObservableObject {
             sortOrder: siblingCount
         )
         modelContext.insert(folder)
+        // 新しいサブフォルダが増えたぶん、親フォルダの中身が変わったとみなしupdatedAtを更新する
+        // (並び替え基準「更新順」用。詳細はFavoriteFolder.updatedAtのコメント参照)。
+        parent?.updatedAt = Date()
         try? modelContext.save()
         reload()
         return .success(folder)
@@ -166,27 +317,50 @@ final class FavoritesStore: ObservableObject {
     /// フォルダを削除する。配下のサブフォルダ・お気に入りも連鎖して削除される
     /// (FavoriteFolder.children/booksのdeleteRule: .cascade参照)。
     func delete(_ folder: FavoriteFolder) {
+        // 削除後は親への参照が失われるため、削除前に控えておく。親フォルダの中身が
+        // 減ったぶん、その親のupdatedAtを更新する(サブフォルダ自身のupdatedAtは、
+        // 消えるだけなので更新する意味がなく触らない)。
+        let parentFolder = folder.parent
         modelContext.delete(folder)
+        parentFolder?.updatedAt = Date()
         try? modelContext.save()
         reload()
     }
 
     func delete(_ favorite: FavoriteBook) {
+        // フォルダを削除する場合と同じ理由で、削除前に所属フォルダを控えておいてから
+        // そのフォルダのupdatedAtを更新する。
+        let parentFolder = favorite.folder
         modelContext.delete(favorite)
+        parentFolder?.updatedAt = Date()
         try? modelContext.save()
         reload()
     }
 
     /// お気に入りを別のフォルダへ移動する(整理画面でのドラッグ&ドロップから呼ぶ)。
+    /// 移動元・移動先どちらのフォルダも中身が変わるためupdatedAtを更新する。移動した
+    /// お気に入り自身のupdatedAtも更新するため、並び替え基準を「更新順(古い順)」にしていると
+    /// 移動したお気に入りは(以前の登録順と同じく)そのフォルダの一番最後に来る。
+    /// 同じフォルダへドロップした場合(実質的に移動していない場合)は何も更新しない。
     func move(_ favorite: FavoriteBook, to folder: FavoriteFolder?) {
+        let oldFolder = favorite.folder
+        let didMove = oldFolder?.id != folder?.id
         favorite.folder = folder
         favorite.sortOrder = books(in: folder).count
+        if didMove {
+            let now = Date()
+            favorite.updatedAt = now
+            oldFolder?.updatedAt = now
+            folder?.updatedAt = now
+        }
         try? modelContext.save()
         reload()
     }
 
     /// フォルダを別のフォルダへ移動する。移動先が自分自身・自分の子孫の場合(循環)、または
     /// 移動後に配下も含めて階層の上限を超えてしまう場合は何もせずfalseを返す。
+    /// move(_ favorite:to:)と同じ理由で、移動元・移動先の親フォルダのupdatedAtを更新する
+    /// (ただし移動されるフォルダ自身の中身は変わっていないため、そちらのupdatedAtは更新しない)。
     @discardableResult
     func move(_ folder: FavoriteFolder, to newParent: FavoriteFolder?) -> Bool {
         var candidate = newParent
@@ -198,8 +372,15 @@ final class FavoritesStore: ObservableObject {
         let extraDepth = maxDepth(of: folder) - folder.depth
         guard newDepth + extraDepth <= FavoritesLimits.maxFolderDepth else { return false }
 
+        let oldParent = folder.parent
+        let didMove = oldParent?.id != newParent?.id
         folder.parent = newParent
         folder.sortOrder = subfolders(of: newParent).count
+        if didMove {
+            let now = Date()
+            oldParent?.updatedAt = now
+            newParent?.updatedAt = now
+        }
         try? modelContext.save()
         reload()
         return true
@@ -280,6 +461,10 @@ final class FavoritesStore: ObservableObject {
             sortOrder: books(in: folder).count
         )
         modelContext.insert(favorite)
+        // 新しいお気に入りが増えたぶん、登録先フォルダの中身が変わったとみなしupdatedAtを
+        // 更新する(createFolderと同じ理由。ルート直下(folder == nil)の場合は対象となる
+        // フォルダオブジェクトが存在しないため何もしない)。
+        folder?.updatedAt = Date()
         try? modelContext.save()
         reload()
         return .added(favorite)

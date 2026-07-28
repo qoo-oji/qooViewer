@@ -854,6 +854,70 @@
         }
       }
     },
+    "Date Added (Newest First)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Date Added (Newest First)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "追加日時(新しい順)"
+          }
+        }
+      }
+    },
+    "Date Added (Oldest First)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Date Added (Oldest First)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "追加日時(古い順)"
+          }
+        }
+      }
+    },
+    "Date Updated (Newest First)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Date Updated (Newest First)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新日時(新しい順)"
+          }
+        }
+      }
+    },
+    "Date Updated (Oldest First)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Date Updated (Oldest First)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新日時(古い順)"
+          }
+        }
+      }
+    },
     "Default Display Mode for New Books" : {
       "localizations" : {
         "en" : {
@@ -1126,6 +1190,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "横幅に合わせる"
+          }
+        }
+      }
+    },
+    "Folders on Top" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Folders on Top"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダを上に表示"
           }
         }
       }
@@ -1719,6 +1799,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "名前"
+          }
+        }
+      }
+    },
+    "Name (A–Z)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Name (A–Z)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前(A→Z)"
+          }
+        }
+      }
+    },
+    "Name (Z–A)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Name (Z–A)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前(Z→A)"
           }
         }
       }
@@ -2915,6 +3027,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "スライドショー"
+          }
+        }
+      }
+    },
+    "Sort By" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sort By"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "並べ替え"
           }
         }
       }

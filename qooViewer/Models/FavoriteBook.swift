@@ -19,10 +19,25 @@ final class FavoriteBook {
     var bookmarkData: Data
     /// 表示用タイトル(登録時点のファイル/フォルダ名)。
     var title: String
-    /// 同じフォルダ内での並び順(小さいほど上に表示)。
+    /// 同じフォルダ内へ登録/移動された順番(小さいほど先)。現在は表示の並び替えには使って
+    /// いない(表示順はFavoritesStore.sortOption/foldersAlwaysOnTopに従う。詳細はentries(in:)
+    /// 参照)。将来、手動ドラッグでの並べ替えを再度実装する場合に備えて値自体は保持している。
     var sortOrder: Int
-    /// 登録した日時。ウェルカム画面の「最近お気に入りに追加したファイル」の並び替えに使う。
+    /// 登録した日時。ウェルカム画面の「最近お気に入りに追加したファイル」の並び替え、および
+    /// 並び替え基準「追加日時」に使う。
     var addedAt: Date
+    /// 最後に更新された日時。並び替え基準「更新順」に使う。現在は「別のフォルダへ移動した」
+    /// ときにのみ更新する(登録時点ではaddedAtと同じ値。FavoritesStore.move(_:to:)参照。
+    /// 上書き登録(同じフォルダへの再登録)ではあえて更新しない)。
+    ///
+    /// `= Date()`という宣言時のデフォルト値は、この属性を後から追加したことによる
+    /// ライトウェイトマイグレーション(SwiftDataが自動で行うスキーマ移行)のために必須。
+    /// これが無いと、この属性が存在しなかった以前のバージョンで保存済みのデータを開こうとした際に
+    /// 「Validation error missing attribute values on mandatory destination attribute」という
+    /// エラーで起動できなくなる(必須(非Optional)属性を後から追加する場合、SwiftDataは
+    /// 既存データの欠けている値をこのデフォルト値で埋める。実際にinitでは常に明示的に
+    /// 値を設定し直すため、新規作成時にこのデフォルト値自体が使われることはない)。
+    var updatedAt: Date = Date()
 
     /// 所属フォルダ。nilの場合は「フォルダ分けせず、お気に入りの一番上の階層に直接置く」
     /// ことを表す(FavoriteFolder.parentがnilならルート直下のフォルダを表すのと同じ考え方)。
@@ -41,7 +56,9 @@ final class FavoriteBook {
         self.title = title
         self.folder = folder
         self.sortOrder = sortOrder
-        self.addedAt = Date()
+        let now = Date()
+        self.addedAt = now
+        self.updatedAt = now
     }
 }
 
