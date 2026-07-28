@@ -1194,7 +1194,25 @@ struct ViewerView: View {
         )
         window.title = "Actual Size"
         window.center()
-        window.isReleasedWhenClosed = true
+        // このウインドウを閉じるとアプリ全体が強制終了してしまう不具合の原因はここ。
+        // isReleasedWhenClosed(既定でtrue)がtrueのままだと、close()が呼ばれた瞬間に
+        // AppKitがこのNSWindowインスタンスを即座に解放してしまう。しかし contentView に
+        // 割り当てているNSHostingView(SwiftUIのビューをAppKitへ橋渡しする仕組み)は、
+        // ウインドウが閉じられた直後にも後始末のための処理(SwiftUI側の状態更新の
+        // 反映など)を次のRunLoopで行うことがあり、その処理が「AppKitにより既に解放済みの
+        // ウインドウ」を参照しようとして解放済みメモリへアクセスし、クラッシュ
+        // (結果としてアプリ全体が強制終了)していたと考えられる。
+        // (このウインドウはSwiftUIのWindow/WindowGroup Sceneを使わず、ここで直接
+        // NSWindow+NSHostingViewを組み立てている。他のウインドウ[本編ウインドウ・
+        // お気に入り/ブックマーク編集ウインドウ等]はいずれもSwiftUIのScene経由でウインドウ
+        // 自体のライフサイクルをSwiftUI側に管理させているため、このクラッシュは起きない)。
+        //
+        // isReleasedWhenClosedをfalseにすると、close()時にAppKitが即座に解放することは
+        // なくなり、他に強い参照を保持していない(このwindow変数はこの関数を抜けると
+        // スコープを外れる)ため、通常のARCのルール通り、NSHostingView側の後始末も含めて
+        // 誰からも参照されなくなった時点で自然に解放されるようになる。これにより
+        // メモリリークにはならず、かつ解放済みメモリへの参照によるクラッシュも防げる。
+        window.isReleasedWhenClosed = false
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }

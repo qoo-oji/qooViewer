@@ -28,8 +28,8 @@ final class KeyBindingStore: ObservableObject {
     // 「次の本へ」「前の本へ」(cooViewerの「次のフォルダ・アーカイブへ」「前のフォルダ・アーカイブへ」に
     // 相当)はcooViewerでは control+次ブックマークキー / control+前ブックマークキー
     // (次ブックマークキー=c、前ブックマークキー=d)なので、control+c / control+d を割り当てている。
-    // 「左/右の画像を実際のサイズで表示」はキーボードショートカットの既定値を割り当てない
-    // (割り当てたい場合はキー・マウス操作設定から手動で追加できる)。
+    // 「左/右の画像を実際のサイズで表示」はcooViewerでは「左ページを本来のサイズで表示」= q、
+    // 「右ページを本来のサイズで表示」= w なので、それぞれ q / w を割り当てている。
     static let defaultKeyBindings: [String: ViewerAction] = [
         RemappableKey.leftArrow.id: .spatialLeft,
         RemappableKey.rightArrow.id: .spatialRight,
@@ -54,6 +54,8 @@ final class KeyBindingStore: ObservableObject {
         RemappableKey.character("s").id: .toggleDisplayMode,
         RemappableKey.character("r").id: .toggleReadingDirection,
         RemappableKey.character("f").id: .cycleScalingMode,
+        RemappableKey.character("q").id: .showActualSizeLeft,
+        RemappableKey.character("w").id: .showActualSizeRight,
     ]
 
     static let defaultMouseBindings: [InputTrigger: ViewerAction] = [
