@@ -28,6 +28,20 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
     case shiftOnePageRight
     case firstPage
     case lastPage
+    /// 数字キー(0〜9)によるページジャンプ。0キーは先頭ページ(0%)、9キーは
+    /// 全ページ数の90%に相当するページへジャンプする(以降10%刻み)。
+    /// ページ番号は `全ページ数 * (キーの数字 * 10) / 100` を切り捨てて求める
+    /// (KeyBindingStore.defaultKeyBindingsで0〜9の数字キーに既定で割り当てている)。
+    case jumpToPercentile0
+    case jumpToPercentile10
+    case jumpToPercentile20
+    case jumpToPercentile30
+    case jumpToPercentile40
+    case jumpToPercentile50
+    case jumpToPercentile60
+    case jumpToPercentile70
+    case jumpToPercentile80
+    case jumpToPercentile90
     case toggleDisplayMode
     case toggleReadingDirection
     case cycleScalingMode
@@ -52,6 +66,25 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
 
     var id: String { rawValue }
 
+    /// jumpToPercentileNN系のアクションであれば、その割合(0〜90)を返す。それ以外はnil。
+    /// ViewerViewModel側でのページ番号計算(全ページ数 * percentile / 100)や、
+    /// titleKeyの組み立てに使う。
+    var jumpPercentile: Int? {
+        switch self {
+        case .jumpToPercentile0: return 0
+        case .jumpToPercentile10: return 10
+        case .jumpToPercentile20: return 20
+        case .jumpToPercentile30: return 30
+        case .jumpToPercentile40: return 40
+        case .jumpToPercentile50: return 50
+        case .jumpToPercentile60: return 60
+        case .jumpToPercentile70: return 70
+        case .jumpToPercentile80: return 80
+        case .jumpToPercentile90: return 90
+        default: return nil
+        }
+    }
+
     /// 設定画面(キー・マウス操作)に表示する名前
     var titleKey: LocalizedStringKey {
         switch self {
@@ -63,6 +96,16 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
         case .shiftOnePageRight: return "Shift One Page Right"
         case .firstPage: return "Go to First Page"
         case .lastPage: return "Go to Last Page"
+        case .jumpToPercentile0: return "Jump to Page at 0% (First Page)"
+        case .jumpToPercentile10: return "Jump to Page at 10%"
+        case .jumpToPercentile20: return "Jump to Page at 20%"
+        case .jumpToPercentile30: return "Jump to Page at 30%"
+        case .jumpToPercentile40: return "Jump to Page at 40%"
+        case .jumpToPercentile50: return "Jump to Page at 50%"
+        case .jumpToPercentile60: return "Jump to Page at 60%"
+        case .jumpToPercentile70: return "Jump to Page at 70%"
+        case .jumpToPercentile80: return "Jump to Page at 80%"
+        case .jumpToPercentile90: return "Jump to Page at 90%"
         case .toggleDisplayMode: return "Toggle Spread/Single Page"
         case .toggleReadingDirection: return "Switch Reading Direction"
         case .cycleScalingMode: return "Cycle Display Mode"

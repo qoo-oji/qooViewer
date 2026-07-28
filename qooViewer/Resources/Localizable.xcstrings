@@ -1641,6 +1641,166 @@
         }
       }
     },
+    "Jump to Page at 0% (First Page)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jump to Page at 0% (First Page)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "先頭ページへジャンプ(0%)"
+          }
+        }
+      }
+    },
+    "Jump to Page at 10%" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jump to Page at 10%"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "10%の位置のページへジャンプ"
+          }
+        }
+      }
+    },
+    "Jump to Page at 20%" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jump to Page at 20%"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "20%の位置のページへジャンプ"
+          }
+        }
+      }
+    },
+    "Jump to Page at 30%" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jump to Page at 30%"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "30%の位置のページへジャンプ"
+          }
+        }
+      }
+    },
+    "Jump to Page at 40%" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jump to Page at 40%"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "40%の位置のページへジャンプ"
+          }
+        }
+      }
+    },
+    "Jump to Page at 50%" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jump to Page at 50%"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "50%の位置のページへジャンプ"
+          }
+        }
+      }
+    },
+    "Jump to Page at 60%" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jump to Page at 60%"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "60%の位置のページへジャンプ"
+          }
+        }
+      }
+    },
+    "Jump to Page at 70%" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jump to Page at 70%"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "70%の位置のページへジャンプ"
+          }
+        }
+      }
+    },
+    "Jump to Page at 80%" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jump to Page at 80%"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "80%の位置のページへジャンプ"
+          }
+        }
+      }
+    },
+    "Jump to Page at 90%" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jump to Page at 90%"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "90%の位置のページへジャンプ"
+          }
+        }
+      }
+    },
     "Key & Mouse Bindings" : {
       "localizations" : {
         "en" : {

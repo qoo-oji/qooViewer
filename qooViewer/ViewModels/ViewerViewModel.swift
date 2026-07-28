@@ -353,6 +353,15 @@ final class ViewerViewModel: ObservableObject {
         reloadAsync()
     }
 
+    /// 数字キー(0〜9)によるページジャンプ用。全ページ数に対する割合(0〜100)を指定し、
+    /// 対応するページへジャンプする(0なら先頭ページ、90なら全ページ数の90%に相当するページ)。
+    /// 実際の着地先の補正・境界チェックはjump(toPageIndex:)にそのまま委譲する。
+    func jump(toPercentile percentile: Int) {
+        guard !book.pages.isEmpty else { return }
+        let index = book.pages.count * percentile / 100
+        jump(toPageIndex: index)
+    }
+
     /// EPUBがrendition:spreadで本全体の見開き/単ページを強制している間はtrue。
     /// trueの間はtoggleDisplayMode()自体が何もしない(呼び出し元のUIも合わせて
     /// グレーアウトする。ViewerView/QooViewerAppの`.disabled()`参照)。

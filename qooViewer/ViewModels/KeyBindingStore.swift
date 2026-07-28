@@ -30,6 +30,9 @@ final class KeyBindingStore: ObservableObject {
     // (次ブックマークキー=c、前ブックマークキー=d)なので、control+c / control+d を割り当てている。
     // 「左/右の画像を実際のサイズで表示」はcooViewerでは「左ページを本来のサイズで表示」= q、
     // 「右ページを本来のサイズで表示」= w なので、それぞれ q / w を割り当てている。
+    // 数字キー(0〜9)は、qooViewer独自の追加として全ページ数に対する割合でのページジャンプに
+    // 割り当てている(0キー=先頭ページ[0%]、9キー=全ページ数の90%に相当するページ、
+    // 以降10%刻み。ViewerAction.jumpToPercentileNN / ViewerViewModel.jump(toPercentile:)参照)。
     static let defaultKeyBindings: [String: ViewerAction] = [
         RemappableKey.leftArrow.id: .spatialLeft,
         RemappableKey.rightArrow.id: .spatialRight,
@@ -56,6 +59,16 @@ final class KeyBindingStore: ObservableObject {
         RemappableKey.character("f").id: .cycleScalingMode,
         RemappableKey.character("q").id: .showActualSizeLeft,
         RemappableKey.character("w").id: .showActualSizeRight,
+        RemappableKey.character("0").id: .jumpToPercentile0,
+        RemappableKey.character("1").id: .jumpToPercentile10,
+        RemappableKey.character("2").id: .jumpToPercentile20,
+        RemappableKey.character("3").id: .jumpToPercentile30,
+        RemappableKey.character("4").id: .jumpToPercentile40,
+        RemappableKey.character("5").id: .jumpToPercentile50,
+        RemappableKey.character("6").id: .jumpToPercentile60,
+        RemappableKey.character("7").id: .jumpToPercentile70,
+        RemappableKey.character("8").id: .jumpToPercentile80,
+        RemappableKey.character("9").id: .jumpToPercentile90,
     ]
 
     static let defaultMouseBindings: [InputTrigger: ViewerAction] = [

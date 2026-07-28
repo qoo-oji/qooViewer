@@ -1026,6 +1026,12 @@ struct ViewerView: View {
             viewModel.jump(toPageIndex: 0)
         case .lastPage:
             viewModel.jump(toPageIndex: viewModel.pageCount - 1)
+        case .jumpToPercentile0, .jumpToPercentile10, .jumpToPercentile20, .jumpToPercentile30,
+             .jumpToPercentile40, .jumpToPercentile50, .jumpToPercentile60, .jumpToPercentile70,
+             .jumpToPercentile80, .jumpToPercentile90:
+            if let percentile = action.jumpPercentile {
+                viewModel.jump(toPercentile: percentile)
+            }
         case .toggleDisplayMode:
             viewModel.toggleDisplayMode()
         case .toggleReadingDirection:
