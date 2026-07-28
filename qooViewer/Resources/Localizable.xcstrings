@@ -1,3382 +1,3443 @@
 {
-  "sourceLanguage": "en",
-  "strings": {
-    " pages)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": " pages)"
+  "sourceLanguage" : "en",
+  "strings" : {
+    " pages)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : " pages)"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ページ)"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページ)"
           }
         }
       }
     },
-    " sec": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": " sec"
+    " sec" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : " sec"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "秒"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "秒"
           }
         }
       }
     },
-    "(None)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "(None)"
+    "“" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "(なし)"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「"
           }
         }
       }
     },
-    "Access Permissions": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Access Permissions"
+    "” could not be found. It may have been moved or deleted." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "” could not be found. It may have been moved or deleted."
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アクセス権"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "」のファイルまたはフォルダが見つかりませんでした。移動または削除された可能性があります。"
           }
         }
       }
     },
-    "Actual Size": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Actual Size"
+    "” is already assigned to “" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "” is already assigned to “"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "実寸表示"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "」は既に「"
           }
         }
       }
     },
-    "Add Bookmark": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add Bookmark"
+    "”." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "”."
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブックマークを追加"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "」に割り当て済みです。"
           }
         }
       }
     },
-    "Add Current Page": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add Current Page"
+    "”. Add it here as well?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "”. Add it here as well?"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "現在のページを追加"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "」に登録されています。ここにも追加しますか?"
           }
         }
       }
     },
-    "Add Current Page to Bookmarks": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add Current Page to Bookmarks"
+    "(Empty)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(Empty)"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "現在のページをブックマークに追加"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(空)"
           }
         }
       }
     },
-    "Add Folder…": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add Folder…"
+    "(No Bookmarks)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(No Bookmarks)"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フォルダを追加…"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(ブックマークなし)"
           }
         }
       }
     },
-    "Add a Key": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add a Key"
+    "(No Favorites)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(No Favorites)"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キーを追加"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(お気に入りなし)"
           }
         }
       }
     },
-    "Always Start from the Beginning": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Always Start from the Beginning"
+    "(None)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(None)"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "常に最初から表示する"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(なし)"
           }
         }
       }
     },
-    "Ask Before Closing a Window with Multiple Tabs": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ask Before Closing a Window with Multiple Tabs"
+    "%" : {
+
+    },
+    "%@" : {
+      "comment" : "A string that represents a floating-point number with one decimal place. The argument is the string “%.1f”.",
+      "isCommentAutoGenerated" : true
+    },
+    "%@ (%lld)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ (%2$lld)"
+          }
+        }
+      }
+    },
+    "%lld" : {
+      "comment" : "A footnote displaying the page number of a bookmark. The argument is the 1-based page number.",
+      "isCommentAutoGenerated" : true
+    },
+    "%lld / %lld" : {
+      "comment" : "A badge that displays the current page number and total page count. The first argument is the current page number. The second argument is the total number of pages.",
+      "isCommentAutoGenerated" : true,
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld / %2$lld"
           }
+        }
+      }
+    },
+    "Access Permissions" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Access Permissions"
+          }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "複数のタブが開いているウインドウを閉じるときに確認する"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アクセス権"
           }
         }
       }
     },
-    "Ask Each Time": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ask Each Time"
+    "Actual Size" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Actual Size"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "問い合わせる"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "実寸表示"
           }
         }
       }
     },
-    "Automatically hide the mouse cursor after inactivity": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Automatically hide the mouse cursor after inactivity"
+    "Add" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "しばらく操作がないときマウスカーソルを自動的に隠す"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "追加"
           }
         }
       }
     },
-    "Automatically open the last book on launch": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Automatically open the last book on launch"
+    "Add a Key" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add a Key"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "起動時に前回開いていた本を自動的に開く"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "キーを追加"
           }
         }
       }
     },
-    "Background Color": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Background Color"
+    "Add Anyway" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Anyway"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "背景色"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "それでも追加"
           }
         }
       }
     },
-    "Behavior at the first/last page": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Behavior at the first/last page"
+    "Add Bookmark" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Bookmark"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最初/最後のページを超えたときの動作"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブックマークを追加"
           }
         }
       }
     },
-    "Black": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Black"
+    "Add Current Book to Favorites…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Current Book to Favorites…"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "黒"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在の本をお気に入りに追加…"
           }
         }
       }
     },
-    "Book Navigation": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Book Navigation"
+    "Add Current Page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Current Page"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブック移動"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在のページを追加"
           }
         }
       }
     },
-    "Bookmark": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bookmark"
+    "Add Current Page to Bookmarks" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Current Page to Bookmarks"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブックマーク"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在のページをブックマークに追加"
           }
         }
       }
     },
-    "Bookmark List": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bookmark List"
+    "Add Folder…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Folder…"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブックマーク一覧"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダを追加…"
           }
         }
       }
     },
-    "Bookmarks": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bookmarks"
+    "Add to Favorites" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add to Favorites"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブックマーク"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入りに追加"
           }
         }
       }
     },
-    "Cancel": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cancel"
+    "Add to Favorites…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add to Favorites…"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャンセル"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入りに追加…"
           }
         }
       }
     },
-    "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file."
+    "Already in Favorites" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Already in Favorites"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "漫画のフォルダ、またはzip/cbz・rar/cbr・7z/cb7・PDF・EPUBファイルを選んでください"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すでにお気に入りに登録されています"
           }
         }
       }
     },
-    "Choosing “Follow System” uses your Mac’s language setting (System Settings > General > Language & Region).": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choosing “Follow System” uses your Mac’s language setting (System Settings > General > Language & Region)."
+    "Always Start from the Beginning" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Always Start from the Beginning"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「システムに従う」を選ぶと、macOS本体の言語設定(システム設定 > 一般 > 言語と地域)に従います。"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "常に最初から表示する"
           }
         }
       }
     },
-    "Click Left Side of Screen": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Click Left Side of Screen"
+    "Ask Before Closing a Window with Multiple Tabs" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ask Before Closing a Window with Multiple Tabs"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "画面の左側をクリック"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "複数のタブが開いているウインドウを閉じるときに確認する"
           }
         }
       }
     },
-    "Click Right Side of Screen": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Click Right Side of Screen"
+    "Ask Each Time" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ask Each Time"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "画面の右側をクリック"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "問い合わせる"
           }
         }
       }
     },
-    "Close": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Close"
+    "Automatically hide the mouse cursor after inactivity" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatically hide the mouse cursor after inactivity"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "閉じる"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "しばらく操作がないときマウスカーソルを自動的に隠す"
           }
         }
       }
     },
-    "Close Window": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Close Window"
+    "Automatically open the last book on launch" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatically open the last book on launch"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ウインドウを閉じる"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "起動時に前回開いていた本を自動的に開く"
           }
         }
       }
     },
-    "Close the Current Book and Open the New One": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Close the Current Book and Open the New One"
+    "Background Color" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Background Color"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "現在の本を閉じて新しい本を開く"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "背景色"
           }
         }
       }
     },
-    "Cursor": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cursor"
+    "Behavior at the first/last page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Behavior at the first/last page"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "カーソル"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最初/最後のページを超えたときの動作"
           }
         }
       }
     },
-    "Cycle Display Mode": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cycle Display Mode"
+    "Black" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Black"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "表示モード切替"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "黒"
           }
         }
       }
     },
-    "Cycle Display Mode (Fit to Screen / Fit Width / No Scaling)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cycle Display Mode (Fit to Screen / Fit Width / No Scaling)"
+    "Book Navigation" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Book Navigation"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "表示モード切り替え(画面内に収める/横幅に合わせる/拡大縮小しない)"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブック移動"
           }
         }
       }
     },
-    "Dark Gray": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dark Gray"
+    "Bookmark" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bookmark"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ダークグレー"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブックマーク"
           }
         }
       }
     },
-    "Default Display Mode for New Books": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Default Display Mode for New Books"
+    "Bookmark List" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bookmark List"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しく開く本の初期表示モード"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブックマーク一覧"
           }
         }
       }
     },
-    "Delete": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete"
+    "Bookmarks" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bookmarks"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "削除"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブックマーク"
           }
         }
       }
     },
-    "Display": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Display"
+    "Cancel" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "表示"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "キャンセル"
           }
         }
       }
     },
-    "Display Language": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Display Language"
+    "Cannot Create Folder" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cannot Create Folder"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "表示言語"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダを作成できません"
           }
         }
       }
     },
-    "Do Nothing": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Do Nothing"
+    "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file."
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "何もしない"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "漫画のフォルダ、またはzip/cbz・rar/cbr・7z/cb7・PDF・EPUBファイルを選んでください"
           }
         }
       }
     },
-    "Edit Bookmarks…": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Edit Bookmarks…"
+    "Choosing “Follow System” uses your Mac’s language setting (System Settings > General > Language & Region)." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choosing “Follow System” uses your Mac’s language setting (System Settings > General > Language & Region)."
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブックマークの編集…"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「システムに従う」を選ぶと、macOS本体の言語設定(システム設定 > 一般 > 言語と地域)に従います。"
           }
         }
       }
     },
-    "Error": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Error"
+    "Click Left Side of Screen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Click Left Side of Screen"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エラー"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "画面の左側をクリック"
           }
         }
       }
     },
-    "Fit Width": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fit Width"
+    "Click Right Side of Screen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Click Right Side of Screen"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "横幅に合わせる"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "画面の右側をクリック"
           }
         }
       }
     },
-    "Fit to Screen": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fit to Screen"
+    "Close" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "画面内に収める"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "閉じる"
           }
         }
       }
     },
-    "Follow System": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Follow System"
+    "Close the Current Book and Open the New One" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close the Current Book and Open the New One"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "システムに従う"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在の本を閉じて新しい本を開く"
           }
         }
       }
     },
-    "Full Screen": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Full Screen"
+    "Close Window" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close Window"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フルスクリーン"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ウインドウを閉じる"
           }
         }
       }
     },
-    "General": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "General"
+    "Could Not Add to Favorites" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could Not Add to Favorites"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一般"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入りに追加できませんでした"
           }
         }
       }
     },
-    "Go to First Page": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Go to First Page"
+    "Create" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Create"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最初のページへ"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作成"
           }
         }
       }
     },
-    "Go to Last Page": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Go to Last Page"
+    "Cursor" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cursor"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最後のページへ"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カーソル"
           }
         }
       }
     },
-    "Go to Next Book": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Go to Next Book"
+    "Cycle Display Mode" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cycle Display Mode"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "次の本へ"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示モード切替"
           }
         }
       }
     },
-    "Go to Next Book's First Page": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Go to Next Book's First Page"
+    "Cycle Display Mode (Fit to Screen / Fit Width / No Scaling)" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cycle Display Mode (Fit to Screen / Fit Width / No Scaling)"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "次の本の最初のページへ"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示モード切り替え(画面内に収める/横幅に合わせる/拡大縮小しない)"
           }
         }
       }
     },
-    "Go to Next Bookmark": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Go to Next Bookmark"
+    "Dark Gray" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dark Gray"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "次のブックマークへ"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ダークグレー"
           }
         }
       }
     },
-    "Go to Previous Book": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Go to Previous Book"
+    "Default Display Mode for New Books" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Default Display Mode for New Books"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "前の本へ"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しく開く本の初期表示モード"
           }
         }
       }
     },
-    "Go to Previous Bookmark": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Go to Previous Bookmark"
+    "Delete" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "前のブックマークへ"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "削除"
           }
         }
       }
     },
-    "Grant Access": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Grant Access"
+    "Delete Folder?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Folder?"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アクセスを許可"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダを削除しますか?"
           }
         }
       }
     },
-    "Grant Access to This Folder…": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Grant Access to This Folder…"
+    "Display" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Display"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このフォルダへのアクセスを許可…"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示"
           }
         }
       }
     },
-    "Granted Folders": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Granted Folders"
+    "Display Language" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Display Language"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "許可済みフォルダ"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示言語"
           }
         }
       }
     },
-    "Hide Progress Bar": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hide Progress Bar"
+    "Do Nothing" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Do Nothing"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プログレスバーを隠す"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "何もしない"
           }
         }
       }
     },
-    "Hide Toolbar": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hide Toolbar"
+    "Edit Bookmarks…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Bookmarks…"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ツールバーを隠す"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブックマークの編集…"
           }
         }
       }
     },
-    "High Quality": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "High Quality"
+    "Edit Favorites" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Favorites"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "高品質"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入りの編集"
           }
         }
       }
     },
-    "Image Interpolation Quality": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Image Interpolation Quality"
+    "Edit Favorites…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Favorites…"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "画像の補間品質"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入りの編集…"
           }
         }
       }
     },
-    "Interval: ": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Interval: "
+    "English" : {
+      "comment" : "Display name for the English language.",
+      "isCommentAutoGenerated" : true
+    },
+    "Error" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Error"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "間隔: "
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エラー"
           }
         }
       }
     },
-    "Japanese": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Japanese"
+    "Favorite folders can be nested up to %d levels deep." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favorite folders can be nested up to %d levels deep."
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "日本語"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入りフォルダの階層は最大%d階層までです。"
           }
         }
       }
     },
-    "Key & Mouse Bindings": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Key & Mouse Bindings"
+    "Favorite Not Found" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favorite Not Found"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キー・マウス操作"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入りが見つかりません"
           }
         }
       }
     },
-    "Keyboard (each action can have multiple keys)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keyboard (each action can have multiple keys)"
+    "Favorites" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favorites"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キーボード(1つの操作に複数のキーを割り当てられます)"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入り"
           }
         }
       }
     },
-    "Language": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Language"
+    "Favorites (Top Level)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favorites (Top Level)"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "言語"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入り"
           }
         }
       }
     },
-    "Left-to-Right": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Left-to-Right"
+    "Favorites List" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favorites List"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "左開き"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入り一覧"
           }
         }
       }
     },
-    "Library Data": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Library Data"
+    "Fit to Screen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fit to Screen"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ライブラリのデータ"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "画面内に収める"
           }
         }
       }
     },
-    "Loop": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Loop"
+    "Fit Width" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fit Width"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ループする"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "横幅に合わせる"
           }
         }
       }
     },
-    "Low Quality (Lightweight)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Low Quality (Lightweight)"
+    "Follow System" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Follow System"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "低品質(軽量)"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "システムに従う"
           }
         }
       }
     },
-    "Max Upscale: ": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Max Upscale: "
+    "Full Screen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Full Screen"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最大拡大率: "
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フルスクリーン"
           }
         }
       }
     },
-    "Mouse": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mouse"
+    "General" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "General"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "マウス"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一般"
           }
         }
       }
     },
-    "Move": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Move"
+    "Go to First Page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go to First Page"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "移動"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最初のページへ"
           }
         }
       }
     },
-    "Move Left": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Move Left"
+    "Go to Last Page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go to Last Page"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "左へ移動"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最後のページへ"
           }
         }
       }
     },
-    "Move Right": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Move Right"
+    "Go to Next Book" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go to Next Book"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右へ移動"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次の本へ"
           }
         }
       }
     },
-    "Move to First": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Move to First"
+    "Go to Next Book's First Page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go to Next Book's First Page"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "先頭へ移動"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次の本の最初のページへ"
           }
         }
       }
     },
-    "Move to Last": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Move to Last"
+    "Go to Next Bookmark" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go to Next Bookmark"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最後へ移動"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次のブックマークへ"
           }
         }
       }
     },
-    "Move to Next": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Move to Next"
+    "Go to Previous Book" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go to Previous Book"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "次へ移動"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前の本へ"
           }
         }
       }
     },
-    "Move to Previous": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Move to Previous"
+    "Go to Previous Bookmark" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go to Previous Bookmark"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "前へ移動"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前のブックマークへ"
           }
         }
       }
     },
-    "Multiple Tabs Are Open": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Multiple Tabs Are Open"
+    "Grant Access" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grant Access"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "複数のタブが開いています"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アクセスを許可"
           }
         }
       }
     },
-    "Name": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Name"
+    "Grant Access to This Folder…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grant Access to This Folder…"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "名前"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このフォルダへのアクセスを許可…"
           }
         }
       }
     },
-    "Next Book": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Next Book"
+    "Granted Folders" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Granted Folders"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "次の本へ"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "許可済みフォルダ"
           }
         }
       }
     },
-    "Next Image": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Next Image"
+    "Hide Progress Bar" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Progress Bar"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "次の画像へ"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プログレスバーを隠す"
           }
         }
       }
     },
-    "Next Image by One": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Next Image by One"
+    "Hide Toolbar" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Toolbar"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1枚だけ次の画像へ"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ツールバーを隠す"
           }
         }
       }
     },
-    "No Scaling": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No Scaling"
+    "High Quality" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "High Quality"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拡大縮小しない"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "高品質"
           }
         }
       }
     },
-    "No bookmarks yet": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No bookmarks yet"
+    "Image Interpolation Quality" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image Interpolation Quality"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブックマークはまだありません"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "画像の補間品質"
           }
         }
       }
     },
-    "No folders have been granted access yet.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No folders have been granted access yet."
+    "Interval: " : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Interval: "
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "まだアクセスを許可したフォルダはありません。"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "間隔: "
           }
         }
       }
     },
-    "No supported images were found. (Supports image folders, zip/cbz, rar/cbr, 7z/cb7, PDF, and EPUB.)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No supported images were found. (Supports image folders, zip/cbz, rar/cbr, 7z/cb7, PDF, and EPUB.)"
+    "Japanese" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Japanese"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "対応する画像が見つかりませんでした(画像フォルダ / zip・cbz / rar・cbr / 7z・cb7 / PDF / EPUBに対応しています)。"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日本語"
           }
         }
       }
     },
-    "Number of Books to Keep Data For: ": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Number of Books to Keep Data For: "
+    "Key & Mouse Bindings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Key & Mouse Bindings"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "データを保持する本の数: "
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "キー・マウス操作"
           }
         }
       }
     },
-    "Open": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open"
+    "Keyboard (each action can have multiple keys)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keyboard (each action can have multiple keys)"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "開く"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "キーボード(1つの操作に複数のキーを割り当てられます)"
           }
         }
       }
     },
-    "Open File in Same Folder": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open File in Same Folder"
+    "Language" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Language"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "同じフォルダのファイルを開く"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "言語"
           }
         }
       }
     },
-    "Open Recent": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Recent"
+    "Left-to-Right" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Left-to-Right"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最近開いたファイルを開く"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左開き"
           }
         }
       }
     },
-    "Open a manga folder, or a\nzip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open a manga folder, or a\nzip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file"
+    "Library Data" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Library Data"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "漫画のフォルダ、または\nzip/cbz・rar/cbr・7z/cb7・PDF・EPUBファイルを\n開いてください"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブラリのデータ"
           }
         }
       }
     },
-    "Open in New Tab…": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open in New Tab…"
+    "Loop" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loop"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいタブで開く…"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ループする"
           }
         }
       }
     },
-    "Open in New Window…": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open in New Window…"
+    "Low Quality (Lightweight)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Low Quality (Lightweight)"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいウインドウで開く…"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "低品質(軽量)"
           }
         }
       }
     },
-    "Open in a New Tab": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open in a New Tab"
+    "Max Upscale: " : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Max Upscale: "
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいタブで開く"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最大拡大率: "
           }
         }
       }
     },
-    "Open in a New Window": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open in a New Window"
+    "Mouse" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mouse"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいウインドウで開く"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "マウス"
           }
         }
       }
     },
-    "Opening from Finder": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opening from Finder"
+    "Move" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Finderから開いたとき"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移動"
           }
         }
       }
     },
-    "Open…": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open…"
+    "Move Left" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move Left"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "開く…"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左へ移動"
           }
         }
       }
     },
-    "Page": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Page"
+    "Move Right" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move Right"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ページ"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右へ移動"
           }
         }
       }
     },
-    "Page ": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Page "
+    "Move to First" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move to First"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ページ "
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "先頭へ移動"
           }
         }
       }
     },
-    "Page List (Total ": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Page List (Total "
+    "Move to Last" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move to Last"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ページ一覧(全"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最後へ移動"
           }
         }
       }
     },
-    "Page Navigation": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Page Navigation"
+    "Move to Next" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move to Next"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ページ移動"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次へ移動"
           }
         }
       }
     },
-    "Page Turning": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Page Turning"
+    "Move to Previous" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move to Previous"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ページ送り"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前へ移動"
           }
         }
       }
     },
-    "Pages to Preload (each side: ": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pages to Preload (each side: "
+    "Multiple Tabs Are Open" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Multiple Tabs Are Open"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "先読みするページ数(前後 各"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "複数のタブが開いています"
           }
         }
       }
     },
-    "Performance": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Performance"
+    "Name" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Name"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パフォーマンス"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前"
           }
         }
       }
     },
-    "Previous Book": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Previous Book"
+    "New Folder" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Folder"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "前の本へ"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規フォルダ"
           }
         }
       }
     },
-    "Previous Image": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Previous Image"
+    "New Folder…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Folder…"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "前の画像へ"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規フォルダ…"
           }
         }
       }
     },
-    "Previous Image by One": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Previous Image by One"
+    "Next Book" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next Book"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1枚だけ前の画像へ"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次の本へ"
           }
         }
       }
     },
-    "Progress Bar": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Progress Bar"
+    "Next Image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next Image"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プログレスバー"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次の画像へ"
           }
         }
       }
     },
-    "Quit": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quit"
+    "Next Image by One" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next Image by One"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "終了"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1枚だけ次の画像へ"
           }
         }
       }
     },
-    "Quit qooViewer when all windows are closed": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quit qooViewer when all windows are closed"
+    "No bookmarks yet" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No bookmarks yet"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべてのウインドウを閉じたときにqooViewerを終了する"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブックマークはまだありません"
           }
         }
       }
     },
-    "Reading": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reading"
+    "No folders have been granted access yet." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No folders have been granted access yet."
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "閲覧"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "まだアクセスを許可したフォルダはありません。"
           }
         }
       }
     },
-    "Remove This Key": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remove This Key"
+    "No Scaling" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Scaling"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このキーの割り当てを外す"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡大縮小しない"
           }
         }
       }
     },
-    "Rename": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rename"
+    "No supported images were found. (Supports image folders, zip/cbz, rar/cbr, 7z/cb7, PDF, and EPUB.)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No supported images were found. (Supports image folders, zip/cbz, rar/cbr, 7z/cb7, PDF, and EPUB.)"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "名前を変更"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "対応する画像が見つかりませんでした(画像フォルダ / zip・cbz / rar・cbr / 7z・cb7 / PDF / EPUBに対応しています)。"
           }
         }
       }
     },
-    "Rename Bookmark": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rename Bookmark"
+    "Not Found" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not Found"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ブックマーク名を変更"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "見つかりません"
           }
         }
       }
     },
-    "Rendering": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rendering"
+    "Number of Books to Keep Data For: " : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Number of Books to Keep Data For: "
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "描画"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "データを保持する本の数: "
           }
         }
       }
     },
-    "Reopening a Book": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reopening a Book"
+    "OK" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本を再度開いたとき"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK"
           }
         }
       }
     },
-    "Reset to Defaults": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reset to Defaults"
+    "Open" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "初期設定に戻す"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開く"
           }
         }
       }
     },
-    "Resume": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Resume"
+    "Open a manga folder, or a\nzip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open a manga folder, or a\nzip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "再開する"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "漫画のフォルダ、または\nzip/cbz・rar/cbr・7z/cb7・PDF・EPUBファイルを\n開いてください"
           }
         }
       }
     },
-    "Resume from Last Page": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Resume from Last Page"
+    "Open File in Same Folder" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open File in Same Folder"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "前回表示したページから再開する"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同じフォルダのファイルを開く"
           }
         }
       }
     },
-    "Resume from where you left off?": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Resume from where you left off?"
+    "Open in a New Tab" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open in a New Tab"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "前回表示したページから再開しますか？"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいタブで開く"
           }
         }
       }
     },
-    "Reverse Order": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reverse Order"
+    "Open in a New Window" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open in a New Window"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "並び順を反転"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいウインドウで開く"
           }
         }
       }
     },
-    "Right-to-Left": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Right-to-Left"
+    "Open in New Tab" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open in New Tab"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右開き"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいタブで開く"
           }
         }
       }
     },
-    "Save": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Save"
+    "Open in New Tab…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open in New Tab…"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいタブで開く…"
           }
         }
       }
     },
-    "Scroll Wheel Down": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scroll Wheel Down"
+    "Open in New Window" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open in New Window"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ホイールを下へ回す"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいウインドウで開く"
           }
         }
       }
     },
-    "Scroll Wheel Up": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scroll Wheel Up"
+    "Open in New Window…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open in New Window…"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ホイールを上へ回す"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいウインドウで開く…"
           }
         }
       }
     },
-    "Select a folder to grant qooViewer access to (e.g. your home folder, an external volume, or a drive's root folder).": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Select a folder to grant qooViewer access to (e.g. your home folder, an external volume, or a drive's root folder)."
+    "Open Recent" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Recent"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "qooViewerにアクセスを許可するフォルダを選んでください(例: ホームフォルダ、外部ボリューム、ドライブのルートフォルダなど)。"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近開いたファイルを開く"
           }
         }
       }
     },
-    "Sepia": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sepia"
+    "Open…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open…"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "セピア"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開く…"
           }
         }
       }
     },
-    "Shift One Page Left": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shift One Page Left"
+    "Opening a Favorite" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening a Favorite"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1ページだけ左へ移動"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入りを開くとき"
           }
         }
       }
     },
-    "Shift One Page Left (to adjust misaligned spread pairs)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shift One Page Left (to adjust misaligned spread pairs)"
+    "Opening from Finder" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening from Finder"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1ページだけ左へ移動(見開きのページの組み合わせがずれたときの調整用)"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finderから開いたとき"
           }
         }
       }
     },
-    "Shift One Page Right": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shift One Page Right"
+    "Page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Page"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1ページだけ右へ移動"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページ"
           }
         }
       }
     },
-    "Shift One Page Right (to adjust misaligned spread pairs)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shift One Page Right (to adjust misaligned spread pairs)"
+    "Page " : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Page "
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1ページだけ右へ移動(見開きのページの組み合わせがずれたときの調整用)"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページ "
           }
         }
       }
     },
-    "Shift One Page to Next": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shift One Page to Next"
+    "Page List (Total " : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Page List (Total "
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1ページだけ次へ移動"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページ一覧(全"
           }
         }
       }
     },
-    "Shift One Page to Previous": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shift One Page to Previous"
+    "Page Navigation" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Page Navigation"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1ページだけ前へ移動"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページ移動"
           }
         }
       }
     },
-    "Show Left Page at Actual Size": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Left Page at Actual Size"
+    "Page Turning" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Page Turning"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "左ページを実寸表示"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページ送り"
           }
         }
       }
     },
-    "Show Page Grid": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Page Grid"
+    "Pages to Preload (each side: " : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pages to Preload (each side: "
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ページ一覧を表示"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "先読みするページ数(前後 各"
           }
         }
       }
     },
-    "Show Right Page at Actual Size": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Right Page at Actual Size"
+    "Performance" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Performance"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右ページを実寸表示"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "パフォーマンス"
           }
         }
       }
     },
-    "Show Thumbnail Preview When Hovering the Progress Bar": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Thumbnail Preview When Hovering the Progress Bar"
+    "Previous Book" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Previous Book"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プログレスバーにカーソルを合わせたときにサムネイルプレビューを表示する"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前の本へ"
           }
         }
       }
     },
-    "Slideshow": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Slideshow"
+    "Previous Image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Previous Image"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "スライドショー"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前の画像へ"
           }
         }
       }
     },
-    "Spread": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spread"
+    "Previous Image by One" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Previous Image by One"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "見開き"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1枚だけ前の画像へ"
           }
         }
       }
     },
-    "Spread Display": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spread Display"
+    "Progress Bar" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Progress Bar"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "見開き表示"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プログレスバー"
           }
         }
       }
     },
-    "Standard": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Standard"
+    "Quit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quit"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "標準"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "終了"
           }
         }
       }
     },
-    "Start from Beginning": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Start from Beginning"
+    "Quit qooViewer when all windows are closed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quit qooViewer when all windows are closed"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最初から表示する"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべてのウインドウを閉じたときにqooViewerを終了する"
           }
         }
       }
     },
-    "Start from the Beginning if Last Page Was Reached": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Start from the Beginning if Last Page Was Reached"
+    "Reading" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "前回最後のページを表示した場合は最初から表示する"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "閲覧"
           }
         }
       }
     },
-    "Start in full screen": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Start in full screen"
+    "Recent Favorites" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recent Favorites"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "起動時にフルスクリーンにする"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近のお気に入り"
           }
         }
       }
     },
-    "Start/Stop Slideshow": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Start/Stop Slideshow"
+    "Recent Files" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recent Files"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "スライドショー開始/停止"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最近開いたファイル"
           }
         }
       }
     },
-    "Startup": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Startup"
+    "Remove" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "起動"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "削除"
           }
         }
       }
     },
-    "Switch Reading Direction": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Switch Reading Direction"
+    "Remove from Favorites" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove from Favorites"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右開き/左開き切替"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入りから削除"
           }
         }
       }
     },
-    "Tabs": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tabs"
+    "Remove from Favorites?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove from Favorites?"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "タブ"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入りから削除しますか?"
           }
         }
       }
     },
-    "The book could not be opened.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The book could not be opened."
+    "Remove This Key" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove This Key"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "本を開けませんでした。"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このキーの割り当てを外す"
           }
         }
       }
     },
-    "The file or folder could not be found.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The file or folder could not be found."
+    "Rename" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイルまたはフォルダが見つかりませんでした。"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前を変更"
           }
         }
       }
     },
-    "This EPUB doesn't appear to be an image-based comic (fixed-layout) book, so it couldn't be opened. Text-based reflowable EPUBs and DRM-protected EPUBs are not supported.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This EPUB doesn't appear to be an image-based comic (fixed-layout) book, so it couldn't be opened. Text-based reflowable EPUBs and DRM-protected EPUBs are not supported."
+    "Rename Bookmark" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename Bookmark"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このEPUBは画像ベースの固定レイアウトコミックではないため開けませんでした。文章主体のリフロー型EPUB、およびDRM付きEPUBには対応していません。"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブックマーク名を変更"
           }
         }
       }
     },
-    "This window has multiple tabs open. Are you sure you want to close it?": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This window has multiple tabs open. Are you sure you want to close it?"
+    "Rename Folder" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename Folder"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "複数のタブが開いていますが、本当に閉じてもよろしいですか？"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダ名を変更"
           }
         }
       }
     },
-    "Threshold for Single-Page Wide Images (Width ÷ Height): ": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Threshold for Single-Page Wide Images (Width ÷ Height): "
+    "Rendering" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rendering"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "単ページ表示にする横長画像のしきい値(横÷縦): "
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "描画"
           }
         }
       }
     },
-    "Time Until Hidden: ": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Time Until Hidden: "
+    "Reopening a Book" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reopening a Book"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "非表示にするまでの時間: "
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を再度開いたとき"
           }
         }
       }
     },
-    "To show files in the same folder, please select and grant access to this folder.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "To show files in the same folder, please select and grant access to this folder."
+    "Reset to Defaults" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset to Defaults"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "同じフォルダのファイルを表示するには、このフォルダを選んでアクセスを許可してください。"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "初期設定に戻す"
           }
         }
       }
     },
-    "Toggle Reading Direction": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Reading Direction"
+    "Resume" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resume"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "右開き / 左開き切り替え"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "再開する"
           }
         }
       }
     },
-    "Toggle Spread / Single Page": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Spread / Single Page"
+    "Resume from Last Page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resume from Last Page"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "見開き / 単ページ切り替え"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前回表示したページから再開する"
           }
         }
       }
     },
-    "Toggle Spread/Single Page": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Toggle Spread/Single Page"
+    "Resume from where you left off?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resume from where you left off?"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "見開き/単ページ切替"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前回表示したページから再開しますか？"
           }
         }
       }
     },
-    "Turn pages using trackpad flicks": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turn pages using trackpad flicks"
+    "Reverse Order" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reverse Order"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "トラックパッドでのページ送りはフリックを使用する"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "並び順を反転"
           }
         }
       }
     },
-    "View": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "View"
+    "Right-to-Left" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Right-to-Left"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "表示"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右開き"
           }
         }
       }
     },
-    "When Reopening a Previously Read Book": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "When Reopening a Previously Read Book"
+    "Save" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Save"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "以前開いたことのある本を再度開いたとき"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存"
           }
         }
       }
     },
-    "When qooViewer Already Has a Book Open": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "When qooViewer Already Has a Book Open"
+    "Scroll Wheel Down" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll Wheel Down"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "qooViewerが既に本を表示している場合"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホイールを下へ回す"
           }
         }
       }
     },
-    "White": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "White"
+    "Scroll Wheel Up" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll Wheel Up"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "白"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホイールを上へ回す"
           }
         }
       }
     },
-    "You can also open by dragging and dropping here": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "You can also open by dragging and dropping here"
+    "Select a folder to grant qooViewer access to (e.g. your home folder, an external volume, or a drive's root folder)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select a folder to grant qooViewer access to (e.g. your home folder, an external volume, or a drive's root folder)."
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ここにドラッグ&ドロップしても開けます"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewerにアクセスを許可するフォルダを選んでください(例: ホームフォルダ、外部ボリューム、ドライブのルートフォルダなど)。"
           }
         }
       }
     },
-    "Shortcut Already In Use": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shortcut Already In Use"
+    "Sepia" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sepia"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このショートカットは既に使用されています"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "セピア"
           }
         }
       }
     },
-    "“": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "“"
+    "Shift One Page Left" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shift One Page Left"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1ページだけ左へ移動"
           }
         }
       }
     },
-    "” is already assigned to “": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "” is already assigned to “"
+    "Shift One Page Left (to adjust misaligned spread pairs)" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shift One Page Left (to adjust misaligned spread pairs)"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "」は既に「"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1ページだけ左へ移動(見開きのページの組み合わせがずれたときの調整用)"
           }
         }
       }
     },
-    "”.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "”."
+    "Shift One Page Right" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shift One Page Right"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "」に割り当て済みです。"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1ページだけ右へ移動"
           }
         }
       }
     },
-    "Untitled Folder": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Untitled Folder"
+    "Shift One Page Right (to adjust misaligned spread pairs)" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shift One Page Right (to adjust misaligned spread pairs)"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "無題のフォルダ"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1ページだけ右へ移動(見開きのページの組み合わせがずれたときの調整用)"
           }
         }
       }
     },
-    "Favorites (Top Level)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Favorites (Top Level)"
+    "Shift One Page to Next" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shift One Page to Next"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "お気に入り"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1ページだけ次へ移動"
           }
         }
       }
     },
-    "Add to Favorites": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add to Favorites"
+    "Shift One Page to Previous" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shift One Page to Previous"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "お気に入りに追加"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1ページだけ前へ移動"
           }
         }
       }
     },
-    "Add": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add"
+    "Shortcut Already In Use" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shortcut Already In Use"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "追加"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このショートカットは既に使用されています"
           }
         }
       }
     },
-    "New Folder…": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New Folder…"
+    "Show Favorites List" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Favorites List"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新規フォルダ…"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入り一覧を表示"
           }
         }
       }
     },
-    "New Folder": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "New Folder"
+    "Show Left Page at Actual Size" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Left Page at Actual Size"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新規フォルダ"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左ページを実寸表示"
           }
         }
       }
     },
-    "Create": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Create"
+    "Show Page Grid" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Page Grid"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "作成"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページ一覧を表示"
           }
         }
       }
+    },
+    "Show Recent Favorites" : {
+      "comment" : "A toggle that shows the user's recently added favorites on the welcome screen.",
+      "isCommentAutoGenerated" : true
     },
-    "Cannot Create Folder": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cannot Create Folder"
+    "Show Recent Files" : {
+      "comment" : "A toggle that shows the user's recently opened files on the welcome screen.",
+      "isCommentAutoGenerated" : true
+    },
+    "Show Right Page at Actual Size" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Right Page at Actual Size"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フォルダを作成できません"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右ページを実寸表示"
           }
         }
       }
     },
-    "OK": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK"
+    "Show Thumbnail Preview When Hovering the Progress Bar" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Thumbnail Preview When Hovering the Progress Bar"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OK"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プログレスバーにカーソルを合わせたときにサムネイルプレビューを表示する"
           }
         }
       }
     },
-    "Already in Favorites": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Already in Favorites"
+    "Slideshow" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slideshow"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すでにお気に入りに登録されています"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スライドショー"
           }
         }
       }
     },
-    "Add Anyway": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add Anyway"
+    "Spread" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spread"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "それでも追加"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "見開き"
           }
         }
       }
     },
-    "Could Not Add to Favorites": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Could Not Add to Favorites"
+    "Spread Display" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Spread Display"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "お気に入りに追加できませんでした"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "見開き表示"
           }
         }
       }
     },
-    "The favorite could not be registered.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The favorite could not be registered."
+    "Standard" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Standard"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "お気に入りを登録できませんでした。"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "標準"
           }
         }
       }
     },
-    "This book is already in “": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This book is already in “"
+    "Start from Beginning" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start from Beginning"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "この本はすでに「"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最初から表示する"
           }
         }
       }
     },
-    "”. Add it here as well?": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "”. Add it here as well?"
+    "Start from the Beginning if Last Page Was Reached" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start from the Beginning if Last Page Was Reached"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "」に登録されています。ここにも追加しますか?"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前回最後のページを表示した場合は最初から表示する"
           }
         }
       }
     },
-    "(No Favorites)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "(No Favorites)"
+    "Start in full screen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start in full screen"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "(お気に入りなし)"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "起動時にフルスクリーンにする"
           }
         }
       }
     },
-    "(Empty)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "(Empty)"
+    "Start/Stop Slideshow" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start/Stop Slideshow"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "(空)"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スライドショー開始/停止"
           }
         }
       }
     },
-    "Open in New Window": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open in New Window"
+    "Startup" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Startup"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいウインドウで開く"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "起動"
           }
         }
       }
     },
-    "Open in New Tab": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open in New Tab"
+    "Switch Reading Direction" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switch Reading Direction"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "新しいタブで開く"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右開き/左開き切替"
           }
         }
       }
     },
-    "Favorites": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Favorites"
+    "Tabs" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tabs"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "お気に入り"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タブ"
           }
         }
       }
     },
-    "Not Found": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Not Found"
+    "The book could not be opened." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The book could not be opened."
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "見つかりません"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を開けませんでした。"
           }
         }
       }
     },
-    "Remove from Favorites": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remove from Favorites"
+    "The favorite could not be registered." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The favorite could not be registered."
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "お気に入りから削除"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入りを登録できませんでした。"
           }
         }
       }
     },
-    "Rename Folder": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rename Folder"
+    "The file or folder could not be found." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The file or folder could not be found."
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フォルダ名を変更"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルまたはフォルダが見つかりませんでした。"
           }
         }
       }
     },
-    "Delete Folder?": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete Folder?"
+    "The file or folder for “" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The file or folder for “"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フォルダを削除しますか?"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「"
           }
         }
       }
     },
-    "This also deletes any subfolders and favorites inside it.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This also deletes any subfolders and favorites inside it."
+    "This also deletes any subfolders and favorites inside it." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This also deletes any subfolders and favorites inside it."
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "中のサブフォルダとお気に入りもすべて削除されます。"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中のサブフォルダとお気に入りもすべて削除されます。"
           }
         }
       }
     },
-    "Remove from Favorites?": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remove from Favorites?"
+    "This book is already in “" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This book is already in “"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "お気に入りから削除しますか?"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この本はすでに「"
           }
         }
       }
     },
-    "Remove": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remove"
+    "This EPUB doesn't appear to be an image-based comic (fixed-layout) book, so it couldn't be opened. Text-based reflowable EPUBs and DRM-protected EPUBs are not supported." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This EPUB doesn't appear to be an image-based comic (fixed-layout) book, so it couldn't be opened. Text-based reflowable EPUBs and DRM-protected EPUBs are not supported."
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "削除"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このEPUBは画像ベースの固定レイアウトコミックではないため開けませんでした。文章主体のリフロー型EPUB、およびDRM付きEPUBには対応していません。"
           }
         }
       }
     },
-    "Add to Favorites…": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add to Favorites…"
+    "This window has multiple tabs open. Are you sure you want to close it?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This window has multiple tabs open. Are you sure you want to close it?"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "お気に入りに追加…"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "複数のタブが開いていますが、本当に閉じてもよろしいですか？"
           }
         }
       }
     },
-    "Show Favorites List": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Favorites List"
+    "Threshold for Single-Page Wide Images (Width ÷ Height): " : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Threshold for Single-Page Wide Images (Width ÷ Height): "
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "お気に入り一覧を表示"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "単ページ表示にする横長画像のしきい値(横÷縦): "
           }
         }
       }
     },
-    "Recent Files": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recent Files"
+    "Time Until Hidden: " : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Time Until Hidden: "
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最近開いたファイル"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "非表示にするまでの時間: "
           }
         }
       }
     },
-    "Recent Favorites": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recent Favorites"
+    "To show files in the same folder, please select and grant access to this folder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "To show files in the same folder, please select and grant access to this folder."
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "最近のお気に入り"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同じフォルダのファイルを表示するには、このフォルダを選んでアクセスを許可してください。"
           }
         }
       }
     },
-    "Favorite Not Found": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Favorite Not Found"
+    "Toggle Reading Direction" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toggle Reading Direction"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "お気に入りが見つかりません"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右開き / 左開き切り替え"
           }
         }
       }
     },
-    "The file or folder for “": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The file or folder for “"
+    "Toggle Spread / Single Page" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toggle Spread / Single Page"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "見開き / 単ページ切り替え"
           }
         }
       }
     },
-    "” could not be found. It may have been moved or deleted.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "” could not be found. It may have been moved or deleted."
+    "Toggle Spread/Single Page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toggle Spread/Single Page"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "」のファイルまたはフォルダが見つかりませんでした。移動または削除された可能性があります。"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "見開き/単ページ切替"
           }
         }
       }
     },
-    "Add Current Book to Favorites…": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add Current Book to Favorites…"
+    "Turn pages using trackpad flicks" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn pages using trackpad flicks"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "現在の本をお気に入りに追加…"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "トラックパッドでのページ送りはフリックを使用する"
           }
         }
       }
     },
-    "Favorites List": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Favorites List"
+    "Untitled Folder" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Untitled Folder"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "お気に入り一覧"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無題のフォルダ"
           }
         }
       }
     },
-    "(No Bookmarks)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "(No Bookmarks)"
+    "View" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "View"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "(ブックマークなし)"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示"
           }
         }
       }
+    },
+    "Welcome Screen" : {
+      "comment" : "A section in the general settings for the welcome screen.",
+      "isCommentAutoGenerated" : true
     },
-    "You can register up to %d favorites in total.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "You can register up to %d favorites in total."
+    "When qooViewer Already Has a Book Open" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When qooViewer Already Has a Book Open"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "お気に入りは合計で最大%d件まで登録できます。"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewerが既に本を表示している場合"
           }
         }
       }
     },
-    "Favorite folders can be nested up to %d levels deep.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Favorite folders can be nested up to %d levels deep."
+    "When Reopening a Previously Read Book" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When Reopening a Previously Read Book"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "お気に入りフォルダの階層は最大%d階層までです。"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以前開いたことのある本を再度開いたとき"
           }
         }
       }
     },
-    "Edit Favorites…": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Edit Favorites…"
+    "White" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "White"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "お気に入りの編集…"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "白"
           }
         }
       }
     },
-    "Edit Favorites": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Edit Favorites"
+    "You can also open by dragging and dropping here" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You can also open by dragging and dropping here"
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "お気に入りの編集"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ここにドラッグ&ドロップしても開けます"
           }
         }
       }
     },
-    "Opening a Favorite": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opening a Favorite"
+    "You can register up to %d favorites in total." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You can register up to %d favorites in total."
           }
         },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "お気に入りを開くとき"
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入りは合計で最大%d件まで登録できます。"
           }
         }
       }
     }
   },
-  "version": "1.0"
+  "version" : "1.1"
 }

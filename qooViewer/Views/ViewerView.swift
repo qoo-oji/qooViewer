@@ -55,6 +55,20 @@ struct ViewerView: View {
     /// どうか。フルスクリーン中、またはウインドウ表示でもhideToolbar/hideProgressBarが
     /// ONのときに使われる(自動隠しが有効でないときは常にtrue相当として扱う。bodyの表示条件参照)。
     @State private var isAutoHiddenChromeRevealed = true
+    /// 自動隠し中のツールバーの「下端」の位置(NSEvent.locationInWindowと同じ、ウインドウ座標系での
+    /// Y座標)。updateAutoHiddenChromeVisibilityでのマウス位置判定に使う。
+    /// 以前は「window.contentView.frame.heightからツールバーの高さを引く」形で上端の位置を
+    /// 逆算していたが、タイトルバーの実装の都合でこのcontentHeightが実際のツールバーの表示位置と
+    /// 微妙にズレることがあり、ツールバーの上のほう(ボタンの上端付近)にカーソルがあるうちは
+    /// 表示されるのに、少し下(ボタンの下半分など)に動かすと反応領域から外れて隠れてしまう
+    /// 不具合があった。WindowYPositionAccessor(下記)を使ってAppKit自身に「このビュー(=実際に
+    /// 表示されているツールバーの下端)はウインドウ座標系のどこにあるか」を直接教えてもらう形に
+    /// することで、タイトルバー・タブバーの実装詳細によらず正確な位置を得られるようにしている。
+    @State private var toolbarBottomYInWindow: CGFloat = 0
+    /// プログレスバー(ProgressBarView)の実際の描画済みの高さ。自動隠し中に
+    /// マウスを下端へ近づけたときの「反応する領域」の判定(updateAutoHiddenChromeVisibility)に、
+    /// 固定値ではなくこの実測値を使う。
+    @State private var progressBarHeight: CGFloat = 60
     /// NSWindow.didEnterFullScreenNotification / didExitFullScreenNotification /
     /// didResignKeyNotification のオブザーバートークン。onDisappearで確実に解除するために保持する。
     @State private var windowObservers: [NSObjectProtocol] = []
@@ -97,6 +111,7 @@ struct ViewerView: View {
                     }
                 if !progressBarAutoHides {
                     ProgressBarView(viewModel: viewModel)
+                        .measuringHeight(into: $progressBarHeight)
                 }
             }
 
@@ -104,6 +119,16 @@ struct ViewerView: View {
                 VStack(spacing: 0) {
                     toolbar
                         .background(.ultraThinMaterial)
+                        // ツールバー(実際に表示されている帯)の下端が、ウインドウ座標系の
+                        // どのY座標にあるかを実測する。この位置より上にマウスがあれば
+                        // (=ツールバーの表示領域全体のどこであれ)表示を維持する
+                        // (updateAutoHiddenChromeVisibility参照)。
+                        .overlay(alignment: .bottom) {
+                            WindowYPositionAccessor { y in
+                                toolbarBottomYInWindow = y
+                            }
+                            .frame(height: 0)
+                        }
                     Spacer(minLength: 0)
                 }
                 .opacity(showToolbarOverlay ? 1 : 0)
@@ -115,6 +140,7 @@ struct ViewerView: View {
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
                     ProgressBarView(viewModel: viewModel)
+                        .measuringHeight(into: $progressBarHeight)
                         .background(.ultraThinMaterial)
                 }
                 .opacity(showProgressBarOverlay ? 1 : 0)
@@ -903,20 +929,19 @@ struct ViewerView: View {
     /// 書き換える(過去のプログレスバーの不具合の反省を踏まえた安全策)。
     private func updateAutoHiddenChromeVisibility(forMouseLocationInWindow location: CGPoint) {
         guard isFullScreen || appState.hideToolbar || appState.hideProgressBar,
-              let window = hostWindow else { return }
-        // 上端の判定には、ウインドウ全体の高さ(window.frame.height)ではなく、タイトルバー・
-        // タブバーを除いた実際のコンテンツ領域の高さ(contentView.frame.height)を使う。
-        // タブバーが表示されているとき、AppKitはcontentViewの高さをタブバーの分だけ自動的に
-        // 縮めてくれる(ツールバー自体もSwiftUI側で自動的にその位置に描画される)ため、この値を
-        // 基準にすれば、タブバーの有無を個別に判定しなくても「マウスが実際のツールバー付近に
-        // あるか」を正しく判定できる。
-        // 以前はwindow.frame.heightを基準にしていたため、タブバー表示時は実際のツールバーの
-        // 位置がその分下にずれるのに判定側の基準がずれず、ツールバーに向けてマウスを動かしただけで
-        // ホットゾーンから外れて隠れてしまう不具合があった(下端の判定はタブバーの影響を受けないため
-        // location.y < edgeThresholdのまま変更していない)。
-        let contentHeight = window.contentView?.frame.height ?? window.frame.height
-        let edgeThreshold: CGFloat = 60
-        let shouldShow = location.y > contentHeight - edgeThreshold || location.y < edgeThreshold
+              hostWindow != nil else { return }
+        // 上端(ツールバー側)の判定には、window.contentView.frame.heightからツールバーの高さを
+        // 引いて逆算する方式は使わない。タイトルバーの実装の都合でcontentHeightが実際の
+        // ツールバーの表示位置と微妙にズレることがあり(タブバーの有無による影響とは別の要因)、
+        // ツールバーの上のほうにカーソルがあるうちは表示されるのに、少し下(ボタンの下半分など)に
+        // 動かすと反応領域から外れて隠れてしまう不具合があったため。代わりに、
+        // toolbarBottomYInWindow(実際に表示されているツールバーの下端の、ウインドウ座標系での
+        // Y座標。WindowYPositionAccessor経由でAppKitから直接取得。タイトルバー・タブバーの
+        // 表示有無による位置のズレも自動的に反映される)より上にマウスがあるかどうかで判定する。
+        // 下端(プログレスバー側)は、ウインドウ座標系の原点(y=0)がそのままウインドウ最下端に
+        // 対応するため、実測したプログレスバーの高さ(progressBarHeight)とlocation.yを
+        // そのまま比較すればよい。
+        let shouldShow = location.y >= toolbarBottomYInWindow || location.y < progressBarHeight
         if isAutoHiddenChromeRevealed != shouldShow {
             isAutoHiddenChromeRevealed = shouldShow
         }
@@ -1123,6 +1148,20 @@ struct ViewerView: View {
     }
 }
 
+private extension View {
+    /// このビューが実際に描画された高さを、渡されたBindingへ書き込み続ける。自動隠し中の
+    /// プログレスバーで、「マウスが近づいたら表示する」判定の反応領域(しきい値)を、
+    /// 固定値ではなく実際の表示サイズに追従させるために使う(progressBarHeightの
+    /// コメント、updateAutoHiddenChromeVisibility参照)。
+    func measuringHeight(into height: Binding<CGFloat>) -> some View {
+        onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { newHeight in
+            height.wrappedValue = newHeight
+        }
+    }
+}
+
 /// SwiftUIのView階層から、それを表示しているNSWindowを取得するためのヘルパー。
 /// 自身は何も描画しない透明な1x1のNSViewを差し込み、それがウインドウに追加された
 /// タイミング(makeNSView/updateNSViewの両方)でwindowプロパティを読み取ってコールバックする。
@@ -1145,5 +1184,64 @@ struct WindowAccessor: NSViewRepresentable {
         DispatchQueue.main.async {
             onResolve(nsView.window)
         }
+    }
+}
+
+/// 取り付けた場所(自身の原点)が、ウインドウ座標系(NSEvent.locationInWindowと同じ基準。
+/// 原点はウインドウ最下端、Y座標は上に行くほど大きい)のどこにあるかをコールバックで報告する、
+/// 何も描画しない高さ0のヘルパービュー。
+///
+/// ツールバー自動隠しの「マウスが近づいたら表示する」判定(updateAutoHiddenChromeVisibility)で、
+/// 実際に表示されているツールバーの下端の位置を正確に知るために使う。以前は
+/// window.contentView.frame.height(ウインドウのコンテンツ領域の高さ)からツールバーの高さを
+/// 引いて逆算していたが、タイトルバーの実装の都合でこのcontentHeightが実際のツールバーの
+/// 表示位置と微妙にズレることがあった。convert(_:to:)はAppKit自身がイベント配信にも使っている
+/// のと同じ座標変換なので、タイトルバー・タブバーの表示有無やスタイルの実装詳細によらず、
+/// NSEvent.locationInWindowと直接比較できる正確な位置が得られる。
+private struct WindowYPositionAccessor: NSViewRepresentable {
+    let onChange: (CGFloat) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = WindowYPositionReportingView()
+        view.onPositionChange = onChange
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let view = nsView as? WindowYPositionReportingView else { return }
+        view.onPositionChange = onChange
+        // SwiftUI側のレイアウト変更(ウインドウのリサイズ、タブバーの表示切り替えなど)で
+        // このビューの位置が動いたときに、AppKitのlayout()が呼ばれるより前にここへ来ることが
+        // あるため、念のため次のランループで再度位置を報告しておく
+        // (WindowAccessorのDispatchQueue.main.asyncパターンにならった保険)。
+        DispatchQueue.main.async {
+            view.reportPosition()
+        }
+    }
+}
+
+/// WindowYPositionAccessorが差し込む実際のNSView。自身がウインドウに追加されたとき
+/// (viewDidMoveToWindow)、または自身の位置・サイズが変わったとき(layout。ウインドウの
+/// リサイズやタブバーの表示切り替えによる再レイアウトを含む)に、自動的に位置を再報告する。
+private final class WindowYPositionReportingView: NSView {
+    var onPositionChange: ((CGFloat) -> Void)?
+
+    override func layout() {
+        super.layout()
+        reportPosition()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        reportPosition()
+    }
+
+    func reportPosition() {
+        guard window != nil else { return }
+        // 自身のbounds原点(左下)を、ウインドウ座標系(NSEvent.locationInWindowと同じ基準)へ
+        // 変換する。このビューは高さ0で置いているので、この点がそのままツールバーの下端の
+        // Y座標になる。
+        let pointInWindow = convert(NSPoint.zero, to: nil)
+        onPositionChange?(pointInWindow.y)
     }
 }
