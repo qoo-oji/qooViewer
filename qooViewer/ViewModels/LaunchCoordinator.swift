@@ -29,6 +29,30 @@ final class LaunchCoordinator: ObservableObject {
     /// (明示的なunregisterは行わない)。
     private var openAppStates: [WeakAppStateBox] = []
 
+    /// 本を表示しているウインドウ(ContentView)のうち、最後にキーウインドウになったもののAppState。
+    /// 「お気に入りの整理」ウインドウの「現在の本を追加」ボタン、および「ブックマークの編集」
+    /// ウインドウ(どちらも特定の本のウインドウには属さない独立ウインドウ)が、
+    /// 「今読んでいる本」を特定するために参照する。
+    ///
+    /// @Publishedとweakは同時に付けられない(Swiftの制約)ため、このプロパティ自体は
+    /// 素のweak varにしておき、更新はsetActiveBookAppState(_:)経由でのみ行う。その中で
+    /// objectWillChange.send()を手動で発行することで、これを@ObservedObject/@EnvironmentObjectで
+    /// 観測しているSwiftUI側にも変化が伝わるようにしている。
+    ///
+    /// 「お気に入りの整理」「ブックマークの編集」自身がキーウインドウになってもこの値は
+    /// 変わらない(本を表示しているウインドウ(ContentView)がキーウインドウになったときだけ
+    /// ViewerView.setUpWindowObserversから更新されるため)。そのため、「ブックマークの編集」を
+    /// 開いた後にそのウインドウを操作していても、直前まで読んでいた本の内容を表示し続けられる。
+    private(set) weak var activeBookAppState: AppState?
+
+    /// activeBookAppStateを更新する。同じインスタンスなら何もしない(不要なobjectWillChange
+    /// 発行を避ける)。
+    func setActiveBookAppState(_ appState: AppState) {
+        guard activeBookAppState !== appState else { return }
+        objectWillChange.send()
+        activeBookAppState = appState
+    }
+
     /// このウインドウ/タブのAppStateを、開いているウインドウの一覧に登録する。
     /// ContentView.onAppearで、このウインドウ/タブが正当なものと確認できた時点
     /// (isConfirmedLegitimateWindow参照)で呼ぶ。
@@ -44,6 +68,17 @@ final class LaunchCoordinator: ObservableObject {
     func openAppState(forBookAt url: URL) -> AppState? {
         openAppStates.removeAll { $0.appState == nil }
         return openAppStates.first { $0.appState?.currentBook?.sourceURL.path == url.path }?.appState
+    }
+
+    /// 指定したbookID(MangaBook.id、フォルダ/アーカイブファイルのパスと同じ文字列)の本を
+    /// すでに開いているウインドウ/タブがあれば、そのAppStateを返す。「ブックマークの編集」
+    /// ウインドウ(BookmarkStore)が、左ペインで選択中の本が今開いているかどうか
+    /// (開いていればジャンプ・「Add Current Page」ボタンを有効化できる)を判定するために使う。
+    /// openAppState(forBookAt:)と役割は同じだが、こちらはURLではなくbookID文字列を直接比較する
+    /// (MangaBook.id自体がパス文字列そのものであるため、URLを介さず直接比較できる)。
+    func openAppState(forBookID bookID: String) -> AppState? {
+        openAppStates.removeAll { $0.appState == nil }
+        return openAppStates.first { $0.appState?.currentBook?.id == bookID }?.appState
     }
 }
 

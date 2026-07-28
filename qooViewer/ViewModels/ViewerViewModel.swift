@@ -33,6 +33,11 @@ final class ViewerViewModel: ObservableObject {
     private let readingState: BookReadingState
     private let pageLoader: PageLoader
     private let preferences: AppPreferences
+    /// 「ブックマークの編集」ウインドウ(BookmarkStore、この本を今開いていなくても操作できる
+    /// 独立ウインドウ)側でこの本のブックマークが変更されたときに、自分のbookmarks配列を
+    /// 読み直すための監視トークン。詳細はBookmark.swiftのNotification.Name.bookmarksDidChange
+    /// のコメント参照。
+    private var bookmarksChangeObserver: NSObjectProtocol?
 
     /// 非同期の読み込みが完了したとき、それが「一番新しいリクエストか」を判定するための世代番号。
     /// 素早くページ送りされたときに、古い読み込みが後から完了して表示を巻き戻すのを防ぐ。
@@ -173,6 +178,26 @@ final class ViewerViewModel: ObservableObject {
             await self?.loadCurrentSpread()
         }
         reloadBookmarks()
+
+        // 「ブックマークの編集」ウインドウは本のウインドウとは独立しているため、そちらで
+        // この本のブックマークが削除・リネームされても、このViewerViewModelは何もしなければ
+        // 気づけない。bookIDが一致する変更だけを拾って読み直す(BookmarkStoreのコメント参照)。
+        // userInfoに"bookID"が無い通知(BookmarkStore.deleteAllBookmarks()による全件リセット。
+        // 環境設定「リセット」タブ参照)は、本を問わず常に読み直す対象として扱う。
+        let ownBookID = bookID
+        bookmarksChangeObserver = NotificationCenter.default.addObserver(
+            forName: .bookmarksDidChange, object: nil, queue: .main
+        ) { [weak self] notification in
+            let changedBookID = notification.userInfo?["bookID"] as? String
+            guard changedBookID == nil || changedBookID == ownBookID else { return }
+            self?.reloadBookmarks()
+        }
+    }
+
+    deinit {
+        if let bookmarksChangeObserver {
+            NotificationCenter.default.removeObserver(bookmarksChangeObserver)
+        }
     }
 
     /// 「前回表示したページから再開しますか?」の確認ダイアログへの回答を反映する。
@@ -402,6 +427,9 @@ final class ViewerViewModel: ObservableObject {
     }
 
     func addBookmark() {
+        // 同じページに対するブックマークが既にある場合は、重複して追加しない(要望)。
+        // bookmarksはreloadBookmarks()で都度読み直しているため、ここでの判定は常に最新の状態を見る。
+        guard !bookmarks.contains(where: { $0.pageIndex == currentIndex }) else { return }
         // ブックマークの名前(SwiftDataに永続化される実データ)は、後から表示言語を切り替えても
         // 変わらない「作成時点の言語」で作られる。作成時点の表示言語設定(preferences.effectiveLocale)を
         // 使ってその場で解決することで、システム言語とは独立したアプリ内表示言語にも対応する。
@@ -410,20 +438,21 @@ final class ViewerViewModel: ObservableObject {
         modelContext.insert(bookmark)
         try? modelContext.save()
         reloadBookmarks()
+        postBookmarksDidChange()
     }
 
-    func removeBookmark(_ bookmark: Bookmark) {
-        modelContext.delete(bookmark)
-        try? modelContext.save()
-        reloadBookmarks()
-    }
+    // 以前はここに削除(removeBookmark)・リネーム(renameBookmark)もあったが、「ブックマークの
+    // 編集」ウインドウがすべての本を横断する構成になり、BookmarkStore.delete(_:)/
+    // rename(_:to:)がSwiftDataを直接操作するようになったため(本を開いているかどうかに関わらず
+    // 操作できる必要があるため)、これらは不要になり削除した。この本を今開いている間の反映は
+    // 上のbookmarksChangeObserverが担う。
 
-    func renameBookmark(_ bookmark: Bookmark, to newName: String) {
-        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        bookmark.name = trimmed
-        try? modelContext.save()
-        reloadBookmarks()
+    /// 「ブックマークの編集」ウインドウ(横断的に全ての本を扱うBookmarkStore)側にも、この本の
+    /// ブックマークが変更されたことを伝える。自分自身が投げた通知を上のbookmarksChangeObserverで
+    /// 再度受け取ることになるが、reloadBookmarks()をもう一度呼ぶだけの無害な重複であるため、
+    /// あえて自分自身を除外する仕組みは設けていない。
+    private func postBookmarksDidChange() {
+        NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": book.id])
     }
 
     func jump(to bookmark: Bookmark) {

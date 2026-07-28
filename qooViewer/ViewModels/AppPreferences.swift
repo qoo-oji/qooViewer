@@ -32,7 +32,6 @@ final class AppPreferences: ObservableObject {
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
         static let showRecentFilesOnWelcome = "qooViewer.pref.showRecentFilesOnWelcome"
         static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
-        static let bookmarkSortOption = "qooViewer.pref.bookmarkSortOption"
     }
 
     /// 入力ファイルなしで起動した場合(Finderでの直接オープンやDockアイコンへの
@@ -177,14 +176,10 @@ final class AppPreferences: ObservableObject {
             UserDefaults.standard.set(showRecentFavoritesOnWelcome, forKey: Keys.showRecentFavoritesOnWelcome)
         }
     }
-    /// ブックマーク一覧画面(BookmarkListView)の並べ替え基準(既定はページ番号の昇順。
-    /// この機能を追加する前からの、従来通りの表示順)。
-    /// お気に入りのFavoritesStore.sortOptionと違い、ブックマークは本を開くたびに
-    /// ViewerViewModelが本ごとに読み込み直す一時的なデータのため、並べ替え基準そのものは
-    /// (お気に入りと同じく)アプリ全体で1つだけの設定としてここに持たせている。
-    @Published var bookmarkSortOption: BookmarkSortOption {
-        didSet { UserDefaults.standard.set(bookmarkSortOption.rawValue, forKey: Keys.bookmarkSortOption) }
-    }
+    // ブックマークの並べ替え基準は、以前はここ(AppPreferences.bookmarkSortOption)に
+    // 持たせていたが、「ブックマークの編集」ウインドウがすべての本を横断する2ペイン構成に
+    // なったことに伴い、お気に入りのFavoritesStoreと同じく専用のストア(BookmarkStore)が
+    // 自分自身で持つように変更した(BookmarkStore.sortOption参照)。
 
     /// displayLanguage を実際の Locale に変換したもの。
     /// SwiftUIのView階層外(AppState・ViewerViewModelなど)で動的な文字列を組み立てるときに使う。
@@ -230,8 +225,5 @@ final class AppPreferences: ObservableObject {
             defaults.object(forKey: Keys.showRecentFilesOnWelcome) as? Bool ?? true
         self.showRecentFavoritesOnWelcome =
             defaults.object(forKey: Keys.showRecentFavoritesOnWelcome) as? Bool ?? true
-        self.bookmarkSortOption =
-            BookmarkSortOption(rawValue: defaults.string(forKey: Keys.bookmarkSortOption) ?? "")
-                ?? .pageNumberAscending
     }
 }

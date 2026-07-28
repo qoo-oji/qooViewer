@@ -520,6 +520,21 @@ final class FavoritesStore: ObservableObject {
         return url
     }
 
+    // MARK: - 一括削除(環境設定「リセット」タブ)
+
+    /// お気に入り(フォルダ・登録した本)をすべて削除する。環境設定「リセット」タブの
+    /// 「すべてのお気に入り・ブックマーク・読書履歴を削除」から呼ばれる、緊急時向けの
+    /// 強力な操作(ResetDataSettingsView参照)。述語なしのdelete(model:)はその型の
+    /// 全レコードを削除するため、FavoriteFolder削除によるカスケード(FavoriteFolder.swiftの
+    /// deleteRule: .cascade)を当てにせず、念のためFavoriteBook/FavoriteFolder両方を
+    /// 明示的に削除している。
+    func deleteAllFavorites() {
+        try? modelContext.delete(model: FavoriteBook.self)
+        try? modelContext.delete(model: FavoriteFolder.self)
+        try? modelContext.save()
+        reload()
+    }
+
     /// ウェルカム画面の「最近お気に入りに追加したファイル」用。登録日時が新しい順に、
     /// 実際に存在するものだけを最大limit件返す。
     func recentFavorites(limit: Int) -> [FavoriteBook] {

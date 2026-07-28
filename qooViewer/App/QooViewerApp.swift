@@ -18,6 +18,9 @@ struct QooViewerApp: App {
     /// お気に入り(階層フォルダ + 登録した本)。RecentFilesStore等と違いSwiftDataで永続化するため、
     /// modelContainerから作ったModelContextを渡す必要があり、下のinit()で明示的に生成している。
     @StateObject private var favoritesStore: FavoritesStore
+    /// ブックマーク(すべての本を横断)。favoritesStoreと同じ理由でModelContextを明示的に
+    /// 渡す必要があるため、下のinit()で組み立てる。
+    @StateObject private var bookmarkStore: BookmarkStore
     /// 複数ウインドウ/タブに対応するための調整役。詳細はLaunchCoordinator.swiftのコメント参照。
     @StateObject private var launchCoordinator = LaunchCoordinator()
     /// メニューバー(アプリ全体で1つ)から、今アクティブな(キーウインドウの)AppStateを
@@ -32,6 +35,16 @@ struct QooViewerApp: App {
     /// SwiftUIに作らせるための仕組み(下の"book" WindowGroup参照)。
     @Environment(\.openWindow) private var openWindow
 
+    /// お気に入り・ブックマーク・読書履歴(BookReadingState)のスキーマ。
+    private static let modelSchema = Schema([
+        BookReadingState.self, Bookmark.self, FavoriteFolder.self, FavoriteBook.self
+    ])
+
+    /// スキーマの移行に失敗した場合に、ストアファイルを削除して作り直せるよう、URLを
+    /// 参照できる明示的なModelConfigurationを介して構築する(`ModelContainer(for:)`の
+    /// 簡易版だと、失敗時に削除すべきファイルのURLを得る手段が無い)。
+    private static let modelConfiguration = ModelConfiguration(schema: modelSchema)
+
     /// SwiftDataのモデルコンテナ。`.modelContainer(for:)`という簡易版ではなく明示的な
     /// インスタンスとして1つだけ持っておくことで、「新しいウインドウで開く」「新しいタブで開く」で
     /// AppKitから直接組み立てる追加ウインドウにも、メインウインドウと同じコンテナ(同じ保存先)を
@@ -42,15 +55,74 @@ struct QooViewerApp: App {
     /// クロージャに捕まえてしまうことになり、「Escaping autoclosure captures mutating 'self'
     /// parameter」というビルドエラーになった。staticにすることでselfを介さずに参照できるため、
     /// この問題を避けられる(値そのものはアプリ全体で1つだけ、という意図は変わらない)。
+    ///
+    /// 過去に一度、FavoriteBook/FavoriteFolderへ非Optionalな属性(updatedAt)を追加した際、
+    /// 既存ユーザーの端末で「Validation error missing attribute values on mandatory destination
+    /// attribute」という移行エラーが発生し、fatalErrorで即座にアプリが起動できなくなったことが
+    /// あった(そのときはinit時の`= Date()`というデフォルト値追加で解決したが、根本的には
+    /// 「移行に失敗したら二度と起動できない」という設計上の弱点が残っていた)。
+    ///
+    /// 今後同様に移行エラーが起きた場合に備え、ここで一度だけ失敗をキャッチし、ユーザーに
+    /// 確認した上でストアファイルを削除・再作成することで、アプリが起動できなくなる事態を防ぐ。
+    /// この時点ではSwiftUIのウインドウはまだ何も表示されていないため、通常のSwiftUIの
+    /// `.alert`ではなく、AppKitのNSAlertを同期的(モーダル)に表示する。
+    /// (環境設定の「リセット」タブ(ResetDataSettingsView)は、この状況を待たずにユーザーが
+    /// 自分の意思で同じことを手動で行うための機能で、こちらは正常に起動できている場合のみ
+    /// 使える。両方を用意することで、「起動できる場合」「起動できない場合」のどちらでも
+    /// リセットできるようにしている)
     private static let modelContainer: ModelContainer = {
         do {
-            return try ModelContainer(
-                for: BookReadingState.self, Bookmark.self, FavoriteFolder.self, FavoriteBook.self
-            )
+            return try ModelContainer(for: modelSchema, configurations: [modelConfiguration])
         } catch {
-            fatalError("Failed to create ModelContainer: \(error)")
+            NSLog("qooViewer: ModelContainer creation failed, will ask the user whether to reset the store: \(error)")
+
+            let alert = NSAlert()
+            alert.alertStyle = .critical
+            alert.messageText = String(localized: "qooViewer Can't Open Your Saved Data")
+            alert.informativeText = String(
+                localized: """
+                Your favorites, bookmarks, and reading history couldn't be loaded, possibly because they're incompatible with this version of qooViewer.
+
+                If you continue, all of this data will be permanently deleted and qooViewer will start fresh. If you don't want to lose this data, quit now without deleting it (for example, to try an older version of qooViewer, or to ask for help).
+                """
+            )
+            alert.addButton(withTitle: String(localized: "Delete and Continue"))
+            alert.addButton(withTitle: String(localized: "Quit Without Deleting"))
+            let response = alert.runModal()
+            guard response == .alertFirstButtonReturn else {
+                // この時点ではSwiftUIのRunLoop/NSApplicationのイベントループがまだ本格的に
+                // 始まっていないため、NSApplication.terminate(_:)に頼らずexit(0)で確実に
+                // その場でプロセスを終了させる。
+                exit(0)
+            }
+
+            deleteStoreFiles(at: modelConfiguration.url)
+            do {
+                return try ModelContainer(for: modelSchema, configurations: [modelConfiguration])
+            } catch {
+                let failureAlert = NSAlert()
+                failureAlert.alertStyle = .critical
+                failureAlert.messageText = String(localized: "qooViewer Could Not Start")
+                failureAlert.informativeText = String(
+                    localized: "qooViewer couldn't start even after resetting its saved data. Please contact support."
+                )
+                failureAlert.runModal()
+                fatalError("Failed to create ModelContainer even after resetting the store: \(error)")
+            }
         }
     }()
+
+    /// SwiftDataのストア本体、および付随するWAL/SHMファイル(SQLiteの補助ファイル)を削除する。
+    /// これらが残っていると、ストア本体だけ削除してもデータの一部が復元されてしまうことがある。
+    private static func deleteStoreFiles(at url: URL) {
+        let fileManager = FileManager.default
+        let directory = url.deletingLastPathComponent()
+        let baseName = url.lastPathComponent
+        for suffix in ["", "-wal", "-shm"] {
+            let candidate = directory.appendingPathComponent(baseName + suffix)
+            try? fileManager.removeItem(at: candidate)
+        }
+    }
 
     /// 環境設定「表示言語」を実際のLocaleに変換したもの。「システムに従う」のときはnilを渡し、
     /// SwiftUIにシステムのロケールをそのまま使わせる。
@@ -68,6 +140,9 @@ struct QooViewerApp: App {
     init() {
         _favoritesStore = StateObject(
             wrappedValue: FavoritesStore(modelContext: ModelContext(QooViewerApp.modelContainer))
+        )
+        _bookmarkStore = StateObject(
+            wrappedValue: BookmarkStore(modelContext: ModelContext(QooViewerApp.modelContainer))
         )
     }
 
@@ -395,10 +470,19 @@ struct QooViewerApp: App {
                 }
                 .disabled(!hasBook)
 
+                // 「Edit Favorites…」と同じく、performViewerAction(ViewerViewが表示されている
+                // 間だけ登録されるクロージャ)には頼らず、直接openWindowで開く。以前は
+                // focusedAppState?.performViewerAction?(.showBookmarkList)経由だったが、
+                // 「ブックマークの編集」がすべての本を横断する構成になった今、この操作は
+                // 特定の本が focusedAppState として存在すること自体に依存する理由が無い。
+                // それどころか、.id(book.id)によってViewerViewが本の切り替えのたびに
+                // 作り直される(ContentView.swift参照)関係で、短時間に連続して本を切り替えた
+                // 直後はperformViewerActionの登録が一時的に外れている可能性があり、
+                // 「メニューからブックマーク編集を選んでもウインドウが開かない」不具合の
+                // 原因になっていた。
                 Button("Edit Bookmarks…") {
-                    focusedAppState?.performViewerAction?(.showBookmarkList)
+                    openWindow(id: "editBookmarks")
                 }
-                .disabled(!hasBook)
 
                 // ブックマーク一覧を(要望6により)フラットな並びではなくサブメニューにまとめる。
                 Menu("Bookmark List") {
@@ -441,6 +525,13 @@ struct QooViewerApp: App {
                 .environmentObject(preferences)
                 .environmentObject(keyBindingStore)
                 .environmentObject(folderAccess)
+                // 「リセット」タブ(ResetDataSettingsView)がfavoritesStore/bookmarkStoreの
+                // 一括削除メソッド、および@Environment(\.modelContext)経由でBookReadingStateを
+                // 直接操作する必要があるため、他のScene(WindowGroup)と同様にここでも
+                // favoritesStore/bookmarkStore/modelContainerを渡す。
+                .environmentObject(favoritesStore)
+                .environmentObject(bookmarkStore)
+                .modelContainer(QooViewerApp.modelContainer)
                 .environment(\.locale, currentLocale)
         }
 
@@ -448,8 +539,29 @@ struct QooViewerApp: App {
         // 「ブックマークの編集」と表現をそろえるため「編集」に変更した)。Settingsと同様、
         // 本を開いているウインドウとは独立した単独のウインドウとして、
         // openWindow(id: "favoritesOrganizer")で開く。
+        // launchCoordinatorは、ツールバーの「現在の本を追加」ボタン(FavoritesOrganizerView参照)が
+        // 「今読んでいる本」(launchCoordinator.activeBookAppState)を特定するために必要。
+        // preferencesは、詳細ペインでお気に入りをダブルクリックして開いたときに、環境設定
+        // 「お気に入りを開くとき」(favoriteOpenBehavior)を判定するために必要
+        // (FavoritesOrganizerView.openFavoriteAccordingToPreference参照)。
         Window("Edit Favorites", id: "favoritesOrganizer") {
             FavoritesOrganizerView(favoritesStore: favoritesStore)
+                .environmentObject(launchCoordinator)
+                .environmentObject(preferences)
+                .environment(\.locale, currentLocale)
+        }
+        .windowResizability(.contentSize)
+
+        // 「ブックマークの編集」ウインドウ(独立ウインドウ)。以前は本を表示しているウインドウの
+        // シートで、かつ「今開いている本」だけを扱っていたが、「お気に入りの編集」ウインドウと
+        // 見た目・操作感を完全に揃えるため、すべての本を横断して編集できる2ペイン構成に
+        // 変更した(ユーザーからの指摘)。データの実体はbookmarkStore(FavoritesStoreと同じく
+        // 専用のModelContextを持つ)が持ち、launchCoordinatorは選択中の本が今開いているかどうかの
+        // 判定にのみ使う(BookmarkListView.swift参照)。
+        Window("Edit Bookmarks", id: "editBookmarks") {
+            BookmarkEditorWindow()
+                .environmentObject(bookmarkStore)
+                .environmentObject(launchCoordinator)
                 .environment(\.locale, currentLocale)
         }
         .windowResizability(.contentSize)

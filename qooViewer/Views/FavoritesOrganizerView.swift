@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import AppKit
 
 /// 「お気に入りの整理」ウインドウ(要望3)。左側にフォルダツリー、右側に選択中のフォルダの
 /// 中身(サブフォルダ + お気に入り)を表示する2ペイン構成。
@@ -13,9 +14,25 @@ import UniformTypeIdentifiers
 /// 新しいタブで開くのみに絞っているため、整理系の操作はすべてこのウインドウの役割になる)。
 struct FavoritesOrganizerView: View {
     @ObservedObject var favoritesStore: FavoritesStore
+    /// ツールバーの「現在の本を追加」ボタンが「今読んでいる本」を特定するために参照する
+    /// (launchCoordinator.activeBookAppState?.currentBook。ViewerView.setUpWindowObservers参照)。
+    @EnvironmentObject private var launchCoordinator: LaunchCoordinator
+    /// 右ペインでお気に入りをダブルクリックして開いたときの挙動(favoriteOpenBehavior)を
+    /// 判定するために必要(openFavoriteAccordingToPreference参照)。
+    @EnvironmentObject private var preferences: AppPreferences
+    /// ダブルクリックでお気に入りを新しいウインドウ/タブとして開くために使う
+    /// (openFavoriteInNewWindow/openFavoriteInNewTab参照)。
+    @Environment(\.openWindow) private var openWindow
 
     /// nilは「お気に入りの一番上の階層(ルート直下)」を表す。
     @State private var selectedFolder: FavoriteFolder?
+
+    /// 右ペイン(詳細ペイン)で、今クリックして選択中の項目(フォルダ/お気に入り)のid。
+    /// クリックしても選択されているのかどうか分かりにくいという指摘への対応で、左ペインの
+    /// 選択中フォルダ(selectedFolder)とは別に、右ペイン内の「今どの行を選んでいるか」を
+    /// 表す状態として持つ。select(_:)で左ペインの選択(=表示するフォルダ自体)が変わったときは、
+    /// 右ペインの中身が総入れ替えになるため、古い選択が残らないようここもリセットする。
+    @State private var selectedEntryID: UUID?
 
     @State private var isShowingNewFolderPrompt = false
     @State private var newFolderName = ""
@@ -29,11 +46,30 @@ struct FavoritesOrganizerView: View {
 
     @State private var isRootTargeted = false
 
+    /// サイドバーのフォルダツリーで、DisclosureGroupが開いている(展開されている)フォルダのid一覧。
+    /// 既定では各DisclosureGroupの開閉はSwiftUI側の内部状態に任せているが、選択中フォルダの
+    /// 祖先だけはこのSetを通じて明示的に開いた状態にする(select(_:)参照)。
+    @State private var expandedFolderIDs: Set<UUID> = []
+
+    /// 左ペイン(サイドバー)の幅。ウインドウを開いた時点で登録されているフォルダ名の長さに
+    /// 応じてonAppearで一度だけ計算する(SidebarWidthEstimator参照)。既定値220は、
+    /// フォルダが無い/名前が短い場合のフォールバック。
+    @State private var sidebarWidth: CGFloat = 220
+    /// sidebarWidthの計算を、ウインドウを開いた時点の1回だけに限定するためのフラグ
+    /// (以後、フォルダを追加/削除してもリストの内容が変わるたびに勝手にリサイズされないようにする)。
+    @State private var hasComputedSidebarWidth = false
+
+    // 「現在の本を追加」ボタン(addCurrentBook参照)用の状態。FavoriteFolderPickerView.swiftの
+    // 同名の仕組みと同じ理由・同じ構造(重複登録の確認、件数上限エラーの表示)。
+    @State private var pendingBookForDuplicateConfirmation: MangaBook?
+    @State private var duplicateConfirmationBreadcrumb: String?
+    @State private var addCurrentBookErrorMessage: String?
+
     var body: some View {
         NavigationSplitView {
             List {
                 Button {
-                    selectedFolder = nil
+                    select(nil)
                 } label: {
                     Label("Favorites (Top Level)", systemImage: "star")
                 }
@@ -50,6 +86,7 @@ struct FavoritesOrganizerView: View {
                         folder: folder,
                         favoritesStore: favoritesStore,
                         selectedFolder: $selectedFolder,
+                        expandedFolderIDs: $expandedFolderIDs,
                         onRename: { folder in
                             renameText = folder.name
                             renamingFolder = folder
@@ -90,6 +127,16 @@ struct FavoritesOrganizerView: View {
                 .background(.bar)
             }
             .navigationTitle("Favorites")
+            // 左ペインの幅を、開いた時点で登録されているフォルダ名の長さ(階層の字下げ込み)に
+            // 応じて広げる(ブックマーク編集画面の同様の対応と揃えている)。ideal:に渡した値は
+            // ウインドウの初期サイズのヒントとしても使われるため、初めて開いたとき(まだ
+            // ウインドウサイズが記憶されていないとき)は、この幅を反映した状態で開く。
+            .navigationSplitViewColumnWidth(min: 220, ideal: sidebarWidth, max: 560)
+            .onAppear {
+                guard !hasComputedSidebarWidth else { return }
+                hasComputedSidebarWidth = true
+                sidebarWidth = SidebarWidthEstimator.idealWidth(for: allFolderNamesWithDepth())
+            }
             // 以前はここにツールバーの「新規フォルダ」ボタン(ToolbarItem)を置いていたが、
             // .labelStyle(.titleAndIcon)で文字付きにした結果ツールバーに収まりきらず、
             // macOSが自動的に「>>」という隠れた項目を表示するための折りたたみボタンを
@@ -114,9 +161,34 @@ struct FavoritesOrganizerView: View {
                             Text("\(itemCount)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            // ブックマーク編集画面の各行と見た目を揃えた、インラインの削除ボタン
+                            // (以前は右クリックメニューの「Delete」のみだった)。既存の
+                            // folderPendingDeletion・「Delete Folder?」アラートをそのまま再利用する。
+                            Button {
+                                folderPendingDeletion = folder
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
                         }
                         .contentShape(Rectangle())
-                        .onTapGesture(count: 2) { selectedFolder = folder }
+                        // シングルクリックでは選択状態(下のlistRowBackground)にするだけ、
+                        // ダブルクリックでそのフォルダの中へ移動する。SwiftUIはこのように
+                        // 回数違いの.onTapGestureを重ねると、ダブルクリックが不成立の場合に
+                        // シングルクリックへフォールバックする形で自動的に判別してくれる。
+                        .onTapGesture(count: 2) { select(folder) }
+                        .onTapGesture(count: 1) { selectedEntryID = entry.id }
+                        // 右ペインの行も、左ペインの行と同様にカーソルを合わせるとフルネームを
+                        // ツールチップで表示する(要望: 右ペインのアイテムについてもホバーで
+                        // フルネームを見られるようにしてほしい)。
+                        .help(folder.name)
+                        // クリックして選択したことが分かるよう、左ペインと同じ見た目でハイライトする
+                        // (要望: 右ペインの項目を選択したとき、選択されているか分かりにくい、
+                        // という指摘への対応)。
+                        .listRowBackground(
+                            selectedEntryID == entry.id ? Color.accentColor.opacity(0.15) : Color.clear
+                        )
                         .contextMenu {
                             Button("Rename") {
                                 renameText = folder.name
@@ -142,13 +214,39 @@ struct FavoritesOrganizerView: View {
                             Image(systemName: "book.closed")
                             Text(favorite.title)
                             if !exists {
-                                Spacer()
                                 Text("Not Found")
                                     .font(.caption)
+                                    .padding(.leading, 4)
                             }
+                            Spacer()
+                            // ブックマーク編集画面の各行と見た目を揃えた、インラインの削除ボタン
+                            // (以前は右クリックメニューの「Remove from Favorites」のみだった)。
+                            // 「Not Found」表示を右端に押し出していたSpacerは、このボタンを
+                            // 常に右端に置くための1つのSpacerに統合した。
+                            Button {
+                                bookPendingDeletion = favorite
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
                         }
                         .foregroundStyle(exists ? .primary : .secondary)
                         .opacity(exists ? 1 : 0.6)
+                        .contentShape(Rectangle())
+                        // シングルクリックは選択のみ、ダブルクリックで実際にその本を開く
+                        // (要望: お気に入り一覧から本を開く場合と同じ開き方でよい、とのこと。
+                        // このウインドウ自体は特定の本のウインドウには属さない独立ウインドウのため、
+                        // 「今読んでいる本」の代わりにlaunchCoordinator.activeBookAppStateを
+                        // 判定材料にする。詳細はopenFavoriteAccordingToPreference参照)。
+                        .onTapGesture(count: 2) { openFavoriteAccordingToPreference(favorite) }
+                        .onTapGesture(count: 1) { selectedEntryID = entry.id }
+                        // 左ペインの行と同様、カーソルを合わせるとフルネームをツールチップで表示する。
+                        .help(favorite.title)
+                        // クリックして選択したことが分かるよう、左ペインと同じ見た目でハイライトする。
+                        .listRowBackground(
+                            selectedEntryID == entry.id ? Color.accentColor.opacity(0.15) : Color.clear
+                        )
                         .contextMenu {
                             Button("Remove from Favorites", role: .destructive) {
                                 bookPendingDeletion = favorite
@@ -174,6 +272,10 @@ struct FavoritesOrganizerView: View {
             // 文字付きボタンを足すと折りたたみ("...")が発生してしまう問題が既にあった
             // (サイドバー側のNew Folderボタンについての同様のコメント参照)ため、ここでも
             // 同じくsafeAreaInsetでリスト上部に常時表示する形にしている。
+            //
+            // 以前はここに「Add Current Book」ボタンも並べていたが、ブックマーク編集画面の
+            // 「Add Current Page」がペイン下部にあるのと位置・見た目が揃っていないという
+            // 指摘があったため、このボタンは下部(safeAreaInset(edge: .bottom))へ移動した。
             .safeAreaInset(edge: .top) {
                 HStack {
                     Toggle("Folders on Top", isOn: $favoritesStore.foldersAlwaysOnTop)
@@ -198,9 +300,34 @@ struct FavoritesOrganizerView: View {
                 .padding(.vertical, 6)
                 .background(.bar)
             }
-            .navigationTitle(selectedFolder?.breadcrumb ?? String(localized: "Favorites (Top Level)"))
+            // ブックマーク編集画面の「Add Current Page」ボタンと、位置(ペイン下部)・見た目
+            // (行全体を左寄せのプレーンボタンとして使う、.bar背景の帯)を完全に揃えた
+            // 「Add Current Book」ボタン。今読んでいる本(launchCoordinator.activeBookAppState?.
+            // currentBook)を、現在選択中のフォルダへ直接登録する(addCurrentBook参照)。
+            // 本を1つも開いていない場合は無効化する。
+            .safeAreaInset(edge: .bottom) {
+                Button {
+                    addCurrentBook()
+                } label: {
+                    Label("Add Current Book", systemImage: "plus")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .disabled(launchCoordinator.activeBookAppState?.currentBook == nil)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.bar)
+            }
+            // 以前はここで選択中フォルダのパンくず(breadcrumb)を表示しており、フォルダを
+            // 移動するたびにウインドウのタイトルが変わっていたが、「ブックマークの編集」
+            // ウインドウのタイトルが常に固定(ブックマークの編集)なのに対しこちらだけ
+            // 可変なのはUIが揃わないという指摘があったため、こちらも常に固定のタイトルにした。
+            .navigationTitle("Edit Favorites")
         }
-        .frame(minWidth: 640, minHeight: 420)
+        // 左ペインが広がった分、右ペインが窮屈にならないよう、ウインドウ全体の最小幅も
+        // 追随させる(要望: 右ペインがしわ寄せを受けるくらいなら、ウインドウ全体を広げてよい)。
+        // 400は右ペインに最低限確保したい幅の目安。
+        .frame(minWidth: max(640, sidebarWidth + 400), minHeight: 420)
         .alert("New Folder", isPresented: $isShowingNewFolderPrompt) {
             TextField("Name", text: $newFolderName)
             Button("Create") { createFolder() }
@@ -244,7 +371,7 @@ struct FavoritesOrganizerView: View {
             Button("Delete", role: .destructive) {
                 if let folder = folderPendingDeletion {
                     if selectedFolder?.id == folder.id {
-                        selectedFolder = folder.parent
+                        select(folder.parent)
                     }
                     favoritesStore.delete(folder)
                 }
@@ -268,6 +395,199 @@ struct FavoritesOrganizerView: View {
                 bookPendingDeletion = nil
             }
         }
+        // 「現在の本を追加」ボタン用の確認・エラー表示。FavoriteFolderPickerView.swiftの
+        // 同名のアラートと文言を完全に揃えてあり(同じLocalizable.xcstringsのキーを再利用する)、
+        // 「別フォルダに既に登録されている」「999件の上限に達した」という2つの分岐も同じ。
+        .alert(
+            "Already in Favorites",
+            isPresented: Binding(
+                get: { duplicateConfirmationBreadcrumb != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        duplicateConfirmationBreadcrumb = nil
+                        pendingBookForDuplicateConfirmation = nil
+                    }
+                }
+            )
+        ) {
+            Button("Cancel", role: .cancel) {
+                duplicateConfirmationBreadcrumb = nil
+                pendingBookForDuplicateConfirmation = nil
+            }
+            Button("Add Anyway") {
+                duplicateConfirmationBreadcrumb = nil
+                if let book = pendingBookForDuplicateConfirmation {
+                    handle(favoritesStore.forceAddFavorite(book: book, to: selectedFolder))
+                }
+                pendingBookForDuplicateConfirmation = nil
+            }
+        } message: {
+            Text("This book is already in “") + Text(duplicateConfirmationBreadcrumb ?? "")
+                + Text("”. Add it here as well?")
+        }
+        .alert(
+            "Could Not Add to Favorites",
+            isPresented: Binding(
+                get: { addCurrentBookErrorMessage != nil },
+                set: { isPresented in if !isPresented { addCurrentBookErrorMessage = nil } }
+            )
+        ) {
+            Button("OK") { addCurrentBookErrorMessage = nil }
+        } message: {
+            Text(addCurrentBookErrorMessage ?? "")
+        }
+    }
+
+    /// 詳細ペインでお気に入りをダブルクリックしたときに呼ぶ。ViewerView内の「お気に入り一覧」
+    /// (openFavoriteAccordingToPreference)と同じく、環境設定「お気に入りを開くとき」
+    /// (favoriteOpenBehavior)に従って開く。このウインドウ自体は特定の本のウインドウに
+    /// 属さない独立ウインドウのため、「今読んでいる本」の代わりに
+    /// launchCoordinator.activeBookAppState(Add Current Bookボタンと同じ判定材料)を使う。
+    /// 今読んでいる本のウインドウ自体が無い場合(まだ本を1つも開いていない場合)は、閉じるべき
+    /// 「現在の本」も、タブ化する先の既存ウインドウも無いため、常にそのまま新しいウインドウで開く。
+    private func openFavoriteAccordingToPreference(_ favorite: FavoriteBook) {
+        guard let activeAppState = launchCoordinator.activeBookAppState else {
+            openFavoriteInNewWindow(favorite, relativeTo: nil)
+            return
+        }
+        guard activeAppState.currentBook != nil else {
+            activeAppState.openFavorite(favorite)
+            activeAppState.hostWindow?.makeKeyAndOrderFront(nil)
+            return
+        }
+        switch preferences.favoriteOpenBehavior {
+        case .replaceCurrentBook:
+            activeAppState.openFavorite(favorite)
+            activeAppState.hostWindow?.makeKeyAndOrderFront(nil)
+        case .newTab:
+            openFavoriteInNewTab(favorite, relativeTo: activeAppState)
+        case .newWindow:
+            openFavoriteInNewWindow(favorite, relativeTo: activeAppState)
+        }
+    }
+
+    /// 指定したお気に入りを新しいウインドウで開く(ViewerView.openFavoriteInNewWindowと
+    /// 同じ考え方)。relativeToに今読んでいる本のAppStateを渡した場合は、そのウインドウと
+    /// 少しずらして表示する(カスケード)。無い場合(本を1つも開いていない場合)はそのまま表示する。
+    private func openFavoriteInNewWindow(_ favorite: FavoriteBook, relativeTo activeAppState: AppState?) {
+        guard let url = favoritesStore.resolvedExistingURL(for: favorite) else {
+            activeAppState?.missingFavorite = favorite
+            return
+        }
+        _ = url.startAccessingSecurityScopedResource()
+        let previousWindow = activeAppState?.hostWindow
+        let existingIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
+        openWindow(id: "book", value: url)
+        Task { @MainActor in
+            for _ in 0..<20 {
+                try? await Task.sleep(nanoseconds: 25_000_000)
+                if let newWindow = NSApp.windows.first(where: { !existingIDs.contains(ObjectIdentifier($0)) }) {
+                    if let previousWindow {
+                        var frame = newWindow.frame
+                        frame.size = previousWindow.frame.size
+                        frame.origin = CGPoint(
+                            x: previousWindow.frame.origin.x + 48,
+                            y: previousWindow.frame.origin.y - 48
+                        )
+                        newWindow.setFrame(frame, display: true)
+                    }
+                    newWindow.makeKeyAndOrderFront(nil)
+                    NSApp.activate(ignoringOtherApps: true)
+                    break
+                }
+            }
+        }
+    }
+
+    /// 指定したお気に入りを、今読んでいる本のウインドウに新しいタブとして開く
+    /// (ViewerView.openFavoriteInNewTabと同じ考え方)。
+    private func openFavoriteInNewTab(_ favorite: FavoriteBook, relativeTo activeAppState: AppState) {
+        guard let url = favoritesStore.resolvedExistingURL(for: favorite) else {
+            activeAppState.missingFavorite = favorite
+            return
+        }
+        guard let hostWindow = activeAppState.hostWindow else {
+            openFavoriteInNewWindow(favorite, relativeTo: activeAppState)
+            return
+        }
+        _ = url.startAccessingSecurityScopedResource()
+        let existingIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
+        openWindow(id: "book", value: url)
+        Task { @MainActor in
+            for _ in 0..<20 {
+                try? await Task.sleep(nanoseconds: 25_000_000)
+                if let newWindow = NSApp.windows.first(where: { !existingIDs.contains(ObjectIdentifier($0)) }) {
+                    var frame = newWindow.frame
+                    frame.size = hostWindow.frame.size
+                    frame.origin = hostWindow.frame.origin
+                    newWindow.setFrame(frame, display: true)
+                    hostWindow.addTabbedWindow(newWindow, ordered: .above)
+                    newWindow.makeKeyAndOrderFront(nil)
+                    NSApp.activate(ignoringOtherApps: true)
+                    break
+                }
+            }
+        }
+    }
+
+    /// ツールバーの「Add Current Book」ボタンから呼ぶ。今読んでいる本を、現在選択中のフォルダへ
+    /// 登録する。結果の分岐(重複確認・上限エラー)はhandle(_:)で行う
+    /// (FavoriteFolderPickerView.performRegistration/handleと同じ構造)。
+    private func addCurrentBook() {
+        guard let book = launchCoordinator.activeBookAppState?.currentBook else { return }
+        pendingBookForDuplicateConfirmation = book
+        handle(favoritesStore.addFavorite(book: book, to: selectedFolder))
+    }
+
+    private func handle(_ outcome: FavoriteAddOutcome) {
+        switch outcome {
+        case .added, .overwritten:
+            pendingBookForDuplicateConfirmation = nil
+        case .needsDuplicateConfirmation(let breadcrumb):
+            // pendingBookForDuplicateConfirmationはaddCurrentBook()側で既にセット済み
+            // (「Add Anyway」が押されたときにforceAddFavoriteへ渡す対象を覚えておくため)。
+            duplicateConfirmationBreadcrumb = breadcrumb
+        case .limitReached:
+            pendingBookForDuplicateConfirmation = nil
+            addCurrentBookErrorMessage = FavoritesLimitError.favoritesLimitReached.errorDescription
+        case .failed:
+            pendingBookForDuplicateConfirmation = nil
+            addCurrentBookErrorMessage = String(localized: "The favorite could not be registered.")
+        }
+    }
+
+    /// 選択中のフォルダを変更する。selectedFolderへの代入は(サイドバーの行自身をクリックする
+    /// OrganizerFolderRow内を除き)すべてここを経由する。右ペインでのダブルクリックによる
+    /// 「フォルダの奥へ移動」など、サイドバーのツリーを直接操作しない経路で選択が変わった場合でも、
+    /// サイドバー上で「今どこにいるか」が分かるよう、選択したフォルダの祖先をすべて自動的に
+    /// 展開する(要望: 現在いる階層に合わせてツリーを展開し、現在のフォルダを強調表示してほしい)。
+    /// 選択中フォルダ自身の強調表示は、OrganizerFolderRow/ルート行のlistRowBackgroundが
+    /// selectedFolderと突き合わせて行う。
+    private func select(_ folder: FavoriteFolder?) {
+        selectedFolder = folder
+        // 表示するフォルダ自体が変わると右ペインの中身が総入れ替えになるため、古いフォルダの
+        // 項目を選択したままにしない。
+        selectedEntryID = nil
+        var current = folder?.parent
+        while let ancestor = current {
+            expandedFolderIDs.insert(ancestor.id)
+            current = ancestor.parent
+        }
+    }
+
+    /// サイドバー(フォルダツリー)に現在表示されているすべてのフォルダについて、
+    /// (名前, 階層の深さ)を再帰的に集める。SidebarWidthEstimatorへ渡すためだけの用途で、
+    /// 並び順は問わない。
+    private func allFolderNamesWithDepth() -> [(name: String, depth: Int)] {
+        var result: [(name: String, depth: Int)] = []
+        func walk(_ folders: [FavoriteFolder], depth: Int) {
+            for folder in folders {
+                result.append((name: folder.name, depth: depth))
+                walk(favoritesStore.subfolders(of: folder), depth: depth + 1)
+            }
+        }
+        walk(favoritesStore.rootFolders, depth: 0)
+        return result
     }
 
     private func createFolder() {
@@ -312,19 +632,39 @@ private struct OrganizerFolderRow: View {
     let folder: FavoriteFolder
     @ObservedObject var favoritesStore: FavoritesStore
     @Binding var selectedFolder: FavoriteFolder?
+    /// 開いている(展開されている)フォルダのid一覧。FavoritesOrganizerView.select(_:)が、
+    /// 選択中フォルダの祖先をここへ自動的に追加する(要望: 右ペインでのドリルダウンでも
+    /// サイドバーのツリー上で現在地が分かるようにしてほしい)。DisclosureGroupの開閉を
+    /// このSetと直接結び付けることで、祖先が追加されると該当するDisclosureGroupが
+    /// 自動的に展開される。
+    @Binding var expandedFolderIDs: Set<UUID>
     let onRename: (FavoriteFolder) -> Void
     let onDelete: (FavoriteFolder) -> Void
     let onDrop: ([NSItemProvider], FavoriteFolder?) -> Bool
 
     @State private var isTargeted = false
 
+    private var isExpanded: Binding<Bool> {
+        Binding(
+            get: { expandedFolderIDs.contains(folder.id) },
+            set: { expanded in
+                if expanded {
+                    expandedFolderIDs.insert(folder.id)
+                } else {
+                    expandedFolderIDs.remove(folder.id)
+                }
+            }
+        )
+    }
+
     var body: some View {
-        DisclosureGroup {
+        DisclosureGroup(isExpanded: isExpanded) {
             ForEach(favoritesStore.subfolders(of: folder), id: \.id) { child in
                 OrganizerFolderRow(
                     folder: child,
                     favoritesStore: favoritesStore,
                     selectedFolder: $selectedFolder,
+                    expandedFolderIDs: $expandedFolderIDs,
                     onRename: onRename,
                     onDelete: onDelete,
                     onDrop: onDrop
@@ -337,6 +677,10 @@ private struct OrganizerFolderRow: View {
                 Label(folder.name, systemImage: "folder")
             }
             .buttonStyle(.plain)
+            // 左ペインの幅が狭く、フォルダ名が省略表示("…")になっていることがあるため、
+            // カーソルを合わせるとフルネームをツールチップで表示する
+            // (ブックマーク編集画面の左ペインの行と同様の対応)。
+            .help(folder.name)
             // 右クリックメニューはラベル(このフォルダ自身の行)だけに限定する。以前は
             // DisclosureGroup全体(展開中の子フォルダの表示領域も含む)にcontextMenuを
             // 付けていたため、階層化したフォルダで子フォルダの行を右クリックしても、SwiftUIの

@@ -28,6 +28,20 @@ final class AppState: ObservableObject {
     /// 橋渡し。ViewerViewが表示されている間だけ自分自身を登録し、閉じるときにnilへ戻す。
     var jumpToBookmark: ((Bookmark) -> Void)?
 
+    /// 「ブックマークの編集」ウインドウ(独立ウインドウ。すべての本を横断するBookmarkStoreが
+    /// 削除・リネームを直接SwiftDataへ行うため、そちらは経由しない)の「Add Current Page」
+    /// ボタンから、今読んでいるページをこの本のブックマークとして追加するための橋渡し。
+    /// jumpToBookmarkと同じく、ViewerViewが表示されている間だけ自分自身を登録し、
+    /// 閉じるときにnilへ戻す。
+    ///
+    /// 以前はここに削除・リネーム用の同様のクロージャ(removeBookmarkAction/
+    /// renameBookmarkAction)もあったが、ブックマークの編集がすべての本を横断する構成になり、
+    /// 「今開いている本かどうかに関わらず削除・リネームできる」必要が生じたため、
+    /// BookmarkStore.delete(_:)/rename(_:to:)がSwiftDataを直接操作する形に変更し、
+    /// これらは廃止した(削除・リネームされた内容は、Notification.Name.bookmarksDidChange経由で
+    /// このAppStateが指すViewerViewModelにも反映される。詳細はBookmark.swift参照)。
+    var addBookmarkAction: (() -> Void)?
+
     /// ViewerViewから、現在のブックマーク一覧を反映するために呼ばれる。
     func updateCurrentBookmarks(_ bookmarks: [Bookmark]) {
         currentBookmarks = bookmarks
@@ -109,6 +123,29 @@ final class AppState: ObservableObject {
         isDisplayModeLocked = false
         isPageShiftLocked = false
     }
+
+    /// performViewerAction/jumpToBookmark/addBookmarkAction/setScalingMode、および
+    /// currentBookmarks・各種メニューチェックマーク状態(updateMenuCheckmarkState/
+    /// resetMenuCheckmarkState)は、「今表示しているViewerViewが自分自身をappStateへ
+    /// 登録する/閉じるときに取り除く」という仕組みで管理している。
+    ///
+    /// このAppState自体はウインドウ(タブ)ごとに1つだけ作られ、同じウインドウ内で本を
+    /// 切り替える(ContentView.bodyの`ViewerView(...).id(book.id)`により、切り替えるたびに
+    /// 古いViewerViewのonDisappearと新しいViewerViewのonAppearの両方が発生する)場合、
+    /// この2つが同じappStateインスタンスへ書き込むため、SwiftUIが実際にどちらを先に
+    /// 実行するかという保証が無い(新→旧の順で実行されると、新しい本の正しい登録が
+    /// 古い本のonDisappearによる後始末で上書き消去されてしまい、メニューバーの
+    /// 「お気に入りに追加」「ブックマークを追加」「ブックマークの編集」などが軒並み
+    /// 反応しなくなる不具合になる。実際に本を連続して切り替えた際に発生が確認された)。
+    ///
+    /// この順序不定を解決するため、ViewerViewは自分自身を表す使い捨てのトークン(UUID)を
+    /// onAppearのたびにここへ書き込み(activeViewerToken)、onDisappear側は「このトークンが
+    /// 今も自分自身のものであるとき」だけ後始末(nilに戻す等)を行う。新しいViewerViewの
+    /// onAppearが先に走っていれば、古いViewerViewのonDisappearの時点でこの値は既に
+    /// 新しいトークンに書き換わっているため、後始末は行われず、新しい本の登録が
+    /// 誤って消されることはない(逆に、本のウインドウ自体が閉じられて次のonAppearが
+    /// 二度と来ない場合は、このトークンは古いままなので後始末は正しく実行される)。
+    var activeViewerToken: UUID?
 
     /// NSOpenPanelの文言など、SwiftUIのView階層外で組み立てる文字列を
     /// 環境設定の「表示言語」に合わせて解決するために参照する。

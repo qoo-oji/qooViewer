@@ -8,7 +8,17 @@ struct ViewerView: View {
     @ObservedObject private var preferences: AppPreferences
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var keyBindingStore: KeyBindingStore
+    /// 「ブックマークの編集」ウインドウ・「お気に入りの整理」ウインドウの「現在の本を追加」から
+    /// 「今読んでいる本」を特定するために、このウインドウがキーウインドウになったことを
+    /// 通知する(setUpWindowObservers参照)。
+    @EnvironmentObject private var launchCoordinator: LaunchCoordinator
     @FocusState private var isFocused: Bool
+    /// このViewerViewインスタンス自身を表す使い捨てのトークン。同じウインドウ内で本を
+    /// 切り替えたとき(.id(book.id)により、このView自体が古い本のものから新しい本のものへ
+    /// 作り直される)に、appState.performViewerAction等の後始末(onDisappear)が、
+    /// 既に新しい本のonAppearが登録した内容を誤って上書き消去してしまわないようにするための
+    /// 仕組み。詳細はAppState.activeViewerTokenのコメント参照。
+    @State private var viewerToken = UUID()
     @State private var scrollMonitor: Any?
     /// 直前にスクロールホイールでページ送りを実行した時刻。一部のマウス/ドライバが
     /// 1ノッチの回転を複数の細かいscrollWheelイベントに分けて送ってくることがあり、
@@ -34,7 +44,6 @@ struct ViewerView: View {
     /// カーソルが動かなくても自動的には隠さない(NSMenu.didBeginTracking/didEndTracking参照)。
     @State private var isMenuTracking = false
     @State private var showThumbnailGrid = false
-    @State private var showBookmarkList = false
     /// 「お気に入りに追加」シート(登録先フォルダを選ぶ。FavoriteFolderPickerView)の表示状態。
     @State private var showFavoriteFolderPicker = false
     /// 「お気に入り一覧」を表示中のネイティブNSMenuブリッジ(FavoritesNSMenuBridge)。
@@ -158,6 +167,10 @@ struct ViewerView: View {
         .focused($isFocused)
         .onAppear {
             isFocused = true
+            // 以下でappStateへ書き込むより前に、まず自分自身のトークンを登録する
+            // (AppState.activeViewerTokenのコメント参照。同じウインドウ内で本を切り替えた際、
+            // 古いViewerViewのonDisappearが今から行う登録を誤って後始末してしまわないため)。
+            appState.activeViewerToken = viewerToken
             viewModel.onRequestSiblingBook = { forward in
                 if forward {
                     appState.openSibling(after: viewModel.book.sourceURL)
@@ -172,6 +185,13 @@ struct ViewerView: View {
             // 表示するための橋渡し(詳細はAppState.swiftのコメント参照)。
             appState.jumpToBookmark = { bookmark in
                 viewModel.jump(to: bookmark)
+            }
+            // 「ブックマークの編集」ウインドウ(独立ウインドウ)の「Add Current Page」ボタンから、
+            // 現在のページを追加するための橋渡し(jumpToBookmarkと同じ理由。削除・リネームは
+            // BookmarkStoreが直接SwiftDataを操作するため、ここでは扱わない。
+            // AppState.swiftのコメント参照)。
+            appState.addBookmarkAction = {
+                viewModel.addBookmark()
             }
             appState.updateCurrentBookmarks(viewModel.bookmarks)
             // メニューバーの「表示モード切替」サブメニューから、特定のモードへ直接切り替える
@@ -258,13 +278,19 @@ struct ViewerView: View {
                 NSEvent.removeMonitor(scrollMonitor)
             }
             scrollMonitor = nil
-            if appState.performViewerAction != nil {
+            // appStateへの後始末(nilに戻す等)は、まだ自分自身が最後にappStateへ登録した
+            // ViewerViewである場合にだけ行う。同じウインドウ内で本を切り替えた際、既に
+            // 新しいViewerViewのonAppearが自分のトークンで上書きしていれば、ここでの
+            // 後始末は行わない(誤って新しい本の正しい登録を消してしまわないため。
+            // AppState.activeViewerTokenのコメント参照)。
+            if appState.activeViewerToken == viewerToken {
                 appState.performViewerAction = nil
+                appState.jumpToBookmark = nil
+                appState.addBookmarkAction = nil
+                appState.updateCurrentBookmarks([])
+                appState.setScalingMode = nil
+                appState.resetMenuCheckmarkState()
             }
-            appState.jumpToBookmark = nil
-            appState.updateCurrentBookmarks([])
-            appState.setScalingMode = nil
-            appState.resetMenuCheckmarkState()
             viewModel.stopSlideshow()
             viewModel.flushPendingSave()
             cursorHideTask?.cancel()
@@ -298,9 +324,10 @@ struct ViewerView: View {
         .sheet(isPresented: $showThumbnailGrid) {
             ThumbnailGridView(viewModel: viewModel)
         }
-        .sheet(isPresented: $showBookmarkList) {
-            BookmarkListView(viewModel: viewModel, preferences: preferences)
-        }
+        // 「ブックマークの編集」は、以前はここに.sheetとして表示していたが、「お気に入りの整理」
+        // ウインドウと見た目・操作感を揃えるため、独立ウインドウ(Window("Edit Bookmarks",
+        // id: "editBookmarks"))へ変更した。表示自体はshowBookmarkEditor()がopenWindowで行う
+        // (BookmarkEditorWindow.swift参照)。
         // お気に入りへの登録(要望2)。登録先フォルダの選択・新規フォルダ作成・重複確認は
         // FavoriteFolderPickerView側で完結する。
         .sheet(isPresented: $showFavoriteFolderPicker) {
@@ -408,7 +435,7 @@ struct ViewerView: View {
             Spacer()
 
             Button {
-                showBookmarkList = true
+                showBookmarkEditor()
             } label: {
                 Image(systemName: "bookmark")
             }
@@ -848,6 +875,13 @@ struct ViewerView: View {
         isFullScreen = window.styleMask.contains(.fullScreen)
         isAutoHiddenChromeRevealed = true
 
+        // 「ブックマークの編集」ウインドウ・「お気に入りの整理」ウインドウの「現在の本を追加」が
+        // 「今読んでいる本」を特定できるように、このウインドウが(本を表示しているウインドウとして)
+        // キーウインドウになるたびにLaunchCoordinatorへ通知しておく。この時点で既にキーウインドウに
+        // なっている可能性がある(setUpWindowObservers自体がonAppear経由で呼ばれるため)ので、
+        // 通知を待たずにここでも一度呼んでおく。
+        launchCoordinator.setActiveBookAppState(appState)
+
         // Fileメニューの標準「閉じる」(Cmd+W)を「本を閉じる」動作に変更する。既に何らかの
         // デリゲートが設定されている場合(SwiftUI/AppKitがタブ管理や状態復元のために設定して
         // いることがある)は、windowShouldClose以外のメソッドをすべてそちらへ転送するので、
@@ -918,7 +952,15 @@ struct ViewerView: View {
             isMenuTracking = false
             registerMouseActivity()
         }
-        windowObservers = [enter, exit, resignKey, menuBegin, menuEnd]
+        // 「ブックマークの編集」ウインドウ・「お気に入りの整理」ウインドウの「現在の本を追加」用
+        // (上のlaunchCoordinator.setActiveBookAppState(appState)の初回呼び出しと同じ理由。
+        // このウインドウが後から再びキーウインドウになるたびに更新し直す)。
+        let becomeKey = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
+        ) { _ in
+            launchCoordinator.setActiveBookAppState(appState)
+        }
+        windowObservers = [enter, exit, resignKey, menuBegin, menuEnd, becomeKey]
     }
 
     /// フルスクリーン表示中、または表示メニューの「ツールバーを隠す」「プログレスバーを隠す」の
@@ -1001,7 +1043,7 @@ struct ViewerView: View {
         case .previousBookmark:
             viewModel.jumpToPreviousBookmark()
         case .showBookmarkList:
-            showBookmarkList = true
+            showBookmarkEditor()
         case .showThumbnailGrid:
             showThumbnailGrid = true
         case .toggleSlideshow:
@@ -1048,6 +1090,16 @@ struct ViewerView: View {
     /// 同じくホバーでサブフォルダが展開する挙動になる(詳細はFavoritesNSMenuBridge.swiftの
     /// コメント参照)。項目をクリックしたときの実際の開き方は、他の入り口と同じく
     /// openFavoriteAccordingToPreference(環境設定「お気に入りを開くとき」)に従う。
+    /// 「ブックマークの編集」ウインドウ(独立ウインドウ)を開く。ツールバーのブックマークアイコン
+    /// (枠線)・メニューバー「Favorites」→「Edit Bookmarks…」・bキーのどこから呼んでも、
+    /// このメソッドを経由する。launchCoordinator.setActiveBookAppState(appState)を明示的に
+    /// 呼んでおくことで、setUpWindowObservers側のdidBecomeKeyNotification通知を待たずに
+    /// (念のため)確実にこの本を対象にしてからウインドウを開く。
+    private func showBookmarkEditor() {
+        launchCoordinator.setActiveBookAppState(appState)
+        openWindow(id: "editBookmarks")
+    }
+
     private func showFavoritesListMenu() {
         guard let favoritesStore = appState.favoritesStore else { return }
         let bridge = FavoritesNSMenuBridge(favoritesStore: favoritesStore) { favorite in
