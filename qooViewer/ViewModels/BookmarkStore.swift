@@ -8,6 +8,13 @@ struct BookmarkBookGroup: Identifiable {
     let bookID: String
     /// この本に付いているブックマークの件数(左ペインの行に表示する)。
     let count: Int
+    /// 並び替え基準「追加日時」に使う。この本に属するブックマークのうちもっとも古いcreatedAt
+    /// (=この本に最初にブックマークを付けた日時)。BookmarkStore.bookSortOption参照。
+    let earliestCreatedAt: Date
+    /// 並び替え基準「更新日時」に使う。この本に属するブックマークのうちもっとも新しいupdatedAt
+    /// (=この本のブックマークの中で、直近に追加・リネームがあった日時)。
+    /// BookmarkStore.bookSortOption参照。
+    let latestUpdatedAt: Date
 
     var id: String { bookID }
 
@@ -36,15 +43,18 @@ struct BookmarkBookGroup: Identifiable {
 /// クロージャではなく通知の形にしている)。
 @MainActor
 final class BookmarkStore: ObservableObject {
-    /// 本ごとにグループ化した一覧。表示名の自然順(Finderと同じ)で固定的に並べる
-    /// (お気に入りの並べ替え基準(sortOption)は、あくまで選択中の本の中のブックマーク一覧
-    /// (bookmarks(forBookID:))に対してのみ適用する。左ペインの本自体の並び順は対象外)。
+    /// 本ごとにグループ化した一覧。bookSortOptionに従って並べる(既定は表示名の自然順=
+    /// Finderと同じ)。
     @Published private(set) var groups: [BookmarkBookGroup] = []
 
     /// 選択中の本のブックマーク一覧を並べる基準。FavoritesSortOptionをそのまま流用する
     /// (名前・追加日時・更新日時の3種類、それぞれ昇順・降順。詳細はFavoritesSortOption.swift
     /// のコメント参照。以前あった「ページ番号」ソートは、お気に入りの編集画面と表記・挙動を
     /// 完全に揃えるため廃止した)。
+    ///
+    /// 左ペイン(本一覧)の並び替え基準はbookSortOptionとして別に持つ(要望: 左ペインも右ペインと
+    /// 同じルールでソートしたいが、「本を選び替えるたびにブックマークの並びまで変わる」体験は
+    /// 避けたいため、2つのペインで独立に切り替えられるようにした)。
     @Published var sortOption: FavoritesSortOption {
         didSet {
             guard sortOption != oldValue else { return }
@@ -55,7 +65,20 @@ final class BookmarkStore: ObservableObject {
         }
     }
 
+    /// 左ペイン(本一覧)を並べる基準。sortOptionと同じFavoritesSortOptionを使うが、値は独立に
+    /// 保持・永続化する(上記sortOptionのコメント参照)。
+    @Published var bookSortOption: FavoritesSortOption {
+        didSet {
+            guard bookSortOption != oldValue else { return }
+            UserDefaults.standard.set(bookSortOption.rawValue, forKey: Self.bookSortOptionDefaultsKey)
+            // groupsは既にearliestCreatedAt/latestUpdatedAtを持っているため、再フェッチ
+            // (reload())せずその場で並べ替えるだけでよい。
+            groups = Self.sortedGroups(groups, by: bookSortOption)
+        }
+    }
+
     private static let sortOptionDefaultsKey = "qooViewer.pref.bookmarkSortOption"
+    private static let bookSortOptionDefaultsKey = "qooViewer.pref.bookmarkBookSortOption"
 
     private let modelContext: ModelContext
     /// 他のウインドウ(開いている本、または別の「ブックマークの編集」ウインドウ)での変更を
@@ -70,6 +93,9 @@ final class BookmarkStore: ObservableObject {
         self.modelContext = modelContext
         self.sortOption = FavoritesSortOption(
             rawValue: UserDefaults.standard.string(forKey: Self.sortOptionDefaultsKey) ?? ""
+        ) ?? .nameAscending
+        self.bookSortOption = FavoritesSortOption(
+            rawValue: UserDefaults.standard.string(forKey: Self.bookSortOptionDefaultsKey) ?? ""
         ) ?? .nameAscending
         reload()
 
@@ -98,9 +124,42 @@ final class BookmarkStore: ObservableObject {
     func reload() {
         let all = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
         let grouped = Dictionary(grouping: all, by: \.bookID)
-        groups = grouped
-            .map { bookID, bookmarks in BookmarkBookGroup(bookID: bookID, count: bookmarks.count) }
-            .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+        let unsorted = grouped.map { bookID, bookmarks -> BookmarkBookGroup in
+            // 「追加日時」はこの本に最初にブックマークを付けた日時(=最小のcreatedAt)、
+            // 「更新日時」はこの本のブックマークの中で直近に変更があった日時(=最大のupdatedAt)
+            // として扱う(BookmarkBookGroupのコメント参照)。bookmarksは同じbookIDでグループ化した
+            // 直後のため必ず1件以上あり、min()/max()がnilになることはないが、念のためDate()に
+            // フォールバックしておく。
+            BookmarkBookGroup(
+                bookID: bookID,
+                count: bookmarks.count,
+                earliestCreatedAt: bookmarks.map(\.createdAt).min() ?? Date(),
+                latestUpdatedAt: bookmarks.map(\.updatedAt).max() ?? Date()
+            )
+        }
+        groups = Self.sortedGroups(unsorted, by: bookSortOption)
+    }
+
+    /// 左ペインの本一覧を、指定したbookSortOptionに従って並べ替える。bookmarks(forBookID:)の
+    /// switch文と同じ基準・同じ考え方だが、対象がBookmark個々ではなくBookmarkBookGroup
+    /// (本単位に集約した日時)である点が異なる。
+    private static func sortedGroups(
+        _ groups: [BookmarkBookGroup], by option: FavoritesSortOption
+    ) -> [BookmarkBookGroup] {
+        switch option {
+        case .nameAscending:
+            return groups.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+        case .nameDescending:
+            return groups.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedDescending }
+        case .dateAddedAscending:
+            return groups.sorted { $0.earliestCreatedAt < $1.earliestCreatedAt }
+        case .dateAddedDescending:
+            return groups.sorted { $0.earliestCreatedAt > $1.earliestCreatedAt }
+        case .dateUpdatedAscending:
+            return groups.sorted { $0.latestUpdatedAt < $1.latestUpdatedAt }
+        case .dateUpdatedDescending:
+            return groups.sorted { $0.latestUpdatedAt > $1.latestUpdatedAt }
+        }
     }
 
     /// 指定したbookIDのブックマークを、現在のsortOptionに従って並べ替えて返す。

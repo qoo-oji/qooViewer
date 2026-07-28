@@ -18,6 +18,12 @@ import AppKit
 /// すでに他のウインドウ/タブで開いていればそれをアクティブにし、開いていなければ状況に応じて
 /// (ウェルカム画面で開く/新しいウインドウで開く/他の本を置き換えて開く)その本を開いた上で
 /// ジャンプする(詳細はBookmarkDetailPane.openBookAndJump(to:)参照)。
+///
+/// 左ペイン・右ペインとも、右ペインで元々使っていたFavoritesSortOption(名前・追加日時・
+/// 更新日時、それぞれ昇順・降順)で並べ替えられる。ただし2つのペインの並べ替え基準
+/// (bookmarkStore.bookSortOption/sortOption)は独立しており、片方を変えてももう片方には
+/// 影響しない(要望: 左ペインにも並べ替え手段を追加してほしいが、本を選び替えるたびに
+/// ブックマークの並びまで変わる体験は避けたい)。
 struct BookmarkEditorView: View {
     @ObservedObject var bookmarkStore: BookmarkStore
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
@@ -41,7 +47,7 @@ struct BookmarkEditorView: View {
     /// 1. 今読んでいる本(launchCoordinator.activeBookAppState)にブックマークがあれば、それを
     ///    ウインドウを開いた時点で自動的に選択する(要望: 今開いている本のエントリへ最初から
     ///    フォーカスを合わせてほしい)。
-    /// 2. 無ければ、一覧の先頭の本(名前の自然順)。
+    /// 2. 無ければ、一覧の先頭の本(bookmarkStore.bookSortOptionに従った現在の並び順で先頭)。
     private var effectiveSelectedBookID: String? {
         if let selectedBookID, bookmarkStore.groups.contains(where: { $0.bookID == selectedBookID }) {
             return selectedBookID
@@ -131,6 +137,33 @@ struct BookmarkEditorView: View {
                     }
                 }
                 .listStyle(.sidebar)
+                // 左ペイン(本一覧)の並べ替え基準を切り替えるコントロール。右ペインの
+                // 「Sort By」メニュー(BookmarkDetailPane参照)と全く同じFavoritesSortOptionを
+                // 使うが、値自体は独立している(bookmarkStore.bookSortOption)。本を選び替える
+                // たびに右ペインのブックマークの並びまで変わってしまう体験を避けるため
+                // (要望: 左ペインも右ペインと同じルールでソートできるようにしてほしい)。
+                .safeAreaInset(edge: .top) {
+                    HStack {
+                        Spacer()
+                        Picker(selection: $bookmarkStore.bookSortOption) {
+                            ForEach(FavoritesSortOption.allCases) { option in
+                                Label {
+                                    Text(option.titleKey)
+                                } icon: {
+                                    Image(systemName: option.systemImage)
+                                }
+                                .tag(option)
+                            }
+                        } label: {
+                            Label("Sort By", systemImage: "arrow.up.arrow.down")
+                        }
+                        .pickerStyle(.menu)
+                        .fixedSize()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(.bar)
+                }
                 .navigationTitle("Bookmarks")
                 // 左ペインの幅を、開いた時点で登録されている本の名前の長さに応じて広げる
                 // (要望: 名前が長い本が多い場合、既定の幅では省略表示になりがちで読みにくい)。
