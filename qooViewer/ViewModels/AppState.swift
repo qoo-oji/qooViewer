@@ -134,6 +134,30 @@ final class AppState: ObservableObject {
     /// FolderAccessStore自身のinitで行われるため、ここではURLを追加するためだけに参照する)
     weak var folderAccess: FolderAccessStore?
 
+    /// お気に入り(階層フォルダ + 登録した本)の管理。ツールバー・メニューバー・
+    /// コンテキストメニューからの「お気に入りに追加」「お気に入りを開く」で使う。
+    /// (QooViewerAppのonAppearで設定される)
+    weak var favoritesStore: FavoritesStore?
+
+    /// お気に入りを開こうとしたが、対応するファイル/フォルダが実際には存在しなかったときにセットする。
+    /// nilでなければ、ContentViewが「見つかりません。お気に入りから削除しますか?」というアラート
+    /// (OK/お気に入りから削除の2択)を表示する。削除が選ばれた場合は、ContentView側から
+    /// favoritesStore.delete(_:)を呼んでもらう(AppState自身はfavoritesStoreへweakにしか
+    /// アクセスできないが、delete操作自体はfavoritesStoreの責務のため、ここでは状態の保持だけ行う)。
+    @Published var missingFavorite: FavoriteBook?
+
+    /// お気に入りを開く。既存のopen(url:)をそのまま呼ぶのではなく、開く前にセキュリティスコープ
+    /// 付きブックマークを解決し、実際にファイル/フォルダがまだ存在するかを確認する
+    /// (要望5: 見つからない場合はmissingFavoriteをセットしてアラートを出す。実際に開く処理は
+    /// open(url:)にそのまま委譲する)。
+    func openFavorite(_ favorite: FavoriteBook) {
+        guard let favoritesStore, let url = favoritesStore.resolvedExistingURL(for: favorite) else {
+            missingFavorite = favorite
+            return
+        }
+        open(url: url)
+    }
+
     /// 現在進行中の読み込みタスク。開いている途中でさらに別の本を開こうとした場合、
     /// 古い方の結果でcurrentBookが上書きされてしまわないようキャンセルする。
     private var openTask: Task<Void, Never>?

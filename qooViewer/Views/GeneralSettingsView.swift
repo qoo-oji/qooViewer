@@ -43,6 +43,20 @@ struct GeneralSettingsView: View {
                 }
             }
 
+            // お気に入りを開くときの挙動(開く/新しいタブ/新しいウインドウ)を、以前はお気に入りを
+            // 開くたびにサブメニューから毎回選ぶ形式にしていたが、Finderから開いたときと同じ考え方で
+            // ここ1箇所の設定に統一した(FavoriteOpenBehavior自体はFinderOpenBehaviorを再利用)。
+            Section("Opening a Favorite") {
+                Picker(
+                    "When qooViewer Already Has a Book Open",
+                    selection: $preferences.favoriteOpenBehavior
+                ) {
+                    ForEach(FinderOpenBehavior.allCases) { behavior in
+                        Text(behavior.titleKey).tag(behavior)
+                    }
+                }
+            }
+
             Section("Quit") {
                 Toggle("Quit qooViewer when all windows are closed", isOn: $preferences.quitWhenLastWindowClosed)
             }
@@ -59,6 +73,13 @@ struct GeneralSettingsView: View {
                     Text("Number of Books to Keep Data For: ") + Text("\(Int(preferences.maxTrackedBooksCount))")
                     Slider(value: $preferences.maxTrackedBooksCount, in: 50...2000, step: 50)
                 }
+            }
+
+            // 要望7: ウェルカム画面の「最近開いたファイル」「最近お気に入りに追加したファイル」の
+            // 一覧表示は、それぞれ個別にON/OFFできるようにする(既定はON)。
+            Section("Welcome Screen") {
+                Toggle("Show Recent Files", isOn: $preferences.showRecentFilesOnWelcome)
+                Toggle("Show Recent Favorites", isOn: $preferences.showRecentFavoritesOnWelcome)
             }
         }
         .formStyle(.grouped)

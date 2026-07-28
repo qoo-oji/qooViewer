@@ -254,7 +254,10 @@ nonisolated enum EpubStructureResolver {
 }
 
 /// META-INF/container.xmlから、package document(OPF)のパスを取り出すためのXMLパーサ委譲先。
-private final class ContainerDocumentParserDelegate: NSObject, XMLParserDelegate {
+/// nonisolated: 上のEpubStructureResolver(nonisolated enum)から、メインスレッド外で
+/// インスタンス化・アクセスされるため、こちらもXcode既定のMainActor自動分離の対象外にしておく
+/// 必要がある(ZipArchiveReader.swiftのString.Encoding拡張と同じ理由・同じ対処)。
+private nonisolated final class ContainerDocumentParserDelegate: NSObject, XMLParserDelegate {
     private(set) var opfPath: String?
 
     func parser(
@@ -270,7 +273,8 @@ private final class ContainerDocumentParserDelegate: NSObject, XMLParserDelegate
 }
 
 /// package document(OPF)から、manifest・spine・一部のmetadataを取り出すためのXMLパーサ委譲先。
-private final class PackageDocumentParserDelegate: NSObject, XMLParserDelegate {
+/// nonisolated: ContainerDocumentParserDelegateと同じ理由。
+private nonisolated final class PackageDocumentParserDelegate: NSObject, XMLParserDelegate {
     struct ManifestItem {
         let href: String
         let mediaType: String
@@ -344,7 +348,7 @@ private final class PackageDocumentParserDelegate: NSObject, XMLParserDelegate {
 /// XHTML/HTMLの中身から、最初の<img>または<image>(SVG)の参照先を1つだけ取り出すための
 /// XMLパーサ委譲先。見つかった時点で以降の要素は無視してよいが、XMLParserを途中で止めるAPIは
 /// 無いため、単純にimageHrefが既に設定済みなら何もしないという形で「最初の1つだけ」を保証する。
-private final class FirstImageReferenceParserDelegate: NSObject, XMLParserDelegate {
+private nonisolated final class FirstImageReferenceParserDelegate: NSObject, XMLParserDelegate {
     private(set) var imageHref: String?
 
     func parser(
@@ -369,7 +373,7 @@ private final class FirstImageReferenceParserDelegate: NSObject, XMLParserDelega
 /// "dc:title"のような名前空間プレフィックス付き要素名から、プレフィックスを除いた要素名だけを
 /// 取り出す。XMLParserはshouldResolveNamespaces未指定(既定false)で使っているため、
 /// elementNameにはプレフィックスが付いたまま渡ってくる。
-private func localName(of elementName: String) -> String {
+private nonisolated func localName(of elementName: String) -> String {
     guard let colonIndex = elementName.lastIndex(of: ":") else { return elementName }
     return String(elementName[elementName.index(after: colonIndex)...])
 }

@@ -41,6 +41,12 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
     case toggleSlideshow
     case showActualSizeLeft
     case showActualSizeRight
+    /// 現在の本をお気に入りに登録する(登録先フォルダを選ぶダイアログを開く)。
+    case addToFavorites
+    /// お気に入り一覧を(階層構造のまま)表示する。
+    case showFavoritesList
+    /// 「お気に入りの整理」ウインドウを開く。
+    case showFavoritesOrganizer
     /// 何も割り当てない
     case none
 
@@ -70,6 +76,9 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
         case .toggleSlideshow: return "Start/Stop Slideshow"
         case .showActualSizeLeft: return "Show Left Page at Actual Size"
         case .showActualSizeRight: return "Show Right Page at Actual Size"
+        case .addToFavorites: return "Add to Favorites…"
+        case .showFavoritesList: return "Show Favorites List"
+        case .showFavoritesOrganizer: return "Edit Favorites…"
         case .none: return "(None)"
         }
     }

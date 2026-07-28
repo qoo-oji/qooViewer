@@ -20,10 +20,10 @@ protocol ArchiveReading {
 
 /// 対応する画像の拡張子。AVIFはmacOS Sonoma(14)以降でImageIOがシステム全体で
 /// デコードに対応している(本アプリの対象macOS 15以降ではすべて対応)ため含めている。
-let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "gif", "bmp", "webp", "heic", "tif", "tiff", "avif"]
+nonisolated let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "gif", "bmp", "webp", "heic", "tif", "tiff", "avif"]
 
 /// 対応する圧縮アーカイブの拡張子
-let archiveExtensions: Set<String> = ["zip", "cbz", "rar", "cbr", "7z", "cb7"]
+nonisolated let archiveExtensions: Set<String> = ["zip", "cbz", "rar", "cbr", "7z", "cb7"]
 
 nonisolated func isImageFile(_ path: String) -> Bool {
     imageExtensions.contains((path as NSString).pathExtension.lowercased())

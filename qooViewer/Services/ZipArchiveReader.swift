@@ -71,8 +71,12 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
 
 /// ZIPFoundation内部にも同名の定義があるが、外部モジュールからは参照できない(internal)ため、
 /// 同じ仕組み(DOS Latin US = codepage437)をこちらでも定義しておく。
+/// nonisolated: 上のZipArchiveReader(nonisolated final class)のcorrectedPath(nonisolatedな
+/// static func)から参照するため、こちらもXcode既定のMainActor自動分離の対象外にしておく必要がある
+/// (付けないと「Main actor-isolated static property 'codepage437' can not be referenced from a
+/// nonisolated context」というビルドエラーになる)。
 private extension String.Encoding {
-    static let codepage437: String.Encoding = {
+    nonisolated static let codepage437: String.Encoding = {
         let dosLatinUS = CFStringEncoding(0x400)
         let nsEncoding = CFStringConvertEncodingToNSStringEncoding(dosLatinUS)
         return String.Encoding(rawValue: nsEncoding)

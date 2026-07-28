@@ -2,6 +2,12 @@ import SwiftUI
 import SwiftData
 import AppKit
 
+/// アプリ構造体自体を明示的に@MainActorにしておく。SwiftUIのAppプロトコル自体、bodyなどの
+/// 要求はもともと@MainActorだが、favoritesStoreをModelContext付きで組み立てるための独自init()を
+/// 追加した際、他の@StateObjectプロパティ(recentFilesなど)の宣言時デフォルト値の評価まわりで
+/// 分離状態があいまいになり、「main actor-isolated instance method 'reload()' in a synchronous
+/// nonisolated context」のようなビルドエラーが連鎖する事象があったため、型そのものに明示しておく。
+@MainActor
 @main
 struct QooViewerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -9,6 +15,9 @@ struct QooViewerApp: App {
     @StateObject private var keyBindingStore = KeyBindingStore()
     @StateObject private var recentFiles = RecentFilesStore()
     @StateObject private var folderAccess = FolderAccessStore()
+    /// お気に入り(階層フォルダ + 登録した本)。RecentFilesStore等と違いSwiftDataで永続化するため、
+    /// modelContainerから作ったModelContextを渡す必要があり、下のinit()で明示的に生成している。
+    @StateObject private var favoritesStore: FavoritesStore
     /// 複数ウインドウ/タブに対応するための調整役。詳細はLaunchCoordinator.swiftのコメント参照。
     @StateObject private var launchCoordinator = LaunchCoordinator()
     /// メニューバー(アプリ全体で1つ)から、今アクティブな(キーウインドウの)AppStateを
@@ -27,9 +36,17 @@ struct QooViewerApp: App {
     /// インスタンスとして1つだけ持っておくことで、「新しいウインドウで開く」「新しいタブで開く」で
     /// AppKitから直接組み立てる追加ウインドウにも、メインウインドウと同じコンテナ(同じ保存先)を
     /// 渡せるようにしている。
-    private let modelContainer: ModelContainer = {
+    /// static: favoritesStoreの初期化(下のinit()参照)で、StateObject(wrappedValue:)へ渡す
+    /// escaping autoclosureの中からこの値を参照する必要がある。インスタンスプロパティ(let)の
+    /// ままだと、構造体(QooViewerApp)がまだ初期化を終えていない段階でselfをエスケープする
+    /// クロージャに捕まえてしまうことになり、「Escaping autoclosure captures mutating 'self'
+    /// parameter」というビルドエラーになった。staticにすることでselfを介さずに参照できるため、
+    /// この問題を避けられる(値そのものはアプリ全体で1つだけ、という意図は変わらない)。
+    private static let modelContainer: ModelContainer = {
         do {
-            return try ModelContainer(for: BookReadingState.self, Bookmark.self)
+            return try ModelContainer(
+                for: BookReadingState.self, Bookmark.self, FavoriteFolder.self, FavoriteBook.self
+            )
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
         }
@@ -43,6 +60,17 @@ struct QooViewerApp: App {
         preferences.displayLanguage.localeOverride ?? .autoupdatingCurrent
     }
 
+    /// favoritesStoreはmodelContainerから作ったModelContextを必要とするため、他のStateObjectと
+    /// 違って宣言時のデフォルト値だけでは初期化できない。そのためこのinit()で明示的に組み立てる
+    /// (modelContainer自身は宣言時のデフォルト値でそのまま初期化される。他の@StateObjectプロパティも
+    /// 同様に、ここで触れていないものは宣言時のデフォルト値がそのまま使われる)。
+    @MainActor
+    init() {
+        _favoritesStore = StateObject(
+            wrappedValue: FavoritesStore(modelContext: ModelContext(QooViewerApp.modelContainer))
+        )
+    }
+
     var body: some Scene {
         WindowGroup(id: "main") {
             ContentView()
@@ -50,6 +78,7 @@ struct QooViewerApp: App {
                 .environmentObject(keyBindingStore)
                 .environmentObject(recentFiles)
                 .environmentObject(folderAccess)
+                .environmentObject(favoritesStore)
                 .environmentObject(launchCoordinator)
                 .onAppear {
                     appDelegate.preferences = preferences
@@ -72,7 +101,7 @@ struct QooViewerApp: App {
         // 干渉せず、setFrameAutosaveNameによる復元がそのまま反映されるようにする。
         .windowResizability(.automatic)
         .defaultSize(width: 900, height: 640)
-        .modelContainer(modelContainer)
+        .modelContainer(QooViewerApp.modelContainer)
         .commands {
             CommandGroup(replacing: .newItem) {
                 // グループ1: 通常の「開く」(単一ウインドウ内で、選んだファイル/フォルダに置き換える)
@@ -326,29 +355,64 @@ struct QooViewerApp: App {
                 Divider()
             }
 
-            CommandMenu("Bookmark") {
+            // 以前は「ブックマーク」という独立したメニューだったが、要望6により
+            // 「お気に入り」メニューへ統合した。ブックマーク(本を開いている間だけ有効な、
+            // ページ位置の目印)とお気に入り(本そのものを、階層フォルダで整理して保存する)は
+            // 別の仕組みのため、Dividerでグループを分けて並べる。
+            // グループの並び順(お気に入りが上、ブックマークが下)、および各グループ内の並び順
+            // (追加→編集→一覧)はユーザーからの指示により統一している。「編集」の文言も
+            // 「ブックマークの編集…」と表現をそろえ、以前の「お気に入りを整理…」から
+            // 「お気に入りの編集…」に変更した(ViewerAction.showFavoritesOrganizer、
+            // Window("Edit Favorites", ...)も同様に変更済み)。
+            CommandMenu("Favorites") {
                 let hasBook = focusedAppState?.currentBook != nil
+
+                // グループ1: お気に入り(追加→編集→一覧の順)
+                Button("Add Current Book to Favorites…") {
+                    focusedAppState?.performViewerAction?(.addToFavorites)
+                }
+                .disabled(!hasBook)
+
+                Button("Edit Favorites…") {
+                    openWindow(id: "favoritesOrganizer")
+                }
+
+                // 階層構造のままサブメニューで一覧表示する(要望4)。開く/新しいウインドウで開く/
+                // 新しいタブで開くのみに絞り、並べ替え・移動はここでは行わない
+                // (「お気に入りの編集」ウインドウ側の役割。favorites_feature_assessment.md参照)。
+                Menu("Favorites List") {
+                    FavoritesMenuContent(
+                        favoritesStore: favoritesStore,
+                        onOpen: { favorite in openFavoriteAccordingToPreference(favorite) }
+                    )
+                }
+
+                Divider()
+
+                // グループ2: ブックマーク(追加→編集→一覧の順)
+                Button("Add Current Page to Bookmarks") {
+                    focusedAppState?.performViewerAction?(.addBookmark)
+                }
+                .disabled(!hasBook)
 
                 Button("Edit Bookmarks…") {
                     focusedAppState?.performViewerAction?(.showBookmarkList)
                 }
                 .disabled(!hasBook)
 
-                Button("Add Current Page to Bookmarks") {
-                    focusedAppState?.performViewerAction?(.addBookmark)
-                }
-                .disabled(!hasBook)
-
-                // 現在表示しているファイル/フォルダのブックマーク一覧を、メニューの一番下に
-                // 表示する。クリックするとそのページへジャンプする。
-                if let focusedAppState, !focusedAppState.currentBookmarks.isEmpty {
-                    Divider()
-                    ForEach(focusedAppState.currentBookmarks, id: \.id) { bookmark in
-                        Button("\(bookmark.name) (\(bookmark.pageIndex + 1))") {
-                            focusedAppState.jumpToBookmark?(bookmark)
+                // ブックマーク一覧を(要望6により)フラットな並びではなくサブメニューにまとめる。
+                Menu("Bookmark List") {
+                    if let focusedAppState, !focusedAppState.currentBookmarks.isEmpty {
+                        ForEach(focusedAppState.currentBookmarks, id: \.id) { bookmark in
+                            Button("\(bookmark.name) (\(bookmark.pageIndex + 1))") {
+                                focusedAppState.jumpToBookmark?(bookmark)
+                            }
                         }
+                    } else {
+                        Text("(No Bookmarks)")
                     }
                 }
+                .disabled(!hasBook)
             }
         }
         .environment(\.locale, currentLocale)
@@ -365,10 +429,11 @@ struct QooViewerApp: App {
                 .environmentObject(keyBindingStore)
                 .environmentObject(recentFiles)
                 .environmentObject(folderAccess)
+                .environmentObject(favoritesStore)
                 .environmentObject(launchCoordinator)
         }
         .windowResizability(.contentSize)
-        .modelContainer(modelContainer)
+        .modelContainer(QooViewerApp.modelContainer)
         .environment(\.locale, currentLocale)
 
         Settings {
@@ -378,6 +443,16 @@ struct QooViewerApp: App {
                 .environmentObject(folderAccess)
                 .environment(\.locale, currentLocale)
         }
+
+        // 「お気に入りの編集」ウインドウ(要望3。以前は「お気に入りの整理」という表現だったが、
+        // 「ブックマークの編集」と表現をそろえるため「編集」に変更した)。Settingsと同様、
+        // 本を開いているウインドウとは独立した単独のウインドウとして、
+        // openWindow(id: "favoritesOrganizer")で開く。
+        Window("Edit Favorites", id: "favoritesOrganizer") {
+            FavoritesOrganizerView(favoritesStore: favoritesStore)
+                .environment(\.locale, currentLocale)
+        }
+        .windowResizability(.contentSize)
     }
 
     /// 「新しいウインドウで開く」「新しいタブで開く」。ファイル/フォルダ選択パネルを表示し、
@@ -403,6 +478,40 @@ struct QooViewerApp: App {
         )
         guard panel.runModal() == .OK, let url = panel.url else { return }
         openURLInNewWindow(url, asTab: asTab, tabTarget: nil)
+    }
+
+    /// 「お気に入り」メニューの一覧から「新しいウインドウで開く」「新しいタブで開く」を
+    /// 選んだときに呼ぶ。開く前にセキュリティスコープ付きブックマークを解決し、実際に
+    /// ファイル/フォルダが存在するかを確認する(要望5)。見つからなければ、通常の「開く」
+    /// (AppState.openFavorite)と同じくmissingFavoriteをセットしてアラートを出す。
+    private func openFavorite(_ favorite: FavoriteBook, asTab: Bool) {
+        guard let url = favoritesStore.resolvedExistingURL(for: favorite) else {
+            focusedAppState?.missingFavorite = favorite
+            return
+        }
+        openURLInNewWindow(url, asTab: asTab, tabTarget: nil)
+    }
+
+    /// メニューバーの「お気に入り一覧」からお気に入りをクリックしたときの実際の分岐処理。
+    /// 以前はお気に入りごとに「開く/新しいウインドウで開く/新しいタブで開く」をサブメニューから
+    /// 毎回選ぶ形式だったが、Finderから開いたときの挙動(AppDelegate.application(_:open:)の
+    /// finderOpenBehavior判定)と同じ考え方で、環境設定「お気に入りを開くとき」
+    /// (preferences.favoriteOpenBehavior)1箇所で挙動を決めるように変更した。
+    /// まだ本を表示していない(Welcome画面)場合は、Finderから開いたときと同様、設定に関わらず
+    /// 常にそのウインドウでそのまま開く(閉じるべき「現在の本」がそもそも無いため)。
+    private func openFavoriteAccordingToPreference(_ favorite: FavoriteBook) {
+        guard let focusedAppState, focusedAppState.currentBook != nil else {
+            focusedAppState?.openFavorite(favorite)
+            return
+        }
+        switch preferences.favoriteOpenBehavior {
+        case .replaceCurrentBook:
+            focusedAppState.openFavorite(favorite)
+        case .newTab:
+            openFavorite(favorite, asTab: true)
+        case .newWindow:
+            openFavorite(favorite, asTab: false)
+        }
     }
 
     /// 指定したURLを、新しいウインドウ(またはタブ)で開く実際の処理。上のメニュー

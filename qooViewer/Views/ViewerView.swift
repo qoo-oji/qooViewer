@@ -35,6 +35,17 @@ struct ViewerView: View {
     @State private var isMenuTracking = false
     @State private var showThumbnailGrid = false
     @State private var showBookmarkList = false
+    /// 「お気に入りに追加」シート(登録先フォルダを選ぶ。FavoriteFolderPickerView)の表示状態。
+    @State private var showFavoriteFolderPicker = false
+    /// 「お気に入り一覧」を表示中のネイティブNSMenuブリッジ(FavoritesNSMenuBridge)。
+    /// ツールバーのボタンのクリック・ショートカット(showFavoritesList)のどちらからも
+    /// showFavoritesListMenu()を呼び出す形に統一している。popUp自体は同期呼び出しで
+    /// 閉じるまでブロックされるため、厳密には@Stateに保持しなくても呼び出し元のローカル変数の
+    /// 生存期間だけで足りるはずだが、念のためこのビューの寿命に紐づけて保持している。
+    @State private var favoritesMenuBridge: FavoritesNSMenuBridge?
+    /// 「新しいウインドウで開く」「新しいタブで開く」(openFavoriteInNewWindow/openFavoriteInNewTab)
+    /// で、指定したURLを持つ新しいウインドウをSwiftUIに作らせるための仕組み。
+    @Environment(\.openWindow) private var openWindow
     /// このビューを表示しているウインドウ本体。フルスクリーンの入退場通知の登録・解除や、
     /// マウス位置と画面端との距離判定に使う。
     @State private var hostWindow: NSWindow?
@@ -264,6 +275,19 @@ struct ViewerView: View {
         .sheet(isPresented: $showBookmarkList) {
             BookmarkListView(viewModel: viewModel)
         }
+        // お気に入りへの登録(要望2)。登録先フォルダの選択・新規フォルダ作成・重複確認は
+        // FavoriteFolderPickerView側で完結する。
+        .sheet(isPresented: $showFavoriteFolderPicker) {
+            if let favoritesStore = appState.favoritesStore {
+                FavoriteFolderPickerView(book: viewModel.book, favoritesStore: favoritesStore)
+            }
+        }
+        // お気に入り一覧(要望4)。以前はここに.popover(isPresented:)でFavoritesListPopoverContent
+        // (List+DisclosureGroup)を表示していたが、フォルダを開くたびにクリックが必要で
+        // 使い勝手が良くなかったため、メニューバー側と同じくホバーでサブフォルダが展開する
+        // ネイティブNSMenu(FavoritesNSMenuBridge)へ置き換えた。ボタンのクリック・ショートカット
+        // のどちらもshowFavoritesListMenu()を呼ぶだけでよく、SwiftUI側の状態(.popoverのbinding)
+        // は不要になったため、ここには何も無い(showFavoritesListMenu()のコメント参照)。
         // 環境設定「本を再度開いたときの動作」が「問い合わせる」のときだけ、
         // 前回位置から再開するかどうかを尋ねる(ViewerViewModel.init参照)。
         .alert(
@@ -372,6 +396,20 @@ struct ViewerView: View {
             .help("Add Current Page to Bookmarks")
 
             Button {
+                showFavoriteFolderPicker = true
+            } label: {
+                Image(systemName: "star")
+            }
+            .help("Add to Favorites…")
+
+            Button {
+                showFavoritesListMenu()
+            } label: {
+                Image(systemName: "star.circle")
+            }
+            .help("Show Favorites List")
+
+            Button {
                 showThumbnailGrid = true
             } label: {
                 Image(systemName: "square.grid.2x2")
@@ -460,8 +498,37 @@ struct ViewerView: View {
 
         Divider()
 
+        // お気に入りグループ・ブックマークグループの並び順、および文言はメニューバーの
+        // 「お気に入り」メニュー(QooViewerApp.swiftのCommandMenu("Favorites"))に合わせている
+        // (お気に入りが上、ブックマークが下。ボタンの文言も「現在の本をお気に入りに追加」で統一)。
+        Button("Add Current Book to Favorites…") {
+            perform(.addToFavorites)
+        }
+        if let favoritesStore = appState.favoritesStore {
+            Menu("Favorites List") {
+                FavoritesMenuContent(
+                    favoritesStore: favoritesStore,
+                    onOpen: { favorite in openFavoriteAccordingToPreference(favorite) }
+                )
+            }
+        }
+
+        Divider()
+
         Button("Add Current Page to Bookmarks") {
             perform(.addBookmark)
+        }
+        // メニューバー側のBookmark Listサブメニュー(QooViewerApp.swift)と同じ内容。
+        Menu("Bookmark List") {
+            if appState.currentBookmarks.isEmpty {
+                Text("(No Bookmarks)")
+            } else {
+                ForEach(appState.currentBookmarks, id: \.id) { bookmark in
+                    Button("\(bookmark.name) (\(bookmark.pageIndex + 1))") {
+                        appState.jumpToBookmark?(bookmark)
+                    }
+                }
+            }
         }
 
         Divider()
@@ -836,9 +903,20 @@ struct ViewerView: View {
     /// 書き換える(過去のプログレスバーの不具合の反省を踏まえた安全策)。
     private func updateAutoHiddenChromeVisibility(forMouseLocationInWindow location: CGPoint) {
         guard isFullScreen || appState.hideToolbar || appState.hideProgressBar,
-              let windowHeight = hostWindow?.frame.height else { return }
+              let window = hostWindow else { return }
+        // 上端の判定には、ウインドウ全体の高さ(window.frame.height)ではなく、タイトルバー・
+        // タブバーを除いた実際のコンテンツ領域の高さ(contentView.frame.height)を使う。
+        // タブバーが表示されているとき、AppKitはcontentViewの高さをタブバーの分だけ自動的に
+        // 縮めてくれる(ツールバー自体もSwiftUI側で自動的にその位置に描画される)ため、この値を
+        // 基準にすれば、タブバーの有無を個別に判定しなくても「マウスが実際のツールバー付近に
+        // あるか」を正しく判定できる。
+        // 以前はwindow.frame.heightを基準にしていたため、タブバー表示時は実際のツールバーの
+        // 位置がその分下にずれるのに判定側の基準がずれず、ツールバーに向けてマウスを動かしただけで
+        // ホットゾーンから外れて隠れてしまう不具合があった(下端の判定はタブバーの影響を受けないため
+        // location.y < edgeThresholdのまま変更していない)。
+        let contentHeight = window.contentView?.frame.height ?? window.frame.height
         let edgeThreshold: CGFloat = 60
-        let shouldShow = location.y > windowHeight - edgeThreshold || location.y < edgeThreshold
+        let shouldShow = location.y > contentHeight - edgeThreshold || location.y < edgeThreshold
         if isAutoHiddenChromeRevealed != shouldShow {
             isAutoHiddenChromeRevealed = shouldShow
         }
@@ -907,8 +985,117 @@ struct ViewerView: View {
             showActualSizeWindow(forLeftPage: true)
         case .showActualSizeRight:
             showActualSizeWindow(forLeftPage: false)
+        case .addToFavorites:
+            showFavoriteFolderPicker = true
+        case .showFavoritesList:
+            showFavoritesListMenu()
+        case .showFavoritesOrganizer:
+            openWindow(id: "favoritesOrganizer")
         case .none:
             break
+        }
+    }
+
+    /// 「お気に入り一覧」ポップオーバーからお気に入りをクリックしたときの実際の分岐処理。
+    /// QooViewerApp.swiftの同名メソッドと同じ考え方(環境設定「お気に入りを開くとき」
+    /// favoriteOpenBehaviorに従って、そのまま開く/新しいタブ/新しいウインドウを判定する)だが、
+    /// ViewerView自身はQooViewerApp側のprivateなヘルパーを直接呼べないため、こちらでも
+    /// 同じ判定を実装している。ViewerViewが表示されている時点で必ず本を表示しているはずだが、
+    /// 念のためcurrentBookがnilの場合は常にそのまま開く形にフォールバックする。
+    private func openFavoriteAccordingToPreference(_ favorite: FavoriteBook) {
+        guard appState.currentBook != nil else {
+            appState.openFavorite(favorite)
+            return
+        }
+        switch preferences.favoriteOpenBehavior {
+        case .replaceCurrentBook:
+            appState.openFavorite(favorite)
+        case .newTab:
+            openFavoriteInNewTab(favorite)
+        case .newWindow:
+            openFavoriteInNewWindow(favorite)
+        }
+    }
+
+    /// ツールバーの「お気に入り一覧」ボタン、およびキーボードショートカット
+    /// (ViewerAction.showFavoritesList)のどちらからも呼ぶ、一覧の表示処理。
+    /// ネイティブNSMenu(FavoritesNSMenuBridge)を組み立てて表示することで、メニューバー側と
+    /// 同じくホバーでサブフォルダが展開する挙動になる(詳細はFavoritesNSMenuBridge.swiftの
+    /// コメント参照)。項目をクリックしたときの実際の開き方は、他の入り口と同じく
+    /// openFavoriteAccordingToPreference(環境設定「お気に入りを開くとき」)に従う。
+    private func showFavoritesListMenu() {
+        guard let favoritesStore = appState.favoritesStore else { return }
+        let bridge = FavoritesNSMenuBridge(favoritesStore: favoritesStore) { favorite in
+            openFavoriteAccordingToPreference(favorite)
+        }
+        favoritesMenuBridge = bridge
+        bridge.show()
+    }
+
+    /// 「お気に入り一覧」ボタン(またはショートカット)から、指定したお気に入りを新しいウインドウで開く。
+    /// QooViewerApp.openURLInNewWindowと同じポーリング方式で、開いたウインドウをこのウインドウと
+    /// 同じサイズ・カスケード位置に整える(詳細はそちらのコメント参照)。ここではメニューバーの
+    /// 実装と処理が重複するが、ViewerView自身はQooViewerApp側のprivateなヘルパーを直接呼べないため、
+    /// 同じ考え方をこちらでも実装している。
+    private func openFavoriteInNewWindow(_ favorite: FavoriteBook) {
+        guard let favoritesStore = appState.favoritesStore,
+              let url = favoritesStore.resolvedExistingURL(for: favorite) else {
+            appState.missingFavorite = favorite
+            return
+        }
+        _ = url.startAccessingSecurityScopedResource()
+        let previousWindow = hostWindow
+        let existingIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
+        openWindow(id: "book", value: url)
+        Task { @MainActor in
+            for _ in 0..<20 {
+                try? await Task.sleep(nanoseconds: 25_000_000)
+                if let newWindow = NSApp.windows.first(where: { !existingIDs.contains(ObjectIdentifier($0)) }) {
+                    if let previousWindow {
+                        var frame = newWindow.frame
+                        frame.size = previousWindow.frame.size
+                        frame.origin = CGPoint(
+                            x: previousWindow.frame.origin.x + 48,
+                            y: previousWindow.frame.origin.y - 48
+                        )
+                        newWindow.setFrame(frame, display: true)
+                    }
+                    newWindow.makeKeyAndOrderFront(nil)
+                    NSApp.activate(ignoringOtherApps: true)
+                    break
+                }
+            }
+        }
+    }
+
+    /// 「お気に入り一覧」ボタン(またはショートカット)から、指定したお気に入りを新しいタブで開く。
+    private func openFavoriteInNewTab(_ favorite: FavoriteBook) {
+        guard let favoritesStore = appState.favoritesStore,
+              let url = favoritesStore.resolvedExistingURL(for: favorite) else {
+            appState.missingFavorite = favorite
+            return
+        }
+        guard let hostWindow else {
+            openFavoriteInNewWindow(favorite)
+            return
+        }
+        _ = url.startAccessingSecurityScopedResource()
+        let existingIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
+        openWindow(id: "book", value: url)
+        Task { @MainActor in
+            for _ in 0..<20 {
+                try? await Task.sleep(nanoseconds: 25_000_000)
+                if let newWindow = NSApp.windows.first(where: { !existingIDs.contains(ObjectIdentifier($0)) }) {
+                    var frame = newWindow.frame
+                    frame.size = hostWindow.frame.size
+                    frame.origin = hostWindow.frame.origin
+                    newWindow.setFrame(frame, display: true)
+                    hostWindow.addTabbedWindow(newWindow, ordered: .above)
+                    newWindow.makeKeyAndOrderFront(nil)
+                    NSApp.activate(ignoringOtherApps: true)
+                    break
+                }
+            }
         }
     }
 

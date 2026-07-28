@@ -25,10 +25,13 @@ final class AppPreferences: ObservableObject {
         static let confirmBeforeClosingMultipleTabsWindow =
             "qooViewer.pref.confirmBeforeClosingMultipleTabsWindow"
         static let finderOpenBehavior = "qooViewer.pref.finderOpenBehavior"
+        static let favoriteOpenBehavior = "qooViewer.pref.favoriteOpenBehavior"
         static let maxTrackedBooksCount = "qooViewer.pref.maxTrackedBooksCount"
         static let hideToolbar = "qooViewer.pref.hideToolbar"
         static let hideProgressBar = "qooViewer.pref.hideProgressBar"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
+        static let showRecentFilesOnWelcome = "qooViewer.pref.showRecentFilesOnWelcome"
+        static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
     }
 
     /// 入力ファイルなしで起動した場合(Finderでの直接オープンやDockアイコンへの
@@ -125,6 +128,15 @@ final class AppPreferences: ObservableObject {
     @Published var finderOpenBehavior: FinderOpenBehavior {
         didSet { UserDefaults.standard.set(finderOpenBehavior.rawValue, forKey: Keys.finderOpenBehavior) }
     }
+    /// 既に本を表示している状態で、お気に入り一覧(メニューバー・ツールバー・ウェルカム画面)から
+    /// 別の本を開こうとしたときの挙動(既定は「現在の本を閉じて新しい本を開く」)。
+    /// FinderOpenBehaviorと選択肢(現在の本を閉じて開く/新しいタブ/新しいウインドウ)が同じ
+    /// ため、型はそのまま再利用している。以前はお気に入りを開くたびにサブメニューから
+    /// 「開く/新しいウインドウで開く/新しいタブで開く」を毎回選ぶ形式だったが、
+    /// この環境設定1箇所で挙動を固定できるように変更した。
+    @Published var favoriteOpenBehavior: FinderOpenBehavior {
+        didSet { UserDefaults.standard.set(favoriteOpenBehavior.rawValue, forKey: Keys.favoriteOpenBehavior) }
+    }
     /// 本ごとの読書状態(最後に読んだページなど)とブックマークを保持しておく本の数の上限。
     /// これを超えて新しい本を開くと、最後に読んだ時刻が古い本のデータから自動的に削除される
     /// (LibraryDataPruner参照)。データが際限なく増え続けるのを防ぐための設定(既定500冊)。
@@ -152,6 +164,16 @@ final class AppPreferences: ObservableObject {
                 showProgressBarThumbnailPreview,
                 forKey: Keys.showProgressBarThumbnailPreview
             )
+        }
+    }
+    /// ウェルカム画面に「最近開いたファイル」一覧(最大10件)を表示するかどうか(既定ON)。
+    @Published var showRecentFilesOnWelcome: Bool {
+        didSet { UserDefaults.standard.set(showRecentFilesOnWelcome, forKey: Keys.showRecentFilesOnWelcome) }
+    }
+    /// ウェルカム画面に「最近お気に入りに追加したファイル」一覧(最大10件)を表示するかどうか(既定ON)。
+    @Published var showRecentFavoritesOnWelcome: Bool {
+        didSet {
+            UserDefaults.standard.set(showRecentFavoritesOnWelcome, forKey: Keys.showRecentFavoritesOnWelcome)
         }
     }
 
@@ -187,10 +209,17 @@ final class AppPreferences: ObservableObject {
         self.finderOpenBehavior =
             FinderOpenBehavior(rawValue: defaults.string(forKey: Keys.finderOpenBehavior) ?? "")
                 ?? .replaceCurrentBook
+        self.favoriteOpenBehavior =
+            FinderOpenBehavior(rawValue: defaults.string(forKey: Keys.favoriteOpenBehavior) ?? "")
+                ?? .replaceCurrentBook
         self.maxTrackedBooksCount = defaults.object(forKey: Keys.maxTrackedBooksCount) as? Double ?? 500
         self.hideToolbar = defaults.object(forKey: Keys.hideToolbar) as? Bool ?? false
         self.hideProgressBar = defaults.object(forKey: Keys.hideProgressBar) as? Bool ?? false
         self.showProgressBarThumbnailPreview =
             defaults.object(forKey: Keys.showProgressBarThumbnailPreview) as? Bool ?? true
+        self.showRecentFilesOnWelcome =
+            defaults.object(forKey: Keys.showRecentFilesOnWelcome) as? Bool ?? true
+        self.showRecentFavoritesOnWelcome =
+            defaults.object(forKey: Keys.showRecentFavoritesOnWelcome) as? Bool ?? true
     }
 }

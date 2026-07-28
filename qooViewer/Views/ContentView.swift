@@ -11,6 +11,7 @@ struct ContentView: View {
     @EnvironmentObject private var preferences: AppPreferences
     @EnvironmentObject private var recentFiles: RecentFilesStore
     @EnvironmentObject private var folderAccess: FolderAccessStore
+    @EnvironmentObject private var favoritesStore: FavoritesStore
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
     @Environment(\.modelContext) private var modelContext
 
@@ -128,6 +129,7 @@ struct ContentView: View {
             appState.preferences = preferences
             appState.recentFiles = recentFiles
             appState.folderAccess = folderAccess
+            appState.favoritesStore = favoritesStore
             // 「ツールバーを隠す」「プログレスバーを隠す」は、前回終了時(またはこのセッション中に
             // 他のウインドウで変更された時点)の値をpreferencesから引き継ぐ。これにより、
             // 新しいウインドウ/タブや次回起動時にも同じ表示状態で始まる。
@@ -158,6 +160,33 @@ struct ContentView: View {
             Button("OK") { appState.errorMessage = nil }
         } message: {
             Text(appState.errorMessage ?? "")
+        }
+        // お気に入りを開こうとしたが、対応するファイル/フォルダが実際には存在しなかった場合の
+        // アラート(要望5)。「お気に入りから削除」を選ぶと、favoritesStoreからそのお気に入りを
+        // 削除する(AppState自身はfavoritesStoreへweakにしかアクセスできないため、削除の実行は
+        // ここ、環境オブジェクトを直接持つContentView側で行う)。
+        .alert(
+            "Favorite Not Found",
+            isPresented: Binding(
+                get: { appState.missingFavorite != nil },
+                set: { isPresented in
+                    if !isPresented { appState.missingFavorite = nil }
+                }
+            )
+        ) {
+            Button("OK") { appState.missingFavorite = nil }
+            Button("Remove from Favorites", role: .destructive) {
+                if let favorite = appState.missingFavorite {
+                    favoritesStore.delete(favorite)
+                }
+                appState.missingFavorite = nil
+            }
+        } message: {
+            // 文字列補間をそのままText("...")に渡すと手書きのLocalizable.xcstringsでは翻訳と
+            // 紐付かないため、FavoriteFolderPickerView.swiftの重複確認アラートと同じく、
+            // 固定文字列の断片をText同士の+でつなぐ形にしている。
+            Text("The file or folder for “") + Text(appState.missingFavorite?.title ?? "")
+                + Text("” could not be found. It may have been moved or deleted.")
         }
     }
 
@@ -223,6 +252,7 @@ struct ContentView: View {
                     appState.preferences = preferences
                     appState.recentFiles = recentFiles
                     appState.folderAccess = folderAccess
+                    appState.favoritesStore = favoritesStore
                     appState.hideToolbar = preferences.hideToolbar
                     appState.hideProgressBar = preferences.hideProgressBar
                     launchCoordinator.registerOpenAppState(appState)
