@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// 「ブックマークの編集」ウインドウ(独立ウインドウ。Window("Edit Bookmarks", id: "editBookmarks")、
 /// QooViewerApp.swift参照)の実際のコンテンツ。
@@ -9,9 +10,14 @@ import SwiftUI
 /// 作り直した。データの実体はBookmarkStoreがすべての本を横断して持つ(本を開いているかどうかに
 /// 関わらず削除・リネームができる)。
 ///
-/// 「その本の現在のページを追加」および「クリックしてジャンプ」は、その本を今開いている
-/// ウインドウ/タブがある場合にのみ有効になる(LaunchCoordinator.openAppState(forBookID:)で
-/// 判定する。開いていない本を新たに開いてジャンプする機能は今回は追加していない)。
+/// 「その本の現在のページを追加」は、その本を今開いているウインドウ/タブがある場合にのみ
+/// 有効になる(LaunchCoordinator.openAppState(forBookID:)で判定する。「現在のページ」という
+/// 概念自体が、開いていない本には無いため)。
+///
+/// 一方「クリックしてジャンプ」(ダブルクリック)は、その本を今開いていない場合でも動作する。
+/// すでに他のウインドウ/タブで開いていればそれをアクティブにし、開いていなければ状況に応じて
+/// (ウェルカム画面で開く/新しいウインドウで開く/他の本を置き換えて開く)その本を開いた上で
+/// ジャンプする(詳細はBookmarkDetailPane.openBookAndJump(to:)参照)。
 struct BookmarkEditorView: View {
     @ObservedObject var bookmarkStore: BookmarkStore
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
@@ -191,10 +197,19 @@ private struct BookmarkDetailPane: View {
     @Binding var renamingBookmark: Bookmark?
     @Binding var renameText: String
 
+    /// 「新しいウインドウで開く」相当の処理(要望3)で、SwiftUIにウインドウ作成そのものを
+    /// 管理させるために使う(QooViewerApp.swiftの"book" WindowGroup参照)。
+    @Environment(\.openWindow) private var openWindow
+
     /// 右ペインで今クリックして選択中のブックマークのid。以前はクリックしても
     /// (本を開いていない場合は特に)見た目の変化が無く、選択できているのか分かりにくいという
     /// 指摘があったため、左ペインの選択と同じ見た目でハイライトする(row(for:)参照)。
     @State private var selectedBookmarkID: UUID?
+
+    /// ダブルクリックしたブックマークの本を開こうとしたが、ファイル/フォルダが見つからない、
+    /// またはアクセスできなかった場合に、その本の表示名(左ペインの行と同じ生成方法)を
+    /// アラートのメッセージに埋め込むために保持する(openBookAndJump(to:)参照)。
+    @State private var openErrorBookName: String?
 
     /// この本を今開いているウインドウ/タブのAppState(無ければnil)。
     private var openAppState: AppState? {
@@ -261,6 +276,120 @@ private struct BookmarkDetailPane: View {
         // そのため、本の名前の代わりに常に固定の文言を明示的に指定している
         // (FavoritesOrganizerViewの.navigationTitle("Edit Favorites")と同じ理由・同じ対応)。
         .navigationTitle("Edit Bookmarks")
+        // 対象の本を開けなかった場合(ファイル/フォルダが見つからない、またはアクセスできな
+        // かった場合)のアラート。ContentView.missingFavoriteの見た目・文言と揃えている。
+        // 文字列補間をそのままText("...")に渡すと手書きのLocalizable.xcstringsでは翻訳と
+        // 紐付かないため、ContentView.missingFavoriteのアラートと同じく、固定文字列の断片を
+        // Text同士の+でつなぐ形にしている。
+        .alert(
+            "Could Not Open Book",
+            isPresented: Binding(
+                get: { openErrorBookName != nil },
+                set: { isPresented in if !isPresented { openErrorBookName = nil } }
+            )
+        ) {
+            Button("OK") { openErrorBookName = nil }
+        } message: {
+            Text("The file or folder for “") + Text(openErrorBookName ?? "")
+                + Text("” could not be found. It may have been moved or deleted.")
+        }
+    }
+
+    /// 右ペインでブックマークをダブルクリックしたときの処理。
+    ///
+    /// 1. 対象の本をすでにどこかのウインドウ/タブで開いている → そのウインドウ/タブを
+    ///    アクティブにしてジャンプする(以前からの動作)。
+    /// 2. コンテンツウインドウ(ウェルカム画面を含む。「ブックマークの編集」「お気に入りの
+    ///    編集」「環境設定」などは含まない)が1つもない → 新しいウインドウで開いてジャンプする。
+    /// 3. コンテンツウインドウはあるが対象の本はどこにも開いていない → 今いちばん手前にある
+    ///    コンテンツウインドウで開く。そのウインドウがウェルカム画面(本を開いていない)か、
+    ///    既に別の本を開いているかは区別しない。どちらもAppState.open(url:)を呼ぶだけで、
+    ///    「開いていない状態から開く」「別の本を置き換える」の両方に対応できるため
+    ///    (Finderから別の本を開いたときの「現在の本を置き換える」動作と同じ仕組み)。
+    private func openBookAndJump(to bookmark: Bookmark) {
+        // 1. すでに開いている場合。
+        if let existingAppState = launchCoordinator.openAppState(forBookID: bookmark.bookID) {
+            existingAppState.jumpToBookmark?(bookmark)
+            existingAppState.hostWindow?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        guard let url = resolvedURL(for: bookmark) else {
+            // 表示名は左ペインの行(BookmarkBookGroup.displayName)と同じ生成方法(パスの
+            // 最後の部分)を使う。ブックマーク自体はページの名前(bookmark.name)しか
+            // 持っておらず、本の名前は保存していないため。
+            openErrorBookName = URL(fileURLWithPath: bookmark.bookID)
+                .deletingPathExtension()
+                .lastPathComponent
+            return
+        }
+        _ = url.startAccessingSecurityScopedResource()
+
+        if let targetAppState = launchCoordinator.frontmostContentAppState() {
+            // 2/4: 既存のコンテンツウインドウ(ウェルカム画面、または他の本を開いているウインドウ)
+            // で開く。
+            targetAppState.open(url: url)
+            waitAndJump(appState: targetAppState, to: bookmark)
+        } else {
+            // 3: コンテンツウインドウが1つも無い → 新しいウインドウを開く。
+            openWindow(id: "book", value: url)
+            Task { @MainActor in
+                // openWindowが実際にNSWindowを作り終え、その本の読み込みが完了して
+                // launchCoordinatorに登録されるまで、短い間隔で繰り返し確認する
+                // (QooViewerApp.openURLInNewWindowの待機ロジックと同じ考え方)。
+                for _ in 0..<200 {
+                    if let newAppState = launchCoordinator.openAppState(forBookID: bookmark.bookID) {
+                        waitAndJump(appState: newAppState, to: bookmark)
+                        return
+                    }
+                    try? await Task.sleep(nanoseconds: 25_000_000)
+                }
+            }
+        }
+    }
+
+    /// 指定したAppStateが対象の本を読み込み終え、jumpToBookmarkクロージャが登録される
+    /// (=ViewerViewが実際に表示された)のを短い間隔で待ってからジャンプし、ウインドウを
+    /// 最前面にする。読み込みに失敗した場合(errorMessageが立った場合)はそれ以上待たずに
+    /// あきらめる(エラー自体はContentView.swiftの.alertが表示する)。
+    private func waitAndJump(appState: AppState, to bookmark: Bookmark) {
+        Task { @MainActor in
+            for _ in 0..<200 {
+                if appState.currentBook?.id == bookmark.bookID, let jump = appState.jumpToBookmark {
+                    jump(bookmark)
+                    appState.hostWindow?.makeKeyAndOrderFront(nil)
+                    NSApp.activate(ignoringOtherApps: true)
+                    return
+                }
+                if appState.currentBook == nil, appState.errorMessage != nil {
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 25_000_000)
+            }
+        }
+    }
+
+    /// ブックマークが指す本のURLを解決する。セキュリティスコープ付きブックマーク
+    /// (bookmarkData)があればそれを解決し、実際にファイル/フォルダがまだ存在するかまで
+    /// 確認する。無い場合(この機能を追加する前に作られたブックマーク)、または解決に失敗した
+    /// 場合は、bookIDの素のパスへフォールバックする(環境設定「アクセス権」で許可済みの
+    /// フォルダ配下であれば、これでも開ける)。どちらの方法でも見つからなければnilを返す。
+    private func resolvedURL(for bookmark: Bookmark) -> URL? {
+        if let data = bookmark.bookmarkData {
+            var isStale = false
+            if let url = try? URL(
+                resolvingBookmarkData: data,
+                options: .withSecurityScope,
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            ), FileManager.default.fileExists(atPath: url.path) {
+                return url
+            }
+        }
+        let fallbackURL = URL(fileURLWithPath: bookmark.bookID)
+        guard FileManager.default.fileExists(atPath: fallbackURL.path) else { return nil }
+        return fallbackURL
     }
 
     @ViewBuilder
@@ -297,12 +426,12 @@ private struct BookmarkDetailPane: View {
         // シングルクリックでいきなりジャンプするのではなく、選択とジャンプを分けてほしい)。
         // お気に入りの整理画面のフォルダ行(シングルクリック=選択、ダブルクリック=移動)と
         // 同じ考え方・同じ実装パターン。
+        //
+        // この本を今開いていない場合も、openBookAndJump(to:)が「すでに開いている/ウェルカム
+        // 画面のみ/ウインドウが1つも無い/他の本を開いている」の4通りに応じて適切なウインドウ/
+        // タブで開いた上でジャンプする(詳細はopenBookAndJump(to:)のコメント参照)。
         .onTapGesture(count: 2) {
-            // この本が今開いていない場合はページへのジャンプは行わない(要望: 開いていない本の
-            // ブックマークは削除・リネームのみ可能とし、開く機能は今回は追加しない)。
-            guard let openAppState else { return }
-            openAppState.jumpToBookmark?(bookmark)
-            openAppState.hostWindow?.makeKeyAndOrderFront(nil)
+            openBookAndJump(to: bookmark)
         }
         .onTapGesture(count: 1) {
             selectedBookmarkID = bookmark.id

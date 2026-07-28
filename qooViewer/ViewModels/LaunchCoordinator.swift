@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import AppKit
 
 /// アプリ全体で一度だけ行いたい初期化と、Finderからの「開く」を受け取る最初のウインドウの
 /// 参照を管理する。
@@ -79,6 +80,39 @@ final class LaunchCoordinator: ObservableObject {
     func openAppState(forBookID bookID: String) -> AppState? {
         openAppStates.removeAll { $0.appState == nil }
         return openAppStates.first { $0.appState?.currentBook?.id == bookID }?.appState
+    }
+
+    /// 現在登録されているすべてのContentViewウインドウ/タブのAppState一覧(本を表示中か
+    /// ウェルカム画面かを問わない。nilになった弱参照は都度取り除く)。
+    /// 「ブックマークの編集」ウインドウのダブルクリックで、対象の本をまだどこにも開いていない
+    /// 場合に「今一番手前にあるコンテンツウインドウ」を探すために使う
+    /// (frontmostContentAppState参照)。
+    var allOpenAppStates: [AppState] {
+        openAppStates.removeAll { $0.appState == nil }
+        return openAppStates.compactMap(\.appState)
+    }
+
+    /// 登録済みのContentViewウインドウ(本を表示中か、ウェルカム画面かを問わない)のうち、
+    /// 現在いちばん手前にあるものを返す。「ブックマークの編集」ウインドウの
+    /// ダブルクリックで本を開く/置き換える先を決めるために使う
+    /// (BookmarkListView参照)。「ブックマークの編集」「お気に入りの整理」「環境設定」など、
+    /// ContentView以外のウインドウはAppStateを持たないため、ここで手前にあると判定されることは
+    /// ない(ダブルクリックした時点ではそれらのうちのどれかが最前面のはずだが、除外される)。
+    /// コンテンツウインドウが1つも開いていない場合はnilを返す。
+    func frontmostContentAppState() -> AppState? {
+        let hostWindows = allOpenAppStates.compactMap { appState -> (AppState, NSWindow)? in
+            guard let window = appState.hostWindow else { return nil }
+            return (appState, window)
+        }
+        guard !hostWindows.isEmpty else { return nil }
+        for window in NSApp.orderedWindows {
+            if let match = hostWindows.first(where: { $0.1 === window }) {
+                return match.0
+            }
+        }
+        // NSApp.orderedWindowsに見つからない場合(通常は起こらないはずだが、念のためのフォール
+        // バック)は、登録順の先頭を返す。
+        return hostWindows.first?.0
     }
 }
 

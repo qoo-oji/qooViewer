@@ -443,7 +443,21 @@ final class ViewerViewModel: ObservableObject {
         // 変わらない「作成時点の言語」で作られる。作成時点の表示言語設定(preferences.effectiveLocale)を
         // 使ってその場で解決することで、システム言語とは独立したアプリ内表示言語にも対応する。
         let pagePrefix = String(localized: "Page", locale: preferences.effectiveLocale)
-        let bookmark = Bookmark(bookID: book.id, pageIndex: currentIndex, name: "\(pagePrefix) \(currentIndex + 1)")
+        // セキュリティスコープ付きブックマークを一緒に保存しておく(FavoriteBook.bookmarkDataと
+        // 同じ理由。「ブックマークの編集」ウインドウから、今開いていない本を新たに開いてジャンプ
+        // する機能(要望2〜4)のために必要。今この本を開けている=このURLへのアクセス権を
+        // 持っている、という前提でここで生成する)。
+        let bookmarkData = try? book.sourceURL.bookmarkData(
+            options: .withSecurityScope,
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
+        let bookmark = Bookmark(
+            bookID: book.id,
+            pageIndex: currentIndex,
+            name: "\(pagePrefix) \(currentIndex + 1)",
+            bookmarkData: bookmarkData
+        )
         modelContext.insert(bookmark)
         try? modelContext.save()
         reloadBookmarks()

@@ -10,6 +10,18 @@ final class Bookmark {
     var pageIndex: Int
     var name: String
     var createdAt: Date
+    /// この本を指すセキュリティスコープ付きブックマーク(FavoriteBook.bookmarkDataと同じもの)。
+    /// 「ブックマークの編集」ウインドウから、今開いていない本をダブルクリックで新たに開いて
+    /// ジャンプする機能のために保持する。bookIDは素のパス文字列でしかなく、サンドボックス環境では
+    /// それだけでは(環境設定「アクセス権」で許可済みのフォルダ配下でない限り)ファイルへ
+    /// アクセスできないため、開く直前にこれを解決してURLを得る(BookmarkListView.resolvedURL参照)。
+    ///
+    /// FavoriteBook.bookmarkDataと違い必須にしていない(Optional)のは、この属性を追加する前から
+    /// 存在するブックマークにはそもそも作成時点でこの値を持たせようがなく、後から復元する
+    /// 手段も無いため。値が無い場合はbookIDのパスをそのまま使う形にフォールバックする
+    /// (今開いている本へのジャンプ(要望1)には影響しない。今開いていない本を新たに開く場合
+    /// (要望2〜4)にのみ影響し、フォルダへのアクセス権が既に許可されていれば問題なく開ける)。
+    var bookmarkData: Data?
     /// 最後に更新された日時。並び替え基準「更新順」に使う(FavoritesSortOption/BookmarkStore参照)。
     /// ブックマークにはお気に入りのようなフォルダ移動の概念が無く、後から変えられる唯一の値が
     /// 名前(リネーム)であるため、リネームしたときにのみ更新する(登録時点ではcreatedAtと同じ値。
@@ -23,11 +35,12 @@ final class Bookmark {
     /// そちらのコメント参照)。
     var updatedAt: Date = Date()
 
-    init(bookID: String, pageIndex: Int, name: String) {
+    init(bookID: String, pageIndex: Int, name: String, bookmarkData: Data? = nil) {
         self.id = UUID()
         self.bookID = bookID
         self.pageIndex = pageIndex
         self.name = name
+        self.bookmarkData = bookmarkData
         let now = Date()
         self.createdAt = now
         self.updatedAt = now

@@ -836,6 +836,22 @@
         }
       }
     },
+    "Could Not Open Book" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could Not Open Book"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この本を開けませんでした"
+          }
+        }
+      }
+    },
     "Create" : {
       "localizations" : {
         "en" : {
