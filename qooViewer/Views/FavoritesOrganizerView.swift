@@ -41,6 +41,11 @@ struct FavoritesOrganizerView: View {
     @State private var renamingFolder: FavoriteFolder?
     @State private var renameText = ""
 
+    /// リネーム中のお気に入り(本)。renamingFolder/renameTextと同じ考え方・同じ実装パターン
+    /// (BookmarkEditorView.renamingBookmarkも同様)。フォルダのリネームとお気に入りのリネームは
+    /// 同時に開くことがないため、テキスト入力欄(renameText)は共用している。
+    @State private var renamingBook: FavoriteBook?
+
     @State private var folderPendingDeletion: FavoriteFolder?
     @State private var bookPendingDeletion: FavoriteBook?
 
@@ -248,6 +253,10 @@ struct FavoritesOrganizerView: View {
                             selectedEntryID == entry.id ? Color.accentColor.opacity(0.15) : Color.clear
                         )
                         .contextMenu {
+                            Button("Rename") {
+                                renameText = favorite.title
+                                renamingBook = favorite
+                            }
                             Button("Remove from Favorites", role: .destructive) {
                                 bookPendingDeletion = favorite
                             }
@@ -361,6 +370,22 @@ struct FavoritesOrganizerView: View {
             Button("Cancel", role: .cancel) { renamingFolder = nil }
         }
         .alert(
+            "Rename Favorite",
+            isPresented: Binding(
+                get: { renamingBook != nil },
+                set: { isPresented in if !isPresented { renamingBook = nil } }
+            )
+        ) {
+            TextField("Name", text: $renameText)
+            Button("Save") {
+                if let favorite = renamingBook {
+                    favoritesStore.rename(favorite, to: renameText)
+                }
+                renamingBook = nil
+            }
+            Button("Cancel", role: .cancel) { renamingBook = nil }
+        }
+        .alert(
             "Delete Folder?",
             isPresented: Binding(
                 get: { folderPendingDeletion != nil },
@@ -443,10 +468,20 @@ struct FavoritesOrganizerView: View {
     /// (favoriteOpenBehavior)に従って開く。このウインドウ自体は特定の本のウインドウに
     /// 属さない独立ウインドウのため、「今読んでいる本」の代わりに
     /// launchCoordinator.activeBookAppState(Add Current Bookボタンと同じ判定材料)を使う。
-    /// 今読んでいる本のウインドウ自体が無い場合(まだ本を1つも開いていない場合)は、閉じるべき
-    /// 「現在の本」も、タブ化する先の既存ウインドウも無いため、常にそのまま新しいウインドウで開く。
+    ///
+    /// activeBookAppState(本を表示しているウインドウが最後にキーウインドウになったときにだけ
+    /// 更新される)が無い場合、以前は「まだ本を1つも開いていない」とみなし常に新しいウインドウで
+    /// 開いていたが、これだとウェルカム画面(本を1冊も開いていないだけの、既に開いている
+    /// コンテンツウインドウ)が手前に表示されている状態でダブルクリックしても、そのウインドウを
+    /// 無視して余分な新しいウインドウが開いてしまっていた(要望: ウェルカム画面がアクティブな
+    /// 状態でダブルクリックしたら、そのウインドウにそのまま表示してほしい)。
+    /// launchCoordinator.frontmostContentAppState()(BookmarkListView.openBookAndJump(to:)が
+    /// 同じ場面で使っているのと同じもの。本を表示中か、ウェルカム画面かを問わず、今いちばん
+    /// 手前にあるコンテンツウインドウを返す)をフォールバックとして使うことで、既存のウインドウ
+    /// (通常はウェルカム画面)があればそこへ、1つも無い場合(このウインドウ以外どこにも
+    /// コンテンツウインドウが無い場合)にのみ新しいウインドウを開くようにする。
     private func openFavoriteAccordingToPreference(_ favorite: FavoriteBook) {
-        guard let activeAppState = launchCoordinator.activeBookAppState else {
+        guard let activeAppState = launchCoordinator.activeBookAppState ?? launchCoordinator.frontmostContentAppState() else {
             openFavoriteInNewWindow(favorite, relativeTo: nil)
             return
         }

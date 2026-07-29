@@ -337,6 +337,20 @@ final class FavoritesStore: ObservableObject {
         reload()
     }
 
+    /// お気に入りの表示名(title)を変更する。既定ではファイルパスから取得したファイル名が
+    /// そのままtitleとして保存されている(addFavorite/forceAddFavorite参照)ため、実体の
+    /// ファイル名と切り離してユーザーが好きな名前を付けられるようにする(rename(_ folder:to:)、
+    /// BookmarkStore.renameと同じ考え方・同じ実装パターン)。実体のファイル/フォルダ名や
+    /// bookID(重複チェックに使う検索キー)には影響しない。
+    func rename(_ favorite: FavoriteBook, to newTitle: String) {
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        favorite.title = trimmed
+        favorite.updatedAt = Date()
+        try? modelContext.save()
+        reload()
+    }
+
     /// お気に入りを別のフォルダへ移動する(整理画面でのドラッグ&ドロップから呼ぶ)。
     /// 移動元・移動先どちらのフォルダも中身が変わるためupdatedAtを更新する。移動した
     /// お気に入り自身のupdatedAtも更新するため、並び替え基準を「更新順(古い順)」にしていると
