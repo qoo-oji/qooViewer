@@ -27,6 +27,22 @@ struct ViewerView: View {
     /// 仕組み。詳細はAppState.activeViewerTokenのコメント参照。
     @State private var viewerToken = UUID()
     @State private var scrollMonitor: Any?
+    /// 画面クリックでのページ送り(pageArea内の左右クリックゾーン)を有効にしてよいかどうか。
+    /// ウェルカム画面の「最近開いたファイル」「最近お気に入りに追加したファイル」はシングル
+    /// クリックで即座に本を開く仕様のため、普段の癖でダブルクリックしてしまうと、1回目の
+    /// クリックで本が開いてこのViewerViewに切り替わった直後、2回目のクリックがちょうど
+    /// (画面中央付近に配置されがちな)クリックゾーンへ入力されてしまい、開いた直後の本が
+    /// 意図せず1ページ送られてしまう不具合があった。これを防ぐため、本を開いてから
+    /// clickZoneArmDelay が経過するまではクリックゾーンへのヒットテスト自体を無効にし、
+    /// 直前の画面でのクリックの「残り」を確実に読み捨てる(pageArea参照)。
+    @State private var isClickZoneArmed = false
+    /// 上の無効化を解除するタイマー。onDisappearで確実にキャンセルするために保持する。
+    @State private var clickZoneArmTask: Task<Void, Never>?
+    /// 上記の無効化期間の長さ。ダブルクリックの2回目のクリックを確実に読み捨てられるよう、
+    /// システムのダブルクリック判定間隔(NSEvent.doubleClickInterval、環境設定で変更可能)を
+    /// そのまま使う。読者が本を開いてすぐにクリックでページ送りしたくなるほど短い時間ではないため、
+    /// 通常の読書体験への影響は無い。
+    private var clickZoneArmDelay: TimeInterval { NSEvent.doubleClickInterval }
     /// 直前にスクロールホイールでページ送りを実行した時刻。一部のマウス/ドライバが
     /// 1ノッチの回転を複数の細かいscrollWheelイベントに分けて送ってくることがあり、
     /// それによって1ノッチのつもりが2回ページ送りされてしまう現象を防ぐために使う
@@ -207,6 +223,15 @@ struct ViewerView: View {
         .focused($isFocused)
         .onAppear {
             isFocused = true
+            // クリックでのページ送りは、ウェルカム画面からのダブルクリックの2回目のクリックを
+            // 読み捨てるため、一定時間経ってから有効にする(詳細はisClickZoneArmedのコメント参照)。
+            isClickZoneArmed = false
+            clickZoneArmTask?.cancel()
+            clickZoneArmTask = Task {
+                try? await Task.sleep(nanoseconds: UInt64(clickZoneArmDelay * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                isClickZoneArmed = true
+            }
             // 以下でappStateへ書き込むより前に、まず自分自身のトークンを登録する
             // (AppState.activeViewerTokenのコメント参照。同じウインドウ内で本を切り替えた際、
             // 古いViewerViewのonDisappearが今から行う登録を誤って後始末してしまわないため)。
@@ -315,6 +340,8 @@ struct ViewerView: View {
             }
         }
         .onDisappear {
+            clickZoneArmTask?.cancel()
+            clickZoneArmTask = nil
             if let scrollMonitor {
                 NSEvent.removeMonitor(scrollMonitor)
             }
@@ -779,7 +806,10 @@ struct ViewerView: View {
                     .buttonStyle(.plain)
                     .focusable(false)
                 }
-                .allowsHitTesting(viewModel.scalingMode == .fitToScreen)
+                // isClickZoneArmed: ウェルカム画面からのダブルクリックの2回目のクリックを
+                // 読み捨てるため、本を開いた直後の一定時間はヒットテスト自体を無効にする
+                // (詳細はisClickZoneArmedのコメント参照)。
+                .allowsHitTesting(viewModel.scalingMode == .fitToScreen && isClickZoneArmed)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
