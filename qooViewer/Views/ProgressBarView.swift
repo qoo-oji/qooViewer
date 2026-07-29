@@ -198,7 +198,7 @@ struct ProgressBarView: View {
     private func filmstripHeight(for totalWidth: CGFloat) -> CGFloat {
         let width = cellWidth(for: totalWidth)
         let cellHeight = width * 1.2
-        let labelHeight: CGFloat = 18
+        let labelHeight: CGFloat = 20
         let labelSpacing: CGFloat = 3
         let safetyMargin: CGFloat = 24
         // ファイル名ラベル1行 + ページ番号ラベル1行の、合計2行分の高さを確保する。
@@ -310,15 +310,18 @@ struct ProgressBarView: View {
             .shadow(color: isHighlighted ? Color.accentColor.opacity(0.75) : .black.opacity(0.2), radius: isHighlighted ? 8 : 2)
 
             Text(pageDisplayName(at: index))
-                .font(.caption2)
-                .foregroundStyle(.white.opacity(isHighlighted ? 0.85 : 0.5))
+                .font(.caption)
+                .foregroundStyle(.white.opacity(isHighlighted ? 0.95 : 0.7))
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 1)
+                .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 3))
                 .frame(width: cellWidth)
 
             if isHighlighted {
                 Text("\(index + 1) / \(viewModel.pageCount)")
-                    .font(.caption2)
+                    .font(.caption)
                     .fontWeight(.semibold)
                     .foregroundStyle(.white)
                     .padding(.horizontal, 5)
@@ -326,8 +329,11 @@ struct ProgressBarView: View {
                     .background(Color.accentColor, in: Capsule())
             } else {
                 Text("\(index + 1)")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.5))
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.black.opacity(0.5), in: Capsule())
             }
         }
         .frame(width: cellWidth)
