@@ -244,6 +244,11 @@ private struct BookmarkDetailPane: View {
     /// アラートのメッセージに埋め込むために保持する(openBookAndJump(to:)参照)。
     @State private var openErrorBookName: String?
 
+    /// この「ブックマークの編集」ウインドウ自身のNSWindow。WindowAccessor経由で設定する。
+    /// 右ペインでのダブルクリックでページへジャンプしてビューアウインドウへフォーカスが
+    /// 移ったとき、このウインドウ自身を自動的に閉じるために使う(closeEditorWindow参照)。
+    @State private var editorWindow: NSWindow?
+
     /// この本を今開いているウインドウ/タブのAppState(無ければnil)。
     private var openAppState: AppState? {
         launchCoordinator.openAppState(forBookID: bookID)
@@ -309,6 +314,11 @@ private struct BookmarkDetailPane: View {
         // そのため、本の名前の代わりに常に固定の文言を明示的に指定している
         // (FavoritesOrganizerViewの.navigationTitle("Edit Favorites")と同じ理由・同じ対応)。
         .navigationTitle("Edit Bookmarks")
+        // このウインドウ自身のNSWindowを取得しておく(closeEditorWindow参照)。ViewerView/
+        // ContentView/FavoritesOrganizerViewと同じWindowAccessorパターン。
+        .background(WindowAccessor { window in
+            editorWindow = window
+        })
         // 対象の本を開けなかった場合(ファイル/フォルダが見つからない、またはアクセスできな
         // かった場合)のアラート。ContentView.missingFavoriteの見た目・文言と揃えている。
         // 文字列補間をそのままText("...")に渡すと手書きのLocalizable.xcstringsでは翻訳と
@@ -345,6 +355,7 @@ private struct BookmarkDetailPane: View {
             existingAppState.jumpToBookmark?(bookmark)
             existingAppState.hostWindow?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            closeEditorWindow()
             return
         }
 
@@ -393,6 +404,7 @@ private struct BookmarkDetailPane: View {
                     jump(bookmark)
                     appState.hostWindow?.makeKeyAndOrderFront(nil)
                     NSApp.activate(ignoringOtherApps: true)
+                    closeEditorWindow()
                     return
                 }
                 if appState.currentBook == nil, appState.errorMessage != nil {
@@ -401,6 +413,18 @@ private struct BookmarkDetailPane: View {
                 try? await Task.sleep(nanoseconds: 25_000_000)
             }
         }
+    }
+
+    /// 右ペインでのダブルクリックにより、対象の本が実際にどこか(既存ウインドウ/新しい
+    /// ウインドウ)で開かれ/ジャンプが行われ、ビューアウインドウへフォーカスが移った直後に呼ぶ。
+    /// このウインドウ(ブックマークの編集ウインドウ)自身はもう用済みなので、自動的に閉じる
+    /// (要望: ページへジャンプしたら/本を開いたら、その操作の元になった編集ウインドウは
+    /// 自動的に閉じてほしい。「お気に入りの整理」ウインドウのcloseEditorWindowと同じ考え方)。
+    /// ファイルが見つからない場合(openErrorBookNameを立てて処理を打ち切る場合)や、
+    /// 本の読み込みに失敗した場合(waitAndJump内でerrorMessageが立って諦める場合)は
+    /// この関数自体が呼ばれないため、フォーカス移動を伴わない失敗時に誤って閉じてしまうことはない。
+    private func closeEditorWindow() {
+        editorWindow?.close()
     }
 
     /// ブックマークが指す本のURLを解決する。セキュリティスコープ付きブックマーク

@@ -70,6 +70,11 @@ struct FavoritesOrganizerView: View {
     @State private var duplicateConfirmationBreadcrumb: String?
     @State private var addCurrentBookErrorMessage: String?
 
+    /// このウインドウ(お気に入りの整理ウインドウ)自身のNSWindow。WindowAccessor経由で設定する。
+    /// 右ペインでのダブルクリックで本を開いてビューアウインドウへフォーカスが移ったとき、
+    /// このウインドウ自身を自動的に閉じるために使う(closeEditorWindow参照)。
+    @State private var editorWindow: NSWindow?
+
     var body: some View {
         NavigationSplitView {
             List {
@@ -337,6 +342,11 @@ struct FavoritesOrganizerView: View {
         // 追随させる(要望: 右ペインがしわ寄せを受けるくらいなら、ウインドウ全体を広げてよい)。
         // 400は右ペインに最低限確保したい幅の目安。
         .frame(minWidth: max(640, sidebarWidth + 400), minHeight: 420)
+        // このウインドウ自身のNSWindowを取得しておく(closeEditorWindow参照)。ViewerView/
+        // ContentViewと同じWindowAccessorパターン。
+        .background(WindowAccessor { window in
+            editorWindow = window
+        })
         .alert("New Folder", isPresented: $isShowingNewFolderPrompt) {
             TextField("Name", text: $newFolderName)
             Button("Create") { createFolder() }
@@ -488,12 +498,14 @@ struct FavoritesOrganizerView: View {
         guard activeAppState.currentBook != nil else {
             activeAppState.openFavorite(favorite)
             activeAppState.hostWindow?.makeKeyAndOrderFront(nil)
+            closeEditorWindow()
             return
         }
         switch preferences.favoriteOpenBehavior {
         case .replaceCurrentBook:
             activeAppState.openFavorite(favorite)
             activeAppState.hostWindow?.makeKeyAndOrderFront(nil)
+            closeEditorWindow()
         case .newTab:
             openFavoriteInNewTab(favorite, relativeTo: activeAppState)
         case .newWindow:
@@ -528,6 +540,7 @@ struct FavoritesOrganizerView: View {
                     }
                     newWindow.makeKeyAndOrderFront(nil)
                     NSApp.activate(ignoringOtherApps: true)
+                    closeEditorWindow()
                     break
                 }
             }
@@ -559,6 +572,7 @@ struct FavoritesOrganizerView: View {
                     hostWindow.addTabbedWindow(newWindow, ordered: .above)
                     newWindow.makeKeyAndOrderFront(nil)
                     NSApp.activate(ignoringOtherApps: true)
+                    closeEditorWindow()
                     break
                 }
             }
@@ -589,6 +603,17 @@ struct FavoritesOrganizerView: View {
             pendingBookForDuplicateConfirmation = nil
             addCurrentBookErrorMessage = String(localized: "The favorite could not be registered.")
         }
+    }
+
+    /// 右ペインでのダブルクリックにより、お気に入りの本がどこか(既存ウインドウ/新しいタブ/
+    /// 新しいウインドウ)で実際に開かれ、ビューアウインドウへフォーカスが移った直後に呼ぶ。
+    /// このウインドウ(お気に入りの整理ウインドウ)自身はもう用済みなので、自動的に閉じる
+    /// (要望: 本を開いたら/ページへジャンプしたら、その操作の元になった編集ウインドウは
+    /// 自動的に閉じてほしい)。実体ファイルが見つからずopenFavoriteInNewWindow/
+    /// openFavoriteInNewTabがmissingFavoriteを立てて処理を打ち切った場合はこの関数自体が
+    /// 呼ばれないため、フォーカス移動を伴わない失敗時に誤って閉じてしまうことはない。
+    private func closeEditorWindow() {
+        editorWindow?.close()
     }
 
     /// 選択中のフォルダを変更する。selectedFolderへの代入は(サイドバーの行自身をクリックする
