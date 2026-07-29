@@ -47,12 +47,18 @@ final class KeyBindingStore: ObservableObject {
         RemappableKey.end.id: .lastPage,
         RemappableKey.optionLeftArrow.id: .lastPage,
         RemappableKey.character("t").id: .showThumbnailGrid,
-        RemappableKey.character("a").id: .addBookmark,
+        RemappableKey.character("a").id: .toggleBookmark,
         RemappableKey.character("c").id: .nextBookmark,
         RemappableKey.character("d").id: .previousBookmark,
         RemappableKey.controlCharacter("c").id: .nextBook,
         RemappableKey.controlCharacter("d").id: .previousBook,
         RemappableKey.character("b").id: .showBookmarkList,
+        // お気に入り関連(toggleFavorite/showFavoritesOrganizer)は、対応するブックマーク操作
+        // (toggleBookmark = a、showBookmarkList = b)と同じキーにoptionを組み合わせた既定値に
+        // している(ユーザーからの指示)。文字キーはshift押し/素押しを区別しない仕様
+        // (RemappableKey.from参照)のため、shiftではなくoptionで組み合わせている。
+        RemappableKey.optionCharacter("a").id: .toggleFavorite,
+        RemappableKey.optionCharacter("b").id: .showFavoritesOrganizer,
         RemappableKey.character("g").id: .toggleSlideshow,
         RemappableKey.character("s").id: .toggleDisplayMode,
         RemappableKey.character("r").id: .toggleReadingDirection,

@@ -47,7 +47,9 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
     case cycleScalingMode
     case previousBook
     case nextBook
-    case addBookmark
+    /// 現在のページのブックマークを追加/削除する(付いていなければ追加、付いていれば削除する、
+    /// 1つのボタン/ショートカットにまとめたトグル操作)。
+    case toggleBookmark
     case nextBookmark
     case previousBookmark
     case showBookmarkList
@@ -55,8 +57,10 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
     case toggleSlideshow
     case showActualSizeLeft
     case showActualSizeRight
-    /// 現在の本をお気に入りに登録する(登録先フォルダを選ぶダイアログを開く)。
-    case addToFavorites
+    /// 現在の本をお気に入りに追加/削除する(未登録なら登録先フォルダを選ぶダイアログを開いて
+    /// 追加し、登録済みなら削除する。複数フォルダに登録されている場合はすべて削除する、
+    /// 1つのボタン/ショートカットにまとめたトグル操作)。
+    case toggleFavorite
     /// お気に入り一覧を(階層構造のまま)表示する。
     case showFavoritesList
     /// 「お気に入りの整理」ウインドウを開く。
@@ -111,7 +115,7 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
         case .cycleScalingMode: return "Cycle Display Mode"
         case .previousBook: return "Previous Book"
         case .nextBook: return "Next Book"
-        case .addBookmark: return "Add Bookmark"
+        case .toggleBookmark: return "Toggle Bookmark"
         case .nextBookmark: return "Go to Next Bookmark"
         case .previousBookmark: return "Go to Previous Bookmark"
         case .showBookmarkList: return "Edit Bookmarks…"
@@ -119,7 +123,7 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
         case .toggleSlideshow: return "Start/Stop Slideshow"
         case .showActualSizeLeft: return "Show Left Page at Actual Size"
         case .showActualSizeRight: return "Show Right Page at Actual Size"
-        case .addToFavorites: return "Add to Favorites…"
+        case .toggleFavorite: return "Toggle Favorite"
         case .showFavoritesList: return "Show Favorites List"
         case .showFavoritesOrganizer: return "Edit Favorites…"
         case .none: return "(None)"

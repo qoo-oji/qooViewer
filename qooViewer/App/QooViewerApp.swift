@@ -154,6 +154,7 @@ struct QooViewerApp: App {
                 .environmentObject(recentFiles)
                 .environmentObject(folderAccess)
                 .environmentObject(favoritesStore)
+                .environmentObject(bookmarkStore)
                 .environmentObject(launchCoordinator)
                 .onAppear {
                     appDelegate.preferences = preferences
@@ -435,16 +436,21 @@ struct QooViewerApp: App {
             // ページ位置の目印)とお気に入り(本そのものを、階層フォルダで整理して保存する)は
             // 別の仕組みのため、Dividerでグループを分けて並べる。
             // グループの並び順(お気に入りが上、ブックマークが下)、および各グループ内の並び順
-            // (追加→編集→一覧)はユーザーからの指示により統一している。「編集」の文言も
-            // 「ブックマークの編集…」と表現をそろえ、以前の「お気に入りを整理…」から
-            // 「お気に入りの編集…」に変更した(ViewerAction.showFavoritesOrganizer、
+            // (追加/削除→編集→一覧)はユーザーからの指示により統一している。追加・削除は
+            // 別々の項目ではなく、現在の本/ページの登録状態に応じて文言・動作が切り替わる
+            // 1つのトグル項目にまとめている(ツールバー・コンテキストメニューと同じ考え方)。
+            // 「編集」の文言も「ブックマークの編集…」と表現をそろえ、以前の「お気に入りを
+            // 整理…」から「お気に入りの編集…」に変更した(ViewerAction.showFavoritesOrganizer、
             // Window("Edit Favorites", ...)も同様に変更済み)。
             CommandMenu("Favorites") {
                 let hasBook = focusedAppState?.currentBook != nil
 
-                // グループ1: お気に入り(追加→編集→一覧の順)
-                Button("Add Current Book to Favorites…") {
-                    focusedAppState?.performViewerAction?(.addToFavorites)
+                // グループ1: お気に入り(追加/削除→編集→一覧の順)
+                Button(
+                    menuCheckmarkState?.isCurrentBookFavorited == true
+                        ? "Remove Current Book from Favorites" : "Add Current Book to Favorites…"
+                ) {
+                    focusedAppState?.performViewerAction?(.toggleFavorite)
                 }
                 .disabled(!hasBook)
 
@@ -464,9 +470,12 @@ struct QooViewerApp: App {
 
                 Divider()
 
-                // グループ2: ブックマーク(追加→編集→一覧の順)
-                Button("Add Current Page to Bookmarks") {
-                    focusedAppState?.performViewerAction?(.addBookmark)
+                // グループ2: ブックマーク(追加/削除→編集→一覧の順)
+                Button(
+                    menuCheckmarkState?.isCurrentPageBookmarked == true
+                        ? "Remove Current Page from Bookmarks" : "Add Current Page to Bookmarks"
+                ) {
+                    focusedAppState?.performViewerAction?(.toggleBookmark)
                 }
                 .disabled(!hasBook)
 
@@ -514,6 +523,7 @@ struct QooViewerApp: App {
                 .environmentObject(recentFiles)
                 .environmentObject(folderAccess)
                 .environmentObject(favoritesStore)
+                .environmentObject(bookmarkStore)
                 .environmentObject(launchCoordinator)
         }
         .windowResizability(.contentSize)

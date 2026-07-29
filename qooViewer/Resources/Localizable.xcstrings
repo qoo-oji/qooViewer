@@ -291,6 +291,7 @@
       }
     },
     "Add Bookmark" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -403,6 +404,7 @@
       }
     },
     "Add to Favorites…" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -414,6 +416,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "お気に入りに追加…"
+          }
+        }
+      }
+    },
+    "Added “%@” to Bookmarks" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added “%@” to Bookmarks"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」をブックマークに追加しました"
+          }
+        }
+      }
+    },
+    "Added “%@” to Favorites" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added “%@” to Favorites"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」をお気に入りに追加しました"
           }
         }
       }
@@ -2959,6 +2993,55 @@
         }
       }
     },
+    "Remove Bookmark" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Bookmark"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブックマークを削除"
+          }
+        }
+      }
+    },
+    "Remove Current Book from Favorites" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Current Book from Favorites"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在の本をお気に入りから削除"
+          }
+        }
+      }
+    },
+    "Remove Current Page from Bookmarks" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Current Page from Bookmarks"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在のページをブックマークから削除"
+          }
+        }
+      }
+    },
     "Remove from Favorites" : {
       "localizations" : {
         "en" : {
@@ -3003,6 +3086,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "このキーの割り当てを外す"
+          }
+        }
+      }
+    },
+    "Removed “%@” and “%@” from Bookmarks" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed “%@” and “%@” from Bookmarks"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」と「%@」をブックマークから削除しました"
+          }
+        }
+      }
+    },
+    "Removed “%@” from Bookmarks" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed “%@” from Bookmarks"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」をブックマークから削除しました"
+          }
+        }
+      }
+    },
+    "Removed “%@” from Favorites" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removed “%@” from Favorites"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」をお気に入りから削除しました"
           }
         }
       }
@@ -3941,6 +4072,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "同じフォルダのファイルを表示するには、このフォルダを選んでアクセスを許可してください。"
+          }
+        }
+      }
+    },
+    "Toggle Bookmark" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toggle Bookmark"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブックマークを追加/削除"
+          }
+        }
+      }
+    },
+    "Toggle Favorite" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toggle Favorite"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入りに追加/削除"
           }
         }
       }

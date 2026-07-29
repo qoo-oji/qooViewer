@@ -8,6 +8,13 @@ struct ViewerView: View {
     @ObservedObject private var preferences: AppPreferences
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var keyBindingStore: KeyBindingStore
+    /// お気に入りに追加/削除トグルボタン(ツールバー・コンテキストメニュー・「Favorites List」
+    /// サブメニュー)のために、appState.favoritesStore(weak var)ではなくこちらを直接使う。
+    /// weak varはAppState自身の@Publishedではないため、favoritesStoreの変更(reload())が
+    /// あってもAppState.objectWillChangeは発火せず、appState.favoritesStore経由で読んだ値は
+    /// 画面に反映されない。EnvironmentObjectとして直接持てば、reload()のたびにこのビュー自身が
+    /// 再描画されるため、トグルボタンの見た目・文言を確実に最新の状態に保てる。
+    @EnvironmentObject private var favoritesStore: FavoritesStore
     /// 「ブックマークの編集」ウインドウ・「お気に入りの整理」ウインドウの「現在の本を追加」から
     /// 「今読んでいる本」を特定するために、このウインドウがキーウインドウになったことを
     /// 通知する(setUpWindowObservers参照)。
@@ -84,6 +91,14 @@ struct ViewerView: View {
     /// Fileメニューの「閉じる」(Cmd+W)を「本を閉じる」動作に変更するためのウインドウデリゲート。
     /// NSWindow.delegateは弱参照のため、ここで強参照を保持しておかないと解放されてしまう。
     @State private var bookClosingDelegate: BookClosingWindowDelegate?
+    /// お気に入り・ブックマークの追加/削除トグルボタンを操作したときに、画面中央下部へ
+    /// 一時的に表示するフィードバック文言(例:「“Xxx”をお気に入りに追加しました」)。
+    /// nilのときは非表示。showToast(_:)参照。
+    @State private var toastMessage: String?
+    /// toastMessageを一定時間後に自動的に消すためのタスク。表示中に別の操作でトーストが
+    /// 出し直された場合、古いタイマーが先に発火して消してしまわないようキャンセルしてから
+    /// 新しいタスクを積み直す。
+    @State private var toastDismissTask: Task<Void, Never>?
 
     init(book: MangaBook, modelContext: ModelContext, preferences: AppPreferences) {
         _viewModel = StateObject(
@@ -156,7 +171,32 @@ struct ViewerView: View {
                 .allowsHitTesting(showProgressBarOverlay)
                 .animation(.easeInOut(duration: 0.15), value: showProgressBarOverlay)
             }
+
+            // お気に入り・ブックマークの追加/削除トグルを操作したときのフィードバック表示
+            // (ユーザー要望)。ツールバー・プログレスバーの自動隠し状態に関わらず、常に画面
+            // 中央下部に一時的に浮かせる(操作の結果がツールバー/コンテキストメニュー/
+            // メニューバー/キーボードショートカットのどこから行われても同じ見た目で分かるように、
+            // toggleCurrentPageBookmark()/toggleCurrentBookFavorite()/
+            // FavoriteFolderPickerViewのonAddedからshowToast(_:)を呼ぶだけでよい形にしている)。
+            if let toastMessage {
+                VStack {
+                    Spacer()
+                    Text(toastMessage)
+                        .font(.callout)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+                        .padding(.bottom, 48)
+                }
+                .allowsHitTesting(false)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .zIndex(1)
+            }
         }
+        .animation(.easeInOut(duration: 0.2), value: toastMessage)
         .background(preferences.backgroundColorOption.color)
         .background(WindowAccessor { window in
             guard hostWindow !== window else { return }
@@ -194,6 +234,7 @@ struct ViewerView: View {
                 viewModel.addBookmark()
             }
             appState.updateCurrentBookmarks(viewModel.bookmarks)
+            appState.updateCurrentPageIndex(viewModel.currentIndex)
             // メニューバーの「表示モード切替」サブメニューから、特定のモードへ直接切り替える
             // ための橋渡し。
             appState.setScalingMode = { mode in
@@ -288,6 +329,7 @@ struct ViewerView: View {
                 appState.jumpToBookmark = nil
                 appState.addBookmarkAction = nil
                 appState.updateCurrentBookmarks([])
+                appState.updateCurrentPageIndex(0)
                 appState.setScalingMode = nil
                 appState.resetMenuCheckmarkState()
             }
@@ -295,6 +337,8 @@ struct ViewerView: View {
             viewModel.flushPendingSave()
             cursorHideTask?.cancel()
             cursorHideTask = nil
+            toastDismissTask?.cancel()
+            toastDismissTask = nil
             if isCursorHidden {
                 NSCursor.unhide()
                 isCursorHidden = false
@@ -319,8 +363,12 @@ struct ViewerView: View {
         .onChange(of: viewModel.readingDirection) { _, _ in syncMenuCheckmarkState() }
         .onChange(of: viewModel.scalingMode) { _, _ in syncMenuCheckmarkState() }
         // isPageShiftLocked(「1ページだけ送る」のグレーアウト判定)はcurrentIndexにも依存する
-        // ため、ページ送り自体でもメニューバーの状態を更新し直す必要がある。
-        .onChange(of: viewModel.currentIndex) { _, _ in syncMenuCheckmarkState() }
+        // ため、ページ送り自体でもメニューバーの状態を更新し直す必要がある。「現在のページが
+        // ブックマーク済みかどうか」の判定にも使うため、appState.currentPageIndexも合わせて更新する。
+        .onChange(of: viewModel.currentIndex) { _, newValue in
+            appState.updateCurrentPageIndex(newValue)
+            syncMenuCheckmarkState()
+        }
         .sheet(isPresented: $showThumbnailGrid) {
             ThumbnailGridView(viewModel: viewModel)
         }
@@ -331,8 +379,13 @@ struct ViewerView: View {
         // お気に入りへの登録(要望2)。登録先フォルダの選択・新規フォルダ作成・重複確認は
         // FavoriteFolderPickerView側で完結する。
         .sheet(isPresented: $showFavoriteFolderPicker) {
-            if let favoritesStore = appState.favoritesStore {
-                FavoriteFolderPickerView(book: viewModel.book, favoritesStore: favoritesStore)
+            FavoriteFolderPickerView(book: viewModel.book, favoritesStore: favoritesStore) {
+                showToast(
+                    String(
+                        format: String(localized: "Added “%@” to Favorites", locale: preferences.effectiveLocale),
+                        viewModel.book.title
+                    )
+                )
             }
         }
         // お気に入り一覧(要望4)。以前はここに.popover(isPresented:)でFavoritesListPopoverContent
@@ -361,6 +414,54 @@ struct ViewerView: View {
                 viewModel.confirmResumeFromLastPage(true)
             }
         }
+    }
+
+    /// 見開き表示中、実際に2枚組でペア表示されているときの「相方ページ」のインデックス
+    /// (currentIndex + 1)。単ページ表示中、または見開き中でも横長画像の自動単ページ化や
+    /// EPUBの見開き位置指定により実際には1枚しか表示されていない場合はnil(この場合、
+    /// currentIndex + 1が有効なページ番号であっても「今画面に見えているページ」ではないため
+    /// 対象に含めない)。viewModel.currentImages.count(実際に表示中の枚数)で判定する。
+    private var partnerPageIndex: Int? {
+        viewModel.currentImages.count > 1 ? viewModel.currentIndex + 1 : nil
+    }
+
+    /// 現在の見開き(単ページ表示中は1枚だけ)に、ブックマークが1件でも付いているかどうか。
+    /// ツールバー・コンテキストメニューの追加/削除トグルボタンの見た目・文言・動作を
+    /// 切り替えるために使う。以前はcurrentIndex(見開きの起点ページ)だけを見ていたが、
+    /// 相方ページ(partnerPageIndex)だけにブックマークが付いている場合も「登録済み」として
+    /// 扱ってほしいというユーザー要望により、両方を確認するようにした(ユーザーからの指示)。
+    /// viewModel(@StateObject)のbookmarks/currentIndex/currentImagesを読むだけなので、
+    /// いずれかが変化すればこのビューの再描画に合わせて自動的に最新の値になる。
+    private var isCurrentPageBookmarked: Bool {
+        if viewModel.bookmarks.contains(where: { $0.pageIndex == viewModel.currentIndex }) {
+            return true
+        }
+        guard let partnerPageIndex else { return false }
+        return viewModel.bookmarks.contains { $0.pageIndex == partnerPageIndex }
+    }
+
+    /// 現在表示中の本がお気に入りに登録済みかどうか。isCurrentPageBookmarkedと同じ用途だが、
+    /// こちらはfavoritesStore(EnvironmentObject。上のプロパティ宣言のコメント参照)を読む。
+    private var isCurrentBookFavorited: Bool {
+        favoritesStore.isFavorited(bookID: viewModel.book.id)
+    }
+
+    /// 追加/削除トグルボタン用のツールバーアイコン。「未登録(追加できる状態)」のときは
+    /// 他のツールバーボタンと同じ見た目(背景なし、通常の前景色のアウトライン版シンボル)、
+    /// 「登録済み(削除できる状態)」のときは塗りつぶし版のシンボルに切り替えつつ、前景色・
+    /// 背景色を反転させる(背景を前景色で塗りつぶし、アイコン自体は背景色にする)ことで、
+    /// 他のボタンと視覚的にはっきり見分けが付くようにする(ユーザー要望の「白黒反転」)。
+    /// Color.primary/背景色はライト/ダークモードのどちらでも正しく反転して見えるよう、
+    /// 固定の黒白ではなくシステムの前景色・コントロール背景色を使っている。
+    @ViewBuilder
+    private func toggleToolbarIcon(outlineSystemName: String, filledSystemName: String, isRegistered: Bool) -> some View {
+        Image(systemName: isRegistered ? filledSystemName : outlineSystemName)
+            .frame(width: 22, height: 22)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(isRegistered ? Color.primary : Color.clear)
+            )
+            .foregroundStyle(isRegistered ? Color(nsColor: .controlBackgroundColor) : Color.primary)
     }
 
     private var toolbar: some View {
@@ -434,33 +535,34 @@ struct ViewerView: View {
 
             Spacer()
 
+            // 「現在のブックマーク一覧を表示」「お気に入り一覧を表示」のボタンは廃止した。一覧の
+            // 表示自体はメニューバー(「お気に入り」メニュー)・キーボードショートカット
+            // (showBookmarkList/showFavoritesList)からは引き続き行える。
+            // 追加・削除は、別々の2つのボタンではなく、登録状態に応じて見た目・動作が切り替わる
+            // 1つのトグルボタンにまとめている(ユーザー要望)。登録済みのときは背景色と前景色を
+            // 反転させる(toggleToolbarIcon参照)ことで、他のツールバーボタンと視覚的にも
+            // はっきり見分けが付くようにする。
             Button {
-                showBookmarkEditor()
+                perform(.toggleBookmark)
             } label: {
-                Image(systemName: "bookmark")
+                toggleToolbarIcon(
+                    outlineSystemName: "bookmark",
+                    filledSystemName: "bookmark.fill",
+                    isRegistered: isCurrentPageBookmarked
+                )
             }
-            .help("Bookmark List")
+            .help(isCurrentPageBookmarked ? "Remove Current Page from Bookmarks" : "Add Current Page to Bookmarks")
 
             Button {
-                viewModel.addBookmark()
+                perform(.toggleFavorite)
             } label: {
-                Image(systemName: "bookmark.fill")
+                toggleToolbarIcon(
+                    outlineSystemName: "star",
+                    filledSystemName: "star.fill",
+                    isRegistered: isCurrentBookFavorited
+                )
             }
-            .help("Add Current Page to Bookmarks")
-
-            Button {
-                showFavoriteFolderPicker = true
-            } label: {
-                Image(systemName: "star")
-            }
-            .help("Add to Favorites…")
-
-            Button {
-                showFavoritesListMenu()
-            } label: {
-                Image(systemName: "star.circle")
-            }
-            .help("Show Favorites List")
+            .help(isCurrentBookFavorited ? "Remove Current Book from Favorites" : "Add Current Book to Favorites…")
 
             Button {
                 showThumbnailGrid = true
@@ -553,23 +655,22 @@ struct ViewerView: View {
 
         // お気に入りグループ・ブックマークグループの並び順、および文言はメニューバーの
         // 「お気に入り」メニュー(QooViewerApp.swiftのCommandMenu("Favorites"))に合わせている
-        // (お気に入りが上、ブックマークが下。ボタンの文言も「現在の本をお気に入りに追加」で統一)。
-        Button("Add Current Book to Favorites…") {
-            perform(.addToFavorites)
+        // (お気に入りが上、ブックマークが下)。追加・削除は登録状態に応じて文言・動作が
+        // 切り替わる1つのトグル項目にまとめている(ツールバーと同じ考え方。ユーザー要望)。
+        Button(isCurrentBookFavorited ? "Remove Current Book from Favorites" : "Add Current Book to Favorites…") {
+            perform(.toggleFavorite)
         }
-        if let favoritesStore = appState.favoritesStore {
-            Menu("Favorites List") {
-                FavoritesMenuContent(
-                    favoritesStore: favoritesStore,
-                    onOpen: { favorite in openFavoriteAccordingToPreference(favorite) }
-                )
-            }
+        Menu("Favorites List") {
+            FavoritesMenuContent(
+                favoritesStore: favoritesStore,
+                onOpen: { favorite in openFavoriteAccordingToPreference(favorite) }
+            )
         }
 
         Divider()
 
-        Button("Add Current Page to Bookmarks") {
-            perform(.addBookmark)
+        Button(isCurrentPageBookmarked ? "Remove Current Page from Bookmarks" : "Add Current Page to Bookmarks") {
+            perform(.toggleBookmark)
         }
         // メニューバー側のBookmark Listサブメニュー(QooViewerApp.swift)と同じ内容。
         Menu("Bookmark List") {
@@ -1042,8 +1143,8 @@ struct ViewerView: View {
             appState.openSibling(before: viewModel.book.sourceURL)
         case .nextBook:
             appState.openSibling(after: viewModel.book.sourceURL)
-        case .addBookmark:
-            viewModel.addBookmark()
+        case .toggleBookmark:
+            toggleCurrentPageBookmark()
         case .nextBookmark:
             viewModel.jumpToNextBookmark()
         case .previousBookmark:
@@ -1058,8 +1159,8 @@ struct ViewerView: View {
             showActualSizeWindow(forLeftPage: true)
         case .showActualSizeRight:
             showActualSizeWindow(forLeftPage: false)
-        case .addToFavorites:
-            showFavoriteFolderPicker = true
+        case .toggleFavorite:
+            toggleCurrentBookFavorite()
         case .showFavoritesList:
             showFavoritesListMenu()
         case .showFavoritesOrganizer:
@@ -1106,8 +1207,103 @@ struct ViewerView: View {
         openWindow(id: "editBookmarks")
     }
 
+    /// 現在の見開きのブックマークを追加/削除する(トグル)。すでにどちらかのページに
+    /// 付いていれば削除、どちらにも付いていなければ追加する(isCurrentPageBookmarked参照)。
+    /// 削除は、見開きの起点ページ(currentIndex)・相方ページ(partnerPageIndex)の両方を対象に
+    /// 探し、付いているものをすべて削除する(両方に付いていれば両方削除する。ユーザー要望)。
+    /// 追加はViewerViewModel.addBookmark()(重複チェック込み)で常にcurrentIndex側に1件だけ
+    /// 追加する(相方ページへは追加しない。追加の対象を2ページに広げてほしいという要望では
+    /// なかったため)。削除はすべての本を横断するBookmarkStore.delete(_:)を直接呼ぶ
+    /// (ViewerViewModelは削除処理自体を持たない。理由はViewerViewModel.addBookmark()直後の
+    /// コメント参照)。削除後はNotification.Name.bookmarksDidChange経由でviewModel.bookmarksが
+    /// 自動的に読み直される(ViewerViewModelのbookmarksChangeObserver参照)。
+    ///
+    /// 【重要】削除対象を探すのに viewModel.bookmarks(ViewerViewModel自身のModelContextで
+    /// フェッチしたBookmark)をそのまま使ってはいけない。BookmarkStoreは(本を開いていなくても
+    /// 操作できるようにするため)別のModelContextインスタンスを持っており、SwiftDataのモデルは
+    /// フェッチ元のModelContextに紐づくため、別のコンテキストのdelete(_:)へ渡しても実際には
+    /// 削除されない(エラーにもならず、静かに何も起きない)。必ずbookmarkStore.bookmarks(forBookID:)
+    /// でbookmarkStore自身のコンテキストから該当ページのブックマークを取得し直してから削除する。
+    private func toggleCurrentPageBookmark() {
+        guard let bookmarkStore = appState.bookmarkStore else { return }
+        let candidateIndices = [viewModel.currentIndex, partnerPageIndex].compactMap { $0 }
+        let toDelete = bookmarkStore.bookmarks(forBookID: viewModel.book.id)
+            .filter { candidateIndices.contains($0.pageIndex) }
+            .sorted { $0.pageIndex < $1.pageIndex }
+
+        if !toDelete.isEmpty {
+            let names = toDelete.map(\.name)
+            for bookmark in toDelete {
+                bookmarkStore.delete(bookmark)
+            }
+            showToast(bookmarkRemovalToastMessage(for: names))
+        } else {
+            viewModel.addBookmark()
+            // addBookmark()は同期的にmodelContext.save()・reloadBookmarks()まで行うため、
+            // 呼び出し直後の時点でviewModel.bookmarksは既に新しいブックマークを含んでいる。
+            if let added = viewModel.bookmarks.first(where: { $0.pageIndex == viewModel.currentIndex }) {
+                showToast(
+                    String(
+                        format: String(localized: "Added “%@” to Bookmarks", locale: preferences.effectiveLocale),
+                        added.name
+                    )
+                )
+            }
+        }
+    }
+
+    /// ブックマーク削除時のトースト文言を組み立てる。見開きの両ページにブックマークが付いていて
+    /// 2件同時に削除した場合は、両方の名前を含む専用の文言(ユーザー要望: 「削除メッセージは
+    /// 2ページ分」)を使う。1件だけ削除した場合は、従来通り1件用の文言を使う。
+    /// (namesはtoggleCurrentPageBookmark()側でpageIndex昇順にソート済みのため、見開き中は
+    /// 常に「起点ページ→相方ページ」の順で名前が並ぶ)
+    private func bookmarkRemovalToastMessage(for names: [String]) -> String {
+        if names.count >= 2 {
+            return String(
+                format: String(localized: "Removed “%@” and “%@” from Bookmarks", locale: preferences.effectiveLocale),
+                names[0], names[1]
+            )
+        }
+        return String(
+            format: String(localized: "Removed “%@” from Bookmarks", locale: preferences.effectiveLocale),
+            names.first ?? ""
+        )
+    }
+
+    /// 現在の本をお気に入りに追加/削除する(トグル)。すでに登録済みであれば(複数フォルダに
+    /// 登録されている場合はすべて)削除し、未登録であれば登録先フォルダを選ぶダイアログ
+    /// (showFavoriteFolderPicker)を開く。追加成功時のトースト表示は、フォルダ選択が絡む
+    /// 非同期の操作になるため、ここではなくFavoriteFolderPickerViewのonAdded(sheet参照)から行う。
+    private func toggleCurrentBookFavorite() {
+        if isCurrentBookFavorited {
+            let title = viewModel.book.title
+            favoritesStore.removeFavorites(forBookID: viewModel.book.id)
+            showToast(
+                String(
+                    format: String(localized: "Removed “%@” from Favorites", locale: preferences.effectiveLocale),
+                    title
+                )
+            )
+        } else {
+            showFavoriteFolderPicker = true
+        }
+    }
+
+    /// お気に入り・ブックマークの追加/削除トグルボタンを操作したときの結果を、画面中央下部に
+    /// 一時的に表示する(ユーザー要望)。表示中に別の操作が行われた場合は、古い自動非表示
+    /// タイマーをキャンセルしてから改めて表示時間を数え直す(短時間に連続して操作しても、
+    /// 最後の1件が表示され続けている間に途中で消えてしまわないようにするため)。
+    private func showToast(_ message: String) {
+        toastDismissTask?.cancel()
+        toastMessage = message
+        toastDismissTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            toastMessage = nil
+        }
+    }
+
     private func showFavoritesListMenu() {
-        guard let favoritesStore = appState.favoritesStore else { return }
         let bridge = FavoritesNSMenuBridge(favoritesStore: favoritesStore) { favorite in
             openFavoriteAccordingToPreference(favorite)
         }
@@ -1121,8 +1317,7 @@ struct ViewerView: View {
     /// 実装と処理が重複するが、ViewerView自身はQooViewerApp側のprivateなヘルパーを直接呼べないため、
     /// 同じ考え方をこちらでも実装している。
     private func openFavoriteInNewWindow(_ favorite: FavoriteBook) {
-        guard let favoritesStore = appState.favoritesStore,
-              let url = favoritesStore.resolvedExistingURL(for: favorite) else {
+        guard let url = favoritesStore.resolvedExistingURL(for: favorite) else {
             appState.missingFavorite = favorite
             return
         }
@@ -1153,8 +1348,7 @@ struct ViewerView: View {
 
     /// 「お気に入り一覧」ボタン(またはショートカット)から、指定したお気に入りを新しいタブで開く。
     private func openFavoriteInNewTab(_ favorite: FavoriteBook) {
-        guard let favoritesStore = appState.favoritesStore,
-              let url = favoritesStore.resolvedExistingURL(for: favorite) else {
+        guard let url = favoritesStore.resolvedExistingURL(for: favorite) else {
             appState.missingFavorite = favorite
             return
         }

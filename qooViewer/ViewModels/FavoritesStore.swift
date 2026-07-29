@@ -417,6 +417,25 @@ final class FavoritesStore: ObservableObject {
         return (try? modelContext.fetch(descriptor)) ?? []
     }
 
+    /// 指定したbookIDが(どれか1つでも)お気に入りに登録されているかどうか。ツールバー・
+    /// メニューバー・コンテキストメニューの「追加/削除」トグルボタンが、今どちらの見た目・
+    /// 動作にすべきかを判定するために使う。
+    func isFavorited(bookID: String) -> Bool {
+        !existingFavorites(forBookID: bookID).isEmpty
+    }
+
+    /// 指定したbookIDのお気に入りをすべて削除する(全フォルダ横断)。ツールバー・メニューバー・
+    /// コンテキストメニュー・キーボードショートカットの「現在の本をお気に入りから削除」から呼ぶ。
+    /// addFavoriteは別フォルダへの重複登録をユーザーが確認の上で許容する(.needsDuplicateConfirmation
+    /// → forceAddFavorite)ため、同じ本が複数フォルダに登録されていることがありうる。「現在の本を
+    /// お気に入りから削除」はどのフォルダに登録されているかをユーザーに問わない単純な操作として
+    /// 用意しているため、該当するものをすべて削除する。
+    func removeFavorites(forBookID bookID: String) {
+        for favorite in existingFavorites(forBookID: bookID) {
+            delete(favorite)
+        }
+    }
+
     /// お気に入りへの登録を試みる。
     /// - 登録先フォルダに既に同じ本がある場合は、確認なしで内容を上書きする。
     /// - 別のフォルダに既に同じ本がある場合は`.needsDuplicateConfirmation`を返すので、

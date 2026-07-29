@@ -24,6 +24,10 @@ final class AppState: ObservableObject {
     /// 一覧表示するために、ViewerViewが自分自身のViewerViewModelの内容をここへ反映する
     /// (performViewerActionと同じ、本を表示している間だけ登録する仕組み)。
     @Published private(set) var currentBookmarks: [Bookmark] = []
+    /// 現在表示中のページ番号(0始まり)。currentBookmarksと突き合わせることで「現在のページが
+    /// ブックマーク済みかどうか」を判定できる(ContentView.bodyでMenuCheckmarkStateを組み立てる
+    /// ときに使う。currentBookmarksと同じ、ViewerViewが表示されている間だけ最新値を書き込む仕組み)。
+    @Published private(set) var currentPageIndex = 0
     /// メニューバーの「ブックマーク」メニューの一覧から、特定のブックマークへジャンプするための
     /// 橋渡し。ViewerViewが表示されている間だけ自分自身を登録し、閉じるときにnilへ戻す。
     var jumpToBookmark: ((Bookmark) -> Void)?
@@ -45,6 +49,11 @@ final class AppState: ObservableObject {
     /// ViewerViewから、現在のブックマーク一覧を反映するために呼ばれる。
     func updateCurrentBookmarks(_ bookmarks: [Bookmark]) {
         currentBookmarks = bookmarks
+    }
+
+    /// ViewerViewから、現在のページ番号を反映するために呼ばれる(updateCurrentBookmarksと同じ仕組み)。
+    func updateCurrentPageIndex(_ index: Int) {
+        currentPageIndex = index
     }
 
     /// 表示メニューの「ツールバーを隠す」。ウインドウ表示のときのみ効果があり、
@@ -175,6 +184,13 @@ final class AppState: ObservableObject {
     /// コンテキストメニューからの「お気に入りに追加」「お気に入りを開く」で使う。
     /// (QooViewerAppのonAppearで設定される)
     weak var favoritesStore: FavoritesStore?
+
+    /// ブックマーク(すべての本を横断)の管理。ツールバー・メニューバー・コンテキストメニュー・
+    /// キーボードショートカットの「現在のページをブックマークから削除」から、
+    /// BookmarkStore.delete(_:)を直接呼ぶために使う(削除・リネームはBookmarkStoreが
+    /// SwiftDataを直接操作する設計のため。ViewerViewModel.swift:467あたりのコメント参照)。
+    /// favoritesStoreと同じくweakにしか保持しない。(QooViewerAppのonAppearで設定される)
+    weak var bookmarkStore: BookmarkStore?
 
     /// お気に入りを開こうとしたが、対応するファイル/フォルダが実際には存在しなかったときにセットする。
     /// nilでなければ、ContentViewが「見つかりません。お気に入りから削除しますか?」というアラート
@@ -375,6 +391,14 @@ struct MenuCheckmarkState: Equatable {
     var isReadingDirectionLocked = false
     var isDisplayModeLocked = false
     var isPageShiftLocked = false
+    /// メニューバーの「お気に入り」メニュー(お気に入りに追加/削除トグルボタン)、および
+    /// ツールバー・コンテキストメニューの同ボタンの見た目・文言切り替えに使う、現在の本が
+    /// お気に入りに登録済みかどうか。ContentView.bodyがfavoritesStore(EnvironmentObject)と
+    /// appState.currentBookから都度計算して詰める(favoritesStoreの変更自体はAppStateの
+    /// @Publishedプロパティではないため、ContentView側で計算する必要がある)。
+    var isCurrentBookFavorited = false
+    /// 同じく、現在のページがブックマーク済みかどうか(ブックマーク追加/削除トグルボタン用)。
+    var isCurrentPageBookmarked = false
 }
 
 private struct MenuCheckmarkStateFocusedValueKey: FocusedValueKey {

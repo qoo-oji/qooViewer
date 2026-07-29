@@ -12,6 +12,10 @@ import SwiftUI
 struct FavoriteFolderPickerView: View {
     let book: MangaBook
     @ObservedObject var favoritesStore: FavoritesStore
+    /// 登録(新規追加・上書きのどちらも)が成功したときに呼ばれる。呼び出し元(ViewerView)が
+    /// 「“Xxx”をお気に入りに追加しました」というトースト表示に使う。件数上限などで登録
+    /// できなかった場合、および「Cancel」で閉じた場合は呼ばれない。
+    var onAdded: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
 
     /// nilは「フォルダ分けせず、お気に入りの一番上の階層に直接置く」ことを表す。
@@ -132,6 +136,7 @@ struct FavoriteFolderPickerView: View {
     private func handle(_ outcome: FavoriteAddOutcome) {
         switch outcome {
         case .added, .overwritten:
+            onAdded?()
             dismiss()
         case .needsDuplicateConfirmation(let breadcrumb):
             duplicateConfirmationBreadcrumb = breadcrumb

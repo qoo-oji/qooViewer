@@ -12,6 +12,7 @@ struct ContentView: View {
     @EnvironmentObject private var recentFiles: RecentFilesStore
     @EnvironmentObject private var folderAccess: FolderAccessStore
     @EnvironmentObject private var favoritesStore: FavoritesStore
+    @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
     @Environment(\.modelContext) private var modelContext
 
@@ -65,7 +66,14 @@ struct ContentView: View {
                 scalingMode: appState.currentScalingMode,
                 isReadingDirectionLocked: appState.isReadingDirectionLocked,
                 isDisplayModeLocked: appState.isDisplayModeLocked,
-                isPageShiftLocked: appState.isPageShiftLocked
+                isPageShiftLocked: appState.isPageShiftLocked,
+                // isCurrentBookFavorited/isCurrentPageBookmarkedは、AppState自身の@Publishedでは
+                // なくここで都度計算する。favoritesStoreの変更(reload())はAppStateの
+                // objectWillChangeを発火させないため、ContentViewが自分自身のfavoritesStore
+                // (EnvironmentObject。この構造体自体がfavoritesStoreの変更のたびに作り直される
+                // ことで、値型のFocusedValueとしてメニューバー側へ正しく伝わる)から直接算出する。
+                isCurrentBookFavorited: appState.currentBook.map { favoritesStore.isFavorited(bookID: $0.id) } ?? false,
+                isCurrentPageBookmarked: appState.currentBookmarks.contains { $0.pageIndex == appState.currentPageIndex }
             )
         )
         .frame(minWidth: 900, minHeight: 640)
@@ -130,6 +138,7 @@ struct ContentView: View {
             appState.recentFiles = recentFiles
             appState.folderAccess = folderAccess
             appState.favoritesStore = favoritesStore
+            appState.bookmarkStore = bookmarkStore
             // 「ツールバーを隠す」「プログレスバーを隠す」は、前回終了時(またはこのセッション中に
             // 他のウインドウで変更された時点)の値をpreferencesから引き継ぐ。これにより、
             // 新しいウインドウ/タブや次回起動時にも同じ表示状態で始まる。
@@ -253,6 +262,7 @@ struct ContentView: View {
                     appState.recentFiles = recentFiles
                     appState.folderAccess = folderAccess
                     appState.favoritesStore = favoritesStore
+                    appState.bookmarkStore = bookmarkStore
                     appState.hideToolbar = preferences.hideToolbar
                     appState.hideProgressBar = preferences.hideProgressBar
                     launchCoordinator.registerOpenAppState(appState)

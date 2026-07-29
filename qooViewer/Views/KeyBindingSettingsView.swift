@@ -10,10 +10,24 @@ struct KeyBindingSettingsView: View {
     /// キーボードの一覧に表示する操作の順序。読み方向に関わらず常に同じ意味になる
     /// moveNext/movePreviousを、最もよく使う操作として先頭に表示する
     /// (以前は列挙型の宣言順のままだったが、縦に長く見づらいという指摘を踏まえて並び替えている)。
+    /// お気に入り関連の操作(toggleFavorite/showFavoritesOrganizer)は、ブックマーク関連の操作
+    /// (toggleBookmark/nextBookmark/previousBookmark/showBookmarkList)のすぐ下に並べる
+    /// (ユーザーからの指示)。
+    ///
+    /// showFavoritesList(旧「お気に入り一覧を表示」)は、ツールバーの一覧ボタンを廃止した際に
+    /// 他の入り口(メニューバー・コンテキストメニューは階層表示のサブメニューに置き換え済み)を
+    /// すべて失い、この一覧に残しておいても割り当てる意味がなくなったため、キー・マウス操作の
+    /// 一覧からは意図的に除外している(既定のキー割り当てを外すのではなく、項目自体を表示しない。
+    /// ユーザーからの指示)。ViewerAction自体からは削除していない(将来別の入り口を復活させる
+    /// 可能性に備えて残してある)。
     private let assignableActions: [ViewerAction] = {
         let priority: [ViewerAction] = [.moveNext, .movePrevious]
-        let rest = ViewerAction.allCases.filter { $0 != .none && !priority.contains($0) }
-        return priority + rest
+        let bookmarkGroup: [ViewerAction] = [.toggleBookmark, .nextBookmark, .previousBookmark, .showBookmarkList]
+        let favoriteGroup: [ViewerAction] = [.toggleFavorite, .showFavoritesOrganizer]
+        let hidden: [ViewerAction] = [.showFavoritesList]
+        let placed = Set(priority + bookmarkGroup + favoriteGroup + hidden)
+        let rest = ViewerAction.allCases.filter { $0 != .none && !placed.contains($0) }
+        return priority + bookmarkGroup + favoriteGroup + rest
     }()
     private let mouseTriggers: [InputTrigger] = [.clickLeftZone, .clickRightZone, .wheelUp, .wheelDown]
 
