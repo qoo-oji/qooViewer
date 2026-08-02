@@ -811,6 +811,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let url = urls.first else { return }
         guard let primaryAppState = launchCoordinator?.primaryAppState else { return }
 
+        // ウインドウがDockに最小化された状態のままFinderから本を開くと、以前はウインドウの
+        // 中身(表示中の本)だけが差し替わり、ウインドウ自体はDockに最小化されたまま
+        // ユーザーの目に触れない、という不具合があった。Finderからの「開く」はOS側が
+        // アプリ自体をアクティブにしてくれるが、最小化されたウインドウはアプリのアクティブ化
+        // だけでは自動的に元に戻らない(Dockのアイコンをクリックしたときと同様、明示的な
+        // 復元操作が必要)。対象ウインドウが最小化されている場合は、ここでdeminiaturize(_:)を
+        // 呼んで明示的に復元する(Dockアイコンをクリックしたときと同じAPIのため、復元後に
+        // そのウインドウが前面・キーウインドウになる挙動もあわせて期待できる)。
+        if let hostWindow = primaryAppState.hostWindow, hostWindow.isMiniaturized {
+            hostWindow.deminiaturize(nil)
+        }
+
         // まだ本を表示していない(Welcome画面)場合は、環境設定に関わらず常にそのウインドウで
         // そのまま開く。既に本を表示している場合だけ、環境設定「Finderから開いたとき」に従う。
         guard primaryAppState.currentBook != nil else {

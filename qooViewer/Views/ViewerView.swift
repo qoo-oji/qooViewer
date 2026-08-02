@@ -780,31 +780,35 @@ struct ViewerView: View {
 
                 // クリックでのページ送り(画面内に収めるモードのみ。他のモードはスクロール操作を優先する)
                 //
-                // .focusable(false): この2つのボタンが左右に並んでいるため、これを付けないと
-                // macOSがLeft/Right矢印キーを「ボタン間のフォーカス移動」として横取りしてしまい、
-                // 矢印キーに割り当てたページ送りショートカットが反応しなくなる不具合があった。
-                // ボタン自体はクリックだけで使うものでキーボードフォーカスを受け取る必要がないため、
-                // フォーカス移動の対象から外すことで、矢印キーがonKeyPress側に正しく届くようにする。
+                // 以前はSwiftUIのButtonで実装していたが、SwiftUIのNSHostingViewは
+                // acceptsFirstMouse(for:)をtrueで実装しているため、このウインドウが
+                // キーウインドウでない状態でここをクリックすると、ウインドウをアクティブに
+                // するのと同時にボタンのアクションも発火してしまっていた。これにより、
+                // 他のウインドウへフォーカスを戻す/移すためにこのウインドウをクリックした
+                // だけのつもりが、意図せずページが送られてしまう不具合があった。
+                // ClickZoneArea(下のNSViewRepresentable)を使い、素のNSViewで
+                // acceptsFirstMouse(for:)を明示的にfalseにすることで、macOS標準の
+                // 「非アクティブウインドウへの最初のクリックはウインドウをアクティブにする
+                // だけで、そのクリック自体は無視する」という挙動に戻している
+                // (詳細はClickZoneView参照)。
+                // 素のNSViewのためSwiftUIのフォーカス管理の対象にもならず、以前Buttonに
+                // 付けていた.focusable(false)(矢印キーがボタン間のフォーカス移動に
+                // 奪われないようにするための対処)も不要になった。
                 HStack(spacing: 0) {
-                    Button {
+                    // 素のNSViewはSwiftUIに対して「これくらいが望ましい」というサイズの
+                    // 手がかり(intrinsicContentSize)を持たないため、以前のButton版と同じく
+                    // 明示的にmaxWidth/maxHeightを.infinityにして、左右それぞれが利用可能な
+                    // 領域いっぱいに広がるようにする(指定しないと、意図しない小さな
+                    // ヒットテスト領域になってしまう)。
+                    ClickZoneArea {
                         perform(keyBindingStore.action(for: .clickLeftZone))
-                    } label: {
-                        Color.clear
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    .focusable(false)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    Button {
+                    ClickZoneArea {
                         perform(keyBindingStore.action(for: .clickRightZone))
-                    } label: {
-                        Color.clear
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
-                    .focusable(false)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 // isClickZoneArmed: ウェルカム画面からのダブルクリックの2回目のクリックを
                 // 読み捨てるため、本を開いた直後の一定時間はヒットテスト自体を無効にする
@@ -1484,6 +1488,60 @@ struct WindowAccessor: NSViewRepresentable {
         DispatchQueue.main.async {
             onResolve(nsView.window)
         }
+    }
+}
+
+/// クリックでのページ送り(pageArea内の左右クリックゾーン)用の、透明な当たり判定領域。
+/// 実体はClickZoneView(下記)というただのNSView。
+///
+/// SwiftUIのButton/onTapGestureをそのまま使わない理由: SwiftUIのNSHostingViewは
+/// acceptsFirstMouse(for:)をtrueで実装しており、ウインドウがキーウインドウでない状態で
+/// クリックすると、ウインドウをアクティブにするのと同時にSwiftUI側のアクションも
+/// 発火してしまう。これにより「他のウインドウへフォーカスを移すためにこのウインドウを
+/// クリックしただけなのに、意図せずページが送られる」という不具合があった。
+/// 素のNSView(既定でacceptsFirstMouseがfalse)をこの領域にだけ差し込むことで、
+/// macOS標準の「非アクティブウインドウへの最初のクリックはウインドウをアクティブにする
+/// だけで、そのクリック自体は無視する」という挙動をこの領域だけに戻している。
+private struct ClickZoneArea: NSViewRepresentable {
+    let onClick: () -> Void
+
+    func makeNSView(context: Context) -> ClickZoneView {
+        let view = ClickZoneView()
+        view.onClick = onClick
+        return view
+    }
+
+    func updateNSView(_ nsView: ClickZoneView, context: Context) {
+        // onClickはperform(...)を都度キャプチャしたクロージャのため、View再構築のたびに
+        // (viewModel/keyBindingStoreの状態変化などで)新しいインスタンスに差し替わりうる。
+        // 古いクロージャを握ったままにしないよう、更新のたびに必ず上書きする。
+        nsView.onClick = onClick
+    }
+}
+
+/// ClickZoneAreaが実際に使うNSView本体。マウスの押下(mouseDown)と離す(mouseUp)が
+/// どちらも自身の領域内で起きたときだけ「クリックされた」とみなしてonClickを呼ぶ
+/// (押した位置と離した位置が両方とも領域内にあることを確認する、NSButtonの基本的な
+/// クリック判定にならった実装)。
+private final class ClickZoneView: NSView {
+    var onClick: (() -> Void)?
+    private var isTrackingClickInside = false
+
+    /// 既定値(false)のままでも良いが、このクラスの存在意義そのものであるため、
+    /// 意図を明示するためにあえて上書きしておく。falseにすることで、ウインドウが
+    /// キーウインドウでない状態でのクリックは、ウインドウをアクティブにするだけに留まり、
+    /// mouseDown/mouseUp自体がこのビューに届かなくなる(=onClickは呼ばれない)。
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { false }
+
+    override func mouseDown(with event: NSEvent) {
+        isTrackingClickInside = bounds.contains(convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { isTrackingClickInside = false }
+        guard isTrackingClickInside else { return }
+        guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        onClick?()
     }
 }
 
