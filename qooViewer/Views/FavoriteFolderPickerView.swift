@@ -27,53 +27,37 @@ struct FavoriteFolderPickerView: View {
     @State private var registrationErrorMessage: String?
 
     var body: some View {
-        NavigationStack {
-            List {
-                Button {
-                    selectedFolder = nil
-                } label: {
-                    HStack {
-                        Image(systemName: "star")
-                        Text("Favorites (Top Level)")
-                        Spacer()
-                        if selectedFolder == nil {
-                            Image(systemName: "checkmark")
+        VStack(spacing: 0) {
+            NavigationStack {
+                List {
+                    Button {
+                        selectedFolder = nil
+                    } label: {
+                        HStack {
+                            Image(systemName: "star")
+                            Text("Favorites (Top Level)")
+                            Spacer()
+                            if selectedFolder == nil {
+                                Image(systemName: "checkmark")
+                            }
                         }
                     }
-                }
-                .buttonStyle(.plain)
+                    .buttonStyle(.plain)
 
-                ForEach(favoritesStore.rootFolders, id: \.id) { folder in
-                    FolderTreeRow(
-                        folder: folder,
-                        depth: 0,
-                        favoritesStore: favoritesStore,
-                        selectedFolder: $selectedFolder
-                    )
-                }
-            }
-            .navigationTitle("Add to Favorites")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button("Add") { performRegistration() }
-                }
-                ToolbarItem(placement: .secondaryAction) {
-                    Button {
-                        newFolderName = ""
-                        isShowingNewFolderPrompt = true
-                    } label: {
-                        Label("New Folder…", systemImage: "folder.badge.plus")
+                    ForEach(favoritesStore.rootFolders, id: \.id) { folder in
+                        FolderTreeRow(
+                            folder: folder,
+                            depth: 0,
+                            favoritesStore: favoritesStore,
+                            selectedFolder: $selectedFolder
+                        )
                     }
-                    // 選択中のフォルダの直下に新規フォルダを作ると、階層の上限(3階層)を
-                    // 超えてしまう場合はここで無効化する。上限に達している旨は、それでも
-                    // 実行しようとしたとき(createFolder失敗時)にもアラートで表示する
-                    // (ボタンの無効化だけに頼らない。FavoritesStore.createFolderのコメント参照)。
-                    .disabled(!favoritesStore.canCreateSubfolder(in: selectedFolder))
                 }
+                .navigationTitle("Add to Favorites")
             }
+
+            Divider()
+            bottomBar
         }
         .frame(minWidth: 360, minHeight: 420)
         .alert("New Folder", isPresented: $isShowingNewFolderPrompt) {
@@ -127,6 +111,38 @@ struct FavoriteFolderPickerView: View {
         } message: {
             Text(registrationErrorMessage ?? "")
         }
+    }
+
+    /// ウインドウ下部のアクションバー。macOSの保存パネルと同じレイアウトで、
+    /// 左端に「新規フォルダ…」、右端に「キャンセル」「追加」を同じ行に並べる
+    /// (ユーザー要望: 新規フォルダボタンはキャンセル・追加ボタンと横一列になるように
+    /// 左下に配置してほしい)。以前はツールバーのsecondaryActionに置いていたため、
+    /// フォルダ作成の入口が分かりづらいという指摘があった
+    /// (FavoritesOrganizerView.swiftで右クリックメニューを追加したのと同じ理由の指摘)。
+    @ViewBuilder
+    private var bottomBar: some View {
+        HStack {
+            Button {
+                newFolderName = ""
+                isShowingNewFolderPrompt = true
+            } label: {
+                Label("New Folder…", systemImage: "folder.badge.plus")
+            }
+            // 選択中のフォルダの直下に新規フォルダを作ると、階層の上限(3階層)を
+            // 超えてしまう場合はここで無効化する。上限に達している旨は、それでも
+            // 実行しようとしたとき(createFolder失敗時)にもアラートで表示する
+            // (ボタンの無効化だけに頼らない。FavoritesStore.createFolderのコメント参照)。
+            .disabled(!favoritesStore.canCreateSubfolder(in: selectedFolder))
+
+            Spacer()
+
+            Button("Cancel") { dismiss() }
+                .keyboardShortcut(.cancelAction)
+
+            Button("Add") { performRegistration() }
+                .keyboardShortcut(.defaultAction)
+        }
+        .padding()
     }
 
     private func performRegistration() {
