@@ -86,7 +86,11 @@ struct LibraryImportWindow: View {
         }
         .formStyle(.grouped)
         .padding()
-        .frame(minWidth: 460, minHeight: 420)
+        // ユーザー指摘: 固定minHeightのせいで、ファイル未選択時など中身が短い状態だと
+        // 下側だけ大きな余白ができていた(.windowResizability(.contentSize)のこのウインドウは、
+        // Formの自然な高さがminHeightに満たない場合、余った分がそのまま下に空白として残る
+        // ため)。minHeightを指定せず、内容の実際の高さに window 自身を追従させる。
+        .frame(minWidth: 460)
         .onAppear {
             guard !hasPromptedForFile else { return }
             hasPromptedForFile = true

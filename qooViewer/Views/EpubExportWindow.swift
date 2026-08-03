@@ -134,15 +134,21 @@ private struct EpubExportContentView: View {
                 .labelsHidden()
                 .help("Select All / Deselect All")
 
+            EpubColumnDividerLine()
+
             Text("Title")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(width: columnWidths.title, alignment: .leading)
 
+            EpubColumnDividerLine()
+
             Text("Cover")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(width: columnWidths.cover, alignment: .leading)
+
+            EpubColumnDividerLine()
 
             Spacer()
         }
@@ -344,6 +350,21 @@ private struct EpubExportColumnWidths {
     var cover: CGFloat = 180
 }
 
+/// 列の区切り線(ユーザー要望: このウインドウにも区切り線を追加してほしい)。BookmarkListView.
+/// ColumnDividerLineと同じ考え方で、素のRectangleをHStackへ直接置く(Divider()は既定で水平線に
+/// なるため使えない)。この列は幅固定でユーザーがドラッグして広げることはないため、
+/// BookmarkListView.ResizableColumnDividerのようなドラッグ用ヒットエリアは不要で、
+/// columnHeaderRowとExportRowViewの双方でこの同じ1pt幅のRectangleだけを使う限り、ZStackの
+/// 最大サイズ問題(BookmarkListViewで経験した不具合)は起こりえない。
+private struct EpubColumnDividerLine: View {
+    static let height: CGFloat = 18
+    var body: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(width: 1, height: Self.height)
+    }
+}
+
 /// 一覧の1行。カバー列はボタンでpopoverを開き、本に含まれる画像またはそれ以外のファイルから
 /// カバー画像を選べるようにする(ユーザー要望: カバー画像はデフォルトで最初の画像を使い、
 /// このウインドウから変更できるようにしたい)。
@@ -372,6 +393,8 @@ private struct ExportRowView: View {
             .toggleStyle(.checkbox)
             .labelsHidden()
 
+            EpubColumnDividerLine()
+
             HStack(spacing: 4) {
                 Text(row.displayName)
                     .lineLimit(1)
@@ -379,6 +402,8 @@ private struct ExportRowView: View {
                 FormatBadgeView(bookID: row.bookID)
             }
             .frame(width: columnWidths.title, alignment: .leading)
+
+            EpubColumnDividerLine()
 
             // カバー列(ユーザー要望)。現在カバー画像として使われることになっているファイル名を
             // 表示し、クリックすると本のページ一覧/外部ファイルから選び直せるpopoverを開く。
@@ -400,6 +425,8 @@ private struct ExportRowView: View {
             .popover(isPresented: $isCoverPickerPresented) {
                 CoverPickerContent(bookID: row.bookID, viewModel: viewModel)
             }
+
+            EpubColumnDividerLine()
 
             Spacer()
 

@@ -63,7 +63,9 @@ struct LibraryExportWindow: View {
         }
         .formStyle(.grouped)
         .padding()
-        .frame(minWidth: 440, minHeight: 320)
+        // LibraryImportWindowと同じ理由(固定minHeightによる下側の余白過多)で、minHeightは
+        // 指定せずFormの実際の高さにwindowを追従させる。
+        .frame(minWidth: 440)
     }
 
     private func exportButtonTapped() {
