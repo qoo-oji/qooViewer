@@ -8,10 +8,17 @@ import SevenZip
 nonisolated final class SevenZipArchiveReader: ArchiveReading {
     private let archive: SevenZip.Archive
     private let entries: [SevenZip.Entry]
+    /// path -> 対応するEntry(ページ読み込みのたびにentriesを線形探索しないための索引。
+    /// ZipArchiveReaderのentryByCorrectedPathと同じ考え方。同名エントリが複数存在する場合は
+    /// 元の`entries.first(where:)`と同じく最初に見つかったものを優先する)。
+    private var entryByPath: [String: SevenZip.Entry] = [:]
 
     init(url: URL) throws {
         self.archive = try SevenZip.Archive(fileURL: url)
         self.entries = archive.entries
+        for entry in entries where entryByPath[entry.path] == nil {
+            entryByPath[entry.path] = entry
+        }
     }
 
     func listFilePaths() throws -> [String] {
@@ -19,7 +26,7 @@ nonisolated final class SevenZipArchiveReader: ArchiveReading {
     }
 
     func data(at path: String) throws -> Data {
-        guard let entry = entries.first(where: { $0.path == path }) else {
+        guard let entry = entryByPath[path] else {
             throw ArchiveReaderError.entryNotFound
         }
         return try archive.extract(entry: entry)

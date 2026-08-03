@@ -84,12 +84,15 @@ final class EpubExportViewModel: ObservableObject {
             let ext = URL(fileURLWithPath: bookID).pathExtension.lowercased()
             return ext != "pdf" && ext != "epub"
         }
+        // bookmarkStore.groupsはArrayなので、mapの中で毎回containsを呼ぶとO(件数^2)になる。
+        // 事前にSet化して1回のO(1)ルックアップにする(結果は従来と同一)。
+        let bookIDsWithBookmarks = Set(bookmarkStore.groups.map(\.bookID))
         rows = eligibleIDs
             .map { bookID in
                 Row(
                     bookID: bookID,
                     hasLayout: layoutStore.layoutBookIDs.contains(bookID),
-                    hasBookmarks: bookmarkStore.groups.contains { $0.bookID == bookID }
+                    hasBookmarks: bookIDsWithBookmarks.contains(bookID)
                 )
             }
             .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
@@ -333,11 +336,15 @@ final class EpubExportViewModel: ObservableObject {
             overrides[override.pageKey] = override.state
         }
 
+        // settings?.pageOrderOverrideはJSON文字列をその都度デコードする計算プロパティのため、
+        // この関数内で2回(EffectivePageOrder.pageKeys呼び出し用とEpubExportInput用)使うぶんを
+        // まとめて1回だけ読んでおく(結果は同一)。
+        let pageOrderOverride = settings?.pageOrderOverride
         let excludedKeys = includeExcludedPages
             ? []
             : Set(overrides.filter { $0.value == .excluded }.map(\.key))
         let orderedKeys = EffectivePageOrder.pageKeys(
-            for: book, pageOrderOverride: settings?.pageOrderOverride, excludedKeys: excludedKeys
+            for: book, pageOrderOverride: pageOrderOverride, excludedKeys: excludedKeys
         )
 
         let bookmarksSorted = bookmarkStore.bookmarks(forBookID: row.bookID).sorted { $0.pageIndex < $1.pageIndex }
@@ -349,7 +356,7 @@ final class EpubExportViewModel: ObservableObject {
 
         let input = EpubExportInput(
             book: book,
-            pageOrderOverride: settings?.pageOrderOverride,
+            pageOrderOverride: pageOrderOverride,
             pageOverrides: overrides,
             readingDirectionOverride: settings?.readingDirectionOverride,
             forcedDisplayMode: settings?.forcedDisplayMode,

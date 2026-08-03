@@ -144,6 +144,16 @@ final class FavoritesStore: ObservableObject {
     private static let foldersAlwaysOnTopDefaultsKey = "qooViewer.pref.favoritesFoldersAlwaysOnTop"
 
     private let modelContext: ModelContext
+
+    /// folder(withID:)/book(withID:)/existingFavorites(forBookID:)向けの、絞り込み無し全件
+    /// フェッチ結果のキャッシュ。このストアがFavoriteFolder/FavoriteBookの唯一の書き込み口
+    /// (専用のModelContextを持ち、他のストアとは互いに素。LibraryImportExportServiceも
+    /// このストアのcreateFolder/forceAddFavorite経由でしか書き込まない)であるため、
+    /// insert/deleteのたびにinvalidateFavoritesLookupCaches()で無効化しておけば、
+    /// 常にmodelContext.fetch()を直接呼んでいた場合と同じ結果になる。
+    private var cachedFolders: [FavoriteFolder]?
+    private var cachedBooks: [FavoriteBook]?
+
     /// メニューが開かれる直前に一覧を再読み込みするための監視トークン。
     /// (RecentFilesStoreと同じ理由: 整理画面や他のウインドウでの変更を、メニューを開くたびに
     /// 反映させるため)
@@ -180,6 +190,10 @@ final class FavoritesStore: ObservableObject {
     /// ルート直下のフォルダ・お気に入りを読み込み直す。フォルダの中身(children/books)は
     /// SwiftDataのリレーションシップ経由でその都度取得できるため、ここでは読み込まない。
     func reload() {
+        // メニュートラッキング開始時の保険的な呼び出し(万一の取りこぼし対策)も含めて、
+        // reload()が呼ばれたときは全件フェッチキャッシュも合わせて無効化しておく。
+        invalidateFavoritesLookupCaches()
+
         let folderDescriptor = FetchDescriptor<FavoriteFolder>(
             predicate: #Predicate<FavoriteFolder> { $0.parent == nil }
         )
@@ -189,6 +203,28 @@ final class FavoritesStore: ObservableObject {
             predicate: #Predicate<FavoriteBook> { $0.folder == nil }
         )
         rootBooks = sorted((try? modelContext.fetch(bookDescriptor)) ?? [])
+    }
+
+    /// 絞り込み無しの全FavoriteFolderを返す(キャッシュがあれば再利用)。
+    private func allFavoriteFolders() -> [FavoriteFolder] {
+        if let cachedFolders { return cachedFolders }
+        let fetched = (try? modelContext.fetch(FetchDescriptor<FavoriteFolder>())) ?? []
+        cachedFolders = fetched
+        return fetched
+    }
+
+    /// 絞り込み無しの全FavoriteBookを返す(キャッシュがあれば再利用)。
+    private func allFavoriteBooks() -> [FavoriteBook] {
+        if let cachedBooks { return cachedBooks }
+        let fetched = (try? modelContext.fetch(FetchDescriptor<FavoriteBook>())) ?? []
+        cachedBooks = fetched
+        return fetched
+    }
+
+    /// FavoriteFolder/FavoriteBookをinsert/deleteするたびに直後で呼ぶ。
+    private func invalidateFavoritesLookupCaches() {
+        cachedFolders = nil
+        cachedBooks = nil
     }
 
     /// 指定したフォルダの直下のサブフォルダ一覧(sortOptionの並び順)。nilを渡すとルート直下を返す。
@@ -423,21 +459,18 @@ final class FavoritesStore: ObservableObject {
     /// (LayoutStore.pageOverrides(forBookID:)のコメント参照)。同じ問題を避けるため、
     /// 絞り込み無しで全件取得してからSwift側でfilterする方式に統一する。
     func folder(withID id: UUID) -> FavoriteFolder? {
-        let all = (try? modelContext.fetch(FetchDescriptor<FavoriteFolder>())) ?? []
-        return all.first { $0.id == id }
+        allFavoriteFolders().first { $0.id == id }
     }
 
     /// id(UUID)からお気に入りを検索する(folder(withID:)と同じ用途・同じ理由で全件取得+filter)。
     func book(withID id: UUID) -> FavoriteBook? {
-        let all = (try? modelContext.fetch(FetchDescriptor<FavoriteBook>())) ?? []
-        return all.first { $0.id == id }
+        allFavoriteBooks().first { $0.id == id }
     }
 
     /// 指定したbookIDで既に登録されているお気に入り一覧(全フォルダ横断)。同じ理由で
     /// 全件取得+filterに統一する。
     func existingFavorites(forBookID bookID: String) -> [FavoriteBook] {
-        let all = (try? modelContext.fetch(FetchDescriptor<FavoriteBook>())) ?? []
-        return all.filter { $0.bookID == bookID }
+        allFavoriteBooks().filter { $0.bookID == bookID }
     }
 
     /// 指定したbookIDが(どれか1つでも)お気に入りに登録されているかどうか。ツールバー・
@@ -454,9 +487,22 @@ final class FavoritesStore: ObservableObject {
     /// お気に入りから削除」はどのフォルダに登録されているかをユーザーに問わない単純な操作として
     /// 用意しているため、該当するものをすべて削除する。
     func removeFavorites(forBookID bookID: String) {
-        for favorite in existingFavorites(forBookID: bookID) {
-            delete(favorite)
+        let favorites = existingFavorites(forBookID: bookID)
+        guard !favorites.isEmpty else { return }
+        // delete(_ favorite:)を1件ずつ呼ぶと、そのたびに同期save()+reload()が走ってしまう。
+        // 同じ本が複数フォルダに登録されている場合、ここでは全件削除した上でsave()/reload()を
+        // 1回にまとめる(delete(_ favorite:)と同じく、削除されたお気に入りが元々あった
+        // フォルダのupdatedAtは更新する)。
+        var touchedFolderIDs: Set<UUID> = []
+        let now = Date()
+        for favorite in favorites {
+            if let parentFolder = favorite.folder, touchedFolderIDs.insert(parentFolder.id).inserted {
+                parentFolder.updatedAt = now
+            }
+            modelContext.delete(favorite)
         }
+        try? modelContext.save()
+        reload()
     }
 
     /// お気に入りへの登録を試みる。

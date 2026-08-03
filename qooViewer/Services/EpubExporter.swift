@@ -178,19 +178,6 @@ nonisolated enum EpubExporter {
             )
         }
 
-        // 画像の生データ(デコードなし、画質を落とさない)とピクセルサイズ(viewport meta用)を集める。
-        var imageDataByFileName: [String: Data] = [:]
-        var pixelSizeByFileName: [String: (width: Int, height: Int)] = [:]
-        for (page, item) in zip(orderedPages, prepared) {
-            guard let originalIndex = originalIndexByKey[page.sortKey],
-                  let data = await pageLoader.rawImageData(at: originalIndex)
-            else { continue }
-            imageDataByFileName[item.imageFileName] = data
-            if let size = ImageDecoder.pixelSize(of: data) {
-                pixelSizeByFileName[item.imageFileName] = size
-            }
-        }
-
         // ブックマーク → 目次(7.5節、順方向)。元のpageKeyから、書き出し後のxhtmlファイル名を求める。
         var xhtmlFileNameByOriginalKey: [String: String] = [:]
         for item in prepared { xhtmlFileNameByOriginalKey[item.originalPageKey] = item.xhtmlFileName }
@@ -229,14 +216,26 @@ nonisolated enum EpubExporter {
             try addEntry(to: archive, path: "OEBPS/package.opf", data: Data(opfXML.utf8), compressed: true)
             try addEntry(to: archive, path: "OEBPS/nav.xhtml", data: Data(navXML.utf8), compressed: true)
 
-            for item in prepared {
-                let pixelSize = pixelSizeByFileName[item.imageFileName]
+            // 画像の生データ(デコードなし、画質を落とさない)は、以前は全ページぶんを先に
+            // imageDataByFileName辞書へ集めてからまとめて書き込んでいたが、ページ数が多い本では
+            // 全ページの生データを同時にメモリ上に保持することになり無駄が大きかった。
+            // 1ページぶんずつ「取得 → (必要ならピクセルサイズを算出) → 書き込み → 破棄」する形に
+            // まとめることで、同時に保持する画像データを常に1ページぶんだけにする
+            // (書き出されるzipの内容・順序はどちらの実装でも同一)。
+            for (page, item) in zip(orderedPages, prepared) {
+                var pixelSize: (width: Int, height: Int)?
+                var imageData: Data?
+                if let originalIndex = originalIndexByKey[page.sortKey],
+                   let data = await pageLoader.rawImageData(at: originalIndex) {
+                    imageData = data
+                    pixelSize = ImageDecoder.pixelSize(of: data)
+                }
                 let pageXHTML = makePageDocument(title: bookTitle, imageFileName: item.imageFileName, pixelSize: pixelSize)
                 try addEntry(
                     to: archive, path: "OEBPS/\(textDirectory)/\(item.xhtmlFileName)",
                     data: Data(pageXHTML.utf8), compressed: true
                 )
-                if let imageData = imageDataByFileName[item.imageFileName] {
+                if let imageData {
                     try addEntry(
                         to: archive, path: "OEBPS/\(imagesDirectory)/\(item.imageFileName)",
                         data: imageData, compressed: true

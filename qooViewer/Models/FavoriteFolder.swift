@@ -62,12 +62,15 @@ final class FavoriteFolder {
     /// ルートからこのフォルダまでの名前の並び(パンくず表示用)。
     /// 例: ["マイフォルダ", "少年漫画"]
     var pathComponents: [String] {
+        // insert(at: 0)は毎回残り全要素をずらすためO(n^2)になる。末尾へのappendだけで
+        // 「自分から根へ」の順に集め、最後に反転して「根から自分へ」の順(従来と同じ結果)にする。
         var names: [String] = [name]
         var current = parent
         while let p = current {
-            names.insert(p.name, at: 0)
+            names.append(p.name)
             current = p.parent
         }
+        names.reverse()
         return names
     }
 

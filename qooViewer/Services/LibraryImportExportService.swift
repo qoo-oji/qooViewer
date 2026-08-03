@@ -340,10 +340,10 @@ enum LibraryImportExportService {
                 guard let pageIndex = keyToIndex[entry.page] else { continue }
                 // addBookmarkは同じページに既存のブックマークがあれば何もしない(内部で重複防止
                 // 済み)ため、マージ・上書きのどちらでもそのまま呼ぶだけでよい(上書きは直前の
-                // deleteAllBookmarksで既に空になっている)。
-                let before = bookmarkStore.bookmarks(forBookID: bookID).count
-                bookmarkStore.addBookmark(bookID: bookID, pageIndex: pageIndex, name: entry.name)
-                if bookmarkStore.bookmarks(forBookID: bookID).count > before {
+                // deleteAllBookmarksで既に空になっている)。実際に追加できたかどうかは戻り値
+                // (Bool)で分かるため、前後でbookmarks(forBookID:)を2回フェッチして件数を
+                // 比較する必要はない。
+                if bookmarkStore.addBookmark(bookID: bookID, pageIndex: pageIndex, name: entry.name) {
                     importedAny = true
                     summary.bookmarksImportedEntries += 1
                 }

@@ -180,9 +180,13 @@ struct BulkRenameBookmarksWindow: View {
             number += 1
         }
 
+        // ソート比較のたびにbookmarksを線形探索すると要素数が多いほど二乗オーダーで重くなる
+        // (テキストフィールドを1文字打つたびに再計算されるため無視できない)。
+        // 事前にID -> pageIndexの辞書を1回だけ作り、比較はO(1)ルックアップにする(結果は従来と同一)。
+        let pageIndexByID = Dictionary(uniqueKeysWithValues: bookmarks.map { ($0.id, $0.pageIndex) })
         return items.sorted { lhs, rhs in
-            let lhsIndex = bookmarks.first { $0.id == lhs.id }?.pageIndex ?? 0
-            let rhsIndex = bookmarks.first { $0.id == rhs.id }?.pageIndex ?? 0
+            let lhsIndex = pageIndexByID[lhs.id] ?? 0
+            let rhsIndex = pageIndexByID[rhs.id] ?? 0
             return lhsIndex < rhsIndex
         }
     }

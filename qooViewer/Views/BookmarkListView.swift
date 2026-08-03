@@ -194,15 +194,21 @@ struct BookmarkEditorView: View {
     /// 消えてしまった場合は、以下の優先順でフォールバックする。
     /// 1. 今読んでいる本(launchCoordinator.activeBookAppState)が一覧にあれば、それを自動選択する。
     /// 2. 無ければ、一覧の先頭の本(現在の並び順で先頭)。
-    private var effectiveSelectedBookID: String? {
-        if let selectedBookID, filteredSortedRows.contains(where: { $0.bookID == selectedBookID }) {
+    /// rowsは呼び出し側(body)が既に計算済みのfilteredSortedRowsをそのまま渡す。
+    /// 以前はこのメソッドが計算プロパティ(filteredSortedRowsを自前で呼び直す)だったため、
+    /// ForEachの各行のlistRowBackground判定のたびにfilteredSortedRows(内部でmergedRowsの
+    /// マージ・フィルタ・ソートを毎回やり直す)が再評価され、行数のぶんだけ計算量が膨らんでいた
+    /// (体感の一覧描画のもたつきにつながる)。呼び出し側でrowsを1回だけ計算して渡すことで、
+    /// bodyの評価1回につきこの判定自体もO(1)になる(結果は従来と同一)。
+    private func effectiveSelectedBookID(in rows: [EditorBookRow]) -> String? {
+        if let selectedBookID, rows.contains(where: { $0.bookID == selectedBookID }) {
             return selectedBookID
         }
         if let activeBookID = launchCoordinator.activeBookAppState?.currentBook?.id,
-           filteredSortedRows.contains(where: { $0.bookID == activeBookID }) {
+           rows.contains(where: { $0.bookID == activeBookID }) {
             return activeBookID
         }
-        return filteredSortedRows.first?.bookID
+        return rows.first?.bookID
     }
 
     var body: some View {
@@ -220,9 +226,13 @@ struct BookmarkEditorView: View {
             }
             .frame(minWidth: 640, minHeight: 420)
         } else {
+            // filteredSortedRows/effectiveSelectedBookIDはbodyの評価ごとに1回だけ計算し、
+            // ForEachの各行やdetail:側で使い回す(繰り返し呼び直すとO(行数)倍の計算になるため)。
+            let rows = filteredSortedRows
+            let selectedID = effectiveSelectedBookID(in: rows)
             NavigationSplitView {
                 List {
-                    ForEach(filteredSortedRows) { row in
+                    ForEach(rows) { row in
                         let isOpen = launchCoordinator.openAppState(forBookID: row.bookID) != nil
                         HStack {
                             Image(systemName: isOpen ? "book.fill" : "book.closed")
@@ -267,7 +277,7 @@ struct BookmarkEditorView: View {
                         }
                         .help(row.displayName)
                         .listRowBackground(
-                            effectiveSelectedBookID == row.bookID
+                            selectedID == row.bookID
                                 ? Color.accentColor.opacity(0.15) : Color.clear
                         )
                         // 4.4節: 左ペインの本を右クリックしたメニューにも、下部ボタンと同じ3項目を
@@ -350,7 +360,7 @@ struct BookmarkEditorView: View {
                     applyInitialFocus(newValue)
                 }
             } detail: {
-                if let bookID = effectiveSelectedBookID {
+                if let bookID = selectedID {
                     BookmarkDetailPane(
                         bookID: bookID,
                         bookmarkStore: bookmarkStore,

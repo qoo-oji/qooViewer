@@ -81,6 +81,16 @@ final class BookmarkStore: ObservableObject {
     private static let bookSortOptionDefaultsKey = "qooViewer.pref.bookmarkBookSortOption"
 
     private let modelContext: ModelContext
+
+    /// Bookmarkの絞り込み無し全件フェッチ結果のキャッシュ。bookmarks(forBookID:)等が呼ばれる
+    /// たびにmodelContext.fetch()をやり直さずに済むようにする。reload()が呼ばれるたびに
+    /// (このストア自身の書き込みだけでなく、開いている本のViewerViewModelが別のModelContext
+    /// 経由で直接書き込んだ場合のbookmarksDidChange通知を受けての呼び出しも含めて)必ず
+    /// 実際のフェッチで最新化されるため、reload()以降このストアがフェッチをやり直していなくても
+    /// 内容が古くなることはない(allBookmarks()自身は「キャッシュがあれば使う、無ければ
+    /// フェッチする」だけで、能動的な最新化はreload()の責務)。
+    private var cachedBookmarks: [Bookmark]?
+
     /// 他のウインドウ(開いている本、または別の「ブックマークの編集」ウインドウ)での変更を
     /// 都度反映するための監視トークン。
     private var changeObserver: NSObjectProtocol?
@@ -137,7 +147,13 @@ final class BookmarkStore: ObservableObject {
     /// 表示すべき。Bookmark.isEpubDerivedのコメント参照)。画像ビューア自身の一覧
     /// (ViewerViewModel.reloadBookmarks)はこのフィルタの対象外で、従来通り全件を含める。
     func reload() {
-        let all = (try? modelContext.fetch(FetchDescriptor<Bookmark>()))?.filter { !$0.isEpubDerived } ?? []
+        // bookmarksDidChange通知(このストア自身の書き込みだけでなく、開いている本の
+        // ViewerViewModelが別のModelContext経由で直接書き込んだ場合にも飛んでくる)を受けての
+        // 呼び出しがあるため、ここは必ず実フェッチを行いキャッシュを最新化する
+        // (allBookmarksのキャッシュを鵜呑みにしない)。
+        let fetchedAll = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
+        cachedBookmarks = fetchedAll
+        let all = fetchedAll.filter { !$0.isEpubDerived }
         let grouped = Dictionary(grouping: all, by: \.bookID)
         let unsorted = grouped.map { bookID, bookmarks -> BookmarkBookGroup in
             // 「追加日時」はこの本に最初にブックマークを付けた日時(=最小のcreatedAt)、
@@ -153,6 +169,15 @@ final class BookmarkStore: ObservableObject {
             )
         }
         groups = Self.sortedGroups(unsorted, by: bookSortOption)
+    }
+
+    /// 絞り込み無しの全Bookmarkを返す(キャッシュがあれば再利用)。reload()が呼ばれるたびに
+    /// 必ず最新化されるため、bookmarks(forBookID:)等はここ経由で読むだけでよい。
+    private func allBookmarks() -> [Bookmark] {
+        if let cachedBookmarks { return cachedBookmarks }
+        let fetched = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
+        cachedBookmarks = fetched
+        return fetched
     }
 
     /// 左ペインの本一覧を、指定したbookSortOptionに従って並べ替える。bookmarks(forBookID:)の
@@ -208,9 +233,8 @@ final class BookmarkStore: ObservableObject {
     /// 正しく機能しないことがある不具合が実機で確認された(LayoutStore.pageOverrides(forBookID:)の
     /// コメント参照)ため、同じ理由でここも合わせて統一しておく。
     func bookmarks(forBookID bookID: String) -> [Bookmark] {
-        let all = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
         // EPUBの目次から自動的に取り込んだブックマークはここでも除外する(reload()と同じ理由)。
-        let fetched = all.filter { $0.bookID == bookID && !$0.isEpubDerived }
+        let fetched = allBookmarks().filter { $0.bookID == bookID && !$0.isEpubDerived }
         switch sortOption {
         case .nameAscending:
             return fetched.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -234,13 +258,18 @@ final class BookmarkStore: ObservableObject {
     /// フォールバックで十分実用に足りるため。詳細はBookmark.bookmarkDataのコメント参照)。
     /// 同じページに既にブックマークがある場合は何もしない(ViewerViewModel.addBookmarkと同じ
     /// 重複防止)。
-    func addBookmark(bookID: String, pageIndex: Int, name: String) {
-        guard !bookmarks(forBookID: bookID).contains(where: { $0.pageIndex == pageIndex }) else { return }
+    /// 戻り値: 実際に新規追加したらtrue、既存の重複により何もしなかったらfalse
+    /// (呼び出し側が「追加できたかどうか」を、before/after件数比較で二重にフェッチし直さずに
+    /// 済むようにするため。LibraryImportExportService.applyBookmarks参照)。
+    @discardableResult
+    func addBookmark(bookID: String, pageIndex: Int, name: String) -> Bool {
+        guard !bookmarks(forBookID: bookID).contains(where: { $0.pageIndex == pageIndex }) else { return false }
         let bookmark = Bookmark(bookID: bookID, pageIndex: pageIndex, name: name)
         modelContext.insert(bookmark)
         try? modelContext.save()
         reload()
         NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
+        return true
     }
 
     /// ブックマークをリネームする。本が今開いているかどうかに関わらず直接SwiftDataを操作し、
@@ -271,8 +300,7 @@ final class BookmarkStore: ObservableObject {
     /// updatedAtは更新しない(「更新順」の並び替えに影響させないため)。
     func updatePageIndices(forBookID bookID: String, oldIndexToNewIndex: [Int: Int]) {
         guard !oldIndexToNewIndex.isEmpty else { return }
-        let all = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
-        let matched = all.filter { $0.bookID == bookID }
+        let matched = allBookmarks().filter { $0.bookID == bookID }
         guard !matched.isEmpty else { return }
         var didChange = false
         for bookmark in matched {
@@ -301,11 +329,10 @@ final class BookmarkStore: ObservableObject {
     /// ウインドウの4.4節「ブックマークを全削除」から呼ぶ(1冊分のみを対象にする点が
     /// deleteAllBookmarks()と異なる)。
     func deleteAllBookmarks(forBookID bookID: String) {
-        let all = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
         // この編集ウインドウの一覧に出てこないEPUB自動取り込みのブックマークは、この「全削除」の
         // 対象にも含めない(reload()/bookmarks(forBookID:)と同じ理由。画像ビューア側の
         // ジャンプ機能に影響を与えないため)。
-        let matched = all.filter { $0.bookID == bookID && !$0.isEpubDerived }
+        let matched = allBookmarks().filter { $0.bookID == bookID && !$0.isEpubDerived }
         guard !matched.isEmpty else { return }
         for bookmark in matched {
             modelContext.delete(bookmark)

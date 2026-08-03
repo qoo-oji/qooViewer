@@ -7,9 +7,16 @@ import Foundation
 /// バックグラウンドで行う(BookLoader.swiftと同じ理由。詳細はそちらのコメント参照)。
 /// nonisolated: Xcode 26既定のMainActor自動分離の対象外にしている。
 nonisolated enum SiblingFinder {
+    /// siblingBooks(of:)の1件分。isDirectoryを一緒に保持しておくことで、呼び出し側
+    /// (sameTypeSiblingBookURLs)がresourceValuesを再度取得し直さずに済むようにする。
+    private struct SiblingBook {
+        let url: URL
+        let isDirectory: Bool
+    }
+
     /// url と同じ階層(直下)にある本(画像を直接含むフォルダ、またはzip/rar/7z/pdfファイル)を
-    /// 自然順に並べて返す
-    static func siblingBookURLs(of url: URL) -> [URL] {
+    /// 自然順に並べて返す(isDirectoryも一緒に返す内部版)。
+    private static func siblingBooks(of url: URL) -> [SiblingBook] {
         let parent = url.deletingLastPathComponent()
         guard let children = try? FileManager.default.contentsOfDirectory(
             at: parent,
@@ -17,7 +24,7 @@ nonisolated enum SiblingFinder {
             options: [.skipsHiddenFiles]
         ) else { return [] }
 
-        let books = children.filter { child -> Bool in
+        let books = children.compactMap { child -> SiblingBook? in
             let isDir = (try? child.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
             if isDir {
                 let hasImage = (try? FileManager.default.contentsOfDirectory(
@@ -25,16 +32,23 @@ nonisolated enum SiblingFinder {
                     includingPropertiesForKeys: nil,
                     options: [.skipsHiddenFiles]
                 ))?.contains { isImageFile($0.lastPathComponent) } ?? false
-                return hasImage
+                return hasImage ? SiblingBook(url: child, isDirectory: true) : nil
             } else {
-                return isArchiveFile(child.lastPathComponent)
+                let isBook = isArchiveFile(child.lastPathComponent)
                     || isPDFFile(child.lastPathComponent)
                     || isEpubFile(child.lastPathComponent)
+                return isBook ? SiblingBook(url: child, isDirectory: false) : nil
             }
         }
         return books.sorted {
-            $0.lastPathComponent.compare($1.lastPathComponent, options: .numeric) == .orderedAscending
+            $0.url.lastPathComponent.compare($1.url.lastPathComponent, options: .numeric) == .orderedAscending
         }
+    }
+
+    /// url と同じ階層(直下)にある本(画像を直接含むフォルダ、またはzip/rar/7z/pdfファイル)を
+    /// 自然順に並べて返す
+    static func siblingBookURLs(of url: URL) -> [URL] {
+        siblingBooks(of: url).map(\.url)
     }
 
     /// siblingBookURLs(of:)をメインスレッド外で実行する版。
@@ -61,14 +75,15 @@ nonisolated enum SiblingFinder {
         return siblings[index - 1]
     }
 
-    /// siblingBookURLsAsync(of:)の結果を、current自身と同じ種類(フォルダ/ファイル)のものだけに
+    /// siblingBookURLs(of:)相当の結果を、current自身と同じ種類(フォルダ/ファイル)のものだけに
     /// 絞り込んで返す。
     private static func sameTypeSiblingBookURLs(of current: URL) async -> [URL] {
-        let all = await siblingBookURLsAsync(of: current)
+        // siblingBooks(of:)がisDirectoryを既に保持しているため、siblingBookURLsAsync経由で
+        // [URL]化してから各URLごとにresourceValuesを取り直す(以前の実装)必要はない。
+        let all = await Task.detached(priority: .utility) {
+            siblingBooks(of: current)
+        }.value
         let currentIsDirectory = (try? current.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-        return all.filter { url in
-            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-            return isDirectory == currentIsDirectory
-        }
+        return all.filter { $0.isDirectory == currentIsDirectory }.map(\.url)
     }
 }

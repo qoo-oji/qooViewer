@@ -172,6 +172,10 @@ struct QooViewerApp: App {
     }
 
     var body: some Scene {
+        // 表示言語のLocaleは全Sceneで共通の値なので、bodyの評価ごとに1回だけ解決して使い回す
+        // (以前は各Sceneの`.environment(\.locale, currentLocale)`が9箇所に分散しており、bodyが
+        // 再評価されるたびにcurrentLocaleの解決が9回走っていた。値は常に同一なので結果は不変)。
+        let locale = currentLocale
         WindowGroup(id: "main") {
             ContentView()
                 .environmentObject(preferences)
@@ -615,7 +619,7 @@ struct QooViewerApp: App {
                 }
             }
         }
-        .environment(\.locale, currentLocale)
+        .environment(\.locale, locale)
 
         // 「新しいウインドウで開く」「新しいタブで開く」専用のWindowGroup。URLを値として渡せる
         // (`openWindow(id: "book", value: url)`)ことで、SwiftUIにウインドウ作成そのものを
@@ -636,7 +640,7 @@ struct QooViewerApp: App {
         }
         .windowResizability(.contentSize)
         .modelContainer(QooViewerApp.modelContainer)
-        .environment(\.locale, currentLocale)
+        .environment(\.locale, locale)
 
         Settings {
             SettingsView()
@@ -651,7 +655,7 @@ struct QooViewerApp: App {
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 .modelContainer(QooViewerApp.modelContainer)
-                .environment(\.locale, currentLocale)
+                .environment(\.locale, locale)
         }
 
         // 「お気に入りの編集」ウインドウ(要望3。以前は「お気に入りの整理」という表現だったが、
@@ -667,7 +671,7 @@ struct QooViewerApp: App {
             FavoritesOrganizerView(favoritesStore: favoritesStore)
                 .environmentObject(launchCoordinator)
                 .environmentObject(preferences)
-                .environment(\.locale, currentLocale)
+                .environment(\.locale, locale)
         }
         .windowResizability(.contentSize)
 
@@ -687,7 +691,7 @@ struct QooViewerApp: App {
                 .environmentObject(layoutStore)
                 .environmentObject(launchCoordinator)
                 .environmentObject(preferences)
-                .environment(\.locale, currentLocale)
+                .environment(\.locale, locale)
         }
         .windowResizability(.contentSize)
 
@@ -700,7 +704,7 @@ struct QooViewerApp: App {
                 .environmentObject(bookmarkStore)
                 .environmentObject(launchCoordinator)
                 .environmentObject(preferences)
-                .environment(\.locale, currentLocale)
+                .environment(\.locale, locale)
         }
         .windowResizability(.contentSize)
 
@@ -713,7 +717,7 @@ struct QooViewerApp: App {
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 .environmentObject(preferences)
-                .environment(\.locale, currentLocale)
+                .environment(\.locale, locale)
         }
         .windowResizability(.contentSize)
 
@@ -723,7 +727,7 @@ struct QooViewerApp: App {
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 .environmentObject(preferences)
-                .environment(\.locale, currentLocale)
+                .environment(\.locale, locale)
         }
         .windowResizability(.contentSize)
 
@@ -733,7 +737,7 @@ struct QooViewerApp: App {
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 .environmentObject(preferences)
-                .environment(\.locale, currentLocale)
+                .environment(\.locale, locale)
         }
         .windowResizability(.contentSize)
     }
