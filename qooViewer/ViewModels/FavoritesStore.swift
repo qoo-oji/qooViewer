@@ -147,10 +147,12 @@ final class FavoritesStore: ObservableObject {
 
     /// folder(withID:)/book(withID:)/existingFavorites(forBookID:)向けの、絞り込み無し全件
     /// フェッチ結果のキャッシュ。このストアがFavoriteFolder/FavoriteBookの唯一の書き込み口
-    /// (専用のModelContextを持ち、他のストアとは互いに素。LibraryImportExportServiceも
-    /// このストアのcreateFolder/forceAddFavorite経由でしか書き込まない)であるため、
-    /// insert/deleteのたびにinvalidateFavoritesLookupCaches()で無効化しておけば、
-    /// 常にmodelContext.fetch()を直接呼んでいた場合と同じ結果になる。
+    /// (modelContextはBookmarkStore/LayoutStore、およびContentView/ViewerViewModel側の
+    /// `@Environment(\.modelContext)`とも同じ単一のModelContext(modelContainer.mainContext)を
+    /// 共有しているが、FavoriteFolder/FavoriteBookへ書き込むのはこのストアだけ。
+    /// LibraryImportExportServiceもこのストアのcreateFolder/forceAddFavorite経由でしか
+    /// 書き込まない)であるため、insert/deleteのたびにinvalidateFavoritesLookupCaches()で
+    /// 無効化しておけば、常にmodelContext.fetch()を直接呼んでいた場合と同じ結果になる。
     private var cachedFolders: [FavoriteFolder]?
     private var cachedBooks: [FavoriteBook]?
 

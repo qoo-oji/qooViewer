@@ -44,8 +44,11 @@ final class LayoutStore: ObservableObject {
     /// nilは「キャッシュ無効(次回読み取り時に再フェッチが必要)」を表す。
     ///
     /// このクラスがBookLayoutSettings/PageLayoutOverrideの唯一の書き込み口であり
-    /// (このファイル冒頭のコメント参照。専用のModelContextを持ち、他のストアとは互いに素)、
-    /// insert/deleteのたびに必ずinvalidateLayoutCaches()を呼んで即座に無効化しているため、
+    /// (このファイル冒頭のコメント参照。modelContextはFavoritesStore/BookmarkStore、
+    /// およびContentView/ViewerViewModel側の`@Environment(\.modelContext)`とも同じ単一の
+    /// ModelContext(modelContainer.mainContext)を共有しているが、BookLayoutSettings/
+    /// PageLayoutOverrideへ書き込むのはこのストアだけ)、insert/deleteのたびに必ず
+    /// invalidateLayoutCaches()を呼んで即座に無効化しているため、
     /// 「挿入/削除した直後、save()より前に読み直す」場合(#if DEBUGの診断ログ等)も含めて、
     /// 常にmodelContext.fetch()を直接呼んでいた場合と同じ結果になる(書き込みが無い間だけ
     /// キャッシュが再利用され、フェッチが省略される)。
@@ -539,7 +542,12 @@ final class LayoutStore: ObservableObject {
     /// 最終的にこの不具合の真因は、PageLayoutOverride.compositeKey/BookLayoutSettings.bookIDに
     /// 付けていた@Attribute(.unique)にあったと判明した(詳細はPageLayoutOverride.swift/
     /// BookLayoutSettings.swiftのコメント参照)。調査の途中で疑った複数ウインドウ間の通知の
-    /// 再入(reentrancy)や複数ModelContextへの分裂は、いずれも無関係だったことが確認済み。
+    /// 再入(reentrancy)や複数ModelContextへの分裂は、いずれも無関係だったことが確認済み
+    /// (その後、QooViewerApp.init()のコメントにある通り、コンテキスト分裂に起因する別の問題
+    /// (別コンテキストのオブジェクトを渡すと削除等が静かに失敗する)を解消する目的で、改めて
+    /// 全ストアを単一のModelContext(modelContainer.mainContext)に統一している。真因だった
+    /// @Attribute(.unique)は既に外してあるため、この統一自体が本コメントの不具合を再発させる
+    /// ものではない)。
     private(set) var lastSaveErrorMessage: String?
 
     private func saveAndNotify(bookID: String) {

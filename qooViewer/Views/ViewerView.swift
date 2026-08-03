@@ -1738,12 +1738,21 @@ struct ViewerView: View {
     /// コメント参照)。削除後はNotification.Name.bookmarksDidChange経由でviewModel.bookmarksが
     /// 自動的に読み直される(ViewerViewModelのbookmarksChangeObserver参照)。
     ///
-    /// 【重要】削除対象を探すのに viewModel.bookmarks(ViewerViewModel自身のModelContextで
-    /// フェッチしたBookmark)をそのまま使ってはいけない。BookmarkStoreは(本を開いていなくても
-    /// 操作できるようにするため)別のModelContextインスタンスを持っており、SwiftDataのモデルは
-    /// フェッチ元のModelContextに紐づくため、別のコンテキストのdelete(_:)へ渡しても実際には
-    /// 削除されない(エラーにもならず、静かに何も起きない)。必ずbookmarkStore.bookmarks(forBookID:)
-    /// でbookmarkStore自身のコンテキストから該当ページのブックマークを取得し直してから削除する。
+    /// 【重要】削除は必ずbookmarkStore.bookmarks(forBookID:)で取得し直したBookmarkに対して
+    /// bookmarkStore.delete(_:)を呼ぶ形にする(viewModel.bookmarksの要素をそのまま渡す実装には
+    /// しない)。
+    ///
+    /// 以前はBookmarkStoreがViewerViewModelとは別のModelContextインスタンスを持っており
+    /// (本を開いていなくても操作できるようにするため)、SwiftDataのモデルはフェッチ元の
+    /// ModelContextに紐づく関係で、別コンテキストのオブジェクトをdelete(_:)へ渡しても実際には
+    /// 削除されない(エラーにもならず、静かに何も起きない)という制約があった。現在は
+    /// QooViewerApp.init()の通りBookmarkStore/ViewerViewModelとも同じmodelContainer.mainContextを
+    /// 共有しているため、この制約自体はもう無く、viewModel.bookmarksの要素を直接渡しても
+    /// 削除できる。それでもbookmarkStore.bookmarks(forBookID:)経由で取得し直す形を維持している
+    /// のは、bookmarkStore.delete(_:)がこのストア自身のキャッシュ無効化・bookmarksDidChange通知
+    /// までまとめて行う唯一の削除口だからで(ViewerViewModel側に独自の削除処理を重複して持たせ
+    /// ない設計。ViewerViewModel.addBookmark()直後のコメント参照)、コンテキストの分裂とは無関係に
+    /// 引き続きこの経路を使う。
     private func toggleCurrentPageBookmark() {
         guard let bookmarkStore = appState.bookmarkStore else { return }
         let candidateIndices = [viewModel.currentIndex, partnerPageIndex].compactMap { $0 }

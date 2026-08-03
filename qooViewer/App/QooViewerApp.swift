@@ -155,29 +155,47 @@ struct QooViewerApp: App {
     /// (modelContainer自身は宣言時のデフォルト値でそのまま初期化される。他の@StateObjectプロパティも
     /// 同様に、ここで触れていないものは宣言時のデフォルト値がそのまま使われる)。
     ///
-    /// FavoritesStore/BookmarkStore/LayoutStoreそれぞれに`ModelContext(modelContainer)`で
-    /// 専用の(互いに素の)ModelContextを個別に作る(ContentView/ResetDataSettingsView/
-    /// ViewerViewModel側は`.modelContainer(modelContainer)`経由の`@Environment(\.modelContext)`を
-    /// 別途使う)。
+    /// FavoritesStore/BookmarkStore/LayoutStoreには、いずれも`QooViewerApp.modelContainer.mainContext`
+    /// (メインスレッド用の既定ModelContext。`.modelContainer(modelContainer)`経由でContentView/
+    /// ResetDataSettingsView/ViewerViewModel側の`@Environment(\.modelContext)`にも同じインスタンスが
+    /// 注入される)をそのまま渡し、アプリ全体で単一のModelContextに統一している。
     ///
-    /// 一時期、「あるページのレイアウトをinsert()してsave()した直後、他の経路から読み直すと
-    /// 消えて見える」という不具合(ユーザー報告)の原因ではないかと疑い、これらすべてのStoreを
-    /// containerが持つ単一の共有mainContextへ統一したことがあったが、実際には無関係だった
-    /// (ビューアウインドウを閉じていても・別の本を表示していても同じ不具合が再現することが
-    /// 確認され、真の原因はPageLayoutOverride.compositeKey/BookLayoutSettings.bookIDに
+    /// 以前はFavoritesStore/BookmarkStore/LayoutStoreそれぞれに`ModelContext(modelContainer)`で
+    /// 専用の(互いに素の)ModelContextを個別に作っていた。この構成では、例えば「編集ウインドウ
+    /// (BookmarkStore)で削除したBookmarkを、ビューア側(ViewerViewModel。環境経由のmainContext)の
+    /// 一覧が持つ古い参照へ渡してもSwiftData的には削除できない(別コンテキストのオブジェクトの
+    /// ため)」といった、コンテキストが分裂していること自体に起因する取り扱い分けが複数の箇所
+    /// (ViewerView.toggleCurrentPageBookmark等)で必要になっていた。単一のmainContextに統一する
+    /// ことで、同じ行を指すBookmark/FavoriteBook/BookLayoutSettings等はどこから取得しても同一の
+    /// オブジェクトになり、この種の「別コンテキストのオブジェクトを渡すと静かに何も起きない」
+    /// クラスの問題が構造的に起きなくなる。またAppState.open(url:)が本を開くたびに呼ぶ
+    /// favoritesStore/layoutStore/bookmarkStoreそれぞれのreconcileBookIDIfMoved(book:)も、
+    /// 同じmainContextに対する変更として扱われるようになる。
+    ///
+    /// なお、一時期(このコメントの旧バージョン当時)「あるページのレイアウトをinsert()して
+    /// save()した直後、他の経路から読み直すと消えて見える」という不具合(ユーザー報告)の原因では
+    /// ないかと疑い、一度すべてのStoreをcontainerが持つ単一の共有mainContextへ統一したことが
+    /// あったが、その時点では実際には無関係と判断して専用ModelContextに分ける構成へ戻した
+    /// 経緯がある(真の原因はPageLayoutOverride.compositeKey/BookLayoutSettings.bookIDに
     /// 付けていた@Attribute(.unique)側にあった。詳細はPageLayoutOverride.swift/
-    /// BookLayoutSettings.swiftのコメント参照)。そのため専用ModelContextに分ける元の構成に
-    /// 戻している。
+    /// BookLayoutSettings.swiftのコメント参照)。今回はその調査の副産物としてではなく、上記の
+    /// 「コンテキスト分裂に起因する取り扱い分けの解消」を目的として改めて単一ModelContextへ
+    /// 統一している。真因だった@Attribute(.unique)は既に両モデルから外してあり、ModelContextを
+    /// 統一したこと自体がその不具合クラスを再発させるわけではないが、将来的に一意制約
+    /// (@Attribute(.unique))を再導入する場合は、同一ModelContextに短時間で連続してinsert()+save()
+    /// するパターンを避けるよう注意すること(PageLayoutOverride.swiftのコメント参照。単一
+    /// ModelContextへ統一した今の構成では、複数ストアの書き込みが同じコンテキストに集約される分、
+    /// この条件に該当しうる操作の密度はむしろ従来より上がる)。
     @MainActor
     init() {
         _favoritesStore = StateObject(
-            wrappedValue: FavoritesStore(modelContext: ModelContext(QooViewerApp.modelContainer))
+            wrappedValue: FavoritesStore(modelContext: QooViewerApp.modelContainer.mainContext)
         )
         _bookmarkStore = StateObject(
-            wrappedValue: BookmarkStore(modelContext: ModelContext(QooViewerApp.modelContainer))
+            wrappedValue: BookmarkStore(modelContext: QooViewerApp.modelContainer.mainContext)
         )
         _layoutStore = StateObject(
-            wrappedValue: LayoutStore(modelContext: ModelContext(QooViewerApp.modelContainer))
+            wrappedValue: LayoutStore(modelContext: QooViewerApp.modelContainer.mainContext)
         )
     }
 
@@ -704,8 +722,9 @@ struct QooViewerApp: App {
         // 扱っていたが、「お気に入りの編集」ウインドウと見た目・操作感を完全に揃えるため、
         // すべての本を横断して編集できる2ペイン構成に変更した。さらに4節により、ページ
         // レイアウト制御(BookLayoutSettings/PageLayoutOverride)の編集も同じウインドウへ統合した。
-        // データの実体はbookmarkStore/layoutStore(FavoritesStoreと同じく専用のModelContextを持つ)が
-        // 持ち、launchCoordinatorは選択中の本が今開いているかどうかの判定・呼び出し元別の初期
+        // データの実体はbookmarkStore/layoutStore(FavoritesStoreと同じくmodelContainer.mainContextを
+        // 共有する単一のModelContextを持つ)が持ち、launchCoordinatorは選択中の本が今開いているかの
+        // 判定・呼び出し元別の初期
         // フィルタ(4.5節)の橋渡しに使う(BookmarkListView.swift参照)。preferencesは、右ペインの
         // ページ一覧読み込み(BookLayoutEditorViewModel)が横長画像ヒューリスティックの閾値
         // (preferences.singlePageAspectRatioThreshold)を参照するために必要。
@@ -733,8 +752,8 @@ struct QooViewerApp: App {
         .windowResizability(.contentSize)
 
         // 6節: JSONエクスポート/インポート用の独立ウインドウ。「ブックマーク・レイアウトの編集」と
-        // 同じく、favoritesStore/bookmarkStore/layoutStoreはすべて専用のModelContextを持つ
-        // アプリ全体で1つだけのインスタンスをそのまま渡す。
+        // 同じく、favoritesStore/bookmarkStore/layoutStoreはすべてmodelContainer.mainContextを
+        // 共有する、アプリ全体で1つだけのインスタンスをそのまま渡す。
         Window("Export Library Data", id: "libraryExport") {
             LibraryExportWindow()
                 .environmentObject(favoritesStore)

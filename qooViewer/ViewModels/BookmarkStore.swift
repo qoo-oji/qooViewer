@@ -35,12 +35,15 @@ struct BookmarkBookGroup: Identifiable {
 /// (左: 本の一覧、右: 選択中の本のブックマーク一覧)にする際、すべての本を横断して編集できる
 /// 必要が生じたため、FavoritesStoreと同じ考え方でこのストアを新設した。
 ///
-/// 開いている本のViewerViewModelも同じSwiftData ModelContextを介して同じBookmarkを参照しうるため、
-/// 一方の変更をもう一方にも伝える必要がある。これは個別のクロージャではなく
-/// Notification.Name.bookmarksDidChangeの送受信で行う(詳細はBookmark.swiftのコメント参照。
-/// 「今読んでいる本」を1つに絞れるFavoritesStoreの「現在の本を追加」ボタンと違い、こちらは
-/// 開いているすべての本のViewerViewModelと同期を取る必要があるため、AppState経由の個別の
-/// クロージャではなく通知の形にしている)。
+/// 開いている本のViewerViewModelも同じSwiftData ModelContext(modelContainer.mainContext。
+/// QooViewerApp.init()参照)を介して同じBookmarkを参照するため、一方の変更をもう一方にも
+/// 伝える必要がある。これは個別のクロージャではなくNotification.Name.bookmarksDidChangeの
+/// 送受信で行う(詳細はBookmark.swiftのコメント参照。「今読んでいる本」を1つに絞れる
+/// FavoritesStoreの「現在の本を追加」ボタンと違い、こちらは開いているすべての本の
+/// ViewerViewModelと同期を取る必要があるため、AppState経由の個別のクロージャではなく通知の
+/// 形にしている。なお、ModelContextを単一に統一した後も、このObservableObjectが持つ
+/// キャッシュ(groups/cachedBookmarks)自体はSwiftDataが自動的に再フェッチしてくれるわけでは
+/// ないため、この通知ベースのreload()の仕組みは引き続き必要)。
 @MainActor
 final class BookmarkStore: ObservableObject {
     /// 本ごとにグループ化した一覧。bookSortOptionに従って並べる(既定は表示名の自然順=
@@ -84,7 +87,7 @@ final class BookmarkStore: ObservableObject {
 
     /// Bookmarkの絞り込み無し全件フェッチ結果のキャッシュ。bookmarks(forBookID:)等が呼ばれる
     /// たびにmodelContext.fetch()をやり直さずに済むようにする。reload()が呼ばれるたびに
-    /// (このストア自身の書き込みだけでなく、開いている本のViewerViewModelが別のModelContext
+    /// (このストア自身の書き込みだけでなく、開いている本のViewerViewModelが同じModelContext
     /// 経由で直接書き込んだ場合のbookmarksDidChange通知を受けての呼び出しも含めて)必ず
     /// 実際のフェッチで最新化されるため、reload()以降このストアがフェッチをやり直していなくても
     /// 内容が古くなることはない(allBookmarks()自身は「キャッシュがあれば使う、無ければ
@@ -148,7 +151,7 @@ final class BookmarkStore: ObservableObject {
     /// (ViewerViewModel.reloadBookmarks)はこのフィルタの対象外で、従来通り全件を含める。
     func reload() {
         // bookmarksDidChange通知(このストア自身の書き込みだけでなく、開いている本の
-        // ViewerViewModelが別のModelContext経由で直接書き込んだ場合にも飛んでくる)を受けての
+        // ViewerViewModelが同じModelContext経由で直接書き込んだ場合にも飛んでくる)を受けての
         // 呼び出しがあるため、ここは必ず実フェッチを行いキャッシュを最新化する
         // (allBookmarksのキャッシュを鵜呑みにしない)。
         let fetchedAll = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
