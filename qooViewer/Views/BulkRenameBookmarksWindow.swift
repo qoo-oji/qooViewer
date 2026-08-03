@@ -93,7 +93,11 @@ struct BulkRenameBookmarksWindow: View {
             }
 
             Section {
-                Toggle("Assign a Fixed Name to the Cover Page", isOn: $assignFixedCover)
+                // ユーザー報告: 従来の文言・説明だと、既にブックマークされている先頭ページの
+                // 名前だけを変える機能に見えてしまう。実際は先頭ページにブックマークが無くても
+                // (強制的に)「表紙」という名前のブックマークを付与する機能のため、それが
+                // 伝わる文言に変更した(実装(applyRenaming)自体は元から変更なし)。
+                Toggle("Assign a Fixed Cover to the First Page", isOn: $assignFixedCover)
 
                 Picker("Last Bookmark", selection: $lastBookmarkTreatment) {
                     ForEach(LastBookmarkTreatment.allCases) { treatment in
@@ -106,23 +110,40 @@ struct BulkRenameBookmarksWindow: View {
                     .foregroundStyle(.secondary)
             }
 
+            // ユーザー要望: 上から「番号前の文字列」→「連番開始番号」→「番号後の文字列」の順で
+            // 並べてほしい(以前は開始番号が一番上、前後の文字列はその下に横並びだった)。
+            // 見た目もそろえるため、3項目とも同じ「ラベル + 右寄せの入力欄」の行にしてある。
             Section {
                 HStack {
-                    Text("Start Number")
+                    Text("Text Before Number")
+                    Spacer()
+                    TextField("", text: $prefix)
+                        .frame(width: 120)
+                        .multilineTextAlignment(.trailing)
+                }
+                HStack {
+                    Text("Sequence Start Number")
                     Spacer()
                     TextField("", value: $startNumber, format: .number)
                         .frame(width: 60)
                         .multilineTextAlignment(.trailing)
                 }
                 HStack {
-                    TextField("Prefix", text: $prefix)
-                    TextField("Suffix", text: $suffix)
+                    Text("Text After Number")
+                    Spacer()
+                    TextField("", text: $suffix)
+                        .frame(width: 120)
+                        .multilineTextAlignment(.trailing)
                 }
             }
 
             if !bookmarks.isEmpty {
+                // ユーザー報告: プレビューが先頭6件しか表示されず、ブックマークが多い本では
+                // 大半が確認できなかった。Form(macOSではList相当でスクロール可能)の中に
+                // そのままForEachで全件並べれば、件数が多くてもスクロールして全件確認できる
+                // ため、6件への打ち切りをやめた。
                 Section("Preview") {
-                    ForEach(previewNames(bookID: bookID, bookmarks: bookmarks).prefix(6), id: \.id) { item in
+                    ForEach(previewNames(bookID: bookID, bookmarks: bookmarks), id: \.id) { item in
                         HStack {
                             Text(item.originalName)
                                 .foregroundStyle(.secondary)
@@ -163,7 +184,12 @@ struct BulkRenameBookmarksWindow: View {
         var items: [PreviewItem] = []
 
         if assignFixedCover, let cover = bookmarks.first(where: { $0.pageIndex == 0 }) {
-            let coverName = String(localized: "Cover", locale: preferences.effectiveLocale)
+            // EPUB出力ウインドウの列見出し(EpubExportWindow.swift)で使っている"Cover"キーとは
+            // 意図的に別のローカライズキーにしてある。あちらは「カバー画像」という列見出しの
+            // 訳語(カバー画像)のままでよいが、ここで割り当てるのはブックマークの名前そのもの
+            // (ユーザー要望: 「表紙」という名前を付けてほしい)のため、共用すると列見出しの
+            // 訳語まで意図せず変わってしまう。
+            let coverName = String(localized: "Cover Bookmark Name", locale: preferences.effectiveLocale)
             items.append(PreviewItem(id: cover.id, originalName: cover.name, newName: coverName))
             excludedIDs.insert(cover.id)
         }
@@ -197,7 +223,12 @@ struct BulkRenameBookmarksWindow: View {
         var excludedIDs: Set<UUID> = []
 
         if assignFixedCover {
-            let coverName = String(localized: "Cover", locale: preferences.effectiveLocale)
+            // EPUB出力ウインドウの列見出し(EpubExportWindow.swift)で使っている"Cover"キーとは
+            // 意図的に別のローカライズキーにしてある。あちらは「カバー画像」という列見出しの
+            // 訳語(カバー画像)のままでよいが、ここで割り当てるのはブックマークの名前そのもの
+            // (ユーザー要望: 「表紙」という名前を付けてほしい)のため、共用すると列見出しの
+            // 訳語まで意図せず変わってしまう。
+            let coverName = String(localized: "Cover Bookmark Name", locale: preferences.effectiveLocale)
             if let cover = sorted.first(where: { $0.pageIndex == 0 }) {
                 bookmarkStore.rename(cover, to: coverName)
                 excludedIDs.insert(cover.id)

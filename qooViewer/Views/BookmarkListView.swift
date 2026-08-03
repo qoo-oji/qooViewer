@@ -901,8 +901,29 @@ private struct BookmarkDetailPane: View {
                     onJump: { openBookAndJump(toPageIndex: row.effectiveReadingIndex) },
                     onAddBookmark: { addBookmark(atPageIndex: row.effectiveReadingIndex) },
                     onRenameBookmark: { bookmark in
-                        renameText = bookmark.name
+                        // 同じブックマークを続けてリネームすると100%再現する不具合(ユーザー報告:
+                        // 別のブックマークを一度挟んでから開き直すと正しく表示される)への対策。
+                        //
+                        // 原因: SwiftUIの@Stateは、代入する値が現在保持している値と等しい場合、
+                        // 実際の再描画(および.alert内のTextFieldへの値の反映)を省略する。
+                        // 直前にこのブックマークをリネームした場合、renameTextは既にその新しい
+                        // 名前(=bookmark.name)を保持したままになっているため、
+                        // 「renameText = bookmark.name」は値として変化が無く、TextField側には
+                        // 何も反映されない。一方、直前のアラートを閉じた時点でAppKit側の
+                        // (NSAlertが内部で使う)テキストフィールド自体は空にリセットされてしまって
+                        // いるため、見た目だけ空欄のまま新しいアラートが表示される。
+                        // 別のブックマークを挟むと直るのは、そのときはrenameTextの値が実際に
+                        // 変化するため。
+                        //
+                        // 対策として、必ず一度renameTextを(現在の値と異なりうる)空文字へ変えてから
+                        // アラートを表示し、その次の実行ループであらためて本来の名前を設定する。
+                        // こうすることで、SwiftUIから見て必ず「値が変化した」とみなされ、
+                        // TextFieldに正しく反映される。
+                        renameText = ""
                         renamingBookmark = bookmark
+                        DispatchQueue.main.async {
+                            renameText = bookmark.name
+                        }
                     },
                     onDeleteBookmark: { bookmark in bookmarkStore.delete(bookmark) },
                     onLayoutStateChange: { newState in

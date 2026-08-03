@@ -106,8 +106,14 @@ struct FavoritesOrganizerView: View {
                         selectedFolder: $selectedFolder,
                         expandedFolderIDs: $expandedFolderIDs,
                         onRename: { folder in
-                            renameText = folder.name
+                            // BookmarkEditorView.onRenameBookmarkと同じ不具合・同じ対策
+                            // (詳細はそちらのコメント参照: 同じ項目を続けてリネームすると
+                            // renameTextの値が変化せず、.alertのTextFieldに反映されないことがある)。
+                            renameText = ""
                             renamingFolder = folder
+                            DispatchQueue.main.async {
+                                renameText = folder.name
+                            }
                         },
                         onDelete: { folder in folderPendingDeletion = folder },
                         onDrop: { providers, target in handleDrop(providers: providers, targetFolder: target) }
@@ -214,8 +220,12 @@ struct FavoritesOrganizerView: View {
                         )
                         .contextMenu {
                             Button("Rename") {
-                                renameText = folder.name
+                                // onRename(上のOrganizerFolderRowの.init呼び出し箇所)と同じ対策。
+                                renameText = ""
                                 renamingFolder = folder
+                                DispatchQueue.main.async {
+                                    renameText = folder.name
+                                }
                             }
                             Button("Delete", role: .destructive) {
                                 folderPendingDeletion = folder
@@ -281,8 +291,12 @@ struct FavoritesOrganizerView: View {
                         )
                         .contextMenu {
                             Button("Rename") {
-                                renameText = favorite.title
+                                // 上のフォルダの「Rename」と同じ対策(詳細はそちらのコメント参照)。
+                                renameText = ""
                                 renamingBook = favorite
+                                DispatchQueue.main.async {
+                                    renameText = favorite.title
+                                }
                             }
                             Button("Remove from Favorites", role: .destructive) {
                                 bookPendingDeletion = favorite

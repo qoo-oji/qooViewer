@@ -756,18 +756,18 @@
         }
       }
     },
-    "Assign a Fixed Name to the Cover Page" : {
+    "Assign a Fixed Cover to the First Page" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Assign a Fixed Name to the Cover Page"
+            "value" : "Assign a Fixed Cover to the First Page"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "表紙に固定の名前を割り当てる"
+            "value" : "先頭ページに固定で表紙を割り当てる"
           }
         }
       }
@@ -1505,6 +1505,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "カバー画像"
+          }
+        }
+      }
+    },
+    "Cover Bookmark Name" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cover"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表紙"
           }
         }
       }
@@ -4339,22 +4355,6 @@
         }
       }
     },
-    "Prefix" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Prefix"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "前の文字列"
-          }
-        }
-      }
-    },
     "Preview" : {
       "localizations" : {
         "en" : {
@@ -5350,6 +5350,22 @@
         }
       }
     },
+    "Sequence Start Number" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sequence Start Number"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連番開始番号"
+          }
+        }
+      }
+    },
     "Set as Excluded (Hidden)" : {
       "localizations" : {
         "en" : {
@@ -5864,22 +5880,6 @@
         }
       }
     },
-    "Start Number" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Start Number"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "開始番号"
-          }
-        }
-      }
-    },
     "Start/Stop Slideshow" : {
       "localizations" : {
         "en" : {
@@ -5912,22 +5912,6 @@
         }
       }
     },
-    "Suffix" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Suffix"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "後の文字列"
-          }
-        }
-      }
-    },
     "Switch Reading Direction" : {
       "localizations" : {
         "en" : {
@@ -5956,6 +5940,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "タブ"
+          }
+        }
+      }
+    },
+    "Text After Number" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text After Number"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "番号後の文字列"
+          }
+        }
+      }
+    },
+    "Text Before Number" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text Before Number"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "番号前の文字列"
           }
         }
       }

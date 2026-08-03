@@ -89,11 +89,51 @@ final class EpubExportViewModel: ObservableObject {
     private let layoutStore: LayoutStore
     private let preferences: AppPreferences
 
+    /// この画面はWindow(id: "epubExport")という単一インスタンスのシーンで開くため、一度表示された
+    /// EpubExportViewModelはウインドウを閉じても(BookmarkListView.BookmarkEditorViewの
+    /// BookmarkStore/LayoutStoreと違い)アプリを終了するまで使い回される。そのため、初期化時の
+    /// reload()一発きりでは、この画面を開いた後に「ブックマーク・レイアウトの編集」ウインドウで
+    /// 別の本のレイアウト・ブックマークを新規に追加しても一覧に反映されず、アプリを再起動しない
+    /// 限り一覧に出てこない、という不具合(ユーザー報告)があった。
+    ///
+    /// BookmarkStore/LayoutStore/ViewerViewModelと同じく、bookmarksDidChange/layoutDataDidChange
+    /// 通知を受けてreload()し直すことで、このウインドウを開いたままでも常に最新の対象一覧を
+    /// 表示できるようにする。
+    private var bookmarksChangeObserver: NSObjectProtocol?
+    private var layoutDataChangeObserver: NSObjectProtocol?
+
     init(bookmarkStore: BookmarkStore, layoutStore: LayoutStore, preferences: AppPreferences) {
         self.bookmarkStore = bookmarkStore
         self.layoutStore = layoutStore
         self.preferences = preferences
         reload()
+
+        // queue: .mainを指定しているため実行時には必ずMainActor上で呼ばれるが、クロージャ自体の
+        // 型はMainActorに分離されていないため、コンパイラは静的にそれを保証できない
+        // (BookmarkStore.init/ViewerViewModel.initの同種のコメント参照)。
+        bookmarksChangeObserver = NotificationCenter.default.addObserver(
+            forName: .bookmarksDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reload()
+            }
+        }
+        layoutDataChangeObserver = NotificationCenter.default.addObserver(
+            forName: .layoutDataDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reload()
+            }
+        }
+    }
+
+    deinit {
+        if let bookmarksChangeObserver {
+            NotificationCenter.default.removeObserver(bookmarksChangeObserver)
+        }
+        if let layoutDataChangeObserver {
+            NotificationCenter.default.removeObserver(layoutDataChangeObserver)
+        }
     }
 
     /// 対象一覧を読み直す。レイアウト情報またはブックマーク情報を持つ本のうち、pdf/epub形式は
