@@ -21,12 +21,22 @@ import AppKit
 ///   ことを避けるため。SwiftDataでは削除済みのモデルオブジェクトへの書き込みは未定義動作に
 ///   なりうる。次回起動時にはまっさらな状態から始まる)
 /// という3点を徹底している。
+///
+/// 以前はperformReset()がModelContext経由で各モデル(FavoriteFolder/FavoriteBook/Bookmark/
+/// BookLayoutSettings/PageLayoutOverride/BookReadingState)を個別にdelete()していたが、これだと
+/// 「ストア自体のスキーマやリレーションが壊れている状態」を想定していない。実際に、Bundle
+/// Identifierが同じ古いビルド(異なるSwiftDataモデル定義を持つ)が同じストアファイルを誤って
+/// 開いてしまい、お気に入りの親子関係(FavoriteFolder.parent/children、FavoriteBook.folder)が
+/// 壊れたと見られる事例が報告された。行が壊れている・リレーションが繋がらない状態では、
+/// ModelContext.fetch()やdelete(model:)自体が意図通りに全件を捉えられるとは限らず、
+/// 「壊れているデータだけ消し残る」おそれがある。
+///
+/// そのため、ここではQooViewerApp.deleteStoreFiles(at:)と同じ方法で、SwiftDataストアの
+/// 実ファイル(sqlite本体 + 補助ファイルの-wal/-shm)をFileManagerで直接削除する方式に変更した。
+/// ストアの中身がどれだけ壊れていても、ファイルそのものを消してしまえば次回起動時に
+/// QooViewerApp.modelContainerが完全にまっさらな状態のストアを新規作成するため、
+/// 「壊れているデータも正常なデータも一切合切消える」ことが保証できる。
 struct ResetDataSettingsView: View {
-    @EnvironmentObject private var favoritesStore: FavoritesStore
-    @EnvironmentObject private var bookmarkStore: BookmarkStore
-    @EnvironmentObject private var layoutStore: LayoutStore
-    @Environment(\.modelContext) private var modelContext
-
     @State private var isShowingConfirmation = false
     @State private var isShowingCompletion = false
 
@@ -82,15 +92,12 @@ struct ResetDataSettingsView: View {
     }
 
     private func performReset() {
-        favoritesStore.deleteAllFavorites()
-        bookmarkStore.deleteAllBookmarks()
-        // レイアウトデータ(BookLayoutSettings/PageLayoutOverride)もLibraryDataPrunerの対象外
-        // (10.3節、無制限に保持)にしたため、他のデータと同様ここで明示的にリセットする対象に含める
-        // (設計コンセプト10.1節)。
-        layoutStore.deleteAllLayoutData()
-        // 読書履歴(BookReadingState)専用のストアクラスは無いため、ここで直接操作する。
-        try? modelContext.delete(model: BookReadingState.self)
-        try? modelContext.save()
+        // ModelContext経由の個別delete()ではなく、ストアの実ファイルを直接削除する
+        // (このView自体のコメント参照。壊れているデータも含めて確実に一切合切消すため)。
+        // 現在生きているfavoritesStore/bookmarkStore/layoutStore/開いている本のViewerViewModelは
+        // このあとすぐアプリを終了させる(下のisShowingCompletionアラート「Quit Now」)ため、
+        // 削除後もそれらが古いModelContextを参照し続けることについては考慮不要。
+        QooViewerApp.deleteStoreFiles(at: QooViewerApp.modelConfiguration.url)
         isShowingCompletion = true
     }
 }

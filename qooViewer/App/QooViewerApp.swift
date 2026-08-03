@@ -51,7 +51,9 @@ struct QooViewerApp: App {
     /// スキーマの移行に失敗した場合に、ストアファイルを削除して作り直せるよう、URLを
     /// 参照できる明示的なModelConfigurationを介して構築する(`ModelContainer(for:)`の
     /// 簡易版だと、失敗時に削除すべきファイルのURLを得る手段が無い)。
-    private static let modelConfiguration = ModelConfiguration(schema: modelSchema)
+    /// ResetDataSettingsView(環境設定「リセット」タブ)からもストアの実ファイルを直接削除できる
+    /// よう、privateではなく通常のアクセスレベルにしてある(詳細はdeleteStoreFilesのコメント参照)。
+    static let modelConfiguration = ModelConfiguration(schema: modelSchema)
 
     /// SwiftDataのモデルコンテナ。`.modelContainer(for:)`という簡易版ではなく明示的な
     /// インスタンスとして1つだけ持っておくことで、「新しいウインドウで開く」「新しいタブで開く」で
@@ -122,7 +124,15 @@ struct QooViewerApp: App {
 
     /// SwiftDataのストア本体、および付随するWAL/SHMファイル(SQLiteの補助ファイル)を削除する。
     /// これらが残っていると、ストア本体だけ削除してもデータの一部が復元されてしまうことがある。
-    private static func deleteStoreFiles(at url: URL) {
+    ///
+    /// ResetDataSettingsView(環境設定「リセット」タブ)からも同じ実装を使い回すため、privateでは
+    /// なくしてある。以前はそちらのリセットボタンはModelContext経由で各モデルの行を個別に
+    /// delete()するだけだったが、それだとストア自体のスキーマ・リレーションが壊れている場合
+    /// (実際に、Bundle Identifierが同じ古いビルドが同じストアファイルを開いてしまい、
+    /// リレーションが壊れたと見られる事例が報告された)、削除操作自体が正しいデータを対象に
+    /// できているとは限らない。ここでのファイル自体の削除であれば、ストアの内容がどれだけ
+    /// 壊れていても関係なく、次回起動時に完全にまっさらな状態のストアを新規作成させられる。
+    static func deleteStoreFiles(at url: URL) {
         let fileManager = FileManager.default
         let directory = url.deletingLastPathComponent()
         let baseName = url.lastPathComponent
