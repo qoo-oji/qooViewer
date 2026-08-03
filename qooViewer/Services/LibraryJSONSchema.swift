@@ -9,13 +9,14 @@ import Foundation
 /// ComicInfo.xmlとの相互運用は対象外(設計コンセプト6節)。あくまでqooViewer自身が書き出し、
 /// qooViewer自身が読み込むための独自形式。
 struct QooLibraryExportFile: Codable {
-    /// 将来フォーマットを変更する場合の目印。現状は読み込み側でのバージョン分岐は行っていない。
-    var formatVersion: Int = 1
+    /// 将来フォーマットを変更する場合の目印。formatVersion 1は辞書形式(bookID文字列をキーとする
+    /// [String: ...])だったが、formatVersion 2でファイルノード識別子(iノード番号)を含められる
+    /// よう配列形式に変更した(ユーザー要望。後方互換性は必須ではないため、1のファイルを
+    /// 読み込む処理は用意していない)。
+    var formatVersion: Int = 2
     var favorites: ExportedFavorites?
-    /// キー: bookID(MangaBook.id、フォルダ/アーカイブファイルのパス)。
-    var bookmarks: [String: [ExportedBookmark]]?
-    /// キー: bookID。
-    var layouts: [String: ExportedBookLayout]?
+    var bookmarks: [ExportedBookmarkEntry]?
+    var layouts: [ExportedBookLayoutEntry]?
 }
 
 // MARK: - お気に入り
@@ -38,10 +39,25 @@ struct ExportedFavoriteFolder: Codable {
 
 struct ExportedFavoriteBook: Codable {
     /// MangaBook.id(フォルダ/アーカイブファイルのパス)と同じ形式の文字列。
+    ///
+    /// ユーザー要望: iノード番号による管理に変更したい。ここのbookIDは、あくまで参考情報
+    /// (人が見て分かるように、また下のinodeNumber/volumeDeviceNumberによる照合が失敗した
+    /// 場合の最終手段として)残しているだけで、インポート時の主たる照合手段は下の
+    /// inodeNumber/volumeDeviceNumberにする(LibraryImportExportService参照)。
     var bookID: String
+    /// FileNodeIdentifier.inodeNumber相当。エクスポート時点で取得できていた場合のみ値を持つ。
+    var inodeNumber: Int64?
+    /// FileNodeIdentifier.volumeDeviceNumber相当。エクスポート時点で取得できていた場合のみ値を持つ。
+    var volumeDeviceNumber: Int64?
     var title: String
     /// ルート直下(フォルダに属さない)の場合はnil。
     var folderId: String?
+
+    /// inodeNumber/volumeDeviceNumberが両方揃っている場合のみFileNodeIdentifierとして返す。
+    var fileNodeIdentifier: FileNodeIdentifier? {
+        guard let inodeNumber, let volumeDeviceNumber else { return nil }
+        return FileNodeIdentifier(inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber)
+    }
 }
 
 // MARK: - ブックマーク
@@ -52,6 +68,23 @@ struct ExportedFavoriteBook: Codable {
 struct ExportedBookmark: Codable {
     var page: String
     var name: String
+}
+
+/// 1冊分のブックマーク一式。以前は`[String: [ExportedBookmark]]`(キー: bookID)だったが、
+/// ユーザー要望によりファイルノード識別子(iノード番号)も持たせられるよう、bookIDを含む
+/// 配列要素の形に変更した(ExportedFavoriteBookと同じ考え方)。
+struct ExportedBookmarkEntry: Codable {
+    /// 参考情報。インポート時の主たる照合手段はinodeNumber/volumeDeviceNumber
+    /// (LibraryImportExportService参照)。
+    var bookID: String
+    var inodeNumber: Int64?
+    var volumeDeviceNumber: Int64?
+    var bookmarks: [ExportedBookmark]
+
+    var fileNodeIdentifier: FileNodeIdentifier? {
+        guard let inodeNumber, let volumeDeviceNumber else { return nil }
+        return FileNodeIdentifier(inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber)
+    }
 }
 
 // MARK: - ページレイアウト設定
@@ -66,6 +99,22 @@ struct ExportedBookLayout: Codable {
     var pageOrder: [String]?
     /// キー: pageKey。
     var pages: [String: ExportedPageState]?
+}
+
+/// 1冊分のレイアウト設定 + bookID。以前は`[String: ExportedBookLayout]`(キー: bookID)だったが、
+/// ExportedBookmarkEntryと同じ理由でbookIDを含む配列要素の形に変更した。
+struct ExportedBookLayoutEntry: Codable {
+    /// 参考情報。インポート時の主たる照合手段はinodeNumber/volumeDeviceNumber
+    /// (LibraryImportExportService参照)。
+    var bookID: String
+    var inodeNumber: Int64?
+    var volumeDeviceNumber: Int64?
+    var layout: ExportedBookLayout
+
+    var fileNodeIdentifier: FileNodeIdentifier? {
+        guard let inodeNumber, let volumeDeviceNumber else { return nil }
+        return FileNodeIdentifier(inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber)
+    }
 }
 
 struct ExportedPageState: Codable {

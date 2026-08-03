@@ -91,7 +91,9 @@ struct ContentView: View {
         // プレーンテキストのみでFormatBadgeView(カスタムView)を表示できないため、
         // FavoritesMenuContent/FavoritesNSMenuBridgeと同じく括弧書きの拡張子で区別する。
         .navigationTitle(
-            appState.currentBook.map { $0.title + FormatBadgeView.plainTextSuffix(forBookID: $0.id) } ?? "qooViewer"
+            appState.currentBook.map {
+                FormatBadgeView.plainTextTitle(baseName: $0.title, bookID: $0.id)
+            } ?? "qooViewer"
         )
         // このウインドウ自身への参照をappStateに持たせておく。Finderから別の本を開こうとした
         // ときに「新しいタブで開く」設定の場合、どのウインドウへタブを追加すべきかを
@@ -151,6 +153,7 @@ struct ContentView: View {
             appState.folderAccess = folderAccess
             appState.favoritesStore = favoritesStore
             appState.bookmarkStore = bookmarkStore
+            appState.layoutStore = layoutStore
             // 「ツールバーを隠す」「プログレスバーを隠す」は、前回終了時(またはこのセッション中に
             // 他のウインドウで変更された時点)の値をpreferencesから引き継ぐ。これにより、
             // 新しいウインドウ/タブや次回起動時にも同じ表示状態で始まる。
@@ -275,6 +278,7 @@ struct ContentView: View {
                     appState.folderAccess = folderAccess
                     appState.favoritesStore = favoritesStore
                     appState.bookmarkStore = bookmarkStore
+                    appState.layoutStore = layoutStore
                     appState.hideToolbar = preferences.hideToolbar
                     appState.hideProgressBar = preferences.hideProgressBar
                     launchCoordinator.registerOpenAppState(appState)

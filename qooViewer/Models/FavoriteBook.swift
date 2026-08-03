@@ -43,12 +43,21 @@ final class FavoriteBook {
     /// ことを表す(FavoriteFolder.parentがnilならルート直下のフォルダを表すのと同じ考え方)。
     var folder: FavoriteFolder?
 
+    /// ユーザー要望: お気に入りをファイルパスだけでなくファイルノード(iノード番号)でも
+    /// 識別し、同一ボリューム内での移動・リネームを引き継げるようにしたい。登録時点の
+    /// FileNodeIdentifierを記録しておく(取得できなかった場合はnilのまま)。
+    /// FavoritesStore.reconcileBookIDIfMoved(book:)が、この本を開き直したときに
+    /// bookID(パス)が変わっていないかをこれと照合し、変わっていれば自動的に追従させる。
+    var inodeNumber: Int64?
+    var volumeDeviceNumber: Int64?
+
     init(
         bookID: String,
         bookmarkData: Data,
         title: String,
         folder: FavoriteFolder?,
-        sortOrder: Int = 0
+        sortOrder: Int = 0,
+        fileNodeIdentifier: FileNodeIdentifier? = nil
     ) {
         self.id = UUID()
         self.bookID = bookID
@@ -56,9 +65,18 @@ final class FavoriteBook {
         self.title = title
         self.folder = folder
         self.sortOrder = sortOrder
+        self.inodeNumber = fileNodeIdentifier?.inodeNumber
+        self.volumeDeviceNumber = fileNodeIdentifier?.volumeDeviceNumber
         let now = Date()
         self.addedAt = now
         self.updatedAt = now
+    }
+
+    /// inodeNumber/volumeDeviceNumberが両方揃っている場合のみFileNodeIdentifierとして返す
+    /// (どちらか一方だけ記録されていることは無い想定だが、念のため両方の存在を要求する)。
+    var fileNodeIdentifier: FileNodeIdentifier? {
+        guard let inodeNumber, let volumeDeviceNumber else { return nil }
+        return FileNodeIdentifier(inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber)
     }
 }
 

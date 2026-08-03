@@ -701,13 +701,19 @@ final class ViewerViewModel: ObservableObject {
         guard bookmarks.isEmpty else { return }
 
         let bookID = book.id
+        let fileNodeIdentifier = FileNodeIdentifier.current(for: book.sourceURL)
         for entry in entries {
             guard book.pages.indices.contains(entry.pageIndex) else { continue }
             guard !bookmarks.contains(where: { $0.pageIndex == entry.pageIndex }) else { continue }
             // isEpubDerived: true — 「ブックマーク・レイアウトの編集」ウインドウには表示しない
             // (BookmarkStore.reload()/bookmarks(forBookID:)側のフィルタ、Bookmark.swiftの
             // isEpubDerivedのコメント参照)。
-            modelContext.insert(Bookmark(bookID: bookID, pageIndex: entry.pageIndex, name: entry.title, isEpubDerived: true))
+            modelContext.insert(
+                Bookmark(
+                    bookID: bookID, pageIndex: entry.pageIndex, name: entry.title, isEpubDerived: true,
+                    fileNodeIdentifier: fileNodeIdentifier
+                )
+            )
         }
         try? modelContext.save()
         reloadBookmarks()
@@ -750,7 +756,8 @@ final class ViewerViewModel: ObservableObject {
             bookID: book.id,
             pageIndex: index,
             name: "\(pagePrefix) \(index + 1)",
-            bookmarkData: bookmarkData
+            bookmarkData: bookmarkData,
+            fileNodeIdentifier: FileNodeIdentifier.current(for: book.sourceURL)
         )
         modelContext.insert(bookmark)
         try? modelContext.save()

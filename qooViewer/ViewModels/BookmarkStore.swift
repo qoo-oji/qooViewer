@@ -223,6 +223,46 @@ final class BookmarkStore: ObservableObject {
         return nil
     }
 
+    /// ユーザー要望: ブックマークが付いている本が、同一ボリューム内で移動・リネームされた場合
+    /// でもブックマークを引き継げるようにしたい(ボリュームを跨いだ移動は諦める)。
+    ///
+    /// 現在のbookID(パス)のブックマークが1件でも見つかれば、移動していない(または既に
+    /// 追従済み)とみなして何もしない。見つからない場合、この本のファイルノード識別子
+    /// (登録済みのBookmark.inodeNumber/volumeDeviceNumber)と一致するブックマークを探し、
+    /// 見つかればそれらすべてのbookIDを現在のパスへ書き換える。AppState.open(url:)から、
+    /// 本を開くたびに呼ばれる想定。
+    func reconcileBookIDIfMoved(book: MangaBook) {
+        guard allBookmarks().first(where: { $0.bookID == book.id }) == nil else { return }
+        guard let identifier = FileNodeIdentifier.current(for: book.sourceURL) else { return }
+        let candidates = allBookmarks().filter { $0.bookID != book.id && $0.fileNodeIdentifier == identifier }
+        guard !candidates.isEmpty else { return }
+        let oldBookID = candidates[0].bookID
+        for bookmark in candidates {
+            bookmark.bookID = book.id
+        }
+        try? modelContext.save()
+        reload()
+        NotificationCenter.default.post(
+            name: .bookmarksDidChange, object: self, userInfo: ["bookID": book.id, "oldBookID": oldBookID]
+        )
+    }
+
+    /// ユーザー要望: JSONインポート(LibraryImportExportService)時、ファイルパスが古くなって
+    /// いても、ファイルノード識別子(iノード番号)を手がかりに、ローカルに既に保存されている
+    /// セキュリティスコープ付きブックマークから現在の実際のURLを解決できるようにしたい。
+    func resolvedURL(matching identifier: FileNodeIdentifier) -> URL? {
+        for bookmark in allBookmarks() where bookmark.fileNodeIdentifier == identifier {
+            guard let data = bookmark.bookmarkData else { continue }
+            var isStale = false
+            if let url = try? URL(
+                resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale
+            ), FileManager.default.fileExists(atPath: url.path) {
+                return url
+            }
+        }
+        return nil
+    }
+
     /// 指定したbookIDのブックマークを、現在のsortOptionに従って並べ替えて返す。
     /// (次/前のブックマークへジャンプする操作(ViewerViewModel.jumpToNextBookmark等)は
     /// 常にページ番号順で判定する必要があるため、そちらは影響を受けないViewerViewModel.bookmarks

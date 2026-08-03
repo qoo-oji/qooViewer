@@ -38,6 +38,29 @@ final class EpubExportViewModel: ObservableObject {
     @Published private(set) var rows: [Row] = []
     @Published var selectedBookIDs: Set<String> = []
 
+    // MARK: - タイトル・著者名(ユーザー要望: Apple Books互換性。ファイル名/フォルダ名から
+    // タイトル・著者名を取得し、この画面で変更できるようにしたい)
+
+    /// bookID -> タイトル(編集可能)。reload()で新しく現れた本にだけ、ファイル名/フォルダ名から
+    /// TitleAuthorFilenameParserで推測した値を初期値として設定する(既存の編集内容は保持する)。
+    @Published var titleOverrides: [String: String] = [:]
+    /// bookID -> 著者名(編集可能)。titleOverridesと同じ考え方。
+    @Published var authorOverrides: [String: String] = [:]
+
+    func titleBinding(forBookID bookID: String) -> Binding<String> {
+        Binding(
+            get: { self.titleOverrides[bookID] ?? "" },
+            set: { self.titleOverrides[bookID] = $0 }
+        )
+    }
+
+    func authorBinding(forBookID bookID: String) -> Binding<String> {
+        Binding(
+            get: { self.authorOverrides[bookID] ?? "" },
+            set: { self.authorOverrides[bookID] = $0 }
+        )
+    }
+
     /// 7.2節の出力オプション。連番リネームは既定OFF(ユーザー要望。元のファイル名をそのまま
     /// 使いたい場合が多いため、必要な場合にだけ明示的にONにしてもらう形にした。以前は文字化け
     /// 対策を兼ねて既定ONにしていたが、そちらの判断は撤回した)、除外ページを含めるかは既定OFF
@@ -64,10 +87,12 @@ final class EpubExportViewModel: ObservableObject {
 
     private let bookmarkStore: BookmarkStore
     private let layoutStore: LayoutStore
+    private let preferences: AppPreferences
 
-    init(bookmarkStore: BookmarkStore, layoutStore: LayoutStore) {
+    init(bookmarkStore: BookmarkStore, layoutStore: LayoutStore, preferences: AppPreferences) {
         self.bookmarkStore = bookmarkStore
         self.layoutStore = layoutStore
+        self.preferences = preferences
         reload()
     }
 
@@ -97,6 +122,14 @@ final class EpubExportViewModel: ObservableObject {
             }
             .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
         selectedBookIDs.formIntersection(Set(rows.map(\.bookID)))
+
+        // ユーザー要望: ファイル名/フォルダ名からタイトル・著者名を推測して初期値にする。
+        // 既にユーザーが編集済み(または前回のreload()で設定済み)の値は上書きしない。
+        for row in rows where titleOverrides[row.bookID] == nil {
+            let parsed = TitleAuthorFilenameParser.parse(baseName: row.displayName)
+            titleOverrides[row.bookID] = parsed.title.isEmpty ? row.displayName : parsed.title
+            authorOverrides[row.bookID] = parsed.author
+        }
     }
 
     // MARK: - 一括選択(7.1節)
@@ -354,14 +387,24 @@ final class EpubExportViewModel: ObservableObject {
             exportBookmarks.append(EpubExportBookmark(pageKey: orderedKeys[bookmark.pageIndex], name: bookmark.name))
         }
 
+        // Apple Books互換性(ユーザー要望): 本ごとの読み方向の上書きが無い場合、EPUBの
+        // spineにpage-progression-directionを一切出力しないと、Apple Booksは既定でLTRとして
+        // 開いてしまい、右開き(日本式)の本が正しく認識されない。以前はsettings?.
+        // readingDirectionOverrideがnilのときreadingDirectionOverrideもnilのまま渡していたため、
+        // 本ごとに明示的な上書きを設定していない(＝アプリの環境設定の既定値に従っている)
+        // 大多数の本でこの属性が欠落していた。環境設定の既定読み方向をフォールバックとして
+        // 使うことで、常に明示的なpage-progression-directionを出力するようにする。
+        let readingDirection = settings?.readingDirectionOverride ?? preferences.defaultReadingDirection
         let input = EpubExportInput(
             book: book,
             pageOrderOverride: pageOrderOverride,
             pageOverrides: overrides,
-            readingDirectionOverride: settings?.readingDirectionOverride,
+            readingDirectionOverride: readingDirection,
             forcedDisplayMode: settings?.forcedDisplayMode,
             bookmarks: exportBookmarks,
-            coverOverride: resolveCoverOverride(settings: settings)
+            coverOverride: resolveCoverOverride(settings: settings),
+            titleOverride: titleOverrides[row.bookID],
+            author: authorOverrides[row.bookID]
         )
         let options = EpubExportOptions(
             renumberImagesSequentially: renumberImagesSequentially, includeExcludedPages: includeExcludedPages

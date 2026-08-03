@@ -44,6 +44,12 @@ struct EpubExportInput {
     /// ページ順に並んでいる必要はない(書き出し側で実際の出力順に変換する)。
     let bookmarks: [EpubExportBookmark]
     let coverOverride: EpubCoverOverride?
+    /// Apple Books互換性(ユーザー要望): EPUB出力ウインドウのタイトル欄で編集された値。
+    /// 空文字/nilの場合はbook.title(元のファイル/フォルダ名相当)をそのまま使う。
+    let titleOverride: String?
+    /// Apple Books互換性(ユーザー要望): EPUB出力ウインドウの著者名欄で編集された値。
+    /// 空文字/nilの場合はdc:creatorを出力しない。
+    let author: String?
 }
 
 enum EpubExportError: LocalizedError {
@@ -187,7 +193,12 @@ nonisolated enum EpubExporter {
             tocEntries.append(("\(textDirectory)/\(xhtmlFileName)", bookmark.name))
         }
 
-        let bookTitle = input.book.title
+        // Apple Books互換性(ユーザー要望): タイトル・著者名をEPUB出力ウインドウで編集できる
+        // ようにしたい。空文字/空白のみの場合は編集していない扱いとし、元のbook.titleを使う。
+        let trimmedTitleOverride = input.titleOverride?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bookTitle = (trimmedTitleOverride?.isEmpty == false) ? trimmedTitleOverride! : input.book.title
+        let trimmedAuthor = input.author?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let author = (trimmedAuthor?.isEmpty == false) ? trimmedAuthor : nil
         let identifier = "urn:uuid:\(UUID().uuidString)"
 
         // カバー画像の決定(ユーザー要望: EPUB出力時のカバー画像を選択・変更できるようにしたい)。
@@ -195,11 +206,29 @@ nonisolated enum EpubExporter {
             input: input, prepared: prepared, originalIndexByKey: originalIndexByKey, pageLoader: pageLoader
         )
 
+        // Apple Books互換性(ユーザー要望): カバー画像をproperties="cover-image"だけで
+        // マークしていたが、それに加えてEPUB2互換の<guide><reference type="cover">を
+        // (XHTMLページへのhrefとして)併記しておくと、カバーの認識がより安定するリーダーが
+        // 多いことが知られている。既存ページをカバーに使う場合はそのページ自身のxhtmlを
+        // 指せば済むが、本に含まれない専用ファイルをカバーにした場合(standaloneFile)は
+        // 参照先のXHTMLページが無いため、ここで専用の"cover.xhtml"を追加で書き出す。
+        var coverGuideHref: String?
+        var standaloneCoverXHTMLFileName: String?
+        if let resolvedCover {
+            if let existingIndex = resolvedCover.existingPageIndex, prepared.indices.contains(existingIndex) {
+                coverGuideHref = "\(textDirectory)/\(prepared[existingIndex].xhtmlFileName)"
+            } else if let standalone = resolvedCover.standaloneFile {
+                let xhtmlFileName = (standalone.fileName as NSString).deletingPathExtension + ".xhtml"
+                standaloneCoverXHTMLFileName = xhtmlFileName
+                coverGuideHref = "\(textDirectory)/\(xhtmlFileName)"
+            }
+        }
+
         let containerXML = makeContainerDocument()
         let opfXML = makePackageDocument(
-            title: bookTitle, identifier: identifier, pages: prepared,
+            title: bookTitle, author: author, identifier: identifier, pages: prepared,
             readingDirection: input.readingDirectionOverride, forcedDisplayMode: input.forcedDisplayMode,
-            cover: resolvedCover
+            cover: resolvedCover, coverGuideHref: coverGuideHref
         )
         let firstPageHref = prepared.first.map { "\(textDirectory)/\($0.xhtmlFileName)" }
         let navXML = makeNavDocument(title: bookTitle, tocEntries: tocEntries, fallbackHref: firstPageHref)
@@ -251,6 +280,16 @@ nonisolated enum EpubExporter {
                     to: archive, path: "OEBPS/\(imagesDirectory)/\(standalone.fileName)",
                     data: standalone.data, compressed: true
                 )
+                // <guide>のカバー参照先として使う専用XHTML(上のcoverGuideHref算出箇所参照)。
+                if let standaloneCoverXHTMLFileName {
+                    let coverXHTML = makePageDocument(
+                        title: bookTitle, imageFileName: standalone.fileName, pixelSize: nil
+                    )
+                    try addEntry(
+                        to: archive, path: "OEBPS/\(textDirectory)/\(standaloneCoverXHTMLFileName)",
+                        data: Data(coverXHTML.utf8), compressed: true
+                    )
+                }
             }
         } catch let error as EpubExportError {
             throw error
@@ -379,8 +418,9 @@ nonisolated enum EpubExporter {
     }
 
     private static func makePackageDocument(
-        title: String, identifier: String, pages: [PreparedPage],
-        readingDirection: ReadingDirection?, forcedDisplayMode: DisplayMode?, cover: ResolvedCover?
+        title: String, author: String?, identifier: String, pages: [PreparedPage],
+        readingDirection: ReadingDirection?, forcedDisplayMode: DisplayMode?, cover: ResolvedCover?,
+        coverGuideHref: String?
     ) -> String {
         let modifiedFormatter = DateFormatter()
         modifiedFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
@@ -397,6 +437,14 @@ nonisolated enum EpubExporter {
         ]
         if let spread = epubRenditionSpread(forcedDisplayMode) {
             metadataLines.append("    <meta property=\"rendition:spread\">\(spread)</meta>")
+        }
+        // Apple Books互換性(ユーザー要望): タイトルに加えて著者名も設定できるようにしたい。
+        // id="creator"を付けたうえでrole(aut=著者)を明示しておく(EPUB3の推奨形式)。
+        if let author {
+            metadataLines.append("    <dc:creator id=\"creator\">\(xmlEscape(author))</dc:creator>")
+            metadataLines.append(
+                "    <meta refines=\"#creator\" property=\"role\" scheme=\"marc:relators\">aut</meta>"
+            )
         }
 
         var manifestLines = [
@@ -441,6 +489,13 @@ nonisolated enum EpubExporter {
                         + "media-type=\"\(standalone.mediaType)\" properties=\"cover-image\"/>"
                 )
                 coverItemID = id
+                // coverGuideHrefが指す専用cover.xhtml(export側で生成済み)もmanifestへ追加する。
+                // spineには含めない(通常の読書対象ではなくカバーとしてのみ扱うため)。
+                if let coverGuideHref {
+                    manifestLines.append(
+                        "    <item id=\"cover-page\" href=\"\(coverGuideHref)\" media-type=\"application/xhtml+xml\"/>"
+                    )
+                }
             }
         }
         // EPUB2互換のカバー指定(<meta name="cover">)。EPUB3のproperties="cover-image"だけでは
@@ -451,6 +506,19 @@ nonisolated enum EpubExporter {
 
         let spineAttribute = epubPageProgressionDirection(readingDirection)
             .map { " page-progression-direction=\"\($0)\"" } ?? ""
+
+        // Apple Books互換性(ユーザー要望: カバー画像を認識しない): EPUB3のproperties=
+        // "cover-image"だけでなく、EPUB2互換の<guide><reference type="cover">も併記しておく。
+        // 一部のリーダー/カタログ表示(ライブラリのサムネイル生成)は、こちらの古い形式を
+        // 優先または併用して参照することが知られているため、両対応にしておくのが安全。
+        let guideBlock = coverGuideHref.map { href in
+            """
+
+              <guide>
+                <reference type="cover" title="Cover" href="\(xmlEscape(href))"/>
+              </guide>
+            """
+        } ?? ""
 
         return """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -463,7 +531,7 @@ nonisolated enum EpubExporter {
           </manifest>
           <spine\(spineAttribute)>
         \(spineLines.joined(separator: "\n"))
-          </spine>
+          </spine>\(guideBlock)
         </package>
         """
     }

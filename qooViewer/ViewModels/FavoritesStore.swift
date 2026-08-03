@@ -473,11 +473,39 @@ final class FavoritesStore: ObservableObject {
         allFavoriteBooks().filter { $0.bookID == bookID }
     }
 
+    /// ユーザー要望: JSONインポート時、bookID(パス)が食い違っていても同じファイル
+    /// (iノード番号)なら「既に登録済み」と判定できるようにしたい(パスは参考情報として
+    /// 残すが、インポート時の重複判定には使わないイメージ)。
+    func existingFavorites(matching identifier: FileNodeIdentifier) -> [FavoriteBook] {
+        allFavoriteBooks().filter { $0.fileNodeIdentifier == identifier }
+    }
+
     /// 指定したbookIDが(どれか1つでも)お気に入りに登録されているかどうか。ツールバー・
     /// メニューバー・コンテキストメニューの「追加/削除」トグルボタンが、今どちらの見た目・
     /// 動作にすべきかを判定するために使う。
     func isFavorited(bookID: String) -> Bool {
         !existingFavorites(forBookID: bookID).isEmpty
+    }
+
+    /// ユーザー要望: お気に入りに登録済みの本が、同一ボリューム内で移動・リネームされた場合でも
+    /// お気に入りを引き継げるようにしたい(ボリュームを跨いだ移動は諦める)。
+    ///
+    /// 現在のbookID(パス)で登録済みのお気に入りが1件でも見つかれば、移動していない(または
+    /// 既に追従済み)とみなして何もしない。見つからない場合、この本のファイルノード識別子
+    /// (iノード番号+デバイス番号)と一致するお気に入りを探し、見つかればそのbookIDを現在のパスへ
+    /// 書き換える(表示名(title)はユーザーが独自にリネームしている可能性があるため触れない)。
+    /// AppState.open(url:)から、本を開くたびに呼ばれる想定。
+    func reconcileBookIDIfMoved(book: MangaBook) {
+        guard existingFavorites(forBookID: book.id).isEmpty else { return }
+        guard let identifier = FileNodeIdentifier.current(for: book.sourceURL) else { return }
+        let candidates = allFavoriteBooks().filter { $0.bookID != book.id && $0.fileNodeIdentifier == identifier }
+        guard !candidates.isEmpty else { return }
+        for candidate in candidates {
+            candidate.bookID = book.id
+            candidate.updatedAt = Date()
+        }
+        try? modelContext.save()
+        reload()
     }
 
     /// 指定したbookIDのお気に入りをすべて削除する(全フォルダ横断)。ツールバー・メニューバー・
@@ -546,7 +574,8 @@ final class FavoritesStore: ObservableObject {
             bookmarkData: bookmarkData,
             title: book.title,
             folder: folder,
-            sortOrder: books(in: folder).count
+            sortOrder: books(in: folder).count,
+            fileNodeIdentifier: FileNodeIdentifier.current(for: book.sourceURL)
         )
         modelContext.insert(favorite)
         // 新しいお気に入りが増えたぶん、登録先フォルダの中身が変わったとみなしupdatedAtを
@@ -577,6 +606,17 @@ final class FavoritesStore: ObservableObject {
             relativeTo: nil,
             bookmarkDataIsStale: &isStale
         )
+    }
+
+    /// ユーザー要望: JSONインポート(LibraryImportExportService)時、ファイルパスが古くなって
+    /// いても、ファイルノード識別子(iノード番号)を手がかりに、ローカルに既に保存されている
+    /// セキュリティスコープ付きブックマークから現在の実際のURLを解決できるようにしたい。
+    /// 一致する登録が複数ある場合は、実際に解決できた最初の1件を返す。
+    func resolvedURL(matching identifier: FileNodeIdentifier) -> URL? {
+        for favorite in allFavoriteBooks() where favorite.fileNodeIdentifier == identifier {
+            if let url = resolvedURL(for: favorite) { return url }
+        }
+        return nil
     }
 
     /// お気に入りが指すファイル/フォルダが、実際にまだ存在するかどうか。

@@ -78,9 +78,26 @@ final class BookLayoutSettings {
 
     var updatedAt: Date = Date()
 
-    init(bookID: String) {
+    /// ユーザー要望: レイアウト設定をファイルパスだけでなくファイルノード(iノード番号)でも
+    /// 識別し、同一ボリューム内での移動・リネームを引き継げるようにしたい。作成時点の
+    /// FileNodeIdentifierを記録しておく(取得できなかった場合はnilのまま)。
+    /// LayoutStore.reconcileBookIDIfMoved(book:)が、この本を開き直したときにbookID(パス)が
+    /// 変わっていないかをこれと照合し、変わっていれば自動的に追従させる(PageLayoutOverrideの
+    /// bookIDも合わせて追従させる)。
+    var inodeNumber: Int64?
+    var volumeDeviceNumber: Int64?
+
+    init(bookID: String, fileNodeIdentifier: FileNodeIdentifier? = nil) {
         self.bookID = bookID
         self.updatedAt = Date()
+        self.inodeNumber = fileNodeIdentifier?.inodeNumber
+        self.volumeDeviceNumber = fileNodeIdentifier?.volumeDeviceNumber
+    }
+
+    /// inodeNumber/volumeDeviceNumberが両方揃っている場合のみFileNodeIdentifierとして返す。
+    var fileNodeIdentifier: FileNodeIdentifier? {
+        guard let inodeNumber, let volumeDeviceNumber else { return nil }
+        return FileNodeIdentifier(inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber)
     }
 
     var readingDirectionOverride: ReadingDirection? {

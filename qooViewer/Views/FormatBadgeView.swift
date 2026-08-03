@@ -36,13 +36,19 @@ struct FormatBadgeView: View {
     }
 
     /// NSMenuItem/プレーンテキストのButtonタイトルなど、このView自体を埋め込めない場所
-    /// (AppKitネイティブのメニュー項目はカスタムViewを表示できない)向けの、括弧書きの
-    /// プレーンテキスト版。「Folder」は元々拡張子が無く区別の必要が無いため付けない
+    /// (AppKitネイティブのメニュー項目はカスタムViewを表示できない)向けの、拡張子付き
+    /// ファイル名のプレーンテキスト版。
+    ///
+    /// ユーザー要望: 「ファイル名 (CBZ)」のように括弧書きで拡張子を添えるより、素直に
+    /// 「ファイル名.cbz」と拡張子付きのファイル名として表示したほうが分かりやすい。
+    /// 以前は" (CBZ)"のような大文字の括弧書きサフィックスを末尾に付けていたが、実際の
+    /// ファイル名の見た目に近い「baseName.拡張子」(拡張子は小文字)の形に変更する。
+    /// 「Folder」は元々拡張子が無く区別の必要が無いためbaseNameをそのまま返す
     /// (FavoritesMenuContent/FavoritesNSMenuBridgeのお気に入り一覧・FavoritesOrganizerView
     /// 以外の、メニュー項目としてタイトルを表示する箇所で使う)。
-    static func plainTextSuffix(forBookID bookID: String) -> String {
+    static func plainTextTitle(baseName: String, bookID: String) -> String {
         let pathExtension = URL(fileURLWithPath: bookID).pathExtension
-        guard !pathExtension.isEmpty else { return "" }
-        return " (\(pathExtension.uppercased()))"
+        guard !pathExtension.isEmpty else { return baseName }
+        return "\(baseName).\(pathExtension.lowercased())"
     }
 }

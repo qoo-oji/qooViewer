@@ -110,6 +110,47 @@ final class LayoutStore: ObservableObject {
         return fallbackURL
     }
 
+    /// ユーザー要望: レイアウト設定が付いている本が、同一ボリューム内で移動・リネームされた
+    /// 場合でも設定を引き継げるようにしたい(ボリュームを跨いだ移動は諦める)。
+    ///
+    /// 現在のbookID(パス)でBookLayoutSettingsが1件でも見つかれば、移動していない(または
+    /// 既に追従済み)とみなして何もしない。見つからない場合、この本のファイルノード識別子と
+    /// 一致するBookLayoutSettingsを探し、見つかればそのbookIDと、同じ旧bookIDを持つ
+    /// PageLayoutOverride(ページ単位設定)のbookIDをまとめて現在のパスへ書き換える。
+    /// AppState.open(url:)から、本を開くたびに呼ばれる想定。
+    func reconcileBookIDIfMoved(book: MangaBook) {
+        guard bookLayoutSettings(forBookID: book.id) == nil else { return }
+        guard let identifier = FileNodeIdentifier.current(for: book.sourceURL) else { return }
+        guard let matched = allBookLayoutSettings().first(where: {
+            $0.bookID != book.id && $0.fileNodeIdentifier == identifier
+        }) else { return }
+
+        let oldBookID = matched.bookID
+        matched.bookID = book.id
+        matched.updatedAt = Date()
+        for override in allPageLayoutOverrides() where override.bookID == oldBookID {
+            override.bookID = book.id
+            override.compositeKey = PageLayoutOverride.makeCompositeKey(bookID: book.id, pageKey: override.pageKey)
+        }
+        saveAndNotify(bookID: book.id)
+    }
+
+    /// ユーザー要望: JSONインポート(LibraryImportExportService)時、ファイルパスが古くなって
+    /// いても、ファイルノード識別子(iノード番号)を手がかりに、ローカルに既に保存されている
+    /// セキュリティスコープ付きブックマークから現在の実際のURLを解決できるようにしたい。
+    func resolvedURL(matching identifier: FileNodeIdentifier) -> URL? {
+        for settings in allBookLayoutSettings() where settings.fileNodeIdentifier == identifier {
+            guard let data = settings.bookmarkData else { continue }
+            var isStale = false
+            if let url = try? URL(
+                resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale
+            ), FileManager.default.fileExists(atPath: url.path) {
+                return url
+            }
+        }
+        return nil
+    }
+
     // MARK: - 本全体の設定(BookLayoutSettings)
 
     /// 指定したbookIDのBookLayoutSettingsを取得する(存在しなければnil。新規作成はしない)。
@@ -157,7 +198,9 @@ final class LayoutStore: ObservableObject {
         #if DEBUG
         NSLog("qooViewer[diag]: existingOrNewSettings -> NOT FOUND, creating NEW BookLayoutSettings row")
         #endif
-        let created = BookLayoutSettings(bookID: book.id)
+        let created = BookLayoutSettings(
+            bookID: book.id, fileNodeIdentifier: FileNodeIdentifier.current(for: book.sourceURL)
+        )
         let fingerprint = ContentFingerprint.current(for: book)
         created.recordedPageCount = fingerprint.pageCount
         created.recordedSourceModificationDate = fingerprint.modificationDate

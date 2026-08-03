@@ -239,8 +239,9 @@ struct QooViewerApp: App {
                             // Favoritesメニュー(FavoritesMenuContent/FavoritesNSMenuBridge)と
                             // 同様に、拡張子バッジのプレーンテキスト版を末尾に付けて区別できるようにする。
                             Button(
-                                url.deletingPathExtension().lastPathComponent
-                                    + FormatBadgeView.plainTextSuffix(forBookID: url.path)
+                                FormatBadgeView.plainTextTitle(
+                                    baseName: url.deletingPathExtension().lastPathComponent, bookID: url.path
+                                )
                             ) {
                                 focusedAppState.open(url: url)
                             }
@@ -266,8 +267,7 @@ struct QooViewerApp: App {
                             // つかない(ユーザー報告)ため、上の「同じフォルダのファイルを開く」と
                             // 同様に拡張子バッジのプレーンテキスト版を末尾に付ける。
                             Button(
-                                entry.displayName
-                                    + FormatBadgeView.plainTextSuffix(forBookID: entry.url.path)
+                                FormatBadgeView.plainTextTitle(baseName: entry.displayName, bookID: entry.url.path)
                             ) {
                                 _ = entry.url.startAccessingSecurityScopedResource()
                                 focusedAppState?.open(url: entry.url)

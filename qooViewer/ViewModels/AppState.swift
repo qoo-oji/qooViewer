@@ -241,6 +241,13 @@ final class AppState: ObservableObject {
     /// favoritesStoreと同じくweakにしか保持しない。(QooViewerAppのonAppearで設定される)
     weak var bookmarkStore: BookmarkStore?
 
+    /// ページレイアウト設定(本全体設定 + ページ単位設定)の管理。ユーザー要望: お気に入り・
+    /// レイアウト・ブックマークが同一ボリューム内での移動・リネームを引き継げるようにしたい。
+    /// open(url:)で本を開くたびに、favoritesStore/bookmarkStoreと合わせてreconcileBookIDIfMoved
+    /// (ファイルノード識別子(iノード番号)による自動追従)を呼ぶために参照する。
+    /// favoritesStore/bookmarkStoreと同じくweakにしか保持しない。(QooViewerAppのonAppearで設定される)
+    weak var layoutStore: LayoutStore?
+
     /// お気に入りを開こうとしたが、対応するファイル/フォルダが実際には存在しなかったときにセットする。
     /// nilでなければ、ContentViewが「見つかりません。お気に入りから削除しますか?」というアラート
     /// (OK/お気に入りから削除の2択)を表示する。削除が選ばれた場合は、ContentView側から
@@ -296,6 +303,15 @@ final class AppState: ObservableObject {
             do {
                 let book = try await BookLoader.load(from: url)
                 guard !Task.isCancelled, let self else { return }
+                // ユーザー要望: お気に入り・レイアウト・ブックマークが、同一ボリューム内での
+                // ファイルの移動・リネームを引き継げるようにしたい。この本を開くたびに、現在の
+                // bookID(パス)でまだ見つからない登録済みデータがあれば、ファイルノード識別子
+                // (iノード番号)を手がかりに自動的に追従(bookIDを書き換え)させておく。本を
+                // 表示する前(currentBookを設定する前)に行うことで、ViewerViewModelの初期化時点
+                // では既に正しいbookIDでレイアウト/ブックマークが見つかる状態にしておく。
+                self.favoritesStore?.reconcileBookIDIfMoved(book: book)
+                self.layoutStore?.reconcileBookIDIfMoved(book: book)
+                self.bookmarkStore?.reconcileBookIDIfMoved(book: book)
                 self.currentBook = book
                 self.errorMessage = nil
                 self.recentFiles?.record(url: url)

@@ -39,6 +39,7 @@ private enum EpubExportFolderMemory {
 struct EpubExportWindow: View {
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
+    @EnvironmentObject private var preferences: AppPreferences
 
     @State private var viewModel: EpubExportViewModel?
 
@@ -48,9 +49,11 @@ struct EpubExportWindow: View {
                 EpubExportContentView(viewModel: viewModel)
             } else {
                 ProgressView()
-                    .frame(minWidth: 520, minHeight: 480)
+                    .frame(minWidth: 820, minHeight: 480)
                     .onAppear {
-                        viewModel = EpubExportViewModel(bookmarkStore: bookmarkStore, layoutStore: layoutStore)
+                        viewModel = EpubExportViewModel(
+                            bookmarkStore: bookmarkStore, layoutStore: layoutStore, preferences: preferences
+                        )
                     }
             }
         }
@@ -63,9 +66,62 @@ private struct EpubExportContentView: View {
     @ObservedObject var viewModel: EpubExportViewModel
     @EnvironmentObject private var preferences: AppPreferences
     @State private var insufficientSpaceMessage: String?
-    /// タイトル列・カバー列の幅。columnHeaderRow(タイトル行)とExportRowView(各行)で共有する
-    /// (ユーザー要望: タイトル列の右にカバー列を追加してほしい)。
+    /// ファイル名列・タイトル列・著者名列・カバー列の幅。columnHeaderRow(タイトル行)と
+    /// ExportRowView(各行)で共有する(ユーザー要望: タイトル列の右にカバー列を追加してほしい。
+    /// タイトル列の左にファイル名列を追加してほしい。各列に表示する文字列の長さに応じて、
+    /// ウインドウ幅と各列の幅を自動調整してほしい。タイトル行の区切り線をドラッグして
+    /// 列の幅を調整できるようにしてほしい)。
     @State private var columnWidths = EpubExportColumnWidths()
+    /// autoSizeColumnsIfNeeded()を一覧の初回表示時に1回だけ実行するためのフラグ
+    /// (SidebarWidthEstimatorと同じ考え方。以降はユーザーの手動ドラッグを優先し、
+    /// 内容の変化のたびに勝手にリサイズしないようにする)。
+    @State private var didAutoSizeColumns = false
+
+    /// チェックボックス列・区切り線・右端のレイアウト/ブックマークインジケータ用に確保する、
+    /// 4つの可変列(ファイル名・タイトル・著者名・カバー)以外のおおよその固定幅。
+    /// ユーザー要望: 右端のインジケータが見切れないようにしたい。ウインドウの最小幅
+    /// (contentMinWidth参照)がこの固定幅+各列の現在の幅を必ず下回らないようにすることで、
+    /// インジケータがList/ウインドウの外へはみ出して見切れることが無いようにする。
+    /// 末尾の32は左右の外側パディング(.padding(.leading, 12) + .padding(.trailing, 20)、
+    /// ユーザー要望: インジケータの右側にもう少しスペースを開けたい)ぶん。
+    private static let fixedChromeWidth: CGFloat = 20 + 5 * 9 + trailingIndicatorWidth + 32 + 8 * 6
+    /// 右端のレイアウト/ブックマークインジケータ(アイコン2個ぶんのスロット+アイコン間の
+    /// 間隔)のために確保する幅の合計(indicatorLeadingGap + 16 + 6 + 16 + indicatorTrailingGap。
+    /// ExportRowView参照)。ウインドウが縮んでも、この幅ぶんは常に表示領域が残るようにする。
+    fileprivate static let trailingIndicatorWidth: CGFloat =
+        indicatorLeadingGap + 16 + 6 + 16 + indicatorTrailingGap
+    /// レイアウトインジケータの左側の空白(ユーザー要望: レイアウトインジケータ左側の空白を
+    /// 縮めてほしい)。
+    fileprivate static let indicatorLeadingGap: CGFloat = 4
+    /// ブックマークインジケータの右側の空白(ユーザー要望: ブックマークインジケータ右側の
+    /// 空白をもう少し広げてほしい)。
+    fileprivate static let indicatorTrailingGap: CGFloat = 14
+
+    /// 現在の各列の幅から逆算した、ウインドウに最低限必要な幅(ユーザー要望: 右端の
+    /// インジケータが見切れないようにしたい)。列の幅が(自動調整・手動ドラッグのいずれかで)
+    /// 変わるたびに追随するため、ウインドウがそれより縮められることが無くなる。
+    private var contentMinWidth: CGFloat {
+        columnWidths.fileName + columnWidths.title + columnWidths.author + columnWidths.cover
+            + Self.fixedChromeWidth
+    }
+
+    /// ユーザー要望: 各列に表示する文字列の長さに応じて、ウインドウ幅と各列の幅を自動調整して
+    /// ほしい。一覧が最初に表示された時点の内容(ファイル名・タイトル・著者名)を基に、
+    /// 省略表示("…")にならずに済む幅をあらかじめ計算する。SidebarWidthEstimatorと同じく、
+    /// リストの内容が変わるたびに勝手にリサイズされると使い勝手が悪いため、初回表示時に
+    /// 1回だけ行う(以降はユーザーの手動ドラッグ(EpubResizableColumnDivider)に委ねる)。
+    private func autoSizeColumnsIfNeeded() {
+        guard !didAutoSizeColumns, !viewModel.rows.isEmpty else { return }
+        didAutoSizeColumns = true
+        let fileNames = viewModel.rows.map(\.displayName)
+        let titles = viewModel.rows.map { viewModel.titleOverrides[$0.bookID] ?? $0.displayName }
+        let authors = viewModel.rows.map { viewModel.authorOverrides[$0.bookID] ?? "" }
+        columnWidths.fileName = EpubExportColumnWidthEstimator.idealWidth(
+            for: fileNames, minWidth: 130, maxWidth: 420, extraChrome: 44 // フォーマットバッジぶんの余白
+        )
+        columnWidths.title = EpubExportColumnWidthEstimator.idealWidth(for: titles, minWidth: 130, maxWidth: 420)
+        columnWidths.author = EpubExportColumnWidthEstimator.idealWidth(for: authors, minWidth: 80, maxWidth: 260)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -85,7 +141,8 @@ private struct EpubExportContentView: View {
             Divider()
             bottomSection
         }
-        .frame(minWidth: 520, minHeight: 480)
+        .frame(minWidth: max(820, contentMinWidth), minHeight: 480)
+        .onAppear { autoSizeColumnsIfNeeded() }
         .alert(
             "Not Enough Free Space",
             isPresented: Binding(
@@ -124,9 +181,15 @@ private struct EpubExportContentView: View {
     }
 
     /// 一覧のタイトル行。各行(ExportRowView)と列の位置を揃えるため、チェックボックス列・
-    /// タイトル列・カバー列(ユーザー要望: タイトル列の右にカバー画像の列を追加してほしい)に
-    /// だけ見出しを置く。インジケータ列(レイアウト/ブックマークアイコン)には見出し文字を
-    /// 付けない(ユーザー要望)。
+    /// ファイル名列・タイトル列・カバー列(ユーザー要望: タイトル列の右にカバー画像の列を
+    /// 追加してほしい。タイトル列の左には、元のファイル名を表示するファイル名列を追加して
+    /// ほしい)にだけ見出しを置く。インジケータ列(レイアウト/ブックマークアイコン)には
+    /// 見出し文字を付けない(ユーザー要望)。
+    ///
+    /// ファイル名・タイトル・著者名・カバーの4列は、それぞれ直後の区切り線をドラッグして
+    /// 幅を変更できる(ユーザー要望: タイトル行の区切り線をドラッグして列の幅を調整できる
+    /// ようにしてほしい。EpubResizableColumnDivider参照。チェックボックス列の直後だけは
+    /// 幅固定のEpubColumnDividerLineのまま)。
     private var columnHeaderRow: some View {
         HStack(spacing: 8) {
             Toggle("", isOn: selectAllBinding)
@@ -136,23 +199,46 @@ private struct EpubExportContentView: View {
 
             EpubColumnDividerLine()
 
+            // ファイル名列(ユーザー要望: タイトル列の左に、元のファイル名を表示する列を
+            // 追加してほしい)。
+            Text("File Name")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: columnWidths.fileName, alignment: .leading)
+
+            EpubResizableColumnDivider(width: $columnWidths.fileName)
+
             Text("Title")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(width: columnWidths.title, alignment: .leading)
 
-            EpubColumnDividerLine()
+            EpubResizableColumnDivider(width: $columnWidths.title)
+
+            // Apple Books互換性(ユーザー要望): ファイル名/フォルダ名から取得したタイトル・
+            // 著者名を、この画面で編集できるようにしたい。
+            Text("Author")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: columnWidths.author, alignment: .leading)
+
+            EpubResizableColumnDivider(width: $columnWidths.author, minWidth: 60, maxWidth: 260)
 
             Text("Cover")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(width: columnWidths.cover, alignment: .leading)
 
-            EpubColumnDividerLine()
+            EpubResizableColumnDivider(width: $columnWidths.cover, minWidth: 80, maxWidth: 300)
 
             Spacer()
         }
-        .padding(.horizontal, 12)
+        // ユーザー要望: インジケータの右側にもう少しスペースを開けたい(チェックボックスの
+        // 左側と同じくらい)。左右の余白を非対称にし、右側を広めにとる(rows側の
+        // ExportRowViewの.padding(.leading:.trailing:)と揃える。EpubExportContentView.
+        // fixedChromeWidthもこの値に合わせてある)。
+        .padding(.leading, 12)
+        .padding(.trailing, 20)
         .padding(.vertical, 4)
         .background(.bar)
     }
@@ -181,7 +267,10 @@ private struct EpubExportContentView: View {
 
             List(viewModel.rows) { row in
                 ExportRowView(row: row, viewModel: viewModel, columnWidths: columnWidths)
-                    .padding(.horizontal, 12)
+                    // columnHeaderRowと同じ非対称の左右余白(ユーザー要望: インジケータの
+                    // 右側にもう少しスペースを開けたい)。
+                    .padding(.leading, 12)
+                    .padding(.trailing, 20)
                     .padding(.vertical, 4)
                     .listRowInsets(EdgeInsets())
             }
@@ -343,25 +432,100 @@ private struct EpubExportContentView: View {
     }
 }
 
-/// タイトル列・カバー列の幅。columnHeaderRow(タイトル行)とExportRowView(各行)で共有する
-/// (ユーザー要望: タイトル列の右にカバー画像の列を追加してほしい)。
+/// ファイル名列・タイトル列・著者名列・カバー列の幅。columnHeaderRow(タイトル行)と
+/// ExportRowView(各行)で共有する(ユーザー要望: タイトル列の右にカバー画像の列を追加して
+/// ほしい。さらにApple Books互換性対応で、タイトル・著者名を編集できる列を追加。
+/// タイトル列の左には、元のファイル名を表示するファイル名列を追加してほしい)。
 private struct EpubExportColumnWidths {
-    var title: CGFloat = 220
-    var cover: CGFloat = 180
+    var fileName: CGFloat = 170
+    var title: CGFloat = 190
+    var author: CGFloat = 140
+    var cover: CGFloat = 150
 }
 
 /// 列の区切り線(ユーザー要望: このウインドウにも区切り線を追加してほしい)。BookmarkListView.
 /// ColumnDividerLineと同じ考え方で、素のRectangleをHStackへ直接置く(Divider()は既定で水平線に
-/// なるため使えない)。この列は幅固定でユーザーがドラッグして広げることはないため、
-/// BookmarkListView.ResizableColumnDividerのようなドラッグ用ヒットエリアは不要で、
-/// columnHeaderRowとExportRowViewの双方でこの同じ1pt幅のRectangleだけを使う限り、ZStackの
-/// 最大サイズ問題(BookmarkListViewで経験した不具合)は起こりえない。
+/// なるため使えない)。チェックボックス列の直後だけはユーザーがドラッグして広げる意味が無い
+/// ためこのまま(幅固定)で使い、ファイル名・タイトル・著者名・カバーの各列の直後は
+/// ドラッグ可能なEpubResizableColumnDividerを使う(ユーザー要望: タイトル行の区切り線を
+/// ドラッグして列の幅を調整できるようにしてほしい)。columnHeaderRowとExportRowViewの
+/// 双方でこの同じ1pt幅のRectangleだけを使う限り、ZStackの最大サイズ問題(BookmarkListViewで
+/// 経験した不具合)は起こりえない。
 private struct EpubColumnDividerLine: View {
     static let height: CGFloat = 18
     var body: some View {
         Rectangle()
             .fill(Color(nsColor: .separatorColor))
             .frame(width: 1, height: Self.height)
+    }
+}
+
+/// 区切り線をドラッグして、直前の列の幅(width、双方向Binding)を変更するためのハンドル
+/// (ユーザー要望: タイトル行の区切り線をドラッグして列の幅を調整できるようにしてほしい)。
+/// BookmarkListView.ResizableColumnDividerと全く同じ考え方・同じ実装(見た目はEpubColumnDividerLine
+/// と完全に同じ1pt線のままレイアウトさせ、掴みやすくするための8pt幅の判定領域は.overlayとして
+/// 重ねることで、見た目の線とレイアウト上の幅を一致させる。ZStackで重ねると実際より広い幅を
+/// 親のHStackへ報告してしまい列がずれるため、あえてoverlayにしている)。ヘッダー行
+/// (columnHeaderRow)だけで使い、各行(ExportRowView)側はドラッグ操作を持たない見た目だけの
+/// EpubColumnDividerLine()のままにする(カバー列のpopover等、既にジェスチャーが載っている
+/// ため、列幅の変更操作はFinderのリスト表示などと同じくヘッダー行からだけ行える形にする)。
+private struct EpubResizableColumnDivider: View {
+    @Binding var width: CGFloat
+    var minWidth: CGFloat = 90
+    var maxWidth: CGFloat = 420
+
+    @State private var widthAtDragStart: CGFloat?
+
+    var body: some View {
+        EpubColumnDividerLine()
+            .overlay(
+                Color.clear
+                    .frame(width: 8, height: EpubColumnDividerLine.height)
+                    .contentShape(Rectangle())
+                    .onHover { hovering in
+                        if hovering {
+                            NSCursor.resizeLeftRight.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                if widthAtDragStart == nil {
+                                    widthAtDragStart = width
+                                }
+                                let proposed = (widthAtDragStart ?? width) + value.translation.width
+                                width = min(max(proposed, minWidth), maxWidth)
+                            }
+                            .onEnded { _ in
+                                widthAtDragStart = nil
+                            }
+                    )
+            )
+    }
+}
+
+/// EPUB出力ウインドウの各列(ファイル名・タイトル・著者名)の幅を、ウインドウを開いた時点の
+/// 一覧の内容に応じて自動調整するための計算ロジック(ユーザー要望: 各列に表示する文字列の
+/// 長さに応じて、ウインドウ幅と各列の幅を自動調整してほしい)。SidebarWidthEstimatorと
+/// 同じ考え方・同じ実装パターン(NSStringのサイズ計測を使う)。
+private enum EpubExportColumnWidthEstimator {
+    /// テキスト自体の幅以外に、列の左右パディングなどでおおよそ必要になる余白。
+    private static let baseChrome: CGFloat = 20
+
+    /// - Parameters:
+    ///   - texts: この列に実際に表示されるテキストの一覧。
+    ///   - extraChrome: baseChromeに加えて確保しておきたい余白(例: フォーマットバッジの分)。
+    static func idealWidth(
+        for texts: [String], minWidth: CGFloat, maxWidth: CGFloat, extraChrome: CGFloat = 0
+    ) -> CGFloat {
+        guard !texts.isEmpty else { return minWidth }
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let widest = texts.map { text -> CGFloat in
+            (text as NSString).size(withAttributes: [.font: font]).width
+        }.max() ?? 0
+        return min(maxWidth, max(minWidth, (widest + baseChrome + extraChrome).rounded(.up)))
     }
 }
 
@@ -395,13 +559,33 @@ private struct ExportRowView: View {
 
             EpubColumnDividerLine()
 
+            // ファイル名列(ユーザー要望: タイトル列の左に、元のファイル名を表示する列を
+            // 追加してほしい)。拡張子付きの実際のファイル名/フォルダ名をそのまま表示する。
             HStack(spacing: 4) {
                 Text(row.displayName)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 FormatBadgeView(bookID: row.bookID)
             }
-            .frame(width: columnWidths.title, alignment: .leading)
+            .frame(width: columnWidths.fileName, alignment: .leading)
+
+            EpubColumnDividerLine()
+
+            // タイトル列(ユーザー要望: Apple Books互換性。ファイル名/フォルダ名から取得した
+            // タイトルを、この画面で変更できるようにしたい)。
+            TextField("", text: viewModel.titleBinding(forBookID: row.bookID))
+                .textFieldStyle(.plain)
+                .lineLimit(1)
+                .frame(width: columnWidths.title, alignment: .leading)
+
+            EpubColumnDividerLine()
+
+            // 著者名列(ユーザー要望: Apple Books互換性。ファイル名/フォルダ名から取得した
+            // 著者名を、この画面で変更できるようにしたい)。
+            TextField("", text: viewModel.authorBinding(forBookID: row.bookID))
+                .textFieldStyle(.plain)
+                .lineLimit(1)
+                .frame(width: columnWidths.author, alignment: .leading)
 
             EpubColumnDividerLine()
 
@@ -428,18 +612,35 @@ private struct ExportRowView: View {
 
             EpubColumnDividerLine()
 
-            Spacer()
+            // レイアウト/ブックマークのインジケータ(ユーザー要望: 右のインジケータが
+            // 見切れないようにしたい。さらにレイアウトインジケータの左側は詰め、
+            // ブックマークインジケータの右側はもう少し広めに空けたい)。アイコンそれぞれを
+            // 固定幅のスロットに収めることで、片方だけしか無い行でも位置がずれず、かつ
+            // 列全体としてはEpubExportContentView.trailingIndicatorWidthぶんを確保して
+            // ウインドウが縮んでも見切れないようにする(EpubExportContentView.contentMinWidth
+            // 参照)。
+            Spacer(minLength: EpubExportContentView.indicatorLeadingGap)
 
-            if row.hasLayout {
-                Image(systemName: "square.stack")
-                    .foregroundStyle(.secondary)
-                    .help("Has page layout settings")
+            HStack(spacing: 6) {
+                Group {
+                    if row.hasLayout {
+                        Image(systemName: "square.stack")
+                            .foregroundStyle(.secondary)
+                            .help("Has page layout settings")
+                    }
+                }
+                .frame(width: 16)
+
+                Group {
+                    if row.hasBookmarks {
+                        Image(systemName: "bookmark.fill")
+                            .foregroundStyle(.secondary)
+                            .help("Has bookmarks")
+                    }
+                }
+                .frame(width: 16)
             }
-            if row.hasBookmarks {
-                Image(systemName: "bookmark.fill")
-                    .foregroundStyle(.secondary)
-                    .help("Has bookmarks")
-            }
+            .padding(.trailing, EpubExportContentView.indicatorTrailingGap)
         }
         // カバー列の表示名は、上書き設定が無い場合(既定=先頭ページ)は本を読み込んで確認する
         // 必要があるため非同期で解決する(BookmarkListView.PageRowViewのサムネイル読み込みと

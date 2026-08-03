@@ -51,16 +51,35 @@ final class Bookmark {
     /// あり、falseとして扱って問題ない)。
     var isEpubDerived: Bool = false
 
-    init(bookID: String, pageIndex: Int, name: String, bookmarkData: Data? = nil, isEpubDerived: Bool = false) {
+    /// ユーザー要望: ブックマークをファイルパスだけでなくファイルノード(iノード番号)でも
+    /// 識別し、同一ボリューム内での移動・リネームを引き継げるようにしたい。作成時点の
+    /// FileNodeIdentifierを記録しておく(取得できなかった場合はnilのまま)。
+    /// BookmarkStore.reconcileBookIDIfMoved(book:)が、この本を開き直したときにbookID(パス)が
+    /// 変わっていないかをこれと照合し、変わっていれば自動的に追従させる。
+    var inodeNumber: Int64?
+    var volumeDeviceNumber: Int64?
+
+    init(
+        bookID: String, pageIndex: Int, name: String, bookmarkData: Data? = nil, isEpubDerived: Bool = false,
+        fileNodeIdentifier: FileNodeIdentifier? = nil
+    ) {
         self.id = UUID()
         self.bookID = bookID
         self.pageIndex = pageIndex
         self.name = name
         self.bookmarkData = bookmarkData
         self.isEpubDerived = isEpubDerived
+        self.inodeNumber = fileNodeIdentifier?.inodeNumber
+        self.volumeDeviceNumber = fileNodeIdentifier?.volumeDeviceNumber
         let now = Date()
         self.createdAt = now
         self.updatedAt = now
+    }
+
+    /// inodeNumber/volumeDeviceNumberが両方揃っている場合のみFileNodeIdentifierとして返す。
+    var fileNodeIdentifier: FileNodeIdentifier? {
+        guard let inodeNumber, let volumeDeviceNumber else { return nil }
+        return FileNodeIdentifier(inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber)
     }
 }
 

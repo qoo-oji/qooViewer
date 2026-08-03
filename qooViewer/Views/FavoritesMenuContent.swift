@@ -77,9 +77,9 @@ private struct FavoriteBookMenuItem: View {
 
     var body: some View {
         // ネイティブのNSMenuItemに変換されるため、FormatBadgeView(カスタムView)は表示できない。
-        // 代わりにプレーンテキストの括弧書きで拡張子を示す(同名のcbz/epubが並んだときの
-        // 見分けがつかない不具合への対応。FormatBadgeView.plainTextSuffix参照)。
-        Button(favorite.title + FormatBadgeView.plainTextSuffix(forBookID: favorite.bookID)) {
+        // 代わりにプレーンテキストで拡張子付きのファイル名を示す(同名のcbz/epubが並んだときの
+        // 見分けがつかない不具合への対応。FormatBadgeView.plainTextTitle参照)。
+        Button(FormatBadgeView.plainTextTitle(baseName: favorite.title, bookID: favorite.bookID)) {
             onOpen(favorite)
         }
     }

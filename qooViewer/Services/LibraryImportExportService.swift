@@ -41,7 +41,9 @@ enum LibraryImportExportService {
             file.favorites = exportFavorites(favoritesStore: favoritesStore)
         }
         if selection.includeBookmarks {
-            let (bookmarks, skipped) = await exportBookmarks(bookmarkStore: bookmarkStore, layoutStore: layoutStore)
+            let (bookmarks, skipped) = await exportBookmarks(
+                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+            )
             file.bookmarks = bookmarks
             result.skippedBookmarkBookIDs = skipped
         }
@@ -63,45 +65,74 @@ enum LibraryImportExportService {
                 walk(sub, folderID: subID)
             }
             for book in favoritesStore.books(in: folder) {
-                books.append(ExportedFavoriteBook(bookID: book.bookID, title: book.title, folderId: folderID))
+                books.append(
+                    ExportedFavoriteBook(
+                        bookID: book.bookID,
+                        inodeNumber: book.inodeNumber,
+                        volumeDeviceNumber: book.volumeDeviceNumber,
+                        title: book.title,
+                        folderId: folderID
+                    )
+                )
             }
         }
         walk(nil, folderID: nil)
         return ExportedFavorites(folders: folders, books: books)
     }
 
-    /// bookIDからこの本のURLを解決する。ブックマーク由来・レイアウト由来のどちらかの
-    /// セキュリティスコープ付きブックマークが見つかればそれを使い、どちらもダメなら
-    /// (LayoutStore.resolvedURL(forBookID:)自身が持つ)生パスへのフォールバックに任せる。
+    /// bookIDからこの本のURLを解決する。
+    ///
+    /// ユーザー要望: iノード番号による管理に変更したい。ファイルノード識別子(fileNodeIdentifier)が
+    /// 分かっている場合は、まずそれを手がかりに(お気に入り/レイアウト/ブックマークいずれかの)
+    /// ローカルのセキュリティスコープ付きブックマークから現在の実際のURLを解決できないか試す。
+    /// この方法なら、エクスポート後にファイルがリネーム・移動されていても正しく解決できる
+    /// (JSONのbookID(パス)は参考情報として残すが、この解決処理では優先して使わない)。
+    /// 手がかりが無い/見つからない場合のみ、従来通りbookID(パス)に基づく解決(ブックマーク由来・
+    /// レイアウト由来のどちらかのセキュリティスコープ付きブックマーク、それも無ければ
+    /// LayoutStore.resolvedURL(forBookID:)自身が持つ生パスへのフォールバック)にフォールバックする。
     private static func resolveURL(
-        bookID: String, bookmarkStore: BookmarkStore, layoutStore: LayoutStore
+        bookID: String, fileNodeIdentifier: FileNodeIdentifier?,
+        favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore
     ) -> URL? {
-        bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID) ?? layoutStore.resolvedURL(forBookID: bookID)
+        if let fileNodeIdentifier {
+            if let url = favoritesStore.resolvedURL(matching: fileNodeIdentifier) { return url }
+            if let url = layoutStore.resolvedURL(matching: fileNodeIdentifier) { return url }
+            if let url = bookmarkStore.resolvedURL(matching: fileNodeIdentifier) { return url }
+        }
+        return bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID) ?? layoutStore.resolvedURL(forBookID: bookID)
     }
 
     /// bookIDの本を実際に読み込む(URL解決 + セキュリティスコープの開始/終了 + BookLoader)。
     /// 失敗した場合(URLが解決できない/ファイルが見つからない/読み込みエラー)はnilを返す。
     private static func loadBook(
-        bookID: String, bookmarkStore: BookmarkStore, layoutStore: LayoutStore
+        bookID: String, fileNodeIdentifier: FileNodeIdentifier?,
+        favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore
     ) async -> MangaBook? {
-        guard let url = resolveURL(bookID: bookID, bookmarkStore: bookmarkStore, layoutStore: layoutStore) else {
-            return nil
-        }
+        guard let url = resolveURL(
+            bookID: bookID, fileNodeIdentifier: fileNodeIdentifier,
+            favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+        ) else { return nil }
         let didAccess = url.startAccessingSecurityScopedResource()
         defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
         return try? await BookLoader.load(from: url)
     }
 
     private static func exportBookmarks(
-        bookmarkStore: BookmarkStore, layoutStore: LayoutStore
-    ) async -> ([String: [ExportedBookmark]], [String]) {
-        var result: [String: [ExportedBookmark]] = [:]
+        favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore
+    ) async -> ([ExportedBookmarkEntry], [String]) {
+        var result: [ExportedBookmarkEntry] = []
         var skipped: [String] = []
 
         for group in bookmarkStore.groups {
             let bookmarks = bookmarkStore.bookmarks(forBookID: group.bookID).sorted { $0.pageIndex < $1.pageIndex }
             guard !bookmarks.isEmpty else { continue }
-            guard let book = await loadBook(bookID: group.bookID, bookmarkStore: bookmarkStore, layoutStore: layoutStore) else {
+            // 同じbookIDのBookmark行はすべて同じファイルノード識別子を記録しているはずのため、
+            // 最初に見つかった値をこの本の識別子として使う(1件も記録が無い場合はnilのまま)。
+            let fileNodeIdentifier = bookmarks.lazy.compactMap(\.fileNodeIdentifier).first
+            guard let book = await loadBook(
+                bookID: group.bookID, fileNodeIdentifier: fileNodeIdentifier,
+                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+            ) else {
                 skipped.append(group.bookID)
                 continue
             }
@@ -120,14 +151,21 @@ enum LibraryImportExportService {
                 entries.append(ExportedBookmark(page: orderedKeys[bookmark.pageIndex], name: bookmark.name))
             }
             guard !entries.isEmpty else { continue }
-            result[group.bookID] = entries
+            result.append(
+                ExportedBookmarkEntry(
+                    bookID: group.bookID,
+                    inodeNumber: fileNodeIdentifier?.inodeNumber,
+                    volumeDeviceNumber: fileNodeIdentifier?.volumeDeviceNumber,
+                    bookmarks: entries
+                )
+            )
         }
         return (result, skipped)
     }
 
     /// レイアウト設定はpageKeyをそのまま使うため、本を読み込み直す必要が無く軽量に書き出せる。
-    private static func exportLayouts(layoutStore: LayoutStore) -> [String: ExportedBookLayout] {
-        var result: [String: ExportedBookLayout] = [:]
+    private static func exportLayouts(layoutStore: LayoutStore) -> [ExportedBookLayoutEntry] {
+        var result: [ExportedBookLayoutEntry] = []
         for bookID in layoutStore.layoutBookIDs {
             let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
             let overrides = layoutStore.pageOverrides(forBookID: bookID)
@@ -137,11 +175,18 @@ enum LibraryImportExportService {
             for override in overrides {
                 pages[override.pageKey] = ExportedPageState(state: override.state.rawValue)
             }
-            result[bookID] = ExportedBookLayout(
-                readingDirection: settings?.readingDirectionOverride?.stableID,
-                forcedDisplayMode: settings?.forcedDisplayMode?.stableID,
-                pageOrder: settings?.pageOrderOverride,
-                pages: pages.isEmpty ? nil : pages
+            result.append(
+                ExportedBookLayoutEntry(
+                    bookID: bookID,
+                    inodeNumber: settings?.inodeNumber,
+                    volumeDeviceNumber: settings?.volumeDeviceNumber,
+                    layout: ExportedBookLayout(
+                        readingDirection: settings?.readingDirectionOverride?.stableID,
+                        forcedDisplayMode: settings?.forcedDisplayMode?.stableID,
+                        pageOrder: settings?.pageOrderOverride,
+                        pages: pages.isEmpty ? nil : pages
+                    )
+                )
             )
         }
         return result
@@ -212,7 +257,11 @@ enum LibraryImportExportService {
         var summary = ImportSummary()
 
         if let favorites = file.favorites, policies.favorites != .ignore {
-            applyFavorites(favorites, policy: policies.favorites, favoritesStore: favoritesStore, summary: &summary)
+            applyFavorites(
+                favorites, policy: policies.favorites,
+                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+                summary: &summary
+            )
         }
         // レイアウト(除外・並べ替え)を必ずブックマークより先に取り込む。
         //
@@ -228,13 +277,15 @@ enum LibraryImportExportService {
         if let layouts = file.layouts, policies.layouts != .ignore {
             await applyLayouts(
                 layouts, policy: policies.layouts,
-                layoutStore: layoutStore, bookmarkStore: bookmarkStore, summary: &summary
+                favoritesStore: favoritesStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore,
+                summary: &summary
             )
         }
         if let bookmarks = file.bookmarks, policies.bookmarks != .ignore {
             await applyBookmarks(
                 bookmarks, policy: policies.bookmarks,
-                bookmarkStore: bookmarkStore, layoutStore: layoutStore, summary: &summary
+                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+                summary: &summary
             )
         }
         return summary
@@ -244,7 +295,8 @@ enum LibraryImportExportService {
 
     private static func applyFavorites(
         _ favorites: ExportedFavorites, policy: ImportPolicy,
-        favoritesStore: FavoritesStore, summary: inout ImportSummary
+        favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
+        summary: inout ImportSummary
     ) {
         if policy == .overwrite {
             favoritesStore.deleteAllFavorites()
@@ -287,18 +339,36 @@ enum LibraryImportExportService {
         for bookEntry in favorites.books {
             // マージ時、この本がどこか(別のフォルダも含む)に既に登録済みなら追加しない
             // (マージ=まだ無いものだけを足す、という方針。詳細はImportPolicyのコメント参照)。
-            if policy == .merge, !favoritesStore.existingFavorites(forBookID: bookEntry.bookID).isEmpty {
-                continue
+            //
+            // ユーザー要望: iノード番号による管理に変更したい。bookID(パス)が一致するかだけでなく、
+            // ファイルノード識別子が一致する登録が既にあるかどうかも確認する(JSONのbookIDは
+            // 参考情報として残すが、重複判定の主たる手段にはしない)。
+            if policy == .merge {
+                var alreadyRegistered = !favoritesStore.existingFavorites(forBookID: bookEntry.bookID).isEmpty
+                if !alreadyRegistered, let identifier = bookEntry.fileNodeIdentifier {
+                    alreadyRegistered = !favoritesStore.existingFavorites(matching: identifier).isEmpty
+                }
+                if alreadyRegistered { continue }
             }
             let folder = resolveFolder(bookEntry.folderId)
-            let url = URL(fileURLWithPath: bookEntry.bookID)
-            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            // ユーザー要望: JSONのファイルパスは参考情報として残すが、インポート時にはまず
+            // ファイルノード識別子(iノード番号)を手がかりに、ローカルに既に保存されている
+            // セキュリティスコープ付きブックマークから現在の実際のURLを解決できないか試す
+            // (resolveURL参照)。見つからない場合のみ、JSONのbookID(パス)へフォールバックする。
+            guard let url = resolveURL(
+                bookID: bookEntry.bookID, fileNodeIdentifier: bookEntry.fileNodeIdentifier,
+                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+            ) ?? {
+                let fallback = URL(fileURLWithPath: bookEntry.bookID)
+                return FileManager.default.fileExists(atPath: fallback.path) ? fallback : nil
+            }() else { continue }
             // FavoritesStoreの登録APIはすべてMangaBookを要求するが、forceAddFavoriteが実際に
             // 参照するのはbook.id/book.sourceURL/book.titleだけ(セキュリティスコープ付き
             // ブックマークの生成とタイトルの記録)のため、ページ一覧を持たない軽量なMangaBookで
             // 十分間に合う(この本を今開いているわけではないので、実際のページを読み込む
-            // 必要が無い)。
-            let stubBook = MangaBook(id: bookEntry.bookID, title: bookEntry.title, sourceURL: url, pages: [])
+            // 必要が無い)。book.idにはbookEntry.bookID(参考情報のJSON上のパス)ではなく、
+            // 実際に解決できたurlのpathを使う(お気に入りの検索キーが実体と一致するようにする)。
+            let stubBook = MangaBook(id: url.path, title: bookEntry.title, sourceURL: url, pages: [])
             switch favoritesStore.forceAddFavorite(book: stubBook, to: folder) {
             case .added, .overwritten:
                 summary.favoritesImportedBooks += 1
@@ -313,15 +383,23 @@ enum LibraryImportExportService {
     // MARK: - ブックマークの取り込み
 
     private static func applyBookmarks(
-        _ bookmarks: [String: [ExportedBookmark]], policy: ImportPolicy,
-        bookmarkStore: BookmarkStore, layoutStore: LayoutStore, summary: inout ImportSummary
+        _ bookmarks: [ExportedBookmarkEntry], policy: ImportPolicy,
+        favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
+        summary: inout ImportSummary
     ) async {
-        for (bookID, entries) in bookmarks {
-            guard !entries.isEmpty else { continue }
-            guard let book = await loadBook(bookID: bookID, bookmarkStore: bookmarkStore, layoutStore: layoutStore) else {
-                summary.bookmarksSkippedBookIDs.append(bookID)
+        for entry in bookmarks {
+            guard !entry.bookmarks.isEmpty else { continue }
+            guard let book = await loadBook(
+                bookID: entry.bookID, fileNodeIdentifier: entry.fileNodeIdentifier,
+                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+            ) else {
+                summary.bookmarksSkippedBookIDs.append(entry.bookID)
                 continue
             }
+            // ファイルノード識別子による解決の結果、実際のbookID(book.id)がJSON上のbookIDと
+            // 異なることがある(リネーム・移動後)。以降はすべてbook.id(実際の現在のパス)を
+            // 使う(JSONのbookIDはここまでの解決処理でのみ参考情報として使う)。
+            let bookID = book.id
             let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
             let excludedKeys = Set(
                 layoutStore.pageOverrides(forBookID: bookID).filter { $0.state == .excluded }.map(\.pageKey)
@@ -336,14 +414,14 @@ enum LibraryImportExportService {
                 bookmarkStore.deleteAllBookmarks(forBookID: bookID)
             }
             var importedAny = false
-            for entry in entries {
-                guard let pageIndex = keyToIndex[entry.page] else { continue }
+            for bookmarkEntry in entry.bookmarks {
+                guard let pageIndex = keyToIndex[bookmarkEntry.page] else { continue }
                 // addBookmarkは同じページに既存のブックマークがあれば何もしない(内部で重複防止
                 // 済み)ため、マージ・上書きのどちらでもそのまま呼ぶだけでよい(上書きは直前の
                 // deleteAllBookmarksで既に空になっている)。実際に追加できたかどうかは戻り値
                 // (Bool)で分かるため、前後でbookmarks(forBookID:)を2回フェッチして件数を
                 // 比較する必要はない。
-                if bookmarkStore.addBookmark(bookID: bookID, pageIndex: pageIndex, name: entry.name) {
+                if bookmarkStore.addBookmark(bookID: bookID, pageIndex: pageIndex, name: bookmarkEntry.name) {
                     importedAny = true
                     summary.bookmarksImportedEntries += 1
                 }
@@ -355,14 +433,22 @@ enum LibraryImportExportService {
     // MARK: - レイアウト設定の取り込み
 
     private static func applyLayouts(
-        _ layouts: [String: ExportedBookLayout], policy: ImportPolicy,
-        layoutStore: LayoutStore, bookmarkStore: BookmarkStore, summary: inout ImportSummary
+        _ layouts: [ExportedBookLayoutEntry], policy: ImportPolicy,
+        favoritesStore: FavoritesStore, layoutStore: LayoutStore, bookmarkStore: BookmarkStore,
+        summary: inout ImportSummary
     ) async {
-        for (bookID, layout) in layouts {
-            guard let book = await loadBook(bookID: bookID, bookmarkStore: bookmarkStore, layoutStore: layoutStore) else {
-                summary.layoutsSkippedBookIDs.append(bookID)
+        for entry in layouts {
+            guard let book = await loadBook(
+                bookID: entry.bookID, fileNodeIdentifier: entry.fileNodeIdentifier,
+                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+            ) else {
+                summary.layoutsSkippedBookIDs.append(entry.bookID)
                 continue
             }
+            // ファイルノード識別子による解決の結果、実際のbookID(book.id)がJSON上のbookIDと
+            // 異なることがある(リネーム・移動後)。以降はすべてbook.id(実際の現在のパス)を使う。
+            let bookID = book.id
+            let layout = entry.layout
             // 差し替え検知(2.5節)の指紋を正しく記録するため、必ず実ファイルを読み込んだ
             // MangaBook(book)を使う(ページを持たないスタブでは指紋が不正確になり、次に
             // この本を開いたときに誤って「差し替えられた」と判定されてしまう)。
