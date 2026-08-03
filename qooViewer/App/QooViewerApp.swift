@@ -234,7 +234,14 @@ struct QooViewerApp: App {
                 Menu("Open File in Same Folder") {
                     if let focusedAppState, !focusedAppState.siblingBooks.isEmpty {
                         ForEach(focusedAppState.siblingBooks, id: \.self) { url in
-                            Button(url.deletingPathExtension().lastPathComponent) {
+                            // タイトルは拡張子を除いた名前のため、同名のcbz/epubなど拡張子違いの
+                            // 同じ本が同じフォルダに並ぶと見分けがつかない(ユーザー報告)。
+                            // Favoritesメニュー(FavoritesMenuContent/FavoritesNSMenuBridge)と
+                            // 同様に、拡張子バッジのプレーンテキスト版を末尾に付けて区別できるようにする。
+                            Button(
+                                url.deletingPathExtension().lastPathComponent
+                                    + FormatBadgeView.plainTextSuffix(forBookID: url.path)
+                            ) {
                                 focusedAppState.open(url: url)
                             }
                         }
@@ -254,7 +261,14 @@ struct QooViewerApp: App {
                         Text("(None)")
                     } else {
                         ForEach(recentFiles.entries) { entry in
-                            Button(entry.displayName) {
+                            // entry.displayNameは拡張子を除いた名前(RecentFilesStore.Entry参照)。
+                            // 同名のcbz/epubなど拡張子違いの同じ本を開いた履歴が並ぶと見分けが
+                            // つかない(ユーザー報告)ため、上の「同じフォルダのファイルを開く」と
+                            // 同様に拡張子バッジのプレーンテキスト版を末尾に付ける。
+                            Button(
+                                entry.displayName
+                                    + FormatBadgeView.plainTextSuffix(forBookID: entry.url.path)
+                            ) {
                                 _ = entry.url.startAccessingSecurityScopedResource()
                                 focusedAppState?.open(url: entry.url)
                             }
