@@ -4000,6 +4000,22 @@
         }
       }
     },
+    "Opening" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開く"
+          }
+        }
+      }
+    },
     "Opening a Favorite" : {
       "localizations" : {
         "en" : {
