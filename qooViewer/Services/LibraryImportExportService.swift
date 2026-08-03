@@ -336,6 +336,26 @@ enum LibraryImportExportService {
             }
         }
 
+        // 経緯(ユーザー報告): JSONインポートが非常に遅い。Xcodeのコンソールを見る限りJSONを
+        // 1行読むたびにSQLiteへの書き込みが起きているように見える、との指摘。実際、以前はここで
+        // favoritesStore.forceAddFavorite(book:to:)を本の件数ぶんループで個別に呼んでおり、
+        // そのたびに同期save()+reload()が走っていた。フォルダ解決(resolveFolder。実際に新規
+        // フォルダを作る場合だけSQLiteに触れる。作成するフォルダ数は本の冊数よりずっと少ないため
+        // 影響は小さい)とURL解決はこれまで通り1件ずつその場で行うが、実際の登録
+        // (FavoriteBookの作成)はいったんpendingRequestsに貯めておき、ループの最後に
+        // FavoritesStore.forceAddFavorites(_:)へまとめて渡すことで、保存・再フェッチを
+        // この一括インポート全体で1回にまとめる。
+        var pendingRequests: [FavoritesStore.BulkFavoriteRequest] = []
+        // マージ時、同じ本が複数フォルダに登録されていて(=favorites.booksに同じbookIDのbookEntryが
+        // 複数)、かつインポート先ライブラリにまだ1件も登録が無い場合、以前は「1件目を登録した
+        // 直後にsave()されるため、2件目のexistingFavorites(forBookID:)チェックで1件目がヒットし、
+        // 2件目以降はスキップされる」という結果になっていた(=同じ本を複数フォルダへ登録している
+        // 状態はインポートで再現されず、最初に見つかったフォルダにだけ登録される)。ここではまだ
+        // save()していないため、このバッチ内で既にpendingRequestsへ積んだ解決済みURL(の
+        // パス=登録時にFavoriteBook.bookIDとなる値)を別途記録しておき、同じ挙動
+        // (最初の1件だけを採用する)を保つ。
+        var queuedResolvedPaths: Set<String> = []
+
         for bookEntry in favorites.books {
             // マージ時、この本がどこか(別のフォルダも含む)に既に登録済みなら追加しない
             // (マージ=まだ無いものだけを足す、という方針。詳細はImportPolicyのコメント参照)。
@@ -362,19 +382,25 @@ enum LibraryImportExportService {
                 let fallback = URL(fileURLWithPath: bookEntry.bookID)
                 return FileManager.default.fileExists(atPath: fallback.path) ? fallback : nil
             }() else { continue }
-            // FavoritesStoreの登録APIはすべてMangaBookを要求するが、forceAddFavoriteが実際に
+            if policy == .merge, queuedResolvedPaths.contains(url.path) { continue }
+            // FavoritesStoreの登録APIはすべてMangaBookを要求するが、forceAddFavorite(s)が実際に
             // 参照するのはbook.id/book.sourceURL/book.titleだけ(セキュリティスコープ付き
             // ブックマークの生成とタイトルの記録)のため、ページ一覧を持たない軽量なMangaBookで
             // 十分間に合う(この本を今開いているわけではないので、実際のページを読み込む
             // 必要が無い)。book.idにはbookEntry.bookID(参考情報のJSON上のパス)ではなく、
             // 実際に解決できたurlのpathを使う(お気に入りの検索キーが実体と一致するようにする)。
             let stubBook = MangaBook(id: url.path, title: bookEntry.title, sourceURL: url, pages: [])
-            switch favoritesStore.forceAddFavorite(book: stubBook, to: folder) {
-            case .added, .overwritten:
+            pendingRequests.append(FavoritesStore.BulkFavoriteRequest(book: stubBook, folder: folder))
+            queuedResolvedPaths.insert(url.path)
+        }
+
+        for outcome in favoritesStore.forceAddFavorites(pendingRequests) {
+            switch outcome {
+            case .added:
                 summary.favoritesImportedBooks += 1
             case .limitReached:
                 summary.favoritesSkippedForLimit += 1
-            case .needsDuplicateConfirmation, .failed:
+            case .failed:
                 break
             }
         }
@@ -413,20 +439,24 @@ enum LibraryImportExportService {
             if policy == .overwrite {
                 bookmarkStore.deleteAllBookmarks(forBookID: bookID)
             }
-            var importedAny = false
+            // 経緯(ユーザー報告): JSONインポートが非常に遅い。Xcodeのコンソールを見る限りJSONを
+            // 1行読むたびにSQLiteへの書き込みが起きているように見える、との指摘。実際、以前は
+            // ここでbookmarkStore.addBookmark(bookID:pageIndex:name:)をこの本のブックマーク件数
+            // ぶんループで個別に呼んでおり、そのたびに同期save()+reload()+通知が走っていた
+            // (本1冊で数百件になることも珍しくない)。対象ページが見つかったブックマークを
+            // いったんpendingEntriesに貯めておき、addBookmarks(bookID:entries:)へまとめて渡す
+            // ことで、この本につき保存・再フェッチ・通知を1回にまとめる(重複防止の意味は
+            // addBookmarkのループ呼び出しと変わらない)。
+            var pendingEntries: [(pageIndex: Int, name: String)] = []
             for bookmarkEntry in entry.bookmarks {
                 guard let pageIndex = keyToIndex[bookmarkEntry.page] else { continue }
-                // addBookmarkは同じページに既存のブックマークがあれば何もしない(内部で重複防止
-                // 済み)ため、マージ・上書きのどちらでもそのまま呼ぶだけでよい(上書きは直前の
-                // deleteAllBookmarksで既に空になっている)。実際に追加できたかどうかは戻り値
-                // (Bool)で分かるため、前後でbookmarks(forBookID:)を2回フェッチして件数を
-                // 比較する必要はない。
-                if bookmarkStore.addBookmark(bookID: bookID, pageIndex: pageIndex, name: bookmarkEntry.name) {
-                    importedAny = true
-                    summary.bookmarksImportedEntries += 1
-                }
+                pendingEntries.append((pageIndex: pageIndex, name: bookmarkEntry.name))
             }
-            if importedAny { summary.bookmarksImportedBooks += 1 }
+            let addedCount = bookmarkStore.addBookmarks(bookID: bookID, entries: pendingEntries)
+            if addedCount > 0 {
+                summary.bookmarksImportedBooks += 1
+                summary.bookmarksImportedEntries += addedCount
+            }
         }
     }
 
@@ -463,18 +493,22 @@ enum LibraryImportExportService {
             // 「本全体設定」を1つの単位として扱う。既存の一部だけを上書きして中途半端な
             // 組み合わせになるのを避けるため)。
             let hasExistingBookLevelSettings = policy == .merge && existingSettings?.isBookLevelSettingEmpty == false
-            if !hasExistingBookLevelSettings {
-                if let readingDirection = layout.readingDirection.flatMap(ReadingDirection.init(stableID:)) {
-                    layoutStore.setReadingDirectionOverride(for: book, readingDirection)
-                }
-                if let forcedDisplayMode = layout.forcedDisplayMode.flatMap(DisplayMode.init(stableID:)) {
-                    layoutStore.setForcedDisplayMode(for: book, forcedDisplayMode)
-                }
-                if let pageOrder = layout.pageOrder, !pageOrder.isEmpty {
-                    layoutStore.setPageOrderOverride(for: book, pageOrder)
-                }
-            }
+            let readingDirection = hasExistingBookLevelSettings
+                ? nil : layout.readingDirection.flatMap(ReadingDirection.init(stableID:))
+            let forcedDisplayMode = hasExistingBookLevelSettings
+                ? nil : layout.forcedDisplayMode.flatMap(DisplayMode.init(stableID:))
+            let pageOrder = hasExistingBookLevelSettings
+                ? nil : layout.pageOrder.flatMap { $0.isEmpty ? nil : $0 }
 
+            // 経緯(ユーザー報告): JSONインポートが非常に遅い。Xcodeのコンソールを見る限りJSONを
+            // 1行読むたびにSQLiteへの書き込みが起きているように見える、との指摘。実際、以前は
+            // 本全体設定を最大3回、ページ単位設定をpages.countぶんループしてそれぞれ
+            // setReadingDirectionOverride等/setPageLayoutStateを個別に呼んでおり、そのたびに
+            // 同期save()+reloadLayoutBookIDs()(全件フェッチ)+通知が走っていた(ページ単位設定は
+            // 本によっては数百〜数千件になる)。ここでは反映すべき変更をpageChangesへ集計するに
+            // とどめ、実際の書き込みはapplyImportedLayout(_:)へまとめて渡すことで、この本につき
+            // 保存・再フェッチ・通知を1回にまとめる。
+            var pageChanges: [String: PageLayoutState] = [:]
             if let pages = layout.pages {
                 let existingKeys = policy == .merge
                     ? Set(layoutStore.pageOverrides(forBookID: bookID).map(\.pageKey))
@@ -482,9 +516,17 @@ enum LibraryImportExportService {
                 for (pageKey, pageState) in pages {
                     if policy == .merge, existingKeys.contains(pageKey) { continue }
                     guard let state = PageLayoutState(rawValue: pageState.state) else { continue }
-                    layoutStore.setPageLayoutState(for: book, pageKey: pageKey, state: state)
+                    pageChanges[pageKey] = state
                 }
             }
+
+            layoutStore.applyImportedLayout(
+                for: book,
+                readingDirection: readingDirection,
+                forcedDisplayMode: forcedDisplayMode,
+                pageOrder: pageOrder,
+                pageChanges: pageChanges
+            )
             summary.layoutsImportedBooks += 1
         }
     }

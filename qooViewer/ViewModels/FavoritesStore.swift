@@ -589,6 +589,80 @@ final class FavoritesStore: ObservableObject {
         return .added(favorite)
     }
 
+    /// JSONインポート専用: 複数のお気に入りをまとめて登録する
+    /// (LibraryImportExportService.applyFavorites参照)。
+    struct BulkFavoriteRequest {
+        let book: MangaBook
+        let folder: FavoriteFolder?
+    }
+
+    /// forceAddFavoritesの1件ごとの結果。addFavorite/forceAddFavoriteのFavoriteAddOutcomeと
+    /// 異なり、一括登録では「別フォルダへの重複確認」は発生しない(呼び出し側の
+    /// LibraryImportExportServiceは常にforceAddFavorite相当=確認なしで登録する経路のみを使う
+    /// ため)。
+    enum BulkFavoriteOutcome {
+        case added
+        case limitReached
+        case failed
+    }
+
+    /// forceAddFavoriteを本の件数ぶん個別に呼ぶと、そのたびに同期save()+reload()が走ってしまう
+    /// (removeFavorites(forBookID:)のコメントと同じ理由。ユーザー報告: JSONインポートが非常に
+    /// 遅く、Xcodeのコンソールを見る限りJSONを1行読むたびにSQLiteへの書き込みが起きているように
+    /// 見える、との指摘を受けての対応)。件数上限チェック・ブックマークデータ生成・sortOrder割当
+    /// (登録先フォルダ内の既存件数+このバッチ内で同じフォルダへ既に割り当てた件数)は1件ごとに
+    /// 行うが、保存・再フェッチはこの一括登録全体を通して1回にまとめる。
+    @discardableResult
+    func forceAddFavorites(_ requests: [BulkFavoriteRequest]) -> [BulkFavoriteOutcome] {
+        guard !requests.isEmpty else { return [] }
+        var results: [BulkFavoriteOutcome] = []
+        results.reserveCapacity(requests.count)
+        var currentCount = totalFavoritesCount()
+        // books(in:)はSwiftDataのリレーションシップ(folder.books)を参照するため、このバッチ内で
+        // まだsave()していない新規insertを反映しない可能性がある。フォルダごとの次のsortOrderを
+        // ローカルにキャッシュし、割り当てるたびにインクリメントすることで、
+        // forceAddFavoriteを1件ずつ呼んだ場合と同じ連番になるようにする。
+        var nextSortOrderByFolderID: [UUID?: Int] = [:]
+        var touchedFolders: [ObjectIdentifier: FavoriteFolder] = [:]
+        let now = Date()
+
+        for request in requests {
+            guard currentCount < FavoritesLimits.maxFavoritesCount else {
+                results.append(.limitReached)
+                continue
+            }
+            guard let bookmarkData = makeBookmarkData(for: request.book) else {
+                results.append(.failed)
+                continue
+            }
+            let folderKey = request.folder?.id
+            let sortOrder = nextSortOrderByFolderID[folderKey] ?? books(in: request.folder).count
+            nextSortOrderByFolderID[folderKey] = sortOrder + 1
+
+            let favorite = FavoriteBook(
+                bookID: request.book.id,
+                bookmarkData: bookmarkData,
+                title: request.book.title,
+                folder: request.folder,
+                sortOrder: sortOrder,
+                fileNodeIdentifier: FileNodeIdentifier.current(for: request.book.sourceURL)
+            )
+            modelContext.insert(favorite)
+            if let folder = request.folder {
+                touchedFolders[ObjectIdentifier(folder)] = folder
+            }
+            currentCount += 1
+            results.append(.added)
+        }
+
+        for folder in touchedFolders.values {
+            folder.updatedAt = now
+        }
+        try? modelContext.save()
+        reload()
+        return results
+    }
+
     private func makeBookmarkData(for book: MangaBook) -> Data? {
         try? book.sourceURL.bookmarkData(
             options: .withSecurityScope,

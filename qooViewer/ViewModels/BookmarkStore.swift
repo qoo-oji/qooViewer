@@ -315,6 +315,43 @@ final class BookmarkStore: ObservableObject {
         return true
     }
 
+    /// JSONインポート専用: 指定した本に複数のブックマークをまとめて追加する
+    /// (LibraryImportExportService.applyBookmarks参照)。
+    ///
+    /// 経緯(ユーザー報告): JSONインポートが非常に遅い。Xcodeのコンソールを見ると、ブックマークを
+    /// 1件読み込むたびにSwiftData(内部はSQLite)への書き込みが起きているように見える、との指摘。
+    /// 実際、addBookmark(bookID:pageIndex:name:)をブックマークの件数ぶんループで個別に呼ぶと、
+    /// そのたびに(1) modelContext.save()(SQLiteへの同期コミット)、(2) reload()
+    /// (Bookmarkテーブルの絞り込み無し全件フェッチ+並べ替え)、(3) NotificationCenter.post
+    /// (bookmarksDidChangeを購読している開いている本のViewerViewModelの再読み込み)が発生する。
+    /// 本1冊で数百件のブックマークを持つことも珍しくなく、これがJSONインポートを遅くしていた
+    /// 主要因の1つだった。
+    ///
+    /// 対応: 対象の本1冊ぶんの既存ブックマーク(ページ番号の集合)を最初に1回だけ取得し、
+    /// 以降はメモリ上で重複判定・insertだけを行った上で、最後に保存・再フェッチ・通知を
+    /// この本につき1回にまとめる(addBookmarkと同じ「同じページに既存のブックマークがあれば
+    /// 何もしない」重複防止は維持する。渡されたentries内で同じpageIndexが複数あった場合も、
+    /// 先頭のものだけが採用される=addBookmarkを順番に呼んだ場合と同じ結果になる)。
+    /// 戻り値: 実際に追加できた件数。
+    @discardableResult
+    func addBookmarks(bookID: String, entries: [(pageIndex: Int, name: String)]) -> Int {
+        guard !entries.isEmpty else { return 0 }
+        var existingPageIndices = Set(bookmarks(forBookID: bookID).map(\.pageIndex))
+        var addedCount = 0
+        for entry in entries {
+            guard !existingPageIndices.contains(entry.pageIndex) else { continue }
+            let bookmark = Bookmark(bookID: bookID, pageIndex: entry.pageIndex, name: entry.name)
+            modelContext.insert(bookmark)
+            existingPageIndices.insert(entry.pageIndex)
+            addedCount += 1
+        }
+        guard addedCount > 0 else { return 0 }
+        try? modelContext.save()
+        reload()
+        NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
+        return addedCount
+    }
+
     /// ブックマークをリネームする。本が今開いているかどうかに関わらず直接SwiftDataを操作し、
     /// bookmarksDidChangeを投げてViewerViewModel側(その本が今開いていれば)にも反映させる。
     func rename(_ bookmark: Bookmark, to newName: String) {
@@ -326,6 +363,37 @@ final class BookmarkStore: ObservableObject {
         try? modelContext.save()
         reload()
         NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
+    }
+
+    /// JSONインポート・ページ並べ替えと同じ理由で見つかった、もう1つの「1件ごとにSQLiteへ
+    /// コミット」の箇所への対応。BulkRenameBookmarksWindow.applyRenaming参照。
+    ///
+    /// 経緯(ユーザー報告): 他にも同様の箇所がないか確認してほしい、との依頼を受けて調査した
+    /// ところ、「ブックマークの一括リネーム」ウインドウの実行処理(4.4節/5節)が、対象の本の
+    /// 全ブックマークをrename(_:to:)でループしながら1件ずつ呼んでいた。renameは呼び出しの
+    /// たびにsave()+reload()+通知を行うため、ブックマークを数百件持つ本で「一括リネーム」を
+    /// 実行すると、それだけの回数SQLiteへコミットしていたことになる。
+    ///
+    /// 対応: 対象の本1冊分のリネームをまとめて受け取り、保存・再フェッチ・通知をこの本1冊に
+    /// つき1回にまとめる(空文字列だけのnewNameは無視する。rename(_:to:)と同じ挙動)。
+    /// 戻り値: 実際にリネームできた件数。
+    @discardableResult
+    func renameBookmarks(bookID: String, renames: [(bookmark: Bookmark, newName: String)]) -> Int {
+        guard !renames.isEmpty else { return 0 }
+        let now = Date()
+        var changedCount = 0
+        for (bookmark, newName) in renames {
+            let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            bookmark.name = trimmed
+            bookmark.updatedAt = now
+            changedCount += 1
+        }
+        guard changedCount > 0 else { return 0 }
+        try? modelContext.save()
+        reload()
+        NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
+        return changedCount
     }
 
     /// ページの並べ替え(4.3節: BookLayoutEditorViewModel.movePages/movePageUp/movePageDown)で、

@@ -218,9 +218,18 @@ struct BulkRenameBookmarksWindow: View {
     }
 
     /// 実際にリネームを適用する(設計コンセプト5節)。
+    ///
+    /// 経緯(ユーザー報告): 他にも「一括で処理できるはずのSQLite書き込みを個別に行っている
+    /// 箇所」がないか確認してほしい、との依頼を受けて見つかった箇所。以前はここで
+    /// bookmarkStore.rename(_:to:)を対象ブックマーク数ぶんループで個別に呼んでおり、
+    /// そのたびに同期save()+reload()+通知が走っていた(本によっては数百件になることも
+    /// 珍しくない)。実際のリネームはpendingRenamesへ集計するだけにとどめ、最後に
+    /// bookmarkStore.renameBookmarks(bookID:renames:)へまとめて渡すことで、この「一括
+    /// リネーム」の実行1回につき保存・再フェッチ・通知を1回にまとめる。
     private func applyRenaming(bookID: String, bookmarks: [Bookmark]) {
         var sorted = bookmarks
         var excludedIDs: Set<UUID> = []
+        var pendingRenames: [(bookmark: Bookmark, newName: String)] = []
 
         if assignFixedCover {
             // EPUB出力ウインドウの列見出し(EpubExportWindow.swift)で使っている"Cover"キーとは
@@ -230,13 +239,14 @@ struct BulkRenameBookmarksWindow: View {
             // 訳語まで意図せず変わってしまう。
             let coverName = String(localized: "Cover Bookmark Name", locale: preferences.effectiveLocale)
             if let cover = sorted.first(where: { $0.pageIndex == 0 }) {
-                bookmarkStore.rename(cover, to: coverName)
+                pendingRenames.append((cover, coverName))
                 excludedIDs.insert(cover.id)
             } else {
                 // 先頭ページにブックマークが無い場合は自動で追加する(5節)。本を今開いているか
                 // どうかに関わらず動作させる必要があるため、BookmarkStore.addBookmark(bookID:
                 // pageIndex:name:)を直接呼ぶ(ViewerViewModel.addBookmarkは今開いている本にしか
-                // 使えないため)。
+                // 使えないため)。これは新規追加(リネームではない)1件だけなので、まとめる対象には
+                // 含めない。
                 bookmarkStore.addBookmark(bookID: bookID, pageIndex: 0, name: coverName)
                 sorted = bookmarkStore.bookmarks(forBookID: bookID).sorted { $0.pageIndex < $1.pageIndex }
                 if let cover = sorted.first(where: { $0.pageIndex == 0 }) {
@@ -247,14 +257,16 @@ struct BulkRenameBookmarksWindow: View {
 
         if let fixedNameKey = lastBookmarkTreatment.fixedNameKey, let last = sorted.last, !excludedIDs.contains(last.id) {
             let name = String(localized: fixedNameKey, locale: preferences.effectiveLocale)
-            bookmarkStore.rename(last, to: name)
+            pendingRenames.append((last, name))
             excludedIDs.insert(last.id)
         }
 
         var number = startNumber
         for bookmark in sorted where !excludedIDs.contains(bookmark.id) {
-            bookmarkStore.rename(bookmark, to: "\(prefix)\(number)\(suffix)")
+            pendingRenames.append((bookmark, "\(prefix)\(number)\(suffix)"))
             number += 1
         }
+
+        bookmarkStore.renameBookmarks(bookID: bookID, renames: pendingRenames)
     }
 }

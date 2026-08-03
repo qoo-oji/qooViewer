@@ -353,27 +353,36 @@ final class BookLayoutEditorViewModel: ObservableObject {
         // 自体はこの関数では変わらないため、1対1の対応が組める)。
         migrateBookmarkIndices(from: rows, to: reordered)
 
-        var didClearAny = false
+        // 経緯(ユーザー報告): JSONインポートで見つかったのと同じ「1件ごとにSQLiteへコミット」の
+        // 問題が、ここ(ページ並べ替え確定時に隣接関係が変わった見開き左/右の設定を削除する処理)
+        // にも残っていた。以前はここでlayoutStore.setPageLayoutState(state: nil)を対象ページ数
+        // ぶんループで個別に呼んでおり、そのたびに同期save()+reloadLayoutBookIDs()(全件
+        // フェッチ)+通知が発生していた。見開きページを多く手動指定している本を大きく並べ替える
+        // (先頭のページを末尾近くへ動かす等)と、隣接関係が変わる見開きページの数だけこれが
+        // 起きていた。対象ページをいったんpageKeysToClearへ集計し、
+        // clearPageLayoutStates(for:pageKeys:)へまとめて渡すことで、この並べ替え1回につき
+        // 保存・再フェッチ・通知を1回にまとめる。
+        var pageKeysToClear: Set<String> = []
         for row in rows {
             guard let state = overridesByKey[row.pageKey] else { continue }
             switch state {
             case .spreadLeft:
                 if oldNeighbors.next[row.pageKey] != newNeighbors.next[row.pageKey] {
-                    layoutStore.setPageLayoutState(for: book, pageKey: row.pageKey, state: nil)
-                    didClearAny = true
+                    pageKeysToClear.insert(row.pageKey)
                 }
             case .spreadRight:
                 if oldNeighbors.previous[row.pageKey] != newNeighbors.previous[row.pageKey] {
-                    layoutStore.setPageLayoutState(for: book, pageKey: row.pageKey, state: nil)
-                    didClearAny = true
+                    pageKeysToClear.insert(row.pageKey)
                 }
             case .single, .excluded:
                 break
             }
         }
+        layoutStore.clearPageLayoutStates(for: book, pageKeys: pageKeysToClear)
+        let didClearAny = !pageKeysToClear.isEmpty
         rows = reordered
         layoutStore.setPageOrderOverride(for: book, rows.map(\.pageKey))
-        // 上のループで見開きの設定を削除した可能性があるため、公開用スナップショットを取り直す。
+        // 上で見開きの設定を削除した可能性があるため、公開用スナップショットを取り直す。
         pageLayoutStates = currentOverridesByKey()
         if let focusPageKey {
             postLayoutFocusChange(pageKey: focusPageKey)

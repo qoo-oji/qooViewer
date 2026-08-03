@@ -456,6 +456,86 @@ final class LayoutStore: ObservableObject {
         saveAndNotify(bookID: bookID)
     }
 
+    /// JSONインポート専用: 本1冊分の本全体設定(読み方向・見開き強制・ページ順)とページ単位設定を
+    /// まとめて1回のトランザクションで書き込む(LibraryImportExportService.applyLayouts参照)。
+    ///
+    /// 経緯(ユーザー報告): JSONインポートが非常に遅い。従来のapplyLayoutsは、本全体設定を
+    /// setReadingDirectionOverride/setForcedDisplayMode/setPageOrderOverrideで最大3回、
+    /// ページ単位設定をsetPageLayoutStateでページ数ぶんループしてそれぞれ個別に呼んでいた。
+    /// これらはいずれも呼び出しのたびにsaveAndNotify(save()+reloadLayoutBookIDs()の全件
+    /// フェッチ+NotificationCenter通知)を伴うため、ページ単位設定を数百〜数千件持つ本を
+    /// 含むインポートでは、本1冊だけでそれだけの回数SQLiteへコミットしていたことになる。
+    ///
+    /// 対応: setPageLayoutStates(複数ページ分をまとめて1回で保存する既存メソッド)と同じ考え方を
+    /// 本全体設定にも広げ、本全体設定+全ページ単位設定を1回のsave・再フェッチ・通知にまとめる。
+    /// readingDirection/forcedDisplayMode/pageOrderは、呼び出し側(LibraryImportExportService)が
+    /// 「マージ時は既存の本全体設定が空の場合のみ適用する」等の判断を済ませた上でnilを渡すことを
+    /// 想定する(3つすべてnilかつpageChangesも空の場合は何もしない)。
+    func applyImportedLayout(
+        for book: MangaBook,
+        readingDirection: ReadingDirection?,
+        forcedDisplayMode: DisplayMode?,
+        pageOrder: [String]?,
+        pageChanges: [String: PageLayoutState]
+    ) {
+        let hasPageOrder = pageOrder.map { !$0.isEmpty } ?? false
+        guard readingDirection != nil || forcedDisplayMode != nil || hasPageOrder || !pageChanges.isEmpty else {
+            return
+        }
+        let bookID = book.id
+        // 本全体設定・ページ単位設定のどちらか一方でも書き込む対象がある以上、必ず指紋アンカー
+        // (BookLayoutSettings行)の存在を保証しておく(既存のsetXxxOverride系・
+        // setPageLayoutState(States)系と同じ考え方)。
+        let settings = existingOrNewSettings(for: book)
+        if let readingDirection {
+            settings.readingDirectionOverride = readingDirection
+        }
+        if let forcedDisplayMode {
+            settings.forcedDisplayMode = forcedDisplayMode
+        }
+        if hasPageOrder {
+            settings.pageOrderOverride = pageOrder
+        }
+        settings.updatedAt = Date()
+
+        if !pageChanges.isEmpty {
+            let existingByKey = Dictionary(
+                uniqueKeysWithValues: pageOverrides(forBookID: bookID).map { ($0.pageKey, $0) }
+            )
+            for (pageKey, state) in pageChanges {
+                if let existing = existingByKey[pageKey] {
+                    existing.state = state
+                } else {
+                    let created = PageLayoutOverride(bookID: bookID, pageKey: pageKey, state: state)
+                    modelContext.insert(created)
+                }
+            }
+            invalidateLayoutCaches()
+        }
+        saveAndNotify(bookID: bookID)
+    }
+
+    /// 複数ページのページ単位設定をまとめて削除する(1回のトランザクション)。
+    /// BookLayoutEditorViewModel.applyNewOrder(ページ並べ替え確定時、隣接関係が変わった
+    /// 見開き左/右の設定を削除する処理)向け。
+    ///
+    /// 経緯(ユーザー報告): JSONインポートで見つかったのと同じ「1件ごとにSQLiteへコミット」の
+    /// 問題が、ページ並べ替え時にも残っていた。setPageLayoutState(state: nil)を対象ページ数
+    /// ぶんループで個別に呼ぶと、見開き左/右を多く手動指定している本を大きく並べ替えた際、
+    /// 隣接関係が変わったページの数だけsave()+reloadLayoutBookIDs()+通知が発生してしまう。
+    /// 対象行をまとめて削除し、保存・再フェッチ・通知をこの並べ替え1回につき1回にまとめる。
+    func clearPageLayoutStates(for book: MangaBook, pageKeys: Set<String>) {
+        guard !pageKeys.isEmpty else { return }
+        let bookID = book.id
+        let existing = pageOverrides(forBookID: bookID).filter { pageKeys.contains($0.pageKey) }
+        guard !existing.isEmpty else { return }
+        for override in existing {
+            modelContext.delete(override)
+        }
+        invalidateLayoutCaches()
+        saveAndNotify(bookID: bookID)
+    }
+
     // MARK: - 差し替え検知(2.5節)
 
     /// bookの指紋を、この本に記録済みのBookLayoutSettingsの指紋と比較する。
