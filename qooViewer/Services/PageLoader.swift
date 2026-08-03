@@ -24,7 +24,9 @@ nonisolated final class CGImageBox {
 /// - 現在ページの前後を先読み(プリフェッチ)し、ページ送りの体感速度を上げる。
 ///   スクロールが速くて不要になった先読みはキャンセルする。
 actor PageLoader {
-    private let book: MangaBook
+    /// varなのは、updateBook(_:)でViewerViewModelから最新のbookを渡し直せるようにするため
+    /// (詳細はupdateBook(_:)のコメント参照)。
+    private var book: MangaBook
 
     private var readers: [String: ArchiveReading] = [:]
     /// PDFファイルごとにCGPDFDocumentを使い回す(アーカイブのreaders同様、actorの外から
@@ -62,6 +64,20 @@ actor PageLoader {
         self.book = book
     }
 
+    /// この本のページ構成(並び順・除外)が変わったとき、呼び出し元(ViewerViewModel)から
+    /// 最新のbookを渡し直すために使う。ユーザー要望により、除外(非表示)・並べ替えの変更を
+    /// この本を開き直さずに画像ビューアの表示へ即座に反映できるようにした
+    /// (ViewerViewModel.reloadLayoutData参照)。
+    ///
+    /// 画像そのもののキャッシュ(imageCache/thumbnailCache)はpage.id(内容ベースの安定した
+    /// キーで、並び順やインデックスには依存しない)をキーにしているため、ここでは無効化せず
+    /// そのまま使い回せる。一方、index基準の参照(image(at:)/prefetch(around:)/
+    /// rawImageData(at:))は、この呼び出し以降、新しいbook.pagesの並びに基づいて解決される
+    /// ようになる。
+    func updateBook(_ book: MangaBook) {
+        self.book = book
+    }
+
     /// 指定ページのフルサイズ画像を取得する(キャッシュ済みなら即座に、なければ読み込んでキャッシュする)
     func pageImage(at index: Int) async -> CGImage? {
         await image(at: index, cache: imageCache, maxPixelSize: ImageDecoder.pageMaxPixelSize)
@@ -70,6 +86,16 @@ actor PageLoader {
     /// プログレスバー用の小さいサムネイルを取得する
     func thumbnail(at index: Int) async -> CGImage? {
         await image(at: index, cache: thumbnailCache, maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize)
+    }
+
+    /// 生の画像データ(デコード前)を返す。EPUB書き出し(EpubExporter、7節)で、画質を落とさず
+    /// 元の画像ファイルをそのまま複製するために使う。pageImage/thumbnailと異なりキャッシュは
+    /// 行わない(書き出し中に一度読めば十分で、同じページへ二度アクセスすることが無いため)。
+    /// PDFソースの場合は常にnil(EPUB書き出しの対象はフォルダ・zip/cbz・rar/cbr・7z/cb7のみで、
+    /// PDF/EPUB自体は対象外のため。7.1節参照)。
+    func rawImageData(at index: Int) async -> Data? {
+        guard book.pages.indices.contains(index) else { return nil }
+        return rawData(for: book.pages[index].source)
     }
 
     /// index を中心に前後 radius ページ分を先読みする。

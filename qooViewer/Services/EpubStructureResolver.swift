@@ -17,6 +17,22 @@ struct EpubPageEntry {
     /// アーカイブ(zipコンテナとしてのEPUB自体)内の画像ファイルのパス
     let entryPath: String
     let spreadPosition: PageSpreadPosition?
+    /// このページに対応するspine項目自体(manifest item)が指すパス。通常は画像を包む
+    /// XHTMLラッパーのパスで、entryPathとは異なる(media-typeが画像そのものの場合はentryPathと
+    /// 同じ値になる)。目次(nav.xhtml)のリンク先とページを対応付けるために使う
+    /// (7.5節「逆方向」、resolveTableOfContents参照)。
+    let sourceHref: String
+}
+
+/// EPUBの目次(nav.xhtml)から読み取った1項目。設計コンセプト7.5節「逆方向」
+/// (目次があり、その本にまだブックマークが1件も無い場合に自動でブックマークとして取り込む)で使う。
+/// EPUB3のnav.xhtmlのみに対応し、EPUB2のtoc.ncxへのフォールバックは行わない
+/// (未対応であることを明示。13節の未確定事項の一つとして扱う)。
+struct EpubTOCEntry {
+    let title: String
+    /// EpubStructure.pagesのインデックス(=BookLoader.loadEpubが作るMangaBook.pagesのインデックスと
+    /// 同じ空間。EPUBはPageLayoutOverrideの対象外のため、この2つの配列の並びは常に一致する)。
+    let pageIndex: Int
 }
 
 enum EpubStructureError: Error {
@@ -59,7 +75,13 @@ nonisolated enum EpubStructureResolver {
                 allPaths: allPaths
             ) else { continue }
 
-            pages.append(EpubPageEntry(entryPath: entryPath, spreadPosition: spreadPosition(from: itemRef.properties)))
+            let itemPath = resolvedPath(base: opfDirectory, relative: manifestItem.href)
+            let sourceHref = matchExistingPath(itemPath, in: allPaths) ?? itemPath
+            pages.append(
+                EpubPageEntry(
+                    entryPath: entryPath, spreadPosition: spreadPosition(from: itemRef.properties), sourceHref: sourceHref
+                )
+            )
         }
 
         return EpubStructure(
@@ -205,6 +227,52 @@ nonisolated enum EpubStructureResolver {
         }
     }
 
+    // MARK: - 目次(nav.xhtml) → ブックマーク(7.5節「逆方向」)
+
+    /// EPUB3のnav.xhtml(manifest上でproperties="nav"の項目)を探し、その中の
+    /// `<nav epub:type="toc">`が指すリンクを、resolve(reader:)が返したEpubStructure.pagesの
+    /// インデックスへ対応付ける。nav.xhtmlが無い、目次(toc)navが無い、リンク先がどのページにも
+    /// 一致しない、のいずれの場合も空配列を返す(エラーにはしない。呼び出し元(ViewerViewModel)は
+    /// 「取り込めるものが無かった」として何もしないだけでよいため)。
+    ///
+    /// EPUB2のtoc.ncxへのフォールバックは行わない(未対応。13節)。
+    static func resolveTableOfContents(reader: ArchiveReading, structure: EpubStructure) -> [EpubTOCEntry] {
+        guard let opfPath = try? resolveOPFPath(reader: reader),
+              let opfData = try? reader.data(at: opfPath),
+              let packageDocument = try? parsePackageDocument(data: opfData)
+        else { return [] }
+
+        guard let navItem = packageDocument.manifestItems.values.first(where: { $0.properties.contains("nav") })
+        else { return [] }
+
+        let opfDirectory = directory(of: opfPath)
+        let allPaths = Set((try? reader.listFilePaths()) ?? [])
+        let candidateNavPath = resolvedPath(base: opfDirectory, relative: navItem.href)
+        guard let navPath = matchExistingPath(candidateNavPath, in: allPaths),
+              let navData = try? reader.data(at: navPath)
+        else { return [] }
+
+        let delegate = NavTOCParserDelegate()
+        let parser = XMLParser(data: navData)
+        parser.delegate = delegate
+        guard parser.parse(), !delegate.entries.isEmpty else { return [] }
+
+        var hrefToPageIndex: [String: Int] = [:]
+        for (index, page) in structure.pages.enumerated() {
+            hrefToPageIndex[page.sourceHref] = index
+        }
+
+        let navDirectory = directory(of: navPath)
+        var result: [EpubTOCEntry] = []
+        for entry in delegate.entries {
+            let candidatePath = resolvedPath(base: navDirectory, relative: entry.href)
+            let resolvedHref = matchExistingPath(candidatePath, in: allPaths) ?? candidatePath
+            guard let pageIndex = hrefToPageIndex[resolvedHref] else { continue }
+            result.append(EpubTOCEntry(title: entry.title, pageIndex: pageIndex))
+        }
+        return result
+    }
+
     // MARK: - パス解決のユーティリティ
 
     /// パス(スラッシュ区切り)からディレクトリ部分だけを取り出す。ファイル自身がアーカイブの
@@ -278,6 +346,9 @@ private nonisolated final class PackageDocumentParserDelegate: NSObject, XMLPars
     struct ManifestItem {
         let href: String
         let mediaType: String
+        /// item要素のproperties属性(スペース区切り)。EPUB3のnav文書は"nav"を持つことで識別される
+        /// (resolveTableOfContents参照)。
+        let properties: Set<String>
     }
     struct SpineItemRef {
         let idref: String
@@ -304,7 +375,12 @@ private nonisolated final class PackageDocumentParserDelegate: NSObject, XMLPars
         switch localName(of: elementName) {
         case "item":
             if let id = attributeDict["id"], let href = attributeDict["href"] {
-                manifestItems[id] = ManifestItem(href: href, mediaType: attributeDict["media-type"] ?? "")
+                let properties = Set(
+                    (attributeDict["properties"] ?? "").split(separator: " ").map(String.init)
+                )
+                manifestItems[id] = ManifestItem(
+                    href: href, mediaType: attributeDict["media-type"] ?? "", properties: properties
+                )
             }
         case "spine":
             pageProgressionDirection = attributeDict["page-progression-direction"]
@@ -366,6 +442,64 @@ private nonisolated final class FirstImageReferenceParserDelegate: NSObject, XML
             imageHref = attributeDict["xlink:href"] ?? attributeDict["href"]
         default:
             break
+        }
+    }
+}
+
+/// nav.xhtml内の`<nav epub:type="toc">`(EPUB3目次)から、リンク(href)とリンクテキストの組を
+/// 順番に取り出すためのXMLパーサ委譲先。ネストしたnav要素は通常のEPUBには現れない前提で、
+/// 単純なフラグの真偽で「今toc navの中にいるか」を管理する(FirstImageReferenceParserDelegateと
+/// 同じく実用上のロバストさを優先する方針)。
+private nonisolated final class NavTOCParserDelegate: NSObject, XMLParserDelegate {
+    private(set) var entries: [(href: String, title: String)] = []
+    private var isInsideTOCNav = false
+    private var currentHref: String?
+    private var currentTitle = ""
+    private var isCapturingLinkText = false
+
+    func parser(
+        _ parser: XMLParser,
+        didStartElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?,
+        attributes attributeDict: [String: String] = [:]
+    ) {
+        let name = localName(of: elementName)
+        if name == "nav" {
+            if attributeDict["epub:type"] == "toc" || attributeDict["type"] == "toc" {
+                isInsideTOCNav = true
+            }
+            return
+        }
+        guard isInsideTOCNav, name == "a", let href = attributeDict["href"] else { return }
+        currentHref = href
+        currentTitle = ""
+        isCapturingLinkText = true
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        guard isCapturingLinkText else { return }
+        currentTitle += string
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didEndElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        let name = localName(of: elementName)
+        if name == "a", isCapturingLinkText {
+            isCapturingLinkText = false
+            if let href = currentHref {
+                let trimmedTitle = currentTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmedTitle.isEmpty {
+                    entries.append((href: href, title: trimmedTitle))
+                }
+            }
+            currentHref = nil
+        } else if name == "nav" {
+            isInsideTOCNav = false
         }
     }
 }

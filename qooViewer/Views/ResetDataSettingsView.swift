@@ -24,6 +24,7 @@ import AppKit
 struct ResetDataSettingsView: View {
     @EnvironmentObject private var favoritesStore: FavoritesStore
     @EnvironmentObject private var bookmarkStore: BookmarkStore
+    @EnvironmentObject private var layoutStore: LayoutStore
     @Environment(\.modelContext) private var modelContext
 
     @State private var isShowingConfirmation = false
@@ -33,7 +34,7 @@ struct ResetDataSettingsView: View {
         Form {
             Section {
                 Text(
-                    "If your favorites, bookmarks, or reading history ever become corrupted or fail to load (for example, after an app update), use this to permanently delete all of it and start fresh."
+                    "If your favorites, bookmarks, layout settings, or reading history ever become corrupted or fail to load (for example, after an app update), use this to permanently delete all of it and start fresh."
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -41,7 +42,7 @@ struct ResetDataSettingsView: View {
                 Button(role: .destructive) {
                     isShowingConfirmation = true
                 } label: {
-                    Label("Reset All Favorites, Bookmarks & Reading History…", systemImage: "trash")
+                    Label("Reset All Favorites, Bookmarks, Layouts & Reading History…", systemImage: "trash")
                 }
             } header: {
                 Text("Danger Zone")
@@ -56,7 +57,7 @@ struct ResetDataSettingsView: View {
         // 「間違ってクリックした場合に備えて」の確認アラート。既存の「Delete Folder?」等と
         // 同じ、ごく普通のCancel/Delete形式(要望どおり、文字入力による二重確認などは行わない)。
         .alert(
-            "Reset All Favorites, Bookmarks & Reading History?",
+            "Reset All Favorites, Bookmarks, Layouts & Reading History?",
             isPresented: $isShowingConfirmation
         ) {
             Button("Cancel", role: .cancel) {}
@@ -65,7 +66,7 @@ struct ResetDataSettingsView: View {
             }
         } message: {
             Text(
-                "This permanently deletes every favorite, favorite folder, bookmark, and saved reading position (last page, display settings) for every book. This cannot be undone, and qooViewer will quit immediately afterward."
+                "This permanently deletes every favorite, favorite folder, bookmark, page layout setting, and saved reading position (last page, display settings) for every book. This cannot be undone, and qooViewer will quit immediately afterward."
             )
         }
         // 削除はすでに完了しているため、ここでの選択肢は「Quit Now」の1つだけにしてある
@@ -76,13 +77,17 @@ struct ResetDataSettingsView: View {
                 NSApp.terminate(nil)
             }
         } message: {
-            Text("All favorites, bookmarks, and reading history have been deleted. qooViewer will now quit — please reopen it.")
+            Text("All favorites, bookmarks, layout settings, and reading history have been deleted. qooViewer will now quit — please reopen it.")
         }
     }
 
     private func performReset() {
         favoritesStore.deleteAllFavorites()
         bookmarkStore.deleteAllBookmarks()
+        // レイアウトデータ(BookLayoutSettings/PageLayoutOverride)もLibraryDataPrunerの対象外
+        // (10.3節、無制限に保持)にしたため、他のデータと同様ここで明示的にリセットする対象に含める
+        // (設計コンセプト10.1節)。
+        layoutStore.deleteAllLayoutData()
         // 読書履歴(BookReadingState)専用のストアクラスは無いため、ここで直接操作する。
         try? modelContext.delete(model: BookReadingState.self)
         try? modelContext.save()

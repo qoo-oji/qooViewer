@@ -32,6 +32,13 @@ final class AppState: ObservableObject {
     /// 橋渡し。ViewerViewが表示されている間だけ自分自身を登録し、閉じるときにnilへ戻す。
     var jumpToBookmark: ((Bookmark) -> Void)?
 
+    /// 「ブックマーク・レイアウトの編集」ウインドウ(4節)の右ペインで、ブックマークが付いて
+    /// いないページのサムネイルをダブルクリックした場合に、そのページ番号へ直接ジャンプする
+    /// ための橋渡し。jumpToBookmarkと同じ仕組み(ViewerViewが表示されている間だけ自分自身を
+    /// 登録し、閉じるときにnilへ戻す)だが、対象がBookmarkではなくページ番号(0始まり、
+    /// ViewerViewModel.currentIndexと同じ空間)である点が異なる。
+    var jumpToPageIndex: ((Int) -> Void)?
+
     /// 「ブックマークの編集」ウインドウ(独立ウインドウ。すべての本を横断するBookmarkStoreが
     /// 削除・リネームを直接SwiftDataへ行うため、そちらは経由しない)の「Add Current Page」
     /// ボタンから、今読んでいるページをこの本のブックマークとして追加するための橋渡し。
@@ -96,10 +103,40 @@ final class AppState: ObservableObject {
     @Published private(set) var isReadingDirectionLocked = false
     @Published private(set) var isDisplayModeLocked = false
     @Published private(set) var isPageShiftLocked = false
+    /// EPUBの権威的なレイアウト指定がある本かどうか(2.4節)。trueのときLayoutメニュー・
+    /// コンテキストメニューのLayoutサブメニュー・ツールバーの自動レイアウトボタンをすべて
+    /// グレーアウトする(OPF側の指定が優先され、DB側の上書きを作っても反映されないため)。
+    @Published private(set) var hasAuthoritativeEpubLayout = false
+    /// 見開き表示中に、実際に2ページとも表示されているかどうか(横長画像の自動単ページ化等で
+    /// 実際には1枚しか表示されていない場合はfalse)。Layoutメニューの中央グループの項目構成
+    /// (現在のページのみか、左右2ページ分か)の切り替えに使う。
+    @Published private(set) var hasPartnerPageDisplayed = false
+    /// 現在のページに、既にレイアウト上書き(PageLayoutOverride)が設定されているかどうか。
+    /// 「レイアウト情報を削除する」項目の表示/非表示に使う。
+    @Published private(set) var hasCurrentPageLayoutOverride = false
+    /// パートナーページ(見開き表示中の相方ページ)に、既にレイアウト上書きが設定されているかどうか。
+    @Published private(set) var hasPartnerPageLayoutOverride = false
 
     /// メニューバーの「表示モード切替」サブメニューから、特定のモードへ直接切り替えるための
     /// 橋渡し。ViewerViewが表示されている間だけ自分自身を登録し、閉じるときにnilへ戻す。
     var setScalingMode: ((ScalingMode) -> Void)?
+
+    /// メニューバーの「Layout」メニュー(設計コンセプト8.2節)、および将来同じ経路を使う
+    /// コンテキストメニューから、現在表示中のビューワーへレイアウト操作を橋渡しするための
+    /// クロージャ群。performViewerActionと同じ、ViewerViewが表示されている間だけ自分自身を
+    /// 登録し、閉じるときにnilへ戻す仕組み。
+    ///
+    /// レイアウトの状態変更(単一/見開き右/見開き左/除外に設定する)は、値を書き込むだけでなく
+    /// 3.3節の伝播範囲選択ダイアログを表示する必要があり、そのダイアログの@Stateはビュー階層
+    /// (ViewerView)側にしか置けない。そのため、performViewerActionのように直接ViewModelの
+    /// メソッドを呼ぶのではなく、いったんViewerView自身が登録したこのクロージャを経由して
+    /// 「対象ページ・新しい状態」を伝え、ViewerView側でダイアログ表示までを行う。
+    var performLayoutStateChange: ((LayoutMenuTarget, PageLayoutState) -> Void)?
+    /// レイアウト情報を削除する(3.2節「レイアウト情報を削除する」)。伝播範囲ダイアログは
+    /// 挟まないため、直接ViewModelへ反映してよい。
+    var performLayoutClear: ((LayoutMenuTarget) -> Void)?
+    /// 現在の表示を基準に自動でレイアウトする(3.1節)。
+    var performAutoLayout: (() -> Void)?
 
     /// ViewerViewから、スライドショー/表示モード/読み方向/拡大縮小モードの現在値、および
     /// EPUBによる各種ロック状態を反映するために呼ばれる。メニューバーのチェックマーク表示・
@@ -111,7 +148,11 @@ final class AppState: ObservableObject {
         scalingMode: ScalingMode,
         isReadingDirectionLocked: Bool,
         isDisplayModeLocked: Bool,
-        isPageShiftLocked: Bool
+        isPageShiftLocked: Bool,
+        hasAuthoritativeEpubLayout: Bool,
+        hasPartnerPageDisplayed: Bool,
+        hasCurrentPageLayoutOverride: Bool,
+        hasPartnerPageLayoutOverride: Bool
     ) {
         self.isSlideshowActive = isSlideshowActive
         self.isSpreadMode = displayMode == .spread
@@ -120,6 +161,10 @@ final class AppState: ObservableObject {
         self.isReadingDirectionLocked = isReadingDirectionLocked
         self.isDisplayModeLocked = isDisplayModeLocked
         self.isPageShiftLocked = isPageShiftLocked
+        self.hasAuthoritativeEpubLayout = hasAuthoritativeEpubLayout
+        self.hasPartnerPageDisplayed = hasPartnerPageDisplayed
+        self.hasCurrentPageLayoutOverride = hasCurrentPageLayoutOverride
+        self.hasPartnerPageLayoutOverride = hasPartnerPageLayoutOverride
     }
 
     /// ViewerViewが閉じるとき(本を閉じたとき)に、メニューバーのチェックマーク状態をクリアする。
@@ -131,6 +176,10 @@ final class AppState: ObservableObject {
         isReadingDirectionLocked = false
         isDisplayModeLocked = false
         isPageShiftLocked = false
+        hasAuthoritativeEpubLayout = false
+        hasPartnerPageDisplayed = false
+        hasCurrentPageLayoutOverride = false
+        hasPartnerPageLayoutOverride = false
     }
 
     /// performViewerAction/jumpToBookmark/addBookmarkAction/setScalingMode、および
@@ -399,6 +448,23 @@ struct MenuCheckmarkState: Equatable {
     var isCurrentBookFavorited = false
     /// 同じく、現在のページがブックマーク済みかどうか(ブックマーク追加/削除トグルボタン用)。
     var isCurrentPageBookmarked = false
+    /// EPUBの権威的なレイアウト指定がある本かどうか(2.4節)。Layoutメニューのグレーアウトに使う。
+    var hasAuthoritativeEpubLayout = false
+    /// 見開き表示中に、実際に2ページとも表示されているかどうか。Layoutメニューの項目構成
+    /// (現在のページのみか、左右2ページ分か)の切り替えに使う。
+    var hasPartnerPageDisplayed = false
+    /// 現在のページに既にレイアウト上書きが設定されているかどうか
+    /// (「レイアウト情報を削除する」項目の表示/非表示に使う)。
+    var hasCurrentPageLayoutOverride = false
+    /// パートナーページに既にレイアウト上書きが設定されているかどうか。
+    var hasPartnerPageLayoutOverride = false
+}
+
+/// メニューバーのLayoutメニュー(8.2節)で、見開き表示中に左右どちらのページを対象にする
+/// 操作かを表す。単一ページ表示中は常に.currentのみを使う。
+enum LayoutMenuTarget {
+    case current
+    case partner
 }
 
 private struct MenuCheckmarkStateFocusedValueKey: FocusedValueKey {

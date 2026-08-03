@@ -21,6 +21,9 @@ struct QooViewerApp: App {
     /// ブックマーク(すべての本を横断)。favoritesStoreと同じ理由でModelContextを明示的に
     /// 渡す必要があるため、下のinit()で組み立てる。
     @StateObject private var bookmarkStore: BookmarkStore
+    /// ページレイアウト設定(すべての本を横断)。bookmarkStoreと同じ理由でModelContextを
+    /// 明示的に渡す必要があるため、下のinit()で組み立てる。
+    @StateObject private var layoutStore: LayoutStore
     /// 複数ウインドウ/タブに対応するための調整役。詳細はLaunchCoordinator.swiftのコメント参照。
     @StateObject private var launchCoordinator = LaunchCoordinator()
     /// メニューバー(アプリ全体で1つ)から、今アクティブな(キーウインドウの)AppStateを
@@ -35,9 +38,14 @@ struct QooViewerApp: App {
     /// SwiftUIに作らせるための仕組み(下の"book" WindowGroup参照)。
     @Environment(\.openWindow) private var openWindow
 
-    /// お気に入り・ブックマーク・読書履歴(BookReadingState)のスキーマ。
+    /// お気に入り・ブックマーク・読書履歴(BookReadingState)・ページレイアウト設定のスキーマ。
+    /// BookLayoutSettings/PageLayoutOverrideは、フォルダ・zip/cbz・rar/cbr・7z/cb7・PDFに対して
+    /// EPUBのpackage document相当のレイアウト情報をqooViewer自身が保持するための新規モデル
+    /// (設計コンセプト2章参照)。追加のみのライトウェイトマイグレーションのため、
+    /// 既存ユーザーのストアにも問題なく追加される。
     private static let modelSchema = Schema([
-        BookReadingState.self, Bookmark.self, FavoriteFolder.self, FavoriteBook.self
+        BookReadingState.self, Bookmark.self, FavoriteFolder.self, FavoriteBook.self,
+        BookLayoutSettings.self, PageLayoutOverride.self
     ])
 
     /// スキーマの移行に失敗した場合に、ストアファイルを削除して作り直せるよう、URLを
@@ -136,6 +144,20 @@ struct QooViewerApp: App {
     /// 違って宣言時のデフォルト値だけでは初期化できない。そのためこのinit()で明示的に組み立てる
     /// (modelContainer自身は宣言時のデフォルト値でそのまま初期化される。他の@StateObjectプロパティも
     /// 同様に、ここで触れていないものは宣言時のデフォルト値がそのまま使われる)。
+    ///
+    /// FavoritesStore/BookmarkStore/LayoutStoreそれぞれに`ModelContext(modelContainer)`で
+    /// 専用の(互いに素の)ModelContextを個別に作る(ContentView/ResetDataSettingsView/
+    /// ViewerViewModel側は`.modelContainer(modelContainer)`経由の`@Environment(\.modelContext)`を
+    /// 別途使う)。
+    ///
+    /// 一時期、「あるページのレイアウトをinsert()してsave()した直後、他の経路から読み直すと
+    /// 消えて見える」という不具合(ユーザー報告)の原因ではないかと疑い、これらすべてのStoreを
+    /// containerが持つ単一の共有mainContextへ統一したことがあったが、実際には無関係だった
+    /// (ビューアウインドウを閉じていても・別の本を表示していても同じ不具合が再現することが
+    /// 確認され、真の原因はPageLayoutOverride.compositeKey/BookLayoutSettings.bookIDに
+    /// 付けていた@Attribute(.unique)側にあった。詳細はPageLayoutOverride.swift/
+    /// BookLayoutSettings.swiftのコメント参照)。そのため専用ModelContextに分ける元の構成に
+    /// 戻している。
     @MainActor
     init() {
         _favoritesStore = StateObject(
@@ -143,6 +165,9 @@ struct QooViewerApp: App {
         )
         _bookmarkStore = StateObject(
             wrappedValue: BookmarkStore(modelContext: ModelContext(QooViewerApp.modelContainer))
+        )
+        _layoutStore = StateObject(
+            wrappedValue: LayoutStore(modelContext: ModelContext(QooViewerApp.modelContainer))
         )
     }
 
@@ -155,6 +180,7 @@ struct QooViewerApp: App {
                 .environmentObject(folderAccess)
                 .environmentObject(favoritesStore)
                 .environmentObject(bookmarkStore)
+                .environmentObject(layoutStore)
                 .environmentObject(launchCoordinator)
                 .onAppear {
                     appDelegate.preferences = preferences
@@ -230,6 +256,28 @@ struct QooViewerApp: App {
                             }
                         }
                     }
+                }
+            }
+
+            // 6.2節: 「インポート・エクスポート」グループ。Fileメニューの標準「閉じる」
+            // (Cmd+W)の直前(=上のグループ2〜4を含むnewItemグループの直後)に置く。
+            // 「ブックマーク・レイアウトの編集」ウインドウ(editBookmarks)と同じく、本を今開いて
+            // いなくても・複数開いていても常に1つの独立ウインドウとして開く(openWindow(id:)は
+            // 既に開いていれば前面に出すだけで、新しく作り直しはしない)。
+            CommandGroup(after: .newItem) {
+                Divider()
+                Button("Import…") {
+                    openWindow(id: "libraryImport")
+                }
+                Button("Export…") {
+                    openWindow(id: "libraryExport")
+                }
+
+                Divider()
+                // 8.1節「epub出力」グループ。本を開いていなくても有効(hasBook不問、
+                // 「ブックマーク・レイアウトの編集」ウインドウと同じ考え方)。
+                Button("Export as EPUB…") {
+                    openWindow(id: "epubExport")
                 }
             }
 
@@ -490,6 +538,7 @@ struct QooViewerApp: App {
                 // 「メニューからブックマーク編集を選んでもウインドウが開かない」不具合の
                 // 原因になっていた。
                 Button("Edit Bookmarks…") {
+                    launchCoordinator.pendingEditorInitialFocus = .bookmarks
                     openWindow(id: "editBookmarks")
                 }
 
@@ -506,6 +555,64 @@ struct QooViewerApp: App {
                     }
                 }
                 .disabled(!hasBook)
+            }
+
+            // ページレイアウト制御(設計コンセプト8.2節)。ここではこのビュー自身の@StateObject
+            // であるViewerViewModelへ直接アクセスできないため、「Move」「Favorites」メニューと
+            // 同じFocusedValueブリッジ(focusedAppState.performLayoutStateChange/
+            // performLayoutClear/performAutoLayout)を経由する。項目の有効/無効・件数構成は
+            // menuCheckmarkState(値型。AppState.swiftのコメント参照)の現在値で判定する。
+            // メニューバー上の位置は「お気に入り」メニューのすぐ右(ユーザー要望)。
+            CommandMenu("Layout") {
+                let hasBook = focusedAppState?.currentBook != nil
+                let isLayoutLocked = !hasBook || (menuCheckmarkState?.hasAuthoritativeEpubLayout ?? false)
+
+                Button("Auto-Layout Based on Current View") {
+                    focusedAppState?.performAutoLayout?()
+                }
+                .disabled(isLayoutLocked)
+
+                Divider()
+
+                if menuCheckmarkState?.hasPartnerPageDisplayed == true {
+                    // 見開き表示中に実際に2ページとも表示されている場合は、8.2節の通り
+                    // 左右それぞれのページ用に5項目ずつ(計10項目)並べる。設計doc本文は
+                    // フラットな10項目を想定しているが、視認性のためLeft Page/Right Pageの
+                    // サブメニューにまとめている(ViewerView.contextMenuContentのLayoutサブメニューと
+                    // 同じ考え方)。
+                    Menu("Left Page") {
+                        layoutMenuItems(
+                            target: menuCheckmarkState?.isRightToLeft == true ? .partner : .current,
+                            hasOverride: menuCheckmarkState?.isRightToLeft == true
+                                ? (menuCheckmarkState?.hasPartnerPageLayoutOverride ?? false)
+                                : (menuCheckmarkState?.hasCurrentPageLayoutOverride ?? false)
+                        )
+                    }
+                    .disabled(isLayoutLocked)
+
+                    Menu("Right Page") {
+                        layoutMenuItems(
+                            target: menuCheckmarkState?.isRightToLeft == true ? .current : .partner,
+                            hasOverride: menuCheckmarkState?.isRightToLeft == true
+                                ? (menuCheckmarkState?.hasCurrentPageLayoutOverride ?? false)
+                                : (menuCheckmarkState?.hasPartnerPageLayoutOverride ?? false)
+                        )
+                    }
+                    .disabled(isLayoutLocked)
+                } else {
+                    layoutMenuItems(target: .current, hasOverride: menuCheckmarkState?.hasCurrentPageLayoutOverride ?? false)
+                        .disabled(isLayoutLocked)
+                }
+
+                Divider()
+
+                // 下のグループ:「レイアウトの編集…」(8.2節)。4節の「ブックマーク・レイアウトの
+                // 編集」ウインドウを、4.5節の「レイアウトの編集」用フィルタで開く。本を開いて
+                // いなくても有効(hasBook不問。「お気に入り」メニューの「Edit Bookmarks…」と同じ)。
+                Button("Edit Layout…") {
+                    launchCoordinator.pendingEditorInitialFocus = .layout
+                    openWindow(id: "editBookmarks")
+                }
             }
         }
         .environment(\.locale, currentLocale)
@@ -524,6 +631,7 @@ struct QooViewerApp: App {
                 .environmentObject(folderAccess)
                 .environmentObject(favoritesStore)
                 .environmentObject(bookmarkStore)
+                .environmentObject(layoutStore)
                 .environmentObject(launchCoordinator)
         }
         .windowResizability(.contentSize)
@@ -541,6 +649,7 @@ struct QooViewerApp: App {
                 // favoritesStore/bookmarkStore/modelContainerを渡す。
                 .environmentObject(favoritesStore)
                 .environmentObject(bookmarkStore)
+                .environmentObject(layoutStore)
                 .modelContainer(QooViewerApp.modelContainer)
                 .environment(\.locale, currentLocale)
         }
@@ -562,16 +671,68 @@ struct QooViewerApp: App {
         }
         .windowResizability(.contentSize)
 
-        // 「ブックマークの編集」ウインドウ(独立ウインドウ)。以前は本を表示しているウインドウの
-        // シートで、かつ「今開いている本」だけを扱っていたが、「お気に入りの編集」ウインドウと
-        // 見た目・操作感を完全に揃えるため、すべての本を横断して編集できる2ペイン構成に
-        // 変更した(ユーザーからの指摘)。データの実体はbookmarkStore(FavoritesStoreと同じく
-        // 専用のModelContextを持つ)が持ち、launchCoordinatorは選択中の本が今開いているかどうかの
-        // 判定にのみ使う(BookmarkListView.swift参照)。
-        Window("Edit Bookmarks", id: "editBookmarks") {
+        // 「ブックマーク・レイアウトの編集」ウインドウ(独立ウインドウ、設計コンセプト4節)。
+        // 以前は本を表示しているウインドウのシートで、かつ「今開いている本」のブックマークだけを
+        // 扱っていたが、「お気に入りの編集」ウインドウと見た目・操作感を完全に揃えるため、
+        // すべての本を横断して編集できる2ペイン構成に変更した。さらに4節により、ページ
+        // レイアウト制御(BookLayoutSettings/PageLayoutOverride)の編集も同じウインドウへ統合した。
+        // データの実体はbookmarkStore/layoutStore(FavoritesStoreと同じく専用のModelContextを持つ)が
+        // 持ち、launchCoordinatorは選択中の本が今開いているかどうかの判定・呼び出し元別の初期
+        // フィルタ(4.5節)の橋渡しに使う(BookmarkListView.swift参照)。preferencesは、右ペインの
+        // ページ一覧読み込み(BookLayoutEditorViewModel)が横長画像ヒューリスティックの閾値
+        // (preferences.singlePageAspectRatioThreshold)を参照するために必要。
+        Window("Edit Bookmarks & Layout", id: "editBookmarks") {
             BookmarkEditorWindow()
                 .environmentObject(bookmarkStore)
+                .environmentObject(layoutStore)
                 .environmentObject(launchCoordinator)
+                .environmentObject(preferences)
+                .environment(\.locale, currentLocale)
+        }
+        .windowResizability(.contentSize)
+
+        // 5節: ブックマーク一括リネームウインドウ(新設)。4.4節の「一括リネーム」ボタンから、
+        // launchCoordinator.pendingBulkRenameBookIDへ対象bookIDをセットしたうえで
+        // openWindow(id: "bulkRenameBookmarks")を呼んで開く(単一インスタンスのWindowシーンは
+        // for:による値のパラメータ化ができないため、pendingEditorInitialFocusと同じ橋渡し方式)。
+        Window("Bulk Rename Bookmarks", id: "bulkRenameBookmarks") {
+            BulkRenameBookmarksWindow()
+                .environmentObject(bookmarkStore)
+                .environmentObject(launchCoordinator)
+                .environmentObject(preferences)
+                .environment(\.locale, currentLocale)
+        }
+        .windowResizability(.contentSize)
+
+        // 6節: JSONエクスポート/インポート用の独立ウインドウ。「ブックマーク・レイアウトの編集」と
+        // 同じく、favoritesStore/bookmarkStore/layoutStoreはすべて専用のModelContextを持つ
+        // アプリ全体で1つだけのインスタンスをそのまま渡す。
+        Window("Export Library Data", id: "libraryExport") {
+            LibraryExportWindow()
+                .environmentObject(favoritesStore)
+                .environmentObject(bookmarkStore)
+                .environmentObject(layoutStore)
+                .environmentObject(preferences)
+                .environment(\.locale, currentLocale)
+        }
+        .windowResizability(.contentSize)
+
+        Window("Import Library Data", id: "libraryImport") {
+            LibraryImportWindow()
+                .environmentObject(favoritesStore)
+                .environmentObject(bookmarkStore)
+                .environmentObject(layoutStore)
+                .environmentObject(preferences)
+                .environment(\.locale, currentLocale)
+        }
+        .windowResizability(.contentSize)
+
+        // 7節: EPUB出力専用ウインドウ。favoritesStoreは不要(お気に入りはEPUB出力の対象外)。
+        Window("Export as EPUB", id: "epubExport") {
+            EpubExportWindow()
+                .environmentObject(bookmarkStore)
+                .environmentObject(layoutStore)
+                .environmentObject(preferences)
                 .environment(\.locale, currentLocale)
         }
         .windowResizability(.contentSize)
@@ -734,6 +895,33 @@ struct QooViewerApp: App {
             }
             newWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    /// CommandMenu("Layout")の、1ページ分の項目群(設計コンセプト3.2節)。
+    /// ViewerView.layoutStateMenuItems(forPageIndex:)と同じ構成だが、こちらは
+    /// ViewerViewModelへ直接アクセスできないため、focusedAppState経由のクロージャを呼ぶ。
+    /// 「レイアウト情報を削除する」は、hasOverride(menuCheckmarkState由来の現在値)が
+    /// trueの場合のみ表示する。
+    @ViewBuilder
+    private func layoutMenuItems(target: LayoutMenuTarget, hasOverride: Bool) -> some View {
+        Button("Set as Single Page") {
+            focusedAppState?.performLayoutStateChange?(target, .single)
+        }
+        Button("Set as Spread Right Page") {
+            focusedAppState?.performLayoutStateChange?(target, .spreadRight)
+        }
+        Button("Set as Spread Left Page") {
+            focusedAppState?.performLayoutStateChange?(target, .spreadLeft)
+        }
+        Button("Set as Excluded (Hidden)") {
+            focusedAppState?.performLayoutStateChange?(target, .excluded)
+        }
+        if hasOverride {
+            Divider()
+            Button("Delete Layout Info") {
+                focusedAppState?.performLayoutClear?(target)
+            }
         }
     }
 }

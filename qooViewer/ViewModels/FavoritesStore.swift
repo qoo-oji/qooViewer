@@ -163,11 +163,17 @@ final class FavoritesStore: ObservableObject {
         // NotificationCenterのクロージャは実行時にはメインスレッドで呼ばれるため、
         // Task { @MainActor in ... }で包み直す必要はない。むしろ包むとSwift 6の
         // 厳格な並行性チェックで「Reference to captured var 'self' in concurrently-executing
-        // code」という警告/エラーになった)。
+        // code」という警告/エラーになった)。ただし素の呼び出しのままだと今度は
+        // 「main actor-isolated instance method 'reload()' ... implicitly asynchronous」という
+        // 警告が出るため、MainActor.assumeIsolatedで「実行時には既にMainActor上にいる」ことを
+        // 伝える(Task化のような非同期ホップは発生させない。ViewerViewModel.swiftの同種の
+        // コメント参照)。
         menuTrackingObserver = NotificationCenter.default.addObserver(
             forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.reload()
+            MainActor.assumeIsolated {
+                self?.reload()
+            }
         }
     }
 
@@ -410,25 +416,28 @@ final class FavoritesStore: ObservableObject {
 
     /// id(UUID)からフォルダを検索する。「お気に入りの整理」ウインドウでのドラッグ&ドロップ
     /// (ドラッグ元の識別子から実体を引き直す)に使う。
+    ///
+    /// 以前は#Predicate<FavoriteFolder> { $0.id == id }のようにSwiftData側の絞り込みフェッチに
+    /// 任せていたが、キャプチャしたローカル変数名がモデル側プロパティ名と同名の場合に絞り込み
+    /// フェッチが正しく機能しないことがある不具合が実機で確認された
+    /// (LayoutStore.pageOverrides(forBookID:)のコメント参照)。同じ問題を避けるため、
+    /// 絞り込み無しで全件取得してからSwift側でfilterする方式に統一する。
     func folder(withID id: UUID) -> FavoriteFolder? {
-        var descriptor = FetchDescriptor<FavoriteFolder>(predicate: #Predicate<FavoriteFolder> { $0.id == id })
-        descriptor.fetchLimit = 1
-        return (try? modelContext.fetch(descriptor))?.first
+        let all = (try? modelContext.fetch(FetchDescriptor<FavoriteFolder>())) ?? []
+        return all.first { $0.id == id }
     }
 
-    /// id(UUID)からお気に入りを検索する(folder(withID:)と同じ用途)。
+    /// id(UUID)からお気に入りを検索する(folder(withID:)と同じ用途・同じ理由で全件取得+filter)。
     func book(withID id: UUID) -> FavoriteBook? {
-        var descriptor = FetchDescriptor<FavoriteBook>(predicate: #Predicate<FavoriteBook> { $0.id == id })
-        descriptor.fetchLimit = 1
-        return (try? modelContext.fetch(descriptor))?.first
+        let all = (try? modelContext.fetch(FetchDescriptor<FavoriteBook>())) ?? []
+        return all.first { $0.id == id }
     }
 
-    /// 指定したbookIDで既に登録されているお気に入り一覧(全フォルダ横断)。
+    /// 指定したbookIDで既に登録されているお気に入り一覧(全フォルダ横断)。同じ理由で
+    /// 全件取得+filterに統一する。
     func existingFavorites(forBookID bookID: String) -> [FavoriteBook] {
-        let descriptor = FetchDescriptor<FavoriteBook>(
-            predicate: #Predicate<FavoriteBook> { $0.bookID == bookID }
-        )
-        return (try? modelContext.fetch(descriptor)) ?? []
+        let all = (try? modelContext.fetch(FetchDescriptor<FavoriteBook>())) ?? []
+        return all.filter { $0.bookID == bookID }
     }
 
     /// 指定したbookIDが(どれか1つでも)お気に入りに登録されているかどうか。ツールバー・

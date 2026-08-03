@@ -30,10 +30,16 @@ final class RecentFilesStore: ObservableObject {
         // ファイルが一覧に残ったままにならないよう再チェックする。特定のメニュー(File)
         // だけに絞り込む簡単な方法がないため、このアプリ内でどのメニューが開かれても
         // 再チェックする(ファイルの存在確認は軽い処理なので負荷は問題にならない)。
+        // queue: .mainにより実行時には必ずMainActor上で呼ばれるが、クロージャ自体の型は
+        // 静的にMainActor隔離だと分からないため、MainActor.assumeIsolatedで明示する
+        // (FavoritesStore.swift/ViewerViewModel.swiftの同種のコメント参照。Task {
+        // @MainActor in ... }で包むとselfのキャプチャに関する別の警告/エラーになる)。
         menuTrackingObserver = NotificationCenter.default.addObserver(
             forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.reload()
+            MainActor.assumeIsolated {
+                self?.reload()
+            }
         }
     }
 

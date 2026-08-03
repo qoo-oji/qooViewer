@@ -181,6 +181,11 @@ struct FavoritesOrganizerView: View {
                             }
                             .buttonStyle(.plain)
                             .foregroundStyle(.secondary)
+                            // ユーザー報告: このボタンにカーソルを合わせても、行全体に付けている
+                            // .help(folder.name)(フォルダ名のツールチップ)を引き継いでしまい、
+                            // 削除ボタンだとわかるツールチップが出ない。ボタン自身にも.help()を
+                            // 付けることで、このボタンの上だけは行のツールチップより優先させる。
+                            .help("Delete Folder")
                         }
                         .contentShape(Rectangle())
                         // シングルクリックでは選択状態(下のlistRowBackground)にするだけ、
@@ -223,6 +228,9 @@ struct FavoritesOrganizerView: View {
                         HStack {
                             Image(systemName: "book.closed")
                             Text(favorite.title)
+                            // タイトルは拡張子を除いた名前のため、同名のcbz/epubが並ぶと
+                            // 見分けがつかない(ユーザー報告)。拡張子バッジで区別できるようにする。
+                            FormatBadgeView(bookID: favorite.bookID)
                             if !exists {
                                 Text("Not Found")
                                     .font(.caption)
@@ -240,6 +248,11 @@ struct FavoritesOrganizerView: View {
                             }
                             .buttonStyle(.plain)
                             .foregroundStyle(.secondary)
+                            // ユーザー報告: このボタンにカーソルを合わせても、行全体に付けている
+                            // .help(favorite.title)(本のタイトルのツールチップ)を引き継いでしまい、
+                            // 削除ボタンだとわかるツールチップが出ない。ボタン自身にも.help()を
+                            // 付けることで、このボタンの上だけは行のツールチップより優先させる。
+                            .help("Remove from Favorites")
                         }
                         .foregroundStyle(exists ? .primary : .secondary)
                         .opacity(exists ? 1 : 0.6)

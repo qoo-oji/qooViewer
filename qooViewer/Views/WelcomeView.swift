@@ -49,7 +49,7 @@ struct WelcomeView: View {
                         WelcomeQuickOpenList(
                             title: String(localized: "Recent Files"),
                             items: recentEntries.map { entry in
-                                WelcomeQuickOpenItem(id: entry.id, title: entry.displayName) {
+                                WelcomeQuickOpenItem(id: entry.id, title: entry.displayName, bookID: entry.url.path) {
                                     appState.open(url: entry.url)
                                 }
                             }
@@ -60,7 +60,7 @@ struct WelcomeView: View {
                         WelcomeQuickOpenList(
                             title: String(localized: "Recent Favorites"),
                             items: recentFavoriteBooks.map { favorite in
-                                WelcomeQuickOpenItem(id: favorite.id.uuidString, title: favorite.title) {
+                                WelcomeQuickOpenItem(id: favorite.id.uuidString, title: favorite.title, bookID: favorite.bookID) {
                                     appState.openFavorite(favorite)
                                 }
                             }
@@ -90,6 +90,10 @@ struct WelcomeView: View {
 private struct WelcomeQuickOpenItem: Identifiable {
     let id: String
     let title: String
+    /// MangaBook.idと同じ形式(拡張子を含むフルパス)の文字列。同名のcbz/epubが並んだときに
+    /// 拡張子バッジ(FormatBadgeView)で見分けられるようにするため保持する(ユーザー報告:
+    /// タイトルは拡張子を除いた名前で表示するため、epubとcbzの見分けがつかない)。
+    let bookID: String
     let action: () -> Void
 }
 
@@ -103,13 +107,18 @@ private struct WelcomeQuickOpenList: View {
                 .font(.headline)
                 .foregroundStyle(.secondary)
             ForEach(items) { item in
-                Button(item.title) {
+                Button {
                     item.action()
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(item.title)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        FormatBadgeView(bookID: item.bookID)
+                    }
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.primary)
-                .lineLimit(1)
-                .truncationMode(.middle)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

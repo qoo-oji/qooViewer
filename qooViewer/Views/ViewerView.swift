@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import SwiftData
 import CoreGraphics
+import Combine
 
 struct ViewerView: View {
     @StateObject private var viewModel: ViewerViewModel
@@ -115,15 +116,317 @@ struct ViewerView: View {
     /// 出し直された場合、古いタイマーが先に発火して消してしまわないようキャンセルしてから
     /// 新しいタスクを積み直す。
     @State private var toastDismissTask: Task<Void, Never>?
+    /// レイアウト操作(3.2節)で状態を選んだ後、伝播範囲(3.3節)を確認するダイアログ用の
+    /// 保留中の操作。nilなら非表示。「レイアウト情報を削除する」は伝播範囲ダイアログを
+    /// 挟まない(3.3節)ため、この仕組みは使わず直接viewModel.clearPageLayoutを呼ぶ。
+    @State private var pendingLayoutStateChange: PendingLayoutStateChange?
 
-    init(book: MangaBook, modelContext: ModelContext, preferences: AppPreferences) {
+    /// pendingLayoutStateChangeの中身。ページ番号と、これから設定しようとしている状態の組。
+    private struct PendingLayoutStateChange: Identifiable {
+        let id = UUID()
+        let pageIndex: Int
+        let state: PageLayoutState
+    }
+
+    /// 「現在の表示を基準に自動でレイアウトする」(3.1節)は、本全体を上書きする操作のため、
+    /// 実行前に必ず確認ダイアログを挟む(設計コンセプト3.1節)。ツールバー・コンテキストメニュー・
+    /// メニューバーの3経路すべてがこのフラグを立てるだけにし、実際の実行(viewModel呼び出し)は
+    /// ここ1箇所(.alertのボタン)にまとめている。
+    @State private var isShowingAutoLayoutConfirmation = false
+
+    /// 見開き表示中、ツールバー/お気に入りメニュー/キーボードショートカットからブックマークを
+    /// 追加しようとした際、環境設定(preferences.spreadBookmarkTargetBehavior == .askEachTime)に
+    /// より左右どちらのページを対象にするか尋ねる確認ダイアログの表示状態。コンテキストメニュー
+    /// (右クリック)からの追加はクリック位置で一意に決まるため、この仕組みは使わない
+    /// (toggleCurrentPageBookmark/contextMenuContent参照)。
+    @State private var isShowingBookmarkSideDialog = false
+
+    /// pageArea(見開き/単ページの画像表示領域)の、ウインドウ座標系(NSEvent.locationInWindowと
+    /// 同じ基準)でのフレーム。PageAreaFrameAccessorが自動的に最新の値を報告してくる
+    /// (詳細はPageAreaFrameAccessor/PageAreaFrameReportingViewのコメント参照)。
+    /// コンテキストメニューを右クリックした位置が、見開きの左側・右側どちらのページの上か
+    /// (設計コンセプト8.4節)を判定するために使う。
+    @State private var pageAreaFrameInWindow: CGRect = .zero
+    /// 直近のコンテキストメニュー起動クリック(右クリック、またはControl+左クリック)が、
+    /// pageAreaの左半分・右半分のどちらで起きたか。見開き表示中でない(パートナーページが
+    /// 無い)場合は参照されない。既定でtrueにしているのは、見開き表示前(まだ一度も
+    /// 右クリックしていない)の状態でも常に何らかの値を持たせておくため実用上の影響は無い
+    /// (partnerPageIndexがnilのときはこの値を使わないLayoutサブメニューの分岐になるため)。
+    @State private var isLastContextClickOnLeftHalf = true
+    /// コンテキストメニュー起動クリックの検知(rightMouseDown/Control+leftMouseDown)用の
+    /// ローカルイベントモニタ。scrollMonitorとは別に持つ理由は無いが、責務ごとに変数を
+    /// 分けたほうが見通しが良いため独立させている。onDisappearで確実に解除する。
+    @State private var contextClickMonitor: Any?
+
+    init(book: MangaBook, modelContext: ModelContext, preferences: AppPreferences, layoutStore: LayoutStore) {
         _viewModel = StateObject(
-            wrappedValue: ViewerViewModel(book: book, modelContext: modelContext, preferences: preferences)
+            wrappedValue: ViewerViewModel(
+                book: book, modelContext: modelContext, preferences: preferences, layoutStore: layoutStore
+            )
         )
         _preferences = ObservedObject(wrappedValue: preferences)
     }
 
+    /// .onAppear{}の中身をprivateメソッドへ切り出したもの(bodyのコメント参照。型チェックが
+    /// 長くかかりすぎる不具合対策)。処理内容自体は以前と同じ(橋渡し処理の登録・
+    /// 各種ローカルモニタの起動)。
+    private func handleOnAppear() {
+        isFocused = true
+        // クリックでのページ送りは、ウェルカム画面からのダブルクリックの2回目のクリックを
+        // 読み捨てるため、一定時間経ってから有効にする(詳細はisClickZoneArmedのコメント参照)。
+        isClickZoneArmed = false
+        clickZoneArmTask?.cancel()
+        clickZoneArmTask = Task {
+            try? await Task.sleep(nanoseconds: UInt64(clickZoneArmDelay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            isClickZoneArmed = true
+        }
+        // 以下でappStateへ書き込むより前に、まず自分自身のトークンを登録する
+        // (AppState.activeViewerTokenのコメント参照。同じウインドウ内で本を切り替えた際、
+        // 古いViewerViewのonDisappearが今から行う登録を誤って後始末してしまわないため)。
+        appState.activeViewerToken = viewerToken
+        viewModel.onRequestSiblingBook = { forward in
+            if forward {
+                appState.openSibling(after: viewModel.book.sourceURL)
+            } else {
+                appState.openSibling(before: viewModel.book.sourceURL)
+            }
+        }
+        appState.performViewerAction = { action in
+            perform(action)
+        }
+        // メニューバーの「ブックマーク」メニュー下部に、現在の本のブックマーク一覧を
+        // 表示するための橋渡し(詳細はAppState.swiftのコメント参照)。
+        appState.jumpToBookmark = { bookmark in
+            viewModel.jump(to: bookmark)
+        }
+        // 「ブックマーク・レイアウトの編集」ウインドウ(4節)の右ペインで、ブックマークの
+        // 無いページのサムネイルをダブルクリックした場合の橋渡し(AppState.swiftの
+        // jumpToPageIndexのコメント参照)。
+        appState.jumpToPageIndex = { pageIndex in
+            viewModel.jump(toPageIndex: pageIndex)
+        }
+        // 「ブックマークの編集」ウインドウ(独立ウインドウ)の「Add Current Page」ボタンから、
+        // 現在のページを追加するための橋渡し(jumpToBookmarkと同じ理由。削除・リネームは
+        // BookmarkStoreが直接SwiftDataを操作するため、ここでは扱わない。
+        // AppState.swiftのコメント参照)。
+        appState.addBookmarkAction = {
+            viewModel.addBookmark()
+        }
+        appState.updateCurrentBookmarks(viewModel.bookmarks)
+        appState.updateCurrentPageIndex(viewModel.currentIndex)
+        // メニューバーの「表示モード切替」サブメニューから、特定のモードへ直接切り替える
+        // ための橋渡し。
+        appState.setScalingMode = { mode in
+            viewModel.setScalingMode(mode)
+        }
+        // メニューバーの「Layout」メニュー(8.2節)からの操作の橋渡し。詳細はAppState.swiftの
+        // performLayoutStateChange/performLayoutClear/performAutoLayoutのコメント参照。
+        appState.performLayoutStateChange = { target, state in
+            let pageIndex = target == .partner ? (partnerPageIndex ?? viewModel.currentIndex) : viewModel.currentIndex
+            pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: state)
+        }
+        appState.performLayoutClear = { target in
+            let pageIndex = target == .partner ? (partnerPageIndex ?? viewModel.currentIndex) : viewModel.currentIndex
+            viewModel.clearPageLayout(atIndex: pageIndex)
+            syncMenuCheckmarkState()
+        }
+        appState.performAutoLayout = {
+            isShowingAutoLayoutConfirmation = true
+        }
+        // メニューバーの「スライドショー」「見開き」「右から左へ」「表示モード切替」の
+        // 左に表示するチェックマーク、およびEPUBによるグレーアウト状態の、現在値の初期反映。
+        syncMenuCheckmarkState()
+        scrollMonitor = makeScrollMonitor()
+        contextClickMonitor = makeContextClickMonitor()
+    }
+
+    /// スクロール/スワイプ/マウス移動/キー入力を監視するローカルモニタを作る
+    /// (handleOnAppearのコメント参照。以前はonAppear内に直接書いていた)。
+    private func makeScrollMonitor() -> Any? {
+        NSEvent.addLocalMonitorForEvents(
+            matching: [.scrollWheel, .swipe, .mouseMoved, .keyDown]
+        ) { event in
+            // NSEvent.addLocalMonitorForEventsは「このアプリのどのウインドウ宛てのイベントか」に
+            // 関わらず、アプリ全体のイベントを受け取ってしまう。複数のウインドウ(タブ)を
+            // 開けるようになったため、ここでイベント自身の宛先ウインドウ(event.window)が
+            // 自分自身のウインドウ(hostWindow)と一致するときだけ処理するようにする。
+            // これがないと、スクロール操作が他のqooViewerウインドウはもちろん、
+            // 環境設定ウインドウやファイル選択パネルにまで影響してしまう
+            // (キー入力も同様。ブックマーク名の変更などシート内のテキストフィールドは
+            // 別のNSWindowとして表示されるため、event.windowがhostWindowと一致せず、
+            // ここでの処理には影響しない)。
+            guard let hostWindow, event.window === hostWindow else { return event }
+            switch event.type {
+            case .scrollWheel:
+                // トラックパッド(またはMagic Mouseなど)由来のスクロールイベントには
+                // phase/momentumPhase(.began/.changed/.ended/momentum中など)が付与される。
+                // 通常の物理マウスホイールのノッチ操作では、これらは常に空(.phase == [])。
+                //
+                // 【調査で判明した重要な事実】「システム設定」>「トラックパッド」の
+                // 「ページ間をスワイプ」が2本指設定の場合、その操作は専用のイベント種別
+                // (NSEvent.swipe)としては届かず、通常の.scrollWheelイベントの並びとして
+                // 届く(ログで確認済み。横方向にスワイプしていても、deltaXが大きい
+                // .scrollWheelイベントが連続するだけで、.swipeイベントは一切発生しない)。
+                // そのため、1個ずつの.scrollWheelイベントのdeltaYだけを見てページ送りする
+                // 従来のhandleScrollのロジックのままでは、意図的な横方向スワイプの最中に
+                // 生じるわずかな縦方向のぶれ(deltaY)にまで反応してしまい、1回のつもりの
+                // スワイプで複数回・意図しないページ送りが発生する原因になっていた
+                // (これが一連の不具合報告の実際の原因だった)。
+                //
+                // 「スワイプでページ送り」がONのときは、トラックパッド由来の
+                // .scrollWheelイベントをhandleScrollには渡さず、代わりに
+                // handleTrackpadScrollGestureへ渡す。そちらでは指が触れてから離れるまでの
+                // 一連のイベント(1回のジェスチャー全体)をまとめて扱い、ジェスチャー全体で
+                // 見て横方向優位だった場合にだけ、ジェスチャーの終わりに1回だけページ送りを
+                // 行う。縦方向優位だった場合(2本指の縦スクロール)は何もしない
+                // (完全に無視する)。物理マウスホイールでのページ送りはこれまでどおり
+                // 影響を受けない。
+                let isTrackpadOriginated = !event.phase.isEmpty || !event.momentumPhase.isEmpty
+                if preferences.treatTrackpadFlickAsWheel && isTrackpadOriginated {
+                    handleTrackpadScrollGesture(
+                        phase: event.phase,
+                        deltaX: event.scrollingDeltaX,
+                        deltaY: event.scrollingDeltaY
+                    )
+                    break
+                }
+                handleScroll(deltaY: event.scrollingDeltaY)
+            case .swipe:
+                // 「ページ間をスワイプ」が3本指/4本指設定の場合は、こちらの専用イベントで
+                // 届く(2本指設定の場合の扱いは上のhandleTrackpadScrollGesture参照)。
+                handleSwipe(deltaX: event.deltaX)
+            case .keyDown:
+                // キー入力の検知は、以前はSwiftUIの.onKeyPressで行っていたが、
+                // 環境によっては矢印キーがそちらまで届かない(ビープ音が鳴るだけで
+                // 何も起きない)不具合があったため、動作が確実なこちらのNSEventベースの
+                // 経路に統合した(詳細はRemappableKey.from(nsEvent:)のコメント参照)。
+                if let key = RemappableKey.from(nsEvent: event),
+                   let action = keyBindingStore.action(for: key) {
+                    perform(action)
+                    // イベントをここで消費し、これ以上(標準のフォーカス移動や
+                    // ビープ音などへ)伝播させない。
+                    return nil
+                }
+            default:
+                registerMouseActivity()
+                updateAutoHiddenChromeVisibility(forMouseLocationInWindow: event.locationInWindow)
+            }
+            return event
+        }
+    }
+
+    /// コンテキストメニュー(右クリック、またはControl+左クリック)を起動したクリックの
+    /// 位置を検知する専用のローカルモニタ(設計コンセプト8.4節。handleOnAppearのコメント参照)。
+    ///
+    /// SwiftUIの.contextMenu(menuItems:)は、そのメニューを表示させたクリックの位置を
+    /// クロージャへ渡してくれない。pageAreaは見開き中でも左右のページ画像をまとめて
+    /// 1枚のHStackとして描画している(pageArea参照)ため、左右のページを別々の
+    /// SwiftUIビューに分けてそれぞれへ.contextMenuを付ける、という手も使えない。
+    /// そのため、素のNSEventでクリック自体を(消費せず、通過させたまま)監視し、
+    /// pageAreaFrameInWindow(PageAreaFrameAccessorが報告する、pageAreaの
+    /// ウインドウ座標系でのフレーム)と突き合わせて、クリックがその左半分・右半分の
+    /// どちらで起きたかを覚えておく。実際にメニューが開かれる少し前(mouseDown時点)に
+    /// 判定しておき、contextMenuContentが呼ばれる時点ではこの保存済みの値を参照するだけ、
+    /// という構成にしている。
+    private func makeContextClickMonitor() -> Any? {
+        NSEvent.addLocalMonitorForEvents(
+            matching: [.rightMouseDown, .leftMouseDown]
+        ) { (event: NSEvent) -> NSEvent? in
+            guard let hostWindow, event.window === hostWindow else { return event }
+            let isRightMouseDown: Bool = event.type == .rightMouseDown
+            let isControlClick: Bool = event.type == .leftMouseDown && event.modifierFlags.contains(.control)
+            let isContextMenuClick: Bool = isRightMouseDown || isControlClick
+            guard isContextMenuClick, pageAreaFrameInWindow.width > 0 else { return event }
+            let localX: CGFloat = event.locationInWindow.x - pageAreaFrameInWindow.minX
+            let halfWidth: CGFloat = pageAreaFrameInWindow.width / 2
+            isLastContextClickOnLeftHalf = localX < halfWidth
+            return event
+        }
+    }
+
+    /// .onDisappear{}の中身をprivateメソッドへ切り出したもの(handleOnAppearのコメント参照)。
+    /// 処理内容自体は以前と同じ(各種モニタ・タスクの後始末、appStateへの後始末)。
+    private func handleOnDisappear() {
+        clickZoneArmTask?.cancel()
+        clickZoneArmTask = nil
+        if let scrollMonitor {
+            NSEvent.removeMonitor(scrollMonitor)
+        }
+        scrollMonitor = nil
+        if let contextClickMonitor {
+            NSEvent.removeMonitor(contextClickMonitor)
+        }
+        contextClickMonitor = nil
+        // appStateへの後始末(nilに戻す等)は、まだ自分自身が最後にappStateへ登録した
+        // ViewerViewである場合にだけ行う。同じウインドウ内で本を切り替えた際、既に
+        // 新しいViewerViewのonAppearが自分のトークンで上書きしていれば、ここでの
+        // 後始末は行わない(誤って新しい本の正しい登録を消してしまわないため。
+        // AppState.activeViewerTokenのコメント参照)。
+        if appState.activeViewerToken == viewerToken {
+            appState.performViewerAction = nil
+            appState.jumpToBookmark = nil
+            appState.jumpToPageIndex = nil
+            appState.addBookmarkAction = nil
+            appState.updateCurrentBookmarks([])
+            appState.updateCurrentPageIndex(0)
+            appState.setScalingMode = nil
+            appState.performLayoutStateChange = nil
+            appState.performLayoutClear = nil
+            appState.performAutoLayout = nil
+            appState.resetMenuCheckmarkState()
+        }
+        viewModel.stopSlideshow()
+        viewModel.flushPendingSave()
+        cursorHideTask?.cancel()
+        cursorHideTask = nil
+        toastDismissTask?.cancel()
+        toastDismissTask = nil
+        if isCursorHidden {
+            NSCursor.unhide()
+            isCursorHidden = false
+        }
+        for observer in windowObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        windowObservers = []
+    }
+
+    /// pending.pageIndexを基準に、伝播範囲選択ダイアログ(applyLayoutAlerts参照)へ渡す選択肢を
+    /// 絞り込む。先頭ページには「このページより前のページ全体」を、末尾ページには「このページ
+    /// より後のページ全体」を出さない(BookmarkListView.availableScopes(forPageKey:)と同じ考え方)。
+    private func availableScopes(forPageIndex pageIndex: Int) -> [LayoutPropagationScope] {
+        let maxIndex = viewModel.book.pages.count - 1
+        return LayoutPropagationScope.allCases.filter { scope in
+            switch scope {
+            case .thisPageOnly, .wholeBook: return true
+            case .beforeThisPage: return pageIndex > 0
+            case .afterThisPage: return pageIndex < maxIndex
+            }
+        }
+    }
+
+    // 以前はbody全体が「巨大なZStack + そこへ10個以上のモディファイア(.onAppear/.onDisappear/
+    // 6個の.onChange/2個の.sheet/3個の.alert/1個の.confirmationDialog)を連鎖させた1つの式」
+    // という構成だった。.onAppear/.onDisappearの中身をprivateメソッドへ切り出しても、次は
+    // 別の箇所(.onDisappear、さらにその次の箇所)で同種のエラーが再発した(ユーザー報告)ため、
+    // 場当たり的にクロージャ単位で切り出すのではなく、body自体を複数の独立した式に分割する
+    // 方針に変更する。
+    //
+    // ZStack本体をmainZStackという別のcomputed varへ切り出し、モディファイアの連鎖も
+    // 「ライフサイクル/onChange」「シート」「アラート・ダイアログ」の3グループに分け、
+    // それぞれをジェネリックなprivateメソッド(applyLifecycleHandlers/applySheets/
+    // applyLayoutAlerts)としてbodyの外に出す。body自身は、各段階の結果をlet(型は
+    // コンパイラに推論させるが、1段階ごとに確定させるので式全体をまとめて推論するより
+    // 大幅に軽い)へ順番に代入していくだけの、浅く単純な式になる。
     var body: some View {
+        let withLifecycle = applyLifecycleHandlers(to: mainZStack)
+        let withSheets = applySheets(to: withLifecycle)
+        return applyLayoutAlerts(to: withSheets)
+    }
+
+    /// bodyから切り出したZStack本体(handleOnAppearのコメント参照)。
+    private var mainZStack: some View {
         // フルスクリーン表示中は、表示メニューの「ツールバーを隠す」「プログレスバーを隠す」の
         // 設定に関わらず、常に自動隠しになる。ウインドウ表示のときは、それぞれの設定がONの
         // ときだけ自動隠しになる(OFFなら常に表示)。
@@ -139,7 +442,7 @@ struct ViewerView: View {
         // 一方、自動隠し中にマウスを近づけて一時的に表示するときは、画像表示エリアの
         // サイズを一切変えたくない(表示するたびに画像が拡大縮小されるのを避けるため)ので、
         // ZStackで画像の上に半透明のパネルとして重ねて表示する形にしている。
-        ZStack {
+        return ZStack {
             VStack(spacing: 0) {
                 if !toolbarAutoHides {
                     toolbar
@@ -221,160 +524,32 @@ struct ViewerView: View {
         })
         .focusable()
         .focused($isFocused)
-        .onAppear {
-            isFocused = true
-            // クリックでのページ送りは、ウェルカム画面からのダブルクリックの2回目のクリックを
-            // 読み捨てるため、一定時間経ってから有効にする(詳細はisClickZoneArmedのコメント参照)。
-            isClickZoneArmed = false
-            clickZoneArmTask?.cancel()
-            clickZoneArmTask = Task {
-                try? await Task.sleep(nanoseconds: UInt64(clickZoneArmDelay * 1_000_000_000))
-                guard !Task.isCancelled else { return }
-                isClickZoneArmed = true
+    }
+
+    /// bodyのモディファイア連鎖のうち、ライフサイクル(onAppear/onDisappear)と
+    /// onChangeをまとめたグループ(mainZStackのコメント参照。型チェックが長くかかりすぎる
+    /// 不具合対策で、body全体を複数の独立した式に分割するうちの1段階)。
+    ///
+    /// 以前はこのクロージャの中に橋渡し処理・2つのNSEventローカルモニタ(スクロール/
+    /// スワイプ/キー入力の監視、コンテキストメニュー起動クリックの位置監視)の実装を
+    /// すべて直接書いていたが、body全体が1つの巨大な式としてSwiftUIの型推論に
+    /// 掛かるため、Xcodeが「The compiler is unable to type-check this expression in
+    /// reasonable time」を出すようになった(ユーザー報告)。個々のクロージャ内の式を
+    /// 型注釈で分割しても改善しなかったため、この処理全体をprivateメソッド
+    /// (handleOnAppear/makeScrollMonitor/makeContextClickMonitor)へ切り出し、
+    /// ここからは`handleOnAppear()`という1つの関数呼び出しだけが見えるようにした。
+    @ViewBuilder
+    private func applyLifecycleHandlers<Content: View>(to content: Content) -> some View {
+        content
+            .onAppear {
+                handleOnAppear()
             }
-            // 以下でappStateへ書き込むより前に、まず自分自身のトークンを登録する
-            // (AppState.activeViewerTokenのコメント参照。同じウインドウ内で本を切り替えた際、
-            // 古いViewerViewのonDisappearが今から行う登録を誤って後始末してしまわないため)。
-            appState.activeViewerToken = viewerToken
-            viewModel.onRequestSiblingBook = { forward in
-                if forward {
-                    appState.openSibling(after: viewModel.book.sourceURL)
-                } else {
-                    appState.openSibling(before: viewModel.book.sourceURL)
-                }
+            // handleOnAppear/makeScrollMonitor/makeContextClickMonitorと同じ理由
+            // (型チェックが長くかかりすぎる不具合対策)で、こちらもprivateメソッドへ
+            // 切り出している。
+            .onDisappear {
+                handleOnDisappear()
             }
-            appState.performViewerAction = { action in
-                perform(action)
-            }
-            // メニューバーの「ブックマーク」メニュー下部に、現在の本のブックマーク一覧を
-            // 表示するための橋渡し(詳細はAppState.swiftのコメント参照)。
-            appState.jumpToBookmark = { bookmark in
-                viewModel.jump(to: bookmark)
-            }
-            // 「ブックマークの編集」ウインドウ(独立ウインドウ)の「Add Current Page」ボタンから、
-            // 現在のページを追加するための橋渡し(jumpToBookmarkと同じ理由。削除・リネームは
-            // BookmarkStoreが直接SwiftDataを操作するため、ここでは扱わない。
-            // AppState.swiftのコメント参照)。
-            appState.addBookmarkAction = {
-                viewModel.addBookmark()
-            }
-            appState.updateCurrentBookmarks(viewModel.bookmarks)
-            appState.updateCurrentPageIndex(viewModel.currentIndex)
-            // メニューバーの「表示モード切替」サブメニューから、特定のモードへ直接切り替える
-            // ための橋渡し。
-            appState.setScalingMode = { mode in
-                viewModel.setScalingMode(mode)
-            }
-            // メニューバーの「スライドショー」「見開き」「右から左へ」「表示モード切替」の
-            // 左に表示するチェックマーク、およびEPUBによるグレーアウト状態の、現在値の初期反映。
-            syncMenuCheckmarkState()
-            scrollMonitor = NSEvent.addLocalMonitorForEvents(
-                matching: [.scrollWheel, .swipe, .mouseMoved, .keyDown]
-            ) { event in
-                // NSEvent.addLocalMonitorForEventsは「このアプリのどのウインドウ宛てのイベントか」に
-                // 関わらず、アプリ全体のイベントを受け取ってしまう。複数のウインドウ(タブ)を
-                // 開けるようになったため、ここでイベント自身の宛先ウインドウ(event.window)が
-                // 自分自身のウインドウ(hostWindow)と一致するときだけ処理するようにする。
-                // これがないと、スクロール操作が他のqooViewerウインドウはもちろん、
-                // 環境設定ウインドウやファイル選択パネルにまで影響してしまう
-                // (キー入力も同様。ブックマーク名の変更などシート内のテキストフィールドは
-                // 別のNSWindowとして表示されるため、event.windowがhostWindowと一致せず、
-                // ここでの処理には影響しない)。
-                guard let hostWindow, event.window === hostWindow else { return event }
-                switch event.type {
-                case .scrollWheel:
-                    // トラックパッド(またはMagic Mouseなど)由来のスクロールイベントには
-                    // phase/momentumPhase(.began/.changed/.ended/momentum中など)が付与される。
-                    // 通常の物理マウスホイールのノッチ操作では、これらは常に空(.phase == [])。
-                    //
-                    // 【調査で判明した重要な事実】「システム設定」>「トラックパッド」の
-                    // 「ページ間をスワイプ」が2本指設定の場合、その操作は専用のイベント種別
-                    // (NSEvent.swipe)としては届かず、通常の.scrollWheelイベントの並びとして
-                    // 届く(ログで確認済み。横方向にスワイプしていても、deltaXが大きい
-                    // .scrollWheelイベントが連続するだけで、.swipeイベントは一切発生しない)。
-                    // そのため、1個ずつの.scrollWheelイベントのdeltaYだけを見てページ送りする
-                    // 従来のhandleScrollのロジックのままでは、意図的な横方向スワイプの最中に
-                    // 生じるわずかな縦方向のぶれ(deltaY)にまで反応してしまい、1回のつもりの
-                    // スワイプで複数回・意図しないページ送りが発生する原因になっていた
-                    // (これが一連の不具合報告の実際の原因だった)。
-                    //
-                    // 「スワイプでページ送り」がONのときは、トラックパッド由来の
-                    // .scrollWheelイベントをhandleScrollには渡さず、代わりに
-                    // handleTrackpadScrollGestureへ渡す。そちらでは指が触れてから離れるまでの
-                    // 一連のイベント(1回のジェスチャー全体)をまとめて扱い、ジェスチャー全体で
-                    // 見て横方向優位だった場合にだけ、ジェスチャーの終わりに1回だけページ送りを
-                    // 行う。縦方向優位だった場合(2本指の縦スクロール)は何もしない
-                    // (完全に無視する)。物理マウスホイールでのページ送りはこれまでどおり
-                    // 影響を受けない。
-                    let isTrackpadOriginated = !event.phase.isEmpty || !event.momentumPhase.isEmpty
-                    if preferences.treatTrackpadFlickAsWheel && isTrackpadOriginated {
-                        handleTrackpadScrollGesture(
-                            phase: event.phase,
-                            deltaX: event.scrollingDeltaX,
-                            deltaY: event.scrollingDeltaY
-                        )
-                        break
-                    }
-                    handleScroll(deltaY: event.scrollingDeltaY)
-                case .swipe:
-                    // 「ページ間をスワイプ」が3本指/4本指設定の場合は、こちらの専用イベントで
-                    // 届く(2本指設定の場合の扱いは上のhandleTrackpadScrollGesture参照)。
-                    handleSwipe(deltaX: event.deltaX)
-                case .keyDown:
-                    // キー入力の検知は、以前はSwiftUIの.onKeyPressで行っていたが、
-                    // 環境によっては矢印キーがそちらまで届かない(ビープ音が鳴るだけで
-                    // 何も起きない)不具合があったため、動作が確実なこちらのNSEventベースの
-                    // 経路に統合した(詳細はRemappableKey.from(nsEvent:)のコメント参照)。
-                    if let key = RemappableKey.from(nsEvent: event),
-                       let action = keyBindingStore.action(for: key) {
-                        perform(action)
-                        // イベントをここで消費し、これ以上(標準のフォーカス移動や
-                        // ビープ音などへ)伝播させない。
-                        return nil
-                    }
-                default:
-                    registerMouseActivity()
-                    updateAutoHiddenChromeVisibility(forMouseLocationInWindow: event.locationInWindow)
-                }
-                return event
-            }
-        }
-        .onDisappear {
-            clickZoneArmTask?.cancel()
-            clickZoneArmTask = nil
-            if let scrollMonitor {
-                NSEvent.removeMonitor(scrollMonitor)
-            }
-            scrollMonitor = nil
-            // appStateへの後始末(nilに戻す等)は、まだ自分自身が最後にappStateへ登録した
-            // ViewerViewである場合にだけ行う。同じウインドウ内で本を切り替えた際、既に
-            // 新しいViewerViewのonAppearが自分のトークンで上書きしていれば、ここでの
-            // 後始末は行わない(誤って新しい本の正しい登録を消してしまわないため。
-            // AppState.activeViewerTokenのコメント参照)。
-            if appState.activeViewerToken == viewerToken {
-                appState.performViewerAction = nil
-                appState.jumpToBookmark = nil
-                appState.addBookmarkAction = nil
-                appState.updateCurrentBookmarks([])
-                appState.updateCurrentPageIndex(0)
-                appState.setScalingMode = nil
-                appState.resetMenuCheckmarkState()
-            }
-            viewModel.stopSlideshow()
-            viewModel.flushPendingSave()
-            cursorHideTask?.cancel()
-            cursorHideTask = nil
-            toastDismissTask?.cancel()
-            toastDismissTask = nil
-            if isCursorHidden {
-                NSCursor.unhide()
-                isCursorHidden = false
-            }
-            for observer in windowObservers {
-                NotificationCenter.default.removeObserver(observer)
-            }
-            windowObservers = []
-        }
         // キー入力の検知はonAppear内のNSEventローカルモニタ(.keyDownケース)に統合したため、
         // 以前ここにあった.onKeyPressは削除した(矢印キーがそちらまで届かない不具合があり、
         // 二重に処理してしまうのを避けるため)。
@@ -396,25 +571,50 @@ struct ViewerView: View {
             appState.updateCurrentPageIndex(newValue)
             syncMenuCheckmarkState()
         }
-        .sheet(isPresented: $showThumbnailGrid) {
-            ThumbnailGridView(viewModel: viewModel)
+        // hasPartnerPageDisplayed(Layoutメニューの「見開き表示中は左右2ページ分の項目に分ける」
+        // 判定)はcurrentImages.count(実際に表示中の枚数)にも依存するが、以前はcurrentIndexの
+        // 変化でしかsyncMenuCheckmarkState()を呼んでいなかった。履歴から本を再開した直後は、
+        // currentIndexが(前回終了時の値のまま)最初から確定している一方、その位置の実際の
+        // 見開きペア画像(currentImages)は本を開くシーケンスの中で非同期に後から読み込まれるため、
+        // currentIndex自体は変化せずcurrentImagesだけが1→2枚に変わることがある。この場合
+        // 上のonChange(of: viewModel.currentIndex)が発火せず、Layoutメニューが「単一ページ」の
+        // ままになってしまっていた(ユーザー報告: 起動して履歴から本を開いた直後、実際には
+        // 見開き表示なのにLayoutメニューが単一ページ用の項目のままになる)。
+        .onChange(of: viewModel.currentImages.count) { _, _ in
+            syncMenuCheckmarkState()
         }
-        // 「ブックマークの編集」は、以前はここに.sheetとして表示していたが、「お気に入りの整理」
-        // ウインドウと見た目・操作感を揃えるため、独立ウインドウ(Window("Edit Bookmarks",
-        // id: "editBookmarks"))へ変更した。表示自体はshowBookmarkEditor()がopenWindowで行う
-        // (BookmarkEditorWindow.swift参照)。
-        // お気に入りへの登録(要望2)。登録先フォルダの選択・新規フォルダ作成・重複確認は
-        // FavoriteFolderPickerView側で完結する。
-        .sheet(isPresented: $showFavoriteFolderPicker) {
-            FavoriteFolderPickerView(book: viewModel.book, favoritesStore: favoritesStore) {
-                showToast(
-                    String(
-                        format: String(localized: "Added “%@” to Favorites", locale: preferences.effectiveLocale),
-                        viewModel.book.title
-                    )
-                )
+    }
+
+    /// bodyのモディファイア連鎖のうち、シート表示をまとめたグループ
+    /// (mainZStack/applyLifecycleHandlersのコメント参照)。
+    @ViewBuilder
+    private func applySheets<Content: View>(to content: Content) -> some View {
+        content
+            .sheet(isPresented: $showThumbnailGrid) {
+                ThumbnailGridView(viewModel: viewModel)
             }
-        }
+            // 「ブックマークの編集」は、以前はここに.sheetとして表示していたが、
+            // 「お気に入りの整理」ウインドウと見た目・操作感を揃えるため、独立ウインドウ
+            // (Window("Edit Bookmarks", id: "editBookmarks"))へ変更した。表示自体は
+            // showBookmarkEditor()がopenWindowで行う(BookmarkEditorWindow.swift参照)。
+            // お気に入りへの登録(要望2)。登録先フォルダの選択・新規フォルダ作成・重複確認は
+            // FavoriteFolderPickerView側で完結する。
+            .sheet(isPresented: $showFavoriteFolderPicker) {
+                FavoriteFolderPickerView(book: viewModel.book, favoritesStore: favoritesStore) {
+                    showToast(
+                        String(
+                            format: String(localized: "Added “%@” to Favorites", locale: preferences.effectiveLocale),
+                            viewModel.book.title
+                        )
+                    )
+                }
+            }
+    }
+
+    /// bodyのモディファイア連鎖のうち、確認アラート・伝播範囲ダイアログをまとめたグループ
+    /// (mainZStack/applyLifecycleHandlersのコメント参照)。
+    @ViewBuilder
+    private func applyLayoutAlerts<Content: View>(to content: Content) -> some View {
         // お気に入り一覧(要望4)。以前はここに.popover(isPresented:)でFavoritesListPopoverContent
         // (List+DisclosureGroup)を表示していたが、フォルダを開くたびにクリックが必要で
         // 使い勝手が良くなかったため、メニューバー側と同じくホバーでサブフォルダが展開する
@@ -423,6 +623,7 @@ struct ViewerView: View {
         // は不要になったため、ここには何も無い(showFavoritesListMenu()のコメント参照)。
         // 環境設定「本を再度開いたときの動作」が「問い合わせる」のときだけ、
         // 前回位置から再開するかどうかを尋ねる(ViewerViewModel.init参照)。
+        content
         .alert(
             "Resume from where you left off?",
             isPresented: Binding(
@@ -441,6 +642,100 @@ struct ViewerView: View {
                 viewModel.confirmResumeFromLastPage(true)
             }
         }
+        // レイアウト操作(3.2節。「レイアウト情報を削除する」を除く)の後に表示する、
+        // 伝播範囲選択ダイアログ(3.3節)。ツールバー・コンテキストメニュー・メニューバーの
+        // どの経路から操作しても、いったんpendingLayoutStateChangeへ「対象ページ・新しい状態」を
+        // 詰めるだけの共通の仕組みにしているため、ダイアログ自体はここ1箇所だけで済む。
+        .confirmationDialog(
+            "Apply Layout Change To…",
+            isPresented: Binding(
+                get: { pendingLayoutStateChange != nil },
+                set: { isPresented in
+                    if !isPresented { pendingLayoutStateChange = nil }
+                }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let pending = pendingLayoutStateChange {
+                ForEach(availableScopes(forPageIndex: pending.pageIndex)) { scope in
+                    Button(scope.titleKey) {
+                        pendingLayoutStateChange = nil
+                        Task {
+                            await viewModel.setPageLayout(atIndex: pending.pageIndex, to: pending.state, scope: scope)
+                            syncMenuCheckmarkState()
+                        }
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingLayoutStateChange = nil
+            }
+        } message: {
+            Text("Choose how far this layout change should apply.")
+        }
+        // 見開き表示中、ツールバー/お気に入りメニュー/キーボードショートカットからブックマークを
+        // 追加しようとしたとき、環境設定「Adding Bookmarks in Spread View」が「実行するたびに
+        // 尋ねる」の場合に表示する、左右どちらを対象にするかの確認ダイアログ(ユーザー報告)。
+        // コンテキストメニュー(右クリック)からの追加はクリック位置で一意に決まるため、この
+        // ダイアログは経由しない(contextMenuContent参照)。
+        .confirmationDialog(
+            "Which page do you want to add to Bookmarks?",
+            isPresented: $isShowingBookmarkSideDialog,
+            titleVisibility: .visible
+        ) {
+            Button("Left Page") {
+                addBookmarkWithToast(atIndex: spreadLeftPageIndex)
+            }
+            Button("Right Page") {
+                addBookmarkWithToast(atIndex: spreadRightPageIndex)
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        // 本の内容が置き換わった可能性がある場合の確認(設計コンセプト2.5節)。
+        // ViewerViewModel.prepareBookが指紋の不一致を検出すると
+        // pendingLayoutReplacementStatusがセットされる。ここではアプリ内DBのレイアウト設定
+        // (BookLayoutSettings/PageLayoutOverride)を維持するか破棄するかだけを尋ね、
+        // 「エクスポートしてから破棄する」の3択目はJSON入出力(6節)実装後のPhase4で追加する。
+        .alert(
+            "This Book's Contents May Have Changed",
+            isPresented: Binding(
+                get: { viewModel.pendingLayoutReplacementStatus != nil },
+                set: { _ in }
+            )
+        ) {
+            Button("Keep Existing Settings") {
+                viewModel.resolveLayoutReplacement(applyExisting: true)
+                syncMenuCheckmarkState()
+            }
+            Button("Discard Settings", role: .destructive) {
+                viewModel.resolveLayoutReplacement(applyExisting: false)
+                syncMenuCheckmarkState()
+            }
+        } message: {
+            Text(
+                "qooViewer detected that this book's files may have changed since its saved layout settings (reading direction, page order, single/spread page settings) were recorded. Keep the existing settings, or discard them and start fresh?"
+            )
+        }
+        // 「現在の表示を基準に自動でレイアウトする」(3.1節)の実行前確認。本全体を上書きする
+        // 操作のため必ず確認を挟む。既存の「除外」ページの扱い(保持/解除)の追加確認は、
+        // 3.3節の伝播範囲選択ダイアログ側と同じくPhase2では簡略化し、常に「保持」として扱う
+        // (LayoutAutoCalculator.recalculateが除外ページを計算対象に含めないことで実現している)。
+        .alert(
+            "Auto-Layout the Whole Book?",
+            isPresented: $isShowingAutoLayoutConfirmation
+        ) {
+            Button("Cancel", role: .cancel) {}
+            Button("Auto-Layout") {
+                Task {
+                    await viewModel.autoLayoutFromCurrentView()
+                    syncMenuCheckmarkState()
+                }
+            }
+        } message: {
+            Text(
+                "This recalculates the layout of the entire book, based on the page (or spread) currently displayed. This cannot be undone."
+            )
+        }
     }
 
     /// 見開き表示中、実際に2枚組でペア表示されているときの「相方ページ」のインデックス
@@ -450,6 +745,23 @@ struct ViewerView: View {
     /// 対象に含めない)。viewModel.currentImages.count(実際に表示中の枚数)で判定する。
     private var partnerPageIndex: Int? {
         viewModel.currentImages.count > 1 ? viewModel.currentIndex + 1 : nil
+    }
+
+    /// 見開き中、画面上「左」に表示されているページのインデックス(読み方向を反映)。
+    /// partnerPageIndexがnil(実際には1枚しか表示していない)の場合はcurrentIndexを返す
+    /// (呼び出し側はこの場合そもそも左右の選択を必要としないため、単に安全なフォールバック)。
+    /// Layoutサブメニュー(contextMenuContent内)と同じ考え方(isRightToLeftならpartnerPageIndexが
+    /// 画面左)だが、こちらはブックマーク追加の左右選択ダイアログ(isShowingBookmarkSideDialog)
+    /// から使う。
+    private var spreadLeftPageIndex: Int {
+        guard let partnerPageIndex else { return viewModel.currentIndex }
+        return viewModel.readingDirection == .rightToLeft ? partnerPageIndex : viewModel.currentIndex
+    }
+
+    /// spreadLeftPageIndexと対になる、画面上「右」に表示されているページのインデックス。
+    private var spreadRightPageIndex: Int {
+        guard let partnerPageIndex else { return viewModel.currentIndex }
+        return viewModel.readingDirection == .rightToLeft ? viewModel.currentIndex : partnerPageIndex
     }
 
     /// 現在の見開き(単ページ表示中は1枚だけ)に、ブックマークが1件でも付いているかどうか。
@@ -561,6 +873,17 @@ struct ViewerView: View {
                 .lineLimit(1)
 
             Spacer()
+
+            // 「現在の表示を基準に自動でレイアウトする」ボタン(設計コンセプト8.5節)。
+            // ブックマーク追加・削除ボタンの左に配置する。本全体を上書きする操作のため、
+            // 実行前に確認ダイアログ(isShowingAutoLayoutConfirmation)を挟む(3.1節)。
+            Button {
+                isShowingAutoLayoutConfirmation = true
+            } label: {
+                Image(systemName: "rectangle.split.2x1")
+            }
+            .help("Auto-Layout Based on Current View")
+            .disabled(viewModel.hasAuthoritativeEpubLayout)
 
             // 「現在のブックマーク一覧を表示」「お気に入り一覧を表示」のボタンは廃止した。一覧の
             // 表示自体はメニューバー(「お気に入り」メニュー)・キーボードショートカット
@@ -680,6 +1003,42 @@ struct ViewerView: View {
 
         Divider()
 
+        // レイアウト操作(設計コンセプト8.4節)。メニューバー版(QooViewerApp.swiftの
+        // CommandMenu("Layout"))とほぼ同じ内容だが、こちらはこのビュー自身のviewModelを
+        // 直接参照できるため、FocusedValue/AppStateのブリッジを経由せず直接呼び出せる。
+        //
+        // 設計コンセプト8.4節の想定どおり、見開き表示中はこのメニューを開いた右クリックの
+        // 位置(左右どちらのページの上か)によって対象を一意に決める。メニューバー版
+        // (QooViewerApp.swiftのCommandMenu("Layout"))はキーボードショートカット等クリック位置の
+        // 情報が無い経路からも開けるため、そちらは引き続き「左のページ」「右のページ」を
+        // 両方並べる形のままにしている(コンテキストメニューだけがこの位置判定の恩恵を
+        // 受けられる、という設計上の非対称性はそのため意図的なもの)。
+        // isLastContextClickOnLeftHalfの検知の仕組みはcontextClickMonitor/
+        // PageAreaFrameAccessorのコメント参照。
+        Menu("Layout") {
+            Button("Auto-Layout Based on Current View") {
+                isShowingAutoLayoutConfirmation = true
+            }
+            .disabled(viewModel.hasAuthoritativeEpubLayout)
+
+            Divider()
+
+            if let partnerPageIndex {
+                // 読み方向によって、画面上の左右とcurrentIndex/partnerPageIndexの前後関係が
+                // 入れ替わる(orderedCurrentImagesと同じ考え方。isRightToLeftはこの
+                // contextMenuContent冒頭で既に定義済みのものを再利用する)。
+                let leftPageIndex = isRightToLeft ? partnerPageIndex : viewModel.currentIndex
+                let rightPageIndex = isRightToLeft ? viewModel.currentIndex : partnerPageIndex
+
+                layoutStateMenuItems(forPageIndex: isLastContextClickOnLeftHalf ? leftPageIndex : rightPageIndex)
+            } else {
+                layoutStateMenuItems(forPageIndex: viewModel.currentIndex)
+            }
+        }
+        .disabled(viewModel.hasAuthoritativeEpubLayout)
+
+        Divider()
+
         // お気に入りグループ・ブックマークグループの並び順、および文言はメニューバーの
         // 「お気に入り」メニュー(QooViewerApp.swiftのCommandMenu("Favorites"))に合わせている
         // (お気に入りが上、ブックマークが下)。追加・削除は登録状態に応じて文言・動作が
@@ -696,8 +1055,27 @@ struct ViewerView: View {
 
         Divider()
 
-        Button(isCurrentPageBookmarked ? "Remove Current Page from Bookmarks" : "Add Current Page to Bookmarks") {
-            perform(.toggleBookmark)
+        // ユーザー報告: 見開き左の画像を右クリックして「現在のページをブックマークに追加」
+        // しても見開き右がブックマークされてしまう。見開き表示中(実際に2ページ組で
+        // ペア表示されているとき)は、Layoutサブメニューと同じくクリック位置
+        // (isLastContextClickOnLeftHalf)で対象を一意に決め、「左のページ」「右のページ」を
+        // 明示したラベルで、そのページ単体を追加/削除する(toggleBookmark(atIndex:)参照)。
+        // 単一ページ表示中(見開きのペアがEPUB仕様上の空白ページの場合も含む)は、対象が
+        // 1ページしかないため従来通りの汎用トグルのままにする(bug報告の明示的な要望)。
+        if let partnerPageIndex {
+            let leftPageIndex = isRightToLeft ? partnerPageIndex : viewModel.currentIndex
+            let rightPageIndex = isRightToLeft ? viewModel.currentIndex : partnerPageIndex
+            let clickedPageIndex = isLastContextClickOnLeftHalf ? leftPageIndex : rightPageIndex
+            let isClickedPageBookmarked = viewModel.bookmarks.contains { $0.pageIndex == clickedPageIndex }
+            Button(
+                bookmarkContextMenuTitle(isLeft: isLastContextClickOnLeftHalf, isBookmarked: isClickedPageBookmarked)
+            ) {
+                toggleBookmark(atIndex: clickedPageIndex)
+            }
+        } else {
+            Button(isCurrentPageBookmarked ? "Remove Current Page from Bookmarks" : "Add Current Page to Bookmarks") {
+                perform(.toggleBookmark)
+            }
         }
         // メニューバー側のBookmark Listサブメニュー(QooViewerApp.swift)と同じ内容。
         Menu("Bookmark List") {
@@ -731,6 +1109,32 @@ struct ViewerView: View {
         )
     }
 
+    /// レイアウトサブメニュー(コンテキストメニュー・メニューバー共通の構成)の、1ページ分の
+    /// 項目群(設計コンセプト3.2節)。「レイアウト情報を削除する」は、既にそのページへ
+    /// レイアウト上書きが設定されている場合のみ表示する。
+    @ViewBuilder
+    private func layoutStateMenuItems(forPageIndex pageIndex: Int) -> some View {
+        Button("Set as Single Page") {
+            pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .single)
+        }
+        Button("Set as Spread Right Page") {
+            pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .spreadRight)
+        }
+        Button("Set as Spread Left Page") {
+            pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .spreadLeft)
+        }
+        Button("Set as Excluded (Hidden)") {
+            pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .excluded)
+        }
+        if viewModel.hasPageLayoutOverride(atIndex: pageIndex) {
+            Divider()
+            Button("Delete Layout Info") {
+                viewModel.clearPageLayout(atIndex: pageIndex)
+                syncMenuCheckmarkState()
+            }
+        }
+    }
+
     /// 読み方向(右開き/左開き)を反映した表示順の画像配列。
     /// pageArea と showActualSizeWindow の両方で同じ並び替えロジックが必要なため、
     /// ロジックの重複(将来どちらかだけ直し忘れるバグの元)を避けるために1箇所にまとめている。
@@ -740,26 +1144,74 @@ struct ViewerView: View {
             : viewModel.currentImages
     }
 
+    /// pageAreaが実際に描画するスロット列(画面上の左→右の順)。
+    ///
+    /// 通常は orderedCurrentImages をそのまま実画像スロットへ変換するだけだが、1枚だけ
+    /// 表示中で、そのページ自身にEPUB/DB由来の明示的な見開き左右指定があるとき
+    /// (viewModel.currentSoleImageForcedSpreadPosition)は、EPUB Reading Systems 3.3
+    /// 6.1.4節「page-spread-left/rightの指定は、相方が見つからない場合でも空白ページを
+    /// 挿入してでも尊重しなければならない」に合わせ、指定側に実画像・反対側に空白を配置する
+    /// (qooViewerの画像ビューアをEPUB出力前のプレビューとして機能させるための対応)。
+    ///
+    /// currentSoleImageForcedSpreadPositionが返す.left/.rightは画面上の絶対位置を表す
+    /// (EPUB仕様のpage-spread-left/right自体がそうであり、DB由来のPageLayoutState.
+    /// spreadLeft/spreadRightも常に画面上の左右と一致させる設計にしているため。
+    /// ViewerViewModel側のコメント参照)。そのためここでも読み方向による変換は不要で、
+    /// .leftならそのまま画面左に実画像・画面右に空白、という単純な対応でよい
+    /// (orderedCurrentImagesは1要素の配列を反転しても変わらないため、この時点で
+    /// 画像自体は既に正しい要素になっている)。
+    private var orderedCurrentSlots: [SpreadPageSlot] {
+        let images = orderedCurrentImages
+        guard images.count == 1,
+              let position = viewModel.currentSoleImageForcedSpreadPosition,
+              let onlyImage = images.first else {
+            return images.map { .image($0) }
+        }
+        switch position {
+        case .left: return [.image(onlyImage), .blank]
+        case .right: return [.blank, .image(onlyImage)]
+        case .center: return [.image(onlyImage)]
+        }
+    }
+
     private var pageArea: some View {
         GeometryReader { geo in
-            let orderedImages = orderedCurrentImages
+            let orderedSlots = orderedCurrentSlots
             // 見開き表示で左右のページの元画像の解像度が異なる(スキャン品質がページごとに
             // バラバラな本などでよくある)場合でも、実際の本のように両ページの物理的な高さを
             // 揃えて表示したい。画像そのものの画素数をそのまま使うと、解像度が低い方の画像は
             // 相対的に小さく表示されてしまう(拡大されているように見えない)ため、含まれる
-            // 画像のうち最大の高さを基準にし、他の画像はアスペクト比を保ったままその高さに
-            // 合わせた幅で計算する。
-            let referenceHeight = orderedImages.map { CGFloat($0.height) }.max() ?? 0
-            let contentSize = totalContentSize(for: orderedImages, referenceHeight: referenceHeight)
+            // 画像のうち最大の高さを基準にし、他の画像(空白スロットを含む)はアスペクト比を
+            // 保ったままその高さに合わせた幅で計算する。
+            let referenceHeight = orderedSlots.compactMap { slot -> CGFloat? in
+                if case .image(let image) = slot { return CGFloat(image.height) }
+                return nil
+            }.max() ?? 0
+            let contentSize = totalContentSize(for: orderedSlots, referenceHeight: referenceHeight)
             let scale = renderScale(contentSize: contentSize, containerSize: geo.size)
+            // 空白スロット(orderedCurrentSlotsのコメント参照)の幅は、同じ見開き内にある
+            // 実画像のアスペクト比をそのまま流用する(相方が実在すればこのくらいの幅になる
+            // はず、という近似。実際の本の見開きで白紙ページが対向ページと同じ判型になるのに
+            // 近い見た目にするため)。
+            let mirrorAspectRatio = referenceAspectRatio(for: orderedSlots)
 
             let imagesRow = HStack(spacing: 0) {
-                ForEach(Array(orderedImages.enumerated()), id: \.offset) { _, image in
-                    let width = displayWidth(for: image, atHeight: referenceHeight)
-                    Image(decorative: image, scale: 1)
-                        .interpolation(preferences.interpolationQuality.swiftUIInterpolation)
-                        .resizable()
-                        .frame(width: width * scale, height: referenceHeight * scale)
+                ForEach(Array(orderedSlots.enumerated()), id: \.offset) { _, slot in
+                    let width = displayWidth(for: slot, atHeight: referenceHeight, mirrorAspectRatio: mirrorAspectRatio)
+                    switch slot {
+                    case .image(let image):
+                        Image(decorative: image, scale: 1)
+                            .interpolation(preferences.interpolationQuality.swiftUIInterpolation)
+                            .resizable()
+                            .frame(width: width * scale, height: referenceHeight * scale)
+                    case .blank:
+                        // EPUB仕様の「相方が見つからない場合の空白ページ挿入」を再現する
+                        // プレースホルダー。実際の本の白紙ページに近い見た目にするため、
+                        // 環境設定の背景色に関わらず白で塗る(orderedCurrentSlots参照)。
+                        Rectangle()
+                            .fill(Color.white)
+                            .frame(width: width * scale, height: referenceHeight * scale)
+                    }
                 }
             }
 
@@ -817,18 +1269,48 @@ struct ViewerView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // コンテキストメニューの右クリック位置判定(設計コンセプト8.4節)のために、
+        // pageArea自身のウインドウ座標系でのフレームを常に最新に保っておく
+        // (contextClickMonitor/PageAreaFrameAccessor参照)。.backgroundなので、
+        // pageAreaと全く同じ位置・サイズになる(ヒットテストやクリック処理には一切影響しない)。
+        .background(
+            PageAreaFrameAccessor { frame in
+                pageAreaFrameInWindow = frame
+            }
+        )
     }
 
-    /// referenceHeight(見開き内で最大の高さ)に揃えたときの、この画像のアスペクト比を
+    /// referenceHeight(見開き内で最大の高さ)に揃えたときの、このスロットのアスペクト比を
     /// 保った幅。単ページ表示(画像が1枚だけ、かつそれ自身が基準)のときはimage.widthと一致する。
-    private func displayWidth(for image: CGImage, atHeight height: CGFloat) -> CGFloat {
-        guard image.height > 0 else { return 0 }
-        return height * CGFloat(image.width) / CGFloat(image.height)
+    /// 空白スロットの場合はmirrorAspectRatio(orderedCurrentSlots参照)を使う。
+    private func displayWidth(for slot: SpreadPageSlot, atHeight height: CGFloat, mirrorAspectRatio: CGFloat) -> CGFloat {
+        switch slot {
+        case .image(let image):
+            guard image.height > 0 else { return 0 }
+            return height * CGFloat(image.width) / CGFloat(image.height)
+        case .blank:
+            return height * mirrorAspectRatio
+        }
     }
 
-    private func totalContentSize(for images: [CGImage], referenceHeight: CGFloat) -> CGSize {
-        guard !images.isEmpty, referenceHeight > 0 else { return .zero }
-        let width = images.reduce(CGFloat(0)) { $0 + displayWidth(for: $1, atHeight: referenceHeight) }
+    /// スロット列の中に含まれる実画像のうち、最初に見つかったもののアスペクト比(幅/高さ)。
+    /// 空白スロットの幅を決めるための近似値として使う(orderedCurrentSlots参照)。
+    /// 実画像が1枚も無い場合は1(正方形)を返すが、この関数はorderedCurrentSlotsが空白を
+    /// 生成する条件(必ず実画像が1枚存在する)の下でしか意味を持たないため、実際には
+    /// 起こらない。
+    private func referenceAspectRatio(for slots: [SpreadPageSlot]) -> CGFloat {
+        for slot in slots {
+            if case .image(let image) = slot, image.height > 0 {
+                return CGFloat(image.width) / CGFloat(image.height)
+            }
+        }
+        return 1
+    }
+
+    private func totalContentSize(for slots: [SpreadPageSlot], referenceHeight: CGFloat) -> CGSize {
+        guard !slots.isEmpty, referenceHeight > 0 else { return .zero }
+        let mirrorAspectRatio = referenceAspectRatio(for: slots)
+        let width = slots.reduce(CGFloat(0)) { $0 + displayWidth(for: $1, atHeight: referenceHeight, mirrorAspectRatio: mirrorAspectRatio) }
         return CGSize(width: width, height: referenceHeight)
     }
 
@@ -1137,7 +1619,11 @@ struct ViewerView: View {
             scalingMode: viewModel.scalingMode,
             isReadingDirectionLocked: viewModel.isReadingDirectionLocked,
             isDisplayModeLocked: viewModel.isDisplayModeLocked,
-            isPageShiftLocked: viewModel.isPageShiftLocked
+            isPageShiftLocked: viewModel.isPageShiftLocked,
+            hasAuthoritativeEpubLayout: viewModel.hasAuthoritativeEpubLayout,
+            hasPartnerPageDisplayed: partnerPageIndex != nil,
+            hasCurrentPageLayoutOverride: viewModel.hasPageLayoutOverride(atIndex: viewModel.currentIndex),
+            hasPartnerPageLayoutOverride: partnerPageIndex.map { viewModel.hasPageLayoutOverride(atIndex: $0) } ?? false
         )
     }
 
@@ -1271,19 +1757,61 @@ struct ViewerView: View {
                 bookmarkStore.delete(bookmark)
             }
             showToast(bookmarkRemovalToastMessage(for: names))
+        } else if partnerPageIndex != nil, preferences.spreadBookmarkTargetBehavior == .askEachTime {
+            // 見開き表示中(実際に2ページ組でペア表示されているとき)で、環境設定
+            // (「Adding Bookmarks in Spread View」)が「実行するたびに尋ねる」の場合は、
+            // ここでは追加を実行せず、左右どちらを対象にするか尋ねる確認ダイアログ
+            // (isShowingBookmarkSideDialog。applyLayoutAlerts参照)を表示するだけに留める
+            // (ユーザー報告: ツールバー/お気に入りメニューからのブックマーク追加対象の切り替え)。
+            isShowingBookmarkSideDialog = true
         } else {
-            viewModel.addBookmark()
-            // addBookmark()は同期的にmodelContext.save()・reloadBookmarks()まで行うため、
-            // 呼び出し直後の時点でviewModel.bookmarksは既に新しいブックマークを含んでいる。
-            if let added = viewModel.bookmarks.first(where: { $0.pageIndex == viewModel.currentIndex }) {
-                showToast(
-                    String(
-                        format: String(localized: "Added “%@” to Bookmarks", locale: preferences.effectiveLocale),
-                        added.name
-                    )
-                )
-            }
+            // 単一ページ表示中(partnerPageIndexがnil。EPUB仕様の空白ページ表示を含む)、または
+            // 環境設定が既定側(読み方向に応じた既定側を常に対象にする)の場合は、従来通り
+            // currentIndex(見開きの起点ページ)を対象にする。
+            addBookmarkWithToast(atIndex: viewModel.currentIndex)
         }
+    }
+
+    /// 指定したページにブックマークを追加し、追加できた場合はトーストで知らせる。
+    /// toggleCurrentPageBookmark・見開き左右選択ダイアログ・コンテキストメニューの片側専用
+    /// トグル(toggleBookmark(atIndex:))が共通して使う、実際の追加処理本体。
+    private func addBookmarkWithToast(atIndex index: Int) {
+        viewModel.addBookmark(atIndex: index)
+        // addBookmark(atIndex:)は同期的にmodelContext.save()・reloadBookmarks()まで行うため、
+        // 呼び出し直後の時点でviewModel.bookmarksは既に新しいブックマークを含んでいる。
+        if let added = viewModel.bookmarks.first(where: { $0.pageIndex == index }) {
+            showToast(
+                String(
+                    format: String(localized: "Added “%@” to Bookmarks", locale: preferences.effectiveLocale),
+                    added.name
+                )
+            )
+        }
+    }
+
+    /// コンテキストメニューから、見開きの片側(クリックした側)のページ単体を対象に
+    /// ブックマークを追加/削除する(contextMenuContent参照)。ツールバー等の経路
+    /// (toggleCurrentPageBookmark)と異なり、常にクリックした1ページだけを対象にする
+    /// (相方ページには触れない。ユーザー報告: 見開き左の画像を右クリックしても見開き右が
+    /// ブックマークされてしまう不具合の修正)。
+    private func toggleBookmark(atIndex index: Int) {
+        guard let bookmarkStore = appState.bookmarkStore else { return }
+        if let existing = bookmarkStore.bookmarks(forBookID: viewModel.book.id).first(where: { $0.pageIndex == index }) {
+            let name = existing.name
+            bookmarkStore.delete(existing)
+            showToast(bookmarkRemovalToastMessage(for: [name]))
+        } else {
+            addBookmarkWithToast(atIndex: index)
+        }
+    }
+
+    /// コンテキストメニューのブックマーク項目(見開き表示中)のラベル文言。クリックした側
+    /// (isLeft)と、そのページが既にブックマーク済みかどうかで4通りに切り替える。
+    private func bookmarkContextMenuTitle(isLeft: Bool, isBookmarked: Bool) -> LocalizedStringKey {
+        if isBookmarked {
+            return isLeft ? "Remove Left Page from Bookmarks" : "Remove Right Page from Bookmarks"
+        }
+        return isLeft ? "Add Left Page to Bookmarks" : "Add Right Page to Bookmarks"
     }
 
     /// ブックマーク削除時のトースト文言を組み立てる。見開きの両ページにブックマークが付いていて
@@ -1410,12 +1938,14 @@ struct ViewerView: View {
         }
     }
 
-    /// 見開きの左/右ページを原寸大の別ウインドウで表示する(cooViewerの「実寸表示ウィンドウ」相当)
+    /// 見開きの左/右ページを原寸大の別ウインドウで表示する(cooViewerの「実寸表示ウィンドウ」相当)。
+    /// 対象のスロットが空白(orderedCurrentSlots参照。EPUB仕様に合わせた空白ページ挿入)の
+    /// 場合は、実画像が存在しないため何もしない。
     private func showActualSizeWindow(forLeftPage: Bool) {
-        let orderedImages = orderedCurrentImages
-        guard !orderedImages.isEmpty else { return }
-        let index = forLeftPage ? 0 : orderedImages.count - 1
-        let image = orderedImages[index]
+        let orderedSlots = orderedCurrentSlots
+        guard !orderedSlots.isEmpty else { return }
+        let index = forLeftPage ? 0 : orderedSlots.count - 1
+        guard case .image(let image) = orderedSlots[index] else { return }
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: min(CGFloat(image.width), 900), height: min(CGFloat(image.height), 700)),
@@ -1601,5 +2131,60 @@ private final class WindowYPositionReportingView: NSView {
         // Y座標になる。
         let pointInWindow = convert(NSPoint.zero, to: nil)
         onPositionChange?(pointInWindow.y)
+    }
+}
+
+/// 取り付けた場所(pageArea)自身のフレーム全体(原点+サイズ)が、ウインドウ座標系
+/// (NSEvent.locationInWindowと同じ基準)のどこにあるかをコールバックで報告する、透明な
+/// ヘルパービュー。WindowYPositionAccessorと同じ考え方だが、Y座標1点だけでなくフレーム
+/// 全体(X座標・幅を含む)が必要なため別に用意している。
+///
+/// コンテキストメニュー(右クリック、またはControl+左クリック)を起動したクリックが、
+/// 見開き表示中のpageAreaの左半分・右半分のどちらで起きたかを判定するために使う
+/// (設計コンセプト8.4節。contextClickMonitorのコメント参照)。
+private struct PageAreaFrameAccessor: NSViewRepresentable {
+    let onChange: (CGRect) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = PageAreaFrameReportingView()
+        view.onFrameChange = onChange
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let view = nsView as? PageAreaFrameReportingView else { return }
+        view.onFrameChange = onChange
+        // WindowYPositionAccessorと同じ理由(SwiftUI側のレイアウト変更がAppKitのlayout()より
+        // 先にここへ届くことがあるための保険)で、次のランループでも再度報告しておく。
+        DispatchQueue.main.async {
+            view.reportFrame()
+        }
+    }
+}
+
+/// PageAreaFrameAccessorが実際に使うNSView本体。自身がウインドウに追加されたとき
+/// (viewDidMoveToWindow)、または自身の位置・サイズが変わったとき(layout。ウインドウの
+/// リサイズや表示モードの切り替えによる再レイアウトを含む)に、自動的にフレームを再報告する。
+/// 何も描画しない透明なビューで、.backgroundとして重ねているだけなのでヒットテストや
+/// クリック処理には一切影響しない。
+private final class PageAreaFrameReportingView: NSView {
+    var onFrameChange: ((CGRect) -> Void)?
+
+    override func layout() {
+        super.layout()
+        reportFrame()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        reportFrame()
+    }
+
+    func reportFrame() {
+        guard window != nil else { return }
+        // 自身のbounds全体を、ウインドウ座標系(NSEvent.locationInWindowと同じ基準)へ
+        // 変換する。.backgroundとして重ねているため、boundsはpageAreaと全く同じサイズになる。
+        let frameInWindow = convert(bounds, to: nil)
+        onFrameChange?(frameInWindow)
     }
 }

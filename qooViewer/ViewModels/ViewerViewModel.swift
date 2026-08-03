@@ -3,6 +3,15 @@ import CoreGraphics
 import SwiftData
 import Combine
 
+/// 見開き表示の1コマ分の表示内容(実画像 or 空白)。ViewerView.pageAreaが、EPUB Reading
+/// Systems 3.3 6.1.4節の「page-spread-left/rightの指定は、相方が見つからない場合でも
+/// 空白ページを挿入してでも尊重しなければならない(MUST)」という挙動を再現するために使う
+/// (ViewerViewModel.currentSoleImageForcedSpreadPositionのコメント参照)。
+enum SpreadPageSlot {
+    case image(CGImage)
+    case blank
+}
+
 /// ビューワー画面(ページ表示)の状態を管理する ViewModel。
 /// ページ送り、見開き/単ページの切り替え、読み方向の切り替え、表示スケーリングモード、
 /// ブックマーク、スライドショーを担当する。
@@ -11,7 +20,14 @@ import Combine
 /// 本ごとの読書状態(最後に読んだページ・表示モード・読み方向・表示スケーリング)はSwiftDataで永続化する。
 @MainActor
 final class ViewerViewModel: ObservableObject {
-    let book: MangaBook
+    /// @Publishedなのは、除外(非表示)・並べ替えの変更(reloadLayoutData参照)をViewerView/
+    /// ProgressBarViewが直接読んでいるbook.pages/book.titleなどへ即座に反映するため。
+    @Published private(set) var book: MangaBook
+    /// この本を開いたときの、除外・並べ替え適用前の生のページ一覧(BookLoaderがそのまま返した
+    /// 順序)。reloadLayoutDataが、DB由来の設定(pageOrderOverride・excluded)が変わるたびに、
+    /// ここから都度book.pagesを再構築し直すために保持する(book.pages自体は既に絞り込まれた
+    /// 後の配列のため、一度除外したページを後から復元する、といった操作の元データにはできない)。
+    private let rawPages: [PageRef]
 
     @Published var currentIndex: Int
     @Published var displayMode: DisplayMode
@@ -29,10 +45,31 @@ final class ViewerViewModel: ObservableObject {
     /// (true = 次の本へ, false = 前の本へ)。ViewerView側が appState 経由で実装をセットする。
     var onRequestSiblingBook: ((Bool) -> Void)?
 
+    /// この本にレイアウトデータ(BookLayoutSettings/PageLayoutOverride)が記録されていて、
+    /// かつ差し替えの疑いがある(2.5節)ときだけ非nilになる。ViewerViewがこれを見て確認
+    /// ダイアログを表示し、resolveLayoutReplacement(applyExisting:)で解決する。
+    /// 解決されるまでの間、DB由来のレイアウトヒント(pageLayoutStates/bookLayoutSettings)は
+    /// 意図的に空のまま扱う(誤った組み合わせで表示してしまうことを避ける安全策)。
+    @Published private(set) var pendingLayoutReplacementStatus: LayoutContentReplacementStatus?
+
     private let modelContext: ModelContext
     private let readingState: BookReadingState
     private let pageLoader: PageLoader
     private let preferences: AppPreferences
+    private let layoutStore: LayoutStore
+    /// この本のBookLayoutSettings(本全体の読み方向上書き・見開き強制・ページ順補正)。
+    /// 差し替えの疑いがあり未解決の間はnil(pendingLayoutReplacementStatus参照)。
+    private var bookLayoutSettings: BookLayoutSettings?
+    /// この本のPageLayoutOverride(ページ単位の設定)を、pageKey(PageRef.sortKey)をキーにした
+    /// 辞書として保持する。差し替えの疑いがあり未解決の間は空のまま。
+    private var pageLayoutStates: [String: PageLayoutState] = [:]
+    /// 「ブックマーク・レイアウトの編集」ウインドウ(LayoutStore、この本を今開いていなくても
+    /// 操作できる独立ウインドウ)側でこの本のレイアウト設定が変更されたときに、pageLayoutStates/
+    /// bookLayoutSettingsを読み直すための監視トークン。bookmarksChangeObserverと同じ考え方
+    /// (詳細はBookLayoutSettings.swiftのNotification.Name.layoutDataDidChangeのコメント参照)。
+    /// ページの並び替え・除外(book.pagesの構造そのもの)も、reloadLayoutData内でrawPagesから
+    /// 都度再構築することで、この本を開き直さずに反映する(詳細はreloadLayoutDataのコメント参照)。
+    private var layoutDataChangeObserver: NSObjectProtocol?
     /// 「ブックマークの編集」ウインドウ(BookmarkStore、この本を今開いていなくても操作できる
     /// 独立ウインドウ)側でこの本のブックマークが変更されたときに、自分のbookmarks配列を
     /// 読み直すための監視トークン。詳細はBookmark.swiftのNotification.Name.bookmarksDidChange
@@ -63,17 +100,46 @@ final class ViewerViewModel: ObservableObject {
     /// SwiftDataへの実際の保存(ディスクI/O)をまとめて行うためのデバウンス用タスク。
     private var saveDebounceTask: Task<Void, Never>?
 
-    init(book: MangaBook, modelContext: ModelContext, preferences: AppPreferences) {
-        self.book = book
+    init(book incomingBook: MangaBook, modelContext: ModelContext, preferences: AppPreferences, layoutStore: LayoutStore) {
         self.modelContext = modelContext
         self.preferences = preferences
-        self.pageLoader = PageLoader(book: book)
+        self.layoutStore = layoutStore
 
-        let bookID = book.id
-        var descriptor = FetchDescriptor<BookReadingState>(
-            predicate: #Predicate<BookReadingState> { $0.bookID == bookID }
+        // レイアウト設定(ページ順補正・除外ページの除去。2.3節・2.2節)を、実際に読書フローで
+        // 使うページ一覧に適用してからbookを確定する(設計コンセプト12節「アーキテクチャ上の
+        // 変更点」参照)。差し替えの疑いがある場合(2.5節)は何も適用せず、生のページ一覧のまま
+        // pendingLayoutReplacementStatusを立てる(確認ダイアログで解決されるまで安全側に倒す)。
+        let prepared = Self.prepareBook(from: incomingBook, layoutStore: layoutStore)
+        // book(@Published)は、他のストアドプロパティ(全体)が出揃うまでself経由で読み出せない
+        // (@Publishedはラッパー経由の算出プロパティのため、Swiftの2段階初期化規則上「selfを
+        // 使う」扱いになる。以前bookが単純なletストアドプロパティだった頃はこの制約が無く、
+        // 下記の各所でbookを直接読んでいたが、@Publishedへの変更に伴いコンパイルエラーになった)。
+        // そのため、初期化がすべて完了するまで(下のself.currentIndex = initialIndexの代入まで)は
+        // このpreparedBookローカル変数を代わりに使う。
+        let preparedBook = prepared.book
+        self.book = preparedBook
+        // reloadLayoutDataでの再構築の元データとして、除外・並べ替え適用前の生のページ一覧を
+        // 保持しておく(rawPagesのコメント参照)。
+        self.rawPages = incomingBook.pages
+        self.bookLayoutSettings = prepared.settings
+        self.pageLayoutStates = prepared.overrides
+        if case .possiblyReplaced = prepared.replacementStatus {
+            self.pendingLayoutReplacementStatus = prepared.replacementStatus
+        } else {
+            self.pendingLayoutReplacementStatus = nil
+        }
+        // EPUBの権威的なレイアウト指定(の有無)を、本を開くたびにキャッシュし直しておく
+        // (「ブックマーク・レイアウトの編集」ウインドウが、本を読み込み直さずに判定できるように
+        // するため。詳細はBookLayoutSettings.hasEpubLayoutLockのコメント参照)。
+        layoutStore.recordEpubLayoutLock(
+            for: prepared.book,
+            hasLock: prepared.book.epubLayoutHint?.forcedDisplayMode != nil
+                || prepared.book.epubLayoutHint?.pageProgressionDirection != nil
         )
-        descriptor.fetchLimit = 1
+
+        self.pageLoader = PageLoader(book: preparedBook)
+
+        let bookID = preparedBook.id
 
         // bookID(パス)が同じでも、そのファイル/フォルダの中身が実際には別のものに
         // 差し替わっていることがある(同じ名前で別の本をダウンロードし直した、フォルダの
@@ -81,25 +147,30 @@ final class ViewerViewModel: ObservableObject {
         // 代わりに(1)ページ数 (2)元のファイル/フォルダの更新日時 (3)ファイルサイズ
         // (フォルダの場合は取得できないため常にnil)を軽量な「指紋」として使い、前回保存した
         // 値と1つでも異なれば「差し替えられた別の内容」とみなす。
-        let currentPageCount = book.pages.count
-        let sourceResourceValues = try? book.sourceURL.resourceValues(
-            forKeys: [.contentModificationDateKey, .fileSizeKey]
-        )
-        let currentModificationDate = sourceResourceValues?.contentModificationDate
-        let currentFileSize = sourceResourceValues?.fileSize.map(Int64.init)
+        // 指紋の計算・比較ロジック自体はContentFingerprintへ切り出してある(BookLayoutSettingsも
+        // 同じ仕組みを使うため。詳細はContentFingerprint.swift参照)。
+        let currentFingerprint = ContentFingerprint.current(for: preparedBook)
 
-        let fetchedState = try? modelContext.fetch(descriptor).first
+        // #Predicate<BookReadingState> { $0.bookID == bookID }による絞り込みフェッチが、
+        // レイアウト変更直後などに0件を誤って返すことがある不具合が実機で確認された
+        // (LayoutStore.pageOverrides(forBookID:)のコメント参照。キャプチャしたローカル変数名が
+        // モデル側プロパティ名と同名であることが関係している可能性が高い)。同じ問題を避けるため、
+        // 絞り込み無しで全件取得してからSwift側でfilterする。
+        let allReadingStates = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
+        let fetchedState = allReadingStates.first { $0.bookID == bookID }
         // recordedPageCountがnilなのは、この指紋の仕組みを導入する前に保存された古いデータ
-        // (まだ比較のしようがない)ということなので、その場合は「差し替えなし」として扱う。
-        let contentLooksReplaced: Bool
-        if let fetchedState, let recordedPageCount = fetchedState.recordedPageCount {
-            contentLooksReplaced =
-                recordedPageCount != currentPageCount
-                || fetchedState.recordedSourceModificationDate != currentModificationDate
-                || fetchedState.recordedSourceFileSize != currentFileSize
-        } else {
-            contentLooksReplaced = false
+        // (まだ比較のしようがない)ということなので、その場合は「差し替えなし」として扱う
+        // (ContentFingerprint.looksReplaced内で判定)。
+        let recordedFingerprint = fetchedState.map {
+            ContentFingerprint.Recorded(
+                pageCount: $0.recordedPageCount,
+                modificationDate: $0.recordedSourceModificationDate,
+                fileSize: $0.recordedSourceFileSize
+            )
         }
+        let contentLooksReplaced = ContentFingerprint.looksReplaced(
+            recorded: recordedFingerprint, current: currentFingerprint
+        )
         // 「以前から読んでいる本」として扱ってよいのは、データが見つかり、かつ中身が
         // 差し替えられていないと判断できた場合だけ。差し替えられていた場合は、古い読書状態と
         // ブックマークを削除し、初めて開く本として扱う(以下のisReturningToKnownBook参照)。
@@ -123,7 +194,14 @@ final class ViewerViewModel: ObservableObject {
                 }
                 modelContext.delete(fetchedState)
             }
-            state = BookReadingState(bookID: bookID, scalingMode: preferences.defaultScalingMode)
+            // readingDirectionは、BookReadingState.initのデフォルト引数(右開き固定)に頼らず、
+            // 環境設定の既定読み方向(初回起動時にシステム言語から一度だけ決定したもの。
+            // 設計コンセプト11.1節、AppPreferences.defaultReadingDirection参照)を明示的に渡す。
+            state = BookReadingState(
+                bookID: bookID,
+                readingDirection: preferences.defaultReadingDirection,
+                scalingMode: preferences.defaultScalingMode
+            )
             modelContext.insert(state)
             // 新しい本を開いたとき(初めて開く本、または中身が差し替わったと判断した本)だけ、
             // 本ごとのデータ(読書状態・ブックマーク)が環境設定の上限を超えていないか確認し、
@@ -135,16 +213,16 @@ final class ViewerViewModel: ObservableObject {
             )
         }
         // 今回の指紋を常に記録しておく(次回開いたときの比較対象になる)。
-        state.recordedPageCount = currentPageCount
-        state.recordedSourceModificationDate = currentModificationDate
-        state.recordedSourceFileSize = currentFileSize
+        state.recordedPageCount = currentFingerprint.pageCount
+        state.recordedSourceModificationDate = currentFingerprint.modificationDate
+        state.recordedSourceFileSize = currentFingerprint.fileSize
         self.readingState = state
 
         // 環境設定「本を再度開いたときの動作」に応じて、実際にどのページから表示するかを決める。
         // (以前から読んでいる本(isReturningToKnownBookがtrueの場合)にのみ意味がある判定で、
         // 初めて開く本・中身が差し替わった本は常にlastPageIndexが0のため、どの設定でも結果は変わらない)
-        let restoredIndex = min(max(state.lastPageIndex, 0), max(book.pages.count - 1, 0))
-        let wasOnLastPage = book.pages.count > 0 && restoredIndex >= book.pages.count - 1
+        let restoredIndex = min(max(state.lastPageIndex, 0), max(preparedBook.pages.count - 1, 0))
+        let wasOnLastPage = preparedBook.pages.count > 0 && restoredIndex >= preparedBook.pages.count - 1
         let initialIndex: Int
         var needsConfirmation = false
         switch preferences.reopenBehavior {
@@ -164,20 +242,45 @@ final class ViewerViewModel: ObservableObject {
         // 設定より優先してその値を採用する(値が無い項目は、これまで通りSwiftDataの保存値に従う)。
         // 対応する切り替え操作(toggleReadingDirection/toggleDisplayMode)自体も、この値が
         // 強制されている間は無効化する(isReadingDirectionLocked/isDisplayModeLocked参照)。
-        self.displayMode = book.epubLayoutHint?.forcedDisplayMode ?? state.displayMode
-        self.readingDirection = book.epubLayoutHint?.pageProgressionDirection ?? state.readingDirection
+        //
+        // EPUB以外の形式でも、BookLayoutSettingsに読み方向/見開き強制の上書きが記録されていれば
+        // (4.1節の編集ウインドウで設定する)、EPUBのヒントに次ぐ優先順位でそれを採用する
+        // (優先順位: EPUB > DB > SwiftDataの保存値。設計コンセプト2.4節)。
+        self.displayMode = preparedBook.epubLayoutHint?.forcedDisplayMode ?? bookLayoutSettings?.forcedDisplayMode ?? state.displayMode
+        self.readingDirection = preparedBook.epubLayoutHint?.pageProgressionDirection
+            ?? bookLayoutSettings?.readingDirectionOverride
+            ?? state.readingDirection
         self.scalingMode = state.scalingMode
         self.needsResumeConfirmation = needsConfirmation
-        // 保存されていた(または直前に計算した)ページ位置が、EPUBのpage-spread-right指定を
-        // 持つページをそのまま指していると、そのページ単体が見開きの起点であるかのように
-        // 扱われてしまい、本来組になるはずの1つ前のページが表示されない状態になる。
-        // jump(toPageIndex:)と同じ補正をここでも適用しておく(詳細はnormalizedAnchorIndex参照)。
-        self.currentIndex = Self.normalizedAnchorIndex(initialIndex, in: book)
+        // Swiftの初期化規則上、self(のインスタンスメソッド)は全ストアドプロパティに値が
+        // 入るまで呼べない。currentIndex自体もその1つのため、まず素の値を代入して初期化を
+        // 完了させる(このself.currentIndex = initialIndexの代入をもって、以後selfを
+        // 自由に使える状態になる)。
+        self.currentIndex = initialIndex
+
+        // 保存されていた(または直前に計算した)ページ位置が、EPUBのpage-spread-right指定
+        // (またはDB由来の「見開き右」指定)を持つページをそのまま指していると、そのページ単体が
+        // 見開きの起点であるかのように扱われてしまい、本来組になるはずの1つ前のページが
+        // 表示されない状態になる。jump(toPageIndex:)と同じ補正をここでも適用しておく
+        // (詳細はnormalizedAnchorIndex参照。プロパティが出揃った後でしか呼べないインスタンス
+        // メソッドのため、上のcurrentIndexへの代入が完了した後のこの位置で呼ぶ)。
+        currentIndex = normalizedAnchorIndex(initialIndex)
 
         Task { [weak self] in
             await self?.loadCurrentSpread()
         }
         reloadBookmarks()
+
+        // 設計コンセプト7.5節「逆方向」: EPUBの目次(nav.xhtml)があり、この本にまだブックマークが
+        // 1件も無い場合は自動的にブックマークとして取り込む。book.epubLayoutHintが非nilであること
+        // (常にloadEpub経由でのみ設定される値、詳細はMangaBook.swift参照)を「この本はEPUBである」
+        // という判定に使っている。読み込み・解析はTask内で非同期に行い、本を開く処理自体を
+        // ブロックしない。
+        if bookmarks.isEmpty, book.epubLayoutHint != nil {
+            Task { [weak self] in
+                await self?.autoImportEpubTableOfContentsAsBookmarksIfNeeded()
+            }
+        }
 
         // 「ブックマークの編集」ウインドウは本のウインドウとは独立しているため、そちらで
         // この本のブックマークが削除・リネームされても、このViewerViewModelは何もしなければ
@@ -188,15 +291,47 @@ final class ViewerViewModel: ObservableObject {
         bookmarksChangeObserver = NotificationCenter.default.addObserver(
             forName: .bookmarksDidChange, object: nil, queue: .main
         ) { [weak self] notification in
-            let changedBookID = notification.userInfo?["bookID"] as? String
-            guard changedBookID == nil || changedBookID == ownBookID else { return }
-            self?.reloadBookmarks()
+            // queue: .mainを指定しているため実行時には必ずMainActor(メインスレッド)上で
+            // 呼ばれるが、NotificationCenterのクロージャ自体の型はMainActorに分離されて
+            // いないため、コンパイラは静的にそれを保証できない。Task { @MainActor in ... }で
+            // 包み直すと、今度はSwift 6の厳格な並行性チェックで「非同期に実行されるコードで
+            // selfをキャプチャしている」という別の警告/エラーになる(FavoritesStore.swiftの
+            // 同種のコメント参照)ため、代わりにMainActor.assumeIsolatedで「実行時には
+            // 既にMainActor上にいる」ことを伝える(queue: .mainにより保証されている前提の
+            // 表明であり、Task化のような余分な非同期ホップも発生させない)。
+            MainActor.assumeIsolated {
+                let changedBookID = notification.userInfo?["bookID"] as? String
+                guard changedBookID == nil || changedBookID == ownBookID else { return }
+                self?.reloadBookmarks()
+            }
+        }
+
+        // 「ブックマーク・レイアウトの編集」ウインドウ側でこの本のレイアウト設定が変更されても
+        // 気づけないため、bookmarksChangeObserverと同じ考え方でbookIDが一致する変更だけを拾う。
+        // ページの並び替え・除外を含め、reloadLayoutDataがその場でbook.pagesへ反映する
+        // (詳細はreloadLayoutDataのコメント参照)。userInfoに"focusPageKey"が含まれていれば
+        // (postLayoutFocusChange/BookLayoutEditorViewModelから、ユーザーが直接操作したページとして
+        // 明示的に付与されたもの)、更新後の表示にそのページを含めるようreloadLayoutDataへ
+        // そのまま渡す(ユーザー要望)。
+        layoutDataChangeObserver = NotificationCenter.default.addObserver(
+            forName: .layoutDataDidChange, object: nil, queue: .main
+        ) { [weak self] notification in
+            // 上のbookmarksChangeObserverと同じ理由でMainActor.assumeIsolatedを使う。
+            MainActor.assumeIsolated {
+                let changedBookID = notification.userInfo?["bookID"] as? String
+                guard changedBookID == nil || changedBookID == ownBookID else { return }
+                let focusPageKey = notification.userInfo?["focusPageKey"] as? String
+                self?.reloadLayoutData(focusPageKey: focusPageKey)
+            }
         }
     }
 
     deinit {
         if let bookmarksChangeObserver {
             NotificationCenter.default.removeObserver(bookmarksChangeObserver)
+        }
+        if let layoutDataChangeObserver {
+            NotificationCenter.default.removeObserver(layoutDataChangeObserver)
         }
     }
 
@@ -212,16 +347,19 @@ final class ViewerViewModel: ObservableObject {
     var pageCount: Int { book.pages.count }
 
     /// forward: true = 物語的に「次のページ」へ進む、false = 「前のページ」へ戻る
-    /// ステップ数は「今表示している画像の枚数」を使う。横長画像で単ページ表示になっている場合は
-    /// 1枚分だけ進む/戻るようにするため(見開き設定でも常に2ページ分ずれるわけではない)。
+    /// 前進のステップ数は「今表示している画像の枚数」で決まる(横長画像で単ページ表示に
+    /// なっている場合は1枚分だけ進むようにするため。見開き設定でも常に2ページ分ずれる
+    /// わけではない)。後退のステップ数はbackwardStepSize(from:fallback:)参照
+    /// (「今表示している画像の枚数」をそのまま戻り幅に使うと、直前の見開きの実際の枚数と
+    /// 食い違う場合に不具合が起きるため、別ロジックにしている)。
     func advance(forward: Bool) {
         // まだ表示できていない待ち行列中の目的地があれば、そこを起点に次の目的地を計算する
         // (currentIndexは、待ち行列の処理がまだ追いついていない古い値のことがあるため)。
         let baseIndex = pageFlipQueue.last ?? currentIndex
-        let step = max(currentImages.count, 1)
+        let forwardStep = max(currentImages.count, 1)
         if forward {
-            if baseIndex + step < book.pages.count {
-                enqueuePageFlip(to: baseIndex + step)
+            if baseIndex + forwardStep < book.pages.count {
+                enqueuePageFlip(to: baseIndex + forwardStep)
             } else if pageFlipQueue.isEmpty {
                 // アニメーションで通過中(待ち行列に処理待ちが残っている)にページ境界へ
                 // 達した場合、次の本への移動などの境界処理は待ち行列が空になってから、
@@ -229,6 +367,7 @@ final class ViewerViewModel: ObservableObject {
                 handleForwardBoundary()
             }
         } else {
+            let step = backwardStepSize(from: baseIndex, fallback: forwardStep)
             if baseIndex - step >= 0 {
                 enqueuePageFlip(to: baseIndex - step)
             } else if baseIndex != 0 {
@@ -237,6 +376,47 @@ final class ViewerViewModel: ObservableObject {
                 handleBackwardBoundary()
             }
         }
+    }
+
+    /// advance(forward: false)(前のページへ戻る)のステップ数を決める。
+    ///
+    /// 経緯(ユーザー報告): 「今表示している画像の枚数」をそのまま戻り幅に使っていたところ、
+    /// レイアウト自動計算(3.1節)などでパリティがずれ、見開きの並びの途中に単独ページが
+    /// 1枚だけ挟まっているケース(例: …見開きA/B, 単独C, 見開きD/E…)で、見開きD/Eの表示中に
+    /// 「前のページへ戻る」と、今表示中の枚数(2枚)をそのまま戻り幅に使ってしまうため、
+    /// 単独ページCを飛び越えて見開きB(実際にはAとのペアの後半)へ直接着地してしまっていた
+    /// (Cが未表示のまま、Bが「見開きの片方だけ表示され反対側は空白」という誤った見た目に
+    /// なる不具合も併発していた)。
+    ///
+    /// 正しい戻り幅は、今表示中の枚数ではなく、baseIndexの直前にある見開きが実際に何枚で
+    /// 構成されているか(baseIndex-2とbaseIndex-1がshouldPairWithNextPageと同じ基準で
+    /// ペアと判定されるか)によって決まる。shouldPairWithNextPage自体は横長画像ヒューリス
+    /// ティックのフォールバックのために画像の読み込み(非同期)を必要とするが、advance自体は
+    /// 同期的なAPIのため画像を読み込めない。ただし、layoutHint(at:)(EPUB/DB由来の明示指定)
+    /// だけで判定がつく場合は画像を読み込む必要が無い(shouldPairWithNextPageのコメント
+    /// 参照: currentPosition/nextPositionのどちらかでも非nilなら、横長ヒューリスティックの
+    /// フォールバックまで行かずに結論が出る)。そのため、明示指定だけで判定できる範囲はここで
+    /// 同期的に正しく計算し、判定できない(どちらの位置にも明示指定が無く、横長ヒューリス
+    /// ティックの結果を画像無しに知りようが無い)場合だけ、従来通りの近似(fallback。今表示中の
+    /// 枚数)にフォールバックする。
+    private func backwardStepSize(from index: Int, fallback: Int) -> Int {
+        guard displayMode == .spread else { return fallback }
+        guard index - 1 >= 0 else { return fallback }
+        guard index - 2 >= 0 else { return 1 }
+
+        let earlierPosition = layoutHint(at: index - 2)
+        let laterPosition = layoutHint(at: index - 1)
+        let isRTL = readingDirection == .rightToLeft
+        let disallowedForEarlier: PageSpreadPosition = isRTL ? .left : .right
+        let disallowedForLater: PageSpreadPosition = isRTL ? .right : .left
+
+        if earlierPosition == .center || earlierPosition == disallowedForEarlier { return 1 }
+        if laterPosition == .center || laterPosition == disallowedForLater { return 1 }
+        if earlierPosition != nil || laterPosition != nil { return 2 }
+
+        // どちらの位置にも明示指定が無い場合、横長ヒューリスティックの判定に画像の読み込みが
+        // 必要になり、この同期的なAPIでは判定できない。以前からの近似にフォールバックする。
+        return fallback
     }
 
     /// advance(forward:)から呼ばれる、待ち行列への追加とアニメーション開始。
@@ -346,7 +526,7 @@ final class ViewerViewModel: ObservableObject {
         guard !book.pages.isEmpty else { return }
         cancelPendingPageFlip()
         let clamped = max(0, min(index, book.pages.count - 1))
-        let normalized = Self.normalizedAnchorIndex(clamped, in: book)
+        let normalized = normalizedAnchorIndex(clamped)
         guard normalized != currentIndex else { return }
         currentIndex = normalized
         persistState()
@@ -362,28 +542,34 @@ final class ViewerViewModel: ObservableObject {
         jump(toPageIndex: index)
     }
 
-    /// EPUBがrendition:spreadで本全体の見開き/単ページを強制している間はtrue。
-    /// trueの間はtoggleDisplayMode()自体が何もしない(呼び出し元のUIも合わせて
-    /// グレーアウトする。ViewerView/QooViewerAppの`.disabled()`参照)。
+    /// EPUBがrendition:spreadで本全体の見開き/単ページを強制している間、またはBookLayoutSettingsで
+    /// 本全体の見開き/単ページ強制が設定されている間はtrue。trueの間はtoggleDisplayMode()自体が
+    /// 何もしない(呼び出し元のUIも合わせてグレーアウトする。ViewerView/QooViewerAppの
+    /// `.disabled()`参照)。
+    ///
+    /// EPUB由来・DB由来のどちらも「著者(またはそれに代わってユーザーが明示した)権威的な
+    /// レイアウト指定」という同じ役割を担うため、同じロック扱いにしている(優先順位自体は
+    /// EPUB > DBだが、ロックするかどうかという意味では両者は対等。設計コンセプト2.4節・12節参照)。
     var isDisplayModeLocked: Bool {
-        book.epubLayoutHint?.forcedDisplayMode != nil
+        book.epubLayoutHint?.forcedDisplayMode != nil || bookLayoutSettings?.forcedDisplayMode != nil
     }
 
-    /// EPUBがpage-progression-directionで読み方向を明示している間はtrue。
-    /// trueの間はtoggleReadingDirection()自体が何もしない。
+    /// EPUBがpage-progression-directionで読み方向を明示している間、またはBookLayoutSettingsで
+    /// 読み方向が上書きされている間はtrue。trueの間はtoggleReadingDirection()自体が何もしない。
     var isReadingDirectionLocked: Bool {
-        book.epubLayoutHint?.pageProgressionDirection != nil
+        book.epubLayoutHint?.pageProgressionDirection != nil || bookLayoutSettings?.readingDirectionOverride != nil
     }
 
-    /// 現在表示中の見開きに、EPUBのpage-spread-left/right/rendition:page-spread-center指定を
-    /// 持つページが含まれている間はtrue。この状態で「1ページだけ送る」調整を行うと、
-    /// 著者が指定したページの組み合わせが崩れてしまうため、shiftByOnePage()自体が何もしない。
+    /// 現在表示中の見開きに、EPUBのpage-spread-left/right/rendition:page-spread-center指定
+    /// (またはDB由来の同等の設定。3.2節で明示的に設定したもの)を持つページが含まれている間はtrue。
+    /// この状態で「1ページだけ送る」調整を行うと、明示的に指定したページの組み合わせが
+    /// 崩れてしまうため、shiftByOnePage()自体が何もしない。
     var isPageShiftLocked: Bool {
         guard displayMode == .spread, book.pages.indices.contains(currentIndex) else { return false }
-        if book.pages[currentIndex].epubSpreadPosition != nil { return true }
+        if layoutHint(at: currentIndex) != nil { return true }
         let partnerIndex = currentIndex + 1
         guard currentImages.count > 1, book.pages.indices.contains(partnerIndex) else { return false }
-        return book.pages[partnerIndex].epubSpreadPosition != nil
+        return layoutHint(at: partnerIndex) != nil
     }
 
     func toggleDisplayMode() {
@@ -428,17 +614,69 @@ final class ViewerViewModel: ObservableObject {
 
     private func reloadBookmarks() {
         let bookID = book.id
-        let descriptor = FetchDescriptor<Bookmark>(
-            predicate: #Predicate<Bookmark> { $0.bookID == bookID },
-            sortBy: [SortDescriptor(\.pageIndex)]
-        )
-        bookmarks = (try? modelContext.fetch(descriptor)) ?? []
+        // #Predicateでの絞り込み(旧実装)が、レイアウト変更直後などに0件を誤って返すことがある
+        // 不具合が実機で確認された(LayoutStore.pageOverrides(forBookID:)のコメント参照)ため、
+        // 絞り込み無しで全件取得してからSwift側でfilter・sortする。
+        let all = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
+        bookmarks = all.filter { $0.bookID == bookID }.sorted { $0.pageIndex < $1.pageIndex }
     }
 
+    /// EPUBの目次(nav.xhtml)から、ブックマークを自動的に取り込む(設計コンセプト7.5節「逆方向」)。
+    /// この本にまだブックマークが1件も無い場合に限り行う。目次が無い/解析できない/リンク先が
+    /// どのページにも一致しない場合は何もしない。EPUB2形式のtoc.ncxへのフォールバックは
+    /// 未対応(EpubStructureResolver.resolveTableOfContentsのコメント参照)。
+    ///
+    /// EPUBのzipコンテナを(BookLoader.loadEpubとは別に)もう一度読み直す必要がある
+    /// (MangaBook自体は目次データを保持していないため。本を開くたびに毎回この処理を行うのは
+    /// 無駄になるが、実際にファイルへ書き込む(ブックマークを追加する)のは最初の1回だけで、
+    /// 2回目以降はbookmarks.isEmptyがfalseになるため、そもそもこのメソッド自体が呼ばれない)。
+    private func autoImportEpubTableOfContentsAsBookmarksIfNeeded() async {
+        guard bookmarks.isEmpty else { return }
+        let sourceURL = book.sourceURL
+        let entries: [EpubTOCEntry] = await Task.detached(priority: .utility) { () -> [EpubTOCEntry] in
+            guard let reader = try? ZipArchiveReader(url: sourceURL),
+                  let structure = try? EpubStructureResolver.resolve(reader: reader)
+            else { return [] }
+            return EpubStructureResolver.resolveTableOfContents(reader: reader, structure: structure)
+        }.value
+        guard !entries.isEmpty else { return }
+        // 上のTask.detachedを待っている間に、ユーザーが手動でブックマークを追加した可能性も
+        // ゼロではないため、書き込み直前にもう一度確認する。
+        guard bookmarks.isEmpty else { return }
+
+        let bookID = book.id
+        for entry in entries {
+            guard book.pages.indices.contains(entry.pageIndex) else { continue }
+            guard !bookmarks.contains(where: { $0.pageIndex == entry.pageIndex }) else { continue }
+            // isEpubDerived: true — 「ブックマーク・レイアウトの編集」ウインドウには表示しない
+            // (BookmarkStore.reload()/bookmarks(forBookID:)側のフィルタ、Bookmark.swiftの
+            // isEpubDerivedのコメント参照)。
+            modelContext.insert(Bookmark(bookID: bookID, pageIndex: entry.pageIndex, name: entry.title, isEpubDerived: true))
+        }
+        try? modelContext.save()
+        reloadBookmarks()
+        NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
+    }
+
+    /// 現在の起点ページ(currentIndex)にブックマークを追加する。以前はこのメソッドが
+    /// 唯一のブックマーク追加経路で、見開き表示中でも常にcurrentIndex側だけを対象にしていたが、
+    /// ユーザー報告(見開き表示でのブックマーク追加対象を左右で正しく指定できるようにしてほしい)
+    /// を受けて、対象ページを明示的に指定できるaddBookmark(atIndex:)を新設した。こちらは
+    /// その薄いラッパーとして残している(呼び出し元を洗い出したところ、見開きの相方ページを
+    /// 意図的に対象にする経路は無く、すべてcurrentIndexを渡していたことを確認済み)。
     func addBookmark() {
+        addBookmark(atIndex: currentIndex)
+    }
+
+    /// 指定したページインデックスにブックマークを追加する。見開き表示中、クリック位置
+    /// (コンテキストメニュー)や環境設定(SpreadBookmarkTargetBehavior)に応じて、起点ページ
+    /// (currentIndex)ではなく相方ページ(currentIndex + 1)を対象にしたい場合があるため、
+    /// インデックスを明示的に指定できるようにしている(ViewerView.toggleCurrentPageBookmark/
+    /// contextMenuContent参照)。
+    func addBookmark(atIndex index: Int) {
         // 同じページに対するブックマークが既にある場合は、重複して追加しない(要望)。
         // bookmarksはreloadBookmarks()で都度読み直しているため、ここでの判定は常に最新の状態を見る。
-        guard !bookmarks.contains(where: { $0.pageIndex == currentIndex }) else { return }
+        guard !bookmarks.contains(where: { $0.pageIndex == index }) else { return }
         // ブックマークの名前(SwiftDataに永続化される実データ)は、後から表示言語を切り替えても
         // 変わらない「作成時点の言語」で作られる。作成時点の表示言語設定(preferences.effectiveLocale)を
         // 使ってその場で解決することで、システム言語とは独立したアプリ内表示言語にも対応する。
@@ -454,8 +692,8 @@ final class ViewerViewModel: ObservableObject {
         )
         let bookmark = Bookmark(
             bookID: book.id,
-            pageIndex: currentIndex,
-            name: "\(pagePrefix) \(currentIndex + 1)",
+            pageIndex: index,
+            name: "\(pagePrefix) \(index + 1)",
             bookmarkData: bookmarkData
         )
         modelContext.insert(bookmark)
@@ -536,7 +774,7 @@ final class ViewerViewModel: ObservableObject {
         switch preferences.loopBehavior {
         case .loop:
             cancelPendingPageFlip()
-            currentIndex = Self.normalizedAnchorIndex(0, in: book)
+            currentIndex = normalizedAnchorIndex(0)
             persistState()
             reloadAsync()
         case .nextBookFirstPage, .nextBook:
@@ -554,7 +792,7 @@ final class ViewerViewModel: ObservableObject {
             let rawIndex = max(0, book.pages.count - step)
             // ページ数と表示枚数だけから計算した折り返し先は、EPUBのpage-spread-right指定を
             // 持つページに直接着地する可能性がある(詳細はnormalizedAnchorIndexのコメント参照)。
-            currentIndex = Self.normalizedAnchorIndex(rawIndex, in: book)
+            currentIndex = normalizedAnchorIndex(rawIndex)
             persistState()
             reloadAsync()
         case .nextBookFirstPage, .nextBook:
@@ -646,30 +884,66 @@ final class ViewerViewModel: ObservableObject {
     /// コマの簡易表示)の両方から共通で使う(ロジックが分かれていると、どちらかだけ直し忘れる
     /// バグの元になるため)。
     ///
-    /// EPUBのpage-spread-left/right/rendition:page-spread-center指定がある場合は、その指定を
-    /// 横長画像の自動単ページ化ヒューリスティック(isWideImage)より優先する。
-    /// - targetIndex自身がcenter/right指定なら、そのページは見開きの起点(1枚目)にはなれない
-    ///   (rightは常に直前のページと組むページであり、targetIndexより後ろのページとは組まない)。
-    /// - 次のページ(targetIndex + 1)がcenter/left指定なら、そちらは単独表示、または
-    ///   自分より後ろのページと組むべきページなので、targetIndexとは組まない。
-    /// - どちらのページにもEPUBの明示指定が無い場合(CBZ等、EPUB以外のソースを含む)だけ、
-    ///   従来通り横長画像なら単ページ扱いにするヒューリスティックを適用する。
+    /// EPUBのpage-spread-left/right/rendition:page-spread-center指定(またはDB由来の同等の
+    /// 設定。3.2節)がある場合は、その指定を横長画像の自動単ページ化ヒューリスティック
+    /// (isWideImage)より優先する(詳細はlayoutHint(at:)参照)。
+    ///
+    /// page-spread-left/rightは実際の画面上の左右を指す(EPUB仕様上、page-progression-directionに
+    /// 応じて著者側が画面上の位置として付与する値。DB由来のPageLayoutState.spreadLeft/
+    /// spreadRightも、anchor(forPageAtIndex:explicitState:)/writeAnchorPinのコメントで説明して
+    /// いる通り、常に画面上の左右と一致させる設計にしている)。そのため「targetIndex自身が
+    /// 見開きの起点(1枚目、=読み順で先に読むページ)にはなれない位置」「次のページ
+    /// (targetIndex+1)が単独、またはtargetIndexより後ろのページと組むべき位置」は、読み方向に
+    /// よって画面上の左右が入れ替わる(右開き=読み順で先のページが画面右、左開き=画面左。
+    /// orderedCurrentImages参照)ため、判定もそれに応じて入れ替える。
+    /// - 右開き: targetIndex自身がcenter/left相当なら組めない(leftは2番目に読むページ=常に
+    ///   直前のページと組む)。次のページがcenter/right相当なら組めない(rightは1番目に読む
+    ///   ページ=常に次のページと組む)。
+    /// - 左開き: 従来通り、targetIndex自身がcenter/right相当、次のページがcenter/left相当なら
+    ///   組めない。
+    /// - どちらのページにも明示指定が無い場合だけ、従来通り横長画像なら単ページ扱いにする
+    ///   ヒューリスティックを適用する。
     private func shouldPairWithNextPage(at targetIndex: Int, firstImage: CGImage) -> Bool {
         guard displayMode == .spread, targetIndex + 1 < book.pages.count else { return false }
 
-        let currentPosition = book.pages[targetIndex].epubSpreadPosition
-        let nextPosition = book.pages[targetIndex + 1].epubSpreadPosition
+        let currentPosition = layoutHint(at: targetIndex)
+        let nextPosition = layoutHint(at: targetIndex + 1)
+        let isRTL = readingDirection == .rightToLeft
+        let disallowedForCurrent: PageSpreadPosition = isRTL ? .left : .right
+        let disallowedForNext: PageSpreadPosition = isRTL ? .right : .left
 
-        if currentPosition == .center || currentPosition == .right { return false }
-        if nextPosition == .center || nextPosition == .left { return false }
+        if currentPosition == .center || currentPosition == disallowedForCurrent { return false }
+        if nextPosition == .center || nextPosition == disallowedForNext { return false }
 
         if currentPosition != nil || nextPosition != nil { return true }
 
         return !isWideImage(firstImage)
     }
 
-    /// 生のページインデックスを、そのページがEPUBのpage-spread-right指定を持つ場合に、
-    /// 正しい組み合わせの起点(1つ前のページ)へ補正する。
+    /// 現在1枚だけ表示中(見開き表示中だが相方が見つからない、または単ページ表示モード)の
+    /// とき、そのページ自身にEPUB/DB由来の明示的な見開き左右指定(center以外)があれば返す。
+    /// nilなら「そもそも指定が無い(横長画像ヒューリスティックによる単ページ化、または
+    /// 単ページ表示モード)」ため、通常通り中央に単ページ表示すればよい。
+    ///
+    /// ViewerViewはこの値を使い、EPUB Reading Systems 3.3 6.1.4節の「page-spread-left/right
+    /// の指定は、相方が見つからない場合でも空白ページを挿入してでも尊重しなければならない
+    /// (MUST: 'it MUST be honored (e.g., by inserting a blank page)')」という挙動を再現する
+    /// (qooViewerの画像ビューアはEPUB出力前のプレビューとして機能させたい、というユーザー要望
+    /// による)。
+    ///
+    /// 返す値(.left/.right)は常に画面上の絶対位置を表す(EPUB仕様のpage-spread-left/right
+    /// 自体が画面上の絶対位置を表すプロパティであり、読み方向に応じた変換は行わない設計。
+    /// Task #82の調査・PageLayoutState.spreadLeft/spreadRightの設計、layoutHint(at:)の
+    /// コメント参照)。そのためViewerView側でも読み方向による変換は不要で、.leftならそのまま
+    /// 画面左に実画像・画面右に空白、.rightならその逆、という単純な対応でよい。
+    var currentSoleImageForcedSpreadPosition: PageSpreadPosition? {
+        guard displayMode == .spread, currentImages.count == 1 else { return nil }
+        let position = layoutHint(at: currentIndex)
+        return position == .center ? nil : position
+    }
+
+    /// 生のページインデックスを、そのページがEPUBのpage-spread-right指定(またはDB由来の
+    /// 「見開き右」設定)を持つ場合に、正しい組み合わせの起点(1つ前のページ)へ補正する。
     ///
     /// page-spread-rightは「このページは見開きの右側に配置する」という指定であり、常に
     /// その直前のページと組みになる(shouldPairWithNextPage参照)。そのため、このページを
@@ -681,9 +955,443 @@ final class ViewerViewModel: ObservableObject {
     /// 着地する。この補正が必要になるのは、それまでの経緯を無視してどこか任意のページへ
     /// 直接着地する経路(jump(toPageIndex:)、本を開いたときの再開位置、ページ境界での
     /// ループ折り返し)だけである。
-    private static func normalizedAnchorIndex(_ rawIndex: Int, in book: MangaBook) -> Int {
+    ///
+    /// インスタンスメソッド(以前はstatic)にしたのはlayoutHint(at:)(DB由来の設定を含む)を
+    /// 参照するため。init内で呼ぶ場合は、book/pageLayoutStates/bookLayoutSettingsが
+    /// 出揃った後(displayMode等の代入より後)でなければならない点に注意。
+    ///
+    /// shouldPairWithNextPageと同じ理由(コメント参照)で、「単独で着地してはいけない位置」は
+    /// 読み方向によって入れ替わる(右開き=2番目に読むページ=.left相当、左開き=.right相当)。
+    private func normalizedAnchorIndex(_ rawIndex: Int) -> Int {
         guard book.pages.indices.contains(rawIndex), rawIndex > 0 else { return rawIndex }
-        guard book.pages[rawIndex].epubSpreadPosition == .right else { return rawIndex }
+        let disallowedAlone: PageSpreadPosition = readingDirection == .rightToLeft ? .left : .right
+        guard layoutHint(at: rawIndex) == disallowedAlone else { return rawIndex }
         return rawIndex - 1
+    }
+
+    // MARK: - レイアウト設定(BookLayoutSettings/PageLayoutOverride)の解決
+
+    /// あるページについて、EPUB由来・DB由来のどちらかにレイアウトヒントがあれば返す
+    /// (優先順位: EPUB > DB。設計コンセプト2.4節)。どちらも無ければnil(呼び出し側で
+    /// isWideImageヒューリスティックにフォールバックする)。
+    ///
+    /// 戻り値はPageSpreadPosition(left/right/center)に統一する。EPUB由来はそのまま、
+    /// DB由来のPageLayoutStateはasEpubEquivalentSpreadPositionで変換する。除外(excluded)は
+    /// ここには現れない(prepareBook/applyLayoutDataの時点でbook.pagesから既に取り除かれて
+    /// いるため。設計コンセプト12節「アーキテクチャ上の変更点」参照)。
+    private func layoutHint(at index: Int) -> PageSpreadPosition? {
+        guard book.pages.indices.contains(index) else { return nil }
+        if let epub = book.pages[index].epubSpreadPosition { return epub }
+        let pageKey = book.pages[index].sortKey
+        return pageLayoutStates[pageKey]?.asEpubEquivalentSpreadPosition
+    }
+
+    /// レイアウト設定(BookLayoutSettings/PageLayoutOverride)を、実際に読書フローで使う
+    /// ページ一覧に適用する。BookLoaderが返す生のMangaBookに対して、
+    /// (1) ページ順序の補正(2.3節のpageOrderOverride)、
+    /// (2) 除外(非表示)ページの除去(2.2節)
+    /// の2つを行う。差し替えの疑いがある場合(2.5節)は何も適用せず、生のbookと差し替え
+    /// ステータスをそのまま返す(呼び出し元がViewerView経由で確認ダイアログを出し、
+    /// resolveLayoutReplacement(applyExisting:)で解決するまで安全側に倒す)。
+    private static func prepareBook(
+        from rawBook: MangaBook, layoutStore: LayoutStore
+    ) -> (
+        book: MangaBook,
+        replacementStatus: LayoutContentReplacementStatus,
+        settings: BookLayoutSettings?,
+        overrides: [String: PageLayoutState]
+    ) {
+        let replacementStatus = layoutStore.checkContentReplacement(book: rawBook)
+        guard replacementStatus == .unaffected else {
+            return (rawBook, replacementStatus, nil, [:])
+        }
+
+        let settings = layoutStore.bookLayoutSettings(forBookID: rawBook.id)
+        var overridesByKey: [String: PageLayoutState] = [:]
+        for override in layoutStore.pageOverrides(forBookID: rawBook.id) {
+            overridesByKey[override.pageKey] = override.state
+        }
+        let adjustedPages = applyLayoutData(
+            to: rawBook.pages, pageOrderOverride: settings?.pageOrderOverride, overridesByKey: overridesByKey
+        )
+        let adjustedBook = MangaBook(
+            id: rawBook.id,
+            title: rawBook.title,
+            sourceURL: rawBook.sourceURL,
+            pages: adjustedPages,
+            epubLayoutHint: rawBook.epubLayoutHint
+        )
+        return (adjustedBook, .unaffected, settings, overridesByKey)
+    }
+
+    /// pageOrderOverride(2.3節)による並べ替えと、除外(excluded、2.2節)の除去を適用する。
+    /// - 並べ替え: pageOrderOverrideに含まれるpageKeyの順に並べ、保存後に増えたページ
+    ///   (未知のpageKeyを持つページ)は元の並び順のまま末尾に追加する。pageOrderOverrideに
+    ///   含まれるが現在のpagesに存在しないpageKey(ファイルが削除された等)は単純に無視する。
+    /// - 除外: pageKeyがoverridesByKeyで.excludedになっているページを取り除く。
+    private static func applyLayoutData(
+        to pages: [PageRef], pageOrderOverride: [String]?, overridesByKey: [String: PageLayoutState]
+    ) -> [PageRef] {
+        var ordered = pages
+        if let pageOrderOverride {
+            var pageByKey: [String: PageRef] = [:]
+            for page in pages { pageByKey[page.sortKey] = page }
+            var seenKeys: Set<String> = []
+            var reordered: [PageRef] = []
+            for key in pageOrderOverride {
+                if let page = pageByKey[key] {
+                    reordered.append(page)
+                    seenKeys.insert(key)
+                }
+            }
+            for page in pages where !seenKeys.contains(page.sortKey) {
+                reordered.append(page)
+            }
+            ordered = reordered
+        }
+        return ordered.filter { overridesByKey[$0.sortKey] != .excluded }
+    }
+
+    /// 差し替え検知(2.5節)の確認ダイアログへの回答を反映する。
+    /// - applyExisting: true(「そのまま適用する」。ページ数が一致している場合のみ選べる)の
+    ///   ときは、記録済みの指紋を今回の内容で更新し(LayoutStore.acceptCurrentContent)、
+    ///   ページ単位/本全体の設定を読み直す。ページ順補正・除外ページの除去も含め、
+    ///   reloadLayoutData側でその場でbook.pagesへ反映される(詳細はreloadLayoutData参照。
+    ///   以前は本を開き直すまで反映されない制約があったが、ユーザー要望を受けて解消した)。
+    /// - applyExisting: false(「破棄する」)のときは、この本のレイアウトデータを削除する
+    ///   (LayoutStore.discardLayoutData)。
+    ///
+    /// 「エクスポートしてから破棄する」という3択目(2.5節)は、JSONエクスポート機能の実装後に
+    /// 追加する予定(現時点では「破棄する」のみ)。
+    func resolveLayoutReplacement(applyExisting: Bool) {
+        guard pendingLayoutReplacementStatus != nil else { return }
+        if applyExisting {
+            layoutStore.acceptCurrentContent(book: book)
+        } else {
+            layoutStore.discardLayoutData(forBookID: book.id)
+        }
+        pendingLayoutReplacementStatus = nil
+        reloadLayoutData()
+    }
+
+    /// この本のBookLayoutSettings/PageLayoutOverrideを読み直す。layoutDataChangeObserver
+    /// (他ウインドウでの変更)、resolveLayoutReplacement(差し替え確認の解決)、setPageLayout/
+    /// clearPageLayout/autoLayoutFromCurrentView(3.2節・3.1節の個別ページ操作)のすべてから呼ぶ。
+    ///
+    /// 読み方向・見開き強制の上書き、および個々のページの単一/見開き左右の状態(pairing判定・
+    /// ロック判定)は、book.pagesの構造を変えずに反映できるため常に即座に反映される。
+    ///
+    /// ページ順補正(pageOrderOverride)・除外ページ(excluded)は、book.pages自体の構造(並び順・
+    /// 含まれるページ)に関わるため、以前はこの本を開き直すまで反映されない制約があった。
+    /// コンテキストメニュー/Layoutメニューで除外したページが画像ビューアの表示へ即座に反映
+    /// されず不便、というユーザー要望を受け、rawPages(除外・並べ替え適用前の生のページ一覧)
+    /// から都度applyLayoutDataで再構築し直し、book.pagesを丸ごと差し替えることで解消した。
+    /// book.pages自体を書き換える(要素を挿入・削除する)のではなく新しい配列を作って丸ごと
+    /// 差し替えているのは、pageLoader(actor)側の内部状態(readers/キャッシュ等)を巻き込まずに
+    /// 済む、単純で副作用の少ない方法のため。
+    ///
+    /// - Parameter focusPageKey: コンテキストメニュー・Layoutメニュー(このウインドウ自身での
+    ///   操作)、または「ブックマーク・レイアウトの編集」ウインドウ(他ウインドウでの操作。
+    ///   layoutDataChangeObserverがnotification.userInfoの"focusPageKey"から受け取って渡す)で
+    ///   ユーザーが直接操作したページのsortKey。指定があれば、以前どのページを表示していたかに
+    ///   関わらず、更新後の表示にこのページを含めるよう表示位置を移動する(ユーザー要望:
+    ///   「更新後のビューア画面は、直接操作されたページを表示に含める」)。そのページ自身が
+    ///   除外されて消えていた場合は、fallbackIndexで元々あった位置に一番近い現存ページへ
+    ///   自動的にフォールバックする。nil(既定値)の場合は、以前どおり現在表示中のページを
+    ///   維持しようとする(読み方向の上書きなど、対象となる特定のページが無い変更向け)。
+    private func reloadLayoutData(focusPageKey: String? = nil) {
+        bookLayoutSettings = layoutStore.bookLayoutSettings(forBookID: book.id)
+        var overridesByKey: [String: PageLayoutState] = [:]
+        for override in layoutStore.pageOverrides(forBookID: book.id) {
+            overridesByKey[override.pageKey] = override.state
+        }
+        pageLayoutStates = overridesByKey
+
+        let rebuiltPages = Self.applyLayoutData(
+            to: rawPages, pageOrderOverride: bookLayoutSettings?.pageOrderOverride, overridesByKey: overridesByKey
+        )
+        let oldPages = book.pages
+        let pagesChanged = rebuiltPages.map(\.sortKey) != oldPages.map(\.sortKey)
+
+        var updatedBook: MangaBook?
+        if pagesChanged {
+            var newBook = book
+            newBook.pages = rebuiltPages
+            book = newBook
+            updatedBook = newBook
+        }
+        // pagesChangedならbook.pagesは既にrebuiltPagesに差し替え済み、そうでなければ従来どおり
+        // oldPagesのまま(参照の便宜上、以後はbook.pagesを直接使う)。
+        let newPages = book.pages
+
+        // 表示の移動先を決める基準ページのsortKey。focusPageKeyが指定されていれば常にそれを
+        // 優先する。指定が無ければ、以前どおり現在表示中のページを維持しようとする。
+        let anchorPageKey = focusPageKey ?? (oldPages.indices.contains(currentIndex) ? oldPages[currentIndex].sortKey : nil)
+
+        let restoredIndex: Int
+        if let anchorPageKey, let newIndex = newPages.firstIndex(where: { $0.sortKey == anchorPageKey }) {
+            restoredIndex = newIndex
+        } else if let anchorPageKey, let oldIndex = oldPages.firstIndex(where: { $0.sortKey == anchorPageKey }) {
+            // 基準ページ自身が除外されて消えていた場合、元々あった位置(oldIndex)を基準に
+            // 一番近い現存ページへフォールバックする(fallbackIndex参照)。
+            restoredIndex = Self.fallbackIndex(oldPages: oldPages, currentIndex: oldIndex, newPages: newPages)
+        } else {
+            restoredIndex = Self.fallbackIndex(oldPages: oldPages, currentIndex: currentIndex, newPages: newPages)
+        }
+        let clampedIndex = newPages.isEmpty ? 0 : min(max(restoredIndex, 0), newPages.count - 1)
+        // 見開き右ページ単独に着地してしまわないよう、他の着地経路(jump等)と同じく補正する
+        // (normalizedAnchorIndexのコメント参照。この時点でbook.pagesは既に最新のnewPagesに
+        // 揃っているため、安全に呼べる)。
+        currentIndex = normalizedAnchorIndex(clampedIndex)
+
+        if let updatedBook {
+            Task { [weak self] in
+                guard let self else { return }
+                // pageLoader(actor)側のindex基準の参照も、新しいbook.pagesの並びに揃える。
+                // 表示の再計算(loadCurrentSpread)より前に必ず終えておく必要があるため、
+                // 同じTask内で順番に行う。
+                await self.pageLoader.updateBook(updatedBook)
+                await self.loadCurrentSpread()
+            }
+        } else {
+            // 読み方向・見開き強制のロック状態や、focusPageKeyによる表示移動が変わった可能性が
+            // あるため、現在の表示を再計算する。
+            Task { [weak self] in
+                await self?.loadCurrentSpread()
+            }
+        }
+    }
+
+    /// この本のBookLayoutSettings/PageLayoutOverrideが、コンテキストメニュー・Layoutメニュー・
+    /// 「ブックマーク・レイアウトの編集」ウインドウのいずれから変更された場合でも、この本を
+    /// 開いている他のウインドウ/タブ(自分自身を含む)へ「どのページを直接操作したか」を伝える
+    /// ための通知を投げる。layoutStore.setPageLayoutState等が既に投げているbookIDのみの通知
+    /// (focusPageKeyを含まない)と共存し、この通知は「ユーザーが直接操作したページを更新後の
+    /// 表示に含める」(ユーザー要望)ための追加の合図として使う。
+    private func postLayoutFocusChange(pageKey: String) {
+        NotificationCenter.default.post(
+            name: .layoutDataDidChange, object: nil, userInfo: ["bookID": book.id, "focusPageKey": pageKey]
+        )
+    }
+
+    /// reloadLayoutDataで、除外(非表示)に設定されたことで直前まで表示していたページ自体が
+    /// 新しいbook.pagesから消えてしまった場合に、代わりに表示すべきページのインデックスを
+    /// 決める。元の並び順で現在位置以降(=直後)にある、まだ存在するページを優先し、
+    /// それも見つからなければ以前(=直前)のページを探す。1ページも残っていなければ0を返す。
+    private static func fallbackIndex(oldPages: [PageRef], currentIndex: Int, newPages: [PageRef]) -> Int {
+        guard !newPages.isEmpty else { return 0 }
+        guard oldPages.indices.contains(currentIndex) else { return 0 }
+        for oldPage in oldPages[currentIndex...] {
+            if let index = newPages.firstIndex(where: { $0.sortKey == oldPage.sortKey }) {
+                return index
+            }
+        }
+        for oldPage in oldPages[..<currentIndex].reversed() {
+            if let index = newPages.firstIndex(where: { $0.sortKey == oldPage.sortKey }) {
+                return index
+            }
+        }
+        return 0
+    }
+
+    // MARK: - レイアウト操作(3節)
+
+    /// 現在表示中のページの並び(pageKey)。単一表示、または見開き表示中でも実際には
+    /// 相手が見つからず1枚だけ表示されている場合は1件、見開きで2ページとも表示されている
+    /// 場合は2件(読み順)。3.1節「自動でレイアウトする」の起点(anchor)、および3.2節の
+    /// 個別ページ操作の対象特定に使う。
+    private var currentAnchorPageKeys: [String] {
+        guard book.pages.indices.contains(currentIndex) else { return [] }
+        var keys = [book.pages[currentIndex].sortKey]
+        let partnerIndex = currentIndex + 1
+        if currentImages.count > 1, book.pages.indices.contains(partnerIndex) {
+            keys.append(book.pages[partnerIndex].sortKey)
+        }
+        return keys
+    }
+
+    /// EPUB由来の権威的なレイアウト指定がある本かどうか。3.1節「このアクション自体を無効化する」
+    /// の判定、および呼び出し元(Layoutメニュー等)のUI無効化に使う。
+    var hasAuthoritativeEpubLayout: Bool {
+        book.epubLayoutHint != nil
+    }
+
+    /// orderedPageKeysの各ページについて、横長画像(見開き表示中でも単ページ扱いにすべき)
+    /// かどうかを判定する。サムネイル(軽量)を使い、アスペクト比の判定にフル解像度は必要ない
+    /// ため、体感速度を優先する。
+    ///
+    /// 自動レイアウト計算(3.1節)・伝播範囲を伴う個別ページ操作(3.2節・3.3節)は本全体を
+    /// 対象にしうるため、数百ページ規模の本では時間がかかりうる(実装検討ドキュメント9章の
+    /// リスク参照。プログレス表示・キャンセルは今後の改善課題)。
+    private func wideImageAspectRatios(for orderedPageKeys: [String]) async -> [String: Bool] {
+        let keySet = Set(orderedPageKeys)
+        var result: [String: Bool] = [:]
+        for (index, page) in book.pages.enumerated() where keySet.contains(page.sortKey) {
+            guard let thumbnail = await pageLoader.thumbnail(at: index) else { continue }
+            result[page.sortKey] = isWideImage(thumbnail)
+        }
+        return result
+    }
+
+    /// 3.2節の操作で選んだstateから、LayoutAutoCalculatorへ渡すべきAnchor(伝播計算の起点)を
+    /// 組み立てる。
+    ///
+    /// 「見開き右」「見開き左」は、実際の画面上の右/左と常に一致させる(ユーザー報告:
+    /// 右開きの本で自動レイアウトすると、画面右のページが「見開き左」、画面左のページが
+    /// 「見開き右」として編集ウインドウに表示され、実際の表示とズレていた)。読み方向
+    /// (readingDirection)によって「最初に読むページ(ファイル順で早い方)」が画面のどちら側に
+    /// 表示されるかが変わる(右開き=右、左開き=左。orderedCurrentImages参照)ため、
+    /// どちらのページと組むか(前のページ/次のページ)の判定も読み方向で入れ替える。
+    /// - 右開き(readingDirection == .rightToLeft): 「見開き右」は最初に読むページ=次の
+    ///   ページと組む(自身が見開きの起点)。「見開き左」は2番目に読むページ=直前のページと組む。
+    /// - 左開き: 「見開き右」は直前のページと組む(従来通り)。「見開き左」は次のページと組む。
+    private func anchor(forPageAtIndex index: Int, explicitState: PageLayoutState) -> LayoutAutoCalculator.Anchor {
+        let pageKey = book.pages[index].sortKey
+        let pairsWithNextPage: Bool
+        switch explicitState {
+        case .spreadRight:
+            pairsWithNextPage = readingDirection == .rightToLeft
+        case .spreadLeft:
+            pairsWithNextPage = readingDirection != .rightToLeft
+        case .single, .excluded:
+            return .init(pageKeys: [pageKey])
+        }
+        if pairsWithNextPage {
+            guard index + 1 < book.pages.count else { return .init(pageKeys: [pageKey]) }
+            return .init(pageKeys: [pageKey, book.pages[index + 1].sortKey])
+        } else {
+            guard index - 1 >= 0 else { return .init(pageKeys: [pageKey]) }
+            return .init(pageKeys: [book.pages[index - 1].sortKey, pageKey])
+        }
+    }
+
+    /// anchorの示すページ(1件または2件)へ、明示的な状態を書き込む。anchor.pageKeysは常に
+    /// [先に読むページ, 2番目に読むページ]の順(anchor(forPageAtIndex:explicitState:)参照)。
+    /// どちらに「見開き右」「見開き左」を割り当てるかは読み方向による(同コメント参照)。
+    private func writeAnchorPin(_ anchor: LayoutAutoCalculator.Anchor, explicitState: PageLayoutState) {
+        if anchor.pageKeys.count >= 2, let earlier = anchor.pageKeys.first, let later = anchor.pageKeys.dropFirst().first {
+            let isRTL = readingDirection == .rightToLeft
+            let earlierState: PageLayoutState = isRTL ? .spreadRight : .spreadLeft
+            let laterState: PageLayoutState = isRTL ? .spreadLeft : .spreadRight
+            layoutStore.setPageLayoutState(for: book, pageKey: earlier, state: earlierState)
+            layoutStore.setPageLayoutState(for: book, pageKey: later, state: laterState)
+        } else if let only = anchor.pageKeys.first {
+            layoutStore.setPageLayoutState(for: book, pageKey: only, state: explicitState)
+        }
+    }
+
+    /// 3.2節: 指定したページ(単一表示なら現在のページ、見開き表示なら左右いずれか)を、
+    /// 指定した状態に設定する。scopeが.thisPageOnly以外の場合、3.3節の伝播範囲選択に従って
+    /// 周辺ページのレイアウトも横長ヒューリスティック+パリティ計算で再計算する。
+    ///
+    /// 画像のアスペクト比判定(サムネイル読み込み)が必要なため非同期。呼び出し中はViewerView側で
+    /// 適宜ビジー表示を出すことを想定する(このメソッド自体はビジー状態を公開しない。
+    /// 今後の改善課題)。
+    ///
+    /// 既知の制約: 除外(.excluded)に設定した場合、既存の除外ページを伝播範囲内で「解除する」
+    /// 選択肢(2.3節・3.3節で触れられている「既存の除外設定を保持しますか、それとも解除しますか」)
+    /// は未実装で、常に「保持する」(既存の除外ページには触れない)として動作する。
+    func setPageLayout(atIndex index: Int, to state: PageLayoutState, scope: LayoutPropagationScope) async {
+        guard book.pages.indices.contains(index) else { return }
+        // 呼び出し元(コンテキストメニュー/Layoutメニュー)が直接操作したページ。writeAnchorPin/
+        // 伝播計算より前、book.pagesがまだ書き換わっていない時点で控えておく(ユーザー要望:
+        // 更新後のビューア画面にこのページを表示に含める。reloadLayoutData(focusPageKey:)参照)。
+        let targetPageKey = book.pages[index].sortKey
+
+        guard scope != .thisPageOnly else {
+            // 「このページだけ」は、ユーザーが直接操作したページ自身の行だけを書き換える。
+            // 以前はここでもwriteAnchorPin(見開き左/右の相方ページへの書き込みを含む)を
+            // 呼んでいたが、「ページ2を見開き左に設定すると、指示していないページ3まで
+            // 見開き右に変わる」というユーザー報告により、相方ページへは触れない仕様に変更した。
+            // 見開き左/右は、相方ページに明示的な設定が無くても表示時に自動でペアと判定される
+            // (shouldPairWithNextPage/layoutHint参照: 隣接する2ページのどちらか一方でも
+            // 明示指定があれば、もう一方がcenter/left(または center/right)相当でない限りペア
+            // 表示になる)ため、相方ページの行を書き換える必要は無い。
+            layoutStore.setPageLayoutState(for: book, pageKey: targetPageKey, state: state)
+            reloadLayoutData(focusPageKey: targetPageKey)
+            postLayoutFocusChange(pageKey: targetPageKey)
+            return
+        }
+
+        let pageAnchor = anchor(forPageAtIndex: index, explicitState: state)
+
+        // 除外に設定した場合、このページ自身はパリティ計算の対象から外す(2.2節・3.3節: 除外
+        // ページは計算から除外する)。それ以外の既存の除外ページは、そもそもbook.pagesに
+        // 含まれていない(prepareBook時点で除去済み)ため、自然に計算対象から外れている。
+        var orderedKeys = book.pages.map(\.sortKey)
+        if state == .excluded {
+            orderedKeys.removeAll { $0 == book.pages[index].sortKey }
+        }
+
+        let wideness = await wideImageAspectRatios(for: orderedKeys)
+        let planned = LayoutAutoCalculator.recalculate(
+            orderedPageKeys: orderedKeys, anchor: pageAnchor, scope: scope,
+            isWideImage: { wideness[$0] ?? false }, isRightToLeft: readingDirection == .rightToLeft
+        )
+        // 1件ずつではなく、まとめて1回のトランザクションとして書き込む
+        // (LayoutStore.setPageLayoutStatesのコメント参照)。
+        layoutStore.setPageLayoutStates(for: book, planned)
+        // writeAnchorPinは、ここで操作したページ自身の状態(state)を最終確定させるための
+        // 書き込みとして、plannedの適用より後に呼ぶ(以前はplannedより前に呼んでいたため、
+        // 直後にplannedで上書きされてしまうケースがあった。下のコメント参照)。
+        //
+        // 経緯(ユーザー報告): 本の先頭ページを「見開き左」に設定しても、実際には「単一
+        // ページ」に置き換わってしまう不具合があった。原因は書き込み順序にあった:
+        // writeAnchorPinを先に呼ぶと、いったんは正しくspreadLeftが書き込まれるが、
+        // scope==.wholeBookの場合、直後にLayoutAutoCalculator.recalculateが内部で
+        // anchorPin(起点の組み合わせをそのまま固定する処理。本来はautoLayoutFromCurrentView()
+        // 向けに「現在表示されている組み合わせ」から起点の状態を再構成するための関数で、
+        // ユーザーが直接指定したstateそのものは知らない)を再計算し、plannedに含めてしまう。
+        // 先頭ページは相方(1つ前のページ)が存在しないためAnchorが1件だけになり、この場合
+        // anchorPinの実装は常に.singleを返す(2ページ揃った通常のケースでは「見開き左/右」を
+        // 返すため、この不具合は表面化しなかった)。この.singleが後から
+        // layoutStore.setPageLayoutStates(planned)で書き込まれ、直前にwriteAnchorPinが
+        // 書いた正しいspreadLeftを上書きしてしまっていた。writeAnchorPinをplannedの適用
+        // より後に呼ぶことで、ユーザーが直接指定したstateが常に最終的な書き込みとして
+        // 勝つようにする(2ページ揃った通常のケースでは、planned側のanchorPinと
+        // writeAnchorPinが同じ値を書くため、順序を変えても結果は変わらない)。
+        writeAnchorPin(pageAnchor, explicitState: state)
+        reloadLayoutData(focusPageKey: targetPageKey)
+        postLayoutFocusChange(pageKey: targetPageKey)
+    }
+
+    /// 3.2節: 指定したページのレイアウト情報を削除する(「レイアウトなし」に戻す)。
+    /// 伝播範囲の選択(3.3節)は行わない(このページ自体を未設定に戻すだけの操作のため)。
+    func clearPageLayout(atIndex index: Int) {
+        guard book.pages.indices.contains(index) else { return }
+        let targetPageKey = book.pages[index].sortKey
+        layoutStore.setPageLayoutState(for: book, pageKey: targetPageKey, state: nil)
+        reloadLayoutData(focusPageKey: targetPageKey)
+        postLayoutFocusChange(pageKey: targetPageKey)
+    }
+
+    /// 現在表示中のページ(単一表示なら1ページ、見開き表示なら2ページ)に、既にDB由来の
+    /// レイアウト情報が設定されているかどうか。Layoutメニュー/コンテキストメニューで
+    /// 「レイアウト情報を削除する」項目を表示するかどうかの判定に使う(3.2節: 「既に設定が
+    /// ある場合のみ表示」)。
+    func hasPageLayoutOverride(atIndex index: Int) -> Bool {
+        guard book.pages.indices.contains(index) else { return false }
+        return pageLayoutStates[book.pages[index].sortKey] != nil
+    }
+
+    /// 3.1節: 「現在の表示を基準に自動でレイアウトする」。今表示している組み合わせを起点として、
+    /// 本全体のレイアウトを自動で再計算・上書きする。
+    ///
+    /// EPUB由来の権威的なレイアウト指定がある本では、呼び出し元(Layoutメニュー等)がこの
+    /// アクション自体を無効化する想定(hasAuthoritativeEpubLayout参照)だが、念のためここでも
+    /// 早期リターンする。
+    func autoLayoutFromCurrentView() async {
+        guard !book.pages.isEmpty, !hasAuthoritativeEpubLayout else { return }
+        let anchorKeys = currentAnchorPageKeys
+        guard !anchorKeys.isEmpty else { return }
+        let pageAnchor = LayoutAutoCalculator.Anchor(pageKeys: anchorKeys)
+        let orderedKeys = book.pages.map(\.sortKey)
+        let wideness = await wideImageAspectRatios(for: orderedKeys)
+        let planned = LayoutAutoCalculator.recalculate(
+            orderedPageKeys: orderedKeys, anchor: pageAnchor, scope: .wholeBook,
+            isWideImage: { wideness[$0] ?? false }, isRightToLeft: readingDirection == .rightToLeft
+        )
+        layoutStore.setPageLayoutStates(for: book, planned)
+        reloadLayoutData()
     }
 }

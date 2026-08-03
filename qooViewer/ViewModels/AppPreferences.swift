@@ -32,6 +32,8 @@ final class AppPreferences: ObservableObject {
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
         static let showRecentFilesOnWelcome = "qooViewer.pref.showRecentFilesOnWelcome"
         static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
+        static let defaultReadingDirection = "qooViewer.pref.defaultReadingDirection"
+        static let spreadBookmarkTargetBehavior = "qooViewer.pref.spreadBookmarkTargetBehavior"
     }
 
     /// 入力ファイルなしで起動した場合(Finderでの直接オープンやDockアイコンへの
@@ -137,6 +139,20 @@ final class AppPreferences: ObservableObject {
     @Published var favoriteOpenBehavior: FinderOpenBehavior {
         didSet { UserDefaults.standard.set(favoriteOpenBehavior.rawValue, forKey: Keys.favoriteOpenBehavior) }
     }
+    /// 見開き表示中(実際に2ページ組でペア表示されているとき)、クリック位置の情報が無い経路
+    /// (ツールバーのボタン・メニューバー「お気に入り」メニュー・キーボードショートカット)から
+    /// 「現在のページをブックマークに追加」したときに、左右どちらのページを対象にするか
+    /// (既定は「読み方向に応じた既定側を常に対象にする」=この設定を導入する以前からの挙動)。
+    /// コンテキストメニュー(右クリック)からの追加はクリックした側のページを一意に対象にできる
+    /// ため、この設定に関わらず常にクリックした側が対象になる(ViewerView.contextMenuContent参照。
+    /// ユーザー報告: 見開き表示でのブックマーク追加対象を左右で正しく指定できるようにしてほしい)。
+    @Published var spreadBookmarkTargetBehavior: SpreadBookmarkTargetBehavior {
+        didSet {
+            UserDefaults.standard.set(
+                spreadBookmarkTargetBehavior.rawValue, forKey: Keys.spreadBookmarkTargetBehavior
+            )
+        }
+    }
     /// 本ごとの読書状態(最後に読んだページなど)とブックマークを保持しておく本の数の上限。
     /// これを超えて新しい本を開くと、最後に読んだ時刻が古い本のデータから自動的に削除される
     /// (LibraryDataPruner参照)。データが際限なく増え続けるのを防ぐための設定(既定500冊)。
@@ -174,6 +190,18 @@ final class AppPreferences: ObservableObject {
     @Published var showRecentFavoritesOnWelcome: Bool {
         didSet {
             UserDefaults.standard.set(showRecentFavoritesOnWelcome, forKey: Keys.showRecentFavoritesOnWelcome)
+        }
+    }
+    /// 新しい本を初めて開いたときの、読み方向の既定値(設計コンセプト11.1節)。
+    ///
+    /// 以前は`BookReadingState.init`のデフォルト引数として無条件に右開き(RTL)固定になっていたが、
+    /// アプリを初めて起動した時点(一度だけ)でシステムの言語設定を確認し、日本語であれば右開き、
+    /// それ以外の言語であれば一律左開き(LTR)を既定値として決定・保存する(言語ごとの個別判定は
+    /// 行わない)。以降は、システム言語が後から変わっても、この一度決定した値を使い続ける
+    /// (init()参照。本ごとに毎回ロケール判定をやり直すわけではない)。
+    @Published var defaultReadingDirection: ReadingDirection {
+        didSet {
+            UserDefaults.standard.set(defaultReadingDirection.rawValue, forKey: Keys.defaultReadingDirection)
         }
     }
     // ブックマークの並べ替え基準は、以前はここ(AppPreferences.bookmarkSortOption)に
@@ -216,6 +244,9 @@ final class AppPreferences: ObservableObject {
         self.favoriteOpenBehavior =
             FinderOpenBehavior(rawValue: defaults.string(forKey: Keys.favoriteOpenBehavior) ?? "")
                 ?? .replaceCurrentBook
+        self.spreadBookmarkTargetBehavior =
+            SpreadBookmarkTargetBehavior(rawValue: defaults.string(forKey: Keys.spreadBookmarkTargetBehavior) ?? "")
+                ?? .defaultSide
         self.maxTrackedBooksCount = defaults.object(forKey: Keys.maxTrackedBooksCount) as? Double ?? 500
         self.hideToolbar = defaults.object(forKey: Keys.hideToolbar) as? Bool ?? false
         self.hideProgressBar = defaults.object(forKey: Keys.hideProgressBar) as? Bool ?? false
@@ -225,5 +256,17 @@ final class AppPreferences: ObservableObject {
             defaults.object(forKey: Keys.showRecentFilesOnWelcome) as? Bool ?? true
         self.showRecentFavoritesOnWelcome =
             defaults.object(forKey: Keys.showRecentFavoritesOnWelcome) as? Bool ?? true
+
+        if let storedRaw = defaults.string(forKey: Keys.defaultReadingDirection),
+           let stored = ReadingDirection(rawValue: storedRaw) {
+            self.defaultReadingDirection = stored
+        } else {
+            // まだ一度も決定されていない(初回起動)。システムの言語設定を確認して一度だけ決定し、
+            // 以降のために保存しておく(次回起動時は上のstored分岐に入り、再判定はしない)。
+            let systemIsJapanese = Locale.preferredLanguages.first?.hasPrefix("ja") ?? false
+            let determined: ReadingDirection = systemIsJapanese ? .rightToLeft : .leftToRight
+            self.defaultReadingDirection = determined
+            defaults.set(determined.rawValue, forKey: Keys.defaultReadingDirection)
+        }
     }
 }

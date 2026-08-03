@@ -24,8 +24,11 @@ struct MangaBook: Identifiable, Hashable {
     let title: String
     /// 元になったフォルダ、またはアーカイブファイルの場所
     let sourceURL: URL
-    /// 自然順(数字を考慮した順序)に並んだページ一覧
-    let pages: [PageRef]
+    /// 自然順(数字を考慮した順序)に並んだページ一覧。
+    /// varなのは、ViewerViewModelが除外(非表示)・並べ替えの変更を画像ビューアの表示へ
+    /// 即座に反映できるよう、本を開き直さずにこの配列を丸ごと差し替え直すことがあるため
+    /// (詳細はViewerViewModel.reloadLayoutDataのコメント参照)。
+    var pages: [PageRef]
     /// EPUBを開いた場合のみ値を持つ、本全体の表示ヒント。詳細はEpubLayoutHint参照。
     var epubLayoutHint: EpubLayoutHint? = nil
 

@@ -99,15 +99,25 @@ final class BookmarkStore: ObservableObject {
         ) ?? .nameAscending
         reload()
 
+        // queue: .mainを指定しているため実行時には必ずMainActor上で呼ばれるが、クロージャ自体の
+        // 型はMainActorに分離されていないため、コンパイラは静的にそれを保証できない
+        // (「main actor-isolated instance method 'reload()' ... implicitly asynchronous」という
+        // 警告になる)。Task { @MainActor in ... }で包み直すと今度はselfのキャプチャに関する
+        // 別の警告/エラーになるため、MainActor.assumeIsolatedで「実行時には既にMainActor上に
+        // いる」ことを伝える(ViewerViewModel.swiftの同種のコメント参照)。
         changeObserver = NotificationCenter.default.addObserver(
             forName: .bookmarksDidChange, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.reload()
+            MainActor.assumeIsolated {
+                self?.reload()
+            }
         }
         menuTrackingObserver = NotificationCenter.default.addObserver(
             forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            self?.reload()
+            MainActor.assumeIsolated {
+                self?.reload()
+            }
         }
     }
 
@@ -121,8 +131,13 @@ final class BookmarkStore: ObservableObject {
     }
 
     /// すべてのブックマークをbookIDごとにグループ化し直す。
+    ///
+    /// EPUBの目次から自動的に取り込んだブックマーク(Bookmark.isEpubDerived == true)はここでは
+    /// 除外する(ユーザー報告: このウインドウにはユーザーが明示的に作成したブックマークだけを
+    /// 表示すべき。Bookmark.isEpubDerivedのコメント参照)。画像ビューア自身の一覧
+    /// (ViewerViewModel.reloadBookmarks)はこのフィルタの対象外で、従来通り全件を含める。
     func reload() {
-        let all = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
+        let all = (try? modelContext.fetch(FetchDescriptor<Bookmark>()))?.filter { !$0.isEpubDerived } ?? []
         let grouped = Dictionary(grouping: all, by: \.bookID)
         let unsorted = grouped.map { bookID, bookmarks -> BookmarkBookGroup in
             // 「追加日時」はこの本に最初にブックマークを付けた日時(=最小のcreatedAt)、
@@ -162,15 +177,40 @@ final class BookmarkStore: ObservableObject {
         }
     }
 
+    /// bookIDに紐づくいずれかのBookmark.bookmarkDataからURLを解決する(生パスへのフォールバックは
+    /// 行わない。LayoutStore.resolvedURL(forBookID:)と組み合わせて使う想定で、そちらが生パスへの
+    /// フォールバックを持つため、ここで重複して持たせる必要が無い)。
+    /// JSON書き出し(6節)で、ブックマークを持つ本のページを読み込む(pageIndex→pageKey変換)ために
+    /// 使う(詳細はLibraryImportExportService.resolveURL参照)。
+    func resolvedURLFromBookmarkData(forBookID bookID: String) -> URL? {
+        for candidate in bookmarks(forBookID: bookID) {
+            guard let data = candidate.bookmarkData else { continue }
+            var isStale = false
+            if let url = try? URL(
+                resolvingBookmarkData: data,
+                options: .withSecurityScope,
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            ), FileManager.default.fileExists(atPath: url.path) {
+                return url
+            }
+        }
+        return nil
+    }
+
     /// 指定したbookIDのブックマークを、現在のsortOptionに従って並べ替えて返す。
     /// (次/前のブックマークへジャンプする操作(ViewerViewModel.jumpToNextBookmark等)は
     /// 常にページ番号順で判定する必要があるため、そちらは影響を受けないViewerViewModel.bookmarks
     /// を直接使い続けている。ここで返す並びはあくまでこの編集画面の表示専用)。
+    /// #Predicateで直接bookIDを絞り込むのではなく、reload()と同じく絞り込み無しで全件取得して
+    /// からSwift側でfilterしている。SwiftDataの#Predicateクロージャ内でキャプチャしたローカル
+    /// 変数名が、比較対象のモデル側プロパティ名($0.bookID)と同名(bookID)だと、絞り込みフェッチが
+    /// 正しく機能しないことがある不具合が実機で確認された(LayoutStore.pageOverrides(forBookID:)の
+    /// コメント参照)ため、同じ理由でここも合わせて統一しておく。
     func bookmarks(forBookID bookID: String) -> [Bookmark] {
-        let descriptor = FetchDescriptor<Bookmark>(
-            predicate: #Predicate<Bookmark> { $0.bookID == bookID }
-        )
-        let fetched = (try? modelContext.fetch(descriptor)) ?? []
+        let all = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
+        // EPUBの目次から自動的に取り込んだブックマークはここでも除外する(reload()と同じ理由)。
+        let fetched = all.filter { $0.bookID == bookID && !$0.isEpubDerived }
         switch sortOption {
         case .nameAscending:
             return fetched.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -187,6 +227,22 @@ final class BookmarkStore: ObservableObject {
         }
     }
 
+    /// 指定したbookID・ページ番号に、直接ブックマークを追加する。5節の一括リネームウインドウの
+    /// 「表紙の固定割り当て」で、先頭ページにブックマークが無い場合に使う。ViewerViewModel.
+    /// addBookmarkと異なり、その本を今開いているウインドウ/タブが無くても動作する
+    /// (bookmarkDataは付与しない。この機能で新規作成するブックマークはbookIDの素のパスへの
+    /// フォールバックで十分実用に足りるため。詳細はBookmark.bookmarkDataのコメント参照)。
+    /// 同じページに既にブックマークがある場合は何もしない(ViewerViewModel.addBookmarkと同じ
+    /// 重複防止)。
+    func addBookmark(bookID: String, pageIndex: Int, name: String) {
+        guard !bookmarks(forBookID: bookID).contains(where: { $0.pageIndex == pageIndex }) else { return }
+        let bookmark = Bookmark(bookID: bookID, pageIndex: pageIndex, name: name)
+        modelContext.insert(bookmark)
+        try? modelContext.save()
+        reload()
+        NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
+    }
+
     /// ブックマークをリネームする。本が今開いているかどうかに関わらず直接SwiftDataを操作し、
     /// bookmarksDidChangeを投げてViewerViewModel側(その本が今開いていれば)にも反映させる。
     func rename(_ bookmark: Bookmark, to newName: String) {
@@ -200,11 +256,60 @@ final class BookmarkStore: ObservableObject {
         NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
     }
 
+    /// ページの並べ替え(4.3節: BookLayoutEditorViewModel.movePages/movePageUp/movePageDown)で、
+    /// 既存のブックマークが元のページ番号(スロット)ではなく、元々ブックマークしていたページ
+    /// (ファイル)に追従するように、影響を受けたブックマークのpageIndexを一括で書き換える
+    /// (ユーザー報告: 「ブックマークがあるページの順番を入れ替えると、ブックマークが追従しない
+    /// (画像は入れ替わったのに元のページ順に居座る)。ブックマークはあくまでファイルに紐づく
+    /// ものなので、順番が入れ替わった際はファイルに追従してほしい」)。
+    ///
+    /// oldIndexToNewIndexは「並べ替え前のpageIndex → 並べ替え後のpageIndex」の対応
+    /// (BookLayoutEditorViewModel.migrateBookmarkIndices参照。movePages/movePageUp/
+    /// movePageDownはページの除外/表示状態の集合自体を変えない純粋な並べ替えのため、この対応は
+    /// 1対1の置換になる)。対応が無いpageIndexのブックマーク(この本のうち動かなかったページに
+    /// 付いているもの)には触れない。リネーム(名前・updatedAt)とは異なる機械的な位置補正のため、
+    /// updatedAtは更新しない(「更新順」の並び替えに影響させないため)。
+    func updatePageIndices(forBookID bookID: String, oldIndexToNewIndex: [Int: Int]) {
+        guard !oldIndexToNewIndex.isEmpty else { return }
+        let all = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
+        let matched = all.filter { $0.bookID == bookID }
+        guard !matched.isEmpty else { return }
+        var didChange = false
+        for bookmark in matched {
+            if let newIndex = oldIndexToNewIndex[bookmark.pageIndex], newIndex != bookmark.pageIndex {
+                bookmark.pageIndex = newIndex
+                didChange = true
+            }
+        }
+        guard didChange else { return }
+        try? modelContext.save()
+        reload()
+        NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
+    }
+
     /// ブックマークを削除する。rename(_:to:)と同じく、本が今開いているかどうかに関わらず
     /// 直接SwiftDataを操作する。
     func delete(_ bookmark: Bookmark) {
         let bookID = bookmark.bookID
         modelContext.delete(bookmark)
+        try? modelContext.save()
+        reload()
+        NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
+    }
+
+    /// 指定した1冊分のブックマークをすべて削除する。「ブックマーク・レイアウトの編集」
+    /// ウインドウの4.4節「ブックマークを全削除」から呼ぶ(1冊分のみを対象にする点が
+    /// deleteAllBookmarks()と異なる)。
+    func deleteAllBookmarks(forBookID bookID: String) {
+        let all = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
+        // この編集ウインドウの一覧に出てこないEPUB自動取り込みのブックマークは、この「全削除」の
+        // 対象にも含めない(reload()/bookmarks(forBookID:)と同じ理由。画像ビューア側の
+        // ジャンプ機能に影響を与えないため)。
+        let matched = all.filter { $0.bookID == bookID && !$0.isEpubDerived }
+        guard !matched.isEmpty else { return }
+        for bookmark in matched {
+            modelContext.delete(bookmark)
+        }
         try? modelContext.save()
         reload()
         NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])

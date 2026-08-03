@@ -18,6 +18,20 @@ import AppKit
 final class LaunchCoordinator: ObservableObject {
     /// 上記(1)の初期化処理を既に行ったかどうか。
     @Published var didPerformInitialLaunchActions = false
+
+    /// 「ブックマーク・レイアウトの編集」ウインドウ(BookmarkEditorView)を開く直前に、
+    /// どちらの呼び出し元から開かれたかをセットしておく値(設計コンセプト4.5節)。
+    /// Windowシーン自体はid一意の単一インスタンス(WindowGroupと違いfor:による値の
+    /// パラメータ化ができない)のため、値渡しの代わりにこの共有オブジェクト経由で伝える。
+    /// BookmarkEditorView側は.onAppear(初回表示)と.onChange(既に開いている状態で
+    /// もう一方の呼び出し元から改めて開かれた場合)の両方でこの値を読み、初期フィルタへ反映する。
+    @Published var pendingEditorInitialFocus: EditorInitialFocus?
+
+    /// 5節の一括リネームウインドウ(Window(id: "bulkRenameBookmarks"))を開く直前に、
+    /// 対象のbookIDをセットしておく値。上のpendingEditorInitialFocusと同じ理由・同じ仕組み
+    /// (Windowシーンはfor:による値のパラメータ化ができない単一インスタンスのため)。
+    @Published var pendingBulkRenameBookID: String?
+
     /// アプリ起動時、最初に作られたウインドウのAppState。2つ目以降の(新しいウインドウ/タブで
     /// 開いた)ウインドウでは上書きしない。
     weak var primaryAppState: AppState?
@@ -119,4 +133,15 @@ final class LaunchCoordinator: ObservableObject {
 /// 配列の要素自体をweakにはできないため、AppStateへの弱参照を1つ持つだけの箱として使う。
 private struct WeakAppStateBox {
     weak var appState: AppState?
+}
+
+/// 「ブックマーク・レイアウトの編集」ウインドウ(設計コンセプト4節)を、どちらの目的で
+/// 開いたか。4.5節の通り、呼び出し元によって初期フィルタが異なる。
+enum EditorInitialFocus: Equatable {
+    /// 「ブックマークの編集」として開いた場合: 左ペイン=「ブックマークがある本のみ」、
+    /// 右ペイン=「ブックマークがあるページのみ」。
+    case bookmarks
+    /// 「レイアウトの編集」として開いた場合: 左ペイン=「レイアウト情報がある本のみ」、
+    /// 右ペイン=「すべて」。
+    case layout
 }

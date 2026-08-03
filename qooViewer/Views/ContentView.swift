@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import AppKit
+import Combine
 
 struct ContentView: View {
     /// このウインドウ(タブ)専用のAppState。ウインドウごとに独立して本を開けるように、
@@ -13,6 +14,7 @@ struct ContentView: View {
     @EnvironmentObject private var folderAccess: FolderAccessStore
     @EnvironmentObject private var favoritesStore: FavoritesStore
     @EnvironmentObject private var bookmarkStore: BookmarkStore
+    @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
     @Environment(\.modelContext) private var modelContext
 
@@ -40,7 +42,7 @@ struct ContentView: View {
                 // .id(book.id) を付けることで、次の本/前の本に切り替えたときに
                 // ViewerViewModel(StateObject)が確実に作り直され、ページ位置などが
                 // 新しい本の状態にリセットされるようにしている。
-                ViewerView(book: book, modelContext: modelContext, preferences: preferences)
+                ViewerView(book: book, modelContext: modelContext, preferences: preferences, layoutStore: layoutStore)
                     .id(book.id)
             } else {
                 WelcomeView()
@@ -73,14 +75,24 @@ struct ContentView: View {
                 // (EnvironmentObject。この構造体自体がfavoritesStoreの変更のたびに作り直される
                 // ことで、値型のFocusedValueとしてメニューバー側へ正しく伝わる)から直接算出する。
                 isCurrentBookFavorited: appState.currentBook.map { favoritesStore.isFavorited(bookID: $0.id) } ?? false,
-                isCurrentPageBookmarked: appState.currentBookmarks.contains { $0.pageIndex == appState.currentPageIndex }
+                isCurrentPageBookmarked: appState.currentBookmarks.contains { $0.pageIndex == appState.currentPageIndex },
+                hasAuthoritativeEpubLayout: appState.hasAuthoritativeEpubLayout,
+                hasPartnerPageDisplayed: appState.hasPartnerPageDisplayed,
+                hasCurrentPageLayoutOverride: appState.hasCurrentPageLayoutOverride,
+                hasPartnerPageLayoutOverride: appState.hasPartnerPageLayoutOverride
             )
         )
         .frame(minWidth: 900, minHeight: 640)
         // ウインドウ/タブのタイトルバーおよびタブバーに表示される文字列。本を開いている間は
         // その本のタイトル(ファイル/フォルダ名)を表示し、どのタブが何の本を開いているか
         // 一目で分かるようにする。何も開いていない(ウェルカム画面)ときはアプリ名を表示する。
-        .navigationTitle(appState.currentBook?.title ?? "qooViewer")
+        // タイトル自体は拡張子を除いた名前のため、同名のcbz/epub版を両方開いていると
+        // タブバーだけでは見分けがつかない(ユーザー報告)。ウインドウ/タブのタイトルは
+        // プレーンテキストのみでFormatBadgeView(カスタムView)を表示できないため、
+        // FavoritesMenuContent/FavoritesNSMenuBridgeと同じく括弧書きの拡張子で区別する。
+        .navigationTitle(
+            appState.currentBook.map { $0.title + FormatBadgeView.plainTextSuffix(forBookID: $0.id) } ?? "qooViewer"
+        )
         // このウインドウ自身への参照をappStateに持たせておく。Finderから別の本を開こうとした
         // ときに「新しいタブで開く」設定の場合、どのウインドウへタブを追加すべきかを
         // NSApp.keyWindow(その時点でたまたまキーウインドウだったもの、必ずしも正しいとは
@@ -355,11 +367,11 @@ struct ContentView: View {
         guard let url = LastActiveBookStore.resolve() else { return nil }
 
         let bookID = url.path
-        var descriptor = FetchDescriptor<BookReadingState>(
-            predicate: #Predicate<BookReadingState> { $0.bookID == bookID }
-        )
-        descriptor.fetchLimit = 1
-        guard let state = try? modelContext.fetch(descriptor).first,
+        // #Predicateでの絞り込みフェッチが、レイアウト変更直後などに0件を誤って返すことがある
+        // 不具合が実機で確認された(LayoutStore.pageOverrides(forBookID:)のコメント参照)ため、
+        // 絞り込み無しで全件取得してからSwift側でfilterする。
+        let allReadingStates = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
+        guard let state = allReadingStates.first(where: { $0.bookID == bookID }),
               let recordedModificationDate = state.recordedSourceModificationDate else {
             // 指紋の記録がまだない(初めて記録される、またはこの仕組みを導入する前の
             // データ)場合は、比較のしようがないので復元してよいものとして扱う。

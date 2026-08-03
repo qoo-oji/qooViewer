@@ -35,12 +35,29 @@ final class Bookmark {
     /// そちらのコメント参照)。
     var updatedAt: Date = Date()
 
-    init(bookID: String, pageIndex: Int, name: String, bookmarkData: Data? = nil) {
+    /// EPUBの目次(nav.xhtml)から自動的に取り込んだブックマークかどうか
+    /// (ViewerViewModel.autoImportEpubTableOfContentsAsBookmarksIfNeeded参照)。
+    ///
+    /// ユーザー報告: EPUBのブックマークは画像ビューアのブックマーク一覧としては見えてよいが、
+    /// 「ブックマーク・レイアウトの編集」ウインドウ(BookmarkStore.reload()/bookmarks(forBookID:)
+    /// 経由)には表示されるべきではない(このウインドウは、ユーザーが明示的に作成した
+    /// ブックマークだけを一覧・編集する場という期待)。この属性で両者を区別し、
+    /// BookmarkStore側のクエリだけこの属性がtrueの行を除外する(ViewerViewModel.
+    /// reloadBookmarksは画像ビューア自身の一覧のため、従来通りtrue/false問わず全件を含める)。
+    ///
+    /// `= false`という宣言時のデフォルト値は、この属性を後から追加したことによる
+    /// ライトウェイトマイグレーションのために必須(FavoriteBook.updatedAt/BookReadingState.
+    /// scalingModeRawと同じ理由。既存の保存済みデータはすべてユーザー作成のブックマークで
+    /// あり、falseとして扱って問題ない)。
+    var isEpubDerived: Bool = false
+
+    init(bookID: String, pageIndex: Int, name: String, bookmarkData: Data? = nil, isEpubDerived: Bool = false) {
         self.id = UUID()
         self.bookID = bookID
         self.pageIndex = pageIndex
         self.name = name
         self.bookmarkData = bookmarkData
+        self.isEpubDerived = isEpubDerived
         let now = Date()
         self.createdAt = now
         self.updatedAt = now

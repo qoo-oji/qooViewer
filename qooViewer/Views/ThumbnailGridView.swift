@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreGraphics
+import Combine
 
 /// ページのサムネイル一覧画面(cooViewerの「一覧表示画面」に相当)。
 /// クリックでそのページへジャンプする。

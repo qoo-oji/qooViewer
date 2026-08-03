@@ -73,7 +73,11 @@ final class FavoritesNSMenuBridge: NSObject {
                 folderItem.submenu = submenu
                 menu.addItem(folderItem)
             case .book(let favorite):
-                let item = NSMenuItem(title: favorite.title, action: #selector(selectFavorite(_:)), keyEquivalent: "")
+                // SwiftUI版(FavoritesMenuContent.FavoriteBookMenuItem)と同じく、NSMenuItemには
+                // カスタムViewのFormatBadgeViewを表示できないため、プレーンテキストの括弧書きで
+                // 拡張子を示す。
+                let title = favorite.title + FormatBadgeView.plainTextSuffix(forBookID: favorite.bookID)
+                let item = NSMenuItem(title: title, action: #selector(selectFavorite(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = favorite
                 menu.addItem(item)

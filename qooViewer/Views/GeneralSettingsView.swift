@@ -57,6 +57,21 @@ struct GeneralSettingsView: View {
                 }
             }
 
+            // ユーザー報告: 見開き表示中にツールバー/お気に入りメニュー/キーボードショートカットから
+            // ブックマークを追加すると、クリック位置の情報が無いため常に既定側のページが対象に
+            // なる(見開き右、左開きなら見開き左)。この既定側固定と、追加のたびに左右どちらかを
+            // 尋ねるダイアログ表示のどちらかを選べるようにした(SpreadBookmarkTargetBehavior参照)。
+            Section("Adding Bookmarks in Spread View") {
+                Picker(
+                    "When Adding a Bookmark from the Toolbar or Favorites Menu",
+                    selection: $preferences.spreadBookmarkTargetBehavior
+                ) {
+                    ForEach(SpreadBookmarkTargetBehavior.allCases) { behavior in
+                        Text(behavior.titleKey).tag(behavior)
+                    }
+                }
+            }
+
             Section("Quit") {
                 Toggle("Quit qooViewer when all windows are closed", isOn: $preferences.quitWhenLastWindowClosed)
             }

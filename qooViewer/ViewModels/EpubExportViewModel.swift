@@ -1,0 +1,388 @@
+import Foundation
+import SwiftUI
+import Combine
+
+/// EPUB出力ウインドウ(設計コンセプト7節)のロジックを担当する。BookLayoutEditorViewModelと
+/// 同じく、対象の一覧・出力オプション・実際の出力処理(進捗・キャンセル・同名確認・失敗集約)を
+/// このクラスに集約し、EpubExportWindow(View)側は表示に専念する。
+@MainActor
+final class EpubExportViewModel: ObservableObject {
+    /// 7.1節の対象一覧の1行。pdf/epub形式以外で、レイアウトまたはブックマーク情報を持つ本。
+    struct Row: Identifiable {
+        let bookID: String
+        let hasLayout: Bool
+        let hasBookmarks: Bool
+        var id: String { bookID }
+        var displayName: String {
+            URL(fileURLWithPath: bookID).deletingPathExtension().lastPathComponent
+        }
+    }
+
+    struct FailureReport: Identifiable {
+        let id = UUID()
+        let displayName: String
+        let message: String
+    }
+
+    enum OverwriteDecision {
+        case overwrite
+        case skip
+    }
+
+    private struct ExportSkippedByUser: Error {}
+    private struct SimpleError: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
+    @Published private(set) var rows: [Row] = []
+    @Published var selectedBookIDs: Set<String> = []
+
+    /// 7.2節の出力オプション。連番リネームは既定OFF(ユーザー要望。元のファイル名をそのまま
+    /// 使いたい場合が多いため、必要な場合にだけ明示的にONにしてもらう形にした。以前は文字化け
+    /// 対策を兼ねて既定ONにしていたが、そちらの判断は撤回した)、除外ページを含めるかは既定OFF
+    /// (7.2節の既定と同じ)。
+    @Published var renumberImagesSequentially = false
+    @Published var includeExcludedPages = false
+
+    // 実行中の状態
+    @Published private(set) var isExporting = false
+    @Published private(set) var currentBookDisplayName: String?
+    @Published private(set) var completedCount = 0
+    @Published private(set) var totalCount = 0
+    private var isCancelled = false
+
+    // 同名ファイルの確認(7.3節)
+    @Published private(set) var pendingOverwriteBookDisplayName: String?
+    private var overwriteDecisionContinuation: CheckedContinuation<OverwriteDecision, Never>?
+    private var rememberedOverwriteDecision: OverwriteDecision?
+
+    // 結果
+    @Published private(set) var failures: [FailureReport] = []
+    @Published private(set) var successCount = 0
+    @Published private(set) var didFinish = false
+
+    private let bookmarkStore: BookmarkStore
+    private let layoutStore: LayoutStore
+
+    init(bookmarkStore: BookmarkStore, layoutStore: LayoutStore) {
+        self.bookmarkStore = bookmarkStore
+        self.layoutStore = layoutStore
+        reload()
+    }
+
+    /// 対象一覧を読み直す。レイアウト情報またはブックマーク情報を持つ本のうち、pdf/epub形式は
+    /// 除外する(7.1節: 「pdf/epub形式以外」)。カバー画像だけを上書き設定している本
+    /// (読み方向・ページ順等の上書きは無い)も対象に含める(ユーザー要望: カバー画像を
+    /// 選択・変更できるようにしたい。layoutStore.layoutBookIDsはisBookLevelSettingEmptyで
+    /// カバー関連プロパティを見ていないため、これだけでは拾えない)。
+    func reload() {
+        var bookIDs = layoutStore.layoutBookIDs
+        bookIDs.formUnion(bookmarkStore.groups.map(\.bookID))
+        bookIDs.formUnion(layoutStore.coverOverrideBookIDs())
+        let eligibleIDs = bookIDs.filter { bookID in
+            let ext = URL(fileURLWithPath: bookID).pathExtension.lowercased()
+            return ext != "pdf" && ext != "epub"
+        }
+        rows = eligibleIDs
+            .map { bookID in
+                Row(
+                    bookID: bookID,
+                    hasLayout: layoutStore.layoutBookIDs.contains(bookID),
+                    hasBookmarks: bookmarkStore.groups.contains { $0.bookID == bookID }
+                )
+            }
+            .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+        selectedBookIDs.formIntersection(Set(rows.map(\.bookID)))
+    }
+
+    // MARK: - 一括選択(7.1節)
+
+    /// ユーザー要望により、上部の「選択」メニュー(4条件)と「選択解除」ボタンは廃止し、
+    /// 代わりに一覧のタイトル行にチェックボックスを設けて全選択/全選択解除を行う形にした
+    /// (EpubExportWindow.columnHeaderRowのselectAllBinding参照)。
+    func selectAll() { selectedBookIDs = Set(rows.map(\.bookID)) }
+    func deselectAll() { selectedBookIDs.removeAll() }
+
+    // MARK: - カバー画像(ユーザー要望: EPUB出力のカバー画像を選択・変更できるようにしたい)
+
+    /// カバー列に表示する名前のキャッシュ(bookID -> 表示名)。上書き設定がある場合は
+    /// BookLayoutSettingsに保存済みの値をそのまま使えるが、既定(先頭ページ)の場合は本を
+    /// 読み込んで確認する必要があるため、非同期で解決してここへキャッシュする
+    /// (refreshCoverName(forBookID:)参照)。
+    @Published private(set) var resolvedCoverNames: [String: String] = [:]
+
+    /// カバー列の表示文字列。まだ解決できていない間は読み込み中であることが分かる文字列を返す。
+    func coverDisplayName(forBookID bookID: String) -> String {
+        resolvedCoverNames[bookID] ?? String(localized: "Loading…")
+    }
+
+    /// この本のカバー表示名を最新化する。呼び出し元(カバー列のセル)の.taskから、行の表示中に
+    /// 一度だけ呼ぶ想定(BookmarkListView.PageRowViewのサムネイル読み込みと同じ考え方)。
+    func refreshCoverName(forBookID bookID: String) async {
+        guard let settings = layoutStore.bookLayoutSettings(forBookID: bookID) else {
+            await resolveDefaultCoverName(forBookID: bookID)
+            return
+        }
+        if let externalName = settings.externalCoverFileName {
+            resolvedCoverNames[bookID] = externalName
+            return
+        }
+        if settings.coverPageKey != nil, let cached = settings.coverPageDisplayName {
+            resolvedCoverNames[bookID] = cached
+            return
+        }
+        await resolveDefaultCoverName(forBookID: bookID)
+    }
+
+    /// 既定(上書き無し)の場合のカバー名。実際に書き出したときと同じロジック
+    /// (EffectivePageOrder)で実質的な先頭ページを求める必要があるため、本を読み込む。
+    private func resolveDefaultCoverName(forBookID bookID: String) async {
+        guard let book = await loadBook(forBookID: bookID) else { return }
+        let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
+        let excludedKeys = Set(
+            layoutStore.pageOverrides(forBookID: bookID).filter { $0.state == .excluded }.map(\.pageKey)
+        )
+        let ordered = EffectivePageOrder.orderedPages(
+            for: book, pageOrderOverride: settings?.pageOrderOverride, excludedKeys: excludedKeys
+        )
+        guard let first = ordered.first else { return }
+        resolvedCoverNames[bookID] = first.displayName
+    }
+
+    /// カバーピッカー(本のページ一覧を表示する画面)から呼ばれる。この本を読み込んで返す
+    /// (セキュリティスコープ付きアクセスはBookLayoutEditorViewModel.loadと同じく、ウインドウが
+    /// 開いている間ずっとサムネイルを読み込めるよう、明示的に閉じずに保持したままにする)。
+    func loadBookForCoverPicker(bookID: String) async -> MangaBook? {
+        await loadBook(forBookID: bookID)
+    }
+
+    private func loadBook(forBookID bookID: String) async -> MangaBook? {
+        guard let url = resolveURL(forBookID: bookID) else { return nil }
+        _ = url.startAccessingSecurityScopedResource()
+        return try? await BookLoader.load(from: url)
+    }
+
+    /// 本に含まれる既存ページをカバーに指定する。
+    func setCover(forBookID bookID: String, book: MangaBook, page: PageRef) {
+        layoutStore.setCoverPageKey(for: book, pageKey: page.sortKey, displayName: page.displayName)
+        resolvedCoverNames[bookID] = page.displayName
+    }
+
+    /// 本に含まれない専用ファイルをカバーに指定する。この専用ファイルは本の一部として扱わない
+    /// ため、ビューアのページ一覧には現れない(LayoutStore.setExternalCoverのコメント参照)。
+    func setExternalCover(forBookID bookID: String, book: MangaBook, fileURL: URL) {
+        guard (try? layoutStore.setExternalCover(for: book, fileURL: fileURL)) != nil else { return }
+        resolvedCoverNames[bookID] = fileURL.lastPathComponent
+    }
+
+    /// カバーの上書きを解除し、既定(先頭ページ)に戻す。
+    func resetCover(forBookID bookID: String) {
+        layoutStore.clearCoverOverride(forBookID: bookID)
+        resolvedCoverNames.removeValue(forKey: bookID)
+        Task { await refreshCoverName(forBookID: bookID) }
+    }
+
+    // MARK: - 空き容量チェック(7.3節)
+
+    /// 選択されている本の元ファイル/フォルダの合計サイズ。アーカイブ・PDFはfileSizeKey、
+    /// フォルダは中の画像ファイルサイズを再帰合計する。
+    func totalSourceSize() -> Int64 {
+        let targets = rows.filter { selectedBookIDs.contains($0.bookID) }
+        var total: Int64 = 0
+        for row in targets {
+            guard let url = resolveURL(forBookID: row.bookID) else { continue }
+            total += sourceSize(of: url)
+        }
+        return total
+    }
+
+    private func sourceSize(of url: URL) -> Int64 {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return 0 }
+        if isDirectory.boolValue {
+            var total: Int64 = 0
+            if let enumerator = FileManager.default.enumerator(
+                at: url, includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey], options: [.skipsHiddenFiles]
+            ) {
+                for case let fileURL as URL in enumerator {
+                    let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isDirectoryKey])
+                    if values?.isDirectory != true, let size = values?.fileSize {
+                        total += Int64(size)
+                    }
+                }
+            }
+            return total
+        }
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+        return Int64(values?.fileSize ?? 0)
+    }
+
+    /// 出力先ボリュームの空き容量。取得できなければnil(その場合、呼び出し側は容量チェック自体を
+    /// 諦めてそのまま続行する。取得失敗を「容量不足」と誤判定してユーザーの操作を止めないため)。
+    ///
+    /// 以前はvolumeAvailableCapacityForImportantUsageKeyのみを使っていたが、このキーは
+    /// 「読み込み結果」ではなく「あとで自動的に解放されうるパージ可能領域(キャッシュ・
+    /// ローカルTime Machineスナップショット等)を除いた、重要な用途向けの空き容量」という
+    /// 独自の見積もりであり、ボリュームによってはFinderの表示(実際の空き容量)よりずっと
+    /// 小さい値(場合によっては数十MB程度)を返すことが実機で確認された(ユーザー報告:
+    /// 101MBのファイル1つ、出力先の実際の空き容量は2.52TBあるにもかかわらず「空き容量不足」
+    /// と誤警告された)。Finderの「使用可能な容量」表示と一致する素直な合計値である
+    /// volumeAvailableCapacityKeyを優先して使い、それが取得できない場合にのみ
+    /// ForImportantUsage版へフォールバックする形に変更する。
+    func availableCapacity(at folderURL: URL) -> Int64? {
+        let values = try? folderURL.resourceValues(
+            forKeys: [.volumeAvailableCapacityKey, .volumeAvailableCapacityForImportantUsageKey]
+        )
+        if let plain = values?.volumeAvailableCapacity {
+            return Int64(plain)
+        }
+        return values?.volumeAvailableCapacityForImportantUsage
+    }
+
+    /// 7.3節: 出力先の空き容量が合計サイズの1.2倍未満なら警告(false)。
+    func hasSufficientDiskSpace(at folderURL: URL) -> Bool {
+        guard let available = availableCapacity(at: folderURL) else { return true }
+        let required = Double(totalSourceSize()) * 1.2
+        return Double(available) >= required
+    }
+
+    // MARK: - bookIDからのURL解決
+
+    /// BookmarkStore/LayoutStoreのどちらかが持つセキュリティスコープ付きブックマークからURLを
+    /// 解決する(LibraryImportExportService.resolveURLと同じ考え方)。
+    private func resolveURL(forBookID bookID: String) -> URL? {
+        bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID) ?? layoutStore.resolvedURL(forBookID: bookID)
+    }
+
+    // MARK: - 出力実行(7.3節)
+
+    func cancel() {
+        isCancelled = true
+    }
+
+    /// 結果シートを閉じる(OKボタン、またはシート自体のスワイプ/×での閉じ操作)。
+    func acknowledgeFinish() {
+        didFinish = false
+    }
+
+    /// 同名ファイル確認ダイアログへの回答。applyToRemainingがtrueなら、以降の本には
+    /// このダイアログを出さずこの回答をそのまま適用する。
+    func resolveOverwrite(_ decision: OverwriteDecision, applyToRemaining: Bool) {
+        if applyToRemaining {
+            rememberedOverwriteDecision = decision
+        }
+        pendingOverwriteBookDisplayName = nil
+        overwriteDecisionContinuation?.resume(returning: decision)
+        overwriteDecisionContinuation = nil
+    }
+
+    private func askOverwriteDecision(for displayName: String) async -> OverwriteDecision {
+        if let remembered = rememberedOverwriteDecision {
+            return remembered
+        }
+        pendingOverwriteBookDisplayName = displayName
+        return await withCheckedContinuation { continuation in
+            overwriteDecisionContinuation = continuation
+        }
+    }
+
+    func startExport(destinationFolder: URL) async {
+        let targets = rows.filter { selectedBookIDs.contains($0.bookID) }
+        guard !targets.isEmpty else { return }
+
+        isExporting = true
+        isCancelled = false
+        failures = []
+        successCount = 0
+        completedCount = 0
+        totalCount = targets.count
+        rememberedOverwriteDecision = nil
+        didFinish = false
+
+        for row in targets {
+            guard !isCancelled else { break }
+            currentBookDisplayName = row.displayName
+            do {
+                try await exportOne(row: row, destinationFolder: destinationFolder)
+                successCount += 1
+            } catch is ExportSkippedByUser {
+                // ユーザーがこの本のスキップを選んだ場合。失敗としては扱わない。
+            } catch {
+                failures.append(FailureReport(displayName: row.displayName, message: error.localizedDescription))
+            }
+            completedCount += 1
+        }
+
+        isExporting = false
+        currentBookDisplayName = nil
+        didFinish = true
+    }
+
+    private func exportOne(row: Row, destinationFolder: URL) async throws {
+        guard let sourceURL = resolveURL(forBookID: row.bookID) else {
+            throw SimpleError(message: String(localized: "The original file/folder couldn't be found."))
+        }
+        let didAccess = sourceURL.startAccessingSecurityScopedResource()
+        defer { if didAccess { sourceURL.stopAccessingSecurityScopedResource() } }
+
+        let book = try await BookLoader.load(from: sourceURL)
+        let settings = layoutStore.bookLayoutSettings(forBookID: row.bookID)
+        var overrides: [String: PageLayoutState] = [:]
+        for override in layoutStore.pageOverrides(forBookID: row.bookID) {
+            overrides[override.pageKey] = override.state
+        }
+
+        let excludedKeys = includeExcludedPages
+            ? []
+            : Set(overrides.filter { $0.value == .excluded }.map(\.key))
+        let orderedKeys = EffectivePageOrder.pageKeys(
+            for: book, pageOrderOverride: settings?.pageOrderOverride, excludedKeys: excludedKeys
+        )
+
+        let bookmarksSorted = bookmarkStore.bookmarks(forBookID: row.bookID).sorted { $0.pageIndex < $1.pageIndex }
+        var exportBookmarks: [EpubExportBookmark] = []
+        for bookmark in bookmarksSorted {
+            guard orderedKeys.indices.contains(bookmark.pageIndex) else { continue }
+            exportBookmarks.append(EpubExportBookmark(pageKey: orderedKeys[bookmark.pageIndex], name: bookmark.name))
+        }
+
+        let input = EpubExportInput(
+            book: book,
+            pageOrderOverride: settings?.pageOrderOverride,
+            pageOverrides: overrides,
+            readingDirectionOverride: settings?.readingDirectionOverride,
+            forcedDisplayMode: settings?.forcedDisplayMode,
+            bookmarks: exportBookmarks,
+            coverOverride: resolveCoverOverride(settings: settings)
+        )
+        let options = EpubExportOptions(
+            renumberImagesSequentially: renumberImagesSequentially, includeExcludedPages: includeExcludedPages
+        )
+
+        let destinationFileURL = destinationFolder.appendingPathComponent("\(row.displayName).epub")
+        if FileManager.default.fileExists(atPath: destinationFileURL.path) {
+            let decision = await askOverwriteDecision(for: row.displayName)
+            guard decision == .overwrite else { throw ExportSkippedByUser() }
+        }
+
+        try await EpubExporter.export(input, options: options, to: destinationFileURL)
+    }
+
+    /// ユーザー要望: カバー画像を選択・変更できるようにしたい。BookLayoutSettingsの上書き設定を
+    /// EpubExporter向けのEpubCoverOverrideへ変換する(未設定ならnil=既定の先頭ページ)。
+    private func resolveCoverOverride(settings: BookLayoutSettings?) -> EpubCoverOverride? {
+        guard let settings else { return nil }
+        if let pageKey = settings.coverPageKey {
+            return .existingPage(pageKey: pageKey)
+        }
+        guard settings.externalCoverBookmarkData != nil,
+              let url = layoutStore.resolvedExternalCoverURL(forBookID: settings.bookID)
+        else { return nil }
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let ext = url.pathExtension.isEmpty ? "jpg" : url.pathExtension.lowercased()
+        return .externalFile(data: data, fileExtension: ext)
+    }
+}
