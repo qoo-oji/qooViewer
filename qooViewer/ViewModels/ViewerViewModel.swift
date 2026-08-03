@@ -347,16 +347,33 @@ final class ViewerViewModel: ObservableObject {
     var pageCount: Int { book.pages.count }
 
     /// forward: true = 物語的に「次のページ」へ進む、false = 「前のページ」へ戻る
-    /// 前進のステップ数は「今表示している画像の枚数」で決まる(横長画像で単ページ表示に
-    /// なっている場合は1枚分だけ進むようにするため。見開き設定でも常に2ページ分ずれる
-    /// わけではない)。後退のステップ数はbackwardStepSize(from:fallback:)参照
-    /// (「今表示している画像の枚数」をそのまま戻り幅に使うと、直前の見開きの実際の枚数と
-    /// 食い違う場合に不具合が起きるため、別ロジックにしている)。
+    /// 前進のステップ数はforwardStepSize(from:fallback:)参照(EPUB/DB由来の明示指定が
+    /// baseIndexにあればそれを優先し、無ければ「今表示している画像の枚数」に近似する。
+    /// 横長画像で単ページ表示になっている場合は1枚分だけ進むようにするため。見開き設定でも
+    /// 常に2ページ分ずれるわけではない)。後退のステップ数はbackwardStepSize(from:fallback:)
+    /// 参照(「今表示している画像の枚数」をそのまま歩幅に使うと、baseIndexが待ち行列中の
+    /// 未表示の目的地を指している場合や、直前の見開きの実際の枚数と食い違う場合に不具合が
+    /// 起きるため、別ロジックにしている)。
     func advance(forward: Bool) {
         // まだ表示できていない待ち行列中の目的地があれば、そこを起点に次の目的地を計算する
         // (currentIndexは、待ち行列の処理がまだ追いついていない古い値のことがあるため)。
         let baseIndex = pageFlipQueue.last ?? currentIndex
-        let forwardStep = max(currentImages.count, 1)
+        // 「今表示している画像の枚数」(currentImages.count)は、待ち行列が空でない間は
+        // baseIndex(=次に着地する予定の、まだ表示できていない目的地)ではなく、現在画面に
+        // 出ている別のページ(処理待ちのアニメーション途中のコマ、または古いページ)の枚数を
+        // 指してしまっている。スクロールホイールで素早く連続してページ送りすると、この
+        // ズレたforwardStepでbaseIndexへ加算してしまい、EPUB/DBのpage-spread-left/right
+        // 指定を持つページの組の片方(特に「見開き右」ページ)だけへ直接着地することがあった
+        // (本来は必ずその直前のページとセットで着地しなければならない)。結果、着地後に
+        // currentSoleImageForcedSpreadPosition(EPUB仕様6.1.4節)が働き、実際には組になる
+        // ページが存在するにもかかわらず、片割れを空白ページとして描画してしまっていた
+        // (ユーザー報告: epubやレイアウト情報がある本で、スクロールホイールを高速で回して
+        // ページ送りし、止まった際に見開きの半分が空白ページになる)。
+        // forwardStepSize(from:fallback:)はbackwardStepSize(from:fallback:)と同じ考え方で、
+        // baseIndex自身にEPUB/DB由来の明示指定があるときはそれを同期的に使って正しい歩幅を
+        // 決め、明示指定が無い(横長画像ヒューリスティックの判定に画像読み込みが必要な)場合
+        // だけ、従来通りcurrentImages.countへフォールバックする。
+        let forwardStep = forwardStepSize(from: baseIndex, fallback: max(currentImages.count, 1))
         if forward {
             if baseIndex + forwardStep < book.pages.count {
                 enqueuePageFlip(to: baseIndex + forwardStep)
@@ -413,6 +430,45 @@ final class ViewerViewModel: ObservableObject {
         if earlierPosition == .center || earlierPosition == disallowedForEarlier { return 1 }
         if laterPosition == .center || laterPosition == disallowedForLater { return 1 }
         if earlierPosition != nil || laterPosition != nil { return 2 }
+
+        // どちらの位置にも明示指定が無い場合、横長ヒューリスティックの判定に画像の読み込みが
+        // 必要になり、この同期的なAPIでは判定できない。以前からの近似にフォールバックする。
+        return fallback
+    }
+
+    /// advance(forward: true)(次のページへ進む)のステップ数を決める。backwardStepSizeの
+    /// 前進版(コメント参照)。
+    ///
+    /// 経緯(ユーザー報告): 以前はadvance(forward:)が常にforwardStep = currentImages.count
+    /// (今表示している画像の枚数)をそのままbaseIndexへの加算幅に使っていた。baseIndexは
+    /// 「待ち行列中の目的地(まだ表示できていない、これから着地する予定の位置)」なのに対し、
+    /// currentImages.countは「現在画面に実際に出ているページ(待ち行列の処理がまだ追いついて
+    /// いない、別の位置のことがある)」の枚数であり、スクロールホイールなどで素早く連続して
+    /// advanceが呼ばれる(画像の読み込みが追いつく前に次のadvanceが呼ばれる)と、この2つが
+    /// 指す位置がずれる。ずれたforwardStepでbaseIndexに加算すると、EPUB/DB由来の
+    /// page-spread-left/right指定を持つページの組の片方(特に「見開き右」側)へ、相方の
+    /// ページを経由せずに直接着地してしまうことがあり、着地後にcurrentSoleImageForced-
+    /// SpreadPositionが働いて本来組になるはずのページを空白扱いにしてしまっていた
+    /// (epubやレイアウト情報がある本で、スクロールホイールを高速で回してページ送りし、
+    /// 止まった際に見開きの半分が空白ページになる)。
+    ///
+    /// backwardStepSizeと同じく、baseIndex自身とその次のページ(baseIndex+1)がEPUB/DB由来の
+    /// 明示指定だけで判定できる範囲はここで同期的に正しく計算し(shouldPairWithNextPageと
+    /// 同じ基準)、判定できない(どちらにも明示指定が無く、横長ヒューリスティックの結果を
+    /// 画像無しに知りようが無い)場合だけ、従来通りの近似(fallback)にフォールバックする。
+    private func forwardStepSize(from index: Int, fallback: Int) -> Int {
+        guard displayMode == .spread else { return fallback }
+        guard index >= 0, index + 1 < book.pages.count else { return fallback }
+
+        let currentPosition = layoutHint(at: index)
+        let nextPosition = layoutHint(at: index + 1)
+        let isRTL = readingDirection == .rightToLeft
+        let disallowedForCurrent: PageSpreadPosition = isRTL ? .left : .right
+        let disallowedForNext: PageSpreadPosition = isRTL ? .right : .left
+
+        if currentPosition == .center || currentPosition == disallowedForCurrent { return 1 }
+        if nextPosition == .center || nextPosition == disallowedForNext { return 1 }
+        if currentPosition != nil || nextPosition != nil { return 2 }
 
         // どちらの位置にも明示指定が無い場合、横長ヒューリスティックの判定に画像の読み込みが
         // 必要になり、この同期的なAPIでは判定できない。以前からの近似にフォールバックする。
