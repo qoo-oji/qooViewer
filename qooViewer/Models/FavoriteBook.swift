@@ -8,9 +8,13 @@ import SwiftData
 /// LastActiveBookStoreと同じく「セキュリティスコープ付きブックマーク」(bookmarkData)として
 /// 保持する(それらはUserDefaultsに保存しているが、お気に入りは階層構造・件数上限・並び順など
 /// 扱うデータが多いため、SwiftDataのモデルとして持たせる。Dataは通常の属性として保存できる)。
+/// 以前はidに`@Attribute(.unique)`の一意制約を付けていたが、外した。Bookmark.id/
+/// PageLayoutOverride.compositeKey/BookLayoutSettings.bookIDと同じ理由(詳細はBookmark.swiftの
+/// コメント参照)。idはinit時に毎回`UUID()`で新規生成するだけのため、SwiftData側の一意制約に
+/// 頼る必要は元々無い。
 @Model
 final class FavoriteBook {
-    @Attribute(.unique) var id: UUID
+    var id: UUID
     /// 登録した時点でのMangaBook.id(フォルダ/アーカイブファイルのパス)と同じ形式の文字列。
     /// 「同じ本を再登録しようとしたときの重複チェック」の検索キーとして使う
     /// (FavoritesStore.existingFavorite(forBookID:)参照)。

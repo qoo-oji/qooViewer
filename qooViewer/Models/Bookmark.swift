@@ -3,9 +3,18 @@ import SwiftData
 
 /// 本の特定のページに付けるブックマーク。SwiftDataで永続化する。
 /// bookID には MangaBook.id (フォルダ/アーカイブファイルのパス) を使う。
+/// 以前はidに`@Attribute(.unique)`の一意制約を付けていたが、外した。PageLayoutOverride.
+/// compositeKey/BookLayoutSettings.bookIDと同じ理由(詳細はそちらのコメント参照): 同じ
+/// ModelContextに対して短時間に複数回、一意制約を持つ同じエンティティ型の行をinsert()+save()
+/// すると、既存の無関係な行が消えることがあるというSwiftData側の不具合が疑われるため。
+/// 実際に、ページを連続でブックマークする(ViewerViewModel.addBookmark)、JSONインポートで
+/// 複数件のブックマークを1件ずつ取り込む(LibraryImportExportService.applyBookmarks →
+/// BookmarkStore.addBookmark)など、同じModelContextへ短時間に複数回insert()+save()する経路が
+/// 実在する。idはinit時に毎回`UUID()`で新規生成するだけで、アプリ側が既存行と照合して再利用する
+/// ことは無いため、一意性を保証するためにSwiftData側の一意制約に頼る必要は元々無い。
 @Model
 final class Bookmark {
-    @Attribute(.unique) var id: UUID
+    var id: UUID
     var bookID: String
     var pageIndex: Int
     var name: String

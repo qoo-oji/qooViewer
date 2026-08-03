@@ -4,9 +4,13 @@ import SwiftData
 /// お気に入りを整理するためのフォルダ。フォルダ同士は親子関係(自己参照)を持ち、階層構造を作る。
 /// 階層の深さの上限はFavoritesLimits.maxFolderDepthで管理する(このモデル自体には上限は持たせない。
 /// 上限チェックはFavoritesStore側で、フォルダを作成しようとした時点で行う)。
+/// 以前はidに`@Attribute(.unique)`の一意制約を付けていたが、外した。Bookmark.id/
+/// PageLayoutOverride.compositeKey/BookLayoutSettings.bookIDと同じ理由(詳細はBookmark.swiftの
+/// コメント参照)。idはinit時に毎回`UUID()`で新規生成するだけのため、SwiftData側の一意制約に
+/// 頼る必要は元々無い。
 @Model
 final class FavoriteFolder {
-    @Attribute(.unique) var id: UUID
+    var id: UUID
     var name: String
     /// 同じ階層内へ登録/移動された順番(小さいほど先)。現在は表示の並び替えには使っていない
     /// (表示順はFavoritesStore.sortOption/foldersAlwaysOnTopに従う。FavoriteBook.sortOrderの

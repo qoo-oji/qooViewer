@@ -10,9 +10,14 @@ import SwiftData
 /// recordedPageCount(ページ数)・recordedSourceModificationDate(更新日時)・
 /// recordedSourceFileSize(ファイルサイズ。フォルダの場合は取得できないためnil)を
 /// あわせて保存しておく(ViewerViewModel.init参照。実際の比較・古いデータの削除はそちらで行う)。
+/// 以前はbookIDに`@Attribute(.unique)`の一意制約を付けていたが、外した。Bookmark.id/
+/// PageLayoutOverride.compositeKey/BookLayoutSettings.bookIDと同じ理由(詳細はBookmark.swiftの
+/// コメント参照)。一意性自体はViewerViewModel.init側で、insertする前に必ず
+/// (allReadingStatesをbookIDでfilterして)既存行の有無を確認してから分岐しているため
+/// アプリ側で保証されており、SwiftData側の一意制約に頼る必要は無い。
 @Model
 final class BookReadingState {
-    @Attribute(.unique) var bookID: String
+    var bookID: String
     var lastPageIndex: Int
     var displayModeRaw: String
     var readingDirectionRaw: String
