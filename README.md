@@ -106,13 +106,32 @@ SwiftData・ImageIO・AppKit(実寸表示ウインドウ・マウスカーソル
 だけで使えます)。表示モード・ブックマーク・スライドショー・環境設定・キー/マウスのカスタマイズも
 すべて標準フレームワークのみで実装しているため、この節で追加するパッケージは変わらず上記4つだけです。
 
+### ソースコードをプロジェクトに追加する
+
+1. プロジェクトナビゲータにある、Xcodeが最初から作った `qooViewerApp.swift` と `ContentView.swift` を選択して削除(Move to Trash)
+2. Finder で、お渡しした `qooViewer/Sources` フォルダを開く
+3. その中の `App` `Models` `Resources` `Services` `ViewModels` `Views` の6つのフォルダを、そのまま Xcode のプロジェクトナビゲータ(qooViewerフォルダの上)にドラッグ&ドロップ
+4. 表示されるダイアログで
+   - 「Copy items if needed」にチェック
+   - 「Create groups」を選択
+   - Add to targets で `qooViewer` にチェック
+   - Finish
+
+### アプリアイコンを設定する(任意)
+
+`Resources_AppIcon` フォルダに、独自のアプリアイコン一式(`Assets.xcassets/AppIcon.appiconset`、必要な
+サイズをすべて含む)が同梱されています。Xcodeのプロジェクトナビゲータで `Assets.xcassets` 内の
+既定の(空の)`AppIcon` を削除し、`Resources_AppIcon/Assets.xcassets` の中の `AppIcon.appiconset` を
+`Assets.xcassets` の上にドラッグ&ドロップして差し替えると、Dock・Finder・環境設定ウインドウなどに
+このアイコンが使われます(設定しなくてもビルド自体は可能です)。
+
 ### 表示言語(日本語/English)を有効にする
 
 qooViewerは日本語とEnglishを切り替えられます(環境設定の「一般」タブ→「表示言語」)。
 これを実際に機能させるには、Xcodeプロジェクト側にも2つ設定が必要です。
 
-1. `Sources/Resources/Localizable.xcstrings` が、手順4のドラッグ&ドロップで他のフォルダと
-   一緒にプロジェクトに追加されていることを確認してください
+1. `Sources/Resources/Localizable.xcstrings` が、上の「ソースコードをプロジェクトに追加する」手順の
+   ドラッグ&ドロップで他のフォルダと一緒にプロジェクトに追加されていることを確認してください
    (`Resources`フォルダごとドラッグしていれば自動的に含まれます。個別に追加した場合は、
    `Localizable.xcstrings` ファイル単体を同様にドラッグ&ドロップし、`qooViewer`ターゲットに
    追加してください)。Xcodeはこの拡張子のファイルを自動的に「String Catalog」として認識し、
@@ -172,6 +191,15 @@ qooViewerは日本語とEnglishを切り替えられます(環境設定の「一
 3. これで対応ファイルを Finder でダブルクリック、または右クリック →「このアプリケーションで開く」→
    qooViewer で開けるようになります
 
+### rarファイル名の文字化けを解消する(任意)
+
+`Unrar.swift` の既定実装のままだと、Shift-JIS等で作られた古い日本語rarのファイル名が文字化けする
+ことがあります。`Patches/UnrarSwift-Entry.swift` は、この文字化けを解消するための差し替え用ファイルです。
+`Unrar.swift` をご自身のGitHubアカウントにフォークし、`Sources/Unrar/Entry.swift` の中身をこの
+ファイルの内容に置き換えてコミットしたうえで、Xcode側の依存先をそのフォークに向け直すと解消します
+(依存先ライブラリ自体の修正になるため、qooViewer側のコードだけでは直せません)。手順の詳細は
+[SETUP.md](./SETUP.md) の付録「rarファイル名の文字化けを解消する」を参照してください。
+
 ### ビルド&実行
 
 1. 画面左上の実行ボタン(▶)か `Cmd + R`
@@ -182,5 +210,5 @@ qooViewerは日本語とEnglishを切り替えられます(環境設定の「一
 
 - qooViewer自体のソースコードはMITライセンスです(同梱の `LICENSE` 参照)。
 - 文字コード自動判定は `UniversalCharsetDetection`(内部で Mozilla 由来の uchardet を使用)に依存しています。MITライセンスです。
-- zip/cbz/7z/cb7 対応は `ZIPFoundation` に依存しています。 `ZIPFoundation` および、`SevenZip.swift` はMITライセンスです。
+- zip/cbz 対応は `ZIPFoundation` に、7z/cb7 対応は `SevenZip.swift` に依存しています。いずれもMITライセンスです。
 - rar/cbr 対応は `Unrar.swift`(内部で RARLAB 提供の unrar ライブラリを使用)に依存しています。[unrar のライセンス文](https://github.com/mtgto/Unrar.swift/blob/main/Sources/Cunrar/readme.txt)を参照してください。
