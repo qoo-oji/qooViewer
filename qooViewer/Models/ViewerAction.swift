@@ -45,6 +45,10 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
     case toggleDisplayMode
     case toggleReadingDirection
     case cycleScalingMode
+    /// 「現在の表示を基準に自動でレイアウトする」(ツールバーの四角いアイコンのボタン、
+    /// メニューバー「Layout」→「Auto-Layout Based on Current View」と同じ操作)。
+    /// 本全体を上書きするため、実行すると確認ダイアログを挟む(ViewerView.perform参照)。
+    case autoLayoutFromCurrentView
     case previousBook
     case nextBook
     /// 現在のページのブックマークを追加/削除する(付いていなければ追加、付いていれば削除する、
@@ -113,6 +117,7 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
         case .toggleDisplayMode: return "Toggle Spread/Single Page"
         case .toggleReadingDirection: return "Switch Reading Direction"
         case .cycleScalingMode: return "Cycle Display Mode"
+        case .autoLayoutFromCurrentView: return "Auto-Layout Based on Current View"
         case .previousBook: return "Previous Book"
         case .nextBook: return "Next Book"
         case .toggleBookmark: return "Toggle Bookmark"

@@ -1659,6 +1659,13 @@ struct ViewerView: View {
             viewModel.toggleReadingDirection()
         case .cycleScalingMode:
             viewModel.cycleScalingMode()
+        case .autoLayoutFromCurrentView:
+            // ツールバーのボタン・メニューバー「Layout」の項目と同じ経路(3.1節)。EPUB由来の
+            // 権威的なレイアウト指定がある本ではボタン/メニュー項目自体を無効化しているため、
+            // キーボードショートカット側でも同じ条件でここで弾く(viewModel.autoLayoutFromCurrentView
+            // 自体にも同じガードがあるが、確認ダイアログが無意味に開いてしまわないようにするため)。
+            guard !viewModel.hasAuthoritativeEpubLayout else { break }
+            isShowingAutoLayoutConfirmation = true
         case .previousBook:
             appState.openSibling(before: viewModel.book.sourceURL)
         case .nextBook:

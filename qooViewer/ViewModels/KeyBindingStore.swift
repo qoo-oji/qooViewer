@@ -63,6 +63,10 @@ final class KeyBindingStore: ObservableObject {
         RemappableKey.character("s").id: .toggleDisplayMode,
         RemappableKey.character("r").id: .toggleReadingDirection,
         RemappableKey.character("f").id: .cycleScalingMode,
+        // 「現在の表示を基準に自動でレイアウトする」(ツールバーのアイコンボタン/メニューバー
+        // 「Layout」→「Auto-Layout Based on Current View」と同じ操作)。他の既定キーと
+        // 衝突しないeキーを割り当てている。
+        RemappableKey.character("e").id: .autoLayoutFromCurrentView,
         RemappableKey.character("q").id: .showActualSizeLeft,
         RemappableKey.character("w").id: .showActualSizeRight,
         RemappableKey.character("0").id: .jumpToPercentile0,

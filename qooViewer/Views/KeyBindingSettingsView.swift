@@ -7,12 +7,21 @@ import SwiftUI
 struct KeyBindingSettingsView: View {
     @EnvironmentObject private var store: KeyBindingStore
 
-    /// キーボードの一覧に表示する操作の順序。読み方向に関わらず常に同じ意味になる
-    /// moveNext/movePreviousを、最もよく使う操作として先頭に表示する
-    /// (以前は列挙型の宣言順のままだったが、縦に長く見づらいという指摘を踏まえて並び替えている)。
-    /// お気に入り関連の操作(toggleFavorite/showFavoritesOrganizer)は、ブックマーク関連の操作
-    /// (toggleBookmark/nextBookmark/previousBookmark/showBookmarkList)のすぐ下に並べる
-    /// (ユーザーからの指示)。
+    /// キーボードの一覧に表示する操作の順序。以前は「最もよく使う操作(moveNext/movePrevious)を
+    /// 先頭に置き、残りは列挙型の宣言順」という並びだったが、宣言順のまま並べた後半部分
+    /// (表示切替・ブックマーク・ページ一覧・スライドショー・実寸表示・本の移動が脈絡なく
+    /// 入り混じっていた)が見づらいという指摘を踏まえ、MANUAL.mdの章立て(ページ送り→表示・
+    /// レイアウト→ページ一覧→ブックマーク→お気に入り→スライドショー・実寸表示→本の移動)と
+    /// 同じ流れになるよう、機能ごとのグループにまとめて並べ替えている。
+    ///
+    /// - ページ送りグループ: 読み方向に関わらず常に同じ意味になるmoveNext/movePreviousを、
+    ///   最もよく使う操作として先頭に置き、続けて画面位置基準の送り・見開き調整用の1ページ送り・
+    ///   先頭/末尾ジャンプ・割合ジャンプをまとめる
+    /// - 表示・レイアウトグループ: 見開き/単ページ・読み方向・拡大縮小モードの切り替えに続けて、
+    ///   自動レイアウト(9節)を並べる
+    /// - お気に入り関連の操作(toggleFavorite/showFavoritesOrganizer)は、ブックマーク関連の操作
+    ///   (toggleBookmark/nextBookmark/previousBookmark/showBookmarkList)のすぐ下に並べる
+    ///   (ユーザーからの指示。この点は従来の並びを踏襲)
     ///
     /// showFavoritesList(旧「お気に入り一覧を表示」)は、ツールバーの一覧ボタンを廃止した際に
     /// 他の入り口(メニューバー・コンテキストメニューは階層表示のサブメニューに置き換え済み)を
@@ -21,13 +30,36 @@ struct KeyBindingSettingsView: View {
     /// ユーザーからの指示)。ViewerAction自体からは削除していない(将来別の入り口を復活させる
     /// 可能性に備えて残してある)。
     private let assignableActions: [ViewerAction] = {
-        let priority: [ViewerAction] = [.moveNext, .movePrevious]
+        let navigationGroup: [ViewerAction] = [
+            .moveNext, .movePrevious,
+            .spatialLeft, .spatialRight,
+            .shiftOnePageLeft, .shiftOnePageRight,
+            .firstPage, .lastPage,
+            .jumpToPercentile0, .jumpToPercentile10, .jumpToPercentile20, .jumpToPercentile30,
+            .jumpToPercentile40, .jumpToPercentile50, .jumpToPercentile60, .jumpToPercentile70,
+            .jumpToPercentile80, .jumpToPercentile90,
+        ]
+        let displayGroup: [ViewerAction] = [
+            .toggleDisplayMode, .toggleReadingDirection, .cycleScalingMode, .autoLayoutFromCurrentView,
+        ]
+        let pageListGroup: [ViewerAction] = [.showThumbnailGrid]
         let bookmarkGroup: [ViewerAction] = [.toggleBookmark, .nextBookmark, .previousBookmark, .showBookmarkList]
         let favoriteGroup: [ViewerAction] = [.toggleFavorite, .showFavoritesOrganizer]
+        let slideshowAndActualSizeGroup: [ViewerAction] = [
+            .toggleSlideshow, .showActualSizeLeft, .showActualSizeRight,
+        ]
+        let bookNavigationGroup: [ViewerAction] = [.previousBook, .nextBook]
         let hidden: [ViewerAction] = [.showFavoritesList]
-        let placed = Set(priority + bookmarkGroup + favoriteGroup + hidden)
+
+        let ordered =
+            navigationGroup + displayGroup + pageListGroup + bookmarkGroup + favoriteGroup
+            + slideshowAndActualSizeGroup + bookNavigationGroup
+        // ViewerActionに新しいケースを追加した際、上記グループへの追加を忘れても一覧から
+        // 漏れないよう、どのグループにも含まれていない残りのケースを末尾に補う
+        // (通常は空になるはずのセーフティネット)。
+        let placed = Set(ordered + hidden)
         let rest = ViewerAction.allCases.filter { $0 != .none && !placed.contains($0) }
-        return priority + bookmarkGroup + favoriteGroup + rest
+        return ordered + rest
     }()
     private let mouseTriggers: [InputTrigger] = [.clickLeftZone, .clickRightZone, .wheelUp, .wheelDown]
 
