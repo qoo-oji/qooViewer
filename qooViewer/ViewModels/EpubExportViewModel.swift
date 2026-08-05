@@ -141,13 +141,21 @@ final class EpubExportViewModel: ObservableObject {
     /// (読み方向・ページ順等の上書きは無い)も対象に含める(ユーザー要望: カバー画像を
     /// 選択・変更できるようにしたい。layoutStore.layoutBookIDsはisBookLevelSettingEmptyで
     /// カバー関連プロパティを見ていないため、これだけでは拾えない)。
+    ///
+    /// バグ修正(ユーザー報告): 過去にレイアウトやブックマークを編集した本の元ファイル/フォルダを
+    /// 後から削除しても、DB上のBookLayoutSettings/Bookmarkレコード自体は(設計コンセプト10.3節の
+    /// 方針により)自動削除されず残り続けるため、それだけで一覧に表示されてしまっていた。
+    /// resolveURL(forBookID:)はbookmarkStore/layoutStoreどちらもセキュリティスコープ付き
+    /// ブックマークの解決先(無ければ生パス)についてFileManager.fileExistsを確認したうえで
+    /// 返す(見つからなければnil)ため、これを使って実在が確認できた本だけに絞り込む。
     func reload() {
         var bookIDs = layoutStore.layoutBookIDs
         bookIDs.formUnion(bookmarkStore.groups.map(\.bookID))
         bookIDs.formUnion(layoutStore.coverOverrideBookIDs())
         let eligibleIDs = bookIDs.filter { bookID in
             let ext = URL(fileURLWithPath: bookID).pathExtension.lowercased()
-            return ext != "pdf" && ext != "epub"
+            guard ext != "pdf" && ext != "epub" else { return false }
+            return resolveURL(forBookID: bookID) != nil
         }
         // bookmarkStore.groupsはArrayなので、mapの中で毎回containsを呼ぶとO(件数^2)になる。
         // 事前にSet化して1回のO(1)ルックアップにする(結果は従来と同一)。
