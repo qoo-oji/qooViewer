@@ -63,6 +63,23 @@ final class ViewerViewModel: ObservableObject {
     /// この本のPageLayoutOverride(ページ単位の設定)を、pageKey(PageRef.sortKey)をキーにした
     /// 辞書として保持する。差し替えの疑いがあり未解決の間は空のまま。
     private var pageLayoutStates: [String: PageLayoutState] = [:]
+    /// 一度でも画像を読み込んで横長判定(isWideImage)を行ったページの結果を、pageKeyをキーに
+    /// 覚えておくキャッシュ。
+    ///
+    /// 経緯(ユーザー報告): backwardStepSize/forwardStepSizeは同期的なAPIのため、EPUB/DB由来の
+    /// 明示指定(layoutHint)が無いページの横長判定には本来画像の読み込みが必要で、それができない
+    /// 場合は「今表示中の画像の枚数」を使った近似(fallback)にフォールバックしていた。しかし
+    /// この近似は、直前の見開きの実際の構成(枚数)が今表示中の見開きと異なる場合(例:
+    /// 1ページ目が横長で単独ページ、2ページ目以降が縦長で通常通りペアになる本)に誤った歩幅を
+    /// 算出してしまい、「前のページへ戻る」操作で本来単独表示されるべきページが飛ばされて
+    /// しまう不具合があった。
+    ///
+    /// このキャッシュは、shouldPairWithNextPage/loadCurrentSpread/wideImageAspectRatios(自動
+    /// レイアウト計算)など、実際に画像(またはサムネイル)を読み込んで横長判定を行った箇所すべてで
+    /// 埋める。一度でも表示・判定済みのページであれば、backwardStepSize/forwardStepSizeは
+    /// 画像を読み込み直さずにこのキャッシュから正確な判定を再利用できる(cachedIsWideImage(at:)
+    /// 参照)。未判定のページについては、従来通りの近似にフォールバックする。
+    private var wideImageCache: [String: Bool] = [:]
     /// 「ブックマーク・レイアウトの編集」ウインドウ(LayoutStore、この本を今開いていなくても
     /// 操作できる独立ウインドウ)側でこの本のレイアウト設定が変更されたときに、pageLayoutStates/
     /// bookLayoutSettingsを読み直すための監視トークン。bookmarksChangeObserverと同じ考え方
@@ -75,10 +92,36 @@ final class ViewerViewModel: ObservableObject {
     /// 読み直すための監視トークン。詳細はBookmark.swiftのNotification.Name.bookmarksDidChange
     /// のコメント参照。
     private var bookmarksChangeObserver: NSObjectProtocol?
+    /// 環境設定「横長画像のしきい値」(preferences.singlePageAspectRatioThreshold)が本を
+    /// 開いたまま変更されたときに、wideImageCache(古いしきい値で判定した結果)を破棄するための
+    /// 購読。破棄しないと、しきい値変更前に判定・キャッシュ済みのページについて、
+    /// backwardStepSize/forwardStepSizeが古い判定結果を使い続けてしまう
+    /// (wideImageCacheのコメント参照)。
+    private var singlePageAspectRatioThresholdObserver: AnyCancellable?
 
     /// 非同期の読み込みが完了したとき、それが「一番新しいリクエストか」を判定するための世代番号。
     /// 素早くページ送りされたときに、古い読み込みが後から完了して表示を巻き戻すのを防ぐ。
     private var loadGeneration = 0
+    /// loadCurrentSpreadが直前に実際に表示したページの範囲(見開きなら2ページ分、単ページなら
+    /// 1ページ分)。shouldPairWithNextPageが、新しい組み合わせの相方としてこの範囲のページを
+    /// 再び取り込んでしまう(=直前の見開きの一方を、無関係な別のページと組み直して再表示して
+    /// しまう)ことを防ぐために参照する。
+    ///
+    /// 経緯(ユーザー報告): 「1ページだけ送る」操作などで見開きの組み合わせを手動でずらした
+    /// 状態(例: ページ3・4が見開きとして表示されている状態。本来の横長画像ヒューリスティック
+    /// だけなら2・3が組になるはずの本で、手動調整によりずれた状態)から「前のページへ戻る」を
+    /// 行うと、backwardStepSizeは正しく1ページだけ戻る(ページ2)と判断するが、その着地点で
+    /// 独立に再計算されるshouldPairWithNextPageは横長ヒューリスティックだけで判定するため、
+    /// (ページ2もページ3も横長ではない場合)ページ2をページ3と新たに組み直してしまっていた。
+    /// しかしページ3は直前まで(異なる相手である)ページ4と組んで表示されていたページであり、
+    /// これを今回のペアの相方として再利用すると、直前の見開きの右側が別の見開きの左側として
+    /// 二重に使われる(=本来単独表示されるべきページ2が、ページ3を巻き込んで見開きに
+    /// なってしまう)という不整合が生じる。stepSize自体の計算(何ページ分移動するか)と、
+    /// 着地点でのペア判定(そのページが次のページと組むか)が別々に(互いを知らずに)
+    /// 計算されていたことが根本原因のため、着地点での判定側に「直前表示していたページを
+    /// 再利用しない」という制約を追加することで、双方の計算がどのような経路で呼ばれても
+    /// (advance/jump/ループ折り返し等を問わず)常に整合するようにした。
+    private var lastDisplayedPageRange: Range<Int>?
     /// 直近の画像読み込みタスク。スクロールホイールなどで素早く連続してページ送りされたとき、
     /// 古いリクエストの読み込み(デコードや先読み)がキャンセルされずに残り続けると、
     /// CPU/デコード処理の順番待ちが積み重なって最新のページの表示が遅れる原因になる。
@@ -269,6 +312,11 @@ final class ViewerViewModel: ObservableObject {
         Task { [weak self] in
             await self?.loadCurrentSpread()
         }
+        // 本を開いた直後から、本全体についてバックグラウンドで横長判定を進めておく
+        // (warmUpWideImageCacheForEntireBookのコメント参照。ユーザー報告: スクロールホイールを
+        // 高速に連続して回すと、primeWideImageCache(around:radius:)によるcurrentIndex付近だけの
+        // 先読みでは判定が追いつかず、まだ未判定の遠いページまで一気に進んでしまうことがある)。
+        warmUpWideImageCacheForEntireBook()
         reloadBookmarks()
 
         // 設計コンセプト7.5節「逆方向」: EPUBの目次(nav.xhtml)があり、この本にまだブックマークが
@@ -324,6 +372,16 @@ final class ViewerViewModel: ObservableObject {
                 self?.reloadLayoutData(focusPageKey: focusPageKey)
             }
         }
+
+        // 環境設定ウインドウは本のウインドウとは独立して開けるため、この本を表示したまま
+        // しきい値を変更されることがある。dropFirst()で初期値の即時発火は無視し、
+        // 実際に値が変わったときだけwideImageCacheを破棄する(singlePageAspectRatioThreshold
+        // Observerのコメント参照)。
+        singlePageAspectRatioThresholdObserver = preferences.$singlePageAspectRatioThreshold
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.wideImageCache.removeAll()
+            }
     }
 
     deinit {
@@ -431,8 +489,24 @@ final class ViewerViewModel: ObservableObject {
         if laterPosition == .center || laterPosition == disallowedForLater { return 1 }
         if earlierPosition != nil || laterPosition != nil { return 2 }
 
-        // どちらの位置にも明示指定が無い場合、横長ヒューリスティックの判定に画像の読み込みが
-        // 必要になり、この同期的なAPIでは判定できない。以前からの近似にフォールバックする。
+        // どちらの位置にも明示指定が無い場合、本来は横長ヒューリスティックの判定に画像の
+        // 読み込みが必要で、この同期的なAPIでは判定できない。ただし、index - 2のページを
+        // 過去に一度でも表示していれば、その判定結果がwideImageCacheに残っているため、
+        // 画像を読み込み直さずに正確な判定ができる(shouldPairWithNextPageと同じ基準:
+        // index - 2自身が横長なら単独ページとして確定するのでindex - 1と組めず、戻り幅は1。
+        // 横長でなければindex - 2とindex - 1が組になっていたはずなので、戻り幅は2)。
+        //
+        // 経緯(ユーザー報告): 1ページ目が横長画像で単独ページ、2ページ目以降は縦長画像で
+        // 通常通り2ページずつ組になる本で、見開き表示中に「前のページへ戻る」を実行すると、
+        // 本来は間にある単独ページ(1ページ目)を経由して2ページ目が単独表示されるべきところ、
+        // このキャッシュが無い頃は「今表示中の枚数(2枚)」をそのまま戻り幅として使う近似に
+        // 頼っており、1ページ目・2ページ目をまとめて飛び越えてしまっていた。
+        if let earlierIsWide = cachedIsWideImage(at: index - 2) {
+            return earlierIsWide ? 1 : 2
+        }
+
+        // キャッシュにも判定結果が無い(index - 2のページを一度も表示していない)場合だけ、
+        // 従来通りの近似(fallback)にフォールバックする。
         return fallback
     }
 
@@ -470,8 +544,37 @@ final class ViewerViewModel: ObservableObject {
         if nextPosition == .center || nextPosition == disallowedForNext { return 1 }
         if currentPosition != nil || nextPosition != nil { return 2 }
 
-        // どちらの位置にも明示指定が無い場合、横長ヒューリスティックの判定に画像の読み込みが
-        // 必要になり、この同期的なAPIでは判定できない。以前からの近似にフォールバックする。
+        // indexが現在実際に表示中のページ(currentIndex)と一致する場合、fallback
+        // (max(currentImages.count, 1)、advance参照)は「今まさに画面に出ている、実際の
+        // 表示状態」をそのまま表しているため、wideImageCacheによる横長判定だけの予測より
+        // 優先して信頼できる。
+        //
+        // 経緯(ユーザー報告): shouldPairWithNextPageには、直前に表示していたページを新しい
+        // ペアの相方として再利用しない制約(previousDisplayedRange、lastDisplayedPageRangeの
+        // コメント参照)を追加した。この制約により、横長画像でなくても「直前の見開きの相方
+        // だった」という理由で単ページ化されることがあるが、wideImageCache単体の判定
+        // (indexのページ自身が横長かどうか)はこの制約を知らないため、実際には単ページ化
+        // されているページを「横長ではないから次と組むはず」と誤って予測し、本来1ページだけ
+        // 進むべきところを2ページ分進めて次のページを飛び越えてしまっていた。fallbackは
+        // その制約も含めて実際にレンダリングされた結果(currentImages.count)をそのまま使うため、
+        // この問題が起きない。
+        if index == currentIndex {
+            return fallback
+        }
+
+        // indexが現在表示中のページと一致しない(スクロールホイールなどで素早く連続して
+        // advanceが呼ばれ、待ち行列に複数の目的地が積まれている)場合は、fallbackの元になる
+        // currentImages.countが「今画面に実際に出ている(baseIndexとは別の、処理待ちの)ページ」
+        // の枚数を指してしまうため信頼できない(advance内のforwardStepのコメント参照)。
+        // この場合に限り、wideImageCacheを参照する(indexのページを過去に一度でも表示して
+        // いれば、shouldPairWithNextPageと同じ基準(indexのページ自身が横長かどうか)で、
+        // fallbackよりはましな判定ができる。前述のpreviousDisplayedRangeによる制約までは
+        // 反映できないため完全ではないが、素の近似よりは精度が高い)。
+        if let currentIsWide = cachedIsWideImage(at: index) {
+            return currentIsWide ? 1 : 2
+        }
+
+        // キャッシュにも判定結果が無い場合だけ、従来通りの近似(fallback)にフォールバックする。
         return fallback
     }
 
@@ -544,6 +647,8 @@ final class ViewerViewModel: ObservableObject {
         if shouldPairWithNextPage(at: index, firstImage: firstImage),
            let secondImage = await pageLoader.pageImage(at: index + 1) {
             images.append(secondImage)
+            // loadCurrentSpreadと同じ理由でwideImageCacheへ記録しておく(コメント参照)。
+            _ = isWideImage(secondImage, pageIndex: index + 1)
         }
         currentImages = images
     }
@@ -910,23 +1015,43 @@ final class ViewerViewModel: ObservableObject {
         loadGeneration += 1
         let generation = loadGeneration
         let targetIndex = currentIndex
+        // まだ上書きされていない、直前にloadCurrentSpreadが表示したページの範囲を保持しておく
+        // (このロードの結果でlastDisplayedPageRangeを新しい範囲に更新する前に読む必要がある)。
+        // shouldPairWithNextPageへ渡し、直前のページを再利用したペア化を防ぐために使う
+        // (lastDisplayedPageRangeのコメント参照)。
+        let previousRange = lastDisplayedPageRange
 
         guard !Task.isCancelled else { return }
+
+        // wideImageCacheのカバー範囲をtargetIndex付近に広げておく(バックグラウンドで行うため
+        // ここでは待たない)。詳細はprimeWideImageCacheのコメント参照。読みかけの本を「前回の
+        // 続きから」再開した直後など、targetIndexより前のページを一度も表示していない状態で
+        // すぐに「前のページへ戻る」を行うケースに備える。
+        primeWideImageCache(around: targetIndex, radius: max(Int(preferences.prefetchPageCount), 2))
 
         var images: [CGImage] = []
         if let firstImage = await pageLoader.pageImage(at: targetIndex) {
             guard !Task.isCancelled else { return }
             images.append(firstImage)
 
-            if shouldPairWithNextPage(at: targetIndex, firstImage: firstImage),
+            if shouldPairWithNextPage(at: targetIndex, firstImage: firstImage, previousDisplayedRange: previousRange),
                let secondImage = await pageLoader.pageImage(at: targetIndex + 1) {
                 images.append(secondImage)
+                // ペアの相方(targetIndex + 1)自身の横長判定はこの組み合わせの成立可否には
+                // 使っていない(shouldPairWithNextPageはfirstImage側だけを見る)が、実際に
+                // 画像を読み込めた以上、wideImageCacheへ記録しておく手間は小さく、backward/
+                // forwardStepSizeが後で同期的に参照できるようになる恩恵の方が大きい
+                // (wideImageCacheのコメント参照)。
+                _ = isWideImage(secondImage, pageIndex: targetIndex + 1)
             }
         }
 
         // 読み込み中にさらに新しいページ送りが起きていたら、この結果は古いので捨てる
         guard generation == loadGeneration, !Task.isCancelled else { return }
         currentImages = images
+        // 次にloadCurrentSpreadが呼ばれたときに参照できるよう、今回実際に表示した範囲を
+        // 記録しておく(lastDisplayedPageRangeのコメント参照)。
+        lastDisplayedPageRange = targetIndex..<(targetIndex + images.count)
 
         // キャンセル済みなら、先読み(周辺ページのデコード)は行わずここで打ち切る。
         // これも「古いリクエストが最新のリクエストのデコード処理待ちを引き起こす」ことを防ぐため。
@@ -935,11 +1060,118 @@ final class ViewerViewModel: ObservableObject {
         await pageLoader.prefetch(around: targetIndex, radius: radius)
     }
 
-    /// 見開き表示中でも単ページとして扱うべき横長画像かどうかを判定する
-    private func isWideImage(_ image: CGImage) -> Bool {
+    /// 見開き表示中でも単ページとして扱うべき横長画像かどうかを判定する。
+    ///
+    /// pageIndexを渡すと、判定結果をwideImageCacheに記録する(そのページについて画像を
+    /// 読み込んで実際に判定した、という事実そのものが後から同期的に再利用できる価値を持つため。
+    /// wideImageCacheのコメント参照)。呼び出し側がどのページの判定かを特定できない場合
+    /// (現状は無いが将来のため)はnilのままでよく、その場合は単に判定結果を返すだけで
+    /// キャッシュへの記録は行わない。
+    private func isWideImage(_ image: CGImage, pageIndex: Int? = nil) -> Bool {
         guard image.height > 0 else { return false }
         let ratio = Double(image.width) / Double(image.height)
-        return ratio >= preferences.singlePageAspectRatioThreshold
+        let result = ratio >= preferences.singlePageAspectRatioThreshold
+        if let pageIndex, book.pages.indices.contains(pageIndex) {
+            wideImageCache[book.pages[pageIndex].sortKey] = result
+        }
+        return result
+    }
+
+    /// wideImageCacheに記録済みの横長判定結果があれば返す(無ければnil)。
+    /// backwardStepSize/forwardStepSizeが、画像を読み込み直さずに同期的に参照するために使う
+    /// (wideImageCacheのコメント参照)。
+    private func cachedIsWideImage(at index: Int) -> Bool? {
+        guard book.pages.indices.contains(index) else { return nil }
+        return wideImageCache[book.pages[index].sortKey]
+    }
+
+    /// index付近(前後radius枚)のうち、まだwideImageCacheに判定結果が無いページについて、
+    /// サムネイル(軽量)を使って横長判定を行い、キャッシュへ記録しておく。
+    ///
+    /// PageLoader.prefetch(around:radius:)は、フルサイズ画像をデコードしてPageLoader自身の
+    /// キャッシュへ格納するだけで、isWideImageによる横長判定までは行わない(判定はあくまで
+    /// ViewerViewModel側の責務のため)。そのため、prefetchだけではwideImageCacheは埋まらない。
+    ///
+    /// 経緯(ユーザー報告): 読みかけの本を「前回の続きから」開いた場合、再開位置(targetIndex)
+    /// より前のページは一度も表示・判定していないため、この本を開いた直後にwideImageCacheは
+    /// 空に近い状態になる。この状態のまま「前のページへ戻る」を行うと、backwardStepSizeは
+    /// キャッシュを参照できず、横長画像ヒューリスティックのフォールバック(近似)に頼ることに
+    /// なり、修正前と同じ理由でページが飛ばされる不具合が再現しうる。そのため、実際に
+    /// 見開きを表示するたび(loadCurrentSpread、本を開いた直後を含む)に、その付近を
+    /// あらかじめ判定してキャッシュを温めておく。
+    ///
+    /// サムネイルを使うのはwideImageAspectRatios(自動レイアウト計算)と同じ理由(体感速度
+    /// 優先。フルサイズ画像は解像度が高いほどデコードが重い)。結果を待たずバックグラウンドで
+    /// 行い(prefetchと同じ考え方)、呼び出し元(loadCurrentSpread)をブロックしない。
+    /// 既に判定済みのページはmissingIndicesに含めないため、同じ範囲に対して繰り返し呼んでも
+    /// (通常のページ送りのたびに呼ばれる)無駄な再判定は発生しない。
+    private func primeWideImageCache(around index: Int, radius: Int) {
+        guard book.pages.indices.contains(index), radius > 0 else { return }
+        let lower = max(0, index - radius)
+        let upper = min(book.pages.count - 1, index + radius)
+        guard lower <= upper else { return }
+        let missingIndices = (lower...upper).filter { cachedIsWideImage(at: $0) == nil }
+        guard !missingIndices.isEmpty else { return }
+
+        Task { [weak self] in
+            guard let self else { return }
+            for pageIndex in missingIndices {
+                guard !Task.isCancelled else { return }
+                guard let thumbnail = await self.pageLoader.thumbnail(at: pageIndex) else { continue }
+                _ = self.isWideImage(thumbnail, pageIndex: pageIndex)
+            }
+        }
+    }
+
+    /// 本を開いた直後に、本全体のページについて横長判定を低優先度のバックグラウンドタスクで
+    /// 先に済ませておく。
+    ///
+    /// 経緯(ユーザー報告): primeWideImageCache(around:radius:)は表示するたびにcurrentIndex
+    /// 付近だけを先読みするが、スクロールホイールを高速に連続して回した場合、advance(forward:)
+    /// は待ち行列(pageFlipQueue)へ次々に目的地を積みながらそのつど同期的に歩幅
+    /// (backwardStepSize/forwardStepSize)を計算するため、その付近の先読み判定用バックグラウンド
+    /// タスクが完了するより先に、まだ判定していない遠いページの歩幅計算に到達してしまうことが
+    /// ある(そうなると結局、横長ヒューリスティックのフォールバック(近似)に頼ることになり、
+    /// ページが飛ばされる不具合が再発しうる)。
+    ///
+    /// これを補うため、本を開いた時点でcurrentIndexを起点に近い順(前後交互)へ本全体を
+    /// バックグラウンドで先読み判定しておく。優先度を.utilityにし、実際のページ表示に使う
+    /// フルサイズ画像のデコード(.userInitiated、PageLoader.decodedImage参照)より優先度を
+    /// 下げているため、通常の読書体験(表示速度)を妨げない。サムネイル(軽量)を使うのは
+    /// wideImageAspectRatiosと同じ理由。
+    ///
+    /// 数百ページ規模の本では完了まで数秒かかりうるが(wideImageAspectRatiosのコメント参照)、
+    /// 低優先度のバックグラウンド処理のため許容している。開いた直後・再開位置からごく近い
+    /// 範囲は既にprimeWideImageCache(即座に、同じくバックグラウンドで)がカバーするため、
+    /// この関数はあくまで「その先の、より広い範囲への保険」という位置づけ。
+    private func warmUpWideImageCacheForEntireBook() {
+        let total = book.pages.count
+        guard total > 0 else { return }
+        let start = min(max(currentIndex, 0), total - 1)
+
+        // currentIndexから近い順(前後交互)に判定していく。高速スクロールで壊れやすいのは
+        // 「今いる位置から少し離れた、まだ見ていないページ」であるため、遠いページより
+        // 近いページを先に判定した方が実際の被害軽減効果が大きい。
+        var order: [Int] = [start]
+        var offset = 1
+        while order.count < total {
+            let forwardIndex = start + offset
+            let backwardIndex = start - offset
+            if forwardIndex < total { order.append(forwardIndex) }
+            if backwardIndex >= 0 { order.append(backwardIndex) }
+            offset += 1
+        }
+
+        Task(priority: .utility) { [weak self] in
+            for pageIndex in order {
+                guard !Task.isCancelled else { return }
+                guard let self else { return }
+                guard self.cachedIsWideImage(at: pageIndex) == nil else { continue }
+                guard let thumbnail = await self.pageLoader.thumbnail(at: pageIndex) else { continue }
+                guard !Task.isCancelled else { return }
+                _ = self.isWideImage(thumbnail, pageIndex: pageIndex)
+            }
+        }
     }
 
     /// targetIndexのページを、次のページ(targetIndex + 1)と組にして見開き表示すべきかどうかを
@@ -965,8 +1197,19 @@ final class ViewerViewModel: ObservableObject {
     /// - 左開き: 従来通り、targetIndex自身がcenter/right相当、次のページがcenter/left相当なら
     ///   組めない。
     /// - どちらのページにも明示指定が無い場合だけ、従来通り横長画像なら単ページ扱いにする
-    ///   ヒューリスティックを適用する。
-    private func shouldPairWithNextPage(at targetIndex: Int, firstImage: CGImage) -> Bool {
+    ///   ヒューリスティックを適用する。ただしその場合でも、previousDisplayedRangeが指定されて
+    ///   いれば、その範囲のページ(直前にloadCurrentSpreadが実際に表示していたページ)を
+    ///   相方として再利用することはしない(lastDisplayedPageRangeのコメント参照。「1ページだけ
+    ///   送る」操作等で見開きの組み合わせを手動でずらした状態から前後にページ送りしたとき、
+    ///   直前の見開きの一方を無関係な別のページと組み直してしまう不整合を防ぐため)。
+    ///
+    /// - Parameter previousDisplayedRange: 直前にloadCurrentSpreadが実際に表示していたページの
+    ///   範囲。loadCurrentSpread以外(loadTransitFrame、通過中コマの簡易表示)から呼ぶ場合は
+    ///   デフォルトのnilのままでよい(通過中の表示はあくまで見た目重視の簡易表示のため、この
+    ///   制約を適用する必要が無い)。
+    private func shouldPairWithNextPage(
+        at targetIndex: Int, firstImage: CGImage, previousDisplayedRange: Range<Int>? = nil
+    ) -> Bool {
         guard displayMode == .spread, targetIndex + 1 < book.pages.count else { return false }
 
         let currentPosition = layoutHint(at: targetIndex)
@@ -980,7 +1223,17 @@ final class ViewerViewModel: ObservableObject {
 
         if currentPosition != nil || nextPosition != nil { return true }
 
-        return !isWideImage(firstImage)
+        // 明示指定がどちらにも無く、横長ヒューリスティックだけで判定する場合に限り、直前の
+        // 見開きのページを再利用したペア化を拒否する(lastDisplayedPageRangeのコメント参照)。
+        // 明示指定がある場合(上のガードで既にtrue/falseが確定している場合)は、そちらの
+        // 権威的な指定を優先し、この制約は適用しない(EPUB/DB側の指定自体が常に整合した
+        // ペアを表しているはずのため、実務上ここに抵触することは無い想定だが、優先順位を
+        // 明確にしておく)。
+        if let previousDisplayedRange, previousDisplayedRange.contains(targetIndex + 1) {
+            return false
+        }
+
+        return !isWideImage(firstImage, pageIndex: targetIndex)
     }
 
     /// 現在1枚だけ表示中(見開き表示中だが相方が見つからない、または単ページ表示モード)の
@@ -1291,7 +1544,11 @@ final class ViewerViewModel: ObservableObject {
         var result: [String: Bool] = [:]
         for (index, page) in book.pages.enumerated() where keySet.contains(page.sortKey) {
             guard let thumbnail = await pageLoader.thumbnail(at: index) else { continue }
-            result[page.sortKey] = isWideImage(thumbnail)
+            // isWideImage(pageIndex:)にindexを渡し、この計算のついでにwideImageCacheへも
+            // 記録しておく(自動レイアウト計算(3.1節)は本全体を対象にしうるため、これを
+            // きっかけに一気に多くのページの判定結果がキャッシュされ、backward/forwardStepSize
+            // (通常のページ送り)の同期判定の精度向上にも波及する。wideImageCacheのコメント参照)。
+            result[page.sortKey] = isWideImage(thumbnail, pageIndex: index)
         }
         return result
     }
