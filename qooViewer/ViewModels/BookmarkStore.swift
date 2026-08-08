@@ -266,6 +266,30 @@ final class BookmarkStore: ObservableObject {
         return nil
     }
 
+    /// ユーザー要望(後方互換性): ファイルノード識別子を持たない古いブックマーク行(この属性を
+    /// 追加する前に作成されたもの、またはaddBookmark/addBookmarksがfileNodeIdentifierを渡されずに
+    /// 作成したもの)について、ファイルパス(bookID)なら実在が確認できている場合に、そのパスから
+    /// 改めて識別子を取得して補完する。
+    ///
+    /// LibraryImportExportService.exportBookmarksが、書き出し対象の本を実際に読み込めた
+    /// (=URLを解決できた)タイミングで、その本のブックマークにまだ識別子が無ければここを呼ぶ
+    /// (エクスポートしたJSONに毎回inodeが含まれるようにするための、地道な取りこぼし救済)。
+    /// 対象が無ければ何もしない(呼び出しコストを抑えるため、呼び出し前にidentifierが必要な
+    /// 行があるかどうかは呼び出し側で判定する)。
+    func backfillFileNodeIdentifier(forBookID bookID: String, identifier: FileNodeIdentifier) {
+        let targets = allBookmarks().filter { $0.bookID == bookID && $0.fileNodeIdentifier == nil }
+        guard !targets.isEmpty else { return }
+        for bookmark in targets {
+            bookmark.inodeNumber = identifier.inodeNumber
+            bookmark.volumeDeviceNumber = identifier.volumeDeviceNumber
+        }
+        try? modelContext.save()
+        // groups/cachedBookmarksの中身(識別子)を最新化しておく。表示上の並び・件数には
+        // 影響しないため、通知(bookmarksDidChange)までは不要と判断する
+        // (この変更を他のウインドウが今すぐ知る必要のある可視の変化ではないため)。
+        cachedBookmarks = nil
+    }
+
     /// 指定したbookIDのブックマークを、現在のsortOptionに従って並べ替えて返す。
     /// (次/前のブックマークへジャンプする操作(ViewerViewModel.jumpToNextBookmark等)は
     /// 常にページ番号順で判定する必要があるため、そちらは影響を受けないViewerViewModel.bookmarks
@@ -304,10 +328,17 @@ final class BookmarkStore: ObservableObject {
     /// 戻り値: 実際に新規追加したらtrue、既存の重複により何もしなかったらfalse
     /// (呼び出し側が「追加できたかどうか」を、before/after件数比較で二重にフェッチし直さずに
     /// 済むようにするため。LibraryImportExportService.applyBookmarks参照)。
+    ///
+    /// - Parameter fileNodeIdentifier: 呼び出し側がこの本のURLを解決済みであれば渡す
+    ///   (FileNodeIdentifier.current(for:)で計算したもの)。ViewerViewModel.addBookmark(atIndex:)と
+    ///   異なり、この関数は本を開いていない状態でも呼ばれる(BookmarkListView「+」ボタン、
+    ///   一括リネームウインドウの表紙自動追加)ため、呼び出し元でURLを解決できた場合にだけ
+    ///   渡してもらう(解決できなければnilのままでよく、従来通りinode無しで作成される。
+    ///   FileNodeIdentifierのコメント参照: 致命的な問題にはならない)。
     @discardableResult
-    func addBookmark(bookID: String, pageIndex: Int, name: String) -> Bool {
+    func addBookmark(bookID: String, pageIndex: Int, name: String, fileNodeIdentifier: FileNodeIdentifier? = nil) -> Bool {
         guard !bookmarks(forBookID: bookID).contains(where: { $0.pageIndex == pageIndex }) else { return false }
-        let bookmark = Bookmark(bookID: bookID, pageIndex: pageIndex, name: name)
+        let bookmark = Bookmark(bookID: bookID, pageIndex: pageIndex, name: name, fileNodeIdentifier: fileNodeIdentifier)
         modelContext.insert(bookmark)
         try? modelContext.save()
         reload()
@@ -332,15 +363,26 @@ final class BookmarkStore: ObservableObject {
     /// この本につき1回にまとめる(addBookmarkと同じ「同じページに既存のブックマークがあれば
     /// 何もしない」重複防止は維持する。渡されたentries内で同じpageIndexが複数あった場合も、
     /// 先頭のものだけが採用される=addBookmarkを順番に呼んだ場合と同じ結果になる)。
-    /// 戻り値: 実際に追加できた件数。
+    ///
+    /// - Parameter fileNodeIdentifier: このbookIDについて解決済みのファイルノード識別子
+    /// (addBookmarkのfileNodeIdentifierパラメータ参照)。JSONインポート(LibraryImportExportService.
+    /// applyBookmarks)では、この呼び出しの直前に本を実際に読み込んでURLを解決済みのため、
+    /// そこで得たbook.sourceURLから計算した最新の識別子を渡す(JSON側の古いinodeをそのまま
+    /// 信用せず、実際に解決できたファイルから再取得する。qooViewer改善要望.mdの「ファイルパス
+    /// ならば実在する場合、inodeをDB上のinodeはそのファイルパスから再取得してinodeで設定する」
+    /// 要件に対応)。
     @discardableResult
-    func addBookmarks(bookID: String, entries: [(pageIndex: Int, name: String)]) -> Int {
+    func addBookmarks(
+        bookID: String, entries: [(pageIndex: Int, name: String)], fileNodeIdentifier: FileNodeIdentifier? = nil
+    ) -> Int {
         guard !entries.isEmpty else { return 0 }
         var existingPageIndices = Set(bookmarks(forBookID: bookID).map(\.pageIndex))
         var addedCount = 0
         for entry in entries {
             guard !existingPageIndices.contains(entry.pageIndex) else { continue }
-            let bookmark = Bookmark(bookID: bookID, pageIndex: entry.pageIndex, name: entry.name)
+            let bookmark = Bookmark(
+                bookID: bookID, pageIndex: entry.pageIndex, name: entry.name, fileNodeIdentifier: fileNodeIdentifier
+            )
             modelContext.insert(bookmark)
             existingPageIndices.insert(entry.pageIndex)
             addedCount += 1

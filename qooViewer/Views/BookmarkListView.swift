@@ -1248,7 +1248,21 @@ private struct BookmarkDetailPane: View {
     private func addBookmark(atPageIndex pageIndex: Int?) {
         guard let pageIndex else { return }
         let pagePrefix = String(localized: "Page", locale: preferences.effectiveLocale)
-        bookmarkStore.addBookmark(bookID: bookID, pageIndex: pageIndex, name: "\(pagePrefix) \(pageIndex + 1)")
+        // ユーザー要望: ここで新規作成するブックマークにもファイルノード識別子(iノード番号)を
+        // 記録したい。この本を今開いているとは限らないため、ViewerViewModel.addBookmarkのように
+        // 既に読み込み済みのbook.sourceURLを使うことはできず、layoutStore.resolvedURL(forBookID:)で
+        // 都度解決する(openBookAndJumpと同じ解決手段。解決できなければnilのままでよく、従来通り
+        // inode無しで作成される)。
+        var fileNodeIdentifier: FileNodeIdentifier?
+        if let url = layoutStore.resolvedURL(forBookID: bookID) {
+            let didAccess = url.startAccessingSecurityScopedResource()
+            fileNodeIdentifier = FileNodeIdentifier.current(for: url)
+            if didAccess { url.stopAccessingSecurityScopedResource() }
+        }
+        bookmarkStore.addBookmark(
+            bookID: bookID, pageIndex: pageIndex, name: "\(pagePrefix) \(pageIndex + 1)",
+            fileNodeIdentifier: fileNodeIdentifier
+        )
     }
 
     /// サムネイルのダブルクリックでそのページへジャンプする(4.2節)。

@@ -665,6 +665,20 @@ final class ViewerViewModel: ObservableObject {
     /// 見開き/単ページ設定にかかわらず、常にちょうど1ページだけ進む/戻る。
     /// 見開きのページの組み合わせ(奇数/偶数ペア)がずれてしまったときに、手動で調整するための操作。
     /// (advanceと違い、ページ境界に達しても隣の本へは移動しない。あくまで微調整用)
+    ///
+    /// 経緯(ユーザー報告): 例えばページ3・4を見開き表示中に「1枚だけ前の画像へ」を使うと、
+    /// ページ2・3の見開きに切り替わることが期待されるが、実際にはページ2が単独ページとして
+    /// 表示されていた。原因はloadCurrentSpread/shouldPairWithNextPageが持つ
+    /// 「直前に表示していたページ(lastDisplayedPageRange)を新しい組み合わせの相方として
+    /// 再利用しない」という制約(そのコメント参照)。この制約自体は、advance(forward:)で
+    /// 見開き丸ごと分の「前のページへ戻る」を行った際に、手動でずらした組み合わせの片方
+    /// (直前まで別のページと組んでいたページ)を誤って巻き込まないようにするためのものだが、
+    /// shiftByOnePageはその制約が想定する操作(advance)ではなく、まさに「組み合わせを1ページ分
+    /// 意図的にずらす」ための操作自体であるため、この制約を適用すると新しく組みたいはずの
+    /// 相方まで拒否してしまっていた。shiftByOnePage自身の再読み込みに限り、この制約を無視する
+    /// ことで、常に新しい組み合わせを素直に(横長判定/レイアウト指定に基づいて)再計算する
+    /// ようにする(この呼び出しの結果でlastDisplayedPageRangeは新しい実際の表示範囲に更新される
+    /// ため、その後のadvance()では引き続き正しく保護がかかる)。
     func shiftByOnePage(forward: Bool) {
         guard !book.pages.isEmpty, !isPageShiftLocked else { return }
         cancelPendingPageFlip()
@@ -676,7 +690,7 @@ final class ViewerViewModel: ObservableObject {
             currentIndex -= 1
         }
         persistState()
-        reloadAsync()
+        reloadAsync(ignorePreviousDisplayedRange: true)
     }
 
     /// プログレスバーをクリック/ドラッグした位置のページへ直接ジャンプする。
@@ -1001,25 +1015,30 @@ final class ViewerViewModel: ObservableObject {
         try? modelContext.save()
     }
 
-    private func reloadAsync() {
+    /// - Parameter ignorePreviousDisplayedRange: trueの場合、lastDisplayedPageRangeによる
+    ///   「直前に表示していたページを新しい相方として再利用しない」制約を今回の読み込みに限り
+    ///   適用しない。shiftByOnePage()のように、組み合わせを意図的に1ページ分ずらすための操作
+    ///   自身の再読み込みで使う(shiftByOnePageのコメント参照)。
+    private func reloadAsync(ignorePreviousDisplayedRange: Bool = false) {
         // 前回の読み込みタスクが残っていれば、まずキャンセルしてから新しいタスクを開始する。
         // こうしないと、素早く連続してページ送りしたときに古いリクエストのデコード処理が
         // キャンセルされずキューに残り続け、最新のページの表示が遅れてしまう。
         reloadTask?.cancel()
         reloadTask = Task { [weak self] in
-            await self?.loadCurrentSpread()
+            await self?.loadCurrentSpread(ignorePreviousDisplayedRange: ignorePreviousDisplayedRange)
         }
     }
 
-    private func loadCurrentSpread(prefetch: Bool = true) async {
+    private func loadCurrentSpread(prefetch: Bool = true, ignorePreviousDisplayedRange: Bool = false) async {
         loadGeneration += 1
         let generation = loadGeneration
         let targetIndex = currentIndex
         // まだ上書きされていない、直前にloadCurrentSpreadが表示したページの範囲を保持しておく
         // (このロードの結果でlastDisplayedPageRangeを新しい範囲に更新する前に読む必要がある)。
         // shouldPairWithNextPageへ渡し、直前のページを再利用したペア化を防ぐために使う
-        // (lastDisplayedPageRangeのコメント参照)。
-        let previousRange = lastDisplayedPageRange
+        // (lastDisplayedPageRangeのコメント参照)。ignorePreviousDisplayedRangeがtrueの場合は
+        // この制約自体を今回に限り適用しない(reloadAsyncのコメント参照)。
+        let previousRange = ignorePreviousDisplayedRange ? nil : lastDisplayedPageRange
 
         guard !Task.isCancelled else { return }
 

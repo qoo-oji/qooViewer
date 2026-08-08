@@ -154,6 +154,19 @@ final class LayoutStore: ObservableObject {
         return nil
     }
 
+    /// ユーザー要望(後方互換性): ファイルノード識別子を持たない古いBookLayoutSettings行
+    /// (この属性を追加する前に作成されたもの)について、ファイルパス(bookID)なら実在が確認
+    /// できている場合に、そのパスから改めて識別子を取得して補完する。BookmarkStore.
+    /// backfillFileNodeIdentifier(forBookID:identifier:)と同じ考え方(LibraryImportExportService.
+    /// exportLayoutsが、書き出し対象の本のURLを解決できたタイミングで呼ぶ)。
+    func backfillFileNodeIdentifier(forBookID bookID: String, identifier: FileNodeIdentifier) {
+        guard let settings = bookLayoutSettings(forBookID: bookID), settings.fileNodeIdentifier == nil else { return }
+        settings.inodeNumber = identifier.inodeNumber
+        settings.volumeDeviceNumber = identifier.volumeDeviceNumber
+        try? modelContext.save()
+        invalidateLayoutCaches()
+    }
+
     // MARK: - 本全体の設定(BookLayoutSettings)
 
     /// 指定したbookIDのBookLayoutSettingsを取得する(存在しなければnil。新規作成はしない)。

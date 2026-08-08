@@ -482,6 +482,22 @@ final class FavoritesStore: ObservableObject {
         allFavoriteBooks().filter { $0.fileNodeIdentifier == identifier }
     }
 
+    /// ユーザー要望(後方互換性): ファイルノード識別子を持たない古いFavoriteBook行(この属性を
+    /// 追加する前に作成されたもの)について、ファイルパス(bookID)なら実在が確認できている場合に、
+    /// そのパスから改めて識別子を取得して補完する。BookmarkStore/LayoutStoreの同名メソッドと
+    /// 同じ考え方(LibraryImportExportService.exportFavoritesが、書き出し対象の本のURLを
+    /// 解決できたタイミングで呼ぶ)。
+    func backfillFileNodeIdentifier(forBookID bookID: String, identifier: FileNodeIdentifier) {
+        let targets = existingFavorites(forBookID: bookID).filter { $0.fileNodeIdentifier == nil }
+        guard !targets.isEmpty else { return }
+        for favorite in targets {
+            favorite.inodeNumber = identifier.inodeNumber
+            favorite.volumeDeviceNumber = identifier.volumeDeviceNumber
+        }
+        try? modelContext.save()
+        cachedBooks = nil
+    }
+
     /// 指定したbookIDが(どれか1つでも)お気に入りに登録されているかどうか。ツールバー・
     /// メニューバー・コンテキストメニューの「追加/削除」トグルボタンが、今どちらの見た目・
     /// 動作にすべきかを判定するために使う。

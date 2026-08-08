@@ -745,6 +745,7 @@ struct QooViewerApp: App {
         Window("Bulk Rename Bookmarks", id: "bulkRenameBookmarks") {
             BulkRenameBookmarksWindow()
                 .environmentObject(bookmarkStore)
+                .environmentObject(layoutStore)
                 .environmentObject(launchCoordinator)
                 .environmentObject(preferences)
                 .environment(\.locale, locale)

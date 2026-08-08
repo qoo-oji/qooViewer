@@ -48,12 +48,17 @@ enum LibraryImportExportService {
             result.skippedBookmarkBookIDs = skipped
         }
         if selection.includeLayouts {
-            file.layouts = exportLayouts(layoutStore: layoutStore)
+            file.layouts = await exportLayouts(layoutStore: layoutStore)
         }
         return (file, result)
     }
 
     /// フォルダ階層をルートから再帰的にたどり、フラットな配列2つ(folders/books)に展開する。
+    ///
+    /// ユーザー要望(後方互換性): 識別子を持たない古いFavoriteBook行についても、
+    /// favoritesStore.resolvedExistingURL(for:)でファイルの実在が確認できる場合は、そこから
+    /// 改めて識別子を取得してJSONに含める(ついでにDB側にも補完しておく。exportBookmarks/
+    /// exportLayoutsの同種の処理と同じ理由)。
     private static func exportFavorites(favoritesStore: FavoritesStore) -> ExportedFavorites {
         var folders: [ExportedFavoriteFolder] = []
         var books: [ExportedFavoriteBook] = []
@@ -65,11 +70,20 @@ enum LibraryImportExportService {
                 walk(sub, folderID: subID)
             }
             for book in favoritesStore.books(in: folder) {
+                var fileNodeIdentifier = book.fileNodeIdentifier
+                if fileNodeIdentifier == nil, let url = favoritesStore.resolvedExistingURL(for: book) {
+                    let didAccess = url.startAccessingSecurityScopedResource()
+                    fileNodeIdentifier = FileNodeIdentifier.current(for: url)
+                    if didAccess { url.stopAccessingSecurityScopedResource() }
+                    if let fileNodeIdentifier {
+                        favoritesStore.backfillFileNodeIdentifier(forBookID: book.bookID, identifier: fileNodeIdentifier)
+                    }
+                }
                 books.append(
                     ExportedFavoriteBook(
                         bookID: book.bookID,
-                        inodeNumber: book.inodeNumber,
-                        volumeDeviceNumber: book.volumeDeviceNumber,
+                        inodeNumber: fileNodeIdentifier?.inodeNumber,
+                        volumeDeviceNumber: fileNodeIdentifier?.volumeDeviceNumber,
                         title: book.title,
                         folderId: folderID
                     )
@@ -128,13 +142,24 @@ enum LibraryImportExportService {
             guard !bookmarks.isEmpty else { continue }
             // 同じbookIDのBookmark行はすべて同じファイルノード識別子を記録しているはずのため、
             // 最初に見つかった値をこの本の識別子として使う(1件も記録が無い場合はnilのまま)。
-            let fileNodeIdentifier = bookmarks.lazy.compactMap(\.fileNodeIdentifier).first
+            var fileNodeIdentifier = bookmarks.lazy.compactMap(\.fileNodeIdentifier).first
             guard let book = await loadBook(
                 bookID: group.bookID, fileNodeIdentifier: fileNodeIdentifier,
                 favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
             ) else {
                 skipped.append(group.bookID)
                 continue
+            }
+            // ユーザー要望(後方互換性): この本のブックマークに1件も識別子が無かった場合でも、
+            // 本自体は(パスなどを手がかりに)実際に読み込めている=実在が確認できているため、
+            // 今読み込めたbook.sourceURLから識別子を取得し直し、書き出すJSONに含める。
+            // ついでにDB側の該当行にも補完しておく(BookmarkStore.backfillFileNodeIdentifier参照。
+            // 次回以降のエクスポートで再び同じ手間をかけずに済む)。
+            if fileNodeIdentifier == nil {
+                fileNodeIdentifier = FileNodeIdentifier.current(for: book.sourceURL)
+                if let fileNodeIdentifier {
+                    bookmarkStore.backfillFileNodeIdentifier(forBookID: group.bookID, identifier: fileNodeIdentifier)
+                }
             }
             let settings = layoutStore.bookLayoutSettings(forBookID: group.bookID)
             let excludedKeys = Set(
@@ -164,12 +189,29 @@ enum LibraryImportExportService {
     }
 
     /// レイアウト設定はpageKeyをそのまま使うため、本を読み込み直す必要が無く軽量に書き出せる。
-    private static func exportLayouts(layoutStore: LayoutStore) -> [ExportedBookLayoutEntry] {
+    ///
+    /// ユーザー要望(後方互換性): 識別子を持たない古いBookLayoutSettings行についても、
+    /// layoutStore.resolvedURL(forBookID:)でファイルの実在が確認できる場合は、そこから
+    /// 改めて識別子を取得してJSONに含める(ついでにDB側にも補完しておく。exportBookmarksの
+    /// 同種の処理と同じ理由)。resolvedURL自体はbookmarkDataの解決またはbookIDの生パスへの
+    /// フォールバックのどちらもfileExistsで確認済みのURLしか返さないため、ここで本自体を
+    /// 読み込み直す(BookLoader)必要は無い。
+    private static func exportLayouts(layoutStore: LayoutStore) async -> [ExportedBookLayoutEntry] {
         var result: [ExportedBookLayoutEntry] = []
         for bookID in layoutStore.layoutBookIDs {
             let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
             let overrides = layoutStore.pageOverrides(forBookID: bookID)
             guard settings != nil || !overrides.isEmpty else { continue }
+
+            var fileNodeIdentifier = settings?.fileNodeIdentifier
+            if fileNodeIdentifier == nil, let url = layoutStore.resolvedURL(forBookID: bookID) {
+                let didAccess = url.startAccessingSecurityScopedResource()
+                fileNodeIdentifier = FileNodeIdentifier.current(for: url)
+                if didAccess { url.stopAccessingSecurityScopedResource() }
+                if let fileNodeIdentifier {
+                    layoutStore.backfillFileNodeIdentifier(forBookID: bookID, identifier: fileNodeIdentifier)
+                }
+            }
 
             var pages: [String: ExportedPageState] = [:]
             for override in overrides {
@@ -178,8 +220,8 @@ enum LibraryImportExportService {
             result.append(
                 ExportedBookLayoutEntry(
                     bookID: bookID,
-                    inodeNumber: settings?.inodeNumber,
-                    volumeDeviceNumber: settings?.volumeDeviceNumber,
+                    inodeNumber: fileNodeIdentifier?.inodeNumber,
+                    volumeDeviceNumber: fileNodeIdentifier?.volumeDeviceNumber,
                     layout: ExportedBookLayout(
                         readingDirection: settings?.readingDirectionOverride?.stableID,
                         forcedDisplayMode: settings?.forcedDisplayMode?.stableID,
@@ -426,6 +468,12 @@ enum LibraryImportExportService {
             // 異なることがある(リネーム・移動後)。以降はすべてbook.id(実際の現在のパス)を
             // 使う(JSONのbookIDはここまでの解決処理でのみ参考情報として使う)。
             let bookID = book.id
+            // ユーザー要望: JSON側のinodeNumber/volumeDeviceNumberをそのまま信用せず、今実際に
+            // 解決できたbook.sourceURLから改めて取得し直した識別子をDBに記録する(誤って削除した
+            // ファイルをバックアップからコピーしてきた場合など、実体のinodeがJSONの記録時点と
+            // 変わっているケースに対応するため。qooViewer改善要望.md「ファイルパスならば実在する
+            // 場合、inodeをDB上のinodeはそのファイルパスから再取得してinodeで設定すること」参照)。
+            let resolvedFileNodeIdentifier = FileNodeIdentifier.current(for: book.sourceURL)
             let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
             let excludedKeys = Set(
                 layoutStore.pageOverrides(forBookID: bookID).filter { $0.state == .excluded }.map(\.pageKey)
@@ -438,6 +486,10 @@ enum LibraryImportExportService {
 
             if policy == .overwrite {
                 bookmarkStore.deleteAllBookmarks(forBookID: bookID)
+            } else if let resolvedFileNodeIdentifier {
+                // merge時、この本に既にある(識別子を持たない古い)ブックマークにも、ついでに
+                // 補完しておく(exportBookmarksの同種の処理と同じ理由)。
+                bookmarkStore.backfillFileNodeIdentifier(forBookID: bookID, identifier: resolvedFileNodeIdentifier)
             }
             // 経緯(ユーザー報告): JSONインポートが非常に遅い。Xcodeのコンソールを見る限りJSONを
             // 1行読むたびにSQLiteへの書き込みが起きているように見える、との指摘。実際、以前は
@@ -452,7 +504,9 @@ enum LibraryImportExportService {
                 guard let pageIndex = keyToIndex[bookmarkEntry.page] else { continue }
                 pendingEntries.append((pageIndex: pageIndex, name: bookmarkEntry.name))
             }
-            let addedCount = bookmarkStore.addBookmarks(bookID: bookID, entries: pendingEntries)
+            let addedCount = bookmarkStore.addBookmarks(
+                bookID: bookID, entries: pendingEntries, fileNodeIdentifier: resolvedFileNodeIdentifier
+            )
             if addedCount > 0 {
                 summary.bookmarksImportedBooks += 1
                 summary.bookmarksImportedEntries += addedCount

@@ -37,6 +37,7 @@ enum LastBookmarkTreatment: String, CaseIterable, Identifiable {
 
 struct BulkRenameBookmarksWindow: View {
     @EnvironmentObject private var bookmarkStore: BookmarkStore
+    @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
     @EnvironmentObject private var preferences: AppPreferences
     @Environment(\.dismiss) private var dismiss
@@ -247,7 +248,17 @@ struct BulkRenameBookmarksWindow: View {
                 // pageIndex:name:)を直接呼ぶ(ViewerViewModel.addBookmarkは今開いている本にしか
                 // 使えないため)。これは新規追加(リネームではない)1件だけなので、まとめる対象には
                 // 含めない。
-                bookmarkStore.addBookmark(bookID: bookID, pageIndex: 0, name: coverName)
+                // ユーザー要望: ここで作成するブックマークにもファイルノード識別子を記録したい
+                // (BookmarkDetailPane.addBookmark(atPageIndex:)と同じ理由・同じ解決手段)。
+                var fileNodeIdentifier: FileNodeIdentifier?
+                if let url = layoutStore.resolvedURL(forBookID: bookID) {
+                    let didAccess = url.startAccessingSecurityScopedResource()
+                    fileNodeIdentifier = FileNodeIdentifier.current(for: url)
+                    if didAccess { url.stopAccessingSecurityScopedResource() }
+                }
+                bookmarkStore.addBookmark(
+                    bookID: bookID, pageIndex: 0, name: coverName, fileNodeIdentifier: fileNodeIdentifier
+                )
                 sorted = bookmarkStore.bookmarks(forBookID: bookID).sorted { $0.pageIndex < $1.pageIndex }
                 if let cover = sorted.first(where: { $0.pageIndex == 0 }) {
                     excludedIDs.insert(cover.id)
