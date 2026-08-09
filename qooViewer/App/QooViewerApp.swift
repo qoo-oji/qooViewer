@@ -320,6 +320,34 @@ struct QooViewerApp: App {
                 }
 
                 Divider()
+                // 画像のエクスポート機能(要望)。データベースのインポート・エクスポートの
+                // グループと、EPUBのエクスポートのグループの間に配置する。本を開いていないと
+                // 実行しようがないため無効化する(EPUB出力・DBインポート/エクスポートと異なり
+                // hasBook不問にはしない)。見開き表示中で、かつ実際に2ページとも表示されている
+                // (hasPartnerPageDisplayed)ときだけ左右2件+結合の3件を、それ以外(単一ページ表示、
+                // または見開き表示中でも横長画像の自動単ページ化等で実際には1枚しか表示されて
+                // いない場合)は「このページをエクスポート」の1件のみを出す(ViewerView.
+                // contextMenuContentのExport Imageサブメニューと同じ判定基準)。
+                Menu("Export Image") {
+                    if menuCheckmarkState?.isSpreadMode == true, menuCheckmarkState?.hasPartnerPageDisplayed == true {
+                        Button("Export Right Page…") {
+                            focusedAppState?.performImageExport?(.rightPage)
+                        }
+                        Button("Export Left Page…") {
+                            focusedAppState?.performImageExport?(.leftPage)
+                        }
+                        Button("Combine Spread and Export…") {
+                            focusedAppState?.performImageExport?(.mergedSpread)
+                        }
+                    } else {
+                        Button("Export This Page…") {
+                            focusedAppState?.performImageExport?(.currentPage)
+                        }
+                    }
+                }
+                .disabled(focusedAppState?.currentBook == nil)
+
+                Divider()
                 // 8.1節「epub出力」グループ。本を開いていなくても有効(hasBook不問、
                 // 「ブックマーク・レイアウトの編集」ウインドウと同じ考え方)。
                 Button("Export as EPUB…") {

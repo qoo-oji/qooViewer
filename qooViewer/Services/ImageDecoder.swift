@@ -17,6 +17,13 @@ nonisolated enum ImageDecoder {
     static let pageMaxPixelSize: CGFloat = 4096
     /// プログレスバーのホバー時プレビュー用サムネイルの最大ピクセルサイズ
     static let progressBarThumbnailMaxPixelSize: CGFloat = 240
+    /// 画像のエクスポート機能(要望)向け: 「見開きを結合してエクスポート」で使う最大ピクセルサイズ。
+    /// 通常の表示用(pageMaxPixelSize、4096)のまま結合すると、それより高解像度のスキャン画像は
+    /// 表示用に落とした解像度で書き出されてしまい、要望の「元の画像ファイルの解像度は維持する」
+    /// を満たせない。実務上のスキャン画像がここまでの解像度に達することはまず無いという前提で、
+    /// 安全のため上限だけは設けておく(無制限にすると巨大画像で不必要にメモリを消費するリスクが
+    /// あるため)。
+    static let exportMaxPixelSize: CGFloat = 20000
 
     static func decode(_ data: Data, maxPixelSize: CGFloat) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }

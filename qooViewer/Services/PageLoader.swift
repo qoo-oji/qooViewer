@@ -98,6 +98,18 @@ actor PageLoader {
         return rawData(for: book.pages[index].source)
     }
 
+    /// 画像のエクスポート機能(要望)向け: 「見開きを結合してエクスポート」で、2枚の画像を
+    /// 実際に合成するために使う、ダウンサンプリングしない(ImageDecoder.exportMaxPixelSize相当の
+    /// 上限のみ持つ)フルサイズのCGImage。pageImage/thumbnailと異なりimageCache/thumbnailCacheには
+    /// 保存しない(rawImageDataと同じ理由: エクスポート中に一度読めば十分で、通常の表示キャッシュを
+    /// 圧迫したくないため)。decodedImage(for:maxPixelSize:)をそのまま再利用することで、
+    /// フォルダ・アーカイブ内画像・PDFのどのソースでも同じ経路(PDFはrenderPDFPageへの描画)で
+    /// 扱える。
+    func fullResolutionImage(at index: Int) async -> CGImage? {
+        guard book.pages.indices.contains(index) else { return nil }
+        return await decodedImage(for: book.pages[index].source, maxPixelSize: ImageDecoder.exportMaxPixelSize)
+    }
+
     /// index を中心に前後 radius ページ分を先読みする。
     /// 範囲外になった先読みタスクはキャンセルする。
     func prefetch(around index: Int, radius: Int = 3) {
@@ -245,7 +257,7 @@ actor PageLoader {
         else { return nil }
 
         context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-        context.fill(CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight))
+        context.fill(CGRect(x: 0, y: 0, width: CGFloat(pixelWidth), height: CGFloat(pixelHeight)))
 
         context.scaleBy(x: scale, y: scale)
         // メディアボックスの原点が(0, 0)でない場合に備えて平行移動しておく。

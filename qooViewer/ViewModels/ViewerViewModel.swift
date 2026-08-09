@@ -785,6 +785,22 @@ final class ViewerViewModel: ObservableObject {
         return await pageLoader.thumbnail(at: index)
     }
 
+    // MARK: - 画像のエクスポート(要望)
+
+    /// このページの生データ(デコード前、画質を落とさない)。「このページをエクスポート」で、
+    /// 元のファイルをそのまま複製するために使う(ViewerView.exportImage参照)。
+    func rawImageData(at index: Int) async -> Data? {
+        guard book.pages.indices.contains(index) else { return nil }
+        return await pageLoader.rawImageData(at: index)
+    }
+
+    /// 「見開きを結合してエクスポート」で、2枚の画像を合成するために使う、ダウンサンプリング
+    /// しないフルサイズの画像。
+    func fullResolutionImage(at index: Int) async -> CGImage? {
+        guard book.pages.indices.contains(index) else { return nil }
+        return await pageLoader.fullResolutionImage(at: index)
+    }
+
     // MARK: - ブックマーク
 
     private func reloadBookmarks() {

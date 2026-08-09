@@ -138,6 +138,12 @@ final class AppState: ObservableObject {
     /// 現在の表示を基準に自動でレイアウトする(3.1節)。
     var performAutoLayout: (() -> Void)?
 
+    /// 画像のエクスポート機能(要望)。メニューバーの「画像のエクスポート」サブメニューから、
+    /// 実際の画像取得・保存先パネル表示・書き込みを行うViewerView側の処理を橋渡しするための
+    /// クロージャ。performViewerActionと同じ、ViewerViewが表示されている間だけ自分自身を登録し、
+    /// 閉じるときにnilへ戻す仕組み(ImageExportKindのコメント参照)。
+    var performImageExport: ((ImageExportKind) -> Void)?
+
     /// ViewerViewから、スライドショー/表示モード/読み方向/拡大縮小モードの現在値、および
     /// EPUBによる各種ロック状態を反映するために呼ばれる。メニューバーのチェックマーク表示・
     /// グレーアウトに使う(currentBookmarksと同じ仕組み)。

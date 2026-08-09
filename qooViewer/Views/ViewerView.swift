@@ -3,6 +3,7 @@ import AppKit
 import SwiftData
 import CoreGraphics
 import Combine
+import UniformTypeIdentifiers
 
 struct ViewerView: View {
     @StateObject private var viewModel: ViewerViewModel
@@ -141,6 +142,10 @@ struct ViewerView: View {
     /// (toggleCurrentPageBookmark/contextMenuContent参照)。
     @State private var isShowingBookmarkSideDialog = false
 
+    /// 画像のエクスポート機能(要望)。エクスポート中に画像の読み込み・結合・書き込みのいずれかで
+    /// 失敗した場合のエラーメッセージ。nilなら非表示(applyLayoutAlerts参照)。
+    @State private var imageExportErrorMessage: String?
+
     /// pageArea(見開き/単ページの画像表示領域)の、ウインドウ座標系(NSEvent.locationInWindowと
     /// 同じ基準)でのフレーム。PageAreaFrameAccessorが自動的に最新の値を報告してくる
     /// (詳細はPageAreaFrameAccessor/PageAreaFrameReportingViewのコメント参照)。
@@ -233,6 +238,20 @@ struct ViewerView: View {
         }
         appState.performAutoLayout = {
             isShowingAutoLayoutConfirmation = true
+        }
+        // 画像のエクスポート機能(要望)。メニューバーの「画像のエクスポート」サブメニューからの
+        // 橋渡し(ImageExportKindのコメント参照)。
+        appState.performImageExport = { kind in
+            switch kind {
+            case .currentPage:
+                exportImage(.singlePage(index: viewModel.currentIndex))
+            case .leftPage:
+                exportImage(.singlePage(index: spreadLeftPageIndex))
+            case .rightPage:
+                exportImage(.singlePage(index: spreadRightPageIndex))
+            case .mergedSpread:
+                exportImage(.mergedSpread(leftIndex: spreadLeftPageIndex, rightIndex: spreadRightPageIndex))
+            }
         }
         // メニューバーの「スライドショー」「見開き」「右から左へ」「表示モード切替」の
         // 左に表示するチェックマーク、およびEPUBによるグレーアウト状態の、現在値の初期反映。
@@ -374,6 +393,7 @@ struct ViewerView: View {
             appState.performLayoutStateChange = nil
             appState.performLayoutClear = nil
             appState.performAutoLayout = nil
+            appState.performImageExport = nil
             appState.resetMenuCheckmarkState()
         }
         viewModel.stopSlideshow()
@@ -390,6 +410,87 @@ struct ViewerView: View {
             NotificationCenter.default.removeObserver(observer)
         }
         windowObservers = []
+    }
+
+    // MARK: - 画像のエクスポート(要望)
+
+    /// 画像のエクスポートで実際に対象となるページの組み合わせ。呼び出し側(メニューバー経由の
+    /// appState.performImageExport、コンテキストメニューのExport Imageサブメニュー)が、
+    /// それぞれの手段でのページ番号の解決(見開き左右の判定、クリック位置の判定)を済ませたうえで
+    /// この列挙を組み立てる。leftIndex/rightIndexは常に画面上の左右(読み方向を反映済み)を表す。
+    private enum ImageExportRequest {
+        case singlePage(index: Int)
+        case mergedSpread(leftIndex: Int, rightIndex: Int)
+    }
+
+    /// 画像のエクスポート本体。まず既定のファイル名・許可する形式を(画像を読み込まずに、
+    /// PageRefのメタデータだけから)同期的に決め、NSSavePanelで保存先を選んでもらってから、
+    /// 実際の画像の読み込み・(結合が必要な場合は)合成・書き込みを非同期に行う
+    /// (LibraryExportWindow.exportButtonTappedと同じ「パネル表示 → Task」の順序)。
+    /// パネルをキャンセルした場合は何もしない。
+    private func exportImage(_ request: ImageExportRequest) {
+        switch request {
+        case .singlePage(let index):
+            guard viewModel.book.pages.indices.contains(index) else { return }
+            let page = viewModel.book.pages[index]
+            let ext = ImageExporter.fileExtension(for: page)
+            guard let url = presentImageExportSavePanel(
+                defaultFileName: ImageExporter.defaultFileName(for: page),
+                contentType: ImageExporter.contentType(forExtension: ext)
+            ) else { return }
+            Task {
+                guard let data = await viewModel.rawImageData(at: index) else {
+                    imageExportErrorMessage = String(localized: "Couldn't read the image to export.")
+                    return
+                }
+                do {
+                    try ImageExporter.writeSinglePage(data: data, to: url)
+                } catch {
+                    imageExportErrorMessage = error.localizedDescription
+                }
+            }
+        case .mergedSpread(let leftIndex, let rightIndex):
+            guard viewModel.book.pages.indices.contains(leftIndex),
+                  viewModel.book.pages.indices.contains(rightIndex), leftIndex != rightIndex
+            else { return }
+            // 「前・後」(ファイル名の決定・形式が異なる場合の優先側)は画面上の左右ではなく、
+            // 常に読み順(ページ番号が若い方)を基準にする(ImageExporterのコメント参照)。
+            let leadingIndex = min(leftIndex, rightIndex)
+            let trailingIndex = max(leftIndex, rightIndex)
+            let leadingPage = viewModel.book.pages[leadingIndex]
+            let trailingPage = viewModel.book.pages[trailingIndex]
+            let ext = ImageExporter.mergedFileExtension(leadingPage: leadingPage, trailingPage: trailingPage)
+            guard let url = presentImageExportSavePanel(
+                defaultFileName: ImageExporter.defaultMergedFileName(leadingPage: leadingPage, trailingPage: trailingPage),
+                contentType: ImageExporter.contentType(forExtension: ext)
+            ) else { return }
+            Task {
+                guard let leftImage = await viewModel.fullResolutionImage(at: leftIndex),
+                      let rightImage = await viewModel.fullResolutionImage(at: rightIndex)
+                else {
+                    imageExportErrorMessage = String(localized: "Couldn't read the image to export.")
+                    return
+                }
+                do {
+                    let data = try ImageExporter.combine(leftImage: leftImage, rightImage: rightImage, outputExtension: ext)
+                    try ImageExporter.writeCombinedImage(data: data, to: url)
+                } catch {
+                    imageExportErrorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    /// 保存先のフォルダとファイル名を指定するためのウインドウ(要望)。LibraryExportWindow.
+    /// exportButtonTappedと同じ、同期的なNSSavePanel.runModal()。
+    private func presentImageExportSavePanel(defaultFileName: String, contentType: UTType) -> URL? {
+        let locale = preferences.effectiveLocale
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [contentType]
+        panel.nameFieldStringValue = defaultFileName
+        panel.message = String(localized: "Choose where to save the exported image.", locale: locale)
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        return url
     }
 
     /// pending.pageIndexを基準に、伝播範囲選択ダイアログ(applyLayoutAlerts参照)へ渡す選択肢を
@@ -736,6 +837,21 @@ struct ViewerView: View {
                 "This recalculates the layout of the entire book, based on the page (or spread) currently displayed. This cannot be undone."
             )
         }
+        // 画像のエクスポート機能(要望)。読み込み・結合・書き込みのいずれかで失敗した場合のみ表示する
+        // (NSSavePanelをキャンセルした場合はexportImage自体が早期リターンするため、ここには来ない)。
+        .alert(
+            "Couldn't Export Image",
+            isPresented: Binding(
+                get: { imageExportErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented { imageExportErrorMessage = nil }
+                }
+            )
+        ) {
+            Button("OK") {}
+        } message: {
+            Text(imageExportErrorMessage ?? "")
+        }
     }
 
     /// 見開き表示中、実際に2枚組でペア表示されているときの「相方ページ」のインデックス
@@ -1036,6 +1152,36 @@ struct ViewerView: View {
             }
         }
         .disabled(viewModel.hasAuthoritativeEpubLayout)
+
+        Divider()
+
+        // 画像のエクスポート機能(要望)。表示内容の切替はLayoutサブメニューと同じ考え方だが、
+        // こちらは単一ページ表示中(partnerPageIndexがnil)は選択の余地が無いため「このページを
+        // エクスポート」の1件のみとし、見開き表示中はクリック位置(isLastContextClickOnLeftHalf)で
+        // 「左のページをエクスポート」「右のページをエクスポート」のどちらか一方のみを出し分けた
+        // うえで、「見開きを結合してエクスポート」を両方の場合に共通で並べる(要望どおり)。
+        Menu("Export Image") {
+            if let partnerPageIndex {
+                let leftPageIndex = isRightToLeft ? partnerPageIndex : viewModel.currentIndex
+                let rightPageIndex = isRightToLeft ? viewModel.currentIndex : partnerPageIndex
+                if isLastContextClickOnLeftHalf {
+                    Button("Export Left Page…") {
+                        exportImage(.singlePage(index: leftPageIndex))
+                    }
+                } else {
+                    Button("Export Right Page…") {
+                        exportImage(.singlePage(index: rightPageIndex))
+                    }
+                }
+                Button("Combine Spread and Export…") {
+                    exportImage(.mergedSpread(leftIndex: leftPageIndex, rightIndex: rightPageIndex))
+                }
+            } else {
+                Button("Export This Page…") {
+                    exportImage(.singlePage(index: viewModel.currentIndex))
+                }
+            }
+        }
 
         Divider()
 
