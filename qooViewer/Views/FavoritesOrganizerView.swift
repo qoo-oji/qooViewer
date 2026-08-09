@@ -329,8 +329,8 @@ struct FavoritesOrganizerView: View {
             // (サイドバー側のNew Folderボタンについての同様のコメント参照)ため、ここでも
             // 同じくsafeAreaInsetでリスト上部に常時表示する形にしている。
             //
-            // 以前はここに「Add Current Book」ボタンも並べていたが、ブックマーク編集画面の
-            // 「Add Current Page」がペイン下部にあるのと位置・見た目が揃っていないという
+            // 以前はここに「Add This Book」ボタンも並べていたが、ブックマーク編集画面の
+            // 「Add This Page」がペイン下部にあるのと位置・見た目が揃っていないという
             // 指摘があったため、このボタンは下部(safeAreaInset(edge: .bottom))へ移動した。
             .safeAreaInset(edge: .top) {
                 HStack {
@@ -356,16 +356,16 @@ struct FavoritesOrganizerView: View {
                 .padding(.vertical, 6)
                 .background(.bar)
             }
-            // ブックマーク編集画面の「Add Current Page」ボタンと、位置(ペイン下部)・見た目
+            // ブックマーク編集画面の「Add This Page」ボタンと、位置(ペイン下部)・見た目
             // (行全体を左寄せのプレーンボタンとして使う、.bar背景の帯)を完全に揃えた
-            // 「Add Current Book」ボタン。今読んでいる本(launchCoordinator.activeBookAppState?.
+            // 「Add This Book」ボタン。今読んでいる本(launchCoordinator.activeBookAppState?.
             // currentBook)を、現在選択中のフォルダへ直接登録する(addCurrentBook参照)。
             // 本を1つも開いていない場合は無効化する。
             .safeAreaInset(edge: .bottom) {
                 Button {
                     addCurrentBook()
                 } label: {
-                    Label("Add Current Book", systemImage: "plus")
+                    Label("Add This Book", systemImage: "plus")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.plain)
@@ -519,7 +519,7 @@ struct FavoritesOrganizerView: View {
     /// (openFavoriteAccordingToPreference)と同じく、環境設定「お気に入りを開くとき」
     /// (favoriteOpenBehavior)に従って開く。このウインドウ自体は特定の本のウインドウに
     /// 属さない独立ウインドウのため、「今読んでいる本」の代わりに
-    /// launchCoordinator.activeBookAppState(Add Current Bookボタンと同じ判定材料)を使う。
+    /// launchCoordinator.activeBookAppState(Add This Bookボタンと同じ判定材料)を使う。
     ///
     /// activeBookAppState(本を表示しているウインドウが最後にキーウインドウになったときにだけ
     /// 更新される)が無い場合、以前は「まだ本を1つも開いていない」とみなし常に新しいウインドウで
@@ -621,7 +621,7 @@ struct FavoritesOrganizerView: View {
         }
     }
 
-    /// ツールバーの「Add Current Book」ボタンから呼ぶ。今読んでいる本を、現在選択中のフォルダへ
+    /// ツールバーの「Add This Book」ボタンから呼ぶ。今読んでいる本を、現在選択中のフォルダへ
     /// 登録する。結果の分岐(重複確認・上限エラー)はhandle(_:)で行う
     /// (FavoriteFolderPickerView.performRegistration/handleと同じ構造)。
     private func addCurrentBook() {

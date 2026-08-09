@@ -65,6 +65,10 @@ struct EpubExportWindow: View {
 private struct EpubExportContentView: View {
     @ObservedObject var viewModel: EpubExportViewModel
     @EnvironmentObject private var preferences: AppPreferences
+    /// ユーザー要望: 「EPUB出力を開始」ボタンの左に「キャンセル」ボタンを追加し、書き出さずに
+    /// このウインドウを閉じられるようにしたい。他のウインドウ(BulkRenameBookmarksWindow等)と
+    /// 同じくEnvironmentのdismissアクションでウインドウを閉じる。
+    @Environment(\.dismiss) private var dismiss
     @State private var insufficientSpaceMessage: String?
     /// ファイル名列・タイトル列・著者名列・カバー列の幅。columnHeaderRow(タイトル行)と
     /// ExportRowView(各行)で共有する(ユーザー要望: タイトル列の右にカバー列を追加してほしい。
@@ -295,6 +299,14 @@ private struct EpubExportContentView: View {
     private var bottomSection: some View {
         HStack {
             Spacer()
+            // ユーザー要望: 「EPUB出力を開始」ボタンの左に「キャンセル」ボタンを追加してほしい。
+            // 他のウインドウ(FavoriteFolderPickerView.bottomBar等)と同じ並び
+            // (キャンセル→既定ボタン)・同じキーボードショートカットの割り当て方に揃える。
+            Button("Cancel") {
+                dismiss()
+            }
+            .keyboardShortcut(.cancelAction)
+
             Button("Start EPUB Export…") {
                 startExportButtonTapped()
             }
@@ -682,22 +694,13 @@ private struct CoverPickerContent: View {
             Group {
                 if let loadedBook {
                     List(Array(loadedBook.pages.enumerated()), id: \.element.id) { index, page in
-                        Button {
-                            viewModel.setCover(forBookID: bookID, book: loadedBook, page: page)
-                        } label: {
-                            HStack(spacing: 8) {
-                                pageThumbnail(for: page)
-                                Text(page.displayName)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                                Spacer()
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .task(id: page.id) {
-                            guard thumbnails[page.id] == nil, let pageLoader else { return }
-                            thumbnails[page.id] = await pageLoader.thumbnail(at: index)
-                        }
+                        CoverPickerPageRow(
+                            page: page,
+                            index: index,
+                            pageLoader: pageLoader,
+                            thumbnails: $thumbnails,
+                            onSelect: { viewModel.setCover(forBookID: bookID, book: loadedBook, page: page) }
+                        )
                     }
                     .frame(minWidth: 260, minHeight: 260)
                 } else if loadFailed {
@@ -734,8 +737,64 @@ private struct CoverPickerContent: View {
         }
     }
 
+    private func chooseExternalFile() {
+        guard let loadedBook else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.image]
+        panel.message = String(localized: "Choose an image file to use as the cover.")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        viewModel.setExternalCover(forBookID: bookID, book: loadedBook, fileURL: url)
+    }
+}
+
+/// カバー選択画面(CoverPickerContent)の一覧の1行。ページを選ぶボタンに加えて、小さな
+/// サムネイルにカーソルを乗せている間、拡大プレビューをpopoverで表示する(ユーザー要望:
+/// このサムネイルも他の一覧と同じように大きく確認できるようにしたい)。
+/// BookmarkListView.PageRowViewのホバー拡大プレビューと同じ考え方・同じ実装パターン
+/// (350msの遅延の後にだけpopoverを出す。ドラッグ操作等は無いためここでは単純にホバー判定だけ)。
+private struct CoverPickerPageRow: View {
+    let page: PageRef
+    let index: Int
+    let pageLoader: PageLoader?
+    /// 小さいサムネイル画像のキャッシュ。CoverPickerContent側の@Stateを共有し、
+    /// popoverを開閉しても読み込み直さないようにする(BookmarkListView.thumbnailsと同じ考え方)。
+    @Binding var thumbnails: [String: CGImage]
+    let onSelect: () -> Void
+
+    /// カーソルが小さいサムネイルの上にあるかどうか(拡大プレビュー用のpopoverの表示制御)。
+    @State private var isHoveringThumbnail = false
+    /// 拡大プレビュー用のフル解像度画像。一度読み込めば、同じ行を何度ホバーしても読み込み直さない
+    /// よう@Stateにキャッシュしておく。
+    @State private var previewImage: CGImage?
+    /// ホバー開始から実際にpopoverを出すまでの遅延用タスク。
+    @State private var hoverPreviewTask: Task<Void, Never>?
+    /// ホバー開始から実際にpopoverを出すまでの遅延(ナノ秒)。BookmarkListView.PageRowViewと同じ値。
+    private static let hoverPreviewDelayNanoseconds: UInt64 = 350_000_000
+
+    var body: some View {
+        Button {
+            onSelect()
+        } label: {
+            HStack(spacing: 8) {
+                thumbnailView
+                Text(page.displayName)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+            }
+        }
+        .buttonStyle(.plain)
+        .task(id: page.id) {
+            guard thumbnails[page.id] == nil, let pageLoader else { return }
+            thumbnails[page.id] = await pageLoader.thumbnail(at: index)
+        }
+    }
+
     @ViewBuilder
-    private func pageThumbnail(for page: PageRef) -> some View {
+    private var thumbnailView: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 4, style: .continuous)
                 .fill(Color.secondary.opacity(0.12))
@@ -750,17 +809,54 @@ private struct CoverPickerContent: View {
         }
         .frame(width: 32, height: 44)
         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        // ユーザー要望: サムネイルにカーソルを乗せている間、拡大プレビューとファイル名を
+        // 表示したい。BookmarkListView.PageRowViewと同じく、ホバーした瞬間に即座にpopoverを
+        // 出さず、一定時間(hoverPreviewDelayNanoseconds)ホバーし続けた場合にだけ表示する。
+        .onHover { hovering in
+            hoverPreviewTask?.cancel()
+            if hovering {
+                hoverPreviewTask = Task {
+                    try? await Task.sleep(nanoseconds: Self.hoverPreviewDelayNanoseconds)
+                    guard !Task.isCancelled else { return }
+                    isHoveringThumbnail = true
+                }
+            } else {
+                hoverPreviewTask = nil
+                isHoveringThumbnail = false
+            }
+        }
+        .popover(isPresented: $isHoveringThumbnail, arrowEdge: .trailing) {
+            thumbnailPreviewContent
+        }
     }
 
-    private func chooseExternalFile() {
-        guard let loadedBook else { return }
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.image]
-        panel.message = String(localized: "Choose an image file to use as the cover.")
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        viewModel.setExternalCover(forBookID: bookID, book: loadedBook, fileURL: url)
+    /// サムネイルをホバーしたときのpopoverの中身。フル解像度画像(previewImage)とファイル名を
+    /// 縦に並べる。BookmarkListView.PageRowView.thumbnailPreviewContentと同じ構成・同じサイズ
+    /// (440x440)。
+    private var thumbnailPreviewContent: some View {
+        VStack(spacing: 8) {
+            Group {
+                if let previewImage {
+                    Image(decorative: previewImage, scale: 1)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                } else {
+                    ProgressView()
+                }
+            }
+            .frame(width: 440, height: 440)
+
+            Text(page.displayName)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 440)
+        }
+        .padding(12)
+        .task {
+            guard previewImage == nil, let pageLoader else { return }
+            previewImage = await pageLoader.pageImage(at: index)
+        }
     }
 }

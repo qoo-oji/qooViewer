@@ -4,13 +4,19 @@ import UniformTypeIdentifiers
 
 /// 設計コンセプト6.2節: インポート用の独立ウインドウ。NSOpenPanelでJSONファイルを選び、
 /// ファイルに含まれているカテゴリ(お気に入り/ブックマーク/ページレイアウト設定)ごとに
-/// 上書き/マージ/無視を選んでから取り込む。含まれていないカテゴリはピッカー自体を表示しない
-/// (存在しないキーに対してユーザーが方針を選ぶ意味が無いため)。
+/// 上書き/マージ/無視を選んでから取り込む。
+///
+/// ユーザー要望: 以前は、ファイルに含まれていないカテゴリのピッカーや、ファイルを選ぶ前の
+/// 「インポート」ボタン自体を非表示にしていたが、ファイルを選んだ瞬間にウインドウの中身が
+/// 増減してレイアウトが変わるのが分かりづらいという指摘があった。方針ピッカー・
+/// 「ライブラリデータをインポート」ボタンはどちらも常に表示したままにし、対象カテゴリが無い/
+/// ファイル未選択の間は無効化(グレーアウト)するだけにする。
 struct LibraryImportWindow: View {
     @EnvironmentObject private var favoritesStore: FavoritesStore
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var preferences: AppPreferences
+    @Environment(\.dismiss) private var dismiss
 
     @State private var loadedFile: QooLibraryExportFile?
     @State private var sourceFileName: String?
@@ -22,39 +28,63 @@ struct LibraryImportWindow: View {
     @State private var loadErrorMessage: String?
     @State private var hasPromptedForFile = false
 
+    /// ファイルに含まれているカテゴリかどうか(ユーザー要望: 方針ピッカーは、ファイルを
+    /// 選ぶ前も含めて常に表示し続け、対象カテゴリが無い/ファイル未選択の間だけ無効化する
+    /// ことで、選んだ瞬間にピッカーが増減してレイアウトが変わらないようにしたい)。
+    private var hasFavorites: Bool { loadedFile?.favorites != nil }
+    private var hasBookmarks: Bool { loadedFile?.bookmarks?.isEmpty == false }
+    private var hasLayouts: Bool { loadedFile?.layouts?.isEmpty == false }
+
+    // バグ修正(ユーザー報告): LibraryExportWindowと同じ理由(コメント参照)で、ボタン行を
+    // Form(スクロール領域)の外側、VStack(spacing: 0)の中でDivider()の下に独立させ、
+    // EPUB出力ウインドウと同じ「区切り線+右下配置」の見た目・ウインドウの縦サイズが内容に
+    // 自然に収まる挙動に揃えた。
     var body: some View {
-        Form {
-            if let loadedFile {
+        VStack(spacing: 0) {
+            Form {
+                // ユーザー要望: ファイル未選択時は「ファイルが選択されていません」、選択後は
+                // ファイル名を表示するが、両方とも1行ぶんの高さだけの同じ領域にすることで、
+                // ファイルを選んだ瞬間にレイアウトが縦にジャンプしないようにしたい。
+                // 「ファイルを選ぶ」ボタンと「別のファイルを選ぶ」ボタンも、状態に関わらず
+                // 同じ1個のボタン(ラベルだけ切り替え)にすることで、常に同じ位置に表示される
+                // ようにする。
                 Section {
-                    Text(sourceFileName ?? "")
-                        .font(.headline)
-                    Button("Choose a Different File…") {
+                    Group {
+                        if let sourceFileName {
+                            Text(sourceFileName)
+                                .font(.headline)
+                        } else {
+                            Text("No File Selected")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                    if let loadErrorMessage {
+                        Text(loadErrorMessage)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+
+                    Button(loadedFile == nil ? "Choose File…" : "Choose a Different File…") {
                         chooseFileButtonTapped()
                     }
                 }
 
-                if loadedFile.favorites != nil {
-                    policyPicker("Favorites", selection: $favoritesPolicy)
-                }
-                if loadedFile.bookmarks?.isEmpty == false {
-                    policyPicker("Bookmarks", selection: $bookmarksPolicy)
-                }
-                if loadedFile.layouts?.isEmpty == false {
-                    policyPicker("Page Layout Settings", selection: $layoutsPolicy)
-                }
-
+                // ユーザー要望: お気に入り/ブックマーク/ページレイアウトの取り込み方針は、
+                // ファイルを選ぶ前も常に表示したまま(隠さない)にし、対象カテゴリが無い間は
+                // 触れないようグレーアウトするだけにしたい。
                 Section {
-                    HStack {
-                        Button("Import") {
-                            importButtonTapped()
-                        }
-                        .disabled(isImporting)
-
-                        if isImporting {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                    }
+                    policyPicker("Favorites", selection: $favoritesPolicy)
+                        .disabled(!hasFavorites)
+                    policyPicker("Bookmarks", selection: $bookmarksPolicy)
+                        .disabled(!hasBookmarks)
+                    // ユーザー要望: 「ページレイアウトの設定」から「の設定」を省き、
+                    // お気に入り・ブックマークの見出しと同じ体裁の「ページレイアウト」にしたい。
+                    policyPicker("Page Layout", selection: $layoutsPolicy)
+                        .disabled(!hasLayouts)
                 } footer: {
                     Text("Overwrite replaces existing data for the books mentioned in the file. Merge only adds what's missing, without changing anything that already exists. Ignore skips that category entirely.")
                         .font(.caption)
@@ -66,36 +96,59 @@ struct LibraryImportWindow: View {
                         importSummaryView(summary)
                     }
                 }
-            } else {
-                Section {
-                    ContentUnavailableView(
-                        "No File Selected",
-                        systemImage: "square.and.arrow.down",
-                        description: Text("Choose a JSON file exported from qooViewer.")
-                    )
-                    if let loadErrorMessage {
-                        Text(loadErrorMessage)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-                    Button("Choose File…") {
-                        chooseFileButtonTapped()
-                    }
-                }
             }
+            // ユーザー報告: LibraryExportWindowと同じ理由(コメント参照)で、素のForm
+            // (既定スタイル)に変更したところトグル・ピッカーの見た目が.formStyle(.grouped)から
+            // 変わってしまった、との指摘を受け.formStyle(.grouped)に戻した。中身とボタン行の
+            // 間の大きな空白は.fixedSize(horizontal: false, vertical: true)だけで解消する
+            // (見た目を保ったまま、縦方向だけ中身の実サイズに合わせる)。
+            //
+            // ユーザー報告(左右の余白・不要なスクロールバー): LibraryExportWindowと同じ理由
+            // (コメント参照)。.formStyle(.grouped)の内容幅600pt頭打ち中央寄せの仕様により、
+            // ウインドウの既定幅が実際に必要な幅より広いと左右に余白として見えてしまうため、
+            // idealWidth/maxWidthを明示してウインドウが不必要に広く開かないようにした。
+            // スクロールバーは.scrollIndicators(.hidden)で非表示にする(.fixedSize(vertical:
+            // true)により実際にスクロールが発生することは無いため、隠しても操作性への影響は
+            // 無い)。
+            .formStyle(.grouped)
+            .fixedSize(horizontal: false, vertical: true)
+            .scrollIndicators(.hidden)
+
+            Divider()
+            bottomSection
         }
-        .formStyle(.grouped)
-        .padding()
-        // ユーザー指摘: 固定minHeightのせいで、ファイル未選択時など中身が短い状態だと
-        // 下側だけ大きな余白ができていた(.windowResizability(.contentSize)のこのウインドウは、
-        // Formの自然な高さがminHeightに満たない場合、余った分がそのまま下に空白として残る
-        // ため)。minHeightを指定せず、内容の実際の高さに window 自身を追従させる。
-        .frame(minWidth: 460)
+        .frame(minWidth: 460, idealWidth: 460, maxWidth: 540)
         .onAppear {
             guard !hasPromptedForFile else { return }
             hasPromptedForFile = true
             chooseFileButtonTapped()
         }
+    }
+
+    /// ユーザー要望: 「ライブラリデータをインポート」ボタンは、ファイルを選ぶ前も
+    /// 常にウインドウ右下に表示し、選ぶまでは無効化するだけにしたい。左に
+    /// 「キャンセル」ボタンを追加し、EPUB出力ウインドウの「EPUB出力を開始」ボタンと
+    /// 同じアクセントカラー(既定ボタン=.keyboardShortcut(.defaultAction))に揃える。
+    @ViewBuilder
+    private var bottomSection: some View {
+        HStack {
+            Spacer()
+            if isImporting {
+                ProgressView()
+                    .controlSize(.small)
+            }
+            Button("Cancel") {
+                dismiss()
+            }
+            .keyboardShortcut(.cancelAction)
+
+            Button("Import Library Data") {
+                importButtonTapped()
+            }
+            .disabled(loadedFile == nil || isImporting)
+            .keyboardShortcut(.defaultAction)
+        }
+        .padding()
     }
 
     @ViewBuilder

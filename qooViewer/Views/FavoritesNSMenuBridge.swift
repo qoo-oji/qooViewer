@@ -2,7 +2,7 @@ import AppKit
 
 /// ツールバーの「お気に入り一覧」をネイティブのNSMenuとして表示するための橋渡し役。
 ///
-/// メニューバー側(QooViewerApp.swiftのCommandMenu("Favorites")内のMenu("Favorites List"))は、
+/// メニューバー側(QooViewerApp.swiftの「編集」(Edit)メニュー内のMenu("Favorites List"))は、
 /// SwiftUIのMenu同士をネストするだけで、ホバーするだけでサブメニューが展開する本来のNSMenuの
 /// 挙動がそのまま手に入る(FavoritesMenuContent.swift参照)。
 ///

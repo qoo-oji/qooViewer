@@ -85,6 +85,11 @@ struct BookmarkEditorView: View {
     @State private var pendingDeleteBookmarksBookID: String?
     /// 4.4節「レイアウトを全削除」の確認ダイアログの対象bookID。
     @State private var pendingDeleteLayoutBookID: String?
+    /// ユーザー要望: 左ペインの右クリックメニューにあった「ブックマークを全削除」
+    /// 「レイアウトを全削除」は別々の2項目に見えて分かりづらい・押し間違えやすいとのことで、
+    /// 「ブックマークおよびレイアウトを全削除」の1項目に統合した(右ペインの「一括操作…」
+    /// メニューには、既存の個別2項目に加えてこの統合版も追加した)。この確認ダイアログの対象bookID。
+    @State private var pendingDeleteBookmarksAndLayoutBookID: String?
 
     @Environment(\.openWindow) private var openWindow
 
@@ -219,7 +224,7 @@ struct BookmarkEditorView: View {
             } description: {
                 Text("Bookmarks you add to any book will appear here.")
             } actions: {
-                Button("Add Current Page to Bookmarks") {
+                Button("Add This Page to Bookmarks") {
                     launchCoordinator.activeBookAppState?.addBookmarkAction?()
                 }
                 .disabled(launchCoordinator.activeBookAppState?.currentBook == nil)
@@ -280,22 +285,23 @@ struct BookmarkEditorView: View {
                             selectedID == row.bookID
                                 ? Color.accentColor.opacity(0.15) : Color.clear
                         )
-                        // 4.4節: 左ペインの本を右クリックしたメニューにも、下部ボタンと同じ3項目を
-                        // 追加する(その本を選択した状態で実行したのと同じ扱い。現在の選択状態を
-                        // 変えずに、行ったbookIDへ直接作用させる)。
+                        // 4.4節: 左ペインの本を右クリックしたメニュー(その本を選択した状態で
+                        // 実行したのと同じ扱い。現在の選択状態を変えずに、右クリックしたbookIDへ
+                        // 直接作用させる)。
+                        //
+                        // ユーザー要望: 以前はここに「一括リネーム」「ブックマークを全削除」
+                        // 「レイアウトを全削除」の3項目があったが、
+                        // 1. 「一括リネーム」はこのメニューでは使用頻度が低く、右ペイン上部の
+                        //    「一括操作…」メニュー(Menu("Bulk Operations…"))から呼べれば十分、
+                        // 2. 「ブックマークを全削除」「レイアウトを全削除」は別々の2項目に
+                        //    分かれていると分かりづらい・押し間違えやすい、
+                        // との報告を受け、このメニューからは「一括リネーム」を削除し、削除系の
+                        // 2項目は「ブックマークおよびレイアウトを全削除」の1項目へ統合した。
                         .contextMenu {
-                            Button("Bulk Rename Bookmarks…") {
-                                pendingBulkRenameBookID = row.bookID
+                            Button("Delete All Bookmarks and Layouts…", role: .destructive) {
+                                pendingDeleteBookmarksAndLayoutBookID = row.bookID
                             }
-                            .disabled(row.bookmarkCount == 0)
-                            Button("Delete All Bookmarks…", role: .destructive) {
-                                pendingDeleteBookmarksBookID = row.bookID
-                            }
-                            .disabled(row.bookmarkCount == 0)
-                            Button("Delete All Layout Info…", role: .destructive) {
-                                pendingDeleteLayoutBookID = row.bookID
-                            }
-                            .disabled(!row.hasLayoutData)
+                            .disabled(row.bookmarkCount == 0 && !row.hasLayoutData)
                         }
                     }
                 }
@@ -377,7 +383,8 @@ struct BookmarkEditorView: View {
                         renameText: $renameText,
                         pendingBulkRenameBookID: $pendingBulkRenameBookID,
                         pendingDeleteBookmarksBookID: $pendingDeleteBookmarksBookID,
-                        pendingDeleteLayoutBookID: $pendingDeleteLayoutBookID
+                        pendingDeleteLayoutBookID: $pendingDeleteLayoutBookID,
+                        pendingDeleteBookmarksAndLayoutBookID: $pendingDeleteBookmarksAndLayoutBookID
                     )
                     // bookIDだけでなくinitialFocusGenerationも識別子に含める理由は
                     // initialFocusGenerationのコメント参照(右ペインのpageFilter初期値が
@@ -391,24 +398,38 @@ struct BookmarkEditorView: View {
                     )
                 }
             }
-            .frame(minWidth: max(640, sidebarWidth + 400), minHeight: 420)
-            .alert(
-                "Rename Bookmark",
+            // バグ修正: 右ペインの「読み方向」ピッカー・「一括操作…」ボタン・絞り込みピッカーなど、
+            // 上段に横並びになる項目が、以前の右ペイン最小幅(400)だと窮屈になり、環境によっては
+            // ラベルが省略記号で切れて見えることがあった(ユーザー報告)。480へ広げることで
+            // 余裕を持たせる。
+            .frame(minWidth: max(640, sidebarWidth + 480), minHeight: 420)
+            // バグ修正: 以前は.alert + TextField(NSAlertが内部で使うテキストフィールド)だったが、
+            // 開いた瞬間に既存の名前が全選択された状態になるかどうかが不安定だった
+            // (ユーザー報告)。加えて、同じブックマークを続けてリネームすると入力欄が空のまま
+            // 表示される不具合もあった(onRenameBookmarkのコメント参照。以前はrenameTextを
+            // 一度空文字にしてから設定し直す、という回避策で対応していた)。
+            // .sheetは表示のたびにコンテンツビュー階層(=SelectAllTextFieldが包むNSTextFieldも
+            // 含む)を新規に作り直すため、どちらの問題も構造的に解消できる
+            // (SelectAllTextField.makeNSViewが呼ばれるたびに、そのときのrenameTextの値で
+            // 新しいNSTextFieldが作られ、必ず全選択状態でフォーカスされる)。
+            .sheet(
                 isPresented: Binding(
                     get: { renamingBookmark != nil },
                     set: { isPresented in if !isPresented { renamingBookmark = nil } }
                 )
             ) {
-                TextField("Name", text: $renameText)
-                Button("Save") {
-                    if let bookmark = renamingBookmark {
-                        bookmarkStore.rename(bookmark, to: renameText)
+                BookmarkRenameSheet(
+                    text: $renameText,
+                    onSave: {
+                        if let bookmark = renamingBookmark {
+                            bookmarkStore.rename(bookmark, to: renameText)
+                        }
+                        renamingBookmark = nil
+                    },
+                    onCancel: {
+                        renamingBookmark = nil
                     }
-                    renamingBookmark = nil
-                }
-                Button("Cancel", role: .cancel) {
-                    renamingBookmark = nil
-                }
+                )
             }
             // 4.4節「ブックマークを全削除」の確認。
             .alert(
@@ -452,6 +473,31 @@ struct BookmarkEditorView: View {
                 }
             } message: {
                 Text("This permanently deletes every layout setting (reading direction, page order, single/spread page settings) in this book. This cannot be undone.")
+            }
+            // ユーザー要望「ブックマークおよびレイアウトを全削除」の確認。左ペインの
+            // 右クリックメニュー、右ペインの「一括操作…」メニューの両方から呼ばれる
+            // (pendingDeleteBookmarksAndLayoutBookIDのコメント参照)。実行内容は、上の
+            // 「ブックマークを全削除」「レイアウトを全削除」それぞれの削除ロジックを
+            // そのまま両方呼ぶだけ(新しい削除ロジック自体は追加していない)。
+            .alert(
+                "Delete All Bookmarks and Layouts?",
+                isPresented: Binding(
+                    get: { pendingDeleteBookmarksAndLayoutBookID != nil },
+                    set: { isPresented in if !isPresented { pendingDeleteBookmarksAndLayoutBookID = nil } }
+                )
+            ) {
+                Button("Cancel", role: .cancel) { pendingDeleteBookmarksAndLayoutBookID = nil }
+                Button("Delete", role: .destructive) {
+                    if let bookID = pendingDeleteBookmarksAndLayoutBookID {
+                        bookmarkStore.deleteAllBookmarks(forBookID: bookID)
+                        layoutStore.discardLayoutData(forBookID: bookID)
+                    }
+                    pendingDeleteBookmarksAndLayoutBookID = nil
+                    // 上のブックマーク全削除・レイアウト全削除と同じ理由(ユーザー要望)。
+                    bookFilter = .all
+                }
+            } message: {
+                Text("This permanently deletes every bookmark and every layout setting (reading direction, page order, single/spread page settings) in this book. This cannot be undone.")
             }
             // 4.4節「一括リネーム」。5節の一括リネームウインドウを開く。
             .onChange(of: pendingBulkRenameBookID) { _, newValue in
@@ -512,6 +558,95 @@ struct BookmarkEditorView: View {
             bookFilter = .hasLayout
         case nil:
             break
+        }
+    }
+}
+
+/// ブックマークのリネーム用シート(bodyの.sheetのコメント参照)。
+/// 既存の名前が入った状態で開き、SelectAllTextField(下記)により必ず全選択状態で
+/// フォーカスされる。ユーザーはそのまま打ち直すか、Backspaceで消してからCmd+Vで
+/// ペーストする、といった操作をすぐに行える(ユーザー要望)。
+private struct BookmarkRenameSheet: View {
+    @Binding var text: String
+    let onSave: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Rename Bookmark")
+                .font(.headline)
+            SelectAllTextField(text: $text, onSubmit: onSave)
+                .frame(height: 22)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel, action: onCancel)
+                Button("Save", action: onSave)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 320)
+    }
+}
+
+/// NSTextFieldをラップし、表示開始時に必ず内容を全選択した状態でフォーカスを当てる
+/// テキストフィールド(BookmarkRenameSheet専用)。
+///
+/// SwiftUIの`TextField`には「表示時に内容を全選択状態にする」ための標準APIが無く、
+/// `.alert`内の`TextField`(NSAlertが内部で使うテキストフィールド)は特に選択状態の
+/// 制御が効かないことがある(ユーザー報告: 開いたときに全選択されていたりされて
+/// いなかったりする)。AppKitの`NSTextField`を直接ラップし、
+/// `currentEditor()?.selectAll(nil)`を呼ぶことで確実に全選択状態にする。
+private struct SelectAllTextField: NSViewRepresentable {
+    @Binding var text: String
+    var onSubmit: () -> Void
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField(string: text)
+        field.delegate = context.coordinator
+        field.isBordered = true
+        field.bezelStyle = .roundedBezel
+        field.focusRingType = .default
+        field.lineBreakMode = .byTruncatingTail
+        // WindowAccessor(ViewerView.swift)と同じ理由: このNSViewがまだウインドウに
+        // 追加される前のタイミングではfield.windowがnilなので、次のランループまで待ってから
+        // ファーストレスポンダにする。selectAll(nil)は「テキスト編集中の選択範囲」を操作する
+        // APIのため、先にcurrentEditor()が存在する状態(=ファーストレスポンダになった状態)を
+        // 作ってから呼ぶ必要がある。
+        DispatchQueue.main.async {
+            field.window?.makeFirstResponder(field)
+            field.currentEditor()?.selectAll(nil)
+        }
+        return field
+    }
+
+    func updateNSView(_ nsView: NSTextField, context: Context) {
+        if nsView.stringValue != text {
+            nsView.stringValue = text
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        let parent: SelectAllTextField
+        init(_ parent: SelectAllTextField) { self.parent = parent }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField else { return }
+            parent.text = field.stringValue
+        }
+
+        /// Return(改行)キーで確定(Save)できるようにする。TextField(SwiftUI)の
+        /// .onSubmitに相当する挙動をNSTextFieldDelegate経由で実現する。
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                parent.onSubmit()
+                return true
+            }
+            return false
         }
     }
 }
@@ -679,6 +814,7 @@ private struct BookmarkDetailPane: View {
     @Binding var pendingBulkRenameBookID: String?
     @Binding var pendingDeleteBookmarksBookID: String?
     @Binding var pendingDeleteLayoutBookID: String?
+    @Binding var pendingDeleteBookmarksAndLayoutBookID: String?
 
     @StateObject private var viewModel: BookLayoutEditorViewModel
 
@@ -731,7 +867,8 @@ private struct BookmarkDetailPane: View {
         renameText: Binding<String>,
         pendingBulkRenameBookID: Binding<String?>,
         pendingDeleteBookmarksBookID: Binding<String?>,
-        pendingDeleteLayoutBookID: Binding<String?>
+        pendingDeleteLayoutBookID: Binding<String?>,
+        pendingDeleteBookmarksAndLayoutBookID: Binding<String?>
     ) {
         self.bookID = bookID
         self.bookmarkStore = bookmarkStore
@@ -742,6 +879,7 @@ private struct BookmarkDetailPane: View {
         _pendingBulkRenameBookID = pendingBulkRenameBookID
         _pendingDeleteBookmarksBookID = pendingDeleteBookmarksBookID
         _pendingDeleteLayoutBookID = pendingDeleteLayoutBookID
+        _pendingDeleteBookmarksAndLayoutBookID = pendingDeleteBookmarksAndLayoutBookID
         // 呼び出し元(「ブックマークの編集」/「レイアウトの編集」)に応じた左ペインの初期絞り込み
         // (BookmarkEditorView.applyInitialFocus)と、右ペインのこの初期絞り込みを一致させる
         // (ユーザー報告: お気に入りメニューから「ブックマークの編集」を呼び出すと、左ペインは
@@ -901,29 +1039,18 @@ private struct BookmarkDetailPane: View {
                     onJump: { openBookAndJump(toPageIndex: row.effectiveReadingIndex) },
                     onAddBookmark: { addBookmark(atPageIndex: row.effectiveReadingIndex) },
                     onRenameBookmark: { bookmark in
-                        // 同じブックマークを続けてリネームすると100%再現する不具合(ユーザー報告:
-                        // 別のブックマークを一度挟んでから開き直すと正しく表示される)への対策。
-                        //
-                        // 原因: SwiftUIの@Stateは、代入する値が現在保持している値と等しい場合、
-                        // 実際の再描画(および.alert内のTextFieldへの値の反映)を省略する。
-                        // 直前にこのブックマークをリネームした場合、renameTextは既にその新しい
-                        // 名前(=bookmark.name)を保持したままになっているため、
-                        // 「renameText = bookmark.name」は値として変化が無く、TextField側には
-                        // 何も反映されない。一方、直前のアラートを閉じた時点でAppKit側の
-                        // (NSAlertが内部で使う)テキストフィールド自体は空にリセットされてしまって
-                        // いるため、見た目だけ空欄のまま新しいアラートが表示される。
-                        // 別のブックマークを挟むと直るのは、そのときはrenameTextの値が実際に
-                        // 変化するため。
-                        //
-                        // 対策として、必ず一度renameTextを(現在の値と異なりうる)空文字へ変えてから
-                        // アラートを表示し、その次の実行ループであらためて本来の名前を設定する。
-                        // こうすることで、SwiftUIから見て必ず「値が変化した」とみなされ、
-                        // TextFieldに正しく反映される。
-                        renameText = ""
+                        // バグ修正: 以前は.alert + TextField(NSAlertが内部で使うテキストフィールド)
+                        // 実装だったため、SwiftUIの@Stateが「代入する値が現在の値と同じ場合は
+                        // 再描画・反映を省略する」性質と衝突し、同じブックマークを続けてリネーム
+                        // すると入力欄が空のまま表示される不具合があった(ユーザー報告。renameTextを
+                        // 一度空文字にしてから設定し直す、という回避策で対応していた)。
+                        // 呼び出し先が.sheet(BookmarkRenameSheet、bodyのコメント参照)に変わり、
+                        // 表示のたびにNSTextFieldそのものを新規に作り直すようになったため、
+                        // この回避策は不要になった(renameTextの値が前回と同じであっても、
+                        // SelectAllTextField.makeNSViewがそのときの値でNSTextFieldを作るため、
+                        // 常に正しい名前が表示・全選択される)。
+                        renameText = bookmark.name
                         renamingBookmark = bookmark
-                        DispatchQueue.main.async {
-                            renameText = bookmark.name
-                        }
                     },
                     onDeleteBookmark: { bookmark in bookmarkStore.delete(bookmark) },
                     onLayoutStateChange: { newState in
@@ -1031,6 +1158,10 @@ private struct BookmarkDetailPane: View {
                         }
                         .disabled(bookmarkStore.bookmarks(forBookID: bookID).isEmpty)
 
+                        // ユーザー要望: 「一括リネーム」と「ブックマークを全削除」の間に
+                        // 区切り線を追加(リネーム系と削除系のグループを視覚的に分ける)。
+                        Divider()
+
                         Button("Delete All Bookmarks…", role: .destructive) {
                             pendingDeleteBookmarksBookID = bookID
                         }
@@ -1041,7 +1172,21 @@ private struct BookmarkDetailPane: View {
                         }
                         .disabled(!layoutStore.layoutBookIDs.contains(bookID))
 
-                        // 4.3節「表示順を初期化する」。使用頻度が低い操作のため、このメニューの
+                        // ユーザー要望: 左ペインの右クリックメニューに追加した「ブックマークおよび
+                        // レイアウトを全削除」(pendingDeleteBookmarksAndLayoutBookIDのコメント参照)を、
+                        // こちらの「一括操作…」メニューにも追加してほしいとのことで追加した。
+                        // 上の個別2項目(ブックマークのみ/レイアウトのみを削除)はそのまま残している。
+                        Button("Delete All Bookmarks and Layouts…", role: .destructive) {
+                            pendingDeleteBookmarksAndLayoutBookID = bookID
+                        }
+                        .disabled(bookmarkStore.bookmarks(forBookID: bookID).isEmpty && !layoutStore.layoutBookIDs.contains(bookID))
+
+                        // ユーザー要望: 区切り線は削除系3項目(ブックマークを全削除/レイアウトを
+                        // 全削除/ブックマークおよびレイアウトを全削除)の直後、「表示順(ページ順)を
+                        // 初期化する」の直前へ移動(以前は削除系の1項目目と2項目目の間にあった)。
+                        Divider()
+
+                        // 4.3節「ページ順を初期化する」。使用頻度が低い操作のため、このメニューの
                         // 最後尾に置いている(ユーザー要望)。カスタム並び替え(pageOrderOverride)が
                         // 無い(既に自然順のまま)場合は押しても意味が無いため無効化する。
                         Button("Reset Page Order") {

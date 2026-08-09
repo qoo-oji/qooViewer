@@ -24,8 +24,24 @@ enum LibraryImportExportService {
     }
 
     struct ExportResult {
-        /// ブックマークはあるがファイルが見つからずページキーへ変換できなかった本のbookID一覧。
+        /// ブックマークはあるがファイルが見つからずページキーへ変換できなかった本のbookID(=ファイル
+        /// パス)一覧。
         var skippedBookmarkBookIDs: [String] = []
+        /// お気に入り登録されているが、ファイルが見つからなかった本のbookID(=ファイルパス)一覧
+        /// (エクスポート自体は行う。参考情報のパスとタイトルは残せるため)。
+        var skippedFavoritesBookIDs: [String] = []
+        /// レイアウト設定はあるが、ファイルが見つからなかった本のbookID(=ファイルパス)一覧
+        /// (エクスポート自体は行う)。
+        var skippedLayoutsBookIDs: [String] = []
+
+        /// ユーザー要望: エクスポート画面下部に、見つからなかったファイルのパスをカテゴリ
+        /// (お気に入り/ブックマーク/レイアウト)をまたいで重複なく1つのリストにまとめて
+        /// 表示したい。以前は「N冊はファイルが見つからなかったためスキップしました」という
+        /// カテゴリごとの件数だけの文言だったが、同じファイルが複数カテゴリで見つからない
+        /// 場合に何度も似た文言が出てしまい分かりづらかったため、実際のパスへ差し替える。
+        var allSkippedFilePaths: [String] {
+            Array(Set(skippedFavoritesBookIDs + skippedBookmarkBookIDs + skippedLayoutsBookIDs)).sorted()
+        }
     }
 
     static func buildExportFile(
@@ -38,7 +54,9 @@ enum LibraryImportExportService {
         var result = ExportResult()
 
         if selection.includeFavorites {
-            file.favorites = exportFavorites(favoritesStore: favoritesStore)
+            let (favorites, skipped) = exportFavorites(favoritesStore: favoritesStore)
+            file.favorites = favorites
+            result.skippedFavoritesBookIDs = skipped
         }
         if selection.includeBookmarks {
             let (bookmarks, skipped) = await exportBookmarks(
@@ -48,7 +66,9 @@ enum LibraryImportExportService {
             result.skippedBookmarkBookIDs = skipped
         }
         if selection.includeLayouts {
-            file.layouts = await exportLayouts(layoutStore: layoutStore)
+            let (layouts, skipped) = await exportLayouts(layoutStore: layoutStore)
+            file.layouts = layouts
+            result.skippedLayoutsBookIDs = skipped
         }
         return (file, result)
     }
@@ -59,9 +79,14 @@ enum LibraryImportExportService {
     /// favoritesStore.resolvedExistingURL(for:)でファイルの実在が確認できる場合は、そこから
     /// 改めて識別子を取得してJSONに含める(ついでにDB側にも補完しておく。exportBookmarks/
     /// exportLayoutsの同種の処理と同じ理由)。
-    private static func exportFavorites(favoritesStore: FavoritesStore) -> ExportedFavorites {
+    private static func exportFavorites(favoritesStore: FavoritesStore) -> (ExportedFavorites, [String]) {
         var folders: [ExportedFavoriteFolder] = []
         var books: [ExportedFavoriteBook] = []
+        // ユーザー要望: ファイルが見つからなかった本のパスを、エクスポート画面下部にまとめて
+        // 表示したい。お気に入りはブックマーク/レイアウトと違い、実ファイルが見つからなくても
+        // (bookID/タイトルなどの参考情報だけで)従来通りエクスポート自体は行うが、その本の
+        // パスはここに集めておく。
+        var skipped: [String] = []
 
         func walk(_ folder: FavoriteFolder?, folderID: String?) {
             for sub in favoritesStore.subfolders(of: folder) {
@@ -71,13 +96,17 @@ enum LibraryImportExportService {
             }
             for book in favoritesStore.books(in: folder) {
                 var fileNodeIdentifier = book.fileNodeIdentifier
-                if fileNodeIdentifier == nil, let url = favoritesStore.resolvedExistingURL(for: book) {
-                    let didAccess = url.startAccessingSecurityScopedResource()
-                    fileNodeIdentifier = FileNodeIdentifier.current(for: url)
-                    if didAccess { url.stopAccessingSecurityScopedResource() }
+                let resolvedURL = favoritesStore.resolvedExistingURL(for: book)
+                if fileNodeIdentifier == nil, let resolvedURL {
+                    let didAccess = resolvedURL.startAccessingSecurityScopedResource()
+                    fileNodeIdentifier = FileNodeIdentifier.current(for: resolvedURL)
+                    if didAccess { resolvedURL.stopAccessingSecurityScopedResource() }
                     if let fileNodeIdentifier {
                         favoritesStore.backfillFileNodeIdentifier(forBookID: book.bookID, identifier: fileNodeIdentifier)
                     }
+                }
+                if resolvedURL == nil {
+                    skipped.append(book.bookID)
                 }
                 books.append(
                     ExportedFavoriteBook(
@@ -91,7 +120,7 @@ enum LibraryImportExportService {
             }
         }
         walk(nil, folderID: nil)
-        return ExportedFavorites(folders: folders, books: books)
+        return (ExportedFavorites(folders: folders, books: books), skipped)
     }
 
     /// bookIDからこの本のURLを解決する。
@@ -196,21 +225,28 @@ enum LibraryImportExportService {
     /// 同種の処理と同じ理由)。resolvedURL自体はbookmarkDataの解決またはbookIDの生パスへの
     /// フォールバックのどちらもfileExistsで確認済みのURLしか返さないため、ここで本自体を
     /// 読み込み直す(BookLoader)必要は無い。
-    private static func exportLayouts(layoutStore: LayoutStore) async -> [ExportedBookLayoutEntry] {
+    private static func exportLayouts(layoutStore: LayoutStore) async -> ([ExportedBookLayoutEntry], [String]) {
         var result: [ExportedBookLayoutEntry] = []
+        // ユーザー要望: exportFavoritesと同じ理由で、ファイルが見つからなかった本のパスを
+        // 集めておく(レイアウト設定自体は従来通り、実ファイルの有無に関わらずエクスポートする)。
+        var skipped: [String] = []
         for bookID in layoutStore.layoutBookIDs {
             let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
             let overrides = layoutStore.pageOverrides(forBookID: bookID)
             guard settings != nil || !overrides.isEmpty else { continue }
 
             var fileNodeIdentifier = settings?.fileNodeIdentifier
-            if fileNodeIdentifier == nil, let url = layoutStore.resolvedURL(forBookID: bookID) {
-                let didAccess = url.startAccessingSecurityScopedResource()
-                fileNodeIdentifier = FileNodeIdentifier.current(for: url)
-                if didAccess { url.stopAccessingSecurityScopedResource() }
+            let resolvedURL = layoutStore.resolvedURL(forBookID: bookID)
+            if fileNodeIdentifier == nil, let resolvedURL {
+                let didAccess = resolvedURL.startAccessingSecurityScopedResource()
+                fileNodeIdentifier = FileNodeIdentifier.current(for: resolvedURL)
+                if didAccess { resolvedURL.stopAccessingSecurityScopedResource() }
                 if let fileNodeIdentifier {
                     layoutStore.backfillFileNodeIdentifier(forBookID: bookID, identifier: fileNodeIdentifier)
                 }
+            }
+            if resolvedURL == nil {
+                skipped.append(bookID)
             }
 
             var pages: [String: ExportedPageState] = [:]
@@ -231,7 +267,7 @@ enum LibraryImportExportService {
                 )
             )
         }
-        return result
+        return (result, skipped)
     }
 
     // MARK: - JSONの読み書き

@@ -553,24 +553,38 @@ struct QooViewerApp: App {
                 Divider()
             }
 
-            // 以前は「ブックマーク」という独立したメニューだったが、要望6により
-            // 「お気に入り」メニューへ統合した。ブックマーク(本を開いている間だけ有効な、
-            // ページ位置の目印)とお気に入り(本そのものを、階層フォルダで整理して保存する)は
-            // 別の仕組みのため、Dividerでグループを分けて並べる。
-            // グループの並び順(お気に入りが上、ブックマークが下)、および各グループ内の並び順
-            // (追加/削除→編集→一覧)はユーザーからの指示により統一している。追加・削除は
-            // 別々の項目ではなく、現在の本/ページの登録状態に応じて文言・動作が切り替わる
-            // 1つのトグル項目にまとめている(ツールバー・コンテキストメニューと同じ考え方)。
-            // 「編集」の文言も「ブックマークの編集…」と表現をそろえ、以前の「お気に入りを
-            // 整理…」から「お気に入りの編集…」に変更した(ViewerAction.showFavoritesOrganizer、
-            // Window("Edit Favorites", ...)も同様に変更済み)。
-            CommandMenu("Favorites") {
+            // 要望: 標準の「編集」(Edit)メニューは、SwiftUIが自動的に追加する既定の内容
+            // (取り消す/やり直す/カット/コピー/ペースト/削除/すべてを選択)のままだと、
+            // このアプリにはテキスト編集機能自体が無いため、どの項目も実際には機能しない
+            // 見せかけのメニューになっていた。CommandGroup(replacing: .undoRedo)/
+            // CommandGroup(replacing: .pasteboard)をどちらも空の内容で登録することで、
+            // 既定の項目をすべて取り除く。
+            CommandGroup(replacing: .undoRedo) { }
+            CommandGroup(replacing: .pasteboard) { }
+
+            // 「編集」(Edit)メニューの実際の内容。以前はそれぞれ「お気に入り」「レイアウト」と
+            // いう独立したトップレベルメニュー(CommandMenu)だったが、上記の通り既定では
+            // 何も機能しない「編集」メニューをそのまま空けておくのはもったいないという指摘から、
+            // この「編集」メニューへ統合した(要望)。CommandGroup(after: .pasteboard)は、
+            // 上で空にした「ペースト」グループの直後(=編集メニューの先頭)に項目を挿入する。
+            // 3つのグループ(お気に入り→ブックマーク→レイアウト)の並び順、および各グループ内の
+            // 並び順は、以前の「お気に入り」「レイアウト」メニューのときからユーザーの指示により
+            // 変えていない。ブックマーク(本を開いている間だけ有効な、ページ位置の目印)と
+            // お気に入り(本そのものを、階層フォルダで整理して保存する)は別の仕組みのため、
+            // Dividerでグループを分けて並べる。追加・削除は別々の項目ではなく、現在の本/ページの
+            // 登録状態に応じて文言・動作が切り替わる1つのトグル項目にまとめている
+            // (ツールバー・コンテキストメニューと同じ考え方)。「編集」の文言も「ブックマークの
+            // 編集…」と表現をそろえ、以前の「お気に入りを整理…」から「お気に入りの編集…」に
+            // 変更した(ViewerAction.showFavoritesOrganizer、Window("Edit Favorites", ...)も
+            // 同様に変更済み)。
+            CommandGroup(after: .pasteboard) {
                 let hasBook = focusedAppState?.currentBook != nil
+                let isLayoutLocked = !hasBook || (menuCheckmarkState?.hasAuthoritativeEpubLayout ?? false)
 
                 // グループ1: お気に入り(追加/削除→編集→一覧の順)
                 Button(
                     menuCheckmarkState?.isCurrentBookFavorited == true
-                        ? "Remove Current Book from Favorites" : "Add Current Book to Favorites…"
+                        ? "Remove This Book from Favorites" : "Add This Book to Favorites…"
                 ) {
                     focusedAppState?.performViewerAction?(.toggleFavorite)
                 }
@@ -595,7 +609,7 @@ struct QooViewerApp: App {
                 // グループ2: ブックマーク(追加/削除→編集→一覧の順)
                 Button(
                     menuCheckmarkState?.isCurrentPageBookmarked == true
-                        ? "Remove Current Page from Bookmarks" : "Add Current Page to Bookmarks"
+                        ? "Remove This Page from Bookmarks" : "Add This Page to Bookmarks"
                 ) {
                     focusedAppState?.performViewerAction?(.toggleBookmark)
                 }
@@ -629,24 +643,22 @@ struct QooViewerApp: App {
                     }
                 }
                 .disabled(!hasBook)
-            }
 
-            // ページレイアウト制御(設計コンセプト8.2節)。ここではこのビュー自身の@StateObject
-            // であるViewerViewModelへ直接アクセスできないため、「Move」「Favorites」メニューと
-            // 同じFocusedValueブリッジ(focusedAppState.performLayoutStateChange/
-            // performLayoutClear/performAutoLayout)を経由する。項目の有効/無効・件数構成は
-            // menuCheckmarkState(値型。AppState.swiftのコメント参照)の現在値で判定する。
-            // メニューバー上の位置は「お気に入り」メニューのすぐ右(ユーザー要望)。
-            CommandMenu("Layout") {
-                let hasBook = focusedAppState?.currentBook != nil
-                let isLayoutLocked = !hasBook || (menuCheckmarkState?.hasAuthoritativeEpubLayout ?? false)
+                Divider()
 
+                // グループ3: ページレイアウト制御(設計コンセプト8.2節)。ここではこのビュー自身の
+                // @StateObjectであるViewerViewModelへ直接アクセスできないため、「移動」「上の
+                // お気に入り/ブックマーク」グループと同じFocusedValueブリッジ
+                // (focusedAppState.performLayoutStateChange/performLayoutClear/
+                // performAutoLayout)を経由する。項目の有効/無効・件数構成はmenuCheckmarkState
+                // (値型。AppState.swiftのコメント参照)の現在値で判定する。
                 Button("Auto-Layout Based on Current View") {
                     focusedAppState?.performAutoLayout?()
                 }
                 .disabled(isLayoutLocked)
 
-                Divider()
+                // ユーザー要望: 「自動でレイアウトする」の下、および下の「レイアウトの編集…」の
+                // 上にあった区切り線は削除した(このグループ内は1つの塊として見せる)。
 
                 if menuCheckmarkState?.hasPartnerPageDisplayed == true {
                     // 見開き表示中に実際に2ページとも表示されている場合は、8.2節の通り
@@ -678,11 +690,9 @@ struct QooViewerApp: App {
                         .disabled(isLayoutLocked)
                 }
 
-                Divider()
-
-                // 下のグループ:「レイアウトの編集…」(8.2節)。4節の「ブックマーク・レイアウトの
-                // 編集」ウインドウを、4.5節の「レイアウトの編集」用フィルタで開く。本を開いて
-                // いなくても有効(hasBook不問。「お気に入り」メニューの「Edit Bookmarks…」と同じ)。
+                // 「レイアウトの編集…」(8.2節)。4節の「ブックマーク・レイアウトの編集」
+                // ウインドウを、4.5節の「レイアウトの編集」用フィルタで開く。本を開いていなくても
+                // 有効(hasBook不問。上の「Edit Bookmarks…」と同じ)。
                 Button("Edit Layout…") {
                     launchCoordinator.pendingEditorInitialFocus = .layout
                     openWindow(id: "editBookmarks")
@@ -974,7 +984,7 @@ struct QooViewerApp: App {
         }
     }
 
-    /// CommandMenu("Layout")の、1ページ分の項目群(設計コンセプト3.2節)。
+    /// 「編集」(Edit)メニュー内のレイアウトグループの、1ページ分の項目群(設計コンセプト3.2節)。
     /// ViewerView.layoutStateMenuItems(forPageIndex:)と同じ構成だが、こちらは
     /// ViewerViewModelへ直接アクセスできないため、focusedAppState経由のクロージャを呼ぶ。
     /// 「レイアウト情報を削除する」は、hasOverride(menuCheckmarkState由来の現在値)が
@@ -1025,8 +1035,92 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// ウインドウが作られる前(起動のごく初期)に登録しておく必要があるため、
     /// applicationDidFinishLaunchingよりも早いタイミングのapplicationWillFinishLaunchingで行う。
     /// registerはあくまで「まだ値がない場合の既定値」を与えるだけなので、他の設定と衝突しない。
+    ///
+    /// 要望: 「編集」メニューの末尾にmacOS自身が自動的に挿入する「自動入力」「音声入力を
+    /// 開始」「絵文字と記号」(および、それらの手前の区切り線)を消してほしい。このアプリには
+    /// テキスト編集機能自体が無いため、これらは常に無関係かつ不要。
+    /// 「音声入力を開始」「絵文字と記号」の2つは、AppKitが参照する非公開のUserDefaultsキー
+    /// (NSDisabledDictationMenuItem/NSDisabledCharacterPaletteMenuItem)にtrueを登録する
+    /// ことで抑制できる(NSInitialToolTipDelayと同じ理由で、ここ=起動の最も早いタイミングで
+    /// 登録する)。
     func applicationWillFinishLaunching(_ notification: Notification) {
-        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 200])
+        UserDefaults.standard.register(defaults: [
+            "NSInitialToolTipDelay": 200,
+            "NSDisabledDictationMenuItem": true,
+            "NSDisabledCharacterPaletteMenuItem": true,
+        ])
+    }
+
+    /// 上のNSDisabledDictationMenuItem/NSDisabledCharacterPaletteMenuItemとは異なり、
+    /// 「自動入力」(AutoFill)の抑制には対応するUserDefaultsキーが存在しない(非公開APIとしても
+    /// 見つからない)。そのため、自前で「編集」メニューの末尾の余分な項目を取り除く。
+    ///
+    /// バグ修正(ユーザー報告): 当初はNSMenu.didBeginTrackingNotification(メニューを開こうと
+    /// した瞬間に飛ぶ通知)だけで毎回取り除く実装にしていたが、実機で確認したところ
+    /// 「自動入力」が消えなかった。macOSがこれを挿入するタイミングは非公開で、
+    /// didBeginTrackingより後(メニューが実際に画面に描画される直前など)である可能性が高いと
+    /// 考えられる。そのため、次の3段構えにした。
+    /// 1. cleanUpEditMenu()を起動直後(applicationDidFinishLaunching、AppKit自身がこれらの
+    ///    項目を挿入し終えているはずのタイミング)に1回、即座に呼ぶ。
+    /// 2. 念のため、SwiftUIによるメニューバー構築がまだ完了していない場合に備えて、
+    ///    Task { @MainActor in ... }で次のRunLoopに回してからもう1回呼ぶ。
+    /// 3. さらに、メニューを開こうとするたびに毎回(NSMenu.didBeginTrackingNotification)、
+    ///    同じくTask { @MainActor in ... }で「その通知の処理がすべて終わった直後」まで遅らせて
+    ///    呼ぶことで、macOSが同じタイミングで後から追加してくる場合にも対応する
+    ///    (継続的なセーフティネット)。
+    ///
+    /// 「編集」メニューかどうかは、タイトル(ローカライズにより"Edit"/"編集"と変わる)ではなく、
+    /// このアプリが「編集」メニューの最後の項目として必ず配置している「レイアウトの編集…」
+    /// (英語なら"Edit Layout…")の有無で判定する(QooViewerApp.swiftの
+    /// CommandGroup(after: .pasteboard)参照。このアプリが対応する言語はAppLanguage.swift
+    /// の通り日本語・英語の2つのみのため、この2パターンだけを見れば十分)。その項目より後ろに
+    /// 残っている項目(=macOSが自動的に追加したもの)をすべて削除する。
+    private static let editMenuLastOwnItemTitles: Set<String> = ["Edit Layout…", "レイアウトの編集…"]
+    private var editMenuTrackingObserver: NSObjectProtocol?
+
+    /// NSApp.mainMenuの直下から、上のeditMenuLastOwnItemTitlesのいずれかを含むサブメニュー
+    /// (=「編集」メニュー)を探し出し、見つかれば末尾の余分な項目を取り除く。見つからなければ
+    /// (メニューバーがまだ構築されていない等)何もしない。
+    /// 明示的に@MainActorを付けている理由はQooViewerApp構造体本体のコメントと同じ
+    /// (NSApp/NSMenuなどAppKitのAPIはメインアクター隔離のため、Task { @MainActor in ... }
+    /// のような非同期コンテキストから呼んでもコンパイルエラーにならないようにするため)。
+    @MainActor
+    private func cleanUpEditMenu() {
+        guard let topLevelItems = NSApp.mainMenu?.items else { return }
+        for topLevelItem in topLevelItems {
+            guard let menu = topLevelItem.submenu else { continue }
+            guard let lastOwnIndex = menu.items.firstIndex(where: {
+                AppDelegate.editMenuLastOwnItemTitles.contains($0.title)
+            }) else { continue }
+            while menu.items.count > lastOwnIndex + 1 {
+                menu.removeItem(at: menu.items.count - 1)
+            }
+            return
+        }
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        cleanUpEditMenu()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.cleanUpEditMenu()
+        }
+
+        // バグ修正(ビルド時の警告): [weak self]でキャプチャしたselfをそのままネストした
+        // Task { @MainActor in ... }の中で再び参照すると、「弱参照(var相当)を並行実行される
+        // コードの中で参照している」という警告(Swift 6言語モードではエラーになる)が出る。
+        // 外側のクロージャに入った直後にguard let selfで弱参照を1回だけ強参照(let、値が
+        // 変わらないことが保証される)に変換し、その強参照だけを内側のTaskへ渡すようにする。
+        editMenuTrackingObserver = NotificationCenter.default.addObserver(
+            forName: NSMenu.didBeginTrackingNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                self.cleanUpEditMenu()
+            }
+        }
     }
 
     /// macOSの「ウインドウのサイズ・位置などの状態を保存して次回起動時に復元する」機能

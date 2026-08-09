@@ -88,7 +88,7 @@ final class LaunchCoordinator: ObservableObject {
     /// 指定したbookID(MangaBook.id、フォルダ/アーカイブファイルのパスと同じ文字列)の本を
     /// すでに開いているウインドウ/タブがあれば、そのAppStateを返す。「ブックマークの編集」
     /// ウインドウ(BookmarkStore)が、左ペインで選択中の本が今開いているかどうか
-    /// (開いていればジャンプ・「Add Current Page」ボタンを有効化できる)を判定するために使う。
+    /// (開いていればジャンプ・「Add This Page」ボタンを有効化できる)を判定するために使う。
     /// openAppState(forBookAt:)と役割は同じだが、こちらはURLではなくbookID文字列を直接比較する
     /// (MangaBook.id自体がパス文字列そのものであるため、URLを介さず直接比較できる)。
     func openAppState(forBookID bookID: String) -> AppState? {

@@ -211,7 +211,7 @@ struct ViewerView: View {
         appState.jumpToPageIndex = { pageIndex in
             viewModel.jump(toPageIndex: pageIndex)
         }
-        // 「ブックマークの編集」ウインドウ(独立ウインドウ)の「Add Current Page」ボタンから、
+        // 「ブックマークの編集」ウインドウ(独立ウインドウ)の「Add This Page」ボタンから、
         // 現在のページを追加するための橋渡し(jumpToBookmarkと同じ理由。削除・リネームは
         // BookmarkStoreが直接SwiftDataを操作するため、ここでは扱わない。
         // AppState.swiftのコメント参照)。
@@ -1017,7 +1017,7 @@ struct ViewerView: View {
                     isRegistered: isCurrentPageBookmarked
                 )
             }
-            .help(isCurrentPageBookmarked ? "Remove Current Page from Bookmarks" : "Add Current Page to Bookmarks")
+            .help(isCurrentPageBookmarked ? "Remove This Page from Bookmarks" : "Add This Page to Bookmarks")
 
             Button {
                 perform(.toggleFavorite)
@@ -1028,7 +1028,7 @@ struct ViewerView: View {
                     isRegistered: isCurrentBookFavorited
                 )
             }
-            .help(isCurrentBookFavorited ? "Remove Current Book from Favorites" : "Add Current Book to Favorites…")
+            .help(isCurrentBookFavorited ? "Remove This Book from Favorites" : "Add This Book to Favorites…")
 
             Button {
                 showThumbnailGrid = true
@@ -1119,16 +1119,70 @@ struct ViewerView: View {
 
         Divider()
 
+        // お気に入りグループ・ブックマークグループ・レイアウトグループの並び順、および文言は
+        // メニューバーの「編集」(Edit)メニュー内の対応するグループ(QooViewerApp.swiftの
+        // CommandGroup(after: .pasteboard))に合わせている(お気に入り→ブックマーク→
+        // レイアウトの順)。追加・削除は登録状態に応じて文言・動作が切り替わる1つのトグル項目に
+        // まとめている(ツールバーと同じ考え方。ユーザー要望)。
+        Button(isCurrentBookFavorited ? "Remove This Book from Favorites" : "Add This Book to Favorites…") {
+            perform(.toggleFavorite)
+        }
+        Menu("Favorites List") {
+            FavoritesMenuContent(
+                favoritesStore: favoritesStore,
+                onOpen: { favorite in openFavoriteAccordingToPreference(favorite) }
+            )
+        }
+
+        Divider()
+
+        // ユーザー報告: 見開き左の画像を右クリックして「現在のページをブックマークに追加」
+        // しても見開き右がブックマークされてしまう。見開き表示中(実際に2ページ組で
+        // ペア表示されているとき)は、Layoutサブメニューと同じくクリック位置
+        // (isLastContextClickOnLeftHalf)で対象を一意に決め、「左のページ」「右のページ」を
+        // 明示したラベルで、そのページ単体を追加/削除する(toggleBookmark(atIndex:)参照)。
+        // 単一ページ表示中(見開きのペアがEPUB仕様上の空白ページの場合も含む)は、対象が
+        // 1ページしかないため従来通りの汎用トグルのままにする(bug報告の明示的な要望)。
+        if let partnerPageIndex {
+            let leftPageIndex = isRightToLeft ? partnerPageIndex : viewModel.currentIndex
+            let rightPageIndex = isRightToLeft ? viewModel.currentIndex : partnerPageIndex
+            let clickedPageIndex = isLastContextClickOnLeftHalf ? leftPageIndex : rightPageIndex
+            let isClickedPageBookmarked = viewModel.bookmarks.contains { $0.pageIndex == clickedPageIndex }
+            Button(
+                bookmarkContextMenuTitle(isLeft: isLastContextClickOnLeftHalf, isBookmarked: isClickedPageBookmarked)
+            ) {
+                toggleBookmark(atIndex: clickedPageIndex)
+            }
+        } else {
+            Button(isCurrentPageBookmarked ? "Remove This Page from Bookmarks" : "Add This Page to Bookmarks") {
+                perform(.toggleBookmark)
+            }
+        }
+        // メニューバー側のBookmark Listサブメニュー(QooViewerApp.swift)と同じ内容。
+        Menu("Bookmark List") {
+            if appState.currentBookmarks.isEmpty {
+                Text("(No Bookmarks)")
+            } else {
+                ForEach(appState.currentBookmarks, id: \.id) { bookmark in
+                    Button("\(bookmark.name) (\(bookmark.pageIndex + 1))") {
+                        appState.jumpToBookmark?(bookmark)
+                    }
+                }
+            }
+        }
+
+        Divider()
+
         // レイアウト操作(設計コンセプト8.4節)。メニューバー版(QooViewerApp.swiftの
-        // CommandMenu("Layout"))とほぼ同じ内容だが、こちらはこのビュー自身のviewModelを
-        // 直接参照できるため、FocusedValue/AppStateのブリッジを経由せず直接呼び出せる。
+        // 「編集」(Edit)メニュー内のLayoutグループ)とほぼ同じ内容だが、こちらはこのビュー自身の
+        // viewModelを直接参照できるため、FocusedValue/AppStateのブリッジを経由せず直接呼び出せる。
         //
         // 設計コンセプト8.4節の想定どおり、見開き表示中はこのメニューを開いた右クリックの
-        // 位置(左右どちらのページの上か)によって対象を一意に決める。メニューバー版
-        // (QooViewerApp.swiftのCommandMenu("Layout"))はキーボードショートカット等クリック位置の
-        // 情報が無い経路からも開けるため、そちらは引き続き「左のページ」「右のページ」を
-        // 両方並べる形のままにしている(コンテキストメニューだけがこの位置判定の恩恵を
-        // 受けられる、という設計上の非対称性はそのため意図的なもの)。
+        // 位置(左右どちらのページの上か)によって対象を一意に決める。メニューバー版は
+        // キーボードショートカット等クリック位置の情報が無い経路からも開けるため、そちらは
+        // 引き続き「左のページ」「右のページ」を両方並べる形のままにしている
+        // (コンテキストメニューだけがこの位置判定の恩恵を受けられる、という設計上の
+        // 非対称性はそのため意図的なもの)。
         // isLastContextClickOnLeftHalfの検知の仕組みはcontextClickMonitor/
         // PageAreaFrameAccessorのコメント参照。
         Menu("Layout") {
@@ -1179,59 +1233,6 @@ struct ViewerView: View {
             } else {
                 Button("Export This Page…") {
                     exportImage(.singlePage(index: viewModel.currentIndex))
-                }
-            }
-        }
-
-        Divider()
-
-        // お気に入りグループ・ブックマークグループの並び順、および文言はメニューバーの
-        // 「お気に入り」メニュー(QooViewerApp.swiftのCommandMenu("Favorites"))に合わせている
-        // (お気に入りが上、ブックマークが下)。追加・削除は登録状態に応じて文言・動作が
-        // 切り替わる1つのトグル項目にまとめている(ツールバーと同じ考え方。ユーザー要望)。
-        Button(isCurrentBookFavorited ? "Remove Current Book from Favorites" : "Add Current Book to Favorites…") {
-            perform(.toggleFavorite)
-        }
-        Menu("Favorites List") {
-            FavoritesMenuContent(
-                favoritesStore: favoritesStore,
-                onOpen: { favorite in openFavoriteAccordingToPreference(favorite) }
-            )
-        }
-
-        Divider()
-
-        // ユーザー報告: 見開き左の画像を右クリックして「現在のページをブックマークに追加」
-        // しても見開き右がブックマークされてしまう。見開き表示中(実際に2ページ組で
-        // ペア表示されているとき)は、Layoutサブメニューと同じくクリック位置
-        // (isLastContextClickOnLeftHalf)で対象を一意に決め、「左のページ」「右のページ」を
-        // 明示したラベルで、そのページ単体を追加/削除する(toggleBookmark(atIndex:)参照)。
-        // 単一ページ表示中(見開きのペアがEPUB仕様上の空白ページの場合も含む)は、対象が
-        // 1ページしかないため従来通りの汎用トグルのままにする(bug報告の明示的な要望)。
-        if let partnerPageIndex {
-            let leftPageIndex = isRightToLeft ? partnerPageIndex : viewModel.currentIndex
-            let rightPageIndex = isRightToLeft ? viewModel.currentIndex : partnerPageIndex
-            let clickedPageIndex = isLastContextClickOnLeftHalf ? leftPageIndex : rightPageIndex
-            let isClickedPageBookmarked = viewModel.bookmarks.contains { $0.pageIndex == clickedPageIndex }
-            Button(
-                bookmarkContextMenuTitle(isLeft: isLastContextClickOnLeftHalf, isBookmarked: isClickedPageBookmarked)
-            ) {
-                toggleBookmark(atIndex: clickedPageIndex)
-            }
-        } else {
-            Button(isCurrentPageBookmarked ? "Remove Current Page from Bookmarks" : "Add Current Page to Bookmarks") {
-                perform(.toggleBookmark)
-            }
-        }
-        // メニューバー側のBookmark Listサブメニュー(QooViewerApp.swift)と同じ内容。
-        Menu("Bookmark List") {
-            if appState.currentBookmarks.isEmpty {
-                Text("(No Bookmarks)")
-            } else {
-                ForEach(appState.currentBookmarks, id: \.id) { bookmark in
-                    Button("\(bookmark.name) (\(bookmark.pageIndex + 1))") {
-                        appState.jumpToBookmark?(bookmark)
-                    }
                 }
             }
         }
@@ -1718,10 +1719,18 @@ struct ViewerView: View {
         // 「ブックマークの編集」ウインドウ・「お気に入りの整理」ウインドウの「現在の本を追加」用
         // (上のlaunchCoordinator.setActiveBookAppState(appState)の初回呼び出しと同じ理由。
         // このウインドウが後から再びキーウインドウになるたびに更新し直す)。
+        // バグ修正(ビルド時のエラー): NotificationCenter.addObserverのクロージャ自体は
+        // (queue: .mainで実行時には必ずメインスレッドだとしても)コンパイラの目には
+        // メインアクターに隔離されたコンテキストとして見えないため、メインアクター隔離の
+        // launchCoordinator.setActiveBookAppState(_:)をここで直接呼ぶとエラーになる
+        // (Swift 6言語モード)。Task { @MainActor in ... }で明示的にメインアクターへ
+        // 渡してから呼ぶ。
         let becomeKey = NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
         ) { _ in
-            launchCoordinator.setActiveBookAppState(appState)
+            Task { @MainActor in
+                launchCoordinator.setActiveBookAppState(appState)
+            }
         }
         windowObservers = [enter, exit, resignKey, menuBegin, menuEnd, becomeKey]
     }
@@ -2118,7 +2127,14 @@ struct ViewerView: View {
         window.contentView = NSHostingView(
             rootView: ActualSizePageView(image: image, backgroundColor: preferences.backgroundColorOption.color)
         )
-        window.title = "Actual Size"
+        // バグ修正(ビルド時の警告): window.titleはStringを受け取るため、以前はここに
+        // "Actual Size"という生のリテラルを直接代入していた。これだとXcodeの文字列カタログの
+        // 静的解析からは「LocalizedStringKeyとして使われていない」ため参照を検出できず、
+        // 「References to this key could not be found in source code.」という警告が出続けて
+        // いた(実際には日本語表示時にも常に英語のまま表示されてしまう不具合でもあった)。
+        // String(localized:locale:)を明示的に使うことで、カタログから正しく参照が見つかる
+        // ようになり、表示言語設定(preferences.effectiveLocale)にも従うようになる。
+        window.title = String(localized: "Actual Size", locale: preferences.effectiveLocale)
         window.center()
         // このウインドウを閉じるとアプリ全体が強制終了してしまう不具合の原因はここ。
         // isReleasedWhenClosed(既定でtrue)がtrueのままだと、close()が呼ばれた瞬間に

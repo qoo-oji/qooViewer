@@ -49,6 +49,11 @@ struct BulkRenameBookmarksWindow: View {
     @State private var prefix = ""
     @State private var suffix = ""
     @State private var hasInitializedDefaults = false
+    /// ユーザー要望: 「番号前の文字列」「番号後の文字列」を、右寄せのテキストフィールドではなく
+    /// クリックして編集する「ボタン」に変更した(prefixSuffixEditorのコメント参照)。
+    /// これらは、そのボタンをクリックしたときに開くポップオーバーの表示制御に使う。
+    @State private var isEditingPrefix = false
+    @State private var isEditingSuffix = false
 
     var body: some View {
         Group {
@@ -98,7 +103,12 @@ struct BulkRenameBookmarksWindow: View {
                 // 名前だけを変える機能に見えてしまう。実際は先頭ページにブックマークが無くても
                 // (強制的に)「表紙」という名前のブックマークを付与する機能のため、それが
                 // 伝わる文言に変更した(実装(applyRenaming)自体は元から変更なし)。
-                Toggle("Assign a Fixed Cover to the First Page", isOn: $assignFixedCover)
+                //
+                // ユーザー要望: さらに、「先頭ページに固定で表紙を割り当てる」という文言だと、
+                // まだ何をもって「表紙」とみなすのかが伝わりにくかった。実際にはこのトグルは
+                // 「先頭ページをブックマークとして登録し、その名前を『表紙』にする」機能なので、
+                // それがそのまま伝わる文言に変更した(こちらも実装は変更なし)。
+                Toggle("Bookmark the First Page as the Cover", isOn: $assignFixedCover)
 
                 Picker("Last Bookmark", selection: $lastBookmarkTreatment) {
                     ForEach(LastBookmarkTreatment.allCases) { treatment in
@@ -111,31 +121,77 @@ struct BulkRenameBookmarksWindow: View {
                     .foregroundStyle(.secondary)
             }
 
-            // ユーザー要望: 上から「番号前の文字列」→「連番開始番号」→「番号後の文字列」の順で
-            // 並べてほしい(以前は開始番号が一番上、前後の文字列はその下に横並びだった)。
-            // 見た目もそろえるため、3項目とも同じ「ラベル + 右寄せの入力欄」の行にしてある。
-            Section {
-                HStack {
-                    Text("Text Before Number")
-                    Spacer()
-                    TextField("", text: $prefix)
-                        .frame(width: 120)
-                        .multilineTextAlignment(.trailing)
-                }
-                HStack {
-                    Text("Sequence Start Number")
-                    Spacer()
+            // ユーザー要望: 「番号前の文字列」「連番開始番号」「番号後の文字列」の3項目が縦に
+            // 別々のフィールドとして並んでいると直感的でない。実際にはこの3つはまとめて
+            // 「第[1][2][3]…話」のような1つの命名テンプレートを表しているため、見た目も
+            // それが伝わるよう「ボタン(前の文字列)+ 数字ボックス(開始番号)+ ボタン(後の文字列)」を
+            // 隙間なく横に並べ、1つの連続したコントロールに見えるようにした
+            // (prefix/suffixの編集自体はボタンを押して開くポップオーバーで行う。
+            // prefixSuffixEditorPopoverのコメント参照)。
+            //
+            // バグ修正(ユーザー報告): 当初はButton(.buttonStyle(.bordered))+
+            // TextField(.textFieldStyle(.roundedBorder))というmacOS標準の見た目の部品を
+            // HStack(spacing: 0)で並べていたが、それでも間に隙間が見えてしまっていた。
+            // これはmacOSの標準ベゼル(.bordered/.roundedBorder)がフォーカスリング用の余白を
+            // 描画領域の内側に確保しており、その分だけ実際に塗られる見た目がレイアウト上の
+            // 幅より小さくなるため(HStackのspacing自体は0でも、各部品の「見た目」の方が
+            // 内側に痩せて見える)。この余白は公開APIで調整できないため、代わりに
+            // .buttonStyle(.plain)/.textFieldStyle(.plain)を使い、背景・区切り線・外枠を
+            // すべて自前で描画することで、隙間が原理的に生まれないようにした。
+            // 左右のボタンは明るめの背景で「盛り上がって」見えるように、中央のボックスは
+            // 暗めの背景と上端の細い影で「凹んで」見えるようにしている(要望どおりの見た目を維持)。
+            Section("Sequential Rename Settings") {
+                HStack(spacing: 0) {
+                    Button {
+                        isEditingPrefix = true
+                    } label: {
+                        Text(prefix)
+                            .frame(minWidth: Self.prefixSuffixButtonWidth)
+                            .frame(height: Self.segmentHeight)
+                    }
+                    .buttonStyle(.plain)
+                    .background(Self.segmentRaisedBackground)
+                    .help("Set the prefix string")
+                    .popover(isPresented: $isEditingPrefix) {
+                        prefixSuffixEditorPopover(title: "Text Before Number", text: $prefix)
+                    }
+
+                    Divider().frame(height: Self.segmentHeight)
+
+                    // 開始番号は左右のボタンに挟まれた「凹んだ」見た目にしたい(要望)ため、
+                    // .plainスタイルの上に自前の暗めの背景+上端の影を重ねて表現する
+                    // (上のコメント参照)。
                     TextField("", value: $startNumber, format: .number)
-                        .frame(width: 60)
-                        .multilineTextAlignment(.trailing)
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.center)
+                        .frame(width: Self.startNumberFieldWidth)
+                        .frame(height: Self.segmentHeight)
+                        .background(Self.segmentSunkenBackground)
+                        .help("Enter the starting number")
+
+                    Divider().frame(height: Self.segmentHeight)
+
+                    Button {
+                        isEditingSuffix = true
+                    } label: {
+                        Text(suffix)
+                            .frame(minWidth: Self.prefixSuffixButtonWidth)
+                            .frame(height: Self.segmentHeight)
+                    }
+                    .buttonStyle(.plain)
+                    .background(Self.segmentRaisedBackground)
+                    .help("Set the suffix string")
+                    .popover(isPresented: $isEditingSuffix) {
+                        prefixSuffixEditorPopover(title: "Text After Number", text: $suffix)
+                    }
                 }
-                HStack {
-                    Text("Text After Number")
-                    Spacer()
-                    TextField("", text: $suffix)
-                        .frame(width: 120)
-                        .multilineTextAlignment(.trailing)
-                }
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(Color.secondary.opacity(0.35), lineWidth: 1)
+                )
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 4)
             }
 
             if !bookmarks.isEmpty {
@@ -169,6 +225,63 @@ struct BulkRenameBookmarksWindow: View {
         .formStyle(.grouped)
         .padding()
         .frame(minWidth: 420, minHeight: 480)
+    }
+
+    /// 前後の文字列ボタンの幅。全角文字5文字ぶんを切り詰めずに表示できる余裕を持たせてある
+    /// (ユーザー要望)。
+    private static let prefixSuffixButtonWidth: CGFloat = 100
+    /// 開始番号ボックスの幅。全角文字2文字ぶん程度(ユーザー要望)。
+    private static let startNumberFieldWidth: CGFloat = 44
+    /// 3つのセグメント(ボタン・ボックス・ボタン)共通の高さ。標準的なborderedボタンの見た目の
+    /// 高さに合わせてある。
+    private static let segmentHeight: CGFloat = 22
+
+    /// 左右のボタン部分の背景(「盛り上がって」見えるように、上が明るく下がやや暗いグラデーション)。
+    private static let segmentRaisedBackground = LinearGradient(
+        colors: [Color(nsColor: .controlColor), Color(nsColor: .controlColor).opacity(0.85)],
+        startPoint: .top,
+        endPoint: .bottom
+    )
+
+    /// 中央の開始番号ボックスの背景(「凹んで」見えるように、暗めの地に上端だけ薄い影を重ねる)。
+    private static var segmentSunkenBackground: some View {
+        ZStack {
+            Color(nsColor: .controlColor).opacity(0.4)
+            VStack(spacing: 0) {
+                Color.black.opacity(0.18)
+                    .frame(height: 1)
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    /// 前後の文字列ボタンをクリックしたときに開く、編集用のポップオーバー。
+    /// 「小さなポップオーバー+テキストフィールド」という、この用途としては最も簡単な形にした
+    /// (ボタンをまとめて1つのコントロールに見せるという今回のUI変更の主眼はプレビュー欄の
+    /// 見た目にあり、編集操作自体はシートを開くほど大掛かりにする必要が無いため)。
+    /// textはprefix/suffixへ直接Bindingしているため、入力するそばからプレビュー欄
+    /// (previewNames)にも即座に反映される。
+    @ViewBuilder
+    private func prefixSuffixEditorPopover(title: LocalizedStringKey, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextField("", text: text)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 160)
+                .onSubmit {
+                    isEditingPrefix = false
+                    isEditingSuffix = false
+                }
+            Button("Done") {
+                isEditingPrefix = false
+                isEditingSuffix = false
+            }
+            .buttonStyle(.borderedProminent)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+        .padding(12)
     }
 
     private struct PreviewItem: Identifiable {

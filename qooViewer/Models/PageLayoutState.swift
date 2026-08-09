@@ -15,7 +15,14 @@ import SwiftUI
 ///
 /// rawValueはケース名(永続化・JSON書き出し用の安定した識別子)、titleKeyが画面表示用の
 /// ローカライズされた名前。
-enum PageLayoutState: String, CaseIterable, Identifiable, Codable, Hashable {
+///
+/// バグ修正(ビルド時のエラー): EffectivePageOrder.swiftと同じ理由で`nonisolated`にしている。
+/// この型自体はcase判定と変換だけの純粋な値型で、UIやアクター束縛の状態を持たないため、
+/// `nonisolated enum EpubExporter`からasEpubEquivalentSpreadPositionを同期的に参照できる
+/// 必要がある(以前はメインアクター隔離のプロパティをアクターの外から参照できないという
+/// エラーになっていた)。SwiftUI側(titleKeyなど)からの利用は、nonisolatedな値型を
+/// メインアクターのコードから使うことに何の問題も無いため、影響は無い。
+nonisolated enum PageLayoutState: String, CaseIterable, Identifiable, Codable, Hashable {
     /// 単独ページとして固定表示する(見開き表示中でも前後のページとは組まない)。
     /// EPUBの`rendition:page-spread-center`に相当する。
     case single

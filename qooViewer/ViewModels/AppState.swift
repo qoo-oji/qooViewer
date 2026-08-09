@@ -40,7 +40,7 @@ final class AppState: ObservableObject {
     var jumpToPageIndex: ((Int) -> Void)?
 
     /// 「ブックマークの編集」ウインドウ(独立ウインドウ。すべての本を横断するBookmarkStoreが
-    /// 削除・リネームを直接SwiftDataへ行うため、そちらは経由しない)の「Add Current Page」
+    /// 削除・リネームを直接SwiftDataへ行うため、そちらは経由しない)の「Add This Page」
     /// ボタンから、今読んでいるページをこの本のブックマークとして追加するための橋渡し。
     /// jumpToBookmarkと同じく、ViewerViewが表示されている間だけ自分自身を登録し、
     /// 閉じるときにnilへ戻す。

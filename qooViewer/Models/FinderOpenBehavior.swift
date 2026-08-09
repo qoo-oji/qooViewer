@@ -15,7 +15,7 @@ enum FinderOpenBehavior: String, CaseIterable, Identifiable, Codable, Hashable {
 
     var titleKey: LocalizedStringKey {
         switch self {
-        case .replaceCurrentBook: return "Close the Current Book and Open the New One"
+        case .replaceCurrentBook: return "Close This Book and Open the New One"
         case .newTab: return "Open in a New Tab"
         case .newWindow: return "Open in a New Window"
         }

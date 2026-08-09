@@ -785,6 +785,16 @@ final class ViewerViewModel: ObservableObject {
         return await pageLoader.thumbnail(at: index)
     }
 
+    /// ページ一覧(グリッド)のセルにカーソルをホバーしたときの拡大プレビュー用
+    /// (ユーザー要望。ThumbnailGridView参照)。loadThumbnail(at:)は軽量版(進捗バー用の
+    /// 低解像度)で、そのまま拡大表示すると粗くなるため、こちらはビューアと同じ解像度
+    /// (ImageDecoder.pageMaxPixelSize)の画像を返す。BookLayoutEditorViewModel.pageImage
+    /// (rawIndex:)と同じ考え方(ホバーしたときだけ呼ばれる想定で、常時読み込むと重くなるため)。
+    func pageImage(at index: Int) async -> CGImage? {
+        guard book.pages.indices.contains(index) else { return nil }
+        return await pageLoader.pageImage(at: index)
+    }
+
     // MARK: - 画像のエクスポート(要望)
 
     /// このページの生データ(デコード前、画質を落とさない)。「このページをエクスポート」で、
