@@ -98,15 +98,17 @@ final class AppState: ObservableObject {
     /// メニューバーの「表示モード切替」サブメニューで、現在のモードにチェックマークを
     /// 表示するための値。
     @Published private(set) var currentScalingMode: ScalingMode = .fitToScreen
-    /// EPUBが読み方向/見開きを明示している間、メニューバーの該当項目をグレーアウトするための値。
+    /// EPUBが読み方向/見開きを明示している間、またはPDFがDocument Catalogで同等の情報を
+    /// 明示している間、メニューバーの該当項目をグレーアウトするための値。
     /// 詳細はViewerViewModel.isReadingDirectionLocked/isDisplayModeLocked/isPageShiftLocked参照。
     @Published private(set) var isReadingDirectionLocked = false
     @Published private(set) var isDisplayModeLocked = false
     @Published private(set) var isPageShiftLocked = false
-    /// EPUBの権威的なレイアウト指定がある本かどうか(2.4節)。trueのときLayoutメニュー・
-    /// コンテキストメニューのLayoutサブメニュー・ツールバーの自動レイアウトボタンをすべて
-    /// グレーアウトする(OPF側の指定が優先され、DB側の上書きを作っても反映されないため)。
-    @Published private(set) var hasAuthoritativeEpubLayout = false
+    /// ソースファイル自身(EPUB/PDF)由来の権威的なレイアウト指定がある本かどうか(2.4節)。
+    /// trueのときLayoutメニュー・コンテキストメニューのLayoutサブメニュー・ツールバーの自動
+    /// レイアウトボタンをすべてグレーアウトする(ソースファイル側の指定が優先され、DB側の
+    /// 上書きを作っても反映されないため)。
+    @Published private(set) var hasAuthoritativeSourceLayout = false
     /// 見開き表示中に、実際に2ページとも表示されているかどうか(横長画像の自動単ページ化等で
     /// 実際には1枚しか表示されていない場合はfalse)。Layoutメニューの中央グループの項目構成
     /// (現在のページのみか、左右2ページ分か)の切り替えに使う。
@@ -155,7 +157,7 @@ final class AppState: ObservableObject {
         isReadingDirectionLocked: Bool,
         isDisplayModeLocked: Bool,
         isPageShiftLocked: Bool,
-        hasAuthoritativeEpubLayout: Bool,
+        hasAuthoritativeSourceLayout: Bool,
         hasPartnerPageDisplayed: Bool,
         hasCurrentPageLayoutOverride: Bool,
         hasPartnerPageLayoutOverride: Bool
@@ -167,7 +169,7 @@ final class AppState: ObservableObject {
         self.isReadingDirectionLocked = isReadingDirectionLocked
         self.isDisplayModeLocked = isDisplayModeLocked
         self.isPageShiftLocked = isPageShiftLocked
-        self.hasAuthoritativeEpubLayout = hasAuthoritativeEpubLayout
+        self.hasAuthoritativeSourceLayout = hasAuthoritativeSourceLayout
         self.hasPartnerPageDisplayed = hasPartnerPageDisplayed
         self.hasCurrentPageLayoutOverride = hasCurrentPageLayoutOverride
         self.hasPartnerPageLayoutOverride = hasPartnerPageLayoutOverride
@@ -182,7 +184,7 @@ final class AppState: ObservableObject {
         isReadingDirectionLocked = false
         isDisplayModeLocked = false
         isPageShiftLocked = false
-        hasAuthoritativeEpubLayout = false
+        hasAuthoritativeSourceLayout = false
         hasPartnerPageDisplayed = false
         hasCurrentPageLayoutOverride = false
         hasPartnerPageLayoutOverride = false
@@ -470,8 +472,9 @@ struct MenuCheckmarkState: Equatable {
     var isCurrentBookFavorited = false
     /// 同じく、現在のページがブックマーク済みかどうか(ブックマーク追加/削除トグルボタン用)。
     var isCurrentPageBookmarked = false
-    /// EPUBの権威的なレイアウト指定がある本かどうか(2.4節)。Layoutメニューのグレーアウトに使う。
-    var hasAuthoritativeEpubLayout = false
+    /// ソースファイル自身(EPUB/PDF)由来の権威的なレイアウト指定がある本かどうか(2.4節)。
+    /// Layoutメニューのグレーアウトに使う。
+    var hasAuthoritativeSourceLayout = false
     /// 見開き表示中に、実際に2ページとも表示されているかどうか。Layoutメニューの項目構成
     /// (現在のページのみか、左右2ページ分か)の切り替えに使う。
     var hasPartnerPageDisplayed = false

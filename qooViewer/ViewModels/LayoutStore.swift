@@ -257,10 +257,10 @@ final class LayoutStore: ObservableObject {
         saveAndNotify(bookID: book.id)
     }
 
-    /// この本がEPUBで、package documentに権威的なレイアウト指定を持っているかどうかを記録する。
-    /// 本を開くたびに(EPUBかどうかに関わらず)呼んでキャッシュを最新化する想定
-    /// (詳細はBookLayoutSettings.hasEpubLayoutLockのコメント参照)。
-    /// EPUBロックが無く、かつこの本にまだレイアウトデータが無い場合は、空のBookLayoutSettings行を
+    /// この本がEPUBのpackage document、またはPDFのDocument Catalogに権威的なレイアウト指定を
+    /// 持っているかどうかを記録する。本を開くたびに(形式やロックの有無に関わらず)呼んで
+    /// キャッシュを最新化する想定(詳細はBookLayoutSettings.hasEpubLayoutLockのコメント参照)。
+    /// ロックが無く、かつこの本にまだレイアウトデータが無い場合は、空のBookLayoutSettings行を
     /// 作ってまで記録する必要はないため、既存の行がある場合にのみ更新する。
     func recordEpubLayoutLock(for book: MangaBook, hasLock: Bool) {
         if hasLock {

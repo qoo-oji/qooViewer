@@ -579,7 +579,7 @@ struct QooViewerApp: App {
             // 同様に変更済み)。
             CommandGroup(after: .pasteboard) {
                 let hasBook = focusedAppState?.currentBook != nil
-                let isLayoutLocked = !hasBook || (menuCheckmarkState?.hasAuthoritativeEpubLayout ?? false)
+                let isLayoutLocked = !hasBook || (menuCheckmarkState?.hasAuthoritativeSourceLayout ?? false)
 
                 // グループ1: お気に入り(追加/削除→編集→一覧の順)
                 Button(

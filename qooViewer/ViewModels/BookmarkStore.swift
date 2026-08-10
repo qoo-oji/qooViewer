@@ -145,9 +145,10 @@ final class BookmarkStore: ObservableObject {
 
     /// すべてのブックマークをbookIDごとにグループ化し直す。
     ///
-    /// EPUBの目次から自動的に取り込んだブックマーク(Bookmark.isEpubDerived == true)はここでは
-    /// 除外する(ユーザー報告: このウインドウにはユーザーが明示的に作成したブックマークだけを
-    /// 表示すべき。Bookmark.isEpubDerivedのコメント参照)。画像ビューア自身の一覧
+    /// EPUBの目次、またはPDFのアウトラインから自動的に取り込んだブックマーク
+    /// (Bookmark.isEpubDerived == true)はここでは除外する(ユーザー報告: このウインドウには
+    /// ユーザーが明示的に作成したブックマークだけを表示すべき。Bookmark.isEpubDerivedの
+    /// コメント参照)。画像ビューア自身の一覧
     /// (ViewerViewModel.reloadBookmarks)はこのフィルタの対象外で、従来通り全件を含める。
     func reload() {
         // bookmarksDidChange通知(このストア自身の書き込みだけでなく、開いている本の

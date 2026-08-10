@@ -999,7 +999,7 @@ struct ViewerView: View {
                 Image(systemName: "rectangle.split.2x1")
             }
             .help("Auto-Layout Based on Current View")
-            .disabled(viewModel.hasAuthoritativeEpubLayout)
+            .disabled(viewModel.hasAuthoritativeSourceLayout)
 
             // 「現在のブックマーク一覧を表示」「お気に入り一覧を表示」のボタンは廃止した。一覧の
             // 表示自体はメニューバー(「お気に入り」メニュー)・キーボードショートカット
@@ -1189,7 +1189,7 @@ struct ViewerView: View {
             Button("Auto-Layout Based on Current View") {
                 isShowingAutoLayoutConfirmation = true
             }
-            .disabled(viewModel.hasAuthoritativeEpubLayout)
+            .disabled(viewModel.hasAuthoritativeSourceLayout)
 
             Divider()
 
@@ -1205,7 +1205,7 @@ struct ViewerView: View {
                 layoutStateMenuItems(forPageIndex: viewModel.currentIndex)
             }
         }
-        .disabled(viewModel.hasAuthoritativeEpubLayout)
+        .disabled(viewModel.hasAuthoritativeSourceLayout)
 
         Divider()
 
@@ -1775,7 +1775,7 @@ struct ViewerView: View {
             isReadingDirectionLocked: viewModel.isReadingDirectionLocked,
             isDisplayModeLocked: viewModel.isDisplayModeLocked,
             isPageShiftLocked: viewModel.isPageShiftLocked,
-            hasAuthoritativeEpubLayout: viewModel.hasAuthoritativeEpubLayout,
+            hasAuthoritativeSourceLayout: viewModel.hasAuthoritativeSourceLayout,
             hasPartnerPageDisplayed: partnerPageIndex != nil,
             hasCurrentPageLayoutOverride: viewModel.hasPageLayoutOverride(atIndex: viewModel.currentIndex),
             hasPartnerPageLayoutOverride: partnerPageIndex.map { viewModel.hasPageLayoutOverride(atIndex: $0) } ?? false
@@ -1819,7 +1819,7 @@ struct ViewerView: View {
             // 権威的なレイアウト指定がある本ではボタン/メニュー項目自体を無効化しているため、
             // キーボードショートカット側でも同じ条件でここで弾く(viewModel.autoLayoutFromCurrentView
             // 自体にも同じガードがあるが、確認ダイアログが無意味に開いてしまわないようにするため)。
-            guard !viewModel.hasAuthoritativeEpubLayout else { break }
+            guard !viewModel.hasAuthoritativeSourceLayout else { break }
             isShowingAutoLayoutConfirmation = true
         case .previousBook:
             appState.openSibling(before: viewModel.book.sourceURL)

@@ -76,7 +76,7 @@ struct ContentView: View {
                 // ことで、値型のFocusedValueとしてメニューバー側へ正しく伝わる)から直接算出する。
                 isCurrentBookFavorited: appState.currentBook.map { favoritesStore.isFavorited(bookID: $0.id) } ?? false,
                 isCurrentPageBookmarked: appState.currentBookmarks.contains { $0.pageIndex == appState.currentPageIndex },
-                hasAuthoritativeEpubLayout: appState.hasAuthoritativeEpubLayout,
+                hasAuthoritativeSourceLayout: appState.hasAuthoritativeSourceLayout,
                 hasPartnerPageDisplayed: appState.hasPartnerPageDisplayed,
                 hasCurrentPageLayoutOverride: appState.hasCurrentPageLayoutOverride,
                 hasPartnerPageLayoutOverride: appState.hasPartnerPageLayoutOverride

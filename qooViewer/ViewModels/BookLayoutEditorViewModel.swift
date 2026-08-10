@@ -66,17 +66,18 @@ final class BookLayoutEditorViewModel: ObservableObject {
     private var book: MangaBook?
     private var pageLoader: PageLoader?
 
-    /// この本がEPUBで、package documentに権威的なレイアウト指定を持っているかどうか。
-    /// キャッシュ(BookLayoutSettings.hasEpubLayoutLock)には依存せず、読み込んだ本自身から
-    /// 直接判定する(この本を一度もビューアで開いたことが無く、キャッシュがまだ無い場合でも
-    /// 正しく判定できるようにするため)。
-    var hasAuthoritativeEpubLayout: Bool {
-        book?.epubLayoutHint != nil
+    /// この本がEPUBのpackage document、またはPDFのDocument Catalogに権威的なレイアウト指定を
+    /// 持っているかどうか。キャッシュ(BookLayoutSettings.hasEpubLayoutLock)には依存せず、
+    /// 読み込んだ本自身から直接判定する(この本を一度もビューアで開いたことが無く、キャッシュが
+    /// まだ無い場合でも正しく判定できるようにするため)。
+    var hasAuthoritativeSourceLayout: Bool {
+        book?.sourceLayoutHint != nil
     }
 
     /// この本の実効的な読み方向。「見開き右/見開き左」を実際の画面上の右/左と一致させるため、
     /// anchor(forPageKey:explicitState:in:)/writeAnchorPin/setPageLayoutの計算にこれを使う
-    /// (ViewerViewModel.readingDirectionと同じ優先順位: EPUB由来 > DB保存値 > 環境設定の既定値。
+    /// (ViewerViewModel.readingDirectionと同じ優先順位: ソースファイル自身(EPUB/PDF)由来 >
+    /// DB保存値 > 環境設定の既定値。
     /// ただしViewerViewModelと異なり、この編集ウインドウは「最後に読んでいた位置」を持つ
     /// BookReadingStateまで読み込まないため、そこは含めない。ビューアの読み方向トグルボタンで
     /// 一時的に切り替えただけ(BookLayoutSettingsへは保存されない)の場合はここでは反映されない
@@ -87,7 +88,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
     /// 分からなかったため、BookmarkListView.swift側のPickerがこの実効値を直接表示できるよう
     /// 公開した。)
     var effectiveReadingDirection: ReadingDirection {
-        book?.epubLayoutHint?.pageProgressionDirection
+        book?.sourceLayoutHint?.pageProgressionDirection
             ?? layoutStore.bookLayoutSettings(forBookID: bookID)?.readingDirectionOverride
             ?? preferences.defaultReadingDirection
     }

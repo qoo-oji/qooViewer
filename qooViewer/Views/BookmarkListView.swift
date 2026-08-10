@@ -1031,10 +1031,10 @@ private struct BookmarkDetailPane: View {
                         bookmarkStore.bookmarks(forBookID: bookID).first { $0.pageIndex == index }
                     },
                     isSelected: selectedPageKey == row.pageKey,
-                    isLayoutLocked: viewModel.hasAuthoritativeEpubLayout,
+                    isLayoutLocked: viewModel.hasAuthoritativeSourceLayout,
                     columnWidths: columnWidths,
                     columnDividerCorrections: columnDividerCorrections,
-                    isMoveEnabled: !viewModel.hasAuthoritativeEpubLayout && pageFilter == .all,
+                    isMoveEnabled: !viewModel.hasAuthoritativeSourceLayout && pageFilter == .all,
                     onSelect: { selectedPageKey = row.pageKey },
                     onJump: { openBookAndJump(toPageIndex: row.effectiveReadingIndex) },
                     onAddBookmark: { addBookmark(atPageIndex: row.effectiveReadingIndex) },
@@ -1091,7 +1091,7 @@ private struct BookmarkDetailPane: View {
             // 直接操作するため除外ページがあっても問題なく動作しており、ドラッグだけ使えないのは
             // 不自然だというユーザー報告を受けて、movePages(displayedPageKeys:fromOffsets:
             // toOffset:)側でインデックス空間の変換を行うように修正し、この制限を外した。
-            .moveDisabled(viewModel.hasAuthoritativeEpubLayout || pageFilter != .all)
+            .moveDisabled(viewModel.hasAuthoritativeSourceLayout || pageFilter != .all)
         }
         // バグ修正: 既定のList見た目(inset系)は、タイトル行(columnHeaderRow)との間に
         // 余分な上下の余白を持ち込み、隙間が広く見えていた(ユーザー報告)。.plainにすることで
@@ -1118,7 +1118,7 @@ private struct BookmarkDetailPane: View {
                     } label: {
                         Image(systemName: "chevron.up")
                     }
-                    .disabled(viewModel.hasAuthoritativeEpubLayout || selectedPageKey == nil)
+                    .disabled(viewModel.hasAuthoritativeSourceLayout || selectedPageKey == nil)
                     .help("Move Selected Page Earlier")
 
                     Button {
@@ -1126,10 +1126,10 @@ private struct BookmarkDetailPane: View {
                     } label: {
                         Image(systemName: "chevron.down")
                     }
-                    .disabled(viewModel.hasAuthoritativeEpubLayout || selectedPageKey == nil)
+                    .disabled(viewModel.hasAuthoritativeSourceLayout || selectedPageKey == nil)
                     .help("Move Selected Page Later")
 
-                    if !viewModel.hasAuthoritativeEpubLayout {
+                    if !viewModel.hasAuthoritativeSourceLayout {
                         Text("Reading Direction")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -1193,7 +1193,7 @@ private struct BookmarkDetailPane: View {
                             viewModel.resetOrder()
                         }
                         .disabled(
-                            viewModel.hasAuthoritativeEpubLayout
+                            viewModel.hasAuthoritativeSourceLayout
                                 || layoutStore.bookLayoutSettings(forBookID: bookID)?.pageOrderOverride == nil
                         )
                     } label: {
@@ -1214,7 +1214,7 @@ private struct BookmarkDetailPane: View {
                     .fixedSize()
                 }
 
-                if viewModel.hasAuthoritativeEpubLayout {
+                if viewModel.hasAuthoritativeSourceLayout {
                     // EPUB由来の権威的なレイアウト指定がある本では、読み方向・並べ替え・
                     // レイアウト列すべてを無効化する(2.4節: OPF側の指定が優先されるため)。
                     Text("This book's page layout is defined by its EPUB file and cannot be edited here.")

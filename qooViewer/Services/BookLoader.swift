@@ -87,6 +87,13 @@ nonisolated enum BookLoader {
     /// 違い、PDFは1ファイルの中に複数ページを直接持つ形式のため、専用の読み込み経路になる。
     /// ページ数の取得だけを行い(軽量)、実際に各ページを画像として描画する処理は
     /// PageLoader.renderPDFPageで、表示に必要になったタイミングで都度行う。
+    ///
+    /// 併せて、Document Catalogから読み方向/見開き強制のヒント(EPUBのpage-progression-direction/
+    /// rendition:spreadに相当)を読み取り、sourceLayoutHintとして持たせる(詳細は
+    /// PDFStructureResolver.resolveLayoutHintのコメント参照)。目次(アウトライン)の読み取りは
+    /// ここでは行わない。EPUBの目次と同じく、ブックマークが1件も無い場合にのみ意味を持つ処理の
+    /// ため、本を開くたびに毎回コストをかける必要が無く、ViewerViewModelが必要になったタイミングで
+    /// 都度読み込む(autoImportPDFOutlineAsBookmarksIfNeeded参照)。
     private static func loadPDF(_ url: URL) throws -> MangaBook {
         guard let document = CGPDFDocument(url as CFURL) else { throw BookLoaderError.notFound }
         let pageCount = document.numberOfPages
@@ -103,7 +110,8 @@ nonisolated enum BookLoader {
             id: url.path,
             title: url.deletingPathExtension().lastPathComponent,
             sourceURL: url,
-            pages: pages
+            pages: pages,
+            sourceLayoutHint: PDFStructureResolver.resolveLayoutHint(document: document)
         )
     }
 
@@ -140,7 +148,7 @@ nonisolated enum BookLoader {
             title: url.deletingPathExtension().lastPathComponent,
             sourceURL: url,
             pages: pages,
-            epubLayoutHint: EpubLayoutHint(
+            sourceLayoutHint: SourceLayoutHint(
                 pageProgressionDirection: structure.pageProgressionDirection,
                 forcedDisplayMode: structure.forcedDisplayMode
             )

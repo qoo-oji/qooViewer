@@ -9,7 +9,7 @@ struct EpubStructure {
     /// spine要素のpage-progression-direction属性から得た読み方向(未指定ならnil)
     let pageProgressionDirection: ReadingDirection?
     /// package document metadataのrendition:spreadから得た、本全体での見開き強制
-    /// (未指定/強制対象外の値ならnil。詳細はMangaBook.swiftのEpubLayoutHintのコメント参照)
+    /// (未指定/強制対象外の値ならnil。詳細はMangaBook.swiftのSourceLayoutHintのコメント参照)
     let forcedDisplayMode: DisplayMode?
 }
 
@@ -218,7 +218,7 @@ nonisolated enum EpubStructureResolver {
 
     /// rendition:spreadは none/both/landscape/portrait/auto の5値を取り得るが、macOSの
     /// ウインドウ表示には「端末の向き」という概念が無いため、noneとbothだけを強制値として扱う
-    /// (詳細はMangaBook.swiftのEpubLayoutHintのコメント参照)。
+    /// (詳細はMangaBook.swiftのSourceLayoutHintのコメント参照)。
     private static func displayMode(from rawValue: String?) -> DisplayMode? {
         switch rawValue?.lowercased() {
         case "none": return .single

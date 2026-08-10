@@ -171,13 +171,13 @@ final class ViewerViewModel: ObservableObject {
         } else {
             self.pendingLayoutReplacementStatus = nil
         }
-        // EPUBの権威的なレイアウト指定(の有無)を、本を開くたびにキャッシュし直しておく
+        // 権威的なレイアウト指定(の有無)を、本を開くたびにキャッシュし直しておく
         // (「ブックマーク・レイアウトの編集」ウインドウが、本を読み込み直さずに判定できるように
         // するため。詳細はBookLayoutSettings.hasEpubLayoutLockのコメント参照)。
         layoutStore.recordEpubLayoutLock(
             for: prepared.book,
-            hasLock: prepared.book.epubLayoutHint?.forcedDisplayMode != nil
-                || prepared.book.epubLayoutHint?.pageProgressionDirection != nil
+            hasLock: prepared.book.sourceLayoutHint?.forcedDisplayMode != nil
+                || prepared.book.sourceLayoutHint?.pageProgressionDirection != nil
         )
 
         self.pageLoader = PageLoader(book: preparedBook)
@@ -281,16 +281,19 @@ final class ViewerViewModel: ObservableObject {
             needsConfirmation = isReturningToKnownBook && restoredIndex > 0
         }
 
-        // EPUBがpage-progression-direction/rendition:spreadを明示している場合、保存されていた
-        // 設定より優先してその値を採用する(値が無い項目は、これまで通りSwiftDataの保存値に従う)。
-        // 対応する切り替え操作(toggleReadingDirection/toggleDisplayMode)自体も、この値が
-        // 強制されている間は無効化する(isReadingDirectionLocked/isDisplayModeLocked参照)。
+        // EPUBがpage-progression-direction/rendition:spreadを明示している場合、またはPDFが
+        // Document Catalogの/ViewerPreferences/Direction・/PageLayoutで同等の情報を明示している
+        // 場合、保存されていた設定より優先してその値を採用する(値が無い項目は、これまで通り
+        // SwiftDataの保存値に従う)。対応する切り替え操作(toggleReadingDirection/
+        // toggleDisplayMode)自体も、この値が強制されている間は無効化する
+        // (isReadingDirectionLocked/isDisplayModeLocked参照)。
         //
-        // EPUB以外の形式でも、BookLayoutSettingsに読み方向/見開き強制の上書きが記録されていれば
-        // (4.1節の編集ウインドウで設定する)、EPUBのヒントに次ぐ優先順位でそれを採用する
-        // (優先順位: EPUB > DB > SwiftDataの保存値。設計コンセプト2.4節)。
-        self.displayMode = preparedBook.epubLayoutHint?.forcedDisplayMode ?? bookLayoutSettings?.forcedDisplayMode ?? state.displayMode
-        self.readingDirection = preparedBook.epubLayoutHint?.pageProgressionDirection
+        // それ以外の形式(フォルダ・cbz/cbr/cb7、および上記ヒントを持たないPDF)でも、
+        // BookLayoutSettingsに読み方向/見開き強制の上書きが記録されていれば(4.1節の編集
+        // ウインドウで設定する)、ソース側のヒントに次ぐ優先順位でそれを採用する
+        // (優先順位: ソースファイル自身のヒント > DB > SwiftDataの保存値。設計コンセプト2.4節)。
+        self.displayMode = preparedBook.sourceLayoutHint?.forcedDisplayMode ?? bookLayoutSettings?.forcedDisplayMode ?? state.displayMode
+        self.readingDirection = preparedBook.sourceLayoutHint?.pageProgressionDirection
             ?? bookLayoutSettings?.readingDirectionOverride
             ?? state.readingDirection
         self.scalingMode = state.scalingMode
@@ -319,14 +322,22 @@ final class ViewerViewModel: ObservableObject {
         warmUpWideImageCacheForEntireBook()
         reloadBookmarks()
 
-        // 設計コンセプト7.5節「逆方向」: EPUBの目次(nav.xhtml)があり、この本にまだブックマークが
-        // 1件も無い場合は自動的にブックマークとして取り込む。book.epubLayoutHintが非nilであること
-        // (常にloadEpub経由でのみ設定される値、詳細はMangaBook.swift参照)を「この本はEPUBである」
-        // という判定に使っている。読み込み・解析はTask内で非同期に行い、本を開く処理自体を
-        // ブロックしない。
-        if bookmarks.isEmpty, book.epubLayoutHint != nil {
-            Task { [weak self] in
-                await self?.autoImportEpubTableOfContentsAsBookmarksIfNeeded()
+        // 設計コンセプト7.5節「逆方向」: EPUBの目次(nav.xhtml)、またはPDFのアウトライン(しおり)が
+        // あり、この本にまだブックマークが1件も無い場合は自動的にブックマークとして取り込む。
+        // どちらの経路を試すかはファイル形式(拡張子)そのもので判定する(sourceLayoutHintの
+        // 有無では判定しない。PDFはレイアウトヒントを持たない本の方が多く、その場合でも
+        // アウトラインだけは持っていることがあるため)。読み込み・解析はTask内で非同期に行い、
+        // 本を開く処理自体をブロックしない。
+        if bookmarks.isEmpty {
+            let sourceFileName = book.sourceURL.lastPathComponent
+            if isEpubFile(sourceFileName) {
+                Task { [weak self] in
+                    await self?.autoImportEpubTableOfContentsAsBookmarksIfNeeded()
+                }
+            } else if isPDFFile(sourceFileName) {
+                Task { [weak self] in
+                    await self?.autoImportPDFOutlineAsBookmarksIfNeeded()
+                }
             }
         }
 
@@ -717,22 +728,24 @@ final class ViewerViewModel: ObservableObject {
         jump(toPageIndex: index)
     }
 
-    /// EPUBがrendition:spreadで本全体の見開き/単ページを強制している間、またはBookLayoutSettingsで
-    /// 本全体の見開き/単ページ強制が設定されている間はtrue。trueの間はtoggleDisplayMode()自体が
-    /// 何もしない(呼び出し元のUIも合わせてグレーアウトする。ViewerView/QooViewerAppの
-    /// `.disabled()`参照)。
+    /// EPUBがrendition:spreadで、またはPDFがDocument Catalogの/PageLayoutで本全体の見開き/
+    /// 単ページを強制している間、またはBookLayoutSettingsで本全体の見開き/単ページ強制が
+    /// 設定されている間はtrue。trueの間はtoggleDisplayMode()自体が何もしない(呼び出し元のUIも
+    /// 合わせてグレーアウトする。ViewerView/QooViewerAppの`.disabled()`参照)。
     ///
-    /// EPUB由来・DB由来のどちらも「著者(またはそれに代わってユーザーが明示した)権威的な
-    /// レイアウト指定」という同じ役割を担うため、同じロック扱いにしている(優先順位自体は
-    /// EPUB > DBだが、ロックするかどうかという意味では両者は対等。設計コンセプト2.4節・12節参照)。
+    /// ソースファイル自身(EPUB/PDF)由来・DB由来のどちらも「著者(またはそれに代わって
+    /// ユーザーが明示した)権威的なレイアウト指定」という同じ役割を担うため、同じロック扱いに
+    /// している(優先順位自体はソースファイル自身 > DBだが、ロックするかどうかという意味では
+    /// 両者は対等。設計コンセプト2.4節・12節参照)。
     var isDisplayModeLocked: Bool {
-        book.epubLayoutHint?.forcedDisplayMode != nil || bookLayoutSettings?.forcedDisplayMode != nil
+        book.sourceLayoutHint?.forcedDisplayMode != nil || bookLayoutSettings?.forcedDisplayMode != nil
     }
 
-    /// EPUBがpage-progression-directionで読み方向を明示している間、またはBookLayoutSettingsで
+    /// EPUBがpage-progression-directionで、またはPDFがDocument Catalogの
+    /// /ViewerPreferences/Directionで読み方向を明示している間、またはBookLayoutSettingsで
     /// 読み方向が上書きされている間はtrue。trueの間はtoggleReadingDirection()自体が何もしない。
     var isReadingDirectionLocked: Bool {
-        book.epubLayoutHint?.pageProgressionDirection != nil || bookLayoutSettings?.readingDirectionOverride != nil
+        book.sourceLayoutHint?.pageProgressionDirection != nil || bookLayoutSettings?.readingDirectionOverride != nil
     }
 
     /// 現在表示中の見開きに、EPUBのpage-spread-left/right/rendition:page-spread-center指定
@@ -840,10 +853,33 @@ final class ViewerViewModel: ObservableObject {
             else { return [] }
             return EpubStructureResolver.resolveTableOfContents(reader: reader, structure: structure)
         }.value
-        guard !entries.isEmpty else { return }
-        // 上のTask.detachedを待っている間に、ユーザーが手動でブックマークを追加した可能性も
-        // ゼロではないため、書き込み直前にもう一度確認する。
+        importAutoTOCEntries(entries.map { (title: $0.title, pageIndex: $0.pageIndex) })
+    }
+
+    /// PDFのアウトライン(しおり)から、ブックマークを自動的に取り込む。autoImportEpub
+    /// TableOfContentsAsBookmarksIfNeededのPDF版で、役割・タイミングの制約(ブックマークが
+    /// 1件も無い場合に限る等)はすべて同じ(詳細はそちらのコメント参照)。
+    ///
+    /// PDFもEPUBと同じく(BookLoader.loadPDFとは別に)PDFKitでもう一度読み直す必要がある
+    /// (MangaBook自体はアウトラインデータを保持していないため。BookLoader側はページ描画に
+    /// 使うCGPDFDocumentしか開いておらず、アウトラインの読み取りにはPDFKitを使うため
+    /// (PDFStructureResolver.resolveOutline参照)、どのみち専用の読み込みが必要になる)。
+    private func autoImportPDFOutlineAsBookmarksIfNeeded() async {
         guard bookmarks.isEmpty else { return }
+        let sourceURL = book.sourceURL
+        let entries = await Task.detached(priority: .utility) { () -> [PDFOutlineEntry] in
+            PDFStructureResolver.resolveOutline(url: sourceURL)
+        }.value
+        importAutoTOCEntries(entries.map { (title: $0.title, pageIndex: $0.pageIndex) })
+    }
+
+    /// EPUBの目次/PDFのアウトラインから取り込んだ項目を、実際にブックマークとしてSwiftDataへ
+    /// 挿入する共通処理。呼び出し元(autoImportEpubTableOfContentsAsBookmarksIfNeeded/
+    /// autoImportPDFOutlineAsBookmarksIfNeeded)がTask.detachedでの読み込みを待っている間に、
+    /// ユーザーが手動でブックマークを追加した可能性もゼロではないため、書き込み直前に
+    /// もう一度bookmarks.isEmptyを確認する。
+    private func importAutoTOCEntries(_ entries: [(title: String, pageIndex: Int)]) {
+        guard !entries.isEmpty, bookmarks.isEmpty else { return }
 
         let bookID = book.id
         let fileNodeIdentifier = FileNodeIdentifier.current(for: book.sourceURL)
@@ -852,7 +888,8 @@ final class ViewerViewModel: ObservableObject {
             guard !bookmarks.contains(where: { $0.pageIndex == entry.pageIndex }) else { continue }
             // isEpubDerived: true — 「ブックマーク・レイアウトの編集」ウインドウには表示しない
             // (BookmarkStore.reload()/bookmarks(forBookID:)側のフィルタ、Bookmark.swiftの
-            // isEpubDerivedのコメント参照)。
+            // isEpubDerivedのコメント参照。名前はEPUB由来だが、PDFのアウトラインから自動的に
+            // 取り込んだブックマークにも同じ扱いとしてtrueを立てる)。
             modelContext.insert(
                 Bookmark(
                     bookID: bookID, pageIndex: entry.pageIndex, name: entry.title, isEpubDerived: true,
@@ -1380,7 +1417,7 @@ final class ViewerViewModel: ObservableObject {
             title: rawBook.title,
             sourceURL: rawBook.sourceURL,
             pages: adjustedPages,
-            epubLayoutHint: rawBook.epubLayoutHint
+            sourceLayoutHint: rawBook.sourceLayoutHint
         )
         return (adjustedBook, .unaffected, settings, overridesByKey)
     }
@@ -1571,10 +1608,14 @@ final class ViewerViewModel: ObservableObject {
         return keys
     }
 
-    /// EPUB由来の権威的なレイアウト指定がある本かどうか。3.1節「このアクション自体を無効化する」
-    /// の判定、および呼び出し元(Layoutメニュー等)のUI無効化に使う。
-    var hasAuthoritativeEpubLayout: Bool {
-        book.epubLayoutHint != nil
+    /// ソースファイル自身(EPUB/PDF)由来の権威的なレイアウト指定がある本かどうか。3.1節
+    /// 「このアクション自体を無効化する」の判定、および呼び出し元(Layoutメニュー等)のUI
+    /// 無効化に使う。EPUBは常にtrue(BookLoader.loadEpubが必ずsourceLayoutHintを持たせるため)。
+    /// PDFは、Document Catalogに/ViewerPreferences/Directionまたは/PageLayoutの明示的な指定が
+    /// あるときのみtrue(PDFStructureResolver.resolveLayoutHint参照。多くのPDFはどちらも
+    /// 持たないため、通常のPDFはfalseのままレイアウト編集が可能)。
+    var hasAuthoritativeSourceLayout: Bool {
+        book.sourceLayoutHint != nil
     }
 
     /// orderedPageKeysの各ページについて、横長画像(見開き表示中でも単ページ扱いにすべき)
@@ -1742,11 +1783,11 @@ final class ViewerViewModel: ObservableObject {
     /// 3.1節: 「現在の表示を基準に自動でレイアウトする」。今表示している組み合わせを起点として、
     /// 本全体のレイアウトを自動で再計算・上書きする。
     ///
-    /// EPUB由来の権威的なレイアウト指定がある本では、呼び出し元(Layoutメニュー等)がこの
-    /// アクション自体を無効化する想定(hasAuthoritativeEpubLayout参照)だが、念のためここでも
-    /// 早期リターンする。
+    /// ソースファイル自身(EPUB/PDF)由来の権威的なレイアウト指定がある本では、呼び出し元
+    /// (Layoutメニュー等)がこのアクション自体を無効化する想定(hasAuthoritativeSourceLayout
+    /// 参照)だが、念のためここでも早期リターンする。
     func autoLayoutFromCurrentView() async {
-        guard !book.pages.isEmpty, !hasAuthoritativeEpubLayout else { return }
+        guard !book.pages.isEmpty, !hasAuthoritativeSourceLayout else { return }
         let anchorKeys = currentAnchorPageKeys
         guard !anchorKeys.isEmpty else { return }
         let pageAnchor = LayoutAutoCalculator.Anchor(pageKeys: anchorKeys)

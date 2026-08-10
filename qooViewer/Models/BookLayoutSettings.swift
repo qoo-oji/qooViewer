@@ -35,10 +35,17 @@ final class BookLayoutSettings {
     /// (詳細は実装検討ドキュメント2.1節参照)。
     var pageOrderOverrideJSON: String?
 
-    /// この本がEPUBで、package documentに権威的なレイアウト指定(読み方向・見開き強制の
-    /// いずれか)を持っているかどうかのキャッシュ。編集ウインドウ(4.1節)が、本を毎回
-    /// 読み込み直さずに「読み方向ドロップダウン/レイアウト列を無効化すべきか」を判定するために使う。
-    /// 本を開いたとき(LayoutStore.recordEpubLockIfNeeded参照)に更新する。
+    /// この本がEPUBのpackage document、またはPDFのDocument Catalogに権威的なレイアウト指定
+    /// (読み方向・見開き強制のいずれか)を持っているかどうかのキャッシュ。編集ウインドウ
+    /// (4.1節)が、本を毎回読み込み直さずに「読み方向ドロップダウン/レイアウト列を無効化
+    /// すべきか」を判定するために使う。本を開いたとき(LayoutStore.recordEpubLayoutLock参照)に
+    /// 更新する。
+    ///
+    /// 名前はEPUB対応時の名残でhasEpubLayoutLockのままだが、PDF由来の同種のロックにも
+    /// 同じ意味で使う。単なるキャッシュ(本を開くたびに必ず再計算・上書きされる、詳細は
+    /// ViewerViewModel.init参照)であり、意味を広げるためのリネームによる移行リスク
+    /// (SwiftDataの永続化属性名を変えると、次回起動まで古い値が失われた状態になる)を
+    /// 冒してまで変える理由が無いため、そのままにしてある。
     var hasEpubLayoutLock: Bool = false
 
     /// 差し替え検知用の指紋(2.5節)。ContentFingerprint参照。

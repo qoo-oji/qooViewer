@@ -44,13 +44,20 @@ final class Bookmark {
     /// そちらのコメント参照)。
     var updatedAt: Date = Date()
 
-    /// EPUBの目次(nav.xhtml)から自動的に取り込んだブックマークかどうか
-    /// (ViewerViewModel.autoImportEpubTableOfContentsAsBookmarksIfNeeded参照)。
+    /// EPUBの目次(nav.xhtml)、またはPDFのアウトライン(しおり)から自動的に取り込んだ
+    /// ブックマークかどうか(ViewerViewModel.autoImportEpubTableOfContentsAsBookmarksIfNeeded/
+    /// autoImportPDFOutlineAsBookmarksIfNeeded参照)。
     ///
-    /// ユーザー報告: EPUBのブックマークは画像ビューアのブックマーク一覧としては見えてよいが、
-    /// 「ブックマーク・レイアウトの編集」ウインドウ(BookmarkStore.reload()/bookmarks(forBookID:)
-    /// 経由)には表示されるべきではない(このウインドウは、ユーザーが明示的に作成した
-    /// ブックマークだけを一覧・編集する場という期待)。この属性で両者を区別し、
+    /// 名前はEPUB対応時の名残でisEpubDerivedのままだが、PDFのアウトライン由来のブックマークにも
+    /// 同じ意味で使う(SwiftDataの永続化属性のため、意味を広げた後付けのリネームは既存ユーザーの
+    /// 保存済みデータで「編集ウインドウから隠されていたはずのEPUB取り込みブックマークが
+    /// 更新後に急に表示される」という見た目の後退を招く。詳細はCLAUDE.mdのSwiftData関連の
+    /// 注意点、およびBookLayoutSettings.hasEpubLayoutLockの同種のコメント参照)。
+    ///
+    /// ユーザー報告: 自動的に取り込んだブックマークは画像ビューアのブックマーク一覧としては
+    /// 見えてよいが、「ブックマーク・レイアウトの編集」ウインドウ(BookmarkStore.reload()/
+    /// bookmarks(forBookID:)経由)には表示されるべきではない(このウインドウは、ユーザーが
+    /// 明示的に作成したブックマークだけを一覧・編集する場という期待)。この属性で両者を区別し、
     /// BookmarkStore側のクエリだけこの属性がtrueの行を除外する(ViewerViewModel.
     /// reloadBookmarksは画像ビューア自身の一覧のため、従来通りtrue/false問わず全件を含める)。
     ///
