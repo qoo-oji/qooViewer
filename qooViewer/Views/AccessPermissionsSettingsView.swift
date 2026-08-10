@@ -8,46 +8,59 @@ import AppKit
 /// あらかじめ許可しておくことで、個別のアーカイブファイルを直接開いた場合でも、
 /// そのフォルダ配下では「同じフォルダのファイルを開く」「前の本/次の本」が正しく機能するようになる。
 /// 許可はセキュリティスコープ付きブックマークとして保存されるため、次回起動後も有効。
+///
+/// 以前はこの「なぜ許可が必要なのか」という説明が画面上のどこにもなく、
+/// ソースコードのコメントとNSOpenPanelのmessageにしか書かれていなかった。
+/// パネルを開く前に読めなければ意味がないので、Sectionのfooterに出している。
 struct AccessPermissionsSettingsView: View {
     @EnvironmentObject private var folderAccess: FolderAccessStore
     @EnvironmentObject private var preferences: AppPreferences
 
     var body: some View {
-        Form {
-            Section("Granted Folders") {
+        SettingsTabContainer {
+            Section {
                 if folderAccess.entries.isEmpty {
                     Text("No folders have been granted access yet.")
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(folderAccess.entries) { entry in
-                        HStack {
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(entry.displayName)
                                 Text(entry.url.path)
-                                    .font(.caption)
+                                    .font(.subheadline)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                             }
-                            Spacer()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
                             Button {
                                 folderAccess.remove(entry)
                             } label: {
                                 Image(systemName: "minus.circle")
                             }
                             .buttonStyle(.plain)
+                            .help("Revoke Access to This Folder")
+                            .accessibilityLabel(Text("Revoke Access to This Folder"))
                         }
+                        .padding(.vertical, 2)
                     }
                 }
 
                 Button("Add Folder…") {
                     addFolder()
                 }
+            } header: {
+                Text("Granted Folders")
+            } footer: {
+                Text("qooViewer can only reach files you opened yourself. Granting a folder lets “Previous Book” and “Next Book” find the other files next to a book you opened directly. Access is remembered after you quit.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .formStyle(.grouped)
-        .padding()
     }
 
     private func addFolder() {

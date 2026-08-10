@@ -1,65 +1,66 @@
 import SwiftUI
 import Foundation
 
-/// 環境設定ウインドウの「開く」タブ。本を開き直すとき・Finderからブックを開くとき・
-/// お気に入りからブックを開くとき、それぞれ既にブックが開いている場合にどう振る舞うかの設定と、
-/// 見開き表示中にブックマークを追加したときの対象ページの決め方をまとめる。
-/// 以前は「一般」タブに含まれていたが、項目が増えて長くなったため、「開く」動作に関する設定
-/// として独立させた(RenderingSettingsView・ReadingSettingsViewの分離と同じ考え方)。
+/// 環境設定ウインドウの「開く」タブ。
+///
+/// ■ 情報の並べ方を3層に決め直した
+/// 以前はSectionヘッダとPickerのラベルが同じことを二度言っていた
+/// (「Finderから開いたとき」/「qooViewerが既に本を表示している場合」)。
+/// 二重になっているぶん1行あたりの文字数が増え、それがラベルの折り返しを招いていたので、
+/// 役割を次のように分けた。
+///
+///   1. Sectionヘッダ … **いつの話か**(場面)     例:「Finder・お気に入りから開く」
+///   2. 行のラベル     … **何を決めるのか**(短い名詞句) 例:「Finderから」
+///   3. caption/footer … **補足**(条件・結果の説明)  例: 選択中の項目の説明
+///
+/// ■ Finderとお気に入りを1つのSectionに統合した
+/// この2つは「既に本を開いている状態で別の本を開くとき、どこに開くか」という
+/// まったく同じ問いで、選択肢(FinderOpenBehavior)も共有している。
+/// Sectionを分けると同じ説明文を2回書くことになるうえ、
+/// 「この2つは揃えるものだ」という関係も見えない。1つにまとめて2行並べると、
+/// 片方だけ違う設定にしていることが一目で分かる。
 struct OpeningSettingsView: View {
     @EnvironmentObject private var preferences: AppPreferences
 
     var body: some View {
-        Form {
-            Section("Reopening a Book") {
-                Picker("When Reopening a Previously Read Book", selection: $preferences.reopenBehavior) {
-                    ForEach(ReopenBehavior.allCases) { behavior in
-                        Text(behavior.titleKey).tag(behavior)
-                    }
-                }
+        SettingsTabContainer {
+            // 以前開いた本を再度開いたときに、どのページから表示するか。
+            Section {
+                SettingsPicker("Start Page", selection: $preferences.reopenBehavior)
+            } header: {
+                Text("Reopening a Book")
             }
 
-            Section("Opening from Finder") {
-                Picker(
-                    "When qooViewer Already Has a Book Open",
-                    selection: $preferences.finderOpenBehavior
-                ) {
-                    ForEach(FinderOpenBehavior.allCases) { behavior in
-                        Text(behavior.titleKey).tag(behavior)
-                    }
-                }
-            }
-
-            // お気に入りを開くときの挙動(開く/新しいタブ/新しいウインドウ)を、以前はお気に入りを
-            // 開くたびにサブメニューから毎回選ぶ形式にしていたが、Finderから開いたときと同じ考え方で
-            // ここ1箇所の設定に統一した(FavoriteOpenBehavior自体はFinderOpenBehaviorを再利用)。
-            Section("Opening a Favorite") {
-                Picker(
-                    "When qooViewer Already Has a Book Open",
-                    selection: $preferences.favoriteOpenBehavior
-                ) {
-                    ForEach(FinderOpenBehavior.allCases) { behavior in
-                        Text(behavior.titleKey).tag(behavior)
-                    }
-                }
+            // Finderからの起動とお気に入りからの起動は同じ問い・同じ選択肢なので1つにまとめる。
+            // お気に入りの挙動は以前「開くたびにサブメニューから毎回選ぶ」形式だったが、
+            // Finderから開いたときと同じ考え方でここ1箇所の設定に統一した
+            // (FavoriteOpenBehavior自体はFinderOpenBehaviorを再利用)。
+            Section {
+                SettingsPicker("From Finder", selection: $preferences.finderOpenBehavior)
+                SettingsPicker("From Favorites", selection: $preferences.favoriteOpenBehavior)
+            } header: {
+                Text("Opening Another Book")
+            } footer: {
+                Text("Applies only when qooViewer already has a book open. From the welcome screen, a book always opens in the current window.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             // ユーザー報告: 見開き表示中にツールバー/お気に入りメニュー/キーボードショートカットから
             // ブックマークを追加すると、クリック位置の情報が無いため常に既定側のページが対象に
             // なる(見開き右、左開きなら見開き左)。この既定側固定と、追加のたびに左右どちらかを
             // 尋ねるダイアログ表示のどちらかを選べるようにした(SpreadBookmarkTargetBehavior参照)。
-            Section("Adding Bookmarks in Spread View") {
-                Picker(
-                    "When Adding a Bookmark from the Toolbar or Favorites Menu",
-                    selection: $preferences.spreadBookmarkTargetBehavior
-                ) {
-                    ForEach(SpreadBookmarkTargetBehavior.allCases) { behavior in
-                        Text(behavior.titleKey).tag(behavior)
-                    }
-                }
+            Section {
+                SettingsPicker("Target Page", selection: $preferences.spreadBookmarkTargetBehavior)
+            } header: {
+                Text("Bookmarks in Spread View")
+            } footer: {
+                Text("Right-clicking a page always bookmarks the page you clicked, regardless of this setting.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .formStyle(.grouped)
-        .padding()
     }
 }

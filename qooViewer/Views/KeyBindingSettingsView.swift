@@ -4,6 +4,10 @@ import SwiftUI
 /// cooViewerの「入力タブ」に相当する部分を簡略化したもの。
 /// キーボードは1つの操作に複数のキーを割り当てられる(1つのキーが割り当てられる操作は1つまで)。
 /// マウス(クリック/ホイール)は1トリガーにつき1操作まで、Pickerで選ぶだけのシンプルな形。
+///
+/// Sectionヘッダには「Keyboard (each action can have multiple keys)」のように
+/// 説明を括弧書きで足していたが、ヘッダは**場面の見出し**であって説明を置く場所ではない
+/// (他タブと同じ方針。SettingsControls.swift参照)。説明はfooterへ移してある。
 struct KeyBindingSettingsView: View {
     @EnvironmentObject private var store: KeyBindingStore
 
@@ -64,36 +68,61 @@ struct KeyBindingSettingsView: View {
     private let mouseTriggers: [InputTrigger] = [.clickLeftZone, .clickRightZone, .wheelUp, .wheelDown]
 
     var body: some View {
-        Form {
+        SettingsTabContainer {
             // 「操作名を上、割り当てキーを下」に積んでいくと項目数分だけ縦に伸びて見づらいため、
             // Gridで「操作名は左列、割り当てキーは右列」の2カラムに揃えて表示する。
-            Section("Keyboard (each action can have multiple keys)") {
+            Section {
                 Grid(alignment: .topLeading, horizontalSpacing: 16, verticalSpacing: 10) {
                     ForEach(assignableActions) { action in
                         KeyBindingRow(action: action, store: store)
                     }
                 }
+            } header: {
+                Text("Keyboard")
+            } footer: {
+                Text("An action can have several keys. A key can be assigned to only one action.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            Section("Mouse") {
+            Section {
+                // 操作の選択肢は30個以上あり、いちばん長い項目に合わせて内容幅にすると
+                // ポップアップが過大になるので、ここだけ固定幅を渡してコントロールの
+                // 境界を4行すべてで揃える(SettingsPickerRowのcontrolWidth参照)。
                 ForEach(mouseTriggers, id: \.self) { trigger in
-                    Picker(trigger.titleKey, selection: bindingForMouse(trigger)) {
+                    SettingsPickerRow(
+                        trigger.titleKey,
+                        selection: bindingForMouse(trigger),
+                        currentTitle: store.mouseBindings[trigger]?.titleKey ?? "(None)",
+                        controlWidth: 240
+                    ) {
                         Text("(None)").tag(Optional<ViewerAction>.none)
                         ForEach(assignableActions) { action in
                             Text(action.titleKey).tag(Optional(action))
                         }
                     }
                 }
+            } header: {
+                Text("Mouse")
+            } footer: {
+                Text("Each click zone and scroll direction can have one action.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Section {
                 Button("Reset to Defaults", role: .destructive) {
                     store.resetToDefaults()
                 }
+            } footer: {
+                Text("Restores the built-in keyboard and mouse assignments. Nothing else is affected.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .formStyle(.grouped)
-        .padding()
     }
 
     private func bindingForMouse(_ trigger: InputTrigger) -> Binding<ViewerAction?> {

@@ -22,6 +22,10 @@ import AppKit
 ///   なりうる。次回起動時にはまっさらな状態から始まる)
 /// という3点を徹底している。
 ///
+/// レイアウト自体は他のタブと同じ `SettingsTabContainer` に載せてあり、余白・文字サイズは
+/// 環境設定ウインドウ全体で揃う(SettingsControls.swift参照)。ただし内容は意図的に
+/// このタブだけ「説明 → 破壊的ボタン → 警告footer」という重い構成のままにしてある。
+///
 /// 以前はperformReset()がModelContext経由で各モデル(FavoriteFolder/FavoriteBook/Bookmark/
 /// BookLayoutSettings/PageLayoutOverride/BookReadingState)を個別にdelete()していたが、これだと
 /// 「ストア自体のスキーマやリレーションが壊れている状態」を想定していない。実際に、Bundle
@@ -41,13 +45,36 @@ struct ResetDataSettingsView: View {
     @State private var isShowingCompletion = false
 
     var body: some View {
-        Form {
+        SettingsTabContainer {
             Section {
-                Text(
-                    "If your favorites, bookmarks, layout settings, or reading history ever become corrupted or fail to load (for example, after an app update), use this to permanently delete all of it and start fresh."
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                // 以前はここが一文だった:
+                // 「お気に入り・ブックマーク・レイアウト設定・読書履歴が破損したり読み込めなく
+                //   なったりした場合(アプリの更新後など)、これを使ってすべてを完全に削除し、
+                //   まっさらな状態からやり直せます。」
+                // 中黒で並列要素をつないだ長文は、どこまでが列挙でどこからが述語なのかを
+                // 読み手が毎回組み立て直す必要があり、走査しづらい(ユーザーからの指摘)。
+                // 「いつ使うのか」を短い1文にし、「何が消えるのか」は列挙として縦に割った。
+                // 消えるものが具体的に見えることは、誤操作を防ぐうえでも意味がある。
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Use this only when your saved data is damaged and will not load — for example, after an app update. It deletes everything and starts over from a clean state.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("What gets deleted")
+                            .font(.subheadline.weight(.semibold))
+
+                        SettingsBulletList([
+                            "Favorites, including favorite folders",
+                            "Bookmarks",
+                            "Page layout settings",
+                            "Reading history — the last page and display settings for every book",
+                        ])
+                    }
+                }
+                .padding(.vertical, 2)
 
                 Button(role: .destructive) {
                     isShowingConfirmation = true
@@ -55,15 +82,22 @@ struct ResetDataSettingsView: View {
                     Label("Reset All Favorites, Bookmarks, Layouts & Reading History…", systemImage: "trash")
                 }
             } header: {
-                Text("Danger Zone")
+                // 「危険な操作」という文字だけでは、他のタブのSectionヘッダと同じ重さで流し読み
+                // されてしまう。赤い警告記号を先頭に付けて、この見出しだけ性質が違うことを示す
+                // (ユーザーからの要望)。文字色は他のヘッダと揃えたままにして、記号だけを赤にする。
+                Label {
+                    Text("Danger Zone")
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                }
             } footer: {
                 Text("This cannot be undone. qooViewer will quit immediately afterward.")
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .formStyle(.grouped)
-        .padding()
         // 「間違ってクリックした場合に備えて」の確認アラート。既存の「Delete Folder?」等と
         // 同じ、ごく普通のCancel/Delete形式(要望どおり、文字入力による二重確認などは行わない)。
         .alert(

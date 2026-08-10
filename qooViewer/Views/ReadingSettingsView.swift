@@ -3,47 +3,66 @@ import Foundation
 
 /// 環境設定ウインドウの「閲覧」タブ。ページ送り・スライドショー・マウスカーソルの
 /// 自動非表示など、画像そのものの描画内容ではなく閲覧中の操作・挙動に関する設定をまとめる。
-/// 画像の拡大率や補間品質など、描画そのものに関する設定はRenderingSettingsView.swiftの
-/// 「描画」タブへ分離した(以前はどちらも「一般」タブに含まれていたが、項目が増えて
-/// 長くなったため独立させた)。
 struct ReadingSettingsView: View {
     @EnvironmentObject private var preferences: AppPreferences
 
     var body: some View {
-        Form {
-            Section("Page Turning") {
-                Picker("Behavior at the first/last page", selection: $preferences.loopBehavior) {
-                    ForEach(LoopBehavior.allCases) { behavior in
-                        Text(behavior.titleKey).tag(behavior)
-                    }
-                }
-                Toggle("Turn pages using trackpad flicks", isOn: $preferences.treatTrackpadFlickAsWheel)
-            }
-
-            Section("Progress Bar") {
-                Toggle(
-                    "Show Thumbnail Preview When Hovering the Progress Bar",
-                    isOn: $preferences.showProgressBarThumbnailPreview
+        SettingsTabContainer {
+            Section {
+                SettingsPicker(
+                    "At the First/Last Page",
+                    selection: $preferences.loopBehavior,
+                    caption: "What happens when you try to turn past the beginning or the end of a book."
                 )
+                SettingsToggle(
+                    "Trackpad Flicks Turn Pages",
+                    isOn: $preferences.treatTrackpadFlickAsWheel
+                )
+            } header: {
+                Text("Page Turning")
             }
 
-            Section("Slideshow") {
-                VStack(alignment: .leading) {
-                    Text("Interval: ") + Text("\(Int(preferences.slideshowInterval))") + Text(" sec")
-                    Slider(value: $preferences.slideshowInterval, in: 1...30, step: 1)
+            Section {
+                SettingsToggle(
+                    "Thumbnail Preview",
+                    isOn: $preferences.showProgressBarThumbnailPreview,
+                    caption: "Shows a preview of the page under the pointer while hovering the progress bar."
+                )
+            } header: {
+                Text("Progress Bar")
+            }
+
+            Section {
+                SettingsSlider(
+                    "Interval",
+                    value: $preferences.slideshowInterval,
+                    in: 1...30,
+                    step: 1
+                ) { value in
+                    "\(Int(value)) s"
                 }
+            } header: {
+                Text("Slideshow")
             }
 
-            Section("Cursor") {
-                Toggle("Automatically hide the mouse cursor after inactivity", isOn: $preferences.autoHideCursor)
-                VStack(alignment: .leading) {
-                    Text("Time Until Hidden: ") + Text("\(String(format: "%.1f", preferences.cursorAutoHideDelay))") + Text(" sec")
-                    Slider(value: $preferences.cursorAutoHideDelay, in: 0.5...10, step: 0.5)
+            Section {
+                SettingsToggle(
+                    "Hide the Pointer Automatically",
+                    isOn: $preferences.autoHideCursor,
+                    caption: "Hides the mouse pointer while you are not moving it."
+                )
+                SettingsSlider(
+                    "Delay Before Hiding",
+                    value: $preferences.cursorAutoHideDelay,
+                    in: 0.5...10,
+                    step: 0.5
+                ) { value in
+                    String(format: "%.1f s", value)
                 }
                 .disabled(!preferences.autoHideCursor)
+            } header: {
+                Text("Pointer")
             }
         }
-        .formStyle(.grouped)
-        .padding()
     }
 }
