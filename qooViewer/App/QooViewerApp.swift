@@ -353,6 +353,11 @@ struct QooViewerApp: App {
                 Button("Export as EPUB…") {
                     openWindow(id: "epubExport")
                 }
+                // PDF出力(ユーザー要望: EPUB出力と同様、ブックマーク・タイトル・著者名を
+                // 埋め込んだPDFを書き出せるようにしたい)。EPUB出力の直下に配置する。
+                Button("Export as PDF…") {
+                    openWindow(id: "pdfExport")
+                }
             }
 
             // 以前は「Viewer」という独立したメニューだったが、標準の「表示」(View)メニューに
@@ -816,6 +821,16 @@ struct QooViewerApp: App {
         // 7節: EPUB出力専用ウインドウ。favoritesStoreは不要(お気に入りはEPUB出力の対象外)。
         Window("Export as EPUB", id: "epubExport") {
             EpubExportWindow()
+                .environmentObject(bookmarkStore)
+                .environmentObject(layoutStore)
+                .environmentObject(preferences)
+                .environment(\.locale, locale)
+        }
+        .windowResizability(.contentSize)
+
+        // PDF出力専用ウインドウ。EPUB出力ウインドウと同じ構成(favoritesStoreは不要)。
+        Window("Export as PDF", id: "pdfExport") {
+            PDFExportWindow()
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 .environmentObject(preferences)
