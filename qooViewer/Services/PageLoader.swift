@@ -98,6 +98,37 @@ actor PageLoader {
         return rawData(for: book.pages[index].source)
     }
 
+    /// 指定ページの画像サイズ(幅・高さ、ピクセル単位)だけを取得する。ピクセルデータの
+    /// デコードを一切伴わないため、画像の解像度に関わらずほぼ一瞬で終わる
+    /// (ViewerViewModelの横長/縦長判定(isWideImage)向け。以前はthumbnail(at:)でサムネイルを
+    /// デコードして幅・高さを得ていたが、判定に必要なのは縦横比だけで実際のピクセルは
+    /// 使わないため、ImageDecoder.pixelSize(of:)(フォーマットのヘッダー部分だけを読む)に
+    /// 置き換えた)。
+    ///
+    /// PDFソースの場合は、ページ描画(renderPDFPage)と同じCGPDFPage.getBoxRect(.mediaBox)から
+    /// 直接取得する(レンダリング不要)。
+    ///
+    /// 注意: JPEG等のEXIF回転タグが付いた画像は、この関数が返す値がタグ適用前の生の
+    /// ピクセルサイズになる(thumbnail(at:)側はkCGImageSourceCreateThumbnailWithTransformで
+    /// 回転を反映してから幅・高さを見ているため、回転タグ付きの画像では結果が食い違いうる)。
+    /// このアプリが主に扱うマンガのスキャン・アーカイブ画像はカメラ写真と異なりEXIF回転タグを
+    /// 持つことが稀なため、実用上の影響は小さいと判断している。
+    func pageSize(at index: Int) async -> (width: Int, height: Int)? {
+        guard book.pages.indices.contains(index) else { return nil }
+        switch book.pages[index].source {
+        case .pdf(let pdfURL, let pageIndex):
+            guard let document = pdfDocument(for: pdfURL), let page = document.page(at: pageIndex + 1) else {
+                return nil
+            }
+            let box = page.getBoxRect(.mediaBox)
+            guard box.width > 0, box.height > 0 else { return nil }
+            return (Int(box.width.rounded()), Int(box.height.rounded()))
+        case .file, .zip, .sevenZip, .rar:
+            guard let data = rawData(for: book.pages[index].source) else { return nil }
+            return ImageDecoder.pixelSize(of: data)
+        }
+    }
+
     /// 画像のエクスポート機能(要望)向け: 「見開きを結合してエクスポート」で、2枚の画像を
     /// 実際に合成するために使う、ダウンサンプリングしない(ImageDecoder.exportMaxPixelSize相当の
     /// 上限のみ持つ)フルサイズのCGImage。pageImage/thumbnailと異なりimageCache/thumbnailCacheには

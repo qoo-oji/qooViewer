@@ -659,7 +659,7 @@ final class ViewerViewModel: ObservableObject {
            let secondImage = await pageLoader.pageImage(at: index + 1) {
             images.append(secondImage)
             // loadCurrentSpreadと同じ理由でwideImageCacheへ記録しておく(コメント参照)。
-            _ = isWideImage(secondImage, pageIndex: index + 1)
+            _ = isWideImage(width: secondImage.width, height: secondImage.height, pageIndex: index + 1)
         }
         currentImages = images
     }
@@ -1124,7 +1124,7 @@ final class ViewerViewModel: ObservableObject {
                 // 画像を読み込めた以上、wideImageCacheへ記録しておく手間は小さく、backward/
                 // forwardStepSizeが後で同期的に参照できるようになる恩恵の方が大きい
                 // (wideImageCacheのコメント参照)。
-                _ = isWideImage(secondImage, pageIndex: targetIndex + 1)
+                _ = isWideImage(width: secondImage.width, height: secondImage.height, pageIndex: targetIndex + 1)
             }
         }
 
@@ -1149,9 +1149,9 @@ final class ViewerViewModel: ObservableObject {
     /// wideImageCacheのコメント参照)。呼び出し側がどのページの判定かを特定できない場合
     /// (現状は無いが将来のため)はnilのままでよく、その場合は単に判定結果を返すだけで
     /// キャッシュへの記録は行わない。
-    private func isWideImage(_ image: CGImage, pageIndex: Int? = nil) -> Bool {
-        guard image.height > 0 else { return false }
-        let ratio = Double(image.width) / Double(image.height)
+    private func isWideImage(width: Int, height: Int, pageIndex: Int? = nil) -> Bool {
+        guard height > 0 else { return false }
+        let ratio = Double(width) / Double(height)
         let result = ratio >= preferences.singlePageAspectRatioThreshold
         if let pageIndex, book.pages.indices.contains(pageIndex) {
             wideImageCache[book.pages[pageIndex].sortKey] = result
@@ -1168,7 +1168,8 @@ final class ViewerViewModel: ObservableObject {
     }
 
     /// index付近(前後radius枚)のうち、まだwideImageCacheに判定結果が無いページについて、
-    /// サムネイル(軽量)を使って横長判定を行い、キャッシュへ記録しておく。
+    /// 画像のヘッダー情報(PageLoader.pageSize(at:)、ピクセルデコードを伴わない)だけを使って
+    /// 横長判定を行い、キャッシュへ記録しておく。
     ///
     /// PageLoader.prefetch(around:radius:)は、フルサイズ画像をデコードしてPageLoader自身の
     /// キャッシュへ格納するだけで、isWideImageによる横長判定までは行わない(判定はあくまで
@@ -1182,11 +1183,13 @@ final class ViewerViewModel: ObservableObject {
     /// 見開きを表示するたび(loadCurrentSpread、本を開いた直後を含む)に、その付近を
     /// あらかじめ判定してキャッシュを温めておく。
     ///
-    /// サムネイルを使うのはwideImageAspectRatios(自動レイアウト計算)と同じ理由(体感速度
-    /// 優先。フルサイズ画像は解像度が高いほどデコードが重い)。結果を待たずバックグラウンドで
-    /// 行い(prefetchと同じ考え方)、呼び出し元(loadCurrentSpread)をブロックしない。
-    /// 既に判定済みのページはmissingIndicesに含めないため、同じ範囲に対して繰り返し呼んでも
-    /// (通常のページ送りのたびに呼ばれる)無駄な再判定は発生しない。
+    /// ピクセルデコードを伴わないPageLoader.pageSize(at:)を使うのはwideImageAspectRatios
+    /// (自動レイアウト計算)と同じ理由(体感速度優先。以前はサムネイルデコードを使っていたが、
+    /// 判定に必要なのは縦横比だけのため、ヘッダー読み取りだけで済むこちらに置き換えた)。
+    /// 結果を待たずバックグラウンドで行い(prefetchと同じ考え方)、呼び出し元
+    /// (loadCurrentSpread)をブロックしない。既に判定済みのページはmissingIndicesに
+    /// 含めないため、同じ範囲に対して繰り返し呼んでも(通常のページ送りのたびに呼ばれる)
+    /// 無駄な再判定は発生しない。
     private func primeWideImageCache(around index: Int, radius: Int) {
         guard book.pages.indices.contains(index), radius > 0 else { return }
         let lower = max(0, index - radius)
@@ -1199,8 +1202,8 @@ final class ViewerViewModel: ObservableObject {
             guard let self else { return }
             for pageIndex in missingIndices {
                 guard !Task.isCancelled else { return }
-                guard let thumbnail = await self.pageLoader.thumbnail(at: pageIndex) else { continue }
-                _ = self.isWideImage(thumbnail, pageIndex: pageIndex)
+                guard let size = await self.pageLoader.pageSize(at: pageIndex) else { continue }
+                _ = self.isWideImage(width: size.width, height: size.height, pageIndex: pageIndex)
             }
         }
     }
@@ -1219,13 +1222,15 @@ final class ViewerViewModel: ObservableObject {
     /// これを補うため、本を開いた時点でcurrentIndexを起点に近い順(前後交互)へ本全体を
     /// バックグラウンドで先読み判定しておく。優先度を.utilityにし、実際のページ表示に使う
     /// フルサイズ画像のデコード(.userInitiated、PageLoader.decodedImage参照)より優先度を
-    /// 下げているため、通常の読書体験(表示速度)を妨げない。サムネイル(軽量)を使うのは
-    /// wideImageAspectRatiosと同じ理由。
+    /// 下げているため、通常の読書体験(表示速度)を妨げない。ピクセルデコードを伴わない
+    /// PageLoader.pageSize(at:)を使うのはwideImageAspectRatiosと同じ理由(以前はサムネイル
+    /// デコードを使っていたが、ヘッダー読み取りだけで済むこちらに置き換えた)。
     ///
-    /// 数百ページ規模の本では完了まで数秒かかりうるが(wideImageAspectRatiosのコメント参照)、
-    /// 低優先度のバックグラウンド処理のため許容している。開いた直後・再開位置からごく近い
-    /// 範囲は既にprimeWideImageCache(即座に、同じくバックグラウンドで)がカバーするため、
-    /// この関数はあくまで「その先の、より広い範囲への保険」という位置づけ。
+    /// ヘッダー読み取りのみのため、以前のサムネイルデコードに比べて大幅に軽いが、数百ページ
+    /// 規模の本では合計の所要時間がゼロにはならない。低優先度のバックグラウンド処理のため
+    /// 許容している。開いた直後・再開位置からごく近い範囲は既にprimeWideImageCache(即座に、
+    /// 同じくバックグラウンドで)がカバーするため、この関数はあくまで「その先の、より広い
+    /// 範囲への保険」という位置づけ。
     private func warmUpWideImageCacheForEntireBook() {
         let total = book.pages.count
         guard total > 0 else { return }
@@ -1249,9 +1254,9 @@ final class ViewerViewModel: ObservableObject {
                 guard !Task.isCancelled else { return }
                 guard let self else { return }
                 guard self.cachedIsWideImage(at: pageIndex) == nil else { continue }
-                guard let thumbnail = await self.pageLoader.thumbnail(at: pageIndex) else { continue }
+                guard let size = await self.pageLoader.pageSize(at: pageIndex) else { continue }
                 guard !Task.isCancelled else { return }
-                _ = self.isWideImage(thumbnail, pageIndex: pageIndex)
+                _ = self.isWideImage(width: size.width, height: size.height, pageIndex: pageIndex)
             }
         }
     }
@@ -1315,7 +1320,7 @@ final class ViewerViewModel: ObservableObject {
             return false
         }
 
-        return !isWideImage(firstImage, pageIndex: targetIndex)
+        return !isWideImage(width: firstImage.width, height: firstImage.height, pageIndex: targetIndex)
     }
 
     /// 現在1枚だけ表示中(見開き表示中だが相方が見つからない、または単ページ表示モード)の
@@ -1619,22 +1624,25 @@ final class ViewerViewModel: ObservableObject {
     }
 
     /// orderedPageKeysの各ページについて、横長画像(見開き表示中でも単ページ扱いにすべき)
-    /// かどうかを判定する。サムネイル(軽量)を使い、アスペクト比の判定にフル解像度は必要ない
+    /// かどうかを判定する。PageLoader.pageSize(at:)(ピクセルデコードを伴わない、フォーマットの
+    /// ヘッダー部分だけを読む取得)を使い、アスペクト比の判定にフル解像度のデコードは必要ない
     /// ため、体感速度を優先する。
     ///
     /// 自動レイアウト計算(3.1節)・伝播範囲を伴う個別ページ操作(3.2節・3.3節)は本全体を
-    /// 対象にしうるため、数百ページ規模の本では時間がかかりうる(実装検討ドキュメント9章の
-    /// リスク参照。プログレス表示・キャンセルは今後の改善課題)。
+    /// 対象にしうるが、ヘッダー読み取りのみのため、以前のサムネイルデコード方式に比べて
+    /// 数百ページ規模の本でもかなり短時間で終わる(実装検討ドキュメント9章のリスク参照。
+    /// なお万一のフォーマット非対応等でヘッダーが読めなかった場合に備え、プログレス表示・
+    /// キャンセルは今後の改善課題として残している)。
     private func wideImageAspectRatios(for orderedPageKeys: [String]) async -> [String: Bool] {
         let keySet = Set(orderedPageKeys)
         var result: [String: Bool] = [:]
         for (index, page) in book.pages.enumerated() where keySet.contains(page.sortKey) {
-            guard let thumbnail = await pageLoader.thumbnail(at: index) else { continue }
+            guard let size = await pageLoader.pageSize(at: index) else { continue }
             // isWideImage(pageIndex:)にindexを渡し、この計算のついでにwideImageCacheへも
             // 記録しておく(自動レイアウト計算(3.1節)は本全体を対象にしうるため、これを
             // きっかけに一気に多くのページの判定結果がキャッシュされ、backward/forwardStepSize
             // (通常のページ送り)の同期判定の精度向上にも波及する。wideImageCacheのコメント参照)。
-            result[page.sortKey] = isWideImage(thumbnail, pageIndex: index)
+            result[page.sortKey] = isWideImage(width: size.width, height: size.height, pageIndex: index)
         }
         return result
     }
