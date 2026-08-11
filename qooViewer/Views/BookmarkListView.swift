@@ -91,6 +91,12 @@ struct BookmarkEditorView: View {
     /// メニューには、既存の個別2項目に加えてこの統合版も追加した)。この確認ダイアログの対象bookID。
     @State private var pendingDeleteBookmarksAndLayoutBookID: String?
 
+    /// ユーザー要望: 左ペインでファイル名をダブルクリックしたら、その本を開く。
+    /// BookmarkDetailPane.editorWindow/openErrorBookNameと同じ役割・同じ仕組み(このView自身も
+    /// 同じNSWindow上にあるため、独自にWindowAccessorで取得する)。
+    @State private var editorWindow: NSWindow?
+    @State private var openErrorBookName: String?
+
     @Environment(\.openWindow) private var openWindow
 
     /// 左ペイン(サイドバー)の幅。ウインドウを開いた時点で登録されている本の名前の長さに応じて
@@ -246,6 +252,14 @@ struct BookmarkEditorView: View {
                                 HStack(spacing: 6) {
                                     Text(row.displayName)
                                         .fontWeight(isOpen ? .semibold : .regular)
+                                        // ユーザー要望: ファイル名をダブルクリックしたら、その本を開く。
+                                        // 行全体の選択(下の.simultaneousGesture)とは別に、このText自身に
+                                        // 直接ダブルクリック用のジェスチャーを付ける(PageRowView.
+                                        // selectableContentの同種のコメント参照。行の選択が単純な
+                                        // .onTapGesture(排他的)のままだと、ここで子ビューに付けた
+                                        // ジェスチャーと競合してシングルクリックでの選択が効かなくなる
+                                        // ため、行選択側を.simultaneousGestureへ変更してある)。
+                                        .onTapGesture(count: 2) { openBook(bookID: row.bookID) }
                                     FormatBadgeView(bookID: row.bookID)
                                     if isOpen {
                                         Text("Now Reading")
@@ -277,9 +291,10 @@ struct BookmarkEditorView: View {
                             }
                         }
                         .contentShape(Rectangle())
-                        .onTapGesture {
-                            selectedBookID = row.bookID
-                        }
+                        // ファイル名のダブルクリック(上の.onTapGesture(count: 2))と競合しないよう、
+                        // 行の選択自体は.simultaneousGestureにしてある(PageRowView.selectableContentの
+                        // 同種のコメント参照)。
+                        .simultaneousGesture(TapGesture().onEnded { selectedBookID = row.bookID })
                         .help(row.displayName)
                         .listRowBackground(
                             selectedID == row.bookID
@@ -506,6 +521,23 @@ struct BookmarkEditorView: View {
                 openWindow(id: "bulkRenameBookmarks")
                 pendingBulkRenameBookID = nil
             }
+            // ユーザー要望: 左ペインでファイル名をダブルクリックしたら、その本を開く(openBook参照)。
+            // BookmarkDetailPaneの同種のWindowAccessor/アラートと同じ仕組み。
+            .background(WindowAccessor { window in
+                editorWindow = window
+            })
+            .alert(
+                "Could Not Open Book",
+                isPresented: Binding(
+                    get: { openErrorBookName != nil },
+                    set: { isPresented in if !isPresented { openErrorBookName = nil } }
+                )
+            ) {
+                Button("OK") { openErrorBookName = nil }
+            } message: {
+                Text("The file or folder for “") + Text(openErrorBookName ?? "")
+                    + Text("” could not be found. It may have been moved or deleted.")
+            }
         }
     }
 
@@ -559,6 +591,38 @@ struct BookmarkEditorView: View {
         case nil:
             break
         }
+    }
+
+    /// ユーザー要望: 左ペインでファイル名をダブルクリックしたら、その本を開く。
+    /// BookmarkDetailPane.openBookAndJump(toPageIndex:)と同じ「既存のウインドウ/タブがあれば
+    /// それを前面に出す・無ければ既存のフロントウインドウで開くか新規ウインドウを作る」という
+    /// 分岐を踏襲するが、こちらは特定のページへジャンプする必要が無いぶん単純になっている。
+    private func openBook(bookID: String) {
+        if let existingAppState = launchCoordinator.openAppState(forBookID: bookID) {
+            existingAppState.hostWindow?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            closeEditorWindow()
+            return
+        }
+
+        guard let url = bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID)
+            ?? layoutStore.resolvedURL(forBookID: bookID)
+        else {
+            openErrorBookName = URL(fileURLWithPath: bookID).deletingPathExtension().lastPathComponent
+            return
+        }
+        _ = url.startAccessingSecurityScopedResource()
+
+        if let targetAppState = launchCoordinator.frontmostContentAppState() {
+            targetAppState.open(url: url)
+        } else {
+            openWindow(id: "book", value: url)
+        }
+        closeEditorWindow()
+    }
+
+    private func closeEditorWindow() {
+        editorWindow?.close()
     }
 }
 
@@ -1745,6 +1809,13 @@ private struct PageRowView: View {
         // selectableContentではなく呼び出し元(body)の行全体のHStackに掛けている
         // (ドラッグハンドル部分もハイライトの対象に含めるため)。
         .simultaneousGesture(TapGesture().onEnded { onSelect() })
+        // ユーザー要望: ページ番号・サムネイル・右側の余白など、ボタンやドロップダウン
+        // (レイアウト列のPicker)ではない部分をダブルクリックしたら、そのページへジャンプする。
+        // サムネイル・ブックマーク名には個別に同じonJump()を呼ぶ.onTapGesture(count: 2)が
+        // 既に付いているが(下記参照)、それらは子ビュー自身の、より具体的なジェスチャーとして
+        // 優先されるため、ここでの行全体向けの指定と競合しない(ボタン・Pickerはそれぞれ
+        // 自身でクリックを消費するAppKitの実コントロールのため、ここまでは伝播しない)。
+        .onTapGesture(count: 2) { onJump() }
     }
 
     /// サムネイルをホバーしたときのpopoverの中身。フル解像度画像(previewImage)とファイル名を
