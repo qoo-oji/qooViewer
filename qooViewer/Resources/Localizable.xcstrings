@@ -114,6 +114,22 @@
         }
       }
     },
+    "“%@.pdf” already exists in the destination folder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@.pdf” already exists in the destination folder."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "出力先フォルダに「%@.pdf」が既に存在します。"
+          }
+        }
+      }
+    },
     "(Empty)" : {
       "localizations" : {
         "en" : {
@@ -1114,6 +1130,22 @@
         }
       }
     },
+    "Books need bookmarks or page layout settings before they can be exported as PDF. (PDF and EPUB source files aren't eligible.)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books need bookmarks or page layout settings before they can be exported as PDF. (PDF and EPUB source files aren't eligible.)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PDFとして出力するには、ブックマークまたはページレイアウト設定を持つ本が必要です。(PDF・EPUB形式の本自体は対象外です。)"
+          }
+        }
+      }
+    },
     "Books to Keep Data For" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1271,6 +1303,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "書き出したEPUBファイルの出力先フォルダを選んでください。"
+          }
+        }
+      }
+    },
+    "Choose a destination folder for the exported PDF files." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a destination folder for the exported PDF files."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出したPDFファイルの出力先フォルダを選んでください。"
           }
         }
       }
@@ -1435,22 +1483,6 @@
         }
       }
     },
-    "Close" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Close"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "閉じる"
-          }
-        }
-      }
-    },
     "Close This Book and Open the New One" : {
       "localizations" : {
         "en" : {
@@ -1495,6 +1527,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "奥付"
+          }
+        }
+      }
+    },
+    "Color: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Color: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "色: %@"
+          }
+        }
+      }
+    },
+    "Color: %@, %lld-bit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Color: %@, %lld-bit"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "色: %@、%lldビット"
           }
         }
       }
@@ -1596,6 +1660,22 @@
         }
       }
     },
+    "Couldn't create the PDF file." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't create the PDF file."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PDFファイルを作成できませんでした。"
+          }
+        }
+      }
+    },
     "Couldn't Export Image" : {
       "localizations" : {
         "en" : {
@@ -1656,6 +1736,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "EPUBファイルを書き込めませんでした: %@"
+          }
+        }
+      }
+    },
+    "Couldn't write the PDF file: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't write the PDF file: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PDFファイルを書き込めませんでした: %@"
           }
         }
       }
@@ -2349,6 +2445,38 @@
         }
       }
     },
+    "Export as PDF" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export as PDF"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PDFをエクスポート"
+          }
+        }
+      }
+    },
+    "Export as PDF…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export as PDF…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PDFをエクスポート…"
+          }
+        }
+      }
+    },
     "Export Complete" : {
       "localizations" : {
         "en" : {
@@ -2505,6 +2633,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "EPUBファイルをエクスポート中…"
+          }
+        }
+      }
+    },
+    "Exporting PDF Files…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exporting PDF Files…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PDFファイルをエクスポート中…"
           }
         }
       }
@@ -2671,6 +2815,38 @@
         }
       }
     },
+    "File Name: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File Name: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイル名: %@"
+          }
+        }
+      }
+    },
+    "File Size: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File Size: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルサイズ: %@"
+          }
+        }
+      }
+    },
     "Filter" : {
       "localizations" : {
         "en" : {
@@ -2784,6 +2960,22 @@
         }
       }
     },
+    "Format: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Format: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォーマット: %@"
+          }
+        }
+      }
+    },
     "From Favorites" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2846,6 +3038,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "一般"
+          }
+        }
+      }
+    },
+    "Get Info" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Get Info"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "情報を見る"
           }
         }
       }
@@ -4774,6 +4982,22 @@
         }
       }
     },
+    "PDF files can't store spread/reading-direction layout information. Bookmarks and title/author are exported, but the spread and reading-direction settings will be lost." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PDF files can't store spread/reading-direction layout information. Bookmarks and title/author are exported, but the spread and reading-direction settings will be lost."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PDFファイルには見開き・読み方向のレイアウト情報を保存できません。ブックマークとタイトル・著者名は書き出されますが、見開き・読み方向の設定は失われます。"
+          }
+        }
+      }
+    },
     "Performance" : {
       "localizations" : {
         "en" : {
@@ -5581,6 +5805,22 @@
         }
       }
     },
+    "Resolution: %lld × %lld px" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolution: %lld × %lld px"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "解像度: %lld × %lld px"
+          }
+        }
+      }
+    },
     "Restores the built-in keyboard and mouse assignments. Nothing else is affected." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6098,6 +6338,22 @@
         }
       }
     },
+    "Show in Finder" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show in Finder"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finderで開く"
+          }
+        }
+      }
+    },
     "Show Left Page at Actual Size" : {
       "localizations" : {
         "en" : {
@@ -6471,6 +6727,22 @@
         }
       }
     },
+    "Start PDF Export…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start PDF Export…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PDF出力を開始…"
+          }
+        }
+      }
+    },
     "Start/Stop Slideshow" : {
       "localizations" : {
         "en" : {
@@ -6756,6 +7028,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この本の内容が変わっている可能性があります"
+          }
+        }
+      }
+    },
+    "This book's page layout is defined by its source file and cannot be edited here." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This book's page layout is defined by its source file and cannot be edited here."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この本のページレイアウトは元ファイル自身によって定義されているため、ここでは編集できません。"
           }
         }
       }
@@ -7324,310 +7612,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "お気に入り・ブックマーク・読書履歴を読み込めませんでした。このバージョンのqooViewerと互換性が無い可能性があります。\n\n続行すると、これらのデータはすべて完全に削除され、qooViewerはまっさらな状態から起動し直します。データを失いたくない場合は、削除せずに今すぐ終了してください(例: 別のバージョンのqooViewerを試す、サポートに相談する、など)。"
-          }
-        }
-      }
-    },
-    "Export as PDF…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Export as PDF…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PDFをエクスポート…"
-          }
-        }
-      }
-    },
-    "Books need bookmarks or page layout settings before they can be exported as PDF. (PDF and EPUB source files aren't eligible.)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Books need bookmarks or page layout settings before they can be exported as PDF. (PDF and EPUB source files aren't eligible.)"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PDFとして出力するには、ブックマークまたはページレイアウト設定を持つ本が必要です。(PDF・EPUB形式の本自体は対象外です。)"
-          }
-        }
-      }
-    },
-    "Start PDF Export…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Start PDF Export…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PDF出力を開始…"
-          }
-        }
-      }
-    },
-    "Choose a destination folder for the exported PDF files." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose a destination folder for the exported PDF files."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "書き出したPDFファイルの出力先フォルダを選んでください。"
-          }
-        }
-      }
-    },
-    "Exporting PDF Files…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Exporting PDF Files…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PDFファイルをエクスポート中…"
-          }
-        }
-      }
-    },
-    "“%@.pdf” already exists in the destination folder." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“%@.pdf” already exists in the destination folder."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "出力先フォルダに「%@.pdf」が既に存在します。"
-          }
-        }
-      }
-    },
-    "PDF files can't store spread/reading-direction layout information. Bookmarks and title/author are exported, but the spread and reading-direction settings will be lost." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PDF files can't store spread/reading-direction layout information. Bookmarks and title/author are exported, but the spread and reading-direction settings will be lost."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PDFファイルには見開き・読み方向のレイアウト情報を保存できません。ブックマークとタイトル・著者名は書き出されますが、見開き・読み方向の設定は失われます。"
-          }
-        }
-      }
-    },
-    "Couldn't create the PDF file." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Couldn't create the PDF file."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PDFファイルを作成できませんでした。"
-          }
-        }
-      }
-    },
-    "Couldn't write the PDF file: %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Couldn't write the PDF file: %@"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PDFファイルを書き込めませんでした: %@"
-          }
-        }
-      }
-    },
-    "Export as PDF" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Export as PDF"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PDFをエクスポート"
-          }
-        }
-      }
-    },
-    "Show in Finder" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show in Finder"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Finderで開く"
-          }
-        }
-      }
-    },
-    "Get Info" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Get Info"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "情報を見る"
-          }
-        }
-      }
-    },
-    "File Name: %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "File Name: %@"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ファイル名: %@"
-          }
-        }
-      }
-    },
-    "Format: %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Format: %@"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "フォーマット: %@"
-          }
-        }
-      }
-    },
-    "Resolution: %lld × %lld px" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Resolution: %lld × %lld px"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "解像度: %lld × %lld px"
-          }
-        }
-      }
-    },
-    "Color: %@, %lld-bit" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Color: %@, %lld-bit"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "色: %@、%lldビット"
-          }
-        }
-      }
-    },
-    "Color: %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Color: %@"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "色: %@"
-          }
-        }
-      }
-    },
-    "File Size: %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "File Size: %@"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ファイルサイズ: %@"
-          }
-        }
-      }
-    },
-    "This book's page layout is defined by its source file and cannot be edited here." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This book's page layout is defined by its source file and cannot be edited here."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本のページレイアウトは元ファイル自身によって定義されているため、ここでは編集できません。"
           }
         }
       }

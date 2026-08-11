@@ -161,7 +161,9 @@ private struct ThumbnailCell: View {
             }
             Text("\(index + 1)")
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                // ユーザー報告: .secondary(グレー)だと、サムネイル一覧パネルの背景
+                // (.regularMaterial)上では視認性が悪い。白固定にして見やすくする。
+                .foregroundStyle(.white)
         }
         .task(id: index) {
             image = await viewModel.loadThumbnail(at: index)

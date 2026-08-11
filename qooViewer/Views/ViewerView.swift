@@ -276,6 +276,16 @@ struct ViewerView: View {
             // 別のNSWindowとして表示されるため、event.windowがhostWindowと一致せず、
             // ここでの処理には影響しない)。
             guard let hostWindow, event.window === hostWindow else { return event }
+            // マウス移動(.mouseMoved)は、カーソル自動非表示の解除・ツールバー/プログレスバーの
+            // 自動表示のトリガーとして、サムネイル一覧表示中かどうかに関わらず常に処理する必要が
+            // ある。下のshowThumbnailGridガードより後ろにあると、サムネイル一覧を開いている間
+            // マウスを動かしてもregisterMouseActivity()が呼ばれず、カーソル自動非表示のタイマーが
+            // 解除されない(ユーザー報告: サムネイル一覧上でカーソルが見えなくなる)。
+            if event.type == .mouseMoved {
+                registerMouseActivity()
+                updateAutoHiddenChromeVisibility(forMouseLocationInWindow: event.locationInWindow)
+                return event
+            }
             // サムネイル一覧(ThumbnailGridView)を表示している間は、スクロール/スワイプによる
             // ページ送りやキーボードショートカットが背後の本へ影響しないようにする(以前は
             // 独立したシートとして表示していたため、シート自身が別ウインドウ扱いとなり
@@ -334,8 +344,10 @@ struct ViewerView: View {
                     return nil
                 }
             default:
-                registerMouseActivity()
-                updateAutoHiddenChromeVisibility(forMouseLocationInWindow: event.locationInWindow)
+                // .mouseMovedは上で早期リターン済みのため、マッチしている残りの型
+                // (.scrollWheel/.swipe/.keyDown)はすべて明示的なcaseで処理されており、
+                // ここには実質到達しない。
+                break
             }
             return event
         }
