@@ -69,6 +69,23 @@ struct ViewerView: View {
     /// カーソルが動かなくても自動的には隠さない(NSMenu.didBeginTracking/didEndTracking参照)。
     @State private var isMenuTracking = false
     @State private var showThumbnailGrid = false
+    /// ページ一覧(サムネイルグリッド)パネル自身の、スクリーン座標系での現在のフレーム
+    /// (PanelScreenFrameAccessor参照)。パネルの外側かどうかを判定するため、
+    /// thumbnailGridOutsideClickMonitors(自身のwindow内)と
+    /// thumbnailGridOutsideClickGlobalMonitor(他のウインドウ・他のアプリ)の両方から参照する。
+    @State private var thumbnailPanelScreenFrame: CGRect = .zero
+    /// ユーザー要望: ページ一覧を、パネルの外側であればビューア画面に限らず(タイトルバー・
+    /// メニューバー・他のウインドウ・他のアプリを含め)どこをクリックしても閉じるようにしたい。
+    /// ThumbnailGridBackdropView(このウインドウのコンテンツ領域内のクリック)だけでは
+    /// カバーできない範囲を、この2つのNSEventモニタで補う。
+    /// ローカルモニタ: このアプリ自身のどこか(このウインドウのタイトルバー、他のqooViewer
+    /// ウインドウなど)をクリックした場合。イベント自体は消費せずそのまま返す(タイトルバーの
+    /// ボタン操作や他ウインドウへのフォーカス移動を妨げないため)。
+    @State private var thumbnailGridOutsideClickMonitor: Any?
+    /// グローバルモニタ: このアプリの外(他のアプリのウインドウ)をクリックした場合。
+    /// グローバルモニタはイベントを消費できない(元々他アプリ宛てのイベントのため)が、
+    /// 「クリックされたこと」を検知してページ一覧を閉じる分には問題ない。
+    @State private var thumbnailGridOutsideClickGlobalMonitor: Any?
     /// 「お気に入りに追加」シート(登録先フォルダを選ぶ。FavoriteFolderPickerView)の表示状態。
     @State private var showFavoriteFolderPicker = false
     /// 「お気に入り一覧」を表示中のネイティブNSMenuブリッジ(FavoritesNSMenuBridge)。
@@ -383,6 +400,48 @@ struct ViewerView: View {
         }
     }
 
+    /// ページ一覧(サムネイルグリッド)パネルの外側のクリックで閉じるための2つのNSEventモニタ
+    /// (thumbnailGridOutsideClickMonitor/thumbnailGridOutsideClickGlobalMonitorのコメント参照)を
+    /// 取り付ける。showThumbnailGridがtrueになるたびに呼ばれる。
+    private func installThumbnailGridOutsideClickMonitorsIfNeeded() {
+        guard thumbnailGridOutsideClickMonitor == nil else { return }
+        // ローカルモニタ: このアプリ自身の中で起きたクリック(このウインドウのタイトルバー、
+        // 他のqooViewerウインドウを含む)。パネルの外側であれば閉じるだけで、イベント自体は
+        // 消費せずそのまま返す(タイトルバーのボタン操作や他ウインドウへのフォーカス移動を
+        // 妨げないため)。
+        thumbnailGridOutsideClickMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { event in
+            if !thumbnailPanelScreenFrame.contains(NSEvent.mouseLocation) {
+                showThumbnailGrid = false
+            }
+            return event
+        }
+        // グローバルモニタ: このアプリの外(他のアプリ)で起きたクリック。他アプリ宛ての
+        // イベントのため消費のしようがなく、単に検知してパネルを閉じるだけでよい。
+        thumbnailGridOutsideClickGlobalMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { _ in
+            if !thumbnailPanelScreenFrame.contains(NSEvent.mouseLocation) {
+                showThumbnailGrid = false
+            }
+        }
+    }
+
+    /// installThumbnailGridOutsideClickMonitorsIfNeededで取り付けた2つのモニタを外す。
+    /// showThumbnailGridがfalseになるたびに呼ばれる(handleOnDisappearからも、ウインドウごと
+    /// 閉じられた場合の保険として呼ぶ)。
+    private func removeThumbnailGridOutsideClickMonitors() {
+        if let thumbnailGridOutsideClickMonitor {
+            NSEvent.removeMonitor(thumbnailGridOutsideClickMonitor)
+        }
+        thumbnailGridOutsideClickMonitor = nil
+        if let thumbnailGridOutsideClickGlobalMonitor {
+            NSEvent.removeMonitor(thumbnailGridOutsideClickGlobalMonitor)
+        }
+        thumbnailGridOutsideClickGlobalMonitor = nil
+    }
+
     /// .onDisappear{}の中身をprivateメソッドへ切り出したもの(handleOnAppearのコメント参照)。
     /// 処理内容自体は以前と同じ(各種モニタ・タスクの後始末、appStateへの後始末)。
     private func handleOnDisappear() {
@@ -396,6 +455,7 @@ struct ViewerView: View {
             NSEvent.removeMonitor(contextClickMonitor)
         }
         contextClickMonitor = nil
+        removeThumbnailGridOutsideClickMonitors()
         // appStateへの後始末(nilに戻す等)は、まだ自分自身が最後にappStateへ登録した
         // ViewerViewである場合にだけ行う。同じウインドウ内で本を切り替えた際、既に
         // 新しいViewerViewのonAppearが自分のトークンで上書きしていれば、ここでの
@@ -649,6 +709,15 @@ struct ViewerView: View {
                 ZStack {
                     ThumbnailGridBackdropView(isPresented: $showThumbnailGrid)
                     ThumbnailGridView(viewModel: viewModel, isPresented: $showThumbnailGrid)
+                        // ユーザー要望: パネルの外側であれば、このウインドウの内側に限らず
+                        // タイトルバー・メニューバー・他のウインドウ・他のアプリを含めどこを
+                        // クリックしても閉じるようにしたい。そのためにパネル自身の現在の
+                        // スクリーン座標系でのフレームを常に把握しておく必要があり、
+                        // ここで.backgroundとして重ねて報告を受け取る(thumbnailPanelScreenFrame/
+                        // installThumbnailGridOutsideClickMonitorsIfNeeded参照)。
+                        .background(
+                            PanelScreenFrameAccessor { thumbnailPanelScreenFrame = $0 }
+                        )
                 }
                 .transition(.opacity)
                 .zIndex(2)
@@ -697,6 +766,17 @@ struct ViewerView: View {
         // 下部の一覧を最新の内容に更新する。
         .onChange(of: viewModel.bookmarks) { _, newValue in
             appState.updateCurrentBookmarks(newValue)
+        }
+        // ユーザー要望: ページ一覧(サムネイルグリッド)パネルの外側であれば、このウインドウの
+        // 内側に限らずどこをクリックしても閉じるようにしたい。表示・非表示の切り替わりに
+        // 合わせて、専用のNSEventモニタ(thumbnailGridOutsideClickMonitor/
+        // thumbnailGridOutsideClickGlobalMonitor)を付け外しする。
+        .onChange(of: showThumbnailGrid) { _, newValue in
+            if newValue {
+                installThumbnailGridOutsideClickMonitorsIfNeeded()
+            } else {
+                removeThumbnailGridOutsideClickMonitors()
+            }
         }
         // スライドショー実行中/表示モード/読み方向/拡大縮小モードが変わるたびに、
         // メニューバーの該当項目のチェックマークを最新の状態に更新する。
@@ -1792,6 +1872,15 @@ struct ViewerView: View {
                 NSCursor.unhide()
                 isCursorHidden = false
             }
+            // ユーザー要望: ページ一覧(サムネイルグリッド)パネルの外側をクリックしたら
+            // 閉じたい。メニューバーのメニューを開くクリックは、通常のクリックと違い
+            // NSEventのローカル/グローバルモニタ(installThumbnailGridOutsideClickMonitors
+            // IfNeeded参照)には届かないため、メニューが開いたこと自体をここで検知して
+            // 代わりに閉じる(object: nilなので、メニューバーだけでなく右クリックメニュー等が
+            // 開いた場合も含む)。
+            if showThumbnailGrid {
+                showThumbnailGrid = false
+            }
         }
         let menuEnd = NotificationCenter.default.addObserver(
             forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main
@@ -2447,5 +2536,49 @@ private final class PageAreaFrameReportingView: NSView {
         // 変換する。.backgroundとして重ねているため、boundsはpageAreaと全く同じサイズになる。
         let frameInWindow = convert(bounds, to: nil)
         onFrameChange?(frameInWindow)
+    }
+}
+
+/// 取り付けた場所自身のフレーム全体が、スクリーン座標系(NSEvent.mouseLocationと同じ基準)の
+/// どこにあるかをコールバックで報告する、透明なヘルパービュー。PageAreaFrameAccessorと同じ
+/// 考え方だが、ウインドウ座標系ではなくスクリーン座標系まで変換する点が異なる
+/// (ページ一覧パネルの外側クリックを、このウインドウの外(タイトルバー・他のウインドウ・
+/// 他のアプリ)からも検知したいため。installThumbnailGridOutsideClickMonitorsIfNeeded参照)。
+private struct PanelScreenFrameAccessor: NSViewRepresentable {
+    let onChange: (CGRect) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = PanelScreenFrameReportingView()
+        view.onFrameChange = onChange
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let view = nsView as? PanelScreenFrameReportingView else { return }
+        view.onFrameChange = onChange
+        DispatchQueue.main.async {
+            view.reportFrame()
+        }
+    }
+}
+
+private final class PanelScreenFrameReportingView: NSView {
+    var onFrameChange: ((CGRect) -> Void)?
+
+    override func layout() {
+        super.layout()
+        reportFrame()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        reportFrame()
+    }
+
+    func reportFrame() {
+        guard let window else { return }
+        let frameInWindow = convert(bounds, to: nil)
+        let frameOnScreen = window.convertToScreen(frameInWindow)
+        onFrameChange?(frameOnScreen)
     }
 }
