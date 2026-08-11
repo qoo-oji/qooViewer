@@ -1279,9 +1279,11 @@ private struct BookmarkDetailPane: View {
                 }
 
                 if viewModel.hasAuthoritativeSourceLayout {
-                    // EPUB由来の権威的なレイアウト指定がある本では、読み方向・並べ替え・
-                    // レイアウト列すべてを無効化する(2.4節: OPF側の指定が優先されるため)。
-                    Text("This book's page layout is defined by its EPUB file and cannot be edited here.")
+                    // EPUB(OPF)またはPDF自身が権威的なレイアウト指定を持つ本では、読み方向・
+                    // 並べ替え・レイアウト列すべてを無効化する(2.4節: ソースファイル側の指定が
+                    // 優先されるため)。PDFにも対応した際(sourceLayoutHintへ一般化)、この文言を
+                    // 「EPUBファイル」から「元ファイル」に合わせて一般化した。
+                    Text("This book's page layout is defined by its source file and cannot be edited here.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

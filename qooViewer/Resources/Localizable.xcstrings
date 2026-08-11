@@ -6760,22 +6760,6 @@
         }
       }
     },
-    "This book's page layout is defined by its EPUB file and cannot be edited here." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This book's page layout is defined by its EPUB file and cannot be edited here."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本のページレイアウトはEPUBファイル自身によって定義されているため、ここでは編集できません。"
-          }
-        }
-      }
-    },
     "This cannot be undone. qooViewer will quit immediately afterward." : {
       "localizations" : {
         "en" : {
@@ -7628,6 +7612,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ファイルサイズ: %@"
+          }
+        }
+      }
+    },
+    "This book's page layout is defined by its source file and cannot be edited here." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This book's page layout is defined by its source file and cannot be edited here."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この本のページレイアウトは元ファイル自身によって定義されているため、ここでは編集できません。"
           }
         }
       }
