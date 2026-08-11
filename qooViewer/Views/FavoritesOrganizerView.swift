@@ -33,6 +33,9 @@ struct FavoritesOrganizerView: View {
     /// 表す状態として持つ。select(_:)で左ペインの選択(=表示するフォルダ自体)が変わったときは、
     /// 右ペインの中身が総入れ替えになるため、古い選択が残らないようここもリセットする。
     @State private var selectedEntryID: UUID?
+    /// シングル/ダブルクリック識別(自前実装)用、右ペインの項目(フォルダ/お気に入り)ごとの
+    /// 直近のクリック時刻(entry.idをキーにする)。詳細は各行の.simultaneousGestureのコメント参照。
+    @State private var lastEntryTapDates: [UUID: Date] = [:]
 
     @State private var isShowingNewFolderPrompt = false
     @State private var newFolderName = ""
@@ -203,11 +206,30 @@ struct FavoritesOrganizerView: View {
                         }
                         .contentShape(Rectangle())
                         // シングルクリックでは選択状態(下のlistRowBackground)にするだけ、
-                        // ダブルクリックでそのフォルダの中へ移動する。SwiftUIはこのように
-                        // 回数違いの.onTapGestureを重ねると、ダブルクリックが不成立の場合に
-                        // シングルクリックへフォールバックする形で自動的に判別してくれる。
-                        .onTapGesture(count: 2) { select(folder) }
-                        .onTapGesture(count: 1) { selectedEntryID = entry.id }
+                        // ダブルクリックでそのフォルダの中へ移動する。
+                        //
+                        // 以前はクリック回数違いの.onTapGesture(count: 2)/.onTapGesture(count: 1)を
+                        // 重ねていたが、これだとクリック回数の異なるジェスチャーが同居する形になり、
+                        // シングルクリックでの選択(ハイライト表示)がシステムのダブルクリック間隔
+                        // だけ遅延してしまう不具合があった(BookmarkListView.PageRowView.
+                        // selectableContentの同種の不具合・修正コメント参照。ユーザー報告により
+                        // 同じ問題がここにもないか確認して発覚)。ここではクリック回数1の
+                        // ジェスチャーだけを使い、選択は毎回のクリックで即座に行い、フォルダへの
+                        // 移動は自前で前回クリックからの経過時間をダブルクリック間隔と比較して
+                        // 判定する。
+                        .simultaneousGesture(
+                            TapGesture().onEnded {
+                                selectedEntryID = entry.id
+                                let now = Date()
+                                if let last = lastEntryTapDates[entry.id],
+                                   now.timeIntervalSince(last) <= NSEvent.doubleClickInterval {
+                                    lastEntryTapDates[entry.id] = nil
+                                    select(folder)
+                                } else {
+                                    lastEntryTapDates[entry.id] = now
+                                }
+                            }
+                        )
                         // 右ペインの行も、左ペインの行と同様にカーソルを合わせるとフルネームを
                         // ツールチップで表示する(要望: 右ペインのアイテムについてもホバーで
                         // フルネームを見られるようにしてほしい)。
@@ -281,8 +303,23 @@ struct FavoritesOrganizerView: View {
                         // このウインドウ自体は特定の本のウインドウには属さない独立ウインドウのため、
                         // 「今読んでいる本」の代わりにlaunchCoordinator.activeBookAppStateを
                         // 判定材料にする。詳細はopenFavoriteAccordingToPreference参照)。
-                        .onTapGesture(count: 2) { openFavoriteAccordingToPreference(favorite) }
-                        .onTapGesture(count: 1) { selectedEntryID = entry.id }
+                        //
+                        // 上のフォルダの行と同じ理由(コメント参照)で、クリック回数違いの
+                        // .onTapGestureを重ねる方式は選択のハイライト表示が遅延するため、
+                        // クリック回数1のジェスチャー+自前のダブルクリック間隔判定に変更した。
+                        .simultaneousGesture(
+                            TapGesture().onEnded {
+                                selectedEntryID = entry.id
+                                let now = Date()
+                                if let last = lastEntryTapDates[entry.id],
+                                   now.timeIntervalSince(last) <= NSEvent.doubleClickInterval {
+                                    lastEntryTapDates[entry.id] = nil
+                                    openFavoriteAccordingToPreference(favorite)
+                                } else {
+                                    lastEntryTapDates[entry.id] = now
+                                }
+                            }
+                        )
                         // 左ペインの行と同様、カーソルを合わせるとフルネームをツールチップで表示する。
                         .help(favorite.title)
                         // クリックして選択したことが分かるよう、左ペインと同じ見た目でハイライトする。

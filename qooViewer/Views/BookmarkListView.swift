@@ -96,6 +96,11 @@ struct BookmarkEditorView: View {
     /// 同じNSWindow上にあるため、独自にWindowAccessorで取得する)。
     @State private var editorWindow: NSWindow?
     @State private var openErrorBookName: String?
+    /// ファイル名のシングル/ダブルクリック識別(自前実装)用、行ごとの直近のクリック時刻
+    /// (bookIDをキーにする)。ForEach内の行はこのView自身のbodyに直接書かれており専用の行View
+    /// (PageRowViewのような)を持たないため、@Stateを辞書にして行ごとに使い分ける。詳細は
+    /// ファイル名の.simultaneousGestureのコメント参照。
+    @State private var lastFileNameTapDates: [String: Date] = [:]
 
     @Environment(\.openWindow) private var openWindow
 
@@ -254,12 +259,29 @@ struct BookmarkEditorView: View {
                                         .fontWeight(isOpen ? .semibold : .regular)
                                         // ユーザー要望: ファイル名をダブルクリックしたら、その本を開く。
                                         // 行全体の選択(下の.simultaneousGesture)とは別に、このText自身に
-                                        // 直接ダブルクリック用のジェスチャーを付ける(PageRowView.
-                                        // selectableContentの同種のコメント参照。行の選択が単純な
-                                        // .onTapGesture(排他的)のままだと、ここで子ビューに付けた
-                                        // ジェスチャーと競合してシングルクリックでの選択が効かなくなる
-                                        // ため、行選択側を.simultaneousGestureへ変更してある)。
-                                        .onTapGesture(count: 2) { openBook(bookID: row.bookID) }
+                                        // 直接ダブルクリック検知を付ける。
+                                        //
+                                        // 以前は単純に.onTapGesture(count: 2)を使っていたが、これだと
+                                        // クリック回数の異なるジェスチャーが同居する形になり、行選択
+                                        // (下の.simultaneousGesture)のハイライト表示がシステムの
+                                        // ダブルクリック間隔だけ遅延してしまう不具合があった
+                                        // (PageRowView.selectableContentの同種の不具合・修正コメント
+                                        // 参照。ユーザー報告により、こちらにも同じ問題が無いか確認して
+                                        // 発覚)。ここではクリック回数1のジェスチャーだけを使い、
+                                        // 自前で前回クリックからの経過時間をダブルクリック間隔と
+                                        // 比較して判定する。
+                                        .simultaneousGesture(
+                                            TapGesture().onEnded {
+                                                let now = Date()
+                                                if let last = lastFileNameTapDates[row.bookID],
+                                                   now.timeIntervalSince(last) <= NSEvent.doubleClickInterval {
+                                                    lastFileNameTapDates[row.bookID] = nil
+                                                    openBook(bookID: row.bookID)
+                                                } else {
+                                                    lastFileNameTapDates[row.bookID] = now
+                                                }
+                                            }
+                                        )
                                     FormatBadgeView(bookID: row.bookID)
                                     if isOpen {
                                         Text("Now Reading")
@@ -291,9 +313,9 @@ struct BookmarkEditorView: View {
                             }
                         }
                         .contentShape(Rectangle())
-                        // ファイル名のダブルクリック(上の.onTapGesture(count: 2))と競合しないよう、
-                        // 行の選択自体は.simultaneousGestureにしてある(PageRowView.selectableContentの
-                        // 同種のコメント参照)。
+                        // 行の選択自体も.simultaneousGesture(クリック回数1のみ)にしてあり、
+                        // ファイル名の.simultaneousGesture(上記)と衝突しない
+                        // (PageRowView.selectableContentの同種のコメント参照)。
                         .simultaneousGesture(TapGesture().onEnded { selectedBookID = row.bookID })
                         .help(row.displayName)
                         .listRowBackground(
@@ -1581,6 +1603,15 @@ private struct PageRowView: View {
     @State private var hoverPreviewTask: Task<Void, Never>?
     /// ホバー開始から実際にpopoverを出すまでの遅延(ナノ秒)。
     private static let hoverPreviewDelayNanoseconds: UInt64 = 350_000_000
+    /// 行のダブルクリック検知(自前実装)用、直近のクリック時刻。selectableContent末尾の
+    /// .simultaneousGestureのコメント参照。
+    @State private var lastRowTapDate: Date?
+    /// ブックマーク名のシングル/ダブルクリック識別(自前実装)用、直近のクリック時刻。
+    /// selectableContent内のブックマーク列のコメント参照。
+    @State private var lastBookmarkNameTapDate: Date?
+    /// ブックマーク名をシングルクリックしたときの、リネーム開始を遅らせるためのタスク
+    /// (ダブルクリックだと判明したら取り消す)。
+    @State private var renameTask: Task<Void, Never>?
 
     /// viewModel.pageLayoutStates(BookLayoutEditorViewModelが確定させたスナップショット)を
     /// 参照する。以前はここでlayoutStore.pageOverride(forBookID:pageKey:)を直接呼び、
@@ -1687,7 +1718,11 @@ private struct PageRowView: View {
             .frame(width: columnWidths.thumbnail, height: columnWidths.thumbnailHeight)
             .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
             .help(row.displayName)
-            .onTapGesture(count: 2) { onJump() }
+            // ユーザー報告(ラグの原因調査): 以前はここに専用の.onTapGesture(count: 2){ onJump() }を
+            // 付けていたが、行全体(selectableContent末尾の.simultaneousGesture)が同じクリックを
+            // 既に検知してonJump()を呼ぶため、実質的に不要な重複だった。この位置にクリック回数2の
+            // ジェスチャーが同居しているだけで、行選択(onSelect)のハイライト表示にもラグが
+            // 生じていたため削除した(ジャンプ自体は行全体側の判定で引き続き機能する)。
             .task(id: row.pageKey) {
                 thumbnail = await viewModel.thumbnail(rawIndex: row.rawIndex)
             }
@@ -1769,8 +1804,39 @@ private struct PageRowView: View {
             if let bookmark {
                 HStack(spacing: 4) {
                     Text(bookmark.name)
-                        .onTapGesture(count: 2) { onJump() }
-                        .onTapGesture(count: 1) { onRenameBookmark(bookmark) }
+                        // ユーザー報告(ラグの原因調査): 以前はここに.onTapGesture(count: 2){ onJump() }と
+                        // .onTapGesture(count: 1){ onRenameBookmark(bookmark) }を同じビューに
+                        // 両方付けていた。クリック回数の異なるジェスチャーが同居すると、
+                        // シングルクリックの確定自体がシステムのダブルクリック間隔だけ遅延する
+                        // (selectableContent末尾の.simultaneousGestureのコメント参照)。
+                        // ここではクリック回数1のジェスチャーだけを使い、自前でリネーム開始を
+                        // ダブルクリック間隔だけ遅らせて予約し、その間に2回目のクリックが来たら
+                        // リネームを取り消す(ジャンプ自体は行全体側の.simultaneousGestureが
+                        // 同じクリックを検知して実行するため、ここでは呼ばない)。
+                        // なお、Finderの「選択中のアイコン名を単独クリックするとリネームになる」
+                        // 挙動も同様にダブルクリックと区別するための遅延を伴っており、これは
+                        // 単純化のための妥協ではなく、この種の識別に本質的に伴う遅延。
+                        .simultaneousGesture(
+                            TapGesture().onEnded {
+                                let now = Date()
+                                if let lastBookmarkNameTapDate,
+                                   now.timeIntervalSince(lastBookmarkNameTapDate) <= NSEvent.doubleClickInterval {
+                                    self.lastBookmarkNameTapDate = nil
+                                    renameTask?.cancel()
+                                    renameTask = nil
+                                } else {
+                                    lastBookmarkNameTapDate = now
+                                    renameTask?.cancel()
+                                    renameTask = Task {
+                                        try? await Task.sleep(
+                                            nanoseconds: UInt64(NSEvent.doubleClickInterval * 1_000_000_000)
+                                        )
+                                        guard !Task.isCancelled else { return }
+                                        onRenameBookmark(bookmark)
+                                    }
+                                }
+                            }
+                        )
                     Button {
                         onDeleteBookmark(bookmark)
                     } label: {
@@ -1810,14 +1876,30 @@ private struct PageRowView: View {
         // 優先されるようにする。なお.listRowBackground(選択中のハイライト表示)は、この
         // selectableContentではなく呼び出し元(body)の行全体のHStackに掛けている
         // (ドラッグハンドル部分もハイライトの対象に含めるため)。
-        .simultaneousGesture(TapGesture().onEnded { onSelect() })
-        // ユーザー要望: ページ番号・サムネイル・右側の余白など、ボタンやドロップダウン
-        // (レイアウト列のPicker)ではない部分をダブルクリックしたら、そのページへジャンプする。
-        // サムネイル・ブックマーク名には個別に同じonJump()を呼ぶ.onTapGesture(count: 2)が
-        // 既に付いているが(下記参照)、それらは子ビュー自身の、より具体的なジェスチャーとして
-        // 優先されるため、ここでの行全体向けの指定と競合しない(ボタン・Pickerはそれぞれ
-        // 自身でクリックを消費するAppKitの実コントロールのため、ここまでは伝播しない)。
-        .onTapGesture(count: 2) { onJump() }
+        //
+        // ユーザー報告: 行をクリックしてからハイライトされるまで1秒近いラグがあった。原因は
+        // 以前ここに.onTapGesture(count: 2){ onJump() }(ダブルクリックでジャンプ、ユーザー要望)を
+        // 別途付けていたこと。クリック回数の異なるタップジェスチャーが同じビューに同居すると、
+        // AppKit/SwiftUIはそのクリックが「シングルクリックで確定」か「ダブルクリックの1回目」かを
+        // システムのダブルクリック間隔が経過するまで判定できず、.simultaneousGestureであっても
+        // この確定待ちのラグ自体は避けられなかった。
+        // ここではクリック回数2のジェスチャーを使わず、常にクリック回数1のジェスチャーだけを使う。
+        // 選択(onSelect、ハイライト表示)は毎回のクリックで即座に呼び、ジャンプ(onJump)は前回の
+        // クリックからの経過時間をNSEvent.doubleClickInterval(システムのダブルクリック間隔設定)と
+        // 自前で比較して判定する(いわゆる「ハイライトは即座に、ジャンプは2回目のクリックを検知して
+        // 実行」という順序)。
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                onSelect()
+                let now = Date()
+                if let lastRowTapDate, now.timeIntervalSince(lastRowTapDate) <= NSEvent.doubleClickInterval {
+                    self.lastRowTapDate = nil
+                    onJump()
+                } else {
+                    lastRowTapDate = now
+                }
+            }
+        )
     }
 
     /// サムネイルをホバーしたときのpopoverの中身。フル解像度画像(previewImage)とファイル名を
