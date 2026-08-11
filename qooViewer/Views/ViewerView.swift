@@ -159,6 +159,12 @@ struct ViewerView: View {
     /// (toggleCurrentPageBookmark/contextMenuContent参照)。
     @State private var isShowingBookmarkSideDialog = false
 
+    /// コンテキストメニュー「情報を見る」(ユーザー要望)の、ビューアウインドウ内オーバーレイ
+    /// パネル(mainZStack内、ThumbnailGridBackdropView + PageInfoPanelView)の表示状態。
+    /// 対象ページはisLastContextClickOnLeftHalfから毎回infoContextPageIndexで再計算するため、
+    /// ここでは表示中かどうかだけを持てば十分(PageInfoPanelView参照)。
+    @State private var isShowingPageInfoPanel = false
+
     /// 画像のエクスポート機能(要望)。エクスポート中に画像の読み込み・結合・書き込みのいずれかで
     /// 失敗した場合のエラーメッセージ。nilなら非表示(applyLayoutAlerts参照)。
     @State private var imageExportErrorMessage: String?
@@ -722,9 +728,41 @@ struct ViewerView: View {
                 .transition(.opacity)
                 .zIndex(2)
             }
+
+            // 「情報を見る」(contextMenuContent参照)。以前はNSMenuのサブメニューだったが、
+            // 値の先頭を揃えて表示したいという要望(Finderの「情報を見る」のように)を受けて
+            // 一度ポップオーバー(.popover)に変更したところ、ウインドウの外にはみ出す吹き出し
+            // として表示されるのは意図と違うという指摘を受けた。そのため、すぐ上のページ一覧
+            // (ThumbnailGridView)と同じ構成 — ウインドウ内を覆う透明な背景層
+            // (ThumbnailGridBackdropView、外側クリックで閉じる。isPresentedのBindingを
+            // 受け取るだけの汎用的な実装のためそのまま再利用している)の上にパネル本体を
+            // 中央揃えで重ねる形 — に変更し、ビューアウインドウの内側にオーバーレイ表示される
+            // ようにした。
+            if isShowingPageInfoPanel {
+                ZStack {
+                    ThumbnailGridBackdropView(isPresented: $isShowingPageInfoPanel)
+                    Group {
+                        if let info = viewModel.pageImageInfo(atIndex: infoContextPageIndex) {
+                            PageInfoPanelView(viewModel: viewModel, pageIndex: infoContextPageIndex, info: info)
+                        } else {
+                            // 通常はここに来ない(ViewerViewModel.pageImageInfoCacheのコメント
+                            // 参照。表示中ページの情報はloadCurrentSpreadの時点で取得を開始して
+                            // いる)が、念のためのフォールバック。SwiftUIの通常のView更新経路の
+                            // ため、取得が完了すれば自動的にPageInfoPanelViewへ切り替わる。
+                            Text("Loading…")
+                                .padding(16)
+                        }
+                    }
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .shadow(color: .black.opacity(0.25), radius: 16, y: 4)
+                }
+                .transition(.opacity)
+                .zIndex(2)
+            }
         }
         .animation(.easeInOut(duration: 0.2), value: toastMessage)
         .animation(.easeInOut(duration: 0.15), value: showThumbnailGrid)
+        .animation(.easeInOut(duration: 0.15), value: isShowingPageInfoPanel)
         .background(preferences.backgroundColorOption.color)
         .background(WindowAccessor { window in
             guard hostWindow !== window else { return }
@@ -1361,34 +1399,16 @@ struct ViewerView: View {
         }
 
         // ユーザー要望: 右クリックしたページの画像ファイル情報(ファイル名・フォーマット・
-        // 解像度・色情報・ファイルサイズ、いずれもヘッダーから分かる範囲)をサブメニューとして
-        // 表示する。対象ページの特定は上のExport Imageサブメニューと同じ考え方
-        // (isLastContextClickOnLeftHalfでクリック位置から一意に決める)。
-        // 実際の情報はviewModel.pageImageInfo(atIndex:)がバックグラウンドで取得済みの
-        // キャッシュを同期的に読むだけ(ViewerViewModel.pageImageInfoCacheのコメント参照。
-        // NSMenu backedのコンテキストメニューは開いている最中に内容を非同期更新できないため)。
-        Menu("Get Info") {
-            // Text(...)のままだと非活性(アクションを持たない)項目としてNSMenuに薄いグレーで
-            // 描画され読みづらい(ユーザー報告)。Button(action: {})にして「実行可能な項目」
-            // 扱いにすることで、通常の(白い)メニュー項目と同じ濃さで表示されるようにする
-            // (クリックしても何も起きないだけで、情報表示という用途上問題ない)。
-            if let info = viewModel.pageImageInfo(atIndex: infoContextPageIndex) {
-                Button("File Name: \(info.fileName)") {}
-                Button("Format: \(info.formatDescription)") {}
-                Button("Resolution: \(info.pixelWidth) × \(info.pixelHeight) px") {}
-                if let colorModel = info.colorModel {
-                    if let bitDepth = info.bitDepth {
-                        Button("Color: \(colorModel), \(bitDepth)-bit") {}
-                    } else {
-                        Button("Color: \(colorModel)") {}
-                    }
-                }
-                if let fileSizeBytes = info.fileSizeBytes {
-                    Button("File Size: \(ByteCountFormatter.string(fromByteCount: fileSizeBytes, countStyle: .file))") {}
-                }
-            } else {
-                Text("Loading…")
-            }
+        // 解像度・色情報・ファイルサイズ、いずれもヘッダーから分かる範囲)を表示する。対象ページの
+        // 特定は上のExport Imageサブメニューと同じ考え方(isLastContextClickOnLeftHalfで
+        // クリック位置から一意に決める)。以前はサブメニュー内に「ラベル: 値」を1行ずつ
+        // 並べていたが、ラベルの文字数がまちまちで値の開始位置が揃わず読みづらいという指摘
+        // (ユーザー報告)を受け、Finderの「情報を見る」のように値の先頭が揃うオーバーレイ
+        // パネル(PageInfoPanelView、mainZStack参照)に置き換えた。NSMenu項目はプレーンな
+        // 文字列1本ずつしか持てず列揃えができないための変更。SwiftUIの.popoverはウインドウの
+        // 外にはみ出す吹き出しとして表示され意図と異なる(ユーザー報告)ため使っていない。
+        Button("Get Info") {
+            isShowingPageInfoPanel = true
         }
 
         Divider()

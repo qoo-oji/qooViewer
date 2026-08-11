@@ -16,6 +16,11 @@ protocol ArchiveReading {
     nonisolated func listFilePaths() throws -> [String]
     /// 指定パスのファイルをDataとして取り出す
     nonisolated func data(at path: String) throws -> Data
+    /// 指定エントリの作成日時・更新日時(コンテキストメニュー「情報を見る」、ユーザー要望向け)。
+    /// アーカイブ形式によって保持している情報が異なる: zip/7zは更新日時のみ(作成日時という
+    /// 概念自体を持たない)、rarは両方持つ。取得できない項目はnil。エントリが見つからない場合は
+    /// 両方nil。
+    nonisolated func entryDates(at path: String) -> (created: Date?, modified: Date?)
 }
 
 /// 対応する画像の拡張子。AVIFはmacOS Sonoma(14)以降でImageIOがシステム全体で

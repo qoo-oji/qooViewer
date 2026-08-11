@@ -39,6 +39,13 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
         return result
     }
 
+    /// zipのセントラルディレクトリはMS-DOS形式の更新日時しか持たず、作成日時という概念が無い
+    /// ため、createdは常にnil(ArchiveReading.entryDates(at:)のコメント参照)。
+    func entryDates(at path: String) -> (created: Date?, modified: Date?) {
+        guard let entry = entryByCorrectedPath[path] else { return (nil, nil) }
+        return (nil, entry.fileAttributes[.modificationDate] as? Date)
+    }
+
     /// 文字化けしていそうな古いzipのパスを、文字コード自動判定で補正する。
     private static func correctedPath(for entry: Entry) -> String {
         let defaultPath = entry.path

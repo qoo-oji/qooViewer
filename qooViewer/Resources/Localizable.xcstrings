@@ -210,6 +210,22 @@
         }
       }
     },
+    "%@ Image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ Image"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@画像"
+          }
+        }
+      }
+    },
     "%d book(s) were skipped because their files couldn't be found." : {
       "localizations" : {
         "en" : {
@@ -298,6 +314,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "%lld × %lld px" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld × %lld px"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld × %lld px"
           }
         }
       }
@@ -587,6 +619,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "すべてのお気に入り・ブックマーク・レイアウト設定・読書履歴を削除しました。qooViewerはこのあと終了します。もう一度起動し直してください。"
+          }
+        }
+      }
+    },
+    "Alpha Channel" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alpha Channel"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アルファチャンネル"
           }
         }
       }
@@ -1531,6 +1579,38 @@
         }
       }
     },
+    "Color Profile" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Color Profile"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カラープロファイル"
+          }
+        }
+      }
+    },
+    "Color Space" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Color Space"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "色空間"
+          }
+        }
+      }
+    },
     "Color: %@" : {
       "localizations" : {
         "en" : {
@@ -1800,6 +1880,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "作成"
+          }
+        }
+      }
+    },
+    "Created" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Created"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作成日"
           }
         }
       }
@@ -2831,6 +2927,22 @@
         }
       }
     },
+    "File Size" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File Size"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルサイズ"
+          }
+        }
+      }
+    },
     "File Size: %@" : {
       "localizations" : {
         "en" : {
@@ -2960,6 +3072,22 @@
         }
       }
     },
+    "Format" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Format"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォーマット"
+          }
+        }
+      }
+    },
     "Format: %@" : {
       "localizations" : {
         "en" : {
@@ -3038,6 +3166,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "一般"
+          }
+        }
+      }
+    },
+    "General Information" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "General Information"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一般情報"
           }
         }
       }
@@ -3755,6 +3899,22 @@
         }
       }
     },
+    "Kind" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kind"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "種類"
+          }
+        }
+      }
+    },
     "Language" : {
       "localizations" : {
         "en" : {
@@ -3884,6 +4044,22 @@
         }
       }
     },
+    "Location" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Location"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "場所"
+          }
+        }
+      }
+    },
     "Loop" : {
       "localizations" : {
         "en" : {
@@ -3962,6 +4138,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "マージ"
+          }
+        }
+      }
+    },
+    "Modified" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modified"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "変更日"
+          }
+        }
+      }
+    },
+    "More Information" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "More Information"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "詳細情報"
           }
         }
       }
@@ -4317,6 +4525,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "1枚だけ次の画像へ"
+          }
+        }
+      }
+    },
+    "No" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "なし"
           }
         }
       }
@@ -5805,6 +6029,22 @@
         }
       }
     },
+    "Resolution" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolution"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "解像度"
+          }
+        }
+      }
+    },
     "Resolution: %lld × %lld px" : {
       "localizations" : {
         "en" : {
@@ -6497,6 +6737,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "単ページ扱いの閾値"
+          }
+        }
+      }
+    },
+    "Size" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Size"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイズ"
           }
         }
       }
@@ -7564,6 +7820,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ウインドウとタブ"
+          }
+        }
+      }
+    },
+    "Yes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yes"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "あり"
           }
         }
       }

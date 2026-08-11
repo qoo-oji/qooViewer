@@ -31,4 +31,11 @@ nonisolated final class SevenZipArchiveReader: ArchiveReading {
         }
         return try archive.extract(entry: entry)
     }
+
+    /// 7zのエントリはSevenZip.Entry.modified(更新日時)しか持たず、作成日時という概念が無い
+    /// ため、createdは常にnil(ArchiveReading.entryDates(at:)のコメント参照)。
+    func entryDates(at path: String) -> (created: Date?, modified: Date?) {
+        guard let entry = entryByPath[path] else { return (nil, nil) }
+        return (nil, entry.modified)
+    }
 }

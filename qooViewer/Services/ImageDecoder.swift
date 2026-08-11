@@ -36,16 +36,17 @@ nonisolated enum ImageDecoder {
     }
 
     /// 画像全体をデコードせず、ヘッダー部分だけから読み取れる情報(ピクセルサイズ・色空間・
-    /// ビット深度)。PageLoader.pageImageInfo(at:)(コンテキストメニュー「情報を見る」、
-    /// ユーザー要望)向け。colorModel/bitDepthはフォーマットによっては取得できないことがある
-    /// (その場合nil)。
+    /// カラープロファイル・アルファチャンネルの有無)。PageLoader.pageImageInfo(at:)
+    /// (コンテキストメニュー「情報を見る」、ユーザー要望)向け。colorModel/colorProfileNameは
+    /// フォーマットによっては取得できないことがある(その場合nil)。
     struct HeaderInfo {
         let pixelWidth: Int
         let pixelHeight: Int
         /// 例: "RGB"、"Gray"、"CMYK"。
         let colorModel: String?
-        /// 1チャンネルあたりのビット数(例: 8)。
-        let bitDepth: Int?
+        /// ICCカラープロファイル名(例: "sRGB IEC61966-2.1")。
+        let colorProfileName: String?
+        let hasAlpha: Bool
     }
 
     /// 画像全体をデコードせず、ヘッダー部分だけを読み取る(CGImageSourceCopyPropertiesAtIndexは
@@ -61,7 +62,8 @@ nonisolated enum ImageDecoder {
             pixelWidth: width,
             pixelHeight: height,
             colorModel: properties[kCGImagePropertyColorModel] as? String,
-            bitDepth: properties[kCGImagePropertyDepth] as? Int
+            colorProfileName: properties[kCGImagePropertyProfileName] as? String,
+            hasAlpha: properties[kCGImagePropertyHasAlpha] as? Bool ?? false
         )
     }
 

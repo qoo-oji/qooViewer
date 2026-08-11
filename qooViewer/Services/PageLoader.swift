@@ -15,8 +15,9 @@ nonisolated final class CGImageBox {
 
 /// 1ページ分の画像ファイル情報(コンテキストメニュー「情報を見る」、ユーザー要望)。
 /// PageLoader.pageImageInfo(at:)が、ピクセルデコードを伴わないヘッダー読み取りだけで
-/// 組み立てる。PDFソースの場合はcolorModel/bitDepth/fileSizeBytesが常にnilになる
-/// (独立した画像ファイルではなく、PDF自体の1ページのため。pageImageInfo(at:)のコメント参照)。
+/// 組み立てる。PDFソースの場合はcolorModel/colorProfileName/hasAlphaChannel/fileSizeBytesが
+/// 常にnilになる(独立した画像ファイルではなく、PDF自体の1ページのため。pageImageInfo(at:)の
+/// コメント参照)。
 struct PageImageInfo {
     let fileName: String
     /// 例: "JPEG"、"PDF"。
@@ -25,10 +26,18 @@ struct PageImageInfo {
     let pixelHeight: Int
     /// 例: "RGB"、"Gray"、"CMYK"。取得できない場合はnil。
     let colorModel: String?
-    /// 1チャンネルあたりのビット数(例: 8)。取得できない場合はnil。
-    let bitDepth: Int?
     /// 画像ファイル自体のバイト数(アーカイブ内エントリは展開後のサイズ)。PDFはnil。
     let fileSizeBytes: Int64?
+    /// ファイル(アーカイブ内エントリの場合はアーカイブファイル自体)が置かれている場所。
+    /// アーカイブ内エントリでは、アーカイブファイルのフルパスにエントリのアーカイブ内
+    /// フォルダパスを続けたもの(pageImageInfo(at:)のコメント参照)。取得できない場合はnil。
+    let location: String?
+    /// アーカイブ形式によっては取得できない(ArchiveReading.entryDates(at:)のコメント参照)。
+    let createdDate: Date?
+    let modifiedDate: Date?
+    /// ICCカラープロファイル名(例: "sRGB IEC61966-2.1")。取得できない場合はnil。
+    let colorProfileName: String?
+    let hasAlphaChannel: Bool?
 }
 
 /// 1冊分のページ画像の読み込みを担当するactor。
@@ -155,35 +164,76 @@ actor PageLoader {
         switch page.source {
         case .pdf(let pdfURL, let pageIndex):
             // PDFのページは独立した画像ファイルではない(PDF自体の1ページ)ため、色空間・
-            // ビット深度・ファイルサイズはページ単位では意味を持たない(nilのまま)。
+            // カラープロファイル・アルファチャンネル・ファイルサイズはページ単位では
+            // 意味を持たない(nilのまま)。場所・作成日・変更日はPDFファイル自体のもの。
             guard let document = pdfDocument(for: pdfURL), let pdfPage = document.page(at: pageIndex + 1) else {
                 return nil
             }
             let box = pdfPage.getBoxRect(.mediaBox)
             guard box.width > 0, box.height > 0 else { return nil }
+            let dates = Self.fileSystemDates(for: pdfURL)
             return PageImageInfo(
                 fileName: page.displayName,
                 formatDescription: "PDF",
                 pixelWidth: Int(box.width.rounded()),
                 pixelHeight: Int(box.height.rounded()),
                 colorModel: nil,
-                bitDepth: nil,
-                fileSizeBytes: nil
+                fileSizeBytes: nil,
+                location: pdfURL.deletingLastPathComponent().path,
+                createdDate: dates.created,
+                modifiedDate: dates.modified,
+                colorProfileName: nil,
+                hasAlphaChannel: nil
             )
-        case .file, .zip, .sevenZip, .rar:
+        case .file(let url):
             guard let data = rawData(for: page.source),
                   let header = ImageDecoder.headerInfo(of: data)
             else { return nil }
+            let dates = Self.fileSystemDates(for: url)
             return PageImageInfo(
                 fileName: page.displayName,
                 formatDescription: Self.imageFormatDescription(forFileName: page.displayName),
                 pixelWidth: header.pixelWidth,
                 pixelHeight: header.pixelHeight,
                 colorModel: header.colorModel,
-                bitDepth: header.bitDepth,
-                fileSizeBytes: Int64(data.count)
+                fileSizeBytes: Int64(data.count),
+                location: url.deletingLastPathComponent().path,
+                createdDate: dates.created,
+                modifiedDate: dates.modified,
+                colorProfileName: header.colorProfileName,
+                hasAlphaChannel: header.hasAlpha
+            )
+        case .zip(let archiveURL, let entryPath), .sevenZip(let archiveURL, let entryPath), .rar(let archiveURL, let entryPath):
+            guard let data = rawData(for: page.source),
+                  let header = ImageDecoder.headerInfo(of: data)
+            else { return nil }
+            let dates = reader(for: archiveURL)?.entryDates(at: entryPath) ?? (created: nil, modified: nil)
+            // アーカイブ内エントリ自身はディスク上のパスを持たないため、アーカイブファイルの
+            // フルパスに、エントリのアーカイブ内フォルダパス(サブフォルダが無ければ空文字列)を
+            // 続けたものを「場所」とする。
+            let internalFolder = (entryPath as NSString).deletingLastPathComponent
+            let location = internalFolder.isEmpty ? archiveURL.path : "\(archiveURL.path)/\(internalFolder)"
+            return PageImageInfo(
+                fileName: page.displayName,
+                formatDescription: Self.imageFormatDescription(forFileName: page.displayName),
+                pixelWidth: header.pixelWidth,
+                pixelHeight: header.pixelHeight,
+                colorModel: header.colorModel,
+                fileSizeBytes: Int64(data.count),
+                location: location,
+                createdDate: dates.created,
+                modifiedDate: dates.modified,
+                colorProfileName: header.colorProfileName,
+                hasAlphaChannel: header.hasAlpha
             )
         }
+    }
+
+    /// url自体(フォルダ内の画像ファイル、またはPDFファイル)の、ファイルシステム上の
+    /// 作成日時・更新日時。取得できない場合はnil(pageImageInfo(at:)向け)。
+    private static func fileSystemDates(for url: URL) -> (created: Date?, modified: Date?) {
+        let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey])
+        return (values?.creationDate, values?.contentModificationDate)
     }
 
     /// ファイル名の拡張子から、表示用のフォーマット名を求める。EpubExporter.imageMediaType

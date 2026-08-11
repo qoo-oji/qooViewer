@@ -31,4 +31,11 @@ nonisolated final class RarArchiveReader: ArchiveReading {
         }
         return try archive.extract(entry)
     }
+
+    /// rarはUnrar.Entryが作成日時(creation)・更新日時(modified)の両方を持つ数少ない
+    /// アーカイブ形式(ArchiveReading.entryDates(at:)のコメント参照)。
+    func entryDates(at path: String) -> (created: Date?, modified: Date?) {
+        guard let entry = entryByFileName[path] else { return (nil, nil) }
+        return (entry.creation, entry.modified)
+    }
 }
