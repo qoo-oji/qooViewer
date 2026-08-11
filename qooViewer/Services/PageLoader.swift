@@ -13,6 +13,24 @@ nonisolated final class CGImageBox {
     }
 }
 
+/// 1ページ分の画像ファイル情報(コンテキストメニュー「情報を見る」、ユーザー要望)。
+/// PageLoader.pageImageInfo(at:)が、ピクセルデコードを伴わないヘッダー読み取りだけで
+/// 組み立てる。PDFソースの場合はcolorModel/bitDepth/fileSizeBytesが常にnilになる
+/// (独立した画像ファイルではなく、PDF自体の1ページのため。pageImageInfo(at:)のコメント参照)。
+struct PageImageInfo {
+    let fileName: String
+    /// 例: "JPEG"、"PDF"。
+    let formatDescription: String
+    let pixelWidth: Int
+    let pixelHeight: Int
+    /// 例: "RGB"、"Gray"、"CMYK"。取得できない場合はnil。
+    let colorModel: String?
+    /// 1チャンネルあたりのビット数(例: 8)。取得できない場合はnil。
+    let bitDepth: Int?
+    /// 画像ファイル自体のバイト数(アーカイブ内エントリは展開後のサイズ)。PDFはnil。
+    let fileSizeBytes: Int64?
+}
+
 /// 1冊分のページ画像の読み込みを担当するactor。
 ///
 /// - アーカイブの読み込み(ArchiveReading)はスレッドセーフではないため、
@@ -126,6 +144,62 @@ actor PageLoader {
         case .file, .zip, .sevenZip, .rar:
             guard let data = rawData(for: book.pages[index].source) else { return nil }
             return ImageDecoder.pixelSize(of: data)
+        }
+    }
+
+    /// コンテキストメニュー「情報を見る」(ユーザー要望)向けに、指定ページの画像ファイル情報を
+    /// 取得する。pageSize(at:)と同じくヘッダー情報の読み取りのみ(ピクセルデコード無し)。
+    func pageImageInfo(at index: Int) async -> PageImageInfo? {
+        guard book.pages.indices.contains(index) else { return nil }
+        let page = book.pages[index]
+        switch page.source {
+        case .pdf(let pdfURL, let pageIndex):
+            // PDFのページは独立した画像ファイルではない(PDF自体の1ページ)ため、色空間・
+            // ビット深度・ファイルサイズはページ単位では意味を持たない(nilのまま)。
+            guard let document = pdfDocument(for: pdfURL), let pdfPage = document.page(at: pageIndex + 1) else {
+                return nil
+            }
+            let box = pdfPage.getBoxRect(.mediaBox)
+            guard box.width > 0, box.height > 0 else { return nil }
+            return PageImageInfo(
+                fileName: page.displayName,
+                formatDescription: "PDF",
+                pixelWidth: Int(box.width.rounded()),
+                pixelHeight: Int(box.height.rounded()),
+                colorModel: nil,
+                bitDepth: nil,
+                fileSizeBytes: nil
+            )
+        case .file, .zip, .sevenZip, .rar:
+            guard let data = rawData(for: page.source),
+                  let header = ImageDecoder.headerInfo(of: data)
+            else { return nil }
+            return PageImageInfo(
+                fileName: page.displayName,
+                formatDescription: Self.imageFormatDescription(forFileName: page.displayName),
+                pixelWidth: header.pixelWidth,
+                pixelHeight: header.pixelHeight,
+                colorModel: header.colorModel,
+                bitDepth: header.bitDepth,
+                fileSizeBytes: Int64(data.count)
+            )
+        }
+    }
+
+    /// ファイル名の拡張子から、表示用のフォーマット名を求める。EpubExporter.imageMediaType
+    /// (forExtension:)と同じ発想(拡張子ベースの簡易判定で十分)。
+    private static func imageFormatDescription(forFileName fileName: String) -> String {
+        let ext = (fileName as NSString).pathExtension.lowercased()
+        switch ext {
+        case "jpg", "jpeg": return "JPEG"
+        case "png": return "PNG"
+        case "gif": return "GIF"
+        case "bmp": return "BMP"
+        case "webp": return "WebP"
+        case "heic": return "HEIC"
+        case "tif", "tiff": return "TIFF"
+        case "avif": return "AVIF"
+        default: return ext.uppercased()
         }
     }
 

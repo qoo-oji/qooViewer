@@ -35,15 +35,42 @@ nonisolated enum ImageDecoder {
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 
-    /// 画像全体をデコードせず、ヘッダーだけからピクセルサイズを読み取る(EPUB書き出し、
-    /// EpubExporterが各ページXHTMLのviewport metaを組み立てるために使う。decode(_:maxPixelSize:)と
-    /// 違いフルデコードを伴わないため、書き出し対象の全ページに対して呼んでも軽量)。
-    static func pixelSize(of data: Data) -> (width: Int, height: Int)? {
+    /// 画像全体をデコードせず、ヘッダー部分だけから読み取れる情報(ピクセルサイズ・色空間・
+    /// ビット深度)。PageLoader.pageImageInfo(at:)(コンテキストメニュー「情報を見る」、
+    /// ユーザー要望)向け。colorModel/bitDepthはフォーマットによっては取得できないことがある
+    /// (その場合nil)。
+    struct HeaderInfo {
+        let pixelWidth: Int
+        let pixelHeight: Int
+        /// 例: "RGB"、"Gray"、"CMYK"。
+        let colorModel: String?
+        /// 1チャンネルあたりのビット数(例: 8)。
+        let bitDepth: Int?
+    }
+
+    /// 画像全体をデコードせず、ヘッダー部分だけを読み取る(CGImageSourceCopyPropertiesAtIndexは
+    /// フォーマットのヘッダー構造体(JPEGのSOFマーカー、PNGのIHDRチャンク等)だけを解析するため、
+    /// 画像の解像度に関わらずほぼ一瞬で終わる)。
+    static func headerInfo(of data: Data) -> HeaderInfo? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? Int,
               let height = properties[kCGImagePropertyPixelHeight] as? Int
         else { return nil }
-        return (width, height)
+        return HeaderInfo(
+            pixelWidth: width,
+            pixelHeight: height,
+            colorModel: properties[kCGImagePropertyColorModel] as? String,
+            bitDepth: properties[kCGImagePropertyDepth] as? Int
+        )
+    }
+
+    /// 画像全体をデコードせず、ヘッダーだけからピクセルサイズを読み取る(EPUB書き出し、
+    /// EpubExporterが各ページXHTMLのviewport metaを組み立てるために使う。decode(_:maxPixelSize:)と
+    /// 違いフルデコードを伴わないため、書き出し対象の全ページに対して呼んでも軽量)。
+    /// headerInfo(of:)の薄いラッパー(ピクセルサイズしか要らない呼び出し元向け)。
+    static func pixelSize(of data: Data) -> (width: Int, height: Int)? {
+        guard let info = headerInfo(of: data) else { return nil }
+        return (info.pixelWidth, info.pixelHeight)
     }
 }

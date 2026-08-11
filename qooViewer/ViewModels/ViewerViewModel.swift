@@ -80,6 +80,16 @@ final class ViewerViewModel: ObservableObject {
     /// 画像を読み込み直さずにこのキャッシュから正確な判定を再利用できる(cachedIsWideImage(at:)
     /// 参照)。未判定のページについては、従来通りの近似にフォールバックする。
     private var wideImageCache: [String: Bool] = [:]
+    /// コンテキストメニュー「情報を見る」(ユーザー要望)向けの、ページごとの画像ファイル情報
+    /// キャッシュ。pageKeyをキーにする(wideImageCacheと同じ考え方)。
+    ///
+    /// SwiftUIのコンテキストメニュー(NSMenu backed)は、開いている最中に内容を非同期に
+    /// 更新する手段が無いため、メニューを開く時点で同期的に参照できる値が必要になる。
+    /// そのため、実際に表示するページが決まるたび(loadCurrentSpread)にバックグラウンドで
+    /// 取得してこのキャッシュへ格納しておき(cachePageImageInfo(at:)参照)、コンテキスト
+    /// メニュー自身(ViewerView.contextMenuContent)はpageImageInfo(atIndex:)でこの
+    /// キャッシュを読むだけにする。
+    private var pageImageInfoCache: [String: PageImageInfo] = [:]
     /// 「ブックマーク・レイアウトの編集」ウインドウ(LayoutStore、この本を今開いていなくても
     /// 操作できる独立ウインドウ)側でこの本のレイアウト設定が変更されたときに、pageLayoutStates/
     /// bookLayoutSettingsを読み直すための監視トークン。bookmarksChangeObserverと同じ考え方
@@ -1135,6 +1145,13 @@ final class ViewerViewModel: ObservableObject {
         // 記録しておく(lastDisplayedPageRangeのコメント参照)。
         lastDisplayedPageRange = targetIndex..<(targetIndex + images.count)
 
+        // コンテキストメニュー「情報を見る」(ユーザー要望)向けに、実際に表示するページの
+        // 画像ファイル情報をバックグラウンドで取得しておく(pageImageInfoCacheのコメント参照)。
+        cachePageImageInfo(at: targetIndex)
+        if images.count > 1 {
+            cachePageImageInfo(at: targetIndex + 1)
+        }
+
         // キャンセル済みなら、先読み(周辺ページのデコード)は行わずここで打ち切る。
         // これも「古いリクエストが最新のリクエストのデコード処理待ちを引き起こす」ことを防ぐため。
         guard !Task.isCancelled, prefetch else { return }
@@ -1165,6 +1182,27 @@ final class ViewerViewModel: ObservableObject {
     private func cachedIsWideImage(at index: Int) -> Bool? {
         guard book.pages.indices.contains(index) else { return nil }
         return wideImageCache[book.pages[index].sortKey]
+    }
+
+    /// コンテキストメニュー「情報を見る」(ユーザー要望)から、指定ページの画像ファイル情報を
+    /// 同期的に参照する。pageImageInfoCacheのコメント参照。まだ取得できていない場合はnilを
+    /// 返す(通常は現在表示中のページのため、loadCurrentSpreadの時点で取得を開始しており、
+    /// メニューを開くまでには揃っているはず)。
+    func pageImageInfo(atIndex index: Int) -> PageImageInfo? {
+        guard book.pages.indices.contains(index) else { return nil }
+        return pageImageInfoCache[book.pages[index].sortKey]
+    }
+
+    /// indexのページの画像ファイル情報を取得し、pageImageInfoCacheへ格納する。既に取得済みの
+    /// ページは何もしない(同じページに何度も右クリックしても取得し直さない)。
+    private func cachePageImageInfo(at index: Int) {
+        guard book.pages.indices.contains(index) else { return }
+        let key = book.pages[index].sortKey
+        guard pageImageInfoCache[key] == nil else { return }
+        Task { [weak self] in
+            guard let self, let info = await self.pageLoader.pageImageInfo(at: index) else { return }
+            self.pageImageInfoCache[key] = info
+        }
     }
 
     /// index付近(前後radius枚)のうち、まだwideImageCacheに判定結果が無いページについて、

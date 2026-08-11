@@ -904,6 +904,13 @@ struct ViewerView: View {
         return viewModel.readingDirection == .rightToLeft ? viewModel.currentIndex : partnerPageIndex
     }
 
+    /// コンテキストメニュー「情報を見る」(ユーザー要望)向け、右クリック位置(isLastContextClickOnLeftHalf)
+    /// から一意に決まる対象ページのインデックス。spreadLeftPageIndex/spreadRightPageIndexと同じ考え方
+    /// だが、こちらはクリックされた側(左半分なら左ページ、右半分なら右ページ)を返す。
+    private var infoContextPageIndex: Int {
+        isLastContextClickOnLeftHalf ? spreadLeftPageIndex : spreadRightPageIndex
+    }
+
     /// 現在の見開き(単ページ表示中は1枚だけ)に、ブックマークが1件でも付いているかどうか。
     /// ツールバー・コンテキストメニューの追加/削除トグルボタンの見た目・文言・動作を
     /// 切り替えるために使う。以前はcurrentIndex(見開きの起点ページ)だけを見ていたが、
@@ -1258,6 +1265,37 @@ struct ViewerView: View {
                 Button("Export This Page…") {
                     exportImage(.singlePage(index: viewModel.currentIndex))
                 }
+            }
+        }
+
+        // ユーザー要望: 右クリックしたページの画像ファイル情報(ファイル名・フォーマット・
+        // 解像度・色情報・ファイルサイズ、いずれもヘッダーから分かる範囲)をサブメニューとして
+        // 表示する。対象ページの特定は上のExport Imageサブメニューと同じ考え方
+        // (isLastContextClickOnLeftHalfでクリック位置から一意に決める)。
+        // 実際の情報はviewModel.pageImageInfo(atIndex:)がバックグラウンドで取得済みの
+        // キャッシュを同期的に読むだけ(ViewerViewModel.pageImageInfoCacheのコメント参照。
+        // NSMenu backedのコンテキストメニューは開いている最中に内容を非同期更新できないため)。
+        Menu("Get Info") {
+            // Text(...)のままだと非活性(アクションを持たない)項目としてNSMenuに薄いグレーで
+            // 描画され読みづらい(ユーザー報告)。Button(action: {})にして「実行可能な項目」
+            // 扱いにすることで、通常の(白い)メニュー項目と同じ濃さで表示されるようにする
+            // (クリックしても何も起きないだけで、情報表示という用途上問題ない)。
+            if let info = viewModel.pageImageInfo(atIndex: infoContextPageIndex) {
+                Button("File Name: \(info.fileName)") {}
+                Button("Format: \(info.formatDescription)") {}
+                Button("Resolution: \(info.pixelWidth) × \(info.pixelHeight) px") {}
+                if let colorModel = info.colorModel {
+                    if let bitDepth = info.bitDepth {
+                        Button("Color: \(colorModel), \(bitDepth)-bit") {}
+                    } else {
+                        Button("Color: \(colorModel)") {}
+                    }
+                }
+                if let fileSizeBytes = info.fileSizeBytes {
+                    Button("File Size: \(ByteCountFormatter.string(fromByteCount: fileSizeBytes, countStyle: .file))") {}
+                }
+            } else {
+                Text("Loading…")
             }
         }
 
