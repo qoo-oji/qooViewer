@@ -276,6 +276,12 @@ struct ViewerView: View {
             // 別のNSWindowとして表示されるため、event.windowがhostWindowと一致せず、
             // ここでの処理には影響しない)。
             guard let hostWindow, event.window === hostWindow else { return event }
+            // サムネイル一覧(ThumbnailGridView)を表示している間は、スクロール/スワイプによる
+            // ページ送りやキーボードショートカットが背後の本へ影響しないようにする(以前は
+            // 独立したシートとして表示していたため、シート自身が別ウインドウ扱いとなり
+            // event.window（上のガード）が一致せず自動的に素通りしていた。同一ウインドウ内の
+            // 重ね表示に変更したことに伴い、ここで明示的に無視する必要がある)。
+            guard !showThumbnailGrid else { return event }
             switch event.type {
             case .scrollWheel:
                 // トラックパッド(またはMagic Mouseなど)由来のスクロールイベントには
@@ -353,6 +359,7 @@ struct ViewerView: View {
             matching: [.rightMouseDown, .leftMouseDown]
         ) { (event: NSEvent) -> NSEvent? in
             guard let hostWindow, event.window === hostWindow else { return event }
+            guard !showThumbnailGrid else { return event }
             let isRightMouseDown: Bool = event.type == .rightMouseDown
             let isControlClick: Bool = event.type == .leftMouseDown && event.modifierFlags.contains(.control)
             let isContextMenuClick: Bool = isRightMouseDown || isControlClick
@@ -615,8 +622,28 @@ struct ViewerView: View {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
                 .zIndex(1)
             }
+
+            // ページ一覧(サムネイルグリッド)。以前は独立したシート(.sheet)として表示していたが、
+            // ユーザー要望により「閉じる」ボタンと並び替え機能を廃止し、代わりにこのパネルの
+            // 外側(ビューア画面)をクリックすると閉じるようにした。パネル自体は以前のシートと
+            // 同じく5列表示に必要な幅だけに留め(ThumbnailGridView.panelWidth参照)、
+            // ビューア画面いっぱいには広げない(ユーザー要望)。そのため、ツールバー・
+            // プログレスバー・pageAreaを含むビューア画面全体を覆う透明な背景レイヤー
+            // (ThumbnailGridBackdropView)をこのZStackの最前面(トースト表示より上、zIndex参照)へ
+            // 重ね、その上にパネル本体を中央揃えで置く2段構成にしている。表示中はスクロール/
+            // スワイプ/キーボードショートカットが背後の本へ影響しないよう、makeScrollMonitor/
+            // makeContextClickMonitor側でもshowThumbnailGridを見て無視している。
+            if showThumbnailGrid {
+                ZStack {
+                    ThumbnailGridBackdropView(isPresented: $showThumbnailGrid)
+                    ThumbnailGridView(viewModel: viewModel, isPresented: $showThumbnailGrid)
+                }
+                .transition(.opacity)
+                .zIndex(2)
+            }
         }
         .animation(.easeInOut(duration: 0.2), value: toastMessage)
+        .animation(.easeInOut(duration: 0.15), value: showThumbnailGrid)
         .background(preferences.backgroundColorOption.color)
         .background(WindowAccessor { window in
             guard hostWindow !== window else { return }
@@ -691,9 +718,6 @@ struct ViewerView: View {
     @ViewBuilder
     private func applySheets<Content: View>(to content: Content) -> some View {
         content
-            .sheet(isPresented: $showThumbnailGrid) {
-                ThumbnailGridView(viewModel: viewModel)
-            }
             // 「ブックマークの編集」は、以前はここに.sheetとして表示していたが、
             // 「お気に入りの整理」ウインドウと見た目・操作感を揃えるため、独立ウインドウ
             // (Window("Edit Bookmarks", id: "editBookmarks"))へ変更した。表示自体は

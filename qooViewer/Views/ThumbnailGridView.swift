@@ -4,54 +4,96 @@ import Combine
 
 /// ページのサムネイル一覧画面(cooViewerの「一覧表示画面」に相当)。
 /// クリックでそのページへジャンプする。
+///
+/// 以前は独立したシート(.sheet)として表示し、「閉じる」ボタンか並び順を反転するボタンを
+/// ツールバーに持っていたが、ユーザー要望により「閉じる」ボタンと並び替え機能を廃止し、
+/// 代わりにビューア画面(このパネルの外側)をクリックすると閉じるようにした。そのため
+/// シートではなくViewerView.mainZStack内の1レイヤーとして重ねて表示する形に変更し
+/// (ViewerView.applySheets/mainZStackのコメント参照)、閉じる操作は`@Environment(\.dismiss)`
+/// ではなく`isPresented`(呼び出し元のshowThumbnailGrid)を直接falseにする形にしている。
+///
+/// パネル自体の大きさは、以前のシートと同じく5列表示に必要な幅(gridWidth)だけに留め、
+/// ビューア画面いっぱいには広げない(ユーザー要望: 以前のシートのように、5列表示に必要な
+/// 幅だけのオーバーレイにしたい)。ビューア画面いっぱいを覆う透明な背景レイヤーは、この
+/// ビュー自身ではなくViewerView.mainZStack側(ThumbnailGridBackdropView)が担当し、
+/// 「パネルの外側=ビューア画面のどこをクリックしても閉じる」を実現している。
 struct ThumbnailGridView: View {
     @ObservedObject var viewModel: ViewerViewModel
-    @Environment(\.dismiss) private var dismiss
-    @State private var reversed = false
+    @Binding var isPresented: Bool
 
     /// ユーザー要望: 列数がウインドウ幅に応じて変わる(.adaptive)と、リサイズのたびに
     /// 折り返し位置が変わって「さっきまであったページがどこに行ったか分からなくなる」ため、
     /// 常に5列で固定表示してほしいとのこと。以前は`GridItem(.adaptive(minimum: 120), spacing: 10)`
     /// (1要素だけをLazyVGridのcolumns:に渡し、幅に応じて列数が自動計算される書き方)だった。
     /// セル自体のサイズ・間隔(120x120、spacing 10)はそのまま維持し、列数だけを5に固定する。
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 5)
+    private static let columnCount = 5
+    private static let cellSize: CGFloat = 120
+    private static let cellSpacing: CGFloat = 10
+    private static let contentPadding: CGFloat = 16
+    /// パネル全体の幅。5列ぶんのセル・列間隔・左右の余白から算出する(ユーザー要望:
+    /// 5列表示に必要な幅だけのオーバーレイにしたい。この幅を超えて広がらないようにする)。
+    private static let panelWidth: CGFloat =
+        CGFloat(columnCount) * cellSize + CGFloat(columnCount - 1) * cellSpacing + contentPadding * 2
 
-    private var orderedIndices: [Int] {
-        let indices = Array(0..<viewModel.pageCount)
-        return reversed ? indices.reversed() : indices
-    }
+    private let columns = Array(
+        repeating: GridItem(.flexible(), spacing: cellSpacing), count: columnCount
+    )
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            (Text("Page List (Total ") + Text("\(viewModel.pageCount)") + Text(" pages)"))
+                .font(.headline)
+                .padding()
+
             ScrollView {
-                LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(orderedIndices, id: \.self) { index in
+                LazyVGrid(columns: columns, spacing: Self.cellSpacing) {
+                    ForEach(0..<viewModel.pageCount, id: \.self) { index in
                         Button {
                             viewModel.jump(toPageIndex: index)
-                            dismiss()
+                            isPresented = false
                         } label: {
                             ThumbnailCell(viewModel: viewModel, index: index, isCurrent: index == viewModel.currentIndex)
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding()
-            }
-            .navigationTitle(Text("Page List (Total ") + Text("\(viewModel.pageCount)") + Text(" pages)"))
-            .toolbar {
-                ToolbarItem(placement: .automatic) {
-                    Button {
-                        reversed.toggle()
-                    } label: {
-                        Label("Reverse Order", systemImage: "arrow.up.arrow.down")
-                    }
-                }
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
-                }
+                .padding(Self.contentPadding)
             }
         }
-        .frame(minWidth: 520, minHeight: 420)
+        // ユーザー要望: 横方向は5列表示に必要な幅だけに留めつつ、縦方向はウインドウいっぱいを
+        // 使いたい。幅は固定(panelWidth)、高さはmaxHeight: .infinityで親(ThumbnailGridBackdropView
+        // と同じZStack)の高さいっぱいまで伸ばす。
+        .frame(width: Self.panelWidth)
+        .frame(maxHeight: .infinity)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .shadow(color: .black.opacity(0.3), radius: 16, y: 8)
+        // パネル自身の背景(タイトル部分やサムネイル間の余白)をクリックしても閉じるようにする。
+        // 各サムネイルは独立したButtonのため、そちらのタップは(SwiftUIの通常のヒットテスト
+        // 優先順位により)このジェスチャーより優先され、意図せず同時に閉じてしまうことはない。
+        // .contentShape(Rectangle())で、余白部分(何も描画されていない領域)も含めた
+        // フレーム全体をタップ判定の対象にする。パネルの外側(ビューア画面)のクリックは
+        // ThumbnailGridBackdropView側が別途処理する。
+        .contentShape(Rectangle())
+        .onTapGesture {
+            isPresented = false
+        }
+    }
+}
+
+/// ThumbnailGridViewの背後に敷く、ビューア画面いっぱいの透明な背景レイヤー。
+/// ユーザー要望: ページ一覧パネルの外側(＝ビューア画面)をクリックしたら閉じるようにしたい。
+/// パネル自体は5列表示に必要な幅だけに留めているため(ThumbnailGridView.panelWidth参照)、
+/// パネルの外側は依然としてビューア画面のクリックとして扱われる必要があり、この透明な
+/// レイヤーがビューア画面全体を覆ってそのクリックを受け止める。
+struct ThumbnailGridBackdropView: View {
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        Color.black.opacity(0.001)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                isPresented = false
+            }
     }
 }
 
