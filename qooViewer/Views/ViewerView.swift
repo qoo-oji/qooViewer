@@ -1263,6 +1263,15 @@ struct ViewerView: View {
 
         Divider()
 
+        // ユーザー要望: 現在の本(ファイルまたはフォルダ)をFinderで開く。
+        // ファイルメニュー(QooViewerApp.swift)と同じ実装(AppState.revealCurrentBookInFinder)を
+        // 共有する。
+        Button("Show in Finder") {
+            appState.revealCurrentBookInFinder()
+        }
+
+        Divider()
+
         Toggle(
             "Slideshow",
             isOn: Binding(

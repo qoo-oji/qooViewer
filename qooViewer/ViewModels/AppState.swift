@@ -414,6 +414,26 @@ final class AppState: ObservableObject {
             await self?.refreshSiblingBooks()
         }
     }
+
+    /// 現在の本(ファイルまたはフォルダ)をFinderで開く(ユーザー要望)。ファイルメニュー・
+    /// コンテキストメニューの両方から呼ばれる共通の実装。
+    ///
+    /// フォルダの本は、中身(画像ファイル一覧)を確認できるようフォルダ自体をFinderで開く。
+    /// 一方アーカイブ・PDF・EPUBなどファイルの本は、Finderで「開く」と既定のアプリ
+    /// (このアプリ自身やアーカイブユーティリティ等)が起動されてしまい、Finderでその場所を
+    /// 確認したいという目的には合わない。そのため、ファイルの場合は親フォルダをFinderで開いた
+    /// うえでそのファイル自体を選択状態にする(NSWorkspace.activateFileViewerSelectingの
+    /// 標準的な「Finderで表示」の挙動。Xcode・Preview等、他の多くのMacアプリの「Finderで表示」
+    /// メニュー項目と同じ動作)。
+    func revealCurrentBookInFinder() {
+        guard let url = currentBook?.sourceURL else { return }
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
+            NSWorkspace.shared.open(url)
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
+    }
 }
 
 /// qooViewerは「新しいウインドウで開く」「新しいタブで開く」により複数ウインドウ/タブを開けるため、

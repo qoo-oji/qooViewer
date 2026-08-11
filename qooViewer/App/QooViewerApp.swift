@@ -282,6 +282,14 @@ struct QooViewerApp: App {
                     }
                 }
 
+                // ユーザー要望: 現在の本(ファイルまたはフォルダ)をFinderで開く。
+                // 「同じフォルダのファイルを開く」と同じ「今の本の場所」に関するグループの
+                // 一員として、間に区切り線を挟まずすぐ下に置く。
+                Button("Show in Finder") {
+                    focusedAppState?.revealCurrentBookInFinder()
+                }
+                .disabled(focusedAppState?.currentBook == nil)
+
                 Divider()
 
                 // グループ4: 開いた履歴から選んで開く
