@@ -888,6 +888,7 @@ struct ViewerView: View {
         .onChange(of: viewModel.displayMode) { _, _ in syncMenuCheckmarkState() }
         .onChange(of: viewModel.readingDirection) { _, _ in syncMenuCheckmarkState() }
         .onChange(of: viewModel.scalingMode) { _, _ in syncMenuCheckmarkState() }
+        .onChange(of: viewModel.isContrastCorrectionEnabled) { _, _ in syncMenuCheckmarkState() }
         // isPageShiftLocked(「1ページだけ送る」のグレーアウト判定)はcurrentIndexにも依存する
         // ため、ページ送り自体でもメニューバーの状態を更新し直す必要がある。「現在のページが
         // ブックマーク済みかどうか」の判定にも使うため、appState.currentPageIndexも合わせて更新する。
@@ -2193,6 +2194,7 @@ struct ViewerView: View {
             displayMode: viewModel.displayMode,
             readingDirection: viewModel.readingDirection,
             scalingMode: viewModel.scalingMode,
+            isContrastCorrectionEnabled: viewModel.isContrastCorrectionEnabled,
             isReadingDirectionLocked: viewModel.isReadingDirectionLocked,
             isDisplayModeLocked: viewModel.isDisplayModeLocked,
             isPageShiftLocked: viewModel.isPageShiftLocked,
@@ -2235,6 +2237,8 @@ struct ViewerView: View {
             viewModel.toggleReadingDirection()
         case .cycleScalingMode:
             viewModel.cycleScalingMode()
+        case .toggleContrastCorrection:
+            viewModel.toggleContrastCorrection()
         case .autoLayoutFromCurrentView:
             // ツールバーのボタン・メニューバー「Layout」の項目と同じ経路(3.1節)。EPUB由来の
             // 権威的なレイアウト指定がある本ではボタン/メニュー項目自体を無効化しているため、

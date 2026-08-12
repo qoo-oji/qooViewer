@@ -1792,6 +1792,22 @@
         }
       }
     },
+    "Contrast Correction" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Contrast Correction"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コントラスト補正"
+          }
+        }
+      }
+    },
     "Could Not Add to Favorites" : {
       "localizations" : {
         "en" : {

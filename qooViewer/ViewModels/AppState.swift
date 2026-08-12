@@ -208,6 +208,10 @@ final class AppState: ObservableObject {
     /// メニューバーの「表示モード切替」サブメニューで、現在のモードにチェックマークを
     /// 表示するための値。
     @Published private(set) var currentScalingMode: ScalingMode = .fitToScreen
+    /// メニューバーの「コントラスト補正(この本)」の左にチェックマークを表示するための、
+    /// 現在の本でこの機能がONかどうか(本単位で記憶。ViewerViewModel.isContrastCorrectionEnabled
+    /// 参照)。isSlideshowActive/isLoupeActiveと同じ仕組み。
+    @Published private(set) var isContrastCorrectionEnabled = false
     /// EPUBが読み方向/見開きを明示している間、またはPDFがDocument Catalogで同等の情報を
     /// 明示している間、メニューバーの該当項目をグレーアウトするための値。
     /// 詳細はViewerViewModel.isReadingDirectionLocked/isDisplayModeLocked/isPageShiftLocked参照。
@@ -265,6 +269,7 @@ final class AppState: ObservableObject {
         displayMode: DisplayMode,
         readingDirection: ReadingDirection,
         scalingMode: ScalingMode,
+        isContrastCorrectionEnabled: Bool,
         isReadingDirectionLocked: Bool,
         isDisplayModeLocked: Bool,
         isPageShiftLocked: Bool,
@@ -278,6 +283,7 @@ final class AppState: ObservableObject {
         self.isSpreadMode = displayMode == .spread
         self.isRightToLeft = readingDirection == .rightToLeft
         self.currentScalingMode = scalingMode
+        self.isContrastCorrectionEnabled = isContrastCorrectionEnabled
         self.isReadingDirectionLocked = isReadingDirectionLocked
         self.isDisplayModeLocked = isDisplayModeLocked
         self.isPageShiftLocked = isPageShiftLocked
@@ -294,6 +300,7 @@ final class AppState: ObservableObject {
         isSpreadMode = false
         isRightToLeft = false
         currentScalingMode = .fitToScreen
+        isContrastCorrectionEnabled = false
         isReadingDirectionLocked = false
         isDisplayModeLocked = false
         isPageShiftLocked = false
@@ -594,6 +601,9 @@ struct MenuCheckmarkState: Equatable {
     var isSpreadMode = false
     var isRightToLeft = false
     var scalingMode: ScalingMode = .fitToScreen
+    /// 現在の本で、古いスキャン本を白黒補正して表示する機能(ユーザー要望、本単位で記憶)が
+    /// ONかどうか。
+    var isContrastCorrectionEnabled = false
     /// EPUBが読み方向/見開きを明示している間trueになり、メニューバーの該当項目を
     /// グレーアウトする(詳細はViewerViewModelの同名プロパティ参照)。
     var isReadingDirectionLocked = false

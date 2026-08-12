@@ -55,6 +55,12 @@ actor PageLoader {
     /// (詳細はupdateBook(_:)のコメント参照)。
     private var book: MangaBook
 
+    /// 本単位で記憶されたコントラスト補正設定(BookLayoutSettings.contrastCorrectionEnabled)。
+    /// trueの間、decodedImage(for:maxPixelSize:)がデコード直後の画像にContrastCorrector.applyを
+    /// かける(カラーページの判定・除外自体はContrastCorrector側が行う)。ViewerViewModelの
+    /// initで本を開いた時点の値を渡し、以後setContrastCorrectionEnabled(_:)で変更を反映する。
+    private var contrastCorrectionEnabled: Bool
+
     private var readers: [String: ArchiveReading] = [:]
     /// PDFファイルごとにCGPDFDocumentを使い回す(アーカイブのreaders同様、actorの外から
     /// 同時に触られることはないため安全に直列化される)。
@@ -87,8 +93,22 @@ actor PageLoader {
         return cache
     }()
 
-    init(book: MangaBook) {
+    init(book: MangaBook, contrastCorrectionEnabled: Bool = false) {
         self.book = book
+        self.contrastCorrectionEnabled = contrastCorrectionEnabled
+    }
+
+    /// この本のコントラスト補正設定(本単位、BookLayoutSettings.contrastCorrectionEnabled)が
+    /// 変わったときにViewerViewModelから呼ぶ。値が実際に変わった場合のみ、imageCache/
+    /// thumbnailCacheを全消去する。既にキャッシュ済みの画像は変更前の設定で(補正あり/なしの
+    /// いずれかに)デコード済みのため、消去して次回アクセス時に新しい設定で再デコードさせないと
+    /// 表示に反映されない。呼び出し元(ViewerViewModel.reloadLayoutData)は、このメソッドの
+    /// 完了後にloadCurrentSpread()を呼んで実際の再表示を行う想定。
+    func setContrastCorrectionEnabled(_ enabled: Bool) {
+        guard contrastCorrectionEnabled != enabled else { return }
+        contrastCorrectionEnabled = enabled
+        imageCache.removeAllObjects()
+        thumbnailCache.removeAllObjects()
     }
 
     /// この本のページ構成(並び順・除外)が変わったとき、呼び出し元(ViewerViewModel)から
@@ -351,10 +371,11 @@ actor PageLoader {
     /// @Sendableクロージャ)へ持ち出さずに使うため、actor内で直接CGImageまで作る
     /// (1ページ分の描画は画像デコードほど重くなく、actorを長時間ブロックする心配は小さい)。
     private func decodedImage(for source: PageSource, maxPixelSize: CGFloat) async -> CGImage? {
+        let decoded: CGImage?
         switch source {
         case .pdf(let pdfURL, let pageIndex):
             guard !Task.isCancelled else { return nil }
-            return renderPDFPage(pdfURL: pdfURL, pageIndex: pageIndex, maxPixelSize: maxPixelSize)
+            decoded = renderPDFPage(pdfURL: pdfURL, pageIndex: pageIndex, maxPixelSize: maxPixelSize)
         case .file, .zip, .sevenZip, .rar:
             guard let data = rawData(for: source) else { return nil }
             guard !Task.isCancelled else { return nil }
@@ -366,8 +387,20 @@ actor PageLoader {
             let decodeTask = Task.detached(priority: .userInitiated) { () -> CGImage? in
                 ImageDecoder.decode(data, maxPixelSize: maxPixelSize)
             }
-            return await decodeTask.value
+            decoded = await decodeTask.value
         }
+
+        guard let decoded else { return nil }
+        guard contrastCorrectionEnabled else { return decoded }
+        guard !Task.isCancelled else { return decoded }
+        // 補正自体(ダウンサンプルでの分析+GPUでのレベル補正)も相応にCPU/GPU負荷があるため、
+        // decodeTaskと同じくactorの外(バックグラウンドタスク)へ逃がし、他のページの
+        // リクエストをここで足止めしないようにする。ContrastCorrector.applyはカラーページの
+        // 判定・除外も内部で行うため、ここでは常に呼ぶだけでよい。
+        let correctionTask = Task.detached(priority: .userInitiated) { () -> CGImage in
+            ContrastCorrector.apply(to: decoded)
+        }
+        return await correctionTask.value
     }
 
     private func rawData(for source: PageSource) -> Data? {

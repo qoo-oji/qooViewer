@@ -45,6 +45,9 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
     case toggleDisplayMode
     case toggleReadingDirection
     case cycleScalingMode
+    /// 古いスキャン本を白黒補正して表示する機能(ユーザー要望)のON/OFF。本単位で記憶する
+    /// (BookLayoutSettings.contrastCorrectionEnabled)。
+    case toggleContrastCorrection
     /// 「現在の表示を基準に自動でレイアウトする」(ツールバーの四角いアイコンのボタン、
     /// メニューバー「Layout」→「Auto-Layout Based on Current View」と同じ操作)。
     /// 本全体を上書きするため、実行すると確認ダイアログを挟む(ViewerView.perform参照)。
@@ -119,6 +122,7 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
         case .toggleDisplayMode: return "Toggle Spread/Single Page"
         case .toggleReadingDirection: return "Switch Reading Direction"
         case .cycleScalingMode: return "Cycle Display Mode"
+        case .toggleContrastCorrection: return "Contrast Correction"
         case .autoLayoutFromCurrentView: return "Auto-Layout Based on Current View"
         case .previousBook: return "Previous Book"
         case .nextBook: return "Next Book"

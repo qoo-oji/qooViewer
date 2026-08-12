@@ -83,6 +83,15 @@ final class BookLayoutSettings {
     var externalCoverBookmarkData: Data?
     var externalCoverFileName: String?
 
+    /// ユーザー要望: 古いスキャン本(紙の黄ばみ等で白黒がくすんで見える)を、きっちりした
+    /// 白黒に見えるよう補正する機能。本単位で記憶し(既定false=補正しない)、ユーザーが
+    /// 明示的にONにした本にしか適用しない。実際の適用はPageLoader/ContrastCorrectorが行い、
+    /// さらにページごとにカラー画像かどうかを判定してカラーページには適用しない
+    /// (ContrastCorrector.swiftのコメント参照)。isBookLevelSettingEmptyには意図的に含めない
+    /// (hasCoverOverride/coverPageKey等と同じ扱い。読み方向・見開き強制・ページ順補正という
+    /// 狭義の「レイアウト」情報ではないため、4.1節の編集ウインドウの絞り込み対象には含めない)。
+    var contrastCorrectionEnabled: Bool = false
+
     var updatedAt: Date = Date()
 
     /// ユーザー要望: レイアウト設定をファイルパスだけでなくファイルノード(iノード番号)でも

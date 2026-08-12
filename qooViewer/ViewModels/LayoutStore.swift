@@ -249,6 +249,15 @@ final class LayoutStore: ObservableObject {
         saveAndNotify(bookID: book.id)
     }
 
+    /// ユーザー要望: 古いスキャン本(紙の黄ばみ等)を、きっちりした白黒に見えるよう補正する機能の
+    /// 本単位でのON/OFF。ViewerViewModel.toggleContrastCorrectionから呼ばれる。
+    func setContrastCorrectionEnabled(for book: MangaBook, _ enabled: Bool) {
+        let settings = existingOrNewSettings(for: book)
+        settings.contrastCorrectionEnabled = enabled
+        settings.updatedAt = Date()
+        saveAndNotify(bookID: book.id)
+    }
+
     /// ページ順序の補正(2.3節)。nilを渡すと自然順ソートに戻す(4.3節「表示順を初期化する」)。
     func setPageOrderOverride(for book: MangaBook, _ order: [String]?) {
         let settings = existingOrNewSettings(for: book)

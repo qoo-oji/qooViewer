@@ -40,6 +40,10 @@ final class ViewerViewModel: ObservableObject {
         }
     }
     @Published private(set) var bookmarks: [Bookmark] = []
+    /// 本単位で記憶された、古いスキャン本を白黒補正して表示する機能(ユーザー要望)のON/OFF。
+    /// BookLayoutSettings.contrastCorrectionEnabledをそのまま反映する(既定false)。実際の適用は
+    /// PageLoader/ContrastCorrectorが行う。toggleContrastCorrection()/reloadLayoutData参照。
+    @Published private(set) var isContrastCorrectionEnabled = false
     @Published private(set) var isSlideshowActive = false
     /// カーソル位置を中心に画像の一部を拡大表示する「ルーペ」が現在表示中かどうか
     /// (toggleLoupe参照)。
@@ -211,7 +215,9 @@ final class ViewerViewModel: ObservableObject {
                 || prepared.book.sourceLayoutHint?.pageProgressionDirection != nil
         )
 
-        self.pageLoader = PageLoader(book: preparedBook)
+        let initialContrastCorrectionEnabled = prepared.settings?.contrastCorrectionEnabled ?? false
+        self.isContrastCorrectionEnabled = initialContrastCorrectionEnabled
+        self.pageLoader = PageLoader(book: preparedBook, contrastCorrectionEnabled: initialContrastCorrectionEnabled)
 
         let bookID = preparedBook.id
 
@@ -797,6 +803,29 @@ final class ViewerViewModel: ObservableObject {
         displayMode = (displayMode == .spread) ? .single : .spread
         persistState()
         reloadAsync()
+    }
+
+    /// 本単位で記憶された、古いスキャン本を白黒補正して表示する機能(ユーザー要望)のON/OFFを
+    /// 切り替える。EPUB/PDF由来のロック(isDisplayModeLocked等)のような「著者側の権威的な
+    /// 指定」に相当するものが無いため、toggleDisplayMode/toggleReadingDirectionと異なりガード
+    /// 条件は無い。
+    ///
+    /// forcedDisplayMode等(BookLayoutEditorViewModel経由でのみ書き込まれる)と異なり、これは
+    /// 表示中のこのビューア自身がBookLayoutSettingsへ直接書き込む初めてのケースのため、
+    /// layoutStoreへの書き込み(他ウインドウにも影響しうる永続化)と、pageLoaderへの反映+
+    /// 再表示(このウインドウの見た目を即座に更新する)を両方その場で行う。layoutStore書き込みは
+    /// Notification.Name.layoutDataDidChange経由でreloadLayoutDataも呼び出すが、そちらは
+    /// isContrastCorrectionEnabledが既にここで更新済みのため差分無しの無害な再確認になるだけ
+    /// (reloadLayoutDataのコメント参照)。
+    func toggleContrastCorrection() {
+        let newValue = !isContrastCorrectionEnabled
+        isContrastCorrectionEnabled = newValue
+        layoutStore.setContrastCorrectionEnabled(for: book, newValue)
+        let loader = pageLoader
+        Task { [weak self] in
+            await loader.setContrastCorrectionEnabled(newValue)
+            await self?.loadCurrentSpread()
+        }
     }
 
     func toggleReadingDirection() {
@@ -1616,7 +1645,14 @@ final class ViewerViewModel: ObservableObject {
     ///   自動的にフォールバックする。nil(既定値)の場合は、以前どおり現在表示中のページを
     ///   維持しようとする(読み方向の上書きなど、対象となる特定のページが無い変更向け)。
     private func reloadLayoutData(focusPageKey: String? = nil) {
+        // isContrastCorrectionEnabled(このインスタンスがpageLoaderへ最後に反映した値)を基準に
+        // 差分を取る。bookLayoutSettings(SwiftDataのマネージドオブジェクト)を直接比較しないのは、
+        // toggleContrastCorrectionが同じModelContext上のこのオブジェクトを直接書き換えるため、
+        // 「変更前」を読みたいこの時点で既に新しい値になっており、差分が取れなくなるため。
+        let previousContrastCorrectionEnabled = isContrastCorrectionEnabled
         bookLayoutSettings = layoutStore.bookLayoutSettings(forBookID: book.id)
+        let newContrastCorrectionEnabled = bookLayoutSettings?.contrastCorrectionEnabled ?? false
+        isContrastCorrectionEnabled = newContrastCorrectionEnabled
         var overridesByKey: [String: PageLayoutState] = [:]
         for override in layoutStore.pageOverrides(forBookID: book.id) {
             overridesByKey[override.pageKey] = override.state
@@ -1663,6 +1699,13 @@ final class ViewerViewModel: ObservableObject {
         if let updatedBook {
             Task { [weak self] in
                 guard let self else { return }
+                // コントラスト補正設定が(他ウインドウ等から)変わっていれば、表示の再計算より
+                // 前にpageLoaderへ反映しておく(setContrastCorrectionEnabledがキャッシュを
+                // 消去するため、これより後にloadCurrentSpreadを呼ばないと古い見た目のまま
+                // キャッシュから返ってしまう)。
+                if newContrastCorrectionEnabled != previousContrastCorrectionEnabled {
+                    await self.pageLoader.setContrastCorrectionEnabled(newContrastCorrectionEnabled)
+                }
                 // pageLoader(actor)側のindex基準の参照も、新しいbook.pagesの並びに揃える。
                 // 表示の再計算(loadCurrentSpread)より前に必ず終えておく必要があるため、
                 // 同じTask内で順番に行う。
@@ -1670,10 +1713,14 @@ final class ViewerViewModel: ObservableObject {
                 await self.loadCurrentSpread()
             }
         } else {
-            // 読み方向・見開き強制のロック状態や、focusPageKeyによる表示移動が変わった可能性が
-            // あるため、現在の表示を再計算する。
+            // 読み方向・見開き強制のロック状態や、focusPageKeyによる表示移動、コントラスト補正
+            // 設定が変わった可能性があるため、現在の表示を再計算する。
             Task { [weak self] in
-                await self?.loadCurrentSpread()
+                guard let self else { return }
+                if newContrastCorrectionEnabled != previousContrastCorrectionEnabled {
+                    await self.pageLoader.setContrastCorrectionEnabled(newContrastCorrectionEnabled)
+                }
+                await self.loadCurrentSpread()
             }
         }
     }

@@ -503,6 +503,19 @@ struct QooViewerApp: App {
                 )
                 .disabled(!hasBook || (menuCheckmarkState?.isReadingDirectionLocked ?? false))
 
+                // 古いスキャン本(紙の黄ばみ等)を、きっちりした白黒に見えるよう補正する機能
+                // (ユーザー要望)。本単位で記憶するON/OFFのため、見開き/読み方向と同じ
+                // チェックマーク付きToggle形式にする。EPUB/PDF由来のロックに相当するものが
+                // 無いため、hasBook以外の無効化条件は無い。
+                Toggle(
+                    "Contrast Correction",
+                    isOn: Binding(
+                        get: { menuCheckmarkState?.isContrastCorrectionEnabled ?? false },
+                        set: { _ in focusedAppState?.performViewerAction?(.toggleContrastCorrection) }
+                    )
+                )
+                .disabled(!hasBook)
+
                 // 表示モードの切り替え(画面に合わせる/幅に合わせる/拡大縮小なし)は3択のため、
                 // 単純なON/OFFのToggleではなく、3つから直接選べるサブメニューにし、
                 // 現在選ばれているモードにチェックマークを表示する。
