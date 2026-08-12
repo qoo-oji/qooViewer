@@ -36,6 +36,9 @@ final class ViewerViewModel: ObservableObject {
     @Published private(set) var currentImages: [CGImage] = []
     @Published private(set) var bookmarks: [Bookmark] = []
     @Published private(set) var isSlideshowActive = false
+    /// カーソル位置を中心に画像の一部を拡大表示する「ルーペ」が現在表示中かどうか
+    /// (toggleLoupe参照)。
+    @Published private(set) var isLoupeActive = false
     /// 環境設定「本を再度開いたときの動作」が「問い合わせる」のとき、かつ前回位置が
     /// 先頭でない(=本当に「再開」の余地がある)ときにtrueになる。ViewerViewがこれを見て
     /// 「前回表示したページから再開しますか?」の確認ダイアログを表示する。
@@ -1021,6 +1024,12 @@ final class ViewerViewModel: ObservableObject {
         isSlideshowActive = false
         slideshowTask?.cancel()
         slideshowTask = nil
+    }
+
+    // MARK: - ルーペ
+
+    func toggleLoupe() {
+        isLoupeActive.toggle()
     }
 
     // MARK: - 境界処理(ループ設定)

@@ -121,6 +121,7 @@ struct ContentView: View {
                 hideProgressBar: appState.hideProgressBar,
                 hideSidePanel: appState.hideSidePanel,
                 isSlideshowActive: appState.isSlideshowActive,
+                isLoupeActive: appState.isLoupeActive,
                 isSpreadMode: appState.isSpreadMode,
                 isRightToLeft: appState.isRightToLeft,
                 scalingMode: appState.currentScalingMode,
@@ -614,6 +615,10 @@ struct ContentView: View {
         sidePanelHoverMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { event in
             guard let window = appState.hostWindow, event.window === window else { return event }
             guard preferences.sidePanelFeatureEnabled, appState.hideSidePanel else { return event }
+            // 拡大鏡(ルーペ)表示中は、カーソルを左端に近づけてもサイドパネルを表示させない
+            // (ユーザー要望: 拡大鏡での閲覧を妨げないため。ONにした瞬間の強制非表示は
+            // ViewerViewのisLoupeActiveのonChange側で行う)。
+            guard !appState.isLoupeActive else { return event }
             if appState.isSidePanelRevealed {
                 // + sidePanelHideMargin: パネル右端の幅調整ハンドル(widthDragHitArea)自体が
                 // 境界(sidePanelWidth)ぎりぎりの位置にあるため、余裕を持たせないとハンドルを

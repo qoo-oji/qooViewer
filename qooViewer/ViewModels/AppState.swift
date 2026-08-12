@@ -156,6 +156,9 @@ final class AppState: ObservableObject {
     /// 現在スライドショーが実行中かどうか。ViewerViewが自分自身のViewerViewModelの状態を
     /// ここへ反映する(currentBookmarksと同じ仕組み)。
     @Published private(set) var isSlideshowActive = false
+    /// メニューバーの「Loupe」の左にチェックマークを表示するための、
+    /// 現在ルーペを表示中かどうか。isSlideshowActiveと同じ仕組み。
+    @Published private(set) var isLoupeActive = false
     /// メニューバーの「見開き」の左にチェックマークを表示するための、現在見開き表示かどうか。
     @Published private(set) var isSpreadMode = false
     /// メニューバーの「右から左へ」の左にチェックマークを表示するための、
@@ -218,6 +221,7 @@ final class AppState: ObservableObject {
     /// グレーアウトに使う(currentBookmarksと同じ仕組み)。
     func updateMenuCheckmarkState(
         isSlideshowActive: Bool,
+        isLoupeActive: Bool,
         displayMode: DisplayMode,
         readingDirection: ReadingDirection,
         scalingMode: ScalingMode,
@@ -230,6 +234,7 @@ final class AppState: ObservableObject {
         hasPartnerPageLayoutOverride: Bool
     ) {
         self.isSlideshowActive = isSlideshowActive
+        self.isLoupeActive = isLoupeActive
         self.isSpreadMode = displayMode == .spread
         self.isRightToLeft = readingDirection == .rightToLeft
         self.currentScalingMode = scalingMode
@@ -245,6 +250,7 @@ final class AppState: ObservableObject {
     /// ViewerViewが閉じるとき(本を閉じたとき)に、メニューバーのチェックマーク状態をクリアする。
     func resetMenuCheckmarkState() {
         isSlideshowActive = false
+        isLoupeActive = false
         isSpreadMode = false
         isRightToLeft = false
         currentScalingMode = .fitToScreen
@@ -544,6 +550,7 @@ struct MenuCheckmarkState: Equatable {
     var hideProgressBar = false
     var hideSidePanel = false
     var isSlideshowActive = false
+    var isLoupeActive = false
     var isSpreadMode = false
     var isRightToLeft = false
     var scalingMode: ScalingMode = .fitToScreen

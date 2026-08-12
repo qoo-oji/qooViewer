@@ -463,6 +463,17 @@ struct QooViewerApp: App {
                 )
                 .disabled(!hasBook)
 
+                // ルーペ(qooViewer独自の追加機能)。スライドショーと同じ、実行中かどうかを
+                // チェックマークで表すToggle形式(ユーザー要望: スライドショーと同じ並びに配置)。
+                Toggle(
+                    "Loupe",
+                    isOn: Binding(
+                        get: { menuCheckmarkState?.isLoupeActive ?? false },
+                        set: { _ in focusedAppState?.performViewerAction?(.toggleLoupe) }
+                    )
+                )
+                .disabled(!hasBook)
+
                 Divider()
 
                 // 見開き/単ページも同様に、ON/OFFのチェックマークで表す

@@ -59,6 +59,8 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
     case showBookmarkList
     case showThumbnailGrid
     case toggleSlideshow
+    /// カーソル位置を中心に画像の一部を拡大表示する「ルーペ」の表示/非表示を切り替える。
+    case toggleLoupe
     case showActualSizeLeft
     case showActualSizeRight
     /// 現在の本をお気に入りに追加/削除する(未登録なら登録先フォルダを選ぶダイアログを開いて
@@ -126,6 +128,7 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
         case .showBookmarkList: return "Edit Bookmarks…"
         case .showThumbnailGrid: return "Show Page Grid"
         case .toggleSlideshow: return "Start/Stop Slideshow"
+        case .toggleLoupe: return "Toggle Loupe"
         case .showActualSizeLeft: return "Show Left Page at Actual Size"
         case .showActualSizeRight: return "Show Right Page at Actual Size"
         case .toggleFavorite: return "Toggle Favorite"

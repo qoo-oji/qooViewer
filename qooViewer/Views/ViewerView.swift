@@ -830,9 +830,25 @@ struct ViewerView: View {
                 removeThumbnailGridOutsideClickMonitors()
             }
         }
-        // スライドショー実行中/表示モード/読み方向/拡大縮小モードが変わるたびに、
+        // スライドショー実行中/ルーペ表示中/表示モード/読み方向/拡大縮小モードが変わるたびに、
         // メニューバーの該当項目のチェックマークを最新の状態に更新する。
         .onChange(of: viewModel.isSlideshowActive) { _, _ in syncMenuCheckmarkState() }
+        .onChange(of: viewModel.isLoupeActive) { _, isActive in
+            syncMenuCheckmarkState()
+            // 拡大鏡ON時に、既に自動表示されているツールバー/プログレスバー/サイドパネルが
+            // あれば直ちに隠す(ユーザー要望: マウスが端に近づいたことによる自動表示が
+            // 拡大鏡での閲覧を妨げないようにするため。特にサイドパネル)。次のマウス移動を
+            // 待たずにここで即時反映する(updateAutoHiddenChromeVisibility/
+            // ContentView.installSidePanelHoverMonitorIfNeededのガードは、あくまで
+            // 「今後の自動表示を抑止する」だけで、既に表示中のものは閉じないため)。
+            if isActive {
+                if isAutoHiddenChromeRevealed {
+                    isAutoHiddenChromeRevealed = false
+                }
+                appState.isChromeAutoRevealed = false
+                appState.isSidePanelRevealed = false
+            }
+        }
         .onChange(of: viewModel.displayMode) { _, _ in syncMenuCheckmarkState() }
         .onChange(of: viewModel.readingDirection) { _, _ in syncMenuCheckmarkState() }
         .onChange(of: viewModel.scalingMode) { _, _ in syncMenuCheckmarkState() }
@@ -1460,6 +1476,14 @@ struct ViewerView: View {
         )
 
         Toggle(
+            "Loupe",
+            isOn: Binding(
+                get: { viewModel.isLoupeActive },
+                set: { _ in perform(.toggleLoupe) }
+            )
+        )
+
+        Toggle(
             "Full Screen",
             isOn: Binding(
                 get: { isFullScreen },
@@ -1573,6 +1597,24 @@ struct ViewerView: View {
                     }
                 }
             }
+            // 拡大鏡(ルーペ)。imagesRow自身に重ねることで、画面に収めるモードでの中央寄せ・
+            // 横幅フィット/拡大縮小しないモードでのScrollView内スクロールのどちらでも、
+            // SwiftUIのレイアウトが自動的に画像そのものと同じ位置・サイズに揃えてくれる
+            // (LoupeOverlayView.swift参照)。
+            .overlay {
+                if viewModel.isLoupeActive {
+                    LoupeOverlayView(
+                        slots: orderedSlots,
+                        slotWidths: orderedSlots.map {
+                            displayWidth(for: $0, atHeight: referenceHeight, mirrorAspectRatio: mirrorAspectRatio) * scale
+                        },
+                        contentHeight: referenceHeight * scale,
+                        magnification: CGFloat(preferences.loupeMagnificationPercent / 100),
+                        diameter: preferences.loupeDiameter,
+                        onDismiss: { viewModel.toggleLoupe() }
+                    )
+                }
+            }
 
             ZStack {
                 if viewModel.scalingMode == .fitToScreen {
@@ -1624,7 +1666,15 @@ struct ViewerView: View {
                 // isClickZoneArmed: ウェルカム画面からのダブルクリックの2回目のクリックを
                 // 読み捨てるため、本を開いた直後の一定時間はヒットテスト自体を無効にする
                 // (詳細はisClickZoneArmedのコメント参照)。
-                .allowsHitTesting(viewModel.scalingMode == .fitToScreen && isClickZoneArmed)
+                // 拡大鏡(ルーペ)表示中は、クリックをページ送りではなく拡大鏡を閉じる操作に
+                // 使いたい(ユーザー要望)。ClickZoneAreaはimagesRow(のoverlayとして重ねている
+                // LoupeOverlayView)よりもZStack内で後ろに宣言されているためヒットテストの
+                // 優先度が高く、何もしないとクリックがここで奪われてLoupeOverlayView側の
+                // mouseDown(拡大鏡を閉じる処理)まで届かない。拡大鏡表示中はここのヒット
+                // テスト自体を無効化し、下にあるLoupeOverlayViewへクリックを通す。
+                .allowsHitTesting(
+                    viewModel.scalingMode == .fitToScreen && isClickZoneArmed && !viewModel.isLoupeActive
+                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1991,6 +2041,15 @@ struct ViewerView: View {
     /// カーソルのx座標と同様、実際に表示が変わる(=真偽値が反転する)ときだけ@Stateを
     /// 書き換える(過去のプログレスバーの不具合の反省を踏まえた安全策)。
     private func updateAutoHiddenChromeVisibility(forMouseLocationInWindow location: CGPoint) {
+        // 拡大鏡(ルーペ)表示中は、カーソルを画面の上下端に近づけてもツールバー/
+        // プログレスバーを自動表示させない(ユーザー要望: 拡大鏡での閲覧を妨げないため)。
+        guard !appState.isLoupeActive else {
+            if isAutoHiddenChromeRevealed {
+                isAutoHiddenChromeRevealed = false
+            }
+            appState.isChromeAutoRevealed = false
+            return
+        }
         guard isFullScreen || appState.hideToolbar || appState.hideProgressBar,
               hostWindow != nil else {
             // 自動隠し自体が無効なときは、サイドパネル側から見て「ツールバー/プログレスバーが
@@ -2031,6 +2090,7 @@ struct ViewerView: View {
     private func syncMenuCheckmarkState() {
         appState.updateMenuCheckmarkState(
             isSlideshowActive: viewModel.isSlideshowActive,
+            isLoupeActive: viewModel.isLoupeActive,
             displayMode: viewModel.displayMode,
             readingDirection: viewModel.readingDirection,
             scalingMode: viewModel.scalingMode,
@@ -2099,6 +2159,8 @@ struct ViewerView: View {
             showThumbnailGrid = true
         case .toggleSlideshow:
             viewModel.toggleSlideshow()
+        case .toggleLoupe:
+            viewModel.toggleLoupe()
         case .showActualSizeLeft:
             showActualSizeWindow(forLeftPage: true)
         case .showActualSizeRight:

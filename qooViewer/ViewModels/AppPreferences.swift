@@ -10,6 +10,8 @@ final class AppPreferences: ObservableObject {
         static let launchFullScreen = "qooViewer.pref.launchFullScreen"
         static let loopBehavior = "qooViewer.pref.loopBehavior"
         static let maxUpscalePercent = "qooViewer.pref.maxUpscalePercent"
+        static let loupeMagnificationPercent = "qooViewer.pref.loupeMagnificationPercent"
+        static let loupeDiameter = "qooViewer.pref.loupeDiameter"
         static let interpolationQuality = "qooViewer.pref.interpolationQuality"
         static let autoHideCursor = "qooViewer.pref.autoHideCursor"
         static let slideshowInterval = "qooViewer.pref.slideshowInterval"
@@ -61,6 +63,14 @@ final class AppPreferences: ObservableObject {
     /// 画像が画面より小さいとき、最大何%まで拡大して表示するか(100〜500)
     @Published var maxUpscalePercent: Double {
         didSet { UserDefaults.standard.set(maxUpscalePercent, forKey: Keys.maxUpscalePercent) }
+    }
+    /// ルーペの拡大率(%)
+    @Published var loupeMagnificationPercent: Double {
+        didSet { UserDefaults.standard.set(loupeMagnificationPercent, forKey: Keys.loupeMagnificationPercent) }
+    }
+    /// ルーペの表示直径(pt)
+    @Published var loupeDiameter: Double {
+        didSet { UserDefaults.standard.set(loupeDiameter, forKey: Keys.loupeDiameter) }
     }
     /// 拡大縮小時の補間品質
     @Published var interpolationQuality: InterpolationQuality {
@@ -269,6 +279,9 @@ final class AppPreferences: ObservableObject {
         self.launchFullScreen = defaults.object(forKey: Keys.launchFullScreen) as? Bool ?? false
         self.loopBehavior = LoopBehavior(rawValue: defaults.string(forKey: Keys.loopBehavior) ?? "") ?? .none
         self.maxUpscalePercent = defaults.object(forKey: Keys.maxUpscalePercent) as? Double ?? 200
+        self.loupeMagnificationPercent =
+            defaults.object(forKey: Keys.loupeMagnificationPercent) as? Double ?? 250
+        self.loupeDiameter = defaults.object(forKey: Keys.loupeDiameter) as? Double ?? 220
         self.interpolationQuality = InterpolationQuality(rawValue: defaults.string(forKey: Keys.interpolationQuality) ?? "") ?? .high
         self.autoHideCursor = defaults.object(forKey: Keys.autoHideCursor) as? Bool ?? true
         self.slideshowInterval = defaults.object(forKey: Keys.slideshowInterval) as? Double ?? 5

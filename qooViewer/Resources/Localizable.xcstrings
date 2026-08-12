@@ -8227,6 +8227,106 @@
           }
         }
       }
+    },
+    "Diameter of the loupe." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diameter of the loupe."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡大鏡の直径です。"
+          }
+        }
+      }
+    },
+    "How much the loupe enlarges the image under the cursor." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How much the loupe enlarges the image under the cursor."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カーソル位置の画像を拡大鏡でどれだけ拡大するかです。"
+          }
+        }
+      }
+    },
+    "Loupe" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loupe"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡大鏡"
+          }
+        }
+      }
+    },
+    "Loupe Magnification" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loupe Magnification"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡大鏡の倍率"
+          }
+        }
+      }
+    },
+    "Loupe Size" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loupe Size"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡大鏡のサイズ"
+          }
+        }
+      }
+    },
+    "Toggle Loupe" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toggle Loupe"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡大鏡を表示/非表示"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

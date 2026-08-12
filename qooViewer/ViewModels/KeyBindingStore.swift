@@ -60,6 +60,9 @@ final class KeyBindingStore: ObservableObject {
         RemappableKey.optionCharacter("a").id: .toggleFavorite,
         RemappableKey.optionCharacter("b").id: .showFavoritesOrganizer,
         RemappableKey.character("g").id: .toggleSlideshow,
+        // ルーペ(qooViewer独自の追加機能)。cooViewerに対応する操作が無いため、
+        // 他の既定キーと衝突しないlキーを新規に割り当てている(ユーザー要望: 既定はLキー)。
+        RemappableKey.character("l").id: .toggleLoupe,
         RemappableKey.character("s").id: .toggleDisplayMode,
         RemappableKey.character("r").id: .toggleReadingDirection,
         RemappableKey.character("f").id: .cycleScalingMode,

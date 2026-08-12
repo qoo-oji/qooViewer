@@ -50,7 +50,7 @@ struct KeyBindingSettingsView: View {
         let bookmarkGroup: [ViewerAction] = [.toggleBookmark, .nextBookmark, .previousBookmark, .showBookmarkList]
         let favoriteGroup: [ViewerAction] = [.toggleFavorite, .showFavoritesOrganizer]
         let slideshowAndActualSizeGroup: [ViewerAction] = [
-            .toggleSlideshow, .showActualSizeLeft, .showActualSizeRight,
+            .toggleSlideshow, .toggleLoupe, .showActualSizeLeft, .showActualSizeRight,
         ]
         let bookNavigationGroup: [ViewerAction] = [.previousBook, .nextBook]
         let hidden: [ViewerAction] = [.showFavoritesList]

@@ -39,6 +39,29 @@ struct RenderingSettingsView: View {
 
             Section {
                 SettingsSlider(
+                    "Loupe Magnification",
+                    value: $preferences.loupeMagnificationPercent,
+                    in: 150...400,
+                    step: 10,
+                    caption: "How much the loupe enlarges the image under the cursor."
+                ) { value in
+                    "\(Int(value))%"
+                }
+                SettingsSlider(
+                    "Loupe Size",
+                    value: $preferences.loupeDiameter,
+                    in: 120...400,
+                    step: 10,
+                    caption: "Diameter of the loupe."
+                ) { value in
+                    "\(Int(value))pt"
+                }
+            } header: {
+                Text("Loupe")
+            }
+
+            Section {
+                SettingsSlider(
                     "Single-Page Threshold",
                     value: $preferences.singlePageAspectRatioThreshold,
                     in: 0.5...3.0,
