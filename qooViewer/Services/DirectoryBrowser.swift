@@ -57,6 +57,19 @@ nonisolated enum DirectoryBrowser {
         }
     }
 
+    /// directory直下(サブフォルダは見ない)に画像ファイルが1つでもあるかどうか。
+    /// サイドパネルの「開く・移動をダブルクリックにする」設定時、フォルダへのダブル
+    /// クリックが「画像フォルダとして本を開く」「フォルダへ移動する」のどちらになるかを
+    /// 判定するために使う(ユーザー要望: 直下に画像があれば本として開き、無ければ移動)。
+    /// 見つかり次第すぐ打ち切るため、最初の1件を探すだけの軽い処理(全件列挙・ソートは
+    /// 行わない)。読み取れない場合はfalse(その場合はSidePanelView側で「移動」扱いになる)。
+    static func directlyContainsImageFile(_ directory: URL) -> Bool {
+        guard let children = try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+        ) else { return false }
+        return children.contains { isImageFile($0.lastPathComponent) }
+    }
+
     /// 上記をメインスレッド外(Task.detached)で実行する版。SiblingFinder.siblingBookURLsAsyncと
     /// 同じ形。エラーはそのまま呼び出し側へ伝播する。
     static func entriesAsync(in directory: URL) async throws -> [Entry] {

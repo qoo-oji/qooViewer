@@ -32,6 +32,7 @@ final class AppPreferences: ObservableObject {
         static let hideSidePanel = "qooViewer.pref.hideSidePanel"
         static let sidePanelWidth = "qooViewer.pref.sidePanelWidth"
         static let sidePanelFeatureEnabled = "qooViewer.pref.sidePanelFeatureEnabled"
+        static let sidePanelUsesDoubleClick = "qooViewer.pref.sidePanelUsesDoubleClick"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
         static let showRecentFilesOnWelcome = "qooViewer.pref.showRecentFilesOnWelcome"
         static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
@@ -195,6 +196,18 @@ final class AppPreferences: ObservableObject {
     @Published var sidePanelFeatureEnabled: Bool {
         didSet { UserDefaults.standard.set(sidePanelFeatureEnabled, forKey: Keys.sidePanelFeatureEnabled) }
     }
+    /// 環境設定「一般」タブの、サイドパネルの「開く」「移動する」操作をダブルクリックにする
+    /// かどうか(既定OFF=シングルクリック)。OFF(既定)では、上段のファイル行・フォルダの
+    /// 「移動」、下段の画像・コンテナ行はすべてシングルクリック、フォルダを画像フォルダとして
+    /// 本を開く操作だけダブルクリック(この2つは同じ行に対する別の操作のため区別が必要)。
+    /// ONにすると「開く」「移動する」のすべてがダブルクリックになる。この場合、上段の
+    /// フォルダだけは「移動する」と「画像フォルダとして開く」の2つの意味をダブルクリック1つで
+    /// 表せないため、直下に画像ファイルがあれば開く、無ければ移動する、という判定に切り替わる
+    /// (DirectoryBrowser.directlyContainsImageFile参照。ユーザー要望)。戻る/進む/1階層上への
+    /// ボタン操作はこの設定に関わらず常にシングルクリックのまま。
+    @Published var sidePanelUsesDoubleClick: Bool {
+        didSet { UserDefaults.standard.set(sidePanelUsesDoubleClick, forKey: Keys.sidePanelUsesDoubleClick) }
+    }
     /// プログレスバーにカーソルを合わせたときに、フィルムストリップ(サムネイル・ファイル名・
     /// ページ番号を含むプレビュー)を表示するかどうか(既定ON)。OFFにすると、サムネイルの
     /// 読み込みは一切行わず、カーソル位置に対応するページ番号だけを表示するシンプルな表示になる
@@ -280,6 +293,7 @@ final class AppPreferences: ObservableObject {
         // 参照する層の逆転を避けるため、ここでは値を直接持たせている)。
         self.sidePanelWidth = defaults.object(forKey: Keys.sidePanelWidth) as? Double ?? 280
         self.sidePanelFeatureEnabled = defaults.object(forKey: Keys.sidePanelFeatureEnabled) as? Bool ?? true
+        self.sidePanelUsesDoubleClick = defaults.object(forKey: Keys.sidePanelUsesDoubleClick) as? Bool ?? false
         self.showProgressBarThumbnailPreview =
             defaults.object(forKey: Keys.showProgressBarThumbnailPreview) as? Bool ?? true
         self.showRecentFilesOnWelcome =

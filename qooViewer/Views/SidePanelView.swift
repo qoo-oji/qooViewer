@@ -19,6 +19,7 @@ struct SidePanelView: View {
     static let defaultWidth: CGFloat = 280
     private static let widthRange: ClosedRange<CGFloat> = 220...480
 
+    @EnvironmentObject private var preferences: AppPreferences
     @ObservedObject var folderState: SidePanelBrowserState
     var bookContentsState: BookContentsBrowserState?
     /// パネルの幅。ContentViewが@Stateとして保持し、Bindingで渡す(ドッキング表示・
@@ -285,13 +286,27 @@ struct SidePanelView: View {
 
         return Group {
             if entry.isDirectory {
-                label
-                    .onTapGesture(count: 2) { onOpen(entry.url) }
-                    .onTapGesture(count: 1) { folderState.navigate(into: entry.url) }
+                if preferences.sidePanelUsesDoubleClick {
+                    // シングルクリックが使えないため、「移動する」「画像フォルダとして開く」の
+                    // 2つの意味をダブルクリック1つに割り当てる必要がある。直下に画像ファイルが
+                    // あれば開く、無ければ移動する、で判定する(ユーザー要望)。
+                    label.onTapGesture(count: 2) { handleFolderDoubleClick(entry) }
+                } else {
+                    label
+                        .onTapGesture(count: 2) { onOpen(entry.url) }
+                        .onTapGesture(count: 1) { folderState.navigate(into: entry.url) }
+                }
             } else {
-                label
-                    .onTapGesture(count: 1) { onOpen(entry.url) }
+                label.onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { onOpen(entry.url) }
             }
+        }
+    }
+
+    private func handleFolderDoubleClick(_ entry: DirectoryBrowser.Entry) {
+        if DirectoryBrowser.directlyContainsImageFile(entry.url) {
+            onOpen(entry.url)
+        } else {
+            folderState.navigate(into: entry.url)
         }
     }
 
@@ -324,6 +339,7 @@ struct SidePanelView: View {
 /// 直接ラップできないため、親(SidePanelView)がbookContentsStateの有無で表示自体を
 /// 出し分け、非nilのときだけこの専用のView(stateを非Optionalで受け取る)を使う構成にしている。
 private struct BookContentsSectionView: View {
+    @EnvironmentObject private var preferences: AppPreferences
     @ObservedObject var state: BookContentsBrowserState
     var bookPages: [PageRef]
     var onOpen: (URL) -> Void
@@ -414,13 +430,15 @@ private struct BookContentsSectionView: View {
         .contentShape(Rectangle())
         .background(isHighlighted ? Color.accentColor.opacity(0.15) : Color.clear)
 
+        // 下段のコンテナ・画像はどちらも1つの意味しか持たない(上段のフォルダのような
+        // 「移動する」「開く」の使い分けが無い)ため、設定に応じてクリック回数を
+        // そのまま切り替えるだけでよい。
+        let clickCount = preferences.sidePanelUsesDoubleClick ? 2 : 1
         return Group {
             if entry.isContainer {
-                label.onTapGesture(count: 1) { state.navigate(entry) }
+                label.onTapGesture(count: clickCount) { state.navigate(entry) }
             } else if entry.isImage {
-                // 他の行(フォルダへ移動、上段のファイルを開く)がすべてシングルクリックの
-                // ため、画像もそれに揃える(ユーザー要望)。
-                label.onTapGesture(count: 1) { handleImageClick(entry) }
+                label.onTapGesture(count: clickCount) { handleImageClick(entry) }
             } else {
                 label
             }

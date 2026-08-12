@@ -8108,6 +8108,40 @@
           }
         }
       }
+    },
+    "Require Double-Click to Open or Navigate" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Require Double-Click to Open or Navigate"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開く・移動をダブルクリックにする"
+          }
+        }
+      }
+    },
+    "Applies to opening files and moving into folders in the side panel. Navigation buttons are unaffected." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies to opening files and moving into folders in the side panel. Navigation buttons are unaffected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドパネルでファイルを開く・フォルダへ移動する操作に適用されます。移動用のボタン操作には影響しません。"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"
