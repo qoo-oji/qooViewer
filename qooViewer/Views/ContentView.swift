@@ -192,6 +192,17 @@ struct ContentView: View {
             removeSidePanelHoverMonitor()
         }
         .background(WindowAccessor { window in
+            // バグ修正(ユーザー報告): SwiftUIは、ウインドウが閉じた後もこのViewをすぐには
+            // 破棄せず、WindowAccessorのコールバックを既に閉じられた(isVisible == false)
+            // ウインドウの参照で改めて呼ぶことがある(実機で確認済み)。ここでガードせずに
+            // appState.hostWindowへ代入してしまうと、observeWindowBecameKey内の
+            // willCloseNotificationハンドラがせっかくnilへ戻したhostWindowが、この後から来る
+            // コールバックによって「閉じたはずのウインドウ」へ逆戻りしてしまう。この結果、
+            // ウインドウを閉じた後もLaunchCoordinator.openAppState(forBookAt:)がこのAppStateを
+            // 「まだ開いている」と誤認し、外部から同じ本を開こうとしたときに、閉じたウインドウを
+            // makeKeyAndOrderFrontしようとするだけで新しいウインドウが作られず、本が表示されない
+            // (ように見える)不具合があった。既に閉じられたウインドウの参照は無視する。
+            guard window == nil || window!.isVisible else { return }
             guard appState.hostWindow !== window else { return }
             appState.hostWindow = window
             // このウインドウがキーウインドウになるたびに、「前回終了時にアクティブだった
@@ -207,13 +218,32 @@ struct ContentView: View {
             // 内部で、画面の「表示可能領域」を基準に位置を自動調整する処理が働き、想定より
             // 余分な余白ができてしまっていたと考えられる)。そのため、ここでは自前でUserDefaultsに
             // 生のフレーム座標(NSStringFromRect)を保存・復元する、より単純で予測可能な方式に
-            // 切り替える。"book"ウインドウグループ(新しいウインドウ/タブで開く。initialURLが
-            // 入る)の方や、タブバーの「+」で追加された新しいタブ(下のonAppear参照)には
-            // 適用したくないため、主ウインドウ自身(1枚目、またはすでにprimaryAppStateとして
-            // 登録済みの自分自身)の場合にだけ適用する。
-            if initialURL == nil,
-               launchCoordinator.primaryAppState == nil || launchCoordinator.primaryAppState === appState,
-               let window {
+            // 切り替える。「新しいウインドウ/タブで開く」やタブバーの「+」で追加された新しいタブ
+            // (下のonAppear参照)には適用したくないため、今このウインドウが主ウインドウ
+            // (launchCoordinator.primaryAppState)自身の場合にだけ適用する。
+            //
+            // バグ修正(ユーザー報告): 以前は`initialURL == nil`も条件に含め、「book」ウインドウ
+            // グループ(newWindow/newTab、およびinitialURL付きで開く場合全般)を一律除外していた。
+            // しかしウインドウをすべて閉じた状態から外部アプリ等で本を開く場合、主ウインドウの
+            // 代わりにinitialURL付きの「book」ウインドウが開かれることがあり(QooViewerApp.
+            // application(_:open:)参照)、この場合に一律除外していたせいで前回のウインドウ位置・
+            // サイズが復元されず、毎回既定の位置で開いてしまう不具合があった。
+            // 「今このウインドウが主ウインドウかどうか」(launchCoordinator.primaryAppState ===
+            // appState)だけで判定するようにすることで、mainウインドウグループかbookウインドウ
+            // グループかに関わらず、実際に主ウインドウの役割を担っているウインドウにだけ正しく
+            // 位置・サイズの復元が適用されるようにした(「新しいウインドウ/タブで開く」で
+            // 追加される、主ウインドウではないbookウインドウは、この時点で
+            // launchCoordinator.primaryAppStateが別のAppStateを指しているため、これまで通り
+            // 対象外のまま)。
+            //
+            // 補足: bookウインドウグループは`.windowResizability(.contentSize)`のため、
+            // この時点(発火が早い)で適用してもSwiftUI自身の自動リサイズに後から上書きされて
+            // しまう。そのため実際に主ウインドウの役割を引き継いだbookウインドウについては、
+            // QooViewerApp.swiftのopenURLInNewWindow側で(自動リサイズが収まった、より遅い
+            // タイミングで)改めて復元している。ここでの呼び出しは、mainウインドウグループ
+            // (.windowResizability(.automatic)で、この早いタイミングでも上書きされない)に対して
+            // 意味を持つ。
+            if launchCoordinator.primaryAppState === appState, let window {
                 restoreMainWindowFrameIfNeeded(window)
                 observeMainWindowFrameChanges(window)
             }
@@ -390,6 +420,9 @@ struct ContentView: View {
 
     /// 主ウインドウのサイズ・位置を記憶するためのUserDefaultsキー。値は
     /// NSStringFromRectで文字列化した生のフレーム座標をそのまま保存する。
+    /// この文字列リテラルは、QooViewerApp.swiftのopenURLInNewWindow(actsAsPrimaryWindow:trueの
+    /// 分岐)でも直接指定されている(ContentViewのインスタンスメソッドをAppDelegate側から
+    /// 呼べないため)。変更する場合はそちらも合わせて変更すること。
     private static let mainWindowFrameDefaultsKey = "qooViewer.mainWindowFrame"
 
     /// 前回終了時に保存しておいたウインドウのフレーム(位置・サイズ)があれば、そのまま
@@ -422,13 +455,48 @@ struct ContentView: View {
     }
 
     /// このウインドウがキーウインドウになるたびに、今表示している本(なければ「本を
-    /// 開いていない状態」)をLastActiveBookStoreに記録する。windowはNotificationCenterへ
-    /// weakに保持されるだけなので、ウインドウが閉じられれば監視も自然に無意味になる。
+    /// 開いていない状態」)をLastActiveBookStoreに記録する。
+    ///
+    /// バグ修正(ユーザー報告): 以前はこの購読を登録するだけでremoveObserverを一切呼んでおらず、
+    /// コメントでは「windowはNotificationCenterへweakに保持されるだけなので、ウインドウが
+    /// 閉じられれば監視も自然に無意味になる」としていたが、これは誤りだった。object:に渡す
+    /// windowはweakに保持されフィルタに使われるだけで、クロージャ自体(とそれが暗黙に
+    /// キャプチャしているappStateを含むこのContentView)はremoveObserverするまで
+    /// NotificationCenterに強参照され続ける。ここでウインドウが閉じる
+    /// (NSWindow.willCloseNotification)タイミングで、自分自身を含む両方の購読を確実に
+    /// removeObserverする。
+    ///
+    /// 合わせて、appState.hostWindow、およびこのウインドウがLaunchCoordinator.primaryAppState
+    /// なら合わせてそちらもnilへ戻す。appStateがLaunchCoordinatorからweakに参照されている
+    /// だけとはいえ、SwiftUIがこのContentViewインスタンス自体の解放をいつ行うかは保証されて
+    /// いない(QooViewerApp.swiftの"main" WindowGroupに`.restorationBehavior(.disabled)`を
+    /// 指定する前は、これが原因でappStateがウインドウを閉じてもすぐには解放されず、
+    /// primaryAppStateが閉じたウインドウを指したまま残る不具合があった)。ここで明示的にnilへ
+    /// 戻しておくことで、解放の実際のタイミングに関わらず即座に「主ウインドウが無い」状態を
+    /// 正しく反映できる。
     private func observeWindowBecameKey(_ window: NSWindow) {
-        NotificationCenter.default.addObserver(
+        var keyToken: NSObjectProtocol?
+        var closeToken: NSObjectProtocol?
+        keyToken = NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
         ) { _ in
             updateLastActiveBookRecordIfKeyWindow()
+        }
+        closeToken = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: window, queue: .main
+        ) { _ in
+            if appState.hostWindow === window {
+                appState.hostWindow = nil
+            }
+            if launchCoordinator.primaryAppState === appState {
+                launchCoordinator.primaryAppState = nil
+            }
+            if let keyToken {
+                NotificationCenter.default.removeObserver(keyToken)
+            }
+            if let closeToken {
+                NotificationCenter.default.removeObserver(closeToken)
+            }
         }
     }
 

@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import AppKit
+import Combine
 
 /// アプリ構造体自体を明示的に@MainActorにしておく。SwiftUIのAppプロトコル自体、bodyなどの
 /// 要求はもともと@MainActorだが、favoritesStoreをModelContext付きで組み立てるための独自init()を
@@ -220,8 +221,8 @@ struct QooViewerApp: App {
                     // Finderから別の本を開こうとしたとき(環境設定「Finderから開いたとき」が
                     // 「新しいタブ/ウインドウで開く」の場合)に、AppDelegate自身は持たない
                     // openWindow環境値を使ってウインドウ/タブを作るための橋渡し。
-                    appDelegate.openInNewWindowOrTab = { url, asTab, tabTarget in
-                        openURLInNewWindow(url, asTab: asTab, tabTarget: tabTarget)
+                    appDelegate.openInNewWindowOrTab = { url, asTab, tabTarget, actsAsPrimaryWindow in
+                        openURLInNewWindow(url, asTab: asTab, tabTarget: tabTarget, actsAsPrimaryWindow: actsAsPrimaryWindow)
                     }
                 }
         }
@@ -235,6 +236,19 @@ struct QooViewerApp: App {
         // 干渉せず、setFrameAutosaveNameによる復元がそのまま反映されるようにする。
         .windowResizability(.automatic)
         .defaultSize(width: 900, height: 640)
+        // バグ修正(ユーザー報告): ウインドウをすべて閉じた状態から外部アプリ等で再アクティブ化
+        // すると、macOSの標準ウインドウ状態復元の仕組みが「前回のmainウインドウを復元する」
+        // つもりで空のウインドウを自動生成することがあり、これが閉じたはずの古いNSWindow
+        // オブジェクトを再利用してしまい、中身(SwiftUIのコンテンツ)が正しく描画されない
+        // (何も表示されない壊れたウインドウになる)不具合が実機で確認された。また、この状態復元の
+        // 仕組みのせいで、ウインドウを閉じてもその中身(@StateObjectのappState)がすぐには
+        // 解放されないという副作用もあった(LaunchCoordinator.primaryAppStateのコメント参照)。
+        // "main"ウインドウグループの状態復元を無効化することで、どちらも解消される
+        // (本を開いていた場合の「前回の本を自動的に開く」機能は、この仕組みには頼っておらず
+        // 独自のLastActiveBookStore/launchOpensLastBook設定で行っているため、影響を受けない。
+        // ウインドウの位置・サイズの記憶も、ContentView側の自前のUserDefaultsベースの仕組み
+        // 〈restoreMainWindowFrameIfNeeded〉によるもので、こちらも影響を受けない)。
+        .restorationBehavior(.disabled)
         .modelContainer(QooViewerApp.modelContainer)
         .commands {
             CommandGroup(replacing: .newItem) {
@@ -306,7 +320,7 @@ struct QooViewerApp: App {
                                 FormatBadgeView.plainTextTitle(baseName: entry.displayName, bookID: entry.url.path)
                             ) {
                                 _ = entry.url.startAccessingSecurityScopedResource()
-                                focusedAppState?.open(url: entry.url)
+                                openURLPreferringFocusedWindow(entry.url)
                             }
                         }
                     }
@@ -752,6 +766,17 @@ struct QooViewerApp: App {
                 .environmentObject(launchCoordinator)
         }
         .windowResizability(.contentSize)
+        // バグ修正(ユーザー報告): "main" WindowGroupと同じ理由で、こちらの状態復元も
+        // 無効化する。当初は"main"だけに適用していたが、AppDelegate.application(_:open:)が
+        // 再利用できるmainウインドウが無いときに、この"book" WindowGroupを主ウインドウの
+        // 代わりとして開く(actsAsPrimaryWindow: true)ようになったことで、"book"ウインドウも
+        // 同じ「ウインドウを閉じてもSwiftUI/AppKitが状態復元のつもりで中身を生かしたまま
+        // 保持し続け、後から同じウインドウが亡霊のように復活してしまう」不具合の対象になった
+        // (実機で確認済み: 閉じたはずのウインドウのonAppearが後から再度発火し、
+        // LaunchCoordinator.openAppState(forBookAt:)がそのゾンビ状態のAppStateを「まだ開いている
+        // ウインドウ」と誤認してしまい、外部から本を開こうとしても新しいウインドウが正しく
+        // 表示されない不具合があった)。
+        .restorationBehavior(.disabled)
         .modelContainer(QooViewerApp.modelContainer)
         .environment(\.locale, locale)
 
@@ -911,18 +936,46 @@ struct QooViewerApp: App {
     /// (preferences.favoriteOpenBehavior)1箇所で挙動を決めるように変更した。
     /// まだ本を表示していない(Welcome画面)場合は、Finderから開いたときと同様、設定に関わらず
     /// 常にそのウインドウでそのまま開く(閉じるべき「現在の本」がそもそも無いため)。
+    ///
+    /// バグ修正(ユーザー報告): 以前はfocusedAppStateだけを見ており、コンテンツウインドウが
+    /// 1枚も無い(すべて閉じた)状態や、コンテンツウインドウはあるが「ブックマークの編集」等の
+    /// 別ウインドウにフォーカスがある状態では、focusedAppStateがnilになりお気に入りを
+    /// クリックしても何も起きなかった。launchCoordinator.frontmostContentAppState()を
+    /// フォールバックとして使い、それも無い(=本当にコンテンツウインドウが1枚も無い)場合は、
+    /// 「最近使ったファイル」(openURLPreferringFocusedWindow参照)と同じく新しいウインドウを
+    /// 開いてそこへ表示する。
     private func openFavoriteAccordingToPreference(_ favorite: FavoriteBook) {
-        guard let focusedAppState, focusedAppState.currentBook != nil else {
-            focusedAppState?.openFavorite(favorite)
+        let targetAppState = focusedAppState ?? launchCoordinator.frontmostContentAppState()
+        guard let targetAppState, targetAppState.currentBook != nil else {
+            if let targetAppState {
+                targetAppState.openFavorite(favorite)
+            } else if let url = favoritesStore.resolvedExistingURL(for: favorite) {
+                openURLInNewWindow(url, asTab: false, tabTarget: nil, actsAsPrimaryWindow: true)
+            }
             return
         }
         switch preferences.favoriteOpenBehavior {
         case .replaceCurrentBook:
-            focusedAppState.openFavorite(favorite)
+            targetAppState.openFavorite(favorite)
         case .newTab:
             openFavorite(favorite, asTab: true)
         case .newWindow:
             openFavorite(favorite, asTab: false)
+        }
+    }
+
+    /// focusedAppStateを最優先しつつ、無ければ「本を表示しているどこかのウインドウ」
+    /// (launchCoordinator.frontmostContentAppState()。「ブックマークの編集」等の
+    /// コンテンツウインドウ以外にフォーカスがあるだけの場合を救う)、それも無ければ
+    /// (=コンテンツウインドウが1枚も無い、すべて閉じた状態を含む)新しいウインドウを開いて
+    /// そこへ開く。「最近使ったファイル」メニューが、コンテンツウインドウにフォーカスが無い
+    /// (0枚を含む)ときに何も起きなくなる不具合の対策(ユーザー報告。お気に入りの同種の不具合は
+    /// openFavoriteAccordingToPreference参照)。
+    private func openURLPreferringFocusedWindow(_ url: URL) {
+        if let target = focusedAppState ?? launchCoordinator.frontmostContentAppState() {
+            target.open(url: url)
+        } else {
+            openURLInNewWindow(url, asTab: false, tabTarget: nil, actsAsPrimaryWindow: true)
         }
     }
 
@@ -938,11 +991,21 @@ struct QooViewerApp: App {
     ///   詳細はAppState.hostWindowのコメント参照)。nilの場合は、これまで通り呼び出し時点の
     ///   NSApp.keyWindowを使う(メニューからの「新しいタブで開く」は、操作時に必ずこのアプリが
     ///   最前面にあるため、この既定の挙動で問題ない)。
+    /// - Parameter actsAsPrimaryWindow: この新しいウインドウが主ウインドウ(LaunchCoordinator.
+    ///   primaryAppState)の役割を引き継ぐ場合はtrue(現状、AppDelegate.application(_:open:)が
+    ///   再利用できる既存のmainウインドウが無いと判断した場合にだけtrueで呼ぶ)。trueの場合、
+    ///   下のカスケード配置は行わない。ContentView.swiftのWindowAccessorが、主ウインドウ自身に
+    ///   対して別途restoreMainWindowFrameIfNeededで前回終了時の位置・サイズを復元するため、
+    ///   ここでカスケード配置(前面にあった何か別のウインドウを基準にした位置)で上書きして
+    ///   しまうと、その復元結果が失われてしまう(実機で確認済みのバグ、ユーザー報告)。
+    ///   呼び出し時点でこの判断が確定しているため、`newWindow`が実際にprimaryAppStateの
+    ///   ウインドウになったかどうかを後から調べる(WindowAccessor経由の非同期反映を待つ必要が
+    ///   あり、タイミングによっては間に合わない)よりも確実。
     ///
     /// なお、指定したURLの本がすでに他のウインドウ/タブで開かれている場合は、新しく
     /// ウインドウ/タブを作らず、既存のものをアクティブにするだけにする
     /// (LaunchCoordinator.registerOpenAppState/openAppState(forBookAt:)参照)。
-    private func openURLInNewWindow(_ url: URL, asTab: Bool, tabTarget: NSWindow?) {
+    private func openURLInNewWindow(_ url: URL, asTab: Bool, tabTarget: NSWindow?, actsAsPrimaryWindow: Bool = false) {
         // すでにこの本を(このウインドウ以外の別のウインドウ/タブで)開いている場合は、
         // 同じ本をもう1つ開いてしまわないよう、新しいウインドウ/タブを作る代わりに
         // そのウインドウ/タブをアクティブにするだけにする(タブの場合、makeKeyAndOrderFrontで
@@ -973,6 +1036,108 @@ struct QooViewerApp: App {
                 }
             }
             guard let newWindow else { return }
+
+            // actsAsPrimaryWindowがtrueの場合はカスケード配置を行わず、代わりに前回終了時の
+            // ウインドウ位置・サイズを復元する(詳細はこの関数のドキュメントコメント参照)。
+            //
+            // バグ修正(ユーザー報告): 当初はContentView.swiftのWindowAccessor
+            // (restoreMainWindowFrameIfNeeded)に復元を任せていたが、"book"ウインドウグループは
+            // `.windowResizability(.contentSize)`のため、WindowAccessorが発火する早い
+            // タイミングではまだSwiftUI自身のコンテンツサイズに基づく自動リサイズが済んでおらず、
+            // 後からそちらに上書きされてしまい、復元した位置・サイズが失われる不具合が実機で
+            // 確認された。ここ(SwiftUIによる自動リサイズが収まった後の、下のカスケード配置と
+            // 同じタイミング)で改めて復元することで、上書きされないようにする。
+            // UserDefaultsのキー文字列はContentView.swift(mainWindowFrameDefaultsKey/
+            // restoreMainWindowFrameIfNeeded)と同じものを直接指定している(ContentViewはstruct
+            // のインスタンスメソッドのため、AppDelegate側からは直接呼べない)。
+            guard !actsAsPrimaryWindow else {
+                if let saved = UserDefaults.standard.string(forKey: "qooViewer.mainWindowFrame") {
+                    let rect = NSRectFromString(saved)
+                    if rect.width > 0, rect.height > 0 {
+                        newWindow.setFrame(rect, display: true)
+                    }
+                }
+                newWindow.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+
+                // バグ修正(ユーザー報告): この「book」ウインドウは主ウインドウの役割を
+                // 引き継ぐが、"main" WindowGroupの通常の起動経路(ContentView.onAppear)を
+                // 経由しないため、launchCoordinator.primaryAppStateが自然にはこのウインドウを
+                // 指さない。これにより、(1)このウインドウを動かしても位置・サイズが記憶されない
+                // (ContentView.observeMainWindowFrameChangesはprimaryAppState === appStateの
+                // ときにしか登録されないため)、(2)続けて外部から本を開こうとしたときに
+                // 「再利用できる主ウインドウが無い」と誤判定され、このウインドウを再利用せず
+                // 毎回新しいウインドウを作ってしまう、という2つの不具合があった
+                // (frontmostContentAppStateによる再利用〈application(_:open:)参照〉は本を
+                // 表示していれば効くが、位置・サイズの記憶にはprimaryAppState自体の更新が必要)。
+                // このウインドウのAppStateを直接見つけ、ここで明示的にprimaryAppStateへ設定する。
+                if let matchedAppState = launchCoordinator.allOpenAppStates.first(where: { $0.hostWindow === newWindow }) {
+                    launchCoordinator.primaryAppState = matchedAppState
+
+                    // バグ修正(ユーザー報告): この「book」ウインドウは主ウインドウの役割を
+                    // 引き継ぐが、"main" WindowGroupの通常の起動経路(ContentView.onAppear)を
+                    // 経由しないため、位置・サイズの記憶(ContentView.observeMainWindowFrameChanges
+                    // 相当)がこのウインドウには自然には効かない。加えて、このウインドウは
+                    // 「book」WindowGroup(`.windowResizability(.contentSize)`)に属するため、
+                    // このウインドウ内で別の本へ切り替える(=主ウインドウとして使い続けたまま
+                    // 外部から別の本を開く)たびに、SwiftUIが新しいコンテンツのサイズに合わせて
+                    // フレームを自動で調整し直すことがあり(ページ画像のデコード完了を待って
+                    // 複数回にわたって起こることもある)、これをユーザー操作と誤認してそのまま
+                    // 保存してしまうと、手動で調整した位置・サイズが本を切り替えるたびに失われる
+                    // (3冊目までの間で不定期に発生)。"main" WindowGroup
+                    // (`.windowResizability(.automatic)`)ではコンテンツに合わせた強制的な
+                    // 再調整が行われないためこの問題は起きない。
+                    //
+                    // 「今保存すべき位置・サイズ」をこのTask内だけで完結する状態
+                    // (desiredFrame/isSettling)として自前で管理する。本の切り替え中
+                    // (isSettling)は、SwiftUI側の自動調整による移動・リサイズをそのまま
+                    // 保存せず、代わりにdesiredFrameへ強制的に戻し続ける。切り替え中でない
+                    // ときの移動・リサイズだけを、正真正銘ユーザーによる操作とみなして
+                    // desiredFrameを更新・保存する。
+                    var desiredFrame = newWindow.frame
+                    var isSettling = false
+                    let saveFrame: (Notification) -> Void = { notification in
+                        guard !isSettling, let window = notification.object as? NSWindow else { return }
+                        desiredFrame = window.frame
+                        UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: "qooViewer.mainWindowFrame")
+                    }
+                    // バグ修正(ユーザー報告): すぐに登録すると、上のsetFrameによる復元がまだ
+                    // 完全には収まっておらず、SwiftUI側がこの直後にもう一度自動でフレームを
+                    // 調整し直すことがあり(このタイミングでもなお微妙にズレることが実機で
+                    // 確認された)、その調整による移動をユーザー操作と誤認して「復元した値」を
+                    // 「SwiftUIが調整し直した値」で即座に上書き保存してしまう不具合があった。
+                    // 少し待ってSwiftUI側の調整が収まってから登録する。
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 300_000_000)
+                        NotificationCenter.default.addObserver(
+                            forName: NSWindow.didMoveNotification, object: newWindow, queue: .main, using: saveFrame
+                        )
+                        NotificationCenter.default.addObserver(
+                            forName: NSWindow.didResizeNotification, object: newWindow, queue: .main, using: saveFrame
+                        )
+                    }
+                    // 本を切り替えるたびに、切り替わった時点のdesiredFrame(=直前まで表示されて
+                    // いた本での、ユーザーが最後に調整した値)を目標として、その後しばらくの間
+                    // 繰り返し再適用し続けることで、後から入るどんな自動調整にも最終的に勝つ
+                    // ようにする。
+                    Task { @MainActor in
+                        for await _ in matchedAppState.$currentBook.dropFirst().values {
+                            isSettling = true
+                            for _ in 0..<8 {
+                                try? await Task.sleep(nanoseconds: 250_000_000)
+                                guard launchCoordinator.primaryAppState === matchedAppState,
+                                      let window = matchedAppState.hostWindow else { break }
+                                if window.frame != desiredFrame {
+                                    window.setFrame(desiredFrame, display: true)
+                                }
+                            }
+                            isSettling = false
+                            UserDefaults.standard.set(NSStringFromRect(desiredFrame), forKey: "qooViewer.mainWindowFrame")
+                        }
+                    }
+                }
+                return
+            }
 
             // 新しいウインドウのサイズは、元になったウインドウ(今アクティブだったウインドウ、
             // またはtabTargetで明示的に指定されたウインドウ)と同じ大きさにする。元のウインドウが
@@ -1064,12 +1229,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var launchCoordinator: LaunchCoordinator?
     /// Finderから(ダブルクリックや「このアプリケーションで開く」で)別の本を開こうとしたときの
     /// 環境設定「Finderから開いたとき」が「新しいタブ/ウインドウで開く」の場合に使う、実際に
-    /// ウインドウ/タブを開くためのクロージャ(QooViewerApp.openURLInNewWindow(_:asTab:tabTarget:)
-    /// への橋渡し。AppDelegate自身はSwiftUIのopenWindow環境値を持てないため)。
-    /// 第2引数はasTab(trueなら新しいタブ、falseなら新しいウインドウ)、第3引数は
+    /// ウインドウ/タブを開くためのクロージャ(QooViewerApp.openURLInNewWindow(_:asTab:tabTarget:
+    /// actsAsPrimaryWindow:)への橋渡し。AppDelegate自身はSwiftUIのopenWindow環境値を持てない
+    /// ため)。第2引数はasTab(trueなら新しいタブ、falseなら新しいウインドウ)、第3引数は
     /// タブとして追加する先を明示的に指定する場合のウインドウ(通常はprimaryAppState.hostWindow。
-    /// nilならNSApp.keyWindowが使われる)。
-    var openInNewWindowOrTab: ((URL, Bool, NSWindow?) -> Void)?
+    /// nilならNSApp.keyWindowが使われる)、第4引数はactsAsPrimaryWindow(このウインドウが
+    /// 主ウインドウの役割を引き継ぐ場合はtrue。openURLInNewWindowのコメント参照)。
+    var openInNewWindowOrTab: ((URL, Bool, NSWindow?, Bool) -> Void)?
 
     /// ツールバー・プログレスバーなど、`.help()`で付けたツールチップが表示されるまでの
     /// 待ち時間を短くする。SwiftUI/AppKitにはこの待ち時間を直接指定する公開APIがないため、
@@ -1210,8 +1376,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, open urls: [URL]) {
         guard let url = urls.first else { return }
-        guard let primaryAppState = launchCoordinator?.primaryAppState else { return }
+        // バグ修正(ユーザー報告): primaryAppStateそのものの有無だけでなく、
+        // その`hostWindow`が今も実際に存在するかも確認する。SwiftUIのWindowGroup(id:)の
+        // 標準の状態復元は、ウインドウを閉じてもその中身(@StateObjectのappState)をすぐには
+        // 解放しないことがあり、primaryAppState(weak var)が閉じられたウインドウを指したまま
+        // 残ることがあった(この副作用は"main" WindowGroupで状態復元を無効化
+        // 〈.restorationBehavior(.disabled)〉したことで解消済みだが、念のためhostWindowの
+        // 有無でも確認しておく)。この状態で外部アプリ等からファイルが渡されると、以前は
+        // ここでそのゾンビ状態のprimaryAppStateへ本を読み込んでしまい、読み込み自体は成功して
+        // 履歴にも記録されるのに、それを表示するウインドウがどこにも無い(=ユーザーには
+        // 何も起きなかったように見える)という不具合があった。
+        if let primaryAppState = launchCoordinator?.primaryAppState, primaryAppState.hostWindow != nil {
+            openInPrimaryWindow(url, primaryAppState: primaryAppState)
+            return
+        }
+        // バグ修正(ユーザー報告): primaryAppStateが上の条件を満たさない場合でも、実際に
+        // 本を表示している別のコンテンツウインドウがどこかに開いていれば、それを再利用する。
+        // (以前はここでも「主ウインドウが無い」と即断して新しい「book」ウインドウを作って
+        // いたため、たとえば「StackNestから本Aを開く→StackNestから本Bを開く」のように、
+        // 本Aのウインドウが確かに存在するにもかかわらず、primaryAppStateがまだ本Aのウインドウを
+        // 指していない(下のコメント参照)ことがあり、本Bが本Aとは別の新しいウインドウで
+        // 開いてしまう不具合があった。)
+        if let target = launchCoordinator?.frontmostContentAppState() {
+            openInPrimaryWindow(url, primaryAppState: target)
+            return
+        }
 
+        // 再利用できる既存のmainウインドウが無い状態。「新しいウインドウ/タブで開く」と同じ経路
+        // (openInNewWindowOrTab、実体はopenURLInNewWindow)で、自前で新しい「book」ウインドウを
+        // 開く。このウインドウは主ウインドウの役割を引き継ぐため、actsAsPrimaryWindow: trueを
+        // 渡す(openURLInNewWindowのドキュメントコメント参照。前回終了時の位置・サイズが
+        // 正しく復元されるようにするため)。
+        //
+        // バグ修正(ユーザー報告): 以前はここで、AppKit/SwiftUIが外部アプリからの「開く」呼び出し
+        // の前後で自動生成することがある空の"main"ウインドウ(原因不明の既知の挙動)の出現を
+        // 少し待ち、それが見つかればそちらを主ウインドウとしてそのまま再利用する設計を試みた。
+        // しかし、SwiftUIの"main" WindowGroupはウインドウを閉じてもその中身
+        // (@StateObjectのappState)が実機で解放されないことがある(Apple公式フォーラムでも
+        // "Settings"シーンについて同種の未解決issueが報告されている: FB21393010 参照)ため、
+        // 閉じたはずの古いウインドウがNSApp.windows上に残ったまま、この空ウインドウ待ちの
+        // 仕組みで新しく現れた別のウインドウを主ウインドウとして扱おうとすると、SwiftUI側の
+        // 内部状態が混乱し、.navigationTitleの更新やそもそも本の表示自体が反映されなくなる、
+        // というより深刻な不具合が実機で確認された。空ウインドウを待たず、常に自前で新しい
+        // 「book」ウインドウを開く方が安全なため、この設計は採用していない。
+        //
+        // なお、この時点でのprimaryAppState(nilの可能性もある)を、この直後に開くbookウインドウ
+        // 自身と取り違えないよう先に捕まえておく。openURLInNewWindow(actsAsPrimaryWindow: true)
+        // 側で、開いたbookウインドウ自身をlaunchCoordinator.primaryAppStateへ設定し直す処理が
+        // 走るため(位置・サイズの記憶を有効にするため。openURLInNewWindow参照)、下の後始末を
+        // 呼び出し後のprimaryAppStateから判定してしまうと、常にそのbookウインドウ自身を「空の
+        // 余分なウインドウ」と誤認してしまう。
+        let suspectBeforeOpen = launchCoordinator?.primaryAppState
+        openInNewWindowOrTab?(url, false, nil, true)
+
+        // AppKit/SwiftUIが既定動作として空のmainウインドウを自動生成すること自体は実機で
+        // 依然として起こりうる(以前と違い中身は正しく描画されるが、こちらが開いたbookウインドウ
+        // とは別に本を表示しない空ウインドウが残ってしまう)。この時点では「再利用できる
+        // mainウインドウが無かった」ことが確定しているため、上で捕まえたsuspectBeforeOpenが
+        // 空のまま(currentBook == nil)残っていれば、それはこの一連の処理の中でAppKitが勝手に
+        // 作った余分なウインドウだと判断してよい。ただし、本の読み込みに時間がかかっている
+        // 場合に唯一残っているウインドウまで閉じてしまわないよう、閉じる前に他に表示中の
+        // ウインドウが実在することを確認する。
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            guard let suspect = suspectBeforeOpen,
+                  suspect.currentBook == nil,
+                  let suspectWindow = suspect.hostWindow else { return }
+            guard NSApp.windows.contains(where: { $0 !== suspectWindow && $0.isVisible }) else { return }
+            suspectWindow.close()
+        }
+    }
+
+    /// application(_:open:)から、実際に存在が確認できているprimaryAppStateへURLを開く処理。
+    private func openInPrimaryWindow(_ url: URL, primaryAppState: AppState) {
         // ウインドウがDockに最小化された状態のままFinderから本を開くと、以前はウインドウの
         // 中身(表示中の本)だけが差し替わり、ウインドウ自体はDockに最小化されたまま
         // ユーザーの目に触れない、という不具合があった。Finderからの「開く」はOS側が
@@ -1237,9 +1474,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // タブの追加先は、その時点でのNSApp.keyWindow(Finderから開いた直後は、まだ
             // 本来のウインドウがキーウインドウになっていないことがあり、不確実)ではなく、
             // 「本を開いていると確認したAppStateそのもの」が持つウインドウを明示的に渡す。
-            openInNewWindowOrTab?(url, true, primaryAppState.hostWindow)
+            openInNewWindowOrTab?(url, true, primaryAppState.hostWindow, false)
         case .newWindow:
-            openInNewWindowOrTab?(url, false, primaryAppState.hostWindow)
+            openInNewWindowOrTab?(url, false, primaryAppState.hostWindow, false)
         }
     }
 
@@ -1271,7 +1508,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @MainActor
 final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
     weak var appState: AppState?
-    weak var originalDelegate: NSWindowDelegate?
+    /// バグ修正(ユーザー報告): 以前はweak varだった。window.delegateにこのインスタンスを
+    /// 設定した時点で、SwiftUI/AppKitが元々設定していたデリゲート(タブ管理・状態復元用)を
+    /// 他に誰も強参照しなくなることがあり、その場合、weak参照だったこのoriginalDelegateは
+    /// 即座にnilへ戻ってしまう。すると、windowShouldClose以外のメソッド(windowDidBecomeKey:
+    /// など、責任を持たず単に転送するだけのつもりだったもの)がresponds(to:)/
+    /// forwardingTarget(for:)経由で正しく転送されず、"unrecognized selector"例外が発生して
+    /// いた(実機で確認済み。特にapplication(_:open:)から新しいウインドウのmakeKeyAndOrderFront
+    /// を早いタイミングで明示的に呼ぶ経路で顕在化した)。転送を維持するため、このデリゲートが
+    /// 生きている間は元のデリゲートも強参照で生かしておく。
+    var originalDelegate: NSWindowDelegate?
     /// 赤い閉じるボタンのforceCloseWindow(_:)から、直接閉じる対象のウインドウ。
     weak var window: NSWindow?
     /// 複数タブ確認ダイアログのON/OFF設定・表示言語を参照するため。

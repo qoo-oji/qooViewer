@@ -34,6 +34,15 @@ final class LaunchCoordinator: ObservableObject {
 
     /// アプリ起動時、最初に作られたウインドウのAppState。2つ目以降の(新しいウインドウ/タブで
     /// 開いた)ウインドウでは上書きしない。
+    ///
+    /// バグ修正(ユーザー報告): 以前、SwiftUIの"main" WindowGroupの標準の状態復元
+    /// (ウインドウが無い状態から再アクティブ化されたときに、前回のウインドウを復元しようとする
+    /// 仕組み)が原因で、ウインドウを閉じてもその中身(@StateObjectのappState)がすぐには
+    /// 解放されず、この`weak var`が閉じられたウインドウを指したまま残ることがあった。
+    /// QooViewerApp.swiftの"main" WindowGroupで`.restorationBehavior(.disabled)`により
+    /// その状態復元自体を無効化したことで解消済み(ウインドウが閉じればappStateも通常通り
+    /// 解放され、この`weak var`も自然にnilへ戻るようになった)。念のためQooViewerApp.
+    /// application(_:open:)ではprimaryAppState.hostWindowの有無も合わせて確認している。
     weak var primaryAppState: AppState?
 
     /// 現在開いているすべてのウインドウ/タブのAppStateへの弱参照一覧。

@@ -109,3 +109,13 @@ comments) — this is a known, deliberate simplification, not a bug.
   bug, a rejected alternative, a platform quirk) rather than *what*. When editing near such comments,
   preserve/update them rather than deleting — they encode real debugging history (e.g. the SwiftData
   context-splitting bug, the `@Attribute(.unique)` data-loss bug, the `FocusedValue` value-type requirement).
+- **When a bug turns out to almost certainly be in AppKit/SwiftUI itself** (not this app's code) — e.g. a
+  window-lifecycle/state-restoration quirk, a delegate method that silently never fires, layout/rendering
+  glitches tied to a specific Scene/View combination — search the web for existing reports before spending
+  more time on trial-and-error reproduction. Other developers have very likely hit the same platform bug,
+  and there may be a known workaround, a filed Apple Feedback report confirming it's not app-specific, or a
+  purpose-built API that sidesteps it. Precedent: the "external app opens qooViewer while it has zero
+  windows" bug (window flashes and closes, or renders blank) turned out to be caused by macOS's standard
+  window state restoration reusing a stale `NSWindow` on reactivation — found via web search once AppKit/
+  SwiftUI was suspected, and fixed with `.restorationBehavior(.disabled)` on the affected `WindowGroup`
+  (macOS 15+) rather than by continuing to patch around the symptom in app code.
