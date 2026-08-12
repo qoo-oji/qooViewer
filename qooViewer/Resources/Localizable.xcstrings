@@ -148,6 +148,54 @@
         }
       }
     },
+    "(No Recent Files)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(No Recent Files)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(履歴なし)"
+          }
+        }
+      }
+    },
+    "(No Matches)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(No Matches)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(該当なし)"
+          }
+        }
+      }
+    },
+    "(No Book Open)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(No Book Open)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(本を開いていません)"
+          }
+        }
+      }
+    },
     "(No Bookmarks)" : {
       "localizations" : {
         "en" : {
@@ -1577,6 +1625,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この本を閉じて新しい本を開く"
+          }
+        }
+      }
+    },
+    "Clear" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クリア"
           }
         }
       }
@@ -3662,6 +3726,38 @@
         }
       }
     },
+    "History" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "History"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴"
+          }
+        }
+      }
+    },
+    "How many books the history keeps. Shown in the File menu's Open Recent and in the side panel's History mode." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How many books the history keeps. Shown in the File menu's Open Recent and in the side panel's History mode."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴として保持する本の数です。ファイルメニューの「最近開いたファイル」と、サイドパネルの「履歴」モードに表示されます。"
+          }
+        }
+      }
+    },
     "Image Quality" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5278,6 +5374,22 @@
         }
       }
     },
+    "Pages" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pages"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページ"
+          }
+        }
+      }
+    },
     "Pages to Preload" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5664,6 +5776,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最近のお気に入り"
+          }
+        }
+      }
+    },
+    "Recent Files to Keep" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recent Files to Keep"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴の保存件数"
           }
         }
       }

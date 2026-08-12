@@ -8,6 +8,10 @@ enum SidePanelMode: String, CaseIterable, Identifiable, Codable, Hashable {
     case browser
     /// 上段=お気に入りのツリー、下段=今開いている本のブックマーク一覧。
     case bookmarks
+    /// 最近開いた本の履歴一覧(上下の分割は持たず、1つの一覧で全高を使う)。
+    case history
+    /// 今開いている本のページ一覧(サムネイル付き。履歴モードと同じく1つの一覧で全高を使う)。
+    case pages
 
     var id: String { rawValue }
 
@@ -15,6 +19,8 @@ enum SidePanelMode: String, CaseIterable, Identifiable, Codable, Hashable {
         switch self {
         case .browser: return "Browser"
         case .bookmarks: return "Bookmarks"
+        case .history: return "History"
+        case .pages: return "Pages"
         }
     }
 
@@ -26,6 +32,8 @@ enum SidePanelMode: String, CaseIterable, Identifiable, Codable, Hashable {
         switch self {
         case .browser: return "folder"
         case .bookmarks: return "bookmark"
+        case .history: return "clock"
+        case .pages: return "photo.on.rectangle"
         }
     }
 }

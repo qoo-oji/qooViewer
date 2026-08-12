@@ -18,7 +18,12 @@ struct WelcomeView: View {
     @State private var isTargeted = false
 
     var body: some View {
-        let recentEntries = preferences.showRecentFilesOnWelcome ? recentFiles.entries : []
+        // 履歴の保持件数(AppPreferences.recentFilesLimit)は環境設定で増やせるが、この画面の
+        // 一覧は縦に伸びすぎないよう従来どおり10件までに留める(全件はサイドパネルの
+        // 「履歴」モード、またはファイルメニューの「Open Recent」で見られる)。
+        let recentEntries = preferences.showRecentFilesOnWelcome
+            ? Array(recentFiles.entries.prefix(10))
+            : []
         // 表示のたびにセキュリティスコープ付きブックマークの解決・存在確認を行うため、
         // bodyの中で1回だけ計算して使い回す(isEmptyの判定とForEachの両方で同じ結果を使う)。
         let recentFavoriteBooks = preferences.showRecentFavoritesOnWelcome

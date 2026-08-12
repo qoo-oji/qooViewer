@@ -59,6 +59,20 @@ struct GeneralSettingsView: View {
             // 要望7: ウェルカム画面の「最近開いたファイル」「最近お気に入りに追加したファイル」の
             // 一覧表示は、それぞれ個別にON/OFFできるようにする(既定はON)。
             Section {
+                SettingsSlider(
+                    "Recent Files to Keep",
+                    value: $preferences.recentFilesLimit,
+                    in: AppPreferences.recentFilesLimitRange,
+                    step: 5,
+                    caption: "How many books the history keeps. Shown in the File menu's Open Recent and in the side panel's History mode."
+                ) { value in
+                    "\(Int(value))"
+                }
+            } header: {
+                Text("History")
+            }
+
+            Section {
                 SettingsToggle("Show Recent Files", isOn: $preferences.showRecentFilesOnWelcome)
                 SettingsToggle("Show Recent Favorites", isOn: $preferences.showRecentFavoritesOnWelcome)
             } header: {

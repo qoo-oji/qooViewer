@@ -128,6 +128,27 @@ final class AppState: ObservableObject {
     /// 「今の本を置き換える」以外の選択肢に意味が無いため)。
     var openFavoriteAction: ((FavoriteBook) -> Void)?
 
+    /// サイドパネル(ページモード)が、ページのサムネイルを取得するための橋渡し。
+    /// サムネイルの実体はViewerViewModelが持つPageLoader(本ごとのactor。NSCacheつき)から
+    /// 得るが、サイドパネルはViewerViewの外側(ContentView)にあってViewerViewModelを直接
+    /// 参照できないため、jumpToPageIndex等と同じくViewerViewが表示されている間だけ自分自身を
+    /// 登録する。nil(本を開いていない)の場合、ページモードは「本を開いていません」の表示になる。
+    ///
+    /// 【重要】この値が変わるたびにサイドパネル側のサムネイル読み込みをやり直す必要があるため、
+    /// クロージャ自体は@Publishedにできない(関数はEquatableでなく、@Publishedにしても
+    /// 差し替えの検知には使えない)。代わりに、本を開くたびに増えるページモード用の世代番号
+    /// (pageThumbnailGeneration)を別途@Publishedで公開し、サイドパネルはそちらを
+    /// .task(id:)の識別子に混ぜることで確実に読み込み直す。
+    var loadPageThumbnail: ((Int) async -> CGImage?)?
+
+    /// loadPageThumbnailの登録・解除のたびに増える世代番号(上のコメント参照)。
+    @Published private(set) var pageThumbnailGeneration = 0
+
+    func updateLoadPageThumbnail(_ loader: ((Int) async -> CGImage?)?) {
+        loadPageThumbnail = loader
+        pageThumbnailGeneration &+= 1
+    }
+
     /// ViewerViewから、現在のブックマーク一覧を反映するために呼ばれる。
     func updateCurrentBookmarks(_ bookmarks: [Bookmark]) {
         currentBookmarks = bookmarks

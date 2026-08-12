@@ -34,6 +34,8 @@ struct SidePanelView: View {
     /// 共有しているため(QooViewerApp参照)、@EnvironmentObjectとして受け取れば整理ウインドウ・
     /// メニューバー側での変更もそのまま反映される。
     @EnvironmentObject private var favoritesStore: FavoritesStore
+    /// 履歴モードの表示元(favoritesStoreと同じくアプリ全体で1つ)。
+    @EnvironmentObject private var recentFiles: RecentFilesStore
     @ObservedObject var folderState: SidePanelBrowserState
     var bookContentsState: BookContentsBrowserState?
     /// パネル最上部のスイッチで切り替える表示モード。実体はAppPreferences.sidePanelMode
@@ -64,6 +66,13 @@ struct SidePanelView: View {
     /// 本を開いているかどうか。「お気に入りに追加」「ブックマークを追加」の2ボタンは、本を
     /// 開いていない間は対象が無いため無効化する。
     var hasBook: Bool
+    /// 今開いている本のパス(MangaBook.id)。履歴モードで、今読んでいる本の行を
+    /// ハイライトするために使う。
+    var currentBookPath: String?
+    /// ページモードのサムネイル取得(AppState.loadPageThumbnail)と、その世代番号。
+    /// 本を開いていないときはloadPageThumbnailがnilになる。
+    var loadPageThumbnail: ((Int) async -> CGImage?)?
+    var pageThumbnailGeneration: Int
     /// 今開いている本を、お気に入りへ追加する(登録先フォルダの選択シートを開く)。
     var onAddFavorite: () -> Void
     /// 「お気に入りの編集」ウインドウを開く。
@@ -85,6 +94,10 @@ struct SidePanelView: View {
     /// お気に入りツリーで展開中のフォルダのid一覧(FavoritesOrganizerView.expandedFolderIDsと
     /// 同じ考え方)。パネルの生存期間中は保持され、モードを切り替えても展開状態は残る。
     @State private var expandedFavoriteFolderIDs: Set<UUID> = []
+    /// 上段(フォルダブラウザ)の絞り込み検索欄の入力内容。フォルダを移動すると空に戻す
+    /// (folderSection参照)。1つのフォルダに数百冊入っているケースで目的の本を素早く
+    /// 見つけるための機能(ユーザー要望)。
+    @State private var folderFilterText = ""
     @GestureState private var dragOffset: CGFloat = 0
     @GestureState private var widthDragOffset: CGFloat = 0
 
@@ -144,6 +157,21 @@ struct SidePanelView: View {
                 browserModeBody
             case .bookmarks:
                 bookmarksModeBody
+            case .history:
+                SidePanelHistorySectionView(
+                    recentFiles: recentFiles,
+                    currentBookPath: currentBookPath,
+                    onOpen: onOpen
+                )
+            case .pages:
+                SidePanelPagesSectionView(
+                    pages: bookPages,
+                    currentPageIndex: currentPageIndex,
+                    bookmarkedPageIndices: Set(bookmarks.map(\.pageIndex)),
+                    thumbnailGeneration: pageThumbnailGeneration,
+                    loadThumbnail: loadPageThumbnail,
+                    onJumpToPage: onJumpToPage
+                )
             }
         }
     }
@@ -341,6 +369,13 @@ struct SidePanelView: View {
                 .help(folderState.currentDirectory?.path ?? "")
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+            SidePanelSearchField(text: $folderFilterText)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
+                // フォルダを移動したら絞り込みは解除する(移動先でも前のフォルダ向けの
+                // 絞り込みが効いたままだと、中身が空に見えて戸惑うため)。
+                .onChange(of: folderState.currentDirectory) { _, _ in folderFilterText = "" }
+
             Divider()
 
             if folderState.needsFolderAccessGrant {
@@ -353,29 +388,45 @@ struct SidePanelView: View {
                 .padding()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(folderState.entries) { entry in
-                                folderRow(entry)
+                let entries = filteredFolderEntries
+                if entries.isEmpty && !folderState.entries.isEmpty {
+                    SidePanelEmptyMessage(textKey: "(No Matches)")
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 0) {
+                                ForEach(entries) { entry in
+                                    folderRow(entry)
+                                }
                             }
                         }
-                    }
-                    // ScrollView(NSScrollViewをラップ)は既定でキーボードフォーカスを受け取れる。
-                    // このパネルはクリック操作のみを想定しているため、Tabキーでの移動などで
-                    // 意図せずスクロール領域へフォーカスが移らないようにしておく
-                    // (フォーカスリング自体の抑制はContentView.body側の
-                    // .focusEffectDisabled()で行っている)。
-                    .focusable(false)
-                    .onChange(of: folderState.entries) { _, _ in
-                        guard let highlighted = folderState.highlightedURL else { return }
-                        DispatchQueue.main.async {
-                            withAnimation { proxy.scrollTo(highlighted.path, anchor: .center) }
+                        // ScrollView(NSScrollViewをラップ)は既定でキーボードフォーカスを受け取れる。
+                        // このパネルはクリック操作のみを想定しているため、Tabキーでの移動などで
+                        // 意図せずスクロール領域へフォーカスが移らないようにしておく
+                        // (フォーカスリング自体の抑制はContentView.body側の
+                        // .focusEffectDisabled()で行っている。絞り込み検索欄への入力は
+                        // これとは別で、通常どおりフォーカスを受け取れる)。
+                        .focusable(false)
+                        .onChange(of: folderState.entries) { _, _ in
+                            guard let highlighted = folderState.highlightedURL,
+                                  // 絞り込みで一覧から外れている行へはスクロールできない。
+                                  entries.contains(where: { $0.url.path == highlighted.path }) else { return }
+                            DispatchQueue.main.async {
+                                withAnimation { proxy.scrollTo(highlighted.path, anchor: .center) }
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    /// 絞り込み検索欄(folderFilterText)を適用した一覧。空欄のときは全件そのまま
+    /// (フォルダ・ファイルの区別はせず、表示名に対する大文字小文字を区別しない部分一致で絞る)。
+    private var filteredFolderEntries: [DirectoryBrowser.Entry] {
+        let trimmed = folderFilterText.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return folderState.entries }
+        return folderState.entries.filter { $0.displayName.localizedCaseInsensitiveContains(trimmed) }
     }
 
     private func folderRow(_ entry: DirectoryBrowser.Entry) -> some View {
@@ -458,6 +509,17 @@ private struct BookContentsSectionView: View {
     var onOpen: (URL) -> Void
     var onJumpToPage: (Int) -> Void
 
+    /// 上段と同じ絞り込み検索欄の入力内容(SidePanelView.folderFilterText参照)。
+    /// 本の中の階層を移動したら空に戻す。
+    @State private var filterText = ""
+
+    /// 絞り込みを適用した一覧。
+    private var filteredEntries: [BookInternalBrowsing.Entry] {
+        let trimmed = filterText.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return state.entries }
+        return state.entries.filter { $0.displayName.localizedCaseInsensitiveContains(trimmed) }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
@@ -489,6 +551,11 @@ private struct BookContentsSectionView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            SidePanelSearchField(text: $filterText)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
+                .onChange(of: state.currentLocationName) { _, _ in filterText = "" }
+
             Divider()
 
             if let errorMessage = state.navigationErrorMessage {
@@ -500,28 +567,34 @@ private struct BookContentsSectionView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(state.entries) { entry in
-                                row(for: entry)
+                let entries = filteredEntries
+                if entries.isEmpty && !state.entries.isEmpty {
+                    SidePanelEmptyMessage(textKey: "(No Matches)")
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 0) {
+                                ForEach(entries) { entry in
+                                    row(for: entry)
+                                }
                             }
                         }
+                        // folderSectionの同名の.focusable(false)と同じ理由。
+                        .focusable(false)
+                        // ページ送りでハイライト対象が変わるたび、またはハイライト対象を含む
+                        // 新しい階層へ切り替わって一覧そのものが変わるたびに、その行が常に
+                        // 表示枠内に見えるようスクロールする(ユーザー要望)。
+                        .onChange(of: state.highlightedMatchKeys) { _, _ in scrollToHighlighted(proxy: proxy) }
+                        .onChange(of: state.entries) { _, _ in scrollToHighlighted(proxy: proxy) }
                     }
-                    // folderSectionの同名の.focusable(false)と同じ理由。
-                    .focusable(false)
-                    // ページ送りでハイライト対象が変わるたび、またはハイライト対象を含む
-                    // 新しい階層へ切り替わって一覧そのものが変わるたびに、その行が常に
-                    // 表示枠内に見えるようスクロールする(ユーザー要望)。
-                    .onChange(of: state.highlightedMatchKeys) { _, _ in scrollToHighlighted(proxy: proxy) }
-                    .onChange(of: state.entries) { _, _ in scrollToHighlighted(proxy: proxy) }
                 }
             }
         }
     }
 
     private func scrollToHighlighted(proxy: ScrollViewProxy) {
-        guard let target = state.entries.first(where: { state.highlightedMatchKeys.contains($0.matchKey) }) else { return }
+        // 絞り込みで一覧から外れている行へはスクロールできない(folderSectionと同じ理由)。
+        guard let target = filteredEntries.first(where: { state.highlightedMatchKeys.contains($0.matchKey) }) else { return }
         DispatchQueue.main.async {
             withAnimation { proxy.scrollTo(target.id, anchor: .center) }
         }
@@ -588,11 +661,19 @@ private struct BookContentsSectionView: View {
 /// コントロールではなく、モードの数だけボタンを横に並べて「ワンクリックで直接そのモードへ
 /// 切り替わる」形にしている。ボタンはクリックしやすいよう、SidePanelNavButton(28pt高)より
 /// さらに一回り大きい30pt高+パネル幅を等分した幅を取る。
+///
+/// 表示はアイコンのみで、モード名はカーソルを合わせたときのツールチップで示す(ユーザー要望)。
+/// 以前はパネル幅に余裕があればアイコン+モード名、狭ければアイコンのみ、と自動で切り替えて
+/// いたが、幅やモード数によって見た目が変わるより、常に同じ並び・同じ大きさのアイコンが
+/// 並んでいる方が分かりやすいとの判断による。
 private struct SidePanelModeSwitcher: View {
     @Binding var mode: SidePanelMode
 
+    private static let spacing: CGFloat = 6
+    private static let buttonHeight: CGFloat = 30
+
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Self.spacing) {
             ForEach(SidePanelMode.allCases) { candidate in
                 let isSelected = candidate == mode
                 Button {
@@ -601,24 +682,18 @@ private struct SidePanelModeSwitcher: View {
                     // ここは押下頻度が低くコストも小さいためガードしない)。
                     mode = candidate
                 } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: candidate.systemImage)
-                            .font(.system(size: 13, weight: .medium))
-                        Text(candidate.titleKey)
-                            .font(.system(size: 12, weight: .medium))
-                            .lineLimit(1)
-                            // パネルを最小幅(220pt)まで狭めても、日本語/英語どちらの
-                            // ラベルも省略記号にならずに収まるようにする。
-                            .minimumScaleFactor(0.75)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 30)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(isSelected ? Color.accentColor : Color.primary.opacity(0.07))
-                    )
-                    .foregroundStyle(isSelected ? Color.white : Color.primary)
-                    .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    Image(systemName: candidate.systemImage)
+                        // アイコンだけになったぶん、以前(13pt)より一回り大きくして
+                        // 何のモードか判別しやすくする。
+                        .font(.system(size: 15, weight: .medium))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: Self.buttonHeight)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(isSelected ? Color.accentColor : Color.primary.opacity(0.07))
+                        )
+                        .foregroundStyle(isSelected ? Color.white : Color.primary)
+                        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 }
                 .buttonStyle(.plain)
                 .help(candidate.titleKey)
@@ -870,6 +945,293 @@ private struct SidePanelBookmarksSectionView: View {
         .help(bookmark.name)
         // ページへのジャンプも「開く」に準じる操作のため、環境設定に従う。
         .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { onJump(bookmark) }
+    }
+}
+
+// MARK: - 履歴モード
+
+/// 履歴モード。最近開いた本(RecentFilesStore)を新しい順に一覧表示する。上下2段には分けず、
+/// パネルの全高を1つの一覧に使う(履歴と対になる自然な相方が無いため)。
+///
+/// 従来この一覧はウェルカム画面(本を開いていないときだけ見える)とファイルメニューの
+/// 「Open Recent」からしか辿れなかった。本を読んでいる最中でも一覧として見られるように
+/// するのがこのモードの目的(ユーザー要望)。保持件数は環境設定「一般」タブの
+/// 「履歴の保存件数」で変更できる(既定30件)。
+private struct SidePanelHistorySectionView: View {
+    @EnvironmentObject private var preferences: AppPreferences
+    @ObservedObject var recentFiles: RecentFilesStore
+    var currentBookPath: String?
+    var onOpen: (URL) -> Void
+
+    @State private var filterText = ""
+
+    private var filteredEntries: [RecentFilesStore.Entry] {
+        let trimmed = filterText.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return recentFiles.entries }
+        return recentFiles.entries.filter { $0.displayName.localizedCaseInsensitiveContains(trimmed) }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // 他のモードのセクションと同じ位置・同じ書式の見出し。件数を添えて、環境設定で
+            // 増やした保存件数がどこまで溜まっているか分かるようにする。
+            HStack(spacing: 6) {
+                Text("History")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Text("\(recentFiles.entries.count)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
+
+            SidePanelSearchField(text: $filterText)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
+
+            Divider()
+
+            let entries = filteredEntries
+            if recentFiles.entries.isEmpty {
+                SidePanelEmptyMessage(textKey: "(No Recent Files)")
+            } else if entries.isEmpty {
+                SidePanelEmptyMessage(textKey: "(No Matches)")
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(entries) { entry in
+                            row(for: entry)
+                        }
+                    }
+                }
+                // folderSection/BookContentsSectionViewの同名の.focusable(false)と同じ理由。
+                .focusable(false)
+            }
+        }
+    }
+
+    private func row(for entry: RecentFilesStore.Entry) -> some View {
+        // 今開いている本(MangaBook.id = パス)と同じ行を強調する。ハイライト判定を
+        // URL同士の==ではなくパス文字列で行う理由は、SidePanelView.folderRowと同じ
+        // (セキュリティスコープ付きブックマーク由来のURLは、パスが同じでも==が一致しない
+        // ことがある)。
+        let isCurrent = entry.url.path == currentBookPath
+        return HStack(spacing: 8) {
+            Image(
+                systemName: entry.url.hasDirectoryPath
+                    ? "folder"
+                    : sidePanelFileIconName(fileName: entry.url.lastPathComponent)
+            )
+            .frame(width: 16)
+            .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
+            Text(entry.displayName)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .background(isCurrent ? Color.accentColor.opacity(0.15) : Color.clear)
+        // パスまで見せることで、同名の本が複数ある場合に見分けられるようにする。
+        .help(entry.url.path)
+        .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { onOpen(entry.url) }
+    }
+}
+
+// MARK: - ページモード(ページ一覧)
+
+/// ページモード。今開いている本の全ページを、サムネイル+ページ番号の縦一列で表示する。
+///
+/// 既存の「ページ一覧」(ThumbnailGridView、tキー)は5列のオーバーレイパネルで、ページへ
+/// ジャンプすると閉じる作りになっている。こちらは読みながら出しっぱなしにできる常設の
+/// 一覧として、細い1列に絞り、現在ページへ自動スクロールする(ユーザー要望)。
+///
+/// サムネイルの取得はAppState経由の橋渡し(loadThumbnail)で行う。実体はThumbnailGridViewと
+/// 同じPageLoaderの軽量サムネイルキャッシュのため、両方を使ってもデコードが二重になることは無い。
+private struct SidePanelPagesSectionView: View {
+    var pages: [PageRef]
+    var currentPageIndex: Int
+    /// ブックマークが付いているページ番号(0始まり)。一覧の行にしおりアイコンで示す。
+    var bookmarkedPageIndices: Set<Int>
+    var thumbnailGeneration: Int
+    var loadThumbnail: ((Int) async -> CGImage?)?
+    var onJumpToPage: (Int) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Text("Pages")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                if !pages.isEmpty {
+                    // 「現在ページ / 総ページ数」。プログレスバーを隠しているときでも、
+                    // 今どのあたりを読んでいるか分かるようにする。
+                    Text("\(currentPageIndex + 1) / \(pages.count)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 10)
+            .padding(.bottom, 8)
+
+            Divider()
+
+            if pages.isEmpty || loadThumbnail == nil {
+                SidePanelEmptyMessage(textKey: "(No Book Open)")
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(spacing: 6) {
+                            ForEach(pages.indices, id: \.self) { index in
+                                SidePanelPageCell(
+                                    index: index,
+                                    isCurrent: index == currentPageIndex,
+                                    isBookmarked: bookmarkedPageIndices.contains(index),
+                                    thumbnailGeneration: thumbnailGeneration,
+                                    loadThumbnail: loadThumbnail,
+                                    onTap: { onJumpToPage(index) }
+                                )
+                                .id(index)
+                            }
+                        }
+                        .padding(.vertical, 6)
+                    }
+                    .focusable(false)
+                    // ページ送りに合わせて、現在ページの行が常に見えるようスクロールする
+                    // (サイドパネル下段の本の中身ブラウザと同じ考え方)。表示した瞬間にも
+                    // 一度合わせる(.onAppear)。
+                    .onAppear { scrollToCurrent(proxy: proxy, animated: false) }
+                    .onChange(of: currentPageIndex) { _, _ in scrollToCurrent(proxy: proxy, animated: true) }
+                }
+            }
+        }
+    }
+
+    private func scrollToCurrent(proxy: ScrollViewProxy, animated: Bool) {
+        guard pages.indices.contains(currentPageIndex) else { return }
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation { proxy.scrollTo(currentPageIndex, anchor: .center) }
+            } else {
+                proxy.scrollTo(currentPageIndex, anchor: .center)
+            }
+        }
+    }
+}
+
+/// ページモードの1行(サムネイル+ページ番号)。ThumbnailGridView.ThumbnailCellと同じ理由で、
+/// 読み込んだ画像は各行自身の@Stateに持つ(1行の読み込み完了が一覧全体の再描画を
+/// 引き起こさないようにするため)。
+private struct SidePanelPageCell: View {
+    let index: Int
+    let isCurrent: Bool
+    let isBookmarked: Bool
+    let thumbnailGeneration: Int
+    let loadThumbnail: ((Int) async -> CGImage?)?
+    let onTap: () -> Void
+
+    @State private var image: CGImage?
+
+    private static let thumbnailHeight: CGFloat = 72
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.15))
+                if let image {
+                    Image(decorative: image, scale: 1)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .padding(2)
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .frame(width: Self.thumbnailHeight * 0.75, height: Self.thumbnailHeight)
+            .overlay(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(isCurrent ? Color.accentColor : Color.clear, lineWidth: 2)
+            )
+
+            Text("\(index + 1)")
+                .font(.callout)
+                .monospacedDigit()
+                .foregroundStyle(isCurrent ? Color.accentColor : Color.primary)
+            if isBookmarked {
+                Image(systemName: "bookmark.fill")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(isCurrent ? Color.accentColor.opacity(0.15) : Color.clear)
+                .padding(.horizontal, 4)
+        )
+        // ページ送りは他のパネル操作と違って行き来が頻繁なため、「開く」ほど重い操作では
+        // ない。とはいえ一覧内の操作としては同じ性質のため、他の行と同じく環境設定
+        // (シングル/ダブルクリック)には従う……のではなく、ここでは常にシングルクリックに
+        // している。この一覧は読みながら出しっぱなしにして次々ページを送る用途のもので、
+        // ダブルクリックを要求すると本来の使い勝手を損なうため(既存のページ一覧グリッドも
+        // 常にシングルクリックで、設定の影響を受けない)。
+        .onTapGesture { onTap() }
+        // 本を切り替えると同じindexでも中身が変わるため、世代番号も識別子に含めて
+        // 読み込み直させる(AppState.loadPageThumbnailのコメント参照)。
+        .task(id: "\(thumbnailGeneration)#\(index)") {
+            image = await loadThumbnail?(index)
+        }
+    }
+}
+
+/// 一覧を名前で絞り込むための検索欄(ユーザー要望: 1つのフォルダに数百冊入っているケースで、
+/// 目的の本を素早く見つけられるようにする)。上段(フォルダブラウザ)・下段(本の中身ブラウザ)の
+/// どちらでも同じものを使う。
+///
+/// 【注意】この入力欄を追加したことで、パネルにキーボードフォーカスを持つ要素が初めて存在する
+/// ようになった。ViewerViewのNSEventローカルモニタは、同じウインドウ宛ての.keyDownを
+/// ページ送り等のショートカットとして横取りするため、入力欄の編集中はそれを行わないよう
+/// ViewerView側にガードを入れてある(makeScrollMonitorの.keyDownケース参照)。
+private struct SidePanelSearchField: View {
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            TextField("Filter", text: $text)
+                .textFieldStyle(.plain)
+                .font(.callout)
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear")
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 }
 

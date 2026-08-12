@@ -251,6 +251,12 @@ struct ViewerView: View {
         appState.openFavoriteAction = { favorite in
             openFavoriteAccordingToPreference(favorite)
         }
+        // サイドパネル(ページモード)のサムネイル取得の橋渡し
+        // (AppState.loadPageThumbnailのコメント参照)。ページ一覧グリッド
+        // (ThumbnailGridView)と同じ、進捗バー用の軽量サムネイルキャッシュを共有する。
+        appState.updateLoadPageThumbnail { index in
+            await viewModel.loadThumbnail(at: index)
+        }
         appState.updateCurrentBookmarks(viewModel.bookmarks)
         appState.updateCurrentPageIndex(viewModel.currentIndex)
         appState.updateCurrentBookPages(viewModel.book.pages)
@@ -369,6 +375,15 @@ struct ViewerView: View {
                 // 届く(2本指設定の場合の扱いは上のhandleTrackpadScrollGesture参照)。
                 handleSwipe(deltaX: event.deltaX)
             case .keyDown:
+                // サイドパネルの絞り込み検索欄など、このウインドウ内のテキストフィールドを
+                // 編集している間は、キー入力をページ送り等のショートカットとして横取りしない
+                // (横取りすると「a」と打っただけでブックマークが追加される、といった挙動に
+                // なってしまう)。AppKitではテキストフィールドの編集中、実際のファースト
+                // レスポンダはフィールド自身ではなくウインドウ共有の「フィールドエディタ」
+                // (NSTextView)になるため、それを見て判定する。ブックマーク名の変更シートなどが
+                // 別ウインドウとして開く場合は、上のevent.window === hostWindowのガードで
+                // 既に除外されている(ここで拾うのは同じウインドウ内の入力欄)。
+                if hostWindow.firstResponder is NSTextView { return event }
                 // ESCキー(keyCode 53)は、RemappableKey/keyBindingStoreによる
                 // カスタマイズ可能なキー割り当ての対象には含めず、常に固定の「閉じる」操作
                 // という慣習に合わせて別枠で扱う。拡大鏡(ルーペ)表示中に押すと、
@@ -496,6 +511,7 @@ struct ViewerView: View {
             appState.addBookmarkAction = nil
             appState.addFavoriteAction = nil
             appState.openFavoriteAction = nil
+            appState.updateLoadPageThumbnail(nil)
             appState.updateCurrentBookmarks([])
             appState.updateCurrentPageIndex(0)
             appState.updateCurrentBookPages([])

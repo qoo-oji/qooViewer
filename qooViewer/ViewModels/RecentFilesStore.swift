@@ -2,8 +2,9 @@ import Foundation
 import Combine
 import AppKit
 
-/// 「最近開いたファイルを開く」メニュー用に、開いたことのあるフォルダ/アーカイブの履歴を
-/// 新しい順・最大10件で保持する。
+/// 「最近開いたファイルを開く」メニュー、およびサイドパネルの「履歴」モード用に、開いたことの
+/// あるフォルダ/アーカイブの履歴を新しい順で保持する。保持件数は環境設定「一般」タブの
+/// 「履歴の保存件数」(AppPreferences.recentFilesLimit、既定30件)に従う。
 ///
 /// サンドボックス環境では単なるファイルパスの文字列を保存しても、次回アプリを起動したときに
 /// そのURLへアクセスする権限がない(ユーザーが選んだファイルという証跡が失われる)。
@@ -19,13 +20,34 @@ final class RecentFilesStore: ObservableObject {
 
     @Published private(set) var entries: [Entry] = []
 
-    private let maxCount = 10
+    /// 履歴として保持する件数。環境設定の値(AppPreferences.recentFilesLimit)をUserDefaultsから
+    /// 直接読む(このストアはAppPreferencesを参照しない。理由はAppPreferences.recentFilesLimitの
+    /// コメント参照)。設定される前・不正な値の場合は既定値へフォールバックし、範囲外の値は
+    /// 丸めておく。
+    private var maxCount: Int {
+        let stored = UserDefaults.standard.object(forKey: AppPreferences.recentFilesLimitDefaultsKey) as? Double
+        let value = stored ?? AppPreferences.defaultRecentFilesLimit
+        let range = AppPreferences.recentFilesLimitRange
+        return Int(min(max(value, range.lowerBound), range.upperBound))
+    }
     private let defaultsKey = "recentBookBookmarks"
     /// メニューが開かれる直前に一覧を再チェックするための監視トークン。
     private var menuTrackingObserver: NSObjectProtocol?
+    /// 環境設定で保持件数が変更されたときに、その場で切り詰めるための監視トークン。
+    private var limitChangeObserver: NSObjectProtocol?
 
     init() {
         reload()
+        // 保持件数を減らしたときに、次に本を開くまで古い履歴が残り続けないよう、その場で
+        // 一覧を作り直す(reload()側でmaxCountまで切り詰められる)。menuTrackingObserverと
+        // 同じ理由でMainActor.assumeIsolatedを使う。
+        limitChangeObserver = NotificationCenter.default.addObserver(
+            forName: .recentFilesLimitDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reload()
+            }
+        }
         // 「最近使ったファイル」メニューを表示する直前に、削除・移動・リネームされていた
         // ファイルが一覧に残ったままにならないよう再チェックする。特定のメニュー(File)
         // だけに絞り込む簡単な方法がないため、このアプリ内でどのメニューが開かれても
@@ -89,6 +111,12 @@ final class RecentFilesStore: ObservableObject {
             survivingBookmarks.append(data)
             newEntries.append(Entry(url: url))
         }
+        // 環境設定で保持件数を減らした場合は、ここで超過分を捨てる(record(url:)側の
+        // 切り詰めだけだと、次に本を開くまで古い履歴が残ってしまうため)。
+        if survivingBookmarks.count > maxCount {
+            survivingBookmarks = Array(survivingBookmarks.prefix(maxCount))
+            newEntries = Array(newEntries.prefix(maxCount))
+        }
         entries = newEntries
         if survivingBookmarks.count != bookmarks.count {
             UserDefaults.standard.set(survivingBookmarks, forKey: defaultsKey)
@@ -107,4 +135,10 @@ final class RecentFilesStore: ObservableObject {
         }
         return FileManager.default.fileExists(atPath: url.path)
     }
+}
+
+extension Notification.Name {
+    /// 環境設定「履歴の保存件数」が変更されたことをRecentFilesStoreへ知らせる通知
+    /// (AppPreferences.recentFilesLimitのdidSetから送られる)。
+    static let recentFilesLimitDidChange = Notification.Name("qooViewer.recentFilesLimitDidChange")
 }

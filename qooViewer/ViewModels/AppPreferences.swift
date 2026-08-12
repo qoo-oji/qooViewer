@@ -248,7 +248,34 @@ final class AppPreferences: ObservableObject {
             )
         }
     }
+    /// 「最近開いたファイル」の履歴として保持する件数(既定30件)。
+    ///
+    /// 以前はRecentFilesStore側に10件固定で埋め込まれていたが、サイドパネルの「履歴」モードで
+    /// 一覧として使うようになり10件では足りないため、設定できるようにした(ユーザー要望)。
+    /// maxTrackedBooksCountと同じ理由でDoubleとして持つ(SettingsSliderがDoubleを扱うため)。
+    ///
+    /// 【重要】この値の実際の読み取りは、AppPreferencesを参照できないRecentFilesStoreが
+    /// UserDefaultsから直接行う(recentFilesLimitDefaultsKey参照)。RecentFilesStoreは
+    /// QooViewerApp側でAppPreferencesとは独立に生成される@StateObjectであり、相互参照を
+    /// 増やさずに済ませるための割り切り。キー文字列を二重管理しないよう、下の
+    /// recentFilesLimitDefaultsKeyを両者で共有する。
+    @Published var recentFilesLimit: Double {
+        didSet {
+            UserDefaults.standard.set(recentFilesLimit, forKey: Self.recentFilesLimitDefaultsKey)
+            // 件数を減らした場合に、その場で履歴側も切り詰めさせる(次に本を開くまで
+            // 古い履歴が残り続けないようにするため)。
+            NotificationCenter.default.post(name: .recentFilesLimitDidChange, object: nil)
+        }
+    }
+    /// recentFilesLimitのUserDefaultsキー。RecentFilesStoreと共有する(上のコメント参照)。
+    static let recentFilesLimitDefaultsKey = "qooViewer.pref.recentFilesLimit"
+    /// recentFilesLimitの既定値・下限・上限。RecentFilesStore側の読み取りでも同じ値を使う。
+    static let defaultRecentFilesLimit: Double = 30
+    static let recentFilesLimitRange: ClosedRange<Double> = 10...200
+
     /// ウェルカム画面に「最近開いたファイル」一覧(最大10件)を表示するかどうか(既定ON)。
+    /// 履歴として保持する件数(recentFilesLimit)を増やしても、ウェルカム画面の一覧は
+    /// 画面が縦に伸びすぎないよう10件までに留める(WelcomeView参照)。
     @Published var showRecentFilesOnWelcome: Bool {
         didSet { UserDefaults.standard.set(showRecentFilesOnWelcome, forKey: Keys.showRecentFilesOnWelcome) }
     }
@@ -331,6 +358,9 @@ final class AppPreferences: ObservableObject {
             SidePanelMode(rawValue: defaults.string(forKey: Keys.sidePanelMode) ?? "") ?? .browser
         self.showProgressBarThumbnailPreview =
             defaults.object(forKey: Keys.showProgressBarThumbnailPreview) as? Bool ?? true
+        self.recentFilesLimit =
+            defaults.object(forKey: Self.recentFilesLimitDefaultsKey) as? Double
+            ?? Self.defaultRecentFilesLimit
         self.showRecentFilesOnWelcome =
             defaults.object(forKey: Keys.showRecentFilesOnWelcome) as? Bool ?? true
         self.showRecentFavoritesOnWelcome =
