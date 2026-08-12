@@ -418,7 +418,9 @@ private struct BookContentsSectionView: View {
             if entry.isContainer {
                 label.onTapGesture(count: 1) { state.navigate(entry) }
             } else if entry.isImage {
-                label.onTapGesture(count: 2) { handleDoubleClick(entry) }
+                // 他の行(フォルダへ移動、上段のファイルを開く)がすべてシングルクリックの
+                // ため、画像もそれに揃える(ユーザー要望)。
+                label.onTapGesture(count: 1) { handleImageClick(entry) }
             } else {
                 label
             }
@@ -437,8 +439,8 @@ private struct BookContentsSectionView: View {
         }
     }
 
-    private func handleDoubleClick(_ entry: BookInternalBrowsing.Entry) {
-        switch state.resolveDoubleClick(on: entry, bookPages: bookPages) {
+    private func handleImageClick(_ entry: BookInternalBrowsing.Entry) {
+        switch state.resolveImageClick(on: entry, bookPages: bookPages) {
         case .jumpToPage(let index):
             onJumpToPage(index)
         case .openAsNewBook(let url):

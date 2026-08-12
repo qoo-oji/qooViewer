@@ -127,7 +127,7 @@ final class BookContentsBrowserState: ObservableObject {
     }
 
     /// フォルダ/ネストしたアーカイブファイルへ踏み込む(entry.navigateTarget == nilの
-    /// 画像ファイルには何もしない。ダブルクリックはresolveDoubleClickを使う)。
+    /// 画像ファイルには何もしない。画像のクリックはresolveImageClickを使う)。
     func navigate(_ entry: BookInternalBrowsing.Entry) {
         guard let target = entry.navigateTarget else { return }
         do {
@@ -265,13 +265,13 @@ final class BookContentsBrowserState: ObservableObject {
 
     private static let maxResolutionDepth = 32
 
-    enum DoubleClickResult {
+    enum ImageClickResult {
         case jumpToPage(Int)
         case openAsNewBook(URL)
         case unavailable
     }
 
-    /// entryのダブルクリック(画像のみ意味を持つ)を解決する。bookPages(呼び出し元が
+    /// entryのクリック(画像のみ意味を持つ)を解決する。bookPages(呼び出し元が
     /// AppState.currentBookPagesを渡す)のsortKeyと一致すれば、そのページへのジャンプを
     /// 返す。一致しなければ(ネストしたアーカイブの中まで踏み込んで初めて見つかった、
     /// BookLoaderが元々読み込んでいない画像 — BookLoaderはネストしたアーカイブを一切
@@ -279,7 +279,7 @@ final class BookContentsBrowserState: ObservableObject {
     /// 開く指示を返す。クリックした画像そのものへ厳密にジャンプすることまではスコープに
     /// 含めない(AppState.openにページ指定を通す仕組みが無く、影響範囲が大きくなるための
     /// 意図的な割り切り)。
-    func resolveDoubleClick(on entry: BookInternalBrowsing.Entry, bookPages: [PageRef]) -> DoubleClickResult {
+    func resolveImageClick(on entry: BookInternalBrowsing.Entry, bookPages: [PageRef]) -> ImageClickResult {
         guard entry.isImage else { return .unavailable }
         if let index = bookPages.firstIndex(where: { $0.sortKey == entry.matchKey }) {
             return .jumpToPage(index)
