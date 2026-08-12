@@ -1947,7 +1947,12 @@ struct ViewerView: View {
     /// 書き換える(過去のプログレスバーの不具合の反省を踏まえた安全策)。
     private func updateAutoHiddenChromeVisibility(forMouseLocationInWindow location: CGPoint) {
         guard isFullScreen || appState.hideToolbar || appState.hideProgressBar,
-              hostWindow != nil else { return }
+              hostWindow != nil else {
+            // 自動隠し自体が無効なときは、サイドパネル側から見て「ツールバー/プログレスバーが
+            // 今まさに表示されている」という誤情報にならないよう、必ず false に戻しておく。
+            appState.isChromeAutoRevealed = false
+            return
+        }
         // 上端(ツールバー側)の判定には、window.contentView.frame.heightからツールバーの高さを
         // 引いて逆算する方式は使わない。タイトルバーの実装の都合でcontentHeightが実際の
         // ツールバーの表示位置と微妙にズレることがあり(タブバーの有無による影響とは別の要因)、
@@ -1960,9 +1965,17 @@ struct ViewerView: View {
         // 対応するため、実測したプログレスバーの高さ(progressBarHeight)とlocation.yを
         // そのまま比較すればよい。
         let shouldShow = location.y >= toolbarBottomYInWindow || location.y < progressBarHeight
+        // サイドパネル(hideSidePanel == trueでホバー表示中)が既にカーソルの主導権を握って
+        // いる場合、新たにツールバー/プログレスバーを表示させない(ユーザー報告: サイドパネルを
+        // 表示した状態でカーソルを上へ動かすと、ツールバーまで表示されてしまっていた)。
+        // 既に表示中のものを隠す方向(shouldShow == false)には影響しない。
+        if shouldShow, !isAutoHiddenChromeRevealed, appState.isSidePanelRevealed {
+            return
+        }
         if isAutoHiddenChromeRevealed != shouldShow {
             isAutoHiddenChromeRevealed = shouldShow
         }
+        appState.isChromeAutoRevealed = isAutoHiddenChromeRevealed
     }
 
     /// メニューバーの各種チェックマーク・グレーアウト状態を、現在のviewModelの値で更新する。

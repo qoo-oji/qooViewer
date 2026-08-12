@@ -513,8 +513,6 @@ struct ContentView: View {
 
     /// サイドパネルのホバー表示/非表示を検知する、ウインドウ内`.mouseMoved`のローカルモニタ。
     /// ViewerView.makeScrollMonitorとは完全に独立しており、カーソルのX座標だけを見て判定する。
-    /// ツールバー/プログレスバーの自動表示(Y座標の帯、ViewerView側)とは判定ロジック・
-    /// 描画レイヤーともに独立しているため干渉しない。
     ///
     /// 表示メニューの「サイドパネルを隠す」がOFF(既定)のときは、サイドパネルは常時表示
     /// されているため、このモニタは何もしない(hideToolbar/hideProgressBarのY座標版の
@@ -526,6 +524,13 @@ struct ContentView: View {
     /// カーソルがあるのに閉じてしまう(表示直後にちらつく)不具合になる。ユーザー要望により、
     /// クリックでは閉じない(ページ表示エリアをクリックしただけで本の閲覧を妨げないように
     /// するため)。
+    ///
+    /// ツールバー/プログレスバーの自動表示(Y座標の帯、ViewerView側)とは判定ロジック・
+    /// 描画レイヤーともに独立しているが、ウインドウの左上・左下の角では両方の帯が同時に
+    /// 成立し得る。何も対策しないと、表示中のツールバーの上をカーソルが左へ移動して
+    /// 左端に近づいただけでサイドパネルまで表示されてしまう(ユーザー報告)。
+    /// appState.isChromeAutoRevealed(ツールバー/プログレスバーが今まさに表示されているか)を
+    /// 見て、それらが既にカーソルの主導権を握っている間は新たに表示しない。
     private func installSidePanelHoverMonitorIfNeeded() {
         guard sidePanelHoverMonitor == nil else { return }
         sidePanelHoverMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { event in
@@ -538,7 +543,7 @@ struct ContentView: View {
                 if event.locationInWindow.x > sidePanelWidth + Self.sidePanelHideMargin {
                     appState.isSidePanelRevealed = false
                 }
-            } else if event.locationInWindow.x <= Self.sidePanelRevealBandWidth {
+            } else if event.locationInWindow.x <= Self.sidePanelRevealBandWidth, !appState.isChromeAutoRevealed {
                 appState.isSidePanelRevealed = true
                 sidePanelBrowser.handlePanelRevealed(currentBook: appState.currentBook)
             }

@@ -52,6 +52,18 @@ final class AppState: ObservableObject {
     /// (showThumbnailGridと同じ扱い。ViewerView.makeScrollMonitor/makeContextClickMonitor参照)。
     var isSidePanelFloatingOverlay: Bool { hideSidePanel && isSidePanelRevealed }
 
+    /// ツールバー・プログレスバーの自動隠し(hideToolbar/hideProgressBar、またはフルスクリーン中)
+    /// が、マウスカーソルの位置により今まさに一時的に表示されているかどうか。ViewerViewの
+    /// updateAutoHiddenChromeVisibilityが更新する。ContentView側のサイドパネルのホバー検知
+    /// (X座標だけを見る)と、ViewerView側のこの自動表示(Y座標だけを見る)は互いに独立した
+    /// 判定のため、何も対策しないとウインドウの角(左上・左下)ではどちらも同時に成立してしまい、
+    /// 「ツールバーの上を左へ移動していくとサイドパネルが表示されてツールバーが隠れる」
+    /// 「サイドパネルを表示した状態で上へ移動するとツールバーまで表示される」といった
+    /// 意図しない競合が起きる(ユーザー報告)。どちらか一方が先にカーソルの主導権を握って
+    /// いる間は、もう一方が新たに表示されないようにするための橋渡しとして使う
+    /// (ContentView.installSidePanelHoverMonitorIfNeeded参照)。
+    @Published var isChromeAutoRevealed = false
+
     /// サイドパネルの下段(本の中身ブラウザ)が、ダブルクリックされた画像ファイルのパスから
     /// 「それが本の何ページ目か」を特定するために参照する、現在の本のページ一覧。
     ///
