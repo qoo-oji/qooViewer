@@ -1925,6 +1925,34 @@ struct ViewerView: View {
             }
         }
         windowObservers = [enter, exit, resignKey, menuBegin, menuEnd, becomeKey]
+
+        // バグ修正(ユーザー報告): 上のenter/exit/resignKey/becomeKeyはobject: windowで
+        // 登録しており、この購読はhandleOnDisappear()でも解除されるが、そちらはSwiftUIの
+        // .onDisappearで駆動されるため、実際にこのウインドウが閉じる(NSWindowが破棄される)
+        // タイミングより後になることがある(SwiftUIの状態変化→再描画は非同期で、
+        // windowShouldCloseの中でappState.closeBook()を呼んでcurrentBookをnilにしても、
+        // ViewerViewのonDisappearが実際に走ってこの購読を解除し終える前に、ウインドウ自体は
+        // 閉じてしまいうる)。NotificationCenterのobject:によるフィルタはポインタ一致で
+        // 行われるため、解除し損ねた購読が残っている間に、閉じたウインドウとたまたま同じ
+        // メモリアドレスに新しいNSWindowが確保されると、その新しいウインドウ宛ての通知
+        // (didBecomeKeyNotificationなど)にこの古い(本来ならもう無効な)購読が誤って反応して
+        // しまう。実機で、これが原因と見られる「unrecognized selector」例外(ウインドウを
+        // 閉じてすぐ外部から本を開き直すと発生)が確認された。
+        // ここでウインドウが閉じる(NSWindow.willCloseNotification、実際に閉じる直前に
+        // 同期的に発火する)タイミングで、自分自身を含めて確実に解除する。
+        var closeToken: NSObjectProtocol?
+        closeToken = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: window, queue: .main
+        ) { _ in
+            for observer in windowObservers {
+                NotificationCenter.default.removeObserver(observer)
+            }
+            windowObservers = []
+            if let closeToken {
+                NotificationCenter.default.removeObserver(closeToken)
+            }
+        }
+        windowObservers.append(closeToken!)
     }
 
     /// フルスクリーン表示中、または表示メニューの「ツールバーを隠す」「プログレスバーを隠す」の

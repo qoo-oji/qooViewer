@@ -319,7 +319,7 @@ struct QooViewerApp: App {
                                 FormatBadgeView.plainTextTitle(baseName: entry.displayName, bookID: entry.url.path)
                             ) {
                                 _ = entry.url.startAccessingSecurityScopedResource()
-                                focusedAppState?.open(url: entry.url)
+                                openURLPreferringFocusedWindow(entry.url)
                             }
                         }
                     }
@@ -745,6 +745,17 @@ struct QooViewerApp: App {
                 .environmentObject(launchCoordinator)
         }
         .windowResizability(.contentSize)
+        // バグ修正(ユーザー報告): "main" WindowGroupと同じ理由で、こちらの状態復元も
+        // 無効化する。当初は"main"だけに適用していたが、AppDelegate.application(_:open:)が
+        // 再利用できるmainウインドウが無いときに、この"book" WindowGroupを主ウインドウの
+        // 代わりとして開く(actsAsPrimaryWindow: true)ようになったことで、"book"ウインドウも
+        // 同じ「ウインドウを閉じてもSwiftUI/AppKitが状態復元のつもりで中身を生かしたまま
+        // 保持し続け、後から同じウインドウが亡霊のように復活してしまう」不具合の対象になった
+        // (実機で確認済み: 閉じたはずのウインドウのonAppearが後から再度発火し、
+        // LaunchCoordinator.openAppState(forBookAt:)がそのゾンビ状態のAppStateを「まだ開いている
+        // ウインドウ」と誤認してしまい、外部から本を開こうとしても新しいウインドウが正しく
+        // 表示されない不具合があった)。
+        .restorationBehavior(.disabled)
         .modelContainer(QooViewerApp.modelContainer)
         .environment(\.locale, locale)
 
@@ -904,18 +915,46 @@ struct QooViewerApp: App {
     /// (preferences.favoriteOpenBehavior)1箇所で挙動を決めるように変更した。
     /// まだ本を表示していない(Welcome画面)場合は、Finderから開いたときと同様、設定に関わらず
     /// 常にそのウインドウでそのまま開く(閉じるべき「現在の本」がそもそも無いため)。
+    ///
+    /// バグ修正(ユーザー報告): 以前はfocusedAppStateだけを見ており、コンテンツウインドウが
+    /// 1枚も無い(すべて閉じた)状態や、コンテンツウインドウはあるが「ブックマークの編集」等の
+    /// 別ウインドウにフォーカスがある状態では、focusedAppStateがnilになりお気に入りを
+    /// クリックしても何も起きなかった。launchCoordinator.frontmostContentAppState()を
+    /// フォールバックとして使い、それも無い(=本当にコンテンツウインドウが1枚も無い)場合は、
+    /// 「最近使ったファイル」(openURLPreferringFocusedWindow参照)と同じく新しいウインドウを
+    /// 開いてそこへ表示する。
     private func openFavoriteAccordingToPreference(_ favorite: FavoriteBook) {
-        guard let focusedAppState, focusedAppState.currentBook != nil else {
-            focusedAppState?.openFavorite(favorite)
+        let targetAppState = focusedAppState ?? launchCoordinator.frontmostContentAppState()
+        guard let targetAppState, targetAppState.currentBook != nil else {
+            if let targetAppState {
+                targetAppState.openFavorite(favorite)
+            } else if let url = favoritesStore.resolvedExistingURL(for: favorite) {
+                openURLInNewWindow(url, asTab: false, tabTarget: nil, actsAsPrimaryWindow: true)
+            }
             return
         }
         switch preferences.favoriteOpenBehavior {
         case .replaceCurrentBook:
-            focusedAppState.openFavorite(favorite)
+            targetAppState.openFavorite(favorite)
         case .newTab:
             openFavorite(favorite, asTab: true)
         case .newWindow:
             openFavorite(favorite, asTab: false)
+        }
+    }
+
+    /// focusedAppStateを最優先しつつ、無ければ「本を表示しているどこかのウインドウ」
+    /// (launchCoordinator.frontmostContentAppState()。「ブックマークの編集」等の
+    /// コンテンツウインドウ以外にフォーカスがあるだけの場合を救う)、それも無ければ
+    /// (=コンテンツウインドウが1枚も無い、すべて閉じた状態を含む)新しいウインドウを開いて
+    /// そこへ開く。「最近使ったファイル」メニューが、コンテンツウインドウにフォーカスが無い
+    /// (0枚を含む)ときに何も起きなくなる不具合の対策(ユーザー報告。お気に入りの同種の不具合は
+    /// openFavoriteAccordingToPreference参照)。
+    private func openURLPreferringFocusedWindow(_ url: URL) {
+        if let target = focusedAppState ?? launchCoordinator.frontmostContentAppState() {
+            target.open(url: url)
+        } else {
+            openURLInNewWindow(url, asTab: false, tabTarget: nil, actsAsPrimaryWindow: true)
         }
     }
 
@@ -1342,7 +1381,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @MainActor
 final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
     weak var appState: AppState?
-    weak var originalDelegate: NSWindowDelegate?
+    /// バグ修正(ユーザー報告): 以前はweak varだった。window.delegateにこのインスタンスを
+    /// 設定した時点で、SwiftUI/AppKitが元々設定していたデリゲート(タブ管理・状態復元用)を
+    /// 他に誰も強参照しなくなることがあり、その場合、weak参照だったこのoriginalDelegateは
+    /// 即座にnilへ戻ってしまう。すると、windowShouldClose以外のメソッド(windowDidBecomeKey:
+    /// など、責任を持たず単に転送するだけのつもりだったもの)がresponds(to:)/
+    /// forwardingTarget(for:)経由で正しく転送されず、"unrecognized selector"例外が発生して
+    /// いた(実機で確認済み。特にapplication(_:open:)から新しいウインドウのmakeKeyAndOrderFront
+    /// を早いタイミングで明示的に呼ぶ経路で顕在化した)。転送を維持するため、このデリゲートが
+    /// 生きている間は元のデリゲートも強参照で生かしておく。
+    var originalDelegate: NSWindowDelegate?
     /// 赤い閉じるボタンのforceCloseWindow(_:)から、直接閉じる対象のウインドウ。
     weak var window: NSWindow?
     /// 複数タブ確認ダイアログのON/OFF設定・表示言語を参照するため。

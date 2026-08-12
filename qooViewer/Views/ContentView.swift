@@ -104,6 +104,17 @@ struct ContentView: View {
             updateLastActiveBookRecordIfKeyWindow()
         }
         .background(WindowAccessor { window in
+            // バグ修正(ユーザー報告): SwiftUIは、ウインドウが閉じた後もこのViewをすぐには
+            // 破棄せず、WindowAccessorのコールバックを既に閉じられた(isVisible == false)
+            // ウインドウの参照で改めて呼ぶことがある(実機で確認済み)。ここでガードせずに
+            // appState.hostWindowへ代入してしまうと、observeWindowBecameKey内の
+            // willCloseNotificationハンドラがせっかくnilへ戻したhostWindowが、この後から来る
+            // コールバックによって「閉じたはずのウインドウ」へ逆戻りしてしまう。この結果、
+            // ウインドウを閉じた後もLaunchCoordinator.openAppState(forBookAt:)がこのAppStateを
+            // 「まだ開いている」と誤認し、外部から同じ本を開こうとしたときに、閉じたウインドウを
+            // makeKeyAndOrderFrontしようとするだけで新しいウインドウが作られず、本が表示されない
+            // (ように見える)不具合があった。既に閉じられたウインドウの参照は無視する。
+            guard window == nil || window!.isVisible else { return }
             guard appState.hostWindow !== window else { return }
             appState.hostWindow = window
             // このウインドウがキーウインドウになるたびに、「前回終了時にアクティブだった
