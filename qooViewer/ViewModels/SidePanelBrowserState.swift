@@ -143,4 +143,13 @@ final class SidePanelBrowserState: ObservableObject {
         folderAccess?.add(url: grantedURL)
         reload()
     }
+
+    /// 今表示中のフォルダをFinderで開く(ユーザー要望)。AppState.revealCurrentBookInFinder()の
+    /// フォルダ側の分岐(NSWorkspace.shared.open(url))と同じ考え方だが、こちらは常にフォルダ
+    /// そのものが対象(選択状態にする対象のファイルが無い)なので単純にopen(url:)でよい。
+    /// ボリューム一覧(currentDirectory == nil)のときは対象が無いため何もしない。
+    func openInFinder() {
+        guard let directory = currentDirectory else { return }
+        NSWorkspace.shared.open(directory)
+    }
 }

@@ -221,6 +221,13 @@ struct SidePanelView: View {
                     folderState.goUp()
                 }
                 Spacer(minLength: 0)
+                SidePanelNavButton(
+                    systemName: "arrow.up.forward.square",
+                    isDisabled: folderState.currentDirectory == nil,
+                    help: "Show in Finder"
+                ) {
+                    folderState.openInFinder()
+                }
             }
             .padding(10)
 
