@@ -76,6 +76,7 @@ struct GeneralSettingsView: View {
                     isOn: $preferences.sidePanelUsesDoubleClick,
                     caption: "Applies to opening files and moving into folders in the side panel. Navigation buttons are unaffected."
                 )
+                SettingsPicker("Sort Order", selection: $preferences.sidePanelSortOrder)
             } header: {
                 Text("Side Panel")
             }

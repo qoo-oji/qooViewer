@@ -33,6 +33,7 @@ final class AppPreferences: ObservableObject {
         static let sidePanelWidth = "qooViewer.pref.sidePanelWidth"
         static let sidePanelFeatureEnabled = "qooViewer.pref.sidePanelFeatureEnabled"
         static let sidePanelUsesDoubleClick = "qooViewer.pref.sidePanelUsesDoubleClick"
+        static let sidePanelSortOrder = "qooViewer.pref.sidePanelSortOrder"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
         static let showRecentFilesOnWelcome = "qooViewer.pref.showRecentFilesOnWelcome"
         static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
@@ -208,6 +209,14 @@ final class AppPreferences: ObservableObject {
     @Published var sidePanelUsesDoubleClick: Bool {
         didSet { UserDefaults.standard.set(sidePanelUsesDoubleClick, forKey: Keys.sidePanelUsesDoubleClick) }
     }
+    /// 環境設定「一般」タブの、サイドパネル(上段・下段どちらも)のフォルダ・ファイルの
+    /// 並び順(既定はフォルダをまとめて上に表示、Finderと同じ考え方)。DirectoryBrowser/
+    /// BookInternalBrowsingはどちらもnonisolated enum(MainActor隔離のAppPreferencesを
+    /// 直接読めない)のため、SidePanelBrowserState/BookContentsBrowserStateがreload()の
+    /// たびにこの値を引数として渡す。
+    @Published var sidePanelSortOrder: SidePanelSortOrder {
+        didSet { UserDefaults.standard.set(sidePanelSortOrder.rawValue, forKey: Keys.sidePanelSortOrder) }
+    }
     /// プログレスバーにカーソルを合わせたときに、フィルムストリップ(サムネイル・ファイル名・
     /// ページ番号を含むプレビュー)を表示するかどうか(既定ON)。OFFにすると、サムネイルの
     /// 読み込みは一切行わず、カーソル位置に対応するページ番号だけを表示するシンプルな表示になる
@@ -294,6 +303,8 @@ final class AppPreferences: ObservableObject {
         self.sidePanelWidth = defaults.object(forKey: Keys.sidePanelWidth) as? Double ?? 280
         self.sidePanelFeatureEnabled = defaults.object(forKey: Keys.sidePanelFeatureEnabled) as? Bool ?? true
         self.sidePanelUsesDoubleClick = defaults.object(forKey: Keys.sidePanelUsesDoubleClick) as? Bool ?? false
+        self.sidePanelSortOrder =
+            SidePanelSortOrder(rawValue: defaults.string(forKey: Keys.sidePanelSortOrder) ?? "") ?? .foldersFirst
         self.showProgressBarThumbnailPreview =
             defaults.object(forKey: Keys.showProgressBarThumbnailPreview) as? Bool ?? true
         self.showRecentFilesOnWelcome =

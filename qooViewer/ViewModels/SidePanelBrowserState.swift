@@ -97,12 +97,13 @@ final class SidePanelBrowserState: ObservableObject {
     func reload() {
         reloadTask?.cancel()
         let directory = currentDirectory
+        let sortOrder = preferences?.sidePanelSortOrder ?? .foldersFirst
         reloadTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let result: [DirectoryBrowser.Entry]
                 if let directory {
-                    result = try await DirectoryBrowser.entriesAsync(in: directory)
+                    result = try await DirectoryBrowser.entriesAsync(in: directory, sortOrder: sortOrder)
                 } else {
                     result = await DirectoryBrowser.mountedVolumeEntriesAsync()
                 }

@@ -67,6 +67,24 @@ extension AppLanguage: SettingsOption {
     var shortTitleKey: LocalizedStringKey { titleKey }
 }
 
+extension SidePanelSortOrder: SettingsOption {
+    var shortTitleKey: LocalizedStringKey {
+        switch self {
+        case .foldersFirst: return "Folders First"
+        case .mixedByName: return "Mixed by Name"
+        }
+    }
+
+    var detailKey: LocalizedStringKey? {
+        switch self {
+        case .foldersFirst:
+            return "Groups folders together above files, like Finder."
+        case .mixedByName:
+            return "Sorts folders and files together by name."
+        }
+    }
+}
+
 // MARK: - 描画
 
 extension InterpolationQuality: SettingsOption {

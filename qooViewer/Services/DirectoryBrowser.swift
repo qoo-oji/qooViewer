@@ -32,12 +32,13 @@ nonisolated enum DirectoryBrowser {
     }
 
     /// directory直下の項目一覧を返す。フォルダは常に含み、ファイルは開ける形式のみに絞る。
-    /// 自然順ソート(SiblingFinderと同じ.compare(_:options:.numeric))。
+    /// 自然順ソート(SiblingFinderと同じ.compare(_:options:.numeric))。並び順自体は
+    /// sortOrder(環境設定「一般」タブ)に従う(sortedEntries(_:order:)参照)。
     ///
     /// アクセス権が無い場合は、FileManagerが投げるエラーをそのままthrowする(SiblingFinderの
     /// ようにtry?でもみ消さない)。空フォルダと権限エラーを区別し、呼び出し側で「その場で
     /// アクセスを許可」の案内を出し分けられるようにするため。
-    static func entries(in directory: URL) throws -> [Entry] {
+    static func entries(in directory: URL, sortOrder: SidePanelSortOrder) throws -> [Entry] {
         let children = try FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -52,8 +53,24 @@ nonisolated enum DirectoryBrowser {
             guard isArchiveFile(name) || isPDFFile(name) || isEpubFile(name) else { return nil }
             return Entry(url: child, isDirectory: false)
         }
-        return entries.sorted {
-            $0.url.lastPathComponent.compare($1.url.lastPathComponent, options: .numeric) == .orderedAscending
+        return sortedEntries(entries, order: sortOrder)
+    }
+
+    /// フォルダ・ファイルの一覧を、環境設定「一般」タブの並び順設定に従って並べ替える。
+    /// nonisolated enum(MainActor隔離のAppPreferencesを直接読めない)のため、呼び出し側が
+    /// 現在の設定値を引数として渡す(AppPreferences.sidePanelSortOrderのコメント参照)。
+    private static func sortedEntries(_ entries: [Entry], order: SidePanelSortOrder) -> [Entry] {
+        switch order {
+        case .mixedByName:
+            return entries.sorted {
+                $0.url.lastPathComponent.compare($1.url.lastPathComponent, options: .numeric) == .orderedAscending
+            }
+        case .foldersFirst:
+            return entries.sorted { lhs, rhs in
+                if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
+                return lhs.url.lastPathComponent.compare(rhs.url.lastPathComponent, options: .numeric)
+                    == .orderedAscending
+            }
         }
     }
 
@@ -72,9 +89,9 @@ nonisolated enum DirectoryBrowser {
 
     /// 上記をメインスレッド外(Task.detached)で実行する版。SiblingFinder.siblingBookURLsAsyncと
     /// 同じ形。エラーはそのまま呼び出し側へ伝播する。
-    static func entriesAsync(in directory: URL) async throws -> [Entry] {
+    static func entriesAsync(in directory: URL, sortOrder: SidePanelSortOrder) async throws -> [Entry] {
         try await Task.detached(priority: .utility) {
-            try entries(in: directory)
+            try entries(in: directory, sortOrder: sortOrder)
         }.value
     }
 

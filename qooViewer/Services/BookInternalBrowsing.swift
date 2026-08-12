@@ -63,16 +63,31 @@ nonisolated enum BookInternalBrowsing {
     /// PDF/EPUBがフォルダ/アーカイブ本の中にさらに入れ子で存在するケースは対象外とする —
     /// このブラウザの目的は「漫画のページ・入れ子になった漫画アーカイブを辿ること」で
     /// あり、PDF/EPUB用の別の閲覧モードを新設するほどの需要が無いための意図的な割り切り)。
-    static func entries(at level: BookEntryLevel) throws -> [Entry] {
+    static func entries(at level: BookEntryLevel, sortOrder: SidePanelSortOrder) throws -> [Entry] {
         switch level {
         case .folder(let url):
-            return try folderEntries(in: url)
+            return try folderEntries(in: url, sortOrder: sortOrder)
         case .archive(_, let allPaths, let prefix, let matchKeyPrefix):
-            return archiveEntries(allPaths: allPaths, prefix: prefix, matchKeyPrefix: matchKeyPrefix)
+            return archiveEntries(allPaths: allPaths, prefix: prefix, matchKeyPrefix: matchKeyPrefix, sortOrder: sortOrder)
         }
     }
 
-    private static func folderEntries(in url: URL) throws -> [Entry] {
+    /// 一覧を環境設定「一般」タブの並び順設定に従って並べ替える。「フォルダ」扱いは
+    /// isContainer(実フォルダ・ネストした書庫ファイルのどちらも踏み込めるため上位に
+    /// まとめる)、DirectoryBrowser.sortedEntries(_:order:)と同じ考え方。
+    private static func sortedEntries(_ entries: [Entry], order: SidePanelSortOrder) -> [Entry] {
+        switch order {
+        case .mixedByName:
+            return entries.sorted { $0.displayName.compare($1.displayName, options: .numeric) == .orderedAscending }
+        case .foldersFirst:
+            return entries.sorted { lhs, rhs in
+                if lhs.isContainer != rhs.isContainer { return lhs.isContainer }
+                return lhs.displayName.compare(rhs.displayName, options: .numeric) == .orderedAscending
+            }
+        }
+    }
+
+    private static func folderEntries(in url: URL, sortOrder: SidePanelSortOrder) throws -> [Entry] {
         let children = try FileManager.default.contentsOfDirectory(
             at: url,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -101,14 +116,16 @@ nonisolated enum BookInternalBrowsing {
             }
             return nil
         }
-        return entries.sorted { $0.displayName.compare($1.displayName, options: .numeric) == .orderedAscending }
+        return sortedEntries(entries, order: sortOrder)
     }
 
     /// フラットなパス一覧(ZIPFoundation/Unrar/SevenZipのlistFilePaths()はディレクトリ
     /// エントリを持たず、ファイルの完全パスだけを返す)から、prefix直下の1階層分だけを
     /// 切り出す。prefix以降の残りを最初の"/"で分割し、"/"が見つかればそこまでがフォルダ名、
     /// 見つからなければそれ自体がこの階層のファイル。
-    private static func archiveEntries(allPaths: [String], prefix: String, matchKeyPrefix: String?) -> [Entry] {
+    private static func archiveEntries(
+        allPaths: [String], prefix: String, matchKeyPrefix: String?, sortOrder: SidePanelSortOrder
+    ) -> [Entry] {
         var folderNames = Set<String>()
         var fileEntries: [Entry] = []
 
@@ -153,8 +170,6 @@ nonisolated enum BookInternalBrowsing {
                 matchKey: matchKey(for: childPrefix), navigateTarget: .archiveVirtualFolder(prefix: childPrefix)
             )
         }
-        return (folderEntries + fileEntries).sorted {
-            $0.displayName.compare($1.displayName, options: .numeric) == .orderedAscending
-        }
+        return sortedEntries(folderEntries + fileEntries, order: sortOrder)
     }
 }
