@@ -143,7 +143,22 @@ struct ContentView: View {
             //     falseにしても防げなかった)
             // この時点(初期化直後)ではどちらも見分けが付かないため、少し待って判定する
             // (resolveAmbiguousNewMainWindow参照)。
-            guard launchCoordinator.primaryAppState == nil || launchCoordinator.primaryAppState === appState || initialURL != nil else {
+            // バグ修正(ユーザー報告): SwiftUIのWindowGroup(id:)は、ウインドウを閉じてもその
+            // 中身(@StateObjectのappStateを含む)をすぐには解放しないことが実機で確認されて
+            // いる。そのため、weak var primaryAppState(LaunchCoordinator)自体は「ウインドウを
+            // 閉じれば自然にnilへ戻る」という前提が成り立たず、閉じた後もずっと閉じたウインドウの
+            // appStateを指したままのことがある。この結果、ウインドウをすべて閉じた状態から
+            // 外部アプリ等がファイルを開こうとすると、新しく現れるウインドウが毎回「不正な余分
+            // ウインドウ」と誤判定されて閉じてしまい、本自体は読み込まれ履歴には記録されるのに、
+            // どこにも表示されないという不具合があった。
+            // 対策として、primaryAppStateそのものの有無ではなく、
+            // launchCoordinator.primaryWindowIsOpen(このonAppear内で同期的に立てる/倒す値)で
+            // 判定する。appState.hostWindowの有無で代用しようとしたこともあったが、hostWindowは
+            // WindowAccessor経由で非同期に設定されるため、ほぼ同時に複数の新しいウインドウが
+            // 現れた場合に両方とも「まだ主ウインドウがいない」と誤認し、両方とも主ウインドウを
+            // 名乗ってしまう(=片方が空のまま残り続ける)不具合があった。primaryWindowIsOpenは
+            // ここで同期的に更新するため、そのような競合は起きない。
+            guard !launchCoordinator.primaryWindowIsOpen || launchCoordinator.primaryAppState === appState || initialURL != nil else {
                 resolveAmbiguousNewMainWindow()
                 return
             }
@@ -159,8 +174,9 @@ struct ContentView: View {
             // 新しいウインドウ/タブや次回起動時にも同じ表示状態で始まる。
             appState.hideToolbar = preferences.hideToolbar
             appState.hideProgressBar = preferences.hideProgressBar
-            if launchCoordinator.primaryAppState == nil {
+            if !launchCoordinator.primaryWindowIsOpen {
                 launchCoordinator.primaryAppState = appState
+                launchCoordinator.primaryWindowIsOpen = true
             }
             // 「すでに開いている本を新しいウインドウ/タブで開こうとしたときに、既存の
             // ウインドウ/タブをアクティブにする」機能のために、このウインドウ/タブのAppStateを
@@ -325,13 +341,47 @@ struct ContentView: View {
     }
 
     /// このウインドウがキーウインドウになるたびに、今表示している本(なければ「本を
-    /// 開いていない状態」)をLastActiveBookStoreに記録する。windowはNotificationCenterへ
-    /// weakに保持されるだけなので、ウインドウが閉じられれば監視も自然に無意味になる。
+    /// 開いていない状態」)をLastActiveBookStoreに記録する。
+    ///
+    /// バグ修正(ユーザー報告): 以前はこの購読を登録するだけでremoveObserverを一切呼んでおらず、
+    /// コメントでは「windowはNotificationCenterへweakに保持されるだけなので、ウインドウが
+    /// 閉じられれば監視も自然に無意味になる」としていたが、これは誤りだった。object:に渡す
+    /// windowはweakに保持されフィルタに使われるだけで、クロージャ自体(とそれが暗黙に
+    /// キャプチャしているappStateを含むこのContentView)はremoveObserverするまで
+    /// NotificationCenterに強参照され続ける。ここでウインドウが閉じる
+    /// (NSWindow.willCloseNotification)タイミングで、自分自身を含む両方の購読を確実に
+    /// removeObserverする。
+    ///
+    /// 合わせて、このウインドウがLaunchCoordinator.primaryAppStateなら
+    /// primaryWindowIsOpenをfalseへ戻す(LaunchCoordinator.primaryWindowIsOpenのコメント、
+    /// および上のonAppear参照。SwiftUIのWindowGroup(id:)はウインドウを閉じてもappState自体を
+    /// すぐには解放しないことがあるため、weak var primaryAppStateが自然にnilへ戻ることは
+    /// あてにできず、この値で明示的に「ウインドウが閉じた」ことを伝える)。appState.hostWindowも
+    /// 念のためnilへ戻す。
     private func observeWindowBecameKey(_ window: NSWindow) {
-        NotificationCenter.default.addObserver(
+        var keyToken: NSObjectProtocol?
+        var closeToken: NSObjectProtocol?
+        keyToken = NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
         ) { _ in
             updateLastActiveBookRecordIfKeyWindow()
+        }
+        closeToken = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: window, queue: .main
+        ) { _ in
+            if appState.hostWindow === window {
+                appState.hostWindow = nil
+            }
+            if launchCoordinator.primaryAppState === appState {
+                launchCoordinator.primaryWindowIsOpen = false
+                launchCoordinator.primaryWindowHasEverClosed = true
+            }
+            if let keyToken {
+                NotificationCenter.default.removeObserver(keyToken)
+            }
+            if let closeToken {
+                NotificationCenter.default.removeObserver(closeToken)
+            }
         }
     }
 

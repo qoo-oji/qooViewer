@@ -1190,8 +1190,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, open urls: [URL]) {
         guard let url = urls.first else { return }
-        guard let primaryAppState = launchCoordinator?.primaryAppState else { return }
+        // バグ修正(ユーザー報告): primaryAppStateそのものの有無ではなく、
+        // launchCoordinator.primaryWindowIsOpen/primaryWindowHasEverClosedで判定する。
+        // SwiftUIのWindowGroup(id:)はウインドウを閉じてもその中身(@StateObjectのappState)を
+        // すぐには解放しないことがあり、primaryAppState(weak var)が閉じられたウインドウを
+        // 指したまま残ることがあるため(詳細はLaunchCoordinator.primaryWindowIsOpen/
+        // ContentView.swiftのonAppearのコメント参照)。この状態で外部アプリ等からファイルが
+        // 渡されると、以前はここでそのゾンビ状態のprimaryAppStateへ本を読み込んでしまい、
+        // 読み込み自体は成功して履歴にも記録されるのに、それを表示するウインドウがどこにも無い
+        // (=ユーザーには何も起きなかったように見える)という不具合があった。
+        //
+        // さらに、primaryWindowIsOpenがtrueであっても、ウインドウを一度すべて閉じた後に
+        // AppKit/SwiftUIが再アクティブ化のタイミングで自動的に開いた(=まだ一度も本を
+        // 表示できていない)mainウインドウは、実機の調査で「閉じたはずの古いNSWindow
+        // オブジェクトをそのまま再利用してしまい、中身が正しく描画されない(何も表示されない
+        // 壊れたウインドウになる)」ケースが確認されている。そのため、
+        // primaryWindowHasEverClosedがtrue(=一度closeを経験している)のに、まだ本を
+        // 一度も表示できていない(currentBook == nil。正しく描画できている証拠が無い)
+        // ウインドウは信用しない。
+        if let primaryAppState = launchCoordinator?.primaryAppState,
+           launchCoordinator?.primaryWindowIsOpen == true,
+           launchCoordinator?.primaryWindowHasEverClosed == false || primaryAppState.currentBook != nil {
+            openInPrimaryWindow(url, primaryAppState: primaryAppState)
+            return
+        }
 
+        // 再利用できる(信頼できる)既存のmainウインドウが無い状態。「新しいウインドウ/タブで
+        // 開く」と同じ経路(openInNewWindowOrTab、実体はopenURLInNewWindow。
+        // openWindow(id: "book", value:)経由でURLごとに新しいウインドウインスタンスを作るため、
+        // 上記のNSWindow再利用問題が起きない)で、自前で新しい「book」ウインドウを開く。
+        // (トレードオフ: タイミングによってはAppKitの既定動作による空のmainウインドウが
+        // 後から現れ、本を表示したウインドウとは別にもう1枚残ることがある。空のウインドウが
+        // 1枚余分に残るだけで実害は無いため、本が表示されない不具合よりこちらを優先する)
+        openInNewWindowOrTab?(url, false, nil)
+    }
+
+    /// application(_:open:)から、実際に存在が確認できているprimaryAppStateへURLを開く処理。
+    private func openInPrimaryWindow(_ url: URL, primaryAppState: AppState) {
         // ウインドウがDockに最小化された状態のままFinderから本を開くと、以前はウインドウの
         // 中身(表示中の本)だけが差し替わり、ウインドウ自体はDockに最小化されたまま
         // ユーザーの目に触れない、という不具合があった。Finderからの「開く」はOS側が
