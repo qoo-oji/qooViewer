@@ -8055,6 +8055,57 @@
           }
         }
       }
+    },
+    "Side Panel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Side Panel"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドパネル"
+          }
+        }
+      }
+    },
+    "Enable Side Panel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable Side Panel"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドパネルを有効にする"
+          }
+        }
+      }
+    },
+    "Shows a panel for browsing folders and the current book's contents. When off, the panel and its View menu options are unavailable." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows a panel for browsing folders and the current book's contents. When off, the panel and its View menu options are unavailable."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダや、開いている本の中身を閲覧できるパネルを表示します。オフにすると、パネルと表示メニューの関連項目が利用できなくなります。"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

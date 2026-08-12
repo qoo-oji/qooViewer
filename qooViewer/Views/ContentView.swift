@@ -68,7 +68,7 @@ struct ContentView: View {
             // ViewerView側の変更は不要)。ZStackのオーバーレイのままにしてしまうと、常時表示中
             // ずっと画像の左端がパネルの下に隠れ続けてしまう(ユーザー報告の不具合)。
             HStack(spacing: 0) {
-                if !appState.hideSidePanel {
+                if preferences.sidePanelFeatureEnabled && !appState.hideSidePanel {
                     sidePanelView(dismissesOnAction: false)
                 }
                 Group {
@@ -88,8 +88,9 @@ struct ContentView: View {
             // hideSidePanel == trueのときの、ホバーによる一時的な表示。ツールバー/プログレス
             // バーの自動隠し(ViewerView.mainZStackのZStackオーバーレイ分岐)と同じ理由で、
             // こちらはあえてHStackに組み込まず画像の上に浮かべる(表示・非表示のたびに
-            // 画像のサイズが変わってちらつくのを避けるため)。
-            if appState.hideSidePanel && appState.isSidePanelRevealed {
+            // 画像のサイズが変わってちらつくのを避けるため)。preferences.sidePanelFeatureEnabled
+            // がOFF(環境設定「一般」タブ)のときは、サイドパネル機能自体を丸ごと無効化する。
+            if preferences.sidePanelFeatureEnabled && appState.hideSidePanel && appState.isSidePanelRevealed {
                 sidePanelView(dismissesOnAction: true)
                     .transition(.move(edge: .leading))
             }
@@ -535,7 +536,7 @@ struct ContentView: View {
         guard sidePanelHoverMonitor == nil else { return }
         sidePanelHoverMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { event in
             guard let window = appState.hostWindow, event.window === window else { return event }
-            guard appState.hideSidePanel else { return event }
+            guard preferences.sidePanelFeatureEnabled, appState.hideSidePanel else { return event }
             if appState.isSidePanelRevealed {
                 // + sidePanelHideMargin: パネル右端の幅調整ハンドル(widthDragHitArea)自体が
                 // 境界(sidePanelWidth)ぎりぎりの位置にあるため、余裕を持たせないとハンドルを

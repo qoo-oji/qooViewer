@@ -64,6 +64,16 @@ struct GeneralSettingsView: View {
             } header: {
                 Text("Welcome Screen")
             }
+
+            Section {
+                SettingsToggle(
+                    "Enable Side Panel",
+                    isOn: $preferences.sidePanelFeatureEnabled,
+                    caption: "Shows a panel for browsing folders and the current book's contents. When off, the panel and its View menu options are unavailable."
+                )
+            } header: {
+                Text("Side Panel")
+            }
         }
     }
 }

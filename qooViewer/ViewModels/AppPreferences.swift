@@ -31,6 +31,7 @@ final class AppPreferences: ObservableObject {
         static let hideProgressBar = "qooViewer.pref.hideProgressBar"
         static let hideSidePanel = "qooViewer.pref.hideSidePanel"
         static let sidePanelWidth = "qooViewer.pref.sidePanelWidth"
+        static let sidePanelFeatureEnabled = "qooViewer.pref.sidePanelFeatureEnabled"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
         static let showRecentFilesOnWelcome = "qooViewer.pref.showRecentFilesOnWelcome"
         static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
@@ -186,6 +187,14 @@ final class AppPreferences: ObservableObject {
     @Published var sidePanelWidth: Double {
         didSet { UserDefaults.standard.set(sidePanelWidth, forKey: Keys.sidePanelWidth) }
     }
+    /// 環境設定「一般」タブの、サイドパネル機能自体のON/OFF(既定ON)。hideSidePanelが
+    /// 「常時表示か、ホバーで一時表示か」を切り替えるだけなのに対し、こちらはOFFにすると
+    /// サイドパネル自体を一切表示しなくする(ContentView.body参照)。OFFの間は、表示メニューの
+    /// 「サイドパネルを隠す」項目もメニューごと非表示になる(意味の無い設定を見せないため。
+    /// QooViewerApp.swiftのCommandGroup参照)。
+    @Published var sidePanelFeatureEnabled: Bool {
+        didSet { UserDefaults.standard.set(sidePanelFeatureEnabled, forKey: Keys.sidePanelFeatureEnabled) }
+    }
     /// プログレスバーにカーソルを合わせたときに、フィルムストリップ(サムネイル・ファイル名・
     /// ページ番号を含むプレビュー)を表示するかどうか(既定ON)。OFFにすると、サムネイルの
     /// 読み込みは一切行わず、カーソル位置に対応するページ番号だけを表示するシンプルな表示になる
@@ -270,6 +279,7 @@ final class AppPreferences: ObservableObject {
         // 既定値280は、SidePanelView.defaultWidthと同じ値(ViewModelからView側の定数を
         // 参照する層の逆転を避けるため、ここでは値を直接持たせている)。
         self.sidePanelWidth = defaults.object(forKey: Keys.sidePanelWidth) as? Double ?? 280
+        self.sidePanelFeatureEnabled = defaults.object(forKey: Keys.sidePanelFeatureEnabled) as? Bool ?? true
         self.showProgressBarThumbnailPreview =
             defaults.object(forKey: Keys.showProgressBarThumbnailPreview) as? Bool ?? true
         self.showRecentFilesOnWelcome =

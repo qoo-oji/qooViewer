@@ -412,13 +412,20 @@ struct QooViewerApp: App {
                 // (ContentView.installSidePanelHoverMonitorIfNeeded参照)。ウェルカム画面
                 // (本を開いていない状態)でもボリューム一覧をたどれるようにしたい機能のため、
                 // hideToolbar/hideProgressBarと異なりhasBookによる無効化はしない。
-                Toggle(
-                    "Hide Side Panel",
-                    isOn: Binding(
-                        get: { menuCheckmarkState?.hideSidePanel ?? false },
-                        set: { focusedAppState?.hideSidePanel = $0 }
+                //
+                // 環境設定「一般」タブの「Enable Side Panel」がOFFのときは、この項目自体を
+                // 無効化(.disabled)ではなくメニューから丸ごと省く。パネル自体が表示されない
+                // 状態でこの項目だけ残しても意味が無いため(ユーザー要望)。Commandsも
+                // ViewBuilderと同様に結果ビルダーのため、if で丸ごと省ける。
+                if preferences.sidePanelFeatureEnabled {
+                    Toggle(
+                        "Hide Side Panel",
+                        isOn: Binding(
+                            get: { menuCheckmarkState?.hideSidePanel ?? false },
+                            set: { focusedAppState?.hideSidePanel = $0 }
+                        )
                     )
-                )
+                }
 
                 Divider()
 
