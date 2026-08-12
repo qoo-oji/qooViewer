@@ -278,7 +278,12 @@ struct SidePanelView: View {
     }
 
     private func folderRow(_ entry: DirectoryBrowser.Entry) -> some View {
-        let isHighlighted = entry.url == folderState.highlightedURL
+        // entry.urlはFileManagerが返した素のURL、highlightedURLは(最近使ったファイルなど
+        // 経由の場合)セキュリティスコープ付きブックマークから解決したURLであることがあり、
+        // パスの文字列は同じでも素のURL同士の==比較が一致しないことがある。下のscrollTo側は
+        // 既にEntry.id(= url.path)を使っておりこの問題を回避できているため、ここも合わせて
+        // パス文字列で比較する。
+        let isHighlighted = entry.url.path == folderState.highlightedURL?.path
         let label = rowLabel(
             icon: iconName(fileName: entry.isDirectory ? nil : entry.url.lastPathComponent, isDirectory: entry.isDirectory),
             name: entry.displayName
