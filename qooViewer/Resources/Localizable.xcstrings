@@ -1229,6 +1229,22 @@
         }
       }
     },
+    "Browser" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Browser"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブラウザ"
+          }
+        }
+      }
+    },
     "Bulk Operations…" : {
       "localizations" : {
         "en" : {

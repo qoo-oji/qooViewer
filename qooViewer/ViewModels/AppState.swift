@@ -109,6 +109,25 @@ final class AppState: ObservableObject {
     /// このAppStateが指すViewerViewModelにも反映される。詳細はBookmark.swift参照)。
     var addBookmarkAction: (() -> Void)?
 
+    /// サイドパネル(ブックマークモード)の「お気に入りに追加」ボタンから、今開いている本を
+    /// お気に入りへ登録するための橋渡し。登録先フォルダの選択シート
+    /// (FavoriteFolderPickerView)はViewerViewが持っているため、addBookmarkActionと同じく
+    /// ViewerViewが表示されている間だけ自分自身を登録し、閉じるときにnilへ戻す
+    /// (=本を開いていない間はnil。呼び出し側はnilならボタンを無効化する)。
+    ///
+    /// ツールバー/メニューバーの「お気に入りに追加/削除」がトグル(.toggleFavorite)なのに対し、
+    /// こちらは常に「追加」だけを行う(ユーザー要望: サイドパネルのボタンは追加専用)。
+    /// 既に登録済みの本を追加しようとした場合の重複確認はFavoriteFolderPickerView側が行う。
+    var addFavoriteAction: (() -> Void)?
+
+    /// サイドパネル(ブックマークモード)のお気に入りツリーから本を開くための橋渡し。
+    /// 環境設定「お気に入りを開くとき」(favoriteOpenBehavior: そのまま開く/新しいタブ/
+    /// 新しいウインドウ)の判定はViewerView.openFavoriteAccordingToPreferenceが持っているため、
+    /// addFavoriteActionと同じくViewerViewが表示されている間だけ登録される。nil(本を開いて
+    /// いない)の場合、呼び出し側は代わりにopenFavorite(_:)を直接呼ぶ(開いている本が無ければ
+    /// 「今の本を置き換える」以外の選択肢に意味が無いため)。
+    var openFavoriteAction: ((FavoriteBook) -> Void)?
+
     /// ViewerViewから、現在のブックマーク一覧を反映するために呼ばれる。
     func updateCurrentBookmarks(_ bookmarks: [Bookmark]) {
         currentBookmarks = bookmarks

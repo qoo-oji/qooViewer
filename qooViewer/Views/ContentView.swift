@@ -17,6 +17,9 @@ struct ContentView: View {
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
     @Environment(\.modelContext) private var modelContext
+    /// サイドパネル(ブックマークモード)の「編集」ボタンから、お気に入り/ブックマークの
+    /// 編集ウインドウを開くために使う(sidePanelView参照)。
+    @Environment(\.openWindow) private var openWindow
 
     /// 「新しいウインドウで開く」「新しいタブで開く」、またはFinderからの「開く」で、
     /// このウインドウで最初から開いておきたいファイル/フォルダ。通常の(何も指定しない)
@@ -577,6 +580,7 @@ struct ContentView: View {
         SidePanelView(
             folderState: sidePanelBrowser,
             bookContentsState: bookContentsBrowser,
+            mode: $preferences.sidePanelMode,
             width: $sidePanelWidth,
             bookPages: appState.currentBookPages,
             onOpen: { url in
@@ -586,8 +590,45 @@ struct ContentView: View {
             onJumpToPage: { index in
                 appState.jumpToPageIndex?(index)
                 if dismissesOnAction { appState.isSidePanelRevealed = false }
+            },
+            bookmarks: appState.currentBookmarks,
+            currentPageIndex: appState.currentPageIndex,
+            hasBook: appState.currentBook != nil,
+            // お気に入りへの追加(登録先フォルダの選択シート)はViewerViewが持っているため、
+            // AppState経由の橋渡しを使う(AppState.addFavoriteActionのコメント参照)。
+            // 本を開いていないときはnil = ボタン自体がhasBook: falseで無効化されている。
+            onAddFavorite: { appState.addFavoriteAction?() },
+            onEditFavorites: { openWindow(id: "favoritesOrganizer") },
+            onOpenFavorite: { favorite in
+                if dismissesOnAction { appState.isSidePanelRevealed = false }
+                // 環境設定「お気に入りを開くとき」(新しいタブ/ウインドウ)の判定はViewerViewが
+                // 持っている。本を開いていない(=ViewerViewが無い)場合は、置き換える対象の本
+                // 自体が無いためそのまま開く(AppState.openFavoriteActionのコメント参照)。
+                if let action = appState.openFavoriteAction {
+                    action(favorite)
+                } else {
+                    appState.openFavorite(favorite)
+                }
+            },
+            onAddBookmark: { appState.addBookmarkAction?() },
+            onEditBookmarks: { showBookmarkEditorWindow() },
+            onJumpToBookmark: { bookmark in
+                appState.jumpToBookmark?(bookmark)
+                if dismissesOnAction { appState.isSidePanelRevealed = false }
             }
         )
+    }
+
+    /// 「ブックマーク・レイアウトの編集」ウインドウを、ブックマーク向けの絞り込みで開く
+    /// (ViewerView.showBookmarkEditor、およびメニューバーの「Edit Bookmarks…」と同じ内容)。
+    /// launchCoordinator.setActiveBookAppState(appState)を明示的に呼んでおくことで、ウインドウが
+    /// キーになったときの通知を待たずに、確実にこのウインドウの本を対象にしてから開ける。
+    private func showBookmarkEditorWindow() {
+        if appState.currentBook != nil {
+            launchCoordinator.setActiveBookAppState(appState)
+        }
+        launchCoordinator.pendingEditorInitialFocus = .bookmarks
+        openWindow(id: "editBookmarks")
     }
 
     /// サイドパネルのホバー表示/非表示を検知する、ウインドウ内`.mouseMoved`のローカルモニタ。

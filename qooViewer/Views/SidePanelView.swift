@@ -2,12 +2,22 @@ import SwiftUI
 import AppKit
 
 /// サイドパネル本体。既定では常時表示、表示メニューの「サイドパネルを隠す」がONのときだけ
-/// ウインドウ左端へのホバーで一時的に表示される(ContentView参照)。上段(folderState、
-/// フォルダブラウザ)は常に表示し、下段(bookContentsState、本の中身ブラウザ)は本を開いていて
-/// 対応フォーマット(フォルダ、またはzip/cbz/rar/cbr/7z/cb7)のときだけ、ドラッグでサイズ
-/// 調整可能な形で追加表示する。PDF/EPUBはページがファイル単位で存在しない、またはzip
-/// コンテナの生の中身を見せてもかえって分かりづらいため下段は非表示のまま
-/// (BookContentsBrowserState.init?がnilを返す)。
+/// ウインドウ左端へのホバーで一時的に表示される(ContentView参照)。
+///
+/// パネル最上部には、表示モード(SidePanelMode)をワンクリックで直接切り替えるスイッチ
+/// (SidePanelModeSwitcher)を常に表示する。モードによって、その下に表示される内容が
+/// 丸ごと入れ替わる。
+///
+/// **ブラウザモード**(既定): 上段(folderState、フォルダブラウザ)は常に表示し、下段
+/// (bookContentsState、本の中身ブラウザ)は本を開いていて対応フォーマット(フォルダ、または
+/// zip/cbz/rar/cbr/7z/cb7)のときだけ、ドラッグでサイズ調整可能な形で追加表示する。
+/// PDF/EPUBはページがファイル単位で存在しない、またはzipコンテナの生の中身を見せても
+/// かえって分かりづらいため下段は非表示のまま(BookContentsBrowserState.init?がnilを返す)。
+///
+/// **ブックマークモード**: 上段はお気に入りのツリー、下段は今開いている本のブックマーク一覧。
+/// どちらの段も「追加」「編集ウインドウを開く」の2ボタンを持つ(ユーザー要望)。実際の追加
+/// (登録先フォルダの選択シート)・編集ウインドウの表示は、このViewではなく呼び出し側
+/// (ContentView、およびそこからAppState経由でViewerView)が行う。
 ///
 /// 背景はViewerView.swiftの他のパネル(サムネイル一覧・Get Info)と違い自身で持つ
 /// (フローティングカードではなく左端フル高さのサイドバーとして背景を持つ。
@@ -20,8 +30,15 @@ struct SidePanelView: View {
     private static let widthRange: ClosedRange<CGFloat> = 220...480
 
     @EnvironmentObject private var preferences: AppPreferences
+    /// ブックマークモード上段(お気に入りツリー)の表示元。アプリ全体で1つのインスタンスを
+    /// 共有しているため(QooViewerApp参照)、@EnvironmentObjectとして受け取れば整理ウインドウ・
+    /// メニューバー側での変更もそのまま反映される。
+    @EnvironmentObject private var favoritesStore: FavoritesStore
     @ObservedObject var folderState: SidePanelBrowserState
     var bookContentsState: BookContentsBrowserState?
+    /// パネル最上部のスイッチで切り替える表示モード。実体はAppPreferences.sidePanelMode
+    /// (アプリ全体で1つ、次回起動時にも引き継ぐ)。
+    @Binding var mode: SidePanelMode
     /// パネルの幅。ContentViewが@Stateとして保持し、Bindingで渡す(ドッキング表示・
     /// ホバーオーバーレイ表示のどちらでも同じ幅を共有するため)。右端のドラッグハンドルで
     /// ユーザーが調整できる。
@@ -37,7 +54,37 @@ struct SidePanelView: View {
     /// 下段で、既に本のページ一覧に含まれている画像をダブルクリックしたときのジャンプ。
     var onJumpToPage: (Int) -> Void
 
+    // MARK: - ブックマークモード用
+
+    /// 今開いている本のブックマーク一覧(AppState.currentBookmarks。ページ番号順)。
+    /// 本を開いていないときは空。
+    var bookmarks: [Bookmark]
+    /// 今表示しているページ番号(0始まり)。一覧内で該当するブックマークをハイライトするために使う。
+    var currentPageIndex: Int
+    /// 本を開いているかどうか。「お気に入りに追加」「ブックマークを追加」の2ボタンは、本を
+    /// 開いていない間は対象が無いため無効化する。
+    var hasBook: Bool
+    /// 今開いている本を、お気に入りへ追加する(登録先フォルダの選択シートを開く)。
+    var onAddFavorite: () -> Void
+    /// 「お気に入りの編集」ウインドウを開く。
+    var onEditFavorites: () -> Void
+    /// お気に入りツリーの本をクリックして開く(環境設定「お気に入りを開くとき」に従う)。
+    var onOpenFavorite: (FavoriteBook) -> Void
+    /// 今表示しているページをブックマークへ追加する。
+    var onAddBookmark: () -> Void
+    /// 「ブックマーク・レイアウトの編集」ウインドウを開く。
+    var onEditBookmarks: () -> Void
+    /// ブックマーク一覧の項目をクリックして、そのページへジャンプする。
+    var onJumpToBookmark: (Bookmark) -> Void
+
     @State private var topSectionFraction: CGFloat = 0.5
+    /// ブックマークモードの上下分割比。ブラウザモードのtopSectionFraction(フォルダブラウザと
+    /// 本の中身ブラウザの分割)とは意味も見せたい比率も別物のため、状態自体を分けて持つ
+    /// (モードを行き来しても、それぞれのモードで最後に調整した比率がそのまま残る)。
+    @State private var bookmarksTopSectionFraction: CGFloat = 0.5
+    /// お気に入りツリーで展開中のフォルダのid一覧(FavoritesOrganizerView.expandedFolderIDsと
+    /// 同じ考え方)。パネルの生存期間中は保持され、モードを切り替えても展開状態は残る。
+    @State private var expandedFavoriteFolderIDs: Set<UUID> = []
     @GestureState private var dragOffset: CGFloat = 0
     @GestureState private var widthDragOffset: CGFloat = 0
 
@@ -89,27 +136,75 @@ struct SidePanelView: View {
     }
 
     private var panelBody: some View {
-        Group {
-            if let bookContentsState {
-                GeometryReader { geometry in
-                    let fraction = effectiveTopFraction(totalHeight: geometry.size.height)
-                    VStack(spacing: 0) {
-                        folderSection
-                            .frame(height: max(80, geometry.size.height * fraction - 4))
-                            .clipped()
-                        dragHandle(totalHeight: geometry.size.height)
-                        BookContentsSectionView(
-                            state: bookContentsState,
-                            bookPages: bookPages,
-                            onOpen: onOpen,
-                            onJumpToPage: onJumpToPage
-                        )
-                        .frame(maxHeight: .infinity)
+        VStack(spacing: 0) {
+            SidePanelModeSwitcher(mode: $mode)
+            Divider()
+            switch mode {
+            case .browser:
+                browserModeBody
+            case .bookmarks:
+                bookmarksModeBody
+            }
+        }
+    }
+
+    /// ブラウザモード(従来のサイドパネル)の中身。
+    @ViewBuilder
+    private var browserModeBody: some View {
+        if let bookContentsState {
+            GeometryReader { geometry in
+                let fraction = effectiveTopFraction(totalHeight: geometry.size.height, fraction: topSectionFraction)
+                VStack(spacing: 0) {
+                    folderSection
+                        .frame(height: max(80, geometry.size.height * fraction - 4))
                         .clipped()
-                    }
+                    dragHandle(totalHeight: geometry.size.height, fraction: $topSectionFraction)
+                    BookContentsSectionView(
+                        state: bookContentsState,
+                        bookPages: bookPages,
+                        onOpen: onOpen,
+                        onJumpToPage: onJumpToPage
+                    )
+                    .frame(maxHeight: .infinity)
+                    .clipped()
                 }
-            } else {
-                folderSection
+            }
+        } else {
+            folderSection
+        }
+    }
+
+    /// ブックマークモード(上段=お気に入りツリー、下段=ブックマーク一覧)の中身。
+    /// ブラウザモードと違い、上下どちらの段も常に表示する(本を開いていなくても、お気に入りの
+    /// 閲覧・編集ウインドウの呼び出しはできる必要があり、ブックマーク側も「まだ何もない」
+    /// ことが分かる形で見えていた方がよいため)。
+    private var bookmarksModeBody: some View {
+        GeometryReader { geometry in
+            let fraction = effectiveTopFraction(
+                totalHeight: geometry.size.height, fraction: bookmarksTopSectionFraction
+            )
+            VStack(spacing: 0) {
+                SidePanelFavoritesSectionView(
+                    favoritesStore: favoritesStore,
+                    expandedFolderIDs: $expandedFavoriteFolderIDs,
+                    hasBook: hasBook,
+                    onAdd: onAddFavorite,
+                    onEdit: onEditFavorites,
+                    onOpen: onOpenFavorite
+                )
+                .frame(height: max(80, geometry.size.height * fraction - 4))
+                .clipped()
+                dragHandle(totalHeight: geometry.size.height, fraction: $bookmarksTopSectionFraction)
+                SidePanelBookmarksSectionView(
+                    bookmarks: bookmarks,
+                    currentPageIndex: currentPageIndex,
+                    hasBook: hasBook,
+                    onAdd: onAddBookmark,
+                    onEdit: onEditBookmarks,
+                    onJump: onJumpToBookmark
+                )
+                .frame(maxHeight: .infinity)
+                .clipped()
             }
         }
     }
@@ -169,16 +264,19 @@ struct SidePanelView: View {
         }
     }
 
-    private func effectiveTopFraction(totalHeight: CGFloat) -> CGFloat {
-        guard totalHeight > 0 else { return topSectionFraction }
-        return Self.clampFraction(topSectionFraction + dragOffset / totalHeight)
+    /// 上下分割の、ドラッグ中も含めた実際の分割比。fractionはモードごとに別の@State
+    /// (topSectionFraction/bookmarksTopSectionFraction)を渡す。ドラッグ中の追従に使う
+    /// dragOffsetは共用でよい(分割ハンドルは同時に1つしか表示されないため)。
+    private func effectiveTopFraction(totalHeight: CGFloat, fraction: CGFloat) -> CGFloat {
+        guard totalHeight > 0 else { return fraction }
+        return Self.clampFraction(fraction + dragOffset / totalHeight)
     }
 
     private static func clampFraction(_ value: CGFloat) -> CGFloat {
         min(max(value, 0.15), 0.85)
     }
 
-    private func dragHandle(totalHeight: CGFloat) -> some View {
+    private func dragHandle(totalHeight: CGFloat, fraction: Binding<CGFloat>) -> some View {
         ZStack {
             Color.primary.opacity(0.0001)
             Rectangle()
@@ -201,7 +299,9 @@ struct SidePanelView: View {
                 }
                 .onEnded { value in
                     guard totalHeight > 0 else { return }
-                    topSectionFraction = Self.clampFraction(topSectionFraction + value.translation.height / totalHeight)
+                    fraction.wrappedValue = Self.clampFraction(
+                        fraction.wrappedValue + value.translation.height / totalHeight
+                    )
                 }
         )
     }
@@ -334,12 +434,18 @@ struct SidePanelView: View {
 
     private func iconName(fileName: String?, isDirectory: Bool) -> String {
         if isDirectory { return "folder" }
-        guard let fileName else { return "doc" }
-        if isArchiveFile(fileName) { return "doc.zipper" }
-        if isPDFFile(fileName) { return "doc.richtext" }
-        if isEpubFile(fileName) { return "book" }
-        return "doc"
+        return sidePanelFileIconName(fileName: fileName)
     }
+}
+
+/// ファイル名(拡張子)から行アイコンを決める。SidePanelView.iconNameと、ブックマークモードの
+/// お気に入りツリー(SidePanelFavoriteRow)の両方から使うため、View外の関数として切り出している。
+private func sidePanelFileIconName(fileName: String?) -> String {
+    guard let fileName else { return "doc" }
+    if isArchiveFile(fileName) { return "doc.zipper" }
+    if isPDFFile(fileName) { return "doc.richtext" }
+    if isEpubFile(fileName) { return "book" }
+    return "doc"
 }
 
 /// サイドパネル下段(本の中身ブラウザ)。@ObservedObjectはOptionalなObservableObjectを
@@ -473,6 +579,311 @@ private struct BookContentsSectionView: View {
         case .unavailable:
             break
         }
+    }
+}
+
+// MARK: - モード切替スイッチ
+
+/// パネル最上部の表示モード切替スイッチ(ユーザー要望)。ポップアップメニューやセグメント
+/// コントロールではなく、モードの数だけボタンを横に並べて「ワンクリックで直接そのモードへ
+/// 切り替わる」形にしている。ボタンはクリックしやすいよう、SidePanelNavButton(28pt高)より
+/// さらに一回り大きい30pt高+パネル幅を等分した幅を取る。
+private struct SidePanelModeSwitcher: View {
+    @Binding var mode: SidePanelMode
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(SidePanelMode.allCases) { candidate in
+                let isSelected = candidate == mode
+                Button {
+                    // 既に選ばれているモードをもう一度押した場合も、同じ値の代入になるだけで
+                    // 実害は無い(意味の無い再描画を避けたい場合だけガードする価値があるが、
+                    // ここは押下頻度が低くコストも小さいためガードしない)。
+                    mode = candidate
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: candidate.systemImage)
+                            .font(.system(size: 13, weight: .medium))
+                        Text(candidate.titleKey)
+                            .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+                            // パネルを最小幅(220pt)まで狭めても、日本語/英語どちらの
+                            // ラベルも省略記号にならずに収まるようにする。
+                            .minimumScaleFactor(0.75)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 30)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(isSelected ? Color.accentColor : Color.primary.opacity(0.07))
+                    )
+                    .foregroundStyle(isSelected ? Color.white : Color.primary)
+                    .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .help(candidate.titleKey)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+    }
+}
+
+// MARK: - ブックマークモード上段(お気に入りツリー)
+
+/// ブックマークモードの上段。お気に入りをフォルダ階層のままツリー表示し、上部に「今の本を
+/// お気に入りに追加」「お気に入りの編集ウインドウを開く」の2ボタンを置く(ユーザー要望)。
+///
+/// 「お気に入りの整理」ウインドウ(FavoritesOrganizerView)がListのDisclosureGroupで組んで
+/// いるのに対し、ここはScrollView+LazyVStackに自前の三角マーク付きの行を並べている。
+/// List/DisclosureGroupは自前の背景(マテリアル)を持つこの狭いパネルの中では見た目が
+/// 浮いてしまうため、パネル内の他のセクション(フォルダブラウザ・本の中身ブラウザ)と
+/// 同じ、素朴な行の並びに揃えている。
+private struct SidePanelFavoritesSectionView: View {
+    @ObservedObject var favoritesStore: FavoritesStore
+    @Binding var expandedFolderIDs: Set<UUID>
+    var hasBook: Bool
+    var onAdd: () -> Void
+    var onEdit: () -> Void
+    var onOpen: (FavoriteBook) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                SidePanelNavButton(
+                    systemName: "plus",
+                    isDisabled: !hasBook,
+                    help: "Add This Book to Favorites…"
+                ) {
+                    onAdd()
+                }
+                SidePanelNavButton(systemName: "pencil", isDisabled: false, help: "Edit Favorites…") {
+                    onEdit()
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(10)
+
+            // フォルダブラウザの現在地表示(SidePanelView.folderSection)と同じ位置・同じ
+            // 書式の見出し。上下2つの段がそれぞれ何の一覧なのかを一目で分かるようにする。
+            Text("Favorites")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Divider()
+
+            let entries = favoritesStore.entries(in: nil)
+            if entries.isEmpty {
+                SidePanelEmptyMessage(textKey: "(No Favorites)")
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(entries) { entry in
+                            SidePanelFavoriteRow(
+                                entry: entry,
+                                depth: 0,
+                                favoritesStore: favoritesStore,
+                                expandedFolderIDs: $expandedFolderIDs,
+                                onOpen: onOpen
+                            )
+                        }
+                    }
+                }
+                // folderSection/BookContentsSectionViewの同名の.focusable(false)と同じ理由。
+                .focusable(false)
+            }
+        }
+    }
+}
+
+/// お気に入りツリーの1行。SwiftUIでは`some View`を返す関数は自分自身を再帰呼び出しできない
+/// ため、専用のView構造体として実装する(FavoritesOrganizerView.OrganizerFolderRowと同じ理由)。
+private struct SidePanelFavoriteRow: View {
+    let entry: FavoriteListEntry
+    /// ルート直下を0とした階層の深さ。インデント量の計算にだけ使う。
+    let depth: Int
+    @ObservedObject var favoritesStore: FavoritesStore
+    @Binding var expandedFolderIDs: Set<UUID>
+    let onOpen: (FavoriteBook) -> Void
+
+    @EnvironmentObject private var preferences: AppPreferences
+
+    var body: some View {
+        switch entry {
+        case .folder(let folder):
+            let isExpanded = expandedFolderIDs.contains(folder.id)
+            folderRow(folder, isExpanded: isExpanded)
+            if isExpanded {
+                ForEach(favoritesStore.entries(in: folder)) { child in
+                    SidePanelFavoriteRow(
+                        entry: child,
+                        depth: depth + 1,
+                        favoritesStore: favoritesStore,
+                        expandedFolderIDs: $expandedFolderIDs,
+                        onOpen: onOpen
+                    )
+                }
+            }
+        case .book(let book):
+            bookRow(book)
+        }
+    }
+
+    private func folderRow(_ folder: FavoriteFolder, isExpanded: Bool) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 10)
+            Image(systemName: "folder")
+                .frame(width: 16)
+                .foregroundStyle(.secondary)
+            Text(folder.name)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 8 + CGFloat(depth) * 12)
+        .padding(.trailing, 8)
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .help(folder.name)
+        // 展開/折りたたみは、環境設定「サイドパネルの操作をダブルクリックにする」の値に
+        // 関わらず常にシングルクリック。あの設定は「本を開く」「フォルダへ移動する」という
+        // 取り消しの効かない/表示が大きく変わる操作を誤操作から守るためのもので、その場で
+        // 見た目が開閉するだけのこの操作は対象外(戻る/進むボタンが常にシングルクリックなのと
+        // 同じ考え方)。
+        .onTapGesture {
+            if isExpanded {
+                expandedFolderIDs.remove(folder.id)
+            } else {
+                expandedFolderIDs.insert(folder.id)
+            }
+        }
+    }
+
+    private func bookRow(_ book: FavoriteBook) -> some View {
+        HStack(spacing: 6) {
+            // フォルダ行の三角マークぶんの幅を空けて、同じ階層のフォルダと本の名前の
+            // 開始位置を揃える。
+            Color.clear.frame(width: 10, height: 1)
+            Image(systemName: sidePanelFileIconName(fileName: URL(fileURLWithPath: book.bookID).lastPathComponent))
+                .frame(width: 16)
+                .foregroundStyle(.secondary)
+            Text(book.title)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, 8 + CGFloat(depth) * 12)
+        .padding(.trailing, 8)
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .help(book.title)
+        // 本を開く操作は、パネル内の他の「開く」操作と同じく環境設定に従う。
+        .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { onOpen(book) }
+    }
+}
+
+// MARK: - ブックマークモード下段(ブックマーク一覧)
+
+/// ブックマークモードの下段。今開いている本のブックマークを一覧表示し、上部に「今のページを
+/// ブックマークに追加」「ブックマークの編集ウインドウを開く」の2ボタンを置く(ユーザー要望)。
+/// 一覧はメニューバーの「ブックマーク一覧」と同じ内容(AppState.currentBookmarks)で、
+/// 今表示中のページに対応する行をハイライトする。
+private struct SidePanelBookmarksSectionView: View {
+    @EnvironmentObject private var preferences: AppPreferences
+    var bookmarks: [Bookmark]
+    var currentPageIndex: Int
+    var hasBook: Bool
+    var onAdd: () -> Void
+    var onEdit: () -> Void
+    var onJump: (Bookmark) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                SidePanelNavButton(
+                    systemName: "plus",
+                    isDisabled: !hasBook,
+                    help: "Add This Page to Bookmarks"
+                ) {
+                    onAdd()
+                }
+                SidePanelNavButton(systemName: "pencil", isDisabled: false, help: "Edit Bookmarks…") {
+                    onEdit()
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(10)
+
+            Text("Bookmarks")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Divider()
+
+            if bookmarks.isEmpty {
+                SidePanelEmptyMessage(textKey: "(No Bookmarks)")
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(bookmarks, id: \.id) { bookmark in
+                            row(for: bookmark)
+                        }
+                    }
+                }
+                // folderSection/BookContentsSectionViewの同名の.focusable(false)と同じ理由。
+                .focusable(false)
+            }
+        }
+    }
+
+    private func row(for bookmark: Bookmark) -> some View {
+        let isCurrent = bookmark.pageIndex == currentPageIndex
+        return HStack(spacing: 8) {
+            Image(systemName: isCurrent ? "bookmark.fill" : "bookmark")
+                .frame(width: 16)
+                .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
+            Text(bookmark.name)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+            // ページ番号は1始まりで表示する(メニューバーの「ブックマーク一覧」と同じ)。
+            Text("\(bookmark.pageIndex + 1)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .background(isCurrent ? Color.accentColor.opacity(0.15) : Color.clear)
+        .help(bookmark.name)
+        // ページへのジャンプも「開く」に準じる操作のため、環境設定に従う。
+        .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { onJump(bookmark) }
+    }
+}
+
+/// 一覧が空のときにセクション本体いっぱいに表示する案内文(お気に入り・ブックマークで共用)。
+private struct SidePanelEmptyMessage: View {
+    let textKey: LocalizedStringKey
+
+    var body: some View {
+        Text(textKey)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

@@ -241,6 +241,16 @@ struct ViewerView: View {
         appState.addBookmarkAction = {
             viewModel.addBookmark()
         }
+        // サイドパネル(ブックマークモード)の「お気に入りに追加」ボタン・お気に入りツリーの
+        // 橋渡し(AppState.addFavoriteAction/openFavoriteActionのコメント参照)。登録先フォルダの
+        // 選択シート・「お気に入りを開くとき」の判定はどちらもこのViewerViewが持っているため、
+        // サイドパネル側からはこのクロージャ経由で呼んでもらう。
+        appState.addFavoriteAction = {
+            showFavoriteFolderPicker = true
+        }
+        appState.openFavoriteAction = { favorite in
+            openFavoriteAccordingToPreference(favorite)
+        }
         appState.updateCurrentBookmarks(viewModel.bookmarks)
         appState.updateCurrentPageIndex(viewModel.currentIndex)
         appState.updateCurrentBookPages(viewModel.book.pages)
@@ -484,6 +494,8 @@ struct ViewerView: View {
             appState.jumpToBookmark = nil
             appState.jumpToPageIndex = nil
             appState.addBookmarkAction = nil
+            appState.addFavoriteAction = nil
+            appState.openFavoriteAction = nil
             appState.updateCurrentBookmarks([])
             appState.updateCurrentPageIndex(0)
             appState.updateCurrentBookPages([])

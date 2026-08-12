@@ -36,6 +36,7 @@ final class AppPreferences: ObservableObject {
         static let sidePanelFeatureEnabled = "qooViewer.pref.sidePanelFeatureEnabled"
         static let sidePanelUsesDoubleClick = "qooViewer.pref.sidePanelUsesDoubleClick"
         static let sidePanelSortOrder = "qooViewer.pref.sidePanelSortOrder"
+        static let sidePanelMode = "qooViewer.pref.sidePanelMode"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
         static let showRecentFilesOnWelcome = "qooViewer.pref.showRecentFilesOnWelcome"
         static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
@@ -227,6 +228,14 @@ final class AppPreferences: ObservableObject {
     @Published var sidePanelSortOrder: SidePanelSortOrder {
         didSet { UserDefaults.standard.set(sidePanelSortOrder.rawValue, forKey: Keys.sidePanelSortOrder) }
     }
+    /// サイドパネルの表示モード(ブラウザ/ブックマーク。SidePanelMode参照)。パネル最上部の
+    /// スイッチで切り替える。ウインドウごとではなくアプリ全体で1つの値として持つ
+    /// (sidePanelWidthと同じ考え方: 新しいウインドウ/タブや次回起動時も同じ見た目で始まる)。
+    /// sidePanelWidthと違ってドラッグ中に高頻度で変化する値ではないため、ContentView側で
+    /// @Stateへ写し取らず、この@Publishedを直接Bindingとして使う。
+    @Published var sidePanelMode: SidePanelMode {
+        didSet { UserDefaults.standard.set(sidePanelMode.rawValue, forKey: Keys.sidePanelMode) }
+    }
     /// プログレスバーにカーソルを合わせたときに、フィルムストリップ(サムネイル・ファイル名・
     /// ページ番号を含むプレビュー)を表示するかどうか(既定ON)。OFFにすると、サムネイルの
     /// 読み込みは一切行わず、カーソル位置に対応するページ番号だけを表示するシンプルな表示になる
@@ -318,6 +327,8 @@ final class AppPreferences: ObservableObject {
         self.sidePanelUsesDoubleClick = defaults.object(forKey: Keys.sidePanelUsesDoubleClick) as? Bool ?? false
         self.sidePanelSortOrder =
             SidePanelSortOrder(rawValue: defaults.string(forKey: Keys.sidePanelSortOrder) ?? "") ?? .foldersFirst
+        self.sidePanelMode =
+            SidePanelMode(rawValue: defaults.string(forKey: Keys.sidePanelMode) ?? "") ?? .browser
         self.showProgressBarThumbnailPreview =
             defaults.object(forKey: Keys.showProgressBarThumbnailPreview) as? Bool ?? true
         self.showRecentFilesOnWelcome =
