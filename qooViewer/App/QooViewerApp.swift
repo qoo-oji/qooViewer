@@ -220,8 +220,8 @@ struct QooViewerApp: App {
                     // Finderから別の本を開こうとしたとき(環境設定「Finderから開いたとき」が
                     // 「新しいタブ/ウインドウで開く」の場合)に、AppDelegate自身は持たない
                     // openWindow環境値を使ってウインドウ/タブを作るための橋渡し。
-                    appDelegate.openInNewWindowOrTab = { url, asTab, tabTarget in
-                        openURLInNewWindow(url, asTab: asTab, tabTarget: tabTarget)
+                    appDelegate.openInNewWindowOrTab = { url, asTab, tabTarget, actsAsPrimaryWindow in
+                        openURLInNewWindow(url, asTab: asTab, tabTarget: tabTarget, actsAsPrimaryWindow: actsAsPrimaryWindow)
                     }
                 }
         }
@@ -931,11 +931,21 @@ struct QooViewerApp: App {
     ///   詳細はAppState.hostWindowのコメント参照)。nilの場合は、これまで通り呼び出し時点の
     ///   NSApp.keyWindowを使う(メニューからの「新しいタブで開く」は、操作時に必ずこのアプリが
     ///   最前面にあるため、この既定の挙動で問題ない)。
+    /// - Parameter actsAsPrimaryWindow: この新しいウインドウが主ウインドウ(LaunchCoordinator.
+    ///   primaryAppState)の役割を引き継ぐ場合はtrue(現状、AppDelegate.application(_:open:)が
+    ///   再利用できる既存のmainウインドウが無いと判断した場合にだけtrueで呼ぶ)。trueの場合、
+    ///   下のカスケード配置は行わない。ContentView.swiftのWindowAccessorが、主ウインドウ自身に
+    ///   対して別途restoreMainWindowFrameIfNeededで前回終了時の位置・サイズを復元するため、
+    ///   ここでカスケード配置(前面にあった何か別のウインドウを基準にした位置)で上書きして
+    ///   しまうと、その復元結果が失われてしまう(実機で確認済みのバグ、ユーザー報告)。
+    ///   呼び出し時点でこの判断が確定しているため、`newWindow`が実際にprimaryAppStateの
+    ///   ウインドウになったかどうかを後から調べる(WindowAccessor経由の非同期反映を待つ必要が
+    ///   あり、タイミングによっては間に合わない)よりも確実。
     ///
     /// なお、指定したURLの本がすでに他のウインドウ/タブで開かれている場合は、新しく
     /// ウインドウ/タブを作らず、既存のものをアクティブにするだけにする
     /// (LaunchCoordinator.registerOpenAppState/openAppState(forBookAt:)参照)。
-    private func openURLInNewWindow(_ url: URL, asTab: Bool, tabTarget: NSWindow?) {
+    private func openURLInNewWindow(_ url: URL, asTab: Bool, tabTarget: NSWindow?, actsAsPrimaryWindow: Bool = false) {
         // すでにこの本を(このウインドウ以外の別のウインドウ/タブで)開いている場合は、
         // 同じ本をもう1つ開いてしまわないよう、新しいウインドウ/タブを作る代わりに
         // そのウインドウ/タブをアクティブにするだけにする(タブの場合、makeKeyAndOrderFrontで
@@ -966,6 +976,31 @@ struct QooViewerApp: App {
                 }
             }
             guard let newWindow else { return }
+
+            // actsAsPrimaryWindowがtrueの場合はカスケード配置を行わず、代わりに前回終了時の
+            // ウインドウ位置・サイズを復元する(詳細はこの関数のドキュメントコメント参照)。
+            //
+            // バグ修正(ユーザー報告): 当初はContentView.swiftのWindowAccessor
+            // (restoreMainWindowFrameIfNeeded)に復元を任せていたが、"book"ウインドウグループは
+            // `.windowResizability(.contentSize)`のため、WindowAccessorが発火する早い
+            // タイミングではまだSwiftUI自身のコンテンツサイズに基づく自動リサイズが済んでおらず、
+            // 後からそちらに上書きされてしまい、復元した位置・サイズが失われる不具合が実機で
+            // 確認された。ここ(SwiftUIによる自動リサイズが収まった後の、下のカスケード配置と
+            // 同じタイミング)で改めて復元することで、上書きされないようにする。
+            // UserDefaultsのキー文字列はContentView.swift(mainWindowFrameDefaultsKey/
+            // restoreMainWindowFrameIfNeeded)と同じものを直接指定している(ContentViewはstruct
+            // のインスタンスメソッドのため、AppDelegate側からは直接呼べない)。
+            guard !actsAsPrimaryWindow else {
+                if let saved = UserDefaults.standard.string(forKey: "qooViewer.mainWindowFrame") {
+                    let rect = NSRectFromString(saved)
+                    if rect.width > 0, rect.height > 0 {
+                        newWindow.setFrame(rect, display: true)
+                    }
+                }
+                newWindow.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+                return
+            }
 
             // 新しいウインドウのサイズは、元になったウインドウ(今アクティブだったウインドウ、
             // またはtabTargetで明示的に指定されたウインドウ)と同じ大きさにする。元のウインドウが
@@ -1057,12 +1092,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var launchCoordinator: LaunchCoordinator?
     /// Finderから(ダブルクリックや「このアプリケーションで開く」で)別の本を開こうとしたときの
     /// 環境設定「Finderから開いたとき」が「新しいタブ/ウインドウで開く」の場合に使う、実際に
-    /// ウインドウ/タブを開くためのクロージャ(QooViewerApp.openURLInNewWindow(_:asTab:tabTarget:)
-    /// への橋渡し。AppDelegate自身はSwiftUIのopenWindow環境値を持てないため)。
-    /// 第2引数はasTab(trueなら新しいタブ、falseなら新しいウインドウ)、第3引数は
+    /// ウインドウ/タブを開くためのクロージャ(QooViewerApp.openURLInNewWindow(_:asTab:tabTarget:
+    /// actsAsPrimaryWindow:)への橋渡し。AppDelegate自身はSwiftUIのopenWindow環境値を持てない
+    /// ため)。第2引数はasTab(trueなら新しいタブ、falseなら新しいウインドウ)、第3引数は
     /// タブとして追加する先を明示的に指定する場合のウインドウ(通常はprimaryAppState.hostWindow。
-    /// nilならNSApp.keyWindowが使われる)。
-    var openInNewWindowOrTab: ((URL, Bool, NSWindow?) -> Void)?
+    /// nilならNSApp.keyWindowが使われる)、第4引数はactsAsPrimaryWindow(このウインドウが
+    /// 主ウインドウの役割を引き継ぐ場合はtrue。openURLInNewWindowのコメント参照)。
+    var openInNewWindowOrTab: ((URL, Bool, NSWindow?, Bool) -> Void)?
 
     /// ツールバー・プログレスバーなど、`.help()`で付けたツールチップが表示されるまでの
     /// 待ち時間を短くする。SwiftUI/AppKitにはこの待ち時間を直接指定する公開APIがないため、
@@ -1220,8 +1256,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 再利用できる既存のmainウインドウが無い状態。「新しいウインドウ/タブで開く」と同じ経路
         // (openInNewWindowOrTab、実体はopenURLInNewWindow)で、自前で新しい「book」ウインドウを
-        // 開く。
-        openInNewWindowOrTab?(url, false, nil)
+        // 開く。このウインドウは主ウインドウの役割を引き継ぐため、actsAsPrimaryWindow: trueを
+        // 渡す(openURLInNewWindowのドキュメントコメント参照。前回終了時の位置・サイズが
+        // 正しく復元されるようにするため)。
+        openInNewWindowOrTab?(url, false, nil, true)
 
         // バグ修正(ユーザー報告): "main" WindowGroupの状態復元を無効化した後も、この直後に
         // AppKit/SwiftUIが既定動作として空のmainウインドウを自動生成すること自体は実機で
@@ -1270,9 +1308,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // タブの追加先は、その時点でのNSApp.keyWindow(Finderから開いた直後は、まだ
             // 本来のウインドウがキーウインドウになっていないことがあり、不確実)ではなく、
             // 「本を開いていると確認したAppStateそのもの」が持つウインドウを明示的に渡す。
-            openInNewWindowOrTab?(url, true, primaryAppState.hostWindow)
+            openInNewWindowOrTab?(url, true, primaryAppState.hostWindow, false)
         case .newWindow:
-            openInNewWindowOrTab?(url, false, primaryAppState.hostWindow)
+            openInNewWindowOrTab?(url, false, primaryAppState.hostWindow, false)
         }
     }
 

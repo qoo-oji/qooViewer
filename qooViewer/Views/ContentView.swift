@@ -119,13 +119,32 @@ struct ContentView: View {
             // 内部で、画面の「表示可能領域」を基準に位置を自動調整する処理が働き、想定より
             // 余分な余白ができてしまっていたと考えられる)。そのため、ここでは自前でUserDefaultsに
             // 生のフレーム座標(NSStringFromRect)を保存・復元する、より単純で予測可能な方式に
-            // 切り替える。"book"ウインドウグループ(新しいウインドウ/タブで開く。initialURLが
-            // 入る)の方や、タブバーの「+」で追加された新しいタブ(下のonAppear参照)には
-            // 適用したくないため、主ウインドウ自身(1枚目、またはすでにprimaryAppStateとして
-            // 登録済みの自分自身)の場合にだけ適用する。
-            if initialURL == nil,
-               launchCoordinator.primaryAppState == nil || launchCoordinator.primaryAppState === appState,
-               let window {
+            // 切り替える。「新しいウインドウ/タブで開く」やタブバーの「+」で追加された新しいタブ
+            // (下のonAppear参照)には適用したくないため、今このウインドウが主ウインドウ
+            // (launchCoordinator.primaryAppState)自身の場合にだけ適用する。
+            //
+            // バグ修正(ユーザー報告): 以前は`initialURL == nil`も条件に含め、「book」ウインドウ
+            // グループ(newWindow/newTab、およびinitialURL付きで開く場合全般)を一律除外していた。
+            // しかしウインドウをすべて閉じた状態から外部アプリ等で本を開く場合、主ウインドウの
+            // 代わりにinitialURL付きの「book」ウインドウが開かれることがあり(QooViewerApp.
+            // application(_:open:)参照)、この場合に一律除外していたせいで前回のウインドウ位置・
+            // サイズが復元されず、毎回既定の位置で開いてしまう不具合があった。
+            // 「今このウインドウが主ウインドウかどうか」(launchCoordinator.primaryAppState ===
+            // appState)だけで判定するようにすることで、mainウインドウグループかbookウインドウ
+            // グループかに関わらず、実際に主ウインドウの役割を担っているウインドウにだけ正しく
+            // 位置・サイズの復元が適用されるようにした(「新しいウインドウ/タブで開く」で
+            // 追加される、主ウインドウではないbookウインドウは、この時点で
+            // launchCoordinator.primaryAppStateが別のAppStateを指しているため、これまで通り
+            // 対象外のまま)。
+            //
+            // 補足: bookウインドウグループは`.windowResizability(.contentSize)`のため、
+            // この時点(発火が早い)で適用してもSwiftUI自身の自動リサイズに後から上書きされて
+            // しまう。そのため実際に主ウインドウの役割を引き継いだbookウインドウについては、
+            // QooViewerApp.swiftのopenURLInNewWindow側で(自動リサイズが収まった、より遅い
+            // タイミングで)改めて復元している。ここでの呼び出しは、mainウインドウグループ
+            // (.windowResizability(.automatic)で、この早いタイミングでも上書きされない)に対して
+            // 意味を持つ。
+            if launchCoordinator.primaryAppState === appState, let window {
                 restoreMainWindowFrameIfNeeded(window)
                 observeMainWindowFrameChanges(window)
             }
@@ -293,6 +312,9 @@ struct ContentView: View {
 
     /// 主ウインドウのサイズ・位置を記憶するためのUserDefaultsキー。値は
     /// NSStringFromRectで文字列化した生のフレーム座標をそのまま保存する。
+    /// この文字列リテラルは、QooViewerApp.swiftのopenURLInNewWindow(actsAsPrimaryWindow:trueの
+    /// 分岐)でも直接指定されている(ContentViewのインスタンスメソッドをAppDelegate側から
+    /// 呼べないため)。変更する場合はそちらも合わせて変更すること。
     private static let mainWindowFrameDefaultsKey = "qooViewer.mainWindowFrame"
 
     /// 前回終了時に保存しておいたウインドウのフレーム(位置・サイズ)があれば、そのまま
