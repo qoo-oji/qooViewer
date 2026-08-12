@@ -40,39 +40,32 @@ struct SidePanelView: View {
     @GestureState private var dragOffset: CGFloat = 0
     @GestureState private var widthDragOffset: CGFloat = 0
 
-    /// ContentView.body(HStack)がこのパネルのために確保する幅は、ドラッグ中も確定値
-    /// (width)のまま変えない。ここが毎フレーム変わってしまうと、HStackの再レイアウトを
-    /// 通じてViewerView側(pageAreaのGeometryReaderによる画像の再スケーリング)まで
-    /// 毎フレーム再計算されてしまい重い(ユーザー報告: ドラッグ中にビューアが逐次再描画
-    /// されてもたつく)。
-    ///
-    /// 一方でユーザー要望により、パネル自身の見た目はドラッグ中もリアルタイムに追随させたい
-    /// (どこまで幅が広がったか分かりづらいため)。この2つを両立するため、
-    /// 「ライブに幅が変わる背景(widthPreviewBackground)」と「常に確定幅(width)のままの
-    /// 実コンテンツ(panelBody。一覧・ボタンを含む重いビュー階層)」を分離した
-    /// (panelBodyまでeffectiveWidthで毎フレーム再レイアウトすると、GeometryReader+
-    /// ScrollView+LazyVStackを含む重いビュー階層の再計算がドラッグの度に走ってしまい、
-    /// 描画が追いつかず振動して見える不具合になっていた。ユーザー報告: アニメーション無効化
-    /// だけでは治らなかった)。背景(NSVisualEffectViewのフレーム変更のみ)はコンテンツの
-    /// 再レイアウトを伴わないため軽量に追従できる。
+    /// ドラッグ中、ContentView.body(HStack)がこのパネルのために確保する幅・パネル自身の
+    /// 中身(panelBody)の幅とも、ライブな値(effectiveWidth)に追随させている。以前は
+    /// どちらも確定値(width)のまま固定し、ドラッグ中はマテリアル背景だけを伸縮させていた
+    /// (HStackの再レイアウトを通じてViewerView側のGeometryReaderによる画像再スケーリングや、
+    /// panelBody自身のGeometryReader+ScrollView+LazyVStackが毎フレーム再計算されると
+    /// 描画が追いつかず振動して見える不具合があったため)。ドラッグハンドル自体の震え
+    /// (widthDragHitAreaのコメント参照、ハンドルの位置が自分自身のジェスチャー出力に
+    /// 依存する自己参照ループが原因)を解決した後にあらためて試したところ問題なく追随できた
+    /// ため、ライブ追従に戻した。実機で重さが気になるようなら、この2箇所を再びwidthへ
+    /// 戻せば以前の(背景だけライブな)方式に戻せる。
     var body: some View {
         Color.clear
-            .frame(width: width)
+            .frame(width: effectiveWidth)
             .frame(maxHeight: .infinity)
+            .transaction { $0.animation = nil }
             .overlay(alignment: .leading) {
-                // ドラッグ中だけ幅が伸縮する、軽量な背景(マテリアルのみ)。
                 SidebarVisualEffectView()
                     .frame(width: effectiveWidth)
                     .frame(maxHeight: .infinity)
                     .transaction { $0.animation = nil }
             }
             .overlay(alignment: .leading) {
-                // 実際のコンテンツは常に確定幅(width)のまま。ドラッグ中はここだけ
-                // 見た目上、背景の伸縮に取り残される形になるが、指を離した瞬間に
-                // widthが更新されてここも追従する。
                 panelBody
-                    .frame(width: width)
+                    .frame(width: effectiveWidth)
                     .frame(maxHeight: .infinity)
+                    .transaction { $0.animation = nil }
             }
             // ドラッグの当たり判定を持つビュー(widthDragHitArea)自体は、レイアウト上も
             // 見た目上も一切動かさない(offsetも含めて)。ジェスチャーを載せているビュー
