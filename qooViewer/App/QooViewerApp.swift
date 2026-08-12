@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import AppKit
+import Combine
 
 /// アプリ構造体自体を明示的に@MainActorにしておく。SwiftUIのAppプロトコル自体、bodyなどの
 /// 要求はもともと@MainActorだが、favoritesStoreをModelContext付きで組み立てるための独自init()を
@@ -1052,12 +1053,34 @@ struct QooViewerApp: App {
                 // このウインドウのAppStateを直接見つけ、ここで明示的にprimaryAppStateへ設定する。
                 if let matchedAppState = launchCoordinator.allOpenAppStates.first(where: { $0.hostWindow === newWindow }) {
                     launchCoordinator.primaryAppState = matchedAppState
-                    // ContentView.observeMainWindowFrameChangesと同じ理由・同じロジック。
-                    // ContentViewはstructのインスタンスメソッドのためAppDelegate側からは直接
-                    // 呼べず、また上のprimaryAppState設定はWindowAccessorのコールバックが
-                    // 既に(primaryAppStateがまだ設定されていない状態で)一度実行し終えた後になる
-                    // ため、ここで改めて登録しないと以降のウインドウ移動・リサイズが保存されない。
+
+                    // バグ修正(ユーザー報告): この「book」ウインドウは主ウインドウの役割を
+                    // 引き継ぐが、"main" WindowGroupの通常の起動経路(ContentView.onAppear)を
+                    // 経由しないため、位置・サイズの記憶(ContentView.observeMainWindowFrameChanges
+                    // 相当)がこのウインドウには自然には効かない。加えて、このウインドウは
+                    // 「book」WindowGroup(`.windowResizability(.contentSize)`)に属するため、
+                    // このウインドウ内で別の本へ切り替える(=主ウインドウとして使い続けたまま
+                    // 外部から別の本を開く)たびに、SwiftUIが新しいコンテンツのサイズに合わせて
+                    // フレームを自動で調整し直すことがあり(ページ画像のデコード完了を待って
+                    // 複数回にわたって起こることもある)、これをユーザー操作と誤認してそのまま
+                    // 保存してしまうと、手動で調整した位置・サイズが本を切り替えるたびに失われる
+                    // (3冊目までの間で不定期に発生)。"main" WindowGroup
+                    // (`.windowResizability(.automatic)`)ではコンテンツに合わせた強制的な
+                    // 再調整が行われないためこの問題は起きない。
                     //
+                    // 「今保存すべき位置・サイズ」をこのTask内だけで完結する状態
+                    // (desiredFrame/isSettling)として自前で管理する。本の切り替え中
+                    // (isSettling)は、SwiftUI側の自動調整による移動・リサイズをそのまま
+                    // 保存せず、代わりにdesiredFrameへ強制的に戻し続ける。切り替え中でない
+                    // ときの移動・リサイズだけを、正真正銘ユーザーによる操作とみなして
+                    // desiredFrameを更新・保存する。
+                    var desiredFrame = newWindow.frame
+                    var isSettling = false
+                    let saveFrame: (Notification) -> Void = { notification in
+                        guard !isSettling, let window = notification.object as? NSWindow else { return }
+                        desiredFrame = window.frame
+                        UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: "qooViewer.mainWindowFrame")
+                    }
                     // バグ修正(ユーザー報告): すぐに登録すると、上のsetFrameによる復元がまだ
                     // 完全には収まっておらず、SwiftUI側がこの直後にもう一度自動でフレームを
                     // 調整し直すことがあり(このタイミングでもなお微妙にズレることが実機で
@@ -1066,16 +1089,31 @@ struct QooViewerApp: App {
                     // 少し待ってSwiftUI側の調整が収まってから登録する。
                     Task { @MainActor in
                         try? await Task.sleep(nanoseconds: 300_000_000)
-                        let saveFrame: (Notification) -> Void = { notification in
-                            guard let window = notification.object as? NSWindow else { return }
-                            UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: "qooViewer.mainWindowFrame")
-                        }
                         NotificationCenter.default.addObserver(
                             forName: NSWindow.didMoveNotification, object: newWindow, queue: .main, using: saveFrame
                         )
                         NotificationCenter.default.addObserver(
                             forName: NSWindow.didResizeNotification, object: newWindow, queue: .main, using: saveFrame
                         )
+                    }
+                    // 本を切り替えるたびに、切り替わった時点のdesiredFrame(=直前まで表示されて
+                    // いた本での、ユーザーが最後に調整した値)を目標として、その後しばらくの間
+                    // 繰り返し再適用し続けることで、後から入るどんな自動調整にも最終的に勝つ
+                    // ようにする。
+                    Task { @MainActor in
+                        for await _ in matchedAppState.$currentBook.dropFirst().values {
+                            isSettling = true
+                            for _ in 0..<8 {
+                                try? await Task.sleep(nanoseconds: 250_000_000)
+                                guard launchCoordinator.primaryAppState === matchedAppState,
+                                      let window = matchedAppState.hostWindow else { break }
+                                if window.frame != desiredFrame {
+                                    window.setFrame(desiredFrame, display: true)
+                                }
+                            }
+                            isSettling = false
+                            UserDefaults.standard.set(NSStringFromRect(desiredFrame), forKey: "qooViewer.mainWindowFrame")
+                        }
                     }
                 }
                 return
