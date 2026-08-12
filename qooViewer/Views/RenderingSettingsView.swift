@@ -50,7 +50,7 @@ struct RenderingSettingsView: View {
                 SettingsSlider(
                     "Loupe Size",
                     value: $preferences.loupeDiameter,
-                    in: 120...400,
+                    in: 200...600,
                     step: 10,
                     caption: "Diameter of the loupe."
                 ) { value in

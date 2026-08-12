@@ -66,7 +66,7 @@ final class LoupeNSView: NSView {
     var slotWidths: [CGFloat] = []
     var contentHeight: CGFloat = 0
     var magnification: CGFloat = 2.5
-    var diameter: CGFloat = 330
+    var diameter: CGFloat = 400
     var onDismiss: (() -> Void)?
 
     private var trackingArea: NSTrackingArea?

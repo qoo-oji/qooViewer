@@ -359,6 +359,14 @@ struct ViewerView: View {
                 // 届く(2本指設定の場合の扱いは上のhandleTrackpadScrollGesture参照)。
                 handleSwipe(deltaX: event.deltaX)
             case .keyDown:
+                // ESCキー(keyCode 53)は、RemappableKey/keyBindingStoreによる
+                // カスタマイズ可能なキー割り当ての対象には含めず、常に固定の「閉じる」操作
+                // という慣習に合わせて別枠で扱う。拡大鏡(ルーペ)表示中に押すと、
+                // ページ送りなど他の操作には一切影響させずに拡大鏡だけを閉じる。
+                if event.keyCode == 53, viewModel.isLoupeActive {
+                    viewModel.toggleLoupe()
+                    return nil
+                }
                 // キー入力の検知は、以前はSwiftUIの.onKeyPressで行っていたが、
                 // 環境によっては矢印キーがそちらまで届かない(ビープ音が鳴るだけで
                 // 何も起きない)不具合があったため、動作が確実なこちらのNSEventベースの
