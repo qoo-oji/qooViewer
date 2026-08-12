@@ -1038,6 +1038,46 @@ struct QooViewerApp: App {
                 }
                 newWindow.makeKeyAndOrderFront(nil)
                 NSApp.activate(ignoringOtherApps: true)
+
+                // バグ修正(ユーザー報告): この「book」ウインドウは主ウインドウの役割を
+                // 引き継ぐが、"main" WindowGroupの通常の起動経路(ContentView.onAppear)を
+                // 経由しないため、launchCoordinator.primaryAppStateが自然にはこのウインドウを
+                // 指さない。これにより、(1)このウインドウを動かしても位置・サイズが記憶されない
+                // (ContentView.observeMainWindowFrameChangesはprimaryAppState === appStateの
+                // ときにしか登録されないため)、(2)続けて外部から本を開こうとしたときに
+                // 「再利用できる主ウインドウが無い」と誤判定され、このウインドウを再利用せず
+                // 毎回新しいウインドウを作ってしまう、という2つの不具合があった
+                // (frontmostContentAppStateによる再利用〈application(_:open:)参照〉は本を
+                // 表示していれば効くが、位置・サイズの記憶にはprimaryAppState自体の更新が必要)。
+                // このウインドウのAppStateを直接見つけ、ここで明示的にprimaryAppStateへ設定する。
+                if let matchedAppState = launchCoordinator.allOpenAppStates.first(where: { $0.hostWindow === newWindow }) {
+                    launchCoordinator.primaryAppState = matchedAppState
+                    // ContentView.observeMainWindowFrameChangesと同じ理由・同じロジック。
+                    // ContentViewはstructのインスタンスメソッドのためAppDelegate側からは直接
+                    // 呼べず、また上のprimaryAppState設定はWindowAccessorのコールバックが
+                    // 既に(primaryAppStateがまだ設定されていない状態で)一度実行し終えた後になる
+                    // ため、ここで改めて登録しないと以降のウインドウ移動・リサイズが保存されない。
+                    //
+                    // バグ修正(ユーザー報告): すぐに登録すると、上のsetFrameによる復元がまだ
+                    // 完全には収まっておらず、SwiftUI側がこの直後にもう一度自動でフレームを
+                    // 調整し直すことがあり(このタイミングでもなお微妙にズレることが実機で
+                    // 確認された)、その調整による移動をユーザー操作と誤認して「復元した値」を
+                    // 「SwiftUIが調整し直した値」で即座に上書き保存してしまう不具合があった。
+                    // 少し待ってSwiftUI側の調整が収まってから登録する。
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 300_000_000)
+                        let saveFrame: (Notification) -> Void = { notification in
+                            guard let window = notification.object as? NSWindow else { return }
+                            UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: "qooViewer.mainWindowFrame")
+                        }
+                        NotificationCenter.default.addObserver(
+                            forName: NSWindow.didMoveNotification, object: newWindow, queue: .main, using: saveFrame
+                        )
+                        NotificationCenter.default.addObserver(
+                            forName: NSWindow.didResizeNotification, object: newWindow, queue: .main, using: saveFrame
+                        )
+                    }
+                }
                 return
             }
 
@@ -1292,27 +1332,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openInPrimaryWindow(url, primaryAppState: primaryAppState)
             return
         }
+        // バグ修正(ユーザー報告): primaryAppStateが上の条件を満たさない場合でも、実際に
+        // 本を表示している別のコンテンツウインドウがどこかに開いていれば、それを再利用する。
+        // (以前はここでも「主ウインドウが無い」と即断して新しい「book」ウインドウを作って
+        // いたため、たとえば「StackNestから本Aを開く→StackNestから本Bを開く」のように、
+        // 本Aのウインドウが確かに存在するにもかかわらず、primaryAppStateがまだ本Aのウインドウを
+        // 指していない(下のコメント参照)ことがあり、本Bが本Aとは別の新しいウインドウで
+        // 開いてしまう不具合があった。)
+        if let target = launchCoordinator?.frontmostContentAppState() {
+            openInPrimaryWindow(url, primaryAppState: target)
+            return
+        }
 
         // 再利用できる既存のmainウインドウが無い状態。「新しいウインドウ/タブで開く」と同じ経路
         // (openInNewWindowOrTab、実体はopenURLInNewWindow)で、自前で新しい「book」ウインドウを
         // 開く。このウインドウは主ウインドウの役割を引き継ぐため、actsAsPrimaryWindow: trueを
         // 渡す(openURLInNewWindowのドキュメントコメント参照。前回終了時の位置・サイズが
         // 正しく復元されるようにするため)。
+        //
+        // バグ修正(ユーザー報告): 以前はここで、AppKit/SwiftUIが外部アプリからの「開く」呼び出し
+        // の前後で自動生成することがある空の"main"ウインドウ(原因不明の既知の挙動)の出現を
+        // 少し待ち、それが見つかればそちらを主ウインドウとしてそのまま再利用する設計を試みた。
+        // しかし、SwiftUIの"main" WindowGroupはウインドウを閉じてもその中身
+        // (@StateObjectのappState)が実機で解放されないことがある(Apple公式フォーラムでも
+        // "Settings"シーンについて同種の未解決issueが報告されている: FB21393010 参照)ため、
+        // 閉じたはずの古いウインドウがNSApp.windows上に残ったまま、この空ウインドウ待ちの
+        // 仕組みで新しく現れた別のウインドウを主ウインドウとして扱おうとすると、SwiftUI側の
+        // 内部状態が混乱し、.navigationTitleの更新やそもそも本の表示自体が反映されなくなる、
+        // というより深刻な不具合が実機で確認された。空ウインドウを待たず、常に自前で新しい
+        // 「book」ウインドウを開く方が安全なため、この設計は採用していない。
+        //
+        // なお、この時点でのprimaryAppState(nilの可能性もある)を、この直後に開くbookウインドウ
+        // 自身と取り違えないよう先に捕まえておく。openURLInNewWindow(actsAsPrimaryWindow: true)
+        // 側で、開いたbookウインドウ自身をlaunchCoordinator.primaryAppStateへ設定し直す処理が
+        // 走るため(位置・サイズの記憶を有効にするため。openURLInNewWindow参照)、下の後始末を
+        // 呼び出し後のprimaryAppStateから判定してしまうと、常にそのbookウインドウ自身を「空の
+        // 余分なウインドウ」と誤認してしまう。
+        let suspectBeforeOpen = launchCoordinator?.primaryAppState
         openInNewWindowOrTab?(url, false, nil, true)
 
-        // バグ修正(ユーザー報告): "main" WindowGroupの状態復元を無効化した後も、この直後に
         // AppKit/SwiftUIが既定動作として空のmainウインドウを自動生成すること自体は実機で
         // 依然として起こりうる(以前と違い中身は正しく描画されるが、こちらが開いたbookウインドウ
         // とは別に本を表示しない空ウインドウが残ってしまう)。この時点では「再利用できる
-        // mainウインドウが無かった」ことが確定しているため、bookウインドウで本の表示が
-        // 落ち着いた後もなお空のprimaryAppStateが残っていれば、それはこの一連の処理の中で
-        // AppKitが勝手に作った余分なウインドウだと判断してよい。ただし、本の読み込みに時間が
-        // かかっている場合に唯一残っているウインドウまで閉じてしまわないよう、閉じる前に他に
-        // 表示中のウインドウが実在することを確認する。
-        Task { @MainActor [weak self] in
+        // mainウインドウが無かった」ことが確定しているため、上で捕まえたsuspectBeforeOpenが
+        // 空のまま(currentBook == nil)残っていれば、それはこの一連の処理の中でAppKitが勝手に
+        // 作った余分なウインドウだと判断してよい。ただし、本の読み込みに時間がかかっている
+        // 場合に唯一残っているウインドウまで閉じてしまわないよう、閉じる前に他に表示中の
+        // ウインドウが実在することを確認する。
+        Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_200_000_000)
-            guard let self else { return }
-            guard let suspect = self.launchCoordinator?.primaryAppState,
+            guard let suspect = suspectBeforeOpen,
                   suspect.currentBook == nil,
                   let suspectWindow = suspect.hostWindow else { return }
             guard NSApp.windows.contains(where: { $0 !== suspectWindow && $0.isVisible }) else { return }
