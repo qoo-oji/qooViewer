@@ -352,6 +352,21 @@ private struct BookContentsSectionView: View {
             }
             .padding(10)
 
+            // ユーザー要望: 本の中の階層を移動しているときは、今どこにいるか分かるよう
+            // ボタンの下にフォルダ/書庫のファイル名を表示する。ルート階層(本自身)にいる
+            // ときはstate.currentLocationNameがnilになり、この行自体を出さない。
+            if let locationName = state.currentLocationName {
+                Text(locationName)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 6)
+                    .help(locationName)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             Divider()
 
             if let errorMessage = state.navigationErrorMessage {
@@ -363,20 +378,35 @@ private struct BookContentsSectionView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(state.entries) { entry in
-                            row(for: entry)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(state.entries) { entry in
+                                row(for: entry)
+                            }
                         }
                     }
+                    // folderSectionの同名の.focusable(false)と同じ理由。
+                    .focusable(false)
+                    // ページ送りでハイライト対象が変わるたび、またはハイライト対象を含む
+                    // 新しい階層へ切り替わって一覧そのものが変わるたびに、その行が常に
+                    // 表示枠内に見えるようスクロールする(ユーザー要望)。
+                    .onChange(of: state.highlightedMatchKeys) { _, _ in scrollToHighlighted(proxy: proxy) }
+                    .onChange(of: state.entries) { _, _ in scrollToHighlighted(proxy: proxy) }
                 }
-                // folderSectionの同名の.focusable(false)と同じ理由。
-                .focusable(false)
             }
         }
     }
 
+    private func scrollToHighlighted(proxy: ScrollViewProxy) {
+        guard let target = state.entries.first(where: { state.highlightedMatchKeys.contains($0.matchKey) }) else { return }
+        DispatchQueue.main.async {
+            withAnimation { proxy.scrollTo(target.id, anchor: .center) }
+        }
+    }
+
     private func row(for entry: BookInternalBrowsing.Entry) -> some View {
+        let isHighlighted = state.highlightedMatchKeys.contains(entry.matchKey)
         let label = HStack(spacing: 8) {
             Image(systemName: icon(for: entry))
                 .frame(width: 16)
@@ -389,6 +419,7 @@ private struct BookContentsSectionView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+        .background(isHighlighted ? Color.accentColor.opacity(0.15) : Color.clear)
 
         return Group {
             if entry.isContainer {

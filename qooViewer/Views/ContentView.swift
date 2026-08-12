@@ -170,6 +170,15 @@ struct ContentView: View {
             // 側の再アンカーと重複するが冪等なので問題ない。
             sidePanelBrowser.handlePanelRevealed(currentBook: appState.currentBook)
         }
+        // サイドパネル下段(本の中身ブラウザ)を、今実際に表示されているページへ追従させる
+        // (ユーザー要望: ページ送りのたびにハイライト・スクロールをリアルタイムに追従させ、
+        // フォルダ/ネストした書庫の境界をまたいだら表示中のフォルダ/書庫も切り替える)。
+        // 本の切替直後は新しいViewerViewのonAppearがcurrentVisiblePageSortKeysを更新する
+        // ことでここが発火するため、updateBookContentsBrowserForCurrentBook側で明示的に
+        // 呼び直す必要はない。
+        .onChange(of: appState.currentVisiblePageSortKeys) { _, newValue in
+            bookContentsBrowser?.revealCurrentPage(sortKeys: newValue)
+        }
         // サイドパネルの幅をユーザーがドラッグで調整するたびに、次回起動時にも再現できるよう
         // preferencesへ書き戻す(hideToolbar等と同じ「AppStateへの書き戻し」パターンだが、
         // sidePanelWidthはAppStateではなくContentView自身の@Stateのため、ここで直接行う)。

@@ -244,6 +244,7 @@ struct ViewerView: View {
         appState.updateCurrentBookmarks(viewModel.bookmarks)
         appState.updateCurrentPageIndex(viewModel.currentIndex)
         appState.updateCurrentBookPages(viewModel.book.pages)
+        appState.updateCurrentVisiblePageSortKeys(currentVisiblePageSortKeys)
         // メニューバーの「表示モード切替」サブメニューから、特定のモードへ直接切り替える
         // ための橋渡し。
         appState.setScalingMode = { mode in
@@ -478,6 +479,7 @@ struct ViewerView: View {
             appState.updateCurrentBookmarks([])
             appState.updateCurrentPageIndex(0)
             appState.updateCurrentBookPages([])
+            appState.updateCurrentVisiblePageSortKeys([])
             appState.setScalingMode = nil
             appState.performLayoutStateChange = nil
             appState.performLayoutClear = nil
@@ -839,6 +841,7 @@ struct ViewerView: View {
         // ブックマーク済みかどうか」の判定にも使うため、appState.currentPageIndexも合わせて更新する。
         .onChange(of: viewModel.currentIndex) { _, newValue in
             appState.updateCurrentPageIndex(newValue)
+            appState.updateCurrentVisiblePageSortKeys(currentVisiblePageSortKeys)
             syncMenuCheckmarkState()
         }
         // hasPartnerPageDisplayed(Layoutメニューの「見開き表示中は左右2ページ分の項目に分ける」
@@ -851,6 +854,7 @@ struct ViewerView: View {
         // ままになってしまっていた(ユーザー報告: 起動して履歴から本を開いた直後、実際には
         // 見開き表示なのにLayoutメニューが単一ページ用の項目のままになる)。
         .onChange(of: viewModel.currentImages.count) { _, _ in
+            appState.updateCurrentVisiblePageSortKeys(currentVisiblePageSortKeys)
             syncMenuCheckmarkState()
         }
     }
@@ -1027,6 +1031,19 @@ struct ViewerView: View {
     /// 対象に含めない)。viewModel.currentImages.count(実際に表示中の枚数)で判定する。
     private var partnerPageIndex: Int? {
         viewModel.currentImages.count > 1 ? viewModel.currentIndex + 1 : nil
+    }
+
+    /// 今実際に画面に表示されているページのsortKey(単ページ表示なら1件、見開きで2ページとも
+    /// 表示中ならpartnerPageIndexも含めて2件、読み順)。AppState.currentVisiblePageSortKeysへ
+    /// 橋渡しする(サイドパネル下段のハイライト/自動追従に使う。AppState.swiftのコメント参照)。
+    private var currentVisiblePageSortKeys: [String] {
+        let pages = viewModel.book.pages
+        guard pages.indices.contains(viewModel.currentIndex) else { return [] }
+        var keys = [pages[viewModel.currentIndex].sortKey]
+        if let partnerPageIndex, pages.indices.contains(partnerPageIndex) {
+            keys.append(pages[partnerPageIndex].sortKey)
+        }
+        return keys
     }
 
     /// 見開き中、画面上「左」に表示されているページのインデックス(読み方向を反映)。

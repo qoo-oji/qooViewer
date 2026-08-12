@@ -82,6 +82,19 @@ final class AppState: ObservableObject {
         currentBookPages = pages
     }
 
+    /// ビューアに今実際に表示されているページのsortKey(単ページ表示なら1件、見開きで
+    /// 2ページとも表示中なら2件、読み順)。サイドパネル下段(本の中身ブラウザ)が、
+    /// 現在のページを一覧内で常にハイライト+スクロール表示し、ページ送りでフォルダ/
+    /// ネストした書庫の境界をまたいだ場合は表示中のフォルダ/書庫ごと切り替えるために使う
+    /// (BookContentsBrowserState.revealCurrentPage、ContentView.swiftの
+    /// .onChange(of: appState.currentVisiblePageSortKeys)参照)。currentBookPagesと同じ理由で
+    /// ViewerViewから同期してもらう。
+    @Published private(set) var currentVisiblePageSortKeys: [String] = []
+
+    func updateCurrentVisiblePageSortKeys(_ sortKeys: [String]) {
+        currentVisiblePageSortKeys = sortKeys
+    }
+
     /// 「ブックマークの編集」ウインドウ(独立ウインドウ。すべての本を横断するBookmarkStoreが
     /// 削除・リネームを直接SwiftDataへ行うため、そちらは経由しない)の「Add This Page」
     /// ボタンから、今読んでいるページをこの本のブックマークとして追加するための橋渡し。
