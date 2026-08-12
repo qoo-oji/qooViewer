@@ -235,6 +235,19 @@ struct QooViewerApp: App {
         // 干渉せず、setFrameAutosaveNameによる復元がそのまま反映されるようにする。
         .windowResizability(.automatic)
         .defaultSize(width: 900, height: 640)
+        // バグ修正(ユーザー報告): ウインドウをすべて閉じた状態から外部アプリ等で再アクティブ化
+        // すると、macOSの標準ウインドウ状態復元の仕組みが「前回のmainウインドウを復元する」
+        // つもりで空のウインドウを自動生成することがあり、これが閉じたはずの古いNSWindow
+        // オブジェクトを再利用してしまい、中身(SwiftUIのコンテンツ)が正しく描画されない
+        // (何も表示されない壊れたウインドウになる)不具合が実機で確認された。また、この状態復元の
+        // 仕組みのせいで、ウインドウを閉じてもその中身(@StateObjectのappState)がすぐには
+        // 解放されないという副作用もあった(LaunchCoordinator.primaryAppStateのコメント参照)。
+        // "main"ウインドウグループの状態復元を無効化することで、どちらも解消される
+        // (本を開いていた場合の「前回の本を自動的に開く」機能は、この仕組みには頼っておらず
+        // 独自のLastActiveBookStore/launchOpensLastBook設定で行っているため、影響を受けない。
+        // ウインドウの位置・サイズの記憶も、ContentView側の自前のUserDefaultsベースの仕組み
+        // 〈restoreMainWindowFrameIfNeeded〉によるもので、こちらも影響を受けない)。
+        .restorationBehavior(.disabled)
         .modelContainer(QooViewerApp.modelContainer)
         .commands {
             CommandGroup(replacing: .newItem) {
@@ -1190,39 +1203,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func application(_ application: NSApplication, open urls: [URL]) {
         guard let url = urls.first else { return }
-        // バグ修正(ユーザー報告): primaryAppStateそのものの有無ではなく、
-        // launchCoordinator.primaryWindowIsOpen/primaryWindowHasEverClosedで判定する。
-        // SwiftUIのWindowGroup(id:)はウインドウを閉じてもその中身(@StateObjectのappState)を
-        // すぐには解放しないことがあり、primaryAppState(weak var)が閉じられたウインドウを
-        // 指したまま残ることがあるため(詳細はLaunchCoordinator.primaryWindowIsOpen/
-        // ContentView.swiftのonAppearのコメント参照)。この状態で外部アプリ等からファイルが
-        // 渡されると、以前はここでそのゾンビ状態のprimaryAppStateへ本を読み込んでしまい、
-        // 読み込み自体は成功して履歴にも記録されるのに、それを表示するウインドウがどこにも無い
-        // (=ユーザーには何も起きなかったように見える)という不具合があった。
-        //
-        // さらに、primaryWindowIsOpenがtrueであっても、ウインドウを一度すべて閉じた後に
-        // AppKit/SwiftUIが再アクティブ化のタイミングで自動的に開いた(=まだ一度も本を
-        // 表示できていない)mainウインドウは、実機の調査で「閉じたはずの古いNSWindow
-        // オブジェクトをそのまま再利用してしまい、中身が正しく描画されない(何も表示されない
-        // 壊れたウインドウになる)」ケースが確認されている。そのため、
-        // primaryWindowHasEverClosedがtrue(=一度closeを経験している)のに、まだ本を
-        // 一度も表示できていない(currentBook == nil。正しく描画できている証拠が無い)
-        // ウインドウは信用しない。
-        if let primaryAppState = launchCoordinator?.primaryAppState,
-           launchCoordinator?.primaryWindowIsOpen == true,
-           launchCoordinator?.primaryWindowHasEverClosed == false || primaryAppState.currentBook != nil {
+        // バグ修正(ユーザー報告): primaryAppStateそのものの有無だけでなく、
+        // その`hostWindow`が今も実際に存在するかも確認する。SwiftUIのWindowGroup(id:)の
+        // 標準の状態復元は、ウインドウを閉じてもその中身(@StateObjectのappState)をすぐには
+        // 解放しないことがあり、primaryAppState(weak var)が閉じられたウインドウを指したまま
+        // 残ることがあった(この副作用は"main" WindowGroupで状態復元を無効化
+        // 〈.restorationBehavior(.disabled)〉したことで解消済みだが、念のためhostWindowの
+        // 有無でも確認しておく)。この状態で外部アプリ等からファイルが渡されると、以前は
+        // ここでそのゾンビ状態のprimaryAppStateへ本を読み込んでしまい、読み込み自体は成功して
+        // 履歴にも記録されるのに、それを表示するウインドウがどこにも無い(=ユーザーには
+        // 何も起きなかったように見える)という不具合があった。
+        if let primaryAppState = launchCoordinator?.primaryAppState, primaryAppState.hostWindow != nil {
             openInPrimaryWindow(url, primaryAppState: primaryAppState)
             return
         }
 
-        // 再利用できる(信頼できる)既存のmainウインドウが無い状態。「新しいウインドウ/タブで
-        // 開く」と同じ経路(openInNewWindowOrTab、実体はopenURLInNewWindow。
-        // openWindow(id: "book", value:)経由でURLごとに新しいウインドウインスタンスを作るため、
-        // 上記のNSWindow再利用問題が起きない)で、自前で新しい「book」ウインドウを開く。
-        // (トレードオフ: タイミングによってはAppKitの既定動作による空のmainウインドウが
-        // 後から現れ、本を表示したウインドウとは別にもう1枚残ることがある。空のウインドウが
-        // 1枚余分に残るだけで実害は無いため、本が表示されない不具合よりこちらを優先する)
+        // 再利用できる既存のmainウインドウが無い状態。「新しいウインドウ/タブで開く」と同じ経路
+        // (openInNewWindowOrTab、実体はopenURLInNewWindow)で、自前で新しい「book」ウインドウを
+        // 開く。
         openInNewWindowOrTab?(url, false, nil)
+
+        // バグ修正(ユーザー報告): "main" WindowGroupの状態復元を無効化した後も、この直後に
+        // AppKit/SwiftUIが既定動作として空のmainウインドウを自動生成すること自体は実機で
+        // 依然として起こりうる(以前と違い中身は正しく描画されるが、こちらが開いたbookウインドウ
+        // とは別に本を表示しない空ウインドウが残ってしまう)。この時点では「再利用できる
+        // mainウインドウが無かった」ことが確定しているため、bookウインドウで本の表示が
+        // 落ち着いた後もなお空のprimaryAppStateが残っていれば、それはこの一連の処理の中で
+        // AppKitが勝手に作った余分なウインドウだと判断してよい。ただし、本の読み込みに時間が
+        // かかっている場合に唯一残っているウインドウまで閉じてしまわないよう、閉じる前に他に
+        // 表示中のウインドウが実在することを確認する。
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            guard let self else { return }
+            guard let suspect = self.launchCoordinator?.primaryAppState,
+                  suspect.currentBook == nil,
+                  let suspectWindow = suspect.hostWindow else { return }
+            guard NSApp.windows.contains(where: { $0 !== suspectWindow && $0.isVisible }) else { return }
+            suspectWindow.close()
+        }
     }
 
     /// application(_:open:)から、実際に存在が確認できているprimaryAppStateへURLを開く処理。

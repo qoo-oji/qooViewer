@@ -35,34 +35,15 @@ final class LaunchCoordinator: ObservableObject {
     /// アプリ起動時、最初に作られたウインドウのAppState。2つ目以降の(新しいウインドウ/タブで
     /// 開いた)ウインドウでは上書きしない。
     ///
-    /// バグ修正(ユーザー報告): SwiftUIのWindowGroup(id:)はウインドウを閉じてもその中身
-    /// (@StateObjectのappState)をすぐには解放しないことが実機で確認されており、この
-    /// `weak var`が「ウインドウを閉じれば自然にnilへ戻る」という前提には頼れない。そのため、
-    /// 「primaryAppStateが指すウインドウが今も実際に開いているか」は、appState自体のweak参照
-    /// (いつnilになるか予測できない)ではなく、下のprimaryWindowIsOpenで明示的に管理する。
+    /// バグ修正(ユーザー報告): 以前、SwiftUIの"main" WindowGroupの標準の状態復元
+    /// (ウインドウが無い状態から再アクティブ化されたときに、前回のウインドウを復元しようとする
+    /// 仕組み)が原因で、ウインドウを閉じてもその中身(@StateObjectのappState)がすぐには
+    /// 解放されず、この`weak var`が閉じられたウインドウを指したまま残ることがあった。
+    /// QooViewerApp.swiftの"main" WindowGroupで`.restorationBehavior(.disabled)`により
+    /// その状態復元自体を無効化したことで解消済み(ウインドウが閉じればappStateも通常通り
+    /// 解放され、この`weak var`も自然にnilへ戻るようになった)。念のためQooViewerApp.
+    /// application(_:open:)ではprimaryAppState.hostWindowの有無も合わせて確認している。
     weak var primaryAppState: AppState?
-
-    /// primaryAppStateが指すウインドウが、今実際に開いているかどうか。ContentView.onAppearが
-    /// 主ウインドウとして確定した瞬間にtrueへ、そのウインドウが閉じる瞬間
-    /// (ContentView.observeWindowBecameKey)にfalseへ、それぞれ同期的に更新する。
-    /// primaryAppState.hostWindowの有無で代用しようとしたことがあったが、hostWindowは
-    /// WindowAccessor経由で非同期に設定されるため、ほぼ同時に複数の新しいウインドウが現れた
-    /// 場合に「どちらもまだhostWindowが付いていない」タイミングが生じ、両方とも主ウインドウを
-    /// 名乗ってしまう(=どちらも不正な余分ウインドウと判定されず、本を開いた方と別に空の
-    /// ウインドウが残り続ける)不具合があった。この値はonAppear内で同期的に立てる/倒すため、
-    /// そのような競合が起きない。
-    var primaryWindowIsOpen = false
-
-    /// 主ウインドウが1度でも閉じてゼロになったことがあるかどうか(このプロセスの生存中、
-    /// 一度trueになったら以後ずっとtrueのまま)。application(_:open:)が、今のprimaryAppStateを
-    /// どれだけ信用してよいかの判定に使う(詳細はQooViewerApp.application(_:open:)のコメント
-    /// 参照)。falseなら、今のprimaryAppStateはこのプロセスの起動時に最初に作られたウインドウ
-    /// そのものであり安全に信頼できる。trueの場合、今のprimaryAppStateはウインドウを一度
-    /// すべて閉じた後、AppKit/SwiftUIが再アクティブ化のタイミングで自動的に開いたウインドウの
-    /// 可能性があり、実機の調査で「閉じたはずの古いNSWindowをそのまま再利用してしまい、
-    /// 中身が正しく描画されない(何も表示されない壊れたウインドウになる)」ケースが確認された
-    /// ため、既に本を表示できている(=正しく描画できている証拠がある)場合を除いて信用しない。
-    var primaryWindowHasEverClosed = false
 
     /// 現在開いているすべてのウインドウ/タブのAppStateへの弱参照一覧。
     /// 「すでに開いている本を新しいウインドウ/タブで開こうとしたときに、それを開いている
