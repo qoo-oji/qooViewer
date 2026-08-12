@@ -243,6 +243,7 @@ struct ViewerView: View {
         }
         appState.updateCurrentBookmarks(viewModel.bookmarks)
         appState.updateCurrentPageIndex(viewModel.currentIndex)
+        appState.updateCurrentBookPages(viewModel.book.pages)
         // メニューバーの「表示モード切替」サブメニューから、特定のモードへ直接切り替える
         // ための橋渡し。
         appState.setScalingMode = { mode in
@@ -314,7 +315,9 @@ struct ViewerView: View {
             // 独立したシートとして表示していたため、シート自身が別ウインドウ扱いとなり
             // event.window（上のガード）が一致せず自動的に素通りしていた。同一ウインドウ内の
             // 重ね表示に変更したことに伴い、ここで明示的に無視する必要がある)。
-            guard !showThumbnailGrid else { return event }
+            // サイドパネル(フォルダブラウザ + 本の中身ブラウザ、ContentView.swift側で管理)
+            // 表示中も、サムネイル一覧と同じ理由で背後の本のページ送りへ影響しないようにする。
+            guard !showThumbnailGrid, !appState.isSidePanelFloatingOverlay else { return event }
             switch event.type {
             case .scrollWheel:
                 // トラックパッド(またはMagic Mouseなど)由来のスクロールイベントには
@@ -394,7 +397,7 @@ struct ViewerView: View {
             matching: [.rightMouseDown, .leftMouseDown]
         ) { (event: NSEvent) -> NSEvent? in
             guard let hostWindow, event.window === hostWindow else { return event }
-            guard !showThumbnailGrid else { return event }
+            guard !showThumbnailGrid, !appState.isSidePanelFloatingOverlay else { return event }
             let isRightMouseDown: Bool = event.type == .rightMouseDown
             let isControlClick: Bool = event.type == .leftMouseDown && event.modifierFlags.contains(.control)
             let isContextMenuClick: Bool = isRightMouseDown || isControlClick
@@ -474,6 +477,7 @@ struct ViewerView: View {
             appState.addBookmarkAction = nil
             appState.updateCurrentBookmarks([])
             appState.updateCurrentPageIndex(0)
+            appState.updateCurrentBookPages([])
             appState.setScalingMode = nil
             appState.performLayoutStateChange = nil
             appState.performLayoutClear = nil
@@ -804,6 +808,14 @@ struct ViewerView: View {
         // 下部の一覧を最新の内容に更新する。
         .onChange(of: viewModel.bookmarks) { _, newValue in
             appState.updateCurrentBookmarks(newValue)
+        }
+        // サイドパネル下段(本の中身ブラウザ)が、ダブルクリックされた画像から「本の何ページ目か」
+        // を特定するために参照するAppState.currentBookPagesを最新に保つ。並び替え・除外
+        // (reloadLayoutData)でbook.pagesが差し替わるたびに追従させる必要がある
+        // (AppState.currentBookPagesのコメント参照。MangaBookの==はidのみを見るため、
+        // viewModel.bookを監視してもpagesの変化そのものは検知できず、pages自体を見る必要がある)。
+        .onChange(of: viewModel.book.pages) { _, newValue in
+            appState.updateCurrentBookPages(newValue)
         }
         // ユーザー要望: ページ一覧(サムネイルグリッド)パネルの外側であれば、このウインドウの
         // 内側に限らずどこをクリックしても閉じるようにしたい。表示・非表示の切り替わりに

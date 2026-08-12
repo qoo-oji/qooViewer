@@ -407,6 +407,19 @@ struct QooViewerApp: App {
                 )
                 .disabled(!hasBook)
 
+                // サイドパネルは既定で常時表示。ONにすると、ツールバー/プログレスバーの
+                // 「隠す」と同様、マウスをウインドウ左端に近づけたときだけ一時的に表示される
+                // (ContentView.installSidePanelHoverMonitorIfNeeded参照)。ウェルカム画面
+                // (本を開いていない状態)でもボリューム一覧をたどれるようにしたい機能のため、
+                // hideToolbar/hideProgressBarと異なりhasBookによる無効化はしない。
+                Toggle(
+                    "Hide Side Panel",
+                    isOn: Binding(
+                        get: { menuCheckmarkState?.hideSidePanel ?? false },
+                        set: { focusedAppState?.hideSidePanel = $0 }
+                    )
+                )
+
                 Divider()
 
                 Button("Show Page Grid") {

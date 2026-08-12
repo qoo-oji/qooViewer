@@ -37,50 +37,142 @@ nonisolated enum BookLoader {
 
     /// フォルダの場合は、直下だけでなくサブフォルダ(章分けなど)の画像も
     /// 再帰的にすべて集めて1冊のページ一覧にする。
+    ///
+    /// ユーザー要望: フォルダの中(サブフォルダを含むどの階層でも)に、画像ファイルだけでなく
+    /// zip/cbz・rar/cbr・7z/cb7形式の書庫ファイルが直接置かれているケース(章ごとに書庫化されて
+    /// いる、書庫の中に書庫が入っているなど)も、1冊の本として画像と同じページ一覧に統合して
+    /// 開けるようにする。実際の統合処理はcollectPages(fromArchiveURL:...)に委譲する
+    /// (書庫の中の書庫、そのまた中の書庫…という再帰にも対応する。maxNestedArchiveDepth参照)。
     private static func loadFolder(_ url: URL) throws -> MangaBook {
-        var imageURLs: [URL] = []
-        if let enumerator = FileManager.default.enumerator(
+        var temporaryFileURLs: [URL] = []
+        let pages = collectPages(inFolder: url, temporaryFileURLs: &temporaryFileURLs)
+        guard !pages.isEmpty else { throw BookLoaderError.noPages }
+
+        let sortedPages = pages.sorted { $0.sortKey.compare($1.sortKey, options: .numeric) == .orderedAscending }
+        return MangaBook(
+            id: url.path,
+            title: url.lastPathComponent,
+            sourceURL: url,
+            pages: sortedPages,
+            temporaryResources: BookTemporaryResources(fileURLs: temporaryFileURLs)
+        )
+    }
+
+    /// loadFolderの実処理。フォルダを再帰的に辿り、画像ファイルはそのままページ化し、
+    /// 書庫ファイルが見つかった場合はcollectPages(fromArchiveURL:...)でその中身も統合する。
+    /// ディスク上に実在する書庫ファイルを開くだけなので、一時ファイルへの書き出しはまだ不要
+    /// (その書庫自身がさらにネストした書庫を含む場合にだけ、collectPages内で発生する)。
+    private static func collectPages(inFolder url: URL, temporaryFileURLs: inout [URL]) -> [PageRef] {
+        var pages: [PageRef] = []
+        guard let enumerator = FileManager.default.enumerator(
             at: url,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
-        ) {
-            for case let fileURL as URL in enumerator {
-                let isDir = (try? fileURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-                if !isDir, isImageFile(fileURL.lastPathComponent) {
-                    imageURLs.append(fileURL)
-                }
+        ) else { return pages }
+
+        for case let fileURL as URL in enumerator {
+            let isDir = (try? fileURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            guard !isDir else { continue }
+            let name = fileURL.lastPathComponent
+            if isImageFile(name) {
+                pages.append(PageRef(id: fileURL.path, sortKey: fileURL.path, source: .file(fileURL)))
+            } else if isArchiveFile(name) {
+                let nestedPages = (try? collectPages(
+                    fromArchiveURL: fileURL,
+                    idPrefix: fileURL.path,
+                    sortKeyPrefix: fileURL.path,
+                    temporaryFileURLs: &temporaryFileURLs,
+                    depth: 0
+                )) ?? []
+                pages.append(contentsOf: nestedPages)
             }
         }
-        guard !imageURLs.isEmpty else { throw BookLoaderError.noPages }
-
-        let pages = imageURLs
-            .sorted { $0.path.compare($1.path, options: .numeric) == .orderedAscending }
-            .map { pageURL in
-                PageRef(id: pageURL.path, sortKey: pageURL.path, source: .file(pageURL))
-            }
-        return MangaBook(id: url.path, title: url.lastPathComponent, sourceURL: url, pages: pages)
+        return pages
     }
 
+    /// ユーザー要望: アーカイブの直下(またはその中でさらに見つかった、入れ子になった
+    /// アーカイブの中)に画像が無く、書庫ファイルしか無いケースでも開けるようにする。
+    /// 書庫の直下に見つかった書庫ファイルは、その中身(画像・さらに入れ子の書庫)も
+    /// 再帰的に統合して1冊の本のページ一覧に含める。
     private static func loadArchive(_ url: URL) throws -> MangaBook {
-        let reader = try makeArchiveReader(for: url)
-        let paths = try reader.listFilePaths()
-            .filter { isImageFile($0) }
-            .sorted { $0.compare($1, options: .numeric) == .orderedAscending }
-        guard !paths.isEmpty else { throw BookLoaderError.noPages }
+        var temporaryFileURLs: [URL] = []
+        let pages = try collectPages(
+            fromArchiveURL: url, idPrefix: url.path, sortKeyPrefix: nil,
+            temporaryFileURLs: &temporaryFileURLs, depth: 0
+        )
+        guard !pages.isEmpty else { throw BookLoaderError.noPages }
 
-        let pages = paths.map { path in
-            PageRef(
-                id: "\(url.path)#\(path)",
-                sortKey: path,
-                source: pageSource(for: url, entryPath: path)
-            )
-        }
+        let sortedPages = pages.sorted { $0.sortKey.compare($1.sortKey, options: .numeric) == .orderedAscending }
         return MangaBook(
             id: url.path,
             title: url.deletingPathExtension().lastPathComponent,
             sourceURL: url,
-            pages: pages
+            pages: sortedPages,
+            temporaryResources: BookTemporaryResources(fileURLs: temporaryFileURLs)
         )
+    }
+
+    /// 書庫の中に書庫が何重に入れ子になっていても壊れたアーカイブなどで無限に再帰しないための
+    /// 安全装置(通常のマンガでこの深さに達することは無い)。
+    private static let maxNestedArchiveDepth = 8
+
+    /// archiveURL(実際にディスク上に存在する書庫ファイル)の中身を列挙し、画像はそのまま
+    /// ページ化、さらに入れ子になった書庫が見つかった場合は再帰的に統合する。
+    ///
+    /// 入れ子の書庫は、reader.data(at:)で取り出したバイト列を一時ファイルへ書き出してから
+    /// 開き直す(rar/7zのライブラリがメモリ上のDataからは開けずファイルパスを要求するため。
+    /// zipもここでは一時ファイル化する — SidePanelの本の中身ブラウザ(BookContentsBrowserState)
+    /// と異なり、ここで作るPageRef.sourceのarchiveURLはPageLoaderが本を閲覧している間ずっと
+    /// 繰り返し参照する必要があり、都度メモリ上のDataを持ち回るより実ファイルとして
+    /// 存在させておくほうが単純で安全なため)。書き出した一時ファイルはこの本を表す
+    /// MangaBook.temporaryResourcesが保持し、本を閉じてこの本のすべてのコピーが解放された
+    /// タイミングでARCにより自動的に削除される(BookTemporaryResources参照)。
+    ///
+    /// idPrefix/sortKeyPrefixは、この階層のPageRef.id/sortKeyを組み立てるための接頭辞。
+    /// sortKeyPrefixがnilの場合は最上位(本そのものの書庫)を表し、既存の挙動(sortKey =
+    /// エントリのパスそのもの)をそのまま維持する。非nilの場合は入れ子の書庫を表し、
+    /// "\(prefix)/\(path)"の形にすることで、その書庫ファイル自身が兄弟ファイルと並んでいた
+    /// 位置に、中身がそのまま展開されたかのように自然順ソートされる。
+    private static func collectPages(
+        fromArchiveURL archiveURL: URL,
+        idPrefix: String,
+        sortKeyPrefix: String?,
+        temporaryFileURLs: inout [URL],
+        depth: Int
+    ) throws -> [PageRef] {
+        guard depth <= maxNestedArchiveDepth else { return [] }
+        let reader = try makeArchiveReader(for: archiveURL)
+        let allPaths = try reader.listFilePaths()
+
+        var pages: [PageRef] = []
+        for path in allPaths {
+            if isImageFile(path) {
+                pages.append(PageRef(
+                    id: "\(idPrefix)#\(path)",
+                    sortKey: sortKeyPrefix.map { "\($0)/\(path)" } ?? path,
+                    source: pageSource(for: archiveURL, entryPath: path)
+                ))
+            } else if isArchiveFile(path), depth < maxNestedArchiveDepth {
+                guard let data = try? reader.data(at: path) else { continue }
+                let tempURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent(UUID().uuidString)
+                    .appendingPathExtension((path as NSString).pathExtension)
+                guard (try? data.write(to: tempURL)) != nil else { continue }
+                temporaryFileURLs.append(tempURL)
+
+                let nestedIdPrefix = "\(idPrefix)#\(path)"
+                let nestedSortKeyPrefix = sortKeyPrefix.map { "\($0)/\(path)" } ?? path
+                let nestedPages = (try? collectPages(
+                    fromArchiveURL: tempURL,
+                    idPrefix: nestedIdPrefix,
+                    sortKeyPrefix: nestedSortKeyPrefix,
+                    temporaryFileURLs: &temporaryFileURLs,
+                    depth: depth + 1
+                )) ?? []
+                pages.append(contentsOf: nestedPages)
+            }
+        }
+        return pages
     }
 
     /// PDFファイルを1冊の本として読み込む。zip/7z/rarのような「中身を展開するアーカイブ」とは

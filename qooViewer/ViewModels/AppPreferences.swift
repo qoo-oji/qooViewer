@@ -29,6 +29,8 @@ final class AppPreferences: ObservableObject {
         static let maxTrackedBooksCount = "qooViewer.pref.maxTrackedBooksCount"
         static let hideToolbar = "qooViewer.pref.hideToolbar"
         static let hideProgressBar = "qooViewer.pref.hideProgressBar"
+        static let hideSidePanel = "qooViewer.pref.hideSidePanel"
+        static let sidePanelWidth = "qooViewer.pref.sidePanelWidth"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
         static let showRecentFilesOnWelcome = "qooViewer.pref.showRecentFilesOnWelcome"
         static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
@@ -170,6 +172,20 @@ final class AppPreferences: ObservableObject {
     @Published var hideProgressBar: Bool {
         didSet { UserDefaults.standard.set(hideProgressBar, forKey: Keys.hideProgressBar) }
     }
+    /// 表示メニューの「サイドパネルを隠す」。hideToolbarと同じ理由でここに持たせている。
+    /// hideToolbar/hideProgressBarと異なり、サイドパネルは既定でOFF(=常時表示)。ONにすると
+    /// ツールバー/プログレスバーの自動隠しと同様、マウスをウインドウ左端に近づけたときだけ
+    /// 一時的に表示される(ContentView.installSidePanelHoverMonitorIfNeeded参照)。
+    @Published var hideSidePanel: Bool {
+        didSet { UserDefaults.standard.set(hideSidePanel, forKey: Keys.hideSidePanel) }
+    }
+    /// サイドパネルの幅(pt)。ユーザーが右端のドラッグハンドルで調整した値を次回起動時にも
+    /// 再現する(SidePanelView.widthDragHitArea参照)。CGFloatではなくDoubleで持つのは
+    /// maxTrackedBooksCountと同じ理由(UserDefaultsとの親和性)で、ContentView側で
+    /// CGFloatへ変換して使う。
+    @Published var sidePanelWidth: Double {
+        didSet { UserDefaults.standard.set(sidePanelWidth, forKey: Keys.sidePanelWidth) }
+    }
     /// プログレスバーにカーソルを合わせたときに、フィルムストリップ(サムネイル・ファイル名・
     /// ページ番号を含むプレビュー)を表示するかどうか(既定ON)。OFFにすると、サムネイルの
     /// 読み込みは一切行わず、カーソル位置に対応するページ番号だけを表示するシンプルな表示になる
@@ -250,6 +266,10 @@ final class AppPreferences: ObservableObject {
         self.maxTrackedBooksCount = defaults.object(forKey: Keys.maxTrackedBooksCount) as? Double ?? 500
         self.hideToolbar = defaults.object(forKey: Keys.hideToolbar) as? Bool ?? false
         self.hideProgressBar = defaults.object(forKey: Keys.hideProgressBar) as? Bool ?? false
+        self.hideSidePanel = defaults.object(forKey: Keys.hideSidePanel) as? Bool ?? false
+        // 既定値280は、SidePanelView.defaultWidthと同じ値(ViewModelからView側の定数を
+        // 参照する層の逆転を避けるため、ここでは値を直接持たせている)。
+        self.sidePanelWidth = defaults.object(forKey: Keys.sidePanelWidth) as? Double ?? 280
         self.showProgressBarThumbnailPreview =
             defaults.object(forKey: Keys.showProgressBarThumbnailPreview) as? Bool ?? true
         self.showRecentFilesOnWelcome =

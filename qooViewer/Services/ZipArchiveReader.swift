@@ -20,6 +20,18 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
 
     init(url: URL) throws {
         self.archive = try Archive(url: url, accessMode: .read)
+        indexEntries()
+    }
+
+    /// アーカイブ内に入れ子になったzip/cbz(サイドパネルの本の中身ブラウザから、ディスクへ
+    /// 書き出さずそのまま踏み込むための経路)を、メモリ上のDataから直接開く。rar/7zと異なり
+    /// ZIPFoundation自体がData版のAPIを持っているため、一時ファイルが不要。
+    init(data: Data) throws {
+        self.archive = try Archive(data: data, accessMode: .read)
+        indexEntries()
+    }
+
+    private func indexEntries() {
         for entry in archive where entry.type == .file {
             entryByCorrectedPath[Self.correctedPath(for: entry)] = entry
         }

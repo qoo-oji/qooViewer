@@ -32,22 +32,78 @@ struct ContentView: View {
     /// 元のウインドウの記録が消えてしまう)ことがあったため。
     @State private var isConfirmedLegitimateWindow = false
 
+    /// サイドパネル上段(フォルダブラウザ)の閲覧状態。ウインドウ/タブの生存期間ずっと同じ
+    /// インスタンスを使い回す(ViewerViewと違い、本の切替やウェルカム画面への出入りを
+    /// またいで保持したいため)。本を開いていない状態でもパネルを使えるようにする要件上、
+    /// ViewerView側ではなくこのContentView側にパネル本体・状態の両方を置いている。
+    @StateObject private var sidePanelBrowser = SidePanelBrowserState()
+    /// サイドパネル下段(本の中身ブラウザ)の閲覧状態。本ごとに作り直す
+    /// (.onChange(of: appState.currentBook?.id)参照)。フォルダ/対応アーカイブ形式以外
+    /// (PDF/EPUB)、または本を開いていないときはnil(下段セクション自体を表示しない)。
+    @State private var bookContentsBrowser: BookContentsBrowserState?
+    /// サイドパネル左端のホバー検知用ローカルモニタ。ViewerView.makeScrollMonitorとは
+    /// 完全に独立した、X座標の帯だけを見る単純なもの。
+    @State private var sidePanelHoverMonitor: Any?
+    /// サイドパネルが出現する、ウインドウ左端からの反応領域の幅。
+    private static let sidePanelRevealBandWidth: CGFloat = 20
+    /// 「サイドパネルを隠す」ON時、表示中のパネルが閉じるまでの、パネル右端(sidePanelWidth)
+    /// から見た余裕幅。ゼロだと、パネル右端の幅調整ハンドル(widthDragHitArea)をつかもうと
+    /// カーソルを境界ぎりぎりへ動かしただけで隠れてしまう(ユーザー報告)。
+    private static let sidePanelHideMargin: CGFloat = 16
+    /// サイドパネルの幅。ユーザーが右端のドラッグハンドルで調整できる
+    /// (SidePanelView.widthDragHitArea参照)。常時表示・ホバー表示のどちらでも同じ値を
+    /// 共有する。
+    @State private var sidePanelWidth: CGFloat = SidePanelView.defaultWidth
+
     init(initialURL: URL? = nil) {
         self.initialURL = initialURL
     }
 
     var body: some View {
-        Group {
-            if let book = appState.currentBook {
-                // .id(book.id) を付けることで、次の本/前の本に切り替えたときに
-                // ViewerViewModel(StateObject)が確実に作り直され、ページ位置などが
-                // 新しい本の状態にリセットされるようにしている。
-                ViewerView(book: book, modelContext: modelContext, preferences: preferences, layoutStore: layoutStore)
-                    .id(book.id)
-            } else {
-                WelcomeView()
+        ZStack(alignment: .leading) {
+            // サイドパネルが常時表示(既定、hideSidePanel == false)のときは、ツールバー/
+            // プログレスバーがViewerView.mainZStack内のVStackに組み込まれて画像表示エリアを
+            // 押しのけるのと同じ考え方で、HStackの実レイアウトとして組み込む(ここでの
+            // GeometryReaderベースのpageAreaサイジングが自動的に縮んだ幅を拾ってくれるため、
+            // ViewerView側の変更は不要)。ZStackのオーバーレイのままにしてしまうと、常時表示中
+            // ずっと画像の左端がパネルの下に隠れ続けてしまう(ユーザー報告の不具合)。
+            HStack(spacing: 0) {
+                if !appState.hideSidePanel {
+                    sidePanelView(dismissesOnAction: false)
+                }
+                Group {
+                    if let book = appState.currentBook {
+                        // .id(book.id) を付けることで、次の本/前の本に切り替えたときに
+                        // ViewerViewModel(StateObject)が確実に作り直され、ページ位置などが
+                        // 新しい本の状態にリセットされるようにしている。
+                        ViewerView(book: book, modelContext: modelContext, preferences: preferences, layoutStore: layoutStore)
+                            .id(book.id)
+                    } else {
+                        WelcomeView()
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            // hideSidePanel == trueのときの、ホバーによる一時的な表示。ツールバー/プログレス
+            // バーの自動隠し(ViewerView.mainZStackのZStackオーバーレイ分岐)と同じ理由で、
+            // こちらはあえてHStackに組み込まず画像の上に浮かべる(表示・非表示のたびに
+            // 画像のサイズが変わってちらつくのを避けるため)。
+            if appState.hideSidePanel && appState.isSidePanelRevealed {
+                sidePanelView(dismissesOnAction: true)
+                    .transition(.move(edge: .leading))
             }
         }
+        .animation(.easeInOut(duration: 0.15), value: appState.isSidePanelRevealed)
+        .animation(.easeInOut(duration: 0.15), value: appState.hideSidePanel)
+        // サイドパネル追加後、ウインドウがキーのときだけタイトルバーにまで達する青い
+        // アクセントカラーの縦線が報告された。原因はSidePanelView自身の背景ではなく、
+        // ウインドウ内のどこか(サイドパネル/ViewerViewいずれのサブビューかまでは特定して
+        // いない)がデフォルトのキーボードフォーカスを持ってしまい、AppKitがそのフォーカス
+        // リングを描画していたため(SidePanelView.body単体への.focusEffectDisabled()や
+        // NSScrollViewへの.focusable(false)だけでは解消しなかったことから、ContentView配下の
+        // どこか別の場所が実際の対象だったと判明)。ContentView全体に適用することで解消する。
+        .focusEffectDisabled()
         // 子ビュー(WelcomeView・ViewerViewなど)は、このウインドウ専用のappStateを
         // @EnvironmentObjectとして参照する。
         .environmentObject(appState)
@@ -62,6 +118,7 @@ struct ContentView: View {
             MenuCheckmarkState(
                 hideToolbar: appState.hideToolbar,
                 hideProgressBar: appState.hideProgressBar,
+                hideSidePanel: appState.hideSidePanel,
                 isSlideshowActive: appState.isSlideshowActive,
                 isSpreadMode: appState.isSpreadMode,
                 isRightToLeft: appState.isRightToLeft,
@@ -102,6 +159,27 @@ struct ContentView: View {
         // ようにするため(詳細はAppState.hostWindowのコメント参照)。
         .onChange(of: appState.currentBook?.id) { _, _ in
             updateLastActiveBookRecordIfKeyWindow()
+            updateBookContentsBrowserForCurrentBook()
+            // サイドパネル上段(フォルダブラウザ)を、新しく開いた本のフォルダへ再アンカーする。
+            // サイドパネルが常時表示(既定、hideSidePanel == false)のときは、ホバーでの
+            // 「表示される」タイミング自体が発生しないため、ここで本の切り替わりを直接検知
+            // する必要がある(最近使ったファイル一覧などから本を開いた場合、ホバーで
+            // パネルを開き直さない限りボリューム一覧のままになってしまっていた不具合の修正)。
+            // hideSidePanel == trueでホバー表示中の場合も、installSidePanelHoverMonitorIfNeeded
+            // 側の再アンカーと重複するが冪等なので問題ない。
+            sidePanelBrowser.handlePanelRevealed(currentBook: appState.currentBook)
+        }
+        // サイドパネルの幅をユーザーがドラッグで調整するたびに、次回起動時にも再現できるよう
+        // preferencesへ書き戻す(hideToolbar等と同じ「AppStateへの書き戻し」パターンだが、
+        // sidePanelWidthはAppStateではなくContentView自身の@Stateのため、ここで直接行う)。
+        .onChange(of: sidePanelWidth) { _, newValue in
+            preferences.sidePanelWidth = Double(newValue)
+        }
+        .onAppear {
+            installSidePanelHoverMonitorIfNeeded()
+        }
+        .onDisappear {
+            removeSidePanelHoverMonitor()
         }
         .background(WindowAccessor { window in
             guard appState.hostWindow !== window else { return }
@@ -154,11 +232,16 @@ struct ContentView: View {
             appState.favoritesStore = favoritesStore
             appState.bookmarkStore = bookmarkStore
             appState.layoutStore = layoutStore
-            // 「ツールバーを隠す」「プログレスバーを隠す」は、前回終了時(またはこのセッション中に
-            // 他のウインドウで変更された時点)の値をpreferencesから引き継ぐ。これにより、
-            // 新しいウインドウ/タブや次回起動時にも同じ表示状態で始まる。
+            sidePanelBrowser.folderAccess = folderAccess
+            sidePanelBrowser.preferences = preferences
+            // 「ツールバーを隠す」「プログレスバーを隠す」「サイドパネルを隠す」は、前回終了時
+            // (またはこのセッション中に他のウインドウで変更された時点)の値をpreferencesから
+            // 引き継ぐ。これにより、新しいウインドウ/タブや次回起動時にも同じ表示状態で始まる。
             appState.hideToolbar = preferences.hideToolbar
             appState.hideProgressBar = preferences.hideProgressBar
+            appState.hideSidePanel = preferences.hideSidePanel
+            // サイドパネルの幅も同様に、前回ユーザーがドラッグで調整した値を引き継ぐ。
+            sidePanelWidth = CGFloat(preferences.sidePanelWidth)
             if launchCoordinator.primaryAppState == nil {
                 launchCoordinator.primaryAppState = appState
             }
@@ -279,8 +362,12 @@ struct ContentView: View {
                     appState.favoritesStore = favoritesStore
                     appState.bookmarkStore = bookmarkStore
                     appState.layoutStore = layoutStore
+                    sidePanelBrowser.folderAccess = folderAccess
+                    sidePanelBrowser.preferences = preferences
                     appState.hideToolbar = preferences.hideToolbar
                     appState.hideProgressBar = preferences.hideProgressBar
+                    appState.hideSidePanel = preferences.hideSidePanel
+                    sidePanelWidth = CGFloat(preferences.sidePanelWidth)
                     launchCoordinator.registerOpenAppState(appState)
                     return
                 }
@@ -397,5 +484,86 @@ struct ContentView: View {
             return nil
         }
         return url
+    }
+
+    // MARK: - サイドパネル
+
+    /// サイドパネル本体を組み立てる。常時表示(HStackへの組み込み)・hideSidePanel時の
+    /// ホバー表示(ZStackオーバーレイ)の両方から呼ばれ、違いはdismissesOnActionだけ。
+    /// 常時表示中は「本を開く」「ページへジャンプする」操作をしてもパネル自体は消える
+    /// 必要が無い(isSidePanelRevealedを操作しても常時表示の可視条件には影響しないため
+    /// 実害は無いが、意味の無い代入を避けるため呼び分けている)。
+    @ViewBuilder
+    private func sidePanelView(dismissesOnAction: Bool) -> some View {
+        SidePanelView(
+            folderState: sidePanelBrowser,
+            bookContentsState: bookContentsBrowser,
+            width: $sidePanelWidth,
+            bookPages: appState.currentBookPages,
+            onOpen: { url in
+                if dismissesOnAction { appState.isSidePanelRevealed = false }
+                appState.open(url: url)
+            },
+            onJumpToPage: { index in
+                appState.jumpToPageIndex?(index)
+                if dismissesOnAction { appState.isSidePanelRevealed = false }
+            }
+        )
+    }
+
+    /// サイドパネルのホバー表示/非表示を検知する、ウインドウ内`.mouseMoved`のローカルモニタ。
+    /// ViewerView.makeScrollMonitorとは完全に独立しており、カーソルのX座標だけを見て判定する。
+    /// ツールバー/プログレスバーの自動表示(Y座標の帯、ViewerView側)とは判定ロジック・
+    /// 描画レイヤーともに独立しているため干渉しない。
+    ///
+    /// 表示メニューの「サイドパネルを隠す」がOFF(既定)のときは、サイドパネルは常時表示
+    /// されているため、このモニタは何もしない(hideToolbar/hideProgressBarのY座標版の
+    /// 自動隠しがフルスクリーン中またはON時にしか意味を持たないのと同じ考え方)。ONのときだけ、
+    /// 表示前はウインドウ左端の狭い帯(sidePanelRevealBandWidth)に入ったら表示し、表示後は
+    /// パネル自体の表示幅(sidePanelWidth。ユーザーがドラッグで調整できるため固定値ではない。
+    /// 表示前の帯よりずっと広い)より右へ出たら閉じる。もし表示後も同じ狭い帯を非表示条件に
+    /// 使ってしまうと、パネル自体がその帯よりずっと広く描画されているため、パネルの上に
+    /// カーソルがあるのに閉じてしまう(表示直後にちらつく)不具合になる。ユーザー要望により、
+    /// クリックでは閉じない(ページ表示エリアをクリックしただけで本の閲覧を妨げないように
+    /// するため)。
+    private func installSidePanelHoverMonitorIfNeeded() {
+        guard sidePanelHoverMonitor == nil else { return }
+        sidePanelHoverMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { event in
+            guard let window = appState.hostWindow, event.window === window else { return event }
+            guard appState.hideSidePanel else { return event }
+            if appState.isSidePanelRevealed {
+                // + sidePanelHideMargin: パネル右端の幅調整ハンドル(widthDragHitArea)自体が
+                // 境界(sidePanelWidth)ぎりぎりの位置にあるため、余裕を持たせないとハンドルを
+                // つかもうとしただけでここに引っかかり隠れてしまう(ユーザー報告)。
+                if event.locationInWindow.x > sidePanelWidth + Self.sidePanelHideMargin {
+                    appState.isSidePanelRevealed = false
+                }
+            } else if event.locationInWindow.x <= Self.sidePanelRevealBandWidth {
+                appState.isSidePanelRevealed = true
+                sidePanelBrowser.handlePanelRevealed(currentBook: appState.currentBook)
+            }
+            return event
+        }
+    }
+
+    private func removeSidePanelHoverMonitor() {
+        if let sidePanelHoverMonitor {
+            NSEvent.removeMonitor(sidePanelHoverMonitor)
+        }
+        sidePanelHoverMonitor = nil
+    }
+
+    /// 本が切り替わる(開く/閉じる/次の本・前の本へ移動する)たびに、サイドパネル下段
+    /// (本の中身ブラウザ)を新しい本向けに作り直す。フォルダ/対応アーカイブ形式以外
+    /// (PDF/EPUB)、または本を開いていない場合はnil(SidePanelViewが下段セクション自体を
+    /// 表示しない)。
+    private func updateBookContentsBrowserForCurrentBook() {
+        guard let book = appState.currentBook else {
+            bookContentsBrowser = nil
+            return
+        }
+        let newBrowser = BookContentsBrowserState(book: book)
+        newBrowser?.preferences = preferences
+        bookContentsBrowser = newBrowser
     }
 }

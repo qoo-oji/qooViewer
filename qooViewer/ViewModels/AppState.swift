@@ -39,6 +39,37 @@ final class AppState: ObservableObject {
     /// ViewerViewModel.currentIndexと同じ空間)である点が異なる。
     var jumpToPageIndex: ((Int) -> Void)?
 
+    /// サイドパネル(フォルダブラウザ + 本の中身ブラウザ)が、表示メニューの「サイドパネルを
+    /// 隠す」がONのときの一時的なホバー表示中かどうか。hideSidePanelがOFF(既定)のときは
+    /// サイドパネルは常時表示されているため、この値は使われない(ContentView.body参照)。
+    /// 永続化は不要な一時的な表示状態のためdidSetは付けない。
+    @Published var isSidePanelRevealed = false
+
+    /// サイドパネルが、ViewerViewの上に一時的に浮かぶ形(ホバー表示中)で表示されているか
+    /// どうか。常時表示中(hideSidePanel == false)はパネルが専用の領域を占めているだけで
+    /// 本の上には重ならないため、この値はfalseになる。ViewerViewはtrueの間だけ、背後の本の
+    /// ページ送り(スクロール/スワイプ/キーボード/コンテキストクリック)を無視する
+    /// (showThumbnailGridと同じ扱い。ViewerView.makeScrollMonitor/makeContextClickMonitor参照)。
+    var isSidePanelFloatingOverlay: Bool { hideSidePanel && isSidePanelRevealed }
+
+    /// サイドパネルの下段(本の中身ブラウザ)が、ダブルクリックされた画像ファイルのパスから
+    /// 「それが本の何ページ目か」を特定するために参照する、現在の本のページ一覧。
+    ///
+    /// MangaBookはstructであり、ViewerViewModelはinitで値渡しされた独自コピーを持つ。
+    /// ページの並び替え・除外(レイアウト機能、ViewerViewModel.reloadLayoutData参照)による
+    /// ライブな変更はViewerViewModel側のコピーにしか反映されず、currentBook(本を開いた
+    /// 時点のコピー)には自動反映されないため、currentBook.pagesをそのまま使うと並び替え後に
+    /// 誤ったページへジャンプしてしまう。そのため、currentBookmarks/currentPageIndexと同じ
+    /// 「ViewerViewが自分自身のViewerViewModelの最新状態をここへ反映する」仕組みで、
+    /// 別途この値を同期する(ViewerView.swiftの.onChange(of: viewModel.book.pages)参照)。
+    @Published private(set) var currentBookPages: [PageRef] = []
+
+    /// ViewerViewから、現在の本の最新のページ一覧を反映するために呼ばれる
+    /// (updateCurrentBookmarksと同じ仕組み)。
+    func updateCurrentBookPages(_ pages: [PageRef]) {
+        currentBookPages = pages
+    }
+
     /// 「ブックマークの編集」ウインドウ(独立ウインドウ。すべての本を横断するBookmarkStoreが
     /// 削除・リネームを直接SwiftDataへ行うため、そちらは経由しない)の「Add This Page」
     /// ボタンから、今読んでいるページをこの本のブックマークとして追加するための橋渡し。
@@ -82,6 +113,17 @@ final class AppState: ObservableObject {
         didSet {
             guard oldValue != hideProgressBar else { return }
             preferences?.hideProgressBar = hideProgressBar
+        }
+    }
+    /// 表示メニューの「サイドパネルを隠す」。hideToolbar/hideProgressBarと違い、フルスクリーン
+    /// 中かどうかに関わらず常に効果がある(サイドパネルはツールバー/プログレスバーと違って
+    /// フルスクリーン専用の別の自動隠し挙動を持たない)。既定はOFF(=常時表示)。ONのときだけ、
+    /// マウスをウインドウ左端に近づけたときの一時表示(isSidePanelRevealed)が意味を持つ
+    /// (ContentView.installSidePanelHoverMonitorIfNeeded参照)。
+    @Published var hideSidePanel = false {
+        didSet {
+            guard oldValue != hideSidePanel else { return }
+            preferences?.hideSidePanel = hideSidePanel
         }
     }
 
@@ -475,6 +517,7 @@ extension FocusedValues {
 struct MenuCheckmarkState: Equatable {
     var hideToolbar = false
     var hideProgressBar = false
+    var hideSidePanel = false
     var isSlideshowActive = false
     var isSpreadMode = false
     var isRightToLeft = false
