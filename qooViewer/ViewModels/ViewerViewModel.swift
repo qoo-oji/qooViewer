@@ -33,12 +33,24 @@ final class ViewerViewModel: ObservableObject {
     @Published var displayMode: DisplayMode
     @Published var readingDirection: ReadingDirection
     @Published var scalingMode: ScalingMode
-    @Published private(set) var currentImages: [CGImage] = []
+    @Published private(set) var currentImages: [CGImage] = [] {
+        didSet {
+            guard isLoupeActive else { return }
+            scheduleLoupeSourceLoad()
+        }
+    }
     @Published private(set) var bookmarks: [Bookmark] = []
     @Published private(set) var isSlideshowActive = false
     /// カーソル位置を中心に画像の一部を拡大表示する「ルーペ」が現在表示中かどうか
     /// (toggleLoupe参照)。
     @Published private(set) var isLoupeActive = false
+    /// 拡大鏡が実際に拡大表示に使う、currentImagesより高解像度のソース画像
+    /// (loupeSourceMaxPixelSize、8000px上限)。currentImagesと同じ並び・要素数になるよう
+    /// scheduleLoupeSourceLoadが非同期に取得する。まだ取得できていない(ロード中/失敗)間は
+    /// 空のままにしておき、呼び出し側(ViewerView)がcurrentImagesにフォールバックする
+    /// (LoupeOverlayViewには常にcurrentImagesと同じ枚数の画像を渡す必要があるため)。
+    @Published private(set) var loupeSourceImages: [CGImage] = []
+    private var loupeSourceLoadTask: Task<Void, Never>?
     /// 環境設定「本を再度開いたときの動作」が「問い合わせる」のとき、かつ前回位置が
     /// 先頭でない(=本当に「再開」の余地がある)ときにtrueになる。ViewerViewがこれを見て
     /// 「前回表示したページから再開しますか?」の確認ダイアログを表示する。
@@ -1030,6 +1042,38 @@ final class ViewerViewModel: ObservableObject {
 
     func toggleLoupe() {
         isLoupeActive.toggle()
+        if isLoupeActive {
+            scheduleLoupeSourceLoad()
+        } else {
+            loupeSourceLoadTask?.cancel()
+            loupeSourceLoadTask = nil
+            loupeSourceImages = []
+        }
+    }
+
+    /// 現在表示中の見開き(currentIndex..<currentIndex+currentImages.count)分の高解像度画像を
+    /// 非同期に取得し、loupeSourceImagesへ反映する。拡大鏡ON時・currentImagesが更新された
+    /// (=ページが切り替わった)ときのたびに呼ばれる(currentImagesのdidSet参照)。取得中に
+    /// さらにページが切り替わった場合は、古いページ分の結果が後から遅れて届いて新しいページの
+    /// 拡大鏡に反映されてしまわないよう、前回分のタスクを都度キャンセルする。
+    private func scheduleLoupeSourceLoad() {
+        loupeSourceLoadTask?.cancel()
+        let indices = Array(currentIndex..<(currentIndex + currentImages.count))
+        guard !indices.isEmpty else {
+            loupeSourceImages = []
+            return
+        }
+        loupeSourceLoadTask = Task { [weak self] in
+            guard let self else { return }
+            var images: [CGImage] = []
+            for index in indices {
+                guard !Task.isCancelled else { return }
+                guard let image = await pageLoader.loupeSourceImage(at: index) else { return }
+                images.append(image)
+            }
+            guard !Task.isCancelled else { return }
+            self.loupeSourceImages = images
+        }
     }
 
     // MARK: - 境界処理(ループ設定)

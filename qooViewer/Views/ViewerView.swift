@@ -1544,7 +1544,31 @@ struct ViewerView: View {
     /// (orderedCurrentImagesは1要素の配列を反転しても変わらないため、この時点で
     /// 画像自体は既に正しい要素になっている)。
     private var orderedCurrentSlots: [SpreadPageSlot] {
-        let images = orderedCurrentImages
+        slots(forOrderedImages: orderedCurrentImages)
+    }
+
+    /// 拡大鏡(ルーペ)が実際にサンプリングするスロット列。viewModel.loupeSourceImages
+    /// (currentImagesより高解像度、ViewerViewModel.scheduleLoupeSourceLoad参照)が
+    /// currentImagesと同じ枚数だけ揃っていればそちらを、まだ揃っていない(取得中/失敗)場合は
+    /// orderedCurrentSlots(表示用の画像)にフォールバックする。空白スロットの挿入ロジックは
+    /// orderedCurrentSlotsと共通(slots(forOrderedImages:)参照)。
+    private var orderedLoupeSourceSlots: [SpreadPageSlot] {
+        guard viewModel.loupeSourceImages.count == viewModel.currentImages.count,
+              !viewModel.loupeSourceImages.isEmpty
+        else {
+            return orderedCurrentSlots
+        }
+        let orderedSourceImages = viewModel.readingDirection == .rightToLeft
+            ? Array(viewModel.loupeSourceImages.reversed())
+            : viewModel.loupeSourceImages
+        return slots(forOrderedImages: orderedSourceImages)
+    }
+
+    /// 表示順(画面上の左→右)に並んだ画像配列から、見開きスロット列を組み立てる共通ロジック。
+    /// orderedCurrentSlots/orderedLoupeSourceSlotsの両方で使う(orderedCurrentSlotsのコメント
+    /// 参照。空白スロットの挿入条件はどちらも同じ画像枚数・同じcurrentSoleImageForcedSpreadPosition
+    /// に基づくため、対象の画像配列だけを差し替えて共通化できる)。
+    private func slots(forOrderedImages images: [CGImage]) -> [SpreadPageSlot] {
         guard images.count == 1,
               let position = viewModel.currentSoleImageForcedSpreadPosition,
               let onlyImage = images.first else {
@@ -1604,7 +1628,7 @@ struct ViewerView: View {
             .overlay {
                 if viewModel.isLoupeActive {
                     LoupeOverlayView(
-                        slots: orderedSlots,
+                        slots: orderedLoupeSourceSlots,
                         slotWidths: orderedSlots.map {
                             displayWidth(for: $0, atHeight: referenceHeight, mirrorAspectRatio: mirrorAspectRatio) * scale
                         },

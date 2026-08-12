@@ -66,12 +66,16 @@ final class LoupeNSView: NSView {
     var slotWidths: [CGFloat] = []
     var contentHeight: CGFloat = 0
     var magnification: CGFloat = 2.5
-    var diameter: CGFloat = 220
+    var diameter: CGFloat = 330
     var onDismiss: (() -> Void)?
 
     private var trackingArea: NSTrackingArea?
     private var lastMouseLocation: CGPoint?
     var hasMouseLocation: Bool { lastMouseLocation != nil }
+    /// レンズ内の描画に使う、Core Image(GPU)ベースの拡大処理(GPUImageUpscaler.swift参照)。
+    /// CIContextの生成コストは高いため、draw(_:)のたびに作り直さずこのビューの寿命の間
+    /// 使い回す。
+    private let upscaler = GPUImageUpscaler()
 
     /// 座標系を、他の座標(orderedCurrentSlots由来の幅・高さ、EventのlocationInWindow等)と
     /// 同じ「原点が左上、Yが下に向かって増える」向きに揃える。
@@ -157,22 +161,35 @@ final class LoupeNSView: NSView {
         // 画像のピクセル解像度が異なる場合でも、画面上に表示されている見た目の大きさを
         // 基準に一貫した拡大率になる)。
         let totalZoom = source.slotDisplayScale * magnification
-        let imageDrawSize = CGSize(
-            width: CGFloat(source.image.width) * totalZoom,
-            height: CGFloat(source.image.height) * totalZoom
-        )
-        // CGContext.draw(_:in:)は、isFlipped(y下向き)なビューの中であっても、CGImage自体は
-        // 上下反転させた状態で描く(画像のrow 0がrectの下端に来る)という、Core Graphicsの
-        // 低レベルAPI特有の挙動がある(NSImage.draw(in:)のような高レベルAPIとは異なり、
-        // isFlippedに応じた自動補正が効かない)。そのため、Y方向だけpixel.yを
-        // 「画像の下端からの距離」に変換してから原点を計算する(X方向はこの反転の影響を
-        // 受けないためそのまま)。
-        let origin = CGPoint(
-            x: lastMouseLocation.x - source.pixel.x * totalZoom,
-            y: lastMouseLocation.y - (CGFloat(source.image.height) - source.pixel.y) * totalZoom
-        )
-        context.interpolationQuality = .high
-        context.draw(source.image, in: CGRect(origin: origin, size: imageDrawSize))
+        // レンズの直径(画面上のpt)を倍率で割り戻した、画像本来のピクセル空間で実際に必要な
+        // クロップ範囲(正方形の一辺)。レンズの見た目の大きさによらず、実際にサンプリングする
+        // 元画像の範囲はごく小さい(数百px四方程度)ため、ページ全体には重すぎるCore Imageの
+        // 高品質補間(Lanczos、GPU)でも、この範囲に限定すればマウス移動のたびに実行して
+        // 十分な速度で行える(GPUImageUpscaler.swift参照)。
+        let cropSize = diameter / totalZoom
+        if let upscaled = upscaler.upscaledCrop(
+            from: source.image,
+            centerPixel: source.pixel,
+            cropSize: cropSize,
+            targetSize: diameter
+        ) {
+            let resultSize = CGSize(width: upscaled.width, height: upscaled.height)
+            let drawOrigin = CGPoint(
+                x: lastMouseLocation.x - resultSize.width / 2,
+                y: lastMouseLocation.y - resultSize.height / 2
+            )
+            // CGContext.draw(_:in:)は、このビューがisFlipped(Y下向き)であっても、画像データの
+            // 先頭行(画像の視覚的な上端)をrectの「Yが大きい側」に描画するという、Core Graphicsの
+            // 低レベルAPI特有の挙動がある(NSImage.draw(in:)のような高レベルAPIとは異なり、
+            // isFlippedに応じた自動補正が効かない。Core Imageで生成したCGImageでも同様。
+            // 実機検証で確認済み)。そのため描画直前だけこのビュー自身の反転を打ち消す
+            // ローカルな変換をかけ、向きを正しくしてから描画する。
+            context.saveGState()
+            context.translateBy(x: 0, y: drawOrigin.y + resultSize.height)
+            context.scaleBy(x: 1, y: -1)
+            context.draw(upscaled, in: CGRect(x: drawOrigin.x, y: 0, width: resultSize.width, height: resultSize.height))
+            context.restoreGState()
+        }
 
         context.restoreGState()
 

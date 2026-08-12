@@ -281,7 +281,7 @@ final class AppPreferences: ObservableObject {
         self.maxUpscalePercent = defaults.object(forKey: Keys.maxUpscalePercent) as? Double ?? 200
         self.loupeMagnificationPercent =
             defaults.object(forKey: Keys.loupeMagnificationPercent) as? Double ?? 250
-        self.loupeDiameter = defaults.object(forKey: Keys.loupeDiameter) as? Double ?? 220
+        self.loupeDiameter = defaults.object(forKey: Keys.loupeDiameter) as? Double ?? 330
         self.interpolationQuality = InterpolationQuality(rawValue: defaults.string(forKey: Keys.interpolationQuality) ?? "") ?? .high
         self.autoHideCursor = defaults.object(forKey: Keys.autoHideCursor) as? Bool ?? true
         self.slideshowInterval = defaults.object(forKey: Keys.slideshowInterval) as? Double ?? 5
