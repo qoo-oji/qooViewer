@@ -50,6 +50,12 @@ final class ViewerViewModel: ObservableObject {
     /// 空のままにしておき、呼び出し側(ViewerView)がcurrentImagesにフォールバックする
     /// (LoupeOverlayViewには常にcurrentImagesと同じ枚数の画像を渡す必要があるため)。
     @Published private(set) var loupeSourceImages: [CGImage] = []
+    /// 見開き中に実画像が2枚とも表示されている場合、拡大鏡がページの境目をまたいで拡大
+    /// できるよう、loupeSourceImagesの2枚を画面上の左右の並びで1枚に結合したもの
+    /// (ImageExporter.combinedCGImage、「見開きを結合してエクスポート」と同じ結合ロジック。
+    /// ユーザー報告)。単ページ表示中、またはEPUB由来の空白スロットを含む見開き中はnil
+    /// (この場合はloupeSourceImagesをそのままスロットごとに使う。ViewerView.pageArea参照)。
+    @Published private(set) var loupeCombinedSourceImage: CGImage?
     private var loupeSourceLoadTask: Task<Void, Never>?
     /// 環境設定「本を再度開いたときの動作」が「問い合わせる」のとき、かつ前回位置が
     /// 先頭でない(=本当に「再開」の余地がある)ときにtrueになる。ViewerViewがこれを見て
@@ -1048,21 +1054,30 @@ final class ViewerViewModel: ObservableObject {
             loupeSourceLoadTask?.cancel()
             loupeSourceLoadTask = nil
             loupeSourceImages = []
+            loupeCombinedSourceImage = nil
         }
     }
 
     /// 現在表示中の見開き(currentIndex..<currentIndex+currentImages.count)分の高解像度画像を
-    /// 非同期に取得し、loupeSourceImagesへ反映する。拡大鏡ON時・currentImagesが更新された
-    /// (=ページが切り替わった)ときのたびに呼ばれる(currentImagesのdidSet参照)。取得中に
-    /// さらにページが切り替わった場合は、古いページ分の結果が後から遅れて届いて新しいページの
-    /// 拡大鏡に反映されてしまわないよう、前回分のタスクを都度キャンセルする。
+    /// 非同期に取得し、loupeSourceImagesへ反映する。実画像が2枚とも取得できた場合は、
+    /// 画面上の左右の並びで1枚に結合したものもloupeCombinedSourceImageへ反映する(拡大鏡が
+    /// 見開きの境目をまたいで拡大できるようにするため。ユーザー報告)。拡大鏡ON時・
+    /// currentImagesが更新された(=ページが切り替わった)ときのたびに呼ばれる(currentImagesの
+    /// didSet参照)。取得中にさらにページが切り替わった場合は、古いページ分の結果が後から
+    /// 遅れて届いて新しいページの拡大鏡に反映されてしまわないよう、前回分のタスクを都度
+    /// キャンセルする。
     private func scheduleLoupeSourceLoad() {
         loupeSourceLoadTask?.cancel()
         let indices = Array(currentIndex..<(currentIndex + currentImages.count))
         guard !indices.isEmpty else {
             loupeSourceImages = []
+            loupeCombinedSourceImage = nil
             return
         }
+        // 結合時の左右の並びは画面上の表示順(orderedCurrentImagesと同じ考え方)に合わせる。
+        // ここで取得するimages自体はbook順(currentIndexが先頭)のまま保持する
+        // (loupeSourceImagesはcurrentImagesと同じ順序であるという前提を崩さないため)。
+        let isRightToLeft = readingDirection == .rightToLeft
         loupeSourceLoadTask = Task { [weak self] in
             guard let self else { return }
             var images: [CGImage] = []
@@ -1073,6 +1088,13 @@ final class ViewerViewModel: ObservableObject {
             }
             guard !Task.isCancelled else { return }
             self.loupeSourceImages = images
+            if images.count == 2 {
+                let screenLeft = isRightToLeft ? images[1] : images[0]
+                let screenRight = isRightToLeft ? images[0] : images[1]
+                self.loupeCombinedSourceImage = ImageExporter.combinedCGImage(leftImage: screenLeft, rightImage: screenRight)
+            } else {
+                self.loupeCombinedSourceImage = nil
+            }
         }
     }
 

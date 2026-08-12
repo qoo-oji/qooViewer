@@ -103,6 +103,19 @@ nonisolated enum ImageExporter {
     ///     (どちらか一方だけを歪めて引き伸ばすと画質・見た目を損なうため、縮小のみで揃える)。
     ///   - 幅は、高さ調整後の左右それぞれの幅の合計。
     static func combine(leftImage: CGImage, rightImage: CGImage, outputExtension: String) throws -> Data {
+        guard let combinedImage = combinedCGImage(leftImage: leftImage, rightImage: rightImage) else {
+            throw ExportError.combineFailed
+        }
+        guard let data = encode(combinedImage, extension: outputExtension) else { throw ExportError.combineFailed }
+        return data
+    }
+
+    /// combine(leftImage:rightImage:outputExtension:)からファイルエンコード部分を除いた、
+    /// CGImageを直接返す版。拡大鏡(ルーペ)が見開きの境目をまたいで拡大できるよう、2枚の
+    /// 高解像度画像を1枚に結合したCGImageをそのまま使いたい場合に用いる(ファイルへ書き出す
+    /// 必要が無いため、エンコード・Dataへの変換は行わない。ユーザー報告: 拡大鏡が見開きの
+    /// 境目をまたげない)。結合の仕様(解像度維持、高さは低い方に合わせて縮小)はcombine同様。
+    static func combinedCGImage(leftImage: CGImage, rightImage: CGImage) -> CGImage? {
         let targetHeight = min(leftImage.height, rightImage.height)
 
         func scaledWidth(for image: CGImage) -> Int {
@@ -114,7 +127,7 @@ nonisolated enum ImageExporter {
         let leftWidth = scaledWidth(for: leftImage)
         let rightWidth = scaledWidth(for: rightImage)
         let totalWidth = leftWidth + rightWidth
-        guard totalWidth > 0, targetHeight > 0 else { throw ExportError.combineFailed }
+        guard totalWidth > 0, targetHeight > 0 else { return nil }
 
         guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(
@@ -126,7 +139,7 @@ nonisolated enum ImageExporter {
                 space: colorSpace,
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
               )
-        else { throw ExportError.combineFailed }
+        else { return nil }
 
         context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         context.fill(CGRect(x: 0, y: 0, width: CGFloat(totalWidth), height: CGFloat(targetHeight)))
@@ -137,9 +150,7 @@ nonisolated enum ImageExporter {
             in: CGRect(x: CGFloat(leftWidth), y: 0, width: CGFloat(rightWidth), height: CGFloat(targetHeight))
         )
 
-        guard let combinedImage = context.makeImage() else { throw ExportError.combineFailed }
-        guard let data = encode(combinedImage, extension: outputExtension) else { throw ExportError.combineFailed }
-        return data
+        return context.makeImage()
     }
 
     private static func encode(_ image: CGImage, extension ext: String) -> Data? {

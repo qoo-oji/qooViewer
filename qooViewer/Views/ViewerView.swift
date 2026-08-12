@@ -1572,6 +1572,33 @@ struct ViewerView: View {
         return slots(forOrderedImages: orderedSourceImages)
     }
 
+    /// 拡大鏡(ルーペ)が実際に使う「スロット列」と「各スロットの表示幅」の組。見開き中に実画像が
+    /// 2枚とも表示されている場合は、境目をまたいだ拡大ができるよう、2枚を結合した1枚の高解像度
+    /// 画像(viewModel.loupeCombinedSourceImage、ViewerViewModel.scheduleLoupeSourceLoad参照)を
+    /// 単一のスロットとして返す(ユーザー報告: 拡大鏡が見開きの境目をまたげない)。単ページ表示中・
+    /// EPUB由来の空白スロットを含む見開き中(displaySlots.count != 2相当、currentImages.count != 2
+    /// で判定)は、従来通りページごとに別々のスロットとして扱う。
+    ///
+    /// pageArea(GeometryReader)のローカル変数に依存する値(orderedSlots・スケール後の表示幅)を
+    /// 引数で受け取る通常のSwift関数にしてある。同じ処理をpageArea内のSwiftUI ViewBuilder
+    /// クロージャに直接(if/elseの代入文として)書くと、SwiftUIの結果ビルダーがView生成の
+    /// buildEitherとして解釈しようとしてコンパイルエラーになるため、分岐そのものをViewBuilder
+    /// コンテキストの外に出す必要がある。
+    private func loupeLayout(
+        for orderedSlots: [SpreadPageSlot],
+        referenceHeight: CGFloat,
+        scale: CGFloat,
+        mirrorAspectRatio: CGFloat
+    ) -> (slots: [SpreadPageSlot], slotWidths: [CGFloat]) {
+        let displaySlotWidths = orderedSlots.map {
+            displayWidth(for: $0, atHeight: referenceHeight, mirrorAspectRatio: mirrorAspectRatio) * scale
+        }
+        if viewModel.currentImages.count == 2, let combined = viewModel.loupeCombinedSourceImage {
+            return ([.image(combined)], [displaySlotWidths.reduce(0, +)])
+        }
+        return (orderedLoupeSourceSlots, displaySlotWidths)
+    }
+
     /// 表示順(画面上の左→右)に並んだ画像配列から、見開きスロット列を組み立てる共通ロジック。
     /// orderedCurrentSlots/orderedLoupeSourceSlotsの両方で使う(orderedCurrentSlotsのコメント
     /// 参照。空白スロットの挿入条件はどちらも同じ画像枚数・同じcurrentSoleImageForcedSpreadPosition
@@ -1610,6 +1637,20 @@ struct ViewerView: View {
             // 近い見た目にするため)。
             let mirrorAspectRatio = referenceAspectRatio(for: orderedSlots)
 
+            // 拡大鏡(ルーペ)が実際に使うスロット列・各スロットの表示幅。GeometryReaderの
+            // ローカル変数(orderedSlots/referenceHeight/scale/mirrorAspectRatio)に依存するため
+            // pageArea外の独立したcomputed varには切り出せず、ここで計算する。if/elseの分岐を
+            // 素の代入文としてViewBuilderのクロージャ内に直接書くと、SwiftUIの結果ビルダーが
+            // これをView生成のbuildEitherとして解釈しようとしてコンパイルエラーになるため、
+            // 分岐自体は通常のSwift関数(loupeLayout(for:referenceHeight:scale:mirrorAspectRatio:))
+            // に切り出し、ここでは単純な関数呼び出しの代入文として扱う。
+            let loupeLayout = loupeLayout(
+                for: orderedSlots,
+                referenceHeight: referenceHeight,
+                scale: scale,
+                mirrorAspectRatio: mirrorAspectRatio
+            )
+
             let imagesRow = HStack(spacing: 0) {
                 ForEach(Array(orderedSlots.enumerated()), id: \.offset) { _, slot in
                     let width = displayWidth(for: slot, atHeight: referenceHeight, mirrorAspectRatio: mirrorAspectRatio)
@@ -1636,10 +1677,8 @@ struct ViewerView: View {
             .overlay {
                 if viewModel.isLoupeActive {
                     LoupeOverlayView(
-                        slots: orderedLoupeSourceSlots,
-                        slotWidths: orderedSlots.map {
-                            displayWidth(for: $0, atHeight: referenceHeight, mirrorAspectRatio: mirrorAspectRatio) * scale
-                        },
+                        slots: loupeLayout.slots,
+                        slotWidths: loupeLayout.slotWidths,
                         contentHeight: referenceHeight * scale,
                         magnification: CGFloat(preferences.loupeMagnificationPercent / 100),
                         diameter: preferences.loupeDiameter,
