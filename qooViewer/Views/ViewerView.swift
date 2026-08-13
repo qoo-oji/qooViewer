@@ -2313,6 +2313,12 @@ struct ViewerView: View {
     /// (念のため)確実にこの本を対象にしてからウインドウを開く。
     private func showBookmarkEditor() {
         launchCoordinator.setActiveBookAppState(appState)
+        // メニューバー「Edit Bookmarks…」(QooViewerApp.swift)と同じく、開く直前に
+        // .bookmarksを設定しておく。これが無いと、ウインドウが既に開いている状態で
+        // 別の本を表示中にこのメソッドを呼び直しても、BookmarkEditorView側の選択中の本
+        // (selectedBookID)が新しく表示している本へ再同期されない
+        // (applyInitialFocusのコメント参照。ユーザー報告)。
+        launchCoordinator.pendingEditorInitialFocus = .bookmarks
         openWindow(id: "editBookmarks")
     }
 

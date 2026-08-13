@@ -414,6 +414,11 @@ struct BookmarkEditorView: View {
                 // フォールバックする)を読ませ、書き込みだけをselectedBookIDへ返す。
                 // これにより、右ペインに表示している本と左ペインのハイライトが常に一致する
                 // (自前の.listRowBackgroundで実現していたのと同じ挙動)。
+                // バグ修正(ユーザー報告): 選択(selectedBookID)は今読んでいる本へ正しく
+                // 再同期されるようになったが、一覧をスクロールして既に別の位置を見ている場合、
+                // その選択された行が画面外のままだった。ScrollViewReaderで囲み、選択が
+                // 変わるたびに該当行までスクロールする。
+                ScrollViewReader { proxy in
                 List(selection: Binding(
                     get: { selectedID },
                     set: { newValue in
@@ -584,6 +589,15 @@ struct BookmarkEditorView: View {
                         forNames: mergedRows.map(\.displayName)
                     )
                     applyInitialFocus(launchCoordinator.pendingEditorInitialFocus)
+                    // ウインドウを初めて開いたときも、既に選択されている行(今読んでいる本)まで
+                    // スクロールしておく。Listの行がまだ実際に配置される前のタイミングでは
+                    // scrollTo(_:)が効かないことがあるため、次のランループまで待つ
+                    // (WindowAccessorなど、このファイルの他の箇所と同じ理由)。
+                    if let selectedID {
+                        DispatchQueue.main.async {
+                            proxy.scrollTo(selectedID, anchor: .center)
+                        }
+                    }
                 }
                 .onDisappear {
                     if let doubleClickMonitor {
@@ -592,7 +606,26 @@ struct BookmarkEditorView: View {
                     doubleClickMonitor = nil
                 }
                 .onChange(of: launchCoordinator.pendingEditorInitialFocus) { _, newValue in
+                    // applyInitialFocus自身が末尾でpendingEditorInitialFocusをnilへ戻すため
+                    // (次回も確実に変化として検知させるため。applyInitialFocusのコメント参照)、
+                    // そのnilへの遷移自体でこのonChangeが再度呼ばれてしまう。newValueがnilの
+                    // ときは「applyInitialFocusが今まさに戻した直後」であり、新しい呼び出し
+                    // 要求ではないため、ここで無視する。
+                    guard let newValue else { return }
                     applyInitialFocus(newValue)
+                }
+                .onChange(of: selectedID) { _, newValue in
+                    // selectedBookIDがapplyInitialFocusなどで書き換わり、結果としてこの一覧の
+                    // 選択行(ハイライト)が変わったときに、その行までスクロールする
+                    // (withoutAnimationと同じ理由で、行が動く様子を見せる必要は無いため
+                    // アニメーションは付けない)。
+                    guard let newValue else { return }
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        proxy.scrollTo(newValue, anchor: .center)
+                    }
+                }
                 }
             } detail: {
                 if let bookID = selectedID {
@@ -794,17 +827,37 @@ struct BookmarkEditorView: View {
             }
             if wouldHideActiveBook {
                 bookFilter = .all
-                return
+            } else {
+                switch focus {
+                case .bookmarks: bookFilter = .hasBookmarks
+                case .layout: bookFilter = .hasLayout
+                case nil: break
+                }
+            }
+            // バグ修正(ユーザー報告): ブックマークがある本を表示している状態で「ブックマークの
+            // 編集」を呼び出しても、開いている本が選択された状態にならなかった。selectedBookIDは
+            // このウインドウを閉じても(単一インスタンスのWindowシーンのため)保持され続けるため、
+            // 以前別の本を選んでいた場合はそのまま残ってしまっていた。呼び出しのたびに、今
+            // 読んでいる本へ選択を明示的に合わせ直す(mergedRowsはactiveBookAppStateの本を
+            // 常に含めるため、フィルタが.hasBookmarks/.hasLayoutのどちらであっても行は必ず存在する)。
+            selectedBookID = activeBookID
+        } else {
+            switch focus {
+            case .bookmarks:
+                bookFilter = .hasBookmarks
+            case .layout:
+                bookFilter = .hasLayout
+            case nil:
+                break
             }
         }
-        switch focus {
-        case .bookmarks:
-            bookFilter = .hasBookmarks
-        case .layout:
-            bookFilter = .hasLayout
-        case nil:
-            break
-        }
+        // pendingEditorInitialFocusを都度nilへ戻す。Windowシーンは単一インスタンスのため
+        // 値渡しではなくこの共有オブジェクト経由で伝えている都合上(EditorInitialFocusの
+        // コメント参照)、同じ種類(例: 連続して2回「ブックマークの編集」を呼び出す)だと
+        // SwiftUIの.onChangeが値の変化を検知できず、2回目以降はこのメソッド自体が
+        // 呼ばれなくなってしまう(上のselectedBookID再同期が効かなくなる、まさに今回の不具合の
+        // 原因の一つ)。都度nilに戻しておくことで、次にどの値が来ても必ず変化として検知される。
+        launchCoordinator.pendingEditorInitialFocus = nil
     }
 
     /// ユーザー要望: 左ペインでファイル名をダブルクリックしたら、その本を開く。
