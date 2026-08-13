@@ -435,6 +435,24 @@ final class LayoutStore: ObservableObject {
         pageOverrides(forBookID: bookID).first { $0.pageKey == pageKey }
     }
 
+    /// PageLayoutOverrideの配列を、pageKeyで引ける辞書にする。
+    ///
+    /// 同じpageKeyの行が複数あった場合は、先に現れた1件を採用する(pageOverride(forBookID:
+    /// pageKey:)の`first { $0.pageKey == pageKey }`、settingsByBookID()の「同じbookIDの行が
+    /// 複数あればフェッチ順で最初の1件」と同じ基準。このストア内でどの経路から引いても
+    /// 同じ行が選ばれるようにするため)。
+    ///
+    /// 経緯: 以前はDictionary(uniqueKeysWithValues:)を使っていたが、これは重複キーがあると
+    /// 実行時にトラップする(クラッシュする)。PageLayoutOverride.compositeKeyには当初
+    /// @Attribute(.unique)が付いていて重複はありえない前提だったが、その制約自体がデータ消失の
+    /// 原因と判明して外してある(PageLayoutOverride.swift/lastSaveErrorMessageのコメント参照)。
+    /// つまり現在は重複行が存在しうる前提のコードであり、実際、その不具合が起きていた時期に
+    /// 作られた重複行が残っている環境ではここでクラッシュしうる。読み取り側は既に
+    /// 「重複があっても最初の1件を使う」形で書かれているので、ここも同じ扱いに揃える。
+    private static func overridesByPageKey(_ overrides: [PageLayoutOverride]) -> [String: PageLayoutOverride] {
+        Dictionary(overrides.map { ($0.pageKey, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
     /// 指定した1ページの設定を書き換える。stateがnilなら「レイアウトなし」に戻す
     /// (行自体を削除する。詳細はPageLayoutState.swiftのコメント参照)。
     ///
@@ -483,9 +501,7 @@ final class LayoutStore: ObservableObject {
     func setPageLayoutStates(for book: MangaBook, _ changes: [String: PageLayoutState]) {
         guard !changes.isEmpty else { return }
         let bookID = book.id
-        let existingByKey = Dictionary(
-            uniqueKeysWithValues: pageOverrides(forBookID: bookID).map { ($0.pageKey, $0) }
-        )
+        let existingByKey = Self.overridesByPageKey(pageOverrides(forBookID: bookID))
         var insertedOverrides: [PageLayoutOverride] = []
         for (pageKey, state) in changes {
             if let existing = existingByKey[pageKey] {
@@ -550,9 +566,7 @@ final class LayoutStore: ObservableObject {
         settings.updatedAt = Date()
 
         if !pageChanges.isEmpty {
-            let existingByKey = Dictionary(
-                uniqueKeysWithValues: pageOverrides(forBookID: bookID).map { ($0.pageKey, $0) }
-            )
+            let existingByKey = Self.overridesByPageKey(pageOverrides(forBookID: bookID))
             for (pageKey, state) in pageChanges {
                 if let existing = existingByKey[pageKey] {
                     existing.state = state

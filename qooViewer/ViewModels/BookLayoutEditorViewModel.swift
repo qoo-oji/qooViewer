@@ -178,7 +178,15 @@ final class BookLayoutEditorViewModel: ObservableObject {
     private func rebuildRows(from book: MangaBook) {
         let overrideOrder = layoutStore.bookLayoutSettings(forBookID: bookID)?.pageOrderOverride
         let orderedPages = Self.reorder(pages: book.pages, by: overrideOrder)
-        let rawIndexByKey = Dictionary(uniqueKeysWithValues: book.pages.enumerated().map { ($1.sortKey, $0) })
+        // sortKeyをキーにする辞書は、uniqueKeysWithValues(重複キーで実行時トラップ)ではなく
+        // 「最初の1件を採る」形で組み立てる。PageRef.sortKeyは、書庫の中に`a.zip`という
+        // ファイルと`a.zip/`というフォルダが同居しているような作りの本では、入れ子書庫の
+        // 展開結果("a.zip/01.jpg")とフォルダ内の画像のパスが偶然一致しうる
+        // (BookLoader.collectPagesのsortKeyPrefix参照。PageRef.idは区切り文字が異なるため
+        // 衝突しない)。稀なケースだが、本を開いただけでクラッシュする理由にはならない。
+        let rawIndexByKey = Dictionary(
+            book.pages.enumerated().map { ($1.sortKey, $0) }, uniquingKeysWith: { first, _ in first }
+        )
         let baseRows = orderedPages.map { page in
             Row(
                 pageKey: page.sortKey,
@@ -194,7 +202,8 @@ final class BookLayoutEditorViewModel: ObservableObject {
 
     private static func reorder(pages: [PageRef], by overrideOrder: [String]?) -> [PageRef] {
         guard let overrideOrder else { return pages }
-        var remaining = Dictionary(uniqueKeysWithValues: pages.map { ($0.sortKey, $0) })
+        // rebuildRowsと同じ理由で「最初の1件を採る」形にする(コメント参照)。
+        var remaining = Dictionary(pages.map { ($0.sortKey, $0) }, uniquingKeysWith: { first, _ in first })
         var result: [PageRef] = []
         result.reserveCapacity(pages.count)
         for key in overrideOrder {
@@ -309,7 +318,8 @@ final class BookLayoutEditorViewModel: ObservableObject {
             newOrder.append(contentsOf: trailingExcludedByAnchor[key] ?? [])
         }
 
-        let rowsByKey = Dictionary(uniqueKeysWithValues: rows.map { ($0.pageKey, $0) })
+        // rebuildRowsと同じ理由で「最初の1件を採る」形にする(Row.pageKeyはPageRef.sortKeyそのもの)。
+        let rowsByKey = Dictionary(rows.map { ($0.pageKey, $0) }, uniquingKeysWith: { first, _ in first })
         let reordered = newOrder.compactMap { rowsByKey[$0] }
         applyNewOrder(reordered, focusPageKey: focusPageKey)
     }
