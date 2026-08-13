@@ -66,7 +66,10 @@ struct ProgressBarView: View {
     private var isRightToLeft: Bool { viewModel.readingDirection == .rightToLeft }
 
     var body: some View {
-        HStack(spacing: 10) {
+        // 左右のボタンはサイドパネル・ツールバーのボタンと同じ見た目(枠なし・15ptのアイコン・
+        // 32x28のタップ領域。panelIconButtonLabel参照)に揃えてある(ユーザー要望)。
+        // ボタン自身が余白を持つため、バーとの間隔は以前(10pt)より詰めている。
+        HStack(spacing: 4) {
             // バーの左側のボタン。「右から左へ」がONのときは末尾へ、OFFのときは先頭へ移動する
             // (見開き/1ページ送りの左右ボタンと同じ、読み方向に応じて左右の意味を切り替える
             // 考え方)。
@@ -74,7 +77,9 @@ struct ProgressBarView: View {
                 viewModel.jump(toPageIndex: isRightToLeft ? viewModel.pageCount - 1 : 0)
             } label: {
                 Image(systemName: "arrow.left.to.line")
+                    .panelIconButtonLabel()
             }
+            .buttonStyle(.borderless)
             .help(isRightToLeft ? "Move to Last" : "Move to First")
 
             progressBar
@@ -85,7 +90,9 @@ struct ProgressBarView: View {
                 viewModel.jump(toPageIndex: isRightToLeft ? 0 : viewModel.pageCount - 1)
             } label: {
                 Image(systemName: "arrow.right.to.line")
+                    .panelIconButtonLabel()
             }
+            .buttonStyle(.borderless)
             .help(isRightToLeft ? "Move to First" : "Move to Last")
         }
         .padding(.horizontal, 16)

@@ -1411,6 +1411,8 @@ private struct SidePanelEmptyMessage: View {
 
 /// 上段・下段で共通の、戻る/進む/1階層上への移動ボタン。ユーザー要望: 既定のボタンサイズは
 /// 小さく操作しづらいため、アイコンサイズ・タップ領域とも一回り大きくしている。
+/// 具体的な装飾は、同じ見た目を使うツールバー・プログレスバーのボタンと共通化するため
+/// PanelIconButtonLabelに切り出してある。
 private struct SidePanelNavButton: View {
     let systemName: String
     let isDisabled: Bool
@@ -1420,9 +1422,7 @@ private struct SidePanelNavButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 15, weight: .medium))
-                .frame(width: 32, height: 28)
-                .contentShape(Rectangle())
+                .panelIconButtonLabel()
         }
         .buttonStyle(.borderless)
         .disabled(isDisabled)

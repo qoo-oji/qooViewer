@@ -1155,36 +1155,41 @@ struct ViewerView: View {
     /// 他のボタンと視覚的にはっきり見分けが付くようにする(ユーザー要望の「白黒反転」)。
     /// Color.primary/背景色はライト/ダークモードのどちらでも正しく反転して見えるよう、
     /// 固定の黒白ではなくシステムの前景色・コントロール背景色を使っている。
+    /// 反転表示の大きさ・角丸は、他のツールバーボタンと同じPanelIconButtonLabel
+    /// (サイドパネルのボタンと共通)に合わせてある。
     @ViewBuilder
     private func toggleToolbarIcon(outlineSystemName: String, filledSystemName: String, isRegistered: Bool) -> some View {
         Image(systemName: isRegistered ? filledSystemName : outlineSystemName)
-            .frame(width: 22, height: 22)
-            .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isRegistered ? Color.primary : Color.clear)
-            )
-            .foregroundStyle(isRegistered ? Color(nsColor: .controlBackgroundColor) : Color.primary)
+            .panelIconButtonLabel(isHighlighted: isRegistered)
     }
 
     private var toolbar: some View {
-        HStack(spacing: 12) {
+        // ボタンはサイドパネルのボタンと同じ見た目(枠なし・15ptのアイコン・32x28のタップ領域。
+        // panelIconButtonLabel参照)に揃えてある(ユーザー要望)。ボタン自身が広めの余白を
+        // 持つようになったぶん、以前(グループ内4pt/グループ間12pt)のままでは間延びして
+        // 見えるため、グループ内は0pt・グループ間は8ptに詰めている。
+        HStack(spacing: 8) {
             // ページ移動・ファイル移動のボタン群。ブラウザの「戻る」「進む」ボタンのように、
             // ファイル名表示(アドレスバー相当)より左側に配置する。
 
             // 次の画像/前の画像(見開き時は2枚、単ページ時は1枚移動。読み方向によって左右の意味が入れ替わる)
-            HStack(spacing: 4) {
+            HStack(spacing: 0) {
                 Button {
                     viewModel.advance(forward: viewModel.readingDirection == .rightToLeft)
                 } label: {
                     Image(systemName: "chevron.left.2")
+                        .panelIconButtonLabel()
                 }
+                .buttonStyle(.borderless)
                 .help(viewModel.readingDirection == .rightToLeft ? "Next Image" : "Previous Image")
 
                 Button {
                     viewModel.advance(forward: viewModel.readingDirection == .leftToRight)
                 } label: {
                     Image(systemName: "chevron.right.2")
+                        .panelIconButtonLabel()
                 }
+                .buttonStyle(.borderless)
                 .help(viewModel.readingDirection == .leftToRight ? "Next Image" : "Previous Image")
             }
 
@@ -1192,38 +1197,46 @@ struct ViewerView: View {
             // EPUBが見開き内の配置(page-spread-left/right/center)を明示している場合、
             // この調整でその組み合わせを崩してしまわないよう無効化する
             // (詳細はViewerViewModel.isPageShiftLocked参照)。
-            HStack(spacing: 4) {
+            HStack(spacing: 0) {
                 Button {
                     viewModel.shiftByOnePage(forward: viewModel.readingDirection == .rightToLeft)
                 } label: {
                     Image(systemName: "chevron.left")
+                        .panelIconButtonLabel()
                 }
+                .buttonStyle(.borderless)
                 .help(viewModel.readingDirection == .rightToLeft ? "Next Image by One" : "Previous Image by One")
 
                 Button {
                     viewModel.shiftByOnePage(forward: viewModel.readingDirection == .leftToRight)
                 } label: {
                     Image(systemName: "chevron.right")
+                        .panelIconButtonLabel()
                 }
+                .buttonStyle(.borderless)
                 .help(viewModel.readingDirection == .leftToRight ? "Next Image by One" : "Previous Image by One")
             }
             .disabled(viewModel.isPageShiftLocked)
 
             // 前の本へ/次の本へ(同じフォルダ内の、同じ種類[アーカイブ/PDFファイルまたはフォルダ]の
             // 本の間を移動する。読み方向に関係なく、上が前、下が次。詳細はSiblingFinder参照)
-            HStack(spacing: 4) {
+            HStack(spacing: 0) {
                 Button {
                     appState.openSibling(before: viewModel.book.sourceURL)
                 } label: {
                     Image(systemName: "chevron.up")
+                        .panelIconButtonLabel()
                 }
+                .buttonStyle(.borderless)
                 .help("Previous Book")
 
                 Button {
                     appState.openSibling(after: viewModel.book.sourceURL)
                 } label: {
                     Image(systemName: "chevron.down")
+                        .panelIconButtonLabel()
                 }
+                .buttonStyle(.borderless)
                 .help("Next Book")
             }
 
@@ -1244,7 +1257,9 @@ struct ViewerView: View {
                 isShowingAutoLayoutConfirmation = true
             } label: {
                 Image(systemName: "rectangle.split.2x1")
+                    .panelIconButtonLabel()
             }
+            .buttonStyle(.borderless)
             .help("Auto-Layout Based on Current View")
             .disabled(viewModel.hasAuthoritativeSourceLayout)
 
@@ -1264,6 +1279,7 @@ struct ViewerView: View {
                     isRegistered: isCurrentPageBookmarked
                 )
             }
+            .buttonStyle(.borderless)
             .help(isCurrentPageBookmarked ? "Remove This Page from Bookmarks" : "Add This Page to Bookmarks")
 
             Button {
@@ -1275,20 +1291,25 @@ struct ViewerView: View {
                     isRegistered: isCurrentBookFavorited
                 )
             }
+            .buttonStyle(.borderless)
             .help(isCurrentBookFavorited ? "Remove This Book from Favorites" : "Add This Book to Favorites…")
 
             Button {
                 showThumbnailGrid = true
             } label: {
                 Image(systemName: "square.grid.2x2")
+                    .panelIconButtonLabel()
             }
+            .buttonStyle(.borderless)
             .help("Show Page Grid")
 
             Button {
                 viewModel.toggleSlideshow()
             } label: {
                 Image(systemName: viewModel.isSlideshowActive ? "pause.fill" : "play.fill")
+                    .panelIconButtonLabel()
             }
+            .buttonStyle(.borderless)
             .help("Start/Stop Slideshow")
         }
         .padding(10)
