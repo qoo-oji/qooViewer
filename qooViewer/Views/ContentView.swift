@@ -596,6 +596,7 @@ struct ContentView: View {
             hasBook: appState.currentBook != nil,
             currentBookPath: appState.currentBook?.id,
             loadPageThumbnail: appState.loadPageThumbnail,
+            loadPageImage: appState.loadPageImage,
             pageThumbnailGeneration: appState.pageThumbnailGeneration,
             // お気に入りへの追加(登録先フォルダの選択シート)はViewerViewが持っているため、
             // AppState経由の橋渡しを使う(AppState.addFavoriteActionのコメント参照)。

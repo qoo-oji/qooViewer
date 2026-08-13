@@ -141,11 +141,23 @@ final class AppState: ObservableObject {
     /// .task(id:)の識別子に混ぜることで確実に読み込み直す。
     var loadPageThumbnail: ((Int) async -> CGImage?)?
 
+    /// サイドパネル(ページモード)の行のサムネイルにカーソルをホバーしたときの、拡大
+    /// プレビュー用のフル解像度画像を取得するための橋渡し(ユーザー要望。ページ一覧グリッド・
+    /// 「ブックマーク・レイアウトの編集」ウインドウと同じ拡大プレビューをここでも出すため)。
+    /// loadPageThumbnailは進捗バー用の低解像度サムネイルで、そのまま拡大すると粗くなるため、
+    /// プレビューにはこちら(ViewerViewModel.pageImage(at:))を使う。
+    /// 登録・解除はloadPageThumbnailと同時に行われるため、世代番号も共用する。
+    var loadPageImage: ((Int) async -> CGImage?)?
+
     /// loadPageThumbnailの登録・解除のたびに増える世代番号(上のコメント参照)。
     @Published private(set) var pageThumbnailGeneration = 0
 
-    func updateLoadPageThumbnail(_ loader: ((Int) async -> CGImage?)?) {
+    func updateLoadPageThumbnail(
+        _ loader: ((Int) async -> CGImage?)?,
+        pageImageLoader: ((Int) async -> CGImage?)? = nil
+    ) {
         loadPageThumbnail = loader
+        loadPageImage = pageImageLoader
         pageThumbnailGeneration &+= 1
     }
 

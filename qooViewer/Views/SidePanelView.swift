@@ -72,6 +72,9 @@ struct SidePanelView: View {
     /// ページモードのサムネイル取得(AppState.loadPageThumbnail)と、その世代番号。
     /// 本を開いていないときはloadPageThumbnailがnilになる。
     var loadPageThumbnail: ((Int) async -> CGImage?)?
+    /// ページモードのサムネイルをホバーしたときの拡大プレビュー用のフル解像度画像取得
+    /// (AppState.loadPageImage)。loadPageThumbnailと同時に登録・解除される。
+    var loadPageImage: ((Int) async -> CGImage?)?
     var pageThumbnailGeneration: Int
     /// 今開いている本を、お気に入りへ追加する(登録先フォルダの選択シートを開く)。
     var onAddFavorite: () -> Void
@@ -170,6 +173,7 @@ struct SidePanelView: View {
                     bookmarkedPageIndices: Set(bookmarks.map(\.pageIndex)),
                     thumbnailGeneration: pageThumbnailGeneration,
                     loadThumbnail: loadPageThumbnail,
+                    loadPageImage: loadPageImage,
                     onJumpToPage: onJumpToPage
                 )
             }
@@ -407,16 +411,44 @@ struct SidePanelView: View {
                         // .focusEffectDisabled()で行っている。絞り込み検索欄への入力は
                         // これとは別で、通常どおりフォーカスを受け取れる)。
                         .focusable(false)
+                        // 「サイドパネルを隠す」がONで、カーソルを左端に近づけてパネルが
+                        // 現れた瞬間にも、今開いている本の行が見えている状態から始める
+                        // (ユーザー要望)。下段(本の中身ブラウザ)の同名の.onAppearとまったく
+                        // 同じ理由: SidePanelBrowserStateはContentViewが保持し続けていて
+                        // 一覧(entries)は変わらないため下の.onChangeは発火せず、作り直された
+                        // ScrollViewだけが先頭に戻ってしまっていた。現れた瞬間のスクロールは
+                        // アニメーションさせない(パネルのスライドインと同時に中身も動くと
+                        // 落ち着かないため)。
+                        .onAppear { scrollToHighlightedFolder(proxy: proxy, animated: false) }
+                        // ハイライト対象(今開いている本)が変わったとき、または別のフォルダへ
+                        // 移動して一覧そのものが変わったときに、その行が表示枠内に見えるよう
+                        // スクロールする。highlightedURLの方も見ているのは、同じフォルダ内の
+                        // 別の本へ切り替えた場合はentriesが変わらずハイライト位置だけが動くため
+                        // (下段の本の中身ブラウザがhighlightedMatchKeysとentriesの両方を
+                        // 見ているのと同じ理由)。
+                        .onChange(of: folderState.highlightedURL) { _, _ in
+                            scrollToHighlightedFolder(proxy: proxy)
+                        }
                         .onChange(of: folderState.entries) { _, _ in
-                            guard let highlighted = folderState.highlightedURL,
-                                  // 絞り込みで一覧から外れている行へはスクロールできない。
-                                  entries.contains(where: { $0.url.path == highlighted.path }) else { return }
-                            DispatchQueue.main.async {
-                                withAnimation { proxy.scrollTo(highlighted.path, anchor: .center) }
-                            }
+                            scrollToHighlightedFolder(proxy: proxy)
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// 今開いている本(folderState.highlightedURL)の行までスクロールする。
+    /// 下段(本の中身ブラウザ)のscrollToHighlighted(proxy:animated:)のフォルダ一覧版。
+    private func scrollToHighlightedFolder(proxy: ScrollViewProxy, animated: Bool = true) {
+        guard let highlighted = folderState.highlightedURL,
+              // 絞り込みで一覧から外れている行へはスクロールできない。
+              filteredFolderEntries.contains(where: { $0.url.path == highlighted.path }) else { return }
+        DispatchQueue.main.async {
+            if animated {
+                withAnimation { proxy.scrollTo(highlighted.path, anchor: .center) }
+            } else {
+                proxy.scrollTo(highlighted.path, anchor: .center)
             }
         }
     }
@@ -581,6 +613,17 @@ private struct BookContentsSectionView: View {
                         }
                         // folderSectionの同名の.focusable(false)と同じ理由。
                         .focusable(false)
+                        // 「サイドパネルを隠す」がONで、カーソルを左端に近づけてパネルが
+                        // 現れた瞬間にも、現在のページの行が見えている状態から始める
+                        // (ユーザー要望)。このときBookContentsBrowserState自体はContentViewが
+                        // 保持し続けていてハイライト対象(highlightedMatchKeys)も一覧(entries)も
+                        // 変わっていないため、下の.onChangeはどちらも発火せず、作り直された
+                        // ScrollViewが先頭のまま表示されてしまっていた。ページモードの一覧が
+                        // .onAppearでも現在ページへ合わせているのと同じ対処
+                        // (SidePanelPagesSectionView.scrollToCurrent参照)。
+                        // 現れた瞬間のスクロールはアニメーションさせない(パネルのスライドインと
+                        // 同時に中身も動くと落ち着かないため)。
+                        .onAppear { scrollToHighlighted(proxy: proxy, animated: false) }
                         // ページ送りでハイライト対象が変わるたび、またはハイライト対象を含む
                         // 新しい階層へ切り替わって一覧そのものが変わるたびに、その行が常に
                         // 表示枠内に見えるようスクロールする(ユーザー要望)。
@@ -592,11 +635,15 @@ private struct BookContentsSectionView: View {
         }
     }
 
-    private func scrollToHighlighted(proxy: ScrollViewProxy) {
+    private func scrollToHighlighted(proxy: ScrollViewProxy, animated: Bool = true) {
         // 絞り込みで一覧から外れている行へはスクロールできない(folderSectionと同じ理由)。
         guard let target = filteredEntries.first(where: { state.highlightedMatchKeys.contains($0.matchKey) }) else { return }
         DispatchQueue.main.async {
-            withAnimation { proxy.scrollTo(target.id, anchor: .center) }
+            if animated {
+                withAnimation { proxy.scrollTo(target.id, anchor: .center) }
+            } else {
+                proxy.scrollTo(target.id, anchor: .center)
+            }
         }
     }
 
@@ -1046,7 +1093,13 @@ private struct SidePanelHistorySectionView: View {
 
 // MARK: - ページモード(ページ一覧)
 
-/// ページモード。今開いている本の全ページを、サムネイル+ページ番号の縦一列で表示する。
+/// ページモード。今開いている本の全ページを、ページ番号+サムネイル+ファイル名の縦一列で
+/// 表示する(ユーザー要望による並び順。左から番号・サムネイル・ファイル名)。
+///
+/// レイアウト機能で除外(.excluded)したページはここには現れない。ここで表示している
+/// `pages`はAppState.currentBookPages、すなわちViewerViewModelが除外・並べ替えを適用した
+/// あとのbook.pagesが同期されたものであり、除外の解除/追加にもそのまま追従する
+/// (ViewerViewModel.applyLayoutData / ViewerView.swiftの.onChange(of: viewModel.book.pages)参照)。
 ///
 /// 既存の「ページ一覧」(ThumbnailGridView、tキー)は5列のオーバーレイパネルで、ページへ
 /// ジャンプすると閉じる作りになっている。こちらは読みながら出しっぱなしにできる常設の
@@ -1061,6 +1114,8 @@ private struct SidePanelPagesSectionView: View {
     var bookmarkedPageIndices: Set<Int>
     var thumbnailGeneration: Int
     var loadThumbnail: ((Int) async -> CGImage?)?
+    /// ホバー時の拡大プレビュー用(フル解像度)。
+    var loadPageImage: ((Int) async -> CGImage?)?
     var onJumpToPage: (Int) -> Void
 
     var body: some View {
@@ -1095,10 +1150,13 @@ private struct SidePanelPagesSectionView: View {
                             ForEach(pages.indices, id: \.self) { index in
                                 SidePanelPageCell(
                                     index: index,
+                                    displayName: pages[index].displayName,
+                                    pageNumberWidth: pageNumberWidth,
                                     isCurrent: index == currentPageIndex,
                                     isBookmarked: bookmarkedPageIndices.contains(index),
                                     thumbnailGeneration: thumbnailGeneration,
                                     loadThumbnail: loadThumbnail,
+                                    loadPageImage: loadPageImage,
                                     onTap: { onJumpToPage(index) }
                                 )
                                 .id(index)
@@ -1108,13 +1166,29 @@ private struct SidePanelPagesSectionView: View {
                     }
                     .focusable(false)
                     // ページ送りに合わせて、現在ページの行が常に見えるようスクロールする
-                    // (サイドパネル下段の本の中身ブラウザと同じ考え方)。表示した瞬間にも
-                    // 一度合わせる(.onAppear)。
+                    // (サイドパネル上段のフォルダブラウザ・下段の本の中身ブラウザと同じ
+                    // 考え方・同じ組み合わせ)。
+                    // ・.onAppear: 「サイドパネルを隠す」がONのとき、カーソルを左端に近づけて
+                    //   パネルが現れた瞬間にも現在ページが見えている状態から始める。作り直された
+                    //   ScrollViewは先頭に戻ってしまうため必要(アニメーションはさせない。
+                    //   パネルのスライドインと同時に中身も動くと落ち着かないため)。
+                    // ・currentPageIndex: ページ送りでハイライト対象そのものが変わったとき。
+                    // ・pages: レイアウトの除外/ページ順補正で一覧の中身が変わったとき。同じ
+                    //   currentPageIndexでも行の位置が動くため、これも見る必要がある。
                     .onAppear { scrollToCurrent(proxy: proxy, animated: false) }
                     .onChange(of: currentPageIndex) { _, _ in scrollToCurrent(proxy: proxy, animated: true) }
+                    .onChange(of: pages) { _, _ in scrollToCurrent(proxy: proxy, animated: true) }
                 }
             }
         }
+    }
+
+    /// 先頭列のページ番号に割り当てる幅。総ページ数の桁数から見積もり、全行で同じ幅に固定する
+    /// (行ごとに桁数が変わると、右隣のサムネイル・ファイル名の左端が揃わずガタつくため)。
+    /// 数字は等幅(.monospacedDigit)で描画するので、1桁あたりの見込み幅×桁数で足りる。
+    private var pageNumberWidth: CGFloat {
+        let digits = max(2, String(pages.count).count)
+        return CGFloat(digits) * 8 + 2
     }
 
     private func scrollToCurrent(proxy: ScrollViewProxy, animated: Bool) {
@@ -1129,23 +1203,51 @@ private struct SidePanelPagesSectionView: View {
     }
 }
 
-/// ページモードの1行(サムネイル+ページ番号)。ThumbnailGridView.ThumbnailCellと同じ理由で、
-/// 読み込んだ画像は各行自身の@Stateに持つ(1行の読み込み完了が一覧全体の再描画を
-/// 引き起こさないようにするため)。
+/// ページモードの1行。左からページ番号・サムネイル・ファイル名の順に並べる(ユーザー要望)。
+/// ThumbnailGridView.ThumbnailCellと同じ理由で、読み込んだ画像は各行自身の@Stateに持つ
+/// (1行の読み込み完了が一覧全体の再描画を引き起こさないようにするため)。
 private struct SidePanelPageCell: View {
     let index: Int
+    /// 3列目に出すファイル名(PageRef.displayName)。
+    let displayName: String
+    /// 1列目のページ番号に割り当てる固定幅(SidePanelPagesSectionView.pageNumberWidth参照)。
+    let pageNumberWidth: CGFloat
     let isCurrent: Bool
     let isBookmarked: Bool
     let thumbnailGeneration: Int
     let loadThumbnail: ((Int) async -> CGImage?)?
+    let loadPageImage: ((Int) async -> CGImage?)?
     let onTap: () -> Void
 
     @State private var image: CGImage?
+
+    /// カーソルがサムネイルの上にあるかどうか。拡大プレビュー用のpopoverの表示制御に使う
+    /// (ページ一覧グリッド・「ブックマーク・レイアウトの編集」ウインドウと同じ拡大プレビューを
+    /// ここでも出してほしい、というユーザー要望)。
+    @State private var isHoveringThumbnail = false
+    /// 拡大プレビュー用のフル解像度画像。一度読み込めば、同じ行を何度ホバーしても読み込み直さない
+    /// よう@Stateにキャッシュしておく(素早くホバーを出し入れしたときのちらつき防止)。
+    @State private var previewImage: CGImage?
+    /// ホバー開始から実際にpopoverを出すまでの遅延用タスク。
+    @State private var hoverPreviewTask: Task<Void, Never>?
+    /// ホバー開始から実際にpopoverを出すまでの遅延(ナノ秒)。ThumbnailGridView.ThumbnailCell /
+    /// BookmarkListView.PageRowViewのhoverPreviewDelayNanosecondsと同じ値(350ms)を使う。
+    private static let hoverPreviewDelayNanoseconds: UInt64 = 350_000_000
+    /// 拡大プレビューの一辺。ページ一覧グリッド・「ブックマーク・レイアウトの編集」ウインドウの
+    /// 拡大プレビューと揃える(ユーザー要望)。
+    private static let previewSize: CGFloat = 440
 
     private static let thumbnailHeight: CGFloat = 72
 
     var body: some View {
         HStack(spacing: 8) {
+            Text("\(index + 1)")
+                .font(.callout)
+                .monospacedDigit()
+                .foregroundStyle(isCurrent ? Color.accentColor : Color.primary)
+                .lineLimit(1)
+                .frame(width: pageNumberWidth, alignment: .trailing)
+
             ZStack {
                 RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.15))
                 if let image {
@@ -1162,11 +1264,35 @@ private struct SidePanelPageCell: View {
                 RoundedRectangle(cornerRadius: 4)
                     .stroke(isCurrent ? Color.accentColor : Color.clear, lineWidth: 2)
             )
+            // サムネイルにカーソルを乗せている間、拡大プレビューとファイル名を表示する
+            // (ユーザー要望)。ホバーした瞬間に即座にpopoverを出さず、一定時間
+            // (hoverPreviewDelayNanoseconds)ホバーし続けた場合にだけ表示する。一覧を縦に
+            // 通り抜けるだけの動きで次々popoverが開くのを避けるため。
+            .onHover { hovering in
+                hoverPreviewTask?.cancel()
+                if hovering, loadPageImage != nil {
+                    hoverPreviewTask = Task {
+                        try? await Task.sleep(nanoseconds: Self.hoverPreviewDelayNanoseconds)
+                        guard !Task.isCancelled else { return }
+                        isHoveringThumbnail = true
+                    }
+                } else {
+                    hoverPreviewTask = nil
+                    isHoveringThumbnail = false
+                }
+            }
+            .popover(isPresented: $isHoveringThumbnail, arrowEdge: .trailing) {
+                thumbnailPreviewContent
+            }
 
-            Text("\(index + 1)")
-                .font(.callout)
-                .monospacedDigit()
-                .foregroundStyle(isCurrent ? Color.accentColor : Color.primary)
+            Text(displayName)
+                .font(.caption)
+                .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
+                // パネルは幅が狭く、ファイル名は長くなりがちなため2行まで折り返す。それでも
+                // 収まらない場合は中間を省略する(先頭も末尾も手がかりになるファイル名が多いため)。
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .help(displayName)
             if isBookmarked {
                 Image(systemName: "bookmark.fill")
                     .font(.caption)
@@ -1193,6 +1319,40 @@ private struct SidePanelPageCell: View {
         // 読み込み直させる(AppState.loadPageThumbnailのコメント参照)。
         .task(id: "\(thumbnailGeneration)#\(index)") {
             image = await loadThumbnail?(index)
+        }
+    }
+
+    /// サムネイルをホバーしたときのpopoverの中身。フル解像度画像(previewImage)とファイル名を
+    /// 縦に並べる。構成・サイズ(440x440)はThumbnailGridView.ThumbnailCell /
+    /// BookmarkListView.PageRowViewのthumbnailPreviewContentと揃えてある(ユーザー要望)。
+    /// popoverが実際に画面へ表示されるたびに.taskが実行される(SwiftUIのpopoverは表示のたびに
+    /// コンテンツビューを作り直すため)ので、まだ読み込んでいなければそこで読み込む。
+    /// previewImageは@Stateとして親(SidePanelPageCell)側に持たせているため、閉じて再度
+    /// ホバーしても読み込み直さない。
+    private var thumbnailPreviewContent: some View {
+        VStack(spacing: 8) {
+            Group {
+                if let previewImage {
+                    Image(decorative: previewImage, scale: 1)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                } else {
+                    ProgressView()
+                }
+            }
+            .frame(width: Self.previewSize, height: Self.previewSize)
+
+            Text(displayName)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: Self.previewSize)
+        }
+        .padding(12)
+        .task {
+            guard previewImage == nil else { return }
+            previewImage = await loadPageImage?(index)
         }
     }
 }

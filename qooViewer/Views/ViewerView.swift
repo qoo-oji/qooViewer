@@ -254,9 +254,13 @@ struct ViewerView: View {
         // サイドパネル(ページモード)のサムネイル取得の橋渡し
         // (AppState.loadPageThumbnailのコメント参照)。ページ一覧グリッド
         // (ThumbnailGridView)と同じ、進捗バー用の軽量サムネイルキャッシュを共有する。
-        appState.updateLoadPageThumbnail { index in
+        // ホバー時の拡大プレビュー用のフル解像度画像(pageImageLoader)も同時に登録する
+        // (AppState.loadPageImageのコメント参照)。
+        appState.updateLoadPageThumbnail({ index in
             await viewModel.loadThumbnail(at: index)
-        }
+        }, pageImageLoader: { index in
+            await viewModel.pageImage(at: index)
+        })
         appState.updateCurrentBookmarks(viewModel.bookmarks)
         appState.updateCurrentPageIndex(viewModel.currentIndex)
         appState.updateCurrentBookPages(viewModel.book.pages)
