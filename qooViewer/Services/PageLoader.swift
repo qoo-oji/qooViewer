@@ -73,6 +73,23 @@ actor PageLoader {
     /// そのため、同じページへの読み込みが既に進行中ならその結果を待ち合わせる(合流させる)。
     private var inFlightTasks: [String: Task<CGImage?, Never>] = [:]
 
+    /// pageSize(at:)の結果を、page.id(内容ベースの安定したキー。imageCacheと同じ)で覚えておく。
+    ///
+    /// pageSize(at:)はピクセルデコードこそ伴わないが、ヘッダーを読むためにrawData(for:)で
+    /// 画像の生データを取り出す必要があり、アーカイブ本(zip/rar/7z)ではこれがエントリの
+    /// 完全な展開になる(ZipArchiveReader.data(at:)参照)。一方、呼び出し元である
+    /// ViewerViewModelの横長判定は、本を開いた直後の全ページ先読み判定
+    /// (warmUpWideImageCacheForEntireBook)・表示のたびの周辺ページ判定(primeWideImageCache)・
+    /// 自動レイアウト計算(wideImageAspectRatios)と、同じページへ複数の経路から到達しうる。
+    /// 呼び出し側にもキャッシュ(wideImageCache)はあるが、あちらは判定結果(Bool)を持つもので、
+    /// 複数の経路が同時に走った場合は同じページの展開が重複しうる。幅・高さはページの内容が
+    /// 同じである限り不変なので、ここで素直に覚えておく。
+    ///
+    /// 画像本体と違いメモリをほとんど使わない(1ページあたり整数2つ)ため、NSCacheではなく
+    /// 素のDictionaryでよい。コントラスト補正の切り替え(setContrastCorrectionEnabled)でも
+    /// ピクセル寸法は変わらないため、そちらでは破棄しない。
+    private var pageSizeCache: [String: (width: Int, height: Int)] = [:]
+
     // countLimitは64。環境設定の「先読みする画像数」は最大10まで設定できるため、
     // 前後合わせて最大21枚(2*10+1)が先読み対象になる。NSCacheの上限はヒントに過ぎず
     // 厳密なLRUでもないため、ウィンドウぎりぎりの数に合わせるとプリフェッチしたばかりの
@@ -162,18 +179,28 @@ actor PageLoader {
     /// 持つことが稀なため、実用上の影響は小さいと判断している。
     func pageSize(at index: Int) async -> (width: Int, height: Int)? {
         guard book.pages.indices.contains(index) else { return nil }
-        switch book.pages[index].source {
+        let page = book.pages[index]
+        if let cached = pageSizeCache[page.id] { return cached }
+
+        let size: (width: Int, height: Int)?
+        switch page.source {
         case .pdf(let pdfURL, let pageIndex):
-            guard let document = pdfDocument(for: pdfURL), let page = document.page(at: pageIndex + 1) else {
+            guard let document = pdfDocument(for: pdfURL), let pdfPage = document.page(at: pageIndex + 1) else {
                 return nil
             }
-            let box = page.getBoxRect(.mediaBox)
+            let box = pdfPage.getBoxRect(.mediaBox)
             guard box.width > 0, box.height > 0 else { return nil }
-            return (Int(box.width.rounded()), Int(box.height.rounded()))
+            size = (Int(box.width.rounded()), Int(box.height.rounded()))
         case .file, .zip, .sevenZip, .rar:
-            guard let data = rawData(for: book.pages[index].source) else { return nil }
-            return ImageDecoder.pixelSize(of: data)
+            guard let data = rawData(for: page.source) else { return nil }
+            size = ImageDecoder.pixelSize(of: data)
         }
+
+        // 取得できなかった場合(未対応フォーマット等)はキャッシュしない。次回改めて試みる。
+        if let size {
+            pageSizeCache[page.id] = size
+        }
+        return size
     }
 
     /// コンテキストメニュー「情報を見る」(ユーザー要望)向けに、指定ページの画像ファイル情報を

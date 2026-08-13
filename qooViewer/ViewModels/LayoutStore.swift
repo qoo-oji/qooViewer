@@ -267,28 +267,17 @@ final class LayoutStore: ObservableObject {
     /// 実際に何らかのレイアウトデータを書き込む直前にだけ呼ぶ(単に「参照したいだけ」の場合は
     /// bookLayoutSettings(forBookID:)を使う。空のBookLayoutSettings行を作るだけの副作用を
     /// 避けるため)。
+    ///
+    /// かつてここには、同じbookIDの行が重複していないかを確認するための診断用ログ
+    /// (全BookLayoutSettings行のbookID一覧を毎回joinして出力するもの)を仕込んでいたが、
+    /// 疑っていた「フェッチが直前の挿入を見落とす」という筋ではなく@Attribute(.unique)が
+    /// 真因だったと判明し(lastSaveErrorMessageのコメント参照)、既に対処済みのため撤去した。
+    /// 呼ばれるたびに全行を走査して文字列を組み立てる計装だったため、残しておくと
+    /// DEBUGビルドでの編集操作がデータ量に比例して重くなる。
     private func existingOrNewSettings(for book: MangaBook) -> BookLayoutSettings {
-        // 診断用ログ(不具合調査中の一時的な計装。原因判明済みのため既定では無効化。
-        // 再調査が必要になった場合はDEBUGビルドで有効になる)。全BookLayoutSettings行の
-        // bookID一覧を出し、同じbookIDの行が複数(重複)存在していないかを確認できるように
-        // する(@Attribute(.unique)のはずだが、フェッチが直前の挿入を見落として「新規作成」の
-        // 分岐に入ってしまうと、実質的な重複行が作られてしまう可能性を疑っている)。
-        #if DEBUG
-        let allBookIDs = allBookLayoutSettings().map(\.bookID)
-        NSLog(
-            "qooViewer[diag]: existingOrNewSettings called for bookID=%@ allBookLayoutSettingsBookIDs=%@",
-            book.id, allBookIDs.joined(separator: " | ")
-        )
-        #endif
         if let existing = bookLayoutSettings(forBookID: book.id) {
-            #if DEBUG
-            NSLog("qooViewer[diag]: existingOrNewSettings -> found existing settings row")
-            #endif
             return existing
         }
-        #if DEBUG
-        NSLog("qooViewer[diag]: existingOrNewSettings -> NOT FOUND, creating NEW BookLayoutSettings row")
-        #endif
         let created = BookLayoutSettings(
             bookID: book.id, fileNodeIdentifier: FileNodeIdentifier.current(for: book.sourceURL)
         )
@@ -448,68 +437,31 @@ final class LayoutStore: ObservableObject {
 
     /// 指定した1ページの設定を書き換える。stateがnilなら「レイアウトなし」に戻す
     /// (行自体を削除する。詳細はPageLayoutState.swiftのコメント参照)。
+    ///
+    /// existingOrNewSettingsと同じく、ここにあった診断用ログ(呼び出しのたびにこの本の
+    /// PageLayoutOverride全件のpageKeyをsort+joinして出力するものが、書き込み前・insert直後・
+    /// save後の3箇所)も、真因(@Attribute(.unique))の判明・対処に伴って撤去した。
     func setPageLayoutState(for book: MangaBook, pageKey: String, state: PageLayoutState?) {
         let bookID = book.id
-        // 診断用ログ(不具合調査中の一時的な計装。原因判明済みのため既定では無効化。
-        // 再調査が必要になった場合はDEBUGビルドで有効になる)。この時点でこのbookIDに紐づく
-        // PageLayoutOverride全件(pageKey一覧)を出しておくことで、「更新」と「新規挿入」の
-        // どちらの分岐に入ったか、その直前に何件・どのpageKeyの行が存在していたかを
-        // 確認できるようにする。
-        #if DEBUG
-        let existingKeysBefore = pageOverrides(forBookID: bookID).map(\.pageKey).sorted()
-        NSLog(
-            "qooViewer[diag]: setPageLayoutState bookID=%@ pageKey=%@ newState=%@ existingKeysBefore=%@",
-            bookID, pageKey, state?.rawValue ?? "nil", existingKeysBefore.joined(separator: ",")
-        )
-        #endif
         if let state {
             if let existing = pageOverride(forBookID: bookID, pageKey: pageKey) {
-                #if DEBUG
-                NSLog("qooViewer[diag]: setPageLayoutState -> UPDATE existing row for pageKey=%@", pageKey)
-                #endif
                 existing.state = state
             } else {
                 // ページ単位のデータを新規に書き込むタイミングでも、本全体の指紋アンカー
                 // (BookLayoutSettings行)が存在することを保証しておく(差し替え検知の対象を
                 // 本全体設定だけでなくページ単位設定も含めるため)。
-                #if DEBUG
-                NSLog("qooViewer[diag]: setPageLayoutState -> INSERT new row for pageKey=%@", pageKey)
-                #endif
                 _ = existingOrNewSettings(for: book)
                 let created = PageLayoutOverride(bookID: bookID, pageKey: pageKey, state: state)
                 modelContext.insert(created)
                 cacheInsertedOverride(created)
-                // 診断用ログ(不具合調査中の一時的な計装)。insert()直後・save()より前の時点で
-                // 再フェッチし、「insert自体が既存行を見えなくする」のか「save()が原因」なのかを
-                // 切り分ける。
-                #if DEBUG
-                let keysRightAfterInsert = pageOverrides(forBookID: bookID).map(\.pageKey).sorted()
-                NSLog(
-                    "qooViewer[diag]: setPageLayoutState right after insert() (before save) keys=%@",
-                    keysRightAfterInsert.joined(separator: ",")
-                )
-                #endif
             }
         } else if let existing = pageOverride(forBookID: bookID, pageKey: pageKey) {
-            #if DEBUG
-            NSLog("qooViewer[diag]: setPageLayoutState -> DELETE row for pageKey=%@", pageKey)
-            #endif
             modelContext.delete(existing)
             cacheRemovedOverrides([existing], forBookID: bookID)
         } else {
-            #if DEBUG
-            NSLog("qooViewer[diag]: setPageLayoutState -> no-op (state=nil, no existing row) for pageKey=%@", pageKey)
-            #endif
             return
         }
         saveAndNotify(bookID: bookID)
-        #if DEBUG
-        let existingKeysAfter = pageOverrides(forBookID: bookID).map(\.pageKey).sorted()
-        NSLog(
-            "qooViewer[diag]: setPageLayoutState after save existingKeysAfter=%@",
-            existingKeysAfter.joined(separator: ",")
-        )
-        #endif
     }
 
     /// 複数ページの状態を1回のトランザクションとしてまとめて書き込む(3.3節の伝播範囲。

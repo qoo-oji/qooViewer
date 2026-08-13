@@ -3,27 +3,6 @@ import AppKit
 import Combine
 import UniformTypeIdentifiers
 
-/// 出力先フォルダパネル(NSOpenPanel、canChooseDirectories = true)が最後に開いたフォルダを
-/// 記憶する(7.3節)。JSON入出力のLibraryIOFolderMemoryと同じ仕組みだが、目的(EPUB出力先)が
-/// 異なるため別のUserDefaultsキーを使う専用の仕組みとして分離している。
-private enum EpubExportFolderMemory {
-    private static let defaultsKey = "qooViewer.pref.lastEpubExportFolderBookmark"
-
-    static func lastFolder() -> URL? {
-        guard let data = UserDefaults.standard.data(forKey: defaultsKey) else { return nil }
-        var isStale = false
-        return try? URL(
-            resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale
-        )
-    }
-
-    static func remember(_ folderURL: URL) {
-        guard let data = try? folderURL.bookmarkData(
-            options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
-        ) else { return }
-        UserDefaults.standard.set(data, forKey: defaultsKey)
-    }
-}
 
 /// 設計コンセプト7節: EPUB出力専用ウインドウ。File メニューの「epub出力…」から開く。
 /// 「ブックマーク・レイアウトの編集」ウインドウと同じく、本を今開いているかどうかに関わらず
@@ -324,11 +303,11 @@ private struct EpubExportContentView: View {
         panel.allowsMultipleSelection = false
         panel.prompt = String(localized: "Choose", locale: locale)
         panel.message = String(localized: "Choose a destination folder for the exported EPUB files.", locale: locale)
-        if let lastFolder = EpubExportFolderMemory.lastFolder() {
+        if let lastFolder = LastUsedFolderMemory.epubExport.lastFolder() {
             panel.directoryURL = lastFolder
         }
         guard panel.runModal() == .OK, let destination = panel.url else { return }
-        EpubExportFolderMemory.remember(destination)
+        LastUsedFolderMemory.epubExport.remember(destination)
 
         guard viewModel.hasSufficientDiskSpace(at: destination) else {
             insufficientSpaceMessage = String(

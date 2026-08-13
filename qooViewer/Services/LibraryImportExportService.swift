@@ -622,25 +622,3 @@ enum LibraryImportExportService {
     }
 }
 
-/// エクスポート/インポートのファイル選択パネルが最後に開いたフォルダを記憶する。
-/// AppPreferencesは既存のUserDefaultsキー(単純なBool/Double/enum rawValueのみ)のパターンに
-/// 合わせているため、セキュリティスコープ付きブックマーク(Data)を保存するこの用途では
-/// あえて専用の小さな仕組みとして分離している。
-enum LibraryIOFolderMemory {
-    private static let defaultsKey = "qooViewer.pref.lastLibraryIOFolderBookmark"
-
-    static func lastFolder() -> URL? {
-        guard let data = UserDefaults.standard.data(forKey: defaultsKey) else { return nil }
-        var isStale = false
-        return try? URL(
-            resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale
-        )
-    }
-
-    static func remember(_ folderURL: URL) {
-        guard let data = try? folderURL.bookmarkData(
-            options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
-        ) else { return }
-        UserDefaults.standard.set(data, forKey: defaultsKey)
-    }
-}

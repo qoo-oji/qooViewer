@@ -232,11 +232,11 @@ struct LibraryImportWindow: View {
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.json]
         panel.message = String(localized: "Choose a JSON file exported from qooViewer.", locale: locale)
-        if let lastFolder = LibraryIOFolderMemory.lastFolder() {
+        if let lastFolder = LastUsedFolderMemory.libraryIO.lastFolder() {
             panel.directoryURL = lastFolder
         }
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        LibraryIOFolderMemory.remember(url.deletingLastPathComponent())
+        LastUsedFolderMemory.libraryIO.remember(url.deletingLastPathComponent())
 
         do {
             let file = try LibraryImportExportService.read(from: url)

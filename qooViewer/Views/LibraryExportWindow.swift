@@ -146,11 +146,11 @@ struct LibraryExportWindow: View {
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = String(localized: "qooViewer Library.json", locale: locale)
         panel.message = String(localized: "Choose where to save the exported JSON file.", locale: locale)
-        if let lastFolder = LibraryIOFolderMemory.lastFolder() {
+        if let lastFolder = LastUsedFolderMemory.libraryIO.lastFolder() {
             panel.directoryURL = lastFolder
         }
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        LibraryIOFolderMemory.remember(url.deletingLastPathComponent())
+        LastUsedFolderMemory.libraryIO.remember(url.deletingLastPathComponent())
 
         isExporting = true
         resultMessage = nil

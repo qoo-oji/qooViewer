@@ -2,26 +2,6 @@ import SwiftUI
 import AppKit
 import Combine
 
-/// 出力先フォルダパネルが最後に開いたフォルダを記憶する。EpubExportFolderMemoryと同じ仕組みだが、
-/// 目的(PDF出力先)が異なるため別のUserDefaultsキーを使う専用の仕組みとして分離している。
-private enum PDFExportFolderMemory {
-    private static let defaultsKey = "qooViewer.pref.lastPdfExportFolderBookmark"
-
-    static func lastFolder() -> URL? {
-        guard let data = UserDefaults.standard.data(forKey: defaultsKey) else { return nil }
-        var isStale = false
-        return try? URL(
-            resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale
-        )
-    }
-
-    static func remember(_ folderURL: URL) {
-        guard let data = try? folderURL.bookmarkData(
-            options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
-        ) else { return }
-        UserDefaults.standard.set(data, forKey: defaultsKey)
-    }
-}
 
 /// PDF出力専用ウインドウ。File メニューの「PDFとしてエクスポート…」(「EPUBとしてエクスポート…」の
 /// 直下)から開く。EpubExportWindowと同じく、本を今開いているかどうかに関わらずいつでも開ける
@@ -268,11 +248,11 @@ private struct PDFExportContentView: View {
         panel.allowsMultipleSelection = false
         panel.prompt = String(localized: "Choose", locale: locale)
         panel.message = String(localized: "Choose a destination folder for the exported PDF files.", locale: locale)
-        if let lastFolder = PDFExportFolderMemory.lastFolder() {
+        if let lastFolder = LastUsedFolderMemory.pdfExport.lastFolder() {
             panel.directoryURL = lastFolder
         }
         guard panel.runModal() == .OK, let destination = panel.url else { return }
-        PDFExportFolderMemory.remember(destination)
+        LastUsedFolderMemory.pdfExport.remember(destination)
 
         guard viewModel.hasSufficientDiskSpace(at: destination) else {
             insufficientSpaceMessage = String(

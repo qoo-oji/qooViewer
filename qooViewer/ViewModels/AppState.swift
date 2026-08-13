@@ -278,36 +278,51 @@ final class AppState: ObservableObject {
         hasCurrentPageLayoutOverride: Bool,
         hasPartnerPageLayoutOverride: Bool
     ) {
-        self.isSlideshowActive = isSlideshowActive
-        self.isLoupeActive = isLoupeActive
-        self.isSpreadMode = displayMode == .spread
-        self.isRightToLeft = readingDirection == .rightToLeft
-        self.currentScalingMode = scalingMode
-        self.isContrastCorrectionEnabled = isContrastCorrectionEnabled
-        self.isReadingDirectionLocked = isReadingDirectionLocked
-        self.isDisplayModeLocked = isDisplayModeLocked
-        self.isPageShiftLocked = isPageShiftLocked
-        self.hasAuthoritativeSourceLayout = hasAuthoritativeSourceLayout
-        self.hasPartnerPageDisplayed = hasPartnerPageDisplayed
-        self.hasCurrentPageLayoutOverride = hasCurrentPageLayoutOverride
-        self.hasPartnerPageLayoutOverride = hasPartnerPageLayoutOverride
+        // 値が実際に変わったときだけ代入する。@Publishedは代入のたびに(同じ値であっても)
+        // objectWillChangeを発火するため、無条件に代入すると1回の呼び出しで13回の変更通知が
+        // 出る。しかもこのメソッドの呼び出し元(ViewerView.syncMenuCheckmarkState)は10箇所ほどの
+        // .onChangeから呼ばれており、そのうちcurrentIndexとcurrentImages.countはページを1枚
+        // めくるたびに両方発火する。つまり、メニュー関連の値が1つも変わっていない通常のページ
+        // 送りでも、このAppStateを購読しているContentViewの再評価を何度も促していた
+        // (BookmarkStore.bookSortOptionのdidSetで、表示に影響しない再計算をやめたのと同じ考え方)。
+        setIfChanged(&self.isSlideshowActive, isSlideshowActive)
+        setIfChanged(&self.isLoupeActive, isLoupeActive)
+        setIfChanged(&self.isSpreadMode, displayMode == .spread)
+        setIfChanged(&self.isRightToLeft, readingDirection == .rightToLeft)
+        setIfChanged(&self.currentScalingMode, scalingMode)
+        setIfChanged(&self.isContrastCorrectionEnabled, isContrastCorrectionEnabled)
+        setIfChanged(&self.isReadingDirectionLocked, isReadingDirectionLocked)
+        setIfChanged(&self.isDisplayModeLocked, isDisplayModeLocked)
+        setIfChanged(&self.isPageShiftLocked, isPageShiftLocked)
+        setIfChanged(&self.hasAuthoritativeSourceLayout, hasAuthoritativeSourceLayout)
+        setIfChanged(&self.hasPartnerPageDisplayed, hasPartnerPageDisplayed)
+        setIfChanged(&self.hasCurrentPageLayoutOverride, hasCurrentPageLayoutOverride)
+        setIfChanged(&self.hasPartnerPageLayoutOverride, hasPartnerPageLayoutOverride)
+    }
+
+    /// 値が変わったときだけ代入する(@Publishedの不要な発火を避ける。
+    /// updateMenuCheckmarkState/resetMenuCheckmarkStateのコメント参照)。
+    private func setIfChanged<Value: Equatable>(_ storage: inout Value, _ newValue: Value) {
+        guard storage != newValue else { return }
+        storage = newValue
     }
 
     /// ViewerViewが閉じるとき(本を閉じたとき)に、メニューバーのチェックマーク状態をクリアする。
     func resetMenuCheckmarkState() {
-        isSlideshowActive = false
-        isLoupeActive = false
-        isSpreadMode = false
-        isRightToLeft = false
-        currentScalingMode = .fitToScreen
-        isContrastCorrectionEnabled = false
-        isReadingDirectionLocked = false
-        isDisplayModeLocked = false
-        isPageShiftLocked = false
-        hasAuthoritativeSourceLayout = false
-        hasPartnerPageDisplayed = false
-        hasCurrentPageLayoutOverride = false
-        hasPartnerPageLayoutOverride = false
+        // updateMenuCheckmarkStateと同じ理由で、変わったものだけ代入する。
+        setIfChanged(&isSlideshowActive, false)
+        setIfChanged(&isLoupeActive, false)
+        setIfChanged(&isSpreadMode, false)
+        setIfChanged(&isRightToLeft, false)
+        setIfChanged(&currentScalingMode, .fitToScreen)
+        setIfChanged(&isContrastCorrectionEnabled, false)
+        setIfChanged(&isReadingDirectionLocked, false)
+        setIfChanged(&isDisplayModeLocked, false)
+        setIfChanged(&isPageShiftLocked, false)
+        setIfChanged(&hasAuthoritativeSourceLayout, false)
+        setIfChanged(&hasPartnerPageDisplayed, false)
+        setIfChanged(&hasCurrentPageLayoutOverride, false)
+        setIfChanged(&hasPartnerPageLayoutOverride, false)
     }
 
     /// performViewerAction/jumpToBookmark/addBookmarkAction/setScalingMode、および

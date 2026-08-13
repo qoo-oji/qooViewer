@@ -52,7 +52,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
     /// layoutStore.pageOverride(forBookID:pageKey:)でSwiftDataへ直接フェッチしていたが、
     /// 「あるページのレイアウトを変更すると無関係な他のページまで変わって見える/レイアウトなしに
     /// 戻ってしまう」という不具合が報告された(ユーザー報告)。1回のレイアウト変更の中で
-    /// 複数ページへの書き込み(writeAnchorPin→LayoutAutoCalculator.recalculateの結果の反映)が
+    /// 複数ページへの書き込み(anchorPinStates + LayoutAutoCalculator.recalculateの結果の反映)が
     /// 連続して発生する際、各行が「今この瞬間のSwiftDataの状態」を都度フェッチしに行くと、
     /// 書き込みの合間の一時的な状態を拾ってしまう余地があった。そのため、書き込みが完了した
     /// 後にこのViewModelが1回だけ確定させたスナップショットをPublishし、各行はそれだけを
@@ -87,7 +87,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
     }
 
     /// この本の実効的な読み方向。「見開き右/見開き左」を実際の画面上の右/左と一致させるため、
-    /// anchor(forPageKey:explicitState:in:)/writeAnchorPin/setPageLayoutの計算にこれを使う
+    /// anchor(forPageKey:explicitState:in:)/anchorPinStates/setPageLayoutの計算にこれを使う
     /// (ViewerViewModel.readingDirectionと同じ優先順位: ソースファイル自身(EPUB/PDF)由来 >
     /// DB保存値 > 環境設定の既定値。
     /// ただしViewerViewModelと異なり、この編集ウインドウは「最後に読んでいた位置」を持つ
@@ -490,25 +490,25 @@ final class BookLayoutEditorViewModel: ObservableObject {
 
     /// anchor.pageKeysは常に[先に読むページ, 2番目に読むページ]の順(anchor(forPageKey:
     /// explicitState:in:)参照)。どちらに「見開き右」「見開き左」を割り当てるかは読み方向による。
-    private func writeAnchorPin(_ anchor: LayoutAutoCalculator.Anchor, explicitState: PageLayoutState, book: MangaBook) {
+    ///
+    /// 以前(writeAnchorPin)はこの場でlayoutStore.setPageLayoutStateを直接呼んでいたが、
+    /// 呼び出し元が直前にsetPageLayoutStates(まとめ書き)を済ませているため、1回のレイアウト
+    /// 操作でsave()+通知が最大3回発生していた。値を返すだけにして呼び出し元でplannedへ
+    /// マージしてもらう(ViewerViewModel.anchorPinStatesと同じ修正・同じ理由)。
+    private func anchorPinStates(
+        _ anchor: LayoutAutoCalculator.Anchor, explicitState: PageLayoutState
+    ) -> [String: PageLayoutState] {
         if anchor.pageKeys.count >= 2, let earlier = anchor.pageKeys.first, let later = anchor.pageKeys.dropFirst().first {
             let isRTL = effectiveReadingDirection == .rightToLeft
-            let earlierState: PageLayoutState = isRTL ? .spreadRight : .spreadLeft
-            let laterState: PageLayoutState = isRTL ? .spreadLeft : .spreadRight
-            #if DEBUG
-            NSLog("qooViewer[diag]: writeAnchorPin write earlier=%@ -> %@", earlier, earlierState.rawValue)
-            #endif
-            layoutStore.setPageLayoutState(for: book, pageKey: earlier, state: earlierState)
-            #if DEBUG
-            NSLog("qooViewer[diag]: writeAnchorPin write later=%@ -> %@", later, laterState.rawValue)
-            #endif
-            layoutStore.setPageLayoutState(for: book, pageKey: later, state: laterState)
+            // 辞書リテラルにしないのはViewerViewModel.anchorPinStatesと同じ理由(コメント参照)。
+            var states: [String: PageLayoutState] = [:]
+            states[earlier] = isRTL ? .spreadRight : .spreadLeft
+            states[later] = isRTL ? .spreadLeft : .spreadRight
+            return states
         } else if let only = anchor.pageKeys.first {
-            #if DEBUG
-            NSLog("qooViewer[diag]: writeAnchorPin write only=%@ -> %@", only, explicitState.rawValue)
-            #endif
-            layoutStore.setPageLayoutState(for: book, pageKey: only, state: explicitState)
+            return [only: explicitState]
         }
+        return [:]
     }
 
     private func isWideImage(_ image: CGImage) -> Bool {
@@ -531,23 +531,13 @@ final class BookLayoutEditorViewModel: ObservableObject {
     /// ビューアのViewerViewModel.setPageLayout(atIndex:to:scope:)と同じアルゴリズムを、
     /// この編集ウインドウのrows(除外ページも含む)向けに再構成したもの。
     ///
-    /// overridesByKeyは、writeAnchorPin(起点ページ自身への書き込み)より前の時点で1回だけ
-    /// 取得したスナップショットを使う。writeAnchorPin自体が「他のページ」の除外状態を
-    /// 変えることは無い(起点ページ自身の状態しか書き込まない)ため、この後のreadableKeys/
+    /// overridesByKeyは、起点ページ自身への書き込み(anchorPinStates)より前の時点で1回だけ
+    /// 取得したスナップショットを使う。そちら自体が「他のページ」の除外状態を変えることは無い
+    /// (起点ページ自身の状態しか書き込まない)ため、この後のreadableKeys/
     /// wideImageAspectRatios/recalculateの計算中に除外状態が変化する心配はない。
     func setPageLayout(pageKey: String, to state: PageLayoutState, scope: LayoutPropagationScope) async {
         guard let book else { return }
         let overridesByKey = currentOverridesByKey()
-        // 診断用ログ(不具合調査中の一時的な計装。原因判明済みのため既定では無効化。
-        // 再調査が必要になった場合はDEBUGビルドで有効になる)。「あるページをthisPageOnlyで
-        // 設定すると無関係な別のページの設定が消える」という不具合の再現条件をConsole.app/
-        // Xcodeコンソールで確認できるよう、書き込み前後の状態を出力する。
-        #if DEBUG
-        NSLog(
-            "qooViewer[diag]: setPageLayout START pageKey=%@ state=%@ scope=%@ existingOverrides=%@",
-            pageKey, state.rawValue, String(describing: scope), Self.describe(overridesByKey)
-        )
-        #endif
 
         // 除外(非表示)から除外以外の状態に変わる場合、ファイル名基準の自然順で想定される位置へ
         // 並び順を補正する(ユーザー要望)。除外中はrows内の位置がそのまま保持される
@@ -572,40 +562,26 @@ final class BookLayoutEditorViewModel: ObservableObject {
             // effectiveReadingIndexを振り直す。
             refreshEffectiveIndices()
             postLayoutFocusChange(pageKey: pageKey)
-            #if DEBUG
-            NSLog(
-                "qooViewer[diag]: setPageLayout END(thisPageOnly) pageLayoutStates=%@",
-                Self.describe(pageLayoutStates)
-            )
-            #endif
             return
         }
 
         let readable = readableKeys(currentPageKey: pageKey, newState: state, overridesByKey: overridesByKey)
         let pageAnchor = anchor(forPageKey: pageKey, explicitState: state, in: readable)
-        #if DEBUG
-        NSLog(
-            "qooViewer[diag]: setPageLayout readable=%@ anchorPageKeys=%@",
-            readable.joined(separator: ","), pageAnchor.pageKeys.joined(separator: ",")
-        )
-        #endif
         let wideness = await wideImageAspectRatios(for: readable)
         let planned = LayoutAutoCalculator.recalculate(
             orderedPageKeys: readable, anchor: pageAnchor, scope: scope,
             isWideImage: { wideness[$0] ?? false }, isRightToLeft: effectiveReadingDirection == .rightToLeft
         )
-        #if DEBUG
-        NSLog("qooViewer[diag]: setPageLayout planned=%@", Self.describe(planned))
-        #endif
         // plannedはreadable(既に除外ページを取り除いた読書順キー列)の範囲内でしか計算されない
         // ため、この書き込みが「除外」設定済みのページに触れることは無い(3.3節・要望)。
         // 1件ずつsetPageLayoutStateを呼ぶのではなく、まとめて1回のトランザクションとして
         // 書き込む(setPageLayoutStatesのコメント参照。連続した個別書き込みが原因と思われる
-        // 不具合(ユーザー報告)への対策)。
-        layoutStore.setPageLayoutStates(for: book, planned)
-        // writeAnchorPinは、ここで操作したページ自身の状態(state)を最終確定させるための
-        // 書き込みとして、plannedの適用より後に呼ぶ(ViewerViewModel.setPageLayoutと同じ
-        // 修正・同じ理由)。
+        // 不具合(ユーザー報告)への対策)。起点ページ自身への書き込み(anchorPinStates)も、
+        // 別の書き込みとして分けずにここへマージして1回で済ませる。
+        //
+        // マージの向きは「anchorPinStatesがplannedを上書きする」。これは以前
+        // writeAnchorPinをplannedの適用より後に呼んでいたのと同じ意味になる
+        // (ViewerViewModel.setPageLayoutと同じ修正・同じ理由)。
         //
         // 経緯(ユーザー報告): 本の先頭ページを「見開き左」に設定しても、実際には「単一
         // ページ」に置き換わってしまう不具合があった。原因は書き込み順序にあった:
@@ -621,35 +597,17 @@ final class BookLayoutEditorViewModel: ObservableObject {
         // 書いた正しいspreadLeftを上書きしてしまっていた。writeAnchorPinをplannedの適用
         // より後に呼ぶことで、ユーザーが直接指定したstateが常に最終的な書き込みとして
         // 勝つようにする(2ページ揃った通常のケースでは、planned側のanchorPinと
-        // writeAnchorPinが同じ値を書くため、順序を変えても結果は変わらない)。
-        writeAnchorPin(pageAnchor, explicitState: state, book: book)
-        #if DEBUG
-        NSLog(
-            "qooViewer[diag]: setPageLayout after writeAnchorPin overrides=%@",
-            Self.describe(currentOverridesByKey())
-        )
-        #endif
+        // anchorPinStatesが同じ値を書くため、どちらが勝っても結果は変わらない)。
+        var merged = planned
+        for (pinnedPageKey, pinnedState) in anchorPinStates(pageAnchor, explicitState: state) {
+            merged[pinnedPageKey] = pinnedState
+        }
+        layoutStore.setPageLayoutStates(for: book, merged)
         // 除外状態が変わった可能性があるため、effectiveReadingIndex(ブックマークの突き合わせに
         // 使う空間)を振り直す。並び順自体(rowsの順序)は変わらない。
         refreshEffectiveIndices()
         postLayoutFocusChange(pageKey: pageKey)
-        #if DEBUG
-        NSLog(
-            "qooViewer[diag]: setPageLayout END pageLayoutStates=%@",
-            Self.describe(pageLayoutStates)
-        )
-        #endif
     }
-
-    /// 診断用ログ整形ヘルパー(不具合調査中の一時的な計装。原因判明済みのため既定では無効化。
-    /// 再調査が必要になった場合はDEBUGビルドで有効になる)。pageKeyでソートして毎回同じ順序で
-    /// 出力することで、ログの読み比べをしやすくする。
-    #if DEBUG
-    private static func describe(_ dict: [String: PageLayoutState]) -> String {
-        if dict.isEmpty { return "(empty)" }
-        return dict.keys.sorted().map { "\($0)=\(dict[$0]!.rawValue)" }.joined(separator: ", ")
-    }
-    #endif
 
     /// 4.2節の「レイアウト」ドロップダウンで「レイアウトなし」に戻した場合。伝播範囲の選択は
     /// 行わない(このページ自体を未設定に戻すだけの操作のため。ViewerViewModel.clearPageLayoutと

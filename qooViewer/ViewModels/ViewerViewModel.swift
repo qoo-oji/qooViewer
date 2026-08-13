@@ -177,6 +177,18 @@ final class ViewerViewModel: ObservableObject {
     private let pageFlipFrameDuration: UInt64 = 10_000_000 // 0.01秒
     /// SwiftDataへの実際の保存(ディスクI/O)をまとめて行うためのデバウンス用タスク。
     private var saveDebounceTask: Task<Void, Never>?
+    /// layoutDataDidChange通知によるreloadLayoutDataをまとめるためのデバウンス用タスク。
+    ///
+    /// 経緯: 1回のレイアウト操作(setPageLayout等)は、LayoutStoreの書き込みによる通知と、
+    /// 「ユーザーが直接操作したページ」を伝えるpostLayoutFocusChangeの通知を続けて発生させる。
+    /// layoutDataChangeObserverはobject: nilで購読している(他ウインドウからの変更も拾う必要が
+    /// あるため、送信元で絞り込めない)ので、自分自身が起こした変更ぶんの通知もすべて受け取り、
+    /// そのたびにreloadLayoutData(ページ一覧の再構築 + loadCurrentSpreadによる画像デコード・
+    /// 先読み)を丸ごとやり直していた。reloadLayoutDataは差分ではなく常に最新状態を読み直す
+    /// 冪等な処理のため、連続した通知は1回にまとめて構わない(最後の1回が最終状態を読む)。
+    private var layoutReloadDebounceTask: Task<Void, Never>?
+    /// デバウンス待ちの間に受け取ったfocusPageKey(複数あれば最後の非nilを採用する)。
+    private var pendingLayoutReloadFocusPageKey: String?
 
     init(book incomingBook: MangaBook, modelContext: ModelContext, preferences: AppPreferences, layoutStore: LayoutStore) {
         self.modelContext = modelContext
@@ -396,9 +408,19 @@ final class ViewerViewModel: ObservableObject {
             // 既にMainActor上にいる」ことを伝える(queue: .mainにより保証されている前提の
             // 表明であり、Task化のような余分な非同期ホップも発生させない)。
             MainActor.assumeIsolated {
+                guard let self else { return }
+                // 自分自身が投げた通知は無視する(BookmarkStoreの同種のガードと同じ考え方)。
+                // このクラスの書き込み経路(addBookmark(atIndex:)/importAutoTOCEntries)は、
+                // 通知を投げる前に既にreloadBookmarks()を済ませているため、ここで受け取って
+                // もう一度reloadBookmarks()まで走らせると、1回の追加につきBookmarkテーブルの
+                // 絞り込み無し全件フェッチを2回行っていることになる(通知はobject: selfで
+                // 投げているのに、購読側はobject: nil=送信元を問わずすべて受け取っていた)。
+                // 他の送信元(BookmarkStore、同じ本を開いている別のウインドウ/タブの
+                // ViewerViewModel)からの通知は、従来どおり実フェッチで取り込む必要がある。
+                guard (notification.object as AnyObject?) !== self else { return }
                 let changedBookID = notification.userInfo?["bookID"] as? String
                 guard changedBookID == nil || changedBookID == ownBookID else { return }
-                self?.reloadBookmarks()
+                self.reloadBookmarks()
             }
         }
 
@@ -417,7 +439,10 @@ final class ViewerViewModel: ObservableObject {
                 let changedBookID = notification.userInfo?["bookID"] as? String
                 guard changedBookID == nil || changedBookID == ownBookID else { return }
                 let focusPageKey = notification.userInfo?["focusPageKey"] as? String
-                self?.reloadLayoutData(focusPageKey: focusPageKey)
+                // 通知経由の読み直しは、直接呼び出し(setPageLayout等が自分で呼ぶぶん)と違って
+                // 1回の操作につき複数回まとめて届くため、まとめてから1回だけ実行する
+                // (layoutReloadDebounceTaskのコメント参照)。
+                self?.scheduleLayoutDataReload(focusPageKey: focusPageKey)
             }
         }
 
@@ -1014,9 +1039,14 @@ final class ViewerViewModel: ObservableObject {
     // 上のbookmarksChangeObserverが担う。
 
     /// 「ブックマークの編集」ウインドウ(横断的に全ての本を扱うBookmarkStore)側にも、この本の
-    /// ブックマークが変更されたことを伝える。自分自身が投げた通知を上のbookmarksChangeObserverで
-    /// 再度受け取ることになるが、reloadBookmarks()をもう一度呼ぶだけの無害な重複であるため、
-    /// あえて自分自身を除外する仕組みは設けていない。
+    /// ブックマークが変更されたことを伝える。
+    ///
+    /// object: selfで投げるのは、上のbookmarksChangeObserverが「自分自身が投げた通知」を
+    /// 判別して読み飛ばせるようにするため。以前はこの重複を「reloadBookmarks()をもう一度
+    /// 呼ぶだけの無害な重複」として許容していたが、reloadBookmarks()はBookmarkテーブルの
+    /// 絞り込み無し全件フェッチであり(#Predicateでの絞り込みが誤って0件を返す不具合を避ける
+    /// ためこの形にしている。reloadBookmarks参照)、ブックマークを1件追加するだけで全件
+    /// フェッチが2回走っていた。BookmarkStore側の同種のガードと同じ考え方で除外する。
     private func postBookmarksDidChange() {
         NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": book.id])
     }
@@ -1414,7 +1444,7 @@ final class ViewerViewModel: ObservableObject {
     ///
     /// page-spread-left/rightは実際の画面上の左右を指す(EPUB仕様上、page-progression-directionに
     /// 応じて著者側が画面上の位置として付与する値。DB由来のPageLayoutState.spreadLeft/
-    /// spreadRightも、anchor(forPageAtIndex:explicitState:)/writeAnchorPinのコメントで説明して
+    /// spreadRightも、anchor(forPageAtIndex:explicitState:)/anchorPinStatesのコメントで説明して
     /// いる通り、常に画面上の左右と一致させる設計にしている)。そのため「targetIndex自身が
     /// 見開きの起点(1枚目、=読み順で先に読むページ)にはなれない位置」「次のページ
     /// (targetIndex+1)が単独、またはtargetIndexより後ろのページと組むべき位置」は、読み方向に
@@ -1619,6 +1649,30 @@ final class ViewerViewModel: ObservableObject {
         reloadLayoutData()
     }
 
+    /// layoutDataDidChange通知によるreloadLayoutDataを、ごく短い間だけまとめてから1回だけ実行する
+    /// (layoutReloadDebounceTaskのコメント参照)。待ち時間は1フレーム相当で、体感できる遅延には
+    /// ならない一方、1回の操作で立て続けに届く通知(NotificationCenterのqueue: .main経由のため、
+    /// それぞれ別のメインキュー処理として届く)を確実に1回へまとめられる。
+    ///
+    /// 万一この待ち時間の外に通知がずれ込んでも、余分な読み直しが1回増えるだけで結果は変わらない
+    /// (reloadLayoutDataは常に最新状態を読み直す冪等な処理のため)。
+    private func scheduleLayoutDataReload(focusPageKey: String?) {
+        // focusPageKeyは「ユーザーが直接操作したページ」を指す追加情報で、通知によっては
+        // 付いていない。まとめる過程で失わないよう、非nilが来たら覚えておく。
+        if let focusPageKey {
+            pendingLayoutReloadFocusPageKey = focusPageKey
+        }
+        layoutReloadDebounceTask?.cancel()
+        layoutReloadDebounceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 16_000_000) // 約1フレーム
+            guard !Task.isCancelled, let self else { return }
+            self.layoutReloadDebounceTask = nil
+            let pendingFocusPageKey = self.pendingLayoutReloadFocusPageKey
+            self.pendingLayoutReloadFocusPageKey = nil
+            self.reloadLayoutData(focusPageKey: pendingFocusPageKey)
+        }
+    }
+
     /// この本のBookLayoutSettings/PageLayoutOverrideを読み直す。layoutDataChangeObserver
     /// (他ウインドウでの変更)、resolveLayoutReplacement(差し替え確認の解決)、setPageLayout/
     /// clearPageLayout/autoLayoutFromCurrentView(3.2節・3.1節の個別ページ操作)のすべてから呼ぶ。
@@ -1663,7 +1717,10 @@ final class ViewerViewModel: ObservableObject {
             to: rawPages, pageOrderOverride: bookLayoutSettings?.pageOrderOverride, overridesByKey: overridesByKey
         )
         let oldPages = book.pages
-        let pagesChanged = rebuiltPages.map(\.sortKey) != oldPages.map(\.sortKey)
+        // sortKeyの配列を2本作って比較すると、この関数が呼ばれるたびにページ数ぶんの
+        // String配列を2つ確保することになる。要素を順に突き合わせるだけで結論は同じなので、
+        // 中間配列を作らないelementsEqualで比べる。
+        let pagesChanged = !rebuiltPages.lazy.map(\.sortKey).elementsEqual(oldPages.lazy.map(\.sortKey))
 
         var updatedBook: MangaBook?
         if pagesChanged {
@@ -1797,6 +1854,21 @@ final class ViewerViewModel: ObservableObject {
         let keySet = Set(orderedPageKeys)
         var result: [String: Bool] = [:]
         for (index, page) in book.pages.enumerated() where keySet.contains(page.sortKey) {
+            // 既に判定済みのページは、そのままwideImageCacheの結果を使う。
+            //
+            // 経緯: 以前はキャッシュを一切見ずに、対象ページすべてへpageLoader.pageSize(at:)を
+            // かけ直していた。しかしwarmUpWideImageCacheForEntireBookが本を開いた時点で本全体の
+            // 同じ判定を済ませてキャッシュしているため、この再取得はほぼ常に「答えが手元にあるのに
+            // 取り直す」二度手間になっていた。しかもpageSize(at:)はアーカイブ本(zip/rar/7z)では
+            // エントリの完全な展開を伴う(ZipArchiveReader.data(at:)参照)ため、本全体を対象にする
+            // 自動レイアウト計算(3.1節)では、ページ数ぶんの解凍がまるごと無駄に走っていた。
+            // どちらも同じしきい値(preferences.singlePageAspectRatioThreshold)による判定で、
+            // しきい値が変わればsinglePageAspectRatioThresholdObserverがキャッシュを破棄するため、
+            // キャッシュを信用して問題ない。
+            if let cached = wideImageCache[page.sortKey] {
+                result[page.sortKey] = cached
+                continue
+            }
             guard let size = await pageLoader.pageSize(at: index) else { continue }
             // isWideImage(pageIndex:)にindexを渡し、この計算のついでにwideImageCacheへも
             // 記録しておく(自動レイアウト計算(3.1節)は本全体を対象にしうるため、これを
@@ -1839,19 +1911,36 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
-    /// anchorの示すページ(1件または2件)へ、明示的な状態を書き込む。anchor.pageKeysは常に
-    /// [先に読むページ, 2番目に読むページ]の順(anchor(forPageAtIndex:explicitState:)参照)。
-    /// どちらに「見開き右」「見開き左」を割り当てるかは読み方向による(同コメント参照)。
-    private func writeAnchorPin(_ anchor: LayoutAutoCalculator.Anchor, explicitState: PageLayoutState) {
+    /// anchorの示すページ(1件または2件)へ書き込むべき、明示的な状態を組み立てて返す。
+    /// anchor.pageKeysは常に[先に読むページ, 2番目に読むページ]の順(anchor(forPageAtIndex:
+    /// explicitState:)参照)。どちらに「見開き右」「見開き左」を割り当てるかは読み方向による
+    /// (同コメント参照)。
+    ///
+    /// 以前(writeAnchorPin)はこの場でlayoutStore.setPageLayoutStateを1〜2回呼んで直接
+    /// 書き込んでいたが、呼び出し元がその直前に既にsetPageLayoutStates(まとめ書き)を
+    /// 行っているため、1回のレイアウト操作でsave()+通知が最大3回発生していた。値を返すだけに
+    /// して呼び出し元でplannedへマージしてもらうことで、書き込みを1回のトランザクションに
+    /// まとめられる(setPageLayoutStatesのコメントにある「連続した通知が再読み込みの競合を
+    /// 生む」問題そのものへの対策)。マージの際にこちらの値がplannedを上書きすることで、
+    /// 「ユーザーが直接指定したstateが常に勝つ」という従来の順序の意味も保たれる
+    /// (setPageLayoutの該当箇所のコメント参照)。
+    private func anchorPinStates(
+        _ anchor: LayoutAutoCalculator.Anchor, explicitState: PageLayoutState
+    ) -> [String: PageLayoutState] {
         if anchor.pageKeys.count >= 2, let earlier = anchor.pageKeys.first, let later = anchor.pageKeys.dropFirst().first {
             let isRTL = readingDirection == .rightToLeft
-            let earlierState: PageLayoutState = isRTL ? .spreadRight : .spreadLeft
-            let laterState: PageLayoutState = isRTL ? .spreadLeft : .spreadRight
-            layoutStore.setPageLayoutState(for: book, pageKey: earlier, state: earlierState)
-            layoutStore.setPageLayoutState(for: book, pageKey: later, state: laterState)
+            // 辞書リテラルで一度に組み立てると、万一earlierとlaterが同じキーだった場合に
+            // 実行時トラップ(duplicate keys)になる。以前は同じキーへ2回書き込むだけで
+            // 済んでいた挙動を保つため、1件ずつ入れる(通常この2つは隣接する別ページのため
+            // 一致しないが、ここでクラッシュさせる意味は無い)。
+            var states: [String: PageLayoutState] = [:]
+            states[earlier] = isRTL ? .spreadRight : .spreadLeft
+            states[later] = isRTL ? .spreadLeft : .spreadRight
+            return states
         } else if let only = anchor.pageKeys.first {
-            layoutStore.setPageLayoutState(for: book, pageKey: only, state: explicitState)
+            return [only: explicitState]
         }
+        return [:]
     }
 
     /// 3.2節: 指定したページ(単一表示なら現在のページ、見開き表示なら左右いずれか)を、
@@ -1867,7 +1956,7 @@ final class ViewerViewModel: ObservableObject {
     /// は未実装で、常に「保持する」(既存の除外ページには触れない)として動作する。
     func setPageLayout(atIndex index: Int, to state: PageLayoutState, scope: LayoutPropagationScope) async {
         guard book.pages.indices.contains(index) else { return }
-        // 呼び出し元(コンテキストメニュー/Layoutメニュー)が直接操作したページ。writeAnchorPin/
+        // 呼び出し元(コンテキストメニュー/Layoutメニュー)が直接操作したページ。anchorPinStates/
         // 伝播計算より前、book.pagesがまだ書き換わっていない時点で控えておく(ユーザー要望:
         // 更新後のビューア画面にこのページを表示に含める。reloadLayoutData(focusPageKey:)参照)。
         let targetPageKey = book.pages[index].sortKey
@@ -1903,11 +1992,14 @@ final class ViewerViewModel: ObservableObject {
             isWideImage: { wideness[$0] ?? false }, isRightToLeft: readingDirection == .rightToLeft
         )
         // 1件ずつではなく、まとめて1回のトランザクションとして書き込む
-        // (LayoutStore.setPageLayoutStatesのコメント参照)。
-        layoutStore.setPageLayoutStates(for: book, planned)
-        // writeAnchorPinは、ここで操作したページ自身の状態(state)を最終確定させるための
-        // 書き込みとして、plannedの適用より後に呼ぶ(以前はplannedより前に呼んでいたため、
-        // 直後にplannedで上書きされてしまうケースがあった。下のコメント参照)。
+        // (LayoutStore.setPageLayoutStatesのコメント参照)。起点ページ自身への書き込み
+        // (anchorPinStates)も、別の書き込みとして分けずにここへマージして1回で済ませる
+        // (以前は後続のwriteAnchorPinが更に1〜2回setPageLayoutStateを呼んでいたため、
+        // 1回のレイアウト操作でsave()+通知が最大3回発生していた。anchorPinStatesのコメント参照)。
+        //
+        // マージの向きは「anchorPinStatesがplannedを上書きする」。これは以前
+        // writeAnchorPinをplannedの適用より後に呼んでいたのと同じ意味になる(以前はplannedより
+        // 前に呼んでいたため、直後にplannedで上書きされてしまうケースがあった。下のコメント参照)。
         //
         // 経緯(ユーザー報告): 本の先頭ページを「見開き左」に設定しても、実際には「単一
         // ページ」に置き換わってしまう不具合があった。原因は書き込み順序にあった:
@@ -1923,8 +2015,12 @@ final class ViewerViewModel: ObservableObject {
         // 書いた正しいspreadLeftを上書きしてしまっていた。writeAnchorPinをplannedの適用
         // より後に呼ぶことで、ユーザーが直接指定したstateが常に最終的な書き込みとして
         // 勝つようにする(2ページ揃った通常のケースでは、planned側のanchorPinと
-        // writeAnchorPinが同じ値を書くため、順序を変えても結果は変わらない)。
-        writeAnchorPin(pageAnchor, explicitState: state)
+        // anchorPinStatesが同じ値を書くため、どちらが勝っても結果は変わらない)。
+        var merged = planned
+        for (pinnedPageKey, pinnedState) in anchorPinStates(pageAnchor, explicitState: state) {
+            merged[pinnedPageKey] = pinnedState
+        }
+        layoutStore.setPageLayoutStates(for: book, merged)
         reloadLayoutData(focusPageKey: targetPageKey)
         postLayoutFocusChange(pageKey: targetPageKey)
     }
