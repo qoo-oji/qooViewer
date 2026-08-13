@@ -85,9 +85,15 @@ final class BookmarkStore: ObservableObject {
         didSet {
             guard bookSortOption != oldValue else { return }
             UserDefaults.standard.set(bookSortOption.rawValue, forKey: Self.bookSortOptionDefaultsKey)
-            // groupsは既にearliestCreatedAt/latestUpdatedAtを持っているため、再フェッチ
-            // (reload())せずその場で並べ替えるだけでよい。
-            groups = Self.sortedGroups(groups, by: bookSortOption)
+            // 以前はここでgroups自体も並べ替え直していた(groupsは既にearliestCreatedAt/
+            // latestUpdatedAtを持っているため再フェッチは不要、という理由)。しかしgroupsの
+            // 並び順を利用している箇所は実際には無く(左ペインのBookmarkEditorView.mergedRowsは
+            // bookIDをキーにした辞書へ詰め替えたうえでfilteredSortedRows側で並べ直す。
+            // EPUB/PDF出力ウインドウとJSON書き出しはいずれもbookIDの集合としてしか使わない)、
+            // ここでの並べ替えは表示に何ら影響しないまま、@Publishedの発火(=このストアを
+            // 参照している画面の再評価)を1回余計に起こしていただけだった。
+            // 並び替えのドロップダウンを操作するたびに、この余計な更新と左ペイン自身の
+            // 並べ替えとで2回ぶんの更新が走る形になっていたため、こちらは取りやめる。
         }
     }
 

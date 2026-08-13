@@ -33,6 +33,31 @@ enum EditorPageFilter: String, CaseIterable, Identifiable {
     }
 }
 
+/// 値の変更をアニメーション無しで反映するようにラップしたBindingを返す。
+///
+/// 経緯(ユーザー報告): 並べ替え・絞り込みのドロップダウンで項目を選ぶと、「もたつく」というより
+/// 「何かアニメーション的な効果がわずかに入っている」ように見える、との指摘。
+/// これらのドロップダウンを操作すると一覧の行の順序や件数が変わるが、SwiftUIのListは行の
+/// 移動・挿入・削除を既定でアニメーションする(内部のNSTableViewのアニメーション付き行操作)。
+/// メニューが閉じた直後に行が動くため、メニューが尾を引いて残っているようにも見えていた。
+///
+/// 並べ替え・絞り込みは結果を即座に見たい操作で、行が動く様子を見せる必要は無いため、
+/// この変更に限ってアニメーションを止める(明示的な.animation()指定はこのウインドウには
+/// 元々無く、SwiftUIの既定動作を抑えるだけ)。
+@MainActor
+private func withoutAnimation<Value>(_ binding: Binding<Value>) -> Binding<Value> {
+    Binding(
+        get: { binding.wrappedValue },
+        set: { newValue in
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                binding.wrappedValue = newValue
+            }
+        }
+    )
+}
+
 /// 左ペインの一覧が画面上のどの矩形を占めているかを知るための、透明なNSView1枚の入れ物。
 /// ダブルクリック検知(BookmarkEditorViewのinstallDoubleClickMonitor)が、「そのクリックが
 /// 左ペインの一覧の中で起きたのか」を判定するために使う。
@@ -500,7 +525,7 @@ struct BookmarkEditorView: View {
                 .safeAreaInset(edge: .top) {
                     VStack(spacing: 6) {
                         HStack {
-                            Picker(selection: $bookFilter) {
+                            Picker(selection: withoutAnimation($bookFilter)) {
                                 ForEach(EditorBookFilter.allCases) { filter in
                                     Text(filter.titleKey).tag(filter)
                                 }
@@ -512,7 +537,7 @@ struct BookmarkEditorView: View {
 
                             Spacer()
 
-                            Picker(selection: $bookmarkStore.bookSortOption) {
+                            Picker(selection: withoutAnimation($bookmarkStore.bookSortOption)) {
                                 ForEach(FavoritesSortOption.allCases) { option in
                                     Label {
                                         Text(option.titleKey)
@@ -1576,7 +1601,7 @@ private struct BookmarkDetailPane: View {
 
                     Spacer()
 
-                    Picker(selection: $pageFilter) {
+                    Picker(selection: withoutAnimation($pageFilter)) {
                         ForEach(EditorPageFilter.allCases) { filter in
                             Text(filter.titleKey).tag(filter)
                         }
