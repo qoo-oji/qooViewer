@@ -426,6 +426,26 @@ final class AppState: ObservableObject {
     /// 古い方の結果でcurrentBookが上書きされてしまわないようキャンセルする。
     private var openTask: Task<Void, Never>?
 
+    /// open(url:)でstartAccessingSecurityScopedResource()に成功したURL(していなければnil)。
+    ///
+    /// バグ修正(予防): 以前は`_ = url.startAccessingSecurityScopedResource()`と、開いたきり
+    /// 一度も閉じていなかった。Appleのドキュメントは、対になるstopAccessingSecurityScoped
+    /// Resource()を呼ばないことについて「カーネルリソースを漏らす。使い果たすと、アプリは
+    /// ファイルシステム上の場所を自身のサンドボックスへ追加する能力そのものを失う」と明記して
+    /// いる。同一ボリューム内の次/前の本への移動は素のfile URLなのでstartAccessing…がfalseを
+    /// 返し何も消費しないが、お気に入り・履歴から開いた場合はブックマークから解決した
+    /// セキュリティスコープ付きURLなので、開くたびに1つずつ確実に積み上がっていた。
+    ///
+    /// このウインドウが表示している本は常に1冊なので、次の本を開くとき・本を閉じるとき・
+    /// このAppState自体が解放されるときに、直前の本のぶんを1回だけ閉じる。
+    /// (BookLayoutEditorViewModel.deinitと同じく、閉じてもPageLoaderが既に開いている
+    /// ファイルハンドルは無効にならないため、前の本の読み込みが残っていても影響しない。)
+    private var securityScopedBookURL: URL?
+
+    deinit {
+        securityScopedBookURL?.stopAccessingSecurityScopedResource()
+    }
+
     /// NSOpenPanelでフォルダ、またはzip/rar/7z/pdfファイルを選ばせる
     func openWithPanel() {
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
@@ -451,7 +471,13 @@ final class AppState: ObservableObject {
     /// 変更せずに済むようにしつつ、内部でTaskを使って非同期の読み込みを待つ。
     func open(url: URL) {
         openTask?.cancel()
-        _ = url.startAccessingSecurityScopedResource()
+        // 先に新しい本のぶんを開いてから、直前の本のぶんを閉じる(securityScopedBookURLの
+        // コメント参照)。この順序なのは、同じ本をもう一度開いた場合に、閉じる→開くの順だと
+        // アクセスが一瞬途切れてしまうため(startAccessingSecurityScopedResourceは参照
+        // カウント式なので、先に開いておけばカウントが0になる瞬間が生じない)。
+        let didAccess = url.startAccessingSecurityScopedResource()
+        securityScopedBookURL?.stopAccessingSecurityScopedResource()
+        securityScopedBookURL = didAccess ? url : nil
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
 
         openTask = Task { [weak self] in
@@ -501,6 +527,10 @@ final class AppState: ObservableObject {
         openTask?.cancel()
         currentBook = nil
         siblingBooks = []
+        // 開いていた本のセキュリティスコープ付きアクセスを閉じる(securityScopedBookURLの
+        // コメント参照)。
+        securityScopedBookURL?.stopAccessingSecurityScopedResource()
+        securityScopedBookURL = nil
     }
 
     /// 現在の本と同じフォルダにある他の本のURL一覧を取得し直す(「同じフォルダのファイルを開く」用)。

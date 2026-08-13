@@ -27,10 +27,11 @@ nonisolated enum ContrastCorrector {
     /// そのまま演算させるための指定(levelsCorrectedのコメント参照。分析時とフィルタ適用時で
     /// 数値の土俵を一致させるために必要)。
     ///
-    /// nonisolated(unsafe): CIContextはSendableとして宣言されていないが、ドキュメント上
-    /// スレッドセーフ(イミュータブルで、複数スレッドから同じインスタンスでレンダリングして
-    /// よい)とされているため、共有して問題ない。
-    nonisolated(unsafe) private static let sharedContext = CIContext(options: [.workingColorSpace: NSNull()])
+    /// CIContextはドキュメント上スレッドセーフ(イミュータブルで、複数スレッドから同じ
+    /// インスタンスでレンダリングしてよい)であり、現在のSDKではSendableとして宣言されている
+    /// ため、そのまま共有してよい(以前はSendableでなかった時代の名残でnonisolated(unsafe)を
+    /// 付けていたが、コンパイラから「Sendableな定数には不要」と指摘されるため外した)。
+    private static let sharedContext = CIContext(options: [.workingColorSpace: NSNull()])
 
     /// 分析(カラー判定・ヒストグラム計算)に使うダウンサンプル画像の長辺の上限。
     /// フルサイズ(最大4096〜20000px)を毎回スキャンするのは無駄なため、十分小さい解像度に

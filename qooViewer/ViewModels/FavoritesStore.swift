@@ -192,6 +192,14 @@ final class FavoritesStore: ObservableObject {
         }
     }
 
+    /// 予防: RecentFilesStore.deinitと同じ理由(アプリ全体で1つのため現状は呼ばれないが、
+    /// 購読の登録と解除を対にしておく)。
+    deinit {
+        if let menuTrackingObserver {
+            NotificationCenter.default.removeObserver(menuTrackingObserver)
+        }
+    }
+
     /// ルート直下のフォルダ・お気に入りを読み込み直す。フォルダの中身(children/books)は
     /// SwiftDataのリレーションシップ経由でその都度取得できるため、ここでは読み込まない。
     func reload() {

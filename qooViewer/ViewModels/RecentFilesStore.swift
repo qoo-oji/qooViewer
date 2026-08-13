@@ -70,6 +70,19 @@ final class RecentFilesStore: ObservableObject {
         }
     }
 
+    /// 予防: このストアはアプリ全体で1つ(QooViewerAppの@StateObject)で、実際にはアプリ終了まで
+    /// 解放されないため現状これが呼ばれることは無い。ただし購読を登録したまま解除しない形を
+    /// 残しておくと、将来ライフサイクルが変わったときに(NotificationCenterがクロージャを
+    /// 強参照し続けるため)そのままリークになる。BookmarkStore.deinitと同じ形で対にしておく。
+    deinit {
+        if let limitChangeObserver {
+            NotificationCenter.default.removeObserver(limitChangeObserver)
+        }
+        if let menuTrackingObserver {
+            NotificationCenter.default.removeObserver(menuTrackingObserver)
+        }
+    }
+
     /// 本を開くのに成功したときに呼ぶ。履歴の先頭に追加し、同じファイルの重複は取り除く。
     func record(url: URL) {
         var bookmarks = rawBookmarks()

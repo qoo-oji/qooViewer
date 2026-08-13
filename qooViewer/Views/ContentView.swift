@@ -515,11 +515,18 @@ struct ContentView: View {
         closeToken = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: window, queue: .main
         ) { _ in
-            if appState.hostWindow === window {
-                appState.hostWindow = nil
-            }
-            if launchCoordinator.primaryAppState === appState {
-                launchCoordinator.primaryAppState = nil
+            // queue: .mainを指定しているため実行時には必ずMainActor上で呼ばれるが、クロージャ
+            // 自体の型は静的にMainActor隔離だと分からないため、MainActor隔離のappState.
+            // hostWindow / launchCoordinator.primaryAppStateをそのまま読み書きすると警告になる
+            // (BookmarkStore.init/ViewerViewModel.initなど、プロジェクト内の同種の箇所と同じ
+            // 理由・同じ対処)。
+            MainActor.assumeIsolated {
+                if appState.hostWindow === window {
+                    appState.hostWindow = nil
+                }
+                if launchCoordinator.primaryAppState === appState {
+                    launchCoordinator.primaryAppState = nil
+                }
             }
             if let keyToken {
                 NotificationCenter.default.removeObserver(keyToken)

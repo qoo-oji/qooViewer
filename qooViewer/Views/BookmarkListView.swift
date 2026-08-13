@@ -200,7 +200,9 @@ struct BookmarkEditorView: View {
     /// ユーザー要望: 左ペインでファイル名をダブルクリックしたら、その本を開く。
     /// BookmarkDetailPane.editorWindow/openErrorBookNameと同じ役割・同じ仕組み(このView自身も
     /// 同じNSWindow上にあるため、独自にWindowAccessorで取得する)。
-    @State private var editorWindow: NSWindow?
+    /// 予防: NSWindowは強参照で持たない(ViewerView.WeakWindowBoxのコメント参照)。
+    @State private var editorWindowBox = WeakWindowBox()
+    private var editorWindow: NSWindow? { editorWindowBox.window }
     @State private var openErrorBookName: String?
 
     @Environment(\.openWindow) private var openWindow
@@ -771,7 +773,7 @@ struct BookmarkEditorView: View {
             // ユーザー要望: 左ペインでファイル名をダブルクリックしたら、その本を開く(openBook参照)。
             // BookmarkDetailPaneの同種のWindowAccessor/アラートと同じ仕組み。
             .background(WindowAccessor { window in
-                editorWindow = window
+                editorWindowBox.window = window
             })
             .alert(
                 "Could Not Open Book",
@@ -1161,7 +1163,9 @@ private struct BookmarkDetailPane: View {
     @State private var doubleClickMonitor: Any?
     @State private var listAnchorBox = ListAnchorBox()
     @State private var openErrorBookName: String?
-    @State private var editorWindow: NSWindow?
+    /// 予防: NSWindowは強参照で持たない(ViewerView.WeakWindowBoxのコメント参照)。
+    @State private var editorWindowBox = WeakWindowBox()
+    private var editorWindow: NSWindow? { editorWindowBox.window }
     /// 列ヘッダー行(columnHeaderRow)・各行(PageRowView)で共有する列幅
     /// (ユーザー要望: 列タイトル行・区切り線・可変幅。PageListColumnWidths参照)。
     @State private var columnWidths = PageListColumnWidths()
@@ -1299,7 +1303,7 @@ private struct BookmarkDetailPane: View {
         }
         .navigationTitle("Bookmarks & Layout")
         .background(WindowAccessor { window in
-            editorWindow = window
+            editorWindowBox.window = window
         })
         .alert(
             "Could Not Open Book",

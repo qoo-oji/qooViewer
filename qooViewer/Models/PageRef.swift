@@ -1,7 +1,18 @@
 import Foundation
 
 /// 1ページ分の画像データがどこから取得できるかを表す
-enum PageSource {
+///
+/// nonisolated: Xcode 26 (Swift 6.2)からの新規プロジェクトは既定で「Default Actor Isolation =
+/// MainActor」になっており、注釈のない型は暗黙的にMainActor専用になる。PageSource/PageRefは
+/// BookLoader(Task.detached)が組み立て、PageLoader(actor)が読み出す — つまりメインアクターの
+/// 外で使われる値型のため、明示的にnonisolatedを付ける(ArchiveReading.swift冒頭のコメント参照)。
+///
+/// 付けていなかったため、PageLoaderからのpage.source.isFile / page.displayNameの参照が
+/// 「main actor-isolated property cannot be accessed from outside of the actor;
+/// this is an error in the Swift 6 language mode」という警告になっていた(実際にはメイン
+/// アクター外から同期的に読まれており、Swift 6言語モードへ切り替えた時点でエラーになる状態
+/// だった)。どちらもimmutableな値から計算するだけで、共有された可変状態には一切触れない。
+nonisolated enum PageSource {
     /// フォルダ内の画像ファイル
     case file(URL)
     /// zip / cbz アーカイブ内のエントリ
@@ -37,8 +48,8 @@ enum PageSpreadPosition: String, Codable, Hashable {
     case center
 }
 
-/// 本の中の1ページを表す
-struct PageRef: Identifiable, Hashable {
+/// 本の中の1ページを表す(nonisolatedの理由はPageSourceのコメント参照)
+nonisolated struct PageRef: Identifiable, Hashable {
     /// 一意なキー(画像キャッシュや SwiftUI の List/ForEach 用)
     let id: String
     /// 自然順ソート用のキー(ファイル名やアーカイブ内パス)

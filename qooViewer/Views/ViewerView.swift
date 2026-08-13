@@ -99,7 +99,14 @@ struct ViewerView: View {
     @Environment(\.openWindow) private var openWindow
     /// このビューを表示しているウインドウ本体。フルスクリーンの入退場通知の登録・解除や、
     /// マウス位置と画面端との距離判定に使う。
-    @State private var hostWindow: NSWindow?
+    ///
+    /// 予防: 以前は`@State private var hostWindow: NSWindow?`と、NSWindowを強参照で持って
+    /// いた。SwiftUIがこのView自身の状態をいつ解放するかは保証されていない(このファイル・
+    /// ContentView.swiftの各所に、その前提で書いたコードが原因の不具合の記録がある)ため、
+    /// 強参照のままだと閉じたウインドウとそのビュー階層ごと掴み続けてしまう危険がある。
+    /// AppState.hostWindowが最初からweakなのと同じ理由で、weakな箱に入れて保持する。
+    @State private var hostWindowBox = WeakWindowBox()
+    private var hostWindow: NSWindow? { hostWindowBox.window }
     /// 現在フルスクリーン表示中かどうか。
     @State private var isFullScreen = false
     /// 自動隠し中のツールバー・プログレスバーを、マウスが画面端に近いために一時的に表示しているか
@@ -213,7 +220,26 @@ struct ViewerView: View {
         // (AppState.activeViewerTokenのコメント参照。同じウインドウ内で本を切り替えた際、
         // 古いViewerViewのonDisappearが今から行う登録を誤って後始末してしまわないため)。
         appState.activeViewerToken = viewerToken
-        viewModel.onRequestSiblingBook = { forward in
+        // バグ修正: 以前は`{ forward in ... }`とだけ書いていた。ViewerViewはstructのため、
+        // クロージャの中でappState/viewModelに触れると「このViewer View自身のコピー」が丸ごと
+        // キャプチャされる。そのコピーは@StateObjectのviewModel(同じViewerViewModelを強参照
+        // する箱)を含むため、
+        //   ViewerViewModel → onRequestSiblingBook → ViewerViewのコピー → ViewerViewModel
+        // という循環参照になり、しかもこの代入はどこでもnilに戻していなかったため、
+        // ViewerViewModelが永久に解放されなくなっていた。巻き添えでPageLoader(actor。
+        // 画像キャッシュ・開いたままの書庫ハンドル)、ViewerViewModelのdeinitで解除するはずの
+        // 通知購読(bookmarksDidChange/layoutDataDidChange)、weak selfで止まる前提の
+        // warmUpWideImageCacheForEntireBookまで、本を1冊開くごとに積み上がっていた。
+        //
+        // キャプチャリストで必要な2つだけを、どちらもweakで捕まえることで循環を断つ
+        // (合わせてhandleOnDisappearでnilへ戻す。二重の対策)。appStateもweakにしているのは、
+        // appState側の橋渡しクロージャがこのViewerViewのコピー(=viewModel)をキャプチャして
+        // いるため、こちらがappStateを強参照すると
+        //   ViewerViewModel → このクロージャ → AppState → 橋渡し → ViewerViewのコピー → ViewerViewModel
+        // という遠回りの循環が、両者の後始末が済むまでの間だけとはいえ成立してしまうため。
+        // どちらも既に解放されているなら、そもそも次の本を開く先が無いので何もしなくてよい。
+        viewModel.onRequestSiblingBook = { [weak appState = self.appState, weak viewModel = self.viewModel] forward in
+            guard let appState, let viewModel else { return }
             if forward {
                 appState.openSibling(after: viewModel.book.sourceURL)
             } else {
@@ -503,30 +529,11 @@ struct ViewerView: View {
         }
         contextClickMonitor = nil
         removeThumbnailGridOutsideClickMonitors()
-        // appStateへの後始末(nilに戻す等)は、まだ自分自身が最後にappStateへ登録した
-        // ViewerViewである場合にだけ行う。同じウインドウ内で本を切り替えた際、既に
-        // 新しいViewerViewのonAppearが自分のトークンで上書きしていれば、ここでの
-        // 後始末は行わない(誤って新しい本の正しい登録を消してしまわないため。
-        // AppState.activeViewerTokenのコメント参照)。
-        if appState.activeViewerToken == viewerToken {
-            appState.performViewerAction = nil
-            appState.jumpToBookmark = nil
-            appState.jumpToPageIndex = nil
-            appState.addBookmarkAction = nil
-            appState.addFavoriteAction = nil
-            appState.openFavoriteAction = nil
-            appState.updateLoadPageThumbnail(nil)
-            appState.updateCurrentBookmarks([])
-            appState.updateCurrentPageIndex(0)
-            appState.updateCurrentBookPages([])
-            appState.updateCurrentVisiblePageSortKeys([])
-            appState.setScalingMode = nil
-            appState.performLayoutStateChange = nil
-            appState.performLayoutClear = nil
-            appState.performAutoLayout = nil
-            appState.performImageExport = nil
-            appState.resetMenuCheckmarkState()
-        }
+        clearAppStateBridgesIfStillOwner()
+        // 自分の@StateObjectであるviewModelへ登録した橋渡しも、ここで確実に外す
+        // (handleOnAppearのonRequestSiblingBookのコメント参照。appState側と違い、この
+        // viewModelはこのViewerView専用なのでトークンによる持ち主判定は不要)。
+        viewModel.onRequestSiblingBook = nil
         viewModel.stopSlideshow()
         viewModel.flushPendingSave()
         cursorHideTask?.cancel()
@@ -541,6 +548,43 @@ struct ViewerView: View {
             NotificationCenter.default.removeObserver(observer)
         }
         windowObservers = []
+    }
+
+    /// handleOnAppearでappStateへ登録した橋渡し(メニューバー・サイドパネル・編集ウインドウ
+    /// からこのビューアを操作するためのクロージャ群)と、そこへ push しておいた表示状態を
+    /// まとめて元に戻す。
+    ///
+    /// 「まだ自分自身が最後にappStateへ登録したViewerViewである場合にだけ行う」という条件は
+    /// 以前からのもの。同じウインドウ内で本を切り替えた際、既に新しいViewerViewのonAppearが
+    /// 自分のトークンで上書きしていれば、ここでの後始末は行わない(誤って新しい本の正しい登録を
+    /// 消してしまわないため。AppState.activeViewerTokenのコメント参照)。
+    ///
+    /// これらのクロージャはいずれもViewerView(struct)のコピーを丸ごとキャプチャしており、
+    /// そのコピーは@EnvironmentObjectのappState自身を強参照しているため、AppStateから見ると
+    /// 循環参照になっている(handleOnAppearのonRequestSiblingBookのコメント参照)。つまり
+    /// 「この後始末が確実に走ること」がAppStateの解放条件そのものになっている。そのため
+    /// onDisappearだけに頼らず、ウインドウが閉じるタイミング(setUpWindowObservers内の
+    /// willCloseNotification)からも呼ぶ。SwiftUIの.onDisappearは、実際にNSWindowが破棄される
+    /// タイミングより後になることがある(同ファイルのsetUpWindowObservers末尾のコメント参照)。
+    private func clearAppStateBridgesIfStillOwner() {
+        guard appState.activeViewerToken == viewerToken else { return }
+        appState.performViewerAction = nil
+        appState.jumpToBookmark = nil
+        appState.jumpToPageIndex = nil
+        appState.addBookmarkAction = nil
+        appState.addFavoriteAction = nil
+        appState.openFavoriteAction = nil
+        appState.updateLoadPageThumbnail(nil)
+        appState.updateCurrentBookmarks([])
+        appState.updateCurrentPageIndex(0)
+        appState.updateCurrentBookPages([])
+        appState.updateCurrentVisiblePageSortKeys([])
+        appState.setScalingMode = nil
+        appState.performLayoutStateChange = nil
+        appState.performLayoutClear = nil
+        appState.performAutoLayout = nil
+        appState.performImageExport = nil
+        appState.resetMenuCheckmarkState()
     }
 
     // MARK: - 画像のエクスポート(要望)
@@ -812,7 +856,7 @@ struct ViewerView: View {
         .background(preferences.backgroundColorOption.color)
         .background(WindowAccessor { window in
             guard hostWindow !== window else { return }
-            hostWindow = window
+            hostWindowBox.window = window
             setUpWindowObservers(for: window)
         })
         .focusable()
@@ -2037,7 +2081,20 @@ struct ViewerView: View {
         // デリゲートが設定されている場合(SwiftUI/AppKitがタブ管理や状態復元のために設定して
         // いることがある)は、windowShouldClose以外のメソッドをすべてそちらへ転送するので、
         // 既存の機能を壊さない(BookClosingWindowDelegate参照)。
-        if bookClosingDelegate == nil {
+        //
+        // バグ修正: 以前は`if bookClosingDelegate == nil`だけで判定していた。しかしこの
+        // ViewerViewはContentView側の`.id(book.id)`により本を切り替えるたびに作り直され、
+        // @Stateであるこのプロパティも毎回nilから始まるため、同じウインドウで本を切り替える
+        // たびに新しいデリゲートを被せてしまい、originalDelegate(強参照)のチェーンが
+        // 1段ずつ際限なく伸びていた。AppKitはresponds(to:)/forwardingTarget(for:)を高頻度で
+        // 呼ぶため、伸びた段数がそのまま無駄なコストになる。既に自前のデリゲートが付いている
+        // ウインドウでは、それを再利用して参照先だけ今の本のものへ差し替える。
+        if let existing = window.delegate as? BookClosingWindowDelegate {
+            existing.appState = appState
+            existing.window = window
+            existing.preferences = preferences
+            bookClosingDelegate = existing
+        } else if bookClosingDelegate == nil {
             let delegate = BookClosingWindowDelegate()
             delegate.appState = appState
             delegate.originalDelegate = window.delegate
@@ -2152,11 +2209,30 @@ struct ViewerView: View {
                 NotificationCenter.default.removeObserver(observer)
             }
             windowObservers = []
+            // 予防: appState/viewModelへ登録した橋渡しクロージャの解除も、ここで行っておく。
+            // これらのクロージャはViewerView(struct)のコピーごとappState・viewModelを
+            // 強参照しており、解除されるまでAppState/ViewerViewModelは解放されない
+            // (clearAppStateBridgesIfStillOwnerのコメント参照)。通常は.onDisappearが
+            // 解除するが、そちらは上の購読と同じ理由で、実際にウインドウが閉じるより後に
+            // なることがある。ここで先に解除しておいても、後から走る.onDisappear側は
+            // 同じ処理を繰り返すだけで副作用は無い。
+            //
+            // queue: .mainを指定しているため実行時には必ずMainActor上で呼ばれるが、
+            // クロージャ自体の型は静的にMainActor隔離だと分からないため、MainActor隔離の
+            // viewModelのプロパティへの代入をそのまま書くと警告になる(Swift 6言語モードでは
+            // エラー)。プロジェクト内の他の箇所(BookmarkStore.init/ViewerViewModel.initなど)と
+            // 同じくMainActor.assumeIsolatedで「実行時には既にMainActor上にいる」ことを伝える。
+            MainActor.assumeIsolated {
+                clearAppStateBridgesIfStillOwner()
+                viewModel.onRequestSiblingBook = nil
+            }
             if let closeToken {
                 NotificationCenter.default.removeObserver(closeToken)
             }
         }
-        windowObservers.append(closeToken!)
+        if let closeToken {
+            windowObservers.append(closeToken)
+        }
     }
 
     /// フルスクリーン表示中、または表示メニューの「ツールバーを隠す」「プログレスバーを隠す」の
@@ -2500,6 +2576,14 @@ struct ViewerView: View {
         }
         favoritesMenuBridge = bridge
         bridge.show()
+        // バグ修正: 以前はここで@Stateに入れたまま放置していた。onOpenに渡しているクロージャは
+        // ViewerView(struct)のコピーを丸ごとキャプチャしており、そのコピーはこの@State自身
+        // (favoritesMenuBridgeを保持している箱)を含むため、
+        //   bridge → onOpen → ViewerViewのコピー → @Stateの箱 → bridge
+        // という循環参照になっていた(handleOnAppearのonRequestSiblingBookと同型で、
+        // お気に入り一覧を一度でも開くと成立する)。show()内のNSMenu.popUpはメニューが
+        // 閉じるまで戻らない同期呼び出しのため、ここへ戻ってきた時点でこのbridgeはもう不要。
+        favoritesMenuBridge = nil
     }
 
     /// 「お気に入り一覧」ボタン(またはショートカット)から、指定したお気に入りを新しいウインドウで開く。
@@ -2638,6 +2722,17 @@ private extension View {
 /// フルスクリーンの入退場通知(NSWindow.didEnterFullScreenNotificationなど)を
 /// 登録するために、対象ウインドウそのものへの参照が必要なので使っている。
 /// ContentView.swiftでも(AppState.hostWindowを設定するために)このまま再利用する。
+/// NSWindowをSwiftUIの@Stateへ弱参照で持つための箱。
+///
+/// @Stateは値型しか保持できず、プロパティ自体にweakを付けることもできないため、weak varを
+/// 1つだけ持つ構造体を挟む(LaunchCoordinator.WeakAppStateBoxと同じ発想)。WindowAccessor
+/// 経由で受け取ったNSWindowを保持する各ビュー(ViewerView・BookmarkListView・
+/// FavoritesOrganizerView)が共通で使う。ウインドウ自体はAppKitが保持しているので、
+/// ビュー側が強参照する必要はない。
+struct WeakWindowBox {
+    weak var window: NSWindow?
+}
+
 struct WindowAccessor: NSViewRepresentable {
     let onResolve: (NSWindow?) -> Void
 

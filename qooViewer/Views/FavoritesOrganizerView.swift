@@ -84,7 +84,9 @@ struct FavoritesOrganizerView: View {
     /// このウインドウ(お気に入りの整理ウインドウ)自身のNSWindow。WindowAccessor経由で設定する。
     /// 右ペインでのダブルクリックで本を開いてビューアウインドウへフォーカスが移ったとき、
     /// このウインドウ自身を自動的に閉じるために使う(closeEditorWindow参照)。
-    @State private var editorWindow: NSWindow?
+    /// 予防: NSWindowは強参照で持たない(ViewerView.WeakWindowBoxのコメント参照)。
+    @State private var editorWindowBox = WeakWindowBox()
+    private var editorWindow: NSWindow? { editorWindowBox.window }
 
     var body: some View {
         NavigationSplitView {
@@ -424,7 +426,7 @@ struct FavoritesOrganizerView: View {
         // このウインドウ自身のNSWindowを取得しておく(closeEditorWindow参照)。ViewerView/
         // ContentViewと同じWindowAccessorパターン。
         .background(WindowAccessor { window in
-            editorWindow = window
+            editorWindowBox.window = window
         })
         .alert("New Folder", isPresented: $isShowingNewFolderPrompt) {
             TextField("Name", text: $newFolderName)

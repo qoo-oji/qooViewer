@@ -65,13 +65,39 @@ actor PageLoader {
     /// PDFファイルごとにCGPDFDocumentを使い回す(アーカイブのreaders同様、actorの外から
     /// 同時に触られることはないため安全に直列化される)。
     private var pdfDocuments: [String: CGPDFDocument] = [:]
-    private var prefetchTasks: [Int: Task<Void, Never>] = [:]
+    /// 進行中の先読み。範囲外になったときに、ラッパーのTaskだけでなくその内側で走っている
+    /// 実際の読み込み(inFlightTasks)も打ち切れるよう、対応するキーを一緒に覚えておく
+    /// (cancellableInFlightKeysのコメント参照)。indexからその都度book.pagesを引いて求める
+    /// 方式にしないのは、先読みを始めてから範囲外になるまでの間にupdateBook(_:)でページの
+    /// 並びが変わりうるため。
+    private struct PrefetchEntry {
+        let task: Task<Void, Never>
+        let inFlightKey: String
+    }
+    private var prefetchTasks: [Int: PrefetchEntry] = [:]
     /// 進行中の読み込み(アーカイブ展開+デコード)を、ページ+キャッシュの組ごとに覚えておく。
     /// 例えば先読み中のページへちょうどページ送りしたとき、先読みタスクの結果を待たずに
     /// 同じページをもう一度アーカイブ展開・デコードしてしまうと、無駄な二重作業になるうえ
     /// アーカイブ展開(actorで直列化される)が詰まって他のページの表示も遅れてしまう。
     /// そのため、同じページへの読み込みが既に進行中ならその結果を待ち合わせる(合流させる)。
     private var inFlightTasks: [String: Task<CGImage?, Never>] = [:]
+
+    /// inFlightTasksのうち、「prefetch(around:)が起点で始まり、まだ実際の表示要求が合流して
+    /// いない」もののキー。この集合に含まれる読み込みだけは、途中で打ち切ってよい。
+    ///
+    /// バグ修正: image(at:)がinFlightTasks用に作る`Task { ... }`は非構造化タスクであり、
+    /// **キャンセルを継承しない**(Swiftの仕様。実機相当の最小コードでも確認した)。そのため
+    /// prefetch(around:)が先読み範囲から外れたタスクをcancel()しても、その内側で走っている
+    /// decodedImage(for:maxPixelSize:)のTask.isCancelledは常にfalseのままで、
+    /// 「スクロールが速くて不要になった先読みはキャンセルする」「表示されないとわかっている
+    /// ページのデコードでCPUを使い切ってしまうのを防ぐ」という、このクラスが謳っている挙動は
+    /// 実際にはimage(at:)冒頭の「まだ始めていない場合」にしか効いていなかった。
+    ///
+    /// 内側のタスクを直接cancel()すれば意図通りに効くが、そのタスクは同じページを要求した
+    /// 他の呼び出しと共有される(dedup)ため、無条件に打ち切ると「実際に表示しようとしている
+    /// ページ」の読み込みまで巻き込んでnilを返してしまう。そこで、打ち切ってよいのは
+    /// 「先読みが始めた、かつ実表示の要求がまだ合流していない」ものだけに限定する。
+    private var cancellableInFlightKeys: Set<String> = []
 
     /// pageSize(at:)の結果を、page.id(内容ベースの安定したキー。imageCacheと同じ)で覚えておく。
     ///
@@ -125,6 +151,24 @@ actor PageLoader {
     init(book: MangaBook, contrastCorrectionEnabled: Bool = false) {
         self.book = book
         self.contrastCorrectionEnabled = contrastCorrectionEnabled
+    }
+
+    /// 本を閉じてこのPageLoaderが解放されるとき、まだ走っている読み込みを畳んでおく。
+    ///
+    /// 各タスクは[weak self]で自分を捕まえているため放置しても最終的には終わるが、それは
+    /// 「次のチェックポイントまで進んでから」であり、それまでは表示されることのないページの
+    /// アーカイブ展開・デコードにCPUとディスクI/Oを使い続けることになる(特に
+    /// prefetch(around:)は最大21ページぶんを同時に抱えうる)。ここで明示的に打ち切る。
+    deinit {
+        for entry in prefetchTasks.values {
+            entry.task.cancel()
+        }
+        for task in inFlightTasks.values {
+            task.cancel()
+        }
+        for task in inFlightPageSizeTasks.values {
+            task.cancel()
+        }
     }
 
     /// この本のコントラスト補正設定(本単位、BookLayoutSettings.contrastCorrectionEnabled)が
@@ -396,29 +440,55 @@ actor PageLoader {
         let upper = min(book.pages.count - 1, index + radius)
         guard lower <= upper else { return }
 
-        for (existingIndex, task) in prefetchTasks where existingIndex < lower || existingIndex > upper {
-            task.cancel()
+        for (existingIndex, entry) in prefetchTasks where existingIndex < lower || existingIndex > upper {
+            entry.task.cancel()
+            // ラッパーのTaskをキャンセルしただけでは、既に始まっている内側の読み込み
+            // (アーカイブ展開+デコード)は止まらない(cancellableInFlightKeysのコメント参照)。
+            // まだ実表示の要求が合流していない先読みに限り、その読み込み自体も打ち切る。
+            if cancellableInFlightKeys.contains(entry.inFlightKey) {
+                inFlightTasks[entry.inFlightKey]?.cancel()
+            }
             prefetchTasks.removeValue(forKey: existingIndex)
         }
 
         for pageIndex in lower...upper {
             guard prefetchTasks[pageIndex] == nil else { continue }
-            let key = book.pages[pageIndex].id as NSString
-            guard imageCache.object(forKey: key) == nil else { continue }
+            let page = book.pages[pageIndex]
+            guard imageCache.object(forKey: page.id as NSString) == nil else { continue }
 
-            prefetchTasks[pageIndex] = Task { [weak self] in
+            // image(at:cache:maxPixelSize:isPrefetch:)へ渡すキーの組み立て方と揃えること。
+            let inFlightKey = "\(ObjectIdentifier(imageCache))#\(page.id)"
+            let task = Task { [weak self] in
                 guard let self else { return }
-                _ = await self.pageImage(at: pageIndex)
+                _ = await self.prefetchImage(at: pageIndex)
                 await self.clearPrefetchTask(for: pageIndex)
             }
+            prefetchTasks[pageIndex] = PrefetchEntry(task: task, inFlightKey: inFlightKey)
         }
+    }
+
+    /// prefetch(around:)専用の入り口。pageImage(at:)と同じ読み込みだが、「先読みとして
+    /// 始めた」ことを記録し、範囲外になった時点で打ち切れるようにする
+    /// (cancellableInFlightKeysのコメント参照)。
+    private func prefetchImage(at index: Int) async -> CGImage? {
+        await image(
+            at: index, cache: imageCache, maxPixelSize: ImageDecoder.pageMaxPixelSize, isPrefetch: true
+        )
     }
 
     private func clearPrefetchTask(for index: Int) {
         prefetchTasks.removeValue(forKey: index)
     }
 
-    private func image(at index: Int, cache: NSCache<NSString, CGImageBox>, maxPixelSize: CGFloat) async -> CGImage? {
+    /// - Parameter isPrefetch: prefetch(around:)からの先読みとして呼ばれた場合はtrue。
+    ///   この場合にかぎり、先読み範囲から外れた時点で読み込みを途中で打ち切ってよいものとして
+    ///   記録する(cancellableInFlightKeysのコメント参照)。
+    private func image(
+        at index: Int,
+        cache: NSCache<NSString, CGImageBox>,
+        maxPixelSize: CGFloat,
+        isPrefetch: Bool = false
+    ) async -> CGImage? {
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
         let key = page.id as NSString
@@ -430,6 +500,10 @@ actor PageLoader {
         // cache(フルサイズ用/サムネイル用)ごとに分けて合流させるため、キーにcacheの識別子も含める
         let inFlightKey = "\(ObjectIdentifier(cache))#\(page.id)"
         if let existingTask = inFlightTasks[inFlightKey] {
+            if !isPrefetch {
+                // 先読みが始めた読み込みに、実際の表示要求が合流した。もう打ち切ってはならない。
+                cancellableInFlightKeys.remove(inFlightKey)
+            }
             return await existingTask.value
         }
 
@@ -445,9 +519,13 @@ actor PageLoader {
             return await self.decodedImage(for: page.source, maxPixelSize: maxPixelSize)
         }
         inFlightTasks[inFlightKey] = task
+        if isPrefetch {
+            cancellableInFlightKeys.insert(inFlightKey)
+        }
 
         let decoded = await task.value
         inFlightTasks[inFlightKey] = nil
+        cancellableInFlightKeys.remove(inFlightKey)
 
         guard let decoded else { return nil }
         cache.setObject(CGImageBox(decoded), forKey: key, cost: decoded.width * decoded.height * 4)
@@ -560,10 +638,46 @@ actor PageLoader {
 
     /// アーカイブごとにReaderを使い回す。actorの外から同時に触られることはないので、
     /// ここでの読み込みは安全に直列化される。
+    ///
+    /// バグ修正(予防): 以前は一度作ったReaderを本を閉じるまで一切解放していなかった。通常の
+    /// 本(1冊=1つの書庫、またはフォルダ内の画像だけ)ならReaderはたかだか1つなので問題に
+    /// ならないが、BookLoaderは「フォルダの中に並んだ大量の書庫」も「書庫の中の入れ子の書庫」も
+    /// 統合して1冊として開けるため(BookLoader.collectPages参照)、そうした本ではページを
+    /// 読み進めるだけで開いたままのファイルハンドルが際限なく増えていく。直近に使ったものだけを
+    /// 残す上限を設ける。
+    ///
+    /// 上限を超えて追い出したReaderは、次にそのアーカイブのページへ戻ったときに作り直される
+    /// だけで、動作は変わらない。通常の本では追い出し自体が起きないため、速度への影響も無い。
+    private static let maxCachedReaders = 8
+
+    /// readersの使用順(古い順)。maxCachedReadersを超えたぶんを先頭から追い出す。
+    private var readerUsageOrder: [String] = []
+
     private func reader(for archiveURL: URL) -> ArchiveReading? {
-        if let cached = readers[archiveURL.path] { return cached }
+        let path = archiveURL.path
+        if let cached = readers[path] {
+            touchReaderUsage(path)
+            return cached
+        }
         guard let created = try? makeArchiveReader(for: archiveURL) else { return nil }
-        readers[archiveURL.path] = created
+        readers[path] = created
+        touchReaderUsage(path)
+        while readerUsageOrder.count > Self.maxCachedReaders {
+            let evicted = readerUsageOrder.removeFirst()
+            readers.removeValue(forKey: evicted)
+        }
         return created
+    }
+
+    /// pathを「いちばん最近使った」位置(末尾)へ移す。
+    ///
+    /// Readerは常にactor隔離されたメソッドの中で同期的に使い切られる(rawData/pageSize/
+    /// pageImageInfoのいずれも、reader(for:)で受け取ってからawaitを挟まずに読み終える)ため、
+    /// ここでの追い出しが「今まさに誰かが使っているReader」を消してしまうことはない。
+    private func touchReaderUsage(_ path: String) {
+        if let existing = readerUsageOrder.firstIndex(of: path) {
+            readerUsageOrder.remove(at: existing)
+        }
+        readerUsageOrder.append(path)
     }
 }
