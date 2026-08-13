@@ -21,6 +21,17 @@ import CoreImage
 /// PageLoader(actor)のTask.detached、およびactor自身の直接呼び出し(PDF描画経路)の両方から
 /// 呼ばれるため、どのアクターからでも呼べる必要がある。
 nonisolated enum ContrastCorrector {
+    /// levelsCorrectedが使い回すCIContext(生成コストが高いため。同メソッドのコメント参照)。
+    ///
+    /// workingColorSpace: NSNull() は、Core Imageの色管理を無効にしてピクセルの生の数値を
+    /// そのまま演算させるための指定(levelsCorrectedのコメント参照。分析時とフィルタ適用時で
+    /// 数値の土俵を一致させるために必要)。
+    ///
+    /// nonisolated(unsafe): CIContextはSendableとして宣言されていないが、ドキュメント上
+    /// スレッドセーフ(イミュータブルで、複数スレッドから同じインスタンスでレンダリングして
+    /// よい)とされているため、共有して問題ない。
+    nonisolated(unsafe) private static let sharedContext = CIContext(options: [.workingColorSpace: NSNull()])
+
     /// 分析(カラー判定・ヒストグラム計算)に使うダウンサンプル画像の長辺の上限。
     /// フルサイズ(最大4096〜20000px)を毎回スキャンするのは無駄なため、十分小さい解像度に
     /// 落としてから計算する。ページ全体の色・階調の傾向を掴むにはこの程度で十分。
@@ -205,13 +216,16 @@ nonisolated enum ContrastCorrector {
         clampFilter.setValue(CIVector(x: 1, y: 1, z: 1, w: 1), forKey: "inputMaxComponents")
         guard let output = clampFilter.outputImage else { return nil }
 
-        // CIContextの生成コストは高い(GPUImageUpscaler.swiftのコメント参照)が、ここは
-        // ページのデコード1回につき1回しか呼ばれない(ルーペのようにマウス移動のたびに
-        // 呼ばれるホットパスではない)ため、都度生成しても実用上問題にならない。PageLoaderの
-        // Task.detached(複数ページを並行してデコードしうる)から同時に呼ばれうるため、
-        // インスタンスを使い回さずその都度作ることで、共有状態への並行アクセスを考える
-        // 必要が無いようにしている。
-        let context = CIContext(options: [.workingColorSpace: NSNull()])
+        // CIContextの生成コストは高い(GPUパイプラインの構築を伴う。GPUImageUpscaler.swiftの
+        // コメント参照)ため、使い回す。
+        //
+        // 経緯: 以前は「ページのデコード1回につき1回しか呼ばれないので都度生成でよい」と
+        // していたが、先読み(PageLoader.prefetch)は環境設定次第で前後最大10ページ=21ページを
+        // 並行してデコードしうるため、実際にはその数だけGPUパイプラインが作られていた。
+        // CIContextはイミュータブルでスレッドセーフ(複数スレッドから同じインスタンスで
+        // レンダリングしてよい)とされているため、並行して呼ばれても共有して問題ない
+        // (スレッドセーフでないCIFilterの方は、従来どおり呼び出しごとに生成している)。
+        let context = Self.sharedContext
         // 出力を書き出す段になって初めてsRGBとしてタグ付けする。入力・演算はリニア変換無し
         // (ガンマ符号化値のまま)で行っているため、出力される生の数値もsRGBガンマ符号化値と
         // 同じ意味を持つ。元画像のcolorSpaceをそのまま使わないのは、元画像のプロファイルが

@@ -59,8 +59,35 @@ nonisolated enum ImageDecoder {
     /// フォーマットのヘッダー構造体(JPEGのSOFマーカー、PNGのIHDRチャンク等)だけを解析するため、
     /// 画像の解像度に関わらずほぼ一瞬で終わる)。
     static func headerInfo(of data: Data) -> HeaderInfo? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
+        return headerInfo(from: source)
+    }
+
+    /// headerInfo(of:)のファイルURL版。
+    ///
+    /// フォルダの本(PageSource.file)のように、画像が独立したファイルとして存在する場合に使う。
+    /// Dataを経由する版と違い、ファイル全体をメモリへ読み込まない: CGImageSourceCreateWithURLは
+    /// Image I/Oが必要な範囲だけをファイルから逐次読むため、ヘッダーの解析に必要な先頭の
+    /// 数KBしか実際には触らない。
+    ///
+    /// 経緯: 以前はフォルダの本でも、ページの縦横比を知りたいだけの場面(横長判定。
+    /// ViewerViewModel.warmUpWideImageCacheForEntireBookが本を開いた直後に全ページへ行う)で
+    /// PageLoader.rawData経由のData(contentsOf:)を使っており、幅と高さを得るためだけに画像
+    /// ファイルを丸ごと読み込んでいた。1冊あたりの総読み込み量がページ数×ファイルサイズに
+    /// なるため、高解像度スキャンのフォルダ本を開いた直後に大量のディスクI/Oが発生していた。
+    static func headerInfo(ofFileAt url: URL) -> HeaderInfo? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else { return nil }
+        return headerInfo(from: source)
+    }
+
+    /// kCGImageSourceShouldCache: false — ここで作るCGImageSourceはヘッダーの問い合わせにしか
+    /// 使わず、デコード結果を保持させる意味が無いため(そのままだとImage I/Oがデコード済み
+    /// ピクセルをキャッシュしうる)。
+    private static let sourceOptions: CFDictionary =
+        [kCGImageSourceShouldCache: false] as CFDictionary
+
+    private static func headerInfo(from source: CGImageSource) -> HeaderInfo? {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? Int,
               let height = properties[kCGImagePropertyPixelHeight] as? Int
         else { return nil }
@@ -79,6 +106,12 @@ nonisolated enum ImageDecoder {
     /// headerInfo(of:)の薄いラッパー(ピクセルサイズしか要らない呼び出し元向け)。
     static func pixelSize(of data: Data) -> (width: Int, height: Int)? {
         guard let info = headerInfo(of: data) else { return nil }
+        return (info.pixelWidth, info.pixelHeight)
+    }
+
+    /// pixelSize(of:)のファイルURL版(headerInfo(ofFileAt:)の薄いラッパー)。
+    static func pixelSize(ofFileAt url: URL) -> (width: Int, height: Int)? {
+        guard let info = headerInfo(ofFileAt: url) else { return nil }
         return (info.pixelWidth, info.pixelHeight)
     }
 }

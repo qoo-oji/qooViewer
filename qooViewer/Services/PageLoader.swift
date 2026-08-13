@@ -90,6 +90,18 @@ actor PageLoader {
     /// ピクセル寸法は変わらないため、そちらでは破棄しない。
     private var pageSizeCache: [String: (width: Int, height: Int)] = [:]
 
+    /// 進行中のpageSize(at:)を、ページごとに覚えておく(image(at:)のinFlightTasksと同じ考え方)。
+    /// pageSizeはactorの外へ処理を逃がすようになった=途中で中断点(await)を挟むため、同じページ
+    /// への問い合わせが複数の経路(warmUpWideImageCacheForEntireBook / primeWideImageCache /
+    /// wideImageAspectRatios)から重なると、キャッシュに入る前に二重に読み込みうる。
+    private var inFlightPageSizeTasks: [String: Task<(width: Int, height: Int)?, Never>] = [:]
+
+    /// 画像のヘッダー解析のために読む先頭バイト数。JPEGのSOFマーカー・PNGのIHDRチャンクなどは
+    /// ファイル先頭のごく近くにあるが、EXIF/ICCプロファイルが大きい画像ではSOFがその後ろへ
+    /// 押し出されるため、ある程度の余裕を持たせる。ここで足りずにヘッダーを読み取れなかった
+    /// 場合は、呼び出し側がエントリ全体の読み込みへフォールバックする(pageSize/pageImageInfo参照)。
+    private static let headerProbeByteCount = 128 * 1024
+
     // countLimitは64。環境設定の「先読みする画像数」は最大10まで設定できるため、
     // 前後合わせて最大21枚(2*10+1)が先読み対象になる。NSCacheの上限はヒントに過ぎず
     // 厳密なLRUでもないため、ウィンドウぎりぎりの数に合わせるとプリフェッチしたばかりの
@@ -181,19 +193,72 @@ actor PageLoader {
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
         if let cached = pageSizeCache[page.id] { return cached }
+        if let existing = inFlightPageSizeTasks[page.id] { return await existing.value }
 
-        let size: (width: Int, height: Int)?
-        switch page.source {
-        case .pdf(let pdfURL, let pageIndex):
+        // PDFはページ寸法がCGPDFPageから直接取れる(ファイルの読み込み・解析を伴わない)ため、
+        // actorの外へ逃がす意味が無い。ここで完結させる。
+        if case .pdf(let pdfURL, let pageIndex) = page.source {
             guard let document = pdfDocument(for: pdfURL), let pdfPage = document.page(at: pageIndex + 1) else {
                 return nil
             }
             let box = pdfPage.getBoxRect(.mediaBox)
             guard box.width > 0, box.height > 0 else { return nil }
-            size = (Int(box.width.rounded()), Int(box.height.rounded()))
-        case .file, .zip, .sevenZip, .rar:
-            guard let data = rawData(for: page.source) else { return nil }
-            size = ImageDecoder.pixelSize(of: data)
+            let size = (width: Int(box.width.rounded()), height: Int(box.height.rounded()))
+            pageSizeCache[page.id] = size
+            return size
+        }
+
+        // 以降(フォルダ内の画像・書庫内エントリ)は、ファイルの読み込みとヘッダー解析を伴う。
+        // これをactorを保持したまま行うと、本を開いた直後の全ページ先読み判定
+        // (warmUpWideImageCacheForEntireBook)が走っている間、ユーザーのページ送りが要求する
+        // pageImage(at:)がactorの順番待ちになってしまう(タスクの優先度を下げても、actorを
+        // 掴んでいる間は横取りされない)。decodedImage(for:maxPixelSize:)と同じ考え方で、
+        // 重い部分はactorの外のバックグラウンドタスクへ逃がす。
+        let task: Task<(width: Int, height: Int)?, Never>
+        switch page.source {
+        case .file(let url):
+            // フォルダの本は、そもそもactorが守るべき共有状態(アーカイブのreader)を触らない。
+            // ファイルを丸ごと読まずヘッダーだけを読むURL版を、そのままactor外で使う
+            // (ImageDecoder.headerInfo(ofFileAt:)のコメント参照)。
+            task = Task.detached(priority: .utility) {
+                ImageDecoder.pixelSize(ofFileAt: url)
+            }
+        case .zip(let archiveURL, let entryPath),
+             .sevenZip(let archiveURL, let entryPath),
+             .rar(let archiveURL, let entryPath):
+            // 書庫からの取り出しはreaderがスレッドセーフでないためactor上で行うほかないが、
+            // エントリ全体ではなく先頭だけを伸長する(ArchiveReading.dataPrefix参照)。
+            guard let prefix = try? reader(for: archiveURL)?.dataPrefix(
+                at: entryPath, maxByteCount: Self.headerProbeByteCount
+            ) else { return nil }
+            task = Task.detached(priority: .utility) {
+                ImageDecoder.pixelSize(of: prefix)
+            }
+        case .pdf:
+            return nil // 上で早期リターン済み(switchを網羅させるためのプレースホルダー)。
+        }
+
+        inFlightPageSizeTasks[page.id] = task
+        var size = await task.value
+        inFlightPageSizeTasks[page.id] = nil
+
+        // 先頭だけではヘッダーを読み取れなかった書庫エントリは、従来通りエントリ全体を読んで
+        // やり直す(巨大なEXIF/ICCプロファイルがJPEGのSOFマーカーを先頭から押し出している
+        // 画像など)。フォルダの本(.file)はURL版が最初からファイル全体を対象にできるので、
+        // この作り直しは要らない。
+        //
+        // 途中で打ち切ったデータからは、誤った寸法ではなく必ずnilが返る(ヘッダーを読み切れて
+        // いなければpixelWidth/pixelHeight自体が存在しないため)ので、ここで作り直すかどうかの
+        // 判定にそのままnilを使ってよい。
+        //
+        // なお、この作り直しは上でinFlightPageSizeTasksを外した後に行うため、ちょうど同じ
+        // ページを待ち合わせていた別の呼び出しにはnilが返る。その呼び出し元(横長判定の
+        // 先読み)は「まだ判定できていないページ」として扱い、後で改めて問い合わせるだけなので
+        // 実害は無い(キャッシュにも入っていないため、次回は正しく読み直される)。
+        if size == nil, !page.source.isFile, let fullData = rawData(for: page.source) {
+            size = await Task.detached(priority: .utility) {
+                ImageDecoder.pixelSize(of: fullData)
+            }.value
         }
 
         // 取得できなかった場合(未対応フォーマット等)はキャッシュしない。次回改めて試みる。
@@ -233,9 +298,11 @@ actor PageLoader {
                 hasAlphaChannel: nil
             )
         case .file(let url):
-            guard let data = rawData(for: page.source),
-                  let header = ImageDecoder.headerInfo(of: data)
-            else { return nil }
+            // pageSize(at:)と同じ理由で、ファイルを丸ごと読まずヘッダーだけを読む
+            // (ImageDecoder.headerInfo(ofFileAt:)のコメント参照)。表示するファイルサイズは、
+            // 読み込んだバイト数ではなくファイルシステムに問い合わせて得る。
+            guard let header = ImageDecoder.headerInfo(ofFileAt: url) else { return nil }
+            let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map(Int64.init)
             let dates = Self.fileSystemDates(for: url)
             return PageImageInfo(
                 fileName: page.displayName,
@@ -243,7 +310,7 @@ actor PageLoader {
                 pixelWidth: header.pixelWidth,
                 pixelHeight: header.pixelHeight,
                 colorModel: header.colorModel,
-                fileSizeBytes: Int64(data.count),
+                fileSizeBytes: fileSize,
                 location: url.deletingLastPathComponent().path,
                 createdDate: dates.created,
                 modifiedDate: dates.modified,

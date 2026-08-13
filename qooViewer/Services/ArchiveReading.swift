@@ -16,11 +16,32 @@ protocol ArchiveReading {
     nonisolated func listFilePaths() throws -> [String]
     /// 指定パスのファイルをDataとして取り出す
     nonisolated func data(at path: String) throws -> Data
+    /// 指定パスのファイルの先頭maxByteCountバイトだけを取り出す(それより小さいエントリなら
+    /// 全体)。画像のヘッダー(JPEGのSOFマーカー、PNGのIHDRチャンク等)だけを読めれば十分な
+    /// 用途(PageLoader.pageSize/pageImageInfo)向け。
+    ///
+    /// 画像1枚を丸ごと伸長するコストは、ページ数ぶん積み上がると無視できない
+    /// (ViewerViewModel.warmUpWideImageCacheForEntireBookは本を開いた直後に全ページの
+    /// 縦横比を調べる)。実際に必要なのは先頭のごく一部だけなので、途中で打ち切れる形式では
+    /// 打ち切る。
+    ///
+    /// 既定実装はdata(at:)による全体読みへのフォールバック。途中で伸長を打ち切れるかどうかは
+    /// 形式・ライブラリ依存のため、対応できる実装(ZipArchiveReader)だけが上書きする。
+    nonisolated func dataPrefix(at path: String, maxByteCount: Int) throws -> Data
     /// 指定エントリの作成日時・更新日時(コンテキストメニュー「情報を見る」、ユーザー要望向け)。
     /// アーカイブ形式によって保持している情報が異なる: zip/7zは更新日時のみ(作成日時という
     /// 概念自体を持たない)、rarは両方持つ。取得できない項目はnil。エントリが見つからない場合は
     /// 両方nil。
     nonisolated func entryDates(at path: String) -> (created: Date?, modified: Date?)
+}
+
+extension ArchiveReading {
+    /// dataPrefix(at:maxByteCount:)の既定実装(プロトコルのコメント参照)。
+    /// 7z/rarは使用しているライブラリが「エントリの先頭だけを伸長する」形の読み出しに
+    /// 対応していないため、この既定実装のまま(=従来通りの全体読み)になる。
+    nonisolated func dataPrefix(at path: String, maxByteCount: Int) throws -> Data {
+        try data(at: path)
+    }
 }
 
 /// 対応する画像の拡張子。AVIFはmacOS Sonoma(14)以降でImageIOがシステム全体で

@@ -51,6 +51,37 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
         return result
     }
 
+    /// 目的のバイト数に達したことを伝えるためだけの内部エラー。ZIPFoundationのextractは
+    /// 「途中で止める」APIを持たないが、チャンクを受け取るクロージャ(Consumer)がthrowできる
+    /// ので、それを打ち切りの合図として使い、呼び出し側で握り潰す。
+    private struct PrefixReached: Error {}
+
+    /// ArchiveReading.dataPrefix(at:maxByteCount:)のzip実装(プロトコル側のコメント参照)。
+    /// 必要なバイト数が溜まった時点で伸長を打ち切る。
+    ///
+    /// extractは呼び出しのたびに対象エントリの先頭へ必ずシークし直す(ZIPFoundationの
+    /// Archive+Reading.swift参照)ため、途中で打ち切ってもアーカイブ側の読み取り位置は
+    /// 次回以降に影響しない。
+    ///
+    /// skipCRC32: true — CRC32はエントリ全体を読み切って初めて検証できる値で、途中で
+    /// 打ち切るこの経路では最後まで計算しようがない。計算させても結果を使えないため省く
+    /// (伸長した範囲のチェックサム計算ぶんだけ速くなる)。
+    func dataPrefix(at path: String, maxByteCount: Int) throws -> Data {
+        guard let entry = entryByCorrectedPath[path] else { throw ArchiveReaderError.entryNotFound }
+        guard maxByteCount > 0 else { return Data() }
+        var result = Data()
+        result.reserveCapacity(min(maxByteCount, Int(entry.uncompressedSize)))
+        do {
+            _ = try archive.extract(entry, skipCRC32: true) { chunk in
+                result.append(chunk)
+                if result.count >= maxByteCount { throw PrefixReached() }
+            }
+        } catch is PrefixReached {
+            // 必要なぶんが読めたので打ち切っただけ。正常系。
+        }
+        return result
+    }
+
     /// zipのセントラルディレクトリはMS-DOS形式の更新日時しか持たず、作成日時という概念が無い
     /// ため、createdは常にnil(ArchiveReading.entryDates(at:)のコメント参照)。
     func entryDates(at path: String) -> (created: Date?, modified: Date?) {

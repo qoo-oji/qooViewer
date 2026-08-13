@@ -521,18 +521,27 @@ final class BookLayoutEditorViewModel: ObservableObject {
         return [:]
     }
 
-    private func isWideImage(_ image: CGImage) -> Bool {
-        guard image.height > 0 else { return false }
-        let ratio = Double(image.width) / Double(image.height)
+    private func isWideImage(width: Int, height: Int) -> Bool {
+        guard height > 0 else { return false }
+        let ratio = Double(width) / Double(height)
         return ratio >= preferences.singlePageAspectRatioThreshold
     }
 
+    /// 対象ページが「横長画像(見開き表示中でも単ページ扱いにすべき)」かどうかを判定する。
+    ///
+    /// 以前はthumbnail(rawIndex:)で1ページずつサムネイルを実際にデコードして幅・高さを見て
+    /// いたが、判定に必要なのは縦横比だけで、デコードしたピクセルは一切使っていなかった。
+    /// 伝播範囲が「本全体」の場合はこれを全ページに対して行うため、ページ数の多い本では
+    /// レイアウトの変更操作そのものが目に見えて遅くなっていた。ビューア側の同名メソッド
+    /// (ViewerViewModel.wideImageAspectRatios)は既に、ピクセルデコードを伴わない
+    /// PageLoader.pageSize(at:)(フォーマットのヘッダーだけを読む)へ置き換え済みで、
+    /// この編集ウインドウ側だけが古いままだった。同じ方式に揃える。
     private func wideImageAspectRatios(for pageKeys: [String]) async -> [String: Bool] {
         let keySet = Set(pageKeys)
         var result: [String: Bool] = [:]
         for row in rows where keySet.contains(row.pageKey) {
-            guard let thumbnail = await thumbnail(rawIndex: row.rawIndex) else { continue }
-            result[row.pageKey] = isWideImage(thumbnail)
+            guard let size = await pageLoader?.pageSize(at: row.rawIndex) else { continue }
+            result[row.pageKey] = isWideImage(width: size.width, height: size.height)
         }
         return result
     }

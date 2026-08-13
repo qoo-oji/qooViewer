@@ -12,6 +12,14 @@ enum PageSource {
     case rar(archiveURL: URL, entryPath: String)
     /// PDFファイル内の1ページ(0始まりのページ番号)
     case pdf(pdfURL: URL, pageIndex: Int)
+
+    /// フォルダ内の独立した画像ファイルかどうか(書庫内エントリ・PDFのページではない)。
+    /// この場合だけ、ファイルを丸ごと読まずにヘッダーだけを読むURLベースの経路が使える
+    /// (PageLoader.pageSize/pageImageInfo、ImageDecoder.headerInfo(ofFileAt:)参照)。
+    var isFile: Bool {
+        if case .file = self { return true }
+        return false
+    }
 }
 
 /// EPUBのpackage document内で、そのページに明示的に指定された見開き内の配置。
