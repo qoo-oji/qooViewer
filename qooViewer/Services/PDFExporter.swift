@@ -107,13 +107,6 @@ nonisolated enum PDFExporter {
             auxiliaryInfo[kCGPDFContextAuthor as String] = author
         }
 
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
-            try? FileManager.default.removeItem(at: destinationURL)
-        }
-        guard let context = CGContext(destinationURL as CFURL, mediaBox: nil, auxiliaryInfo as CFDictionary) else {
-            throw PDFExportError.creationFailed
-        }
-
         // ブックマーク → アウトライン用に、元のpageKeyから実際に書き出したPDFページ番号
         // (1始まり、kCGPDFOutlineDestinationの仕様に合わせる)を求める。画像の取得に失敗して
         // ページ自体を書き出せなかった場合はここに追加しないため、そのページを指すブックマークは
@@ -135,8 +128,18 @@ nonisolated enum PDFExporter {
         // 行われなくなるが、EpubExporter.exportも同じくrawImageDataをそのまま埋め込んでおり
         // (書き出し先のEPUBリーダー側でもEXIF回転は反映されない)、この点は既存のEPUB書き出しと
         // 挙動を揃えているだけで新たな制約ではない。
+        //
+        // バグ修正: 以前はこのループの前でPDFコンテキストを作り、ループを抜けた後で
+        // 「1ページも書き出せなかった」と分かった時点でnoEligiblePagesを投げていた。この経路は
+        // closePDF()を通らないうえ、その時点では既に上書き先の既存ファイルを削除し、空の
+        // PDFファイルを作った後だったため、書き出しに失敗すると「元のPDFは消え、壊れた
+        // ファイルだけが残る」状態になっていた。
+        // 「書き出せるページが1枚でもあるか」の判定をコンテキスト生成より前に行うため、
+        // 最初に描画できるページが見つかるまでコンテキストを作らない(=既存ファイルにも
+        // 触れない)構成にする。1枚も無ければ、そもそも何も作らずにthrowするだけで済む。
         var pageNumberByOriginalKey: [String: Int] = [:]
         var pageNumber = 0
+        var context: CGContext?
         for page in orderedPages {
             guard let originalIndex = originalIndexByKey[page.sortKey],
                   let data = await pageLoader.rawImageData(at: originalIndex),
@@ -144,15 +147,35 @@ nonisolated enum PDFExporter {
                   let image = CGImageSourceCreateImageAtIndex(imageSource, 0, nil)
             else { continue }
 
+            // 最初に描画できるページが確定した、このタイミングで初めて書き出し先を作る。
+            let pdfContext: CGContext
+            if let context {
+                pdfContext = context
+            } else {
+                if FileManager.default.fileExists(atPath: destinationURL.path) {
+                    try? FileManager.default.removeItem(at: destinationURL)
+                }
+                guard let created = CGContext(
+                    destinationURL as CFURL, mediaBox: nil, auxiliaryInfo as CFDictionary
+                ) else {
+                    throw PDFExportError.creationFailed
+                }
+                context = created
+                pdfContext = created
+            }
+
             pageNumber += 1
             pageNumberByOriginalKey[page.sortKey] = pageNumber
 
             var mediaBox = CGRect(x: 0, y: 0, width: CGFloat(image.width), height: CGFloat(image.height))
-            context.beginPage(mediaBox: &mediaBox)
-            context.draw(image, in: mediaBox)
-            context.endPage()
+            pdfContext.beginPage(mediaBox: &mediaBox)
+            pdfContext.draw(image, in: mediaBox)
+            pdfContext.endPage()
         }
-        guard pageNumber > 0 else { throw PDFExportError.noEligiblePages }
+        // contextがnilであることと「1ページも書き出せなかった」ことは同値(上のとおり、最初の
+        // 1ページを描画する直前にしか生成しないため)。この時点ではまだ何も作っていないので、
+        // 後始末の必要なくそのままthrowできる。
+        guard let context else { throw PDFExportError.noEligiblePages }
 
         if let outline = makeOutline(bookmarks: input.bookmarks, pageNumberByOriginalKey: pageNumberByOriginalKey) {
             CGPDFContextSetOutline(context, outline)

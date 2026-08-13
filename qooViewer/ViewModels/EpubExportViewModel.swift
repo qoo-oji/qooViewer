@@ -102,6 +102,25 @@ final class EpubExportViewModel: ObservableObject {
     private var bookmarksChangeObserver: NSObjectProtocol?
     private var layoutDataChangeObserver: NSObjectProtocol?
 
+    /// loadBook(forBookID:)でstartAccessingSecurityScopedResource()に成功したURLの集合。
+    ///
+    /// 読み込んだ本は、この後もカバー列の表示名の解決やカバーピッカーのサムネイル取得で
+    /// 元のファイルを読み続けるため、loadBook()の中でアクセスを閉じることはできず、この
+    /// インスタンスが生きている間ずっと開いたままにしておく必要がある。そのため対になる
+    /// stopAccessingSecurityScopedResource()はdeinitで呼ぶ
+    /// (BookLayoutEditorViewModel.securityScopedURLと同じ方針)。
+    ///
+    /// 以前は`_ = url.startAccessingSecurityScopedResource()`と開きっぱなしにしており、
+    /// アクセス権がリークしていた。しかもBookLayoutEditorViewModel(1冊ごとに作り直される)と
+    /// 違い、このViewModelはウインドウを閉じてもアプリ終了まで使い回されるうえ、
+    /// loadBook()はカバー列のセルの.task(refreshCoverName)から行ごとに呼ばれるため、
+    /// 一覧をスクロールして行が再表示されるたびに対象の本の数だけ積み上がっていた。
+    ///
+    /// Set(URL単位で1回だけ開く)にしているのは、startAccessingSecurityScopedResourceが
+    /// 参照カウント式のため。同じ本を何度読み込んでも開くのは1回だけにしておかないと、
+    /// deinitでの1回のstopでは釣り合わない。
+    private var securityScopedURLs: Set<URL> = []
+
     init(bookmarkStore: BookmarkStore, layoutStore: LayoutStore, preferences: AppPreferences) {
         self.bookmarkStore = bookmarkStore
         self.layoutStore = layoutStore
@@ -133,6 +152,11 @@ final class EpubExportViewModel: ObservableObject {
         }
         if let layoutDataChangeObserver {
             NotificationCenter.default.removeObserver(layoutDataChangeObserver)
+        }
+        // loadBook(forBookID:)で開いたセキュリティスコープ付きアクセスを閉じる
+        // (securityScopedURLsのコメント参照)。
+        for url in securityScopedURLs {
+            url.stopAccessingSecurityScopedResource()
         }
     }
 
@@ -236,14 +260,18 @@ final class EpubExportViewModel: ObservableObject {
 
     /// カバーピッカー(本のページ一覧を表示する画面)から呼ばれる。この本を読み込んで返す
     /// (セキュリティスコープ付きアクセスはBookLayoutEditorViewModel.loadと同じく、ウインドウが
-    /// 開いている間ずっとサムネイルを読み込めるよう、明示的に閉じずに保持したままにする)。
+    /// 開いている間ずっとサムネイルを読み込めるよう、明示的に閉じずに保持したままにし、
+    /// deinitでまとめて閉じる。securityScopedURLsのコメント参照)。
     func loadBookForCoverPicker(bookID: String) async -> MangaBook? {
         await loadBook(forBookID: bookID)
     }
 
     private func loadBook(forBookID bookID: String) async -> MangaBook? {
         guard let url = resolveURL(forBookID: bookID) else { return nil }
-        _ = url.startAccessingSecurityScopedResource()
+        // 同じ本を何度読み込んでも、開くのは最初の1回だけにする(securityScopedURLsのコメント参照)。
+        if !securityScopedURLs.contains(url), url.startAccessingSecurityScopedResource() {
+            securityScopedURLs.insert(url)
+        }
         return try? await BookLoader.load(from: url)
     }
 

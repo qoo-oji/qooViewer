@@ -442,20 +442,46 @@ struct ContentView: View {
     }
 
     /// ウインドウの移動・リサイズのたびに、そのときのフレームをUserDefaultsへ保存する。
-    /// windowはNotificationCenterへweakに保持されるだけなので、ウインドウが閉じられれば
-    /// 監視も自然に無意味になる(主ウインドウは通常アプリの生存中1つだけのため、
-    /// 明示的なremoveObserverは行っていない)。
+    ///
+    /// バグ修正(ユーザー報告): 以前はこの2つの購読を登録するだけでremoveObserverを一切
+    /// 呼んでおらず、コメントでは「windowはNotificationCenterへweakに保持されるだけなので、
+    /// ウインドウが閉じられれば監視も自然に無意味になる(主ウインドウは通常アプリの生存中
+    /// 1つだけ)」としていたが、これは下のobserveWindowBecameKeyと同じく誤りだった。
+    /// object:に渡すwindowはweakに保持されフィルタに使われるだけで、クロージャ自体は
+    /// removeObserverするまでNotificationCenterに強参照され続ける。しかも
+    /// NotificationCenterのobject:によるフィルタはポインタ一致で行われるため、解除し損ねた
+    /// 購読が残っている間に、閉じたウインドウとたまたま同じメモリアドレスに新しいNSWindowが
+    /// 確保されると、その新しいウインドウの移動・リサイズが「主ウインドウのフレーム」として
+    /// 保存されてしまう(ViewerView.setUpWindowObserversの末尾に記録されている、同じ原因に
+    /// よる不具合と同型)。observeWindowBecameKeyと同じく、ウインドウが閉じる
+    /// (NSWindow.willCloseNotification)タイミングで、自分自身を含めて確実に解除する。
     private func observeMainWindowFrameChanges(_ window: NSWindow) {
         let save: (Notification) -> Void = { notification in
             guard let window = notification.object as? NSWindow else { return }
             UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: Self.mainWindowFrameDefaultsKey)
         }
-        NotificationCenter.default.addObserver(
+        var moveToken: NSObjectProtocol?
+        var resizeToken: NSObjectProtocol?
+        var closeToken: NSObjectProtocol?
+        moveToken = NotificationCenter.default.addObserver(
             forName: NSWindow.didMoveNotification, object: window, queue: .main, using: save
         )
-        NotificationCenter.default.addObserver(
+        resizeToken = NotificationCenter.default.addObserver(
             forName: NSWindow.didResizeNotification, object: window, queue: .main, using: save
         )
+        closeToken = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: window, queue: .main
+        ) { _ in
+            if let moveToken {
+                NotificationCenter.default.removeObserver(moveToken)
+            }
+            if let resizeToken {
+                NotificationCenter.default.removeObserver(resizeToken)
+            }
+            if let closeToken {
+                NotificationCenter.default.removeObserver(closeToken)
+            }
+        }
     }
 
     /// このウインドウがキーウインドウになるたびに、今表示している本(なければ「本を

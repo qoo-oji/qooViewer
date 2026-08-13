@@ -1131,6 +1131,41 @@ struct QooViewerApp: App {
                         desiredFrame = window.frame
                         UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: "qooViewer.mainWindowFrame")
                     }
+                    // バグ修正(ユーザー報告): 以下の購読とタスクは、以前はどちらも後始末を
+                    // 一切していなかった。
+                    // (1) didMove/didResizeの購読はトークンすら受け取っておらず、
+                    //     removeObserverされることが無かった。NotificationCenterのobject:に
+                    //     よるフィルタはポインタ一致で行われるため、解除し損ねた購読が残って
+                    //     いる間に、閉じたウインドウとたまたま同じメモリアドレスに新しい
+                    //     NSWindowが確保されると、その新しいウインドウの移動・リサイズが
+                    //     「主ウインドウのフレーム」として保存されてしまう
+                    //     (ViewerView.setUpWindowObserversの末尾、および
+                    //     ContentView.observeMainWindowFrameChangesと同じ原因)。
+                    // (2) 下の`for await`のループには終わらせる手段が無く、matchedAppState
+                    //     (AppState)とlaunchCoordinatorを強参照したまま永久に生き続けていた。
+                    //     ContentView側でウインドウが閉じるときにhostWindow/primaryAppStateを
+                    //     nilへ戻して「閉じたら即座に解放される」ようにした意図を、この
+                    //     タスクが打ち消してしまっていた。
+                    // ウインドウが閉じる(NSWindow.willCloseNotification)タイミングで、
+                    // 自分自身を含めて確実に後始末する。
+                    var frameObserverTokens: [NSObjectProtocol] = []
+                    var frameSettlingTask: Task<Void, Never>?
+                    var isWindowClosed = false
+                    var closeToken: NSObjectProtocol?
+                    closeToken = NotificationCenter.default.addObserver(
+                        forName: NSWindow.willCloseNotification, object: newWindow, queue: .main
+                    ) { _ in
+                        isWindowClosed = true
+                        for token in frameObserverTokens {
+                            NotificationCenter.default.removeObserver(token)
+                        }
+                        frameObserverTokens = []
+                        frameSettlingTask?.cancel()
+                        frameSettlingTask = nil
+                        if let closeToken {
+                            NotificationCenter.default.removeObserver(closeToken)
+                        }
+                    }
                     // バグ修正(ユーザー報告): すぐに登録すると、上のsetFrameによる復元がまだ
                     // 完全には収まっておらず、SwiftUI側がこの直後にもう一度自動でフレームを
                     // 調整し直すことがあり(このタイミングでもなお微妙にズレることが実機で
@@ -1139,29 +1174,43 @@ struct QooViewerApp: App {
                     // 少し待ってSwiftUI側の調整が収まってから登録する。
                     Task { @MainActor in
                         try? await Task.sleep(nanoseconds: 300_000_000)
-                        NotificationCenter.default.addObserver(
+                        // この待ち時間の間にウインドウが閉じられていた場合、上の後始末は
+                        // 既に済んでしまっている。ここで登録すると解除される機会が二度と
+                        // 訪れないため、何もせずに終える。
+                        guard !isWindowClosed else { return }
+                        frameObserverTokens.append(NotificationCenter.default.addObserver(
                             forName: NSWindow.didMoveNotification, object: newWindow, queue: .main, using: saveFrame
-                        )
-                        NotificationCenter.default.addObserver(
+                        ))
+                        frameObserverTokens.append(NotificationCenter.default.addObserver(
                             forName: NSWindow.didResizeNotification, object: newWindow, queue: .main, using: saveFrame
-                        )
+                        ))
                     }
                     // 本を切り替えるたびに、切り替わった時点のdesiredFrame(=直前まで表示されて
                     // いた本での、ユーザーが最後に調整した値)を目標として、その後しばらくの間
                     // 繰り返し再適用し続けることで、後から入るどんな自動調整にも最終的に勝つ
                     // ようにする。
-                    Task { @MainActor in
+                    frameSettlingTask = Task { @MainActor in
                         for await _ in matchedAppState.$currentBook.dropFirst().values {
+                            // 内側のTask.sleepは`try?`で待っているためキャンセルされても
+                            // そのまま進んでしまう。ウインドウが閉じられた後に保存まで
+                            // 走らないよう、ループの頭で明示的に確認する。
+                            guard !Task.isCancelled else { break }
                             isSettling = true
                             for _ in 0..<8 {
                                 try? await Task.sleep(nanoseconds: 250_000_000)
-                                guard launchCoordinator.primaryAppState === matchedAppState,
+                                guard !Task.isCancelled,
+                                      launchCoordinator.primaryAppState === matchedAppState,
                                       let window = matchedAppState.hostWindow else { break }
                                 if window.frame != desiredFrame {
                                     window.setFrame(desiredFrame, display: true)
                                 }
                             }
                             isSettling = false
+                            // 併せて、この保存を「今もこのウインドウが主ウインドウである」場合に
+                            // 限定する。以前はこの1行が上のガードの外にあったため、既に主ウインドウ
+                            // ではなくなったウインドウのフレームで上書きされることがあった。
+                            guard !Task.isCancelled,
+                                  launchCoordinator.primaryAppState === matchedAppState else { continue }
                             UserDefaults.standard.set(NSStringFromRect(desiredFrame), forKey: "qooViewer.mainWindowFrame")
                         }
                     }
