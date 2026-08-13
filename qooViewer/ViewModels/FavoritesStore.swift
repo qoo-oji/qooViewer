@@ -182,8 +182,11 @@ final class FavoritesStore: ObservableObject {
         // コメント参照)。
         menuTrackingObserver = NotificationCenter.default.addObserver(
             forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
             MainActor.assumeIsolated {
+                // メニューバーのメニュー以外(ウインドウ内のPicker/Menuのドロップダウンなど)では
+                // 何もしない。詳細はMenuBarTracking.isMainMenu(_:)のコメント参照。
+                guard MenuBarTracking.isMainMenu(notification) else { return }
                 self?.reload()
             }
         }

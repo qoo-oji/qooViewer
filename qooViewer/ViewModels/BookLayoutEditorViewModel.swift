@@ -66,6 +66,18 @@ final class BookLayoutEditorViewModel: ObservableObject {
     private var book: MangaBook?
     private var pageLoader: PageLoader?
 
+    /// load()でstartAccessingSecurityScopedResource()に成功したURL(していなければnil)。
+    ///
+    /// このViewModelは、読み込みが終わった後もサムネイル・フル解像度画像の取得のために
+    /// pageLoader経由で元のファイルを読み続けるため、load()の中でアクセスを閉じることはできず、
+    /// このインスタンスが生きている間ずっと開いたままにしておく必要がある。そのため対になる
+    /// stopAccessingSecurityScopedResource()はdeinitで呼ぶ。
+    ///
+    /// 以前は`_ = url.startAccessingSecurityScopedResource()`と開きっぱなしにしており、
+    /// 左ペインで本を選び替えるたび(このViewModelは右ペインごと.id(bookID)で作り直される)に
+    /// 1つずつアクセス権がリークしていた。
+    private var securityScopedURL: URL?
+
     /// この本がEPUBのpackage document、またはPDFのDocument Catalogに権威的なレイアウト指定を
     /// 持っているかどうか。キャッシュ(BookLayoutSettings.hasEpubLayoutLock)には依存せず、
     /// 読み込んだ本自身から直接判定する(この本を一度もビューアで開いたことが無く、キャッシュが
@@ -132,6 +144,10 @@ final class BookLayoutEditorViewModel: ObservableObject {
         if let layoutDataChangeObserver {
             NotificationCenter.default.removeObserver(layoutDataChangeObserver)
         }
+        // load()で開いたセキュリティスコープ付きアクセスを閉じる(securityScopedURLのコメント参照)。
+        // pageLoaderが既に開いているファイルハンドルはこの呼び出しでは無効にならないため、
+        // 読み込み中のサムネイル取得が残っていても影響しない(どのみち結果はもう表示されない)。
+        securityScopedURL?.stopAccessingSecurityScopedResource()
     }
 
     /// この本を読み込む。resolvedURL(セキュリティスコープ付きブックマーク、またはbookIDの
@@ -143,7 +159,11 @@ final class BookLayoutEditorViewModel: ObservableObject {
             loadState = .failed
             return
         }
-        _ = url.startAccessingSecurityScopedResource()
+        // 万一load()が複数回呼ばれた場合に備えて、前回のアクセスを閉じてから開き直す
+        // (startAccessingSecurityScopedResourceは参照カウント式のため、開いた回数と同じだけ
+        // 閉じないと解放されない)。
+        securityScopedURL?.stopAccessingSecurityScopedResource()
+        securityScopedURL = url.startAccessingSecurityScopedResource() ? url : nil
         guard let loaded = try? await BookLoader.load(from: url) else {
             loadState = .failed
             return

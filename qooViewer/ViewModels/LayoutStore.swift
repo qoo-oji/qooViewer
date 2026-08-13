@@ -36,59 +36,115 @@ final class LayoutStore: ObservableObject {
     /// LayoutStoreは(BookmarkStoreと異なり)アプリ全体で共有される単一インスタンスとして
     /// ViewerViewModelにも直接渡されるため、すべての変更がこのインスタンスを経由する。
     /// そのためBookmarkStoreのような通知の自己購読は不要で、各更新メソッドの最後で
-    /// reloadLayoutBookIDs()を呼ぶだけで常に最新の状態を保てる。
+    /// (saveAndNotify経由で)refreshLayoutBookID(_:)を呼ぶだけで常に最新の状態を保てる。
     @Published private(set) var layoutBookIDs: Set<String> = []
 
     /// bookLayoutSettings(forBookID:)/pageOverrides(forBookID:)等が呼ばれるたびに絞り込み無しの
-    /// 全件フェッチをやり直さずに済むよう、直近の全件フェッチ結果をキャッシュしておく。
-    /// nilは「キャッシュ無効(次回読み取り時に再フェッチが必要)」を表す。
+    /// 全件フェッチをやり直さずに済むよう、全件フェッチ結果をbookIDで引ける形にしてキャッシュ
+    /// しておく。nilは「キャッシュ未構築(次回読み取り時にフェッチが必要)」を表す。
     ///
     /// このクラスがBookLayoutSettings/PageLayoutOverrideの唯一の書き込み口であり
     /// (このファイル冒頭のコメント参照。modelContextはFavoritesStore/BookmarkStore、
     /// およびContentView/ViewerViewModel側の`@Environment(\.modelContext)`とも同じ単一の
     /// ModelContext(modelContainer.mainContext)を共有しているが、BookLayoutSettings/
-    /// PageLayoutOverrideへ書き込むのはこのストアだけ)、insert/deleteのたびに必ず
-    /// invalidateLayoutCaches()を呼んで即座に無効化しているため、
-    /// 「挿入/削除した直後、save()より前に読み直す」場合(#if DEBUGの診断ログ等)も含めて、
-    /// 常にmodelContext.fetch()を直接呼んでいた場合と同じ結果になる(書き込みが無い間だけ
-    /// キャッシュが再利用され、フェッチが省略される)。
-    private var cachedSettings: [BookLayoutSettings]?
-    private var cachedOverrides: [PageLayoutOverride]?
+    /// PageLayoutOverrideへ書き込むのはこのストアだけ)、insert/deleteのたびにこのキャッシュ
+    /// 自身を同じ内容へ更新している。そのため「挿入/削除した直後、save()より前に読み直す」場合
+    /// (#if DEBUGの診断ログ等)も含めて、常にmodelContext.fetch()を直接呼んでいた場合と同じ
+    /// 結果になる。
+    ///
+    /// 経緯: 以前は`[BookLayoutSettings]`/`[PageLayoutOverride]`という平坦な配列で持ち、
+    /// insert/deleteのたびにinvalidateLayoutCaches()でまるごと捨てて、次のアクセスで全件を
+    /// フェッチし直していた。この方式だと、ページ単位のレイアウトを1ページ書き換えるだけでも
+    /// 全PageLayoutOverride行のフェッチ+SwiftDataオブジェクトの再生成が発生する。ページ単位設定を
+    /// 多数持つ本が増えるほど、1回の編集操作のコストが「アプリ全体の行数」に比例して重くなって
+    /// いくため、捨てて取り直すのをやめ、書き込んだぶんだけをキャッシュへ反映する形に変えた。
+    /// あわせてbookIDをキーにした辞書にすることで、bookLayoutSettings(forBookID:)/
+    /// pageOverrides(forBookID:)の線形探索も無くしている。
+    ///
+    /// なお「絞り込み無しで全件フェッチしてからSwift側で振り分ける」という方針自体は変えて
+    /// いない(#Predicateでの絞り込みフェッチが誤って0件を返す不具合を避けるため。詳細は
+    /// bookLayoutSettings(forBookID:)のコメント参照)。辞書はその全件フェッチ結果を
+    /// Swift側で仕分けたものにすぎない。
+    private var cachedSettingsByBookID: [String: BookLayoutSettings]?
+    private var cachedOverridesByBookID: [String: [PageLayoutOverride]]?
 
     init(modelContext: ModelContext) {
         self.modelContext = modelContext
-        reloadLayoutBookIDs()
+        rebuildLayoutBookIDs()
     }
 
-    /// 絞り込み無しの全BookLayoutSettingsを返す(キャッシュがあれば再利用)。
-    private func allBookLayoutSettings() -> [BookLayoutSettings] {
-        if let cachedSettings { return cachedSettings }
+    /// bookID → その本のBookLayoutSettings行。同じbookIDの行が万一複数あった場合は、
+    /// 従来の`first { $0.bookID == bookID }`と同じくフェッチ順で最初の1件を採用する。
+    private func settingsByBookID() -> [String: BookLayoutSettings] {
+        if let cachedSettingsByBookID { return cachedSettingsByBookID }
         let fetched = (try? modelContext.fetch(FetchDescriptor<BookLayoutSettings>())) ?? []
-        cachedSettings = fetched
-        return fetched
+        var byBookID: [String: BookLayoutSettings] = [:]
+        byBookID.reserveCapacity(fetched.count)
+        for settings in fetched where byBookID[settings.bookID] == nil {
+            byBookID[settings.bookID] = settings
+        }
+        cachedSettingsByBookID = byBookID
+        return byBookID
     }
 
-    /// 絞り込み無しの全PageLayoutOverrideを返す(キャッシュがあれば再利用)。
-    private func allPageLayoutOverrides() -> [PageLayoutOverride] {
-        if let cachedOverrides { return cachedOverrides }
+    /// bookID → その本のPageLayoutOverride行(順不同)。
+    private func overridesByBookID() -> [String: [PageLayoutOverride]] {
+        if let cachedOverridesByBookID { return cachedOverridesByBookID }
         let fetched = (try? modelContext.fetch(FetchDescriptor<PageLayoutOverride>())) ?? []
-        cachedOverrides = fetched
-        return fetched
+        let grouped = Dictionary(grouping: fetched, by: \.bookID)
+        cachedOverridesByBookID = grouped
+        return grouped
     }
 
-    /// BookLayoutSettings/PageLayoutOverrideをinsert/deleteするたびに直後で呼ぶ。次回の
-    /// allBookLayoutSettings()/allPageLayoutOverrides()呼び出しで必ず再フェッチさせる。
-    private func invalidateLayoutCaches() {
-        cachedSettings = nil
-        cachedOverrides = nil
+    /// 絞り込み無しの全BookLayoutSettings(順不同)。特定のbookIDに閉じない横断的な検索
+    /// (ファイルノード識別子での照合など)にだけ使う。bookIDが分かっている場合は
+    /// bookLayoutSettings(forBookID:)を使うこと。
+    private func allBookLayoutSettings() -> [BookLayoutSettings] {
+        Array(settingsByBookID().values)
     }
 
-    private func reloadLayoutBookIDs() {
-        let allSettings = allBookLayoutSettings()
-        let allOverrides = allPageLayoutOverrides()
-        var ids = Set(allSettings.filter { !$0.isBookLevelSettingEmpty }.map(\.bookID))
-        ids.formUnion(allOverrides.map(\.bookID))
+    /// 新規insertしたBookLayoutSettingsをキャッシュへ反映する(キャッシュ未構築なら何もしない。
+    /// 次回の読み取り時にフェッチで拾われるため)。
+    private func cacheInsertedSettings(_ settings: BookLayoutSettings) {
+        cachedSettingsByBookID?[settings.bookID] = settings
+    }
+
+    /// 新規insertしたPageLayoutOverrideをキャッシュへ反映する。
+    private func cacheInsertedOverride(_ override: PageLayoutOverride) {
+        guard cachedOverridesByBookID != nil else { return }
+        cachedOverridesByBookID?[override.bookID, default: []].append(override)
+    }
+
+    /// deleteしたPageLayoutOverrideをキャッシュから取り除く。
+    private func cacheRemovedOverrides(_ removed: [PageLayoutOverride], forBookID bookID: String) {
+        guard cachedOverridesByBookID != nil, !removed.isEmpty else { return }
+        let removedIdentities = Set(removed.map { ObjectIdentifier($0) })
+        let remaining = (cachedOverridesByBookID?[bookID] ?? []).filter {
+            !removedIdentities.contains(ObjectIdentifier($0))
+        }
+        cachedOverridesByBookID?[bookID] = remaining.isEmpty ? nil : remaining
+    }
+
+    /// 起動時(init)と全件削除後にだけ使う、layoutBookIDsの全件再構築。通常の書き込み経路は
+    /// refreshLayoutBookID(_:)で変更のあった1冊分だけを更新する。
+    private func rebuildLayoutBookIDs() {
+        var ids = Set(settingsByBookID().values.filter { !$0.isBookLevelSettingEmpty }.map(\.bookID))
+        ids.formUnion(overridesByBookID().keys)
         layoutBookIDs = ids
+    }
+
+    /// 1冊分のlayoutBookIDsへの所属を更新する。実際に所属が変わったときだけ代入することで、
+    /// @Publishedによる不要な再描画も避ける。
+    private func refreshLayoutBookID(_ bookID: String) {
+        let hasBookLevelData = settingsByBookID()[bookID].map { !$0.isBookLevelSettingEmpty } ?? false
+        let hasPageLevelData = !(overridesByBookID()[bookID] ?? []).isEmpty
+        let shouldContain = hasBookLevelData || hasPageLevelData
+        guard shouldContain != layoutBookIDs.contains(bookID) else { return }
+        if shouldContain {
+            layoutBookIDs.insert(bookID)
+        } else {
+            layoutBookIDs.remove(bookID)
+        }
     }
 
     /// bookIDからこの本のURLを解決する。Bookmark.bookmarkData/BookmarkListView.resolvedURLと
@@ -124,17 +180,34 @@ final class LayoutStore: ObservableObject {
     func reconcileBookIDIfMoved(book: MangaBook) {
         guard bookLayoutSettings(forBookID: book.id) == nil else { return }
         guard let identifier = FileNodeIdentifier.current(for: book.sourceURL) else { return }
-        guard let matched = allBookLayoutSettings().first(where: {
-            $0.bookID != book.id && $0.fileNodeIdentifier == identifier
-        }) else { return }
+        // 候補が複数ある(同じiノードを指す行が、過去のパスぶん複数残っている)場合に備えて、
+        // 最後に使われた行(updatedAtが最新のもの)を選ぶ。以前は全件フェッチ結果の先頭を
+        // 採っていたが、キャッシュを辞書にした結果この順序が不定になったため、明示的な基準に
+        // 置き換えている。
+        guard let matched = allBookLayoutSettings()
+            .filter({ $0.bookID != book.id && $0.fileNodeIdentifier == identifier })
+            .max(by: { $0.updatedAt < $1.updatedAt })
+        else { return }
 
         let oldBookID = matched.bookID
+        let movedOverrides = overridesByBookID()[oldBookID] ?? []
         matched.bookID = book.id
         matched.updatedAt = Date()
-        for override in allPageLayoutOverrides() where override.bookID == oldBookID {
+        for override in movedOverrides {
             override.bookID = book.id
             override.compositeKey = PageLayoutOverride.makeCompositeKey(bookID: book.id, pageKey: override.pageKey)
         }
+        // bookIDはキャッシュ辞書のキーそのものなので、書き換えたぶんを旧キーから新キーへ移す
+        // (行の追加・削除と違い、ここだけはキーの引っ越しになる)。
+        cachedSettingsByBookID?[oldBookID] = nil
+        cachedSettingsByBookID?[book.id] = matched
+        if cachedOverridesByBookID != nil, !movedOverrides.isEmpty {
+            cachedOverridesByBookID?[oldBookID] = nil
+            cachedOverridesByBookID?[book.id, default: []].append(contentsOf: movedOverrides)
+        }
+        // 旧bookIDも「レイアウト情報がある本」から外す必要があるため、saveAndNotifyが面倒を見る
+        // 新bookIDとは別に明示的に更新する。
+        refreshLayoutBookID(oldBookID)
         saveAndNotify(bookID: book.id)
     }
 
@@ -164,7 +237,8 @@ final class LayoutStore: ObservableObject {
         settings.inodeNumber = identifier.inodeNumber
         settings.volumeDeviceNumber = identifier.volumeDeviceNumber
         try? modelContext.save()
-        invalidateLayoutCaches()
+        // キャッシュが保持しているのはこのsettings自身(同じ参照)なので、フィールドを書き換えた
+        // だけのここではキャッシュ側に手を入れる必要は無い(行の増減もbookIDの変化も無い)。
     }
 
     // MARK: - 本全体の設定(BookLayoutSettings)
@@ -177,14 +251,15 @@ final class LayoutStore: ObservableObject {
     /// 任せていたが、「レイアウトを変更した直後、bookIDで絞り込んだフェッチだけが0件を返す
     /// (絞り込み無しの全件フェッチでは正しく該当行が見つかる)」という不具合が実機で確認された
     /// (ユーザー報告: 変更後も「レイアウト情報がある」の絞り込みや「レイアウトを全削除」ボタンの
-    /// 有効化は正しく機能する=reloadLayoutBookIDsの絞り込み無し全件フェッチは正しい一方、
+    /// 有効化は正しく機能する=layoutBookIDsを組み立てる絞り込み無し全件フェッチは正しい一方、
     /// この関数のような#Predicateでの絞り込みフェッチだけが空を返す)。#Predicateのクロージャ内で
     /// キャプチャしたローカル変数(bookID)が、比較対象のモデル側プロパティ名($0.bookID)と
     /// 同名であることが関係している可能性が高い。原因の詳細な特定はできていないが、
-    /// reloadLayoutBookIDsと同じ「絞り込み無しで全件取得し、Swift側でfilterする」方式に
-    /// 統一することで確実に回避する。
+    /// rebuildLayoutBookIDsと同じ「絞り込み無しで全件取得し、Swift側で振り分ける」方式に
+    /// 統一することで確実に回避する(全件フェッチの結果をbookIDで引ける辞書にしてあるだけで、
+    /// SwiftDataへ絞り込みを任せていない点は変わらない。settingsByBookID()参照)。
     func bookLayoutSettings(forBookID bookID: String) -> BookLayoutSettings? {
-        allBookLayoutSettings().first { $0.bookID == bookID }
+        settingsByBookID()[bookID]
     }
 
     /// bookIDに対応するBookLayoutSettingsを取得し、無ければ新規作成して返す(挿入済み、
@@ -231,7 +306,7 @@ final class LayoutStore: ObservableObject {
             relativeTo: nil
         )
         modelContext.insert(created)
-        invalidateLayoutCaches()
+        cacheInsertedSettings(created)
         return created
     }
 
@@ -348,12 +423,12 @@ final class LayoutStore: ObservableObject {
     /// 指定した本のページ単位設定をすべて取得する(順不同)。
     ///
     /// bookLayoutSettings(forBookID:)と同じ理由(コメント参照)で、#Predicateでの絞り込みを
-    /// 使わず、絞り込み無しで全件取得してからSwift側でfilterする方式にしている。
-    /// この関数はreloadLayoutBookIDs()と組み合わせて実機で問題が確認された、まさにその関数
-    /// (レイアウト変更直後にこの関数の絞り込みフェッチだけが0件を返す一方、
-    /// reloadLayoutBookIDsの絞り込み無し全件フェッチでは正しく該当行が見つかっていた)。
+    /// 使わず、絞り込み無しで全件取得してからSwift側で振り分ける方式にしている。
+    /// この関数はlayoutBookIDsの再構築と組み合わせて実機で問題が確認された、まさにその関数
+    /// (レイアウト変更直後にこの関数の絞り込みフェッチだけが0件を返す一方、絞り込み無しの
+    /// 全件フェッチでは正しく該当行が見つかっていた)。
     func pageOverrides(forBookID bookID: String) -> [PageLayoutOverride] {
-        allPageLayoutOverrides().filter { $0.bookID == bookID }
+        overridesByBookID()[bookID] ?? []
     }
 
     /// 指定した1ページの設定を取得する(未設定=「レイアウトなし」ならnil)。
@@ -403,7 +478,7 @@ final class LayoutStore: ObservableObject {
                 _ = existingOrNewSettings(for: book)
                 let created = PageLayoutOverride(bookID: bookID, pageKey: pageKey, state: state)
                 modelContext.insert(created)
-                invalidateLayoutCaches()
+                cacheInsertedOverride(created)
                 // 診断用ログ(不具合調査中の一時的な計装)。insert()直後・save()より前の時点で
                 // 再フェッチし、「insert自体が既存行を見えなくする」のか「save()が原因」なのかを
                 // 切り分ける。
@@ -420,7 +495,7 @@ final class LayoutStore: ObservableObject {
             NSLog("qooViewer[diag]: setPageLayoutState -> DELETE row for pageKey=%@", pageKey)
             #endif
             modelContext.delete(existing)
-            invalidateLayoutCaches()
+            cacheRemovedOverrides([existing], forBookID: bookID)
         } else {
             #if DEBUG
             NSLog("qooViewer[diag]: setPageLayoutState -> no-op (state=nil, no existing row) for pageKey=%@", pageKey)
@@ -459,18 +534,20 @@ final class LayoutStore: ObservableObject {
         let existingByKey = Dictionary(
             uniqueKeysWithValues: pageOverrides(forBookID: bookID).map { ($0.pageKey, $0) }
         )
-        var didInsertAny = false
+        var insertedOverrides: [PageLayoutOverride] = []
         for (pageKey, state) in changes {
             if let existing = existingByKey[pageKey] {
                 existing.state = state
             } else {
                 let created = PageLayoutOverride(bookID: bookID, pageKey: pageKey, state: state)
                 modelContext.insert(created)
-                didInsertAny = true
+                insertedOverrides.append(created)
             }
         }
-        if didInsertAny {
-            invalidateLayoutCaches()
+        if !insertedOverrides.isEmpty {
+            for created in insertedOverrides {
+                cacheInsertedOverride(created)
+            }
             // setPageLayoutStateと同じく、新規行を書き込む場合は本全体の指紋アンカーの存在を
             // 保証しておく。
             _ = existingOrNewSettings(for: book)
@@ -530,9 +607,9 @@ final class LayoutStore: ObservableObject {
                 } else {
                     let created = PageLayoutOverride(bookID: bookID, pageKey: pageKey, state: state)
                     modelContext.insert(created)
+                    cacheInsertedOverride(created)
                 }
             }
-            invalidateLayoutCaches()
         }
         saveAndNotify(bookID: bookID)
     }
@@ -554,7 +631,7 @@ final class LayoutStore: ObservableObject {
         for override in existing {
             modelContext.delete(override)
         }
-        invalidateLayoutCaches()
+        cacheRemovedOverrides(existing, forBookID: bookID)
         saveAndNotify(bookID: bookID)
     }
 
@@ -594,10 +671,13 @@ final class LayoutStore: ObservableObject {
     func discardLayoutData(forBookID bookID: String) {
         if let settings = bookLayoutSettings(forBookID: bookID) {
             modelContext.delete(settings)
+            cachedSettingsByBookID?[bookID] = nil
         }
-        for override in pageOverrides(forBookID: bookID) {
+        let overrides = pageOverrides(forBookID: bookID)
+        for override in overrides {
             modelContext.delete(override)
         }
+        cachedOverridesByBookID?[bookID] = nil
         saveAndNotify(bookID: bookID)
     }
 
@@ -611,7 +691,6 @@ final class LayoutStore: ObservableObject {
     /// 残ったままだった、という可能性を切り分けるため、失敗時にログを残すようにする
     /// (saveAndNotifyのlastSaveErrorMessageのコメント参照)。
     func deleteAllLayoutData() {
-        invalidateLayoutCaches()
         do {
             try modelContext.delete(model: PageLayoutOverride.self)
             try modelContext.delete(model: BookLayoutSettings.self)
@@ -625,8 +704,14 @@ final class LayoutStore: ObservableObject {
             #endif
             NSLog("%@", message)
         }
-        invalidateLayoutCaches()
-        reloadLayoutBookIDs()
+        // 一括削除はdelete(model:)でSwiftDataに直接まとめて消させるため、どの行が消えたかを
+        // 個別に追えない。キャッシュは「空」として作り直す(nilにして次回フェッチさせるのでも
+        // 正しいが、削除に失敗していた場合に古い行を拾い直してしまうため、明示的に空にする。
+        // 上のcatch節が示すとおり、この一括削除が実は失敗していた可能性の切り分けが必要に
+        // なった経緯がある)。
+        cachedSettingsByBookID = [:]
+        cachedOverridesByBookID = [:]
+        layoutBookIDs = []
         NotificationCenter.default.post(name: .layoutDataDidChange, object: self, userInfo: nil)
     }
 
@@ -653,10 +738,9 @@ final class LayoutStore: ObservableObject {
     private(set) var lastSaveErrorMessage: String?
 
     private func saveAndNotify(bookID: String) {
-        // insert/delete箇所ではその都度invalidateLayoutCaches()を呼んでいるが、念のためここでも
-        // 無効化しておく(reloadLayoutBookIDs()がキャッシュ経由になったため、ここを抜けなければ
-        // 必ず最新のフェッチ結果を使うことを保証する)。
-        invalidateLayoutCaches()
+        // 以前はここで無条件にキャッシュを捨てていたが、insert/delete箇所がその都度キャッシュへ
+        // 差分を反映するようになったため不要になった(捨てると、この直後のrefreshLayoutBookID()と
+        // 呼び出し元の続きの読み取りで、必ず全件フェッチが走り直してしまう)。
         do {
             try modelContext.save()
             lastSaveErrorMessage = nil
@@ -668,7 +752,7 @@ final class LayoutStore: ObservableObject {
             #endif
             NSLog("%@", message)
         }
-        reloadLayoutBookIDs()
+        refreshLayoutBookID(bookID)
         NotificationCenter.default.post(
             name: .layoutDataDidChange, object: self, userInfo: ["bookID": bookID]
         )

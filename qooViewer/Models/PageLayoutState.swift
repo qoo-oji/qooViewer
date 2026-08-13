@@ -47,6 +47,22 @@ nonisolated enum PageLayoutState: String, CaseIterable, Identifiable, Codable, H
         }
     }
 
+    /// `NSMenuItem.title`のように、`LocalizedStringKey`を受け取れない(=SwiftUIが解決して
+    /// くれない)AppKit側の場所向けの、解決済みの表示名。titleKeyと同じ文字列を返す。
+    ///
+    /// localeには必ずアプリ内表示言語(AppPreferences.displayLanguage由来)を反映したものを渡す。
+    /// この設定はOSのロケールとは独立しているため(QooViewerApp側が各Sceneへ
+    /// `.environment(\.locale, ...)`で注入している)、SwiftUIのView内からは
+    /// `@Environment(\.locale)`で受け取ったものをそのまま渡せばよい。
+    func title(locale: Locale) -> String {
+        switch self {
+        case .single: return String(localized: "Single Page", locale: locale)
+        case .spreadRight: return String(localized: "Spread Right", locale: locale)
+        case .spreadLeft: return String(localized: "Spread Left", locale: locale)
+        case .excluded: return String(localized: "Excluded (Hidden)", locale: locale)
+        }
+    }
+
     /// PageRef.epubSpreadPosition(EPUB由来、権威的)と同じ意味体系へ変換する。
     /// 「単一ページ」→center、「見開き右」→right、「見開き左」→left、
     /// 「除外」はEPUBの語彙に無いためnil(ExcludedはBookLoader側でページ自体を除去する形で

@@ -58,8 +58,13 @@ final class RecentFilesStore: ObservableObject {
         // @MainActor in ... }で包むとselfのキャプチャに関する別の警告/エラーになる)。
         menuTrackingObserver = NotificationCenter.default.addObserver(
             forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
             MainActor.assumeIsolated {
+                // メニューバーのメニュー以外では何もしない。このreload()は履歴1件ごとに
+                // セキュリティスコープ付きブックマークの解決とファイル存在確認(ディスクI/O)を
+                // 行うため、ウインドウ内のドロップダウンを開くたびに走らせると体感できる遅延に
+                // なる(詳細はMenuBarTracking.isMainMenu(_:)のコメント参照)。
+                guard MenuBarTracking.isMainMenu(notification) else { return }
                 self?.reload()
             }
         }

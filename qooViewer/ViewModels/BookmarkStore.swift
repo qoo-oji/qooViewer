@@ -16,15 +16,26 @@ struct BookmarkBookGroup: Identifiable {
     /// BookmarkStore.bookSortOption参照。
     let latestUpdatedAt: Date
 
-    var id: String { bookID }
-
     /// 表示用の本の名前。Bookmarkにはタイトルが保存されておらず、bookID(パス)しか
-    /// 持たないため、パスの最後の部分から都度生成する(RecentFilesStore.Entry.displayNameと
+    /// 持たないため、パスの最後の部分から生成する(RecentFilesStore.Entry.displayNameと
     /// 同じ考え方。実体のファイル/フォルダが後からリネームされていた場合、この表示名は
     /// リネーム前のままになりうるが、お気に入りと違い「開く」機能を持たないブックマーク編集では
     /// これで十分と判断した)。
-    var displayName: String {
-        URL(fileURLWithPath: bookID).deletingPathExtension().lastPathComponent
+    ///
+    /// 以前は計算プロパティとして参照のたびに生成していたが、この値は左ペインの並べ替え
+    /// (sortedGroups)の比較関数の中から読まれるため、1回のソートでO(N log N)回ぶんの
+    /// URL構築+パス操作が発生していた(sampleによる実測で判明)。行を作る時点で1回だけ
+    /// 計算して保持する。
+    let displayName: String
+
+    var id: String { bookID }
+
+    init(bookID: String, count: Int, earliestCreatedAt: Date, latestUpdatedAt: Date) {
+        self.bookID = bookID
+        self.count = count
+        self.earliestCreatedAt = earliestCreatedAt
+        self.latestUpdatedAt = latestUpdatedAt
+        self.displayName = URL(fileURLWithPath: bookID).deletingPathExtension().lastPathComponent
     }
 }
 
@@ -85,14 +96,21 @@ final class BookmarkStore: ObservableObject {
 
     private let modelContext: ModelContext
 
-    /// Bookmarkの絞り込み無し全件フェッチ結果のキャッシュ。bookmarks(forBookID:)等が呼ばれる
-    /// たびにmodelContext.fetch()をやり直さずに済むようにする。reload()が呼ばれるたびに
-    /// (このストア自身の書き込みだけでなく、開いている本のViewerViewModelが同じModelContext
-    /// 経由で直接書き込んだ場合のbookmarksDidChange通知を受けての呼び出しも含めて)必ず
-    /// 実際のフェッチで最新化されるため、reload()以降このストアがフェッチをやり直していなくても
-    /// 内容が古くなることはない(allBookmarks()自身は「キャッシュがあれば使う、無ければ
-    /// フェッチする」だけで、能動的な最新化はreload()の責務)。
-    private var cachedBookmarks: [Bookmark]?
+    /// Bookmarkの絞り込み無し全件フェッチ結果を、bookIDで引ける形にしたキャッシュ。
+    /// bookmarks(forBookID:)等が呼ばれるたびにmodelContext.fetch()をやり直さずに済むようにする。
+    /// nilは「キャッシュ未構築(次回読み取り時にフェッチが必要)」を表す。
+    ///
+    /// このストア自身の書き込み(add/rename/delete等)は、フェッチし直すのではなくこのキャッシュへ
+    /// 直接差分を反映する。一方、開いている本のViewerViewModelが同じModelContext経由で直接
+    /// 書き込んだ場合は、その変更をこのストアは知らないため、bookmarksDidChange通知を受けた
+    /// reload()が実フェッチでキャッシュごと作り直す(reload()のコメント参照)。
+    ///
+    /// 経緯: 以前は`[Bookmark]`の平坦な配列で持ち、書き込みのたびにreload()で全件フェッチ+
+    /// 全体の再グループ化をやり直していた。ブックマークを1件追加するだけでもBookmarkテーブル
+    /// 全体のフェッチとSwiftDataオブジェクトの再生成が起きるため、ブックマークを持つ本が増える
+    /// ほど1回の操作が重くなっていく。書き込んだぶんだけをキャッシュへ反映し、groupsは
+    /// フェッチ無しでこのキャッシュから組み直す形に変えた(rebuildGroups()参照)。
+    private var cachedBookmarksByBookID: [String: [Bookmark]]?
 
     /// 他のウインドウ(開いている本、または別の「ブックマークの編集」ウインドウ)での変更を
     /// 都度反映するための監視トークン。
@@ -120,15 +138,26 @@ final class BookmarkStore: ObservableObject {
         // いる」ことを伝える(ViewerViewModel.swiftの同種のコメント参照)。
         changeObserver = NotificationCenter.default.addObserver(
             forName: .bookmarksDidChange, object: nil, queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
             MainActor.assumeIsolated {
-                self?.reload()
+                guard let self else { return }
+                // 自分自身が投げた通知は無視する。このストアの書き込みメソッドは、投げる前に
+                // 既にキャッシュとgroupsを更新し終えているため、ここで受け取って更に
+                // reload()(全件フェッチ)まで走らせると、1回の書き込みにつき2回リロードして
+                // いることになる(通知はobject: selfで投げているのに、購読側はobject: nil=
+                // 送信元を問わずすべて受け取っていたため)。他の送信元(開いている本の
+                // ViewerViewModel)からの通知は従来どおり実フェッチで取り込む必要がある。
+                guard (notification.object as AnyObject?) !== self else { return }
+                self.reload()
             }
         }
         menuTrackingObserver = NotificationCenter.default.addObserver(
             forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
             MainActor.assumeIsolated {
+                // メニューバーのメニュー以外(ウインドウ内のPicker/Menuのドロップダウンなど)では
+                // 何もしない。詳細はMenuBarTracking.isMainMenu(_:)のコメント参照。
+                guard MenuBarTracking.isMainMenu(notification) else { return }
                 self?.reload()
             }
         }
@@ -151,37 +180,68 @@ final class BookmarkStore: ObservableObject {
     /// コメント参照)。画像ビューア自身の一覧
     /// (ViewerViewModel.reloadBookmarks)はこのフィルタの対象外で、従来通り全件を含める。
     func reload() {
-        // bookmarksDidChange通知(このストア自身の書き込みだけでなく、開いている本の
-        // ViewerViewModelが同じModelContext経由で直接書き込んだ場合にも飛んでくる)を受けての
-        // 呼び出しがあるため、ここは必ず実フェッチを行いキャッシュを最新化する
-        // (allBookmarksのキャッシュを鵜呑みにしない)。
-        let fetchedAll = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
-        cachedBookmarks = fetchedAll
-        let all = fetchedAll.filter { !$0.isEpubDerived }
-        let grouped = Dictionary(grouping: all, by: \.bookID)
-        let unsorted = grouped.map { bookID, bookmarks -> BookmarkBookGroup in
+        // このストアの外(開いている本のViewerViewModelが同じModelContext経由で直接書き込んだ
+        // 場合)での変更を取り込むための経路。そちらの変更はこのストアのキャッシュに反映され
+        // ようがないため、ここは必ず実フェッチでキャッシュごと作り直す(キャッシュを鵜呑みに
+        // しない)。このストア自身の書き込みは、フェッチ不要のrebuildGroups()の側を使う。
+        cachedBookmarksByBookID = nil
+        _ = bookmarksByBookID()
+        rebuildGroups()
+    }
+
+    /// bookID → その本のBookmark(順不同、EPUB自動取り込み分も含む)。
+    private func bookmarksByBookID() -> [String: [Bookmark]] {
+        if let cachedBookmarksByBookID { return cachedBookmarksByBookID }
+        let fetched = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
+        let grouped = Dictionary(grouping: fetched, by: \.bookID)
+        cachedBookmarksByBookID = grouped
+        return grouped
+    }
+
+    /// 左ペインの一覧(groups)を、SwiftDataへ問い合わせずキャッシュだけから組み直す。
+    /// このストア自身の書き込みメソッドが、キャッシュへ差分を反映した後に呼ぶ。
+    private func rebuildGroups() {
+        let unsorted = bookmarksByBookID().compactMap { bookID, bookmarks -> BookmarkBookGroup? in
+            // EPUBの目次/PDFのアウトラインからの自動取り込み分は、この一覧には出さない
+            // (このメソッドのdoc comment参照)。除外した結果1件も残らない本は行ごと作らない。
+            let visible = bookmarks.filter { !$0.isEpubDerived }
+            guard !visible.isEmpty else { return nil }
             // 「追加日時」はこの本に最初にブックマークを付けた日時(=最小のcreatedAt)、
             // 「更新日時」はこの本のブックマークの中で直近に変更があった日時(=最大のupdatedAt)
-            // として扱う(BookmarkBookGroupのコメント参照)。bookmarksは同じbookIDでグループ化した
-            // 直後のため必ず1件以上あり、min()/max()がnilになることはないが、念のためDate()に
-            // フォールバックしておく。
-            BookmarkBookGroup(
+            // として扱う(BookmarkBookGroupのコメント参照)。visibleが1件以上あることは上で
+            // 確認済みのためmin()/max()がnilになることはないが、念のためDate()にフォールバック
+            // しておく。
+            return BookmarkBookGroup(
                 bookID: bookID,
-                count: bookmarks.count,
-                earliestCreatedAt: bookmarks.map(\.createdAt).min() ?? Date(),
-                latestUpdatedAt: bookmarks.map(\.updatedAt).max() ?? Date()
+                count: visible.count,
+                earliestCreatedAt: visible.map(\.createdAt).min() ?? Date(),
+                latestUpdatedAt: visible.map(\.updatedAt).max() ?? Date()
             )
         }
         groups = Self.sortedGroups(unsorted, by: bookSortOption)
     }
 
-    /// 絞り込み無しの全Bookmarkを返す(キャッシュがあれば再利用)。reload()が呼ばれるたびに
-    /// 必ず最新化されるため、bookmarks(forBookID:)等はここ経由で読むだけでよい。
+    /// 絞り込み無しの全Bookmark(順不同)。特定のbookIDに閉じない横断的な検索(ファイルノード
+    /// 識別子での照合など)にだけ使う。bookIDが分かっている場合はbookmarksByBookID()を使うこと。
     private func allBookmarks() -> [Bookmark] {
-        if let cachedBookmarks { return cachedBookmarks }
-        let fetched = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
-        cachedBookmarks = fetched
-        return fetched
+        bookmarksByBookID().values.flatMap { $0 }
+    }
+
+    /// 新規insertしたBookmarkをキャッシュへ反映する(キャッシュ未構築なら何もしない。次回の
+    /// 読み取り時にフェッチで拾われるため)。
+    private func cacheInsertedBookmarks(_ inserted: [Bookmark], forBookID bookID: String) {
+        guard cachedBookmarksByBookID != nil, !inserted.isEmpty else { return }
+        cachedBookmarksByBookID?[bookID, default: []].append(contentsOf: inserted)
+    }
+
+    /// deleteしたBookmarkをキャッシュから取り除く。
+    private func cacheRemovedBookmarks(_ removed: [Bookmark], forBookID bookID: String) {
+        guard cachedBookmarksByBookID != nil, !removed.isEmpty else { return }
+        let removedIdentities = Set(removed.map { ObjectIdentifier($0) })
+        let remaining = (cachedBookmarksByBookID?[bookID] ?? []).filter {
+            !removedIdentities.contains(ObjectIdentifier($0))
+        }
+        cachedBookmarksByBookID?[bookID] = remaining.isEmpty ? nil : remaining
     }
 
     /// 左ペインの本一覧を、指定したbookSortOptionに従って並べ替える。bookmarks(forBookID:)の
@@ -236,16 +296,30 @@ final class BookmarkStore: ObservableObject {
     /// 見つかればそれらすべてのbookIDを現在のパスへ書き換える。AppState.open(url:)から、
     /// 本を開くたびに呼ばれる想定。
     func reconcileBookIDIfMoved(book: MangaBook) {
-        guard allBookmarks().first(where: { $0.bookID == book.id }) == nil else { return }
+        guard (bookmarksByBookID()[book.id] ?? []).isEmpty else { return }
         guard let identifier = FileNodeIdentifier.current(for: book.sourceURL) else { return }
         let candidates = allBookmarks().filter { $0.bookID != book.id && $0.fileNodeIdentifier == identifier }
         guard !candidates.isEmpty else { return }
-        let oldBookID = candidates[0].bookID
+        // 同じiノードを指すブックマークが、過去の複数のパスに分かれて残っていることもありうる。
+        // 書き換えでbookIDを失う前に、現在のbookIDごとに仕分けておく(キャッシュ辞書のキーは
+        // bookIDそのものなので、旧キーから正しく取り除くために必要)。
+        let candidatesByOldBookID = Dictionary(grouping: candidates, by: \.bookID)
+        // 通知に載せる「元のパス」。候補が複数ある場合にどれを載せるかは元々一意に決まらないが、
+        // 全件フェッチ結果の先頭に依存していた従来と違い、辞書化で順序が不定になったため
+        // 明示的に決め打ちする。
+        let oldBookID = candidatesByOldBookID.keys.sorted().first ?? candidates[0].bookID
         for bookmark in candidates {
             bookmark.bookID = book.id
         }
         try? modelContext.save()
-        reload()
+        // bookIDはキャッシュ辞書のキーそのものなので、書き換えたぶんを旧キーから新キーへ移す
+        // (行の追加・削除と違い、ここだけはキーの引っ越しになる)。candidatesは旧bookIDの行
+        // すべてとは限らない(fileNodeIdentifierが一致するものだけ)ため、残りは旧キーに残す。
+        for (previousBookID, moved) in candidatesByOldBookID {
+            cacheRemovedBookmarks(moved, forBookID: previousBookID)
+        }
+        cacheInsertedBookmarks(candidates, forBookID: book.id)
+        rebuildGroups()
         NotificationCenter.default.post(
             name: .bookmarksDidChange, object: self, userInfo: ["bookID": book.id, "oldBookID": oldBookID]
         )
@@ -278,17 +352,17 @@ final class BookmarkStore: ObservableObject {
     /// 対象が無ければ何もしない(呼び出しコストを抑えるため、呼び出し前にidentifierが必要な
     /// 行があるかどうかは呼び出し側で判定する)。
     func backfillFileNodeIdentifier(forBookID bookID: String, identifier: FileNodeIdentifier) {
-        let targets = allBookmarks().filter { $0.bookID == bookID && $0.fileNodeIdentifier == nil }
+        let targets = (bookmarksByBookID()[bookID] ?? []).filter { $0.fileNodeIdentifier == nil }
         guard !targets.isEmpty else { return }
         for bookmark in targets {
             bookmark.inodeNumber = identifier.inodeNumber
             bookmark.volumeDeviceNumber = identifier.volumeDeviceNumber
         }
         try? modelContext.save()
-        // groups/cachedBookmarksの中身(識別子)を最新化しておく。表示上の並び・件数には
-        // 影響しないため、通知(bookmarksDidChange)までは不要と判断する
+        // キャッシュが保持しているのはこれらのBookmark自身(同じ参照)なので、フィールドを
+        // 書き換えただけのここではキャッシュ側に手を入れる必要は無い(行の増減もbookIDの変化も
+        // 無い)。表示上の並び・件数にも影響しないため、通知(bookmarksDidChange)も投げない
         // (この変更を他のウインドウが今すぐ知る必要のある可視の変化ではないため)。
-        cachedBookmarks = nil
     }
 
     /// 指定したbookIDのブックマークを、現在のsortOptionに従って並べ替えて返す。
@@ -302,7 +376,7 @@ final class BookmarkStore: ObservableObject {
     /// コメント参照)ため、同じ理由でここも合わせて統一しておく。
     func bookmarks(forBookID bookID: String) -> [Bookmark] {
         // EPUBの目次から自動的に取り込んだブックマークはここでも除外する(reload()と同じ理由)。
-        let fetched = allBookmarks().filter { $0.bookID == bookID && !$0.isEpubDerived }
+        let fetched = (bookmarksByBookID()[bookID] ?? []).filter { !$0.isEpubDerived }
         switch sortOption {
         case .nameAscending:
             return fetched.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -342,7 +416,8 @@ final class BookmarkStore: ObservableObject {
         let bookmark = Bookmark(bookID: bookID, pageIndex: pageIndex, name: name, fileNodeIdentifier: fileNodeIdentifier)
         modelContext.insert(bookmark)
         try? modelContext.save()
-        reload()
+        cacheInsertedBookmarks([bookmark], forBookID: bookID)
+        rebuildGroups()
         NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
         return true
     }
@@ -378,7 +453,7 @@ final class BookmarkStore: ObservableObject {
     ) -> Int {
         guard !entries.isEmpty else { return 0 }
         var existingPageIndices = Set(bookmarks(forBookID: bookID).map(\.pageIndex))
-        var addedCount = 0
+        var inserted: [Bookmark] = []
         for entry in entries {
             guard !existingPageIndices.contains(entry.pageIndex) else { continue }
             let bookmark = Bookmark(
@@ -386,13 +461,14 @@ final class BookmarkStore: ObservableObject {
             )
             modelContext.insert(bookmark)
             existingPageIndices.insert(entry.pageIndex)
-            addedCount += 1
+            inserted.append(bookmark)
         }
-        guard addedCount > 0 else { return 0 }
+        guard !inserted.isEmpty else { return 0 }
         try? modelContext.save()
-        reload()
+        cacheInsertedBookmarks(inserted, forBookID: bookID)
+        rebuildGroups()
         NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
-        return addedCount
+        return inserted.count
     }
 
     /// ブックマークをリネームする。本が今開いているかどうかに関わらず直接SwiftDataを操作し、
@@ -404,7 +480,9 @@ final class BookmarkStore: ObservableObject {
         bookmark.name = trimmed
         bookmark.updatedAt = Date()
         try? modelContext.save()
-        reload()
+        // 行の増減は無いためキャッシュはそのままでよいが、groupsのlatestUpdatedAt(並び替えに
+        // 使う)が変わるため組み直す。
+        rebuildGroups()
         NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
     }
 
@@ -434,7 +512,7 @@ final class BookmarkStore: ObservableObject {
         }
         guard changedCount > 0 else { return 0 }
         try? modelContext.save()
-        reload()
+        rebuildGroups()
         NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
         return changedCount
     }
@@ -454,7 +532,7 @@ final class BookmarkStore: ObservableObject {
     /// updatedAtは更新しない(「更新順」の並び替えに影響させないため)。
     func updatePageIndices(forBookID bookID: String, oldIndexToNewIndex: [Int: Int]) {
         guard !oldIndexToNewIndex.isEmpty else { return }
-        let matched = allBookmarks().filter { $0.bookID == bookID }
+        let matched = bookmarksByBookID()[bookID] ?? []
         guard !matched.isEmpty else { return }
         var didChange = false
         for bookmark in matched {
@@ -465,7 +543,10 @@ final class BookmarkStore: ObservableObject {
         }
         guard didChange else { return }
         try? modelContext.save()
-        reload()
+        // 件数もupdatedAtも変えない機械的な位置補正のためgroupsの内容は変わらないが、
+        // 他の書き込みメソッドと足並みを揃えて組み直しておく(キャッシュだけを見る処理のため
+        // フェッチは発生しない)。
+        rebuildGroups()
         NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
     }
 
@@ -475,7 +556,8 @@ final class BookmarkStore: ObservableObject {
         let bookID = bookmark.bookID
         modelContext.delete(bookmark)
         try? modelContext.save()
-        reload()
+        cacheRemovedBookmarks([bookmark], forBookID: bookID)
+        rebuildGroups()
         NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
     }
 
@@ -486,13 +568,14 @@ final class BookmarkStore: ObservableObject {
         // この編集ウインドウの一覧に出てこないEPUB自動取り込みのブックマークは、この「全削除」の
         // 対象にも含めない(reload()/bookmarks(forBookID:)と同じ理由。画像ビューア側の
         // ジャンプ機能に影響を与えないため)。
-        let matched = allBookmarks().filter { $0.bookID == bookID && !$0.isEpubDerived }
+        let matched = (bookmarksByBookID()[bookID] ?? []).filter { !$0.isEpubDerived }
         guard !matched.isEmpty else { return }
         for bookmark in matched {
             modelContext.delete(bookmark)
         }
         try? modelContext.save()
-        reload()
+        cacheRemovedBookmarks(matched, forBookID: bookID)
+        rebuildGroups()
         NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
     }
 
@@ -506,7 +589,10 @@ final class BookmarkStore: ObservableObject {
     func deleteAllBookmarks() {
         try? modelContext.delete(model: Bookmark.self)
         try? modelContext.save()
-        reload()
+        // delete(model:)はSwiftDataにまとめて消させるため、どの行が消えたかを個別に追えない。
+        // キャッシュは「空」として作り直す(LayoutStore.deleteAllLayoutDataと同じ考え方)。
+        cachedBookmarksByBookID = [:]
+        rebuildGroups()
         NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: nil)
     }
 }

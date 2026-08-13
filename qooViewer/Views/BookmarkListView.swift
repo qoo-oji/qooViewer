@@ -33,6 +33,70 @@ enum EditorPageFilter: String, CaseIterable, Identifiable {
     }
 }
 
+/// 左ペインの一覧が画面上のどの矩形を占めているかを知るための、透明なNSView1枚の入れ物。
+/// ダブルクリック検知(BookmarkEditorViewのinstallDoubleClickMonitor)が、「そのクリックが
+/// 左ペインの一覧の中で起きたのか」を判定するために使う。
+///
+/// 当初はこのビューのenclosingScrollViewから一覧のNSScrollViewを取ろうとしたが、
+/// `.background()`で付けたビューはListの内側(スクロールビューの中)ではなく外側に載るため
+/// 常にnilになり、ダブルクリックが一度も成立しなかった(ユーザー報告)。スクロールビューに
+/// 頼らず、このビュー自身のウインドウ座標での矩形と、クリック位置を突き合わせる方式にしてある。
+@MainActor
+private final class ListAnchorBox {
+    weak var view: NSView?
+
+    /// この一覧がウインドウ座標系で占めている矩形(取得できなければnil)。
+    var frameInWindow: NSRect? {
+        guard let view, view.window != nil else { return nil }
+        return view.convert(view.bounds, to: nil)
+    }
+}
+
+/// 上のListAnchorBoxへ、実際に配置されたNSViewを渡すためだけのNSViewRepresentable。
+///
+/// 行ごとではなくList全体に1枚だけ置くので、コストは無視できる(かつて右ペインのレイアウト列で
+/// 行ごとにNSViewRepresentableを敷いてしまい、レイアウトコストが問題になったことがある。
+/// PageLayoutStateMenuButtonのコメント参照)。
+private struct ListAnchorAccessor: NSViewRepresentable {
+    let box: ListAnchorBox
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        box.view = view
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        box.view = nsView
+    }
+}
+
+/// カーソルキーの上下で一覧の選択を1つ動かすときの、移動先のインデックスを求める。
+/// 左ペイン(本の一覧)と右ペイン(ページの一覧)の両方から使う共通処理。
+///
+/// - 何も選択していない状態で↓なら先頭、↑なら末尾を選ぶ(macOSの一般的な一覧の挙動)。
+/// - 端に達している場合はnilを返し、呼び出し側は何もしない(反対側へは回り込まない)。
+///
+/// ユーザー要望: 左右ペインで本・ページを選択している状態から、カーソルキーの上下で選択を
+/// 移動できるようにしたい(マウスのクリック処理が遅いのか、選択の切り替え自体が遅いのかを
+/// 切り分けたいという目的も含む)。
+private func nextSelectionIndex(
+    for direction: MoveCommandDirection, currentIndex: Int?, count: Int
+) -> Int? {
+    guard count > 0 else { return nil }
+    switch direction {
+    case .up:
+        guard let currentIndex else { return count - 1 }
+        return currentIndex > 0 ? currentIndex - 1 : nil
+    case .down:
+        guard let currentIndex else { return 0 }
+        return currentIndex < count - 1 ? currentIndex + 1 : nil
+    default:
+        // 左右方向はこの一覧では使わない(将来SwiftUIが他の方向を追加した場合も無視する)。
+        return nil
+    }
+}
+
 /// 左ペインの1行分。ブックマーク・レイアウトいずれか(または両方)のデータを持つ本の和集合。
 /// 以前のBookmarkBookGroupは「ブックマークを持つ本」だけを表していたが、レイアウト情報のみ
 /// 持つ本(ブックマークは1件も無い本)も一覧に含める必要があるため、bookmarkStore.groupsと
@@ -47,10 +111,21 @@ private struct EditorBookRow: Identifiable {
     /// 並び替え基準「更新日時」に使う代表日時。
     let latestDate: Date
 
+    /// 表示用の本の名前(BookmarkBookGroup.displayNameと同じ生成規則)。
+    /// あちらと同じ理由で、参照のたびに生成する計算プロパティではなく、行を作る時点で1回だけ
+    /// 計算して保持する(この値はfilteredSortedRowsの絞り込み・並べ替えの比較関数から読まれる
+    /// ため、計算プロパティのままだと1回のソートでO(N log N)回ぶんのURL構築が発生していた)。
+    let displayName: String
+
     var id: String { bookID }
 
-    var displayName: String {
-        URL(fileURLWithPath: bookID).deletingPathExtension().lastPathComponent
+    init(bookID: String, bookmarkCount: Int, hasLayoutData: Bool, earliestDate: Date, latestDate: Date) {
+        self.bookID = bookID
+        self.bookmarkCount = bookmarkCount
+        self.hasLayoutData = hasLayoutData
+        self.earliestDate = earliestDate
+        self.latestDate = latestDate
+        self.displayName = URL(fileURLWithPath: bookID).deletingPathExtension().lastPathComponent
     }
 }
 
@@ -73,6 +148,12 @@ struct BookmarkEditorView: View {
     @EnvironmentObject private var preferences: AppPreferences
 
     @State private var selectedBookID: String?
+    /// ファイル名のダブルクリックで本を開く機能(ユーザー要望)のための、NSEventローカルモニタの
+    /// トークン。なぜSwiftUIのジェスチャーではなくこの方式なのかは、installDoubleClickMonitor()の
+    /// コメント参照。
+    @State private var doubleClickMonitor: Any?
+    /// 上のモニタが「この一覧の中で起きたクリックか」を判定するために使う、一覧の矩形。
+    @State private var listAnchorBox = ListAnchorBox()
     @State private var renamingBookmark: Bookmark?
     @State private var renameText = ""
 
@@ -96,11 +177,6 @@ struct BookmarkEditorView: View {
     /// 同じNSWindow上にあるため、独自にWindowAccessorで取得する)。
     @State private var editorWindow: NSWindow?
     @State private var openErrorBookName: String?
-    /// ファイル名のシングル/ダブルクリック識別(自前実装)用、行ごとの直近のクリック時刻
-    /// (bookIDをキーにする)。ForEach内の行はこのView自身のbodyに直接書かれており専用の行View
-    /// (PageRowViewのような)を持たないため、@Stateを辞書にして行ごとに使い分ける。詳細は
-    /// ファイル名の.simultaneousGestureのコメント参照。
-    @State private var lastFileNameTapDates: [String: Date] = [:]
 
     @Environment(\.openWindow) private var openWindow
 
@@ -172,6 +248,56 @@ struct BookmarkEditorView: View {
             )
         }
         return Array(byID.values)
+    }
+
+    /// ユーザー要望「左ペインでファイル名をダブルクリックしたら、その本を開く」を、SwiftUIの
+    /// ジェスチャーを一切使わずに実現する。
+    ///
+    /// 経緯(ユーザー報告「左ペインのクリックが、たまに・ランダムに反応しない」の真因と対策):
+    /// 行(セル)の中にSwiftUIのジェスチャーを置くと、そのジェスチャーがマウスダウンを掴んでしまい、
+    /// 下にあるNSTableViewが行選択のトラッキングを開始できなくなる。ファイル名の文字幅は本ごとに
+    /// 違うため、クリックが文字の上に乗ったときだけ選択が効かず「ランダムに反応しない」ように
+    /// 見えていた。
+    ///
+    /// 計装して切り分けた結果は明確だった(成功時はマウスアップがローカルモニタを素通りしない=
+    /// テーブルがトラッキングに入って消費している。失敗時は素通りする=入っていない)。
+    /// ジェスチャーの種類の問題ではなく、セル内にジェスチャーが在ること自体が原因で、
+    /// TapGesture→DragGesture(minimumDistance: 0)→onTapGesture(count: 2)のいずれでも再現した。
+    /// 最終的にセル内のジェスチャーを完全に取り除いたところ、取りこぼしはゼロになった
+    /// (実測: 18回クリックして取りこぼし0回。それ以前は34回中15回が取りこぼし)。
+    ///
+    /// そのため、ダブルクリックの検知はSwiftUIの外(NSEventのローカルモニタ)で行う。
+    /// 開く対象は「今選択されている本」でよい。ダブルクリックの1回目のクリックで、
+    /// NSTableViewが既にその行を選択し終えているため。
+    private func installDoubleClickMonitor() {
+        guard doubleClickMonitor == nil else { return }
+        doubleClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { event in
+            guard event.clickCount == 2,
+                  let listFrame = listAnchorBox.frameInWindow,
+                  listAnchorBox.view?.window === event.window,
+                  listFrame.contains(event.locationInWindow),
+                  let hitView = event.window?.contentView?.hitTest(event.locationInWindow)
+            else { return event }
+            // 行の無い余白をダブルクリックしただけで開いてしまわないよう、実際に行の上かを
+            // 確かめる。SwiftUIのListの実体はNSTableViewのサブクラス(公開API)なので、
+            // クリック位置の祖先をたどって見つけ、row(at:)で判定できる(行の上でなければ-1)。
+            var tableView: NSTableView?
+            var current: NSView? = hitView
+            while let view = current {
+                if let table = view as? NSTableView {
+                    tableView = table
+                    break
+                }
+                current = view.superview
+            }
+            guard let tableView else { return event }
+            let pointInTable = tableView.convert(event.locationInWindow, from: nil)
+            guard tableView.row(at: pointInTable) >= 0 else { return event }
+            if let bookID = selectedBookID {
+                openBook(bookID: bookID)
+            }
+            return event
+        }
     }
 
     /// bookFilter・searchTextを適用し、bookmarkStore.bookSortOptionに従って並べた最終的な行一覧。
@@ -247,7 +373,31 @@ struct BookmarkEditorView: View {
             let rows = filteredSortedRows
             let selectedID = effectiveSelectedBookID(in: rows)
             NavigationSplitView {
-                List {
+                // バグ修正(ユーザー報告: 左ペインのクリックが、たまに・ランダムに反応しない):
+                // 以前この一覧は、Listのネイティブな選択を使わず、各行に付けた自前の
+                // .simultaneousGesture(TapGesture)でselectedBookIDを書き換え、ハイライトも
+                // .listRowBackgroundで自前に描いていた。SwiftUIのジェスチャーは成立条件
+                // (押してから離すまでの移動量など)や他のジェスチャー(ファイル名の
+                // ダブルクリック検知・.contextMenu)との調停に左右されるため、取りこぼしが起きる。
+                // TapGestureをDragGesture(minimumDistance: 0)へ変えても解消しなかったため、
+                // 自前のジェスチャーによる選択自体をやめ、List(selection:)へ移した。
+                // NSTableViewがマウスダウンの時点で選択を確定するため、構造的に取りこぼしが
+                // 起きなくなる(カーソルキーでの移動もネイティブに付いてくる)。
+                //
+                // selectionには、素のselectedBookIDではなくeffectiveSelectedBookID
+                // (フィルタで消えた場合や未選択時に「今開いている本」「先頭の行」へ
+                // フォールバックする)を読ませ、書き込みだけをselectedBookIDへ返す。
+                // これにより、右ペインに表示している本と左ペインのハイライトが常に一致する
+                // (自前の.listRowBackgroundで実現していたのと同じ挙動)。
+                List(selection: Binding(
+                    get: { selectedID },
+                    set: { newValue in
+                        // 空白部分のクリックなどで選択が外れた場合(nil)は、直前の選択を
+                        // 保持したままにする(右ペインの表示が消えてしまうのを避けるため)。
+                        guard let newValue else { return }
+                        selectedBookID = newValue
+                    }
+                )) {
                     ForEach(rows) { row in
                         let isOpen = launchCoordinator.openAppState(forBookID: row.bookID) != nil
                         HStack {
@@ -258,30 +408,36 @@ struct BookmarkEditorView: View {
                                     Text(row.displayName)
                                         .fontWeight(isOpen ? .semibold : .regular)
                                         // ユーザー要望: ファイル名をダブルクリックしたら、その本を開く。
-                                        // 行全体の選択(下の.simultaneousGesture)とは別に、このText自身に
-                                        // 直接ダブルクリック検知を付ける。
                                         //
-                                        // 以前は単純に.onTapGesture(count: 2)を使っていたが、これだと
-                                        // クリック回数の異なるジェスチャーが同居する形になり、行選択
-                                        // (下の.simultaneousGesture)のハイライト表示がシステムの
-                                        // ダブルクリック間隔だけ遅延してしまう不具合があった
-                                        // (PageRowView.selectableContentの同種の不具合・修正コメント
-                                        // 参照。ユーザー報告により、こちらにも同じ問題が無いか確認して
-                                        // 発覚)。ここではクリック回数1のジェスチャーだけを使い、
-                                        // 自前で前回クリックからの経過時間をダブルクリック間隔と
-                                        // 比較して判定する。
-                                        .simultaneousGesture(
-                                            TapGesture().onEnded {
-                                                let now = Date()
-                                                if let last = lastFileNameTapDates[row.bookID],
-                                                   now.timeIntervalSince(last) <= NSEvent.doubleClickInterval {
-                                                    lastFileNameTapDates[row.bookID] = nil
-                                                    openBook(bookID: row.bookID)
-                                                } else {
-                                                    lastFileNameTapDates[row.bookID] = now
-                                                }
-                                            }
-                                        )
+                                        // 経緯(ユーザー報告「左ペインのクリックが、たまに・ランダムに
+                                        // 反応しない」の真因): かつてここは.onTapGesture(count: 2)
+                                        // だったが、当時は行の選択も自前のクリック回数1の
+                                        // ジェスチャーで行っており、クリック回数の異なるジェスチャーが
+                                        // 同居すると選択のハイライトがダブルクリック間隔だけ遅延した。
+                                        // そのため「クリック回数1のジェスチャー+自前の時刻比較」で
+                                        // ダブルクリックを判定する方式に変えていた。
+                                        //
+                                        // しかしこの方式(TapGesture、のちにDragGesture(minimumDistance: 0))は
+                                        // セル内のSwiftUIビューでマウスダウンを掴んでしまうため、
+                                        // その下にあるNSTableViewが行選択のトラッキングを開始できなく
+                                        // なる。ファイル名の文字幅は行ごとに違うので、クリック位置が
+                                        // 文字の上に乗ったときだけ選択が効かず、「ランダムに反応しない」
+                                        // ように見えていた(計装して実測: 失敗した回はマウスアップが
+                                        // ローカルモニタを素通りする=テーブルがトラッキングに入って
+                                        // いない。成功した回はテーブルがマウスアップを消費するため
+                                        // 素通りしない、という違いで判別できた)。
+                                        //
+                                        // 選択をList(selection:)のネイティブ実装へ移した結果、
+                                        // ハイライトはマウスダウンの時点でNSTableViewが確定させるように
+                                        // なり、上記「遅延する」という当初の問題は起きなくなった。
+                                        // そのため素直な.onTapGesture(count: 2)へ戻せる。
+                                        // ここには絶対にジェスチャー(.onTapGesture/.gesture/
+                                        // .simultaneousGesture)を付けないこと。セル内にSwiftUIの
+                                        // ジェスチャーがあると、それがマウスダウンを掴んでしまい、
+                                        // 下のNSTableViewが行選択を開始できなくなる(クリックが
+                                        // ランダムに効かなくなる)。ファイル名のダブルクリックで
+                                        // 本を開く機能は、SwiftUIの外(installDoubleClickMonitor)で
+                                        // 実装してある。詳細はそちらのコメント参照。
                                     FormatBadgeView(bookID: row.bookID)
                                     if isOpen {
                                         Text("Now Reading")
@@ -313,15 +469,10 @@ struct BookmarkEditorView: View {
                             }
                         }
                         .contentShape(Rectangle())
-                        // 行の選択自体も.simultaneousGesture(クリック回数1のみ)にしてあり、
-                        // ファイル名の.simultaneousGesture(上記)と衝突しない
-                        // (PageRowView.selectableContentの同種のコメント参照)。
-                        .simultaneousGesture(TapGesture().onEnded { selectedBookID = row.bookID })
+                        // List(selection:)にこの行を識別させる。選択・ハイライト・カーソルキーでの
+                        // 移動はすべてListがネイティブに面倒を見る(上のList(selection:)のコメント参照)。
+                        .tag(row.bookID)
                         .help(row.displayName)
-                        .listRowBackground(
-                            selectedID == row.bookID
-                                ? Color.accentColor.opacity(0.15) : Color.clear
-                        )
                         // 4.4節: 左ペインの本を右クリックしたメニュー(その本を選択した状態で
                         // 実行したのと同じ扱い。現在の選択状態を変えずに、右クリックしたbookIDへ
                         // 直接作用させる)。
@@ -342,6 +493,9 @@ struct BookmarkEditorView: View {
                         }
                     }
                 }
+                // 一覧のNSScrollViewを掴むための土台(List全体に1枚だけ。
+                // installDoubleClickMonitor()が「このクリックは一覧の中か」を判定するのに使う)。
+                .background(ListAnchorAccessor(box: listAnchorBox))
                 .listStyle(.sidebar)
                 .safeAreaInset(edge: .top) {
                     VStack(spacing: 6) {
@@ -389,15 +543,28 @@ struct BookmarkEditorView: View {
                     .padding(.vertical, 6)
                     .background(.bar)
                 }
+                // カーソルキーの上下での選択移動(ユーザー要望)は、List(selection:)へ移した
+                // 時点でListがネイティブに面倒を見るようになったため、以前ここにあった
+                // .focusable()/.focused()/.onMoveCommandの自前実装は取り除いた
+                // (Listに.focusable()を重ねると、List自身のフォーカス処理と競合しうる。
+                // 右ペインのページ一覧は選択がネイティブではないため、あちらには自前の
+                // 実装が残っている。pageListContentのコメント参照)。
                 .navigationTitle("Bookmarks & Layout")
                 .navigationSplitViewColumnWidth(min: 220, ideal: sidebarWidth, max: 560)
                 .onAppear {
+                    installDoubleClickMonitor()
                     guard !hasComputedSidebarWidth else { return }
                     hasComputedSidebarWidth = true
                     sidebarWidth = SidebarWidthEstimator.idealWidth(
                         forNames: mergedRows.map(\.displayName)
                     )
                     applyInitialFocus(launchCoordinator.pendingEditorInitialFocus)
+                }
+                .onDisappear {
+                    if let doubleClickMonitor {
+                        NSEvent.removeMonitor(doubleClickMonitor)
+                    }
+                    doubleClickMonitor = nil
                 }
                 .onChange(of: launchCoordinator.pendingEditorInitialFocus) { _, newValue in
                     applyInitialFocus(newValue)
@@ -907,6 +1074,14 @@ private struct BookmarkDetailPane: View {
     // 既定値は無くしてある(initで必ずinitialPageFilterから明示的に初期化するため)。
     @State private var pageFilter: EditorPageFilter
     @State private var selectedPageKey: String?
+    /// カーソルキーの上下を受け取るために、この一覧自身がフォーカスを持っているかどうか。
+    /// 行をクリックしたとき(List(selection:)のsetter)にも明示的にtrueにして、
+    /// クリック→そのままキー操作、と続けられるようにする。
+    @FocusState private var isPageListFocused: Bool
+    /// ダブルクリックでのジャンプ用のNSEventローカルモニタ(installDoubleClickMonitor参照)と、
+    /// 「そのクリックがこの一覧の中か」を判定するための一覧の矩形。
+    @State private var doubleClickMonitor: Any?
+    @State private var listAnchorBox = ListAnchorBox()
     @State private var openErrorBookName: String?
     @State private var editorWindow: NSWindow?
     /// 列ヘッダー行(columnHeaderRow)・各行(PageRowView)で共有する列幅
@@ -1035,6 +1210,15 @@ private struct BookmarkDetailPane: View {
         .task(id: bookID) {
             await viewModel.load()
         }
+        .onAppear {
+            installDoubleClickMonitor()
+        }
+        .onDisappear {
+            if let doubleClickMonitor {
+                NSEvent.removeMonitor(doubleClickMonitor)
+            }
+            doubleClickMonitor = nil
+        }
         .navigationTitle("Bookmarks & Layout")
         .background(WindowAccessor { window in
             editorWindow = window
@@ -1106,22 +1290,125 @@ private struct BookmarkDetailPane: View {
         }
     }
 
+    /// ページ行のダブルクリックで、その本を開いてそのページへジャンプする(ユーザー要望)。
+    /// 左ペインのBookmarkEditorView.installDoubleClickMonitor()と同じ方式・同じ理由
+    /// (セル内にSwiftUIのジェスチャーを置けないため、SwiftUIの外で検知する)。
+    /// ジャンプ先は「今選択されているページ」でよい。ダブルクリックの1回目のクリックで、
+    /// NSTableViewが既にその行を選択し終えているため。
+    private func installDoubleClickMonitor() {
+        guard doubleClickMonitor == nil else { return }
+        doubleClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { event in
+            guard event.clickCount == 2,
+                  let listFrame = listAnchorBox.frameInWindow,
+                  listAnchorBox.view?.window === event.window,
+                  listFrame.contains(event.locationInWindow),
+                  let hitView = event.window?.contentView?.hitTest(event.locationInWindow)
+            else { return event }
+            var tableView: NSTableView?
+            var current: NSView? = hitView
+            while let view = current {
+                if let table = view as? NSTableView {
+                    tableView = table
+                    break
+                }
+                current = view.superview
+            }
+            guard let tableView else { return event }
+            let pointInTable = tableView.convert(event.locationInWindow, from: nil)
+            guard tableView.row(at: pointInTable) >= 0 else { return event }
+            if let selectedPageKey,
+               let row = displayedRows.first(where: { $0.pageKey == selectedPageKey }) {
+                openBookAndJump(toPageIndex: row.effectiveReadingIndex)
+            }
+            return event
+        }
+    }
+
+    /// カーソルキーの上下で、右ペインのページ選択を1つ動かす(nextSelectionIndexのコメント参照)。
+    /// 移動先が画面外にある場合に備えてスクロールも追従させる。
+    private func movePageSelection(_ direction: MoveCommandDirection, proxy: ScrollViewProxy) {
+        let rows = displayedRows
+        let currentIndex = selectedPageKey.flatMap { key in rows.firstIndex { $0.pageKey == key } }
+        guard let target = nextSelectionIndex(
+            for: direction, currentIndex: currentIndex, count: rows.count
+        ) else { return }
+        selectedPageKey = rows[target].pageKey
+        proxy.scrollTo(rows[target].pageKey)
+    }
+
+    /// カーソルキーの上下で選択を移動できるようにするための包み。実体は下のpageList。
+    /// ScrollViewReaderは、選択が画面外へ出たときに追従させるために必要
+    /// (この一覧はListなので、行のIDはRow.id = pageKey)。
     private var pageListContent: some View {
-        List {
+        ScrollViewReader { proxy in
+            pageList
+                // 一覧の矩形を掴むための土台(List全体に1枚だけ)。installDoubleClickMonitor()が
+                // 「このクリックは一覧の中か」を判定するのに使う。
+                .background(ListAnchorAccessor(box: listAnchorBox))
+                .focusable()
+                .focused($isPageListFocused)
+                // 左ペイン(moveBookSelection)は.onMoveCommandで動作するが、こちらは動作しない
+                // (ユーザー報告: 右ペインだけカーソルキーで移動できない)。右ペインの行には
+                // ボタン(レイアウト列のメニュー、ブックマークの追加・削除)が含まれており、
+                // フォーカスが行内のボタン側にあると、一覧側の.onMoveCommandまで届かないため。
+                // キー入力はフォーカスされたビューから親へ伝播するので、.onKeyPressなら
+                // 行内のボタンにフォーカスがあっても受け取れる。
+                .onKeyPress(.upArrow) {
+                    movePageSelection(.up, proxy: proxy)
+                    return .handled
+                }
+                .onKeyPress(.downArrow) {
+                    movePageSelection(.down, proxy: proxy)
+                    return .handled
+                }
+        }
+    }
+
+    private var pageList: some View {
+        // この本のブックマークを、ページ番号(Bookmark.pageIndex)で引ける辞書としてbodyの評価ごとに
+        // 1回だけ用意する(左ペインのfilteredSortedRows/effectiveSelectedBookIDと同じ考え方。
+        // bodyのコメント参照)。
+        //
+        // 経緯(ユーザー報告 + sampleによる実測): 以前はForEachの各行の中で
+        // bookmarkStore.bookmarks(forBookID:)を直接呼び、その結果を.first{ $0.pageIndex == index }で
+        // 線形探索していた。bookmarks(forBookID:)は呼ばれるたびにこの本のブックマーク全件の
+        // 絞り込みとソートを行い、しかも既定の並び(名前順)ではlocalizedStandardCompare
+        // (ロケール照合。単純な文字列比較よりはるかに重い)を使う。これがページ数ぶん繰り返される
+        // ため、ページ数×ブックマーク数のコストが「この一覧が再描画されるたび」に丸ごと
+        // メインスレッドへ乗っていた(左ペインで本を選んだ直後に、すぐ別の本へ切り替えられない
+        // 症状の主因。sampleで採取したメインスレッドのスタックで、アプリ側の処理として最大の
+        // 山になっていた)。
+        //
+        // uniquingKeysWithで先勝ちにしているのは、同じpageIndexに複数のブックマークがある
+        // (通常は重複防止されるが、JSONインポート等で生じうる)場合に、従来の
+        // 「ソート済み配列の.first」と同じものを選ぶため。
+        let bookmarksByPageIndex = Dictionary(
+            bookmarkStore.bookmarks(forBookID: bookID).map { ($0.pageIndex, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        // 左ペインと同じ理由(セル内のSwiftUIジェスチャーがマウスダウンを掴み、NSTableViewが
+        // 行選択を開始できなくなる。PageRowView.selectableContentのコメント参照)で、選択は
+        // List(selection:)のネイティブ実装に任せる。
+        return List(selection: Binding(
+            get: { selectedPageKey },
+            set: { newValue in
+                // 余白のクリックなどで選択が外れた場合(nil)は、直前の選択を保持する
+                // (ページ一覧下部のボタンがselectedPageKey != nilを前提に有効化されるため)。
+                guard let newValue else { return }
+                selectedPageKey = newValue
+                isPageListFocused = true
+            }
+        )) {
             ForEach(displayedRows) { row in
                 PageRowView(
                     row: row,
                     viewModel: viewModel,
                     bookID: bookID,
-                    bookmark: row.effectiveReadingIndex.flatMap { index in
-                        bookmarkStore.bookmarks(forBookID: bookID).first { $0.pageIndex == index }
-                    },
-                    isSelected: selectedPageKey == row.pageKey,
+                    bookmark: row.effectiveReadingIndex.flatMap { bookmarksByPageIndex[$0] },
                     isLayoutLocked: viewModel.hasAuthoritativeSourceLayout,
                     columnWidths: columnWidths,
                     columnDividerCorrections: columnDividerCorrections,
                     isMoveEnabled: !viewModel.hasAuthoritativeSourceLayout && pageFilter == .all,
-                    onSelect: { selectedPageKey = row.pageKey },
                     onJump: { openBookAndJump(toPageIndex: row.effectiveReadingIndex) },
                     onAddBookmark: { addBookmark(atPageIndex: row.effectiveReadingIndex) },
                     onRenameBookmark: { bookmark in
@@ -1563,6 +1850,127 @@ private struct BookmarkDetailPane: View {
     }
 }
 
+/// レイアウト列のプルダウン。見た目(現在の状態の名前 + 上下向きの矢印)はSwiftUIで静的に描き、
+/// 実際のメニューはクリックされて初めてAppKitのNSMenuとして組み立てて表示する。
+///
+/// 経緯(ユーザー報告「表示の更新が全体的にもたつく」+ sampleによる実測): 以前ここは
+/// メニュースタイルのPicker(`.pickerStyle(.menu)`、内部的にはNSPopUpButton)だった。
+/// SwiftUIのMenu/Pickerは、その項目をPlatformItemListというPreferenceKeyとしてビュー階層へ流し、
+/// レイアウトパスのたびに集約し直す仕組みになっている。そのため「行の数だけPickerがある」この
+/// 一覧では、メニューを一度も開かなくても、スクロール・ウインドウのリサイズ・本の切り替えの
+/// たびに、表示中の全行ぶんのメニュー項目生成が走っていた。
+///
+/// 操作条件を揃えて実測したところ(sample、ドロップダウンを開かない状態で比較)、この列を
+/// ただのTextに差し替えるだけでメインスレッドのレイアウト時間(CA transaction flush配下)が
+/// 1514サンプル→181サンプルへ8.4倍減った。NSMenuはクリックされるまで存在しないため、
+/// この常時コストが無くなる。
+///
+/// 副次的な効果として、以前あった「NSTableViewの行再利用でNSPopUpButtonの表示がstaleになり、
+/// 別のページのレイアウトが変わったように見える」不具合(ユーザー報告)への回避策として
+/// 付けていた`.id(pageKey + 現在の値)`(値が変わるたびにPickerを実体ごと作り直させるもの)も
+/// 不要になった。stale化の原因だったNSPopUpButton自体がもう存在しないため。
+private struct PageLayoutStateMenuButton: View {
+    let currentState: PageLayoutState?
+    let isDisabled: Bool
+    let width: CGFloat
+    let onChange: (PageLayoutState?) -> Void
+
+    /// アプリ内表示言語。NSMenuItemのタイトルはSwiftUIが解決してくれないため、
+    /// PageLayoutState.title(locale:)へ明示的に渡す必要がある。
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        Button {
+            showMenu()
+        } label: {
+            HStack(spacing: 3) {
+                Text(currentState?.titleKey ?? "No Layout")
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 2)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2)
+            }
+            .foregroundStyle(isDisabled ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
+            // Buttonのクリック判定を、テキストの実際の幅ではなく列の幅いっぱいに広げる
+            // (以前のNSPopUpButtonと同じ感覚で押せるようにするため)。
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isDisabled)
+        .frame(width: width, alignment: .leading)
+    }
+
+    private func showMenu() {
+        guard !isDisabled else { return }
+        // NSMenuItem.targetは強参照ではないため、メニューが出ている間ハンドラを生かしておく
+        // 必要がある。popUp(positioning:at:in:)はメニューが閉じるまで戻らない(モーダル)ので、
+        // このローカル変数の寿命でちょうど足りる。
+        let handler = PageLayoutMenuHandler(onChange: onChange)
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+
+        let noLayoutItem = NSMenuItem(
+            title: String(localized: "No Layout", locale: locale),
+            action: #selector(PageLayoutMenuHandler.selectState(_:)),
+            keyEquivalent: ""
+        )
+        noLayoutItem.target = handler
+        // representedObjectがnil = 「レイアウトなし」(PageLayoutStateにはこの状態を表す
+        // ケースが無い。PageLayoutState.swiftのコメント参照)。
+        noLayoutItem.representedObject = nil
+        noLayoutItem.state = currentState == nil ? .on : .off
+        menu.addItem(noLayoutItem)
+
+        for state in PageLayoutState.allCases {
+            let item = NSMenuItem(
+                title: state.title(locale: locale),
+                action: #selector(PageLayoutMenuHandler.selectState(_:)),
+                keyEquivalent: ""
+            )
+            item.target = handler
+            item.representedObject = state.rawValue
+            item.state = state == currentState ? .on : .off
+            menu.addItem(item)
+        }
+
+        // 表示位置はクリックしたイベントの位置から決める。
+        //
+        // 最初の実装では、行ごとに透明なNSView(NSViewRepresentable)を敷いて、そのビューの下端を
+        // 基準に出していた。しかし「行の数だけAppKitのビューをSwiftUIへ橋渡しする」こと自体の
+        // レイアウトコストが実測で無視できず、NSPopUpButtonを取り除いて得た改善をかなりの部分
+        // 食い潰していた(せっかくPickerを外したのに、代わりに別のAppKitビューを毎行置いていては
+        // 意味がない)。イベント位置から出せば、行側にはAppKitの実体を一切持たせずに済む。
+        if let event = NSApp.currentEvent, let contentView = event.window?.contentView {
+            menu.popUp(
+                positioning: nil,
+                at: contentView.convert(event.locationInWindow, from: nil),
+                in: contentView
+            )
+        } else {
+            // キーボード操作などでNSApp.currentEventが取れない場合のフォールバック
+            // (in: nilのときatはスクリーン座標)。
+            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+        }
+    }
+}
+
+/// NSMenuItemのaction(セレクタ)を、SwiftUI側のクロージャへ橋渡しするだけの受け皿。
+/// NSMenuItemはブロックを直接受け取れないため、target/action用のNSObjectが必要になる。
+@MainActor
+private final class PageLayoutMenuHandler: NSObject {
+    private let onChange: (PageLayoutState?) -> Void
+
+    init(onChange: @escaping (PageLayoutState?) -> Void) {
+        self.onChange = onChange
+    }
+
+    @objc func selectState(_ sender: NSMenuItem) {
+        let rawValue = sender.representedObject as? String
+        onChange(rawValue.flatMap(PageLayoutState.init(rawValue:)))
+    }
+}
+
 /// 右ペインの1ページ分の行。サムネイル(サムネイル列)・レイアウト(レイアウト列)・
 /// ブックマーク(ブックマーク列)の3列を横に並べる(4.2節)。
 private struct PageRowView: View {
@@ -1570,7 +1978,6 @@ private struct PageRowView: View {
     @ObservedObject var viewModel: BookLayoutEditorViewModel
     let bookID: String
     let bookmark: Bookmark?
-    let isSelected: Bool
     let isLayoutLocked: Bool
     /// 列ヘッダー行(columnHeaderRow)と共有する列幅。ヘッダー側でドラッグして幅を変えると、
     /// 同じBindingを通じてすべての行に即座に反映される(PageListColumnWidths参照)。
@@ -1583,7 +1990,6 @@ private struct PageRowView: View {
     /// (BookmarkDetailPane.pageListContent)のForEach.moveDisabledと同じ条件
     /// (!isLayoutLocked && pageFilter == .all)を渡す。
     let isMoveEnabled: Bool
-    let onSelect: () -> Void
     let onJump: () -> Void
     let onAddBookmark: () -> Void
     let onRenameBookmark: (Bookmark) -> Void
@@ -1603,9 +2009,6 @@ private struct PageRowView: View {
     @State private var hoverPreviewTask: Task<Void, Never>?
     /// ホバー開始から実際にpopoverを出すまでの遅延(ナノ秒)。
     private static let hoverPreviewDelayNanoseconds: UInt64 = 350_000_000
-    /// 行のダブルクリック検知(自前実装)用、直近のクリック時刻。selectableContent末尾の
-    /// .simultaneousGestureのコメント参照。
-    @State private var lastRowTapDate: Date?
     /// ブックマーク名のシングル/ダブルクリック識別(自前実装)用、直近のクリック時刻。
     /// selectableContent内のブックマーク列のコメント参照。
     @State private var lastBookmarkNameTapDate: Date?
@@ -1675,7 +2078,9 @@ private struct PageRowView: View {
         // ゼロにし、代わりにここで余白を付けている)。
         .padding(.horizontal, 12)
         .padding(.vertical, 4)
-        .listRowBackground(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+        // 選択中のハイライトはList(selection:)がネイティブに描く(以前はここで
+        // .listRowBackground(isSelected ? ... : .clear)と自前に描いていた)。
+        .tag(row.pageKey)
         // バグ修正: Listが自動で出す行区切り線は、上記の余白変更の影響で行の途中で切れて
         // 見えていた(ユーザー報告)。呼び出し元で.listRowSeparator(.hidden)にした代わりに、
         // ここで行の全幅にわたる区切り線を自前で描画する。
@@ -1759,42 +2164,33 @@ private struct PageRowView: View {
 
             // レイアウト列。
             //
-            // .id(...)で、行のpageKeyと現在の値の両方を識別子に含めている。以前はこの識別子が
-            // 無く、List(NSTableView backed)がこのMenuスタイルPicker(内部的にはNSPopUpButton)の
-            // ビューを行の再利用時に使い回すことがあり、「あるページのレイアウトを変更すると
-            // 別のページ(多くは直後の行)の表示だけが変化したように見え、対象のページ自身の
-            // 表示は変わらない。レイアウト削除しても表示が更新されない」という不具合が報告された
-            // (ユーザー報告)。書き込み先(layoutStore.setPageLayoutState等)のロジック自体は
-            // pageKeyを直接指定しており正しいことを確認済みのため、これはAppKit側のビュー再利用に
-            // よる表示のstale化が疑わしい。識別子に値まで含めることで、値が変わるたびにこの
-            // Pickerを実体ごと作り直させ、再利用によるstale表示の余地を無くす。
-            // バグ修正: メニュースタイルのPicker(内部的にはNSPopUpButton)は、項目文字列の
-            // 長さによっては.frame(width:)で指定した幅より広い実効幅で描画されることがあり、
-            // その分だけ後ろの区切り線・ブックマーク列がタイトル行(columnHeaderRow)とずれて
-            // 見えていた(ユーザー報告)。ここでは「HStackのレイアウト計算に使われる幅」を
-            // Color.clearの.frame(width:)で厳密にcolumnWidths.layoutへ固定し、実際に見える
-            // Pickerはその上に.overlay(alignment: .leading)で重ねることで、Pickerの見た目の
-            // 幅がどうであれ、後続の区切り線の位置には一切影響しないようにしている。
+            // かつてここはメニュースタイルのPicker(NSPopUpButton)だったが、行の数だけ存在する
+            // ことによる常時のレイアウトコストが実測で問題になったため、クリックされて初めて
+            // NSMenuを組み立てる自前のコントロールへ置き換えた(詳細と実測値は
+            // PageLayoutStateMenuButtonのコメント参照)。
+            //
+            // 以前ここには、NSTableViewの行再利用でNSPopUpButtonの表示がstaleになる不具合
+            // (ユーザー報告)への回避策として`.id(pageKey + 現在の値)`を付けていたが、原因だった
+            // NSPopUpButtonが無くなったため取り除いた。現在の表示はcurrentLayoutState
+            // (viewModel.pageLayoutStatesのスナップショット)から素直に導かれるTextであり、
+            // AppKit側に作り置きされて使い回される実体を持たない。
+            //
+            // バグ修正(この構造自体は維持): メニュースタイルのPickerは、項目文字列の長さに
+            // よっては.frame(width:)で指定した幅より広い実効幅で描画されることがあり、その分だけ
+            // 後ろの区切り線・ブックマーク列がタイトル行(columnHeaderRow)とずれて見えていた
+            // (ユーザー報告)。「HStackのレイアウト計算に使われる幅」をColor.clearの
+            // .frame(width:)で厳密にcolumnWidths.layoutへ固定し、実際に見えるコントロールは
+            // その上に.overlay(alignment: .leading)で重ねることで、見た目の幅がどうであれ
+            // 後続の区切り線の位置には影響しないようにしている。
             Color.clear
                 .frame(width: columnWidths.layout, height: 1)
                 .overlay(alignment: .leading) {
-                    Picker(
-                        selection: Binding<PageLayoutState?>(
-                            get: { currentLayoutState },
-                            set: { onLayoutStateChange($0) }
-                        )
-                    ) {
-                        Text("No Layout").tag(PageLayoutState?.none)
-                        ForEach(PageLayoutState.allCases) { state in
-                            Text(state.titleKey).tag(PageLayoutState?.some(state))
-                        }
-                    } label: {
-                        EmptyView()
-                    }
-                    .id("\(row.pageKey)#\(currentLayoutState?.rawValue ?? "none")")
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .disabled(isLayoutLocked)
+                    PageLayoutStateMenuButton(
+                        currentState: currentLayoutState,
+                        isDisabled: isLayoutLocked,
+                        width: columnWidths.layout,
+                        onChange: { onLayoutStateChange($0) }
+                    )
                 }
 
             ColumnDividerLine(measurementKey: "row:2")
@@ -1866,40 +2262,26 @@ private struct PageRowView: View {
             }
         }
         .contentShape(Rectangle())
-        // 4.3節: 行のドラッグ&ドロップ並べ替え(ForEach.onMove、呼び出し元のpageListContent参照)は、
-        // 行のどこを掴んでもSwiftUI/AppKit標準の並べ替えドラッグとして開始できる。以前はここが
-        // 単純な.onTapGesture(排他的なジェスチャーとして行全体のヒットテスト領域を占有する)
-        // だったため、並べ替えのための掴み始めのドラッグをこのタップジェスチャーが先取りしてしまい、
-        // 並べ替え自体が実質的に動作しない不具合があった(ユーザー報告により発覚)。
-        // .simultaneousGestureに変更することで、行の選択(タップ)と並べ替え(ドラッグ)の
-        // 両方のジェスチャー認識を並行して許可し、実際に動きが伴った場合は並べ替え側が
-        // 優先されるようにする。なお.listRowBackground(選択中のハイライト表示)は、この
-        // selectableContentではなく呼び出し元(body)の行全体のHStackに掛けている
-        // (ドラッグハンドル部分もハイライトの対象に含めるため)。
+        // ここには絶対にジェスチャー(.onTapGesture/.gesture/.simultaneousGesture)を付けないこと。
         //
-        // ユーザー報告: 行をクリックしてからハイライトされるまで1秒近いラグがあった。原因は
-        // 以前ここに.onTapGesture(count: 2){ onJump() }(ダブルクリックでジャンプ、ユーザー要望)を
-        // 別途付けていたこと。クリック回数の異なるタップジェスチャーが同じビューに同居すると、
-        // AppKit/SwiftUIはそのクリックが「シングルクリックで確定」か「ダブルクリックの1回目」かを
-        // システムのダブルクリック間隔が経過するまで判定できず、.simultaneousGestureであっても
-        // この確定待ちのラグ自体は避けられなかった。
-        // ここではクリック回数2のジェスチャーを使わず、常にクリック回数1のジェスチャーだけを使う。
-        // 選択(onSelect、ハイライト表示)は毎回のクリックで即座に呼び、ジャンプ(onJump)は前回の
-        // クリックからの経過時間をNSEvent.doubleClickInterval(システムのダブルクリック間隔設定)と
-        // 自前で比較して判定する(いわゆる「ハイライトは即座に、ジャンプは2回目のクリックを検知して
-        // 実行」という順序)。
-        .simultaneousGesture(
-            TapGesture().onEnded {
-                onSelect()
-                let now = Date()
-                if let lastRowTapDate, now.timeIntervalSince(lastRowTapDate) <= NSEvent.doubleClickInterval {
-                    self.lastRowTapDate = nil
-                    onJump()
-                } else {
-                    lastRowTapDate = now
-                }
-            }
-        )
+        // 経緯(ユーザー報告「クリックがたまに・ランダムに反応しない」の真因。左ペインで先に
+        // 判明し、同じ原因がこちらにもあった): セル内にSwiftUIのジェスチャーがあると、それが
+        // マウスダウンを掴んでしまい、下のNSTableViewが行選択のトラッキングを開始できなくなる。
+        // ジェスチャーの種類は無関係で、TapGesture/DragGesture/onTapGesture(count:)のいずれでも
+        // 再現する。左ペインで計測したところ、セル内のジェスチャーを完全に取り除いた時だけ
+        // 取りこぼしがゼロになった(それ以前は34回中15回が取りこぼし)。
+        //
+        // そのため、行の選択はList(selection:)のネイティブ実装に任せ(呼び出し元のpageList参照)、
+        // ダブルクリックでのジャンプはSwiftUIの外(BookmarkDetailPane.installDoubleClickMonitor)で
+        // 実装している。
+        //
+        // 副次的な効果として、以前ここに書かれていた次の2つの回避策も不要になった:
+        // ・並べ替えドラッグの掴み始めをタップジェスチャーが先取りしてしまう問題への
+        //   .simultaneousGesture化(ユーザー報告)
+        // ・クリック回数の異なるジェスチャーの同居によるハイライトの遅延を避けるための、
+        //   自前のNSEvent.doubleClickInterval比較(ユーザー報告)
+        // どちらもセル内にジェスチャーが在ることに起因していた問題であり、ネイティブ選択では
+        // ハイライトがマウスダウンで確定し、並べ替えドラッグとも競合しない。
     }
 
     /// サムネイルをホバーしたときのpopoverの中身。フル解像度画像(previewImage)とファイル名を
