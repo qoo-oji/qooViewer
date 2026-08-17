@@ -1,5 +1,7 @@
 import Foundation
 import Combine
+// effectiveBackgroundColorがSwiftUIのColorを返すため(RGBColorValueも同様)。
+import SwiftUI
 
 /// アプリ全体(本ごとではない)の環境設定。UserDefaultsに保存する。
 /// cooViewerの「環境設定ウィンドウ」の一部に相当する。
@@ -20,6 +22,7 @@ final class AppPreferences: ObservableObject {
         static let quitWhenLastWindowClosed = "qooViewer.pref.quitWhenLastWindowClosed"
         static let singlePageAspectRatioThreshold = "qooViewer.pref.singlePageAspectRatioThreshold"
         static let backgroundColorOption = "qooViewer.pref.backgroundColorOption"
+        static let customBackgroundColor = "qooViewer.pref.customBackgroundColor"
         static let cursorAutoHideDelay = "qooViewer.pref.cursorAutoHideDelay"
         static let prefetchPageCount = "qooViewer.pref.prefetchPageCount"
         static let displayLanguage = "qooViewer.pref.displayLanguage"
@@ -109,9 +112,28 @@ final class AppPreferences: ObservableObject {
             UserDefaults.standard.set(singlePageAspectRatioThreshold, forKey: Keys.singlePageAspectRatioThreshold)
         }
     }
-    /// ビューワーの背景色
+    /// ビューワーの背景色(プリセット、または「カスタム」)
     @Published var backgroundColorOption: BackgroundColorOption {
         didSet { UserDefaults.standard.set(backgroundColorOption.rawValue, forKey: Keys.backgroundColorOption) }
+    }
+    /// `backgroundColorOption`が`.custom`のときに使う、ユーザーが自分で指定した背景色。
+    /// 環境設定「描画」タブの「カスタム色」から開くダイアログ(BackgroundColorPickerSheet)で編集する。
+    ///
+    /// プリセット側(`backgroundColorOption`)とは独立に保存しているので、いったんプリセットの
+    /// 黒に戻してから再び「カスタム」を選び直しても、作った色はそのまま残る。
+    @Published var customBackgroundColor: RGBColorValue {
+        didSet {
+            UserDefaults.standard.set(customBackgroundColor.hexString, forKey: Keys.customBackgroundColor)
+        }
+    }
+    /// カスタム背景色をまだ一度も指定していないときの初期値(暗めのグレー)。
+    /// 既定のプリセットである黒と近すぎず、かつ長時間の閲覧で目に痛くない明るさを選んである。
+    static let defaultCustomBackgroundColor = RGBColorValue(red: 64, green: 64, blue: 64)
+
+    /// 実際にビューワーの背景を塗るのに使う色。プリセットとカスタムの解決をここ1箇所に集約し、
+    /// 表示側(ViewerView・実寸表示ウインドウ)が`.custom`の扱いを個別に持たなくて済むようにしている。
+    var effectiveBackgroundColor: Color {
+        backgroundColorOption.presetColor ?? customBackgroundColor.color
     }
     /// しばらく操作がないと判定してマウスカーソルを自動的に隠すまでの時間(秒)
     @Published var cursorAutoHideDelay: Double {
@@ -337,6 +359,9 @@ final class AppPreferences: ObservableObject {
             defaults.object(forKey: Keys.singlePageAspectRatioThreshold) as? Double ?? 1.0
         self.backgroundColorOption =
             BackgroundColorOption(rawValue: defaults.string(forKey: Keys.backgroundColorOption) ?? "") ?? .black
+        self.customBackgroundColor =
+            RGBColorValue(hexString: defaults.string(forKey: Keys.customBackgroundColor) ?? "")
+            ?? Self.defaultCustomBackgroundColor
         self.cursorAutoHideDelay = defaults.object(forKey: Keys.cursorAutoHideDelay) as? Double ?? 2.0
         self.prefetchPageCount = defaults.object(forKey: Keys.prefetchPageCount) as? Double ?? 3
         self.displayLanguage = AppLanguage(rawValue: defaults.string(forKey: Keys.displayLanguage) ?? "") ?? .system

@@ -9149,6 +9149,150 @@
           }
         }
       }
+    },
+    "Custom" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カスタム"
+          }
+        }
+      }
+    },
+    "Custom Background Color" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom Background Color"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カスタム背景色"
+          }
+        }
+      }
+    },
+    "Pick a color from the palette, then fine-tune it with the RGB sliders." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pick a color from the palette, then fine-tune it with the RGB sliders."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "パレットから色を選び、RGBのスライダーで微調整します。"
+          }
+        }
+      }
+    },
+    "Palette" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Palette"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "パレット"
+          }
+        }
+      }
+    },
+    "Red" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Red"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "赤"
+          }
+        }
+      }
+    },
+    "Green" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Green"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "緑"
+          }
+        }
+      }
+    },
+    "Blue" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blue"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "青"
+          }
+        }
+      }
+    },
+    "Revert" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Revert"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "元に戻す"
+          }
+        }
+      }
+    },
+    "Select Custom again to change the color." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select Custom again to change the color."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "もう一度「カスタム」を選ぶと、色を指定し直せます。"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

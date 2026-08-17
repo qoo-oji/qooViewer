@@ -125,6 +125,17 @@ extension InterpolationQuality: SettingsOption {
 
 extension BackgroundColorOption: SettingsOption {
     var shortTitleKey: LocalizedStringKey { titleKey }
+
+    /// プリセットの色名は説明が要らないので、補足を出すのは「カスタム」だけ。
+    /// 「カスタム」を選ぶと色を指定するダイアログが開くが、選び直しでまた開けることは
+    /// 見ただけでは分からないため、それをここで伝える(RenderingSettingsViewの
+    /// backgroundColorSelection参照)。
+    var detailKey: LocalizedStringKey? {
+        switch self {
+        case .custom: return "Select Custom again to change the color."
+        default: return nil
+        }
+    }
 }
 
 extension ScalingMode: SettingsOption {

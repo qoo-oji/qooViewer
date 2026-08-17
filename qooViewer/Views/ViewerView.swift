@@ -889,7 +889,7 @@ struct ViewerView: View {
         .animation(.easeInOut(duration: 0.2), value: toastMessage)
         .animation(.easeInOut(duration: 0.15), value: showThumbnailGrid)
         .animation(.easeInOut(duration: 0.15), value: isShowingPageInfoPanel)
-        .background(preferences.backgroundColorOption.color)
+        .background(preferences.effectiveBackgroundColor)
         .background(WindowAccessor { window in
             guard hostWindow !== window else { return }
             hostWindowBox.window = window
@@ -2986,7 +2986,7 @@ struct ViewerView: View {
             defer: false
         )
         window.contentView = NSHostingView(
-            rootView: ActualSizePageView(image: image, backgroundColor: preferences.backgroundColorOption.color)
+            rootView: ActualSizePageView(image: image, backgroundColor: preferences.effectiveBackgroundColor)
         )
         // バグ修正(ビルド時の警告): window.titleはStringを受け取るため、以前はここに
         // "Actual Size"という生のリテラルを直接代入していた。これだとXcodeの文字列カタログの

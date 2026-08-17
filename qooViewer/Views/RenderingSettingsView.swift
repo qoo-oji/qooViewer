@@ -5,6 +5,10 @@ import Foundation
 /// (拡大率・補間品質・背景色・既定表示モード・見開き判定の閾値・先読み枚数)をまとめる。
 struct RenderingSettingsView: View {
     @EnvironmentObject private var preferences: AppPreferences
+    @State private var isShowingBackgroundColorPicker = false
+    /// カスタム背景色のダイアログを開く直前に選ばれていた背景色。キャンセルされたときに
+    /// ここへ戻す(「キャンセルしたのに背景色だけ変わってしまった」を防ぐため)。
+    @State private var backgroundOptionBeforeCustomizing: BackgroundColorOption?
 
     var body: some View {
         SettingsTabContainer {
@@ -14,7 +18,7 @@ struct RenderingSettingsView: View {
                     selection: $preferences.defaultScalingMode,
                     caption: "Used the first time a book is opened. Changing it later affects only that book."
                 )
-                SettingsPicker("Background Color", selection: $preferences.backgroundColorOption)
+                SettingsPicker("Background Color", selection: backgroundColorSelection)
                 SettingsSlider(
                     "Maximum Upscale",
                     value: $preferences.maxUpscalePercent,
@@ -88,5 +92,44 @@ struct RenderingSettingsView: View {
                 Text("Performance")
             }
         }
+        // シートは行ではなくタブの土台側に付ける。Formのセクション内のViewに付けると、
+        // 行のライフサイクル(スクロールによる再生成など)に表示状態が引きずられうるため。
+        .sheet(isPresented: $isShowingBackgroundColorPicker) {
+            BackgroundColorPickerSheet(
+                initialColor: preferences.customBackgroundColor,
+                onCommit: { chosen in
+                    preferences.customBackgroundColor = chosen
+                    // 背景色そのものは「カスタム」を選んだ時点で既に切り替わっている
+                    // (backgroundColorSelection参照)ので、ここでは色だけを保存する。
+                },
+                onCancel: {
+                    // 開く前の選択に戻す。「カスタム」を選んだこと自体を取り消す形になるので、
+                    // 直前が黒ならそのまま黒に戻り、直前も「カスタム」なら色だけが元のまま残る。
+                    if let previous = backgroundOptionBeforeCustomizing {
+                        preferences.backgroundColorOption = previous
+                    }
+                }
+            )
+        }
+    }
+
+    /// 「背景色」ポップアップ用のBinding。値を保存するだけでなく、「カスタム」が選ばれたら
+    /// その場でカスタム背景色のダイアログを開く。
+    ///
+    /// `.onChange`ではなくBindingの`set`側でダイアログを開いているのは、**既に「カスタム」が
+    /// 選ばれている状態でもう一度「カスタム」を選び直したとき**にも開けるようにするため。
+    /// `.onChange`は値が変わったときにしか呼ばれないので、その場合に何も起きず、
+    /// 一度別のプリセットへ逃げてから戻る以外に色を編集し直す方法が無くなってしまう。
+    private var backgroundColorSelection: Binding<BackgroundColorOption> {
+        Binding(
+            get: { preferences.backgroundColorOption },
+            set: { newValue in
+                let previous = preferences.backgroundColorOption
+                preferences.backgroundColorOption = newValue
+                guard newValue == .custom else { return }
+                backgroundOptionBeforeCustomizing = previous
+                isShowingBackgroundColorPicker = true
+            }
+        )
     }
 }
