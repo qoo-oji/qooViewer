@@ -61,6 +61,17 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
     /// 前のページへ戻ったときは、そのページの末尾(読み終わり側の隅)から表示を始める
     /// (cooViewerのsetStartFromEnd:YES相当)。
     case scrollAndMovePrevious
+    /// scrollAndMoveNext/Previousの「画面上の左右」版。読み方向により、進む/戻るのどちらに
+    /// なるかが変わる(spatialLeft/spatialRightと同じ考え方)。
+    ///
+    /// cooViewerのマウス操作の既定(action 42)は、**1つの割り当てでクリックした側によって
+    /// 進む/戻るが決まる**作りになっており、しかもその左右の判定は読み方向で入れ替わる
+    /// (Controller_input.mのmouseAction:でreadModeに応じてleft/rightの矩形を入れ替えている)。
+    /// qooViewerは左右のクリックゾーンを別々のトリガーとして持つため、同じ操作感を出すには
+    /// 「画面左方向へのスクロール送り」「画面右方向へのスクロール送り」という2つの操作が要る。
+    case scrollAndMoveSpatialLeft
+    /// scrollAndMoveSpatialLeftの逆。
+    case scrollAndMoveSpatialRight
     /// 1画面分下へスクロールする(ページ送りはしない)。cooViewerのaction 25相当。
     case scrollScreenDown
     /// 1画面分上へスクロールする(ページ送りはしない)。cooViewerのaction 24相当。
@@ -71,6 +82,18 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
     /// 今のページの末尾へスクロールする。読み方向により左下/右下が変わる。
     /// cooViewerの「最後へスクロール」(action 29)相当。
     case scrollToPageEnd
+    /// 決まった量だけ上へスクロールする(1画面分ではなく、少しずつ動かすためのもの)。
+    /// cooViewerの「上へスクロール」(action 30)相当。移動量は表示モードごとの設定
+    /// (KeyBindingStore.scrollStep(in:))で決まる。
+    case scrollUp
+    /// scrollUpの逆方向。cooViewerの「下へスクロール」(action 31)相当。
+    case scrollDown
+    /// 決まった量だけ左へスクロールする。cooViewerの「左へスクロール」(action 32)相当。
+    /// 原寸表示や「横幅に合わせる(単ページ)」のように横に長い状態で、キーボードから
+    /// 横方向へ動かすための操作。
+    case scrollLeft
+    /// scrollLeftの逆方向。cooViewerの「右へスクロール」(action 33)相当。
+    case scrollRight
     case toggleDisplayMode
     case toggleReadingDirection
     case cycleScalingMode
@@ -132,8 +155,10 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
     /// 「入力2」タブ(ModeInputSettingsView)側へ回すための振り分けに使う。
     var isScrollableModeOnly: Bool {
         switch self {
-        case .scrollAndMoveNext, .scrollAndMovePrevious, .scrollScreenDown, .scrollScreenUp,
-             .scrollToPageStart, .scrollToPageEnd:
+        case .scrollAndMoveNext, .scrollAndMovePrevious,
+             .scrollAndMoveSpatialLeft, .scrollAndMoveSpatialRight,
+             .scrollScreenDown, .scrollScreenUp, .scrollToPageStart, .scrollToPageEnd,
+             .scrollUp, .scrollDown, .scrollLeft, .scrollRight:
             return true
         default:
             return false
@@ -167,6 +192,12 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
         case .scrollScreenUp: return "Scroll Up One Screen"
         case .scrollToPageStart: return "Scroll to Page Start"
         case .scrollToPageEnd: return "Scroll to Page End"
+        case .scrollAndMoveSpatialLeft: return "Scroll One Screen / Move Left"
+        case .scrollAndMoveSpatialRight: return "Scroll One Screen / Move Right"
+        case .scrollUp: return "Scroll Up"
+        case .scrollDown: return "Scroll Down"
+        case .scrollLeft: return "Scroll Left"
+        case .scrollRight: return "Scroll Right"
         case .toggleDisplayMode: return "Toggle Spread/Single Page"
         case .toggleReadingDirection: return "Switch Reading Direction"
         case .cycleScalingMode: return "Cycle Display Mode"

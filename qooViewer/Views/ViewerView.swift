@@ -1875,14 +1875,16 @@ struct ViewerView: View {
                     // 明示的にmaxWidth/maxHeightを.infinityにして、左右それぞれが利用可能な
                     // 領域いっぱいに広がるようにする(指定しないと、意図しない小さな
                     // ヒットテスト領域になってしまう)。
-                    ClickZoneArea {
-                        perform(clickZoneAction(for: .clickLeftZone))
-                    }
+                    ClickZoneArea(
+                        onClick: { perform(clickZoneAction(for: .clickLeftZone)) },
+                        isDragScrollEnabled: viewModel.scalingMode != .fitToScreen
+                    )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    ClickZoneArea {
-                        perform(clickZoneAction(for: .clickRightZone))
-                    }
+                    ClickZoneArea(
+                        onClick: { perform(clickZoneAction(for: .clickRightZone)) },
+                        isDragScrollEnabled: viewModel.scalingMode != .fitToScreen
+                    )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 // isClickZoneArmed: ウェルカム画面からのダブルクリックの2回目のクリックを
@@ -2071,6 +2073,20 @@ struct ViewerView: View {
             return true
         }
         return false
+    }
+
+    /// 決まった量だけスクロールする(cooViewerの「上/下/左/右へスクロール」= action 30〜33 相当)。
+    /// dx/dyは向きだけを表す(-1/0/1)。1回あたりの移動量は表示モードごとの設定で決まる。
+    ///
+    /// 「1画面分」単位の送りとは別に、少しずつ動かす手段が要る。とくに横方向は、qooViewerの
+    /// 既定では←/→がページ送りに割り当てられているため、これが無いと原寸表示や
+    /// 「横幅に合わせる(単ページ)」でキーボードから横へ動かす手段が一切なくなる。
+    private func scrollByStep(dx: CGFloat, dy: CGFloat) {
+        guard viewModel.scalingMode != .fitToScreen,
+              let bounds = ScrollViewBounds(scrollGeometryBox.scrollView) else { return }
+        let step = CGFloat(keyBindingStore.scrollStep(in: viewModel.scalingMode))
+        let position = bounds.position
+        bounds.scroll(to: CGPoint(x: position.x + dx * step, y: position.y + dy * step))
     }
 
     /// ページを表示し始めるときのスクロール位置(cooViewerのfirstScroll相当)。
@@ -2623,6 +2639,18 @@ struct ViewerView: View {
             scrollToPageCorner(atEnd: false)
         case .scrollToPageEnd:
             scrollToPageCorner(atEnd: true)
+        case .scrollAndMoveSpatialLeft:
+            scrollByOneScreen(forward: viewModel.readingDirection == .rightToLeft)
+        case .scrollAndMoveSpatialRight:
+            scrollByOneScreen(forward: viewModel.readingDirection == .leftToRight)
+        case .scrollUp:
+            scrollByStep(dx: 0, dy: -1)
+        case .scrollDown:
+            scrollByStep(dx: 0, dy: 1)
+        case .scrollLeft:
+            scrollByStep(dx: -1, dy: 0)
+        case .scrollRight:
+            scrollByStep(dx: 1, dy: 0)
         case .toggleDisplayMode:
             viewModel.toggleDisplayMode()
         case .toggleReadingDirection:
@@ -3208,14 +3236,18 @@ private struct ScrollViewBounds {
 
 private struct ClickZoneArea: NSViewRepresentable {
     let onClick: () -> Void
+    /// ドラッグで画像を掴んで動かせるようにするかどうか(スクロールできる表示モードのときだけ)。
+    let isDragScrollEnabled: Bool
 
     func makeNSView(context: Context) -> ClickZoneView {
         let view = ClickZoneView()
         view.onClick = onClick
+        view.isDragScrollEnabled = isDragScrollEnabled
         return view
     }
 
     func updateNSView(_ nsView: ClickZoneView, context: Context) {
+        nsView.isDragScrollEnabled = isDragScrollEnabled
         // onClickはperform(...)を都度キャプチャしたクロージャのため、View再構築のたびに
         // (viewModel/keyBindingStoreの状態変化などで)新しいインスタンスに差し替わりうる。
         // 古いクロージャを握ったままにしないよう、更新のたびに必ず上書きする。
@@ -3229,7 +3261,16 @@ private struct ClickZoneArea: NSViewRepresentable {
 /// クリック判定にならった実装)。
 private final class ClickZoneView: NSView {
     var onClick: (() -> Void)?
+    /// ドラッグスクロールを許すか(ClickZoneArea参照)。
+    var isDragScrollEnabled = false
     private var isTrackingClickInside = false
+    /// このマウス操作で実際に画像を動かしたかどうか。動かした場合、ボタンを離したときの
+    /// クリック動作は行わない(下のmouseUp参照)。
+    private var didDragScroll = false
+    /// 直前のドラッグ位置(ウインドウ座標)。移動量を差分で求めるために持つ。
+    private var lastDragLocationInWindow: NSPoint?
+    /// closedHandCursorをpushしたかどうか(pushとpopを対にするため)。
+    private var didPushDragCursor = false
 
     /// 既定値(false)のままでも良いが、このクラスの存在意義そのものであるため、
     /// 意図を明示するためにあえて上書きしておく。falseにすることで、ウインドウが
@@ -3264,10 +3305,63 @@ private final class ClickZoneView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         isTrackingClickInside = bounds.contains(convert(event.locationInWindow, from: nil))
+        didDragScroll = false
+        lastDragLocationInWindow = event.locationInWindow
+    }
+
+    /// ドラッグで画像を掴んで動かす(cooViewerのCustomImageView.dragScroll:相当)。
+    ///
+    /// バグ修正(実機で確認): クリックゾーンがScrollViewの上に重なっているため、これが無いと
+    /// ドラッグしても画像はまったく動かず、しかもボタンを離した瞬間にクリックとみなされて
+    /// ページ送りが発動していた ― 「画像を動かそうとするとページが進む」という誤動作になる。
+    /// cooViewerは横幅フィット・原寸・見開き分割のいずれでもドラッグスクロールを既定で有効に
+    /// しており(defaultMouseArrayMode2/Mode3のaction 41)、ドラッグした場合はmouseUpで
+    /// クリック動作を抑止している(didDragScroll)。
+    override func mouseDragged(with event: NSEvent) {
+        guard isDragScrollEnabled, let scrollView = siblingScrollView(),
+              let documentView = scrollView.documentView, let last = lastDragLocationInWindow
+        else { return }
+        let deltaX = event.locationInWindow.x - last.x
+        let deltaY = event.locationInWindow.y - last.y
+        lastDragLocationInWindow = event.locationInWindow
+        guard deltaX != 0 || deltaY != 0 else { return }
+
+        // 画像を掴んで動かす向きにする(カーソルの動きに中身が付いてくる)。ウインドウ座標は
+        // 上へ動かすとyが増えるため、documentViewが上下反転しているかどうかで符号を合わせる。
+        let clipView = scrollView.contentView
+        let maxX = max(documentView.frame.width - clipView.bounds.width, 0)
+        let maxY = max(documentView.frame.height - clipView.bounds.height, 0)
+        let verticalSign: CGFloat = documentView.isFlipped ? 1 : -1
+        let origin = clipView.bounds.origin
+        let newOrigin = CGPoint(
+            x: min(max(origin.x - deltaX, 0), maxX),
+            y: min(max(origin.y + verticalSign * deltaY, 0), maxY)
+        )
+        guard newOrigin != origin else { return }
+        clipView.scroll(to: newOrigin)
+        scrollView.reflectScrolledClipView(clipView)
+
+        didDragScroll = true
+        if !didPushDragCursor {
+            NSCursor.closedHand.push()
+            didPushDragCursor = true
+        }
     }
 
     override func mouseUp(with event: NSEvent) {
-        defer { isTrackingClickInside = false }
+        defer {
+            isTrackingClickInside = false
+            lastDragLocationInWindow = nil
+            if didPushDragCursor {
+                NSCursor.pop()
+                didPushDragCursor = false
+            }
+        }
+        // 実際に画像を動かした場合は、クリック(ページ送り)とはみなさない。
+        guard !didDragScroll else {
+            didDragScroll = false
+            return
+        }
         guard isTrackingClickInside else { return }
         guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
         onClick?()

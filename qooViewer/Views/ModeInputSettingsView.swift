@@ -32,7 +32,9 @@ struct ModeInputSettingsView: View {
     /// 入れていたスクロール系(action 24〜29)と対応する。
     private let scrollActions: [ViewerAction] = [
         .scrollAndMoveNext, .scrollAndMovePrevious,
+        .scrollAndMoveSpatialLeft, .scrollAndMoveSpatialRight,
         .scrollScreenDown, .scrollScreenUp,
+        .scrollDown, .scrollUp, .scrollLeft, .scrollRight,
         .scrollToPageStart, .scrollToPageEnd,
     ]
 
@@ -118,6 +120,20 @@ struct ModeInputSettingsView: View {
             // アプリ全体で1つの設定だが、それをそのまま持ち込むとこのタブに「モード別のもの」と
             // 「共通のもの」が混在し、どれがどちらか分からなくなる(ユーザーからの指摘)。
             Section {
+                SettingsSlider(
+                    "Scroll Amount",
+                    value: bindingForScrollStep,
+                    in: 5...200,
+                    step: 5,
+                    caption: "How far one Scroll Up/Down/Left/Right step moves the image."
+                ) { value in
+                    "\(Int(value)) pt"
+                }
+            } header: {
+                Text("Scrolling")
+            }
+
+            Section {
                 SettingsPickerRow(
                     "When Scrolling Is Possible",
                     selection: bindingForWheelBehavior,
@@ -149,6 +165,13 @@ struct ModeInputSettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private var bindingForScrollStep: Binding<Double> {
+        Binding(
+            get: { store.scrollStep(in: editingMode) },
+            set: { store.setScrollStep($0, in: editingMode) }
+        )
     }
 
     private var bindingForWheelBehavior: Binding<WheelScrollBehavior> {

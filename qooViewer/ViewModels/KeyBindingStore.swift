@@ -37,6 +37,11 @@ final class KeyBindingStore: ObservableObject {
     /// モード別のものと共通のものが混在せず、すべてモード別で揃う(ユーザーからの指摘)。
     @Published var modeWheelBehaviors: [ScalingMode: WheelScrollBehavior]
 
+    /// 表示モードごとの、「上/下/左/右へスクロール」1回あたりの移動量(ポイント)。
+    /// cooViewerも同じ操作に移動量を持たせている(既定20。あちらは割り当て1件ごとに
+    /// 編集できるが、qooViewerでは表示モードごとに1つとしている)。
+    @Published var modeScrollSteps: [ScalingMode: Double]
+
     /// 上書きの土台になる「基本」の表示モード。ここに割り当てたものが、上書きの無い
     /// 他のモードにもそのまま引き継がれる。
     static let baseMode: ScalingMode = .fitToScreen
@@ -52,6 +57,7 @@ final class KeyBindingStore: ObservableObject {
     private let modeKeyDefaultsKey = "qooViewer.modeKeyBindings.v1"
     private let modeMouseDefaultsKey = "qooViewer.modeMouseBindings.v1"
     private let modeWheelDefaultsKey = "qooViewer.modeWheelBehaviors.v1"
+    private let modeScrollStepDefaultsKey = "qooViewer.modeScrollSteps.v1"
 
     // キーボードの既定値は、cooViewer(参考にしているMac用の既存の漫画ビューア)のノーマルモードの
     // 初期設定に、対応する操作がある範囲でできるだけ合わせつつ、qooViewer側の設計(画面位置基準の
@@ -140,8 +146,20 @@ final class KeyBindingStore: ObservableObject {
         RemappableKey.pageUp.id: .scrollScreenUp,
         RemappableKey.home.id: .scrollToPageStart,
         RemappableKey.end.id: .scrollToPageEnd,
+        // ↑↓←→での少しずつのスクロールもcooViewerに合わせる。あちらは横幅フィットでは↑↓のみ、
+        // 原寸・見開き分割では←→も割り当てているが、qooViewerでは3モードとも同じ既定にする
+        // (←→は基本の割り当てではページ送りのため、ここで上書きしないと横へ動かせない)。
+        RemappableKey.upArrow.id: .scrollUp,
+        RemappableKey.downArrow.id: .scrollDown,
+        RemappableKey.leftArrow.id: .scrollLeft,
+        RemappableKey.rightArrow.id: .scrollRight,
     ]
 
+    /// 左右のクリックゾーンには、**読み方向に応じて進む/戻るが決まる**スクロール送りを割り当てる。
+    /// cooViewerの既定(action 42)が1つの割り当てでクリックした側により進む/戻るを決めており、
+    /// 左右どちらでも「進む」にしてしまうとクリックで戻れなくなるため
+    /// (ViewerAction.scrollAndMoveSpatialLeftのコメント参照)。
+    ///
     /// マウスは左右のクリックゾーンだけをスクロールするモード用に上書きし、ホイールは
     /// **あえて含めない**。cooViewerもホイールは既定(CanScrollMode = 0)でスクロール専用で、
     /// ページ送りには使わない。qooViewer側もScrollView自身がホイールを処理するため
@@ -152,8 +170,8 @@ final class KeyBindingStore: ObservableObject {
     /// defaultMouseArrayMode3と同じ(あちらも左右とも action 42 になっている)。
     /// 読み進める操作を画面のどこをクリックしても行える、という考え方。
     static let defaultOverrideMouseBindings: [InputTrigger: ViewerAction] = [
-        .clickLeftZone: .scrollAndMoveNext,
-        .clickRightZone: .scrollAndMoveNext,
+        .clickLeftZone: .scrollAndMoveSpatialLeft,
+        .clickRightZone: .scrollAndMoveSpatialRight,
     ]
 
     /// 上書き可能な3モードすべてに同じ既定値を入れたもの。cooViewerもMode2(横幅フィット)と
@@ -171,12 +189,20 @@ final class KeyBindingStore: ObservableObject {
         Dictionary(uniqueKeysWithValues: overridableModes.map { ($0, WheelScrollBehavior.scrollOnly) })
     }
 
+    /// 既定の移動量。cooViewerのdefaultKeyArrayMode2/Mode3が持つvalue(20)に合わせている。
+    static let defaultScrollStep: Double = 20
+
+    static var defaultModeScrollSteps: [ScalingMode: Double] {
+        Dictionary(uniqueKeysWithValues: overridableModes.map { ($0, defaultScrollStep) })
+    }
+
     init() {
         keyBindings = Self.defaultKeyBindings
         mouseBindings = Self.defaultMouseBindings
         modeKeyBindings = Self.defaultModeKeyBindings
         modeMouseBindings = Self.defaultModeMouseBindings
         modeWheelBehaviors = Self.defaultModeWheelBehaviors
+        modeScrollSteps = Self.defaultModeScrollSteps
         load()
     }
 
@@ -204,6 +230,16 @@ final class KeyBindingStore: ObservableObject {
 
     func setWheelBehavior(_ behavior: WheelScrollBehavior, in mode: ScalingMode) {
         modeWheelBehaviors[mode] = behavior
+        persist()
+    }
+
+    /// そのモードでの「上/下/左/右へスクロール」1回あたりの移動量(ポイント)。
+    func scrollStep(in mode: ScalingMode) -> Double {
+        modeScrollSteps[mode] ?? Self.defaultScrollStep
+    }
+
+    func setScrollStep(_ step: Double, in mode: ScalingMode) {
+        modeScrollSteps[mode] = step
         persist()
     }
 
@@ -279,6 +315,7 @@ final class KeyBindingStore: ObservableObject {
             modeKeyBindings[mode] = Self.defaultOverrideKeyBindings
             modeMouseBindings[mode] = Self.defaultOverrideMouseBindings
             modeWheelBehaviors[mode] = .scrollOnly
+            modeScrollSteps[mode] = Self.defaultScrollStep
         }
         persist()
     }
@@ -302,6 +339,10 @@ final class KeyBindingStore: ObservableObject {
         let wheels = Dictionary(uniqueKeysWithValues: modeWheelBehaviors.map { ($0.key.rawValue, $0.value) })
         if let data = try? JSONEncoder().encode(wheels) {
             UserDefaults.standard.set(data, forKey: modeWheelDefaultsKey)
+        }
+        let steps = Dictionary(uniqueKeysWithValues: modeScrollSteps.map { ($0.key.rawValue, $0.value) })
+        if let data = try? JSONEncoder().encode(steps) {
+            UserDefaults.standard.set(data, forKey: modeScrollStepDefaultsKey)
         }
     }
 
@@ -354,6 +395,15 @@ final class KeyBindingStore: ObservableObject {
             )
         }
         loadModeWheelBehaviors()
+        if let data = UserDefaults.standard.data(forKey: modeScrollStepDefaultsKey),
+            let decoded = try? JSONDecoder().decode([String: Double].self, from: data)
+        {
+            modeScrollSteps = Dictionary(
+                uniqueKeysWithValues: decoded.compactMap { raw, value in
+                    ScalingMode(rawValue: raw).map { ($0, value) }
+                }
+            )
+        }
     }
 
     private func loadModeWheelBehaviors() {
