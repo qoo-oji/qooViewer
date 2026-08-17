@@ -148,38 +148,6 @@
         }
       }
     },
-    "(No Recent Files)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "(No Recent Files)"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "(履歴なし)"
-          }
-        }
-      }
-    },
-    "(No Matches)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "(No Matches)"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "(該当なし)"
-          }
-        }
-      }
-    },
     "(No Book Open)" : {
       "localizations" : {
         "en" : {
@@ -224,6 +192,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "(お気に入りなし)"
+          }
+        }
+      }
+    },
+    "(No Matches)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(No Matches)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(該当なし)"
+          }
+        }
+      }
+    },
+    "(No Recent Files)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(No Recent Files)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(履歴なし)"
           }
         }
       }
@@ -822,6 +822,23 @@
         }
       }
     },
+    "Applies to opening files and moving into folders in the side panel. Navigation buttons are unaffected." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies to opening files and moving into folders in the side panel. Navigation buttons are unaffected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドパネルでファイルを開く・フォルダへ移動する操作に適用されます。移動用のボタン操作には影響しません。"
+          }
+        }
+      }
+    },
     "Apply" : {
       "localizations" : {
         "en" : {
@@ -917,6 +934,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "追加するたびに、見開きの左右どちらを対象にするか尋ねます。"
+          }
+        }
+      }
+    },
+    "At the edge, moves one screen sideways without turning the page." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "At the edge, moves one screen sideways without turning the page."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "端まで来たら1画面分横へ移動します。ページは送りません。"
+          }
+        }
+      }
+    },
+    "At the edge, moves sideways and then turns the page." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "At the edge, moves sideways and then turns the page."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "端まで来たら1画面分横へ移動し、それも尽きたらページを送ります。"
           }
         }
       }
@@ -1581,6 +1630,22 @@
         }
       }
     },
+    "Clear" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クリア"
+          }
+        }
+      }
+    },
     "Click Left Side of Screen" : {
       "localizations" : {
         "en" : {
@@ -1625,22 +1690,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この本を閉じて新しい本を開く"
-          }
-        }
-      }
-    },
-    "Clear" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Clear"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "クリア"
           }
         }
       }
@@ -2388,6 +2437,23 @@
         }
       }
     },
+    "Diameter of the loupe." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diameter of the loupe."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡大鏡の直径です。"
+          }
+        }
+      }
+    },
     "Discard Settings" : {
       "localizations" : {
         "en" : {
@@ -2432,6 +2498,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "表示言語"
+          }
+        }
+      }
+    },
+    "Display Mode" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Display Mode"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示モード"
+          }
+        }
+      }
+    },
+    "Display Mode to Configure" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Display Mode to Configure"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定する表示モード"
           }
         }
       }
@@ -2577,6 +2675,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "レイアウトの編集…"
+          }
+        }
+      }
+    },
+    "Enable Side Panel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable Side Panel"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドパネルを有効にする"
           }
         }
       }
@@ -3175,6 +3290,22 @@
         }
       }
     },
+    "Fit Width (Single Page)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fit Width (Single Page)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "横幅に合わせる(単ページ)"
+          }
+        }
+      }
+    },
     "Folder" : {
       "localizations" : {
         "en" : {
@@ -3187,6 +3318,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "フォルダ"
+          }
+        }
+      }
+    },
+    "Folders First" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Folders First"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダを上に"
           }
         }
       }
@@ -3547,6 +3695,23 @@
         }
       }
     },
+    "Groups folders together above files, like Finder." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Groups folders together above files, like Finder."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finderと同様、フォルダをまとめてファイルより上に表示します。"
+          }
+        }
+      }
+    },
     "Has bookmarks" : {
       "localizations" : {
         "en" : {
@@ -3643,6 +3808,22 @@
         }
       }
     },
+    "Hide Side Panel" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide Side Panel"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドパネルを隠す"
+          }
+        }
+      }
+    },
     "Hide the Pointer Automatically" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3726,22 +3907,6 @@
         }
       }
     },
-    "Ignore" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ignore"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "無視"
-          }
-        }
-      }
-    },
     "History" : {
       "localizations" : {
         "en" : {
@@ -3758,6 +3923,22 @@
         }
       }
     },
+    "How far one Scroll Up/Down/Left/Right step moves the image." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How far one Scroll Up/Down/Left/Right step moves the image."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「上/下/左/右へスクロール」1回で画像が動く量です。"
+          }
+        }
+      }
+    },
     "How many books the history keeps. Shown in the File menu's Open Recent and in the side panel's History mode." : {
       "localizations" : {
         "en" : {
@@ -3770,6 +3951,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "履歴として保持する本の数です。ファイルメニューの「最近開いたファイル」と、サイドパネルの「履歴」モードに表示されます。"
+          }
+        }
+      }
+    },
+    "How much the loupe enlarges the image under the cursor." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How much the loupe enlarges the image under the cursor."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カーソル位置の画像を拡大鏡でどれだけ拡大するかです。"
+          }
+        }
+      }
+    },
+    "Ignore" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ignore"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無視"
           }
         }
       }
@@ -3869,6 +4083,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "入力"
+          }
+        }
+      }
+    },
+    "Input 2" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Input 2"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "入力2"
           }
         }
       }
@@ -4310,6 +4540,56 @@
         }
       }
     },
+    "Loupe" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loupe"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡大鏡"
+          }
+        }
+      }
+    },
+    "Loupe Magnification" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loupe Magnification"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡大鏡の倍率"
+          }
+        }
+      }
+    },
+    "Loupe Size" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loupe Size"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡大鏡のサイズ"
+          }
+        }
+      }
+    },
     "Low" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4376,6 +4656,23 @@
         }
       }
     },
+    "Mixed by Name" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mixed by Name"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前順に混在"
+          }
+        }
+      }
+    },
     "Modified" : {
       "localizations" : {
         "en" : {
@@ -4420,6 +4717,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "マウス"
+          }
+        }
+      }
+    },
+    "Mouse Wheel" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mouse Wheel"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "マウスホイール"
           }
         }
       }
@@ -5004,6 +5317,22 @@
         }
       }
     },
+    "Only actions whose meaning depends on the display mode are listed here." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only actions whose meaning depends on the display mode are listed here."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示モードによって意味が変わる操作だけを表示しています。"
+          }
+        }
+      }
+    },
     "Open" : {
       "localizations" : {
         "en" : {
@@ -5456,22 +5785,6 @@
         }
       }
     },
-    "PDF files can't store spread/reading-direction layout information. Bookmarks and title/author are exported, but the spread and reading-direction settings will be lost." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PDF files can't store spread/reading-direction layout information. Bookmarks and title/author are exported, but the spread and reading-direction settings will be lost."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PDFファイルには見開き・読み方向のレイアウト情報を保存できません。ブックマークとタイトル・著者名は書き出されますが、見開き・読み方向の設定は失われます。"
-          }
-        }
-      }
-    },
     "Panel Position" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -5485,6 +5798,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "パネルの位置"
+          }
+        }
+      }
+    },
+    "PDF files can't store spread/reading-direction layout information. Bookmarks and title/author are exported, but the spread and reading-direction settings will be lost." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PDF files can't store spread/reading-direction layout information. Bookmarks and title/author are exported, but the spread and reading-direction settings will be lost."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PDFファイルには見開き・読み方向のレイアウト情報を保存できません。ブックマークとタイトル・著者名は書き出されますが、見開き・読み方向の設定は失われます。"
           }
         }
       }
@@ -5830,22 +6159,6 @@
         }
       }
     },
-    "Recent Files to Keep" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Recent Files to Keep"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "履歴の保存件数"
-          }
-        }
-      }
-    },
     "Recent Files" : {
       "localizations" : {
         "en" : {
@@ -5858,6 +6171,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最近開いたファイル"
+          }
+        }
+      }
+    },
+    "Recent Files to Keep" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recent Files to Keep"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴の保存件数"
           }
         }
       }
@@ -6200,6 +6529,23 @@
         }
       }
     },
+    "Require Double-Click to Open or Navigate" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Require Double-Click to Open or Navigate"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開く・移動をダブルクリックにする"
+          }
+        }
+      }
+    },
     "Reset" : {
       "localizations" : {
         "en" : {
@@ -6280,6 +6626,22 @@
         }
       }
     },
+    "Reset This Mode to Defaults" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset This Mode to Defaults"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このモードの設定を初期状態に戻す"
+          }
+        }
+      }
+    },
     "Reset to Default (First Page)" : {
       "localizations" : {
         "en" : {
@@ -6341,6 +6703,39 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "解像度: %lld × %lld px"
+          }
+        }
+      }
+    },
+    "Restores every setting on this tab for the selected display mode only." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores every setting on this tab for the selected display mode only."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選んでいる表示モードについて、このタブのすべての設定を初期状態に戻します。ほかの表示モードや設定には影響しません。"
+          }
+        }
+      }
+    },
+    "Restores the built-in keyboard and mouse assignments for the selected display mode only." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores the built-in keyboard and mouse assignments for the selected display mode only."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選んでいる表示モードのキーボードとマウスの割り当てだけを初期状態に戻します。ほかの設定には影響しません。"
           }
         }
       }
@@ -6542,6 +6937,230 @@
         }
       }
     },
+    "Scroll Amount" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll Amount"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクロールの量"
+          }
+        }
+      }
+    },
+    "Scroll Down" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll Down"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下へスクロール"
+          }
+        }
+      }
+    },
+    "Scroll Down One Screen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll Down One Screen"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1画面分下へ"
+          }
+        }
+      }
+    },
+    "Scroll Left" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll Left"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左へスクロール"
+          }
+        }
+      }
+    },
+    "Scroll One Screen / Move Left" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll One Screen / Move Left"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1画面分+左へ移動"
+          }
+        }
+      }
+    },
+    "Scroll One Screen / Move Right" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll One Screen / Move Right"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1画面分+右へ移動"
+          }
+        }
+      }
+    },
+    "Scroll One Screen / Next Page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll One Screen / Next Page"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1画面分進む+次のページ"
+          }
+        }
+      }
+    },
+    "Scroll One Screen / Previous Page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll One Screen / Previous Page"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1画面分戻る+前のページ"
+          }
+        }
+      }
+    },
+    "Scroll Only" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll Only"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクロールのみ"
+          }
+        }
+      }
+    },
+    "Scroll Right" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll Right"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右へスクロール"
+          }
+        }
+      }
+    },
+    "Scroll to Page End" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll to Page End"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページの末尾へスクロール"
+          }
+        }
+      }
+    },
+    "Scroll to Page Start" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll to Page Start"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページの先頭へスクロール"
+          }
+        }
+      }
+    },
+    "Scroll Up" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll Up"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上へスクロール"
+          }
+        }
+      }
+    },
+    "Scroll Up One Screen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll Up One Screen"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1画面分上へ"
+          }
+        }
+      }
+    },
     "Scroll Wheel Down" : {
       "localizations" : {
         "en" : {
@@ -6570,6 +7189,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ホイールを上へ回す"
+          }
+        }
+      }
+    },
+    "Scroll, Then Move Sideways" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll, Then Move Sideways"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクロール(端で横へ)"
+          }
+        }
+      }
+    },
+    "Scroll, Then Turn Page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll, Then Turn Page"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクロール+ページ送り"
+          }
+        }
+      }
+    },
+    "Scrolling" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scrolling"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクロール"
           }
         }
       }
@@ -6762,6 +7429,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "連番後の文字列を入力"
+          }
+        }
+      }
+    },
+    "Settings here override the Input tab while this display mode is active. Anything left unassigned keeps working as set there." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings here override the Input tab while this display mode is active. Anything left unassigned keeps working as set there."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この表示モードのあいだ、「入力」タブの割り当てより優先されます。ここで設定していない項目は「入力」タブのまま働きます。"
           }
         }
       }
@@ -6975,6 +7658,23 @@
         }
       }
     },
+    "Shows a panel for browsing folders and the current book's contents. When off, the panel and its View menu options are unavailable." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows a panel for browsing folders and the current book's contents. When off, the panel and its View menu options are unavailable."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダや、開いている本の中身を閲覧できるパネルを表示します。オフにすると、パネルと表示メニューの関連項目が利用できなくなります。"
+          }
+        }
+      }
+    },
     "Shows a preview of the page under the pointer while hovering the progress bar." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7005,6 +7705,57 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "前回、最後のページを表示していた本だけ1ページ目から表示します。"
+          }
+        }
+      }
+    },
+    "Shows the side panel along the left edge of the window." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows the side panel along the left edge of the window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドパネルをウインドウの左端に表示します。"
+          }
+        }
+      }
+    },
+    "Shows the side panel along the right edge of the window." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows the side panel along the right edge of the window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドパネルをウインドウの右端に表示します。"
+          }
+        }
+      }
+    },
+    "Side Panel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Side Panel"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドパネル"
           }
         }
       }
@@ -7118,6 +7869,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "並べ替え"
+          }
+        }
+      }
+    },
+    "Sort Order" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sort Order"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "並び順"
+          }
+        }
+      }
+    },
+    "Sorts folders and files together by name." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sorts folders and files together by name."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダとファイルを区別せず、名前順に並べます。"
           }
         }
       }
@@ -7525,6 +8310,38 @@
         }
       }
     },
+    "The wheel never scrolls; it always performs the action assigned to it on the Input tab." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The wheel never scrolls; it always performs the action assigned to it on the Input tab."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホイールはスクロールに使わず、常に「入力」タブで割り当てた操作を行います。"
+          }
+        }
+      }
+    },
+    "The wheel only scrolls; it never turns the page." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The wheel only scrolls; it never turns the page."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホイールはスクロールするだけで、ページは送りません。"
+          }
+        }
+      }
+    },
     "This also deletes any subfolders and favorites inside it." : {
       "localizations" : {
         "en" : {
@@ -7926,6 +8743,22 @@
         }
       }
     },
+    "Toggle Loupe" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toggle Loupe"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡大鏡を表示/非表示"
+          }
+        }
+      }
+    },
     "Toggle Spread/Single Page" : {
       "localizations" : {
         "en" : {
@@ -7955,6 +8788,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "トラックパッドのフリックでページを送る"
+          }
+        }
+      }
+    },
+    "Triggers left unassigned here fall back to the Input tab." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Triggers left unassigned here fall back to the Input tab."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ここで割り当てていない操作は、「入力」タブの割り当てがそのまま使われます。"
+          }
+        }
+      }
+    },
+    "Turn Page Only" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn Page Only"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページ送りのみ"
           }
         }
       }
@@ -8140,6 +9005,38 @@
         }
       }
     },
+    "When scrolling is not possible — that is, in Fit to Screen — the wheel always performs the action assigned to it on the Input tab, whatever you choose here." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When scrolling is not possible — that is, in Fit to Screen — the wheel always performs the action assigned to it on the Input tab, whatever you choose here."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクロールできないとき(「画面内に収める」で表示しているとき)は、ここでの選択に関わらず、「入力」タブでホイールに割り当てた操作を行います。"
+          }
+        }
+      }
+    },
+    "When Scrolling Is Possible" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When Scrolling Is Possible"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクロールできるとき"
+          }
+        }
+      }
+    },
     "Which page do you want to add to Bookmarks?" : {
       "localizations" : {
         "en" : {
@@ -8249,902 +9146,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "お気に入り・ブックマーク・読書履歴を読み込めませんでした。このバージョンのqooViewerと互換性が無い可能性があります。\n\n続行すると、これらのデータはすべて完全に削除され、qooViewerはまっさらな状態から起動し直します。データを失いたくない場合は、削除せずに今すぐ終了してください(例: 別のバージョンのqooViewerを試す、サポートに相談する、など)。"
-          }
-        }
-      }
-    },
-    "Hide Side Panel" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hide Side Panel"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "サイドパネルを隠す"
-          }
-        }
-      }
-    },
-    "Shows the side panel along the left edge of the window." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Shows the side panel along the left edge of the window."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "サイドパネルをウインドウの左端に表示します。"
-          }
-        }
-      }
-    },
-    "Shows the side panel along the right edge of the window." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Shows the side panel along the right edge of the window."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "サイドパネルをウインドウの右端に表示します。"
-          }
-        }
-      }
-    },
-    "Side Panel" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Side Panel"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "サイドパネル"
-          }
-        }
-      }
-    },
-    "Enable Side Panel" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Enable Side Panel"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "サイドパネルを有効にする"
-          }
-        }
-      }
-    },
-    "Shows a panel for browsing folders and the current book's contents. When off, the panel and its View menu options are unavailable." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Shows a panel for browsing folders and the current book's contents. When off, the panel and its View menu options are unavailable."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "フォルダや、開いている本の中身を閲覧できるパネルを表示します。オフにすると、パネルと表示メニューの関連項目が利用できなくなります。"
-          }
-        }
-      }
-    },
-    "Require Double-Click to Open or Navigate" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Require Double-Click to Open or Navigate"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "開く・移動をダブルクリックにする"
-          }
-        }
-      }
-    },
-    "Applies to opening files and moving into folders in the side panel. Navigation buttons are unaffected." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Applies to opening files and moving into folders in the side panel. Navigation buttons are unaffected."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "サイドパネルでファイルを開く・フォルダへ移動する操作に適用されます。移動用のボタン操作には影響しません。"
-          }
-        }
-      }
-    },
-    "Sort Order" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sort Order"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "並び順"
-          }
-        }
-      }
-    },
-    "Folders First" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Folders First"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "フォルダを上に"
-          }
-        }
-      }
-    },
-    "Mixed by Name" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mixed by Name"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "名前順に混在"
-          }
-        }
-      }
-    },
-    "Groups folders together above files, like Finder." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Groups folders together above files, like Finder."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Finderと同様、フォルダをまとめてファイルより上に表示します。"
-          }
-        }
-      }
-    },
-    "Sorts folders and files together by name." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sorts folders and files together by name."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "フォルダとファイルを区別せず、名前順に並べます。"
-          }
-        }
-      }
-    },
-    "Diameter of the loupe." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Diameter of the loupe."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "拡大鏡の直径です。"
-          }
-        }
-      }
-    },
-    "How much the loupe enlarges the image under the cursor." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "How much the loupe enlarges the image under the cursor."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "カーソル位置の画像を拡大鏡でどれだけ拡大するかです。"
-          }
-        }
-      }
-    },
-    "Loupe" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loupe"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "拡大鏡"
-          }
-        }
-      }
-    },
-    "Loupe Magnification" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loupe Magnification"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "拡大鏡の倍率"
-          }
-        }
-      }
-    },
-    "Loupe Size" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Loupe Size"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "拡大鏡のサイズ"
-          }
-        }
-      }
-    },
-    "Toggle Loupe" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Toggle Loupe"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "拡大鏡を表示/非表示"
-          }
-        }
-      }
-    },
-    "Scroll One Screen / Next Page" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scroll One Screen / Next Page"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1画面分進む+次のページ"
-          }
-        }
-      }
-    },
-    "Scroll One Screen / Previous Page" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scroll One Screen / Previous Page"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1画面分戻る+前のページ"
-          }
-        }
-      }
-    },
-    "Scroll Down One Screen" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scroll Down One Screen"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1画面分下へ"
-          }
-        }
-      }
-    },
-    "Scroll Up One Screen" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scroll Up One Screen"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1画面分上へ"
-          }
-        }
-      }
-    },
-    "Scroll to Page Start" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scroll to Page Start"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ページの先頭へスクロール"
-          }
-        }
-      }
-    },
-    "Scroll to Page End" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scroll to Page End"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ページの末尾へスクロール"
-          }
-        }
-      }
-    },
-    "Display Mode" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Display Mode"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "表示モード"
-          }
-        }
-      }
-    },
-    "Display Mode to Configure" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Display Mode to Configure"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "設定する表示モード"
-          }
-        }
-      }
-    },
-    "Mouse Wheel" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mouse Wheel"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "マウスホイール"
-          }
-        }
-      }
-    },
-    "When Scrolling Is Possible" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "When Scrolling Is Possible"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スクロールできるとき"
-          }
-        }
-      }
-    },
-    "Reset This Mode to Defaults" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reset This Mode to Defaults"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このモードの設定を初期状態に戻す"
-          }
-        }
-      }
-    },
-    "Restores the built-in keyboard and mouse assignments for the selected display mode only." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Restores the built-in keyboard and mouse assignments for the selected display mode only."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "選んでいる表示モードのキーボードとマウスの割り当てだけを初期状態に戻します。ほかの設定には影響しません。"
-          }
-        }
-      }
-    },
-    "Scroll Only" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scroll Only"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スクロールのみ"
-          }
-        }
-      }
-    },
-    "Scroll, Then Move Sideways" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scroll, Then Move Sideways"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スクロール(端で横へ)"
-          }
-        }
-      }
-    },
-    "Scroll, Then Turn Page" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scroll, Then Turn Page"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スクロール+ページ送り"
-          }
-        }
-      }
-    },
-    "Turn Page Only" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Turn Page Only"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ページ送りのみ"
-          }
-        }
-      }
-    },
-    "The wheel only scrolls; it never turns the page." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The wheel only scrolls; it never turns the page."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ホイールはスクロールするだけで、ページは送りません。"
-          }
-        }
-      }
-    },
-    "At the edge, moves one screen sideways without turning the page." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "At the edge, moves one screen sideways without turning the page."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "端まで来たら1画面分横へ移動します。ページは送りません。"
-          }
-        }
-      }
-    },
-    "At the edge, moves sideways and then turns the page." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "At the edge, moves sideways and then turns the page."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "端まで来たら1画面分横へ移動し、それも尽きたらページを送ります。"
-          }
-        }
-      }
-    },
-    "Settings here override the Input tab while this display mode is active. Anything left unassigned keeps working as set there." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Settings here override the Input tab while this display mode is active. Anything left unassigned keeps working as set there."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この表示モードのあいだ、「入力」タブの割り当てより優先されます。ここで設定していない項目は「入力」タブのまま働きます。"
-          }
-        }
-      }
-    },
-    "Only actions whose meaning depends on the display mode are listed here." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Only actions whose meaning depends on the display mode are listed here."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "表示モードによって意味が変わる操作だけを表示しています。"
-          }
-        }
-      }
-    },
-    "Triggers left unassigned here fall back to the Input tab." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Triggers left unassigned here fall back to the Input tab."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ここで割り当てていない操作は、「入力」タブの割り当てがそのまま使われます。"
-          }
-        }
-      }
-    },
-    "Input 2" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Input 2"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "入力2"
-          }
-        }
-      }
-    },
-    "Restores every setting on this tab for the selected display mode only." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Restores every setting on this tab for the selected display mode only."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "選んでいる表示モードについて、このタブのすべての設定を初期状態に戻します。ほかの表示モードや設定には影響しません。"
-          }
-        }
-      }
-    },
-    "When scrolling is not possible — that is, in Fit to Screen — the wheel always performs the action assigned to it on the Input tab, whatever you choose here." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "When scrolling is not possible — that is, in Fit to Screen — the wheel always performs the action assigned to it on the Input tab, whatever you choose here."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スクロールできないとき(「画面内に収める」で表示しているとき)は、ここでの選択に関わらず、「入力」タブでホイールに割り当てた操作を行います。"
-          }
-        }
-      }
-    },
-    "The wheel never scrolls; it always performs the action assigned to it on the Input tab." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The wheel never scrolls; it always performs the action assigned to it on the Input tab."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ホイールはスクロールに使わず、常に「入力」タブで割り当てた操作を行います。"
-          }
-        }
-      }
-    },
-    "Fit Width (Single Page)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Fit Width (Single Page)"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "横幅に合わせる(単ページ)"
-          }
-        }
-      }
-    },
-    "Scroll One Screen / Move Left" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scroll One Screen / Move Left"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1画面分+左へ移動"
-          }
-        }
-      }
-    },
-    "Scroll One Screen / Move Right" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scroll One Screen / Move Right"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1画面分+右へ移動"
-          }
-        }
-      }
-    },
-    "Scroll Up" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scroll Up"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "上へスクロール"
-          }
-        }
-      }
-    },
-    "Scroll Down" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scroll Down"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "下へスクロール"
-          }
-        }
-      }
-    },
-    "Scroll Left" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scroll Left"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "左へスクロール"
-          }
-        }
-      }
-    },
-    "Scroll Right" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scroll Right"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "右へスクロール"
-          }
-        }
-      }
-    },
-    "Scrolling" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scrolling"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スクロール"
-          }
-        }
-      }
-    },
-    "Scroll Amount" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Scroll Amount"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スクロールの量"
-          }
-        }
-      }
-    },
-    "How far one Scroll Up/Down/Left/Right step moves the image." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "How far one Scroll Up/Down/Left/Right step moves the image."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「上/下/左/右へスクロール」1回で画像が動く量です。"
           }
         }
       }
