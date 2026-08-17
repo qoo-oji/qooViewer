@@ -36,6 +36,7 @@ final class AppPreferences: ObservableObject {
         static let sidePanelFeatureEnabled = "qooViewer.pref.sidePanelFeatureEnabled"
         static let sidePanelUsesDoubleClick = "qooViewer.pref.sidePanelUsesDoubleClick"
         static let sidePanelSortOrder = "qooViewer.pref.sidePanelSortOrder"
+        static let sidePanelPosition = "qooViewer.pref.sidePanelPosition"
         static let sidePanelMode = "qooViewer.pref.sidePanelMode"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
         static let showRecentFilesOnWelcome = "qooViewer.pref.showRecentFilesOnWelcome"
@@ -228,6 +229,14 @@ final class AppPreferences: ObservableObject {
     @Published var sidePanelSortOrder: SidePanelSortOrder {
         didSet { UserDefaults.standard.set(sidePanelSortOrder.rawValue, forKey: Keys.sidePanelSortOrder) }
     }
+    /// 環境設定「一般」タブの、サイドパネルをウインドウのどちら側に表示するか(既定は左。
+    /// SidePanelPosition参照)。常時表示・ホバーでの一時表示のどちらにも同じ値が効き、
+    /// ホバー時にパネルが出現する反応領域(ウインドウ端の狭い帯)もこの設定に合わせて
+    /// 左右が入れ替わる(ContentView.updateSidePanelReveal参照)。
+    /// sidePanelWidth/sidePanelModeと同じくアプリ全体で1つの値として持つ。
+    @Published var sidePanelPosition: SidePanelPosition {
+        didSet { UserDefaults.standard.set(sidePanelPosition.rawValue, forKey: Keys.sidePanelPosition) }
+    }
     /// サイドパネルの表示モード(ブラウザ/ブックマーク。SidePanelMode参照)。パネル最上部の
     /// スイッチで切り替える。ウインドウごとではなくアプリ全体で1つの値として持つ
     /// (sidePanelWidthと同じ考え方: 新しいウインドウ/タブや次回起動時も同じ見た目で始まる)。
@@ -354,6 +363,8 @@ final class AppPreferences: ObservableObject {
         self.sidePanelUsesDoubleClick = defaults.object(forKey: Keys.sidePanelUsesDoubleClick) as? Bool ?? false
         self.sidePanelSortOrder =
             SidePanelSortOrder(rawValue: defaults.string(forKey: Keys.sidePanelSortOrder) ?? "") ?? .foldersFirst
+        self.sidePanelPosition =
+            SidePanelPosition(rawValue: defaults.string(forKey: Keys.sidePanelPosition) ?? "") ?? .left
         self.sidePanelMode =
             SidePanelMode(rawValue: defaults.string(forKey: Keys.sidePanelMode) ?? "") ?? .browser
         self.showProgressBarThumbnailPreview =

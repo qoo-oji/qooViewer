@@ -277,6 +277,19 @@ struct ViewerView: View {
         appState.openFavoriteAction = { favorite in
             openFavoriteAccordingToPreference(favorite)
         }
+        // カーソルがウインドウの外へ出たときに、自動表示中のツールバー/プログレスバーを
+        // 即座に隠すための橋渡し(AppState.hideAutoRevealedChromeのコメント参照)。
+        // 拡大鏡ON時の強制非表示(下の.onChange(of: viewModel.isLoupeActive))と同じ処理内容。
+        // 値が変わるときだけ書き戻す(@Publishedは同じ値の再代入でもobjectWillChangeを
+        // 発火させるため。ContentView.dismissAutoRevealedChromeIfCursorLeftWindowのコメント参照)。
+        appState.hideAutoRevealedChrome = {
+            if isAutoHiddenChromeRevealed {
+                isAutoHiddenChromeRevealed = false
+            }
+            if appState.isChromeAutoRevealed {
+                appState.isChromeAutoRevealed = false
+            }
+        }
         // サイドパネル(ページモード)のサムネイル取得の橋渡し
         // (AppState.loadPageThumbnailのコメント参照)。ページ一覧グリッド
         // (ThumbnailGridView)と同じ、進捗バー用の軽量サムネイルキャッシュを共有する。
@@ -574,6 +587,7 @@ struct ViewerView: View {
         appState.addBookmarkAction = nil
         appState.addFavoriteAction = nil
         appState.openFavoriteAction = nil
+        appState.hideAutoRevealedChrome = nil
         appState.updateLoadPageThumbnail(nil)
         appState.updateCurrentBookmarks([])
         appState.updateCurrentPageIndex(0)
@@ -584,6 +598,11 @@ struct ViewerView: View {
         appState.performLayoutClear = nil
         appState.performAutoLayout = nil
         appState.performImageExport = nil
+        // ツールバー/プログレスバーの自動表示は、このViewerViewが持っていた状態そのもの。
+        // 本を閉じた(ウェルカム画面へ戻った)後もtrueのまま残ると、ContentView側から見て
+        // 「まだ自動表示中のものがある」という誤情報になり、ウインドウ外検知用のグローバル
+        // モニタが外れなくなる(ContentView.updateOutsideWindowMonitor参照)。
+        appState.isChromeAutoRevealed = false
         appState.resetMenuCheckmarkState()
     }
 

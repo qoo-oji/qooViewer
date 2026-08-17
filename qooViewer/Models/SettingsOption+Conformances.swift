@@ -67,6 +67,24 @@ extension AppLanguage: SettingsOption {
     var shortTitleKey: LocalizedStringKey { titleKey }
 }
 
+extension SidePanelPosition: SettingsOption {
+    var shortTitleKey: LocalizedStringKey {
+        switch self {
+        case .left: return "Left Side"
+        case .right: return "Right Side"
+        }
+    }
+
+    var detailKey: LocalizedStringKey? {
+        switch self {
+        case .left:
+            return "Shows the side panel along the left edge of the window."
+        case .right:
+            return "Shows the side panel along the right edge of the window."
+        }
+    }
+}
+
 extension SidePanelSortOrder: SettingsOption {
     var shortTitleKey: LocalizedStringKey {
         switch self {

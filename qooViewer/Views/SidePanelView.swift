@@ -2,7 +2,8 @@ import SwiftUI
 import AppKit
 
 /// サイドパネル本体。既定では常時表示、表示メニューの「サイドパネルを隠す」がONのときだけ
-/// ウインドウ左端へのホバーで一時的に表示される(ContentView参照)。
+/// ウインドウ端へのホバーで一時的に表示される(ContentView参照)。左右どちら側に表示するかは
+/// 環境設定「一般」タブで選べる(SidePanelPosition。常時表示・ホバー表示のどちらにも効く)。
 ///
 /// パネル最上部には、表示モード(SidePanelMode)をワンクリックで直接切り替えるスイッチ
 /// (SidePanelModeSwitcher)を常に表示する。モードによって、その下に表示される内容が
@@ -20,7 +21,7 @@ import AppKit
 /// (ContentView、およびそこからAppState経由でViewerView)が行う。
 ///
 /// 背景はViewerView.swiftの他のパネル(サムネイル一覧・Get Info)と違い自身で持つ
-/// (フローティングカードではなく左端フル高さのサイドバーとして背景を持つ。
+/// (フローティングカードではなくウインドウ端のフル高さのサイドバーとして背景を持つ。
 /// SidebarVisualEffectView参照)。ユーザー要望により、ページ表示エリアなどパネルの外側を
 /// クリックしても閉じない(常時表示が既定のため、クリックで閉じる仕組みは本を読む操作の
 /// 妨げになる)。
@@ -42,9 +43,14 @@ struct SidePanelView: View {
     /// (アプリ全体で1つ、次回起動時にも引き継ぐ)。
     @Binding var mode: SidePanelMode
     /// パネルの幅。ContentViewが@Stateとして保持し、Bindingで渡す(ドッキング表示・
-    /// ホバーオーバーレイ表示のどちらでも同じ幅を共有するため)。右端のドラッグハンドルで
-    /// ユーザーが調整できる。
+    /// ホバーオーバーレイ表示のどちらでも同じ幅を共有するため)。ビューア側の端にある
+    /// ドラッグハンドルでユーザーが調整できる。
     @Binding var width: CGFloat
+    /// パネルをウインドウのどちら側に表示しているか(環境設定。AppPreferences.sidePanelPosition)。
+    /// パネル自体の配置はContentViewが行うため、ここで使うのは「パネルのどちらの端が
+    /// ビューア側を向いているか」に依存する部分だけ ― 幅調整ハンドル・ドラッグ中の目印の位置と
+    /// ドラッグ方向、およびページモードの拡大プレビューを出す向き。
+    var position: SidePanelPosition
     /// 下段のダブルクリックで、クリックした画像が本の何ページ目かを特定するための一覧
     /// (AppState.currentBookPages。並び替え/除外の変更を追従できるよう、本を開いた時点の
     /// スナップショットではなく最新値をContentViewから渡してもらう)。
@@ -174,6 +180,7 @@ struct SidePanelView: View {
                     thumbnailGeneration: pageThumbnailGeneration,
                     loadThumbnail: loadPageThumbnail,
                     loadPageImage: loadPageImage,
+                    previewArrowEdge: position.innerEdge,
                     onJumpToPage: onJumpToPage
                 )
             }
@@ -249,20 +256,21 @@ struct SidePanelView: View {
         min(max(value, widthRange.lowerBound), widthRange.upperBound)
     }
 
-    /// パネル右端(ビューアとの境界)の幅調整用、ドラッグの当たり判定だけを持つ透明な領域。
+    /// パネルのビューア側の端(左配置なら右端、右配置なら左端)にある幅調整用の、ドラッグの
+    /// 当たり判定だけを持つ透明な領域。
     /// 上下分割のdragHandleと違い、こちらは意図的に**見た目上・レイアウト上まったく
     /// 動かさない**(常に確定済みのwidth基準の位置に固定)。DragGesture自身の出力
     /// (widthDragOffset)にこのビュー自身の位置を依存させてしまうと、自己参照の
     /// フィードバックループでドラッグ中に震えて見える不具合になるため(widthDragIndicator
     /// 参照)。.overlay(alignment: .leading)の基準(x:0、パネル左端)から、確定済みの
     /// width(ドラッグ中も変化しない値なのでフィードバックループの心配は無い)を使って
-    /// パネル右端(境界)へ移動させている。
+    /// 境界へ移動させている(右配置ではパネル左端が境界のため、移動量は幅に依存しない)。
     private var widthDragHitArea: some View {
         Color.clear
             .frame(width: 6)
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
-            .offset(x: width - 3)
+            .offset(x: position == .left ? width - 3 : -3)
             .onHover { isHovering in
                 if isHovering {
                     NSCursor.resizeLeftRight.push()
@@ -273,16 +281,29 @@ struct SidePanelView: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .updating($widthDragOffset) { value, state, _ in
-                        state = value.translation.width
+                        state = widthDelta(forDragTranslationWidth: value.translation.width)
                     }
                     .onEnded { value in
-                        width = Self.clampWidth(width + value.translation.width)
+                        width = Self.clampWidth(
+                            width + widthDelta(forDragTranslationWidth: value.translation.width)
+                        )
                     }
             )
     }
 
+    /// 幅調整ハンドルの横移動量を、パネルの幅の増減量へ読み替える。左配置ではハンドルが
+    /// パネルの右端にあるため右へ動かすと広がるが、右配置ではハンドルが左端にあるため
+    /// 左へ動かすと広がる(符号が反転する)。
+    private func widthDelta(forDragTranslationWidth translation: CGFloat) -> CGFloat {
+        position == .left ? translation : -translation
+    }
+
     /// ドラッグ中、現在の確定予定位置を示す見た目だけの縦線。widthDragHitAreaとは別の
     /// ビュー(ジェスチャーを持たない)にすることで、自己参照ループを避けている。
+    ///
+    /// 右配置のときはパネルの左端が境界になる。パネル自身はウインドウの右端に固定されたまま
+    /// 左へ伸びるので、パネル座標系での境界の位置は幅に関わらず常にx:0(この縦線の中心が
+    /// そこに来るようoffsetは-1)であり、線はドラッグに合わせて自然に追従する。
     @ViewBuilder
     private var widthDragIndicator: some View {
         if widthDragOffset != 0 {
@@ -290,7 +311,7 @@ struct SidePanelView: View {
                 .fill(Color.secondary.opacity(0.5))
                 .frame(width: 2)
                 .frame(maxHeight: .infinity)
-                .offset(x: effectiveWidth - 1)
+                .offset(x: position == .left ? effectiveWidth - 1 : -1)
                 .allowsHitTesting(false)
                 .transaction { $0.animation = nil }
         }
@@ -1116,6 +1137,8 @@ private struct SidePanelPagesSectionView: View {
     var loadThumbnail: ((Int) async -> CGImage?)?
     /// ホバー時の拡大プレビュー用(フル解像度)。
     var loadPageImage: ((Int) async -> CGImage?)?
+    /// 拡大プレビューをパネルのどちら側へ出すか(SidePanelPageCell.previewArrowEdge参照)。
+    var previewArrowEdge: Edge
     var onJumpToPage: (Int) -> Void
 
     var body: some View {
@@ -1157,6 +1180,7 @@ private struct SidePanelPagesSectionView: View {
                                     thumbnailGeneration: thumbnailGeneration,
                                     loadThumbnail: loadThumbnail,
                                     loadPageImage: loadPageImage,
+                                    previewArrowEdge: previewArrowEdge,
                                     onTap: { onJumpToPage(index) }
                                 )
                                 .id(index)
@@ -1217,6 +1241,10 @@ private struct SidePanelPageCell: View {
     let thumbnailGeneration: Int
     let loadThumbnail: ((Int) async -> CGImage?)?
     let loadPageImage: ((Int) async -> CGImage?)?
+    /// 拡大プレビュー(popover)を出す向き。パネルのビューア側 ― 左配置なら右へ、右配置なら
+    /// 左へ ― に出すことで、プレビューがパネル自身や画面の外へはみ出さないようにする
+    /// (SidePanelPosition.innerEdge)。
+    let previewArrowEdge: Edge
     let onTap: () -> Void
 
     @State private var image: CGImage?
@@ -1281,7 +1309,7 @@ private struct SidePanelPageCell: View {
                     isHoveringThumbnail = false
                 }
             }
-            .popover(isPresented: $isHoveringThumbnail, arrowEdge: .trailing) {
+            .popover(isPresented: $isHoveringThumbnail, arrowEdge: previewArrowEdge) {
                 thumbnailPreviewContent
             }
 

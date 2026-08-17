@@ -85,6 +85,7 @@ struct GeneralSettingsView: View {
                     isOn: $preferences.sidePanelFeatureEnabled,
                     caption: "Shows a panel for browsing folders and the current book's contents. When off, the panel and its View menu options are unavailable."
                 )
+                SettingsPicker("Panel Position", selection: $preferences.sidePanelPosition)
                 SettingsToggle(
                     "Require Double-Click to Open or Navigate",
                     isOn: $preferences.sidePanelUsesDoubleClick,

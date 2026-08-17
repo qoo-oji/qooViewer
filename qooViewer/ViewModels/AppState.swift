@@ -64,6 +64,17 @@ final class AppState: ObservableObject {
     /// (ContentView.installSidePanelHoverMonitorIfNeeded参照)。
     @Published var isChromeAutoRevealed = false
 
+    /// 自動表示中のツールバー/プログレスバーを、次のマウス移動を待たずに今すぐ隠すための橋渡し。
+    /// 表示・非表示の判定(Y座標)と実際の表示状態(@State)はどちらもViewerViewが持っているため、
+    /// performViewerAction等と同じく、ViewerViewが表示されている間だけ自分自身を登録する。
+    ///
+    /// 用途は「カーソルがウインドウの外へ出た」ときの一斉クローズ(ユーザー要望)。ViewerViewの
+    /// ローカルモニタはウインドウ内のマウス移動しか見ていないため、カーソルが外へ出たまま
+    /// 戻ってこない場合、自動表示されたツールバー/プログレスバーが出しっぱなしになる。
+    /// ウインドウ外への移動を検知しているContentView側から、サイドパネルを閉じるのと同じ
+    /// タイミングでこれを呼ぶ(ContentView.dismissAutoRevealedChromeIfCursorLeftWindow参照)。
+    var hideAutoRevealedChrome: (() -> Void)?
+
     /// サイドパネルの下段(本の中身ブラウザ)が、ダブルクリックされた画像ファイルのパスから
     /// 「それが本の何ページ目か」を特定するために参照する、現在の本のページ一覧。
     ///
@@ -195,7 +206,8 @@ final class AppState: ObservableObject {
     /// 表示メニューの「サイドパネルを隠す」。hideToolbar/hideProgressBarと違い、フルスクリーン
     /// 中かどうかに関わらず常に効果がある(サイドパネルはツールバー/プログレスバーと違って
     /// フルスクリーン専用の別の自動隠し挙動を持たない)。既定はOFF(=常時表示)。ONのときだけ、
-    /// マウスをウインドウ左端に近づけたときの一時表示(isSidePanelRevealed)が意味を持つ
+    /// マウスをウインドウの端(環境設定のsidePanelPositionで選んだ左右どちらか)に近づけたときの
+    /// 一時表示(isSidePanelRevealed)が意味を持つ
     /// (ContentView.installSidePanelHoverMonitorIfNeeded参照)。
     @Published var hideSidePanel = false {
         didSet {

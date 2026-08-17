@@ -422,8 +422,9 @@ struct QooViewerApp: App {
                 .disabled(!hasBook)
 
                 // サイドパネルは既定で常時表示。ONにすると、ツールバー/プログレスバーの
-                // 「隠す」と同様、マウスをウインドウ左端に近づけたときだけ一時的に表示される
-                // (ContentView.installSidePanelHoverMonitorIfNeeded参照)。ウェルカム画面
+                // 「隠す」と同様、マウスをウインドウの端(環境設定「一般」タブで選んだ左右
+                // どちらか)に近づけたときだけ一時的に表示される
+                // (ContentView.updateSidePanelReveal参照)。ウェルカム画面
                 // (本を開いていない状態)でもボリューム一覧をたどれるようにしたい機能のため、
                 // hideToolbar/hideProgressBarと異なりhasBookによる無効化はしない。
                 //

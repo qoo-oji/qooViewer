@@ -44,14 +44,18 @@ struct ContentView: View {
     /// (.onChange(of: appState.currentBook?.id)参照)。フォルダ/対応アーカイブ形式以外
     /// (PDF/EPUB)、または本を開いていないときはnil(下段セクション自体を表示しない)。
     @State private var bookContentsBrowser: BookContentsBrowserState?
-    /// サイドパネル左端のホバー検知用ローカルモニタ。ViewerView.makeScrollMonitorとは
+    /// サイドパネル側のホバー検知用ローカルモニタ。ViewerView.makeScrollMonitorとは
     /// 完全に独立した、X座標の帯だけを見る単純なもの。
     @State private var sidePanelHoverMonitor: Any?
-    /// サイドパネルが出現する、ウインドウ左端からの反応領域の幅。
+    /// カーソルがウインドウの外へ出たことを検知するためのグローバルモニタ(他のアプリ宛ての
+    /// マウス移動を監視する)。自動表示中のもの(サイドパネル/ツールバー/プログレスバー)が
+    /// 1つでもある間だけ取り付ける(updateOutsideWindowMonitor参照)。
+    @State private var outsideWindowMonitor: Any?
+    /// サイドパネルが出現する、ウインドウ端(左右どちらに置いているかによる)からの反応領域の幅。
     private static let sidePanelRevealBandWidth: CGFloat = 20
-    /// 「サイドパネルを隠す」ON時、表示中のパネルが閉じるまでの、パネル右端(sidePanelWidth)
-    /// から見た余裕幅。ゼロだと、パネル右端の幅調整ハンドル(widthDragHitArea)をつかもうと
-    /// カーソルを境界ぎりぎりへ動かしただけで隠れてしまう(ユーザー報告)。
+    /// 「サイドパネルを隠す」ON時、表示中のパネルが閉じるまでの、パネルのビューア側の端
+    /// (sidePanelWidth)から見た余裕幅。ゼロだと、そこにある幅調整ハンドル(widthDragHitArea)を
+    /// つかもうとカーソルを境界ぎりぎりへ動かしただけで隠れてしまう(ユーザー報告)。
     private static let sidePanelHideMargin: CGFloat = 16
     /// サイドパネルの幅。ユーザーが右端のドラッグハンドルで調整できる
     /// (SidePanelView.widthDragHitArea参照)。常時表示・ホバー表示のどちらでも同じ値を
@@ -62,16 +66,25 @@ struct ContentView: View {
         self.initialURL = initialURL
     }
 
-    var body: some View {
-        ZStack(alignment: .leading) {
+    /// ウインドウの中身そのもの(サイドパネル + ビューア/ウェルカム画面)。
+    ///
+    /// bodyへ直接書くと、bodyに連なる大量のモディファイア(メニューバー用のFocusedValue、
+    /// 各種onChange、2つのalert)と合わせて1つの式として型チェックされ、コンパイラが
+    /// 「時間内に型チェックできない」と諦めてしまうため、独立した計算プロパティへ切り出している。
+    @ViewBuilder
+    private var windowContent: some View {
+        // サイドパネルを左右どちらに置くかは環境設定(AppPreferences.sidePanelPosition)で決まり、
+        // 常時表示・ホバー表示のどちらにも同じ値が効く。
+        let panelPosition = preferences.sidePanelPosition
+        ZStack(alignment: panelPosition.alignment) {
             // サイドパネルが常時表示(既定、hideSidePanel == false)のときは、ツールバー/
             // プログレスバーがViewerView.mainZStack内のVStackに組み込まれて画像表示エリアを
             // 押しのけるのと同じ考え方で、HStackの実レイアウトとして組み込む(ここでの
             // GeometryReaderベースのpageAreaサイジングが自動的に縮んだ幅を拾ってくれるため、
             // ViewerView側の変更は不要)。ZStackのオーバーレイのままにしてしまうと、常時表示中
-            // ずっと画像の左端がパネルの下に隠れ続けてしまう(ユーザー報告の不具合)。
+            // ずっと画像の端がパネルの下に隠れ続けてしまう(ユーザー報告の不具合)。
             HStack(spacing: 0) {
-                if preferences.sidePanelFeatureEnabled && !appState.hideSidePanel {
+                if showsDockedSidePanel && panelPosition == .left {
                     sidePanelView(dismissesOnAction: false)
                 }
                 Group {
@@ -86,6 +99,9 @@ struct ContentView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if showsDockedSidePanel && panelPosition == .right {
+                    sidePanelView(dismissesOnAction: false)
+                }
             }
 
             // hideSidePanel == trueのときの、ホバーによる一時的な表示。ツールバー/プログレス
@@ -95,9 +111,13 @@ struct ContentView: View {
             // がOFF(環境設定「一般」タブ)のときは、サイドパネル機能自体を丸ごと無効化する。
             if preferences.sidePanelFeatureEnabled && appState.hideSidePanel && appState.isSidePanelRevealed {
                 sidePanelView(dismissesOnAction: true)
-                    .transition(.move(edge: .leading))
+                    .transition(.move(edge: panelPosition.edge))
             }
         }
+    }
+
+    var body: some View {
+        windowContent
         .animation(.easeInOut(duration: 0.15), value: appState.isSidePanelRevealed)
         .animation(.easeInOut(duration: 0.15), value: appState.hideSidePanel)
         // サイドパネル追加後、ウインドウがキーのときだけタイトルバーにまで達する青い
@@ -189,12 +209,34 @@ struct ContentView: View {
         .onChange(of: sidePanelWidth) { _, newValue in
             preferences.sidePanelWidth = Double(newValue)
         }
+        // サイドパネルを左右どちらに置くかを変更したら、ホバー表示中のパネルはいったん閉じる。
+        // そのまま反対側へ瞬間移動させると、カーソルは元の端に残ったままパネルだけが移りつつ、
+        // 次のマウス移動で「パネルより内側にいる」と判定されて即座に閉じることになり、
+        // ちらついて見えるため。常時表示中は表示位置が入れ替わるだけで、この値は使われない。
+        .onChange(of: preferences.sidePanelPosition) { _, _ in
+            appState.isSidePanelRevealed = false
+        }
+        // カーソルがウインドウの外へ出たことを検知するグローバルモニタは、閉じるべきものが
+        // 表示されている間だけ取り付ける(updateOutsideWindowMonitor参照)。
+        .onChange(of: hasAutoRevealedChrome) { _, _ in
+            updateOutsideWindowMonitor()
+        }
         .onAppear {
             installSidePanelHoverMonitorIfNeeded()
+            updateOutsideWindowMonitor()
         }
         .onDisappear {
             removeSidePanelHoverMonitor()
+            removeOutsideWindowMonitor()
         }
+        // カーソルがメニューバーの上へ抜けた場合は、ローカル/グローバルどちらのマウス移動
+        // モニタにもイベントが届かないため、AppKitのNSTrackingAreaによる検知で補う
+        // (WindowMouseExitAccessorのコメント参照)。誤検知の可能性があるため、実際に閉じるか
+        // どうかはdismissAutoRevealedChromeIfCursorLeftWindow側でカーソル位置を見て判断する。
+        .background(WindowMouseExitAccessor {
+            guard let window = appState.hostWindow else { return }
+            dismissAutoRevealedChromeIfCursorLeftWindow(window)
+        })
         .background(WindowAccessor { window in
             // バグ修正(ユーザー報告): SwiftUIは、ウインドウが閉じた後もこのViewをすぐには
             // 破棄せず、WindowAccessorのコールバックを既に閉じられた(isVisible == false)
@@ -603,6 +645,20 @@ struct ContentView: View {
 
     // MARK: - サイドパネル
 
+    /// サイドパネルを、HStackの実レイアウトとして常時表示すべきかどうか(body参照)。
+    /// 左右どちらに置くかによって組み込む位置が変わるため、条件式を1箇所にまとめてある。
+    private var showsDockedSidePanel: Bool {
+        preferences.sidePanelFeatureEnabled && !appState.hideSidePanel
+    }
+
+    /// カーソルの位置によって一時的に表示されているもの(ホバー表示中のサイドパネル、
+    /// またはツールバー/プログレスバー)が1つでもあるかどうか。カーソルがウインドウの外へ
+    /// 出たときに閉じる対象があるかの判定であり、ウインドウ外検知用のグローバルモニタを
+    /// 取り付けておく条件そのもの(updateOutsideWindowMonitor参照)。
+    private var hasAutoRevealedChrome: Bool {
+        appState.isSidePanelRevealed || appState.isChromeAutoRevealed
+    }
+
     /// サイドパネル本体を組み立てる。常時表示(HStackへの組み込み)・hideSidePanel時の
     /// ホバー表示(ZStackオーバーレイ)の両方から呼ばれ、違いはdismissesOnActionだけ。
     /// 常時表示中は「本を開く」「ページへジャンプする」操作をしてもパネル自体は消える
@@ -615,6 +671,7 @@ struct ContentView: View {
             bookContentsState: bookContentsBrowser,
             mode: $preferences.sidePanelMode,
             width: $sidePanelWidth,
+            position: preferences.sidePanelPosition,
             bookPages: appState.currentBookPages,
             onOpen: { url in
                 if dismissesOnAction { appState.isSidePanelRevealed = false }
@@ -671,44 +728,132 @@ struct ContentView: View {
     /// サイドパネルのホバー表示/非表示を検知する、ウインドウ内`.mouseMoved`のローカルモニタ。
     /// ViewerView.makeScrollMonitorとは完全に独立しており、カーソルのX座標だけを見て判定する。
     ///
-    /// 表示メニューの「サイドパネルを隠す」がOFF(既定)のときは、サイドパネルは常時表示
-    /// されているため、このモニタは何もしない(hideToolbar/hideProgressBarのY座標版の
-    /// 自動隠しがフルスクリーン中またはON時にしか意味を持たないのと同じ考え方)。ONのときだけ、
-    /// 表示前はウインドウ左端の狭い帯(sidePanelRevealBandWidth)に入ったら表示し、表示後は
-    /// パネル自体の表示幅(sidePanelWidth。ユーザーがドラッグで調整できるため固定値ではない。
-    /// 表示前の帯よりずっと広い)より右へ出たら閉じる。もし表示後も同じ狭い帯を非表示条件に
-    /// 使ってしまうと、パネル自体がその帯よりずっと広く描画されているため、パネルの上に
-    /// カーソルがあるのに閉じてしまう(表示直後にちらつく)不具合になる。ユーザー要望により、
-    /// クリックでは閉じない(ページ表示エリアをクリックしただけで本の閲覧を妨げないように
-    /// するため)。
-    ///
-    /// ツールバー/プログレスバーの自動表示(Y座標の帯、ViewerView側)とは判定ロジック・
-    /// 描画レイヤーともに独立しているが、ウインドウの左上・左下の角では両方の帯が同時に
-    /// 成立し得る。何も対策しないと、表示中のツールバーの上をカーソルが左へ移動して
-    /// 左端に近づいただけでサイドパネルまで表示されてしまう(ユーザー報告)。
-    /// appState.isChromeAutoRevealed(ツールバー/プログレスバーが今まさに表示されているか)を
-    /// 見て、それらが既にカーソルの主導権を握っている間は新たに表示しない。
+    /// このウインドウ宛て以外のマウス移動(このアプリの他のウインドウ・環境設定ウインドウなど)は
+    /// ホバー表示の判定には使わないが、そのときカーソルが幾何的にもこのウインドウの外にあれば、
+    /// 自動表示中のものを閉じる対象になる(dismissAutoRevealedChromeIfCursorLeftWindow参照)。
     private func installSidePanelHoverMonitorIfNeeded() {
         guard sidePanelHoverMonitor == nil else { return }
         sidePanelHoverMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved]) { event in
-            guard let window = appState.hostWindow, event.window === window else { return event }
-            guard preferences.sidePanelFeatureEnabled, appState.hideSidePanel else { return event }
-            // 拡大鏡(ルーペ)表示中は、カーソルを左端に近づけてもサイドパネルを表示させない
-            // (ユーザー要望: 拡大鏡での閲覧を妨げないため。ONにした瞬間の強制非表示は
-            // ViewerViewのisLoupeActiveのonChange側で行う)。
-            guard !appState.isLoupeActive else { return event }
-            if appState.isSidePanelRevealed {
-                // + sidePanelHideMargin: パネル右端の幅調整ハンドル(widthDragHitArea)自体が
-                // 境界(sidePanelWidth)ぎりぎりの位置にあるため、余裕を持たせないとハンドルを
-                // つかもうとしただけでここに引っかかり隠れてしまう(ユーザー報告)。
-                if event.locationInWindow.x > sidePanelWidth + Self.sidePanelHideMargin {
-                    appState.isSidePanelRevealed = false
-                }
-            } else if event.locationInWindow.x <= Self.sidePanelRevealBandWidth, !appState.isChromeAutoRevealed {
-                appState.isSidePanelRevealed = true
-                sidePanelBrowser.handlePanelRevealed(currentBook: appState.currentBook)
-            }
+            guard let window = appState.hostWindow else { return event }
+            // カーソルがウインドウの外へ出ていれば、ホバー表示の判定より先にすべて閉じる。
+            if dismissAutoRevealedChromeIfCursorLeftWindow(window) { return event }
+            guard event.window === window else { return event }
+            updateSidePanelReveal(forMouseLocationInWindow: event.locationInWindow, window: window)
             return event
+        }
+    }
+
+    /// マウスカーソルの位置に応じて、ホバー表示中のサイドパネルを表示/非表示する。
+    ///
+    /// 表示メニューの「サイドパネルを隠す」がOFF(既定)のときは、サイドパネルは常時表示
+    /// されているため何もしない(hideToolbar/hideProgressBarのY座標版の自動隠しが
+    /// フルスクリーン中またはON時にしか意味を持たないのと同じ考え方)。ONのときだけ、
+    /// 表示前はウインドウ端の狭い帯(sidePanelRevealBandWidth)に入ったら表示し、表示後は
+    /// パネル自体の表示幅(sidePanelWidth。ユーザーがドラッグで調整できるため固定値ではない。
+    /// 表示前の帯よりずっと広い)よりビューア側へ出たら閉じる。もし表示後も同じ狭い帯を
+    /// 非表示条件に使ってしまうと、パネル自体がその帯よりずっと広く描画されているため、
+    /// パネルの上にカーソルがあるのに閉じてしまう(表示直後にちらつく)不具合になる。
+    /// ユーザー要望により、クリックでは閉じない(ページ表示エリアをクリックしただけで本の
+    /// 閲覧を妨げないようにするため)。
+    ///
+    /// 左右どちらの端を見るかは環境設定(sidePanelPosition)で決まる。判定はウインドウ座標系の
+    /// X座標(常に左が原点)で行い、右側配置のときはウインドウの内容幅から見た距離に読み替える。
+    ///
+    /// ツールバー/プログレスバーの自動表示(Y座標の帯、ViewerView側)とは判定ロジック・
+    /// 描画レイヤーともに独立しているが、パネル側の端の上下の角では両方の帯が同時に
+    /// 成立し得る。何も対策しないと、表示中のツールバーの上をカーソルが横へ移動して
+    /// 端に近づいただけでサイドパネルまで表示されてしまう(ユーザー報告)。
+    /// appState.isChromeAutoRevealed(ツールバー/プログレスバーが今まさに表示されているか)を
+    /// 見て、それらが既にカーソルの主導権を握っている間は新たに表示しない。
+    private func updateSidePanelReveal(forMouseLocationInWindow location: CGPoint, window: NSWindow) {
+        guard preferences.sidePanelFeatureEnabled, appState.hideSidePanel else { return }
+        // 拡大鏡(ルーペ)表示中は、カーソルを端に近づけてもサイドパネルを表示させない
+        // (ユーザー要望: 拡大鏡での閲覧を妨げないため。ONにした瞬間の強制非表示は
+        // ViewerViewのisLoupeActiveのonChange側で行う)。
+        guard !appState.isLoupeActive else { return }
+        // パネルを置いている側のウインドウ端から、カーソルまでの距離。左配置ならX座標そのもの、
+        // 右配置なら「内容の右端からの距離」。以降の判定は左右で完全に共通になる。
+        let distanceFromPanelEdge: CGFloat
+        switch preferences.sidePanelPosition {
+        case .left:
+            distanceFromPanelEdge = location.x
+        case .right:
+            // ウインドウ座標系のX座標は、タイトルバーの有無に関わらず内容ビューの左端が原点。
+            // 右端の座標は内容ビューの幅そのものになる(取得できない場合のみフレーム幅で代用)。
+            let contentWidth = window.contentView?.bounds.width ?? window.frame.width
+            distanceFromPanelEdge = contentWidth - location.x
+        }
+        if appState.isSidePanelRevealed {
+            // + sidePanelHideMargin: パネルのビューア側の端にある幅調整ハンドル
+            // (widthDragHitArea)自体が境界(sidePanelWidth)ぎりぎりの位置にあるため、
+            // 余裕を持たせないとハンドルをつかもうとしただけでここに引っかかり隠れてしまう
+            // (ユーザー報告)。
+            if distanceFromPanelEdge > sidePanelWidth + Self.sidePanelHideMargin {
+                appState.isSidePanelRevealed = false
+            }
+        } else if distanceFromPanelEdge <= Self.sidePanelRevealBandWidth, !appState.isChromeAutoRevealed {
+            appState.isSidePanelRevealed = true
+            sidePanelBrowser.handlePanelRevealed(currentBook: appState.currentBook)
+        }
+    }
+
+    /// カーソルがこのウインドウの外に出ていれば、マウスの位置によって自動表示されているもの
+    /// (ホバー表示中のサイドパネル、およびツールバー/プログレスバー)をすべて閉じ、trueを返す
+    /// (ユーザー要望)。
+    ///
+    /// 呼び出し経路は3つあり、いずれも「カーソルが外に出たかもしれない」という通知でしかない。
+    /// 実際に閉じるかどうかの判断はすべてここに集約している。
+    /// - ローカルモニタ: このアプリ宛てのマウス移動(installSidePanelHoverMonitorIfNeeded)
+    /// - グローバルモニタ: 他のアプリ宛てのマウス移動(updateOutsideWindowMonitor)
+    /// - NSTrackingArea: メニューバーへ抜けた場合など、上の2つに届かない経路
+    ///   (WindowMouseExitAccessor)
+    ///
+    /// 判定はウインドウのフレーム(スクリーン座標)に入っているかどうかだけで行う。他のアプリの
+    /// ウインドウがこのウインドウの上に重なっており、その上をカーソルが通っている場合は「外」とは
+    /// 見なさないが、その場合そもそもパネル自体が隠れて見えておらず実害が無いため、判定を
+    /// 複雑にしてまで扱う必要は無いと判断した。
+    ///
+    /// ツールバー/プログレスバー側は、実際の表示状態(ViewerViewの@State)を直接触れないため
+    /// AppState経由の橋渡し(hideAutoRevealedChrome)を呼ぶ。本を開いていない(ViewerViewが
+    /// 無い)ときはnilで、閉じるべきものも無いため何も起きない。
+    @discardableResult
+    private func dismissAutoRevealedChromeIfCursorLeftWindow(_ window: NSWindow) -> Bool {
+        guard !window.frame.contains(NSEvent.mouseLocation) else { return false }
+        // 閉じるものが1つも無ければ、外に出ていること(戻り値)だけ伝えて何もしない。
+        // このアプリの他のウインドウ(環境設定ウインドウなど)の上でマウスを動かしている間は
+        // ローカルモニタがマウス移動のたびにここへ来るため、無条件に@Publishedへ書き戻すと、
+        // 値が変わらなくてもobjectWillChangeが毎回発火し、ウインドウ全体が無駄に再評価される。
+        guard hasAutoRevealedChrome else { return true }
+        if appState.isSidePanelRevealed {
+            appState.isSidePanelRevealed = false
+        }
+        appState.hideAutoRevealedChrome?()
+        return true
+    }
+
+    /// カーソルがウインドウの外へ出たことを、他のアプリの上を通っている間も検知できるように
+    /// するためのグローバルモニタを、必要に応じて付け外しする。
+    ///
+    /// ローカルモニタ(installSidePanelHoverMonitorIfNeeded)はこのアプリ宛てのイベントしか
+    /// 見られないため、カーソルが他のアプリのウインドウやデスクトップの上へ出ていくと、
+    /// そこから先のマウス移動が一切届かない。ページ一覧パネルの「外側クリックで閉じる」
+    /// (ViewerView.installThumbnailGridOutsideClickMonitorsIfNeeded)と同じく、ローカルと
+    /// グローバルの2本立てにすることで、どちらの経路でも確実に検知する。
+    ///
+    /// グローバルモニタはこのアプリの外で起きるマウス移動すべてで呼ばれるため、閉じるべきものが
+    /// 1つでも表示されている間(isSidePanelRevealed / isChromeAutoRevealed)だけ取り付ける。
+    /// なお、このモニタからはホバー表示の判定(updateSidePanelReveal)は行わない。他のアプリの
+    /// ウインドウがこのウインドウに重なっている場合、カーソルはそのアプリの上にあるのに座標だけは
+    /// このウインドウの内側、という状態があり得るため。
+    private func updateOutsideWindowMonitor() {
+        guard hasAutoRevealedChrome else {
+            removeOutsideWindowMonitor()
+            return
+        }
+        guard outsideWindowMonitor == nil else { return }
+        outsideWindowMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved]) { _ in
+            guard let window = appState.hostWindow else { return }
+            dismissAutoRevealedChromeIfCursorLeftWindow(window)
         }
     }
 
@@ -717,6 +862,13 @@ struct ContentView: View {
             NSEvent.removeMonitor(sidePanelHoverMonitor)
         }
         sidePanelHoverMonitor = nil
+    }
+
+    private func removeOutsideWindowMonitor() {
+        if let outsideWindowMonitor {
+            NSEvent.removeMonitor(outsideWindowMonitor)
+        }
+        outsideWindowMonitor = nil
     }
 
     /// 本が切り替わる(開く/閉じる/次の本・前の本へ移動する)たびに、サイドパネル下段

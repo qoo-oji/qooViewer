@@ -4213,6 +4213,23 @@
         }
       }
     },
+    "Left Side" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Left Side"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左"
+          }
+        }
+      }
+    },
     "Left-to-Right" : {
       "localizations" : {
         "en" : {
@@ -5455,6 +5472,23 @@
         }
       }
     },
+    "Panel Position" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Panel Position"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "パネルの位置"
+          }
+        }
+      }
+    },
     "Performance" : {
       "localizations" : {
         "en" : {
@@ -6438,6 +6472,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "右のページ"
+          }
+        }
+      }
+    },
+    "Right Side" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Right Side"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右"
           }
         }
       }
@@ -8214,6 +8265,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "サイドパネルを隠す"
+          }
+        }
+      }
+    },
+    "Shows the side panel along the left edge of the window." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows the side panel along the left edge of the window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドパネルをウインドウの左端に表示します。"
+          }
+        }
+      }
+    },
+    "Shows the side panel along the right edge of the window." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows the side panel along the right edge of the window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドパネルをウインドウの右端に表示します。"
           }
         }
       }
