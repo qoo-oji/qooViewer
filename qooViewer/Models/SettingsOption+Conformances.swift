@@ -143,3 +143,16 @@ extension LoopBehavior: SettingsOption {
         }
     }
 }
+
+extension WheelScrollBehavior: SettingsOption {
+    var shortTitleKey: LocalizedStringKey { titleKey }
+
+    var detailKey: LocalizedStringKey? {
+        switch self {
+        case .scrollOnly: return "The wheel only scrolls; it never turns the page."
+        case .scrollAndWrap: return "At the edge, moves one screen sideways without turning the page."
+        case .scrollAndTurnPage: return "At the edge, moves sideways and then turns the page."
+        case .turnPage: return "The wheel never scrolls; it always performs the action assigned to it on the Input tab."
+        }
+    }
+}

@@ -46,6 +46,8 @@ struct SettingsView: View {
                 .tabItem { Label("Reading", systemImage: "book") }
             KeyBindingSettingsView()
                 .tabItem { Label("Input", systemImage: "keyboard") }
+            ModeInputSettingsView()
+                .tabItem { Label("Input 2", systemImage: "square.split.2x1") }
             AccessPermissionsSettingsView()
                 .tabItem { Label("Access", systemImage: "lock.shield") }
             ResetDataSettingsView()

@@ -38,6 +38,21 @@ struct ViewerView: View {
     /// clickZoneArmDelay が経過するまではクリックゾーンへのヒットテスト自体を無効にし、
     /// 直前の画面でのクリックの「残り」を確実に読み捨てる(pageArea参照)。
     @State private var isClickZoneArmed = false
+    /// スクロール送りが参照する、裏のNSScrollViewの入れ物(ScrollViewAccessor参照)。
+    /// bodyからは読まないため、更新しても再描画は起きない。
+    @State private var scrollGeometryBox = ScrollGeometryBox()
+    /// 次にページを表示し始めるとき、読み終わり側の隅から始めるかどうか。
+    /// scrollAndMovePreviousで前のページへ戻ったときだけtrueになる
+    /// (cooViewerのsetStartFromEnd:YES相当)。
+    @State private var pendingPageEntryAtEnd = false
+    /// 今表示しているページについて、上のpendingPageEntryAtEndを解決した結果。
+    /// 画像が届いたあとの2回目の位置合わせ(applyPageEntryScrollのコメント参照)でも
+    /// 同じ隅を使うために保持する。
+    @State private var pageEntryAtEnd = false
+    /// 画像が実際に差し替わったあとの位置合わせを、既に済ませたページ番号。
+    /// 同じページのまま画像だけが変わった場合(見開きの相方が後から読み込まれた等)に、
+    /// 読者のスクロール位置を勝手に戻してしまわないための番人。
+    @State private var lastPageEntryScrollIndex: Int?
     /// 上の無効化を解除するタイマー。onDisappearで確実にキャンセルするために保持する。
     @State private var clickZoneArmTask: Task<Void, Never>?
     /// 上記の無効化期間の長さ。ダブルクリックの2回目のクリックを確実に読み捨てられるよう、
@@ -440,7 +455,9 @@ struct ViewerView: View {
                 // 何も起きない)不具合があったため、動作が確実なこちらのNSEventベースの
                 // 経路に統合した(詳細はRemappableKey.from(nsEvent:)のコメント参照)。
                 if let key = RemappableKey.from(nsEvent: event),
-                   let action = keyBindingStore.action(for: key) {
+                   let action = keyBindingStore.resolvedAction(
+                       for: key, in: viewModel.scalingMode
+                   ) {
                     perform(action)
                     // イベントをここで消費し、これ以上(標準のフォーカス移動や
                     // ビープ音などへ)伝播させない。
@@ -963,6 +980,8 @@ struct ViewerView: View {
             appState.updateCurrentPageIndex(newValue)
             appState.updateCurrentVisiblePageSortKeys(currentVisiblePageSortKeys)
             syncMenuCheckmarkState()
+            // 新しいページは必ず読み始め側の隅から表示する(beginPageEntryScroll参照)。
+            beginPageEntryScroll()
         }
         // hasPartnerPageDisplayed(Layoutメニューの「見開き表示中は左右2ページ分の項目に分ける」
         // 判定)はcurrentImages.count(実際に表示中の枚数)にも依存するが、以前はcurrentIndexの
@@ -976,6 +995,11 @@ struct ViewerView: View {
         .onChange(of: viewModel.currentImages.count) { _, _ in
             appState.updateCurrentVisiblePageSortKeys(currentVisiblePageSortKeys)
             syncMenuCheckmarkState()
+        }
+        // 表示モードを切り替えた直後も、そのモードでの読み始め位置に合わせ直す
+        // (「画面内に収める」へ切り替えた場合はscrollToPageCornerが何もしない)。
+        .onChange(of: viewModel.scalingMode) { _, _ in
+            scrollToPageCorner(atEnd: false)
         }
     }
 
@@ -1809,11 +1833,21 @@ struct ViewerView: View {
                     imagesRow
                         .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
                 } else {
-                    ScrollView(viewModel.scalingMode == .noScale ? [.horizontal, .vertical] : [.vertical]) {
+                    ScrollView(scrollAxes) {
                         imagesRow
                             .frame(
                                 width: max(contentSize.width * scale, geo.size.width),
                                 height: contentSize.height * scale
+                            )
+                            // スクロール送り(scrollByOneScreen等)が現在位置と可動範囲を正確に
+                            // 知るために、裏のNSScrollViewを控えておく(ScrollViewAccessor参照)。
+                            // ScrollViewの**内側**(スクロールされる中身)に置く必要がある。
+                            // 外側に付けると、祖先をたどってもNSScrollViewには行き当たらない。
+                            .background(
+                                ScrollViewAccessor(
+                                    onResolve: { scrollGeometryBox.scrollView = $0 },
+                                    onDocumentFrameChange: { finishPageEntryScrollIfNeeded() }
+                                )
                             )
                     }
                     .frame(width: geo.size.width, height: geo.size.height)
@@ -1842,12 +1876,12 @@ struct ViewerView: View {
                     // 領域いっぱいに広がるようにする(指定しないと、意図しない小さな
                     // ヒットテスト領域になってしまう)。
                     ClickZoneArea {
-                        perform(keyBindingStore.action(for: .clickLeftZone))
+                        perform(clickZoneAction(for: .clickLeftZone))
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                     ClickZoneArea {
-                        perform(keyBindingStore.action(for: .clickRightZone))
+                        perform(clickZoneAction(for: .clickRightZone))
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -1860,8 +1894,14 @@ struct ViewerView: View {
                 // 優先度が高く、何もしないとクリックがここで奪われてLoupeOverlayView側の
                 // mouseDown(拡大鏡を閉じる処理)まで届かない。拡大鏡表示中はここのヒット
                 // テスト自体を無効化し、下にあるLoupeOverlayViewへクリックを通す。
+                // 以前は「画面内に収める」モードでしかクリックゾーンを有効にしていなかったが、
+                // スクロールするモードでもクリックでスクロール送り(1画面分下へ+次のページ)が
+                // できるようにしたため、そのモードで実際に操作が割り当てられているかどうかで
+                // 判定する(cooViewerもノースケール/見開き分割で左右クリックに
+                // 「1画面分下へ+次のページ」を既定で割り当てている。
+                // KeyBindingStore.defaultScrollableMouseBindings参照)。
                 .allowsHitTesting(
-                    viewModel.scalingMode == .fitToScreen && isClickZoneArmed && !viewModel.isLoupeActive
+                    isClickZoneArmed && !viewModel.isLoupeActive && hasClickZoneAction
                 )
             }
         }
@@ -1923,15 +1963,235 @@ struct ViewerView: View {
         case .fitWidth:
             let widthScale = containerSize.width / contentSize.width
             return min(widthScale, maxUpscale)
+        case .fitWidthSplit:
+            // 横幅に合わせる(単ページ): 表示中の内容の「横幅の半分」が画面幅いっぱいになる倍率まで拡大する
+            // (はみ出した分は左右スクロールで読む)。cooViewerのfitScreenMode == 3が
+            // rate = 画面幅 / (画像幅 / 2) としているのと同じ式。
+            //
+            // 分割する意味が無い内容(単ページ表示中の縦長ページなど)まで2倍に引き伸ばすと
+            // ただ読みにくくなるだけなので、その場合はfitWidthと全く同じ結果になるよう
+            // divisorを1に落とす。cooViewerも同じ考え方で、横長でない画像
+            // (isSmallImageがtrue)のときはfitScreenMode == 1と同じ処理へ分岐している。
+            //
+            // 判定に使うのは個々のページの縦横比ではなく、実際に表示している内容(contentSize)を
+            // 合成したあとの縦横比である点が重要。これにより「単ページ表示中の横長スキャン」と
+            // 「見開き表示で縦長2ページを合成した状態」の両方が、追加の判定なしに等しく
+            // 分割対象になる(どちらも合成後は横長になるため)。ViewerViewModelが持つ
+            // ページ単位の横長判定(wideImageCache)は画像の読み込みを伴う非同期のキャッシュで、
+            // 本を開いた直後は埋まっていないが、contentSizeは今まさに表示している画像から
+            // 同期的に求まるため、そちらに依存せずに済むという利点もある。
+            let contentAspectRatio = contentSize.width / contentSize.height
+            let isDividable = contentAspectRatio >= CGFloat(preferences.singlePageAspectRatioThreshold)
+            let widthScale = containerSize.width / (contentSize.width / (isDividable ? 2 : 1))
+            return min(widthScale, maxUpscale)
         case .noScale:
             return 1
         }
     }
 
+    /// ScrollViewにスクロールを許す方向。
+    /// - fitToScreen: 画像を画面内に収めるためScrollView自体を使わない(この値は参照されない)
+    /// - fitWidth: 横幅はぴったり画面に収まるため、縦だけ
+    /// - fitWidthSplit / noScale: 画像が画面より横に広くなりうるため、縦横とも
+    ///
+    /// 「横幅に合わせる(単ページ)」で「半分にする意味が無い」と判定された内容(renderScale参照)では横幅が
+    /// ぴったり収まるため、横を許していてもスクロールできる余地が無く、実害は無い。
+    private var scrollAxes: Axis.Set {
+        switch viewModel.scalingMode {
+        case .fitToScreen: return []
+        case .fitWidth: return [.vertical]
+        case .fitWidthSplit, .noScale: return [.horizontal, .vertical]
+        }
+    }
+
+    // MARK: - スクロール送り(cooViewerの「1画面分下へ+次のページ」相当)
+
+    /// 端に着いているかどうかの判定に使う許容誤差。拡大率の計算にはどうしても浮動小数の
+    /// 誤差が乗るため、厳密比較にすると1px未満ずれているだけで「まだ動ける」と誤判定し、
+    /// ページが送られずその場で止まってしまう。
+    private static let scrollEdgeEpsilon: CGFloat = 1
+
+    /// 「端まで」を表す十分大きな値。実際の可動範囲はSwiftUIがクランプしてくれるため、
+    /// contentSizeがまだ新しいページのものに更新されていない瞬間に呼んでも、最終的に
+    /// 正しい隅へ収まる。
+    private static let scrollFarEdge: CGFloat = 1_000_000
+
+    /// 1画面分スクロールし、それ以上動けなければページを送る
+    /// (cooViewerのCustomImageView.next/prevと同じ3段階。ViewerAction.scrollAndMoveNext参照)。
+    /// - allowPageChange: 縦にも横にも余地が無くなったときにページを送るかどうか。
+    ///   falseだと、その場で止まる(ホイール動作「スクロール」= cooViewerのcanScrollMode == 1)。
+    private func scrollByOneScreen(forward: Bool, allowPageChange: Bool = true) {
+        // 画面内に収めるモードにはスクロールという概念が無いので、素直にページ送りへ縮退する。
+        // この縮退があるおかげで、cooViewerがモード別のキー設定で実現していた既定の操作感を
+        // 1つの割り当てで再現できる(ViewerAction.scrollAndMoveNextのコメント参照)。
+        guard viewModel.scalingMode != .fitToScreen,
+              let bounds = ScrollViewBounds(scrollGeometryBox.scrollView) else {
+            if allowPageChange { viewModel.advance(forward: forward) }
+            return
+        }
+        let epsilon = Self.scrollEdgeEpsilon
+        let position = bounds.position
+        let screen = bounds.visibleSize
+
+        // 1. まだ縦に動けるなら、縦に1画面分動かすだけ
+        if scrollVerticallyByOneScreen(down: forward, bounds: bounds) { return }
+
+        // 2. 縦は端に着いている。横に余地があれば読み方向へ1画面分ずらし、縦は反対の端へ移す
+        //    (進むときは次の列の最上部から、戻るときは前の列の最下部から読み始める)
+        let forwardSign: CGFloat = viewModel.readingDirection == .rightToLeft ? -1 : 1
+        let step = (forward ? forwardSign : -forwardSign) * screen.width
+        let hasHorizontalRoom = step > 0
+            ? position.x < bounds.maxX - epsilon
+            : position.x > epsilon
+        if hasHorizontalRoom {
+            bounds.scroll(to: CGPoint(x: position.x + step, y: forward ? 0 : bounds.maxY))
+            return
+        }
+
+        // 3. どちらにも余地が無い ― ページを送る。戻る場合は、移動先のページを
+        //    読み終わり側の隅から表示し始める(cooViewerのsetStartFromEnd:YES相当)。
+        guard allowPageChange else { return }
+        pendingPageEntryAtEnd = !forward
+        viewModel.advance(forward: forward)
+    }
+
+    /// 縦方向にだけ1画面分スクロールする(cooViewerの「1画面分下へ/上へ」相当)。
+    /// 実際に動かせたらtrueを返す(横への回り込み・ページ送りは行わない)。
+    @discardableResult
+    private func scrollVerticallyByOneScreen(down: Bool, bounds: ScrollViewBounds?) -> Bool {
+        guard viewModel.scalingMode != .fitToScreen, let bounds else { return false }
+        let epsilon = Self.scrollEdgeEpsilon
+        let position = bounds.position
+        if down, position.y < bounds.maxY - epsilon {
+            bounds.scroll(to: CGPoint(x: position.x, y: position.y + bounds.visibleSize.height))
+            return true
+        }
+        if !down, position.y > epsilon {
+            bounds.scroll(to: CGPoint(x: position.x, y: position.y - bounds.visibleSize.height))
+            return true
+        }
+        return false
+    }
+
+    /// ページを表示し始めるときのスクロール位置(cooViewerのfirstScroll相当)。
+    /// 読み始め側の隅は読み方向で変わる ― 右開きなら右上、左開きなら左上。
+    /// atEndがtrueなら読み終わり側の隅(右開きなら左下、左開きなら右下)。
+    ///
+    /// これが無いと、右開きの本で「横幅に合わせる(単ページ)」にしたときに毎回「左半分」から表示が始まり、
+    /// ページをめくるたびに自分で右へスクロールし直すことになる。
+    private func scrollToPageCorner(atEnd: Bool) {
+        guard viewModel.scalingMode != .fitToScreen,
+              let bounds = ScrollViewBounds(scrollGeometryBox.scrollView) else { return }
+        let isRightToLeft = viewModel.readingDirection == .rightToLeft
+        let startX: CGFloat = isRightToLeft ? bounds.maxX : 0
+        let endX: CGFloat = isRightToLeft ? 0 : bounds.maxX
+        bounds.scroll(to: CGPoint(x: atEnd ? endX : startX, y: atEnd ? bounds.maxY : 0))
+    }
+
+    /// 今の表示モードでこのクリックゾーンに割り当てられている操作。
+    private func clickZoneAction(for trigger: InputTrigger) -> ViewerAction? {
+        keyBindingStore.resolvedAction(for: trigger, in: viewModel.scalingMode)
+    }
+
+    /// 今の表示モードで、左右どちらかのクリックゾーンに実際の操作が割り当てられているか。
+    /// 割り当てが無い(どちらも「なし」)のにヒットテストを有効にしてしまうと、下にある
+    /// ScrollViewへクリックが届かなくなるだけで何の利点も無いため、その場合は無効にする。
+    private var hasClickZoneAction: Bool {
+        let group = viewModel.scalingMode
+        let left = keyBindingStore.resolvedAction(for: .clickLeftZone, in: group) ?? .none
+        let right = keyBindingStore.resolvedAction(for: .clickRightZone, in: group) ?? .none
+        return left != .none || right != .none
+    }
+
+    /// ページが変わった瞬間に、読み始め側の隅へスクロールする(cooViewerのfirstScroll相当)。
+    ///
+    /// バグ修正(実機で確認): これは**2段構え**にする必要がある。ページ番号が変わった時点では、
+    /// まだ新しいページの画像がレイアウトへ反映されておらず、NSScrollViewのdocumentViewは
+    /// 前のページの大きさのままだからである。右開きの本で縦長ページ(横の可動量ゼロ)から
+    /// 横長ページ(単ページ幅に合わせると可動量=画面幅)へ進むと、ここでの「右端へ」という指示が
+    /// 可動量ゼロでクランプされてx=0になり、左半分から表示が始まってしまっていた。
+    /// DispatchQueue.main.asyncで1回遅らせるだけでは足りないことも実機で確認している。
+    ///
+    /// そこで、ここでの即時の位置合わせ(前後のページで大きさが同じならこれで確定)に加えて、
+    /// documentViewの大きさが実際に変わった通知(ScrollViewAccessor.onDocumentFrameChange)を
+    /// 受けてから、finishPageEntryScrollIfNeededで確定させる。
+    private func beginPageEntryScroll() {
+        pageEntryAtEnd = pendingPageEntryAtEnd
+        pendingPageEntryAtEnd = false
+        // 可動範囲が確定したら改めて合わせ直すため、このページの「済み」印を外す。
+        lastPageEntryScrollIndex = nil
+        scrollToPageCorner(atEnd: pageEntryAtEnd)
+    }
+
+    /// documentViewの大きさが変わり、可動範囲が確定したあとの位置合わせ
+    /// (beginPageEntryScrollのコメント参照)。本を開いた直後(まだ1枚も表示していない状態から
+    /// 最初のページが出た瞬間)も、ページ番号が変化しないためこちらが受け持つ。
+    ///
+    /// lastPageEntryScrollIndexにより、同じページについて2回は行わない。これにより、
+    /// ウインドウのリサイズでdocumentViewの大きさが変わっても、読者のスクロール位置を
+    /// 勝手に先頭へ戻してしまうことはない。
+    private func finishPageEntryScrollIfNeeded() {
+        guard lastPageEntryScrollIndex != viewModel.currentIndex else { return }
+        lastPageEntryScrollIndex = viewModel.currentIndex
+        scrollToPageCorner(atEnd: pageEntryAtEnd)
+    }
+
+    /// スクロールできるモード(横幅に合わせる/同(単ページ)/拡大縮小しない)でホイールを回したときの処理。
+    /// cooViewerの`wheelAction:`の`canScrollMode`による分岐をそのまま移植したもの
+    /// (WheelScrollBehavior参照)。
+    ///
+    /// 「まだスクロールできるか」は、ScrollViewがこのイベントを処理する**前**の位置で判定する。
+    /// そのため、端に着くまでは普通にスクロールし、端に着いた状態でもう一度回したときに初めて
+    /// 横への回り込みやページ送りが起きる ― cooViewerと同じ操作感になる。
+    private func handleScrollInScrollableMode(deltaY: CGFloat) {
+        let behavior = keyBindingStore.wheelBehavior(in: viewModel.scalingMode)
+        // スクロールのみ: ScrollViewに任せる(何もしない)。
+        guard behavior != .scrollOnly else { return }
+
+        guard deltaY > 2 || deltaY < -2 else { return }
+        let now = Date()
+        if let lastWheelActionAt, now.timeIntervalSince(lastWheelActionAt) < wheelActionCooldown {
+            return
+        }
+
+        // NSEvent.scrollingDeltaYは、ホイールを上へ回すと正になる(handleScrollのコメント参照)。
+        let forward = deltaY < 0
+
+        if behavior == .turnPage {
+            // スクロールには使わず、常に割り当てられた操作を行う。
+            lastWheelActionAt = now
+            perform(keyBindingStore.resolvedAction(for: forward ? .wheelDown : .wheelUp, in: viewModel.scalingMode))
+            return
+        }
+
+        // まだ縦に動ける間はScrollViewに任せ、端に着いてから初めてこちらが引き取る。
+        guard let bounds = ScrollViewBounds(scrollGeometryBox.scrollView) else { return }
+        let epsilon = Self.scrollEdgeEpsilon
+        let canStillScrollVertically =
+            forward ? bounds.position.y < bounds.maxY - epsilon : bounds.position.y > epsilon
+        guard !canStillScrollVertically else { return }
+
+        lastWheelActionAt = now
+        switch behavior {
+        case .scrollAndTurnPage:
+            scrollByOneScreen(forward: forward)
+        case .scrollAndWrap:
+            // 横へは回り込むが、ページはめくらない(cooViewerのcanScrollMode == 1)。
+            scrollByOneScreen(forward: forward, allowPageChange: false)
+        case .scrollOnly, .turnPage:
+            break  // 上で処理済み
+        }
+    }
+
     private func handleScroll(deltaY: CGFloat) {
-        // 横幅フィット/拡大縮小しないモードではScrollView自体がホイール操作を処理するため、
-        // ここでのページ送りは「画面内に収める」モードのときだけ行う
-        guard viewModel.scalingMode == .fitToScreen else { return }
+        // 「画面内に収める」モードにはスクロールする余地が無いため、従来どおりホイールの
+        // 割り当て(既定はページ送り)をそのまま実行する。
+        // それ以外のモードでは、環境設定「スクロールできるとき」(WheelScrollBehavior、
+        // cooViewerのCanScrollMode相当)に従う。
+        if viewModel.scalingMode != .fitToScreen {
+            handleScrollInScrollableMode(deltaY: deltaY)
+            return
+        }
 
         // NSEvent.scrollingDeltaYの符号は、ホイールを物理的に上へ回す(指を上に動かす)と
         // 正の値になる(以前の実装ではここが逆になっており、ホイールを上に回すと.wheelDownに
@@ -1951,9 +2211,9 @@ struct ViewerView: View {
         lastWheelActionAt = now
 
         if deltaY > 0 {
-            perform(keyBindingStore.action(for: .wheelUp))
+            perform(keyBindingStore.resolvedAction(for: .wheelUp, in: viewModel.scalingMode))
         } else {
-            perform(keyBindingStore.action(for: .wheelDown))
+            perform(keyBindingStore.resolvedAction(for: .wheelDown, in: viewModel.scalingMode))
         }
     }
 
@@ -1980,9 +2240,9 @@ struct ViewerView: View {
 
         // NSEvent.swipeのdeltaXは、指を左から右へ払う(スワイプする)と正の値になる。
         if deltaX > 0 {
-            perform(keyBindingStore.action(for: .wheelUp))
+            perform(keyBindingStore.resolvedAction(for: .wheelUp, in: viewModel.scalingMode))
         } else if deltaX < 0 {
-            perform(keyBindingStore.action(for: .wheelDown))
+            perform(keyBindingStore.resolvedAction(for: .wheelDown, in: viewModel.scalingMode))
         }
     }
 
@@ -2025,9 +2285,9 @@ struct ViewerView: View {
 
         // 指を左から右へ払う(スワイプする)と、積算したdeltaXは正の値になる。
         if trackpadGestureDeltaX > 0 {
-            perform(keyBindingStore.action(for: .wheelUp))
+            perform(keyBindingStore.resolvedAction(for: .wheelUp, in: viewModel.scalingMode))
         } else {
-            perform(keyBindingStore.action(for: .wheelDown))
+            perform(keyBindingStore.resolvedAction(for: .wheelDown, in: viewModel.scalingMode))
         }
     }
 
@@ -2351,6 +2611,18 @@ struct ViewerView: View {
             if let percentile = action.jumpPercentile {
                 viewModel.jump(toPercentile: percentile)
             }
+        case .scrollAndMoveNext:
+            scrollByOneScreen(forward: true)
+        case .scrollAndMovePrevious:
+            scrollByOneScreen(forward: false)
+        case .scrollScreenDown:
+            scrollVerticallyByOneScreen(down: true, bounds: ScrollViewBounds(scrollGeometryBox.scrollView))
+        case .scrollScreenUp:
+            scrollVerticallyByOneScreen(down: false, bounds: ScrollViewBounds(scrollGeometryBox.scrollView))
+        case .scrollToPageStart:
+            scrollToPageCorner(atEnd: false)
+        case .scrollToPageEnd:
+            scrollToPageCorner(atEnd: true)
         case .toggleDisplayMode:
             viewModel.toggleDisplayMode()
         case .toggleReadingDirection:
@@ -2782,6 +3054,158 @@ struct WindowAccessor: NSViewRepresentable {
 /// 素のNSView(既定でacceptsFirstMouseがfalse)をこの領域にだけ差し込むことで、
 /// macOS標準の「非アクティブウインドウへの最初のクリックはウインドウをアクティブにする
 /// だけで、そのクリック自体は無視する」という挙動をこの領域だけに戻している。
+/// スクロール送りが参照する、裏のNSScrollViewの入れ物。
+///
+/// @Stateに値を直接持たせると、スクロールのたびにbodyが再構築されてしまう
+/// (実際、当初の実装ではそれが原因でホイールの縦スクロールが効かなくなっていた)。
+/// bodyからは読まない参照型に入れることで、更新しても再描画を起こさない。
+private final class ScrollGeometryBox {
+    /// SwiftUIのScrollViewを実際に描画しているNSScrollView(ScrollViewAccessor参照)。
+    weak var scrollView: NSScrollView?
+}
+
+/// SwiftUIのScrollViewを裏で描画しているNSScrollViewを取り出して、呼び出し側へ渡すための
+/// 何も描画しないヘルパービュー(PageAreaFrameAccessor/WindowMouseExitAccessorと同じ作り)。
+///
+/// なぜ必要か: スクロール送り(ViewerView.scrollByOneScreen)は「もう下端か」「横に動く余地が
+/// あるか」を正確に知る必要がある。当初はSwiftUIのScrollGeometry(onScrollGeometryChange)で
+/// 済ませようとしたが、実機で計測したところ、報告される値から可動範囲を導けなかった:
+///
+/// - contentOffsetは0起点ではなく、contentInsets(自動表示されるツールバーぶん、上32pt)だけ
+///   ずれる
+/// - visibleRect.sizeは縦スクロールバーの幅(17pt)を含んでおり、横方向の実際の可動量
+///   (contentSize.width - この値)より17pt小さく出る
+/// - 縦は逆に、contentSize.height - visibleRect.height よりさらにインセットぶん小さいところで
+///   止まる
+///
+/// 結果として「下端に着いているのに、まだ下へ動けると判定し続ける」ため、横への回り込みへ
+/// 永久に到達しなかった。NSScrollViewのcontentView(NSClipView)なら、現在位置も可動範囲も
+/// 意味が一意に定まる(cooViewerも同じくNSScrollViewを直接扱っている)。
+private struct ScrollViewAccessor: NSViewRepresentable {
+    let onResolve: (NSScrollView?) -> Void
+    /// スクロールされる中身(documentView)の大きさが実際に変わったときに呼ばれる。
+    /// = 新しいページの画像がレイアウトに反映され、可動範囲が確定した瞬間。
+    /// ページ切り替え直後の位置合わせは、この通知を待ってから行う必要がある
+    /// (ViewerView.beginPageEntryScrollのコメント参照)。
+    let onDocumentFrameChange: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    /// documentViewのフレーム変化を購読する係。Viewは値型で作り直されるため、購読の
+    /// 登録・解除を持てるのはCoordinatorだけ(deinitで確実に解除する)。
+    final class Coordinator {
+        var parent: ScrollViewAccessor
+        private var observation: NSObjectProtocol?
+        private weak var observedDocumentView: NSView?
+
+        init(_ parent: ScrollViewAccessor) { self.parent = parent }
+
+        func observeDocumentView(of scrollView: NSScrollView?) {
+            guard let documentView = scrollView?.documentView else { return }
+            // 同じdocumentViewを二重に購読しない(updateNSViewは何度でも呼ばれる)。
+            guard documentView !== observedDocumentView else { return }
+            stopObserving()
+            observedDocumentView = documentView
+            documentView.postsFrameChangedNotifications = true
+            observation = NotificationCenter.default.addObserver(
+                forName: NSView.frameDidChangeNotification, object: documentView, queue: .main
+            ) { [weak self] _ in
+                // queue: .main で登録しているため必ずメインスレッドで呼ばれる。
+                MainActor.assumeIsolated {
+                    self?.parent.onDocumentFrameChange()
+                }
+            }
+        }
+
+        func stopObserving() {
+            if let observation { NotificationCenter.default.removeObserver(observation) }
+            observation = nil
+            observedDocumentView = nil
+        }
+
+        deinit { stopObserving() }
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        // 取り付け直後はまだビュー階層に入っていないため、次のループで探す。
+        DispatchQueue.main.async {
+            let scrollView = Self.enclosingScrollView(of: view)
+            onResolve(scrollView)
+            context.coordinator.observeDocumentView(of: scrollView)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        // onResolve/onDocumentFrameChangeはView再構築のたびに新しいクロージャになるため、
+        // 古いものを握ったままにしないよう毎回差し替える(ClickZoneAreaと同じ理由)。
+        context.coordinator.parent = self
+        DispatchQueue.main.async {
+            let scrollView = Self.enclosingScrollView(of: nsView)
+            onResolve(scrollView)
+            context.coordinator.observeDocumentView(of: scrollView)
+        }
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.stopObserving()
+    }
+
+    /// このビューはScrollViewのコンテンツの中(background)に置くため、祖先をたどれば
+    /// 目的のNSScrollViewに必ず行き当たる(ClickZoneViewのように兄弟を探す必要はない)。
+    private static func enclosingScrollView(of view: NSView) -> NSScrollView? {
+        var ancestor: NSView? = view.superview
+        while let current = ancestor {
+            if let scrollView = current as? NSScrollView { return scrollView }
+            ancestor = current.superview
+        }
+        return nil
+    }
+}
+
+/// NSScrollViewの現在位置と可動範囲を、「上が0」に正規化して扱うための小さな窓口。
+///
+/// SwiftUIのScrollGeometryを使わない理由はScrollViewAccessorのコメント参照(自動表示される
+/// ツールバー/プログレスバーがある状態で、報告される値から可動範囲を導けなかった)。
+/// NSClipViewのboundsとdocumentViewのframeなら、意味が一意に定まり自動表示の影響も受けない。
+private struct ScrollViewBounds {
+    private let scrollView: NSScrollView
+    private let clipView: NSClipView
+    private let isDocumentFlipped: Bool
+    let contentSize: CGSize
+    /// 実際に見えている領域の大きさ。「1画面分」スクロールする量にもこれを使う。
+    let visibleSize: CGSize
+
+    init?(_ scrollView: NSScrollView?) {
+        guard let scrollView, let documentView = scrollView.documentView else { return nil }
+        self.scrollView = scrollView
+        self.clipView = scrollView.contentView
+        self.contentSize = documentView.frame.size
+        self.visibleSize = scrollView.contentView.bounds.size
+        self.isDocumentFlipped = documentView.isFlipped
+    }
+
+    var maxX: CGFloat { max(contentSize.width - visibleSize.width, 0) }
+    var maxY: CGFloat { max(contentSize.height - visibleSize.height, 0) }
+
+    /// 現在のスクロール位置(左上を原点とし、下へ進むほどyが増える向きに正規化した値)。
+    /// AppKitのdocumentViewは上下が反転していないことがあるため、ここで吸収する。
+    var position: CGPoint {
+        let origin = clipView.bounds.origin
+        return CGPoint(x: origin.x, y: isDocumentFlipped ? origin.y : maxY - origin.y)
+    }
+
+    /// positionと同じ向きで指定した位置へスクロールする(可動範囲へクランプする)。
+    func scroll(to point: CGPoint) {
+        let clampedX = min(max(point.x, 0), maxX)
+        let clampedY = min(max(point.y, 0), maxY)
+        let y = isDocumentFlipped ? clampedY : maxY - clampedY
+        clipView.scroll(to: CGPoint(x: clampedX, y: y))
+        scrollView.reflectScrolledClipView(clipView)
+    }
+}
+
 private struct ClickZoneArea: NSViewRepresentable {
     let onClick: () -> Void
 
@@ -2813,6 +3237,31 @@ private final class ClickZoneView: NSView {
     /// mouseDown/mouseUp自体がこのビューに届かなくなる(=onClickは呼ばれない)。
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { false }
 
+    /// バグ修正(実機で確認): クリックゾーンはScrollViewの上に全面を覆って重なるため、
+    /// 何もしないとスクロールバーの上のクリックまで飲み込んでしまう。実際、単ページ幅に合わせた状態で
+    /// スクロールバーを掴もうとすると、ドラッグではなくページ送り(1画面分進む+次のページ)が
+    /// 実行されてしまい、**スクロールバーを操作できなくなっていた**。
+    ///
+    /// nilを返すとこのビューはヒットテストの対象外になり、クリックは下にあるScrollView
+    /// (=スクロールバー)へ届く。オーバーレイ表示のスクロールバーは普段alphaValueが0で、
+    /// 端にカーソルを寄せたときだけ現れる。見えていないときは従来どおりクリックゾーンとして
+    /// 働き、見えているときだけ譲る形になるため、ページ送りの操作感は損なわれない。
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if isPointOverVisibleScroller(point) { return nil }
+        return super.hitTest(point)
+    }
+
+    /// hitTestに渡される座標は**親ビューの座標系**である点に注意(自身のboundsではない)。
+    private func isPointOverVisibleScroller(_ pointInSuperview: NSPoint) -> Bool {
+        guard let scrollView = siblingScrollView(), let superview else { return false }
+        let pointInWindow = superview.convert(pointInSuperview, to: nil)
+        for scroller in [scrollView.verticalScroller, scrollView.horizontalScroller] {
+            guard let scroller, !scroller.isHidden, scroller.alphaValue > 0 else { continue }
+            if scroller.convert(scroller.bounds, to: nil).contains(pointInWindow) { return true }
+        }
+        return false
+    }
+
     override func mouseDown(with event: NSEvent) {
         isTrackingClickInside = bounds.contains(convert(event.locationInWindow, from: nil))
     }
@@ -2822,6 +3271,44 @@ private final class ClickZoneView: NSView {
         guard isTrackingClickInside else { return }
         guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
         onClick?()
+    }
+
+    /// バグ修正(実機で確認): クリックゾーンはSwiftUIのZStackの中でScrollViewの**上**に
+    /// 重ねられているため、何もしないとホイールイベントをここで飲み込んでしまい、
+    /// 横幅に合わせる/同(単ページ)/拡大縮小しないモードで画面をスクロールできなくなる。
+    ///
+    /// NSViewの既定実装はnextResponder(=親ビュー)へ送るだけだが、ScrollViewはこのビューの
+    /// 祖先ではなく**兄弟**として置かれているため、その経路では決して届かない。そこで、
+    /// 共通の祖先の下にあるNSScrollViewを探して明示的に転送する。
+    ///
+    /// この機能を追加するまではクリックゾーンが「画面内に収める」モード(ScrollViewを使わない
+    /// モード)でしか有効にならなかったため、この衝突は表面化していなかった。
+    override func scrollWheel(with event: NSEvent) {
+        if let scrollView = siblingScrollView() {
+            scrollView.scrollWheel(with: event)
+        } else {
+            super.scrollWheel(with: event)
+        }
+    }
+
+    /// 自分の祖先を1段ずつ外へたどりながら、その配下にあるNSScrollViewを探す。
+    /// 近い祖先から順に見るため、最初に見つかるのは同じZStackに置かれたページ表示用の
+    /// ScrollViewになる(サイドパネルなど別の場所のScrollViewより先に見つかる)。
+    private func siblingScrollView() -> NSScrollView? {
+        var ancestor: NSView? = superview
+        while let current = ancestor {
+            if let found = Self.firstScrollView(in: current, skipping: self) { return found }
+            ancestor = current.superview
+        }
+        return nil
+    }
+
+    private static func firstScrollView(in view: NSView, skipping excluded: NSView) -> NSScrollView? {
+        for subview in view.subviews where subview !== excluded {
+            if let scrollView = subview as? NSScrollView { return scrollView }
+            if let found = firstScrollView(in: subview, skipping: excluded) { return found }
+        }
+        return nil
     }
 }
 

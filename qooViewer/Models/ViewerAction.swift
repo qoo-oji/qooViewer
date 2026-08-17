@@ -42,6 +42,35 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
     case jumpToPercentile70
     case jumpToPercentile80
     case jumpToPercentile90
+    /// 1画面分スクロールし、スクロールしきっていたら次のページへ進む。
+    /// cooViewerの「1画面分下へ+次のページ」(action 27)相当。
+    ///
+    /// 具体的な動作は3段階(cooViewerのCustomImageView.next/prevと同じ):
+    /// 1. まだ下にスクロールできるなら、1画面分下へスクロールする
+    /// 2. 下端に着いていて、横にまだ余地があるなら、読み方向へ1画面分ずらして最上部へ戻る
+    ///    (単ページ幅に合わせた状態で「右半分を読み終えたら左半分の先頭へ」に相当する)
+    /// 3. どちらにも余地が無ければ、次のページへ進む
+    ///
+    /// スクロールできない「画面内に収める」モードでは1・2が成立しないため、実質的に
+    /// moveNextと同じ「次のページへ」になる。この文脈依存の縮退があるおかげで、cooViewerが
+    /// モード別のキー設定で実現していた既定の操作感(ノーマルではspace=次のページ、
+    /// スクロール可能なモードではspace=1画面分下へ+次のページ)を、同じ1つの割り当てで
+    /// 再現できる(KeyBindingStore.modeKeyBindings参照)。
+    case scrollAndMoveNext
+    /// scrollAndMoveNextの逆方向。cooViewerの「1画面分上へ+前のページ」(action 26)相当。
+    /// 前のページへ戻ったときは、そのページの末尾(読み終わり側の隅)から表示を始める
+    /// (cooViewerのsetStartFromEnd:YES相当)。
+    case scrollAndMovePrevious
+    /// 1画面分下へスクロールする(ページ送りはしない)。cooViewerのaction 25相当。
+    case scrollScreenDown
+    /// 1画面分上へスクロールする(ページ送りはしない)。cooViewerのaction 24相当。
+    case scrollScreenUp
+    /// 今のページの先頭へスクロールする。読み方向により右上/左上が変わる。
+    /// cooViewerの「最初へスクロール」(action 28)相当。
+    case scrollToPageStart
+    /// 今のページの末尾へスクロールする。読み方向により左下/右下が変わる。
+    /// cooViewerの「最後へスクロール」(action 29)相当。
+    case scrollToPageEnd
     case toggleDisplayMode
     case toggleReadingDirection
     case cycleScalingMode
@@ -98,6 +127,19 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
         }
     }
 
+    /// スクロールできる表示モードでしか意味を持たない操作かどうか。
+    /// 「入力」タブ(表示モードに依存しない設定、KeyBindingSettingsView)の一覧から外し、
+    /// 「入力2」タブ(ModeInputSettingsView)側へ回すための振り分けに使う。
+    var isScrollableModeOnly: Bool {
+        switch self {
+        case .scrollAndMoveNext, .scrollAndMovePrevious, .scrollScreenDown, .scrollScreenUp,
+             .scrollToPageStart, .scrollToPageEnd:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// 設定画面(キー・マウス操作)に表示する名前
     var titleKey: LocalizedStringKey {
         switch self {
@@ -119,6 +161,12 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
         case .jumpToPercentile70: return "Jump to Page at 70%"
         case .jumpToPercentile80: return "Jump to Page at 80%"
         case .jumpToPercentile90: return "Jump to Page at 90%"
+        case .scrollAndMoveNext: return "Scroll One Screen / Next Page"
+        case .scrollAndMovePrevious: return "Scroll One Screen / Previous Page"
+        case .scrollScreenDown: return "Scroll Down One Screen"
+        case .scrollScreenUp: return "Scroll Up One Screen"
+        case .scrollToPageStart: return "Scroll to Page Start"
+        case .scrollToPageEnd: return "Scroll to Page End"
         case .toggleDisplayMode: return "Toggle Spread/Single Page"
         case .toggleReadingDirection: return "Switch Reading Direction"
         case .cycleScalingMode: return "Cycle Display Mode"

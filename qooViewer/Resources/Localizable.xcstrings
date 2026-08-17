@@ -8572,6 +8572,438 @@
           }
         }
       }
+    },
+    "Scroll One Screen / Next Page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll One Screen / Next Page"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1画面分進む+次のページ"
+          }
+        }
+      }
+    },
+    "Scroll One Screen / Previous Page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll One Screen / Previous Page"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1画面分戻る+前のページ"
+          }
+        }
+      }
+    },
+    "Scroll Down One Screen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll Down One Screen"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1画面分下へ"
+          }
+        }
+      }
+    },
+    "Scroll Up One Screen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll Up One Screen"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1画面分上へ"
+          }
+        }
+      }
+    },
+    "Scroll to Page Start" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll to Page Start"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページの先頭へスクロール"
+          }
+        }
+      }
+    },
+    "Scroll to Page End" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll to Page End"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページの末尾へスクロール"
+          }
+        }
+      }
+    },
+    "Display Mode" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Display Mode"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示モード"
+          }
+        }
+      }
+    },
+    "Display Mode to Configure" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Display Mode to Configure"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定する表示モード"
+          }
+        }
+      }
+    },
+    "Mouse Wheel" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mouse Wheel"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "マウスホイール"
+          }
+        }
+      }
+    },
+    "When Scrolling Is Possible" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When Scrolling Is Possible"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクロールできるとき"
+          }
+        }
+      }
+    },
+    "Reset This Mode to Defaults" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset This Mode to Defaults"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このモードの設定を初期状態に戻す"
+          }
+        }
+      }
+    },
+    "Restores the built-in keyboard and mouse assignments for the selected display mode only." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores the built-in keyboard and mouse assignments for the selected display mode only."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選んでいる表示モードのキーボードとマウスの割り当てだけを初期状態に戻します。ほかの設定には影響しません。"
+          }
+        }
+      }
+    },
+    "Scroll Only" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll Only"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクロールのみ"
+          }
+        }
+      }
+    },
+    "Scroll, Then Move Sideways" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll, Then Move Sideways"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクロール(端で横へ)"
+          }
+        }
+      }
+    },
+    "Scroll, Then Turn Page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scroll, Then Turn Page"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクロール+ページ送り"
+          }
+        }
+      }
+    },
+    "Turn Page Only" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn Page Only"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページ送りのみ"
+          }
+        }
+      }
+    },
+    "The wheel only scrolls; it never turns the page." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The wheel only scrolls; it never turns the page."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホイールはスクロールするだけで、ページは送りません。"
+          }
+        }
+      }
+    },
+    "At the edge, moves one screen sideways without turning the page." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "At the edge, moves one screen sideways without turning the page."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "端まで来たら1画面分横へ移動します。ページは送りません。"
+          }
+        }
+      }
+    },
+    "At the edge, moves sideways and then turns the page." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "At the edge, moves sideways and then turns the page."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "端まで来たら1画面分横へ移動し、それも尽きたらページを送ります。"
+          }
+        }
+      }
+    },
+    "Settings here override the Input tab while this display mode is active. Anything left unassigned keeps working as set there." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings here override the Input tab while this display mode is active. Anything left unassigned keeps working as set there."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この表示モードのあいだ、「入力」タブの割り当てより優先されます。ここで設定していない項目は「入力」タブのまま働きます。"
+          }
+        }
+      }
+    },
+    "Only actions whose meaning depends on the display mode are listed here." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only actions whose meaning depends on the display mode are listed here."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示モードによって意味が変わる操作だけを表示しています。"
+          }
+        }
+      }
+    },
+    "Triggers left unassigned here fall back to the Input tab." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Triggers left unassigned here fall back to the Input tab."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ここで割り当てていない操作は、「入力」タブの割り当てがそのまま使われます。"
+          }
+        }
+      }
+    },
+    "Input 2" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Input 2"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "入力2"
+          }
+        }
+      }
+    },
+    "Restores every setting on this tab for the selected display mode only." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores every setting on this tab for the selected display mode only."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選んでいる表示モードについて、このタブのすべての設定を初期状態に戻します。ほかの表示モードや設定には影響しません。"
+          }
+        }
+      }
+    },
+    "When scrolling is not possible — that is, in Fit to Screen — the wheel always performs the action assigned to it on the Input tab, whatever you choose here." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When scrolling is not possible — that is, in Fit to Screen — the wheel always performs the action assigned to it on the Input tab, whatever you choose here."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクロールできないとき(「画面内に収める」で表示しているとき)は、ここでの選択に関わらず、「入力」タブでホイールに割り当てた操作を行います。"
+          }
+        }
+      }
+    },
+    "The wheel never scrolls; it always performs the action assigned to it on the Input tab." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The wheel never scrolls; it always performs the action assigned to it on the Input tab."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホイールはスクロールに使わず、常に「入力」タブで割り当てた操作を行います。"
+          }
+        }
+      }
+    },
+    "Fit Width (Single Page)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fit Width (Single Page)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "横幅に合わせる(単ページ)"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

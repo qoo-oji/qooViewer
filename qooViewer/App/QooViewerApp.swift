@@ -517,9 +517,10 @@ struct QooViewerApp: App {
                 )
                 .disabled(!hasBook)
 
-                // 表示モードの切り替え(画面に合わせる/幅に合わせる/拡大縮小なし)は3択のため、
-                // 単純なON/OFFのToggleではなく、3つから直接選べるサブメニューにし、
-                // 現在選ばれているモードにチェックマークを表示する。
+                // 表示モードの切り替えは複数から選ぶものなので、単純なON/OFFのToggleではなく
+                // 直接選べるサブメニューにし、現在選ばれているモードにチェックマークを表示する。
+                // 各モードには ⌘1〜⌘4 を割り当てている(cooViewer準拠。詳細は
+                // ScalingMode.menuShortcutKeyのコメント参照)。
                 Menu("Cycle Display Mode") {
                     ForEach(ScalingMode.allCases) { mode in
                         Toggle(
@@ -532,6 +533,7 @@ struct QooViewerApp: App {
                                 }
                             )
                         )
+                        .keyboardShortcut(mode.menuShortcutKey, modifiers: .command)
                     }
                 }
                 .disabled(!hasBook)

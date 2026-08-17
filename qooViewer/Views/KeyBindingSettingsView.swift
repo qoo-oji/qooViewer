@@ -63,9 +63,24 @@ struct KeyBindingSettingsView: View {
         // (通常は空になるはずのセーフティネット)。
         let placed = Set(ordered + hidden)
         let rest = ViewerAction.allCases.filter { $0 != .none && !placed.contains($0) }
-        return ordered + rest
+        // スクロール系の操作は、スクロールできる表示モードでしか意味を持たないため、
+        // この画面からは外し、「入力2」タブ(ModeInputSettingsView)へ回す。
+        return (ordered + rest).filter { !$0.isScrollableModeOnly }
     }()
+
     private let mouseTriggers: [InputTrigger] = [.clickLeftZone, .clickRightZone, .wheelUp, .wheelDown]
+
+    /// このタブが扱うのは、表示モードに依存しない**基本**の割り当て
+    /// (KeyBindingStore.baseMode)だけ。表示モードごとに変わる設定は「入力2」タブ
+    /// (ModeInputSettingsView)へ分離してある。
+    ///
+    /// 以前は1つのタブに「すべての表示モード」欄と「スクロールするモード」欄を並べ、
+    /// その後モード切替ポップアップ方式にしたが、いずれも
+    /// 「同じ『画面の左側をクリック』が2つあって相反する設定ができるように見える」
+    /// 「表示モードごとに独立させる意味のない操作まで並ぶ」という問題が残った
+    /// (ユーザーからの指摘)。タブごと分けることで、この画面には
+    /// 「どのモードでも同じように働く設定」しか存在しない、という状態にしている。
+    private var editingMode: ScalingMode { KeyBindingStore.baseMode }
 
     var body: some View {
         SettingsTabContainer {
@@ -74,7 +89,7 @@ struct KeyBindingSettingsView: View {
             Section {
                 Grid(alignment: .topLeading, horizontalSpacing: 16, verticalSpacing: 10) {
                     ForEach(assignableActions) { action in
-                        KeyBindingRow(action: action, store: store)
+                        KeyBindingRow(action: action, store: store, mode: editingMode)
                     }
                 }
             } header: {
@@ -94,7 +109,7 @@ struct KeyBindingSettingsView: View {
                     SettingsPickerRow(
                         trigger.titleKey,
                         selection: bindingForMouse(trigger),
-                        currentTitle: store.mouseBindings[trigger]?.titleKey ?? "(None)",
+                        currentTitle: store.assignedAction(for: trigger, in: editingMode)?.titleKey ?? "(None)",
                         controlWidth: 240
                     ) {
                         Text("(None)").tag(Optional<ViewerAction>.none)
@@ -114,7 +129,7 @@ struct KeyBindingSettingsView: View {
 
             Section {
                 Button("Reset to Defaults", role: .destructive) {
-                    store.resetToDefaults()
+                    store.resetToDefaults(in: editingMode)
                 }
             } footer: {
                 Text("Restores the built-in keyboard and mouse assignments. Nothing else is affected.")
@@ -127,12 +142,12 @@ struct KeyBindingSettingsView: View {
 
     private func bindingForMouse(_ trigger: InputTrigger) -> Binding<ViewerAction?> {
         Binding(
-            get: { store.mouseBindings[trigger] },
+            get: { store.assignedAction(for: trigger, in: editingMode) },
             set: { newAction in
                 if let newAction {
-                    store.setMouseBinding(newAction, for: trigger)
+                    store.setMouseBinding(newAction, for: trigger, in: editingMode)
                 } else {
-                    store.clearMouseBinding(for: trigger)
+                    store.clearMouseBinding(for: trigger, in: editingMode)
                 }
             }
         )
@@ -142,9 +157,14 @@ struct KeyBindingSettingsView: View {
 /// キーボード操作1つ分の行(Gridの1行)。左列に操作名、右列に現在割り当てられているキーを
 /// 1つずつ縦に並べて表示する(それぞれ×ボタンで外せる)。末尾に+ボタンがあり、押すと
 /// メニューから新しいキーを選んで追加できる。
-private struct KeyBindingRow: View {
+/// 「入力2」タブ(ModeInputSettingsView)からも同じ行を使うため、fileprivateではなく
+/// このモジュール内で共有する。
+struct KeyBindingRow: View {
     let action: ViewerAction
     @ObservedObject var store: KeyBindingStore
+    /// この行が編集する表示モード。同じキーでも、モードが違えば別の操作に割り当ててよい
+    /// (それがモード別設定の目的そのもの)ため、重複チェックもこのモードの中だけで行う。
+    let mode: ScalingMode
 
     /// 追加用メニューに表示するキーの一覧。この操作に既に割り当て済みのキーは、上の
     /// チップとして表示されているため、ここでは除外する(重複表示を避けるため)。
@@ -153,7 +173,7 @@ private struct KeyBindingRow: View {
     /// 一覧には残しておき、選んだ時点でaddKeyBindingIfAvailableが競合を検出して警告を出し、
     /// 割り当てを拒否する(元の操作から無言で奪うことはない)。
     private var availableKeysToAdd: [RemappableKey] {
-        RemappableKey.selectable.filter { store.keyBindings[$0.id] != action }
+        RemappableKey.selectable.filter { store.assignedAction(for: $0, in: mode) != action }
     }
 
     /// 追加しようとしたキーが既に別の操作に割り当てられていた場合に、警告アラートへ
@@ -172,11 +192,11 @@ private struct KeyBindingRow: View {
     /// 示す警告アラートを表示するだけにする。同じ操作への割り当てなら(通常この一覧には
     /// 出てこないが念のため)そのままstore.addKeyBindingへ委ねる。
     private func addKeyBindingIfAvailable(_ key: RemappableKey) {
-        if let existingAction = store.action(for: key), existingAction != action {
+        if let existingAction = store.assignedAction(for: key, in: mode), existingAction != action {
             conflictingKey = ConflictingKeyAssignment(key: key, existingAction: existingAction)
             return
         }
-        store.addKeyBinding(action, for: key)
+        store.addKeyBinding(action, for: key, in: mode)
     }
 
     var body: some View {
@@ -188,12 +208,12 @@ private struct KeyBindingRow: View {
             // 複数のキーが割り当てられている場合、横に並べると行の高さがバラバラになって
             // かえって見づらいため、1キー1行で縦に並べる(追加用Pickerは一番下)。
             VStack(alignment: .leading, spacing: 4) {
-                ForEach(store.keys(for: action)) { key in
+                ForEach(store.keys(for: action, in: mode)) { key in
                     HStack(spacing: 3) {
                         Text(key.displayName)
                             .font(.callout)
                         Button {
-                            store.removeKeyBinding(for: key)
+                            store.removeKeyBinding(for: key, in: mode)
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.caption2)
