@@ -120,20 +120,6 @@ struct ModeInputSettingsView: View {
             // アプリ全体で1つの設定だが、それをそのまま持ち込むとこのタブに「モード別のもの」と
             // 「共通のもの」が混在し、どれがどちらか分からなくなる(ユーザーからの指摘)。
             Section {
-                SettingsSlider(
-                    "Scroll Amount",
-                    value: bindingForScrollStep,
-                    in: 5...200,
-                    step: 5,
-                    caption: "How far one Scroll Up/Down/Left/Right step moves the image."
-                ) { value in
-                    "\(Int(value)) pt"
-                }
-            } header: {
-                Text("Scrolling")
-            }
-
-            Section {
                 SettingsPickerRow(
                     "When Scrolling Is Possible",
                     selection: bindingForWheelBehavior,
@@ -152,6 +138,20 @@ struct ModeInputSettingsView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section {
+                SettingsSlider(
+                    "Scroll Amount",
+                    value: bindingForScrollStep,
+                    in: 5...200,
+                    step: 5,
+                    caption: "How far one Scroll Up/Down/Left/Right step moves the image."
+                ) { value in
+                    "\(Int(value)) pt"
+                }
+            } header: {
+                Text("Scrolling")
             }
 
             Section {
