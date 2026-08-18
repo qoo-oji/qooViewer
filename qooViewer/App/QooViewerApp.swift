@@ -828,6 +828,21 @@ struct QooViewerApp: App {
                 .modelContainer(QooViewerApp.modelContainer)
                 .environment(\.locale, locale)
         }
+        // 環境設定ウインドウを初めて開いたときの大きさ。
+        // 2ペイン構成(サイドバー+右ペイン)にしたぶん、TabView時代の580×500では横が足りない。
+        //
+        // これはScene側に置く必要がある。SettingsView側の `.frame(idealWidth:idealHeight:)` は
+        // 初期サイズには効かない(あれはウインドウメニューの「拡大/縮小」用)。
+        // 最小サイズのほうはSettingsView側が持っている。
+        //
+        // なお、ユーザーが一度ウインドウの大きさを変えると、以後はmacOSが憶えたサイズが優先され、
+        // ここの値は使われなくなる(NSWindowの通常のフレーム保存。意図した挙動)。
+        .defaultSize(width: 820, height: 600)
+        // `.windowResizability` はここには**書けない**。`Settings` シーンだけは
+        // 常に `.contentSize`(中身の大きさがそのままウインドウの可変範囲になる)で固定されており、
+        // 他のSceneと違って指定しても無視される(実機で確認済み)。
+        // したがって「リサイズできるかどうか」を決めるのはSettingsView側のframeの**上限**で、
+        // そこに `maxWidth: .infinity` / `maxHeight: .infinity` を置いてある。
 
         // 「お気に入りの編集」ウインドウ(要望3。以前は「お気に入りの整理」という表現だったが、
         // 「ブックマークの編集」と表現をそろえるため「編集」に変更した)。Settingsと同様、

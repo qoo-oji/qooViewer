@@ -1,7 +1,7 @@
 import SwiftUI
 import Foundation
 
-/// 環境設定ウインドウの「描画」タブ。画像そのものの描画・表示のされ方に関する設定
+/// 環境設定ウインドウの「画像の表示」画面。画像そのものの描画・表示のされ方に関する設定
 /// (拡大率・補間品質・背景色・既定表示モード・見開き判定の閾値・先読み枚数)をまとめる。
 struct RenderingSettingsView: View {
     @EnvironmentObject private var preferences: AppPreferences
@@ -11,29 +11,28 @@ struct RenderingSettingsView: View {
     @State private var backgroundOptionBeforeCustomizing: BackgroundColorOption?
 
     var body: some View {
-        SettingsTabContainer {
+        SettingsPaneContainer {
             Section {
                 SettingsPicker(
                     "Default Display Mode",
                     selection: $preferences.defaultScalingMode,
-                    caption: "Used the first time a book is opened. Changing it later affects only that book."
+                    help: "Used the first time a book is opened. Changing it later affects only that book."
                 )
                 SettingsPicker("Background Color", selection: backgroundColorSelection)
                 SettingsSlider(
-                    "Maximum Upscale",
+                    "Maximum Upscale for Images Smaller Than the Window",
                     value: $preferences.maxUpscalePercent,
                     in: 100...800,
-                    step: 10,
-                    caption: "Images smaller than the window are never enlarged beyond this percentage."
+                    step: 10
                 ) { value in
                     "\(Int(value))%"
                 }
                 SettingsSlider(
-                    "Maximum Pinch Zoom",
+                    "Maximum Pinch Zoom on a Trackpad",
                     value: $preferences.maxPinchZoomPercent,
                     in: 100...800,
                     step: 10,
-                    caption: "Upper limit for pinching to zoom on a trackpad. 100% turns pinch zoom off."
+                    help: "100% turns pinch zoom off."
                 ) { value in
                     "\(Int(value))%"
                 }
@@ -51,21 +50,22 @@ struct RenderingSettingsView: View {
             }
 
             Section {
+                // Sectionヘッダが「ルーペ」なので、ラベルで繰り返さない。
+                // 説明文(「カーソルの下の画像をどれだけ拡大するか」)もラベルの言い換えでしかなく、
+                // 読んでも何も増えないため落とした。
                 SettingsSlider(
-                    "Loupe Magnification",
+                    "Magnification",
                     value: $preferences.loupeMagnificationPercent,
                     in: 100...800,
-                    step: 10,
-                    caption: "How much the loupe enlarges the image under the cursor."
+                    step: 10
                 ) { value in
                     "\(Int(value))%"
                 }
                 SettingsSlider(
-                    "Loupe Size",
+                    "Diameter",
                     value: $preferences.loupeDiameter,
                     in: 200...600,
-                    step: 10,
-                    caption: "Diameter of the loupe."
+                    step: 10
                 ) { value in
                     "\(Int(value))pt"
                 }
@@ -74,12 +74,14 @@ struct RenderingSettingsView: View {
             }
 
             Section {
+                // 何と何の比なのかだけラベルへ引き上げ、判定の全文は吹き出しに残す
+                // (「〜以上なら単ページ」という規則はラベルに収まらない)。
                 SettingsSlider(
-                    "Single-Page Threshold",
+                    "Single-Page Threshold (Width ÷ Height)",
                     value: $preferences.singlePageAspectRatioThreshold,
                     in: 0.5...3.0,
                     step: 0.05,
-                    caption: "An image whose width ÷ height is at least this value is shown on its own instead of being paired into a spread."
+                    help: "An image whose width ÷ height is at least this value is shown on its own instead of being paired into a spread."
                 ) { value in
                     String(format: "%.2f", value)
                 }
@@ -89,11 +91,11 @@ struct RenderingSettingsView: View {
 
             Section {
                 SettingsSlider(
-                    "Pages to Preload",
+                    "Pages to Preload on Each Side",
                     value: $preferences.prefetchPageCount,
                     in: 0...10,
                     step: 1,
-                    caption: "Decoded ahead on each side of the current page. Higher values turn pages faster but use more memory."
+                    help: "Higher values turn pages faster but use more memory."
                 ) { value in
                     "\(Int(value))"
                 }
@@ -101,7 +103,7 @@ struct RenderingSettingsView: View {
                 Text("Performance")
             }
         }
-        // シートは行ではなくタブの土台側に付ける。Formのセクション内のViewに付けると、
+        // シートは行ではなく画面の土台側に付ける。Formのセクション内のViewに付けると、
         // 行のライフサイクル(スクロールによる再生成など)に表示状態が引きずられうるため。
         .sheet(isPresented: $isShowingBackgroundColorPicker) {
             BackgroundColorPickerSheet(

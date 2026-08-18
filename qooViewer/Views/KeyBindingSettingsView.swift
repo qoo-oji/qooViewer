@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// 環境設定ウインドウの「キー・マウス操作」タブ。
+/// 環境設定ウインドウの「キーとマウス」画面。
 /// cooViewerの「入力タブ」に相当する部分を簡略化したもの。
 /// キーボードは1つの操作に複数のキーを割り当てられる(1つのキーが割り当てられる操作は1つまで)。
 /// マウス(クリック/ホイール)は1トリガーにつき1操作まで、Pickerで選ぶだけのシンプルな形。
 ///
 /// Sectionヘッダには「Keyboard (each action can have multiple keys)」のように
 /// 説明を括弧書きで足していたが、ヘッダは**場面の見出し**であって説明を置く場所ではない
-/// (他タブと同じ方針。SettingsControls.swift参照)。説明はfooterへ移してある。
+/// (他の画面と同じ方針。SettingsControls.swift参照)。説明はfooterへ移してある。
 struct KeyBindingSettingsView: View {
     @EnvironmentObject private var store: KeyBindingStore
 
@@ -64,26 +64,26 @@ struct KeyBindingSettingsView: View {
         let placed = Set(ordered + hidden)
         let rest = ViewerAction.allCases.filter { $0 != .none && !placed.contains($0) }
         // スクロール系の操作は、スクロールできる表示モードでしか意味を持たないため、
-        // この画面からは外し、「入力2」タブ(ModeInputSettingsView)へ回す。
+        // この画面からは外し、「表示モード別の操作」画面(ModeInputSettingsView)へ回す。
         return (ordered + rest).filter { !$0.isScrollableModeOnly }
     }()
 
     private let mouseTriggers: [InputTrigger] = [.clickLeftZone, .clickRightZone, .wheelUp, .wheelDown]
 
-    /// このタブが扱うのは、表示モードに依存しない**基本**の割り当て
-    /// (KeyBindingStore.baseMode)だけ。表示モードごとに変わる設定は「入力2」タブ
+    /// この画面が扱うのは、表示モードに依存しない**基本**の割り当て
+    /// (KeyBindingStore.baseMode)だけ。表示モードごとに変わる設定は「表示モード別の操作」画面
     /// (ModeInputSettingsView)へ分離してある。
     ///
-    /// 以前は1つのタブに「すべての表示モード」欄と「スクロールするモード」欄を並べ、
+    /// 以前は1つの画面に「すべての表示モード」欄と「スクロールするモード」欄を並べ、
     /// その後モード切替ポップアップ方式にしたが、いずれも
     /// 「同じ『画面の左側をクリック』が2つあって相反する設定ができるように見える」
     /// 「表示モードごとに独立させる意味のない操作まで並ぶ」という問題が残った
-    /// (ユーザーからの指摘)。タブごと分けることで、この画面には
+    /// (ユーザーからの指摘)。画面ごと分けることで、この画面には
     /// 「どのモードでも同じように働く設定」しか存在しない、という状態にしている。
     private var editingMode: ScalingMode { KeyBindingStore.baseMode }
 
     var body: some View {
-        SettingsTabContainer {
+        SettingsPaneContainer {
             // 「操作名を上、割り当てキーを下」に積んでいくと項目数分だけ縦に伸びて見づらいため、
             // Gridで「操作名は左列、割り当てキーは右列」の2カラムに揃えて表示する。
             Section {
@@ -94,11 +94,6 @@ struct KeyBindingSettingsView: View {
                 }
             } header: {
                 Text("Keyboard")
-            } footer: {
-                Text("An action can have several keys. A key can be assigned to only one action.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Section {
@@ -120,22 +115,13 @@ struct KeyBindingSettingsView: View {
                 }
             } header: {
                 Text("Mouse")
-            } footer: {
-                Text("Each click zone and scroll direction can have one action.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Section {
                 Button("Reset to Defaults", role: .destructive) {
                     store.resetToDefaults(in: editingMode)
                 }
-            } footer: {
-                Text("Restores the built-in keyboard and mouse assignments. Nothing else is affected.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                .help("Restores the built-in keyboard and mouse assignments. Nothing else is affected.")
             }
         }
     }
@@ -157,7 +143,7 @@ struct KeyBindingSettingsView: View {
 /// キーボード操作1つ分の行(Gridの1行)。左列に操作名、右列に現在割り当てられているキーを
 /// 1つずつ縦に並べて表示する(それぞれ×ボタンで外せる)。末尾に+ボタンがあり、押すと
 /// メニューから新しいキーを選んで追加できる。
-/// 「入力2」タブ(ModeInputSettingsView)からも同じ行を使うため、fileprivateではなく
+/// 「表示モード別の操作」画面(ModeInputSettingsView)からも同じ行を使うため、fileprivateではなく
 /// このモジュール内で共有する。
 struct KeyBindingRow: View {
     let action: ViewerAction

@@ -1,7 +1,7 @@
 import SwiftUI
 import Foundation
 
-/// 環境設定ウインドウの「開く」タブ。
+/// 環境設定ウインドウの「本を開く」画面。
 ///
 /// ■ 情報の並べ方を3層に決め直した
 /// 以前はSectionヘッダとPickerのラベルが同じことを二度言っていた
@@ -23,7 +23,7 @@ struct OpeningSettingsView: View {
     @EnvironmentObject private var preferences: AppPreferences
 
     var body: some View {
-        SettingsTabContainer {
+        SettingsPaneContainer {
             // 以前開いた本を再度開いたときに、どのページから表示するか。
             Section {
                 SettingsPicker("Start Page", selection: $preferences.reopenBehavior)
@@ -36,15 +36,18 @@ struct OpeningSettingsView: View {
             // Finderから開いたときと同じ考え方でここ1箇所の設定に統一した
             // (FavoriteOpenBehavior自体はFinderOpenBehaviorを再利用)。
             Section {
-                SettingsPicker("From Finder", selection: $preferences.finderOpenBehavior)
-                SettingsPicker("From Favorites", selection: $preferences.favoriteOpenBehavior)
+                SettingsPicker(
+                    "From Finder",
+                    selection: $preferences.finderOpenBehavior,
+                    help: "Applies only when qooViewer already has a book open. From the welcome screen, a book always opens in the current window."
+                )
+                SettingsPicker(
+                    "From Favorites",
+                    selection: $preferences.favoriteOpenBehavior,
+                    help: "Applies only when qooViewer already has a book open. From the welcome screen, a book always opens in the current window."
+                )
             } header: {
                 Text("Opening Another Book")
-            } footer: {
-                Text("Applies only when qooViewer already has a book open. From the welcome screen, a book always opens in the current window.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
             // ユーザー報告: 見開き表示中にツールバー/お気に入りメニュー/キーボードショートカットから
@@ -52,14 +55,13 @@ struct OpeningSettingsView: View {
             // なる(見開き右、左開きなら見開き左)。この既定側固定と、追加のたびに左右どちらかを
             // 尋ねるダイアログ表示のどちらかを選べるようにした(SpreadBookmarkTargetBehavior参照)。
             Section {
-                SettingsPicker("Target Page", selection: $preferences.spreadBookmarkTargetBehavior)
+                SettingsPicker(
+                    "Target Page",
+                    selection: $preferences.spreadBookmarkTargetBehavior,
+                    help: "Right-clicking a page always bookmarks the page you clicked, regardless of this setting."
+                )
             } header: {
                 Text("Bookmarks in Spread View")
-            } footer: {
-                Text("Right-clicking a page always bookmarks the page you clicked, regardless of this setting.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

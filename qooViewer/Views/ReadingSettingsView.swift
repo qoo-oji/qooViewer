@@ -1,19 +1,16 @@
 import SwiftUI
 import Foundation
 
-/// 環境設定ウインドウの「閲覧」タブ。ページ送り・スライドショー・マウスカーソルの
+/// 環境設定ウインドウの「閲覧中の動作」画面。ページ送り・スライドショー・マウスカーソルの
 /// 自動非表示など、画像そのものの描画内容ではなく閲覧中の操作・挙動に関する設定をまとめる。
 struct ReadingSettingsView: View {
     @EnvironmentObject private var preferences: AppPreferences
 
     var body: some View {
-        SettingsTabContainer {
+        SettingsPaneContainer {
             Section {
-                SettingsPicker(
-                    "At the First/Last Page",
-                    selection: $preferences.loopBehavior,
-                    caption: "What happens when you try to turn past the beginning or the end of a book."
-                )
+                // 説明文は「最初/最後のページで」というラベルの言い換えだったので落とした。
+                SettingsPicker("At the First/Last Page", selection: $preferences.loopBehavior)
                 SettingsToggle(
                     "Trackpad Flicks Turn Pages",
                     isOn: $preferences.treatTrackpadFlickAsWheel
@@ -26,17 +23,18 @@ struct ReadingSettingsView: View {
                 SettingsToggle(
                     "Invert Two-Finger Scrolling",
                     isOn: $preferences.invertTwoFingerScrolling,
-                    caption: "Reverses the direction the image moves — both vertically and horizontally — when you scroll with two fingers on a trackpad. The mouse wheel is not affected, and neither are the actions assigned to wheel or flick directions."
+                    help: "Reverses the direction the image moves — both vertically and horizontally — when you scroll with two fingers on a trackpad. The mouse wheel is not affected, and neither are the actions assigned to wheel or flick directions."
                 )
             } header: {
                 Text("Scrolling")
             }
 
             Section {
+                // Sectionヘッダが「プログレスバー」なので、「プログレスバーにカーソルを
+                // 合わせたとき」は繰り返さずに済む。
                 SettingsToggle(
-                    "Thumbnail Preview",
-                    isOn: $preferences.showProgressBarThumbnailPreview,
-                    caption: "Shows a preview of the page under the pointer while hovering the progress bar."
+                    "Preview the Page Under the Pointer",
+                    isOn: $preferences.showProgressBarThumbnailPreview
                 )
             } header: {
                 Text("Progress Bar")
@@ -56,10 +54,11 @@ struct ReadingSettingsView: View {
             }
 
             Section {
+                // 「自動的に」が何を指すのか(=動かしていないあいだ)をラベルへ入れて、
+                // 言い換えでしかなかった説明文を無くした。
                 SettingsToggle(
-                    "Hide the Pointer Automatically",
-                    isOn: $preferences.autoHideCursor,
-                    caption: "Hides the mouse pointer while you are not moving it."
+                    "Hide the Pointer While You Are Not Moving It",
+                    isOn: $preferences.autoHideCursor
                 )
                 SettingsSlider(
                     "Delay Before Hiding",

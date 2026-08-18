@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// 環境設定ウインドウの「アクセス権」タブ。
+/// 環境設定ウインドウの「フォルダのアクセス権」画面。
 ///
 /// サンドボックス下では、パネルやドラッグ&ドロップで直接選んだファイル/フォルダにしか
 /// アクセスできない。ここで任意のフォルダ(ルートフォルダ・ホームフォルダ・外部ボリュームなど)を
@@ -17,7 +17,7 @@ struct AccessPermissionsSettingsView: View {
     @EnvironmentObject private var preferences: AppPreferences
 
     var body: some View {
-        SettingsTabContainer {
+        SettingsPaneContainer {
             Section {
                 if folderAccess.entries.isEmpty {
                     Text("No folders have been granted access yet.")
@@ -52,13 +52,14 @@ struct AccessPermissionsSettingsView: View {
                 Button("Add Folder…") {
                     addFolder()
                 }
+                // 「なぜ許可が必要なのか」はボタンのホバーで出す。
+                // 以前はSectionのfooterに常時表示していたが、環境設定全体で説明文を
+                // 画面に出さない方針になったため移した(ユーザーの指示)。
+                // 消さずに残したのは、パネルを開く前にこれを読めないと意味がないため
+                // (NSOpenPanelのmessageは開いた後にしか見えない)。
+                .help("qooViewer can only reach files you opened yourself. Granting a folder lets “Previous Book” and “Next Book” find the other files next to a book you opened directly. Access is remembered after you quit.")
             } header: {
                 Text("Granted Folders")
-            } footer: {
-                Text("qooViewer can only reach files you opened yourself. Granting a folder lets “Previous Book” and “Next Book” find the other files next to a book you opened directly. Access is remembered after you quit.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

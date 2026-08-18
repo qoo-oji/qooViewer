@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 import AppKit
 
-/// 環境設定ウインドウの「リセット」タブ。
+/// 環境設定ウインドウの「リセット」画面。
 ///
 /// お気に入り(FavoriteFolder/FavoriteBook)・ブックマーク(Bookmark)・読書履歴
 /// (BookReadingState、本ごとの最後に読んだページ・表示設定)は、すべて同じ1つのSwiftData
@@ -14,7 +14,7 @@ import AppKit
 /// 読書履歴を強制的に削除し、まっさらな状態からやり直せるようにする(ユーザーからの要望)。
 ///
 /// 非常に強力な(元に戻せない)操作のため、
-/// - 実行はこの専用タブからのみ行える(他のどの画面にもボタンを置いていない)
+/// - 実行はこの専用画面からのみ行える(他のどの画面にもボタンを置いていない)
 /// - 実行前に内容を明記した確認アラートを必ず挟む(「間違ってクリックした場合に備えて」)
 /// - 実行後は完了を知らせるアラートを挟んだ上でアプリを終了する(開いている本の
 ///   ViewerViewModelが、削除済みのBookReadingState/Bookmarkを参照し続けたまま動作してしまう
@@ -22,9 +22,9 @@ import AppKit
 ///   なりうる。次回起動時にはまっさらな状態から始まる)
 /// という3点を徹底している。
 ///
-/// レイアウト自体は他のタブと同じ `SettingsTabContainer` に載せてあり、余白・文字サイズは
+/// レイアウト自体は他の画面と同じ `SettingsPaneContainer` に載せてあり、余白・文字サイズは
 /// 環境設定ウインドウ全体で揃う(SettingsControls.swift参照)。ただし内容は意図的に
-/// このタブだけ「説明 → 破壊的ボタン → 警告footer」という重い構成のままにしてある。
+/// この画面だけ「説明 → 破壊的ボタン → 警告footer」という重い構成のままにしてある。
 ///
 /// 以前はperformReset()がModelContext経由で各モデル(FavoriteFolder/FavoriteBook/Bookmark/
 /// BookLayoutSettings/PageLayoutOverride/BookReadingState)を個別にdelete()していたが、これだと
@@ -45,7 +45,7 @@ struct ResetDataSettingsView: View {
     @State private var isShowingCompletion = false
 
     var body: some View {
-        SettingsTabContainer {
+        SettingsPaneContainer {
             Section {
                 // 以前はここが一文だった:
                 // 「お気に入り・ブックマーク・レイアウト設定・読書履歴が破損したり読み込めなく
@@ -55,16 +55,23 @@ struct ResetDataSettingsView: View {
                 // 読み手が毎回組み立て直す必要があり、走査しづらい(ユーザーからの指摘)。
                 // 「いつ使うのか」を短い1文にし、「何が消えるのか」は列挙として縦に割った。
                 // 消えるものが具体的に見えることは、誤操作を防ぐうえでも意味がある。
-                VStack(alignment: .leading, spacing: 10) {
+                // ■ この画面だけ本文を残し、かつ他より強く描く
+                // 環境設定の他の画面からは、常時表示の説明文をすべて無くした(認知コストを
+                // 下げるため。SettingsControls.swift の方針を参照)。この画面だけは例外で、
+                // 「取り消せない削除である」と「何が消えるのか」は読まれないと困る。
+                //
+                // ところが他の画面と同じ .subheadline + .secondary で書いていたため、
+                // **いちばん重要な文が、いちばん薄く小さい**という逆転が起きていた
+                // (ユーザーからの指摘)。補足文の見た目のまま重要な文を置いていたのが誤りで、
+                // ここは本文サイズ・地の文の濃さで書く。
+                VStack(alignment: .leading, spacing: 12) {
                     Text("Use this only when your saved data is damaged and will not load — for example, after an app update. It deletes everything and starts over from a clean state.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 8) {
                         Text("What gets deleted")
-                            .font(.subheadline.weight(.semibold))
+                            .fontWeight(.semibold)
 
                         SettingsBulletList([
                             "Favorites, including favorite folders",
@@ -74,7 +81,7 @@ struct ResetDataSettingsView: View {
                         ])
                     }
                 }
-                .padding(.vertical, 2)
+                .padding(.vertical, 4)
 
                 Button(role: .destructive) {
                     isShowingConfirmation = true
@@ -82,7 +89,7 @@ struct ResetDataSettingsView: View {
                     Label("Reset All Favorites, Bookmarks, Layouts & Reading History…", systemImage: "trash")
                 }
             } header: {
-                // 「危険な操作」という文字だけでは、他のタブのSectionヘッダと同じ重さで流し読み
+                // 「危険な操作」という文字だけでは、他の画面のSectionヘッダと同じ重さで流し読み
                 // されてしまう。赤い警告記号を先頭に付けて、この見出しだけ性質が違うことを示す
                 // (ユーザーからの要望)。文字色は他のヘッダと揃えたままにして、記号だけを赤にする。
                 Label {
@@ -92,10 +99,19 @@ struct ResetDataSettingsView: View {
                         .foregroundStyle(.red)
                 }
             } footer: {
-                Text("This cannot be undone. qooViewer will quit immediately afterward.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                // 「元に戻せない」はこの画面でいちばん重要な一文なので、
+                // 補足文の見た目(小さい・薄い)ではなく、警告として描く。
+                // ヘッダの赤い警告記号と色をそろえてあり、画面の上端と下端の2箇所で
+                // 同じ赤が目に入る形になる。
+                Label {
+                    Text("This cannot be undone. qooViewer will quit immediately afterward.")
+                        .fontWeight(.semibold)
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                }
+                .foregroundStyle(.red)
+                .padding(.top, 2)
             }
         }
         // 「間違ってクリックした場合に備えて」の確認アラート。既存の「Delete Folder?」等と

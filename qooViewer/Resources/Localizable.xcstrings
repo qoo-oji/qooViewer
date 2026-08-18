@@ -384,6 +384,22 @@
         }
       }
     },
+    "100% turns pinch zoom off." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "100% turns pinch zoom off."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "100%にするとピンチ拡大が無効になります。"
+          }
+        }
+      }
+    },
     "Access" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -621,6 +637,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%@」をお気に入りに追加しました"
+          }
+        }
+      }
+    },
+    "Advanced" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Advanced"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "詳細"
           }
         }
       }
@@ -939,6 +971,7 @@
       }
     },
     "At the edge, moves one screen sideways without turning the page." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -955,6 +988,7 @@
       }
     },
     "At the edge, moves sideways and then turns the page." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1116,6 +1150,22 @@
         }
       }
     },
+    "Blue" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Blue"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "青"
+          }
+        }
+      }
+    },
     "Bonus" : {
       "localizations" : {
         "en" : {
@@ -1273,6 +1323,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ブックマーク: %d件(%d冊)を取り込みました。"
+          }
+        }
+      }
+    },
+    "Books" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本"
           }
         }
       }
@@ -1841,6 +1907,22 @@
         }
       }
     },
+    "Confirm Before Closing a Window with Several Tabs" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Confirm Before Closing a Window with Several Tabs"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "複数タブのウインドウを閉じる前に確認"
+          }
+        }
+      }
+    },
     "Contrast Correction" : {
       "localizations" : {
         "en" : {
@@ -1853,6 +1935,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "コントラスト補正"
+          }
+        }
+      }
+    },
+    "Controls" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Controls"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "操作"
           }
         }
       }
@@ -2077,6 +2175,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "作成日"
+          }
+        }
+      }
+    },
+    "Custom" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カスタム"
+          }
+        }
+      }
+    },
+    "Custom Background Color" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom Background Color"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カスタム背景色"
           }
         }
       }
@@ -2437,6 +2567,22 @@
         }
       }
     },
+    "Diameter" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diameter"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "直径"
+          }
+        }
+      }
+    },
     "Diameter of the loupe." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2530,6 +2676,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "設定する表示モード"
+          }
+        }
+      }
+    },
+    "Distance per Scroll Step" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Distance per Scroll Step"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1回のスクロール量"
           }
         }
       }
@@ -3322,6 +3484,22 @@
         }
       }
     },
+    "Folder Access" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Folder Access"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダのアクセス権"
+          }
+        }
+      }
+    },
     "Folders First" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3695,6 +3873,22 @@
         }
       }
     },
+    "Green" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Green"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "緑"
+          }
+        }
+      }
+    },
     "Groups folders together above files, like Finder." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3841,6 +4035,22 @@
         }
       }
     },
+    "Hide the Pointer While You Are Not Moving It" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide the Pointer While You Are Not Moving It"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "動かしていないあいだポインタを隠す"
+          }
+        }
+      }
+    },
     "Hide Toolbar" : {
       "localizations" : {
         "en" : {
@@ -3907,6 +4117,22 @@
         }
       }
     },
+    "Higher values turn pages faster but use more memory." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Higher values turn pages faster but use more memory."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "多くするとページ送りが速くなりますが、メモリを多く使います。"
+          }
+        }
+      }
+    },
     "History" : {
       "localizations" : {
         "en" : {
@@ -3924,6 +4150,7 @@
       }
     },
     "How far one Scroll Up/Down/Left/Right step moves the image." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3940,6 +4167,7 @@
       }
     },
     "How many books the history keeps. Shown in the File menu's Open Recent and in the side panel's History mode." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -3984,6 +4212,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "無視"
+          }
+        }
+      }
+    },
+    "Image Display" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image Display"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "画像の表示"
           }
         }
       }
@@ -4088,6 +4332,7 @@
       }
     },
     "Input 2" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4099,22 +4344,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "入力2"
-          }
-        }
-      }
-    },
-    "Invert Two-Finger Scrolling" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Invert Two-Finger Scrolling"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "2本指スクロールを反転"
           }
         }
       }
@@ -4149,6 +4378,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "間隔"
+          }
+        }
+      }
+    },
+    "Invert Two-Finger Scrolling" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invert Two-Finger Scrolling"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2本指スクロールを反転"
           }
         }
       }
@@ -4358,6 +4603,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "キーボード"
+          }
+        }
+      }
+    },
+    "Keys & Mouse" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keys & Mouse"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "キーとマウス"
           }
         }
       }
@@ -4639,7 +4900,24 @@
         }
       }
     },
+    "Magnification" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Magnification"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡大率"
+          }
+        }
+      }
+    },
     "Maximum Pinch Zoom" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4651,6 +4929,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ピンチ拡大の上限"
+          }
+        }
+      }
+    },
+    "Maximum Pinch Zoom on a Trackpad" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maximum Pinch Zoom on a Trackpad"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "トラックパッドのピンチ拡大の上限"
           }
         }
       }
@@ -4668,6 +4962,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最大拡大率"
+          }
+        }
+      }
+    },
+    "Maximum Upscale for Images Smaller Than the Window" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maximum Upscale for Images Smaller Than the Window"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "画面より小さい画像を拡大する上限"
           }
         }
       }
@@ -4973,6 +5283,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "名前(Z→A)"
+          }
+        }
+      }
+    },
+    "Navigation buttons such as Back, Forward, and Up are unaffected." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navigation buttons such as Back, Forward, and Up are unaffected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "戻る・進む・1階層上へのボタンには影響しません。"
           }
         }
       }
@@ -5350,6 +5676,7 @@
       }
     },
     "Only actions whose meaning depends on the display mode are listed here." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5543,6 +5870,7 @@
       }
     },
     "Opening" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5571,6 +5899,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "別の本を開く"
+          }
+        }
+      }
+    },
+    "Opening Books" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening Books"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を開く"
           }
         }
       }
@@ -5801,6 +6145,22 @@
         }
       }
     },
+    "Pages to Preload on Each Side" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pages to Preload on Each Side"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前後に先読みするページ数"
+          }
+        }
+      }
+    },
     "Pages were reordered. Some layout settings need to be redone." : {
       "localizations" : {
         "en" : {
@@ -5813,6 +6173,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ページ順を入れ替えました。レイアウトの再設定が必要です。"
+          }
+        }
+      }
+    },
+    "Palette" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Palette"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "パレット"
           }
         }
       }
@@ -5850,6 +6226,22 @@
         }
       }
     },
+    "Per Display Mode" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Per Display Mode"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示モード別の操作"
+          }
+        }
+      }
+    },
     "Performance" : {
       "localizations" : {
         "en" : {
@@ -5862,6 +6254,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "パフォーマンス"
+          }
+        }
+      }
+    },
+    "Pick a color from the palette, then fine-tune it with the RGB sliders." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pick a color from the palette, then fine-tune it with the RGB sliders."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "パレットから色を選び、RGBのスライダーで微調整します。"
           }
         }
       }
@@ -5895,6 +6303,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "プレビュー"
+          }
+        }
+      }
+    },
+    "Preview the Page Under the Pointer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preview the Page Under the Pointer"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カーソルを合わせたページをプレビュー"
           }
         }
       }
@@ -6110,6 +6534,7 @@
       }
     },
     "Reading" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6219,6 +6644,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "履歴の保存件数"
+          }
+        }
+      }
+    },
+    "Red" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Red"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "赤"
           }
         }
       }
@@ -6480,6 +6921,7 @@
       }
     },
     "Rendering" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6507,6 +6949,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "画像ファイルを連番にリネームする"
+          }
+        }
+      }
+    },
+    "Reopen the Book You Were Last Reading" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reopen the Book You Were Last Reading"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前回読んでいた本を開き直す"
           }
         }
       }
@@ -6557,6 +7015,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この本を閉じて開く"
+          }
+        }
+      }
+    },
+    "Require a Double-Click to Open or Move Into Folders" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Require a Double-Click to Open or Move Into Folders"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開く・フォルダへ移動をダブルクリックにする"
           }
         }
       }
@@ -6739,7 +7213,24 @@
         }
       }
     },
+    "Restores every setting on this page for the selected display mode only." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores every setting on this page for the selected display mode only."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選んでいる表示モードについて、この画面のすべての設定を初期状態に戻します。ほかの表示モードや設定には影響しません。"
+          }
+        }
+      }
+    },
     "Restores every setting on this tab for the selected display mode only." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6886,6 +7377,22 @@
         }
       }
     },
+    "Revert" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Revert"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "元に戻す"
+          }
+        }
+      }
+    },
     "Revoke Access to This Folder" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6986,6 +7493,7 @@
       }
     },
     "Scroll Amount" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7353,6 +7861,23 @@
         }
       }
     },
+    "Select Custom again to change the color." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select Custom again to change the color."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "もう一度「カスタム」を選ぶと、色を指定し直せます。"
+          }
+        }
+      }
+    },
     "Sepia" : {
       "localizations" : {
         "en" : {
@@ -7481,7 +8006,24 @@
         }
       }
     },
+    "Settings here override Keys & Mouse while this display mode is active. Anything left unassigned keeps working as set there." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings here override Keys & Mouse while this display mode is active. Anything left unassigned keeps working as set there."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この表示モードのあいだ、「キーとマウス」の割り当てより優先されます。ここで設定していない項目は「キーとマウス」のまま働きます。"
+          }
+        }
+      }
+    },
     "Settings here override the Input tab while this display mode is active. Anything left unassigned keeps working as set there." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7706,6 +8248,22 @@
         }
       }
     },
+    "Shown in the File menu's Open Recent and in the side panel's History mode." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shown in the File menu's Open Recent and in the side panel's History mode."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「File」→「Open Recent」と、サイドパネルの「履歴」に表示されます。"
+          }
+        }
+      }
+    },
     "Shows a panel for browsing folders and the current book's contents. When off, the panel and its View menu options are unavailable." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7837,6 +8395,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "単ページ扱いの閾値"
+          }
+        }
+      }
+    },
+    "Single-Page Threshold (Width ÷ Height)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Single-Page Threshold (Width ÷ Height)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "単ページ扱いの閾値(横÷縦)"
           }
         }
       }
@@ -8358,7 +8932,25 @@
         }
       }
     },
+    "The wheel never scrolls; it always performs the action assigned to it in Keys & Mouse." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The wheel never scrolls; it always performs the action assigned to it in Keys & Mouse."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホイールはスクロールに使わず、常に「キーとマウス」で割り当てた操作を行います。"
+          }
+        }
+      }
+    },
     "The wheel never scrolls; it always performs the action assigned to it on the Input tab." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -8375,6 +8967,7 @@
       }
     },
     "The wheel only scrolls; it never turns the page." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -8840,7 +9433,24 @@
         }
       }
     },
+    "Triggers left unassigned here fall back to Keys & Mouse." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Triggers left unassigned here fall back to Keys & Mouse."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ここで割り当てていない操作は、「キーとマウス」の割り当てがそのまま使われます。"
+          }
+        }
+      }
+    },
     "Triggers left unassigned here fall back to the Input tab." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -8953,6 +9563,7 @@
       }
     },
     "Upper limit for pinching to zoom on a trackpad. 100% turns pinch zoom off." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -9069,7 +9680,24 @@
         }
       }
     },
+    "When scrolling is not possible — that is, in Fit to Screen — the wheel always performs the action assigned to it in Keys & Mouse, whatever you choose here." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When scrolling is not possible — that is, in Fit to Screen — the wheel always performs the action assigned to it in Keys & Mouse, whatever you choose here."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スクロールできないとき(「画面内に収める」で表示しているとき)は、ここでの選択に関わらず、「キーとマウス」でホイールに割り当てた操作を行います。"
+          }
+        }
+      }
+    },
     "When scrolling is not possible — that is, in Fit to Screen — the wheel always performs the action assigned to it on the Input tab, whatever you choose here." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -9113,6 +9741,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "どちらのページをブックマークに追加しますか？"
+          }
+        }
+      }
+    },
+    "While Reading" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "While Reading"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "閲覧中の動作"
           }
         }
       }
@@ -9210,150 +9854,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "お気に入り・ブックマーク・読書履歴を読み込めませんでした。このバージョンのqooViewerと互換性が無い可能性があります。\n\n続行すると、これらのデータはすべて完全に削除され、qooViewerはまっさらな状態から起動し直します。データを失いたくない場合は、削除せずに今すぐ終了してください(例: 別のバージョンのqooViewerを試す、サポートに相談する、など)。"
-          }
-        }
-      }
-    },
-    "Custom" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Custom"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "カスタム"
-          }
-        }
-      }
-    },
-    "Custom Background Color" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Custom Background Color"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "カスタム背景色"
-          }
-        }
-      }
-    },
-    "Pick a color from the palette, then fine-tune it with the RGB sliders." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pick a color from the palette, then fine-tune it with the RGB sliders."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "パレットから色を選び、RGBのスライダーで微調整します。"
-          }
-        }
-      }
-    },
-    "Palette" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Palette"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "パレット"
-          }
-        }
-      }
-    },
-    "Red" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Red"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "赤"
-          }
-        }
-      }
-    },
-    "Green" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Green"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "緑"
-          }
-        }
-      }
-    },
-    "Blue" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Blue"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "青"
-          }
-        }
-      }
-    },
-    "Revert" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Revert"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "元に戻す"
-          }
-        }
-      }
-    },
-    "Select Custom again to change the color." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Select Custom again to change the color."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "もう一度「カスタム」を選ぶと、色を指定し直せます。"
           }
         }
       }

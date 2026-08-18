@@ -1,10 +1,10 @@
 import SwiftUI
 import AppKit
 
-/// 環境設定ウインドウの全タブで共有する行コンポーネント。
+/// 環境設定ウインドウの全画面で共有する行コンポーネント。
 ///
 /// ■ これまでの問題
-/// 各タブが `Form` + `.formStyle(.grouped)` に `Picker("長い説明文", selection:)` や
+/// 各画面が `Form` + `.formStyle(.grouped)` に `Picker("長い説明文", selection:)` や
 /// `Toggle("長い説明文", isOn:)` を直接置いていたため、以下の2点が同時に起きていた。
 ///
 /// 1. ラベルが折り返す
@@ -19,58 +19,142 @@ import AppKit
 ///    つまり折り返しと境界の不明瞭さは別々の問題ではなく、**同じ原因の表と裏**。
 ///
 /// ■ ここでの解決方針
-/// - ラベルは必ず**短い名詞句**にする(文章はSectionヘッダとcaptionに逃がす)
+/// - ラベルは**短い語句**にする(長い文章はSectionヘッダとホバーの吹き出しに逃がす)
 /// - ポップアップには**背景と境界線を自分で描いて**境界をはっきりさせる
 ///   (`SettingsPopUp` 参照。AppKitのセマンティックカラーを使うので、
 ///    ダークモードでは行の中でいちばん明るい要素になる)
 /// - ポップアップの幅は内容幅に固定し、値とシェブロンを密着させる
 /// - それでも幅が足りない言語・ウインドウ幅では `ViewThatFits` が
 ///   「ラベル上 / コントロール下(全幅)」の縦積みへ自動で切り替える(折り返しは起こさない)
-/// - 長い説明は行の下の caption に置き、Pickerでは**選択中の項目の説明**を動的に出す
+///
+/// ■ 説明文を常時表示するのをやめた(重要な方針転換)
+/// 以前は「ラベルは短い名詞句にして、説明は行の下の caption に常時出す」という方針だった。
+/// その結果ほぼすべての行が「項目名 / コントロール / 説明文」の3要素になり、
+/// **画面が説明文で埋まって認知コストが高い**という指摘を受けた(ユーザーからの指摘)。
+/// 1行ぶんの情報を読むのに必ず2行読まされるうえ、目的の項目を探すときには
+/// 説明文がすべて雑音になる。
+///
+/// そこで優先順位を次のように決め直した。
+///   1. **項目名に吸収できる説明は、項目名を伸ばして消す**
+///      「前回の本を開く」+「前回終了したときに読んでいた本を開き直します」ではなく、
+///      「前回読んでいた本を開き直す」の1行にする。ラベルが多少長くなっても、
+///      読む量は半分以下になり、走査もしやすい。
+///      (`SettingRow` は幅が足りなければ自動で段替えするので、多少の長さは吸収できる)
+///   2. **吸収できないものだけホバーの吹き出しへ**(`help:`)
+///      閾値の定義や、副作用・例外の注意書きなど、項目名に入れると長すぎるもの。
+///      補足があることは項目名の右のⓘで示す。
+///   3. **Pickerの選択肢に説明は付けない**
+///      以前は選択肢ごとに1文の説明(`detailKey`)を持たせ、選ばれている項目のぶんを
+///      行の下に出していた。整理にあたって一度これをメニューの中へ移したが、
+///      最終的に説明そのものを廃止した。このアプリを使う人には選択肢名だけで十分であり、
+///      説明が要るということは選択肢名のほうが悪い、という判断(ユーザーの指示)。
+///      `SettingsOption` から `detailKey` ごと削除してある。
+///
+/// したがって新しい行を足すときは、**まず項目名だけで済ませられないかを試すこと**。
+/// `help:` は最後の手段であって、既定の置き場所ではない。
+
+// MARK: - 項目名
+
+/// 設定行の項目名。補足(`help`)があるときは末尾にⓘを添える。
+/// ⓘにカーソルを合わせると吹き出しが、クリックするとポップオーバーが出る。
+///
+/// ■ なぜⓘを**ボタン**にしてあるのか(重要。素の記号に戻さないこと)
+/// 最初は「押せない、印だけの記号」にして、`.help()` を項目名とⓘを含む `HStack` 全体に
+/// 付けていた。そのほうが小さな的を狙わせずに済むからである。
+/// ところが実機で確認したところ、**`.help()` は素のコンテナ(`HStack`)に付けても
+/// 吹き出しが出なかった**。同じビルドの中で `Button` に付けた `.help()` は正しく出るので、
+/// `.help()` が効くかどうかはAppKit側のビューを伴うかどうかに依存している。
+/// 補足の置き場所がここしか無い以上、「たぶん出る」では困るため、
+/// 確実に吹き出しを持てる `Button` にした。
+///
+/// ボタンにしたことで、押したときの動作も与えられる。押すと同じ文がポップオーバーで開く。
+/// ホバーで読めるものをクリックでも読めるようにするのは重複ではなく、
+/// 「カーソルを止めて1〜2秒待つ」という操作を知らない/できない人への経路になる
+/// (トラックパッドの操作中や、拡大表示を使っている場合など)。
+///
+/// ■ ⓘを出す条件
+/// `help` があるときだけ。無い行に空の場所を確保して縦位置を揃える、といったことはしない。
+/// ⓘが並んでいるかどうか自体が「補足のある行はどれか」の一覧になるほうが役に立つ。
+struct SettingsRowLabel: View {
+    let title: LocalizedStringKey
+    let help: LocalizedStringKey?
+    /// 項目名を1行に保つか。横並びの行(`SettingRow`)では1行を保ち、
+    /// 幅が足りなければ呼び出し側の `ViewThatFits` が段替えする。
+    /// トグルのように右のコントロールが固定幅の行では、折り返しを許す。
+    var allowsWrapping: Bool = false
+
+    @State private var isShowingHelp = false
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(title)
+                .lineLimit(allowsWrapping ? nil : 1)
+                .fixedSize(horizontal: false, vertical: allowsWrapping)
+
+            if let help {
+                Button {
+                    isShowingHelp = true
+                } label: {
+                    // 最初は .caption + .tertiary にしていたが、暗い下地でほとんど見えず、
+                    // 「補足がある行」に気づけなかった(ユーザーからの指摘)。
+                    // .tertiary は本来「あってもなくてもよい装飾」の濃さで、
+                    // このⓘのように**気づかれなければ意味が無い**印には弱すぎる。
+                    // 項目名(13pt)より少し小さい12ptに留めつつ、濃さは .secondary まで上げてある。
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help(Text(help))
+                .accessibilityLabel(Text("More Information"))
+                .popover(isPresented: $isShowingHelp, arrowEdge: .bottom) {
+                    Text(help)
+                        .font(.subheadline)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 320, alignment: .leading)
+                        .padding(12)
+                }
+            }
+        }
+    }
+}
 
 // MARK: - 汎用の1行
 
-/// 設定1行の共通レイアウト。ラベル(短い名詞句)+ コントロール + 任意の補足説明。
+/// 設定1行の共通レイアウト。項目名 + コントロール(+ ホバーで出る補足)。
 ///
 /// 幅が足りる間は「左ラベル / 右コントロール」、足りなくなると自動的に
 /// 「上ラベル / 下コントロール」へ切り替わる。どちらの場合もラベルは1行を保つ。
 struct SettingRow<Control: View>: View {
     private let title: LocalizedStringKey
-    private let caption: LocalizedStringKey?
+    private let help: LocalizedStringKey?
     private let control: Control
 
+    /// - Parameters:
+    ///   - title: 項目名。**まずこれだけで意味が通るか試すこと**(ファイル冒頭の方針を参照)。
+    ///   - help: 項目名に入れると長すぎる補足。ホバーの吹き出しで出る。
     init(
         _ title: LocalizedStringKey,
-        caption: LocalizedStringKey? = nil,
+        help: LocalizedStringKey? = nil,
         @ViewBuilder control: () -> Control
     ) {
         self.title = title
-        self.caption = caption
+        self.help = help
         self.control = control()
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ViewThatFits(in: .horizontal) {
-                // 通常: 左ラベル / 右コントロール(macOS標準の見た目)
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    label
-                    Spacer(minLength: 12)
-                    control
-                }
-                // 幅が足りないとき: 上ラベル / 下コントロール(折り返しではなく段替え)
-                VStack(alignment: .leading, spacing: 6) {
-                    label
-                    control
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+        ViewThatFits(in: .horizontal) {
+            // 通常: 左ラベル / 右コントロール(macOS標準の見た目)
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                label
+                Spacer(minLength: 12)
+                control
             }
-
-            if let caption {
-                Text(caption)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            // 幅が足りないとき: 上ラベル / 下コントロール(折り返しではなく段替え)
+            VStack(alignment: .leading, spacing: 6) {
+                label
+                control
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -78,8 +162,7 @@ struct SettingRow<Control: View>: View {
     }
 
     private var label: some View {
-        Text(title)
-            .lineLimit(1)
+        SettingsRowLabel(title: title, help: help)
             .layoutPriority(1)
     }
 }
@@ -103,7 +186,7 @@ struct SettingRow<Control: View>: View {
 /// `.menuStyle(.borderlessButton)` でシステムの装飾を完全に外し、背景と境界線を明示的に重ねる。
 ///
 /// ■ 面の色は「白を薄く重ねる」(重要)
-/// 最初は `NSColor.controlColor` を使ったが、「リセット」タブのボタンより明らかに明るくなった
+/// 最初は `NSColor.controlColor` を使ったが、「リセット」画面のボタンより明らかに明るくなった
 /// (実機で確認済み)。あちらも同じセクションカードの上に載っているので、下地の違いではなく
 /// 単に `controlColor` のほうが濃い、というだけだった。
 ///
@@ -113,7 +196,7 @@ struct SettingRow<Control: View>: View {
 ///   (「枠線のみ」の見た目。これも標準ボタンと同じ振る舞い)
 ///
 /// 濃さの数値は下の `faceOpacity` 1箇所だけ。ボタンとの見え方がずれたらここを触れば
-/// 全タブのポップアップに一度に反映される。
+/// 全画面のポップアップに一度に反映される。
 /// 境界線は `NSColor.separatorColor` に任せてあり、こちらは両モードとも自動で適切な濃さになる。
 ///
 /// ■ クリック領域と枠が一致するようにしてある
@@ -136,7 +219,7 @@ private struct SettingsPopUp<Options: View, Label: View>: View {
 
     private let cornerRadius: CGFloat = 6
 
-    /// 下地に重ねる白の濃さ。「リセット」タブのボタンと同じ明るさになるよう合わせてある。
+    /// 下地に重ねる白の濃さ。「リセット」画面のボタンと同じ明るさになるよう合わせてある。
     /// ポップアップの明るさを調整したいときは、この2つの値だけを触ればよい。
     private var faceOpacity: Double {
         colorScheme == .dark ? 0.07 : 0.85
@@ -191,29 +274,39 @@ private struct PopUpWidth: ViewModifier {
 
 /// `SettingsOption` に適合したenumを選ばせるポップアップ行。
 ///
-/// - ポップアップに出るのは `shortTitleKey`(短い名前)だけ。閉じた状態で省略されない。
-/// - `detailKey` を持つ選択肢では、いま選ばれている項目の説明が行の下に自動で出る。
-///   選択を変えると説明も変わるので、「この選択肢が何をするのか」は常に画面上にある。
+/// 閉じた状態にもメニューの中にも出るのは `shortTitleKey`(短い名前)だけ。
+/// 選択肢ごとの説明は持たない(ファイル冒頭の方針3を参照)。
+///
+/// ■ メニュー項目に副題を出すのは断念した経緯(再挑戦する人向け)
+/// 一時期、選択肢の説明をメニュー項目の副題(`NSMenuItem.subtitle`)として出そうとした。
+/// SwiftUIには「`Button` のラベルに `Text` を2つ並べると、1つ目が題・2つ目が副題になる」
+/// という橋渡しがあり、`Picker` の中でも `.tag` による選択反映と併用できる。
+/// **しかし実機では、同じ書き方をした4つの選択肢のうち1つにしか副題が描かれず、
+/// しかもその1つも文末が欠けた**(条件分岐の有無に関わらず再現。macOS 26で確認)。
+/// この橋渡しはAppleも「発見的で、構成によって結果が変わる」と認めている挙動なので、
+/// 見た目が安定しないまま使うことはできない。
+/// 結果としてこの機能自体が不要と判断されたため追わなかったが、将来また副題を出したくなったら、
+/// ここは**素直にAppKitでNSMenuを組む**べきところで、SwiftUIのTextの並べ方で粘る場所ではない。
 struct SettingsPicker<Value: SettingsOption>: View {
     private let title: LocalizedStringKey
-    private let fixedCaption: LocalizedStringKey?
+    private let help: LocalizedStringKey?
     @Binding private var selection: Value
 
     /// - Parameters:
-    ///   - title: 短い名詞句のラベル(例: 「開始ページ」)。
-    ///   - caption: 選択肢によらず常に出したい補足。nilなら選択中の項目の `detailKey` を使う。
+    ///   - title: 項目名(例: 「開始ページ」)。
+    ///   - help: 補足。ホバーの吹き出しで出る。
     init(
         _ title: LocalizedStringKey,
         selection: Binding<Value>,
-        caption: LocalizedStringKey? = nil
+        help: LocalizedStringKey? = nil
     ) {
         self.title = title
         self._selection = selection
-        self.fixedCaption = caption
+        self.help = help
     }
 
     var body: some View {
-        SettingRow(title, caption: fixedCaption ?? selection.detailKey) {
+        SettingRow(title, help: help) {
             SettingsPopUp(width: nil) {
                 Picker(selection: $selection) {
                     ForEach(Array(Value.allCases)) { option in
@@ -258,7 +351,7 @@ struct SettingsPicker<Value: SettingsOption>: View {
 struct SettingsPickerRow<Selection: Hashable, Options: View>: View {
     private let title: LocalizedStringKey
     private let currentTitle: LocalizedStringKey
-    private let caption: LocalizedStringKey?
+    private let help: LocalizedStringKey?
     private let controlWidth: CGFloat?
     @Binding private var selection: Selection
     private let options: Options
@@ -267,20 +360,20 @@ struct SettingsPickerRow<Selection: Hashable, Options: View>: View {
         _ title: LocalizedStringKey,
         selection: Binding<Selection>,
         currentTitle: LocalizedStringKey,
-        caption: LocalizedStringKey? = nil,
+        help: LocalizedStringKey? = nil,
         controlWidth: CGFloat? = nil,
         @ViewBuilder options: () -> Options
     ) {
         self.title = title
         self._selection = selection
         self.currentTitle = currentTitle
-        self.caption = caption
+        self.help = help
         self.controlWidth = controlWidth
         self.options = options()
     }
 
     var body: some View {
-        SettingRow(title, caption: caption) {
+        SettingRow(title, help: help) {
             SettingsPopUp(width: controlWidth) {
                 Picker(selection: $selection) {
                     options
@@ -305,31 +398,24 @@ struct SettingsPickerRow<Selection: Hashable, Options: View>: View {
 
 /// オン/オフ行。スイッチは幅が変わらないので常に右端固定で、ラベル側が幅を譲る。
 ///
-/// ラベルはあくまで短い名詞句/動詞句にして、条件や副作用の説明は `caption` に置く。
+/// スイッチの幅が固定で段替えの必要が無いぶん、ここのラベルは他の行より長くできる。
+/// 「何がオンになるのか」が1行で言い切れるなら、`help` を使わずラベルに書いてしまうこと
+/// (ファイル冒頭の方針を参照)。長くなれば折り返して縦に伸びるだけで、レイアウトは崩れない。
 struct SettingsToggle: View {
     private let title: LocalizedStringKey
-    private let caption: LocalizedStringKey?
+    private let help: LocalizedStringKey?
     @Binding private var isOn: Bool
 
-    init(_ title: LocalizedStringKey, isOn: Binding<Bool>, caption: LocalizedStringKey? = nil) {
+    init(_ title: LocalizedStringKey, isOn: Binding<Bool>, help: LocalizedStringKey? = nil) {
         self.title = title
         self._isOn = isOn
-        self.caption = caption
+        self.help = help
     }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let caption {
-                    Text(caption)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            SettingsRowLabel(title: title, help: help, allowsWrapping: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             Toggle(isOn: $isOn) { EmptyView() }
                 .labelsHidden()
@@ -352,7 +438,7 @@ struct SettingsToggle: View {
 /// ドラッグ中に桁数で行がガタつかないようにしている。
 struct SettingsSlider: View {
     private let title: LocalizedStringKey
-    private let caption: LocalizedStringKey?
+    private let help: LocalizedStringKey?
     @Binding private var value: Double
     private let range: ClosedRange<Double>
     private let step: Double
@@ -363,52 +449,56 @@ struct SettingsSlider: View {
         value: Binding<Double>,
         in range: ClosedRange<Double>,
         step: Double,
-        caption: LocalizedStringKey? = nil,
+        help: LocalizedStringKey? = nil,
         format: @escaping (Double) -> String
     ) {
         self.title = title
         self._value = value
         self.range = range
         self.step = step
-        self.caption = caption
+        self.help = help
         self.format = format
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(title)
-                    .fixedSize(horizontal: false, vertical: true)
+                SettingsRowLabel(title: title, help: help, allowsWrapping: true)
                 Spacer(minLength: 12)
                 Text(format(value))
                     .monospacedDigit()
-                    .foregroundStyle(.secondary)
+                    .fontWeight(.semibold)
             }
 
             Slider(value: $value, in: range, step: step) {
                 EmptyView()
             } minimumValueLabel: {
+                // 両端の数値は「いまどのくらいの位置にいるのか」を読み取るための目盛りで、
+                // 飾りではない。当初の .caption2 + .tertiary では暗い下地に埋もれて読めず、
+                // .caption + .secondary へ上げてもまだ見づらいという再指摘を受けた。
+                //
+                // 色を薄くして順位を付けるのをやめ、**3つの数値すべてを地の文と同じ濃さで描く**。
+                // 順位は色ではなく大きさと太さで示す ―― 現在値は本文サイズの太字、
+                // 両端は一段小さい通常の太さ。薄い文字は「読めるが目立たない」ではなく
+                // 単に「読めない」になりやすく、目盛りとしては役に立たない。
+                //
+                // `.foregroundStyle(.primary)` は**省略できない**。指定しないと
+                // `Slider` が両端のラベルに独自の淡い色を当ててしまい、
+                // 親から地の文の色を受け継いでくれない(実機で確認済み。
+                // 濃さを2度上げても直らなかった原因はこれだった)。
                 Text(format(range.lowerBound))
-                    .font(.caption2)
+                    .font(.callout)
                     .monospacedDigit()
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.primary)
             } maximumValueLabel: {
                 Text(format(range.upperBound))
-                    .font(.caption2)
+                    .font(.callout)
                     .monospacedDigit()
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.primary)
             }
             .labelsHidden()
             .accessibilityLabel(Text(title))
             .accessibilityValue(Text(format(value)))
-
-            if let caption {
-                Text(caption)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
         }
         .padding(.vertical, 2)
     }
@@ -443,20 +533,27 @@ struct SettingsBulletList: View {
                 }
             }
         }
-        .font(.subheadline)
-        .foregroundStyle(.secondary)
+        // 小さく薄い補足文としてではなく、本文として描く。
+        // 使っているのは「リセット」画面の「何が消えるのか」だけで、そこは
+        // 読み飛ばされては困る箇所だから(ResetDataSettingsView のコメント参照)。
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
-// MARK: - タブの土台
+// MARK: - 画面の土台
 
-/// 各設定タブの外枠。`Form` のスタイル・余白・スクロールの扱いを1か所に集約する。
+/// 環境設定の各画面(サイドバーで選ぶ1項目分)の外枠。
+/// `Form` のスタイル・余白・スクロールの扱いを1か所に集約する。
 ///
-/// タブごとに `.formStyle(.grouped).padding()` を書き写していると、
-/// タブが増えるたびに微妙な差異が生まれる。ここを通すことで見た目が必ず揃い、
-/// 将来「全タブに検索フィールドを足す」「全タブの余白を変える」といった変更も1か所で済む。
-struct SettingsTabContainer<Content: View>: View {
+/// 画面ごとに `.formStyle(.grouped).padding()` を書き写していると、
+/// 画面が増えるたびに微妙な差異が生まれる。ここを通すことで見た目が必ず揃い、
+/// 将来「全画面に検索フィールドを足す」「全画面の余白を変える」といった変更も1か所で済む。
+///
+/// この分離は実際に効いた。環境設定を `TabView` の8タブから、システム設定と同じ
+/// サイドバー方式(`SettingsView` / `SettingsPane`)へ作り替えたとき、
+/// 8画面のどれも中身を書き換えずに済んでいる。
+/// (型名は当時 `SettingsTabContainer` だったが、もうタブではないので改名した。)
+struct SettingsPaneContainer<Content: View>: View {
     private let content: Content
 
     init(@ViewBuilder content: () -> Content) {

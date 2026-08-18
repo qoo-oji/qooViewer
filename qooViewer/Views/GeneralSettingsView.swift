@@ -1,7 +1,7 @@
 import SwiftUI
 import Foundation
 
-/// 環境設定ウインドウの「一般」タブ。表示言語・起動時の挙動・ウインドウ/タブの扱い・
+/// 環境設定ウインドウの「一般」画面。表示言語・起動時の挙動・ウインドウ/タブの扱い・
 /// ライブラリデータ・ウェルカム画面など、アプリ全体に関わる基本設定をまとめる。
 ///
 /// ラベルは短い名詞句/動詞句に統一し、条件や副作用の説明は caption に降ろしてある
@@ -10,7 +10,7 @@ struct GeneralSettingsView: View {
     @EnvironmentObject private var preferences: AppPreferences
 
     var body: some View {
-        SettingsTabContainer {
+        SettingsPaneContainer {
             Section {
                 SettingsPicker("Display Language", selection: $preferences.displayLanguage)
             } header: {
@@ -18,10 +18,11 @@ struct GeneralSettingsView: View {
             }
 
             Section {
+                // 「前回の本を開く」+「前回終了したときに読んでいた本を開き直します」と
+                // 二度言っていたのを、ラベル1行に畳んだ(SettingsControls.swift の方針を参照)。
                 SettingsToggle(
-                    "Open the Last Book",
-                    isOn: $preferences.launchOpensLastBook,
-                    caption: "Reopens the book you were reading when qooViewer last quit."
+                    "Reopen the Book You Were Last Reading",
+                    isOn: $preferences.launchOpensLastBook
                 )
                 SettingsToggle("Start in Full Screen", isOn: $preferences.launchFullScreen)
             } header: {
@@ -34,9 +35,8 @@ struct GeneralSettingsView: View {
                     isOn: $preferences.quitWhenLastWindowClosed
                 )
                 SettingsToggle(
-                    "Confirm Before Closing",
-                    isOn: $preferences.confirmBeforeClosingMultipleTabsWindow,
-                    caption: "Asks for confirmation when closing a window that has more than one tab."
+                    "Confirm Before Closing a Window with Several Tabs",
+                    isOn: $preferences.confirmBeforeClosingMultipleTabsWindow
                 )
             } header: {
                 Text("Windows & Tabs")
@@ -48,7 +48,9 @@ struct GeneralSettingsView: View {
                     value: $preferences.maxTrackedBooksCount,
                     in: 50...2000,
                     step: 50,
-                    caption: "Reading positions, layouts, and bookmarks are kept for this many books. The least recently opened are discarded first."
+                    // 「データ」が何を指すのかと、あふれたときにどれから消えるのかは
+                    // ラベルに入れると長すぎるので、ホバーの吹き出しへ。
+                    help: "Reading positions, layouts, and bookmarks are kept for this many books. The least recently opened are discarded first."
                 ) { value in
                     "\(Int(value))"
                 }
@@ -64,7 +66,9 @@ struct GeneralSettingsView: View {
                     value: $preferences.recentFilesLimit,
                     in: AppPreferences.recentFilesLimitRange,
                     step: 5,
-                    caption: "How many books the history keeps. Shown in the File menu's Open Recent and in the side panel's History mode."
+                    // 「履歴を何件保持するか」はラベルが言っているので落とし、
+                    // ラベルからは分からない「どこに出るのか」だけを残す。
+                    help: "Shown in the File menu's Open Recent and in the side panel's History mode."
                 ) { value in
                     "\(Int(value))"
                 }
@@ -83,13 +87,15 @@ struct GeneralSettingsView: View {
                 SettingsToggle(
                     "Enable Side Panel",
                     isOn: $preferences.sidePanelFeatureEnabled,
-                    caption: "Shows a panel for browsing folders and the current book's contents. When off, the panel and its View menu options are unavailable."
+                    help: "Shows a panel for browsing folders and the current book's contents. When off, the panel and its View menu options are unavailable."
                 )
                 SettingsPicker("Panel Position", selection: $preferences.sidePanelPosition)
+                // 「サイドパネルの」はSectionヘッダが言っているので落とし、
+                // 何がダブルクリックになるのかをラベルへ引き上げた。例外だけ吹き出しに残す。
                 SettingsToggle(
-                    "Require Double-Click to Open or Navigate",
+                    "Require a Double-Click to Open or Move Into Folders",
                     isOn: $preferences.sidePanelUsesDoubleClick,
-                    caption: "Applies to opening files and moving into folders in the side panel. Navigation buttons are unaffected."
+                    help: "Navigation buttons such as Back, Forward, and Up are unaffected."
                 )
                 SettingsPicker("Sort Order", selection: $preferences.sidePanelSortOrder)
             } header: {
