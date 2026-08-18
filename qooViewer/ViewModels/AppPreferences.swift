@@ -66,12 +66,12 @@ final class AppPreferences: ObservableObject {
     @Published var loopBehavior: LoopBehavior {
         didSet { UserDefaults.standard.set(loopBehavior.rawValue, forKey: Keys.loopBehavior) }
     }
-    /// 画像が画面より小さいとき、最大何%まで拡大して表示するか(100〜500)
+    /// 画像が画面より小さいとき、最大何%まで拡大して表示するか(100〜800)
     @Published var maxUpscalePercent: Double {
         didSet { UserDefaults.standard.set(maxUpscalePercent, forKey: Keys.maxUpscalePercent) }
     }
     /// トラックパッドのピンチイン・ピンチアウトで、初期表示(=そのモードでの通常の表示倍率)を
-    /// 100%としたとき、最大何%まで拡大できるか(100〜1000)。
+    /// 100%としたとき、最大何%まで拡大できるか(100〜800)。
     ///
     /// maxUpscalePercentとは目的が別で、互いに影響しない。あちらは「小さい画像を勝手に
     /// 引き伸ばしすぎない」ための自動拡大の上限で、こちらはユーザーが明示的に行った拡大操作の
@@ -83,7 +83,7 @@ final class AppPreferences: ObservableObject {
     @Published var maxPinchZoomPercent: Double {
         didSet { UserDefaults.standard.set(maxPinchZoomPercent, forKey: Keys.maxPinchZoomPercent) }
     }
-    /// ルーペの拡大率(%)
+    /// ルーペの拡大率(%、100〜800)
     @Published var loupeMagnificationPercent: Double {
         didSet { UserDefaults.standard.set(loupeMagnificationPercent, forKey: Keys.loupeMagnificationPercent) }
     }

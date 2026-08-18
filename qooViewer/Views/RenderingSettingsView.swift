@@ -22,7 +22,7 @@ struct RenderingSettingsView: View {
                 SettingsSlider(
                     "Maximum Upscale",
                     value: $preferences.maxUpscalePercent,
-                    in: 100...500,
+                    in: 100...800,
                     step: 10,
                     caption: "Images smaller than the window are never enlarged beyond this percentage."
                 ) { value in
@@ -31,7 +31,7 @@ struct RenderingSettingsView: View {
                 SettingsSlider(
                     "Maximum Pinch Zoom",
                     value: $preferences.maxPinchZoomPercent,
-                    in: 100...1000,
+                    in: 100...800,
                     step: 10,
                     caption: "Upper limit for pinching to zoom on a trackpad. 100% turns pinch zoom off."
                 ) { value in
@@ -54,7 +54,7 @@ struct RenderingSettingsView: View {
                 SettingsSlider(
                     "Loupe Magnification",
                     value: $preferences.loupeMagnificationPercent,
-                    in: 150...400,
+                    in: 100...800,
                     step: 10,
                     caption: "How much the loupe enlarges the image under the cursor."
                 ) { value in
