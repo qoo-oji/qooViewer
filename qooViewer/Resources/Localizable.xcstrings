@@ -4103,6 +4103,22 @@
         }
       }
     },
+    "Invert Two-Finger Scrolling" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invert Two-Finger Scrolling"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "2本指スクロールを反転"
+          }
+        }
+      }
+    },
     "Interpolation Quality" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -6850,6 +6866,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "前回表示していたページからそのまま再開します。"
+          }
+        }
+      }
+    },
+    "Reverses the direction the image moves — both vertically and horizontally — when you scroll with two fingers on a trackpad. The mouse wheel is not affected, and neither are the actions assigned to wheel or flick directions." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reverses the direction the image moves — both vertically and horizontally — when you scroll with two fingers on a trackpad. The mouse wheel is not affected, and neither are the actions assigned to wheel or flick directions."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "トラックパッドで2本指スクロールしたときに、画像が動く向きを上下左右とも逆にします。マウスホイールと、ホイールやフリックの向きに割り当てた操作には影響しません。"
           }
         }
       }

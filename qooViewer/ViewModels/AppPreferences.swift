@@ -20,6 +20,7 @@ final class AppPreferences: ObservableObject {
         static let slideshowInterval = "qooViewer.pref.slideshowInterval"
         static let defaultScalingMode = "qooViewer.pref.defaultScalingMode"
         static let treatTrackpadFlickAsWheel = "qooViewer.pref.treatTrackpadFlickAsWheel"
+        static let invertTwoFingerScrolling = "qooViewer.pref.invertTwoFingerScrolling"
         static let quitWhenLastWindowClosed = "qooViewer.pref.quitWhenLastWindowClosed"
         static let singlePageAspectRatioThreshold = "qooViewer.pref.singlePageAspectRatioThreshold"
         static let backgroundColorOption = "qooViewer.pref.backgroundColorOption"
@@ -114,6 +115,22 @@ final class AppPreferences: ObservableObject {
     /// 物理的なマウスホイールでのページ送りには影響しない。
     @Published var treatTrackpadFlickAsWheel: Bool {
         didSet { UserDefaults.standard.set(treatTrackpadFlickAsWheel, forKey: Keys.treatTrackpadFlickAsWheel) }
+    }
+    /// トラックパッド(およびMagic Mouseなど、phaseを伴う「なめらかな」スクロールを送ってくる
+    /// 機器)でのスクロールについて、画像が動く向きを上下左右とも逆にする(ユーザー要望)。
+    ///
+    /// macOSの「ナチュラルなスクロール」はシステム全体の設定で、マウスホイールにも同時に
+    /// 効いてしまう。この設定はqooViewerの中のトラックパッド操作だけを対象にするため、
+    /// 「トラックパッドは逆向きが好みだが、マウスホイールは今のままにしたい」という使い分けが
+    /// できる(そのため物理マウスホイールは意図的に対象外にしてある)。
+    ///
+    /// 反転するのは**画像が動く向きだけ**である。ホイールの上/下や横フリックに割り当てられた
+    /// 操作(既定ではページ送り)の向きは変えない ― そちらは「キー・マウス」設定で上下を
+    /// 入れ替えられるため、ここでも反転させると二重になり、どちらを直せばよいのか分から
+    /// なくなるため(ユーザーの判断)。ただし「スクロールできるモードで端まで来たらページを
+    /// 送る」動作だけは、スクロールそのものの延長なので反転後の進行方向に従う。
+    @Published var invertTwoFingerScrolling: Bool {
+        didSet { UserDefaults.standard.set(invertTwoFingerScrolling, forKey: Keys.invertTwoFingerScrolling) }
     }
     /// すべてのウインドウ(実寸表示・環境設定ウインドウを含む)を閉じたときにqooViewerを終了する。
     /// OFF(既定)のときは、macOSの標準的なアプリと同様にウインドウを閉じてもDockに残ります。
@@ -369,6 +386,7 @@ final class AppPreferences: ObservableObject {
         self.slideshowInterval = defaults.object(forKey: Keys.slideshowInterval) as? Double ?? 5
         self.defaultScalingMode = ScalingMode(rawValue: defaults.string(forKey: Keys.defaultScalingMode) ?? "") ?? .fitToScreen
         self.treatTrackpadFlickAsWheel = defaults.object(forKey: Keys.treatTrackpadFlickAsWheel) as? Bool ?? true
+        self.invertTwoFingerScrolling = defaults.object(forKey: Keys.invertTwoFingerScrolling) as? Bool ?? false
         self.quitWhenLastWindowClosed = defaults.object(forKey: Keys.quitWhenLastWindowClosed) as? Bool ?? false
         self.singlePageAspectRatioThreshold =
             defaults.object(forKey: Keys.singlePageAspectRatioThreshold) as? Double ?? 1.0

@@ -424,6 +424,10 @@ struct ViewerView: View {
                 // (完全に無視する)。物理マウスホイールでのページ送りはこれまでどおり
                 // 影響を受けない。
                 let isTrackpadOriginated = !event.phase.isEmpty || !event.momentumPhase.isEmpty
+                // 環境設定「2本指スクロールを反転」(AppPreferences.invertTwoFingerScrolling)は、
+                // phaseを伴うスクロール ― トラックパッドやMagic Mouseの、指でなぞる操作 ―
+                // だけを対象にする。物理マウスホイールのノッチ(phaseが空)は対象外。
+                let isInverted = preferences.invertTwoFingerScrolling && isTrackpadOriginated
                 // ピンチ拡大中は、2本指の横方向の動きは「拡大した画像を横へ動かしたい」で
                 // あってページ送りではない。ここを通すと、拡大して読んでいる最中に画像を
                 // 横へずらしただけでページが送られ(そのうえ拡大も解除され)てしまう。
@@ -436,7 +440,23 @@ struct ViewerView: View {
                         deltaX: event.scrollingDeltaX,
                         deltaY: event.scrollingDeltaY
                     )
+                    // このぶんの素のスクロールは、通常はイベントをそのまま通して
+                    // ScrollViewに任せる。反転が有効なときだけ肩代わりする
+                    // (performInvertedScrollのコメント参照)。
+                    if isInverted,
+                       performInvertedScroll(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY) {
+                        return nil
+                    }
                     break
+                }
+                if isInverted, isPageAreaScrollable {
+                    // 端でのページ送り判定(handleScroll)を先に済ませてから動かす。
+                    // 判定は「このイベントを処理する**前**の位置」で行う必要があるため
+                    // (handleScrollInScrollableModeのコメント参照)、順番を入れ替えられない。
+                    if !handleScroll(deltaY: event.scrollingDeltaY, isInverted: true) {
+                        performInvertedScroll(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY)
+                    }
+                    return nil
                 }
                 handleScroll(deltaY: event.scrollingDeltaY)
             case .magnify:
@@ -2546,7 +2566,11 @@ struct ViewerView: View {
     /// 「まだスクロールできるか」は、ScrollViewがこのイベントを処理する**前**の位置で判定する。
     /// そのため、端に着くまでは普通にスクロールし、端に着いた状態でもう一度回したときに初めて
     /// 横への回り込みやページ送りが起きる ― cooViewerと同じ操作感になる。
-    private func handleScrollInScrollableMode(deltaY: CGFloat) {
+    /// - Parameter isInverted: 環境設定「2本指スクロールを反転」が、このイベントに効いているか
+    ///   (AppPreferences.invertTwoFingerScrolling参照)。
+    /// - Returns: 実際に何か操作を行った(=このイベントをスクロールに使わなかった)かどうか。
+    @discardableResult
+    private func handleScrollInScrollableMode(deltaY: CGFloat, isInverted: Bool) -> Bool {
         // ピンチ拡大中は、どのモードでもホイールをスクロール専用にする(ユーザーの判断)。
         // 拡大して細部を読んでいる最中に端まで来たからといってページが送られると、
         // 拡大も一緒に解除されて読んでいた場所を見失う。拡大を解除すれば、そのモード本来の
@@ -2555,59 +2579,77 @@ struct ViewerView: View {
             ? .scrollOnly
             : keyBindingStore.wheelBehavior(in: viewModel.scalingMode)
         // スクロールのみ: ScrollViewに任せる(何もしない)。
-        guard behavior != .scrollOnly else { return }
+        guard behavior != .scrollOnly else { return false }
 
-        guard deltaY > 2 || deltaY < -2 else { return }
+        guard deltaY > 2 || deltaY < -2 else { return false }
         let now = Date()
         if let lastWheelActionAt, now.timeIntervalSince(lastWheelActionAt) < wheelActionCooldown {
-            return
+            return false
         }
 
         // NSEvent.scrollingDeltaYは、ホイールを上へ回すと正になる(handleScrollのコメント参照)。
-        let forward = deltaY < 0
+        //
+        // 向きの意味が2種類あることに注意。
+        // - assignedForward: 「ホイール上/下」への**割り当て**を引くための向き。反転設定の
+        //   影響を受けない(反転は画像が動く向きだけを変える設定であり、割り当ての上下まで
+        //   入れ替えると「キー・マウス」設定側の入れ替えと二重になるため。
+        //   AppPreferences.invertTwoFingerScrolling参照)。
+        // - scrollForward: 実際にページの**内容が進む**向き。端まで来たときのスクロール送り
+        //   /ページ送りは、いま行っているスクロールの延長なので、こちらを使う。
+        let assignedForward = deltaY < 0
+        let scrollForward = isInverted ? deltaY > 0 : deltaY < 0
 
         if behavior == .turnPage {
             // スクロールには使わず、常に割り当てられた操作を行う。
             lastWheelActionAt = now
-            perform(keyBindingStore.resolvedAction(for: forward ? .wheelDown : .wheelUp, in: viewModel.scalingMode))
-            return
+            perform(
+                keyBindingStore.resolvedAction(
+                    for: assignedForward ? .wheelDown : .wheelUp, in: viewModel.scalingMode
+                )
+            )
+            return true
         }
 
         // まだ縦に動ける間はScrollViewに任せ、端に着いてから初めてこちらが引き取る。
-        guard let bounds = ScrollViewBounds(scrollGeometryBox.scrollView) else { return }
+        guard let bounds = ScrollViewBounds(scrollGeometryBox.scrollView) else { return false }
         let epsilon = Self.scrollEdgeEpsilon
         let canStillScrollVertically =
-            forward ? bounds.position.y < bounds.maxY - epsilon : bounds.position.y > epsilon
-        guard !canStillScrollVertically else { return }
+            scrollForward ? bounds.position.y < bounds.maxY - epsilon : bounds.position.y > epsilon
+        guard !canStillScrollVertically else { return false }
 
         lastWheelActionAt = now
         switch behavior {
         case .scrollAndTurnPage:
-            scrollByOneScreen(forward: forward)
+            scrollByOneScreen(forward: scrollForward)
         case .scrollAndWrap:
             // 横へは回り込むが、ページはめくらない(cooViewerのcanScrollMode == 1)。
-            scrollByOneScreen(forward: forward, allowPageChange: false)
+            scrollByOneScreen(forward: scrollForward, allowPageChange: false)
         case .scrollOnly, .turnPage:
             break  // 上で処理済み
         }
+        return true
     }
 
-    private func handleScroll(deltaY: CGFloat) {
+    /// - Parameter isInverted: 環境設定「2本指スクロールを反転」が、このイベントに効いているか
+    ///   (AppPreferences.invertTwoFingerScrolling参照)。
+    /// - Returns: 実際に何か操作を行った(=このイベントをスクロールに使わなかった)かどうか。
+    ///   反転が有効なときの呼び出し側が、「操作したのでスクロールはしない」を判断するために使う。
+    @discardableResult
+    private func handleScroll(deltaY: CGFloat, isInverted: Bool = false) -> Bool {
         // 「画面内に収める」モードにはスクロールする余地が無いため、従来どおりホイールの
         // 割り当て(既定はページ送り)をそのまま実行する。
         // それ以外のモードでは、環境設定「スクロールできるとき」(WheelScrollBehavior、
         // cooViewerのCanScrollMode相当)に従う。
         // 「画面内に収める」でもピンチ拡大中はスクロールできる余地があるため、そちらの経路に乗せる。
         if isPageAreaScrollable {
-            handleScrollInScrollableMode(deltaY: deltaY)
-            return
+            return handleScrollInScrollableMode(deltaY: deltaY, isInverted: isInverted)
         }
 
         // NSEvent.scrollingDeltaYの符号は、ホイールを物理的に上へ回す(指を上に動かす)と
         // 正の値になる(以前の実装ではここが逆になっており、ホイールを上に回すと.wheelDownに
         // 割り当てた操作が実行されてしまっていた。設定画面の「Scroll Wheel Up」という表示と
         // 実際の動作が食い違うバグだったため、対応する分岐を入れ替えて修正している)。
-        guard deltaY > 2 || deltaY < -2 else { return }
+        guard deltaY > 2 || deltaY < -2 else { return false }
 
         // 一部のマウス/ドライバでは、物理的には1ノッチしか回していなくても、その回転が
         // ごく短い間隔の複数のscrollWheelイベントに分かれて届くことがある。それらを
@@ -2616,15 +2658,52 @@ struct ViewerView: View {
         // これよりも空くため、そちらは取りこぼさない)。
         let now = Date()
         if let lastWheelActionAt, now.timeIntervalSince(lastWheelActionAt) < wheelActionCooldown {
-            return
+            return false
         }
         lastWheelActionAt = now
 
+        // ここは「向き→操作」の割り当てそのものなので、反転設定の影響を受けない
+        // (AppPreferences.invertTwoFingerScrolling参照)。そもそもこの分岐に来るのは
+        // スクロールする余地が無いときだけで、反転させる対象のスクロールが存在しない。
         if deltaY > 0 {
             perform(keyBindingStore.resolvedAction(for: .wheelUp, in: viewModel.scalingMode))
         } else {
             perform(keyBindingStore.resolvedAction(for: .wheelDown, in: viewModel.scalingMode))
         }
+        return true
+    }
+
+    /// 環境設定「2本指スクロールを反転」が有効なときに、ScrollView標準のスクロールを
+    /// 肩代わりして、上下左右とも反対向きに動かす。
+    ///
+    /// NSEventのスクロール量そのものは書き換えられないため、「イベントを消費したうえで、
+    /// 自分で反対向きにスクロールする」という形にしている。指を離したあとの慣性
+    /// (momentumPhase)のイベントも同じ経路を通るので、慣性スクロールはそのまま効く。
+    /// 一方、端での跳ね返り(ラバーバンド)はNSScrollView標準のものが使えなくなり、
+    /// 可動範囲でぴたりと止まる(ScrollViewBounds.scroll(to:)がクランプするため)。
+    /// このアプリは端に着いたかどうかでページ送り・回り込みを判断する作りなので、
+    /// 端が伸び縮みしないほうがむしろ挙動が読みやすい。
+    ///
+    /// 符号について(実機のスクロールイベントを約500件記録して確定させたもの)。
+    /// AppKit標準のスクロールは、正規化後のposition(ScrollViewBounds.position)を
+    /// **縦横とも** `position -= delta` の向きへ動かす。したがって反転はその逆、
+    /// 縦横とも `position += delta` でよい。
+    ///
+    /// 経緯(ユーザー報告): 「縦は反転するが横だけ効かない」という報告に対し、当初は
+    /// AppKitの符号規約が縦横で非対称なのだろうと考えて横の符号を入れ替え、さらには実機の
+    /// 挙動から符号を自動較正する仕組みまで入れたが、いずれも外れだった。実際にイベントを
+    /// 記録して測ったところ規約は完全に対称で、真の原因は較正が横について一度も完了せず、
+    /// 既定値がたまたま標準と同じ向きだったことだった。規約が対称だと確定した以上、較正の
+    /// 仕組みは不要な複雑さなので撤去してある。**この式を「直す」前に、まず実測すること。**
+    /// - Returns: 実際にスクロールを引き受けたかどうか(スクロールできる状態でなければfalse)。
+    @discardableResult
+    private func performInvertedScroll(deltaX: CGFloat, deltaY: CGFloat) -> Bool {
+        guard isPageAreaScrollable,
+              let bounds = ScrollViewBounds(scrollGeometryBox.scrollView) else { return false }
+        guard deltaX != 0 || deltaY != 0 else { return true }
+        let position = bounds.position
+        bounds.scroll(to: CGPoint(x: position.x + deltaX, y: position.y + deltaY))
+        return true
     }
 
     /// トラックパッドの「ページ間をスワイプ」ジェスチャーが3本指/4本指設定になっている

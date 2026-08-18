@@ -24,6 +24,16 @@ struct ReadingSettingsView: View {
 
             Section {
                 SettingsToggle(
+                    "Invert Two-Finger Scrolling",
+                    isOn: $preferences.invertTwoFingerScrolling,
+                    caption: "Reverses the direction the image moves — both vertically and horizontally — when you scroll with two fingers on a trackpad. The mouse wheel is not affected, and neither are the actions assigned to wheel or flick directions."
+                )
+            } header: {
+                Text("Scrolling")
+            }
+
+            Section {
+                SettingsToggle(
                     "Thumbnail Preview",
                     isOn: $preferences.showProgressBarThumbnailPreview,
                     caption: "Shows a preview of the page under the pointer while hovering the progress bar."
