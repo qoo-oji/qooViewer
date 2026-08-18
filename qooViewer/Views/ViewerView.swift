@@ -41,6 +41,11 @@ struct ViewerView: View {
     /// スクロール送りが参照する、裏のNSScrollViewの入れ物(ScrollViewAccessor参照)。
     /// bodyからは読まないため、更新しても再描画は起きない。
     @State private var scrollGeometryBox = ScrollGeometryBox()
+    /// ピンチ拡大に合わせてスクロール位置を合わせ直すための予約(PendingZoomAnchor参照)。
+    @State private var pendingZoomAnchor: PendingZoomAnchor?
+    /// ピンチ操作中に一時的に表示する拡大率(%)。nilなら非表示。
+    @State private var zoomIndicatorPercent: Int?
+    @State private var zoomIndicatorHideTask: Task<Void, Never>?
     /// 次にページを表示し始めるとき、読み終わり側の隅から始めるかどうか。
     /// scrollAndMovePreviousで前のページへ戻ったときだけtrueになる
     /// (cooViewerのsetStartFromEnd:YES相当)。
@@ -363,7 +368,7 @@ struct ViewerView: View {
     /// (handleOnAppearのコメント参照。以前はonAppear内に直接書いていた)。
     private func makeScrollMonitor() -> Any? {
         NSEvent.addLocalMonitorForEvents(
-            matching: [.scrollWheel, .swipe, .mouseMoved, .keyDown]
+            matching: [.scrollWheel, .swipe, .magnify, .smartMagnify, .mouseMoved, .keyDown]
         ) { event in
             // NSEvent.addLocalMonitorForEventsは「このアプリのどのウインドウ宛てのイベントか」に
             // 関わらず、アプリ全体のイベントを受け取ってしまう。複数のウインドウ(タブ)を
@@ -419,7 +424,13 @@ struct ViewerView: View {
                 // (完全に無視する)。物理マウスホイールでのページ送りはこれまでどおり
                 // 影響を受けない。
                 let isTrackpadOriginated = !event.phase.isEmpty || !event.momentumPhase.isEmpty
-                if preferences.treatTrackpadFlickAsWheel && isTrackpadOriginated {
+                // ピンチ拡大中は、2本指の横方向の動きは「拡大した画像を横へ動かしたい」で
+                // あってページ送りではない。ここを通すと、拡大して読んでいる最中に画像を
+                // 横へずらしただけでページが送られ(そのうえ拡大も解除され)てしまう。
+                // 3本指/4本指の.swipe(下のcase)は、スクロールと取り違えようのない
+                // 明示的なページ送り操作なので、拡大中でもそのまま働かせる。
+                if preferences.treatTrackpadFlickAsWheel && isTrackpadOriginated
+                    && viewModel.pinchZoomFactor == 1 {
                     handleTrackpadScrollGesture(
                         phase: event.phase,
                         deltaX: event.scrollingDeltaX,
@@ -428,6 +439,14 @@ struct ViewerView: View {
                     break
                 }
                 handleScroll(deltaY: event.scrollingDeltaY)
+            case .magnify:
+                handleMagnify(event)
+                // 標準の処理(SwiftUIのScrollViewは既定でmagnificationを受け付けないが、
+                // 将来にわたって二重に処理されないことを保証するため)へは渡さない。
+                return nil
+            case .smartMagnify:
+                handleSmartMagnify(event)
+                return nil
             case .swipe:
                 // 「ページ間をスワイプ」が3本指/4本指設定の場合は、こちらの専用イベントで
                 // 届く(2本指設定の場合の扱いは上のhandleTrackpadScrollGesture参照)。
@@ -446,9 +465,18 @@ struct ViewerView: View {
                 // カスタマイズ可能なキー割り当ての対象には含めず、常に固定の「閉じる」操作
                 // という慣習に合わせて別枠で扱う。拡大鏡(ルーペ)表示中に押すと、
                 // ページ送りなど他の操作には一切影響させずに拡大鏡だけを閉じる。
-                if event.keyCode == 53, viewModel.isLoupeActive {
-                    viewModel.toggleLoupe()
-                    return nil
+                // 拡大鏡が出ていなければ、ピンチ拡大の解除に使う。どちらにも当てはまらない
+                // ときはイベントを消費せずそのまま通し、フルスクリーンの解除など
+                // macOS標準のESCの働きを妨げない。
+                if event.keyCode == 53 {
+                    if viewModel.isLoupeActive {
+                        viewModel.toggleLoupe()
+                        return nil
+                    }
+                    if viewModel.pinchZoomFactor > 1 {
+                        resetPinchZoom()
+                        return nil
+                    }
                 }
                 // キー入力の検知は、以前はSwiftUIの.onKeyPressで行っていたが、
                 // 環境によっては矢印キーがそちらまで届かない(ビープ音が鳴るだけで
@@ -465,8 +493,8 @@ struct ViewerView: View {
                 }
             default:
                 // .mouseMovedは上で早期リターン済みのため、マッチしている残りの型
-                // (.scrollWheel/.swipe/.keyDown)はすべて明示的なcaseで処理されており、
-                // ここには実質到達しない。
+                // (.scrollWheel/.swipe/.magnify/.smartMagnify/.keyDown)はすべて明示的な
+                // caseで処理されており、ここには実質到達しない。
                 break
             }
             return event
@@ -570,6 +598,8 @@ struct ViewerView: View {
         cursorHideTask = nil
         toastDismissTask?.cancel()
         toastDismissTask = nil
+        zoomIndicatorHideTask?.cancel()
+        zoomIndicatorHideTask = nil
         if isCursorHidden {
             NSCursor.unhide()
             isCursorHidden = false
@@ -827,6 +857,26 @@ struct ViewerView: View {
                 .zIndex(1)
             }
 
+            // ピンチ拡大中の拡大率表示(ユーザー要望)。トーストと同じく画面に浮かせるが、
+            // トーストが画面下部を使うのに対しこちらは上部に出す(拡大操作の直後に
+            // ブックマーク追加のトーストが重なっても互いに隠れないようにするため)。
+            if let zoomIndicatorPercent {
+                VStack {
+                    Text(verbatim: "\(zoomIndicatorPercent)%")
+                        .font(.callout)
+                        .monospacedDigit()
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+                        .padding(.top, 56)
+                    Spacer()
+                }
+                .allowsHitTesting(false)
+                .transition(.opacity)
+                .zIndex(1)
+            }
+
             // ページ一覧(サムネイルグリッド)。以前は独立したシート(.sheet)として表示していたが、
             // ユーザー要望により「閉じる」ボタンと並び替え機能を廃止し、代わりにこのパネルの
             // 外側(ビューア画面)をクリックすると閉じるようにした。パネル自体は以前のシートと
@@ -887,6 +937,9 @@ struct ViewerView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: toastMessage)
+        // 拡大率そのものが変わるたびにアニメーションさせると、ピンチ操作中ずっと数字が
+        // ふわふわして読みにくいため、出す/消すの切り替わりだけをアニメーションさせる。
+        .animation(.easeInOut(duration: 0.15), value: zoomIndicatorPercent == nil)
         .animation(.easeInOut(duration: 0.15), value: showThumbnailGrid)
         .animation(.easeInOut(duration: 0.15), value: isShowingPageInfoPanel)
         .background(preferences.effectiveBackgroundColor)
@@ -1000,6 +1053,10 @@ struct ViewerView: View {
         // (「画面内に収める」へ切り替えた場合はscrollToPageCornerが何もしない)。
         .onChange(of: viewModel.scalingMode) { _, _ in
             scrollToPageCorner(atEnd: false)
+        }
+        // 本を開いたまま環境設定でピンチ拡大の上限が引き下げられたら、今の拡大率もそこまで下げる。
+        .onChange(of: preferences.maxPinchZoomPercent) { _, _ in
+            viewModel.clampPinchZoomToCurrentLimit()
         }
     }
 
@@ -1696,26 +1753,47 @@ struct ViewerView: View {
         slots(forOrderedImages: orderedCurrentImages)
     }
 
-    /// 拡大鏡(ルーペ)が実際にサンプリングするスロット列。viewModel.loupeSourceImages
-    /// (currentImagesより高解像度、ViewerViewModel.scheduleLoupeSourceLoad参照)が
+    /// 高解像度ソース(viewModel.highResolutionSourceImages、currentImagesより高解像度。
+    /// ViewerViewModel.scheduleHighResolutionSourceLoad参照)を、表示順に並べたスロット列。
+    /// 拡大鏡(ルーペ)のサンプリング元と、ピンチ拡大中のページ本体の描画元の両方で使う。
     /// currentImagesと同じ枚数だけ揃っていればそちらを、まだ揃っていない(取得中/失敗)場合は
     /// orderedCurrentSlots(表示用の画像)にフォールバックする。空白スロットの挿入ロジックは
-    /// orderedCurrentSlotsと共通(slots(forOrderedImages:)参照)。
-    private var orderedLoupeSourceSlots: [SpreadPageSlot] {
-        guard viewModel.loupeSourceImages.count == viewModel.currentImages.count,
-              !viewModel.loupeSourceImages.isEmpty
+    /// orderedCurrentSlotsと共通(slots(forOrderedImages:)参照)なので、返る配列の要素数と
+    /// 空白の位置は必ずorderedCurrentSlotsと一致する(renderSlots(for:)がその前提に依存する)。
+    private var orderedHighResolutionSlots: [SpreadPageSlot] {
+        guard viewModel.highResolutionSourceImages.count == viewModel.currentImages.count,
+              !viewModel.highResolutionSourceImages.isEmpty
         else {
             return orderedCurrentSlots
         }
         let orderedSourceImages = viewModel.readingDirection == .rightToLeft
-            ? Array(viewModel.loupeSourceImages.reversed())
-            : viewModel.loupeSourceImages
+            ? Array(viewModel.highResolutionSourceImages.reversed())
+            : viewModel.highResolutionSourceImages
         return slots(forOrderedImages: orderedSourceImages)
+    }
+
+    /// ページ本体を実際に描画するときに使うスロット列。ピンチ拡大中は、より高解像度の
+    /// ソースがあればそれに差し替える(表示用画像は長辺4096px上限でデコードされているため、
+    /// そのまま数倍に引き伸ばすと粗くなる。ImageDecoder参照)。
+    ///
+    /// **レイアウトの計算には決してこちらを使わないこと。** 各スロットの表示幅・contentSize・
+    /// renderScaleは必ず表示用画像(orderedCurrentSlots)から求める必要がある。高解像度版は
+    /// 画素数そのものが違うため、そちらでレイアウトすると「拡大縮小しない」モードの原寸表示が
+    /// 高解像度版の読み込み完了と同時に飛び跳ねてしまう(縦横比は同じなので、他のモードでは
+    /// 結果的に同じ表示になるが、モードによって意味が変わる作りは避ける)。
+    ///
+    /// 差し替え後も要素数と空白スロットの位置は元と一致する(orderedHighResolutionSlots参照)
+    /// ため、呼び出し側は元のスロット列と同じ添字でそのまま引ける。
+    private func renderSlots(for orderedSlots: [SpreadPageSlot]) -> [SpreadPageSlot] {
+        guard viewModel.pinchZoomFactor > 1 else { return orderedSlots }
+        let highResolution = orderedHighResolutionSlots
+        guard highResolution.count == orderedSlots.count else { return orderedSlots }
+        return highResolution
     }
 
     /// 拡大鏡(ルーペ)が実際に使う「スロット列」と「各スロットの表示幅」の組。見開き中に実画像が
     /// 2枚とも表示されている場合は、境目をまたいだ拡大ができるよう、2枚を結合した1枚の高解像度
-    /// 画像(viewModel.loupeCombinedSourceImage、ViewerViewModel.scheduleLoupeSourceLoad参照)を
+    /// 画像(viewModel.loupeCombinedSourceImage、ViewerViewModel.scheduleHighResolutionSourceLoad参照)を
     /// 単一のスロットとして返す(ユーザー報告: 拡大鏡が見開きの境目をまたげない)。単ページ表示中・
     /// EPUB由来の空白スロットを含む見開き中(displaySlots.count != 2相当、currentImages.count != 2
     /// で判定)は、従来通りページごとに別々のスロットとして扱う。
@@ -1737,11 +1815,11 @@ struct ViewerView: View {
         if viewModel.currentImages.count == 2, let combined = viewModel.loupeCombinedSourceImage {
             return ([.image(combined)], [displaySlotWidths.reduce(0, +)])
         }
-        return (orderedLoupeSourceSlots, displaySlotWidths)
+        return (orderedHighResolutionSlots, displaySlotWidths)
     }
 
     /// 表示順(画面上の左→右)に並んだ画像配列から、見開きスロット列を組み立てる共通ロジック。
-    /// orderedCurrentSlots/orderedLoupeSourceSlotsの両方で使う(orderedCurrentSlotsのコメント
+    /// orderedCurrentSlots/orderedHighResolutionSlotsの両方で使う(orderedCurrentSlotsのコメント
     /// 参照。空白スロットの挿入条件はどちらも同じ画像枚数・同じcurrentSoleImageForcedSpreadPosition
     /// に基づくため、対象の画像配列だけを差し替えて共通化できる)。
     private func slots(forOrderedImages images: [CGImage]) -> [SpreadPageSlot] {
@@ -1760,18 +1838,14 @@ struct ViewerView: View {
     private var pageArea: some View {
         GeometryReader { geo in
             let orderedSlots = orderedCurrentSlots
-            // 見開き表示で左右のページの元画像の解像度が異なる(スキャン品質がページごとに
-            // バラバラな本などでよくある)場合でも、実際の本のように両ページの物理的な高さを
-            // 揃えて表示したい。画像そのものの画素数をそのまま使うと、解像度が低い方の画像は
-            // 相対的に小さく表示されてしまう(拡大されているように見えない)ため、含まれる
-            // 画像のうち最大の高さを基準にし、他の画像(空白スロットを含む)はアスペクト比を
-            // 保ったままその高さに合わせた幅で計算する。
-            let referenceHeight = orderedSlots.compactMap { slot -> CGFloat? in
-                if case .image(let image) = slot { return CGFloat(image.height) }
-                return nil
-            }.max() ?? 0
+            let referenceHeight = referenceHeight(for: orderedSlots)
             let contentSize = totalContentSize(for: orderedSlots, referenceHeight: referenceHeight)
+            // ピンチ拡大(viewModel.pinchZoomFactor)は、そのモードでの通常の倍率にそのまま
+            // 掛けるだけにしてある。こうすることで、以降のレイアウト ― 各スロットの表示幅、
+            // ScrollViewの中身の大きさ、拡大鏡のサンプリング位置 ― はすべて従来どおり
+            // このscaleを見るだけでよく、拡大への追従が自動的に効く。
             let scale = renderScale(contentSize: contentSize, containerSize: geo.size)
+                * viewModel.pinchZoomFactor
             // 空白スロット(orderedCurrentSlotsのコメント参照)の幅は、同じ見開き内にある
             // 実画像のアスペクト比をそのまま流用する(相方が実在すればこのくらいの幅になる
             // はず、という近似。実際の本の見開きで白紙ページが対向ページと同じ判型になるのに
@@ -1792,10 +1866,14 @@ struct ViewerView: View {
                 mirrorAspectRatio: mirrorAspectRatio
             )
 
+            // 描画にだけ使うスロット列(ピンチ拡大中は高解像度版に差し替わる。renderSlots(for:)
+            // 参照)。幅・高さの計算には引き続き表示用のorderedSlotsを使う。
+            let renderSlots = renderSlots(for: orderedSlots)
+
             let imagesRow = HStack(spacing: 0) {
-                ForEach(Array(orderedSlots.enumerated()), id: \.offset) { _, slot in
+                ForEach(Array(orderedSlots.enumerated()), id: \.offset) { index, slot in
                     let width = displayWidth(for: slot, atHeight: referenceHeight, mirrorAspectRatio: mirrorAspectRatio)
-                    switch slot {
+                    switch renderSlots[index] {
                     case .image(let image):
                         Image(decorative: image, scale: 1)
                             .interpolation(preferences.interpolationQuality.swiftUIInterpolation)
@@ -1828,25 +1906,40 @@ struct ViewerView: View {
                 }
             }
 
+            // ScrollViewの中身(documentView)の大きさ。スクロールの可動範囲と、ピンチ拡大の
+            // 位置合わせ(scrollTarget(for:metrics:))の両方がこの値を前提にするため、
+            // 計算は1か所(scrollContentSize(contentSize:scale:viewport:))にまとめてある。
+            let scrollContentSize = scrollContentSize(
+                contentSize: contentSize, scale: scale, viewport: geo.size
+            )
+
             ZStack {
-                if viewModel.scalingMode == .fitToScreen {
+                // 「画面内に収める」でも、ピンチ拡大中は画像が画面からはみ出すため
+                // ScrollViewが要る(isPageAreaScrollable参照)。
+                if !isPageAreaScrollable {
                     imagesRow
                         .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
                 } else {
                     ScrollView(scrollAxes) {
                         imagesRow
-                            .frame(
-                                width: max(contentSize.width * scale, geo.size.width),
-                                height: contentSize.height * scale
-                            )
+                            .frame(width: scrollContentSize.width, height: scrollContentSize.height)
                             // スクロール送り(scrollByOneScreen等)が現在位置と可動範囲を正確に
                             // 知るために、裏のNSScrollViewを控えておく(ScrollViewAccessor参照)。
                             // ScrollViewの**内側**(スクロールされる中身)に置く必要がある。
                             // 外側に付けると、祖先をたどってもNSScrollViewには行き当たらない。
                             .background(
                                 ScrollViewAccessor(
-                                    onResolve: { scrollGeometryBox.scrollView = $0 },
-                                    onDocumentFrameChange: { finishPageEntryScrollIfNeeded() }
+                                    onResolve: {
+                                        scrollGeometryBox.scrollView = $0
+                                        // 「画面内に収める」をピンチ拡大したことでScrollViewが
+                                        // **新しく現れた**場合、documentViewの大きさは購読を
+                                        // 始める前に既に確定しているため、frameDidChangeが
+                                        // 一度も来ない。この経路でも位置合わせを試みておく
+                                        // (予約が無ければ何もしないので、通常の更新のたびに
+                                        // 呼ばれても害はない)。
+                                        applyPendingZoomAnchorIfNeeded()
+                                    },
+                                    onDocumentFrameChange: { handleDocumentFrameChange() }
                                 )
                             )
                     }
@@ -1877,13 +1970,13 @@ struct ViewerView: View {
                     // ヒットテスト領域になってしまう)。
                     ClickZoneArea(
                         onClick: { perform(clickZoneAction(for: .clickLeftZone)) },
-                        isDragScrollEnabled: viewModel.scalingMode != .fitToScreen
+                        isDragScrollEnabled: isPageAreaScrollable
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                     ClickZoneArea(
                         onClick: { perform(clickZoneAction(for: .clickRightZone)) },
-                        isDragScrollEnabled: viewModel.scalingMode != .fitToScreen
+                        isDragScrollEnabled: isPageAreaScrollable
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -1917,6 +2010,24 @@ struct ViewerView: View {
                 pageAreaFrameInWindow = frame
             }
         )
+    }
+
+    /// 見開き内の各スロットを並べるときの基準の高さ(画素単位)。
+    ///
+    /// 見開き表示で左右のページの元画像の解像度が異なる(スキャン品質がページごとに
+    /// バラバラな本などでよくある)場合でも、実際の本のように両ページの物理的な高さを
+    /// 揃えて表示したい。画像そのものの画素数をそのまま使うと、解像度が低い方の画像は
+    /// 相対的に小さく表示されてしまう(拡大されているように見えない)ため、含まれる
+    /// 画像のうち最大の高さを基準にし、他の画像(空白スロットを含む)はアスペクト比を
+    /// 保ったままその高さに合わせた幅で計算する。
+    ///
+    /// pageArea(GeometryReader内)だけでなく、ピンチ拡大の位置合わせ(currentPageLayoutMetrics)
+    /// からも同じ計算が必要になるため、関数として切り出してある。
+    private func referenceHeight(for slots: [SpreadPageSlot]) -> CGFloat {
+        slots.compactMap { slot -> CGFloat? in
+            if case .image(let image) = slot { return CGFloat(image.height) }
+            return nil
+        }.max() ?? 0
     }
 
     /// referenceHeight(見開き内で最大の高さ)に揃えたときの、このスロットのアスペクト比を
@@ -1991,17 +2102,48 @@ struct ViewerView: View {
         }
     }
 
+    /// 今、ページ画像をスクロールできる状態か。
+    ///
+    /// 「画面内に収める」は本来スクロールする余地が無いモードだが、ピンチ拡大中だけは
+    /// 画像が画面からはみ出すため例外的にスクロールできる。ScrollViewを使うかどうか、
+    /// ドラッグで画像を掴めるかどうか、キー/ホイールのスクロール操作を受け付けるかどうかは
+    /// すべてこの1つの判定に集約する(モードだけを見る判定があちこちに残ると、
+    /// ピンチ拡大中だけ挙動が食い違う箇所が生まれるため)。
+    private var isPageAreaScrollable: Bool {
+        viewModel.scalingMode != .fitToScreen || viewModel.pinchZoomFactor > 1
+    }
+
+    /// ScrollViewの中身(documentView)の大きさ。
+    ///
+    /// 画像が表示領域より小さい方向には、表示領域の大きさを下限にしておく。こうするとSwiftUIが
+    /// その中で画像を中央に置いてくれるので、「画面内に収める」をピンチ拡大したときに片方の
+    /// 辺だけまだ画面に収まっている、という状態でも画像が隅に寄らない。
+    ///
+    /// 縦を下限で持ち上げるのは「画面内に収める」のときだけである点に注意。他のモードは
+    /// 従来どおり中身の高さをそのまま使う(縦が画面より短いときは上詰め)。表示の前提が
+    /// 変わってしまうため、ピンチ拡大の追加を機に既存モードの見え方を変えることはしない。
+    private func scrollContentSize(contentSize: CGSize, scale: CGFloat, viewport: CGSize) -> CGSize {
+        let scaledWidth = contentSize.width * scale
+        let scaledHeight = contentSize.height * scale
+        return CGSize(
+            width: max(scaledWidth, viewport.width),
+            height: viewModel.scalingMode == .fitToScreen ? max(scaledHeight, viewport.height) : scaledHeight
+        )
+    }
+
     /// ScrollViewにスクロールを許す方向。
-    /// - fitToScreen: 画像を画面内に収めるためScrollView自体を使わない(この値は参照されない)
+    /// - fitToScreen: 画像を画面内に収めるためScrollView自体を使わない(この値は参照されない)。
+    ///   ただしピンチ拡大中は縦横ともはみ出しうるため、両方向を許す。
     /// - fitWidth: 横幅はぴったり画面に収まるため、縦だけ
     /// - fitWidthSplit / noScale: 画像が画面より横に広くなりうるため、縦横とも
     ///
     /// 「横幅に合わせる(単ページ)」で「半分にする意味が無い」と判定された内容(renderScale参照)では横幅が
-    /// ぴったり収まるため、横を許していてもスクロールできる余地が無く、実害は無い。
+    /// ぴったり収まるため、横を許していてもスクロールできる余地が無く、実害は無い
+    /// (「横幅に合わせる」もピンチ拡大中は横にはみ出すが、同じ理由で常に横を許しておいて構わない)。
     private var scrollAxes: Axis.Set {
         switch viewModel.scalingMode {
-        case .fitToScreen: return []
-        case .fitWidth: return [.vertical]
+        case .fitToScreen: return viewModel.pinchZoomFactor > 1 ? [.horizontal, .vertical] : []
+        case .fitWidth: return viewModel.pinchZoomFactor > 1 ? [.horizontal, .vertical] : [.vertical]
         case .fitWidthSplit, .noScale: return [.horizontal, .vertical]
         }
     }
@@ -2026,7 +2168,7 @@ struct ViewerView: View {
         // 画面内に収めるモードにはスクロールという概念が無いので、素直にページ送りへ縮退する。
         // この縮退があるおかげで、cooViewerがモード別のキー設定で実現していた既定の操作感を
         // 1つの割り当てで再現できる(ViewerAction.scrollAndMoveNextのコメント参照)。
-        guard viewModel.scalingMode != .fitToScreen,
+        guard isPageAreaScrollable,
               let bounds = ScrollViewBounds(scrollGeometryBox.scrollView) else {
             if allowPageChange { viewModel.advance(forward: forward) }
             return
@@ -2061,7 +2203,7 @@ struct ViewerView: View {
     /// 実際に動かせたらtrueを返す(横への回り込み・ページ送りは行わない)。
     @discardableResult
     private func scrollVerticallyByOneScreen(down: Bool, bounds: ScrollViewBounds?) -> Bool {
-        guard viewModel.scalingMode != .fitToScreen, let bounds else { return false }
+        guard isPageAreaScrollable, let bounds else { return false }
         let epsilon = Self.scrollEdgeEpsilon
         let position = bounds.position
         if down, position.y < bounds.maxY - epsilon {
@@ -2082,7 +2224,7 @@ struct ViewerView: View {
     /// 既定では←/→がページ送りに割り当てられているため、これが無いと原寸表示や
     /// 「横幅に合わせる(単ページ)」でキーボードから横へ動かす手段が一切なくなる。
     private func scrollByStep(dx: CGFloat, dy: CGFloat) {
-        guard viewModel.scalingMode != .fitToScreen,
+        guard isPageAreaScrollable,
               let bounds = ScrollViewBounds(scrollGeometryBox.scrollView) else { return }
         let step = CGFloat(keyBindingStore.scrollStep(in: viewModel.scalingMode))
         let position = bounds.position
@@ -2102,6 +2244,236 @@ struct ViewerView: View {
         let startX: CGFloat = isRightToLeft ? bounds.maxX : 0
         let endX: CGFloat = isRightToLeft ? 0 : bounds.maxX
         bounds.scroll(to: CGPoint(x: atEnd ? endX : startX, y: atEnd ? bounds.maxY : 0))
+    }
+
+    // MARK: - ピンチ拡大(トラックパッドのピンチイン・ピンチアウト)
+
+    /// スマートズーム(トラックパッドの2本指ダブルタップ)で拡大するときの倍率。
+    /// 環境設定の上限のほうが低ければ、ViewerViewModel.setPinchZoomFactor側でそこまで丸められる。
+    private static let smartZoomFactor: CGFloat = 2
+
+    /// 拡大率を画面に出しておく時間。ピンチ操作中は連続で更新されるため、指を止めてから
+    /// この時間が経つと消える。
+    private static let zoomIndicatorDuration: Duration = .milliseconds(900)
+
+    /// ピンチ拡大の前後で「カーソルの下にあった画像上の点」を動かさないための予約。
+    ///
+    /// 拡大率を変えた直後の時点では、ScrollViewの中身(documentView)はまだ拡大前の大きさの
+    /// ままで、可動範囲も広がっていない。そのため位置合わせは、beginPageEntryScrollと同じ
+    /// 2段構え ― その場で1回(前後で大きさが変わらないならこれで確定)+ 中身の大きさが実際に
+    /// 変わった通知を受けてからもう1回(handleDocumentFrameChange)― で行う必要がある。
+    private struct PendingZoomAnchor {
+        /// 拡大の中心にしたい点。倍率1のときの画像上の座標(画素単位、左上が原点)で持つ。
+        let contentPoint: CGPoint
+        /// その点を画面上のどこへ留めたいか(ページ表示領域の左上を原点とする座標)。
+        let viewportPoint: CGPoint
+        /// この予約を作ったときの拡大率。適用しようとした時点の拡大率と食い違っていたら
+        /// (ページが変わって拡大が解除された等)、その予約はもう意味を持たないので捨てる。
+        let zoomFactor: CGFloat
+    }
+
+    /// ピンチ拡大の位置合わせに必要な、今のページ表示のレイアウト情報。
+    ///
+    /// pageArea(GeometryReader)の中でしか分からない値を、イベント処理側からも同じ計算で
+    /// 組み立て直したもの。GeometryReaderのローカル変数を@Stateへ書き戻す方式は採っていない
+    /// ― bodyの評価中に状態を書き換えることになり、際限のない再評価を招きうるため
+    /// (ScrollGeometryBoxのコメントと同じ考え方)。表示領域の大きさは、pageAreaと常に同じ
+    /// 大きさが報告されているpageAreaFrameInWindow(PageAreaFrameAccessor参照)から得る。
+    private struct PageLayoutMetrics {
+        /// 拡大率を掛ける前の、表示内容そのものの大きさ(画素単位)。
+        let contentSize: CGSize
+        /// ピンチ拡大を掛ける前の表示倍率(renderScaleが返す値)。
+        let baseScale: CGFloat
+        /// ページ表示領域(=ScrollViewの見えている部分)の大きさ。
+        let viewportSize: CGSize
+
+        /// ピンチ拡大まで含めた、実際の表示倍率。
+        func scale(zoomFactor: CGFloat) -> CGFloat { baseScale * zoomFactor }
+    }
+
+    private var currentPageLayoutMetrics: PageLayoutMetrics? {
+        let viewport = pageAreaFrameInWindow.size
+        guard viewport.width > 0, viewport.height > 0 else { return nil }
+        let slots = orderedCurrentSlots
+        let contentSize = totalContentSize(for: slots, referenceHeight: referenceHeight(for: slots))
+        guard contentSize.width > 0, contentSize.height > 0 else { return nil }
+        let baseScale = renderScale(contentSize: contentSize, containerSize: viewport)
+        guard baseScale > 0 else { return nil }
+        return PageLayoutMetrics(contentSize: contentSize, baseScale: baseScale, viewportSize: viewport)
+    }
+
+    /// ScrollViewの中身(documentView)の座標系で、画像そのものが置かれる左上の位置。
+    /// 画像が中身より小さい方向では中央に置かれるため、そのぶん原点がずれる
+    /// (scrollContentSize参照)。
+    private func contentOrigin(contentSize: CGSize, scale: CGFloat, scrollContentSize: CGSize) -> CGPoint {
+        CGPoint(
+            x: (scrollContentSize.width - contentSize.width * scale) / 2,
+            y: (scrollContentSize.height - contentSize.height * scale) / 2
+        )
+    }
+
+    /// ウインドウ座標系の点を、ページ表示領域の左上を原点とする座標へ変換する。
+    /// 表示領域の外(ツールバーの上など)、または位置が分からない場合はnil。
+    /// AppKitのウインドウ座標はウインドウ最下端が原点でY軸が上向きのため、上下を反転させる。
+    private func viewportPoint(forWindowPoint point: CGPoint?) -> CGPoint? {
+        guard let point, pageAreaFrameInWindow.contains(point) else { return nil }
+        return CGPoint(
+            x: point.x - pageAreaFrameInWindow.minX,
+            y: pageAreaFrameInWindow.maxY - point.y
+        )
+    }
+
+    /// ページ表示領域の中の点(左上が原点)を、倍率1のときの画像上の点へ変換する。
+    private func contentPoint(
+        forViewportPoint viewportPoint: CGPoint,
+        metrics: PageLayoutMetrics,
+        zoomFactor: CGFloat
+    ) -> CGPoint {
+        let scale = metrics.scale(zoomFactor: zoomFactor)
+        guard scale > 0 else { return .zero }
+        let scrollContent = scrollContentSize(
+            contentSize: metrics.contentSize, scale: scale, viewport: metrics.viewportSize
+        )
+        // ScrollViewを使っていない(=「画面内に収める」で等倍)ときは、スクロール位置は常に原点。
+        // このときのweak参照(scrollGeometryBox.scrollView)は当てにしない。
+        let scrollPosition = isPageAreaScrollable
+            ? (ScrollViewBounds(scrollGeometryBox.scrollView)?.position ?? .zero)
+            : .zero
+        let origin = contentOrigin(
+            contentSize: metrics.contentSize, scale: scale, scrollContentSize: scrollContent
+        )
+        return CGPoint(
+            x: (scrollPosition.x + viewportPoint.x - origin.x) / scale,
+            y: (scrollPosition.y + viewportPoint.y - origin.y) / scale
+        )
+    }
+
+    /// 予約(PendingZoomAnchor)を満たすスクロール位置。実際の可動範囲へのクランプは
+    /// ScrollViewBounds.scroll(to:)が行うため、ここでは範囲外の値になっても構わない。
+    private func scrollTarget(for anchor: PendingZoomAnchor, metrics: PageLayoutMetrics) -> CGPoint {
+        let scale = metrics.scale(zoomFactor: viewModel.pinchZoomFactor)
+        let scrollContent = scrollContentSize(
+            contentSize: metrics.contentSize, scale: scale, viewport: metrics.viewportSize
+        )
+        let origin = contentOrigin(
+            contentSize: metrics.contentSize, scale: scale, scrollContentSize: scrollContent
+        )
+        return CGPoint(
+            x: origin.x + anchor.contentPoint.x * scale - anchor.viewportPoint.x,
+            y: origin.y + anchor.contentPoint.y * scale - anchor.viewportPoint.y
+        )
+    }
+
+    /// 予約どおりの位置へスクロールする。まだScrollViewが存在しない(「画面内に収める」から
+    /// 拡大し始めた直後)場合はfalseを返し、呼び出し側は次の機会を待つ。
+    @discardableResult
+    private func applyZoomAnchor(_ anchor: PendingZoomAnchor) -> Bool {
+        guard let metrics = currentPageLayoutMetrics,
+              let bounds = ScrollViewBounds(scrollGeometryBox.scrollView) else { return false }
+        bounds.scroll(to: scrollTarget(for: anchor, metrics: metrics))
+        return true
+    }
+
+    /// ScrollViewの中身の大きさが確定したあとの位置合わせ(handleDocumentFrameChangeと、
+    /// ScrollViewAccessorのonResolveから呼ばれる)。実際に位置を合わせたらtrueを返す。
+    @discardableResult
+    private func applyPendingZoomAnchorIfNeeded() -> Bool {
+        guard let anchor = pendingZoomAnchor else { return false }
+        guard anchor.zoomFactor == viewModel.pinchZoomFactor else {
+            pendingZoomAnchor = nil
+            return false
+        }
+        guard applyZoomAnchor(anchor) else { return false }
+        pendingZoomAnchor = nil
+        // 「画面内に収める」を拡大したことでScrollViewが初めて現れた場合、このページについては
+        // まだ読み始め位置合わせ(finishPageEntryScrollIfNeeded)が済んでいない扱いになっている。
+        // 済んだことにしておかないと、この後ウインドウをリサイズしたときなどに、拡大して見て
+        // いた場所から読み始めの隅へ引き戻されてしまう。
+        lastPageEntryScrollIndex = viewModel.currentIndex
+        return true
+    }
+
+    /// ピンチ拡大の倍率を変更し、カーソルの下にあった点が動かないようにスクロール位置を合わせる。
+    /// - Parameters:
+    ///   - rawFactor: 希望する倍率。1未満・上限超えの丸めはViewerViewModel側で行う。
+    ///   - anchorInWindow: ジェスチャーの位置(ウインドウ座標)。ページ表示領域の外や、
+    ///     位置を問わない場合(Escでの解除など)はnilを渡すと、表示領域の中央を中心にする。
+    private func applyPinchZoom(to rawFactor: CGFloat, anchorInWindow: CGPoint?) {
+        guard let metrics = currentPageLayoutMetrics else { return }
+        let previousZoomFactor = viewModel.pinchZoomFactor
+        let viewportPoint = viewportPoint(forWindowPoint: anchorInWindow)
+            ?? CGPoint(x: metrics.viewportSize.width / 2, y: metrics.viewportSize.height / 2)
+        // 中心にしたい点は、必ず「拡大する前」の状態で求めておく。
+        let contentPoint = contentPoint(
+            forViewportPoint: viewportPoint, metrics: metrics, zoomFactor: previousZoomFactor
+        )
+
+        viewModel.setPinchZoomFactor(rawFactor)
+        let zoomFactor = viewModel.pinchZoomFactor
+        guard zoomFactor != previousZoomFactor else { return }
+
+        showZoomIndicator(percent: Int((zoomFactor * 100).rounded()))
+
+        let anchor = PendingZoomAnchor(
+            contentPoint: contentPoint, viewportPoint: viewportPoint, zoomFactor: zoomFactor
+        )
+        pendingZoomAnchor = anchor
+        // 1段目(その場で1回)。この時点ではScrollViewの中身がまだ拡大前の大きさのため、
+        // 拡大した場合は可動範囲でクランプされて途中までしか効かない。2段目は
+        // handleDocumentFrameChangeが受け持つ(PendingZoomAnchor参照)。
+        applyZoomAnchor(anchor)
+    }
+
+    /// 拡大を解除して初期状態(等倍)へ戻す。
+    private func resetPinchZoom() {
+        guard viewModel.pinchZoomFactor > 1 else { return }
+        applyPinchZoom(to: 1, anchorInWindow: nil)
+    }
+
+    /// トラックパッドのピンチイン・ピンチアウト(NSEventの.magnify)。
+    ///
+    /// SwiftUIのMagnifyGestureではなくNSEventを直接扱うのは、ページ表示領域がScrollViewと
+    /// ClickZoneArea(素のNSView)を重ねた構成になっており、SwiftUIのジェスチャーだと
+    /// それらとの取り合いになるため。ホイール・スワイプ・キー入力と同じローカルモニタで
+    /// 受けることで、「宛先ウインドウが自分か」「サムネイル一覧/サイドパネル表示中は無視」と
+    /// いった前処理もそのまま共有できる(makeScrollMonitor参照)。
+    ///
+    /// event.magnificationは1イベントぶんの**変化量**で、現在の倍率に(1 + magnification)を
+    /// 掛けて積み上げるのが正しい(AppKitのNSScrollView.magnificationも同じ扱い)。倍率へ
+    /// そのまま足し込むと、倍率が上がるほど同じ指の動きに対する変化が相対的に小さくなり、
+    /// 指の動きに表示が付いてこなくなる。
+    private func handleMagnify(_ event: NSEvent) {
+        // 拡大鏡(ルーペ)表示中は拡大を拡大鏡に任せ、こちらは何もしない(役割を分ける)。
+        guard !viewModel.isLoupeActive else { return }
+        guard event.magnification != 0 else { return }
+        applyPinchZoom(
+            to: viewModel.pinchZoomFactor * (1 + CGFloat(event.magnification)),
+            anchorInWindow: event.locationInWindow
+        )
+    }
+
+    /// トラックパッドの2本指ダブルタップ(スマートズーム、NSEventの.smartMagnify)。
+    /// 等倍なら既定の倍率まで拡大し、拡大中なら等倍へ戻す、というmacOS標準のトグル動作にならう。
+    ///
+    /// 拡大の途中経過をアニメーションさせていないのは、拡大に伴うスクロール位置の確定が
+    /// ScrollViewの中身の大きさの確定を待つ必要がある(PendingZoomAnchor参照)ため、
+    /// アニメーションの各フレームで正しい位置を保証できないからである。
+    private func handleSmartMagnify(_ event: NSEvent) {
+        guard !viewModel.isLoupeActive else { return }
+        let target: CGFloat = viewModel.pinchZoomFactor > 1 ? 1 : Self.smartZoomFactor
+        applyPinchZoom(to: target, anchorInWindow: event.locationInWindow)
+    }
+
+    /// 拡大率を短時間だけ画面に表示する(showToastと同じ考え方の、拡大操作専用の軽い版)。
+    /// ピンチ操作中は指を動かすたびに呼ばれるため、表示中の再表示は時間を延長するだけになる。
+    private func showZoomIndicator(percent: Int) {
+        zoomIndicatorHideTask?.cancel()
+        zoomIndicatorPercent = percent
+        zoomIndicatorHideTask = Task { @MainActor in
+            try? await Task.sleep(for: Self.zoomIndicatorDuration)
+            guard !Task.isCancelled else { return }
+            zoomIndicatorPercent = nil
+        }
     }
 
     /// 今の表示モードでこのクリックゾーンに割り当てられている操作。
@@ -2134,6 +2506,9 @@ struct ViewerView: View {
     private func beginPageEntryScroll() {
         pageEntryAtEnd = pendingPageEntryAtEnd
         pendingPageEntryAtEnd = false
+        // ページが変わるとピンチ拡大は解除される(ViewerViewModel.currentIndexのdidSet)ため、
+        // 拡大の位置合わせの予約も一緒に捨てる。
+        pendingZoomAnchor = nil
         // 可動範囲が確定したら改めて合わせ直すため、このページの「済み」印を外す。
         lastPageEntryScrollIndex = nil
         scrollToPageCorner(atEnd: pageEntryAtEnd)
@@ -2152,6 +2527,18 @@ struct ViewerView: View {
         scrollToPageCorner(atEnd: pageEntryAtEnd)
     }
 
+    /// ScrollViewの中身(documentView)の大きさが変わったときの処理。
+    /// 「ページを表示し始めるときの位置合わせ」と「ピンチ拡大に伴う位置合わせ」は、どちらも
+    /// この通知(=可動範囲が確定した瞬間)を待たなければ正しく決まらない
+    /// (beginPageEntryScroll/applyPinchZoom参照)。
+    ///
+    /// ピンチ拡大側を先に見る。拡大した直後に読み始めの隅へ飛ばされては、拡大した意味が
+    /// 無くなってしまうため。
+    private func handleDocumentFrameChange() {
+        if applyPendingZoomAnchorIfNeeded() { return }
+        finishPageEntryScrollIfNeeded()
+    }
+
     /// スクロールできるモード(横幅に合わせる/同(単ページ)/拡大縮小しない)でホイールを回したときの処理。
     /// cooViewerの`wheelAction:`の`canScrollMode`による分岐をそのまま移植したもの
     /// (WheelScrollBehavior参照)。
@@ -2160,7 +2547,13 @@ struct ViewerView: View {
     /// そのため、端に着くまでは普通にスクロールし、端に着いた状態でもう一度回したときに初めて
     /// 横への回り込みやページ送りが起きる ― cooViewerと同じ操作感になる。
     private func handleScrollInScrollableMode(deltaY: CGFloat) {
-        let behavior = keyBindingStore.wheelBehavior(in: viewModel.scalingMode)
+        // ピンチ拡大中は、どのモードでもホイールをスクロール専用にする(ユーザーの判断)。
+        // 拡大して細部を読んでいる最中に端まで来たからといってページが送られると、
+        // 拡大も一緒に解除されて読んでいた場所を見失う。拡大を解除すれば、そのモード本来の
+        // 設定(WheelScrollBehavior)にそのまま戻る。
+        let behavior: WheelScrollBehavior = viewModel.pinchZoomFactor > 1
+            ? .scrollOnly
+            : keyBindingStore.wheelBehavior(in: viewModel.scalingMode)
         // スクロールのみ: ScrollViewに任せる(何もしない)。
         guard behavior != .scrollOnly else { return }
 
@@ -2204,7 +2597,8 @@ struct ViewerView: View {
         // 割り当て(既定はページ送り)をそのまま実行する。
         // それ以外のモードでは、環境設定「スクロールできるとき」(WheelScrollBehavior、
         // cooViewerのCanScrollMode相当)に従う。
-        if viewModel.scalingMode != .fitToScreen {
+        // 「画面内に収める」でもピンチ拡大中はスクロールできる余地があるため、そちらの経路に乗せる。
+        if isPageAreaScrollable {
             handleScrollInScrollableMode(deltaY: deltaY)
             return
         }

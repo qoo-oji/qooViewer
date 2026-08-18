@@ -4623,6 +4623,22 @@
         }
       }
     },
+    "Maximum Pinch Zoom" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Maximum Pinch Zoom"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ピンチ拡大の上限"
+          }
+        }
+      }
+    },
     "Maximum Upscale" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -8900,6 +8916,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "このページだけ更新する"
+          }
+        }
+      }
+    },
+    "Upper limit for pinching to zoom on a trackpad. 100% turns pinch zoom off." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Upper limit for pinching to zoom on a trackpad. 100% turns pinch zoom off."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "トラックパッドのピンチで拡大できる上限です。100%にすると拡大しなくなります。"
           }
         }
       }

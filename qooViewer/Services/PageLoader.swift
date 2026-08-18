@@ -423,13 +423,14 @@ actor PageLoader {
         return await decodedImage(for: book.pages[index].source, maxPixelSize: ImageDecoder.exportMaxPixelSize)
     }
 
-    /// 拡大鏡(ルーペ)向け: 通常の表示用(pageImage、4096px上限)より高解像度の
-    /// ImageDecoder.loupeSourceMaxPixelSize(8000px)を上限にデコードする。fullResolutionImage
+    /// 拡大して見るとき(拡大鏡=ルーペ、およびピンチイン・ピンチアウトによる拡大)向け:
+    /// 通常の表示用(pageImage、4096px上限)より高解像度の
+    /// ImageDecoder.highResolutionMaxPixelSize(8000px)を上限にデコードする。fullResolutionImage
     /// 同様imageCache/thumbnailCacheには保存しない(呼び出し側のViewerViewModelが、現在表示中の
     /// 見開き分だけを単発キャッシュとして保持する設計のため)。
-    func loupeSourceImage(at index: Int) async -> CGImage? {
+    func highResolutionImage(at index: Int) async -> CGImage? {
         guard book.pages.indices.contains(index) else { return nil }
-        return await decodedImage(for: book.pages[index].source, maxPixelSize: ImageDecoder.loupeSourceMaxPixelSize)
+        return await decodedImage(for: book.pages[index].source, maxPixelSize: ImageDecoder.highResolutionMaxPixelSize)
     }
 
     /// index を中心に前後 radius ページ分を先読みする。

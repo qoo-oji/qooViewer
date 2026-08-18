@@ -12,6 +12,7 @@ final class AppPreferences: ObservableObject {
         static let launchFullScreen = "qooViewer.pref.launchFullScreen"
         static let loopBehavior = "qooViewer.pref.loopBehavior"
         static let maxUpscalePercent = "qooViewer.pref.maxUpscalePercent"
+        static let maxPinchZoomPercent = "qooViewer.pref.maxPinchZoomPercent"
         static let loupeMagnificationPercent = "qooViewer.pref.loupeMagnificationPercent"
         static let loupeDiameter = "qooViewer.pref.loupeDiameter"
         static let interpolationQuality = "qooViewer.pref.interpolationQuality"
@@ -68,6 +69,19 @@ final class AppPreferences: ObservableObject {
     /// 画像が画面より小さいとき、最大何%まで拡大して表示するか(100〜500)
     @Published var maxUpscalePercent: Double {
         didSet { UserDefaults.standard.set(maxUpscalePercent, forKey: Keys.maxUpscalePercent) }
+    }
+    /// トラックパッドのピンチイン・ピンチアウトで、初期表示(=そのモードでの通常の表示倍率)を
+    /// 100%としたとき、最大何%まで拡大できるか(100〜1000)。
+    ///
+    /// maxUpscalePercentとは目的が別で、互いに影響しない。あちらは「小さい画像を勝手に
+    /// 引き伸ばしすぎない」ための自動拡大の上限で、こちらはユーザーが明示的に行った拡大操作の
+    /// 上限である(自動でそこまで拡大されることはない)。100%にするとピンチ拡大が実質無効になる。
+    ///
+    /// 表示用画像は長辺4096px上限でデコードされる(ImageDecoder.pageMaxPixelSize)が、ピンチ拡大中は
+    /// より高解像度のソース(highResolutionMaxPixelSize、8000px)へ差し替えて描画するため、
+    /// 既定の400%程度までは実用的な画質を保てる(ViewerView.pageArea参照)。
+    @Published var maxPinchZoomPercent: Double {
+        didSet { UserDefaults.standard.set(maxPinchZoomPercent, forKey: Keys.maxPinchZoomPercent) }
     }
     /// ルーペの拡大率(%)
     @Published var loupeMagnificationPercent: Double {
@@ -346,6 +360,7 @@ final class AppPreferences: ObservableObject {
         self.launchFullScreen = defaults.object(forKey: Keys.launchFullScreen) as? Bool ?? false
         self.loopBehavior = LoopBehavior(rawValue: defaults.string(forKey: Keys.loopBehavior) ?? "") ?? .none
         self.maxUpscalePercent = defaults.object(forKey: Keys.maxUpscalePercent) as? Double ?? 200
+        self.maxPinchZoomPercent = defaults.object(forKey: Keys.maxPinchZoomPercent) as? Double ?? 400
         self.loupeMagnificationPercent =
             defaults.object(forKey: Keys.loupeMagnificationPercent) as? Double ?? 250
         self.loupeDiameter = defaults.object(forKey: Keys.loupeDiameter) as? Double ?? 400

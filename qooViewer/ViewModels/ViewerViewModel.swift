@@ -29,14 +29,23 @@ final class ViewerViewModel: ObservableObject {
     /// 後の配列のため、一度除外したページを後から復元する、といった操作の元データにはできない)。
     private let rawPages: [PageRef]
 
-    @Published var currentIndex: Int
+    /// ページが変わったら、ピンチ拡大は必ず解除する(pinchZoomFactor参照)。ページ送り・
+    /// ジャンプ・ブックマークへの移動・スライドショー・ループ折り返し・隣の本への移動は、
+    /// 経路こそ違えど最終的にはすべてこのcurrentIndexの更新に集約されるため、ここ1か所で
+    /// 受けておけば取りこぼしが無い(個々の呼び出し側に解除を書き足して回る必要がない)。
+    @Published var currentIndex: Int {
+        didSet {
+            guard currentIndex != oldValue else { return }
+            resetPinchZoom()
+        }
+    }
     @Published var displayMode: DisplayMode
     @Published var readingDirection: ReadingDirection
     @Published var scalingMode: ScalingMode
     @Published private(set) var currentImages: [CGImage] = [] {
         didSet {
-            guard isLoupeActive else { return }
-            scheduleLoupeSourceLoad()
+            guard needsHighResolutionSource else { return }
+            scheduleHighResolutionSourceLoad()
         }
     }
     @Published private(set) var bookmarks: [Bookmark] = []
@@ -48,19 +57,32 @@ final class ViewerViewModel: ObservableObject {
     /// カーソル位置を中心に画像の一部を拡大表示する「ルーペ」が現在表示中かどうか
     /// (toggleLoupe参照)。
     @Published private(set) var isLoupeActive = false
-    /// 拡大鏡が実際に拡大表示に使う、currentImagesより高解像度のソース画像
-    /// (loupeSourceMaxPixelSize、8000px上限)。currentImagesと同じ並び・要素数になるよう
-    /// scheduleLoupeSourceLoadが非同期に取得する。まだ取得できていない(ロード中/失敗)間は
-    /// 空のままにしておき、呼び出し側(ViewerView)がcurrentImagesにフォールバックする
-    /// (LoupeOverlayViewには常にcurrentImagesと同じ枚数の画像を渡す必要があるため)。
-    @Published private(set) var loupeSourceImages: [CGImage] = []
+    /// 拡大して見るときに使う、currentImagesより高解像度のソース画像
+    /// (ImageDecoder.highResolutionMaxPixelSize、8000px上限)。利用者は2つある:
+    /// 拡大鏡(ルーペ)の拡大表示と、ピンチ拡大中のページ本体の描画(pinchZoomFactor参照)。
+    /// currentImagesと同じ並び・要素数になるようscheduleHighResolutionSourceLoadが非同期に
+    /// 取得する。まだ取得できていない(ロード中/失敗)間は空のままにしておき、呼び出し側
+    /// (ViewerView)がcurrentImagesにフォールバックする(LoupeOverlayViewには常にcurrentImagesと
+    /// 同じ枚数の画像を渡す必要があるため)。
+    @Published private(set) var highResolutionSourceImages: [CGImage] = []
     /// 見開き中に実画像が2枚とも表示されている場合、拡大鏡がページの境目をまたいで拡大
-    /// できるよう、loupeSourceImagesの2枚を画面上の左右の並びで1枚に結合したもの
+    /// できるよう、highResolutionSourceImagesの2枚を画面上の左右の並びで1枚に結合したもの
     /// (ImageExporter.combinedCGImage、「見開きを結合してエクスポート」と同じ結合ロジック。
     /// ユーザー報告)。単ページ表示中、またはEPUB由来の空白スロットを含む見開き中はnil
-    /// (この場合はloupeSourceImagesをそのままスロットごとに使う。ViewerView.pageArea参照)。
+    /// (この場合はhighResolutionSourceImagesをそのままスロットごとに使う。ViewerView.pageArea参照)。
+    /// ピンチ拡大側はページごとのスロットに分けて描画するため、こちらは使わない。
     @Published private(set) var loupeCombinedSourceImage: CGImage?
-    private var loupeSourceLoadTask: Task<Void, Never>?
+    private var highResolutionSourceLoadTask: Task<Void, Never>?
+    /// トラックパッドのピンチイン・ピンチアウトによる無段階拡大の倍率。1.0が初期状態
+    /// (=そのモードでの通常の表示倍率。ViewerView.renderScaleが返す値)で、常に1.0以上
+    /// (初期状態より縮小はしない。ユーザーの判断)。上限は環境設定
+    /// (AppPreferences.maxPinchZoomPercent)で決まる。
+    ///
+    /// この倍率は意図的に永続化しない(BookReadingStateにも保存しない)。「今このページの
+    /// ここを大きく見たい」という一時的な操作であり、次にこの本を開いたときまで覚えている
+    /// 必要はない、というユーザーの判断による。同じ理由で、ページが変わったとき・表示の
+    /// 前提が変わったとき(表示サイズモード/見開き・単ページ/読み方向)は解除する。
+    @Published private(set) var pinchZoomFactor: CGFloat = 1
     /// 環境設定「本を再度開いたときの動作」が「問い合わせる」のとき、かつ前回位置が
     /// 先頭でない(=本当に「再開」の余地がある)ときにtrueになる。ViewerViewがこれを見て
     /// 「前回表示したページから再開しますか?」の確認ダイアログを表示する。
@@ -824,6 +846,7 @@ final class ViewerViewModel: ObservableObject {
 
     func toggleDisplayMode() {
         guard !isDisplayModeLocked else { return }
+        resetPinchZoom()
         cancelPendingPageFlip()
         displayMode = (displayMode == .spread) ? .single : .spread
         persistState()
@@ -855,12 +878,14 @@ final class ViewerViewModel: ObservableObject {
 
     func toggleReadingDirection() {
         guard !isReadingDirectionLocked else { return }
+        resetPinchZoom()
         // 表示中の画像自体は変わらず、並び順だけがViewer側で反転するので再読み込みは不要
         readingDirection = (readingDirection == .rightToLeft) ? .leftToRight : .rightToLeft
         persistState()
     }
 
     func cycleScalingMode() {
+        resetPinchZoom()
         scalingMode = scalingMode.next
         persistState()
     }
@@ -869,6 +894,7 @@ final class ViewerViewModel: ObservableObject {
     /// (cycleScalingModeが常に「次のモード」へ進めるのに対し、こちらは指定したモードへ直接移る)。
     func setScalingMode(_ mode: ScalingMode) {
         guard scalingMode != mode else { return }
+        resetPinchZoom()
         scalingMode = mode
         persistState()
     }
@@ -1103,50 +1129,103 @@ final class ViewerViewModel: ObservableObject {
         slideshowTask = nil
     }
 
+    // MARK: - ピンチ拡大
+
+    /// 環境設定で決まる、ピンチ拡大の上限倍率(1.0=拡大しない)。
+    var maxPinchZoomFactor: CGFloat {
+        max(1, CGFloat(preferences.maxPinchZoomPercent) / 100)
+    }
+
+    /// ピンチ拡大の倍率を設定する。1.0未満(初期状態より縮小)と上限超えは、ここで一括して
+    /// 丸める。呼び出し側(ViewerView)は生の計算結果をそのまま渡してよく、実際に採用された
+    /// 値はこのメソッドから戻ったあとのpinchZoomFactorを読めば分かる。
+    func setPinchZoomFactor(_ value: CGFloat) {
+        // NaN/無限大が来ても壊れないようにしておく(ジェスチャーの値は外部入力のため)。
+        let sanitized = value.isFinite ? value : 1
+        let clamped = min(max(sanitized, 1), maxPinchZoomFactor)
+        guard clamped != pinchZoomFactor else { return }
+        let didNeedHighResolutionSource = needsHighResolutionSource
+        pinchZoomFactor = clamped
+        // 「拡大していない ⇄ 拡大している」を跨いだときだけ、高解像度ソースの取得・破棄を
+        // 切り替える(拡大中の倍率変更のたびにデコードし直さない)。
+        if needsHighResolutionSource != didNeedHighResolutionSource {
+            updateHighResolutionSourceIfNeeded()
+        }
+    }
+
+    /// ピンチ拡大を解除して初期状態(等倍)へ戻す。
+    func resetPinchZoom() {
+        setPinchZoomFactor(1)
+    }
+
+    /// 環境設定の上限が拡大中に引き下げられた場合に、現在の倍率をその上限まで下げる
+    /// (ViewerViewが環境設定の変更を受けて呼ぶ)。
+    func clampPinchZoomToCurrentLimit() {
+        setPinchZoomFactor(pinchZoomFactor)
+    }
+
     // MARK: - ルーペ
 
     func toggleLoupe() {
         isLoupeActive.toggle()
-        if isLoupeActive {
-            scheduleLoupeSourceLoad()
+        updateHighResolutionSourceIfNeeded()
+    }
+
+    /// 高解像度ソース(highResolutionSourceImages)を今必要としているか。利用者は
+    /// 拡大鏡(ルーペ)とピンチ拡大の2つで、どちらか一方でも有効なら必要になる。
+    private var needsHighResolutionSource: Bool {
+        isLoupeActive || pinchZoomFactor > 1
+    }
+
+    /// 高解像度ソースの取得を、今の必要・不要に合わせる。必要になった瞬間(拡大鏡ON、
+    /// ピンチ拡大開始)と不要になった瞬間(両方とも解除)の両方から呼ぶ。不要になったら
+    /// 破棄してメモリを解放する(1枚あたり最大256MB程度になりうるため。
+    /// ImageDecoder.highResolutionMaxPixelSize参照)。
+    private func updateHighResolutionSourceIfNeeded() {
+        if needsHighResolutionSource {
+            // 今の見開き分が既に揃っていれば読み直す必要はない(拡大鏡とピンチ拡大は
+            // 同じソースを共有するため、拡大したまま拡大鏡を出し入れしても
+            // 同じ画像を何度もデコードし直さないようにする)。
+            guard highResolutionSourceImages.count != currentImages.count else { return }
+            scheduleHighResolutionSourceLoad()
         } else {
-            loupeSourceLoadTask?.cancel()
-            loupeSourceLoadTask = nil
-            loupeSourceImages = []
+            highResolutionSourceLoadTask?.cancel()
+            highResolutionSourceLoadTask = nil
+            highResolutionSourceImages = []
             loupeCombinedSourceImage = nil
         }
     }
 
     /// 現在表示中の見開き(currentIndex..<currentIndex+currentImages.count)分の高解像度画像を
-    /// 非同期に取得し、loupeSourceImagesへ反映する。実画像が2枚とも取得できた場合は、
+    /// 非同期に取得し、highResolutionSourceImagesへ反映する。実画像が2枚とも取得できた場合は、
     /// 画面上の左右の並びで1枚に結合したものもloupeCombinedSourceImageへ反映する(拡大鏡が
-    /// 見開きの境目をまたいで拡大できるようにするため。ユーザー報告)。拡大鏡ON時・
-    /// currentImagesが更新された(=ページが切り替わった)ときのたびに呼ばれる(currentImagesの
-    /// didSet参照)。取得中にさらにページが切り替わった場合は、古いページ分の結果が後から
-    /// 遅れて届いて新しいページの拡大鏡に反映されてしまわないよう、前回分のタスクを都度
-    /// キャンセルする。
-    private func scheduleLoupeSourceLoad() {
-        loupeSourceLoadTask?.cancel()
+    /// 見開きの境目をまたいで拡大できるようにするため。ユーザー報告)。拡大鏡ON時・ピンチ拡大
+    /// 開始時・そのどちらかが有効なままcurrentImagesが更新された(=ページが切り替わった)ときの
+    /// たびに呼ばれる(currentImagesのdidSet参照)。取得中にさらにページが切り替わった場合は、
+    /// 古いページ分の結果が後から遅れて届いて新しいページに反映されてしまわないよう、
+    /// 前回分のタスクを都度キャンセルする。
+    private func scheduleHighResolutionSourceLoad() {
+        highResolutionSourceLoadTask?.cancel()
         let indices = Array(currentIndex..<(currentIndex + currentImages.count))
         guard !indices.isEmpty else {
-            loupeSourceImages = []
+            highResolutionSourceImages = []
             loupeCombinedSourceImage = nil
             return
         }
         // 結合時の左右の並びは画面上の表示順(orderedCurrentImagesと同じ考え方)に合わせる。
         // ここで取得するimages自体はbook順(currentIndexが先頭)のまま保持する
-        // (loupeSourceImagesはcurrentImagesと同じ順序であるという前提を崩さないため)。
+        // (highResolutionSourceImagesはcurrentImagesと同じ順序であるという前提を崩さないため)。
         let isRightToLeft = readingDirection == .rightToLeft
-        loupeSourceLoadTask = Task { [weak self] in
+        highResolutionSourceLoadTask = Task { [weak self] in
             guard let self else { return }
             var images: [CGImage] = []
             for index in indices {
                 guard !Task.isCancelled else { return }
-                guard let image = await pageLoader.loupeSourceImage(at: index) else { return }
+                guard let image = await pageLoader.highResolutionImage(at: index) else { return }
                 images.append(image)
             }
             guard !Task.isCancelled else { return }
-            self.loupeSourceImages = images
+            self.highResolutionSourceImages = images
             if images.count == 2 {
                 let screenLeft = isRightToLeft ? images[1] : images[0]
                 let screenRight = isRightToLeft ? images[0] : images[1]

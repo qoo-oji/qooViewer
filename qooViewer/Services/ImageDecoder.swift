@@ -24,12 +24,13 @@ nonisolated enum ImageDecoder {
     /// 安全のため上限だけは設けておく(無制限にすると巨大画像で不必要にメモリを消費するリスクが
     /// あるため)。
     static let exportMaxPixelSize: CGFloat = 20000
-    /// 拡大鏡(ルーペ)が拡大表示のソースに使う最大ピクセルサイズ。通常の表示用(pageMaxPixelSize、
-    /// 4096)より高解像度にしつつ、exportMaxPixelSize(20000、ページ全体を1枚メモリに保持すると
-    /// 巨大になりうる)ほどは上げない中間の値(1枚あたり最大で8000×8000×4byte≈256MB程度)。
+    /// 拡大して見るとき(拡大鏡=ルーペ、およびピンチイン・ピンチアウトによる拡大)のソースに使う
+    /// 最大ピクセルサイズ。通常の表示用(pageMaxPixelSize、4096)より高解像度にしつつ、
+    /// exportMaxPixelSize(20000、ページ全体を1枚メモリに保持すると巨大になりうる)ほどは上げない
+    /// 中間の値(1枚あたり最大で8000×8000×4byte≈256MB程度)。
     /// 現在表示中の見開き分だけを対象に、ページ切替のたびに1回だけデコードする設計のため
-    /// (ViewerViewModel.loupeSourceImages参照)、常時保持されるのは高々1〜2枚。
-    static let loupeSourceMaxPixelSize: CGFloat = 8000
+    /// (ViewerViewModel.highResolutionSourceImages参照)、常時保持されるのは高々1〜2枚。
+    static let highResolutionMaxPixelSize: CGFloat = 8000
 
     static func decode(_ data: Data, maxPixelSize: CGFloat) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }

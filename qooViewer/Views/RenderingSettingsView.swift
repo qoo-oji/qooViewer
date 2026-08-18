@@ -28,6 +28,15 @@ struct RenderingSettingsView: View {
                 ) { value in
                     "\(Int(value))%"
                 }
+                SettingsSlider(
+                    "Maximum Pinch Zoom",
+                    value: $preferences.maxPinchZoomPercent,
+                    in: 100...1000,
+                    step: 10,
+                    caption: "Upper limit for pinching to zoom on a trackpad. 100% turns pinch zoom off."
+                ) { value in
+                    "\(Int(value))%"
+                }
             } header: {
                 Text("Display")
             }
