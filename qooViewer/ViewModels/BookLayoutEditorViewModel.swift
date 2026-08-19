@@ -78,14 +78,6 @@ final class BookLayoutEditorViewModel: ObservableObject {
     /// 1つずつアクセス権がリークしていた。
     private var securityScopedURL: URL?
 
-    /// この本がEPUBのpackage document、またはPDFのDocument Catalogに権威的なレイアウト指定を
-    /// 持っているかどうか。キャッシュ(BookLayoutSettings.hasEpubLayoutLock)には依存せず、
-    /// 読み込んだ本自身から直接判定する(この本を一度もビューアで開いたことが無く、キャッシュが
-    /// まだ無い場合でも正しく判定できるようにするため)。
-    var hasAuthoritativeSourceLayout: Bool {
-        book?.sourceLayoutHint != nil
-    }
-
     /// この本の実効的な読み方向。「見開き右/見開き左」を実際の画面上の右/左と一致させるため、
     /// anchor(forPageKey:explicitState:in:)/anchorPinStates/setPageLayoutの計算にこれを使う
     /// (ViewerViewModel.readingDirectionと同じ優先順位: ソースファイル自身(EPUB/PDF)由来 >

@@ -44,6 +44,10 @@ struct PDFExportInput {
     let titleOverride: String?
     /// 空文字/nilの場合はPDFのAuthorメタデータを出力しない。
     let author: String?
+    /// メタデータDBに登録されているシリーズ名。空文字/nilならKeywordsへ何も書かない。
+    let series: String?
+    /// メタデータDBに登録されている巻数。seriesが空の場合は使わない。
+    let seriesIndex: String?
 }
 
 enum PDFExportError: LocalizedError {
@@ -106,6 +110,14 @@ nonisolated enum PDFExporter {
         if let author {
             auxiliaryInfo[kCGPDFContextAuthor as String] = author
         }
+        // ユーザー要望: PDFにはシリーズ名・巻数を表す標準的なフィールドが無いため、
+        // Keywordsへ`series:シリーズ名, series_index:巻数番号`の形式で埋め込む。
+        // 書式の定義は読み取り側(PDFStructureResolver.parseSeriesKeywords)と共有している。
+        if let keywords = PDFStructureResolver.formatSeriesKeywords(
+            series: input.series ?? "", seriesIndex: input.seriesIndex ?? ""
+        ) {
+            auxiliaryInfo[kCGPDFContextKeywords as String] = keywords
+        }
 
         // ブックマーク → アウトライン用に、元のpageKeyから実際に書き出したPDFページ番号
         // (1始まり、kCGPDFOutlineDestinationの仕様に合わせる)を求める。画像の取得に失敗して
@@ -137,15 +149,41 @@ nonisolated enum PDFExporter {
         // 「書き出せるページが1枚でもあるか」の判定をコンテキスト生成より前に行うため、
         // 最初に描画できるページが見つかるまでコンテキストを作らない(=既存ファイルにも
         // 触れない)構成にする。1枚も無ければ、そもそも何も作らずにthrowするだけで済む。
+        // ユーザー要望により、元がPDFの本もPDF書き出しの対象になった。その場合は画像を
+        // 取り出して描き直すのではなく、元のページをそのままコピーする(CGContext.drawPDFPage)。
+        // ページの内容をベクター・テキストも含めて丸ごと写すため、埋め込まれている画像の形式を
+        // 問わず無劣化で、かつ再エンコードも発生しない
+        // (ユーザー指示: PDF→PDFについては画像形式に関する制約は考えない)。
+        let sourcePDFDocument: CGPDFDocument? = {
+            guard case .pdf(let pdfURL, _) = input.book.pages.first?.source else { return nil }
+            return CGPDFDocument(pdfURL as CFURL)
+        }()
+
         var pageNumberByOriginalKey: [String: Int] = [:]
         var pageNumber = 0
         var context: CGContext?
         for page in orderedPages {
-            guard let originalIndex = originalIndexByKey[page.sortKey],
-                  let data = await pageLoader.rawImageData(at: originalIndex),
-                  let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
-                  let image = CGImageSourceCreateImageAtIndex(imageSource, 0, nil)
-            else { continue }
+            guard let originalIndex = originalIndexByKey[page.sortKey] else { continue }
+
+            // 描画に必要な材料(元PDFのページ、または画像)を先に用意する。用意できない
+            // ページは飛ばす(この時点ではまだ書き出し先に触れない)。
+            var sourcePage: CGPDFPage?
+            var image: CGImage?
+            var mediaBox: CGRect
+            if let sourcePDFDocument, case .pdf(_, let pdfPageIndex) = page.source {
+                guard let pdfPage = sourcePDFDocument.page(at: pdfPageIndex + 1) else { continue }
+                let box = pdfPage.getBoxRect(.mediaBox)
+                guard box.width > 0, box.height > 0 else { continue }
+                sourcePage = pdfPage
+                mediaBox = CGRect(origin: .zero, size: box.size)
+            } else {
+                guard let data = await pageLoader.rawImageData(at: originalIndex),
+                      let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
+                      let decoded = CGImageSourceCreateImageAtIndex(imageSource, 0, nil)
+                else { continue }
+                image = decoded
+                mediaBox = CGRect(x: 0, y: 0, width: CGFloat(decoded.width), height: CGFloat(decoded.height))
+            }
 
             // 最初に描画できるページが確定した、このタイミングで初めて書き出し先を作る。
             let pdfContext: CGContext
@@ -167,9 +205,17 @@ nonisolated enum PDFExporter {
             pageNumber += 1
             pageNumberByOriginalKey[page.sortKey] = pageNumber
 
-            var mediaBox = CGRect(x: 0, y: 0, width: CGFloat(image.width), height: CGFloat(image.height))
             pdfContext.beginPage(mediaBox: &mediaBox)
-            pdfContext.draw(image, in: mediaBox)
+            if let sourcePage {
+                // 元ページの原点がmediaBoxの左下と一致しない場合に備えて平行移動してから写す。
+                let box = sourcePage.getBoxRect(.mediaBox)
+                pdfContext.saveGState()
+                pdfContext.translateBy(x: -box.origin.x, y: -box.origin.y)
+                pdfContext.drawPDFPage(sourcePage)
+                pdfContext.restoreGState()
+            } else if let image {
+                pdfContext.draw(image, in: mediaBox)
+            }
             pdfContext.endPage()
         }
         // contextがnilであることと「1ページも書き出せなかった」ことは同値(上のとおり、最初の

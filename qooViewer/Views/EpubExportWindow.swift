@@ -18,6 +18,7 @@ import UniformTypeIdentifiers
 struct EpubExportWindow: View {
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
+    @EnvironmentObject private var metadataStore: BookMetadataStore
     @EnvironmentObject private var preferences: AppPreferences
 
     @State private var viewModel: EpubExportViewModel?
@@ -31,7 +32,8 @@ struct EpubExportWindow: View {
                     .frame(minWidth: 820, minHeight: 480)
                     .onAppear {
                         viewModel = EpubExportViewModel(
-                            bookmarkStore: bookmarkStore, layoutStore: layoutStore, preferences: preferences
+                            bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+                            metadataStore: metadataStore, preferences: preferences
                         )
                     }
             }
@@ -71,8 +73,14 @@ private struct EpubExportContentView: View {
     /// 右端のレイアウト/ブックマークインジケータ(アイコン2個ぶんのスロット+アイコン間の
     /// 間隔)のために確保する幅の合計(indicatorLeadingGap + 16 + 6 + 16 + indicatorTrailingGap。
     /// ExportRowView参照)。ウインドウが縮んでも、この幅ぶんは常に表示領域が残るようにする。
+    /// ユーザー要望によりメタデータのインジケータを追加したため、アイコンのスロットは3つ。
     fileprivate static let trailingIndicatorWidth: CGFloat =
-        indicatorLeadingGap + 16 + 6 + 16 + indicatorTrailingGap
+        indicatorLeadingGap + indicatorIconsWidth + indicatorTrailingGap
+    /// アイコン3つ(レイアウト/ブックマーク/メタデータ)を並べた領域の幅。
+    /// スロットの寸法とアイコンの出し分け方はExportIndicatorIconにまとめてある
+    /// (行ごとに並びがずれていた不具合の経緯もそちらのコメント参照)。
+    fileprivate static let indicatorIconsWidth: CGFloat = ExportIndicatorIcon.totalWidth(iconCount: 3)
+
     /// レイアウトインジケータの左側の空白(ユーザー要望: レイアウトインジケータ左側の空白を
     /// 縮めてほしい)。
     fileprivate static let indicatorLeadingGap: CGFloat = 4
@@ -112,7 +120,7 @@ private struct EpubExportContentView: View {
                 ContentUnavailableView(
                     "No Eligible Books",
                     systemImage: "square.and.arrow.up",
-                    description: Text("Books need bookmarks or page layout settings before they can be exported as EPUB. (PDF and EPUB source files aren't eligible.)")
+                    description: Text("Books need bookmarks, page layout settings, or metadata before they can be exported as EPUB.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -612,25 +620,19 @@ private struct ExportRowView: View {
             // 参照)。
             Spacer(minLength: EpubExportContentView.indicatorLeadingGap)
 
-            HStack(spacing: 6) {
-                Group {
-                    if row.hasLayout {
-                        Image(systemName: "square.stack")
-                            .foregroundStyle(.secondary)
-                            .help("Has page layout settings")
-                    }
-                }
-                .frame(width: 16)
-
-                Group {
-                    if row.hasBookmarks {
-                        Image(systemName: "bookmark.fill")
-                            .foregroundStyle(.secondary)
-                            .help("Has bookmarks")
-                    }
-                }
-                .frame(width: 16)
+            HStack(spacing: ExportIndicatorIcon.slotSpacing) {
+                ExportIndicatorIcon(
+                    systemName: "square.stack", isOn: row.hasLayout, help: "Has page layout settings"
+                )
+                ExportIndicatorIcon(
+                    systemName: "bookmark.fill", isOn: row.hasBookmarks, help: "Has bookmarks"
+                )
+                // ユーザー要望: インジケータにメタデータを追加。
+                ExportIndicatorIcon(
+                    systemName: "tag.fill", isOn: row.hasMetadata, help: "Has metadata"
+                )
             }
+            .frame(width: EpubExportContentView.indicatorIconsWidth, alignment: .leading)
             .padding(.trailing, EpubExportContentView.indicatorTrailingGap)
         }
         // カバー列の表示名は、上書き設定が無い場合(既定=先頭ページ)は本を読み込んで確認する

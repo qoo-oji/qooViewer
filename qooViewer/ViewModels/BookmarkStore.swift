@@ -180,11 +180,14 @@ final class BookmarkStore: ObservableObject {
 
     /// すべてのブックマークをbookIDごとにグループ化し直す。
     ///
-    /// EPUBの目次、またはPDFのアウトラインから自動的に取り込んだブックマーク
-    /// (Bookmark.isEpubDerived == true)はここでは除外する(ユーザー報告: このウインドウには
-    /// ユーザーが明示的に作成したブックマークだけを表示すべき。Bookmark.isEpubDerivedの
-    /// コメント参照)。画像ビューア自身の一覧
-    /// (ViewerViewModel.reloadBookmarks)はこのフィルタの対象外で、従来通り全件を含める。
+    /// 以前は、EPUBの目次/PDFのアウトラインから自動的に取り込んだブックマーク
+    /// (Bookmark.isEpubDerived == true)をこのストアの一覧から除外していた(「ブックマーク・
+    /// レイアウトの編集」ウインドウにはユーザーが明示的に作成したものだけを出すべき、という
+    /// 当時のご要望による)。ユーザー要望による方針転換で、EPUB/PDFの情報は初回オープン時に
+    /// DBへ取り込み、以降はDB上の情報に従う(=取り込み後はユーザー作成のものと同等に扱う)
+    /// 扱いへ変更したため、この除外は廃止した。
+    /// isEpubDerived属性そのものは、自動取り込みが1冊につき1回で済んでいるかの判別材料として
+    /// 残してある(Bookmark.swiftのコメント参照)。
     func reload() {
         // このストアの外(開いている本のViewerViewModelが同じModelContext経由で直接書き込んだ
         // 場合)での変更を取り込むための経路。そちらの変更はこのストアのキャッシュに反映され
@@ -208,9 +211,7 @@ final class BookmarkStore: ObservableObject {
     /// このストア自身の書き込みメソッドが、キャッシュへ差分を反映した後に呼ぶ。
     private func rebuildGroups() {
         let unsorted = bookmarksByBookID().compactMap { bookID, bookmarks -> BookmarkBookGroup? in
-            // EPUBの目次/PDFのアウトラインからの自動取り込み分は、この一覧には出さない
-            // (このメソッドのdoc comment参照)。除外した結果1件も残らない本は行ごと作らない。
-            let visible = bookmarks.filter { !$0.isEpubDerived }
+            let visible = bookmarks
             guard !visible.isEmpty else { return nil }
             // 「追加日時」はこの本に最初にブックマークを付けた日時(=最小のcreatedAt)、
             // 「更新日時」はこの本のブックマークの中で直近に変更があった日時(=最大のupdatedAt)
@@ -381,8 +382,7 @@ final class BookmarkStore: ObservableObject {
     /// 正しく機能しないことがある不具合が実機で確認された(LayoutStore.pageOverrides(forBookID:)の
     /// コメント参照)ため、同じ理由でここも合わせて統一しておく。
     func bookmarks(forBookID bookID: String) -> [Bookmark] {
-        // EPUBの目次から自動的に取り込んだブックマークはここでも除外する(reload()と同じ理由)。
-        let fetched = (bookmarksByBookID()[bookID] ?? []).filter { !$0.isEpubDerived }
+        let fetched = bookmarksByBookID()[bookID] ?? []
         switch sortOption {
         case .nameAscending:
             return fetched.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -571,10 +571,7 @@ final class BookmarkStore: ObservableObject {
     /// ウインドウの4.4節「ブックマークを全削除」から呼ぶ(1冊分のみを対象にする点が
     /// deleteAllBookmarks()と異なる)。
     func deleteAllBookmarks(forBookID bookID: String) {
-        // この編集ウインドウの一覧に出てこないEPUB自動取り込みのブックマークは、この「全削除」の
-        // 対象にも含めない(reload()/bookmarks(forBookID:)と同じ理由。画像ビューア側の
-        // ジャンプ機能に影響を与えないため)。
-        let matched = (bookmarksByBookID()[bookID] ?? []).filter { !$0.isEpubDerived }
+        let matched = bookmarksByBookID()[bookID] ?? []
         guard !matched.isEmpty else { return }
         for bookmark in matched {
             modelContext.delete(bookmark)
@@ -583,6 +580,13 @@ final class BookmarkStore: ObservableObject {
         cacheRemovedBookmarks(matched, forBookID: bookID)
         rebuildGroups()
         NotificationCenter.default.post(name: .bookmarksDidChange, object: self, userInfo: ["bookID": bookID])
+    }
+
+    /// この本を指すセキュリティスコープ付きブックマークのうち、最初に見つかったもの。
+    /// resolvedURLFromBookmarkData(forBookID:)と違い、ファイルの実在確認は行わずデータ自体を返す
+    /// (「本ごとの保存データを削除」ウインドウが、実在するかどうかを自分で判定するために使う)。
+    func anyBookmarkData(forBookID bookID: String) -> Data? {
+        (bookmarksByBookID()[bookID] ?? []).compactMap(\.bookmarkData).first
     }
 
     /// すべてのブックマークを削除する。環境設定「リセット」タブの「すべてのお気に入り・

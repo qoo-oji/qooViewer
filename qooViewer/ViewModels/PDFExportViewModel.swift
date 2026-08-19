@@ -14,6 +14,7 @@ final class PDFExportViewModel: ObservableObject {
         let bookID: String
         let hasLayout: Bool
         let hasBookmarks: Bool
+        let hasMetadata: Bool
         var id: String { bookID }
         var displayName: String {
             URL(fileURLWithPath: bookID).deletingPathExtension().lastPathComponent
@@ -83,16 +84,19 @@ final class PDFExportViewModel: ObservableObject {
 
     private let bookmarkStore: BookmarkStore
     private let layoutStore: LayoutStore
+    private let metadataStore: BookMetadataStore
 
     /// この画面はWindow(id: "pdfExport")という単一インスタンスのシーンで開くため、EpubExport
     /// ViewModelと同じ理由(コメント参照)でbookmarksDidChange/layoutDataDidChange通知を
     /// 受けてreload()し直す。
     private var bookmarksChangeObserver: NSObjectProtocol?
     private var layoutDataChangeObserver: NSObjectProtocol?
+    private var metadataChangeObserver: NSObjectProtocol?
 
-    init(bookmarkStore: BookmarkStore, layoutStore: LayoutStore) {
+    init(bookmarkStore: BookmarkStore, layoutStore: LayoutStore, metadataStore: BookMetadataStore) {
         self.bookmarkStore = bookmarkStore
         self.layoutStore = layoutStore
+        self.metadataStore = metadataStore
         reload()
 
         // queue: .mainを指定しているため実行時には必ずMainActor上で呼ばれるが、クロージャ自体の
@@ -112,6 +116,13 @@ final class PDFExportViewModel: ObservableObject {
                 self?.reload()
             }
         }
+        metadataChangeObserver = NotificationCenter.default.addObserver(
+            forName: .bookMetadataDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reload()
+            }
+        }
     }
 
     deinit {
@@ -121,6 +132,9 @@ final class PDFExportViewModel: ObservableObject {
         if let layoutDataChangeObserver {
             NotificationCenter.default.removeObserver(layoutDataChangeObserver)
         }
+        if let metadataChangeObserver {
+            NotificationCenter.default.removeObserver(metadataChangeObserver)
+        }
     }
 
     /// 対象一覧を読み直す。EpubExportViewModel.reload()とほぼ同じ条件だが、PDF出力は
@@ -129,24 +143,33 @@ final class PDFExportViewModel: ObservableObject {
     func reload() {
         var bookIDs = layoutStore.layoutBookIDs
         bookIDs.formUnion(bookmarkStore.groups.map(\.bookID))
-        let eligibleIDs = bookIDs.filter { bookID in
-            let ext = URL(fileURLWithPath: bookID).pathExtension.lowercased()
-            guard ext != "pdf" && ext != "epub" else { return false }
-            return resolveURL(forBookID: bookID) != nil
-        }
+        // ユーザー要望: メタデータの登録がある本も対象に含める。レイアウトのみの本も
+        // 引き続き対象に残す(ユーザー選択。ページ除外・並べ替えは出力に反映されるため)。
+        bookIDs.formUnion(metadataStore.registeredBookIDs)
+        // ユーザー要望: 元のファイル形式による制限を撤廃し、
+        // zip/cbz・rar/cbr・7z/cb7・pdf・epub・フォルダのすべてを対象にする。
+        let eligibleIDs = bookIDs.filter { resolveURL(forBookID: $0) != nil }
         let bookIDsWithBookmarks = Set(bookmarkStore.groups.map(\.bookID))
         rows = eligibleIDs
             .map { bookID in
                 Row(
                     bookID: bookID,
                     hasLayout: layoutStore.layoutBookIDs.contains(bookID),
-                    hasBookmarks: bookIDsWithBookmarks.contains(bookID)
+                    hasBookmarks: bookIDsWithBookmarks.contains(bookID),
+                    hasMetadata: metadataStore.isRegistered(bookID: bookID)
                 )
             }
             .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
         selectedBookIDs.formIntersection(Set(rows.map(\.bookID)))
 
+        // タイトル・著者名の初期値。EpubExportViewModelと同じく、メタデータDBに登録がある本は
+        // そちらを優先する(ユーザー要望)。
         for row in rows where titleOverrides[row.bookID] == nil {
+            if let metadata = metadataStore.metadata(forBookID: row.bookID), !metadata.title.isEmpty {
+                titleOverrides[row.bookID] = metadata.title
+                authorOverrides[row.bookID] = metadata.author
+                continue
+            }
             let parsed = TitleAuthorFilenameParser.parse(baseName: row.displayName)
             titleOverrides[row.bookID] = parsed.title.isEmpty ? row.displayName : parsed.title
             authorOverrides[row.bookID] = parsed.author
@@ -314,7 +337,9 @@ final class PDFExportViewModel: ObservableObject {
             pageOverrides: overrides,
             bookmarks: exportBookmarks,
             titleOverride: titleOverrides[row.bookID],
-            author: authorOverrides[row.bookID]
+            author: authorOverrides[row.bookID],
+            series: metadataStore.metadata(forBookID: row.bookID)?.series,
+            seriesIndex: metadataStore.metadata(forBookID: row.bookID)?.seriesIndex
         )
         let options = PDFExportOptions(includeExcludedPages: includeExcludedPages)
 

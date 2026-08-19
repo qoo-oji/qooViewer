@@ -1487,10 +1487,9 @@ private struct BookmarkDetailPane: View {
                     viewModel: viewModel,
                     bookID: bookID,
                     bookmark: row.effectiveReadingIndex.flatMap { bookmarksByPageIndex[$0] },
-                    isLayoutLocked: viewModel.hasAuthoritativeSourceLayout,
                     columnWidths: columnWidths,
                     columnDividerCorrections: columnDividerCorrections,
-                    isMoveEnabled: !viewModel.hasAuthoritativeSourceLayout && pageFilter == .all,
+                    isMoveEnabled: pageFilter == .all,
                     onJump: { openBookAndJump(toPageIndex: row.effectiveReadingIndex) },
                     onAddBookmark: { addBookmark(atPageIndex: row.effectiveReadingIndex) },
                     onRenameBookmark: { bookmark in
@@ -1546,7 +1545,7 @@ private struct BookmarkDetailPane: View {
             // 直接操作するため除外ページがあっても問題なく動作しており、ドラッグだけ使えないのは
             // 不自然だというユーザー報告を受けて、movePages(displayedPageKeys:fromOffsets:
             // toOffset:)側でインデックス空間の変換を行うように修正し、この制限を外した。
-            .moveDisabled(viewModel.hasAuthoritativeSourceLayout || pageFilter != .all)
+            .moveDisabled(pageFilter != .all)
         }
         // バグ修正: 既定のList見た目(inset系)は、タイトル行(columnHeaderRow)との間に
         // 余分な上下の余白を持ち込み、隙間が広く見えていた(ユーザー報告)。.plainにすることで
@@ -1573,7 +1572,7 @@ private struct BookmarkDetailPane: View {
                     } label: {
                         Image(systemName: "chevron.up")
                     }
-                    .disabled(viewModel.hasAuthoritativeSourceLayout || selectedPageKey == nil)
+                    .disabled(selectedPageKey == nil)
                     .help("Move Selected Page Earlier")
 
                     Button {
@@ -1581,10 +1580,10 @@ private struct BookmarkDetailPane: View {
                     } label: {
                         Image(systemName: "chevron.down")
                     }
-                    .disabled(viewModel.hasAuthoritativeSourceLayout || selectedPageKey == nil)
+                    .disabled(selectedPageKey == nil)
                     .help("Move Selected Page Later")
 
-                    if !viewModel.hasAuthoritativeSourceLayout {
+                    Group {
                         Text("Reading Direction")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -1647,10 +1646,7 @@ private struct BookmarkDetailPane: View {
                         Button("Reset Page Order") {
                             viewModel.resetOrder()
                         }
-                        .disabled(
-                            viewModel.hasAuthoritativeSourceLayout
-                                || layoutStore.bookLayoutSettings(forBookID: bookID)?.pageOrderOverride == nil
-                        )
+                        .disabled(layoutStore.bookLayoutSettings(forBookID: bookID)?.pageOrderOverride == nil)
                     } label: {
                         Label("Bulk Operations…", systemImage: "ellipsis.circle")
                     }
@@ -1667,16 +1663,6 @@ private struct BookmarkDetailPane: View {
                     }
                     .pickerStyle(.menu)
                     .fixedSize()
-                }
-
-                if viewModel.hasAuthoritativeSourceLayout {
-                    // EPUB(OPF)またはPDF自身が権威的なレイアウト指定を持つ本では、読み方向・
-                    // 並べ替え・レイアウト列すべてを無効化する(2.4節: ソースファイル側の指定が
-                    // 優先されるため)。PDFにも対応した際(sourceLayoutHintへ一般化)、この文言を
-                    // 「EPUBファイル」から「元ファイル」に合わせて一般化した。
-                    Text("This book's page layout is defined by its source file and cannot be edited here.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
 
                 if let warning = viewModel.reorderWarningMessage {
@@ -1953,7 +1939,6 @@ private struct BookmarkDetailPane: View {
 /// 不要になった。stale化の原因だったNSPopUpButton自体がもう存在しないため。
 private struct PageLayoutStateMenuButton: View {
     let currentState: PageLayoutState?
-    let isDisabled: Bool
     let width: CGFloat
     let onChange: (PageLayoutState?) -> Void
 
@@ -1973,18 +1958,15 @@ private struct PageLayoutStateMenuButton: View {
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2)
             }
-            .foregroundStyle(isDisabled ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.primary))
             // Buttonのクリック判定を、テキストの実際の幅ではなく列の幅いっぱいに広げる
             // (以前のNSPopUpButtonと同じ感覚で押せるようにするため)。
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(isDisabled)
         .frame(width: width, alignment: .leading)
     }
 
     private func showMenu() {
-        guard !isDisabled else { return }
         // NSMenuItem.targetは強参照ではないため、メニューが出ている間ハンドラを生かしておく
         // 必要がある。popUp(positioning:at:in:)はメニューが閉じるまで戻らない(モーダル)ので、
         // このローカル変数の寿命でちょうど足りる。
@@ -2060,7 +2042,6 @@ private struct PageRowView: View {
     @ObservedObject var viewModel: BookLayoutEditorViewModel
     let bookID: String
     let bookmark: Bookmark?
-    let isLayoutLocked: Bool
     /// 列ヘッダー行(columnHeaderRow)と共有する列幅。ヘッダー側でドラッグして幅を変えると、
     /// 同じBindingを通じてすべての行に即座に反映される(PageListColumnWidths参照)。
     let columnWidths: PageListColumnWidths
@@ -2070,7 +2051,7 @@ private struct PageRowView: View {
     let columnDividerCorrections: [Int: CGFloat]
     /// ドラッグハンドルを実際に使える見た目にするかどうか。呼び出し元
     /// (BookmarkDetailPane.pageListContent)のForEach.moveDisabledと同じ条件
-    /// (!isLayoutLocked && pageFilter == .all)を渡す。
+    /// (pageFilter == .all)を渡す。
     let isMoveEnabled: Bool
     let onJump: () -> Void
     let onAddBookmark: () -> Void
@@ -2269,7 +2250,6 @@ private struct PageRowView: View {
                 .overlay(alignment: .leading) {
                     PageLayoutStateMenuButton(
                         currentState: currentLayoutState,
-                        isDisabled: isLayoutLocked,
                         width: columnWidths.layout,
                         onChange: { onLayoutStateChange($0) }
                     )

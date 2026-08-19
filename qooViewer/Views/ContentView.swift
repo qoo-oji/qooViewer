@@ -15,6 +15,9 @@ struct ContentView: View {
     @EnvironmentObject private var favoritesStore: FavoritesStore
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
+    /// 書誌メタデータ。ツールバーのファイル名表示を登録済みのタイトル・著者に差し替えるため、
+    /// ViewerView経由でViewerViewModelへ渡す。
+    @EnvironmentObject private var metadataStore: BookMetadataStore
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
     @Environment(\.modelContext) private var modelContext
     /// サイドパネル(ブックマークモード)の「編集」ボタンから、お気に入り/ブックマークの
@@ -92,7 +95,10 @@ struct ContentView: View {
                         // .id(book.id) を付けることで、次の本/前の本に切り替えたときに
                         // ViewerViewModel(StateObject)が確実に作り直され、ページ位置などが
                         // 新しい本の状態にリセットされるようにしている。
-                        ViewerView(book: book, modelContext: modelContext, preferences: preferences, layoutStore: layoutStore)
+                        ViewerView(
+                            book: book, modelContext: modelContext, preferences: preferences,
+                            layoutStore: layoutStore, metadataStore: metadataStore
+                        )
                             .id(book.id)
                     } else {
                         WelcomeView()
@@ -148,8 +154,6 @@ struct ContentView: View {
                 isSpreadMode: appState.isSpreadMode,
                 isRightToLeft: appState.isRightToLeft,
                 scalingMode: appState.currentScalingMode,
-                isReadingDirectionLocked: appState.isReadingDirectionLocked,
-                isDisplayModeLocked: appState.isDisplayModeLocked,
                 isPageShiftLocked: appState.isPageShiftLocked,
                 // isCurrentBookFavorited/isCurrentPageBookmarkedは、AppState自身の@Publishedでは
                 // なくここで都度計算する。favoritesStoreの変更(reload())はAppStateの
@@ -158,7 +162,6 @@ struct ContentView: View {
                 // ことで、値型のFocusedValueとしてメニューバー側へ正しく伝わる)から直接算出する。
                 isCurrentBookFavorited: appState.currentBook.map { favoritesStore.isFavorited(bookID: $0.id) } ?? false,
                 isCurrentPageBookmarked: appState.currentBookmarks.contains { $0.pageIndex == appState.currentPageIndex },
-                hasAuthoritativeSourceLayout: appState.hasAuthoritativeSourceLayout,
                 hasPartnerPageDisplayed: appState.hasPartnerPageDisplayed,
                 hasCurrentPageLayoutOverride: appState.hasCurrentPageLayoutOverride,
                 hasPartnerPageLayoutOverride: appState.hasPartnerPageLayoutOverride
@@ -318,6 +321,7 @@ struct ContentView: View {
             appState.favoritesStore = favoritesStore
             appState.bookmarkStore = bookmarkStore
             appState.layoutStore = layoutStore
+            appState.metadataStore = metadataStore
             sidePanelBrowser.folderAccess = folderAccess
             sidePanelBrowser.preferences = preferences
             // 「ツールバーを隠す」「プログレスバーを隠す」「サイドパネルを隠す」は、前回終了時
@@ -448,6 +452,7 @@ struct ContentView: View {
                     appState.favoritesStore = favoritesStore
                     appState.bookmarkStore = bookmarkStore
                     appState.layoutStore = layoutStore
+                    appState.metadataStore = metadataStore
                     sidePanelBrowser.folderAccess = folderAccess
                     sidePanelBrowser.preferences = preferences
                     appState.hideToolbar = preferences.hideToolbar

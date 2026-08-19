@@ -211,11 +211,70 @@ actor PageLoader {
     /// 生の画像データ(デコード前)を返す。EPUB書き出し(EpubExporter、7節)で、画質を落とさず
     /// 元の画像ファイルをそのまま複製するために使う。pageImage/thumbnailと異なりキャッシュは
     /// 行わない(書き出し中に一度読めば十分で、同じページへ二度アクセスすることが無いため)。
-    /// PDFソースの場合は常にnil(EPUB書き出しの対象はフォルダ・zip/cbz・rar/cbr・7z/cb7のみで、
-    /// PDF/EPUB自体は対象外のため。7.1節参照)。
+    /// PDFソースの場合は常にnil(PDFのページに「元の画像ファイル」という単位が無いため。
+    /// PDFを書き出しの入力にする経路はexportableImage(at:)を使うこと)。
     func rawImageData(at index: Int) async -> Data? {
         guard book.pages.indices.contains(index) else { return nil }
         return rawData(for: book.pages[index].source)
+    }
+
+    /// 書き出し(EPUB)にそのまま使える画像データと、その拡張子。
+    ///
+    /// ユーザー要望により、EPUB書き出しの対象へ元がPDFの本も含めるようになったため、
+    /// 「1ページ分の書き出し用データ」をソースの種類に依らず1つの窓口で得られるようにしたもの。
+    /// - フォルダ・zip/cbz・rar/cbr・7z/cb7・EPUB: 元の画像ファイルのバイト列をそのまま返す
+    ///   (拡張子も元のファイル名のもの)。
+    /// - PDF: 埋め込まれている画像を取り出す(JPEGはそのまま、Flate等の可逆形式はPNGへ変換。
+    ///   PDFImageExtractor参照)。JPEG/可逆形式以外が含まれる場合はエラーを投げる。
+    ///
+    /// 戻り値がnilになるのは、画像データを読み出せなかった場合(壊れた書庫など)。呼び出し側は
+    /// 従来通りそのページを飛ばす。PDFで「対応していない画像形式」だった場合だけは、黙って
+    /// 飛ばすとページが欠けたEPUBが出来上がってしまうため、エラーとして投げて書き出し自体を
+    /// 失敗させる。
+    func exportableImage(at index: Int) async throws -> (data: Data, fileExtension: String)? {
+        guard book.pages.indices.contains(index) else { return nil }
+        let page = book.pages[index]
+        guard case .pdf(let pdfURL, let pdfPageIndex) = page.source else {
+            guard let data = rawData(for: page.source) else { return nil }
+            return (data, Self.fileExtension(forEntryPathOf: page))
+        }
+        guard let document = pdfDocument(for: pdfURL),
+              let pdfPage = document.page(at: pdfPageIndex + 1)
+        else { return nil }
+        let extracted = try PDFImageExtractor.extractImageData(from: pdfPage, pageNumber: pdfPageIndex + 1)
+        return (extracted.data, extracted.format.fileExtension)
+    }
+
+    /// exportableImage(at:)が返すであろう拡張子だけを、画像データを読まずに求める。
+    ///
+    /// EPUB書き出しは、実際に画像を書き込むより前に全ページ分のファイル名(=拡張子)を確定して
+    /// package document(OPF)と目次を組み立てる必要があるため、その段階で使う。PDFの場合も
+    /// 画像ストリームの辞書を読むだけで、画像本体の復号・コピーは行わない。
+    func exportableImageFileExtension(at index: Int) async throws -> String {
+        guard book.pages.indices.contains(index) else { return "jpg" }
+        let page = book.pages[index]
+        guard case .pdf(let pdfURL, let pdfPageIndex) = page.source else {
+            return Self.fileExtension(forEntryPathOf: page)
+        }
+        guard let document = pdfDocument(for: pdfURL),
+              let pdfPage = document.page(at: pdfPageIndex + 1)
+        else { return "jpg" }
+        return try PDFImageExtractor.imageFormat(of: pdfPage, pageNumber: pdfPageIndex + 1).fileExtension
+    }
+
+    /// フォルダ内の画像・書庫内エントリの拡張子(小文字)。拡張子を持たない場合はjpgとみなす
+    /// (EpubExporterが従来から使っていた既定と同じ)。
+    private static func fileExtension(forEntryPathOf page: PageRef) -> String {
+        switch page.source {
+        case .file(let url):
+            return url.pathExtension.isEmpty ? "jpg" : url.pathExtension.lowercased()
+        case .zip(_, let entryPath), .sevenZip(_, let entryPath), .rar(_, let entryPath):
+            let ext = (entryPath as NSString).pathExtension
+            return ext.isEmpty ? "jpg" : ext.lowercased()
+        case .pdf:
+            // 呼び出し側でPDFを先に振り分けているため到達しない。
+            return "jpg"
+        }
     }
 
     /// 指定ページの画像サイズ(幅・高さ、ピクセル単位)だけを取得する。ピクセルデータの

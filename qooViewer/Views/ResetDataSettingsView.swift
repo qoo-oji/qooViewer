@@ -41,11 +41,35 @@ import AppKit
 /// QooViewerApp.modelContainerが完全にまっさらな状態のストアを新規作成するため、
 /// 「壊れているデータも正常なデータも一切合切消える」ことが保証できる。
 struct ResetDataSettingsView: View {
+    @Environment(\.openWindow) private var openWindow
     @State private var isShowingConfirmation = false
     @State private var isShowingCompletion = false
 
     var body: some View {
         SettingsPaneContainer {
+            // ユーザー要望: 検証用に開いただけの本など、DBに残ったままの不要なデータが煩わしい
+            // ので、任意の本だけを選んで削除できるようにしたい。
+            //
+            // 下の「すべて削除」が、データが壊れて起動すらできない状況のための最後の手段
+            // (ストアの実ファイルごと消す)なのに対して、こちらは日常的な掃除のための本1冊単位の
+            // 操作。性質が異なるため、同じ「危険な操作」セクションには入れず、その手前に
+            // 独立したセクションとして置く(この操作自体は取り消せないが、対象が1冊分に
+            // 限られ、アプリの再起動も伴わない)。
+            Section {
+                Button {
+                    openWindow(id: "libraryCleanup")
+                } label: {
+                    Label("Delete Saved Data for Individual Books…", systemImage: "trash.slash")
+                }
+            } header: {
+                Text("Clean Up")
+            } footer: {
+                Text("Opens a window listing every book qooViewer has saved data for, so you can remove the ones you no longer need. The files themselves are never touched.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Section {
                 // 以前はここが一文だった:
                 // 「お気に入り・ブックマーク・レイアウト設定・読書履歴が破損したり読み込めなく

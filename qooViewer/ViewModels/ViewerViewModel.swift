@@ -104,6 +104,22 @@ final class ViewerViewModel: ObservableObject {
     private let pageLoader: PageLoader
     private let preferences: AppPreferences
     private let layoutStore: LayoutStore
+    /// 書誌メタデータ(著者・タイトル)。ツールバーのファイル名表示を、登録済みメタデータが
+    /// あればそちらに差し替えるために参照する(displayTitle参照)。
+    private let metadataStore: BookMetadataStore
+
+    /// ツールバー中央に表示する、この本の名前。
+    ///
+    /// ユーザー要望:
+    /// - メタデータが登録されていない本は従来どおりファイル名(book.title)をそのまま表示する
+    /// - タイトルと著者が登録されていれば「[著者] タイトル」
+    /// - タイトルだけが登録されていれば「タイトル」
+    ///
+    /// 計算プロパティではなく@Publishedの保存値にしているのは、この値がSwiftDataのモデル
+    /// (BookMetadata)に由来するため。SwiftDataのモデルの変更はSwiftUIの再描画を自動的には
+    /// 引き起こさない(このアプリはbookmarks/レイアウトも同じ理由で、変更通知を受けて自分の
+    /// キャッシュを更新する方式を採っている)ため、通知を受けたときに明示的に作り直す。
+    @Published private(set) var displayTitle: String = ""
     /// この本のBookLayoutSettings(本全体の読み方向上書き・見開き強制・ページ順補正)。
     /// 差し替えの疑いがあり未解決の間はnil(pendingLayoutReplacementStatus参照)。
     private var bookLayoutSettings: BookLayoutSettings?
@@ -155,6 +171,10 @@ final class ViewerViewModel: ObservableObject {
     /// backwardStepSize/forwardStepSizeが古い判定結果を使い続けてしまう
     /// (wideImageCacheのコメント参照)。
     private var singlePageAspectRatioThresholdObserver: AnyCancellable?
+    /// 「メタデータの編集」ウインドウ側でこの本のメタデータが変更されたときに、ツールバーの
+    /// 表示名(displayTitle)を作り直すための監視トークン。bookmarksChangeObserver/
+    /// layoutDataChangeObserverと同じ考え方(Notification.Name.bookMetadataDidChange参照)。
+    private var metadataChangeObserver: NSObjectProtocol?
 
     /// 非同期の読み込みが完了したとき、それが「一番新しいリクエストか」を判定するための世代番号。
     /// 素早くページ送りされたときに、古い読み込みが後から完了して表示を巻き戻すのを防ぐ。
@@ -212,10 +232,20 @@ final class ViewerViewModel: ObservableObject {
     /// デバウンス待ちの間に受け取ったfocusPageKey(複数あれば最後の非nilを採用する)。
     private var pendingLayoutReloadFocusPageKey: String?
 
-    init(book incomingBook: MangaBook, modelContext: ModelContext, preferences: AppPreferences, layoutStore: LayoutStore) {
+    init(
+        book incomingBook: MangaBook, modelContext: ModelContext, preferences: AppPreferences,
+        layoutStore: LayoutStore, metadataStore: BookMetadataStore
+    ) {
         self.modelContext = modelContext
         self.preferences = preferences
         self.layoutStore = layoutStore
+        self.metadataStore = metadataStore
+
+        // ユーザー要望: EPUB/PDFがファイル自身に持っているレイアウト情報(読み方向・見開き強制・
+        // EPUBのページ単位の見開き配置)を、その本を初めて開いたときにDBへ取り込む。以降は
+        // DB上の情報に従い、ユーザーはそれを自由に変更できる(ファイル側の情報はDBの初期値と
+        // してのみ扱う)。prepareBookはこの取り込み結果を読むため、必ずその前に行うこと。
+        layoutStore.importSourceLayoutIfNeeded(for: incomingBook)
 
         // レイアウト設定(ページ順補正・除外ページの除去。2.3節・2.2節)を、実際に読書フローで
         // 使うページ一覧に適用してからbookを確定する(設計コンセプト12節「アーキテクチャ上の
@@ -240,15 +270,6 @@ final class ViewerViewModel: ObservableObject {
         } else {
             self.pendingLayoutReplacementStatus = nil
         }
-        // 権威的なレイアウト指定(の有無)を、本を開くたびにキャッシュし直しておく
-        // (「ブックマーク・レイアウトの編集」ウインドウが、本を読み込み直さずに判定できるように
-        // するため。詳細はBookLayoutSettings.hasEpubLayoutLockのコメント参照)。
-        layoutStore.recordEpubLayoutLock(
-            for: prepared.book,
-            hasLock: prepared.book.sourceLayoutHint?.forcedDisplayMode != nil
-                || prepared.book.sourceLayoutHint?.pageProgressionDirection != nil
-        )
-
         let initialContrastCorrectionEnabled = prepared.settings?.contrastCorrectionEnabled ?? false
         self.isContrastCorrectionEnabled = initialContrastCorrectionEnabled
         self.pageLoader = PageLoader(book: preparedBook, contrastCorrectionEnabled: initialContrastCorrectionEnabled)
@@ -352,21 +373,16 @@ final class ViewerViewModel: ObservableObject {
             needsConfirmation = isReturningToKnownBook && restoredIndex > 0
         }
 
-        // EPUBがpage-progression-direction/rendition:spreadを明示している場合、またはPDFが
-        // Document Catalogの/ViewerPreferences/Direction・/PageLayoutで同等の情報を明示している
-        // 場合、保存されていた設定より優先してその値を採用する(値が無い項目は、これまで通り
-        // SwiftDataの保存値に従う)。対応する切り替え操作(toggleReadingDirection/
-        // toggleDisplayMode)自体も、この値が強制されている間は無効化する
-        // (isReadingDirectionLocked/isDisplayModeLocked参照)。
+        // 読み方向・見開き強制の優先順位は「DB(BookLayoutSettings) > SwiftDataの保存値
+        // (BookReadingState)」。
         //
-        // それ以外の形式(フォルダ・cbz/cbr/cb7、および上記ヒントを持たないPDF)でも、
-        // BookLayoutSettingsに読み方向/見開き強制の上書きが記録されていれば(4.1節の編集
-        // ウインドウで設定する)、ソース側のヒントに次ぐ優先順位でそれを採用する
-        // (優先順位: ソースファイル自身のヒント > DB > SwiftDataの保存値。設計コンセプト2.4節)。
-        self.displayMode = preparedBook.sourceLayoutHint?.forcedDisplayMode ?? bookLayoutSettings?.forcedDisplayMode ?? state.displayMode
-        self.readingDirection = preparedBook.sourceLayoutHint?.pageProgressionDirection
-            ?? bookLayoutSettings?.readingDirectionOverride
-            ?? state.readingDirection
+        // 以前はこの手前にもう一段「ソースファイル自身のヒント(EPUBのpage-progression-direction/
+        // rendition:spread、PDFの/ViewerPreferences/Direction・/PageLayout)」があり、常にそれを
+        // 最優先していた。ユーザー要望により、ファイル側の情報はDBの初期値として初回オープン時に
+        // 1回だけ取り込む方式(上のimportSourceLayoutIfNeeded)へ変更したため、ここで改めて
+        // ファイル側を見る必要は無くなった。取り込み済みの値はbookLayoutSettings側に入っている。
+        self.displayMode = bookLayoutSettings?.forcedDisplayMode ?? state.displayMode
+        self.readingDirection = bookLayoutSettings?.readingDirectionOverride ?? state.readingDirection
         self.scalingMode = state.scalingMode
         self.needsResumeConfirmation = needsConfirmation
         // Swiftの初期化規則上、self(のインスタンスメソッド)は全ストアドプロパティに値が
@@ -374,6 +390,10 @@ final class ViewerViewModel: ObservableObject {
         // 完了させる(このself.currentIndex = initialIndexの代入をもって、以後selfを
         // 自由に使える状態になる)。
         self.currentIndex = initialIndex
+
+        // ツールバーの表示名。ここより前(全ストアドプロパティが揃う前)にはselfを使えないため、
+        // 宣言時の空文字で一度初期化しておき、ここで実際の値を入れる。
+        refreshDisplayTitle()
 
         // 保存されていた(または直前に計算した)ページ位置が、EPUBのpage-spread-right指定
         // (またはDB由来の「見開き右」指定)を持つページをそのまま指していると、そのページ単体が
@@ -399,16 +419,29 @@ final class ViewerViewModel: ObservableObject {
         // 有無では判定しない。PDFはレイアウトヒントを持たない本の方が多く、その場合でも
         // アウトラインだけは持っていることがあるため)。読み込み・解析はTask内で非同期に行い、
         // 本を開く処理自体をブロックしない。
-        if bookmarks.isEmpty {
-            let sourceFileName = book.sourceURL.lastPathComponent
-            if isEpubFile(sourceFileName) {
+        //
+        // 併せて、ユーザー要望による「ファイルを初めて開いたときに、ファイルに埋め込まれている
+        // 書誌メタデータ(タイトル・著者・シリーズ・巻数)を読み込んでDBへ登録する」処理も
+        // 同じ経路で行う(importSourceMetadataIfNeeded)。こちらはブックマークの有無とは
+        // 無関係のため、bookmarks.isEmptyの外側で分岐する。
+        let sourceFileName = book.sourceURL.lastPathComponent
+        if isEpubFile(sourceFileName) {
+            if bookmarks.isEmpty {
                 Task { [weak self] in
                     await self?.autoImportEpubTableOfContentsAsBookmarksIfNeeded()
                 }
-            } else if isPDFFile(sourceFileName) {
+            }
+            Task { [weak self] in
+                await self?.importSourceMetadataIfNeeded(isEpub: true)
+            }
+        } else if isPDFFile(sourceFileName) {
+            if bookmarks.isEmpty {
                 Task { [weak self] in
                     await self?.autoImportPDFOutlineAsBookmarksIfNeeded()
                 }
+            }
+            Task { [weak self] in
+                await self?.importSourceMetadataIfNeeded(isEpub: false)
             }
         }
 
@@ -468,6 +501,21 @@ final class ViewerViewModel: ObservableObject {
             }
         }
 
+        // ツールバーのファイル名表示(displayTitle)は登録済みメタデータを反映するため、
+        // 「メタデータの編集」ウインドウ側でこの本のメタデータが登録・変更・解除されたら
+        // 作り直す(上の2つの監視と同じ考え方。userInfoに"bookID"が無い通知=全件リセットは
+        // 本を問わず常に対象とする)。
+        metadataChangeObserver = NotificationCenter.default.addObserver(
+            forName: .bookMetadataDidChange, object: nil, queue: .main
+        ) { [weak self] notification in
+            // 上のbookmarksChangeObserverと同じ理由でMainActor.assumeIsolatedを使う。
+            MainActor.assumeIsolated {
+                let changedBookID = notification.userInfo?["bookID"] as? String
+                guard changedBookID == nil || changedBookID == ownBookID else { return }
+                self?.refreshDisplayTitle()
+            }
+        }
+
         // 環境設定ウインドウは本のウインドウとは独立して開けるため、この本を表示したまま
         // しきい値を変更されることがある。dropFirst()で初期値の即時発火は無視し、
         // 実際に値が変わったときだけwideImageCacheを破棄する(singlePageAspectRatioThreshold
@@ -486,6 +534,31 @@ final class ViewerViewModel: ObservableObject {
         if let layoutDataChangeObserver {
             NotificationCenter.default.removeObserver(layoutDataChangeObserver)
         }
+        if let metadataChangeObserver {
+            NotificationCenter.default.removeObserver(metadataChangeObserver)
+        }
+    }
+
+    // MARK: - ツールバーの表示名(ユーザー要望: メタデータを登録済みならファイル名の代わりに
+    // 「[著者] タイトル」を表示する)
+
+    /// displayTitleを、現在のDBの登録内容から作り直す。init、およびメタデータ変更通知から呼ぶ。
+    ///
+    /// タイトルが未登録(空文字)の場合は、著者だけが登録されていてもファイル名表示のままにする。
+    /// 「[著者] 」だけを表示しても本の識別には役立たず、ユーザー要望も「タイトルが登録されて
+    /// いる場合」を前提に2パターンだけを挙げているため。
+    private func refreshDisplayTitle() {
+        guard let metadata = metadataStore.metadata(forBookID: book.id) else {
+            displayTitle = book.title
+            return
+        }
+        let title = metadata.title.trimmingCharacters(in: .whitespaces)
+        guard !title.isEmpty else {
+            displayTitle = book.title
+            return
+        }
+        let author = metadata.author.trimmingCharacters(in: .whitespaces)
+        displayTitle = author.isEmpty ? title : "[\(author)] \(title)"
     }
 
     /// 「前回表示したページから再開しますか?」の確認ダイアログへの回答を反映する。
@@ -812,26 +885,6 @@ final class ViewerViewModel: ObservableObject {
         jump(toPageIndex: index)
     }
 
-    /// EPUBがrendition:spreadで、またはPDFがDocument Catalogの/PageLayoutで本全体の見開き/
-    /// 単ページを強制している間、またはBookLayoutSettingsで本全体の見開き/単ページ強制が
-    /// 設定されている間はtrue。trueの間はtoggleDisplayMode()自体が何もしない(呼び出し元のUIも
-    /// 合わせてグレーアウトする。ViewerView/QooViewerAppの`.disabled()`参照)。
-    ///
-    /// ソースファイル自身(EPUB/PDF)由来・DB由来のどちらも「著者(またはそれに代わって
-    /// ユーザーが明示した)権威的なレイアウト指定」という同じ役割を担うため、同じロック扱いに
-    /// している(優先順位自体はソースファイル自身 > DBだが、ロックするかどうかという意味では
-    /// 両者は対等。設計コンセプト2.4節・12節参照)。
-    var isDisplayModeLocked: Bool {
-        book.sourceLayoutHint?.forcedDisplayMode != nil || bookLayoutSettings?.forcedDisplayMode != nil
-    }
-
-    /// EPUBがpage-progression-directionで、またはPDFがDocument Catalogの
-    /// /ViewerPreferences/Directionで読み方向を明示している間、またはBookLayoutSettingsで
-    /// 読み方向が上書きされている間はtrue。trueの間はtoggleReadingDirection()自体が何もしない。
-    var isReadingDirectionLocked: Bool {
-        book.sourceLayoutHint?.pageProgressionDirection != nil || bookLayoutSettings?.readingDirectionOverride != nil
-    }
-
     /// 現在表示中の見開きに、EPUBのpage-spread-left/right/rendition:page-spread-center指定
     /// (またはDB由来の同等の設定。3.2節で明示的に設定したもの)を持つページが含まれている間はtrue。
     /// この状態で「1ページだけ送る」調整を行うと、明示的に指定したページの組み合わせが
@@ -844,11 +897,24 @@ final class ViewerViewModel: ObservableObject {
         return layoutHint(at: partnerIndex) != nil
     }
 
+    /// 見開き/単ページを切り替える。
+    ///
+    /// ユーザー要望による方針転換: 以前は、EPUB/PDFのファイル側が見開きを強制している間、および
+    /// BookLayoutSettingsに見開き強制が設定されている間、この操作自体を無効化(グレーアウト)して
+    /// いた。現在はファイル側の指定もDBの初期値として取り込むだけの扱いになったため、
+    /// 「取り込んだ結果ユーザーが何も変更できなくなる」ことがないよう、ロックは廃止した。
+    ///
+    /// そのうえで、BookLayoutSettingsに見開き強制が設定されている本では、切り替えた結果を
+    /// BookReadingState(この本を最後にどう表示していたか)ではなくBookLayoutSettings側へ
+    /// 書き戻す。そうしないと、本を開き直すたびに初期化時の優先順位(BookLayoutSettings >
+    /// BookReadingState)により元の強制値へ戻ってしまい、切り替えが保存されない。
     func toggleDisplayMode() {
-        guard !isDisplayModeLocked else { return }
         resetPinchZoom()
         cancelPendingPageFlip()
         displayMode = (displayMode == .spread) ? .single : .spread
+        if bookLayoutSettings?.forcedDisplayMode != nil {
+            layoutStore.setForcedDisplayMode(for: book, displayMode)
+        }
         persistState()
         reloadAsync()
     }
@@ -876,11 +942,15 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
+    /// 読み方向を切り替える。ロックを廃止した理由と、BookLayoutSettings側へ書き戻す理由は
+    /// toggleDisplayMode()と同じ(そちらのコメント参照)。
     func toggleReadingDirection() {
-        guard !isReadingDirectionLocked else { return }
         resetPinchZoom()
         // 表示中の画像自体は変わらず、並び順だけがViewer側で反転するので再読み込みは不要
         readingDirection = (readingDirection == .rightToLeft) ? .leftToRight : .rightToLeft
+        if bookLayoutSettings?.readingDirectionOverride != nil {
+            layoutStore.setReadingDirectionOverride(for: book, readingDirection)
+        }
         persistState()
     }
 
@@ -965,6 +1035,44 @@ final class ViewerViewModel: ObservableObject {
             return EpubStructureResolver.resolveTableOfContents(reader: reader, structure: structure)
         }.value
         importAutoTOCEntries(entries.map { (title: $0.title, pageIndex: $0.pageIndex) })
+    }
+
+    // MARK: - 書誌メタデータの自動取り込み(ユーザー要望)
+
+    /// EPUB/PDFのファイル自身が持つ書誌メタデータを、その本を初めて開いたときにDBへ登録する。
+    ///
+    /// 既にこの本のメタデータがDBにある場合は何もしない(ファイル側の情報はDBの初期値としてのみ
+    /// 扱い、ユーザーが編集した内容を本を開くたびに上書きし直さないため)。ファイル側に
+    /// 意味のある値が1つも無い場合も何もしない(BookMetadataStore.upsertが、4項目すべてが空の
+    /// 内容では行を作らないため、結果として「未登録」のまま「メタデータの編集」ウインドウで
+    /// ファイル名からの推測値が表示される)。
+    ///
+    /// 読み込み・解析は本を開く処理をブロックしないようTask.detachedで行う
+    /// (autoImportEpubTableOfContentsAsBookmarksIfNeededと同じ方針)。
+    private func importSourceMetadataIfNeeded(isEpub: Bool) async {
+        guard metadataStore.metadata(forBookID: book.id) == nil else { return }
+        let sourceURL = book.sourceURL
+        let metadata = await Task.detached(priority: .utility) { () -> SourceBookMetadata in
+            if isEpub {
+                guard let reader = try? ZipArchiveReader(url: sourceURL) else { return SourceBookMetadata() }
+                return EpubStructureResolver.resolveMetadata(reader: reader)
+            }
+            return PDFStructureResolver.resolveMetadata(url: sourceURL)
+        }.value
+
+        guard !metadata.isEmpty else { return }
+        // 解析中に他の経路(「メタデータの編集」ウインドウなど)で登録された可能性があるため、
+        // 書き込む直前にもう一度確認する。
+        guard metadataStore.metadata(forBookID: book.id) == nil else { return }
+        metadataStore.upsert(
+            bookID: book.id,
+            author: metadata.author,
+            title: metadata.title,
+            series: metadata.series,
+            seriesIndex: metadata.seriesIndex,
+            sourceURL: sourceURL
+        )
+        refreshDisplayTitle()
     }
 
     /// PDFのアウトライン(しおり)から、ブックマークを自動的に取り込む。autoImportEpub
@@ -1635,9 +1743,16 @@ final class ViewerViewModel: ObservableObject {
     /// いるため。設計コンセプト12節「アーキテクチャ上の変更点」参照)。
     private func layoutHint(at index: Int) -> PageSpreadPosition? {
         guard book.pages.indices.contains(index) else { return nil }
-        if let epub = book.pages[index].epubSpreadPosition { return epub }
+        // 優先順位はDB(PageLayoutOverride) > EPUBのファイル側指定。以前は逆だったが、
+        // ユーザー要望によりEPUBのページ単位の見開き配置もDBへ取り込む方式(LayoutStore.
+        // importSourceLayoutIfNeeded)へ変更したため、取り込み後のユーザーの編集が
+        // ファイル側の指定に負けないよう入れ替えてある。
+        //
+        // ファイル側の指定を見るのは、取り込みがまだ行われていない/何らかの理由で行が
+        // 作られなかった場合のフォールバックとして(取り込み前後で表示が変わらないようにする)。
         let pageKey = book.pages[index].sortKey
-        return pageLayoutStates[pageKey]?.asEpubEquivalentSpreadPosition
+        if let stored = pageLayoutStates[pageKey]?.asEpubEquivalentSpreadPosition { return stored }
+        return book.pages[index].epubSpreadPosition
     }
 
     /// レイアウト設定(BookLayoutSettings/PageLayoutOverride)を、実際に読書フローで使う
@@ -1909,16 +2024,6 @@ final class ViewerViewModel: ObservableObject {
         return keys
     }
 
-    /// ソースファイル自身(EPUB/PDF)由来の権威的なレイアウト指定がある本かどうか。3.1節
-    /// 「このアクション自体を無効化する」の判定、および呼び出し元(Layoutメニュー等)のUI
-    /// 無効化に使う。EPUBは常にtrue(BookLoader.loadEpubが必ずsourceLayoutHintを持たせるため)。
-    /// PDFは、Document Catalogに/ViewerPreferences/Directionまたは/PageLayoutの明示的な指定が
-    /// あるときのみtrue(PDFStructureResolver.resolveLayoutHint参照。多くのPDFはどちらも
-    /// 持たないため、通常のPDFはfalseのままレイアウト編集が可能)。
-    var hasAuthoritativeSourceLayout: Bool {
-        book.sourceLayoutHint != nil
-    }
-
     /// orderedPageKeysの各ページについて、横長画像(見開き表示中でも単ページ扱いにすべき)
     /// かどうかを判定する。PageLoader.pageSize(at:)(ピクセルデコードを伴わない、フォーマットの
     /// ヘッダー部分だけを読む取得)を使い、アスペクト比の判定にフル解像度のデコードは必要ない
@@ -2126,11 +2231,11 @@ final class ViewerViewModel: ObservableObject {
     /// 3.1節: 「現在の表示を基準に自動でレイアウトする」。今表示している組み合わせを起点として、
     /// 本全体のレイアウトを自動で再計算・上書きする。
     ///
-    /// ソースファイル自身(EPUB/PDF)由来の権威的なレイアウト指定がある本では、呼び出し元
-    /// (Layoutメニュー等)がこのアクション自体を無効化する想定(hasAuthoritativeSourceLayout
-    /// 参照)だが、念のためここでも早期リターンする。
+    /// 以前はEPUB/PDF由来の権威的なレイアウト指定を持つ本でこの操作自体を禁じていたが、
+    /// ユーザー要望によりファイル側の指定はDBの初期値として取り込むだけの扱いになったため、
+    /// どの形式の本でも実行できる(LayoutStore.importSourceLayoutIfNeeded参照)。
     func autoLayoutFromCurrentView() async {
-        guard !book.pages.isEmpty, !hasAuthoritativeSourceLayout else { return }
+        guard !book.pages.isEmpty else { return }
         let anchorKeys = currentAnchorPageKeys
         guard !anchorKeys.isEmpty else { return }
         let pageAnchor = LayoutAutoCalculator.Anchor(pageKeys: anchorKeys)

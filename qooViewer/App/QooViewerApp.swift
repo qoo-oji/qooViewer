@@ -25,6 +25,13 @@ struct QooViewerApp: App {
     /// ページレイアウト設定(すべての本を横断)。bookmarkStoreと同じ理由でModelContextを
     /// 明示的に渡す必要があるため、下のinit()で組み立てる。
     @StateObject private var layoutStore: LayoutStore
+    /// 書誌メタデータ(著者・タイトル・シリーズ・巻数。すべての本を横断)。layoutStoreと
+    /// 同じ理由でModelContextを明示的に渡す必要があるため、下のinit()で組み立てる。
+    @StateObject private var metadataStore: BookMetadataStore
+    /// メタデータをファイル名から推測するための3種類のルール(ファイル名フォーマット・
+    /// 巻数フォーマット・除外文字列)。UserDefaultsに保存するためModelContextは不要で、
+    /// AppPreferencesと同じく宣言時のデフォルト値で初期化できる。
+    @StateObject private var metadataFormatStore = MetadataFormatStore()
     /// 複数ウインドウ/タブに対応するための調整役。詳細はLaunchCoordinator.swiftのコメント参照。
     @StateObject private var launchCoordinator = LaunchCoordinator()
     /// メニューバー(アプリ全体で1つ)から、今アクティブな(キーウインドウの)AppStateを
@@ -39,14 +46,15 @@ struct QooViewerApp: App {
     /// SwiftUIに作らせるための仕組み(下の"book" WindowGroup参照)。
     @Environment(\.openWindow) private var openWindow
 
-    /// お気に入り・ブックマーク・読書履歴(BookReadingState)・ページレイアウト設定のスキーマ。
+    /// お気に入り・ブックマーク・読書履歴(BookReadingState)・ページレイアウト設定・
+    /// 書誌メタデータ(BookMetadata)のスキーマ。
     /// BookLayoutSettings/PageLayoutOverrideは、フォルダ・zip/cbz・rar/cbr・7z/cb7・PDFに対して
     /// EPUBのpackage document相当のレイアウト情報をqooViewer自身が保持するための新規モデル
     /// (設計コンセプト2章参照)。追加のみのライトウェイトマイグレーションのため、
     /// 既存ユーザーのストアにも問題なく追加される。
     private static let modelSchema = Schema([
         BookReadingState.self, Bookmark.self, FavoriteFolder.self, FavoriteBook.self,
-        BookLayoutSettings.self, PageLayoutOverride.self
+        BookLayoutSettings.self, PageLayoutOverride.self, BookMetadata.self
     ])
 
     /// スキーマの移行に失敗した場合に、ストアファイルを削除して作り直せるよう、URLを
@@ -198,6 +206,9 @@ struct QooViewerApp: App {
         _layoutStore = StateObject(
             wrappedValue: LayoutStore(modelContext: QooViewerApp.modelContainer.mainContext)
         )
+        _metadataStore = StateObject(
+            wrappedValue: BookMetadataStore(modelContext: QooViewerApp.modelContainer.mainContext)
+        )
     }
 
     var body: some Scene {
@@ -214,6 +225,7 @@ struct QooViewerApp: App {
                 .environmentObject(favoritesStore)
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
+                .environmentObject(metadataStore)
                 .environmentObject(launchCoordinator)
                 .onAppear {
                     appDelegate.preferences = preferences
@@ -489,7 +501,7 @@ struct QooViewerApp: App {
                         set: { _ in focusedAppState?.performViewerAction?(.toggleDisplayMode) }
                     )
                 )
-                .disabled(!hasBook || (menuCheckmarkState?.isDisplayModeLocked ?? false))
+                .disabled(!hasBook)
 
                 // 読み方向も同様に、現在右から左かどうかというON/OFF状態をチェックマークで表す
                 // (ONのとき右から左=マンガの標準的な読み方向。「移動」メニューの各項目の
@@ -502,7 +514,7 @@ struct QooViewerApp: App {
                         set: { _ in focusedAppState?.performViewerAction?(.toggleReadingDirection) }
                     )
                 )
-                .disabled(!hasBook || (menuCheckmarkState?.isReadingDirectionLocked ?? false))
+                .disabled(!hasBook)
 
                 // 古いスキャン本(紙の黄ばみ等)を、きっちりした白黒に見えるよう補正する機能
                 // (ユーザー要望)。本単位で記憶するON/OFFのため、見開き/読み方向と同じ
@@ -655,7 +667,10 @@ struct QooViewerApp: App {
             // 同様に変更済み)。
             CommandGroup(after: .pasteboard) {
                 let hasBook = focusedAppState?.currentBook != nil
-                let isLayoutLocked = !hasBook || (menuCheckmarkState?.hasAuthoritativeSourceLayout ?? false)
+                // 以前はここに、EPUB/PDFのファイル側がレイアウトを規定している本で
+                // レイアウト操作をまとめて無効化するためのisLayoutLockedがあった。
+                // ユーザー要望によりそのロック自体を廃止したため、レイアウト関連の項目は
+                // 「本を開いているかどうか」だけで判定する。
 
                 // 標準のカット/コピー/ペースト/すべてを選択グループと、この後に続く
                 // お気に入り/ブックマーク/レイアウト操作を区切る。
@@ -735,7 +750,7 @@ struct QooViewerApp: App {
                 Button("Auto-Layout Based on Current View") {
                     focusedAppState?.performAutoLayout?()
                 }
-                .disabled(isLayoutLocked)
+                .disabled(!hasBook)
 
                 // ユーザー要望: 「自動でレイアウトする」の下、および下の「レイアウトの編集…」の
                 // 上にあった区切り線は削除した(このグループ内は1つの塊として見せる)。
@@ -754,7 +769,7 @@ struct QooViewerApp: App {
                                 : (menuCheckmarkState?.hasCurrentPageLayoutOverride ?? false)
                         )
                     }
-                    .disabled(isLayoutLocked)
+                    .disabled(!hasBook)
 
                     Menu("Right Page") {
                         layoutMenuItems(
@@ -764,10 +779,10 @@ struct QooViewerApp: App {
                                 : (menuCheckmarkState?.hasPartnerPageLayoutOverride ?? false)
                         )
                     }
-                    .disabled(isLayoutLocked)
+                    .disabled(!hasBook)
                 } else {
                     layoutMenuItems(target: .current, hasOverride: menuCheckmarkState?.hasCurrentPageLayoutOverride ?? false)
-                        .disabled(isLayoutLocked)
+                        .disabled(!hasBook)
                 }
 
                 // 「レイアウトの編集…」(8.2節)。4節の「ブックマーク・レイアウトの編集」
@@ -776,6 +791,15 @@ struct QooViewerApp: App {
                 Button("Edit Layout…") {
                     launchCoordinator.pendingEditorInitialFocus = .layout
                     openWindow(id: "editBookmarks")
+                }
+
+                // ユーザー要望: 「レイアウトの編集」の下に区切り線を挟んで「メタデータの編集」を
+                // 追加する。上の2つ(ブックマーク/レイアウトの編集)と同じく、本を開いていなくても
+                // 有効(hasBook不問)。
+                Divider()
+
+                Button("Edit Metadata…") {
+                    openWindow(id: "editMetadata")
                 }
             }
         }
@@ -796,6 +820,7 @@ struct QooViewerApp: App {
                 .environmentObject(favoritesStore)
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
+                .environmentObject(metadataStore)
                 .environmentObject(launchCoordinator)
         }
         .windowResizability(.contentSize)
@@ -904,6 +929,8 @@ struct QooViewerApp: App {
                 .environmentObject(favoritesStore)
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
+                .environmentObject(metadataStore)
+                .environmentObject(metadataFormatStore)
                 .environmentObject(preferences)
                 .environment(\.locale, locale)
         }
@@ -914,6 +941,8 @@ struct QooViewerApp: App {
                 .environmentObject(favoritesStore)
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
+                .environmentObject(metadataStore)
+                .environmentObject(metadataFormatStore)
                 .environmentObject(preferences)
                 .environment(\.locale, locale)
         }
@@ -924,7 +953,43 @@ struct QooViewerApp: App {
             EpubExportWindow()
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
+                .environmentObject(metadataStore)
                 .environmentObject(preferences)
+                .environment(\.locale, locale)
+        }
+        .windowResizability(.contentSize)
+
+        // 「本ごとの保存データを削除」ウインドウ(独立ウインドウ)。環境設定「リセット」タブの
+        // ボタンからのみ開く(ユーザー要望: 環境設定からのみ呼び出せるものでよい)。
+        // 実在判定にfolderAccess(許可済みフォルダ)を、読書履歴の削除にModelContextを使う。
+        Window("Delete Saved Book Data", id: "libraryCleanup") {
+            LibraryCleanupWindow()
+                .environmentObject(favoritesStore)
+                .environmentObject(bookmarkStore)
+                .environmentObject(layoutStore)
+                .environmentObject(metadataStore)
+                .environmentObject(folderAccess)
+                .modelContainer(QooViewerApp.modelContainer)
+                .environment(\.locale, locale)
+        }
+        .windowResizability(.contentSize)
+
+        // 「メタデータの編集」ウインドウ(独立ウインドウ)。「ブックマーク・レイアウトの編集」と
+        // 同じく、本を今開いているかどうかに関わらずいつでも開ける。
+        //
+        // 一覧には「このアプリが知っている本」をすべて並べるため、favoritesStore/bookmarkStore/
+        // layoutStore/metadataStoreに加えて、読書履歴(BookReadingState)を読むための
+        // ModelContextも必要になる。他のシーンと同じくmodelContainerを渡すことで、
+        // MetadataEditorWindow側の@Environment(\.modelContext)へ同じmainContextが注入される。
+        Window("Edit Metadata", id: "editMetadata") {
+            MetadataEditorWindow()
+                .environmentObject(metadataStore)
+                .environmentObject(metadataFormatStore)
+                .environmentObject(bookmarkStore)
+                .environmentObject(layoutStore)
+                .environmentObject(favoritesStore)
+                .environmentObject(preferences)
+                .modelContainer(QooViewerApp.modelContainer)
                 .environment(\.locale, locale)
         }
         .windowResizability(.contentSize)
@@ -934,6 +999,7 @@ struct QooViewerApp: App {
             PDFExportWindow()
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
+                .environmentObject(metadataStore)
                 .environmentObject(preferences)
                 .environment(\.locale, locale)
         }
@@ -1376,12 +1442,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///    (継続的なセーフティネット)。
     ///
     /// 「編集」メニューかどうかは、タイトル(ローカライズにより"Edit"/"編集"と変わる)ではなく、
-    /// このアプリが「編集」メニューの最後の項目として必ず配置している「レイアウトの編集…」
-    /// (英語なら"Edit Layout…")の有無で判定する(QooViewerApp.swiftの
-    /// CommandGroup(after: .pasteboard)参照。このアプリが対応する言語はAppLanguage.swift
-    /// の通り日本語・英語の2つのみのため、この2パターンだけを見れば十分)。その項目より後ろに
-    /// 残っている項目(=macOSが自動的に追加したもの)をすべて削除する。
-    private static let editMenuLastOwnItemTitles: Set<String> = ["Edit Layout…", "レイアウトの編集…"]
+    /// このアプリが「編集」メニューの最後の項目として必ず配置している項目の有無で判定する
+    /// (QooViewerApp.swiftのCommandGroup(after: .pasteboard)参照。このアプリが対応する言語は
+    /// AppLanguage.swiftの通り日本語・英語の2つのみのため、この2パターンだけを見れば十分)。
+    /// その項目より後ろに残っている項目(=macOSが自動的に追加したもの)をすべて削除する。
+    ///
+    /// 重要: ここは「編集」メニューの実際の最後の項目と必ず一致させること。以前は
+    /// 「レイアウトの編集…」がメニューの最後だったためその文言を指定していたが、その下に
+    /// 「メタデータの編集…」を追加したことで、この定数を更新しないと新しい項目の方が
+    /// 「macOSが勝手に足した余分な項目」と見なされ、実行時に消されてしまう
+    /// (今後この下へ項目を足す場合も同様に更新が必要)。
+    private static let editMenuLastOwnItemTitles: Set<String> = ["Edit Metadata…", "メタデータの編集…"]
     private var editMenuTrackingObserver: NSObjectProtocol?
 
     /// NSApp.mainMenuの直下から、上のeditMenuLastOwnItemTitlesのいずれかを含むサブメニュー

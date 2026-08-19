@@ -15,6 +15,8 @@ struct LibraryImportWindow: View {
     @EnvironmentObject private var favoritesStore: FavoritesStore
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
+    @EnvironmentObject private var metadataStore: BookMetadataStore
+    @EnvironmentObject private var metadataFormatStore: MetadataFormatStore
     @EnvironmentObject private var preferences: AppPreferences
     @Environment(\.dismiss) private var dismiss
 
@@ -23,6 +25,10 @@ struct LibraryImportWindow: View {
     @State private var favoritesPolicy: LibraryImportExportService.ImportPolicy = .merge
     @State private var bookmarksPolicy: LibraryImportExportService.ImportPolicy = .merge
     @State private var layoutsPolicy: LibraryImportExportService.ImportPolicy = .merge
+    @State private var metadataPolicy: LibraryImportExportService.ImportPolicy = .merge
+    /// フォーマット定義は「取り込む=自分の設定を丸ごと置き換える」操作になるため、既定は無視。
+    /// マージという選択肢自体が無い(ImportPolicies.metadataFormatsのコメント参照)。
+    @State private var metadataFormatsPolicy: LibraryImportExportService.ImportPolicy = .ignore
     @State private var isImporting = false
     @State private var summary: LibraryImportExportService.ImportSummary?
     @State private var loadErrorMessage: String?
@@ -34,6 +40,8 @@ struct LibraryImportWindow: View {
     private var hasFavorites: Bool { loadedFile?.favorites != nil }
     private var hasBookmarks: Bool { loadedFile?.bookmarks?.isEmpty == false }
     private var hasLayouts: Bool { loadedFile?.layouts?.isEmpty == false }
+    private var hasMetadata: Bool { loadedFile?.metadata?.isEmpty == false }
+    private var hasMetadataFormats: Bool { loadedFile?.metadataFormats != nil }
 
     // バグ修正(ユーザー報告): LibraryExportWindowと同じ理由(コメント参照)で、ボタン行を
     // Form(スクロール領域)の外側、VStack(spacing: 0)の中でDivider()の下に独立させ、
@@ -85,6 +93,19 @@ struct LibraryImportWindow: View {
                     // お気に入り・ブックマークの見出しと同じ体裁の「ページレイアウト」にしたい。
                     policyPicker("Page Layout", selection: $layoutsPolicy)
                         .disabled(!hasLayouts)
+                    policyPicker("Metadata", selection: $metadataPolicy)
+                        .disabled(!hasMetadata)
+                    // フォーマット定義は本ごとのデータではなくアプリ全体の設定のため、
+                    // 「マージ」を選べるようにしても意味のある結果にならない。
+                    // 置き換えるか取り込まないかの2択だけを出す。
+                    Picker("Metadata Formats", selection: $metadataFormatsPolicy) {
+                        Text(LibraryImportExportService.ImportPolicy.overwrite.titleKey)
+                            .tag(LibraryImportExportService.ImportPolicy.overwrite)
+                        Text(LibraryImportExportService.ImportPolicy.ignore.titleKey)
+                            .tag(LibraryImportExportService.ImportPolicy.ignore)
+                    }
+                    .pickerStyle(.segmented)
+                    .disabled(!hasMetadataFormats)
                 } footer: {
                     Text("Overwrite replaces existing data for the books mentioned in the file. Merge only adds what's missing, without changing anything that already exists. Ignore skips that category entirely.")
                         .font(.caption)
@@ -164,6 +185,23 @@ struct LibraryImportWindow: View {
     }
 
     @ViewBuilder
+    private func metadataSummaryRows(_ summary: LibraryImportExportService.ImportSummary) -> some View {
+        if hasMetadata, metadataPolicy != .ignore {
+            Text(
+                String(
+                    format: String(localized: "Metadata: %d book(s) imported."),
+                    summary.metadataImportedBooks
+                )
+            )
+            .font(.caption)
+        }
+        if summary.didImportMetadataFormats {
+            Text("Metadata formats were replaced with the ones in the file.")
+                .font(.caption)
+        }
+    }
+
+    @ViewBuilder
     private func importSummaryView(_ summary: LibraryImportExportService.ImportSummary) -> some View {
         if loadedFile?.favorites != nil, favoritesPolicy != .ignore {
             Text(
@@ -222,6 +260,9 @@ struct LibraryImportWindow: View {
                 .foregroundStyle(.orange)
             }
         }
+        // メタデータ関連の行は、ViewBuilderが1つのビュー本体で扱える子の数の上限
+        // (10個)を超えないよう、別のメソッドへ切り出してある。
+        metadataSummaryRows(summary)
     }
 
     private func chooseFileButtonTapped() {
@@ -257,11 +298,13 @@ struct LibraryImportWindow: View {
         isImporting = true
         Task {
             let policies = LibraryImportExportService.ImportPolicies(
-                favorites: favoritesPolicy, bookmarks: bookmarksPolicy, layouts: layoutsPolicy
+                favorites: favoritesPolicy, bookmarks: bookmarksPolicy, layouts: layoutsPolicy,
+                metadata: metadataPolicy, metadataFormats: metadataFormatsPolicy
             )
             summary = await LibraryImportExportService.apply(
                 loadedFile, policies: policies,
-                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+                metadataStore: metadataStore, metadataFormatStore: metadataFormatStore
             )
             isImporting = false
         }

@@ -20,6 +20,982 @@
         }
       }
     },
+    "%lld missing" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld missing"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 冊が見つかりません"
+          }
+        }
+      }
+    },
+    "%lld of %lld books have metadata" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld of %lld books have metadata"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld 冊 / %2$lld 冊にメタデータが登録されています"
+          }
+        }
+      }
+    },
+    "%lld of %lld books shown" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld of %lld books shown"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld 冊 / %2$lld 冊を表示中"
+          }
+        }
+      }
+    },
+    "All Books" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All Books"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべての本"
+          }
+        }
+      }
+    },
+    "Books need bookmarks, page layout settings, or metadata before they can be exported as EPUB." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books need bookmarks, page layout settings, or metadata before they can be exported as EPUB."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "EPUB として書き出すには、ブックマーク・ページレイアウト設定・メタデータのいずれかが登録されている必要があります。"
+          }
+        }
+      }
+    },
+    "Books need bookmarks, page layout settings, or metadata before they can be exported as PDF." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books need bookmarks, page layout settings, or metadata before they can be exported as PDF."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PDF として書き出すには、ブックマーク・ページレイアウト設定・メタデータのいずれかが登録されている必要があります。"
+          }
+        }
+      }
+    },
+    "Books you open, favorite, bookmark, or lay out will appear here so you can give them metadata." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books you open, favorite, bookmark, or lay out will appear here so you can give them metadata."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開いた本、お気に入り・ブックマーク・レイアウトを登録した本がここに並び、メタデータを登録できます。"
+          }
+        }
+      }
+    },
+    "Clean Up" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clean Up"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "整理"
+          }
+        }
+      }
+    },
+    "Close" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "閉じる"
+          }
+        }
+      }
+    },
+    "Copy File Name" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy File Name"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイル名をコピー"
+          }
+        }
+      }
+    },
+    "Couldn't read the image on page %lld of this PDF." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't read the image on page %lld of this PDF."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この PDF の %lld ページ目の画像を読み込めませんでした。"
+          }
+        }
+      }
+    },
+    "Delete All Shown…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete All Shown…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示中をすべて削除…"
+          }
+        }
+      }
+    },
+    "Delete Saved Book Data" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Saved Book Data"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本ごとの保存データを削除"
+          }
+        }
+      }
+    },
+    "Delete Saved Data for Individual Books…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Saved Data for Individual Books…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本ごとの保存データを削除…"
+          }
+        }
+      }
+    },
+    "Delete saved data for %lld books?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete saved data for %lld books?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 冊の保存データを削除しますか？"
+          }
+        }
+      }
+    },
+    "Delete saved data for “%@”?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete saved data for “%@”?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」の保存データを削除しますか？"
+          }
+        }
+      }
+    },
+    "Edit Excluded Text…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Excluded Text…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "除外文字列の編集…"
+          }
+        }
+      }
+    },
+    "Edit File Name Formats…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit File Name Formats…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイル名フォーマットの編集…"
+          }
+        }
+      }
+    },
+    "Edit Metadata" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Metadata"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メタデータの編集"
+          }
+        }
+      }
+    },
+    "Edit Metadata…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Metadata…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メタデータの編集…"
+          }
+        }
+      }
+    },
+    "Edit Volume Formats…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Volume Formats…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "巻数フォーマットの編集…"
+          }
+        }
+      }
+    },
+    "Everything you've added or edited here will be replaced with the defaults. This can't be undone." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Everything you've added or edited here will be replaced with the defaults. This can't be undone."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ここで追加・編集した内容はすべて既定の内容に置き換わります。この操作は取り消せません。"
+          }
+        }
+      }
+    },
+    "Favorite" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favorite"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入り"
+          }
+        }
+      }
+    },
+    "File" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイル"
+          }
+        }
+      }
+    },
+    "Formats for Extracting the Author and Title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Formats for Extracting the Author and Title"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "著者名・タイトル抽出用のフォーマット"
+          }
+        }
+      }
+    },
+    "Found" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Found"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "あり"
+          }
+        }
+      }
+    },
+    "Has metadata" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Has metadata"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メタデータがあります"
+          }
+        }
+      }
+    },
+    "Metadata" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Metadata"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メタデータ"
+          }
+        }
+      }
+    },
+    "Metadata Formats" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Metadata Formats"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メタデータのフォーマット"
+          }
+        }
+      }
+    },
+    "Metadata formats were replaced with the ones in the file." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Metadata formats were replaced with the ones in the file."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メタデータのフォーマットを、ファイルの内容で置き換えました。"
+          }
+        }
+      }
+    },
+    "Metadata: %d book(s) imported." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Metadata: %d book(s) imported."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メタデータ: %d 冊を取り込みました。"
+          }
+        }
+      }
+    },
+    "Missing" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Missing"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "なし"
+          }
+        }
+      }
+    },
+    "Missing Files Only" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Missing Files Only"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "見つからない本のみ"
+          }
+        }
+      }
+    },
+    "No Books Yet" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Books Yet"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本がまだありません"
+          }
+        }
+      }
+    },
+    "No Matching Books" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Matching Books"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一致する本がありません"
+          }
+        }
+      }
+    },
+    "No Saved Book Data" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Saved Book Data"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存データがありません"
+          }
+        }
+      }
+    },
+    "No book matches the current filter or search text." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No book matches the current filter or search text."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在の絞り込みや検索文字列に一致する本はありません。"
+          }
+        }
+      }
+    },
+    "No book matches what you typed in the search field." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No book matches what you typed in the search field."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "検索フィールドに入力した文字列に一致する本はありません。"
+          }
+        }
+      }
+    },
+    "Opens a window listing every book qooViewer has saved data for, so you can remove the ones you no longer need. The files themselves are never touched." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opens a window listing every book qooViewer has saved data for, so you can remove the ones you no longer need. The files themselves are never touched."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer が保存データを持っているすべての本を一覧するウインドウを開きます。不要になったものを個別に削除できます。ファイル自体には一切触れません。"
+          }
+        }
+      }
+    },
+    "Page %lld of this PDF has no embedded image, so it can't be exported." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Page %lld of this PDF has no embedded image, so it can't be exported."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この PDF の %lld ページ目には埋め込み画像がないため、書き出せません。"
+          }
+        }
+      }
+    },
+    "Page %lld of this PDF uses an image format other than JPEG or Flate (lossless), which isn't supported for export." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Page %lld of this PDF uses an image format other than JPEG or Flate (lossless), which isn't supported for export."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この PDF の %lld ページ目は JPEG でも Flate（可逆圧縮）でもない画像形式のため、書き出しに対応していません。"
+          }
+        }
+      }
+    },
+    "Path" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Path"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "パス"
+          }
+        }
+      }
+    },
+    "Register" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Register"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登録"
+          }
+        }
+      }
+    },
+    "Regular Expressions for Excluded Text" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Regular Expressions for Excluded Text"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "除外文字列の正規表現"
+          }
+        }
+      }
+    },
+    "Regular Expressions for Series Names" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Regular Expressions for Series Names"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シリーズ名抽出用の正規表現"
+          }
+        }
+      }
+    },
+    "Regular Expressions for Volume Numbers" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Regular Expressions for Volume Numbers"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "巻数抽出用の正規表現"
+          }
+        }
+      }
+    },
+    "Regular expressions for text to remove from the file name before matching it against the file name formats — for example a year in parentheses, or a completion marker." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Regular expressions for text to remove from the file name before matching it against the file name formats — for example a year in parentheses, or a completion marker."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイル名フォーマットと照合する前に、ファイル名から削る文字列の正規表現です（括弧書きの年号や完結を示す表記など）。"
+          }
+        }
+      }
+    },
+    "Regular expressions that match the volume marker at the end of the title. The first capture group becomes the volume number (full-width digits are converted to half-width). The text before the match becomes the series name." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Regular expressions that match the volume marker at the end of the title. The first capture group becomes the volume number (full-width digits are converted to half-width). The text before the match becomes the series name."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タイトルの末尾にある巻数表記に一致する正規表現です。最初のキャプチャグループが巻数になります（全角数字は半角に変換されます）。一致した部分より前がシリーズ名になります。"
+          }
+        }
+      }
+    },
+    "Reset to the default entries?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reset to the default entries?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登録内容を初期化しますか？"
+          }
+        }
+      }
+    },
+    "Saved Data" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saved Data"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存データ"
+          }
+        }
+      }
+    },
+    "Series" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Series"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シリーズ"
+          }
+        }
+      }
+    },
+    "The original file or folder could not be found." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The original file or folder could not be found."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "元のファイル／フォルダが見つかりませんでした。"
+          }
+        }
+      }
+    },
+    "The original file or folder still exists." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The original file or folder still exists."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "元のファイル／フォルダは存在します。"
+          }
+        }
+      }
+    },
+    "These only separate the series name — the volume field is left empty even if the expression contains a capture group. They are tried after the entries above." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "These only separate the series name — the volume field is left empty even if the expression contains a capture group. They are tried after the entries above."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シリーズ名の分離だけを行います。キャプチャグループがあっても巻数の欄は空欄のままです。上のリストの後に照合されます。"
+          }
+        }
+      }
+    },
+    "This entry isn't valid, so it will be ignored." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This entry isn't valid, so it will be ignored."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この項目は正しくないため、無視されます。"
+          }
+        }
+      }
+    },
+    "This permanently deletes the favorites, bookmarks, page layout settings, metadata, and reading history qooViewer has saved for this. The file itself is not touched. This cannot be undone." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This permanently deletes the favorites, bookmarks, page layout settings, metadata, and reading history qooViewer has saved for this. The file itself is not touched. This cannot be undone."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この本について qooViewer が保存しているお気に入り・ブックマーク・レイアウト設定・メタデータ・読書履歴を完全に削除します。ファイル自体には触れません。この操作は取り消せません。"
+          }
+        }
+      }
+    },
+    "Unknown" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unknown"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不明"
+          }
+        }
+      }
+    },
+    "Use @author for the author, @title for the title, and @ignore for text to skip. Formats are matched against the file name without its extension, from top to bottom, and the first one that matches wins — drag to reorder. Excluded text is removed before matching." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use @author for the author, @title for the title, and @ignore for text to skip. Formats are matched against the file name without its extension, from top to bottom, and the first one that matches wins — drag to reorder. Excluded text is removed before matching."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "@author は著者名、@title はタイトル、@ignore は読み飛ばす任意の文字列を表します。拡張子を除いたファイル名と上から順に照合し、最初に一致したフォーマットを採用します（ドラッグで並べ替えられます）。除外文字列は照合の前に削られます。"
+          }
+        }
+      }
+    },
+    "Volume" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Volume"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "巻数"
+          }
+        }
+      }
+    },
+    "qooViewer doesn't have permission to check this location, so it can't tell whether the file still exists. Granting access to the folder in Settings › Access, or connecting the volume, will let it check." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer doesn't have permission to check this location, so it can't tell whether the file still exists. Granting access to the folder in Settings › Access, or connecting the volume, will let it check."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この場所を確認する権限が無いため、ファイルが残っているかどうかを判定できません。環境設定の「アクセス権」でフォルダを許可するか、ボリュームを接続すると判定できるようになります。"
+          }
+        }
+      }
+    },
+    "qooViewer isn't storing data for any book yet." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer isn't storing data for any book yet."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer はまだどの本の情報も保存していません。"
+          }
+        }
+      }
+    },
     "“" : {
       "localizations" : {
         "en" : {

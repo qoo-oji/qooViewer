@@ -85,6 +85,82 @@ nonisolated enum PDFStructureResolver {
         }
     }
 
+    // MARK: - Document Info → 書誌メタデータ
+
+    /// PDFのDocument Info辞書から、タイトル・著者・シリーズ名・巻数を読み取る。
+    /// 本を初めて開いたときにDBへ取り込むために使う(EpubStructureResolver.resolveMetadataのPDF版)。
+    ///
+    /// PDFにはシリーズ名・巻数を表す標準的なフィールドが存在しない。そのためユーザー指定により、
+    /// Keywords(キーワード)へ`series:シリーズ名, series_index:巻数番号`という形式で
+    /// 埋め込まれている場合にのみ対応する(この形式はqooViewer自身のPDF書き出しでも使う。
+    /// 読み取りと書き出しで表記がずれないよう、書式の定義はこのファイルのformatSeriesKeywordsに
+    /// まとめてある)。
+    static func resolveMetadata(url: URL) -> SourceBookMetadata {
+        guard let document = PDFDocument(url: url) else { return SourceBookMetadata() }
+        let attributes = document.documentAttributes ?? [:]
+
+        var metadata = SourceBookMetadata()
+        metadata.title = string(from: attributes[PDFDocumentAttribute.titleAttribute])
+        metadata.author = string(from: attributes[PDFDocumentAttribute.authorAttribute])
+
+        let keywords = string(from: attributes[PDFDocumentAttribute.keywordsAttribute])
+        let parsed = parseSeriesKeywords(keywords)
+        metadata.series = parsed.series
+        metadata.seriesIndex = parsed.seriesIndex
+        return metadata
+    }
+
+    /// Document Info辞書の値を文字列にする。KeywordsはPDFKitが配列で返すことがあるため
+    /// (PDFの仕様上は1つの文字列だが、カンマ区切りを分解して返す実装が観測されている)、
+    /// 配列の場合はカンマで連結してから解析にかける。
+    private static func string(from value: Any?) -> String {
+        if let text = value as? String { return text.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if let list = value as? [String] { return list.joined(separator: ", ") }
+        return ""
+    }
+
+    /// Keywordsから`series:`と`series_index:`を取り出す。
+    ///
+    /// シリーズ名は次の区切り(半角/全角のカンマ・セミコロン)までを値とみなす。したがって
+    /// シリーズ名自体にカンマを含む場合は正しく読めないが、これはこの「キー:値をカンマで並べる」
+    /// という形式そのものが持つ制約で、書き出し側(PDFExporter)も同じ形式で書くため、
+    /// qooViewer同士のやり取りでは問題にならない。
+    ///
+    /// `series_index:`は`series:`を接頭辞に持つが、`series`の直後が`_`であって`:`ではないため、
+    /// `series\s*:`のパターンが誤って`series_index:`に一致することは無い。
+    static func parseSeriesKeywords(_ keywords: String) -> (series: String, seriesIndex: String) {
+        guard !keywords.isEmpty else { return ("", "") }
+        let series = firstCaptureGroup(
+            in: keywords, pattern: #"(?:^|[,;、；])\s*series\s*:\s*([^,;、；]*)"#
+        )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let rawIndex = firstCaptureGroup(
+            in: keywords, pattern: #"series_index\s*:\s*([0-9]+(?:\.[0-9]+)?)"#
+        )
+        // Calibre同様"3.0"のような小数で書かれている場合があるため、EPUB側と同じ整形を通す。
+        return (series, EpubStructureResolver.normalizedSeriesIndex(rawIndex))
+    }
+
+    /// Keywordsへ書き出す文字列を組み立てる(parseSeriesKeywordsと対になる)。
+    /// シリーズ名が空なら何も書かない(nilを返す)。巻数だけが空の場合はseriesのみを書く。
+    static func formatSeriesKeywords(series: String, seriesIndex: String) -> String? {
+        let series = series.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !series.isEmpty else { return nil }
+        let index = seriesIndex.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !index.isEmpty else { return "series:\(series)" }
+        return "series:\(series), series_index:\(index)"
+    }
+
+    private static func firstCaptureGroup(in text: String, pattern: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, range: range), match.numberOfRanges > 1,
+              let captureRange = Range(match.range(at: 1), in: text)
+        else { return nil }
+        return String(text[captureRange])
+    }
+
     // MARK: - アウトライン(しおり) → ブックマーク
 
     /// PDFのアウトラインを、EpubStructureResolver.resolveTableOfContentsと同じ形の

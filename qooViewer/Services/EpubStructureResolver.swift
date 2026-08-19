@@ -35,6 +35,27 @@ struct EpubTOCEntry {
     let pageIndex: Int
 }
 
+/// EPUB/PDFのファイル自身が持つ書誌メタデータ(タイトル・著者・シリーズ・巻数)。
+///
+/// ユーザー要望: ファイルを初めて開いたとき、ファイルに埋め込まれているメタデータを読み込んで
+/// DBに登録し、以降の表示はDB側に従う(ファイル側の情報はDBの初期値としてのみ扱う)。
+/// EpubStructureResolver.resolveMetadata / PDFStructureResolver.resolveMetadataが返す。
+///
+/// 各項目は「ファイルに書かれていなければ空文字」。すべてが空の場合、呼び出し側は
+/// 「取り込むものが無かった」として何も登録しない(BookMetadataStore.upsertは、4項目すべてが
+/// 空の内容での登録を行として作らない)。
+nonisolated struct SourceBookMetadata: Equatable, Sendable {
+    var title: String = ""
+    var author: String = ""
+    var series: String = ""
+    /// 巻数。数値として解釈できる文字列(Calibreのseries_indexは"3.0"のような小数もありうる)。
+    var seriesIndex: String = ""
+
+    var isEmpty: Bool {
+        title.isEmpty && author.isEmpty && series.isEmpty && seriesIndex.isEmpty
+    }
+}
+
 enum EpubStructureError: Error {
     /// META-INF/container.xmlが読めない、またはrootfileが見つからない
     case containerNotReadable
@@ -227,6 +248,89 @@ nonisolated enum EpubStructureResolver {
         }
     }
 
+    // MARK: - package document metadata → 書誌メタデータ
+
+    /// package document(OPF)のmetadataから、タイトル・著者・シリーズ名・巻数を読み取る。
+    /// 本を初めて開いたときにDBへ取り込むために使う(ユーザー要望)。
+    ///
+    /// シリーズ情報の出どころは2種類あり、両方が書かれている場合はCalibre側を優先する
+    /// (ユーザー指定)。Calibreで管理している本はCalibre側の値が最新である可能性が高く、
+    /// EPUB3形式のほうは書き出し時に生成されたまま古くなっていることがあるため。
+    ///
+    /// - Calibre独自の拡張メタデータ: `<meta name="calibre:series" content="シリーズ名"/>` と
+    ///   `<meta name="calibre:series_index" content="3.0"/>`(EPUB2形式のname/content属性)。
+    /// - EPUB3の標準形式: `<meta property="belongs-to-collection" id="c1">シリーズ名</meta>` に、
+    ///   `<meta refines="#c1" property="collection-type">series</meta>` と
+    ///   `<meta refines="#c1" property="group-position">3</meta>` がid経由で紐づく。
+    ///
+    /// EPUB3側では、collection-typeが`series`のものを優先して採用する。ただしcollection-typeを
+    /// 省略しているファイルも実在するため、`series`が1つも見つからない場合は、typeの無い
+    /// belongs-to-collectionを次善の候補として採用する(`set`など明示的に別の種類だと
+    /// 書かれているものだけを除外する)。
+    static func resolveMetadata(reader: ArchiveReading) -> SourceBookMetadata {
+        guard let opfPath = try? resolveOPFPath(reader: reader),
+              let opfData = try? reader.data(at: opfPath),
+              let packageDocument = try? parsePackageDocument(data: opfData)
+        else { return SourceBookMetadata() }
+
+        var metadata = SourceBookMetadata()
+        metadata.title = packageDocument.dcTitle ?? ""
+        metadata.author = packageDocument.dcCreator ?? ""
+
+        if let calibreSeries = packageDocument.metaByName["calibre:series"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !calibreSeries.isEmpty {
+            metadata.series = calibreSeries
+            metadata.seriesIndex = normalizedSeriesIndex(packageDocument.metaByName["calibre:series_index"])
+            return metadata
+        }
+
+        guard let collection = preferredCollection(in: packageDocument) else { return metadata }
+        metadata.series = collection.text
+        let position = packageDocument.propertyMetas.first {
+            $0.property == "group-position" && $0.refines != nil && $0.refines == collection.id
+        }
+        metadata.seriesIndex = normalizedSeriesIndex(position?.text)
+        return metadata
+    }
+
+    /// belongs-to-collectionのうち、シリーズとして採用すべきものを1つ選ぶ
+    /// (collection-typeが"series"のものを優先し、無ければtype未指定のものを使う)。
+    private static func preferredCollection(
+        in packageDocument: PackageDocumentParserDelegate
+    ) -> PackageDocumentParserDelegate.PropertyMeta? {
+        let collections = packageDocument.propertyMetas.filter {
+            $0.property == "belongs-to-collection" && !$0.text.isEmpty
+        }
+        guard !collections.isEmpty else { return nil }
+
+        /// このcollectionに紐づくcollection-typeの値(未指定ならnil)。
+        func collectionType(of collection: PackageDocumentParserDelegate.PropertyMeta) -> String? {
+            guard let id = collection.id else { return nil }
+            return packageDocument.propertyMetas.first {
+                $0.property == "collection-type" && $0.refines == id
+            }?.text.lowercased()
+        }
+
+        if let series = collections.first(where: { collectionType(of: $0) == "series" }) {
+            return series
+        }
+        return collections.first { collectionType(of: $0) == nil }
+    }
+
+    /// 巻数として使える形に整える。Calibreは"3.0"のように小数で書き出すことがあり、そのまま
+    /// 表示すると不自然なため、整数で表せる値は整数の文字列にする。
+    /// 数値として解釈できない文字列は、そのまま(前後の空白だけ落として)通す。
+    static func normalizedSeriesIndex(_ rawValue: String?) -> String {
+        guard let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return ""
+        }
+        guard let value = Double(trimmed) else { return trimmed }
+        if value == value.rounded(), abs(value) < 1e15 {
+            return String(Int(value))
+        }
+        return trimmed
+    }
+
     // MARK: - 目次(nav.xhtml) → ブックマーク(7.5節「逆方向」)
 
     /// EPUB3のnav.xhtml(manifest上でproperties="nav"の項目)を探し、その中の
@@ -355,14 +459,41 @@ private nonisolated final class PackageDocumentParserDelegate: NSObject, XMLPars
         let properties: Set<String>
     }
 
+    /// `<meta property="..." id="..." refines="...">テキスト</meta>` を1件そのまま保持したもの。
+    /// EPUB3のシリーズ情報は、本体のmeta(belongs-to-collection)と、それをid経由で参照して
+    /// 補足するmeta(collection-type / group-position)の組で表されるため、解析中は素の形で
+    /// 集めておき、あとからまとめて突き合わせる(resolveMetadata参照)。
+    struct PropertyMeta {
+        let property: String
+        let id: String?
+        /// 他のmetaを補足する場合、その相手のid(先頭の"#"は取り除いてある)。
+        let refines: String?
+        let text: String
+    }
+
     private(set) var manifestItems: [String: ManifestItem] = [:]
     private(set) var spineItemRefs: [SpineItemRef] = []
     private(set) var pageProgressionDirection: String?
     private(set) var renditionSpread: String?
 
-    /// <meta property="...">テキスト</meta> の解析用。開始タグを見た時点のproperty名と、
-    /// didEndElementまでに蓄積したテキストを対応付ける。
-    private var currentMetaProperty: String?
+    // MARK: - 書誌メタデータ(resolveMetadataが使う)
+
+    private(set) var dcTitle: String?
+    private(set) var dcCreator: String?
+    /// EPUB2形式の`<meta name="..." content="..."/>`。Calibreのシリーズ情報
+    /// (calibre:series / calibre:series_index)がこの形式で書かれる。
+    private(set) var metaByName: [String: String] = [:]
+    /// EPUB3形式の`<meta property="...">`一式。
+    private(set) var propertyMetas: [PropertyMeta] = []
+
+    /// テキストを蓄積している最中の要素の種類。要素をまたいで文字が届くこともあるため、
+    /// 開始タグで種類を決め、終了タグで確定させる。
+    private enum TextCapture {
+        case meta(property: String, id: String?, refines: String?)
+        case dcTitle
+        case dcCreator
+    }
+    private var currentCapture: TextCapture?
     private var currentMetaText = ""
 
     func parser(
@@ -394,7 +525,27 @@ private nonisolated final class PackageDocumentParserDelegate: NSObject, XMLPars
                 spineItemRefs.append(SpineItemRef(idref: idref, properties: properties))
             }
         case "meta":
-            currentMetaProperty = attributeDict["property"]
+            currentMetaText = ""
+            if let property = attributeDict["property"] {
+                // EPUB3形式。値は要素のテキストとして書かれるため、終了タグまで蓄積する。
+                let refines = attributeDict["refines"].map { $0.hasPrefix("#") ? String($0.dropFirst()) : $0 }
+                currentCapture = .meta(property: property, id: attributeDict["id"], refines: refines)
+            } else if let name = attributeDict["name"], let content = attributeDict["content"] {
+                // EPUB2形式(Calibreのシリーズ情報など)。値は属性に入っているためその場で確定する。
+                // 同じnameが複数あった場合は最初の1件を採用する(EPUB2のmetaに重複の規定は無く、
+                // 実ファイルでも先頭が主たる値である場合が多いため)。
+                if metaByName[name] == nil { metaByName[name] = content }
+                currentCapture = nil
+            } else {
+                currentCapture = nil
+            }
+        case "title":
+            // dc:title。複数ある(主題名と副題など)場合は最初の1件だけを使う。
+            currentCapture = dcTitle == nil ? .dcTitle : nil
+            currentMetaText = ""
+        case "creator":
+            // dc:creator。同じく最初の1件だけを使う(共著は先頭の著者を代表として扱う)。
+            currentCapture = dcCreator == nil ? .dcCreator : nil
             currentMetaText = ""
         default:
             break
@@ -402,7 +553,7 @@ private nonisolated final class PackageDocumentParserDelegate: NSObject, XMLPars
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        guard currentMetaProperty != nil else { return }
+        guard currentCapture != nil else { return }
         currentMetaText += string
     }
 
@@ -412,11 +563,23 @@ private nonisolated final class PackageDocumentParserDelegate: NSObject, XMLPars
         namespaceURI: String?,
         qualifiedName qName: String?
     ) {
-        guard localName(of: elementName) == "meta" else { return }
-        if currentMetaProperty == "rendition:spread" {
-            renditionSpread = currentMetaText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let currentCapture else { return }
+        let text = currentMetaText.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch currentCapture {
+        case .meta(let property, let id, let refines):
+            guard localName(of: elementName) == "meta" else { return }
+            if property == "rendition:spread" {
+                renditionSpread = text
+            }
+            propertyMetas.append(PropertyMeta(property: property, id: id, refines: refines, text: text))
+        case .dcTitle:
+            guard localName(of: elementName) == "title" else { return }
+            if !text.isEmpty { dcTitle = text }
+        case .dcCreator:
+            guard localName(of: elementName) == "creator" else { return }
+            if !text.isEmpty { dcCreator = text }
         }
-        currentMetaProperty = nil
+        self.currentCapture = nil
         currentMetaText = ""
     }
 }

@@ -234,6 +234,29 @@ final class FavoritesStore: ObservableObject {
         return fetched
     }
 
+    /// お気に入りに登録されている本のbookID一覧(フォルダ階層を無視したフラットな集合)。
+    ///
+    /// 「メタデータの編集」ウインドウが「このアプリが知っている本」を横断的に集める際に使う。
+    /// CLAUDE.mdの方針どおり、お気に入りのデータへはこのストアの公開APIだけを経由して
+    /// アクセスさせるため、呼び出し側がFavoriteBookを直接フェッチせずに済むよう用意している
+    /// (フォルダ階層をたどるsubfolders(of:)/books(in:)の再帰では、この用途に対して
+    /// 無駄が多いうえ階層構造への依存が生まれる)。
+    func allRegisteredBookIDs() -> Set<String> {
+        Set(allFavoriteBooks().map(\.bookID))
+    }
+
+    /// 指定した本がお気に入りに登録されている件数(複数フォルダへの重複登録がありうるため件数)。
+    /// 「本ごとの保存データを削除」ウインドウのインジケータ表示に使う。
+    func favoriteCount(forBookID bookID: String) -> Int {
+        existingFavorites(forBookID: bookID).count
+    }
+
+    /// この本を指すセキュリティスコープ付きブックマークのうち、最初に見つかったもの
+    /// (BookmarkStore.anyBookmarkData(forBookID:)と同じ用途)。
+    func anyBookmarkData(forBookID bookID: String) -> Data? {
+        existingFavorites(forBookID: bookID).first?.bookmarkData
+    }
+
     /// FavoriteFolder/FavoriteBookをinsert/deleteするたびに直後で呼ぶ。
     private func invalidateFavoritesLookupCaches() {
         cachedFolders = nil

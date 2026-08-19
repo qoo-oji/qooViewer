@@ -50,6 +50,20 @@ struct EpubExportInput {
     /// Apple Books互換性(ユーザー要望): EPUB出力ウインドウの著者名欄で編集された値。
     /// 空文字/nilの場合はdc:creatorを出力しない。
     let author: String?
+    /// メタデータDBに登録されているシリーズ名。空文字/nilならシリーズ情報を出力しない。
+    let series: String?
+    /// メタデータDBに登録されている巻数。seriesが空の場合は使わない。
+    let seriesIndex: String?
+    /// dc:languageに書き出すBCP 47の言語タグ("ja"/"en"など)。
+    ///
+    /// ユーザー報告: 以前はここを常に"und"(undetermined。ISO 639-2の「言語不明」を表す
+    /// 正規のコード)で出力していたが、Kindle Previewerはこれをエラーとして弾く。qooViewerが
+    /// 扱うのは画像ベースのコミックで、本文テキストが無く言語を機械的に判定する手立てが
+    /// 無いため、アプリの表示言語設定(AppPreferences.displayLanguage、「システムに従う」なら
+    /// OSのロケール)から解決した言語コードを入れる(EpubExportViewModel参照)。
+    /// 空文字/nilの場合は"en"にフォールバックする(dc:languageはEPUB3の必須要素のため、
+    /// 省略という選択肢は取れない)。
+    let language: String?
 }
 
 enum EpubExportError: LocalizedError {
@@ -119,11 +133,11 @@ nonisolated enum EpubExporter {
             // 除外設定により選んだページが実際のspineに含まれていない場合でも、カバーとしては
             // 使えるようにする(ユーザー要望を汲んだ挙動)。専用ファイルとして別途埋め込む。
             if let originalIndex = originalIndexByKey[pageKey], input.book.pages.indices.contains(originalIndex),
-               let data = await pageLoader.rawImageData(at: originalIndex) {
-                let ext = fileExtension(for: input.book.pages[originalIndex])
+               let exportable = try? await pageLoader.exportableImage(at: originalIndex) {
+                let ext = exportable.fileExtension
                 return ResolvedCover(
                     existingPageIndex: nil,
-                    standaloneFile: ("cover.\(ext)", data, imageMediaType(forExtension: ext))
+                    standaloneFile: ("cover.\(ext)", exportable.data, imageMediaType(forExtension: ext))
                 )
             }
             return defaultCover(prepared: prepared)
@@ -160,13 +174,28 @@ nonisolated enum EpubExporter {
 
         // 出力ファイル名の決定(7.2節)。連番の桁数は出力するページ数の桁数に応じて可変にする
         // (例: 100ページなら3桁で"000"〜)。
+        //
+        // 元がPDFの本(ユーザー要望により対象に追加)は、ページに「元のファイル名」という単位が
+        // 無いため、連番リネームの設定に関わらず常にページ順の6桁連番にする(ユーザー指定)。
+        let isPDFSource = orderedPages.first.map { if case .pdf = $0.source { true } else { false } } ?? false
         let digitWidth = max(String(orderedPages.count).count, 1)
         var usedFileNames: Set<String> = []
         var prepared: [PreparedPage] = []
         for (sequenceIndex, page) in orderedPages.enumerated() {
-            let ext = fileExtension(for: page)
+            // 拡張子は、PDFの場合だけ実際に埋め込まれている画像の形式(JPEG→jpg /
+            // 可逆形式→png)から決まるため、PageLoaderに問い合わせる。対応していない形式が
+            // 含まれていればここでエラーになり、書き出し先を作る前に中断できる。
+            let ext: String
+            if let originalIndex = originalIndexByKey[page.sortKey] {
+                ext = try await pageLoader.exportableImageFileExtension(at: originalIndex)
+            } else {
+                ext = "jpg"
+            }
             let imageFileName: String
-            if options.renumberImagesSequentially {
+            if isPDFSource {
+                imageFileName = String(format: "%06d.%@", sequenceIndex + 1, ext)
+                usedFileNames.insert(imageFileName)
+            } else if options.renumberImagesSequentially {
                 imageFileName = String(format: "%0\(digitWidth)d.%@", sequenceIndex, ext)
                 usedFileNames.insert(imageFileName)
             } else {
@@ -199,6 +228,10 @@ nonisolated enum EpubExporter {
         let bookTitle = (trimmedTitleOverride?.isEmpty == false) ? trimmedTitleOverride! : input.book.title
         let trimmedAuthor = input.author?.trimmingCharacters(in: .whitespacesAndNewlines)
         let author = (trimmedAuthor?.isEmpty == false) ? trimmedAuthor : nil
+        // dc:languageはEPUB3の必須要素のため、値が渡ってこなかった場合も省略はせず"en"にする
+        // (EpubExportInput.languageのコメント参照)。
+        let trimmedLanguage = input.language?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let language = (trimmedLanguage?.isEmpty == false) ? trimmedLanguage! : "en"
         let identifier = "urn:uuid:\(UUID().uuidString)"
 
         // カバー画像の決定(ユーザー要望: EPUB出力時のカバー画像を選択・変更できるようにしたい)。
@@ -225,8 +258,14 @@ nonisolated enum EpubExporter {
         }
 
         let containerXML = makeContainerDocument()
+        let trimmedSeries = input.series?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let series = (trimmedSeries?.isEmpty == false) ? trimmedSeries : nil
+        let seriesIndex = input.seriesIndex?.trimmingCharacters(in: .whitespacesAndNewlines)
+
         let opfXML = makePackageDocument(
-            title: bookTitle, author: author, identifier: identifier, pages: prepared,
+            title: bookTitle, author: author, language: language,
+            series: series, seriesIndex: (seriesIndex?.isEmpty == false) ? seriesIndex : nil,
+            identifier: identifier, pages: prepared,
             readingDirection: input.readingDirectionOverride, forcedDisplayMode: input.forcedDisplayMode,
             cover: resolvedCover, coverGuideHref: coverGuideHref
         )
@@ -255,9 +294,9 @@ nonisolated enum EpubExporter {
                 var pixelSize: (width: Int, height: Int)?
                 var imageData: Data?
                 if let originalIndex = originalIndexByKey[page.sortKey],
-                   let data = await pageLoader.rawImageData(at: originalIndex) {
-                    imageData = data
-                    pixelSize = ImageDecoder.pixelSize(of: data)
+                   let exportable = try await pageLoader.exportableImage(at: originalIndex) {
+                    imageData = exportable.data
+                    pixelSize = ImageDecoder.pixelSize(of: exportable.data)
                 }
                 let pageXHTML = makePageDocument(title: bookTitle, imageFileName: item.imageFileName, pixelSize: pixelSize)
                 try addEntry(
@@ -313,20 +352,6 @@ nonisolated enum EpubExporter {
 
     // MARK: - ファイル名の決定(7.2節)
 
-    private static func fileExtension(for page: PageRef) -> String {
-        switch page.source {
-        case .file(let url):
-            return url.pathExtension.isEmpty ? "jpg" : url.pathExtension.lowercased()
-        case .zip(_, let entryPath), .sevenZip(_, let entryPath), .rar(_, let entryPath):
-            let ext = (entryPath as NSString).pathExtension
-            return ext.isEmpty ? "jpg" : ext.lowercased()
-        case .pdf:
-            // 7.1節によりEPUB書き出しの対象一覧にはpdf/epub形式の本自体が含まれないため、
-            // このケースが実際に呼ばれることは無い(switchを網羅させるためのプレースホルダー)。
-            return "jpg"
-        }
-    }
-
     private static func originalBaseName(for page: PageRef) -> String {
         switch page.source {
         case .file(let url):
@@ -334,6 +359,8 @@ nonisolated enum EpubExporter {
         case .zip(_, let entryPath), .sevenZip(_, let entryPath), .rar(_, let entryPath):
             return ((entryPath as NSString).lastPathComponent as NSString).deletingPathExtension
         case .pdf:
+            // 元がPDFの本は、この関数を通らない常時6桁連番の経路になる(export内の
+            // isPDFSource参照)ため到達しない。
             return "page"
         }
     }
@@ -418,7 +445,8 @@ nonisolated enum EpubExporter {
     }
 
     private static func makePackageDocument(
-        title: String, author: String?, identifier: String, pages: [PreparedPage],
+        title: String, author: String?, language: String, series: String?, seriesIndex: String?,
+        identifier: String, pages: [PreparedPage],
         readingDirection: ReadingDirection?, forcedDisplayMode: DisplayMode?, cover: ResolvedCover?,
         coverGuideHref: String?
     ) -> String {
@@ -431,7 +459,7 @@ nonisolated enum EpubExporter {
         var metadataLines = [
             "    <dc:identifier id=\"book-id\">\(xmlEscape(identifier))</dc:identifier>",
             "    <dc:title>\(xmlEscape(title))</dc:title>",
-            "    <dc:language>und</dc:language>",
+            "    <dc:language>\(xmlEscape(language))</dc:language>",
             "    <meta property=\"dcterms:modified\">\(modified)</meta>",
             "    <meta property=\"rendition:layout\">pre-paginated</meta>"
         ]
@@ -445,6 +473,33 @@ nonisolated enum EpubExporter {
             metadataLines.append(
                 "    <meta refines=\"#creator\" property=\"role\" scheme=\"marc:relators\">aut</meta>"
             )
+        }
+
+        // ユーザー要望: メタデータのシリーズ名と巻数を、2種類の形式の両方で埋め込む。
+        // 読み取る側のソフトによって対応している形式が違うため、片方だけでは取りこぼす。
+        //
+        // 1. EPUB3の標準形式。belongs-to-collectionにidを振り、collection-typeとgroup-positionを
+        //    refinesでそれに結び付ける(EpubStructureResolver.resolveMetadataが読む形と同じ)。
+        // 2. Calibre独自の拡張メタデータ。EPUB2形式のname/content属性で書く。
+        //    Calibreをはじめ、この形式にしか対応していない読み手が多いため併記する。
+        if let series {
+            metadataLines.append(
+                "    <meta property=\"belongs-to-collection\" id=\"series\">\(xmlEscape(series))</meta>"
+            )
+            metadataLines.append(
+                "    <meta refines=\"#series\" property=\"collection-type\">series</meta>"
+            )
+            if let seriesIndex {
+                metadataLines.append(
+                    "    <meta refines=\"#series\" property=\"group-position\">\(xmlEscape(seriesIndex))</meta>"
+                )
+            }
+            metadataLines.append("    <meta name=\"calibre:series\" content=\"\(xmlEscape(series))\"/>")
+            if let seriesIndex {
+                metadataLines.append(
+                    "    <meta name=\"calibre:series_index\" content=\"\(xmlEscape(seriesIndex))\"/>"
+                )
+            }
         }
 
         var manifestLines = [

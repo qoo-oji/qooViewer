@@ -12,6 +12,7 @@ import Combine
 struct PDFExportWindow: View {
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
+    @EnvironmentObject private var metadataStore: BookMetadataStore
     @EnvironmentObject private var preferences: AppPreferences
 
     @State private var viewModel: PDFExportViewModel?
@@ -24,7 +25,9 @@ struct PDFExportWindow: View {
                 ProgressView()
                     .frame(minWidth: 700, minHeight: 480)
                     .onAppear {
-                        viewModel = PDFExportViewModel(bookmarkStore: bookmarkStore, layoutStore: layoutStore)
+                        viewModel = PDFExportViewModel(
+                            bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore
+                        )
                     }
             }
         }
@@ -46,8 +49,14 @@ private struct PDFExportContentView: View {
     /// EpubExportContentView.fixedChromeWidthと同じ考え方だが、列が3つ(カバー列が無い)ぶん
     /// 区切り線の数も1つ少ない。
     private static let fixedChromeWidth: CGFloat = 20 + 4 * 9 + trailingIndicatorWidth + 32 + 6 * 6
+    /// ユーザー要望によりメタデータのインジケータを追加したため、アイコンのスロットは3つ。
     fileprivate static let trailingIndicatorWidth: CGFloat =
-        indicatorLeadingGap + 16 + 6 + 16 + indicatorTrailingGap
+        indicatorLeadingGap + indicatorIconsWidth + indicatorTrailingGap
+    /// アイコン3つ(レイアウト/ブックマーク/メタデータ)を並べた領域の幅。
+    /// スロットの寸法とアイコンの出し分け方はExportIndicatorIconにまとめてある
+    /// (行ごとに並びがずれていた不具合の経緯もそちらのコメント参照)。
+    fileprivate static let indicatorIconsWidth: CGFloat = ExportIndicatorIcon.totalWidth(iconCount: 3)
+
     fileprivate static let indicatorLeadingGap: CGFloat = 4
     fileprivate static let indicatorTrailingGap: CGFloat = 14
 
@@ -74,7 +83,7 @@ private struct PDFExportContentView: View {
                 ContentUnavailableView(
                     "No Eligible Books",
                     systemImage: "square.and.arrow.up",
-                    description: Text("Books need bookmarks or page layout settings before they can be exported as PDF. (PDF and EPUB source files aren't eligible.)")
+                    description: Text("Books need bookmarks, page layout settings, or metadata before they can be exported as PDF.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -488,25 +497,19 @@ private struct PDFExportRowView: View {
 
             Spacer(minLength: PDFExportContentView.indicatorLeadingGap)
 
-            HStack(spacing: 6) {
-                Group {
-                    if row.hasLayout {
-                        Image(systemName: "square.stack")
-                            .foregroundStyle(.secondary)
-                            .help("Has page layout settings")
-                    }
-                }
-                .frame(width: 16)
-
-                Group {
-                    if row.hasBookmarks {
-                        Image(systemName: "bookmark.fill")
-                            .foregroundStyle(.secondary)
-                            .help("Has bookmarks")
-                    }
-                }
-                .frame(width: 16)
+            HStack(spacing: ExportIndicatorIcon.slotSpacing) {
+                ExportIndicatorIcon(
+                    systemName: "square.stack", isOn: row.hasLayout, help: "Has page layout settings"
+                )
+                ExportIndicatorIcon(
+                    systemName: "bookmark.fill", isOn: row.hasBookmarks, help: "Has bookmarks"
+                )
+                // ユーザー要望: インジケータにメタデータを追加。
+                ExportIndicatorIcon(
+                    systemName: "tag.fill", isOn: row.hasMetadata, help: "Has metadata"
+                )
             }
+            .frame(width: PDFExportContentView.indicatorIconsWidth, alignment: .leading)
             .padding(.trailing, PDFExportContentView.indicatorTrailingGap)
         }
     }

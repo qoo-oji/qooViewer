@@ -213,10 +213,14 @@ struct ViewerView: View {
     /// 分けたほうが見通しが良いため独立させている。onDisappearで確実に解除する。
     @State private var contextClickMonitor: Any?
 
-    init(book: MangaBook, modelContext: ModelContext, preferences: AppPreferences, layoutStore: LayoutStore) {
+    init(
+        book: MangaBook, modelContext: ModelContext, preferences: AppPreferences,
+        layoutStore: LayoutStore, metadataStore: BookMetadataStore
+    ) {
         _viewModel = StateObject(
             wrappedValue: ViewerViewModel(
-                book: book, modelContext: modelContext, preferences: preferences, layoutStore: layoutStore
+                book: book, modelContext: modelContext, preferences: preferences,
+                layoutStore: layoutStore, metadataStore: metadataStore
             )
         )
         _preferences = ObservedObject(wrappedValue: preferences)
@@ -1408,7 +1412,11 @@ struct ViewerView: View {
 
             // ファイル名表示。ブラウザのアドレスバーのように、ツールバー中央に配置する
             // (前後のSpacerが左右の残り幅を均等に分け合うことで中央寄せになる)。
-            Text(viewModel.book.title)
+            //
+            // ユーザー要望: メタデータとしてタイトル(と著者)が登録されている本については、
+            // ファイル名の代わりに「[著者] タイトル」/「タイトル」を表示する。未登録の本は
+            // 従来どおりファイル名のまま(判定はViewerViewModel.displayTitle参照)。
+            Text(viewModel.displayTitle)
                 .font(.headline)
                 .lineLimit(1)
 
@@ -1425,7 +1433,6 @@ struct ViewerView: View {
             }
             .buttonStyle(.borderless)
             .help("Auto-Layout Based on Current View")
-            .disabled(viewModel.hasAuthoritativeSourceLayout)
 
             // 「現在のブックマーク一覧を表示」「お気に入り一覧を表示」のボタンは廃止した。一覧の
             // 表示自体はメニューバー(「お気に入り」メニュー)・キーボードショートカット
@@ -1538,7 +1545,7 @@ struct ViewerView: View {
                 set: { _ in perform(.toggleDisplayMode) }
             )
         )
-        .disabled(viewModel.isDisplayModeLocked)
+
 
         Toggle(
             "Right-to-Left",
@@ -1547,7 +1554,7 @@ struct ViewerView: View {
                 set: { _ in perform(.toggleReadingDirection) }
             )
         )
-        .disabled(viewModel.isReadingDirectionLocked)
+
 
         Divider()
 
@@ -1621,7 +1628,6 @@ struct ViewerView: View {
             Button("Auto-Layout Based on Current View") {
                 isShowingAutoLayoutConfirmation = true
             }
-            .disabled(viewModel.hasAuthoritativeSourceLayout)
 
             Divider()
 
@@ -1637,7 +1643,6 @@ struct ViewerView: View {
                 layoutStateMenuItems(forPageIndex: viewModel.currentIndex)
             }
         }
-        .disabled(viewModel.hasAuthoritativeSourceLayout)
 
         Divider()
 
@@ -3064,10 +3069,7 @@ struct ViewerView: View {
             readingDirection: viewModel.readingDirection,
             scalingMode: viewModel.scalingMode,
             isContrastCorrectionEnabled: viewModel.isContrastCorrectionEnabled,
-            isReadingDirectionLocked: viewModel.isReadingDirectionLocked,
-            isDisplayModeLocked: viewModel.isDisplayModeLocked,
             isPageShiftLocked: viewModel.isPageShiftLocked,
-            hasAuthoritativeSourceLayout: viewModel.hasAuthoritativeSourceLayout,
             hasPartnerPageDisplayed: partnerPageIndex != nil,
             hasCurrentPageLayoutOverride: viewModel.hasPageLayoutOverride(atIndex: viewModel.currentIndex),
             hasPartnerPageLayoutOverride: partnerPageIndex.map { viewModel.hasPageLayoutOverride(atIndex: $0) } ?? false
@@ -3133,11 +3135,7 @@ struct ViewerView: View {
         case .toggleContrastCorrection:
             viewModel.toggleContrastCorrection()
         case .autoLayoutFromCurrentView:
-            // ツールバーのボタン・メニューバー「Layout」の項目と同じ経路(3.1節)。EPUB由来の
-            // 権威的なレイアウト指定がある本ではボタン/メニュー項目自体を無効化しているため、
-            // キーボードショートカット側でも同じ条件でここで弾く(viewModel.autoLayoutFromCurrentView
-            // 自体にも同じガードがあるが、確認ダイアログが無意味に開いてしまわないようにするため)。
-            guard !viewModel.hasAuthoritativeSourceLayout else { break }
+            // ツールバーのボタン・メニューバー「Layout」の項目と同じ経路(3.1節)。
             isShowingAutoLayoutConfirmation = true
         case .previousBook:
             appState.openSibling(before: viewModel.book.sourceURL)

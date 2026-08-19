@@ -330,21 +330,63 @@ final class LayoutStore: ObservableObject {
         saveAndNotify(bookID: book.id)
     }
 
-    /// この本がEPUBのpackage document、またはPDFのDocument Catalogに権威的なレイアウト指定を
-    /// 持っているかどうかを記録する。本を開くたびに(形式やロックの有無に関わらず)呼んで
-    /// キャッシュを最新化する想定(詳細はBookLayoutSettings.hasEpubLayoutLockのコメント参照)。
-    /// ロックが無く、かつこの本にまだレイアウトデータが無い場合は、空のBookLayoutSettings行を
-    /// 作ってまで記録する必要はないため、既存の行がある場合にのみ更新する。
-    func recordEpubLayoutLock(for book: MangaBook, hasLock: Bool) {
-        if hasLock {
-            let settings = existingOrNewSettings(for: book)
-            guard settings.hasEpubLayoutLock != hasLock else { return }
-            settings.hasEpubLayoutLock = hasLock
-            saveAndNotify(bookID: book.id)
-        } else if let settings = bookLayoutSettings(forBookID: book.id), settings.hasEpubLayoutLock {
-            settings.hasEpubLayoutLock = false
-            saveAndNotify(bookID: book.id)
+    /// ユーザー要望: EPUB/PDFのファイル自身が持っているレイアウト情報を、その本を初めて開いた
+    /// ときにDBへ取り込み、以降はDB上の情報に従う(ファイル側の情報はDBの初期値としてのみ扱う)。
+    ///
+    /// 取り込む対象は次の3つ。いずれも「まだDB側に値が無い項目だけ」を埋める(ユーザーが
+    /// 先に編集ウインドウで設定していた場合、それをファイル側の値で上書きしない)。
+    /// - 読み方向(EPUBのpage-progression-direction / PDFの/ViewerPreferences/Direction)
+    /// - 見開き強制(EPUBのrendition:spread / PDFの/PageLayout)
+    /// - EPUBのページ単位の見開き配置(spine itemrefのpage-spread-left/right、
+    ///   rendition:page-spread-center)
+    ///
+    /// 取り込みは1冊につき1回だけ行う(BookLayoutSettings.didImportSourceLayout)。毎回行うと、
+    /// ユーザーがDB側で変更した値が本を開き直すたびにファイル側の値へ戻ってしまう。
+    ///
+    /// 取り込むものが何も無い本(フォルダ・cbz等、ヒントもページ指定も持たない本)については、
+    /// 空のBookLayoutSettings行を作らずに何もしない。「レイアウト情報がある本」の一覧
+    /// (layoutBookIDs)へ、ユーザー由来のデータを持たない本が並んでしまうのを避けるため。
+    ///
+    /// ViewerViewModel.initの冒頭(prepareBookより前)から呼ぶこと。prepareBookはこの行の内容を
+    /// 読んでページ順・除外を適用するため、取り込みが後になると初回だけ反映されない。
+    func importSourceLayoutIfNeeded(for book: MangaBook) {
+        let hint = book.sourceLayoutHint
+        let spreadPages = book.pages.filter { $0.epubSpreadPosition != nil }
+        let hasSomethingToImport = hint?.pageProgressionDirection != nil
+            || hint?.forcedDisplayMode != nil
+            || !spreadPages.isEmpty
+        guard hasSomethingToImport else { return }
+        // 既に取り込み済みなら何もしない(この判定のためだけに行を新規作成はしない)。
+        if let existing = bookLayoutSettings(forBookID: book.id), existing.didImportSourceLayout { return }
+
+        let settings = existingOrNewSettings(for: book)
+        guard !settings.didImportSourceLayout else { return }
+
+        if settings.readingDirectionOverrideRaw == nil, let direction = hint?.pageProgressionDirection {
+            settings.readingDirectionOverride = direction
         }
+        if settings.forcedDisplayModeRaw == nil, let mode = hint?.forcedDisplayMode {
+            settings.forcedDisplayMode = mode
+        }
+
+        // ページ単位の見開き配置。既にその本・そのページの行がある場合は触らない
+        // (ユーザーが先に設定していた内容を、ファイル側の指定で上書きしないため)。
+        if !spreadPages.isEmpty {
+            var existingKeys = Set(pageOverrides(forBookID: book.id).map(\.pageKey))
+            for page in spreadPages {
+                guard let state = page.epubSpreadPosition.map(PageLayoutState.init(epubSpreadPosition:)),
+                      !existingKeys.contains(page.sortKey)
+                else { continue }
+                let override = PageLayoutOverride(bookID: book.id, pageKey: page.sortKey, state: state)
+                modelContext.insert(override)
+                cacheInsertedOverride(override)
+                existingKeys.insert(page.sortKey)
+            }
+        }
+
+        settings.didImportSourceLayout = true
+        settings.updatedAt = Date()
+        saveAndNotify(bookID: book.id)
     }
 
     // MARK: - カバー画像の上書き(EPUB出力用。ユーザー要望: カバー画像を選択・変更できるように

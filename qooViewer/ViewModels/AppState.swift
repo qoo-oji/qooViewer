@@ -236,17 +236,16 @@ final class AppState: ObservableObject {
     /// 現在の本でこの機能がONかどうか(本単位で記憶。ViewerViewModel.isContrastCorrectionEnabled
     /// 参照)。isSlideshowActive/isLoupeActiveと同じ仕組み。
     @Published private(set) var isContrastCorrectionEnabled = false
-    /// EPUBが読み方向/見開きを明示している間、またはPDFがDocument Catalogで同等の情報を
-    /// 明示している間、メニューバーの該当項目をグレーアウトするための値。
-    /// 詳細はViewerViewModel.isReadingDirectionLocked/isDisplayModeLocked/isPageShiftLocked参照。
-    @Published private(set) var isReadingDirectionLocked = false
-    @Published private(set) var isDisplayModeLocked = false
+    /// 明示的なページ単位のレイアウト指定を持つ見開きを表示中、メニューバーの
+    /// 「1ページだけ送る/戻す」をグレーアウトするための値。
+    /// 詳細はViewerViewModel.isPageShiftLocked参照。
+    ///
+    /// 以前はここに読み方向・見開き強制・レイアウト編集全体のロック
+    /// (isReadingDirectionLocked / isDisplayModeLocked / hasAuthoritativeSourceLayout)も
+    /// 並んでいたが、ユーザー要望により「EPUB/PDFのファイル側の指定でユーザー操作を
+    /// ロックする」という扱い自体を廃止したため、いずれも削除した
+    /// (LayoutStore.importSourceLayoutIfNeeded参照)。
     @Published private(set) var isPageShiftLocked = false
-    /// ソースファイル自身(EPUB/PDF)由来の権威的なレイアウト指定がある本かどうか(2.4節)。
-    /// trueのときLayoutメニュー・コンテキストメニューのLayoutサブメニュー・ツールバーの自動
-    /// レイアウトボタンをすべてグレーアウトする(ソースファイル側の指定が優先され、DB側の
-    /// 上書きを作っても反映されないため)。
-    @Published private(set) var hasAuthoritativeSourceLayout = false
     /// 見開き表示中に、実際に2ページとも表示されているかどうか(横長画像の自動単ページ化等で
     /// 実際には1枚しか表示されていない場合はfalse)。Layoutメニューの中央グループの項目構成
     /// (現在のページのみか、左右2ページ分か)の切り替えに使う。
@@ -294,10 +293,7 @@ final class AppState: ObservableObject {
         readingDirection: ReadingDirection,
         scalingMode: ScalingMode,
         isContrastCorrectionEnabled: Bool,
-        isReadingDirectionLocked: Bool,
-        isDisplayModeLocked: Bool,
         isPageShiftLocked: Bool,
-        hasAuthoritativeSourceLayout: Bool,
         hasPartnerPageDisplayed: Bool,
         hasCurrentPageLayoutOverride: Bool,
         hasPartnerPageLayoutOverride: Bool
@@ -315,10 +311,7 @@ final class AppState: ObservableObject {
         setIfChanged(&self.isRightToLeft, readingDirection == .rightToLeft)
         setIfChanged(&self.currentScalingMode, scalingMode)
         setIfChanged(&self.isContrastCorrectionEnabled, isContrastCorrectionEnabled)
-        setIfChanged(&self.isReadingDirectionLocked, isReadingDirectionLocked)
-        setIfChanged(&self.isDisplayModeLocked, isDisplayModeLocked)
         setIfChanged(&self.isPageShiftLocked, isPageShiftLocked)
-        setIfChanged(&self.hasAuthoritativeSourceLayout, hasAuthoritativeSourceLayout)
         setIfChanged(&self.hasPartnerPageDisplayed, hasPartnerPageDisplayed)
         setIfChanged(&self.hasCurrentPageLayoutOverride, hasCurrentPageLayoutOverride)
         setIfChanged(&self.hasPartnerPageLayoutOverride, hasPartnerPageLayoutOverride)
@@ -340,10 +333,7 @@ final class AppState: ObservableObject {
         setIfChanged(&isRightToLeft, false)
         setIfChanged(&currentScalingMode, .fitToScreen)
         setIfChanged(&isContrastCorrectionEnabled, false)
-        setIfChanged(&isReadingDirectionLocked, false)
-        setIfChanged(&isDisplayModeLocked, false)
         setIfChanged(&isPageShiftLocked, false)
-        setIfChanged(&hasAuthoritativeSourceLayout, false)
         setIfChanged(&hasPartnerPageDisplayed, false)
         setIfChanged(&hasCurrentPageLayoutOverride, false)
         setIfChanged(&hasPartnerPageLayoutOverride, false)
@@ -414,6 +404,12 @@ final class AppState: ObservableObject {
     /// (ファイルノード識別子(iノード番号)による自動追従)を呼ぶために参照する。
     /// favoritesStore/bookmarkStoreと同じくweakにしか保持しない。(QooViewerAppのonAppearで設定される)
     weak var layoutStore: LayoutStore?
+
+    /// 書誌メタデータの管理。layoutStore等と同じく、open(url:)で本を開くたびに
+    /// reconcileBookIDIfMoved(ファイルノード識別子による自動追従)と、識別子・
+    /// セキュリティスコープ付きブックマークの補完(backfillIdentifiers)を行うために参照する。
+    /// 他のストアと同じくweakにしか保持しない。(QooViewerAppのonAppearで設定される)
+    weak var metadataStore: BookMetadataStore?
 
     /// お気に入りを開こうとしたが、対応するファイル/フォルダが実際には存在しなかったときにセットする。
     /// nilでなければ、ContentViewが「見つかりません。お気に入りから削除しますか?」というアラート
@@ -505,6 +501,13 @@ final class AppState: ObservableObject {
                 self.favoritesStore?.reconcileBookIDIfMoved(book: book)
                 self.layoutStore?.reconcileBookIDIfMoved(book: book)
                 self.bookmarkStore?.reconcileBookIDIfMoved(book: book)
+                self.metadataStore?.reconcileBookIDIfMoved(book: book)
+                // メタデータを登録した時点ではこの本を開いていない(「メタデータの編集」
+                // ウインドウはファイルを開かない)ことが多く、その場合はセキュリティスコープ付き
+                // ブックマークもファイルノード識別子も持てていない。実際に本を開けた今なら
+                // どちらも取得できるため、ここで補完しておく(EPUB/PDF出力が、今開いていない
+                // 本の実ファイルへ到達するために必要)。
+                self.metadataStore?.backfillIdentifiers(forBookID: book.id, sourceURL: book.sourceURL)
                 self.currentBook = book
                 self.errorMessage = nil
                 self.recentFiles?.record(url: url)
@@ -673,10 +676,8 @@ struct MenuCheckmarkState: Equatable {
     /// 現在の本で、古いスキャン本を白黒補正して表示する機能(ユーザー要望、本単位で記憶)が
     /// ONかどうか。
     var isContrastCorrectionEnabled = false
-    /// EPUBが読み方向/見開きを明示している間trueになり、メニューバーの該当項目を
-    /// グレーアウトする(詳細はViewerViewModelの同名プロパティ参照)。
-    var isReadingDirectionLocked = false
-    var isDisplayModeLocked = false
+    /// 明示的なレイアウト指定を持つ見開きを表示中trueになり、メニューバーの
+    /// 「1ページだけ送る/戻す」をグレーアウトする(詳細はViewerViewModelの同名プロパティ参照)。
     var isPageShiftLocked = false
     /// メニューバーの「お気に入り」メニュー(お気に入りに追加/削除トグルボタン)、および
     /// ツールバー・コンテキストメニューの同ボタンの見た目・文言切り替えに使う、現在の本が

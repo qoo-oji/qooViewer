@@ -63,7 +63,18 @@ nonisolated enum PageLayoutState: String, CaseIterable, Identifiable, Codable, H
         }
     }
 
-    /// PageRef.epubSpreadPosition(EPUB由来、権威的)と同じ意味体系へ変換する。
+    /// EPUBのPageSpreadPositionから、対応するレイアウト状態を作る。
+    /// asEpubEquivalentSpreadPositionの逆変換で、EPUBのページ単位の見開き配置を
+    /// DB(PageLayoutOverride)へ取り込むために使う(LayoutStore.importSourceLayoutIfNeeded参照)。
+    init(epubSpreadPosition: PageSpreadPosition) {
+        switch epubSpreadPosition {
+        case .center: self = .single
+        case .right: self = .spreadRight
+        case .left: self = .spreadLeft
+        }
+    }
+
+    /// PageRef.epubSpreadPosition(EPUB由来)と同じ意味体系へ変換する。
     /// 「単一ページ」→center、「見開き右」→right、「見開き左」→left、
     /// 「除外」はEPUBの語彙に無いためnil(ExcludedはBookLoader側でページ自体を除去する形で
     /// 扱うため、ここでのマッピングは不要。詳細はEffectiveLayoutHintのコメント参照)。

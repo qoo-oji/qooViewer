@@ -10,12 +10,18 @@ struct LibraryExportWindow: View {
     @EnvironmentObject private var favoritesStore: FavoritesStore
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
+    @EnvironmentObject private var metadataStore: BookMetadataStore
+    @EnvironmentObject private var metadataFormatStore: MetadataFormatStore
     @EnvironmentObject private var preferences: AppPreferences
     @Environment(\.dismiss) private var dismiss
 
     @State private var includeFavorites = true
     @State private var includeBookmarks = true
     @State private var includeLayouts = true
+    @State private var includeMetadata = true
+    /// フォーマット定義(アプリ全体の設定)は、本ごとのデータとは性質が違ううえ、取り込み側の
+    /// 設定を丸ごと置き換えるものになるため、既定ではチェックを外しておく。
+    @State private var includeMetadataFormats = false
     @State private var isExporting = false
     @State private var resultMessage: String?
     @State private var didSucceed = false
@@ -26,7 +32,7 @@ struct LibraryExportWindow: View {
     @State private var skippedFilePaths: [String] = []
 
     private var hasSelection: Bool {
-        includeFavorites || includeBookmarks || includeLayouts
+        includeFavorites || includeBookmarks || includeLayouts || includeMetadata || includeMetadataFormats
     }
 
     // バグ修正(ユーザー報告): 以前はボタン行もFormの1Sectionとして中に含めていたが、
@@ -44,6 +50,8 @@ struct LibraryExportWindow: View {
                     Toggle("Favorites", isOn: $includeFavorites)
                     Toggle("Bookmarks", isOn: $includeBookmarks)
                     Toggle("Page Layout Settings", isOn: $includeLayouts)
+                    Toggle("Metadata", isOn: $includeMetadata)
+                    Toggle("Metadata Formats", isOn: $includeMetadataFormats)
                 } footer: {
                     Text("This creates a single JSON file that only qooViewer can read back in. ComicInfo.xml is not supported.")
                         .font(.caption)
@@ -157,10 +165,13 @@ struct LibraryExportWindow: View {
         skippedFilePaths = []
         Task {
             let selection = LibraryImportExportService.ExportSelection(
-                includeFavorites: includeFavorites, includeBookmarks: includeBookmarks, includeLayouts: includeLayouts
+                includeFavorites: includeFavorites, includeBookmarks: includeBookmarks,
+                includeLayouts: includeLayouts, includeMetadata: includeMetadata,
+                includeMetadataFormats: includeMetadataFormats
             )
             let (file, result) = await LibraryImportExportService.buildExportFile(
-                selection: selection, favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+                selection: selection, favoritesStore: favoritesStore, bookmarkStore: bookmarkStore,
+                layoutStore: layoutStore, metadataStore: metadataStore, metadataFormatStore: metadataFormatStore
             )
             do {
                 try LibraryImportExportService.write(file, to: url)

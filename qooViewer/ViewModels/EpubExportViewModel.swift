@@ -12,6 +12,7 @@ final class EpubExportViewModel: ObservableObject {
         let bookID: String
         let hasLayout: Bool
         let hasBookmarks: Bool
+        let hasMetadata: Bool
         var id: String { bookID }
         var displayName: String {
             URL(fileURLWithPath: bookID).deletingPathExtension().lastPathComponent
@@ -87,6 +88,7 @@ final class EpubExportViewModel: ObservableObject {
 
     private let bookmarkStore: BookmarkStore
     private let layoutStore: LayoutStore
+    private let metadataStore: BookMetadataStore
     private let preferences: AppPreferences
 
     /// この画面はWindow(id: "epubExport")という単一インスタンスのシーンで開くため、一度表示された
@@ -101,6 +103,7 @@ final class EpubExportViewModel: ObservableObject {
     /// 表示できるようにする。
     private var bookmarksChangeObserver: NSObjectProtocol?
     private var layoutDataChangeObserver: NSObjectProtocol?
+    private var metadataChangeObserver: NSObjectProtocol?
 
     /// loadBook(forBookID:)でstartAccessingSecurityScopedResource()に成功したURLの集合。
     ///
@@ -121,9 +124,13 @@ final class EpubExportViewModel: ObservableObject {
     /// deinitでの1回のstopでは釣り合わない。
     private var securityScopedURLs: Set<URL> = []
 
-    init(bookmarkStore: BookmarkStore, layoutStore: LayoutStore, preferences: AppPreferences) {
+    init(
+        bookmarkStore: BookmarkStore, layoutStore: LayoutStore, metadataStore: BookMetadataStore,
+        preferences: AppPreferences
+    ) {
         self.bookmarkStore = bookmarkStore
         self.layoutStore = layoutStore
+        self.metadataStore = metadataStore
         self.preferences = preferences
         reload()
 
@@ -144,6 +151,13 @@ final class EpubExportViewModel: ObservableObject {
                 self?.reload()
             }
         }
+        metadataChangeObserver = NotificationCenter.default.addObserver(
+            forName: .bookMetadataDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reload()
+            }
+        }
     }
 
     deinit {
@@ -152,6 +166,9 @@ final class EpubExportViewModel: ObservableObject {
         }
         if let layoutDataChangeObserver {
             NotificationCenter.default.removeObserver(layoutDataChangeObserver)
+        }
+        if let metadataChangeObserver {
+            NotificationCenter.default.removeObserver(metadataChangeObserver)
         }
         // loadBook(forBookID:)で開いたセキュリティスコープ付きアクセスを閉じる
         // (securityScopedURLsのコメント参照)。
@@ -176,11 +193,12 @@ final class EpubExportViewModel: ObservableObject {
         var bookIDs = layoutStore.layoutBookIDs
         bookIDs.formUnion(bookmarkStore.groups.map(\.bookID))
         bookIDs.formUnion(layoutStore.coverOverrideBookIDs())
-        let eligibleIDs = bookIDs.filter { bookID in
-            let ext = URL(fileURLWithPath: bookID).pathExtension.lowercased()
-            guard ext != "pdf" && ext != "epub" else { return false }
-            return resolveURL(forBookID: bookID) != nil
-        }
+        // ユーザー要望: メタデータの登録がある本もEPUB出力の対象に含める。
+        bookIDs.formUnion(metadataStore.registeredBookIDs)
+        // ユーザー要望: 元のファイル形式による制限を撤廃し、
+        // zip/cbz・rar/cbr・7z/cb7・pdf・epub・フォルダのすべてを対象にする
+        // (元がPDFの場合の画像の扱いはPDFImageExtractor参照)。
+        let eligibleIDs = bookIDs.filter { resolveURL(forBookID: $0) != nil }
         // bookmarkStore.groupsはArrayなので、mapの中で毎回containsを呼ぶとO(件数^2)になる。
         // 事前にSet化して1回のO(1)ルックアップにする(結果は従来と同一)。
         let bookIDsWithBookmarks = Set(bookmarkStore.groups.map(\.bookID))
@@ -189,15 +207,22 @@ final class EpubExportViewModel: ObservableObject {
                 Row(
                     bookID: bookID,
                     hasLayout: layoutStore.layoutBookIDs.contains(bookID),
-                    hasBookmarks: bookIDsWithBookmarks.contains(bookID)
+                    hasBookmarks: bookIDsWithBookmarks.contains(bookID),
+                    hasMetadata: metadataStore.isRegistered(bookID: bookID)
                 )
             }
             .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
         selectedBookIDs.formIntersection(Set(rows.map(\.bookID)))
 
-        // ユーザー要望: ファイル名/フォルダ名からタイトル・著者名を推測して初期値にする。
-        // 既にユーザーが編集済み(または前回のreload()で設定済み)の値は上書きしない。
+        // タイトル・著者名の初期値。ユーザー要望により、メタデータDBに登録がある本は
+        // そちらを優先し、無い本だけ従来通りファイル名/フォルダ名から推測する。
+        // 既にユーザーがこの画面で編集済みの値は上書きしない。
         for row in rows where titleOverrides[row.bookID] == nil {
+            if let metadata = metadataStore.metadata(forBookID: row.bookID), !metadata.title.isEmpty {
+                titleOverrides[row.bookID] = metadata.title
+                authorOverrides[row.bookID] = metadata.author
+                continue
+            }
             let parsed = TitleAuthorFilenameParser.parse(baseName: row.displayName)
             titleOverrides[row.bookID] = parsed.title.isEmpty ? row.displayName : parsed.title
             authorOverrides[row.bookID] = parsed.author
@@ -480,7 +505,12 @@ final class EpubExportViewModel: ObservableObject {
             bookmarks: exportBookmarks,
             coverOverride: resolveCoverOverride(settings: settings),
             titleOverride: titleOverrides[row.bookID],
-            author: authorOverrides[row.bookID]
+            author: authorOverrides[row.bookID],
+            // シリーズ名・巻数はこの画面に入力欄が無く、メタデータDBの登録内容をそのまま使う
+            // (ユーザー要望: 登録がある場合はそちらを優先する)。
+            series: metadataStore.metadata(forBookID: row.bookID)?.series,
+            seriesIndex: metadataStore.metadata(forBookID: row.bookID)?.seriesIndex,
+            language: exportLanguageCode
         )
         let options = EpubExportOptions(
             renumberImagesSequentially: renumberImagesSequentially, includeExcludedPages: includeExcludedPages
@@ -493,6 +523,19 @@ final class EpubExportViewModel: ObservableObject {
         }
 
         try await EpubExporter.export(input, options: options, to: destinationFileURL)
+    }
+
+    /// EPUBのdc:languageへ書き出す言語タグ。
+    ///
+    /// ユーザー報告: 従来固定で出力していた"und"(言語不明)をKindle Previewerがエラーとして
+    /// 弾くため、実際の言語コードを入れる必要がある。qooViewerが扱うのは画像ベースのコミックで
+    /// 本文テキストを持たず、本の内容から言語を判定する手立てが無いため、アプリの表示言語設定
+    /// (AppPreferences.effectiveLocale。「システムに従う」ならOSのロケール)を根拠にする。
+    ///
+    /// languageCodeが取れない(ロケール識別子に言語が含まれない)極端なケースでは"en"にする
+    /// (EpubExporter側にも同じフォールバックがあるが、値を決める責任はこちらに寄せておく)。
+    private var exportLanguageCode: String {
+        preferences.effectiveLocale.language.languageCode?.identifier ?? "en"
     }
 
     /// ユーザー要望: カバー画像を選択・変更できるようにしたい。BookLayoutSettingsの上書き設定を

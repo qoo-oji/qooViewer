@@ -13,10 +13,58 @@ struct QooLibraryExportFile: Codable {
     /// [String: ...])だったが、formatVersion 2でファイルノード識別子(iノード番号)を含められる
     /// よう配列形式に変更した(ユーザー要望。後方互換性は必須ではないため、1のファイルを
     /// 読み込む処理は用意していない)。
-    var formatVersion: Int = 2
+    ///
+    /// formatVersion 3で、書誌メタデータ(metadata)と、メタデータ推測用のフォーマット定義
+    /// (metadataFormats)を追加した。どちらもOptionalのため、2で書き出したファイルもそのまま
+    /// 読める(該当キーが無い=そのカテゴリは含まれていない、という既存の扱いがそのまま働く)。
+    var formatVersion: Int = 3
     var favorites: ExportedFavorites?
     var bookmarks: [ExportedBookmarkEntry]?
     var layouts: [ExportedBookLayoutEntry]?
+    /// 本ごとに登録された書誌メタデータ(著者・タイトル・シリーズ・巻数)。
+    var metadata: [ExportedBookMetadataEntry]?
+    /// メタデータをファイル名から推測するためのフォーマット定義(本ごとではなくアプリ全体の設定)。
+    /// ユーザー選択により、別のマシンへ移行する際に自分で育てたフォーマットも一緒に運べるよう、
+    /// レコードとは別のカテゴリとしてこのファイルに含められるようにしてある。
+    var metadataFormats: ExportedMetadataFormats?
+}
+
+// MARK: - 書誌メタデータ
+
+/// 1冊分の書誌メタデータ。他のカテゴリと同じく、インポート時の主たる照合手段は
+/// inodeNumber/volumeDeviceNumberで、bookIDは参考情報かつ最終手段
+/// (ExportedFavoriteBookのコメント参照)。
+///
+/// ブックマーク(pageIndex→pageKey変換が要る)やレイアウトと違い、メタデータは本の中身に
+/// 依存しない情報のため、書き出し・読み込みのどちらでも実ファイルを開く必要が無い。
+struct ExportedBookMetadataEntry: Codable {
+    var bookID: String
+    var inodeNumber: Int64?
+    var volumeDeviceNumber: Int64?
+    var author: String
+    var title: String
+    var series: String
+    var seriesIndex: String
+
+    var fileNodeIdentifier: FileNodeIdentifier? {
+        guard let inodeNumber, let volumeDeviceNumber else { return nil }
+        return FileNodeIdentifier(inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber)
+    }
+}
+
+/// メタデータ推測用の3種類のフォーマット定義。アプリ全体で1組の設定のため、本ごとの配列では
+/// なく単一のオブジェクトとして持つ。
+///
+/// 各ルールの`id`(UUID)は書き出さない。IDはアプリ内で行を識別するためだけのもので、
+/// 取り込み側では新しく振り直せばよく、JSONに残すとファイルが無駄に読みにくくなるため
+/// (パターン文字列と、巻数フォーマットの種別だけが意味を持つ情報)。
+struct ExportedMetadataFormats: Codable {
+    var filenameFormats: [String]
+    /// 巻数を取り出すフォーマット(VolumeFormatRuleKind.volumeNumber)。
+    var volumeNumberPatterns: [String]
+    /// シリーズ名の分離だけを行うフォーマット(VolumeFormatRuleKind.seriesSeparatorOnly)。
+    var seriesSeparatorPatterns: [String]
+    var exclusionPatterns: [String]
 }
 
 // MARK: - お気に入り
