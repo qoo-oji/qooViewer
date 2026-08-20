@@ -88,6 +88,13 @@ struct ViewerView: View {
     /// メニューバーのメニュー(このアプリのもの)が現在開いているかどうか。開いている間は
     /// カーソルが動かなくても自動的には隠さない(NSMenu.didBeginTracking/didEndTracking参照)。
     @State private var isMenuTracking = false
+    /// メニューが開いたときにページ一覧(サムネイルグリッド)を閉じたいが、閉じる操作
+    /// (SwiftUIのビュー削除=フォーカス位置の移動)を**メニューを開いている最中**に行うと、
+    /// macOS 26ではトラッキング中のメインメニュー再構築(NSMenu setItemArray:)が走り、
+    /// NSContextMenuImplが範囲外アクセスでNSRangeExceptionを投げて落ちる(ユーザー報告:
+    /// グリッドを出したままメニューバーをクリックすると必ず発生)。そこで「閉じる」のは
+    /// 予約だけしておき、実際に閉じるのはメニューが閉じたあと(didEndTracking)にする。
+    @State private var pendingThumbnailGridDismissAfterMenu = false
     @State private var showThumbnailGrid = false
     /// ページ一覧(サムネイルグリッド)パネル自身の、スクリーン座標系での現在のフレーム
     /// (PanelScreenFrameAccessor参照)。パネルの外側かどうかを判定するため、
@@ -2950,17 +2957,22 @@ struct ViewerView: View {
             // ユーザー要望: ページ一覧(サムネイルグリッド)パネルの外側をクリックしたら
             // 閉じたい。メニューバーのメニューを開くクリックは、通常のクリックと違い
             // NSEventのローカル/グローバルモニタ(installThumbnailGridOutsideClickMonitors
-            // IfNeeded参照)には届かないため、メニューが開いたこと自体をここで検知して
-            // 代わりに閉じる(object: nilなので、メニューバーだけでなく右クリックメニュー等が
-            // 開いた場合も含む)。
+            // IfNeeded参照)には届かないため、メニューが開いたこと自体をここで検知して閉じる。
+            // ただし、開いている最中にここで閉じるとmacOS 26でクラッシュする
+            // (pendingThumbnailGridDismissAfterMenuのコメント参照)ため、ここでは予約だけして
+            // 実際に閉じるのはメニューが閉じたあと(下のdidEndTracking)に回す。
             if showThumbnailGrid {
-                showThumbnailGrid = false
+                pendingThumbnailGridDismissAfterMenu = true
             }
         }
         let menuEnd = NotificationCenter.default.addObserver(
             forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main
         ) { _ in
             isMenuTracking = false
+            if pendingThumbnailGridDismissAfterMenu {
+                pendingThumbnailGridDismissAfterMenu = false
+                showThumbnailGrid = false
+            }
             registerMouseActivity()
         }
         // 「ブックマークの編集」ウインドウ・「お気に入りの整理」ウインドウの「現在の本を追加」用
