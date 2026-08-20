@@ -390,11 +390,21 @@ struct ContentView: View {
             )
         ) {
             Button("OK") { appState.missingFavorite = nil }
-            Button("Remove from Favorites", role: .destructive) {
-                if let favorite = appState.missingFavorite {
-                    favoritesStore.delete(favorite)
+            // シークレットウインドウでは「お気に入りから削除」を出さない。
+            //
+            // このウインドウはお気に入りの一覧を表示し、そこから本を開くこともできる(読み取りは
+            // 通常どおり行う)ため、実体が消えているお気に入りを開こうとしてこのアラートに
+            // たどり着ける。削除はDBへの書き込みで、しかも元に戻せない操作なので、
+            // 「シークレットウインドウはお気に入り・ブックマーク・レイアウト・メタデータを
+            // 登録も編集もしない」という約束から外れる(AppState.isPrivateWindowのコメント参照)。
+            // 見つからなかったことを伝えるところまでは有用なので、アラート自体は出す。
+            if !isPrivateWindow {
+                Button("Remove from Favorites", role: .destructive) {
+                    if let favorite = appState.missingFavorite {
+                        favoritesStore.delete(favorite)
+                    }
+                    appState.missingFavorite = nil
                 }
-                appState.missingFavorite = nil
             }
         } message: {
             // 文字列補間をそのままText("...")に渡すと手書きのLocalizable.xcstringsでは翻訳と

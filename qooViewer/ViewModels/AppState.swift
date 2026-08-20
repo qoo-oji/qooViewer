@@ -521,12 +521,19 @@ final class AppState: ObservableObject {
         securityScopedBookURL?.stopAccessingSecurityScopedResource()
         securityScopedBookURL = didAccess ? url : nil
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
+        // シークレットウインドウではページ一覧のディスクキャッシュも書かない
+        // (isPrivateWindowのコメント参照)。
+        //
+        // この値はTaskの**外で**取り出しておくこと。中で`!isPrivateWindow`と書くと、
+        // `[weak self]`があっても暗黙のselfとして**強参照でも**捕捉され、下の
+        // `guard let self`まで弱参照にした意味が無くなる(BookLoader.loadは書庫の全走査を
+        // 伴い、未接続の外付け/ネットワークボリューム上の本では長く待つ。その間ずっと
+        // このAppStateが解放できなくなる)。Swift 6言語モードではエラーにもなる。
+        let cachesPageList = !isPrivateWindow
 
         openTask = Task { [weak self] in
             do {
-                // シークレットウインドウではページ一覧のディスクキャッシュも書かない
-                // (isPrivateWindowのコメント参照)。
-                let book = try await BookLoader.load(from: url, cachesPageList: !isPrivateWindow)
+                let book = try await BookLoader.load(from: url, cachesPageList: cachesPageList)
                 guard !Task.isCancelled, let self else { return }
                 // ユーザー要望: お気に入り・レイアウト・ブックマークが、同一ボリューム内での
                 // ファイルの移動・リネームを引き継げるようにしたい。この本を開くたびに、現在の

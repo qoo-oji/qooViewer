@@ -39,11 +39,28 @@ struct ThumbnailGridView: View {
     /// 自動で変わってほしい」という要望で現在の形になった。列数はサイズ・間隔・パネル幅
     /// (=画像表示領域から環境設定の余白を引いたもの)から決まるので、ウインドウをリサイズ
     /// すれば変わりうる点は、2番目の要望と相反するが、3番目の要望を優先した。
+    /// サムネイル1枚の一辺(pt)。環境設定の値を、スライダーが許す範囲へ収めてから使う。
+    ///
+    /// スライダー経由では範囲外になりようがないが、UserDefaultsを直接書き換えられていた場合に
+    /// 0が入ると、下のcolumnCountの割り算が0除算になり`Int(nan)`で**実行時トラップする**
+    /// (レイアウトが崩れるだけでは済まない)。RecentFilesStore.maxCountが保存件数を
+    /// 同じように読み出し時にクランプしているのと同じ考え方。
+    private var cellSize: CGFloat {
+        let range = AppPreferences.thumbnailGridCellSizeRange
+        return CGFloat(min(max(preferences.thumbnailGridCellSize, range.lowerBound), range.upperBound))
+    }
+
+    /// サムネイル同士の横の間隔(pt)。負の値を弾くためにクランプする(理由はcellSizeと同じ)。
+    private var horizontalSpacing: CGFloat {
+        let range = AppPreferences.thumbnailGridSpacingRange
+        return CGFloat(
+            min(max(preferences.thumbnailGridHorizontalSpacing, range.lowerBound), range.upperBound)
+        )
+    }
+
     private func columnCount(forPanelWidth width: CGFloat) -> Int {
-        let cell = CGFloat(preferences.thumbnailGridCellSize)
-        let spacing = CGFloat(preferences.thumbnailGridHorizontalSpacing)
         let available = width - Self.contentPadding * 2
-        return max(1, Int(((available + spacing) / (cell + spacing)).rounded(.down)))
+        return max(1, Int(((available + horizontalSpacing) / (cellSize + horizontalSpacing)).rounded(.down)))
     }
 
     var body: some View {
@@ -55,8 +72,8 @@ struct ThumbnailGridView: View {
             let vMargin = geometry.size.height * CGFloat(preferences.thumbnailGridVerticalMarginPercent) / 100
             let panelWidth = max(geometry.size.width - hMargin * 2, 120)
             let panelHeight = max(geometry.size.height - vMargin * 2, 120)
-            let cell = CGFloat(preferences.thumbnailGridCellSize)
-            let hSpacing = CGFloat(preferences.thumbnailGridHorizontalSpacing)
+            let cell = cellSize
+            let hSpacing = horizontalSpacing
             let count = columnCount(forPanelWidth: panelWidth)
             let columns = Array(repeating: GridItem(.fixed(cell), spacing: hSpacing), count: count)
             // 固定幅の列はLazyVGridの先頭(左)から詰められるので、グリッド自体の幅を列数ぶんに
