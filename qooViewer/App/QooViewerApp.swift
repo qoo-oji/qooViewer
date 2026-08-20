@@ -282,6 +282,17 @@ struct QooViewerApp: App {
                     openPickedURLInNewWindow(asTab: true)
                 }
 
+                // ユーザー要望: Google Chromeのシークレットウインドウに倣った、「開いた本の情報を
+                // 一切残さない」ウインドウ。ウェルカム画面から始まり、そこで開いた本(および
+                // そこから「新しいタブで開く」したタブ)は履歴・読書位置・ブックマーク等を
+                // 書かない(何を書かないかはAppState.isPrivateWindowのコメント参照)。
+                // 同じ「新しいウインドウを作る」仲間としてこのグループに置く。ショートカットは
+                // Chrome/Safariと同じ⇧⌘N。
+                Button("New Private Window") {
+                    openWindow(id: "private")
+                }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+
                 Divider()
 
                 // グループ3: 現在の本と関連するファイルを開く(同じフォルダ内)
@@ -320,7 +331,9 @@ struct QooViewerApp: App {
 
                 // グループ4: 開いた履歴から選んで開く
                 Menu("Open Recent") {
-                    if recentFiles.entries.isEmpty {
+                    // シークレットウインドウがフォーカス中は、(通常ウインドウで作られた)履歴も
+                    // 見せない(ユーザー要望。AppState.isPrivateWindowのコメント参照)。
+                    if recentFiles.entries.isEmpty || menuCheckmarkState?.isPrivateWindow == true {
                         Text("(None)")
                     } else {
                         ForEach(recentFiles.entries) { entry in
@@ -677,6 +690,10 @@ struct QooViewerApp: App {
             // 同様に変更済み)。
             CommandGroup(after: .pasteboard) {
                 let hasBook = focusedAppState?.currentBook != nil
+                // シークレットウインドウがフォーカス中は、書き込みを伴う項目(お気に入り/
+                // ブックマークの追加・各編集ウインドウ・レイアウト変更)をすべて無効にする。
+                // 一覧(Favorites List / Bookmark List)は読み取りだけなので使える。
+                let isPrivate = menuCheckmarkState?.isPrivateWindow == true
                 // 以前はここに、EPUB/PDFのファイル側がレイアウトを規定している本で
                 // レイアウト操作をまとめて無効化するためのisLayoutLockedがあった。
                 // ユーザー要望によりそのロック自体を廃止したため、レイアウト関連の項目は
@@ -693,11 +710,12 @@ struct QooViewerApp: App {
                 ) {
                     focusedAppState?.performViewerAction?(.toggleFavorite)
                 }
-                .disabled(!hasBook)
+                .disabled(!hasBook || isPrivate)
 
                 Button("Edit Favorites…") {
                     openWindow(id: "favoritesOrganizer")
                 }
+                .disabled(isPrivate)
 
                 // 階層構造のままサブメニューで一覧表示する(要望4)。開く/新しいウインドウで開く/
                 // 新しいタブで開くのみに絞り、並べ替え・移動はここでは行わない
@@ -718,7 +736,7 @@ struct QooViewerApp: App {
                 ) {
                     focusedAppState?.performViewerAction?(.toggleBookmark)
                 }
-                .disabled(!hasBook)
+                .disabled(!hasBook || isPrivate)
 
                 // 「Edit Favorites…」と同じく、performViewerAction(ViewerViewが表示されている
                 // 間だけ登録されるクロージャ)には頼らず、直接openWindowで開く。以前は
@@ -734,6 +752,7 @@ struct QooViewerApp: App {
                     launchCoordinator.pendingEditorInitialFocus = .bookmarks
                     openWindow(id: "editBookmarks")
                 }
+                .disabled(isPrivate)
 
                 // ブックマーク一覧を(要望6により)フラットな並びではなくサブメニューにまとめる。
                 Menu("Bookmark List") {
@@ -760,7 +779,7 @@ struct QooViewerApp: App {
                 Button("Auto-Layout Based on Current View") {
                     focusedAppState?.performAutoLayout?()
                 }
-                .disabled(!hasBook)
+                .disabled(!hasBook || isPrivate)
 
                 // ユーザー要望: 「自動でレイアウトする」の下、および下の「レイアウトの編集…」の
                 // 上にあった区切り線は削除した(このグループ内は1つの塊として見せる)。
@@ -779,7 +798,7 @@ struct QooViewerApp: App {
                                 : (menuCheckmarkState?.hasCurrentPageLayoutOverride ?? false)
                         )
                     }
-                    .disabled(!hasBook)
+                    .disabled(!hasBook || isPrivate)
 
                     Menu("Right Page") {
                         layoutMenuItems(
@@ -789,10 +808,10 @@ struct QooViewerApp: App {
                                 : (menuCheckmarkState?.hasPartnerPageLayoutOverride ?? false)
                         )
                     }
-                    .disabled(!hasBook)
+                    .disabled(!hasBook || isPrivate)
                 } else {
                     layoutMenuItems(target: .current, hasOverride: menuCheckmarkState?.hasCurrentPageLayoutOverride ?? false)
-                        .disabled(!hasBook)
+                        .disabled(!hasBook || isPrivate)
                 }
 
                 // 「レイアウトの編集…」(8.2節)。4節の「ブックマーク・レイアウトの編集」
@@ -802,6 +821,7 @@ struct QooViewerApp: App {
                     launchCoordinator.pendingEditorInitialFocus = .layout
                     openWindow(id: "editBookmarks")
                 }
+                .disabled(isPrivate)
 
                 // ユーザー要望: 「レイアウトの編集」の下に区切り線を挟んで「メタデータの編集」を
                 // 追加する。上の2つ(ブックマーク/レイアウトの編集)と同じく、本を開いていなくても
@@ -811,6 +831,7 @@ struct QooViewerApp: App {
                 Button("Edit Metadata…") {
                     openWindow(id: "editMetadata")
                 }
+                .disabled(isPrivate)
             }
         }
         .environment(\.locale, locale)
@@ -844,6 +865,30 @@ struct QooViewerApp: App {
         // LaunchCoordinator.openAppState(forBookAt:)がそのゾンビ状態のAppStateを「まだ開いている
         // ウインドウ」と誤認してしまい、外部から本を開こうとしても新しいウインドウが正しく
         // 表示されない不具合があった)。
+        .restorationBehavior(.disabled)
+        .modelContainer(QooViewerApp.modelContainer)
+        .environment(\.locale, locale)
+
+        // シークレットウインドウ(File › 新規シークレットウインドウ)専用のWindowGroup。
+        // 中身は"book"と同じContentViewだが、isPrivateWindow: trueで作る点だけが違う
+        // (AppState.isPrivateWindowのコメント参照)。値(URL)は省略可能で、メニューからは
+        // 値なし(openWindow(id:))でウェルカム画面として開き、シークレットウインドウからの
+        // 「新しいウインドウ/タブで開く」はURL付きで開く(openURLInNewWindow参照)。
+        // 状態復元は"book"と同じ理由で無効化する。そもそも次回起動時にシークレットウインドウが
+        // 復活してはならない。
+        WindowGroup(id: "private", for: URL.self) { urlBinding in
+            ContentView(initialURL: urlBinding.wrappedValue, isPrivateWindow: true)
+                .environmentObject(preferences)
+                .environmentObject(keyBindingStore)
+                .environmentObject(recentFiles)
+                .environmentObject(folderAccess)
+                .environmentObject(favoritesStore)
+                .environmentObject(bookmarkStore)
+                .environmentObject(layoutStore)
+                .environmentObject(metadataStore)
+                .environmentObject(launchCoordinator)
+        }
+        .windowResizability(.contentSize)
         .restorationBehavior(.disabled)
         .modelContainer(QooViewerApp.modelContainer)
         .environment(\.locale, locale)
@@ -1157,7 +1202,14 @@ struct QooViewerApp: App {
         let previousKeyWindow = tabTarget ?? NSApp.keyWindow
         let existingWindowIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
 
-        openWindow(id: "book", value: url)
+        // 呼び出し元がシークレットウインドウなら、新しいウインドウ/タブもシークレットにする
+        // (シークレットウインドウから「新しいタブで開く」をしたタブだけ記録される、では
+        // 意味が無い)。主ウインドウの代わりとして開く場合(actsAsPrimaryWindow。外部からの
+        // 「開く」)は、たまたまシークレットウインドウがキーでも常に通常ウインドウにする
+        // (主ウインドウは永続化と結びついた役割を持つため。ContentView.onAppear参照)。
+        let sourceIsPrivate = !actsAsPrimaryWindow
+            && (launchCoordinator.allOpenAppStates.first { $0.hostWindow === previousKeyWindow }?.isPrivateWindow ?? false)
+        openWindow(id: sourceIsPrivate ? "private" : "book", value: url)
 
         Task { @MainActor in
             // openWindowが実際にNSWindowを作り終えるのは次以降のrunloopになるため、
@@ -1585,7 +1637,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 本Aのウインドウが確かに存在するにもかかわらず、primaryAppStateがまだ本Aのウインドウを
         // 指していない(下のコメント参照)ことがあり、本Bが本Aとは別の新しいウインドウで
         // 開いてしまう不具合があった。)
-        if let target = launchCoordinator?.frontmostContentAppState() {
+        // シークレットウインドウは候補から外す(Finder等の外部から渡された本を、たまたま最前面に
+        // あったシークレットウインドウで黙って開いてしまわないため。LaunchCoordinator参照)。
+        if let target = launchCoordinator?.frontmostContentAppState(excludingPrivateWindows: true) {
             openInPrimaryWindow(url, primaryAppState: target)
             return
         }

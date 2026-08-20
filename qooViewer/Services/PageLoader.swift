@@ -161,9 +161,16 @@ actor PageLoader {
     /// setContrastCorrectionEnabled(_:)でnilに戻す。
     private var cachedThumbnailDiskKey: ThumbnailDiskCache.BookKey?
 
-    init(book: MangaBook, contrastCorrectionEnabled: Bool = false) {
+    /// サムネイルのディスクキャッシュ(ThumbnailDiskCache)を読み書きするか。
+    /// シークレットウインドウ(AppState.isPrivateWindow)で開いた本はfalseで、読みも書きもしない
+    /// (読むだけでも、ヒットしたファイルの更新日時を触るため)。メモリ上のNSCacheは本を閉じれば
+    /// 消えるので、そちらは通常どおり使う。
+    private let usesThumbnailDiskCache: Bool
+
+    init(book: MangaBook, contrastCorrectionEnabled: Bool = false, usesThumbnailDiskCache: Bool = true) {
         self.book = book
         self.contrastCorrectionEnabled = contrastCorrectionEnabled
+        self.usesThumbnailDiskCache = usesThumbnailDiskCache
     }
 
     private func thumbnailDiskKey() -> ThumbnailDiskCache.BookKey {
@@ -246,6 +253,12 @@ actor PageLoader {
 
         if let cached = thumbnailCache.object(forKey: key) {
             return cached.image
+        }
+
+        guard usesThumbnailDiskCache else {
+            return await image(
+                at: index, cache: thumbnailCache, maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize
+            )
         }
 
         let diskKey = thumbnailDiskKey()

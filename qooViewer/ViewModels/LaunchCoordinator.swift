@@ -91,7 +91,14 @@ final class LaunchCoordinator: ObservableObject {
     /// LastActiveBookStoreなど)に合わせて、URLを正規化などはせずURL.pathの文字列一致で行う。
     func openAppState(forBookAt url: URL) -> AppState? {
         openAppStates.removeAll { $0.appState == nil }
-        return openAppStates.first { $0.appState?.currentBook?.sourceURL.path == url.path }?.appState
+        // シークレットウインドウ(AppState.isPrivateWindow)は対象外。通常ウインドウから同じ本を
+        // 開こうとしたときにシークレットウインドウ側が前面に出てくると、「記録される/されない」
+        // という性質の違うウインドウを取り違えることになる(編集ウインドウからのジャンプ先
+        // 〈forBookID〉も同様)。
+        return openAppStates.first {
+            guard let appState = $0.appState, !appState.isPrivateWindow else { return false }
+            return appState.currentBook?.sourceURL.path == url.path
+        }?.appState
     }
 
     /// 指定したbookID(MangaBook.id、フォルダ/アーカイブファイルのパスと同じ文字列)の本を
@@ -102,7 +109,10 @@ final class LaunchCoordinator: ObservableObject {
     /// (MangaBook.id自体がパス文字列そのものであるため、URLを介さず直接比較できる)。
     func openAppState(forBookID bookID: String) -> AppState? {
         openAppStates.removeAll { $0.appState == nil }
-        return openAppStates.first { $0.appState?.currentBook?.id == bookID }?.appState
+        return openAppStates.first {
+            guard let appState = $0.appState, !appState.isPrivateWindow else { return false }
+            return appState.currentBook?.id == bookID
+        }?.appState
     }
 
     /// 現在登録されているすべてのContentViewウインドウ/タブのAppState一覧(本を表示中か
@@ -122,8 +132,14 @@ final class LaunchCoordinator: ObservableObject {
     /// ContentView以外のウインドウはAppStateを持たないため、ここで手前にあると判定されることは
     /// ない(ダブルクリックした時点ではそれらのうちのどれかが最前面のはずだが、除外される)。
     /// コンテンツウインドウが1つも開いていない場合はnilを返す。
-    func frontmostContentAppState() -> AppState? {
+    /// - Parameter excludingPrivateWindows: trueならシークレットウインドウ(AppState.isPrivateWindow)を
+    ///   候補から外す。Finder等の外部から渡された本(AppDelegate.application(_:open:))を、たまたま
+    ///   最前面にあったシークレットウインドウへ流し込まないために使う(Google Chromeが外部リンクを
+    ///   シークレットウインドウでは開かないのと同じ考え方)。メニュー操作由来の呼び出しは、操作
+    ///   しているウインドウ自身が対象なので既定のfalseのままでよい。
+    func frontmostContentAppState(excludingPrivateWindows: Bool = false) -> AppState? {
         let hostWindows = allOpenAppStates.compactMap { appState -> (AppState, NSWindow)? in
+            if excludingPrivateWindows, appState.isPrivateWindow { return nil }
             guard let window = appState.hostWindow else { return nil }
             return (appState, window)
         }

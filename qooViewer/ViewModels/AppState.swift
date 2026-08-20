@@ -8,6 +8,40 @@ import SwiftData
 /// 本棚は持たず、パネル選択・ドラッグ&ドロップ・Finderからの「開く」だけで本を開く。
 @MainActor
 final class AppState: ObservableObject {
+    /// このウインドウがシークレットウインドウ(File › 新規シークレットウインドウ)かどうか。
+    ///
+    /// ■ 設計(ユーザー要望。Google Chromeのシークレットウインドウに倣った)
+    /// アプリ全体のON/OFFトグルではなく**ウインドウ単位**の属性にしてある。AppStateは
+    /// ウインドウごとに1つなので、「このウインドウで開いた本は何も記録しない」という性質が
+    /// そのまま載り、通常ウインドウと並行して使える。ウインドウを閉じた時点で終わりなので、
+    /// 「ONにした時点で既に開いていた本はどうなるのか」という中途半端な状態も生まれない。
+    /// 生成時に確定し、以後変わらない(`let`)。
+    ///
+    /// ■ trueのとき書かないもの(=「その本を閉じた後に一切残らない」の定義)
+    /// - 「最近開いたファイル」(RecentFilesStore)・「最後に開いていた本」(LastActiveBookStore)
+    /// - 読書状態(BookReadingState。読書位置・表示モード等)
+    /// - ブックマーク・お気に入り・レイアウト・メタデータの登録・編集、および
+    ///   EPUB/PDF/ComicInfo.xmlからのそれらの自動取り込み
+    /// - ディスク上のサムネイルキャッシュ(ThumbnailDiskCache)・ページ一覧キャッシュ
+    ///   (BookPageListCache)
+    /// - 本の移動・リネーム追従によるbookIDの書き換え(reconcileBookIDIfMoved)や識別子の補完
+    ///   (backfillIdentifiers)。これらも既存行への書き込みなので行わない
+    /// 既存データの**読み取り**(登録済みブックマークへのジャンプ、保存済みレイアウトでの表示、
+    /// 環境設定)は通常どおり行う。書き込みを伴う操作のUI(メニュー・ツールバー・コンテキスト
+    /// メニュー・サイドパネルの＋/鉛筆ボタン)は、このウインドウがフォーカス中はグレーアウトする。
+    /// 各書き込み箇所のガードはこのフラグを直接参照している(grep "isPrivateWindow" /
+    /// "isPrivate")。新しい永続化経路を足すときは、ここに列挙したうえで同じガードを入れること。
+    ///
+    /// ■ 履歴の表示
+    /// 記録しないだけでなく、シークレットウインドウでは(通常ウインドウで作られた)履歴も
+    /// 一切表示しない(ユーザー要望)。ウェルカム画面・サイドパネルの履歴・File › 最近開いた
+    /// ファイルの3箇所が、このフラグ(メニューはMenuCheckmarkState.isPrivateWindow)を見て空にする。
+    let isPrivateWindow: Bool
+
+    init(isPrivateWindow: Bool = false) {
+        self.isPrivateWindow = isPrivateWindow
+    }
+
     @Published var currentBook: MangaBook?
     @Published var errorMessage: String?
     /// 現在開いている本と同じフォルダにある、他の本のURL一覧(現在の本自身は除く)。
@@ -490,7 +524,9 @@ final class AppState: ObservableObject {
 
         openTask = Task { [weak self] in
             do {
-                let book = try await BookLoader.load(from: url)
+                // シークレットウインドウではページ一覧のディスクキャッシュも書かない
+                // (isPrivateWindowのコメント参照)。
+                let book = try await BookLoader.load(from: url, cachesPageList: !isPrivateWindow)
                 guard !Task.isCancelled, let self else { return }
                 // ユーザー要望: お気に入り・レイアウト・ブックマークが、同一ボリューム内での
                 // ファイルの移動・リネームを引き継げるようにしたい。この本を開くたびに、現在の
@@ -498,19 +534,28 @@ final class AppState: ObservableObject {
                 // (iノード番号)を手がかりに自動的に追従(bookIDを書き換え)させておく。本を
                 // 表示する前(currentBookを設定する前)に行うことで、ViewerViewModelの初期化時点
                 // では既に正しいbookIDでレイアウト/ブックマークが見つかる状態にしておく。
-                self.favoritesStore?.reconcileBookIDIfMoved(book: book)
-                self.layoutStore?.reconcileBookIDIfMoved(book: book)
-                self.bookmarkStore?.reconcileBookIDIfMoved(book: book)
-                self.metadataStore?.reconcileBookIDIfMoved(book: book)
+                // シークレットウインドウでは、追従(bookIDの書き換え)も識別子の補完も既存行への
+                // 書き込みなので行わない(isPrivateWindowのコメント参照)。
+                if !self.isPrivateWindow {
+                    self.favoritesStore?.reconcileBookIDIfMoved(book: book)
+                    self.layoutStore?.reconcileBookIDIfMoved(book: book)
+                    self.bookmarkStore?.reconcileBookIDIfMoved(book: book)
+                    self.metadataStore?.reconcileBookIDIfMoved(book: book)
+                }
                 // メタデータを登録した時点ではこの本を開いていない(「メタデータの編集」
                 // ウインドウはファイルを開かない)ことが多く、その場合はセキュリティスコープ付き
                 // ブックマークもファイルノード識別子も持てていない。実際に本を開けた今なら
                 // どちらも取得できるため、ここで補完しておく(EPUB/PDF出力が、今開いていない
                 // 本の実ファイルへ到達するために必要)。
-                self.metadataStore?.backfillIdentifiers(forBookID: book.id, sourceURL: book.sourceURL)
+                if !self.isPrivateWindow {
+                    self.metadataStore?.backfillIdentifiers(forBookID: book.id, sourceURL: book.sourceURL)
+                }
                 self.currentBook = book
                 self.errorMessage = nil
-                self.recentFiles?.record(url: url)
+                // シークレットウインドウで開いた本は「最近開いたファイル」に残さない(ユーザー要望)。
+                if !self.isPrivateWindow {
+                    self.recentFiles?.record(url: url)
+                }
                 await self.refreshSiblingBooks()
             } catch {
                 guard !Task.isCancelled, let self else { return }
@@ -665,6 +710,11 @@ extension FocusedValues {
 /// まとめて値型として公開する。書き込み(実際にトグルする操作)は、これまでどおり
 /// qooViewerAppState(AppState)側のクロージャ/プロパティ経由で行う。
 struct MenuCheckmarkState: Equatable {
+    /// フォーカス中のウインドウがシークレットウインドウかどうか(AppState.isPrivateWindow)。
+    /// メニューバー側で、書き込みを伴う項目(お気に入り/ブックマーク/レイアウト/メタデータの
+    /// 編集)のグレーアウトと、「最近開いたファイル」を空にする判定に使う。ウェルカム画面の
+    /// ウインドウでも値が必要なので、ViewerViewではなくContentViewが常に詰める。
+    var isPrivateWindow = false
     var hideToolbar = false
     var hideProgressBar = false
     var hideSidePanel = false

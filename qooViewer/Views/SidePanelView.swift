@@ -78,6 +78,11 @@ struct SidePanelView: View {
     /// ページモードのサムネイル取得(AppState.loadPageThumbnail)と、その世代番号。
     /// 本を開いていないときはloadPageThumbnailがnilになる。
     var loadPageThumbnail: ((Int) async -> CGImage?)?
+    /// このパネルを載せているウインドウがシークレットウインドウかどうか(AppState.isPrivateWindow)。
+    /// trueなら履歴モードは一覧を出さず、お気に入り/ブックマークの＋(追加)・鉛筆(編集)ボタンを
+    /// 無効にする(書き込みを伴う操作のため)。一覧からのジャンプ・お気に入りを開く操作は読み取り
+    /// なので通常どおり。
+    var isPrivateWindow: Bool = false
     /// ページモードのサムネイルをホバーしたときの拡大プレビュー用のフル解像度画像取得
     /// (AppState.loadPageImage)。loadPageThumbnailと同時に登録・解除される。
     var loadPageImage: ((Int) async -> CGImage?)?
@@ -167,11 +172,16 @@ struct SidePanelView: View {
             case .bookmarks:
                 bookmarksModeBody
             case .history:
-                SidePanelHistorySectionView(
-                    recentFiles: recentFiles,
-                    currentBookPath: currentBookPath,
-                    onOpen: onOpen
-                )
+                if isPrivateWindow {
+                    SidePanelEmptyMessage(textKey: "History is not shown in a private window.")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    SidePanelHistorySectionView(
+                        recentFiles: recentFiles,
+                        currentBookPath: currentBookPath,
+                        onOpen: onOpen
+                    )
+                }
             case .pages:
                 SidePanelPagesSectionView(
                     pages: bookPages,
@@ -227,6 +237,7 @@ struct SidePanelView: View {
                     favoritesStore: favoritesStore,
                     expandedFolderIDs: $expandedFavoriteFolderIDs,
                     hasBook: hasBook,
+                    allowsEditing: !isPrivateWindow,
                     onAdd: onAddFavorite,
                     onEdit: onEditFavorites,
                     onOpen: onOpenFavorite
@@ -238,6 +249,7 @@ struct SidePanelView: View {
                     bookmarks: bookmarks,
                     currentPageIndex: currentPageIndex,
                     hasBook: hasBook,
+                    allowsEditing: !isPrivateWindow,
                     onAdd: onAddBookmark,
                     onEdit: onEditBookmarks,
                     onJump: onJumpToBookmark
@@ -786,6 +798,8 @@ private struct SidePanelFavoritesSectionView: View {
     @ObservedObject var favoritesStore: FavoritesStore
     @Binding var expandedFolderIDs: Set<UUID>
     var hasBook: Bool
+    /// falseならシークレットウインドウ(SidePanelView.isPrivateWindow参照)。追加・編集ボタンを無効にする。
+    var allowsEditing: Bool
     var onAdd: () -> Void
     var onEdit: () -> Void
     var onOpen: (FavoriteBook) -> Void
@@ -795,12 +809,12 @@ private struct SidePanelFavoritesSectionView: View {
             HStack(spacing: 6) {
                 SidePanelNavButton(
                     systemName: "plus",
-                    isDisabled: !hasBook,
+                    isDisabled: !hasBook || !allowsEditing,
                     help: "Add This Book to Favorites…"
                 ) {
                     onAdd()
                 }
-                SidePanelNavButton(systemName: "pencil", isDisabled: false, help: "Edit Favorites…") {
+                SidePanelNavButton(systemName: "pencil", isDisabled: !allowsEditing, help: "Edit Favorites…") {
                     onEdit()
                 }
                 Spacer(minLength: 0)
@@ -943,6 +957,8 @@ private struct SidePanelBookmarksSectionView: View {
     var bookmarks: [Bookmark]
     var currentPageIndex: Int
     var hasBook: Bool
+    /// falseならシークレットウインドウ(SidePanelView.isPrivateWindow参照)。追加・編集ボタンを無効にする。
+    var allowsEditing: Bool
     var onAdd: () -> Void
     var onEdit: () -> Void
     var onJump: (Bookmark) -> Void
@@ -952,12 +968,12 @@ private struct SidePanelBookmarksSectionView: View {
             HStack(spacing: 6) {
                 SidePanelNavButton(
                     systemName: "plus",
-                    isDisabled: !hasBook,
+                    isDisabled: !hasBook || !allowsEditing,
                     help: "Add This Page to Bookmarks"
                 ) {
                     onAdd()
                 }
-                SidePanelNavButton(systemName: "pencil", isDisabled: false, help: "Edit Bookmarks…") {
+                SidePanelNavButton(systemName: "pencil", isDisabled: !allowsEditing, help: "Edit Bookmarks…") {
                     onEdit()
                 }
                 Spacer(minLength: 0)

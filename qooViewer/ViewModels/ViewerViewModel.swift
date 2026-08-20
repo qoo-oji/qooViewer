@@ -100,7 +100,30 @@ final class ViewerViewModel: ObservableObject {
     @Published private(set) var pendingLayoutReplacementStatus: LayoutContentReplacementStatus?
 
     private let modelContext: ModelContext
+    /// この本の読書状態。通常はSwiftDataに挿入済みの行(変更は自動保存の対象)だが、
+    /// シークレットウインドウ(isPrivate)では**どのModelContextにも挿入しない**独立した
+    /// インスタンス。ModelContextの自動保存はコンテキストに属するオブジェクトだけを書くので、
+    /// 挿入しなければ好きに書き換えても何も残らない(persistStateのガードと二重の安全策)。
     private let readingState: BookReadingState
+    /// シークレットウインドウ(AppState.isPrivateWindow)で開いた本かどうか。
+    /// trueのとき、このクラスの永続化経路(読書状態・ブックマーク追加・レイアウト書き込み・
+    /// EPUB/PDF/ComicInfoからの自動取り込み)はすべて何もしない。何を書かないかの全体像は
+    /// AppState.isPrivateWindowのコメント参照。
+    let isPrivate: Bool
+    /// シークレットウインドウ専用: ファイル自身(EPUB目次・PDFアウトライン・ComicInfo.xml)から
+    /// 取り込んだブックマークの、**メモリ上だけの**置き場。通常はDBへ挿入するところを、
+    /// シークレットウインドウではどのModelContextにも入れずにここへ溜め、reloadBookmarks()が
+    /// DBの分と合成して`bookmarks`に出す。ファイルに入っている情報は読めてよい(残してはいけない
+    /// のはqooViewer側の記録)というユーザー要望への対応。ウインドウを閉じれば消える。
+    private var ephemeralBookmarks: [Bookmark] = []
+    /// 同じく、ファイル自身から読んだ書誌メタデータのメモリ上の置き場(ツールバーの
+    /// 「[著者] タイトル」表示にだけ使う。refreshDisplayTitle参照)。
+    private var ephemeralMetadata: SourceBookMetadata?
+    /// この本の読書状態がDBに保存されていたか(=以前に通常ウインドウで読んだことがあるか)。
+    /// シークレットウインドウでファイル由来の読み方向・見開き強制をメモリ上で適用してよいのは、
+    /// 保存済みの読書状態もDBのレイアウト設定も無い(=初めて開く本に相当する)ときだけ、という
+    /// 判定に使う(通常ウインドウの「初回オープン時に1回だけ取り込む」と同じ優先順位にするため)。
+    private let hasSavedReadingState: Bool
     private let pageLoader: PageLoader
     private let preferences: AppPreferences
     private let layoutStore: LayoutStore
@@ -234,16 +257,23 @@ final class ViewerViewModel: ObservableObject {
 
     init(
         book incomingBook: MangaBook, modelContext: ModelContext, preferences: AppPreferences,
-        layoutStore: LayoutStore, metadataStore: BookMetadataStore
+        layoutStore: LayoutStore, metadataStore: BookMetadataStore, isPrivate: Bool = false
     ) {
         self.modelContext = modelContext
         self.preferences = preferences
         self.layoutStore = layoutStore
         self.metadataStore = metadataStore
+        self.isPrivate = isPrivate
 
         // 差し替え検知(2.5節)を先に済ませる。指紋の照合はファイルへの問い合わせを伴うため、
         // ここで1回だけ行い、結果をprepareBookへ渡して二重に走らせない。
-        let replacementStatus = layoutStore.checkContentReplacement(book: incomingBook)
+        //
+        // シークレットウインドウでは検知自体を省く(常に.unaffected扱い)。疑いがあっても、その
+        // 解決(resolveLayoutReplacement: 既存データの採用=指紋の更新/破棄=行の削除)はどちらも
+        // DBへの書き込みで、シークレットウインドウでは行えないため、確認ダイアログを出しても
+        // 答えようがない。保存済みレイアウトをそのまま(読み取り専用で)適用して表示する。
+        let replacementStatus: LayoutContentReplacementStatus = isPrivate
+            ? .unaffected : layoutStore.checkContentReplacement(book: incomingBook)
 
         // ユーザー要望: EPUB/PDFがファイル自身に持っているレイアウト情報(読み方向・見開き強制・
         // EPUBのページ単位の見開き配置)を、その本を初めて開いたときにDBへ取り込む。以降は
@@ -255,7 +285,7 @@ final class ViewerViewModel: ObservableObject {
         // 取り込んでしまうと、ユーザーがまだ何も答えていないうちに、疑わしい既存の行へ
         // 新しいファイルのページ単位の指定が混ざる。解決後に改めて取り込む
         // (resolveLayoutReplacement参照)。
-        if replacementStatus == .unaffected {
+        if replacementStatus == .unaffected, !isPrivate {
             layoutStore.importSourceLayoutIfNeeded(for: incomingBook)
         }
 
@@ -286,7 +316,10 @@ final class ViewerViewModel: ObservableObject {
         }
         let initialContrastCorrectionEnabled = prepared.settings?.contrastCorrectionEnabled ?? false
         self.isContrastCorrectionEnabled = initialContrastCorrectionEnabled
-        self.pageLoader = PageLoader(book: preparedBook, contrastCorrectionEnabled: initialContrastCorrectionEnabled)
+        self.pageLoader = PageLoader(
+            book: preparedBook, contrastCorrectionEnabled: initialContrastCorrectionEnabled,
+            usesThumbnailDiskCache: !isPrivate
+        )
 
         let bookID = preparedBook.id
 
@@ -327,7 +360,19 @@ final class ViewerViewModel: ObservableObject {
         let isReturningToKnownBook = existingState != nil
 
         let state: BookReadingState
-        if let existingState {
+        if isPrivate {
+            // シークレットウインドウ: DBの行には一切触れない。保存済みの読書位置・表示設定が
+            // あればそれを初期値として**コピー**した、どのコンテキストにも属さないインスタンスを
+            // 使う(readingStateのコメント参照)。差し替えの疑いがある行の削除も、件数上限による
+            // 古い本の整理(LibraryDataPruner)も行わない。
+            state = BookReadingState(
+                bookID: bookID,
+                lastPageIndex: existingState?.lastPageIndex ?? 0,
+                displayMode: existingState?.displayMode ?? .spread,
+                readingDirection: existingState?.readingDirection ?? preferences.defaultReadingDirection,
+                scalingMode: existingState?.scalingMode ?? preferences.defaultScalingMode
+            )
+        } else if let existingState {
             state = existingState
         } else {
             if let fetchedState, contentLooksReplaced {
@@ -395,8 +440,19 @@ final class ViewerViewModel: ObservableObject {
         // 最優先していた。ユーザー要望により、ファイル側の情報はDBの初期値として初回オープン時に
         // 1回だけ取り込む方式(上のimportSourceLayoutIfNeeded)へ変更したため、ここで改めて
         // ファイル側を見る必要は無くなった。取り込み済みの値はbookLayoutSettings側に入っている。
-        self.displayMode = bookLayoutSettings?.forcedDisplayMode ?? state.displayMode
-        self.readingDirection = bookLayoutSettings?.readingDirectionOverride ?? state.readingDirection
+        //
+        // シークレットウインドウ(isPrivate)だけは例外で、取り込みそのものを行わない代わりに、
+        // 通常なら取り込まれていたはずの値(ファイル側のヒント)をここでメモリ上に適用する。
+        // 適用するのは「DBに取り込み済みでなく、保存済みの読書状態も無い」=通常ウインドウなら
+        // 初回オープンで取り込まれていた状況のときだけ。優先順位(DB > ファイル > 既定値)は
+        // 通常ウインドウと同じ。ページ単位の見開き配置はlayoutHint(at:)がファイル側へ
+        // フォールバックする既存経路で賄われる。
+        self.hasSavedReadingState = isReturningToKnownBook
+        let privateHint: SourceLayoutHint? = (isPrivate && !isReturningToKnownBook
+            && bookLayoutSettings?.didImportSourceLayout != true) ? incomingBook.sourceLayoutHint : nil
+        self.displayMode = bookLayoutSettings?.forcedDisplayMode ?? privateHint?.forcedDisplayMode ?? state.displayMode
+        self.readingDirection = bookLayoutSettings?.readingDirectionOverride
+            ?? privateHint?.pageProgressionDirection ?? state.readingDirection
         self.scalingMode = state.scalingMode
         self.needsResumeConfirmation = needsConfirmation
         // Swiftの初期化規則上、self(のインスタンスメソッド)は全ストアドプロパティに値が
@@ -438,6 +494,9 @@ final class ViewerViewModel: ObservableObject {
         // 書誌メタデータ(タイトル・著者・シリーズ・巻数)を読み込んでDBへ登録する」処理も
         // 同じ経路で行う(importSourceMetadataIfNeeded)。こちらはブックマークの有無とは
         // 無関係のため、bookmarks.isEmptyの外側で分岐する。
+        // シークレットウインドウ(isPrivate)でもこれらの取り込みは走らせる。ただし各メソッドの
+        // 中で、DBへ書く代わりにメモリ上(ephemeralBookmarks/ephemeralMetadata/readingDirection)へ
+        // 反映する(ファイルに入っている情報自体は使えてよい、というユーザー要望)。
         let sourceFileName = book.sourceURL.lastPathComponent
         if isEpubFile(sourceFileName) {
             if bookmarks.isEmpty {
@@ -570,16 +629,26 @@ final class ViewerViewModel: ObservableObject {
     /// 「[著者] 」だけを表示しても本の識別には役立たず、ユーザー要望も「タイトルが登録されて
     /// いる場合」を前提に2パターンだけを挙げているため。
     private func refreshDisplayTitle() {
-        guard let metadata = metadataStore.metadata(forBookID: book.id) else {
+        // DBの登録が最優先。無ければ、シークレットウインドウでファイルから読んだメモリ上の
+        // メタデータ(ephemeralMetadata)を使う。
+        let rawTitle: String
+        let rawAuthor: String
+        if let metadata = metadataStore.metadata(forBookID: book.id) {
+            rawTitle = metadata.title
+            rawAuthor = metadata.author
+        } else if let metadata = ephemeralMetadata {
+            rawTitle = metadata.title
+            rawAuthor = metadata.author
+        } else {
             displayTitle = book.title
             return
         }
-        let title = metadata.title.trimmingCharacters(in: .whitespaces)
+        let title = rawTitle.trimmingCharacters(in: .whitespaces)
         guard !title.isEmpty else {
             displayTitle = book.title
             return
         }
-        let author = metadata.author.trimmingCharacters(in: .whitespaces)
+        let author = rawAuthor.trimmingCharacters(in: .whitespaces)
         displayTitle = author.isEmpty ? title : "[\(author)] \(title)"
     }
 
@@ -934,7 +1003,7 @@ final class ViewerViewModel: ObservableObject {
         resetPinchZoom()
         cancelPendingPageFlip()
         displayMode = (displayMode == .spread) ? .single : .spread
-        if bookLayoutSettings?.forcedDisplayMode != nil {
+        if bookLayoutSettings?.forcedDisplayMode != nil, !isPrivate {
             layoutStore.setForcedDisplayMode(for: book, displayMode)
         }
         persistState()
@@ -956,7 +1025,10 @@ final class ViewerViewModel: ObservableObject {
     func toggleContrastCorrection() {
         let newValue = !isContrastCorrectionEnabled
         isContrastCorrectionEnabled = newValue
-        layoutStore.setContrastCorrectionEnabled(for: book, newValue)
+        // シークレットウインドウでは本ごとの設定として保存しない(この本を開いている間だけ効く)。
+        if !isPrivate {
+            layoutStore.setContrastCorrectionEnabled(for: book, newValue)
+        }
         let loader = pageLoader
         Task { [weak self] in
             await loader.setContrastCorrectionEnabled(newValue)
@@ -970,7 +1042,7 @@ final class ViewerViewModel: ObservableObject {
         resetPinchZoom()
         // 表示中の画像自体は変わらず、並び順だけがViewer側で反転するので再読み込みは不要
         readingDirection = (readingDirection == .rightToLeft) ? .leftToRight : .rightToLeft
-        if bookLayoutSettings?.readingDirectionOverride != nil {
+        if bookLayoutSettings?.readingDirectionOverride != nil, !isPrivate {
             layoutStore.setReadingDirectionOverride(for: book, readingDirection)
         }
         persistState()
@@ -1035,7 +1107,8 @@ final class ViewerViewModel: ObservableObject {
         // 不具合が実機で確認された(LayoutStore.pageOverrides(forBookID:)のコメント参照)ため、
         // 絞り込み無しで全件取得してからSwift側でfilter・sortする。
         let all = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
-        bookmarks = all.filter { $0.bookID == bookID }.sorted { $0.pageIndex < $1.pageIndex }
+        // シークレットウインドウでファイルから読んだ分(ephemeralBookmarks。DBには無い)も合成する。
+        bookmarks = (all.filter { $0.bookID == bookID } + ephemeralBookmarks).sorted { $0.pageIndex < $1.pageIndex }
     }
 
     /// EPUBの目次(nav.xhtml)から、ブックマークを自動的に取り込む(設計コンセプト7.5節「逆方向」)。
@@ -1086,6 +1159,12 @@ final class ViewerViewModel: ObservableObject {
         // 解析中に他の経路(「メタデータの編集」ウインドウなど)で登録された可能性があるため、
         // 書き込む直前にもう一度確認する。
         guard metadataStore.metadata(forBookID: book.id) == nil else { return }
+        // シークレットウインドウ: DBには書かず、表示用にメモリへ置くだけ。
+        if isPrivate {
+            ephemeralMetadata = metadata
+            refreshDisplayTitle()
+            return
+        }
         metadataStore.upsert(
             bookID: book.id,
             author: metadata.author,
@@ -1128,21 +1207,34 @@ final class ViewerViewModel: ObservableObject {
         // 書き込む直前にもう一度確認する(importSourceMetadataIfNeededと同じ)。
         let metadata = comicInfo.sourceBookMetadata
         if needsMetadata, !metadata.isEmpty, metadataStore.metadata(forBookID: book.id) == nil {
-            metadataStore.upsert(
-                bookID: book.id,
-                author: metadata.author,
-                title: metadata.title,
-                series: metadata.series,
-                seriesIndex: metadata.seriesIndex,
-                sourceURL: sourceURL
-            )
+            if isPrivate {
+                // シークレットウインドウ: DBには書かず、表示用にメモリへ置くだけ。
+                ephemeralMetadata = metadata
+            } else {
+                metadataStore.upsert(
+                    bookID: book.id,
+                    author: metadata.author,
+                    title: metadata.title,
+                    series: metadata.series,
+                    seriesIndex: metadata.seriesIndex,
+                    sourceURL: sourceURL
+                )
+            }
             refreshDisplayTitle()
         }
 
         // 読み方向。EPUB/PDFのヒントと同じ経路(LayoutStore.importSourceLayoutIfNeeded)へ
         // 流し込むことで、「DB側に値があればそちらを優先」「取り込みは1冊につき1回だけ」という
         // 既存の規則をそのまま適用する。そのためだけに、ヒントを差し込んだbookのコピーを渡す。
-        if needsReadingDirection, let direction = comicInfo.readingDirection {
+        if needsReadingDirection, isPrivate {
+            // シークレットウインドウ: 通常ウインドウなら初回オープンで取り込まれていた状況
+            // (DBに上書きが無く、保存済みの読書状態も無い)のときだけ、メモリ上で読み方向を
+            // 切り替える(init側のprivateHintと同じ優先順位)。
+            if let direction = comicInfo.readingDirection,
+               bookLayoutSettings?.readingDirectionOverride == nil, !hasSavedReadingState {
+                readingDirection = direction
+            }
+        } else if needsReadingDirection, let direction = comicInfo.readingDirection {
             var seeded = book
             seeded.sourceLayoutHint = SourceLayoutHint(pageProgressionDirection: direction, forcedDisplayMode: nil)
             layoutStore.importSourceLayoutIfNeeded(for: seeded)
@@ -1185,6 +1277,19 @@ final class ViewerViewModel: ObservableObject {
         guard !entries.isEmpty, bookmarks.isEmpty else { return }
 
         let bookID = book.id
+        if isPrivate {
+            // シークレットウインドウ: DBへは挿入せず、メモリ上(ephemeralBookmarks)に置く。
+            // 保存も変更通知も行わない(他のウインドウには関係の無い、このウインドウ限りの一覧)。
+            var added: [Bookmark] = []
+            for entry in entries where book.pages.indices.contains(entry.pageIndex) {
+                guard !bookmarks.contains(where: { $0.pageIndex == entry.pageIndex }),
+                      !added.contains(where: { $0.pageIndex == entry.pageIndex }) else { continue }
+                added.append(Bookmark(bookID: bookID, pageIndex: entry.pageIndex, name: entry.title, isEpubDerived: true))
+            }
+            ephemeralBookmarks.append(contentsOf: added)
+            reloadBookmarks()
+            return
+        }
         let fileNodeIdentifier = FileNodeIdentifier.current(for: book.sourceURL)
         for entry in entries {
             guard book.pages.indices.contains(entry.pageIndex) else { continue }
@@ -1221,6 +1326,9 @@ final class ViewerViewModel: ObservableObject {
     /// インデックスを明示的に指定できるようにしている(ViewerView.toggleCurrentPageBookmark/
     /// contextMenuContent参照)。
     func addBookmark(atIndex index: Int) {
+        // シークレットウインドウでは追加しない(UI側でも無効化してあるが、キー割り当て等の
+        // 経路が増えても漏れないようここでも止める)。
+        guard !isPrivate else { return }
         // 同じページに対するブックマークが既にある場合は、重複して追加しない(要望)。
         // bookmarksはreloadBookmarks()で都度読み直しているため、ここでの判定は常に最新の状態を見る。
         guard !bookmarks.contains(where: { $0.pageIndex == index }) else { return }
@@ -1472,6 +1580,10 @@ final class ViewerViewModel: ObservableObject {
         readingState.scalingMode = scalingMode
         readingState.updatedAt = Date()
 
+        // シークレットウインドウ: readingStateはコンテキスト外のインスタンスなので上の代入は
+        // どこにも残らないが、save()自体も呼ばない(他の保留中の変更まで巻き込んで書かないため)。
+        guard !isPrivate else { return }
+
         // 実際のディスクへの保存(modelContext.save())は、ホイール操作などで素早く連続して
         // ページ送りされるたびに毎回行うとメインスレッドの処理が詰まり、画像の更新が
         // 遅れる原因になる。そのため保存だけは少し間隔を空けてまとめて行う(デバウンス)。
@@ -1487,7 +1599,7 @@ final class ViewerViewModel: ObservableObject {
     /// 読書位置が失われないよう、保留中の保存があれば即座に確定させる。
     /// ViewerViewのonDisappearから呼ばれる。
     func flushPendingSave() {
-        guard saveDebounceTask != nil else { return }
+        guard !isPrivate, saveDebounceTask != nil else { return }
         saveDebounceTask?.cancel()
         saveDebounceTask = nil
         try? modelContext.save()
@@ -2230,7 +2342,7 @@ final class ViewerViewModel: ObservableObject {
     /// 選択肢(2.3節・3.3節で触れられている「既存の除外設定を保持しますか、それとも解除しますか」)
     /// は未実装で、常に「保持する」(既存の除外ページには触れない)として動作する。
     func setPageLayout(atIndex index: Int, to state: PageLayoutState, scope: LayoutPropagationScope) async {
-        guard book.pages.indices.contains(index) else { return }
+        guard !isPrivate, book.pages.indices.contains(index) else { return }
         // 呼び出し元(コンテキストメニュー/Layoutメニュー)が直接操作したページ。anchorPinStates/
         // 伝播計算より前、book.pagesがまだ書き換わっていない時点で控えておく(ユーザー要望:
         // 更新後のビューア画面にこのページを表示に含める。reloadLayoutData(focusPageKey:)参照)。
@@ -2303,7 +2415,7 @@ final class ViewerViewModel: ObservableObject {
     /// 3.2節: 指定したページのレイアウト情報を削除する(「レイアウトなし」に戻す)。
     /// 伝播範囲の選択(3.3節)は行わない(このページ自体を未設定に戻すだけの操作のため)。
     func clearPageLayout(atIndex index: Int) {
-        guard book.pages.indices.contains(index) else { return }
+        guard !isPrivate, book.pages.indices.contains(index) else { return }
         let targetPageKey = book.pages[index].sortKey
         layoutStore.setPageLayoutState(for: book, pageKey: targetPageKey, state: nil)
         reloadLayoutData(focusPageKey: targetPageKey)
@@ -2326,7 +2438,7 @@ final class ViewerViewModel: ObservableObject {
     /// ユーザー要望によりファイル側の指定はDBの初期値として取り込むだけの扱いになったため、
     /// どの形式の本でも実行できる(LayoutStore.importSourceLayoutIfNeeded参照)。
     func autoLayoutFromCurrentView() async {
-        guard !book.pages.isEmpty else { return }
+        guard !isPrivate, !book.pages.isEmpty else { return }
         let anchorKeys = currentAnchorPageKeys
         guard !anchorKeys.isEmpty else { return }
         let pageAnchor = LayoutAutoCalculator.Anchor(pageKeys: anchorKeys)

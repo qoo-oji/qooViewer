@@ -21,16 +21,33 @@ struct WelcomeView: View {
         // 履歴の保持件数(AppPreferences.recentFilesLimit)は環境設定で増やせるが、この画面の
         // 一覧は縦に伸びすぎないよう従来どおり10件までに留める(全件はサイドパネルの
         // 「履歴」モード、またはファイルメニューの「Open Recent」で見られる)。
-        let recentEntries = preferences.showRecentFilesOnWelcome
+        // シークレットウインドウでは履歴を一切見せない(AppState.isPrivateWindowのコメント参照)。
+        let recentEntries = preferences.showRecentFilesOnWelcome && !appState.isPrivateWindow
             ? Array(recentFiles.entries.prefix(10))
             : []
         // 表示のたびにセキュリティスコープ付きブックマークの解決・存在確認を行うため、
         // bodyの中で1回だけ計算して使い回す(isEmptyの判定とForEachの両方で同じ結果を使う)。
-        let recentFavoriteBooks = preferences.showRecentFavoritesOnWelcome
+        // 「最近のお気に入り」も同様に出さない(ユーザー要望。登録済みデータではあるが、
+        // 「最近」という切り口自体が利用の痕跡を映すため)。
+        let recentFavoriteBooks = preferences.showRecentFavoritesOnWelcome && !appState.isPrivateWindow
             ? favoritesStore.recentFavorites(limit: 10)
             : []
 
         VStack(spacing: 16) {
+            if appState.isPrivateWindow {
+                // シークレットウインドウであることと、その意味(何も記録されない)を、本を開く前に
+                // 明示する。タイトルバーの「(シークレット)」だけでは見落とされるため。
+                VStack(spacing: 6) {
+                    Label("Private Window", systemImage: "eyeglasses")
+                        .font(.headline)
+                    Text("Books opened in this window leave no trace: no history, reading position, bookmarks, favorites, layouts, metadata, or thumbnail cache is saved.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 420)
+                }
+                .padding(.bottom, 8)
+            }
             Image(systemName: "books.vertical")
                 .font(.system(size: 56))
                 .foregroundStyle(.secondary)

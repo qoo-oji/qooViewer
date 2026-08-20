@@ -11,11 +11,14 @@ import CoreGraphics
 /// nonisolated: Xcode 26既定のMainActor自動分離の対象外にして、どのコンテキストからでも
 /// 呼べるようにしている(詳細はArchiveReading.swift冒頭のコメント参照)。
 nonisolated enum BookLoader {
-    static func load(from url: URL) async throws -> MangaBook {
+    /// - Parameter cachesPageList: falseならページ一覧のディスクキャッシュ(BookPageListCache)へ
+    ///   書き戻さない。シークレットウインドウ(AppState.isPrivateWindow)で開く本に使う。
+    static func load(from url: URL, cachesPageList: Bool = true) async throws -> MangaBook {
         let task = Task.detached(priority: .userInitiated) { () throws -> MangaBook in
             try loadSync(from: url)
         }
         let book = try await task.value
+        guard cachesPageList else { return book }
         // 読み込みに成功したページ一覧は、ここで一括してキャッシュへ書き戻す。
         //
         // この読み込み自体は書庫の全走査を伴い、本体が未接続の外付け/ネットワークボリューム上に

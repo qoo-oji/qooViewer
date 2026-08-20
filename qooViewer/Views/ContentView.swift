@@ -8,7 +8,7 @@ struct ContentView: View {
     /// アプリ全体で1つの共有インスタンスではなく、ContentViewのインスタンスごとに
     /// (つまりウインドウ/タブごとに)新しく作る。これにより、新しいウインドウ/タブは
     /// 必ず「何も開いていない」状態(WelcomeView)から始まる。
-    @StateObject private var appState = AppState()
+    @StateObject private var appState: AppState
     @EnvironmentObject private var preferences: AppPreferences
     @EnvironmentObject private var recentFiles: RecentFilesStore
     @EnvironmentObject private var folderAccess: FolderAccessStore
@@ -28,6 +28,9 @@ struct ContentView: View {
     /// このウインドウで最初から開いておきたいファイル/フォルダ。通常の(何も指定しない)
     /// ウインドウではnil。
     var initialURL: URL?
+    /// このウインドウがシークレットウインドウかどうか(AppState.isPrivateWindowに同じ値を渡す。
+    /// 何を記録しないかの定義はそちらのコメント参照)。"private" WindowGroupだけがtrueで作る。
+    let isPrivateWindow: Bool
 
     /// このウインドウ/タブが「正当なもの」と確認できた(onAppearの通常セットアップ、または
     /// resolveAmbiguousNewMainWindowでのタブグループ判定を通過した)かどうか。
@@ -65,8 +68,20 @@ struct ContentView: View {
     /// 共有する。
     @State private var sidePanelWidth: CGFloat = SidePanelView.defaultWidth
 
-    init(initialURL: URL? = nil) {
+    init(initialURL: URL? = nil, isPrivateWindow: Bool = false) {
         self.initialURL = initialURL
+        self.isPrivateWindow = isPrivateWindow
+        _appState = StateObject(wrappedValue: AppState(isPrivateWindow: isPrivateWindow))
+    }
+
+    /// ウインドウ/タブのタイトル(bodyの.navigationTitle参照)。シークレットウインドウは、
+    /// 通常ウインドウと見分けがつくよう先頭に「(シークレット)」を付ける。
+    private var windowTitle: String {
+        let base = appState.currentBook.map {
+            FormatBadgeView.plainTextTitle(baseName: $0.title, bookID: $0.id)
+        } ?? "qooViewer"
+        guard isPrivateWindow else { return base }
+        return String(localized: "(Private) \(base)", locale: preferences.effectiveLocale)
     }
 
     /// ウインドウの中身そのもの(サイドパネル + ビューア/ウェルカム画面)。
@@ -97,7 +112,8 @@ struct ContentView: View {
                         // 新しい本の状態にリセットされるようにしている。
                         ViewerView(
                             book: book, modelContext: modelContext, preferences: preferences,
-                            layoutStore: layoutStore, metadataStore: metadataStore
+                            layoutStore: layoutStore, metadataStore: metadataStore,
+                            isPrivateWindow: isPrivateWindow
                         )
                             .id(book.id)
                     } else {
@@ -146,6 +162,7 @@ struct ContentView: View {
         .focusedSceneValue(
             \.qooViewerMenuCheckmarkState,
             MenuCheckmarkState(
+                isPrivateWindow: appState.isPrivateWindow,
                 hideToolbar: appState.hideToolbar,
                 hideProgressBar: appState.hideProgressBar,
                 hideSidePanel: appState.hideSidePanel,
@@ -175,11 +192,7 @@ struct ContentView: View {
         // タブバーだけでは見分けがつかない(ユーザー報告)。ウインドウ/タブのタイトルは
         // プレーンテキストのみでFormatBadgeView(カスタムView)を表示できないため、
         // FavoritesMenuContent/FavoritesNSMenuBridgeと同じく括弧書きの拡張子で区別する。
-        .navigationTitle(
-            appState.currentBook.map {
-                FormatBadgeView.plainTextTitle(baseName: $0.title, bookID: $0.id)
-            } ?? "qooViewer"
-        )
+        .navigationTitle(windowTitle)
         // このウインドウ自身への参照をappStateに持たせておく。Finderから別の本を開こうとした
         // ときに「新しいタブで開く」設定の場合、どのウインドウへタブを追加すべきかを
         // NSApp.keyWindow(その時点でたまたまキーウインドウだったもの、必ずしも正しいとは
@@ -310,7 +323,9 @@ struct ContentView: View {
             //     falseにしても防げなかった)
             // この時点(初期化直後)ではどちらも見分けが付かないため、少し待って判定する
             // (resolveAmbiguousNewMainWindow参照)。
-            guard launchCoordinator.primaryAppState == nil || launchCoordinator.primaryAppState === appState || initialURL != nil else {
+            // シークレットウインドウ(isPrivateWindow)は常に正当なウインドウ。主ウインドウの
+            // 有無とは無関係に、メニューから明示的に開かれたものだから。
+            guard launchCoordinator.primaryAppState == nil || launchCoordinator.primaryAppState === appState || initialURL != nil || isPrivateWindow else {
                 resolveAmbiguousNewMainWindow()
                 return
             }
@@ -332,7 +347,9 @@ struct ContentView: View {
             appState.hideSidePanel = preferences.hideSidePanel
             // サイドパネルの幅も同様に、前回ユーザーがドラッグで調整した値を引き継ぐ。
             sidePanelWidth = CGFloat(preferences.sidePanelWidth)
-            if launchCoordinator.primaryAppState == nil {
+            // シークレットウインドウは主ウインドウにはならない(主ウインドウは位置・サイズの記憶や
+            // 「最後に開いていた本」の記録など、永続化と結びついた役割を持つため)。
+            if launchCoordinator.primaryAppState == nil, !isPrivateWindow {
                 launchCoordinator.primaryAppState = appState
             }
             // 「すでに開いている本を新しいウインドウ/タブで開こうとしたときに、既存の
@@ -341,7 +358,8 @@ struct ContentView: View {
             launchCoordinator.registerOpenAppState(appState)
             if let initialURL {
                 appState.open(url: initialURL)
-            } else {
+            } else if !isPrivateWindow {
+                // 起動時の動作(前回の本を開く等)はシークレットウインドウでは行わない。
                 performLaunchActionsIfNeeded()
             }
         }
@@ -592,7 +610,9 @@ struct ContentView: View {
     /// 「起動時に前回開いていた本を自動的に開く」設定がOFFのときは、この記録自体が
     /// 使われることがないため、無駄な書き込みをしないよう最初に確認する。
     private func updateLastActiveBookRecordIfKeyWindow() {
-        guard preferences.launchOpensLastBook else { return }
+        // シークレットウインドウで開いている本は「最後に開いていた本」として記録しない
+        // (クリアもしない。通常ウインドウの記録に干渉させないため)。
+        guard preferences.launchOpensLastBook, !isPrivateWindow else { return }
         guard isConfirmedLegitimateWindow,
               let hostWindow = appState.hostWindow, NSApp.keyWindow === hostWindow else { return }
         if let url = appState.currentBook?.sourceURL {
@@ -687,6 +707,7 @@ struct ContentView: View {
             hasBook: appState.currentBook != nil,
             currentBookPath: appState.currentBook?.id,
             loadPageThumbnail: appState.loadPageThumbnail,
+            isPrivateWindow: isPrivateWindow,
             loadPageImage: appState.loadPageImage,
             pageThumbnailGeneration: appState.pageThumbnailGeneration,
             // お気に入りへの追加(登録先フォルダの選択シート)はViewerViewが持っているため、

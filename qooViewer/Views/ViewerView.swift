@@ -213,14 +213,17 @@ struct ViewerView: View {
     /// 分けたほうが見通しが良いため独立させている。onDisappearで確実に解除する。
     @State private var contextClickMonitor: Any?
 
+    /// - Parameter isPrivateWindow: シークレットウインドウ(AppState.isPrivateWindow)かどうか。
+    ///   ViewerViewModelの生成時に確定させる必要があるため、EnvironmentObjectのappStateではなく
+    ///   initの引数で受け取る(initの時点ではEnvironmentObjectはまだ読めない)。
     init(
         book: MangaBook, modelContext: ModelContext, preferences: AppPreferences,
-        layoutStore: LayoutStore, metadataStore: BookMetadataStore
+        layoutStore: LayoutStore, metadataStore: BookMetadataStore, isPrivateWindow: Bool = false
     ) {
         _viewModel = StateObject(
             wrappedValue: ViewerViewModel(
                 book: book, modelContext: modelContext, preferences: preferences,
-                layoutStore: layoutStore, metadataStore: metadataStore
+                layoutStore: layoutStore, metadataStore: metadataStore, isPrivate: isPrivateWindow
             )
         )
         _preferences = ObservedObject(wrappedValue: preferences)
@@ -346,6 +349,17 @@ struct ViewerView: View {
         }
         appState.performAutoLayout = {
             isShowingAutoLayoutConfirmation = true
+        }
+        // シークレットウインドウでは、書き込みを伴う橋渡し(ブックマーク/お気に入りの追加・
+        // レイアウト変更)は登録しない。メニュー側はMenuCheckmarkState.isPrivateWindowで
+        // グレーアウトしているが、「ブックマーク・レイアウトの編集」ウインドウのように
+        // activeBookAppState経由でこれらを呼ぶ経路もあるため、クロージャ自体を空けておく。
+        if viewModel.isPrivate {
+            appState.addBookmarkAction = nil
+            appState.addFavoriteAction = nil
+            appState.performLayoutStateChange = nil
+            appState.performLayoutClear = nil
+            appState.performAutoLayout = nil
         }
         // 画像のエクスポート機能(要望)。メニューバーの「画像のエクスポート」サブメニューからの
         // 橋渡し(ImageExportKindのコメント参照)。
@@ -1566,6 +1580,7 @@ struct ViewerView: View {
         Button(isCurrentBookFavorited ? "Remove This Book from Favorites" : "Add This Book to Favorites…") {
             perform(.toggleFavorite)
         }
+        .disabled(viewModel.isPrivate)
         Menu("Favorites List") {
             FavoritesMenuContent(
                 favoritesStore: favoritesStore,
@@ -1592,10 +1607,12 @@ struct ViewerView: View {
             ) {
                 toggleBookmark(atIndex: clickedPageIndex)
             }
+            .disabled(viewModel.isPrivate)
         } else {
             Button(isCurrentPageBookmarked ? "Remove This Page from Bookmarks" : "Add This Page to Bookmarks") {
                 perform(.toggleBookmark)
             }
+            .disabled(viewModel.isPrivate)
         }
         // メニューバー側のBookmark Listサブメニュー(QooViewerApp.swift)と同じ内容。
         Menu("Bookmark List") {
@@ -1643,6 +1660,8 @@ struct ViewerView: View {
                 layoutStateMenuItems(forPageIndex: viewModel.currentIndex)
             }
         }
+        // シークレットウインドウではレイアウトの書き込みができないので、サブメニューごと無効にする。
+        .disabled(viewModel.isPrivate)
 
         Divider()
 
@@ -3137,18 +3156,23 @@ struct ViewerView: View {
             viewModel.toggleContrastCorrection()
         case .autoLayoutFromCurrentView:
             // ツールバーのボタン・メニューバー「Layout」の項目と同じ経路(3.1節)。
+            // シークレットウインドウではレイアウトを書けないので何もしない(以下の
+            // ブックマーク/お気に入り系も同じ。キー割り当てから直接届く経路を塞ぐため)。
+            guard !viewModel.isPrivate else { return }
             isShowingAutoLayoutConfirmation = true
         case .previousBook:
             appState.openSibling(before: viewModel.book.sourceURL)
         case .nextBook:
             appState.openSibling(after: viewModel.book.sourceURL)
         case .toggleBookmark:
+            guard !viewModel.isPrivate else { return }
             toggleCurrentPageBookmark()
         case .nextBookmark:
             viewModel.jumpToNextBookmark()
         case .previousBookmark:
             viewModel.jumpToPreviousBookmark()
         case .showBookmarkList:
+            guard !viewModel.isPrivate else { return }
             showBookmarkEditor()
         case .showThumbnailGrid:
             showThumbnailGrid = true
@@ -3161,10 +3185,12 @@ struct ViewerView: View {
         case .showActualSizeRight:
             showActualSizeWindow(forLeftPage: false)
         case .toggleFavorite:
+            guard !viewModel.isPrivate else { return }
             toggleCurrentBookFavorite()
         case .showFavoritesList:
             showFavoritesListMenu()
         case .showFavoritesOrganizer:
+            guard !viewModel.isPrivate else { return }
             openWindow(id: "favoritesOrganizer")
         case .none:
             break
