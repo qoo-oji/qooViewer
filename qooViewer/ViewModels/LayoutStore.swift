@@ -677,11 +677,19 @@ final class LayoutStore: ObservableObject {
     /// 差し替え検知(2.5節)で「破棄する」が選ばれた場合、および4.4節「レイアウトを全削除」
     /// (1冊分)から呼ぶ。
     func discardLayoutData(forBookID bookID: String) {
-        if let settings = bookLayoutSettings(forBookID: bookID) {
+        let settings = bookLayoutSettings(forBookID: bookID)
+        let overrides = pageOverrides(forBookID: bookID)
+        // 消すものが無ければ、save()も変更通知も出さずに帰る。
+        // 「本ごとの保存データを削除」ウインドウの一括削除は、レイアウトを持たない本に対しても
+        // この経路を通るため、早期リターンが無いと本の件数ぶんの空のsave()と
+        // layoutDataDidChange通知が出る(通知1件ごとに、それを購読している各ウインドウの
+        // reload()が走る。LibraryCleanupViewModel.deleteAllData参照)。
+        guard settings != nil || !overrides.isEmpty else { return }
+
+        if let settings {
             modelContext.delete(settings)
             cachedSettingsByBookID?[bookID] = nil
         }
-        let overrides = pageOverrides(forBookID: bookID)
         for override in overrides {
             modelContext.delete(override)
         }

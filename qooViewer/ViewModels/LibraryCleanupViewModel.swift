@@ -182,10 +182,27 @@ final class LibraryCleanupViewModel: ObservableObject {
     /// bookIDごとの実在判定の結果。まだ判定できていないものは入っていない。
     private var existenceByBookID: [String: FileExistence] = [:]
 
+    /// 走行中のスキャンの世代番号。スキャンを開始するたびに1増やし、完了時に一致するものだけを
+    /// 受け付ける。
+    ///
+    /// 削除のたびにreload()→スキャンが走るため、前のスキャンが終わらないうちに次が始まりうる。
+    /// 世代を見ないと、先に始まった古いスキャンが後から完了して新しい結果を上書きしたり、
+    /// まだ走行中なのに進捗表示だけ消えたりする。
+    private var existenceScanGeneration = 0
+
     /// 実在判定を非同期に走らせる。DBから読める材料の収集だけをメインアクターで行い、
     /// 重いブックマーク解決と存在確認はメインアクターの外で実行する。
+    ///
+    /// 判定済みの本は対象から外す。1件あたりのブックマーク解決は、未接続の外付け/ネットワーク
+    /// ボリューム上の本だと秒単位ブロックしうる。以前は削除のたびのreload()が残り全冊を
+    /// 無条件に再判定していたため、1冊消すだけで全件のスキャンをやり直していた。
     private func scheduleExistenceScan(for bookIDs: [String]) {
-        let probes = bookIDs.map { bookID in
+        let pending = bookIDs.filter { existenceByBookID[$0] == nil }
+        guard !pending.isEmpty else {
+            isCheckingExistence = false
+            return
+        }
+        let probes = pending.map { bookID in
             ExistenceProbe(
                 bookID: bookID,
                 bookmarkCandidates: [
@@ -197,23 +214,28 @@ final class LibraryCleanupViewModel: ObservableObject {
                 isPathCovered: folderAccess.isPathCovered(URL(fileURLWithPath: bookID))
             )
         }
-        guard !probes.isEmpty else { return }
+        existenceScanGeneration &+= 1
+        let generation = existenceScanGeneration
         isCheckingExistence = true
         // [weak self]で受けたselfを、awaitをまたぐ前にguard letで強参照へ変換しておく
         // (理由はRecentFilesStore.scheduleRefresh()の同種のコメント参照)。
         Task.detached(priority: .utility) { [weak self] in
             let result = Self.evaluateAll(probes)
             guard let self else { return }
-            await self.applyExistence(result)
+            await self.applyExistence(result, generation: generation)
         }
     }
 
-    /// スキャン結果を一覧へ差し込む。
-    private func applyExistence(_ result: [String: FileExistence]) {
+    /// スキャン結果を一覧へ差し込む。自分より新しいスキャンが既に始まっている場合は破棄する。
+    private func applyExistence(_ result: [String: FileExistence], generation: Int) {
+        guard generation == existenceScanGeneration else { return }
         isCheckingExistence = false
-        existenceByBookID = result
+        // 今回判定したぶんだけを足す(前回までの判定結果は残す。この呼び出しは一部の本しか
+        // 対象にしていないため、丸ごと置き換えると判定済みの本が「確認中…」へ巻き戻る)。
+        existenceByBookID.merge(result) { _, new in new }
+        let resolvedByBookID = existenceByBookID
         allRows = allRows.map { row in
-            let resolved = result[row.bookID] ?? .unknown
+            let resolved = resolvedByBookID[row.bookID] ?? .unknown
             guard row.existence != resolved else { return row }
             return Row(
                 bookID: row.bookID,
@@ -268,9 +290,6 @@ final class LibraryCleanupViewModel: ObservableObject {
         return probe.isPathCovered ? .missing : .unknown
     }
 
-    // MARK: - 実在判定
-
-
     // MARK: - 削除
 
     /// 指定した本に関する保存データを、種類を問わずすべて削除する。
@@ -287,7 +306,13 @@ final class LibraryCleanupViewModel: ObservableObject {
             bookmarkStore.deleteAllBookmarks(forBookID: bookID)
             layoutStore.discardLayoutData(forBookID: bookID)
             metadataStore.delete(forBookID: bookID)
-            deleteReadingStates(forBookID: bookID)
+        }
+        // 読書履歴だけは、本ごとではなく最後にまとめて消す(deleteReadingStates参照)。
+        deleteReadingStates(forBookIDs: Set(bookIDs))
+        // 消した本の実在判定の結果は用済み。残しておくと、同じパスの本が後からまた
+        // 現れたときに古い判定を引き継いでしまう。
+        for bookID in bookIDs {
+            existenceByBookID.removeValue(forKey: bookID)
         }
         reload()
     }
@@ -298,9 +323,15 @@ final class LibraryCleanupViewModel: ObservableObject {
     /// #Predicateによる絞り込みフェッチは使わず、全件フェッチしてSwift側で選別する
     /// (LayoutStore.bookLayoutSettings(forBookID:)のコメントと同じ理由: 絞り込みフェッチが
     /// 誤って0件を返す事象を踏んでいるため、このプロジェクトでは一貫して避けている)。
-    private func deleteReadingStates(forBookID bookID: String) {
+    ///
+    /// 全件フェッチが必要という制約があるからこそ、本1冊ごとではなく**まとめて**受け取る。
+    /// 以前は1冊ごとにこのメソッドを呼んでいたため、「表示中をすべて削除」でN冊消すと
+    /// 全件フェッチとsave()がN回ずつ走り、メインアクター上でN×(履歴の件数)の比較が発生していた
+    /// (FavoritesStore.removeFavorites(forBookID:)が1件ずつのsave()を避けているのと同じ理由)。
+    private func deleteReadingStates(forBookIDs bookIDs: Set<String>) {
+        guard !bookIDs.isEmpty else { return }
         let states = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
-        let matched = states.filter { $0.bookID == bookID }
+        let matched = states.filter { bookIDs.contains($0.bookID) }
         guard !matched.isEmpty else { return }
         for state in matched {
             modelContext.delete(state)
