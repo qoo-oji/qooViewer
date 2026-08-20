@@ -496,9 +496,9 @@ struct QooViewerApp: App {
 
                 // 見開き/単ページも同様に、ON/OFFのチェックマークで表す
                 // (ONのとき見開き表示、OFFのとき単ページ表示)。
-                // EPUBがrendition:spreadで本全体の見開き/単ページを強制している間は、
-                // 設定を無視して強制値に従うことをグレーアウトで示す
-                // (詳細はViewerViewModel.isDisplayModeLocked参照)。
+                // 以前はEPUB/PDFのファイル側が見開きを強制している間グレーアウトしていたが、
+                // ユーザー要望によりそのロック自体を廃止したため、本を開いてさえいれば常に
+                // 操作できる(LayoutStore.importSourceLayoutIfNeeded参照)。
                 Toggle(
                     "Spread",
                     isOn: Binding(

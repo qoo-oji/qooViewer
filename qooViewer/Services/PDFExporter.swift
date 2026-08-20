@@ -213,6 +213,11 @@ nonisolated enum PDFExporter {
             pdfContext.beginPage(mediaBox: &mediaBox)
             if let sourcePage {
                 // 元ページの原点がmediaBoxの左下と一致しない場合に備えて平行移動してから写す。
+                //
+                // `/Rotate`(ページの回転指定)は考慮していない。ビューア側の描画
+                // (PageLoader.renderPDFPage)もmediaBoxをそのまま使って同じように写しており、
+                // 画面で見たとおりのものが書き出される。どちらか一方だけを直すと表示と出力が
+                // 食い違うため、直すなら両方を`CGPDFPageGetDrawingTransform`ベースに揃えること。
                 let box = sourcePage.getBoxRect(.mediaBox)
                 pdfContext.saveGState()
                 pdfContext.translateBy(x: -box.origin.x, y: -box.origin.y)

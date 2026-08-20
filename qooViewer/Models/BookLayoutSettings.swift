@@ -35,11 +35,10 @@ final class BookLayoutSettings {
     /// (詳細は実装検討ドキュメント2.1節参照)。
     var pageOrderOverrideJSON: String?
 
-    /// この本がEPUBのpackage document、またはPDFのDocument Catalogに権威的なレイアウト指定
-    /// (読み方向・見開き強制のいずれか)を持っているかどうかのキャッシュ。編集ウインドウ
-    /// (4.1節)が、本を毎回読み込み直さずに「読み方向ドロップダウン/レイアウト列を無効化
-    /// すべきか」を判定するために使う。本を開いたとき(LayoutStore.recordEpubLayoutLock参照)に
-    /// 更新する。
+    /// かつて、この本がEPUBのpackage document、またはPDFのDocument Catalogに権威的なレイアウト
+    /// 指定(読み方向・見開き強制のいずれか)を持っているかどうかのキャッシュとして使っていた
+    /// もの。編集ウインドウ(4.1節)が、本を毎回読み込み直さずに「読み方向ドロップダウン/
+    /// レイアウト列を無効化すべきか」を判定するために参照していた。
     ///
     /// 名前はEPUB対応時の名残でhasEpubLayoutLockのままだが、PDF由来の同種のロックにも
     /// 同じ意味で使っていた。

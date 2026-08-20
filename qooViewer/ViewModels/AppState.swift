@@ -687,9 +687,6 @@ struct MenuCheckmarkState: Equatable {
     var isCurrentBookFavorited = false
     /// 同じく、現在のページがブックマーク済みかどうか(ブックマーク追加/削除トグルボタン用)。
     var isCurrentPageBookmarked = false
-    /// ソースファイル自身(EPUB/PDF)由来の権威的なレイアウト指定がある本かどうか(2.4節)。
-    /// Layoutメニューのグレーアウトに使う。
-    var hasAuthoritativeSourceLayout = false
     /// 見開き表示中に、実際に2ページとも表示されているかどうか。Layoutメニューの項目構成
     /// (現在のページのみか、左右2ページ分か)の切り替えに使う。
     var hasPartnerPageDisplayed = false

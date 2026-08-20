@@ -54,7 +54,10 @@ private struct LibraryCleanupContentView: View {
         /// 1冊だけの場合はその表示名、まとめて削除の場合はnil。
         let displayName: String?
         let bookIDs: [String]
-        var id: String { bookIDs.joined(separator: "\u{0}") }
+        /// 確認ダイアログを出し分けるためだけの識別子。bookIDsを連結して作ると、
+        /// 「表示中をすべて削除」で数千冊ぶんの巨大な文字列が毎回できてしまうため、
+        /// この構造体を作るときに1つ振る。
+        let id = UUID()
     }
 
     var body: some View {

@@ -496,6 +496,14 @@ private nonisolated final class PackageDocumentParserDelegate: NSObject, XMLPars
     private var currentCapture: TextCapture?
     private var currentMetaText = ""
 
+    /// いま`<metadata>`の中にいるかどうか。
+    ///
+    /// このパーサーは名前空間を見ずに要素のローカル名だけで分岐しているため、これが無いと
+    /// `<metadata>`の外にある`<title>`(EPUB3の`<collection>`は自分の`<dc:title>`を持てる)まで
+    /// 本のタイトルとして拾ってしまう。`<metadata>`はpackage documentの先頭に来るので実害が
+    /// 出る場面は限られるが、判定の根拠を「たまたま先に現れるから」に頼らないようにしておく。
+    private var isInsideMetadata = false
+
     func parser(
         _ parser: XMLParser,
         didStartElement elementName: String,
@@ -513,6 +521,8 @@ private nonisolated final class PackageDocumentParserDelegate: NSObject, XMLPars
                     href: href, mediaType: attributeDict["media-type"] ?? "", properties: properties
                 )
             }
+        case "metadata":
+            isInsideMetadata = true
         case "spine":
             pageProgressionDirection = attributeDict["page-progression-direction"]
         case "itemref":
@@ -541,11 +551,11 @@ private nonisolated final class PackageDocumentParserDelegate: NSObject, XMLPars
             }
         case "title":
             // dc:title。複数ある(主題名と副題など)場合は最初の1件だけを使う。
-            currentCapture = dcTitle == nil ? .dcTitle : nil
+            currentCapture = (isInsideMetadata && dcTitle == nil) ? .dcTitle : nil
             currentMetaText = ""
         case "creator":
             // dc:creator。同じく最初の1件だけを使う(共著は先頭の著者を代表として扱う)。
-            currentCapture = dcCreator == nil ? .dcCreator : nil
+            currentCapture = (isInsideMetadata && dcCreator == nil) ? .dcCreator : nil
             currentMetaText = ""
         default:
             break
@@ -563,6 +573,7 @@ private nonisolated final class PackageDocumentParserDelegate: NSObject, XMLPars
         namespaceURI: String?,
         qualifiedName qName: String?
     ) {
+        if localName(of: elementName) == "metadata" { isInsideMetadata = false }
         guard let currentCapture else { return }
         let text = currentMetaText.trimmingCharacters(in: .whitespacesAndNewlines)
         switch currentCapture {

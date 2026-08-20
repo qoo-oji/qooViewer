@@ -3,10 +3,14 @@ import Foundation
 /// 本のソースファイル自身が持つ、本全体に関わる表示上のヒント。
 /// EPUB(package documentのspine)、およびPDF(Document Catalogの`/ViewerPreferences/Direction`・
 /// `/PageLayout`)の両方から読み取る(詳細はEpubStructureResolver.resolve/
-/// PDFStructureResolver.resolveLayoutHint参照)。値が存在する項目は、qooViewer側のユーザー設定
-/// (読み方向・見開き/単ページ)より優先して適用され、かつユーザーによる切り替え操作自体を
-/// 無効化する(詳細はViewerViewModel.isReadingDirectionLocked/isDisplayModeLockedとViewerView/
-/// QooViewerAppでの`.disabled()`参照)。
+/// PDFStructureResolver.resolveLayoutHint参照)。
+///
+/// 値が存在する項目は、その本を**初めて開いたときに1回だけ**DB(BookLayoutSettings /
+/// PageLayoutOverride)へ取り込まれ、以降はDB側が優先される
+/// (LayoutStore.importSourceLayoutIfNeeded(for:)参照)。ユーザーは読み方向・見開き・ページ単位の
+/// レイアウトを、EPUB/PDFでも他の形式と同じように自由に変更できる。
+/// 以前はここの値を常に最優先で適用し、対応する切り替え操作自体を無効化(グレーアウト)して
+/// いたが、ユーザー要望によりその扱いは廃止した。
 /// フォルダ・cbz/cbr/cb7ではMangaBook.sourceLayoutHint自体がnilになる。EPUBは常に非nil
 /// (中の2項目自体は未指定ならnilになりうる。「EPUBである」という判定にsourceLayoutHint != nilを
 /// 使っている箇所があるため、BookLoader.loadEpubは値の有無に関わらず必ずこの構造体を作る)。

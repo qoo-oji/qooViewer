@@ -892,14 +892,6 @@ final class FavoritesStore: ObservableObject {
         return nil
     }
 
-    /// お気に入りが指すファイル/フォルダが、実際にまだ存在するかどうか。
-    /// (RecentFilesStore.fileStillExistsと同じロジック)
-    /// 【注意】これは同期的にディスクI/Oを行う。一覧やメニューの描画からは呼ばず、
-    /// キャッシュを読むcachedFileExists(for:)を使うこと。
-    func fileExists(for favorite: FavoriteBook) -> Bool {
-        Self.fileExists(bookmark: favorite.bookmarkData)
-    }
-
     /// 開く直前に使う便利メソッド。ブックマークの解決と存在確認の両方が成功した場合にのみURLを返す
     /// (要望5: 開く前の存在チェック)。呼び出し側(AppState.openFavorite、
     /// QooViewerApp.openFavorite(_:asTab:))は、これがnilを返した場合に
