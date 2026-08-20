@@ -237,8 +237,12 @@ final class PDFExportViewModel: ObservableObject {
 
     // MARK: - bookIDからのURL解決
 
+    /// メタデータだけを持つ本も解決できるようBookMetadataStoreを含める
+    /// (理由はEpubExportViewModel.resolveURL(forBookID:)のコメント参照)。
     private func resolveURL(forBookID bookID: String) -> URL? {
-        bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID) ?? layoutStore.resolvedURL(forBookID: bookID)
+        bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID)
+            ?? layoutStore.resolvedURL(forBookID: bookID)
+            ?? metadataStore.resolvedURL(forBookID: bookID)
     }
 
     // MARK: - 出力実行
@@ -331,6 +335,7 @@ final class PDFExportViewModel: ObservableObject {
             exportBookmarks.append(PDFExportBookmark(pageKey: orderedKeys[bookmark.pageIndex], name: bookmark.name))
         }
 
+        let metadata = metadataStore.metadata(forBookID: row.bookID)
         let input = PDFExportInput(
             book: book,
             pageOrderOverride: pageOrderOverride,
@@ -338,8 +343,10 @@ final class PDFExportViewModel: ObservableObject {
             bookmarks: exportBookmarks,
             titleOverride: titleOverrides[row.bookID],
             author: authorOverrides[row.bookID],
-            series: metadataStore.metadata(forBookID: row.bookID)?.series,
-            seriesIndex: metadataStore.metadata(forBookID: row.bookID)?.seriesIndex
+            series: metadata?.series,
+            // 巻数は、読み戻すparseSeriesKeywordsが数字しか受け付けないため、数値として
+            // 解釈できる場合だけ書き出す(BookMetadata.exportableSeriesIndex参照)。
+            seriesIndex: metadata?.exportableSeriesIndex
         )
         let options = PDFExportOptions(includeExcludedPages: includeExcludedPages)
 

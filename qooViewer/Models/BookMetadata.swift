@@ -93,12 +93,36 @@ final class BookMetadata {
 
     /// EPUBのgroup-position / calibre:series_index、PDFのkeywordsへ書き出すための数値表現。
     /// 数値として解釈できない場合はnil(その場合、書き出し側はseries_indexを省略する)。
+    ///
+    /// NaN・無限大を弾いているのは、Double(_: String)が"nan"/"inf"という綴りを受け付けるため
+    /// (seriesIndexはユーザーが自由に入力できる欄なので、実際に書かれうる)。
     var numericSeriesIndex: Double? {
         let trimmed = seriesIndex.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
         // 小数点はロケールに依らず"."のみを受け付ける(Calibre/EPUBの仕様に合わせるため、
         // ユーザーのロケールで","が小数点になっている環境でも解釈を変えない)。
-        return Double(trimmed)
+        guard let value = Double(trimmed), value.isFinite else { return nil }
+        return value
+    }
+
+    /// EPUB/PDFへ実際に書き出す巻数の文字列。数値として解釈できない場合はnil。
+    ///
+    /// バグ修正: 以前は書き出し側がseriesIndexを生のまま埋めていた。seriesIndexは「上」「下」
+    /// のような非数値の手入力を許す欄(上のコメント参照)なので、次の2つの問題が起きていた。
+    /// - EPUB3のgroup-positionは数値でなければならず、非数値を書くとepubcheckが弾く
+    ///   (dc:languageを"und"で出していてKindle Previewerに弾かれたのと同じ種類の問題)。
+    /// - PDFのKeywordsへ`series_index:上`と書いても、読み戻す
+    ///   PDFStructureResolver.parseSeriesKeywordsは数字しか受け付けないため往復できない。
+    ///
+    /// 整数で表せる値は整数の文字列にする(Calibreが書き出す"3.0"を"3"として読み込む
+    /// EpubStructureResolver.normalizedSeriesIndexと表記を合わせるため)。
+    var exportableSeriesIndex: String? {
+        guard let value = numericSeriesIndex else { return nil }
+        // Intへ変換して安全な範囲かどうか。1e15を超える巻数は現実に存在しないため、
+        // ここに来る時点で入力が壊れているとみなし、書き出さない側に倒す。
+        guard abs(value) < 1e15 else { return nil }
+        if value == value.rounded() { return String(Int(value)) }
+        return String(value)
     }
 }
 

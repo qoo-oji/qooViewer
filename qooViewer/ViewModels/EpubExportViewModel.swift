@@ -386,10 +386,19 @@ final class EpubExportViewModel: ObservableObject {
 
     // MARK: - bookIDからのURL解決
 
-    /// BookmarkStore/LayoutStoreのどちらかが持つセキュリティスコープ付きブックマークからURLを
-    /// 解決する(LibraryImportExportService.resolveURLと同じ考え方)。
+    /// 各ストアが持つセキュリティスコープ付きブックマークからURLを解決する
+    /// (LibraryImportExportService.resolveURLと同じ考え方)。
+    ///
+    /// バグ修正: メタデータの登録がある本を対象へ加えた際、この解決経路にBookMetadataStoreを
+    /// 足し忘れていた。メタデータだけを持つ本(EPUB/PDFを単体で開いたときの自動取り込み分が
+    /// まさにこれ)は、BookmarkStore/LayoutStoreのどちらもブックマークを持たないため、
+    /// 生パスに対するFileManager.fileExistsへフォールバックする。サンドボックス下では
+    /// アクセス権の無いパスに対する存在確認自体が失敗するため、実在していても一覧から
+    /// 落ちていた(BookMetadata.bookmarkDataは、まさにこの用途のために持っている)。
     private func resolveURL(forBookID bookID: String) -> URL? {
-        bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID) ?? layoutStore.resolvedURL(forBookID: bookID)
+        bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID)
+            ?? layoutStore.resolvedURL(forBookID: bookID)
+            ?? metadataStore.resolvedURL(forBookID: bookID)
     }
 
     // MARK: - 出力実行(7.3節)
@@ -496,6 +505,7 @@ final class EpubExportViewModel: ObservableObject {
         // 大多数の本でこの属性が欠落していた。環境設定の既定読み方向をフォールバックとして
         // 使うことで、常に明示的なpage-progression-directionを出力するようにする。
         let readingDirection = settings?.readingDirectionOverride ?? preferences.defaultReadingDirection
+        let metadata = metadataStore.metadata(forBookID: row.bookID)
         let input = EpubExportInput(
             book: book,
             pageOrderOverride: pageOrderOverride,
@@ -507,9 +517,11 @@ final class EpubExportViewModel: ObservableObject {
             titleOverride: titleOverrides[row.bookID],
             author: authorOverrides[row.bookID],
             // シリーズ名・巻数はこの画面に入力欄が無く、メタデータDBの登録内容をそのまま使う
-            // (ユーザー要望: 登録がある場合はそちらを優先する)。
-            series: metadataStore.metadata(forBookID: row.bookID)?.series,
-            seriesIndex: metadataStore.metadata(forBookID: row.bookID)?.seriesIndex,
+            // (ユーザー要望: 登録がある場合はそちらを優先する)。巻数はEPUBのgroup-positionが
+            // 数値必須のため、数値として解釈できる場合だけ書き出す
+            // (BookMetadata.exportableSeriesIndex参照)。
+            series: metadata?.series,
+            seriesIndex: metadata?.exportableSeriesIndex,
             language: exportLanguageCode
         )
         let options = EpubExportOptions(

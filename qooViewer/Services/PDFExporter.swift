@@ -46,7 +46,12 @@ struct PDFExportInput {
     let author: String?
     /// メタデータDBに登録されているシリーズ名。空文字/nilならKeywordsへ何も書かない。
     let series: String?
-    /// メタデータDBに登録されている巻数。seriesが空の場合は使わない。
+    /// 巻数。seriesが空の場合は使わない。
+    ///
+    /// **数値として解釈できる文字列(または空文字/nil)だけを渡すこと。** 読み戻す
+    /// PDFStructureResolver.parseSeriesKeywordsは数字しか受け付けないため、非数値を書くと
+    /// 往復できない(EpubExportInput.seriesIndexと同じ制約。呼び出し側は
+    /// BookMetadata.exportableSeriesIndexを通してから渡す)。
     let seriesIndex: String?
 }
 
