@@ -117,6 +117,13 @@ nonisolated enum EpubExporter {
     private static let textDirectory = "Text"
     private static let imagesDirectory = "Images"
 
+    /// ページ画像のピクセル寸法。Kindle向けのoriginal-resolutionメタデータを決めるために
+    /// ページごとの実寸を集計するので、辞書のキーにできるHashableな型にしてある。
+    private struct PixelSize: Hashable {
+        let width: Int
+        let height: Int
+    }
+
     private struct PreparedPage {
         /// 元のPageRef.sortKey(pageOverrides/bookmarksとの突き合わせに使う)。
         let originalPageKey: String
@@ -279,13 +286,6 @@ nonisolated enum EpubExporter {
         let series = (trimmedSeries?.isEmpty == false) ? trimmedSeries : nil
         let seriesIndex = input.seriesIndex?.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let opfXML = makePackageDocument(
-            title: bookTitle, author: author, language: language,
-            series: series, seriesIndex: (seriesIndex?.isEmpty == false) ? seriesIndex : nil,
-            identifier: identifier, pages: prepared,
-            readingDirection: input.readingDirectionOverride, forcedDisplayMode: input.forcedDisplayMode,
-            cover: resolvedCover, coverGuideHref: coverGuideHref
-        )
         let firstPageHref = prepared.first.map { "\(textDirectory)/\($0.xhtmlFileName)" }
         let navXML = makeNavDocument(title: bookTitle, tocEntries: tocEntries, fallbackHref: firstPageHref)
 
@@ -298,7 +298,6 @@ nonisolated enum EpubExporter {
             // mimetypeファイルはEPUB仕様上、zip内の最初のエントリかつ無圧縮(格納)である必要がある。
             try addEntry(to: archive, path: "mimetype", data: Data("application/epub+zip".utf8), compressed: false)
             try addEntry(to: archive, path: "META-INF/container.xml", data: Data(containerXML.utf8), compressed: true)
-            try addEntry(to: archive, path: "OEBPS/package.opf", data: Data(opfXML.utf8), compressed: true)
             try addEntry(to: archive, path: "OEBPS/nav.xhtml", data: Data(navXML.utf8), compressed: true)
 
             // 画像の生データ(デコードなし、画質を落とさない)は、以前は全ページぶんを先に
@@ -307,6 +306,13 @@ nonisolated enum EpubExporter {
             // 1ページぶんずつ「取得 → (必要ならピクセルサイズを算出) → 書き込み → 破棄」する形に
             // まとめることで、同時に保持する画像データを常に1ページぶんだけにする
             // (書き出されるzipの内容・順序はどちらの実装でも同一)。
+            //
+            // package.opfのKindle向けoriginal-resolutionメタデータ(makePackageDocument参照)には
+            // 全ページの実寸が要るため、ここで1ページずつ算出済みのピクセルサイズを集めておき、
+            // package.opf自体はこのループの後で書き出す(サイズを得るためだけに画像をもう一度
+            // 読み直すのは、ページ数の多い本では無駄が大きい)。zip内のエントリ順は
+            // mimetypeが先頭であることだけが仕様上の要件で、package.opfの位置は自由。
+            var pageResolutions: [PixelSize] = []
             for (page, item) in zip(orderedPages, prepared) {
                 // 画像が読めないページがあれば、そこで書き出しを中断する。飛ばして進むと
                 // 実体の無いファイルを参照するmanifestを持った不正なEPUBが出来上がる
@@ -318,6 +324,9 @@ nonisolated enum EpubExporter {
                 }
                 let imageData = exportable.data
                 let pixelSize = ImageDecoder.pixelSize(of: imageData)
+                if let pixelSize {
+                    pageResolutions.append(PixelSize(width: pixelSize.width, height: pixelSize.height))
+                }
                 let pageXHTML = makePageDocument(title: bookTitle, imageFileName: item.imageFileName, pixelSize: pixelSize)
                 try addEntry(
                     to: archive, path: "OEBPS/\(textDirectory)/\(item.xhtmlFileName)",
@@ -348,6 +357,18 @@ nonisolated enum EpubExporter {
                     )
                 }
             }
+
+            // package.opfは、上のページ書き出しループで集めたピクセルサイズが要るため最後に書く
+            // (ループ冒頭のコメント参照)。
+            let opfXML = makePackageDocument(
+                title: bookTitle, author: author, language: language,
+                series: series, seriesIndex: (seriesIndex?.isEmpty == false) ? seriesIndex : nil,
+                identifier: identifier, pages: prepared,
+                readingDirection: input.readingDirectionOverride, forcedDisplayMode: input.forcedDisplayMode,
+                cover: resolvedCover, coverGuideHref: coverGuideHref,
+                originalResolution: representativeResolution(of: pageResolutions)
+            )
+            try addEntry(to: archive, path: "OEBPS/package.opf", data: Data(opfXML.utf8), compressed: true)
         } catch let error as EpubExportError {
             throw error
         } catch {
@@ -422,6 +443,17 @@ nonisolated enum EpubExporter {
         }
     }
 
+    /// Kindle独自メタデータprimary-writing-mode(ページ送り方向)への変換。
+    /// 縦書き(vertical-rl)は扱わない — 本アプリが書き出すのは画像だけのコミックEPUBで、
+    /// Kindleが見るのはページ送りの向きだけのため、右開き=horizontal-rlで足りる。
+    private static func kindlePrimaryWritingMode(_ direction: ReadingDirection?) -> String? {
+        switch direction {
+        case .rightToLeft: return "horizontal-rl"
+        case .leftToRight: return "horizontal-lr"
+        case nil: return nil
+        }
+    }
+
     private static func epubRenditionSpread(_ mode: DisplayMode?) -> String? {
         switch mode {
         case .single: return "none"
@@ -437,6 +469,23 @@ nonisolated enum EpubExporter {
         case .center: return "rendition:page-spread-center"
         case nil: return nil
         }
+    }
+
+    /// Kindleのoriginal-resolutionメタデータに書く「この本の代表的なページ寸法」を求める。
+    ///
+    /// 判型が途中で変わる本(見開き結合ページ、巻末のおまけページなど)もあるため、
+    /// 先頭ページを無条件に使うのではなく、最も多くのページで使われている寸法を採用する。
+    /// 同数の場合は先に現れた(＝巻頭に近い)ほうを選び、出力を安定させる。
+    private static func representativeResolution(of sizes: [PixelSize]) -> PixelSize? {
+        var counts: [PixelSize: Int] = [:]
+        for size in sizes { counts[size, default: 0] += 1 }
+        var best: PixelSize?
+        var bestCount = 0
+        for size in sizes where counts[size, default: 0] > bestCount {
+            best = size
+            bestCount = counts[size, default: 0]
+        }
+        return best
     }
 
     // MARK: - XML生成
@@ -466,7 +515,7 @@ nonisolated enum EpubExporter {
         title: String, author: String?, language: String, series: String?, seriesIndex: String?,
         identifier: String, pages: [PreparedPage],
         readingDirection: ReadingDirection?, forcedDisplayMode: DisplayMode?, cover: ResolvedCover?,
-        coverGuideHref: String?
+        coverGuideHref: String?, originalResolution: PixelSize?
     ) -> String {
         let modifiedFormatter = DateFormatter()
         modifiedFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
@@ -484,6 +533,37 @@ nonisolated enum EpubExporter {
         if let spread = epubRenditionSpread(forcedDisplayMode) {
             metadataLines.append("    <meta property=\"rendition:spread\">\(spread)</meta>")
         }
+
+        // Kindle互換性(ユーザー報告: Kindle Previewerが変換に失敗し、エラーE34002
+        // 「幅 x 高さの形式で、元の解像度のメタデータ値を指定してください」を返す)。
+        // Kindleはrendition:layout=pre-paginatedのEPUBを固定レイアウト本として扱うが、その際は
+        // EPUB2形式のname/content属性で書かれたKindle独自メタデータ、特にoriginal-resolution
+        // (基準となるページの実寸)を必須としており、無いと変換自体が失敗する。
+        // 他のEPUBリーダーはname/content属性のmetaを単に無視するため、併記しても害はない
+        // (calibre:seriesや<meta name="cover">と同じ扱い)。
+        //
+        // 値の内訳はKindle Comic Converterが出力するものに合わせている:
+        // - fixed-layout: 固定レイアウト本であることの明示。
+        // - original-resolution: 基準ページの「幅x高さ」(representativeResolution参照)。
+        // - book-type=comic: コミックとして扱わせる(ページ送り・表示の最適化)。
+        // - primary-writing-mode: ページ送り方向。右開き(rtl)ならhorizontal-rl。
+        // - zero-gutter / zero-margin: ページ画像を余白なしで全画面に敷く(生成CSSと同じ意図)。
+        // - orientation-lock=none: 端末の向きを固定しない(横向きでの見開き表示を妨げない)。
+        if let originalResolution {
+            metadataLines.append("    <meta name=\"fixed-layout\" content=\"true\"/>")
+            metadataLines.append(
+                "    <meta name=\"original-resolution\" content=\""
+                    + "\(originalResolution.width)x\(originalResolution.height)\"/>"
+            )
+            metadataLines.append("    <meta name=\"book-type\" content=\"comic\"/>")
+            if let writingMode = kindlePrimaryWritingMode(readingDirection) {
+                metadataLines.append("    <meta name=\"primary-writing-mode\" content=\"\(writingMode)\"/>")
+            }
+            metadataLines.append("    <meta name=\"zero-gutter\" content=\"true\"/>")
+            metadataLines.append("    <meta name=\"zero-margin\" content=\"true\"/>")
+            metadataLines.append("    <meta name=\"orientation-lock\" content=\"none\"/>")
+        }
+
         // Apple Books互換性(ユーザー要望): タイトルに加えて著者名も設定できるようにしたい。
         // id="creator"を付けたうえでrole(aut=著者)を明示しておく(EPUB3の推奨形式)。
         if let author {
