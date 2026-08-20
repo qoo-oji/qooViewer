@@ -289,7 +289,7 @@ struct QooViewerApp: App {
                 // 同じ「新しいウインドウを作る」仲間としてこのグループに置く。ショートカットは
                 // Chrome/Safariと同じ⇧⌘N。
                 Button("New Private Window") {
-                    openWindow(id: "private")
+                    openNewPrivateWindow()
                 }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
 
@@ -888,7 +888,17 @@ struct QooViewerApp: App {
                 .environmentObject(metadataStore)
                 .environmentObject(launchCoordinator)
         }
-        .windowResizability(.contentSize)
+        // ここだけ"book"の`.contentSize`ではなく"main"と同じ`.automatic` + `.defaultSize`に
+        // している(ユーザー要望「サイズ・位置を通常の新規ウインドウと同様に」)。シークレット
+        // ウインドウは必ずウェルカム画面から始まるため、その後で本を開いた瞬間に
+        // `.contentSize`のSwiftUIが新しいコンテンツの大きさに合わせてウインドウのフレームを
+        // 作り直してしまい、openNewPrivateWindowで合わせた位置・サイズが失われていた
+        // (この「本を切り替えるたびにフレームが作り直される」現象自体は、openURLInNewWindowの
+        // PrimaryWindowFrameKeeper周りのコメントに記録されているものと同じ)。`.automatic`だけだと
+        // 今度は初期サイズの手がかりが無くなり画面いっぱいに広がるため、"main"と同様に
+        // `.defaultSize`で既定サイズを与える(詳細は"main" WindowGroupのコメント参照)。
+        .windowResizability(.automatic)
+        .defaultSize(width: 900, height: 640)
         .restorationBehavior(.disabled)
         .modelContainer(QooViewerApp.modelContainer)
         .environment(\.locale, locale)
@@ -1159,6 +1169,107 @@ struct QooViewerApp: App {
         }
     }
 
+    /// `openWindow(id:)`で開いたばかりのウインドウのNSWindowを取り出す。openWindowが実際に
+    /// NSWindowを作り終えるのは次以降のrunloopになるため、短い間隔で何度か確認し、新しく
+    /// 増えたウインドウを見つける。
+    ///
+    /// - Parameter existingWindowIDs: openWindowを呼ぶ**直前**のNSApp.windowsから作った集合。
+    private func newlyOpenedWindow(excluding existingWindowIDs: Set<ObjectIdentifier>) async -> NSWindow? {
+        for _ in 0..<20 {
+            try? await Task.sleep(nanoseconds: 25_000_000)
+            if let found = NSApp.windows.first(where: { !existingWindowIDs.contains(ObjectIdentifier($0)) }) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    /// 新しく開いたウインドウ(「新しいウインドウ/タブで開く」および「新規シークレット
+    /// ウインドウ」)のサイズ・位置を決める。
+    ///
+    /// 新しいウインドウのサイズは、元になったウインドウ(previousKeyWindow。「新しいウインドウ/
+    /// タブで開く」なら今アクティブだったウインドウ、またはtabTargetで明示的に指定された
+    /// ウインドウ)と同じ大きさにする。元のウインドウが見つからない場合(環境設定ウインドウが
+    /// アクティブだった場合など)はSwiftUIの既定サイズのままにする。
+    /// 「新しいタブで開く」の場合は、この後addTabbedWindowで元のウインドウのタブ
+    /// グループに加わり、位置は自動的にそのウインドウに揃うため、位置の調整は不要。
+    /// 「新しいウインドウで開く」の場合は、元のウインドウとほぼ重なる位置に開かれてしまい
+    /// 2枚あることが分かりにくいという指摘を受け、右下方向へ明確にずらして配置する
+    /// (Macの標準的な「カスケード」表示を、より分かりやすい間隔で自前に行っている)。
+    /// ずらした結果、画面の表示可能領域からはみ出してしまう場合は、はみ出さない範囲に
+    /// 収まるよう位置を調整し直す。これにより、元のウインドウがすでに画面いっぱいに
+    /// 広がっている場合は(はみ出す分だけ押し戻された結果)実質的にずれない、
+    /// 上下どちらかだけいっぱいの場合はその方向だけずれない、という見た目に自然と
+    /// なる(個別に「いっぱいかどうか」を判定するよりも、この方法の方が中途半端な
+    /// サイズのウインドウにも正しく対応できる)。
+    private func placeNewWindow(_ newWindow: NSWindow, basedOn previousKeyWindow: NSWindow?, asTab: Bool) {
+        guard let previousKeyWindow else { return }
+        var frame = newWindow.frame
+        frame.size = previousKeyWindow.frame.size
+        if asTab {
+            frame.origin = previousKeyWindow.frame.origin
+        } else {
+            let cascadeOffset: CGFloat = 48
+            var origin = CGPoint(
+                x: previousKeyWindow.frame.origin.x + cascadeOffset,
+                y: previousKeyWindow.frame.origin.y - cascadeOffset
+            )
+            if let visibleFrame = (previousKeyWindow.screen ?? NSScreen.main)?.visibleFrame {
+                if origin.x + frame.size.width > visibleFrame.maxX {
+                    origin.x = visibleFrame.maxX - frame.size.width
+                }
+                if origin.x < visibleFrame.minX {
+                    origin.x = visibleFrame.minX
+                }
+                if origin.y + frame.size.height > visibleFrame.maxY {
+                    origin.y = visibleFrame.maxY - frame.size.height
+                }
+                if origin.y < visibleFrame.minY {
+                    origin.y = visibleFrame.minY
+                }
+            }
+            frame.origin = origin
+        }
+        newWindow.setFrame(frame, display: true)
+    }
+
+    /// File › 「新規シークレットウインドウ」。"private" WindowGroupのインスタンスを、値(URL)
+    /// なし=ウェルカム画面として開く(AppState.isPrivateWindowのコメント参照)。
+    ///
+    /// バグ修正(ユーザー報告): 以前はここで`openWindow(id: "private")`を呼ぶだけだったため、
+    /// サイズ・位置の決定がまるごとSwiftUI任せになり、「新しいウインドウで開く」で作られる
+    /// 通常の新規ウインドウとは違う大きさ・場所に開いていた。通常の新規ウインドウと同じ
+    /// 扱い(元のウインドウと同じサイズ + 右下へのカスケード配置)にするため、
+    /// openURLInNewWindowと同じ手順で開いたウインドウを捕まえて配置する。
+    private func openNewPrivateWindow() {
+        let previousKeyWindow = NSApp.keyWindow
+        let existingWindowIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
+        openWindow(id: "private")
+
+        Task { @MainActor in
+            guard let newWindow = await newlyOpenedWindow(excluding: existingWindowIDs) else { return }
+
+            if let previousKeyWindow {
+                placeNewWindow(newWindow, basedOn: previousKeyWindow, asTab: false)
+            } else if let saved = UserDefaults.standard.string(forKey: "qooViewer.mainWindowFrame") {
+                // 基準にできるウインドウが1つも無い場合(ウインドウをすべて閉じた状態で⇧⌘Nを
+                // 押した場合)は、起動時の主ウインドウと同じく、前回終了時に記憶しておいた
+                // フレームで開く。ここでも「通常の新規ウインドウと同じ」に見えるようにするため。
+                // キー文字列はContentView.mainWindowFrameDefaultsKeyと同じもの(そちらのコメント
+                // 参照)。なお、シークレットウインドウ自身はこのフレームを書き戻さない
+                // (主ウインドウにはならないため。ContentView.onAppear /
+                // observeMainWindowFrameChanges参照)。
+                let rect = NSRectFromString(saved)
+                if rect.width > 0, rect.height > 0 {
+                    newWindow.setFrame(rect, display: true)
+                }
+            }
+
+            newWindow.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
     /// 指定したURLを、新しいウインドウ(またはタブ)で開く実際の処理。上のメニュー
     /// (openPickedURLInNewWindow、ファイル選択パネルで選んだURL)だけでなく、Finderから
     /// (ダブルクリックや「このアプリケーションで開く」で)別の本を開こうとしたときの環境設定
@@ -1212,17 +1323,7 @@ struct QooViewerApp: App {
         openWindow(id: sourceIsPrivate ? "private" : "book", value: url)
 
         Task { @MainActor in
-            // openWindowが実際にNSWindowを作り終えるのは次以降のrunloopになるため、
-            // 短い間隔で何度か確認し、新しく増えたウインドウを見つける。
-            var newWindow: NSWindow?
-            for _ in 0..<20 {
-                try? await Task.sleep(nanoseconds: 25_000_000)
-                if let found = NSApp.windows.first(where: { !existingWindowIDs.contains(ObjectIdentifier($0)) }) {
-                    newWindow = found
-                    break
-                }
-            }
-            guard let newWindow else { return }
+            guard let newWindow = await newlyOpenedWindow(excluding: existingWindowIDs) else { return }
 
             // actsAsPrimaryWindowがtrueの場合はカスケード配置を行わず、代わりに前回終了時の
             // ウインドウ位置・サイズを復元する(詳細はこの関数のドキュメントコメント参照)。
@@ -1374,50 +1475,7 @@ struct QooViewerApp: App {
                 return
             }
 
-            // 新しいウインドウのサイズは、元になったウインドウ(今アクティブだったウインドウ、
-            // またはtabTargetで明示的に指定されたウインドウ)と同じ大きさにする。元のウインドウが
-            // 見つからない場合(環境設定ウインドウがアクティブだった場合など)はSwiftUIの
-            // 既定サイズのままにする。
-            // 「新しいタブで開く」の場合は、この後addTabbedWindowで元のウインドウのタブ
-            // グループに加わり、位置は自動的にそのウインドウに揃うため、位置の調整は不要。
-            // 「新しいウインドウで開く」の場合は、元のウインドウとほぼ重なる位置に開かれてしまい
-            // 2枚あることが分かりにくいという指摘を受け、右下方向へ明確にずらして配置する
-            // (Macの標準的な「カスケード」表示を、より分かりやすい間隔で自前に行っている)。
-            // ずらした結果、画面の表示可能領域からはみ出してしまう場合は、はみ出さない範囲に
-            // 収まるよう位置を調整し直す。これにより、元のウインドウがすでに画面いっぱいに
-            // 広がっている場合は(はみ出す分だけ押し戻された結果)実質的にずれない、
-            // 上下どちらかだけいっぱいの場合はその方向だけずれない、という見た目に自然と
-            // なる(個別に「いっぱいかどうか」を判定するよりも、この方法の方が中途半端な
-            // サイズのウインドウにも正しく対応できる)。
-            if let previousKeyWindow {
-                var frame = newWindow.frame
-                frame.size = previousKeyWindow.frame.size
-                if asTab {
-                    frame.origin = previousKeyWindow.frame.origin
-                } else {
-                    let cascadeOffset: CGFloat = 48
-                    var origin = CGPoint(
-                        x: previousKeyWindow.frame.origin.x + cascadeOffset,
-                        y: previousKeyWindow.frame.origin.y - cascadeOffset
-                    )
-                    if let visibleFrame = (previousKeyWindow.screen ?? NSScreen.main)?.visibleFrame {
-                        if origin.x + frame.size.width > visibleFrame.maxX {
-                            origin.x = visibleFrame.maxX - frame.size.width
-                        }
-                        if origin.x < visibleFrame.minX {
-                            origin.x = visibleFrame.minX
-                        }
-                        if origin.y + frame.size.height > visibleFrame.maxY {
-                            origin.y = visibleFrame.maxY - frame.size.height
-                        }
-                        if origin.y < visibleFrame.minY {
-                            origin.y = visibleFrame.minY
-                        }
-                    }
-                    frame.origin = origin
-                }
-                newWindow.setFrame(frame, display: true)
-            }
+            placeNewWindow(newWindow, basedOn: previousKeyWindow, asTab: asTab)
 
             if asTab, let previousKeyWindow {
                 previousKeyWindow.addTabbedWindow(newWindow, ordered: .above)
