@@ -241,17 +241,31 @@ final class ViewerViewModel: ObservableObject {
         self.layoutStore = layoutStore
         self.metadataStore = metadataStore
 
+        // 差し替え検知(2.5節)を先に済ませる。指紋の照合はファイルへの問い合わせを伴うため、
+        // ここで1回だけ行い、結果をprepareBookへ渡して二重に走らせない。
+        let replacementStatus = layoutStore.checkContentReplacement(book: incomingBook)
+
         // ユーザー要望: EPUB/PDFがファイル自身に持っているレイアウト情報(読み方向・見開き強制・
         // EPUBのページ単位の見開き配置)を、その本を初めて開いたときにDBへ取り込む。以降は
         // DB上の情報に従い、ユーザーはそれを自由に変更できる(ファイル側の情報はDBの初期値と
         // してのみ扱う)。prepareBookはこの取り込み結果を読むため、必ずその前に行うこと。
-        layoutStore.importSourceLayoutIfNeeded(for: incomingBook)
+        //
+        // ただし差し替えの疑いがある間は取り込まない。この状態は「確認ダイアログで解決されるまで
+        // DBのレイアウトデータには手を出さない」という約束のもとに成り立っており、ここで
+        // 取り込んでしまうと、ユーザーがまだ何も答えていないうちに、疑わしい既存の行へ
+        // 新しいファイルのページ単位の指定が混ざる。解決後に改めて取り込む
+        // (resolveLayoutReplacement参照)。
+        if replacementStatus == .unaffected {
+            layoutStore.importSourceLayoutIfNeeded(for: incomingBook)
+        }
 
         // レイアウト設定(ページ順補正・除外ページの除去。2.3節・2.2節)を、実際に読書フローで
         // 使うページ一覧に適用してからbookを確定する(設計コンセプト12節「アーキテクチャ上の
         // 変更点」参照)。差し替えの疑いがある場合(2.5節)は何も適用せず、生のページ一覧のまま
         // pendingLayoutReplacementStatusを立てる(確認ダイアログで解決されるまで安全側に倒す)。
-        let prepared = Self.prepareBook(from: incomingBook, layoutStore: layoutStore)
+        let prepared = Self.prepareBook(
+            from: incomingBook, layoutStore: layoutStore, replacementStatus: replacementStatus
+        )
         // book(@Published)は、他のストアドプロパティ(全体)が出揃うまでself経由で読み出せない
         // (@Publishedはラッパー経由の算出プロパティのため、Swiftの2段階初期化規則上「selfを
         // 使う」扱いになる。以前bookが単純なletストアドプロパティだった頃はこの制約が無く、
@@ -920,9 +934,9 @@ final class ViewerViewModel: ObservableObject {
     }
 
     /// 本単位で記憶された、古いスキャン本を白黒補正して表示する機能(ユーザー要望)のON/OFFを
-    /// 切り替える。EPUB/PDF由来のロック(isDisplayModeLocked等)のような「著者側の権威的な
-    /// 指定」に相当するものが無いため、toggleDisplayMode/toggleReadingDirectionと異なりガード
-    /// 条件は無い。
+    /// 切り替える。BookLayoutSettings側へ書き戻す必要が無い(この設定は本ごとの
+    /// BookReadingStateにしか持たない)ため、toggleDisplayMode/toggleReadingDirectionと異なり
+    /// 書き戻し先の出し分けは無い。
     ///
     /// forcedDisplayMode等(BookLayoutEditorViewModel経由でのみ書き込まれる)と異なり、これは
     /// 表示中のこのビューア自身がBookLayoutSettingsへ直接書き込む初めてのケースのため、
@@ -1762,15 +1776,17 @@ final class ViewerViewModel: ObservableObject {
     /// の2つを行う。差し替えの疑いがある場合(2.5節)は何も適用せず、生のbookと差し替え
     /// ステータスをそのまま返す(呼び出し元がViewerView経由で確認ダイアログを出し、
     /// resolveLayoutReplacement(applyExisting:)で解決するまで安全側に倒す)。
+    /// - Parameter replacementStatus: 差し替え検知の結果。指紋の照合はファイルへの問い合わせを
+    ///   伴うため、呼び出し側(init / reloadLayoutData)が済ませたものを受け取る。
     private static func prepareBook(
-        from rawBook: MangaBook, layoutStore: LayoutStore
+        from rawBook: MangaBook, layoutStore: LayoutStore,
+        replacementStatus: LayoutContentReplacementStatus
     ) -> (
         book: MangaBook,
         replacementStatus: LayoutContentReplacementStatus,
         settings: BookLayoutSettings?,
         overrides: [String: PageLayoutState]
     ) {
-        let replacementStatus = layoutStore.checkContentReplacement(book: rawBook)
         guard replacementStatus == .unaffected else {
             return (rawBook, replacementStatus, nil, [:])
         }
@@ -1840,6 +1856,11 @@ final class ViewerViewModel: ObservableObject {
             layoutStore.discardLayoutData(forBookID: book.id)
         }
         pendingLayoutReplacementStatus = nil
+        // 差し替えの疑いがある間は見送っていたEPUB/PDFのレイアウト情報の取り込みを、
+        // ここで行う(init冒頭のコメント参照)。「破棄する」を選んだ場合は行ごと消えているため
+        // ファイル側の指定で作り直され、「そのまま使う」を選んだ場合は取り込み済みフラグが
+        // 残っていれば何もしない(=ユーザーが残すと決めた内容がそのまま残る)。
+        layoutStore.importSourceLayoutIfNeeded(for: book)
         reloadLayoutData()
     }
 
