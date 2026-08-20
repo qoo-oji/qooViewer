@@ -1,6 +1,7 @@
 import Foundation
 import ImageIO
 import CoreGraphics
+import UniformTypeIdentifiers
 
 /// ImageIOを使った、シンプルなページ画像デコーダー。
 ///
@@ -108,6 +109,26 @@ nonisolated enum ImageDecoder {
     static func pixelSize(of data: Data) -> (width: Int, height: Int)? {
         guard let info = headerInfo(of: data) else { return nil }
         return (info.pixelWidth, info.pixelHeight)
+    }
+
+    /// 画像データをPNGへ変換する(EPUB書き出し用)。
+    ///
+    /// EpubExporterは元の画像のバイト列をそのまま埋め込むのが基本だが、EPUBに直接入れられない
+    /// 形式(WebP・HEIC・BMP・TIFF・AVIF)だけはここでPNGへ変換してから入れる。実測で、
+    /// これらはKindle Previewerの変換がエラー(E21019)で失敗するか、EPUBCheckが
+    /// 「コア画像形式ではないのに代替が無い」(RSC-032)としてエラーにする。PNGは可逆形式なので、
+    /// 変換によって元の画像より画質が落ちることはない(ファイルサイズは大きくなりうる)。
+    ///
+    /// デコードにdecode(_:maxPixelSize:)を使うのは、EXIFの回転指定をここでも反映させるため。
+    static func pngData(from data: Data) -> Data? {
+        guard let image = decode(data, maxPixelSize: exportMaxPixelSize) else { return nil }
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            output, UTType.png.identifier as CFString, 1, nil
+        ) else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return output as Data
     }
 
     /// pixelSize(of:)のファイルURL版(headerInfo(ofFileAt:)の薄いラッパー)。

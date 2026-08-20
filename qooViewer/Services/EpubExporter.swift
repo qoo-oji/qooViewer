@@ -158,22 +158,31 @@ nonisolated enum EpubExporter {
             // 除外設定により選んだページが実際のspineに含まれていない場合でも、カバーとしては
             // 使えるようにする(ユーザー要望を汲んだ挙動)。専用ファイルとして別途埋め込む。
             if let originalIndex = originalIndexByKey[pageKey], input.book.pages.indices.contains(originalIndex),
-               let exportable = try? await pageLoader.exportableImage(at: originalIndex) {
-                let ext = exportable.fileExtension
-                return ResolvedCover(
-                    existingPageIndex: nil,
-                    standaloneFile: ("cover.\(ext)", exportable.data, imageMediaType(forExtension: ext))
-                )
+               let exportable = try? await pageLoader.exportableImage(at: originalIndex),
+               let cover = standaloneCoverFile(data: exportable.data, sourceExtension: exportable.fileExtension) {
+                return ResolvedCover(existingPageIndex: nil, standaloneFile: cover)
             }
             return defaultCover(prepared: prepared)
         case .externalFile(let data, let ext):
-            return ResolvedCover(
-                existingPageIndex: nil,
-                standaloneFile: ("cover.\(ext)", data, imageMediaType(forExtension: ext))
-            )
+            // 変換に失敗した(壊れている・デコードできない)場合は、カバー指定だけを諦めて
+            // 既定のカバー(先頭ページ)へ落とす。本の書き出し自体は続けられる。
+            if let cover = standaloneCoverFile(data: data, sourceExtension: ext) {
+                return ResolvedCover(existingPageIndex: nil, standaloneFile: cover)
+            }
+            return defaultCover(prepared: prepared)
         case nil:
             return defaultCover(prepared: prepared)
         }
+    }
+
+    /// 本に含まれない専用ファイルとして埋め込むカバー画像。EPUBへそのまま入れられない形式は
+    /// ページ画像と同じくPNGへ変換する(passthroughImageExtensions参照)。
+    private static func standaloneCoverFile(
+        data: Data, sourceExtension ext: String
+    ) -> (fileName: String, data: Data, mediaType: String)? {
+        let exportExtension = epubImageFileExtension(forSource: ext)
+        guard let exportData = epubImageData(data, sourceExtension: ext) else { return nil }
+        return ("cover.\(exportExtension)", exportData, imageMediaType(forExtension: exportExtension))
     }
 
     /// 既定のカバー(書き出し後の実質的な先頭ページ)。
@@ -214,7 +223,11 @@ nonisolated enum EpubExporter {
             guard let originalIndex = originalIndexByKey[page.sortKey] else {
                 throw EpubExportError.pageImageUnavailable(pageName: page.displayName)
             }
-            let ext = try await pageLoader.exportableImageFileExtension(at: originalIndex)
+            // EPUBへそのまま入れられない形式は、ここでPNGに決めておく(実際の変換は下の
+            // 書き込みループ。passthroughImageExtensions参照)。
+            let ext = epubImageFileExtension(
+                forSource: try await pageLoader.exportableImageFileExtension(at: originalIndex)
+            )
             let imageFileName: String
             if isPDFSource {
                 imageFileName = String(format: "%06d.%@", sequenceIndex + 1, ext)
@@ -243,7 +256,7 @@ nonisolated enum EpubExporter {
         var tocEntries: [(href: String, title: String)] = []
         for bookmark in input.bookmarks {
             guard let xhtmlFileName = xhtmlFileNameByOriginalKey[bookmark.pageKey] else { continue }
-            tocEntries.append(("\(textDirectory)/\(xhtmlFileName)", bookmark.name))
+            tocEntries.append((href(textDirectory, xhtmlFileName), bookmark.name))
         }
 
         // Apple Books互換性(ユーザー要望): タイトル・著者名をEPUB出力ウインドウで編集できる
@@ -273,11 +286,11 @@ nonisolated enum EpubExporter {
         var standaloneCoverXHTMLFileName: String?
         if let resolvedCover {
             if let existingIndex = resolvedCover.existingPageIndex, prepared.indices.contains(existingIndex) {
-                coverGuideHref = "\(textDirectory)/\(prepared[existingIndex].xhtmlFileName)"
+                coverGuideHref = href(textDirectory, prepared[existingIndex].xhtmlFileName)
             } else if let standalone = resolvedCover.standaloneFile {
                 let xhtmlFileName = (standalone.fileName as NSString).deletingPathExtension + ".xhtml"
                 standaloneCoverXHTMLFileName = xhtmlFileName
-                coverGuideHref = "\(textDirectory)/\(xhtmlFileName)"
+                coverGuideHref = href(textDirectory, xhtmlFileName)
             }
         }
 
@@ -286,7 +299,7 @@ nonisolated enum EpubExporter {
         let series = (trimmedSeries?.isEmpty == false) ? trimmedSeries : nil
         let seriesIndex = input.seriesIndex?.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let firstPageHref = prepared.first.map { "\(textDirectory)/\($0.xhtmlFileName)" }
+        let firstPageHref = prepared.first.map { href(textDirectory, $0.xhtmlFileName) }
         let navXML = makeNavDocument(title: bookTitle, tocEntries: tocEntries, fallbackHref: firstPageHref)
 
         do {
@@ -322,7 +335,10 @@ nonisolated enum EpubExporter {
                 else {
                     throw EpubExportError.pageImageUnavailable(pageName: page.displayName)
                 }
-                let imageData = exportable.data
+                guard let imageData = epubImageData(exportable.data, sourceExtension: exportable.fileExtension)
+                else {
+                    throw EpubExportError.pageImageUnavailable(pageName: page.displayName)
+                }
                 let pixelSize = ImageDecoder.pixelSize(of: imageData)
                 if let pixelSize {
                     pageResolutions.append(PixelSize(width: pixelSize.width, height: pixelSize.height))
@@ -348,8 +364,11 @@ nonisolated enum EpubExporter {
                 )
                 // <guide>のカバー参照先として使う専用XHTML(上のcoverGuideHref算出箇所参照)。
                 if let standaloneCoverXHTMLFileName {
+                    // 固定レイアウトのページはviewportで実寸を宣言する必要があるため、
+                    // 通常のページと同じくカバー画像のピクセルサイズを渡す。
                     let coverXHTML = makePageDocument(
-                        title: bookTitle, imageFileName: standalone.fileName, pixelSize: nil
+                        title: bookTitle, imageFileName: standalone.fileName,
+                        pixelSize: ImageDecoder.pixelSize(of: standalone.data)
                     )
                     try addEntry(
                         to: archive, path: "OEBPS/\(textDirectory)/\(standaloneCoverXHTMLFileName)",
@@ -417,6 +436,30 @@ nonisolated enum EpubExporter {
         }
         used.insert(candidate)
         return candidate
+    }
+
+    // MARK: - 画像形式の調整
+
+    /// 元のバイト列をそのままEPUBへ入れてよい画像形式(拡張子)。
+    ///
+    /// 実測(Kindle Previewer 3.106 / EPUBCheck 5.2.1)では、これ以外の形式は次のように扱われる:
+    /// - WebP・HEIC・BMP・AVIF: Kindle Previewerの変換がE21019で失敗する(画像を復号できない)。
+    /// - HEIC・BMP・TIFF・AVIF: EPUBのコア画像形式ではないため、代替(fallback)の無いリソースとして
+    ///   EPUBCheckがRSC-032のエラーにする。
+    /// そのため、ここに無い形式は書き出し時にPNG(可逆)へ変換する。
+    private static let passthroughImageExtensions: Set<String> = ["jpg", "jpeg", "png", "gif"]
+
+    /// 書き出すページ画像の拡張子。画像データを読まずに決まるため、ファイル名(=manifest)を
+    /// 先に確定させる必要のあるprepareの段階でも使える。
+    private static func epubImageFileExtension(forSource ext: String) -> String {
+        passthroughImageExtensions.contains(ext.lowercased()) ? ext.lowercased() : "png"
+    }
+
+    /// epubImageFileExtension(forSource:)がPNGへの変換を選んだ形式なら、実際に変換したデータを返す。
+    /// 変換が不要な形式ならバイト列をそのまま返す(元の画質・ファイルサイズを保つ)。
+    private static func epubImageData(_ data: Data, sourceExtension ext: String) -> Data? {
+        guard epubImageFileExtension(forSource: ext) != ext.lowercased() else { return data }
+        return ImageDecoder.pngData(from: data)
     }
 
     private static func imageMediaType(forExtension ext: String) -> String {
@@ -489,6 +532,36 @@ nonisolated enum EpubExporter {
     }
 
     // MARK: - XML生成
+
+    /// エンコードせずに残す文字(RFC 3986のunreserved)。CharacterSet.alphanumericsは日本語などの
+    /// 非ASCII文字も「英数字」として含んでしまい、そのまま素通しになるため使わない。
+    private static let urlPathAllowedCharacters: CharacterSet = {
+        var set = CharacterSet()
+        set.insert(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        set.insert(charactersIn: "abcdefghijklmnopqrstuvwxyz")
+        set.insert(charactersIn: "0123456789")
+        set.insert(charactersIn: "-._~")
+        return set
+    }()
+
+    /// OPFのhref・XHTMLのsrcに書くための、ファイル名1つ分のパーセントエンコード。
+    ///
+    /// 連番リネームがOFFのときは元のファイル名をそのまま使うため、名前に空白や記号、非ASCII文字が
+    /// 入りうる。エンコードせずに書くと、実測で次のように壊れる:
+    /// - "&"を含む名前: OPFがXMLとして壊れる(EPUBCheckはRSC-016のFATAL)。Kindle Previewerは
+    ///   その画像を見つけられず、W14010の警告を出したうえでページが空のまま変換される。
+    /// - 空白を含む名前: EPUBCheckが「有効なURLではない」(RSC-020)としてエラーにする。
+    ///
+    /// zip内のエントリ名は元のファイル名のままにし、参照側だけをエンコードする(リーダーがURLとして
+    /// 解決すると元の名前に戻るため、両者は一致する)。
+    private static func urlPathComponent(_ fileName: String) -> String {
+        fileName.addingPercentEncoding(withAllowedCharacters: urlPathAllowedCharacters) ?? fileName
+    }
+
+    /// ディレクトリ名 + パーセントエンコードしたファイル名。OPF・XHTML・目次のすべてで使う。
+    private static func href(_ directory: String, _ fileName: String) -> String {
+        "\(directory)/\(urlPathComponent(fileName))"
+    }
 
     private static func xmlEscape(_ text: String) -> String {
         var result = text
@@ -615,10 +688,11 @@ nonisolated enum EpubExporter {
             let isCoverImage = cover?.existingPageIndex == index
             let imageProperties = isCoverImage ? " properties=\"cover-image\"" : ""
             manifestLines.append(
-                "    <item id=\"\(itemID)\" href=\"\(textDirectory)/\(page.xhtmlFileName)\" media-type=\"application/xhtml+xml\"/>"
+                "    <item id=\"\(itemID)\" href=\"\(href(textDirectory, page.xhtmlFileName))\" "
+                    + "media-type=\"application/xhtml+xml\"/>"
             )
             manifestLines.append(
-                "    <item id=\"\(imageID)\" href=\"\(imagesDirectory)/\(page.imageFileName)\" "
+                "    <item id=\"\(imageID)\" href=\"\(href(imagesDirectory, page.imageFileName))\" "
                     + "media-type=\"\(imageMediaType(forExtension: ext))\"\(imageProperties)/>"
             )
             if let property = epubSpreadProperty(page.spreadPosition) {
@@ -638,7 +712,7 @@ nonisolated enum EpubExporter {
             } else if let standalone = cover.standaloneFile {
                 let id = "cover-image"
                 manifestLines.append(
-                    "    <item id=\"\(id)\" href=\"\(imagesDirectory)/\(standalone.fileName)\" "
+                    "    <item id=\"\(id)\" href=\"\(href(imagesDirectory, standalone.fileName))\" "
                         + "media-type=\"\(standalone.mediaType)\" properties=\"cover-image\"/>"
                 )
                 coverItemID = id
@@ -743,7 +817,7 @@ nonisolated enum EpubExporter {
           </style>
         </head>
         <body>
-          <img src="../\(imagesDirectory)/\(imageFileName)" alt=""/>
+          <img src="../\(href(imagesDirectory, imageFileName))" alt=""/>
         </body>
         </html>
         """
