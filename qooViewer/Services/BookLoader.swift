@@ -24,14 +24,21 @@ nonisolated enum BookLoader {
         // カバー名列)がいくつかあり、そうした画面はこのキャッシュだけで描画できる。
         // 経路ごとに書き戻すのではなくこの1か所に置くことで、どの経路で1度読み込んでも
         // 他の画面がその恩恵を受けられるようにしている(詳細はBookPageListCacheの型コメント参照)。
-        await BookPageListCache.shared.store(
-            BookPageListCache.Entry(
-                pages: book.pages.map {
-                    BookPageListCache.Entry.Page(sortKey: $0.sortKey, displayName: $0.displayName)
-                }
-            ),
-            forBookID: book.id
+        //
+        // **書き込みは待たない。** ここはあらゆる経路の「本を開く」処理が必ず通る場所で、
+        // 待つとJSONへの変換・ディスクへの書き込み・(起動後1回目は)キャッシュ全体の容量点検が
+        // そのまま本の表示までの待ち時間に乗る。このキャッシュは次に同じ本を開くときまでに
+        // 書けていればよく、失敗しても次回また読み込むだけ
+        // (PageLoader.thumbnail(at:)がサムネイルの保存を待たないのと同じ考え方)。
+        let entry = BookPageListCache.Entry(
+            pages: book.pages.map {
+                BookPageListCache.Entry.Page(sortKey: $0.sortKey, displayName: $0.displayName)
+            }
         )
+        let bookID = book.id
+        Task.detached(priority: .background) {
+            await BookPageListCache.shared.store(entry, forBookID: bookID)
+        }
         return book
     }
 

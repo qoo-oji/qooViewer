@@ -1853,19 +1853,31 @@ private struct BookmarkDetailPane: View {
         let pagePrefix = String(localized: "Page", locale: preferences.effectiveLocale)
         // ユーザー要望: ここで新規作成するブックマークにもファイルノード識別子(iノード番号)を
         // 記録したい。この本を今開いているとは限らないため、ViewerViewModel.addBookmarkのように
-        // 既に読み込み済みのbook.sourceURLを使うことはできず、layoutStore.resolvedURL(forBookID:)で
-        // 都度解決する(openBookAndJumpと同じ解決手段。解決できなければnilのままでよく、従来通り
-        // inode無しで作成される)。
-        var fileNodeIdentifier: FileNodeIdentifier?
-        if let url = layoutStore.resolvedURL(forBookID: bookID) {
-            let didAccess = url.startAccessingSecurityScopedResource()
-            fileNodeIdentifier = FileNodeIdentifier.current(for: url)
-            if didAccess { url.stopAccessingSecurityScopedResource() }
+        // 既に読み込み済みのbook.sourceURLを使うことはできず、都度解決する
+        // (解決できなければnilのままでよく、従来通りinode無しで作成される)。
+        //
+        // 解決はメインアクターの外で行う。セキュリティスコープ付きブックマークの解決と存在確認は、
+        // 対象が未接続の外付け/ネットワークボリュームを指していると秒単位ブロックしうるため、
+        // メインスレッドで行うとブックマークを1つ付けるだけで画面が固まる
+        // (LayoutStore.resolvedURL(bookmarkData:bookID:)のコメント参照)。DBを読む部分だけを
+        // ここで済ませ、Sendableな値だけを渡す。
+        let bookmarkData = layoutStore.bookLayoutSettings(forBookID: bookID)?.bookmarkData
+        let targetBookID = bookID
+        Task {
+            let fileNodeIdentifier = await Task.detached(priority: .userInitiated) {
+                () -> FileNodeIdentifier? in
+                guard let url = LayoutStore.resolvedURL(bookmarkData: bookmarkData, bookID: targetBookID) else {
+                    return nil
+                }
+                let didAccess = url.startAccessingSecurityScopedResource()
+                defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+                return FileNodeIdentifier.current(for: url)
+            }.value
+            bookmarkStore.addBookmark(
+                bookID: targetBookID, pageIndex: pageIndex, name: "\(pagePrefix) \(pageIndex + 1)",
+                fileNodeIdentifier: fileNodeIdentifier
+            )
         }
-        bookmarkStore.addBookmark(
-            bookID: bookID, pageIndex: pageIndex, name: "\(pagePrefix) \(pageIndex + 1)",
-            fileNodeIdentifier: fileNodeIdentifier
-        )
     }
 
     /// サムネイルのダブルクリックでそのページへジャンプする(4.2節)。
@@ -2337,6 +2349,15 @@ private struct PageRowView: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .help("Add Bookmark")
+                // 本体の読み込みが終わるまでは追加できない。
+                //
+                // 追加するブックマークのページ番号はこの行のeffectiveReadingIndex、つまり
+                // ページ一覧のキャッシュから組み立てた行の位置から取る。本体が差し替えられて
+                // いてキャッシュが古かった場合、読み込み完了後に行が組み直され、いま付けた
+                // ブックマークが別のページを指すことになる。既存のブックマークを対象にする
+                // リネーム・削除にはこの問題が無いため、追加だけを塞ぐ
+                // (BookLayoutEditorViewModel.isBookReady参照)。
+                .disabled(!viewModel.isBookReady)
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 // 除外ページ(通常の読書フローに存在しないため、ブックマークは追加できない)。

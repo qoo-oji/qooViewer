@@ -44,8 +44,15 @@ actor BookPageListCache {
 
     /// 保存先(~/Library/Caches/<bundle id>/BookPageLists)。作成に失敗した場合はnilになり、
     /// このキャッシュは「常にミスする」だけの無害な存在になる。
-    private let directory: URL?
+    ///
+    /// `nonisolated let`にしてあるのは、読み書きの本体(JSONの変換とファイルI/O)をこのactorの
+    /// **外**で実行するため。actor上で実行すると、1冊分の書き込みや容量点検のあいだ、他の本の
+    /// ページ一覧の読み出しがすべて待たされる。読み出しは「ブックマーク・レイアウトの編集」
+    /// ウインドウで本を選び直したときの表示速度に直結するため、待たせたくない
+    /// (ThumbnailDiskCacheのdirectoryと同じ理由・同じ形)。
+    private nonisolated let directory: URL?
     /// 起動後に一度だけ容量の刈り込みを行うためのフラグ。
+    /// 実際にactorの隔離が要るのはこれだけなので、ここだけをactor上に残す。
     private var hasTrimmed = false
 
     private init() {
@@ -66,14 +73,19 @@ actor BookPageListCache {
     }
 
     /// bookIDはファイルのパスなので、そのままではファイル名にできない。ハッシュ化して使う。
-    private func fileURL(forBookID bookID: String) -> URL? {
+    /// ファイルの置き場所を求めるだけの純粋な計算(ディスクには触れない)。
+    private nonisolated func fileURL(forBookID bookID: String) -> URL? {
         guard let directory else { return nil }
         let digest = SHA256.hash(data: Data(bookID.utf8))
         let name = digest.map { String(format: "%02x", $0) }.joined() + ".json"
         return directory.appendingPathComponent(name, isDirectory: false)
     }
 
-    func pageList(forBookID bookID: String) -> Entry? {
+    /// `nonisolated`: ファイルの読み出しとJSONの復元をactorの上で行わないため
+    /// (directoryのコメント参照)。`async`のまま残してあるのは、呼び出し側の`await`を
+    /// そのまま有効にしておくためと、将来actorの状態が要るようになったときに
+    /// 呼び出し側を変えずに済むため。
+    nonisolated func pageList(forBookID bookID: String) async -> Entry? {
         guard let url = fileURL(forBookID: bookID),
               let data = try? Data(contentsOf: url),
               let entry = try? JSONDecoder().decode(Entry.self, from: data)
@@ -81,7 +93,12 @@ actor BookPageListCache {
         return entry
     }
 
-    func store(_ entry: Entry, forBookID bookID: String) {
+    /// `nonisolated`の理由はpageList(forBookID:)と同じ。
+    ///
+    /// 書き込みは`.atomic`(一時ファイルへ書いてからリネーム)で行う。読み書きをactorの外へ
+    /// 出した以上、書き込み途中のファイルを他のタスクが読みうるため、読み手が常に
+    /// 「以前の内容」か「完成した内容」のどちらかしか見ないようにしておく必要がある。
+    nonisolated func store(_ entry: Entry, forBookID bookID: String) async {
         guard let url = fileURL(forBookID: bookID),
               let data = try? JSONEncoder().encode(entry)
         else { return }
@@ -90,15 +107,22 @@ actor BookPageListCache {
         // 起動後の最初の書き込みのタイミングで一度だけ容量を点検する(ThumbnailDiskCacheと
         // 同じ考え方)。1冊あたり数十KB程度と小さいが、二度と開かない本のぶんが際限なく
         // 積もらないようにしておく。
-        if !hasTrimmed {
-            hasTrimmed = true
-            trimIfNeeded()
-        }
+        // 「一度だけ」の判定はhasTrimmedの読み書きを伴うのでactor上で行い、実際の走査は
+        // その外で行う(走査中に他のページ一覧の読み出しを待たせないため)。
+        guard await claimTrim(), let directory else { return }
+        Self.trimIfNeeded(in: directory)
+    }
+
+    /// 起動後まだ容量点検を行っていなければ、行う権利を1つだけ取得する。
+    private func claimTrim() -> Bool {
+        guard !hasTrimmed else { return false }
+        hasTrimmed = true
+        return true
     }
 
     /// 上限を超えていたら、最終アクセスが古いものから削除する。
-    private func trimIfNeeded() {
-        guard let directory else { return }
+    /// `nonisolated static`: ディレクトリ全走査をactorの上で行わないため。
+    private nonisolated static func trimIfNeeded(in directory: URL) {
         let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
         guard let contents = try? FileManager.default.contentsOfDirectory(
             at: directory, includingPropertiesForKeys: keys

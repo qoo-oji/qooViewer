@@ -38,6 +38,22 @@ final class EpubExportViewModel: ObservableObject {
 
     @Published private(set) var rows: [Row] = []
     @Published var selectedBookIDs: Set<String> = []
+    /// 対象一覧の絞り込み(実在確認)が進行中かどうか。ウインドウ側はこの間、
+    /// 「対象の本がありません」ではなく読み込み中の表示にする(reload()参照)。
+    @Published private(set) var isLoadingRows = false
+    /// 絞り込みの世代番号。applyEligibleBookIDs(_:generation:)が「自分が最新の結果か」を
+    /// 単体で判断できるようにするためのもの。
+    ///
+    /// 下のisReloadingによる間引きが入った今、絞り込みは同時に1本しか走らないため、この
+    /// 照合が実際に食い違うことは無い。それでも残してあるのは、結果を反映してよいかどうかの
+    /// 判断をapplyEligibleBookIDs自身の中で完結させておくためで、将来この経路が増えたときに
+    /// 古い結果が紛れ込むのを防ぐ。
+    private var reloadGeneration = 0
+    /// 絞り込みが実行中かどうか。実行中に来たreload()の要求は、走らせ直さずに
+    /// needsAnotherReloadへ畳む(reload()参照)。
+    private var isReloading = false
+    /// 実行中に来たreload()の要求を1回ぶんだけ覚えておくフラグ。
+    private var needsAnotherReload = false
 
     // MARK: - タイトル・著者名(ユーザー要望: Apple Books互換性。ファイル名/フォルダ名から
     // タイトル・著者名を取得し、この画面で変更できるようにしたい)
@@ -197,7 +213,18 @@ final class EpubExportViewModel: ObservableObject {
     /// SwiftDataから材料を集める部分(軽い)だけをここで行い、解決本体はメインアクターの外へ
     /// 逃がす(BookURLResolver参照)。結果が返るまでは一覧を空にせず、直前の内容をそのまま
     /// 見せておく(この画面を開いたままでも通知を受けてreload()し直されるため)。
+    ///
+    /// 絞り込みが実行中に呼ばれた場合は、その場では走らせず1回ぶんだけ覚えておいて、
+    /// 完了後にやり直す。このメソッドはブックマーク・レイアウト・メタデータの3つの変更通知から
+    /// 呼ばれるため、他のウインドウで編集を続けられると、そのたびに登録済みの本すべてに対する
+    /// 実在確認が積み上がる。メインスレッドは止まらないが、無駄であることに変わりはない。
     func reload() {
+        guard !isReloading else {
+            needsAnotherReload = true
+            return
+        }
+        isReloading = true
+
         var bookIDs = layoutStore.layoutBookIDs
         bookIDs.formUnion(bookmarkStore.groups.map(\.bookID))
         bookIDs.formUnion(layoutStore.coverOverrideBookIDs())
@@ -230,6 +257,14 @@ final class EpubExportViewModel: ObservableObject {
 
     /// reload()の絞り込み結果を反映して、一覧を組み立てる。
     private func applyEligibleBookIDs(_ eligibleIDs: Set<String>, generation: Int) {
+        isReloading = false
+        defer {
+            // 絞り込み中に来ていたreload()の要求があれば、ここでやり直す。
+            if needsAnotherReload {
+                needsAnotherReload = false
+                reload()
+            }
+        }
         // 自分より新しいreload()が既に走っている場合は、古い結果を捨てる。
         guard generation == reloadGeneration else { return }
         isLoadingRows = false
@@ -452,12 +487,6 @@ final class EpubExportViewModel: ObservableObject {
     /// 生パスに対するFileManager.fileExistsへフォールバックする。サンドボックス下では
     /// アクセス権の無いパスに対する存在確認自体が失敗するため、実在していても一覧から
     /// 落ちていた(BookMetadata.bookmarkDataは、まさにこの用途のために持っている)。
-    /// 対象一覧の絞り込み(実在確認)が進行中かどうか。ウインドウ側はこの間、
-    /// 「対象の本がありません」ではなく読み込み中の表示にする。
-    @Published private(set) var isLoadingRows = false
-    /// 非同期の絞り込みが多重に走った場合に、古い結果で新しい結果を上書きしないための世代番号。
-    private var reloadGeneration = 0
-
     private func resolveURL(forBookID bookID: String) -> URL? {
         bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID)
             ?? layoutStore.resolvedURL(forBookID: bookID)

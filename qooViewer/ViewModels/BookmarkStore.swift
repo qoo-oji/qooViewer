@@ -395,18 +395,6 @@ final class BookmarkStore: ObservableObject {
     /// 変数名が、比較対象のモデル側プロパティ名($0.bookID)と同名(bookID)だと、絞り込みフェッチが
     /// 正しく機能しないことがある不具合が実機で確認された(LayoutStore.pageOverrides(forBookID:)の
     /// コメント参照)ため、同じ理由でここも合わせて統一しておく。
-    /// この本のブックマークが持つセキュリティスコープ付きブックマークデータを、並べ替えずに
-    /// すべて返す。
-    ///
-    /// bookmarks(forBookID:)は呼ばれるたびにこの本のブックマーク全件を並べ替える(既定の
-    /// 名前順ではlocalizedStandardCompareというロケール照合を使う)。実在確認のように
-    /// 順序が結果に一切影響しない用途で、登録済みの本すべてに対して回すと、その並べ替えが
-    /// 丸ごと無駄なコストになるため、こちらを使うこと(EPUB/PDF出力ウインドウの対象一覧の
-    /// 絞り込み。BookURLResolver参照)。
-    func bookmarkDataList(forBookID bookID: String) -> [Data] {
-        (bookmarksByBookID()[bookID] ?? []).compactMap(\.bookmarkData)
-    }
-
     func bookmarks(forBookID bookID: String) -> [Bookmark] {
         let fetched = bookmarksByBookID()[bookID] ?? []
         switch sortOption {
@@ -423,6 +411,18 @@ final class BookmarkStore: ObservableObject {
         case .dateUpdatedDescending:
             return fetched.sorted { $0.updatedAt > $1.updatedAt }
         }
+    }
+
+    /// この本のブックマークが持つセキュリティスコープ付きブックマークデータを、並べ替えずに
+    /// すべて返す。
+    ///
+    /// bookmarks(forBookID:)は呼ばれるたびにこの本のブックマーク全件を並べ替える(既定の
+    /// 名前順ではlocalizedStandardCompareというロケール照合を使う)。実在確認のように
+    /// 順序が結果に一切影響しない用途で、登録済みの本すべてに対して回すと、その並べ替えが
+    /// 丸ごと無駄なコストになるため、こちらを使うこと(EPUB/PDF出力ウインドウの対象一覧の
+    /// 絞り込み。BookURLResolver参照)。
+    func bookmarkDataList(forBookID bookID: String) -> [Data] {
+        (bookmarksByBookID()[bookID] ?? []).compactMap(\.bookmarkData)
     }
 
     /// 指定したbookID・ページ番号に、直接ブックマークを追加する。5節の一括リネームウインドウの

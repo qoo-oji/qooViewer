@@ -17,49 +17,42 @@ import Foundation
 /// 合っている。これにより、`nonisolated enum EpubExporter`(非メインアクターの文脈)から
 /// 同期的に呼び出せるようにする(以前はここが原因で「メインアクター隔離のメソッドをアクターの
 /// 外から呼べない」というエラーになっていた)。
-nonisolated enum EffectivePageOrder {
-    /// 実際の読書順に並んだPageRefの一覧(除外ページは含まない)。EPUB書き出し(EpubExporter、
-    /// 7節)が、画像の複製・見開き配置の書き出しのために実際のPageRef(source)を必要とするため、
-    /// pageKeyだけを返すpageKeys(for:pageOrderOverride:excludedKeys:)とは別にこちらも公開する。
-    static func orderedPages(
-        for book: MangaBook, pageOrderOverride: [String]?, excludedKeys: Set<String>
-    ) -> [PageRef] {
-        var ordered = book.pages
-        if let pageOrderOverride {
-            var pageByKey: [String: PageRef] = [:]
-            for page in book.pages { pageByKey[page.sortKey] = page }
-            var seenKeys: Set<String> = []
-            var reordered: [PageRef] = []
-            for key in pageOrderOverride {
-                if let page = pageByKey[key] {
-                    reordered.append(page)
-                    seenKeys.insert(key)
-                }
-            }
-            for page in book.pages where !seenKeys.contains(page.sortKey) {
-                reordered.append(page)
-            }
-            ordered = reordered
-        }
-        return ordered.filter { !excludedKeys.contains($0.sortKey) }
-    }
+/// 並べ替え・除外の対象になれるページ。sortKeyさえ持っていればよい。
+///
+/// PageRef(本体を読み込んで得られるもの)と BookPageListCache.Entry.Page(ディスクキャッシュ
+/// から得られるもの)の両方を、同じ1つの実装で扱えるようにするためのもの。以前はこの2つに
+/// 対して同じアルゴリズムを2本書き、「一方を変更した場合はもう一方にも反映すること」という
+/// 注意書きで運用していたが、この並べ替え・除外はBookmark.pageIndexが指す位置そのものを
+/// 決めるため、片方だけがずれると気付きにくい形で壊れる。
+nonisolated protocol PageOrderSortable {
+    var sortKey: String { get }
+}
 
-    /// MangaBookを読み込まずに、キャッシュ済みのページ一覧(BookPageListCache)から実際の
-    /// 読書順を求めるための版。並べ替え・除外の考え方はorderedPages(for:...)と同一で、
-    /// 扱う値がPageRefかsortKey/displayNameの組かだけが違う(一方を変更した場合は
-    /// もう一方にも反映すること)。
+// このプロジェクトの既定のアクター隔離はMainActorのため、extension自体にも`nonisolated`を
+// 付けないと「メインアクター隔離の準拠」になり、nonisolatedな文脈(EpubExporterなど)から
+// 使えない(Services/ArchiveReading.swift冒頭のコメント参照)。
+nonisolated extension PageRef: PageOrderSortable {}
+nonisolated extension BookPageListCache.Entry.Page: PageOrderSortable {}
+
+nonisolated enum EffectivePageOrder {
+    /// 実際の読書順に並んだページの一覧(除外ページは含まない)。
     ///
-    /// 「実質的な先頭ページのファイル名」しか要らない画面(EPUB出力ウインドウのカバー名列)が、
-    /// そのためだけに本を丸ごと読み込まなくて済むようにするために用意している。
-    static func orderedPages(
-        for pages: [BookPageListCache.Entry.Page], pageOrderOverride: [String]?, excludedKeys: Set<String>
-    ) -> [BookPageListCache.Entry.Page] {
+    /// pageOrderOverrideに書かれている順に並べ、そこに含まれないページ(保存後に増えたページ)は
+    /// 元の並びのまま末尾へ回す。pageOrderOverrideにあって実際には存在しないページは無視する。
+    ///
+    /// PageRefとBookPageListCache.Entry.Pageの両方をこの1つの実装で扱う(PageOrderSortable
+    /// のコメント参照)。前者はEPUB書き出しが画像の複製・見開き配置のために実際のPageRef
+    /// (source)を必要とする経路で、後者は本体を読み込まずに「実質的な先頭ページのファイル名」
+    /// だけを知りたい経路(EPUB出力ウインドウのカバー名列)で使う。
+    static func orderedPages<Page: PageOrderSortable>(
+        for pages: [Page], pageOrderOverride: [String]?, excludedKeys: Set<String>
+    ) -> [Page] {
         var ordered = pages
         if let pageOrderOverride {
-            var pageByKey: [String: BookPageListCache.Entry.Page] = [:]
+            var pageByKey: [String: Page] = [:]
             for page in pages { pageByKey[page.sortKey] = page }
             var seenKeys: Set<String> = []
-            var reordered: [BookPageListCache.Entry.Page] = []
+            var reordered: [Page] = []
             for key in pageOrderOverride {
                 if let page = pageByKey[key] {
                     reordered.append(page)
@@ -72,6 +65,13 @@ nonisolated enum EffectivePageOrder {
             ordered = reordered
         }
         return ordered.filter { !excludedKeys.contains($0.sortKey) }
+    }
+
+    /// MangaBookを受け取る版(呼び出し側の大半はこちら)。
+    static func orderedPages(
+        for book: MangaBook, pageOrderOverride: [String]?, excludedKeys: Set<String>
+    ) -> [PageRef] {
+        orderedPages(for: book.pages, pageOrderOverride: pageOrderOverride, excludedKeys: excludedKeys)
     }
 
     /// 実際の読書順に並んだpageKeyの一覧(除外ページは含まない)。

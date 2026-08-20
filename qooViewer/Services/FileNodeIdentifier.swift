@@ -28,7 +28,13 @@ struct FileNodeIdentifier: Hashable, Codable {
     /// 呼び出し側は、サンドボックス環境でアクセス権が必要なURLに対しては、あらかじめ
     /// `startAccessingSecurityScopedResource()`を呼んでおく必要がある(このメソッド自体は
     /// アクセス権の開始/終了を行わない。ContentFingerprint.current(for:)と同じ役割分担)。
-    static func current(for url: URL) -> FileNodeIdentifier? {
+    ///
+    /// `nonisolated`: 中身はファイル属性の問い合わせ(stat相当)だけで、アクターの状態には
+    /// 一切触れない。一方でこの問い合わせは、対象が未接続の外付け/ネットワークボリュームを
+    /// 指していると秒単位ブロックしうるため、メインアクターの外から呼べる必要がある
+    /// (このプロジェクトの既定のアクター隔離はMainActorなので、明示しないとメインアクター
+    /// 限定になってしまう。Services/ArchiveReading.swift冒頭のコメント参照)。
+    nonisolated static func current(for url: URL) -> FileNodeIdentifier? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               let inode = attributes[.systemFileNumber] as? NSNumber,
               let device = attributes[.systemNumber] as? NSNumber
