@@ -112,11 +112,31 @@ nonisolated enum PDFImageExtractor {
 
     // MARK: - 画像ストリームの特定
 
+    /// Form XObjectをたどる深さの上限。壊れたPDF(自分自身を参照するFormなど)で
+    /// 走査が終わらなくなるのを防ぐための保険。実在のPDFでこれほど深く入れ子になることは無い。
+    private static let maxFormNestingDepth = 8
+
+    /// 画像ストリームの探索中に結果を溜めるための箱。
+    ///
+    /// CGPDFDictionaryApplyBlockのブロックへSwiftの変数を直接キャプチャして書き戻すことは
+    /// できないため、クラス参照を1つだけinfoポインタで渡し、その中へ結果を貯める。
+    private final class Collector {
+        var best: CGPDFStreamRef?
+        var bestPixelCount: Int = -1
+        /// 現在たどっているForm XObjectの深さ(maxFormNestingDepthと比較する)。
+        var depth: Int = 0
+    }
+
     /// このページの`/Resources /XObject`から、ページ本体にあたる画像ストリームを1つ選ぶ。
     ///
     /// マンガのPDFは「1ページ = 1枚のスキャン画像」がほとんどだが、透かしや小さな装飾が
     /// 別の画像として一緒に置かれていることがある。そのため単純に最初の1つを採るのではなく、
     /// ピクセル数(幅×高さ)が最大のものをページ本体とみなす。
+    ///
+    /// Form XObject(`/Subtype /Form`)の中も再帰的に探す。他形式からの変換ツールが作るPDFは、
+    /// ページの内容をFormで一段包んでいることが多く、ページ直下の`/XObject`には画像ではなく
+    /// そのFormしか無い。以前はページ直下しか見ていなかったため、画像が入っているのに
+    /// 「埋め込み画像がありません」として書き出しを断っていた。
     private static func primaryImageStream(of page: CGPDFPage, pageNumber: Int) throws -> CGPDFStreamRef {
         guard let pageDictionary = page.dictionary else {
             throw ExtractionError.noEmbeddedImage(pageNumber: pageNumber)
@@ -125,18 +145,21 @@ nonisolated enum PDFImageExtractor {
         guard CGPDFDictionaryGetDictionary(pageDictionary, "Resources", &resources), let resources else {
             throw ExtractionError.noEmbeddedImage(pageNumber: pageNumber)
         }
-        var xObjects: CGPDFDictionaryRef?
-        guard CGPDFDictionaryGetDictionary(resources, "XObject", &xObjects), let xObjects else {
+
+        let collector = Collector()
+        collectImageStreams(in: resources, collector: collector)
+
+        guard let stream = collector.best else {
             throw ExtractionError.noEmbeddedImage(pageNumber: pageNumber)
         }
+        return stream
+    }
 
-        // CGPDFDictionaryApplyBlockのブロックはCの関数ポインタ相当で、Swiftの変数を直接
-        // キャプチャして書き戻すことはできない。クラス参照を1つだけ渡し、その中へ結果を貯める。
-        final class Collector {
-            var best: CGPDFStreamRef?
-            var bestPixelCount: Int = -1
-        }
-        let collector = Collector()
+    /// `/Resources`の`/XObject`をなめて、画像はcollectorへ、Formはその`/Resources`を再帰で辿る。
+    private static func collectImageStreams(in resources: CGPDFDictionaryRef, collector: Collector) {
+        guard collector.depth < maxFormNestingDepth else { return }
+        var xObjects: CGPDFDictionaryRef?
+        guard CGPDFDictionaryGetDictionary(resources, "XObject", &xObjects), let xObjects else { return }
 
         CGPDFDictionaryApplyBlock(xObjects, { _, object, info in
             guard let info else { return true }
@@ -147,26 +170,32 @@ nonisolated enum PDFImageExtractor {
             else { return true }
 
             var subtype: UnsafePointer<Int8>?
-            guard CGPDFDictionaryGetName(dictionary, "Subtype", &subtype), let subtype,
-                  String(cString: subtype) == "Image"
-            else { return true }
+            guard CGPDFDictionaryGetName(dictionary, "Subtype", &subtype), let subtype else { return true }
 
-            var width: CGPDFInteger = 0
-            var height: CGPDFInteger = 0
-            CGPDFDictionaryGetInteger(dictionary, "Width", &width)
-            CGPDFDictionaryGetInteger(dictionary, "Height", &height)
-            let pixelCount = Int(width) * Int(height)
-            if pixelCount > collector.bestPixelCount {
-                collector.bestPixelCount = pixelCount
-                collector.best = stream
+            switch String(cString: subtype) {
+            case "Image":
+                var width: CGPDFInteger = 0
+                var height: CGPDFInteger = 0
+                CGPDFDictionaryGetInteger(dictionary, "Width", &width)
+                CGPDFDictionaryGetInteger(dictionary, "Height", &height)
+                let pixelCount = Int(width) * Int(height)
+                if pixelCount > collector.bestPixelCount {
+                    collector.bestPixelCount = pixelCount
+                    collector.best = stream
+                }
+            case "Form":
+                var formResources: CGPDFDictionaryRef?
+                guard CGPDFDictionaryGetDictionary(dictionary, "Resources", &formResources),
+                      let formResources
+                else { return true }
+                collector.depth += 1
+                PDFImageExtractor.collectImageStreams(in: formResources, collector: collector)
+                collector.depth -= 1
+            default:
+                break
             }
             return true
         }, Unmanaged.passUnretained(collector).toOpaque())
-
-        guard let stream = collector.best else {
-            throw ExtractionError.noEmbeddedImage(pageNumber: pageNumber)
-        }
-        return stream
     }
 
     /// ストリームの`/Filter`を見て、書き出せる形式かどうかを判定する。

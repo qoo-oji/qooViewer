@@ -312,15 +312,24 @@ actor PageLoader {
     /// EPUB書き出しは、実際に画像を書き込むより前に全ページ分のファイル名(=拡張子)を確定して
     /// package document(OPF)と目次を組み立てる必要があるため、その段階で使う。PDFの場合も
     /// 画像ストリームの辞書を読むだけで、画像本体の復号・コピーは行わない。
+    ///
+    /// PDFを開けない・そのページが取れない場合は、"jpg"を返して先へ進めるのではなくエラーを
+    /// 投げる。そのまま進むと、拡張子だけは決まったのに後段のexportableImage(at:)がnilを返し、
+    /// manifestに載っているのに実体の無いページが生まれる(EpubExportError.
+    /// pageImageUnavailableのコメント参照)。書き出し先を作る前のこの段階で止めるほうがよい。
     func exportableImageFileExtension(at index: Int) async throws -> String {
-        guard book.pages.indices.contains(index) else { return "jpg" }
+        guard book.pages.indices.contains(index) else {
+            throw PDFImageExtractor.ExtractionError.imageDataUnavailable(pageNumber: index + 1)
+        }
         let page = book.pages[index]
         guard case .pdf(let pdfURL, let pdfPageIndex) = page.source else {
             return Self.fileExtension(forEntryPathOf: page)
         }
         guard let document = pdfDocument(for: pdfURL),
               let pdfPage = document.page(at: pdfPageIndex + 1)
-        else { return "jpg" }
+        else {
+            throw PDFImageExtractor.ExtractionError.imageDataUnavailable(pageNumber: pdfPageIndex + 1)
+        }
         return try PDFImageExtractor.imageFormat(of: pdfPage, pageNumber: pdfPageIndex + 1).fileExtension
     }
 

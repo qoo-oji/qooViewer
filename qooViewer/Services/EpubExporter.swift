@@ -74,12 +74,25 @@ struct EpubExportInput {
 enum EpubExportError: LocalizedError {
     /// 除外設定・空のページ一覧などにより、書き出せるページが1枚も無かった。
     case noEligiblePages
+    /// あるページの画像データを読み出せなかった(書庫が壊れている、PDFを開けない等)。
+    ///
+    /// 黙ってそのページを飛ばすことはしない。package document(OPF)のmanifestは
+    /// **全ページぶん**を先に組み立ててあるため、画像だけ書き込まずに進むと、実体の無い
+    /// ファイルを参照するmanifestを持ったEPUBが出来上がる。EPUBの仕様上これは不正で、
+    /// リーダーによってはファイル自体を開けなくなる。PDFの非対応画像形式を
+    /// エラーにしているのと同じ考え方(PDFImageExtractor参照)。
+    case pageImageUnavailable(pageName: String)
     case writeFailed(underlying: Error)
 
     var errorDescription: String? {
         switch self {
         case .noEligiblePages:
             return String(localized: "This book has no pages to export (all pages may be excluded).")
+        case .pageImageUnavailable(let pageName):
+            return String(
+                format: String(localized: "Couldn't read the image for page “%@”, so this book can't be exported."),
+                pageName
+            )
         case .writeFailed(let underlying):
             return String(
                 format: String(localized: "Couldn't write the EPUB file: %@"),
@@ -188,14 +201,13 @@ nonisolated enum EpubExporter {
         var prepared: [PreparedPage] = []
         for (sequenceIndex, page) in orderedPages.enumerated() {
             // 拡張子は、PDFの場合だけ実際に埋め込まれている画像の形式(JPEG→jpg /
-            // 可逆形式→png)から決まるため、PageLoaderに問い合わせる。対応していない形式が
-            // 含まれていればここでエラーになり、書き出し先を作る前に中断できる。
-            let ext: String
-            if let originalIndex = originalIndexByKey[page.sortKey] {
-                ext = try await pageLoader.exportableImageFileExtension(at: originalIndex)
-            } else {
-                ext = "jpg"
+            // 可逆形式→png)から決まるため、PageLoaderに問い合わせる。対応していない形式や
+            // 読み出せないページが含まれていればここでエラーになり、書き出し先を作る前に
+            // 中断できる(下の書き込みループで初めて気付くと、途中まで書いたEPUBが残る)。
+            guard let originalIndex = originalIndexByKey[page.sortKey] else {
+                throw EpubExportError.pageImageUnavailable(pageName: page.displayName)
             }
+            let ext = try await pageLoader.exportableImageFileExtension(at: originalIndex)
             let imageFileName: String
             if isPDFSource {
                 imageFileName = String(format: "%06d.%@", sequenceIndex + 1, ext)
@@ -296,24 +308,25 @@ nonisolated enum EpubExporter {
             // まとめることで、同時に保持する画像データを常に1ページぶんだけにする
             // (書き出されるzipの内容・順序はどちらの実装でも同一)。
             for (page, item) in zip(orderedPages, prepared) {
-                var pixelSize: (width: Int, height: Int)?
-                var imageData: Data?
-                if let originalIndex = originalIndexByKey[page.sortKey],
-                   let exportable = try await pageLoader.exportableImage(at: originalIndex) {
-                    imageData = exportable.data
-                    pixelSize = ImageDecoder.pixelSize(of: exportable.data)
+                // 画像が読めないページがあれば、そこで書き出しを中断する。飛ばして進むと
+                // 実体の無いファイルを参照するmanifestを持った不正なEPUBが出来上がる
+                // (EpubExportError.pageImageUnavailableのコメント参照)。
+                guard let originalIndex = originalIndexByKey[page.sortKey],
+                      let exportable = try await pageLoader.exportableImage(at: originalIndex)
+                else {
+                    throw EpubExportError.pageImageUnavailable(pageName: page.displayName)
                 }
+                let imageData = exportable.data
+                let pixelSize = ImageDecoder.pixelSize(of: imageData)
                 let pageXHTML = makePageDocument(title: bookTitle, imageFileName: item.imageFileName, pixelSize: pixelSize)
                 try addEntry(
                     to: archive, path: "OEBPS/\(textDirectory)/\(item.xhtmlFileName)",
                     data: Data(pageXHTML.utf8), compressed: true
                 )
-                if let imageData {
-                    try addEntry(
-                        to: archive, path: "OEBPS/\(imagesDirectory)/\(item.imageFileName)",
-                        data: imageData, compressed: true
-                    )
-                }
+                try addEntry(
+                    to: archive, path: "OEBPS/\(imagesDirectory)/\(item.imageFileName)",
+                    data: imageData, compressed: true
+                )
             }
 
             // カバー専用ファイル(本に含まれない専用ファイル、または除外設定によりspineに

@@ -2115,6 +2115,22 @@
         }
       }
     },
+    "Couldn't read the image for page “%@”, so this book can't be exported.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't read the image for page “%@”, so this book can't be exported."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページ「%@」の画像を読み込めなかったため、この本は書き出せません。"
+          }
+        }
+      }
+    },
     "Couldn't read the image on page %lld of this PDF.": {
       "localizations": {
         "en": {
