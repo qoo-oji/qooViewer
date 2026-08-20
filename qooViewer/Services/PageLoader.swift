@@ -148,9 +148,27 @@ actor PageLoader {
         return cache
     }()
 
+    /// サムネイルの永続キャッシュ(ThumbnailDiskCache)を引くためのキー。コントラスト補正の
+    /// 切り替えで作り直す必要があるため、初期化時とsetContrastCorrectionEnabled(_:)で更新する。
+    private var thumbnailDiskKey: ThumbnailDiskCache.BookKey
+
     init(book: MangaBook, contrastCorrectionEnabled: Bool = false) {
         self.book = book
         self.contrastCorrectionEnabled = contrastCorrectionEnabled
+        self.thumbnailDiskKey = Self.makeThumbnailDiskKey(
+            book: book, contrastCorrectionEnabled: contrastCorrectionEnabled
+        )
+    }
+
+    private static func makeThumbnailDiskKey(
+        book: MangaBook, contrastCorrectionEnabled: Bool
+    ) -> ThumbnailDiskCache.BookKey {
+        ThumbnailDiskCache.BookKey(
+            sourceURL: book.sourceURL,
+            bookID: book.id,
+            contrastCorrectionEnabled: contrastCorrectionEnabled,
+            maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize
+        )
     }
 
     /// 本を閉じてこのPageLoaderが解放されるとき、まだ走っている読み込みを畳んでおく。
@@ -182,6 +200,11 @@ actor PageLoader {
         contrastCorrectionEnabled = enabled
         imageCache.removeAllObjects()
         thumbnailCache.removeAllObjects()
+        // 永続キャッシュ側は補正の有無をキーに含めているため、消す必要はない。キーを
+        // 作り直すだけで、補正あり/なしそれぞれのサムネイルが別々に貯まる。
+        thumbnailDiskKey = Self.makeThumbnailDiskKey(
+            book: book, contrastCorrectionEnabled: enabled
+        )
     }
 
     /// この本のページ構成(並び順・除外)が変わったとき、呼び出し元(ViewerViewModel)から
@@ -204,8 +227,42 @@ actor PageLoader {
     }
 
     /// プログレスバー用の小さいサムネイルを取得する
+    /// サムネイルは、メモリ上のthumbnailCache(NSCache)に無ければ、まずローカルの永続
+    /// キャッシュ(ThumbnailDiskCache)を見てから実デコードへ進む。
+    ///
+    /// これは「ブックマーク・レイアウトの編集」ウインドウのように、本を開き直すたびに
+    /// PageLoaderごと作り直される画面のためのもの。本体が未接続の外付け/ネットワーク
+    /// ボリューム上にあっても、2回目以降はローカルディスクから即座に返せる
+    /// (詳細はThumbnailDiskCacheの型コメント参照)。
     func thumbnail(at index: Int) async -> CGImage? {
-        await image(at: index, cache: thumbnailCache, maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize)
+        guard book.pages.indices.contains(index) else { return nil }
+        let page = book.pages[index]
+        let key = page.id as NSString
+
+        if let cached = thumbnailCache.object(forKey: key) {
+            return cached.image
+        }
+
+        let diskKey = thumbnailDiskKey
+        if let fromDisk = await ThumbnailDiskCache.shared.thumbnail(bookKey: diskKey, pageID: page.id) {
+            thumbnailCache.setObject(
+                CGImageBox(fromDisk), forKey: key, cost: fromDisk.width * fromDisk.height * 4
+            )
+            return fromDisk
+        }
+
+        let decoded = await image(
+            at: index, cache: thumbnailCache, maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize
+        )
+        if let decoded {
+            // 書き込みは待たない(次に同じページを要求されるまでに終わっていればよく、
+            // 失敗しても次回またデコードするだけ)。
+            let pageID = page.id
+            Task.detached(priority: .background) {
+                await ThumbnailDiskCache.shared.store(decoded, bookKey: diskKey, pageID: pageID)
+            }
+        }
+        return decoded
     }
 
     /// 生の画像データ(デコード前)を返す。EPUB書き出し(EpubExporter、7節)で、画質を落とさず

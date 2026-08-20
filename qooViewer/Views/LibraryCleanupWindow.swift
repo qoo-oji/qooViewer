@@ -112,6 +112,11 @@ private struct LibraryCleanupContentView: View {
             .pickerStyle(.segmented)
             .fixedSize()
 
+            if viewModel.isCheckingExistence {
+                ProgressView()
+                    .controlSize(.small)
+            }
+
             if viewModel.missingCount > 0 {
                 Text("\(viewModel.missingCount) missing")
                     .font(.caption)
@@ -186,6 +191,12 @@ private struct LibraryCleanupContentView: View {
                 .foregroundStyle(.orange)
                 .labelStyle(.titleAndIcon)
                 .help("The original file or folder could not be found.")
+        case .checking:
+            // 非同期スキャンの結果待ち(LibraryCleanupViewModel.FileExistence.checking参照)。
+            Label("Checking…", systemImage: "clock")
+                .foregroundStyle(.secondary)
+                .labelStyle(.titleAndIcon)
+                .help("qooViewer is still checking whether the original file or folder exists.")
         case .unknown:
             Label("Unknown", systemImage: "questionmark.circle")
                 .foregroundStyle(.secondary)

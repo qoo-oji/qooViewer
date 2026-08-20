@@ -10,12 +10,55 @@ import AppKit
 /// そのURLへアクセスする権限がない(ユーザーが選んだファイルという証跡が失われる)。
 /// そのため、パスではなく「セキュリティスコープ付きブックマーク」(bookmarkData)として
 /// UserDefaultsに保存し、開くときにブックマークからURLを解決してアクセス許可を得る。
+///
+/// 【重要】ブックマークの解決(URL(resolvingBookmarkData:))は極めて重い。対象が未接続の外付け/
+/// ネットワークボリュームを指していると、解決だけでボリュームの探索を試みて秒単位ブロックしうる。
+/// そのためこのストアは、一覧の表示に必要な情報(パス・フォルダかどうか)を解決結果とは別に
+/// キャッシュして永続化し、次の形にしている:
+///   ・一覧の表示(メニュー・ウェルカム画面・サイドパネル)ではブックマークを一切解決しない
+///   ・解決を行うのは、ユーザーが実際にその項目を選んで開くとき(resolveForOpening(_:))だけ
+///   ・一覧の再検証は、メニューを開いたときではなく「古くなっている可能性が生まれたとき」
+///     (アプリがアクティブになった/ボリュームがマウント・アンマウントされた)に非同期で行う
+///
+/// バグ修正(ユーザー報告): 以前はメニューが開かれる直前(NSMenu.didBeginTrackingNotification)に
+/// 全件を同期で解決・存在確認していた。メニューバーの追跡開始と同じタイミングでメインスレッドを
+/// 止めると、AppKitのメニュー更新・検証パスが間に合わず、未完成のメニューがそのまま表示される:
+///   ・「ウインドウ」メニューからAppKitが動的に差し込む標準項目(画面全体に表示/中央に配置/
+///     移動とサイズ変更/フルスクリーンのタイル表示など)が丸ごと欠ける
+///   ・「編集」メニューではカット/コピー/ペーストが検証前の「有効」のまま表示され、欠けた項目
+///     ぶん狭い幅で測られるため、自前の項目名が中央省略される
+/// メニューバーを直接クリックしたときだけ再現し、別のメニューを開いた状態からカーソルを移動した
+/// 場合は再現しない(その時点では最初のメニューで既に1回走り終えており、ファイルシステムの
+/// キャッシュも温まっているため間に合う)ことが、原因特定の決め手になった。
 @MainActor
 final class RecentFilesStore: ObservableObject {
-    struct Entry: Identifiable, Hashable {
-        let url: URL
-        var id: String { url.path }
-        var displayName: String { url.deletingPathExtension().lastPathComponent }
+    /// 履歴1件分。一覧の表示に必要な情報はすべてここに入っており、表示のためにブックマークを
+    /// 解決する必要はない。実際に開くときだけresolveForOpening(_:)でURLを解決する。
+    struct Entry: Identifiable, Hashable, Sendable {
+        /// 最後に検証した時点でのパス。表示・重複判定・「今開いている本」との照合に使う。
+        let path: String
+        /// フォルダかどうか。アイコンの出し分けに使う(記録時・再検証時にキャッシュ済み)。
+        let isDirectory: Bool
+        /// 開くときにだけ解決するセキュリティスコープ付きブックマーク。
+        let bookmark: Data
+
+        var id: String { path }
+        var displayName: String {
+            URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        }
+        /// 表示専用のURL(ファイル名・拡張子の取り出し用)。セキュリティスコープが付いていない
+        /// ため、これを使って本を開いてはいけない(開くときは必ずresolveForOpening(_:)を通す)。
+        var displayURL: URL { URL(fileURLWithPath: path, isDirectory: isDirectory) }
+    }
+
+    /// UserDefaultsへ保存する形。旧形式(ブックマークデータの配列のみ)からの移行はloadStored()で
+    /// 行う。Equatableなのは「再検証の結果が以前と同じなら書き戻さない」判定に使うため。
+    private struct StoredEntry: Codable, Equatable, Sendable {
+        let bookmark: Data
+        /// 解決済みのパスのキャッシュ。旧形式からの移行直後だけ空文字列になりうる
+        /// (直後のscheduleRefresh()が解決して埋める)。
+        let path: String
+        let isDirectory: Bool
     }
 
     @Published private(set) var entries: [Entry] = []
@@ -30,42 +73,62 @@ final class RecentFilesStore: ObservableObject {
         let range = AppPreferences.recentFilesLimitRange
         return Int(min(max(value, range.lowerBound), range.upperBound))
     }
-    private let defaultsKey = "recentBookBookmarks"
-    /// メニューが開かれる直前に一覧を再チェックするための監視トークン。
-    private var menuTrackingObserver: NSObjectProtocol?
+
+    /// 新形式(パス等のキャッシュを含む)の保存先。
+    private let defaultsKey = "recentBookEntries"
+    /// 旧形式(ブックマークデータの配列のみ)の保存先。移行のために読むほか、保存のたびに
+    /// 併せて書き続ける(万一古いバージョンのアプリに戻したときに履歴が消えないようにするため)。
+    private let legacyDefaultsKey = "recentBookBookmarks"
+
     /// 環境設定で保持件数が変更されたときに、その場で切り詰めるための監視トークン。
     private var limitChangeObserver: NSObjectProtocol?
+    /// アプリがアクティブになったときに再検証するための監視トークン。
+    private var activationObserver: NSObjectProtocol?
+    /// ボリュームのマウント/アンマウントで再検証するための監視トークン(NSWorkspaceの通知)。
+    private var volumeObservers: [NSObjectProtocol] = []
+    /// 非同期の再検証(scheduleRefresh)が実行中かどうか。前回が終わらないうちに何本も
+    /// 走らせないよう間引く。
+    private var isRefreshing = false
 
     init() {
-        reload()
+        // 起動時はキャッシュから即座に一覧を作る(ここではファイルアクセスを一切行わない)。
+        publish(loadStored())
+        // 実体の確認は起動直後に一度だけ、非同期で行う。旧形式からの移行(パスの穴埋め)も
+        // ここで完了する。
+        scheduleRefresh()
+
         // 保持件数を減らしたときに、次に本を開くまで古い履歴が残り続けないよう、その場で
-        // 一覧を作り直す(reload()側でmaxCountまで切り詰められる)。menuTrackingObserverと
-        // 同じ理由でMainActor.assumeIsolatedを使う。
-        limitChangeObserver = NotificationCenter.default.addObserver(
-            forName: .recentFilesLimitDidChange, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.reload()
-            }
-        }
-        // 「最近使ったファイル」メニューを表示する直前に、削除・移動・リネームされていた
-        // ファイルが一覧に残ったままにならないよう再チェックする。特定のメニュー(File)
-        // だけに絞り込む簡単な方法がないため、このアプリ内でどのメニューが開かれても
-        // 再チェックする(ファイルの存在確認は軽い処理なので負荷は問題にならない)。
+        // 切り詰める。これはキャッシュを切るだけなのでファイルアクセスは発生しない。
         // queue: .mainにより実行時には必ずMainActor上で呼ばれるが、クロージャ自体の型は
         // 静的にMainActor隔離だと分からないため、MainActor.assumeIsolatedで明示する
         // (FavoritesStore.swift/ViewerViewModel.swiftの同種のコメント参照。Task {
         // @MainActor in ... }で包むとselfのキャプチャに関する別の警告/エラーになる)。
-        menuTrackingObserver = NotificationCenter.default.addObserver(
-            forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
-        ) { [weak self] notification in
+        limitChangeObserver = NotificationCenter.default.addObserver(
+            forName: .recentFilesLimitDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
             MainActor.assumeIsolated {
-                // メニューバーのメニュー以外では何もしない。このreload()は履歴1件ごとに
-                // セキュリティスコープ付きブックマークの解決とファイル存在確認(ディスクI/O)を
-                // 行うため、ウインドウ内のドロップダウンを開くたびに走らせると体感できる遅延に
-                // なる(詳細はMenuBarTracking.isMainMenu(_:)のコメント参照)。
-                guard MenuBarTracking.isMainMenu(notification) else { return }
-                self?.reload()
+                self?.applyLimit()
+            }
+        }
+
+        // 再検証のきっかけ。以前はメニューを開くたびに行っていたが、それがメニュー描画を
+        // 止める原因だった(型のコメント参照)。代わりに、一覧が古くなっている可能性が
+        // 生まれたタイミングだけを拾う。
+        //   ・アプリがアクティブになったとき: 裏でFinderから削除・移動・リネームされた場合
+        //   ・ボリュームのマウント/アンマウント: 外付け・ネットワークドライブの抜き差し
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.scheduleRefresh()
+            }
+        }
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        volumeObservers = [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification].map { name in
+            workspaceCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.scheduleRefresh()
+                }
             }
         }
     }
@@ -78,35 +141,193 @@ final class RecentFilesStore: ObservableObject {
         if let limitChangeObserver {
             NotificationCenter.default.removeObserver(limitChangeObserver)
         }
-        if let menuTrackingObserver {
-            NotificationCenter.default.removeObserver(menuTrackingObserver)
+        if let activationObserver {
+            NotificationCenter.default.removeObserver(activationObserver)
+        }
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        for observer in volumeObservers {
+            workspaceCenter.removeObserver(observer)
         }
     }
 
+    // MARK: - 記録・取り出し
+
     /// 本を開くのに成功したときに呼ぶ。履歴の先頭に追加し、同じファイルの重複は取り除く。
+    ///
+    /// 重複判定はキャッシュ済みのパス同士の比較で行う。以前は保存済みブックマークを1件ずつ
+    /// 解決してパスを取り出していたため、本を1冊開くたびに履歴の件数ぶんの解決が走っていた。
     func record(url: URL) {
-        var bookmarks = rawBookmarks()
-        bookmarks.removeAll { resolvedURL(from: $0)?.path == url.path }
+        var stored = loadStored()
+        stored.removeAll { $0.path == url.path }
 
         if let data = try? url.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         ) {
-            bookmarks.insert(data, at: 0)
+            // isDirectoryはアイコンの出し分けにしか使わないが、URLの末尾スラッシュの有無に
+            // 頼ると渡され方によって揺れるため、ここで1回だけ実体に問い合わせて確定させる。
+            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory
+                ?? url.hasDirectoryPath
+            stored.insert(
+                StoredEntry(bookmark: data, path: url.path, isDirectory: isDirectory),
+                at: 0
+            )
         }
-        if bookmarks.count > maxCount {
-            bookmarks = Array(bookmarks.prefix(maxCount))
+        if stored.count > maxCount {
+            stored = Array(stored.prefix(maxCount))
         }
-        UserDefaults.standard.set(bookmarks, forKey: defaultsKey)
-        reload()
+        save(stored)
+        publish(stored)
     }
 
-    private func rawBookmarks() -> [Data] {
-        UserDefaults.standard.array(forKey: defaultsKey) as? [Data] ?? []
+    /// 履歴の項目を実際に開くためのURLを解決する。**ここでだけ**セキュリティスコープ付き
+    /// ブックマークの解決(重いディスクI/O)を行う。一覧の表示からは絶対に呼ばないこと。
+    ///
+    /// 解決できなかった場合(実体が失われている場合)は、その項目を履歴から取り除いてnilを返す。
+    /// 以前はメニューを開くたびに全件の存在確認を行っていたが、その確認こそがメニュー描画を
+    /// 止める原因だったため、「実際に開こうとして初めて分かる」形に変えている。
+    func resolveForOpening(_ entry: Entry) -> URL? {
+        guard let url = Self.resolvedURL(from: entry.bookmark) else {
+            remove(entry)
+            return nil
+        }
+        return url
     }
 
-    private func resolvedURL(from data: Data) -> URL? {
+    /// 指定の項目を履歴から取り除く。
+    private func remove(_ entry: Entry) {
+        var stored = loadStored()
+        let before = stored.count
+        stored.removeAll { $0.bookmark == entry.bookmark }
+        guard stored.count != before else { return }
+        save(stored)
+        publish(stored)
+    }
+
+    // MARK: - 永続化
+
+    /// 保存済みの履歴を読む。新形式が無ければ旧形式(ブックマークデータの配列)から移行する。
+    /// 移行直後はパスが空のままだが、起動直後のscheduleRefresh()が解決して埋める。
+    private func loadStored() -> [StoredEntry] {
+        if let data = UserDefaults.standard.data(forKey: defaultsKey),
+           let decoded = try? JSONDecoder().decode([StoredEntry].self, from: data) {
+            return decoded
+        }
+        let legacy = UserDefaults.standard.array(forKey: legacyDefaultsKey) as? [Data] ?? []
+        return legacy.map { StoredEntry(bookmark: $0, path: "", isDirectory: false) }
+    }
+
+    private func save(_ stored: [StoredEntry]) {
+        if let data = try? JSONEncoder().encode(stored) {
+            UserDefaults.standard.set(data, forKey: defaultsKey)
+        }
+        // 旧バージョンのアプリに戻した場合でも履歴が残るよう、旧形式も併せて更新しておく。
+        UserDefaults.standard.set(stored.map(\.bookmark), forKey: legacyDefaultsKey)
+    }
+
+    /// キャッシュから@Publishedの一覧を作る。ファイルアクセスは行わない。
+    private func publish(_ stored: [StoredEntry]) {
+        // パスが空のもの(旧形式から移行した直後で、まだ解決できていないもの)は表示しない。
+        let newEntries = stored
+            .filter { !$0.path.isEmpty }
+            .map { Entry(path: $0.path, isDirectory: $0.isDirectory, bookmark: $0.bookmark) }
+        // バグ修正(ユーザー報告): @Publishedは値が同じでも代入のたびにobjectWillChangeを
+        // 発火する。メニューバーが開かれている最中に発火すると、SwiftUIがメニューバーを
+        // 組み立て直してAppKitのメニュー更新と競合するため、中身が変わったときだけ代入する。
+        if newEntries != entries {
+            entries = newEntries
+        }
+    }
+
+    /// 保持件数が減らされたときの切り詰め。キャッシュを切るだけでファイルアクセスは不要。
+    private func applyLimit() {
+        var stored = loadStored()
+        guard stored.count > maxCount else { return }
+        stored = Array(stored.prefix(maxCount))
+        save(stored)
+        publish(stored)
+    }
+
+    // MARK: - 再検証(非同期)
+
+    /// 実体の存在確認とパスのキャッシュ更新を非同期に予約する。重い部分(revalidate)だけを
+    /// メインアクターの外で走らせ、一覧への反映はメインアクターへ戻してから行う。
+    private func scheduleRefresh() {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        let snapshot = loadStored()
+        guard !snapshot.isEmpty else {
+            isRefreshing = false
+            return
+        }
+        // [weak self]で受けたselfを、awaitをまたぐ前にguard letで強参照へ変換しておく
+        // (そのまま参照するとSwift 6の並行性チェックで「Reference to captured var 'self' in
+        // concurrently-executing code」になる。QooViewerApp.swiftの
+        // applicationDidFinishLaunchingにある同種のコメント参照)。
+        Task.detached(priority: .utility) { [weak self] in
+            let refreshed = Self.revalidate(snapshot)
+            guard let self else { return }
+            await self.finishRefresh(refreshed, snapshot: snapshot)
+        }
+    }
+
+    /// revalidate()の結果をメインアクター上で反映し、多重起動の抑止を解除する。
+    private func finishRefresh(_ refreshed: [StoredEntry], snapshot: [StoredEntry]) {
+        defer { isRefreshing = false }
+        // 再検証はメインアクターの外で走るため、その最中にrecord(url:)が新しい履歴を保存して
+        // いることがありうる。その場合に古い結果を書き戻すと、いま追加したばかりの履歴を
+        // 消してしまうため、開始時点と保存内容(ブックマークの並び)が変わっていないときだけ
+        // 反映する。パスではなくブックマークで比べるのは、旧形式からの移行(パスが空→解決済み)
+        // でも同一と判定できるようにするため。
+        guard loadStored().map(\.bookmark) == snapshot.map(\.bookmark) else { return }
+
+        var result = refreshed
+        if result.count > maxCount {
+            result = Array(result.prefix(maxCount))
+        }
+        // 実体にもパスにも変化が無ければ、UserDefaultsへの書き戻しごと省く。
+        if result != snapshot {
+            save(result)
+        }
+        publish(result)
+    }
+
+    /// 保存済みの各件についてブックマークを解決し、実体がまだ存在するものだけを、最新のパス・
+    /// 種別付きで返す。解決できたがファイルが存在しないもの・解決自体に失敗したものは落とす
+    /// (そのままにしておくと、二度と復活しない無駄なデータが残り続けるため)。
+    ///
+    /// 1件ごとにセキュリティスコープ付きブックマークの解決と存在確認(ディスクI/O)が発生し、
+    /// 対象が未接続の外付け/ネットワークボリュームを指している場合は解決だけで秒単位ブロック
+    /// しうる。メインアクターの外(scheduleRefresh()のTask.detached)から呼べるよう`nonisolated`を
+    /// 明示している(このプロジェクトの既定のアクター隔離はMainActorのため、明示しないと
+    /// メインアクター限定になってしまう。Services/ArchiveReading.swift冒頭のコメント参照)。
+    private nonisolated static func revalidate(_ stored: [StoredEntry]) -> [StoredEntry] {
+        var result: [StoredEntry] = []
+        for item in stored {
+            guard let url = resolvedURL(from: item.bookmark) else { continue }
+            let didStartAccessing = url.startAccessingSecurityScopedResource()
+            defer {
+                if didStartAccessing {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+            // ブックマークデータの解決自体は、対象が削除されていても成功する場合があるため、
+            // 実際の存在確認が別途必要になる。ついでに種別(フォルダかどうか)も更新する。
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+                continue
+            }
+            // ブックマークは実体を追跡するため、リネーム・移動されていた場合はここで新しい
+            // パスに更新される(表示名が古いままにならない)。
+            result.append(
+                StoredEntry(bookmark: item.bookmark, path: url.path, isDirectory: isDirectory.boolValue)
+            )
+        }
+        return result
+    }
+
+    private nonisolated static func resolvedURL(from data: Data) -> URL? {
         var isStale = false
         return try? URL(
             resolvingBookmarkData: data,
@@ -114,44 +335,6 @@ final class RecentFilesStore: ObservableObject {
             relativeTo: nil,
             bookmarkDataIsStale: &isStale
         )
-    }
-
-    /// 保存済みのブックマークからURL一覧を解決し直す。ブックマークデータ自体が解決できた場合でも、
-    /// 実際にそのファイル/フォルダがまだ存在するか(削除・移動・リネームされていないか)を
-    /// 別途確認し、存在しないものは一覧に表示しない。存在しなくなったブックマークは保存データ
-    /// 自体からも取り除く(そのままにしておくと、二度と復活しない無駄なデータが残り続けるため)。
-    private func reload() {
-        let bookmarks = rawBookmarks()
-        var survivingBookmarks: [Data] = []
-        var newEntries: [Entry] = []
-        for data in bookmarks {
-            guard let url = resolvedURL(from: data), fileStillExists(at: url) else { continue }
-            survivingBookmarks.append(data)
-            newEntries.append(Entry(url: url))
-        }
-        // 環境設定で保持件数を減らした場合は、ここで超過分を捨てる(record(url:)側の
-        // 切り詰めだけだと、次に本を開くまで古い履歴が残ってしまうため)。
-        if survivingBookmarks.count > maxCount {
-            survivingBookmarks = Array(survivingBookmarks.prefix(maxCount))
-            newEntries = Array(newEntries.prefix(maxCount))
-        }
-        entries = newEntries
-        if survivingBookmarks.count != bookmarks.count {
-            UserDefaults.standard.set(survivingBookmarks, forKey: defaultsKey)
-        }
-    }
-
-    /// セキュリティスコープ付きのURLが指すファイル/フォルダが、実際にまだ存在するかどうかを
-    /// 確認する。ブックマークデータの解決(resolvedURL)自体は、対象が削除されていても
-    /// 成功する場合があるため、この実際の存在確認が必要になる。
-    private func fileStillExists(at url: URL) -> Bool {
-        let didStartAccessing = url.startAccessingSecurityScopedResource()
-        defer {
-            if didStartAccessing {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
-        return FileManager.default.fileExists(atPath: url.path)
     }
 }
 

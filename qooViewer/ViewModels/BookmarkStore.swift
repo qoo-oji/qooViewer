@@ -4,7 +4,10 @@ import AppKit
 import Combine
 
 /// 「ブックマークの編集」ウインドウの左ペインに表示する、1冊分のまとめ。
-struct BookmarkBookGroup: Identifiable {
+///
+/// Equatableに準拠させているのは、BookmarkStore.rebuildGroups(publishOnlyWhenChanged:)で
+/// 「本当に中身が変わったときだけ@Publishedへ代入する」判定に使うため。
+struct BookmarkBookGroup: Identifiable, Equatable {
     let bookID: String
     /// この本に付いているブックマークの件数(左ペインの行に表示する)。
     let count: Int
@@ -164,7 +167,9 @@ final class BookmarkStore: ObservableObject {
                 // メニューバーのメニュー以外(ウインドウ内のPicker/Menuのドロップダウンなど)では
                 // 何もしない。詳細はMenuBarTracking.isMainMenu(_:)のコメント参照。
                 guard MenuBarTracking.isMainMenu(notification) else { return }
-                self?.reload()
+                // メニューバーを開くたびに走る経路なので、中身が変わったときだけ@Publishedを
+                // 発火させる(理由はrebuildGroups(publishOnlyWhenChanged:)のコメント参照)。
+                self?.reload(publishOnlyWhenChanged: true)
             }
         }
     }
@@ -188,14 +193,14 @@ final class BookmarkStore: ObservableObject {
     /// 扱いへ変更したため、この除外は廃止した。
     /// isEpubDerived属性そのものは、自動取り込みが1冊につき1回で済んでいるかの判別材料として
     /// 残してある(Bookmark.swiftのコメント参照)。
-    func reload() {
+    func reload(publishOnlyWhenChanged: Bool = false) {
         // このストアの外(開いている本のViewerViewModelが同じModelContext経由で直接書き込んだ
         // 場合)での変更を取り込むための経路。そちらの変更はこのストアのキャッシュに反映され
         // ようがないため、ここは必ず実フェッチでキャッシュごと作り直す(キャッシュを鵜呑みに
         // しない)。このストア自身の書き込みは、フェッチ不要のrebuildGroups()の側を使う。
         cachedBookmarksByBookID = nil
         _ = bookmarksByBookID()
-        rebuildGroups()
+        rebuildGroups(publishOnlyWhenChanged: publishOnlyWhenChanged)
     }
 
     /// bookID → その本のBookmark(順不同、EPUB自動取り込み分も含む)。
@@ -209,7 +214,7 @@ final class BookmarkStore: ObservableObject {
 
     /// 左ペインの一覧(groups)を、SwiftDataへ問い合わせずキャッシュだけから組み直す。
     /// このストア自身の書き込みメソッドが、キャッシュへ差分を反映した後に呼ぶ。
-    private func rebuildGroups() {
+    private func rebuildGroups(publishOnlyWhenChanged: Bool = false) {
         let unsorted = bookmarksByBookID().compactMap { bookID, bookmarks -> BookmarkBookGroup? in
             let visible = bookmarks
             guard !visible.isEmpty else { return nil }
@@ -225,7 +230,16 @@ final class BookmarkStore: ObservableObject {
                 latestUpdatedAt: visible.map(\.updatedAt).max() ?? Date()
             )
         }
-        groups = Self.sortedGroups(unsorted, by: bookSortOption)
+        let newGroups = Self.sortedGroups(unsorted, by: bookSortOption)
+        // バグ修正(ユーザー報告): @Publishedは値が同じでも代入のたびにobjectWillChangeを
+        // 発火する。メニューバーの追跡開始のたびに発火させると、メニューが表示されている最中に
+        // SwiftUIがメニューバーを組み立て直すことになり、AppKitのメニュー更新・検証パスと
+        // 競合して未完成のメニューが表示される一因になっていた(詳細はRecentFilesStore.init()の
+        // menuTrackingObserverのコメント参照)。既定をfalseにしてあるのは、ブックマークの
+        // 追加・削除・リネーム直後のUI更新にもこの経路が使われているため。
+        if !publishOnlyWhenChanged || newGroups != groups {
+            groups = newGroups
+        }
     }
 
     /// 絞り込み無しの全Bookmark(順不同)。特定のbookIDに閉じない横断的な検索(ファイルノード

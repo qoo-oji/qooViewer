@@ -67,14 +67,6 @@ struct FavoritesOrganizerView: View {
     /// (以後、フォルダを追加/削除してもリストの内容が変わるたびに勝手にリサイズされないようにする)。
     @State private var hasComputedSidebarWidth = false
 
-    /// 実体ファイルが見つかるかどうかのチェック結果のキャッシュ(FavoriteBook.id -> 存在するか)。
-    /// favoritesStore.fileExists(for:)はセキュリティスコープ付きリソースへの一時アクセスを伴う
-    /// ため、以前は一覧の各行が描画されるたびに毎回同期的に呼んでいた(お気に入りが多いと
-    /// 一覧全体の描画がもたつく要因になっていた)。ThumbnailやEPUB出力ウインドウのカバー名と
-    /// 同じ考え方で、行ごとに.task(id:)で非同期にチェックしてここへキャッシュする
-    /// (詳細はdetailのcase .book(let favorite):参照)。
-    @State private var favoriteBookExistsCache: [UUID: Bool] = [:]
-
     // 「現在の本を追加」ボタン(addCurrentBook参照)用の状態。FavoriteFolderPickerView.swiftの
     // 同名の仕組みと同じ理由・同じ構造(重複登録の確認、件数上限エラーの表示)。
     @State private var pendingBookForDuplicateConfirmation: MangaBook?
@@ -262,12 +254,14 @@ struct FavoritesOrganizerView: View {
 
                     case .book(let favorite):
                         // 実体ファイルが見つからない項目はグレー表示で区別する(要望3の追加要件)。
-                        // fileExistsはsecurity-scoped resourceへの一時アクセスを伴う同期処理のため、
-                        // 一覧描画のたびに毎回呼ぶのではなく、行ごとに.task(id:)で非同期に1回だけ
-                        // チェックしてfavoriteBookExistsCacheへ結果を残す(結果が出るまでは
-                        // 「存在する」とみなして描画し、チェック完了後にグレー表示へ切り替わる。
-                        // 下の.task(id: favorite.id)参照)。
-                        let exists = favoriteBookExistsCache[favorite.id] ?? true
+                        // 以前はここから行ごとに.task(id:)でfavoritesStore.fileExists(for:)を
+                        // 呼んでいたが、SwiftUIの.taskはビューと同じMainActor上で走るため、
+                        // 非同期にしてもメインスレッドが止まることに変わりはなかった(お気に入りが
+                        // 外付け/ネットワークボリューム上にあると一覧の描画がもたつく)。
+                        // 現在はストア側がメインアクターの外でまとめて確認してキャッシュしており、
+                        // ここはその結果を読むだけ(ファイルアクセスなし)。
+                        // 詳細はFavoritesStore.existenceByFavoriteIDのコメント参照。
+                        let exists = favoritesStore.cachedFileExists(for: favorite)
                         HStack {
                             Image(systemName: "book.closed")
                             Text(favorite.title)
@@ -342,12 +336,6 @@ struct FavoritesOrganizerView: View {
                             }
                         }
                         .onDrag { NSItemProvider(object: "favoriteBook:\(favorite.id.uuidString)" as NSString) }
-                        .task(id: favorite.id) {
-                            let resolvedExists = favoritesStore.fileExists(for: favorite)
-                            if favoriteBookExistsCache[favorite.id] != resolvedExists {
-                                favoriteBookExistsCache[favorite.id] = resolvedExists
-                            }
-                        }
                     }
                 }
             }

@@ -160,6 +160,25 @@ final class FavoritesStore: ObservableObject {
     /// (RecentFilesStoreと同じ理由: 整理画面や他のウインドウでの変更を、メニューを開くたびに
     /// 反映させるため)
     private var menuTrackingObserver: NSObjectProtocol?
+    /// アプリがアクティブになったときに実体の存在確認をやり直すための監視トークン。
+    private var activationObserver: NSObjectProtocol?
+    /// ボリュームのマウント/アンマウントで存在確認をやり直すための監視トークン(NSWorkspaceの通知)。
+    private var volumeObservers: [NSObjectProtocol] = []
+    /// 非同期の存在確認(scheduleExistenceRefresh)が実行中かどうか。
+    private var isRefreshingExistence = false
+
+    /// お気に入りの実体がまだ存在するかどうかのキャッシュ(FavoriteBook.id -> 存在するか)。
+    ///
+    /// バグ修正(ユーザー報告と同じ構図): 存在確認(fileExists(for:))はセキュリティスコープ付き
+    /// ブックマークの解決を伴い、対象が未接続の外付け/ネットワークボリュームを指していると
+    /// 秒単位ブロックしうる。以前はこれを
+    ///   ・ウェルカム画面のbody評価中に全件ぶん(recentFavorites(limit:))
+    ///   ・「お気に入りの整理」ウインドウの行ごとに.task(id:)で1件ずつ
+    /// 同期実行していた。SwiftUIの.taskはビューと同じMainActor上で走るため、非同期にしても
+    /// メインスレッドが止まることに変わりはなく、描画のもたつきの原因になっていた。
+    /// 現在は、確認そのものをメインアクターの外へ出したうえでこのキャッシュへ集約し、
+    /// 表示側はキャッシュを読むだけ(ファイルアクセスなし)にしている。
+    @Published private(set) var existenceByFavoriteID: [UUID: Bool] = [:]
 
     init(modelContext: ModelContext) {
         self.modelContext = modelContext
@@ -187,7 +206,32 @@ final class FavoritesStore: ObservableObject {
                 // メニューバーのメニュー以外(ウインドウ内のPicker/Menuのドロップダウンなど)では
                 // 何もしない。詳細はMenuBarTracking.isMainMenu(_:)のコメント参照。
                 guard MenuBarTracking.isMainMenu(notification) else { return }
-                self?.reload()
+                // メニューバーを開くたびに走る経路なので、中身が変わったときだけ@Publishedを
+                // 発火させる(理由はpublishOnlyWhenChangedのコメント参照)。
+                self?.reload(publishOnlyWhenChanged: true)
+            }
+        }
+
+        // 実体の存在確認は重いので、メニューや一覧の描画のたびではなく「古くなっている
+        // 可能性が生まれたとき」にだけ非同期で行う(RecentFilesStoreと同じ考え方・同じ契機)。
+        //   ・アプリがアクティブになったとき: 裏でFinderから削除・移動された場合
+        //   ・ボリュームのマウント/アンマウント: 外付け・ネットワークドライブの抜き差し
+        // お気に入りを新しく追加した直後は、cachedFileExists(for:)が既定でtrueを返すため
+        // 確認を待たずに正しく表示される(いま開けたファイルなので存在するのは自明)。
+        scheduleExistenceRefresh()
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.scheduleExistenceRefresh()
+            }
+        }
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        volumeObservers = [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification].map { name in
+            workspaceCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.scheduleExistenceRefresh()
+                }
             }
         }
     }
@@ -198,11 +242,100 @@ final class FavoritesStore: ObservableObject {
         if let menuTrackingObserver {
             NotificationCenter.default.removeObserver(menuTrackingObserver)
         }
+        if let activationObserver {
+            NotificationCenter.default.removeObserver(activationObserver)
+        }
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        for observer in volumeObservers {
+            workspaceCenter.removeObserver(observer)
+        }
+    }
+
+    // MARK: - 実体の存在確認(非同期・キャッシュ)
+
+    /// キャッシュ済みの存在確認結果を返す。**ファイルアクセスは一切行わない**ので、
+    /// 一覧やメニューの描画から自由に呼んでよい。
+    ///
+    /// まだ確認できていない項目はtrue(存在する)として扱う。「まだ分からない」を「見つかりません」
+    /// として描画すると、起動直後の一瞬すべてのお気に入りが失われたように見えてしまうため。
+    func cachedFileExists(for favorite: FavoriteBook) -> Bool {
+        existenceByFavoriteID[favorite.id] ?? true
+    }
+
+    /// 全お気に入りの実体確認を非同期に予約する。重い部分はメインアクターの外で走らせ、
+    /// 結果の反映だけをメインアクターへ戻す。
+    func scheduleExistenceRefresh() {
+        guard !isRefreshingExistence else { return }
+        isRefreshingExistence = true
+        // ここで読むのはSwiftDataのモデルなので、メインアクターにいるうちに
+        // 「Sendableな値(UUIDとData)」へ写し取ってから外へ渡す。
+        let items = allFavoriteBooks().map { (id: $0.id, bookmark: $0.bookmarkData) }
+        guard !items.isEmpty else {
+            isRefreshingExistence = false
+            if !existenceByFavoriteID.isEmpty { existenceByFavoriteID = [:] }
+            return
+        }
+        // [weak self]で受けたselfを、awaitをまたぐ前にguard letで強参照へ変換しておく
+        // (理由はRecentFilesStore.scheduleRefresh()の同種のコメント参照)。
+        Task.detached(priority: .utility) { [weak self] in
+            var result: [UUID: Bool] = [:]
+            for item in items {
+                result[item.id] = FavoritesStore.fileExists(bookmark: item.bookmark)
+            }
+            guard let self else { return }
+            await self.finishExistenceRefresh(result)
+        }
+    }
+
+    private func finishExistenceRefresh(_ result: [UUID: Bool]) {
+        isRefreshingExistence = false
+        // @Publishedは値が同じでも代入のたびに発火するため、変化したときだけ代入する。
+        if result != existenceByFavoriteID {
+            existenceByFavoriteID = result
+        }
+    }
+
+    /// ブックマークデータからURLを解決する。メインアクターの外から呼べるよう`nonisolated`を
+    /// 明示している(このプロジェクトの既定のアクター隔離はMainActorのため。
+    /// Services/ArchiveReading.swift冒頭のコメント参照)。
+    nonisolated static func resolvedURL(fromBookmark data: Data) -> URL? {
+        var isStale = false
+        return try? URL(
+            resolvingBookmarkData: data,
+            options: .withSecurityScope,
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        )
+    }
+
+    /// ブックマークデータが指す実体がまだ存在するかどうか。`nonisolated`の理由は上と同じ。
+    nonisolated static func fileExists(bookmark data: Data) -> Bool {
+        guard let url = resolvedURL(fromBookmark: data) else { return false }
+        let didStartAccessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccessing {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        return FileManager.default.fileExists(atPath: url.path)
     }
 
     /// ルート直下のフォルダ・お気に入りを読み込み直す。フォルダの中身(children/books)は
     /// SwiftDataのリレーションシップ経由でその都度取得できるため、ここでは読み込まない。
-    func reload() {
+    /// - Parameter publishOnlyWhenChanged: trueにすると、フェッチ結果が現在の値と同じときは
+    ///   @Publishedへの代入自体を行わない。
+    ///
+    ///   バグ修正(ユーザー報告): @Publishedは値が同じでも代入のたびにobjectWillChangeを発火する。
+    ///   このreload()はメニューバーの追跡開始のたびに呼ばれるため、既定のまま(=毎回発火)だと、
+    ///   メニューが表示されている最中にSwiftUIがメニューバーを組み立て直すことになり、
+    ///   AppKitのメニュー更新・検証パスと競合して未完成のメニューが表示される一因になっていた
+    ///   (詳細はRecentFilesStore.init()のmenuTrackingObserverのコメント参照)。
+    ///
+    ///   既定をfalseにしてあるのは、このreload()がお気に入りの追加・削除・並べ替えなど
+    ///   「書き込んだ直後にUIを更新する」用途からも多数呼ばれているため。ルート直下の配列が
+    ///   同一でも、その中身(フォルダの子要素など)が変わっているケースがあり、そこでは従来どおり
+    ///   無条件に発火させる必要がある。
+    func reload(publishOnlyWhenChanged: Bool = false) {
         // メニュートラッキング開始時の保険的な呼び出し(万一の取りこぼし対策)も含めて、
         // reload()が呼ばれたときは全件フェッチキャッシュも合わせて無効化しておく。
         invalidateFavoritesLookupCaches()
@@ -210,12 +343,18 @@ final class FavoritesStore: ObservableObject {
         let folderDescriptor = FetchDescriptor<FavoriteFolder>(
             predicate: #Predicate<FavoriteFolder> { $0.parent == nil }
         )
-        rootFolders = sorted((try? modelContext.fetch(folderDescriptor)) ?? [])
+        let newRootFolders = sorted((try? modelContext.fetch(folderDescriptor)) ?? [])
+        if !publishOnlyWhenChanged || newRootFolders != rootFolders {
+            rootFolders = newRootFolders
+        }
 
         let bookDescriptor = FetchDescriptor<FavoriteBook>(
             predicate: #Predicate<FavoriteBook> { $0.folder == nil }
         )
-        rootBooks = sorted((try? modelContext.fetch(bookDescriptor)) ?? [])
+        let newRootBooks = sorted((try? modelContext.fetch(bookDescriptor)) ?? [])
+        if !publishOnlyWhenChanged || newRootBooks != rootBooks {
+            rootBooks = newRootBooks
+        }
     }
 
     /// 絞り込み無しの全FavoriteFolderを返す(キャッシュがあれば再利用)。
@@ -725,13 +864,7 @@ final class FavoritesStore: ObservableObject {
 
     /// 保存済みのブックマークからURLを解決する(実際にファイル/フォルダが存在するかまでは確認しない)。
     func resolvedURL(for favorite: FavoriteBook) -> URL? {
-        var isStale = false
-        return try? URL(
-            resolvingBookmarkData: favorite.bookmarkData,
-            options: .withSecurityScope,
-            relativeTo: nil,
-            bookmarkDataIsStale: &isStale
-        )
+        Self.resolvedURL(fromBookmark: favorite.bookmarkData)
     }
 
     /// ユーザー要望: JSONインポート(LibraryImportExportService)時、ファイルパスが古くなって
@@ -747,15 +880,10 @@ final class FavoritesStore: ObservableObject {
 
     /// お気に入りが指すファイル/フォルダが、実際にまだ存在するかどうか。
     /// (RecentFilesStore.fileStillExistsと同じロジック)
+    /// 【注意】これは同期的にディスクI/Oを行う。一覧やメニューの描画からは呼ばず、
+    /// キャッシュを読むcachedFileExists(for:)を使うこと。
     func fileExists(for favorite: FavoriteBook) -> Bool {
-        guard let url = resolvedURL(for: favorite) else { return false }
-        let didStartAccessing = url.startAccessingSecurityScopedResource()
-        defer {
-            if didStartAccessing {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
-        return FileManager.default.fileExists(atPath: url.path)
+        Self.fileExists(bookmark: favorite.bookmarkData)
     }
 
     /// 開く直前に使う便利メソッド。ブックマークの解決と存在確認の両方が成功した場合にのみURLを返す
@@ -791,17 +919,17 @@ final class FavoritesStore: ObservableObject {
 
     /// ウェルカム画面の「最近お気に入りに追加したファイル」用。登録日時が新しい順に、
     /// 実際に存在するものだけを最大limit件返す。
+    /// バグ修正(ユーザー報告と同じ構図): これはウェルカム画面のbody評価中に呼ばれる。
+    /// 以前はここで全お気に入りぶんのブックマーク解決と存在確認を同期実行しており、
+    /// 外付け/ネットワークボリューム上のお気に入りがあるとウェルカム画面の描画が丸ごと
+    /// 止まっていた。現在は、実体確認はキャッシュ(existenceByFavoriteID)を読むだけにし、
+    /// 一覧の取得もキャッシュ済みのallFavoriteBooks()から行う(SwiftDataのfetchも起きない)。
     func recentFavorites(limit: Int) -> [FavoriteBook] {
-        let descriptor = FetchDescriptor<FavoriteBook>(
-            sortBy: [SortDescriptor(\.addedAt, order: .reverse)]
-        )
-        let all = (try? modelContext.fetch(descriptor)) ?? []
         var result: [FavoriteBook] = []
-        for favorite in all {
-            if fileExists(for: favorite) {
-                result.append(favorite)
-                if result.count >= limit { break }
-            }
+        for favorite in allFavoriteBooks().sorted(by: { $0.addedAt > $1.addedAt })
+        where cachedFileExists(for: favorite) {
+            result.append(favorite)
+            if result.count >= limit { break }
         }
         return result
     }

@@ -1088,12 +1088,14 @@ private struct SidePanelHistorySectionView: View {
         // URL同士の==ではなくパス文字列で行う理由は、SidePanelView.folderRowと同じ
         // (セキュリティスコープ付きブックマーク由来のURLは、パスが同じでも==が一致しない
         // ことがある)。
-        let isCurrent = entry.url.path == currentBookPath
+        // entry.path/isDirectoryはキャッシュ済みの情報で、参照してもファイルアクセスは
+        // 発生しない(RecentFilesStoreの型コメント参照)。
+        let isCurrent = entry.path == currentBookPath
         return HStack(spacing: 8) {
             Image(
-                systemName: entry.url.hasDirectoryPath
+                systemName: entry.isDirectory
                     ? "folder"
-                    : sidePanelFileIconName(fileName: entry.url.lastPathComponent)
+                    : sidePanelFileIconName(fileName: entry.displayURL.lastPathComponent)
             )
             .frame(width: 16)
             .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
@@ -1107,8 +1109,12 @@ private struct SidePanelHistorySectionView: View {
         .contentShape(Rectangle())
         .background(isCurrent ? Color.accentColor.opacity(0.15) : Color.clear)
         // パスまで見せることで、同名の本が複数ある場合に見分けられるようにする。
-        .help(entry.url.path)
-        .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { onOpen(entry.url) }
+        .help(entry.path)
+        // 開く直前に初めてブックマークを解決する(解決できなければ履歴から取り除かれる)。
+        .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) {
+            guard let url = recentFiles.resolveForOpening(entry) else { return }
+            onOpen(url)
+        }
     }
 }
 

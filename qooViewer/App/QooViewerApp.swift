@@ -328,11 +328,16 @@ struct QooViewerApp: App {
                             // 同名のcbz/epubなど拡張子違いの同じ本を開いた履歴が並ぶと見分けが
                             // つかない(ユーザー報告)ため、上の「同じフォルダのファイルを開く」と
                             // 同様に拡張子バッジのプレーンテキスト版を末尾に付ける。
+                            // bookIDに渡すのはキャッシュ済みのパス。メニューを組み立てる
+                            // 時点でブックマークを解決してはいけない(それがメニュー描画を
+                            // 止めていた原因。RecentFilesStoreの型コメント参照)。解決は
+                            // 実際に選ばれた瞬間だけ行う。
                             Button(
-                                FormatBadgeView.plainTextTitle(baseName: entry.displayName, bookID: entry.url.path)
+                                FormatBadgeView.plainTextTitle(baseName: entry.displayName, bookID: entry.path)
                             ) {
-                                _ = entry.url.startAccessingSecurityScopedResource()
-                                openURLPreferringFocusedWindow(entry.url)
+                                guard let url = recentFiles.resolveForOpening(entry) else { return }
+                                _ = url.startAccessingSecurityScopedResource()
+                                openURLPreferringFocusedWindow(url)
                             }
                         }
                     }

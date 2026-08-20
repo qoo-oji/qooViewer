@@ -54,8 +54,12 @@ struct WelcomeView: View {
                         WelcomeQuickOpenList(
                             title: String(localized: "Recent Files"),
                             items: recentEntries.map { entry in
-                                WelcomeQuickOpenItem(id: entry.id, title: entry.displayName, bookID: entry.url.path) {
-                                    appState.open(url: entry.url)
+                                // bookIDはキャッシュ済みのパス。ここでブックマークを解決しては
+                                // いけない(RecentFilesStoreの型コメント参照)。解決するのは
+                                // 実際に選ばれた瞬間だけ。
+                                WelcomeQuickOpenItem(id: entry.id, title: entry.displayName, bookID: entry.path) {
+                                    guard let url = recentFiles.resolveForOpening(entry) else { return }
+                                    appState.open(url: url)
                                 }
                             }
                         )

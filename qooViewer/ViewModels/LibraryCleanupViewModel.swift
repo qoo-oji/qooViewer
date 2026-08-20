@@ -20,11 +20,19 @@ final class LibraryCleanupViewModel: ObservableObject {
     /// サンドボックス環境では、アクセス権を持たないパスに対する存在確認そのものが失敗しうる。
     /// 「無い」と「確認できない」を同じ表示にまとめてしまうと、外部ボリュームを外している
     /// だけの本を「消えた」と誤解して削除してしまうおそれがあるため、3値で区別する。
-    enum FileExistence {
+    enum FileExistence: Sendable {
         case exists
         case missing
         /// アクセス権が無く判定できない(外付けボリュームが未接続の場合などもここに入る)。
         case unknown
+        /// まだ確認できていない(非同期スキャンの結果待ち)。
+        ///
+        /// 実在判定はセキュリティスコープ付きブックマークの解決を伴い、対象が未接続の外付け/
+        /// ネットワークボリュームを指していると1件あたり秒単位ブロックしうる。以前はこれを
+        /// reload()の中で登録済みの全件ぶん同期実行しており、ウインドウを開いた瞬間に
+        /// メインスレッドが長時間止まっていた。現在はパス・件数などDBだけで分かる情報を先に
+        /// 表示し、実在判定はメインアクターの外で走らせて後から差し込む。その待ち状態がこれ。
+        case checking
     }
 
     /// 一覧の1行。
@@ -61,6 +69,8 @@ final class LibraryCleanupViewModel: ObservableObject {
 
     @Published private(set) var rows: [Row] = []
     @Published private(set) var totalRowCount = 0
+    /// 実在判定の非同期スキャンが進行中かどうか(ヘッダーに進捗表示を出すために使う)。
+    @Published private(set) var isCheckingExistence = false
     @Published var searchText: String = "" {
         didSet { guard oldValue != searchText else { return }; rebuildRows() }
     }
@@ -117,7 +127,10 @@ final class LibraryCleanupViewModel: ObservableObject {
                 Row(
                     bookID: bookID,
                     fileName: URL(fileURLWithPath: bookID).lastPathComponent,
-                    existence: existence(forBookID: bookID),
+                    // 実在判定はここでは行わない(下のscheduleExistenceScanが後から埋める)。
+                    // 既に判定済みならその結果を引き継ぎ、再スキャン中に表示が
+                    // 「確認中」へ巻き戻らないようにする。
+                    existence: existenceByBookID[bookID] ?? .checking,
                     favoriteCount: favoritesStore.favoriteCount(forBookID: bookID),
                     bookmarkCount: bookmarkStore.bookmarks(forBookID: bookID).count,
                     hasLayout: layoutStore.bookLayoutSettings(forBookID: bookID) != nil
@@ -131,6 +144,7 @@ final class LibraryCleanupViewModel: ObservableObject {
             .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
         totalRowCount = allRows.count
         rebuildRows()
+        scheduleExistenceScan(for: allRows.map(\.bookID))
     }
 
     private func rebuildRows() {
@@ -153,7 +167,74 @@ final class LibraryCleanupViewModel: ObservableObject {
         allRows.filter { $0.existence == .missing }.count
     }
 
-    // MARK: - 実在判定
+    // MARK: - 実在判定(非同期)
+
+    /// メインアクターの外へ渡す判定材料。SwiftDataのモデルはそのまま渡せないため、
+    /// メインアクターにいるうちにSendableな値へ写し取る。
+    private struct ExistenceProbe: Sendable {
+        let bookID: String
+        /// この本を指すセキュリティスコープ付きブックマークの候補(各ストアから集めた順)。
+        let bookmarkCandidates: [Data]
+        /// 環境設定「アクセス権」で許可済みのフォルダ配下かどうか。
+        let isPathCovered: Bool
+    }
+
+    /// bookIDごとの実在判定の結果。まだ判定できていないものは入っていない。
+    private var existenceByBookID: [String: FileExistence] = [:]
+
+    /// 実在判定を非同期に走らせる。DBから読める材料の収集だけをメインアクターで行い、
+    /// 重いブックマーク解決と存在確認はメインアクターの外で実行する。
+    private func scheduleExistenceScan(for bookIDs: [String]) {
+        let probes = bookIDs.map { bookID in
+            ExistenceProbe(
+                bookID: bookID,
+                bookmarkCandidates: [
+                    metadataStore.metadata(forBookID: bookID)?.bookmarkData,
+                    layoutStore.bookLayoutSettings(forBookID: bookID)?.bookmarkData,
+                    bookmarkStore.anyBookmarkData(forBookID: bookID),
+                    favoritesStore.anyBookmarkData(forBookID: bookID)
+                ].compactMap { $0 },
+                isPathCovered: folderAccess.isPathCovered(URL(fileURLWithPath: bookID))
+            )
+        }
+        guard !probes.isEmpty else { return }
+        isCheckingExistence = true
+        // [weak self]で受けたselfを、awaitをまたぐ前にguard letで強参照へ変換しておく
+        // (理由はRecentFilesStore.scheduleRefresh()の同種のコメント参照)。
+        Task.detached(priority: .utility) { [weak self] in
+            let result = Self.evaluateAll(probes)
+            guard let self else { return }
+            await self.applyExistence(result)
+        }
+    }
+
+    /// スキャン結果を一覧へ差し込む。
+    private func applyExistence(_ result: [String: FileExistence]) {
+        isCheckingExistence = false
+        existenceByBookID = result
+        allRows = allRows.map { row in
+            let resolved = result[row.bookID] ?? .unknown
+            guard row.existence != resolved else { return row }
+            return Row(
+                bookID: row.bookID,
+                fileName: row.fileName,
+                existence: resolved,
+                favoriteCount: row.favoriteCount,
+                bookmarkCount: row.bookmarkCount,
+                hasLayout: row.hasLayout,
+                hasMetadata: row.hasMetadata
+            )
+        }
+        rebuildRows()
+    }
+
+    private nonisolated static func evaluateAll(_ probes: [ExistenceProbe]) -> [String: FileExistence] {
+        var result: [String: FileExistence] = [:]
+        for probe in probes {
+            result[probe.bookID] = evaluate(probe)
+        }
+        return result
+    }
 
     /// 元のファイル/フォルダが今も存在するかどうかを判定する。
     ///
@@ -166,38 +247,29 @@ final class LibraryCleanupViewModel: ObservableObject {
     /// 3. どちらでもない場合、存在確認が成功すれば存在する(見えている以上は確実)。
     ///    失敗した場合は「無い」のか「アクセス権が無くて見えない」のか区別できないため、
     ///    .unknownとして扱う(誤って「消えた」と表示して削除を促さないため)。
-    private func existence(forBookID bookID: String) -> FileExistence {
-        if let url = resolveBookmarkURL(forBookID: bookID) {
+    ///
+    /// `nonisolated`にしてあるのは、この判定をメインアクターの外(scheduleExistenceScanの
+    /// Task.detached)で走らせるため。このプロジェクトの既定のアクター隔離はMainActorなので、
+    /// 明示しないとメインアクター限定になってしまう
+    /// (Services/ArchiveReading.swift冒頭のコメント参照)。
+    private nonisolated static func evaluate(_ probe: ExistenceProbe) -> FileExistence {
+        for data in probe.bookmarkCandidates {
+            var isStale = false
+            guard let url = try? URL(
+                resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            ) else { continue }
             let didAccess = url.startAccessingSecurityScopedResource()
             defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
             return FileManager.default.fileExists(atPath: url.path) ? .exists : .missing
         }
-
-        let url = URL(fileURLWithPath: bookID)
+        let url = URL(fileURLWithPath: probe.bookID)
         if FileManager.default.fileExists(atPath: url.path) { return .exists }
-        return folderAccess.isPathCovered(url) ? .missing : .unknown
+        return probe.isPathCovered ? .missing : .unknown
     }
 
-    /// この本を指すセキュリティスコープ付きブックマークを、各ストアから順に探して解決する。
-    /// どのストアも持っていなければnil。
-    private func resolveBookmarkURL(forBookID bookID: String) -> URL? {
-        let candidates: [Data?] = [
-            metadataStore.metadata(forBookID: bookID)?.bookmarkData,
-            layoutStore.bookLayoutSettings(forBookID: bookID)?.bookmarkData,
-            bookmarkStore.anyBookmarkData(forBookID: bookID),
-            favoritesStore.anyBookmarkData(forBookID: bookID)
-        ]
-        for case let data? in candidates {
-            var isStale = false
-            if let url = try? URL(
-                resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            ) {
-                return url
-            }
-        }
-        return nil
-    }
+    // MARK: - 実在判定
+
 
     // MARK: - 削除
 
