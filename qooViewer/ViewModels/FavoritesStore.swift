@@ -166,6 +166,9 @@ final class FavoritesStore: ObservableObject {
     private var volumeObservers: [NSObjectProtocol] = []
     /// 非同期の存在確認(scheduleExistenceRefresh)が実行中かどうか。
     private var isRefreshingExistence = false
+    /// 存在確認の実行中に、次の確認の要求が来たかどうか。要求を捨てずに1回ぶんだけ覚えておき、
+    /// 実行中のものが終わってから走らせる。
+    private var needsAnotherExistenceRefresh = false
 
     /// お気に入りの実体がまだ存在するかどうかのキャッシュ(FavoriteBook.id -> 存在するか)。
     ///
@@ -265,7 +268,12 @@ final class FavoritesStore: ObservableObject {
     /// 全お気に入りの実体確認を非同期に予約する。重い部分はメインアクターの外で走らせ、
     /// 結果の反映だけをメインアクターへ戻す。
     func scheduleExistenceRefresh() {
-        guard !isRefreshingExistence else { return }
+        guard !isRefreshingExistence else {
+            // 走行中に来た要求は捨てずに覚えておき、完了後にもう一度走らせる
+            // (理由はRecentFilesStore.scheduleRefresh()の同種のコメント参照)。
+            needsAnotherExistenceRefresh = true
+            return
+        }
         isRefreshingExistence = true
         // ここで読むのはSwiftDataのモデルなので、メインアクターにいるうちに
         // 「Sendableな値(UUIDとData)」へ写し取ってから外へ渡す。
@@ -289,6 +297,12 @@ final class FavoritesStore: ObservableObject {
 
     private func finishExistenceRefresh(_ result: [UUID: Bool]) {
         isRefreshingExistence = false
+        defer {
+            if needsAnotherExistenceRefresh {
+                needsAnotherExistenceRefresh = false
+                scheduleExistenceRefresh()
+            }
+        }
         // @Publishedは値が同じでも代入のたびに発火するため、変化したときだけ代入する。
         if result != existenceByFavoriteID {
             existenceByFavoriteID = result

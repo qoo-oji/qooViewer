@@ -89,6 +89,9 @@ final class RecentFilesStore: ObservableObject {
     /// 非同期の再検証(scheduleRefresh)が実行中かどうか。前回が終わらないうちに何本も
     /// 走らせないよう間引く。
     private var isRefreshing = false
+    /// 再検証の実行中に、次の再検証の要求が来たかどうか。要求を捨てずに1回ぶんだけ覚えておき、
+    /// 実行中のものが終わってから走らせる(scheduleRefresh/finishRefresh参照)。
+    private var needsAnotherRefresh = false
 
     init() {
         // 起動時はキャッシュから即座に一覧を作る(ここではファイルアクセスを一切行わない)。
@@ -184,15 +187,36 @@ final class RecentFilesStore: ObservableObject {
     /// 履歴の項目を実際に開くためのURLを解決する。**ここでだけ**セキュリティスコープ付き
     /// ブックマークの解決(重いディスクI/O)を行う。一覧の表示からは絶対に呼ばないこと。
     ///
-    /// 解決できなかった場合(実体が失われている場合)は、その項目を履歴から取り除いてnilを返す。
-    /// 以前はメニューを開くたびに全件の存在確認を行っていたが、その確認こそがメニュー描画を
-    /// 止める原因だったため、「実際に開こうとして初めて分かる」形に変えている。
+    /// 実体が失われている場合は、その項目を履歴から取り除いてnilを返す。以前はメニューを
+    /// 開くたびに全件の存在確認を行っていたが、その確認こそがメニュー描画を止める原因だった
+    /// ため、「実際に開こうとして初めて分かる」形に変えている。ここで確認するのは選ばれた
+    /// 1件だけなので、メニュー描画を止めることはない。
+    ///
+    /// バグ修正: 当初はブックマークの**解決に失敗した場合**だけ取り除いていたが、それでは
+    /// 削除済みのファイルが履歴に残り続けた。revalidate(_:)のコメントにもあるとおり、
+    /// ブックマークの解決自体は対象が削除されていても成功する場合があるためで、
+    /// 「解決はできる → 開こうとして失敗 → 履歴には残ったまま」という状態になっていた。
+    /// 解決に加えて実際の存在確認まで行い、どちらで落ちても取り除く。
     func resolveForOpening(_ entry: Entry) -> URL? {
-        guard let url = Self.resolvedURL(from: entry.bookmark) else {
+        guard let url = Self.resolvedURL(from: entry.bookmark), Self.fileExists(at: url) else {
             remove(entry)
             return nil
         }
         return url
+    }
+
+    /// セキュリティスコープを開いたうえで実体の有無を確認する。
+    /// 呼び出し側(resolveForOpening経由で本を開く側)が改めてstartAccessingSecurityScopedResource()を
+    /// 呼ぶが、start/stopは呼び出し回数で釣り合っていればよいため、ここで一時的に開いて閉じても
+    /// 問題ない(revalidate(_:)の中で行っているのと同じこと)。
+    private static func fileExists(at url: URL) -> Bool {
+        let didStartAccessing = url.startAccessingSecurityScopedResource()
+        defer {
+            if didStartAccessing {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        return FileManager.default.fileExists(atPath: url.path)
     }
 
     /// 指定の項目を履歴から取り除く。
@@ -229,8 +253,14 @@ final class RecentFilesStore: ObservableObject {
     /// キャッシュから@Publishedの一覧を作る。ファイルアクセスは行わない。
     private func publish(_ stored: [StoredEntry]) {
         // パスが空のもの(旧形式から移行した直後で、まだ解決できていないもの)は表示しない。
+        //
+        // 同じパスが2件出てこないようにもする。record(url:)の重複判定はキャッシュ済みのパス
+        // 同士の比較なので、パスが古いままの項目が残っている状態で同じ実体を開くと、
+        // 別々の項目として2件入りうる。その後の再検証で両方が同じ新しいパスへ更新されると、
+        // Entry.id(=path)が重複したままForEachへ渡ることになり、SwiftUIでは未定義の挙動になる。
+        var seenPaths: Set<String> = []
         let newEntries = stored
-            .filter { !$0.path.isEmpty }
+            .filter { !$0.path.isEmpty && seenPaths.insert($0.path).inserted }
             .map { Entry(path: $0.path, isDirectory: $0.isDirectory, bookmark: $0.bookmark) }
         // バグ修正(ユーザー報告): @Publishedは値が同じでも代入のたびにobjectWillChangeを
         // 発火する。メニューバーが開かれている最中に発火すると、SwiftUIがメニューバーを
@@ -254,7 +284,13 @@ final class RecentFilesStore: ObservableObject {
     /// 実体の存在確認とパスのキャッシュ更新を非同期に予約する。重い部分(revalidate)だけを
     /// メインアクターの外で走らせ、一覧への反映はメインアクターへ戻してから行う。
     private func scheduleRefresh() {
-        guard !isRefreshing else { return }
+        guard !isRefreshing else {
+            // 走行中に来た要求は捨てずに覚えておき、完了後にもう一度走らせる。
+            // 以前はここで単に捨てていたため、再検証の最中に外付けドライブをマウントすると、
+            // 次にアプリがアクティブになるまで一覧が古いままだった。
+            needsAnotherRefresh = true
+            return
+        }
         isRefreshing = true
         let snapshot = loadStored()
         guard !snapshot.isEmpty else {
@@ -273,14 +309,27 @@ final class RecentFilesStore: ObservableObject {
     }
 
     /// revalidate()の結果をメインアクター上で反映し、多重起動の抑止を解除する。
+    /// 走行中に来ていた要求(needsAnotherRefresh)があれば、最後にもう一度走らせる。
     private func finishRefresh(_ refreshed: [StoredEntry], snapshot: [StoredEntry]) {
-        defer { isRefreshing = false }
+        isRefreshing = false
+        defer {
+            if needsAnotherRefresh {
+                needsAnotherRefresh = false
+                scheduleRefresh()
+            }
+        }
         // 再検証はメインアクターの外で走るため、その最中にrecord(url:)が新しい履歴を保存して
         // いることがありうる。その場合に古い結果を書き戻すと、いま追加したばかりの履歴を
         // 消してしまうため、開始時点と保存内容(ブックマークの並び)が変わっていないときだけ
         // 反映する。パスではなくブックマークで比べるのは、旧形式からの移行(パスが空→解決済み)
         // でも同一と判定できるようにするため。
-        guard loadStored().map(\.bookmark) == snapshot.map(\.bookmark) else { return }
+        //
+        // 捨てた場合はやり直しを予約する。そうしないと、この一度の取りこぼしがそのまま
+        // 「次にアプリがアクティブになるまで検証されない」ことになる。
+        guard loadStored().map(\.bookmark) == snapshot.map(\.bookmark) else {
+            needsAnotherRefresh = true
+            return
+        }
 
         var result = refreshed
         if result.count > maxCount {
