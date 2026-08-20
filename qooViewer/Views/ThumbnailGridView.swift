@@ -12,70 +12,109 @@ import Combine
 /// (ViewerView.applySheets/mainZStackのコメント参照)、閉じる操作は`@Environment(\.dismiss)`
 /// ではなく`isPresented`(呼び出し元のshowThumbnailGrid)を直接falseにする形にしている。
 ///
-/// パネル自体の大きさは、以前のシートと同じく5列表示に必要な幅(gridWidth)だけに留め、
-/// ビューア画面いっぱいには広げない(ユーザー要望: 以前のシートのように、5列表示に必要な
-/// 幅だけのオーバーレイにしたい)。ビューア画面いっぱいを覆う透明な背景レイヤーは、この
-/// ビュー自身ではなくViewerView.mainZStack側(ThumbnailGridBackdropView)が担当し、
-/// 「パネルの外側=ビューア画面のどこをクリックしても閉じる」を実現している。
+/// パネル自体の大きさは、以前は5列表示に必要な幅だけに留めていた(ユーザー要望)が、その後の
+/// 要望(サムネイルのサイズを変えたい・パネルまでの余白を設定したい)により、画像表示領域から
+/// 環境設定の余白(上下・左右の%)を引いた大きさになった(bodyのコメント参照)。ビューア画面
+/// いっぱいを覆う透明な背景レイヤーは、このビュー自身ではなくViewerView.mainZStack側
+/// (ThumbnailGridBackdropView)が担当し、「パネルの外側=ビューア画面のどこをクリックしても
+/// 閉じる」を実現している。
 struct ThumbnailGridView: View {
     @ObservedObject var viewModel: ViewerViewModel
     @Binding var isPresented: Bool
 
-    /// ユーザー要望: 列数がウインドウ幅に応じて変わる(.adaptive)と、リサイズのたびに
-    /// 折り返し位置が変わって「さっきまであったページがどこに行ったか分からなくなる」ため、
-    /// 常に5列で固定表示してほしいとのこと。以前は`GridItem(.adaptive(minimum: 120), spacing: 10)`
-    /// (1要素だけをLazyVGridのcolumns:に渡し、幅に応じて列数が自動計算される書き方)だった。
-    /// セル自体のサイズ・間隔(120x120、spacing 10)はそのまま維持し、列数だけを5に固定する。
-    private static let columnCount = 5
-    private static let cellSize: CGFloat = 120
-    private static let cellSpacing: CGFloat = 10
-    private static let contentPadding: CGFloat = 16
-    /// パネル全体の幅。5列ぶんのセル・列間隔・左右の余白から算出する(ユーザー要望:
-    /// 5列表示に必要な幅だけのオーバーレイにしたい。この幅を超えて広がらないようにする)。
-    private static let panelWidth: CGFloat =
-        CGFloat(columnCount) * cellSize + CGFloat(columnCount - 1) * cellSpacing + contentPadding * 2
+    /// パネル本体(背景のマテリアルを持つ矩形)のスクリーン座標系でのフレームを報告する。
+    /// ViewerViewが「パネルの外側をクリックしたら閉じる」判定に使う。以前はViewerView側で
+    /// このビュー全体の.backgroundとして取っていたが、パネルが余白を含む領域いっぱいに
+    /// 広がる構成(bodyのGeometryReader参照)になったため、パネル本体に直接付ける必要がある。
+    var onPanelScreenFrameChange: (CGRect) -> Void = { _ in }
+    @EnvironmentObject private var preferences: AppPreferences
 
-    private let columns = Array(
-        repeating: GridItem(.flexible(), spacing: cellSpacing), count: columnCount
-    )
+    private static let contentPadding: CGFloat = 16
+
+    /// 利用できる幅に何列入るか。サムネイルのサイズと横の間隔(どちらも環境設定)から決める。
+    ///
+    /// 経緯: 最初は`GridItem(.adaptive(minimum: 120))`で幅に応じた自動列数、次にユーザー要望で
+    /// 「リサイズのたびに折り返し位置が変わって迷う」ため5列×120pt固定(パネル幅もそこから逆算)
+    /// になり、その後さらに「サムネイルのサイズをスライダーで変えたい。段数はそれに合わせて
+    /// 自動で変わってほしい」という要望で現在の形になった。列数はサイズ・間隔・パネル幅
+    /// (=画像表示領域から環境設定の余白を引いたもの)から決まるので、ウインドウをリサイズ
+    /// すれば変わりうる点は、2番目の要望と相反するが、3番目の要望を優先した。
+    private func columnCount(forPanelWidth width: CGFloat) -> Int {
+        let cell = CGFloat(preferences.thumbnailGridCellSize)
+        let spacing = CGFloat(preferences.thumbnailGridHorizontalSpacing)
+        let available = width - Self.contentPadding * 2
+        return max(1, Int(((available + spacing) / (cell + spacing)).rounded(.down)))
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            (Text("Page List (Total ") + Text("\(viewModel.pageCount)") + Text(" pages)"))
-                .font(.headline)
+        // パネルの大きさは「画像表示領域から、環境設定の余白(上下・左右それぞれ片側の%)を
+        // 引いた残り」。列数はその幅から自動で決まる(columnCount(forPanelWidth:))。
+        // このビュー自身は画像表示領域いっぱいに広がり、パネル本体をその中央に置く。
+        GeometryReader { geometry in
+            let hMargin = geometry.size.width * CGFloat(preferences.thumbnailGridHorizontalMarginPercent) / 100
+            let vMargin = geometry.size.height * CGFloat(preferences.thumbnailGridVerticalMarginPercent) / 100
+            let panelWidth = max(geometry.size.width - hMargin * 2, 120)
+            let panelHeight = max(geometry.size.height - vMargin * 2, 120)
+            let cell = CGFloat(preferences.thumbnailGridCellSize)
+            let hSpacing = CGFloat(preferences.thumbnailGridHorizontalSpacing)
+            let count = columnCount(forPanelWidth: panelWidth)
+            let columns = Array(repeating: GridItem(.fixed(cell), spacing: hSpacing), count: count)
+            // 固定幅の列はLazyVGridの先頭(左)から詰められるので、グリッド自体の幅を列数ぶんに
+            // 絞ってから中央に置く(そうしないと右側だけ余る)。
+            let gridWidth = CGFloat(count) * cell + CGFloat(max(count - 1, 0)) * hSpacing
+
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    (Text("Page List (Total ") + Text("\(viewModel.pageCount)") + Text(" pages)"))
+                        .font(.headline)
+                    Spacer(minLength: 8)
+                    // サムネイルのサイズをその場で変えるスライダー(ユーザー要望)。値は環境設定と
+                    // 共通(AppPreferences.thumbnailGridCellSize)なので、次回以降も引き継がれる。
+                    Image(systemName: "photo")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                    Slider(
+                        value: $preferences.thumbnailGridCellSize,
+                        in: AppPreferences.thumbnailGridCellSizeRange
+                    )
+                    .frame(width: 140)
+                    .controlSize(.small)
+                    .accessibilityLabel(Text("Thumbnail Size"))
+                    Image(systemName: "photo")
+                        .font(.system(size: 16))
+                        .foregroundStyle(.secondary)
+                }
                 .padding()
 
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: Self.cellSpacing) {
-                    ForEach(0..<viewModel.pageCount, id: \.self) { index in
-                        Button {
-                            viewModel.jump(toPageIndex: index)
-                            isPresented = false
-                        } label: {
-                            ThumbnailCell(viewModel: viewModel, index: index, isCurrent: index == viewModel.currentIndex)
+                ScrollView {
+                    LazyVGrid(columns: columns, spacing: CGFloat(preferences.thumbnailGridVerticalSpacing)) {
+                        ForEach(0..<viewModel.pageCount, id: \.self) { index in
+                            Button {
+                                viewModel.jump(toPageIndex: index)
+                                isPresented = false
+                            } label: {
+                                ThumbnailCell(
+                                    viewModel: viewModel, index: index, isCurrent: index == viewModel.currentIndex,
+                                    cellSize: cell
+                                )
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
+                    .frame(width: gridWidth)
+                    .frame(maxWidth: .infinity)
+                    .padding(Self.contentPadding)
                 }
-                .padding(Self.contentPadding)
             }
-        }
-        // ユーザー要望: 横方向は5列表示に必要な幅だけに留めつつ、縦方向はウインドウいっぱいを
-        // 使いたい。幅は固定(panelWidth)、高さはmaxHeight: .infinityで親(ThumbnailGridBackdropView
-        // と同じZStack)の高さいっぱいまで伸ばす。
-        .frame(width: Self.panelWidth)
-        .frame(maxHeight: .infinity)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .shadow(color: .black.opacity(0.3), radius: 16, y: 8)
-        // パネル自身の背景(タイトル部分やサムネイル間の余白)をクリックしても閉じるようにする。
-        // 各サムネイルは独立したButtonのため、そちらのタップは(SwiftUIの通常のヒットテスト
-        // 優先順位により)このジェスチャーより優先され、意図せず同時に閉じてしまうことはない。
-        // .contentShape(Rectangle())で、余白部分(何も描画されていない領域)も含めた
-        // フレーム全体をタップ判定の対象にする。パネルの外側(ビューア画面)のクリックは
-        // ThumbnailGridBackdropView側が別途処理する。
-        .contentShape(Rectangle())
-        .onTapGesture {
-            isPresented = false
+            .frame(width: panelWidth, height: panelHeight)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .shadow(color: .black.opacity(0.3), radius: 16, y: 8)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                isPresented = false
+            }
+            .background(PanelScreenFrameAccessor(onChange: onPanelScreenFrameChange))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
@@ -107,6 +146,9 @@ private struct ThumbnailCell: View {
     let viewModel: ViewerViewModel
     let index: Int
     let isCurrent: Bool
+    /// サムネイル枠の一辺(pt)。AppPreferences.thumbnailGridCellSize(以前は120固定)。
+    let cellSize: CGFloat
+    @EnvironmentObject private var preferences: AppPreferences
     @State private var image: CGImage?
 
     /// カーソルが小さいサムネイルの上にあるかどうか。拡大プレビュー用のpopoverの表示制御に使う
@@ -120,7 +162,6 @@ private struct ThumbnailCell: View {
     @State private var hoverPreviewTask: Task<Void, Never>?
     /// ホバー開始から実際にpopoverを出すまでの遅延(ナノ秒)。BookmarkListView.PageRowViewの
     /// hoverPreviewDelayNanosecondsと同じ値(350ms)を使う。
-    private static let hoverPreviewDelayNanoseconds: UInt64 = 350_000_000
 
     var body: some View {
         VStack(spacing: 4) {
@@ -135,7 +176,7 @@ private struct ThumbnailCell: View {
                     ProgressView().controlSize(.small)
                 }
             }
-            .frame(width: 120, height: 120)
+            .frame(width: cellSize, height: cellSize)
             .overlay(
                 RoundedRectangle(cornerRadius: 4)
                     .stroke(isCurrent ? Color.accentColor : Color.clear, lineWidth: 3)
@@ -145,9 +186,11 @@ private struct ThumbnailCell: View {
             // 一定時間(hoverPreviewDelayNanoseconds)ホバーし続けた場合にだけ表示する。
             .onHover { hovering in
                 hoverPreviewTask?.cancel()
-                if hovering {
+                // ON/OFF(showThumbnailHoverPreview)はページ一覧だけに効く設定。遅延
+                // (thumbnailHoverPreviewDelay)はサイドパネル等の同種のプレビューと共通。
+                if hovering, preferences.showThumbnailHoverPreview {
                     hoverPreviewTask = Task {
-                        try? await Task.sleep(nanoseconds: Self.hoverPreviewDelayNanoseconds)
+                        try? await Task.sleep(nanoseconds: preferences.thumbnailHoverPreviewDelayNanoseconds)
                         guard !Task.isCancelled else { return }
                         isHoveringThumbnail = true
                     }
@@ -167,6 +210,13 @@ private struct ThumbnailCell: View {
         }
         .task(id: index) {
             image = await viewModel.loadThumbnail(at: index)
+            // 環境設定「表示中のサムネイルの拡大画像を先読み」: 見えているセルの原寸画像を
+            // 先にデコードしておく(PageLoaderのメモリキャッシュに載るので、プレビューが即座に
+            // 出る)。LazyVGridは画面内のセルしか作らないため「表示中」に自然と限定される。
+            if preferences.preloadThumbnailGridPreviews, preferences.showThumbnailHoverPreview,
+               previewImage == nil, !Task.isCancelled {
+                previewImage = await viewModel.pageImage(at: index)
+            }
         }
     }
 

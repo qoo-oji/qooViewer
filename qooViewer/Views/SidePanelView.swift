@@ -1282,7 +1282,10 @@ private struct SidePanelPageCell: View {
     @State private var hoverPreviewTask: Task<Void, Never>?
     /// ホバー開始から実際にpopoverを出すまでの遅延(ナノ秒)。ThumbnailGridView.ThumbnailCell /
     /// BookmarkListView.PageRowViewのhoverPreviewDelayNanosecondsと同じ値(350ms)を使う。
-    private static let hoverPreviewDelayNanoseconds: UInt64 = 350_000_000
+    /// 遅延は環境設定(AppPreferences.thumbnailHoverPreviewDelay)。ON/OFFの設定はページ一覧
+    /// 専用で、ここには効かせない(サイズ調整の無いサムネイルでは、拡大が無いと何のページか
+    /// 分からなくなるため。ユーザー指示)。
+    @EnvironmentObject private var preferences: AppPreferences
     /// 拡大プレビューの一辺。ページ一覧グリッド・「ブックマーク・レイアウトの編集」ウインドウの
     /// 拡大プレビューと揃える(ユーザー要望)。
     private static let previewSize: CGFloat = 440
@@ -1322,7 +1325,7 @@ private struct SidePanelPageCell: View {
                 hoverPreviewTask?.cancel()
                 if hovering, loadPageImage != nil {
                     hoverPreviewTask = Task {
-                        try? await Task.sleep(nanoseconds: Self.hoverPreviewDelayNanoseconds)
+                        try? await Task.sleep(nanoseconds: preferences.thumbnailHoverPreviewDelayNanoseconds)
                         guard !Task.isCancelled else { return }
                         isHoveringThumbnail = true
                     }

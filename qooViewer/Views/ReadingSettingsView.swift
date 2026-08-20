@@ -40,6 +40,83 @@ struct ReadingSettingsView: View {
                 Text("Progress Bar")
             }
 
+            // ページ一覧(サムネイルグリッド)。ユーザー要望: サイズ・間隔・余白を調整したい。
+            // サイズはパネル上部のスライダーと同じ値(その場で変えたいときはそちら)。
+            Section {
+                SettingsSlider(
+                    "Thumbnail Size",
+                    value: $preferences.thumbnailGridCellSize,
+                    in: AppPreferences.thumbnailGridCellSizeRange,
+                    step: 10
+                ) { value in
+                    "\(Int(value)) pt"
+                }
+                SettingsSlider(
+                    "Horizontal Spacing",
+                    value: $preferences.thumbnailGridHorizontalSpacing,
+                    in: AppPreferences.thumbnailGridSpacingRange,
+                    step: 2
+                ) { value in
+                    "\(Int(value)) pt"
+                }
+                SettingsSlider(
+                    "Vertical Spacing",
+                    value: $preferences.thumbnailGridVerticalSpacing,
+                    in: AppPreferences.thumbnailGridSpacingRange,
+                    step: 2
+                ) { value in
+                    "\(Int(value)) pt"
+                }
+                SettingsSlider(
+                    "Side Margins",
+                    value: $preferences.thumbnailGridHorizontalMarginPercent,
+                    in: AppPreferences.thumbnailGridMarginPercentRange,
+                    step: 1,
+                    help: "Percentage of the viewer area left empty on each side of the page list. The number of columns is calculated from the remaining width, the thumbnail size, and the spacing."
+                ) { value in
+                    "\(Int(value))%"
+                }
+                SettingsSlider(
+                    "Top and Bottom Margins",
+                    value: $preferences.thumbnailGridVerticalMarginPercent,
+                    in: AppPreferences.thumbnailGridMarginPercentRange,
+                    step: 1
+                ) { value in
+                    "\(Int(value))%"
+                }
+            } header: {
+                Text("Page List")
+            }
+
+            // サムネイルのホバー拡大プレビュー(ページ一覧・サイドパネル・ブックマーク編集・
+            // 書き出しウインドウ共通)。ユーザー要望: 出るまでを速くしたい/出ないようにしたい。
+            Section {
+                // ON/OFFはページ一覧だけ(ユーザー指示: サイドパネルやブックマーク編集のサムネイルは
+                // サイズ調整が無く、拡大が無いと何のページか分からなくなる)。遅延は全箇所共通。
+                SettingsToggle(
+                    "Show a Larger Preview on Hover",
+                    isOn: $preferences.showThumbnailHoverPreview,
+                    help: "Applies to the page list only."
+                )
+                SettingsSlider(
+                    "Delay Before Showing",
+                    value: $preferences.thumbnailHoverPreviewDelay,
+                    in: AppPreferences.thumbnailHoverPreviewDelayRange,
+                    step: 0.05,
+                    help: "Applies to thumbnails in the page list, the side panel's page mode, the bookmark editor, and the export windows."
+                ) { value in
+                    String(format: "%.2f s", value)
+                }
+                SettingsToggle(
+                    "Preload Previews for Visible Thumbnails",
+                    isOn: $preferences.preloadThumbnailGridPreviews,
+                    help: "In the page list, decodes the full-size image of every thumbnail on screen in advance so the preview appears immediately. Uses more memory and CPU."
+                )
+                .disabled(!preferences.showThumbnailHoverPreview)
+            } header: {
+                Text("Thumbnail Preview")
+            }
+
             Section {
                 SettingsSlider(
                     "Interval",

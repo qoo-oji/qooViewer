@@ -2098,7 +2098,10 @@ private struct PageRowView: View {
     /// ホバー開始から実際にpopoverを出すまでの遅延用タスク(bodyの.onHoverのコメント参照)。
     @State private var hoverPreviewTask: Task<Void, Never>?
     /// ホバー開始から実際にpopoverを出すまでの遅延(ナノ秒)。
-    private static let hoverPreviewDelayNanoseconds: UInt64 = 350_000_000
+    /// 遅延は環境設定(AppPreferences.thumbnailHoverPreviewDelay)。ON/OFFの設定はページ一覧
+    /// 専用で、ここには効かせない(サイズ調整の無いサムネイルでは、拡大が無いと何のページか
+    /// 分からなくなるため。ユーザー指示)。
+    @EnvironmentObject private var preferences: AppPreferences
     /// ブックマーク名のシングル/ダブルクリック識別(自前実装)用、直近のクリック時刻。
     /// selectableContent内のブックマーク列のコメント参照。
     @State private var lastBookmarkNameTapDate: Date?
@@ -2241,7 +2244,7 @@ private struct PageRowView: View {
                 hoverPreviewTask?.cancel()
                 if hovering {
                     hoverPreviewTask = Task {
-                        try? await Task.sleep(nanoseconds: Self.hoverPreviewDelayNanoseconds)
+                        try? await Task.sleep(nanoseconds: preferences.thumbnailHoverPreviewDelayNanoseconds)
                         guard !Task.isCancelled else { return }
                         isHoveringThumbnail = true
                     }

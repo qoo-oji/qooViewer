@@ -46,6 +46,14 @@ final class AppPreferences: ObservableObject {
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
         static let showRecentFilesOnWelcome = "qooViewer.pref.showRecentFilesOnWelcome"
         static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
+        static let thumbnailGridCellSize = "qooViewer.pref.thumbnailGridCellSize"
+        static let thumbnailGridHorizontalSpacing = "qooViewer.pref.thumbnailGridHorizontalSpacing"
+        static let thumbnailGridVerticalSpacing = "qooViewer.pref.thumbnailGridVerticalSpacing"
+        static let thumbnailGridHorizontalMarginPercent = "qooViewer.pref.thumbnailGridHorizontalMarginPercent"
+        static let thumbnailGridVerticalMarginPercent = "qooViewer.pref.thumbnailGridVerticalMarginPercent"
+        static let showThumbnailHoverPreview = "qooViewer.pref.showThumbnailHoverPreview"
+        static let thumbnailHoverPreviewDelay = "qooViewer.pref.thumbnailHoverPreviewDelay"
+        static let preloadThumbnailGridPreviews = "qooViewer.pref.preloadThumbnailGridPreviews"
         static let defaultReadingDirection = "qooViewer.pref.defaultReadingDirection"
         static let spreadBookmarkTargetBehavior = "qooViewer.pref.spreadBookmarkTargetBehavior"
     }
@@ -347,6 +355,59 @@ final class AppPreferences: ObservableObject {
             UserDefaults.standard.set(showRecentFavoritesOnWelcome, forKey: Keys.showRecentFavoritesOnWelcome)
         }
     }
+
+    // MARK: - ページ一覧(サムネイルグリッド)。ユーザー要望: サイズ・間隔・余白を調整したい
+
+    /// ページ一覧のサムネイル1枚の大きさ(pt、正方形の一辺)。パネル上部のスライダーと
+    /// 環境設定「閲覧中の動作」の両方から同じ値を変える。以前は120pt固定だった。
+    @Published var thumbnailGridCellSize: Double {
+        didSet { UserDefaults.standard.set(thumbnailGridCellSize, forKey: Keys.thumbnailGridCellSize) }
+    }
+    static let thumbnailGridCellSizeRange: ClosedRange<Double> = 80...320
+    /// サムネイル同士の横の間隔(pt)。
+    @Published var thumbnailGridHorizontalSpacing: Double {
+        didSet { UserDefaults.standard.set(thumbnailGridHorizontalSpacing, forKey: Keys.thumbnailGridHorizontalSpacing) }
+    }
+    /// サムネイル同士の縦の間隔(pt)。
+    @Published var thumbnailGridVerticalSpacing: Double {
+        didSet { UserDefaults.standard.set(thumbnailGridVerticalSpacing, forKey: Keys.thumbnailGridVerticalSpacing) }
+    }
+    static let thumbnailGridSpacingRange: ClosedRange<Double> = 0...40
+    /// パネルの左右に残す余白(画像表示領域の幅に対する片側の%)。列数は残りの幅から自動で決まる。
+    @Published var thumbnailGridHorizontalMarginPercent: Double {
+        didSet { UserDefaults.standard.set(thumbnailGridHorizontalMarginPercent, forKey: Keys.thumbnailGridHorizontalMarginPercent) }
+    }
+    /// パネルの上下に残す余白(画像表示領域の高さに対する片側の%)。
+    @Published var thumbnailGridVerticalMarginPercent: Double {
+        didSet { UserDefaults.standard.set(thumbnailGridVerticalMarginPercent, forKey: Keys.thumbnailGridVerticalMarginPercent) }
+    }
+    static let thumbnailGridMarginPercentRange: ClosedRange<Double> = 0...40
+
+    // MARK: - サムネイルのホバー拡大プレビュー(ページ一覧・サイドパネル・ブックマーク編集・書き出し共通)
+
+    /// ページ一覧のサムネイルにカーソルを合わせたとき拡大プレビュー(ポップオーバー)を出すか。
+    /// OFFにしたい、というユーザー要望。**ページ一覧だけ**に効く。サイドパネルのページモード・
+    /// ブックマーク編集・書き出しウインドウの同種のプレビューには効かせない(それらのサムネイルは
+    /// サイズ調整が無く、拡大が無いと何のページか分からなくなるため。ユーザー指示)。
+    @Published var showThumbnailHoverPreview: Bool {
+        didSet { UserDefaults.standard.set(showThumbnailHoverPreview, forKey: Keys.showThumbnailHoverPreview) }
+    }
+    /// ホバー開始からプレビューを出すまでの時間(秒)。こちらはページ一覧・サイドパネル・
+    /// ブックマーク編集・書き出しウインドウのすべてで共通。以前は各所で350msの定数をコピー
+    /// していた(通り抜けるだけの動きで次々開くのを避けるための遅延。0でも可)。
+    @Published var thumbnailHoverPreviewDelay: Double {
+        didSet { UserDefaults.standard.set(thumbnailHoverPreviewDelay, forKey: Keys.thumbnailHoverPreviewDelay) }
+    }
+    static let thumbnailHoverPreviewDelayRange: ClosedRange<Double> = 0...1
+    /// 上の遅延をTask.sleep用のナノ秒で返す。
+    var thumbnailHoverPreviewDelayNanoseconds: UInt64 {
+        UInt64(max(thumbnailHoverPreviewDelay, 0) * 1_000_000_000)
+    }
+    /// ページ一覧で、画面に見えているサムネイルの原寸画像を裏で先にデコードしておくか
+    /// (プレビューを即座に出すため。メモリとCPUを多く使うので既定OFF)。
+    @Published var preloadThumbnailGridPreviews: Bool {
+        didSet { UserDefaults.standard.set(preloadThumbnailGridPreviews, forKey: Keys.preloadThumbnailGridPreviews) }
+    }
     /// 新しい本を初めて開いたときの、読み方向の既定値(設計コンセプト11.1節)。
     ///
     /// 以前は`BookReadingState.init`のデフォルト引数として無条件に右開き(RTL)固定になっていたが、
@@ -434,6 +495,19 @@ final class AppPreferences: ObservableObject {
             defaults.object(forKey: Keys.showRecentFilesOnWelcome) as? Bool ?? true
         self.showRecentFavoritesOnWelcome =
             defaults.object(forKey: Keys.showRecentFavoritesOnWelcome) as? Bool ?? true
+        self.thumbnailGridCellSize = defaults.object(forKey: Keys.thumbnailGridCellSize) as? Double ?? 120
+        self.thumbnailGridHorizontalSpacing =
+            defaults.object(forKey: Keys.thumbnailGridHorizontalSpacing) as? Double ?? 10
+        self.thumbnailGridVerticalSpacing =
+            defaults.object(forKey: Keys.thumbnailGridVerticalSpacing) as? Double ?? 10
+        self.thumbnailGridHorizontalMarginPercent =
+            defaults.object(forKey: Keys.thumbnailGridHorizontalMarginPercent) as? Double ?? 10
+        self.thumbnailGridVerticalMarginPercent =
+            defaults.object(forKey: Keys.thumbnailGridVerticalMarginPercent) as? Double ?? 5
+        self.showThumbnailHoverPreview = defaults.object(forKey: Keys.showThumbnailHoverPreview) as? Bool ?? true
+        self.thumbnailHoverPreviewDelay = defaults.object(forKey: Keys.thumbnailHoverPreviewDelay) as? Double ?? 0.35
+        self.preloadThumbnailGridPreviews =
+            defaults.object(forKey: Keys.preloadThumbnailGridPreviews) as? Bool ?? false
 
         if let storedRaw = defaults.string(forKey: Keys.defaultReadingDirection),
            let stored = ReadingDirection(rawValue: storedRaw) {

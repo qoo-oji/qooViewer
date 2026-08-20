@@ -928,16 +928,18 @@ struct ViewerView: View {
             if showThumbnailGrid {
                 ZStack {
                     ThumbnailGridBackdropView(isPresented: $showThumbnailGrid)
-                    ThumbnailGridView(viewModel: viewModel, isPresented: $showThumbnailGrid)
-                        // ユーザー要望: パネルの外側であれば、このウインドウの内側に限らず
-                        // タイトルバー・メニューバー・他のウインドウ・他のアプリを含めどこを
-                        // クリックしても閉じるようにしたい。そのためにパネル自身の現在の
-                        // スクリーン座標系でのフレームを常に把握しておく必要があり、
-                        // ここで.backgroundとして重ねて報告を受け取る(thumbnailPanelScreenFrame/
-                        // installThumbnailGridOutsideClickMonitorsIfNeeded参照)。
-                        .background(
-                            PanelScreenFrameAccessor { thumbnailPanelScreenFrame = $0 }
-                        )
+                    // ユーザー要望: パネルの外側であれば、このウインドウの内側に限らず
+                    // タイトルバー・メニューバー・他のウインドウ・他のアプリを含めどこを
+                    // クリックしても閉じるようにしたい。そのためにパネル自身の現在の
+                    // スクリーン座標系でのフレームを常に把握しておく必要があり、パネル本体の
+                    // .backgroundに重ねたPanelScreenFrameAccessorから報告を受け取る
+                    // (thumbnailPanelScreenFrame/installThumbnailGridOutsideClickMonitorsIfNeeded参照)。
+                    // 以前はここでThumbnailGridView全体の.backgroundとして取っていたが、
+                    // パネルの大きさが環境設定の余白から決まる構成(ThumbnailGridView.body参照)に
+                    // なり、このビューの外形は画像表示領域いっぱいになったため、パネル本体側へ移した。
+                    ThumbnailGridView(viewModel: viewModel, isPresented: $showThumbnailGrid) {
+                        thumbnailPanelScreenFrame = $0
+                    }
                 }
                 .transition(.opacity)
                 .zIndex(2)
@@ -4023,7 +4025,8 @@ private final class PageAreaFrameReportingView: NSView {
 /// 考え方だが、ウインドウ座標系ではなくスクリーン座標系まで変換する点が異なる
 /// (ページ一覧パネルの外側クリックを、このウインドウの外(タイトルバー・他のウインドウ・
 /// 他のアプリ)からも検知したいため。installThumbnailGridOutsideClickMonitorsIfNeeded参照)。
-private struct PanelScreenFrameAccessor: NSViewRepresentable {
+/// ThumbnailGridViewからも使うためprivateにしていない。
+struct PanelScreenFrameAccessor: NSViewRepresentable {
     let onChange: (CGRect) -> Void
 
     func makeNSView(context: Context) -> NSView {
