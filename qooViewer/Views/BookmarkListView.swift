@@ -1545,7 +1545,9 @@ private struct BookmarkDetailPane: View {
             // 直接操作するため除外ページがあっても問題なく動作しており、ドラッグだけ使えないのは
             // 不自然だというユーザー報告を受けて、movePages(displayedPageKeys:fromOffsets:
             // toOffset:)側でインデックス空間の変換を行うように修正し、この制限を外した。
-            .moveDisabled(pageFilter != .all)
+            // 並べ替えの保存にはMangaBookが必要なため、本体の読み込みが終わるまでは
+            // ドラッグでの並べ替えも無効にする(viewModel.isBookReadyのコメント参照)。
+            .moveDisabled(pageFilter != .all || !viewModel.isBookReady)
         }
         // バグ修正: 既定のList見た目(inset系)は、タイトル行(columnHeaderRow)との間に
         // 余分な上下の余白を持ち込み、隙間が広く見えていた(ユーザー報告)。.plainにすることで
@@ -1572,7 +1574,7 @@ private struct BookmarkDetailPane: View {
                     } label: {
                         Image(systemName: "chevron.up")
                     }
-                    .disabled(selectedPageKey == nil)
+                    .disabled(selectedPageKey == nil || !viewModel.isBookReady)
                     .help("Move Selected Page Earlier")
 
                     Button {
@@ -1580,7 +1582,7 @@ private struct BookmarkDetailPane: View {
                     } label: {
                         Image(systemName: "chevron.down")
                     }
-                    .disabled(selectedPageKey == nil)
+                    .disabled(selectedPageKey == nil || !viewModel.isBookReady)
                     .help("Move Selected Page Later")
 
                     Group {
@@ -1600,6 +1602,9 @@ private struct BookmarkDetailPane: View {
                         .labelsHidden()
                         .pickerStyle(.menu)
                         .fixedSize()
+                        // 読み方向の上書きの保存にはMangaBookが必要なため、本体の読み込みが
+                        // 終わるまでは操作させない(viewModel.isBookReadyのコメント参照)。
+                        .disabled(!viewModel.isBookReady)
                     }
 
                     // 4.4節: 「一括リネーム」「表示順を初期化」「ブックマークを全削除」
@@ -1646,11 +1651,21 @@ private struct BookmarkDetailPane: View {
                         Button("Reset Page Order") {
                             viewModel.resetOrder()
                         }
-                        .disabled(layoutStore.bookLayoutSettings(forBookID: bookID)?.pageOrderOverride == nil)
+                        .disabled(
+                            layoutStore.bookLayoutSettings(forBookID: bookID)?.pageOrderOverride == nil
+                                || !viewModel.isBookReady
+                        )
                     } label: {
                         Label("Bulk Operations…", systemImage: "ellipsis.circle")
                     }
                     .menuStyle(.button)
+
+                    // ページ一覧のキャッシュだけで先に描画している間の表示。本体の読み込みが
+                    // 終わるとサムネイルが埋まり、レイアウト変更・並べ替えも操作できるようになる。
+                    if !viewModel.isBookReady {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
 
                     Spacer()
 
@@ -2191,7 +2206,12 @@ private struct PageRowView: View {
             // 既に検知してonJump()を呼ぶため、実質的に不要な重複だった。この位置にクリック回数2の
             // ジェスチャーが同居しているだけで、行選択(onSelect)のハイライト表示にもラグが
             // 生じていたため削除した(ジャンプ自体は行全体側の判定で引き続き機能する)。
-            .task(id: row.pageKey) {
+            // idにpageLoaderGenerationを含めているのは、本体の読み込みが終わる前に
+            // (ページ一覧のキャッシュだけで)行が描かれる場合があるため。その時点では
+            // PageLoaderがまだ無く、ここでの取得は空振りする。PageLoaderが用意できた
+            // ときにgenerationが進み、このタスクが走り直してサムネイルが後から埋まる
+            // (BookLayoutEditorViewModel.load()/pageLoaderGeneration参照)。
+            .task(id: "\(row.pageKey)#\(viewModel.pageLoaderGeneration)") {
                 thumbnail = await viewModel.thumbnail(rawIndex: row.rawIndex)
             }
             // カーソルをホバーしている間、大きなプレビューとファイル名を表示する(ユーザー要望)。
@@ -2253,6 +2273,9 @@ private struct PageRowView: View {
                         width: columnWidths.layout,
                         onChange: { onLayoutStateChange($0) }
                     )
+                    // レイアウト設定の書き込みにはMangaBookが必要なため、本体の読み込みが
+                    // 終わるまでは操作させない(viewModel.isBookReadyのコメント参照)。
+                    .disabled(!viewModel.isBookReady)
                 }
 
             ColumnDividerLine(measurementKey: "row:2")

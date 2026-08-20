@@ -79,7 +79,13 @@ private struct PDFExportContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if viewModel.rows.isEmpty {
+            if viewModel.isLoadingRows && viewModel.rows.isEmpty {
+                // 対象一覧の絞り込み(元のファイルの実在確認)がまだ終わっていない。ここで
+                // 「対象の本がありません」を出すと、実際には対象がある場合に誤解を招くため
+                // 読み込み中の表示にする(viewModel.isLoadingRowsのコメント参照)。
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if viewModel.rows.isEmpty {
                 ContentUnavailableView(
                     "No Eligible Books",
                     systemImage: "square.and.arrow.up",

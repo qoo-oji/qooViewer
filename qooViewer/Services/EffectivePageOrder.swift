@@ -44,6 +44,36 @@ nonisolated enum EffectivePageOrder {
         return ordered.filter { !excludedKeys.contains($0.sortKey) }
     }
 
+    /// MangaBookを読み込まずに、キャッシュ済みのページ一覧(BookPageListCache)から実際の
+    /// 読書順を求めるための版。並べ替え・除外の考え方はorderedPages(for:...)と同一で、
+    /// 扱う値がPageRefかsortKey/displayNameの組かだけが違う(一方を変更した場合は
+    /// もう一方にも反映すること)。
+    ///
+    /// 「実質的な先頭ページのファイル名」しか要らない画面(EPUB出力ウインドウのカバー名列)が、
+    /// そのためだけに本を丸ごと読み込まなくて済むようにするために用意している。
+    static func orderedPages(
+        for pages: [BookPageListCache.Entry.Page], pageOrderOverride: [String]?, excludedKeys: Set<String>
+    ) -> [BookPageListCache.Entry.Page] {
+        var ordered = pages
+        if let pageOrderOverride {
+            var pageByKey: [String: BookPageListCache.Entry.Page] = [:]
+            for page in pages { pageByKey[page.sortKey] = page }
+            var seenKeys: Set<String> = []
+            var reordered: [BookPageListCache.Entry.Page] = []
+            for key in pageOrderOverride {
+                if let page = pageByKey[key] {
+                    reordered.append(page)
+                    seenKeys.insert(key)
+                }
+            }
+            for page in pages where !seenKeys.contains(page.sortKey) {
+                reordered.append(page)
+            }
+            ordered = reordered
+        }
+        return ordered.filter { !excludedKeys.contains($0.sortKey) }
+    }
+
     /// 実際の読書順に並んだpageKeyの一覧(除外ページは含まない)。
     /// この配列のインデックスが、そのままBookmark.pageIndexの値と対応する
     /// (ViewerViewModelがbook.pagesとして保持する配列のインデックスと同じ空間)。

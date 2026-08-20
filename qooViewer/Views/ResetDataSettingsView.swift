@@ -172,11 +172,13 @@ struct ResetDataSettingsView: View {
         // このあとすぐアプリを終了させる(下のisShowingCompletionアラート「Quit Now」)ため、
         // 削除後もそれらが古いModelContextを参照し続けることについては考慮不要。
         QooViewerApp.deleteStoreFiles(at: QooViewerApp.modelConfiguration.url)
-        // ページサムネイルの永続キャッシュ(ThumbnailDiskCache)も一緒に捨てる。消えても
-        // 再生成できるだけの情報だが、「一切合切消す」という操作の期待には含まれるため。
+        // ページサムネイル(ThumbnailDiskCache)とページ一覧(BookPageListCache)の永続
+        // キャッシュも一緒に捨てる。どちらも消えても再生成できるだけの情報だが、
+        // 「一切合切消す」という操作の期待には含まれるため。
         // 完了は待たない(このあとユーザーが「Quit Now」を押すまでの間に終わればよく、
         // 残ってしまってもキャッシュディレクトリ配下の無害なファイルにすぎない)。
         Task { await ThumbnailDiskCache.shared.removeAll() }
+        Task { await BookPageListCache.shared.removeAll() }
         isShowingCompletion = true
     }
 }

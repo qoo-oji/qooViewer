@@ -153,10 +153,20 @@ final class LayoutStore: ObservableObject {
     /// 「ブックマーク・レイアウトの編集」ウインドウが、今開いていない本のサムネイルを
     /// 読み込む・EPUB出力する際に使う。
     func resolvedURL(forBookID bookID: String) -> URL? {
-        if let data = bookLayoutSettings(forBookID: bookID)?.bookmarkData {
+        Self.resolvedURL(bookmarkData: bookLayoutSettings(forBookID: bookID)?.bookmarkData, bookID: bookID)
+    }
+
+    /// 上の実体。ブックマークの解決と存在確認は、対象が未接続の外付け/ネットワークボリュームを
+    /// 指していると秒単位ブロックしうるため、メインアクターの外からも呼べるよう`nonisolated`に
+    /// してある(このプロジェクトの既定のアクター隔離はMainActorのため、明示しないと
+    /// メインアクター限定になってしまう。Services/ArchiveReading.swift冒頭のコメント参照)。
+    /// DBを読む部分(bookLayoutSettings)は呼び出し側がメインアクターで済ませ、ここへは
+    /// Sendableな値だけを渡す。
+    nonisolated static func resolvedURL(bookmarkData: Data?, bookID: String) -> URL? {
+        if let bookmarkData {
             var isStale = false
             if let url = try? URL(
-                resolvingBookmarkData: data,
+                resolvingBookmarkData: bookmarkData,
                 options: .withSecurityScope,
                 relativeTo: nil,
                 bookmarkDataIsStale: &isStale

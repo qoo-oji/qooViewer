@@ -31,6 +31,16 @@ final class BookLayoutEditorViewModel: ObservableObject {
         var id: String { pageKey }
     }
 
+    /// rebuildRowsが必要とするページ情報だけを抜き出したもの。
+    ///
+    /// 行の組み立てにはPageRef.sortKeyとdisplayNameしか要らない。MangaBookから作る経路と、
+    /// ディスクキャッシュ(BookPageListCache)から作る経路の両方でこの型を使うことで、
+    /// 本体の読み込みを待たずに同じ行を組み立てられるようにしている。
+    struct PageDescriptor: Equatable, Sendable {
+        let sortKey: String
+        let displayName: String
+    }
+
     enum LoadState: Equatable {
         case loading
         case loaded
@@ -62,6 +72,20 @@ final class BookLayoutEditorViewModel: ObservableObject {
     /// 警告バナーの文言。nilなら非表示。表示中に他の操作をしても自動では消えない
     /// (呼び出し側が明示的にdismissWarning()を呼ぶまで残す。誤って見落とさないため)。
     @Published private(set) var reorderWarningMessage: String?
+    /// PageLoaderが用意できた回数。右ペインの各行は、この値をサムネイル取得タスクの識別子に
+    /// 含めている(BookmarkListView.PageRowViewの.task(id:)参照)。
+    ///
+    /// キャッシュから先に行だけを描いた時点ではPageLoaderがまだ存在せず、その状態で走った
+    /// サムネイル取得は空振りする。本体の読み込みが終わってPageLoaderができたときにこの値を
+    /// 進めることで、各行のタスクが自動的に走り直してサムネイルが後から埋まる。
+    @Published private(set) var pageLoaderGeneration = 0
+    /// 本体(MangaBook)の読み込みが終わり、レイアウトの変更・並べ替えが行える状態かどうか。
+    ///
+    /// ページ一覧のキャッシュだけで先に行を描いている間はfalse。この間、レイアウト設定の
+    /// 書き込み(LayoutStore.setPageLayoutStateなど)はMangaBookを必要とするため実行できない。
+    /// 押しても何も起きないボタンを見せるほうが不親切なので、呼び出し側(BookmarkListView)は
+    /// この値を見て該当する操作を明示的に無効化する。
+    @Published private(set) var isBookReady = false
 
     private var book: MangaBook?
     private var pageLoader: PageLoader?
@@ -145,9 +169,40 @@ final class BookLayoutEditorViewModel: ObservableObject {
     /// この本を読み込む。resolvedURL(セキュリティスコープ付きブックマーク、またはbookIDの
     /// 素のパス)が解決できない、または読み込み自体に失敗した場合は.failedになる
     /// (呼び出し側はContentUnavailableView等で案内する)。
+    /// ユーザー報告: 左ペインで本を選び直すたびに、右ペイン全体がBookLoader.load(from:)の
+    /// 完了を待たされていた。この読み込みは書庫の全走査(入れ子書庫があれば展開まで)を伴う
+    /// ため、本を行き来するだけで毎回そのぶん待たされる。
+    ///
+    /// 右ペインの行が本体に依存しているのはページの並び順とファイル名だけで、レイアウト状態も
+    /// ブックマークもDB(SwiftData)から即座に引ける。そこで次の2段構えにした。
+    /// 1. 前回のページ一覧がキャッシュ(BookPageListCache)にあれば、それだけで行を組み立てて
+    ///    すぐに表示する(この時点でレイアウト列・ブックマーク列・並べ替えは操作できる)。
+    /// 2. 本体の読み込みは裏で続け、終わったらPageLoaderを用意してサムネイルを後追いで埋める
+    ///    (pageLoaderGeneration参照)。ページ一覧がキャッシュと食い違っていた場合(本体が
+    ///    差し替えられた等)だけ、行を組み立て直す。
     func load() async {
         loadState = .loading
-        guard let url = layoutStore.resolvedURL(forBookID: bookID) else {
+        isBookReady = false
+
+        let cached = await BookPageListCache.shared.pageList(forBookID: bookID)
+        let cachedDescriptors = cached?.pages.map {
+            PageDescriptor(sortKey: $0.sortKey, displayName: $0.displayName)
+        }
+        if let cachedDescriptors, !cachedDescriptors.isEmpty {
+            rebuildRows(from: cachedDescriptors)
+            loadState = .loaded
+        }
+
+        // URLの解決(セキュリティスコープ付きブックマーク)自体もメインスレッドを止めうるため、
+        // DBを読む部分だけをここで済ませ、解決はメインアクターの外で行う。
+        let bookmarkData = layoutStore.bookLayoutSettings(forBookID: bookID)?.bookmarkData
+        let targetBookID = bookID
+        let url = await Task.detached(priority: .userInitiated) {
+            LayoutStore.resolvedURL(bookmarkData: bookmarkData, bookID: targetBookID)
+        }.value
+        guard let url else {
+            // キャッシュから描けていても、本体が見つからないことに変わりはないので
+            // 素直にエラー表示へ倒す(サムネイルもジャンプも機能しないため)。
             loadState = .failed
             return
         }
@@ -162,14 +217,31 @@ final class BookLayoutEditorViewModel: ObservableObject {
         }
         book = loaded
         pageLoader = PageLoader(book: loaded)
-        rebuildRows(from: loaded)
+        pageLoaderGeneration &+= 1
+        isBookReady = true
+
+        let descriptors = loaded.pages.map {
+            PageDescriptor(sortKey: $0.sortKey, displayName: $0.displayName)
+        }
+        // キャッシュから描いた内容と同じなら組み立て直さない(無駄な再描画とちらつきを避ける)。
+        // キャッシュへの書き戻しはBookLoader.load(from:)側で一括して行うため、ここでは不要
+        // (BookLoader.loadのコメント参照)。
+        if descriptors != cachedDescriptors {
+            rebuildRows(from: descriptors)
+        }
         loadState = .loaded
     }
 
     /// pageOrderOverride(2.3節)を反映した表示順でrowsを組み立て直す。
     private func rebuildRows(from book: MangaBook) {
+        rebuildRows(from: book.pages.map {
+            PageDescriptor(sortKey: $0.sortKey, displayName: $0.displayName)
+        })
+    }
+
+    private func rebuildRows(from pages: [PageDescriptor]) {
         let overrideOrder = layoutStore.bookLayoutSettings(forBookID: bookID)?.pageOrderOverride
-        let orderedPages = Self.reorder(pages: book.pages, by: overrideOrder)
+        let orderedPages = Self.reorder(pages: pages, by: overrideOrder)
         // sortKeyをキーにする辞書は、uniqueKeysWithValues(重複キーで実行時トラップ)ではなく
         // 「最初の1件を採る」形で組み立てる。PageRef.sortKeyは、書庫の中に`a.zip`という
         // ファイルと`a.zip/`というフォルダが同居しているような作りの本では、入れ子書庫の
@@ -177,7 +249,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
         // (BookLoader.collectPagesのsortKeyPrefix参照。PageRef.idは区切り文字が異なるため
         // 衝突しない)。稀なケースだが、本を開いただけでクラッシュする理由にはならない。
         let rawIndexByKey = Dictionary(
-            book.pages.enumerated().map { ($1.sortKey, $0) }, uniquingKeysWith: { first, _ in first }
+            pages.enumerated().map { ($1.sortKey, $0) }, uniquingKeysWith: { first, _ in first }
         )
         let baseRows = orderedPages.map { page in
             Row(
@@ -192,11 +264,11 @@ final class BookLayoutEditorViewModel: ObservableObject {
         rows = recomputeEffectiveIndices(for: baseRows, overridesByKey: overridesByKey)
     }
 
-    private static func reorder(pages: [PageRef], by overrideOrder: [String]?) -> [PageRef] {
+    private static func reorder(pages: [PageDescriptor], by overrideOrder: [String]?) -> [PageDescriptor] {
         guard let overrideOrder else { return pages }
         // rebuildRowsと同じ理由で「最初の1件を採る」形にする(コメント参照)。
         var remaining = Dictionary(pages.map { ($0.sortKey, $0) }, uniquingKeysWith: { first, _ in first })
-        var result: [PageRef] = []
+        var result: [PageDescriptor] = []
         result.reserveCapacity(pages.count)
         for key in overrideOrder {
             if let page = remaining.removeValue(forKey: key) {

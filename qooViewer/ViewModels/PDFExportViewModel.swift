@@ -140,6 +140,14 @@ final class PDFExportViewModel: ObservableObject {
     /// 対象一覧を読み直す。EpubExportViewModel.reload()とほぼ同じ条件だが、PDF出力は
     /// カバー画像の指定機能を持たないため、カバー上書きだけを持つ本(layoutStore.
     /// coverOverrideBookIDs())まで対象に含める必要はない。
+    /// ユーザー報告と同じ構図の改善: 対象一覧の絞り込み(元のファイルが今も存在するか)は、
+    /// 登録済みの本1冊ごとにセキュリティスコープ付きブックマークの解決を行う。以前はこれを
+    /// メインスレッドで同期実行していたため、本体が未接続の外付け/ネットワークボリューム上に
+    /// あると、このウインドウを開くだけでその間ずっと操作を受け付けなくなっていた。
+    ///
+    /// SwiftDataから材料を集める部分(軽い)だけをここで行い、解決本体はメインアクターの外へ
+    /// 逃がす(BookURLResolver参照)。結果が返るまでは一覧を空にせず、直前の内容をそのまま
+    /// 見せておく(この画面を開いたままでも通知を受けてreload()し直されるため)。
     func reload() {
         var bookIDs = layoutStore.layoutBookIDs
         bookIDs.formUnion(bookmarkStore.groups.map(\.bookID))
@@ -148,7 +156,36 @@ final class PDFExportViewModel: ObservableObject {
         bookIDs.formUnion(metadataStore.registeredBookIDs)
         // ユーザー要望: 元のファイル形式による制限を撤廃し、
         // zip/cbz・rar/cbr・7z/cb7・pdf・epub・フォルダのすべてを対象にする。
-        let eligibleIDs = bookIDs.filter { resolveURL(forBookID: $0) != nil }
+        // 実在確認の材料(各ストアが持つブックマークデータ)だけをここで集める。
+        // 解決そのものはメインスレッドを止めうるため、下のTask.detachedで行う。
+        let candidates = bookIDs.map { bookID in
+            BookURLResolver.Candidates(
+                bookID: bookID,
+                bookmarkStoreBookmarks: bookmarkStore.bookmarkDataList(forBookID: bookID),
+                layoutBookmark: layoutStore.bookLayoutSettings(forBookID: bookID)?.bookmarkData,
+                metadataBookmark: metadataStore.metadata(forBookID: bookID)?.bookmarkData
+            )
+        }
+        reloadGeneration &+= 1
+        let generation = reloadGeneration
+        isLoadingRows = true
+        // [weak self]で受けたselfを、awaitをまたぐ前にguard letで強参照へ変換しておく
+        // (理由はRecentFilesStore.scheduleRefresh()の同種のコメント参照)。
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let eligible = candidates.compactMap { BookURLResolver.resolvedURL($0) != nil ? $0.bookID : nil }
+            guard let self else { return }
+            await self.applyEligibleBookIDs(Set(eligible), generation: generation)
+        }
+    }
+
+    /// reload()の絞り込み結果を反映して、一覧を組み立てる。
+    private func applyEligibleBookIDs(_ eligibleIDs: Set<String>, generation: Int) {
+        // 自分より新しいreload()が既に走っている場合は、古い結果を捨てる。
+        guard generation == reloadGeneration else { return }
+        isLoadingRows = false
+
+        // bookmarkStore.groupsはArrayなので、mapの中で毎回containsを呼ぶとO(件数^2)になる。
+        // 事前にSet化して1回のO(1)ルックアップにする(結果は従来と同一)。
         let bookIDsWithBookmarks = Set(bookmarkStore.groups.map(\.bookID))
         rows = eligibleIDs
             .map { bookID in
@@ -239,6 +276,12 @@ final class PDFExportViewModel: ObservableObject {
 
     /// メタデータだけを持つ本も解決できるようBookMetadataStoreを含める
     /// (理由はEpubExportViewModel.resolveURL(forBookID:)のコメント参照)。
+    /// 対象一覧の絞り込み(実在確認)が進行中かどうか。ウインドウ側はこの間、
+    /// 「対象の本がありません」ではなく読み込み中の表示にする。
+    @Published private(set) var isLoadingRows = false
+    /// 非同期の絞り込みが多重に走った場合に、古い結果で新しい結果を上書きしないための世代番号。
+    private var reloadGeneration = 0
+
     private func resolveURL(forBookID bookID: String) -> URL? {
         bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID)
             ?? layoutStore.resolvedURL(forBookID: bookID)

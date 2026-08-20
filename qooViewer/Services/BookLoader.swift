@@ -15,7 +15,24 @@ nonisolated enum BookLoader {
         let task = Task.detached(priority: .userInitiated) { () throws -> MangaBook in
             try loadSync(from: url)
         }
-        return try await task.value
+        let book = try await task.value
+        // 読み込みに成功したページ一覧は、ここで一括してキャッシュへ書き戻す。
+        //
+        // この読み込み自体は書庫の全走査を伴い、本体が未接続の外付け/ネットワークボリューム上に
+        // あると相応に時間がかかる。一方で、ページの並び順とファイル名しか要らない画面
+        // (「ブックマーク・レイアウトの編集」ウインドウの右ペイン、EPUB出力ウインドウの
+        // カバー名列)がいくつかあり、そうした画面はこのキャッシュだけで描画できる。
+        // 経路ごとに書き戻すのではなくこの1か所に置くことで、どの経路で1度読み込んでも
+        // 他の画面がその恩恵を受けられるようにしている(詳細はBookPageListCacheの型コメント参照)。
+        await BookPageListCache.shared.store(
+            BookPageListCache.Entry(
+                pages: book.pages.map {
+                    BookPageListCache.Entry.Page(sortKey: $0.sortKey, displayName: $0.displayName)
+                }
+            ),
+            forBookID: book.id
+        )
+        return book
     }
 
     private static func loadSync(from url: URL) throws -> MangaBook {
