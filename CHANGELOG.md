@@ -3,6 +3,17 @@
 このプロジェクトの変更履歴です。フォーマットは [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、
 バージョニングは [Semantic Versioning](https://semver.org/lang/ja/) に準拠しています。
 
+## [Unreleased]
+
+### 追加
+
+- Dockのアプリアイコンへフォルダをドロップして開けるようにしました(これまではzip/cbz・rar/cbr・7z/cb7・PDF・EPUBファイルのみ受け付けていました)。
+
+### 修正
+
+- macOS 15 (Sequoia) で、環境設定のⓘボタンで開く説明のポップオーバーが縦に異常に大きくなり、本文の上に巨大な空白が表示される不具合を修正しました。
+- 対応OSの下限を macOS 15.0 に設定しました。
+
 ## [1.21] - 2026-08-20
 
 ### 修正

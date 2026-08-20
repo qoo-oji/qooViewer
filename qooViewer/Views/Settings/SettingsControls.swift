@@ -108,10 +108,22 @@ struct SettingsRowLabel: View {
                 .help(Text(help))
                 .accessibilityLabel(Text("More Information"))
                 .popover(isPresented: $isShowingHelp, arrowEdge: .bottom) {
+                    // ■ 幅は `maxWidth` ではなく固定の `width` にしてある(重要)
+                    // 以前は `.frame(maxWidth: 320)` だった。macOS 26 では問題なかったが、
+                    // macOS 15 (Sequoia) で「ポップオーバーの窓だけが縦に異常に伸び、本文が
+                    // 下端に張り付いて上が巨大な空白になる」という報告があった(ユーザー報告。
+                    // こちらの26環境では再現せず)。本文の大きさは正しく、窓の高さだけが
+                    // 外れているので、SwiftUIの中身ではなく NSPopover に渡る contentSize の
+                    // 高さが誤っている形。`maxWidth` だけだと幅が「提案待ち」のまま高さを
+                    // 測ることになり、提案が無い段階で測られると高さが定まらない。
+                    // 幅を固定すれば折り返し位置が決まり高さが一意になるので、どのOSでも
+                    // 同じ大きさに落ち着く。短い補足でも幅320ptの箱になるが、それは許容する。
                     Text(help)
                         .font(.subheadline)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(nil)
                         .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: 320, alignment: .leading)
+                        .frame(width: 320, alignment: .leading)
                         .padding(12)
                 }
             }

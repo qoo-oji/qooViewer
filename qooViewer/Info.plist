@@ -23,6 +23,27 @@
 			<key>LSHandlerRank</key>
 			<string>Default</string>
 		</dict>
+		<!--
+		  フォルダをDockアイコンへドロップして開けるようにするための宣言(ユーザー要望)。
+		  Dockは CFBundleDocumentTypes に宣言された型しか受け付けない。アプリ側の
+		  application(_:open:) は元からフォルダも扱えるので、足りなかったのはこの宣言だけ。
+		  - public.folder: パッケージ(.app 等)を含まない通常のフォルダ。public.directory だと
+		    パッケージまで受け付けてしまうので使わない。
+		  - LSHandlerRank None: 「開けるが既定のハンドラ候補にはならない」。Finderの
+		    「このアプリケーションで開く」の既定候補やフォルダのダブルクリック先を乗っ取らないため。
+		-->
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Folder</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>None</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.folder</string>
+			</array>
+		</dict>
 	</array>
 </dict>
 </plist>
