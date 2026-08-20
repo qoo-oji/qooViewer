@@ -35,7 +35,37 @@ struct ThumbnailGridView: View {
     /// まま」に見えた(ユーザー報告)。サイドパネルのページモード(SidePanelPageCell、高さ×0.75)と
     /// 同じ縦長の枠にして、枠とページの余白をほぼ無くす。見開き合成などの横長ページは上下に
     /// 余白が出るが、そちらは少数派。環境設定「サムネイルのサイズ」は枠の高さを指す。
-    private static let cellAspectRatio: CGFloat = 0.75
+    /// セル枠の縦横比(幅/高さ)の初期値。実際のページのサムネイルが1枚でも読めたら、その実寸から
+    /// 測った縦横比(measuredPageAspect)へ差し替える。以前は0.75固定だったが、多くの漫画はもっと
+    /// 縦長(≒0.66)で、固定値だとページより枠が広く、サムネイルの左右にプレースホルダの余白が
+    /// 残ってしまった(ユーザー報告)。実測に合わせることで、ページが均一な本ではレターボックスが
+    /// 出ず、枠がページにぴったり収まる。
+    private static let defaultCellAspectRatio: CGFloat = 0.66
+
+    /// 実際に読み込めたサムネイルから測った縦横比(幅/高さ)のサンプル。列幅は「最初の1枚」では
+    /// なく、ここに溜めた**複数ページの中央値**から決める。先頭だけ横長のカバーがある本
+    /// (ユーザー報告)で、その1枚に列全体の幅が引きずられないようにするため。中央値なら
+    /// 少数の外れ値(横長カバーや見開き)は無視され、多数派の通常ページに枠が合う。
+    @State private var aspectSamples: [CGFloat] = []
+    /// 中央値を確定したら以降は動かさない(サンプルが増えるたびに列幅がぶれてちらつくのを防ぐ)。
+    @State private var measuredPageAspect: CGFloat?
+    /// 中央値を確定するのに必要なサンプル数。短い本では総ページ数で頭打ちにする。
+    private var aspectSampleTarget: Int { min(viewModel.pageCount, 9) }
+
+    /// 実際に使う縦横比。確定前は既定値。極端な値でレイアウトが破綻しないよう安全域へ収める。
+    private var effectiveCellAspect: CGFloat {
+        let raw = measuredPageAspect ?? Self.defaultCellAspectRatio
+        return min(max(raw, 0.35), 2.0)
+    }
+
+    /// サンプルを1つ受け取り、目標数に達したら中央値を確定する。
+    private func recordAspectSample(_ aspect: CGFloat) {
+        guard measuredPageAspect == nil, aspect.isFinite, aspect > 0 else { return }
+        aspectSamples.append(aspect)
+        guard aspectSamples.count >= aspectSampleTarget else { return }
+        let sorted = aspectSamples.sorted()
+        measuredPageAspect = sorted[sorted.count / 2]
+    }
 
     /// 利用できる幅に何列入るか。サムネイルのサイズと横の間隔(どちらも環境設定)から決める。
     ///
@@ -66,7 +96,7 @@ struct ThumbnailGridView: View {
 
     private func columnCount(forPanelWidth width: CGFloat) -> Int {
         let available = width - Self.contentPadding * 2
-        let cellWidth = cellSize * Self.cellAspectRatio
+        let cellWidth = cellSize * effectiveCellAspect
         return max(1, Int(((available + horizontalSpacing) / (cellWidth + horizontalSpacing)).rounded(.down)))
     }
 
@@ -80,7 +110,7 @@ struct ThumbnailGridView: View {
             let panelWidth = max(geometry.size.width - hMargin * 2, 120)
             let panelHeight = max(geometry.size.height - vMargin * 2, 120)
             let cellHeight = cellSize
-            let cellWidth = cellHeight * Self.cellAspectRatio
+            let cellWidth = cellHeight * effectiveCellAspect
             let hSpacing = horizontalSpacing
             let count = columnCount(forPanelWidth: panelWidth)
             let columns = Array(repeating: GridItem(.fixed(cellWidth), spacing: hSpacing), count: count)
@@ -120,7 +150,12 @@ struct ThumbnailGridView: View {
                             } label: {
                                 ThumbnailCell(
                                     viewModel: viewModel, index: index, isCurrent: index == viewModel.currentIndex,
-                                    cellWidth: cellWidth, cellHeight: cellHeight
+                                    cellWidth: cellWidth, cellHeight: cellHeight,
+                                    onAspectMeasured: { aspect in
+                                        // 複数ページの中央値でこの本のページ比率を決める
+                                        // (先頭だけ横長のカバー等に引きずられないため)。
+                                        recordAspectSample(aspect)
+                                    }
                                 )
                             }
                             .buttonStyle(.plain)
@@ -175,6 +210,8 @@ private struct ThumbnailCell: View {
     /// cellAspectRatio倍(以前は120×120の正方形固定)。
     let cellWidth: CGFloat
     let cellHeight: CGFloat
+    /// 読み込めた画像の実寸から測った縦横比(幅/高さ)を、最初の1回だけ親へ知らせる。
+    var onAspectMeasured: (CGFloat) -> Void = { _ in }
     @EnvironmentObject private var preferences: AppPreferences
     @State private var image: CGImage?
 
@@ -193,17 +230,20 @@ private struct ThumbnailCell: View {
     var body: some View {
         VStack(spacing: 4) {
             ZStack {
+                // 読み込み中・比率の合わないページ(横長の見開き等)のときにだけ見える下地。
+                // 枠が実際のページ比率(effectiveCellAspect)に合っているので、通常ページでは
+                // 画像が枠いっぱいに収まり、この下地は見えなくなる(左右のプレースホルダが消える)。
                 RoundedRectangle(cornerRadius: 4).fill(Color.black.opacity(0.15))
                 if let image {
                     Image(decorative: image, scale: 1)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .padding(2)
                 } else {
                     ProgressView().controlSize(.small)
                 }
             }
             .frame(width: cellWidth, height: cellHeight)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
             .overlay(
                 RoundedRectangle(cornerRadius: 4)
                     .stroke(isCurrent ? Color.accentColor : Color.clear, lineWidth: 3)
@@ -237,6 +277,9 @@ private struct ThumbnailCell: View {
         }
         .task(id: index) {
             image = await viewModel.loadThumbnail(at: index)
+            if let image, image.height > 0 {
+                onAspectMeasured(CGFloat(image.width) / CGFloat(image.height))
+            }
             // 環境設定「表示中のサムネイルの拡大画像を先読み」: 見えているセルの原寸画像を
             // 先にデコードしておく(PageLoaderのメモリキャッシュに載るので、プレビューが即座に
             // 出る)。LazyVGridは画面内のセルしか作らないため「表示中」に自然と限定される。
