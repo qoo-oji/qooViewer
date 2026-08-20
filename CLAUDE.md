@@ -49,7 +49,8 @@ actor (used from `PageLoader`, an actor, or from `BookLoader`'s detached tasks) 
 `nonisolated` — see the top of Services/ArchiveReading.swift. Keep this in mind when adding new
 free functions/types touched from those code paths.
 
-**SwiftData persistence**: `FavoritesStore`, `BookmarkStore`, and `LayoutStore` (ViewModels/) all share a
+**SwiftData persistence**: `FavoritesStore`, `BookmarkStore`, `LayoutStore`, and `BookMetadataStore`
+(ViewModels/) all share a
 single `ModelContext` (`QooViewerApp.modelContainer.mainContext`), constructed once in
 App/QooViewerApp.swift and injected via `.environmentObject`/`.modelContext` everywhere. Do not create
 additional/separate `ModelContext` instances for these models — a prior split-context design caused
@@ -68,10 +69,20 @@ disposable UUID token (`activeViewerToken`) to resolve ordering races when switc
 window. Menu checkmark/enabled state is pushed into `AppState` as plain `Equatable` value fields (not read
 off the `ViewerViewModel` class reference) because `FocusedValue` change detection needs a value type.
 
-**EPUB as an authority, not just a format**: when a book carries `MangaBook.epubLayoutHint` (page
-progression direction / forced spread), the corresponding user settings/toggles are locked and
-grayed out in the UI rather than merged — EPUB's declared layout always wins. `ViewerViewModel`'s
-`isReadingDirectionLocked`/`isDisplayModeLocked`/`isPageShiftLocked` are the source of truth for this.
+**EPUB/PDF layout is a seed, not an authority**: when a book carries `MangaBook.sourceLayoutHint` (page
+progression direction / forced spread) or per-page spread hints, those are imported into the database
+**once**, the first time the book is opened (`LayoutStore.importSourceLayoutIfNeeded(for:)`, guarded by
+`BookLayoutSettings.didImportSourceLayout`), and everything afterwards follows the DB. The user can freely
+change reading direction / spread / per-page layout for EPUB and PDF just like any other format.
+Priority is DB (`BookLayoutSettings` / `PageLayoutOverride`) > `BookReadingState`, with the file's own hint
+used only as a fallback for pages the import didn't cover (see `ViewerViewModel.layoutHint(at:)`).
+
+This replaced an earlier design in which the file's declaration always won and the corresponding
+toggles were locked and grayed out. `isReadingDirectionLocked`/`isDisplayModeLocked`/
+`hasAuthoritativeSourceLayout` are gone; only `ViewerViewModel.isPageShiftLocked` remains, and it is
+unrelated to EPUB — it grays out "shift by one page" while a spread with explicit per-page layout is on
+screen. `BookLayoutSettings.hasEpubLayoutLock` is a leftover attribute, kept only to avoid a schema
+migration; it is neither read nor written.
 
 **Sandboxing**: the app is (or is meant to be) sandboxed with user-selected read/write file access.
 Directly opening a single archive/PDF file only grants access to that file, not sibling files in the same
