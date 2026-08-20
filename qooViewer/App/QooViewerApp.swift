@@ -1213,12 +1213,20 @@ struct QooViewerApp: App {
                     // 保存せず、代わりにdesiredFrameへ強制的に戻し続ける。切り替え中でない
                     // ときの移動・リサイズだけを、正真正銘ユーザーによる操作とみなして
                     // desiredFrameを更新・保存する。
-                    var desiredFrame = newWindow.frame
-                    var isSettling = false
-                    let saveFrame: (Notification) -> Void = { notification in
-                        guard !isSettling, let window = notification.object as? NSWindow else { return }
-                        desiredFrame = window.frame
-                        UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: "qooViewer.mainWindowFrame")
+                    //
+                    // これらの状態は複数のエスケープするクロージャ(通知の購読とTask)から
+                    // 読み書きされるため、ローカルのvarではなくPrimaryWindowFrameKeeper
+                    // (参照型)へまとめて持たせる(理由はそちらの型コメント参照)。
+                    let keeper = PrimaryWindowFrameKeeper(desiredFrame: newWindow.frame)
+                    let saveFrame: @Sendable (Notification) -> Void = { notification in
+                        // queue: .mainで登録するため実行時には必ずMainActor上にいる。
+                        MainActor.assumeIsolated {
+                            guard !keeper.isSettling, let window = notification.object as? NSWindow else { return }
+                            keeper.desiredFrame = window.frame
+                            UserDefaults.standard.set(
+                                NSStringFromRect(window.frame), forKey: "qooViewer.mainWindowFrame"
+                            )
+                        }
                     }
                     // バグ修正(ユーザー報告): 以下の購読とタスクは、以前はどちらも後始末を
                     // 一切していなかった。
@@ -1237,24 +1245,13 @@ struct QooViewerApp: App {
                     //     タスクが打ち消してしまっていた。
                     // ウインドウが閉じる(NSWindow.willCloseNotification)タイミングで、
                     // 自分自身を含めて確実に後始末する。
-                    var frameObserverTokens: [NSObjectProtocol] = []
-                    var frameSettlingTask: Task<Void, Never>?
-                    var isWindowClosed = false
-                    var closeToken: NSObjectProtocol?
-                    closeToken = NotificationCenter.default.addObserver(
+                    keeper.tokens.add(NotificationCenter.default.addObserver(
                         forName: NSWindow.willCloseNotification, object: newWindow, queue: .main
                     ) { _ in
-                        isWindowClosed = true
-                        for token in frameObserverTokens {
-                            NotificationCenter.default.removeObserver(token)
+                        MainActor.assumeIsolated {
+                            keeper.tearDown()
                         }
-                        frameObserverTokens = []
-                        frameSettlingTask?.cancel()
-                        frameSettlingTask = nil
-                        if let closeToken {
-                            NotificationCenter.default.removeObserver(closeToken)
-                        }
-                    }
+                    })
                     // バグ修正(ユーザー報告): すぐに登録すると、上のsetFrameによる復元がまだ
                     // 完全には収まっておらず、SwiftUI側がこの直後にもう一度自動でフレームを
                     // 調整し直すことがあり(このタイミングでもなお微妙にズレることが実機で
@@ -1266,11 +1263,11 @@ struct QooViewerApp: App {
                         // この待ち時間の間にウインドウが閉じられていた場合、上の後始末は
                         // 既に済んでしまっている。ここで登録すると解除される機会が二度と
                         // 訪れないため、何もせずに終える。
-                        guard !isWindowClosed else { return }
-                        frameObserverTokens.append(NotificationCenter.default.addObserver(
+                        guard !keeper.isWindowClosed else { return }
+                        keeper.tokens.add(NotificationCenter.default.addObserver(
                             forName: NSWindow.didMoveNotification, object: newWindow, queue: .main, using: saveFrame
                         ))
-                        frameObserverTokens.append(NotificationCenter.default.addObserver(
+                        keeper.tokens.add(NotificationCenter.default.addObserver(
                             forName: NSWindow.didResizeNotification, object: newWindow, queue: .main, using: saveFrame
                         ))
                     }
@@ -1278,29 +1275,31 @@ struct QooViewerApp: App {
                     // いた本での、ユーザーが最後に調整した値)を目標として、その後しばらくの間
                     // 繰り返し再適用し続けることで、後から入るどんな自動調整にも最終的に勝つ
                     // ようにする。
-                    frameSettlingTask = Task { @MainActor in
+                    keeper.settlingTask = Task { @MainActor in
                         for await _ in matchedAppState.$currentBook.dropFirst().values {
                             // 内側のTask.sleepは`try?`で待っているためキャンセルされても
                             // そのまま進んでしまう。ウインドウが閉じられた後に保存まで
                             // 走らないよう、ループの頭で明示的に確認する。
                             guard !Task.isCancelled else { break }
-                            isSettling = true
+                            keeper.isSettling = true
                             for _ in 0..<8 {
                                 try? await Task.sleep(nanoseconds: 250_000_000)
                                 guard !Task.isCancelled,
                                       launchCoordinator.primaryAppState === matchedAppState,
                                       let window = matchedAppState.hostWindow else { break }
-                                if window.frame != desiredFrame {
-                                    window.setFrame(desiredFrame, display: true)
+                                if window.frame != keeper.desiredFrame {
+                                    window.setFrame(keeper.desiredFrame, display: true)
                                 }
                             }
-                            isSettling = false
+                            keeper.isSettling = false
                             // 併せて、この保存を「今もこのウインドウが主ウインドウである」場合に
                             // 限定する。以前はこの1行が上のガードの外にあったため、既に主ウインドウ
                             // ではなくなったウインドウのフレームで上書きされることがあった。
                             guard !Task.isCancelled,
                                   launchCoordinator.primaryAppState === matchedAppState else { continue }
-                            UserDefaults.standard.set(NSStringFromRect(desiredFrame), forKey: "qooViewer.mainWindowFrame")
+                            UserDefaults.standard.set(
+                                NSStringFromRect(keeper.desiredFrame), forKey: "qooViewer.mainWindowFrame"
+                            )
                         }
                     }
                 }
@@ -1768,5 +1767,46 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
             return nil
         }
         return originalDelegate
+    }
+}
+
+/// 「主ウインドウの役割を引き継いだbookウインドウ」1枚ぶんの、位置・サイズ記憶のための状態。
+/// AppDelegate.openURLInNewWindow(actsAsPrimaryWindow: true)の経路でのみ使う。
+///
+/// これらは本来ローカル変数で足りる内容だが、複数のエスケープするクロージャ
+/// (移動・リサイズ・クローズの購読と、フレームを再適用し続けるTask)が同じ状態を読み書きする。
+/// ローカルのvarのままだとSwift 6の並行性チェックが
+/// 「'x' mutated after capture by sendable closure」として警告するため、参照型へまとめてある
+/// (詳細はNotificationObserverTokensの型コメント参照)。
+///
+/// @MainActor: 購読はすべて`queue: .main`、Taskも`@MainActor`で走る。@MainActorにしておけば
+/// このクラス自体が暗黙にSendableになり、`@Sendable`なクロージャから安全にキャプチャできる。
+@MainActor
+private final class PrimaryWindowFrameKeeper {
+    /// 「今保存すべき位置・サイズ」。ユーザーが最後に自分で調整した値。
+    var desiredFrame: NSRect
+    /// 本の切り替えに伴うSwiftUI側の自動調整が収まるのを待っている最中かどうか。
+    /// この間の移動・リサイズはユーザー操作とみなさず、保存もしない。
+    var isSettling = false
+    /// ウインドウが既に閉じられたかどうか(遅延して登録される購読が、閉じた後に登録されて
+    /// しまわないようにするための確認用)。
+    private(set) var isWindowClosed = false
+    /// 切り替え後にdesiredFrameを繰り返し再適用するタスク。
+    var settlingTask: Task<Void, Never>?
+    /// 移動・リサイズ・クローズの購読トークン。
+    let tokens = NotificationObserverTokens()
+
+    init(desiredFrame: NSRect) {
+        self.desiredFrame = desiredFrame
+    }
+
+    /// ウインドウが閉じたときの後始末。購読を自分自身も含めてすべて解除し、タスクを畳む。
+    /// settlingTaskをnilに戻すのは、そのタスクのクロージャがこのインスタンスを強参照して
+    /// いるため(nilにしないと参照が循環したまま残る)。
+    func tearDown() {
+        isWindowClosed = true
+        tokens.removeAll()
+        settlingTask?.cancel()
+        settlingTask = nil
     }
 }

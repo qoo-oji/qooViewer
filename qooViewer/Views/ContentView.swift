@@ -503,32 +503,33 @@ struct ContentView: View {
     /// よる不具合と同型)。observeWindowBecameKeyと同じく、ウインドウが閉じる
     /// (NSWindow.willCloseNotification)タイミングで、自分自身を含めて確実に解除する。
     private func observeMainWindowFrameChanges(_ window: NSWindow) {
-        let save: (Notification) -> Void = { notification in
-            guard let window = notification.object as? NSWindow else { return }
-            UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: Self.mainWindowFrameDefaultsKey)
+        // トークンをローカルのvarで持ち回さずNotificationObserverTokensへ預ける理由は、
+        // そちらの型コメント参照(自分自身を解除する購読を素直に書くと、Swift 6の並行性
+        // チェックが「mutated after capture by sendable closure」として警告するため)。
+        let tokens = NotificationObserverTokens()
+        let save: @Sendable (Notification) -> Void = { notification in
+            // queue: .mainで登録するため実行時には必ずMainActor上にいる
+            // (NSWindow.frame・Self.mainWindowFrameDefaultsKeyはどちらもMainActor隔離)。
+            MainActor.assumeIsolated {
+                guard let window = notification.object as? NSWindow else { return }
+                UserDefaults.standard.set(NSStringFromRect(window.frame), forKey: Self.mainWindowFrameDefaultsKey)
+            }
         }
-        var moveToken: NSObjectProtocol?
-        var resizeToken: NSObjectProtocol?
-        var closeToken: NSObjectProtocol?
-        moveToken = NotificationCenter.default.addObserver(
+        tokens.add(NotificationCenter.default.addObserver(
             forName: NSWindow.didMoveNotification, object: window, queue: .main, using: save
-        )
-        resizeToken = NotificationCenter.default.addObserver(
+        ))
+        tokens.add(NotificationCenter.default.addObserver(
             forName: NSWindow.didResizeNotification, object: window, queue: .main, using: save
-        )
-        closeToken = NotificationCenter.default.addObserver(
+        ))
+        tokens.add(NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: window, queue: .main
         ) { _ in
-            if let moveToken {
-                NotificationCenter.default.removeObserver(moveToken)
+            // queue: .mainのため実行時には必ずMainActor上だが、クロージャの型は静的には
+            // MainActor隔離だと分からない(プロジェクト内の同種の箇所と同じ対処)。
+            MainActor.assumeIsolated {
+                tokens.removeAll()
             }
-            if let resizeToken {
-                NotificationCenter.default.removeObserver(resizeToken)
-            }
-            if let closeToken {
-                NotificationCenter.default.removeObserver(closeToken)
-            }
-        }
+        })
     }
 
     /// このウインドウがキーウインドウになるたびに、今表示している本(なければ「本を
@@ -552,14 +553,14 @@ struct ContentView: View {
     /// 戻しておくことで、解放の実際のタイミングに関わらず即座に「主ウインドウが無い」状態を
     /// 正しく反映できる。
     private func observeWindowBecameKey(_ window: NSWindow) {
-        var keyToken: NSObjectProtocol?
-        var closeToken: NSObjectProtocol?
-        keyToken = NotificationCenter.default.addObserver(
+        // トークンの持ち方についてはNotificationObserverTokensの型コメント参照。
+        let tokens = NotificationObserverTokens()
+        tokens.add(NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main
         ) { _ in
             updateLastActiveBookRecordIfKeyWindow()
-        }
-        closeToken = NotificationCenter.default.addObserver(
+        })
+        tokens.add(NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: window, queue: .main
         ) { _ in
             // queue: .mainを指定しているため実行時には必ずMainActor上で呼ばれるが、クロージャ
@@ -574,14 +575,9 @@ struct ContentView: View {
                 if launchCoordinator.primaryAppState === appState {
                     launchCoordinator.primaryAppState = nil
                 }
+                tokens.removeAll()
             }
-            if let keyToken {
-                NotificationCenter.default.removeObserver(keyToken)
-            }
-            if let closeToken {
-                NotificationCenter.default.removeObserver(closeToken)
-            }
-        }
+        })
     }
 
     /// このウインドウがキーウインドウ(今アクティブな画面/タブ)のときにだけ、表示している

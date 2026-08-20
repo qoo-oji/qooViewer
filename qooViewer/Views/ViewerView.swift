@@ -2974,8 +2974,14 @@ struct ViewerView: View {
         // 閉じてすぐ外部から本を開き直すと発生)が確認された。
         // ここでウインドウが閉じる(NSWindow.willCloseNotification、実際に閉じる直前に
         // 同期的に発火する)タイミングで、自分自身を含めて確実に解除する。
-        var closeToken: NSObjectProtocol?
-        closeToken = NotificationCenter.default.addObserver(
+        //
+        // この購読自身もwindowObserversへ加えてから登録を終える。こうしておけば、下の
+        // クロージャがwindowObserversを丸ごと解除する時点で自分自身も含まれるため、
+        // 「自分のトークンを覚えておいて後で解除する」ためのローカル変数が要らなくなる
+        // (ローカルのvarをエスケープするクロージャがキャプチャして読むと、Swift 6の
+        // 並行性チェックが「mutated after capture by sendable closure」として警告する。
+        // 詳細はNotificationObserverTokensの型コメント参照)。
+        let closeToken = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: window, queue: .main
         ) { _ in
             for observer in windowObservers {
@@ -2999,13 +3005,8 @@ struct ViewerView: View {
                 clearAppStateBridgesIfStillOwner()
                 viewModel.onRequestSiblingBook = nil
             }
-            if let closeToken {
-                NotificationCenter.default.removeObserver(closeToken)
-            }
         }
-        if let closeToken {
-            windowObservers.append(closeToken)
-        }
+        windowObservers.append(closeToken)
     }
 
     /// フルスクリーン表示中、または表示メニューの「ツールバーを隠す」「プログレスバーを隠す」の
