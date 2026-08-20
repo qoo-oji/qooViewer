@@ -65,6 +65,11 @@ final class MetadataEditorViewModel: ObservableObject {
     }
     /// 絞り込み前の全件数(「N件中M件を表示」のような表示に使う)。
     @Published private(set) var totalRowCount = 0
+    /// ファイル名からの推測をメインアクターの外で実行中かどうか。
+    ///
+    /// 推測が終わるまで一覧の代わりに進捗表示を出すために使う。推測前の空欄を一度出してから
+    /// 埋めると、ほぼ全部の行が未登録である普通の状態では、一覧全体が一瞬空になって見える。
+    @Published private(set) var isPreparingDrafts = false
 
     private let metadataStore: BookMetadataStore
     private let formatStore: MetadataFormatStore
@@ -148,14 +153,91 @@ final class MetadataEditorViewModel: ObservableObject {
             .sorted { $0.fileName.localizedStandardCompare($1.fileName) == .orderedAscending }
         totalRowCount = allRows.count
 
+        // 編集中の値がまだ無い行を埋める。DBの値・推測済みのキャッシュから即座に埋められる
+        // ものはここで埋め、実際に正規表現を回す必要がある行だけを非同期の推測へ回す
+        // (scheduleDerivation参照)。
+        var pending: [Row] = []
         for row in allRows where drafts[row.bookID] == nil {
-            drafts[row.bookID] = makeInitialDraft(for: row)
+            if let metadata = metadataStore.metadata(forBookID: row.bookID) {
+                drafts[row.bookID] = Draft(metadata)
+            } else if let cached = cachedDerivedMetadata(forBookID: row.bookID) {
+                drafts[row.bookID] = Draft(cached)
+            } else {
+                pending.append(row)
+            }
         }
         // 一覧から消えた本(データを全部削除した等)の編集中の値は捨てる。
         let liveIDs = Set(allRows.map(\.bookID))
         drafts = drafts.filter { liveIDs.contains($0.key) }
 
         rebuildRows()
+        scheduleDerivation(for: pending)
+    }
+
+    // MARK: - ファイル名からの推測(非同期)
+
+    /// 走行中の推測の世代番号。推測を始めるたびに1増やし、完了時に一致するものだけを受け付ける
+    /// (通知による再読み込みが重なった場合に、古い結果が後から届いて新しい結果を上書きするのを
+    /// 防ぐ。LibraryCleanupViewModel.existenceScanGenerationと同じ考え方)。
+    private var derivationGeneration = 0
+
+    /// ファイル名からの推測をメインアクターの外で走らせる。
+    ///
+    /// 1行あたり、除外文字列・ファイル名フォーマット・巻数フォーマットで十数本の正規表現照合が
+    /// 走る。この一覧は数千行になりうるため、メインアクター上でまとめて回すとウインドウを
+    /// 開いた瞬間に描画が止まる。BookMetadataDeriver / MetadataFormatCompiler /
+    /// CompiledMetadataRuleSetがいずれも`nonisolated`・`Sendable`なのは、まさにこのためにある
+    /// (Services/ArchiveReading.swift冒頭のコメント参照)。
+    private func scheduleDerivation(for rows: [Row]) {
+        guard !rows.isEmpty else { return }
+        derivationGeneration &+= 1
+        let generation = derivationGeneration
+        // ルール一式とファイル名だけをSendableな値として写し取ってから外へ渡す。
+        let revision = formatStore.revision
+        let rules = formatStore.compiledRules
+        let items = rows.map { (bookID: $0.bookID, baseName: $0.baseName) }
+        isPreparingDrafts = true
+        // [weak self]で受けたselfを、awaitをまたぐ前にguard letで強参照へ変換しておく
+        // (理由はRecentFilesStore.scheduleRefresh()の同種のコメント参照)。
+        Task.detached(priority: .userInitiated) { [weak self] in
+            var derived: [String: DerivedBookMetadata] = [:]
+            derived.reserveCapacity(items.count)
+            for item in items {
+                derived[item.bookID] = BookMetadataDeriver.derive(baseName: item.baseName, rules: rules)
+            }
+            guard let self else { return }
+            await self.applyDerived(derived, generation: generation, revision: revision)
+        }
+    }
+
+    /// 推測結果を編集中の値へ差し込む。
+    private func applyDerived(
+        _ derived: [String: DerivedBookMetadata], generation: Int, revision: Int
+    ) {
+        guard generation == derivationGeneration else { return }
+        isPreparingDrafts = false
+        // 推測している間にルールが変更されていたら、この結果はもう古い。捨ててやり直す。
+        guard revision == formatStore.revision else {
+            invalidateDerivedValues()
+            return
+        }
+        derivedCacheRevision = revision
+        for (bookID, value) in derived {
+            derivedCache[bookID] = value
+            // 推測している間にユーザーが編集した/登録した行は上書きしない。
+            guard drafts[bookID] == nil, !metadataStore.isRegistered(bookID: bookID) else { continue }
+            drafts[bookID] = Draft(value)
+        }
+        rebuildRows()
+    }
+
+    /// 推測済みのキャッシュ(ルールが変わっていれば捨てる)。
+    private func cachedDerivedMetadata(forBookID bookID: String) -> DerivedBookMetadata? {
+        if derivedCacheRevision != formatStore.revision {
+            derivedCache.removeAll(keepingCapacity: true)
+            derivedCacheRevision = formatStore.revision
+        }
+        return derivedCache[bookID]
     }
 
     /// 「このアプリが知っている本」のbookIDを、重複を除いて集める。
@@ -193,10 +275,15 @@ final class MetadataEditorViewModel: ObservableObject {
     private func invalidateDerivedValues() {
         derivedCache.removeAll(keepingCapacity: true)
         derivedCacheRevision = formatStore.revision
+        // 実際の推測はメインアクターの外で行うため(scheduleDerivation参照)、ここでは
+        // 対象の行の編集中の値を落として、作り直しを予約するだけにする。
+        var pending: [Row] = []
         for row in allRows where !metadataStore.isRegistered(bookID: row.bookID) {
-            drafts[row.bookID] = Draft(derivedMetadata(for: row))
+            drafts.removeValue(forKey: row.bookID)
+            pending.append(row)
         }
         rebuildRows()
+        scheduleDerivation(for: pending)
     }
 
     /// 行の初期値。登録済みならDBの値、未登録ならファイル名からの推測値。
@@ -207,12 +294,11 @@ final class MetadataEditorViewModel: ObservableObject {
         return Draft(derivedMetadata(for: row))
     }
 
+    /// 1行だけの推測。登録を解除した直後に、その行の表示を推測値へ戻すために使う
+    /// (refreshDraft(forBookID:))。1行ぶんならメインアクター上で回しても一瞬で終わるため、
+    /// 非同期にはしない(まとめて数千行を処理するのがscheduleDerivationの役目)。
     private func derivedMetadata(for row: Row) -> DerivedBookMetadata {
-        if derivedCacheRevision != formatStore.revision {
-            derivedCache.removeAll(keepingCapacity: true)
-            derivedCacheRevision = formatStore.revision
-        }
-        if let cached = derivedCache[row.bookID] { return cached }
+        if let cached = cachedDerivedMetadata(forBookID: row.bookID) { return cached }
         let derived = BookMetadataDeriver.derive(baseName: row.baseName, rules: formatStore.compiledRules)
         derivedCache[row.bookID] = derived
         return derived

@@ -71,8 +71,13 @@ final class MetadataFormatStore: ObservableObject {
 
     private var cachedCompiledRules: CompiledMetadataRuleSet?
 
+    /// replaceAll(...)のように3種類をまとめて差し替えている最中かどうか。
+    /// trueの間はrevisionを進めない(まとめ終わってから1回だけ進める)。
+    private var isReplacingAll = false
+
     private func invalidateCompiledRules() {
         cachedCompiledRules = nil
+        guard !isReplacingAll else { return }
         revision &+= 1
     }
 
@@ -95,14 +100,21 @@ final class MetadataFormatStore: ObservableObject {
 
     /// JSONインポートでフォーマット定義を丸ごと差し替える場合に使う(3種類まとめて更新する
     /// 経路でも、didSetによる保存とキャッシュ破棄がそれぞれ正しく走る)。
+    ///
+    /// revisionは3回ではなく1回だけ進める。revisionの変化は「メタデータの編集」ウインドウが
+    /// 未登録の全行の推測値を作り直す合図であり、3回進めると同じ作り直しが3回走る
+    /// (MetadataEditorViewModel.invalidateDerivedValues参照)。
     func replaceAll(
         filenameFormats: [MetadataFilenameFormat],
         volumeRules: [VolumeFormatRule],
         exclusionRules: [MetadataExclusionRule]
     ) {
+        isReplacingAll = true
         self.filenameFormats = filenameFormats
         self.volumeRules = volumeRules
         self.exclusionRules = exclusionRules
+        isReplacingAll = false
+        invalidateCompiledRules()
     }
 
     // MARK: - 内部

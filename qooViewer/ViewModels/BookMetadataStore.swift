@@ -87,14 +87,107 @@ final class BookMetadataStore: ObservableObject {
         seriesIndex: String,
         sourceURL: URL? = nil
     ) -> BookMetadata? {
+        switch applyUpsert(
+            bookID: bookID, author: author, title: title,
+            series: series, seriesIndex: seriesIndex, sourceURL: sourceURL
+        ) {
+        case .updated(let metadata):
+            saveAndNotify(bookID: bookID)
+            return metadata
+        case .removed:
+            saveAndNotify(bookID: bookID)
+            return nil
+        case .noChange:
+            return nil
+        }
+    }
+
+    /// まとめて登録するための入り口(JSONインポート用)。取り込んだ件数を返す。
+    ///
+    /// upsert(...)を1件ずつ呼ぶと、そのたびにsave()とbookMetadataDidChange通知が出る。
+    /// 通知1件につき、それを購読しているウインドウ(「メタデータの編集」「EPUB出力」「PDF出力」・
+    /// 開いている本のビューア)のreload()が1回走り、EPUB/PDF出力のreload()は対象の本ごとに
+    /// セキュリティスコープ付きブックマークの解決まで行うため、件数の二乗に比例したディスクI/Oに
+    /// なっていた。save()も通知もそれぞれ1回にまとめる
+    /// (FavoritesStore.removeFavorites(forBookID:)が1件ずつのsave()を避けているのと同じ考え方)。
+    @discardableResult
+    func upsertAll(_ entries: [BatchEntry]) -> Int {
+        var changedBookIDs: [String] = []
+        var importedCount = 0
+        for entry in entries {
+            switch applyUpsert(
+                bookID: entry.bookID, author: entry.author, title: entry.title,
+                series: entry.series, seriesIndex: entry.seriesIndex, sourceURL: entry.sourceURL
+            ) {
+            case .updated:
+                importedCount += 1
+                changedBookIDs.append(entry.bookID)
+            case .removed:
+                changedBookIDs.append(entry.bookID)
+            case .noChange:
+                break
+            }
+        }
+        guard !changedBookIDs.isEmpty else { return 0 }
+
+        do {
+            try modelContext.save()
+            lastSaveErrorMessage = nil
+        } catch {
+            logSaveFailure("upsertAll() failed for \(changedBookIDs.count) book(s): \(error)")
+        }
+        let byBookID = metadataByBookID()
+        for bookID in changedBookIDs {
+            if byBookID[bookID] != nil {
+                registeredBookIDs.insert(bookID)
+            } else {
+                registeredBookIDs.remove(bookID)
+            }
+        }
+        // どの本かを特定しない通知として1回だけ投げる(全件リセットと同じ形。
+        // 購読側は"bookID"が無い通知を「本を問わず対象」として扱う。BookMetadata.swift参照)。
+        NotificationCenter.default.post(name: .bookMetadataDidChange, object: self, userInfo: nil)
+        return importedCount
+    }
+
+    /// upsertAll(_:)へ渡す1件分。
+    struct BatchEntry {
+        let bookID: String
+        let author: String
+        let title: String
+        let series: String
+        let seriesIndex: String
+        /// 分かる場合は本の実URL(upsert(...)のsourceURLと同じ意味)。
+        let sourceURL: URL?
+    }
+
+    /// 1件ぶんの登録内容を反映する。**save()も通知も行わない**(呼び出し側がまとめて行う)。
+    private enum UpsertOutcome {
+        case updated(BookMetadata)
+        /// 4項目すべてが空だったため、既存の行を削除した。
+        case removed
+        /// 4項目すべてが空で、かつ元から行が無かった(DBに触れていない)。
+        case noChange
+    }
+
+    private func applyUpsert(
+        bookID: String,
+        author: String,
+        title: String,
+        series: String,
+        seriesIndex: String,
+        sourceURL: URL?
+    ) -> UpsertOutcome {
         let author = author.trimmingCharacters(in: .whitespaces)
         let title = title.trimmingCharacters(in: .whitespaces)
         let series = series.trimmingCharacters(in: .whitespaces)
         let seriesIndex = seriesIndex.trimmingCharacters(in: .whitespaces)
 
         guard !(author.isEmpty && title.isEmpty && series.isEmpty && seriesIndex.isEmpty) else {
-            delete(forBookID: bookID)
-            return nil
+            guard let existing = metadata(forBookID: bookID) else { return .noChange }
+            modelContext.delete(existing)
+            cachedByBookID?[bookID] = nil
+            return .removed
         }
 
         if let existing = metadata(forBookID: bookID) {
@@ -114,8 +207,7 @@ final class BookMetadataStore: ObservableObject {
                     existing.volumeDeviceNumber = identifier.volumeDeviceNumber
                 }
             }
-            saveAndNotify(bookID: bookID)
-            return existing
+            return .updated(existing)
         }
 
         let created = BookMetadata(
@@ -129,8 +221,7 @@ final class BookMetadataStore: ObservableObject {
         )
         modelContext.insert(created)
         cachedByBookID?[bookID] = created
-        saveAndNotify(bookID: bookID)
-        return created
+        return .updated(created)
     }
 
     /// 登録を解除する(未登録なら何もしない)。

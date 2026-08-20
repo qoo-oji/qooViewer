@@ -455,6 +455,11 @@ enum LibraryImportExportService {
         favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
         metadataStore: BookMetadataStore, summary: inout ImportSummary
     ) {
+        // 1件ずつupsertせず、まとめてupsertAllへ渡す。1件ごとにsave()と変更通知が出ると、
+        // 通知を購読しているウインドウのreload()が件数ぶん走り、件数の二乗に比例した
+        // ディスクI/Oになる(BookMetadataStore.upsertAll(_:)のコメント参照)。
+        var batch: [BookMetadataStore.BatchEntry] = []
+        batch.reserveCapacity(entries.count)
         for entry in entries {
             // 他のカテゴリと同じく、ファイルノード識別子による照合を優先し、解決できた場合は
             // 現在のパスをbookIDとして使う(別マシン/移動後でパスが変わっていても引き継げる)。
@@ -464,16 +469,18 @@ enum LibraryImportExportService {
             )
             let bookID = resolvedURL?.path ?? entry.bookID
             if policy == .merge, metadataStore.metadata(forBookID: bookID) != nil { continue }
-            metadataStore.upsert(
-                bookID: bookID,
-                author: entry.author,
-                title: entry.title,
-                series: entry.series,
-                seriesIndex: entry.seriesIndex,
-                sourceURL: resolvedURL
+            batch.append(
+                BookMetadataStore.BatchEntry(
+                    bookID: bookID,
+                    author: entry.author,
+                    title: entry.title,
+                    series: entry.series,
+                    seriesIndex: entry.seriesIndex,
+                    sourceURL: resolvedURL
+                )
             )
-            summary.metadataImportedBooks += 1
         }
+        summary.metadataImportedBooks += metadataStore.upsertAll(batch)
     }
 
     /// フォーマット定義を丸ごと差し替える(ImportPolicies.metadataFormatsのコメント参照)。

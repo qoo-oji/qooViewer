@@ -71,7 +71,13 @@ private struct MetadataEditorContentView: View {
             headerSection
             Divider()
 
-            if viewModel.rows.isEmpty {
+            if viewModel.isPreparingDrafts {
+                // ファイル名からの推測が終わるまでは一覧を出さない。推測前の空欄を先に出すと、
+                // ほぼ全部の行が未登録である普通の状態では一覧全体が一瞬空になって見える
+                // (MetadataEditorViewModel.isPreparingDrafts参照)。
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if viewModel.rows.isEmpty {
                 ContentUnavailableView(
                     viewModel.totalRowCount == 0 ? "No Books Yet" : "No Matching Books",
                     systemImage: viewModel.totalRowCount == 0 ? "books.vertical" : "magnifyingglass",
