@@ -216,6 +216,10 @@ qooViewerは日本語とEnglishを切り替えられます(環境設定の「一
    Extensionsに登録します(Nameは何でもよいです。例: "Comic Archive")
 3. これで対応ファイルを Finder でダブルクリック、または右クリック →「このアプリケーションで開く」→
    qooViewer で開けるようになります
+4. フォルダも Dock の qooViewer アイコンへドロップして開けるようにするには、もう1つ Document Type を追加し、
+   Extensions ではなく「Types」(Identifier)に `public.folder` を登録します(Name は例: "Folder"、Role は
+   "Viewer")。Finder のフォルダの既定の開き方を乗っ取らないよう、`Info.plist` 上でこの項目の
+   `LSHandlerRank` を `None` にしておきます(リポジトリ同梱の `qooViewer/Info.plist` がその形になっています)
 
 ### rarファイル名の文字化けを解消する(任意)
 
