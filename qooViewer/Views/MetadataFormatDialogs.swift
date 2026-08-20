@@ -8,7 +8,7 @@ import AppKit
 ///
 /// `.frame(maxWidth: .infinity)`で揃える方法もあるが、それだと親の幅いっぱいまで
 /// 引き伸ばされてしまい、ウインドウ幅によってボタンが不自然に間延びする。
-/// EpubExportColumnWidthEstimatorと同じくNSStringの実測を使い、「一番長いラベルが
+/// ExportColumnWidthEstimatorと同じくNSStringの実測を使い、「一番長いラベルが
 /// 収まる幅」を求めて全ボタンへ同じ値を指定する。
 enum MetadataButtonWidthEstimator {
     /// ボタンのラベル以外に必要な左右の余白(macOSの標準ボタンのパディング相当)。

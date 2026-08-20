@@ -687,6 +687,22 @@
         }
       }
     },
+    "Also Write the Volume Number to ComicInfo’s Volume Element": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also Write the Volume Number to ComicInfo’s Volume Element"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "巻数を ComicInfo の Volume 要素にも書き出す"
+          }
+        }
+      }
+    },
     "Always First Page": {
       "extractionState": "manual",
       "localizations": {
@@ -1327,6 +1343,22 @@
         }
       }
     },
+    "Books need bookmarks, page layout settings, or metadata before they can be exported as CBZ.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Books need bookmarks, page layout settings, or metadata before they can be exported as CBZ."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CBZ として書き出すには、ブックマーク・ページレイアウト設定・メタデータのいずれかが登録されている必要があります。"
+          }
+        }
+      }
+    },
     "Books need bookmarks, page layout settings, or metadata before they can be exported as EPUB.": {
       "localizations": {
         "en": {
@@ -1452,6 +1484,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "ブックマークを一括リネーム…"
+          }
+        }
+      }
+    },
+    "CBZ files have no page-order metadata, so readers sort by file name. Turn this off only if you want to keep the original file names.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CBZ files have no page-order metadata, so readers sort by file name. Turn this off only if you want to keep the original file names."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CBZ にはページ順を表すメタデータが無く、リーダーはファイル名順に並べます。元のファイル名を残したい場合にのみオフにしてください。"
           }
         }
       }
@@ -1596,6 +1644,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "左側で本を選ぶと、そのブックマークが表示されます。"
+          }
+        }
+      }
+    },
+    "Choose a destination folder for the exported CBZ files.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a destination folder for the exported CBZ files."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き出したCBZファイルの出力先フォルダを選んでください。"
           }
         }
       }
@@ -2175,6 +2239,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "画像を保存できませんでした: %@"
+          }
+        }
+      }
+    },
+    "Couldn't write the CBZ file: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't write the CBZ file: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CBZファイルを書き込めませんでした: %@"
           }
         }
       }
@@ -3302,6 +3382,38 @@
         }
       }
     },
+    "Export as CBZ": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export as CBZ"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CBZをエクスポート"
+          }
+        }
+      }
+    },
+    "Export as CBZ…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export as CBZ…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CBZをエクスポート…"
+          }
+        }
+      }
+    },
     "Export as EPUB": {
       "localizations": {
         "en": {
@@ -3394,6 +3506,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "エクスポートに失敗しました: %@"
+          }
+        }
+      }
+    },
+    "Exporting CBZ Files…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exporting CBZ Files…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CBZファイルをエクスポート中…"
           }
         }
       }
@@ -4922,6 +5050,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "90%の位置のページへジャンプ"
+          }
+        }
+      }
+    },
+    "Kavita reads Volume as the volume number, but Komga appends it to the series name, which can split a series into one series per volume.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kavita reads Volume as the volume number, but Komga appends it to the series name, which can split a series into one series per volume."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kavita は Volume を巻数として読みますが、Komga はシリーズ名に連結するため、1巻ごとに別のシリーズへ分かれてしまうことがあります。"
           }
         }
       }
@@ -9248,6 +9392,22 @@
         }
       }
     },
+    "Start CBZ Export…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start CBZ Export…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CBZ出力を開始…"
+          }
+        }
+      }
+    },
     "Start EPUB Export…": {
       "localizations": {
         "en": {
@@ -10783,6 +10943,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "「"
+          }
+        }
+      }
+    },
+    "“%1$@.%2$@” already exists in the destination folder.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%1$@.%2$@” already exists in the destination folder."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%1$@.%2$@」は出力先フォルダにすでに存在します。"
           }
         }
       }

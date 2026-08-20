@@ -11,13 +11,6 @@ struct PDFExportOptions {
     var includeExcludedPages: Bool
 }
 
-/// PDFのアウトライン(しおり)へ書き出す1件のブックマーク。EpubExportBookmarkのPDF版。
-struct PDFExportBookmark {
-    /// 元のPageRef.sortKey(BookLoaderが読み込んだ、並べ替え前のページキー)。
-    let pageKey: String
-    let name: String
-}
-
 /// 1冊分のPDF書き出しに必要な材料。EpubExportInputのPDF版だが、以下の理由でEPUB版に
 /// あった項目の一部を持たない(呼び出し元のPDFExportViewModel.exportOneのコメント参照)。
 ///
@@ -38,7 +31,7 @@ struct PDFExportInput {
     /// (見開き配置の情報自体はPDFには埋め込まないため、それ以外の値は参照しない)。
     let pageOverrides: [String: PageLayoutState]
     /// ページ順に並んでいる必要はない(書き出し側で実際の出力順に変換する)。
-    let bookmarks: [PDFExportBookmark]
+    let bookmarks: [ExportBookmark]
     /// Apple Books互換性の項目と同じ考え方(EpubExportInput.titleOverride参照)。
     /// 空文字/nilの場合はbook.titleをそのまま使う。
     let titleOverride: String?
@@ -246,7 +239,7 @@ nonisolated enum PDFExporter {
     /// 使っているkCGPDFOutlineキー一式と対になる)。ネスト(章立て)は行わず、EPUBの目次と同じく
     /// フラットな一覧として埋め込む。1件も無ければnilを返す(アウトライン自体を設定しない)。
     private static func makeOutline(
-        bookmarks: [PDFExportBookmark], pageNumberByOriginalKey: [String: Int]
+        bookmarks: [ExportBookmark], pageNumberByOriginalKey: [String: Int]
     ) -> CFDictionary? {
         var children: [[String: Any]] = []
         for bookmark in bookmarks {

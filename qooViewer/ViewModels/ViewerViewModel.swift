@@ -457,6 +457,14 @@ final class ViewerViewModel: ObservableObject {
             Task { [weak self] in
                 await self?.importSourceMetadataIfNeeded(isEpub: false)
             }
+        } else {
+            // cbz/cbr/cb7、および画像フォルダ。ルート直下にComicInfo.xmlがあれば、書誌メタデータ・
+            // 読み方向・ブックマークを同じ考え方(初めて開いたときにDBの初期値として1回だけ)で
+            // 取り込む。EPUB/PDFと違い3種類の情報が1つのファイルにまとまっているため、
+            // 読み込みも1回にまとめてある(importComicInfoIfNeeded参照)。
+            Task { [weak self] in
+                await self?.importComicInfoIfNeeded()
+            }
         }
 
         // 「ブックマークの編集」ウインドウは本のウインドウとは独立しているため、そちらで
@@ -1087,6 +1095,68 @@ final class ViewerViewModel: ObservableObject {
             sourceURL: sourceURL
         )
         refreshDisplayTitle()
+    }
+
+    // MARK: - ComicInfo.xmlの自動取り込み(ユーザー要望: cbzの書き出しと対になる読み取り)
+
+    /// cbz/cbr/cb7・画像フォルダを初めて開いたときに、ルート直下の`ComicInfo.xml`から
+    /// 書誌メタデータ・読み方向・ブックマークをDBの初期値として取り込む。
+    ///
+    /// EPUB/PDFの取り込み(importSourceMetadataIfNeeded / autoImport*AsBookmarksIfNeeded)と
+    /// 同じ方針:
+    /// - 既にDB側に値がある項目には触れない(ファイル側はあくまで初期値)。
+    /// - 読み込み・解析は本を開く処理をブロックしないようTask.detachedで行う。
+    ///
+    /// EPUB/PDFと違い、3種類の情報がすべて1つのXMLに入っているため、解析も1回にまとめている。
+    /// そのぶん「3つとも取り込む必要が無い」ことを先に確かめ、必要が無ければ書庫を開くこと自体を
+    /// 行わない — この判定が無いと、同じ本を開くたびに毎回ComicInfo.xmlを読み直すことになる
+    /// (EPUBの目次取り込みがbookmarks.isEmptyで早期に抜けるのと同じ考え方)。
+    private func importComicInfoIfNeeded() async {
+        let needsMetadata = metadataStore.metadata(forBookID: book.id) == nil
+        let needsBookmarks = bookmarks.isEmpty
+        // 読み方向の取り込み済みフラグは、EPUB/PDFのレイアウト取り込みと同じものを使う
+        // (LayoutStore.importSourceLayoutIfNeeded / BookLayoutSettings.didImportSourceLayout)。
+        let needsReadingDirection = layoutStore.bookLayoutSettings(forBookID: book.id)?.didImportSourceLayout != true
+        guard needsMetadata || needsBookmarks || needsReadingDirection else { return }
+
+        let sourceURL = book.sourceURL
+        guard let comicInfo = await Task.detached(priority: .utility, operation: { () -> ComicInfo? in
+            ComicInfoResolver.resolve(bookAt: sourceURL)
+        }).value else { return }
+
+        // 解析中に他の経路(「メタデータの編集」ウインドウなど)で登録された可能性があるため、
+        // 書き込む直前にもう一度確認する(importSourceMetadataIfNeededと同じ)。
+        let metadata = comicInfo.sourceBookMetadata
+        if needsMetadata, !metadata.isEmpty, metadataStore.metadata(forBookID: book.id) == nil {
+            metadataStore.upsert(
+                bookID: book.id,
+                author: metadata.author,
+                title: metadata.title,
+                series: metadata.series,
+                seriesIndex: metadata.seriesIndex,
+                sourceURL: sourceURL
+            )
+            refreshDisplayTitle()
+        }
+
+        // 読み方向。EPUB/PDFのヒントと同じ経路(LayoutStore.importSourceLayoutIfNeeded)へ
+        // 流し込むことで、「DB側に値があればそちらを優先」「取り込みは1冊につき1回だけ」という
+        // 既存の規則をそのまま適用する。そのためだけに、ヒントを差し込んだbookのコピーを渡す。
+        if needsReadingDirection, let direction = comicInfo.readingDirection {
+            var seeded = book
+            seeded.sourceLayoutHint = SourceLayoutHint(pageProgressionDirection: direction, forcedDisplayMode: nil)
+            layoutStore.importSourceLayoutIfNeeded(for: seeded)
+            // reloadLayoutDataは読み方向を読み直さない(ページの並び・除外だけを扱う)ため、
+            // 取り込んだ結果を今表示している本へ明示的に反映する。既にユーザーが設定していた
+            // 場合は上の取り込みが値を書き換えないため、ここで代入しても現在値と同じになる。
+            if let imported = layoutStore.bookLayoutSettings(forBookID: book.id)?.readingDirectionOverride {
+                readingDirection = imported
+            }
+        }
+
+        // ブックマーク(<Pages>のBookmark属性)。EPUBの目次・PDFのアウトラインと同じ挿入処理を
+        // 使う(この本にまだブックマークが1件も無い場合に限る、という判定もそちらが持っている)。
+        importAutoTOCEntries(comicInfo.bookmarks.map { (title: $0.name, pageIndex: $0.pageIndex) })
     }
 
     /// PDFのアウトライン(しおり)から、ブックマークを自動的に取り込む。autoImportEpub

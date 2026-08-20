@@ -41,4 +41,6 @@ extension LastUsedFolderMemory {
     static let epubExport = LastUsedFolderMemory(defaultsKey: "qooViewer.pref.lastEpubExportFolderBookmark")
     /// PDF出力先フォルダパネル用。
     static let pdfExport = LastUsedFolderMemory(defaultsKey: "qooViewer.pref.lastPdfExportFolderBookmark")
+    /// CBZ出力先フォルダパネル用。
+    static let cbzExport = LastUsedFolderMemory(defaultsKey: "qooViewer.pref.lastCbzExportFolderBookmark")
 }

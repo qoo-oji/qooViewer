@@ -11,25 +11,6 @@ struct EpubExportOptions {
     var includeExcludedPages: Bool
 }
 
-/// 目次(nav.xhtml)へ書き出す1件のブックマーク。
-struct EpubExportBookmark {
-    /// 元のPageRef.sortKey(BookLoaderが読み込んだ、並べ替え前のページキー)。
-    let pageKey: String
-    let name: String
-}
-
-/// カバー画像の上書き指定(ユーザー要望: EPUB出力時のカバー画像を選択・変更できるように
-/// したい)。EpubExportInput.coverOverrideがnilの場合は、書き出し後の実質的な先頭ページ
-/// (除外・並べ替え反映後の1ページ目)を既定のカバーとして使う。
-enum EpubCoverOverride {
-    /// 本に含まれる既存ページをカバーにする(pageKeyは元のPageRef.sortKey)。除外設定により
-    /// このページ自体は通常の読書順(spine)に含まれない場合でも、カバーとしては使える
-    /// ようにする(ユーザー要望を汲んだ挙動)。
-    case existingPage(pageKey: String)
-    /// 本に含まれない専用ファイルをカバーにする。
-    case externalFile(data: Data, fileExtension: String)
-}
-
 /// 1冊分の書き出しに必要な材料。呼び出し側(EpubExportWindow)が、対象の本ごとにBookLoaderで
 /// 読み込んだMangaBookと、LayoutStore/BookmarkStoreから集めたデータをまとめて渡す。
 struct EpubExportInput {
@@ -42,8 +23,8 @@ struct EpubExportInput {
     let readingDirectionOverride: ReadingDirection?
     let forcedDisplayMode: DisplayMode?
     /// ページ順に並んでいる必要はない(書き出し側で実際の出力順に変換する)。
-    let bookmarks: [EpubExportBookmark]
-    let coverOverride: EpubCoverOverride?
+    let bookmarks: [ExportBookmark]
+    let coverOverride: ExportCoverOverride?
     /// Apple Books互換性(ユーザー要望): EPUB出力ウインドウのタイトル欄で編集された値。
     /// 空文字/nilの場合はbook.title(元のファイル/フォルダ名相当)をそのまま使う。
     let titleOverride: String?
