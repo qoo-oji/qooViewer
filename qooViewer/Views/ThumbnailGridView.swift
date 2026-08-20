@@ -30,6 +30,12 @@ struct ThumbnailGridView: View {
     @EnvironmentObject private var preferences: AppPreferences
 
     private static let contentPadding: CGFloat = 16
+    /// セル枠の縦横比(幅/高さ)。以前は正方形(120×120)だったが、漫画のページはほぼ縦長なので
+    /// 正方形の枠だと左右に常にプレースホルダーの余白が残り、「横の間隔を0にしても間隔が空いた
+    /// まま」に見えた(ユーザー報告)。サイドパネルのページモード(SidePanelPageCell、高さ×0.75)と
+    /// 同じ縦長の枠にして、枠とページの余白をほぼ無くす。見開き合成などの横長ページは上下に
+    /// 余白が出るが、そちらは少数派。環境設定「サムネイルのサイズ」は枠の高さを指す。
+    private static let cellAspectRatio: CGFloat = 0.75
 
     /// 利用できる幅に何列入るか。サムネイルのサイズと横の間隔(どちらも環境設定)から決める。
     ///
@@ -60,7 +66,8 @@ struct ThumbnailGridView: View {
 
     private func columnCount(forPanelWidth width: CGFloat) -> Int {
         let available = width - Self.contentPadding * 2
-        return max(1, Int(((available + horizontalSpacing) / (cellSize + horizontalSpacing)).rounded(.down)))
+        let cellWidth = cellSize * Self.cellAspectRatio
+        return max(1, Int(((available + horizontalSpacing) / (cellWidth + horizontalSpacing)).rounded(.down)))
     }
 
     var body: some View {
@@ -72,13 +79,14 @@ struct ThumbnailGridView: View {
             let vMargin = geometry.size.height * CGFloat(preferences.thumbnailGridVerticalMarginPercent) / 100
             let panelWidth = max(geometry.size.width - hMargin * 2, 120)
             let panelHeight = max(geometry.size.height - vMargin * 2, 120)
-            let cell = cellSize
+            let cellHeight = cellSize
+            let cellWidth = cellHeight * Self.cellAspectRatio
             let hSpacing = horizontalSpacing
             let count = columnCount(forPanelWidth: panelWidth)
-            let columns = Array(repeating: GridItem(.fixed(cell), spacing: hSpacing), count: count)
+            let columns = Array(repeating: GridItem(.fixed(cellWidth), spacing: hSpacing), count: count)
             // 固定幅の列はLazyVGridの先頭(左)から詰められるので、グリッド自体の幅を列数ぶんに
             // 絞ってから中央に置く(そうしないと右側だけ余る)。
-            let gridWidth = CGFloat(count) * cell + CGFloat(max(count - 1, 0)) * hSpacing
+            let gridWidth = CGFloat(count) * cellWidth + CGFloat(max(count - 1, 0)) * hSpacing
 
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
@@ -112,7 +120,7 @@ struct ThumbnailGridView: View {
                             } label: {
                                 ThumbnailCell(
                                     viewModel: viewModel, index: index, isCurrent: index == viewModel.currentIndex,
-                                    cellSize: cell
+                                    cellWidth: cellWidth, cellHeight: cellHeight
                                 )
                             }
                             .buttonStyle(.plain)
@@ -163,8 +171,10 @@ private struct ThumbnailCell: View {
     let viewModel: ViewerViewModel
     let index: Int
     let isCurrent: Bool
-    /// サムネイル枠の一辺(pt)。AppPreferences.thumbnailGridCellSize(以前は120固定)。
-    let cellSize: CGFloat
+    /// サムネイル枠の大きさ(pt)。高さがAppPreferences.thumbnailGridCellSize、幅はその
+    /// cellAspectRatio倍(以前は120×120の正方形固定)。
+    let cellWidth: CGFloat
+    let cellHeight: CGFloat
     @EnvironmentObject private var preferences: AppPreferences
     @State private var image: CGImage?
 
@@ -193,7 +203,7 @@ private struct ThumbnailCell: View {
                     ProgressView().controlSize(.small)
                 }
             }
-            .frame(width: cellSize, height: cellSize)
+            .frame(width: cellWidth, height: cellHeight)
             .overlay(
                 RoundedRectangle(cornerRadius: 4)
                     .stroke(isCurrent ? Color.accentColor : Color.clear, lineWidth: 3)

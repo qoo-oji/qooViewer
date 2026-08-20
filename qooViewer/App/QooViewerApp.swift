@@ -34,6 +34,8 @@ struct QooViewerApp: App {
     @StateObject private var metadataFormatStore = MetadataFormatStore()
     /// 複数ウインドウ/タブに対応するための調整役。詳細はLaunchCoordinator.swiftのコメント参照。
     @StateObject private var launchCoordinator = LaunchCoordinator()
+    /// メニューが開いている間、項目数に関わる入力を凍結する(理由はMenuTrackingFreezerのコメント参照)。
+    @StateObject private var menuFreezer = MenuTrackingFreezer()
     /// メニューバー(アプリ全体で1つ)から、今アクティブな(キーウインドウの)AppStateを
     /// 参照するための仕組み。詳細はAppState.swiftのFocusedValues拡張のコメント参照。
     @FocusedValue(\.qooViewerAppState) private var focusedAppState
@@ -297,8 +299,11 @@ struct QooViewerApp: App {
 
                 // グループ3: 現在の本と関連するファイルを開く(同じフォルダ内)
                 Menu("Open File in Same Folder") {
-                    if let focusedAppState, !focusedAppState.siblingBooks.isEmpty {
-                        ForEach(focusedAppState.siblingBooks, id: \.self) { url in
+                    // 兄弟ファイルは本を開いた後に非同期で埋まる。メニューを開いている最中に
+                    // 項目数が変わるとクラッシュするため凍結する(MenuTrackingFreezer参照)。
+                    let siblingBooks = menuFreezer.frozen("siblingBooks", focusedAppState?.siblingBooks ?? [])
+                    if let focusedAppState, !siblingBooks.isEmpty {
+                        ForEach(siblingBooks, id: \.self) { url in
                             // タイトルは拡張子を除いた名前のため、同名のcbz/epubなど拡張子違いの
                             // 同じ本が同じフォルダに並ぶと見分けがつかない(ユーザー報告)。
                             // Favoritesメニュー(FavoritesMenuContent/FavoritesNSMenuBridge)と
@@ -333,10 +338,13 @@ struct QooViewerApp: App {
                 Menu("Open Recent") {
                     // シークレットウインドウがフォーカス中は、(通常ウインドウで作られた)履歴も
                     // 見せない(ユーザー要望。AppState.isPrivateWindowのコメント参照)。
-                    if recentFiles.entries.isEmpty || menuCheckmarkState?.isPrivateWindow == true {
+                    // 履歴は本を開き終えた瞬間に増える。開いている間の項目数の変化を避けるため凍結
+                    // (MenuTrackingFreezer参照)。
+                    let recentEntries = menuFreezer.frozen("recentFiles", recentFiles.entries)
+                    if recentEntries.isEmpty || menuCheckmarkState?.isPrivateWindow == true {
                         Text("(None)")
                     } else {
-                        ForEach(recentFiles.entries) { entry in
+                        ForEach(recentEntries) { entry in
                             // entry.displayNameは拡張子を除いた名前(RecentFilesStore.Entry参照)。
                             // 同名のcbz/epubなど拡張子違いの同じ本を開いた履歴が並ぶと見分けが
                             // つかない(ユーザー報告)ため、上の「同じフォルダのファイルを開く」と
@@ -381,7 +389,13 @@ struct QooViewerApp: App {
                 // いない場合)は「このページをエクスポート」の1件のみを出す(ViewerView.
                 // contextMenuContentのExport Imageサブメニューと同じ判定基準)。
                 Menu("Export Image") {
-                    if menuCheckmarkState?.isSpreadMode == true, menuCheckmarkState?.hasPartnerPageDisplayed == true {
+                    // 1項目↔3項目の切り替えは、見開きの読み込み完了などでメニューを開いている
+                    // 最中にも起こりうる。凍結して項目数を保つ(MenuTrackingFreezer参照)。
+                    let showsSpreadItems = menuFreezer.frozen(
+                        "exportSpread",
+                        menuCheckmarkState?.isSpreadMode == true && menuCheckmarkState?.hasPartnerPageDisplayed == true
+                    )
+                    if showsSpreadItems {
                         Button("Export Right Page…") {
                             focusedAppState?.performImageExport?(.rightPage)
                         }
@@ -694,6 +708,12 @@ struct QooViewerApp: App {
                 // ブックマークの追加・各編集ウインドウ・レイアウト変更)をすべて無効にする。
                 // 一覧(Favorites List / Bookmark List)は読み取りだけなので使える。
                 let isPrivate = menuCheckmarkState?.isPrivateWindow == true
+                // 項目数に関わる値は、メニューを開いている間は凍結する(MenuTrackingFreezer参照)。
+                // 見開きの相方ページの有無・レイアウト上書きの有無は、読み込み完了やページ送りで
+                // メニューを開いている最中にも変わりうる。
+                let partnerDisplayed = menuFreezer.frozen("layoutPartner", menuCheckmarkState?.hasPartnerPageDisplayed == true)
+                let hasCurrentOverride = menuFreezer.frozen("currentOverride", menuCheckmarkState?.hasCurrentPageLayoutOverride ?? false)
+                let hasPartnerOverride = menuFreezer.frozen("partnerOverride", menuCheckmarkState?.hasPartnerPageLayoutOverride ?? false)
                 // 以前はここに、EPUB/PDFのファイル側がレイアウトを規定している本で
                 // レイアウト操作をまとめて無効化するためのisLayoutLockedがあった。
                 // ユーザー要望によりそのロック自体を廃止したため、レイアウト関連の項目は
@@ -756,8 +776,9 @@ struct QooViewerApp: App {
 
                 // ブックマーク一覧を(要望6により)フラットな並びではなくサブメニューにまとめる。
                 Menu("Bookmark List") {
-                    if let focusedAppState, !focusedAppState.currentBookmarks.isEmpty {
-                        ForEach(focusedAppState.currentBookmarks, id: \.id) { bookmark in
+                    let bookmarks = menuFreezer.frozen("bookmarks", focusedAppState?.currentBookmarks ?? [])
+                    if let focusedAppState, !bookmarks.isEmpty {
+                        ForEach(bookmarks, id: \.id) { bookmark in
                             Button("\(bookmark.name) (\(bookmark.pageIndex + 1))") {
                                 focusedAppState.jumpToBookmark?(bookmark)
                             }
@@ -784,7 +805,7 @@ struct QooViewerApp: App {
                 // ユーザー要望: 「自動でレイアウトする」の下、および下の「レイアウトの編集…」の
                 // 上にあった区切り線は削除した(このグループ内は1つの塊として見せる)。
 
-                if menuCheckmarkState?.hasPartnerPageDisplayed == true {
+                if partnerDisplayed {
                     // 見開き表示中に実際に2ページとも表示されている場合は、8.2節の通り
                     // 左右それぞれのページ用に5項目ずつ(計10項目)並べる。設計doc本文は
                     // フラットな10項目を想定しているが、視認性のためLeft Page/Right Pageの
@@ -794,8 +815,8 @@ struct QooViewerApp: App {
                         layoutMenuItems(
                             target: menuCheckmarkState?.isRightToLeft == true ? .partner : .current,
                             hasOverride: menuCheckmarkState?.isRightToLeft == true
-                                ? (menuCheckmarkState?.hasPartnerPageLayoutOverride ?? false)
-                                : (menuCheckmarkState?.hasCurrentPageLayoutOverride ?? false)
+                                ? hasPartnerOverride
+                                : hasCurrentOverride
                         )
                     }
                     .disabled(!hasBook || isPrivate)
@@ -804,13 +825,13 @@ struct QooViewerApp: App {
                         layoutMenuItems(
                             target: menuCheckmarkState?.isRightToLeft == true ? .current : .partner,
                             hasOverride: menuCheckmarkState?.isRightToLeft == true
-                                ? (menuCheckmarkState?.hasCurrentPageLayoutOverride ?? false)
-                                : (menuCheckmarkState?.hasPartnerPageLayoutOverride ?? false)
+                                ? hasCurrentOverride
+                                : hasPartnerOverride
                         )
                     }
                     .disabled(!hasBook || isPrivate)
                 } else {
-                    layoutMenuItems(target: .current, hasOverride: menuCheckmarkState?.hasCurrentPageLayoutOverride ?? false)
+                    layoutMenuItems(target: .current, hasOverride: hasCurrentOverride)
                         .disabled(!hasBook || isPrivate)
                 }
 
