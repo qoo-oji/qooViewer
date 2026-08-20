@@ -3,7 +3,7 @@
 このプロジェクトの変更履歴です。フォーマットは [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に、
 バージョニングは [Semantic Versioning](https://semver.org/lang/ja/) に準拠しています。
 
-## [Unreleased]
+## [1.22] - 2026-08-21
 
 ### 追加
 
