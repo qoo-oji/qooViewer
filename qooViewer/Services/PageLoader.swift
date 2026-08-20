@@ -148,27 +148,34 @@ actor PageLoader {
         return cache
     }()
 
-    /// サムネイルの永続キャッシュ(ThumbnailDiskCache)を引くためのキー。コントラスト補正の
-    /// 切り替えで作り直す必要があるため、初期化時とsetContrastCorrectionEnabled(_:)で更新する。
-    private var thumbnailDiskKey: ThumbnailDiskCache.BookKey
+    /// サムネイルの永続キャッシュ(ThumbnailDiskCache)を引くためのキー。
+    ///
+    /// initでは作らず、最初に必要になった時点(thumbnailDiskKey()の呼び出し時)で作る。
+    /// キーの生成にはソースファイルの更新日時・サイズの問い合わせ(stat)が伴い、
+    /// PageLoaderのinitはactorのinitなので**呼び出し側のスレッド上で同期実行される**。
+    /// ViewerViewModel.init / BookLayoutEditorViewModelはメインアクター上でPageLoaderを
+    /// 作るため、initで問い合わせると、応答しないネットワークボリューム上の本を開いたときに
+    /// メインスレッドがそのまま止まる。actorのメソッドの中ならメインアクターの外で動く。
+    ///
+    /// コントラスト補正を切り替えたら作り直す必要があるため、
+    /// setContrastCorrectionEnabled(_:)でnilに戻す。
+    private var cachedThumbnailDiskKey: ThumbnailDiskCache.BookKey?
 
     init(book: MangaBook, contrastCorrectionEnabled: Bool = false) {
         self.book = book
         self.contrastCorrectionEnabled = contrastCorrectionEnabled
-        self.thumbnailDiskKey = Self.makeThumbnailDiskKey(
-            book: book, contrastCorrectionEnabled: contrastCorrectionEnabled
-        )
     }
 
-    private static func makeThumbnailDiskKey(
-        book: MangaBook, contrastCorrectionEnabled: Bool
-    ) -> ThumbnailDiskCache.BookKey {
-        ThumbnailDiskCache.BookKey(
+    private func thumbnailDiskKey() -> ThumbnailDiskCache.BookKey {
+        if let cachedThumbnailDiskKey { return cachedThumbnailDiskKey }
+        let key = ThumbnailDiskCache.BookKey(
             sourceURL: book.sourceURL,
             bookID: book.id,
             contrastCorrectionEnabled: contrastCorrectionEnabled,
             maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize
         )
+        cachedThumbnailDiskKey = key
+        return key
     }
 
     /// 本を閉じてこのPageLoaderが解放されるとき、まだ走っている読み込みを畳んでおく。
@@ -202,9 +209,7 @@ actor PageLoader {
         thumbnailCache.removeAllObjects()
         // 永続キャッシュ側は補正の有無をキーに含めているため、消す必要はない。キーを
         // 作り直すだけで、補正あり/なしそれぞれのサムネイルが別々に貯まる。
-        thumbnailDiskKey = Self.makeThumbnailDiskKey(
-            book: book, contrastCorrectionEnabled: enabled
-        )
+        cachedThumbnailDiskKey = nil
     }
 
     /// この本のページ構成(並び順・除外)が変わったとき、呼び出し元(ViewerViewModel)から
@@ -243,7 +248,7 @@ actor PageLoader {
             return cached.image
         }
 
-        let diskKey = thumbnailDiskKey
+        let diskKey = thumbnailDiskKey()
         if let fromDisk = await ThumbnailDiskCache.shared.thumbnail(bookKey: diskKey, pageID: page.id) {
             thumbnailCache.setObject(
                 CGImageBox(fromDisk), forKey: key, cost: fromDisk.width * fromDisk.height * 4
