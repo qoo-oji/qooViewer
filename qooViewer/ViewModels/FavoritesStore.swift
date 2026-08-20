@@ -202,15 +202,22 @@ final class FavoritesStore: ObservableObject {
         // 警告が出るため、MainActor.assumeIsolatedで「実行時には既にMainActor上にいる」ことを
         // 伝える(Task化のような非同期ホップは発生させない。ViewerViewModel.swiftの同種の
         // コメント参照)。
+        // メニューバーのメニューの内容(お気に入り/ブックマーク一覧)を最新に保つための再読み込み。
+        // **開いた瞬間(didBeginTracking)ではなく、閉じたあと(didEndTracking)に行う**。
+        // 開いている最中に@Publishedを発火させると、SwiftUIがトラッキング中のメインメニューを
+        // 作り直し(NSMenu setItemArray:)、macOS 26では新しいメニュー実装(NSContextMenuImpl)が
+        // 行高キャッシュの範囲外アクセスでNSRangeExceptionを投げて落ちる(サムネイルグリッドを
+        // 出したままメニューを開くと落ちる不具合と同じ系統。ViewerView.swiftのdidEndTracking
+        // まわりのコメント参照)。RecentFilesStoreが同じ理由でメニュー開時の再読み込みをやめて
+        // いるのと同じ考え方だが、こちらは閉じたあとに1回だけ走らせて次に開いたときに最新に
+        // なるようにしている(publishOnlyWhenChangedにより、中身が変わったときだけ発火する)。
         menuTrackingObserver = NotificationCenter.default.addObserver(
-            forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
+            forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main
         ) { [weak self] notification in
             MainActor.assumeIsolated {
                 // メニューバーのメニュー以外(ウインドウ内のPicker/Menuのドロップダウンなど)では
                 // 何もしない。詳細はMenuBarTracking.isMainMenu(_:)のコメント参照。
                 guard MenuBarTracking.isMainMenu(notification) else { return }
-                // メニューバーを開くたびに走る経路なので、中身が変わったときだけ@Publishedを
-                // 発火させる(理由はpublishOnlyWhenChangedのコメント参照)。
                 self?.reload(publishOnlyWhenChanged: true)
             }
         }
