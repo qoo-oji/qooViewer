@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import CoreGraphics
 import Combine
 
@@ -30,6 +31,16 @@ struct ThumbnailGridView: View {
     @EnvironmentObject private var preferences: AppPreferences
 
     private static let contentPadding: CGFloat = 16
+
+    /// このセル高さ(pt)のサムネイルを、ぼやけずに描くのに要するデコード解像度(px)。
+    /// セルの高さ×画面倍率を、120px刻みのバケットへ量子化する(スライダーを少し動かすたびに
+    /// 別解像度で再デコード・キャッシュが断片化するのを防ぐ)。下限240px(進捗バーと同等)、
+    /// 上限720px(最大セル320pt×2倍=640pxを1段上へ丸めた値)。
+    private static func gridThumbnailPixelSize(forCellHeight height: CGFloat) -> CGFloat {
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        let bucketed = (height * scale / 120).rounded(.up) * 120
+        return min(max(bucketed, 240), 720)
+    }
     /// セル枠の縦横比(幅/高さ)。以前は正方形(120×120)だったが、漫画のページはほぼ縦長なので
     /// 正方形の枠だと左右に常にプレースホルダーの余白が残り、「横の間隔を0にしても間隔が空いた
     /// まま」に見えた(ユーザー報告)。サイドパネルのページモード(SidePanelPageCell、高さ×0.75)と
@@ -111,6 +122,7 @@ struct ThumbnailGridView: View {
             let panelHeight = max(geometry.size.height - vMargin * 2, 120)
             let cellHeight = cellSize
             let cellWidth = cellHeight * effectiveCellAspect
+            let gridPixelSize = Self.gridThumbnailPixelSize(forCellHeight: cellHeight)
             let hSpacing = horizontalSpacing
             let count = columnCount(forPanelWidth: panelWidth)
             let columns = Array(repeating: GridItem(.fixed(cellWidth), spacing: hSpacing), count: count)
@@ -150,7 +162,7 @@ struct ThumbnailGridView: View {
                             } label: {
                                 ThumbnailCell(
                                     viewModel: viewModel, index: index, isCurrent: index == viewModel.currentIndex,
-                                    cellWidth: cellWidth, cellHeight: cellHeight,
+                                    cellWidth: cellWidth, cellHeight: cellHeight, pixelSize: gridPixelSize,
                                     onAspectMeasured: { aspect in
                                         // 複数ページの中央値でこの本のページ比率を決める
                                         // (先頭だけ横長のカバー等に引きずられないため)。
@@ -210,6 +222,8 @@ private struct ThumbnailCell: View {
     /// cellAspectRatio倍(以前は120×120の正方形固定)。
     let cellWidth: CGFloat
     let cellHeight: CGFloat
+    /// このセルのサムネイルをデコードする解像度(px)。セルの大きさに追従する(ぼやけ対策)。
+    let pixelSize: CGFloat
     /// 読み込めた画像の実寸から測った縦横比(幅/高さ)を、最初の1回だけ親へ知らせる。
     var onAspectMeasured: (CGFloat) -> Void = { _ in }
     @EnvironmentObject private var preferences: AppPreferences
@@ -275,8 +289,10 @@ private struct ThumbnailCell: View {
                 // (.regularMaterial)上では視認性が悪い。白固定にして見やすくする。
                 .foregroundStyle(.white)
         }
-        .task(id: index) {
-            image = await viewModel.loadThumbnail(at: index)
+        // セルの大きさ(pixelSize)が変わったら、その解像度で読み直す(スライダーで拡大したときに
+        // ぼやけないように)。idにpixelSizeを含めることで、サイズ変更時に.taskが再実行される。
+        .task(id: "\(index)-\(Int(pixelSize))") {
+            image = await viewModel.loadGridThumbnail(at: index, maxPixelSize: pixelSize)
             if let image, image.height > 0 {
                 onAspectMeasured(CGFloat(image.width) / CGFloat(image.height))
             }

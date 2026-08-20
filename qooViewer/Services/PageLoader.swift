@@ -148,6 +148,17 @@ actor PageLoader {
         return cache
     }()
 
+    /// ページ一覧(グリッド)専用のサムネイルキャッシュ。進捗バー用のthumbnailCache(固定240px)とは
+    /// 別に持つ。グリッドはスライダーでセルを最大320ptまで拡大でき、その解像度は可変(セルの高さ×
+    /// 画面倍率)。同じページでも要求サイズが違えば別物なので、キーにサイズを含める("id|px")。
+    /// 1枚が大きくなりうるぶん、進捗バー用より枚数上限は控えめ・総容量は多めにしてある。
+    private let gridThumbnailCache: NSCache<NSString, CGImageBox> = {
+        let cache = NSCache<NSString, CGImageBox>()
+        cache.countLimit = 200
+        cache.totalCostLimit = 128 * 1024 * 1024 // 約128MB
+        return cache
+    }()
+
     /// サムネイルの永続キャッシュ(ThumbnailDiskCache)を引くためのキー。
     ///
     /// initでは作らず、最初に必要になった時点(thumbnailDiskKey()の呼び出し時)で作る。
@@ -159,7 +170,7 @@ actor PageLoader {
     ///
     /// コントラスト補正を切り替えたら作り直す必要があるため、
     /// setContrastCorrectionEnabled(_:)でnilに戻す。
-    private var cachedThumbnailDiskKey: ThumbnailDiskCache.BookKey?
+    private var cachedThumbnailDiskKeys: [CGFloat: ThumbnailDiskCache.BookKey] = [:]
 
     /// サムネイルのディスクキャッシュ(ThumbnailDiskCache)を読み書きするか。
     /// シークレットウインドウ(AppState.isPrivateWindow)で開いた本はfalseで、読みも書きもしない
@@ -173,15 +184,17 @@ actor PageLoader {
         self.usesThumbnailDiskCache = usesThumbnailDiskCache
     }
 
-    private func thumbnailDiskKey() -> ThumbnailDiskCache.BookKey {
-        if let cachedThumbnailDiskKey { return cachedThumbnailDiskKey }
+    private func thumbnailDiskKey(maxPixelSize: CGFloat) -> ThumbnailDiskCache.BookKey {
+        if let cached = cachedThumbnailDiskKeys[maxPixelSize] { return cached }
+        // BookKeyの生成はファイルの更新日時・サイズの問い合わせ(stat)を伴うため、サイズごとに
+        // 一度だけ作って使い回す(元は単一のキーをキャッシュしていた)。
         let key = ThumbnailDiskCache.BookKey(
             sourceURL: book.sourceURL,
             bookID: book.id,
             contrastCorrectionEnabled: contrastCorrectionEnabled,
-            maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize
+            maxPixelSize: maxPixelSize
         )
-        cachedThumbnailDiskKey = key
+        cachedThumbnailDiskKeys[maxPixelSize] = key
         return key
     }
 
@@ -214,9 +227,10 @@ actor PageLoader {
         contrastCorrectionEnabled = enabled
         imageCache.removeAllObjects()
         thumbnailCache.removeAllObjects()
+        gridThumbnailCache.removeAllObjects()
         // 永続キャッシュ側は補正の有無をキーに含めているため、消す必要はない。キーを
         // 作り直すだけで、補正あり/なしそれぞれのサムネイルが別々に貯まる。
-        cachedThumbnailDiskKey = nil
+        cachedThumbnailDiskKeys.removeAll()
     }
 
     /// この本のページ構成(並び順・除外)が変わったとき、呼び出し元(ViewerViewModel)から
@@ -261,7 +275,7 @@ actor PageLoader {
             )
         }
 
-        let diskKey = thumbnailDiskKey()
+        let diskKey = thumbnailDiskKey(maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize)
         if let fromDisk = await ThumbnailDiskCache.shared.thumbnail(bookKey: diskKey, pageID: page.id) {
             thumbnailCache.setObject(
                 CGImageBox(fromDisk), forKey: key, cost: fromDisk.width * fromDisk.height * 4
@@ -276,6 +290,53 @@ actor PageLoader {
             // 書き込みは待たない(次に同じページを要求されるまでに終わっていればよく、
             // 失敗しても次回またデコードするだけ)。
             let pageID = page.id
+            Task.detached(priority: .background) {
+                await ThumbnailDiskCache.shared.store(decoded, bookKey: diskKey, pageID: pageID)
+            }
+        }
+        return decoded
+    }
+
+    /// ページ一覧(グリッド)用のサムネイルを、指定した解像度(maxPixelSize)で返す。
+    ///
+    /// 進捗バー用のthumbnail(at:)が固定240pxなのに対し、こちらは呼び出し側(ThumbnailGridView)が
+    /// セルの大きさ(高さ×画面倍率)から決めた解像度を渡す。スライダーでセルを大きくしたときに、
+    /// 240pxを引き伸ばしてぼやけるのを避けるため(ユーザー報告)。
+    ///
+    /// 進捗バー用のパスや、フル画像(imageCache)・先読みには一切触らないよう、専用の
+    /// gridThumbnailCacheと、サイズを含むキー・サイズ別のディスクキャッシュだけを使う。
+    /// デコードはdecodedImage(for:maxPixelSize:)に委ねる(コントラスト補正のON/OFFも含めて、
+    /// thumbnail(at:)/pageImage(at:)と同じ扱いになる)。
+    func gridThumbnail(at index: Int, maxPixelSize: CGFloat) async -> CGImage? {
+        guard book.pages.indices.contains(index) else { return nil }
+        let page = book.pages[index]
+        let key = "\(page.id)|\(Int(maxPixelSize))" as NSString
+
+        if let cached = gridThumbnailCache.object(forKey: key) {
+            return cached.image
+        }
+
+        // シークレットウインドウ(usesThumbnailDiskCache == false)ではディスクを読み書きしない。
+        if usesThumbnailDiskCache {
+            let diskKey = thumbnailDiskKey(maxPixelSize: maxPixelSize)
+            if let fromDisk = await ThumbnailDiskCache.shared.thumbnail(bookKey: diskKey, pageID: page.id) {
+                gridThumbnailCache.setObject(
+                    CGImageBox(fromDisk), forKey: key, cost: fromDisk.width * fromDisk.height * 4
+                )
+                return fromDisk
+            }
+        }
+
+        guard let decoded = await decodedImage(for: page.source, maxPixelSize: maxPixelSize) else {
+            return nil
+        }
+        gridThumbnailCache.setObject(
+            CGImageBox(decoded), forKey: key, cost: decoded.width * decoded.height * 4
+        )
+        if usesThumbnailDiskCache {
+            let diskKey = thumbnailDiskKey(maxPixelSize: maxPixelSize)
+            let pageID = page.id
+            // 書き込みは待たない(thumbnail(at:)と同じ考え方)。
             Task.detached(priority: .background) {
                 await ThumbnailDiskCache.shared.store(decoded, bookKey: diskKey, pageID: pageID)
             }

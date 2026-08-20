@@ -1073,6 +1073,13 @@ final class ViewerViewModel: ObservableObject {
         return await pageLoader.thumbnail(at: index)
     }
 
+    /// ページ一覧(グリッド)用。セルの大きさに合わせた解像度でサムネイルを返す
+    /// (ぼやけ対策。PageLoader.gridThumbnail参照)。maxPixelSizeは呼び出し側で計算・量子化する。
+    func loadGridThumbnail(at index: Int, maxPixelSize: CGFloat) async -> CGImage? {
+        guard book.pages.indices.contains(index) else { return nil }
+        return await pageLoader.gridThumbnail(at: index, maxPixelSize: maxPixelSize)
+    }
+
     /// ページ一覧(グリッド)のセルにカーソルをホバーしたときの拡大プレビュー用
     /// (ユーザー要望。ThumbnailGridView参照)。loadThumbnail(at:)は軽量版(進捗バー用の
     /// 低解像度)で、そのまま拡大表示すると粗くなるため、こちらはビューアと同じ解像度
