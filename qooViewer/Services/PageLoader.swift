@@ -706,6 +706,35 @@ actor PageLoader {
         return await correctionTask.value
     }
 
+    /// この本が持っている`ComicInfo.xml`を解析して返す(無ければnil)。
+    ///
+    /// CBZ書き出しが、元ファイルのComicInfo.xmlを引き継ぐために使う。
+    ///
+    /// 書庫の場合にComicInfoResolver.resolve(bookAt:)を直接呼ぶと、既にこのPageLoaderが
+    /// 開いているのと同じ書庫をもう一度開き直すことになる(7zは一覧を得るだけでも重い)。
+    /// ここに置くことで、開いてあるReaderをそのまま使い回せる。**Reader自体はこのactorの外へ
+    /// 出さない**(CLAUDE.mdの「archive/PDFのハンドルはactor隔離のまま保つ」という制約に従い、
+    /// 解析までをこの中で完結させる)。
+    ///
+    /// フォルダの本はこのPageLoaderが書庫を持たないため、パスから直接探す経路へ振り分ける。
+    /// 「書庫だがComicInfo.xmlが無い」と「そもそも書庫ではない」を呼び出し側で区別せずに
+    /// 済むよう、振り分けまでをこの1つのメソッドに閉じてある。
+    ///
+    /// - Parameter bookSourceURL: MangaBook.sourceURL(フォルダの本を探す場合にだけ使う)。
+    func sourceComicInfo(bookSourceURL: URL) -> ComicInfo? {
+        switch book.pages.first?.source {
+        case .zip(let url, _), .sevenZip(let url, _), .rar(let url, _):
+            guard let reader = reader(for: url) else { return nil }
+            return ComicInfoResolver.resolve(reader: reader)
+        case .file:
+            // 画像フォルダ。
+            return ComicInfoResolver.resolve(bookAt: bookSourceURL)
+        case .pdf, nil:
+            // PDFはComicInfo.xmlを持たない形式。
+            return nil
+        }
+    }
+
     private func rawData(for source: PageSource) -> Data? {
         switch source {
         case .file(let url):

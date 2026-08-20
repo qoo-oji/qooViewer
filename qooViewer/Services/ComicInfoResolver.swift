@@ -13,6 +13,23 @@ import Foundation
 /// nonisolated: BookLoader(Task.detached)・CbzExporterから呼ばれるため
 /// (詳細はServices/ArchiveReading.swift冒頭のコメント参照)。
 nonisolated enum ComicInfoResolver {
+    /// 読み込む`ComicInfo.xml`の上限バイト数。
+    ///
+    /// 実際のComicInfo.xmlは、ページ数のぶんだけ`<Pages>`が並ぶ本でも数十KBに収まる。上限を
+    /// 設けているのは、書庫の中身が信用できない入力だからである。XMLはよく圧縮が効くため、
+    /// zip内に数十MBの小さなエントリとして置いた巨大なテキストが、伸長すると数GBになる
+    /// (いわゆるzip bomb)。それをそのままメモリへ載せると、本を開いただけでアプリが
+    /// 落ちるところまで持っていける。
+    ///
+    /// アーカイブからの読み出しにdata(at:)ではなくdataPrefix(at:maxByteCount:)を使うのは、
+    /// zipでは**伸長そのものを途中で打ち切れる**ため(ArchiveReadingのコメント参照)。
+    /// 7z/rarは既定実装のまま全体を読むため打ち切りにはならないが、少なくとも解析にかける
+    /// 量は上限で抑えられる。
+    ///
+    /// 上限を超えて切り詰められたXMLは途中で終わるので解析に失敗し、「ComicInfo.xmlが無い」
+    /// のと同じ扱いになる(正常なファイルがこの大きさに達することはない)。
+    private static let maxByteCount = 4 * 1024 * 1024
+
     /// フォルダでもアーカイブでも、この1つで扱えるようにした入口。
     /// PDF・EPUBはComicInfo.xmlを持たない形式のため常にnilを返す。
     static func resolve(bookAt url: URL) -> ComicInfo? {
@@ -31,7 +48,7 @@ nonisolated enum ComicInfoResolver {
     static func resolve(reader: ArchiveReading) -> ComicInfo? {
         guard let paths = try? reader.listFilePaths(),
               let path = comicInfoPath(in: paths),
-              let data = try? reader.data(at: path)
+              let data = try? reader.dataPrefix(at: path, maxByteCount: maxByteCount)
         else { return nil }
         return ComicInfoXML.parse(data)
     }
@@ -40,12 +57,20 @@ nonisolated enum ComicInfoResolver {
         let fileURL = url.appendingPathComponent(ComicInfoXML.fileName)
         // 大文字小文字を区別しないファイルシステム(macOSの既定)ではこれで"comicinfo.xml"も
         // 拾えるが、区別する設定のボリュームもあるため、見つからなければ直下を走査する。
-        if let data = try? Data(contentsOf: fileURL) {
-            return ComicInfoXML.parse(data)
-        }
+        if let info = parseFile(at: fileURL) { return info }
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: url.path),
-              let match = names.first(where: { $0.caseInsensitiveCompare(ComicInfoXML.fileName) == .orderedSame }),
-              let data = try? Data(contentsOf: url.appendingPathComponent(match))
+              let match = names.first(where: { $0.caseInsensitiveCompare(ComicInfoXML.fileName) == .orderedSame })
+        else { return nil }
+        return parseFile(at: url.appendingPathComponent(match))
+    }
+
+    /// 上限を超える大きさのファイルは読まずに諦める(maxByteCountのコメント参照)。
+    /// フォルダの場合はアーカイブと違って伸長による増幅は起きないが、巨大なファイルを
+    /// メモリへ載せない点は同じにしておく。先に大きさだけを問い合わせてから読む。
+    private static func parseFile(at url: URL) -> ComicInfo? {
+        guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+              size <= maxByteCount,
+              let data = try? Data(contentsOf: url)
         else { return nil }
         return ComicInfoXML.parse(data)
     }

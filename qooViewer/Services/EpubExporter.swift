@@ -544,14 +544,42 @@ nonisolated enum EpubExporter {
         "\(directory)/\(urlPathComponent(fileName))"
     }
 
+    /// XMLのテキスト・属性値としての最小限のエスケープに加えて、XML 1.0が文書内に持てない
+    /// 制御文字を取り除く。
+    ///
+    /// 取り除きが必要なのは、ここへ来る文字列にユーザーが自由入力したブックマーク名・
+    /// タイトル・著者名・シリーズ名が含まれるため(nav.xhtmlの目次項目、package.opfの
+    /// dc:title/dc:creator/belongs-to-collection)。制御文字が1文字混ざっただけでEPUBは
+    /// XMLとして不正になり、リーダーによってはファイル自体を開けなくなる
+    /// (ファイル名の"&"をエスケープせずに書いてOPFが壊れたのと同じ種類の問題。
+    ///  ComicInfoXML.escapeも同じ理由で同じ処理を行っている)。
     private static func xmlEscape(_ text: String) -> String {
-        var result = text
-        result = result.replacingOccurrences(of: "&", with: "&amp;")
-        result = result.replacingOccurrences(of: "<", with: "&lt;")
-        result = result.replacingOccurrences(of: ">", with: "&gt;")
-        result = result.replacingOccurrences(of: "\"", with: "&quot;")
-        result = result.replacingOccurrences(of: "'", with: "&apos;")
+        var result = ""
+        result.reserveCapacity(text.count)
+        for scalar in text.unicodeScalars {
+            switch scalar {
+            case "&": result += "&amp;"
+            case "<": result += "&lt;"
+            case ">": result += "&gt;"
+            case "\"": result += "&quot;"
+            case "'": result += "&apos;"
+            default:
+                guard isAllowedInXML(scalar) else { continue }
+                result.unicodeScalars.append(scalar)
+            }
+        }
         return result
+    }
+
+    /// XML 1.0のChar生成規則で許される文字かどうか(ComicInfoXML.isAllowedInXMLと同じ判定)。
+    private static func isAllowedInXML(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x9, 0xA, 0xD: return true
+        case 0x20...0xD7FF: return true
+        case 0xE000...0xFFFD: return true
+        case 0x10000...0x10FFFF: return true
+        default: return false
+        }
     }
 
     private static func makeContainerDocument() -> String {

@@ -103,7 +103,7 @@ nonisolated struct ComicInfo: Equatable, Sendable {
 }
 
 /// XSDの`YesNo`型。
-nonisolated enum ComicInfoYesNo: String, Equatable, Sendable {
+nonisolated enum ComicInfoYesNo: String, Equatable, Sendable, CaseIterable {
     case unknown = "Unknown"
     case no = "No"
     case yes = "Yes"
@@ -114,7 +114,7 @@ nonisolated enum ComicInfoYesNo: String, Equatable, Sendable {
 /// 読み取り時に`yes`を「左開き」と解釈してはいけない。ComicRackの語彙では`Yes`は
 /// 「漫画である」という意味しか持たず、方向は未指定だからである
 /// (ComicInfoResolverは`yesAndRightToLeft`のときだけ読み方向を確定させる)。
-nonisolated enum ComicInfoManga: String, Equatable, Sendable {
+nonisolated enum ComicInfoManga: String, Equatable, Sendable, CaseIterable {
     case unknown = "Unknown"
     case no = "No"
     case yes = "Yes"
@@ -149,7 +149,7 @@ nonisolated struct ComicInfoPage: Equatable, Sendable {
 
 /// XSDの`ComicPageType`型。qooViewerが書き出すのは`frontCover`のみだが、他アプリが書いた
 /// 値を読み取って保つために全種類を持つ。
-nonisolated enum ComicInfoPageType: String, Equatable, Sendable {
+nonisolated enum ComicInfoPageType: String, Equatable, Sendable, CaseIterable {
     case frontCover = "FrontCover"
     case innerCover = "InnerCover"
     case roundup = "Roundup"

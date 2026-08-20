@@ -143,7 +143,10 @@ nonisolated enum CbzExporter {
 
         // 元ファイルが既にComicInfo.xmlを持っているなら、それを土台にする(型コメント参照)。
         // 持っていない・読めない場合は空のComicInfoから始める。
-        var comicInfo = ComicInfoResolver.resolve(bookAt: input.book.sourceURL) ?? ComicInfo()
+        //
+        // 書庫の場合は、上で作ったpageLoaderが既に開いているReaderをそのまま使う
+        // (同じ書庫を開き直さずに済ませるため。詳細はPageLoader.sourceComicInfo参照)。
+        var comicInfo = await pageLoader.sourceComicInfo(bookSourceURL: input.book.sourceURL) ?? ComicInfo()
 
         do {
             if FileManager.default.fileExists(atPath: destinationURL.path) {

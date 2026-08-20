@@ -170,8 +170,28 @@ nonisolated enum ComicInfoXML {
     /// 常に数KB程度で全体をメモリに載せても問題が無く、要素を名前で引くだけの読み取りが
     /// デリゲート実装を書くより圧倒的に短く・読みやすくなるため。XMLDocumentはmacOSの
     /// Foundationに標準で含まれる(本アプリはmacOS専用)。
+    ///
+    /// ■ nodeLoadExternalEntitiesNever は必須(外すと外部実体を読みに行く)
+    /// ここへ渡ってくるのは、ユーザーがどこから入手したか分からない書庫の中身であり、
+    /// 完全に信用できない入力である。しかもcbz/cbr/cb7・画像フォルダを**初めて開くたびに
+    /// 自動で**この解析が走る(ViewerViewModel.importComicInfoIfNeeded)。
+    ///
+    /// このオプションを付けずにXMLDocumentへ渡すと、次のような`ComicInfo.xml`を仕込まれた
+    /// だけで、ローカルのファイルの中身が要素の値として取り込まれることを実測で確認した:
+    ///
+    /// ```xml
+    /// <!DOCTYPE ComicInfo [ <!ENTITY xxe SYSTEM "file:///…"> ]>
+    /// <ComicInfo><Title>&xxe;</Title></ComicInfo>
+    /// ```
+    ///
+    /// 取り込まれた値はそのままDBへ登録され(BookMetadataStore.upsert)、さらにその本をCBZとして
+    /// 書き出すと出力ファイルへ書き戻される(CbzExporter.applyMetadata)ため、共有すれば外部へ
+    /// 出ていく。実体の展開自体(いわゆるbillion laughs)も同時に無効になる。
+    /// `&amp;`のような定義済み実体は引き続き解決されるので、正常なファイルの読み取りには影響しない。
     static func parse(_ data: Data) -> ComicInfo? {
-        guard let document = try? XMLDocument(data: data, options: [.nodePreserveWhitespace]),
+        guard let document = try? XMLDocument(
+            data: data, options: [.nodePreserveWhitespace, .nodeLoadExternalEntitiesNever]
+        ),
               let root = document.rootElement(),
               root.name?.caseInsensitiveCompare("ComicInfo") == .orderedSame
         else { return nil }
@@ -230,8 +250,8 @@ nonisolated enum ComicInfoXML {
         info.pageCount = int("PageCount", unsetValue: 0)
         info.languageISO = text("LanguageISO")
         info.format = text("Format")
-        info.blackAndWhite = ComicInfoYesNo(rawValue: text("BlackAndWhite"))
-        info.manga = ComicInfoManga(rawValue: text("Manga"))
+        info.blackAndWhite = caseInsensitive(ComicInfoYesNo.self, text("BlackAndWhite"))
+        info.manga = caseInsensitive(ComicInfoManga.self, text("Manga"))
         info.characters = text("Characters")
         info.teams = text("Teams")
         info.locations = text("Locations")
@@ -239,11 +259,29 @@ nonisolated enum ComicInfoXML {
         info.storyArc = text("StoryArc")
         info.seriesGroup = text("SeriesGroup")
         info.ageRating = text("AgeRating")
-        info.communityRating = Double(text("CommunityRating"))
+        // XSDはminInclusive=0 / maxInclusive=5。範囲外の値と、Double(_: String)が受け付けて
+        // しまう"nan"/"inf"という綴りは捨てる。取り込んでしまうと、この本をCBZとして書き出す
+        // ときにString(format: "%.2f")がそのまま"nan"を出力し、こちらの出力まで不正になる
+        // (BookMetadata.numericSeriesIndexで同じ理由の対処をしている)。
+        if let rating = Double(text("CommunityRating")), rating.isFinite, (0...5).contains(rating) {
+            info.communityRating = rating
+        }
         info.mainCharacterOrTeam = text("MainCharacterOrTeam")
         info.review = text("Review")
         info.pages = parsePages(pagesElement)
         return info
+    }
+
+    /// 列挙型の値を、大文字小文字を区別せずに引く。
+    ///
+    /// 要素名・`DoublePage`("True"/"true"/"1")は既に区別せずに照合しているのに、列挙型の値
+    /// だけを完全一致にすると、`<Manga>yesandrighttoleft</Manga>`のようなファイルで右開きの
+    /// 指定を取りこぼす。「解析は寛容に」という方針(型コメント参照)を列挙型にも通す。
+    private static func caseInsensitive<Value: RawRepresentable & CaseIterable>(
+        _ type: Value.Type, _ raw: String
+    ) -> Value? where Value.RawValue == String {
+        guard !raw.isEmpty else { return nil }
+        return Value.allCases.first { $0.rawValue.caseInsensitiveCompare(raw) == .orderedSame }
     }
 
     private static func parsePages(_ element: XMLElement?) -> [ComicInfoPage] {
@@ -265,7 +303,7 @@ nonisolated enum ComicInfoXML {
             guard let imageRaw = attribute("Image"), let image = Int(imageRaw) else { continue }
 
             var page = ComicInfoPage(image: image)
-            page.type = attribute("Type").flatMap(ComicInfoPageType.init(rawValue:))
+            page.type = attribute("Type").flatMap { caseInsensitive(ComicInfoPageType.self, $0) }
             if let doublePage = attribute("DoublePage") {
                 // ComicRack由来のファイルには"True"/"true"/"1"のいずれもありうる。
                 page.doublePage = ["true", "yes", "1"].contains(doublePage.lowercased())
