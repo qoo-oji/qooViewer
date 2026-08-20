@@ -301,8 +301,13 @@ struct QooViewerApp: App {
                 Menu("Open File in Same Folder") {
                     // 兄弟ファイルは本を開いた後に非同期で埋まる。メニューを開いている最中に
                     // 項目数が変わるとクラッシュするため凍結する(MenuTrackingFreezer参照)。
+                    // フォーカスの有無(hasFocus)も凍結する: 環境設定など別ウインドウがキーになると
+                    // focusedAppStateがnilになり、それだけで「ForEach ↔ 権限付与ボタン」の項目数が
+                    // 変わる。これが実際のクラッシュの引き金だった(ページ一覧を開いたまま環境設定を
+                    // 開こうとした、というユーザー報告)。
+                    let hasFocusedAppState = menuFreezer.frozen("hasFocusedAppState", focusedAppState != nil)
                     let siblingBooks = menuFreezer.frozen("siblingBooks", focusedAppState?.siblingBooks ?? [])
-                    if let focusedAppState, !siblingBooks.isEmpty {
+                    if hasFocusedAppState, !siblingBooks.isEmpty {
                         ForEach(siblingBooks, id: \.self) { url in
                             // タイトルは拡張子を除いた名前のため、同名のcbz/epubなど拡張子違いの
                             // 同じ本が同じフォルダに並ぶと見分けがつかない(ユーザー報告)。
@@ -313,7 +318,7 @@ struct QooViewerApp: App {
                                     baseName: url.deletingPathExtension().lastPathComponent, bookID: url.path
                                 )
                             ) {
-                                focusedAppState.open(url: url)
+                                focusedAppState?.open(url: url)
                             }
                         }
                     } else {
@@ -341,7 +346,10 @@ struct QooViewerApp: App {
                     // 履歴は本を開き終えた瞬間に増える。開いている間の項目数の変化を避けるため凍結
                     // (MenuTrackingFreezer参照)。
                     let recentEntries = menuFreezer.frozen("recentFiles", recentFiles.entries)
-                    if recentEntries.isEmpty || menuCheckmarkState?.isPrivateWindow == true {
+                    // isPrivateWindowも凍結する(フォーカスが外れるとnil→falseに転じ、シークレット
+                    // ウインドウで空だった一覧が急に埋まって項目数が変わりうるため)。
+                    let recentIsPrivate = menuFreezer.frozen("recentIsPrivate", menuCheckmarkState?.isPrivateWindow == true)
+                    if recentEntries.isEmpty || recentIsPrivate {
                         Text("(None)")
                     } else {
                         ForEach(recentEntries) { entry in
@@ -776,11 +784,14 @@ struct QooViewerApp: App {
 
                 // ブックマーク一覧を(要望6により)フラットな並びではなくサブメニューにまとめる。
                 Menu("Bookmark List") {
+                    // フォーカスの有無も凍結する(siblingBooksと同じ理由: 別ウインドウがキーになると
+                    // focusedAppStateがnilになり、一覧↔「ブックマークなし」で項目数が変わる)。
+                    let hasFocusedAppState = menuFreezer.frozen("hasFocusedAppState", focusedAppState != nil)
                     let bookmarks = menuFreezer.frozen("bookmarks", focusedAppState?.currentBookmarks ?? [])
-                    if let focusedAppState, !bookmarks.isEmpty {
+                    if hasFocusedAppState, !bookmarks.isEmpty {
                         ForEach(bookmarks, id: \.id) { bookmark in
                             Button("\(bookmark.name) (\(bookmark.pageIndex + 1))") {
-                                focusedAppState.jumpToBookmark?(bookmark)
+                                focusedAppState?.jumpToBookmark?(bookmark)
                             }
                         }
                     } else {
