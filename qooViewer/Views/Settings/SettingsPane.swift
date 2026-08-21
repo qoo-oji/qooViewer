@@ -28,8 +28,10 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     case rendering
     /// 閲覧中の動作(ページ送り・スクロール・スライドショー・ポインタの自動非表示)。
     case reading
-    /// 表示モードに依存しない、基本のキー/マウス割り当て。
-    case input
+    /// 表示モードに依存しない、基本のキー割り当て。
+    case keyboard
+    /// 表示モードに依存しない、基本のマウス割り当て。
+    case mouse
     /// 表示モードごとに上書きするキー/マウス割り当て。
     case modeInput
     /// サンドボックス下でのフォルダアクセス許可の管理。
@@ -55,7 +57,8 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .opening: "Opening Books"
         case .rendering: "Image Display"
         case .reading: "While Reading"
-        case .input: "Keys & Mouse"
+        case .keyboard: "Keyboard"
+        case .mouse: "Mouse"
         case .modeInput: "Per Display Mode"
         case .access: "Folder Access"
         case .reset: "Reset"
@@ -74,7 +77,8 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .opening: "book.closed.fill"
         case .rendering: "photo.fill"
         case .reading: "book.pages.fill"
-        case .input: "keyboard"
+        case .keyboard: "keyboard"
+        case .mouse: "computermouse.fill"
         case .modeInput: "rectangle.split.2x1.fill"
         case .access: "lock.shield.fill"
         case .reset: "exclamationmark.triangle.fill"
@@ -91,8 +95,12 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     /// これなら色を見た瞬間に、まずグループへ、次に項目へと絞り込める。
     ///
     ///   本   … ブルー系  (青 → シアン → インディゴ)
-    ///   操作 … イエロー系(オレンジ → イエロー)
+    ///   操作 … イエロー系(オレンジ → イエロー → ブラウン)
     ///   詳細 … レッド系  (ピンク寄りの赤 → 赤)
+    ///
+    /// 「操作」が3項目になった(「キーとマウス」を「キーボード」と「マウス」に分けた)ため、
+    /// 同系統の3段目としてブラウンを足してある。オレンジ・イエローと地続きの暖色で、
+    /// レッド系(詳細)ともブルー系(本)とも取り違えにくい。
     ///
     /// 「一般」はどのグループにも属さない単独の項目なので、どの系統とも重ならない無彩色にする。
     ///
@@ -109,8 +117,9 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .opening: .blue
         case .rendering: .cyan
         case .reading: .indigo
-        case .input: .orange
-        case .modeInput: .yellow
+        case .keyboard: .orange
+        case .mouse: .yellow
+        case .modeInput: .brown
         case .access: .pink
         case .reset: .red
         }
@@ -121,7 +130,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .general: .top
         case .opening, .rendering, .reading: .books
-        case .input, .modeInput: .controls
+        case .keyboard, .mouse, .modeInput: .controls
         case .access, .reset: .advanced
         }
     }
@@ -140,7 +149,8 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .opening: OpeningSettingsView()
         case .rendering: RenderingSettingsView()
         case .reading: ReadingSettingsView()
-        case .input: KeyBindingSettingsView()
+        case .keyboard: KeyBindingSettingsView()
+        case .mouse: MouseBindingSettingsView()
         case .modeInput: ModeInputSettingsView()
         case .access: AccessPermissionsSettingsView()
         case .reset: ResetDataSettingsView()

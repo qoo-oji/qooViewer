@@ -1,9 +1,13 @@
 import SwiftUI
 
-/// 環境設定ウインドウの「キーとマウス」画面。
-/// cooViewerの「入力タブ」に相当する部分を簡略化したもの。
-/// キーボードは1つの操作に複数のキーを割り当てられる(1つのキーが割り当てられる操作は1つまで)。
-/// マウス(クリック/ホイール)は1トリガーにつき1操作まで、Pickerで選ぶだけのシンプルな形。
+/// 環境設定ウインドウの「キーボード」画面。
+/// cooViewerの「入力タブ」のキー設定に相当する部分を簡略化したもの。
+/// 1つの操作に複数のキーを割り当てられる(1つのキーが割り当てられる操作は1つまで)。
+///
+/// マウスは「マウス」画面(MouseBindingSettingsView)へ分離してある。以前はこの1画面が
+/// 「キーとマウス」として両方を持っていたが、マウスの割り当ても「操作 → トリガー(複数可)」
+/// 形式に作り直してトリガーの語彙が28通りに増えたため、1画面に同居させると長すぎた
+/// (ユーザーからの指示)。
 ///
 /// Sectionヘッダには「Keyboard (each action can have multiple keys)」のように
 /// 説明を括弧書きで足していたが、ヘッダは**場面の見出し**であって説明を置く場所ではない
@@ -44,7 +48,8 @@ struct KeyBindingSettingsView: View {
             .jumpToPercentile80, .jumpToPercentile90,
         ]
         let displayGroup: [ViewerAction] = [
-            .toggleDisplayMode, .toggleReadingDirection, .cycleScalingMode, .autoLayoutFromCurrentView,
+            .toggleDisplayMode, .toggleReadingDirection, .cycleScalingMode,
+            .toggleContrastCorrection, .autoLayoutFromCurrentView,
         ]
         let pageListGroup: [ViewerAction] = [.showThumbnailGrid]
         let bookmarkGroup: [ViewerAction] = [.toggleBookmark, .nextBookmark, .previousBookmark, .showBookmarkList]
@@ -67,8 +72,6 @@ struct KeyBindingSettingsView: View {
         // この画面からは外し、「表示モード別の操作」画面(ModeInputSettingsView)へ回す。
         return (ordered + rest).filter { !$0.isScrollableModeOnly }
     }()
-
-    private let mouseTriggers: [InputTrigger] = [.clickLeftZone, .clickRightZone, .wheelUp, .wheelDown]
 
     /// この画面が扱うのは、表示モードに依存しない**基本**の割り当て
     /// (KeyBindingStore.baseMode)だけ。表示モードごとに変わる設定は「表示モード別の操作」画面
@@ -97,46 +100,12 @@ struct KeyBindingSettingsView: View {
             }
 
             Section {
-                // 操作の選択肢は30個以上あり、いちばん長い項目に合わせて内容幅にすると
-                // ポップアップが過大になるので、ここだけ固定幅を渡してコントロールの
-                // 境界を4行すべてで揃える(SettingsPickerRowのcontrolWidth参照)。
-                ForEach(mouseTriggers, id: \.self) { trigger in
-                    SettingsPickerRow(
-                        trigger.titleKey,
-                        selection: bindingForMouse(trigger),
-                        currentTitle: store.assignedAction(for: trigger, in: editingMode)?.titleKey ?? "(None)",
-                        controlWidth: 240
-                    ) {
-                        Text("(None)").tag(Optional<ViewerAction>.none)
-                        ForEach(assignableActions) { action in
-                            Text(action.titleKey).tag(Optional(action))
-                        }
-                    }
-                }
-            } header: {
-                Text("Mouse")
-            }
-
-            Section {
                 Button("Reset to Defaults", role: .destructive) {
                     store.resetToDefaults(in: editingMode)
                 }
                 .help("Restores the built-in keyboard and mouse assignments. Nothing else is affected.")
             }
         }
-    }
-
-    private func bindingForMouse(_ trigger: InputTrigger) -> Binding<ViewerAction?> {
-        Binding(
-            get: { store.assignedAction(for: trigger, in: editingMode) },
-            set: { newAction in
-                if let newAction {
-                    store.setMouseBinding(newAction, for: trigger, in: editingMode)
-                } else {
-                    store.clearMouseBinding(for: trigger, in: editingMode)
-                }
-            }
-        )
     }
 }
 

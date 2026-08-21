@@ -453,6 +453,13 @@ struct ViewerView: View {
                 // phaseを伴うスクロール ― トラックパッドやMagic Mouseの、指でなぞる操作 ―
                 // だけを対象にする。物理マウスホイールのノッチ(phaseが空)は対象外。
                 let isInverted = preferences.invertTwoFingerScrolling && isTrackpadOriginated
+                // ホイールの割り当てを引くための修飾キー。shiftを受け付けないのは、macOSが
+                // ホイール由来のスクロールイベントについてshift押下時にdeltaXとdeltaYを
+                // 入れ替えるため、向きの判定が信用できないから(MouseTrigger参照)。
+                // nil(=control/command/shiftのいずれか)の場合、handleScrollは何もしない。
+                let wheelModifiers = MouseTrigger.Modifiers.from(
+                    event.modifierFlags, allowsShift: false
+                )
                 // ピンチ拡大中は、2本指の横方向の動きは「拡大した画像を横へ動かしたい」で
                 // あってページ送りではない。ここを通すと、拡大して読んでいる最中に画像を
                 // 横へずらしただけでページが送られ(そのうえ拡大も解除され)てしまう。
@@ -478,12 +485,14 @@ struct ViewerView: View {
                     // 端でのページ送り判定(handleScroll)を先に済ませてから動かす。
                     // 判定は「このイベントを処理する**前**の位置」で行う必要があるため
                     // (handleScrollInScrollableModeのコメント参照)、順番を入れ替えられない。
-                    if !handleScroll(deltaY: event.scrollingDeltaY, isInverted: true) {
+                    if !handleScroll(
+                        deltaY: event.scrollingDeltaY, isInverted: true, modifiers: wheelModifiers
+                    ) {
                         performInvertedScroll(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY)
                     }
                     return nil
                 }
-                handleScroll(deltaY: event.scrollingDeltaY)
+                handleScroll(deltaY: event.scrollingDeltaY, modifiers: wheelModifiers)
             case .magnify:
                 handleMagnify(event)
                 // 標準の処理(SwiftUIのScrollViewは既定でmagnificationを受け付けないが、
@@ -2022,13 +2031,17 @@ struct ViewerView: View {
                     // 領域いっぱいに広がるようにする(指定しないと、意図しない小さな
                     // ヒットテスト領域になってしまう)。
                     ClickZoneArea(
-                        onClick: { perform(clickZoneAction(for: .clickLeftZone)) },
+                        onClick: { button, modifiers in
+                            perform(clickAction(button: button, zone: .leftHalf, modifiers: modifiers))
+                        },
                         isDragScrollEnabled: isPageAreaScrollable
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                     ClickZoneArea(
-                        onClick: { perform(clickZoneAction(for: .clickRightZone)) },
+                        onClick: { button, modifiers in
+                            perform(clickAction(button: button, zone: .rightHalf, modifiers: modifiers))
+                        },
                         isDragScrollEnabled: isPageAreaScrollable
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2529,19 +2542,37 @@ struct ViewerView: View {
         }
     }
 
-    /// 今の表示モードでこのクリックゾーンに割り当てられている操作。
-    private func clickZoneAction(for trigger: InputTrigger) -> ViewerAction? {
-        keyBindingStore.resolvedAction(for: trigger, in: viewModel.scalingMode)
+    /// 今の表示モードで、この向き・修飾キーのホイール操作に割り当てられている操作。
+    private func wheelAction(
+        _ direction: MouseTrigger.WheelDirection,
+        modifiers: MouseTrigger.Modifiers = []
+    ) -> ViewerAction? {
+        keyBindingStore.resolvedAction(
+            for: MouseTrigger(input: .wheel(direction), modifiers: modifiers),
+            in: viewModel.scalingMode
+        )
     }
 
-    /// 今の表示モードで、左右どちらかのクリックゾーンに実際の操作が割り当てられているか。
-    /// 割り当てが無い(どちらも「なし」)のにヒットテストを有効にしてしまうと、下にある
-    /// ScrollViewへクリックが届かなくなるだけで何の利点も無いため、その場合は無効にする。
+    /// 今の表示モードで、このボタン・位置・修飾キーの組み合わせに割り当てられている操作。
+    /// 位置指定が「全体」より優先される(KeyBindingStore.resolvedClickAction参照)。
+    private func clickAction(
+        button: MouseTrigger.Button,
+        zone: MouseTrigger.Zone,
+        modifiers: MouseTrigger.Modifiers
+    ) -> ViewerAction? {
+        keyBindingStore.resolvedClickAction(
+            button: button, zone: zone, modifiers: modifiers, in: viewModel.scalingMode
+        )
+    }
+
+    /// 今の表示モードで、クリックに何か1つでも操作が割り当てられているか。
+    /// 割り当てが無いのにヒットテストを有効にしてしまうと、下にあるScrollViewへクリックが
+    /// 届かなくなるだけで何の利点も無いため、その場合は無効にする。
+    ///
+    /// 左右のクリックゾーンだけでなく、中ボタンや修飾キー付きの割り当ても数える
+    /// (中ボタンにだけ割り当てた場合も当たり判定は必要なため)。
     private var hasClickZoneAction: Bool {
-        let group = viewModel.scalingMode
-        let left = keyBindingStore.resolvedAction(for: .clickLeftZone, in: group) ?? .none
-        let right = keyBindingStore.resolvedAction(for: .clickRightZone, in: group) ?? .none
-        return left != .none || right != .none
+        keyBindingStore.hasAnyClickAction(in: viewModel.scalingMode)
     }
 
     /// ページが変わった瞬間に、読み始め側の隅へスクロールする(cooViewerのfirstScroll相当)。
@@ -2603,7 +2634,33 @@ struct ViewerView: View {
     ///   (AppPreferences.invertTwoFingerScrolling参照)。
     /// - Returns: 実際に何か操作を行った(=このイベントをスクロールに使わなかった)かどうか。
     @discardableResult
-    private func handleScrollInScrollableMode(deltaY: CGFloat, isInverted: Bool) -> Bool {
+    private func handleScrollInScrollableMode(
+        deltaY: CGFloat, isInverted: Bool, modifiers: MouseTrigger.Modifiers?
+    ) -> Bool {
+        // 割り当ての対象外の修飾キー(control/command/shift)が押されている場合は、何もせず
+        // ScrollView標準のスクロールに任せる(handleScrollのmodifiers引数のコメント参照)。
+        guard let modifiers else { return false }
+
+        // 修飾キー付きのホイールは、スクロール操作ではなく**明示的な指示**なので、
+        // 「スクロールできるとき」(WheelScrollBehavior)の判定を通さず、割り当てられた操作を
+        // そのまま実行する。素のホイールでスクロールしたいモードでも、option+ホイールには
+        // 別の操作を割り当てておける、という使い分けのため。割り当てが無ければ従来どおり
+        // ScrollViewに任せる。
+        if !modifiers.isEmpty {
+            let direction: MouseTrigger.WheelDirection = deltaY > 0 ? .up : .down
+            guard deltaY > 2 || deltaY < -2 else { return false }
+            guard let action = wheelAction(direction, modifiers: modifiers), action != .none else {
+                return false
+            }
+            let now = Date()
+            if let lastWheelActionAt, now.timeIntervalSince(lastWheelActionAt) < wheelActionCooldown {
+                return false
+            }
+            lastWheelActionAt = now
+            perform(action)
+            return true
+        }
+
         // ピンチ拡大中は、どのモードでもホイールをスクロール専用にする(ユーザーの判断)。
         // 拡大して細部を読んでいる最中に端まで来たからといってページが送られると、
         // 拡大も一緒に解除されて読んでいた場所を見失う。拡大を解除すれば、そのモード本来の
@@ -2635,11 +2692,7 @@ struct ViewerView: View {
         if behavior == .turnPage {
             // スクロールには使わず、常に割り当てられた操作を行う。
             lastWheelActionAt = now
-            perform(
-                keyBindingStore.resolvedAction(
-                    for: assignedForward ? .wheelDown : .wheelUp, in: viewModel.scalingMode
-                )
-            )
+            perform(wheelAction(assignedForward ? .down : .up))
             return true
         }
 
@@ -2668,15 +2721,25 @@ struct ViewerView: View {
     /// - Returns: 実際に何か操作を行った(=このイベントをスクロールに使わなかった)かどうか。
     ///   反転が有効なときの呼び出し側が、「操作したのでスクロールはしない」を判断するために使う。
     @discardableResult
-    private func handleScroll(deltaY: CGFloat, isInverted: Bool = false) -> Bool {
+    ///
+    /// - Parameter modifiers: このイベントの修飾キー。**nilは「割り当ての対象外」を意味する**
+    ///   (control/command、およびホイールにおけるshift。MouseTrigger.Modifiers.from参照)。
+    ///   その場合はfalseを返すだけで何もせず、スクロール自体は呼び出し側の経路
+    ///   (ScrollView標準、または反転が有効ならperformInvertedScroll)にそのまま任される。
+    private func handleScroll(
+        deltaY: CGFloat, isInverted: Bool = false, modifiers: MouseTrigger.Modifiers?
+    ) -> Bool {
         // 「画面内に収める」モードにはスクロールする余地が無いため、従来どおりホイールの
         // 割り当て(既定はページ送り)をそのまま実行する。
         // それ以外のモードでは、環境設定「スクロールできるとき」(WheelScrollBehavior、
         // cooViewerのCanScrollMode相当)に従う。
         // 「画面内に収める」でもピンチ拡大中はスクロールできる余地があるため、そちらの経路に乗せる。
         if isPageAreaScrollable {
-            return handleScrollInScrollableMode(deltaY: deltaY, isInverted: isInverted)
+            return handleScrollInScrollableMode(
+                deltaY: deltaY, isInverted: isInverted, modifiers: modifiers
+            )
         }
+        guard let modifiers else { return false }
 
         // NSEvent.scrollingDeltaYの符号は、ホイールを物理的に上へ回す(指を上に動かす)と
         // 正の値になる(以前の実装ではここが逆になっており、ホイールを上に回すと.wheelDownに
@@ -2699,9 +2762,9 @@ struct ViewerView: View {
         // (AppPreferences.invertTwoFingerScrolling参照)。そもそもこの分岐に来るのは
         // スクロールする余地が無いときだけで、反転させる対象のスクロールが存在しない。
         if deltaY > 0 {
-            perform(keyBindingStore.resolvedAction(for: .wheelUp, in: viewModel.scalingMode))
+            perform(wheelAction(.up, modifiers: modifiers))
         } else {
-            perform(keyBindingStore.resolvedAction(for: .wheelDown, in: viewModel.scalingMode))
+            perform(wheelAction(.down, modifiers: modifiers))
         }
         return true
     }
@@ -2761,10 +2824,11 @@ struct ViewerView: View {
         lastSwipeActionAt = now
 
         // NSEvent.swipeのdeltaXは、指を左から右へ払う(スワイプする)と正の値になる。
+        // 修飾キー付きのスワイプは扱わない(ホイールの素の割り当てをそのまま使う)。
         if deltaX > 0 {
-            perform(keyBindingStore.resolvedAction(for: .wheelUp, in: viewModel.scalingMode))
+            perform(wheelAction(.up))
         } else if deltaX < 0 {
-            perform(keyBindingStore.resolvedAction(for: .wheelDown, in: viewModel.scalingMode))
+            perform(wheelAction(.down))
         }
     }
 
@@ -2806,10 +2870,11 @@ struct ViewerView: View {
         // handleSwipeのような連続発火防止のクールダウンは不要。
 
         // 指を左から右へ払う(スワイプする)と、積算したdeltaXは正の値になる。
+        // 修飾キー付きのスワイプは扱わない(handleSwipeと同じ)。
         if trackpadGestureDeltaX > 0 {
-            perform(keyBindingStore.resolvedAction(for: .wheelUp, in: viewModel.scalingMode))
+            perform(wheelAction(.up))
         } else {
-            perform(keyBindingStore.resolvedAction(for: .wheelDown, in: viewModel.scalingMode))
+            perform(wheelAction(.down))
         }
     }
 
@@ -3756,7 +3821,9 @@ private struct ScrollViewBounds {
 }
 
 private struct ClickZoneArea: NSViewRepresentable {
-    let onClick: () -> Void
+    /// クリックされたときに、押されたボタンと修飾キーを渡して呼ばれる。
+    /// 位置(画面の左半分/右半分)はこの領域そのものが表しているため、呼び出し側が補う。
+    let onClick: (MouseTrigger.Button, MouseTrigger.Modifiers) -> Void
     /// ドラッグで画像を掴んで動かせるようにするかどうか(スクロールできる表示モードのときだけ)。
     let isDragScrollEnabled: Bool
 
@@ -3781,10 +3848,12 @@ private struct ClickZoneArea: NSViewRepresentable {
 /// (押した位置と離した位置が両方とも領域内にあることを確認する、NSButtonの基本的な
 /// クリック判定にならった実装)。
 private final class ClickZoneView: NSView {
-    var onClick: (() -> Void)?
+    var onClick: ((MouseTrigger.Button, MouseTrigger.Modifiers) -> Void)?
     /// ドラッグスクロールを許すか(ClickZoneArea参照)。
     var isDragScrollEnabled = false
-    private var isTrackingClickInside = false
+    /// いま押されている最中のボタン(この領域の中で押し始めた場合のみ)。
+    /// 押し始めたボタンと離したボタンが一致しなければクリックとみなさない。
+    private var trackingButton: MouseTrigger.Button?
     /// このマウス操作で実際に画像を動かしたかどうか。動かした場合、ボタンを離したときの
     /// クリック動作は行わない(下のmouseUp参照)。
     private var didDragScroll = false
@@ -3825,7 +3894,33 @@ private final class ClickZoneView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        isTrackingClickInside = bounds.contains(convert(event.locationInWindow, from: nil))
+        beginTracking(.left, with: event)
+    }
+
+    /// 中ボタン(ホイールクリック)。左ボタン以外はここへ来る。
+    ///
+    /// cooViewerはbutton0〜10までを割り当ての対象にしていたが、qooViewerが扱うのは
+    /// 中ボタン(buttonNumber == 2)だけで、それ以外の拡張ボタンは素通しする
+    /// (MouseTrigger.Button参照)。右ボタン(buttonNumber == 1)はrightMouseDownとして
+    /// 届くのでここには来ず、従来どおりコンテキストメニューが開く。
+    override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == MouseTrigger.Button.middle.eventButtonNumber else {
+            super.otherMouseDown(with: event)
+            return
+        }
+        beginTracking(.middle, with: event)
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard event.buttonNumber == MouseTrigger.Button.middle.eventButtonNumber else {
+            super.otherMouseUp(with: event)
+            return
+        }
+        finishTracking(.middle, with: event)
+    }
+
+    private func beginTracking(_ button: MouseTrigger.Button, with event: NSEvent) {
+        trackingButton = bounds.contains(convert(event.locationInWindow, from: nil)) ? button : nil
         didDragScroll = false
         lastDragLocationInWindow = event.locationInWindow
     }
@@ -3839,7 +3934,7 @@ private final class ClickZoneView: NSView {
     /// しており(defaultMouseArrayMode2/Mode3のaction 41)、ドラッグした場合はmouseUpで
     /// クリック動作を抑止している(didDragScroll)。
     override func mouseDragged(with event: NSEvent) {
-        guard isDragScrollEnabled, let scrollView = siblingScrollView(),
+        guard isDragScrollEnabled, trackingButton == .left, let scrollView = siblingScrollView(),
               let documentView = scrollView.documentView, let last = lastDragLocationInWindow
         else { return }
         let deltaX = event.locationInWindow.x - last.x
@@ -3870,8 +3965,12 @@ private final class ClickZoneView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        finishTracking(.left, with: event)
+    }
+
+    private func finishTracking(_ button: MouseTrigger.Button, with event: NSEvent) {
         defer {
-            isTrackingClickInside = false
+            trackingButton = nil
             lastDragLocationInWindow = nil
             if didPushDragCursor {
                 NSCursor.pop()
@@ -3883,9 +3982,14 @@ private final class ClickZoneView: NSView {
             didDragScroll = false
             return
         }
-        guard isTrackingClickInside else { return }
+        guard trackingButton == button else { return }
         guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
-        onClick?()
+        // control(コンテキストメニュー)やcommand(メニューバーのショートカット)が
+        // 押されている場合は、このアプリの割り当ての領分ではないので何もしない
+        // (MouseTrigger.Modifiers.from参照)。
+        guard let modifiers = MouseTrigger.Modifiers.from(event.modifierFlags, allowsShift: true)
+        else { return }
+        onClick?(button, modifiers)
     }
 
     /// バグ修正(実機で確認): クリックゾーンはSwiftUIのZStackの中でScrollViewの**上**に

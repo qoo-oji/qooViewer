@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// 環境設定ウインドウの「表示モード別の操作」画面。**表示モードによって変わる**キー・マウス操作
-/// だけを扱う(表示モードに依存しない基本の割り当ては「キーとマウス」画面 = KeyBindingSettingsView)。
+/// だけを扱う(表示モードに依存しない基本の割り当ては「キーボード」画面 = KeyBindingSettingsView と
+/// 「マウス」画面 = MouseBindingSettingsView)。
 ///
 /// ■ なぜ画面を分けるのか
 /// cooViewerは環境設定の入力タブにモード切替ポップアップ(PreferenceController.hの
@@ -14,7 +15,7 @@ import SwiftUI
 ///   (ブックマーク・お気に入り・本の移動など)まで各モードに並んでしまう
 ///
 /// という2つの問題が残った(いずれもユーザーからの指摘)。画面ごと分けることで、
-/// 「キーとマウス」画面にはどのモードでも同じように働く設定だけ、この画面には
+/// 「キーボード」「マウス」画面にはどのモードでも同じように働く設定だけ、この画面には
 /// モードによって変わる設定だけ、という状態にしている。
 ///
 /// ■ ここに並べる操作を絞っている理由
@@ -58,7 +59,11 @@ struct ModeInputSettingsView: View {
     /// prevPage/次ページ表示にハードコードされており(Controller_input.m)、マウス設定の配列に
     /// 入るのはクリック・ドラッグと、マルチタッチのスワイプ(multiTouchAction:のbutton 1000〜)
     /// だけである。ホイールの挙動を決めるのは`CanScrollMode`と`WheelSensitivity`のみ。
-    private let mouseTriggers: [InputTrigger] = [.clickLeftZone, .clickRightZone]
+    ///
+    /// なお、**修飾キー付き**のホイール(option+ホイール)は「スクロールできるとき」を通さず
+    /// 必ず割り当てられた操作を行うが、そちらは「マウス」画面での割り当てが全モードに
+    /// 適用されるため、ここで重ねて設定できるようにする必要はない
+    /// (MouseBindingRow.includesWheel / ViewerView.handleScrollInScrollableMode参照)。
 
     var body: some View {
         SettingsPaneContainer {
@@ -67,7 +72,7 @@ struct ModeInputSettingsView: View {
                     "Display Mode to Configure",
                     selection: $editingMode,
                     currentTitle: editingMode.titleKey,
-                    help: "Settings here override Keys & Mouse while this display mode is active. Anything left unassigned keeps working as set there.",
+                    help: "Settings here override Keyboard and Mouse while this display mode is active. Anything left unassigned keeps working as set there.",
                     controlWidth: 240
                 ) {
                     ForEach(KeyBindingStore.overridableModes) { mode in
@@ -89,22 +94,17 @@ struct ModeInputSettingsView: View {
             }
 
             Section {
-                ForEach(mouseTriggers, id: \.self) { trigger in
-                    SettingsPickerRow(
-                        trigger.titleKey,
-                        selection: bindingForMouse(trigger),
-                        currentTitle: store.assignedAction(for: trigger, in: editingMode)?.titleKey ?? "(None)",
-                        help: "Triggers left unassigned here fall back to Keys & Mouse.",
-                        controlWidth: 240
-                    ) {
-                        Text("(None)").tag(Optional<ViewerAction>.none)
-                        ForEach(assignableActions) { action in
-                            Text(action.titleKey).tag(Optional(action))
-                        }
+                Grid(alignment: .topLeading, horizontalSpacing: 16, verticalSpacing: 10) {
+                    ForEach(assignableActions) { action in
+                        MouseBindingRow(
+                            action: action, store: store, mode: editingMode, includesWheel: false
+                        )
                     }
                 }
             } header: {
                 Text("Mouse")
+            } footer: {
+                Text("Triggers left unassigned here fall back to the Mouse settings.")
             }
 
             // この画面の設定はすべて表示モードごとに独立させている。cooViewerのCanScrollModeは
@@ -115,7 +115,7 @@ struct ModeInputSettingsView: View {
                     "When Scrolling Is Possible",
                     selection: bindingForWheelBehavior,
                     currentTitle: store.wheelBehavior(in: editingMode).titleKey,
-                    help: "When scrolling is not possible — that is, in Fit to Screen — the wheel always performs the action assigned to it in Keys & Mouse, whatever you choose here.",
+                    help: "When scrolling is not possible — that is, in Fit to Screen — the wheel always performs the action assigned to it in Mouse, whatever you choose here.",
                     controlWidth: 240
                 ) {
                     ForEach(WheelScrollBehavior.allCases) { behavior in
@@ -162,16 +162,4 @@ struct ModeInputSettingsView: View {
         )
     }
 
-    private func bindingForMouse(_ trigger: InputTrigger) -> Binding<ViewerAction?> {
-        Binding(
-            get: { store.assignedAction(for: trigger, in: editingMode) },
-            set: { newAction in
-                if let newAction {
-                    store.setMouseBinding(newAction, for: trigger, in: editingMode)
-                } else {
-                    store.clearMouseBinding(for: trigger, in: editingMode)
-                }
-            }
-        )
-    }
 }
