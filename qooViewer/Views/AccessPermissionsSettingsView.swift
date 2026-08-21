@@ -77,7 +77,9 @@ struct AccessPermissionsSettingsView: View {
             locale: locale
         )
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        _ = url.startAccessingSecurityScopedResource()
+        // ここでstartAccessingSecurityScopedResource()を呼ぶ必要は無い(対になるstopが無く、
+        // 呼ぶたびにカーネルリソースを漏らしていた)。アクセスの開閉はFolderAccessStoreが
+        // 一手に管理する(FolderAccessStore.accessedURLsByPathのコメント参照)。
         folderAccess.add(url: url)
     }
 }

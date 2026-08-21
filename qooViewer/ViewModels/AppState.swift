@@ -207,13 +207,50 @@ final class AppState: ObservableObject {
     }
 
     /// ViewerViewから、現在のブックマーク一覧を反映するために呼ばれる。
+    ///
+    /// siblingBooksと同じ理由で、メニューバーのメニューが開いている間は保留する
+    /// (この一覧はそのまま「ブックマーク一覧」メニューの項目数になり、本を開いた直後の
+    /// 反映など非同期に変わりうる。詳細はMenuBarMenuGateの型コメント参照)。
     func updateCurrentBookmarks(_ bookmarks: [Bookmark]) {
-        currentBookmarks = bookmarks
+        liveCurrentBookmarks = bookmarks
+        MenuBarMenuGate.shared.run(menuGateKey("currentBookmarks")) { [weak self] in
+            self?.currentBookmarks = bookmarks
+        }
+        refreshIsCurrentPageBookmarked()
     }
 
     /// ViewerViewから、現在のページ番号を反映するために呼ばれる(updateCurrentBookmarksと同じ仕組み)。
+    ///
+    /// この値だけは**保留しない**。メニューの内容には直接使わず(メニューが使うのは下の
+    /// isCurrentPageBookmarked)、サイドパネルの現在ページのハイライト・自動スクロールが
+    /// これを見ているため、保留するとメニューを開いている間サイドパネルが追従しなくなる。
     func updateCurrentPageIndex(_ index: Int) {
         currentPageIndex = index
+        refreshIsCurrentPageBookmarked()
+    }
+
+    /// 保留を通さない、常に最新のブックマーク一覧。isCurrentPageBookmarkedの再計算にだけ使う
+    /// (メニューが読むcurrentBookmarksは保留されるため、そちらを基準にすると保留中の再計算が
+    /// 古い一覧を見てしまう)。
+    private var liveCurrentBookmarks: [Bookmark] = []
+
+    /// 現在のページがブックマーク済みかどうか。メニューバーの「このページをブックマークに
+    /// 追加/から削除」の文言と、ツールバー・コンテキストメニューの同ボタンに使う。
+    ///
+    /// 以前はContentView.bodyがcurrentBookmarksとcurrentPageIndexから都度計算していたが、
+    /// currentPageIndexを保留しない(上のコメント参照)以上、そのままではスライドショーの
+    /// ページ送りでメニューを開いている最中に文言が変わりうる。項目数こそ変わらないものの、
+    /// メニューの再構築(NSMenu setItemArray:)が走ること自体がmacOS 26でのクラッシュの条件の
+    /// ため、メニューが読む値はここで保留付きの@Publishedとして持つ
+    /// (詳細はMenuBarMenuGateの型コメント参照)。
+    @Published private(set) var isCurrentPageBookmarked = false
+
+    private func refreshIsCurrentPageBookmarked() {
+        let flag = liveCurrentBookmarks.contains { $0.pageIndex == currentPageIndex }
+        MenuBarMenuGate.shared.run(menuGateKey("isCurrentPageBookmarked")) { [weak self] in
+            guard let self, self.isCurrentPageBookmarked != flag else { return }
+            self.isCurrentPageBookmarked = flag
+        }
     }
 
     /// 表示メニューの「ツールバーを隠す」。ウインドウ表示のときのみ効果があり、
@@ -339,16 +376,31 @@ final class AppState: ObservableObject {
         // めくるたびに両方発火する。つまり、メニュー関連の値が1つも変わっていない通常のページ
         // 送りでも、このAppStateを購読しているContentViewの再評価を何度も促していた
         // (BookmarkStore.bookSortOptionのdidSetで、表示に影響しない再計算をやめたのと同じ考え方)。
-        setIfChanged(&self.isSlideshowActive, isSlideshowActive)
-        setIfChanged(&self.isLoupeActive, isLoupeActive)
-        setIfChanged(&self.isSpreadMode, displayMode == .spread)
-        setIfChanged(&self.isRightToLeft, readingDirection == .rightToLeft)
-        setIfChanged(&self.currentScalingMode, scalingMode)
-        setIfChanged(&self.isContrastCorrectionEnabled, isContrastCorrectionEnabled)
-        setIfChanged(&self.isPageShiftLocked, isPageShiftLocked)
-        setIfChanged(&self.hasPartnerPageDisplayed, hasPartnerPageDisplayed)
-        setIfChanged(&self.hasCurrentPageLayoutOverride, hasCurrentPageLayoutOverride)
-        setIfChanged(&self.hasPartnerPageLayoutOverride, hasPartnerPageLayoutOverride)
+        //
+        // さらに、**メニューバーのメニューが開いている間はこの反映自体を保留する**。
+        // ここの値の多くはユーザーの操作と無関係に非同期で変わり(見開きのデコード完了で
+        // hasPartnerPageDisplayedが、スライドショーのページ送りでhasCurrentPageLayoutOverrideが)、
+        // しかもメニューの**項目数**を左右する:
+        //   ・hasPartnerPageDisplayed → 「画像のエクスポート」が1項目↔3項目、Layoutメニューが
+        //     左右2サブメニュー↔平坦
+        //   ・has(Current|Partner)PageLayoutOverride → 「レイアウト情報を削除する」の有無で4項目↔6項目
+        // 開いている最中に変わるとmacOS 26ではメニューの再構築でアプリが落ちる
+        // (詳細はMenuBarMenuGateの型コメント参照)。チェックマークやグレーアウトだけを
+        // 左右する値も含めてまとめて保留し、メニューを開いている間は一貫した1つの
+        // スナップショットを見せる(開いたままメニューの見た目が変わる必要は無い)。
+        MenuBarMenuGate.shared.run(menuGateKey("menuCheckmarkState")) { [weak self] in
+            guard let self else { return }
+            self.setIfChanged(&self.isSlideshowActive, isSlideshowActive)
+            self.setIfChanged(&self.isLoupeActive, isLoupeActive)
+            self.setIfChanged(&self.isSpreadMode, displayMode == .spread)
+            self.setIfChanged(&self.isRightToLeft, readingDirection == .rightToLeft)
+            self.setIfChanged(&self.currentScalingMode, scalingMode)
+            self.setIfChanged(&self.isContrastCorrectionEnabled, isContrastCorrectionEnabled)
+            self.setIfChanged(&self.isPageShiftLocked, isPageShiftLocked)
+            self.setIfChanged(&self.hasPartnerPageDisplayed, hasPartnerPageDisplayed)
+            self.setIfChanged(&self.hasCurrentPageLayoutOverride, hasCurrentPageLayoutOverride)
+            self.setIfChanged(&self.hasPartnerPageLayoutOverride, hasPartnerPageLayoutOverride)
+        }
     }
 
     /// 値が変わったときだけ代入する(@Publishedの不要な発火を避ける。
@@ -358,19 +410,49 @@ final class AppState: ObservableObject {
         storage = newValue
     }
 
+    /// このAppStateを他と区別するための識別子(menuGateKey(_:)専用)。ObjectIdentifierの
+    /// hashValueではなくUUIDにしてあるのは、ハッシュ値は衝突しうるうえ、解放されたインスタンスの
+    /// アドレスが再利用されると別のウインドウと同じ値になりうるため。
+    private let menuGateInstanceID = UUID().uuidString
+
+    /// 保留の単位を表すキー(MenuBarMenuGate.run(_:_:)へ渡す)。AppStateはウインドウごとに
+    /// 別インスタンスがあるため、インスタンスの識別子を混ぜて別ウインドウの予約と混ざらない
+    /// ようにする。
+    private func menuGateKey(_ name: String) -> String {
+        "AppState.\(name)#\(menuGateInstanceID)"
+    }
+
+    /// siblingBooksへの唯一の書き込み口。メニューバーのメニューが開いている間は保留する。
+    ///
+    /// この値は「同じフォルダのファイルを開く」メニューの項目数そのもの(1項目の権限付与
+    /// ボタン ↔ N項目の一覧)を決めるうえ、本を開いたあとのフォルダ走査が終わった瞬間に
+    /// **ユーザーの操作と無関係に**変わる。開いている最中に変わるとmacOS 26では
+    /// メニューの再構築でアプリが落ちる(詳細はMenuBarMenuGateの型コメント参照)。
+    private func setSiblingBooks(_ newValue: [URL]) {
+        MenuBarMenuGate.shared.run(menuGateKey("siblingBooks")) { [weak self] in
+            guard let self, self.siblingBooks != newValue else { return }
+            self.siblingBooks = newValue
+        }
+    }
+
     /// ViewerViewが閉じるとき(本を閉じたとき)に、メニューバーのチェックマーク状態をクリアする。
     func resetMenuCheckmarkState() {
-        // updateMenuCheckmarkStateと同じ理由で、変わったものだけ代入する。
-        setIfChanged(&isSlideshowActive, false)
-        setIfChanged(&isLoupeActive, false)
-        setIfChanged(&isSpreadMode, false)
-        setIfChanged(&isRightToLeft, false)
-        setIfChanged(&currentScalingMode, .fitToScreen)
-        setIfChanged(&isContrastCorrectionEnabled, false)
-        setIfChanged(&isPageShiftLocked, false)
-        setIfChanged(&hasPartnerPageDisplayed, false)
-        setIfChanged(&hasCurrentPageLayoutOverride, false)
-        setIfChanged(&hasPartnerPageLayoutOverride, false)
+        // updateMenuCheckmarkStateと同じ理由で、変わったものだけ代入し、メニューバーの
+        // メニューが開いている間は保留する(同じキーを使うことで、保留中に更新とリセットが
+        // 重なっても最後の1つだけが適用される)。
+        MenuBarMenuGate.shared.run(menuGateKey("menuCheckmarkState")) { [weak self] in
+            guard let self else { return }
+            self.setIfChanged(&self.isSlideshowActive, false)
+            self.setIfChanged(&self.isLoupeActive, false)
+            self.setIfChanged(&self.isSpreadMode, false)
+            self.setIfChanged(&self.isRightToLeft, false)
+            self.setIfChanged(&self.currentScalingMode, .fitToScreen)
+            self.setIfChanged(&self.isContrastCorrectionEnabled, false)
+            self.setIfChanged(&self.isPageShiftLocked, false)
+            self.setIfChanged(&self.hasPartnerPageDisplayed, false)
+            self.setIfChanged(&self.hasCurrentPageLayoutOverride, false)
+            self.setIfChanged(&self.hasPartnerPageLayoutOverride, false)
+        }
     }
 
     /// performViewerAction/jumpToBookmark/addBookmarkAction/setScalingMode、および
@@ -567,7 +649,7 @@ final class AppState: ObservableObject {
             } catch {
                 guard !Task.isCancelled, let self else { return }
                 self.currentBook = nil
-                self.siblingBooks = []
+                self.setSiblingBooks([])
                 self.errorMessage = (error as? LocalizedError)?.errorDescription
                     ?? String(localized: "The book could not be opened.", locale: locale)
             }
@@ -593,7 +675,7 @@ final class AppState: ObservableObject {
     func closeBook() {
         openTask?.cancel()
         currentBook = nil
-        siblingBooks = []
+        setSiblingBooks([])
         // 開いていた本のセキュリティスコープ付きアクセスを閉じる(securityScopedBookURLの
         // コメント参照)。
         securityScopedBookURL?.stopAccessingSecurityScopedResource()
@@ -603,11 +685,11 @@ final class AppState: ObservableObject {
     /// 現在の本と同じフォルダにある他の本のURL一覧を取得し直す(「同じフォルダのファイルを開く」用)。
     private func refreshSiblingBooks() async {
         guard let currentURL = currentBook?.sourceURL else {
-            siblingBooks = []
+            setSiblingBooks([])
             return
         }
         let all = await SiblingFinder.siblingBookURLsAsync(of: currentURL)
-        siblingBooks = all.filter { $0.path != currentURL.path }
+        setSiblingBooks(all.filter { $0.path != currentURL.path })
     }
 
     /// 「同じフォルダのファイルを開く」が常に空になってしまう場合の対処。
@@ -648,7 +730,9 @@ final class AppState: ObservableObject {
         )
         guard panel.runModal() == .OK, let folderURL = panel.url else { return }
 
-        _ = folderURL.startAccessingSecurityScopedResource()
+        // アクセスの開閉はFolderAccessStoreが一手に管理する(以前はここでも
+        // startAccessingSecurityScopedResource()を呼んでいたが、対になるstopが無く
+        // 漏れていた。FolderAccessStore.accessedURLsByPathのコメント参照)。
         // 環境設定の「アクセス権」タブと同じ仕組み(FolderAccessStore)に許可を追加する。
         // こうしておくと、ここで許可したフォルダも「アクセス権」タブの一覧に表示され、
         // 一箇所で管理・取り消しができるようになる。

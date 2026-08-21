@@ -237,6 +237,10 @@ final class ViewerViewModel: ObservableObject {
     /// (以前は毎回reloadTaskをキャンセルして最後の1回分しか表示していなかった)。
     private var pageFlipQueue: [Int] = []
     private var pageFlipTask: Task<Void, Never>?
+    /// ページめくりアニメーションの世代番号。cancelPendingPageFlip()のたびに増やし、
+    /// **既に走っているアニメーションのループにも中断を伝える**ために使う
+    /// (詳細はdrainPageFlipQueueの内側ループのコメント参照)。
+    private var pageFlipGeneration = 0
     /// 通過ページを一瞬だけ表示する間隔。短すぎると目に映らず、長すぎるとページ数が
     /// 多いときにもたついて見えるため、この程度が体感上ちょうどよい値。
     private let pageFlipFrameDuration: UInt64 = 10_000_000 // 0.01秒
@@ -858,7 +862,12 @@ final class ViewerViewModel: ObservableObject {
         while !pageFlipQueue.isEmpty {
             if pageFlipQueue.count == 1 {
                 let target = pageFlipQueue.removeFirst()
-                currentIndex = target
+                // 目的地は積んだ時点ではページ数の範囲内だが、そこから実際に処理するまでの間に
+                // レイアウト変更(除外ページの追加)でbook.pagesが縮んでいることがある。
+                // 範囲内へ収め直してから代入する(範囲外のcurrentIndexは、そのまま
+                // persistState()で読書位置として保存されてしまう)。
+                guard !book.pages.isEmpty else { break }
+                currentIndex = min(max(target, 0), book.pages.count - 1)
                 persistState()
                 await loadCurrentSpread(prefetch: true)
                 continue
@@ -867,7 +876,25 @@ final class ViewerViewModel: ObservableObject {
             let target = pageFlipQueue.removeFirst()
             let isFinalQueueItem = pageFlipQueue.isEmpty
             let direction = target > currentIndex ? 1 : (target < currentIndex ? -1 : 0)
-            while currentIndex != target {
+            let generation = pageFlipGeneration
+            // 条件を「まだ目的地に着いていない」(currentIndex != target)ではなく
+            // 「目的地の手前にいる」と書くこと。**この内側ループにはawait(通過コマの表示と
+            // 表示時間のsleep)があり、その間にcurrentIndexが外から書き換わりうる**:
+            // プログレスバーのクリック(jump)・1ページずらし(shiftByOnePage)・ループ設定に
+            // よる折り返し・レイアウト変更に伴う再配置(reloadLayoutData)のいずれもcurrentIndexを
+            // 直接代入する。directionはループに入る時点で固定されるため、目的地を
+            // **追い越した**位置へ飛ばされると != の条件は二度と成立せず、currentIndexを
+            // 際限なく増減させ続ける無限ループになっていた(ビューアが固まり、pageFlipTaskが
+            // nilに戻らないため以後のページ送りも一切効かなくなり、範囲外のインデックスが
+            // persistState()で読書位置として保存される)。
+            //
+            // あわせて、cancelPendingPageFlip()は待ち行列を空にするだけでこのループを止め
+            // られなかったため、世代番号でも中断できるようにする。
+            // 最後の条件は、上と同じ「進んでいる間にbook.pagesが縮む」場合への備え
+            // (目的地が範囲外になっていても、範囲の端で止まる)。
+            while direction != 0, generation == pageFlipGeneration,
+                  direction > 0 ? currentIndex < target : currentIndex > target,
+                  book.pages.indices.contains(currentIndex + direction) {
                 currentIndex += direction
                 let isLandingFrame = isFinalQueueItem && currentIndex == target
                 if isLandingFrame {
@@ -919,6 +946,9 @@ final class ViewerViewModel: ObservableObject {
     ///  自然に終了させる方式にしている)
     private func cancelPendingPageFlip() {
         pageFlipQueue.removeAll()
+        // 待ち行列を空にするだけでは、既に走っている1件分のアニメーション(drainPageFlipQueueの
+        // 内側ループ)は止まらない。世代番号を進めて、そちらにも中断を伝える。
+        pageFlipGeneration &+= 1
     }
 
     /// 見開き/単ページ設定にかかわらず、常にちょうど1ページだけ進む/戻る。

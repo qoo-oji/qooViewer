@@ -590,7 +590,7 @@ struct FavoritesOrganizerView: View {
             activeAppState?.missingFavorite = favorite
             return
         }
-        _ = url.startAccessingSecurityScopedResource()
+        SecurityScopedHandoff.begin(url)
         let previousWindow = activeAppState?.hostWindow
         let existingIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
         openWindow(id: "book", value: url)
@@ -627,7 +627,7 @@ struct FavoritesOrganizerView: View {
             openFavoriteInNewWindow(favorite, relativeTo: activeAppState)
             return
         }
-        _ = url.startAccessingSecurityScopedResource()
+        SecurityScopedHandoff.begin(url)
         let existingIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
         openWindow(id: "book", value: url)
         Task { @MainActor in

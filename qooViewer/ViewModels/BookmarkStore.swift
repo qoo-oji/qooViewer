@@ -60,6 +60,9 @@ struct BookmarkBookGroup: Identifiable, Equatable {
 /// ないため、この通知ベースのreload()の仕組みは引き続き必要)。
 @MainActor
 final class BookmarkStore: ObservableObject {
+    /// MenuBarMenuGateへ登録する「メニューが閉じたら一覧を最新化する」処理の識別子。
+    private static let menuGateKey = "BookmarkStore.reload"
+
     /// 本ごとにグループ化した一覧。bookSortOptionに従って並べる(既定は表示名の自然順=
     /// Finderと同じ)。
     @Published private(set) var groups: [BookmarkBookGroup] = []
@@ -127,7 +130,6 @@ final class BookmarkStore: ObservableObject {
     /// メニューが開かれる直前にも念のため再読み込みする(FavoritesStore/RecentFilesStoreと
     /// 同じ理由の保険。通常はbookmarksDidChangeの送受信だけで同期が取れるはずだが、
     /// 万一取りこぼした場合の保険として残しておく)。
-    private var menuTrackingObserver: NSObjectProtocol?
 
     init(modelContext: ModelContext) {
         self.modelContext = modelContext
@@ -161,32 +163,25 @@ final class BookmarkStore: ObservableObject {
             }
         }
         // メニューバーのメニューの内容(お気に入り/ブックマーク一覧)を最新に保つための再読み込み。
-        // **開いた瞬間(didBeginTracking)ではなく、閉じたあと(didEndTracking)に行う**。
-        // 開いている最中に@Publishedを発火させると、SwiftUIがトラッキング中のメインメニューを
-        // 作り直し(NSMenu setItemArray:)、macOS 26では新しいメニュー実装(NSContextMenuImpl)が
-        // 行高キャッシュの範囲外アクセスでNSRangeExceptionを投げて落ちる(サムネイルグリッドを
-        // 出したままメニューを開くと落ちる不具合と同じ系統。ViewerView.swiftのdidEndTracking
-        // まわりのコメント参照)。RecentFilesStoreが同じ理由でメニュー開時の再読み込みをやめて
-        // いるのと同じ考え方だが、こちらは閉じたあとに1回だけ走らせて次に開いたときに最新に
-        // なるようにしている(publishOnlyWhenChangedにより、中身が変わったときだけ発火する)。
-        menuTrackingObserver = NotificationCenter.default.addObserver(
-            forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main
-        ) { [weak self] notification in
-            MainActor.assumeIsolated {
-                // メニューバーのメニュー以外(ウインドウ内のPicker/Menuのドロップダウンなど)では
-                // 何もしない。詳細はMenuBarTracking.isMainMenu(_:)のコメント参照。
-                guard MenuBarTracking.isMainMenu(notification) else { return }
-                self?.reload(publishOnlyWhenChanged: true)
-            }
+        // **開いた瞬間ではなく、閉じたあとに行う**。開いている最中に@Publishedを発火させると、
+        // SwiftUIがトラッキング中のメインメニューを作り直し(NSMenu setItemArray:)、macOS 26では
+        // 新しいメニュー実装(NSContextMenuImpl)が行高キャッシュの範囲外アクセスで
+        // NSRangeExceptionを投げて落ちる(サムネイルグリッドを出したままメニューを開くと落ちる
+        // 不具合と同じ系統)。
+        //
+        // NSMenu.didEndTrackingNotificationを自前で購読するのではなく、MenuBarMenuGateへ
+        // 登録する。同じ通知をゲート自身も購読しているためオブザーバの呼び出し順が定まらず、
+        // 自前で購読するとゲートより先に走った場合・後に走った場合で挙動が変わってしまう
+        // (詳細はMenuBarMenuGate.onMenuBarMenuDidClose(_:_:)のコメント参照)。
+        // publishOnlyWhenChangedにより、中身が変わったときだけ発火する点は従来どおり。
+        MenuBarMenuGate.shared.onMenuBarMenuDidClose(Self.menuGateKey) { [weak self] in
+            self?.reload(publishOnlyWhenChanged: true)
         }
     }
 
     deinit {
         if let changeObserver {
             NotificationCenter.default.removeObserver(changeObserver)
-        }
-        if let menuTrackingObserver {
-            NotificationCenter.default.removeObserver(menuTrackingObserver)
         }
     }
 
@@ -242,7 +237,7 @@ final class BookmarkStore: ObservableObject {
         // 発火する。メニューバーの追跡開始のたびに発火させると、メニューが表示されている最中に
         // SwiftUIがメニューバーを組み立て直すことになり、AppKitのメニュー更新・検証パスと
         // 競合して未完成のメニューが表示される一因になっていた(詳細はRecentFilesStore.init()の
-        // menuTrackingObserverのコメント参照)。既定をfalseにしてあるのは、ブックマークの
+        // activationObserverまわりのコメント、およびMenuBarMenuGateの型コメント参照)。既定をfalseにしてあるのは、ブックマークの
         // 追加・削除・リネーム直後のUI更新にもこの経路が使われているため。
         if !publishOnlyWhenChanged || newGroups != groups {
             groups = newGroups

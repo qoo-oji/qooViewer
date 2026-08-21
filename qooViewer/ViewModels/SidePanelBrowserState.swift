@@ -164,9 +164,9 @@ final class SidePanelBrowserState: ObservableObject {
         )
         guard panel.runModal() == .OK, let grantedURL = panel.url else { return }
 
-        // AppState.open(url:)と同じ防御的な呼び出し(パネルで選んだURLはこのセッション中は
-        // 既にアクセス可能なはずだが、念のため)。
-        _ = grantedURL.startAccessingSecurityScopedResource()
+        // アクセスの開閉はFolderAccessStoreが一手に管理する(以前はここでも
+        // startAccessingSecurityScopedResource()を呼んでいたが、対になるstopが無く
+        // 漏れていた。FolderAccessStore.accessedURLsByPathのコメント参照)。
         folderAccess?.add(url: grantedURL)
         reload()
     }

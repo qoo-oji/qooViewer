@@ -2971,7 +2971,16 @@ struct ViewerView: View {
             isMenuTracking = false
             if pendingThumbnailGridDismissAfterMenu {
                 pendingThumbnailGridDismissAfterMenu = false
-                showThumbnailGrid = false
+                // ここで直接閉じてはいけない。didEndTrackingはメインスレッドからpostされる場合
+                // queue: .mainを指定していても**同期配送**されるため、このクロージャはAppKitが
+                // まだトラッキングを巻き戻している最中(メニューウインドウが消えきる前)に走る。
+                // その時点でSwiftUIのビューを削除する=フォーカスを動かすと、開いている最中に
+                // 閉じたときと同じくmacOS 26でメニューの再構築が走り、NSRangeExceptionで落ちる
+                // (pendingThumbnailGridDismissAfterMenuのコメント、およびMenuBarMenuGateの
+                //  型コメント「なぜ閉じた直後ではなく1回ランループを跨ぐのか」参照)。
+                DispatchQueue.main.async {
+                    showThumbnailGrid = false
+                }
             }
             registerMouseActivity()
         }
@@ -3427,7 +3436,7 @@ struct ViewerView: View {
             appState.missingFavorite = favorite
             return
         }
-        _ = url.startAccessingSecurityScopedResource()
+        SecurityScopedHandoff.begin(url)
         let previousWindow = hostWindow
         let existingIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
         openWindow(id: "book", value: url)
@@ -3462,7 +3471,7 @@ struct ViewerView: View {
             openFavoriteInNewWindow(favorite)
             return
         }
-        _ = url.startAccessingSecurityScopedResource()
+        SecurityScopedHandoff.begin(url)
         let existingIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
         openWindow(id: "book", value: url)
         Task { @MainActor in

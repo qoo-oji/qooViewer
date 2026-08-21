@@ -123,8 +123,33 @@ nonisolated enum PDFImageExtractor {
     private final class Collector {
         var best: CGPDFStreamRef?
         var bestPixelCount: Int = -1
+        /// bestに選ばれた画像のピクセル寸法(largestEmbeddedImagePixelSize(of:)が使う)。
+        var bestWidth: Int = 0
+        var bestHeight: Int = 0
         /// 現在たどっているForm XObjectの深さ(maxFormNestingDepthと比較する)。
         var depth: Int = 0
+    }
+
+    /// このページに埋め込まれた画像のうち、いちばん画素数の多いもののピクセル寸法。
+    /// 画像を1枚も持たないページ(ベクター描画だけのページ)ではnil。
+    ///
+    /// primaryImageStream(of:pageNumber:)と同じ「ピクセル数が最大のものがページ本体」という
+    /// 見方をそのまま使う(そちらのコメント参照)。ストリームの辞書の`/Width`・`/Height`を
+    /// 読むだけで、画像データの復号・コピーは一切行わないため軽い。
+    ///
+    /// 用途はPageLoader.renderPDFPageの解像度決め。PDFのページは寸法がpt(72dpi基準)でしか
+    /// 分からないため、要求された最大ピクセル数まで無条件に引き伸ばすと、実際には中身より
+    /// 高い解像度で描くことになり、得るもの無くメモリだけを消費する。
+    static func largestEmbeddedImagePixelSize(of page: CGPDFPage) -> (width: Int, height: Int)? {
+        guard let pageDictionary = page.dictionary else { return nil }
+        var resources: CGPDFDictionaryRef?
+        guard CGPDFDictionaryGetDictionary(pageDictionary, "Resources", &resources), let resources else {
+            return nil
+        }
+        let collector = Collector()
+        collectImageStreams(in: resources, collector: collector)
+        guard collector.best != nil, collector.bestWidth > 0, collector.bestHeight > 0 else { return nil }
+        return (collector.bestWidth, collector.bestHeight)
     }
 
     /// このページの`/Resources /XObject`から、ページ本体にあたる画像ストリームを1つ選ぶ。
@@ -182,6 +207,8 @@ nonisolated enum PDFImageExtractor {
                 if pixelCount > collector.bestPixelCount {
                     collector.bestPixelCount = pixelCount
                     collector.best = stream
+                    collector.bestWidth = Int(width)
+                    collector.bestHeight = Int(height)
                 }
             case "Form":
                 var formResources: CGPDFDictionaryRef?

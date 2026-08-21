@@ -110,6 +110,9 @@ enum FavoriteAddOutcome {
 /// アプリ全体で1つだけのインスタンスとして扱う(QooViewerAppの@StateObject)。
 @MainActor
 final class FavoritesStore: ObservableObject {
+    /// MenuBarMenuGateへ登録する「メニューが閉じたら一覧を最新化する」処理の識別子。
+    private static let menuGateKey = "FavoritesStore.reload"
+
     /// ルート直下のフォルダ一覧(親を持たないFavoriteFolder)。sortOptionの並び順。
     @Published private(set) var rootFolders: [FavoriteFolder] = []
     /// ルート直下に直接置かれているお気に入り(フォルダに属さないFavoriteBook)。sortOptionの並び順。
@@ -159,7 +162,6 @@ final class FavoritesStore: ObservableObject {
     /// メニューが開かれる直前に一覧を再読み込みするための監視トークン。
     /// (RecentFilesStoreと同じ理由: 整理画面や他のウインドウでの変更を、メニューを開くたびに
     /// 反映させるため)
-    private var menuTrackingObserver: NSObjectProtocol?
     /// アプリがアクティブになったときに実体の存在確認をやり直すための監視トークン。
     private var activationObserver: NSObjectProtocol?
     /// ボリュームのマウント/アンマウントで存在確認をやり直すための監視トークン(NSWorkspaceの通知)。
@@ -203,23 +205,19 @@ final class FavoritesStore: ObservableObject {
         // 伝える(Task化のような非同期ホップは発生させない。ViewerViewModel.swiftの同種の
         // コメント参照)。
         // メニューバーのメニューの内容(お気に入り/ブックマーク一覧)を最新に保つための再読み込み。
-        // **開いた瞬間(didBeginTracking)ではなく、閉じたあと(didEndTracking)に行う**。
-        // 開いている最中に@Publishedを発火させると、SwiftUIがトラッキング中のメインメニューを
-        // 作り直し(NSMenu setItemArray:)、macOS 26では新しいメニュー実装(NSContextMenuImpl)が
-        // 行高キャッシュの範囲外アクセスでNSRangeExceptionを投げて落ちる(サムネイルグリッドを
-        // 出したままメニューを開くと落ちる不具合と同じ系統。ViewerView.swiftのdidEndTracking
-        // まわりのコメント参照)。RecentFilesStoreが同じ理由でメニュー開時の再読み込みをやめて
-        // いるのと同じ考え方だが、こちらは閉じたあとに1回だけ走らせて次に開いたときに最新に
-        // なるようにしている(publishOnlyWhenChangedにより、中身が変わったときだけ発火する)。
-        menuTrackingObserver = NotificationCenter.default.addObserver(
-            forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main
-        ) { [weak self] notification in
-            MainActor.assumeIsolated {
-                // メニューバーのメニュー以外(ウインドウ内のPicker/Menuのドロップダウンなど)では
-                // 何もしない。詳細はMenuBarTracking.isMainMenu(_:)のコメント参照。
-                guard MenuBarTracking.isMainMenu(notification) else { return }
-                self?.reload(publishOnlyWhenChanged: true)
-            }
+        // **開いた瞬間ではなく、閉じたあとに行う**。開いている最中に@Publishedを発火させると、
+        // SwiftUIがトラッキング中のメインメニューを作り直し(NSMenu setItemArray:)、macOS 26では
+        // 新しいメニュー実装(NSContextMenuImpl)が行高キャッシュの範囲外アクセスで
+        // NSRangeExceptionを投げて落ちる(サムネイルグリッドを出したままメニューを開くと落ちる
+        // 不具合と同じ系統)。
+        //
+        // NSMenu.didEndTrackingNotificationを自前で購読するのではなく、MenuBarMenuGateへ
+        // 登録する。同じ通知をゲート自身も購読しているためオブザーバの呼び出し順が定まらず、
+        // 自前で購読するとゲートより先に走った場合・後に走った場合で挙動が変わってしまう
+        // (詳細はMenuBarMenuGate.onMenuBarMenuDidClose(_:_:)のコメント参照)。
+        // publishOnlyWhenChangedにより、中身が変わったときだけ発火する点は従来どおり。
+        MenuBarMenuGate.shared.onMenuBarMenuDidClose(Self.menuGateKey) { [weak self] in
+            self?.reload(publishOnlyWhenChanged: true)
         }
 
         // 実体の存在確認は重いので、メニューや一覧の描画のたびではなく「古くなっている
@@ -249,9 +247,6 @@ final class FavoritesStore: ObservableObject {
     /// 予防: RecentFilesStore.deinitと同じ理由(アプリ全体で1つのため現状は呼ばれないが、
     /// 購読の登録と解除を対にしておく)。
     deinit {
-        if let menuTrackingObserver {
-            NotificationCenter.default.removeObserver(menuTrackingObserver)
-        }
         if let activationObserver {
             NotificationCenter.default.removeObserver(activationObserver)
         }
@@ -311,8 +306,14 @@ final class FavoritesStore: ObservableObject {
             }
         }
         // @Publishedは値が同じでも代入のたびに発火するため、変化したときだけ代入する。
-        if result != existenceByFavoriteID {
-            existenceByFavoriteID = result
+        // さらに、この確認はアプリのアクティブ化・ボリュームの抜き差しで**利用者の操作とは
+        // 無関係に**終わるため、メニューバーのメニューが開いている間は反映を保留する
+        // (お気に入りメニューの各項目の見た目がここで変わる。詳細はMenuBarMenuGateの
+        // 型コメント参照)。
+        guard result != existenceByFavoriteID else { return }
+        MenuBarMenuGate.shared.run("FavoritesStore.existence") { [weak self] in
+            guard let self, result != self.existenceByFavoriteID else { return }
+            self.existenceByFavoriteID = result
         }
     }
 
@@ -350,7 +351,8 @@ final class FavoritesStore: ObservableObject {
     ///   このreload()はメニューバーの追跡開始のたびに呼ばれるため、既定のまま(=毎回発火)だと、
     ///   メニューが表示されている最中にSwiftUIがメニューバーを組み立て直すことになり、
     ///   AppKitのメニュー更新・検証パスと競合して未完成のメニューが表示される一因になっていた
-    ///   (詳細はRecentFilesStore.init()のmenuTrackingObserverのコメント参照)。
+    ///   (詳細はRecentFilesStore.init()のactivationObserverまわりのコメント、および
+    ///   MenuBarMenuGateの型コメント参照)。
     ///
     ///   既定をfalseにしてあるのは、このreload()がお気に入りの追加・削除・並べ替えなど
     ///   「書き込んだ直後にUIを更新する」用途からも多数呼ばれているため。ルート直下の配列が
@@ -365,16 +367,25 @@ final class FavoritesStore: ObservableObject {
             predicate: #Predicate<FavoriteFolder> { $0.parent == nil }
         )
         let newRootFolders = sorted((try? modelContext.fetch(folderDescriptor)) ?? [])
-        if !publishOnlyWhenChanged || newRootFolders != rootFolders {
-            rootFolders = newRootFolders
-        }
-
         let bookDescriptor = FetchDescriptor<FavoriteBook>(
             predicate: #Predicate<FavoriteBook> { $0.folder == nil }
         )
         let newRootBooks = sorted((try? modelContext.fetch(bookDescriptor)) ?? [])
-        if !publishOnlyWhenChanged || newRootBooks != rootBooks {
-            rootBooks = newRootBooks
+
+        // フェッチ自体は今すぐ行うが、@Publishedへの反映は**メニューバーのメニューが開いて
+        // いる間は保留する**。この2つの配列はそのままメニューバーの「お気に入り」メニューの
+        // 項目(FavoritesMenuContent)になるため、開いている最中に変わるとmacOS 26では
+        // メニューの再構築でアプリが落ちる(詳細はMenuBarMenuGateの型コメント参照)。
+        // お気に入りの追加・削除など利用者の操作による呼び出しでは、その操作の時点で
+        // メニューは閉じているため、これまでどおり即座に反映される。
+        MenuBarMenuGate.shared.run("FavoritesStore.roots") { [weak self] in
+            guard let self else { return }
+            if !publishOnlyWhenChanged || newRootFolders != self.rootFolders {
+                self.rootFolders = newRootFolders
+            }
+            if !publishOnlyWhenChanged || newRootBooks != self.rootBooks {
+                self.rootBooks = newRootBooks
+            }
         }
     }
 

@@ -38,11 +38,28 @@ final class FolderAccessStore: ObservableObject {
 
     private let defaultsKey = "qooViewer.grantedFolderBookmarks"
 
+    /// 今アクセスを開いている(startAccessingSecurityScopedResourceを呼んだ)URL。
+    /// パス → 実際に開いたURLオブジェクト。stopは**開いたのと同じURLオブジェクト**へ
+    /// 呼ぶ必要があるため、Entryとは別にここで持つ。
+    ///
+    /// バグ修正: 以前はinit()の中で一度だけentriesを開いており、以後のreload()が
+    /// entriesを差し替えても開き直していなかった。reload()はブックマークを解決し直して
+    /// **別のURLオブジェクト**を作るため、
+    ///   ・追加した直後のフォルダは一度も開かれない(呼び出し側が自前で
+    ///     `_ = url.startAccessingSecurityScopedResource()`していたのはこの穴埋め。
+    ///     そちらは対になるstopが無く、呼ぶたびにカーネルリソースを漏らしていた)
+    ///   ・それまで開いていたURLオブジェクトはstopされないまま捨てられる
+    /// という2つの漏れが同時に起きていた。開閉の管理をこのストアに閉じ、reload()のたびに
+    /// 差分だけを開閉する。
+    private var accessedURLsByPath: [String: URL] = [:]
+
     init() {
         reload()
-        // 起動時に、過去に許可したフォルダすべてへのアクセスを再開する。
-        for entry in entries {
-            _ = entry.url.startAccessingSecurityScopedResource()
+    }
+
+    deinit {
+        for url in accessedURLsByPath.values {
+            url.stopAccessingSecurityScopedResource()
         }
     }
 
@@ -77,9 +94,9 @@ final class FolderAccessStore: ObservableObject {
         return true
     }
 
-    /// 許可を取り消す。
+    /// 許可を取り消す。実際のstopAccessingSecurityScopedResource()は、この後のreload()が
+    /// 差分として行う(accessedURLsByPathのコメント参照)。
     func remove(_ entry: Entry) {
-        entry.url.stopAccessingSecurityScopedResource()
         var bookmarks = rawBookmarks()
         bookmarks.removeAll { resolvedURL(from: $0)?.path == entry.url.path }
         UserDefaults.standard.set(bookmarks, forKey: defaultsKey)
@@ -117,8 +134,23 @@ final class FolderAccessStore: ObservableObject {
     }
 
     private func reload() {
-        entries = rawBookmarks()
+        let newEntries = rawBookmarks()
             .compactMap { resolvedURL(from: $0).map(Entry.init) }
             .sorted { $0.url.path < $1.url.path }
+
+        // 一覧から消えたフォルダのアクセスを閉じる。
+        let newPaths = Set(newEntries.map(\.id))
+        for (path, url) in accessedURLsByPath where !newPaths.contains(path) {
+            url.stopAccessingSecurityScopedResource()
+            accessedURLsByPath.removeValue(forKey: path)
+        }
+        // 新しく現れたフォルダのアクセスを開く(起動時の復元も、追加直後も同じ経路になる)。
+        for entry in newEntries where accessedURLsByPath[entry.id] == nil {
+            if entry.url.startAccessingSecurityScopedResource() {
+                accessedURLsByPath[entry.id] = entry.url
+            }
+        }
+
+        entries = newEntries
     }
 }

@@ -183,7 +183,12 @@ struct ContentView: View {
                 // (EnvironmentObject。この構造体自体がfavoritesStoreの変更のたびに作り直される
                 // ことで、値型のFocusedValueとしてメニューバー側へ正しく伝わる)から直接算出する。
                 isCurrentBookFavorited: appState.currentBook.map { favoritesStore.isFavorited(bookID: $0.id) } ?? false,
-                isCurrentPageBookmarked: appState.currentBookmarks.contains { $0.pageIndex == appState.currentPageIndex },
+                // 以前はここでcurrentBookmarksとcurrentPageIndexから都度計算していたが、
+                // currentPageIndexはサイドパネルの追従のため保留対象から外してあるため、その
+                // ままではメニューを開いている最中(スライドショーのページ送り)に文言が変わり、
+                // メニューの再構築でmacOS 26のクラッシュを引き起こしうる。AppState側で保留付きの
+                // @Publishedとして持つ値をそのまま読む(AppState.isCurrentPageBookmarked参照)。
+                isCurrentPageBookmarked: appState.isCurrentPageBookmarked,
                 hasPartnerPageDisplayed: appState.hasPartnerPageDisplayed,
                 hasCurrentPageLayoutOverride: appState.hasCurrentPageLayoutOverride,
                 hasPartnerPageLayoutOverride: appState.hasPartnerPageLayoutOverride

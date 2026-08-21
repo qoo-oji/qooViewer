@@ -271,8 +271,17 @@ final class RecentFilesStore: ObservableObject {
         // バグ修正(ユーザー報告): @Publishedは値が同じでも代入のたびにobjectWillChangeを
         // 発火する。メニューバーが開かれている最中に発火すると、SwiftUIがメニューバーを
         // 組み立て直してAppKitのメニュー更新と競合するため、中身が変わったときだけ代入する。
-        if newEntries != entries {
-            entries = newEntries
+        //
+        // さらに、中身が実際に変わる場合は**メニューバーのメニューが開いている間は保留する**。
+        // この一覧は「最近開いたファイル」メニューの項目数そのもの(「(なし)」1項目 ↔ N項目)に
+        // なるうえ、本を開き終えた瞬間(record(url:))やボリュームのマウント(scheduleRefresh())と
+        // いった、ユーザーのメニュー操作とは無関係なタイミングで変わる。開いている最中に
+        // 項目数が変わるとmacOS 26ではメニューの再構築でアプリが落ちる
+        // (詳細はMenuBarMenuGateの型コメント参照)。
+        guard newEntries != entries else { return }
+        MenuBarMenuGate.shared.run("RecentFilesStore.entries") { [weak self] in
+            guard let self, newEntries != self.entries else { return }
+            self.entries = newEntries
         }
     }
 

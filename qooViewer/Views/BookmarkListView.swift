@@ -880,7 +880,7 @@ struct BookmarkEditorView: View {
             openErrorBookName = URL(fileURLWithPath: bookID).deletingPathExtension().lastPathComponent
             return
         }
-        _ = url.startAccessingSecurityScopedResource()
+        SecurityScopedHandoff.begin(url)
 
         if let targetAppState = launchCoordinator.frontmostContentAppState() {
             targetAppState.open(url: url)
@@ -1903,7 +1903,7 @@ private struct BookmarkDetailPane: View {
             openErrorBookName = URL(fileURLWithPath: bookID).deletingPathExtension().lastPathComponent
             return
         }
-        _ = url.startAccessingSecurityScopedResource()
+        SecurityScopedHandoff.begin(url)
 
         if let targetAppState = launchCoordinator.frontmostContentAppState() {
             targetAppState.open(url: url)

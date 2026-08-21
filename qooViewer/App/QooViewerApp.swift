@@ -349,7 +349,7 @@ struct QooViewerApp: App {
                                 FormatBadgeView.plainTextTitle(baseName: entry.displayName, bookID: entry.path)
                             ) {
                                 guard let url = recentFiles.resolveForOpening(entry) else { return }
-                                _ = url.startAccessingSecurityScopedResource()
+                                SecurityScopedHandoff.begin(url)
                                 openURLPreferringFocusedWindow(url)
                             }
                         }
@@ -1308,7 +1308,7 @@ struct QooViewerApp: App {
             return
         }
 
-        _ = url.startAccessingSecurityScopedResource()
+        SecurityScopedHandoff.begin(url)
 
         let previousKeyWindow = tabTarget ?? NSApp.keyWindow
         let existingWindowIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
@@ -1551,6 +1551,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "NSDisabledDictationMenuItem": true,
             "NSDisabledCharacterPaletteMenuItem": true,
         ])
+        // メニューバーのメニューの開閉を数えるゲートを、最初のメニューが開かれるより前に
+        // 作っておく(sharedは遅延生成のため、初回の利用が「メニューが開いている最中」だと
+        // その回のdidBeginTrackingを取りこぼし、保留すべき更新をすり抜けさせてしまう)。
+        // 詳細はMenuBarMenuGateの型コメント参照。
+        _ = MenuBarMenuGate.shared
     }
 
     /// 上のNSDisabledDictationMenuItem/NSDisabledCharacterPaletteMenuItemとは異なり、

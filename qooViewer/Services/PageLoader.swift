@@ -843,7 +843,34 @@ actor PageLoader {
         let mediaBox = page.getBoxRect(.mediaBox)
         guard mediaBox.width > 0, mediaBox.height > 0 else { return nil }
 
-        let scale = min(maxPixelSize / mediaBox.width, maxPixelSize / mediaBox.height)
+        // PDFのページ寸法はpt(72dpi基準)でしか分からないため、要求された最大ピクセル数まで
+        // 無条件に引き伸ばすと、中身より高い解像度で描くことになる。画像ファイルの側は
+        // ImageDecoder.decodeがCGImageSourceCreateThumbnailAtIndexで**拡大はしない**ため、
+        // PDFだけが「元の解像度に関わらず常に上限いっぱいまで拡大する」という非対称な扱いに
+        // なっていた。拡大鏡・ピンチ拡大用のhighResolutionMaxPixelSize(8000)では、A5相当の
+        // ページ1枚で5650×8000≈181MBに達し、見開き2枚とその結合画像まで同時に抱えると
+        // 1GB近くを一度に確保することになる(実機でメモリ逼迫によるプロセス終了を確認)。
+        //
+        // 埋め込み画像の実解像度(=このPDFが実際に持っている情報量)を上限にする。
+        // ただし通常表示ぶん(pageMaxPixelSize相当)は下回らせない。ベクター描画主体の
+        // ページで、たまたま小さな画像(ロゴ等)しか埋め込まれていない場合に、その小ささへ
+        // 引きずられて粗くなるのを防ぐため。画像を1枚も持たないページでは従来どおり
+        // 要求どおりの解像度で描く。
+        let requestedScale = min(maxPixelSize / mediaBox.width, maxPixelSize / mediaBox.height)
+        let baselineScale = min(
+            ImageDecoder.pageMaxPixelSize / mediaBox.width,
+            ImageDecoder.pageMaxPixelSize / mediaBox.height
+        )
+        var scale = requestedScale
+        if let embedded = PDFImageExtractor.largestEmbeddedImagePixelSize(of: page) {
+            let naturalScale = max(
+                CGFloat(embedded.width) / mediaBox.width,
+                CGFloat(embedded.height) / mediaBox.height
+            )
+            if naturalScale > 0 {
+                scale = min(requestedScale, max(naturalScale, baselineScale))
+            }
+        }
         let pixelWidth = max(1, Int((mediaBox.width * scale).rounded()))
         let pixelHeight = max(1, Int((mediaBox.height * scale).rounded()))
 

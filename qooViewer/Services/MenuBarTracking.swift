@@ -3,9 +3,9 @@ import AppKit
 /// `NSMenu.didBeginTrackingNotification`が、メニューバー(NSApp.mainMenu)のメニューによるものか
 /// どうかを判定する。
 ///
-/// FavoritesStore/RecentFilesStore/BookmarkStoreは、いずれも「メニューバーに出す一覧を開く直前に
-/// 念のため最新化する」ための保険として、この通知を購読してreload()を呼んでいる
-/// (それぞれのmenuTrackingObserver参照)。
+/// FavoritesStore/BookmarkStoreは、いずれも「メニューバーに出す一覧を、次に開いたときに
+/// 最新にしておく」ための保険として、メニューが閉じるたびにreload()を呼んでいる
+/// (MenuBarMenuGate.onMenuBarMenuDidClose(_:_:)経由。この判定はそのゲートが使う)。
 ///
 /// ところがこの通知は、メニューバーだけでなく**アプリ内のあらゆるNSMenu**が開かれるたびに飛ぶ。
 /// SwiftUIのPicker/Menu(ドロップダウン)も内部的にはNSMenuのため、例えば「ブックマーク・レイアウトの
