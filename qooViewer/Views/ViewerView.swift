@@ -101,6 +101,9 @@ struct ViewerView: View {
     /// thumbnailGridOutsideClickMonitors(自身のwindow内)と
     /// thumbnailGridOutsideClickGlobalMonitor(他のウインドウ・他のアプリ)の両方から参照する。
     @State private var thumbnailPanelScreenFrame: CGRect = .zero
+    /// ページ一覧パネルの上で始まったマウス操作の押し始めを覚えておく入れ物
+    /// (dismissThumbnailGridIfGestureAssigned参照)。
+    @State private var thumbnailGridGesturePressBox = ThumbnailGridGesturePressBox()
     /// ユーザー要望: ページ一覧を、パネルの外側であればビューア画面に限らず(タイトルバー・
     /// メニューバー・他のウインドウ・他のアプリを含め)どこをクリックしても閉じるようにしたい。
     /// ThumbnailGridBackdropView(このウインドウのコンテンツ領域内のクリック)だけでは
@@ -422,6 +425,21 @@ struct ViewerView: View {
             // 重ね表示に変更したことに伴い、ここで明示的に無視する必要がある)。
             // サイドパネル(フォルダブラウザ + 本の中身ブラウザ、ContentView.swift側で管理)
             // 表示中も、サムネイル一覧と同じ理由で背後の本のページ送りへ影響しないようにする。
+            // 例外: サムネイル一覧の表示中でも、「ページ一覧を表示/非表示」に割り当てられた
+            // キーだけは通す。この操作はトグルなので、開いたときと同じキーでもう一度押したら
+            // 閉じられる必要がある(ユーザー報告: tキーで開いたページ一覧がtキーで閉じられず、
+            // パネルの外側をクリックするしかなかった)。
+            // マウス側は、パネルの外側でのボタン押下を拾う専用のモニタ
+            // (installThumbnailGridOutsideClickMonitorsIfNeeded)が閉じる役目を果たしている。
+            if showThumbnailGrid, !appState.isSidePanelFloatingOverlay,
+               event.type == .keyDown, !(hostWindow.firstResponder is NSTextView),
+               let key = RemappableKey.from(nsEvent: event),
+               keyBindingStore.resolvedAction(for: key, in: viewModel.scalingMode)
+                   == .showThumbnailGrid
+            {
+                perform(.showThumbnailGrid)
+                return nil
+            }
             guard !showThumbnailGrid, !appState.isSidePanelFloatingOverlay else { return event }
             switch event.type {
             case .scrollWheel:
@@ -594,23 +612,69 @@ struct ViewerView: View {
         // 他のqooViewerウインドウを含む)。パネルの外側であれば閉じるだけで、イベント自体は
         // 消費せずそのまま返す(タイトルバーのボタン操作や他ウインドウへのフォーカス移動を
         // 妨げないため)。
+        // 中ボタン(.otherMouseDown)も対象にしている。中ボタンに「ページ一覧を表示/非表示」を
+        // 割り当てた場合、それで開いたパネルを同じ操作で閉じられるようにするため。
+        // ボタンを離す側(.leftMouseUp/.otherMouseUp)を見ているのは、パネルの**上での**
+        // ドラッグジェスチャーを拾うため(dismissThumbnailGridIfGestureAssigned参照)。
         thumbnailGridOutsideClickMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown]
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseUp, .otherMouseUp]
         ) { event in
-            if !thumbnailPanelScreenFrame.contains(NSEvent.mouseLocation) {
-                showThumbnailGrid = false
+            switch event.type {
+            case .leftMouseUp, .otherMouseUp:
+                dismissThumbnailGridIfGestureAssigned(event)
+            default:
+                if !thumbnailPanelScreenFrame.contains(NSEvent.mouseLocation) {
+                    showThumbnailGrid = false
+                    thumbnailGridGesturePressBox.press = nil
+                } else {
+                    // パネルの上での押下は、ドラッグジェスチャーの起点として覚えておく。
+                    thumbnailGridGesturePressBox.press = MouseTrigger.Button.allCases
+                        .first { $0.eventButtonNumber == event.buttonNumber }
+                        .map { (NSEvent.mouseLocation, event.timestamp, $0) }
+                }
             }
             return event
         }
         // グローバルモニタ: このアプリの外(他のアプリ)で起きたクリック。他アプリ宛ての
         // イベントのため消費のしようがなく、単に検知してパネルを閉じるだけでよい。
         thumbnailGridOutsideClickGlobalMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown]
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
         ) { _ in
             if !thumbnailPanelScreenFrame.contains(NSEvent.mouseLocation) {
                 showThumbnailGrid = false
             }
         }
+    }
+
+    /// ページ一覧パネルの**上で**行われたドラッグジェスチャーが「ページ一覧を表示/非表示」に
+    /// 割り当てられていれば、パネルを閉じる。
+    ///
+    /// パネルはビューアのほぼ全面を覆うため、「パネルの外側を押したら閉じる」経路だけでは、
+    /// ジェスチャーで開いた人が同じジェスチャーで閉じられる余地がほとんど残らない
+    /// (ユーザー要望: 設定したマウスジェスチャーで閉じられるようにしたい)。パネルの上を
+    /// なぞる操作は他に意味を持たないため、ここで拾う。
+    ///
+    /// 割り当てられている操作がページ一覧でなければ何もしない ― 別の操作(ページ送りなど)を
+    /// 割り当てたジェスチャーが、パネルを閉じるだけの操作に化けてしまわないようにするため。
+    /// 30ポイントに満たない動き(=クリック)も対象外で、サムネイルを選ぶ操作は妨げない。
+    private func dismissThumbnailGridIfGestureAssigned(_ event: NSEvent) {
+        guard let press = thumbnailGridGesturePressBox.press else { return }
+        thumbnailGridGesturePressBox.press = nil
+        guard press.button.eventButtonNumber == event.buttonNumber else { return }
+        let location = NSEvent.mouseLocation
+        guard let direction = MouseTrigger.DragDirection.from(
+            dx: location.x - press.location.x,
+            dy: location.y - press.location.y,
+            duration: event.timestamp - press.timestamp
+        ) else { return }
+        guard let modifiers = MouseTrigger.Modifiers.from(event.modifierFlags, allowsShift: true)
+        else { return }
+        let action = keyBindingStore.resolvedDragAction(
+            button: press.button, direction: direction, modifiers: modifiers,
+            in: viewModel.scalingMode
+        )
+        guard action == .showThumbnailGrid else { return }
+        showThumbnailGrid = false
     }
 
     /// installThumbnailGridOutsideClickMonitorsIfNeededで取り付けた2つのモニタを外す。
@@ -1498,7 +1562,7 @@ struct ViewerView: View {
             .help(isCurrentBookFavorited ? "Remove This Book from Favorites" : "Add This Book to Favorites…")
 
             Button {
-                showThumbnailGrid = true
+                perform(.showThumbnailGrid)
             } label: {
                 Image(systemName: "square.grid.2x2")
                     .panelIconButtonLabel()
@@ -3223,6 +3287,18 @@ struct ViewerView: View {
             viewModel.jump(toPageIndex: 0)
         case .lastPage:
             viewModel.jump(toPageIndex: viewModel.pageCount - 1)
+        // 画面上の右端/左端に来る側へ飛ぶ。右開き(右→左に読み進む)なら右端が先頭ページ、
+        // 左開きなら右端が最終ページになる(spatialLeft/spatialRightと同じ判定の仕方)。
+        case .spatialEndRight:
+            viewModel.jump(
+                toPageIndex: viewModel.readingDirection == .rightToLeft
+                    ? 0 : viewModel.pageCount - 1
+            )
+        case .spatialEndLeft:
+            viewModel.jump(
+                toPageIndex: viewModel.readingDirection == .rightToLeft
+                    ? viewModel.pageCount - 1 : 0
+            )
         case .jumpToPercentile0, .jumpToPercentile10, .jumpToPercentile20, .jumpToPercentile30,
              .jumpToPercentile40, .jumpToPercentile50, .jumpToPercentile60, .jumpToPercentile70,
              .jumpToPercentile80, .jumpToPercentile90:
@@ -3282,7 +3358,10 @@ struct ViewerView: View {
             guard !viewModel.isPrivate else { return }
             showBookmarkEditor()
         case .showThumbnailGrid:
-            showThumbnailGrid = true
+            // トグル。開いたときと同じキー/マウス操作でそのまま閉じられるようにするため
+            // (ユーザー要望)。以前はtrueを代入するだけで、閉じる手段はパネルの外側を
+            // クリックするか、ページを選ぶかしかなかった。
+            showThumbnailGrid.toggle()
         case .toggleSlideshow:
             viewModel.toggleSlideshow()
         case .toggleLoupe:
@@ -3692,6 +3771,17 @@ struct WindowAccessor: NSViewRepresentable {
 /// @Stateに値を直接持たせると、スクロールのたびにbodyが再構築されてしまう
 /// (実際、当初の実装ではそれが原因でホイールの縦スクロールが効かなくなっていた)。
 /// bodyからは読まない参照型に入れることで、更新しても再描画を起こさない。
+/// ページ一覧パネルの上で始まったマウス操作の押し始め(スクリーン座標・時刻・ボタン)を
+/// 持つだけの入れ物。
+///
+/// `@State`にしていないのは、マウスのボタンを押す/離すたびに値が変わるため、そのたびに
+/// bodyの再構築を誘発してしまうから。ページ一覧は数十〜数百セルを並べることがあり、
+/// 無駄な再描画の影響が大きい。bodyから読まない参照型に入れて、更新が再描画を起こさない
+/// ようにする(ScrollGeometryBoxと同じ理由・同じ作り)。
+private final class ThumbnailGridGesturePressBox {
+    var press: (location: NSPoint, timestamp: TimeInterval, button: MouseTrigger.Button)?
+}
+
 private final class ScrollGeometryBox {
     /// SwiftUIのScrollViewを実際に描画しているNSScrollView(ScrollViewAccessor参照)。
     weak var scrollView: NSScrollView?
@@ -3878,12 +3968,6 @@ private final class ClickZoneView: NSView {
     /// ドラッグスクロールを許すか(ClickZoneArea参照)。
     var isDragScrollEnabled = false
 
-    /// ドラッグジェスチャーとみなす最小の移動量(ポイント)。cooViewerと同じ30。
-    /// これ以下の動きはクリックとして扱う(手ぶれでページ送りが効かなくなると困るため)。
-    private static let gestureMinimumDistance: CGFloat = 30
-    /// 押してから離すまでにこれを超えたら、ジェスチャーとはみなさない(秒)。cooViewerと同じ1秒。
-    /// 押したまま考えていた/掴んだまま止まっていた、という操作を弾くためのもの。
-    private static let gestureMaximumDuration: TimeInterval = 1
     /// いま押されている最中のボタン(この領域の中で押し始めた場合のみ)。
     /// 押し始めたボタンと離したボタンが一致しなければクリックとみなさない。
     private var trackingButton: MouseTrigger.Button?
@@ -3965,25 +4049,15 @@ private final class ClickZoneView: NSView {
     }
 
     /// 押した点から離した点までの移動量が、ドラッグジェスチャーとして成立するか調べる。
-    /// 成立するなら、優勢な軸の向き(上下左右のいずれか1つ)を返す。
-    ///
-    /// cooViewerのCustomImageView.mouseUp:と同じ判定にしてある ― どちらかの軸で
-    /// 30ポイントを超えて動いていること、押してから離すまでが1秒以内であること、
-    /// 向きは移動量の大きい方の軸で決めること。斜めや複数ストロークは扱わない。
+    /// 判定そのものは MouseTrigger.DragDirection.from が持つ(ページ一覧パネルの上での
+    /// ジェスチャーを拾う側とまったく同じ規則にするため)。
     private func gestureDirection(for event: NSEvent) -> MouseTrigger.DragDirection? {
         guard let press = pressLocationInWindow else { return nil }
-        guard event.timestamp - pressTimestamp <= Self.gestureMaximumDuration else { return nil }
-        let dx = event.locationInWindow.x - press.x
-        let dy = event.locationInWindow.y - press.y
-        let threshold = Self.gestureMinimumDistance
-        guard abs(dx) > threshold || abs(dy) > threshold else { return nil }
-        if abs(dx) >= abs(dy) {
-            guard abs(dx) > threshold else { return nil }
-            return dx < 0 ? .left : .right
-        }
-        guard abs(dy) > threshold else { return nil }
-        // ウインドウ座標は上へ動かすとyが増える。
-        return dy > 0 ? .up : .down
+        return MouseTrigger.DragDirection.from(
+            dx: event.locationInWindow.x - press.x,
+            dy: event.locationInWindow.y - press.y,
+            duration: event.timestamp - pressTimestamp
+        )
     }
 
     /// ドラッグで画像を掴んで動かす(cooViewerのCustomImageView.dragScroll:相当)。

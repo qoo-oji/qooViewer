@@ -4645,6 +4645,22 @@
         }
       }
     },
+    "Go to Leftmost Page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go to Leftmost Page"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一番左のページへ"
+          }
+        }
+      }
+    },
     "Go to Next Book" : {
       "localizations" : {
         "en" : {
@@ -4721,6 +4737,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "前のブックマークへ"
+          }
+        }
+      }
+    },
+    "Go to Rightmost Page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go to Rightmost Page"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一番右のページへ"
           }
         }
       }

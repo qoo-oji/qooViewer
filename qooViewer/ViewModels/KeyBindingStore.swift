@@ -98,9 +98,14 @@ final class KeyBindingStore: ObservableObject {
         RemappableKey.shiftLeftArrow.id: .shiftOnePageLeft,
         RemappableKey.shiftRightArrow.id: .shiftOnePageRight,
         RemappableKey.home.id: .firstPage,
-        RemappableKey.optionRightArrow.id: .firstPage,
         RemappableKey.end.id: .lastPage,
-        RemappableKey.optionLeftArrow.id: .lastPage,
+        // option+矢印は、矢印の向きそのものが操作の意味を表す入力なので、物語的な先頭/末尾
+        // (firstPage/lastPage)ではなく画面基準の端(spatialEndRight/Left)へ割り当てる。
+        // こうすると読み方向を切り替えても「→なら右端へ」という対応が崩れない
+        // (ViewerAction.spatialEndRightのコメント参照)。home/endは向きを表すキーではないため、
+        // 従来どおり物語的な先頭/末尾のままにしてある。
+        RemappableKey.optionRightArrow.id: .spatialEndRight,
+        RemappableKey.optionLeftArrow.id: .spatialEndLeft,
         RemappableKey.character("t").id: .showThumbnailGrid,
         RemappableKey.character("a").id: .toggleBookmark,
         RemappableKey.character("c").id: .nextBookmark,
@@ -150,6 +155,8 @@ final class KeyBindingStore: ObservableObject {
         MouseTrigger(input: .click(.left, .rightHalf), modifiers: []).id: .spatialRight,
         MouseTrigger(input: .click(.left, .leftHalf), modifiers: .shift).id: .shiftOnePageLeft,
         MouseTrigger(input: .click(.left, .rightHalf), modifiers: .shift).id: .shiftOnePageRight,
+        MouseTrigger(input: .click(.left, .rightHalf), modifiers: .option).id: .spatialEndRight,
+        MouseTrigger(input: .click(.left, .leftHalf), modifiers: .option).id: .spatialEndLeft,
         MouseTrigger(input: .click(.middle, .anywhere), modifiers: []).id: .toggleLoupe,
         MouseTrigger(input: .wheel(.up), modifiers: []).id: .movePrevious,
         MouseTrigger(input: .wheel(.down), modifiers: []).id: .moveNext,
@@ -437,16 +444,18 @@ final class KeyBindingStore: ObservableObject {
     }
 
     private func load() {
+        // 保存済みの割り当てには、あとから既定へ加わった操作が入っていない。
+        // fillingMissingDefaultsで補う(そちらのコメント参照)。
         if let decoded = loadBindings(forKey: keyDefaultsKey) {
-            keyBindings = decoded
+            keyBindings = Self.fillingMissingDefaults(decoded, defaults: Self.defaultKeyBindings)
         }
         // マウスは、新しいキーがあればそれを使う。無ければ「トリガー -> 操作」形式だった頃の
         // 旧キーを読み替える(migratedLegacyMouseBindings参照)。どちらも無ければ既定値のまま。
         if let decoded = loadBindings(forKey: mouseDefaultsKey) {
-            mouseBindings = decoded
+            mouseBindings = Self.fillingMissingDefaults(decoded, defaults: Self.defaultMouseBindings)
         } else if let legacy = loadBindings(forKey: legacyMouseDefaultsKey) {
-            mouseBindings = Self.migratedLegacyMouseBindings(
-                legacy, mergingInto: Self.defaultMouseBindings
+            mouseBindings = Self.fillingMissingDefaults(
+                Self.migratedLegacyMouseBindings(legacy), defaults: Self.defaultMouseBindings
             )
         }
         // モード別は、保存済みの値が無ければ既定値のまま残す(initで代入済み)。これにより、
@@ -457,9 +466,7 @@ final class KeyBindingStore: ObservableObject {
         if let decoded = loadModeBindings(forKey: modeMouseDefaultsKey) {
             modeMouseBindings = decoded
         } else if let legacy = loadModeBindings(forKey: legacyModeMouseDefaultsKey) {
-            modeMouseBindings = legacy.mapValues {
-                Self.migratedLegacyMouseBindings($0, mergingInto: Self.defaultOverrideMouseBindings)
-            }
+            modeMouseBindings = legacy.mapValues(Self.migratedLegacyMouseBindings)
         }
         loadModeWheelBehaviors()
         if let data = UserDefaults.standard.data(forKey: modeScrollStepDefaultsKey),
@@ -486,22 +493,48 @@ final class KeyBindingStore: ObservableObject {
     ]
 
     /// 旧形式で保存されていた割り当てを、新しいMouseTrigger.idのキーへ読み替える。
+    /// 対応表に無いキー(壊れたデータ)は捨てる。
     ///
-    /// 単純に旧データで置き換えるのではなく、**既定値を土台にして、旧形式が表現できた
-    /// 4つのトリガーぶんだけを旧データで上書きする**。旧形式には中ボタンも修飾キーも
-    /// 無かったため、置き換えてしまうと作り直しで増えた既定の割り当て
-    /// (中クリック=ルーペ、shift+クリック=1ページずらし)が、以前から使っている
-    /// ユーザーにだけ現れないことになってしまう。
-    ///
-    /// 逆に、旧形式で表現できた4つは必ず旧データが勝つ(旧UIで「なし」にした項目は
-    /// 辞書からキーごと消えていたため、この上書きで既定値が復活することはない)。
+    /// 旧形式には中ボタンも修飾キーも無かったため、これだけでは作り直しで増えた既定の
+    /// 割り当て(中クリック=ルーペ、shift+クリック=1ページずらしなど)が入らないが、
+    /// それは呼び出し側のfillingMissingDefaultsが補う。
     private static func migratedLegacyMouseBindings(
-        _ legacy: [String: ViewerAction], mergingInto base: [String: ViewerAction]
+        _ legacy: [String: ViewerAction]
     ) -> [String: ViewerAction] {
-        let expressibleByLegacy = Set(legacyMouseTriggerIDs.values)
-        var result = base.filter { !expressibleByLegacy.contains($0.key) }
-        for (rawValue, action) in legacy {
-            guard let id = legacyMouseTriggerIDs[rawValue] else { continue }
+        Dictionary(
+            uniqueKeysWithValues: legacy.compactMap { rawValue, action in
+                legacyMouseTriggerIDs[rawValue].map { ($0, action) }
+            }
+        )
+    }
+
+    /// 保存済みの割り当てに、**今の既定値のうちまだ使われていないもの**を補う。
+    ///
+    /// 保存データはそのバージョン時点の割り当てをそのまま持つため、あとから既定へ加わった
+    /// 操作(拡大鏡・自動レイアウト・お気に入りのトグルなど)は、以前から使っているユーザーの
+    /// 手元にいつまでも現れなかった(ユーザーからの指摘)。
+    ///
+    /// 補うのは、次の2つを**どちらも**満たす既定だけである。
+    ///
+    /// 1. **そのキー/トリガーが保存データで使われていない**こと。ユーザーが別の操作へ
+    ///    割り当て直したキーを奪わないため(例: spaceを「最初のページへ」に変えている人の
+    ///    spaceは、既定がmoveNextでもそのまま)。
+    /// 2. **その操作に、保存データで1つも割り当てが無い**こと。意図的に外した予備のキーを
+    ///    復活させないため(例: moveNextの既定はspaceとzの2つだが、zだけ外した人にzは戻さない)。
+    ///
+    /// 「その操作に割り当てられた唯一のキーを外した」場合だけは既定が復活してしまうが、
+    /// 外したのか一度も持っていなかったのかを保存データから区別する術がないため、
+    /// 新しい操作が手元に届くほうを優先している。
+    ///
+    /// なお、表示モード別の上書き(modeKeyBindings/modeMouseBindings)には**適用しない**。
+    /// あちらは項目が無いこと自体が「基本の割り当てへフォールバックする」という意味を持つため、
+    /// 補ってしまうと、意図してフォールバックさせていた項目が上書きに変わってしまう。
+    private static func fillingMissingDefaults(
+        _ bindings: [String: ViewerAction], defaults: [String: ViewerAction]
+    ) -> [String: ViewerAction] {
+        let assignedActions = Set(bindings.values)
+        var result = bindings
+        for (id, action) in defaults where result[id] == nil && !assignedActions.contains(action) {
             result[id] = action
         }
         return result
@@ -518,18 +551,47 @@ final class KeyBindingStore: ObservableObject {
         )
     }
 
+    /// 保存済みの割り当てを読む。
+    ///
+    /// **値を1件ずつ解決する**のが要点。辞書ごと `[String: ViewerAction]` にデコードすると、
+    /// 知らない操作名が1つ混ざっているだけでデコード全体が失敗し、そのユーザーの割り当てが
+    /// **丸ごと既定値に戻ってしまう**。実際、操作を統合する前(「ブックマークに追加」と
+    /// 「削除」が別々だった頃)に保存された `addBookmark` が残っているデータがあった。
+    /// ここでは知らない名前をその1件だけ捨て、残りは活かす。
     private func loadBindings(forKey key: String) -> [String: ViewerAction]? {
-        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
-        return try? JSONDecoder().decode([String: ViewerAction].self, from: data)
+        guard let data = UserDefaults.standard.data(forKey: key),
+            let decoded = try? JSONDecoder().decode([String: String].self, from: data)
+        else { return nil }
+        return Self.resolveActions(decoded)
+    }
+
+    /// 過去のバージョンで使っていた操作名と、今の操作の対応。どちらも「追加」と「削除」を
+    /// 1つのトグルへ統合したときに消えた名前(ViewerAction.toggleBookmark / toggleFavorite 参照)。
+    /// 統合前に保存された割り当ては捨てずに統合後の操作へ読み替える ― ユーザーから見れば
+    /// 同じキーで同じことができるためである。
+    private static let renamedActions: [String: ViewerAction] = [
+        "addBookmark": .toggleBookmark,
+        "addToFavorites": .toggleFavorite,
+    ]
+
+    /// 保存されていた「トリガー -> 操作名」を、今の ViewerAction へ解決する。
+    /// 今は存在しない操作名(renamedActions にも無いもの)は、その1件だけ落とす。
+    private static func resolveActions(_ stored: [String: String]) -> [String: ViewerAction] {
+        Dictionary(
+            uniqueKeysWithValues: stored.compactMap { trigger, rawValue in
+                let action = ViewerAction(rawValue: rawValue) ?? renamedActions[rawValue]
+                return action.map { (trigger, $0) }
+            }
+        )
     }
 
     private func loadModeBindings(forKey key: String) -> [ScalingMode: [String: ViewerAction]]? {
         guard let data = UserDefaults.standard.data(forKey: key),
-            let decoded = try? JSONDecoder().decode([String: [String: ViewerAction]].self, from: data)
+            let decoded = try? JSONDecoder().decode([String: [String: String]].self, from: data)
         else { return nil }
         return Dictionary(
             uniqueKeysWithValues: decoded.compactMap { raw, bindings in
-                ScalingMode(rawValue: raw).map { ($0, bindings) }
+                ScalingMode(rawValue: raw).map { ($0, Self.resolveActions(bindings)) }
             }
         )
     }

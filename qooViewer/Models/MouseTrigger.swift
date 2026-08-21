@@ -106,6 +106,35 @@ struct MouseTrigger: Hashable, Identifiable {
             case .down: return "Drag Down"
             }
         }
+
+        /// ドラッグジェスチャーとみなす最小の移動量(ポイント)。cooViewerと同じ30。
+        /// これ以下の動きはクリックとして扱う(手ぶれでページ送りが効かなくなると困るため)。
+        static let minimumDistance: CGFloat = 30
+        /// 押してから離すまでにこれを超えたら、ジェスチャーとはみなさない(秒)。cooViewerと同じ1秒。
+        /// 押したまま考えていた/掴んだまま止まっていた、という操作を弾くためのもの。
+        static let maximumDuration: TimeInterval = 1
+
+        /// 押した点から離した点までの移動量と、その間の経過時間から、ドラッグジェスチャーとして
+        /// 成立するかを判定する。成立するなら、優勢な軸の向き(上下左右のいずれか1つ)を返す。
+        ///
+        /// cooViewerのCustomImageView.mouseUp:と同じ判定にしてある ― どちらかの軸で
+        /// 30ポイントを超えて動いていること、押してから離すまでが1秒以内であること、
+        /// 向きは移動量の大きい方の軸で決めること。斜めや複数ストロークは扱わない。
+        ///
+        /// - Parameters:
+        ///   - dx: 横方向の移動量。右へ動かすと正。
+        ///   - dy: 縦方向の移動量。**上へ動かすと正**(ウインドウ座標系・スクリーン座標系とも
+        ///     macOSでは上が正のため、どちらの座標系で測った値でもそのまま渡せる)。
+        static func from(dx: CGFloat, dy: CGFloat, duration: TimeInterval) -> Self? {
+            guard duration <= maximumDuration else { return nil }
+            guard abs(dx) > minimumDistance || abs(dy) > minimumDistance else { return nil }
+            if abs(dx) >= abs(dy) {
+                guard abs(dx) > minimumDistance else { return nil }
+                return dx < 0 ? .left : .right
+            }
+            guard abs(dy) > minimumDistance else { return nil }
+            return dy > 0 ? .up : .down
+        }
     }
 
     /// ホイールを回した向き。

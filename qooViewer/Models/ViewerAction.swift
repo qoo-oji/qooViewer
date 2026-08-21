@@ -26,8 +26,26 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
     case shiftOnePageLeft
     /// 見開き/単ページ設定にかかわらず、常にちょうど1ページだけ右方向へ送る(調整用)
     case shiftOnePageRight
+    /// 物語的な先頭ページ(ページ番号1)へ。読み方向に関わらず意味は同じ
+    /// (moveNext/movePreviousと同じ考え方)。メニューバー「移動」→「最初へ移動」と
+    /// コンテキストメニューの同項目もこれを呼ぶ。
     case firstPage
+    /// 物語的な最終ページへ。firstPage参照。
     case lastPage
+    /// **画面上でいちばん右に来る端のページ**へ飛ぶ。読み方向により、先頭ページと
+    /// 最終ページのどちらになるかが変わる(右開きなら先頭、左開きなら最終)。
+    ///
+    /// firstPage/lastPageが物語的な先頭/末尾を指すのに対し、こちらは画面上の位置を基準にする
+    /// (spatialLeft/spatialRightと同じ考え方の、端まで飛ぶ版)。option+→やoption+クリックの
+    /// ように**方向そのものを指し示す入力**に割り当てるためのもので、読み方向を切り替えても
+    /// 「右を指したら右端へ」という対応が崩れない。
+    ///
+    /// 以前はoption+→にfirstPageを割り当てていたが、これは右開きを前提にした固定の対応で、
+    /// 左開きの本では矢印の向きと飛び先が逆になっていた(素の←→は実行時に読み方向で反転するのに、
+    /// optionを足した途端に反転しなくなる、という非対称があった)。
+    case spatialEndRight
+    /// spatialEndRightの逆。**画面上でいちばん左に来る端のページ**へ飛ぶ。
+    case spatialEndLeft
     /// 数字キー(0〜9)によるページジャンプ。0キーは先頭ページ(0%)、9キーは
     /// 全ページ数の90%に相当するページへジャンプする(以降10%刻み)。
     /// ページ番号は `全ページ数 * (キーの数字 * 10) / 100` を切り捨てて求める
@@ -176,6 +194,8 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
         case .shiftOnePageRight: return "Shift One Page Right"
         case .firstPage: return "Go to First Page"
         case .lastPage: return "Go to Last Page"
+        case .spatialEndRight: return "Go to Rightmost Page"
+        case .spatialEndLeft: return "Go to Leftmost Page"
         case .jumpToPercentile0: return "Jump to Page at 0% (First Page)"
         case .jumpToPercentile10: return "Jump to Page at 10%"
         case .jumpToPercentile20: return "Jump to Page at 20%"

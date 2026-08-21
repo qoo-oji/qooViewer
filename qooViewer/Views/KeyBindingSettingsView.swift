@@ -43,6 +43,7 @@ struct KeyBindingSettingsView: View {
             .spatialLeft, .spatialRight,
             .shiftOnePageLeft, .shiftOnePageRight,
             .firstPage, .lastPage,
+            .spatialEndRight, .spatialEndLeft,
             .jumpToPercentile0, .jumpToPercentile10, .jumpToPercentile20, .jumpToPercentile30,
             .jumpToPercentile40, .jumpToPercentile50, .jumpToPercentile60, .jumpToPercentile70,
             .jumpToPercentile80, .jumpToPercentile90,

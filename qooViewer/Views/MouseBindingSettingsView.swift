@@ -30,6 +30,7 @@ struct MouseBindingSettingsView: View {
         .spatialLeft, .spatialRight,
         .shiftOnePageLeft, .shiftOnePageRight,
         .firstPage, .lastPage,
+        .spatialEndRight, .spatialEndLeft,
         // 本の移動。
         .previousBook, .nextBook,
         // 表示。cooViewerがホイールクリックにルーペを割り当てているため、拡大鏡を先頭に置く。
