@@ -91,7 +91,8 @@ final class BookMetadata {
         author.isEmpty && title.isEmpty && series.isEmpty && seriesIndex.isEmpty
     }
 
-    /// EPUBのgroup-position / calibre:series_index、PDFのkeywordsへ書き出すための数値表現。
+    /// EPUBのgroup-position / calibre:series_index、PDFのXMPの
+    /// calibreSI:series_indexへ書き出すための数値表現。
     /// 数値として解釈できない場合はnil(その場合、書き出し側はseries_indexを省略する)。
     ///
     /// NaN・無限大を弾いているのは、Double(_: String)が"nan"/"inf"という綴りを受け付けるため
@@ -111,8 +112,8 @@ final class BookMetadata {
     /// のような非数値の手入力を許す欄(上のコメント参照)なので、次の2つの問題が起きていた。
     /// - EPUB3のgroup-positionは数値でなければならず、非数値を書くとepubcheckが弾く
     ///   (dc:languageを"und"で出していてKindle Previewerに弾かれたのと同じ種類の問題)。
-    /// - PDFのKeywordsへ`series_index:上`と書いても、読み戻す
-    ///   PDFStructureResolver.parseSeriesKeywordsは数字しか受け付けないため往復できない。
+    /// - PDFのXMPのcalibreSI:series_indexはCalibreがfloatとして読むため、非数値を書くと
+    ///   往復できない(当時はPDFのKeywordsへ独自形式で書いており、事情は同じだった)。
     ///
     /// 整数で表せる値は整数の文字列にする(Calibreが書き出す"3.0"を"3"として読み込む
     /// EpubStructureResolver.normalizedSeriesIndexと表記を合わせるため)。

@@ -412,7 +412,7 @@ nonisolated enum CbzExporter {
         info.series = trimmedOrNil(input.series) ?? title
 
         // 巻数。ComicInfoのNumberはxs:stringのため、「上」「下」のような値もそのまま書ける
-        // (EPUBのgroup-positionやPDFのKeywordsと違い、数値へ丸める必要が無い)。
+        // (EPUBのgroup-positionやPDFのcalibreSI:series_indexと違い、数値へ丸める必要が無い)。
         if let seriesIndex = trimmedOrNil(input.seriesIndex) {
             info.number = seriesIndex
             // Volumeはxs:intのため、整数として解釈できる場合だけ書ける。

@@ -12,8 +12,6 @@ final class PDFExportViewModel: BookExportViewModel {
     override var outputFileExtension: String { "pdf" }
 
     override func export(_ prepared: PreparedBook, to destinationURL: URL) async throws {
-        // 読み方向・見開きはPDFへ埋め込まない(書き込むための公式APIが存在しないため。
-        // PDFExportInputのコメント参照)ので、PreparedBookのそれらの項目は使わない。
         let input = PDFExportInput(
             book: prepared.book,
             pageOrderOverride: prepared.pageOrderOverride,
@@ -22,9 +20,11 @@ final class PDFExportViewModel: BookExportViewModel {
             titleOverride: prepared.title,
             author: prepared.author,
             series: prepared.metadata?.series,
-            // 巻数は、読み戻すparseSeriesKeywordsが数字しか受け付けないため、数値として
+            // 巻数は、Calibreのcalibre:series_indexが数値として読まれるため、数値として
             // 解釈できる場合だけ書き出す(BookMetadata.exportableSeriesIndex参照)。
-            seriesIndex: prepared.metadata?.exportableSeriesIndex
+            seriesIndex: prepared.metadata?.exportableSeriesIndex,
+            readingDirection: prepared.readingDirection,
+            forcedDisplayMode: prepared.forcedDisplayMode
         )
         let options = PDFExportOptions(includeExcludedPages: includeExcludedPages)
         try await PDFExporter.export(input, options: options, to: destinationURL)

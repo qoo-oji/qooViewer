@@ -317,9 +317,18 @@ nonisolated enum EpubStructureResolver {
         return collections.first { collectionType(of: $0) == nil }
     }
 
-    /// 巻数として使える形に整える。Calibreは"3.0"のように小数で書き出すことがあり、そのまま
-    /// 表示すると不自然なため、整数で表せる値は整数の文字列にする。
+    /// 巻数として使える形に整える。Calibreは巻数を常に小数第2位まで("3.00"、"3.50")で
+    /// 書き出すため、そのまま表示すると不自然になる。整数で表せる値は整数の文字列にし、
+    /// そうでない値も小数部の末尾の0を落とす。
     /// 数値として解釈できない文字列は、そのまま(前後の空白だけ落として)通す。
+    ///
+    /// 末尾の0を文字列のまま削っているのは、Doubleへ通して書式化し直すと二進小数の丸め誤差が
+    /// 表に出ることがあるため("3.125"のような値をそのまま保ちたい)。
+    ///
+    /// この整形はEPUBのcalibre:series_index/group-positionだけでなく、PDFのXMP
+    /// (PDFXMPMetadata)と旧Keywords形式(PDFStructureResolver.parseSeriesKeywords)からも
+    /// 共通で通す。qooViewer自身のPDF書き出しもCalibreに合わせて"3.50"の形で書くので、
+    /// ここで戻さないと「3.5」と入力した巻数が書き出して開き直すたびに「3.50」へ変わってしまう。
     static func normalizedSeriesIndex(_ rawValue: String?) -> String {
         guard let trimmed = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
             return ""
@@ -328,7 +337,15 @@ nonisolated enum EpubStructureResolver {
         if value == value.rounded(), abs(value) < 1e15 {
             return String(Int(value))
         }
-        return trimmed
+        // 指数表記("3.5e1")は末尾の0が桁の意味を持つため触らない。
+        guard trimmed.contains("."), !trimmed.contains(where: { $0 == "e" || $0 == "E" }) else {
+            return trimmed
+        }
+        var stripped = trimmed
+        while stripped.hasSuffix("0") { stripped.removeLast() }
+        // 整数は上の分岐で処理済みなので"3."の形にはならないが、念のため。
+        if stripped.hasSuffix(".") { stripped.removeLast() }
+        return stripped.isEmpty ? trimmed : stripped
     }
 
     // MARK: - 目次(nav.xhtml) → ブックマーク(7.5節「逆方向」)

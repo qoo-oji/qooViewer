@@ -15,11 +15,16 @@ struct PDFExportWindow: View {
         // PDF出力はカバー画像の指定機能自体を持たない(PDFExportInputのコメント参照)。
         showsCoverColumn: false,
         emptyDescription: "Books need bookmarks, page layout settings, or metadata before they can be exported as PDF.",
-        // PDFにはEPUBのrendition:spread/page-progression-directionに相当する情報を書き込む
-        // ための公式APIが無いため(PDFExportInputのコメント参照)、見開き/読み方向の設定は
-        // この書き出しには反映されないことを常に表示しておく(ユーザー指示: エクスポート
-        // ウインドウに見開き情報は失われる旨の警告を記載する)。
-        warningBanner: "PDF files can't store spread/reading-direction layout information. Bookmarks and title/author are exported, but the spread and reading-direction settings will be lost.",
+        // 以前はここに「見開き・読み方向は失われる」という警告を出していた。CGPDFContextに
+        // これらを書き込むAPIが無かったためだが、現在は書き出したあとに増分更新で
+        // `/ViewerPreferences`・`/PageLayout`を書き加えるようにしたため、本全体の読み方向と
+        // 見開き強制はPDFにもそのまま入る(PDFCatalogAugmenter参照)。
+        //
+        // 残る制約はページ単位のレイアウト(このページだけ単独/見開き左右)で、これはPDFの
+        // 仕様に対応する概念が無い(PDFExportInputのコメント参照)。ただしこれは
+        // 「PDFでは何も引き継げない」という以前の状況とは重みが違ううえ、ページ単位の指定を
+        // 使っている本自体が限られるため、全員に常時見せる警告は出さない。
+        warningBanner: nil,
         startButtonTitle: "Start PDF Export…",
         progressTitle: "Exporting PDF Files…",
         fileExtension: "pdf",

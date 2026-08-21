@@ -2583,6 +2583,22 @@
         }
       }
     },
+    "Couldn't embed the series and layout information into the PDF file." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't embed the series and layout information into the PDF file."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シリーズ情報とレイアウト情報をPDFファイルへ埋め込めませんでした。"
+          }
+        }
+      }
+    },
     "Couldn't Export Image" : {
       "localizations" : {
         "en" : {

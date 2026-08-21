@@ -85,28 +85,76 @@ nonisolated enum PDFStructureResolver {
         }
     }
 
+    // MARK: - SourceLayoutHint → Document Catalog(書き出し側)
+
+    /// `/ViewerPreferences`の`/Direction`へ書く名前(上のreadingDirectionと対)。
+    ///
+    /// 書き込みそのものはCoreGraphicsのPDFコンテキストでは行えないため、書き出し済みの
+    /// ファイルへPDFCatalogAugmenterが後から追記する。読み取りと書き出しで表記がずれないよう、
+    /// 対応表はこのファイルにまとめてある(以前のformatSeriesKeywordsと同じ方針)。
+    static func catalogDirectionName(for direction: ReadingDirection) -> String {
+        switch direction {
+        case .rightToLeft: return "R2L"
+        case .leftToRight: return "L2R"
+        }
+    }
+
+    /// `/PageLayout`へ書く名前(上のforcedDisplayModeと対)。本ごとの強制指定が無ければnil
+    /// (= `/PageLayout`自体を書かない。既定値のSinglePageを明示すると「単ページ強制」の
+    /// 意味になってしまうため)。
+    ///
+    /// TwoPageLeft/TwoPageRightは「奇数ページを左右どちらに置くか」の指定なので、読み方向に
+    /// よって選び分ける。読み取り側はどちらも見開き強制として同じに扱うが、Acrobat・
+    /// プレビュー.appはこの区別どおりに並べる。
+    static func catalogPageLayoutName(
+        for displayMode: DisplayMode?, direction: ReadingDirection
+    ) -> String? {
+        switch displayMode {
+        case .spread: return direction == .rightToLeft ? "TwoPageRight" : "TwoPageLeft"
+        case .single: return "SinglePage"
+        case nil: return nil
+        }
+    }
+
     // MARK: - Document Info → 書誌メタデータ
 
-    /// PDFのDocument Info辞書から、タイトル・著者・シリーズ名・巻数を読み取る。
+    /// PDFから、タイトル・著者・シリーズ名・巻数を読み取る。
     /// 本を初めて開いたときにDBへ取り込むために使う(EpubStructureResolver.resolveMetadataのPDF版)。
     ///
-    /// PDFにはシリーズ名・巻数を表す標準的なフィールドが存在しない。そのためユーザー指定により、
-    /// Keywords(キーワード)へ`series:シリーズ名, series_index:巻数番号`という形式で
-    /// 埋め込まれている場合にのみ対応する(この形式はqooViewer自身のPDF書き出しでも使う。
-    /// 読み取りと書き出しで表記がずれないよう、書式の定義はこのファイルのformatSeriesKeywordsに
-    /// まとめてある)。
+    /// ■ 読み取り先とその優先順位
+    /// PDFにはシリーズ名・巻数を表す標準的なフィールドが存在せず、この領域ではCalibreが使う
+    /// XMP表現(Document Catalogの`/Metadata`)が事実上の標準になっている。qooViewer自身の
+    /// PDF書き出しもこの形式で書く(PDFXMPMetadata参照)。
+    ///
+    /// 1. XMP(`/Metadata`)。PDF/XMPの仕様上XMPのほうがDocument Info辞書より優先されるため、
+    ///    シリーズ名・巻数だけでなくタイトル・著者もこちらを先に見る(Calibre本体の
+    ///    consolidate_metadataと同じ考え方)。
+    /// 2. Document Info辞書のTitle/Author。XMPに無い項目を補う。
+    /// 3. Document Info辞書のKeywordsの`series:シリーズ名, series_index:巻数番号`。
+    ///    **これはqooViewerが以前使っていた独自形式**で、書き出しでは既に使っていない。
+    ///    その頃に書き出したPDFを今でも正しく読めるようにするためだけに残してある
+    ///    (parseSeriesKeywords参照)。
     static func resolveMetadata(url: URL) -> SourceBookMetadata {
-        guard let document = PDFDocument(url: url) else { return SourceBookMetadata() }
+        var metadata = SourceBookMetadata()
+        if let document = CGPDFDocument(url as CFURL), let packet = PDFXMPMetadata.readPacket(from: document) {
+            metadata = PDFXMPMetadata.parse(packet)
+        }
+
+        guard let document = PDFDocument(url: url) else { return metadata }
         let attributes = document.documentAttributes ?? [:]
 
-        var metadata = SourceBookMetadata()
-        metadata.title = string(from: attributes[PDFDocumentAttribute.titleAttribute])
-        metadata.author = string(from: attributes[PDFDocumentAttribute.authorAttribute])
-
-        let keywords = string(from: attributes[PDFDocumentAttribute.keywordsAttribute])
-        let parsed = parseSeriesKeywords(keywords)
-        metadata.series = parsed.series
-        metadata.seriesIndex = parsed.seriesIndex
+        if metadata.title.isEmpty {
+            metadata.title = string(from: attributes[PDFDocumentAttribute.titleAttribute])
+        }
+        if metadata.author.isEmpty {
+            metadata.author = string(from: attributes[PDFDocumentAttribute.authorAttribute])
+        }
+        if metadata.series.isEmpty {
+            let keywords = string(from: attributes[PDFDocumentAttribute.keywordsAttribute])
+            let parsed = parseSeriesKeywords(keywords)
+            metadata.series = parsed.series
+            metadata.seriesIndex = parsed.seriesIndex
+        }
         return metadata
     }
 
@@ -121,10 +169,16 @@ nonisolated enum PDFStructureResolver {
 
     /// Keywordsから`series:`と`series_index:`を取り出す。
     ///
+    /// **これは読み取り専用の後方互換の経路である。** qooViewerが以前この独自形式でシリーズ名・
+    /// 巻数を書き出していた頃のPDFを、今でも同じように読めるようにするためだけに残してある。
+    /// 現在の書き出しはCalibre互換のXMP(PDFXMPMetadata)を使い、Keywordsには何も書かない
+    /// (Keywordsは本来「タグ」の欄であり、この形式は他のどのアプリからも意味不明なタグ1つに
+    /// しか見えなかった)。したがって、これと対になっていた書き出し側のformatSeriesKeywordsは
+    /// 削除してある。
+    ///
     /// シリーズ名は次の区切り(半角/全角のカンマ・セミコロン)までを値とみなす。したがって
     /// シリーズ名自体にカンマを含む場合は正しく読めないが、これはこの「キー:値をカンマで並べる」
-    /// という形式そのものが持つ制約で、書き出し側(PDFExporter)も同じ形式で書くため、
-    /// qooViewer同士のやり取りでは問題にならない。
+    /// という形式そのものが持つ制約である(この制約が無いXMPへ移行した理由の1つでもある)。
     ///
     /// `series_index:`は`series:`を接頭辞に持つが、`series`の直後が`_`であって`:`ではないため、
     /// `series\s*:`のパターンが誤って`series_index:`に一致することは無い。
@@ -138,16 +192,6 @@ nonisolated enum PDFStructureResolver {
         )
         // Calibre同様"3.0"のような小数で書かれている場合があるため、EPUB側と同じ整形を通す。
         return (series, EpubStructureResolver.normalizedSeriesIndex(rawIndex))
-    }
-
-    /// Keywordsへ書き出す文字列を組み立てる(parseSeriesKeywordsと対になる)。
-    /// シリーズ名が空なら何も書かない(nilを返す)。巻数だけが空の場合はseriesのみを書く。
-    static func formatSeriesKeywords(series: String, seriesIndex: String) -> String? {
-        let series = series.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !series.isEmpty else { return nil }
-        let index = seriesIndex.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !index.isEmpty else { return "series:\(series)" }
-        return "series:\(series), series_index:\(index)"
     }
 
     private static func firstCaptureGroup(in text: String, pattern: String) -> String? {

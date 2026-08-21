@@ -18,11 +18,9 @@ struct PDFExportOptions {
 ///   画像メタデータ」の仕組みが無く、実質的にPDFの1ページ目がカバーとして扱われる(Finderの
 ///   Quick Look・Acrobat等の慣習)。カバー専用の指定機能自体をPDF出力からは省いた
 ///   (ユーザーの意向)。
-/// - readingDirectionOverride/forcedDisplayMode: PDFのDocument Catalogの
-///   `/ViewerPreferences/Direction`・`/PageLayout`は読み取り専用のAPI
-///   (CGPDFDictionaryGetName等)しか無く、PDFの書き出し側(CGPDFContext/PDFKitのどちらにも)には
-///   これらを書き込むための公式APIが存在しない。そのため見開き/読み方向の情報はPDF書き出しでは
-///   埋め込まない(PDFExportWindowに警告文を表示してユーザーに伝える)。
+/// - ページ単位のレイアウト: EPUBのrendition:page-spread-left/rightに相当するものがPDFには
+///   無い(本全体への指定である`/PageLayout`しかない)。qooViewer独自の表現を作ることもできるが、
+///   他のアプリが一切解釈できない形式を新たに増やさない方針(ユーザー選択)。
 struct PDFExportInput {
     /// BookLoaderで読み込んだ、並べ替え前・除外前の生のMangaBook(EpubExportInput.bookと同じ)。
     let book: MangaBook
@@ -37,15 +35,22 @@ struct PDFExportInput {
     let titleOverride: String?
     /// 空文字/nilの場合はPDFのAuthorメタデータを出力しない。
     let author: String?
-    /// メタデータDBに登録されているシリーズ名。空文字/nilならKeywordsへ何も書かない。
+    /// メタデータDBに登録されているシリーズ名。空文字/nilならXMPメタデータ自体を埋め込まない
+    /// (理由はPDFXMPMetadata.packetのコメント参照)。
     let series: String?
     /// 巻数。seriesが空の場合は使わない。
     ///
-    /// **数値として解釈できる文字列(または空文字/nil)だけを渡すこと。** 読み戻す
-    /// PDFStructureResolver.parseSeriesKeywordsは数字しか受け付けないため、非数値を書くと
-    /// 往復できない(EpubExportInput.seriesIndexと同じ制約。呼び出し側は
+    /// **数値として解釈できる文字列(または空文字/nil)だけを渡すこと。** Calibreの
+    /// `calibreSI:series_index`は数値(float)として読まれるため、非数値を書くと往復できない
+    /// (EpubExportInput.seriesIndexと同じ制約。呼び出し側は
     /// BookMetadata.exportableSeriesIndexを通してから渡す)。
     let seriesIndex: String?
+    /// 本全体の読み方向。`/ViewerPreferences`の`/Direction`として埋め込む。
+    /// PreparedBook.readingDirectionと同じく常に確定した値で、環境設定の既定値まで解決済み。
+    let readingDirection: ReadingDirection
+    /// 本ごとの見開き/単ページの強制指定。`/PageLayout`として埋め込む。
+    /// 指定が無ければnil(その場合は`/PageLayout`自体を書かない)。
+    let forcedDisplayMode: DisplayMode?
 }
 
 enum PDFExportError: LocalizedError {
@@ -72,8 +77,11 @@ enum PDFExportError: LocalizedError {
 
 /// フォルダ・zip/cbz・rar/cbr・7z/cb7から読み込んだMangaBookとブックマーク情報を、qooViewer
 /// 自身のブックマークをPDFのアウトライン(しおり)として埋め込んだ1つのPDFファイルとして
-/// 書き出す。EpubExporterのPDF版(設計としてはEPUB書き出し機能と対になるが、ページレイアウト
-/// (見開き/読み方向)は埋め込まない。PDFExportInputのコメント参照)。
+/// 書き出す。EpubExporterのPDF版(設計としてはEPUB書き出し機能と対になる)。
+///
+/// シリーズ名・巻数(Calibre互換のXMP)と、本全体の読み方向・見開き強制(`/ViewerPreferences`・
+/// `/PageLayout`)は、CoreGraphicsのPDFコンテキストからは書き込めないため、閉じたあとに
+/// PDFCatalogAugmenterが増分更新で書き加える(理由と仕組みはそちらのコメント参照)。
 ///
 /// 画像を直接PDFページとして描画する(EpubExporterのようなXHTMLラッパー相当のものは無い)。
 /// PDFの生成自体はCoreGraphicsのCGContext(PDFコンテキスト)を使う。ページ描画に使っている
@@ -108,14 +116,10 @@ nonisolated enum PDFExporter {
         if let author {
             auxiliaryInfo[kCGPDFContextAuthor as String] = author
         }
-        // ユーザー要望: PDFにはシリーズ名・巻数を表す標準的なフィールドが無いため、
-        // Keywordsへ`series:シリーズ名, series_index:巻数番号`の形式で埋め込む。
-        // 書式の定義は読み取り側(PDFStructureResolver.parseSeriesKeywords)と共有している。
-        if let keywords = PDFStructureResolver.formatSeriesKeywords(
-            series: input.series ?? "", seriesIndex: input.seriesIndex ?? ""
-        ) {
-            auxiliaryInfo[kCGPDFContextKeywords as String] = keywords
-        }
+        // シリーズ名・巻数はここ(Document Info辞書)には書かない。以前はKeywordsへ
+        // `series:シリーズ名, series_index:巻数番号`という独自形式で埋めていたが、
+        // Calibre互換のXMPへ移行した(経緯はPDFXMPMetadataのコメント参照)。XMPは
+        // CGPDFContextからは書けないため、下でPDFを閉じたあとに書き加える。
 
         // ブックマーク → アウトライン用に、元のpageKeyから実際に書き出したPDFページ番号
         // (1始まり、kCGPDFOutlineDestinationの仕様に合わせる)を求める。画像の取得に失敗して
@@ -230,6 +234,28 @@ nonisolated enum PDFExporter {
             CGPDFContextSetOutline(context, outline)
         }
         context.closePDF()
+
+        // Document Catalogにしか置けない情報を、書き終わったファイルへ追記する。
+        // CGPDFContextにはこれらを書き込む手段が無い(PDFCatalogAugmenterのコメント参照)。
+        try PDFCatalogAugmenter.apply(
+            PDFCatalogAugmenter.Augmentation(
+                xmpPacket: PDFXMPMetadata.packet(
+                    title: bookTitle, author: author,
+                    series: input.series ?? "", seriesIndex: input.seriesIndex
+                ),
+                // 読み方向は常に書く。本ごとの上書きが無い場合でも環境設定の既定値まで
+                // 解決済みの値が渡ってくるので、EPUB書き出しがspineの
+                // page-progression-directionを常に出力しているのと同じ扱いにする
+                // (EpubExportInput/PreparedBook.readingDirectionのコメント参照)。
+                viewerPreferencesDirection: PDFStructureResolver.catalogDirectionName(
+                    for: input.readingDirection
+                ),
+                pageLayout: PDFStructureResolver.catalogPageLayoutName(
+                    for: input.forcedDisplayMode, direction: input.readingDirection
+                )
+            ),
+            to: destinationURL
+        )
     }
 
     /// ブックマーク一覧を、CGPDFContextSetOutlineが受け取る形式のCFDictionary木へ変換する
