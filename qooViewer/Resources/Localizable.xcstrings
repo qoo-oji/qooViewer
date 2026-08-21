@@ -3340,6 +3340,54 @@
         }
       }
     },
+    "Drag Down" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag Down"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下へドラッグ"
+          }
+        }
+      }
+    },
+    "Drag Left" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag Left"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左へドラッグ"
+          }
+        }
+      }
+    },
+    "Drag Right" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag Right"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "右へドラッグ"
+          }
+        }
+      }
+    },
     "Drag to Reorder" : {
       "localizations" : {
         "en" : {
@@ -3352,6 +3400,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ドラッグして並べ替え"
+          }
+        }
+      }
+    },
+    "Drag Up" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag Up"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上へドラッグ"
+          }
+        }
+      }
+    },
+    "Each action can have several triggers. Drag gestures are a stroke of at least 30 points, held for no more than a second. The right button and control-click always open the contextual menu, so they cannot be assigned." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Each action can have several triggers. Drag gestures are a stroke of at least 30 points, held for no more than a second. The right button and control-click always open the contextual menu, so they cannot be assigned."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1つの操作に複数のトリガーを割り当てられます。ドラッグジェスチャーは、30ポイント以上を1秒以内に動かしたときに成立します。右ボタンとcontrol+クリックは常にコンテキストメニューを開くため、割り当てられません。"
           }
         }
       }

@@ -53,7 +53,7 @@ struct MouseBindingSettingsView: View {
                 Text("Mouse")
             } footer: {
                 Text(
-                    "Each action can have several triggers. The right button and control-click always open the contextual menu, so they cannot be assigned."
+                    "Each action can have several triggers. Drag gestures are a stroke of at least 30 points, held for no more than a second. The right button and control-click always open the contextual menu, so they cannot be assigned."
                 )
             }
 
@@ -90,6 +90,13 @@ struct MouseBindingRow: View {
     /// (修飾キー付きのホイールはWheelScrollBehaviorを通さず必ず効くが、そちらは
     /// 「マウス」画面での割り当てが全モードに適用されるので、ここで重ねる必要がない)。
     var includesWheel: Bool = true
+    /// ＋メニューにドラッグジェスチャーのトリガーを出すか。
+    ///
+    /// 「表示モード別の操作」画面ではfalseにする。ジェスチャーの意味は表示モードで
+    /// 変わらないうえ、スクロールできるモードでの左ボタンのドラッグは画像を掴んで動かす
+    /// 操作が優先される(ViewerView.ClickZoneView.finishTracking参照)ため、その画面に
+    /// 並べても設定できることと実際に起きることが噛み合わない。
+    var includesDrag: Bool = true
 
     /// 追加しようとしたトリガーについての警告。2種類あるため、どちらかをkindで持つ。
     private struct TriggerAlert: Identifiable {
@@ -115,7 +122,11 @@ struct MouseBindingRow: View {
 
     private var availableGroups: [MouseTrigger.Group] {
         MouseTrigger.groups.filter { group in
-            if !includesWheel, case .wheel = group.input { return false }
+            switch group.input {
+            case .wheel where !includesWheel: return false
+            case .drag where !includesDrag: return false
+            default: break
+            }
             return !availableTriggers(in: group).isEmpty
         }
     }

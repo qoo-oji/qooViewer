@@ -12,6 +12,7 @@ import AppKit
 ///
 /// ■ 語彙
 /// - クリック = ボタン × 位置 × 修飾キー
+/// - ドラッグ = ボタン × 方向(4) × 修飾キー
 /// - ホイール = 方向 × 修飾キー
 ///
 /// cooViewerは `{button, modifier, action}` の辞書で同じことをしており、modifierに
@@ -29,10 +30,12 @@ import AppKit
 ///   押されているとdeltaXとdeltaYを入れ替える。向きの判定が信用できないため、
 ///   ホイールに限りshiftを含む修飾キーを選べないようにしている(Button.availableModifiers参照)
 ///
-/// ■ ドラッグジェスチャー(将来)
-/// `id` の先頭は種別を表す接頭辞になっており、`click:` / `wheel:` に加えて **`drag:` を
-/// 予約している**(`drag:b0:left:none` のような形を想定)。第2段でドラッグ4方向を足すときは
-/// Input にケースを1つ増やすだけでよく、保存済みの割り当てには一切影響しない。
+/// ■ ドラッグジェスチャーに位置(Zone)が無い理由
+/// cooViewerのジェスチャーは、クリックと同じく画面の左半分/右半分のどちらで始めたかによって
+/// 動作が変わる(Controller_input.mのgestureAction:moved:がleftBoolを渡している)。これは
+/// あちらの「次/前のページへ」が**1つの割り当てで左右により進む/戻るが決まる**作りだったため
+/// 必要だったもので、qooViewerには画面位置基準のspatialLeft/spatialRightが操作として別にある。
+/// ストロークは「どこで」より「どちらへ」が本体なので、ドラッグには位置を持たせていない。
 struct MouseTrigger: Hashable, Identifiable {
 
     // MARK: - 構成要素
@@ -81,6 +84,26 @@ struct MouseTrigger: Hashable, Identifiable {
             case .leftHalf: return "Left Half of Screen"
             case .rightHalf: return "Right Half of Screen"
             case .anywhere: return "Anywhere"
+            }
+        }
+    }
+
+    /// ドラッグジェスチャーの向き(cooViewerの「drag left/right/up/down」と同じ4方向)。
+    /// 斜めや複数ストロークのジェスチャーは扱わない(あちらも1ストローク4方向のみ)。
+    enum DragDirection: String, CaseIterable, Hashable {
+        case left
+        case right
+        case up
+        case down
+
+        var idFragment: String { rawValue }
+
+        var titleKey: LocalizedStringKey {
+            switch self {
+            case .left: return "Drag Left"
+            case .right: return "Drag Right"
+            case .up: return "Drag Up"
+            case .down: return "Drag Down"
             }
         }
     }
@@ -149,12 +172,15 @@ struct MouseTrigger: Hashable, Identifiable {
     /// 修飾キーを除いた「何をしたか」の部分。
     enum Input: Hashable {
         case click(Button, Zone)
+        case drag(Button, DragDirection)
         case wheel(WheelDirection)
 
         /// idの、修飾キーより前の部分。
         var idPrefix: String {
             switch self {
             case .click(let button, let zone): return "click:\(button.idFragment):\(zone.idFragment)"
+            case .drag(let button, let direction):
+                return "drag:\(button.idFragment):\(direction.idFragment)"
             case .wheel(let direction): return "wheel:\(direction.idFragment)"
             }
         }
@@ -163,7 +189,7 @@ struct MouseTrigger: Hashable, Identifiable {
         /// ホイールだけshiftを含むものを外している(型のコメント参照)。
         var availableModifiers: [Modifiers] {
             switch self {
-            case .click: return [[], .shift, .option, [.shift, .option]]
+            case .click, .drag: return [[], .shift, .option, [.shift, .option]]
             case .wheel: return [[], .option]
             }
         }
@@ -173,6 +199,8 @@ struct MouseTrigger: Hashable, Identifiable {
             switch self {
             case .click(let button, let zone):
                 return Text(button.titleKey) + Text(verbatim: " · ") + Text(zone.titleKey)
+            case .drag(let button, let direction):
+                return Text(button.titleKey) + Text(verbatim: " · ") + Text(direction.titleKey)
             case .wheel(let direction):
                 return Text(direction.titleKey)
             }
@@ -213,16 +241,20 @@ struct MouseTrigger: Hashable, Identifiable {
         }
     }
 
-    /// ＋メニューの並び順。ボタン→位置→(第2階層で)修飾キー、最後にホイール。
+    /// ＋メニューの並び順。クリック(ボタン→位置)→ドラッグ(ボタン→方向)→ホイール。
+    /// 修飾キーは第2階層で選ぶ。
     static let groups: [Group] = {
         let clicks: [Group] = Button.allCases.flatMap { button in
             Zone.allCases.map { Group(input: .click(button, $0)) }
         }
+        let drags: [Group] = Button.allCases.flatMap { button in
+            DragDirection.allCases.map { Group(input: .drag(button, $0)) }
+        }
         let wheels: [Group] = WheelDirection.allCases.map { Group(input: .wheel($0)) }
-        return clicks + wheels
+        return clicks + drags + wheels
     }()
 
-    /// 選択可能なトリガーすべて(28件)。groupsと同じ並び順。
+    /// 選択可能なトリガーすべて(60件)。groupsと同じ並び順。
     /// 「この操作に割り当てられているトリガー」を求めるときの走査順にも使う
     /// (KeyBindingStore.triggers(for:in:))。
     static let selectable: [MouseTrigger] = groups.flatMap(\.triggers)

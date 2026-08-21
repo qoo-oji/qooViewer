@@ -97,7 +97,8 @@ struct ModeInputSettingsView: View {
                 Grid(alignment: .topLeading, horizontalSpacing: 16, verticalSpacing: 10) {
                     ForEach(assignableActions) { action in
                         MouseBindingRow(
-                            action: action, store: store, mode: editingMode, includesWheel: false
+                            action: action, store: store, mode: editingMode,
+                            includesWheel: false, includesDrag: false
                         )
                     }
                 }

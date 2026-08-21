@@ -264,18 +264,36 @@ final class KeyBindingStore: ObservableObject {
         return resolvedAction(for: anywhere, in: mode)
     }
 
-    /// そのモードで、クリックに何か1つでも操作が割り当てられているか。
+    /// そのモードで、ボタンを押す操作(クリックまたはドラッグジェスチャー)に何か1つでも
+    /// 操作が割り当てられているか。
     ///
-    /// ビューア側は、割り当てが1つも無ければクリックの当たり判定そのものを無効にして、
-    /// 下にあるScrollViewへクリックを通す(ViewerView.hasClickZoneAction参照)。
-    /// 中ボタンにだけ割り当てた場合も当たり判定は必要なので、位置・修飾キー・ボタンを
-    /// 問わず横断して調べる。
-    func hasAnyClickAction(in mode: ScalingMode) -> Bool {
+    /// ビューア側は、割り当てが1つも無ければ当たり判定そのものを無効にして、下にある
+    /// ScrollViewへクリックを通す(ViewerView.hasPointerAction参照)。中ボタンにだけ、
+    /// あるいはドラッグジェスチャーにだけ割り当てた場合も当たり判定は必要なので、
+    /// 位置・方向・修飾キー・ボタンを問わず横断して調べる。
+    func hasAnyPointerAction(in mode: ScalingMode) -> Bool {
         MouseTrigger.selectable.contains { trigger in
-            guard case .click = trigger.input else { return false }
+            switch trigger.input {
+            case .click, .drag: break
+            case .wheel: return false
+            }
             guard let action = resolvedAction(for: trigger, in: mode) else { return false }
             return action != .none
         }
+    }
+
+    /// ドラッグジェスチャーに対して、実際に実行すべき操作を解決する。
+    /// クリックと違い位置(Zone)を持たないため、フォールバックは表示モードの1段だけ
+    /// (MouseTrigger のコメント参照)。
+    func resolvedDragAction(
+        button: MouseTrigger.Button,
+        direction: MouseTrigger.DragDirection,
+        modifiers: MouseTrigger.Modifiers,
+        in mode: ScalingMode
+    ) -> ViewerAction? {
+        resolvedAction(
+            for: MouseTrigger(input: .drag(button, direction), modifiers: modifiers), in: mode
+        )
     }
 
     /// そのモードでホイールを回したときの動作。基本モード(画面内に収める)にはスクロールする

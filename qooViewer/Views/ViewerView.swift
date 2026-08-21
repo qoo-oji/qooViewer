@@ -2034,6 +2034,9 @@ struct ViewerView: View {
                         onClick: { button, modifiers in
                             perform(clickAction(button: button, zone: .leftHalf, modifiers: modifiers))
                         },
+                        onGesture: { button, direction, modifiers in
+                            perform(dragAction(button: button, direction: direction, modifiers: modifiers))
+                        },
                         isDragScrollEnabled: isPageAreaScrollable
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2041,6 +2044,9 @@ struct ViewerView: View {
                     ClickZoneArea(
                         onClick: { button, modifiers in
                             perform(clickAction(button: button, zone: .rightHalf, modifiers: modifiers))
+                        },
+                        onGesture: { button, direction, modifiers in
+                            perform(dragAction(button: button, direction: direction, modifiers: modifiers))
                         },
                         isDragScrollEnabled: isPageAreaScrollable
                     )
@@ -2565,6 +2571,19 @@ struct ViewerView: View {
         )
     }
 
+    /// 今の表示モードで、このボタン・向き・修飾キーのドラッグジェスチャーに
+    /// 割り当てられている操作。ジェスチャーは位置(画面の左右)を区別しない
+    /// (MouseTrigger のコメント参照)。
+    private func dragAction(
+        button: MouseTrigger.Button,
+        direction: MouseTrigger.DragDirection,
+        modifiers: MouseTrigger.Modifiers
+    ) -> ViewerAction? {
+        keyBindingStore.resolvedDragAction(
+            button: button, direction: direction, modifiers: modifiers, in: viewModel.scalingMode
+        )
+    }
+
     /// 今の表示モードで、クリックに何か1つでも操作が割り当てられているか。
     /// 割り当てが無いのにヒットテストを有効にしてしまうと、下にあるScrollViewへクリックが
     /// 届かなくなるだけで何の利点も無いため、その場合は無効にする。
@@ -2572,7 +2591,7 @@ struct ViewerView: View {
     /// 左右のクリックゾーンだけでなく、中ボタンや修飾キー付きの割り当ても数える
     /// (中ボタンにだけ割り当てた場合も当たり判定は必要なため)。
     private var hasClickZoneAction: Bool {
-        keyBindingStore.hasAnyClickAction(in: viewModel.scalingMode)
+        keyBindingStore.hasAnyPointerAction(in: viewModel.scalingMode)
     }
 
     /// ページが変わった瞬間に、読み始め側の隅へスクロールする(cooViewerのfirstScroll相当)。
@@ -3824,22 +3843,27 @@ private struct ClickZoneArea: NSViewRepresentable {
     /// クリックされたときに、押されたボタンと修飾キーを渡して呼ばれる。
     /// 位置(画面の左半分/右半分)はこの領域そのものが表しているため、呼び出し側が補う。
     let onClick: (MouseTrigger.Button, MouseTrigger.Modifiers) -> Void
+    /// ドラッグジェスチャー(cooViewerの「drag left/right/up/down」相当)が成立したときに、
+    /// ボタン・向き・修飾キーを渡して呼ばれる。
+    let onGesture: (MouseTrigger.Button, MouseTrigger.DragDirection, MouseTrigger.Modifiers) -> Void
     /// ドラッグで画像を掴んで動かせるようにするかどうか(スクロールできる表示モードのときだけ)。
     let isDragScrollEnabled: Bool
 
     func makeNSView(context: Context) -> ClickZoneView {
         let view = ClickZoneView()
         view.onClick = onClick
+        view.onGesture = onGesture
         view.isDragScrollEnabled = isDragScrollEnabled
         return view
     }
 
     func updateNSView(_ nsView: ClickZoneView, context: Context) {
         nsView.isDragScrollEnabled = isDragScrollEnabled
-        // onClickはperform(...)を都度キャプチャしたクロージャのため、View再構築のたびに
-        // (viewModel/keyBindingStoreの状態変化などで)新しいインスタンスに差し替わりうる。
+        // onClick/onGestureはperform(...)を都度キャプチャしたクロージャのため、View再構築の
+        // たびに(viewModel/keyBindingStoreの状態変化などで)新しいインスタンスに差し替わりうる。
         // 古いクロージャを握ったままにしないよう、更新のたびに必ず上書きする。
         nsView.onClick = onClick
+        nsView.onGesture = onGesture
     }
 }
 
@@ -3849,16 +3873,29 @@ private struct ClickZoneArea: NSViewRepresentable {
 /// クリック判定にならった実装)。
 private final class ClickZoneView: NSView {
     var onClick: ((MouseTrigger.Button, MouseTrigger.Modifiers) -> Void)?
+    var onGesture:
+        ((MouseTrigger.Button, MouseTrigger.DragDirection, MouseTrigger.Modifiers) -> Void)?
     /// ドラッグスクロールを許すか(ClickZoneArea参照)。
     var isDragScrollEnabled = false
+
+    /// ドラッグジェスチャーとみなす最小の移動量(ポイント)。cooViewerと同じ30。
+    /// これ以下の動きはクリックとして扱う(手ぶれでページ送りが効かなくなると困るため)。
+    private static let gestureMinimumDistance: CGFloat = 30
+    /// 押してから離すまでにこれを超えたら、ジェスチャーとはみなさない(秒)。cooViewerと同じ1秒。
+    /// 押したまま考えていた/掴んだまま止まっていた、という操作を弾くためのもの。
+    private static let gestureMaximumDuration: TimeInterval = 1
     /// いま押されている最中のボタン(この領域の中で押し始めた場合のみ)。
     /// 押し始めたボタンと離したボタンが一致しなければクリックとみなさない。
     private var trackingButton: MouseTrigger.Button?
     /// このマウス操作で実際に画像を動かしたかどうか。動かした場合、ボタンを離したときの
     /// クリック動作は行わない(下のmouseUp参照)。
     private var didDragScroll = false
-    /// 直前のドラッグ位置(ウインドウ座標)。移動量を差分で求めるために持つ。
+    /// 直前のドラッグ位置(ウインドウ座標)。ドラッグスクロールの移動量を差分で求めるために持つ。
     private var lastDragLocationInWindow: NSPoint?
+    /// ボタンを押した位置と時刻。ジェスチャーの判定は、途中経過ではなく
+    /// **押した点から離した点までの合計の移動量**で行う(cooViewerと同じ)。
+    private var pressLocationInWindow: NSPoint?
+    private var pressTimestamp: TimeInterval = 0
     /// closedHandCursorをpushしたかどうか(pushとpopを対にするため)。
     private var didPushDragCursor = false
 
@@ -3923,6 +3960,30 @@ private final class ClickZoneView: NSView {
         trackingButton = bounds.contains(convert(event.locationInWindow, from: nil)) ? button : nil
         didDragScroll = false
         lastDragLocationInWindow = event.locationInWindow
+        pressLocationInWindow = event.locationInWindow
+        pressTimestamp = event.timestamp
+    }
+
+    /// 押した点から離した点までの移動量が、ドラッグジェスチャーとして成立するか調べる。
+    /// 成立するなら、優勢な軸の向き(上下左右のいずれか1つ)を返す。
+    ///
+    /// cooViewerのCustomImageView.mouseUp:と同じ判定にしてある ― どちらかの軸で
+    /// 30ポイントを超えて動いていること、押してから離すまでが1秒以内であること、
+    /// 向きは移動量の大きい方の軸で決めること。斜めや複数ストロークは扱わない。
+    private func gestureDirection(for event: NSEvent) -> MouseTrigger.DragDirection? {
+        guard let press = pressLocationInWindow else { return nil }
+        guard event.timestamp - pressTimestamp <= Self.gestureMaximumDuration else { return nil }
+        let dx = event.locationInWindow.x - press.x
+        let dy = event.locationInWindow.y - press.y
+        let threshold = Self.gestureMinimumDistance
+        guard abs(dx) > threshold || abs(dy) > threshold else { return nil }
+        if abs(dx) >= abs(dy) {
+            guard abs(dx) > threshold else { return nil }
+            return dx < 0 ? .left : .right
+        }
+        guard abs(dy) > threshold else { return nil }
+        // ウインドウ座標は上へ動かすとyが増える。
+        return dy > 0 ? .up : .down
     }
 
     /// ドラッグで画像を掴んで動かす(cooViewerのCustomImageView.dragScroll:相当)。
@@ -3972,23 +4033,41 @@ private final class ClickZoneView: NSView {
         defer {
             trackingButton = nil
             lastDragLocationInWindow = nil
+            pressLocationInWindow = nil
             if didPushDragCursor {
                 NSCursor.pop()
                 didPushDragCursor = false
             }
         }
-        // 実際に画像を動かした場合は、クリック(ページ送り)とはみなさない。
+        // 実際に画像を動かした場合は、クリックともジェスチャーともみなさない。
+        //
+        // ドラッグスクロールとドラッグジェスチャーの棲み分けはこの1つのフラグで決まる。
+        // didDragScrollが立つのは「スクロールできる表示モードで、実際に画像が動いたとき」
+        // だけなので、
+        //   - 画面内に収めるモード: 常にジェスチャーになる(掴んで動かす余地が無い)
+        //   - スクロールできるモード: 画像が動いたならスクロール、動く余地が無かった
+        //     (端に着いていた・画像が画面に収まっている)ならジェスチャー
+        // という振り分けになる。表示モードで一律に切り分けるより、実際に起きたことに
+        // 合わせるほうが「動かせないのにジェスチャーも効かない」死角ができない。
         guard !didDragScroll else {
             didDragScroll = false
             return
         }
         guard trackingButton == button else { return }
-        guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
         // control(コンテキストメニュー)やcommand(メニューバーのショートカット)が
         // 押されている場合は、このアプリの割り当ての領分ではないので何もしない
         // (MouseTrigger.Modifiers.from参照)。
         guard let modifiers = MouseTrigger.Modifiers.from(event.modifierFlags, allowsShift: true)
         else { return }
+
+        // ジェスチャーの判定が先。成立した時点でクリックではないので、離した位置が
+        // この領域の中かどうかは問わない(画面を大きく横切るストロークは、始めた側の
+        // 領域から出て終わるのが普通のため)。
+        if let direction = gestureDirection(for: event) {
+            onGesture?(button, direction, modifiers)
+            return
+        }
+        guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
         onClick?(button, modifiers)
     }
 
