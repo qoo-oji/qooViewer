@@ -41,6 +41,8 @@ final class AppPreferences: ObservableObject {
         static let sidePanelFeatureEnabled = "qooViewer.pref.sidePanelFeatureEnabled"
         static let sidePanelUsesDoubleClick = "qooViewer.pref.sidePanelUsesDoubleClick"
         static let sidePanelSortOrder = "qooViewer.pref.sidePanelSortOrder"
+        static let folderBrowserSortKey = "qooViewer.pref.folderBrowserSortKey"
+        static let folderBrowserSortDirection = "qooViewer.pref.folderBrowserSortDirection"
         static let sidePanelPosition = "qooViewer.pref.sidePanelPosition"
         static let sidePanelMode = "qooViewer.pref.sidePanelMode"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
@@ -290,6 +292,31 @@ final class AppPreferences: ObservableObject {
     @Published var sidePanelSortOrder: SidePanelSortOrder {
         didSet { UserDefaults.standard.set(sidePanelSortOrder.rawValue, forKey: Keys.sidePanelSortOrder) }
     }
+    /// サイドパネル上段(フォルダブラウザ)の並べ替えの基準と向き(ユーザー要望)。環境設定
+    /// ウインドウではなく、パネル上部の並べ替えメニュー(SidePanelView.folderSection)から
+    /// 直接切り替える。上のsidePanelSortOrder(フォルダをまとめて上に置くかどうか)とは
+    /// 独立した設定で、そちらが上段・下段の共通設定なのに対し、こちらは上段専用
+    /// (FolderBrowserSortKeyのコメント参照)。
+    @Published var folderBrowserSortKey: FolderBrowserSortKey {
+        didSet { UserDefaults.standard.set(folderBrowserSortKey.rawValue, forKey: Keys.folderBrowserSortKey) }
+    }
+    @Published var folderBrowserSortDirection: FolderBrowserSortDirection {
+        didSet {
+            UserDefaults.standard.set(folderBrowserSortDirection.rawValue, forKey: Keys.folderBrowserSortDirection)
+        }
+    }
+
+    /// 上段フォルダブラウザの並べ替えに必要な設定をまとめた値。DirectoryBrowser
+    /// (nonisolated enumなのでAppPreferencesを直接読めない)へ渡す引数であると同時に、
+    /// SwiftUI側が`.onChange(of: preferences.folderBrowserSort)`ひとつで3つの設定の変更を
+    /// まとめて拾うためのものでもある(SidePanelView.folderSection参照)。
+    var folderBrowserSort: FolderBrowserSort {
+        FolderBrowserSort(
+            grouping: sidePanelSortOrder,
+            key: folderBrowserSortKey,
+            direction: folderBrowserSortDirection
+        )
+    }
     /// 環境設定「一般」タブの、サイドパネルをウインドウのどちら側に表示するか(既定は左。
     /// SidePanelPosition参照)。常時表示・ホバーでの一時表示のどちらにも同じ値が効き、
     /// ホバー時にパネルが出現する反応領域(ウインドウ端の狭い帯)もこの設定に合わせて
@@ -482,6 +509,12 @@ final class AppPreferences: ObservableObject {
         self.sidePanelUsesDoubleClick = defaults.object(forKey: Keys.sidePanelUsesDoubleClick) as? Bool ?? false
         self.sidePanelSortOrder =
             SidePanelSortOrder(rawValue: defaults.string(forKey: Keys.sidePanelSortOrder) ?? "") ?? .foldersFirst
+        self.folderBrowserSortKey =
+            FolderBrowserSortKey(rawValue: defaults.string(forKey: Keys.folderBrowserSortKey) ?? "")
+                ?? FolderBrowserSort.default.key
+        self.folderBrowserSortDirection =
+            FolderBrowserSortDirection(rawValue: defaults.string(forKey: Keys.folderBrowserSortDirection) ?? "")
+                ?? FolderBrowserSort.default.direction
         self.sidePanelPosition =
             SidePanelPosition(rawValue: defaults.string(forKey: Keys.sidePanelPosition) ?? "") ?? .left
         self.sidePanelMode =

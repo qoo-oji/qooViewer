@@ -22,6 +22,9 @@ final class SidePanelBrowserState: ObservableObject {
     private var backStack: [URL?] = []
     private var forwardStack: [URL?] = []
     private var reloadTask: Task<Void, Never>?
+    /// 今のentriesを並べ替えるのに使った設定。applySortSettings()が「設定が変わっていなければ
+    /// 何もしない」と判断するために覚えておく。
+    private var appliedSort: FolderBrowserSort?
 
     var canGoBack: Bool { !backStack.isEmpty }
     var canGoForward: Bool { !forwardStack.isEmpty }
@@ -97,25 +100,49 @@ final class SidePanelBrowserState: ObservableObject {
     func reload() {
         reloadTask?.cancel()
         let directory = currentDirectory
-        let sortOrder = preferences?.sidePanelSortOrder ?? .foldersFirst
+        let sort = preferences?.folderBrowserSort ?? .default
         reloadTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let result: [DirectoryBrowser.Entry]
                 if let directory {
-                    result = try await DirectoryBrowser.entriesAsync(in: directory, sortOrder: sortOrder)
+                    result = try await DirectoryBrowser.entriesAsync(in: directory, sort: sort)
                 } else {
-                    result = await DirectoryBrowser.mountedVolumeEntriesAsync()
+                    result = await DirectoryBrowser.mountedVolumeEntriesAsync(sort: sort)
                 }
                 guard !Task.isCancelled else { return }
                 self.entries = result
+                self.appliedSort = sort
                 self.needsFolderAccessGrant = false
+                // 読み込んでいる間に並べ替え設定が変わっていた場合の取りこぼしを拾う
+                // (変わっていなければ何もしない)。
+                self.applySortSettings()
             } catch {
                 guard !Task.isCancelled else { return }
                 self.entries = []
+                self.appliedSort = sort
                 self.needsFolderAccessGrant = true
             }
         }
+    }
+
+    /// 並べ替え設定(パネル上部の並べ替えメニュー、および環境設定「一般」タブのグループ分け)が
+    /// 変わったときに、今の一覧をその場で並べ替え直す。ディスクは一切読み直さない
+    /// (DirectoryBrowser.Entryが並べ替えに必要な値をすべて持っているため。
+    /// DirectoryBrowser.sortedEntries(_:sort:)参照)。
+    ///
+    /// 設定が変わっていなければ何もしないので、呼び出し側は「変わったかもしれない」タイミング
+    /// (メニュー操作の直後、パネルが再び現れたとき)で気軽に呼んでよい。
+    ///
+    /// 並べ替えはメインアクター上で同期的に行う。数千件でも数ミリ秒で、ユーザーが自分で
+    /// メニューを操作した直後という文脈でもあるため、非同期にして一覧が一瞬古い並びのまま
+    /// 見えるほうが不自然だと判断した。
+    func applySortSettings() {
+        let sort = preferences?.folderBrowserSort ?? .default
+        guard sort != appliedSort else { return }
+        appliedSort = sort
+        guard !entries.isEmpty else { return }
+        entries = DirectoryBrowser.sortedEntries(entries, sort: sort)
     }
 
     /// AppState.grantAccessToCurrentFolder()と同じ形のNSOpenPanel。対象が「現在の本の親」

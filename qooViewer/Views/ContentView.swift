@@ -57,6 +57,11 @@ struct ContentView: View {
     /// マウス移動を監視する)。自動表示中のもの(サイドパネル/ツールバー/プログレスバー)が
     /// 1つでもある間だけ取り付ける(updateOutsideWindowMonitor参照)。
     @State private var outsideWindowMonitor: Any?
+    /// このアプリのメニューが今開かれているかどうか(installMenuTrackingObserversIfNeeded参照)。
+    /// 開いている間は、ホバー表示中のサイドパネルを閉じない。
+    @State private var isMenuTracking = false
+    /// 上記を検知するためのNSMenu.didBeginTracking/didEndTrackingの購読。
+    @State private var menuTrackingObservers: [NSObjectProtocol] = []
     /// サイドパネルが出現する、ウインドウ端(左右どちらに置いているかによる)からの反応領域の幅。
     private static let sidePanelRevealBandWidth: CGFloat = 20
     /// 「サイドパネルを隠す」ON時、表示中のパネルが閉じるまでの、パネルのビューア側の端
@@ -240,10 +245,12 @@ struct ContentView: View {
         .onAppear {
             installSidePanelHoverMonitorIfNeeded()
             updateOutsideWindowMonitor()
+            installMenuTrackingObserversIfNeeded()
         }
         .onDisappear {
             removeSidePanelHoverMonitor()
             removeOutsideWindowMonitor()
+            removeMenuTrackingObservers()
         }
         // カーソルがメニューバーの上へ抜けた場合は、ローカル/グローバルどちらのマウス移動
         // モニタにもイベントが届かないため、AppKitのNSTrackingAreaによる検知で補う
@@ -803,6 +810,9 @@ struct ContentView: View {
         // (ユーザー要望: 拡大鏡での閲覧を妨げないため。ONにした瞬間の強制非表示は
         // ViewerViewのisLoupeActiveのonChange側で行う)。
         guard !appState.isLoupeActive else { return }
+        // メニューが開いている間は、表示も非表示も行わない
+        // (installMenuTrackingObserversIfNeededのコメント参照)。
+        guard !isMenuTracking else { return }
         // パネルを置いている側のウインドウ端から、カーソルまでの距離。左配置ならX座標そのもの、
         // 右配置なら「内容の右端からの距離」。以降の判定は左右で完全に共通になる。
         let distanceFromPanelEdge: CGFloat
@@ -851,6 +861,11 @@ struct ContentView: View {
     @discardableResult
     private func dismissAutoRevealedChromeIfCursorLeftWindow(_ window: NSWindow) -> Bool {
         guard !window.frame.contains(NSEvent.mouseLocation) else { return false }
+        // メニューが開いている間は閉じない。開いたメニュー自体がウインドウの外へはみ出して
+        // 表示されるため、その上へカーソルを動かしただけでここへ来てしまう
+        // (installMenuTrackingObserversIfNeededのコメント参照)。カーソルが外に出ていること
+        // 自体は事実なので、戻り値はtrueのまま返す。
+        guard !isMenuTracking else { return true }
         // 閉じるものが1つも無ければ、外に出ていること(戻り値)だけ伝えて何もしない。
         // このアプリの他のウインドウ(環境設定ウインドウなど)の上でマウスを動かしている間は
         // ローカルモニタがマウス移動のたびにここへ来るため、無条件に@Publishedへ書き戻すと、
@@ -887,6 +902,51 @@ struct ContentView: View {
             guard let window = appState.hostWindow else { return }
             dismissAutoRevealedChromeIfCursorLeftWindow(window)
         }
+    }
+
+    /// このアプリのメニュー(メニューバー、右クリックメニュー、そしてサイドパネル上部の
+    /// 並べ替えメニューのようなウインドウ内のポップアップ)が開いている間は、ホバー表示中の
+    /// サイドパネルを閉じないようにするための購読を取り付ける。
+    ///
+    /// 開いたメニューはウインドウの外へはみ出して表示されるため、何もしないと、メニューの
+    /// 項目を選ぼうとカーソルを動かした瞬間に「カーソルがウインドウの外へ出た」と判定され、
+    /// メニューを載せているパネルごと消えてしまう(メニューも道連れに閉じる)。
+    ///
+    /// さらに、メニューのトラッキング中にSwiftUIのビューを消すと、macOS 26では
+    /// トラッキング中のメインメニュー再構築(NSMenu setItemArray:)が走ってクラッシュすることが
+    /// 分かっている(ViewerView.pendingThumbnailGridDismissAfterMenuのコメント参照)。
+    /// つまりここで閉じないことは、見た目だけの問題ではない。
+    ///
+    /// object: nilなので、このアプリ内のどのメニューが開いても反応する(ViewerView側の
+    /// カーソル自動非表示の抑止と同じ形)。メニューが閉じた時点でカーソルが本当にウインドウの
+    /// 外にあれば、そこで改めて閉じる。
+    private func installMenuTrackingObserversIfNeeded() {
+        guard menuTrackingObservers.isEmpty else { return }
+        let didBeginTracking = NotificationCenter.default.addObserver(
+            forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
+        ) { _ in
+            isMenuTracking = true
+        }
+        let didEndTracking = NotificationCenter.default.addObserver(
+            forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main
+        ) { _ in
+            isMenuTracking = false
+            // 閉じ直後のこの時点ではまだメニューの後始末が走っている可能性があるため、
+            // ビューを消し得る判定は次のループへ回す(macOS 26のクラッシュを避けるための
+            // ViewerView側の対処と同じ考え方)。
+            DispatchQueue.main.async {
+                guard let window = appState.hostWindow else { return }
+                dismissAutoRevealedChromeIfCursorLeftWindow(window)
+            }
+        }
+        menuTrackingObservers = [didBeginTracking, didEndTracking]
+    }
+
+    private func removeMenuTrackingObservers() {
+        for token in menuTrackingObservers {
+            NotificationCenter.default.removeObserver(token)
+        }
+        menuTrackingObservers = []
     }
 
     private func removeSidePanelHoverMonitor() {

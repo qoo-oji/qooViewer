@@ -393,6 +393,12 @@ struct SidePanelView: View {
                 ) {
                     folderState.openInFinder()
                 }
+                // 並べ替えの基準・向きの切替(ユーザー要望)。設定はアプリ全体で1つ
+                // (AppPreferences.folderBrowserSortKey/Direction)で、次回起動時も引き継ぐ。
+                SidePanelSortMenu(
+                    key: $preferences.folderBrowserSortKey,
+                    direction: $preferences.folderBrowserSortDirection
+                )
             }
             .padding(10)
 
@@ -468,6 +474,18 @@ struct SidePanelView: View {
                     }
                 }
             }
+        }
+        // 並べ替え設定が変わったら、その場で一覧を並べ替え直す(ディスクは読み直さない。
+        // SidePanelBrowserState.applySortSettings参照)。preferences.folderBrowserSortは
+        // 「基準・向き・フォルダのグループ分け」を束ねた値なので、環境設定「一般」タブ側の
+        // 並び順を変えた場合もここで拾える。
+        //
+        // .onAppearでも同じ呼び出しをしておくのは、このセクションが表示されていない間
+        // (パネルを隠している、別のモードを表示している、環境設定ウインドウで変更した)の
+        // 変更を取りこぼさないため。設定が変わっていなければ何もしないので二重呼び出しは無害。
+        .onAppear { folderState.applySortSettings() }
+        .onChange(of: preferences.folderBrowserSort) { _, _ in
+            folderState.applySortSettings()
         }
     }
 
@@ -1480,6 +1498,56 @@ private struct SidePanelNavButton: View {
         .buttonStyle(.borderless)
         .disabled(isDisabled)
         .help(help)
+    }
+}
+
+/// 上段(フォルダブラウザ)の並べ替えメニュー(ユーザー要望)。「Finderで表示」ボタンの隣に
+/// 並ぶ、他のボタンとまったく同じ見た目のアイコンボタンで、押すと基準(名前/サイズ/種類/
+/// 作成日/変更日)と向き(昇順/降順)をチェックマーク付きで選べる。Finderの「並べ替え」と
+/// 同じく、基準と向きは区切り線で分けた別のグループにしている。
+///
+/// 各グループをPicker(.inline)にしているのは、選択中の項目のチェックマークをSwiftUIに任せる
+/// ため。Buttonを並べる形だと、macOSのメニューでのチェックマークの位置・字下げを自前で
+/// 再現することになる。
+///
+/// SidePanelNavButtonと違いButtonではなくMenuのため、`.buttonStyle(.borderless)`ではなく
+/// `.menuStyle(.borderlessButton)`と`.menuIndicator(.hidden)`で枠と下向き矢印を消し、
+/// ラベル側は同じ`.panelIconButtonLabel()`を使って寸法・角丸を他のボタンと揃えている。
+private struct SidePanelSortMenu: View {
+    @Binding var key: FolderBrowserSortKey
+    @Binding var direction: FolderBrowserSortDirection
+
+    var body: some View {
+        Menu {
+            Picker(selection: $key) {
+                ForEach(FolderBrowserSortKey.allCases) { key in
+                    Text(key.titleKey).tag(key)
+                }
+            } label: {
+                EmptyView()
+            }
+            .pickerStyle(.inline)
+
+            Divider()
+
+            Picker(selection: $direction) {
+                ForEach(FolderBrowserSortDirection.allCases) { direction in
+                    Text(direction.titleKey).tag(direction)
+                }
+            } label: {
+                EmptyView()
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+                .panelIconButtonLabel()
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        // Menuは既定で横に伸びようとするため、ラベル(panelIconButtonLabel)の寸法へ固定する。
+        // これがないと、隣の「Finderで表示」ボタンとの間隔が広がって見える。
+        .fixedSize()
+        .help("Sort By")
     }
 }
 
