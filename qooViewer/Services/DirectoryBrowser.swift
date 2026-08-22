@@ -75,6 +75,25 @@ nonisolated enum DirectoryBrowser {
     /// ようにtry?でもみ消さない)。空フォルダと権限エラーを区別し、呼び出し側で「その場で
     /// アクセスを許可」の案内を出し分けられるようにするため。
     static func entries(in directory: URL, sort: FolderBrowserSort) throws -> [Entry] {
+        try listing(in: directory, sort: sort).entries
+    }
+
+    /// `entries(in:sort:)`に「直下に画像ファイルがあったか」を添えたもの。
+    struct Listing {
+        let entries: [Entry]
+        /// **一覧には出していないが**、このフォルダの直下に画像ファイルがあるかどうか。
+        ///
+        /// この一覧は画像を行として出さない(makeEntry。一覧の目的は「本を探すこと」で、画像を
+        /// 並べるとノイズになる)。そのぶん、画像だけが入っているフォルダは空に見え、画像と
+        /// サブフォルダが同居しているフォルダは画像が無いように見える。どちらもそのフォルダ
+        /// 自体が1冊の本なので、呼び出し側はこの値を見て「このフォルダの画像を開く」導線を
+        /// 出せる(SidePanelBrowserState.currentDirectoryHasImages参照)。
+        ///
+        /// 一覧を組み立てる際の列挙をそのまま使って調べるので、**I/Oは増えない**。
+        let containsImageFile: Bool
+    }
+
+    static func listing(in directory: URL, sort: FolderBrowserSort) throws -> Listing {
         let children = try FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: Array(entryResourceKeys),
@@ -82,7 +101,14 @@ nonisolated enum DirectoryBrowser {
         )
         var kindCache: [String: String] = [:]
         let entries = children.compactMap { makeEntry(for: $0, kindCache: &kindCache) }
-        return sortedEntries(entries, sort: sort)
+        let containsImageFile = children.contains { isImageFile($0.lastPathComponent) }
+        return Listing(entries: sortedEntries(entries, sort: sort), containsImageFile: containsImageFile)
+    }
+
+    static func listingAsync(in directory: URL, sort: FolderBrowserSort) async throws -> Listing {
+        try await Task.detached(priority: .utility) {
+            try listing(in: directory, sort: sort)
+        }.value
     }
 
     /// 1件ぶんのEntryを組み立てる。開けない形式のファイルはここでnilを返して一覧から落とす

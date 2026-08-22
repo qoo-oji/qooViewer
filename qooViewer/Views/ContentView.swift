@@ -313,9 +313,10 @@ struct ContentView: View {
         // サイドパネル下段(本の中身ブラウザ)を、今実際に表示されているページへ追従させる
         // (ユーザー要望: ページ送りのたびにハイライト・スクロールをリアルタイムに追従させ、
         // フォルダ/ネストした書庫の境界をまたいだら表示中のフォルダ/書庫も切り替える)。
-        // 本の切替直後は新しいViewerViewのonAppearがcurrentVisiblePageSortKeysを更新する
-        // ことでここが発火するため、updateBookContentsBrowserForCurrentBook側で明示的に
-        // 呼び直す必要はない。
+        // 本の切替直後は、新しいViewerViewのonAppearがcurrentVisiblePageSortKeysを更新する
+        // ことで**たいていは**ここが発火する。ただし**新旧の値が同じだと発火しない**ため、
+        // それだけには頼れない(updateBookContentsBrowserForCurrentBook側で呼び直している。
+        // 理由はあちらのコメント参照)。
         .onChange(of: appState.currentVisiblePageSortKeys) { _, newValue in
             bookContentsBrowser?.revealCurrentPage(sortKeys: newValue)
         }
@@ -841,6 +842,11 @@ struct ContentView: View {
                 if dismissesOnAction { appState.isSidePanelRevealed = false }
                 appState.open(url: url)
             },
+            onBrowseToFolder: { url in
+                if dismissesOnAction { appState.isSidePanelRevealed = false }
+                // 履歴には残さない(SidePanelView.onBrowseToFolderのコメント参照)。
+                appState.open(url: url, recordsInHistory: false)
+            },
             onJumpToPage: { index in
                 appState.jumpToPageIndex?(index)
                 if dismissesOnAction { appState.isSidePanelRevealed = false }
@@ -1105,5 +1111,20 @@ struct ContentView: View {
         let newBrowser = BookContentsBrowserState(book: book)
         newBrowser?.preferences = preferences
         bookContentsBrowser = newBrowser
+        // 作り直した直後の一覧に、今表示しているページのハイライト+スクロールを反映させる。
+        //
+        // ユーザー報告: 画像を直接開いた状態から、その画像が入っているフォルダを開くと、
+        // 下段に一覧は出るのにどの行もハイライトされない(ページを1つ送ると初めて付く)。
+        //
+        // 原因は、これを普段駆動している.onChange(of: appState.currentVisiblePageSortKeys)が
+        // **値が変わらないと発火しない**こと。sortKeyはページのフルパスなので、
+        //   画像1枚の本  …/BookFolder/001.png
+        //   そのフォルダの本の1ページ目  …/BookFolder/001.png
+        // のように新旧が完全に一致することがあり、そのとき一度も呼ばれないまま終わる。
+        //
+        // ここで現在値をそのまま渡して1回呼んでおけば、値が変わる場合は従来どおりonChangeが、
+        // 変わらない場合(=古い値と新しい値が同じ=この呼び出しで正しい)はここが受け持つ。
+        // revealCurrentPageは冪等なので、両方走っても無害。
+        newBrowser?.revealCurrentPage(sortKeys: appState.currentVisiblePageSortKeys)
     }
 }

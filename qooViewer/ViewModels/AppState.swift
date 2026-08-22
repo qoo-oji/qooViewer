@@ -683,8 +683,8 @@ final class AppState: ObservableObject {
 
     /// URLが1つ分かっている状態からの読み込み(次の本/前の本への移動、お気に入り・履歴からの
     /// 復元、Fileメニューからの選択など)。実体はopen(request:)。
-    func open(url: URL) {
-        open(request: BookOpenRequest(url))
+    func open(url: URL, recordsInHistory: Bool = true) {
+        open(request: BookOpenRequest(url, recordsInHistory: recordsInHistory))
     }
 
     /// Finder / Dock / ドラッグ&ドロップ / NSOpenPanel から複数のURLが渡された場合の入口。
@@ -781,7 +781,9 @@ final class AppState: ObservableObject {
                 }
                 // シークレットウインドウで開いた本は「最近開いたファイル」に残さない(ユーザー要望)。
                 // その場限りの本も、そもそも1つのURLでは開き直せないため記録しない。
-                if !skipsPersistence, let url = request.primaryURL {
+                // request.recordsInHistory: フォルダブラウザで通り抜けただけのフォルダを
+                // 履歴に積まないための除外(BookOpenRequest.recordsInHistory参照)。
+                if !skipsPersistence, request.recordsInHistory, let url = request.primaryURL {
                     self.recentFiles?.record(url: url)
                 }
                 await self.refreshSiblingBooks()

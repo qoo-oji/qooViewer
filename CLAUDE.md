@@ -111,6 +111,21 @@ comments) — this is a known, deliberate simplification, not a bug.
 - **CHANGELOG.md entries**: Keep a Changelog format, written in Japanese, and limited strictly to
   user-visible impact (what changed for someone using the app) — not implementation detail. Match the
   tone/granularity already in the file (short bullet per change, nested bullets for multi-part changes).
+- **Anything drawn on a frosted-glass surface must handle the text outline.** The five surfaces
+  (`PanelSurface`) let the user fill them with an arbitrary colour, so text and icons can end up the
+  same colour as the panel and vanish. When you **add or change any UI on one of those surfaces**,
+  decide what the new element does about the outline and do it in the same change:
+  - bare text / bare icons → add `.panelOutlinedContent()` (or apply it to a container that holds
+    nothing but text and icons)
+  - a part with its own opaque background (search field, filled badge, selected mode button), or an
+    image/thumbnail → leave it alone; an outline there looks wrong
+  - a native control whose silhouette smears (the page list's slider) → `.panelControlWell()` instead
+  - something tinted with the accent colour whose *state* would be lost against a matching panel
+    colour → `.panelOutlinedAccent(in:)`
+  Content inside a context menu, sheet, alert or popover needs nothing — macOS draws those opaquely
+  and they are unaffected. Forgetting the call only means no outline appears (it never leaks onto the
+  wrong part), so the failure is quiet: check it against a panel filled 100% with the text colour
+  (light appearance + black, dark appearance + white) before calling the change done.
 - **git commit messages**: written in English, concise, as a bullet-point list inside a code block.
 - The app version lives in `MARKETING_VERSION` in `qooViewer.xcodeproj/project.pbxproj` (both Debug and
   Release configurations) and is versioned independently from `CHANGELOG.md`'s `[Unreleased]` heading —

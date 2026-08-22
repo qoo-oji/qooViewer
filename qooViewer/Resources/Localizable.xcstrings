@@ -11265,6 +11265,22 @@
         }
       }
     },
+    "This folder holds images.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This folder holds images."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダには画像が入っています。"
+          }
+        }
+      }
+    },
     "This folder isn't accessible yet.": {
       "localizations": {
         "en": {
@@ -11277,6 +11293,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "このフォルダにはまだアクセスできません。"
+          }
+        }
+      }
+    },
+    "This folder's images are open.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This folder's images are open."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダの画像を表示しています。"
           }
         }
       }

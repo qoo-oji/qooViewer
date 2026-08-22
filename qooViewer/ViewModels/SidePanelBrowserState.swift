@@ -13,11 +13,34 @@ final class SidePanelBrowserState: ObservableObject {
     /// entries(in:)が権限エラーを投げた場合にtrue。空フォルダと区別し、パネル側で
     /// その場からアクセスを許可するボタンを出す判定に使う。
     @Published private(set) var needsFolderAccessGrant = false
+    /// 今表示中のフォルダの直下に画像ファイルがあるかどうか。
+    ///
+    /// この一覧は画像ファイルを行として出さない(DirectoryBrowser.makeEntry。一覧の目的は
+    /// 「本を探すこと」で、画像を並べるとノイズになる)。そのため、**画像だけが入っている
+    /// フォルダへ移動すると一覧が空になり、行き止まりに見える**。画像とサブフォルダが同居して
+    /// いるフォルダでも、そのフォルダ自体の画像を開く手立てが一覧に現れない
+    /// (ユーザー指摘: 画像のあるフォルダに、さらに画像のあるフォルダが入っている場合)。
+    ///
+    /// ユーザー報告: 画像を直接開いた状態で、その画像が入っているフォルダをクリックすると、
+    /// フォルダ移動はするが何も起きない。上段は画像の本のとき1階層上を表示する仕様
+    /// (browserAnchor参照)なので、いちばん押したくなる行がまさにこれにあたる。
+    ///
+    /// パネル側はこの値を見て「このフォルダの画像を開く」導線を出す(一覧が空なら中央に、
+    /// サブフォルダが並んでいるならその先頭の行として)。
+    @Published private(set) var currentDirectoryHasImages = false
     /// 表示枠内へスクロール+ハイライトする対象。handlePanelRevealed/goUpが設定する。
     @Published private(set) var highlightedURL: URL?
 
     weak var folderAccess: FolderAccessStore?
     weak var preferences: AppPreferences?
+
+    /// 次の`handlePanelRevealed`での再アンカーを1回だけ見送るための目印。
+    ///
+    /// フォルダ行のクリックは「そのフォルダへ入る」と「そのフォルダの画像を開く」を同時に行う
+    /// (SidePanelView.navigateAndOpenIfImages)。本が切り替わればContentViewが
+    /// `handlePanelRevealed`を呼ぶが、そこでいつもどおり本の親フォルダへ再アンカーすると、
+    /// **せっかく入ったフォルダから親へ弾き返されて**しまい、中のサブフォルダへ進めなくなる。
+    private var skipsNextAnchor = false
 
     private var backStack: [URL?] = []
     private var forwardStack: [URL?] = []
@@ -45,6 +68,12 @@ final class SidePanelBrowserState: ObservableObject {
     /// での閲覧中に毎回ボリューム一覧へ戻されるのを防ぐ)。
     func handlePanelRevealed(currentBook: MangaBook?) {
         guard let currentBook else { return }
+        // このパネルの中のクリックで開いた本なら、今いる場所をそのまま保つ
+        // (skipsNextAnchorのコメント参照)。一覧はnavigate側で読み込み済み。
+        if skipsNextAnchor {
+            skipsNextAnchor = false
+            return
+        }
         let anchor = Self.browserAnchor(for: currentBook)
         if anchor.directory != currentDirectory {
             backStack.append(currentDirectory)
@@ -74,6 +103,11 @@ final class SidePanelBrowserState: ObservableObject {
         let parent = book.sourceURL.deletingLastPathComponent()
         guard book.origin == .imageFiles else { return (parent, book.sourceURL) }
         return (parent.deletingLastPathComponent(), parent)
+    }
+
+    /// 上記を1回だけ見送らせる。フォルダ行のクリックで本を開く直前に呼ぶ。
+    func skipNextAnchorOnce() {
+        skipsNextAnchor = true
     }
 
     /// フォルダ行のシングルクリック。
@@ -126,13 +160,19 @@ final class SidePanelBrowserState: ObservableObject {
             guard let self else { return }
             do {
                 let result: [DirectoryBrowser.Entry]
+                var hasImages = false
                 if let directory {
-                    result = try await DirectoryBrowser.entriesAsync(in: directory, sort: sort)
+                    // 一覧と一緒に「直下に画像があるか」も受け取る(同じ列挙で調べるのでI/Oは
+                    // 増えない。currentDirectoryHasImages参照)。
+                    let listing = try await DirectoryBrowser.listingAsync(in: directory, sort: sort)
+                    result = listing.entries
+                    hasImages = listing.containsImageFile
                 } else {
                     result = await DirectoryBrowser.mountedVolumeEntriesAsync(sort: sort)
                 }
                 guard !Task.isCancelled else { return }
                 self.entries = result
+                self.currentDirectoryHasImages = hasImages
                 self.appliedSort = sort
                 self.needsFolderAccessGrant = false
                 // 読み込んでいる間に並べ替え設定が変わっていた場合の取りこぼしを拾う
@@ -141,6 +181,7 @@ final class SidePanelBrowserState: ObservableObject {
             } catch {
                 guard !Task.isCancelled else { return }
                 self.entries = []
+                self.currentDirectoryHasImages = false
                 self.appliedSort = sort
                 self.needsFolderAccessGrant = true
             }

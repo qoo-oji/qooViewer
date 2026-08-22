@@ -54,9 +54,23 @@ nonisolated struct BookOpenRequest: Codable, Hashable, Sendable {
     /// (10秒で解放されるので恒久リークではないが、上限を設けた理由そのものに穴が空いていた)。
     var exceedsImageSelectionLimit: Bool { urls.count > Self.maxImageSelectionCount }
 
+    /// この本を「最近開いたファイル」に残すかどうか。既定はtrue(残す)。
+    ///
+    /// falseにするのはサイドパネルのフォルダブラウザ経由だけ。あちらは**フォルダを移動する
+    /// たびにその場でそのフォルダの画像を表示する**ようになったため(SidePanelView.
+    /// moveAndShowImages参照)、そのまま記録すると目的の本を探して通り抜けただけのフォルダで
+    /// 履歴が埋まってしまう(ユーザーの指示)。
+    ///
+    /// **履歴に残さないだけで、その他の記録は通常どおり**行う ―― 読書位置・ブックマーク・
+    /// お気に入り・レイアウトは本ごとの資産で、これらまで捨てると「同じフォルダへ戻ったら
+    /// 続きから読める」が壊れる。何も残さないのはシークレットウインドウとその場限りの本
+    /// (MangaBook.isTransient)の役目で、そちらとは別の話。
+    var recordsInHistory = true
+
     /// 従来どおり、1つのURLをそのまま開く。
-    init(_ url: URL) {
+    init(_ url: URL, recordsInHistory: Bool = true) {
         self.urls = [url]
+        self.recordsInHistory = recordsInHistory
     }
 
     /// Finder / Dock / ドラッグ&ドロップ / NSOpenPanel から渡された複数のURLを分類し、

@@ -67,6 +67,10 @@ struct SidePanelView: View {
     /// 「新しい本として開く」フォールバックの両方から呼ばれる)。呼び出し側でパネルを
     /// 閉じてからAppState.open(url:)を行う。
     var onOpen: (URL) -> Void
+    /// フォルダブラウザの移動でたどり着いたフォルダの画像を表示する(moveAndShowImages)。
+    /// `onOpen`と違い**履歴に残さない** ―― 目的の本を探して通り抜けただけのフォルダで履歴が
+    /// 埋まらないようにするため(BookOpenRequest.recordsInHistory参照)。
+    var onBrowseToFolder: (URL) -> Void
     /// 下段で、既に本のページ一覧に含まれている画像をダブルクリックしたときのジャンプ。
     var onJumpToPage: (Int) -> Void
 
@@ -418,13 +422,13 @@ struct SidePanelView: View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 SidePanelNavButton(systemName: "chevron.left", isDisabled: !folderState.canGoBack, help: "Back") {
-                    folderState.goBack()
+                    moveAndShowImages { folderState.goBack() }
                 }
                 SidePanelNavButton(systemName: "chevron.right", isDisabled: !folderState.canGoForward, help: "Forward") {
-                    folderState.goForward()
+                    moveAndShowImages { folderState.goForward() }
                 }
                 SidePanelNavButton(systemName: "arrow.up", isDisabled: !folderState.canGoUp, help: "Enclosing Folder") {
-                    folderState.goUp()
+                    moveAndShowImages { folderState.goUp() }
                 }
                 Spacer(minLength: 0)
                 // 並べ替えの基準・向きの切替(ユーザー要望)。設定はアプリ全体で1つ
@@ -481,6 +485,20 @@ struct SidePanelView: View {
                 let entries = filteredFolderEntries
                 if entries.isEmpty && !folderState.entries.isEmpty {
                     SidePanelEmptyMessage(textKey: "(No Matches)")
+                } else if entries.isEmpty, folderState.currentDirectoryHasImages,
+                          let directory = folderState.currentDirectory {
+                    // 画像だけが入っているフォルダ。この一覧は画像を行として出さないため
+                    // 空に見えるが、行き止まりではなく「1冊の本」。移動した時点でその画像を
+                    // 表示しているので(moveAndShowImages参照)、ここは一覧が空である理由を
+                    // 伝えるだけでよい ―― 押すべきボタンは無い。
+                    //
+                    // 再アンカー(履歴やお気に入りから本を開いた場合)でここへ来たときだけは
+                    // まだ開いていないことがあるので、そのときは言い方を変える。
+                    SidePanelEmptyMessage(
+                        textKey: isCurrentBookFolder(directory)
+                            ? "This folder's images are open."
+                            : "This folder holds images."
+                    )
                 } else {
                     ScrollViewReader { proxy in
                         ScrollView {
@@ -584,7 +602,7 @@ struct SidePanelView: View {
                 } else {
                     label
                         .onTapGesture(count: 2) { onOpen(entry.url) }
-                        .onTapGesture(count: 1) { folderState.navigate(into: entry.url) }
+                        .onTapGesture(count: 1) { moveAndShowImages { folderState.navigate(into: entry.url) } }
                 }
             } else {
                 label.onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { onOpen(entry.url) }
@@ -598,6 +616,46 @@ struct SidePanelView: View {
                 FinderReveal.reveal(entry.url)
             }
         }
+    }
+
+    /// `directory`が、今開いている本そのものかどうか。
+    ///
+    /// 画像フォルダの本ならbookSourceURLはそのフォルダを指す。画像を直接開いた本の場合は
+    /// 先頭ページの画像ファイルを指すので一致せず、「このフォルダの画像を開く」は出たままになる
+    /// ―― 開き直せば別の(フォルダ全体の)本になるため、そちらは出したままでよい。
+    ///
+    /// パス文字列で比べるのは、行のハイライト判定と同じ理由(folderRowのコメント参照)。
+    /// セキュリティスコープ付きブックマークから解決したURLは、同じ場所でも素のURLと
+    /// `==`で一致しないことがある。
+    private func isCurrentBookFolder(_ directory: URL) -> Bool {
+        guard let bookSourceURL else { return false }
+        return bookSourceURL.path == directory.path
+    }
+
+    /// フォルダブラウザの中で場所を移し、**移った先に画像があればそれを表示する**。
+    /// 行のクリック・戻る・進む・1階層上へ、の4つすべてがここを通る。
+    ///
+    /// ユーザーの指示による整理。当初は行のクリックだけが本を開き、それ以外で到達したときは
+    /// 「このフォルダの画像を開く」という導線を出していたが、**移動した時点で表示しているのに
+    /// 「開く」とは何か**という指摘を受けて1本のルールにした ―― 「フォルダブラウザの現在地 =
+    /// 表示している本」が常に成り立つので、例外も追加のUIも要らない。
+    ///
+    /// 引き換えに、フォルダを行き来するたびに本が切り替わり、そのぶん履歴と読書位置に記録が
+    /// 増える(承知のうえでの選択)。読書位置は本ごとに残るので、戻れば元の位置から再開できる。
+    ///
+    /// 開いた後に本の親フォルダへ再アンカーされると、移ったばかりの場所から弾き返されて
+    /// しまうため、その1回だけ見送らせる(SidePanelBrowserState.skipsNextAnchor参照)。
+    ///
+    /// **ここを通らない場所の変わり方もある** ―― 履歴やお気に入りから本を開いたときの
+    /// 再アンカー(handlePanelRevealed)がそれで、あちらは「開いた本に合わせて表示を移す」
+    /// 逆向きの動きなので、ここで本を開き直してはいけない(無限に開き直すことになる)。
+    private func moveAndShowImages(_ move: () -> Void) {
+        move()
+        guard let directory = folderState.currentDirectory,
+              DirectoryBrowser.directlyContainsImageFile(directory),
+              !isCurrentBookFolder(directory) else { return }
+        folderState.skipNextAnchorOnce()
+        onBrowseToFolder(directory)
     }
 
     private func handleFolderDoubleClick(_ entry: DirectoryBrowser.Entry) {
