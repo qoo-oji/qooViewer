@@ -73,6 +73,9 @@ struct ContentView: View {
     /// (SidePanelView.widthDragHitArea参照)。常時表示・ホバー表示のどちらでも同じ値を
     /// 共有する。
     @State private var sidePanelWidth: CGFloat = SidePanelView.defaultWidth
+    /// ファイル/フォルダがこのウインドウの上へドラッグされている最中かどうか
+    /// (applyFileDropTarget参照)。
+    @State private var isFileDropTargeted = false
 
     init(initialRequest: BookOpenRequest? = nil, isPrivateWindow: Bool = false) {
         self.initialRequest = initialRequest
@@ -157,8 +160,41 @@ struct ContentView: View {
         }
     }
 
+    /// ウインドウへファイル/フォルダをドロップして本を開けるようにする(ユーザー要望。
+    /// 従来はウェルカム画面にしかドロップ先が無く、本を表示している間は落とせなかった)。
+    ///
+    /// ウェルカム画面・ビューア画面・サイドパネルのどれかに個別に付けるのではなく、
+    /// **ウインドウの中身全体に1か所だけ**付ける。ユーザーは「このウインドウに落とす」つもりで
+    /// 操作するので、サイドパネルの帯の上だけ反応しない、といった死角を作らないため。
+    /// 受け口の実装自体はBookFileDropTarget.swift、何をどう1冊にまとめるかの判定は
+    /// BookOpenRequestが引き受ける。
+    ///
+    /// 落としたものは今のウインドウの内容を置き換える。環境設定の「Finderから開いたとき」
+    /// (新しいタブ/ウインドウ)はその名のとおりFinder経由で渡された場合の設定で、
+    /// ウインドウ自体を狙って落とす操作には適用しない(狙ったウインドウとは別の場所で
+    /// 開くことになってしまうため)。
+    ///
+    /// bodyから切り出しているのは、windowContentと同じく型チェックが長くかかりすぎる不具合の
+    /// 対策(windowContentのコメント参照)。
+    private func applyFileDropTarget<Content: View>(to content: Content) -> some View {
+        content
+            .bookFileDropTarget(isTargeted: $isFileDropTargeted) { urls in
+                appState.open(urls: urls)
+            }
+            // 表示中の画像やパネルの見え方を変えたくないので、背景を染めるのではなく縁だけを
+            // 強調する。
+            .overlay {
+                if isFileDropTargeted {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.accentColor, lineWidth: 4)
+                        .allowsHitTesting(false)
+                }
+            }
+            .animation(.easeInOut(duration: 0.12), value: isFileDropTargeted)
+    }
+
     var body: some View {
-        windowContent
+        applyFileDropTarget(to: windowContent)
         .animation(.easeInOut(duration: 0.15), value: appState.isSidePanelRevealed)
         .animation(.easeInOut(duration: 0.15), value: appState.hideSidePanel)
         // サイドパネル追加後、ウインドウがキーのときだけタイトルバーにまで達する青い

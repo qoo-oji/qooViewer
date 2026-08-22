@@ -15,7 +15,6 @@ struct WelcomeView: View {
     @EnvironmentObject private var preferences: AppPreferences
     @EnvironmentObject private var recentFiles: RecentFilesStore
     @EnvironmentObject private var favoritesStore: FavoritesStore
-    @State private var isTargeted = false
 
     var body: some View {
         // 履歴の保持件数(AppPreferences.recentFilesLimit)は環境設定で増やせるが、この画面の
@@ -97,40 +96,8 @@ struct WelcomeView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(isTargeted ? Color.accentColor.opacity(0.1) : Color.clear)
-        .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
-            guard !providers.isEmpty else { return false }
-            // 複数ファイルのドロップ(ユーザー要望: Finderで複数選択した画像をまとめて開く)に
-            // 対応するため、providersを1つも捨てずに全部からURLを取り出してからまとめて開く。
-            // 何をどう1冊にまとめるかの判定はBookOpenRequestが1箇所で行う。
-            //
-            // 1件ずつ順番にawaitしている。loadObjectのコールバックは任意のスレッドから順不同で
-            // 呼ばれるうえ、URLを取り出せず失敗するアイテムも混ざりうるため、コールバックの
-            // 到着順に頼らない形にしておきたい。並列化しない代わりに集計コードが要らず、
-            // 実際の待ち時間もペーストボードの読み出しだけなので問題にならない
-            // (大量選択の主な経路はFinder/Dockからのapplication(_:open:)で、そちらはそもそも
-            // NSItemProviderを経由しない)。
-            Task { @MainActor in
-                var droppedURLs: [URL] = []
-                for provider in providers {
-                    if let url = await Self.loadFileURL(from: provider) {
-                        droppedURLs.append(url)
-                    }
-                }
-                appState.open(urls: droppedURLs)
-            }
-            return true
-        }
-    }
-
-    /// NSItemProvider.loadObjectのコールバックをasyncで待てるようにした薄いラッパー。
-    /// コールバックは仕様上ちょうど1回だけ呼ばれるため、continuationの二重再開は起こらない。
-    private static func loadFileURL(from provider: NSItemProvider) async -> URL? {
-        await withCheckedContinuation { continuation in
-            _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                continuation.resume(returning: url)
-            }
-        }
+        // ファイル/フォルダのドロップは、ウェルカム画面だけでなくビューア画面・サイドパネルも
+        // 含めたウインドウ全体で受ける(ContentView.applyFileDropTarget参照)。
     }
 }
 
