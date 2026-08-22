@@ -158,12 +158,14 @@ struct ThumbnailGridView: View {
                 HStack(spacing: 12) {
                     (Text("Page List (Total ") + Text("\(viewModel.pageCount)") + Text(" pages)"))
                         .font(.headline)
+                        .panelOutlinedContent()
                     Spacer(minLength: 8)
                     // サムネイルのサイズをその場で変えるスライダー(ユーザー要望)。値は環境設定と
                     // 共通(AppPreferences.thumbnailGridCellSize)なので、次回以降も引き継がれる。
                     Image(systemName: "photo")
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
+                        .panelOutlinedContent()
                     Slider(
                         value: $preferences.thumbnailGridCellSize,
                         in: AppPreferences.thumbnailGridCellSizeRange
@@ -171,9 +173,14 @@ struct ThumbnailGridView: View {
                     .frame(width: 140)
                     .controlSize(.small)
                     .accessibilityLabel(Text("Thumbnail Size"))
+                    // つまみは白く、明るい面の上ではほとんど見えない。文字と同じ輪郭は
+                    // 使えない(つまみの落ち影までにじむ)ので、部品ごと薄い溝に収める
+                    // (panelControlWellのコメント参照)。
+                    .panelControlWell()
                     Image(systemName: "photo")
                         .font(.system(size: 16))
                         .foregroundStyle(.secondary)
+                        .panelOutlinedContent()
                 }
                 .padding()
 
@@ -478,6 +485,10 @@ private struct ThumbnailCell: View {
                     // ユーザー報告: .secondary(グレー)だと、サムネイル一覧パネルの背景
                     // (.regularMaterial)上では視認性が悪い。白固定にして見やすくする。
                     .foregroundStyle(.white)
+                    // 文字だけに輪郭を掛ける(すぐ上のサムネイルは画像なので対象外 ――
+                    // 掛けると画像の縁に色が回ってしまう)。この文字は白のベタ書きなので、
+                    // 明るい面では輪郭が無いと完全に消える。
+                    .panelOutlinedContent()
                     // ファイル名はページ番号と違って長くなりうる。セルの幅で頭打ちにし、
                     // 中央を省略する(先頭と末尾のほうが見分けに使えるため)。
                     // 番号のときも同じ指定で問題ない(折り返しようがない短さのため)。
@@ -552,3 +563,5 @@ private struct ThumbnailCell: View {
         return viewModel.book.pages[index].displayName
     }
 }
+
+

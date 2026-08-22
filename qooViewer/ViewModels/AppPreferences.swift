@@ -76,6 +76,9 @@ final class AppPreferences: ObservableObject {
         static func panelSurfaceTintOpacity(_ surface: PanelSurface) -> String {
             "qooViewer.pref.surface.\(surface.rawValue).tintOpacity"
         }
+        static func panelSurfaceContentShadowLevel(_ surface: PanelSurface) -> String {
+            "qooViewer.pref.surface.\(surface.rawValue).contentShadowLevel"
+        }
     }
 
     /// 入力ファイルなしで起動した場合(Finderでの直接オープンやDockアイコンへの
@@ -549,6 +552,7 @@ final class AppPreferences: ObservableObject {
         defaults.set(style.materialOpacity, forKey: Keys.panelSurfaceMaterialOpacity(surface))
         defaults.set(style.tintColor.hexString, forKey: Keys.panelSurfaceTintColor(surface))
         defaults.set(style.tintOpacity, forKey: Keys.panelSurfaceTintOpacity(surface))
+        defaults.set(style.contentShadowLevel, forKey: Keys.panelSurfaceContentShadowLevel(surface))
     }
 
     /// 保存済みの設定を読む。1つでも欠けていればその項目だけ既定値で補う
@@ -565,8 +569,12 @@ final class AppPreferences: ObservableObject {
         let tintOpacity =
             defaults.object(forKey: Keys.panelSurfaceTintOpacity(surface)) as? Double
             ?? fallback.tintOpacity
+        let contentShadowLevel =
+            defaults.object(forKey: Keys.panelSurfaceContentShadowLevel(surface)) as? Int
+            ?? fallback.contentShadowLevel
         return PanelSurfaceStyle(
-            materialOpacity: materialOpacity, tintColor: tintColor, tintOpacity: tintOpacity
+            materialOpacity: materialOpacity, tintColor: tintColor, tintOpacity: tintOpacity,
+            contentShadowLevel: contentShadowLevel
         )
     }
 

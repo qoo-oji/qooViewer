@@ -1051,6 +1051,7 @@ struct ViewerView: View {
                         .font(.callout)
                         .lineLimit(2)
                         .multilineTextAlignment(.center)
+                        .panelOutlinedContent()
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                         .panelSurfaceBackground(
@@ -1072,6 +1073,7 @@ struct ViewerView: View {
                     Text(verbatim: "\(zoomIndicatorPercent)%")
                         .font(.callout)
                         .monospacedDigit()
+                        .panelOutlinedContent()
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
                         .panelSurfaceBackground(
@@ -1139,6 +1141,7 @@ struct ViewerView: View {
                             // いる)が、念のためのフォールバック。SwiftUIの通常のView更新経路の
                             // ため、取得が完了すれば自動的にPageInfoPanelViewへ切り替わる。
                             Text("Loading…")
+                                .panelOutlinedContent()
                                 .padding(16)
                         }
                     }
@@ -1610,6 +1613,7 @@ struct ViewerView: View {
             Text(viewModel.displayTitle)
                 .font(.headline)
                 .lineLimit(1)
+                .panelOutlinedContent()
 
             Spacer()
 

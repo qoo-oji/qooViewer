@@ -38,6 +38,10 @@ struct PanelIconButtonLabel: ViewModifier {
             }
         }
         .font(.system(size: 15, weight: .medium))
+        // 面ごとの設定ぶんの輪郭(環境設定「外観」の「文字の影」)。ツールバー・プログレスバー・
+        // サイドパネルのアイコンボタンはすべてこの見た目を通るので、ここ1箇所で行き渡る
+        // (詳細はpanelOutlinedContentのコメント参照)。
+        .panelOutlinedContent()
         .frame(width: Self.width, height: Self.height)
         .background(
             RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)

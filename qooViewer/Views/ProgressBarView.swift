@@ -111,13 +111,19 @@ struct ProgressBarView: View {
     private var progressBar: some View {
         GeometryReader { geo in
             ZStack(alignment: isRightToLeft ? .trailing : .leading) {
+                // バーは外観に関わらず白で描いている。明るい面(重ね色を白にした場合など)の
+                // 上では白地に白で消えてしまうため、輪郭を掛ける。**色は黒を明示する** ――
+                // 既定の「文字色の反対色」はライト外観だと白になり、白いバーの輪郭にならない
+                // (panelOutlinedContentのcolor引数のコメント参照)。
                 RoundedRectangle(cornerRadius: barHeight / 2)
                     .fill(Color.white.opacity(0.15))
                     .frame(height: barHeight)
+                    .panelOutlinedContent(color: .black)
 
                 RoundedRectangle(cornerRadius: barHeight / 2)
                     .fill(Color.white.opacity(0.85))
                     .frame(width: progressWidth(in: geo.size.width), height: barHeight)
+                    .panelOutlinedContent(color: .black)
 
                 // クリックしたページへジャンプする。
                 // 背景に`Color.clear`を使うとSwiftUI(macOS)側でヒットテストが不安定になることが

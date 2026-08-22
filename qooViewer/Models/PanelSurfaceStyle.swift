@@ -48,6 +48,8 @@ enum PanelSurface: String, CaseIterable, Identifiable, Hashable {
     /// うえで調整できるようにしたい)。つまり、すりガラスは従来どおりの濃さ(1.0)で、
     /// 色は一切重ねない(tintOpacity = 0)。
     ///
+    /// 文字・アイコンの影も既定は0(なし)で、これも従来の描画と完全に一致する。
+    ///
     /// 色そのもの(tintColor)の既定を黒にしているのは、濃さを0から上げ始めたときに
     /// 「まず暗くなる」のがいちばん予想しやすいため(明るい色を既定にすると、
     /// スライダーを少し動かしただけでパネルが白飛びしたように見える)。
@@ -55,7 +57,8 @@ enum PanelSurface: String, CaseIterable, Identifiable, Hashable {
         PanelSurfaceStyle(
             materialOpacity: 1,
             tintColor: RGBColorValue(red: 0, green: 0, blue: 0),
-            tintOpacity: 0
+            tintOpacity: 0,
+            contentShadowLevel: 0
         )
     }
 }
@@ -85,11 +88,20 @@ struct PanelSurfaceStyle: Equatable, Hashable {
     /// 重ねる色の不透明度(0〜1)。0で色を重ねない(既定)。1にすると単色で塗りつぶされ、
     /// 結果としてすりガラスは見えなくなる。
     var tintOpacity: Double { didSet { tintOpacity = Self.clampedOpacity(tintOpacity) } }
+    /// この面に載る文字・アイコンの背後へ敷く影の強さ(0=なし〜5)。範囲外の値は丸められる。
+    /// 何のための設定かは`PanelContentShadow`のコメント参照。
+    var contentShadowLevel: Int {
+        didSet { contentShadowLevel = PanelContentShadow.clampedLevel(contentShadowLevel) }
+    }
 
-    init(materialOpacity: Double, tintColor: RGBColorValue, tintOpacity: Double) {
+    init(
+        materialOpacity: Double, tintColor: RGBColorValue, tintOpacity: Double,
+        contentShadowLevel: Int = 0
+    ) {
         self.materialOpacity = Self.clampedOpacity(materialOpacity)
         self.tintColor = tintColor
         self.tintOpacity = Self.clampedOpacity(tintOpacity)
+        self.contentShadowLevel = PanelContentShadow.clampedLevel(contentShadowLevel)
     }
 
     /// UserDefaultsを直接書き換えられていた場合に備えて、読み出し時にも0〜1へ丸める

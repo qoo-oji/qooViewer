@@ -164,6 +164,14 @@ struct SidePanelView: View {
                     .frame(width: effectiveWidth)
                     .frame(maxHeight: .infinity)
                     .transaction { $0.animation = nil }
+                    // 文字・アイコンの輪郭の太さを配る。他の4面はpanelSurfaceBackgroundが
+                    // 背景と一緒に面倒を見てくれるが、この面だけは背景がbackgroundではなく
+                    // overlayの兄弟なので、ここで直接配る(panelContentOutlineのコメント参照)。
+                    .panelContentOutline(
+                        width: PanelContentShadow.outlineWidth(
+                            forLevel: preferences.sidePanelSurfaceStyle.contentShadowLevel
+                        )
+                    )
             }
             // ドラッグの当たり判定を持つビュー(widthDragHitArea)自体は、レイアウト上も
             // 見た目上も一切動かさない(offsetも含めて)。ジェスチャーを載せているビュー
@@ -442,6 +450,7 @@ struct SidePanelView: View {
             Text(folderState.currentDirectory.map(DirectoryBrowser.displayName(for:)) ?? String(localized: "Computer"))
                 .font(.callout)
                 .foregroundStyle(.secondary)
+                .panelOutlinedContent()
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .padding(.horizontal, 8)
@@ -463,6 +472,7 @@ struct SidePanelView: View {
                     Text("This folder isn't accessible yet.")
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
+                        .panelOutlinedContent()
                     Button("Grant Access…") { folderState.requestFolderAccess() }
                 }
                 .padding()
@@ -561,6 +571,8 @@ struct SidePanelView: View {
             name: entry.displayName
         )
         .background(isHighlighted ? Color.accentColor.opacity(0.15) : Color.clear)
+        // 選択行のハイライトも、重ね色がアクセントカラーに近いと消える(同上)。
+        .panelOutlinedAccent(in: Rectangle(), isEnabled: isHighlighted)
 
         return Group {
             if entry.isDirectory {
@@ -601,9 +613,11 @@ struct SidePanelView: View {
             Image(systemName: icon)
                 .frame(width: 16)
                 .foregroundStyle(.secondary)
+                .panelOutlinedContent()
             Text(name)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .panelOutlinedContent()
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 8)
@@ -675,6 +689,7 @@ private struct BookContentsSectionView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .panelOutlinedContent()
                     .padding(.horizontal, 8)
                     .padding(.bottom, 6)
                     .help(locationName)
@@ -693,6 +708,7 @@ private struct BookContentsSectionView: View {
                     Text(errorMessage)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
+                        .panelOutlinedContent()
                         .padding()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -756,10 +772,15 @@ private struct BookContentsSectionView: View {
                 .truncationMode(.middle)
             Spacer(minLength: 0)
         }
+        // アイコンと文字だけのHStackなので、まとめて輪郭を掛けてよい
+        // (**背景を敷く前に**掛けること。後ろに回すとハイライトの地まで縁取られる)。
+        .panelOutlinedContent()
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .background(isHighlighted ? Color.accentColor.opacity(0.15) : Color.clear)
+        // 選択行のハイライトも、重ね色がアクセントカラーに近いと消える(同上)。
+        .panelOutlinedAccent(in: Rectangle(), isEnabled: isHighlighted)
 
         // 下段のコンテナ・画像はどちらも1つの意味しか持たない(上段のフォルダのような
         // 「移動する」「開く」の使い分けが無い)ため、設定に応じてクリック回数を
@@ -881,11 +902,22 @@ private struct SidePanelModeSwitcher: View {
                         // アイコンだけになったぶん、以前(13pt)より一回り大きくして
                         // 何のモードか判別しやすくする。
                         .font(.system(size: 15, weight: .medium))
+                        // 未選択のボタンは地が7%しかなく、実質パネルの上に直接アイコンが
+                        // 乗っているのと同じなので輪郭を掛ける。選択中は不透明なアクセント色の
+                        // 地があるため掛けない(掛けると縁だけ浮いて見える)。
+                        .panelOutlinedContent(isEnabled: !isSelected)
                         .frame(maxWidth: .infinity)
                         .frame(height: Self.buttonHeight)
                         .background(
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
                                 .fill(isSelected ? Color.accentColor : Color.primary.opacity(0.07))
+                        )
+                        // 重ね色をアクセントカラーに近い色にすると、選択中の地がパネルへ溶けて
+                        // どれが選ばれているか分からなくなる。縁取って区別を残す
+                        // (panelOutlinedAccentのコメント参照)。
+                        .panelOutlinedAccent(
+                            in: RoundedRectangle(cornerRadius: 6, style: .continuous),
+                            isEnabled: isSelected
                         )
                         .foregroundStyle(isSelected ? Color.white : Color.primary)
                         .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
@@ -942,6 +974,7 @@ private struct SidePanelFavoritesSectionView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .panelOutlinedContent()
                 .padding(.horizontal, 8)
                 .padding(.bottom, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1019,6 +1052,7 @@ private struct SidePanelFavoriteRow: View {
                 .truncationMode(.middle)
             Spacer(minLength: 0)
         }
+        .panelOutlinedContent()
         .padding(.leading, 8 + CGFloat(depth) * 12)
         .padding(.trailing, 8)
         .padding(.vertical, 4)
@@ -1051,6 +1085,7 @@ private struct SidePanelFavoriteRow: View {
                 .truncationMode(.middle)
             Spacer(minLength: 0)
         }
+        .panelOutlinedContent()
         .padding(.leading, 8 + CGFloat(depth) * 12)
         .padding(.trailing, 8)
         .padding(.vertical, 4)
@@ -1120,6 +1155,7 @@ private struct SidePanelBookmarksSectionView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .panelOutlinedContent()
                 .padding(.horizontal, 8)
                 .padding(.bottom, 6)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1158,6 +1194,7 @@ private struct SidePanelBookmarksSectionView: View {
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
         }
+        .panelOutlinedContent()
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .contentShape(Rectangle())
@@ -1235,6 +1272,7 @@ private struct SidePanelHistorySectionView: View {
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
+            .panelOutlinedContent()
             .padding(.horizontal, 8)
             .padding(.bottom, 6)
 
@@ -1292,6 +1330,7 @@ private struct SidePanelHistorySectionView: View {
                 .truncationMode(.middle)
             Spacer(minLength: 0)
         }
+        .panelOutlinedContent()
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .contentShape(Rectangle())
@@ -1371,6 +1410,7 @@ private struct SidePanelPagesSectionView: View {
                         .monospacedDigit()
                 }
             }
+            .panelOutlinedContent()
             .padding(.horizontal, 8)
             .padding(.top, 10)
             .padding(.bottom, 8)
@@ -1499,6 +1539,7 @@ private struct SidePanelPageCell: View {
                 .font(.callout)
                 .monospacedDigit()
                 .foregroundStyle(isCurrent ? Color.accentColor : Color.primary)
+                .panelOutlinedContent()
                 .lineLimit(1)
                 .frame(width: pageNumberWidth, alignment: .trailing)
 
@@ -1542,6 +1583,9 @@ private struct SidePanelPageCell: View {
             Text(displayName)
                 .font(.caption)
                 .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
+                // この行はサムネイル(画像)と同じHStackに入っているため、まとめて掛けられない。
+                // 文字とブックマーク印にだけ個別に掛ける。
+                .panelOutlinedContent()
                 // パネルは幅が狭く、ファイル名は長くなりがちなため2行まで折り返す。それでも
                 // 収まらない場合は中間を省略する(先頭も末尾も手がかりになるファイル名が多いため)。
                 .lineLimit(2)
@@ -1551,6 +1595,7 @@ private struct SidePanelPageCell: View {
                 Image(systemName: "bookmark.fill")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .panelOutlinedContent()
             }
             Spacer(minLength: 0)
         }
@@ -1658,6 +1703,7 @@ private struct SidePanelEmptyMessage: View {
             .font(.callout)
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
+            .panelOutlinedContent()
             .padding()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -1730,6 +1776,12 @@ private struct SidePanelSortMenu: View {
         // Menuは既定で横に伸びようとするため、ラベル(panelIconButtonLabel)の寸法へ固定する。
         // これがないと、隣の「Finderで表示」ボタンとの間隔が広がって見える。
         .fixedSize()
+        // 文字の影(環境設定「外観」)を、**ラベルの中ではなくMenu自体へ**掛ける。
+        // panelIconButtonLabelがラベル側で掛ける輪郭は、`.borderlessButton`のMenuでは
+        // 効かない ―― AppKitがラベルを描き直す際にSwiftUIの効果が落ちるらしく、白い面の上で
+        // このボタンだけ跡形もなく消えることを実測で確認した(他のボタンは輪郭が出ていた)。
+        // Menu全体へ掛ければ、描画済みの内容に対して効くため輪郭が出る。
+        .panelOutlinedContent()
         .help("Sort By")
     }
 }

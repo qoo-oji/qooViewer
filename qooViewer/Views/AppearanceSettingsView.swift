@@ -194,6 +194,15 @@ struct AppearanceSettingsView: View {
             ) { value in
                 "\(Int((value * 100).rounded()))%"
             }
+            SettingsSlider(
+                "Shadow Behind Text",
+                value: contentShadowLevelBinding(style),
+                in: Double(PanelContentShadow.range.lowerBound)...Double(PanelContentShadow.range.upperBound),
+                step: 1,
+                help: "Outlines the text and icons so they stay readable whatever is behind them — a dark panel color, or a page showing through. 1 is the tightest outline and 5 spreads the most."
+            ) { value in
+                PanelContentShadow.displayText(forLevel: Int(value.rounded()), locale: preferences.effectiveLocale)
+            }
         } header: {
             Text(surface.titleKey)
         }
@@ -236,6 +245,15 @@ struct AppearanceSettingsView: View {
     }
 
     // MARK: - ダイアログの読み書き
+
+    /// 影の段階(Int)を`SettingsSlider`が扱う`Double`に橋渡しする。段階そのものは整数で
+    /// 持っている(`PanelSurfaceStyle.contentShadowLevel`)ので、ここで丸めて往復させる。
+    private func contentShadowLevelBinding(_ style: Binding<PanelSurfaceStyle>) -> Binding<Double> {
+        Binding(
+            get: { Double(style.wrappedValue.contentShadowLevel) },
+            set: { style.wrappedValue.contentShadowLevel = Int($0.rounded()) }
+        )
+    }
 
     private func currentColor(for target: ColorTarget) -> RGBColorValue {
         switch target {
