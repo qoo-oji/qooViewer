@@ -45,6 +45,9 @@ struct QooViewerApp: App {
     /// 「新しいウインドウで開く」「新しいタブで開く」で、指定したURLを持つ新しいウインドウを
     /// SwiftUIに作らせるための仕組み(下の"book" WindowGroup参照)。
     @Environment(\.openWindow) private var openWindow
+    /// "main" WindowGroupの.handlesExternalEventsを起動後に空集合へ切り替えるためのフラグ
+    /// (そこのコメント参照)。mainウインドウが最初に表示された時点でtrueになる。
+    @State private var suppressesExternalEventWindows = false
 
     /// お気に入り・ブックマーク・読書履歴(BookReadingState)・ページレイアウト設定・
     /// 書誌メタデータ(BookMetadata)のスキーマ。
@@ -245,6 +248,9 @@ struct QooViewerApp: App {
             // 環境設定「シークレットモードで起動」に従う(ContentView.initのコメント参照)。
             contentWindow()
                 .onAppear {
+                    // 以後、SwiftUIが外部イベントを契機にウインドウを自動生成しないようにする
+                    // (下の.handlesExternalEventsのコメント参照)。
+                    suppressesExternalEventWindows = true
                     appDelegate.preferences = preferences
                     appDelegate.launchCoordinator = launchCoordinator
                     // Finderから別の本を開こうとしたとき(環境設定「Finderから開いたとき」が
@@ -282,6 +288,33 @@ struct QooViewerApp: App {
         // 独自のLastActiveBookStore/launchOpensLastBook設定で行っているため、影響を受けない。
         // ウインドウの位置・サイズの記憶も、ContentView側の自前のUserDefaultsベースの仕組み
         // 〈restoreMainWindowFrameIfNeeded〉によるもので、こちらも影響を受けない)。
+        // バグ修正(ユーザー報告): ウインドウをすべて閉じた状態(環境設定「最後のウインドウを
+        // 閉じたら終了」がOFF)で、Dockアイコンへのドロップ/Finderの「開く」で本を渡すと、
+        // application(_:open:)が自前で「book」ウインドウを開くのとは別に、SwiftUI自身が
+        // この"main" WindowGroupの空ウインドウを自動生成し、それを後始末で閉じるまでの間
+        // 一瞬表示されていた。
+        // SwiftUIは外部イベント(ファイル/URLの「開く」、NSUserActivity)を受け取ると、
+        // 「開いているシーン → .handlesExternalEvents(preferring:)を持つ開いているシーン →
+        // .handlesExternalEvents(matching:)が一致するシーン宣言 → **この修飾子を持たない最初の
+        // シーン宣言を新規作成**」の順で配送先を決める(handlesExternalEvents(matching:)の
+        // 公式ドキュメント参照)。このアプリは外部イベントをすべてAppDelegate.application(_:open:)
+        // で自前処理しており、SwiftUI側のonOpenURLには一切頼っていないので、すべてのSceneに
+        // この修飾子を付け、最後の「修飾子の無いシーンを新規作成」という既定動作そのものを
+        // 成立させなくする(空集合は「何にも一致しない」と明記されている)。
+        //
+        // ただし"main"だけは起動直後の間、"*"(何にでも一致)にしておく必要がある。
+        // ファイルをダブルクリックしてのコールド起動では、SwiftUIはその「開く」外部イベントで
+        // 起動時の初期シーンを決めているらしく、最初から全シーンが不一致だと初期ウインドウが
+        // 1つも作られず(.defaultLaunchBehavior(.presented)を付けても変わらなかった)、
+        // application(_:open:)が頼るopenInNewWindowOrTab(下のonAppearで登録)も未登録の
+        // まま本が開かれない状態になった(実機で確認)。そこで、mainウインドウが一度表示された
+        // 時点(onAppear)で空集合へ切り替える。それ以降は、ウインドウをすべて閉じてから本を
+        // 渡されても空ウインドウは作られず、application(_:open:)内の後始末(suspectBeforeOpenを
+        // 閉じる処理)は保険として残るだけになる。
+        // Dockアイコンのクリック(再オープン)は外部イベントではなく別経路
+        // (applicationShouldHandleReopen)なので、空集合にしてもSwiftUIは従来どおりこの
+        // "main"ウインドウを作る(実機で確認済み)。
+        .handlesExternalEvents(matching: suppressesExternalEventWindows ? [] : ["*"])
         .restorationBehavior(.disabled)
         .modelContainer(QooViewerApp.modelContainer)
         .commands {
@@ -935,6 +968,9 @@ struct QooViewerApp: App {
         // LaunchCoordinator.openAppState(forBookAt:)がそのゾンビ状態のAppStateを「まだ開いている
         // ウインドウ」と誤認してしまい、外部から本を開こうとしても新しいウインドウが正しく
         // 表示されない不具合があった)。
+        // SwiftUIに外部イベント(Finder/Dockからの「開く」、URL)を契機としたウインドウの自動生成を
+        // させない(下の"main" WindowGroupのコメント参照)。
+        .handlesExternalEvents(matching: [])
         .restorationBehavior(.disabled)
         .modelContainer(QooViewerApp.modelContainer)
         .environment(\.locale, locale)
@@ -960,6 +996,9 @@ struct QooViewerApp: App {
         // `.defaultSize`で既定サイズを与える(詳細は"main" WindowGroupのコメント参照)。
         .windowResizability(.automatic)
         .defaultSize(width: 900, height: 640)
+        // SwiftUIに外部イベント(Finder/Dockからの「開く」、URL)を契機としたウインドウの自動生成を
+        // させない(下の"main" WindowGroupのコメント参照)。
+        .handlesExternalEvents(matching: [])
         .restorationBehavior(.disabled)
         .modelContainer(QooViewerApp.modelContainer)
         .environment(\.locale, locale)
@@ -981,6 +1020,9 @@ struct QooViewerApp: App {
         .windowResizability(.automatic)
         .defaultSize(width: 900, height: 640)
         // 状態復元は"book"/"private"と同じ理由で無効化する。
+        // SwiftUIに外部イベント(Finder/Dockからの「開く」、URL)を契機としたウインドウの自動生成を
+        // させない(下の"main" WindowGroupのコメント参照)。
+        .handlesExternalEvents(matching: [])
         .restorationBehavior(.disabled)
         .modelContainer(QooViewerApp.modelContainer)
         .environment(\.locale, locale)
@@ -1034,6 +1076,7 @@ struct QooViewerApp: App {
                 .environmentObject(preferences)
                 .environment(\.locale, locale)
         }
+        .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
 
         // 「ブックマーク・レイアウトの編集」ウインドウ(独立ウインドウ、設計コンセプト4節)。
@@ -1055,6 +1098,7 @@ struct QooViewerApp: App {
                 .environmentObject(preferences)
                 .environment(\.locale, locale)
         }
+        .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
 
         // 5節: ブックマーク一括リネームウインドウ(新設)。4.4節の「一括リネーム」ボタンから、
@@ -1069,6 +1113,7 @@ struct QooViewerApp: App {
                 .environmentObject(preferences)
                 .environment(\.locale, locale)
         }
+        .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
 
         // 6節: JSONエクスポート/インポート用の独立ウインドウ。「ブックマーク・レイアウトの編集」と
@@ -1084,6 +1129,7 @@ struct QooViewerApp: App {
                 .environmentObject(preferences)
                 .environment(\.locale, locale)
         }
+        .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
 
         Window("Import Library Data", id: "libraryImport") {
@@ -1096,6 +1142,7 @@ struct QooViewerApp: App {
                 .environmentObject(preferences)
                 .environment(\.locale, locale)
         }
+        .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
 
         // 7節: EPUB出力専用ウインドウ。favoritesStoreは不要(お気に入りはEPUB出力の対象外)。
@@ -1107,6 +1154,7 @@ struct QooViewerApp: App {
                 .environmentObject(preferences)
                 .environment(\.locale, locale)
         }
+        .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
 
         // 「本ごとの保存データを削除」ウインドウ(独立ウインドウ)。環境設定「リセット」タブの
@@ -1122,6 +1170,7 @@ struct QooViewerApp: App {
                 .modelContainer(QooViewerApp.modelContainer)
                 .environment(\.locale, locale)
         }
+        .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
 
         // 「メタデータの編集」ウインドウ(独立ウインドウ)。「ブックマーク・レイアウトの編集」と
@@ -1142,6 +1191,7 @@ struct QooViewerApp: App {
                 .modelContainer(QooViewerApp.modelContainer)
                 .environment(\.locale, locale)
         }
+        .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
 
         // PDF出力専用ウインドウ。EPUB出力ウインドウと同じ構成(favoritesStoreは不要)。
@@ -1153,6 +1203,7 @@ struct QooViewerApp: App {
                 .environmentObject(preferences)
                 .environment(\.locale, locale)
         }
+        .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
 
         // CBZ出力専用ウインドウ。EPUB/PDF出力ウインドウと同じ構成(favoritesStoreは不要)。
@@ -1164,6 +1215,7 @@ struct QooViewerApp: App {
                 .environmentObject(preferences)
                 .environment(\.locale, locale)
         }
+        .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
     }
 
@@ -1847,7 +1899,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// ウインドウが本当に1つも無い場合(すべて閉じたあとDockアイコンをクリックした場合など)は
     /// 既定の動作(true)のままにし、新しいウインドウが開かれるようにする。
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        NSApp.windows.isEmpty
+        // バグ修正: 以前は`NSApp.windows.isEmpty`で判定していたが、環境設定「最後のウインドウを
+        // 閉じたら終了」がOFFの状態でウインドウをすべて閉じても、NSApp.windowsには
+        // macOSのテキスト入力UIが内部で作る不可視のウインドウ(`TUINSWindow`、タイトル無し)が
+        // 1つ残っていることが実機で確認された。そのためisEmptyは決してtrueにならず、
+        // Dockアイコンをクリックしても何も開かなかった(既定では同設定がONなのでウインドウを
+        // すべて閉じた時点でアプリ自体が終了し、気づきにくかった)。
+        // AppKitから渡されるhasVisibleWindowsも使わず(再アクティブ化のタイミングによって、
+        // こちらのウインドウが存在していてもfalseになることがあった。上のコメント参照)、
+        // 「可視または最小化されたウインドウが1つも無い」ことを自前で確認する。最小化された
+        // ウインドウを数に入れるのは、その上に新しいウインドウを重ねて開いてしまわないため。
+        !NSApp.windows.contains { $0.isVisible || $0.isMiniaturized }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -1923,9 +1985,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let suspectBeforeOpen = launchCoordinator?.primaryAppState
         openInNewWindowOrTab?(request, false, nil, true)
 
-        // AppKit/SwiftUIが既定動作として空のmainウインドウを自動生成すること自体は実機で
-        // 依然として起こりうる(以前と違い中身は正しく描画されるが、こちらが開いたbookウインドウ
-        // とは別に本を表示しない空ウインドウが残ってしまう)。この時点では「再利用できる
+        // AppKit/SwiftUIが既定動作として空のmainウインドウを自動生成する挙動は、各Sceneに
+        // `.handlesExternalEvents(matching: [])`を付けたことで実機では起こらなくなった
+        // ("main" WindowGroupのコメント参照)が、以下の後始末は保険として残している
+        // (以前は空ウインドウが一瞬表示されてから閉じられるのが見えていた)。この時点では「再利用できる
         // mainウインドウが無かった」ことが確定しているため、上で捕まえたsuspectBeforeOpenが
         // 空のまま(currentBook == nil)残っていれば、それはこの一連の処理の中でAppKitが勝手に
         // 作った余分なウインドウだと判断してよい。ただし、本の読み込みに時間がかかっている
