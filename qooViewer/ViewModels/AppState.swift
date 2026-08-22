@@ -30,7 +30,21 @@ final class AppState: ObservableObject {
     /// 環境設定)は通常どおり行う。書き込みを伴う操作のUI(メニュー・ツールバー・コンテキスト
     /// メニュー・サイドパネルの＋/鉛筆ボタン)は、このウインドウがフォーカス中はグレーアウトする。
     /// 各書き込み箇所のガードはこのフラグを直接参照している(grep "isPrivateWindow" /
-    /// "isPrivate")。新しい永続化経路を足すときは、ここに列挙したうえで同じガードを入れること。
+    /// "skipsPersistence")。新しい永続化経路を足すときは、ここに列挙したうえで同じガードを入れること。
+    ///
+    /// ■ 「その場限りの本」も同じ扱いになる
+    /// ユーザーが直接渡した画像ファイルから作った本(MangaBook.isTransient。1枚でも複数枚でも)は、
+    /// **通常ウインドウで開いていても上と同じものを一切書かない**。両者をORした値が
+    /// ViewerViewModel.skipsPersistence / AppState.open内のローカル変数skipsPersistenceで、
+    /// 実際のガードはそちらが担う。何を書かないかの一覧はこのコメントを正典とし、
+    /// なぜ書いてはいけないのかはMangaBook.BookOriginのコメントを参照。
+    /// ただし**フォルダのアクセス権(FolderAccessStore)だけは例外**で、本の記録ではなく
+    /// サンドボックスの権限そのものなので、どちらの場合も従来どおり付与・保存してよい。
+    ///
+    /// 一方、次の2つは**シークレットウインドウ固有**で、その場限りの本には適用しない
+    /// (混同すると、通常ウインドウでその場限りの本を開いた瞬間に履歴が消える):
+    /// - 履歴の**表示**を隠すこと(ウェルカム画面・サイドパネル・File › 最近開いたファイル)
+    /// - ウインドウタイトルの「(シークレット)」表記、主ウインドウの資格判定
     ///
     /// ■ 履歴の表示
     /// 記録しないだけでなく、シークレットウインドウでは(通常ウインドウで作られた)履歴も
@@ -44,6 +58,31 @@ final class AppState: ObservableObject {
 
     @Published var currentBook: MangaBook?
     @Published var errorMessage: String?
+
+    /// 本を開いた直後に表示したいページ。「同じフォルダの画像をすべて開く」
+    /// (openAllImagesInCurrentFolder)が、直前まで見ていた画像のページへ着地させるために使う。
+    ///
+    /// ページ番号ではなく`PageRef.id`(=ファイルのパス)で指定する。フォルダを読み直すと
+    /// ページ数も並びも変わるため、番号では意味を持たないため。
+    ///
+    /// **bookIDとの組にしてある。** pageIDだけだと「どの本向けの指定なのか」が失われ、
+    /// 読み込みに失敗したときや、待っている間にユーザーが別の本を開いたときに、
+    /// 関係のない本へ誤爆する。フォルダの本のidはフォルダのパスなので、開く前に確定できる。
+    ///
+    /// 消費するのはViewerView(生成時にViewerViewModelへ渡し、onAppearでclearする)。
+    /// ポーリングで待つ必要が無いので、既存のBookmarkListView.waitAndJump方式より確実。
+    @Published private(set) var pendingInitialPage: PendingInitialPage?
+
+    struct PendingInitialPage: Equatable {
+        let bookID: String
+        let pageID: String
+    }
+
+    /// ViewerViewが`pendingInitialPage`を受け取り終えたあと(onAppear)に呼ぶ。
+    /// 一度きりの指定なので、次に同じ本を開き直したときに再適用されないようここで捨てる。
+    func clearPendingInitialPage() {
+        pendingInitialPage = nil
+    }
     /// 現在開いている本と同じフォルダにある、他の本のURL一覧(現在の本自身は除く)。
     /// 「Fileメニュー」→「同じフォルダのファイルを開く」の一覧に使う。
     @Published private(set) var siblingBooks: [URL] = []
@@ -564,10 +603,14 @@ final class AppState: ObservableObject {
     /// このAppState自体が解放されるときに、直前の本のぶんを1回だけ閉じる。
     /// (BookLayoutEditorViewModel.deinitと同じく、閉じてもPageLoaderが既に開いている
     /// ファイルハンドルは無効にならないため、前の本の読み込みが残っていても影響しない。)
-    private var securityScopedBookURL: URL?
+    ///
+    /// 1冊がファイル1つとは限らない(Finderで複数選択された画像から組み立てた本)ため配列で持つ。
+    /// **成功したものだけ**を入れること。falseが返ったURLは何も消費していないので、閉じる対象にも
+    /// ならない(素のfile URLでは常にfalseになるため、通常この配列は空のままになる)。
+    private var securityScopedBookURLs: [URL] = []
 
     deinit {
-        securityScopedBookURL?.stopAccessingSecurityScopedResource()
+        securityScopedBookURLs.forEach { $0.stopAccessingSecurityScopedResource() }
     }
 
     /// NSOpenPanelでフォルダ、またはzip/rar/7z/pdfファイルを選ばせる
@@ -576,47 +619,90 @@ final class AppState: ObservableObject {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
+        // 画像は複数選択して1冊としてまとめて開ける(ユーザー要望)。画像以外を複数選んだ場合は
+        // 従来どおり先頭の1つだけを開く(判定はBookOpenRequestに集約)。
+        panel.allowsMultipleSelection = true
         panel.prompt = String(localized: "Open", locale: locale)
         panel.message = String(
-            localized: "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file.",
+            // 画像ファイルも開けるようになったため文面を更新。画像は複数選択して1冊にまとめられる
+            // (BookOpenRequest.init(openingCandidates:)参照)。
+            localized: "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, EPUB, or image file. Select multiple images to open them together as one book.",
             locale: locale
         )
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        open(url: url)
+        guard panel.runModal() == .OK else { return }
+        open(urls: panel.urls)
+    }
+
+    /// URLが1つ分かっている状態からの読み込み(次の本/前の本への移動、お気に入り・履歴からの
+    /// 復元、Fileメニューからの選択など)。実体はopen(request:)。
+    func open(url: URL) {
+        open(request: BookOpenRequest(url))
+    }
+
+    /// Finder / Dock / ドラッグ&ドロップ / NSOpenPanel から複数のURLが渡された場合の入口。
+    /// 分類(全部画像なら1冊にまとめる / それ以外は先頭だけ)はBookOpenRequestが1箇所で行う。
+    func open(urls: [URL]) {
+        guard let request = BookOpenRequest(openingCandidates: urls) else { return }
+        open(request: request)
     }
 
     /// ドラッグ&ドロップやFinderからの「開く」、次の本/前の本への移動、Fileメニューからの選択など、
-    /// URLが分かっている状態からの読み込みはすべてここを通る。
+    /// 開く対象が分かっている状態からの読み込みはすべてここを通る。
     ///
     /// フォルダの再帰スキャンやアーカイブの展開は時間がかかることがあるため、
     /// BookLoader.load自体がメインスレッド外で実行される(BookLoader.swiftのコメント参照)。
     /// このメソッド自体は同期のままにして呼び出し側(メニューのボタンアクションなど)を
     /// 変更せずに済むようにしつつ、内部でTaskを使って非同期の読み込みを待つ。
-    func open(url: URL) {
+    func open(request: BookOpenRequest) {
+        let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
+        // セキュリティスコープを実際に開き始める**前**に上限で頭を押さえる
+        // (BookOpenRequest.maxImageSelectionCountのコメント参照)。
+        guard request.urls.count <= BookOpenRequest.maxImageSelectionCount else {
+            errorMessage = String(
+                localized: "Too many images were selected. You can open up to \(BookOpenRequest.maxImageSelectionCount) images at once.",
+                locale: locale
+            )
+            return
+        }
         openTask?.cancel()
-        // 先に新しい本のぶんを開いてから、直前の本のぶんを閉じる(securityScopedBookURLの
+        // 先に新しい本のぶんを開いてから、直前の本のぶんを閉じる(securityScopedBookURLsの
         // コメント参照)。この順序なのは、同じ本をもう一度開いた場合に、閉じる→開くの順だと
         // アクセスが一瞬途切れてしまうため(startAccessingSecurityScopedResourceは参照
         // カウント式なので、先に開いておけばカウントが0になる瞬間が生じない)。
-        let didAccess = url.startAccessingSecurityScopedResource()
-        securityScopedBookURL?.stopAccessingSecurityScopedResource()
-        securityScopedBookURL = didAccess ? url : nil
-        let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
+        let newlyAccessedURLs = request.urls.filter { $0.startAccessingSecurityScopedResource() }
+        securityScopedBookURLs.forEach { $0.stopAccessingSecurityScopedResource() }
+        securityScopedBookURLs = newlyAccessedURLs
         // シークレットウインドウではページ一覧のディスクキャッシュも書かない
-        // (isPrivateWindowのコメント参照)。
+        // (isPrivateWindowのコメント参照)。画像ファイルを直接開く場合も同じで、こちらは
+        // 本が出来上がる前からその場限りの本になると分かっている(BookOpenRequest.opensImageFiles)。
         //
         // この値はTaskの**外で**取り出しておくこと。中で`!isPrivateWindow`と書くと、
         // `[weak self]`があっても暗黙のselfとして**強参照でも**捕捉され、下の
         // `guard let self`まで弱参照にした意味が無くなる(BookLoader.loadは書庫の全走査を
         // 伴い、未接続の外付け/ネットワークボリューム上の本では長く待つ。その間ずっと
         // このAppStateが解放できなくなる)。Swift 6言語モードではエラーにもなる。
-        let cachesPageList = !isPrivateWindow
+        let cachesPageList = !isPrivateWindow && !request.opensImageFiles
 
         openTask = Task { [weak self] in
             do {
-                let book = try await BookLoader.load(from: url, cachesPageList: cachesPageList)
+                let book: MangaBook
+                if request.bundlesMultipleImages {
+                    // その場限りの本。ページ一覧のキャッシュは意味を持たないためそもそも引数が無い
+                    // (BookLoader.load(imageFiles:)のコメント参照)。
+                    book = try await BookLoader.load(imageFiles: request.urls)
+                } else if let url = request.primaryURL {
+                    book = try await BookLoader.load(from: url, cachesPageList: cachesPageList)
+                } else {
+                    throw BookLoaderError.notFound
+                }
                 guard !Task.isCancelled, let self else { return }
+                // この本についてDBへ一切書かないかどうか。シークレットウインドウに加えて、
+                // **その場限りの本**(直接渡された画像から作った本)も同じ扱いにする。
+                // 複数枚をまとめた本のbookIDは実在パスではないため、下のreconcileBookIDIfMovedを
+                // 通すと、iノードが一致した既存のお気に入り/レイアウト/ブックマークのbookIDが
+                // その場限りのIDへ恒久的に書き換わり、復旧不能になる
+                // (詳細はMangaBook.BookOriginのコメント参照)。
+                let skipsPersistence = self.isPrivateWindow || book.isTransient
                 // ユーザー要望: お気に入り・レイアウト・ブックマークが、同一ボリューム内での
                 // ファイルの移動・リネームを引き継げるようにしたい。この本を開くたびに、現在の
                 // bookID(パス)でまだ見つからない登録済みデータがあれば、ファイルノード識別子
@@ -625,7 +711,7 @@ final class AppState: ObservableObject {
                 // では既に正しいbookIDでレイアウト/ブックマークが見つかる状態にしておく。
                 // シークレットウインドウでは、追従(bookIDの書き換え)も識別子の補完も既存行への
                 // 書き込みなので行わない(isPrivateWindowのコメント参照)。
-                if !self.isPrivateWindow {
+                if !skipsPersistence {
                     self.favoritesStore?.reconcileBookIDIfMoved(book: book)
                     self.layoutStore?.reconcileBookIDIfMoved(book: book)
                     self.bookmarkStore?.reconcileBookIDIfMoved(book: book)
@@ -636,13 +722,18 @@ final class AppState: ObservableObject {
                 // ブックマークもファイルノード識別子も持てていない。実際に本を開けた今なら
                 // どちらも取得できるため、ここで補完しておく(EPUB/PDF出力が、今開いていない
                 // 本の実ファイルへ到達するために必要)。
-                if !self.isPrivateWindow {
+                if !skipsPersistence {
                     self.metadataStore?.backfillIdentifiers(forBookID: book.id, sourceURL: book.sourceURL)
                 }
                 self.currentBook = book
                 self.errorMessage = nil
+                // 別の本向けだった指定(読み込み中にユーザーが他の本を開いた等)は捨てる。
+                if self.pendingInitialPage?.bookID != book.id {
+                    self.pendingInitialPage = nil
+                }
                 // シークレットウインドウで開いた本は「最近開いたファイル」に残さない(ユーザー要望)。
-                if !self.isPrivateWindow {
+                // その場限りの本も、そもそも1つのURLでは開き直せないため記録しない。
+                if !skipsPersistence, let url = request.primaryURL {
                     self.recentFiles?.record(url: url)
                 }
                 await self.refreshSiblingBooks()
@@ -650,6 +741,7 @@ final class AppState: ObservableObject {
                 guard !Task.isCancelled, let self else { return }
                 self.currentBook = nil
                 self.setSiblingBooks([])
+                self.pendingInitialPage = nil
                 self.errorMessage = (error as? LocalizedError)?.errorDescription
                     ?? String(localized: "The book could not be opened.", locale: locale)
             }
@@ -676,10 +768,10 @@ final class AppState: ObservableObject {
         openTask?.cancel()
         currentBook = nil
         setSiblingBooks([])
-        // 開いていた本のセキュリティスコープ付きアクセスを閉じる(securityScopedBookURLの
+        // 開いていた本のセキュリティスコープ付きアクセスを閉じる(securityScopedBookURLsの
         // コメント参照)。
-        securityScopedBookURL?.stopAccessingSecurityScopedResource()
-        securityScopedBookURL = nil
+        securityScopedBookURLs.forEach { $0.stopAccessingSecurityScopedResource() }
+        securityScopedBookURLs = []
     }
 
     /// 現在の本と同じフォルダにある他の本のURL一覧を取得し直す(「同じフォルダのファイルを開く」用)。
@@ -690,6 +782,76 @@ final class AppState: ObservableObject {
         }
         let all = await SiblingFinder.siblingBookURLsAsync(of: currentURL)
         setSiblingBooks(all.filter { $0.path != currentURL.path })
+    }
+
+    /// 今表示している画像と同じフォルダにある画像を、すべてまとめて1冊のフォルダの本として
+    /// 開き直す(ユーザー要望)。
+    ///
+    /// ■ なぜこの操作があるのか
+    /// 画像を直接開いた本は「その場限りの本」で、読書位置もレイアウトも記録されない
+    /// (MangaBook.BookOrigin.imageFiles参照)。この操作は、そこから**普通のフォルダの本**
+    /// (idが実在パスで、読書位置もお気に入りもブックマークも使える)へ移るための唯一の導線。
+    /// 逆に言えば、画像のドロップ側を単純なまま(=同じフォルダへ勝手に展開しない)に保てるのは、
+    /// この明示的な逃げ道があるからでもある。
+    ///
+    /// ■ 起点は「本のsourceURL」ではなく「今表示しているページ」
+    /// 複数枚の画像は複数のフォルダにまたがっていることがあり、本のsourceURLはその先頭1枚でしか
+    /// ない。今見ているページのフォルダを開くほうが、ユーザーの意図に一致する。
+    ///
+    /// ■ アクセス権
+    /// サンドボックスでは、画像を直接渡されてもその1枚ぶんの権限しか無く、親フォルダの列挙は
+    /// できない。権限が無いまま開くとBookLoader.loadFolderが1枚も見つけられずnoPages
+    /// (=「対応する画像が見つかりません」)になり、原因が分からないエラーになってしまうため、
+    /// **開く前に**許可を確認し、無ければパネルを出す。キャンセルされたら何もしない。
+    func openAllImagesInCurrentFolder() {
+        guard let pageURL = currentPageFileURL else { return }
+        let folderURL = pageURL.deletingLastPathComponent()
+        let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
+        let accessMessage = String(
+            localized: "To open all images in this folder, please select and grant access to this folder.",
+            locale: locale
+        )
+        guard ensureAccess(toFolder: folderURL, message: accessMessage) else { return }
+        // フォルダの本のidはフォルダのパスそのもの(BookLoader.loadFolder)なので、
+        // 開く前にpendingInitialPageの宛先を確定できる。
+        pendingInitialPage = PendingInitialPage(bookID: folderURL.path, pageID: pageURL.path)
+        open(url: folderURL)
+    }
+
+    /// 今表示しているページの実ファイルURL(そのページがフォルダ内の独立した画像の場合のみ)。
+    private var currentPageFileURL: URL? {
+        guard currentBookPages.indices.contains(currentPageIndex) else { return nil }
+        guard case .file(let url) = currentBookPages[currentPageIndex].source else { return nil }
+        return url
+    }
+
+    /// 指定フォルダを列挙できる状態を確保する。既に許可済み(またはその祖先が許可済み)なら
+    /// パネルを出さずにtrueを返す。
+    ///
+    /// 許可は環境設定の「アクセス権」タブと同じ仕組み(FolderAccessStore)へ追加するので、
+    /// ここで許可したフォルダも一箇所で確認・取り消しができる。セキュリティスコープ付き
+    /// ブックマークとして保存されるため次回起動以降も有効。
+    /// アクセスの開閉はFolderAccessStoreが一手に管理するため、**自前でstartAccessing…しないこと**
+    /// (以前それをやって対になるstopが漏れていた。FolderAccessStore.accessedURLsByPathのコメント参照)。
+    ///
+    /// - Parameter message: パネルに出す説明文。呼び出し元によって目的が違うため受け取る。
+    /// - Returns: 許可が得られたらtrue。ユーザーがパネルをキャンセルしたらfalse。
+    private func ensureAccess(toFolder folderURL: URL, message: String) -> Bool {
+        if let folderAccess, folderAccess.isPathCovered(folderURL) { return true }
+
+        let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = folderURL
+        panel.prompt = String(localized: "Grant Access", locale: locale)
+        panel.message = message
+        guard panel.runModal() == .OK, let grantedURL = panel.url else { return false }
+        _ = folderAccess?.add(url: grantedURL)
+        // ユーザーが親フォルダなど別の場所を選んだ場合でも、目的のフォルダが配下に入っていれば
+        // 列挙できる。入っていなければこの後の読み込みが素直にエラーになる。
+        return folderAccess?.isPathCovered(folderURL) ?? false
     }
 
     /// 「同じフォルダのファイルを開く」が常に空になってしまう場合の対処。
@@ -705,38 +867,15 @@ final class AppState: ObservableObject {
         guard let currentURL = currentBook?.sourceURL else { return }
         let parent = currentURL.deletingLastPathComponent()
 
-        // 既にこのフォルダ(またはその祖先)がアクセス許可済みなら、パネルを出す必要はない
-        // (macOSのサンドボックスでは、フォルダへの許可はその配下すべてに及ぶため)。
-        // 通常はこの状態なら「同じフォルダのファイルを開く」に一覧が表示されており、
-        // このメソッド自体が呼ばれることはないはずだが、念のための保険として用意している。
-        if let folderAccess, folderAccess.isPathCovered(parent) {
-            Task { [weak self] in
-                await self?.refreshSiblingBooks()
-            }
-            return
-        }
-
+        // 既に許可済みならensureAccessがパネルを出さずにtrueを返す。通常その状態なら
+        // 「同じフォルダのファイルを開く」に一覧が出ておりこのメソッド自体が呼ばれないはずだが、
+        // 念のため一覧を取り直しておく(保険)。
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
-
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.directoryURL = parent
-        panel.prompt = String(localized: "Grant Access", locale: locale)
-        panel.message = String(
+        let accessMessage = String(
             localized: "To show files in the same folder, please select and grant access to this folder.",
             locale: locale
         )
-        guard panel.runModal() == .OK, let folderURL = panel.url else { return }
-
-        // アクセスの開閉はFolderAccessStoreが一手に管理する(以前はここでも
-        // startAccessingSecurityScopedResource()を呼んでいたが、対になるstopが無く
-        // 漏れていた。FolderAccessStore.accessedURLsByPathのコメント参照)。
-        // 環境設定の「アクセス権」タブと同じ仕組み(FolderAccessStore)に許可を追加する。
-        // こうしておくと、ここで許可したフォルダも「アクセス権」タブの一覧に表示され、
-        // 一箇所で管理・取り消しができるようになる。
-        folderAccess?.add(url: folderURL)
+        guard ensureAccess(toFolder: parent, message: accessMessage) else { return }
 
         Task { [weak self] in
             await self?.refreshSiblingBooks()
@@ -806,6 +945,15 @@ struct MenuCheckmarkState: Equatable {
     /// 編集)のグレーアウトと、「最近開いたファイル」を空にする判定に使う。ウェルカム画面の
     /// ウインドウでも値が必要なので、ViewerViewではなくContentViewが常に詰める。
     var isPrivateWindow = false
+    /// フォーカス中のウインドウが「その場限りの本」(MangaBook.isTransient)を表示しているかどうか。
+    /// 書き込みを伴う項目のグレーアウトにはisPrivateWindowとORして使う。
+    /// **「最近開いたファイル」を空にする判定には使わない** — その場限りの本を開いていても
+    /// 履歴そのものは通常どおり見せる(AppState.isPrivateWindowのコメント参照)。
+    ///
+    /// 書き込み系のグレーアウトに加えて、Fileメニューの「このフォルダの画像をすべて開く」の
+    /// 有効/無効にも使う(その本が画像を直接開いた本のときだけ意味のある操作のため。
+    /// AppState.openAllImagesInCurrentFolder参照)。
+    var isTransientBook = false
     var hideToolbar = false
     var hideProgressBar = false
     var hideSidePanel = false

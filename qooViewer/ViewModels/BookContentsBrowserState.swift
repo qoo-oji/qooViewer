@@ -58,6 +58,9 @@ final class BookContentsBrowserState: ObservableObject {
 
     private static func displayName(for level: BookEntryLevel) -> String? {
         switch level {
+        case .imageFileList:
+            // 常にルート階層のみ(踏み込めない)ため、そもそもここへ来ない。
+            return nil
         case .folder(let url):
             return DirectoryBrowser.displayName(for: url)
         case .archive(_, _, let prefix, let matchKeyPrefix):
@@ -80,11 +83,27 @@ final class BookContentsBrowserState: ObservableObject {
         }
     }
 
-    /// 本がフォルダ、または対応アーカイブ形式(zip/cbz/rar/cbr/7z/cb7)でなければnilを返す
-    /// (呼び出し元はnilならこの状態オブジェクト自体を保持せず、下段セクションを表示しない)。
+    /// 本がフォルダ、対応アーカイブ形式(zip/cbz/rar/cbr/7z/cb7)、または直接渡された画像ファイル
+    /// のいずれでもなければnilを返す(呼び出し元はnilならこの状態オブジェクト自体を保持せず、
+    /// 下段セクションを表示しない)。
     /// PDF/EPUBはページがファイル単位で存在しない、またはzipコンテナの生の中身を見せても
     /// かえって分かりづらいため非対応(SidePanelViewのコメントも参照)。
     init?(book: MangaBook) {
+        // 直接渡された画像ファイルの本(ユーザー要望)。sourceURLは先頭1ページの画像でしかなく
+        // フォルダでも書庫でもないため、以下のsourceURLを見る判定には掛けられない。
+        // 辿るべき中身の階層が無いので、渡された画像そのものを平坦な1階層として見せる。
+        if book.origin == .imageFiles {
+            currentLevel = .imageFileList(book.pages.compactMap { page in
+                guard case .file(let url) = page.source else { return nil }
+                return url
+            })
+            currentOrigin = nil
+            rootLevel = currentLevel
+            rootOrigin = nil
+            reload()
+            return
+        }
+
         let url = book.sourceURL
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return nil }
@@ -152,6 +171,8 @@ final class BookContentsBrowserState: ObservableObject {
     private func openContainer(
         _ target: BookInternalBrowsing.NavigateTarget, from level: BookEntryLevel, origin: ArchiveOrigin?
     ) throws -> (BookEntryLevel, ArchiveOrigin?)? {
+        // .imageFileListの階層はコンテナを1件も含まない(navigateTargetが常にnil)ため、
+        // ここへ辿り着くことはない。
         switch target {
         case .realFolder(let url):
             return (.folder(url), nil)

@@ -10,8 +10,10 @@ import AppKit
 /// 丸ごと入れ替わる。
 ///
 /// **ブラウザモード**(既定): 上段(folderState、フォルダブラウザ)は常に表示し、下段
-/// (bookContentsState、本の中身ブラウザ)は本を開いていて対応フォーマット(フォルダ、または
-/// zip/cbz/rar/cbr/7z/cb7)のときだけ、ドラッグでサイズ調整可能な形で追加表示する。
+/// (bookContentsState、本の中身ブラウザ)は本を開いていて対応フォーマット(フォルダ、
+/// zip/cbz/rar/cbr/7z/cb7、または直接渡された画像ファイル)のときだけ、ドラッグでサイズ
+/// 調整可能な形で追加表示する。画像ファイルの本は辿るべき階層が無いため、渡された画像
+/// そのものが平坦な1階層として並ぶ(BookEntryLevel.imageFileList参照)。
 /// PDF/EPUBはページがファイル単位で存在しない、またはzipコンテナの生の中身を見せても
 /// かえって分かりづらいため下段は非表示のまま(BookContentsBrowserState.init?がnilを返す)。
 ///
@@ -79,10 +81,19 @@ struct SidePanelView: View {
     /// 本を開いていないときはloadPageThumbnailがnilになる。
     var loadPageThumbnail: ((Int) async -> CGImage?)?
     /// このパネルを載せているウインドウがシークレットウインドウかどうか(AppState.isPrivateWindow)。
-    /// trueなら履歴モードは一覧を出さず、お気に入り/ブックマークの＋(追加)・鉛筆(編集)ボタンを
-    /// 無効にする(書き込みを伴う操作のため)。一覧からのジャンプ・お気に入りを開く操作は読み取り
-    /// なので通常どおり。
+    /// trueなら履歴モードは一覧を出さない(ユーザー要望: シークレットウインドウでは通常ウインドウで
+    /// 作られた履歴も見せない)。
+    ///
+    /// **＋/鉛筆ボタンの無効化はこちらではなくallowsLibraryEditingが担う。** 以前はこの1つの値が
+    /// 「履歴を隠す」と「編集ボタンを無効にする」の両方を兼ねていたが、その場限りの本
+    /// (MangaBook.isTransient)の導入で条件が食い違うようになったため分けた。ここへ単純にORして
+    /// しまうと、**通常ウインドウでその場限りの本を開いた瞬間にサイドパネルの履歴が消える**。
     var isPrivateWindow: Bool = false
+    /// お気に入り/ブックマークの＋(追加)・鉛筆(編集)ボタンを使えるかどうか。
+    /// falseになるのは、シークレットウインドウか、その場限りの本を開いているとき
+    /// (どちらもDBへ書けないため。ViewerViewModel.skipsPersistenceと同じ条件)。
+    /// 一覧からのジャンプ・お気に入りを開く操作は読み取りなので、falseでも通常どおり使える。
+    var allowsLibraryEditing: Bool = true
     /// ページモードのサムネイルをホバーしたときの拡大プレビュー用のフル解像度画像取得
     /// (AppState.loadPageImage)。loadPageThumbnailと同時に登録・解除される。
     var loadPageImage: ((Int) async -> CGImage?)?
@@ -237,7 +248,7 @@ struct SidePanelView: View {
                     favoritesStore: favoritesStore,
                     expandedFolderIDs: $expandedFavoriteFolderIDs,
                     hasBook: hasBook,
-                    allowsEditing: !isPrivateWindow,
+                    allowsEditing: allowsLibraryEditing,
                     onAdd: onAddFavorite,
                     onEdit: onEditFavorites,
                     onOpen: onOpenFavorite
@@ -249,7 +260,7 @@ struct SidePanelView: View {
                     bookmarks: bookmarks,
                     currentPageIndex: currentPageIndex,
                     hasBook: hasBook,
-                    allowsEditing: !isPrivateWindow,
+                    allowsEditing: allowsLibraryEditing,
                     onAdd: onAddBookmark,
                     onEdit: onEditBookmarks,
                     onJump: onJumpToBookmark
@@ -816,7 +827,7 @@ private struct SidePanelFavoritesSectionView: View {
     @ObservedObject var favoritesStore: FavoritesStore
     @Binding var expandedFolderIDs: Set<UUID>
     var hasBook: Bool
-    /// falseならシークレットウインドウ(SidePanelView.isPrivateWindow参照)。追加・編集ボタンを無効にする。
+    /// falseなら追加・編集ボタンを無効にする(SidePanelView.allowsLibraryEditing参照)。
     var allowsEditing: Bool
     var onAdd: () -> Void
     var onEdit: () -> Void
@@ -975,7 +986,7 @@ private struct SidePanelBookmarksSectionView: View {
     var bookmarks: [Bookmark]
     var currentPageIndex: Int
     var hasBook: Bool
-    /// falseならシークレットウインドウ(SidePanelView.isPrivateWindow参照)。追加・編集ボタンを無効にする。
+    /// falseなら追加・編集ボタンを無効にする(SidePanelView.allowsLibraryEditing参照)。
     var allowsEditing: Bool
     var onAdd: () -> Void
     var onEdit: () -> Void

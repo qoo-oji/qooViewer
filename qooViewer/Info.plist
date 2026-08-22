@@ -44,6 +44,40 @@
 				<string>public.folder</string>
 			</array>
 		</dict>
+		<!--
+		  画像ファイルを単体/複数選択でDockアイコンやウェルカム画面へドロップして開けるように
+		  するための宣言(ユーザー要望)。上のFolderエントリと同じく、Dockは
+		  CFBundleDocumentTypes に宣言された型しか受け付けない。
+		  - LSItemContentTypes(public.image 等のUTI)ではなく CFBundleTypeExtensions を使う。
+		    webp/avif はUTIでの取りこぼしが起こりうるのに対し、拡張子指定なら確実に拾えるため。
+		    一覧は Services/ArchiveReading.swift の imageExtensions と一致させること
+		    (片方だけ増やすと「Finderからは開けるがフォルダ走査では無視される」等の食い違いになる)。
+		  - **同じdictにLSItemContentTypesを併記しないこと。** UTI側が優先されて拡張子側が
+		    無視されるため。
+		  - LSHandlerRank None: 「開けるが既定のハンドラ候補にはならない」。画像の既定アプリを
+		    プレビュー.appから奪ってしまわないため(Folderエントリと同じ配慮)。
+		-->
+		<dict>
+			<key>CFBundleTypeExtensions</key>
+			<array>
+				<string>jpg</string>
+				<string>jpeg</string>
+				<string>png</string>
+				<string>gif</string>
+				<string>bmp</string>
+				<string>webp</string>
+				<string>heic</string>
+				<string>tif</string>
+				<string>tiff</string>
+				<string>avif</string>
+			</array>
+			<key>CFBundleTypeName</key>
+			<string>Image</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>None</string>
+		</dict>
 	</array>
 </dict>
 </plist>

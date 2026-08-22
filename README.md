@@ -1,6 +1,6 @@
 # qooViewer
 
-macOS向けの漫画ビューアアプリです。フォルダ、zip/cbz、rar/cbr、7z/cb7、PDF、EPUB(固定レイアウトの画像ベースのコミックEPUBのみ)に対応しています。
+macOS向けの漫画ビューアアプリです。フォルダ、zip/cbz、rar/cbr、7z/cb7、PDF、EPUB(固定レイアウトの画像ベースのコミックEPUBのみ)、および画像ファイルそのものに対応しています。
 cooViewer (https://github.com/coo-ona/cooViewer) を参考に、その操作性・機能を元に作られています。 素晴らしいアプリを公開してくださった作者の coo-ona 氏に感謝します。
 
 ## ⚠️ 初回起動時の注意(開発者公証について)
@@ -37,7 +37,8 @@ macOS 15 (Sequoia) 以降
 ## できること
 
 - フォルダ / zip・cbz / rar・cbr / 7z・cb7 / PDF / EPUB(固定レイアウトの画像ベースのコミックEPUBのみ)に対応
-- 対応する画像フォーマット(フォルダ・アーカイブ内): JPEG(jpg/jpeg) / PNG / GIF / BMP / WebP / HEIC / TIFF(tif/tiff) / AVIF
+- 対応する画像フォーマット: JPEG(jpg/jpeg) / PNG / GIF / BMP / WebP / HEIC / TIFF(tif/tiff) / AVIF
+- 画像ファイルをそのまま開く(Finderで複数選択した画像はまとめて1冊として開く。ファイル名順)。この場合はアプリ側の記録(読書位置・レイアウト・ブックマーク・お気に入り・メタデータ・履歴)を一切残さない
 - EPUB形式で書き出す機能(フォルダ / zip・cbz / rar・cbr / 7z・cb7形式、かつブックマークもしくはページレイアウトを設定していること)
 - 見開き表示 / 単ページ表示の切り替え、横長画像の自動単ページ化
 - 右開き(日本式) / 左開き(欧米式)の切り替え。EPUBがpage-progression-direction等で読み方向・
@@ -223,6 +224,11 @@ qooViewerは日本語とEnglishを切り替えられます(環境設定の「一
    Extensions ではなく「Types」(Identifier)に `public.folder` を登録します(Name は例: "Folder"、Role は
    "Viewer")。Finder のフォルダの既定の開き方を乗っ取らないよう、`Info.plist` 上でこの項目の
    `LSHandlerRank` を `None` にしておきます(リポジトリ同梱の `qooViewer/Info.plist` がその形になっています)
+5. 画像ファイルも同様に開けるようにするには、さらにもう1つ Document Type を追加し、Extensions に
+   `jpg` `jpeg` `png` `gif` `bmp` `webp` `heic` `tif` `tiff` `avif` の10個を登録します(Name は例: "Image"、
+   Role は "Viewer")。プレビュー.app から画像の既定アプリを奪ってしまわないよう、こちらも
+   `LSHandlerRank` を `None` にしておきます。`public.image` などのUTIではなく拡張子で指定しているのは、
+   webp/avif がUTI指定では取りこぼされることがあるためです
 
 ### rarファイル名の文字化けを解消する(任意)
 
@@ -236,8 +242,8 @@ qooViewerは日本語とEnglishを切り替えられます(環境設定の「一
 ### ビルド&実行
 
 1. 画面左上の実行ボタン(▶)か `Cmd + R`
-2. ウィンドウが開いたら「開く…」から、漫画のフォルダ、またはzip/cbz・rar/cbr・7z/cb7・PDF・EPUBファイルを選ぶ
-   (ウインドウへのドラッグ&ドロップでも開けます)
+2. ウィンドウが開いたら「開く…」から、漫画のフォルダ、またはzip/cbz・rar/cbr・7z/cb7・PDF・EPUB・画像ファイルを選ぶ
+   (ウェルカム画面へのドラッグ&ドロップでも開けます。画像は複数選択するとまとめて1冊になります)
 
 ## ライセンス
 

@@ -39,10 +39,20 @@ enum SecurityScopedHandoff {
     /// `url`のセキュリティスコープを開き、猶予のあとに必ず閉じる。
     /// 開けなかった場合(スコープ付きでない素のfile URLなど)は何もしない。
     static func begin(_ url: URL) {
-        guard url.startAccessingSecurityScopedResource() else { return }
+        begin([url])
+    }
+
+    /// 複数のURLをまとめて開く(Finderで複数選択された画像を1冊として新しいウインドウ/タブへ
+    /// 渡す場合)。開けたものだけをまとめて、**猶予後に1本のTaskで**閉じる。
+    ///
+    /// **1件ずつbegin(_:)をループで呼ばないこと。** URL 1つにつきTaskを1本作ることになり、
+    /// 数百枚の選択では数百本のTaskが猶予時間(10秒)のあいだ生き残ってしまう。
+    static func begin(_ urls: [URL]) {
+        let accessedURLs = urls.filter { $0.startAccessingSecurityScopedResource() }
+        guard !accessedURLs.isEmpty else { return }
         Task { @MainActor in
             try? await Task.sleep(for: releaseDelay)
-            url.stopAccessingSecurityScopedResource()
+            accessedURLs.forEach { $0.stopAccessingSecurityScopedResource() }
         }
     }
 }

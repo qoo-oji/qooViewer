@@ -21,6 +21,11 @@ nonisolated enum BookEntryLevel {
     /// 誤って「新しい本として開く」フォールバックに落ちてしまうため、両者は必ず
     /// 同じロジックを保つ必要がある。
     case archive(reader: ArchiveReading, allPaths: [String], prefix: String, matchKeyPrefix: String?)
+    /// ユーザーが直接渡した画像ファイル(MangaBook.BookOrigin.imageFiles)そのものの一覧。
+    /// この本には辿るべき「中身の階層」が存在しないため、常にこの1階層だけで完結し、
+    /// 踏み込む(navigate)ことも1階層上がることもない。
+    /// 並びは**本のページ順のまま**保持する(BookInternalBrowsing.entries参照)。
+    case imageFileList([URL])
 }
 
 /// 本の内部(フォルダ本ならその配下、アーカイブ本ならその中身、そこから踏み込んだネスト
@@ -69,6 +74,29 @@ nonisolated enum BookInternalBrowsing {
             return try folderEntries(in: url, sortOrder: sortOrder)
         case .archive(_, let allPaths, let prefix, let matchKeyPrefix):
             return archiveEntries(allPaths: allPaths, prefix: prefix, matchKeyPrefix: matchKeyPrefix, sortOrder: sortOrder)
+        case .imageFileList(let urls):
+            return imageFileEntries(urls)
+        }
+    }
+
+    /// 直接渡された画像ファイルの一覧。
+    ///
+    /// **sortOrderを適用せず、渡された順(=本のページ順)のまま返す。** この階層に並ぶのは
+    /// 「今開いている本のページそのもの」であり、ビューアに表示されている順と一覧の順が
+    /// 食い違うほうが分かりにくいため。フォルダをまたいで選択された場合、ファイル名だけで
+    /// 並べ直すとページ順と一致しなくなる(本のページ順はフルパスの自然順。
+    /// BookOpenRequest.init(openingCandidates:)参照)。フォルダが1件も混ざらないので
+    /// foldersFirstとmixedByNameの区別も元々意味を持たない。
+    ///
+    /// matchKeyはフルパス。BookLoaderが画像の本のPageRefへ入れるsortKeyと同じもので、
+    /// これが一致することでクリック時にそのページへジャンプできる
+    /// (BookContentsBrowserState.resolveImageClick参照)。
+    private static func imageFileEntries(_ urls: [URL]) -> [Entry] {
+        urls.map { url in
+            Entry(
+                id: url.path, displayName: url.lastPathComponent, isContainer: false, isImage: true,
+                matchKey: url.path, navigateTarget: nil
+            )
         }
     }
 

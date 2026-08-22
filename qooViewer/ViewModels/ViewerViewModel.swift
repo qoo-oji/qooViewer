@@ -101,15 +101,23 @@ final class ViewerViewModel: ObservableObject {
 
     private let modelContext: ModelContext
     /// この本の読書状態。通常はSwiftDataに挿入済みの行(変更は自動保存の対象)だが、
-    /// シークレットウインドウ(isPrivate)では**どのModelContextにも挿入しない**独立した
+    /// skipsPersistenceのときは**どのModelContextにも挿入しない**独立した
     /// インスタンス。ModelContextの自動保存はコンテキストに属するオブジェクトだけを書くので、
     /// 挿入しなければ好きに書き換えても何も残らない(persistStateのガードと二重の安全策)。
     private let readingState: BookReadingState
-    /// シークレットウインドウ(AppState.isPrivateWindow)で開いた本かどうか。
+    /// この本について、アプリ側の記録をDBへ一切書いてはいけないかどうか。
     /// trueのとき、このクラスの永続化経路(読書状態・ブックマーク追加・レイアウト書き込み・
-    /// EPUB/PDF/ComicInfoからの自動取り込み)はすべて何もしない。何を書かないかの全体像は
-    /// AppState.isPrivateWindowのコメント参照。
-    let isPrivate: Bool
+    /// EPUB/PDF/ComicInfoからの自動取り込み・ディスクサムネイルキャッシュ)はすべて何もしない。
+    ///
+    /// 成立する条件は2つあり、ViewerView.initが両者をORして渡す:
+    /// - シークレットウインドウ(AppState.isPrivateWindow)で開いた本
+    /// - その場限りの本(MangaBook.isTransient。ユーザーが直接渡した画像ファイルから作った本。
+    ///   1枚でも複数枚でも記録を残さない。理由はBookOriginのコメント参照)
+    ///
+    /// 何を書かないかの全体像はAppState.isPrivateWindowのコメントが正典。
+    /// なお、このクラスにある`ephemeralBookmarks`/`ephemeralMetadata`は名前が似ているが**別概念**で、
+    /// 「DBへ書かない代わりにファイル由来の情報をメモリへ置く」補償用の入れ物。混同しないこと。
+    let skipsPersistence: Bool
     /// シークレットウインドウ専用: ファイル自身(EPUB目次・PDFアウトライン・ComicInfo.xml)から
     /// 取り込んだブックマークの、**メモリ上だけの**置き場。通常はDBへ挿入するところを、
     /// シークレットウインドウではどのModelContextにも入れずにここへ溜め、reloadBookmarks()が
@@ -259,15 +267,20 @@ final class ViewerViewModel: ObservableObject {
     /// デバウンス待ちの間に受け取ったfocusPageKey(複数あれば最後の非nilを採用する)。
     private var pendingLayoutReloadFocusPageKey: String?
 
+    /// - Parameter initialPageID: 開いた直後に表示したいページの`PageRef.id`(=ファイルのパス)。
+    ///   「同じフォルダの画像をすべて開く」が、直前まで見ていた画像のページへ着地させるために使う
+    ///   (AppState.pendingInitialPage参照)。ページ番号ではなくIDなのは、フォルダを読み直すと
+    ///   ページ数も並びも変わるため。見つからなければ何も指定しなかったのと同じ扱いにする。
     init(
         book incomingBook: MangaBook, modelContext: ModelContext, preferences: AppPreferences,
-        layoutStore: LayoutStore, metadataStore: BookMetadataStore, isPrivate: Bool = false
+        layoutStore: LayoutStore, metadataStore: BookMetadataStore, skipsPersistence: Bool = false,
+        initialPageID: String? = nil
     ) {
         self.modelContext = modelContext
         self.preferences = preferences
         self.layoutStore = layoutStore
         self.metadataStore = metadataStore
-        self.isPrivate = isPrivate
+        self.skipsPersistence = skipsPersistence
 
         // 差し替え検知(2.5節)を先に済ませる。指紋の照合はファイルへの問い合わせを伴うため、
         // ここで1回だけ行い、結果をprepareBookへ渡して二重に走らせない。
@@ -276,7 +289,7 @@ final class ViewerViewModel: ObservableObject {
         // 解決(resolveLayoutReplacement: 既存データの採用=指紋の更新/破棄=行の削除)はどちらも
         // DBへの書き込みで、シークレットウインドウでは行えないため、確認ダイアログを出しても
         // 答えようがない。保存済みレイアウトをそのまま(読み取り専用で)適用して表示する。
-        let replacementStatus: LayoutContentReplacementStatus = isPrivate
+        let replacementStatus: LayoutContentReplacementStatus = skipsPersistence
             ? .unaffected : layoutStore.checkContentReplacement(book: incomingBook)
 
         // ユーザー要望: EPUB/PDFがファイル自身に持っているレイアウト情報(読み方向・見開き強制・
@@ -289,7 +302,7 @@ final class ViewerViewModel: ObservableObject {
         // 取り込んでしまうと、ユーザーがまだ何も答えていないうちに、疑わしい既存の行へ
         // 新しいファイルのページ単位の指定が混ざる。解決後に改めて取り込む
         // (resolveLayoutReplacement参照)。
-        if replacementStatus == .unaffected, !isPrivate {
+        if replacementStatus == .unaffected, !skipsPersistence {
             layoutStore.importSourceLayoutIfNeeded(for: incomingBook)
         }
 
@@ -322,7 +335,7 @@ final class ViewerViewModel: ObservableObject {
         self.isContrastCorrectionEnabled = initialContrastCorrectionEnabled
         self.pageLoader = PageLoader(
             book: preparedBook, contrastCorrectionEnabled: initialContrastCorrectionEnabled,
-            usesThumbnailDiskCache: !isPrivate
+            usesThumbnailDiskCache: !skipsPersistence
         )
 
         let bookID = preparedBook.id
@@ -364,7 +377,7 @@ final class ViewerViewModel: ObservableObject {
         let isReturningToKnownBook = existingState != nil
 
         let state: BookReadingState
-        if isPrivate {
+        if skipsPersistence {
             // シークレットウインドウ: DBの行には一切触れない。保存済みの読書位置・表示設定が
             // あればそれを初期値として**コピー**した、どのコンテキストにも属さないインスタンスを
             // 使う(readingStateのコメント参照)。差し替えの疑いがある行の削除も、件数上限による
@@ -423,17 +436,29 @@ final class ViewerViewModel: ObservableObject {
         let wasOnLastPage = preparedBook.pages.count > 0 && restoredIndex >= preparedBook.pages.count - 1
         let initialIndex: Int
         var needsConfirmation = false
-        switch preferences.reopenBehavior {
-        case .resume:
-            initialIndex = restoredIndex
-        case .alwaysFromStart:
-            initialIndex = 0
-        case .fromStartIfFinishedLastTime:
-            initialIndex = wasOnLastPage ? 0 : restoredIndex
-        case .ask:
-            // 前回位置がすでに先頭(0)なら、尋ねるまでもなくそのまま先頭から表示する。
-            initialIndex = restoredIndex
-            needsConfirmation = isReturningToKnownBook && restoredIndex > 0
+        // 呼び出し側から表示したいページが指定されている場合は、そちらを最優先する。
+        // prepareBookの**後**に探すこと(prepareBookは除外設定のあるページを取り除くため、
+        // 生のページ一覧で探すと存在しないページを指してしまう)。以前そのフォルダを読んでいて
+        // このページを除外設定していた場合は見つからないので、その場合は通常の判定へ落とす。
+        if let initialPageID,
+           let requestedIndex = preparedBook.pages.firstIndex(where: { $0.id == initialPageID }) {
+            initialIndex = requestedIndex
+            // 「前回のページから再開しますか?」の確認ダイアログは出さない。行き先が既に
+            // 決まっているのに尋ねると、ダイアログの回答とこの指定が競合してしまう。
+            needsConfirmation = false
+        } else {
+            switch preferences.reopenBehavior {
+            case .resume:
+                initialIndex = restoredIndex
+            case .alwaysFromStart:
+                initialIndex = 0
+            case .fromStartIfFinishedLastTime:
+                initialIndex = wasOnLastPage ? 0 : restoredIndex
+            case .ask:
+                // 前回位置がすでに先頭(0)なら、尋ねるまでもなくそのまま先頭から表示する。
+                initialIndex = restoredIndex
+                needsConfirmation = isReturningToKnownBook && restoredIndex > 0
+            }
         }
 
         // 読み方向・見開き強制の優先順位は「DB(BookLayoutSettings) > SwiftDataの保存値
@@ -445,18 +470,18 @@ final class ViewerViewModel: ObservableObject {
         // 1回だけ取り込む方式(上のimportSourceLayoutIfNeeded)へ変更したため、ここで改めて
         // ファイル側を見る必要は無くなった。取り込み済みの値はbookLayoutSettings側に入っている。
         //
-        // シークレットウインドウ(isPrivate)だけは例外で、取り込みそのものを行わない代わりに、
+        // DBへ書かない本(skipsPersistence)だけは例外で、取り込みそのものを行わない代わりに、
         // 通常なら取り込まれていたはずの値(ファイル側のヒント)をここでメモリ上に適用する。
         // 適用するのは「DBに取り込み済みでなく、保存済みの読書状態も無い」=通常ウインドウなら
         // 初回オープンで取り込まれていた状況のときだけ。優先順位(DB > ファイル > 既定値)は
         // 通常ウインドウと同じ。ページ単位の見開き配置はlayoutHint(at:)がファイル側へ
         // フォールバックする既存経路で賄われる。
         self.hasSavedReadingState = isReturningToKnownBook
-        let privateHint: SourceLayoutHint? = (isPrivate && !isReturningToKnownBook
+        let unimportedSourceHint: SourceLayoutHint? = (skipsPersistence && !isReturningToKnownBook
             && bookLayoutSettings?.didImportSourceLayout != true) ? incomingBook.sourceLayoutHint : nil
-        self.displayMode = bookLayoutSettings?.forcedDisplayMode ?? privateHint?.forcedDisplayMode ?? state.displayMode
+        self.displayMode = bookLayoutSettings?.forcedDisplayMode ?? unimportedSourceHint?.forcedDisplayMode ?? state.displayMode
         self.readingDirection = bookLayoutSettings?.readingDirectionOverride
-            ?? privateHint?.pageProgressionDirection ?? state.readingDirection
+            ?? unimportedSourceHint?.pageProgressionDirection ?? state.readingDirection
         self.scalingMode = state.scalingMode
         self.needsResumeConfirmation = needsConfirmation
         // Swiftの初期化規則上、self(のインスタンスメソッド)は全ストアドプロパティに値が
@@ -498,7 +523,7 @@ final class ViewerViewModel: ObservableObject {
         // 書誌メタデータ(タイトル・著者・シリーズ・巻数)を読み込んでDBへ登録する」処理も
         // 同じ経路で行う(importSourceMetadataIfNeeded)。こちらはブックマークの有無とは
         // 無関係のため、bookmarks.isEmptyの外側で分岐する。
-        // シークレットウインドウ(isPrivate)でもこれらの取り込みは走らせる。ただし各メソッドの
+        // DBへ書かない本(skipsPersistence)でもこれらの取り込みは走らせる。ただし各メソッドの
         // 中で、DBへ書く代わりにメモリ上(ephemeralBookmarks/ephemeralMetadata/readingDirection)へ
         // 反映する(ファイルに入っている情報自体は使えてよい、というユーザー要望)。
         let sourceFileName = book.sourceURL.lastPathComponent
@@ -644,12 +669,12 @@ final class ViewerViewModel: ObservableObject {
             rawTitle = metadata.title
             rawAuthor = metadata.author
         } else {
-            displayTitle = book.title
+            displayTitle = book.displayName(locale: preferences.effectiveLocale)
             return
         }
         let title = rawTitle.trimmingCharacters(in: .whitespaces)
         guard !title.isEmpty else {
-            displayTitle = book.title
+            displayTitle = book.displayName(locale: preferences.effectiveLocale)
             return
         }
         let author = rawAuthor.trimmingCharacters(in: .whitespaces)
@@ -1033,7 +1058,7 @@ final class ViewerViewModel: ObservableObject {
         resetPinchZoom()
         cancelPendingPageFlip()
         displayMode = (displayMode == .spread) ? .single : .spread
-        if bookLayoutSettings?.forcedDisplayMode != nil, !isPrivate {
+        if bookLayoutSettings?.forcedDisplayMode != nil, !skipsPersistence {
             layoutStore.setForcedDisplayMode(for: book, displayMode)
         }
         persistState()
@@ -1056,7 +1081,7 @@ final class ViewerViewModel: ObservableObject {
         let newValue = !isContrastCorrectionEnabled
         isContrastCorrectionEnabled = newValue
         // シークレットウインドウでは本ごとの設定として保存しない(この本を開いている間だけ効く)。
-        if !isPrivate {
+        if !skipsPersistence {
             layoutStore.setContrastCorrectionEnabled(for: book, newValue)
         }
         let loader = pageLoader
@@ -1072,7 +1097,7 @@ final class ViewerViewModel: ObservableObject {
         resetPinchZoom()
         // 表示中の画像自体は変わらず、並び順だけがViewer側で反転するので再読み込みは不要
         readingDirection = (readingDirection == .rightToLeft) ? .leftToRight : .rightToLeft
-        if bookLayoutSettings?.readingDirectionOverride != nil, !isPrivate {
+        if bookLayoutSettings?.readingDirectionOverride != nil, !skipsPersistence {
             layoutStore.setReadingDirectionOverride(for: book, readingDirection)
         }
         persistState()
@@ -1197,7 +1222,7 @@ final class ViewerViewModel: ObservableObject {
         // 書き込む直前にもう一度確認する。
         guard metadataStore.metadata(forBookID: book.id) == nil else { return }
         // シークレットウインドウ: DBには書かず、表示用にメモリへ置くだけ。
-        if isPrivate {
+        if skipsPersistence {
             ephemeralMetadata = metadata
             refreshDisplayTitle()
             return
@@ -1244,7 +1269,7 @@ final class ViewerViewModel: ObservableObject {
         // 書き込む直前にもう一度確認する(importSourceMetadataIfNeededと同じ)。
         let metadata = comicInfo.sourceBookMetadata
         if needsMetadata, !metadata.isEmpty, metadataStore.metadata(forBookID: book.id) == nil {
-            if isPrivate {
+            if skipsPersistence {
                 // シークレットウインドウ: DBには書かず、表示用にメモリへ置くだけ。
                 ephemeralMetadata = metadata
             } else {
@@ -1263,7 +1288,7 @@ final class ViewerViewModel: ObservableObject {
         // 読み方向。EPUB/PDFのヒントと同じ経路(LayoutStore.importSourceLayoutIfNeeded)へ
         // 流し込むことで、「DB側に値があればそちらを優先」「取り込みは1冊につき1回だけ」という
         // 既存の規則をそのまま適用する。そのためだけに、ヒントを差し込んだbookのコピーを渡す。
-        if needsReadingDirection, isPrivate {
+        if needsReadingDirection, skipsPersistence {
             // シークレットウインドウ: 通常ウインドウなら初回オープンで取り込まれていた状況
             // (DBに上書きが無く、保存済みの読書状態も無い)のときだけ、メモリ上で読み方向を
             // 切り替える(init側のprivateHintと同じ優先順位)。
@@ -1314,7 +1339,7 @@ final class ViewerViewModel: ObservableObject {
         guard !entries.isEmpty, bookmarks.isEmpty else { return }
 
         let bookID = book.id
-        if isPrivate {
+        if skipsPersistence {
             // シークレットウインドウ: DBへは挿入せず、メモリ上(ephemeralBookmarks)に置く。
             // 保存も変更通知も行わない(他のウインドウには関係の無い、このウインドウ限りの一覧)。
             var added: [Bookmark] = []
@@ -1365,7 +1390,7 @@ final class ViewerViewModel: ObservableObject {
     func addBookmark(atIndex index: Int) {
         // シークレットウインドウでは追加しない(UI側でも無効化してあるが、キー割り当て等の
         // 経路が増えても漏れないようここでも止める)。
-        guard !isPrivate else { return }
+        guard !skipsPersistence else { return }
         // 同じページに対するブックマークが既にある場合は、重複して追加しない(要望)。
         // bookmarksはreloadBookmarks()で都度読み直しているため、ここでの判定は常に最新の状態を見る。
         guard !bookmarks.contains(where: { $0.pageIndex == index }) else { return }
@@ -1619,7 +1644,7 @@ final class ViewerViewModel: ObservableObject {
 
         // シークレットウインドウ: readingStateはコンテキスト外のインスタンスなので上の代入は
         // どこにも残らないが、save()自体も呼ばない(他の保留中の変更まで巻き込んで書かないため)。
-        guard !isPrivate else { return }
+        guard !skipsPersistence else { return }
 
         // 実際のディスクへの保存(modelContext.save())は、ホイール操作などで素早く連続して
         // ページ送りされるたびに毎回行うとメインスレッドの処理が詰まり、画像の更新が
@@ -1636,7 +1661,7 @@ final class ViewerViewModel: ObservableObject {
     /// 読書位置が失われないよう、保留中の保存があれば即座に確定させる。
     /// ViewerViewのonDisappearから呼ばれる。
     func flushPendingSave() {
-        guard !isPrivate, saveDebounceTask != nil else { return }
+        guard !skipsPersistence, saveDebounceTask != nil else { return }
         saveDebounceTask?.cancel()
         saveDebounceTask = nil
         try? modelContext.save()
@@ -2379,7 +2404,7 @@ final class ViewerViewModel: ObservableObject {
     /// 選択肢(2.3節・3.3節で触れられている「既存の除外設定を保持しますか、それとも解除しますか」)
     /// は未実装で、常に「保持する」(既存の除外ページには触れない)として動作する。
     func setPageLayout(atIndex index: Int, to state: PageLayoutState, scope: LayoutPropagationScope) async {
-        guard !isPrivate, book.pages.indices.contains(index) else { return }
+        guard !skipsPersistence, book.pages.indices.contains(index) else { return }
         // 呼び出し元(コンテキストメニュー/Layoutメニュー)が直接操作したページ。anchorPinStates/
         // 伝播計算より前、book.pagesがまだ書き換わっていない時点で控えておく(ユーザー要望:
         // 更新後のビューア画面にこのページを表示に含める。reloadLayoutData(focusPageKey:)参照)。
@@ -2452,7 +2477,7 @@ final class ViewerViewModel: ObservableObject {
     /// 3.2節: 指定したページのレイアウト情報を削除する(「レイアウトなし」に戻す)。
     /// 伝播範囲の選択(3.3節)は行わない(このページ自体を未設定に戻すだけの操作のため)。
     func clearPageLayout(atIndex index: Int) {
-        guard !isPrivate, book.pages.indices.contains(index) else { return }
+        guard !skipsPersistence, book.pages.indices.contains(index) else { return }
         let targetPageKey = book.pages[index].sortKey
         layoutStore.setPageLayoutState(for: book, pageKey: targetPageKey, state: nil)
         reloadLayoutData(focusPageKey: targetPageKey)
@@ -2475,7 +2500,7 @@ final class ViewerViewModel: ObservableObject {
     /// ユーザー要望によりファイル側の指定はDBの初期値として取り込むだけの扱いになったため、
     /// どの形式の本でも実行できる(LayoutStore.importSourceLayoutIfNeeded参照)。
     func autoLayoutFromCurrentView() async {
-        guard !isPrivate, !book.pages.isEmpty else { return }
+        guard !skipsPersistence, !book.pages.isEmpty else { return }
         let anchorKeys = currentAnchorPageKeys
         guard !anchorKeys.isEmpty else { return }
         let pageAnchor = LayoutAutoCalculator.Anchor(pageKeys: anchorKeys)

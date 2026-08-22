@@ -48,7 +48,7 @@ final class LaunchCoordinator: ObservableObject {
     /// 現在開いているすべてのウインドウ/タブのAppStateへの弱参照一覧。
     /// 「すでに開いている本を新しいウインドウ/タブで開こうとしたときに、それを開いている
     /// 既存のウインドウ/タブをアクティブにする」機能のために保持する
-    /// (QooViewerApp.openURLInNewWindow参照)。ウインドウが閉じられればAppStateも解放される
+    /// (QooViewerApp.openInNewWindow参照)。ウインドウが閉じられればAppStateも解放される
     /// べきなので、配列の要素はweakで保持し、参照が外れたものは都度取り除く
     /// (明示的なunregisterは行わない)。
     private var openAppStates: [WeakAppStateBox] = []
@@ -95,8 +95,14 @@ final class LaunchCoordinator: ObservableObject {
         // 開こうとしたときにシークレットウインドウ側が前面に出てくると、「記録される/されない」
         // という性質の違うウインドウを取り違えることになる(編集ウインドウからのジャンプ先
         // 〈forBookID〉も同様)。
+        //
+        // 複数枚の画像をまとめた本も対象外。そのsourceURLは「先頭1枚の画像」であって
+        // 本そのものではないため、後から同じ画像1枚をFinderで開くと、複数枚を表示している
+        // ウインドウが「同じ本」として前面に出てきてしまう(MangaBook.isIdentifiedBySourceURL参照)。
+        // 画像1枚の本はsourceURLが本そのものなので、他の形式と同じく重複を防いでよい。
         return openAppStates.first {
             guard let appState = $0.appState, !appState.isPrivateWindow else { return false }
+            guard appState.currentBook?.isIdentifiedBySourceURL != false else { return false }
             return appState.currentBook?.sourceURL.path == url.path
         }?.appState
     }
@@ -111,6 +117,9 @@ final class LaunchCoordinator: ObservableObject {
         openAppStates.removeAll { $0.appState == nil }
         return openAppStates.first {
             guard let appState = $0.appState, !appState.isPrivateWindow else { return false }
+            // 複数枚の画像をまとめた本は対象外(forBookAt:と同じ理由。そのbookIDは開くたびに
+            // 変わるランダム値なので理論上一致しないが、対称性のため同じガードを置いておく)。
+            guard appState.currentBook?.isIdentifiedBySourceURL != false else { return false }
             return appState.currentBook?.id == bookID
         }?.appState
     }

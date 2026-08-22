@@ -885,7 +885,7 @@ struct BookmarkEditorView: View {
         if let targetAppState = launchCoordinator.frontmostContentAppState() {
             targetAppState.open(url: url)
         } else {
-            openWindow(id: "book", value: url)
+            openWindow(id: "book", value: BookOpenRequest(url))
         }
         closeEditorWindow()
     }
@@ -1909,7 +1909,7 @@ private struct BookmarkDetailPane: View {
             targetAppState.open(url: url)
             waitAndJump(appState: targetAppState, toPageIndex: pageIndex)
         } else {
-            openWindow(id: "book", value: url)
+            openWindow(id: "book", value: BookOpenRequest(url))
             Task { @MainActor in
                 for _ in 0..<200 {
                     if let newAppState = launchCoordinator.openAppState(forBookID: bookID) {

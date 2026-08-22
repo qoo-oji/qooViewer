@@ -233,8 +233,8 @@ struct QooViewerApp: App {
                     // Finderから別の本を開こうとしたとき(環境設定「Finderから開いたとき」が
                     // 「新しいタブ/ウインドウで開く」の場合)に、AppDelegate自身は持たない
                     // openWindow環境値を使ってウインドウ/タブを作るための橋渡し。
-                    appDelegate.openInNewWindowOrTab = { url, asTab, tabTarget, actsAsPrimaryWindow in
-                        openURLInNewWindow(url, asTab: asTab, tabTarget: tabTarget, actsAsPrimaryWindow: actsAsPrimaryWindow)
+                    appDelegate.openInNewWindowOrTab = { request, asTab, tabTarget, actsAsPrimaryWindow in
+                        openInNewWindow(request, asTab: asTab, tabTarget: tabTarget, actsAsPrimaryWindow: actsAsPrimaryWindow)
                     }
                 }
         }
@@ -318,6 +318,23 @@ struct QooViewerApp: App {
                         .disabled(focusedAppState?.currentBook == nil)
                     }
                 }
+
+                // ユーザー要望: 画像を直接開いた本(その場限りの本。読書位置もお気に入りも
+                // 記録されない)から、普通のフォルダの本へ移るための導線。
+                // 直前まで見ていた画像のページに着地する(AppState.openAllImagesInCurrentFolder参照)。
+                //
+                // **条件に関わらず常にこの1項目を置き、.disabledで切り替えること。**
+                // メニューを開いている最中に項目数が変わると、macOS 26のメニュー実装が
+                // NSRangeExceptionで落ちる(MenuBarMenuGateの型コメント参照)。
+                Button("Open All Images in This Folder") {
+                    focusedAppState?.openAllImagesInCurrentFolder()
+                }
+                // 対象は画像を直接開いた本だけ(フォルダや書庫の本は既にフォルダ単位で開かれて
+                // いる)。表示中のページではなく本の種別で判定するのは、ページ送りのたびに
+                // 変わる値をメニューへ渡すと、メニューを開いたままスライドショーでページが
+                // 進んだ瞬間にメニューが作り直されてしまうため(MenuBarMenuGate参照)。
+                // 画像を直接開いた本のページは構造上すべて画像ファイルなので、これで足りる。
+                .disabled(menuCheckmarkState?.isTransientBook != true)
 
                 // ユーザー要望: 現在の本(ファイルまたはフォルダ)をFinderで開く。
                 // 「同じフォルダのファイルを開く」と同じ「今の本の場所」に関するグループの
@@ -690,10 +707,13 @@ struct QooViewerApp: App {
             // 同様に変更済み)。
             CommandGroup(after: .pasteboard) {
                 let hasBook = focusedAppState?.currentBook != nil
-                // シークレットウインドウがフォーカス中は、書き込みを伴う項目(お気に入り/
-                // ブックマークの追加・各編集ウインドウ・レイアウト変更)をすべて無効にする。
+                // シークレットウインドウがフォーカス中か、その場限りの本(直接渡された画像から
+                // 作った本)を表示中は、書き込みを伴う項目(お気に入り/ブックマークの
+                // 追加・各編集ウインドウ・レイアウト変更)をすべて無効にする。
                 // 一覧(Favorites List / Bookmark List)は読み取りだけなので使える。
-                let isPrivate = menuCheckmarkState?.isPrivateWindow == true
+                // 変数名がisPrivateのままなのは以前からの経緯だが、判定条件は
+                // ViewerViewModel.skipsPersistenceと同じものになっている。
+                let isPrivate = menuCheckmarkState.map { $0.isPrivateWindow || $0.isTransientBook } ?? false
                 // 以前はここに、EPUB/PDFのファイル側がレイアウトを規定している本で
                 // レイアウト操作をまとめて無効化するためのisLayoutLockedがあった。
                 // ユーザー要望によりそのロック自体を廃止したため、レイアウト関連の項目は
@@ -837,13 +857,13 @@ struct QooViewerApp: App {
         .environment(\.locale, locale)
 
         // 「新しいウインドウで開く」「新しいタブで開く」専用のWindowGroup。URLを値として渡せる
-        // (`openWindow(id: "book", value: url)`)ことで、SwiftUIにウインドウ作成そのものを
+        // (`openWindow(id: "book", value: request)`)ことで、SwiftUIにウインドウ作成そのものを
         // 管理させる。直接AppKitでNSWindow/NSHostingViewを組み立てる方法だと、SwiftUIのScene
         // 管理の外側になってしまい、作成直後は「今アクティブなウインドウ」としてメニューバー側の
         // `.focusedSceneValue`/`@FocusedValue`にすぐには認識されず、Viewerメニューの項目が
         // 一時的にすべてグレーアウトしてしまう不具合があったため、この方式に変更した。
-        WindowGroup(id: "book", for: URL.self) { urlBinding in
-            ContentView(initialURL: urlBinding.wrappedValue)
+        WindowGroup(id: "book", for: BookOpenRequest.self) { requestBinding in
+            ContentView(initialRequest: requestBinding.wrappedValue)
                 .environmentObject(preferences)
                 .environmentObject(keyBindingStore)
                 .environmentObject(recentFiles)
@@ -873,11 +893,11 @@ struct QooViewerApp: App {
         // 中身は"book"と同じContentViewだが、isPrivateWindow: trueで作る点だけが違う
         // (AppState.isPrivateWindowのコメント参照)。値(URL)は省略可能で、メニューからは
         // 値なし(openWindow(id:))でウェルカム画面として開き、シークレットウインドウからの
-        // 「新しいウインドウ/タブで開く」はURL付きで開く(openURLInNewWindow参照)。
+        // 「新しいウインドウ/タブで開く」はURL付きで開く(openInNewWindow参照)。
         // 状態復元は"book"と同じ理由で無効化する。そもそも次回起動時にシークレットウインドウが
         // 復活してはならない。
-        WindowGroup(id: "private", for: URL.self) { urlBinding in
-            ContentView(initialURL: urlBinding.wrappedValue, isPrivateWindow: true)
+        WindowGroup(id: "private", for: BookOpenRequest.self) { requestBinding in
+            ContentView(initialRequest: requestBinding.wrappedValue, isPrivateWindow: true)
                 .environmentObject(preferences)
                 .environmentObject(keyBindingStore)
                 .environmentObject(recentFiles)
@@ -893,7 +913,7 @@ struct QooViewerApp: App {
         // ウインドウは必ずウェルカム画面から始まるため、その後で本を開いた瞬間に
         // `.contentSize`のSwiftUIが新しいコンテンツの大きさに合わせてウインドウのフレームを
         // 作り直してしまい、openNewPrivateWindowで合わせた位置・サイズが失われていた
-        // (この「本を切り替えるたびにフレームが作り直される」現象自体は、openURLInNewWindowの
+        // (この「本を切り替えるたびにフレームが作り直される」現象自体は、openInNewWindowの
         // PrimaryWindowFrameKeeper周りのコメントに記録されているものと同じ)。`.automatic`だけだと
         // 今度は初期サイズの手がかりが無くなり画面いっぱいに広がるため、"main"と同様に
         // `.defaultSize`で既定サイズを与える(詳細は"main" WindowGroupのコメント参照)。
@@ -1085,7 +1105,7 @@ struct QooViewerApp: App {
     /// 「新しいウインドウで開く」「新しいタブで開く」。ファイル/フォルダ選択パネルを表示し、
     /// 選択したURLを新しく作成したウインドウ(またはタブ)で開く。
     ///
-    /// ウインドウ自体は`openWindow(id: "book", value: url)`でSwiftUIに作らせる
+    /// ウインドウ自体は`openWindow(id: "book", value: request)`でSwiftUIに作らせる
     /// (上の"book" WindowGroup参照)。以前は直接AppKitでNSWindow/NSHostingViewを
     /// 組み立てていたが、その方法だとSwiftUIのScene管理の外側になってしまい、
     /// 作成直後にメニューバーのViewerメニューがすべてグレーアウトする不具合があったため、
@@ -1097,14 +1117,18 @@ struct QooViewerApp: App {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
+        // AppState.openWithPanelと同じ理由で複数選択を許可する。
+        panel.allowsMultipleSelection = true
         panel.prompt = String(localized: "Open", locale: locale)
         panel.message = String(
-            localized: "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file.",
+            // 画像ファイルも開けるようになったため文面を更新。画像は複数選択して1冊にまとめられる
+            // (BookOpenRequest.init(openingCandidates:)参照)。
+            localized: "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, EPUB, or image file. Select multiple images to open them together as one book.",
             locale: locale
         )
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        openURLInNewWindow(url, asTab: asTab, tabTarget: nil)
+        guard panel.runModal() == .OK,
+              let request = BookOpenRequest(openingCandidates: panel.urls) else { return }
+        openInNewWindow(request, asTab: asTab, tabTarget: nil)
     }
 
     /// 「お気に入り」メニューの一覧から「新しいウインドウで開く」「新しいタブで開く」を
@@ -1116,7 +1140,7 @@ struct QooViewerApp: App {
             focusedAppState?.missingFavorite = favorite
             return
         }
-        openURLInNewWindow(url, asTab: asTab, tabTarget: nil)
+        openInNewWindow(BookOpenRequest(url), asTab: asTab, tabTarget: nil)
     }
 
     /// メニューバーの「お気に入り一覧」からお気に入りをクリックしたときの実際の分岐処理。
@@ -1140,7 +1164,7 @@ struct QooViewerApp: App {
             if let targetAppState {
                 targetAppState.openFavorite(favorite)
             } else if let url = favoritesStore.resolvedExistingURL(for: favorite) {
-                openURLInNewWindow(url, asTab: false, tabTarget: nil, actsAsPrimaryWindow: true)
+                openInNewWindow(BookOpenRequest(url), asTab: false, tabTarget: nil, actsAsPrimaryWindow: true)
             }
             return
         }
@@ -1165,7 +1189,7 @@ struct QooViewerApp: App {
         if let target = focusedAppState ?? launchCoordinator.frontmostContentAppState() {
             target.open(url: url)
         } else {
-            openURLInNewWindow(url, asTab: false, tabTarget: nil, actsAsPrimaryWindow: true)
+            openInNewWindow(BookOpenRequest(url), asTab: false, tabTarget: nil, actsAsPrimaryWindow: true)
         }
     }
 
@@ -1240,7 +1264,7 @@ struct QooViewerApp: App {
     /// サイズ・位置の決定がまるごとSwiftUI任せになり、「新しいウインドウで開く」で作られる
     /// 通常の新規ウインドウとは違う大きさ・場所に開いていた。通常の新規ウインドウと同じ
     /// 扱い(元のウインドウと同じサイズ + 右下へのカスケード配置)にするため、
-    /// openURLInNewWindowと同じ手順で開いたウインドウを捕まえて配置する。
+    /// openInNewWindowと同じ手順で開いたウインドウを捕まえて配置する。
     private func openNewPrivateWindow() {
         let previousKeyWindow = NSApp.keyWindow
         let existingWindowIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
@@ -1296,19 +1320,22 @@ struct QooViewerApp: App {
     /// なお、指定したURLの本がすでに他のウインドウ/タブで開かれている場合は、新しく
     /// ウインドウ/タブを作らず、既存のものをアクティブにするだけにする
     /// (LaunchCoordinator.registerOpenAppState/openAppState(forBookAt:)参照)。
-    private func openURLInNewWindow(_ url: URL, asTab: Bool, tabTarget: NSWindow?, actsAsPrimaryWindow: Bool = false) {
+    private func openInNewWindow(_ request: BookOpenRequest, asTab: Bool, tabTarget: NSWindow?, actsAsPrimaryWindow: Bool = false) {
         // すでにこの本を(このウインドウ以外の別のウインドウ/タブで)開いている場合は、
         // 同じ本をもう1つ開いてしまわないよう、新しいウインドウ/タブを作る代わりに
         // そのウインドウ/タブをアクティブにするだけにする(タブの場合、makeKeyAndOrderFrontで
         // そのタブ自体も自動的に最前面に選択される)。
-        if let existingAppState = launchCoordinator.openAppState(forBookAt: url),
+        // 複数の画像を1冊にまとめる要求は、この判定の対象外にする(まとめた本は「同じ本」という
+        // 同一性を持たない。LaunchCoordinator.openAppState(forBookAt:)参照)。
+        if !request.bundlesMultipleImages, let url = request.primaryURL,
+           let existingAppState = launchCoordinator.openAppState(forBookAt: url),
            let existingWindow = existingAppState.hostWindow {
             existingWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        SecurityScopedHandoff.begin(url)
+        SecurityScopedHandoff.begin(request.urls)
 
         let previousKeyWindow = tabTarget ?? NSApp.keyWindow
         let existingWindowIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
@@ -1320,7 +1347,7 @@ struct QooViewerApp: App {
         // (主ウインドウは永続化と結びついた役割を持つため。ContentView.onAppear参照)。
         let sourceIsPrivate = !actsAsPrimaryWindow
             && (launchCoordinator.allOpenAppStates.first { $0.hostWindow === previousKeyWindow }?.isPrivateWindow ?? false)
-        openWindow(id: sourceIsPrivate ? "private" : "book", value: url)
+        openWindow(id: sourceIsPrivate ? "private" : "book", value: request)
 
         Task { @MainActor in
             guard let newWindow = await newlyOpenedWindow(excluding: existingWindowIDs) else { return }
@@ -1522,13 +1549,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var launchCoordinator: LaunchCoordinator?
     /// Finderから(ダブルクリックや「このアプリケーションで開く」で)別の本を開こうとしたときの
     /// 環境設定「Finderから開いたとき」が「新しいタブ/ウインドウで開く」の場合に使う、実際に
-    /// ウインドウ/タブを開くためのクロージャ(QooViewerApp.openURLInNewWindow(_:asTab:tabTarget:
+    /// ウインドウ/タブを開くためのクロージャ(QooViewerApp.openInNewWindow(_:asTab:tabTarget:
     /// actsAsPrimaryWindow:)への橋渡し。AppDelegate自身はSwiftUIのopenWindow環境値を持てない
-    /// ため)。第2引数はasTab(trueなら新しいタブ、falseなら新しいウインドウ)、第3引数は
+    /// ため)。第1引数は開く対象(URL1つとは限らない。BookOpenRequest参照)、第2引数はasTab
+    /// (trueなら新しいタブ、falseなら新しいウインドウ)、第3引数は
     /// タブとして追加する先を明示的に指定する場合のウインドウ(通常はprimaryAppState.hostWindow。
     /// nilならNSApp.keyWindowが使われる)、第4引数はactsAsPrimaryWindow(このウインドウが
-    /// 主ウインドウの役割を引き継ぐ場合はtrue。openURLInNewWindowのコメント参照)。
-    var openInNewWindowOrTab: ((URL, Bool, NSWindow?, Bool) -> Void)?
+    /// 主ウインドウの役割を引き継ぐ場合はtrue。openInNewWindowのコメント参照)。
+    var openInNewWindowOrTab: ((BookOpenRequest, Bool, NSWindow?, Bool) -> Void)?
 
     /// ツールバー・プログレスバーなど、`.help()`で付けたツールチップが表示されるまでの
     /// 待ち時間を短くする。SwiftUI/AppKitにはこの待ち時間を直接指定する公開APIがないため、
@@ -1678,7 +1706,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        guard let url = urls.first else { return }
+        // ユーザー要望: Finderで複数選択した画像ファイルをまとめて1冊として開けるようにする。
+        // 以前はここが`urls.first`で、先頭以外を黙って捨てていた。
+        // 何をどう1冊にまとめるか(全部画像なら1冊 / それ以外は先頭のみ)の判定は、
+        // ドロップ・パネル経由と食い違わないようBookOpenRequestの1箇所に集約してある。
+        guard let request = BookOpenRequest(openingCandidates: urls) else { return }
         // バグ修正(ユーザー報告): primaryAppStateそのものの有無だけでなく、
         // その`hostWindow`が今も実際に存在するかも確認する。SwiftUIのWindowGroup(id:)の
         // 標準の状態復元は、ウインドウを閉じてもその中身(@StateObjectのappState)をすぐには
@@ -1690,7 +1722,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 履歴にも記録されるのに、それを表示するウインドウがどこにも無い(=ユーザーには
         // 何も起きなかったように見える)という不具合があった。
         if let primaryAppState = launchCoordinator?.primaryAppState, primaryAppState.hostWindow != nil {
-            openInPrimaryWindow(url, primaryAppState: primaryAppState)
+            openInPrimaryWindow(request, primaryAppState: primaryAppState)
             return
         }
         // バグ修正(ユーザー報告): primaryAppStateが上の条件を満たさない場合でも、実際に
@@ -1703,14 +1735,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // シークレットウインドウは候補から外す(Finder等の外部から渡された本を、たまたま最前面に
         // あったシークレットウインドウで黙って開いてしまわないため。LaunchCoordinator参照)。
         if let target = launchCoordinator?.frontmostContentAppState(excludingPrivateWindows: true) {
-            openInPrimaryWindow(url, primaryAppState: target)
+            openInPrimaryWindow(request, primaryAppState: target)
             return
         }
 
         // 再利用できる既存のmainウインドウが無い状態。「新しいウインドウ/タブで開く」と同じ経路
-        // (openInNewWindowOrTab、実体はopenURLInNewWindow)で、自前で新しい「book」ウインドウを
+        // (openInNewWindowOrTab、実体はopenInNewWindow)で、自前で新しい「book」ウインドウを
         // 開く。このウインドウは主ウインドウの役割を引き継ぐため、actsAsPrimaryWindow: trueを
-        // 渡す(openURLInNewWindowのドキュメントコメント参照。前回終了時の位置・サイズが
+        // 渡す(openInNewWindowのドキュメントコメント参照。前回終了時の位置・サイズが
         // 正しく復元されるようにするため)。
         //
         // バグ修正(ユーザー報告): 以前はここで、AppKit/SwiftUIが外部アプリからの「開く」呼び出し
@@ -1726,13 +1758,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 「book」ウインドウを開く方が安全なため、この設計は採用していない。
         //
         // なお、この時点でのprimaryAppState(nilの可能性もある)を、この直後に開くbookウインドウ
-        // 自身と取り違えないよう先に捕まえておく。openURLInNewWindow(actsAsPrimaryWindow: true)
+        // 自身と取り違えないよう先に捕まえておく。openInNewWindow(actsAsPrimaryWindow: true)
         // 側で、開いたbookウインドウ自身をlaunchCoordinator.primaryAppStateへ設定し直す処理が
-        // 走るため(位置・サイズの記憶を有効にするため。openURLInNewWindow参照)、下の後始末を
+        // 走るため(位置・サイズの記憶を有効にするため。openInNewWindow参照)、下の後始末を
         // 呼び出し後のprimaryAppStateから判定してしまうと、常にそのbookウインドウ自身を「空の
         // 余分なウインドウ」と誤認してしまう。
         let suspectBeforeOpen = launchCoordinator?.primaryAppState
-        openInNewWindowOrTab?(url, false, nil, true)
+        openInNewWindowOrTab?(request, false, nil, true)
 
         // AppKit/SwiftUIが既定動作として空のmainウインドウを自動生成すること自体は実機で
         // 依然として起こりうる(以前と違い中身は正しく描画されるが、こちらが開いたbookウインドウ
@@ -1753,7 +1785,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// application(_:open:)から、実際に存在が確認できているprimaryAppStateへURLを開く処理。
-    private func openInPrimaryWindow(_ url: URL, primaryAppState: AppState) {
+    private func openInPrimaryWindow(_ request: BookOpenRequest, primaryAppState: AppState) {
         // ウインドウがDockに最小化された状態のままFinderから本を開くと、以前はウインドウの
         // 中身(表示中の本)だけが差し替わり、ウインドウ自体はDockに最小化されたまま
         // ユーザーの目に触れない、という不具合があった。Finderからの「開く」はOS側が
@@ -1769,19 +1801,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // まだ本を表示していない(Welcome画面)場合は、環境設定に関わらず常にそのウインドウで
         // そのまま開く。既に本を表示している場合だけ、環境設定「Finderから開いたとき」に従う。
         guard primaryAppState.currentBook != nil else {
-            primaryAppState.open(url: url)
+            primaryAppState.open(request: request)
             return
         }
         switch preferences?.finderOpenBehavior ?? .replaceCurrentBook {
         case .replaceCurrentBook:
-            primaryAppState.open(url: url)
+            primaryAppState.open(request: request)
         case .newTab:
             // タブの追加先は、その時点でのNSApp.keyWindow(Finderから開いた直後は、まだ
             // 本来のウインドウがキーウインドウになっていないことがあり、不確実)ではなく、
             // 「本を開いていると確認したAppStateそのもの」が持つウインドウを明示的に渡す。
-            openInNewWindowOrTab?(url, true, primaryAppState.hostWindow, false)
+            openInNewWindowOrTab?(request, true, primaryAppState.hostWindow, false)
         case .newWindow:
-            openInNewWindowOrTab?(url, false, primaryAppState.hostWindow, false)
+            openInNewWindowOrTab?(request, false, primaryAppState.hostWindow, false)
         }
     }
 
@@ -1904,7 +1936,7 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
 }
 
 /// 「主ウインドウの役割を引き継いだbookウインドウ」1枚ぶんの、位置・サイズ記憶のための状態。
-/// AppDelegate.openURLInNewWindow(actsAsPrimaryWindow: true)の経路でのみ使う。
+/// AppDelegate.openInNewWindow(actsAsPrimaryWindow: true)の経路でのみ使う。
 ///
 /// これらは本来ローカル変数で足りる内容だが、複数のエスケープするクロージャ
 /// (移動・リサイズ・クローズの購読と、フレームを再適用し続けるTask)が同じ状態を読み書きする。

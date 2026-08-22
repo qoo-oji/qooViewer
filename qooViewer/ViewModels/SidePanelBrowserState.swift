@@ -45,14 +45,35 @@ final class SidePanelBrowserState: ObservableObject {
     /// での閲覧中に毎回ボリューム一覧へ戻されるのを防ぐ)。
     func handlePanelRevealed(currentBook: MangaBook?) {
         guard let currentBook else { return }
-        let folder = currentBook.sourceURL.deletingLastPathComponent()
-        if folder != currentDirectory {
+        let anchor = Self.browserAnchor(for: currentBook)
+        if anchor.directory != currentDirectory {
             backStack.append(currentDirectory)
             forwardStack.removeAll()
-            currentDirectory = folder
+            currentDirectory = anchor.directory
         }
-        highlightedURL = currentBook.sourceURL
+        highlightedURL = anchor.highlighted
         reload()
+    }
+
+    /// 本を開いたときに、フォルダブラウザのどこを表示してどれをハイライトするか。
+    ///
+    /// 通常の本(フォルダ・書庫・PDF・EPUB)は、その本の親フォルダを表示して本自身をハイライトする。
+    ///
+    /// 直接渡された画像ファイルの本(MangaBook.BookOrigin.imageFiles)だけは**もう1階層上**を表示し、
+    /// 画像が入っているフォルダのほうをハイライトする(ユーザー要望)。画像が入っているフォルダを
+    /// そのまま表示しても、フォルダブラウザは画像ファイルを一覧に出さない仕様
+    /// (DirectoryBrowser.makeEntry。一覧の目的は「本を探すこと」で、画像を並べるとノイズになる)
+    /// のため、中身が1件も無い空のフォルダに見えてしまい役に立たないため。
+    /// 1階層上なら、その画像フォルダ自体が「1冊の本」として行に並ぶ — つまりクリックすれば
+    /// フォルダ全体を本として開ける状態になり、Fileメニューの「このフォルダの画像をすべて開く」と
+    /// 同じ着地点への導線になる。
+    ///
+    /// 複数枚が複数フォルダにまたがって選択されている場合は、sourceURL(=先頭ページの画像)が
+    /// 入っているフォルダが対象になる。
+    private static func browserAnchor(for book: MangaBook) -> (directory: URL, highlighted: URL) {
+        let parent = book.sourceURL.deletingLastPathComponent()
+        guard book.origin == .imageFiles else { return (parent, book.sourceURL) }
+        return (parent.deletingLastPathComponent(), parent)
     }
 
     /// フォルダ行のシングルクリック。

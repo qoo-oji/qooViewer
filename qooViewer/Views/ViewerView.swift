@@ -223,17 +223,23 @@ struct ViewerView: View {
     /// 分けたほうが見通しが良いため独立させている。onDisappearで確実に解除する。
     @State private var contextClickMonitor: Any?
 
-    /// - Parameter isPrivateWindow: シークレットウインドウ(AppState.isPrivateWindow)かどうか。
+    /// - Parameter skipsPersistence: この本についてDBへ一切書かないかどうか
+    ///   (シークレットウインドウ、またはその場限りの本。詳細はViewerViewModel.skipsPersistence参照)。
+    ///   呼び出し側(ContentView)が`isPrivateWindow || book.isTransient`をORして渡す。
     ///   ViewerViewModelの生成時に確定させる必要があるため、EnvironmentObjectのappStateではなく
     ///   initの引数で受け取る(initの時点ではEnvironmentObjectはまだ読めない)。
+    /// - Parameter initialPageID: 開いた直後に表示したいページ(ViewerViewModel.init参照)。
+    ///   StateObjectの生成時にしか渡せないため、skipsPersistenceと同じくinitで受け取る。
     init(
         book: MangaBook, modelContext: ModelContext, preferences: AppPreferences,
-        layoutStore: LayoutStore, metadataStore: BookMetadataStore, isPrivateWindow: Bool = false
+        layoutStore: LayoutStore, metadataStore: BookMetadataStore, skipsPersistence: Bool = false,
+        initialPageID: String? = nil
     ) {
         _viewModel = StateObject(
             wrappedValue: ViewerViewModel(
                 book: book, modelContext: modelContext, preferences: preferences,
-                layoutStore: layoutStore, metadataStore: metadataStore, isPrivate: isPrivateWindow
+                layoutStore: layoutStore, metadataStore: metadataStore,
+                skipsPersistence: skipsPersistence, initialPageID: initialPageID
             )
         )
         _preferences = ObservedObject(wrappedValue: preferences)
@@ -360,11 +366,17 @@ struct ViewerView: View {
         appState.performAutoLayout = {
             isShowingAutoLayoutConfirmation = true
         }
-        // シークレットウインドウでは、書き込みを伴う橋渡し(ブックマーク/お気に入りの追加・
-        // レイアウト変更)は登録しない。メニュー側はMenuCheckmarkState.isPrivateWindowで
+        // 「同じフォルダの画像をすべて開く」の着地ページ指定は一度きり。ViewerViewModelの生成時に
+        // 受け取り済みなので、ここで捨てて次に同じ本を開き直したときに再適用されないようにする
+        // (AppState.pendingInitialPage参照)。
+        appState.clearPendingInitialPage()
+
+        // DBへ書かない本(シークレットウインドウ、またはその場限りの本)では、書き込みを伴う
+        // 橋渡し(ブックマーク/お気に入りの追加・レイアウト変更)は登録しない。メニュー側は
+        // MenuCheckmarkStateのisPrivateWindow/isTransientBookで
         // グレーアウトしているが、「ブックマーク・レイアウトの編集」ウインドウのように
         // activeBookAppState経由でこれらを呼ぶ経路もあるため、クロージャ自体を空けておく。
-        if viewModel.isPrivate {
+        if viewModel.skipsPersistence {
             appState.addBookmarkAction = nil
             appState.addFavoriteAction = nil
             appState.performLayoutStateChange = nil
@@ -1662,7 +1674,7 @@ struct ViewerView: View {
         Button(isCurrentBookFavorited ? "Remove This Book from Favorites" : "Add This Book to Favorites…") {
             perform(.toggleFavorite)
         }
-        .disabled(viewModel.isPrivate)
+        .disabled(viewModel.skipsPersistence)
         Menu("Favorites List") {
             FavoritesMenuContent(
                 favoritesStore: favoritesStore,
@@ -1689,12 +1701,12 @@ struct ViewerView: View {
             ) {
                 toggleBookmark(atIndex: clickedPageIndex)
             }
-            .disabled(viewModel.isPrivate)
+            .disabled(viewModel.skipsPersistence)
         } else {
             Button(isCurrentPageBookmarked ? "Remove This Page from Bookmarks" : "Add This Page to Bookmarks") {
                 perform(.toggleBookmark)
             }
-            .disabled(viewModel.isPrivate)
+            .disabled(viewModel.skipsPersistence)
         }
         // メニューバー側のBookmark Listサブメニュー(QooViewerApp.swift)と同じ内容。
         Menu("Bookmark List") {
@@ -1742,8 +1754,9 @@ struct ViewerView: View {
                 layoutStateMenuItems(forPageIndex: viewModel.currentIndex)
             }
         }
-        // シークレットウインドウではレイアウトの書き込みができないので、サブメニューごと無効にする。
-        .disabled(viewModel.isPrivate)
+        // DBへ書かない本(シークレットウインドウ、またはその場限りの本)ではレイアウトを
+        // 保存できないので、サブメニューごと無効にする。
+        .disabled(viewModel.skipsPersistence)
 
         Divider()
 
@@ -3339,23 +3352,23 @@ struct ViewerView: View {
             viewModel.toggleContrastCorrection()
         case .autoLayoutFromCurrentView:
             // ツールバーのボタン・メニューバー「Layout」の項目と同じ経路(3.1節)。
-            // シークレットウインドウではレイアウトを書けないので何もしない(以下の
+            // DBへ書かない本ではレイアウトを保存できないので何もしない(以下の
             // ブックマーク/お気に入り系も同じ。キー割り当てから直接届く経路を塞ぐため)。
-            guard !viewModel.isPrivate else { return }
+            guard !viewModel.skipsPersistence else { return }
             isShowingAutoLayoutConfirmation = true
         case .previousBook:
             appState.openSibling(before: viewModel.book.sourceURL)
         case .nextBook:
             appState.openSibling(after: viewModel.book.sourceURL)
         case .toggleBookmark:
-            guard !viewModel.isPrivate else { return }
+            guard !viewModel.skipsPersistence else { return }
             toggleCurrentPageBookmark()
         case .nextBookmark:
             viewModel.jumpToNextBookmark()
         case .previousBookmark:
             viewModel.jumpToPreviousBookmark()
         case .showBookmarkList:
-            guard !viewModel.isPrivate else { return }
+            guard !viewModel.skipsPersistence else { return }
             showBookmarkEditor()
         case .showThumbnailGrid:
             // トグル。開いたときと同じキー/マウス操作でそのまま閉じられるようにするため
@@ -3371,12 +3384,12 @@ struct ViewerView: View {
         case .showActualSizeRight:
             showActualSizeWindow(forLeftPage: false)
         case .toggleFavorite:
-            guard !viewModel.isPrivate else { return }
+            guard !viewModel.skipsPersistence else { return }
             toggleCurrentBookFavorite()
         case .showFavoritesList:
             showFavoritesListMenu()
         case .showFavoritesOrganizer:
-            guard !viewModel.isPrivate else { return }
+            guard !viewModel.skipsPersistence else { return }
             openWindow(id: "favoritesOrganizer")
         case .none:
             break
@@ -3590,7 +3603,7 @@ struct ViewerView: View {
     }
 
     /// 「お気に入り一覧」ボタン(またはショートカット)から、指定したお気に入りを新しいウインドウで開く。
-    /// QooViewerApp.openURLInNewWindowと同じポーリング方式で、開いたウインドウをこのウインドウと
+    /// QooViewerApp.openInNewWindowと同じポーリング方式で、開いたウインドウをこのウインドウと
     /// 同じサイズ・カスケード位置に整える(詳細はそちらのコメント参照)。ここではメニューバーの
     /// 実装と処理が重複するが、ViewerView自身はQooViewerApp側のprivateなヘルパーを直接呼べないため、
     /// 同じ考え方をこちらでも実装している。
@@ -3602,7 +3615,7 @@ struct ViewerView: View {
         SecurityScopedHandoff.begin(url)
         let previousWindow = hostWindow
         let existingIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
-        openWindow(id: "book", value: url)
+        openWindow(id: "book", value: BookOpenRequest(url))
         Task { @MainActor in
             for _ in 0..<20 {
                 try? await Task.sleep(nanoseconds: 25_000_000)
@@ -3636,7 +3649,7 @@ struct ViewerView: View {
         }
         SecurityScopedHandoff.begin(url)
         let existingIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
-        openWindow(id: "book", value: url)
+        openWindow(id: "book", value: BookOpenRequest(url))
         Task { @MainActor in
             for _ in 0..<20 {
                 try? await Task.sleep(nanoseconds: 25_000_000)

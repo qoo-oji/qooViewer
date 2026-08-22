@@ -310,6 +310,22 @@
         }
       }
     },
+    "%@ (%lld images)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ (%2$lld images)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ (%2$lld枚)"
+          }
+        }
+      }
+    },
     "%@ (%lld)" : {
       "localizations" : {
         "en" : {
@@ -1952,6 +1968,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "qooViewerから書き出したJSONファイルを選んでください。"
+          }
+        }
+      }
+    },
+    "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, EPUB, or image file. Select multiple images to open them together as one book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, EPUB, or image file. Select multiple images to open them together as one book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "漫画のフォルダ、またはzip/cbz・rar/cbr・7z/cb7・PDF・EPUB・画像ファイルを選んでください。画像は複数選択すると、まとめて1冊として開きます。"
           }
         }
       }
@@ -7008,6 +7040,22 @@
         }
       }
     },
+    "Open All Images in This Folder" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open All Images in This Folder"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このフォルダの画像をすべて開く"
+          }
+        }
+      }
+    },
     "Open File in Same Folder" : {
       "localizations" : {
         "en" : {
@@ -11114,6 +11162,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "タイトル"
+          }
+        }
+      }
+    },
+    "Too many images were selected. You can open up to %lld images at once." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Too many images were selected. You can open up to %lld images at once."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択された画像が多すぎます。一度に開けるのは%lld枚までです。"
+          }
+        }
+      }
+    },
+    "To open all images in this folder, please select and grant access to this folder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "To open all images in this folder, please select and grant access to this folder."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このフォルダの画像をすべて開くには、このフォルダを選んでアクセスを許可してください。"
           }
         }
       }

@@ -59,6 +59,10 @@ nonisolated enum BookLoader {
         if isEpubFile(url.lastPathComponent) {
             return try loadEpub(url)
         }
+        // 画像ファイル1枚。書庫として開こうとすると必ず失敗するため、loadArchiveより先に分岐する。
+        if isImageFile(url.lastPathComponent) {
+            return loadSingleImage(url)
+        }
         return try loadArchive(url)
     }
 
@@ -271,6 +275,83 @@ nonisolated enum BookLoader {
                 pageProgressionDirection: structure.pageProgressionDirection,
                 forcedDisplayMode: structure.forcedDisplayMode
             )
+        )
+    }
+
+    /// ユーザーが直接渡した画像ファイルを、1冊の「その場限りの本」として読み込む
+    /// (ユーザー要望: 画像をウェルカム画面やDockアイコンへドロップして開けるようにする)。
+    ///
+    /// **同じフォルダにある他の画像へは意図的に展開しない。** 渡されたものがそのまま本になる、
+    /// という一貫したルールにしてある。理由:
+    /// - サンドボックス上、画像1枚のドロップで得られるアクセス権は**その1枚だけ**であり、
+    ///   フォルダへ展開しようとすると一番手軽な操作のたびにフォルダのアクセス許可パネル
+    ///   (FolderAccessStore)を挟むことになる
+    /// - フォルダ全体を開きたい場合は、フォルダ自体をドロップする導線が既にある
+    ///   (Info.plistのpublic.folder宣言。そちらの方が操作としても簡単)
+    ///
+    /// 出来上がる本は`origin: .imageFiles`、つまりDB・ディスクキャッシュ・履歴のいずれにも
+    /// 何も残さない本になる(枚数によって記録される/されないが変わらないよう、1枚のときも同じ。
+    /// 詳細はMangaBook.BookOriginのコメント参照)。
+    ///
+    /// そのためページ一覧のディスクキャッシュ(BookPageListCache)へも書き戻さず、
+    /// load(from:cachesPageList:)と違ってcachesPageListに相当する引数を持たない。
+    /// 複数枚の本のbookIDは開くたびに変わるランダム値なので、仮に書いても二度とヒットせず
+    /// ゴミが増えるだけでもある(キャッシュのキーはSHA256(bookID)のみ)。
+    static func load(imageFiles urls: [URL]) async throws -> MangaBook {
+        let task = Task.detached(priority: .userInitiated) { () throws -> MangaBook in
+            try loadImageFilesSync(urls)
+        }
+        return try await task.value
+    }
+
+    private static func loadImageFilesSync(_ urls: [URL]) throws -> MangaBook {
+        // 重複除去はBookOpenRequestが済ませているが、このメソッドは公開APIなので単体でも
+        // 破綻しないよう自前でも行う(重複したままだとPageRef.idが衝突する)。
+        // 実在確認はここで行う。メインスレッド外で走るこのメソッドが担うべき仕事で、
+        // 未接続のボリューム上のファイルが混ざっていてもUIを止めずに済む。
+        var seenPaths = Set<String>()
+        let existingImageURLs = urls.filter { url in
+            guard isImageFile(url.lastPathComponent), seenPaths.insert(url.path).inserted else { return false }
+            return FileManager.default.fileExists(atPath: url.path)
+        }
+        guard let firstURL = existingImageURLs.first else { throw BookLoaderError.notFound }
+        // 1枚だけ(重複や存在しないファイルを除いた結果を含む)ならloadSingleImageへ。
+        // どちらもその場限りの本だが、1枚なら実在パスをidに使えるほうが、ウインドウタイトルの
+        // 拡張子表示や「Finderで表示」が自然に動く。
+        guard existingImageURLs.count > 1 else { return loadSingleImage(firstURL) }
+
+        let sortedURLs = naturalOrderSortedByPath(existingImageURLs)
+        let pages = sortedURLs.map { PageRef(id: $0.path, sortKey: $0.path, source: .file($0)) }
+        return MangaBook(
+            // 複数枚をまとめた1冊に対応する実在パスは存在しないため、毎回新しいUUIDにする。
+            // 安定した内容ハッシュ等にしてはいけない理由(ページ一覧・サムネイルのキャッシュ衝突)、
+            // および空文字列やドットを含めてはいけない理由は、MangaBook.BookOriginのコメント参照。
+            id: "qooviewer-image-files:\(UUID().uuidString)",
+            // 先頭ページのファイル名。枚数を添えた表示名の組み立ては、アプリ内の表示言語設定を
+            // 参照できる表示層が行う(MangaBook.displayName(locale:)参照)。
+            title: sortedURLs[0].deletingPathExtension().lastPathComponent,
+            // 「Finderで表示」やサイドパネルのフォルダアンカーが自然に動くよう、先頭ページの
+            // URLを入れておく。これが実在ファイルを指すため、本を開くときのiノードによる移動追従
+            // (AppState.open内のreconcileBookIDIfMoved)を通すと**既存のDB行のbookIDが破壊される**。
+            // 同メソッドのskipsPersistenceガードが唯一の防御になっている点に注意。
+            sourceURL: sortedURLs[0],
+            pages: pages,
+            origin: .imageFiles
+        )
+    }
+
+    /// 画像ファイル1枚を、1ページのその場限りの本として読み込む(load(imageFiles:)のコメント参照)。
+    /// idには実在パスをそのまま使えるが、**それでもDBには一切書かない**(origin: .imageFiles)。
+    /// 存在確認はloadSyncが済ませているためthrowしない。
+    private static func loadSingleImage(_ url: URL) -> MangaBook {
+        MangaBook(
+            id: url.path,
+            // 拡張子を落とすのはloadPDF/loadEpubと同じ流儀。
+            title: url.deletingPathExtension().lastPathComponent,
+            sourceURL: url,
+            // sortKeyにフルパスを使うのはloadFolderと同じ(collectPages(inFolder:)参照)。
+            pages: [PageRef(id: url.path, sortKey: url.path, source: .file(url))],
+            origin: .imageFiles
         )
     }
 }

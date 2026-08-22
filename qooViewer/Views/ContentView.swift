@@ -25,9 +25,10 @@ struct ContentView: View {
     @Environment(\.openWindow) private var openWindow
 
     /// 「新しいウインドウで開く」「新しいタブで開く」、またはFinderからの「開く」で、
-    /// このウインドウで最初から開いておきたいファイル/フォルダ。通常の(何も指定しない)
-    /// ウインドウではnil。
-    var initialURL: URL?
+    /// このウインドウで最初から開いておきたい対象。通常の(何も指定しない)ウインドウではnil。
+    /// URL1つではなくBookOpenRequestなのは、Finderで複数選択された画像を1冊として
+    /// 新しいウインドウ/タブで開けるようにするため(BookOpenRequestのコメント参照)。
+    var initialRequest: BookOpenRequest?
     /// このウインドウがシークレットウインドウかどうか(AppState.isPrivateWindowに同じ値を渡す。
     /// 何を記録しないかの定義はそちらのコメント参照)。"private" WindowGroupだけがtrueで作る。
     let isPrivateWindow: Bool
@@ -73,8 +74,8 @@ struct ContentView: View {
     /// 共有する。
     @State private var sidePanelWidth: CGFloat = SidePanelView.defaultWidth
 
-    init(initialURL: URL? = nil, isPrivateWindow: Bool = false) {
-        self.initialURL = initialURL
+    init(initialRequest: BookOpenRequest? = nil, isPrivateWindow: Bool = false) {
+        self.initialRequest = initialRequest
         self.isPrivateWindow = isPrivateWindow
         _appState = StateObject(wrappedValue: AppState(isPrivateWindow: isPrivateWindow))
     }
@@ -83,7 +84,11 @@ struct ContentView: View {
     /// 通常ウインドウと見分けがつくよう先頭に「(シークレット)」を付ける。
     private var windowTitle: String {
         let base = appState.currentBook.map {
-            FormatBadgeView.plainTextTitle(baseName: $0.title, bookID: $0.id)
+            // displayNameは、複数枚の画像をまとめた本にだけ枚数を添える
+            // (それ以外はtitleそのまま)。MangaBook.displayName(locale:)参照。
+            FormatBadgeView.plainTextTitle(
+                baseName: $0.displayName(locale: preferences.effectiveLocale), bookID: $0.id
+            )
         } ?? "qooViewer"
         guard isPrivateWindow else { return base }
         return String(localized: "(Private) \(base)", locale: preferences.effectiveLocale)
@@ -118,7 +123,16 @@ struct ContentView: View {
                         ViewerView(
                             book: book, modelContext: modelContext, preferences: preferences,
                             layoutStore: layoutStore, metadataStore: metadataStore,
-                            isPrivateWindow: isPrivateWindow
+                            // シークレットウインドウか、その場限りの本(直接渡された画像から
+                            // 組み立てた本)のどちらかなら、DBへは一切書かない。
+                            // 詳細はViewerViewModel.skipsPersistence / MangaBook.BookOrigin参照。
+                            skipsPersistence: isPrivateWindow || book.isTransient,
+                            // 「同じフォルダの画像をすべて開く」で着地したいページ。
+                            // この本向けの指定でなければ渡さない(AppState.pendingInitialPage参照)。
+                            // 実際に消費したかどうかに関わらず、ViewerViewのonAppearが
+                            // appState.clearPendingInitialPage()で必ず後始末する。
+                            initialPageID: appState.pendingInitialPage
+                                .flatMap { $0.bookID == book.id ? $0.pageID : nil }
                         )
                             .id(book.id)
                     } else {
@@ -168,6 +182,7 @@ struct ContentView: View {
             \.qooViewerMenuCheckmarkState,
             MenuCheckmarkState(
                 isPrivateWindow: appState.isPrivateWindow,
+                isTransientBook: appState.currentBook?.isTransient == true,
                 hideToolbar: appState.hideToolbar,
                 hideProgressBar: appState.hideProgressBar,
                 hideSidePanel: appState.hideSidePanel,
@@ -296,10 +311,10 @@ struct ContentView: View {
             // (下のonAppear参照)には適用したくないため、今このウインドウが主ウインドウ
             // (launchCoordinator.primaryAppState)自身の場合にだけ適用する。
             //
-            // バグ修正(ユーザー報告): 以前は`initialURL == nil`も条件に含め、「book」ウインドウ
-            // グループ(newWindow/newTab、およびinitialURL付きで開く場合全般)を一律除外していた。
+            // バグ修正(ユーザー報告): 以前は`initialRequest == nil`も条件に含め、「book」ウインドウ
+            // グループ(newWindow/newTab、および開く対象付きで開く場合全般)を一律除外していた。
             // しかしウインドウをすべて閉じた状態から外部アプリ等で本を開く場合、主ウインドウの
-            // 代わりにinitialURL付きの「book」ウインドウが開かれることがあり(QooViewerApp.
+            // 代わりに開く対象付きの「book」ウインドウが開かれることがあり(QooViewerApp.
             // application(_:open:)参照)、この場合に一律除外していたせいで前回のウインドウ位置・
             // サイズが復元されず、毎回既定の位置で開いてしまう不具合があった。
             // 「今このウインドウが主ウインドウかどうか」(launchCoordinator.primaryAppState ===
@@ -313,7 +328,7 @@ struct ContentView: View {
             // 補足: bookウインドウグループは`.windowResizability(.contentSize)`のため、
             // この時点(発火が早い)で適用してもSwiftUI自身の自動リサイズに後から上書きされて
             // しまう。そのため実際に主ウインドウの役割を引き継いだbookウインドウについては、
-            // QooViewerApp.swiftのopenURLInNewWindow側で(自動リサイズが収まった、より遅い
+            // QooViewerApp.swiftのopenInNewWindow側で(自動リサイズが収まった、より遅い
             // タイミングで)改めて復元している。ここでの呼び出しは、mainウインドウグループ
             // (.windowResizability(.automatic)で、この早いタイミングでも上書きされない)に対して
             // 意味を持つ。
@@ -337,7 +352,7 @@ struct ContentView: View {
             // (resolveAmbiguousNewMainWindow参照)。
             // シークレットウインドウ(isPrivateWindow)は常に正当なウインドウ。主ウインドウの
             // 有無とは無関係に、メニューから明示的に開かれたものだから。
-            guard launchCoordinator.primaryAppState == nil || launchCoordinator.primaryAppState === appState || initialURL != nil || isPrivateWindow else {
+            guard launchCoordinator.primaryAppState == nil || launchCoordinator.primaryAppState === appState || initialRequest != nil || isPrivateWindow else {
                 resolveAmbiguousNewMainWindow()
                 return
             }
@@ -366,10 +381,10 @@ struct ContentView: View {
             }
             // 「すでに開いている本を新しいウインドウ/タブで開こうとしたときに、既存の
             // ウインドウ/タブをアクティブにする」機能のために、このウインドウ/タブのAppStateを
-            // 開いている一覧へ登録する(QooViewerApp.openURLInNewWindow参照)。
+            // 開いている一覧へ登録する(QooViewerApp.openInNewWindow参照)。
             launchCoordinator.registerOpenAppState(appState)
-            if let initialURL {
-                appState.open(url: initialURL)
+            if let initialRequest {
+                appState.open(request: initialRequest)
             } else if !isPrivateWindow {
                 // 起動時の動作(前回の本を開く等)はシークレットウインドウでは行わない。
                 performLaunchActionsIfNeeded()
@@ -511,7 +526,7 @@ struct ContentView: View {
 
     /// 主ウインドウのサイズ・位置を記憶するためのUserDefaultsキー。値は
     /// NSStringFromRectで文字列化した生のフレーム座標をそのまま保存する。
-    /// この文字列リテラルは、QooViewerApp.swiftのopenURLInNewWindow(actsAsPrimaryWindow:trueの
+    /// この文字列リテラルは、QooViewerApp.swiftのopenInNewWindow(actsAsPrimaryWindow:trueの
     /// 分岐)でも直接指定されている(ContentViewのインスタンスメソッドをAppDelegate側から
     /// 呼べないため)。変更する場合はそちらも合わせて変更すること。
     private static let mainWindowFrameDefaultsKey = "qooViewer.mainWindowFrame"
@@ -635,6 +650,11 @@ struct ContentView: View {
         // シークレットウインドウで開いている本は「最後に開いていた本」として記録しない
         // (クリアもしない。通常ウインドウの記録に干渉させないため)。
         guard preferences.launchOpensLastBook, !isPrivateWindow else { return }
+        // その場限りの本(直接渡された画像から作った本)も同じ理由で記録しない。記録して
+        // しまうと、そのsourceURL(複数枚のときは先頭の1枚)が「最後に開いていた本」として残り、
+        // 次回起動時にその画像が勝手に開いてしまう(クリアもしない。直前まで開いていた
+        // 通常の本の記録を消さないため)。
+        guard appState.currentBook?.isTransient != true else { return }
         guard isConfirmedLegitimateWindow,
               let hostWindow = appState.hostWindow, NSApp.keyWindow === hostWindow else { return }
         if let url = appState.currentBook?.sourceURL {
@@ -730,6 +750,10 @@ struct ContentView: View {
             currentBookPath: appState.currentBook?.id,
             loadPageThumbnail: appState.loadPageThumbnail,
             isPrivateWindow: isPrivateWindow,
+            // ＋/鉛筆(お気に入り・ブックマークの追加/編集)は、履歴の非表示とは別条件。
+            // その場限りの本でも無効にする必要があるが、履歴そのものは通常どおり見せる
+            // (SidePanelViewのallowsLibraryEditingのコメント参照)。
+            allowsLibraryEditing: !isPrivateWindow && appState.currentBook?.isTransient != true,
             loadPageImage: appState.loadPageImage,
             pageThumbnailGeneration: appState.pageThumbnailGeneration,
             // お気に入りへの追加(登録先フォルダの選択シート)はViewerViewが持っているため、
@@ -969,9 +993,9 @@ struct ContentView: View {
     }
 
     /// 本が切り替わる(開く/閉じる/次の本・前の本へ移動する)たびに、サイドパネル下段
-    /// (本の中身ブラウザ)を新しい本向けに作り直す。フォルダ/対応アーカイブ形式以外
-    /// (PDF/EPUB)、または本を開いていない場合はnil(SidePanelViewが下段セクション自体を
-    /// 表示しない)。
+    /// (本の中身ブラウザ)を新しい本向けに作り直す。フォルダ/対応アーカイブ形式/直接渡された
+    /// 画像ファイルのいずれでもない場合(PDF/EPUB)、または本を開いていない場合はnil
+    /// (SidePanelViewが下段セクション自体を表示しない)。
     private func updateBookContentsBrowserForCurrentBook() {
         guard let book = appState.currentBook else {
             bookContentsBrowser = nil
