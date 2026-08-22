@@ -852,10 +852,15 @@ extension AppPreferences {
                 Keys.thumbnailGridBorderColorOption,
                 Keys.thumbnailGridBorderCustomColor,
             ] + PanelSurface.allCases.flatMap {
+                // 面ごとの設定を1つ増やしたら**ここにも足すこと**。`apply`が渡す
+                // `AppPreferences()`はUserDefaultsから読み直すので、キーを消し忘れると
+                // 古い値がそのまま戻ってきて「初期設定に戻す」が効かない
+                // (ユーザー報告: 「文字の影」だけリセットされない)。
                 [
                     Keys.panelSurfaceMaterialOpacity($0),
                     Keys.panelSurfaceTintColor($0),
                     Keys.panelSurfaceTintOpacity($0),
+                    Keys.panelSurfaceContentShadowLevel($0),
                 ]
             }
         case .opening:
