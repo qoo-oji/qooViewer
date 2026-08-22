@@ -96,12 +96,18 @@ struct ReadingSettingsView: View {
                 // 止められないため、ステッパーを添えてある(SettingsSlider.showsStepper参照)。
                 // 下限を1秒から0.5秒へ下げたのは、0.1秒単位で詰めたいのは短い側だという
                 // 要望の趣旨に沿わせるため。
+                //
+                // スライダー本体だけ0.5秒刻みにしている。`Slider`は刻みの数だけ目盛りを描くので、
+                // 0.1秒刻みのままだと295本が潰れて**1本の直線に見えていた**(ユーザー報告)。
+                // ドラッグで0.1秒を狙えないのは元々承知の上でステッパーを添えているので、
+                // 目盛りは読み取れる粗さにして、細かい調整はステッパーへ任せる。
                 SettingsSlider(
                     "Interval",
                     value: $preferences.slideshowInterval,
                     in: 0.5...30,
                     step: 0.1,
-                    showsStepper: true
+                    showsStepper: true,
+                    sliderStep: 0.5
                 ) { value in
                     String(format: "%.1f s", value)
                 }

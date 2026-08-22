@@ -454,14 +454,24 @@ struct SettingsSlider: View {
     @Binding private var value: Double
     private let range: ClosedRange<Double>
     private let step: Double
+    private let sliderStep: Double
     private let showsStepper: Bool
     private let format: (Double) -> String
 
-    /// - Parameter showsStepper: 現在値の右に⬆⬇のステッパーを添える。
-    ///   刻みが細かい設定でだけ使うこと ―― スライダーの1ステップが1pt未満になると
-    ///   ドラッグでは狙った値に止められなくなるため(スライダーの実効幅はおよそ300pt
-    ///   しかないので、`(range幅 / step)`が300を超えたら添えると考えてよい)。
-    ///   刻みが粗い設定にまで付けると、押す必要のないボタンが全画面に並ぶことになる。
+    /// - Parameters:
+    ///   - step: 値の刻み。ステッパー(⬆⬇)はこの刻みで動く。
+    ///   - showsStepper: 現在値の右に⬆⬇のステッパーを添える。
+    ///     刻みが細かい設定でだけ使うこと ―― スライダーの1ステップが1pt未満になると
+    ///     ドラッグでは狙った値に止められなくなるため(スライダーの実効幅はおよそ300pt
+    ///     しかないので、`(range幅 / step)`が300を超えたら添えると考えてよい)。
+    ///     刻みが粗い設定にまで付けると、押す必要のないボタンが全画面に並ぶことになる。
+    ///   - sliderStep: **スライダー本体だけ**の刻み。省略すると`step`と同じ。
+    ///
+    ///     `Slider`は刻みの数だけ目盛りを描くため、細かい刻みをそのまま渡すと
+    ///     **目盛りが潰れて1本の直線に見える**(ユーザー報告: スライドショーの間隔の目盛りが
+    ///     細かすぎる。0.5〜30秒を0.1秒刻みにしていたため295本あった)。
+    ///     ドラッグで狙えない細かさの刻みはそもそもステッパーの担当なので、そういう設定では
+    ///     こちらに読み取れる粗さを渡し、細かい調整はステッパーへ任せる。
     init(
         _ title: LocalizedStringKey,
         value: Binding<Double>,
@@ -469,12 +479,14 @@ struct SettingsSlider: View {
         step: Double,
         help: LocalizedStringKey? = nil,
         showsStepper: Bool = false,
+        sliderStep: Double? = nil,
         format: @escaping (Double) -> String
     ) {
         self.title = title
         self._value = value
         self.range = range
         self.step = step
+        self.sliderStep = sliderStep ?? step
         self.help = help
         self.showsStepper = showsStepper
         self.format = format
@@ -501,7 +513,7 @@ struct SettingsSlider: View {
                 }
             }
 
-            Slider(value: $value, in: range, step: step) {
+            Slider(value: $value, in: range, step: sliderStep) {
                 EmptyView()
             } minimumValueLabel: {
                 // 両端の数値は「いまどのくらいの位置にいるのか」を読み取るための目盛りで、
