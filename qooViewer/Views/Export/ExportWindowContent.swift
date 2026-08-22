@@ -49,6 +49,9 @@ enum ExportRowMetrics {
 /// (ユーザー要望: タイトル列の右にカバー画像の列を追加してほしい。さらにApple Books
 /// 互換性対応で、タイトル・著者名を編集できる列を追加。タイトル列の左には、元のファイル名を
 /// 表示するファイル名列を追加してほしい)。カバー列はshowsCoverColumnがfalseなら使わない。
+///
+/// ファイル名列だけは可変幅のため、この値は幅そのものではなく下限として使う
+/// (ExportWindowContent.columnHeaderRow参照)。
 struct ExportColumnWidths {
     var fileName: CGFloat = 170
     var title: CGFloat = 190
@@ -74,24 +77,32 @@ struct ExportWindowContent<Options: View>: View {
     @Environment(\.dismiss) private var dismiss
     @State private var insufficientSpaceMessage: String?
     @State private var columnWidths = ExportColumnWidths()
-    /// autoSizeColumnsIfNeeded()を一覧の初回表示時に1回だけ実行するためのフラグ
+    /// autoSizeColumnsIfNeeded()を、一覧の行が出そろった時点で1回だけ実行するためのフラグ
     /// (SidebarWidthEstimatorと同じ考え方。以降はユーザーの手動ドラッグを優先し、
     /// 内容の変化のたびに勝手にリサイズしないようにする)。
     @State private var didAutoSizeColumns = false
 
-    /// 可変列(ファイル名・タイトル・著者名・カバー)以外のおおよその固定幅。
-    /// 内訳はチェックボックス列(20)＋区切り線＋インジケータ列＋左右の外側パディング
-    /// (.padding(.leading, 12) + .padding(.trailing, 20) = 32)＋HStackの要素間の間隔。
-    /// 区切り線と間隔の数はカバー列の有無で変わる。
+    /// 各列の幅以外に、1行が必ず使う固定幅。内訳はチェックボックス列(20)＋区切り線(1ptずつ)
+    /// ＋インジケータ列＋左右の外側パディング(.padding(.leading, 12) + .padding(.trailing, 20)
+    /// = 32)＋HStack(spacing: 8)の要素間の間隔。区切り線と間隔の数はカバー列の有無で変わる。
+    ///
+    /// 間隔の数は、columnHeaderRow / ExportBookRowViewのHStackに実際に並ぶ要素数-1と一致させる
+    /// (チェックボックス・区切り線・各列・インジケータ左の隙間・インジケータの並び)。
+    /// 以前は間隔の数が実際の並びより少なく見積もられていて、カバー列を持たないPDF出力で
+    /// contentMinWidthから決まるウインドウ最小幅が数pt足りていなかった。
     private var fixedChromeWidth: CGFloat {
         let dividerCount: CGFloat = configuration.showsCoverColumn ? 5 : 4
-        let spacingCount: CGFloat = configuration.showsCoverColumn ? 8 : 6
-        return 20 + dividerCount * 9 + ExportRowMetrics.trailingIndicatorWidth + 32 + spacingCount * 6
+        let spacingCount: CGFloat = configuration.showsCoverColumn ? 11 : 9
+        return 20 + dividerCount * 1 + spacingCount * 8 + ExportRowMetrics.trailingIndicatorWidth + 32
     }
 
     /// 現在の各列の幅から逆算した、ウインドウに最低限必要な幅(ユーザー要望: 右端の
     /// インジケータが見切れないようにしたい)。列の幅が(自動調整・手動ドラッグのいずれかで)
     /// 変わるたびに追随するため、ウインドウがそれより縮められることが無くなる。
+    ///
+    /// ファイル名列だけは可変幅(下限がcolumnWidths.fileName)のため、ここでの合計は
+    /// 「ウインドウをいちばん狭くしたときの幅」になる。ウインドウがこれより広い間は、
+    /// 余った幅はすべてファイル名列が受け取る(columnHeaderRow参照)。
     private var contentMinWidth: CGFloat {
         columnWidths.fileName + columnWidths.title + columnWidths.author
             + (configuration.showsCoverColumn ? columnWidths.cover : 0)
@@ -99,10 +110,18 @@ struct ExportWindowContent<Options: View>: View {
     }
 
     /// ユーザー要望: 各列に表示する文字列の長さに応じて、ウインドウ幅と各列の幅を自動調整して
-    /// ほしい。一覧が最初に表示された時点の内容(ファイル名・タイトル・著者名)を基に、
-    /// 省略表示("…")にならずに済む幅をあらかじめ計算する。SidebarWidthEstimatorと同じく、
-    /// リストの内容が変わるたびに勝手にリサイズされると使い勝手が悪いため、初回表示時に
-    /// 1回だけ行う(以降はユーザーの手動ドラッグ(ExportResizableColumnDivider)に委ねる)。
+    /// ほしい。一覧に並ぶ内容(ファイル名・タイトル・著者名)を基に、省略表示("…")にならずに
+    /// 済む幅をあらかじめ計算する。SidebarWidthEstimatorと同じく、リストの内容が変わるたびに
+    /// 勝手にリサイズされると使い勝手が悪いため、行が出そろった最初の1回だけ行う
+    /// (以降はユーザーの手動ドラッグ(ExportResizableColumnDivider)に委ねる)。
+    ///
+    /// バグ修正(ユーザー報告: PDF/CBZ出力ウインドウでファイル名列が狭いまま省略表示になり、
+    /// インジケータ列の左に異様に広い余白ができる): 以前はこれを.onAppearからだけ呼んでいた。
+    /// しかしviewModel.rowsは、元ファイルの実在確認をメインアクターの外へ逃がした結果
+    /// (reload()のTask.detached参照)、必ず.onAppearより後に埋まる。そのため
+    /// rows.isEmptyのguardに毎回はじかれ、自動調整は事実上一度も動いていなかった
+    /// (3つの出力ウインドウすべてが既定値の170/190/140のままだった)。行が入った時点でも
+    /// 呼ぶようにして、実際に自動調整が効くようにする。
     private func autoSizeColumnsIfNeeded() {
         guard !didAutoSizeColumns, !viewModel.rows.isEmpty else { return }
         didAutoSizeColumns = true
@@ -148,7 +167,10 @@ struct ExportWindowContent<Options: View>: View {
             bottomSection
         }
         .frame(minWidth: max(configuration.minimumWindowWidth, contentMinWidth), minHeight: 480)
+        // 一覧が非同期に埋まるため、表示直後と「行が入った瞬間」の両方で試みる
+        // (autoSizeColumnsIfNeeded()のコメント参照。実際に走るのは最初の1回だけ)。
         .onAppear { autoSizeColumnsIfNeeded() }
+        .onChange(of: viewModel.rows.count) { _, _ in autoSizeColumnsIfNeeded() }
         .alert(
             "Not Enough Free Space",
             isPresented: Binding(
@@ -228,12 +250,21 @@ struct ExportWindowContent<Options: View>: View {
 
             ExportColumnDividerLine()
 
+            // ファイル名列だけは可変幅にして、ウインドウが列の合計より広いときの余りを
+            // すべて受け取らせる(ユーザー報告: インジケータ列の左に異様に広い余白ができる
+            // 一方で、いちばん長いファイル名の列が省略表示になっていた)。BookmarkListViewの
+            // タイトル行の最終列(「ブックマーク」)と同じ考え方。
+            //
+            // 可変幅にしたぶん、この列の直後だけは幅固定のExportColumnDividerLineに戻している。
+            // ドラッグしてもウインドウに余りがある限り見た目が変わらず、操作できるのに何も
+            // 起きない区切り線になってしまうため(他の列のドラッグは従来どおり効き、広げた
+            // ぶんはファイル名列から引かれる)。
             Text("File Name")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .frame(width: columnWidths.fileName, alignment: .leading)
+                .frame(minWidth: columnWidths.fileName, maxWidth: .infinity, alignment: .leading)
 
-            ExportResizableColumnDivider(width: $columnWidths.fileName)
+            ExportColumnDividerLine()
 
             Text("Title")
                 .font(.caption)
@@ -260,7 +291,15 @@ struct ExportWindowContent<Options: View>: View {
                 ExportResizableColumnDivider(width: $columnWidths.cover, minWidth: 80, maxWidth: 300)
             }
 
-            Spacer()
+            // 各行のインジケータ列とまったく同じ幅を、見出しの無い空白として確保する。
+            // ここをSpacer()のままにすると、可変幅になったファイル名列と余った幅を分け合って
+            // しまい、タイトル行と各行とで列の位置がずれる。
+            Color.clear
+                .frame(width: ExportRowMetrics.indicatorLeadingGap, height: ExportColumnDividerLine.height)
+
+            Color.clear
+                .frame(width: ExportRowMetrics.indicatorIconsWidth, height: ExportColumnDividerLine.height)
+                .padding(.trailing, ExportRowMetrics.indicatorTrailingGap)
         }
         // ユーザー要望: インジケータの右側にもう少しスペースを開けたい(チェックボックスの
         // 左側と同じくらい)。左右の余白を非対称にし、右側を広めにとる(ExportBookRowViewの
@@ -397,7 +436,8 @@ private struct ExportBookRowView: View {
                     .truncationMode(.middle)
                 FormatBadgeView(bookID: row.bookID)
             }
-            .frame(width: columnWidths.fileName, alignment: .leading)
+            // タイトル行のファイル名列と同じ可変幅(columnHeaderRowのコメント参照)。
+            .frame(minWidth: columnWidths.fileName, maxWidth: .infinity, alignment: .leading)
 
             ExportColumnDividerLine()
 
@@ -451,7 +491,10 @@ private struct ExportBookRowView: View {
             // 固定幅のスロットに収めることで、片方だけしか無い行でも位置がずれず、かつ
             // 列全体としてはtrailingIndicatorWidthぶんを確保してウインドウが縮んでも
             // 見切れないようにする(contentMinWidth参照)。
-            Spacer(minLength: ExportRowMetrics.indicatorLeadingGap)
+            // 幅固定の隙間にしてある(Spacerのままだと、可変幅になったファイル名列と
+            // 余った幅を分け合ってしまう。columnHeaderRowのコメント参照)。
+            Color.clear
+                .frame(width: ExportRowMetrics.indicatorLeadingGap, height: ExportColumnDividerLine.height)
 
             HStack(spacing: ExportIndicatorIcon.slotSpacing) {
                 ExportIndicatorIcon(
