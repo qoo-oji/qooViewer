@@ -102,6 +102,12 @@ struct RenderingSettingsView: View {
             } header: {
                 Text("Performance")
             }
+
+            SettingsResetSection(
+                help: "Restores every setting on this page. Other pages, and your favorites, bookmarks and reading history, are not affected."
+            ) {
+                preferences.resetToDefaults(.rendering)
+            }
         }
     }
 }

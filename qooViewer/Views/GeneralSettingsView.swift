@@ -114,6 +114,12 @@ struct GeneralSettingsView: View {
             } header: {
                 Text("Side Panel")
             }
+
+            SettingsResetSection(
+                help: "Restores every setting on this page. Other pages, and your favorites, bookmarks and reading history, are not affected."
+            ) {
+                preferences.resetToDefaults(.general)
+            }
         }
     }
 }

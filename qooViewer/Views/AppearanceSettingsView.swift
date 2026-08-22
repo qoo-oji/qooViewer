@@ -35,6 +35,10 @@ struct AppearanceSettingsView: View {
     @State private var backgroundOptionBeforeCustomizing: BackgroundColorOption?
     @State private var borderOptionBeforeCustomizing: PageBorderColorOption?
 
+    /// 濃さが0%のまま色を選んだときに、代わりに設定する濃さ(上のcommitのコメント参照)。
+    /// 選んだ色がはっきり分かり、かつすりガラスの質感も残る程度。
+    private static let tintOpacityWhenFirstColored: Double = 0.25
+
     /// 色の指定ダイアログの編集対象。`.sheet(item:)`へ渡すため`Identifiable`にしてある。
     private enum ColorTarget: Identifiable, Hashable {
         /// ビューアの背景色(「カスタム」を選んだとき)。
@@ -67,6 +71,12 @@ struct AppearanceSettingsView: View {
             pageListSection
             ForEach(PanelSurface.allCases) { surface in
                 surfaceSection(surface)
+            }
+
+            SettingsResetSection(
+                help: "Restores every setting on this page, including the color of every frosted surface. Other pages are not affected."
+            ) {
+                preferences.resetToDefaults(.appearance)
             }
         }
         // シートは行ではなく画面の土台側に付ける(理由はSettingsColorRowのコメント参照)。
@@ -168,7 +178,11 @@ struct AppearanceSettingsView: View {
             ) { value in
                 "\(Int((value * 100).rounded()))%"
             }
-            SettingsColorRow("Panel Color", color: style.wrappedValue.tintColor.color) {
+            SettingsColorRow(
+                "Panel Color",
+                color: style.wrappedValue.tintColor.color,
+                help: "The color only shows once Color Strength is above 0%. Picking a color while it is 0% raises it for you, so you can see what you chose."
+            ) {
                 colorTarget = .surfaceTint(surface)
             }
             SettingsSlider(
@@ -242,6 +256,19 @@ struct AppearanceSettingsView: View {
         case .surfaceTint(let surface):
             var style = preferences.surfaceStyle(for: surface)
             style.tintColor = color
+            // ユーザー報告: 色を変えても見た目が変わらない。
+            //
+            // 原因は不具合ではなく、この2段構えの分かりにくさだった。既定の「背景色の濃さ」は
+            // 0%(=完全に透明)なので、**色を選んでも1ピクセルも変わらない**。保存も描画も
+            // 正しく動いているのに、操作の結果が画面のどこにも現れないため、壊れているように見える。
+            //
+            // 色をわざわざ選ぶのは「その色にしたい」という明確な意思表示なので、濃さが
+            // まだ0のときだけ、見える濃さまで上げる。すでに自分で濃さを決めている場合
+            // (0より大きい)は、その値を尊重して触らない。上げすぎると今度は
+            // すりガラスが完全に潰れてしまうため、控えめな値にしてある。
+            if style.tintOpacity == 0 {
+                style.tintOpacity = Self.tintOpacityWhenFirstColored
+            }
             preferences.setSurfaceStyle(style, for: surface)
         }
     }

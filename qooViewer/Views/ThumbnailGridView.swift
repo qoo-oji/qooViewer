@@ -258,15 +258,36 @@ struct ThumbnailGridView: View {
             + CGFloat(preferences.thumbnailGridVerticalSpacing)
     }
 
+    /// このスクロールイベントが、トラックパッド(や Magic Mouse の指でなぞる操作)ではなく
+    /// **物理マウスホイールのノッチ**によるものか。
+    ///
+    /// 判定は**このアプリの他の箇所と同じ`phase`/`momentumPhase`で行う**
+    /// (ViewerView.makeScrollMonitorの`isTrackpadOriginated`と同じ式)。指でなぞる操作だけが
+    /// phaseを伴い、ホイールのノッチは解像度に関わらず常に空になる。
+    ///
+    /// バグ修正(ユーザー報告): ここは当初`!event.hasPreciseScrollingDeltas`だった。そのため
+    /// **「ホイール1ノッチのスクロール行数」が一度も適用されていなかった。** 高解像度
+    /// スクロールに対応した最近のマウス(報告者の環境はLogitech MX Anywhere 3S)は、
+    /// 物理ホイールであっても`hasPreciseScrollingDeltas == true`で届くためである。
+    /// 統合ログで実測した1ノッチぶんの値:
+    ///
+    ///     precise=YES phase=0 momentum=0 scrollingDeltaY=-13.0 deltaY=-1.0
+    ///
+    /// つまり以前の条件では、ホイールを回しても常に「トラックパッド」と見なして素通しして
+    /// いた。ここだけ他と違う条件を使っていたこと自体が誤りだった。
+    private static func isWheelOriginated(_ event: NSEvent) -> Bool {
+        event.phase.isEmpty && event.momentumPhase.isEmpty
+    }
+
     /// ページ一覧の上でマウスホイールを回したときのスクロール量を、環境設定
     /// (thumbnailGridWheelScrollRows)に従わせるためのNSEventローカルモニタ。
     ///
     /// ■ 対象を物理マウスホイールだけに絞っている
-    /// `hasPreciseScrollingDeltas`がtrueなのはトラックパッドやMagic Mouseの滑らかな
-    /// スクロールで、こちらは1回の操作が細かいイベントの連なりとして届くため「1回ぶん」に
+    /// トラックパッドは1回の操作が細かいイベントの連なりとして届くため「1回ぶん」に
     /// 意味が無い。指の動きにそのまま追従する既定の挙動をそのまま通す(環境設定の
     /// invertTwoFingerScrollingが逆にトラックパッド側だけを対象にしているのと同じ考え方で、
-    /// 両者は操作の質が違い、片方に合う値がもう片方では極端になる)。
+    /// 両者は操作の質が違い、片方に合う値がもう片方では極端になる)。判定は
+    /// `isWheelOriginated(_:)`(そちらのコメントに実測値と、以前の誤りの経緯)。
     ///
     /// ■ 判定は「実際にこのグリッドへ届くクリックか」(矩形の内外ではない)
     /// ヒットテストで、そのポインタ位置にあるビューがこのScrollViewの子孫かどうかを見る。
@@ -297,7 +318,7 @@ struct ThumbnailGridView: View {
         let scrollGeometryBox = self.scrollGeometryBox
         let preferences = self.preferences
         return NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel]) { event in
-            guard !event.hasPreciseScrollingDeltas, event.scrollingDeltaY != 0 else { return event }
+            guard Self.isWheelOriginated(event), event.deltaY != 0 else { return event }
             guard let scrollView = scrollGeometryBox.scrollView,
                   let window = scrollView.window, event.window === window,
                   let contentView = window.contentView
@@ -313,11 +334,19 @@ struct ThumbnailGridView: View {
             let rows = preferences.thumbnailGridWheelScrollRows
             let distance = Self.gridRowHeight(from: preferences) * CGFloat(rows)
             var position = bounds.position
-            // scrollingDeltaYは「システム設定のナチュラルなスクロール」を反映済みの値で、
-            // 上へ回すと正になる。positionは下へ進むほど増える向きなので符号を反転させる。
-            // 大きさをそのまま掛けているのは、速く回したときにAppKitが1イベントへ複数
-            // ノッチ分をまとめてくることがあり、その加速をそのまま活かすため。
-            position.y -= event.scrollingDeltaY * distance
+            // ■ ノッチ数は`scrollingDeltaY`ではなく`deltaY`から取る
+            // `scrollingDeltaY`の単位は機器によって変わる ―― 従来のホイールは「行」だが、
+            // 高解像度ホイールは「ポイント」で届く(実測で1ノッチ=13.0)。これに行の高さを
+            // 掛けると、1ノッチで13行ぶん飛ぶことになる。
+            // 一方`deltaY`はどちらの機器でも**1ノッチ=±1**に正規化されている
+            // (実測値は上のisWheelOriginatedのコメント参照)ので、「1ノッチあたり何行」という
+            // この設定の意味とそのまま噛み合う。
+            //
+            // 符号: deltaYは「システム設定のナチュラルなスクロール」を反映済みの値で、
+            // 上へ回すと正になる。positionは下へ進むほど増える向きなので反転させる。
+            // 大きさをそのまま掛けているのは、速く回すとAppKitが1イベントへ複数ノッチ分を
+            // まとめてくる(実測で-3〜-6)ため、その加速をそのまま活かすため。
+            position.y -= event.deltaY * distance
             // アニメーションは付けない。「1ノッチ = N行」をそのまま目に見える動きにするため
             // (連続して回したときにアニメーション同士が競合して、行数と実際の移動量が
             // 食い違って見えるのも避けられる)。可動範囲へのクランプはscroll(to:)が行う。

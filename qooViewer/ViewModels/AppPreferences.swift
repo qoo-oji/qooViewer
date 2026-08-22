@@ -485,6 +485,9 @@ final class AppPreferences: ObservableObject {
     }
     /// 下限0.5行は「1ノッチで半行ぶんだけ動かして、行の途中を覗く」用途。上限5行は、
     /// それ以上にすると1ノッチで画面が丸ごと入れ替わり、どこを見ていたか分からなくなるため。
+    ///
+    /// 刻みは0.1行(ユーザー要望)。スライダーの1ステップが1pt未満になるため、
+    /// 環境設定側ではスライダーにステッパーを添えてある(SettingsSlider.showsStepper参照)。
     static let thumbnailGridWheelScrollRowsRange: ClosedRange<Double> = 0.5...5
 
     // MARK: - すりガラスの面ごとの見た目(ユーザー要望)
@@ -505,6 +508,10 @@ final class AppPreferences: ObservableObject {
     @Published var sidePanelSurfaceStyle: PanelSurfaceStyle {
         didSet { Self.save(sidePanelSurfaceStyle, for: .sidePanel) }
     }
+    /// 上記以外の浮かぶ表示(「情報を見る」パネル・トースト・拡大率表示)の背景。
+    @Published var overlaySurfaceStyle: PanelSurfaceStyle {
+        didSet { Self.save(overlaySurfaceStyle, for: .overlays) }
+    }
 
     /// 面を指定して現在の設定を読む。環境設定「外観」画面が`PanelSurface.allCases`を
     /// そのまま並べられるようにするための窓口(4面ぶんの`if`を画面側に書かせないため)。
@@ -514,6 +521,7 @@ final class AppPreferences: ObservableObject {
         case .toolbar: return toolbarSurfaceStyle
         case .progressBar: return progressBarSurfaceStyle
         case .sidePanel: return sidePanelSurfaceStyle
+        case .overlays: return overlaySurfaceStyle
         }
     }
 
@@ -524,6 +532,7 @@ final class AppPreferences: ObservableObject {
         case .toolbar: toolbarSurfaceStyle = style
         case .progressBar: progressBarSurfaceStyle = style
         case .sidePanel: sidePanelSurfaceStyle = style
+        case .overlays: overlaySurfaceStyle = style
         }
     }
 
@@ -733,6 +742,7 @@ final class AppPreferences: ObservableObject {
         self.toolbarSurfaceStyle = Self.loadSurfaceStyle(for: .toolbar)
         self.progressBarSurfaceStyle = Self.loadSurfaceStyle(for: .progressBar)
         self.sidePanelSurfaceStyle = Self.loadSurfaceStyle(for: .sidePanel)
+        self.overlaySurfaceStyle = Self.loadSurfaceStyle(for: .overlays)
         self.launchInPrivateMode = defaults.object(forKey: Keys.launchInPrivateMode) as? Bool ?? false
 
         if let storedRaw = defaults.string(forKey: Keys.defaultReadingDirection),
@@ -745,6 +755,187 @@ final class AppPreferences: ObservableObject {
             let determined: ReadingDirection = systemIsJapanese ? .rightToLeft : .leftToRight
             self.defaultReadingDirection = determined
             defaults.set(determined.rawValue, forKey: Keys.defaultReadingDirection)
+        }
+    }
+}
+
+
+// MARK: - 画面ごとの「初期設定に戻す」(ユーザー要望)
+
+extension AppPreferences {
+    /// 環境設定の1画面ぶんの設定を、出荷時の既定値へ戻す。
+    ///
+    /// ■ 既定値をここに書かないための作り
+    /// 「その画面が使っているUserDefaultsのキーをすべて消す」→「もう1つAppPreferencesを作る」
+    /// →「その画面ぶんのプロパティだけコピーする」という順で行う。キーを消した状態で作った
+    /// インスタンスは、`init()`の`?? 既定値`の側を通るため、**出荷時の既定値そのもの**を持つ。
+    ///
+    /// こうしているのは、既定値の literal が`init()`とここの2箇所に散らばるのを避けるため。
+    /// 2箇所に書くと、既定値を変えたときに片方だけ直して「初期設定に戻したのに初期設定に
+    /// ならない」という、気づきにくいずれが生まれる。既定値の定義は`init()`が唯一の正典で、
+    /// ここは「どのキーがどの画面のものか」だけを知っている。
+    ///
+    /// 【メンテナンス上の注意】設定を1つ増やしたら、`keys(for:)`と`apply(_:for:)`の**両方**へ
+    /// 足すこと。足し忘れても値が壊れることはないが、その項目だけ初期設定に戻らなくなる。
+    ///
+    /// キー・マウスの割り当て(`keyboard`/`mouse`/`modeInput`)はAppPreferencesではなく
+    /// KeyBindingStoreが持つため、ここでは何もしない(各画面が自分でstore側を呼ぶ)。
+    /// 「フォルダのアクセス権」「リセット」には戻すべき設定が無い(ユーザー要望により
+    /// この2画面にはボタン自体を置かない)。
+    func resetToDefaults(_ pane: SettingsPane) {
+        let keys = Self.keys(for: pane)
+        guard !keys.isEmpty else { return }
+        let defaults = UserDefaults.standard
+        for key in keys {
+            defaults.removeObject(forKey: key)
+        }
+        apply(AppPreferences(), for: pane)
+    }
+
+    /// その画面が読み書きするUserDefaultsのキー。
+    ///
+    /// **その画面に実際に並んでいる項目だけ**を対象にする。表示・非表示の状態
+    /// (hideToolbar/hideSidePanelなど)やサイドパネルの幅・モード、フォルダブラウザの並べ替えは、
+    /// 「表示」メニューやパネル自身のボタンで変える値で、環境設定の画面には無いため含めない。
+    /// 「この画面を初期設定に戻す」が、画面に見えていない設定まで巻き込むのは予想を裏切る。
+    private static func keys(for pane: SettingsPane) -> [String] {
+        switch pane {
+        case .general:
+            return [
+                Keys.displayLanguage,
+                Keys.launchOpensLastBook,
+                Keys.launchFullScreen,
+                Keys.launchInPrivateMode,
+                Keys.quitWhenLastWindowClosed,
+                Keys.confirmBeforeClosingMultipleTabsWindow,
+                Keys.maxTrackedBooksCount,
+                recentFilesLimitDefaultsKey,
+                Keys.showRecentFilesOnWelcome,
+                Keys.showRecentFavoritesOnWelcome,
+                Keys.sidePanelFeatureEnabled,
+                Keys.sidePanelPosition,
+                Keys.sidePanelUsesDoubleClick,
+                Keys.sidePanelSortOrder,
+            ]
+        case .appearance:
+            return [
+                Keys.backgroundColorOption,
+                Keys.customBackgroundColor,
+                Keys.thumbnailGridCellSize,
+                Keys.thumbnailGridHorizontalSpacing,
+                Keys.thumbnailGridVerticalSpacing,
+                Keys.thumbnailGridHorizontalMarginPercent,
+                Keys.thumbnailGridVerticalMarginPercent,
+                Keys.thumbnailGridCaptionStyle,
+                Keys.thumbnailGridCaptionFontSize,
+                Keys.thumbnailGridBorderColorOption,
+                Keys.thumbnailGridBorderCustomColor,
+            ] + PanelSurface.allCases.flatMap {
+                [
+                    Keys.panelSurfaceMaterialOpacity($0),
+                    Keys.panelSurfaceTintColor($0),
+                    Keys.panelSurfaceTintOpacity($0),
+                ]
+            }
+        case .opening:
+            return [
+                Keys.reopenBehavior,
+                Keys.finderOpenBehavior,
+                Keys.favoriteOpenBehavior,
+                Keys.spreadBookmarkTargetBehavior,
+            ]
+        case .rendering:
+            return [
+                Keys.defaultScalingMode,
+                Keys.maxUpscalePercent,
+                Keys.maxPinchZoomPercent,
+                Keys.interpolationQuality,
+                Keys.loupeMagnificationPercent,
+                Keys.loupeDiameter,
+                Keys.singlePageAspectRatioThreshold,
+                Keys.prefetchPageCount,
+            ]
+        case .reading:
+            return [
+                Keys.loopBehavior,
+                Keys.treatTrackpadFlickAsWheel,
+                Keys.invertTwoFingerScrolling,
+                Keys.showProgressBarThumbnailPreview,
+                Keys.thumbnailGridWheelScrollRows,
+                Keys.showThumbnailHoverPreview,
+                Keys.thumbnailHoverPreviewDelay,
+                Keys.preloadThumbnailGridPreviews,
+                Keys.slideshowInterval,
+                Keys.autoHideCursor,
+                Keys.cursorAutoHideDelay,
+            ]
+        case .keyboard, .mouse, .modeInput, .access, .reset:
+            return []
+        }
+    }
+
+    /// 既定値だけを持つインスタンス(`source`)から、その画面ぶんのプロパティを取り込む。
+    /// 代入によって各プロパティの`didSet`が走り、既定値がUserDefaultsへ書き戻される。
+    private func apply(_ source: AppPreferences, for pane: SettingsPane) {
+        switch pane {
+        case .general:
+            displayLanguage = source.displayLanguage
+            launchOpensLastBook = source.launchOpensLastBook
+            launchFullScreen = source.launchFullScreen
+            launchInPrivateMode = source.launchInPrivateMode
+            quitWhenLastWindowClosed = source.quitWhenLastWindowClosed
+            confirmBeforeClosingMultipleTabsWindow = source.confirmBeforeClosingMultipleTabsWindow
+            maxTrackedBooksCount = source.maxTrackedBooksCount
+            recentFilesLimit = source.recentFilesLimit
+            showRecentFilesOnWelcome = source.showRecentFilesOnWelcome
+            showRecentFavoritesOnWelcome = source.showRecentFavoritesOnWelcome
+            sidePanelFeatureEnabled = source.sidePanelFeatureEnabled
+            sidePanelPosition = source.sidePanelPosition
+            sidePanelUsesDoubleClick = source.sidePanelUsesDoubleClick
+            sidePanelSortOrder = source.sidePanelSortOrder
+        case .appearance:
+            backgroundColorOption = source.backgroundColorOption
+            customBackgroundColor = source.customBackgroundColor
+            thumbnailGridCellSize = source.thumbnailGridCellSize
+            thumbnailGridHorizontalSpacing = source.thumbnailGridHorizontalSpacing
+            thumbnailGridVerticalSpacing = source.thumbnailGridVerticalSpacing
+            thumbnailGridHorizontalMarginPercent = source.thumbnailGridHorizontalMarginPercent
+            thumbnailGridVerticalMarginPercent = source.thumbnailGridVerticalMarginPercent
+            thumbnailGridCaptionStyle = source.thumbnailGridCaptionStyle
+            thumbnailGridCaptionFontSize = source.thumbnailGridCaptionFontSize
+            thumbnailGridBorderColorOption = source.thumbnailGridBorderColorOption
+            thumbnailGridBorderCustomColor = source.thumbnailGridBorderCustomColor
+            for surface in PanelSurface.allCases {
+                setSurfaceStyle(source.surfaceStyle(for: surface), for: surface)
+            }
+        case .opening:
+            reopenBehavior = source.reopenBehavior
+            finderOpenBehavior = source.finderOpenBehavior
+            favoriteOpenBehavior = source.favoriteOpenBehavior
+            spreadBookmarkTargetBehavior = source.spreadBookmarkTargetBehavior
+        case .rendering:
+            defaultScalingMode = source.defaultScalingMode
+            maxUpscalePercent = source.maxUpscalePercent
+            maxPinchZoomPercent = source.maxPinchZoomPercent
+            interpolationQuality = source.interpolationQuality
+            loupeMagnificationPercent = source.loupeMagnificationPercent
+            loupeDiameter = source.loupeDiameter
+            singlePageAspectRatioThreshold = source.singlePageAspectRatioThreshold
+            prefetchPageCount = source.prefetchPageCount
+        case .reading:
+            loopBehavior = source.loopBehavior
+            treatTrackpadFlickAsWheel = source.treatTrackpadFlickAsWheel
+            invertTwoFingerScrolling = source.invertTwoFingerScrolling
+            showProgressBarThumbnailPreview = source.showProgressBarThumbnailPreview
+            thumbnailGridWheelScrollRows = source.thumbnailGridWheelScrollRows
+            showThumbnailHoverPreview = source.showThumbnailHoverPreview
+            thumbnailHoverPreviewDelay = source.thumbnailHoverPreviewDelay
+            preloadThumbnailGridPreviews = source.preloadThumbnailGridPreviews
+            slideshowInterval = source.slideshowInterval
+            autoHideCursor = source.autoHideCursor
+            cursorAutoHideDelay = source.cursorAutoHideDelay
+        case .keyboard, .mouse, .modeInput, .access, .reset:
+            break
         }
     }
 }

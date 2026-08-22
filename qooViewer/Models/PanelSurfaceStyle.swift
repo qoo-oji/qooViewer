@@ -20,6 +20,16 @@ enum PanelSurface: String, CaseIterable, Identifiable, Hashable {
     /// サイドパネル。ここだけAppKitのNSVisualEffectViewで描いている
     /// (SidebarVisualEffectView参照。理由はそちらのコメント)。
     case sidePanel
+    /// 上の4つ以外で、このアプリが自分で描いている浮かぶ表示をまとめたもの ――
+    /// 「情報を見る」パネル、操作のフィードバック(トースト)、ピンチ拡大中の拡大率表示。
+    ///
+    /// ユーザー要望は「まだ設定できていないすりガラスの箇所(コンテキストメニューやダイアログ等)も
+    /// まとめて設定したい」というものだったが、**コンテキストメニュー・システムのダイアログ
+    /// (シート/アラート)・ポップオーバーの外枠は、macOSが描いていてアプリからは色を指定できない**。
+    /// 指定できるのは上記の3つだけなので、この面はその3つを受け持つ。
+    /// 個別に分けていないのは、どれも一瞬だけ浮かぶ小さな表示で、別々の色にする意味が薄いため
+    /// (「まとめて設定したい」という要望の趣旨にも沿う)。
+    case overlays
 
     var id: String { rawValue }
 
@@ -29,6 +39,7 @@ enum PanelSurface: String, CaseIterable, Identifiable, Hashable {
         case .toolbar: "Toolbar"
         case .progressBar: "Progress Bar"
         case .sidePanel: "Side Panel"
+        case .overlays: "Other Overlays"
         }
     }
 

@@ -535,6 +535,40 @@ struct SettingsSlider: View {
     }
 }
 
+// MARK: - 初期設定に戻す
+
+/// 環境設定の各画面の末尾に置く「初期設定に戻す」セクション(ユーザー要望)。
+///
+/// ■ 文言は全画面で同じ「初期設定に戻す」に統一すること
+/// 以前は画面ごとに違っていた(「Reset to Defaults」と「Reset This Mode to Defaults」)。
+/// 同じ役割のボタンが画面によって別の名前で出てくると、押す前に「これは他と同じものか」を
+/// 毎回考えることになる(ユーザーからの指摘)。**何が戻るのかの違いはラベルではなく
+/// `help` で説明する** ―― 例えば「表示モード別の操作」は選択中の表示モードだけが対象で、
+/// その但し書きはラベルに入れるには長すぎる。
+///
+/// ■ 置かない画面
+/// 「フォルダのアクセス権」と「リセット」には置かない(ユーザーの指示)。前者はアクセス許可の
+/// 一覧で、戻すべき「設定」を持たない。後者は画面そのものが削除操作の集まりで、
+/// そこへ「初期設定に戻す」を足しても意味が重なるだけになる。
+struct SettingsResetSection: View {
+    /// 何が戻るのか(および何が戻らないのか)の説明。ラベルは全画面共通なので、
+    /// 画面ごとの違いはここだけで表す。
+    private let help: LocalizedStringKey
+    private let action: () -> Void
+
+    init(help: LocalizedStringKey, action: @escaping () -> Void) {
+        self.help = help
+        self.action = action
+    }
+
+    var body: some View {
+        Section {
+            Button("Reset to Defaults", role: .destructive, action: action)
+                .help(Text(help))
+        }
+    }
+}
+
 // MARK: - 色見本
 
 /// 色を1つ選ばせる行。項目名の右に現在の色の見本を置き、押すと色の指定ダイアログ

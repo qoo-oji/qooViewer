@@ -128,6 +128,9 @@ struct SidePanelView: View {
     /// 上段(フォルダブラウザ)の絞り込み検索欄の入力内容。フォルダを移動すると空に戻す
     /// (folderSection参照)。1つのフォルダに数百冊入っているケースで目的の本を素早く
     /// 見つけるための機能(ユーザー要望)。
+    /// 右クリックされた行を枠で示すための状態(SidePanelContextMenuHighlight参照)。
+    /// 各セクションのビューへは`.environmentObject`で配る。
+    @StateObject private var contextHighlight = SidePanelContextMenuHighlight()
     @State private var folderFilterText = ""
     @GestureState private var dragOffset: CGFloat = 0
     @GestureState private var widthDragOffset: CGFloat = 0
@@ -183,6 +186,12 @@ struct SidePanelView: View {
     }
 
     private var panelBody: some View {
+        panelSections
+            .environmentObject(contextHighlight)
+    }
+
+    @ViewBuilder
+    private var panelSections: some View {
         VStack(spacing: 0) {
             SidePanelModeSwitcher(mode: $mode)
             Divider()
@@ -569,6 +578,7 @@ struct SidePanelView: View {
                 label.onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { onOpen(entry.url) }
             }
         }
+        .sidePanelContextHighlight(rowID: "folder:\(entry.id)")
         // 上段はディスク上に実在するファイル/フォルダだけを並べているので、
         // どの行も素直にFinderで示せる(ユーザー要望)。
         .contextMenu {
@@ -764,6 +774,7 @@ private struct BookContentsSectionView: View {
                 label
             }
         }
+        .sidePanelContextHighlight(rowID: "contents:\(entry.id)")
         .contextMenu {
             contextMenuItems(for: entry)
         }
@@ -1060,6 +1071,7 @@ private struct SidePanelFavoriteRow: View {
         // 素のパスから作ったURLにはアクセス権が付かず、サンドボックス下では
         // FinderReveal側の存在確認が失敗して何も起きない(そちらのコメント参照)。
         // 解決を通せば、本が移動・リネームされていても現在の場所を示せるという利点もある。
+        .sidePanelContextHighlight(rowID: "favorite:\(book.id.uuidString)")
         .contextMenu {
             Button("Open") { onOpen(book) }
             Button("Show in Finder") {
@@ -1158,6 +1170,7 @@ private struct SidePanelBookmarksSectionView: View {
         // (削除・名前変更は「ブックマークの編集」ウインドウの担当。上のbookRowのコメント参照)。
         // このモードの一覧は「今開いている本」のブックマークなので、行ごとに別の本を
         // Finderで示す、という状況は生じない(それは上段のお気に入り側の役目)。
+        .sidePanelContextHighlight(rowID: "bookmark:\(bookmark.id)")
         .contextMenu {
             Button("Go to This Page") { onJump(bookmark) }
             Button("Edit Bookmarks…") { onEdit() }
@@ -1290,6 +1303,7 @@ private struct SidePanelHistorySectionView: View {
             guard let url = recentFiles.resolveForOpening(entry) else { return }
             onOpen(url)
         }
+        .sidePanelContextHighlight(rowID: "history:\(entry.id)")
         .contextMenu {
             Button("Open") {
                 guard let url = recentFiles.resolveForOpening(entry) else { return }
@@ -1383,6 +1397,7 @@ private struct SidePanelPagesSectionView: View {
                                     onTap: { onJumpToPage(index) }
                                 )
                                 .id(index)
+                                .sidePanelContextHighlight(rowID: "page:\(index)")
                                 // 右クリックの内容はページ一覧パネル・本の中身ブラウザと
                                 // 完全に同じ(ユーザー要望。PageContextMenuItems参照)。
                                 .contextMenu {

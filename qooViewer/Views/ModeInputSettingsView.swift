@@ -140,11 +140,10 @@ struct ModeInputSettingsView: View {
                 Text("Scrolling")
             }
 
-            Section {
-                Button("Reset This Mode to Defaults", role: .destructive) {
-                    store.resetToDefaults(in: editingMode)
-                }
-                .help("Restores every setting on this page for the selected display mode only.")
+            SettingsResetSection(
+                help: "Restores every setting on this page for the selected display mode only."
+            ) {
+                store.resetToDefaults(in: editingMode)
             }
         }
     }

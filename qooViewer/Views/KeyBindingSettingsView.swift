@@ -100,11 +100,10 @@ struct KeyBindingSettingsView: View {
                 Text("Keyboard")
             }
 
-            Section {
-                Button("Reset to Defaults", role: .destructive) {
-                    store.resetToDefaults(in: editingMode)
-                }
-                .help("Restores the built-in keyboard and mouse assignments. Nothing else is affected.")
+            SettingsResetSection(
+                help: "Restores the built-in keyboard and mouse assignments. Nothing else is affected."
+            ) {
+                store.resetToDefaults(in: editingMode)
             }
         }
     }

@@ -20,566 +20,6 @@
         }
       }
     },
-    "0% leaves the panel exactly as it looks by default. 100% fills it with the color, which hides the frosted glass completely." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "0% leaves the panel exactly as it looks by default. 100% fills it with the color, which hides the frosted glass completely."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "0%なら既定の見た目のままです。100%にすると色で塗りつぶされ、すりガラスは完全に隠れます。"
-          }
-        }
-      }
-    },
-    "Accent Color" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Accent Color"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "アクセントカラー"
-          }
-        }
-      }
-    },
-    "Appearance" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Appearance"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "外観"
-          }
-        }
-      }
-    },
-    "Applies to a physical mouse wheel only. Trackpad scrolling is unchanged." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Applies to a physical mouse wheel only. Trackpad scrolling is unchanged."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "物理マウスのホイールにだけ効きます。トラックパッドのスクロールは変わりません。"
-          }
-        }
-      }
-    },
-    "Caption Size" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Caption Size"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "文字の大きさ"
-          }
-        }
-      }
-    },
-    "Caption Under Each Thumbnail" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Caption Under Each Thumbnail"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "サムネイルの下の表示"
-          }
-        }
-      }
-    },
-    "Change…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Change…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "変更…"
-          }
-        }
-      }
-    },
-    "Clear History" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Clear History"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "履歴を消去"
-          }
-        }
-      }
-    },
-    "Clear History?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Clear History?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "履歴を消去しますか?"
-          }
-        }
-      }
-    },
-    "Clear Menu" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Clear Menu"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "履歴を消去"
-          }
-        }
-      }
-    },
-    "Clear Recently Opened History?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Clear Recently Opened History?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「最近開いたファイル」の履歴を消去しますか?"
-          }
-        }
-      }
-    },
-    "Clear Recently Opened History…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Clear Recently Opened History…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「最近開いたファイル」の履歴を消去…"
-          }
-        }
-      }
-    },
-    "Color Strength" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Color Strength"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "背景色の濃さ"
-          }
-        }
-      }
-    },
-    "Current Page Highlight" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Current Page Highlight"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "表示中のページの枠の色"
-          }
-        }
-      }
-    },
-    "Custom Highlight Color" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Custom Highlight Color"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "枠のカスタム色"
-          }
-        }
-      }
-    },
-    "Custom Panel Color" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Custom Panel Color"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "パネルのカスタム色"
-          }
-        }
-      }
-    },
-    "Every book opens in a private window — nothing is recorded: no reading position, bookmarks, favorites, layouts, or history. Use File ▸ New Normal Window when you do want a book to be remembered." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Every book opens in a private window — nothing is recorded: no reading position, bookmarks, favorites, layouts, or history. Use File ▸ New Normal Window when you do want a book to be remembered."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "すべての本がシークレットウインドウで開き、読書位置・ブックマーク・お気に入り・レイアウト・履歴のいずれも記録されません。記録を残したいときは、ファイルメニューの「新規ノーマルウインドウ」を使ってください。"
-          }
-        }
-      }
-    },
-    "Export Image…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Export Image…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "画像をエクスポート…"
-          }
-        }
-      }
-    },
-    "Frosted Glass" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Frosted Glass"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "すりガラスの濃さ"
-          }
-        }
-      }
-    },
-    "Go to This Page" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Go to This Page"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このページへ移動"
-          }
-        }
-      }
-    },
-    "Lowering this makes the panel more see-through. At 0% the blur is gone entirely and only the color below is left." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lowering this makes the panel more see-through. At 0% the blur is gone entirely and only the color below is left."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "下げるほどパネルが透けます。0%にするとぼかしが完全に無くなり、重ねた色だけが残ります。"
-          }
-        }
-      }
-    },
-    "New Normal Window" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "New Normal Window"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新規ノーマルウインドウ"
-          }
-        }
-      }
-    },
-    "Nothing" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nothing"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "表示しない"
-          }
-        }
-      }
-    },
-    "Page List Panel" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Page List Panel"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ページ一覧パネル"
-          }
-        }
-      }
-    },
-    "Page Number" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Page Number"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ページ番号"
-          }
-        }
-      }
-    },
-    "Panel Color" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Panel Color"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "背景色"
-          }
-        }
-      }
-    },
-    "Recently opened history, in the File menu and the side panel" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Recently opened history, in the File menu and the side panel"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「最近開いたファイル」の履歴(ファイルメニュー・サイドパネル)"
-          }
-        }
-      }
-    },
-    "Removes every entry from the File menu's Open Recent and from the side panel's History mode. Your files are not touched." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Removes every entry from the File menu's Open Recent and from the side panel's History mode. Your files are not touched."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ファイルメニューの「最近開いたファイル」と、サイドパネルの履歴モードから、すべての項目を取り除きます。ファイルそのものには手を触れません。"
-          }
-        }
-      }
-    },
-    "Rows per Wheel Notch" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Rows per Wheel Notch"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ホイール1ノッチのスクロール行数"
-          }
-        }
-      }
-    },
-    "Start in Private Mode" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Start in Private Mode"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットモードで起動"
-          }
-        }
-      }
-    },
-    "This removes every entry from the File menu's Open Recent and from the side panel's History mode. Your files are not touched." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This removes every entry from the File menu's Open Recent and from the side panel's History mode. Your files are not touched."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ファイルメニューの「最近開いたファイル」と、サイドパネルの履歴モードから、すべての項目を取り除きます。ファイルそのものには手を触れません。"
-          }
-        }
-      }
-    },
-    "This removes every entry from the History list and from the File menu's Open Recent. Your files are not touched." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This removes every entry from the History list and from the File menu's Open Recent. Your files are not touched."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "履歴の一覧と、ファイルメニューの「最近開いたファイル」から、すべての項目を取り除きます。ファイルそのものには手を触れません。"
-          }
-        }
-      }
-    },
-    "Toolbar" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Toolbar"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ツールバー"
-          }
-        }
-      }
-    },
-    "Viewer" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Viewer"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ビューア"
-          }
-        }
-      }
-    },
-    "Yellow" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Yellow"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "黄"
-          }
-        }
-      }
-    },
     "“" : {
       "localizations" : {
         "en" : {
@@ -1074,6 +514,22 @@
         }
       }
     },
+    "0% leaves the panel exactly as it looks by default. 100% fills it with the color, which hides the frosted glass completely." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "0% leaves the panel exactly as it looks by default. 100% fills it with the color, which hides the frosted glass completely."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "0%なら既定の見た目のままです。100%にすると色で塗りつぶされ、すりガラスは完全に隠れます。"
+          }
+        }
+      }
+    },
     "100% turns pinch zoom off." : {
       "localizations" : {
         "en" : {
@@ -1086,6 +542,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "100%にするとピンチ拡大が無効になります。"
+          }
+        }
+      }
+    },
+    "Accent Color" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Accent Color"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アクセントカラー"
           }
         }
       }
@@ -1591,6 +1063,22 @@
         }
       }
     },
+    "Appearance" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appearance"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "外観"
+          }
+        }
+      }
+    },
     "Applies only when qooViewer already has a book open. From the welcome screen, a book always opens in the current window." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1604,6 +1092,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "すでに本を開いているときだけ適用されます。ウェルカム画面からは、常に現在のウインドウで開きます。"
+          }
+        }
+      }
+    },
+    "Applies to a physical mouse wheel only. Trackpad scrolling is unchanged." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies to a physical mouse wheel only. Trackpad scrolling is unchanged."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "物理マウスのホイールにだけ効きます。トラックパッドのスクロールは変わりません。"
           }
         }
       }
@@ -2372,6 +1876,38 @@
         }
       }
     },
+    "Caption Size" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Caption Size"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文字の大きさ"
+          }
+        }
+      }
+    },
+    "Caption Under Each Thumbnail" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Caption Under Each Thumbnail"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サムネイルの下の表示"
+          }
+        }
+      }
+    },
     "CBZ files have no page-order metadata, so readers sort by file name. Turn this off only if you want to keep the original file names." : {
       "localizations" : {
         "en" : {
@@ -2400,6 +1936,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "カバー画像を変更"
+          }
+        }
+      }
+    },
+    "Change…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Change…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "変更…"
           }
         }
       }
@@ -2549,6 +2101,7 @@
       }
     },
     "Choose a manga folder, or a zip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2676,7 +2229,88 @@
         }
       }
     },
+    "Clear History" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear History"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴を消去"
+          }
+        }
+      }
+    },
+    "Clear History?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear History?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴を消去しますか?"
+          }
+        }
+      }
+    },
+    "Clear Menu" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear Menu"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴を消去"
+          }
+        }
+      }
+    },
+    "Clear Recently Opened History?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear Recently Opened History?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「最近開いたファイル」の履歴を消去しますか?"
+          }
+        }
+      }
+    },
+    "Clear Recently Opened History…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear Recently Opened History…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「最近開いたファイル」の履歴を消去…"
+          }
+        }
+      }
+    },
     "Click Left Side of Screen" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2693,6 +2327,7 @@
       }
     },
     "Click Right Side of Screen" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -2800,6 +2435,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "色空間"
+          }
+        }
+      }
+    },
+    "Color Strength" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Color Strength"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "背景色の濃さ"
           }
         }
       }
@@ -3239,6 +2890,22 @@
         }
       }
     },
+    "Current Page Highlight" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Current Page Highlight"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示中のページの枠の色"
+          }
+        }
+      }
+    },
     "Custom" : {
       "localizations" : {
         "en" : {
@@ -3267,6 +2934,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "カスタム背景色"
+          }
+        }
+      }
+    },
+    "Custom Highlight Color" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom Highlight Color"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "枠のカスタム色"
+          }
+        }
+      }
+    },
+    "Custom Panel Color" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom Panel Color"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "パネルのカスタム色"
           }
         }
       }
@@ -4029,6 +3728,7 @@
       }
     },
     "Each action can have several triggers. The right button and control-click always open the contextual menu, so they cannot be assigned." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -4298,6 +3998,22 @@
         }
       }
     },
+    "Every book opens in a private window — nothing is recorded: no reading position, bookmarks, favorites, layouts, or history. Use File ▸ New Normal Window when you do want a book to be remembered." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every book opens in a private window — nothing is recorded: no reading position, bookmarks, favorites, layouts, or history. Use File ▸ New Normal Window when you do want a book to be remembered."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべての本がシークレットウインドウで開き、読書位置・ブックマーク・お気に入り・レイアウト・履歴のいずれも記録されません。記録を残したいときは、ファイルメニューの「新規ノーマルウインドウ」を使ってください。"
+          }
+        }
+      }
+    },
     "Everything you've added or edited here will be replaced with the defaults. This can't be undone." : {
       "localizations" : {
         "en" : {
@@ -4486,6 +4202,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "画像のエクスポート"
+          }
+        }
+      }
+    },
+    "Export Image…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export Image…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "画像をエクスポート…"
           }
         }
       }
@@ -5141,6 +4873,22 @@
         }
       }
     },
+    "Frosted Glass" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Frosted Glass"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すりガラスの濃さ"
+          }
+        }
+      }
+    },
     "Full Screen" : {
       "localizations" : {
         "en" : {
@@ -5345,6 +5093,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "一番右のページへ"
+          }
+        }
+      }
+    },
+    "Go to This Page" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go to This Page"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このページへ移動"
           }
         }
       }
@@ -6228,6 +5992,7 @@
       }
     },
     "Keys & Mouse" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6548,6 +6313,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "低品質(軽量)"
+          }
+        }
+      }
+    },
+    "Lowering this makes the panel more see-through. At 0% the blur is gone entirely and only the color below is left." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lowering this makes the panel more see-through. At 0% the blur is gone entirely and only the color below is left."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "下げるほどパネルが透けます。0%にするとぼかしが完全に無くなり、重ねた色だけが残ります。"
           }
         }
       }
@@ -7099,6 +6880,22 @@
         }
       }
     },
+    "New Normal Window" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Normal Window"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規ノーマルウインドウ"
+          }
+        }
+      }
+    },
     "New Private Window" : {
       "localizations" : {
         "en" : {
@@ -7502,6 +7299,22 @@
         }
       }
     },
+    "Nothing" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示しない"
+          }
+        }
+      }
+    },
     "Now Reading" : {
       "localizations" : {
         "en" : {
@@ -7827,6 +7640,22 @@
         }
       }
     },
+    "Other Overlays" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Other Overlays"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "その他の浮かぶ表示"
+          }
+        }
+      }
+    },
     "Overwrite" : {
       "localizations" : {
         "en" : {
@@ -8036,6 +7865,22 @@
         }
       }
     },
+    "Page List Panel" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Page List Panel"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページ一覧パネル"
+          }
+        }
+      }
+    },
     "Page Navigation" : {
       "localizations" : {
         "en" : {
@@ -8048,6 +7893,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ページ移動"
+          }
+        }
+      }
+    },
+    "Page Number" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Page Number"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページ番号"
           }
         }
       }
@@ -8145,6 +8006,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "パレット"
+          }
+        }
+      }
+    },
+    "Panel Color" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Panel Color"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "背景色"
           }
         }
       }
@@ -8717,6 +8594,22 @@
         }
       }
     },
+    "Recently opened history, in the File menu and the side panel" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recently opened history, in the File menu and the side panel"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「最近開いたファイル」の履歴(ファイルメニュー・サイドパネル)"
+          }
+        }
+      }
+    },
     "Red" : {
       "localizations" : {
         "en" : {
@@ -9037,6 +8930,22 @@
         }
       }
     },
+    "Removes every entry from the File menu's Open Recent and from the side panel's History mode. Your files are not touched." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removes every entry from the File menu's Open Recent and from the side panel's History mode. Your files are not touched."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルメニューの「最近開いたファイル」と、サイドパネルの履歴モードから、すべての項目を取り除きます。ファイルそのものには手を触れません。"
+          }
+        }
+      }
+    },
     "Rename" : {
       "localizations" : {
         "en" : {
@@ -9314,6 +9223,7 @@
       }
     },
     "Reset This Mode to Defaults" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -9422,6 +9332,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "選んでいる表示モードについて、この画面のすべての設定を初期状態に戻します。ほかの表示モードや設定には影響しません。"
+          }
+        }
+      }
+    },
+    "Restores every setting on this page, including the color of every frosted surface. Other pages are not affected." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores every setting on this page, including the color of every frosted surface. Other pages are not affected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この画面のすべての設定を初期状態に戻します(すりガラスの各面の色を含む)。ほかの画面の設定には影響しません。"
+          }
+        }
+      }
+    },
+    "Restores every setting on this page. Other pages, and your favorites, bookmarks and reading history, are not affected." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores every setting on this page. Other pages, and your favorites, bookmarks and reading history, are not affected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この画面のすべての設定を初期状態に戻します。ほかの画面の設定と、お気に入り・ブックマーク・読書履歴には影響しません。"
           }
         }
       }
@@ -9689,6 +9631,22 @@
         }
       }
     },
+    "Rows per Wheel Notch" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rows per Wheel Notch"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホイール1ノッチのスクロール行数"
+          }
+        }
+      }
+    },
     "Save" : {
       "localizations" : {
         "en" : {
@@ -9947,6 +9905,7 @@
       }
     },
     "Scroll Wheel Down" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -9963,6 +9922,7 @@
       }
     },
     "Scroll Wheel Up" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -10268,6 +10228,7 @@
       }
     },
     "Settings here override Keys & Mouse while this display mode is active. Anything left unassigned keeps working as set there." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -10983,6 +10944,22 @@
         }
       }
     },
+    "Start in Private Mode" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start in Private Mode"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットモードで起動"
+          }
+        }
+      }
+    },
     "Start Page" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11109,6 +11086,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本を開けませんでした。"
+          }
+        }
+      }
+    },
+    "The color only shows once Color Strength is above 0%. Picking a color while it is 0% raises it for you, so you can see what you chose." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The color only shows once Color Strength is above 0%. Picking a color while it is 0% raises it for you, so you can see what you chose."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "色は「背景色の濃さ」を0%より上げるまで見た目に現れません。0%のまま色を選んだ場合は、選んだ色が分かるように濃さを自動で少し上げます。"
           }
         }
       }
@@ -11645,6 +11638,38 @@
         }
       }
     },
+    "This removes every entry from the File menu's Open Recent and from the side panel's History mode. Your files are not touched." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This removes every entry from the File menu's Open Recent and from the side panel's History mode. Your files are not touched."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルメニューの「最近開いたファイル」と、サイドパネルの履歴モードから、すべての項目を取り除きます。ファイルそのものには手を触れません。"
+          }
+        }
+      }
+    },
+    "This removes every entry from the History list and from the File menu's Open Recent. Your files are not touched." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This removes every entry from the History list and from the File menu's Open Recent. Your files are not touched."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴の一覧と、ファイルメニューの「最近開いたファイル」から、すべての項目を取り除きます。ファイルそのものには手を触れません。"
+          }
+        }
+      }
+    },
     "This window has multiple tabs open. Are you sure you want to close it?" : {
       "localizations" : {
         "en" : {
@@ -11722,22 +11747,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "タイトル"
-          }
-        }
-      }
-    },
-    "Too many images were selected. You can open up to %lld images at once." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Too many images were selected. You can open up to %lld images at once."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "選択された画像が多すぎます。一度に開けるのは%lld枚までです。"
           }
         }
       }
@@ -11854,6 +11863,38 @@
         }
       }
     },
+    "Too many images were selected. You can open up to %lld images at once." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Too many images were selected. You can open up to %lld images at once."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択された画像が多すぎます。一度に開けるのは%lld枚までです。"
+          }
+        }
+      }
+    },
+    "Toolbar" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toolbar"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ツールバー"
+          }
+        }
+      }
+    },
     "Top and Bottom Margins" : {
       "localizations" : {
         "en" : {
@@ -11920,6 +11961,7 @@
       }
     },
     "Triggers left unassigned here fall back to Keys & Mouse." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -12180,6 +12222,22 @@
         }
       }
     },
+    "Viewer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Viewer"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ビューア"
+          }
+        }
+      }
+    },
     "Volume" : {
       "localizations" : {
         "en" : {
@@ -12279,6 +12337,7 @@
       }
     },
     "When scrolling is not possible — that is, in Fit to Screen — the wheel always performs the action assigned to it in Keys & Mouse, whatever you choose here." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -12404,6 +12463,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ウインドウとタブ"
+          }
+        }
+      }
+    },
+    "Yellow" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yellow"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "黄"
           }
         }
       }

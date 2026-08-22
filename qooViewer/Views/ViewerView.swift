@@ -1021,7 +1021,9 @@ struct ViewerView: View {
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
-                        .background(.ultraThinMaterial, in: Capsule())
+                        .panelSurfaceBackground(
+                            preferences.overlaySurfaceStyle, material: .ultraThinMaterial, in: Capsule()
+                        )
                         .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
                         .padding(.bottom, 48)
                 }
@@ -1040,7 +1042,9 @@ struct ViewerView: View {
                         .monospacedDigit()
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
-                        .background(.ultraThinMaterial, in: Capsule())
+                        .panelSurfaceBackground(
+                            preferences.overlaySurfaceStyle, material: .ultraThinMaterial, in: Capsule()
+                        )
                         .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
                         .padding(.top, 56)
                     Spacer()
@@ -1105,7 +1109,11 @@ struct ViewerView: View {
                                 .padding(16)
                         }
                     }
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .panelSurfaceBackground(
+                        preferences.overlaySurfaceStyle,
+                        material: .regularMaterial,
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    )
                     .shadow(color: .black.opacity(0.25), radius: 16, y: 4)
                 }
                 .transition(.opacity)

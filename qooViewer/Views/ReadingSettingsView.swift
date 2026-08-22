@@ -49,11 +49,11 @@ struct ReadingSettingsView: View {
                     "Rows per Wheel Notch",
                     value: $preferences.thumbnailGridWheelScrollRows,
                     in: AppPreferences.thumbnailGridWheelScrollRowsRange,
-                    step: 0.5,
+                    step: 0.1,
                     help: "Applies to a physical mouse wheel only. Trackpad scrolling is unchanged.",
                     showsStepper: true
                 ) { value in
-                    // 0.5刻みなので、整数のときも「1.0」と書いて桁数を揃える
+                    // 0.1刻みなので、整数のときも「1.0」と書いて桁数を揃える
                     // (ドラッグ中に小数点が出たり消えたりして行が揺れるのを防ぐ)。
                     String(format: "%.1f", value)
                 }
@@ -127,6 +127,12 @@ struct ReadingSettingsView: View {
                 .disabled(!preferences.autoHideCursor)
             } header: {
                 Text("Pointer")
+            }
+
+            SettingsResetSection(
+                help: "Restores every setting on this page. Other pages, and your favorites, bookmarks and reading history, are not affected."
+            ) {
+                preferences.resetToDefaults(.reading)
             }
         }
     }
