@@ -99,3 +99,13 @@ extension LoopBehavior: SettingsOption {
 extension WheelScrollBehavior: SettingsOption {
     var shortTitleKey: LocalizedStringKey { titleKey }
 }
+
+// MARK: - 外観
+
+extension ThumbnailCaptionStyle: SettingsOption {
+    var shortTitleKey: LocalizedStringKey { titleKey }
+}
+
+extension PageBorderColorOption: SettingsOption {
+    var shortTitleKey: LocalizedStringKey { titleKey }
+}

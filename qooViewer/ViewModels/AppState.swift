@@ -52,6 +52,27 @@ final class AppState: ObservableObject {
     /// ファイルの3箇所が、このフラグ(メニューはMenuCheckmarkState.isPrivateWindow)を見て空にする。
     let isPrivateWindow: Bool
 
+    /// このウインドウを「普通のウインドウ」として扱ってよいか。
+    ///
+    /// シークレットウインドウには、記録を残さないこととは別に、次のような**役割上の除外**が
+    /// 付いてまわる。
+    ///   ・主ウインドウ(位置・サイズの記憶、外部からの「開く」の受け皿)にならない
+    ///   ・「同じ本が既に開かれているか」の判定から外れる(LaunchCoordinator参照)
+    ///   ・Finder等の外部から渡された本の行き先候補から外れる
+    /// これらはいずれも「シークレットは例外的で、普通のウインドウが別に居る」ことを前提に
+    /// している。ところが環境設定「シークレットモードで起動」(ユーザー要望)をONにすると、
+    /// **シークレットのほうが普通**になり、前提が逆転する。そのまま除外を適用し続けると、
+    /// 外部から本を開くたびに新しいウインドウが増える・ウインドウの位置が記憶されない、
+    /// といった形で破綻する。
+    ///
+    /// そこで、これらの除外判定はすべて`isPrivateWindow`を直接見るのではなく、このプロパティを
+    /// 見るようにしてある。**記録を残すかどうかの判定(skipsPersistence、履歴の表示、
+    /// ウインドウタイトルの「(シークレット)」)には使わないこと** ―― あちらは既定かどうかに
+    /// 関わらず`isPrivateWindow`のままでよい(既定でも記録は残さない)。
+    var actsAsRegularWindow: Bool {
+        !isPrivateWindow || AppPreferences.isPrivateModeDefault
+    }
+
     init(isPrivateWindow: Bool = false) {
         self.isPrivateWindow = isPrivateWindow
     }
@@ -124,6 +145,20 @@ final class AppState: ObservableObject {
     /// ページ送り(スクロール/スワイプ/キーボード/コンテキストクリック)を無視する
     /// (showThumbnailGridと同じ扱い。ViewerView.makeScrollMonitor/makeContextClickMonitor参照)。
     var isSidePanelFloatingOverlay: Bool { hideSidePanel && isSidePanelRevealed }
+
+    /// ホバーで浮かせているサイドパネルの、スクリーン座標系での現在のフレーム
+    /// (ContentViewがPanelScreenFrameAccessorから受け取って更新する)。
+    ///
+    /// ページ一覧パネルを閉じるクリックの判定が、「画像表示エリアの上のクリック」から
+    /// **その上に浮いているサイドパネルへのクリック**を除くために使う
+    /// (ViewerView.installThumbnailGridDismissMonitorIfNeeded参照)。浮かせている間は
+    /// パネルが画像表示エリアに重なるので、座標だけではどちらへのクリックか区別できない。
+    ///
+    /// `@Published`にしていないのは、この値を読むのがNSEventモニタのクロージャだけで、
+    /// 画面の再描画とは無関係なため(レイアウトのたびに更新されるので、@Publishedにすると
+    /// 無駄な再描画を誘発する)。**`isSidePanelFloatingOverlay`がtrueのときだけ参照すること**
+    /// ―― パネルを隠すと報告が止まり、この値は最後のフレームのまま古くなる。
+    var sidePanelScreenFrame: CGRect = .zero
 
     /// ツールバー・プログレスバーの自動隠し(hideToolbar/hideProgressBar、またはフルスクリーン中)
     /// が、マウスカーソルの位置により今まさに一時的に表示されているかどうか。ViewerViewの
@@ -392,6 +427,19 @@ final class AppState: ObservableObject {
     /// クロージャ。performViewerActionと同じ、ViewerViewが表示されている間だけ自分自身を登録し、
     /// 閉じるときにnilへ戻す仕組み(ImageExportKindのコメント参照)。
     var performImageExport: ((ImageExportKind) -> Void)?
+
+    /// ページ番号を直接指定して1ページ分を書き出す橋渡し(ユーザー要望: サイドパネルや
+    /// ページ一覧の右クリックからも「画像をエクスポート」を使えるようにしたい)。
+    ///
+    /// `performImageExport`との違いは、対象の決め方だけである。あちらはメニューバーから
+    /// 呼ばれるためクリック位置の情報が無く、「今のページ/見開きの左/右」という
+    /// 相対的な指定(ImageExportKind)しかできない。こちらは右クリックされた行そのものが
+    /// 対象なので、ページ番号で一意に指定できる。実際の処理(保存先パネル・書き込み)は
+    /// どちらも同じViewerView.exportImageへ行き着く。
+    ///
+    /// サイドパネルはViewerViewの外(ContentView)にあってViewerViewModelを直接参照
+    /// できないため、loadPageThumbnail等と同じくこの橋渡しが必要になる。
+    var exportPageImage: ((Int) -> Void)?
 
     /// ViewerViewから、スライドショー/表示モード/読み方向/拡大縮小モードの現在値、および
     /// EPUBによる各種ロック状態を反映するために呼ばれる。メニューバーのチェックマーク表示・

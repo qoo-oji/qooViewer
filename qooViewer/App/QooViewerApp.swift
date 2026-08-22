@@ -211,22 +211,39 @@ struct QooViewerApp: App {
         )
     }
 
+    /// 本を表示するウインドウ("main"/"book"/"normal"/"private" の4つのWindowGroup)の中身。
+    ///
+    /// 4つとも渡すもの(ContentView + 共有ストア一式)は同じで、違うのは
+    /// `isPrivateWindow`と、Scene側に付けるリサイズ/状態復元の指定だけなので、
+    /// 中身の組み立てだけをここへ切り出してある(環境オブジェクトの追加を4箇所に
+    /// 書き忘れる、という事故を無くすため)。
+    ///
+    /// - Parameter isPrivateWindow: nilなら環境設定「シークレットモードで起動」に従う
+    ///   ("main"だけがnilを渡す。ContentView.initのコメント参照)。
+    private func contentWindow(
+        initialRequest: BookOpenRequest? = nil, isPrivateWindow: Bool? = nil
+    ) -> some View {
+        ContentView(initialRequest: initialRequest, isPrivateWindow: isPrivateWindow)
+            .environmentObject(preferences)
+            .environmentObject(keyBindingStore)
+            .environmentObject(recentFiles)
+            .environmentObject(folderAccess)
+            .environmentObject(favoritesStore)
+            .environmentObject(bookmarkStore)
+            .environmentObject(layoutStore)
+            .environmentObject(metadataStore)
+            .environmentObject(launchCoordinator)
+    }
+
     var body: some Scene {
         // 表示言語のLocaleは全Sceneで共通の値なので、bodyの評価ごとに1回だけ解決して使い回す
         // (以前は各Sceneの`.environment(\.locale, currentLocale)`が9箇所に分散しており、bodyが
         // 再評価されるたびにcurrentLocaleの解決が9回走っていた。値は常に同一なので結果は不変)。
         let locale = currentLocale
         WindowGroup(id: "main") {
-            ContentView()
-                .environmentObject(preferences)
-                .environmentObject(keyBindingStore)
-                .environmentObject(recentFiles)
-                .environmentObject(folderAccess)
-                .environmentObject(favoritesStore)
-                .environmentObject(bookmarkStore)
-                .environmentObject(layoutStore)
-                .environmentObject(metadataStore)
-                .environmentObject(launchCoordinator)
+            // isPrivateWindowを渡さない唯一のWindowGroup。起動時に作られるこのウインドウだけが
+            // 環境設定「シークレットモードで起動」に従う(ContentView.initのコメント参照)。
+            contentWindow()
                 .onAppear {
                     appDelegate.preferences = preferences
                     appDelegate.launchCoordinator = launchCoordinator
@@ -235,6 +252,11 @@ struct QooViewerApp: App {
                     // openWindow環境値を使ってウインドウ/タブを作るための橋渡し。
                     appDelegate.openInNewWindowOrTab = { request, asTab, tabTarget, actsAsPrimaryWindow in
                         openInNewWindow(request, asTab: asTab, tabTarget: tabTarget, actsAsPrimaryWindow: actsAsPrimaryWindow)
+                    }
+                    // Dockアイコンの右クリックメニュー(ユーザー要望)からの新規ウインドウ。
+                    // 同じ理由(AppDelegateはopenWindow環境値を持てない)での橋渡し。
+                    appDelegate.openNewWindowFromDock = { isPrivate in
+                        openNewWindow(isPrivate: isPrivate)
                     }
                 }
         }
@@ -288,8 +310,25 @@ struct QooViewerApp: App {
                 // 書かない(何を書かないかはAppState.isPrivateWindowのコメント参照)。
                 // 同じ「新しいウインドウを作る」仲間としてこのグループに置く。ショートカットは
                 // Chrome/Safariと同じ⇧⌘N。
+                //
+                // ■ 2項目とも、環境設定「シークレットモードで起動」の値に関わらず常に置く
+                // (ユーザーの指示)。設定に応じて1項目のラベルと動作を入れ替える案もあったが、
+                //   ・同じ位置の同じ項目が、設定によって別物になるのは分かりにくい
+                //   ・メニューを開いている最中に項目数が変わるとmacOS 26で落ちる
+                //     (MenuBarMenuGate参照)。設定は別ウインドウから変えられるため、
+                //     項目数が動かない形にしておくほうが安全
+                // という2点から、常に両方を並べる形にしてある。
+                //
+                // 「新規ウインドウ」ではなく「新規ノーマルウインドウ」という名前なのは、
+                // シークレットが既定の状態では**こちらが例外**になるため。名前だけで
+                // どちらが記録の残るウインドウなのか分かるようにしたい(ユーザーの指示)。
+                Button("New Normal Window") {
+                    openNewWindow(isPrivate: false)
+                }
+                .keyboardShortcut("n", modifiers: .command)
+
                 Button("New Private Window") {
-                    openNewPrivateWindow()
+                    openNewWindow(isPrivate: true)
                 }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
 
@@ -371,6 +410,22 @@ struct QooViewerApp: App {
                             }
                         }
                     }
+
+                    // ユーザー要望: ここに出る履歴を消せるようにしたい。
+                    //
+                    // **条件に関わらず常にこの区切り線と項目を置き、.disabledで切り替えること。**
+                    // メニューを開いている最中に項目数が変わると、macOS 26のメニュー実装が
+                    // NSRangeExceptionで落ちる(MenuBarMenuGateの型コメント参照)。
+                    // 上の一覧と違い、こちらは件数が0でも項目そのものは残る。
+                    //
+                    // シークレットウインドウがフォーカス中も無効にする。そのウインドウでは
+                    // 履歴を一切見せない約束なので、見えていないものを消す操作だけができるのは
+                    // 筋が通らない(上の一覧の出し分けと同じ理由)。
+                    Divider()
+                    Button("Clear Menu") {
+                        recentFiles.removeAll()
+                    }
+                    .disabled(recentFiles.entries.isEmpty || menuCheckmarkState?.isPrivateWindow == true)
                 }
             }
 
@@ -863,16 +918,11 @@ struct QooViewerApp: App {
         // `.focusedSceneValue`/`@FocusedValue`にすぐには認識されず、Viewerメニューの項目が
         // 一時的にすべてグレーアウトしてしまう不具合があったため、この方式に変更した。
         WindowGroup(id: "book", for: BookOpenRequest.self) { requestBinding in
-            ContentView(initialRequest: requestBinding.wrappedValue)
-                .environmentObject(preferences)
-                .environmentObject(keyBindingStore)
-                .environmentObject(recentFiles)
-                .environmentObject(folderAccess)
-                .environmentObject(favoritesStore)
-                .environmentObject(bookmarkStore)
-                .environmentObject(layoutStore)
-                .environmentObject(metadataStore)
-                .environmentObject(launchCoordinator)
+            // isPrivateWindow: false を明示する。環境設定「シークレットモードで起動」が
+            // ONのとき、値を渡さないと"main"と同じくシークレットとして作られてしまうが、
+            // このWindowGroupは**常に通常ウインドウ**でなければならない
+            // (ContentView.initのコメント参照)。
+            contentWindow(initialRequest: requestBinding.wrappedValue, isPrivateWindow: false)
         }
         .windowResizability(.contentSize)
         // バグ修正(ユーザー報告): "main" WindowGroupと同じ理由で、こちらの状態復元も
@@ -897,16 +947,7 @@ struct QooViewerApp: App {
         // 状態復元は"book"と同じ理由で無効化する。そもそも次回起動時にシークレットウインドウが
         // 復活してはならない。
         WindowGroup(id: "private", for: BookOpenRequest.self) { requestBinding in
-            ContentView(initialRequest: requestBinding.wrappedValue, isPrivateWindow: true)
-                .environmentObject(preferences)
-                .environmentObject(keyBindingStore)
-                .environmentObject(recentFiles)
-                .environmentObject(folderAccess)
-                .environmentObject(favoritesStore)
-                .environmentObject(bookmarkStore)
-                .environmentObject(layoutStore)
-                .environmentObject(metadataStore)
-                .environmentObject(launchCoordinator)
+            contentWindow(initialRequest: requestBinding.wrappedValue, isPrivateWindow: true)
         }
         // ここだけ"book"の`.contentSize`ではなく"main"と同じ`.automatic` + `.defaultSize`に
         // している(ユーザー要望「サイズ・位置を通常の新規ウインドウと同様に」)。シークレット
@@ -923,11 +964,35 @@ struct QooViewerApp: App {
         .modelContainer(QooViewerApp.modelContainer)
         .environment(\.locale, locale)
 
+        // 「新規ノーマルウインドウ」(File メニュー / Dockアイコンの右クリック)専用の
+        // WindowGroup。環境設定「シークレットモードで起動」がONでも、**必ず記録の残る
+        // 通常のウインドウ**として開くための入口(ユーザー要望)。
+        //
+        // ■ なぜ"book"を使い回さないのか
+        // "book"は`.windowResizability(.contentSize)`で、SwiftUIが中身の大きさに合わせて
+        // ウインドウのフレームを作り直す。この項目はウェルカム画面から始まるため、その後で
+        // 本を開いた瞬間にフレームが作り直され、openNewWindow(isPrivate:)で合わせた位置・
+        // サイズが失われてしまう ―― これは"private"を`.automatic`にした理由とまったく同じ
+        // 現象である(すぐ上の"private" WindowGroupのコメント参照)。同じ性質の入口なので、
+        // Sceneの指定も"private"に完全に揃えてある。
+        WindowGroup(id: "normal", for: BookOpenRequest.self) { requestBinding in
+            contentWindow(initialRequest: requestBinding.wrappedValue, isPrivateWindow: false)
+        }
+        .windowResizability(.automatic)
+        .defaultSize(width: 900, height: 640)
+        // 状態復元は"book"/"private"と同じ理由で無効化する。
+        .restorationBehavior(.disabled)
+        .modelContainer(QooViewerApp.modelContainer)
+        .environment(\.locale, locale)
+
         Settings {
             SettingsView()
                 .environmentObject(preferences)
                 .environmentObject(keyBindingStore)
                 .environmentObject(folderAccess)
+                // 「リセット」画面が履歴(最近開いたファイル)の消去も担当するため
+                // (ResetDataSettingsView参照。ユーザー要望)。
+                .environmentObject(recentFiles)
                 // 「リセット」タブ(ResetDataSettingsView)がfavoritesStore/bookmarkStoreの
                 // 一括削除メソッド、および@Environment(\.modelContext)経由でBookReadingStateを
                 // 直接操作する必要があるため、他のScene(WindowGroup)と同様にここでも
@@ -1257,18 +1322,25 @@ struct QooViewerApp: App {
         newWindow.setFrame(frame, display: true)
     }
 
-    /// File › 「新規シークレットウインドウ」。"private" WindowGroupのインスタンスを、値(URL)
-    /// なし=ウェルカム画面として開く(AppState.isPrivateWindowのコメント参照)。
+    /// File › 「新規ノーマルウインドウ」/「新規シークレットウインドウ」、およびDockアイコンの
+    /// 右クリックメニューの同名の項目。指定されたWindowGroupのインスタンスを、値(URL)なし=
+    /// ウェルカム画面として開く(AppState.isPrivateWindowのコメント参照)。
+    ///
+    /// - Parameter isPrivate: trueなら"private"、falseなら"normal" WindowGroup。
+    ///   どちらのWindowGroupもシークレットかどうかを固定で持っている(環境設定
+    ///   「シークレットモードで起動」に左右されない)ので、ここでの選択がそのまま
+    ///   ウインドウの性質になる。"book"ではなく"normal"を使う理由は、そちらのScene定義の
+    ///   コメント参照(ウェルカム画面から始まるウインドウのリサイズの都合)。
     ///
     /// バグ修正(ユーザー報告): 以前はここで`openWindow(id: "private")`を呼ぶだけだったため、
     /// サイズ・位置の決定がまるごとSwiftUI任せになり、「新しいウインドウで開く」で作られる
     /// 通常の新規ウインドウとは違う大きさ・場所に開いていた。通常の新規ウインドウと同じ
     /// 扱い(元のウインドウと同じサイズ + 右下へのカスケード配置)にするため、
     /// openInNewWindowと同じ手順で開いたウインドウを捕まえて配置する。
-    private func openNewPrivateWindow() {
+    private func openNewWindow(isPrivate: Bool) {
         let previousKeyWindow = NSApp.keyWindow
         let existingWindowIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
-        openWindow(id: "private")
+        openWindow(id: isPrivate ? "private" : "normal")
 
         Task { @MainActor in
             guard let newWindow = await newlyOpenedWindow(excluding: existingWindowIDs) else { return }
@@ -1321,14 +1393,39 @@ struct QooViewerApp: App {
     /// ウインドウ/タブを作らず、既存のものをアクティブにするだけにする
     /// (LaunchCoordinator.registerOpenAppState/openAppState(forBookAt:)参照)。
     private func openInNewWindow(_ request: BookOpenRequest, asTab: Bool, tabTarget: NSWindow?, actsAsPrimaryWindow: Bool = false) {
+        let previousKeyWindow = tabTarget ?? NSApp.keyWindow
+
+        // 新しいウインドウ/タブをシークレットにするかどうか。
+        //
+        // 基本は**派生元をそのまま引き継ぐ**。シークレットウインドウから「新しいタブで開く」
+        // をしたタブだけ記録される、では意味が無いし、逆に「新規ノーマルウインドウ」から
+        // 派生したタブが勝手にシークレットになるのも困る(ユーザーの想定: ノーマルウインドウと
+        // そこから派生したものだけが通常のウインドウ)。
+        //
+        // 派生元が分からない場合 ―― 主ウインドウの代わりとして開く場合
+        // (actsAsPrimaryWindow。Finder等の外部から渡された本)や、基準にできるウインドウが
+        // 1つも無い場合 ―― は、環境設定「シークレットモードで起動」に従う。以前ここは
+        // 「主ウインドウの代わりなら常に通常ウインドウ」と決め打ちしていたが、それだと
+        // 「Finderから開いた場合もシークレットで開きたい」という要望を満たせない
+        // (主ウインドウ側の役割の問題はAppState.actsAsRegularWindowで解いてある)。
+        let sourceAppState = actsAsPrimaryWindow
+            ? nil
+            : launchCoordinator.allOpenAppStates.first { $0.hostWindow === previousKeyWindow }
+        let windowGroupID = BookWindowGroup.id(inheritingFrom: sourceAppState)
+        let opensPrivately = (windowGroupID == "private")
+
         // すでにこの本を(このウインドウ以外の別のウインドウ/タブで)開いている場合は、
         // 同じ本をもう1つ開いてしまわないよう、新しいウインドウ/タブを作る代わりに
         // そのウインドウ/タブをアクティブにするだけにする(タブの場合、makeKeyAndOrderFrontで
         // そのタブ自体も自動的に最前面に選択される)。
+        //
+        // 探す相手は「これから作ろうとしているウインドウと**同じ性質**のもの」に限る。
+        // 記録の残るウインドウで開きたいのに、同じ本を開いているシークレットウインドウが
+        // 前面に出てきてしまっては、開いたつもりの記録がどこにも残らない(その逆も同じ)。
         // 複数の画像を1冊にまとめる要求は、この判定の対象外にする(まとめた本は「同じ本」という
-        // 同一性を持たない。LaunchCoordinator.openAppState(forBookAt:)参照)。
+        // 同一性を持たない。LaunchCoordinator.openAppState(forBookAt:isPrivate:)参照)。
         if !request.bundlesMultipleImages, let url = request.primaryURL,
-           let existingAppState = launchCoordinator.openAppState(forBookAt: url),
+           let existingAppState = launchCoordinator.openAppState(forBookAt: url, isPrivate: opensPrivately),
            let existingWindow = existingAppState.hostWindow {
             existingWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -1337,17 +1434,8 @@ struct QooViewerApp: App {
 
         SecurityScopedHandoff.begin(request.urls)
 
-        let previousKeyWindow = tabTarget ?? NSApp.keyWindow
         let existingWindowIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
-
-        // 呼び出し元がシークレットウインドウなら、新しいウインドウ/タブもシークレットにする
-        // (シークレットウインドウから「新しいタブで開く」をしたタブだけ記録される、では
-        // 意味が無い)。主ウインドウの代わりとして開く場合(actsAsPrimaryWindow。外部からの
-        // 「開く」)は、たまたまシークレットウインドウがキーでも常に通常ウインドウにする
-        // (主ウインドウは永続化と結びついた役割を持つため。ContentView.onAppear参照)。
-        let sourceIsPrivate = !actsAsPrimaryWindow
-            && (launchCoordinator.allOpenAppStates.first { $0.hostWindow === previousKeyWindow }?.isPrivateWindow ?? false)
-        openWindow(id: sourceIsPrivate ? "private" : "book", value: request)
+        openWindow(id: windowGroupID, value: request)
 
         Task { @MainActor in
             guard let newWindow = await newlyOpenedWindow(excluding: existingWindowIDs) else { return }
@@ -1558,6 +1646,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 主ウインドウの役割を引き継ぐ場合はtrue。openInNewWindowのコメント参照)。
     var openInNewWindowOrTab: ((BookOpenRequest, Bool, NSWindow?, Bool) -> Void)?
 
+    /// Dockアイコンの右クリックメニュー(ユーザー要望)から、新しいウインドウを開くための
+    /// 橋渡し。引数はシークレットかどうか。AppDelegate自身はSwiftUIのopenWindow環境値を
+    /// 持てないため、openInNewWindowOrTabと同じくQooViewerApp側の実装
+    /// (openNewWindow(isPrivate:))を受け取る。
+    var openNewWindowFromDock: ((Bool) -> Void)?
+
+    /// Dockアイコンのメニューに出す項目の文言を、アプリの表示言語で解決するために参照する。
+    /// (`preferences`は既に上で保持している。`applicationDockMenu`はAppKitのNSMenuを
+    /// 組み立てるためSwiftUIの`.environment(\.locale:)`が効かず、文字列を自分で
+    /// ローカライズする必要がある。AppPreferences.effectiveLocaleのコメント参照)
+    ///
+    /// ■ 実機での確認方法に注意(重要)
+    /// `applicationDockMenu(_:)`は**Xcodeから実行している間(デバッガ接続時)は呼ばれない**
+    /// ことが知られている(Apple Developer Forums thread 783906)。ビルドした
+    /// qooViewer.appをFinderから直接起動して確認すること。Xcodeで動かして「メニューが
+    /// 出ない」のはこの既知の挙動であって、実装の誤りとは限らない。
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
+        let menu = NSMenu()
+        // Fileメニューと同じく、環境設定に関わらず常に2項目とも並べる
+        // (どちらが記録の残るウインドウなのかが名前だけで分かるようにするため。
+        //  Fileメニュー側の「新規ノーマルウインドウ」のコメント参照)。
+        let items: [(title: String, isPrivate: Bool)] = [
+            (String(localized: "New Normal Window", locale: locale), false),
+            (String(localized: "New Private Window", locale: locale), true),
+        ]
+        for entry in items {
+            let item = NSMenuItem(
+                title: entry.title, action: #selector(openWindowFromDockMenu(_:)), keyEquivalent: ""
+            )
+            item.target = self
+            // どちらの項目が押されたかは、representedObjectに載せたBoolで見分ける
+            // (項目ごとにセレクタを分けるより、追加・変更時の触る箇所が少ない)。
+            item.representedObject = entry.isPrivate
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    @objc private func openWindowFromDockMenu(_ sender: NSMenuItem) {
+        guard let isPrivate = sender.representedObject as? Bool else { return }
+        openNewWindowFromDock?(isPrivate)
+        // Dockメニューはアプリが最前面でなくても使えるので、開いたウインドウが背面に
+        // 隠れたままにならないよう明示的に前面へ出す(openNewWindow(isPrivate:)側も
+        // 開いたウインドウをactivateするが、そちらは非同期でウインドウを捕まえたあと。
+        // ここで先にアプリ自体を起こしておく)。
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     /// ツールバー・プログレスバーなど、`.help()`で付けたツールチップが表示されるまでの
     /// 待ち時間を短くする。SwiftUI/AppKitにはこの待ち時間を直接指定する公開APIがないため、
     /// AppKitのツールチップ機構が参照する非公開のUserDefaultsキー(NSInitialToolTipDelay。
@@ -1721,7 +1858,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ここでそのゾンビ状態のprimaryAppStateへ本を読み込んでしまい、読み込み自体は成功して
         // 履歴にも記録されるのに、それを表示するウインドウがどこにも無い(=ユーザーには
         // 何も起きなかったように見える)という不具合があった。
-        if let primaryAppState = launchCoordinator?.primaryAppState, primaryAppState.hostWindow != nil {
+        //
+        // 再利用してよいのは、環境設定「シークレットモードで起動」が求める性質と**一致する**
+        // ウインドウだけである。主ウインドウの性質はそのウインドウが作られた時点で決まり、
+        // 設定をあとから切り替えても変わらないため、両方向のずれが起こりうる:
+        //   ・設定をONにした後、起動時に作られた通常の主ウインドウが残っている
+        //     → 記録を残さないつもりの本が、記録の残るウインドウで開いてしまう
+        //   ・設定をOFFにした後、シークレットの主ウインドウが残っている
+        //     → 記録されるつもりの本が、何も残らないウインドウで開いてしまう
+        // 一致しなければここでは見送り、下の分岐(同じ基準で探し直す)へ委ねる。
+        let opensPrivately = AppPreferences.isPrivateModeDefault
+        if let primaryAppState = launchCoordinator?.primaryAppState,
+           primaryAppState.hostWindow != nil,
+           primaryAppState.isPrivateWindow == opensPrivately {
             openInPrimaryWindow(request, primaryAppState: primaryAppState)
             return
         }
@@ -1732,9 +1881,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 本Aのウインドウが確かに存在するにもかかわらず、primaryAppStateがまだ本Aのウインドウを
         // 指していない(下のコメント参照)ことがあり、本Bが本Aとは別の新しいウインドウで
         // 開いてしまう不具合があった。)
-        // シークレットウインドウは候補から外す(Finder等の外部から渡された本を、たまたま最前面に
-        // あったシークレットウインドウで黙って開いてしまわないため。LaunchCoordinator参照)。
-        if let target = launchCoordinator?.frontmostContentAppState(excludingPrivateWindows: true) {
+        // 性質が一致するウインドウだけを候補にする(すぐ上の主ウインドウの判定と同じ基準。
+        // LaunchCoordinator.frontmostContentAppState(matchingPrivacy:)参照)。
+        if let target = launchCoordinator?.frontmostContentAppState(matchingPrivacy: opensPrivately) {
             openInPrimaryWindow(request, primaryAppState: target)
             return
         }

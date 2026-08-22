@@ -22,6 +22,12 @@ import SwiftUI
 enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     /// アプリ全体に関わる基本設定(表示言語・起動時の挙動・ウインドウ/タブ・履歴・サイドパネル)。
     case general
+    /// アプリの見た目(ビューアの背景色・ページ一覧の見え方・すりガラスの面ごとの色と透明度)。
+    ///
+    /// 「一般」と並ぶ単独の項目として先頭グループに置いてある。どの本を開いていても、
+    /// どの操作をしていても常に効く設定であり、「本」「操作」のどちらのグループにも
+    /// 属さないため(ユーザー要望: アプリの外観に関するものはここに集約する)。
+    case appearance
     /// 本を開くときの挙動(再開時の開始ページ・Finder/お気に入りからの開き先)。
     case opening
     /// 画像そのものの見え方(拡大率・補間品質・背景色・ルーペ・見開き判定・先読み)。
@@ -54,6 +60,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     var titleKey: LocalizedStringKey {
         switch self {
         case .general: "General"
+        case .appearance: "Appearance"
         case .opening: "Opening Books"
         case .rendering: "Image Display"
         case .reading: "While Reading"
@@ -73,6 +80,8 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     var systemImage: String {
         switch self {
         case .general: "gearshape.fill"
+        // 「塗り分けられた面」= 色と質感の設定。paintpalette系より字面が小さく潰れにくい。
+        case .appearance: "paintbrush.fill"
         // 「閉じた本を開く」=これから開く本の設定。ページ(=閲覧中)の `reading` と対にしてある。
         case .opening: "book.closed.fill"
         case .rendering: "photo.fill"
@@ -114,6 +123,10 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     var tint: Color {
         switch self {
         case .general: .gray
+        // 「一般」と同じく、どのグループの系統とも重ならない無彩色にする
+        // (先頭グループの2項目であることを、色の系統からも読み取れるように)。
+        // 「一般」のグレーより一段明るくして、2つを取り違えないようにしてある。
+        case .appearance: Color(white: 0.62)
         case .opening: .blue
         case .rendering: .cyan
         case .reading: .indigo
@@ -128,7 +141,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     /// この項目が属するサイドバーのグループ。
     var group: SettingsPaneGroup {
         switch self {
-        case .general: .top
+        case .general, .appearance: .top
         case .opening, .rendering, .reading: .books
         case .keyboard, .mouse, .modeInput: .controls
         case .access, .reset: .advanced
@@ -146,6 +159,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     var destination: some View {
         switch self {
         case .general: GeneralSettingsView()
+        case .appearance: AppearanceSettingsView()
         case .opening: OpeningSettingsView()
         case .rendering: RenderingSettingsView()
         case .reading: ReadingSettingsView()
@@ -163,9 +177,9 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
 /// サイドバーの区切り。macOSのシステム設定と同じく、性質の違う項目のあいだに
 /// 見出し付きの区切りを入れて、8項目を一息に読ませないようにする。
 ///
-/// 先頭の `.top` だけは見出しを持たない。「一般」1項目のためだけに見出しを立てると、
-/// 見出しと項目が同じことを二度言うことになるため(ここは他の設定画面のSectionヘッダと
-/// 同じ方針。`SettingsControls.swift` 参照)。
+/// 先頭の `.top` だけは見出しを持たない。「一般」「外観」というアプリ全体の設定に、
+/// それをそのまま言い換えただけの見出しを立てても何も増えないため(ここは他の設定画面の
+/// Sectionヘッダと同じ方針。`SettingsControls.swift` 参照)。
 enum SettingsPaneGroup: Int, CaseIterable, Identifiable, Hashable {
     /// 見出しのない先頭のグループ。
     case top

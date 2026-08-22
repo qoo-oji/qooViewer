@@ -1147,11 +1147,33 @@ final class ViewerViewModel: ObservableObject {
 
     // MARK: - 画像のエクスポート(要望)
 
-    /// このページの生データ(デコード前、画質を落とさない)。「このページをエクスポート」で、
-    /// 元のファイルをそのまま複製するために使う(ViewerView.exportImage参照)。
-    func rawImageData(at index: Int) async -> Data? {
+    /// 「このページをエクスポート」で書き出す画像データと、その拡張子。
+    ///
+    /// バグ修正(コード読みで発見。ユーザー報告ではない): 以前はここが
+    /// `pageLoader.rawImageData(at:)`をそのまま返しており、**PDFの本では必ずnilになって
+    /// いた**。あちらはPageSourceが`.pdf`のとき「実際には呼ばれない」前提でnilを返す
+    /// プレースホルダーで(PageLoader.rawData(for:)のコメント参照)、PDFのページ画像は
+    /// 別経路(renderPDFPage)で描画されるため。結果として、PDFの本でコンテキストメニューや
+    /// ファイルメニューから「このページをエクスポート」を選ぶと、保存先を選んだあとで必ず
+    /// 「画像を読み込めませんでした」になっていた。
+    ///
+    /// PDFも含めて1ページ分を書き出せる窓口は`PageLoader.exportableImage(at:)`として
+    /// 既に存在していた(EPUB書き出しの対象へPDFの本を含めたときに作られたもの)ので、
+    /// そちらへ委譲する。書き出す拡張子も一緒に返るため、呼び出し側は
+    /// PDFのときだけ拡張子を読み替える、といった場合分けを持たずに済む。
+    func exportableImage(at index: Int) async throws -> (data: Data, fileExtension: String)? {
         guard book.pages.indices.contains(index) else { return nil }
-        return await pageLoader.rawImageData(at: index)
+        return try await pageLoader.exportableImage(at: index)
+    }
+
+    /// 上が返すであろう拡張子だけを、画像データを読まずに求める。
+    /// 保存先を尋ねるパネルは書き出しより先に出るので、そこに入れる既定のファイル名
+    /// (拡張子)を決めるのに使う。PDFのページは、中の画像がJPEGならjpg、可逆形式なら
+    /// pngになるため、`ImageExporter.fileExtension(for:)`の「PDFなら常にjpg」では
+    /// **中身と拡張子が食い違う**(PNGのデータが.jpgという名前で保存される)。
+    func exportableImageFileExtension(at index: Int) async throws -> String? {
+        guard book.pages.indices.contains(index) else { return nil }
+        return try await pageLoader.exportableImageFileExtension(at: index)
     }
 
     /// 「見開きを結合してエクスポート」で、2枚の画像を合成するために使う、ダウンサンプリング

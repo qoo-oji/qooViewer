@@ -42,8 +42,13 @@ import AppKit
 /// 「壊れているデータも正常なデータも一切合切消える」ことが保証できる。
 struct ResetDataSettingsView: View {
     @Environment(\.openWindow) private var openWindow
+    /// 「最近開いたファイル」の履歴(ユーザー要望により、この画面からも消せるようにした)。
+    /// SwiftDataではなくUserDefaultsに保存されているため、下の「すべて削除」が行う
+    /// ストアファイルの削除では**消えない**。明示的に消す必要がある。
+    @EnvironmentObject private var recentFiles: RecentFilesStore
     @State private var isShowingConfirmation = false
     @State private var isShowingCompletion = false
+    @State private var isShowingHistoryConfirmation = false
 
     var body: some View {
         SettingsPaneContainer {
@@ -65,6 +70,29 @@ struct ResetDataSettingsView: View {
                 Text("Clean Up")
             } footer: {
                 Text("Opens a window listing every book qooViewer has saved data for, so you can remove the ones you no longer need. The files themselves are never touched.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // ユーザー要望: 「最近開いたファイル」やサイドパネルの履歴モードに出る履歴を、
+            // ここからも消せるようにしたい。
+            //
+            // 下の「すべて削除」とは性質が違うので独立したセクションにしてある ―― あちらは
+            // ストアが壊れて起動すらできない状況のための最後の手段で、実行後にアプリが
+            // 終了する。こちらは日常的な掃除で、消えるのは「どのファイルを開いたか」の
+            // 記録だけ、アプリの再起動も伴わない(「本ごとのデータを削除」と同じ立ち位置)。
+            Section {
+                Button {
+                    isShowingHistoryConfirmation = true
+                } label: {
+                    Label("Clear Recently Opened History…", systemImage: "clock.arrow.circlepath")
+                }
+                .disabled(recentFiles.entries.isEmpty)
+            } header: {
+                Text("History")
+            } footer: {
+                Text("Removes every entry from the File menu's Open Recent and from the side panel's History mode. Your files are not touched.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -102,6 +130,10 @@ struct ResetDataSettingsView: View {
                             "Bookmarks",
                             "Page layout settings",
                             "Reading history — the last page and display settings for every book",
+                            // ユーザー要望: この操作でも「最近開いたファイル」の履歴が消えて
+                            // ほしい。これだけはSwiftDataではなくUserDefaultsに入っているため、
+                            // performReset()が別途消している(そちらのコメント参照)。
+                            "Recently opened history, in the File menu and the side panel",
                         ])
                     }
                 }
@@ -156,6 +188,14 @@ struct ResetDataSettingsView: View {
         // 削除はすでに完了しているため、ここでの選択肢は「Quit Now」の1つだけにしてある
         // (「キャンセルして使い続ける」という選択肢を出すと、削除済みのモデルを参照したままの
         // 状態でアプリを使い続けられるかのように誤解させてしまうため)。
+        .alert("Clear Recently Opened History?", isPresented: $isShowingHistoryConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Clear", role: .destructive) {
+                recentFiles.removeAll()
+            }
+        } message: {
+            Text("This removes every entry from the File menu's Open Recent and from the side panel's History mode. Your files are not touched.")
+        }
         .alert("Reset Complete", isPresented: $isShowingCompletion) {
             Button("Quit Now") {
                 NSApp.terminate(nil)
@@ -179,6 +219,16 @@ struct ResetDataSettingsView: View {
         // 残ってしまってもキャッシュディレクトリ配下の無害なファイルにすぎない)。
         Task { await ThumbnailDiskCache.shared.removeAll() }
         Task { await BookPageListCache.shared.removeAll() }
+        // ユーザー要望: この操作でも「最近開いたファイル」の履歴が消えてほしい。
+        // 履歴と「前回開いていた本」はSwiftDataではなくUserDefaultsに保存されているため、
+        // 上のストアファイルの削除では消えない。ここで明示的に消す。
+        //
+        // 「前回開いていた本」(LastActiveBookStore)も一緒に消す。画面のどこにも表示されない
+        // 記録だが、「どの本を読んでいたか」という読書履歴そのものであり、これだけ残ると
+        // 次回起動時に、消したはずの本が自動的に開いてしまう
+        // (環境設定「前回読んでいた本を開き直す」がONの場合)。
+        recentFiles.removeAll()
+        LastActiveBookStore.clear()
         isShowingCompletion = true
     }
 }

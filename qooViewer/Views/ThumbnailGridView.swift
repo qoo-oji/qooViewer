@@ -22,6 +22,9 @@ import Combine
 struct ThumbnailGridView: View {
     @ObservedObject var viewModel: ViewerViewModel
     @Binding var isPresented: Bool
+    /// サムネイルの右クリック →「画像をエクスポート」で呼ぶ処理(ユーザー要望)。
+    /// 書き出しの実装はViewerViewが持っているため、ページ番号を渡すクロージャとして受け取る。
+    var onExportPage: ((Int) -> Void)?
 
     /// パネル本体(背景のマテリアルを持つ矩形)のスクリーン座標系でのフレームを報告する。
     /// ViewerViewが「パネルの外側をクリックしたら閉じる」判定に使う。以前はViewerView側で
@@ -52,6 +55,14 @@ struct ThumbnailGridView: View {
     /// 残ってしまった(ユーザー報告)。実測に合わせることで、ページが均一な本ではレターボックスが
     /// 出ず、枠がページにぴったり収まる。
     private static let defaultCellAspectRatio: CGFloat = 0.66
+
+    /// ホイールでのスクロール量を自前で決めるために掴んでおく、裏のNSScrollView
+    /// (ScrollViewAccessor参照)。参照型の入れ物にしてあるのは、NSEventモニタの
+    /// クロージャから常に最新の値を読む必要があるため(ViewerViewの同名の入れ物と同じ)。
+    @State private var scrollGeometryBox = ScrollGeometryBox()
+    /// 上のスクロール量を実現するためのNSEventローカルモニタ。パネルが表示されている間だけ
+    /// 取り付ける(このビュー自体がisPresented中しか存在しないので、onAppear/onDisappearでよい)。
+    @State private var wheelMonitor: Any?
 
     /// 実際に読み込めたサムネイルから測った縦横比(幅/高さ)のサンプル。列幅は「最初の1枚」では
     /// なく、ここに溜めた**複数ページの中央値**から決める。先頭だけ横長のカバーがある本
@@ -93,6 +104,13 @@ struct ThumbnailGridView: View {
     /// (レイアウトが崩れるだけでは済まない)。RecentFilesStore.maxCountが保存件数を
     /// 同じように読み出し時にクランプしているのと同じ考え方。
     private var cellSize: CGFloat {
+        Self.cellSize(from: preferences)
+    }
+
+    /// 上と同じ計算を、Viewのインスタンスを介さずに行う版。ホイールのスクロール量を決める
+    /// NSEventモニタから使う(makeWheelMonitorのコメント参照。あのクロージャは`self`を
+    /// 捕まえてはいけない)。
+    private static func cellSize(from preferences: AppPreferences) -> CGFloat {
         let range = AppPreferences.thumbnailGridCellSizeRange
         return CGFloat(min(max(preferences.thumbnailGridCellSize, range.lowerBound), range.upperBound))
     }
@@ -171,15 +189,39 @@ struct ThumbnailGridView: View {
                                 )
                             }
                             .buttonStyle(.plain)
+                            // 右クリックの内容はサイドパネルのページモード・本の中身ブラウザと
+                            // 完全に同じ(ユーザー要望。PageContextMenuItems参照)。
+                            .contextMenu {
+                                if viewModel.book.pages.indices.contains(index) {
+                                    PageContextMenuItems(
+                                        page: viewModel.book.pages[index],
+                                        bookSourceURL: viewModel.book.sourceURL,
+                                        onExport: onExportPage.map { export in { export(index) } }
+                                    )
+                                }
+                            }
                         }
                     }
                     .frame(width: gridWidth)
                     .frame(maxWidth: .infinity)
                     .padding(Self.contentPadding)
+                    // ホイール1ノッチあたりのスクロール量を環境設定に従わせるために、裏の
+                    // NSScrollViewを控えておく(makeWheelMonitor参照)。
+                    // **ScrollViewの内側**(スクロールされる中身)に置くこと。外側に付けると、
+                    // 祖先をたどってもNSScrollViewには行き当たらない(ViewerViewの
+                    // 同じアクセサの取り付け位置と同じ理由。実際にここで一度間違えて、
+                    // ホイールの設定が効かずAppKitの既定のスクロールだけが起きていた)。
+                    .background(ScrollViewAccessor(onResolve: { scrollGeometryBox.scrollView = $0 }))
                 }
             }
             .frame(width: panelWidth, height: panelHeight)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            // パネルの背景の濃さと重ね色は環境設定「外観」に従う(ユーザー要望)。
+            // 既定値では従来の .background(.regularMaterial, in:) と同じ描画になる。
+            .panelSurfaceBackground(
+                preferences.pageListSurfaceStyle,
+                material: .regularMaterial,
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
             .shadow(color: .black.opacity(0.3), radius: 16, y: 8)
             .contentShape(Rectangle())
             .onTapGesture {
@@ -187,23 +229,128 @@ struct ThumbnailGridView: View {
             }
             .background(PanelScreenFrameAccessor(onChange: onPanelScreenFrameChange))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onAppear {
+                guard wheelMonitor == nil else { return }
+                wheelMonitor = makeWheelMonitor()
+            }
+            .onDisappear {
+                if let wheelMonitor { NSEvent.removeMonitor(wheelMonitor) }
+                wheelMonitor = nil
+            }
+        }
+    }
+
+    // MARK: - ホイール1ノッチあたりのスクロール量(ユーザー要望)
+
+    /// グリッド1行分の高さ(pt)。サムネイルの高さ + キャプション + 行間。
+    ///
+    /// 実測ではなく見積もりである。実測しようとすると、行の高さはLazyVGridが決めた
+    /// あとでしか分からず、そのときには既にホイールイベントを処理し終えている。
+    /// 見積もりで十分なのは、この値の用途が「1ノッチで何行ぶん動かすか」という
+    /// **ユーザーが感覚で決める量**だからで、数pxの誤差はそのまま設定値の微差に埋もれる。
+    /// キャプションの高さは、SwiftUIの標準的な行間(フォントサイズの約1.3倍)と、
+    /// セル内VStackのspacing(4pt)から求めている。
+    private static func gridRowHeight(from preferences: AppPreferences) -> CGFloat {
+        let captionHeight: CGFloat = preferences.thumbnailGridCaptionStyle == .none
+            ? 0
+            : (preferences.thumbnailGridCaptionFontSize * 1.3).rounded(.up) + 4
+        return cellSize(from: preferences) + captionHeight
+            + CGFloat(preferences.thumbnailGridVerticalSpacing)
+    }
+
+    /// ページ一覧の上でマウスホイールを回したときのスクロール量を、環境設定
+    /// (thumbnailGridWheelScrollRows)に従わせるためのNSEventローカルモニタ。
+    ///
+    /// ■ 対象を物理マウスホイールだけに絞っている
+    /// `hasPreciseScrollingDeltas`がtrueなのはトラックパッドやMagic Mouseの滑らかな
+    /// スクロールで、こちらは1回の操作が細かいイベントの連なりとして届くため「1回ぶん」に
+    /// 意味が無い。指の動きにそのまま追従する既定の挙動をそのまま通す(環境設定の
+    /// invertTwoFingerScrollingが逆にトラックパッド側だけを対象にしているのと同じ考え方で、
+    /// 両者は操作の質が違い、片方に合う値がもう片方では極端になる)。
+    ///
+    /// ■ 判定は「実際にこのグリッドへ届くクリックか」(矩形の内外ではない)
+    /// ヒットテストで、そのポインタ位置にあるビューがこのScrollViewの子孫かどうかを見る。
+    /// 矩形の内外だけで判定すると、**上に重なっているものを無視してしまう** ―― サイドパネルを
+    /// 自動表示(ホバーで手前に浮かせる)しているとき、パネルはページ一覧の上に重なるので、
+    /// その一覧をスクロールしようとしたホイールをこちらが横取りしてしまい、サイドパネルが
+    /// 一切スクロールできなくなる(ViewerView.makeScrollMonitorがisSidePanelFloatingOverlayを
+    /// 見ているのと同じ問題)。ヒットテストなら、重なりの有無を問わず常に正しく判定できる。
+    /// パネル上部の見出し・サムネイルサイズのスライダーの上でも、同じ理由で素通しする。
+    ///
+    /// ■ 既定のスクロールは行わせない(nilを返す)
+    /// 自前で動かしたうえでイベントも通すと、AppKitの既定のスクロールと二重になって
+    /// 設定した量の何倍も動いてしまう。
+    ///
+    /// なお、ViewerView側のスクロールモニタはページ一覧の表示中は素通し(return event)
+    /// なので、こちらと競合しない(ViewerView.makeScrollMonitor参照)。
+    ///
+    /// ■ クロージャが`self`を捕まえないようにしてある(重要)
+    /// このViewは`viewModel`(ViewerViewModel、本ごとのPageLoaderと画像キャッシュを持つ)を
+    /// 保持している。`self`を捕まえると、モニタの取り外しに一度でも失敗しただけで、
+    /// その本のキャッシュがプロセスの生存期間ずっと解放されなくなる。取り外しは
+    /// `.onDisappear`頼みで、SwiftUIがウインドウを閉じたときに必ず呼ぶとは限らない
+    /// (このリポジトリで実際に確認されている挙動。ViewerViewが各モニタの取り外しを
+    /// `handleOnDisappear`にも二重に置いているのはそのため)。
+    /// そこで、クロージャが触るのは`scrollGeometryBox`(小さな入れ物)と
+    /// `preferences`(アプリ全体で1つ)だけに限り、寸法の計算も`static`にしてある。
+    private func makeWheelMonitor() -> Any? {
+        let scrollGeometryBox = self.scrollGeometryBox
+        let preferences = self.preferences
+        return NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel]) { event in
+            guard !event.hasPreciseScrollingDeltas, event.scrollingDeltaY != 0 else { return event }
+            guard let scrollView = scrollGeometryBox.scrollView,
+                  let window = scrollView.window, event.window === window,
+                  let contentView = window.contentView
+            else { return event }
+            // hitTest(_:)は「そのビューのsuperviewの座標系」で点を受け取る。contentViewの
+            // superviewはウインドウのフレームビューなので、event.locationInWindowをそのまま
+            // 渡せる(AppKitで定番の書き方)。
+            guard let hitView = contentView.hitTest(event.locationInWindow),
+                  hitView.isDescendant(of: scrollView)
+            else { return event }
+            guard let bounds = ScrollViewBounds(scrollGeometryBox.scrollView) else { return event }
+
+            let rows = preferences.thumbnailGridWheelScrollRows
+            let distance = Self.gridRowHeight(from: preferences) * CGFloat(rows)
+            var position = bounds.position
+            // scrollingDeltaYは「システム設定のナチュラルなスクロール」を反映済みの値で、
+            // 上へ回すと正になる。positionは下へ進むほど増える向きなので符号を反転させる。
+            // 大きさをそのまま掛けているのは、速く回したときにAppKitが1イベントへ複数
+            // ノッチ分をまとめてくることがあり、その加速をそのまま活かすため。
+            position.y -= event.scrollingDeltaY * distance
+            // アニメーションは付けない。「1ノッチ = N行」をそのまま目に見える動きにするため
+            // (連続して回したときにアニメーション同士が競合して、行数と実際の移動量が
+            // 食い違って見えるのも避けられる)。可動範囲へのクランプはscroll(to:)が行う。
+            bounds.scroll(to: position)
+            return nil
         }
     }
 }
 
-/// ThumbnailGridViewの背後に敷く、ビューア画面いっぱいの透明な背景レイヤー。
-/// ユーザー要望: ページ一覧パネルの外側(＝ビューア画面)をクリックしたら閉じるようにしたい。
-/// パネル自体は5列表示に必要な幅だけに留めているため(ThumbnailGridView.panelWidth参照)、
-/// パネルの外側は依然としてビューア画面のクリックとして扱われる必要があり、この透明な
-/// レイヤーがビューア画面全体を覆ってそのクリックを受け止める。
+/// オーバーレイ表示するパネル(ページ一覧・「情報を見る」)の背後に敷く、ビューア画面
+/// いっぱいの透明なレイヤー。パネルの外側へ漏れたクリックを受け止め、背後のツールバーや
+/// ページ送りが誤って反応しないようにする。
+///
+/// ■ `isPresented`を渡すかどうかで役割が変わる
+/// 渡した場合は「外側をクリックしたら閉じる」層になる(「情報を見る」パネルはこちら。
+/// 従来どおりの挙動)。渡さない場合はクリックを受け止めるだけで何もしない層になる。
+///
+/// ページ一覧は後者を使う。閉じる条件が「画像表示領域のクリックだけ」に限定された
+/// (ツールバー・プログレスバーのクリックでは閉じない)ため、このレイヤーのタップ
+/// ジェスチャーでは条件を表現できないためである。ページ一覧を閉じる判定は
+/// ViewerView.installThumbnailGridDismissMonitorIfNeededがスクリーン座標で行う。
+///
+/// なお、ページ一覧の表示中にツールバーをクリックしても何も起きない(このレイヤーが
+/// 受け止めて終わる)のは意図した挙動である。パネルを出したまま背後のページを送れて
+/// しまうほうが分かりにくい。
 struct ThumbnailGridBackdropView: View {
-    @Binding var isPresented: Bool
+    var isPresented: Binding<Bool>?
 
     var body: some View {
         Color.black.opacity(0.001)
             .contentShape(Rectangle())
             .onTapGesture {
-                isPresented = false
+                isPresented?.wrappedValue = false
             }
     }
 }
@@ -260,7 +407,10 @@ private struct ThumbnailCell: View {
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .overlay(
                 RoundedRectangle(cornerRadius: 4)
-                    .stroke(isCurrent ? Color.accentColor : Color.clear, lineWidth: 3)
+                    // 枠の色は環境設定「外観」で選べる(ユーザー要望)。既定の「アクセントカラー」は
+                    // 従来と同じ Color.accentColor に解決される(AppPreferences.
+                    // effectiveCurrentPageBorderColor参照)。
+                    .stroke(isCurrent ? preferences.effectiveCurrentPageBorderColor : Color.clear, lineWidth: 3)
             )
             // カーソルをホバーしている間、大きなプレビューとファイル名を表示する(ユーザー要望)。
             // BookmarkListView.PageRowViewと同じく、ホバーした瞬間に即座にpopoverを出さず、
@@ -283,11 +433,23 @@ private struct ThumbnailCell: View {
             .popover(isPresented: $isHoveringThumbnail, arrowEdge: .trailing) {
                 thumbnailPreviewContent
             }
-            Text("\(index + 1)")
-                .font(.caption2)
-                // ユーザー報告: .secondary(グレー)だと、サムネイル一覧パネルの背景
-                // (.regularMaterial)上では視認性が悪い。白固定にして見やすくする。
-                .foregroundStyle(.white)
+            // サムネイルの下に何を書くかは環境設定「外観」で選ぶ(ユーザー要望:
+            // ページ番号のみ/ファイル名/表示なし)。「表示なし」のときは`Text`自体を
+            // 置かないので、VStackのspacingぶんの隙間も消え、サムネイルだけが詰まって並ぶ。
+            if let caption {
+                Text(caption)
+                    // 大きさも環境設定から(既定の11ptは、従来使っていた.caption2の実寸と同じ)。
+                    .font(.system(size: preferences.thumbnailGridCaptionFontSize))
+                    // ユーザー報告: .secondary(グレー)だと、サムネイル一覧パネルの背景
+                    // (.regularMaterial)上では視認性が悪い。白固定にして見やすくする。
+                    .foregroundStyle(.white)
+                    // ファイル名はページ番号と違って長くなりうる。セルの幅で頭打ちにし、
+                    // 中央を省略する(先頭と末尾のほうが見分けに使えるため)。
+                    // 番号のときも同じ指定で問題ない(折り返しようがない短さのため)。
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: cellWidth)
+            }
         }
         // セルの大きさ(pixelSize)が変わったら、その解像度で読み直す(スライダーで拡大したときに
         // ぼやけないように)。idにpixelSizeを含めることで、サイズ変更時に.taskが再実行される。
@@ -336,6 +498,15 @@ private struct ThumbnailCell: View {
         .task {
             guard previewImage == nil else { return }
             previewImage = await viewModel.pageImage(at: index)
+        }
+    }
+
+    /// サムネイルの下に書く文字。環境設定が「表示なし」ならnil(呼び出し側はTextごと省く)。
+    private var caption: String? {
+        switch preferences.thumbnailGridCaptionStyle {
+        case .pageNumber: return "\(index + 1)"
+        case .fileName: return displayName
+        case .none: return nil
         }
     }
 

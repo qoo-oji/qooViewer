@@ -1,7 +1,12 @@
 import SwiftUI
 
-/// カスタム背景色を指定するダイアログ(環境設定「描画」タブの「背景色」で
-/// 「カスタム」を選ぶと開く)。
+/// 任意の色を指定するためのダイアログ。
+///
+/// 元はビューアの背景色専用(`BackgroundColorPickerSheet`)だったが、「外観」画面の追加で
+/// 同じ体裁のダイアログが複数の設定 ― 背景色、すりガラスの面ごとの重ね色、ページ一覧で
+/// 表示中のページを示す枠の色 ― から必要になったため、見出しだけを差し替えられる汎用の
+/// ダイアログに一般化した。中身(パレット・RGB調整・プレビュー・Revert/Cancel/OK)は
+/// どの用途でも同じでよい。
 ///
 /// 上下2段の構成になっている。
 /// - 上段: 汎用のカラーパレット。1マス押すと、その色が下段のRGBへ読み込まれる
@@ -11,13 +16,16 @@ import SwiftUI
 /// 編集中の値は`workingColor`(このView内の@State)だけに持ち、OKを押したときに初めて
 /// 呼び出し元へ渡す。キャンセルすると何も起きないので、いじった結果が気に入らなければ
 /// そのまま閉じれば元の色のままになる。
-struct BackgroundColorPickerSheet: View {
+struct CustomColorPickerSheet: View {
+    /// ダイアログの見出しに出す、何の色を選んでいるのかを表す文言。
+    /// 呼び出し元ごとに違うのはここだけなので、パラメータもこれ1つに留めてある。
+    let titleKey: LocalizedStringKey
     /// ダイアログを開いた時点のカスタム色(編集の出発点)。
     let initialColor: RGBColorValue
     /// OKが押されたときだけ、確定した色を渡して呼ばれる。キャンセル時は呼ばれない。
     let onCommit: (RGBColorValue) -> Void
-    /// キャンセルされたときだけ呼ばれる。呼び出し元は「背景色」の選択を
-    /// ダイアログを開く前の値へ戻すのに使う(RenderingSettingsView参照)。
+    /// キャンセルされたときだけ呼ばれる。呼び出し元は「カスタム」を選んだこと自体を
+    /// ダイアログを開く前の値へ戻すのに使う(AppearanceSettingsView参照)。
     ///
     /// `.sheet(onDismiss:)`ではなく専用のクロージャにしているのは、あちらがOKとキャンセルの
     /// どちらでも呼ばれてしまい区別できないため。このシートはシート外クリックでは閉じず、
@@ -29,10 +37,12 @@ struct BackgroundColorPickerSheet: View {
     @State private var workingColor: RGBColorValue
 
     init(
+        titleKey: LocalizedStringKey,
         initialColor: RGBColorValue,
         onCommit: @escaping (RGBColorValue) -> Void,
         onCancel: @escaping () -> Void
     ) {
+        self.titleKey = titleKey
         self.initialColor = initialColor
         self.onCommit = onCommit
         self.onCancel = onCancel
@@ -67,7 +77,7 @@ struct BackgroundColorPickerSheet: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Custom Background Color")
+            Text(titleKey)
                 .font(.headline)
             Text("Pick a color from the palette, then fine-tune it with the RGB sliders.")
                 .font(.subheadline)

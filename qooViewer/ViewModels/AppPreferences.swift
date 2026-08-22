@@ -58,6 +58,24 @@ final class AppPreferences: ObservableObject {
         static let preloadThumbnailGridPreviews = "qooViewer.pref.preloadThumbnailGridPreviews"
         static let defaultReadingDirection = "qooViewer.pref.defaultReadingDirection"
         static let spreadBookmarkTargetBehavior = "qooViewer.pref.spreadBookmarkTargetBehavior"
+        static let thumbnailGridCaptionStyle = "qooViewer.pref.thumbnailGridCaptionStyle"
+        static let thumbnailGridCaptionFontSize = "qooViewer.pref.thumbnailGridCaptionFontSize"
+        static let thumbnailGridBorderColorOption = "qooViewer.pref.thumbnailGridBorderColorOption"
+        static let thumbnailGridBorderCustomColor = "qooViewer.pref.thumbnailGridBorderCustomColor"
+        static let thumbnailGridWheelScrollRows = "qooViewer.pref.thumbnailGridWheelScrollRows"
+        static let launchInPrivateMode = "qooViewer.pref.launchInPrivateMode"
+
+        /// すりガラスの面ごとの設定(PanelSurface参照)。面の識別子ごとに3つのキーへ分かれる。
+        /// 面を1つ増やしてもここは触らなくてよい(PanelSurface.allCasesから導出される)。
+        static func panelSurfaceMaterialOpacity(_ surface: PanelSurface) -> String {
+            "qooViewer.pref.surface.\(surface.rawValue).materialOpacity"
+        }
+        static func panelSurfaceTintColor(_ surface: PanelSurface) -> String {
+            "qooViewer.pref.surface.\(surface.rawValue).tintColor"
+        }
+        static func panelSurfaceTintOpacity(_ surface: PanelSurface) -> String {
+            "qooViewer.pref.surface.\(surface.rawValue).tintOpacity"
+        }
     }
 
     /// 入力ファイルなしで起動した場合(Finderでの直接オープンやDockアイコンへの
@@ -410,6 +428,163 @@ final class AppPreferences: ObservableObject {
     }
     static let thumbnailGridMarginPercentRange: ClosedRange<Double> = 0...40
 
+    /// サムネイルの下に何を書くか(ThumbnailCaptionStyle参照)。既定はこれまでどおりページ番号。
+    @Published var thumbnailGridCaptionStyle: ThumbnailCaptionStyle {
+        didSet {
+            UserDefaults.standard.set(thumbnailGridCaptionStyle.rawValue, forKey: Keys.thumbnailGridCaptionStyle)
+        }
+    }
+    /// サムネイルの下の文字の大きさ(pt)。既定の11ptは、従来使っていた`.caption2`の実寸に
+    /// 合わせたもの(値を変えていない人の見た目が変わらないようにするため)。
+    @Published var thumbnailGridCaptionFontSize: Double {
+        didSet {
+            UserDefaults.standard.set(thumbnailGridCaptionFontSize, forKey: Keys.thumbnailGridCaptionFontSize)
+        }
+    }
+    /// 下限8ptは、Retinaでもぎりぎり字形が潰れない大きさ。上限20ptは、サムネイルの最小サイズ
+    /// (80pt)に対して文字が主役になってしまわない範囲。
+    static let thumbnailGridCaptionFontSizeRange: ClosedRange<Double> = 8...20
+
+    /// 表示中のページを示す枠の色(プリセット、または「カスタム」)。ユーザー要望。
+    @Published var thumbnailGridBorderColorOption: PageBorderColorOption {
+        didSet {
+            UserDefaults.standard.set(thumbnailGridBorderColorOption.rawValue, forKey: Keys.thumbnailGridBorderColorOption)
+        }
+    }
+    /// 上が`.custom`のときに使うRGB値。`customBackgroundColor`とまったく同じ考え方で、
+    /// プリセットへ戻してからカスタムを選び直しても、作った色はそのまま残る。
+    @Published var thumbnailGridBorderCustomColor: RGBColorValue {
+        didSet {
+            UserDefaults.standard.set(thumbnailGridBorderCustomColor.hexString, forKey: Keys.thumbnailGridBorderCustomColor)
+        }
+    }
+    /// カスタムの枠色をまだ一度も指定していないときの初期値。既定の`.accent`(多くの環境では青)
+    /// から遠く、暗いサムネイルの上でも埋もれない橙にしてある。
+    static let defaultThumbnailGridBorderCustomColor = RGBColorValue(red: 255, green: 149, blue: 0)
+
+    /// 実際に枠を描くのに使う色。プリセット・カスタム・アクセントカラーの解決をここ1箇所に
+    /// 集約し、表示側が場合分けを持たなくて済むようにしている(effectiveBackgroundColorと同じ考え方)。
+    var effectiveCurrentPageBorderColor: Color {
+        if let preset = thumbnailGridBorderColorOption.presetColor { return preset }
+        // `.accent`は固定値を持たない(システム設定に追従する)ため、ここで初めてColorに解決する。
+        if thumbnailGridBorderColorOption == .accent { return .accentColor }
+        return thumbnailGridBorderCustomColor.color
+    }
+
+    /// ページ一覧の上でマウスホイールを1ノッチ回したときに、何行ぶんスクロールするか
+    /// (ユーザー要望)。
+    ///
+    /// 対象は**物理マウスのホイールだけ**で、トラックパッドやMagic Mouseの滑らかな
+    /// スクロールには効かせない。理由は`invertTwoFingerScrolling`が逆にトラックパッド
+    /// だけを対象にしているのと同じで、両者は操作の質が違い、片方に合う値がもう片方では
+    /// 極端になるため(そちらのコメント参照)。
+    @Published var thumbnailGridWheelScrollRows: Double {
+        didSet {
+            UserDefaults.standard.set(thumbnailGridWheelScrollRows, forKey: Keys.thumbnailGridWheelScrollRows)
+        }
+    }
+    /// 下限0.5行は「1ノッチで半行ぶんだけ動かして、行の途中を覗く」用途。上限5行は、
+    /// それ以上にすると1ノッチで画面が丸ごと入れ替わり、どこを見ていたか分からなくなるため。
+    static let thumbnailGridWheelScrollRowsRange: ClosedRange<Double> = 0.5...5
+
+    // MARK: - すりガラスの面ごとの見た目(ユーザー要望)
+
+    /// ページ一覧パネルの背景。
+    @Published var pageListSurfaceStyle: PanelSurfaceStyle {
+        didSet { Self.save(pageListSurfaceStyle, for: .pageList) }
+    }
+    /// ツールバーの背景(自動的に隠す設定のときに重ねて表示される帯)。
+    @Published var toolbarSurfaceStyle: PanelSurfaceStyle {
+        didSet { Self.save(toolbarSurfaceStyle, for: .toolbar) }
+    }
+    /// プログレスバーの背景(同上)。
+    @Published var progressBarSurfaceStyle: PanelSurfaceStyle {
+        didSet { Self.save(progressBarSurfaceStyle, for: .progressBar) }
+    }
+    /// サイドパネルの背景。
+    @Published var sidePanelSurfaceStyle: PanelSurfaceStyle {
+        didSet { Self.save(sidePanelSurfaceStyle, for: .sidePanel) }
+    }
+
+    /// 面を指定して現在の設定を読む。環境設定「外観」画面が`PanelSurface.allCases`を
+    /// そのまま並べられるようにするための窓口(4面ぶんの`if`を画面側に書かせないため)。
+    func surfaceStyle(for surface: PanelSurface) -> PanelSurfaceStyle {
+        switch surface {
+        case .pageList: return pageListSurfaceStyle
+        case .toolbar: return toolbarSurfaceStyle
+        case .progressBar: return progressBarSurfaceStyle
+        case .sidePanel: return sidePanelSurfaceStyle
+        }
+    }
+
+    /// 面を指定して設定を書く(上の対)。
+    func setSurfaceStyle(_ style: PanelSurfaceStyle, for surface: PanelSurface) {
+        switch surface {
+        case .pageList: pageListSurfaceStyle = style
+        case .toolbar: toolbarSurfaceStyle = style
+        case .progressBar: progressBarSurfaceStyle = style
+        case .sidePanel: sidePanelSurfaceStyle = style
+        }
+    }
+
+    /// 面を指定したBinding。`ForEach(PanelSurface.allCases)`の中からスライダー等へ直接渡せる。
+    func surfaceStyleBinding(for surface: PanelSurface) -> Binding<PanelSurfaceStyle> {
+        Binding(
+            get: { self.surfaceStyle(for: surface) },
+            set: { self.setSurfaceStyle($0, for: surface) }
+        )
+    }
+
+    private static func save(_ style: PanelSurfaceStyle, for surface: PanelSurface) {
+        let defaults = UserDefaults.standard
+        defaults.set(style.materialOpacity, forKey: Keys.panelSurfaceMaterialOpacity(surface))
+        defaults.set(style.tintColor.hexString, forKey: Keys.panelSurfaceTintColor(surface))
+        defaults.set(style.tintOpacity, forKey: Keys.panelSurfaceTintOpacity(surface))
+    }
+
+    /// 保存済みの設定を読む。1つでも欠けていればその項目だけ既定値で補う
+    /// (面を後から増やしたときに、既存ユーザーの環境で既定値が使われるようにするため)。
+    private static func loadSurfaceStyle(for surface: PanelSurface) -> PanelSurfaceStyle {
+        let defaults = UserDefaults.standard
+        let fallback = surface.defaultStyle
+        let materialOpacity =
+            defaults.object(forKey: Keys.panelSurfaceMaterialOpacity(surface)) as? Double
+            ?? fallback.materialOpacity
+        let tintColor =
+            (defaults.string(forKey: Keys.panelSurfaceTintColor(surface)).flatMap(RGBColorValue.init(hexString:)))
+            ?? fallback.tintColor
+        let tintOpacity =
+            defaults.object(forKey: Keys.panelSurfaceTintOpacity(surface)) as? Double
+            ?? fallback.tintOpacity
+        return PanelSurfaceStyle(
+            materialOpacity: materialOpacity, tintColor: tintColor, tintOpacity: tintOpacity
+        )
+    }
+
+    // MARK: - シークレットウインドウを既定にする(ユーザー要望)
+
+    /// 本を開くすべての経路 ― アプリの通常起動、Finderからのダブルクリック、Dockアイコンへの
+    /// ドラッグ&ドロップ、ウェルカム画面へのドロップ、「開く…」パネル ― で、既定で
+    /// シークレットウインドウとして開くかどうか。
+    ///
+    /// ONにしても「シークレットウインドウとは何か」は変わらない(AppState.isPrivateWindowの
+    /// コメントが引き続き正典)。変わるのは**どちらが既定か**だけで、記録の残る通常の
+    /// ウインドウは File › 「新規ノーマルウインドウ」から明示的に開く。
+    ///
+    /// この値はLaunchCoordinator/ContentViewなど、AppPreferencesを@EnvironmentObjectとして
+    /// 受け取れない箇所からも読む必要があるため、UserDefaultsのキーを`static`で公開し、
+    /// `isEnabledInUserDefaults`から直接読めるようにしてある
+    /// (RecentFilesStore.maxCountが同じ理由で直接UserDefaultsを読んでいるのと同じ)。
+    @Published var launchInPrivateMode: Bool {
+        didSet { UserDefaults.standard.set(launchInPrivateMode, forKey: Keys.launchInPrivateMode) }
+    }
+
+    /// 上の値を、AppPreferencesのインスタンスを持たない箇所(ContentViewのinit、
+    /// LaunchCoordinator、AppDelegate)から読むための窓口。
+    static var isPrivateModeDefault: Bool {
+        UserDefaults.standard.bool(forKey: Keys.launchInPrivateMode)
+    }
+
     // MARK: - サムネイルのホバー拡大プレビュー(ページ一覧・サイドパネル・ブックマーク編集・書き出し共通)
 
     /// ページ一覧のサムネイルにカーソルを合わせたとき拡大プレビュー(ポップオーバー)を出すか。
@@ -541,6 +716,24 @@ final class AppPreferences: ObservableObject {
         self.thumbnailHoverPreviewDelay = defaults.object(forKey: Keys.thumbnailHoverPreviewDelay) as? Double ?? 0.35
         self.preloadThumbnailGridPreviews =
             defaults.object(forKey: Keys.preloadThumbnailGridPreviews) as? Bool ?? false
+        self.thumbnailGridCaptionStyle =
+            ThumbnailCaptionStyle(rawValue: defaults.string(forKey: Keys.thumbnailGridCaptionStyle) ?? "")
+            ?? .pageNumber
+        self.thumbnailGridCaptionFontSize =
+            defaults.object(forKey: Keys.thumbnailGridCaptionFontSize) as? Double ?? 11
+        self.thumbnailGridBorderColorOption =
+            PageBorderColorOption(rawValue: defaults.string(forKey: Keys.thumbnailGridBorderColorOption) ?? "")
+            ?? .accent
+        self.thumbnailGridBorderCustomColor =
+            defaults.string(forKey: Keys.thumbnailGridBorderCustomColor).flatMap(RGBColorValue.init(hexString:))
+            ?? Self.defaultThumbnailGridBorderCustomColor
+        self.thumbnailGridWheelScrollRows =
+            defaults.object(forKey: Keys.thumbnailGridWheelScrollRows) as? Double ?? 1
+        self.pageListSurfaceStyle = Self.loadSurfaceStyle(for: .pageList)
+        self.toolbarSurfaceStyle = Self.loadSurfaceStyle(for: .toolbar)
+        self.progressBarSurfaceStyle = Self.loadSurfaceStyle(for: .progressBar)
+        self.sidePanelSurfaceStyle = Self.loadSurfaceStyle(for: .sidePanel)
+        self.launchInPrivateMode = defaults.object(forKey: Keys.launchInPrivateMode) as? Bool ?? false
 
         if let storedRaw = defaults.string(forKey: Keys.defaultReadingDirection),
            let stored = ReadingDirection(rawValue: storedRaw) {

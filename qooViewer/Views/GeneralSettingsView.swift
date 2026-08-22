@@ -24,7 +24,20 @@ struct GeneralSettingsView: View {
                     "Reopen the Book You Were Last Reading",
                     isOn: $preferences.launchOpensLastBook
                 )
+                // シークレットで起動する設定では、そもそも「前回読んでいた本」が記録されず、
+                // 記録済みのものも意図的に無視する(ContentView.performLaunchActionsIfNeeded
+                // 参照)。効かない設定を触れるままにしておくと「壊れている」と受け取られるため、
+                // ここでグレーアウトして理由を吹き出しに置く。
+                .disabled(preferences.launchInPrivateMode)
                 SettingsToggle("Start in Full Screen", isOn: $preferences.launchFullScreen)
+                // ユーザー要望: アプリの通常起動・Finderからのダブルクリック・Dockアイコンへの
+                // ドラッグ&ドロップなど、すべての経路で既定でシークレットウインドウとして
+                // 開くモードが欲しい。
+                SettingsToggle(
+                    "Start in Private Mode",
+                    isOn: $preferences.launchInPrivateMode,
+                    help: "Every book opens in a private window — nothing is recorded: no reading position, bookmarks, favorites, layouts, or history. Use File ▸ New Normal Window when you do want a book to be remembered."
+                )
             } header: {
                 Text("On Launch")
             }

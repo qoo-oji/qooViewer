@@ -593,7 +593,9 @@ struct FavoritesOrganizerView: View {
         SecurityScopedHandoff.begin(url)
         let previousWindow = activeAppState?.hostWindow
         let existingIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
-        openWindow(id: "book", value: BookOpenRequest(url))
+        // 今読んでいる本のウインドウ(あれば)の性質を引き継ぐ。無ければ環境設定に従う
+        // (BookWindowGroup参照)。
+        openWindow(id: BookWindowGroup.id(inheritingFrom: activeAppState), value: BookOpenRequest(url))
         Task { @MainActor in
             for _ in 0..<20 {
                 try? await Task.sleep(nanoseconds: 25_000_000)
@@ -629,7 +631,9 @@ struct FavoritesOrganizerView: View {
         }
         SecurityScopedHandoff.begin(url)
         let existingIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
-        openWindow(id: "book", value: BookOpenRequest(url))
+        // 今読んでいる本のウインドウ(あれば)の性質を引き継ぐ。無ければ環境設定に従う
+        // (BookWindowGroup参照)。
+        openWindow(id: BookWindowGroup.id(inheritingFrom: activeAppState), value: BookOpenRequest(url))
         Task { @MainActor in
             for _ in 0..<20 {
                 try? await Task.sleep(nanoseconds: 25_000_000)

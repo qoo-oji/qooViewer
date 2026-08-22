@@ -454,14 +454,21 @@ struct SettingsSlider: View {
     @Binding private var value: Double
     private let range: ClosedRange<Double>
     private let step: Double
+    private let showsStepper: Bool
     private let format: (Double) -> String
 
+    /// - Parameter showsStepper: 現在値の右に⬆⬇のステッパーを添える。
+    ///   刻みが細かい設定でだけ使うこと ―― スライダーの1ステップが1pt未満になると
+    ///   ドラッグでは狙った値に止められなくなるため(スライダーの実効幅はおよそ300pt
+    ///   しかないので、`(range幅 / step)`が300を超えたら添えると考えてよい)。
+    ///   刻みが粗い設定にまで付けると、押す必要のないボタンが全画面に並ぶことになる。
     init(
         _ title: LocalizedStringKey,
         value: Binding<Double>,
         in range: ClosedRange<Double>,
         step: Double,
         help: LocalizedStringKey? = nil,
+        showsStepper: Bool = false,
         format: @escaping (Double) -> String
     ) {
         self.title = title
@@ -469,6 +476,7 @@ struct SettingsSlider: View {
         self.range = range
         self.step = step
         self.help = help
+        self.showsStepper = showsStepper
         self.format = format
     }
 
@@ -480,6 +488,17 @@ struct SettingsSlider: View {
                 Text(format(value))
                     .monospacedDigit()
                     .fontWeight(.semibold)
+                if showsStepper {
+                    // ラベルはすぐ左の現在値が担っているので、ステッパー自身は矢印だけにする。
+                    // 範囲を`Slider`と同じ`range`で与えているため、端まで来た側は自動的に
+                    // 押せなくなる(スライダーと食い違って範囲外の値を作ることはない)。
+                    Stepper(value: $value, in: range, step: step) {
+                        EmptyView()
+                    }
+                    .labelsHidden()
+                    .accessibilityLabel(Text(title))
+                    .accessibilityValue(Text(format(value)))
+                }
             }
 
             Slider(value: $value, in: range, step: step) {
@@ -513,6 +532,62 @@ struct SettingsSlider: View {
             .accessibilityValue(Text(format(value)))
         }
         .padding(.vertical, 2)
+    }
+}
+
+// MARK: - 色見本
+
+/// 色を1つ選ばせる行。項目名の右に現在の色の見本を置き、押すと色の指定ダイアログ
+/// (`CustomColorPickerSheet`)を開く。
+///
+/// ■ なぜ`ColorPicker`(SwiftUI標準)を使わないのか
+/// 標準のカラーウェルはmacOSのカラーパネルを開く。あれはアプリ全体で1枚しか無く、
+/// 環境設定ウインドウより前面に居座るうえ、選んだ色は`Color`として返るため、
+/// このアプリがUserDefaultsへ保存している形式(sRGBのRGB各8bit。RGBColorValue参照)へ
+/// 落とすときに色空間の解釈がOS任せになる。既にパレット+RGB数値のダイアログを持っている
+/// (背景色用に作った`CustomColorPickerSheet`)ので、色を選ぶ体験を1つに揃えている。
+///
+/// ■ ダイアログ自体はこの行が持たない
+/// `.sheet`は行ではなく画面の土台側に付ける必要がある(Formのセクション内のViewに付けると、
+/// スクロールによる行の再生成に表示状態が引きずられうる。RenderingSettingsView/
+/// AppearanceSettingsViewの`.sheet`のコメント参照)。そのためこの行は「押された」ことを
+/// `action`で伝えるだけにして、どのダイアログを開くかは画面側が決める。
+struct SettingsColorRow: View {
+    private let title: LocalizedStringKey
+    private let help: LocalizedStringKey?
+    private let color: Color
+    private let action: () -> Void
+
+    init(
+        _ title: LocalizedStringKey,
+        color: Color,
+        help: LocalizedStringKey? = nil,
+        action: @escaping () -> Void
+    ) {
+        self.title = title
+        self.color = color
+        self.help = help
+        self.action = action
+    }
+
+    var body: some View {
+        SettingRow(title, help: help) {
+            Button(action: action) {
+                HStack(spacing: 8) {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(color)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                // 白や白に近い色が行の地に溶けないよう、常に薄い枠線を敷く
+                                // (CustomColorPickerSheetのパレットのマスと同じ理由)。
+                                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+                        )
+                        .frame(width: 36, height: 16)
+                    Text("Change…")
+                }
+            }
+            .accessibilityLabel(Text(title))
+        }
     }
 }
 

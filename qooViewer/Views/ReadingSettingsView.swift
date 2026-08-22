@@ -40,49 +40,22 @@ struct ReadingSettingsView: View {
                 Text("Progress Bar")
             }
 
-            // ページ一覧(サムネイルグリッド)。ユーザー要望: サイズ・間隔・余白を調整したい。
-            // サイズはパネル上部のスライダーと同じ値(その場で変えたいときはそちら)。
+            // ページ一覧(サムネイルグリッド)の**見た目**(サムネイルの大きさ・間隔・余白・
+            // キャプション・枠の色)は「外観」画面へ移した(ユーザー要望: アプリの外観に
+            // 関するものは1画面へ集約する)。ここに残しているのは、見た目ではなく
+            // 「操作にどう応じるか」の設定だけ。
             Section {
                 SettingsSlider(
-                    "Thumbnail Size",
-                    value: $preferences.thumbnailGridCellSize,
-                    in: AppPreferences.thumbnailGridCellSizeRange,
-                    step: 10
+                    "Rows per Wheel Notch",
+                    value: $preferences.thumbnailGridWheelScrollRows,
+                    in: AppPreferences.thumbnailGridWheelScrollRowsRange,
+                    step: 0.5,
+                    help: "Applies to a physical mouse wheel only. Trackpad scrolling is unchanged.",
+                    showsStepper: true
                 ) { value in
-                    "\(Int(value)) pt"
-                }
-                SettingsSlider(
-                    "Horizontal Spacing",
-                    value: $preferences.thumbnailGridHorizontalSpacing,
-                    in: AppPreferences.thumbnailGridSpacingRange,
-                    step: 2
-                ) { value in
-                    "\(Int(value)) pt"
-                }
-                SettingsSlider(
-                    "Vertical Spacing",
-                    value: $preferences.thumbnailGridVerticalSpacing,
-                    in: AppPreferences.thumbnailGridSpacingRange,
-                    step: 2
-                ) { value in
-                    "\(Int(value)) pt"
-                }
-                SettingsSlider(
-                    "Side Margins",
-                    value: $preferences.thumbnailGridHorizontalMarginPercent,
-                    in: AppPreferences.thumbnailGridMarginPercentRange,
-                    step: 1,
-                    help: "Percentage of the viewer area left empty on each side of the page list. The number of columns is calculated from the remaining width, the thumbnail size, and the spacing."
-                ) { value in
-                    "\(Int(value))%"
-                }
-                SettingsSlider(
-                    "Top and Bottom Margins",
-                    value: $preferences.thumbnailGridVerticalMarginPercent,
-                    in: AppPreferences.thumbnailGridMarginPercentRange,
-                    step: 1
-                ) { value in
-                    "\(Int(value))%"
+                    // 0.5刻みなので、整数のときも「1.0」と書いて桁数を揃える
+                    // (ドラッグ中に小数点が出たり消えたりして行が揺れるのを防ぐ)。
+                    String(format: "%.1f", value)
                 }
             } header: {
                 Text("Page List")
@@ -118,13 +91,19 @@ struct ReadingSettingsView: View {
             }
 
             Section {
+                // ユーザー要望: 特に10秒未満のときに0.1秒単位で詰めたい。
+                // 0.1秒刻みだとスライダーの1ステップが1pt未満になり、ドラッグでは狙った値に
+                // 止められないため、ステッパーを添えてある(SettingsSlider.showsStepper参照)。
+                // 下限を1秒から0.5秒へ下げたのは、0.1秒単位で詰めたいのは短い側だという
+                // 要望の趣旨に沿わせるため。
                 SettingsSlider(
                     "Interval",
                     value: $preferences.slideshowInterval,
-                    in: 1...30,
-                    step: 1
+                    in: 0.5...30,
+                    step: 0.1,
+                    showsStepper: true
                 ) { value in
-                    "\(Int(value)) s"
+                    String(format: "%.1f s", value)
                 }
             } header: {
                 Text("Slideshow")

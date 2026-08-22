@@ -57,6 +57,12 @@ struct SidePanelView: View {
     /// (AppState.currentBookPages。並び替え/除外の変更を追従できるよう、本を開いた時点の
     /// スナップショットではなく最新値をContentViewから渡してもらう)。
     var bookPages: [PageRef]
+    /// 今開いている本そのものの場所。右クリックの「Finderで開く」で、書庫の中のページを
+    /// 右クリックしたときに書庫自体を指すために使う(PageFileAccess参照)。
+    var bookSourceURL: URL?
+    /// 右クリックの「画像をエクスポート」(ユーザー要望)。書き出しの実装はViewerViewが
+    /// 持っているため、ページ番号を渡すクロージャとして受け取る(AppState.exportPageImage参照)。
+    var onExportPage: ((Int) -> Void)?
     /// 一覧のファイル/フォルダを本として開く(上段のファイル・フォルダ行、下段の
     /// 「新しい本として開く」フォールバックの両方から呼ばれる)。呼び出し側でパネルを
     /// 閉じてからAppState.open(url:)を行う。
@@ -142,7 +148,10 @@ struct SidePanelView: View {
             .frame(maxHeight: .infinity)
             .transaction { $0.animation = nil }
             .overlay(alignment: .leading) {
-                SidebarVisualEffectView()
+                // すりガラスの濃さと重ね色は環境設定「外観」に従う(ユーザー要望)。
+                // 既定値では従来どおり SidebarVisualEffectView をそのまま敷いたのと
+                // 同じ描画になる(SidePanelSurfaceBackground参照)。
+                SidePanelSurfaceBackground(style: preferences.sidePanelSurfaceStyle)
                     .frame(width: effectiveWidth)
                     .frame(maxHeight: .infinity)
                     .transaction { $0.animation = nil }
@@ -196,13 +205,15 @@ struct SidePanelView: View {
             case .pages:
                 SidePanelPagesSectionView(
                     pages: bookPages,
+                    bookSourceURL: bookSourceURL,
                     currentPageIndex: currentPageIndex,
                     bookmarkedPageIndices: Set(bookmarks.map(\.pageIndex)),
                     thumbnailGeneration: pageThumbnailGeneration,
                     loadThumbnail: loadPageThumbnail,
                     loadPageImage: loadPageImage,
                     previewArrowEdge: position.innerEdge,
-                    onJumpToPage: onJumpToPage
+                    onJumpToPage: onJumpToPage,
+                    onExportPage: onExportPage
                 )
             }
         }
@@ -222,8 +233,10 @@ struct SidePanelView: View {
                     BookContentsSectionView(
                         state: bookContentsState,
                         bookPages: bookPages,
+                        bookSourceURL: bookSourceURL,
                         onOpen: onOpen,
-                        onJumpToPage: onJumpToPage
+                        onJumpToPage: onJumpToPage,
+                        onExportPage: onExportPage
                     )
                     .frame(maxHeight: .infinity)
                     .clipped()
@@ -397,6 +410,16 @@ struct SidePanelView: View {
                     folderState.goUp()
                 }
                 Spacer(minLength: 0)
+                // 並べ替えの基準・向きの切替(ユーザー要望)。設定はアプリ全体で1つ
+                // (AppPreferences.folderBrowserSortKey/Direction)で、次回起動時も引き継ぐ。
+                //
+                // 「Finderで表示」より**左**に置くこと(ユーザー要望)。並べ替えはこの一覧の
+                // 中で完結する操作で、「Finderで表示」はアプリの外へ出る操作なので、
+                // 影響範囲の小さいものから順に左から並ぶ形になる。
+                SidePanelSortMenu(
+                    key: $preferences.folderBrowserSortKey,
+                    direction: $preferences.folderBrowserSortDirection
+                )
                 SidePanelNavButton(
                     systemName: "arrow.up.forward.square",
                     isDisabled: folderState.currentDirectory == nil,
@@ -404,12 +427,6 @@ struct SidePanelView: View {
                 ) {
                     folderState.openInFinder()
                 }
-                // 並べ替えの基準・向きの切替(ユーザー要望)。設定はアプリ全体で1つ
-                // (AppPreferences.folderBrowserSortKey/Direction)で、次回起動時も引き継ぐ。
-                SidePanelSortMenu(
-                    key: $preferences.folderBrowserSortKey,
-                    direction: $preferences.folderBrowserSortDirection
-                )
             }
             .padding(10)
 
@@ -552,6 +569,13 @@ struct SidePanelView: View {
                 label.onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { onOpen(entry.url) }
             }
         }
+        // 上段はディスク上に実在するファイル/フォルダだけを並べているので、
+        // どの行も素直にFinderで示せる(ユーザー要望)。
+        .contextMenu {
+            Button("Show in Finder") {
+                FinderReveal.reveal(entry.url)
+            }
+        }
     }
 
     private func handleFolderDoubleClick(_ entry: DirectoryBrowser.Entry) {
@@ -600,8 +624,10 @@ private struct BookContentsSectionView: View {
     @EnvironmentObject private var preferences: AppPreferences
     @ObservedObject var state: BookContentsBrowserState
     var bookPages: [PageRef]
+    var bookSourceURL: URL?
     var onOpen: (URL) -> Void
     var onJumpToPage: (Int) -> Void
+    var onExportPage: ((Int) -> Void)?
 
     /// 上段と同じ絞り込み検索欄の入力内容(SidePanelView.folderFilterText参照)。
     /// 本の中の階層を移動したら空に戻す。
@@ -737,6 +763,55 @@ private struct BookContentsSectionView: View {
             } else {
                 label
             }
+        }
+        .contextMenu {
+            contextMenuItems(for: entry)
+        }
+    }
+
+    /// 下段の1行の右クリックメニュー(ユーザー要望)。
+    ///
+    /// この一覧には「ディスク上に実在するもの(フォルダの本の中身、入れ子の書庫ファイル)」と
+    /// 「書庫の中にしか存在しないもの(仮想フォルダ、書庫内の画像)」が混ざる。前者は
+    /// そのままFinderで示せるが、後者はFinderからは見えないので、代わりに**本そのもの**を
+    /// 示す(ユーザー要望どおりの挙動)。
+    ///
+    /// 画像の行は、本のページとして特定できたときだけページ用の共通メニュー
+    /// (PageContextMenuItems)へ委ねる。こうすると「書庫内の画像には画像をエクスポートも
+    /// 出す」という判断がページ一覧・ページモードとひとりでに揃う。
+    @ViewBuilder
+    private func contextMenuItems(for entry: BookInternalBrowsing.Entry) -> some View {
+        if entry.isImage, let index = bookPages.firstIndex(where: { $0.sortKey == entry.matchKey }) {
+            PageContextMenuItems(
+                page: bookPages[index],
+                bookSourceURL: bookSourceURL,
+                onExport: onExportPage.map { export in { export(index) } }
+            )
+        } else if let url = revealTargetURL(for: entry) {
+            Button("Show in Finder") {
+                FinderReveal.reveal(url)
+            }
+        }
+    }
+
+    /// ページとして特定できなかった行(仮想フォルダ、入れ子の書庫、レイアウトで除外された
+    /// 画像など)を「Finderで開く」ときに指す実体。
+    private func revealTargetURL(for entry: BookInternalBrowsing.Entry) -> URL? {
+        switch entry.navigateTarget {
+        case .realFolder(let url), .archiveFileOnDisk(let url):
+            // ディスク上に実在するフォルダ/書庫ファイル。そのまま示せる。
+            return url
+        case .archiveVirtualFolder, .nestedArchiveEntry:
+            // 書庫の中にしか存在しない。本そのものを示す。
+            return bookSourceURL
+        case nil:
+            // 画像(またはその他のファイル)。フォルダの本ではmatchKeyが絶対パスそのもの
+            // (BookInternalBrowsing.folderEntries/imageFileEntries参照)なので、それが実在
+            // すればその実体を示す。書庫の中の画像ならパスではないので本そのものを示す。
+            if entry.matchKey.hasPrefix("/"), FileManager.default.fileExists(atPath: entry.matchKey) {
+                return URL(fileURLWithPath: entry.matchKey)
+            }
+            return bookSourceURL
         }
     }
 
@@ -972,6 +1047,26 @@ private struct SidePanelFavoriteRow: View {
         .help(book.title)
         // 本を開く操作は、パネル内の他の「開く」操作と同じく環境設定に従う。
         .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { onOpen(book) }
+        // ユーザー要望: 無理のない範囲でコンテキストメニューを足す。
+        //
+        // 「開く」と「Finderで表示」だけに絞ってある。名前の変更・お気に入りからの削除は
+        // 取り消しの効かない編集操作で、既に「お気に入りの編集」ウインドウ
+        // (FavoritesOrganizerView)が確認ダイアログ付きで持っている。同じ操作を、幅の狭い
+        // サイドパネルの行の右クリックにも置くと、掴み損ねたドラッグの直後などに
+        // 誤って選ぶ危険だけが増える(ユーザーの判断で、今回は編集系を入れていない)。
+        //
+        // Finderで示す対象は、パス文字列(book.bookID)から組み立てたURLではなく、
+        // **保存済みのセキュリティスコープ付きブックマークを解決したURL**にする。
+        // 素のパスから作ったURLにはアクセス権が付かず、サンドボックス下では
+        // FinderReveal側の存在確認が失敗して何も起きない(そちらのコメント参照)。
+        // 解決を通せば、本が移動・リネームされていても現在の場所を示せるという利点もある。
+        .contextMenu {
+            Button("Open") { onOpen(book) }
+            Button("Show in Finder") {
+                guard let url = favoritesStore.resolvedExistingURL(for: book) else { return }
+                FinderReveal.reveal(url)
+            }
+        }
     }
 }
 
@@ -1058,6 +1153,16 @@ private struct SidePanelBookmarksSectionView: View {
         .help(bookmark.name)
         // ページへのジャンプも「開く」に準じる操作のため、環境設定に従う。
         .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { onJump(bookmark) }
+        // ユーザー要望: 無理のない範囲でコンテキストメニューを足す。
+        // お気に入りの行と同じ方針で、移動と編集ウインドウの呼び出しだけを置く
+        // (削除・名前変更は「ブックマークの編集」ウインドウの担当。上のbookRowのコメント参照)。
+        // このモードの一覧は「今開いている本」のブックマークなので、行ごとに別の本を
+        // Finderで示す、という状況は生じない(それは上段のお気に入り側の役目)。
+        .contextMenu {
+            Button("Go to This Page") { onJump(bookmark) }
+            Button("Edit Bookmarks…") { onEdit() }
+                .disabled(!allowsEditing)
+        }
     }
 }
 
@@ -1077,6 +1182,9 @@ private struct SidePanelHistorySectionView: View {
     var onOpen: (URL) -> Void
 
     @State private var filterText = ""
+    /// 「履歴をすべて消去」の確認アラートの表示状態。取り消せない操作なので必ず1枚挟む
+    /// (環境設定「リセット」画面と同じ考え方)。
+    @State private var isShowingClearConfirmation = false
 
     private var filteredEntries: [RecentFilesStore.Entry] {
         let trimmed = filterText.trimmingCharacters(in: .whitespaces)
@@ -1086,6 +1194,21 @@ private struct SidePanelHistorySectionView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // 履歴をすべて消去するボタン(ユーザー要望)。他のモードの上部ボタン列
+            // (ブラウザモードの戻る/進む、ブックマークモードの＋/鉛筆)と同じ位置・同じ
+            // 見た目に揃えてある。履歴が無いときはグレーアウトする。
+            HStack(spacing: 6) {
+                SidePanelNavButton(
+                    systemName: "trash",
+                    isDisabled: recentFiles.entries.isEmpty,
+                    help: "Clear History"
+                ) {
+                    isShowingClearConfirmation = true
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(10)
+
             // 他のモードのセクションと同じ位置・同じ書式の見出し。件数を添えて、環境設定で
             // 増やした保存件数がどこまで溜まっているか分かるようにする。
             HStack(spacing: 6) {
@@ -1100,7 +1223,6 @@ private struct SidePanelHistorySectionView: View {
                     .monospacedDigit()
             }
             .padding(.horizontal, 8)
-            .padding(.top, 10)
             .padding(.bottom, 6)
 
             SidePanelSearchField(text: $filterText)
@@ -1125,6 +1247,14 @@ private struct SidePanelHistorySectionView: View {
                 // folderSection/BookContentsSectionViewの同名の.focusable(false)と同じ理由。
                 .focusable(false)
             }
+        }
+        .alert("Clear History?", isPresented: $isShowingClearConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Clear", role: .destructive) {
+                recentFiles.removeAll()
+            }
+        } message: {
+            Text("This removes every entry from the History list and from the File menu's Open Recent. Your files are not touched.")
         }
     }
 
@@ -1160,6 +1290,20 @@ private struct SidePanelHistorySectionView: View {
             guard let url = recentFiles.resolveForOpening(entry) else { return }
             onOpen(url)
         }
+        .contextMenu {
+            Button("Open") {
+                guard let url = recentFiles.resolveForOpening(entry) else { return }
+                onOpen(url)
+            }
+            // entry.displayURLはセキュリティスコープの付いていない表示専用のURLなので、
+            // フォルダかどうかを**キャッシュ済みの値から渡す**。渡さないとFinderReveal側の
+            // 存在確認がサンドボックスに阻まれて失敗し、何も起きない
+            // (FinderReveal.reveal(_:isDirectory:)のコメント参照)。
+            // Finderへ場所を見せるよう頼むこと自体には、このアプリのアクセス権は要らない。
+            Button("Show in Finder") {
+                FinderReveal.reveal(entry.displayURL, isDirectory: entry.isDirectory)
+            }
+        }
     }
 }
 
@@ -1181,6 +1325,8 @@ private struct SidePanelHistorySectionView: View {
 /// 同じPageLoaderの軽量サムネイルキャッシュのため、両方を使ってもデコードが二重になることは無い。
 private struct SidePanelPagesSectionView: View {
     var pages: [PageRef]
+    /// 本そのものの場所(右クリックの「Finderで開く」用。PageContextMenuItems参照)。
+    var bookSourceURL: URL?
     var currentPageIndex: Int
     /// ブックマークが付いているページ番号(0始まり)。一覧の行にしおりアイコンで示す。
     var bookmarkedPageIndices: Set<Int>
@@ -1191,6 +1337,8 @@ private struct SidePanelPagesSectionView: View {
     /// 拡大プレビューをパネルのどちら側へ出すか(SidePanelPageCell.previewArrowEdge参照)。
     var previewArrowEdge: Edge
     var onJumpToPage: (Int) -> Void
+    /// 右クリックの「画像をエクスポート」(SidePanelView.onExportPage参照)。
+    var onExportPage: ((Int) -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1235,6 +1383,15 @@ private struct SidePanelPagesSectionView: View {
                                     onTap: { onJumpToPage(index) }
                                 )
                                 .id(index)
+                                // 右クリックの内容はページ一覧パネル・本の中身ブラウザと
+                                // 完全に同じ(ユーザー要望。PageContextMenuItems参照)。
+                                .contextMenu {
+                                    PageContextMenuItems(
+                                        page: pages[index],
+                                        bookSourceURL: bookSourceURL,
+                                        onExport: onExportPage.map { export in { export(index) } }
+                                    )
+                                }
                             }
                         }
                         .padding(.vertical, 6)
@@ -1568,7 +1725,7 @@ private struct SidePanelSortMenu: View {
 /// ウインドウがキーのときだけ境界に沿って青いアクセントカラーの線が描画されてしまう
 /// 不具合が実機で確認された(SidePanelView.bodyのコメント参照)。実際のFinder等のサイドバーと
 /// 同じ.sidebarマテリアルを直接指定することでこれを回避する。
-private struct SidebarVisualEffectView: NSViewRepresentable {
+struct SidebarVisualEffectView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.material = .sidebar

@@ -29,9 +29,19 @@ struct ContentView: View {
     /// URL1つではなくBookOpenRequestなのは、Finderで複数選択された画像を1冊として
     /// 新しいウインドウ/タブで開けるようにするため(BookOpenRequestのコメント参照)。
     var initialRequest: BookOpenRequest?
-    /// このウインドウがシークレットウインドウかどうか(AppState.isPrivateWindowに同じ値を渡す。
-    /// 何を記録しないかの定義はそちらのコメント参照)。"private" WindowGroupだけがtrueで作る。
-    let isPrivateWindow: Bool
+    /// このウインドウがシークレットウインドウかどうか(何を記録しないかの定義は
+    /// `AppState.isPrivateWindow`のコメント参照)。
+    ///
+    /// **`appState`が持つ値を正典とし、ここでは持たない。** ContentViewは`struct`なので、
+    /// SwiftUIがビューの値を作り直すたびに`init`が走り、そのたびに環境設定を読み直すことに
+    /// なる。一方`appState`はウインドウの生成時に一度だけ作られる`@StateObject`で、
+    /// `AppState.isPrivateWindow`は`let`である。両方を別々に持つと、
+    /// **環境設定「シークレットモードで起動」を実行中に切り替えた瞬間に食い違う** ――
+    /// タイトルの「(シークレット)」表記やメニューの有効/無効はContentView側の新しい値に、
+    /// 履歴やディスクキャッシュへの書き込み可否はAppState側の古い値に従う、という
+    /// 中途半端な状態になる(シークレットで開いたはずのウインドウが、設定を戻した途端に
+    /// 読書位置を書き始める)。
+    private var isPrivateWindow: Bool { appState.isPrivateWindow }
 
     /// このウインドウ/タブが「正当なもの」と確認できた(onAppearの通常セットアップ、または
     /// resolveAmbiguousNewMainWindowでのタブグループ判定を通過した)かどうか。
@@ -77,11 +87,36 @@ struct ContentView: View {
     /// (applyFileDropTarget参照)。
     @State private var isFileDropTargeted = false
 
-    init(initialRequest: BookOpenRequest? = nil, isPrivateWindow: Bool = false) {
+    /// - Parameter isPrivateWindow: 明示的に決まっている場合だけ渡す(そのWindowGroupが
+    ///   シークレット専用か通常専用かで決まる)。**nilを渡せるのは"main" WindowGroupだけ**で、
+    ///   その場合は環境設定「シークレットモードで起動」に従う。
+    ///
+    ///   ここでUserDefaultsを直接読んでいるのは、`init`の時点ではまだ`@EnvironmentObject`が
+    ///   注入されておらず`preferences`を参照できないため(`RecentFilesStore.maxCount`が
+    ///   同じ理由で直接UserDefaultsを読んでいるのと同じ)。
+    ///
+    ///   ここで読んだ値は`AppState`を組み立てるためだけに使い、**このstructには残さない**
+    ///   (残すとinitのたびに読み直されてAppStateと食い違う。`isPrivateWindow`のコメント参照)。
+    ///   `@StateObject`のwrappedValueはウインドウにつき一度しか評価されないため、
+    ///   `AppState.isPrivateWindow`はウインドウが閉じるまで変わらない。
+    init(initialRequest: BookOpenRequest? = nil, isPrivateWindow: Bool? = nil) {
         self.initialRequest = initialRequest
-        self.isPrivateWindow = isPrivateWindow
-        _appState = StateObject(wrappedValue: AppState(isPrivateWindow: isPrivateWindow))
+        // 値を渡してこないのは"main" WindowGroupだけ(isMainWindowGroupのコメント参照)。
+        self.isMainWindowGroup = (isPrivateWindow == nil)
+        _appState = StateObject(
+            wrappedValue: AppState(isPrivateWindow: isPrivateWindow ?? AppPreferences.isPrivateModeDefault)
+        )
     }
+
+    /// このウインドウが、起動時にSwiftUIが自動的に作る"main" WindowGroupのものかどうか。
+    ///
+    /// 「アプリのコードが明示的に開いたウインドウかどうか」を表す唯一の手掛かりでもある。
+    /// "book"/"normal"/"private"はいずれも`openWindow(id:)`で明示的に開いたものなので、
+    /// 素性が確かで、下のonAppearの「正当なウインドウか」の判定を通す必要が無い。
+    /// 一方"main"は、ユーザーがタブバーの「+」で足した正当なものと、AppKit/SwiftUIが
+    /// 原因不明のまま勝手に作ってしまう空ウインドウ(resolveAmbiguousNewMainWindow参照)の
+    /// 区別が付かない ―― その判定が要るのはこのグループだけである。
+    private let isMainWindowGroup: Bool
 
     /// ウインドウ/タブのタイトル(bodyの.navigationTitle参照)。シークレットウインドウは、
     /// 通常ウインドウと見分けがつくよう先頭に「(シークレット)」を付ける。
@@ -155,6 +190,10 @@ struct ContentView: View {
             // がOFF(環境設定「一般」タブ)のときは、サイドパネル機能自体を丸ごと無効化する。
             if preferences.sidePanelFeatureEnabled && appState.hideSidePanel && appState.isSidePanelRevealed {
                 sidePanelView(dismissesOnAction: true)
+                    // 浮かせている間の位置をViewerViewへ知らせる。ページ一覧パネルを閉じる
+                    // クリックの判定から、このパネルへのクリックを除くために要る
+                    // (AppState.sidePanelScreenFrameのコメント参照)。
+                    .background(PanelScreenFrameAccessor { appState.sidePanelScreenFrame = $0 })
                     .transition(.move(edge: panelPosition.edge))
             }
         }
@@ -386,9 +425,19 @@ struct ContentView: View {
             //     falseにしても防げなかった)
             // この時点(初期化直後)ではどちらも見分けが付かないため、少し待って判定する
             // (resolveAmbiguousNewMainWindow参照)。
-            // シークレットウインドウ(isPrivateWindow)は常に正当なウインドウ。主ウインドウの
-            // 有無とは無関係に、メニューから明示的に開かれたものだから。
-            guard launchCoordinator.primaryAppState == nil || launchCoordinator.primaryAppState === appState || initialRequest != nil || isPrivateWindow else {
+            // "main"以外のWindowGroup(book/normal/private)は常に正当なウインドウ。
+            // 主ウインドウの有無とは無関係に、こちらのコードが明示的に開いたものだから
+            // (isMainWindowGroupのコメント参照)。
+            //
+            // バグ修正(実機で確認): ここは以前`isPrivateWindow`を見ていた。当時は
+            // シークレットウインドウが"private" WindowGroupからしか生まれず、
+            // 「シークレット = 明示的に開かれた」が成り立っていたためである。
+            // 環境設定「シークレットモードで起動」(ユーザー要望)を足したことで、
+            // **"main"ウインドウもシークレットになりうる**ようになり、この前提が崩れた。
+            // その結果、AppKitが勝手に作った空の"main"ウインドウまで「常に正当」と見なされ、
+            // Finderから本を開くたびに空のウインドウが1枚残るようになっていた
+            // (統合ログで、2つ目のonAppearがこの分岐を素通りしていることを確認済み)。
+            guard launchCoordinator.primaryAppState == nil || launchCoordinator.primaryAppState === appState || initialRequest != nil || !isMainWindowGroup else {
                 resolveAmbiguousNewMainWindow()
                 return
             }
@@ -412,7 +461,10 @@ struct ContentView: View {
             sidePanelWidth = CGFloat(preferences.sidePanelWidth)
             // シークレットウインドウは主ウインドウにはならない(主ウインドウは位置・サイズの記憶や
             // 「最後に開いていた本」の記録など、永続化と結びついた役割を持つため)。
-            if launchCoordinator.primaryAppState == nil, !isPrivateWindow {
+            // ただし「シークレットモードで起動」がONのときは、主ウインドウ自身がシークレット
+            // なので除外しない(除外すると主ウインドウが永遠に決まらず、ウインドウ位置の記憶も
+            // 外部からの「開く」の受け皿も失われる。AppState.actsAsRegularWindow参照)。
+            if launchCoordinator.primaryAppState == nil, appState.actsAsRegularWindow {
                 launchCoordinator.primaryAppState = appState
             }
             // 「すでに開いている本を新しいウインドウ/タブで開こうとしたときに、既存の
@@ -421,8 +473,12 @@ struct ContentView: View {
             launchCoordinator.registerOpenAppState(appState)
             if let initialRequest {
                 appState.open(request: initialRequest)
-            } else if !isPrivateWindow {
-                // 起動時の動作(前回の本を開く等)はシークレットウインドウでは行わない。
+            } else if appState.actsAsRegularWindow {
+                // 起動時の動作(フルスクリーン・前回の本を開く)は、あとから開いた
+                // シークレットウインドウでは行わない。「シークレットモードで起動」がONの
+                // ときは主ウインドウ自身がシークレットなので、ここは通す ―― そのうえで、
+                // 「前回の本を開く」だけはperformLaunchActionsIfNeededの中で改めて
+                // シークレットかどうかを見て弾く(そちらのコメント参照)。
                 performLaunchActionsIfNeeded()
             }
         }
@@ -485,7 +541,12 @@ struct ContentView: View {
         guard !launchCoordinator.didPerformInitialLaunchActions else { return }
         launchCoordinator.didPerformInitialLaunchActions = true
 
-        if preferences.launchOpensLastBook, appState.currentBook == nil,
+        // 「前回読んでいた本を開き直す」はシークレットウインドウでは行わない。記録を残さない
+        // ウインドウが、前回の読書内容を勝手に映し出すのでは意味が通らない(Chromeの
+        // シークレットウインドウが前回のセッションを復元しないのと同じ)。
+        // 「シークレットモードで起動」がONのときは、そもそも記録が増えないので実質何も
+        // 起きないが、モードをONにする前の記録が残っていることはありうるため明示的に弾く。
+        if preferences.launchOpensLastBook, !isPrivateWindow, appState.currentBook == nil,
            let url = resolveLastActiveBookURLIfUnchanged() {
             appState.open(url: url)
         }
@@ -772,6 +833,10 @@ struct ContentView: View {
             width: $sidePanelWidth,
             position: preferences.sidePanelPosition,
             bookPages: appState.currentBookPages,
+            // 右クリックの「Finderで開く」「画像をエクスポート」用(ユーザー要望)。
+            // どちらもViewerViewが持つ実装への橋渡し(AppState.exportPageImage参照)。
+            bookSourceURL: appState.currentBook?.sourceURL,
+            onExportPage: { index in appState.exportPageImage?(index) },
             onOpen: { url in
                 if dismissesOnAction { appState.isSidePanelRevealed = false }
                 appState.open(url: url)

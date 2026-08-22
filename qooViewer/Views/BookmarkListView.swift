@@ -885,7 +885,9 @@ struct BookmarkEditorView: View {
         if let targetAppState = launchCoordinator.frontmostContentAppState() {
             targetAppState.open(url: url)
         } else {
-            openWindow(id: "book", value: BookOpenRequest(url))
+            // ここへ来るのは本を表示しているウインドウが1つも無い場合だけなので、
+            // 引き継ぐ相手がいない。環境設定に従う(BookWindowGroup参照)。
+            openWindow(id: BookWindowGroup.id(inheritingFrom: nil), value: BookOpenRequest(url))
         }
         closeEditorWindow()
     }
@@ -1909,7 +1911,9 @@ private struct BookmarkDetailPane: View {
             targetAppState.open(url: url)
             waitAndJump(appState: targetAppState, toPageIndex: pageIndex)
         } else {
-            openWindow(id: "book", value: BookOpenRequest(url))
+            // ここへ来るのは本を表示しているウインドウが1つも無い場合だけなので、
+            // 引き継ぐ相手がいない。環境設定に従う(BookWindowGroup参照)。
+            openWindow(id: BookWindowGroup.id(inheritingFrom: nil), value: BookOpenRequest(url))
             Task { @MainActor in
                 for _ in 0..<200 {
                     if let newAppState = launchCoordinator.openAppState(forBookID: bookID) {

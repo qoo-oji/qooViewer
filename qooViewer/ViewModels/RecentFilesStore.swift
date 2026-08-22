@@ -225,6 +225,28 @@ final class RecentFilesStore: ObservableObject {
         return FileManager.default.fileExists(atPath: url.path)
     }
 
+    /// 履歴をすべて消去する(ユーザー要望)。
+    ///
+    /// 呼び出し元は3箇所 ―― メニューバー「最近開いたファイル」の末尾、サイドパネルの
+    /// 履歴モードのゴミ箱ボタン、環境設定「リセット」画面。
+    ///
+    /// 新旧2つの保存形式を**どちらも**空にする。旧形式(legacyDefaultsKey)は、古い
+    /// バージョンのアプリへ戻したときのために書き続けているもので(save(_:)のコメント参照)、
+    /// ここで消し忘れると「消したはずの履歴が、古いバージョンで開くと復活する」ことになる。
+    func removeAll() {
+        // 判定は`entries`ではなく**保存済みのデータ**で行う。`entries`は表示用に絞り込んだ
+        // 射影で、旧形式から移行した直後などパスが未解決の項目は除かれている(publish参照)。
+        // `entries`が空でも保存済みのデータは残っていることがあり、そこで打ち切ると
+        // 「すべて削除」したはずの履歴が次回起動時に復活する。
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: defaultsKey) != nil
+            || defaults.object(forKey: legacyDefaultsKey) != nil
+        else { return }
+        UserDefaults.standard.removeObject(forKey: defaultsKey)
+        UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)
+        publish([])
+    }
+
     /// 指定の項目を履歴から取り除く。
     private func remove(_ entry: Entry) {
         var stored = loadStored()

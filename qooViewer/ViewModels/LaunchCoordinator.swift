@@ -89,19 +89,26 @@ final class LaunchCoordinator: ObservableObject {
     /// 指定したURLの本をすでに開いているウインドウ/タブがあれば、そのAppStateを返す。
     /// 「同じ本」かどうかは、プロジェクト内の他の同種の判定(RecentFilesStore・
     /// LastActiveBookStoreなど)に合わせて、URLを正規化などはせずURL.pathの文字列一致で行う。
-    func openAppState(forBookAt url: URL) -> AppState? {
+    ///
+    /// - Parameter isPrivate: これから開こうとしているウインドウがシークレットかどうか。
+    ///   **同じ性質のウインドウだけを候補にする。** 通常ウインドウで開こうとしたときに、
+    ///   同じ本を開いているシークレットウインドウが前面に出てくると、「記録される/されない」
+    ///   という性質の違うウインドウを取り違えることになる(開いたつもりの読書位置が
+    ///   どこにも残らない)。逆もまた同じ。
+    ///
+    ///   以前はここが「シークレットウインドウは一律に対象外」だった。それは
+    ///   「シークレットは例外で、通常ウインドウが別に居る」ことが前提の書き方で、
+    ///   環境設定「シークレットモードで起動」がONだと**候補が1つも無くなる**か、
+    ///   逆に性質の違うウインドウを拾ってしまう。性質の一致で見れば、どちらのモードでも
+    ///   同じ理屈が通る。
+    func openAppState(forBookAt url: URL, isPrivate: Bool) -> AppState? {
         openAppStates.removeAll { $0.appState == nil }
-        // シークレットウインドウ(AppState.isPrivateWindow)は対象外。通常ウインドウから同じ本を
-        // 開こうとしたときにシークレットウインドウ側が前面に出てくると、「記録される/されない」
-        // という性質の違うウインドウを取り違えることになる(編集ウインドウからのジャンプ先
-        // 〈forBookID〉も同様)。
-        //
-        // 複数枚の画像をまとめた本も対象外。そのsourceURLは「先頭1枚の画像」であって
+        // 複数枚の画像をまとめた本は対象外。そのsourceURLは「先頭1枚の画像」であって
         // 本そのものではないため、後から同じ画像1枚をFinderで開くと、複数枚を表示している
         // ウインドウが「同じ本」として前面に出てきてしまう(MangaBook.isIdentifiedBySourceURL参照)。
         // 画像1枚の本はsourceURLが本そのものなので、他の形式と同じく重複を防いでよい。
         return openAppStates.first {
-            guard let appState = $0.appState, !appState.isPrivateWindow else { return false }
+            guard let appState = $0.appState, appState.isPrivateWindow == isPrivate else { return false }
             guard appState.currentBook?.isIdentifiedBySourceURL != false else { return false }
             return appState.currentBook?.sourceURL.path == url.path
         }?.appState
@@ -116,7 +123,7 @@ final class LaunchCoordinator: ObservableObject {
     func openAppState(forBookID bookID: String) -> AppState? {
         openAppStates.removeAll { $0.appState == nil }
         return openAppStates.first {
-            guard let appState = $0.appState, !appState.isPrivateWindow else { return false }
+            guard let appState = $0.appState, appState.actsAsRegularWindow else { return false }
             // 複数枚の画像をまとめた本は対象外(forBookAt:と同じ理由。そのbookIDは開くたびに
             // 変わるランダム値なので理論上一致しないが、対称性のため同じガードを置いておく)。
             guard appState.currentBook?.isIdentifiedBySourceURL != false else { return false }
@@ -141,14 +148,21 @@ final class LaunchCoordinator: ObservableObject {
     /// ContentView以外のウインドウはAppStateを持たないため、ここで手前にあると判定されることは
     /// ない(ダブルクリックした時点ではそれらのうちのどれかが最前面のはずだが、除外される)。
     /// コンテンツウインドウが1つも開いていない場合はnilを返す。
-    /// - Parameter excludingPrivateWindows: trueならシークレットウインドウ(AppState.isPrivateWindow)を
-    ///   候補から外す。Finder等の外部から渡された本(AppDelegate.application(_:open:))を、たまたま
-    ///   最前面にあったシークレットウインドウへ流し込まないために使う(Google Chromeが外部リンクを
-    ///   シークレットウインドウでは開かないのと同じ考え方)。メニュー操作由来の呼び出しは、操作
-    ///   しているウインドウ自身が対象なので既定のfalseのままでよい。
-    func frontmostContentAppState(excludingPrivateWindows: Bool = false) -> AppState? {
+    /// - Parameter matchingPrivacy: 指定すると、シークレットかどうかが**その値と一致する**
+    ///   ウインドウだけを候補にする。Finder等の外部から渡された本
+    ///   (AppDelegate.application(_:open:))が、意図と違う性質のウインドウへ流し込まれるのを
+    ///   防ぐために使う ―― 記録を残さないつもりの本を記録の残るウインドウで開いてしまう
+    ///   (およびその逆)を、どちらの向きにも起こさない。
+    ///   nil(既定)なら性質を問わない。メニュー操作由来の呼び出しは、操作しているウインドウ
+    ///   自身が対象なのでこちらでよい。
+    ///
+    ///   以前は`excludingPrivateWindows: Bool`で「シークレットを一律に外す」形だった。
+    ///   それは「シークレットは例外で、通常ウインドウが別に居る」ことが前提の書き方で、
+    ///   環境設定「シークレットモードで起動」がONだと **外すべきなのは通常ウインドウのほう**に
+    ///   反転する(openAppState(forBookAt:isPrivate:)とまったく同じ理由)。
+    func frontmostContentAppState(matchingPrivacy: Bool? = nil) -> AppState? {
         let hostWindows = allOpenAppStates.compactMap { appState -> (AppState, NSWindow)? in
-            if excludingPrivateWindows, appState.isPrivateWindow { return nil }
+            if let matchingPrivacy, appState.isPrivateWindow != matchingPrivacy { return nil }
             guard let window = appState.hostWindow else { return nil }
             return (appState, window)
         }

@@ -88,34 +88,17 @@ struct ViewerView: View {
     /// メニューバーのメニュー(このアプリのもの)が現在開いているかどうか。開いている間は
     /// カーソルが動かなくても自動的には隠さない(NSMenu.didBeginTracking/didEndTracking参照)。
     @State private var isMenuTracking = false
-    /// メニューが開いたときにページ一覧(サムネイルグリッド)を閉じたいが、閉じる操作
-    /// (SwiftUIのビュー削除=フォーカス位置の移動)を**メニューを開いている最中**に行うと、
-    /// macOS 26ではトラッキング中のメインメニュー再構築(NSMenu setItemArray:)が走り、
-    /// NSContextMenuImplが範囲外アクセスでNSRangeExceptionを投げて落ちる(ユーザー報告:
-    /// グリッドを出したままメニューバーをクリックすると必ず発生)。そこで「閉じる」のは
-    /// 予約だけしておき、実際に閉じるのはメニューが閉じたあと(didEndTracking)にする。
-    @State private var pendingThumbnailGridDismissAfterMenu = false
     @State private var showThumbnailGrid = false
     /// ページ一覧(サムネイルグリッド)パネル自身の、スクリーン座標系での現在のフレーム
-    /// (PanelScreenFrameAccessor参照)。パネルの外側かどうかを判定するため、
-    /// thumbnailGridOutsideClickMonitors(自身のwindow内)と
-    /// thumbnailGridOutsideClickGlobalMonitor(他のウインドウ・他のアプリ)の両方から参照する。
+    /// (PanelScreenFrameAccessor参照)。クリックがパネルの内側か外側かの判定に使う
+    /// (installThumbnailGridDismissMonitorIfNeeded参照)。
     @State private var thumbnailPanelScreenFrame: CGRect = .zero
     /// ページ一覧パネルの上で始まったマウス操作の押し始めを覚えておく入れ物
     /// (dismissThumbnailGridIfGestureAssigned参照)。
     @State private var thumbnailGridGesturePressBox = ThumbnailGridGesturePressBox()
-    /// ユーザー要望: ページ一覧を、パネルの外側であればビューア画面に限らず(タイトルバー・
-    /// メニューバー・他のウインドウ・他のアプリを含め)どこをクリックしても閉じるようにしたい。
-    /// ThumbnailGridBackdropView(このウインドウのコンテンツ領域内のクリック)だけでは
-    /// カバーできない範囲を、この2つのNSEventモニタで補う。
-    /// ローカルモニタ: このアプリ自身のどこか(このウインドウのタイトルバー、他のqooViewer
-    /// ウインドウなど)をクリックした場合。イベント自体は消費せずそのまま返す(タイトルバーの
-    /// ボタン操作や他ウインドウへのフォーカス移動を妨げないため)。
-    @State private var thumbnailGridOutsideClickMonitor: Any?
-    /// グローバルモニタ: このアプリの外(他のアプリのウインドウ)をクリックした場合。
-    /// グローバルモニタはイベントを消費できない(元々他アプリ宛てのイベントのため)が、
-    /// 「クリックされたこと」を検知してページ一覧を閉じる分には問題ない。
-    @State private var thumbnailGridOutsideClickGlobalMonitor: Any?
+    /// ページ一覧パネルを閉じるクリックを拾うNSEventローカルモニタ
+    /// (installThumbnailGridDismissMonitorIfNeeded参照)。
+    @State private var thumbnailGridDismissMonitor: Any?
     /// 「お気に入りに追加」シート(登録先フォルダを選ぶ。FavoriteFolderPickerView)の表示状態。
     @State private var showFavoriteFolderPicker = false
     /// 「お気に入り一覧」を表示中のネイティブNSMenuブリッジ(FavoritesNSMenuBridge)。
@@ -397,6 +380,11 @@ struct ViewerView: View {
                 exportImage(.mergedSpread(leftIndex: spreadLeftPageIndex, rightIndex: spreadRightPageIndex))
             }
         }
+        // サイドパネル・ページ一覧の右クリックからの「画像をエクスポート」(ユーザー要望)。
+        // 対象がページ番号で一意に決まる経路(AppState.exportPageImageのコメント参照)。
+        appState.exportPageImage = { index in
+            exportImage(.singlePage(index: index))
+        }
         // メニューバーの「スライドショー」「見開き」「右から左へ」「表示モード切替」の
         // 左に表示するチェックマーク、およびEPUBによるグレーアウト状態の、現在値の初期反映。
         syncMenuCheckmarkState()
@@ -441,8 +429,8 @@ struct ViewerView: View {
             // キーだけは通す。この操作はトグルなので、開いたときと同じキーでもう一度押したら
             // 閉じられる必要がある(ユーザー報告: tキーで開いたページ一覧がtキーで閉じられず、
             // パネルの外側をクリックするしかなかった)。
-            // マウス側は、パネルの外側でのボタン押下を拾う専用のモニタ
-            // (installThumbnailGridOutsideClickMonitorsIfNeeded)が閉じる役目を果たしている。
+            // マウス側は、パネルを閉じるクリックを拾う専用のモニタ
+            // (installThumbnailGridDismissMonitorIfNeeded)が閉じる役目を果たしている。
             if showThumbnailGrid, !appState.isSidePanelFloatingOverlay,
                event.type == .keyDown, !(hostWindow.firstResponder is NSTextView),
                let key = RemappableKey.from(nsEvent: event),
@@ -615,47 +603,83 @@ struct ViewerView: View {
         }
     }
 
-    /// ページ一覧(サムネイルグリッド)パネルの外側のクリックで閉じるための2つのNSEventモニタ
-    /// (thumbnailGridOutsideClickMonitor/thumbnailGridOutsideClickGlobalMonitorのコメント参照)を
+    /// ページ一覧(サムネイルグリッド)パネルを閉じるクリックを拾うNSEventローカルモニタを
     /// 取り付ける。showThumbnailGridがtrueになるたびに呼ばれる。
-    private func installThumbnailGridOutsideClickMonitorsIfNeeded() {
-        guard thumbnailGridOutsideClickMonitor == nil else { return }
-        // ローカルモニタ: このアプリ自身の中で起きたクリック(このウインドウのタイトルバー、
-        // 他のqooViewerウインドウを含む)。パネルの外側であれば閉じるだけで、イベント自体は
-        // 消費せずそのまま返す(タイトルバーのボタン操作や他ウインドウへのフォーカス移動を
-        // 妨げないため)。
-        // 中ボタン(.otherMouseDown)も対象にしている。中ボタンに「ページ一覧を表示/非表示」を
-        // 割り当てた場合、それで開いたパネルを同じ操作で閉じられるようにするため。
-        // ボタンを離す側(.leftMouseUp/.otherMouseUp)を見ているのは、パネルの**上での**
-        // ドラッグジェスチャーを拾うため(dismissThumbnailGridIfGestureAssigned参照)。
-        thumbnailGridOutsideClickMonitor = NSEvent.addLocalMonitorForEvents(
+    ///
+    /// ■ 閉じる条件を「画像表示領域のクリック」だけに絞ってある(方針転換。戻さないこと)
+    /// 以前は逆で、「パネルの外側でありさえすれば、タイトルバー・メニューバー・他の
+    /// qooViewerウインドウ・**他のアプリ**を含めどこをクリックしても閉じる」実装だった
+    /// (そのために、ここのローカルモニタに加えてグローバルモニタと、メニューの追跡開始を
+    /// 見る監視〈setUpWindowObservers〉まで置いていた)。これは当時のユーザー要望どおり
+    /// だったが、実際に使うと「閉じたくない場面」で必ず閉じてしまうという指摘を受けた:
+    ///   ・サイドパネルでフォルダやページを選ぼうとしてクリックした
+    ///   ・環境設定ウインドウでサムネイルの大きさを調整しようとした
+    ///   ・別のアプリへ切り替えて戻ってきた
+    /// そこで、閉じる操作を次の3つだけに限定する(ユーザー要望):
+    ///   1. サムネイルのクリック(そのページへジャンプして閉じる。ThumbnailGridViewのButton)
+    ///   2. パネル内の余白のクリック(何もせず閉じる。ThumbnailGridViewの.onTapGesture)
+    ///   3. **画像表示領域**のクリック(このモニタが担当)
+    /// ツールバー・プログレスバー・タイトルバー・メニューバー・サイドパネル・他ウインドウ・
+    /// 他アプリは、どれも閉じる条件にならない(ホバーで画像表示エリアの上に浮かせている
+    /// サイドパネルも含む。下のsidePanelScreenFrameの除外を参照)。
+    ///
+    /// ■ このモニタが担当するのは3番だけ
+    /// 1・2はパネル自身のSwiftUIのジェスチャーで完結している。3を透明な背景レイヤー
+    /// (ThumbnailGridBackdropView)側で判定しないのは、あのレイヤーがツールバー/
+    /// プログレスバーも含むビューア全体を覆っており、SwiftUIのタップジェスチャーだけでは
+    /// 「画像表示領域の上かどうか」を区別できないため。スクリーン座標同士の比較にすれば、
+    /// ウインドウ座標系の向きの違いを気にせず一箇所で書ける。
+    ///
+    /// 中ボタン(.otherMouseDown)も対象にしている。中ボタンに「ページ一覧を表示/非表示」を
+    /// 割り当てた場合、それで開いたパネルを同じ操作で閉じられるようにするため。
+    /// ボタンを離す側(.leftMouseUp/.otherMouseUp)を見ているのは、パネルの**上での**
+    /// ドラッグジェスチャーを拾うため(dismissThumbnailGridIfGestureAssigned参照)。
+    private func installThumbnailGridDismissMonitorIfNeeded() {
+        guard thumbnailGridDismissMonitor == nil else { return }
+        thumbnailGridDismissMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseUp, .otherMouseUp]
         ) { event in
             switch event.type {
             case .leftMouseUp, .otherMouseUp:
                 dismissThumbnailGridIfGestureAssigned(event)
             default:
-                if !thumbnailPanelScreenFrame.contains(NSEvent.mouseLocation) {
-                    showThumbnailGrid = false
-                    thumbnailGridGesturePressBox.press = nil
-                } else {
+                // 自分のウインドウ宛て以外(他のqooViewerウインドウ、環境設定ウインドウ、
+                // ファイル選択パネルなど)は一切見ない。
+                guard let hostWindow, event.window === hostWindow else { return event }
+                let location = NSEvent.mouseLocation
+                guard !thumbnailPanelScreenFrame.contains(location) else {
                     // パネルの上での押下は、ドラッグジェスチャーの起点として覚えておく。
                     thumbnailGridGesturePressBox.press = MouseTrigger.Button.allCases
                         .first { $0.eventButtonNumber == event.buttonNumber }
-                        .map { (NSEvent.mouseLocation, event.timestamp, $0) }
+                        .map { (location, event.timestamp, $0) }
+                    return event
                 }
-            }
-            return event
-        }
-        // グローバルモニタ: このアプリの外(他のアプリ)で起きたクリック。他アプリ宛ての
-        // イベントのため消費のしようがなく、単に検知してパネルを閉じるだけでよい。
-        thumbnailGridOutsideClickGlobalMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
-        ) { _ in
-            if !thumbnailPanelScreenFrame.contains(NSEvent.mouseLocation) {
+                thumbnailGridGesturePressBox.press = nil
+                guard pageAreaScreenFrame.contains(location) else { return event }
+                // ホバーで浮かせたサイドパネルは、画像表示エリアの**上に重なって**描かれる
+                // (ContentView.windowContent参照)。座標だけで判定すると、そのパネルの行を
+                // クリックしただけでページ一覧が閉じてしまう ―― この関数のコメントで
+                // 「閉じてほしくない」と明記した場面そのものになる。浮いている間だけ、
+                // パネルの矩形を除外する(常時表示のときはそもそも画像表示エリアの外にある)。
+                if appState.isSidePanelFloatingOverlay,
+                   appState.sidePanelScreenFrame.contains(location) {
+                    return event
+                }
                 showThumbnailGrid = false
             }
+            // イベント自体は消費しない。閉じるかどうかと、そのクリックが本来届くべき先へ
+            // 届くかどうかは別の話であるため(タイトルバーのボタン操作などを妨げない)。
+            return event
         }
+    }
+
+    /// 画像表示エリア(pageArea)の、スクリーン座標系での現在のフレーム。
+    /// まだ実測できていない場合は空の矩形を返す(`contains`が常にfalseになり、
+    /// 「閉じない」側へ倒れる)。
+    private var pageAreaScreenFrame: CGRect {
+        guard let hostWindow, pageAreaFrameInWindow.width > 0, pageAreaFrameInWindow.height > 0
+        else { return .zero }
+        return hostWindow.convertToScreen(pageAreaFrameInWindow)
     }
 
     /// ページ一覧パネルの**上で**行われたドラッグジェスチャーが「ページ一覧を表示/非表示」に
@@ -689,18 +713,14 @@ struct ViewerView: View {
         showThumbnailGrid = false
     }
 
-    /// installThumbnailGridOutsideClickMonitorsIfNeededで取り付けた2つのモニタを外す。
+    /// installThumbnailGridDismissMonitorIfNeededで取り付けたモニタを外す。
     /// showThumbnailGridがfalseになるたびに呼ばれる(handleOnDisappearからも、ウインドウごと
     /// 閉じられた場合の保険として呼ぶ)。
-    private func removeThumbnailGridOutsideClickMonitors() {
-        if let thumbnailGridOutsideClickMonitor {
-            NSEvent.removeMonitor(thumbnailGridOutsideClickMonitor)
+    private func removeThumbnailGridDismissMonitor() {
+        if let thumbnailGridDismissMonitor {
+            NSEvent.removeMonitor(thumbnailGridDismissMonitor)
         }
-        thumbnailGridOutsideClickMonitor = nil
-        if let thumbnailGridOutsideClickGlobalMonitor {
-            NSEvent.removeMonitor(thumbnailGridOutsideClickGlobalMonitor)
-        }
-        thumbnailGridOutsideClickGlobalMonitor = nil
+        thumbnailGridDismissMonitor = nil
     }
 
     /// .onDisappear{}の中身をprivateメソッドへ切り出したもの(handleOnAppearのコメント参照)。
@@ -716,7 +736,7 @@ struct ViewerView: View {
             NSEvent.removeMonitor(contextClickMonitor)
         }
         contextClickMonitor = nil
-        removeThumbnailGridOutsideClickMonitors()
+        removeThumbnailGridDismissMonitor()
         clearAppStateBridgesIfStillOwner()
         // 自分の@StateObjectであるviewModelへ登録した橋渡しも、ここで確実に外す
         // (handleOnAppearのonRequestSiblingBookのコメント参照。appState側と違い、この
@@ -775,6 +795,7 @@ struct ViewerView: View {
         appState.performLayoutClear = nil
         appState.performAutoLayout = nil
         appState.performImageExport = nil
+        appState.exportPageImage = nil
         // ツールバー/プログレスバーの自動表示は、このViewerViewが持っていた状態そのもの。
         // 本を閉じた(ウェルカム画面へ戻った)後もtrueのまま残ると、ContentView側から見て
         // 「まだ自動表示中のものがある」という誤情報になり、ウインドウ外検知用のグローバル
@@ -804,18 +825,24 @@ struct ViewerView: View {
         case .singlePage(let index):
             guard viewModel.book.pages.indices.contains(index) else { return }
             let page = viewModel.book.pages[index]
-            let ext = ImageExporter.fileExtension(for: page)
-            guard let url = presentImageExportSavePanel(
-                defaultFileName: ImageExporter.defaultFileName(for: page),
-                contentType: ImageExporter.contentType(forExtension: ext)
-            ) else { return }
+            // 保存パネルを出す**前に**拡張子を確定させる。PDFのページは中の画像の形式を
+            // 読むまでjpg/pngが決まらず、決め打ちにすると中身と名前が食い違う
+            // (ViewerViewModel.exportableImageFileExtension(at:)のコメント参照)。
+            // 画像データ本体はまだ読まないので、パネルが出るまでの待ちはごく短い。
             Task {
-                guard let data = await viewModel.rawImageData(at: index) else {
-                    imageExportErrorMessage = String(localized: "Couldn't read the image to export.")
-                    return
-                }
                 do {
-                    try ImageExporter.writeSinglePage(data: data, to: url)
+                    guard let ext = try await viewModel.exportableImageFileExtension(at: index) else { return }
+                    guard let url = presentImageExportSavePanel(
+                        defaultFileName: ImageExporter.defaultFileName(for: page, fileExtension: ext),
+                        contentType: ImageExporter.contentType(forExtension: ext)
+                    ) else { return }
+                    // PDFの本でも書き出せるよう、生データではなく
+                    // ViewerViewModel.exportableImage(at:)を使う(そちらのコメント参照)。
+                    guard let exportable = try await viewModel.exportableImage(at: index) else {
+                        imageExportErrorMessage = String(localized: "Couldn't read the image to export.")
+                        return
+                    }
+                    try ImageExporter.writeSinglePage(data: exportable.data, to: url)
                 } catch {
                     imageExportErrorMessage = error.localizedDescription
                 }
@@ -917,7 +944,12 @@ struct ViewerView: View {
         return ZStack {
             VStack(spacing: 0) {
                 if !toolbarAutoHides {
+                    // 常時表示のときは、すりガラスではなく色の層だけを敷く
+                    // (理由はpanelSurfaceBackgroundのmaterial引数のコメント参照)。
                     toolbar
+                        .panelSurfaceBackground(
+                            preferences.toolbarSurfaceStyle, material: nil, in: Rectangle()
+                        )
                     Divider()
                 }
                 pageArea
@@ -925,15 +957,23 @@ struct ViewerView: View {
                         contextMenuContent
                     }
                 if !progressBarAutoHides {
+                    // ツールバー側と同じ(すぐ上のコメント参照)。
                     ProgressBarView(viewModel: viewModel)
                         .measuringHeight(into: $progressBarHeight)
+                        .panelSurfaceBackground(
+                            preferences.progressBarSurfaceStyle, material: nil, in: Rectangle()
+                        )
                 }
             }
 
             if toolbarAutoHides {
                 VStack(spacing: 0) {
                     toolbar
-                        .background(.ultraThinMaterial)
+                        // 背景の濃さと重ね色は環境設定「外観」に従う(ユーザー要望)。
+                        // 既定値では従来の .background(.ultraThinMaterial) と同じ描画になる。
+                        .panelSurfaceBackground(
+                            preferences.toolbarSurfaceStyle, material: .ultraThinMaterial, in: Rectangle()
+                        )
                         // ツールバー(実際に表示されている帯)の下端が、ウインドウ座標系の
                         // どのY座標にあるかを実測する。この位置より上にマウスがあれば
                         // (=ツールバーの表示領域全体のどこであれ)表示を維持する
@@ -956,7 +996,10 @@ struct ViewerView: View {
                     Spacer(minLength: 0)
                     ProgressBarView(viewModel: viewModel)
                         .measuringHeight(into: $progressBarHeight)
-                        .background(.ultraThinMaterial)
+                        // ツールバー側と同じ(すぐ上のコメント参照)。
+                        .panelSurfaceBackground(
+                            preferences.progressBarSurfaceStyle, material: .ultraThinMaterial, in: Rectangle()
+                        )
                 }
                 .opacity(showProgressBarOverlay ? 1 : 0)
                 .allowsHitTesting(showProgressBarOverlay)
@@ -1019,19 +1062,20 @@ struct ViewerView: View {
             // makeContextClickMonitor側でもshowThumbnailGridを見て無視している。
             if showThumbnailGrid {
                 ZStack {
-                    ThumbnailGridBackdropView(isPresented: $showThumbnailGrid)
-                    // ユーザー要望: パネルの外側であれば、このウインドウの内側に限らず
-                    // タイトルバー・メニューバー・他のウインドウ・他のアプリを含めどこを
-                    // クリックしても閉じるようにしたい。そのためにパネル自身の現在の
+                    ThumbnailGridBackdropView()
+                    // クリックがパネルの内側か外側かを判定するために、パネル自身の現在の
                     // スクリーン座標系でのフレームを常に把握しておく必要があり、パネル本体の
                     // .backgroundに重ねたPanelScreenFrameAccessorから報告を受け取る
-                    // (thumbnailPanelScreenFrame/installThumbnailGridOutsideClickMonitorsIfNeeded参照)。
+                    // (thumbnailPanelScreenFrame/installThumbnailGridDismissMonitorIfNeeded参照)。
                     // 以前はここでThumbnailGridView全体の.backgroundとして取っていたが、
                     // パネルの大きさが環境設定の余白から決まる構成(ThumbnailGridView.body参照)に
                     // なり、このビューの外形は画像表示領域いっぱいになったため、パネル本体側へ移した。
-                    ThumbnailGridView(viewModel: viewModel, isPresented: $showThumbnailGrid) {
-                        thumbnailPanelScreenFrame = $0
-                    }
+                    ThumbnailGridView(
+                        viewModel: viewModel,
+                        isPresented: $showThumbnailGrid,
+                        onExportPage: { exportImage(.singlePage(index: $0)) },
+                        onPanelScreenFrameChange: { thumbnailPanelScreenFrame = $0 }
+                    )
                 }
                 .transition(.opacity)
                 .zIndex(2)
@@ -1124,15 +1168,13 @@ struct ViewerView: View {
         .onChange(of: viewModel.book.pages) { _, newValue in
             appState.updateCurrentBookPages(newValue)
         }
-        // ユーザー要望: ページ一覧(サムネイルグリッド)パネルの外側であれば、このウインドウの
-        // 内側に限らずどこをクリックしても閉じるようにしたい。表示・非表示の切り替わりに
-        // 合わせて、専用のNSEventモニタ(thumbnailGridOutsideClickMonitor/
-        // thumbnailGridOutsideClickGlobalMonitor)を付け外しする。
+        // 表示・非表示の切り替わりに合わせて、パネルを閉じるクリックを拾う専用のNSEventモニタ
+        // (thumbnailGridDismissMonitor)を付け外しする。
         .onChange(of: showThumbnailGrid) { _, newValue in
             if newValue {
-                installThumbnailGridOutsideClickMonitorsIfNeeded()
+                installThumbnailGridDismissMonitorIfNeeded()
             } else {
-                removeThumbnailGridOutsideClickMonitors()
+                removeThumbnailGridDismissMonitor()
             }
         }
         // スライドショー実行中/ルーペ表示中/表示モード/読み方向/拡大縮小モードが変わるたびに、
@@ -3115,34 +3157,21 @@ struct ViewerView: View {
                 NSCursor.unhide()
                 isCursorHidden = false
             }
-            // ユーザー要望: ページ一覧(サムネイルグリッド)パネルの外側をクリックしたら
-            // 閉じたい。メニューバーのメニューを開くクリックは、通常のクリックと違い
-            // NSEventのローカル/グローバルモニタ(installThumbnailGridOutsideClickMonitors
-            // IfNeeded参照)には届かないため、メニューが開いたこと自体をここで検知して閉じる。
-            // ただし、開いている最中にここで閉じるとmacOS 26でクラッシュする
-            // (pendingThumbnailGridDismissAfterMenuのコメント参照)ため、ここでは予約だけして
-            // 実際に閉じるのはメニューが閉じたあと(下のdidEndTracking)に回す。
-            if showThumbnailGrid {
-                pendingThumbnailGridDismissAfterMenu = true
-            }
+            // ここには以前、「メニューが開いたらページ一覧(サムネイルグリッド)を閉じる」
+            // 予約(pendingThumbnailGridDismissAfterMenu)を置いていた。メニューバーを
+            // クリックしても閉じたい、という当時の要望に対して、メニューを開くクリックだけは
+            // NSEventのモニタに届かないため、ここで補っていたもの。
+            //
+            // その要望は撤回され、閉じる条件は「画像表示領域のクリック」等に限定された
+            // (installThumbnailGridDismissMonitorIfNeededのコメント参照)。加えて、
+            // サムネイルの右クリックにコンテキストメニューを付けた以上、
+            // 「メニューが開いたら閉じる」を残すとパネル自身のメニューを出した瞬間に
+            // パネルが消えてしまう。そのため予約ごと削除してある。
         }
         let menuEnd = NotificationCenter.default.addObserver(
             forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main
         ) { _ in
             isMenuTracking = false
-            if pendingThumbnailGridDismissAfterMenu {
-                pendingThumbnailGridDismissAfterMenu = false
-                // ここで直接閉じてはいけない。didEndTrackingはメインスレッドからpostされる場合
-                // queue: .mainを指定していても**同期配送**されるため、このクロージャはAppKitが
-                // まだトラッキングを巻き戻している最中(メニューウインドウが消えきる前)に走る。
-                // その時点でSwiftUIのビューを削除する=フォーカスを動かすと、開いている最中に
-                // 閉じたときと同じくmacOS 26でメニューの再構築が走り、NSRangeExceptionで落ちる
-                // (pendingThumbnailGridDismissAfterMenuのコメント、およびMenuBarMenuGateの
-                //  型コメント「なぜ閉じた直後ではなく1回ランループを跨ぐのか」参照)。
-                DispatchQueue.main.async {
-                    showThumbnailGrid = false
-                }
-            }
             registerMouseActivity()
         }
         // 「ブックマークの編集」ウインドウ・「お気に入りの整理」ウインドウの「現在の本を追加」用
@@ -3615,7 +3644,9 @@ struct ViewerView: View {
         SecurityScopedHandoff.begin(url)
         let previousWindow = hostWindow
         let existingIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
-        openWindow(id: "book", value: BookOpenRequest(url))
+        // このウインドウから派生した操作なので、シークレットかどうかはこのウインドウに揃える
+        // (BookWindowGroup参照)。
+        openWindow(id: BookWindowGroup.id(inheritingFrom: appState), value: BookOpenRequest(url))
         Task { @MainActor in
             for _ in 0..<20 {
                 try? await Task.sleep(nanoseconds: 25_000_000)
@@ -3649,7 +3680,9 @@ struct ViewerView: View {
         }
         SecurityScopedHandoff.begin(url)
         let existingIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
-        openWindow(id: "book", value: BookOpenRequest(url))
+        // このウインドウから派生した操作なので、シークレットかどうかはこのウインドウに揃える
+        // (BookWindowGroup参照)。
+        openWindow(id: BookWindowGroup.id(inheritingFrom: appState), value: BookOpenRequest(url))
         Task { @MainActor in
             for _ in 0..<20 {
                 try? await Task.sleep(nanoseconds: 25_000_000)
@@ -3793,153 +3826,6 @@ struct WindowAccessor: NSViewRepresentable {
 /// ようにする(ScrollGeometryBoxと同じ理由・同じ作り)。
 private final class ThumbnailGridGesturePressBox {
     var press: (location: NSPoint, timestamp: TimeInterval, button: MouseTrigger.Button)?
-}
-
-private final class ScrollGeometryBox {
-    /// SwiftUIのScrollViewを実際に描画しているNSScrollView(ScrollViewAccessor参照)。
-    weak var scrollView: NSScrollView?
-}
-
-/// SwiftUIのScrollViewを裏で描画しているNSScrollViewを取り出して、呼び出し側へ渡すための
-/// 何も描画しないヘルパービュー(PageAreaFrameAccessor/WindowMouseExitAccessorと同じ作り)。
-///
-/// なぜ必要か: スクロール送り(ViewerView.scrollByOneScreen)は「もう下端か」「横に動く余地が
-/// あるか」を正確に知る必要がある。当初はSwiftUIのScrollGeometry(onScrollGeometryChange)で
-/// 済ませようとしたが、実機で計測したところ、報告される値から可動範囲を導けなかった:
-///
-/// - contentOffsetは0起点ではなく、contentInsets(自動表示されるツールバーぶん、上32pt)だけ
-///   ずれる
-/// - visibleRect.sizeは縦スクロールバーの幅(17pt)を含んでおり、横方向の実際の可動量
-///   (contentSize.width - この値)より17pt小さく出る
-/// - 縦は逆に、contentSize.height - visibleRect.height よりさらにインセットぶん小さいところで
-///   止まる
-///
-/// 結果として「下端に着いているのに、まだ下へ動けると判定し続ける」ため、横への回り込みへ
-/// 永久に到達しなかった。NSScrollViewのcontentView(NSClipView)なら、現在位置も可動範囲も
-/// 意味が一意に定まる(cooViewerも同じくNSScrollViewを直接扱っている)。
-private struct ScrollViewAccessor: NSViewRepresentable {
-    let onResolve: (NSScrollView?) -> Void
-    /// スクロールされる中身(documentView)の大きさが実際に変わったときに呼ばれる。
-    /// = 新しいページの画像がレイアウトに反映され、可動範囲が確定した瞬間。
-    /// ページ切り替え直後の位置合わせは、この通知を待ってから行う必要がある
-    /// (ViewerView.beginPageEntryScrollのコメント参照)。
-    let onDocumentFrameChange: () -> Void
-
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-
-    /// documentViewのフレーム変化を購読する係。Viewは値型で作り直されるため、購読の
-    /// 登録・解除を持てるのはCoordinatorだけ(deinitで確実に解除する)。
-    final class Coordinator {
-        var parent: ScrollViewAccessor
-        private var observation: NSObjectProtocol?
-        private weak var observedDocumentView: NSView?
-
-        init(_ parent: ScrollViewAccessor) { self.parent = parent }
-
-        func observeDocumentView(of scrollView: NSScrollView?) {
-            guard let documentView = scrollView?.documentView else { return }
-            // 同じdocumentViewを二重に購読しない(updateNSViewは何度でも呼ばれる)。
-            guard documentView !== observedDocumentView else { return }
-            stopObserving()
-            observedDocumentView = documentView
-            documentView.postsFrameChangedNotifications = true
-            observation = NotificationCenter.default.addObserver(
-                forName: NSView.frameDidChangeNotification, object: documentView, queue: .main
-            ) { [weak self] _ in
-                // queue: .main で登録しているため必ずメインスレッドで呼ばれる。
-                MainActor.assumeIsolated {
-                    self?.parent.onDocumentFrameChange()
-                }
-            }
-        }
-
-        func stopObserving() {
-            if let observation { NotificationCenter.default.removeObserver(observation) }
-            observation = nil
-            observedDocumentView = nil
-        }
-
-        deinit { stopObserving() }
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        // 取り付け直後はまだビュー階層に入っていないため、次のループで探す。
-        DispatchQueue.main.async {
-            let scrollView = Self.enclosingScrollView(of: view)
-            onResolve(scrollView)
-            context.coordinator.observeDocumentView(of: scrollView)
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        // onResolve/onDocumentFrameChangeはView再構築のたびに新しいクロージャになるため、
-        // 古いものを握ったままにしないよう毎回差し替える(ClickZoneAreaと同じ理由)。
-        context.coordinator.parent = self
-        DispatchQueue.main.async {
-            let scrollView = Self.enclosingScrollView(of: nsView)
-            onResolve(scrollView)
-            context.coordinator.observeDocumentView(of: scrollView)
-        }
-    }
-
-    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        coordinator.stopObserving()
-    }
-
-    /// このビューはScrollViewのコンテンツの中(background)に置くため、祖先をたどれば
-    /// 目的のNSScrollViewに必ず行き当たる(ClickZoneViewのように兄弟を探す必要はない)。
-    private static func enclosingScrollView(of view: NSView) -> NSScrollView? {
-        var ancestor: NSView? = view.superview
-        while let current = ancestor {
-            if let scrollView = current as? NSScrollView { return scrollView }
-            ancestor = current.superview
-        }
-        return nil
-    }
-}
-
-/// NSScrollViewの現在位置と可動範囲を、「上が0」に正規化して扱うための小さな窓口。
-///
-/// SwiftUIのScrollGeometryを使わない理由はScrollViewAccessorのコメント参照(自動表示される
-/// ツールバー/プログレスバーがある状態で、報告される値から可動範囲を導けなかった)。
-/// NSClipViewのboundsとdocumentViewのframeなら、意味が一意に定まり自動表示の影響も受けない。
-private struct ScrollViewBounds {
-    private let scrollView: NSScrollView
-    private let clipView: NSClipView
-    private let isDocumentFlipped: Bool
-    let contentSize: CGSize
-    /// 実際に見えている領域の大きさ。「1画面分」スクロールする量にもこれを使う。
-    let visibleSize: CGSize
-
-    init?(_ scrollView: NSScrollView?) {
-        guard let scrollView, let documentView = scrollView.documentView else { return nil }
-        self.scrollView = scrollView
-        self.clipView = scrollView.contentView
-        self.contentSize = documentView.frame.size
-        self.visibleSize = scrollView.contentView.bounds.size
-        self.isDocumentFlipped = documentView.isFlipped
-    }
-
-    var maxX: CGFloat { max(contentSize.width - visibleSize.width, 0) }
-    var maxY: CGFloat { max(contentSize.height - visibleSize.height, 0) }
-
-    /// 現在のスクロール位置(左上を原点とし、下へ進むほどyが増える向きに正規化した値)。
-    /// AppKitのdocumentViewは上下が反転していないことがあるため、ここで吸収する。
-    var position: CGPoint {
-        let origin = clipView.bounds.origin
-        return CGPoint(x: origin.x, y: isDocumentFlipped ? origin.y : maxY - origin.y)
-    }
-
-    /// positionと同じ向きで指定した位置へスクロールする(可動範囲へクランプする)。
-    func scroll(to point: CGPoint) {
-        let clampedX = min(max(point.x, 0), maxX)
-        let clampedY = min(max(point.y, 0), maxY)
-        let y = isDocumentFlipped ? clampedY : maxY - clampedY
-        clipView.scroll(to: CGPoint(x: clampedX, y: y))
-        scrollView.reflectScrolledClipView(clipView)
-    }
 }
 
 private struct ClickZoneArea: NSViewRepresentable {
@@ -4314,8 +4200,8 @@ private final class PageAreaFrameReportingView: NSView {
 /// 取り付けた場所自身のフレーム全体が、スクリーン座標系(NSEvent.mouseLocationと同じ基準)の
 /// どこにあるかをコールバックで報告する、透明なヘルパービュー。PageAreaFrameAccessorと同じ
 /// 考え方だが、ウインドウ座標系ではなくスクリーン座標系まで変換する点が異なる
-/// (ページ一覧パネルの外側クリックを、このウインドウの外(タイトルバー・他のウインドウ・
-/// 他のアプリ)からも検知したいため。installThumbnailGridOutsideClickMonitorsIfNeeded参照)。
+/// (ページ一覧パネルの内側/外側の判定を、NSEventのモニタ側と同じ基準で行うため。
+/// installThumbnailGridDismissMonitorIfNeeded参照)。
 /// ThumbnailGridViewからも使うためprivateにしていない。
 struct PanelScreenFrameAccessor: NSViewRepresentable {
     let onChange: (CGRect) -> Void

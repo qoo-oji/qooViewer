@@ -35,8 +35,14 @@ nonisolated enum ImageExporter {
     // MARK: - ファイル名・形式の決定
 
     /// このページをそのままエクスポートする場合の既定のファイル名(拡張子付き)。
-    static func defaultFileName(for page: PageRef) -> String {
-        "\(baseName(for: page)).\(fileExtension(for: page))"
+    ///
+    /// - Parameter fileExtension: 実際に書き出す形式の拡張子。PDFのページは中の画像の形式
+    ///   (JPEG/PNG)を読むまで確定しないため、呼び出し側が
+    ///   `ViewerViewModel.exportableImageFileExtension(at:)`で解決したものを渡す。
+    ///   省略した場合は`fileExtension(for:)`(PDFなら常にjpg)を使う ―― 見開きの結合など、
+    ///   出力形式をこちらで決める用途向け。
+    static func defaultFileName(for page: PageRef, fileExtension: String? = nil) -> String {
+        "\(baseName(for: page)).\(fileExtension ?? self.fileExtension(for: page))"
     }
 
     /// 見開きを結合してエクスポートする場合の既定のファイル名。
