@@ -1432,7 +1432,15 @@ struct QooViewerApp: App {
             return
         }
 
-        SecurityScopedHandoff.begin(request.urls)
+        // 上限を超える要求は、この後どのウインドウが受け取っても`AppState.open(request:)`が
+        // 弾く。ここで渡しのためのセキュリティスコープまで開いてしまうと、拒否されるだけの
+        // 要求のためにURLの数だけ拡張を消費することになるため、そのときは開かない
+        // (BookOpenRequest.exceedsImageSelectionLimitのコメント参照)。
+        // ウインドウ自体は従来どおり開く ―― 開かずに黙って何も起きないより、開いた先で
+        // 「一度に開ける画像が多すぎる」というエラーが出るほうが、何が起きたのか分かる。
+        if !request.exceedsImageSelectionLimit {
+            SecurityScopedHandoff.begin(request.urls)
+        }
 
         let existingWindowIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
         openWindow(id: windowGroupID, value: request)

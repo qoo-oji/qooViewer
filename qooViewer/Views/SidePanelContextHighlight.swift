@@ -29,10 +29,19 @@ final class SidePanelContextMenuHighlight: ObservableObject {
 
     /// いまカーソルが乗っている行のID(上記の理由で@Publishedにはしない)。
     private var hoveredRowID: String?
-    private let observers = NotificationObserverTokens()
+    /// NotificationCenterの購読トークン。
+    ///
+    /// `NotificationObserverTokens`(@MainActor)ではなく素の配列で持つ。あの箱は
+    /// 「自分自身を解除する購読」のためにあるもので、ここの2つはトークンを外から預かるだけ
+    /// なので必要が無く、代わりに`deinit`が`MainActor.assumeIsolated`を通さざるを得なくなる。
+    /// **`deinit`の中の`MainActor.assumeIsolated`は、メインスレッド以外で解放された瞬間に
+    /// トラップする**(オブジェクトがいつどのスレッドで解放されるかは、SwiftUIが保証して
+    /// いない)。素の配列なら`deinit`から`removeObserver`を直接呼べる ―― あれはスレッド
+    /// セーフなので、隔離を偽る必要そのものが無くなる(RecentFilesStore.deinitと同じ形)。
+    private var observers: [NSObjectProtocol] = []
 
     init() {
-        observers.add(NotificationCenter.default.addObserver(
+        observers.append(NotificationCenter.default.addObserver(
             forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main
         ) { [weak self] notification in
             // queue: .mainで登録しているため実行時には必ずMainActor上にいる
@@ -48,7 +57,7 @@ final class SidePanelContextMenuHighlight: ObservableObject {
                 self.highlightedRowID = hovered
             }
         })
-        observers.add(NotificationCenter.default.addObserver(
+        observers.append(NotificationCenter.default.addObserver(
             forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -67,13 +76,13 @@ final class SidePanelContextMenuHighlight: ObservableObject {
 
     deinit {
         // NotificationCenterはクロージャを強参照し続けるため、解除しないとそのままリークになる
-        // (RecentFilesStore.deinitと同じ理由)。
+        // (RecentFilesStore.deinitと同じ理由・同じ形)。
         //
-        // nonisolated deinitからは@MainActorのメソッドを直接呼べないが、この時点で
-        // このオブジェクトを参照しているものはもう無く、トークンの配列を触るのはここだけなので、
-        // MainActor.assumeIsolatedで囲って解除する。
-        MainActor.assumeIsolated {
-            observers.removeAll()
+        // `MainActor.assumeIsolated`で囲わないこと。deinitがどのスレッドで走るかは
+        // SwiftUIが保証しておらず、メイン以外で走った瞬間にトラップする(observersのコメント参照)。
+        // `removeObserver`はスレッドセーフなので、そのまま呼んでよい。
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 

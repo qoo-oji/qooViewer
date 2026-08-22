@@ -115,8 +115,11 @@ struct GeneralSettingsView: View {
                 Text("Side Panel")
             }
 
+            // 説明文がこの画面だけ長いのは、対象外にしている2つがあるため
+            // (AppPreferences.keys(for:)の「対象外にしている設定」参照)。下げると保存済みの
+            // データがその場で消える設定なので、「設定を戻す」操作では触らない。
             SettingsResetSection(
-                help: "Restores every setting on this page. Other pages, and your favorites, bookmarks and reading history, are not affected."
+                help: "Restores every setting on this page, except Books to Keep Data For and Recent Files to Keep — lowering those would discard data you have already saved. Other pages, and your favorites, bookmarks and reading history, are not affected."
             ) {
                 preferences.resetToDefaults(.general)
             }

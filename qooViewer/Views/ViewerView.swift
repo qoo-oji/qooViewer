@@ -99,6 +99,15 @@ struct ViewerView: View {
     /// ページ一覧パネルを閉じるクリックを拾うNSEventローカルモニタ
     /// (installThumbnailGridDismissMonitorIfNeeded参照)。
     @State private var thumbnailGridDismissMonitor: Any?
+    /// ページ一覧パネルのホイールスクロール量を自前で決めるNSEventローカルモニタ
+    /// (ThumbnailGridView.makeWheelMonitorが作る)。
+    ///
+    /// **取り付けるのはパネル側だが、預かるのはこちら。** ページ一覧を出したまま
+    /// ウインドウごと閉じられると、パネルの`.onDisappear`は呼ばれないことがあり
+    /// (このリポジトリで確認済みの挙動)、パネル側だけで持つとモニタが残ってしまう。
+    /// ここに置けば、上のthumbnailGridDismissMonitorと同じく`handleOnDisappear`からも
+    /// 確実に外せる。
+    @State private var thumbnailGridWheelMonitor: Any?
     /// 「お気に入りに追加」シート(登録先フォルダを選ぶ。FavoriteFolderPickerView)の表示状態。
     @State private var showFavoriteFolderPicker = false
     /// 「お気に入り一覧」を表示中のネイティブNSMenuブリッジ(FavoritesNSMenuBridge)。
@@ -188,6 +197,9 @@ struct ViewerView: View {
     /// 画像のエクスポート機能(要望)。エクスポート中に画像の読み込み・結合・書き込みのいずれかで
     /// 失敗した場合のエラーメッセージ。nilなら非表示(applyLayoutAlerts参照)。
     @State private var imageExportErrorMessage: String?
+    /// 「このページをエクスポート」の保存パネルを、いま出そうとしている最中かどうか。
+    /// 同じパネルが入れ子で開くのを防ぐためだけの目印(exportImage(_:)参照)。
+    @State private var isExportingSinglePage = false
 
     /// pageArea(見開き/単ページの画像表示領域)の、ウインドウ座標系(NSEvent.locationInWindowと
     /// 同じ基準)でのフレーム。PageAreaFrameAccessorが自動的に最新の値を報告してくる
@@ -723,6 +735,16 @@ struct ViewerView: View {
         thumbnailGridDismissMonitor = nil
     }
 
+    /// ページ一覧パネルが取り付けたホイールモニタを外す(thumbnailGridWheelMonitorのコメント参照)。
+    /// パネル自身の`.onDisappear`からも同じ処理が走るが、先に外したほうがnilを入れるので
+    /// 二重解除にはならない。
+    private func removeThumbnailGridWheelMonitor() {
+        if let thumbnailGridWheelMonitor {
+            NSEvent.removeMonitor(thumbnailGridWheelMonitor)
+        }
+        thumbnailGridWheelMonitor = nil
+    }
+
     /// .onDisappear{}の中身をprivateメソッドへ切り出したもの(handleOnAppearのコメント参照)。
     /// 処理内容自体は以前と同じ(各種モニタ・タスクの後始末、appStateへの後始末)。
     private func handleOnDisappear() {
@@ -737,6 +759,7 @@ struct ViewerView: View {
         }
         contextClickMonitor = nil
         removeThumbnailGridDismissMonitor()
+        removeThumbnailGridWheelMonitor()
         clearAppStateBridgesIfStillOwner()
         // 自分の@StateObjectであるviewModelへ登録した橋渡しも、ここで確実に外す
         // (handleOnAppearのonRequestSiblingBookのコメント参照。appState側と違い、この
@@ -815,21 +838,30 @@ struct ViewerView: View {
         case mergedSpread(leftIndex: Int, rightIndex: Int)
     }
 
-    /// 画像のエクスポート本体。まず既定のファイル名・許可する形式を(画像を読み込まずに、
-    /// PageRefのメタデータだけから)同期的に決め、NSSavePanelで保存先を選んでもらってから、
-    /// 実際の画像の読み込み・(結合が必要な場合は)合成・書き込みを非同期に行う
+    /// 画像のエクスポート本体。NSSavePanelで保存先を選んでもらってから、実際の画像の読み込み・
+    /// (結合が必要な場合は)合成・書き込みを非同期に行う
     /// (LibraryExportWindow.exportButtonTappedと同じ「パネル表示 → Task」の順序)。
     /// パネルをキャンセルした場合は何もしない。
+    ///
+    /// 見開きの結合はパネルより前がすべて同期的だが、1ページの書き出しだけはパネルを出す前に
+    /// 拡張子の解決(await)を1回挟む(下のコメント参照)。
     private func exportImage(_ request: ImageExportRequest) {
         switch request {
         case .singlePage(let index):
             guard viewModel.book.pages.indices.contains(index) else { return }
+            // 保存パネルを二重に開かない。すぐ下の理由でパネルが出るまでに`await`を1回挟むため、
+            // その隙にもう一度この操作を起動できてしまい、runModal()が入れ子になりうる
+            // (パネルが出た後はアプリモーダルなので操作できず、隙はこの`await`の間だけ)。
+            // ここから`isExportingSinglePage`の代入までに中断点が無いので、この判定で塞げる。
+            guard !isExportingSinglePage else { return }
+            isExportingSinglePage = true
             let page = viewModel.book.pages[index]
             // 保存パネルを出す**前に**拡張子を確定させる。PDFのページは中の画像の形式を
             // 読むまでjpg/pngが決まらず、決め打ちにすると中身と名前が食い違う
             // (ViewerViewModel.exportableImageFileExtension(at:)のコメント参照)。
             // 画像データ本体はまだ読まないので、パネルが出るまでの待ちはごく短い。
             Task {
+                defer { isExportingSinglePage = false }
                 do {
                     guard let ext = try await viewModel.exportableImageFileExtension(at: index) else { return }
                     guard let url = presentImageExportSavePanel(
@@ -1078,7 +1110,8 @@ struct ViewerView: View {
                         viewModel: viewModel,
                         isPresented: $showThumbnailGrid,
                         onExportPage: { exportImage(.singlePage(index: $0)) },
-                        onPanelScreenFrameChange: { thumbnailPanelScreenFrame = $0 }
+                        onPanelScreenFrameChange: { thumbnailPanelScreenFrame = $0 },
+                        wheelMonitor: $thumbnailGridWheelMonitor
                     )
                 }
                 .transition(.opacity)

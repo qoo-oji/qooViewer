@@ -31,6 +31,15 @@ struct ThumbnailGridView: View {
     /// このビュー全体の.backgroundとして取っていたが、パネルが余白を含む領域いっぱいに
     /// 広がる構成(bodyのGeometryReader参照)になったため、パネル本体に直接付ける必要がある。
     var onPanelScreenFrameChange: (CGRect) -> Void = { _ in }
+    /// ホイールのスクロール量を自前で決めるNSEventローカルモニタの預かり先。
+    ///
+    /// 取り付け・取り外しはこのビューが行うが、**持ち主はViewerView**である。
+    /// ページ一覧を出したままウインドウごと閉じられると、このビューの`.onDisappear`は
+    /// 呼ばれないことがあり(このリポジトリで確認済みの挙動)、ここで持つとモニタが
+    /// 残ってしまう。ViewerViewの`@State`にしておけば、あちらの`handleOnDisappear`からも
+    /// 確実に外せる ―― 各モニタの解除を二重に置く、既存のやり方に揃えたもの
+    /// (ViewerView.thumbnailGridWheelMonitor参照)。
+    @Binding var wheelMonitor: Any?
     @EnvironmentObject private var preferences: AppPreferences
 
     private static let contentPadding: CGFloat = 16
@@ -60,9 +69,6 @@ struct ThumbnailGridView: View {
     /// (ScrollViewAccessor参照)。参照型の入れ物にしてあるのは、NSEventモニタの
     /// クロージャから常に最新の値を読む必要があるため(ViewerViewの同名の入れ物と同じ)。
     @State private var scrollGeometryBox = ScrollGeometryBox()
-    /// 上のスクロール量を実現するためのNSEventローカルモニタ。パネルが表示されている間だけ
-    /// 取り付ける(このビュー自体がisPresented中しか存在しないので、onAppear/onDisappearでよい)。
-    @State private var wheelMonitor: Any?
 
     /// 実際に読み込めたサムネイルから測った縦横比(幅/高さ)のサンプル。列幅は「最初の1枚」では
     /// なく、ここに溜めた**複数ページの中央値**から決める。先頭だけ横長のカバーがある本

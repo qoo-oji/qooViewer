@@ -9336,6 +9336,22 @@
         }
       }
     },
+    "Restores every setting on this page, except Books to Keep Data For and Recent Files to Keep — lowering those would discard data you have already saved. Other pages, and your favorites, bookmarks and reading history, are not affected." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores every setting on this page, except Books to Keep Data For and Recent Files to Keep — lowering those would discard data you have already saved. Other pages, and your favorites, bookmarks and reading history, are not affected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「データを保持する本の数」と「履歴の保存件数」を除いて、この画面のすべての設定を初期状態に戻します(この2つは、下げると保存済みのデータがその場で消えるため戻しません)。ほかの画面の設定と、お気に入り・ブックマーク・読書履歴には影響しません。"
+          }
+        }
+      }
+    },
     "Restores every setting on this page, including the color of every frosted surface. Other pages are not affected." : {
       "localizations" : {
         "en" : {

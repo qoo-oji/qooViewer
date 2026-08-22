@@ -704,8 +704,8 @@ final class AppState: ObservableObject {
     func open(request: BookOpenRequest) {
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
         // セキュリティスコープを実際に開き始める**前**に上限で頭を押さえる
-        // (BookOpenRequest.maxImageSelectionCountのコメント参照)。
-        guard request.urls.count <= BookOpenRequest.maxImageSelectionCount else {
+        // (BookOpenRequest.exceedsImageSelectionLimitのコメント参照)。
+        guard !request.exceedsImageSelectionLimit else {
             errorMessage = String(
                 localized: "Too many images were selected. You can open up to \(BookOpenRequest.maxImageSelectionCount) images at once.",
                 locale: locale

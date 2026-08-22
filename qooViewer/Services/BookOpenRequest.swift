@@ -38,7 +38,21 @@ nonisolated struct BookOpenRequest: Codable, Hashable, Sendable {
     /// (FolderAccessStore)もお気に入りの登録も壊れる=アプリ全体が使えなくなる。
     /// 実際にはFinder/Dockから渡されるURLは拡張が消費済みで`startAccessingSecurityScopedResource()`が
     /// falseを返す(=何も消費しない)ことが多いが、それに寄りかからず上限で頭を押さえておく。
+    ///
+    /// **判定は必ず`exceedsImageSelectionLimit`を通すこと**(そちらのコメント参照)。
     static let maxImageSelectionCount = 1000
+
+    /// この要求が上限を超えているかどうか。
+    ///
+    /// **セキュリティスコープを開く箇所は、開く前に必ずこれを見ること。**
+    /// 開く箇所は2つあり、以前は`AppState.open(request:)`にしか判定が無かった:
+    ///   ・`AppState.open(request:)` … 開いた本のぶんを、次に本を開くまで握り続ける
+    ///   ・`QooViewerApp.openInNewWindow` … 新しいウインドウへ渡すあいだだけ握る
+    ///     (SecurityScopedHandoff)
+    /// 後者に判定が無かったため、「新しいウインドウ/タブで開く」やFinderからの複数選択では、
+    /// この後どのみち上限で弾かれる要求のために**URLの数だけ拡張を消費**していた
+    /// (10秒で解放されるので恒久リークではないが、上限を設けた理由そのものに穴が空いていた)。
+    var exceedsImageSelectionLimit: Bool { urls.count > Self.maxImageSelectionCount }
 
     /// 従来どおり、1つのURLをそのまま開く。
     init(_ url: URL) {

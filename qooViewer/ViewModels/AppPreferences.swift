@@ -777,6 +777,8 @@ extension AppPreferences {
     ///
     /// 【メンテナンス上の注意】設定を1つ増やしたら、`keys(for:)`と`apply(_:for:)`の**両方**へ
     /// 足すこと。足し忘れても値が壊れることはないが、その項目だけ初期設定に戻らなくなる。
+    /// ただし**保存済みのデータを捨てる副作用を持つ設定は、意図的に対象外にする**
+    /// (`keys(for:)`の「対象外にしている設定」参照)。
     ///
     /// キー・マウスの割り当て(`keyboard`/`mouse`/`modeInput`)はAppPreferencesではなく
     /// KeyBindingStoreが持つため、ここでは何もしない(各画面が自分でstore側を呼ぶ)。
@@ -798,6 +800,18 @@ extension AppPreferences {
     /// (hideToolbar/hideSidePanelなど)やサイドパネルの幅・モード、フォルダブラウザの並べ替えは、
     /// 「表示」メニューやパネル自身のボタンで変える値で、環境設定の画面には無いため含めない。
     /// 「この画面を初期設定に戻す」が、画面に見えていない設定まで巻き込むのは予想を裏切る。
+    ///
+    /// ■ 対象外にしている設定(画面には並んでいるが、あえて戻さないもの)
+    /// 「一般」の**保管件数の2つ** ―― `maxTrackedBooksCount`(本ごとのデータを残す冊数)と
+    /// `recentFilesLimit`(履歴の保持件数)は、値を下げると**保存済みのデータがその場で消える**。
+    ///   ・maxTrackedBooksCount … 次に新しい本を開いた時点でLibraryDataPrunerが、上限を超えた
+    ///     ぶんのBookReadingState(最後に読んだページと本ごとの表示設定)を古い順に削除する
+    ///   ・recentFilesLimit … didSetの通知でRecentFilesStoreがその場で履歴を切り詰めて保存する
+    /// どちらも取り消せない。この2つを戻すと、確認ダイアログも無いボタン1つで
+    /// 「例えば2000冊 → 500冊」の削除が起きることになり、ボタンの説明文の
+    /// 「お気に入り・ブックマーク・読書履歴には影響しません」とも食い違う。
+    /// **「設定を戻す」操作でユーザーのデータを捨ててはいけない**ので、この2つは戻さない
+    /// (どちらもスライダーなので、戻したければその場で既定値へ動かせる)。
     private static func keys(for pane: SettingsPane) -> [String] {
         switch pane {
         case .general:
@@ -808,8 +822,7 @@ extension AppPreferences {
                 Keys.launchInPrivateMode,
                 Keys.quitWhenLastWindowClosed,
                 Keys.confirmBeforeClosingMultipleTabsWindow,
-                Keys.maxTrackedBooksCount,
-                recentFilesLimitDefaultsKey,
+                // maxTrackedBooksCount / recentFilesLimit は意図的に含めない(上のコメント参照)。
                 Keys.showRecentFilesOnWelcome,
                 Keys.showRecentFavoritesOnWelcome,
                 Keys.sidePanelFeatureEnabled,
@@ -885,8 +898,7 @@ extension AppPreferences {
             launchInPrivateMode = source.launchInPrivateMode
             quitWhenLastWindowClosed = source.quitWhenLastWindowClosed
             confirmBeforeClosingMultipleTabsWindow = source.confirmBeforeClosingMultipleTabsWindow
-            maxTrackedBooksCount = source.maxTrackedBooksCount
-            recentFilesLimit = source.recentFilesLimit
+            // maxTrackedBooksCount / recentFilesLimit は意図的に戻さない(keys(for:)のコメント参照)。
             showRecentFilesOnWelcome = source.showRecentFilesOnWelcome
             showRecentFavoritesOnWelcome = source.showRecentFavoritesOnWelcome
             sidePanelFeatureEnabled = source.sidePanelFeatureEnabled
