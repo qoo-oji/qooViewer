@@ -3956,8 +3956,9 @@ private final class ClickZoneView: NSView {
 
     /// hitTestに渡される座標は**親ビューの座標系**である点に注意(自身のboundsではない)。
     private func isPointOverVisibleScroller(_ pointInSuperview: NSPoint) -> Bool {
-        guard let scrollView = siblingScrollView(), let superview else { return false }
+        guard let superview else { return false }
         let pointInWindow = superview.convert(pointInSuperview, to: nil)
+        guard let scrollView = siblingScrollView(covering: pointInWindow) else { return false }
         for scroller in [scrollView.verticalScroller, scrollView.horizontalScroller] {
             guard let scroller, !scroller.isHidden, scroller.alphaValue > 0 else { continue }
             if scroller.convert(scroller.bounds, to: nil).contains(pointInWindow) { return true }
@@ -4020,7 +4021,11 @@ private final class ClickZoneView: NSView {
     /// しており(defaultMouseArrayMode2/Mode3のaction 41)、ドラッグした場合はmouseUpで
     /// クリック動作を抑止している(didDragScroll)。
     override func mouseDragged(with event: NSEvent) {
-        guard isDragScrollEnabled, trackingButton == .left, let scrollView = siblingScrollView(),
+        // 転送先のScrollViewは、ホイールと同じく「カーソルの位置を覆っているもの」に限る
+        // (scrollWheelのコメント参照。「画面内に収める」モードでサイドパネルの一覧を
+        // ドラッグしてしまわないため)。
+        guard isDragScrollEnabled, trackingButton == .left,
+              let scrollView = siblingScrollView(covering: event.locationInWindow),
               let documentView = scrollView.documentView, let last = lastDragLocationInWindow
         else { return }
         let deltaX = event.locationInWindow.x - last.x
@@ -4106,30 +4111,50 @@ private final class ClickZoneView: NSView {
     ///
     /// この機能を追加するまではクリックゾーンが「画面内に収める」モード(ScrollViewを使わない
     /// モード)でしか有効にならなかったため、この衝突は表面化していなかった。
+    ///
+    /// バグ修正(ユーザー報告): 「画面内に収める」モードにはページ用のScrollViewが**無い**。
+    /// それでも祖先を外へたどり続けると、最後はウインドウ全体の配下にある別のNSScrollView
+    /// ―― サイドパネルのフォルダ一覧 ―― が見つかり、画像の上で回したホイールでフォルダ
+    /// 一覧がスクロールしてしまっていた(矢印キーでのページ送りはこの経路を通らないため
+    /// 無関係)。転送先は「ホイールを回した位置を実際に覆っているScrollView」に限る。
+    /// ページ用のScrollViewはこのクリックゾーンと同じ領域を覆うので常に該当し、サイド
+    /// パネルの一覧はカーソルが画像の上にある限り該当しない(ホバーで重なる設定のパネルは
+    /// こちらより手前にあるので、その上で回したホイールはそもそもここへ来ない)。
     override func scrollWheel(with event: NSEvent) {
-        if let scrollView = siblingScrollView() {
+        if let scrollView = siblingScrollView(covering: event.locationInWindow) {
             scrollView.scrollWheel(with: event)
         } else {
             super.scrollWheel(with: event)
         }
     }
 
-    /// 自分の祖先を1段ずつ外へたどりながら、その配下にあるNSScrollViewを探す。
-    /// 近い祖先から順に見るため、最初に見つかるのは同じZStackに置かれたページ表示用の
-    /// ScrollViewになる(サイドパネルなど別の場所のScrollViewより先に見つかる)。
-    private func siblingScrollView() -> NSScrollView? {
+    /// 自分の祖先を1段ずつ外へたどりながら、その配下にあり、かつウインドウ座標
+    /// `locationInWindow`を覆っているNSScrollViewを探す。近い祖先から順に見るため、
+    /// 最初に見つかるのは同じZStackに置かれたページ表示用のScrollViewになる。
+    private func siblingScrollView(covering locationInWindow: NSPoint) -> NSScrollView? {
         var ancestor: NSView? = superview
         while let current = ancestor {
-            if let found = Self.firstScrollView(in: current, skipping: self) { return found }
+            if let found = Self.firstScrollView(in: current, skipping: self, covering: locationInWindow) {
+                return found
+            }
             ancestor = current.superview
         }
         return nil
     }
 
-    private static func firstScrollView(in view: NSView, skipping excluded: NSView) -> NSScrollView? {
+    private static func firstScrollView(
+        in view: NSView, skipping excluded: NSView, covering locationInWindow: NSPoint
+    ) -> NSScrollView? {
         for subview in view.subviews where subview !== excluded {
-            if let scrollView = subview as? NSScrollView { return scrollView }
-            if let found = firstScrollView(in: subview, skipping: excluded) { return found }
+            if let scrollView = subview as? NSScrollView {
+                let local = scrollView.convert(locationInWindow, from: nil)
+                if scrollView.bounds.contains(local) { return scrollView }
+                // 覆っていないScrollViewの中まで降りる必要は無い(その子も覆っていない)。
+                continue
+            }
+            if let found = firstScrollView(in: subview, skipping: excluded, covering: locationInWindow) {
+                return found
+            }
         }
         return nil
     }
