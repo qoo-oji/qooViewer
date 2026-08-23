@@ -3162,6 +3162,22 @@
         }
       }
     },
+    "Delete Bookmark": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Bookmark"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブックマークを削除"
+          }
+        }
+      }
+    },
     "Delete Folder": {
       "localizations": {
         "en": {

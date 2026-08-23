@@ -126,12 +126,24 @@ struct SidePanelView: View {
     var onOpenFavoriteInNewWindow: (FavoriteBook, BookOpenDestination) -> Void
     /// お気に入りツリーの本をクリックして開く(環境設定「お気に入りを開くとき」に従う)。
     var onOpenFavorite: (FavoriteBook) -> Void
+    /// お気に入り(本・フォルダ)の名前を変更する / 削除する(行の右クリックから。ユーザー要望)。
+    ///
+    /// 入力欄と確認ダイアログをここではなくContentViewに持たせているのは、パネルを隠す設定で
+    /// 使っている場合、ダイアログが出ている間だけホバーによる自動非表示を止める必要があるため
+    /// (メニューを開いている間に止めるのと同じ理屈。ContentView.isMenuTrackingのコメント参照)。
+    /// その判断はホバーの監視を持っているContentView側にしか書けない。
+    var onRenameFavorite: (FavoriteListEntry) -> Void
+    var onDeleteFavorite: (FavoriteListEntry) -> Void
     /// 今表示しているページをブックマークへ追加する。
     var onAddBookmark: () -> Void
     /// 「ブックマーク・レイアウトの編集」ウインドウを開く。
     var onEditBookmarks: () -> Void
     /// ブックマーク一覧の項目をクリックして、そのページへジャンプする。
     var onJumpToBookmark: (Bookmark) -> Void
+    /// ブックマークの名前を変更する / 削除する(行の右クリックから。ユーザー要望)。
+    /// ダイアログをContentViewに持たせている理由はonRenameFavoriteのコメント参照。
+    var onRenameBookmark: (Bookmark) -> Void
+    var onDeleteBookmark: (Bookmark) -> Void
 
     @State private var topSectionFraction: CGFloat = 0.5
     /// ブックマークモードの上下分割比。ブラウザモードのtopSectionFraction(フォルダブラウザと
@@ -299,7 +311,9 @@ struct SidePanelView: View {
                     onAdd: onAddFavorite,
                     onEdit: onEditFavorites,
                     onOpen: onOpenFavorite,
-                    onOpenInNewWindow: onOpenFavoriteInNewWindow
+                    onOpenInNewWindow: onOpenFavoriteInNewWindow,
+                    onRename: onRenameFavorite,
+                    onDelete: onDeleteFavorite
                 )
                 .frame(height: max(80, geometry.size.height * fraction - 4))
                 .clipped()
@@ -311,7 +325,9 @@ struct SidePanelView: View {
                     allowsEditing: allowsLibraryEditing,
                     onAdd: onAddBookmark,
                     onEdit: onEditBookmarks,
-                    onJump: onJumpToBookmark
+                    onJump: onJumpToBookmark,
+                    onRename: onRenameBookmark,
+                    onDelete: onDeleteBookmark
                 )
                 .frame(maxHeight: .infinity)
                 .clipped()
@@ -1043,6 +1059,9 @@ private struct SidePanelFavoritesSectionView: View {
     var onOpen: (FavoriteBook) -> Void
     /// 行の右クリックから、新しいウインドウ/タブで開く(SidePanelView.onOpenFavoriteInNewWindow)。
     var onOpenInNewWindow: (FavoriteBook, BookOpenDestination) -> Void
+    /// 行の右クリックからのリネーム・削除(SidePanelView.onRenameFavorite / onDeleteFavorite)。
+    var onRename: (FavoriteListEntry) -> Void
+    var onDelete: (FavoriteListEntry) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1086,8 +1105,11 @@ private struct SidePanelFavoritesSectionView: View {
                                 depth: 0,
                                 favoritesStore: favoritesStore,
                                 expandedFolderIDs: $expandedFolderIDs,
+                                allowsEditing: allowsEditing,
                                 onOpen: onOpen,
-                                onOpenInNewWindow: onOpenInNewWindow
+                                onOpenInNewWindow: onOpenInNewWindow,
+                                onRename: onRename,
+                                onDelete: onDelete
                             )
                         }
                     }
@@ -1107,8 +1129,13 @@ private struct SidePanelFavoriteRow: View {
     let depth: Int
     @ObservedObject var favoritesStore: FavoritesStore
     @Binding var expandedFolderIDs: Set<UUID>
+    /// falseならリネーム・削除の項目を無効にする(SidePanelView.allowsLibraryEditing参照)。
+    /// 開く操作・Finderで開くは読み取りなので、falseでも通常どおり使える。
+    let allowsEditing: Bool
     let onOpen: (FavoriteBook) -> Void
     let onOpenInNewWindow: (FavoriteBook, BookOpenDestination) -> Void
+    let onRename: (FavoriteListEntry) -> Void
+    let onDelete: (FavoriteListEntry) -> Void
 
     @EnvironmentObject private var preferences: AppPreferences
 
@@ -1124,8 +1151,11 @@ private struct SidePanelFavoriteRow: View {
                         depth: depth + 1,
                         favoritesStore: favoritesStore,
                         expandedFolderIDs: $expandedFolderIDs,
+                        allowsEditing: allowsEditing,
                         onOpen: onOpen,
-                        onOpenInNewWindow: onOpenInNewWindow
+                        onOpenInNewWindow: onOpenInNewWindow,
+                        onRename: onRename,
+                        onDelete: onDelete
                     )
                 }
             }
@@ -1166,6 +1196,15 @@ private struct SidePanelFavoriteRow: View {
                 expandedFolderIDs.insert(folder.id)
             }
         }
+        // フォルダは本ではないので「開く」系は無く、整理の2項目だけになる
+        // (下のbookRowのコメント参照)。
+        .sidePanelContextHighlight(rowID: "favoriteFolder:\(folder.id.uuidString)")
+        .contextMenu {
+            Button("Rename") { onRename(.folder(folder)) }
+                .disabled(!allowsEditing)
+            Button("Delete", role: .destructive) { onDelete(.folder(folder)) }
+                .disabled(!allowsEditing)
+        }
     }
 
     private func bookRow(_ book: FavoriteBook) -> some View {
@@ -1191,11 +1230,13 @@ private struct SidePanelFavoriteRow: View {
         .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { onOpen(book) }
         // ユーザー要望: 無理のない範囲でコンテキストメニューを足す。
         //
-        // 「開く」と「Finderで表示」だけに絞ってある。名前の変更・お気に入りからの削除は
-        // 取り消しの効かない編集操作で、既に「お気に入りの編集」ウインドウ
-        // (FavoritesOrganizerView)が確認ダイアログ付きで持っている。同じ操作を、幅の狭い
-        // サイドパネルの行の右クリックにも置くと、掴み損ねたドラッグの直後などに
-        // 誤って選ぶ危険だけが増える(ユーザーの判断で、今回は編集系を入れていない)。
+        // ■ 編集系(名前の変更・お気に入りからの削除)について
+        // 当初は「開く」と「Finderで表示」だけに絞り、編集系は「お気に入りの編集」ウインドウ
+        // (FavoritesOrganizerView)の担当としていた ―― 取り消しの効かない操作を幅の狭い
+        // パネルの行の右クリックに置くと、掴み損ねたドラッグの直後などに誤って選ぶ危険が
+        // 増えるため。**その後ユーザーの指示で方針を変え、ここにも置いてある。**
+        // 誤操作への備えは「編集ウインドウでしかできなくする」ことではなく、削除に確認
+        // ダイアログを挟むこと(お気に入りの流儀。ContentView側のアラート参照)で担保する。
         //
         // Finderで示す対象は、パス文字列(book.bookID)から組み立てたURLではなく、
         // **保存済みのセキュリティスコープ付きブックマークを解決したURL**にする。
@@ -1213,6 +1254,13 @@ private struct SidePanelFavoriteRow: View {
                 guard let url = favoritesStore.resolvedExistingURL(for: book) else { return }
                 FinderReveal.reveal(url)
             }
+            Divider()
+            // 編集系は最後にまとめ、取り消しの効かない削除をいちばん下に置く(macOSの作法)。
+            // シークレットウインドウとその場限りの本では、DBへ書けないので無効になる。
+            Button("Rename") { onRename(.book(book)) }
+                .disabled(!allowsEditing)
+            Button("Remove from Favorites", role: .destructive) { onDelete(.book(book)) }
+                .disabled(!allowsEditing)
         }
     }
 }
@@ -1233,6 +1281,9 @@ private struct SidePanelBookmarksSectionView: View {
     var onAdd: () -> Void
     var onEdit: () -> Void
     var onJump: (Bookmark) -> Void
+    /// 行の右クリックからのリネーム・削除(SidePanelView.onRenameBookmark / onDeleteBookmark)。
+    var onRename: (Bookmark) -> Void
+    var onDelete: (Bookmark) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1303,14 +1354,23 @@ private struct SidePanelBookmarksSectionView: View {
         // ページへのジャンプも「開く」に準じる操作のため、環境設定に従う。
         .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { onJump(bookmark) }
         // ユーザー要望: 無理のない範囲でコンテキストメニューを足す。
-        // お気に入りの行と同じ方針で、移動と編集ウインドウの呼び出しだけを置く
-        // (削除・名前変更は「ブックマークの編集」ウインドウの担当。上のbookRowのコメント参照)。
         // このモードの一覧は「今開いている本」のブックマークなので、行ごとに別の本を
         // Finderで示す、という状況は生じない(それは上段のお気に入り側の役目)。
+        //
+        // 名前の変更・削除も、お気に入りの行と同じくここから直接行える(ユーザーの指示。
+        // 経緯は上のbookRowのコメント参照)。**削除に確認ダイアログは挟まない** ――
+        // 「ブックマーク・レイアウトの編集」ウインドウのゴミ箱ボタンが確認なしで消す
+        // 作りなので、同じものを別の場所から消したときに見え方が変わらないよう揃えてある
+        // (お気に入りは逆に、あちらが確認する流儀なのでこちらも確認する)。
         .sidePanelContextHighlight(rowID: "bookmark:\(bookmark.id)")
         .contextMenu {
             Button("Go to This Page") { onJump(bookmark) }
             Button("Edit Bookmarks…") { onEdit() }
+                .disabled(!allowsEditing)
+            Divider()
+            Button("Rename") { onRename(bookmark) }
+                .disabled(!allowsEditing)
+            Button("Delete Bookmark", role: .destructive) { onDelete(bookmark) }
                 .disabled(!allowsEditing)
         }
     }

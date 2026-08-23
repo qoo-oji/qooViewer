@@ -71,6 +71,33 @@ struct ContentView: View {
     /// このアプリのメニューが今開かれているかどうか(installMenuTrackingObserversIfNeeded参照)。
     /// 開いている間は、ホバー表示中のサイドパネルを閉じない。
     @State private var isMenuTracking = false
+
+    // MARK: - サイドパネルの行の右クリックからのリネーム・削除(ユーザー要望)
+
+    /// リネーム中のお気に入りフォルダ / お気に入り(本) / ブックマーク。
+    /// 3つが同時に開くことはないため、入力欄(sidePanelRenameText)は共用している
+    /// (FavoritesOrganizerViewのrenameTextと同じ考え方)。
+    ///
+    /// **ダイアログをSidePanelViewではなくここに持たせている理由**: パネルを隠す設定で
+    /// 使っている場合、ダイアログが出ている間はホバーによる自動非表示を止める必要がある
+    /// (止めないと、カーソルをダイアログへ動かした拍子にパネルが引っ込み、閉じたときには
+    /// 一覧が消えている)。その判断はホバーの監視を持っているこちらにしか書けない。
+    @State private var renamingFavoriteFolder: FavoriteFolder?
+    @State private var renamingFavoriteBook: FavoriteBook?
+    @State private var renamingBookmark: Bookmark?
+    @State private var sidePanelRenameText = ""
+    /// 削除の確認待ち。お気に入りは元に戻せないため確認を挟む(「お気に入りの編集」ウインドウと
+    /// 同じ流儀)。ブックマークは確認せずその場で消す(「ブックマーク・レイアウトの編集」
+    /// ウインドウのゴミ箱ボタンと同じ流儀。SidePanelView側のコメント参照)。
+    @State private var favoriteFolderPendingDeletion: FavoriteFolder?
+    @State private var favoriteBookPendingDeletion: FavoriteBook?
+
+    /// サイドパネル由来のリネーム・削除ダイアログが出ているかどうか。
+    /// 出ている間は、ホバーによるパネルの自動非表示を止める(isMenuTrackingと同じ扱い)。
+    private var isSidePanelEditingDialogPresented: Bool {
+        renamingFavoriteFolder != nil || renamingFavoriteBook != nil || renamingBookmark != nil
+            || favoriteFolderPendingDeletion != nil || favoriteBookPendingDeletion != nil
+    }
     /// 上記を検知するためのNSMenu.didBeginTracking/didEndTrackingの購読。
     @State private var menuTrackingObservers: [NSObjectProtocol] = []
     /// サイドパネルが出現する、ウインドウ端(左右どちらに置いているかによる)からの反応領域の幅。
@@ -489,6 +516,16 @@ struct ContentView: View {
                 performLaunchActionsIfNeeded()
             }
         }
+        // サイドパネルの行の右クリックから開く、リネーム・削除のダイアログ一式
+        // (ユーザー要望)。中身は下のSidePanelEditingDialogsを参照。
+        .sidePanelEditingDialogs(
+            renamingFolder: $renamingFavoriteFolder,
+            renamingBook: $renamingFavoriteBook,
+            renamingBookmark: $renamingBookmark,
+            renameText: $sidePanelRenameText,
+            folderPendingDeletion: $favoriteFolderPendingDeletion,
+            bookPendingDeletion: $favoriteBookPendingDeletion
+        )
         .alert(
             "Error",
             isPresented: Binding(
@@ -920,11 +957,43 @@ struct ContentView: View {
                     appState.openFavorite(favorite)
                 }
             },
+            // 行の右クリックからのリネーム・削除(ユーザー要望)。実際の入力欄・確認は
+            // このビューが持つアラートで行う(isSidePanelEditingDialogPresentedのコメント参照)。
+            //
+            // 開く直前にrenameTextを一度空にしてから、次のランループで現在の名前を入れる。
+            // 同じアラートを続けて開いた場合、@Stateへ同じ値を代入しても変化とみなされず
+            // TextFieldに反映されないことがあるため(FavoritesOrganizerViewと同じ対処)。
+            onRenameFavorite: { entry in
+                sidePanelRenameText = ""
+                switch entry {
+                case .folder(let folder):
+                    renamingFavoriteFolder = folder
+                    DispatchQueue.main.async { sidePanelRenameText = folder.name }
+                case .book(let book):
+                    renamingFavoriteBook = book
+                    DispatchQueue.main.async { sidePanelRenameText = book.title }
+                }
+            },
+            onDeleteFavorite: { entry in
+                switch entry {
+                case .folder(let folder): favoriteFolderPendingDeletion = folder
+                case .book(let book): favoriteBookPendingDeletion = book
+                }
+            },
             onAddBookmark: { appState.addBookmarkAction?() },
             onEditBookmarks: { showBookmarkEditorWindow() },
             onJumpToBookmark: { bookmark in
                 appState.jumpToBookmark?(bookmark)
                 if dismissesOnAction { appState.isSidePanelRevealed = false }
+            },
+            onRenameBookmark: { bookmark in
+                sidePanelRenameText = ""
+                renamingBookmark = bookmark
+                DispatchQueue.main.async { sidePanelRenameText = bookmark.name }
+            },
+            // ブックマークだけは確認を挟まずその場で消す(SidePanelView側のコメント参照)。
+            onDeleteBookmark: { bookmark in
+                bookmarkStore.delete(bookmark)
             }
         )
     }
@@ -990,6 +1059,9 @@ struct ContentView: View {
         // メニューが開いている間は、表示も非表示も行わない
         // (installMenuTrackingObserversIfNeededのコメント参照)。
         guard !isMenuTracking else { return }
+        // パネルの行から開いたリネーム・削除のダイアログが出ている間も同じ
+        // (isSidePanelEditingDialogPresentedのコメント参照)。
+        guard !isSidePanelEditingDialogPresented else { return }
         // パネルを置いている側のウインドウ端から、カーソルまでの距離。左配置ならX座標そのもの、
         // 右配置なら「内容の右端からの距離」。以降の判定は左右で完全に共通になる。
         let distanceFromPanelEdge: CGFloat
@@ -1043,6 +1115,9 @@ struct ContentView: View {
         // (installMenuTrackingObserversIfNeededのコメント参照)。カーソルが外に出ていること
         // 自体は事実なので、戻り値はtrueのまま返す。
         guard !isMenuTracking else { return true }
+        // パネルの行から開いたダイアログが出ている間も閉じない。ダイアログはウインドウの
+        // 外側にはみ出さないが、そこへカーソルを運ぶ途中でウインドウの外を通ることはある。
+        guard !isSidePanelEditingDialogPresented else { return true }
         // 閉じるものが1つも無ければ、外に出ていること(戻り値)だけ伝えて何もしない。
         // このアプリの他のウインドウ(環境設定ウインドウなど)の上でマウスを動かしている間は
         // ローカルモニタがマウス移動のたびにここへ来るため、無条件に@Publishedへ書き戻すと、
@@ -1167,5 +1242,141 @@ struct ContentView: View {
         // 変わらない場合(=古い値と新しい値が同じ=この呼び出しで正しい)はここが受け持つ。
         // revealCurrentPageは冪等なので、両方走っても無害。
         newBrowser?.revealCurrentPage(sortKeys: appState.currentVisiblePageSortKeys)
+    }
+}
+
+
+/// サイドパネルの行を右クリックして行う、お気に入り(本・フォルダ)とブックマークの
+/// リネーム・削除のダイアログ一式(ユーザー要望)。
+///
+/// ■ なぜContentViewのbodyに直接書かないのか
+/// 5つの`.alert`をbodyへ重ねたところ、Swiftの型チェックが時間内に終わらなくなった
+/// (`the compiler is unable to type-check this expression in reasonable time`)。
+/// SwiftUIのbodyは修飾子を重ねるたびに型が入れ子になって膨らむため、まとまった一式は
+/// こうしてModifierへ切り出し、body側の式を短く保つ。
+///
+/// ■ なぜSidePanelViewではなくContentView側にあるのか
+/// パネルを隠す設定のときパネル自体はホバーで出入りするが、このビューは常にある。
+/// また、ダイアログが出ている間だけホバーによる自動非表示を止める必要があり、その判断は
+/// ホバーの監視を持つContentViewにしか書けない(ContentView.isSidePanelEditingDialogPresented
+/// のコメント参照)。
+///
+/// 削除の確認は**お気に入りだけ**。ブックマークは確認せずその場で消える(それぞれの編集
+/// ウインドウでの流儀に合わせてある。SidePanelView側のコメント参照)。
+private struct SidePanelEditingDialogs: ViewModifier {
+    @EnvironmentObject private var favoritesStore: FavoritesStore
+    @EnvironmentObject private var bookmarkStore: BookmarkStore
+    @Binding var renamingFolder: FavoriteFolder?
+    @Binding var renamingBook: FavoriteBook?
+    @Binding var renamingBookmark: Bookmark?
+    /// 3種類のリネームで共用する入力欄(同時には1つしか開かないため)。
+    @Binding var renameText: String
+    @Binding var folderPendingDeletion: FavoriteFolder?
+    @Binding var bookPendingDeletion: FavoriteBook?
+
+    func body(content: Content) -> some View {
+        content
+        .alert(
+            "Rename Folder",
+            isPresented: Binding(
+                get: { renamingFolder != nil },
+                set: { isPresented in if !isPresented { renamingFolder = nil } }
+            )
+        ) {
+            TextField("Name", text: $renameText)
+            Button("Save") {
+                if let folder = renamingFolder {
+                    favoritesStore.rename(folder, to: renameText)
+                }
+                renamingFolder = nil
+            }
+            Button("Cancel", role: .cancel) { renamingFolder = nil }
+        }
+        .alert(
+            "Rename Favorite",
+            isPresented: Binding(
+                get: { renamingBook != nil },
+                set: { isPresented in if !isPresented { renamingBook = nil } }
+            )
+        ) {
+            TextField("Name", text: $renameText)
+            Button("Save") {
+                if let favorite = renamingBook {
+                    favoritesStore.rename(favorite, to: renameText)
+                }
+                renamingBook = nil
+            }
+            Button("Cancel", role: .cancel) { renamingBook = nil }
+        }
+        .alert(
+            "Rename Bookmark",
+            isPresented: Binding(
+                get: { renamingBookmark != nil },
+                set: { isPresented in if !isPresented { renamingBookmark = nil } }
+            )
+        ) {
+            TextField("Name", text: $renameText)
+            Button("Save") {
+                if let bookmark = renamingBookmark {
+                    bookmarkStore.rename(bookmark, to: renameText)
+                }
+                renamingBookmark = nil
+            }
+            Button("Cancel", role: .cancel) { renamingBookmark = nil }
+        }
+        // 削除の確認。お気に入りは元に戻せないため必ず1枚挟む(「お気に入りの編集」ウインドウと
+        // 同じ文面・同じ選択肢)。ブックマークはここを通らず、その場で消える。
+        .alert(
+            "Delete Folder?",
+            isPresented: Binding(
+                get: { folderPendingDeletion != nil },
+                set: { isPresented in if !isPresented { folderPendingDeletion = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) { folderPendingDeletion = nil }
+            Button("Delete", role: .destructive) {
+                if let folder = folderPendingDeletion {
+                    favoritesStore.delete(folder)
+                }
+                folderPendingDeletion = nil
+            }
+        } message: {
+            Text("This also deletes any subfolders and favorites inside it.")
+        }
+        .alert(
+            "Remove from Favorites?",
+            isPresented: Binding(
+                get: { bookPendingDeletion != nil },
+                set: { isPresented in if !isPresented { bookPendingDeletion = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) { bookPendingDeletion = nil }
+            Button("Remove", role: .destructive) {
+                if let favorite = bookPendingDeletion {
+                    favoritesStore.delete(favorite)
+                }
+                bookPendingDeletion = nil
+            }
+        }
+    }
+}
+
+private extension View {
+    func sidePanelEditingDialogs(
+        renamingFolder: Binding<FavoriteFolder?>,
+        renamingBook: Binding<FavoriteBook?>,
+        renamingBookmark: Binding<Bookmark?>,
+        renameText: Binding<String>,
+        folderPendingDeletion: Binding<FavoriteFolder?>,
+        bookPendingDeletion: Binding<FavoriteBook?>
+    ) -> some View {
+        modifier(SidePanelEditingDialogs(
+            renamingFolder: renamingFolder,
+            renamingBook: renamingBook,
+            renamingBookmark: renamingBookmark,
+            renameText: renameText,
+            folderPendingDeletion: folderPendingDeletion,
+            bookPendingDeletion: bookPendingDeletion
+        ))
     }
 }
