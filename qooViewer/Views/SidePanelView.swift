@@ -73,6 +73,14 @@ struct SidePanelView: View {
     var onBrowseToFolder: (URL) -> Void
     /// 下段で、既に本のページ一覧に含まれている画像をダブルクリックしたときのジャンプ。
     var onJumpToPage: (Int) -> Void
+    /// 行の右クリックから、その本を新しいウインドウ/タブで開く(BookOpenContextMenuItems)。
+    /// フォルダブラウザ(上段)と履歴モードの行から呼ばれる。お気に入りは対象がURLでは
+    /// なくFavoriteBookなので、下の専用のクロージャを使う。
+    ///
+    /// `onOpen`と違い、パネルを閉じる処理は行わない ―― 開く先が別のウインドウ/タブなので、
+    /// このウインドウのパネルは出したままのほうが「一覧から次々に開く」という使い方に合う
+    /// (ユーザー要望の趣旨)。
+    var onOpenInNewWindow: (URL, BookOpenDestination) -> Void
 
     // MARK: - ブックマークモード用
 
@@ -112,6 +120,10 @@ struct SidePanelView: View {
     var onAddFavorite: () -> Void
     /// 「お気に入りの編集」ウインドウを開く。
     var onEditFavorites: () -> Void
+    /// お気に入りの行の右クリックから、その本を新しいウインドウ/タブで開く。
+    /// URLの解決(見つからなければアラート)は呼び出し側が行う ―― 通常の`onOpenFavorite`と
+    /// 同じ扱いにするため。
+    var onOpenFavoriteInNewWindow: (FavoriteBook, BookOpenDestination) -> Void
     /// お気に入りツリーの本をクリックして開く(環境設定「お気に入りを開くとき」に従う)。
     var onOpenFavorite: (FavoriteBook) -> Void
     /// 今表示しているページをブックマークへ追加する。
@@ -220,7 +232,8 @@ struct SidePanelView: View {
                     SidePanelHistorySectionView(
                         recentFiles: recentFiles,
                         currentBookPath: currentBookPath,
-                        onOpen: onOpen
+                        onOpen: onOpen,
+                        onOpenInNewWindow: onOpenInNewWindow
                     )
                 }
             case .pages:
@@ -285,7 +298,8 @@ struct SidePanelView: View {
                     allowsEditing: allowsLibraryEditing,
                     onAdd: onAddFavorite,
                     onEdit: onEditFavorites,
-                    onOpen: onOpenFavorite
+                    onOpen: onOpenFavorite,
+                    onOpenInNewWindow: onOpenFavoriteInNewWindow
                 )
                 .frame(height: max(80, geometry.size.height * fraction - 4))
                 .clipped()
@@ -612,6 +626,22 @@ struct SidePanelView: View {
         // 上段はディスク上に実在するファイル/フォルダだけを並べているので、
         // どの行も素直にFinderで示せる(ユーザー要望)。
         .contextMenu {
+            // 「開く」系はこの行が1冊の本を指しているときだけ出す。ファイルの行は
+            // 開ける形式だけに絞られている(DirectoryBrowser冒頭のコメント参照)ので常に本。
+            // フォルダの行は、直下に画像がある=それ自体が1冊の本になるものだけ ―― 奥の本へ
+            // たどり着くための中間フォルダには、開くべき本がそもそも無い。
+            //
+            // 判定にEntryが持っている確定値を使い、ここではディスクを触らない。
+            // `.contextMenu`の中身は右クリックの瞬間ではなく**行の本体評価の一部**として
+            // 組み立てられるため、ここでI/Oをすると絞り込みの1文字ごとに表示中の全フォルダぶん
+            // 走ることになる(DirectoryBrowser.Entry.containsImageFileのコメント参照)。
+            if !entry.isDirectory || entry.containsImageFile {
+                BookOpenContextMenuItems(
+                    onOpen: { onOpen(entry.url) },
+                    onOpenIn: { onOpenInNewWindow(entry.url, $0) }
+                )
+                Divider()
+            }
             Button("Show in Finder") {
                 FinderReveal.reveal(entry.url)
             }
@@ -659,7 +689,10 @@ struct SidePanelView: View {
     }
 
     private func handleFolderDoubleClick(_ entry: DirectoryBrowser.Entry) {
-        if DirectoryBrowser.directlyContainsImageFile(entry.url) {
+        // 一覧の読み込み時に確定させた値を読むだけ(以前はここでその都度ディスクを見ていた)。
+        // 右クリックメニューの出し分けと同じ値を使うので、「メニューには『開く』が出るのに
+        // ダブルクリックでは移動してしまう」といった食い違いが起きない。
+        if entry.containsImageFile {
             onOpen(entry.url)
         } else {
             folderState.navigate(into: entry.url)
@@ -1008,6 +1041,8 @@ private struct SidePanelFavoritesSectionView: View {
     var onAdd: () -> Void
     var onEdit: () -> Void
     var onOpen: (FavoriteBook) -> Void
+    /// 行の右クリックから、新しいウインドウ/タブで開く(SidePanelView.onOpenFavoriteInNewWindow)。
+    var onOpenInNewWindow: (FavoriteBook, BookOpenDestination) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1051,7 +1086,8 @@ private struct SidePanelFavoritesSectionView: View {
                                 depth: 0,
                                 favoritesStore: favoritesStore,
                                 expandedFolderIDs: $expandedFolderIDs,
-                                onOpen: onOpen
+                                onOpen: onOpen,
+                                onOpenInNewWindow: onOpenInNewWindow
                             )
                         }
                     }
@@ -1072,6 +1108,7 @@ private struct SidePanelFavoriteRow: View {
     @ObservedObject var favoritesStore: FavoritesStore
     @Binding var expandedFolderIDs: Set<UUID>
     let onOpen: (FavoriteBook) -> Void
+    let onOpenInNewWindow: (FavoriteBook, BookOpenDestination) -> Void
 
     @EnvironmentObject private var preferences: AppPreferences
 
@@ -1087,7 +1124,8 @@ private struct SidePanelFavoriteRow: View {
                         depth: depth + 1,
                         favoritesStore: favoritesStore,
                         expandedFolderIDs: $expandedFolderIDs,
-                        onOpen: onOpen
+                        onOpen: onOpen,
+                        onOpenInNewWindow: onOpenInNewWindow
                     )
                 }
             }
@@ -1166,7 +1204,11 @@ private struct SidePanelFavoriteRow: View {
         // 解決を通せば、本が移動・リネームされていても現在の場所を示せるという利点もある。
         .sidePanelContextHighlight(rowID: "favorite:\(book.id.uuidString)")
         .contextMenu {
-            Button("Open") { onOpen(book) }
+            BookOpenContextMenuItems(
+                onOpen: { onOpen(book) },
+                onOpenIn: { onOpenInNewWindow(book, $0) }
+            )
+            Divider()
             Button("Show in Finder") {
                 guard let url = favoritesStore.resolvedExistingURL(for: book) else { return }
                 FinderReveal.reveal(url)
@@ -1288,6 +1330,8 @@ private struct SidePanelHistorySectionView: View {
     @ObservedObject var recentFiles: RecentFilesStore
     var currentBookPath: String?
     var onOpen: (URL) -> Void
+    /// 行の右クリックから、新しいウインドウ/タブで開く(SidePanelView.onOpenInNewWindow)。
+    var onOpenInNewWindow: (URL, BookOpenDestination) -> Void
 
     @State private var filterText = ""
     /// 「履歴をすべて消去」の確認アラートの表示状態。取り消せない操作なので必ず1枚挟む
@@ -1402,10 +1446,20 @@ private struct SidePanelHistorySectionView: View {
         }
         .sidePanelContextHighlight(rowID: "history:\(entry.id)")
         .contextMenu {
-            Button("Open") {
-                guard let url = recentFiles.resolveForOpening(entry) else { return }
-                onOpen(url)
-            }
+            // 「開く」も「新規◯◯で開く」も、選ばれた時点で初めてブックマークを解決する
+            // (解決できなければ履歴から取り除かれ、何も開かない)。行を描くたびに解決すると
+            // 一覧全体でディスクを触ることになるため、必ずクロージャの中で行うこと。
+            BookOpenContextMenuItems(
+                onOpen: {
+                    guard let url = recentFiles.resolveForOpening(entry) else { return }
+                    onOpen(url)
+                },
+                onOpenIn: { destination in
+                    guard let url = recentFiles.resolveForOpening(entry) else { return }
+                    onOpenInNewWindow(url, destination)
+                }
+            )
+            Divider()
             // entry.displayURLはセキュリティスコープの付いていない表示専用のURLなので、
             // フォルダかどうかを**キャッシュ済みの値から渡す**。渡さないとFinderReveal側の
             // 存在確認がサンドボックスに阻まれて失敗し、何も起きない

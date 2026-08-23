@@ -518,6 +518,14 @@ struct BookmarkEditorView: View {
                         // との報告を受け、このメニューからは「一括リネーム」を削除し、削除系の
                         // 2項目は「ブックマークおよびレイアウトを全削除」の1項目へ統合した。
                         .contextMenu {
+                            // ユーザー要望: サイドパネル・「お気に入りの編集」と同じ「開き方」の
+                            // 項目を、ここにも同じ並びで置く(BookOpenContextMenuItems)。
+                            // 「開く」はファイル名のダブルクリックと同じ挙動(openBook(bookID:))。
+                            BookOpenContextMenuItems(
+                                onOpen: { openBook(bookID: row.bookID) },
+                                onOpenIn: { openBook(bookID: row.bookID, to: $0) }
+                            )
+                            Divider()
                             Button("Delete All Bookmarks and Layouts…", role: .destructive) {
                                 pendingDeleteBookmarksAndLayoutBookID = row.bookID
                             }
@@ -890,6 +898,35 @@ struct BookmarkEditorView: View {
             openWindow(id: BookWindowGroup.id(inheritingFrom: nil), value: BookOpenRequest(url))
         }
         closeEditorWindow()
+    }
+
+    /// 左ペインの右クリックメニューから、その本を新しいウインドウ/タブで開く。
+    ///
+    /// 上のopenBook(bookID:)が「既に開いていればそのウインドウを前面に出し、開いていなければ
+    /// 手前のコンテンツウインドウの本を置き換える」のに対し、こちらは必ず新しいウインドウ/タブ
+    /// として開く(同じ性質のウインドウで既に開かれている場合にそちらを前面に出す判定は
+    /// BookWindowOpenerが持っている)。URLの解決と、解決できなかったときのエラー表示は
+    /// openBook(bookID:)と同じ。
+    private func openBook(bookID: String, to destination: BookOpenDestination) {
+        guard let url = bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID)
+            ?? layoutStore.resolvedURL(forBookID: bookID)
+        else {
+            openErrorBookName = URL(fileURLWithPath: bookID).deletingPathExtension().lastPathComponent
+            return
+        }
+        BookWindowOpener.open(
+            BookOpenRequest(url),
+            to: destination,
+            // このウインドウは特定の本に属さない独立ウインドウなので、派生元は「今いちばん手前で
+            // 本を表示しているウインドウ」にする(タブの追加先・シークレットの引き継ぎ元)。
+            // 1つも無ければnil = 環境設定に従う(BookWindowGroup参照)。この場合は
+            // 「新規タブで開く」も追加先が無いため新しいウインドウになる。
+            from: launchCoordinator.frontmostContentAppState(),
+            launchCoordinator: launchCoordinator,
+            openWindow: openWindow,
+            // 本を開いたら、その操作の元になったこの編集ウインドウは閉じる(openBook(bookID:)と同じ)。
+            onOpened: { closeEditorWindow() }
+        )
     }
 
     private func closeEditorWindow() {

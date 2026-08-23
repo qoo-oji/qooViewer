@@ -570,6 +570,14 @@ final class AppState: ObservableObject {
     /// (QooViewerAppのonAppearで設定される。未設定の間はシステムのロケールを使う)
     weak var preferences: AppPreferences?
 
+    /// 複数ウインドウ/タブの調整役。「この本はもう、同じ性質の別のウインドウ/タブで開かれて
+    /// いないか」を調べるためだけに参照する(open(request:reusesExistingWindow:)参照)。
+    /// (ContentView.onAppearで、他のストアと同じ場所で設定される)
+    ///
+    /// 未設定(nil)なら重複判定を行わず、従来どおりこのウインドウで開く。判定できないことを
+    /// 理由に本が開かなくなるより、二重に開くほうがまだ穏当なため。
+    weak var launchCoordinator: LaunchCoordinator?
+
     /// このAppStateを表示しているNSWindow(ContentViewのWindowAccessor経由で設定される)。
     /// Finderから別の本を開こうとしたとき(環境設定「Finderから開いたとき」が「新しいタブで
     /// 開く」の場合)、新しいタブをどのウインドウに追加すればよいかを確実に特定するために使う。
@@ -683,8 +691,11 @@ final class AppState: ObservableObject {
 
     /// URLが1つ分かっている状態からの読み込み(次の本/前の本への移動、お気に入り・履歴からの
     /// 復元、Fileメニューからの選択など)。実体はopen(request:)。
-    func open(url: URL, recordsInHistory: Bool = true) {
-        open(request: BookOpenRequest(url, recordsInHistory: recordsInHistory))
+    func open(url: URL, recordsInHistory: Bool = true, reusesExistingWindow: Bool = true) {
+        open(
+            request: BookOpenRequest(url, recordsInHistory: recordsInHistory),
+            reusesExistingWindow: reusesExistingWindow
+        )
     }
 
     /// Finder / Dock / ドラッグ&ドロップ / NSOpenPanel から複数のURLが渡された場合の入口。
@@ -701,7 +712,48 @@ final class AppState: ObservableObject {
     /// BookLoader.load自体がメインスレッド外で実行される(BookLoader.swiftのコメント参照)。
     /// このメソッド自体は同期のままにして呼び出し側(メニューのボタンアクションなど)を
     /// 変更せずに済むようにしつつ、内部でTaskを使って非同期の読み込みを待つ。
-    func open(request: BookOpenRequest) {
+    /// - Parameter reusesExistingWindow: 同じ本が、同じ性質(ノーマル同士/シークレット同士)の
+    ///   別のウインドウ/タブで既に開かれている場合に、このウインドウを差し替える代わりに
+    ///   **そちらを前面に出して終える**かどうか(ユーザー要望: 同じ本を二重に開かない)。
+    ///
+    ///   既定はtrue ―― ここを通る経路の大半は、ユーザーが一覧やパネルから「この1冊」を
+    ///   名指しした操作だから。falseにするのは、**行き先がユーザーの名指しではなく、この
+    ///   ウインドウの中で完結すべき**次の3つだけ:
+    ///     ・次の本 / 前の本への移動(openSibling)。読んでいる最中に、たまたま次の本を
+    ///       別のウインドウでも開いていたというだけで、このウインドウが進まず別の
+    ///       ウインドウが前面に出てきては、ページ送りの延長という操作の性質が壊れる。
+    ///     ・フォルダブラウザを移動した先の画像の表示(ContentView.onBrowseToFolder)。
+    ///       こちらも「移動した結果そこが映る」だけの操作で、開く指示ではない。
+    ///     ・「このフォルダの画像をすべて開く」(openAllImagesInCurrentFolder)。今見ている
+    ///       ページに着地させるためのpendingInitialPageをこのAppStateに積んでから開くので、
+    ///       別のウインドウへ渡すと着地先を失う。
+    ///   加えて、ウインドウが自分の初期値として受け取った本(ContentView.initialRequest)も
+    ///   false ―― そのウインドウは**その本のために作られた**もので、ここで譲ると中身の無い
+    ///   ウインドウだけが残る(そもそも作る前にBookWindowOpenerが同じ判定を済ませている)。
+    func open(request: BookOpenRequest, reusesExistingWindow: Bool = true) {
+        // ユーザー要望: 同じ本を、同じ性質のウインドウ/タブで二重に開かない。既に開いて
+        // いるものがあれば、そちらを前面に出すだけにする(ページ位置はそのまま。向こうで
+        // 読み進めた位置を巻き戻さない)。
+        //
+        // 判定は「新しいウインドウ/タブで開く」経路(BookWindowOpener)と**同じもの**を使う。
+        // 同じ本かどうかはパス、同じ性質かどうかはisPrivateWindowで見る ―― 記録の残る
+        // ウインドウで開きたいのに、同じ本を開いているシークレットウインドウが前面に出て
+        // きては、開いたつもりの記録がどこにも残らない(その逆も同じ)。
+        // 複数の画像を1冊にまとめる要求は対象外(まとめた本は「同じ本」という同一性を
+        // 持たない。LaunchCoordinator.openAppState(forBookAt:isPrivate:)参照)。
+        //
+        // 自分自身は対象にしない。同じ本をこのウインドウでもう一度開くのは「開き直し」で
+        // あって二重に開くことではないため、従来どおり読み込み直す。
+        if reusesExistingWindow, !request.bundlesMultipleImages,
+           let url = request.primaryURL,
+           let existingAppState = launchCoordinator?.openAppState(forBookAt: url, isPrivate: isPrivateWindow),
+           existingAppState !== self,
+           let existingWindow = existingAppState.hostWindow {
+            existingWindow.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
         // セキュリティスコープを実際に開き始める**前**に上限で頭を押さえる
         // (BookOpenRequest.exceedsImageSelectionLimitのコメント参照)。
@@ -802,7 +854,9 @@ final class AppState: ObservableObject {
     func openSibling(after currentURL: URL) {
         Task { [weak self] in
             guard let next = await SiblingFinder.url(after: currentURL) else { return }
-            self?.open(url: next)
+            // ページ送りの延長なので、別のウインドウへ譲らない
+            // (open(request:reusesExistingWindow:)のコメント参照)。
+            self?.open(url: next, reusesExistingWindow: false)
         }
     }
 
@@ -810,7 +864,8 @@ final class AppState: ObservableObject {
     func openSibling(before currentURL: URL) {
         Task { [weak self] in
             guard let previous = await SiblingFinder.url(before: currentURL) else { return }
-            self?.open(url: previous)
+            // 次の本への移動と同じ理由で、別のウインドウへ譲らない。
+            self?.open(url: previous, reusesExistingWindow: false)
         }
     }
 
@@ -865,7 +920,9 @@ final class AppState: ObservableObject {
         // フォルダの本のidはフォルダのパスそのもの(BookLoader.loadFolder)なので、
         // 開く前にpendingInitialPageの宛先を確定できる。
         pendingInitialPage = PendingInitialPage(bookID: folderURL.path, pageID: pageURL.path)
-        open(url: folderURL)
+        // 今見ているページへ着地させるpendingInitialPageはこのAppStateに積んであるので、
+        // 別のウインドウへ譲ると着地先を失う(open(request:reusesExistingWindow:)のコメント参照)。
+        open(url: folderURL, reusesExistingWindow: false)
     }
 
     /// 今表示しているページの実ファイルURL(そのページがフォルダ内の独立した画像の場合のみ)。

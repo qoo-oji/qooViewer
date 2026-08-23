@@ -33,6 +33,19 @@ nonisolated enum DirectoryBrowser {
         let typeDescription: String?
         let creationDate: Date?
         let modificationDate: Date?
+        /// **フォルダの行だけ**: 直下に画像ファイルが1つでもあるか(= このフォルダ自体が
+        /// 1冊の本か)。ファイルの行では常にfalse。
+        ///
+        /// 「開く」系のコンテキストメニューを出すかどうか(中間フォルダには開くべき本が
+        /// 無いので出さない)と、ダブルクリックが「本として開く」「移動する」のどちらに
+        /// なるかの判定に使う。
+        ///
+        /// **他の属性と同じく、一覧を読み込む時点で確定させておく**(この型の冒頭のコメント
+        /// 参照)。SwiftUIの`.contextMenu`の中身は右クリックの瞬間ではなく行の本体評価の
+        /// 一部として組み立てられるため、ここを計算プロパティにすると、絞り込みの1文字ごとに
+        /// 表示中の全フォルダぶんのディスクI/Oが走ることになる ―― displayNameを格納
+        /// プロパティへ移したのとまったく同じ問題。
+        let containsImageFile: Bool
 
         var id: String { url.path }
     }
@@ -132,7 +145,13 @@ nonisolated enum DirectoryBrowser {
             fileSize: fileSize,
             typeDescription: typeDescription(for: url, isDirectory: isDirectory, cache: &kindCache),
             creationDate: values?.creationDate,
-            modificationDate: values?.contentModificationDate
+            modificationDate: values?.contentModificationDate,
+            // ファイルは中身を持たないので調べない。フォルダは1件につき1回の列挙が増えるが、
+            // 画像が見つかった時点で打ち切るため、画像フォルダなら最初の数件で終わる
+            // (directlyContainsImageFileのコメント参照)。この関数はもともと
+            // listingAsync/entriesAsync/mountedVolumeEntriesAsync経由でメインスレッド外から
+            // 呼ばれる。
+            containsImageFile: isDirectory && directlyContainsImageFile(url)
         )
     }
 
@@ -241,13 +260,24 @@ nonisolated enum DirectoryBrowser {
     /// サイドパネルの「開く・移動をダブルクリックにする」設定時、フォルダへのダブル
     /// クリックが「画像フォルダとして本を開く」「フォルダへ移動する」のどちらになるかを
     /// 判定するために使う(ユーザー要望: 直下に画像があれば本として開き、無ければ移動)。
-    /// 見つかり次第すぐ打ち切るため、最初の1件を探すだけの軽い処理(全件列挙・ソートは
-    /// 行わない)。読み取れない場合はfalse(その場合はSidePanelView側で「移動」扱いになる)。
+    /// 読み取れない場合はfalse(その場合はSidePanelView側で「移動」扱いになる)。
+    ///
+    /// 一覧の読み込みではフォルダ1件につき1回これを呼ぶ(Entry.containsImageFile)ため、
+    /// **本当に途中で打ち切れる**列挙を使う。以前は`contentsOfDirectory(at:)`で全件ぶんの
+    /// URLを組み立ててから`contains`で探しており、「見つかり次第打ち切る」と書いてはあった
+    /// ものの、実際に節約できていたのは`isImageFile`の判定だけで、ディスクの読み取りと
+    /// URLの生成は毎回全件ぶん走っていた。`enumerator`は必要になるまで次を読まないので、
+    /// 画像フォルダなら最初の数件で終わる。
     static func directlyContainsImageFile(_ directory: URL) -> Bool {
-        guard let children = try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
         ) else { return false }
-        return children.contains { isImageFile($0.lastPathComponent) }
+        while let url = enumerator.nextObject() as? URL {
+            if isImageFile(url.lastPathComponent) { return true }
+        }
+        return false
     }
 
     /// 上記をメインスレッド外(Task.detached)で実行する版。SiblingFinder.siblingBookURLsAsyncと

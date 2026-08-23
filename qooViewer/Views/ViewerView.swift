@@ -116,7 +116,7 @@ struct ViewerView: View {
     /// 閉じるまでブロックされるため、厳密には@Stateに保持しなくても呼び出し元のローカル変数の
     /// 生存期間だけで足りるはずだが、念のためこのビューの寿命に紐づけて保持している。
     @State private var favoritesMenuBridge: FavoritesNSMenuBridge?
-    /// 「新しいウインドウで開く」「新しいタブで開く」(openFavoriteInNewWindow/openFavoriteInNewTab)
+    /// 「新しいウインドウで開く」「新しいタブで開く」(openFavorite(_:to:) → BookWindowOpener)
     /// で、指定したURLを持つ新しいウインドウをSwiftUIに作らせるための仕組み。
     @Environment(\.openWindow) private var openWindow
     /// このビューを表示しているウインドウ本体。フルスクリーンの入退場通知の登録・解除や、
@@ -3485,9 +3485,9 @@ struct ViewerView: View {
         case .replaceCurrentBook:
             appState.openFavorite(favorite)
         case .newTab:
-            openFavoriteInNewTab(favorite)
+            openFavorite(favorite, to: .newTab)
         case .newWindow:
-            openFavoriteInNewWindow(favorite)
+            openFavorite(favorite, to: .newWindow)
         }
     }
 
@@ -3676,73 +3676,32 @@ struct ViewerView: View {
         favoritesMenuBridge = nil
     }
 
-    /// 「お気に入り一覧」ボタン(またはショートカット)から、指定したお気に入りを新しいウインドウで開く。
-    /// QooViewerApp.openInNewWindowと同じポーリング方式で、開いたウインドウをこのウインドウと
-    /// 同じサイズ・カスケード位置に整える(詳細はそちらのコメント参照)。ここではメニューバーの
-    /// 実装と処理が重複するが、ViewerView自身はQooViewerApp側のprivateなヘルパーを直接呼べないため、
-    /// 同じ考え方をこちらでも実装している。
-    private func openFavoriteInNewWindow(_ favorite: FavoriteBook) {
+    /// 「お気に入り一覧」ボタン(またはショートカット)から、指定したお気に入りを新しい
+    /// ウインドウ/タブで開く。
+    ///
+    /// 以前はこの下に「ポーリングで増えたウインドウを見つけ、サイズと位置を整え、タブなら
+    /// 親へ追加する」という手順を、ウインドウ用とタブ用に1つずつ、計2つ書いていた。
+    /// 同じ手順がアプリ内に5つコピーされていた状態を解消するため、BookWindowOpenerへ
+    /// 集約してある(そちらの型コメント参照)。移行にともなって、この経路にも
+    /// 「すでに同じ本を開いているウインドウがあればそれを前面に出す」重複判定と、
+    /// カスケード位置が画面からはみ出す場合の押し戻しが入る(メニューバー経由の
+    /// 「新しいウインドウ/タブで開く」と挙動が揃う)。
+    ///
+    /// 見つからなかった場合は、通常の「開く」(AppState.openFavorite)と同じくアラートを出す。
+    private func openFavorite(_ favorite: FavoriteBook, to destination: BookOpenDestination) {
         guard let url = favoritesStore.resolvedExistingURL(for: favorite) else {
             appState.missingFavorite = favorite
             return
         }
-        SecurityScopedHandoff.begin(url)
-        let previousWindow = hostWindow
-        let existingIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
-        // このウインドウから派生した操作なので、シークレットかどうかはこのウインドウに揃える
-        // (BookWindowGroup参照)。
-        openWindow(id: BookWindowGroup.id(inheritingFrom: appState), value: BookOpenRequest(url))
-        Task { @MainActor in
-            for _ in 0..<20 {
-                try? await Task.sleep(nanoseconds: 25_000_000)
-                if let newWindow = NSApp.windows.first(where: { !existingIDs.contains(ObjectIdentifier($0)) }) {
-                    if let previousWindow {
-                        var frame = newWindow.frame
-                        frame.size = previousWindow.frame.size
-                        frame.origin = CGPoint(
-                            x: previousWindow.frame.origin.x + 48,
-                            y: previousWindow.frame.origin.y - 48
-                        )
-                        newWindow.setFrame(frame, display: true)
-                    }
-                    newWindow.makeKeyAndOrderFront(nil)
-                    NSApp.activate(ignoringOtherApps: true)
-                    break
-                }
-            }
-        }
-    }
-
-    /// 「お気に入り一覧」ボタン(またはショートカット)から、指定したお気に入りを新しいタブで開く。
-    private func openFavoriteInNewTab(_ favorite: FavoriteBook) {
-        guard let url = favoritesStore.resolvedExistingURL(for: favorite) else {
-            appState.missingFavorite = favorite
-            return
-        }
-        guard let hostWindow else {
-            openFavoriteInNewWindow(favorite)
-            return
-        }
-        SecurityScopedHandoff.begin(url)
-        let existingIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
-        // このウインドウから派生した操作なので、シークレットかどうかはこのウインドウに揃える
-        // (BookWindowGroup参照)。
-        openWindow(id: BookWindowGroup.id(inheritingFrom: appState), value: BookOpenRequest(url))
-        Task { @MainActor in
-            for _ in 0..<20 {
-                try? await Task.sleep(nanoseconds: 25_000_000)
-                if let newWindow = NSApp.windows.first(where: { !existingIDs.contains(ObjectIdentifier($0)) }) {
-                    var frame = newWindow.frame
-                    frame.size = hostWindow.frame.size
-                    frame.origin = hostWindow.frame.origin
-                    newWindow.setFrame(frame, display: true)
-                    hostWindow.addTabbedWindow(newWindow, ordered: .above)
-                    newWindow.makeKeyAndOrderFront(nil)
-                    NSApp.activate(ignoringOtherApps: true)
-                    break
-                }
-            }
-        }
+        // このウインドウから派生した操作なので、シークレットかどうか・タブの追加先は
+        // このウインドウに揃える(BookWindowGroup / BookWindowOpener参照)。
+        BookWindowOpener.open(
+            BookOpenRequest(url),
+            to: destination,
+            from: appState,
+            launchCoordinator: launchCoordinator,
+            openWindow: openWindow
+        )
     }
 
     /// 見開きの左/右ページを原寸大の別ウインドウで表示する(cooViewerの「実寸表示ウィンドウ」相当)。

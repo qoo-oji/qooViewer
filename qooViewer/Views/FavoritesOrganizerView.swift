@@ -20,8 +20,8 @@ struct FavoritesOrganizerView: View {
     /// 右ペインでお気に入りをダブルクリックして開いたときの挙動(favoriteOpenBehavior)を
     /// 判定するために必要(openFavoriteAccordingToPreference参照)。
     @EnvironmentObject private var preferences: AppPreferences
-    /// ダブルクリックでお気に入りを新しいウインドウ/タブとして開くために使う
-    /// (openFavoriteInNewWindow/openFavoriteInNewTab参照)。
+    /// ダブルクリック・右クリックメニューでお気に入りを新しいウインドウ/タブとして開くために
+    /// 使う(openFavorite(_:to:relativeTo:) → BookWindowOpener参照)。
     @Environment(\.openWindow) private var openWindow
 
     /// nilは「お気に入りの一番上の階層(ルート直下)」を表す。
@@ -323,6 +323,29 @@ struct FavoritesOrganizerView: View {
                             selectedEntryID == entry.id ? Color.accentColor.opacity(0.15) : Color.clear
                         )
                         .contextMenu {
+                            // ユーザー要望: サイドパネルの本の行と同じ「開き方」の項目を、
+                            // ここにも同じ並びで置く(BookOpenContextMenuItems)。
+                            // 「開く」に相当するのはダブルクリック(環境設定
+                            // 「お気に入りを開くとき」に従う)なので、ここでは
+                            // openFavoriteAccordingToPreferenceを呼ぶ形で1項目として出す。
+                            //
+                            // 派生元は「今読んでいる本のウインドウ」―― このウインドウ自体は
+                            // 特定の本には属さない独立ウインドウなので、ダブルクリックの経路
+                            // (openFavoriteAccordingToPreference)とまったく同じ探し方をする。
+                            //
+                            // その探索は**選ばれた時点**で行うこと。`.contextMenu`の中身は
+                            // 行の本体評価の一部として組み立てられるため、ここで直に呼ぶと
+                            // 表示中の全行ぶん走るうえ、メニューを開いてから選ぶまでの間に
+                            // 手前のウインドウが変わっても古い答えのままになる。
+                            BookOpenContextMenuItems(
+                                onOpen: { openFavoriteAccordingToPreference(favorite) },
+                                onOpenIn: { destination in
+                                    let activeAppState = launchCoordinator.activeBookAppState
+                                        ?? launchCoordinator.frontmostContentAppState()
+                                    openFavorite(favorite, to: destination, relativeTo: activeAppState)
+                                }
+                            )
+                            Divider()
                             Button("Rename") {
                                 // 上のフォルダの「Rename」と同じ対策(詳細はそちらのコメント参照)。
                                 renameText = ""
@@ -561,7 +584,7 @@ struct FavoritesOrganizerView: View {
     /// コンテンツウインドウが無い場合)にのみ新しいウインドウを開くようにする。
     private func openFavoriteAccordingToPreference(_ favorite: FavoriteBook) {
         guard let activeAppState = launchCoordinator.activeBookAppState ?? launchCoordinator.frontmostContentAppState() else {
-            openFavoriteInNewWindow(favorite, relativeTo: nil)
+            openFavorite(favorite, to: .newWindow, relativeTo: nil)
             return
         }
         guard activeAppState.currentBook != nil else {
@@ -576,80 +599,39 @@ struct FavoritesOrganizerView: View {
             activeAppState.hostWindow?.makeKeyAndOrderFront(nil)
             closeEditorWindow()
         case .newTab:
-            openFavoriteInNewTab(favorite, relativeTo: activeAppState)
+            openFavorite(favorite, to: .newTab, relativeTo: activeAppState)
         case .newWindow:
-            openFavoriteInNewWindow(favorite, relativeTo: activeAppState)
+            openFavorite(favorite, to: .newWindow, relativeTo: activeAppState)
         }
     }
 
-    /// 指定したお気に入りを新しいウインドウで開く(ViewerView.openFavoriteInNewWindowと
-    /// 同じ考え方)。relativeToに今読んでいる本のAppStateを渡した場合は、そのウインドウと
-    /// 少しずらして表示する(カスケード)。無い場合(本を1つも開いていない場合)はそのまま表示する。
-    private func openFavoriteInNewWindow(_ favorite: FavoriteBook, relativeTo activeAppState: AppState?) {
+    /// 指定したお気に入りを、新しいウインドウ/タブで開く。
+    ///
+    /// 以前はここに「ポーリングで増えたウインドウを見つけ、サイズと位置を整え、タブなら親へ
+    /// 追加する」という手順をウインドウ用とタブ用に1つずつ書いていたが、同じ手順が
+    /// アプリ内に5つコピーされていた状態を解消するためBookWindowOpenerへ集約した
+    /// (そちらの型コメント参照)。
+    ///
+    /// - Parameter activeAppState: 今読んでいる本のウインドウ(あれば)。新しいウインドウの
+    ///   サイズとカスケードの基準、タブの追加先、シークレットの引き継ぎ元になる。
+    ///   本を1つも開いていない場合はnilで、そのときは環境設定に従った素の新しいウインドウ
+    ///   として開く(`.newTab`を指定していてもタブの追加先が無いため新しいウインドウになる)。
+    private func openFavorite(
+        _ favorite: FavoriteBook, to destination: BookOpenDestination, relativeTo activeAppState: AppState?
+    ) {
         guard let url = favoritesStore.resolvedExistingURL(for: favorite) else {
             activeAppState?.missingFavorite = favorite
             return
         }
-        SecurityScopedHandoff.begin(url)
-        let previousWindow = activeAppState?.hostWindow
-        let existingIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
-        // 今読んでいる本のウインドウ(あれば)の性質を引き継ぐ。無ければ環境設定に従う
-        // (BookWindowGroup参照)。
-        openWindow(id: BookWindowGroup.id(inheritingFrom: activeAppState), value: BookOpenRequest(url))
-        Task { @MainActor in
-            for _ in 0..<20 {
-                try? await Task.sleep(nanoseconds: 25_000_000)
-                if let newWindow = NSApp.windows.first(where: { !existingIDs.contains(ObjectIdentifier($0)) }) {
-                    if let previousWindow {
-                        var frame = newWindow.frame
-                        frame.size = previousWindow.frame.size
-                        frame.origin = CGPoint(
-                            x: previousWindow.frame.origin.x + 48,
-                            y: previousWindow.frame.origin.y - 48
-                        )
-                        newWindow.setFrame(frame, display: true)
-                    }
-                    newWindow.makeKeyAndOrderFront(nil)
-                    NSApp.activate(ignoringOtherApps: true)
-                    closeEditorWindow()
-                    break
-                }
-            }
-        }
-    }
-
-    /// 指定したお気に入りを、今読んでいる本のウインドウに新しいタブとして開く
-    /// (ViewerView.openFavoriteInNewTabと同じ考え方)。
-    private func openFavoriteInNewTab(_ favorite: FavoriteBook, relativeTo activeAppState: AppState) {
-        guard let url = favoritesStore.resolvedExistingURL(for: favorite) else {
-            activeAppState.missingFavorite = favorite
-            return
-        }
-        guard let hostWindow = activeAppState.hostWindow else {
-            openFavoriteInNewWindow(favorite, relativeTo: activeAppState)
-            return
-        }
-        SecurityScopedHandoff.begin(url)
-        let existingIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
-        // 今読んでいる本のウインドウ(あれば)の性質を引き継ぐ。無ければ環境設定に従う
-        // (BookWindowGroup参照)。
-        openWindow(id: BookWindowGroup.id(inheritingFrom: activeAppState), value: BookOpenRequest(url))
-        Task { @MainActor in
-            for _ in 0..<20 {
-                try? await Task.sleep(nanoseconds: 25_000_000)
-                if let newWindow = NSApp.windows.first(where: { !existingIDs.contains(ObjectIdentifier($0)) }) {
-                    var frame = newWindow.frame
-                    frame.size = hostWindow.frame.size
-                    frame.origin = hostWindow.frame.origin
-                    newWindow.setFrame(frame, display: true)
-                    hostWindow.addTabbedWindow(newWindow, ordered: .above)
-                    newWindow.makeKeyAndOrderFront(nil)
-                    NSApp.activate(ignoringOtherApps: true)
-                    closeEditorWindow()
-                    break
-                }
-            }
-        }
+        BookWindowOpener.open(
+            BookOpenRequest(url),
+            to: destination,
+            from: activeAppState,
+            launchCoordinator: launchCoordinator,
+            openWindow: openWindow,
+            // 開き終えたらこの整理ウインドウは役目を終える(従来どおり)。
+            onOpened: { closeEditorWindow() }
+        )
     }
 
     /// ツールバーの「Add This Book」ボタンから呼ぶ。今読んでいる本を、現在選択中のフォルダへ
@@ -682,9 +664,9 @@ struct FavoritesOrganizerView: View {
     /// 新しいウインドウ)で実際に開かれ、ビューアウインドウへフォーカスが移った直後に呼ぶ。
     /// このウインドウ(お気に入りの整理ウインドウ)自身はもう用済みなので、自動的に閉じる
     /// (要望: 本を開いたら/ページへジャンプしたら、その操作の元になった編集ウインドウは
-    /// 自動的に閉じてほしい)。実体ファイルが見つからずopenFavoriteInNewWindow/
-    /// openFavoriteInNewTabがmissingFavoriteを立てて処理を打ち切った場合はこの関数自体が
-    /// 呼ばれないため、フォーカス移動を伴わない失敗時に誤って閉じてしまうことはない。
+    /// 自動的に閉じてほしい)。実体ファイルが見つからずopenFavorite(_:to:relativeTo:)が
+    /// missingFavoriteを立てて処理を打ち切った場合はこの関数自体が呼ばれないため、
+    /// フォーカス移動を伴わない失敗時に誤って閉じてしまうことはない。
     private func closeEditorWindow() {
         editorWindow?.close()
     }

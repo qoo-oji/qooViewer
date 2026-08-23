@@ -450,6 +450,9 @@ struct ContentView: View {
             appState.bookmarkStore = bookmarkStore
             appState.layoutStore = layoutStore
             appState.metadataStore = metadataStore
+            // 「同じ本を二重に開かない」判定のため
+            // (AppState.open(request:reusesExistingWindow:)参照)。
+            appState.launchCoordinator = launchCoordinator
             sidePanelBrowser.folderAccess = folderAccess
             sidePanelBrowser.preferences = preferences
             // 「ツールバーを隠す」「プログレスバーを隠す」「サイドパネルを隠す」は、前回終了時
@@ -473,7 +476,10 @@ struct ContentView: View {
             // 開いている一覧へ登録する(QooViewerApp.openInNewWindow参照)。
             launchCoordinator.registerOpenAppState(appState)
             if let initialRequest {
-                appState.open(request: initialRequest)
+                // このウインドウはこの本のために作られたので、既に同じ本を開いている
+                // ウインドウがあっても譲らない(譲ると中身の無いウインドウだけが残る。
+                // そもそも作る前にBookWindowOpenerが同じ判定を済ませている)。
+                appState.open(request: initialRequest, reusesExistingWindow: false)
             } else if appState.actsAsRegularWindow {
                 // 起動時の動作(フルスクリーン・前回の本を開く)は、あとから開いた
                 // シークレットウインドウでは行わない。「シークレットモードで起動」がONの
@@ -606,6 +612,7 @@ struct ContentView: View {
                     appState.bookmarkStore = bookmarkStore
                     appState.layoutStore = layoutStore
                     appState.metadataStore = metadataStore
+                    appState.launchCoordinator = launchCoordinator
                     sidePanelBrowser.folderAccess = folderAccess
                     sidePanelBrowser.preferences = preferences
                     appState.hideToolbar = preferences.hideToolbar
@@ -845,11 +852,28 @@ struct ContentView: View {
             onBrowseToFolder: { url in
                 if dismissesOnAction { appState.isSidePanelRevealed = false }
                 // 履歴には残さない(SidePanelView.onBrowseToFolderのコメント参照)。
-                appState.open(url: url, recordsInHistory: false)
+                // 「開く」指示ではなく移動の結果そこが映るだけなので、同じ本を開いている
+                // 別のウインドウへも譲らない(AppState.open(request:reusesExistingWindow:)参照)。
+                appState.open(url: url, recordsInHistory: false, reusesExistingWindow: false)
             },
             onJumpToPage: { index in
                 appState.jumpToPageIndex?(index)
                 if dismissesOnAction { appState.isSidePanelRevealed = false }
+            },
+            // 行の右クリックからの「新規ノーマル/シークレットウインドウ・新規タブで開く」
+            // (ユーザー要望)。開き方の判断も実際の手順もBookWindowOpenerが1箇所で持つ。
+            // 派生元(from:)はこのウインドウのAppState ―― 新しいタブの追加先と、
+            // 「新規タブで開く」がシークレットを引き継ぐかどうかがここで決まる。
+            //
+            // パネルは閉じない(SidePanelView.onOpenInNewWindowのコメント参照)。
+            onOpenInNewWindow: { url, destination in
+                BookWindowOpener.open(
+                    BookOpenRequest(url),
+                    to: destination,
+                    from: appState,
+                    launchCoordinator: launchCoordinator,
+                    openWindow: openWindow
+                )
             },
             bookmarks: appState.currentBookmarks,
             currentPageIndex: appState.currentPageIndex,
@@ -868,6 +892,23 @@ struct ContentView: View {
             // 本を開いていないときはnil = ボタン自体がhasBook: falseで無効化されている。
             onAddFavorite: { appState.addFavoriteAction?() },
             onEditFavorites: { openWindow(id: "favoritesOrganizer") },
+            // お気に入りの行だけは、開く前にセキュリティスコープ付きブックマークを解決する
+            // 必要がある。見つからなければ通常の「開く」(AppState.openFavorite)と同じく
+            // アラートを出す(シークレットウインドウでは「お気に入りから削除」は出ない ――
+            // 保存データへの変更にあたるため。missingFavoriteの扱いはViewerView側が持つ)。
+            onOpenFavoriteInNewWindow: { favorite, destination in
+                guard let url = favoritesStore.resolvedExistingURL(for: favorite) else {
+                    appState.missingFavorite = favorite
+                    return
+                }
+                BookWindowOpener.open(
+                    BookOpenRequest(url),
+                    to: destination,
+                    from: appState,
+                    launchCoordinator: launchCoordinator,
+                    openWindow: openWindow
+                )
+            },
             onOpenFavorite: { favorite in
                 if dismissesOnAction { appState.isSidePanelRevealed = false }
                 // 環境設定「お気に入りを開くとき」(新しいタブ/ウインドウ)の判定はViewerViewが

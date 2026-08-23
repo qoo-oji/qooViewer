@@ -30,3 +30,28 @@ enum BookWindowGroup {
         return opensPrivately ? "private" : "book"
     }
 }
+
+extension BookWindowGroup {
+    /// 明示的な行き先(BookOpenDestination)から、使うWindowGroupのidを決める。
+    /// 「引き継ぐ」以外の選択肢が増えたことによる拡張で、判断をここ1箇所に集めておく意図は
+    /// 上の`id(inheritingFrom:)`とまったく同じ。
+    ///
+    /// - Parameter source: `.newWindow` / `.newTab`のときだけ意味を持つ派生元
+    ///   (`id(inheritingFrom:)`へそのまま渡す)。`.newNormalWindow` / `.newPrivateWindow`は
+    ///   ユーザーが性質そのものを選んでいるので、派生元も環境設定も見ない。
+    static func id(for destination: BookOpenDestination, inheritingFrom source: AppState?) -> String {
+        switch destination {
+        case .newWindow, .newTab:
+            return id(inheritingFrom: source)
+        case .newNormalWindow:
+            // "normal"ではなく"book"を使う。どちらも「常に通常ウインドウ」だが、"normal"は
+            // ウェルカム画面から始まる**値なし**のウインドウ専用で、リサイズの都合から
+            // `.windowResizability(.automatic)`にしてある。本を指定して開く場合は、
+            // 従来どおり`.contentSize`の"book"が正しい(QooViewerApp.swiftの両WindowGroupの
+            // コメント参照)。
+            return "book"
+        case .newPrivateWindow:
+            return "private"
+        }
+    }
+}
