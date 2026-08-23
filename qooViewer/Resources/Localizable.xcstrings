@@ -10225,6 +10225,22 @@
         }
       }
     },
+    "Show Preview": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡大プレビューの表示"
+          }
+        }
+      }
+    },
     "Show Recent Favorites": {
       "localizations": {
         "en": {

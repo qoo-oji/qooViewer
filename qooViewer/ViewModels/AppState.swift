@@ -228,6 +228,17 @@ final class AppState: ObservableObject {
     /// このAppStateが指すViewerViewModelにも反映される。詳細はBookmark.swift参照)。
     var addBookmarkAction: (() -> Void)?
 
+    /// **指定したページ**のブックマークを追加/削除する(ユーザー要望。ページ一覧パネル・
+    /// サイドパネルのページモード/本の中身ブラウザの、サムネイル右クリックから呼ぶ)。
+    ///
+    /// 上のaddBookmarkActionが「今表示しているページ」を対象にするのに対し、こちらは
+    /// 右クリックしたセル/行のページが対象。実装(トーストの表示、見開きの相方ページには
+    /// 触れないこと)はViewerView.toggleBookmark(atIndex:)が持つ。
+    ///
+    /// addBookmarkActionと同じく、シークレットウインドウとその場限りの本ではnilのままにする
+    /// (UI側でもグレーアウトするが、経路が増えても漏れないよう二重に止める)。
+    var toggleBookmarkAtIndex: ((Int) -> Void)?
+
     /// サイドパネル(ブックマークモード)の「お気に入りに追加」ボタンから、今開いている本を
     /// お気に入りへ登録するための橋渡し。登録先フォルダの選択シート
     /// (FavoriteFolderPickerView)はViewerViewが持っているため、addBookmarkActionと同じく

@@ -897,6 +897,10 @@ struct ContentView: View {
                 appState.jumpToPageIndex?(index)
                 if dismissesOnAction { appState.isSidePanelRevealed = false }
             },
+            // ページの右クリックからのブックマークの追加/削除(ユーザー要望)。実装は
+            // ViewerViewが持つため橋渡し越しに呼ぶ(AppState.toggleBookmarkAtIndex参照)。
+            // パネルは閉じない ―― 続けて別のページにも付けられるようにするため。
+            onToggleBookmarkAtPage: { index in appState.toggleBookmarkAtIndex?(index) },
             // 行の右クリックからの「新規ノーマル/シークレットウインドウ・新規タブで開く」
             // (ユーザー要望)。開き方の判断も実際の手順もBookWindowOpenerが1箇所で持つ。
             // 派生元(from:)はこのウインドウのAppState ―― 新しいタブの追加先と、

@@ -158,6 +158,27 @@ struct AppearanceSettingsView: View {
             // キャプションを出さない設定のときは、大きさを決めても何も起きない。
             .disabled(preferences.thumbnailGridCaptionStyle == .none)
             SettingsPicker("Current Page Highlight", selection: borderColorSelection)
+            // サムネイルにカーソルを合わせたときの拡大プレビュー。**この2つはページ一覧に
+            // しか効かない**ため、環境設定「閲覧中の動作」の「サムネイルプレビュー」から
+            // ここへ移した(ユーザーの指摘: あちらには4箇所すべてに効く「表示までの時間」も
+            // 並んでいて、どれがどこに効くのか分からない)。あちらには共通の項目だけが残っている。
+            //
+            // サイドパネルのページモード・ブックマーク/レイアウトの編集・書き出しウインドウの
+            // 同種のプレビューは、この設定に関わらず常に出る(ユーザー指示: あれらのサムネイルは
+            // サイズ調整が無く、拡大が無いと何のページか分からなくなるため)。
+            SettingsToggle(
+                "Show a Larger Preview on Hover",
+                isOn: $preferences.showThumbnailHoverPreview,
+                help: "Applies to the page list only."
+            )
+            SettingsToggle(
+                "Preload Previews for Visible Thumbnails",
+                isOn: $preferences.preloadThumbnailGridPreviews,
+                help: "In the page list, decodes the full-size image of every thumbnail on screen in advance so the preview appears immediately. Uses more memory and CPU."
+            )
+            // プレビューを出さない設定のときは、先読みしても何も起きない
+            // (すぐ上のキャプションの大きさと同じ考え方)。
+            .disabled(!preferences.showThumbnailHoverPreview)
         } header: {
             Text("Page List")
         }

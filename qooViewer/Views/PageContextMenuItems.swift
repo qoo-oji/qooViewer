@@ -17,7 +17,33 @@ struct PageContextMenuItems: View {
     /// (本を開いていない・書き出しの橋渡しがまだ張られていない場合)。
     var onExport: (() -> Void)?
 
+    /// このページに既にブックマークが付いているか。項目の文言を「追加」「削除」で切り替える
+    /// (ユーザーの指示)。ツールバー・メニューバー・ビューアの右クリックと同じトグルの作法で、
+    /// **文言そのものが登録状態を伝える** ―― ページ一覧パネルにはブックマークの印が無いため、
+    /// ここだけは文言が唯一の手がかりになる。
+    var isBookmarked = false
+
+    /// falseなら、ブックマークの項目を出したまま無効にする(シークレットウインドウと、
+    /// 画像を直接開いたその場限りの本)。それらのウインドウでは登録・編集の項目を
+    /// 「消す」のではなく「グレーアウトする」のが、このアプリ全体の約束
+    /// (AppState.isPrivateWindowのコメント参照)。
+    var allowsBookmarking = true
+
+    /// ブックマークの追加/削除。nilなら項目自体を出さない(橋渡しがまだ張られていない場合。
+    /// onExportと同じ扱い)。実装はViewerView.toggleBookmark(atIndex:)で、常にこの1ページ
+    /// だけを対象にする(見開きの相方ページには触れない)。
+    var onToggleBookmark: (() -> Void)?
+
     var body: some View {
+        // ページそのものへの操作なので、ファイル側の操作(Finder・書き出し)より前に置き、
+        // 区切り線で分ける。
+        if let onToggleBookmark {
+            Button(isBookmarked ? "Remove This Page from Bookmarks" : "Add This Page to Bookmarks") {
+                onToggleBookmark()
+            }
+            .disabled(!allowsBookmarking)
+            Divider()
+        }
         Button("Show in Finder") {
             FinderReveal.reveal(PageFileAccess.revealTargetURL(for: page, bookSourceURL: bookSourceURL))
         }

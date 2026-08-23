@@ -40,10 +40,15 @@ struct ReadingSettingsView: View {
                 Text("Progress Bar")
             }
 
-            // ページ一覧(サムネイルグリッド)の**見た目**(サムネイルの大きさ・間隔・余白・
-            // キャプション・枠の色)は「外観」画面へ移した(ユーザー要望: アプリの外観に
-            // 関するものは1画面へ集約する)。ここに残しているのは、見た目ではなく
-            // 「操作にどう応じるか」の設定だけ。
+            // ページ一覧(サムネイルグリッド)にしか効かない設定は、見た目(サムネイルの
+            // 大きさ・間隔・余白・キャプション・枠の色)も拡大プレビューのON/OFF・先読みも、
+            // すべて「外観」画面の「ページ一覧」セクションへ集めてある。
+            // ここに残しているのは、ページ一覧の「操作にどう応じるか」だけ。
+            //
+            // 拡大プレビューの2項目を移したのはユーザーの指摘による(「サムネイルプレビュー」
+            // という見出しの下に、ページ一覧専用の項目と全箇所共通の項目が混ざっていて、
+            // どれがどこに効くのか分からない)。**効く範囲が同じものだけを1つの見出しの下に
+            // 置く**、という切り分けにしてある。
             Section {
                 SettingsSlider(
                     "Rows per Wheel Notch",
@@ -61,16 +66,11 @@ struct ReadingSettingsView: View {
                 Text("Page List")
             }
 
-            // サムネイルのホバー拡大プレビュー(ページ一覧・サイドパネル・ブックマーク編集・
-            // 書き出しウインドウ共通)。ユーザー要望: 出るまでを速くしたい/出ないようにしたい。
+            // サムネイルのホバー拡大プレビューのうち、**4箇所すべてに共通で効くもの**だけを
+            // ここに置く(ページ一覧・サイドパネルのページモード・ブックマーク/レイアウトの編集・
+            // 書き出しウインドウ)。ページ一覧にしか効かないON/OFFと先読みは「外観」画面の
+            // 「ページ一覧」セクションへ移してある(すぐ上のコメント参照)。
             Section {
-                // ON/OFFはページ一覧だけ(ユーザー指示: サイドパネルやブックマーク編集のサムネイルは
-                // サイズ調整が無く、拡大が無いと何のページか分からなくなる)。遅延は全箇所共通。
-                SettingsToggle(
-                    "Show a Larger Preview on Hover",
-                    isOn: $preferences.showThumbnailHoverPreview,
-                    help: "Applies to the page list only."
-                )
                 SettingsSlider(
                     "Delay Before Showing",
                     value: $preferences.thumbnailHoverPreviewDelay,
@@ -80,12 +80,6 @@ struct ReadingSettingsView: View {
                 ) { value in
                     String(format: "%.2f s", value)
                 }
-                SettingsToggle(
-                    "Preload Previews for Visible Thumbnails",
-                    isOn: $preferences.preloadThumbnailGridPreviews,
-                    help: "In the page list, decodes the full-size image of every thumbnail on screen in advance so the preview appears immediately. Uses more memory and CPU."
-                )
-                .disabled(!preferences.showThumbnailHoverPreview)
             } header: {
                 Text("Thumbnail Preview")
             }

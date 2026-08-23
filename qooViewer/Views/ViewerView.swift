@@ -305,6 +305,11 @@ struct ViewerView: View {
         appState.addBookmarkAction = {
             viewModel.addBookmark()
         }
+        // ページ一覧パネル・サイドパネルのサムネイル右クリックから、そのページ1枚を対象に
+        // ブックマークを追加/削除するための橋渡し(AppState.toggleBookmarkAtIndex参照)。
+        appState.toggleBookmarkAtIndex = { index in
+            toggleBookmark(atIndex: index)
+        }
         // サイドパネル(ブックマークモード)の「お気に入りに追加」ボタン・お気に入りツリーの
         // 橋渡し(AppState.addFavoriteAction/openFavoriteActionのコメント参照)。登録先フォルダの
         // 選択シート・「お気に入りを開くとき」の判定はどちらもこのViewerViewが持っているため、
@@ -373,6 +378,7 @@ struct ViewerView: View {
         // activeBookAppState経由でこれらを呼ぶ経路もあるため、クロージャ自体を空けておく。
         if viewModel.skipsPersistence {
             appState.addBookmarkAction = nil
+            appState.toggleBookmarkAtIndex = nil
             appState.addFavoriteAction = nil
             appState.performLayoutStateChange = nil
             appState.performLayoutClear = nil
@@ -805,6 +811,7 @@ struct ViewerView: View {
         appState.jumpToBookmark = nil
         appState.jumpToPageIndex = nil
         appState.addBookmarkAction = nil
+        appState.toggleBookmarkAtIndex = nil
         appState.addFavoriteAction = nil
         appState.openFavoriteAction = nil
         appState.hideAutoRevealedChrome = nil
@@ -1112,6 +1119,9 @@ struct ViewerView: View {
                         viewModel: viewModel,
                         isPresented: $showThumbnailGrid,
                         onExportPage: { exportImage(.singlePage(index: $0)) },
+                        // 右クリックの「このページをブックマークに追加/削除」(ユーザー要望)。
+                        // ビューアの右クリックと同じ、クリックした1ページだけを対象にするトグル。
+                        onToggleBookmark: { toggleBookmark(atIndex: $0) },
                         onPanelScreenFrameChange: { thumbnailPanelScreenFrame = $0 },
                         wheelMonitor: $thumbnailGridWheelMonitor
                     )

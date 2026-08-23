@@ -73,6 +73,10 @@ struct SidePanelView: View {
     var onBrowseToFolder: (URL) -> Void
     /// 下段で、既に本のページ一覧に含まれている画像をダブルクリックしたときのジャンプ。
     var onJumpToPage: (Int) -> Void
+    /// ページの右クリック →「このページをブックマークに追加/削除」(ユーザー要望)。
+    /// ページモードと本の中身ブラウザの両方から呼ばれ、中身はページ一覧パネルと共通
+    /// (PageContextMenuItems参照)。実装はViewerViewが持つため橋渡しのクロージャで受け取る。
+    var onToggleBookmarkAtPage: (Int) -> Void
     /// 行の右クリックから、その本を新しいウインドウ/タブで開く(BookOpenContextMenuItems)。
     /// フォルダブラウザ(上段)と履歴モードの行から呼ばれる。お気に入りは対象がURLでは
     /// なくFavoriteBookなので、下の専用のクロージャを使う。
@@ -253,13 +257,15 @@ struct SidePanelView: View {
                     pages: bookPages,
                     bookSourceURL: bookSourceURL,
                     currentPageIndex: currentPageIndex,
-                    bookmarkedPageIndices: Set(bookmarks.map(\.pageIndex)),
+                    bookmarkedPageIndices: bookmarkedPageIndices,
+                    allowsBookmarking: allowsLibraryEditing,
                     thumbnailGeneration: pageThumbnailGeneration,
                     loadThumbnail: loadPageThumbnail,
                     loadPageImage: loadPageImage,
                     previewArrowEdge: position.innerEdge,
                     onJumpToPage: onJumpToPage,
-                    onExportPage: onExportPage
+                    onExportPage: onExportPage,
+                    onToggleBookmark: onToggleBookmarkAtPage
                 )
             }
         }
@@ -280,9 +286,12 @@ struct SidePanelView: View {
                         state: bookContentsState,
                         bookPages: bookPages,
                         bookSourceURL: bookSourceURL,
+                        bookmarkedPageIndices: bookmarkedPageIndices,
+                        allowsBookmarking: allowsLibraryEditing,
                         onOpen: onOpen,
                         onJumpToPage: onJumpToPage,
-                        onExportPage: onExportPage
+                        onExportPage: onExportPage,
+                        onToggleBookmark: onToggleBookmarkAtPage
                     )
                     .frame(maxHeight: .infinity)
                     .clipped()
@@ -601,6 +610,14 @@ struct SidePanelView: View {
 
     /// 絞り込み検索欄(folderFilterText)を適用した一覧。空欄のときは全件そのまま
     /// (フォルダ・ファイルの区別はせず、表示名に対する大文字小文字を区別しない部分一致で絞る)。
+    /// ブックマークが付いているページ番号の集合。ページモードの行のしおりアイコンと、
+    /// 右クリックメニューの文言(追加/削除)の両方が使う。
+    ///
+    /// **2つの区画へ同じ集合を渡すため、ここで一度だけ組む。** `.contextMenu`の中身は行の
+    /// 本体評価の一部として組み立てられる(SidePanelContextMenuHighlightの型コメント参照)ので、
+    /// 行ごとにbookmarksを走査させないこと。
+    private var bookmarkedPageIndices: Set<Int> { Set(bookmarks.map(\.pageIndex)) }
+
     private var filteredFolderEntries: [DirectoryBrowser.Entry] {
         let trimmed = folderFilterText.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return folderState.entries }
@@ -756,9 +773,14 @@ private struct BookContentsSectionView: View {
     @ObservedObject var state: BookContentsBrowserState
     var bookPages: [PageRef]
     var bookSourceURL: URL?
+    /// 右クリックメニューの文言(追加/削除)の判定用(SidePanelView.bookmarkedPageIndices参照)。
+    var bookmarkedPageIndices: Set<Int>
+    /// falseならブックマークの項目をグレーアウトする(SidePanelView.allowsLibraryEditing参照)。
+    var allowsBookmarking: Bool
     var onOpen: (URL) -> Void
     var onJumpToPage: (Int) -> Void
     var onExportPage: ((Int) -> Void)?
+    var onToggleBookmark: (Int) -> Void
 
     /// 上段と同じ絞り込み検索欄の入力内容(SidePanelView.folderFilterText参照)。
     /// 本の中の階層を移動したら空に戻す。
@@ -924,7 +946,10 @@ private struct BookContentsSectionView: View {
             PageContextMenuItems(
                 page: bookPages[index],
                 bookSourceURL: bookSourceURL,
-                onExport: onExportPage.map { export in { export(index) } }
+                onExport: onExportPage.map { export in { export(index) } },
+                isBookmarked: bookmarkedPageIndices.contains(index),
+                allowsBookmarking: allowsBookmarking,
+                onToggleBookmark: { onToggleBookmark(index) }
             )
         } else if let url = revealTargetURL(for: entry) {
             Button("Show in Finder") {
@@ -1553,8 +1578,11 @@ private struct SidePanelPagesSectionView: View {
     /// 本そのものの場所(右クリックの「Finderで開く」用。PageContextMenuItems参照)。
     var bookSourceURL: URL?
     var currentPageIndex: Int
-    /// ブックマークが付いているページ番号(0始まり)。一覧の行にしおりアイコンで示す。
+    /// ブックマークが付いているページ番号(0始まり)。一覧の行にしおりアイコンで示すほか、
+    /// 右クリックメニューの文言(追加/削除)の判定にも使う。
     var bookmarkedPageIndices: Set<Int>
+    /// falseならブックマークの項目をグレーアウトする(SidePanelView.allowsLibraryEditing参照)。
+    var allowsBookmarking: Bool
     var thumbnailGeneration: Int
     var loadThumbnail: ((Int) async -> CGImage?)?
     /// ホバー時の拡大プレビュー用(フル解像度)。
@@ -1564,6 +1592,8 @@ private struct SidePanelPagesSectionView: View {
     var onJumpToPage: (Int) -> Void
     /// 右クリックの「画像をエクスポート」(SidePanelView.onExportPage参照)。
     var onExportPage: ((Int) -> Void)?
+    /// 右クリックの「このページをブックマークに追加/削除」(SidePanelView.onToggleBookmarkAtPage参照)。
+    var onToggleBookmark: (Int) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1616,7 +1646,10 @@ private struct SidePanelPagesSectionView: View {
                                     PageContextMenuItems(
                                         page: pages[index],
                                         bookSourceURL: bookSourceURL,
-                                        onExport: onExportPage.map { export in { export(index) } }
+                                        onExport: onExportPage.map { export in { export(index) } },
+                                        isBookmarked: bookmarkedPageIndices.contains(index),
+                                        allowsBookmarking: allowsBookmarking,
+                                        onToggleBookmark: { onToggleBookmark(index) }
                                     )
                                 }
                             }

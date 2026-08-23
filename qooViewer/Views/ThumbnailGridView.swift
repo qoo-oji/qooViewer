@@ -25,6 +25,9 @@ struct ThumbnailGridView: View {
     /// サムネイルの右クリック →「画像をエクスポート」で呼ぶ処理(ユーザー要望)。
     /// 書き出しの実装はViewerViewが持っているため、ページ番号を渡すクロージャとして受け取る。
     var onExportPage: ((Int) -> Void)?
+    /// サムネイルの右クリック →「このページをブックマークに追加/削除」(ユーザー要望)。
+    /// onExportPageと同じ理由で、実装を持つViewerViewからクロージャとして受け取る。
+    var onToggleBookmark: ((Int) -> Void)?
 
     /// パネル本体(背景のマテリアルを持つ矩形)のスクリーン座標系でのフレームを報告する。
     /// ViewerViewが「パネルの外側をクリックしたら閉じる」判定に使う。以前はViewerView側で
@@ -181,10 +184,43 @@ struct ThumbnailGridView: View {
                         .font(.system(size: 16))
                         .foregroundStyle(.secondary)
                         .panelOutlinedContent()
+                    // 拡大プレビューのON/OFF(ユーザー要望)。環境設定「外観」→「ページ一覧」の
+                    // 「カーソルを合わせたら拡大プレビューを表示」とまったく同じ値
+                    // (AppPreferences.showThumbnailHoverPreview)で、どちらから変えても即座に
+                    // 両方へ反映される。読みながら切り替えたい設定なので、その場に口を出す。
+                    //
+                    // サムネイルサイズの3部品(小さいアイコン・スライダー・大きいアイコン)の
+                    // **右**に置く(ユーザーの指示)。あの3つで1つのまとまりなので、間に
+                    // 割り込ませず外側へ出してある。
+                    //
+                    // 見出しは画面に出さず、ツールチップだけにする(ユーザーの指示)。
+                    // 隣のスライダーも同じで、この行に文字を増やさず部品だけを並べる形に
+                    // 揃っている。ラベル自体はToggleに持たせたまま`.labelsHidden()`で
+                    // 隠すので、読み上げには従来どおり文言が伝わる。
+                    //
+                    // 面の塗りつぶし対策は`.panelControlWell()`。スイッチはONのとき
+                    // アクセントカラーで塗られ、つまみは白い部品なので、文字と同じ輪郭は
+                    // 掛けられない(つまみの落ち影までシルエットに含まれてにじむ)。
+                    // 隣のスライダーとまったく同じ理由・同じ対処になる
+                    // (panelControlWellのコメント参照)。
+                    Toggle(isOn: $preferences.showThumbnailHoverPreview) {
+                        Text("Show Preview")
+                    }
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .help("Show Preview")
+                    .panelControlWell()
                 }
                 .padding()
 
                 ScrollView {
+                    // 右クリックメニューの文言(追加/削除)を決めるためのページ番号の集合。
+                    // **ここで一度だけ組む。** `.contextMenu`の中身はセルの本体評価の一部として
+                    // 組み立てられる(SidePanelContextMenuHighlightの型コメント参照)ため、
+                    // セルごとにviewModel.bookmarksを走査すると、ページ数×ブックマーク数の
+                    // 走査が描画のたびに走る。
+                    let bookmarkedPageIndices = Set(viewModel.bookmarks.map(\.pageIndex))
                     LazyVGrid(columns: columns, spacing: CGFloat(preferences.thumbnailGridVerticalSpacing)) {
                         ForEach(0..<viewModel.pageCount, id: \.self) { index in
                             Button {
@@ -209,7 +245,11 @@ struct ThumbnailGridView: View {
                                     PageContextMenuItems(
                                         page: viewModel.book.pages[index],
                                         bookSourceURL: viewModel.book.sourceURL,
-                                        onExport: onExportPage.map { export in { export(index) } }
+                                        onExport: onExportPage.map { export in { export(index) } },
+                                        isBookmarked: bookmarkedPageIndices.contains(index),
+                                        // シークレットウインドウ・その場限りの本ではグレーアウト。
+                                        allowsBookmarking: !viewModel.skipsPersistence,
+                                        onToggleBookmark: onToggleBookmark.map { toggle in { toggle(index) } }
                                     )
                                 }
                             }
