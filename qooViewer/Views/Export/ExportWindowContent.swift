@@ -531,6 +531,8 @@ private struct ExportBookRowView: View {
 private struct ExportCoverPickerContent: View {
     let bookID: String
     @ObservedObject var viewModel: BookExportViewModel
+    /// PageLoaderのページキャッシュ上限(環境設定「キャッシュ」)を渡すため。
+    @EnvironmentObject private var preferences: AppPreferences
 
     @State private var loadedBook: MangaBook?
     @State private var loadFailed = false
@@ -591,7 +593,7 @@ private struct ExportCoverPickerContent: View {
                 return
             }
             loadedBook = book
-            pageLoader = PageLoader(book: book)
+            pageLoader = PageLoader(book: book, imageCacheLimitBytes: preferences.pageImageCacheLimitBytes)
         }
     }
 
@@ -720,7 +722,10 @@ private struct ExportCoverPickerPageRow: View {
         .padding(12)
         .task {
             guard previewImage == nil, let pageLoader else { return }
-            previewImage = await pageLoader.pageImage(at: index)
+            // ポップオーバーの枠に合わせた解像度で読む(ViewerViewModel.loadPreviewImage参照)。
+            previewImage = await pageLoader.gridThumbnail(
+                at: index, maxPixelSize: preferences.thumbnailHoverPreviewPixelSize
+            )
         }
     }
 }

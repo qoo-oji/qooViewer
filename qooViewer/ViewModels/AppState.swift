@@ -272,10 +272,11 @@ final class AppState: ObservableObject {
     var loadPageThumbnail: ((Int) async -> CGImage?)?
 
     /// サイドパネル(ページモード)の行のサムネイルにカーソルをホバーしたときの、拡大
-    /// プレビュー用のフル解像度画像を取得するための橋渡し(ユーザー要望。ページ一覧グリッド・
+    /// プレビュー用の画像を取得するための橋渡し(ユーザー要望。ページ一覧グリッド・
     /// 「ブックマーク・レイアウトの編集」ウインドウと同じ拡大プレビューをここでも出すため)。
     /// loadPageThumbnailは進捗バー用の低解像度サムネイルで、そのまま拡大すると粗くなるため、
-    /// プレビューにはこちら(ViewerViewModel.pageImage(at:))を使う。
+    /// プレビューにはこちら(ViewerViewModel.loadPreviewImage(at:)。ポップオーバーの枠に
+    /// 合わせた解像度)を使う。
     /// 登録・解除はloadPageThumbnailと同時に行われるため、世代番号も共用する。
     var loadPageImage: ((Int) async -> CGImage?)?
 

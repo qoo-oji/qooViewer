@@ -216,7 +216,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
             return
         }
         book = loaded
-        pageLoader = PageLoader(book: loaded)
+        pageLoader = PageLoader(book: loaded, imageCacheLimitBytes: preferences.pageImageCacheLimitBytes)
         pageLoaderGeneration &+= 1
         isBookReady = true
 
@@ -317,12 +317,13 @@ final class BookLayoutEditorViewModel: ObservableObject {
         await pageLoader?.thumbnail(at: rawIndex)
     }
 
-    /// フル解像度の画像を取得する。行のサムネイルにカーソルをホバーしたときの拡大プレビュー
-    /// (ユーザー要望)専用。thumbnail(rawIndex:)は進捗バー用の軽量版(240px程度)で、そのまま
-    /// 拡大表示すると粗くなるため、こちらはビューアと同じ解像度(ImageDecoder.pageMaxPixelSize)の
-    /// 画像を返す。ホバーしたときだけ呼ばれる想定(常時読み込むと本によっては重くなるため)。
-    func pageImage(rawIndex: Int) async -> CGImage? {
-        await pageLoader?.pageImage(at: rawIndex)
+    /// 行のサムネイルにカーソルをホバーしたときの拡大プレビュー(ユーザー要望)用の画像。
+    /// thumbnail(rawIndex:)は進捗バー用の軽量版(240px程度)で、そのまま拡大表示すると
+    /// 粗くなるため、こちらはポップオーバーの枠に合わせた解像度
+    /// (AppPreferences.thumbnailHoverPreviewPixelSize。以前はビューアと同じ原寸を読んでいた)
+    /// で返す。ホバーしたときだけ呼ばれる想定(常時読み込むと本によっては重くなるため)。
+    func previewImage(rawIndex: Int) async -> CGImage? {
+        await pageLoader?.gridThumbnail(at: rawIndex, maxPixelSize: preferences.thumbnailHoverPreviewPixelSize)
     }
 
     func dismissReorderWarning() {

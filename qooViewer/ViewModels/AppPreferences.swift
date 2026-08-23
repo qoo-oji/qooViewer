@@ -2,6 +2,8 @@ import Foundation
 import Combine
 // effectiveBackgroundColorがSwiftUIのColorを返すため(RGBColorValueも同様)。
 import SwiftUI
+// thumbnailHoverPreviewPixelSizeが接続中の画面の倍率(NSScreen)を見るため。
+import AppKit
 
 /// アプリ全体(本ごとではない)の環境設定。UserDefaultsに保存する。
 /// cooViewerの「環境設定ウィンドウ」の一部に相当する。
@@ -67,6 +69,7 @@ final class AppPreferences: ObservableObject {
         static let launchInPrivateMode = "qooViewer.pref.launchInPrivateMode"
         static let thumbnailDiskCacheEnabled = "qooViewer.pref.thumbnailDiskCacheEnabled"
         static let thumbnailDiskCacheLimitMB = "qooViewer.pref.thumbnailDiskCacheLimitMB"
+        static let pageImageCacheLimitMB = "qooViewer.pref.pageImageCacheLimitMB"
 
         /// すりガラスの面ごとの設定(PanelSurface参照)。面の識別子ごとに3つのキーへ分かれる。
         /// 面を1つ増やしてもここは触らなくてよい(PanelSurface.allCasesから導出される)。
@@ -427,6 +430,29 @@ final class AppPreferences: ObservableObject {
     static let defaultThumbnailDiskCacheLimitMB: Double = 100
     static let thumbnailDiskCacheLimitRangeMB: ClosedRange<Double> = 50...2000
 
+    /// 開いている本1冊あたりの、デコード済みページ画像のメモリキャッシュの上限(MB、既定300)。
+    /// PageLoader.imageCache(NSCache)のtotalCostLimitそのもの。
+    ///
+    /// 以前は300MB固定だった。ただしキャッシュがCGImageを抱えていた当時は、表示したページに
+    /// CoreAnimation側のコピーが2つ付いて回るため、実際には上限の3倍近くまで膨らんでいた
+    /// (PagePixelBufferの型コメント参照)。ピクセルのバイト列を持つ形に改めて数字どおりの
+    /// 上限になったのを機に、ユーザーが決められるようにした(ユーザーの判断)。
+    ///
+    /// 大きくするほど前後のページへ戻ったときの再デコードが減り、小さくするほどメモリを
+    /// 抑えられる。先読み(prefetchPageCount)ぶんが収まらないほど小さくすると、先読みした
+    /// そばから追い出されて意味が無くなるので、下限は高解像度の見開きがいくつか収まる100MB。
+    @Published var pageImageCacheLimitMB: Double {
+        didSet { UserDefaults.standard.set(pageImageCacheLimitMB, forKey: Keys.pageImageCacheLimitMB) }
+    }
+    static let defaultPageImageCacheLimitMB: Double = 300
+    static let pageImageCacheLimitRangeMB: ClosedRange<Double> = 100...2000
+    /// PageLoaderへ渡す形(バイト数)。
+    var pageImageCacheLimitBytes: Int {
+        let range = Self.pageImageCacheLimitRangeMB
+        let clamped = min(max(pageImageCacheLimitMB, range.lowerBound), range.upperBound)
+        return Int(clamped) * 1024 * 1024
+    }
+
     /// いまの設定を、実際にディスクへ読み書きしているactorへ届ける。
     ///
     /// didSetからだけでなくinit()の最後からも呼ぶ(didSetは初期化中には走らないため)。
@@ -676,8 +702,9 @@ final class AppPreferences: ObservableObject {
     /// ウインドウ)。以前は4箇所それぞれに440という数値を直接書いていた(ユーザー要望で
     /// 設定にした。既定値はそのときの値をそのまま引き継いでいる)。
     ///
-    /// 表示の大きさだけを決める値で、読み込む画像そのものは常にフル解像度のまま
-    /// (プレビューはpageImage(at:)で原寸を読む)。大きくしてもデコードの負荷は変わらない。
+    /// 表示の大きさを決める値。プレビュー用の画像はこの大きさ(×画面の倍率)でデコードする
+    /// (thumbnailHoverPreviewPixelSize参照)ので、大きくするとデコードの負荷とメモリは
+    /// そのぶん増える(原寸を読んでいた頃よりはどちらも大幅に小さい)。
     @Published var thumbnailHoverPreviewSize: Double {
         didSet { UserDefaults.standard.set(thumbnailHoverPreviewSize, forKey: Keys.thumbnailHoverPreviewSize) }
     }
@@ -692,6 +719,18 @@ final class AppPreferences: ObservableObject {
     var thumbnailHoverPreviewSideLength: CGFloat {
         let range = Self.thumbnailHoverPreviewSizeRange
         return CGFloat(min(max(thumbnailHoverPreviewSize, range.lowerBound), range.upperBound))
+    }
+    /// 拡大プレビューの画像をデコードする解像度(長辺のピクセル数)。
+    ///
+    /// 以前はプレビューにもページ本体と同じ原寸(4096px上限)の画像を使っていた。440〜800ptの
+    /// 枠に原寸は過剰で、1枚あたり最大47MB(4233×6050の本)をプレビューのためだけに抱え、
+    /// 「表示中のサムネイルの拡大画像を先読み」をONにすると画面内のセルの数だけそれが
+    /// 並び、読書用のページキャッシュまで押し出していた。枠の大きさ×画面の倍率で
+    /// デコードすれば、Retinaでも等倍以上の画素があり見た目は変わらない(最大1600px、7MB)。
+    /// 接続中の画面のうち最も倍率の高いものに合わせる(どの画面へ動かしてもぼやけないように)。
+    var thumbnailHoverPreviewPixelSize: CGFloat {
+        let maxScale = NSScreen.screens.map(\.backingScaleFactor).max() ?? 2
+        return (thumbnailHoverPreviewSideLength * max(maxScale, 1)).rounded(.up)
     }
     /// ページ一覧で、画面に見えているサムネイルの原寸画像を裏で先にデコードしておくか
     /// (プレビューを即座に出すため。メモリとCPUを多く使うので既定OFF)。
@@ -830,6 +869,9 @@ final class AppPreferences: ObservableObject {
         self.thumbnailDiskCacheLimitMB =
             defaults.object(forKey: Keys.thumbnailDiskCacheLimitMB) as? Double
             ?? Self.defaultThumbnailDiskCacheLimitMB
+        self.pageImageCacheLimitMB =
+            defaults.object(forKey: Keys.pageImageCacheLimitMB) as? Double
+            ?? Self.defaultPageImageCacheLimitMB
 
         if let storedRaw = defaults.string(forKey: Keys.defaultReadingDirection),
            let stored = ReadingDirection(rawValue: storedRaw) {
@@ -989,6 +1031,7 @@ extension AppPreferences {
             ]
         case .cache:
             return [
+                Keys.pageImageCacheLimitMB,
                 Keys.thumbnailDiskCacheEnabled,
                 // 上限を下げても消えるのは再生成できるサムネイルだけなので、保管件数の2つ
                 // (maxTrackedBooksCount/recentFilesLimit)と違って対象に含めてよい。
@@ -1060,6 +1103,7 @@ extension AppPreferences {
             autoHideCursor = source.autoHideCursor
             cursorAutoHideDelay = source.cursorAutoHideDelay
         case .cache:
+            pageImageCacheLimitMB = source.pageImageCacheLimitMB
             thumbnailDiskCacheEnabled = source.thumbnailDiskCacheEnabled
             thumbnailDiskCacheLimitMB = source.thumbnailDiskCacheLimitMB
         case .keyboard, .mouse, .modeInput, .access, .reset:

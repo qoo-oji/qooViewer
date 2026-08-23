@@ -202,6 +202,9 @@ final class ViewerViewModel: ObservableObject {
     /// backwardStepSize/forwardStepSizeが古い判定結果を使い続けてしまう
     /// (wideImageCacheのコメント参照)。
     private var singlePageAspectRatioThresholdObserver: AnyCancellable?
+    /// 環境設定「メモリに残しておくページ画像」(preferences.pageImageCacheLimitMB)を
+    /// PageLoaderへ流すための購読(singlePageAspectRatioThresholdObserverと同じ考え方)。
+    private var pageImageCacheLimitObserver: AnyCancellable?
     /// 「メタデータの編集」ウインドウ側でこの本のメタデータが変更されたときに、ツールバーの
     /// 表示名(displayTitle)を作り直すための監視トークン。bookmarksChangeObserver/
     /// layoutDataChangeObserverと同じ考え方(Notification.Name.bookMetadataDidChange参照)。
@@ -335,7 +338,8 @@ final class ViewerViewModel: ObservableObject {
         self.isContrastCorrectionEnabled = initialContrastCorrectionEnabled
         self.pageLoader = PageLoader(
             book: preparedBook, contrastCorrectionEnabled: initialContrastCorrectionEnabled,
-            usesThumbnailDiskCache: !skipsPersistence
+            usesThumbnailDiskCache: !skipsPersistence,
+            imageCacheLimitBytes: preferences.pageImageCacheLimitBytes
         )
 
         let bookID = preparedBook.id
@@ -634,6 +638,16 @@ final class ViewerViewModel: ObservableObject {
             .dropFirst()
             .sink { [weak self] _ in
                 self?.wideImageCache.removeAll()
+            }
+
+        // 環境設定「メモリに残しておくページ画像」も同様に、本を表示したまま変えられる。
+        // 値をそのままPageLoaderへ流す(上限を下げたぶんはNSCacheがその場で追い出す)。
+        pageImageCacheLimitObserver = preferences.$pageImageCacheLimitMB
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let bytes = self.preferences.pageImageCacheLimitBytes
+                Task { await self.pageLoader.setImageCacheLimit(bytes: bytes) }
             }
     }
 
@@ -1140,6 +1154,13 @@ final class ViewerViewModel: ObservableObject {
     /// 低解像度)で、そのまま拡大表示すると粗くなるため、こちらはビューアと同じ解像度
     /// (ImageDecoder.pageMaxPixelSize)の画像を返す。BookLayoutEditorViewModel.pageImage
     /// (rawIndex:)と同じ考え方(ホバーしたときだけ呼ばれる想定で、常時読み込むと重くなるため)。
+    /// サムネイルにカーソルを合わせたときの拡大プレビュー用の画像。ポップオーバーの
+    /// 枠に合わせた解像度(AppPreferences.thumbnailHoverPreviewPixelSize)でデコードする。
+    /// 以前は原寸のpageImage(at:)を使っていた(同プロパティのコメント参照)。
+    func loadPreviewImage(at index: Int) async -> CGImage? {
+        await loadGridThumbnail(at: index, maxPixelSize: preferences.thumbnailHoverPreviewPixelSize)
+    }
+
     func pageImage(at index: Int) async -> CGImage? {
         guard book.pages.indices.contains(index) else { return nil }
         return await pageLoader.pageImage(at: index)

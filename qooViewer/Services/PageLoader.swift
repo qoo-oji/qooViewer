@@ -1,18 +1,6 @@
 import Foundation
 import CoreGraphics
 
-/// NSCacheはAnyObjectに準拠する値しか保存できない。CGImageはCore Foundationの
-/// トールフリーブリッジ型でAnyObjectとしての扱いが不確実なため、
-/// 安全のためこの薄いラッパークラスに包んでからキャッシュに保存する。
-/// nonisolated: PageLoader(actor、メインスレッド外)から生成されるため、Xcode 26既定の
-/// MainActor自動分離の対象外にしている(詳細はArchiveReading.swift冒頭のコメント参照)。
-nonisolated final class CGImageBox {
-    let image: CGImage
-    init(_ image: CGImage) {
-        self.image = image
-    }
-}
-
 /// 1ページ分の画像ファイル情報(コンテキストメニュー「情報を見る」、ユーザー要望)。
 /// PageLoader.pageImageInfo(at:)が、ピクセルデコードを伴わないヘッダー読み取りだけで
 /// 組み立てる。PDFソースの場合はcolorModel/colorProfileName/hasAlphaChannel/fileSizeBytesが
@@ -80,7 +68,7 @@ actor PageLoader {
     /// 同じページをもう一度アーカイブ展開・デコードしてしまうと、無駄な二重作業になるうえ
     /// アーカイブ展開(actorで直列化される)が詰まって他のページの表示も遅れてしまう。
     /// そのため、同じページへの読み込みが既に進行中ならその結果を待ち合わせる(合流させる)。
-    private var inFlightTasks: [String: Task<CGImage?, Never>] = [:]
+    private var inFlightTasks: [String: Task<PagePixelBuffer?, Never>] = [:]
 
     /// inFlightTasksのうち、「prefetch(around:)が起点で始まり、まだ実際の表示要求が合流して
     /// いない」もののキー。この集合に含まれる読み込みだけは、途中で打ち切ってよい。
@@ -134,15 +122,24 @@ actor PageLoader {
     // 画像がすぐ追い出されて再デコードされる「キャッシュスラッシング」が起こりうる。
     // 余裕を持たせることでこれを防ぐ。totalCostLimit(実質的なメモリ上限)は変えていないので、
     // 上限に達すればそちらが優先され、際限なくメモリを使うことはない。
-    private let imageCache: NSCache<NSString, CGImageBox> = {
-        let cache = NSCache<NSString, CGImageBox>()
+    //
+    // ■ 3つのキャッシュが持つのはCGImageではなくPagePixelBuffer
+    // 以前はCGImage(をCGImageBoxに包んだもの)を入れていた。表示したCGImageが生きている限り
+    // CoreAnimation側に同じ大きさのコピーが2つ残り続けるため、キャッシュの真のコストは
+    // コスト計算の3倍になっていた(PagePixelBufferの型コメント参照)。ピクセルのバイト列だけを
+    // 持ち、表示のたびに使い捨てのCGImageを作る形に変えてある。コストはbyteCount
+    // (グレースケールなら1バイト/画素)で数えるので、上限の数字がそのままメモリの上限になる。
+    //
+    // totalCostLimitは環境設定「キャッシュ」の「メモリに残しておくページ画像」で決まる
+    // (init / setImageCacheLimit参照)。
+    private let imageCache: NSCache<NSString, PagePixelBuffer> = {
+        let cache = NSCache<NSString, PagePixelBuffer>()
         cache.countLimit = 64
-        cache.totalCostLimit = 300 * 1024 * 1024 // 約300MB
         return cache
     }()
 
-    private let thumbnailCache: NSCache<NSString, CGImageBox> = {
-        let cache = NSCache<NSString, CGImageBox>()
+    private let thumbnailCache: NSCache<NSString, PagePixelBuffer> = {
+        let cache = NSCache<NSString, PagePixelBuffer>()
         cache.countLimit = 300
         cache.totalCostLimit = 60 * 1024 * 1024 // 約60MB
         return cache
@@ -152,8 +149,8 @@ actor PageLoader {
     /// 別に持つ。グリッドはスライダーでセルを最大320ptまで拡大でき、その解像度は可変(セルの高さ×
     /// 画面倍率)。同じページでも要求サイズが違えば別物なので、キーにサイズを含める("id|px")。
     /// 1枚が大きくなりうるぶん、進捗バー用より枚数上限は控えめ・総容量は多めにしてある。
-    private let gridThumbnailCache: NSCache<NSString, CGImageBox> = {
-        let cache = NSCache<NSString, CGImageBox>()
+    private let gridThumbnailCache: NSCache<NSString, PagePixelBuffer> = {
+        let cache = NSCache<NSString, PagePixelBuffer>()
         cache.countLimit = 200
         cache.totalCostLimit = 128 * 1024 * 1024 // 約128MB
         return cache
@@ -178,10 +175,26 @@ actor PageLoader {
     /// 消えるので、そちらは通常どおり使う。
     private let usesThumbnailDiskCache: Bool
 
-    init(book: MangaBook, contrastCorrectionEnabled: Bool = false, usesThumbnailDiskCache: Bool = true) {
+    /// - Parameter imageCacheLimitBytes: ページ画像のメモリキャッシュ(imageCache)の上限。
+    ///   画面から作る場合は環境設定「キャッシュ」の値を渡す(AppPreferences.pageImageCacheLimitBytes)。
+    ///   書き出し(CbzExporter/PDFExporter/EpubExporter)のように、ページキャッシュを実質使わず
+    ///   環境設定にも触れられない(nonisolated)経路は既定値のままでよい。
+    init(
+        book: MangaBook,
+        contrastCorrectionEnabled: Bool = false,
+        usesThumbnailDiskCache: Bool = true,
+        imageCacheLimitBytes: Int = Int(AppPreferences.defaultPageImageCacheLimitMB) * 1024 * 1024
+    ) {
         self.book = book
         self.contrastCorrectionEnabled = contrastCorrectionEnabled
         self.usesThumbnailDiskCache = usesThumbnailDiskCache
+        imageCache.totalCostLimit = imageCacheLimitBytes
+    }
+
+    /// 環境設定「メモリに残しておくページ画像」が変わったときにViewerViewModelから呼ぶ。
+    /// NSCacheは上限を下げるとその場で超過ぶんを追い出すので、効果は即座に出る。
+    func setImageCacheLimit(bytes: Int) {
+        imageCache.totalCostLimit = bytes
     }
 
     private func thumbnailDiskKey(maxPixelSize: CGFloat) -> ThumbnailDiskCache.BookKey {
@@ -249,7 +262,7 @@ actor PageLoader {
 
     /// 指定ページのフルサイズ画像を取得する(キャッシュ済みなら即座に、なければ読み込んでキャッシュする)
     func pageImage(at index: Int) async -> CGImage? {
-        await image(at: index, cache: imageCache, maxPixelSize: ImageDecoder.pageMaxPixelSize)
+        await pixels(at: index, cache: imageCache, maxPixelSize: ImageDecoder.pageMaxPixelSize)?.makeImage()
     }
 
     /// プログレスバー用の小さいサムネイルを取得する
@@ -266,35 +279,34 @@ actor PageLoader {
         let key = page.id as NSString
 
         if let cached = thumbnailCache.object(forKey: key) {
-            return cached.image
+            return cached.makeImage()
         }
 
         guard usesThumbnailDiskCache else {
-            return await image(
+            return await pixels(
                 at: index, cache: thumbnailCache, maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize
-            )
+            )?.makeImage()
         }
 
         let diskKey = thumbnailDiskKey(maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize)
-        if let fromDisk = await ThumbnailDiskCache.shared.thumbnail(bookKey: diskKey, pageID: page.id) {
-            thumbnailCache.setObject(
-                CGImageBox(fromDisk), forKey: key, cost: fromDisk.width * fromDisk.height * 4
-            )
-            return fromDisk
+        if let fromDisk = await ThumbnailDiskCache.shared.thumbnail(bookKey: diskKey, pageID: page.id),
+           let buffer = await Self.renderBuffer(from: fromDisk) {
+            thumbnailCache.setObject(buffer, forKey: key, cost: buffer.byteCount)
+            return buffer.makeImage()
         }
 
-        let decoded = await image(
+        let decoded = await pixels(
             at: index, cache: thumbnailCache, maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize
         )
-        if let decoded {
-            // 書き込みは待たない(次に同じページを要求されるまでに終わっていればよく、
-            // 失敗しても次回またデコードするだけ)。
-            let pageID = page.id
-            Task.detached(priority: .background) {
-                await ThumbnailDiskCache.shared.store(decoded, bookKey: diskKey, pageID: pageID)
-            }
+        guard let decoded else { return nil }
+        // 書き込みは待たない(次に同じページを要求されるまでに終わっていればよく、
+        // 失敗しても次回またデコードするだけ)。
+        let pageID = page.id
+        Task.detached(priority: .background) {
+            guard let image = decoded.makeImage() else { return }
+            await ThumbnailDiskCache.shared.store(image, bookKey: diskKey, pageID: pageID)
         }
-        return decoded
+        return decoded.makeImage()
     }
 
     /// ページ一覧(グリッド)用のサムネイルを、指定した解像度(maxPixelSize)で返す。
@@ -313,35 +325,33 @@ actor PageLoader {
         let key = "\(page.id)|\(Int(maxPixelSize))" as NSString
 
         if let cached = gridThumbnailCache.object(forKey: key) {
-            return cached.image
+            return cached.makeImage()
         }
 
         // シークレットウインドウ(usesThumbnailDiskCache == false)ではディスクを読み書きしない。
         if usesThumbnailDiskCache {
             let diskKey = thumbnailDiskKey(maxPixelSize: maxPixelSize)
-            if let fromDisk = await ThumbnailDiskCache.shared.thumbnail(bookKey: diskKey, pageID: page.id) {
-                gridThumbnailCache.setObject(
-                    CGImageBox(fromDisk), forKey: key, cost: fromDisk.width * fromDisk.height * 4
-                )
-                return fromDisk
+            if let fromDisk = await ThumbnailDiskCache.shared.thumbnail(bookKey: diskKey, pageID: page.id),
+               let buffer = await Self.renderBuffer(from: fromDisk) {
+                gridThumbnailCache.setObject(buffer, forKey: key, cost: buffer.byteCount)
+                return buffer.makeImage()
             }
         }
 
-        guard let decoded = await decodedImage(for: page.source, maxPixelSize: maxPixelSize) else {
+        guard let decoded = await decodedPixels(for: page.source, maxPixelSize: maxPixelSize) else {
             return nil
         }
-        gridThumbnailCache.setObject(
-            CGImageBox(decoded), forKey: key, cost: decoded.width * decoded.height * 4
-        )
+        gridThumbnailCache.setObject(decoded, forKey: key, cost: decoded.byteCount)
         if usesThumbnailDiskCache {
             let diskKey = thumbnailDiskKey(maxPixelSize: maxPixelSize)
             let pageID = page.id
             // 書き込みは待たない(thumbnail(at:)と同じ考え方)。
             Task.detached(priority: .background) {
-                await ThumbnailDiskCache.shared.store(decoded, bookKey: diskKey, pageID: pageID)
+                guard let image = decoded.makeImage() else { return }
+                await ThumbnailDiskCache.shared.store(image, bookKey: diskKey, pageID: pageID)
             }
         }
-        return decoded
+        return decoded.makeImage()
     }
 
     /// 生の画像データ(デコード前)を返す。EPUB書き出し(EpubExporter、7節)で、画質を落とさず
@@ -675,8 +685,8 @@ actor PageLoader {
     /// prefetch(around:)専用の入り口。pageImage(at:)と同じ読み込みだが、「先読みとして
     /// 始めた」ことを記録し、範囲外になった時点で打ち切れるようにする
     /// (cancellableInFlightKeysのコメント参照)。
-    private func prefetchImage(at index: Int) async -> CGImage? {
-        await image(
+    private func prefetchImage(at index: Int) async -> PagePixelBuffer? {
+        await pixels(
             at: index, cache: imageCache, maxPixelSize: ImageDecoder.pageMaxPixelSize, isPrefetch: true
         )
     }
@@ -688,18 +698,18 @@ actor PageLoader {
     /// - Parameter isPrefetch: prefetch(around:)からの先読みとして呼ばれた場合はtrue。
     ///   この場合にかぎり、先読み範囲から外れた時点で読み込みを途中で打ち切ってよいものとして
     ///   記録する(cancellableInFlightKeysのコメント参照)。
-    private func image(
+    private func pixels(
         at index: Int,
-        cache: NSCache<NSString, CGImageBox>,
+        cache: NSCache<NSString, PagePixelBuffer>,
         maxPixelSize: CGFloat,
         isPrefetch: Bool = false
-    ) async -> CGImage? {
+    ) async -> PagePixelBuffer? {
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
         let key = page.id as NSString
 
         if let cached = cache.object(forKey: key) {
-            return cached.image
+            return cached
         }
 
         // cache(フルサイズ用/サムネイル用)ごとに分けて合流させるため、キーにcacheの識別子も含める
@@ -719,9 +729,9 @@ actor PageLoader {
         // 最新のページの表示が遅れるのを防ぐための早期リターン。
         guard !Task.isCancelled else { return nil }
 
-        let task = Task<CGImage?, Never> { [weak self] in
+        let task = Task<PagePixelBuffer?, Never> { [weak self] in
             guard let self else { return nil }
-            return await self.decodedImage(for: page.source, maxPixelSize: maxPixelSize)
+            return await self.decodedPixels(for: page.source, maxPixelSize: maxPixelSize)
         }
         inFlightTasks[inFlightKey] = task
         if isPrefetch {
@@ -733,8 +743,32 @@ actor PageLoader {
         cancellableInFlightKeys.remove(inFlightKey)
 
         guard let decoded else { return nil }
-        cache.setObject(CGImageBox(decoded), forKey: key, cost: decoded.width * decoded.height * 4)
+        cache.setObject(decoded, forKey: key, cost: decoded.byteCount)
         return decoded
+    }
+
+    /// decodedImage(for:maxPixelSize:)の結果を、キャッシュに入れる形(PagePixelBuffer)へ
+    /// 描き写して返す。描き写しはデコードと同じくactorの外で行う(メモリコピー相当とはいえ
+    /// 36MBで十数msあり、actorを掴んだままだと他のページの要求を待たせるため)。
+    private func decodedPixels(for source: PageSource, maxPixelSize: CGFloat) async -> PagePixelBuffer? {
+        // PDFはCGImageを経由せず、バッファへ直接描ける(コントラスト補正が要る場合だけは
+        // 補正がCGImageを相手にするため、従来どおりCGImage経由にする)。
+        if case .pdf(let pdfURL, let pageIndex) = source, !contrastCorrectionEnabled {
+            guard !Task.isCancelled else { return nil }
+            return renderPDFPixels(pdfURL: pdfURL, pageIndex: pageIndex, maxPixelSize: maxPixelSize)
+        }
+        guard let decoded = await decodedImage(for: source, maxPixelSize: maxPixelSize) else { return nil }
+        guard !Task.isCancelled else { return nil }
+        return await Self.renderBuffer(from: decoded)
+    }
+
+    /// CGImage → PagePixelBufferの描き写しをバックグラウンドタスクで行う。
+    /// `nonisolated static`: actorの状態に触らないことを型で示す(actorの外で走らせるため)。
+    private nonisolated static func renderBuffer(from image: CGImage) async -> PagePixelBuffer? {
+        let task = Task.detached(priority: .userInitiated) { () -> PagePixelBuffer? in
+            PagePixelBuffer(rendering: image)
+        }
+        return await task.value
     }
 
     /// ページ1枚分の実際の取得+デコード(またはPDFの場合は描画)を行う。このメソッド自体は
@@ -836,6 +870,12 @@ actor PageLoader {
     /// 透過を持つPDFページ(白紙部分が透明になっている場合など)でも、他の画像ページと同様に
     /// 不透明な画像として扱えるよう、白背景の上に描画する。
     private func renderPDFPage(pdfURL: URL, pageIndex: Int, maxPixelSize: CGFloat) -> CGImage? {
+        renderPDFPixels(pdfURL: pdfURL, pageIndex: pageIndex, maxPixelSize: maxPixelSize)?.makeImage()
+    }
+
+    /// renderPDFPageの本体。描画先はPagePixelBufferが確保したmmap領域で、CGImageを経由しない
+    /// (PagePixelBuffer.init(width:height:grayscale:colorSpace:draw:)のコメント参照)。
+    private func renderPDFPixels(pdfURL: URL, pageIndex: Int, maxPixelSize: CGFloat) -> PagePixelBuffer? {
         guard let document = pdfDocument(for: pdfURL) else { return nil }
         // CGPDFDocumentのページ番号は1始まり(pageIndexは0始まり)。
         guard let page = document.page(at: pageIndex + 1) else { return nil }
@@ -874,27 +914,18 @@ actor PageLoader {
         let pixelWidth = max(1, Int((mediaBox.width * scale).rounded()))
         let pixelHeight = max(1, Int((mediaBox.height * scale).rounded()))
 
-        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(
-                data: nil,
-                width: pixelWidth,
-                height: pixelHeight,
-                bitsPerComponent: 8,
-                bytesPerRow: 0,
-                space: colorSpace,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-              )
-        else { return nil }
+        return PagePixelBuffer(
+            width: pixelWidth, height: pixelHeight, grayscale: false,
+            colorSpace: CGColorSpace(name: CGColorSpace.sRGB)
+        ) { context in
+            context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: CGFloat(pixelWidth), height: CGFloat(pixelHeight)))
 
-        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-        context.fill(CGRect(x: 0, y: 0, width: CGFloat(pixelWidth), height: CGFloat(pixelHeight)))
-
-        context.scaleBy(x: scale, y: scale)
-        // メディアボックスの原点が(0, 0)でない場合に備えて平行移動しておく。
-        context.translateBy(x: -mediaBox.origin.x, y: -mediaBox.origin.y)
-        context.drawPDFPage(page)
-
-        return context.makeImage()
+            context.scaleBy(x: scale, y: scale)
+            // メディアボックスの原点が(0, 0)でない場合に備えて平行移動しておく。
+            context.translateBy(x: -mediaBox.origin.x, y: -mediaBox.origin.y)
+            context.drawPDFPage(page)
+        }
     }
 
     /// アーカイブごとにReaderを使い回す。actorの外から同時に触られることはないので、

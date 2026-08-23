@@ -158,6 +158,8 @@ nonisolated enum BookLoader {
     /// 存在させておくほうが単純で安全なため)。書き出した一時ファイルはこの本を表す
     /// MangaBook.temporaryResourcesが保持し、本を閉じてこの本のすべてのコピーが解放された
     /// タイミングでARCにより自動的に削除される(BookTemporaryResources参照)。
+    /// 本を開いたまま終了した場合はdeinitが走らないため、置き場所はTemporaryFileStoreに
+    /// 任せる(起動ごとのディレクトリに置き、次回起動時と正常終了時に残骸を片付ける)。
     ///
     /// idPrefix/sortKeyPrefixは、この階層のPageRef.id/sortKeyを組み立てるための接頭辞。
     /// sortKeyPrefixがnilの場合は最上位(本そのものの書庫)を表し、既存の挙動(sortKey =
@@ -185,9 +187,7 @@ nonisolated enum BookLoader {
                 ))
             } else if isArchiveFile(path), depth < maxNestedArchiveDepth {
                 guard let data = try? reader.data(at: path) else { continue }
-                let tempURL = FileManager.default.temporaryDirectory
-                    .appendingPathComponent(UUID().uuidString)
-                    .appendingPathExtension((path as NSString).pathExtension)
+                let tempURL = TemporaryFileStore.makeFileURL(extension: (path as NSString).pathExtension)
                 guard (try? data.write(to: tempURL)) != nil else { continue }
                 temporaryFileURLs.append(tempURL)
 

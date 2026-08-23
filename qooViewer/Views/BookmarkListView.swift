@@ -2466,7 +2466,7 @@ private struct PageRowView: View {
         .padding(12)
         .task {
             guard previewImage == nil else { return }
-            previewImage = await viewModel.pageImage(rawIndex: row.rawIndex)
+            previewImage = await viewModel.previewImage(rawIndex: row.rawIndex)
         }
     }
 }

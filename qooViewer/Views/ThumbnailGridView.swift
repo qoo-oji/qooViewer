@@ -462,7 +462,8 @@ private struct ThumbnailCell: View {
     /// (BookmarkListView.PageRowView.thumbnailPreviewContentと同じ考え方・同じ操作性を、
     /// この「ページ一覧」グリッドにも移植してほしいというユーザー要望)。
     @State private var isHoveringThumbnail = false
-    /// 拡大プレビュー用のフル解像度画像。一度読み込めば、同じセルを何度ホバーしても読み込み直さない
+    /// 拡大プレビュー用の画像(ポップオーバーの枠に合わせた解像度。ViewerViewModel.
+    /// loadPreviewImage参照)。一度読み込めば、同じセルを何度ホバーしても読み込み直さない
     /// よう@Stateにキャッシュしておく(素早くホバーを出し入れしたときのちらつき防止)。
     @State private var previewImage: CGImage?
     /// ホバー開始から実際にpopoverを出すまでの遅延用タスク。
@@ -544,17 +545,17 @@ private struct ThumbnailCell: View {
             if let image, image.height > 0 {
                 onAspectMeasured(CGFloat(image.width) / CGFloat(image.height))
             }
-            // 環境設定「表示中のサムネイルの拡大画像を先読み」: 見えているセルの原寸画像を
+            // 環境設定「表示中のサムネイルの拡大画像を先読み」: 見えているセルのプレビュー画像を
             // 先にデコードしておく(PageLoaderのメモリキャッシュに載るので、プレビューが即座に
             // 出る)。LazyVGridは画面内のセルしか作らないため「表示中」に自然と限定される。
             if preferences.preloadThumbnailGridPreviews, preferences.showThumbnailHoverPreview,
                previewImage == nil, !Task.isCancelled {
-                previewImage = await viewModel.pageImage(at: index)
+                previewImage = await viewModel.loadPreviewImage(at: index)
             }
         }
     }
 
-    /// サムネイルをホバーしたときのpopoverの中身。フル解像度画像(previewImage)とファイル名を
+    /// サムネイルをホバーしたときのpopoverの中身。プレビュー画像(previewImage)とファイル名を
     /// 縦に並べる。BookmarkListView.PageRowView.thumbnailPreviewContentと同じ構成・同じサイズ
     /// (環境設定で変えられる一辺。AppPreferences.thumbnailHoverPreviewSideLength)にしている。popoverが実際に画面へ表示されるたびに.taskが実行される
     /// (SwiftUIのpopoverは表示のたびにコンテンツビューを作り直すため)ので、まだ読み込んでいなければ
@@ -586,7 +587,7 @@ private struct ThumbnailCell: View {
         .padding(12)
         .task {
             guard previewImage == nil else { return }
-            previewImage = await viewModel.pageImage(at: index)
+            previewImage = await viewModel.loadPreviewImage(at: index)
         }
     }
 

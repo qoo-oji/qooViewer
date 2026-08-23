@@ -34,11 +34,13 @@ nonisolated enum ImageDecoder {
     static let highResolutionMaxPixelSize: CGFloat = 8000
 
     static func decode(_ data: Data, maxPixelSize: CGFloat) -> CGImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
-            kCGImageSourceCreateThumbnailWithTransform: true
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            // ImageIO自身のキャッシュには載せない(sourceOptionsのコメント参照)。
+            kCGImageSourceShouldCache: false,
         ]
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
@@ -82,9 +84,15 @@ nonisolated enum ImageDecoder {
         return headerInfo(from: source)
     }
 
-    /// kCGImageSourceShouldCache: false — ここで作るCGImageSourceはヘッダーの問い合わせにしか
-    /// 使わず、デコード結果を保持させる意味が無いため(そのままだとImage I/Oがデコード済み
-    /// ピクセルをキャッシュしうる)。
+    /// kCGImageSourceShouldCache: false — Image I/Oにデコード結果を保持させない。
+    ///
+    /// ヘッダーの問い合わせ(headerInfo)では、そもそもデコード結果を持たせる意味が無い。
+    /// decode(_:maxPixelSize:)でも不要で、しかも害がある: 既定(true)のままだと、Image I/Oは
+    /// 作ったサムネイルを自前のキャッシュに抱え込み、呼び出し側がCGImageを手放した後も
+    /// 本1冊ぶん(実測で30枚、1枚47〜59MB)が居座り続ける。大半はpurgeable(揮発)として
+    /// OSが回収できる状態だが、一部は常駐のまま残り、数百MBの差になっていた。
+    /// PageLoaderはデコード結果を即座にPagePixelBufferへ描き写して自分で保持するので、
+    /// Image I/O側のキャッシュは二重に持つだけで役に立たない。
     private static let sourceOptions: CFDictionary =
         [kCGImageSourceShouldCache: false] as CFDictionary
 

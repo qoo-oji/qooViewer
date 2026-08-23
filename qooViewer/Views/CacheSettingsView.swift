@@ -2,8 +2,8 @@ import SwiftUI
 
 /// 環境設定ウインドウの「キャッシュ」画面。
 ///
-/// qooViewerがディスクへ**溜め込む**もの(いまのところページサムネイル)の扱いを、
-/// ここ1箇所にまとめてある。
+/// qooViewerがメモリとディスクに**溜め込む**もの(読書中のページ画像、ページサムネイル)の
+/// 扱いを、ここ1箇所にまとめてある。
 ///
 /// ■ なぜ独立した画面なのか
 /// ユーザー報告: 数日使っただけでキャッシュフォルダが数百MBに膨れていて驚いた。
@@ -35,6 +35,22 @@ struct CacheSettingsView: View {
 
     var body: some View {
         SettingsPaneContainer {
+            // 読書中のページ画像をメモリに残しておく量。本のウインドウ/タブ1つごとに
+            // この上限を持つ(PageLoader.imageCache)。
+            Section {
+                SettingsSlider(
+                    "Page Images Kept in Memory",
+                    value: $preferences.pageImageCacheLimitMB,
+                    in: AppPreferences.pageImageCacheLimitRangeMB,
+                    step: 50,
+                    help: "Decoded pages near the one you are reading stay in memory so that turning back is instant. This is the limit per open book. Larger values turn pages faster after going back; smaller values use less memory."
+                ) { value in
+                    "\(Int(value)) MB"
+                }
+            } header: {
+                Text("Memory")
+            }
+
             Section {
                 SettingsToggle(
                     "Cache Page Thumbnails on Disk",
@@ -81,7 +97,7 @@ struct CacheSettingsView: View {
             }
 
             SettingsResetSection(
-                help: "Restores every setting on this page, which turns the thumbnail cache off and deletes it. Other pages, and your favorites, bookmarks and reading history, are not affected."
+                help: "Restores every setting on this page, which turns the thumbnail disk cache off and deletes it. Other pages, and your favorites, bookmarks and reading history, are not affected."
             ) {
                 preferences.resetToDefaults(.cache)
             }

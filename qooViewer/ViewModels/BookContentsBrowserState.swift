@@ -362,10 +362,10 @@ final class BookContentsBrowserState: ObservableObject {
         }
     }
 
+    /// 置き場所はTemporaryFileStoreに任せる(本を開いたまま終了するとdeinitが走らず
+    /// 残骸になるため。そちらの型コメント参照)。
     private static func makeTemporaryFileURL(extension ext: String) -> URL {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension(ext)
+        TemporaryFileStore.makeFileURL(extension: ext)
     }
 
     private func localizedErrorMessage(for error: Error, fallback: String.LocalizationValue) -> String {

@@ -1707,6 +1707,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// ことで抑制できる(NSInitialToolTipDelayと同じ理由で、ここ=起動の最も早いタイミングで
     /// 登録する)。
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // 前回までの起動が残した一時ファイル(入れ子の書庫の展開物)を片付ける。
+        // ディレクトリの走査を伴うので、起動の邪魔をしないようメインスレッドの外で行う
+        // (TemporaryFileStoreの型コメント参照)。
+        Task.detached(priority: .utility) {
+            TemporaryFileStore.removeStaleSessionDirectories()
+        }
         UserDefaults.standard.register(defaults: [
             "NSInitialToolTipDelay": 200,
             "NSDisabledDictationMenuItem": true,
@@ -1978,6 +1984,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// OFFのとき(既定)は、macOSの標準的な挙動どおりウインドウを閉じてもDockに常駐したままになる。
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         preferences?.quitWhenLastWindowClosed ?? false
+    }
+
+    /// 正常終了時に、この起動が作った一時ファイル(入れ子の書庫の展開物)を消す。
+    ///
+    /// 本を開いたまま終了すると、本の解放(deinit)による個別削除は走らない。以前はこれが
+    /// 原因で、終了のたびに展開した書庫が`tmp/`に溜まり続けていた(TemporaryFileStoreの
+    /// 型コメント参照)。ここで消すのは自分の起動ぶんだけで、数ファイルの削除なので同期で
+    /// 行ってよい(Task.detachedへ逃がすと、終了のほうが先に進んで走らないことがある)。
+    func applicationWillTerminate(_ notification: Notification) {
+        TemporaryFileStore.removeSessionDirectory()
     }
 }
 

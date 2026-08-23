@@ -3031,6 +3031,22 @@
         }
       }
     },
+    "Decoded pages near the one you are reading stay in memory so that turning back is instant. This is the limit per open book. Larger values turn pages faster after going back; smaller values use less memory.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decoded pages near the one you are reading stay in memory so that turning back is instant. This is the limit per open book. Larger values turn pages faster after going back; smaller values use less memory."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読んでいるページの前後のページをメモリに残しておき、戻ったときに即座に表示できるようにします。開いている本1冊あたりの上限です。大きくすると戻ったときのページ送りが速くなり、小さくするとメモリの使用量が減ります。"
+          }
+        }
+      }
+    },
     "Default Display Mode": {
       "extractionState": "manual",
       "localizations": {
@@ -6379,6 +6395,22 @@
         }
       }
     },
+    "Memory": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリ"
+          }
+        }
+      }
+    },
     "Merge": {
       "localizations": {
         "en": {
@@ -7841,6 +7873,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "この PDF の %lld ページ目は JPEG でも Flate（可逆圧縮）でもない画像形式のため、書き出しに対応していません。"
+          }
+        }
+      }
+    },
+    "Page Images Kept in Memory": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Page Images Kept in Memory"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリに残しておくページ画像"
           }
         }
       }
@@ -9347,18 +9395,18 @@
         }
       }
     },
-    "Restores every setting on this page, which turns the thumbnail cache off and deletes it. Other pages, and your favorites, bookmarks and reading history, are not affected.": {
+    "Restores every setting on this page, which turns the thumbnail disk cache off and deletes it. Other pages, and your favorites, bookmarks and reading history, are not affected.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Restores every setting on this page, which turns the thumbnail cache off and deletes it. Other pages, and your favorites, bookmarks and reading history, are not affected."
+            "value": "Restores every setting on this page, which turns the thumbnail disk cache off and deletes it. Other pages, and your favorites, bookmarks and reading history, are not affected."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この画面のすべての設定を初期状態に戻します(サムネイルのキャッシュはOFFになり、削除されます)。ほかの画面の設定と、お気に入り・ブックマーク・読書履歴には影響しません。"
+            "value": "この画面のすべての設定を初期状態に戻します(サムネイルのディスクキャッシュはOFFになり、削除されます)。ほかの画面の設定と、お気に入り・ブックマーク・読書履歴には影響しません。"
           }
         }
       }
