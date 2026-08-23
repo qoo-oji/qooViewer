@@ -5614,18 +5614,18 @@
         }
       }
     },
-    "In the page list, decodes the full-size image of every thumbnail on screen in advance so the preview appears immediately. Uses more memory and CPU.": {
+    "In the page list, decodes the preview image of every thumbnail on screen in advance so it appears immediately. Uses more memory and CPU. Has no effect while previews are turned off in Appearance ▸ Page List.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "In the page list, decodes the full-size image of every thumbnail on screen in advance so the preview appears immediately. Uses more memory and CPU."
+            "value": "In the page list, decodes the preview image of every thumbnail on screen in advance so it appears immediately. Uses more memory and CPU. Has no effect while previews are turned off in Appearance ▸ Page List."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ページ一覧で、画面に見えているサムネイルの原寸画像をあらかじめデコードしておき、プレビューを即座に表示します。メモリとCPUを多く使います。"
+            "value": "ページ一覧で、画面に見えているサムネイルの拡大プレビュー用の画像をあらかじめデコードしておき、プレビューを即座に表示します。そのぶんメモリとCPUを使います。「外観」▸「ページ一覧」で拡大プレビューをOFFにしている間は効きません。"
           }
         }
       }
@@ -8232,22 +8232,6 @@
         }
       }
     },
-    "Performance": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Performance"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パフォーマンス"
-          }
-        }
-      }
-    },
     "Pick a color from the palette, then fine-tune it with the RGB sliders.": {
       "localizations": {
         "en": {
@@ -8293,6 +8277,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "表示中のサムネイルの拡大画像を先読み"
+          }
+        }
+      }
+    },
+    "Preloading": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preloading"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先読み"
           }
         }
       }

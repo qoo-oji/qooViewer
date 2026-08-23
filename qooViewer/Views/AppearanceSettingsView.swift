@@ -171,14 +171,9 @@ struct AppearanceSettingsView: View {
                 isOn: $preferences.showThumbnailHoverPreview,
                 help: "Applies to the page list only."
             )
-            SettingsToggle(
-                "Preload Previews for Visible Thumbnails",
-                isOn: $preferences.preloadThumbnailGridPreviews,
-                help: "In the page list, decodes the full-size image of every thumbnail on screen in advance so the preview appears immediately. Uses more memory and CPU."
-            )
-            // プレビューを出さない設定のときは、先読みしても何も起きない
-            // (すぐ上のキャプションの大きさと同じ考え方)。
-            .disabled(!preferences.showThumbnailHoverPreview)
+            // 「表示中のサムネイルの拡大画像を先読み」は、メモリの使用量に直結する設定を
+            // 1画面に集める方針(ユーザー要望)により「キャッシュ」画面へ移した
+            // (CacheSettingsView参照。ページ一覧にしか効かない点は変わらない)。
             // ホイールのスクロール行数。見た目の設定ではないが、**ページ一覧パネルにしか
             // 効かない**のでここへ移した(ユーザーの指示。移す前は環境設定「閲覧中の動作」に
             // 「ページ一覧」という別のセクションとして置かれていた)。

@@ -89,20 +89,8 @@ struct RenderingSettingsView: View {
                 Text("Spread Display")
             }
 
-            Section {
-                SettingsSlider(
-                    "Pages to Preload on Each Side",
-                    value: $preferences.prefetchPageCount,
-                    in: 0...10,
-                    step: 1,
-                    help: "Higher values turn pages faster but use more memory."
-                ) { value in
-                    "\(Int(value))"
-                }
-            } header: {
-                Text("Performance")
-            }
-
+            // 「前後に先読みするページ数」は、メモリの使用量に直結する設定を1画面に集める方針
+            // (ユーザー要望)により「キャッシュ」画面へ移した(CacheSettingsView参照)。
             SettingsResetSection(
                 help: "Restores every setting on this page. Other pages, and your favorites, bookmarks and reading history, are not affected."
             ) {

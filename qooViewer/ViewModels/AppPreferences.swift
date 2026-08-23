@@ -976,12 +976,12 @@ extension AppPreferences {
                 Keys.thumbnailGridCaptionFontSize,
                 Keys.thumbnailGridBorderColorOption,
                 Keys.thumbnailGridBorderCustomColor,
-                // 拡大プレビューのON/OFFと先読みは、画面上も「外観」→「ページ一覧」にある
+                // 拡大プレビューのON/OFFは、画面上も「外観」→「ページ一覧」にある
                 // (ページ一覧にしか効かないため)。**画面の置き場所とここは必ず揃えること** ――
                 // 食い違うと、その画面の「初期設定に戻す」で戻らない項目や、別の画面のボタンで
-                // 勝手に戻る項目が生まれる。
+                // 勝手に戻る項目が生まれる。先読み(preloadThumbnailGridPreviews)は
+                // 「キャッシュ」画面へ移した(下のcase .cache参照)。
                 Keys.showThumbnailHoverPreview,
-                Keys.preloadThumbnailGridPreviews,
                 // ホイールのスクロール行数もページ一覧パネル専用なので、画面ごと
                 // こちらへ移してある(ユーザーの指示)。
                 Keys.thumbnailGridWheelScrollRows,
@@ -1013,7 +1013,7 @@ extension AppPreferences {
                 Keys.loupeMagnificationPercent,
                 Keys.loupeDiameter,
                 Keys.singlePageAspectRatioThreshold,
-                Keys.prefetchPageCount,
+                // prefetchPageCountは「キャッシュ」画面へ移した(下のcase .cache参照)。
             ]
         case .reading:
             return [
@@ -1032,6 +1032,8 @@ extension AppPreferences {
         case .cache:
             return [
                 Keys.pageImageCacheLimitMB,
+                Keys.prefetchPageCount,
+                Keys.preloadThumbnailGridPreviews,
                 Keys.thumbnailDiskCacheEnabled,
                 // 上限を下げても消えるのは再生成できるサムネイルだけなので、保管件数の2つ
                 // (maxTrackedBooksCount/recentFilesLimit)と違って対象に含めてよい。
@@ -1073,7 +1075,6 @@ extension AppPreferences {
             thumbnailGridBorderColorOption = source.thumbnailGridBorderColorOption
             thumbnailGridBorderCustomColor = source.thumbnailGridBorderCustomColor
             showThumbnailHoverPreview = source.showThumbnailHoverPreview
-            preloadThumbnailGridPreviews = source.preloadThumbnailGridPreviews
             thumbnailGridWheelScrollRows = source.thumbnailGridWheelScrollRows
             for surface in PanelSurface.allCases {
                 setSurfaceStyle(source.surfaceStyle(for: surface), for: surface)
@@ -1091,7 +1092,6 @@ extension AppPreferences {
             loupeMagnificationPercent = source.loupeMagnificationPercent
             loupeDiameter = source.loupeDiameter
             singlePageAspectRatioThreshold = source.singlePageAspectRatioThreshold
-            prefetchPageCount = source.prefetchPageCount
         case .reading:
             loopBehavior = source.loopBehavior
             treatTrackpadFlickAsWheel = source.treatTrackpadFlickAsWheel
@@ -1104,6 +1104,8 @@ extension AppPreferences {
             cursorAutoHideDelay = source.cursorAutoHideDelay
         case .cache:
             pageImageCacheLimitMB = source.pageImageCacheLimitMB
+            prefetchPageCount = source.prefetchPageCount
+            preloadThumbnailGridPreviews = source.preloadThumbnailGridPreviews
             thumbnailDiskCacheEnabled = source.thumbnailDiskCacheEnabled
             thumbnailDiskCacheLimitMB = source.thumbnailDiskCacheLimitMB
         case .keyboard, .mouse, .modeInput, .access, .reset:

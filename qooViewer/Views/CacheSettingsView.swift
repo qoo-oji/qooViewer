@@ -51,6 +51,31 @@ struct CacheSettingsView: View {
                 Text("Memory")
             }
 
+            // 先読み。どちらも「速くするためにメモリを前もって使う」設定で、上の上限の中に
+            // 収まる量を決めるものなので、同じ画面に並べる(ユーザー要望: メモリの使用量に
+            // 直結する設定はここに集める)。移す前は「画像の表示」と「外観」にそれぞれあった。
+            Section {
+                SettingsSlider(
+                    "Pages to Preload on Each Side",
+                    value: $preferences.prefetchPageCount,
+                    in: 0...10,
+                    step: 1,
+                    help: "Higher values turn pages faster but use more memory."
+                ) { value in
+                    "\(Int(value))"
+                }
+                SettingsToggle(
+                    "Preload Previews for Visible Thumbnails",
+                    isOn: $preferences.preloadThumbnailGridPreviews,
+                    help: "In the page list, decodes the preview image of every thumbnail on screen in advance so it appears immediately. Uses more memory and CPU. Has no effect while previews are turned off in Appearance ▸ Page List."
+                )
+                // プレビューを出さない設定のときは、先読みしても何も起きない(その設定は
+                // 「外観」に残っている。理由は吹き出しに書いてある)。
+                .disabled(!preferences.showThumbnailHoverPreview)
+            } header: {
+                Text("Preloading")
+            }
+
             Section {
                 SettingsToggle(
                     "Cache Page Thumbnails on Disk",
