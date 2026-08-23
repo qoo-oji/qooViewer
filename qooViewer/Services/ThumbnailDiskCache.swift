@@ -18,14 +18,39 @@ import CryptoKit
 /// OSに削除されうるし、Time Machineのバックアップ対象にもならない(消えても再生成できる
 /// 情報しか置かない)。
 ///
+/// ただし、これは**既定では無効**である(環境設定「キャッシュ」でONにする)。
+/// 速くなるぶんディスクを確実に消費する機能であり、黙って数百MBを使ってよいものではない
+/// ―― 導入当初は黙って作り続けていて、ユーザーから「数日で数百MBになっていて驚いた」という
+/// 報告を受けた。ON/OFFと合計上限はConfigurationとしてAppPreferencesから押し込まれる。
+///
 /// actorそのものは(このプロジェクトの既定のMainActor隔離とは無関係に)固有の隔離を持つため、
 /// `nonisolated`の指定は不要かつ書けない。複数の本・複数のウインドウから同時に触っても安全。
 actor ThumbnailDiskCache {
     static let shared = ThumbnailDiskCache()
 
-    /// キャッシュ全体の上限。240pxのPNGは1枚あたりおおむね数十KBのため、200MBあれば
-    /// 数千ページ分に相当する。超過分は最終アクセスが古いものから捨てる(trimIfNeeded)。
-    private static let maxTotalBytes: Int = 200 * 1024 * 1024
+    /// このキャッシュの振る舞いを決める設定。環境設定「キャッシュ」画面の2項目そのもので、
+    /// AppPreferencesがconfigure(isEnabled:maxTotalBytes:)で押し込む。
+    ///
+    /// ■ なぜON/OFFできるようにしたか
+    /// ユーザー報告: 数日使っただけでキャッシュフォルダが数百MBに膨れていて驚いた。
+    /// 以前はこのキャッシュを黙って作り続けており(上限200MB固定、ユーザーには存在も
+    /// 止める手段も見えない)、ディスクを食っていることに気づく機会が無かった。
+    ///
+    /// ここの初期値を「無効」にしてあるのは意図的で、configure()が届くまでのごく短い間
+    /// (起動直後)に1枚でも書いてしまうことを防ぐ。設定を読む前に書き始めることはない。
+    struct Configuration: Sendable, Equatable {
+        var isEnabled: Bool
+        var maxTotalBytes: Int
+    }
+
+    /// 上限の既定値(100MB)。240pxのPNGは1枚あたりおおむね数十KBなので、100MBでも
+    /// 数千ページ分に相当する。値そのものの正典はAppPreferences側
+    /// (defaultThumbnailDiskCacheLimitMB)で、ここはconfigure()が届くまでの置き値。
+    private static let defaultMaxTotalBytes: Int = 100 * 1024 * 1024
+
+    private var configuration = Configuration(
+        isEnabled: false, maxTotalBytes: ThumbnailDiskCache.defaultMaxTotalBytes
+    )
 
     /// 保存先(~/Library/Caches/<bundle id>/PageThumbnails)。作成に失敗した場合はnilになり、
     /// このキャッシュは「常にミスする」だけの無害な存在になる。
@@ -34,10 +59,26 @@ actor ThumbnailDiskCache {
     /// このactorの**外**で実行するため。actor上で実行すると、1枚のサムネイルの書き込みや
     /// 容量点検のあいだ、他の本・他のウインドウからの読み出しがすべて待たされる
     /// (このactorはsharedの1インスタンスしか無く、全ての本のサムネイルがここを通る)。
-    /// 実際にactorの隔離が要るのはhasTrimmedの読み書きだけなので、そこだけをactor上に残す。
+    /// 実際にactorの隔離が要るのは、設定(configuration)と刈り込みの帳簿(hasTrimmed /
+    /// bytesWrittenSinceTrim / hasConfigured)の読み書きだけなので、そこだけをactor上に残す。
     private nonisolated let directory: URL?
-    /// 起動後に一度だけ容量の刈り込みを行うためのフラグ。
+    /// 起動後に一度でも容量の刈り込みを行ったか。
     private var hasTrimmed = false
+    /// 前回の刈り込み以降に書き込んだバイト数。
+    ///
+    /// 以前は「起動後の最初の書き込みで一度だけ」点検していた。上限が固定200MBで、
+    /// そもそもユーザーからは見えない存在だったころはそれで足りたが、上限をユーザーが
+    /// 決めるようになった以上、「設定した値をはっきり超えたまま次の起動まで放置される」のは
+    /// 設定として破綻している。かといって書き込みのたびにディレクトリ全走査をするのは重いので、
+    /// 前回の点検から一定量(trimThreshold(for:))書き足したら、もう一度点検する。
+    private var bytesWrittenSinceTrim = 0
+    /// configure(isEnabled:maxTotalBytes:)を一度でも受け取ったか。
+    ///
+    /// 起動後の最初の1回だけは、設定が「初期値と同じ」であっても必ず後始末を走らせるために
+    /// 見ている。既定はOFFなので、この版を初めて起動したユーザーには
+    /// 「初期値(OFF)がそのまま届く」= 値が変わらない。そこで何もしないと、
+    /// **以前の版が黙って作った数百MBがいつまでも残る**ことになる。
+    private var hasConfigured = false
 
     private init() {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
@@ -115,7 +156,10 @@ actor ThumbnailDiskCache {
     /// コメント参照)。`async`のまま残してあるのは、呼び出し側の`await`をそのまま有効に
     /// しておくためと、将来actorの状態が要るようになったときに呼び出し側を変えずに済むため。
     nonisolated func thumbnail(bookKey: BookKey, pageID: String) async -> CGImage? {
-        guard let url = fileURL(bookKey: bookKey, pageID: pageID),
+        // 無効のあいだはディスクに何も残っていないので読んでも無駄だが、それ以上に、
+        // 読むだけでもヒットしたファイルの更新日時を触ってしまう(下記)ため、必ず先に弾く。
+        guard await isEnabled,
+              let url = fileURL(bookKey: bookKey, pageID: pageID),
               let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
         else { return nil }
@@ -128,7 +172,7 @@ actor ThumbnailDiskCache {
     /// デコード済みのサムネイルを保存する。失敗しても呼び出し側には影響しない
     /// (次回もキャッシュミスになるだけ)。`nonisolated`の理由はthumbnail(bookKey:pageID:)と同じ。
     nonisolated func store(_ image: CGImage, bookKey: BookKey, pageID: String) async {
-        guard let url = fileURL(bookKey: bookKey, pageID: pageID) else { return }
+        guard await isEnabled, let url = fileURL(bookKey: bookKey, pageID: pageID) else { return }
         do {
             try FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(), withIntermediateDirectories: true
@@ -147,32 +191,94 @@ actor ThumbnailDiskCache {
         ) else { return }
         CGImageDestinationAddImage(destination, image, nil)
         guard CGImageDestinationFinalize(destination) else { return }
+        let data = output as Data
         do {
-            try (output as Data).write(to: url, options: .atomic)
+            try data.write(to: url, options: .atomic)
         } catch {
             return
         }
 
-        // 起動後の最初の書き込みのタイミングで一度だけ容量を点検する。毎回走らせるほどの
-        // 頻度は不要で、点検自体がディレクトリ全走査になるため。
-        // 「一度だけ」の判定はhasTrimmedの読み書きを伴うのでactor上で行い、実際の走査は
+        // 容量の点検。毎回走らせるほどの頻度は不要(点検自体がディレクトリ全走査になる)なので、
+        // 起動後の1回目と、そこから一定量を書き足したときだけ走らせる。
+        // 「走らせてよいか」の判定はactorの状態の読み書きを伴うのでactor上で行い、実際の走査は
         // その外で行う(走査中に他のサムネイル読み出しを待たせないため)。
-        guard await claimTrim(), let directory else { return }
-        Self.trimIfNeeded(in: directory)
+        guard let limit = await claimTrim(afterWriting: data.count), let directory else { return }
+        Self.trimIfNeeded(in: directory, maxTotalBytes: limit)
     }
+
+    // MARK: - 設定
+
+    /// 環境設定「キャッシュ」の内容を受け取る。AppPreferencesが、起動時に一度と、
+    /// ユーザーがトグル/スライダーを動かすたびに呼ぶ。
+    ///
+    /// ■ OFFにされたら「速やかに」消す
+    /// これは単に書き込みを止めるだけでは足りない。この設定を入れる前のqooViewerは
+    /// 黙ってキャッシュを作り続けていたので、**この版を初めて起動した時点で既に数百MBが
+    /// 溜まっている**ユーザーがいる(まさにこの機能の発端になった報告)。既定はOFFなので、
+    /// 起動直後にここへOFFが届き、そのぶんが自動的に片付く。
+    ///
+    /// ■ 上限を下げたときもその場で刈り込む
+    /// 「次にサムネイルを1枚書いたら効く」では、設定した本人には効いていないように見える。
+    /// 有効化された瞬間と、上限が下がった瞬間には、書き込みを待たずに点検する。
+    func configure(isEnabled: Bool, maxTotalBytes: Int) {
+        let previous = configuration
+        let isFirstConfiguration = !hasConfigured
+        hasConfigured = true
+        configuration = Configuration(isEnabled: isEnabled, maxTotalBytes: maxTotalBytes)
+        // 起動後の1回目は、値が変わっていなくても素通りさせない(hasConfiguredのコメント参照)。
+        guard let directory, isFirstConfiguration || previous != configuration else { return }
+
+        guard isEnabled else {
+            hasTrimmed = false
+            bytesWrittenSinceTrim = 0
+            // 削除の完了は待たない(呼び出し元は環境設定のトグルで、待たせる意味が無い)。
+            // 走査と削除をactorの上で行わないのは、読み書きと同じ理由(directoryのコメント参照)。
+            Task.detached(priority: .utility) { Self.removeDirectory(directory) }
+            return
+        }
+
+        guard isFirstConfiguration || !previous.isEnabled || maxTotalBytes < previous.maxTotalBytes
+        else { return }
+        // ここで点検したぶんを「起動後の1回目」として数える(直後の書き込みで全走査が
+        // もう一度走らないように)。
+        hasTrimmed = true
+        bytesWrittenSinceTrim = 0
+        Task.detached(priority: .utility) {
+            Self.trimIfNeeded(in: directory, maxTotalBytes: maxTotalBytes)
+        }
+    }
+
+    /// 読み書きの入口(thumbnail/store)が最初に見る値。
+    /// actorの状態のうち、`nonisolated`な読み書きから参照する必要があるのはこれだけ。
+    private var isEnabled: Bool { configuration.isEnabled }
 
     // MARK: - 容量の管理
 
-    /// 起動後まだ容量点検を行っていなければ、行う権利を1つだけ取得する。
-    private func claimTrim() -> Bool {
-        guard !hasTrimmed else { return false }
+    /// 前回の点検からこれだけ書き足したら、もう一度点検する。
+    ///
+    /// 上限の5%を目安にしつつ、上下に歯止めを置いてある。上限が小さいときに全走査が
+    /// 頻発しないよう最低1MB、上限が大きいときに上限からの超過が広がりすぎないよう最大16MB。
+    /// 実際の使用量は「上限の8割(刈り込みの目標値)〜上限 + この値」の範囲に収まる。
+    private static func trimThreshold(for maxTotalBytes: Int) -> Int {
+        min(max(maxTotalBytes / 20, 1024 * 1024), 16 * 1024 * 1024)
+    }
+
+    /// いま容量の点検を行ってよければ、そのときの上限を返す(不要ならnil)。
+    /// 走査そのものはこの外(actorの外)で行う。
+    private func claimTrim(afterWriting bytes: Int) -> Int? {
+        guard configuration.isEnabled else { return nil }
+        bytesWrittenSinceTrim += bytes
+        let shouldTrim =
+            !hasTrimmed || bytesWrittenSinceTrim >= Self.trimThreshold(for: configuration.maxTotalBytes)
+        guard shouldTrim else { return nil }
         hasTrimmed = true
-        return true
+        bytesWrittenSinceTrim = 0
+        return configuration.maxTotalBytes
     }
 
     /// 上限を超えていたら、最終アクセスが古いものから削除する。
     /// `nonisolated static`: ディレクトリ全走査をactorの上で行わないため。
-    private nonisolated static func trimIfNeeded(in directory: URL) {
+    private nonisolated static func trimIfNeeded(in directory: URL, maxTotalBytes: Int) {
         let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
         guard let enumerator = FileManager.default.enumerator(
             at: directory, includingPropertiesForKeys: keys
@@ -189,10 +295,10 @@ actor ThumbnailDiskCache {
             files.append((url, size, date))
             total += size
         }
-        guard total > Self.maxTotalBytes else { return }
+        guard total > maxTotalBytes else { return }
 
         // 上限の8割まで落とす(削除のたびにすぐ上限へ戻らないようにするため)。
-        let target = Self.maxTotalBytes * 8 / 10
+        let target = maxTotalBytes * 8 / 10
         for file in files.sorted(by: { $0.date < $1.date }) {
             guard total > target else { break }
             try? FileManager.default.removeItem(at: file.url)
@@ -200,11 +306,48 @@ actor ThumbnailDiskCache {
         }
     }
 
-    /// キャッシュを丸ごと捨てる(環境設定「リセット」タブから使えるようにするための入口)。
+    /// いまキャッシュが使っているディスク容量。環境設定「キャッシュ」画面が、
+    /// 「どれだけ溜まっているのか」を実際の数字で見せるために使う
+    /// (この機能の発端が「気づかないうちに数百MB」だったので、見えること自体に意味がある)。
+    ///
+    /// `nonisolated`: ディレクトリ全走査をactorの上で行わないため(trimIfNeededと同じ)。
+    nonisolated func totalBytes() async -> Int {
+        guard let directory else { return 0 }
+        return Self.totalBytes(in: directory)
+    }
+
+    /// 走査の本体。`async`な関数から直接`DirectoryEnumerator`を回すことはできない
+    /// (`makeIterator`が非同期文脈では使えず、Swift 6モードではエラーになる)ため、
+    /// 同期の関数へ切り出してある。trimIfNeededが同じ書き方でよいのも同じ理由。
+    private nonisolated static func totalBytes(in directory: URL) -> Int {
+        let keys: [URLResourceKey] = [.fileSizeKey, .isRegularFileKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory, includingPropertiesForKeys: keys
+        ) else { return 0 }
+        var total = 0
+        for case let url as URL in enumerator {
+            guard let values = try? url.resourceValues(forKeys: Set(keys)),
+                  values.isRegularFile == true
+            else { continue }
+            total += values.fileSize ?? 0
+        }
+        return total
+    }
+
+    /// キャッシュを丸ごと捨てる(環境設定の「キャッシュ」画面と「リセット」画面から使う)。
     func removeAll() {
         guard let directory else { return }
-        try? FileManager.default.removeItem(at: directory)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        Self.removeDirectory(directory)
         hasTrimmed = false
+        bytesWrittenSinceTrim = 0
+    }
+
+    /// 保存先ごと消す。
+    ///
+    /// 空のフォルダを作り直さないのは、OFFにしたユーザーの~/Library/Caches配下に、
+    /// 使われない殻だけが残り続けるのを避けるため。store()はサブディレクトリを毎回
+    /// `withIntermediateDirectories: true`で作るので、親が無くてもそのまま再開できる。
+    private nonisolated static func removeDirectory(_ directory: URL) {
+        try? FileManager.default.removeItem(at: directory)
     }
 }

@@ -65,6 +65,8 @@ final class AppPreferences: ObservableObject {
         static let thumbnailGridBorderCustomColor = "qooViewer.pref.thumbnailGridBorderCustomColor"
         static let thumbnailGridWheelScrollRows = "qooViewer.pref.thumbnailGridWheelScrollRows"
         static let launchInPrivateMode = "qooViewer.pref.launchInPrivateMode"
+        static let thumbnailDiskCacheEnabled = "qooViewer.pref.thumbnailDiskCacheEnabled"
+        static let thumbnailDiskCacheLimitMB = "qooViewer.pref.thumbnailDiskCacheLimitMB"
 
         /// すりガラスの面ごとの設定(PanelSurface参照)。面の識別子ごとに3つのキーへ分かれる。
         /// 面を1つ増やしてもここは触らなくてよい(PanelSurface.allCasesから導出される)。
@@ -391,6 +393,51 @@ final class AppPreferences: ObservableObject {
     /// recentFilesLimitの既定値・下限・上限。RecentFilesStore側の読み取りでも同じ値を使う。
     static let defaultRecentFilesLimit: Double = 30
     static let recentFilesLimitRange: ClosedRange<Double> = 10...200
+
+    /// ページサムネイルをディスクにも保存しておくか(ThumbnailDiskCache、既定はOFF)。
+    ///
+    /// ユーザー報告: 数日使っただけでキャッシュフォルダが数百MBに膨れていて驚いた。
+    /// 以前はこのキャッシュを黙って作り続けており、ユーザーには存在も、止める手段も
+    /// 見えていなかった。ディスクを確実に消費する機能である以上、使うかどうかは
+    /// ユーザーが決めるべきなので、既定をOFFにしたうえで明示的な設定にした。
+    ///
+    /// OFFのあいだは読み書きしないだけでなく、既に溜まっているぶんも速やかに削除される
+    /// (ThumbnailDiskCache.configure(isEnabled:maxTotalBytes:)参照)。既定がOFFなので、
+    /// この版を初めて起動した時点で、これまで黙って作られていたキャッシュが自動的に片付く。
+    @Published var thumbnailDiskCacheEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(thumbnailDiskCacheEnabled, forKey: Keys.thumbnailDiskCacheEnabled)
+            applyThumbnailDiskCacheSettings()
+        }
+    }
+    /// サムネイルのディスクキャッシュの合計上限(MB、既定100)。超えそうになると、最終アクセスが
+    /// 古いサムネイルから削除される(ThumbnailDiskCache.trimIfNeeded参照)。
+    /// maxTrackedBooksCountと同じ理由でDoubleとして持つ(SettingsSliderがDoubleを扱うため)。
+    ///
+    /// この値を下げてもユーザーのデータは失われない(消えるのは再生成できるサムネイルだけ)。
+    /// 保管件数の2つ(maxTrackedBooksCount/recentFilesLimit)を「初期設定に戻す」の対象外に
+    /// してあるのとは事情が違うので、こちらは対象に含めてある(keys(for:)参照)。
+    @Published var thumbnailDiskCacheLimitMB: Double {
+        didSet {
+            UserDefaults.standard.set(thumbnailDiskCacheLimitMB, forKey: Keys.thumbnailDiskCacheLimitMB)
+            applyThumbnailDiskCacheSettings()
+        }
+    }
+    /// thumbnailDiskCacheLimitMBの既定値・下限・上限。
+    static let defaultThumbnailDiskCacheLimitMB: Double = 100
+    static let thumbnailDiskCacheLimitRangeMB: ClosedRange<Double> = 50...2000
+
+    /// いまの設定を、実際にディスクへ読み書きしているactorへ届ける。
+    ///
+    /// didSetからだけでなくinit()の最後からも呼ぶ(didSetは初期化中には走らないため)。
+    /// 起動時の「OFFなら溜まっているぶんを消す」も、この起動時の1回が入口になっている。
+    private func applyThumbnailDiskCacheSettings() {
+        let isEnabled = thumbnailDiskCacheEnabled
+        let maxTotalBytes = Int(thumbnailDiskCacheLimitMB) * 1024 * 1024
+        Task {
+            await ThumbnailDiskCache.shared.configure(isEnabled: isEnabled, maxTotalBytes: maxTotalBytes)
+        }
+    }
 
     /// ウェルカム画面に「最近開いたファイル」一覧(最大10件)を表示するかどうか(既定ON)。
     /// 履歴として保持する件数(recentFilesLimit)を増やしても、ウェルカム画面の一覧は
@@ -778,6 +825,11 @@ final class AppPreferences: ObservableObject {
         self.sidePanelSurfaceStyle = Self.loadSurfaceStyle(for: .sidePanel)
         self.overlaySurfaceStyle = Self.loadSurfaceStyle(for: .overlays)
         self.launchInPrivateMode = defaults.object(forKey: Keys.launchInPrivateMode) as? Bool ?? false
+        self.thumbnailDiskCacheEnabled =
+            defaults.object(forKey: Keys.thumbnailDiskCacheEnabled) as? Bool ?? false
+        self.thumbnailDiskCacheLimitMB =
+            defaults.object(forKey: Keys.thumbnailDiskCacheLimitMB) as? Double
+            ?? Self.defaultThumbnailDiskCacheLimitMB
 
         if let storedRaw = defaults.string(forKey: Keys.defaultReadingDirection),
            let stored = ReadingDirection(rawValue: storedRaw) {
@@ -790,6 +842,11 @@ final class AppPreferences: ObservableObject {
             self.defaultReadingDirection = determined
             defaults.set(determined.rawValue, forKey: Keys.defaultReadingDirection)
         }
+
+        // すべてのプロパティが揃ってから、サムネイルのディスクキャッシュへ設定を届ける
+        // (didSetは初期化中には走らないので、ここで一度だけ明示的に呼ぶ必要がある)。
+        // OFF(既定)ならこの呼び出しが、溜まっているキャッシュの削除の合図にもなる。
+        applyThumbnailDiskCacheSettings()
     }
 }
 
@@ -930,6 +987,13 @@ extension AppPreferences {
                 Keys.autoHideCursor,
                 Keys.cursorAutoHideDelay,
             ]
+        case .cache:
+            return [
+                Keys.thumbnailDiskCacheEnabled,
+                // 上限を下げても消えるのは再生成できるサムネイルだけなので、保管件数の2つ
+                // (maxTrackedBooksCount/recentFilesLimit)と違って対象に含めてよい。
+                Keys.thumbnailDiskCacheLimitMB,
+            ]
         case .keyboard, .mouse, .modeInput, .access, .reset:
             return []
         }
@@ -995,6 +1059,9 @@ extension AppPreferences {
             slideshowInterval = source.slideshowInterval
             autoHideCursor = source.autoHideCursor
             cursorAutoHideDelay = source.cursorAutoHideDelay
+        case .cache:
+            thumbnailDiskCacheEnabled = source.thumbnailDiskCacheEnabled
+            thumbnailDiskCacheLimitMB = source.thumbnailDiskCacheLimitMB
         case .keyboard, .mouse, .modeInput, .access, .reset:
             break
         }

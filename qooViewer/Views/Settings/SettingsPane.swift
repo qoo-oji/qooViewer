@@ -40,6 +40,11 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     case mouse
     /// 表示モードごとに上書きするキー/マウス割り当て。
     case modeInput
+    /// アプリがディスクへ溜め込むキャッシュ(ページサムネイル)の扱い。
+    ///
+    /// 「詳細」グループに置いてある。普段は触らなくてよく、かつ触れば
+    /// 保存済みのキャッシュがその場で消えるという点で、隣の2項目と性質が揃っているため。
+    case cache
     /// サンドボックス下でのフォルダアクセス許可の管理。
     case access
     /// お気に入り・ブックマーク・読書履歴の全削除(取り消し不可)。
@@ -67,6 +72,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .keyboard: "Keyboard"
         case .mouse: "Mouse"
         case .modeInput: "Per Display Mode"
+        case .cache: "Cache"
         case .access: "Folder Access"
         case .reset: "Reset"
         }
@@ -89,6 +95,9 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .keyboard: "keyboard"
         case .mouse: "computermouse.fill"
         case .modeInput: "rectangle.split.2x1.fill"
+        // ディスクに溜まっていくもの、という一点だけを示す。写真/サムネイルを思わせる
+        // シンボルにすると「ページ一覧の見た目の設定」と紛らわしくなる。
+        case .cache: "internaldrive.fill"
         case .access: "lock.shield.fill"
         case .reset: "exclamationmark.triangle.fill"
         }
@@ -105,7 +114,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     ///
     ///   本   … ブルー系  (青 → シアン → インディゴ)
     ///   操作 … イエロー系(オレンジ → イエロー → ブラウン)
-    ///   詳細 … レッド系  (ピンク寄りの赤 → 赤)
+    ///   詳細 … レッド系  (くすんだ赤 → ピンク寄りの赤 → 赤)
     ///
     /// 「操作」が3項目になった(「キーとマウス」を「キーボード」と「マウス」に分けた)ため、
     /// 同系統の3段目としてブラウンを足してある。オレンジ・イエローと地続きの暖色で、
@@ -133,6 +142,10 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .keyboard: .orange
         case .mouse: .yellow
         case .modeInput: .brown
+        // 「詳細」レッド系の3段目。既定色の.pink(アクセス権)・.red(リセット)のどちらとも
+        // 取り違えないよう、彩度を落とした赤にしてある。3項目の中でいちばん穏やかな色が
+        // いちばん穏やかな操作(キャッシュ)に当たる、という並びになる。
+        case .cache: Color(red: 0.72, green: 0.42, blue: 0.45)
         case .access: .pink
         case .reset: .red
         }
@@ -144,7 +157,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .general, .appearance: .top
         case .opening, .rendering, .reading: .books
         case .keyboard, .mouse, .modeInput: .controls
-        case .access, .reset: .advanced
+        case .cache, .access, .reset: .advanced
         }
     }
 
@@ -166,6 +179,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .keyboard: KeyBindingSettingsView()
         case .mouse: MouseBindingSettingsView()
         case .modeInput: ModeInputSettingsView()
+        case .cache: CacheSettingsView()
         case .access: AccessPermissionsSettingsView()
         case .reset: ResetDataSettingsView()
         }

@@ -1696,6 +1696,38 @@
         }
       }
     },
+    "Cache": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cache"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャッシュ"
+          }
+        }
+      }
+    },
+    "Cache Page Thumbnails on Disk": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cache Page Thumbnails on Disk"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページのサムネイルをディスクに保存する"
+          }
+        }
+      }
+    },
     "Cancel": {
       "localizations": {
         "en": {
@@ -2758,6 +2790,22 @@
         }
       }
     },
+    "Currently Used": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Currently Used"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在の使用量"
+          }
+        }
+      }
+    },
     "Custom": {
       "localizations": {
         "en": {
@@ -3194,6 +3242,22 @@
         }
       }
     },
+    "Delete Cached Thumbnails Now": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Cached Thumbnails Now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サムネイルのキャッシュを今すぐ削除"
+          }
+        }
+      }
+    },
     "Delete Folder": {
       "localizations": {
         "en": {
@@ -3383,6 +3447,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "設定を破棄する"
+          }
+        }
+      }
+    },
+    "Disk Usage": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk Usage"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスクの使用量"
           }
         }
       }
@@ -6250,6 +6330,22 @@
         }
       }
     },
+    "Maximum Size": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximum Size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大容量"
+          }
+        }
+      }
+    },
     "Maximum Upscale": {
       "extractionState": "manual",
       "localizations": {
@@ -7265,6 +7361,22 @@
         }
       }
     },
+    "Only thumbnails are deleted. Your favorites, bookmarks, and reading history are not affected — pages are simply decoded again the next time you need them.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only thumbnails are deleted. Your favorites, bookmarks, and reading history are not affected — pages are simply decoded again the next time you need them."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除されるのはサムネイルだけです。お気に入り・ブックマーク・読書履歴には影響しません。次に必要になった時点で、ページを読み込み直すだけです。"
+          }
+        }
+      }
+    },
     "Open": {
       "localizations": {
         "en": {
@@ -7857,6 +7969,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "ページ番号"
+          }
+        }
+      }
+    },
+    "Page Thumbnails": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Page Thumbnails"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページのサムネイル"
           }
         }
       }
@@ -8910,6 +9038,22 @@
         }
       }
     },
+    "Reopening a book you have already viewed becomes much faster, especially from an external drive or a network volume. In exchange, qooViewer keeps thumbnail files on your startup disk. Turning this off deletes them right away.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reopening a book you have already viewed becomes much faster, especially from an external drive or a network volume. In exchange, qooViewer keeps thumbnail files on your startup disk. Turning this off deletes them right away."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一度見た本を開き直すのが大幅に速くなります(特に外付けドライブやネットワークボリューム上の本)。そのぶん、サムネイルのファイルが起動ディスクに残ります。OFFにすると、残っているぶんは速やかに削除されます。"
+          }
+        }
+      }
+    },
     "Reopens the book you were reading when qooViewer last quit.": {
       "extractionState": "manual",
       "localizations": {
@@ -9199,6 +9343,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "この画面のすべての設定を初期状態に戻します(すりガラスの各面の色を含む)。ほかの画面の設定には影響しません。"
+          }
+        }
+      }
+    },
+    "Restores every setting on this page, which turns the thumbnail cache off and deletes it. Other pages, and your favorites, bookmarks and reading history, are not affected.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restores every setting on this page, which turns the thumbnail cache off and deletes it. Other pages, and your favorites, bookmarks and reading history, are not affected."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この画面のすべての設定を初期状態に戻します(サムネイルのキャッシュはOFFになり、削除されます)。ほかの画面の設定と、お気に入り・ブックマーク・読書履歴には影響しません。"
           }
         }
       }
@@ -12313,6 +12473,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "スクロールできないとき(「画面内に収める」で表示しているとき)は、ここでの選択に関わらず、「入力」タブでホイールに割り当てた操作を行います。"
+          }
+        }
+      }
+    },
+    "When the cache would grow past this size, the thumbnails you looked at longest ago are deleted first.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When the cache would grow past this size, the thumbnails you looked at longest ago are deleted first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この容量を超えそうになると、最後に見てから最も時間が経ったサムネイルから順に削除されます。"
           }
         }
       }
