@@ -329,12 +329,12 @@ struct ContentView: View {
             updateLastActiveBookRecordIfKeyWindow()
             updateBookContentsBrowserForCurrentBook()
             // サイドパネル上段(フォルダブラウザ)を、新しく開いた本のフォルダへ再アンカーする。
-            // サイドパネルが常時表示(既定、hideSidePanel == false)のときは、ホバーでの
-            // 「表示される」タイミング自体が発生しないため、ここで本の切り替わりを直接検知
-            // する必要がある(最近使ったファイル一覧などから本を開いた場合、ホバーで
-            // パネルを開き直さない限りボリューム一覧のままになってしまっていた不具合の修正)。
-            // hideSidePanel == trueでホバー表示中の場合も、installSidePanelHoverMonitorIfNeeded
-            // 側の再アンカーと重複するが冪等なので問題ない。
+            // 再アンカーの契機はこの「本の切り替わり」**だけ**にしてある。以前はパネルを
+            // 隠す設定のとき、ホバーで表示されるたびにも再アンカーしていた
+            // (installSidePanelHoverMonitorIfNeeded)が、それだとフォルダブラウザで奥へ
+            // 移動した状態がパネルが隠れるたびに失われ、常時表示のときと挙動が食い違っていた。
+            // ユーザーの指示で、隠す設定でも常時表示と同じ(移動した場所はそのまま保たれ、
+            // 本が切り替わったときだけ本の場所へ移る)に揃えた。
             sidePanelBrowser.handlePanelRevealed(currentBook: appState.currentBook)
         }
         // サイドパネル下段(本の中身ブラウザ)を、今実際に表示されているページへ追従させる
@@ -1087,8 +1087,9 @@ struct ContentView: View {
                 appState.isSidePanelRevealed = false
             }
         } else if distanceFromPanelEdge <= Self.sidePanelRevealBandWidth, !appState.isChromeAutoRevealed {
+            // ここでフォルダブラウザを再アンカーしてはいけない(本の切り替わりを見ている
+            // .onChange(of: appState.currentBook?.id)のコメント参照)。表示するだけ。
             appState.isSidePanelRevealed = true
-            sidePanelBrowser.handlePanelRevealed(currentBook: appState.currentBook)
         }
     }
 
