@@ -649,7 +649,7 @@ struct SidePanelView: View {
                 } else {
                     label
                         .onTapGesture(count: 2) { onOpen(entry.url) }
-                        .onTapGesture(count: 1) { moveAndShowImages { folderState.navigate(into: entry.url) } }
+                        .onTapGesture(count: 1) { handleFolderClick(entry) }
                 }
             } else {
                 label.onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { onOpen(entry.url) }
@@ -719,6 +719,36 @@ struct SidePanelView: View {
               !isCurrentBookFolder(directory) else { return }
         folderState.skipNextAnchorOnce()
         onBrowseToFolder(directory)
+    }
+
+    /// フォルダ行のシングルクリック(「開く・移動をダブルクリックにする」がOFFのとき)。
+    ///
+    /// ■ 行き止まりの本(画像しか入っていないフォルダ)は、中へ移動せずその場で開く
+    /// 以前はどのフォルダも一律に「中へ移動し、画像があればそれを表示」だった
+    /// (moveAndShowImages)。画像だけのフォルダに入ると、一覧は画像を並べない仕様のため
+    /// 空になり、「このフォルダの画像を表示しています」というバナーで理由を説明していた。
+    /// ユーザーからの提案で、こうしたフォルダは右クリック→「開く」と同じ扱い(親の一覧に
+    /// 留まり、その行が選択色になる)に変えた ―― 空の一覧にバナーを出すより、親の一覧で
+    /// 行が強調されているほうが「いまどのフォルダを見ているか」「隣は何か」が一目で分かる。
+    ///
+    /// この見え方は、履歴・お気に入り・Finderから本を開いたときや、画像ファイルを直接
+    /// 開いたときにブラウザが取る見え方(親に留まって本の行を強調。SidePanelBrowserState.
+    /// browserAnchor参照)と同じで、辿り着き方による食い違いがむしろ減る。
+    /// 行の強調は、本が切り替わったときの再アンカー(handlePanelRevealed)がそのまま担う。
+    ///
+    /// 右クリック→「開く」と同じなので、履歴にも残る(moveAndShowImagesが残さないのは
+    /// 「目的の本を探して通り抜けただけのフォルダ」を想定してのことで、行き止まりは
+    /// 通り抜けではなく目的地)。パネルを自動で隠す設定のときに閉じる点も「開く」と同じ。
+    ///
+    /// ■ サブフォルダがあるフォルダは従来どおり
+    /// 先に進める場所がある以上、中へ移動する必要がある。画像が同居していれば表示も行い、
+    /// 一覧の先頭にバナーが出る(こちらは通り抜けなので履歴には残さない)。
+    private func handleFolderClick(_ entry: DirectoryBrowser.Entry) {
+        if entry.isLeafBookFolder {
+            onOpen(entry.url)
+        } else {
+            moveAndShowImages { folderState.navigate(into: entry.url) }
+        }
     }
 
     private func handleFolderDoubleClick(_ entry: DirectoryBrowser.Entry) {

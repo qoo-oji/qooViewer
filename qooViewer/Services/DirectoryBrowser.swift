@@ -46,6 +46,17 @@ nonisolated enum DirectoryBrowser {
         /// 表示中の全フォルダぶんのディスクI/Oが走ることになる ―― displayNameを格納
         /// プロパティへ移したのとまったく同じ問題。
         let containsImageFile: Bool
+        /// **フォルダの行だけ**: 直下にサブフォルダが1つでもあるか。ファイルの行では常にfalse。
+        ///
+        /// `containsImageFile && !containsSubdirectory`が「行き止まりの本」(画像しか入って
+        /// いないフォルダ)を表す。サイドパネルのフォルダ行をクリックしたとき、中へ移動する
+        /// (先にサブフォルダがある)か、移動せずその場で本として開く(行き止まり)かを
+        /// この組み合わせで決める(SidePanelView.handleFolderClickのコメント参照)。
+        /// containsImageFileと同じ1回の列挙で確定させる(I/Oは増えない)。
+        let containsSubdirectory: Bool
+
+        /// 画像しか入っていないフォルダ = 中に入っても何も並ばない、1冊の本そのもの。
+        var isLeafBookFolder: Bool { containsImageFile && !containsSubdirectory }
 
         var id: String { url.path }
     }
@@ -129,6 +140,10 @@ nonisolated enum DirectoryBrowser {
     private static func makeEntry(for url: URL, kindCache: inout [String: String]) -> Entry? {
         let values = try? url.resourceValues(forKeys: entryResourceKeys)
         let isDirectory = values?.isDirectory ?? false
+        // ファイルは中身を持たないので調べない。フォルダは1件につき1回の列挙が増える
+        // (directContentsのコメント参照)。この関数はもともとlistingAsync/entriesAsync/
+        // mountedVolumeEntriesAsync経由でメインスレッド外から呼ばれる。
+        let directContents = isDirectory ? directContents(of: url) : (hasImageFile: false, hasSubdirectory: false)
         if !isDirectory {
             let name = url.lastPathComponent
             guard isArchiveFile(name) || isPDFFile(name) || isEpubFile(name) else { return nil }
@@ -146,12 +161,8 @@ nonisolated enum DirectoryBrowser {
             typeDescription: typeDescription(for: url, isDirectory: isDirectory, cache: &kindCache),
             creationDate: values?.creationDate,
             modificationDate: values?.contentModificationDate,
-            // ファイルは中身を持たないので調べない。フォルダは1件につき1回の列挙が増えるが、
-            // 画像が見つかった時点で打ち切るため、画像フォルダなら最初の数件で終わる
-            // (directlyContainsImageFileのコメント参照)。この関数はもともと
-            // listingAsync/entriesAsync/mountedVolumeEntriesAsync経由でメインスレッド外から
-            // 呼ばれる。
-            containsImageFile: isDirectory && directlyContainsImageFile(url)
+            containsImageFile: directContents.hasImageFile,
+            containsSubdirectory: directContents.hasSubdirectory
         )
     }
 
@@ -269,15 +280,33 @@ nonisolated enum DirectoryBrowser {
     /// URLの生成は毎回全件ぶん走っていた。`enumerator`は必要になるまで次を読まないので、
     /// 画像フォルダなら最初の数件で終わる。
     static func directlyContainsImageFile(_ directory: URL) -> Bool {
+        directContents(of: directory).hasImageFile
+    }
+
+    /// directory直下に画像ファイルがあるか・サブフォルダがあるかを、1回の列挙で調べる
+    /// (Entry.containsImageFile / Entry.containsSubdirectory)。
+    ///
+    /// 両方が見つかった時点で打ち切る。画像とサブフォルダが同居するフォルダなら早々に
+    /// 終わり、画像だけのフォルダは(サブフォルダが無いと言い切るために)最後まで読む
+    /// ことになるが、1階層ぶんのファイル名を読むだけなので、画像1枚のヘッダーを読むより軽い。
+    /// 読み取れない場合は両方false。
+    static func directContents(of directory: URL) -> (hasImageFile: Bool, hasSubdirectory: Bool) {
         guard let enumerator = FileManager.default.enumerator(
             at: directory,
-            includingPropertiesForKeys: nil,
+            includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
-        ) else { return false }
+        ) else { return (false, false) }
+        var hasImageFile = false
+        var hasSubdirectory = false
         while let url = enumerator.nextObject() as? URL {
-            if isImageFile(url.lastPathComponent) { return true }
+            if !hasSubdirectory, (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+                hasSubdirectory = true
+            } else if !hasImageFile, isImageFile(url.lastPathComponent) {
+                hasImageFile = true
+            }
+            if hasImageFile && hasSubdirectory { break }
         }
-        return false
+        return (hasImageFile, hasSubdirectory)
     }
 
     /// 上記をメインスレッド外(Task.detached)で実行する版。SiblingFinder.siblingBookURLsAsyncと
