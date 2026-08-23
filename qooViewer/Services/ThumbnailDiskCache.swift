@@ -43,10 +43,10 @@ actor ThumbnailDiskCache {
         var maxTotalBytes: Int
     }
 
-    /// 上限の既定値(100MB)。240pxのPNGは1枚あたりおおむね数十KBなので、100MBでも
+    /// 上限の既定値(200MB)。240pxのPNGは1枚あたりおおむね数十KBなので、200MBでも
     /// 数千ページ分に相当する。値そのものの正典はAppPreferences側
     /// (defaultThumbnailDiskCacheLimitMB)で、ここはconfigure()が届くまでの置き値。
-    private static let defaultMaxTotalBytes: Int = 100 * 1024 * 1024
+    private static let defaultMaxTotalBytes: Int = 200 * 1024 * 1024
 
     private var configuration = Configuration(
         isEnabled: false, maxTotalBytes: ThumbnailDiskCache.defaultMaxTotalBytes
@@ -79,6 +79,13 @@ actor ThumbnailDiskCache {
     /// 「初期値(OFF)がそのまま届く」= 値が変わらない。そこで何もしないと、
     /// **以前の版が黙って作った数百MBがいつまでも残る**ことになる。
     private var hasConfigured = false
+    /// 最後に受け取ったconfigure(generation:...)の世代番号。
+    ///
+    /// AppPreferencesはdidSetのたびに独立した`Task`で設定を送ってくる。スライダーのドラッグ中は
+    /// それが連続し、Swiftは非構造化Task同士の到着順を保証しないため、理論上「OFF→ONと
+    /// 素早く切り替えたのにOFFが後から届き、UIはONのまま実体は無効化されてディレクトリも
+    /// 消える」が起こりうる(監査で指摘)。世代番号が既知のものより古い呼び出しは捨てる。
+    private var lastConfigurationGeneration: UInt64 = 0
 
     private init() {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
@@ -220,7 +227,12 @@ actor ThumbnailDiskCache {
     /// ■ 上限を下げたときもその場で刈り込む
     /// 「次にサムネイルを1枚書いたら効く」では、設定した本人には効いていないように見える。
     /// 有効化された瞬間と、上限が下がった瞬間には、書き込みを待たずに点検する。
-    func configure(isEnabled: Bool, maxTotalBytes: Int) {
+    ///
+    /// - Parameter generation: 呼び出し側が単調増加させる世代番号。これより新しい設定を
+    ///   既に受け取っていれば、この呼び出しは無視する(lastConfigurationGenerationのコメント参照)。
+    func configure(isEnabled: Bool, maxTotalBytes: Int, generation: UInt64) {
+        guard generation > lastConfigurationGeneration else { return }
+        lastConfigurationGeneration = generation
         let previous = configuration
         let isFirstConfiguration = !hasConfigured
         hasConfigured = true
@@ -335,9 +347,15 @@ actor ThumbnailDiskCache {
     }
 
     /// キャッシュを丸ごと捨てる(環境設定の「キャッシュ」画面と「リセット」画面から使う)。
-    func removeAll() {
+    /// 削除が終わってから戻る(呼び出し側が使用量を測り直すため)。
+    ///
+    /// 削除そのものはactorの外で行う。上限は2000MBまで設定でき、数秒かかりうる削除を
+    /// actorの上で行うと、そのあいだ全ての本のthumbnail()/store()が`await isEnabled`で
+    /// 待たされてページ一覧のサムネイルが止まる(監査で指摘)。`await`で待つあいだは
+    /// actorが解放されるので、他の読み書きは通る。
+    func removeAll() async {
         guard let directory else { return }
-        Self.removeDirectory(directory)
+        await Task.detached(priority: .utility) { Self.removeDirectory(directory) }.value
         hasTrimmed = false
         bytesWrittenSinceTrim = 0
     }

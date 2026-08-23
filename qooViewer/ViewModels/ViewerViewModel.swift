@@ -1157,8 +1157,12 @@ final class ViewerViewModel: ObservableObject {
     /// サムネイルにカーソルを合わせたときの拡大プレビュー用の画像。ポップオーバーの
     /// 枠に合わせた解像度(AppPreferences.thumbnailHoverPreviewPixelSize)でデコードする。
     /// 以前は原寸のpageImage(at:)を使っていた(同プロパティのコメント参照)。
+    /// ディスクキャッシュには載せない(PageLoader.gridThumbnailのusesDiskCache参照)。
     func loadPreviewImage(at index: Int) async -> CGImage? {
-        await loadGridThumbnail(at: index, maxPixelSize: preferences.thumbnailHoverPreviewPixelSize)
+        guard book.pages.indices.contains(index) else { return nil }
+        return await pageLoader.gridThumbnail(
+            at: index, maxPixelSize: preferences.thumbnailHoverPreviewPixelSize, usesDiskCache: false
+        )
     }
 
     func pageImage(at index: Int) async -> CGImage? {

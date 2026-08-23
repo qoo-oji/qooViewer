@@ -724,7 +724,7 @@ private struct ExportCoverPickerPageRow: View {
             guard previewImage == nil, let pageLoader else { return }
             // ポップオーバーの枠に合わせた解像度で読む(ViewerViewModel.loadPreviewImage参照)。
             previewImage = await pageLoader.gridThumbnail(
-                at: index, maxPixelSize: preferences.thumbnailHoverPreviewPixelSize
+                at: index, maxPixelSize: preferences.thumbnailHoverPreviewPixelSize, usesDiskCache: false
             )
         }
     }

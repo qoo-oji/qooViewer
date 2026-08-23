@@ -413,7 +413,7 @@ final class AppPreferences: ObservableObject {
             applyThumbnailDiskCacheSettings()
         }
     }
-    /// サムネイルのディスクキャッシュの合計上限(MB、既定100)。超えそうになると、最終アクセスが
+    /// サムネイルのディスクキャッシュの合計上限(MB、既定200)。超えそうになると、最終アクセスが
     /// 古いサムネイルから削除される(ThumbnailDiskCache.trimIfNeeded参照)。
     /// maxTrackedBooksCountと同じ理由でDoubleとして持つ(SettingsSliderがDoubleを扱うため)。
     ///
@@ -427,7 +427,7 @@ final class AppPreferences: ObservableObject {
         }
     }
     /// thumbnailDiskCacheLimitMBの既定値・下限・上限。
-    static let defaultThumbnailDiskCacheLimitMB: Double = 100
+    static let defaultThumbnailDiskCacheLimitMB: Double = 200
     static let thumbnailDiskCacheLimitRangeMB: ClosedRange<Double> = 50...2000
 
     /// 開いている本1冊あたりの、デコード済みページ画像のメモリキャッシュの上限(MB、既定300)。
@@ -444,7 +444,9 @@ final class AppPreferences: ObservableObject {
     @Published var pageImageCacheLimitMB: Double {
         didSet { UserDefaults.standard.set(pageImageCacheLimitMB, forKey: Keys.pageImageCacheLimitMB) }
     }
-    static let defaultPageImageCacheLimitMB: Double = 300
+    /// nonisolated: PageLoader(actor)のinitの既定引数から参照されるため(MainActor隔離のままだと
+    /// Swift 6モードでエラーになる)。
+    nonisolated static let defaultPageImageCacheLimitMB: Double = 300
     static let pageImageCacheLimitRangeMB: ClosedRange<Double> = 100...2000
     /// PageLoaderへ渡す形(バイト数)。
     var pageImageCacheLimitBytes: Int {
@@ -457,13 +459,22 @@ final class AppPreferences: ObservableObject {
     ///
     /// didSetからだけでなくinit()の最後からも呼ぶ(didSetは初期化中には走らないため)。
     /// 起動時の「OFFなら溜まっているぶんを消す」も、この起動時の1回が入口になっている。
+    ///
+    /// 呼び出しごとに世代番号を進めて渡す。独立した`Task`同士は到着順が保証されないので、
+    /// 受け手(ThumbnailDiskCache.configure)が古い世代を捨てられるようにするため。
     private func applyThumbnailDiskCacheSettings() {
         let isEnabled = thumbnailDiskCacheEnabled
         let maxTotalBytes = Int(thumbnailDiskCacheLimitMB) * 1024 * 1024
+        thumbnailDiskCacheConfigurationGeneration &+= 1
+        let generation = thumbnailDiskCacheConfigurationGeneration
         Task {
-            await ThumbnailDiskCache.shared.configure(isEnabled: isEnabled, maxTotalBytes: maxTotalBytes)
+            await ThumbnailDiskCache.shared.configure(
+                isEnabled: isEnabled, maxTotalBytes: maxTotalBytes, generation: generation
+            )
         }
     }
+    /// applyThumbnailDiskCacheSettingsが進める世代番号(MainActor上でのみ触る)。
+    private var thumbnailDiskCacheConfigurationGeneration: UInt64 = 0
 
     /// ウェルカム画面に「最近開いたファイル」一覧(最大10件)を表示するかどうか(既定ON)。
     /// 履歴として保持する件数(recentFilesLimit)を増やしても、ウェルカム画面の一覧は

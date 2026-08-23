@@ -323,7 +323,9 @@ final class BookLayoutEditorViewModel: ObservableObject {
     /// (AppPreferences.thumbnailHoverPreviewPixelSize。以前はビューアと同じ原寸を読んでいた)
     /// で返す。ホバーしたときだけ呼ばれる想定(常時読み込むと本によっては重くなるため)。
     func previewImage(rawIndex: Int) async -> CGImage? {
-        await pageLoader?.gridThumbnail(at: rawIndex, maxPixelSize: preferences.thumbnailHoverPreviewPixelSize)
+        await pageLoader?.gridThumbnail(
+            at: rawIndex, maxPixelSize: preferences.thumbnailHoverPreviewPixelSize, usesDiskCache: false
+        )
     }
 
     func dismissReorderWarning() {

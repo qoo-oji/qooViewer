@@ -319,17 +319,25 @@ actor PageLoader {
     /// gridThumbnailCacheと、サイズを含むキー・サイズ別のディスクキャッシュだけを使う。
     /// デコードはdecodedImage(for:maxPixelSize:)に委ねる(コントラスト補正のON/OFFも含めて、
     /// thumbnail(at:)/pageImage(at:)と同じ扱いになる)。
-    func gridThumbnail(at index: Int, maxPixelSize: CGFloat) async -> CGImage? {
+    ///
+    /// - Parameter usesDiskCache: ディスクキャッシュ(ThumbnailDiskCache)を読み書きするか。
+    ///   ホバー時の拡大プレビュー(最大1600px、PNGで1枚数MB)はfalseで呼ぶ。このサイズを
+    ///   永続化すると、「表示中のサムネイルの拡大画像を先読み」で画面内のセル数ぶんのPNG
+    ///   エンコードと書き込みがスクロールのたびに走り、既定200MBの上限では数十枚で、本来この
+    ///   キャッシュが守りたい240px/セルサイズのサムネイルを刈り込んでしまう(監査で指摘)。
+    ///   シークレットウインドウ(usesThumbnailDiskCache == false)ではこの値に関わらず使わない。
+    func gridThumbnail(at index: Int, maxPixelSize: CGFloat, usesDiskCache: Bool = true) async -> CGImage? {
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
         let key = "\(page.id)|\(Int(maxPixelSize))" as NSString
+        let usesDisk = usesThumbnailDiskCache && usesDiskCache
 
         if let cached = gridThumbnailCache.object(forKey: key) {
             return cached.makeImage()
         }
 
         // シークレットウインドウ(usesThumbnailDiskCache == false)ではディスクを読み書きしない。
-        if usesThumbnailDiskCache {
+        if usesDisk {
             let diskKey = thumbnailDiskKey(maxPixelSize: maxPixelSize)
             if let fromDisk = await ThumbnailDiskCache.shared.thumbnail(bookKey: diskKey, pageID: page.id),
                let buffer = await Self.renderBuffer(from: fromDisk) {
@@ -342,7 +350,7 @@ actor PageLoader {
             return nil
         }
         gridThumbnailCache.setObject(decoded, forKey: key, cost: decoded.byteCount)
-        if usesThumbnailDiskCache {
+        if usesDisk {
             let diskKey = thumbnailDiskKey(maxPixelSize: maxPixelSize)
             let pageID = page.id
             // 書き込みは待たない(thumbnail(at:)と同じ考え方)。

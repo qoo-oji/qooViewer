@@ -279,8 +279,22 @@ nonisolated enum DirectoryBrowser {
     /// ものの、実際に節約できていたのは`isImageFile`の判定だけで、ディスクの読み取りと
     /// URLの生成は毎回全件ぶん走っていた。`enumerator`は必要になるまで次を読まないので、
     /// 画像フォルダなら最初の数件で終わる。
+    ///
+    /// **directContents(of:)へ委譲してはいけない。** あちらは「サブフォルダが無い」と言い切る
+    /// ために画像だけのフォルダを最後まで読むが、この関数はSidePanelView.moveAndShowImages
+    /// (戻る/進む/1階層上)から**メインスレッドで同期的に**呼ばれる。数千枚の画像がある
+    /// フォルダをネットワークボリューム上で全走査すると秒単位でUIが固まる(監査で検出)。
+    /// ここは画像が1枚見つかった時点で打ち切る。
     static func directlyContainsImageFile(_ directory: URL) -> Bool {
-        directContents(of: directory).hasImageFile
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
+        ) else { return false }
+        while let url = enumerator.nextObject() as? URL {
+            if isImageFile(url.lastPathComponent) { return true }
+        }
+        return false
     }
 
     /// directory直下に画像ファイルがあるか・サブフォルダがあるかを、1回の列挙で調べる
@@ -293,13 +307,16 @@ nonisolated enum DirectoryBrowser {
     static func directContents(of directory: URL) -> (hasImageFile: Bool, hasSubdirectory: Bool) {
         guard let enumerator = FileManager.default.enumerator(
             at: directory,
-            includingPropertiesForKeys: [.isDirectoryKey],
+            includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
         ) else { return (false, false) }
         var hasImageFile = false
         var hasSubdirectory = false
         while let url = enumerator.nextObject() as? URL {
-            if !hasSubdirectory, (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
+            // FileManagerの列挙器はディレクトリのURLを末尾スラッシュ付きで返すので、
+            // 1件ごとの属性問い合わせ(stat)をせずにhasDirectoryPathで判別できる
+            // (ネットワークボリュームではこの問い合わせが1件ごとの往復になる)。
+            if !hasSubdirectory, url.hasDirectoryPath {
                 hasSubdirectory = true
             } else if !hasImageFile, isImageFile(url.lastPathComponent) {
                 hasImageFile = true
