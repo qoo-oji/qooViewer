@@ -132,29 +132,32 @@ actor PageLoader {
     //
     // totalCostLimitは環境設定「キャッシュ」の「メモリに残しておくページ画像」で決まる
     // (init / setImageCacheLimit参照)。
-    private let imageCache: NSCache<NSString, PagePixelBuffer> = {
-        let cache = NSCache<NSString, PagePixelBuffer>()
-        cache.countLimit = 64
-        return cache
-    }()
+    //
+    // ■ 3つともNSCacheを直接ではなくTrackedPixelCache(NSCache+帳簿)で持つ
+    // NSCacheは現在の合計コストも中身のキーも教えてくれない。サイドパネルのリソースモニタが
+    // 「上限に対していま何MB・何枚入っているか」「前後何ページが残っているか」を出せるよう、
+    // 出し入れを帳簿(CacheLedger)に記録する。キャッシュの挙動そのものは変えていない。
+    private let imageCache = TrackedPixelCache(countLimit: 64)
 
-    private let thumbnailCache: NSCache<NSString, PagePixelBuffer> = {
-        let cache = NSCache<NSString, PagePixelBuffer>()
-        cache.countLimit = 300
-        cache.totalCostLimit = 60 * 1024 * 1024 // 約60MB
-        return cache
-    }()
+    private let thumbnailCache = TrackedPixelCache(
+        countLimit: 300,
+        totalCostLimit: PageLoader.thumbnailCacheLimitBytes
+    )
 
     /// ページ一覧(グリッド)専用のサムネイルキャッシュ。進捗バー用のthumbnailCache(固定240px)とは
     /// 別に持つ。グリッドはスライダーでセルを最大320ptまで拡大でき、その解像度は可変(セルの高さ×
     /// 画面倍率)。同じページでも要求サイズが違えば別物なので、キーにサイズを含める("id|px")。
     /// 1枚が大きくなりうるぶん、進捗バー用より枚数上限は控えめ・総容量は多めにしてある。
-    private let gridThumbnailCache: NSCache<NSString, PagePixelBuffer> = {
-        let cache = NSCache<NSString, PagePixelBuffer>()
-        cache.countLimit = 200
-        cache.totalCostLimit = 128 * 1024 * 1024 // 約128MB
-        return cache
-    }()
+    private let gridThumbnailCache = TrackedPixelCache(
+        countLimit: 200,
+        totalCostLimit: PageLoader.gridThumbnailCacheLimitBytes
+    )
+
+    /// 進捗バー用サムネイル(thumbnailCache)の容量上限(約60MB)。リソースモニタが
+    /// 「上限に対する実使用量」を出すために公開している。
+    static let thumbnailCacheLimitBytes = 60 * 1024 * 1024
+    /// 拡大サムネイル(gridThumbnailCache)の容量上限(約128MB)。同上。
+    static let gridThumbnailCacheLimitBytes = 128 * 1024 * 1024
 
     /// サムネイルの永続キャッシュ(ThumbnailDiskCache)を引くためのキー。
     ///
@@ -189,6 +192,20 @@ actor PageLoader {
         self.contrastCorrectionEnabled = contrastCorrectionEnabled
         self.usesThumbnailDiskCache = usesThumbnailDiskCache
         imageCache.totalCostLimit = imageCacheLimitBytes
+    }
+
+    /// リソースモニタ向けに、3つのメモリキャッシュの中身と先読みの状態をまとめて返す。
+    /// 帳簿(CacheLedger)を読むだけで、キャッシュ本体には触れない。
+    func cacheStatistics() -> PageCacheStatistics {
+        PageCacheStatistics(
+            pageImages: imageCache.snapshot(),
+            pageImageLimitBytes: imageCache.totalCostLimit,
+            thumbnails: thumbnailCache.snapshot(),
+            thumbnailLimitBytes: thumbnailCache.totalCostLimit,
+            gridThumbnails: gridThumbnailCache.snapshot(),
+            gridThumbnailLimitBytes: gridThumbnailCache.totalCostLimit,
+            prefetchingIndices: Set(prefetchTasks.keys)
+        )
     }
 
     /// 環境設定「メモリに残しておくページ画像」が変わったときにViewerViewModelから呼ぶ。
@@ -238,9 +255,9 @@ actor PageLoader {
     func setContrastCorrectionEnabled(_ enabled: Bool) {
         guard contrastCorrectionEnabled != enabled else { return }
         contrastCorrectionEnabled = enabled
-        imageCache.removeAllObjects()
-        thumbnailCache.removeAllObjects()
-        gridThumbnailCache.removeAllObjects()
+        imageCache.removeAll()
+        thumbnailCache.removeAll()
+        gridThumbnailCache.removeAll()
         // 永続キャッシュ側は補正の有無をキーに含めているため、消す必要はない。キーを
         // 作り直すだけで、補正あり/なしそれぞれのサムネイルが別々に貯まる。
         cachedThumbnailDiskKeys.removeAll()
@@ -291,7 +308,7 @@ actor PageLoader {
         let diskKey = thumbnailDiskKey(maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize)
         if let fromDisk = await ThumbnailDiskCache.shared.thumbnail(bookKey: diskKey, pageID: page.id),
            let buffer = await Self.renderBuffer(from: fromDisk) {
-            thumbnailCache.setObject(buffer, forKey: key, cost: buffer.byteCount)
+            thumbnailCache.store(buffer, forKey: key)
             return buffer.makeImage()
         }
 
@@ -341,7 +358,7 @@ actor PageLoader {
             let diskKey = thumbnailDiskKey(maxPixelSize: maxPixelSize)
             if let fromDisk = await ThumbnailDiskCache.shared.thumbnail(bookKey: diskKey, pageID: page.id),
                let buffer = await Self.renderBuffer(from: fromDisk) {
-                gridThumbnailCache.setObject(buffer, forKey: key, cost: buffer.byteCount)
+                gridThumbnailCache.store(buffer, forKey: key)
                 return buffer.makeImage()
             }
         }
@@ -349,7 +366,7 @@ actor PageLoader {
         guard let decoded = await decodedPixels(for: page.source, maxPixelSize: maxPixelSize) else {
             return nil
         }
-        gridThumbnailCache.setObject(decoded, forKey: key, cost: decoded.byteCount)
+        gridThumbnailCache.store(decoded, forKey: key)
         if usesDisk {
             let diskKey = thumbnailDiskKey(maxPixelSize: maxPixelSize)
             let pageID = page.id
@@ -708,7 +725,7 @@ actor PageLoader {
     ///   記録する(cancellableInFlightKeysのコメント参照)。
     private func pixels(
         at index: Int,
-        cache: NSCache<NSString, PagePixelBuffer>,
+        cache: TrackedPixelCache,
         maxPixelSize: CGFloat,
         isPrefetch: Bool = false
     ) async -> PagePixelBuffer? {
@@ -751,7 +768,7 @@ actor PageLoader {
         cancellableInFlightKeys.remove(inFlightKey)
 
         guard let decoded else { return nil }
-        cache.setObject(decoded, forKey: key, cost: decoded.byteCount)
+        cache.store(decoded, forKey: key)
         return decoded
     }
 
@@ -980,4 +997,67 @@ actor PageLoader {
         }
         readerUsageOrder.append(path)
     }
+}
+
+// MARK: - キャッシュの帳簿付き包み
+
+/// `NSCache<NSString, PagePixelBuffer>`と、その中身の帳簿(`CacheLedger`)を1組にしたもの。
+/// PageLoaderの3つのメモリキャッシュはすべてこれで持ち、**出し入れは必ずこの型を通す**
+/// ことで帳簿とキャッシュの食い違いを構造的に防ぐ(NSCacheを直接触る経路を残さない)。
+///
+/// NSCacheのデリゲートは弱参照なので、帳簿はこの型が強く保持する。
+///
+/// nonisolated / @unchecked Sendable: PageLoader(actor)の中でだけ触る前提だが、型自体は
+/// 隔離を持たない(NSCacheとCacheLedgerがそれぞれスレッドセーフ)。
+nonisolated final class TrackedPixelCache: @unchecked Sendable {
+    private let cache = NSCache<NSString, PagePixelBuffer>()
+    private let ledger = CacheLedger()
+
+    init(countLimit: Int, totalCostLimit: Int = 0) {
+        cache.countLimit = countLimit
+        cache.totalCostLimit = totalCostLimit
+        cache.delegate = ledger
+    }
+
+    var totalCostLimit: Int {
+        get { cache.totalCostLimit }
+        set { cache.totalCostLimit = newValue }
+    }
+
+    func object(forKey key: NSString) -> PagePixelBuffer? {
+        cache.object(forKey: key)
+    }
+
+    /// コストは常に`PagePixelBuffer.byteCount`(実際に占めているバイト数)。
+    func store(_ buffer: PagePixelBuffer, forKey key: NSString) {
+        ledger.record(buffer, key: key as String, bytes: buffer.byteCount)
+        cache.setObject(buffer, forKey: key, cost: buffer.byteCount)
+    }
+
+    func removeAll() {
+        cache.removeAllObjects()
+        ledger.removeAll()
+    }
+
+    func snapshot() -> CacheLedger.Snapshot {
+        ledger.snapshot()
+    }
+}
+
+/// `PageLoader.cacheStatistics()`が返す、ある時点のメモリキャッシュと先読みの状態。
+/// リソースモニタ(ResourceMonitorSnapshot)の材料で、PageLoaderの外へはこの値型だけを出す。
+nonisolated struct PageCacheStatistics: Equatable, Sendable {
+    /// ページ画像。`keys`は`PageRef.id`。
+    var pageImages: CacheLedger.Snapshot
+    var pageImageLimitBytes: Int
+    /// 進捗バー用サムネイル。`keys`は`PageRef.id`。
+    var thumbnails: CacheLedger.Snapshot
+    var thumbnailLimitBytes: Int
+    /// 拡大サムネイル。`keys`は`"\(PageRef.id)|\(px)"`。
+    var gridThumbnails: CacheLedger.Snapshot
+    var gridThumbnailLimitBytes: Int
+    /// いま先読みのタスクが走っている(まだ終わっていない)ページのインデックス。
+    /// 「設定より広く先読みしていないか」の判定に使う。残留しているページとは別物
+    /// (残留は上限内ならいくらあっても正常)。
+    var prefetchingIndices: Set<Int>
 }

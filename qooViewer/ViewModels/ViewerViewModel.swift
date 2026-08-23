@@ -2,6 +2,7 @@ import Foundation
 import CoreGraphics
 import SwiftData
 import Combine
+import os
 
 /// 見開き表示の1コマ分の表示内容(実画像 or 空白)。ViewerView.pageAreaが、EPUB Reading
 /// Systems 3.3 6.1.4節の「page-spread-left/rightの指定は、相方が見つからない場合でも
@@ -341,6 +342,7 @@ final class ViewerViewModel: ObservableObject {
             usesThumbnailDiskCache: !skipsPersistence,
             imageCacheLimitBytes: preferences.pageImageCacheLimitBytes
         )
+        Self.openBookCounter.withLock { $0 += 1 }
 
         let bookID = preparedBook.id
 
@@ -652,6 +654,7 @@ final class ViewerViewModel: ObservableObject {
     }
 
     deinit {
+        Self.openBookCounter.withLock { $0 -= 1 }
         if let bookmarksChangeObserver {
             NotificationCenter.default.removeObserver(bookmarksChangeObserver)
         }
@@ -661,6 +664,27 @@ final class ViewerViewModel: ObservableObject {
         if let metadataChangeObserver {
             NotificationCenter.default.removeObserver(metadataChangeObserver)
         }
+    }
+
+    // MARK: - リソースモニタ
+
+    /// いま生きているViewerViewModelの数 = 開いている本の数(ウインドウ・タブの合計)。
+    /// サイドパネルのリソースモニタが「この本のキャッシュは1冊あたりの値で、全体では
+    /// N冊ぶん」と示すために使う。initで増やしdeinitで減らす。`nonisolated`なロックなのは
+    /// deinitがactor隔離の外で走るため。
+    private static let openBookCounter = OSAllocatedUnfairLock(initialState: 0)
+    nonisolated static var openBookCount: Int { openBookCounter.withLock { $0 } }
+
+    /// リソースモニタ向けに、この本のメモリキャッシュと先読みの状態を取る。
+    /// 1秒ごとに呼ばれる想定。PageLoaderの帳簿を読むだけで、画像には触れない。
+    func resourceSnapshot() async -> ResourceMonitorSnapshot {
+        let statistics = await pageLoader.cacheStatistics()
+        return ResourceMonitorSnapshot(
+            statistics: statistics,
+            pageIDs: book.pages.map(\.id),
+            currentIndex: currentIndex,
+            prefetchRadius: max(Int(preferences.prefetchPageCount), 0)
+        )
     }
 
     // MARK: - ツールバーの表示名(ユーザー要望: メタデータを登録済みならファイル名の代わりに

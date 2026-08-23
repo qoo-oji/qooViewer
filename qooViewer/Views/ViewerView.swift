@@ -292,6 +292,12 @@ struct ViewerView: View {
         appState.jumpToBookmark = { bookmark in
             viewModel.jump(to: bookmark)
         }
+        // サイドパネルのリソースモニタへ、この本のキャッシュの状態を渡す橋渡し
+        // (AppState.fetchResourceSnapshotのコメント参照)。onRequestSiblingBookと同じ理由で
+        // weakにする(ViewerViewのコピーごとviewModelを強くキャプチャしない)。
+        appState.fetchResourceSnapshot = { [weak viewModel = self.viewModel] in
+            await viewModel?.resourceSnapshot()
+        }
         // 「ブックマーク・レイアウトの編集」ウインドウ(4節)の右ペインで、ブックマークの
         // 無いページのサムネイルをダブルクリックした場合の橋渡し(AppState.swiftの
         // jumpToPageIndexのコメント参照)。
@@ -809,6 +815,7 @@ struct ViewerView: View {
         guard appState.activeViewerToken == viewerToken else { return }
         appState.performViewerAction = nil
         appState.jumpToBookmark = nil
+        appState.fetchResourceSnapshot = nil
         appState.jumpToPageIndex = nil
         appState.addBookmarkAction = nil
         appState.toggleBookmarkAtIndex = nil

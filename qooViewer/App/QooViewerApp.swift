@@ -16,6 +16,9 @@ struct QooViewerApp: App {
     @StateObject private var keyBindingStore = KeyBindingStore()
     @StateObject private var recentFiles = RecentFilesStore()
     @StateObject private var folderAccess = FolderAccessStore()
+    /// サイドパネルのリソースモニタの計測役。CPU・メモリ・ディスクI/Oはプロセスの値なので
+    /// アプリで1つ(ProcessResourceSamplerのコメント参照)。
+    @StateObject private var resourceSampler = ProcessResourceSampler()
     /// お気に入り(階層フォルダ + 登録した本)。RecentFilesStore等と違いSwiftDataで永続化するため、
     /// modelContainerから作ったModelContextを渡す必要があり、下のinit()で明示的に生成している。
     @StateObject private var favoritesStore: FavoritesStore
@@ -236,6 +239,7 @@ struct QooViewerApp: App {
             .environmentObject(layoutStore)
             .environmentObject(metadataStore)
             .environmentObject(launchCoordinator)
+            .environmentObject(resourceSampler)
     }
 
     var body: some Scene {

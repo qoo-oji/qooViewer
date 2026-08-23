@@ -12,6 +12,9 @@ enum SidePanelMode: String, CaseIterable, Identifiable, Codable, Hashable {
     case history
     /// 今開いている本のページ一覧(サムネイル付き。履歴モードと同じく1つの一覧で全高を使う)。
     case pages
+    /// このアプリのリソース消費(CPU・メモリ・ディスクのグラフ、本のキャッシュ、ディスク容量、
+    /// 検出した異常)。履歴モードと同じく1列で全高を使う(SidePanelResourcesSectionView参照)。
+    case resources
 
     var id: String { rawValue }
 
@@ -21,19 +24,22 @@ enum SidePanelMode: String, CaseIterable, Identifiable, Codable, Hashable {
         case .bookmarks: return "Bookmarks"
         case .history: return "History"
         case .pages: return "Pages"
+        case .resources: return "Resources"
         }
     }
 
     /// スイッチのボタンに表示するアイコン。ツールバーのお気に入り/ブックマークのアイコン
     /// (ViewerView参照: star/bookmark)と揃えたいが、ブックマークモードはお気に入りと
     /// ブックマークの両方を含むため、より広い意味を持つ"star"側は使わず、モード名と一致する
-    /// "bookmark"にしている。
+    /// "bookmark"にしている。リソースモードは、最初は計器(gauge)だったが履歴の時計と
+    /// 見分けにくいとの指摘で折れ線グラフにした(中身もグラフが主役)。
     var systemImage: String {
         switch self {
         case .browser: return "folder"
         case .bookmarks: return "bookmark"
         case .history: return "clock"
         case .pages: return "photo.on.rectangle"
+        case .resources: return "chart.xyaxis.line"
         }
     }
 }

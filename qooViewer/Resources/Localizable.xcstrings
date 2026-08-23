@@ -2,6 +2,38 @@
   "sourceLanguage": "en",
   "strings": {
     "": {},
+    " (off)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (off)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(オフ)"
+          }
+        }
+      }
+    },
+    " / %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " / %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " / %@"
+          }
+        }
+      }
+    },
     " pages)": {
       "localizations": {
         "en": {
@@ -50,6 +82,22 @@
         }
       }
     },
+    "%@ / %@ · %lld": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ / %@ · %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ / %2$@ · %3$lld"
+          }
+        }
+      }
+    },
     "%@ Image": {
       "localizations": {
         "en": {
@@ -62,6 +110,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@画像"
+          }
+        }
+      }
+    },
+    "%@ ↓ %@ ↑": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ↓ %@ ↑"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ↓ %2$@ ↑"
           }
         }
       }
@@ -158,6 +222,22 @@
         }
       }
     },
+    "%lld before · %lld after (setting %lld)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld before · %lld after (setting %lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前 %1$lld · 後 %2$lld(設定 %3$lld)"
+          }
+        }
+      }
+    },
     "%lld missing": {
       "localizations": {
         "en": {
@@ -202,6 +282,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$lld 冊 / %2$lld 冊を表示中"
+          }
+        }
+      }
+    },
+    "%lld open": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld open"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld冊を表示中"
           }
         }
       }
@@ -366,6 +462,22 @@
         }
       }
     },
+    "1 hour": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 hour"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1時間"
+          }
+        }
+      }
+    },
     "100% turns pinch zoom off.": {
       "localizations": {
         "en": {
@@ -378,6 +490,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "100%にするとピンチ拡大が無効になります。"
+          }
+        }
+      }
+    },
+    "2 min": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 min"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2分"
           }
         }
       }
@@ -1567,6 +1695,22 @@
         }
       }
     },
+    "Books open across all windows and tabs. The limits below apply to each book separately.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Books open across all windows and tabs. The limits below apply to each book separately."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのウインドウ・タブで開いている本の数です。下の上限は本1冊ごとに適用されます。"
+          }
+        }
+      }
+    },
     "Books opened in this window leave no trace: no history, reading position, bookmarks, favorites, layouts, metadata, or thumbnail cache is saved.": {
       "localizations": {
         "en": {
@@ -1692,6 +1836,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "CBZ にはページ順を表すメタデータが無く、リーダーはファイル名順に並べます。元のファイル名を残したい場合にのみオフにしてください。"
+          }
+        }
+      }
+    },
+    "CPU": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CPU"
           }
         }
       }
@@ -2438,6 +2598,22 @@
         }
       }
     },
+    "Container total": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Container total"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテナ全体"
+          }
+        }
+      }
+    },
     "Contrast Correction": {
       "localizations": {
         "en": {
@@ -2918,6 +3094,22 @@
         }
       }
     },
+    "Database": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Database"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "データベース"
+          }
+        }
+      }
+    },
     "Date Added (Newest First)": {
       "localizations": {
         "en": {
@@ -3027,6 +3219,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "現在のページの前後それぞれで、あらかじめ展開しておくページ数です。増やすとページ送りが速くなりますが、メモリを多く使います。"
+          }
+        }
+      }
+    },
+    "Decoded page images kept in memory, against the “Page images kept in memory” setting.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decoded page images kept in memory, against the “Page images kept in memory” setting."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリに残しているデコード済みのページ画像と、環境設定「メモリに残しておくページ画像」の上限です。"
           }
         }
       }
@@ -3467,6 +3675,22 @@
         }
       }
     },
+    "Disk": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスク"
+          }
+        }
+      }
+    },
     "Disk Usage": {
       "localizations": {
         "en": {
@@ -3479,6 +3703,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "ディスクの使用量"
+          }
+        }
+      }
+    },
+    "Disk cache exceeds its limit": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk cache exceeds its limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスクキャッシュが上限を超えています"
+          }
+        }
+      }
+    },
+    "Disk cache is off but files remain": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disk cache is off but files remain"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスクキャッシュがオフなのにファイルが残っています"
           }
         }
       }
@@ -3930,6 +4186,38 @@
         }
       }
     },
+    "Enlarged thumbnails": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enlarged thumbnails"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡大サムネイル"
+          }
+        }
+      }
+    },
+    "Enlarged thumbnails exceed their memory limit": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enlarged thumbnails exceed their memory limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡大サムネイルがメモリの上限を超えています"
+          }
+        }
+      }
+    },
     "Enter the starting number": {
       "localizations": {
         "en": {
@@ -3974,6 +4262,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "すべての本がシークレットウインドウで開き、読書位置・ブックマーク・お気に入り・レイアウト・履歴のいずれも記録されません。記録を残したいときは、ファイルメニューの「新規ノーマルウインドウ」を使ってください。"
+          }
+        }
+      }
+    },
+    "Everything else in the app’s container: preferences, saved window state, logs.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything else in the app’s container: preferences, saved window state, logs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテナ内のその他のもの(環境設定、ウインドウの状態、ログなど)です。"
+          }
+        }
+      }
+    },
+    "Everything the app stores on disk, in ~/Library/Containers.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything the app stores on disk, in ~/Library/Containers."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリがディスクに保存しているもの全体(~/Library/Containers 内)です。"
           }
         }
       }
@@ -4314,6 +4634,38 @@
         }
       }
     },
+    "Extracted nested archives from this launch are still in the temporary folder although no book is open. They should be removed when a book is closed.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extracted nested archives from this launch are still in the temporary folder although no book is open. They should be removed when a book is closed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本を開いていないのに、この起動で展開した入れ子の書庫が一時フォルダに残っています。本来は本を閉じたときに削除されます。"
+          }
+        }
+      }
+    },
+    "Extracted nested archives left by a previous launch are still in the temporary folder. They should be removed automatically at launch.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extracted nested archives left by a previous launch are still in the temporary folder. They should be removed automatically at launch."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の起動が展開した入れ子の書庫が一時フォルダに残っています。本来は起動時に自動的に削除されます。"
+          }
+        }
+      }
+    },
     "Failed:": {
       "localizations": {
         "en": {
@@ -4439,6 +4791,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "お気に入り一覧"
+          }
+        }
+      }
+    },
+    "Favorites, bookmarks, reading positions, page layouts, and metadata (the SwiftData store and its write-ahead log).": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Favorites, bookmarks, reading positions, page layouts, and metadata (the SwiftData store and its write-ahead log)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "お気に入り・ブックマーク・読書位置・ページレイアウト・メタデータ(SwiftDataのストアとそのログ)です。"
           }
         }
       }
@@ -6004,6 +6372,22 @@
         }
       }
     },
+    "Larger thumbnails for the page list grid and hover previews, against their built-in limit.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Larger thumbnails for the page list grid and hover previews, against their built-in limit."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページ一覧のグリッドと拡大プレビュー用の大きめのサムネイルと、その固定の上限です。"
+          }
+        }
+      }
+    },
     "Last Bookmark": {
       "localizations": {
         "en": {
@@ -6407,6 +6791,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "メモリ"
+          }
+        }
+      }
+    },
+    "Memory not accounted for by the page-image and thumbnail caches of the book in this window. Includes the app itself, other open books, and anything waiting to be returned to the system. Shown as — when the system has compressed the caches below their nominal size.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory not accounted for by the page-image and thumbnail caches of the book in this window. Includes the app itself, other open books, and anything waiting to be returned to the system. Shown as — when the system has compressed the caches below their nominal size."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このウインドウの本のページ画像・サムネイルのキャッシュでは説明できないメモリです。アプリ本体、他に開いている本、システムへ返却待ちの領域を含みます。システムがキャッシュを名目上の大きさより小さく圧縮しているときは「—」になります。"
           }
         }
       }
@@ -6844,6 +7244,22 @@
         }
       }
     },
+    "Nested archives extracted for the books open in this launch. Removed when the book is closed and when the app quits.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nested archives extracted for the books open in this launch. Removed when the book is closed and when the app quits."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この起動で開いた本のために展開した入れ子の書庫です。本を閉じたとき・アプリを終了したときに削除されます。"
+          }
+        }
+      }
+    },
     "New Folder": {
       "localizations": {
         "en": {
@@ -7263,6 +7679,22 @@
         }
       }
     },
+    "None detected": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None detected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検出されていません"
+          }
+        }
+      }
+    },
     "Normal Bookmark": {
       "localizations": {
         "en": {
@@ -7311,6 +7743,22 @@
         }
       }
     },
+    "Not recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not recording"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計測していません"
+          }
+        }
+      }
+    },
     "Nothing": {
       "localizations": {
         "en": {
@@ -7355,6 +7803,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "OK"
+          }
+        }
+      }
+    },
+    "On Disk": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On Disk"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスク上"
           }
         }
       }
@@ -7716,6 +8180,22 @@
         }
       }
     },
+    "Other": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他"
+          }
+        }
+      }
+    },
     "Other Overlays": {
       "localizations": {
         "en": {
@@ -7744,6 +8224,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "文字とアイコンに輪郭を付けて、背後が何であっても読めるようにします（濃い背景色や、透けて見えるページなど）。1がいちばん締まった輪郭で、5がいちばん広くにじみます。"
+          }
+        }
+      }
+    },
+    "Outside this book’s caches": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outside this book’s caches"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この本のキャッシュ以外"
           }
         }
       }
@@ -8053,6 +8549,38 @@
         }
       }
     },
+    "Page images": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Page images"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページ画像"
+          }
+        }
+      }
+    },
+    "Page images exceed the memory limit": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Page images exceed the memory limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページ画像がメモリの上限を超えています"
+          }
+        }
+      }
+    },
     "Page layout settings": {
       "extractionState": "manual",
       "localizations": {
@@ -8082,6 +8610,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "ページ"
+          }
+        }
+      }
+    },
+    "Pages around the current one (center). Filled cells are still in memory; dimmed cells are outside the preload range. Pages stay in memory until the limit is reached, so more than the setting is normal.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pages around the current one (center). Filled cells are still in memory; dimmed cells are outside the preload range. Pages stay in memory until the limit is reached, so more than the setting is normal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のページ(中央)の前後です。塗られているマスはメモリに残っているページ、薄いマスは先読みの範囲外です。ページは上限に達するまでメモリに残るので、設定より多く残っているのは正常です。"
+          }
+        }
+      }
+    },
+    "Pages outside the “Pages to preload before and after” range are being loaded ahead. Preloading should stay within that range.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pages outside the “Pages to preload before and after” range are being loaded ahead. Preloading should stay within that range."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "環境設定「前後に先読みするページ数」の範囲外のページを先読みしています。本来は範囲内に収まります。"
           }
         }
       }
@@ -8200,6 +8760,38 @@
         }
       }
     },
+    "Peak %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Peak %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大 %@"
+          }
+        }
+      }
+    },
+    "Peak since launch %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Peak since launch %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動後の最大 %@"
+          }
+        }
+      }
+    },
     "Per Display Mode": {
       "localizations": {
         "en": {
@@ -8228,6 +8820,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "ページ一覧の外側に残す余白を、画像表示領域に対する片側の割合で指定します。列数は残りの幅とサムネイルのサイズ・間隔から自動で決まります。"
+          }
+        }
+      }
+    },
+    "Physical disk reads (orange) and writes (purple). Reads served from the system’s file cache are not counted, matching Activity Monitor’s Disk tab.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Physical disk reads (orange) and writes (purple). Reads served from the system’s file cache are not counted, matching Activity Monitor’s Disk tab."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "物理的なディスクの読み込み(オレンジ)と書き込み(紫)です。システムのファイルキャッシュから読めた分は数えません(アクティビティモニタの「ディスク」タブと同じ)。"
           }
         }
       }
@@ -8281,6 +8889,22 @@
         }
       }
     },
+    "Preloaded": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preloaded"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先読み"
+          }
+        }
+      }
+    },
     "Preloading": {
       "localizations": {
         "en": {
@@ -8293,6 +8917,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "先読み"
+          }
+        }
+      }
+    },
+    "Preloading more pages than set": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preloading more pages than set"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定より多くのページを先読みしています"
           }
         }
       }
@@ -8409,6 +9049,22 @@
         }
       }
     },
+    "Problems": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Problems"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "異常"
+          }
+        }
+      }
+    },
     "Progress Bar": {
       "localizations": {
         "en": {
@@ -8486,6 +9142,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "qooViewerを終了"
+          }
+        }
+      }
+    },
+    "Read since launch": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read since launch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動後の読み込み"
           }
         }
       }
@@ -8617,6 +9289,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "「最近開いたファイル」の履歴(ファイルメニュー・サイドパネル)"
+          }
+        }
+      }
+    },
+    "Recording since %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording since %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計測中 — %@ から"
           }
         }
       }
@@ -9169,6 +9857,22 @@
         }
       }
     },
+    "Rescan Now": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rescan Now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今すぐ更新"
+          }
+        }
+      }
+    },
     "Reset": {
       "localizations": {
         "en": {
@@ -9343,6 +10047,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "解像度: %lld × %lld px"
+          }
+        }
+      }
+    },
+    "Resources": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resources"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リソース"
           }
         }
       }
@@ -9734,6 +10454,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "保存データ"
+          }
+        }
+      }
+    },
+    "Scanning…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scanning…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "調べています…"
           }
         }
       }
@@ -11019,6 +11755,22 @@
         }
       }
     },
+    "Start Recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Recording"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計測を開始"
+          }
+        }
+      }
+    },
     "Start from Beginning": {
       "localizations": {
         "en": {
@@ -11084,6 +11836,22 @@
         }
       }
     },
+    "Start recording to see a graph": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start recording to see a graph"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計測を開始するとグラフを表示します"
+          }
+        }
+      }
+    },
     "Start/Stop Slideshow": {
       "localizations": {
         "en": {
@@ -11096,6 +11864,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "スライドショー開始/停止"
+          }
+        }
+      }
+    },
+    "Stop Recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop Recording"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計測を停止"
           }
         }
       }
@@ -11116,6 +11900,22 @@
         }
       }
     },
+    "Switch the graphs between the last 2 minutes and the last hour": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch the graphs between the last 2 minutes and the last hour"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グラフの時間幅を直近2分と直近1時間で切り替えます"
+          }
+        }
+      }
+    },
     "Target Page": {
       "extractionState": "manual",
       "localizations": {
@@ -11129,6 +11929,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "対象ページ"
+          }
+        }
+      }
+    },
+    "Temporary files": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temporary files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一時ファイル"
+          }
+        }
+      }
+    },
+    "Temporary files from a previous launch remain": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temporary files from a previous launch remain"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前の起動の一時ファイルが残っています"
+          }
+        }
+      }
+    },
+    "Temporary files remain with no book open": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temporary files remain with no book open"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本を開いていないのに一時ファイルが残っています"
           }
         }
       }
@@ -11213,6 +12061,22 @@
         }
       }
     },
+    "The decoded page images kept in memory have stayed above the “Page images kept in memory” setting for several seconds. The cache should evict older pages as soon as the limit is reached.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The decoded page images kept in memory have stayed above the “Page images kept in memory” setting for several seconds. The cache should evict older pages as soon as the limit is reached."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリに残しているページ画像が、環境設定「メモリに残しておくページ画像」の上限を数秒以上超えたままです。本来は上限に達した時点で古いページから削除されます。"
+          }
+        }
+      }
+    },
     "The destination volume doesn't have enough free space (at least 1.2× the total size of the selected books is required). Choose a different destination, or select fewer books.": {
       "localizations": {
         "en": {
@@ -11225,6 +12089,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "出力先ボリュームの空き容量が不足しています(選択した本の合計サイズの1.2倍以上が必要です)。別の出力先を選ぶか、選択する本を減らしてください。"
+          }
+        }
+      }
+    },
+    "The enlarged thumbnails kept in memory have stayed above their built-in limit for several seconds.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The enlarged thumbnails kept in memory have stayed above their built-in limit for several seconds."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡大サムネイルが、固定の上限を数秒以上超えたままです。"
           }
         }
       }
@@ -11357,6 +12237,38 @@
         }
       }
     },
+    "The progress-bar thumbnails kept in memory have stayed above their built-in limit for several seconds.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The progress-bar thumbnails kept in memory have stayed above their built-in limit for several seconds."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プログレスバー用のサムネイルが、固定の上限を数秒以上超えたままです。"
+          }
+        }
+      }
+    },
+    "The thumbnail folder is larger than the “Maximum size” setting, beyond the slack the cache allows itself before trimming.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The thumbnail folder is larger than the “Maximum size” setting, beyond the slack the cache allows itself before trimming."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サムネイルのフォルダが環境設定「最大容量」を、刈り込み前に許される余裕を超えて上回っています。"
+          }
+        }
+      }
+    },
     "The wheel never scrolls; it always performs the action assigned to it in Keys & Mouse.": {
       "extractionState": "stale",
       "localizations": {
@@ -11420,6 +12332,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "シリーズ名の分離だけを行います。キャプチャグループがあっても巻数の欄は空欄のままです。上のリストの後に照合されます。"
+          }
+        }
+      }
+    },
+    "This App": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This App"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリ"
+          }
+        }
+      }
+    },
+    "This Book": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Book"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この本"
           }
         }
       }
@@ -11854,6 +12798,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "サムネイルのサイズ"
+          }
+        }
+      }
+    },
+    "Thumbnail cache": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thumbnail cache"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サムネイルキャッシュ"
+          }
+        }
+      }
+    },
+    "Thumbnails": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thumbnails"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サムネイル"
+          }
+        }
+      }
+    },
+    "Thumbnails exceed their memory limit": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thumbnails exceed their memory limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サムネイルがメモリの上限を超えています"
+          }
+        }
+      }
+    },
+    "Thumbnails for the progress bar and page lists, against their built-in limit.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thumbnails for the progress bar and page lists, against their built-in limit."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プログレスバーとページ一覧用のサムネイルと、その固定の上限です。"
           }
         }
       }
@@ -12606,6 +13614,22 @@
         }
       }
     },
+    "Written since launch": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Written since launch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "起動後の書き込み"
+          }
+        }
+      }
+    },
     "Yellow": {
       "localizations": {
         "en": {
@@ -12893,6 +13917,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "出力先フォルダに「%@.pdf」が既に存在します。"
+          }
+        }
+      }
+    },
+    "“Save page thumbnails to disk” is off, but the thumbnail folder still contains files. Turning the setting off should delete them.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“Save page thumbnails to disk” is off, but the thumbnail folder still contains files. Turning the setting off should delete them."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「ページのサムネイルをディスクに保存する」がオフなのに、サムネイルのフォルダにファイルが残っています。本来はオフにした時点で削除されます。"
           }
         }
       }

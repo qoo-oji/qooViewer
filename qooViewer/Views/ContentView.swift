@@ -878,6 +878,7 @@ struct ContentView: View {
             width: $sidePanelWidth,
             position: preferences.sidePanelPosition,
             bookPages: appState.currentBookPages,
+            fetchResourceSnapshot: appState.fetchResourceSnapshot,
             // 右クリックの「Finderで開く」「画像をエクスポート」用(ユーザー要望)。
             // どちらもViewerViewが持つ実装への橋渡し(AppState.exportPageImage参照)。
             bookSourceURL: appState.currentBook?.sourceURL,

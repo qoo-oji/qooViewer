@@ -126,6 +126,13 @@ final class AppState: ObservableObject {
     /// 橋渡し。ViewerViewが表示されている間だけ自分自身を登録し、閉じるときにnilへ戻す。
     var jumpToBookmark: ((Bookmark) -> Void)?
 
+    /// サイドパネルのリソースモニタが、このウインドウで開いている本のメモリキャッシュと
+    /// 先読みの状態(ResourceMonitorSnapshot)を1秒ごとに取りに来るための橋渡し。
+    /// performViewerActionと同じ、ViewerViewが表示されている間だけ登録する仕組み。
+    /// 本を開いていなければnilで、モニタはその節を出さない(戻り値のnilは、橋渡しの
+    /// 先のViewerViewModelが既に解放されていた場合)。
+    var fetchResourceSnapshot: (() async -> ResourceMonitorSnapshot?)?
+
     /// 「ブックマーク・レイアウトの編集」ウインドウ(4節)の右ペインで、ブックマークが付いて
     /// いないページのサムネイルをダブルクリックした場合に、そのページ番号へ直接ジャンプする
     /// ための橋渡し。jumpToBookmarkと同じ仕組み(ViewerViewが表示されている間だけ自分自身を

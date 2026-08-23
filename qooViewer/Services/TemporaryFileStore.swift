@@ -67,20 +67,25 @@ nonisolated enum TemporaryFileStore {
             at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
         ) else { return }
 
-        let ownPID = ProcessInfo.processInfo.processIdentifier
         for entry in entries {
-            let name = entry.lastPathComponent
             let isDirectory = (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-
-            if isDirectory, name.hasPrefix(sessionDirectoryPrefix) {
-                guard let pid = pid_t(name.dropFirst(sessionDirectoryPrefix.count)),
-                      pid != ownPID, !isProcessAlive(pid)
-                else { continue }
-                try? fileManager.removeItem(at: entry)
-            } else if !isDirectory, isLegacyTemporaryArchive(name) {
-                try? fileManager.removeItem(at: entry)
-            }
+            guard isStaleEntry(entry, isDirectory: isDirectory) else { continue }
+            try? fileManager.removeItem(at: entry)
         }
+    }
+
+    /// `tmp/`直下のエントリが、**他の(もう生きていない)セッションの残骸**か。
+    /// 起動時の掃除(removeStaleSessionDirectories)と、リソースモニタの異常判定
+    /// (StorageUsageScanner)が同じ基準で数えるために共有している。
+    /// - `qooViewer-<pid>/`で、そのpidが生きていない
+    /// - 旧形式の`<UUID>.<書庫拡張子>`
+    static func isStaleEntry(_ url: URL, isDirectory: Bool) -> Bool {
+        let name = url.lastPathComponent
+        if isDirectory, name.hasPrefix(sessionDirectoryPrefix) {
+            guard let pid = pid_t(name.dropFirst(sessionDirectoryPrefix.count)) else { return false }
+            return pid != ProcessInfo.processInfo.processIdentifier && !isProcessAlive(pid)
+        }
+        return !isDirectory && isLegacyTemporaryArchive(name)
     }
 
     private static func isProcessAlive(_ pid: pid_t) -> Bool {

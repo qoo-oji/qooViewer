@@ -61,7 +61,10 @@ actor ThumbnailDiskCache {
     /// (このactorはsharedの1インスタンスしか無く、全ての本のサムネイルがここを通る)。
     /// 実際にactorの隔離が要るのは、設定(configuration)と刈り込みの帳簿(hasTrimmed /
     /// bytesWrittenSinceTrim / hasConfigured)の読み書きだけなので、そこだけをactor上に残す。
-    private nonisolated let directory: URL?
+    /// サムネイルの置き場所。`nil`ならディスクキャッシュ自体が使えない(Cachesが取れなかった)。
+    /// privateでないのは、リソースモニタ(StorageUsageScanner)がコンテナの容量内訳で
+    /// 「サムネイルキャッシュ」を切り分けるため。書き込みはこの型だけが行う。
+    nonisolated let directory: URL?
     /// 起動後に一度でも容量の刈り込みを行ったか。
     private var hasTrimmed = false
     /// 前回の刈り込み以降に書き込んだバイト数。
@@ -271,7 +274,10 @@ actor ThumbnailDiskCache {
     /// 上限の5%を目安にしつつ、上下に歯止めを置いてある。上限が小さいときに全走査が
     /// 頻発しないよう最低1MB、上限が大きいときに上限からの超過が広がりすぎないよう最大16MB。
     /// 実際の使用量は「上限の8割(刈り込みの目標値)〜上限 + この値」の範囲に収まる。
-    private static func trimThreshold(for maxTotalBytes: Int) -> Int {
+    ///
+    /// privateでないのは、リソースモニタの異常判定(ResourceAnomalyDetector)が「上限を
+    /// 超えている」の境目をここと同じ式で引くため(刈り込みの余裕ぶんを誤報にしない)。
+    nonisolated static func trimThreshold(for maxTotalBytes: Int) -> Int {
         min(max(maxTotalBytes / 20, 1024 * 1024), 16 * 1024 * 1024)
     }
 

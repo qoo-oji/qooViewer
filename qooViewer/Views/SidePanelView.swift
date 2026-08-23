@@ -57,6 +57,9 @@ struct SidePanelView: View {
     /// (AppState.currentBookPages。並び替え/除外の変更を追従できるよう、本を開いた時点の
     /// スナップショットではなく最新値をContentViewから渡してもらう)。
     var bookPages: [PageRef]
+    /// リソースモードが、このウインドウで開いている本のメモリキャッシュの状態を取るための
+    /// 橋渡し(AppState.fetchResourceSnapshot)。本を開いていなければnil。
+    var fetchResourceSnapshot: (() async -> ResourceMonitorSnapshot?)?
     /// 今開いている本そのものの場所。右クリックの「Finderで開く」で、書庫の中のページを
     /// 右クリックしたときに書庫自体を指すために使う(PageFileAccess参照)。
     var bookSourceURL: URL?
@@ -267,6 +270,8 @@ struct SidePanelView: View {
                     onExportPage: onExportPage,
                     onToggleBookmark: onToggleBookmarkAtPage
                 )
+            case .resources:
+                SidePanelResourcesSectionView(fetchBookSnapshot: fetchResourceSnapshot)
             }
         }
     }
@@ -1932,7 +1937,7 @@ private struct SidePanelSearchField: View {
 }
 
 /// 一覧が空のときにセクション本体いっぱいに表示する案内文(お気に入り・ブックマークで共用)。
-private struct SidePanelEmptyMessage: View {
+struct SidePanelEmptyMessage: View {
     let textKey: LocalizedStringKey
 
     var body: some View {
@@ -1950,7 +1955,7 @@ private struct SidePanelEmptyMessage: View {
 /// 小さく操作しづらいため、アイコンサイズ・タップ領域とも一回り大きくしている。
 /// 具体的な装飾は、同じ見た目を使うツールバー・プログレスバーのボタンと共通化するため
 /// PanelIconButtonLabelに切り出してある。
-private struct SidePanelNavButton: View {
+struct SidePanelNavButton: View {
     let systemName: String
     let isDisabled: Bool
     let help: LocalizedStringKey
