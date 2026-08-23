@@ -573,6 +573,9 @@ struct BookmarkEditorView: View {
                                 .foregroundStyle(.secondary)
                             TextField("Search", text: $searchText)
                                 .textFieldStyle(.plain)
+                                // 欄の外のクリック・Return・Escでフォーカスを外す(矢印キーでの
+                                // 移動が検索欄に吸われないように。FocusReleasingField参照)。
+                                .releasesFocusOnOutsideClick()
                         }
                         .padding(.horizontal, 6)
                         .padding(.vertical, 4)

@@ -131,6 +131,8 @@ private struct LibraryCleanupContentView: View {
             TextField("Search", text: $viewModel.searchText)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 220)
+                // 欄の外のクリック・Return・Escでフォーカスを外す(FocusReleasingField参照)。
+                .releasesFocusOnOutsideClick()
         }
         .padding(12)
     }

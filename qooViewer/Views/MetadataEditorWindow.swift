@@ -138,6 +138,8 @@ private struct MetadataEditorContentView: View {
             TextField("Search", text: $viewModel.searchText)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 200)
+                // 欄の外のクリック・Return・Escでフォーカスを外す(FocusReleasingField参照)。
+                .releasesFocusOnOutsideClick()
         }
         .padding(12)
     }

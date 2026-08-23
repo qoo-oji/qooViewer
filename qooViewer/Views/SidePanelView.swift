@@ -1906,6 +1906,9 @@ private struct SidePanelPageCell: View {
 /// ようになった。ViewerViewのNSEventローカルモニタは、同じウインドウ宛ての.keyDownを
 /// ページ送り等のショートカットとして横取りするため、入力欄の編集中はそれを行わないよう
 /// ViewerView側にガードを入れてある(makeScrollMonitorの.keyDownケース参照)。
+///
+/// フォーカスの外し方(欄の外のクリック・Return・Esc)は、他のウインドウの検索欄と共通の
+/// `releasesFocusOnOutsideClick()`に任せる(FocusReleasingField.swift参照。ユーザー要望)。
 private struct SidePanelSearchField: View {
     @Binding var text: String
 
@@ -1917,6 +1920,7 @@ private struct SidePanelSearchField: View {
             TextField("Filter", text: $text)
                 .textFieldStyle(.plain)
                 .font(.callout)
+                .releasesFocusOnOutsideClick()
             if !text.isEmpty {
                 Button {
                     text = ""
