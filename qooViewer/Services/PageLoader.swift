@@ -34,8 +34,8 @@ struct PageImageInfo {
 ///   actorによる排他制御下でのみ触る。
 /// - デコード自体(ImageDecoder.decode)はCPU負荷が高いため、actorの外の
 ///   バックグラウンドタスクで行い、他のページの読み込みリクエストをブロックしないようにする。
-/// - 結果はNSCacheに保存する。NSCacheはメモリが逼迫すると自動的に古いエントリを
-///   破棄してくれるため、素のDictionaryと違って際限なくメモリを消費し続けない。
+/// - 結果はPagePixelCache(上限付きの厳密なLRU)に保存する。上限を超えた分と、メモリが
+///   逼迫したときは古いものから自動的に捨てるため、際限なくメモリを消費し続けない。
 /// - 現在ページの前後を先読み(プリフェッチ)し、ページ送りの体感速度を上げる。
 ///   スクロールが速くて不要になった先読みはキャンセルする。
 actor PageLoader {
@@ -117,11 +117,8 @@ actor PageLoader {
     private static let headerProbeByteCount = 128 * 1024
 
     // countLimitは64。環境設定の「先読みする画像数」は最大10まで設定できるため、
-    // 前後合わせて最大21枚(2*10+1)が先読み対象になる。NSCacheの上限はヒントに過ぎず
-    // 厳密なLRUでもないため、ウィンドウぎりぎりの数に合わせるとプリフェッチしたばかりの
-    // 画像がすぐ追い出されて再デコードされる「キャッシュスラッシング」が起こりうる。
-    // 余裕を持たせることでこれを防ぐ。totalCostLimit(実質的なメモリ上限)は変えていないので、
-    // 上限に達すればそちらが優先され、際限なくメモリを使うことはない。
+    // 前後合わせて最大21枚(2*10+1)が先読み対象になる。枚数の上限はその数倍の余裕を
+    // 持たせ、実質的な上限はtotalCostLimit(メモリ量)に任せる。
     //
     // ■ 3つのキャッシュが持つのはCGImageではなくPagePixelBuffer
     // 以前はCGImage(をCGImageBoxに包んだもの)を入れていた。表示したCGImageが生きている限り
@@ -133,13 +130,15 @@ actor PageLoader {
     // totalCostLimitは環境設定「キャッシュ」の「メモリに残しておくページ画像」で決まる
     // (init / setImageCacheLimit参照)。
     //
-    // ■ 3つともNSCacheを直接ではなくTrackedPixelCache(NSCache+帳簿)で持つ
-    // NSCacheは現在の合計コストも中身のキーも教えてくれない。サイドパネルのリソースモニタが
-    // 「上限に対していま何MB・何枚入っているか」「前後何ページが残っているか」を出せるよう、
-    // 出し入れを帳簿(CacheLedger)に記録する。キャッシュの挙動そのものは変えていない。
-    private let imageCache = TrackedPixelCache(countLimit: 64)
+    // ■ 3つともNSCacheではなくPagePixelCache(自前の厳密なLRU)
+    // 以前はNSCacheだった。NSCacheは上限に達したときにどれを追い出すか約束せず、先読みした
+    // ばかりの隣のページが追い出されて遠い古いページが残る現象を、サイドパネルのリソース
+    // モニタで実際に観測した。また現在の合計コストも中身のキーも教えてくれないため、
+    // モニタが「上限に対していま何MB・何枚」「前後何ページが残っているか」を出せなかった。
+    // 詳細はPagePixelCacheの型コメント参照。
+    private let imageCache = PagePixelCache(countLimit: 64)
 
-    private let thumbnailCache = TrackedPixelCache(
+    private let thumbnailCache = PagePixelCache(
         countLimit: 300,
         totalCostLimit: PageLoader.thumbnailCacheLimitBytes
     )
@@ -148,7 +147,7 @@ actor PageLoader {
     /// 別に持つ。グリッドはスライダーでセルを最大320ptまで拡大でき、その解像度は可変(セルの高さ×
     /// 画面倍率)。同じページでも要求サイズが違えば別物なので、キーにサイズを含める("id|px")。
     /// 1枚が大きくなりうるぶん、進捗バー用より枚数上限は控えめ・総容量は多めにしてある。
-    private let gridThumbnailCache = TrackedPixelCache(
+    private let gridThumbnailCache = PagePixelCache(
         countLimit: 200,
         totalCostLimit: PageLoader.gridThumbnailCacheLimitBytes
     )
@@ -174,7 +173,7 @@ actor PageLoader {
 
     /// サムネイルのディスクキャッシュ(ThumbnailDiskCache)を読み書きするか。
     /// シークレットウインドウ(AppState.isPrivateWindow)で開いた本はfalseで、読みも書きもしない
-    /// (読むだけでも、ヒットしたファイルの更新日時を触るため)。メモリ上のNSCacheは本を閉じれば
+    /// (読むだけでも、ヒットしたファイルの更新日時を触るため)。メモリ上のキャッシュは本を閉じれば
     /// 消えるので、そちらは通常どおり使う。
     private let usesThumbnailDiskCache: Bool
 
@@ -195,7 +194,7 @@ actor PageLoader {
     }
 
     /// リソースモニタ向けに、3つのメモリキャッシュの中身と先読みの状態をまとめて返す。
-    /// 帳簿(CacheLedger)を読むだけで、キャッシュ本体には触れない。
+    /// キャッシュの中身を数えるだけで、画像には触れない。
     func cacheStatistics() -> PageCacheStatistics {
         PageCacheStatistics(
             pageImages: imageCache.snapshot(),
@@ -209,7 +208,7 @@ actor PageLoader {
     }
 
     /// 環境設定「メモリに残しておくページ画像」が変わったときにViewerViewModelから呼ぶ。
-    /// NSCacheは上限を下げるとその場で超過ぶんを追い出すので、効果は即座に出る。
+    /// 上限を下げるとその場で超過ぶんを追い出すので、効果は即座に出る。
     func setImageCacheLimit(bytes: Int) {
         imageCache.totalCostLimit = bytes
     }
@@ -283,7 +282,7 @@ actor PageLoader {
     }
 
     /// プログレスバー用の小さいサムネイルを取得する
-    /// サムネイルは、メモリ上のthumbnailCache(NSCache)に無ければ、まずローカルの永続
+    /// サムネイルは、メモリ上のthumbnailCacheに無ければ、まずローカルの永続
     /// キャッシュ(ThumbnailDiskCache)を見てから実デコードへ進む。
     ///
     /// これは「ブックマーク・レイアウトの編集」ウインドウのように、本を開き直すたびに
@@ -691,7 +690,17 @@ actor PageLoader {
             prefetchTasks.removeValue(forKey: existingIndex)
         }
 
-        for pageIndex in lower...upper {
+        // 現在ページに近い順(前後交互)に始める。デコードの同時実行数を絞っているので
+        // (decodeSlotsのコメント参照)、始めた順がほぼそのまま仕上がる順になる。次に
+        // 表示される可能性が高いのは隣のページなので、そこから埋める。
+        var order: [Int] = [index].filter { lower...upper ~= $0 }
+        var offset = 1
+        while index + offset <= upper || index - offset >= lower {
+            if index + offset <= upper { order.append(index + offset) }
+            if index - offset >= lower { order.append(index - offset) }
+            offset += 1
+        }
+        for pageIndex in order {
             guard prefetchTasks[pageIndex] == nil else { continue }
             let page = book.pages[pageIndex]
             guard imageCache.object(forKey: page.id as NSString) == nil else { continue }
@@ -725,7 +734,7 @@ actor PageLoader {
     ///   記録する(cancellableInFlightKeysのコメント参照)。
     private func pixels(
         at index: Int,
-        cache: TrackedPixelCache,
+        cache: PagePixelCache,
         maxPixelSize: CGFloat,
         isPrefetch: Bool = false
     ) async -> PagePixelBuffer? {
@@ -756,7 +765,7 @@ actor PageLoader {
 
         let task = Task<PagePixelBuffer?, Never> { [weak self] in
             guard let self else { return nil }
-            return await self.decodedPixels(for: page.source, maxPixelSize: maxPixelSize)
+            return await self.decodedPixels(for: page.source, maxPixelSize: maxPixelSize, isPrefetch: isPrefetch)
         }
         inFlightTasks[inFlightKey] = task
         if isPrefetch {
@@ -775,16 +784,79 @@ actor PageLoader {
     /// decodedImage(for:maxPixelSize:)の結果を、キャッシュに入れる形(PagePixelBuffer)へ
     /// 描き写して返す。描き写しはデコードと同じくactorの外で行う(メモリコピー相当とはいえ
     /// 36MBで十数msあり、actorを掴んだままだと他のページの要求を待たせるため)。
-    private func decodedPixels(for source: PageSource, maxPixelSize: CGFloat) async -> PagePixelBuffer? {
+    private func decodedPixels(
+        for source: PageSource, maxPixelSize: CGFloat, isPrefetch: Bool = false
+    ) async -> PagePixelBuffer? {
+        // フルサイズのデコードは同時実行数を絞る(decodeSlotsのコメント参照)。サムネイルは
+        // 1枚の一時メモリが小さいので絞らない(ページ一覧の数十枚が直列に待たされる方が害)。
+        let isFullSize = maxPixelSize >= ImageDecoder.pageMaxPixelSize
+        if isFullSize {
+            await acquireDecodeSlot(isPrefetch: isPrefetch)
+        }
+        defer { if isFullSize { releaseDecodeSlot() } }
+        guard !Task.isCancelled else { return nil }
+
         // PDFはCGImageを経由せず、バッファへ直接描ける(コントラスト補正が要る場合だけは
         // 補正がCGImageを相手にするため、従来どおりCGImage経由にする)。
         if case .pdf(let pdfURL, let pageIndex) = source, !contrastCorrectionEnabled {
-            guard !Task.isCancelled else { return nil }
             return renderPDFPixels(pdfURL: pdfURL, pageIndex: pageIndex, maxPixelSize: maxPixelSize)
         }
         guard let decoded = await decodedImage(for: source, maxPixelSize: maxPixelSize) else { return nil }
         guard !Task.isCancelled else { return nil }
         return await Self.renderBuffer(from: decoded)
+    }
+
+    // MARK: - フルサイズデコードの同時実行数
+
+    /// フルサイズ(ページ表示用)のデコードを同時に走らせてよい数。
+    ///
+    /// ■ なぜ絞るのか(リソースモニタの実測に基づく)
+    /// 1枚のデコード中は、最終的にキャッシュへ入る`PagePixelBuffer`(幅×高さ×4)の**約3倍**の
+    /// メモリを一時的に使う(ImageIOのデコード結果のビットマップ、描き写し中のバッファ、
+    /// ImageIO内部の作業領域)。先読みは前後`prefetchPageCount`枚を一斉に始めるので、設定が
+    /// 10なら21枚ぶんが同時に走り、2400×3400の本で起動直後のfootprintが2.4GBまで跳ねていた
+    /// (定常は580MB。先読み3枚なら924MB、0枚なら459MB、と枚数に比例)。
+    ///
+    /// 同時数を絞れば、一時メモリは「この数 × 3倍」で頭打ちになる。先読みは直列に近くなるが
+    /// 1枚数十msなので、21枚でも1秒程度で終わり体感には乗らない。
+    ///
+    /// ■ 表示要求は先読みより先に通す
+    /// 待ち行列は2本(表示要求・先読み)で、空きが出たら表示要求を先に起こす。これが無いと、
+    /// ページ送りの直後に表示したいページが、先に並んでいた先読み21枚の後ろで待つことになる。
+    ///
+    /// 3は「メモリの頭打ち(3×3倍≒300MB)」と「コアを遊ばせない」の折衷。コア数が少ない
+    /// マシンではそれに合わせて減らす。
+    private static let maxConcurrentDecodes = max(1, min(2, ProcessInfo.processInfo.activeProcessorCount / 2))
+    private var activeDecodes = 0
+    private var urgentDecodeWaiters: [CheckedContinuation<Void, Never>] = []
+    private var prefetchDecodeWaiters: [CheckedContinuation<Void, Never>] = []
+
+    private func acquireDecodeSlot(isPrefetch: Bool) async {
+        if activeDecodes < Self.maxConcurrentDecodes {
+            activeDecodes += 1
+            return
+        }
+        // 空きが無ければ待つ。起こされた時点でスロットは自分のものになっている
+        // (releaseDecodeSlotがactiveDecodesを減らさずに次を起こす)。キャンセルされた
+        // タスクも一度は起こされ、呼び出し側のisCancelledチェックで即座に
+        // releaseDecodeSlotへ進むので、スロットが漏れることはない。
+        await withCheckedContinuation { continuation in
+            if isPrefetch {
+                prefetchDecodeWaiters.append(continuation)
+            } else {
+                urgentDecodeWaiters.append(continuation)
+            }
+        }
+    }
+
+    private func releaseDecodeSlot() {
+        if !urgentDecodeWaiters.isEmpty {
+            urgentDecodeWaiters.removeFirst().resume()
+        } else if !prefetchDecodeWaiters.isEmpty {
+            prefetchDecodeWaiters.removeFirst().resume()
+        } else {
+            activeDecodes -= 1
+        }
     }
 
     /// CGImage → PagePixelBufferの描き写しをバックグラウンドタスクで行う。
@@ -999,62 +1071,17 @@ actor PageLoader {
     }
 }
 
-// MARK: - キャッシュの帳簿付き包み
-
-/// `NSCache<NSString, PagePixelBuffer>`と、その中身の帳簿(`CacheLedger`)を1組にしたもの。
-/// PageLoaderの3つのメモリキャッシュはすべてこれで持ち、**出し入れは必ずこの型を通す**
-/// ことで帳簿とキャッシュの食い違いを構造的に防ぐ(NSCacheを直接触る経路を残さない)。
-///
-/// NSCacheのデリゲートは弱参照なので、帳簿はこの型が強く保持する。
-///
-/// nonisolated / @unchecked Sendable: PageLoader(actor)の中でだけ触る前提だが、型自体は
-/// 隔離を持たない(NSCacheとCacheLedgerがそれぞれスレッドセーフ)。
-nonisolated final class TrackedPixelCache: @unchecked Sendable {
-    private let cache = NSCache<NSString, PagePixelBuffer>()
-    private let ledger = CacheLedger()
-
-    init(countLimit: Int, totalCostLimit: Int = 0) {
-        cache.countLimit = countLimit
-        cache.totalCostLimit = totalCostLimit
-        cache.delegate = ledger
-    }
-
-    var totalCostLimit: Int {
-        get { cache.totalCostLimit }
-        set { cache.totalCostLimit = newValue }
-    }
-
-    func object(forKey key: NSString) -> PagePixelBuffer? {
-        cache.object(forKey: key)
-    }
-
-    /// コストは常に`PagePixelBuffer.byteCount`(実際に占めているバイト数)。
-    func store(_ buffer: PagePixelBuffer, forKey key: NSString) {
-        ledger.record(buffer, key: key as String, bytes: buffer.byteCount)
-        cache.setObject(buffer, forKey: key, cost: buffer.byteCount)
-    }
-
-    func removeAll() {
-        cache.removeAllObjects()
-        ledger.removeAll()
-    }
-
-    func snapshot() -> CacheLedger.Snapshot {
-        ledger.snapshot()
-    }
-}
-
 /// `PageLoader.cacheStatistics()`が返す、ある時点のメモリキャッシュと先読みの状態。
 /// リソースモニタ(ResourceMonitorSnapshot)の材料で、PageLoaderの外へはこの値型だけを出す。
 nonisolated struct PageCacheStatistics: Equatable, Sendable {
     /// ページ画像。`keys`は`PageRef.id`。
-    var pageImages: CacheLedger.Snapshot
+    var pageImages: PagePixelCache.Snapshot
     var pageImageLimitBytes: Int
     /// 進捗バー用サムネイル。`keys`は`PageRef.id`。
-    var thumbnails: CacheLedger.Snapshot
+    var thumbnails: PagePixelCache.Snapshot
     var thumbnailLimitBytes: Int
     /// 拡大サムネイル。`keys`は`"\(PageRef.id)|\(px)"`。
-    var gridThumbnails: CacheLedger.Snapshot
+    var gridThumbnails: PagePixelCache.Snapshot
     var gridThumbnailLimitBytes: Int
     /// いま先読みのタスクが走っている(まだ終わっていない)ページのインデックス。
     /// 「設定より広く先読みしていないか」の判定に使う。残留しているページとは別物

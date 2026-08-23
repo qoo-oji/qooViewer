@@ -39,8 +39,9 @@ array is mutable so the viewer can reorder/exclude pages live without reopening 
 
 **Page image loading**: `PageLoader` (Services/PageLoader.swift) is an `actor` per opened book. It owns
 per-archive `ArchiveReading` readers and `CGPDFDocument`s, decodes images off-actor in background tasks,
-dedups in-flight requests for the same page, and prefetches pages around the current index into two
-`NSCache`s (full image / progress-bar thumbnail). When editing this file, preserve the actor-isolation
+dedups in-flight requests for the same page, limits concurrent full-size decodes (display requests
+jump ahead of prefetches), and prefetches pages around the current index into three `PagePixelCache`s
+(strict LRU with byte/count limits; full image / progress-bar thumbnail / grid thumbnail). When editing this file, preserve the actor-isolation
 boundary: archive/PDF handles must stay actor-confined, but decoding must not block the actor.
 
 **Actor isolation gotcha**: this project targets Swift 6.2 with default actor isolation set to `MainActor`,
