@@ -41,35 +41,17 @@ struct ReadingSettingsView: View {
             }
 
             // ページ一覧(サムネイルグリッド)にしか効かない設定は、見た目(サムネイルの
-            // 大きさ・間隔・余白・キャプション・枠の色)も拡大プレビューのON/OFF・先読みも、
-            // すべて「外観」画面の「ページ一覧」セクションへ集めてある。
-            // ここに残しているのは、ページ一覧の「操作にどう応じるか」だけ。
+            // 大きさ・間隔・余白・キャプション・枠の色)も、拡大プレビューのON/OFF・先読みも、
+            // ホイール1ノッチのスクロール行数も、すべて「外観」画面の「ページ一覧」セクションへ
+            // 集めてある。この画面に残しているのは**効く範囲が「すべての場所」のものだけ**。
             //
-            // 拡大プレビューの2項目を移したのはユーザーの指摘による(「サムネイルプレビュー」
-            // という見出しの下に、ページ一覧専用の項目と全箇所共通の項目が混ざっていて、
-            // どれがどこに効くのか分からない)。**効く範囲が同じものだけを1つの見出しの下に
-            // 置く**、という切り分けにしてある。
-            Section {
-                SettingsSlider(
-                    "Rows per Wheel Notch",
-                    value: $preferences.thumbnailGridWheelScrollRows,
-                    in: AppPreferences.thumbnailGridWheelScrollRowsRange,
-                    step: 0.1,
-                    help: "Applies to a physical mouse wheel only. Trackpad scrolling is unchanged.",
-                    showsStepper: true
-                ) { value in
-                    // 0.1刻みなので、整数のときも「1.0」と書いて桁数を揃える
-                    // (ドラッグ中に小数点が出たり消えたりして行が揺れるのを防ぐ)。
-                    String(format: "%.1f", value)
-                }
-            } header: {
-                Text("Page List")
-            }
-
+            // この切り分けはユーザーの指摘による(1つの見出しの下に、ページ一覧だけに効く項目と
+            // 全箇所共通の項目が混ざっていて、どれがどこに効くのか分からない)。
+            // **効く範囲が同じものだけを1つの見出しの下に置く**、という基準にしてある。
             // サムネイルのホバー拡大プレビューのうち、**4箇所すべてに共通で効くもの**だけを
             // ここに置く(ページ一覧・サイドパネルのページモード・ブックマーク/レイアウトの編集・
-            // 書き出しウインドウ)。ページ一覧にしか効かないON/OFFと先読みは「外観」画面の
-            // 「ページ一覧」セクションへ移してある(すぐ上のコメント参照)。
+            // 書き出しウインドウ)。ページ一覧にしか効かないものは「外観」画面の
+            // 「ページ一覧」セクションにある(すぐ上のコメント参照)。
             Section {
                 SettingsSlider(
                     "Delay Before Showing",
@@ -79,6 +61,17 @@ struct ReadingSettingsView: View {
                     help: "Applies to thumbnails in the page list, the side panel's page mode, the bookmark editor, and the export windows."
                 ) { value in
                     String(format: "%.2f s", value)
+                }
+                // 大きさも遅延と同じく4箇所すべてで共通(ユーザーの指示)。既定値は、設定に
+                // する前から各所に書かれていた440ptをそのまま引き継いでいる。
+                SettingsSlider(
+                    "Preview Size",
+                    value: $preferences.thumbnailHoverPreviewSize,
+                    in: AppPreferences.thumbnailHoverPreviewSizeRange,
+                    step: 20,
+                    help: "Applies to thumbnails in the page list, the side panel's page mode, the bookmark editor, and the export windows."
+                ) { value in
+                    "\(Int(value)) pt"
                 }
             } header: {
                 Text("Thumbnail Preview")

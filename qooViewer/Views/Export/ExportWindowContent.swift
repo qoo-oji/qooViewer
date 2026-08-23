@@ -693,7 +693,7 @@ private struct ExportCoverPickerPageRow: View {
 
     /// サムネイルをホバーしたときのpopoverの中身。フル解像度画像(previewImage)とファイル名を
     /// 縦に並べる。BookmarkListView.PageRowView.thumbnailPreviewContentと同じ構成・同じサイズ
-    /// (440x440)。
+    /// (一辺は環境設定。AppPreferences.thumbnailHoverPreviewSideLength)。
     private var thumbnailPreviewContent: some View {
         VStack(spacing: 8) {
             Group {
@@ -705,14 +705,17 @@ private struct ExportCoverPickerPageRow: View {
                     ProgressView()
                 }
             }
-            .frame(width: 440, height: 440)
+            .frame(
+                width: preferences.thumbnailHoverPreviewSideLength,
+                height: preferences.thumbnailHoverPreviewSideLength
+            )
 
             Text(page.displayName)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: 440)
+                .frame(maxWidth: preferences.thumbnailHoverPreviewSideLength)
         }
         .padding(12)
         .task {

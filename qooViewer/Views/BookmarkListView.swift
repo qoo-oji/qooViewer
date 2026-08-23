@@ -2451,14 +2451,17 @@ private struct PageRowView: View {
                 }
             }
             // ユーザー要望により、以前(280x280)よりひとまわり…もうふたまわりほど大きくした。
-            .frame(width: 440, height: 440)
+            .frame(
+                width: preferences.thumbnailHoverPreviewSideLength,
+                height: preferences.thumbnailHoverPreviewSideLength
+            )
 
             Text(row.displayName)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: 440)
+                .frame(maxWidth: preferences.thumbnailHoverPreviewSideLength)
         }
         .padding(12)
         .task {

@@ -144,6 +144,17 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
     case showFavoritesList
     /// 「お気に入りの整理」ウインドウを開く。
     case showFavoritesOrganizer
+    /// このウインドウを閉じる(同じタブグループのタブもすべて)。赤い閉じるボタン・
+    /// メニューバー「ウインドウ」→「ウインドウを閉じる」とまったく同じ経路を通るので、
+    /// 複数タブが開いていれば環境設定に従って確認ダイアログも出る
+    /// (BookClosingWindowDelegate.forceCloseWindow参照)。
+    case closeWindow
+    /// このタブだけを閉じる。Cmd+Wやタブバーの×ボタンと同じ経路で、複数タブの確認は出ない
+    /// (上のcloseWindowとの違いはそこ)。タブが1つだけならウインドウが閉じる。
+    case closeTab
+    /// アプリケーションを終了する。他のウインドウで編集中のものがあれば、macOSの通常の
+    /// 終了手順どおりそちらの確認が先に出る(NSApplication.terminate)。
+    case quitApplication
     /// 何も割り当てない
     case none
 
@@ -165,6 +176,21 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
         case .jumpToPercentile80: return 80
         case .jumpToPercentile90: return 90
         default: return nil
+        }
+    }
+
+    /// マウス操作にだけ割り当てられる操作かどうか。
+    ///
+    /// ウインドウ/タブを閉じる・アプリを終了するの3つは、macOSが⌘W・⌘Qという標準の
+    /// ショートカットを既に持っており、キーボード側へ重ねて割り当てられるようにしても
+    /// 紛らわしいだけなので、キー設定の一覧には出さない(ユーザーの指示はマウス
+    /// ジェスチャーへの追加)。**この判定を足したのは、KeyBindingSettingsViewの
+    /// 「どのグループにも入れ忘れたケースを末尾に補う」セーフティネットが、放っておくと
+    /// この3つをキー設定へ出してしまうため**。
+    var isMouseOnly: Bool {
+        switch self {
+        case .closeWindow, .closeTab, .quitApplication: return true
+        default: return false
         }
     }
 
@@ -237,6 +263,9 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
         case .toggleFavorite: return "Toggle Favorite"
         case .showFavoritesList: return "Show Favorites List"
         case .showFavoritesOrganizer: return "Edit Favorites…"
+        case .closeWindow: return "Close Window"
+        case .closeTab: return "Close Tab"
+        case .quitApplication: return "Quit qooViewer"
         case .none: return "(None)"
         }
     }

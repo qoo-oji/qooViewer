@@ -556,7 +556,7 @@ private struct ThumbnailCell: View {
 
     /// サムネイルをホバーしたときのpopoverの中身。フル解像度画像(previewImage)とファイル名を
     /// 縦に並べる。BookmarkListView.PageRowView.thumbnailPreviewContentと同じ構成・同じサイズ
-    /// (440x440)にしている。popoverが実際に画面へ表示されるたびに.taskが実行される
+    /// (環境設定で変えられる一辺。AppPreferences.thumbnailHoverPreviewSideLength)にしている。popoverが実際に画面へ表示されるたびに.taskが実行される
     /// (SwiftUIのpopoverは表示のたびにコンテンツビューを作り直すため)ので、まだ読み込んでいなければ
     /// そこで読み込む。previewImageは@Stateとして親(ThumbnailCell)側に持たせているため、閉じて
     /// 再度ホバーしても読み込み直さない。
@@ -571,14 +571,17 @@ private struct ThumbnailCell: View {
                     ProgressView()
                 }
             }
-            .frame(width: 440, height: 440)
+            .frame(
+                width: preferences.thumbnailHoverPreviewSideLength,
+                height: preferences.thumbnailHoverPreviewSideLength
+            )
 
             Text(displayName)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: 440)
+                .frame(maxWidth: preferences.thumbnailHoverPreviewSideLength)
         }
         .padding(12)
         .task {

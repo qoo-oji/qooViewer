@@ -3475,6 +3475,37 @@ struct ViewerView: View {
         case .showFavoritesOrganizer:
             guard !viewModel.skipsPersistence else { return }
             openWindow(id: "favoritesOrganizer")
+        // ウインドウを閉じる: 赤い閉じるボタン・メニューバーの「ウインドウを閉じる」と
+        // **同じ経路**を通す(複数タブの確認ダイアログもそちらの設定に従って出る)。
+        // 差し替えた専用のデリゲートが見つからない場合だけ、素のperformCloseへ落とす
+        // (QooViewerApp.swiftのCommandGroup(before: .windowArrangement)と同じ書き方)。
+        case .closeWindow:
+            guard let hostWindow else { return }
+            if let delegate = hostWindow.delegate as? BookClosingWindowDelegate {
+                delegate.forceCloseWindow(nil)
+            } else {
+                hostWindow.performClose(nil)
+            }
+        // タブを閉じる: このタブ(=このNSWindow)1枚だけを、確認なしで閉じる。
+        //
+        // **NSWindow.performClose(_:)は使えない。** このアプリはウインドウの赤い閉じるボタンの
+        // target/actionをforceCloseWindow(_:)へ差し替えており(setUpWindowObservers参照)、
+        // performCloseは「その閉じるボタンを押したのと同じ」振る舞いになる ―― 実機で、
+        // タブを2枚開いた状態でこの操作を行うと**複数タブの確認ダイアログが出て、タブグループ
+        // ごと閉じられる**ことを確認した(performCloseがwindowShouldCloseだけを通る、という
+        // 前提は今のmacOSでは成り立っていない)。それでは上のcloseWindowと同じものになって
+        // しまうので、closeを直接呼ぶ。
+        //
+        // 閉じる前にcloseBook()を呼ぶのは、開いていた本のセキュリティスコープ付きアクセスを
+        // その場で手放すため(windowShouldCloseがやっているのと同じ後始末)。
+        case .closeTab:
+            guard let hostWindow else { return }
+            if appState.currentBook != nil {
+                appState.closeBook()
+            }
+            hostWindow.close()
+        case .quitApplication:
+            NSApp.terminate(nil)
         case .none:
             break
         }

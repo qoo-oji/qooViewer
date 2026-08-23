@@ -37,6 +37,11 @@ struct MouseBindingSettingsView: View {
         .toggleLoupe, .showThumbnailGrid,
         .showActualSizeLeft, .showActualSizeRight,
         .toggleSlideshow,
+        // ウインドウ/アプリを閉じる(ユーザー要望)。既定では何も割り当てていない ――
+        // 取り消せない操作なので、ジェスチャーの誤爆で読んでいた本ごと消えることが
+        // 無いよう、使いたい人が自分で割り当てる形にしてある。
+        // キー設定には出さない(⌘W・⌘Qと重なるため。ViewerAction.isMouseOnly参照)。
+        .closeTab, .closeWindow, .quitApplication,
     ]
 
     /// この画面が扱うのは、表示モードに依存しない基本の割り当てだけ。

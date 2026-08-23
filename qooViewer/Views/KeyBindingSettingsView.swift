@@ -71,7 +71,10 @@ struct KeyBindingSettingsView: View {
         let rest = ViewerAction.allCases.filter { $0 != .none && !placed.contains($0) }
         // スクロール系の操作は、スクロールできる表示モードでしか意味を持たないため、
         // この画面からは外し、「表示モード別の操作」画面(ModeInputSettingsView)へ回す。
-        return (ordered + rest).filter { !$0.isScrollableModeOnly }
+        // ウインドウ/タブを閉じる・アプリを終了するは、macOSの⌘W・⌘Qと重なるためキーには
+        // 割り当てさせない(ViewerAction.isMouseOnly参照)。どちらも上のrestに拾われて
+        // しまうので、ここで落とす。
+        return (ordered + rest).filter { !$0.isScrollableModeOnly && !$0.isMouseOnly }
     }()
 
     /// この画面が扱うのは、表示モードに依存しない**基本**の割り当て

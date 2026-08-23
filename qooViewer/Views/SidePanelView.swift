@@ -1732,9 +1732,11 @@ private struct SidePanelPageCell: View {
     /// 専用で、ここには効かせない(サイズ調整の無いサムネイルでは、拡大が無いと何のページか
     /// 分からなくなるため。ユーザー指示)。
     @EnvironmentObject private var preferences: AppPreferences
-    /// 拡大プレビューの一辺。ページ一覧グリッド・「ブックマーク・レイアウトの編集」ウインドウの
-    /// 拡大プレビューと揃える(ユーザー要望)。
-    private static let previewSize: CGFloat = 440
+    /// 拡大プレビューの一辺。ページ一覧グリッド・「ブックマーク・レイアウトの編集」ウインドウ・
+    /// 書き出しウインドウの拡大プレビューと揃える(ユーザー要望)。以前は4箇所それぞれに440と
+    /// 直接書いていたが、環境設定から変えられるようにしたため、そちらを読む
+    /// (AppPreferences.thumbnailHoverPreviewSideLength参照)。
+    private var previewSize: CGFloat { preferences.thumbnailHoverPreviewSideLength }
 
     private static let thumbnailHeight: CGFloat = 72
 
@@ -1827,7 +1829,7 @@ private struct SidePanelPageCell: View {
     }
 
     /// サムネイルをホバーしたときのpopoverの中身。フル解像度画像(previewImage)とファイル名を
-    /// 縦に並べる。構成・サイズ(440x440)はThumbnailGridView.ThumbnailCell /
+    /// 縦に並べる。構成・サイズ(一辺は環境設定。previewSize参照)はThumbnailGridView.ThumbnailCell /
     /// BookmarkListView.PageRowViewのthumbnailPreviewContentと揃えてある(ユーザー要望)。
     /// popoverが実際に画面へ表示されるたびに.taskが実行される(SwiftUIのpopoverは表示のたびに
     /// コンテンツビューを作り直すため)ので、まだ読み込んでいなければそこで読み込む。
@@ -1844,14 +1846,14 @@ private struct SidePanelPageCell: View {
                     ProgressView()
                 }
             }
-            .frame(width: Self.previewSize, height: Self.previewSize)
+            .frame(width: previewSize, height: previewSize)
 
             Text(displayName)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: Self.previewSize)
+                .frame(maxWidth: previewSize)
         }
         .padding(12)
         .task {

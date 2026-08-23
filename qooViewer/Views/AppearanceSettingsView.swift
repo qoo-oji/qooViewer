@@ -179,6 +179,21 @@ struct AppearanceSettingsView: View {
             // プレビューを出さない設定のときは、先読みしても何も起きない
             // (すぐ上のキャプションの大きさと同じ考え方)。
             .disabled(!preferences.showThumbnailHoverPreview)
+            // ホイールのスクロール行数。見た目の設定ではないが、**ページ一覧パネルにしか
+            // 効かない**のでここへ移した(ユーザーの指示。移す前は環境設定「閲覧中の動作」に
+            // 「ページ一覧」という別のセクションとして置かれていた)。
+            SettingsSlider(
+                "Rows per Wheel Notch",
+                value: $preferences.thumbnailGridWheelScrollRows,
+                in: AppPreferences.thumbnailGridWheelScrollRowsRange,
+                step: 0.1,
+                help: "Applies to a physical mouse wheel only. Trackpad scrolling is unchanged.",
+                showsStepper: true
+            ) { value in
+                // 0.1刻みなので、整数のときも「1.0」と書いて桁数を揃える
+                // (ドラッグ中に小数点が出たり消えたりして行が揺れるのを防ぐ)。
+                String(format: "%.1f", value)
+            }
         } header: {
             Text("Page List")
         }

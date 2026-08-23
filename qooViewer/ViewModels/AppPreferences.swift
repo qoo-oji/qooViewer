@@ -55,6 +55,7 @@ final class AppPreferences: ObservableObject {
         static let thumbnailGridVerticalMarginPercent = "qooViewer.pref.thumbnailGridVerticalMarginPercent"
         static let showThumbnailHoverPreview = "qooViewer.pref.showThumbnailHoverPreview"
         static let thumbnailHoverPreviewDelay = "qooViewer.pref.thumbnailHoverPreviewDelay"
+        static let thumbnailHoverPreviewSize = "qooViewer.pref.thumbnailHoverPreviewSize"
         static let preloadThumbnailGridPreviews = "qooViewer.pref.preloadThumbnailGridPreviews"
         static let defaultReadingDirection = "qooViewer.pref.defaultReadingDirection"
         static let spreadBookmarkTargetBehavior = "qooViewer.pref.spreadBookmarkTargetBehavior"
@@ -622,6 +623,29 @@ final class AppPreferences: ObservableObject {
     var thumbnailHoverPreviewDelayNanoseconds: UInt64 {
         UInt64(max(thumbnailHoverPreviewDelay, 0) * 1_000_000_000)
     }
+    /// 拡大プレビュー(ポップオーバー)の一辺の長さ(pt)。画像はこの正方形へ縦横比を保って
+    /// 収められ、下のファイル名もこの幅で折り返す。遅延と同じく**4箇所すべてで共通**
+    /// (ページ一覧・サイドパネルのページモード・ブックマーク/レイアウトの編集・書き出し
+    /// ウインドウ)。以前は4箇所それぞれに440という数値を直接書いていた(ユーザー要望で
+    /// 設定にした。既定値はそのときの値をそのまま引き継いでいる)。
+    ///
+    /// 表示の大きさだけを決める値で、読み込む画像そのものは常にフル解像度のまま
+    /// (プレビューはpageImage(at:)で原寸を読む)。大きくしてもデコードの負荷は変わらない。
+    @Published var thumbnailHoverPreviewSize: Double {
+        didSet { UserDefaults.standard.set(thumbnailHoverPreviewSize, forKey: Keys.thumbnailHoverPreviewSize) }
+    }
+    /// 下限を既定値(440pt)と同じにしてあるのは、**サムネイルより小さいプレビューを
+    /// 作らせないため**(ユーザーの指示)。ページ一覧のサムネイルは最大320ptまで大きくでき、
+    /// 下限をそれより下に許すと「拡大プレビューのほうが小さい」という逆転が起きる
+    /// (AppPreferences.thumbnailGridCellSizeRangeの上限参照)。
+    static let thumbnailHoverPreviewSizeRange: ClosedRange<Double> = 440...800
+    /// 上をレイアウトでそのまま使えるCGFloatとして返す。**表示側はこちらを使うこと** ――
+    /// 保存値が範囲外でも(古い値・手動で書き換えられた場合)画面が壊れないよう、ここで
+    /// 範囲に収める。
+    var thumbnailHoverPreviewSideLength: CGFloat {
+        let range = Self.thumbnailHoverPreviewSizeRange
+        return CGFloat(min(max(thumbnailHoverPreviewSize, range.lowerBound), range.upperBound))
+    }
     /// ページ一覧で、画面に見えているサムネイルの原寸画像を裏で先にデコードしておくか
     /// (プレビューを即座に出すため。メモリとCPUを多く使うので既定OFF)。
     @Published var preloadThumbnailGridPreviews: Bool {
@@ -731,6 +755,8 @@ final class AppPreferences: ObservableObject {
             defaults.object(forKey: Keys.thumbnailGridVerticalMarginPercent) as? Double ?? 5
         self.showThumbnailHoverPreview = defaults.object(forKey: Keys.showThumbnailHoverPreview) as? Bool ?? true
         self.thumbnailHoverPreviewDelay = defaults.object(forKey: Keys.thumbnailHoverPreviewDelay) as? Double ?? 0.35
+        // 既定値440は、設定にする前に各所へ直接書かれていた値そのもの(見た目を変えないため)。
+        self.thumbnailHoverPreviewSize = defaults.object(forKey: Keys.thumbnailHoverPreviewSize) as? Double ?? 440
         self.preloadThumbnailGridPreviews =
             defaults.object(forKey: Keys.preloadThumbnailGridPreviews) as? Bool ?? false
         self.thumbnailGridCaptionStyle =
@@ -851,6 +877,15 @@ extension AppPreferences {
                 Keys.thumbnailGridCaptionFontSize,
                 Keys.thumbnailGridBorderColorOption,
                 Keys.thumbnailGridBorderCustomColor,
+                // 拡大プレビューのON/OFFと先読みは、画面上も「外観」→「ページ一覧」にある
+                // (ページ一覧にしか効かないため)。**画面の置き場所とここは必ず揃えること** ――
+                // 食い違うと、その画面の「初期設定に戻す」で戻らない項目や、別の画面のボタンで
+                // 勝手に戻る項目が生まれる。
+                Keys.showThumbnailHoverPreview,
+                Keys.preloadThumbnailGridPreviews,
+                // ホイールのスクロール行数もページ一覧パネル専用なので、画面ごと
+                // こちらへ移してある(ユーザーの指示)。
+                Keys.thumbnailGridWheelScrollRows,
             ] + PanelSurface.allCases.flatMap {
                 // 面ごとの設定を1つ増やしたら**ここにも足すこと**。`apply`が渡す
                 // `AppPreferences()`はUserDefaultsから読み直すので、キーを消し忘れると
@@ -887,10 +922,10 @@ extension AppPreferences {
                 Keys.treatTrackpadFlickAsWheel,
                 Keys.invertTwoFingerScrolling,
                 Keys.showProgressBarThumbnailPreview,
-                Keys.thumbnailGridWheelScrollRows,
-                Keys.showThumbnailHoverPreview,
+                // プレビューの遅延と大きさは4箇所すべてに共通なので、こちらの画面に残る
+                // (ページ一覧パネル専用のものは「外観」側。すぐ上のコメント参照)。
                 Keys.thumbnailHoverPreviewDelay,
-                Keys.preloadThumbnailGridPreviews,
+                Keys.thumbnailHoverPreviewSize,
                 Keys.slideshowInterval,
                 Keys.autoHideCursor,
                 Keys.cursorAutoHideDelay,
@@ -930,6 +965,9 @@ extension AppPreferences {
             thumbnailGridCaptionFontSize = source.thumbnailGridCaptionFontSize
             thumbnailGridBorderColorOption = source.thumbnailGridBorderColorOption
             thumbnailGridBorderCustomColor = source.thumbnailGridBorderCustomColor
+            showThumbnailHoverPreview = source.showThumbnailHoverPreview
+            preloadThumbnailGridPreviews = source.preloadThumbnailGridPreviews
+            thumbnailGridWheelScrollRows = source.thumbnailGridWheelScrollRows
             for surface in PanelSurface.allCases {
                 setSurfaceStyle(source.surfaceStyle(for: surface), for: surface)
             }
@@ -952,10 +990,8 @@ extension AppPreferences {
             treatTrackpadFlickAsWheel = source.treatTrackpadFlickAsWheel
             invertTwoFingerScrolling = source.invertTwoFingerScrolling
             showProgressBarThumbnailPreview = source.showProgressBarThumbnailPreview
-            thumbnailGridWheelScrollRows = source.thumbnailGridWheelScrollRows
-            showThumbnailHoverPreview = source.showThumbnailHoverPreview
             thumbnailHoverPreviewDelay = source.thumbnailHoverPreviewDelay
-            preloadThumbnailGridPreviews = source.preloadThumbnailGridPreviews
+            thumbnailHoverPreviewSize = source.thumbnailHoverPreviewSize
             slideshowInterval = source.slideshowInterval
             autoHideCursor = source.autoHideCursor
             cursorAutoHideDelay = source.cursorAutoHideDelay

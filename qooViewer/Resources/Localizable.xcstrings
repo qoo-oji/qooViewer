@@ -2195,6 +2195,22 @@
         }
       }
     },
+    "Close Tab": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Tab"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを閉じる"
+          }
+        }
+      }
+    },
     "Close This Book and Open the New One": {
       "localizations": {
         "en": {
@@ -8121,6 +8137,22 @@
         }
       }
     },
+    "Preview Size": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview Size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューの大きさ"
+          }
+        }
+      }
+    },
     "Preview the Page Under the Pointer": {
       "localizations": {
         "en": {
@@ -8262,6 +8294,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "削除せずに終了"
+          }
+        }
+      }
+    },
+    "Quit qooViewer": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit qooViewer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "qooViewerを終了"
           }
         }
       }
