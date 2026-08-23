@@ -397,6 +397,21 @@ struct ContentView: View {
             guard window == nil || window!.isVisible else { return }
             guard appState.hostWindow !== window else { return }
             appState.hostWindow = window
+            // バグ修正(ユーザー報告): ツールバーを隠す設定で、「横幅に合わせる」などページを
+            // スクロールする表示モードのとき、ツールバーが隠れた瞬間にタイトルバーが消えて
+            // 画像がウインドウの最上端まで広がっていた。SwiftUIのScrollViewは、上端が
+            // 安全領域(タイトルバー)に接すると自動的にその下まで広がり、タイトルバーを
+            // 透明にする(実測: ページ用のNSScrollViewの高さが内容領域の1377ptではなく
+            // ウインドウ全高の1409ptになり、safeAreaInsets.top=32が付いていた)。ツールバーが
+            // 見えている間はツールバーが上端を占めるので起きず、「画面内に収める」モードは
+            // ScrollViewを使わないので起きない。
+            //
+            // SwiftUIのWindowGroupがウインドウに付ける`.fullSizeContentView`を外すと、内容領域が
+            // タイトルバーの下に存在しなくなり、ScrollViewが広がる先そのものが無くなる。
+            // 内容をタイトルバーの下まで広げる用途はこのアプリには無いので、これで固定する。
+            // (Appleのドキュメントどおり、このスタイルではタイトルバーが下の内容を透かす
+            // 描画になる: https://developer.apple.com/documentation/appkit/nswindow/stylemask-swift.struct/fullsizecontentview )
+            window?.styleMask.remove(.fullSizeContentView)
             // このウインドウがキーウインドウになるたびに、「前回終了時にアクティブだった
             // 画面/タブの本を復元する」機能のために、今表示している本のURLを記録しておく
             // (すべてのウインドウ/タブが対象。「main」「book」どちらのウインドウグループでも
