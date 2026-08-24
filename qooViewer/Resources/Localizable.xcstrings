@@ -1264,6 +1264,23 @@
         }
       }
     },
+    "Applies to Go to Next/Previous Book and to File ▸ Open File in Same Folder. Folder books and file books are then visited in the order shown in the panel, instead of separately. When off, books follow name order." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies to Go to Next/Previous Book and to File ▸ Open File in Same Folder. Folder books and file books are then visited in the order shown in the panel, instead of separately. When off, books follow name order."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「次の本へ」「前の本へ」と、ファイルメニューの「同じフォルダのファイルを開く」に効きます。フォルダの本とファイルの本を分けずに、パネルに表示されている順で行き来するようになります。OFFのときは名前順です。"
+          }
+        }
+      }
+    },
     "Applies to opening files and moving into folders in the side panel. Navigation buttons are unaffected." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7220,6 +7237,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "移動"
+          }
+        }
+      }
+    },
+    "Move Between Books in the Browser's Sort Order" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move Between Books in the Browser's Sort Order"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本の移動をブラウザの並び順に合わせる"
           }
         }
       }

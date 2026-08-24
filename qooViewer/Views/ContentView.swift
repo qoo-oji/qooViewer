@@ -360,6 +360,21 @@ struct ContentView: View {
         .onChange(of: preferences.sidePanelPosition) { _, _ in
             appState.isSidePanelRevealed = false
         }
+        // 「同じフォルダのファイルを開く」の一覧を、並び順に関わる設定が変わったその場で
+        // 並べ直す(ユーザー要望: フォルダブラウザの並べ替えに合わせる)。siblingBookOrderは
+        // 関係する4つの設定を束ねた値なので、パネル上部の並べ替えメニュー・環境設定の
+        // トグル・サイドパネル機能自体のON/OFF、どこから変えてもここで拾える
+        // (AppPreferences.siblingBookOrder参照)。
+        //
+        // フォルダブラウザ側(SidePanelBrowserState.applySortSettings)と違い、ディスクを
+        // 読み直す。あちらは一覧を保持していて並べ替えるだけで済むのに対し、こちらが持って
+        // いるのはURLの列だけで、サイズや日付といった並べ替えに要る値を持たないため。
+        // 設定の変更はユーザーの操作に伴う稀な出来事で、そのときこのメニューは開かれていない
+        // (メニューを開いている間の更新はMenuBarMenuGateが保留する)ので、走査を1回増やす
+        // ことよりも、AppStateが並べ替え用の属性まで抱え込まないほうを取った。
+        .onChange(of: preferences.siblingBookOrder) { _, _ in
+            appState.reloadSiblingBooks()
+        }
         // カーソルがウインドウの外へ出たことを検知するグローバルモニタは、閉じるべきものが
         // 表示されている間だけ取り付ける(updateOutsideWindowMonitor参照)。
         .onChange(of: hasAutoRevealedChrome) { _, _ in

@@ -45,6 +45,7 @@ final class AppPreferences: ObservableObject {
         static let sidePanelSortOrder = "qooViewer.pref.sidePanelSortOrder"
         static let folderBrowserSortKey = "qooViewer.pref.folderBrowserSortKey"
         static let folderBrowserSortDirection = "qooViewer.pref.folderBrowserSortDirection"
+        static let siblingNavigationFollowsBrowserSort = "qooViewer.pref.siblingNavigationFollowsBrowserSort"
         static let sidePanelPosition = "qooViewer.pref.sidePanelPosition"
         static let sidePanelMode = "qooViewer.pref.sidePanelMode"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
@@ -332,6 +333,22 @@ final class AppPreferences: ObservableObject {
             UserDefaults.standard.set(folderBrowserSortDirection.rawValue, forKey: Keys.folderBrowserSortDirection)
         }
     }
+    /// 環境設定「一般」タブのサイドパネル欄の、「次の本へ」「前の本へ」およびファイルメニューの
+    /// 「同じフォルダのファイルを開く」を、すぐ上のフォルダブラウザの並べ替えに合わせるかどうか
+    /// (既定OFF = 名前順。ユーザー要望)。
+    ///
+    /// **サイドパネル機能自体がOFFのときは効かない。** 並べ替えの基準・向きを変える手段が
+    /// パネル上部のメニューしか無いため、パネルを出せない状態で「見えない設定」に従わせても
+    /// 混乱するだけになる(環境設定の画面でもグレーアウトする)。この打ち消しは下の
+    /// `siblingBookOrder`が一手に引き受けているので、**読む側は必ずそちらを使うこと** ――
+    /// このプロパティを直接見てよいのは、環境設定画面のトグルだけ。
+    @Published var siblingNavigationFollowsBrowserSort: Bool {
+        didSet {
+            UserDefaults.standard.set(
+                siblingNavigationFollowsBrowserSort, forKey: Keys.siblingNavigationFollowsBrowserSort
+            )
+        }
+    }
 
     /// 上段フォルダブラウザの並べ替えに必要な設定をまとめた値。DirectoryBrowser
     /// (nonisolated enumなのでAppPreferencesを直接読めない)へ渡す引数であると同時に、
@@ -343,6 +360,17 @@ final class AppPreferences: ObservableObject {
             key: folderBrowserSortKey,
             direction: folderBrowserSortDirection
         )
+    }
+
+    /// 「次の本へ」「前の本へ」と「同じフォルダのファイルを開く」が使う並び順
+    /// (SiblingBookOrder参照)。SiblingFinder(nonisolated enumなのでAppPreferencesを直接
+    /// 読めない)へ渡す引数であると同時に、SwiftUI側が`.onChange(of:)`ひとつで**関係する
+    /// 4つの設定**(サイドパネル機能のON/OFF・このオプション・並べ替えの基準と向き・フォルダの
+    /// グループ分け)の変更をまとめて拾うためのものでもある(ContentView参照)。
+    /// すぐ上のfolderBrowserSortとまったく同じ考え方。
+    var siblingBookOrder: SiblingBookOrder {
+        guard sidePanelFeatureEnabled, siblingNavigationFollowsBrowserSort else { return .byName }
+        return .followingFolderBrowser(folderBrowserSort)
     }
     /// 環境設定「一般」タブの、サイドパネルをウインドウのどちら側に表示するか(既定は左。
     /// SidePanelPosition参照)。常時表示・ホバーでの一時表示のどちらにも同じ値が効き、
@@ -828,6 +856,8 @@ final class AppPreferences: ObservableObject {
         self.folderBrowserSortDirection =
             FolderBrowserSortDirection(rawValue: defaults.string(forKey: Keys.folderBrowserSortDirection) ?? "")
                 ?? FolderBrowserSort.default.direction
+        self.siblingNavigationFollowsBrowserSort =
+            defaults.object(forKey: Keys.siblingNavigationFollowsBrowserSort) as? Bool ?? false
         self.sidePanelPosition =
             SidePanelPosition(rawValue: defaults.string(forKey: Keys.sidePanelPosition) ?? "") ?? .left
         self.sidePanelMode =
@@ -973,6 +1003,7 @@ extension AppPreferences {
                 Keys.sidePanelPosition,
                 Keys.sidePanelUsesDoubleClick,
                 Keys.sidePanelSortOrder,
+                Keys.siblingNavigationFollowsBrowserSort,
             ]
         case .appearance:
             return [
@@ -1073,6 +1104,7 @@ extension AppPreferences {
             sidePanelPosition = source.sidePanelPosition
             sidePanelUsesDoubleClick = source.sidePanelUsesDoubleClick
             sidePanelSortOrder = source.sidePanelSortOrder
+            siblingNavigationFollowsBrowserSort = source.siblingNavigationFollowsBrowserSort
         case .appearance:
             backgroundColorOption = source.backgroundColorOption
             customBackgroundColor = source.customBackgroundColor

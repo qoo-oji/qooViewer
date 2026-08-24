@@ -83,6 +83,17 @@ struct SettingsRowLabel: View {
     /// トグルのように右のコントロールが固定幅の行では、折り返しを許す。
     var allowsWrapping: Bool = false
 
+    /// 行が `.disabled(...)` になっているか。SwiftUIはコントロール(トグル・スライダー・
+    /// ⓘのボタン)を自分で薄くしてくれるが、**素の `Text` には何もしない**ため、項目名だけが
+    /// 濃いまま取り残される(実機で確認)。macOSのシステム設定では無効な行は行ぜんたいが
+    /// 薄くなり、そうでないと「押せないのは右のコントロールだけ」に見えてしまうので、
+    /// ここで項目名も一緒に沈める。
+    ///
+    /// **`Text` にだけ掛けること。** この `HStack` ごと薄くすると、SwiftUIが既に薄くしている
+    /// ⓘのボタンに二重にかかり、補足のある行だとほとんど見えなくなる。
+    /// 濃さは `SettingsPopUp` の無効時と同じ値にしてあり、行の中で見え方が揃う。
+    @Environment(\.isEnabled) private var isEnabled
+
     @State private var isShowingHelp = false
 
     var body: some View {
@@ -90,6 +101,7 @@ struct SettingsRowLabel: View {
             Text(title)
                 .lineLimit(allowsWrapping ? nil : 1)
                 .fixedSize(horizontal: false, vertical: allowsWrapping)
+                .opacity(isEnabled ? 1 : 0.4)
 
             if let help {
                 Button {

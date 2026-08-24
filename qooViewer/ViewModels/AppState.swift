@@ -541,6 +541,14 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// 一覧を空にする。走査中のものがあれば取り消してから空にすること ―― 取り消さないと、
+    /// 本を閉じた/開くのに失敗した後になって、走査し終えた古い一覧が届いて空でなくなる。
+    private func clearSiblingBooks() {
+        siblingRefreshTask?.cancel()
+        siblingRefreshTask = nil
+        setSiblingBooks([])
+    }
+
     /// ViewerViewが閉じるとき(本を閉じたとき)に、メニューバーのチェックマーク状態をクリアする。
     func resetMenuCheckmarkState() {
         // updateMenuCheckmarkStateと同じ理由で、変わったものだけ代入し、メニューバーの
@@ -857,11 +865,11 @@ final class AppState: ObservableObject {
                 if !skipsPersistence, request.recordsInHistory, let url = request.primaryURL {
                     self.recentFiles?.record(url: url)
                 }
-                await self.refreshSiblingBooks()
+                self.reloadSiblingBooks()
             } catch {
                 guard !Task.isCancelled, let self else { return }
                 self.currentBook = nil
-                self.setSiblingBooks([])
+                self.clearSiblingBooks()
                 self.pendingInitialPage = nil
                 self.errorMessage = (error as? LocalizedError)?.errorDescription
                     ?? String(localized: "The book could not be opened.", locale: locale)
@@ -869,10 +877,19 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// 「次の本へ」「前の本へ」および「同じフォルダのファイルを開く」が使う並び順。
+    /// 環境設定がまだ結び付いていない間は名前順(SiblingBookOrder.byName)へ落とす。
+    private var siblingBookOrder: SiblingBookOrder {
+        preferences?.siblingBookOrder ?? .byName
+    }
+
     /// 同じフォルダ内の次の本へシームレスに移動する
     func openSibling(after currentURL: URL) {
+        // 並び順は**Taskの外で**取り出しておく(MainActor隔離のpreferencesを非同期の文脈から
+        // 読み直さずに済ませるため。この直前まで有効だった設定でそのまま動く)。
+        let order = siblingBookOrder
         Task { [weak self] in
-            guard let next = await SiblingFinder.url(after: currentURL) else { return }
+            guard let next = await SiblingFinder.url(after: currentURL, order: order) else { return }
             // ページ送りの延長なので、別のウインドウへ譲らない
             // (open(request:reusesExistingWindow:)のコメント参照)。
             self?.open(url: next, reusesExistingWindow: false)
@@ -881,8 +898,9 @@ final class AppState: ObservableObject {
 
     /// 同じフォルダ内の前の本へシームレスに移動する
     func openSibling(before currentURL: URL) {
+        let order = siblingBookOrder
         Task { [weak self] in
-            guard let previous = await SiblingFinder.url(before: currentURL) else { return }
+            guard let previous = await SiblingFinder.url(before: currentURL, order: order) else { return }
             // 次の本への移動と同じ理由で、別のウインドウへ譲らない。
             self?.open(url: previous, reusesExistingWindow: false)
         }
@@ -891,21 +909,39 @@ final class AppState: ObservableObject {
     func closeBook() {
         openTask?.cancel()
         currentBook = nil
-        setSiblingBooks([])
+        clearSiblingBooks()
         // 開いていた本のセキュリティスコープ付きアクセスを閉じる(securityScopedBookURLsの
         // コメント参照)。
         securityScopedBookURLs.forEach { $0.stopAccessingSecurityScopedResource() }
         securityScopedBookURLs = []
     }
 
+    /// 「同じフォルダのファイルを開く」の一覧を取得し直す走査。本を開いたときのほか、並び順に
+    /// 関わる設定が変わったとき(ContentView参照)にも呼ばれる。
+    ///
+    /// 呼び出し口が複数ある以上、走査が終わる順番は呼ばれた順番と一致しない(フォルダによって
+    /// かかる時間が違う)。**最後に始めたものだけが一覧に反映される**よう、始める前に前のものを
+    /// 取り消す。
+    private var siblingRefreshTask: Task<Void, Never>?
+
     /// 現在の本と同じフォルダにある他の本のURL一覧を取得し直す(「同じフォルダのファイルを開く」用)。
-    private func refreshSiblingBooks() async {
+    func reloadSiblingBooks() {
+        siblingRefreshTask?.cancel()
         guard let currentURL = currentBook?.sourceURL else {
+            siblingRefreshTask = nil
             setSiblingBooks([])
             return
         }
-        let all = await SiblingFinder.siblingBookURLsAsync(of: currentURL)
-        setSiblingBooks(all.filter { $0.path != currentURL.path })
+        // openSibling(after:)と同じ理由で、並び順はTaskの外で取り出しておく。
+        let order = siblingBookOrder
+        siblingRefreshTask = Task { [weak self] in
+            let all = await SiblingFinder.siblingBookURLsAsync(of: currentURL, order: order)
+            guard !Task.isCancelled, let self else { return }
+            // 今開いている本自身は一覧から外す。SiblingFinderが位置を突き合わせるときと同じく、
+            // URL同士ではなく正規化したパスで比べる(あちらのidentityPath(of:)のコメント参照)。
+            let currentPath = currentURL.standardizedFileURL.path
+            self.setSiblingBooks(all.filter { $0.standardizedFileURL.path != currentPath })
+        }
     }
 
     /// 今表示している画像と同じフォルダにある画像を、すべてまとめて1冊のフォルダの本として
@@ -1003,9 +1039,7 @@ final class AppState: ObservableObject {
         )
         guard ensureAccess(toFolder: parent, message: accessMessage) else { return }
 
-        Task { [weak self] in
-            await self?.refreshSiblingBooks()
-        }
+        reloadSiblingBooks()
     }
 
     /// 現在の本(ファイルまたはフォルダ)をFinderで開く(ユーザー要望)。ファイルメニュー・

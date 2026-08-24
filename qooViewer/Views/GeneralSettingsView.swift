@@ -102,15 +102,31 @@ struct GeneralSettingsView: View {
                     isOn: $preferences.sidePanelFeatureEnabled,
                     help: "Shows a panel for browsing folders and the current book's contents. When off, the panel and its View menu options are unavailable."
                 )
-                SettingsPicker("Panel Position", selection: $preferences.sidePanelPosition)
-                // 「サイドパネルの」はSectionヘッダが言っているので落とし、
-                // 何がダブルクリックになるのかをラベルへ引き上げた。例外だけ吹き出しに残す。
-                SettingsToggle(
-                    "Require a Double-Click to Open or Move Into Folders",
-                    isOn: $preferences.sidePanelUsesDoubleClick,
-                    help: "Navigation buttons such as Back, Forward, and Up are unaffected."
-                )
-                SettingsPicker("Sort Order", selection: $preferences.sidePanelSortOrder)
+                // サイドパネル機能がOFFの間、以下はどれも効かない設定になる。
+                // 「前回読んでいた本を開き直す」をシークレット起動時にグレーアウトするのと
+                // 同じ理由(効かない設定を触れるままにすると「壊れている」と受け取られる)で、
+                // まとめて無効にする。**この欄へ設定を足すときは、この Group の中へ入れること。**
+                Group {
+                    SettingsPicker("Panel Position", selection: $preferences.sidePanelPosition)
+                    // 「サイドパネルの」はSectionヘッダが言っているので落とし、
+                    // 何がダブルクリックになるのかをラベルへ引き上げた。例外だけ吹き出しに残す。
+                    SettingsToggle(
+                        "Require a Double-Click to Open or Move Into Folders",
+                        isOn: $preferences.sidePanelUsesDoubleClick,
+                        help: "Navigation buttons such as Back, Forward, and Up are unaffected."
+                    )
+                    SettingsPicker("Sort Order", selection: $preferences.sidePanelSortOrder)
+                    // ユーザー要望: 次/前の本へ移動する順番を、フォルダブラウザの並べ替えに
+                    // 合わせたい。並べ替えの基準・向きを変える手段がパネル上部のメニューしか
+                    // 無いため、この設定はサイドパネル欄の一部として置き、パネル機能がOFFの
+                    // 間は上の3項目ともども無効になる(AppPreferences.siblingBookOrder参照)。
+                    SettingsToggle(
+                        "Move Between Books in the Browser's Sort Order",
+                        isOn: $preferences.siblingNavigationFollowsBrowserSort,
+                        help: "Applies to Go to Next/Previous Book and to File ▸ Open File in Same Folder. Folder books and file books are then visited in the order shown in the panel, instead of separately. When off, books follow name order."
+                    )
+                }
+                .disabled(!preferences.sidePanelFeatureEnabled)
             } header: {
                 Text("Side Panel")
             }
