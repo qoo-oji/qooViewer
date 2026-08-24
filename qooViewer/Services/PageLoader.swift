@@ -196,7 +196,7 @@ actor PageLoader {
     /// リソースモニタ向けに、3つのメモリキャッシュの中身と先読みの状態をまとめて返す。
     /// キャッシュの中身を数えるだけで、画像には触れない。
     func cacheStatistics() -> PageCacheStatistics {
-        PageCacheStatistics(
+        return PageCacheStatistics(
             pageImages: imageCache.snapshot(),
             pageImageLimitBytes: imageCache.totalCostLimit,
             thumbnails: thumbnailCache.snapshot(),
@@ -255,7 +255,19 @@ actor PageLoader {
     /// 誰が参照を握っているかに関係なく中身だけは確実に空けるため、解放を「オブジェクトの寿命」
     /// ではなく「もう表示していない」という事実に紐づける
     /// (ViewerViewModel.releaseResources / ViewerView.handleOnDisappear参照)。
+    ///
+    /// ■ 解放後の要求は受け付けない(監査で指摘)
+    /// releaseResources()はViewerViewModel側の走行中タスクも止めるが、それらは非構造化
+    /// タスクで、既に`await pageImage(...)`から戻っていたものはキャンセルを見ずに
+    /// `prefetch(around:)`まで進みうる。ここで`isReleased`を立て、以後の読み込み・先読みを
+    /// すべて空振りにすることで、「解放したはずの旧世代のキャッシュが先読みで再び埋まる」
+    /// (最大で設定上限ぶん)経路を確実に閉じる。
+    ///
+    /// ■ 書庫リーダー・CGPDFDocumentもここで閉じる
+    /// deinitに任せると、SwiftUIが旧世代を抱えている間は書庫のファイルハンドル(7zなら索引の
+    /// メモリも)が開きっぱなしになる。「もう表示していない」以上、これらも手放す。
     func releaseAllResources() {
+        isReleased = true
         for entry in prefetchTasks.values {
             entry.task.cancel()
         }
@@ -269,7 +281,14 @@ actor PageLoader {
         imageCache.removeAll()
         thumbnailCache.removeAll()
         gridThumbnailCache.removeAll()
+        readers.removeAll()
+        readerUsageOrder.removeAll()
+        pdfDocuments.removeAll()
     }
+
+    /// releaseAllResources()が呼ばれた後か。trueなら読み込み・先読みの入口はすべて何もせず
+    /// nilを返す(上のコメント参照)。
+    private var isReleased = false
 
     /// この本のコントラスト補正設定(本単位、BookLayoutSettings.contrastCorrectionEnabled)が
     /// 変わったときにViewerViewModelから呼ぶ。値が実際に変わった場合のみ、imageCache/
@@ -304,7 +323,8 @@ actor PageLoader {
 
     /// 指定ページのフルサイズ画像を取得する(キャッシュ済みなら即座に、なければ読み込んでキャッシュする)
     func pageImage(at index: Int) async -> CGImage? {
-        await pixels(at: index, cache: imageCache, maxPixelSize: ImageDecoder.pageMaxPixelSize)?.makeImage()
+        guard !isReleased else { return nil }
+        return await pixels(at: index, cache: imageCache, maxPixelSize: ImageDecoder.pageMaxPixelSize)?.makeImage()
     }
 
     /// プログレスバー用の小さいサムネイルを取得する
@@ -316,6 +336,7 @@ actor PageLoader {
     /// ボリューム上にあっても、2回目以降はローカルディスクから即座に返せる
     /// (詳細はThumbnailDiskCacheの型コメント参照)。
     func thumbnail(at index: Int) async -> CGImage? {
+        guard !isReleased else { return nil }
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
         let key = page.id as NSString
@@ -369,6 +390,7 @@ actor PageLoader {
     ///   キャッシュが守りたい240px/セルサイズのサムネイルを刈り込んでしまう(監査で指摘)。
     ///   シークレットウインドウ(usesThumbnailDiskCache == false)ではこの値に関わらず使わない。
     func gridThumbnail(at index: Int, maxPixelSize: CGFloat, usesDiskCache: Bool = true) async -> CGImage? {
+        guard !isReleased else { return nil }
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
         let key = "\(page.id)|\(Int(maxPixelSize))" as NSString
@@ -388,7 +410,7 @@ actor PageLoader {
             }
         }
 
-        guard let decoded = await decodedPixels(for: page.source, maxPixelSize: maxPixelSize) else {
+        guard let decoded = await decodedPixels(for: page.source, maxPixelSize: maxPixelSize), !isReleased else {
             return nil
         }
         gridThumbnailCache.store(decoded, forKey: key)
@@ -498,6 +520,7 @@ actor PageLoader {
     /// このアプリが主に扱うマンガのスキャン・アーカイブ画像はカメラ写真と異なりEXIF回転タグを
     /// 持つことが稀なため、実用上の影響は小さいと判断している。
     func pageSize(at index: Int) async -> (width: Int, height: Int)? {
+        guard !isReleased else { return nil }
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
         if let cached = pageSizeCache[page.id] { return cached }
@@ -579,6 +602,7 @@ actor PageLoader {
     /// コンテキストメニュー「情報を見る」(ユーザー要望)向けに、指定ページの画像ファイル情報を
     /// 取得する。pageSize(at:)と同じくヘッダー情報の読み取りのみ(ピクセルデコード無し)。
     func pageImageInfo(at index: Int) async -> PageImageInfo? {
+        guard !isReleased else { return nil }
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
         switch page.source {
@@ -705,6 +729,7 @@ actor PageLoader {
     ///   見開きでは後ろ10ページのうち1ページが「いま隣に表示している相方」で埋まり、未見の
     ///   ページは9枚しか先読みされていなかった(ユーザー指摘)。単ページ表示なら従来どおり。
     func prefetch(around index: Int, radius: Int = 3, displayedPageCount: Int = 1) {
+        guard !isReleased else { return }
         guard !book.pages.isEmpty else { return }
         let lastDisplayed = index + max(displayedPageCount, 1) - 1
         let lower = max(0, index - radius)
@@ -784,6 +809,9 @@ actor PageLoader {
             if !isPrefetch {
                 // 先読みが始めた読み込みに、実際の表示要求が合流した。もう打ち切ってはならない。
                 cancellableInFlightKeys.remove(inFlightKey)
+                // その読み込みがまだデコードの空き待ち(先読みの列)なら、表示要求の列へ移す
+                // (promoteDecodeWaiterのコメント参照)。
+                promoteDecodeWaiter(forKey: inFlightKey)
             }
             return await existingTask.value
         }
@@ -797,7 +825,9 @@ actor PageLoader {
 
         let task = Task<PagePixelBuffer?, Never> { [weak self] in
             guard let self else { return nil }
-            return await self.decodedPixels(for: page.source, maxPixelSize: maxPixelSize, isPrefetch: isPrefetch)
+            return await self.decodedPixels(
+                for: page.source, maxPixelSize: maxPixelSize, isPrefetch: isPrefetch, waiterKey: inFlightKey
+            )
         }
         inFlightTasks[inFlightKey] = task
         if isPrefetch {
@@ -808,7 +838,7 @@ actor PageLoader {
         inFlightTasks[inFlightKey] = nil
         cancellableInFlightKeys.remove(inFlightKey)
 
-        guard let decoded else { return nil }
+        guard let decoded, !isReleased else { return nil }
         cache.store(decoded, forKey: key)
         return decoded
     }
@@ -816,14 +846,17 @@ actor PageLoader {
     /// decodedImage(for:maxPixelSize:)の結果を、キャッシュに入れる形(PagePixelBuffer)へ
     /// 描き写して返す。描き写しはデコードと同じくactorの外で行う(メモリコピー相当とはいえ
     /// 36MBで十数msあり、actorを掴んだままだと他のページの要求を待たせるため)。
+    /// - Parameter waiterKey: この読み込みのinFlightKey。先読みとして空き待ちに並んでいる間に
+    ///   表示要求が合流したとき、その待ちを表示要求の列へ移すための突き合わせに使う
+    ///   (promoteDecodeWaiter参照)。合流の仕組みが無い経路(拡大サムネイル)はnil。
     private func decodedPixels(
-        for source: PageSource, maxPixelSize: CGFloat, isPrefetch: Bool = false
+        for source: PageSource, maxPixelSize: CGFloat, isPrefetch: Bool = false, waiterKey: String? = nil
     ) async -> PagePixelBuffer? {
         // フルサイズのデコードは同時実行数を絞る(decodeSlotsのコメント参照)。サムネイルは
         // 1枚の一時メモリが小さいので絞らない(ページ一覧の数十枚が直列に待たされる方が害)。
         let isFullSize = maxPixelSize >= ImageDecoder.pageMaxPixelSize
         if isFullSize {
-            await acquireDecodeSlot(isPrefetch: isPrefetch)
+            await acquireDecodeSlot(isPrefetch: isPrefetch, waiterKey: waiterKey)
         }
         defer { if isFullSize { releaseDecodeSlot() } }
         guard !Task.isCancelled else { return nil }
@@ -860,10 +893,15 @@ actor PageLoader {
     /// マシンではそれに合わせて減らす。
     private static let maxConcurrentDecodes = max(1, min(2, ProcessInfo.processInfo.activeProcessorCount / 2))
     private var activeDecodes = 0
-    private var urgentDecodeWaiters: [CheckedContinuation<Void, Never>] = []
-    private var prefetchDecodeWaiters: [CheckedContinuation<Void, Never>] = []
+    /// 空き待ち。`key`はpixels(at:)のinFlightKey(合流の突き合わせ用。無い経路はnil)。
+    private struct DecodeWaiter {
+        let key: String?
+        let continuation: CheckedContinuation<Void, Never>
+    }
+    private var urgentDecodeWaiters: [DecodeWaiter] = []
+    private var prefetchDecodeWaiters: [DecodeWaiter] = []
 
-    private func acquireDecodeSlot(isPrefetch: Bool) async {
+    private func acquireDecodeSlot(isPrefetch: Bool, waiterKey: String?) async {
         if activeDecodes < Self.maxConcurrentDecodes {
             activeDecodes += 1
             return
@@ -873,19 +911,31 @@ actor PageLoader {
         // タスクも一度は起こされ、呼び出し側のisCancelledチェックで即座に
         // releaseDecodeSlotへ進むので、スロットが漏れることはない。
         await withCheckedContinuation { continuation in
+            let waiter = DecodeWaiter(key: waiterKey, continuation: continuation)
             if isPrefetch {
-                prefetchDecodeWaiters.append(continuation)
+                prefetchDecodeWaiters.append(waiter)
             } else {
-                urgentDecodeWaiters.append(continuation)
+                urgentDecodeWaiters.append(waiter)
             }
         }
     }
 
+    /// 先読みとして空き待ちに並んでいる読み込みへ表示要求が合流したとき、その待ちを
+    /// 表示要求の列の末尾へ移す(監査で指摘)。
+    ///
+    /// これが無いと、速いページ送りの直後に表示したいページが、先に並んでいた他の先読み
+    /// (最大で先読み数ぶん)の後ろで待たされる。合流の時点ではまだデコードが始まっていない
+    /// (=まだ列にいる)ことも多く、その場合だけ効く。既に走っていれば何もしない。
+    private func promoteDecodeWaiter(forKey key: String) {
+        guard let index = prefetchDecodeWaiters.firstIndex(where: { $0.key == key }) else { return }
+        urgentDecodeWaiters.append(prefetchDecodeWaiters.remove(at: index))
+    }
+
     private func releaseDecodeSlot() {
         if !urgentDecodeWaiters.isEmpty {
-            urgentDecodeWaiters.removeFirst().resume()
+            urgentDecodeWaiters.removeFirst().continuation.resume()
         } else if !prefetchDecodeWaiters.isEmpty {
-            prefetchDecodeWaiters.removeFirst().resume()
+            prefetchDecodeWaiters.removeFirst().continuation.resume()
         } else {
             activeDecodes -= 1
         }

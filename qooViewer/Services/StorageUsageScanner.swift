@@ -53,11 +53,15 @@ nonisolated enum StorageUsageScanner {
         var databaseStoreURL: URL
     }
 
-    static func scan(_ locations: Locations) -> StorageUsage {
+    /// 呼び出し側のTaskが取り消されたら、途中で打ち切ってnilを返す(ディレクトリの列挙の
+    /// 途中でTask.isCancelledを見る)。「今すぐ更新」の連打で走査が丸ごと並走しないため。
+    static func scan(_ locations: Locations) -> StorageUsage? {
         let session = directorySize(at: locations.sessionTemporaryDirectory)
         let stale = staleTemporarySize(in: locations.temporaryRoot)
+        let container = directorySize(at: locations.containerRoot)
+        guard !Task.isCancelled else { return nil }
         return StorageUsage(
-            containerBytes: directorySize(at: locations.containerRoot).map(\.bytes),
+            containerBytes: container.map(\.bytes),
             sessionTemporaryBytes: session?.bytes ?? 0,
             sessionTemporaryFileCount: session?.fileCount ?? 0,
             staleTemporaryBytes: stale.bytes,
@@ -87,6 +91,7 @@ nonisolated enum StorageUsageScanner {
         var total = 0
         var count = 0
         for case let url as URL in enumerator {
+            if Task.isCancelled { return nil }
             guard let values = try? url.resourceValues(forKeys: sizeKeys),
                   values.isSymbolicLink != true,
                   values.isRegularFile == true

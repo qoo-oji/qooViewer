@@ -140,9 +140,16 @@ struct SidePanelResourcesSectionView: View {
         }
     }
 
+    /// 走査の世代。「今すぐ更新」で`.task(id:)`が張り直されると古い走査は取り消されるが、
+    /// その`defer`が新しい走査の最中に`isScanningStorage = false`を書いてボタンを早く
+    /// 有効にしてしまわないよう、自分が最新の世代であるときだけ状態を戻す(監査で指摘)。
+    @State private var storageScanGeneration = 0
+
     private func scanStorage() async {
+        storageScanGeneration &+= 1
+        let generation = storageScanGeneration
         isScanningStorage = true
-        defer { isScanningStorage = false }
+        defer { if generation == storageScanGeneration { isScanningStorage = false } }
         let locations = StorageUsageScanner.Locations(
             containerRoot: FileManager.default.homeDirectoryForCurrentUser,
             sessionTemporaryDirectory: TemporaryFileStore.sessionDirectory,
@@ -150,10 +157,19 @@ struct SidePanelResourcesSectionView: View {
             thumbnailCacheDirectory: ThumbnailDiskCache.shared.directory,
             databaseStoreURL: QooViewerApp.modelConfiguration.url
         )
-        let result = await Task.detached(priority: .utility) {
+        // Task.detachedはキャンセルを継承しないので、この`.task`が取り消されたら走査側の
+        // タスクも明示的に取り消す。走査はディレクトリの列挙中にTask.isCancelledを見て
+        // 途中で打ち切る(StorageUsageScanner参照)ため、古い走査と新しい走査が丸ごと
+        // 並走することはない。
+        let scanTask = Task.detached(priority: .utility) {
             StorageUsageScanner.scan(locations)
-        }.value
-        guard !Task.isCancelled else { return }
+        }
+        let result = await withTaskCancellationHandler {
+            await scanTask.value
+        } onCancel: {
+            scanTask.cancel()
+        }
+        guard !Task.isCancelled, let result else { return }
         storage = result
         evaluateAnomalies()
     }

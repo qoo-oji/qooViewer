@@ -669,10 +669,23 @@ final class ViewerViewModel: ObservableObject {
     ///
     /// 「開いている本の数」もここで減らす。数える目的が「1冊あたりの上限が何冊ぶん効いて
     /// いるか」を示すこと(リソースモニタ)なので、資源を手放した本はもう数えない。
+    ///
+    /// 走行中の読み込みタスクもここで止める(監査で指摘)。止めないと、`await pageImage`から
+    /// 戻った直後の`loadCurrentSpread`が、解放した後のPageLoaderへ`prefetch(around:)`を
+    /// 呼んで旧世代のキャッシュを最大で設定上限ぶん埋め直す(PageLoader側でも
+    /// `isReleased`で二重に閉じている)。
     func releaseResources() {
         guard !hasReleasedResources else { return }
         hasReleasedResources = true
         Self.openBookCounter.withLock { $0 -= 1 }
+        reloadTask?.cancel()
+        reloadTask = nil
+        pageFlipTask?.cancel()
+        pageFlipTask = nil
+        highResolutionSourceLoadTask?.cancel()
+        highResolutionSourceLoadTask = nil
+        layoutReloadDebounceTask?.cancel()
+        layoutReloadDebounceTask = nil
         wideImageCache.removeAll()
         Task { [pageLoader] in await pageLoader.releaseAllResources() }
     }
