@@ -779,6 +779,11 @@ struct ViewerView: View {
         viewModel.onRequestSiblingBook = nil
         viewModel.stopSlideshow()
         viewModel.flushPendingSave()
+        // このViewerViewはもう画面に無いので、本1冊ぶんのメモリキャッシュと走っている
+        // 読み込みを明示的に手放す(ViewerViewModel.releaseResourcesのコメント参照)。
+        // clearAppStateBridgesIfStillOwnerと違いトークンで持ち主を判定しないのは、
+        // このviewModelがこのViewerView専用だからで、上のonRequestSiblingBook等と同じ理由。
+        viewModel.releaseResources()
         cursorHideTask?.cancel()
         cursorHideTask = nil
         toastDismissTask?.cancel()
@@ -3298,6 +3303,9 @@ struct ViewerView: View {
             MainActor.assumeIsolated {
                 clearAppStateBridgesIfStillOwner()
                 viewModel.onRequestSiblingBook = nil
+                // handleOnDisappearと同じ理由で、資源の解放もここから先に行っておく
+                // (releaseResourcesは二度呼んでも何もしない)。
+                viewModel.releaseResources()
             }
         }
         windowObservers.append(closeToken)

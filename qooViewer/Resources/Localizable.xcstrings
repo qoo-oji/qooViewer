@@ -414,6 +414,22 @@
         }
       }
     },
+    "%@ / %@ · %lld pages" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ / %@ · %lld pages"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ / %2$@ · %3$lld ページ"
+          }
+        }
+      }
+    },
     "%@ ↓ %@ ↑" : {
       "localizations" : {
         "en" : {
@@ -550,22 +566,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld × %lld px"
-          }
-        }
-      }
-    },
-    "%lld before · %lld after (setting %lld)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld before · %lld after (setting %lld)"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "前 %1$lld · 後 %2$lld(設定 %3$lld)"
           }
         }
       }
@@ -983,6 +983,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "詳細"
+          }
+        }
+      }
+    },
+    "after %lld/%lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "after %lld/%lld"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "後 %1$lld/%2$lld"
           }
         }
       }
@@ -1605,6 +1621,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "画質と速度のバランスを取ります。"
+          }
+        }
+      }
+    },
+    "before %lld/%lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "before %lld/%lld"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前 %1$lld/%2$lld"
           }
         }
       }
@@ -4182,6 +4214,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "クリック位置とホイールの方向それぞれに、操作を1つずつ割り当てられます。"
+          }
+        }
+      }
+    },
+    "Earlier pages" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Earlier pages"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "過去のページ"
           }
         }
       }
@@ -8013,6 +8061,22 @@
         }
       }
     },
+    "Off" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Off"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オフ"
+          }
+        }
+      }
+    },
     "OK" : {
       "localizations" : {
         "en" : {
@@ -8058,6 +8122,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "起動時"
+          }
+        }
+      }
+    },
+    "One cell per page across the “Pages to preload on each side” range, laid out in reading order around the pages on screen (two cells in two-page spreads). Every cell filled means preloading is keeping up; a gap means that page is not in memory yet." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One cell per page across the “Pages to preload on each side” range, laid out in reading order around the pages on screen (two cells in two-page spreads). Every cell filled means preloading is keeping up; a gap means that page is not in memory yet."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "環境設定「前後に先読みするページ数」の範囲を、いま表示しているページ(見開きなら2マス)を挟んで1マス1ページで並べています。並びは読み方向に合わせてあります。すべてのマスが塗られていれば先読みは追いついています。欠けたマスは、そのページがまだメモリにありません。"
           }
         }
       }
@@ -8819,22 +8899,6 @@
         }
       }
     },
-    "Pages around the current one (center). Filled cells are still in memory; dimmed cells are outside the preload range. Pages stay in memory until the limit is reached, so more than the setting is normal." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pages around the current one (center). Filled cells are still in memory; dimmed cells are outside the preload range. Pages stay in memory until the limit is reached, so more than the setting is normal."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "現在のページ(中央)の前後です。塗られているマスはメモリに残っているページ、薄いマスは先読みの範囲外です。ページは上限に達するまでメモリに残るので、設定より多く残っているのは正常です。"
-          }
-        }
-      }
-    },
     "Pages outside the “Pages to preload before and after” range are being loaded ahead. Preloading should stay within that range." : {
       "localizations" : {
         "en" : {
@@ -8896,6 +8960,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ページ順を入れ替えました。レイアウトの再設定が必要です。"
+          }
+        }
+      }
+    },
+    "Pages you have already read that are still in memory beyond the preload range, counted back from the current page without a gap. They stay until the “Page images kept in memory” limit is reached, so anything from zero to dozens is normal." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pages you have already read that are still in memory beyond the preload range, counted back from the current page without a gap. They stay until the “Page images kept in memory” limit is reached, so anything from zero to dozens is normal."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "先読みの範囲より外側に、現在のページから途切れずにメモリへ残っている既読ページ数です。読み終えたページは環境設定「メモリに残しておくページ画像」の上限に達するまで残るので、この数がゼロでも数十でも正常です。"
           }
         }
       }
@@ -9111,18 +9191,18 @@
         }
       }
     },
-    "Preloaded" : {
+    "Preloaded pages" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Preloaded"
+            "value" : "Preloaded pages"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "先読み"
+            "value" : "先読みページ"
           }
         }
       }

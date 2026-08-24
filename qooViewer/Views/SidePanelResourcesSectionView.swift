@@ -11,6 +11,9 @@ import SwiftData
 ///   上部のトグル。計測していなくても現在値(`latest`)は出す(サンプラーのコメント参照)。
 /// - この本のキャッシュ・現在値の更新: この節が表示されている間だけ、1秒ごとに
 ///   `fetchBookSnapshot`(AppState経由でViewerViewModelへ)と`refreshLatest()`を呼ぶ。
+///   このループは長寿命の`.task`で回るため、`fetchBookSnapshot`は**呼ばれた時点のAppStateを
+///   引き直す**クロージャでなければならない(ContentView側のコメント参照)。本を切り替えても
+///   ループは張り直されないので、渡されたクロージャ自体が古い本を指していると固まる。
 /// - ディスクの走査: この節が表示されている間だけ、15秒ごと+「今すぐ更新」。ディレクトリの
 ///   全走査を伴うため、上の2つより粗い周期にしてある(`StorageUsageScanner`参照)。
 ///
@@ -34,7 +37,7 @@ struct SidePanelResourcesSectionView: View {
     @EnvironmentObject private var sampler: ProcessResourceSampler
 
     /// このウインドウで開いている本のキャッシュの状態を取る橋渡し(AppState.fetchResourceSnapshot)。
-    /// 本を開いていなければnil。
+    /// 本を開いていなければ、呼んだ結果がnilになる(クロージャ自体はContentViewが常に渡す)。
     var fetchBookSnapshot: (() async -> ResourceMonitorSnapshot?)?
 
     @State private var bookSnapshot: ResourceMonitorSnapshot?
@@ -98,7 +101,8 @@ struct SidePanelResourcesSectionView: View {
     // MARK: - 更新ループ
 
     /// この節が表示されている間、1秒ごとに「この本のキャッシュ」と現在値を取り直し、異常を
-    /// 判定し直す。`fetchBookSnapshot`の有無(本を開いた/閉じた)で`.task(id:)`が張り直される。
+    /// 判定し直す。本の切り替えでは張り直されない(張り直しに頼らず、fetchBookSnapshotの側が
+    /// 呼ばれるたびに今の本を引き直す。ContentViewのコメント参照)。
     private func tickLoop() async {
         while !Task.isCancelled {
             await refreshTick()
@@ -357,6 +361,17 @@ private struct GraphsSection: View, Equatable {
         percent.formatted(.number.precision(.fractionLength(0)).locale(locale)) + "%"
     }
 
+    private func usageCountText(
+        _ usage: ResourceMonitorSnapshot.CacheUsage, countsPages: Bool
+    ) -> LocalizedStringKey {
+        let used = memoryText(usage.usedBytes)
+        let limit = memoryText(usage.limitBytes)
+        if countsPages {
+            return "\(used) / \(limit) · \(usage.count) pages"
+        }
+        return "\(used) / \(limit) · \(usage.count)"
+    }
+
     private func memoryText(_ bytes: Int) -> String {
         Int64(bytes).formatted(.byteCount(style: .memory).locale(locale))
     }
@@ -389,9 +404,11 @@ private struct BookMemorySection: View, Equatable {
             usageBar(
                 title: "Page images",
                 usage: snapshot.pageImages,
+                countsPages: true,
                 help: "Decoded page images kept in memory, against the “Page images kept in memory” setting."
             )
-            prefetchRow
+            preloadRow
+            alreadyReadRow
             usageBar(
                 title: "Thumbnails",
                 usage: snapshot.thumbnails,
@@ -405,13 +422,21 @@ private struct BookMemorySection: View, Equatable {
         }
     }
 
-    private func usageBar(title: LocalizedStringKey, usage: ResourceMonitorSnapshot.CacheUsage, help: LocalizedStringKey) -> some View {
+    /// - Parameter countsPages: 末尾の件数に「ページ」を付けるか。ページ画像だけtrueにする
+    ///   (ユーザー要望)。この行の件数は先読み・過去のページの2行が数えている対象そのもので、
+    ///   単位があったほうが手前のMBの数字と区別しやすい。サムネイルの2行は枚数のまま。
+    private func usageBar(
+        title: LocalizedStringKey,
+        usage: ResourceMonitorSnapshot.CacheUsage,
+        countsPages: Bool = false,
+        help: LocalizedStringKey
+    ) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
                 Text(title)
                     .font(.callout)
                 Spacer(minLength: 0)
-                Text("\(memoryText(usage.usedBytes)) / \(memoryText(usage.limitBytes)) · \(usage.count)")
+                Text(usageCountText(usage, countsPages: countsPages))
                     .font(.callout)
                     .monospacedDigit()
             }
@@ -438,46 +463,134 @@ private struct BookMemorySection: View, Equatable {
         .help(help)
     }
 
-    /// 先読みの帯(現在ページを中心に、前後に残っているページを塗り、無いページを空に)と
-    /// 1行の説明。
-    private var prefetchRow: some View {
+    /// 先読みの帯(環境設定「前後に先読みするページ数」の範囲を1マス1ページで並べ、メモリに
+    /// 残っているマスを塗る)と、その充填数。
+    ///
+    /// ■ なぜ帯の目盛りが「設定値そのもの」なのか
+    /// 以前は前後`radius + 2`マスの帯に「前 N · 後 M」という数字を添えていた。ところが前
+    /// (読み終えた側)のページは環境設定「メモリに残しておくページ画像」の上限までLRUで残る
+    /// ので、Nは12マスの帯を軽く超えて20にも52にもなる。帯は点灯しきったまま数字だけ伸びる
+    /// =帯が情報を持たない状態になり、「設定10なのに52とは異常では」という指摘を受けた。
+    /// しかも履歴が押し出されるのはLRUの正常動作なので、前方向の帯は異常検知の材料にもならない。
+    /// そこで帯は先読みの範囲ちょうどに詰め、はみ出した履歴は数字だけの別行
+    /// (alreadyReadRow =「過去のページ」)に分けてある。こうすると「マスが全部塗られている=先読みは追いついている」が一目で分かり、
+    /// 欠けたマスがそのまま異常の手がかりになる。
+    ///
+    /// ■ 読み方向に合わせて反転する
+    /// 帯は画面上の並びなので、右開きの本では後のページが**左**に来なければ実際のページ送りと
+    /// 逆に見える(ユーザー指摘)。
+    ///
+    /// ■ 見開きは2マスが「現在」
+    /// 表示中のページ(見開きなら2ページ)をまとめて現在として塗り、先読みの数からも外す。
+    /// 以前は先頭ページの1マスだけを現在にしていたため、隣に表示している相方が先読みのマスに
+    /// 紛れ、「表示は2ページなのに帯の現在は1マス」に見えていた(ユーザー指摘)。先読み自体も
+    /// 表示中の最後のページを基点にするよう直してあるので、見開きでも後ろ側は設定値ちょうど
+    /// 埋まる(PageLoader.prefetchのdisplayedPageCount参照)。
+    private var preloadRow: some View {
+        let neighbours = preloadNeighbourIndices
         let radius = snapshot.prefetchRadius
-        let span = radius + 2
-        let indices = Array((snapshot.currentIndex - span)...(snapshot.currentIndex + span))
+        let ascending = Array((snapshot.currentIndex - radius)...(lastDisplayedIndex + radius))
+        let cells = snapshot.isRightToLeft ? Array(ascending.reversed()) : ascending
         return VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
-                Text("Preloaded")
+                Text("Preloaded pages")
                     .font(.callout)
                 Spacer(minLength: 0)
-                Text("\(snapshot.residentBefore) before · \(snapshot.residentAfter) after (setting \(radius))")
+                preloadCountsText
                     .font(.callout)
                     .monospacedDigit()
             }
             .lineLimit(1)
             .panelOutlinedContent()
 
-            HStack(spacing: 2) {
-                ForEach(indices, id: \.self) { index in
-                    let exists = (0..<snapshot.pageCount).contains(index)
-                    let isCurrent = index == snapshot.currentIndex
-                    let isResident = snapshot.residentIndicesAroundCurrent.contains(index)
-                    let isInRange = abs(index - snapshot.currentIndex) <= radius
-                    RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .fill(cellColor(exists: exists, isCurrent: isCurrent, isResident: isResident))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 8)
-                        .opacity(isInRange || isCurrent ? 1 : 0.45)
-                        // マスの塗りはアクセント色(現在ページ・残っているページ)か文字色の
-                        // 薄い塗り(残っていないページ)。どちらも重ね色と同化しうるので、
-                        // 実在するページのマスには縁を付ける。
-                        .panelOutlinedAccent(
-                            in: RoundedRectangle(cornerRadius: 2, style: .continuous),
-                            isEnabled: exists
-                        )
+            // 先読み0(または1ページだけの本)では並べるマスが無いので、帯ごと出さない。
+            if !neighbours.isEmpty {
+                HStack(spacing: 2) {
+                    ForEach(cells, id: \.self) { index in
+                        let exists = (0..<snapshot.pageCount).contains(index)
+                        let isCurrent = (snapshot.currentIndex...lastDisplayedIndex).contains(index)
+                        let isResident = snapshot.residentIndicesAroundCurrent.contains(index)
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(cellColor(exists: exists, isCurrent: isCurrent, isResident: isResident))
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 8)
+                            // マスの塗りはアクセント色(現在ページ・残っているページ)か文字色の
+                            // 薄い塗り(残っていないページ)。どちらも重ね色と同化しうるので、
+                            // 実在するページのマスには縁を付ける。
+                            .panelOutlinedAccent(
+                                in: RoundedRectangle(cornerRadius: 2, style: .continuous),
+                                isEnabled: exists
+                            )
+                    }
                 }
             }
         }
-        .help("Pages around the current one (center). Filled cells are still in memory; dimmed cells are outside the preload range. Pages stay in memory until the limit is reached, so more than the setting is normal.")
+        .help("One cell per page across the “Pages to preload on each side” range, laid out in reading order around the pages on screen (two cells in two-page spreads). Every cell filled means preloading is keeping up; a gap means that page is not in memory yet.")
+    }
+
+    /// 先読みの範囲より外側に、まだメモリに残っている既読ページ数(「過去のページ」)。帯は付けない
+    /// (目盛りになる上限が枚数ではなくメモリ量なので、マスで表しても読めないため)。
+    private var alreadyReadRow: some View {
+        HStack(spacing: 6) {
+            Text("Earlier pages")
+                .font(.callout)
+            Spacer(minLength: 0)
+            // 単位は付けない。行名(「過去のページ」)で何の数かは分かるうえ、上下の行が
+            // 「MB / MB · 枚数」「n/n」と単位の無い数字なので、ここだけ「ページ」が付くと
+            // 桁が揃わず読みにくい(ユーザー指摘)。
+            Text("\(max(snapshot.residentBefore - snapshot.prefetchRadius, 0))")
+                .font(.callout)
+                .monospacedDigit()
+        }
+        .lineLimit(1)
+        .panelOutlinedContent()
+        .help("Pages you have already read that are still in memory beyond the preload range, counted back from the current page without a gap. They stay until the “Page images kept in memory” limit is reached, so anything from zero to dozens is normal.")
+    }
+
+    /// 表示中のページのうち、ファイル順で最後のもの(単ページなら現在ページ自身)。
+    private var lastDisplayedIndex: Int {
+        snapshot.currentIndex + snapshot.displayedPageCount - 1
+    }
+
+    /// 帯が描く範囲のうち、表示中のページを除いて**実在する**ページのインデックス。
+    /// 本の先頭・末尾では範囲が本からはみ出すので、分母から外さないと埋まらないままになる。
+    private var preloadNeighbourIndices: [Int] {
+        let radius = snapshot.prefetchRadius
+        guard radius > 0 else { return [] }
+        return ((snapshot.currentIndex - radius)...(lastDisplayedIndex + radius))
+            .filter { !(snapshot.currentIndex...lastDisplayedIndex).contains($0)
+                && (0..<snapshot.pageCount).contains($0) }
+    }
+
+    /// 帯の充填数を「前 10/10 · 後 10/10」と**片側ずつ**出す。
+    ///
+    /// 前後をまとめて「20 / 20」と出していたときは、環境設定が10なのに20と出るのが分かり
+    /// にくいという指摘を受けた(ユーザー指摘)。片側ずつにすれば、分母がそのまま設定値になる。
+    /// 本の先頭・末尾ではその側に実在するページが無いので、分母0の側(「前 0/0」)は出さない。
+    /// 並び順は帯と揃え、右開きでは後(帯の左端)を先に書く。
+    private func preloadSideText(offsets: [Int], isForward: Bool) -> Text? {
+        let existing = offsets.filter { (0..<snapshot.pageCount).contains($0) }
+        guard !existing.isEmpty else { return nil }
+        let filled = existing.filter(snapshot.residentIndicesAroundCurrent.contains).count
+        return Text(
+            isForward
+                ? "after \(filled)/\(existing.count)"
+                : "before \(filled)/\(existing.count)"
+        )
+    }
+
+    private var preloadCountsText: Text {
+        let radius = snapshot.prefetchRadius
+        guard radius > 0 else { return Text("Off") }
+        let current = snapshot.currentIndex
+        let last = lastDisplayedIndex
+        let backward = preloadSideText(offsets: (1...radius).map { current - $0 }, isForward: false)
+        let forward = preloadSideText(offsets: (1...radius).map { last + $0 }, isForward: true)
+        let ordered = snapshot.isRightToLeft ? [forward, backward] : [backward, forward]
+        let parts = ordered.compactMap { $0 }
+        guard let first = parts.first else { return Text("Off") }
+        // 区切りはローカライズ対象ではないのでverbatim(文字列カタログに拾わせない)。
+        return parts.dropFirst().reduce(first) { $0 + Text(verbatim: " · ") + $1 }
     }
 
     private func cellColor(exists: Bool, isCurrent: Bool, isResident: Bool) -> Color {
@@ -487,6 +600,17 @@ private struct BookMemorySection: View, Equatable {
         // 重ね色を文字色に寄せたとき(ダーク外観+白など)に「残っている/いない」の差が
         // 縁だけになって読めない。
         return isResident ? Color.accentColor.opacity(0.45) : Color.primary.opacity(0.12)
+    }
+
+    private func usageCountText(
+        _ usage: ResourceMonitorSnapshot.CacheUsage, countsPages: Bool
+    ) -> LocalizedStringKey {
+        let used = memoryText(usage.usedBytes)
+        let limit = memoryText(usage.limitBytes)
+        if countsPages {
+            return "\(used) / \(limit) · \(usage.count) pages"
+        }
+        return "\(used) / \(limit) · \(usage.count)"
     }
 
     private func memoryText(_ bytes: Int) -> String {

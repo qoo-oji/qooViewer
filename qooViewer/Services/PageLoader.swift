@@ -117,7 +117,7 @@ actor PageLoader {
     private static let headerProbeByteCount = 128 * 1024
 
     // countLimitは64。環境設定の「先読みする画像数」は最大10まで設定できるため、
-    // 前後合わせて最大21枚(2*10+1)が先読み対象になる。枚数の上限はその数倍の余裕を
+    // 前後合わせて最大22枚(2*10+見開きの2)が先読み対象になる。枚数の上限はその数倍の余裕を
     // 持たせ、実質的な上限はtotalCostLimit(メモリ量)に任せる。
     //
     // ■ 3つのキャッシュが持つのはCGImageではなくPagePixelBuffer
@@ -243,6 +243,32 @@ actor PageLoader {
         for task in inFlightPageSizeTasks.values {
             task.cancel()
         }
+    }
+
+    /// 本を閉じた(または同じウインドウで別の本へ切り替えた)ときに、ViewerViewModelから呼ぶ。
+    /// deinitと同じ後始末に加えて、3つのメモリキャッシュを空にする。
+    ///
+    /// deinitに任せてはいけない理由: 同じウインドウで次の本を開くと、SwiftUIが古いViewerViewの
+    /// ノード(=その@StateObjectであるViewerViewModel、ひいてはこのPageLoader)を1世代ぶん
+    /// 抱えたままにすることがある。実測では、前の本のPagePixelBufferが27枚(約840MB)そのまま
+    /// 残り、サイドパネルのリソースモニタでも「2冊を表示中」と出ていた。
+    /// 誰が参照を握っているかに関係なく中身だけは確実に空けるため、解放を「オブジェクトの寿命」
+    /// ではなく「もう表示していない」という事実に紐づける
+    /// (ViewerViewModel.releaseResources / ViewerView.handleOnDisappear参照)。
+    func releaseAllResources() {
+        for entry in prefetchTasks.values {
+            entry.task.cancel()
+        }
+        prefetchTasks.removeAll()
+        for task in inFlightTasks.values {
+            task.cancel()
+        }
+        for task in inFlightPageSizeTasks.values {
+            task.cancel()
+        }
+        imageCache.removeAll()
+        thumbnailCache.removeAll()
+        gridThumbnailCache.removeAll()
     }
 
     /// この本のコントラスト補正設定(本単位、BookLayoutSettings.contrastCorrectionEnabled)が
@@ -673,10 +699,16 @@ actor PageLoader {
 
     /// index を中心に前後 radius ページ分を先読みする。
     /// 範囲外になった先読みタスクはキャンセルする。
-    func prefetch(around index: Int, radius: Int = 3) {
+    /// - Parameter displayedPageCount: いま画面に出ているページ数(見開きなら2)。radiusは
+    ///   「画面に出ているページの前後に何ページ読み込むか」という意味なので、後ろ側の基点は
+    ///   indexではなく**表示中の最後のページ**にする。以前はどちらもindex基準で数えていたため、
+    ///   見開きでは後ろ10ページのうち1ページが「いま隣に表示している相方」で埋まり、未見の
+    ///   ページは9枚しか先読みされていなかった(ユーザー指摘)。単ページ表示なら従来どおり。
+    func prefetch(around index: Int, radius: Int = 3, displayedPageCount: Int = 1) {
         guard !book.pages.isEmpty else { return }
+        let lastDisplayed = index + max(displayedPageCount, 1) - 1
         let lower = max(0, index - radius)
-        let upper = min(book.pages.count - 1, index + radius)
+        let upper = min(book.pages.count - 1, lastDisplayed + radius)
         guard lower <= upper else { return }
 
         for (existingIndex, entry) in prefetchTasks where existingIndex < lower || existingIndex > upper {
@@ -693,10 +725,10 @@ actor PageLoader {
         // 現在ページに近い順(前後交互)に始める。デコードの同時実行数を絞っているので
         // (decodeSlotsのコメント参照)、始めた順がほぼそのまま仕上がる順になる。次に
         // 表示される可能性が高いのは隣のページなので、そこから埋める。
-        var order: [Int] = [index].filter { lower...upper ~= $0 }
+        var order: [Int] = (index...lastDisplayed).filter { lower...upper ~= $0 }
         var offset = 1
-        while index + offset <= upper || index - offset >= lower {
-            if index + offset <= upper { order.append(index + offset) }
+        while lastDisplayed + offset <= upper || index - offset >= lower {
+            if lastDisplayed + offset <= upper { order.append(lastDisplayed + offset) }
             if index - offset >= lower { order.append(index - offset) }
             offset += 1
         }

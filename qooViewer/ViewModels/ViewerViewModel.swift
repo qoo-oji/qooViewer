@@ -653,8 +653,35 @@ final class ViewerViewModel: ObservableObject {
             }
     }
 
-    deinit {
+    /// releaseResources()が既に走ったか。onDisappearとウインドウのwillCloseの両方から
+    /// 呼ばれうるので、冊数の二重減算と無駄な後始末を避ける。
+    private var hasReleasedResources = false
+
+    /// このViewerViewが画面から外れたときに、本1冊ぶんの重い資源(デコード済みページの
+    /// メモリキャッシュと、走っている読み込み)を明示的に手放す。
+    ///
+    /// deinitに任せられない理由: 同じウインドウで次の本を開くと、SwiftUIが古いViewerViewの
+    /// ノード(=@StateObjectであるこのインスタンス)を1世代ぶん抱えたままにすることがある
+    /// (2冊目を開くと2、3冊目以降も2のまま=際限なく増えはしないが、1世代ぶんは必ず残る)。
+    /// 実測では前の本のPagePixelBufferが27枚(約840MB)そのまま残っていた。
+    /// 参照を誰が握っていても中身だけは確実に空けるため、解放を「オブジェクトの寿命」ではなく
+    /// 「もう表示していない」という事実に紐づける。
+    ///
+    /// 「開いている本の数」もここで減らす。数える目的が「1冊あたりの上限が何冊ぶん効いて
+    /// いるか」を示すこと(リソースモニタ)なので、資源を手放した本はもう数えない。
+    func releaseResources() {
+        guard !hasReleasedResources else { return }
+        hasReleasedResources = true
         Self.openBookCounter.withLock { $0 -= 1 }
+        wideImageCache.removeAll()
+        Task { [pageLoader] in await pageLoader.releaseAllResources() }
+    }
+
+    deinit {
+        // releaseResources()が走っていれば、そこで既に減らしてある。
+        if !hasReleasedResources {
+            Self.openBookCounter.withLock { $0 -= 1 }
+        }
         if let bookmarksChangeObserver {
             NotificationCenter.default.removeObserver(bookmarksChangeObserver)
         }
@@ -670,20 +697,25 @@ final class ViewerViewModel: ObservableObject {
 
     /// いま生きているViewerViewModelの数 = 開いている本の数(ウインドウ・タブの合計)。
     /// サイドパネルのリソースモニタが「この本のキャッシュは1冊あたりの値で、全体では
-    /// N冊ぶん」と示すために使う。initで増やしdeinitで減らす。`nonisolated`なロックなのは
-    /// deinitがactor隔離の外で走るため。
+    /// N冊ぶん」と示すために使う。initで増やし、releaseResources()(無ければdeinit)で減らす。
+    /// `nonisolated`なロックなのはdeinitがactor隔離の外で走るため。
     private static let openBookCounter = OSAllocatedUnfairLock(initialState: 0)
     nonisolated static var openBookCount: Int { openBookCounter.withLock { $0 } }
 
-    /// リソースモニタ向けに、この本のメモリキャッシュと先読みの状態を取る。
+    /// リソースモニタ向けに、この本のメモリキャッシュとメモリ常駐の状態を取る。
     /// 1秒ごとに呼ばれる想定。PageLoaderの帳簿を読むだけで、画像には触れない。
+    ///
+    /// 読み方向も渡すのは、モニタの帯が「前のページ/後のページ」を画面のどちら側に並べるかを
+    /// 読み方向に合わせるため(右開きなら後のページが左)。
     func resourceSnapshot() async -> ResourceMonitorSnapshot {
         let statistics = await pageLoader.cacheStatistics()
         return ResourceMonitorSnapshot(
             statistics: statistics,
             pageIDs: book.pages.map(\.id),
             currentIndex: currentIndex,
-            prefetchRadius: max(Int(preferences.prefetchPageCount), 0)
+            prefetchRadius: max(Int(preferences.prefetchPageCount), 0),
+            displayedPageCount: lastDisplayedPageRange?.count ?? max(currentImages.count, 1),
+            isRightToLeft: readingDirection == .rightToLeft
         )
     }
 
@@ -1806,7 +1838,11 @@ final class ViewerViewModel: ObservableObject {
         // これも「古いリクエストが最新のリクエストのデコード処理待ちを引き起こす」ことを防ぐため。
         guard !Task.isCancelled, prefetch else { return }
         let radius = max(Int(preferences.prefetchPageCount), 0)
-        await pageLoader.prefetch(around: targetIndex, radius: radius)
+        // 見開きなら「表示中の2ページの前後にradius枚ずつ」。相方のページを先読み枠で
+        // 数えてしまわないようにする(PageLoader.prefetchのdisplayedPageCount参照)。
+        await pageLoader.prefetch(
+            around: targetIndex, radius: radius, displayedPageCount: images.count
+        )
     }
 
     /// 見開き表示中でも単ページとして扱うべき横長画像かどうかを判定する。

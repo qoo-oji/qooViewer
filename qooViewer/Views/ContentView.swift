@@ -908,7 +908,15 @@ struct ContentView: View {
             width: $sidePanelWidth,
             position: preferences.sidePanelPosition,
             bookPages: appState.currentBookPages,
-            fetchResourceSnapshot: appState.fetchResourceSnapshot,
+            // バグ修正: 以前は`appState.fetchResourceSnapshot`をそのまま渡していた。受け取る
+            // リソースモニタは1秒ごとのループを長寿命の`.task`で回しており、Viewはstructなので
+            // そのループは「Taskが始まった時点のView(=そのときのクロージャ)」を掴み続ける。
+            // 同じウインドウで本を切り替えるとappState側のクロージャは新しい本のものに
+            // 差し替わるが、走り続けているループは古いクロージャを呼び続けるため、モニタが
+            // 前の本の値のまま固まる(サイドパネルのモードを切り替えて節を作り直すと直る、
+            // という形で再現を確認した)。呼ばれた時点でappStateを引き直すワンクッションを
+            // 挟むことで、ループが古いコピーを持っていても常に「今表示している本」を指す。
+            fetchResourceSnapshot: { [appState] in await appState.fetchResourceSnapshot?() },
             // 右クリックの「Finderで開く」「画像をエクスポート」用(ユーザー要望)。
             // どちらもViewerViewが持つ実装への橋渡し(AppState.exportPageImage参照)。
             bookSourceURL: appState.currentBook?.sourceURL,
