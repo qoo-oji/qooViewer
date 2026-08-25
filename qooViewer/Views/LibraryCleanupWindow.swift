@@ -217,10 +217,10 @@ private struct LibraryCleanupContentView: View {
     /// レイアウト/ブックマークインジケータと同じ考え方)。
     private func savedDataIndicators(_ row: LibraryCleanupViewModel.Row) -> some View {
         HStack(spacing: 6) {
-            indicator("star.fill", isOn: row.favoriteCount > 0, help: "Favorite")
-            indicator("bookmark.fill", isOn: row.bookmarkCount > 0, help: "Bookmarks")
-            indicator("rectangle.split.2x1", isOn: row.hasLayout, help: "Page layout settings")
-            indicator("tag.fill", isOn: row.hasMetadata, help: "Metadata")
+            indicator("star.fill", isOn: row.favoriteCount > 0, help: "Is a favorite")
+            indicator("bookmark.fill", isOn: row.bookmarkCount > 0, help: "Has bookmarks")
+            indicator("rectangle.split.2x1", isOn: row.hasLayout, help: "Has page layout settings")
+            indicator("tag.fill", isOn: row.hasMetadata, help: "Has metadata")
         }
     }
 

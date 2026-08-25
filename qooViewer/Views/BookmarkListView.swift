@@ -507,7 +507,7 @@ struct BookmarkEditorView: View {
                                 Image(systemName: "rectangle.split.2x1")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
-                                    .help("Has Layout Info")
+                                    .help("Has page layout settings")
                             }
                         }
                         .contentShape(Rectangle())
@@ -2439,7 +2439,7 @@ private struct PageRowView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
-                    .help("Remove Bookmark")
+                    .help("Delete Bookmark")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else if row.effectiveReadingIndex != nil {
