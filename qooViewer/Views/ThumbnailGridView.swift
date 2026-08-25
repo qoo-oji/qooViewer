@@ -73,6 +73,13 @@ struct ThumbnailGridView: View {
     /// クロージャから常に最新の値を読む必要があるため(ViewerViewの同名の入れ物と同じ)。
     @State private var scrollGeometryBox = ScrollGeometryBox()
 
+    /// セルが@Stateに保持したサムネイル・プレビューの合計量の帳簿。LazyVGridは画面外へ
+    /// 出たセルの保持物を解放しないため、予算(256MB)を超えたらグリッドを`.id(epoch)`で
+    /// 作り直してまとめて解放する(仕組みと実測の詳細はLazyCellImageBudgetの型コメント参照)。
+    /// 作り直してもScrollViewは残るのでスクロール位置は保たれ、画面内のセルだけが
+    /// 読み直される(多くはgridThumbnailCacheから即座に復元される)。
+    @State private var cellImageBudget = LazyCellImageBudget(byteBudget: 256 * 1024 * 1024)
+
     /// 実際に読み込めたサムネイルから測った縦横比(幅/高さ)のサンプル。列幅は「最初の1枚」では
     /// なく、ここに溜めた**複数ページの中央値**から決める。先頭だけ横長のカバーがある本
     /// (ユーザー報告)で、その1枚に列全体の幅が引きずられないようにするため。中央値なら
@@ -221,6 +228,12 @@ struct ThumbnailGridView: View {
                     // セルごとにviewModel.bookmarksを走査すると、ページ数×ブックマーク数の
                     // 走査が描画のたびに走る。
                     let bookmarkedPageIndices = Set(viewModel.bookmarks.map(\.pageIndex))
+                    // 帳簿の下限セル数: 画面内に収まりうるセル数(列数×見えている行数+先読み分)の
+                    // 3倍。これ未満で作り直すと、画面内ぶんの読み直しだけで再び予算へ達して
+                    // 作り直しがループしかねない(LazyCellImageBudgetの型コメント参照)。
+                    let rowHeight = Self.gridRowHeight(from: preferences)
+                    let visibleCellEstimate = count * (Int((panelHeight / max(rowHeight, 1)).rounded(.up)) + 2)
+                    let minimumCellCount = max(visibleCellEstimate * 3, 64)
                     LazyVGrid(columns: columns, spacing: CGFloat(preferences.thumbnailGridVerticalSpacing)) {
                         ForEach(0..<viewModel.pageCount, id: \.self) { index in
                             Button {
@@ -234,6 +247,9 @@ struct ThumbnailGridView: View {
                                         // 複数ページの中央値でこの本のページ比率を決める
                                         // (先頭だけ横長のカバー等に引きずられないため)。
                                         recordAspectSample(aspect)
+                                    },
+                                    onRetainedImage: { image in
+                                        cellImageBudget.note(retaining: image, minimumCellCount: minimumCellCount)
                                     }
                                 )
                             }
@@ -255,6 +271,9 @@ struct ThumbnailGridView: View {
                             }
                         }
                     }
+                    // 保持量が予算を超えたらグリッドごと作り直して、画面外セルが抱えた
+                    // サムネイル・プレビューをまとめて解放する(cellImageBudgetのコメント参照)。
+                    .id(cellImageBudget.epoch)
                     .frame(width: gridWidth)
                     .frame(maxWidth: .infinity)
                     .padding(Self.contentPadding)
@@ -455,6 +474,10 @@ private struct ThumbnailCell: View {
     let pixelSize: CGFloat
     /// 読み込めた画像の実寸から測った縦横比(幅/高さ)を、最初の1回だけ親へ知らせる。
     var onAspectMeasured: (CGFloat) -> Void = { _ in }
+    /// このセルが@Stateに画像(サムネイル・拡大プレビュー)を保持したことを親へ知らせる。
+    /// 親はLazyCellImageBudgetで合計量を数え、予算超過でグリッドを作り直す
+    /// (LazyVGridは画面外セルの保持物を解放しないため。詳細は同型コメント参照)。
+    var onRetainedImage: (CGImage) -> Void = { _ in }
     @EnvironmentObject private var preferences: AppPreferences
     @State private var image: CGImage?
 
@@ -545,12 +568,18 @@ private struct ThumbnailCell: View {
             if let image, image.height > 0 {
                 onAspectMeasured(CGFloat(image.width) / CGFloat(image.height))
             }
+            if let image {
+                onRetainedImage(image)
+            }
             // 環境設定「表示中のサムネイルの拡大画像を先読み」: 見えているセルのプレビュー画像を
             // 先にデコードしておく(PageLoaderのメモリキャッシュに載るので、プレビューが即座に
             // 出る)。LazyVGridは画面内のセルしか作らないため「表示中」に自然と限定される。
             if preferences.preloadThumbnailGridPreviews, preferences.showThumbnailHoverPreview,
                previewImage == nil, !Task.isCancelled {
                 previewImage = await viewModel.loadPreviewImage(at: index)
+                if let previewImage {
+                    onRetainedImage(previewImage)
+                }
             }
         }
     }
@@ -588,6 +617,9 @@ private struct ThumbnailCell: View {
         .task {
             guard previewImage == nil else { return }
             previewImage = await viewModel.loadPreviewImage(at: index)
+            if let previewImage {
+                onRetainedImage(previewImage)
+            }
         }
     }
 

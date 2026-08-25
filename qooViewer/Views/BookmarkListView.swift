@@ -77,6 +77,16 @@ private final class ListAnchorBox {
     }
 }
 
+/// 右ペインで「直前にサムネイルを読み込んだ行」のpageKeyを覚えておくための入れ物。
+/// 保持量の予算超過で一覧を作り直したとき、そこへスクロールを戻すのに使う
+/// (BookmarkDetailPane.cellImageBudgetのコメント参照)。@Stateの値として持つと、
+/// サムネイルが読み込まれるたびに右ペイン全体の再評価を誘発するため、参照型にして
+/// 書き込みが再描画を起こさないようにする(ListAnchorBoxと同じ考え方)。
+@MainActor
+private final class LastThumbnailRowBox {
+    var pageKey: String?
+}
+
 /// 上のListAnchorBoxへ、実際に配置されたNSViewを渡すためだけのNSViewRepresentable。
 ///
 /// 行ごとではなくList全体に1枚だけ置くので、コストは無視できる(かつて右ペインのレイアウト列で
@@ -1204,6 +1214,21 @@ private struct BookmarkDetailPane: View {
     /// 「そのクリックがこの一覧の中か」を判定するための一覧の矩形。
     @State private var doubleClickMonitor: Any?
     @State private var listAnchorBox = ListAnchorBox()
+    /// 各行が@Stateに保持したサムネイル・プレビューの合計量の帳簿。List(NSTableView backed)も
+    /// 画面外へスクロールした行の保持物を半分程度は抱えたままにするため(LazyCellImageBudgetの
+    /// 型コメント参照)、予算(128MB)を超えたら一覧を`.id(epoch)`で作り直してまとめて解放する。
+    /// Lazyコンテナと違い、Listの作り直しはNSTableViewごと消えてスクロール位置が先頭へ戻るため、
+    /// 直前にサムネイルを読み込んだ行(=画面付近の行)を覚えておき、作り直し後にScrollViewReaderで
+    /// そこへ戻す(pageListContentの.onChange参照)。
+    @State private var cellImageBudget = LazyCellImageBudget(byteBudget: 128 * 1024 * 1024)
+    /// 直前にサムネイルを読み込んだ行のpageKey(上のスクロール復元用)。読み込みのたびに
+    /// 書き込まれるため、@Stateの値として持つと右ペイン全体の再評価を誘発する。参照型の
+    /// 入れ物に入れて、書き込みが再描画を起こさないようにする(listAnchorBoxと同じ考え方)。
+    @State private var lastThumbnailRowBox = LastThumbnailRowBox()
+    /// 帳簿の下限セル数。行の高さは固定で、現実的な画面でも一度に見えるのは数十行のため、
+    /// その3倍強を固定値で持てば、作り直し直後の画面内ぶんの読み直しだけで再び予算へ達する
+    /// ループは起きない(SidePanelPagesSectionViewと同じ考え方)。
+    private static let budgetMinimumCellCount = 120
     @State private var openErrorBookName: String?
     /// 予防: NSWindowは強参照で持たない(ViewerView.WeakWindowBoxのコメント参照)。
     @State private var editorWindowBox = WeakWindowBox()
@@ -1342,6 +1367,10 @@ private struct BookmarkDetailPane: View {
                 NSEvent.removeMonitor(doubleClickMonitor)
             }
             doubleClickMonitor = nil
+            // この右ペインはもう画面に無いので、この本のPageLoaderのメモリキャッシュと
+            // 走っている読み込みを明示的に手放す(BookLayoutEditorViewModel.releaseResourcesの
+            // コメント参照。ViewerView.handleOnDisappearと同じ考え方)。
+            viewModel.releaseResources()
         }
         .navigationTitle("Bookmarks & Layout")
         .background(WindowAccessor { window in
@@ -1485,6 +1514,16 @@ private struct BookmarkDetailPane: View {
                     movePageSelection(.down, proxy: proxy)
                     return .handled
                 }
+                // 保持量の予算超過で一覧が作り直されたら(cellImageBudgetのコメント参照)、
+                // 直前にサムネイルを読み込んだ行=画面付近の行へスクロールを戻す。Listの
+                // 作り直しはNSTableViewごと新しくなり先頭へ戻ってしまうため。行の再構築が
+                // 済んだ後(次のループ)に行う。
+                .onChange(of: cellImageBudget.epoch) { _, _ in
+                    guard let target = lastThumbnailRowBox.pageKey else { return }
+                    DispatchQueue.main.async {
+                        proxy.scrollTo(target, anchor: .center)
+                    }
+                }
         }
     }
 
@@ -1555,6 +1594,10 @@ private struct BookmarkDetailPane: View {
                         } else {
                             viewModel.clearPageLayout(pageKey: row.pageKey)
                         }
+                    },
+                    onRetainedImage: { image in
+                        lastThumbnailRowBox.pageKey = row.pageKey
+                        cellImageBudget.note(retaining: image, minimumCellCount: Self.budgetMinimumCellCount)
                     }
                 )
                 // バグ修正: Listの既定の行インセットに頼ると、リストスタイルやonMoveの有無に
@@ -1591,6 +1634,10 @@ private struct BookmarkDetailPane: View {
             // ドラッグでの並べ替えも無効にする(viewModel.isBookReadyのコメント参照)。
             .moveDisabled(pageFilter != .all || !viewModel.isBookReady)
         }
+        // 保持量が予算を超えたら一覧ごと作り直して、画面外の行が抱えたサムネイル・
+        // プレビューをまとめて解放する(cellImageBudgetのコメント参照)。スクロール位置の
+        // 復元はpageListContentの.onChangeが行う。
+        .id(cellImageBudget.epoch)
         // バグ修正: 既定のList見た目(inset系)は、タイトル行(columnHeaderRow)との間に
         // 余分な上下の余白を持ち込み、隙間が広く見えていた(ユーザー報告)。.plainにすることで
         // 余白を最小限にし、タイトル行と1行目の間隔を詰める。
@@ -2131,6 +2178,11 @@ private struct PageRowView: View {
     /// nilを渡すと「レイアウトなし」(=削除)、値を渡すと3.3節の伝播範囲ダイアログを呼び出す
     /// (呼び出し元のBookmarkDetailPaneが実際の分岐を行う)。
     let onLayoutStateChange: (PageLayoutState?) -> Void
+    /// この行が@Stateに画像(サムネイル・拡大プレビュー)を保持したことを親へ知らせる。
+    /// 親はLazyCellImageBudgetで合計量を数え、予算超過で一覧を作り直す
+    /// (List(NSTableView backed)も画面外の行の保持物を半分程度は抱えたままにするため。
+    /// 詳細はLazyCellImageBudgetの型コメント参照)。
+    var onRetainedImage: (CGImage) -> Void = { _ in }
 
     @State private var thumbnail: CGImage?
     /// カーソルが小さいサムネイルの上にあるかどうか。拡大プレビュー用のpopoverの表示制御に使う
@@ -2272,6 +2324,9 @@ private struct PageRowView: View {
             // (BookLayoutEditorViewModel.load()/pageLoaderGeneration参照)。
             .task(id: "\(row.pageKey)#\(viewModel.pageLoaderGeneration)") {
                 thumbnail = await viewModel.thumbnail(rawIndex: row.rawIndex)
+                if let thumbnail {
+                    onRetainedImage(thumbnail)
+                }
             }
             // カーソルをホバーしている間、大きなプレビューとファイル名を表示する(ユーザー要望)。
             // 一覧に常時並ぶ小さいサムネイル(44x60、進捗バー用の軽量な解像度)だけでは
@@ -2470,6 +2525,9 @@ private struct PageRowView: View {
         .task {
             guard previewImage == nil else { return }
             previewImage = await viewModel.previewImage(rawIndex: row.rawIndex)
+            if let previewImage {
+                onRetainedImage(previewImage)
+            }
         }
     }
 }

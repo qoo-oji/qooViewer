@@ -1630,6 +1630,18 @@ private struct SidePanelPagesSectionView: View {
     /// 右クリックの「このページをブックマークに追加/削除」(SidePanelView.onToggleBookmarkAtPage参照)。
     var onToggleBookmark: (Int) -> Void
 
+    /// 各行が@Stateに保持したサムネイル・プレビューの合計量の帳簿。LazyVStackは画面外へ
+    /// 出た行の保持物を解放しないため、この一覧を長い本で流したり読み進めたり(自動スクロールで
+    /// 通過した行も生成される)するだけで、訪れた行の数だけ画像が積み上がる。予算(128MB)を
+    /// 超えたら一覧を`.id(epoch)`で作り直してまとめて解放する(仕組みと実測の詳細は
+    /// LazyCellImageBudgetの型コメント参照)。ScrollViewは残るのでスクロール位置は保たれる。
+    @State private var cellImageBudget = LazyCellImageBudget(byteBudget: 128 * 1024 * 1024)
+
+    /// 帳簿の下限セル数。行の高さは固定(サムネイル72pt+間隔)なので、現実的な最大サイズの
+    /// ディスプレイでも画面内は30行に届かない。その3倍強を固定値で持てば、作り直し直後の
+    /// 画面内ぶんの読み直しだけで再び予算へ達するループは起きない。
+    private static let budgetMinimumCellCount = 120
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
@@ -1671,7 +1683,13 @@ private struct SidePanelPagesSectionView: View {
                                     loadThumbnail: loadThumbnail,
                                     loadPageImage: loadPageImage,
                                     previewArrowEdge: previewArrowEdge,
-                                    onTap: { onJumpToPage(index) }
+                                    onTap: { onJumpToPage(index) },
+                                    onRetainedImage: { image in
+                                        cellImageBudget.note(
+                                            retaining: image,
+                                            minimumCellCount: Self.budgetMinimumCellCount
+                                        )
+                                    }
                                 )
                                 .id(index)
                                 .sidePanelContextHighlight(rowID: "page:\(index)")
@@ -1689,6 +1707,9 @@ private struct SidePanelPagesSectionView: View {
                                 }
                             }
                         }
+                        // 保持量が予算を超えたら一覧ごと作り直して、画面外の行が抱えた
+                        // サムネイル・プレビューをまとめて解放する(cellImageBudgetのコメント参照)。
+                        .id(cellImageBudget.epoch)
                         .padding(.vertical, 6)
                     }
                     .focusable(false)
@@ -1749,6 +1770,10 @@ private struct SidePanelPageCell: View {
     /// (SidePanelPosition.innerEdge)。
     let previewArrowEdge: Edge
     let onTap: () -> Void
+    /// この行が@Stateに画像(サムネイル・拡大プレビュー)を保持したことを親へ知らせる。
+    /// 親はLazyCellImageBudgetで合計量を数え、予算超過で一覧を作り直す
+    /// (LazyVStackは画面外の行の保持物を解放しないため。詳細は同型コメント参照)。
+    var onRetainedImage: (CGImage) -> Void = { _ in }
 
     @State private var image: CGImage?
 
@@ -1860,6 +1885,9 @@ private struct SidePanelPageCell: View {
         // 読み込み直させる(AppState.loadPageThumbnailのコメント参照)。
         .task(id: "\(thumbnailGeneration)#\(index)") {
             image = await loadThumbnail?(index)
+            if let image {
+                onRetainedImage(image)
+            }
         }
     }
 
@@ -1894,6 +1922,9 @@ private struct SidePanelPageCell: View {
         .task {
             guard previewImage == nil else { return }
             previewImage = await loadPageImage?(index)
+            if let previewImage {
+                onRetainedImage(previewImage)
+            }
         }
     }
 }

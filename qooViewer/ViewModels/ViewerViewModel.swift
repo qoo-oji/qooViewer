@@ -678,6 +678,11 @@ final class ViewerViewModel: ObservableObject {
         guard !hasReleasedResources else { return }
         hasReleasedResources = true
         Self.openBookCounter.withLock { $0 -= 1 }
+        // スライドショーもここで止める(監査で指摘)。通常はhandleOnDisappearが先に
+        // stopSlideshow()を呼ぶが、ウインドウのwillClose経路はここしか通らない。止めないと、
+        // 遅れて.onDisappearが走るまでの間、解放済みの本に対してループが回り続け、
+        // persistState()経由のDB保存まで走ってしまう。
+        stopSlideshow()
         reloadTask?.cancel()
         reloadTask = nil
         pageFlipTask?.cancel()
@@ -687,6 +692,16 @@ final class ViewerViewModel: ObservableObject {
         layoutReloadDebounceTask?.cancel()
         layoutReloadDebounceTask = nil
         wideImageCache.removeAll()
+        // 表示中の画像そのものもここで手放す(監査で指摘)。PageLoaderのキャッシュを空けても、
+        // この3つが残っているとピクセルバッファ本体は解放されない(PagePixelBuffer.makeImage()が
+        // 返すCGImageは、mmap領域をCGDataProviderで包んで共有しているため、CGImageが生きて
+        // いる限りバッファも生きる)。特にhighResolutionSourceImages/loupeCombinedSourceImageは
+        // 8000px上限のソースで、ルーペ/ピンチ拡大を使ったまま本を切り替えると数百MBが
+        // 1世代ぶん残留していた。currentImagesのdidSet→scheduleHighResolutionSourceLoadは
+        // 空の範囲を見て即座に戻るだけなので、この代入順で問題ない。
+        currentImages = []
+        highResolutionSourceImages = []
+        loupeCombinedSourceImage = nil
         Task { [pageLoader] in await pageLoader.releaseAllResources() }
     }
 

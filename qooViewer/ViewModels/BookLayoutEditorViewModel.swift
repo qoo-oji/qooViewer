@@ -166,6 +166,21 @@ final class BookLayoutEditorViewModel: ObservableObject {
         securityScopedURL?.stopAccessingSecurityScopedResource()
     }
 
+    /// 右ペインが画面から外れた(左ペインで別の本へ切り替えた、またはウインドウを閉じた)ときに、
+    /// PageLoaderのメモリキャッシュ・走行中の読み込み・書庫のファイルハンドルを明示的に手放す
+    /// (監査で指摘)。deinitに任せると、ViewerViewModel.releaseResourcesと同じ理由
+    /// (SwiftUIが古い@StateObjectを1世代抱えたままにすることがある)で、切り替え前の本の
+    /// サムネイル・ページ画像キャッシュが残留する。呼び出し元はBookmarkDetailPaneの.onDisappear。
+    func releaseResources() {
+        guard !hasReleasedResources else { return }
+        hasReleasedResources = true
+        let loader = pageLoader
+        Task { await loader?.releaseAllResources() }
+    }
+
+    /// releaseResources()が既に走ったか(二重の後始末を避ける。ViewerViewModelと同じ形)。
+    private var hasReleasedResources = false
+
     /// この本を読み込む。resolvedURL(セキュリティスコープ付きブックマーク、またはbookIDの
     /// 素のパス)が解決できない、または読み込み自体に失敗した場合は.failedになる
     /// (呼び出し側はContentUnavailableView等で案内する)。
@@ -215,6 +230,10 @@ final class BookLayoutEditorViewModel: ObservableObject {
             loadState = .failed
             return
         }
+        // 読み込み中に右ペインが画面から外れて解放済みになっていたら、ここで新しい
+        // PageLoaderを作らない(作っても使われないまま1世代ぶん抱え込まれるだけのため。
+        // releaseResources()のコメント参照)。
+        guard !hasReleasedResources else { return }
         book = loaded
         pageLoader = PageLoader(book: loaded, imageCacheLimitBytes: preferences.pageImageCacheLimitBytes)
         pageLoaderGeneration &+= 1
