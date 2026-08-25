@@ -30,12 +30,83 @@ actor BookPageListCache {
     struct Entry: Codable, Sendable {
         let pages: [Page]
 
+        // MARK: - 構造キャッシュ(本そのものを組み立て直すための情報)
+        //
+        // ■ なぜ同じキャッシュに相乗りさせるのか
+        // 入れ子の書庫を含む本は、ページを数え上げるだけでも中の書庫を1つずつ取り出す必要が
+        // あり(zipの中央ディレクトリはファイル末尾にあり、rar/7zも索引を読むには本体が要る)、
+        // 開くたびに本1冊ぶんの伸長を払っていた。2回目以降はその走査ごと飛ばしたい。
+        //
+        // 新しいキャッシュを別に作らないのは、**シークレットウインドウで書かないためのガードを
+        // 1箇所に保つため**(AppState.isPrivateWindowのコメントに列挙されている「書かないもの」に、
+        // 保管庫が2つ並ぶ状態にしたくない)。書き込みの入口はBookLoader.load(from:cachesPageList:)
+        // ただ1つのままになる。
+        //
+        // すべてオプショナルにしてあるので、この仕組みを入れる前に保存されたJSONもそのまま
+        // 復号でき(欠けている項目はnilになる)、移行処理は要らない。復元に必要な項目が1つでも
+        // 欠けていれば、単に従来どおりの完全な読み込みに落ちる。
+        //
+        /// このJSONを書いた時点の構造キャッシュの版。組み立て方を変えたら上げること
+        /// (古い版は復元に使わず、フルの読み込みに落ちる)。
+        var schemaVersion: Int?
+        /// 本そのもののパス(ArchiveLocator.rootURL)。各ページのidを組み立て直すのに使う。
+        var rootPath: String?
+        /// 保存した時点の本体の指紋。合わなければ中身が差し替わったとみなして使わない。
+        var fingerprint: Fingerprint?
+        /// この本が入れ子の書庫を含んでいたか。**含んでいた本にだけ**高速経路を使う ――
+        /// 平なcbzは元々列挙が一瞬で終わるので、キャッシュの整合性に賭ける理由が無い。
+        var hasNestedArchives: Bool?
+
+        /// 現在の版。
+        static let currentSchemaVersion = 1
+
+        /// 本体が差し替わっていないかを見るための軽い指紋(ContentFingerprintと同じ考え方で、
+        /// フルハッシュは取らない)。ページ数は`pages.count`が持っているので含めない。
+        struct Fingerprint: Codable, Sendable, Equatable {
+            var modificationDate: Date?
+            var fileSize: Int64?
+
+            /// 実ファイルから今の指紋を読む。属性が1つも取れなければnil(=照合しない)。
+            ///
+            /// **URL.resourceValues(forKeys:)を使ってはいけない。** あちらは一度読んだ値を
+            /// そのURLインスタンスに**キャッシュする**ため、同じURLを持ち回っている経路では
+            /// ファイルが差し替わっても古い更新日時が返り続ける。実際、この照合を
+            /// resourceValuesで書いたところ、ファイルの更新日時を変えた直後でも
+            /// 「変わっていない」と判定してキャッシュを使ってしまった(検証で確認)。
+            /// FileManager.attributesOfItemは毎回ファイルシステムに問い合わせる。
+            static func current(for url: URL) -> Fingerprint? {
+                guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else {
+                    return nil
+                }
+                let modificationDate = attributes[.modificationDate] as? Date
+                let fileSize = (attributes[.size] as? NSNumber)?.int64Value
+                guard modificationDate != nil || fileSize != nil else { return nil }
+                return Fingerprint(modificationDate: modificationDate, fileSize: fileSize)
+            }
+        }
+
         struct Page: Codable, Sendable, Equatable {
             /// PageRef.sortKey。行の安定した識別子であり、レイアウト設定(PageLayoutOverride)や
             /// 並べ替え(BookLayoutSettings.pageOrderOverride)のキーでもある。
             let sortKey: String
             /// PageRef.displayName。一覧のファイル名列に出す。
             let displayName: String
+
+            // 以下は構造キャッシュ用(上のMARK参照)。
+            //
+            /// PageRef.idのうち、`Entry.rootPath`より後ろの部分。
+            /// **idそのものを持たない**のは、ページごとに本のフルパスを繰り返すと
+            /// 1冊ぶんのJSONが倍以上に膨らむため。
+            var idSuffix: String?
+            /// この画像が入っている書庫の、rootPathからの道順(ArchiveLocator.nestedPath)。
+            /// 本そのものの書庫に直接入っている画像なら空配列。
+            var nestedPath: [String]?
+            /// その書庫の中でのエントリパス(PageSource.archiveのentryPath)。
+            var entryPath: String?
+            /// EPUBが指定していた見開き内の配置(PageRef.epubSpreadPosition)。
+            /// 高速経路はEPUBを対象にしないので実際には常にnilだが、
+            /// PageRefを完全に組み立て直せる形にしておくために持たせてある。
+            var spreadPosition: PageSpreadPosition?
         }
     }
 

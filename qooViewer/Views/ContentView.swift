@@ -205,6 +205,13 @@ struct ContentView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // 読み込み中の進捗と中止(BookLoadingOverlay参照)。サイドパネルの上には
+                // 被せたくないので、HStackの外ではなくこのGroupに重ねる。
+                .overlay {
+                    BookLoadingOverlay(progress: appState.loadingProgress) {
+                        appState.cancelOpen()
+                    }
+                }
                 if showsDockedSidePanel && panelPosition == .right {
                     sidePanelView(dismissesOnAction: false)
                 }
@@ -1264,6 +1271,10 @@ struct ContentView: View {
     /// 画像ファイルのいずれでもない場合(PDF/EPUB)、または本を開いていない場合はnil
     /// (SidePanelViewが下段セクション自体を表示しない)。
     private func updateBookContentsBrowserForCurrentBook() {
+        // 旧世代が握っている資源(踏み込んだ入れ子の書庫のファイルハンドルと一時ファイル)を、
+        // 参照を外す前にその場で手放させる。SwiftUIが旧世代のビューを抱えているとdeinitが
+        // 遅れるため、ARC任せにはしない(BookContentsBrowserState.releaseResources参照)。
+        bookContentsBrowser?.releaseResources()
         guard let book = appState.currentBook else {
             bookContentsBrowser = nil
             return

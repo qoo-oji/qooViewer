@@ -435,6 +435,14 @@ private struct BookMemorySection: View, Equatable {
                 usage: snapshot.gridThumbnails,
                 help: "Larger thumbnails for the page list grid and hover previews, against their built-in limit."
             )
+            // 入れ子の書庫が無い本(ほとんどの本)では、常に0の行が並ぶだけなので出さない。
+            if snapshot.nestedArchives.count > 0 || snapshot.nestedArchiveTemporaryBytes > 0 {
+                usageBar(
+                    title: "Nested archives",
+                    usage: snapshot.nestedArchives,
+                    help: "Archives found inside this book that are open right now, against the “Nested archives kept in memory” setting. The count includes every format, but the size covers only ZIP archives — RAR and 7z have to be held as temporary files instead, which appear under On Disk ▸ Temporary files."
+                )
+            }
         }
     }
 
@@ -664,7 +672,7 @@ private struct StorageSection: View, Equatable {
             }
             if let storage {
                 DetailRow("Temporary files", fileSizeText(storage.sessionTemporaryBytes))
-                    .help("Nested archives extracted for the books open in this launch. Removed when the book is closed and when the app quits.")
+                    .help("Archives found inside the books open in this launch that had to be written out to be read — RAR and 7z only, since ZIP is read directly from memory. Only the ones in use are kept; they are removed as you move on, when the book is closed, and when the app quits.")
                 HStack(spacing: 0) {
                     DetailRow("Thumbnail cache", optionalSizeText(storage.thumbnailCacheBytes))
                     Group {

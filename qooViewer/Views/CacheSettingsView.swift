@@ -47,6 +47,18 @@ struct CacheSettingsView: View {
                 ) { value in
                     "\(Int(value)) MB"
                 }
+                // 入れ子の書庫(書庫の中の書庫)を開いたときの置き場。ページ画像と違って
+                // 「本を開く速さ」ではなく「章をまたぐときの速さ」に効く設定なので、
+                // 同じメモリの話として並べつつ、吹き出しで役割の違いを言い切っておく。
+                SettingsSlider(
+                    "Nested Archives Kept in Memory",
+                    value: $preferences.nestedArchiveMemoryLimitMB,
+                    in: AppPreferences.nestedArchiveMemoryLimitRangeMB,
+                    step: 32,
+                    help: "When a book has other archives inside it, each one is opened only when you reach it, and the most recently used ones are kept here. Larger values move between chapters faster; smaller values use less memory and less temporary disk space. ZIP archives are kept in memory; RAR and 7z archives have to be written to a temporary file instead, and how much of that is kept follows this setting too. At 0, a temporary file is always used."
+                ) { value in
+                    "\(Int(value)) MB"
+                }
             } header: {
                 Text("Memory")
             }

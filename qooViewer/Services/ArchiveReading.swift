@@ -33,6 +33,29 @@ protocol ArchiveReading {
     /// 概念自体を持たない)、rarは両方持つ。取得できない項目はnil。エントリが見つからない場合は
     /// 両方nil。
     nonisolated func entryDates(at path: String) -> (created: Date?, modified: Date?)
+
+    /// 指定エントリを展開したときのバイト数。実際に展開する**前**に大きさを知るための問い合わせ。
+    ///
+    /// 入れ子になった書庫を開くとき、その中身をメモリに載せてよいのか、一時ファイルへ
+    /// 書き出すべきなのか、そもそも展開してよい大きさなのか(伸長爆弾よけ)を、
+    /// 展開してしまう前に決める必要がある(NestedArchiveResolver参照)。3形式とも
+    /// エントリの索引に非圧縮サイズを持っているため、追加のI/Oは発生しない。
+    ///
+    /// 取得できない場合はnil。呼び出し側は「分からない」を安全側(=メモリに載せない)へ
+    /// 倒すこと。
+    nonisolated func entryUncompressedSize(at path: String) -> Int64?
+
+    /// 指定エントリを、メモリへ丸ごと読み込まずに`url`へ直接書き出す。
+    ///
+    /// 入れ子になった書庫を一時ファイルへ取り出す経路(NestedArchiveResolver)専用。
+    /// `data(at:)`で受け取ってから`write(to:)`すると、**その書庫の全バイトが一度メモリに
+    /// 載る** ―― 数GBのrarでラップされた本では、そのまま数GBの一時的な確保になる。
+    /// zip/rarはライブラリが逐次読み出しに対応しているため、チャンクごとに書き出せば
+    /// ピークはバッファ1つぶんで済む。
+    ///
+    /// 既定実装は`data(at:)`+`write(to:)`へのフォールバック(7zで使っているLZMA SDKは
+    /// 展開結果をバッファごと返す形しか持たないため、そちらはこのまま)。
+    nonisolated func extract(at path: String, to url: URL) throws
 }
 
 extension ArchiveReading {
@@ -41,6 +64,16 @@ extension ArchiveReading {
     /// 対応していないため、この既定実装のまま(=従来通りの全体読み)になる。
     nonisolated func dataPrefix(at path: String, maxByteCount: Int) throws -> Data {
         try data(at: path)
+    }
+
+    /// entryUncompressedSize(at:)の既定実装。3形式とも上書きしているため実際には使われないが、
+    /// 将来ArchiveReadingの実装が増えたときに「サイズを答えられない」を選べるようにしておく。
+    nonisolated func entryUncompressedSize(at path: String) -> Int64? { nil }
+
+    /// extract(at:to:)の既定実装(プロトコル側のコメント参照)。逐次読み出しに対応できない
+    /// 実装(SevenZipArchiveReader)はこのまま=従来通りの全体読み+書き出しになる。
+    nonisolated func extract(at path: String, to url: URL) throws {
+        try data(at: path).write(to: url)
     }
 }
 
@@ -75,31 +108,60 @@ nonisolated func isEpubFile(_ path: String) -> Bool {
     (path as NSString).pathExtension.lowercased() == "epub"
 }
 
-/// 拡張子を見て、適切な ArchiveReading の実装を返す。
-/// EPUBはzipコンテナなのでZipArchiveReaderをそのまま流用できる(ページの読み順の解決は
-/// BookLoader.loadEpub/EpubStructureResolver側の責務で、ここでは単なるzip展開として扱ってよい)。
-nonisolated func makeArchiveReader(for url: URL) throws -> ArchiveReading {
-    switch url.pathExtension.lowercased() {
+/// 書庫の形式。拡張子だけで決まり、「どのReader実装を使うか」「メモリ上のDataから直接
+/// 開けるか」の判断をこの1箇所に集約する(makeArchiveReader / NestedArchiveResolver)。
+/// 対応形式を増やすときに触るのはarchiveKind(forFileName:)とarchiveExtensionsだけで済む。
+nonisolated enum ArchiveKind {
+    case zip
+    case sevenZip
+    case rar
+
+    /// メモリ上のDataからそのまま開けるか。
+    ///
+    /// zipだけがtrue ―― ZIPFoundationがData版のAPI(ZipArchiveReader.init(data:))を持つため。
+    /// rar/7zで使っているライブラリは、いずれも公開APIがファイルパスしか受け付けない
+    /// (unrarのRAROpenArchiveEx、LZMA SDKのInFile_Open)ため、いったん一時ファイルへ
+    /// 書き出す必要がある。この違いが、入れ子の書庫でディスクを使うかどうかを分ける
+    /// (NestedArchiveResolver.materialize参照)。
+    var opensFromMemory: Bool { self == .zip }
+}
+
+/// ファイル名の拡張子から書庫の形式を返す。書庫ではない(対応していない)ならnil。
+///
+/// EPUBをzip扱いにしているのは、EPUB自体がzipコンテナで読み出し方法が同じだから
+/// (ページの読み順の解決はBookLoader.loadEpub/EpubStructureResolver側の責務で、
+/// ここでは単なるzip展開として扱ってよい)。
+nonisolated func archiveKind(forFileName fileName: String) -> ArchiveKind? {
+    switch (fileName as NSString).pathExtension.lowercased() {
     case "zip", "cbz", "epub":
-        return try ZipArchiveReader(url: url)
+        return .zip
     case "7z", "cb7":
-        return try SevenZipArchiveReader(url: url)
+        return .sevenZip
     case "rar", "cbr":
-        return try RarArchiveReader(url: url)
+        return .rar
     default:
-        throw ArchiveReaderError.cannotOpen
+        return nil
     }
 }
 
-/// アーカイブの拡張子から、そのアーカイブ内エントリ用の PageSource を作る。
-/// EPUBもzipコンテナとして読み出すため、cbz等と同じ.zipケースを使う。
-nonisolated func pageSource(for archiveURL: URL, entryPath: String) -> PageSource {
-    switch archiveURL.pathExtension.lowercased() {
-    case "zip", "cbz", "epub":
-        return .zip(archiveURL: archiveURL, entryPath: entryPath)
-    case "7z", "cb7":
-        return .sevenZip(archiveURL: archiveURL, entryPath: entryPath)
-    default:
-        return .rar(archiveURL: archiveURL, entryPath: entryPath)
+/// ディスク上の書庫ファイルを開いて、適切な ArchiveReading の実装を返す。
+nonisolated func makeArchiveReader(for url: URL) throws -> ArchiveReading {
+    guard let kind = archiveKind(forFileName: url.lastPathComponent) else {
+        throw ArchiveReaderError.cannotOpen
+    }
+    return try makeArchiveReader(kind: kind, url: url)
+}
+
+/// 形式が既に分かっている場合の版(NestedArchiveResolverが一時ファイルを開くときに使う。
+/// 一時ファイルの拡張子は元のエントリ名から付け直しているが、形式は取り出した時点で
+/// 確定しているので、そちらを信じるほうが素直)。
+nonisolated func makeArchiveReader(kind: ArchiveKind, url: URL) throws -> ArchiveReading {
+    switch kind {
+    case .zip:
+        return try ZipArchiveReader(url: url)
+    case .sevenZip:
+        return try SevenZipArchiveReader(url: url)
+    case .rar:
+        return try RarArchiveReader(url: url)
     }
 }

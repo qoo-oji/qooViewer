@@ -74,18 +74,21 @@ nonisolated enum PageFileAccess {
     ///   一時ファイルであってもそのまま指す(何も示さないよりはまし、という程度の意味)。
     ///
     /// ■ 入れ子のアーカイブについて
-    /// 書庫の中の書庫は、読み出すために一時ディレクトリへ書き出してから開いている
-    /// (BookLoader.collectPages(fromArchiveURL:...)参照)。そのため`PageSource`が持つ
-    /// `archiveURL`が一時ファイルを指していることがあり、それをFinderで示しても
-    /// ユーザーには何の意味も無い(そのうえ本を閉じると消える)。一時ディレクトリ配下だった
-    /// 場合は、代わりに本そのものを指す。
+    /// `ArchiveLocator.rootURL`は常に「ユーザーが選んだ実在のファイル」なので、入れ子の
+    /// 何段目のページであっても、素直に本そのもの(またはフォルダの中の章の書庫)を指す。
+    ///
+    /// それでも一時ディレクトリの判定を残してあるのは、サイドパネルの本の中身ブラウザから
+    /// 「新しい本として開く」で開いた本があるため ―― あの経路だけは、入れ子の書庫を独立した
+    /// 一時ファイルへ書き出したうえで、そのURLを本のsourceURLにする
+    /// (BookContentsBrowserState.materializedURL参照)。その一時ファイルをFinderで示しても
+    /// ユーザーには何の意味も無いので、代わりに本そのものを指す。
     static func revealTargetURL(for page: PageRef, bookSourceURL: URL?) -> URL {
         let candidate: URL
         switch page.source {
         case .file(let url):
             candidate = url
-        case .zip(let archiveURL, _), .sevenZip(let archiveURL, _), .rar(let archiveURL, _):
-            candidate = archiveURL
+        case .archive(let locator, _):
+            candidate = locator.rootURL
         case .pdf(let pdfURL, _):
             candidate = pdfURL
         }

@@ -70,7 +70,7 @@ nonisolated enum ImageExporter {
         switch page.source {
         case .file(let url):
             return url.pathExtension.isEmpty ? "jpg" : url.pathExtension.lowercased()
-        case .zip(_, let entryPath), .sevenZip(_, let entryPath), .rar(_, let entryPath):
+        case .archive(_, let entryPath):
             let ext = (entryPath as NSString).pathExtension
             return ext.isEmpty ? "jpg" : ext.lowercased()
         case .pdf:
@@ -83,7 +83,7 @@ nonisolated enum ImageExporter {
         switch page.source {
         case .file(let url):
             return url.deletingPathExtension().lastPathComponent
-        case .zip(_, let entryPath), .sevenZip(_, let entryPath), .rar(_, let entryPath):
+        case .archive(_, let entryPath):
             return ((entryPath as NSString).lastPathComponent as NSString).deletingPathExtension
         case .pdf(let pdfURL, let pageIndex):
             return "\(pdfURL.deletingPathExtension().lastPathComponent)-\(pageIndex + 1)"

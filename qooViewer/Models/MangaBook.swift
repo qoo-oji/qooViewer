@@ -104,11 +104,6 @@ struct MangaBook: Identifiable, Hashable {
     /// この本がどこから来たか。既定値付きなので、従来のBookLoaderの生成箇所は変更不要。
     /// 詳細はBookOrigin参照。
     var origin: BookOrigin = .fileSystem
-    /// 書庫の中に書庫が入っていたケースなど、その中身を統合して1冊として開くために
-    /// BookLoaderが作った一時ファイルの後始末係。通常(入れ子の書庫が無い本)はnil。
-    /// 詳細はBookTemporaryResources参照。
-    var temporaryResources: BookTemporaryResources? = nil
-
     /// この本を閉じた後にアプリ側の記録が一切残ってはいけないかどうか。
     /// シークレットウインドウ(AppState.isPrivateWindow)と並ぶ、もう一方の「書かない」条件。
     /// 実際のガードは、この値とisPrivateWindowをORした
@@ -126,41 +121,6 @@ struct MangaBook: Identifiable, Hashable {
 
     static func == (lhs: MangaBook, rhs: MangaBook) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
-}
-
-/// BookLoader.loadFolder/loadArchiveが、入れ子になった書庫(書庫の中の書庫)を統合して
-/// 1冊の本として開く際に作る一時ファイルの後始末係。
-///
-/// MangaBookはstruct(値型)だが、この値はclass(参照型)として持たせることで、この本を
-/// 表すMangaBookのすべてのコピー(AppState.currentBook、ViewerViewModelが保持する
-/// 独自コピーなど)が手放された時点でARCにより自動的にdeinitが呼ばれ、一時ファイルが
-/// 削除される — 明示的な「本を閉じたら消す」というライフサイクル管理コードを別途
-/// 書く必要が無い。
-///
-/// @unchecked Sendable: 保持しているのはimmutableな[URL]のみで、init後に変更されることは
-/// 無いためスレッドセーフ。MangaBook自体がTask.detached(BookLoader.load)とAppState
-/// (MainActor)をまたいで受け渡されるため、この型もSendableである必要がある。
-/// nonisolated: BookLoader(nonisolated enum、Task.detached内)から初期化されるため、
-/// Xcode既定のMainActor自動分離の対象外にしている(ArchiveReading.swift冒頭のコメント参照)。
-nonisolated final class BookTemporaryResources: @unchecked Sendable {
-    private let fileURLs: [URL]
-
-    /// fileURLsが空ならnilを返す(統合すべき入れ子の書庫が無かった、通常のケース)。
-    init?(fileURLs: [URL]) {
-        guard !fileURLs.isEmpty else { return nil }
-        self.fileURLs = fileURLs
-    }
-
-    deinit {
-        let urls = fileURLs
-        // deinitがどのスレッド/アクターで呼ばれるかは保証されないため、ファイルI/Oを
-        // Task.detachedへ逃がす。
-        Task.detached(priority: .utility) {
-            for url in urls {
-                try? FileManager.default.removeItem(at: url)
-            }
-        }
-    }
 }
 
 extension MangaBook {

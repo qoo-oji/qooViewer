@@ -5,12 +5,16 @@ import Foundation
 /// ■ なぜ専用の仕組みが要るのか
 /// 入れ子の書庫(書庫の中の書庫・フォルダの中に並んだ書庫)を1冊として開くとき、rar/7zの
 /// ライブラリがファイルパスを要求するため、中の書庫をいったん一時ファイルへ書き出す
-/// (BookLoader.collectPages / BookContentsBrowserState.openNestedArchive参照)。その削除は
-/// BookTemporaryResources / BookContentsBrowserStateの`deinit`に任せてあったが、
+/// (NestedArchiveResolver参照。zip/cbzはメモリのまま開けるのでディスクに出ない)。その削除は
+/// 個々の所有者(現在はNestedArchiveResolverのTemporaryArchiveFile)の`deinit`に任せてあるが、
 /// **本を開いたままアプリを終了すると`deinit`は走らない**(プロセスがそのまま消える)ため、
 /// 終了のたびに数百MB〜1GB超の書庫が`~/Library/Containers/<bundle id>/Data/tmp`へ
 /// 残り続けていた。実際に、11日ぶん・120個・8.4GBが溜まっているのを確認した。
 /// OSはサンドボックスのこのディレクトリを自動では掃除しない(11日前のファイルが残っていた)。
+///
+/// なお、当時と違って今は「本1冊ぶんの入れ子書庫が全部ディスクに載る」ことは無く、
+/// 同時に載るのはResolverの予算に収まる数本だけになっている。それでも、この3段構えは
+/// **異常終了で取り残された残骸を拾う最後の網**として引き続き必要。
 ///
 /// ■ 三段構え
 /// 1. 一時ファイルはすべて**起動ごとのサブディレクトリ**(`tmp/qooViewer-<pid>/`)に置く。
@@ -21,8 +25,8 @@ import Foundation
 /// 3. 正常終了時は`removeSessionDirectory()`(AppDelegate.applicationWillTerminate)で自分の
 ///    ぶんをその場で消す。次回起動を待たずに空く。
 ///
-/// 本を閉じたときの`deinit`による個別削除はそのまま残してある(長く起動したままの利用では
-/// そちらが主役で、ここは取りこぼしを拾う網)。
+/// 本を閉じたときの個別削除(NestedArchiveResolver.purgeAll → TemporaryArchiveFile.deinit)は
+/// そのまま残してある(長く起動したままの利用ではそちらが主役で、ここは取りこぼしを拾う網)。
 ///
 /// nonisolated: BookLoader(Task.detached内)とBookContentsBrowserState(MainActor)の両方から
 /// 使うため(ArchiveReading.swift冒頭のコメント参照)。状態を持たないので隔離は要らない。

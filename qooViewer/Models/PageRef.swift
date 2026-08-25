@@ -15,12 +15,15 @@ import Foundation
 nonisolated enum PageSource {
     /// フォルダ内の画像ファイル
     case file(URL)
-    /// zip / cbz アーカイブ内のエントリ
-    case zip(archiveURL: URL, entryPath: String)
-    /// 7z / cb7 アーカイブ内のエントリ
-    case sevenZip(archiveURL: URL, entryPath: String)
-    /// rar / cbr アーカイブ内のエントリ
-    case rar(archiveURL: URL, entryPath: String)
+    /// 書庫(zip/cbz・rar/cbr・7z/cb7、およびEPUBのzipコンテナ)内のエントリ。
+    ///
+    /// 以前は形式ごとに`.zip`/`.sevenZip`/`.rar`の3ケースに分かれ、それぞれが
+    /// **ディスク上に実在する書庫ファイルのURL**を持っていた。入れ子になった書庫を
+    /// 遅延展開する(=開く時点では展開しない)ようにしたことで「どの書庫か」を実ファイルの
+    /// URLでは表せなくなったため、`ArchiveLocator`1つへ畳んである(詳細は
+    /// ArchiveLocatorの型コメント参照)。形式の判定も`locator.archiveFileName`の拡張子を
+    /// 見る1箇所へ集約でき、対応形式を増やすときに触る場所が減った。
+    case archive(locator: ArchiveLocator, entryPath: String)
     /// PDFファイル内の1ページ(0始まりのページ番号)
     case pdf(pdfURL: URL, pageIndex: Int)
 
@@ -67,7 +70,7 @@ nonisolated struct PageRef: Identifiable, Hashable {
         switch source {
         case .file(let url):
             return url.lastPathComponent
-        case .zip(_, let entryPath), .sevenZip(_, let entryPath), .rar(_, let entryPath):
+        case .archive(_, let entryPath):
             return (entryPath as NSString).lastPathComponent
         case .pdf(let pdfURL, let pageIndex):
             // PDFのページ自体には(アーカイブ内エントリのような)個別のファイル名がないため、

@@ -206,6 +206,9 @@ final class ViewerViewModel: ObservableObject {
     /// 環境設定「メモリに残しておくページ画像」(preferences.pageImageCacheLimitMB)を
     /// PageLoaderへ流すための購読(singlePageAspectRatioThresholdObserverと同じ考え方)。
     private var pageImageCacheLimitObserver: AnyCancellable?
+    /// 環境設定「入れ子書庫をメモリに置く上限」(preferences.nestedArchiveMemoryLimitMB)を
+    /// PageLoaderへ流すための購読(pageImageCacheLimitObserverと同じ考え方)。
+    private var nestedArchiveMemoryLimitObserver: AnyCancellable?
     /// 「メタデータの編集」ウインドウ側でこの本のメタデータが変更されたときに、ツールバーの
     /// 表示名(displayTitle)を作り直すための監視トークン。bookmarksChangeObserver/
     /// layoutDataChangeObserverと同じ考え方(Notification.Name.bookMetadataDidChange参照)。
@@ -340,7 +343,8 @@ final class ViewerViewModel: ObservableObject {
         self.pageLoader = PageLoader(
             book: preparedBook, contrastCorrectionEnabled: initialContrastCorrectionEnabled,
             usesThumbnailDiskCache: !skipsPersistence,
-            imageCacheLimitBytes: preferences.pageImageCacheLimitBytes
+            imageCacheLimitBytes: preferences.pageImageCacheLimitBytes,
+            nestedArchiveMemoryLimitBytes: preferences.nestedArchiveMemoryLimitBytes
         )
         Self.openBookCounter.withLock { $0 += 1 }
 
@@ -650,6 +654,16 @@ final class ViewerViewModel: ObservableObject {
                 guard let self else { return }
                 let bytes = self.preferences.pageImageCacheLimitBytes
                 Task { await self.pageLoader.setImageCacheLimit(bytes: bytes) }
+            }
+
+        // 環境設定「入れ子書庫をメモリに置く上限」も同じ扱い。下げたぶんはNestedArchiveResolverが
+        // その場で追い出す(一時ファイルもそのタイミングで消える)。
+        nestedArchiveMemoryLimitObserver = preferences.$nestedArchiveMemoryLimitMB
+            .dropFirst()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let bytes = self.preferences.nestedArchiveMemoryLimitBytes
+                Task { await self.pageLoader.setNestedArchiveMemoryLimit(bytes: bytes) }
             }
     }
 

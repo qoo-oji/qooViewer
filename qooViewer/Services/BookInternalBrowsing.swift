@@ -6,8 +6,13 @@ import Foundation
 nonisolated enum BookEntryLevel {
     /// 実在するフォルダ(本がフォルダの場合の各階層)。
     case folder(URL)
-    /// 開いた状態のアーカイブリーダーの中の、ある仮想パス階層。readerは.archiveへ踏み込む
+    /// 開いた状態のアーカイブの中の、ある仮想パス階層。archiveは.archiveへ踏み込む
     /// たびに新しく開き直す。prefixは""=ルート、"chapter1/nested/"のように末尾"/"付き。
+    ///
+    /// ArchiveReadingではなくOpenArchiveを持つのは、入れ子の書庫がrar/7zの場合、その
+    /// 裏付けである一時ファイルの寿命がこのオブジェクトに紐づいているため
+    /// (NestedArchiveResolver.OpenArchive参照)。readerだけを持つと、解決役のLRUから
+    /// 追い出された瞬間にファイルが消え、戻る/進むで戻ってきた階層が読めなくなる。
     /// allPathsはreader.listFilePaths()の結果をキャッシュしたもの(階層を移動するたびに
     /// 再取得しなくて済むように、この階層に踏み込んだ時点で1度だけ取得しておく)。
     ///
@@ -20,7 +25,7 @@ nonisolated enum BookEntryLevel {
     /// 一致しなくなり、ダブルクリックしても「本に含まれるページ」として認識されず
     /// 誤って「新しい本として開く」フォールバックに落ちてしまうため、両者は必ず
     /// 同じロジックを保つ必要がある。
-    case archive(reader: ArchiveReading, allPaths: [String], prefix: String, matchKeyPrefix: String?)
+    case archive(archive: OpenArchive, allPaths: [String], prefix: String, matchKeyPrefix: String?)
     /// ユーザーが直接渡した画像ファイル(MangaBook.BookOrigin.imageFiles)そのものの一覧。
     /// この本には辿るべき「中身の階層」が存在しないため、常にこの1階層だけで完結し、
     /// 踏み込む(navigate)ことも1階層上がることもない。

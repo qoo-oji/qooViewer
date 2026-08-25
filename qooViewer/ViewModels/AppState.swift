@@ -23,7 +23,10 @@ final class AppState: ObservableObject {
     /// - ブックマーク・お気に入り・レイアウト・メタデータの登録・編集、および
     ///   EPUB/PDF/ComicInfo.xmlからのそれらの自動取り込み
     /// - ディスク上のサムネイルキャッシュ(ThumbnailDiskCache)・ページ一覧キャッシュ
-    ///   (BookPageListCache)
+    ///   (BookPageListCache。入れ子の書庫を含む本の**構造キャッシュ**も同じ保管庫にあり、
+    ///   シークレットウインドウでは書かないだけでなく**読みもしない** ―― 読むだけなら痕跡は
+    ///   残らないが、同じ本でも開き方によって挙動が変わるのを避けるため。
+    ///   BookLoader.restoredFromStructureCache参照)
     /// - 本の移動・リネーム追従によるbookIDの書き換え(reconcileBookIDIfMoved)や識別子の補完
     ///   (backfillIdentifiers)。これらも既存行への書き込みなので行わない
     /// 既存データの**読み取り**(登録済みブックマークへのジャンプ、保存済みレイアウトでの表示、
@@ -672,6 +675,20 @@ final class AppState: ObservableObject {
     /// 古い方の結果でcurrentBookが上書きされてしまわないようキャンセルする。
     private var openTask: Task<Void, Never>?
 
+    /// いま本を読み込んでいる最中なら、その進み具合(BookLoadProgress)。読み込んでいない
+    /// あいだはnil。ContentViewがこれを見て読み込み中のオーバーレイを出す。
+    ///
+    /// ユーザー報告以前からの素の状態: 読み込み中は`currentBook`がnilのままなので
+    /// ウェルカム画面が出たきりで、大きな入れ子の本を開くと「固まったのか、読んでいるのか」が
+    /// 全く分からなかった。
+    @Published private(set) var loadingProgress: BookLoadProgress?
+
+    /// いま走っている読み込みの識別子。読み込みは非同期で進み、進捗の通知はメインアクターへ
+    /// ホップしてから届くため、**中止した/次の本に切り替わった後に古い通知が遅れて届く**。
+    /// そのままloadingProgressへ書くと、消したはずのオーバーレイが復活する。
+    /// ViewerViewのactiveViewerTokenと同じ、使い捨てトークンで順序の逆転を解く。
+    private var openToken = UUID()
+
     /// open(url:)でstartAccessingSecurityScopedResource()に成功したURL(していなければnil)。
     ///
     /// バグ修正(予防): 以前は`_ = url.startAccessingSecurityScopedResource()`と、開いたきり
@@ -809,6 +826,23 @@ final class AppState: ObservableObject {
         // 伴い、未接続の外付け/ネットワークボリューム上の本では長く待つ。その間ずっと
         // このAppStateが解放できなくなる)。Swift 6言語モードではエラーにもなる。
         let cachesPageList = !isPrivateWindow && !request.opensImageFiles
+        // 同じ理由(Taskの中で`preferences`を読むと暗黙のselfを強参照で捕まえる)で、
+        // 入れ子書庫のメモリ上限もここで取り出しておく。
+        let nestedArchiveMemoryLimitBytes =
+            preferences?.nestedArchiveMemoryLimitBytes ?? AppPreferences.defaultNestedArchiveMemoryLimitBytes
+
+        let token = UUID()
+        openToken = token
+        loadingProgress = BookLoadProgress()
+        // 進捗はメインアクター外(BookLoaderの読み込みタスク)から届く。**必ずweakで捕まえる**
+        // ―― 読み込みは未接続の外付け/ネットワークボリューム上の本では長く待つため、強参照だと
+        // そのあいだこのAppStateごと解放できなくなる(上のcachesPageListと同じ話)。
+        let onProgress: @Sendable (BookLoadProgress) -> Void = { [weak self] progress in
+            Task { @MainActor in
+                guard let self, self.openToken == token else { return }
+                self.loadingProgress = progress
+            }
+        }
 
         openTask = Task { [weak self] in
             do {
@@ -818,11 +852,17 @@ final class AppState: ObservableObject {
                     // (BookLoader.load(imageFiles:)のコメント参照)。
                     book = try await BookLoader.load(imageFiles: request.urls)
                 } else if let url = request.primaryURL {
-                    book = try await BookLoader.load(from: url, cachesPageList: cachesPageList)
+                    book = try await BookLoader.load(
+                        from: url,
+                        cachesPageList: cachesPageList,
+                        nestedArchiveMemoryLimitBytes: nestedArchiveMemoryLimitBytes,
+                        onProgress: onProgress
+                    )
                 } else {
                     throw BookLoaderError.notFound
                 }
                 guard !Task.isCancelled, let self else { return }
+                self.loadingProgress = nil
                 // この本についてDBへ一切書かないかどうか。シークレットウインドウに加えて、
                 // **その場限りの本**(直接渡された画像から作った本)も同じ扱いにする。
                 // 複数枚をまとめた本のbookIDは実在パスではないため、下のreconcileBookIDIfMovedを
@@ -867,6 +907,9 @@ final class AppState: ObservableObject {
                 }
                 self.reloadSiblingBooks()
             } catch {
+                // 中止された場合も、オーバーレイだけは必ず片付ける(下のガードより先に行う。
+                // Task.isCancelledのときはそこで抜けてしまうため)。
+                if let self, self.openToken == token { self.loadingProgress = nil }
                 guard !Task.isCancelled, let self else { return }
                 self.currentBook = nil
                 self.clearSiblingBooks()
@@ -875,6 +918,19 @@ final class AppState: ObservableObject {
                     ?? String(localized: "The book could not be opened.", locale: locale)
             }
         }
+    }
+
+    /// 読み込み中のオーバーレイの「中止」から呼ぶ。
+    ///
+    /// 実際に走査を止めるのはBookLoader側で、`Task.detached`はキャンセルを継承しないため
+    /// あちらがwithTaskCancellationHandlerで橋渡ししている(BookLoader.load参照)。
+    /// ここでオーバーレイを即座に消すのは、中止したのに表示が残る時間を作らないため
+    /// (実際の打ち切りは次のcheckCancellationまで数百ミリ秒かかりうる)。
+    func cancelOpen() {
+        openTask?.cancel()
+        openTask = nil
+        openToken = UUID()
+        loadingProgress = nil
     }
 
     /// 「次の本へ」「前の本へ」および「同じフォルダのファイルを開く」が使う並び順。

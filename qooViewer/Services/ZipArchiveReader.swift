@@ -23,9 +23,16 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
         indexEntries()
     }
 
-    /// アーカイブ内に入れ子になったzip/cbz(サイドパネルの本の中身ブラウザから、ディスクへ
-    /// 書き出さずそのまま踏み込むための経路)を、メモリ上のDataから直接開く。rar/7zと異なり
-    /// ZIPFoundation自体がData版のAPIを持っているため、一時ファイルが不要。
+    /// 入れ子になった書庫を、ディスクへ書き出さずメモリ上のDataから直接開く。rar/7zと異なり
+    /// ZIPFoundation自体がData版のAPIを持っているため、一時ファイルが不要
+    /// (NestedArchiveResolver、およびArchiveKind.opensFromMemory参照)。
+    ///
+    /// **渡すDataは必ず独立した実体にすること。** ZIPFoundationのMemoryFileはこのDataを
+    /// 保持し続ける(funopenでFILE*を被せ、読み出しのたびにcopyBytesする実装)。ここへ
+    /// 親書庫のバッファのsubrange(スライス)をそのまま渡すと、Swiftのスライスは元の
+    /// バッファ全体を参照し続けるため、この小さな書庫を1つ開いているだけで**親の全バイトが
+    /// 道連れで常駐する**。取り出した結果をそのまま渡すぶんには問題ない
+    /// (ArchiveReading.data(at:)はどの実装も新しいDataを組み立てて返す)。
     init(data: Data) throws {
         self.archive = try Archive(data: data, accessMode: .read)
         indexEntries()
@@ -87,6 +94,24 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
     func entryDates(at path: String) -> (created: Date?, modified: Date?) {
         guard let entry = entryByCorrectedPath[path] else { return (nil, nil) }
         return (nil, entry.fileAttributes[.modificationDate] as? Date)
+    }
+
+    /// ArchiveReading.extract(at:to:)のzip実装(プロトコル側のコメント参照)。
+    /// ZIPFoundationのextract(_:to:)は、伸長したチャンクをそのままFILE*へ書き出していく
+    /// (Archive+Reading.swift参照)ため、エントリの大きさに関わらずメモリのピークは
+    /// バッファ1つぶんに収まる。
+    ///
+    /// この関数は書き出し先が既に存在するとfileWriteFileExistsで失敗する。呼び出し側
+    /// (NestedArchiveResolver)が毎回UUIDで新しいパスを払い出すため、通常は起こらない。
+    func extract(at path: String, to url: URL) throws {
+        guard let entry = entryByCorrectedPath[path] else { throw ArchiveReaderError.entryNotFound }
+        _ = try archive.extract(entry, to: url)
+    }
+
+    /// セントラルディレクトリが持つ非圧縮サイズをそのまま返す(展開は伴わない)。
+    func entryUncompressedSize(at path: String) -> Int64? {
+        guard let entry = entryByCorrectedPath[path] else { return nil }
+        return Int64(entry.uncompressedSize)
     }
 
     /// 文字化けしていそうな古いzipのパスを、文字コード自動判定で補正する。

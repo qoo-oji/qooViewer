@@ -395,7 +395,7 @@ nonisolated enum EpubExporter {
         switch page.source {
         case .file(let url):
             return url.deletingPathExtension().lastPathComponent
-        case .zip(_, let entryPath), .sevenZip(_, let entryPath), .rar(_, let entryPath):
+        case .archive(_, let entryPath):
             return ((entryPath as NSString).lastPathComponent as NSString).deletingPathExtension
         case .pdf:
             // 元がPDFの本は、この関数を通らない常時6桁連番の経路になる(export内の

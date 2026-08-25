@@ -25,18 +25,33 @@ final class BookContentsBrowserState: ObservableObject {
     weak var preferences: AppPreferences?
 
     private var currentLevel: BookEntryLevel
-    private var currentOrigin: ArchiveOrigin?
-    private var backStack: [(BookEntryLevel, ArchiveOrigin?)] = []
-    private var forwardStack: [(BookEntryLevel, ArchiveOrigin?)] = []
-    /// 本自身のルート階層(init時点のcurrentLevel/currentOriginと同じ値。以後変更しない)。
+    private var currentLocator: ArchiveLocator?
+    private var backStack: [(BookEntryLevel, ArchiveLocator?)] = []
+    private var forwardStack: [(BookEntryLevel, ArchiveLocator?)] = []
+    /// 本自身のルート階層(init時点のcurrentLevel/currentLocatorと同じ値。以後変更しない)。
     /// revealCurrentPage(sortKeys:)が、現在どこにいるかに関わらず常に本の最初から
     /// たどり直せるようにするために保持する。
-    private let rootLevel: BookEntryLevel
-    private let rootOrigin: ArchiveOrigin?
-    /// ネストしたアーカイブへ踏み込むたびに作った一時ファイル(rar/7z、および「新しい本として
-    /// 開く」ためにやむを得ず書き出したzip)。戻る/進むで再度同じ階層へ戻ったときに
-    /// 再展開しなくて済むよう、都度削除せずセッション中(=この状態オブジェクトの生存期間中)
-    /// 保持しておき、破棄されるときにまとめて削除する。
+    /// varなのは、releaseResources()でここが握っている書庫のファイルハンドルも
+    /// その場で手放すため(以後この状態オブジェクトは使われない)。
+    private var rootLevel: BookEntryLevel
+    private let rootLocator: ArchiveLocator?
+    /// 入れ子の書庫を開く係。**この状態オブジェクト専用のインスタンス**で、ビューア側
+    /// (PageLoader)のものとは共有しない(NestedArchiveResolverの型コメント参照 ――
+    /// スレッド安全性を持たせない代わりに、所有者ごとに1つ持つ約束にしてある)。
+    ///
+    /// lazyなのは、`preferences`がinitの**後**に代入されるため(ContentViewが本の切り替えで
+    /// この状態オブジェクトを作り直し、直後にpreferencesを差す)。最初に使われるのは
+    /// ユーザーが入れ子の書庫へ踏み込んだときなので、その時点では必ず入っている。
+    private lazy var resolver = NestedArchiveResolver(
+        limits: .standard(
+            inMemoryBytes: preferences?.nestedArchiveMemoryLimitBytes
+                ?? AppPreferences.defaultNestedArchiveMemoryLimitBytes
+        )
+    )
+
+    /// 「新しい本として開く」ためだけに書き出した一時ファイル。解決役が持つものとは別で、
+    /// 渡した先(新しく開かれた本)がいつまで使うか分からないため、こちらで寿命を持つ
+    /// (NestedArchiveResolver.materializeToIndependentFileのコメント参照)。
     private var temporaryFileURLs: [URL] = []
 
     var canGoBack: Bool { !backStack.isEmpty }
@@ -97,9 +112,9 @@ final class BookContentsBrowserState: ObservableObject {
                 guard case .file(let url) = page.source else { return nil }
                 return url
             })
-            currentOrigin = nil
+            currentLocator = nil
             rootLevel = currentLevel
-            rootOrigin = nil
+            rootLocator = nil
             reload()
             return
         }
@@ -110,24 +125,57 @@ final class BookContentsBrowserState: ObservableObject {
 
         if isDirectory.boolValue {
             currentLevel = .folder(url)
-            currentOrigin = nil
+            currentLocator = nil
         } else if isArchiveFile(url.lastPathComponent) {
-            guard let reader = try? makeArchiveReader(for: url),
-                  let allPaths = try? reader.listFilePaths() else { return nil }
+            guard let archive = try? NestedArchiveResolver.openRootArchive(at: url),
+                  let allPaths = try? archive.reader.listFilePaths() else { return nil }
             // matchKeyPrefix: nil ― 本自身のルート書庫そのものなので、BookLoader.loadArchiveの
             // sortKeyPrefix: nilと同じ(sortKey/matchKeyはエントリのパスそのもの)。
-            currentLevel = .archive(reader: reader, allPaths: allPaths, prefix: "", matchKeyPrefix: nil)
-            currentOrigin = ArchiveOrigin(backing: .onDisk(url))
+            currentLevel = .archive(archive: archive, allPaths: allPaths, prefix: "", matchKeyPrefix: nil)
+            currentLocator = ArchiveLocator(rootURL: url)
         } else {
             return nil
         }
         rootLevel = currentLevel
-        rootOrigin = currentOrigin
+        rootLocator = currentLocator
         reload()
     }
 
+    /// この本の中身ブラウザが用済みになったとき(本を閉じた・別の本へ移った)に呼ぶ。
+    ///
+    /// ARCのdeinit任せにしないのは、SwiftUIが旧世代のビューを抱えているあいだ解放が遅れ、
+    /// その間ずっと入れ子の書庫の一時ファイルとファイルハンドルが残るため
+    /// (PageLoader.releaseAllResources / ViewerViewModel.releaseResourcesと同じ理由)。
+    func releaseResources() {
+        // 階層のスタックが握っているOpenArchiveも手放す(これが最後の持ち主なら、
+        // その場で一時ファイルが消える)。
+        backStack.removeAll()
+        forwardStack.removeAll()
+        currentLevel = .imageFileList([])
+        rootLevel = .imageFileList([])
+        currentLocator = nil
+        entries = []
+        resolver.purgeAll()
+        removeIndependentTemporaryFiles()
+    }
+
     deinit {
+        // releaseResources()が呼ばれていれば空。取りこぼしの保険として残す。
+        // deinitはnonisolatedな文脈なのでMainActorのメソッドは呼べず、ここだけ手で書く
+        // (ファイルI/Oをdeinitのスレッドで行わない点は従来どおり)。
         let urls = temporaryFileURLs
+        guard !urls.isEmpty else { return }
+        Task.detached(priority: .utility) {
+            for url in urls {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+    }
+
+    private func removeIndependentTemporaryFiles() {
+        let urls = temporaryFileURLs
+        temporaryFileURLs.removeAll()
+        guard !urls.isEmpty else { return }
         Task.detached(priority: .utility) {
             for url in urls {
                 try? FileManager.default.removeItem(at: url)
@@ -152,11 +200,11 @@ final class BookContentsBrowserState: ObservableObject {
     func navigate(_ entry: BookInternalBrowsing.Entry) {
         guard let target = entry.navigateTarget else { return }
         do {
-            guard let next = try openContainer(target, from: currentLevel, origin: currentOrigin) else { return }
-            backStack.append((currentLevel, currentOrigin))
+            guard let next = try openContainer(target, from: currentLevel, locator: currentLocator) else { return }
+            backStack.append((currentLevel, currentLocator))
             forwardStack.removeAll()
             currentLevel = next.0
-            currentOrigin = next.1
+            currentLocator = next.1
             reload()
         } catch {
             navigationErrorMessage = localizedErrorMessage(for: error, fallback: "This item could not be opened.")
@@ -169,8 +217,8 @@ final class BookContentsBrowserState: ObservableObject {
     /// あることが前提)はnilを返す(navigate(_:)側は元々この場合何もしなかったので、
     /// その挙動を保つ)。
     private func openContainer(
-        _ target: BookInternalBrowsing.NavigateTarget, from level: BookEntryLevel, origin: ArchiveOrigin?
-    ) throws -> (BookEntryLevel, ArchiveOrigin?)? {
+        _ target: BookInternalBrowsing.NavigateTarget, from level: BookEntryLevel, locator: ArchiveLocator?
+    ) throws -> (BookEntryLevel, ArchiveLocator?)? {
         // .imageFileListの階層はコンテナを1件も含まない(navigateTargetが常にnil)ため、
         // ここへ辿り着くことはない。
         switch target {
@@ -181,34 +229,39 @@ final class BookContentsBrowserState: ObservableObject {
             // 変わらない(BookInternalBrowsing.archiveEntriesのコメント参照 ―
             // matchKeyは仮想フォルダの深さに関係なく常にreader内の完全なパスから
             // 組み立てるため)。
-            guard case .archive(let reader, let allPaths, _, let matchKeyPrefix) = level else { return nil }
-            return (.archive(reader: reader, allPaths: allPaths, prefix: prefix, matchKeyPrefix: matchKeyPrefix), origin)
+            guard case .archive(let archive, let allPaths, _, let matchKeyPrefix) = level else { return nil }
+            return (.archive(archive: archive, allPaths: allPaths, prefix: prefix, matchKeyPrefix: matchKeyPrefix), locator)
         case .archiveFileOnDisk(let url):
-            let reader = try makeArchiveReader(for: url)
-            let allPaths = try reader.listFilePaths()
+            let archive = try NestedArchiveResolver.openRootArchive(at: url)
+            let allPaths = try archive.reader.listFilePaths()
             // matchKeyPrefix: url.path ― BookLoader.collectPages(inFolder:...)が、フォルダの
-            // 中で見つけた書庫ファイルへcollectPages(fromArchiveURL:...)を呼ぶ際に渡す
+            // 中で見つけた書庫ファイルへcollectPages(at:...)を呼ぶ際に渡す
             // sortKeyPrefix(= fileURL.path)と全く同じ。
-            return (.archive(reader: reader, allPaths: allPaths, prefix: "", matchKeyPrefix: url.path), ArchiveOrigin(backing: .onDisk(url)))
+            return (.archive(archive: archive, allPaths: allPaths, prefix: "", matchKeyPrefix: url.path), ArchiveLocator(rootURL: url))
         case .nestedArchiveEntry(let entryPath):
-            guard case .archive(let reader, _, _, let parentMatchKeyPrefix) = level else { return nil }
-            return try openNestedArchive(entryPath: entryPath, from: reader, parentMatchKeyPrefix: parentMatchKeyPrefix)
+            guard case .archive(let parentArchive, _, _, let parentMatchKeyPrefix) = level,
+                  let locator
+            else { return nil }
+            return try openNestedArchive(
+                entryPath: entryPath, parentArchive: parentArchive, parentLocator: locator,
+                parentMatchKeyPrefix: parentMatchKeyPrefix
+            )
         }
     }
 
     func goBack() {
-        guard let (level, origin) = backStack.popLast() else { return }
-        forwardStack.append((currentLevel, currentOrigin))
+        guard let (level, locator) = backStack.popLast() else { return }
+        forwardStack.append((currentLevel, currentLocator))
         currentLevel = level
-        currentOrigin = origin
+        currentLocator = locator
         reload()
     }
 
     func goForward() {
-        guard let (level, origin) = forwardStack.popLast() else { return }
-        backStack.append((currentLevel, currentOrigin))
+        guard let (level, locator) = forwardStack.popLast() else { return }
+        backStack.append((currentLevel, currentLocator))
         currentLevel = level
-        currentOrigin = origin
+        currentLocator = locator
         reload()
     }
 
@@ -239,7 +292,7 @@ final class BookContentsBrowserState: ObservableObject {
         backStack = resolved.path
         forwardStack.removeAll()
         currentLevel = resolved.final.0
-        currentOrigin = resolved.final.1
+        currentLocator = resolved.final.1
         reload()
         highlightedMatchKeys = Set(sortKeys)
     }
@@ -255,24 +308,24 @@ final class BookContentsBrowserState: ObservableObject {
     /// 並び)。
     private func resolveLevel(
         forMatchKey matchKey: String
-    ) -> (path: [(BookEntryLevel, ArchiveOrigin?)], final: (BookEntryLevel, ArchiveOrigin?))? {
+    ) -> (path: [(BookEntryLevel, ArchiveLocator?)], final: (BookEntryLevel, ArchiveLocator?))? {
         var level = rootLevel
-        var origin = rootOrigin
-        var path: [(BookEntryLevel, ArchiveOrigin?)] = []
+        var locator = rootLocator
+        var path: [(BookEntryLevel, ArchiveLocator?)] = []
         for _ in 0..<Self.maxResolutionDepth {
             guard let levelEntries = try? BookInternalBrowsing.entries(
                 at: level, sortOrder: preferences?.sidePanelSortOrder ?? .foldersFirst
             ) else { return nil }
             if levelEntries.contains(where: { $0.matchKey == matchKey }) {
-                return (path, (level, origin))
+                return (path, (level, locator))
             }
             guard let container = levelEntries.first(where: {
                 $0.isContainer && Self.matchKey(matchKey, isContainedIn: $0.matchKey)
             }), let target = container.navigateTarget,
-                let next = try? openContainer(target, from: level, origin: origin) else { return nil }
-            path.append((level, origin))
+                let next = try? openContainer(target, from: level, locator: locator) else { return nil }
+            path.append((level, locator))
             level = next.0
-            origin = next.1
+            locator = next.1
         }
         return nil
     }
@@ -309,81 +362,56 @@ final class BookContentsBrowserState: ObservableObject {
         if let index = bookPages.firstIndex(where: { $0.sortKey == entry.matchKey }) {
             return .jumpToPage(index)
         }
-        guard let origin = currentOrigin, let url = materializedURL(for: origin) else {
+        guard let locator = currentLocator, let url = materializedURL(for: locator) else {
             return .unavailable
         }
         return .openAsNewBook(url)
     }
 
-    /// ネストしたアーカイブエントリへ踏み込む。zip/cbzはメモリ上のまま新しいreaderを開き、
-    /// rar/cbr/7z/cb7は一時ファイルへ書き出してから開く(ZipArchiveReader.init(data:)の
-    /// コメント、ArchiveReading.swiftのライブラリ制約の調査結果を参照)。
+    /// ネストしたアーカイブエントリへ踏み込む。
+    ///
+    /// zip/cbzはメモリ上のまま、rar/cbr/7z/cb7は一時ファイルへ書き出してから開く ―― という
+    /// 使い分けは解決役(NestedArchiveResolver)がまとめて面倒を見るので、ここは座標を1段
+    /// 深くして渡すだけでよい。以前はこのメソッドが自前で書き出しと後始末をしており、
+    /// BookLoader側と同じ処理が2つ存在していた。
+    ///
+    /// **解決役のLRUには載せない(openTransient)。** 開いた書庫の寿命は、この下段ブラウザの
+    /// 移動履歴(currentLevel / backStack / forwardStack)がそのまま持つ ―― そしてその履歴は
+    /// 「今いる枝」しか保持しない(深さは最大でも入れ子の上限)。LRUにも載せると、
+    /// 履歴が持っているぶんとは別に予算いっぱいまで溜まり、ビューア側のぶんと二重に
+    /// ディスクを使うことになる。戻る/進むで同じ階層へ戻ったときは履歴が持っている
+    /// OpenArchiveをそのまま使い回すので、取り出し直しも起きない。
     ///
     /// parentMatchKeyPrefixは踏み込む前の階層のmatchKeyPrefix。BookLoaderの
     /// nestedSortKeyPrefix(= sortKeyPrefix.map { "\($0)/\(path)" } ?? path)と全く同じ式で、
     /// この新しい階層のmatchKeyPrefixを組み立てる。
     private func openNestedArchive(
-        entryPath: String, from reader: ArchiveReading, parentMatchKeyPrefix: String?
-    ) throws -> (BookEntryLevel, ArchiveOrigin?) {
-        let data = try reader.data(at: entryPath)
-        let ext = (entryPath as NSString).pathExtension.lowercased()
-        let newReader: ArchiveReading
-        let origin: ArchiveOrigin
-        if ext == "zip" || ext == "cbz" {
-            newReader = try ZipArchiveReader(data: data)
-            origin = ArchiveOrigin(backing: .inMemory(data: data, preferredExtension: ext))
-        } else {
-            let tempURL = Self.makeTemporaryFileURL(extension: ext)
-            try data.write(to: tempURL)
-            temporaryFileURLs.append(tempURL)
-            newReader = try makeArchiveReader(for: tempURL)
-            origin = ArchiveOrigin(backing: .onDisk(tempURL))
-        }
-        let allPaths = try newReader.listFilePaths()
+        entryPath: String, parentArchive: OpenArchive, parentLocator: ArchiveLocator,
+        parentMatchKeyPrefix: String?
+    ) throws -> (BookEntryLevel, ArchiveLocator?) {
+        let locator = parentLocator.appending(entryPath)
+        let archive = try resolver.openTransient(locator, parentReader: parentArchive.reader)
+        let allPaths = try archive.reader.listFilePaths()
         let matchKeyPrefix = parentMatchKeyPrefix.map { "\($0)/\(entryPath)" } ?? entryPath
-        return (.archive(reader: newReader, allPaths: allPaths, prefix: "", matchKeyPrefix: matchKeyPrefix), origin)
+        return (.archive(archive: archive, allPaths: allPaths, prefix: "", matchKeyPrefix: matchKeyPrefix), locator)
     }
 
-    /// 「新しい本として開く」ためにだけ、メモリ上のzip/cbzデータを例外的に一時ファイルへ
-    /// 書き出す(AppState.open(url:)が実ファイルのURLを必要とするため)。
-    private func materializedURL(for origin: ArchiveOrigin) -> URL? {
-        switch origin.backing {
-        case .onDisk(let url):
-            return url
-        case .inMemory(let data, let ext):
-            let tempURL = Self.makeTemporaryFileURL(extension: ext)
-            do {
-                try data.write(to: tempURL)
-            } catch {
-                return nil
-            }
-            temporaryFileURLs.append(tempURL)
-            return tempURL
-        }
-    }
-
-    /// 置き場所はTemporaryFileStoreに任せる(本を開いたまま終了するとdeinitが走らず
-    /// 残骸になるため。そちらの型コメント参照)。
-    private static func makeTemporaryFileURL(extension ext: String) -> URL {
-        TemporaryFileStore.makeFileURL(extension: ext)
+    /// 「新しい本として開く」ために、今いる階層の書庫を実ファイルとして用意する
+    /// (AppState.open(url:)が実ファイルのURLを必要とするため)。
+    ///
+    /// 入れ子でなければ元のファイルをそのまま返す。入れ子の場合は、解決役が持っている
+    /// 一時ファイルを流用せず**独立したコピー**を書き出す ―― 向こうの寿命はLRUの追い出しに
+    /// 握られており、受け取った側(新しく開かれた本)がいつまで使うか分からないため。
+    /// こちらで書き出したぶんの削除はこの状態オブジェクトが持つ(temporaryFileURLs)。
+    private func materializedURL(for locator: ArchiveLocator) -> URL? {
+        guard locator.isNested else { return locator.rootURL }
+        guard let url = try? resolver.materializeToIndependentFile(locator) else { return nil }
+        temporaryFileURLs.append(url)
+        return url
     }
 
     private func localizedErrorMessage(for error: Error, fallback: String.LocalizationValue) -> String {
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
         return (error as? LocalizedError)?.errorDescription ?? String(localized: fallback, locale: locale)
     }
-}
-
-/// BookContentsBrowserStateが「今の階層の元になったアーカイブ/フォルダ」を、必要になった
-/// タイミングで実ファイルのURLへ変換できるようにするための内部状態。
-private struct ArchiveOrigin {
-    enum Backing {
-        /// 既に実ファイルとして存在する(ネストしたアーカイブがディスク上のフォルダの中に
-        /// 直接あった場合、または一時ファイルへ書き出し済みの場合)。
-        case onDisk(URL)
-        /// メモリ上のデータのみで、実ファイルはまだ存在しない(ネストしたzip/cbzをまだ
-        /// ディスクへ書き出していない状態)。
-        case inMemory(data: Data, preferredExtension: String)
-    }
-    let backing: Backing
 }

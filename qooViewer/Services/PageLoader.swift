@@ -49,7 +49,10 @@ actor PageLoader {
     /// initで本を開いた時点の値を渡し、以後setContrastCorrectionEnabled(_:)で変更を反映する。
     private var contrastCorrectionEnabled: Bool
 
-    private var readers: [String: ArchiveReading] = [:]
+    /// この本の書庫を解決する係(入れ子の書庫は必要になった時に取り出す)。
+    /// **このactor専用のインスタンス**で、他の隔離ドメインとは共有しない
+    /// (NestedArchiveResolverの型コメント参照)。
+    private let resolver: NestedArchiveResolver
     /// PDFファイルごとにCGPDFDocumentを使い回す(アーカイブのreaders同様、actorの外から
     /// 同時に触られることはないため安全に直列化される)。
     private var pdfDocuments: [String: CGPDFDocument] = [:]
@@ -185,11 +188,15 @@ actor PageLoader {
         book: MangaBook,
         contrastCorrectionEnabled: Bool = false,
         usesThumbnailDiskCache: Bool = true,
-        imageCacheLimitBytes: Int = Int(AppPreferences.defaultPageImageCacheLimitMB) * 1024 * 1024
+        imageCacheLimitBytes: Int = Int(AppPreferences.defaultPageImageCacheLimitMB) * 1024 * 1024,
+        nestedArchiveMemoryLimitBytes: Int = AppPreferences.defaultNestedArchiveMemoryLimitBytes
     ) {
         self.book = book
         self.contrastCorrectionEnabled = contrastCorrectionEnabled
         self.usesThumbnailDiskCache = usesThumbnailDiskCache
+        self.resolver = NestedArchiveResolver(
+            limits: .standard(inMemoryBytes: nestedArchiveMemoryLimitBytes)
+        )
         imageCache.totalCostLimit = imageCacheLimitBytes
     }
 
@@ -203,6 +210,7 @@ actor PageLoader {
             thumbnailLimitBytes: thumbnailCache.totalCostLimit,
             gridThumbnails: gridThumbnailCache.snapshot(),
             gridThumbnailLimitBytes: gridThumbnailCache.totalCostLimit,
+            nestedArchives: resolver.statistics(),
             prefetchingIndices: Set(prefetchTasks.keys)
         )
     }
@@ -281,8 +289,11 @@ actor PageLoader {
         imageCache.removeAll()
         thumbnailCache.removeAll()
         gridThumbnailCache.removeAll()
-        readers.removeAll()
-        readerUsageOrder.removeAll()
+        // 入れ子の書庫のために書き出した一時ファイルも、ここで確実に消える
+        // (NestedArchiveResolver.purgeAll参照)。ARCのdeinit任せにしないのは、
+        // SwiftUIが旧世代を抱えているあいだ残り続けてしまうため ―― この型コメントに
+        // 書いてある「書庫リーダーもここで閉じる」のと同じ理由。
+        resolver.purgeAll()
         pdfDocuments.removeAll()
     }
 
@@ -495,7 +506,7 @@ actor PageLoader {
         switch page.source {
         case .file(let url):
             return url.pathExtension.isEmpty ? "jpg" : url.pathExtension.lowercased()
-        case .zip(_, let entryPath), .sevenZip(_, let entryPath), .rar(_, let entryPath):
+        case .archive(_, let entryPath):
             let ext = (entryPath as NSString).pathExtension
             return ext.isEmpty ? "jpg" : ext.lowercased()
         case .pdf:
@@ -554,12 +565,10 @@ actor PageLoader {
             task = Task.detached(priority: .utility) {
                 ImageDecoder.pixelSize(ofFileAt: url)
             }
-        case .zip(let archiveURL, let entryPath),
-             .sevenZip(let archiveURL, let entryPath),
-             .rar(let archiveURL, let entryPath):
+        case .archive(let locator, let entryPath):
             // 書庫からの取り出しはreaderがスレッドセーフでないためactor上で行うほかないが、
             // エントリ全体ではなく先頭だけを伸長する(ArchiveReading.dataPrefix参照)。
-            guard let prefix = try? reader(for: archiveURL)?.dataPrefix(
+            guard let prefix = try? reader(for: locator)?.dataPrefix(
                 at: entryPath, maxByteCount: Self.headerProbeByteCount
             ) else { return nil }
             task = Task.detached(priority: .utility) {
@@ -649,16 +658,17 @@ actor PageLoader {
                 colorProfileName: header.colorProfileName,
                 hasAlphaChannel: header.hasAlpha
             )
-        case .zip(let archiveURL, let entryPath), .sevenZip(let archiveURL, let entryPath), .rar(let archiveURL, let entryPath):
+        case .archive(let locator, let entryPath):
             guard let data = rawData(for: page.source),
                   let header = ImageDecoder.headerInfo(of: data)
             else { return nil }
-            let dates = reader(for: archiveURL)?.entryDates(at: entryPath) ?? (created: nil, modified: nil)
+            let dates = reader(for: locator)?.entryDates(at: entryPath) ?? (created: nil, modified: nil)
             // アーカイブ内エントリ自身はディスク上のパスを持たないため、アーカイブファイルの
             // フルパスに、エントリのアーカイブ内フォルダパス(サブフォルダが無ければ空文字列)を
             // 続けたものを「場所」とする。
             let internalFolder = (entryPath as NSString).deletingLastPathComponent
-            let location = internalFolder.isEmpty ? archiveURL.path : "\(archiveURL.path)/\(internalFolder)"
+            let archivePath = locator.displayPath
+            let location = internalFolder.isEmpty ? archivePath : "\(archivePath)/\(internalFolder)"
             return PageImageInfo(
                 fileName: page.displayName,
                 formatDescription: Self.imageFormatDescription(forFileName: page.displayName),
@@ -966,7 +976,7 @@ actor PageLoader {
         case .pdf(let pdfURL, let pageIndex):
             guard !Task.isCancelled else { return nil }
             decoded = renderPDFPage(pdfURL: pdfURL, pageIndex: pageIndex, maxPixelSize: maxPixelSize)
-        case .file, .zip, .sevenZip, .rar:
+        case .file, .archive:
             guard let data = rawData(for: source) else { return nil }
             guard !Task.isCancelled else { return nil }
             // デコードはactorの外(バックグラウンドタスク)で行い、
@@ -1010,8 +1020,8 @@ actor PageLoader {
     /// - Parameter bookSourceURL: MangaBook.sourceURL(フォルダの本を探す場合にだけ使う)。
     func sourceComicInfo(bookSourceURL: URL) -> ComicInfo? {
         switch book.pages.first?.source {
-        case .zip(let url, _), .sevenZip(let url, _), .rar(let url, _):
-            guard let reader = reader(for: url) else { return nil }
+        case .archive(let locator, _):
+            guard let reader = reader(for: locator) else { return nil }
             return ComicInfoResolver.resolve(reader: reader)
         case .file:
             // 画像フォルダ。
@@ -1026,10 +1036,8 @@ actor PageLoader {
         switch source {
         case .file(let url):
             return try? Data(contentsOf: url)
-        case .zip(let archiveURL, let entryPath),
-             .sevenZip(let archiveURL, let entryPath),
-             .rar(let archiveURL, let entryPath):
-            return try? reader(for: archiveURL)?.data(at: entryPath)
+        case .archive(let locator, let entryPath):
+            return try? reader(for: locator)?.data(at: entryPath)
         case .pdf:
             // PDFはdecodedImage(for:maxPixelSize:)側で直接renderPDFPageに振り分けられるため、
             // ここが実際に呼ばれることはない(switchを網羅させるためのプレースホルダー)。
@@ -1107,49 +1115,28 @@ actor PageLoader {
         }
     }
 
-    /// アーカイブごとにReaderを使い回す。actorの外から同時に触られることはないので、
-    /// ここでの読み込みは安全に直列化される。
-    ///
-    /// バグ修正(予防): 以前は一度作ったReaderを本を閉じるまで一切解放していなかった。通常の
-    /// 本(1冊=1つの書庫、またはフォルダ内の画像だけ)ならReaderはたかだか1つなので問題に
-    /// ならないが、BookLoaderは「フォルダの中に並んだ大量の書庫」も「書庫の中の入れ子の書庫」も
-    /// 統合して1冊として開けるため(BookLoader.collectPages参照)、そうした本ではページを
-    /// 読み進めるだけで開いたままのファイルハンドルが際限なく増えていく。直近に使ったものだけを
-    /// 残す上限を設ける。
-    ///
-    /// 上限を超えて追い出したReaderは、次にそのアーカイブのページへ戻ったときに作り直される
-    /// だけで、動作は変わらない。通常の本では追い出し自体が起きないため、速度への影響も無い。
-    private static let maxCachedReaders = 8
-
-    /// readersの使用順(古い順)。maxCachedReadersを超えたぶんを先頭から追い出す。
-    private var readerUsageOrder: [String] = []
-
-    private func reader(for archiveURL: URL) -> ArchiveReading? {
-        let path = archiveURL.path
-        if let cached = readers[path] {
-            touchReaderUsage(path)
-            return cached
-        }
-        guard let created = try? makeArchiveReader(for: archiveURL) else { return nil }
-        readers[path] = created
-        touchReaderUsage(path)
-        while readerUsageOrder.count > Self.maxCachedReaders {
-            let evicted = readerUsageOrder.removeFirst()
-            readers.removeValue(forKey: evicted)
-        }
-        return created
-    }
-
-    /// pathを「いちばん最近使った」位置(末尾)へ移す。
+    /// この本の書庫のreaderを得る。入れ子の書庫は、ここで初めて必要になった時点で
+    /// 親から取り出される(NestedArchiveResolver参照)。
     ///
     /// Readerは常にactor隔離されたメソッドの中で同期的に使い切られる(rawData/pageSize/
-    /// pageImageInfoのいずれも、reader(for:)で受け取ってからawaitを挟まずに読み終える)ため、
-    /// ここでの追い出しが「今まさに誰かが使っているReader」を消してしまうことはない。
-    private func touchReaderUsage(_ path: String) {
-        if let existing = readerUsageOrder.firstIndex(of: path) {
-            readerUsageOrder.remove(at: existing)
-        }
-        readerUsageOrder.append(path)
+    /// pageImageInfoのいずれも、これで受け取ってからawaitを挟まずに読み終える)ため、
+    /// Resolver側のLRUが途中で追い出しても「今まさに誰かが使っているReader」が
+    /// 無効になることはない(追い出しは参照を外すだけで、実体はARCが保つ)。
+    ///
+    /// 失敗(壊れた書庫、上限超え、親からの取り出し失敗)はnilを返す。呼び出し側は
+    /// 従来どおり「そのページは読めなかった」として扱えばよい。
+    private func reader(for locator: ArchiveLocator) -> ArchiveReading? {
+        try? resolver.reader(for: locator)
+    }
+
+    /// 入れ子の書庫のためにいま使っている資源(リソースモニタ用)。
+    func nestedArchiveStatistics() -> NestedArchiveResolver.Statistics {
+        resolver.statistics()
+    }
+
+    /// 環境設定「入れ子書庫をメモリに置く上限」の変更を反映する。
+    func setNestedArchiveMemoryLimit(bytes: Int) {
+        resolver.setLimits(.standard(inMemoryBytes: bytes))
     }
 }
 
@@ -1165,6 +1152,10 @@ nonisolated struct PageCacheStatistics: Equatable, Sendable {
     /// 拡大サムネイル。`keys`は`"\(PageRef.id)|\(px)"`。
     var gridThumbnails: PagePixelCache.Snapshot
     var gridThumbnailLimitBytes: Int
+    /// 入れ子の書庫のためにいま確保しているもの(NestedArchiveResolver.Statistics)。
+    /// メモリ上の書庫はページ画像と並ぶ「説明のつくメモリ」で、一時ファイルは
+    /// リソースモニタの「一時ファイル」の中身そのもの。
+    var nestedArchives: NestedArchiveResolver.Statistics
     /// いま先読みのタスクが走っている(まだ終わっていない)ページのインデックス。
     /// 「設定より広く先読みしていないか」の判定に使う。残留しているページとは別物
     /// (残留は上限内ならいくらあっても正常)。

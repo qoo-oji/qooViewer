@@ -369,7 +369,7 @@ nonisolated enum CbzExporter {
         switch page.source {
         case .file(let url):
             return url.deletingPathExtension().lastPathComponent
-        case .zip(_, let entryPath), .sevenZip(_, let entryPath), .rar(_, let entryPath):
+        case .archive(_, let entryPath):
             return ((entryPath as NSString).lastPathComponent as NSString).deletingPathExtension
         case .pdf:
             // 元がPDFの本は常時6桁連番の経路になる(planEntriesのisPDFSource参照)ため到達しない。

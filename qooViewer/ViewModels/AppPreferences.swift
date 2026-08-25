@@ -71,6 +71,7 @@ final class AppPreferences: ObservableObject {
         static let thumbnailDiskCacheEnabled = "qooViewer.pref.thumbnailDiskCacheEnabled"
         static let thumbnailDiskCacheLimitMB = "qooViewer.pref.thumbnailDiskCacheLimitMB"
         static let pageImageCacheLimitMB = "qooViewer.pref.pageImageCacheLimitMB"
+        static let nestedArchiveMemoryLimitMB = "qooViewer.pref.nestedArchiveMemoryLimitMB"
 
         /// すりガラスの面ごとの設定(PanelSurface参照)。面の識別子ごとに3つのキーへ分かれる。
         /// 面を1つ増やしてもここは触らなくてよい(PanelSurface.allCasesから導出される)。
@@ -481,6 +482,35 @@ final class AppPreferences: ObservableObject {
     var pageImageCacheLimitBytes: Int {
         let range = Self.pageImageCacheLimitRangeMB
         let clamped = min(max(pageImageCacheLimitMB, range.lowerBound), range.upperBound)
+        return Int(clamped) * 1024 * 1024
+    }
+
+    /// 入れ子になった書庫(書庫の中の書庫)を、メモリ上に置いておく合計の上限(MB、既定128)。
+    ///
+    /// 入れ子の書庫は「必要になったときに親から取り出す」方式で、取り出したものをしばらく
+    /// 手元に置いておくと、同じ章のページを続けて読むあいだ取り出し直さずに済む
+    /// (NestedArchiveResolver参照)。ここはその置き場の大きさ。
+    ///
+    /// zip/cbzだけがメモリに置ける。rar/7zはライブラリがファイルパスしか受け付けないため
+    /// 必ず一時ファイルになる ―― が、その一時ファイルの上限もこの値から導いている
+    /// (NestedArchiveResolver.Limits.standard参照)ので、この1つを動かせば両方が動く。
+    /// 上限を2つ3つ並べても意味が伝わらないため、ユーザーに見せるのはこれだけにしてある。
+    ///
+    /// 0にすると「メモリには一切置かず、常に一時ファイルを使う」という意味になる。
+    ///
+    /// nonisolated: PageLoader(actor)とBookLoaderのinitの既定引数から参照されるため
+    /// (defaultPageImageCacheLimitMBと同じ理由)。
+    @Published var nestedArchiveMemoryLimitMB: Double {
+        didSet { UserDefaults.standard.set(nestedArchiveMemoryLimitMB, forKey: Keys.nestedArchiveMemoryLimitMB) }
+    }
+    nonisolated static let defaultNestedArchiveMemoryLimitMB: Double = 128
+    static let nestedArchiveMemoryLimitRangeMB: ClosedRange<Double> = 0...1024
+    nonisolated static let defaultNestedArchiveMemoryLimitBytes =
+        Int(defaultNestedArchiveMemoryLimitMB) * 1024 * 1024
+    /// PageLoader/BookLoaderへ渡す形(バイト数)。
+    var nestedArchiveMemoryLimitBytes: Int {
+        let range = Self.nestedArchiveMemoryLimitRangeMB
+        let clamped = min(max(nestedArchiveMemoryLimitMB, range.lowerBound), range.upperBound)
         return Int(clamped) * 1024 * 1024
     }
 
@@ -914,6 +944,9 @@ final class AppPreferences: ObservableObject {
         self.pageImageCacheLimitMB =
             defaults.object(forKey: Keys.pageImageCacheLimitMB) as? Double
             ?? Self.defaultPageImageCacheLimitMB
+        self.nestedArchiveMemoryLimitMB =
+            defaults.object(forKey: Keys.nestedArchiveMemoryLimitMB) as? Double
+            ?? Self.defaultNestedArchiveMemoryLimitMB
 
         if let storedRaw = defaults.string(forKey: Keys.defaultReadingDirection),
            let stored = ReadingDirection(rawValue: storedRaw) {
@@ -1075,6 +1108,7 @@ extension AppPreferences {
         case .cache:
             return [
                 Keys.pageImageCacheLimitMB,
+                Keys.nestedArchiveMemoryLimitMB,
                 Keys.prefetchPageCount,
                 Keys.preloadThumbnailGridPreviews,
                 Keys.thumbnailDiskCacheEnabled,
@@ -1148,6 +1182,7 @@ extension AppPreferences {
             cursorAutoHideDelay = source.cursorAutoHideDelay
         case .cache:
             pageImageCacheLimitMB = source.pageImageCacheLimitMB
+            nestedArchiveMemoryLimitMB = source.nestedArchiveMemoryLimitMB
             prefetchPageCount = source.prefetchPageCount
             preloadThumbnailGridPreviews = source.preloadThumbnailGridPreviews
             thumbnailDiskCacheEnabled = source.thumbnailDiskCacheEnabled

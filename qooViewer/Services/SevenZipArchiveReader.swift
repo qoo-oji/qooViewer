@@ -38,4 +38,10 @@ nonisolated final class SevenZipArchiveReader: ArchiveReading {
         guard let entry = entryByPath[path] else { return (nil, nil) }
         return (nil, entry.modified)
     }
+
+    /// 索引が持つ非圧縮サイズをそのまま返す(展開は伴わない)。
+    func entryUncompressedSize(at path: String) -> Int64? {
+        guard let entry = entryByPath[path] else { return nil }
+        return Int64(entry.uncompressedSize)
+    }
 }

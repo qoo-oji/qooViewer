@@ -22,6 +22,14 @@ nonisolated struct ResourceMonitorSnapshot: Equatable, Sendable {
     var thumbnails: CacheUsage
     var gridThumbnails: CacheUsage
 
+    /// いま開いたままにしている入れ子の書庫。usedBytes/limitBytesは**メモリ上に置いている
+    /// ぶんだけ**(zip/cbz)で、countは形式を問わず開いている本数。rar/7zはライブラリの都合で
+    /// 一時ファイルにするほかなく、そちらのバイト数は下の`nestedArchiveTemporaryBytes`と、
+    /// リソースモニタの「一時ファイル」に出る。
+    var nestedArchives: CacheUsage
+    /// 一時ファイルとしてディスクに置いているぶんのバイト数(rar/7z、および上限を超えたzip)。
+    var nestedArchiveTemporaryBytes: Int
+
     /// 現在ページ(0始まり)。見開きのときは**左右のうちファイル順で先のページ**。
     var currentIndex: Int
     /// いま画面に出ているページ数(単ページなら1、見開きなら2)。表示中のページは
@@ -54,9 +62,13 @@ nonisolated struct ResourceMonitorSnapshot: Equatable, Sendable {
         prefetchingIndices.contains { abs($0 - currentIndex) > prefetchRadius }
     }
 
-    /// 3つのキャッシュの実使用量の合計。「説明のつかないメモリ」の計算に使う。
+    /// この本のために意図して確保しているメモリの合計。「説明のつかないメモリ」の計算に使う。
+    ///
+    /// 3つのピクセルキャッシュに加えて、メモリ上に置いている入れ子の書庫も足す ―― あちらも
+    /// 上限付きで意図的に抱えているもので、引かずにおくと入れ子の本を開いたときだけ
+    /// 「説明のつかないメモリ」が数百MB増えたように見えてしまう。
     var totalCacheBytes: Int {
-        pageImages.usedBytes + thumbnails.usedBytes + gridThumbnails.usedBytes
+        pageImages.usedBytes + thumbnails.usedBytes + gridThumbnails.usedBytes + nestedArchives.usedBytes
     }
 
     init(
@@ -77,6 +89,13 @@ nonisolated struct ResourceMonitorSnapshot: Equatable, Sendable {
             limitBytes: statistics.thumbnailLimitBytes,
             count: statistics.thumbnails.count
         )
+        nestedArchives = CacheUsage(
+            usedBytes: statistics.nestedArchives.inMemoryBytes,
+            limitBytes: statistics.nestedArchives.inMemoryLimitBytes,
+            count: statistics.nestedArchives.inMemoryArchiveCount
+                + statistics.nestedArchives.temporaryArchiveCount
+        )
+        nestedArchiveTemporaryBytes = statistics.nestedArchives.temporaryBytes
         gridThumbnails = CacheUsage(
             usedBytes: statistics.gridThumbnails.totalBytes,
             limitBytes: statistics.gridThumbnailLimitBytes,
