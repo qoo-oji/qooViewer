@@ -249,7 +249,7 @@ final class MetadataEditorViewModel: ObservableObject {
         bookIDs.formUnion(favoritesStore.allRegisteredBookIDs())
         // 読書履歴。一度でも開いた本はすべてここに含まれるため、実質的にこれが一覧の母体になる
         // (BookReadingStateはLibraryDataPrunerによって上限件数まで自動的に間引かれる。
-        // 環境設定「記憶する本の上限」参照)。
+        // 環境設定「一般」の「データを保持する本の数」参照)。
         let readingStates = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
         bookIDs.formUnion(readingStates.map(\.bookID))
         return bookIDs

@@ -358,8 +358,8 @@ struct ViewerView: View {
         appState.setScalingMode = { mode in
             viewModel.setScalingMode(mode)
         }
-        // メニューバーの「Layout」メニュー(8.2節)からの操作の橋渡し。詳細はAppState.swiftの
-        // performLayoutStateChange/performLayoutClear/performAutoLayoutのコメント参照。
+        // メニューバー「Edit」のレイアウトのグループ(8.2節)からの操作の橋渡し。詳細は
+        // AppState.swiftのperformLayoutStateChange/performLayoutClear/performAutoLayoutのコメント参照。
         appState.performLayoutStateChange = { target, state in
             let pageIndex = target == .partner ? (partnerPageIndex ?? viewModel.currentIndex) : viewModel.currentIndex
             pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: state)
@@ -1333,7 +1333,7 @@ struct ViewerView: View {
         // ネイティブNSMenu(FavoritesNSMenuBridge)へ置き換えた。ボタンのクリック・ショートカット
         // のどちらもshowFavoritesListMenu()を呼ぶだけでよく、SwiftUI側の状態(.popoverのbinding)
         // は不要になったため、ここには何も無い(showFavoritesListMenu()のコメント参照)。
-        // 環境設定「本を再度開いたときの動作」が「問い合わせる」のときだけ、
+        // 環境設定「本を開く」の「開始ページ」が「問い合わせる」のときだけ、
         // 前回位置から再開するかどうかを尋ねる(ViewerViewModel.init参照)。
         content
         .alert(
@@ -3450,7 +3450,8 @@ struct ViewerView: View {
         case .toggleContrastCorrection:
             viewModel.toggleContrastCorrection()
         case .autoLayoutFromCurrentView:
-            // ツールバーのボタン・メニューバー「Layout」の項目と同じ経路(3.1節)。
+            // ツールバーのボタン・メニューバー「Edit」のレイアウトのグループの項目と
+            // 同じ経路(3.1節)。
             // DBへ書かない本ではレイアウトを保存できないので何もしない(以下の
             // ブックマーク/お気に入り系も同じ。キー割り当てから直接届く経路を塞ぐため)。
             guard !viewModel.skipsPersistence else { return }
@@ -3527,7 +3528,7 @@ struct ViewerView: View {
     }
 
     /// 「お気に入り一覧」ポップオーバーからお気に入りをクリックしたときの実際の分岐処理。
-    /// QooViewerApp.swiftの同名メソッドと同じ考え方(環境設定「お気に入りを開くとき」
+    /// QooViewerApp.swiftの同名メソッドと同じ考え方(環境設定「本を開く」の「お気に入りから」
     /// favoriteOpenBehaviorに従って、そのまま開く/新しいタブ/新しいウインドウを判定する)だが、
     /// ViewerView自身はQooViewerApp側のprivateなヘルパーを直接呼べないため、こちらでも
     /// 同じ判定を実装している。ViewerViewが表示されている時点で必ず本を表示しているはずだが、
@@ -3547,14 +3548,8 @@ struct ViewerView: View {
         }
     }
 
-    /// ツールバーの「お気に入り一覧」ボタン、およびキーボードショートカット
-    /// (ViewerAction.showFavoritesList)のどちらからも呼ぶ、一覧の表示処理。
-    /// ネイティブNSMenu(FavoritesNSMenuBridge)を組み立てて表示することで、メニューバー側と
-    /// 同じくホバーでサブフォルダが展開する挙動になる(詳細はFavoritesNSMenuBridge.swiftの
-    /// コメント参照)。項目をクリックしたときの実際の開き方は、他の入り口と同じく
-    /// openFavoriteAccordingToPreference(環境設定「お気に入りを開くとき」)に従う。
     /// 「ブックマークの編集」ウインドウ(独立ウインドウ)を開く。ツールバーのブックマークアイコン
-    /// (枠線)・メニューバー「Favorites」→「Edit Bookmarks…」・bキーのどこから呼んでも、
+    /// (枠線)・メニューバー「Edit」→「Edit Bookmarks…」・bキーのどこから呼んでも、
     /// このメソッドを経由する。launchCoordinator.setActiveBookAppState(appState)を明示的に
     /// 呼んでおくことで、setUpWindowObservers側のdidBecomeKeyNotification通知を待たずに
     /// (念のため)確実にこの本を対象にしてからウインドウを開く。
@@ -3716,6 +3711,12 @@ struct ViewerView: View {
         }
     }
 
+    /// ツールバーの「お気に入り一覧」ボタン、およびキーボードショートカット
+    /// (ViewerAction.showFavoritesList)のどちらからも呼ぶ、一覧の表示処理。
+    /// ネイティブNSMenu(FavoritesNSMenuBridge)を組み立てて表示することで、メニューバー側と
+    /// 同じくホバーでサブフォルダが展開する挙動になる(詳細はFavoritesNSMenuBridge.swiftの
+    /// コメント参照)。項目をクリックしたときの実際の開き方は、他の入り口と同じく
+    /// openFavoriteAccordingToPreference(環境設定「本を開く」の「お気に入りから」)に従う。
     private func showFavoritesListMenu() {
         let bridge = FavoritesNSMenuBridge(favoritesStore: favoritesStore) { favorite in
             openFavoriteAccordingToPreference(favorite)

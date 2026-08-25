@@ -257,7 +257,7 @@ struct QooViewerApp: App {
                     suppressesExternalEventWindows = true
                     appDelegate.preferences = preferences
                     appDelegate.launchCoordinator = launchCoordinator
-                    // Finderから別の本を開こうとしたとき(環境設定「Finderから開いたとき」が
+                    // Finderから別の本を開こうとしたとき(環境設定「本を開く」の「Finderから」が
                     // 「新しいタブ/ウインドウで開く」の場合)に、AppDelegate自身は持たない
                     // openWindow環境値を使ってウインドウ/タブを作るための橋渡し。
                     appDelegate.openInNewWindowOrTab = { request, asTab, tabTarget, actsAsPrimaryWindow in
@@ -1267,7 +1267,7 @@ struct QooViewerApp: App {
     /// メニューバーの「お気に入り一覧」からお気に入りをクリックしたときの実際の分岐処理。
     /// 以前はお気に入りごとに「開く/新しいウインドウで開く/新しいタブで開く」をサブメニューから
     /// 毎回選ぶ形式だったが、Finderから開いたときの挙動(AppDelegate.application(_:open:)の
-    /// finderOpenBehavior判定)と同じ考え方で、環境設定「お気に入りを開くとき」
+    /// finderOpenBehavior判定)と同じ考え方で、環境設定「本を開く」の「お気に入りから」
     /// (preferences.favoriteOpenBehavior)1箇所で挙動を決めるように変更した。
     /// まだ本を表示していない(Welcome画面)場合は、Finderから開いたときと同様、設定に関わらず
     /// 常にそのウインドウでそのまま開く(閉じるべき「現在の本」がそもそも無いため)。
@@ -1636,7 +1636,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var preferences: AppPreferences?
     weak var launchCoordinator: LaunchCoordinator?
     /// Finderから(ダブルクリックや「このアプリケーションで開く」で)別の本を開こうとしたときの
-    /// 環境設定「Finderから開いたとき」が「新しいタブ/ウインドウで開く」の場合に使う、実際に
+    /// 環境設定「本を開く」の「Finderから」が「新しいタブ/ウインドウで開く」の場合に使う、実際に
     /// ウインドウ/タブを開くためのクロージャ(QooViewerApp.openInNewWindow(_:asTab:tabTarget:
     /// actsAsPrimaryWindow:)への橋渡し。AppDelegate自身はSwiftUIのopenWindow環境値を持てない
     /// ため)。第1引数は開く対象(URL1つとは限らない。BookOpenRequest参照)、第2引数はasTab
@@ -1965,7 +1965,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // まだ本を表示していない(Welcome画面)場合は、環境設定に関わらず常にそのウインドウで
-        // そのまま開く。既に本を表示している場合だけ、環境設定「Finderから開いたとき」に従う。
+        // そのまま開く。既に本を表示している場合だけ、環境設定「本を開く」の「Finderから」に従う。
         guard primaryAppState.currentBook != nil else {
             primaryAppState.open(request: request)
             return

@@ -186,7 +186,8 @@ final class AppPreferences: ObservableObject {
         didSet { UserDefaults.standard.set(backgroundColorOption.rawValue, forKey: Keys.backgroundColorOption) }
     }
     /// `backgroundColorOption`が`.custom`のときに使う、ユーザーが自分で指定した背景色。
-    /// 環境設定「描画」タブの「カスタム色」から開くダイアログ(BackgroundColorPickerSheet)で編集する。
+    /// 環境設定「外観」の「ビューア」→「背景色」で「カスタム」を選ぶと開くダイアログ
+    /// (CustomColorPickerSheet)で編集する。
     ///
     /// プリセット側(`backgroundColorOption`)とは独立に保存しているので、いったんプリセットの
     /// 黒に戻してから再び「カスタム」を選び直しても、作った色はそのまま残る。

@@ -131,7 +131,7 @@ struct SidePanelView: View {
     /// URLの解決(見つからなければアラート)は呼び出し側が行う ―― 通常の`onOpenFavorite`と
     /// 同じ扱いにするため。
     var onOpenFavoriteInNewWindow: (FavoriteBook, BookOpenDestination) -> Void
-    /// お気に入りツリーの本をクリックして開く(環境設定「お気に入りを開くとき」に従う)。
+    /// お気に入りツリーの本をクリックして開く(環境設定「本を開く」の「お気に入りから」に従う)。
     var onOpenFavorite: (FavoriteBook) -> Void
     /// お気に入り(本・フォルダ)の名前を変更する / 削除する(行の右クリックから。ユーザー要望)。
     ///
@@ -1244,7 +1244,7 @@ private struct SidePanelFavoriteRow: View {
         .padding(.vertical, 4)
         .contentShape(Rectangle())
         .help(folder.name)
-        // 展開/折りたたみは、環境設定「サイドパネルの操作をダブルクリックにする」の値に
+        // 展開/折りたたみは、環境設定「一般」の「開く・フォルダへ移動をダブルクリックにする」の値に
         // 関わらず常にシングルクリック。あの設定は「本を開く」「フォルダへ移動する」という
         // 取り消しの効かない/表示が大きく変わる操作を誤操作から守るためのもので、その場で
         // 見た目が開閉するだけのこの操作は対象外(戻る/進むボタンが常にシングルクリックなのと

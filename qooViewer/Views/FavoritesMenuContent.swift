@@ -14,7 +14,7 @@ import SwiftUI
 ///
 /// 開く際に「そのまま開く/新しいウインドウ/新しいタブ」のどれにするかは、以前はお気に入りごとに
 /// サブメニューから毎回選ぶ形式だったが、Finderから開いたときの環境設定(finderOpenBehavior)と
-/// 同じ考え方で、環境設定「お気に入りを開くとき」(favoriteOpenBehavior)1箇所に統一した。
+/// 同じ考え方で、環境設定「本を開く」の「お気に入りから」(favoriteOpenBehavior)1箇所に統一した。
 /// そのため呼び出し側(onOpen)は1つのクロージャだけを渡せばよく、実際にどう開くかの判定は
 /// 呼び出し元(QooViewerApp.swift/ViewerView.swiftのopenFavoriteAccordingToPreference)で行う。
 ///

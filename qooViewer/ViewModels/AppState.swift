@@ -258,8 +258,8 @@ final class AppState: ObservableObject {
     var addFavoriteAction: (() -> Void)?
 
     /// サイドパネル(ブックマークモード)のお気に入りツリーから本を開くための橋渡し。
-    /// 環境設定「お気に入りを開くとき」(favoriteOpenBehavior: そのまま開く/新しいタブ/
-    /// 新しいウインドウ)の判定はViewerView.openFavoriteAccordingToPreferenceが持っているため、
+    /// 環境設定「本を開く」の「お気に入りから」(favoriteOpenBehavior: そのまま開く/
+    /// 新しいタブ/新しいウインドウ)の判定はViewerView.openFavoriteAccordingToPreferenceが持つため、
     /// addFavoriteActionと同じくViewerViewが表示されている間だけ登録される。nil(本を開いて
     /// いない)の場合、呼び出し側は代わりにopenFavorite(_:)を直接呼ぶ(開いている本が無ければ
     /// 「今の本を置き換える」以外の選択肢に意味が無いため)。
@@ -424,8 +424,8 @@ final class AppState: ObservableObject {
     /// 橋渡し。ViewerViewが表示されている間だけ自分自身を登録し、閉じるときにnilへ戻す。
     var setScalingMode: ((ScalingMode) -> Void)?
 
-    /// メニューバーの「Layout」メニュー(設計コンセプト8.2節)、および将来同じ経路を使う
-    /// コンテキストメニューから、現在表示中のビューワーへレイアウト操作を橋渡しするための
+    /// メニューバー「Edit」のレイアウトのグループ(設計コンセプト8.2節)、および将来同じ経路を
+    /// 使うコンテキストメニューから、現在表示中のビューワーへレイアウト操作を橋渡しするための
     /// クロージャ群。performViewerActionと同じ、ViewerViewが表示されている間だけ自分自身を
     /// 登録し、閉じるときにnilへ戻す仕組み。
     ///
@@ -606,7 +606,7 @@ final class AppState: ObservableObject {
     weak var launchCoordinator: LaunchCoordinator?
 
     /// このAppStateを表示しているNSWindow(ContentViewのWindowAccessor経由で設定される)。
-    /// Finderから別の本を開こうとしたとき(環境設定「Finderから開いたとき」が「新しいタブで
+    /// Finderから別の本を開こうとしたとき(環境設定「本を開く」の「Finderから」が「新しいタブで
     /// 開く」の場合)、新しいタブをどのウインドウに追加すればよいかを確実に特定するために使う。
     /// 以前は「その時点でのNSApp.keyWindow」を頼りにタブの追加先を決めていたが、Finderからの
     /// 「開く」イベントが届く時点ではまだ本来のウインドウがキーウインドウになっていないことが
@@ -619,8 +619,8 @@ final class AppState: ObservableObject {
     /// (QooViewerAppのonAppearで設定される)
     weak var recentFiles: RecentFilesStore?
 
-    /// 環境設定「アクセス権」タブで許可されたフォルダの管理。grantAccessToCurrentFolder()から
-    /// 許可を追加するのに使う。(QooViewerAppのonAppearで設定される。起動時のアクセス復元自体は
+    /// 環境設定「フォルダのアクセス権」で許可されたフォルダの管理。
+    /// grantAccessToCurrentFolder()から許可を追加するのに使う。(QooViewerAppのonAppearで設定される。起動時のアクセス復元自体は
     /// FolderAccessStore自身のinitで行われるため、ここではURLを追加するためだけに参照する)
     weak var folderAccess: FolderAccessStore?
 

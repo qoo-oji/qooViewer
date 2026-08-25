@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// ビューワーの背景色。よく使う色はあらかじめ用意したプリセットから選び、それ以外の色は
-/// `.custom`(実際のRGB値は`AppPreferences.customBackgroundColor`に別途保存され、
-/// 環境設定「描画」タブの「カスタム色」から専用のダイアログで指定する)で指定する。
+/// `.custom`(実際のRGB値は`AppPreferences.customBackgroundColor`に別途保存され、環境設定
+/// 「外観」の「ビューア」→「背景色」で「カスタム」を選び、専用のダイアログで指定する)で指定する。
 /// rawValueはケース名(永続化用の安定した識別子)、titleKeyが画面表示用のローカライズされた名前。
 enum BackgroundColorOption: String, CaseIterable, Identifiable, Codable, Hashable {
     case black

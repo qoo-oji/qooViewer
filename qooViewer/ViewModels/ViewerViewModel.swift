@@ -84,7 +84,7 @@ final class ViewerViewModel: ObservableObject {
     /// 必要はない、というユーザーの判断による。同じ理由で、ページが変わったとき・表示の
     /// 前提が変わったとき(表示サイズモード/見開き・単ページ/読み方向)は解除する。
     @Published private(set) var pinchZoomFactor: CGFloat = 1
-    /// 環境設定「本を再度開いたときの動作」が「問い合わせる」のとき、かつ前回位置が
+    /// 環境設定「本を開く」の「開始ページ」が「問い合わせる」のとき、かつ前回位置が
     /// 先頭でない(=本当に「再開」の余地がある)ときにtrueになる。ViewerViewがこれを見て
     /// 「前回表示したページから再開しますか?」の確認ダイアログを表示する。
     @Published private(set) var needsResumeConfirmation: Bool
@@ -197,7 +197,7 @@ final class ViewerViewModel: ObservableObject {
     /// 読み直すための監視トークン。詳細はBookmark.swiftのNotification.Name.bookmarksDidChange
     /// のコメント参照。
     private var bookmarksChangeObserver: NSObjectProtocol?
-    /// 環境設定「横長画像のしきい値」(preferences.singlePageAspectRatioThreshold)が本を
+    /// 環境設定「画像の表示」の「単ページ扱いの閾値(横÷縦)」(preferences.singlePageAspectRatioThreshold)が本を
     /// 開いたまま変更されたときに、wideImageCache(古いしきい値で判定した結果)を破棄するための
     /// 購読。破棄しないと、しきい値変更前に判定・キャッシュ済みのページについて、
     /// backwardStepSize/forwardStepSizeが古い判定結果を使い続けてしまう
@@ -435,7 +435,7 @@ final class ViewerViewModel: ObservableObject {
         state.recordedSourceFileSize = currentFingerprint.fileSize
         self.readingState = state
 
-        // 環境設定「本を再度開いたときの動作」に応じて、実際にどのページから表示するかを決める。
+        // 環境設定「本を開く」の「開始ページ」に応じて、実際にどのページから表示するかを決める。
         // (以前から読んでいる本(isReturningToKnownBookがtrueの場合)にのみ意味がある判定で、
         // 初めて開く本・中身が差し替わった本は常にlastPageIndexが0のため、どの設定でも結果は変わらない)
         let restoredIndex = min(max(state.lastPageIndex, 0), max(preparedBook.pages.count - 1, 0))

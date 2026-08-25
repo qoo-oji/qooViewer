@@ -119,7 +119,7 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
     /// (BookLayoutSettings.contrastCorrectionEnabled)。
     case toggleContrastCorrection
     /// 「現在の表示を基準に自動でレイアウトする」(ツールバーの四角いアイコンのボタン、
-    /// メニューバー「Layout」→「Auto-Layout Based on Current View」と同じ操作)。
+    /// メニューバー「Edit」→「Auto-Layout Based on Current View」と同じ操作)。
     /// 本全体を上書きするため、実行すると確認ダイアログを挟む(ViewerView.perform参照)。
     case autoLayoutFromCurrentView
     case previousBook

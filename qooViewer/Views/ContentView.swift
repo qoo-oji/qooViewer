@@ -991,7 +991,7 @@ struct ContentView: View {
             },
             onOpenFavorite: { favorite in
                 if dismissesOnAction { appState.isSidePanelRevealed = false }
-                // 環境設定「お気に入りを開くとき」(新しいタブ/ウインドウ)の判定はViewerViewが
+                // 環境設定「本を開く」の「お気に入りから」(新しいタブ/ウインドウ)の判定はViewerViewが
                 // 持っている。本を開いていない(=ViewerViewが無い)場合は、置き換える対象の本
                 // 自体が無いためそのまま開く(AppState.openFavoriteActionのコメント参照)。
                 if let action = appState.openFavoriteAction {

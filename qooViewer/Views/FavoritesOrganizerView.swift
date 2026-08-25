@@ -566,7 +566,7 @@ struct FavoritesOrganizerView: View {
     }
 
     /// 詳細ペインでお気に入りをダブルクリックしたときに呼ぶ。ViewerView内の「お気に入り一覧」
-    /// (openFavoriteAccordingToPreference)と同じく、環境設定「お気に入りを開くとき」
+    /// (openFavoriteAccordingToPreference)と同じく、環境設定「本を開く」の「お気に入りから」
     /// (favoriteOpenBehavior)に従って開く。このウインドウ自体は特定の本のウインドウに
     /// 属さない独立ウインドウのため、「今読んでいる本」の代わりに
     /// launchCoordinator.activeBookAppState(Add This Bookボタンと同じ判定材料)を使う。
