@@ -78,9 +78,26 @@ enum EpubStructureError: Error {
 nonisolated enum EpubStructureResolver {
     private static let containerPath = "META-INF/container.xml"
 
+    /// EPUB内部のマークアップ(container.xml・package document(OPF)・nav.xhtml・各ページの
+    /// XHTMLラッパー)を読むときの、展開後バイト数の上限(8MB)。
+    ///
+    /// これらは正常なEPUBでは数KBに収まる。上限を設けているのは、zipコンテナとしてのEPUBの
+    /// 中身が信用できない入力だからである。XMLはよく圧縮が効くため、小さな圧縮エントリが
+    /// 展開すると数GBになる(いわゆる解凍爆弾)。それをそのままメモリへ載せると、EPUBを
+    /// 開いて構造を解決するだけでアプリを落とせる(ComicInfoResolver.maxByteCountと同じ考え方)。
+    /// zipでは伸長そのものを途中で打ち切れる(ArchiveReading.dataPrefix参照)ため、上限を
+    /// 超える細工エントリは途中で切り詰められ、XMLとして壊れて解析に失敗する=「読めない」
+    /// のと同じ扱いになる(正常なファイルがこの大きさに達することはない)。
+    private static let maxMarkupByteCount = 8 * 1024 * 1024
+
+    /// EPUB内部のマークアップを、解凍爆弾よけの上限つきで読む(maxMarkupByteCountのコメント参照)。
+    private static func markupData(reader: ArchiveReading, at path: String) throws -> Data {
+        try reader.dataPrefix(at: path, maxByteCount: maxMarkupByteCount)
+    }
+
     static func resolve(reader: ArchiveReading) throws -> EpubStructure {
         let opfPath = try resolveOPFPath(reader: reader)
-        let opfData = try reader.data(at: opfPath)
+        let opfData = try markupData(reader: reader, at: opfPath)
         let packageDocument = try parsePackageDocument(data: opfData)
 
         let opfDirectory = directory(of: opfPath)
@@ -115,7 +132,7 @@ nonisolated enum EpubStructureResolver {
     // MARK: - container.xml
 
     private static func resolveOPFPath(reader: ArchiveReading) throws -> String {
-        guard let data = try? reader.data(at: containerPath) else {
+        guard let data = try? markupData(reader: reader, at: containerPath) else {
             throw EpubStructureError.containerNotReadable
         }
         let delegate = ContainerDocumentParserDelegate()
@@ -169,7 +186,7 @@ nonisolated enum EpubStructureResolver {
         guard looksLikeMarkup else { return nil }
 
         guard let resolvedItemPath = matchExistingPath(itemPath, in: allPaths),
-              let contentData = try? reader.data(at: resolvedItemPath) else {
+              let contentData = try? markupData(reader: reader, at: resolvedItemPath) else {
             return nil
         }
 
@@ -269,7 +286,7 @@ nonisolated enum EpubStructureResolver {
     /// 書かれているものだけを除外する)。
     static func resolveMetadata(reader: ArchiveReading) -> SourceBookMetadata {
         guard let opfPath = try? resolveOPFPath(reader: reader),
-              let opfData = try? reader.data(at: opfPath),
+              let opfData = try? markupData(reader: reader, at: opfPath),
               let packageDocument = try? parsePackageDocument(data: opfData)
         else { return SourceBookMetadata() }
 
@@ -359,7 +376,7 @@ nonisolated enum EpubStructureResolver {
     /// EPUB2のtoc.ncxへのフォールバックは行わない(未対応。13節)。
     static func resolveTableOfContents(reader: ArchiveReading, structure: EpubStructure) -> [EpubTOCEntry] {
         guard let opfPath = try? resolveOPFPath(reader: reader),
-              let opfData = try? reader.data(at: opfPath),
+              let opfData = try? markupData(reader: reader, at: opfPath),
               let packageDocument = try? parsePackageDocument(data: opfData)
         else { return [] }
 
@@ -370,7 +387,7 @@ nonisolated enum EpubStructureResolver {
         let allPaths = Set((try? reader.listFilePaths()) ?? [])
         let candidateNavPath = resolvedPath(base: opfDirectory, relative: navItem.href)
         guard let navPath = matchExistingPath(candidateNavPath, in: allPaths),
-              let navData = try? reader.data(at: navPath)
+              let navData = try? markupData(reader: reader, at: navPath)
         else { return [] }
 
         let delegate = NavTOCParserDelegate()

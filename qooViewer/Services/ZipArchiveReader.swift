@@ -48,10 +48,21 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
         Array(entryByCorrectedPath.keys)
     }
 
+    /// 事前確保してよい非圧縮サイズの上限(64MB)。
+    ///
+    /// `entry.uncompressedSize`はセントラルディレクトリの自己申告値で、細工された書庫では
+    /// Int.maxを超える値や天文学的な値になりうる。`Int(_:)`変換はInt.max超えで**トラップ
+    /// (クラッシュ)**し、素直に信じると本を開いた瞬間(先読み)に過大確保でアプリが落ちる。
+    /// 事前確保はあくまで再確保を減らすための最適化なので、健全な範囲までに留める
+    /// (不足分はextractのチャンク追加で伸びるため、読み取り自体は正しく完了する)。
+    /// 展開後サイズそのものの歯止めは呼び出し側(PageLoader.rawData / ComicInfoResolver /
+    /// EpubStructureResolver / NestedArchiveResolver)が持つ。
+    private static let reserveCapByteCount = 64 * 1024 * 1024
+
     func data(at path: String) throws -> Data {
         guard let entry = entryByCorrectedPath[path] else { throw ArchiveReaderError.entryNotFound }
         var result = Data()
-        result.reserveCapacity(Int(entry.uncompressedSize))
+        result.reserveCapacity(Int(min(entry.uncompressedSize, UInt64(Self.reserveCapByteCount))))
         _ = try archive.extract(entry) { chunk in
             result.append(chunk)
         }
@@ -77,7 +88,9 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
         guard let entry = entryByCorrectedPath[path] else { throw ArchiveReaderError.entryNotFound }
         guard maxByteCount > 0 else { return Data() }
         var result = Data()
-        result.reserveCapacity(min(maxByteCount, Int(entry.uncompressedSize)))
+        // maxByteCountで頭打ちになるが、Int(_:)はInt.max超えの申告値でトラップするため
+        // clampingで安全に変換する(reserveCapByteCountのコメント参照)。
+        result.reserveCapacity(min(maxByteCount, Int(clamping: entry.uncompressedSize)))
         do {
             _ = try archive.extract(entry, skipCRC32: true) { chunk in
                 result.append(chunk)

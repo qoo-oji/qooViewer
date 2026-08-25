@@ -119,6 +119,18 @@ actor PageLoader {
     /// 場合は、呼び出し側がエントリ全体の読み込みへフォールバックする(pageSize/pageImageInfo参照)。
     private static let headerProbeByteCount = 128 * 1024
 
+    /// 1枚のページ画像として展開してよい、書庫内エントリの非圧縮サイズの上限(512MB)。
+    ///
+    /// 細工された書庫(zip/cbz・rar/cbr・7z/cb7、およびzipコンテナのEPUB)は、数KBの
+    /// 圧縮エントリが数GBに展開されるよう申告できる(いわゆる解凍爆弾)。本を開くと現在の
+    /// 見開きに加えて前後ページを先読みするため、この歯止めが無いと**細工した本を「開くだけ」で**
+    /// 巨大確保が走りアプリが落ちる。実在するマンガのページ画像は高解像度スキャンでも
+    /// せいぜい数十〜百数十MBで、この上限に達することはない。上限を超えるエントリは
+    /// 「読めなかったページ」として扱う(壊れた書庫と同じ扱い)。
+    /// NestedArchiveResolverが入れ子の書庫に設けている`maxSingleArchiveBytes`(4GB)の、
+    /// 1枚の画像版にあたる安全弁。
+    private static let maxDecodableEntryBytes: Int64 = 512 * 1024 * 1024
+
     // countLimitは64。環境設定の「先読みする画像数」は最大10まで設定できるため、
     // 前後合わせて最大22枚(2*10+見開きの2)が先読み対象になる。枚数の上限はその数倍の余裕を
     // 持たせ、実質的な上限はtotalCostLimit(メモリ量)に任せる。
@@ -1037,7 +1049,14 @@ actor PageLoader {
         case .file(let url):
             return try? Data(contentsOf: url)
         case .archive(let locator, let entryPath):
-            return try? reader(for: locator)?.data(at: entryPath)
+            guard let reader = reader(for: locator) else { return nil }
+            // 解凍爆弾よけ: 展開後サイズが上限を超えるエントリは読み込まない
+            // (maxDecodableEntryBytesのコメント参照)。申告サイズを取れない形式でも、
+            // ZipArchiveReader側が事前確保を抑えているためトラップ/過大確保にはならない。
+            if let size = reader.entryUncompressedSize(at: entryPath), size > Self.maxDecodableEntryBytes {
+                return nil
+            }
+            return try? reader.data(at: entryPath)
         case .pdf:
             // PDFはdecodedImage(for:maxPixelSize:)側で直接renderPDFPageに振り分けられるため、
             // ここが実際に呼ばれることはない(switchを網羅させるためのプレースホルダー)。
