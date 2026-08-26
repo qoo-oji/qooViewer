@@ -131,10 +131,21 @@ struct ViewerView: View {
     private var hostWindow: NSWindow? { hostWindowBox.window }
     /// 現在フルスクリーン表示中かどうか。
     @State private var isFullScreen = false
-    /// 自動隠し中のツールバー・プログレスバーを、マウスが画面端に近いために一時的に表示しているか
-    /// どうか。フルスクリーン中、またはウインドウ表示でもhideToolbar/hideProgressBarが
-    /// ONのときに使われる(自動隠しが有効でないときは常にtrue相当として扱う。bodyの表示条件参照)。
-    @State private var isAutoHiddenChromeRevealed = true
+    /// 自動隠し中のツールバーを、マウスが画面端に近いために一時的に表示しているかどうか。
+    /// フルスクリーン中、またはウインドウ表示でもhideToolbarがONのときに使われる
+    /// (自動隠しが有効でないときは常にtrue相当として扱う。bodyの表示条件参照)。
+    @State private var isToolbarAutoRevealed = true
+    /// プログレスバー側の同じもの。以前はツールバーと1つの@Stateを共有していたが、
+    /// 「端に近づけてから表示されるまでの時間」を部分ごとに設定できるようにした
+    /// (ユーザー要望)ため、別々に持つ必要が出た。**表示のきっかけは今も共通**
+    /// (上端・下端どちらの帯に入っても両方が対象。updateAutoHiddenChromeVisibility参照)で、
+    /// 違うのは「何秒待ってから表示するか」だけ。
+    @State private var isProgressBarAutoRevealed = true
+    /// 上の2つを「表示までの時間」(環境設定)ぶん待ってから表示するための、待機中のタスク。
+    /// 待っている間にカーソルが帯から出たらキャンセルする(scheduleToolbarReveal参照)。
+    /// 遅延が0(既定)のときは使わず、その場で表示する。
+    @State private var toolbarRevealTask: Task<Void, Never>?
+    @State private var progressBarRevealTask: Task<Void, Never>?
     /// 自動隠し中のツールバーの「下端」の位置(NSEvent.locationInWindowと同じ、ウインドウ座標系での
     /// Y座標)。updateAutoHiddenChromeVisibilityでのマウス位置判定に使う。
     /// 以前は「window.contentView.frame.heightからツールバーの高さを引く」形で上端の位置を
@@ -329,15 +340,11 @@ struct ViewerView: View {
         // カーソルがウインドウの外へ出たときに、自動表示中のツールバー/プログレスバーを
         // 即座に隠すための橋渡し(AppState.hideAutoRevealedChromeのコメント参照)。
         // 拡大鏡ON時の強制非表示(下の.onChange(of: viewModel.isLoupeActive))と同じ処理内容。
-        // 値が変わるときだけ書き戻す(@Publishedは同じ値の再代入でもobjectWillChangeを
-        // 発火させるため。ContentView.dismissAutoRevealedChromeIfCursorLeftWindowのコメント参照)。
+        // 表示待ちのタスクの取り消しも含めて、後始末はhideAutoRevealedChromeNow()に集約して
+        // ある(カーソルがウインドウの外へ出たあとに待ち時間が明けて表示されてしまう、という
+        // 取り違えを防ぐため)。
         appState.hideAutoRevealedChrome = {
-            if isAutoHiddenChromeRevealed {
-                isAutoHiddenChromeRevealed = false
-            }
-            if appState.isChromeAutoRevealed {
-                appState.isChromeAutoRevealed = false
-            }
+            hideAutoRevealedChromeNow()
         }
         // サイドパネル(ページモード)のサムネイル取得の橋渡し
         // (AppState.loadPageThumbnailのコメント参照)。ページ一覧グリッド
@@ -790,6 +797,7 @@ struct ViewerView: View {
         toastDismissTask = nil
         zoomIndicatorHideTask?.cancel()
         zoomIndicatorHideTask = nil
+        cancelPendingChromeReveal()
         if isCursorHidden {
             NSCursor.unhide()
             isCursorHidden = false
@@ -975,17 +983,22 @@ struct ViewerView: View {
         return applyLayoutAlerts(to: withSheets)
     }
 
+    /// ツールバーが自動隠しの対象かどうか。フルスクリーン表示中は、表示メニューの
+    /// 「ツールバーを隠す」の設定に関わらず常に自動隠しになる。ウインドウ表示のときは、
+    /// その設定がONのときだけ自動隠しになる(OFFなら常に表示)。
+    private var toolbarAutoHides: Bool { isFullScreen || appState.hideToolbar }
+    /// プログレスバー側の同じもの(toolbarAutoHides参照)。
+    private var progressBarAutoHides: Bool { isFullScreen || appState.hideProgressBar }
+
     /// bodyから切り出したZStack本体(handleOnAppearのコメント参照)。
     private var mainZStack: some View {
-        // フルスクリーン表示中は、表示メニューの「ツールバーを隠す」「プログレスバーを隠す」の
-        // 設定に関わらず、常に自動隠しになる。ウインドウ表示のときは、それぞれの設定がONの
-        // ときだけ自動隠しになる(OFFなら常に表示)。
-        let toolbarAutoHides = isFullScreen || appState.hideToolbar
-        let progressBarAutoHides = isFullScreen || appState.hideProgressBar
+        // 自動隠しかどうかの判定(toolbarAutoHides/progressBarAutoHides)は、マウス位置に
+        // よる自動表示の側(updateAutoHiddenChromeVisibilityなど)と条件を1箇所で共有するため、
+        // このビューの計算プロパティにしてある。
         // 自動隠し中のツールバー・プログレスバーを、マウスが画面端に近づいたことで
         // 一時的に表示している状態かどうか。
-        let showToolbarOverlay = toolbarAutoHides && isAutoHiddenChromeRevealed
-        let showProgressBarOverlay = progressBarAutoHides && isAutoHiddenChromeRevealed
+        let showToolbarOverlay = toolbarAutoHides && isToolbarAutoRevealed
+        let showProgressBarOverlay = progressBarAutoHides && isProgressBarAutoRevealed
 
         // 自動隠しでない(常に表示する)ときは、以前と同じくVStackの一部として組み込み、
         // 画像表示エリアはその分だけ縮んだ残りの領域を使う。
@@ -1255,10 +1268,7 @@ struct ViewerView: View {
             // ContentView.installSidePanelHoverMonitorIfNeededのガードは、あくまで
             // 「今後の自動表示を抑止する」だけで、既に表示中のものは閉じないため)。
             if isActive {
-                if isAutoHiddenChromeRevealed {
-                    isAutoHiddenChromeRevealed = false
-                }
-                appState.isChromeAutoRevealed = false
+                hideAutoRevealedChromeNow()
                 appState.isSidePanelRevealed = false
             }
         }
@@ -3139,7 +3149,8 @@ struct ViewerView: View {
         window.acceptsMouseMovedEvents = true
 
         isFullScreen = window.styleMask.contains(.fullScreen)
-        isAutoHiddenChromeRevealed = true
+        isToolbarAutoRevealed = true
+        isProgressBarAutoRevealed = true
 
         // 「ブックマークの編集」ウインドウ・「お気に入りの整理」ウインドウの「現在の本を追加」が
         // 「今読んでいる本」を特定できるように、このウインドウが(本を表示しているウインドウとして)
@@ -3187,13 +3198,15 @@ struct ViewerView: View {
             forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main
         ) { _ in
             isFullScreen = true
-            isAutoHiddenChromeRevealed = true
+            isToolbarAutoRevealed = true
+            isProgressBarAutoRevealed = true
         }
         let exit = NotificationCenter.default.addObserver(
             forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main
         ) { _ in
             isFullScreen = false
-            isAutoHiddenChromeRevealed = true
+            isToolbarAutoRevealed = true
+            isProgressBarAutoRevealed = true
         }
         // NSCursor.hide()/unhide()はウインドウ単位ではなくアプリ全体に効く。そのため、
         // このウインドウがアクティブでなくなった(環境設定ウインドウや他のqooViewer
@@ -3317,21 +3330,24 @@ struct ViewerView: View {
     /// (フルスクリーンでなく、かつ両方の設定がOFFの)ときは何もしない(常に表示するため)。
     /// カーソルのx座標と同様、実際に表示が変わる(=真偽値が反転する)ときだけ@Stateを
     /// 書き換える(過去のプログレスバーの不具合の反省を踏まえた安全策)。
+    ///
+    /// 表示するのは、環境設定「表示までの時間」(ツールバーとプログレスバーで別々に設定できる。
+    /// 既定はどちらも0=即時)ぶん待ってから(scheduleToolbarReveal参照)。隠すほうは待たない。
     private func updateAutoHiddenChromeVisibility(forMouseLocationInWindow location: CGPoint) {
         // 拡大鏡(ルーペ)表示中は、カーソルを画面の上下端に近づけてもツールバー/
         // プログレスバーを自動表示させない(ユーザー要望: 拡大鏡での閲覧を妨げないため)。
         guard !appState.isLoupeActive else {
-            if isAutoHiddenChromeRevealed {
-                isAutoHiddenChromeRevealed = false
-            }
-            appState.isChromeAutoRevealed = false
+            hideAutoRevealedChromeNow()
             return
         }
-        guard isFullScreen || appState.hideToolbar || appState.hideProgressBar,
+        guard toolbarAutoHides || progressBarAutoHides,
               hostWindow != nil else {
             // 自動隠し自体が無効なときは、サイドパネル側から見て「ツールバー/プログレスバーが
             // 今まさに表示されている」という誤情報にならないよう、必ず false に戻しておく。
-            appState.isChromeAutoRevealed = false
+            cancelPendingChromeReveal()
+            if appState.isChromeAutoRevealed {
+                appState.isChromeAutoRevealed = false
+            }
             return
         }
         // 上端(ツールバー側)の判定には、window.contentView.frame.heightからツールバーの高さを
@@ -3350,13 +3366,155 @@ struct ViewerView: View {
         // いる場合、新たにツールバー/プログレスバーを表示させない(ユーザー報告: サイドパネルを
         // 表示した状態でカーソルを上へ動かすと、ツールバーまで表示されてしまっていた)。
         // 既に表示中のものを隠す方向(shouldShow == false)には影響しない。
-        if shouldShow, !isAutoHiddenChromeRevealed, appState.isSidePanelRevealed {
+        guard shouldShow else {
+            hideAutoRevealedChromeNow()
             return
         }
-        if isAutoHiddenChromeRevealed != shouldShow {
-            isAutoHiddenChromeRevealed = shouldShow
+        if !isToolbarAutoRevealed, !isProgressBarAutoRevealed, appState.isSidePanelRevealed {
+            cancelPendingChromeReveal()
+            return
         }
-        appState.isChromeAutoRevealed = isAutoHiddenChromeRevealed
+        // 表示するのは「表示までの時間」(環境設定、既定0=即時)が経ってから。
+        // 帯に入っているあいだのマウス移動でここへ何度来ても、待機中のタスクは積み直さない。
+        if toolbarAutoHides {
+            scheduleToolbarReveal()
+        }
+        if progressBarAutoHides {
+            scheduleProgressBarReveal()
+        }
+    }
+
+    /// 自動表示中のツールバー/プログレスバーを、表示待ちのタスクごと今すぐ取り下げる。
+    /// カーソルが帯から出たとき・ウインドウの外へ出たとき(AppState.hideAutoRevealedChrome
+    /// 経由)・拡大鏡をONにしたときの、共通の後始末。
+    ///
+    /// 値が変わるときだけ書き戻す(@Publishedは同じ値の再代入でもobjectWillChangeを発火させ、
+    /// マウスを動かすたびにウインドウ全体が無駄に再評価されてしまうため。
+    /// ContentView.dismissAutoRevealedChromeIfCursorLeftWindowのコメント参照)。
+    private func hideAutoRevealedChromeNow() {
+        cancelPendingChromeReveal()
+        if isToolbarAutoRevealed {
+            isToolbarAutoRevealed = false
+        }
+        if isProgressBarAutoRevealed {
+            isProgressBarAutoRevealed = false
+        }
+        if appState.isChromeAutoRevealed {
+            appState.isChromeAutoRevealed = false
+        }
+    }
+
+    /// 表示待ちのタスクをすべて取り消す。
+    ///
+    /// nilのときに何もしないのは意味の無い代入を避けるためだけではない。ここはカーソルが帯の
+    /// 外にある間、マウスを動かすたびに呼ばれる経路にあり、@Stateへ代入すればTaskは
+    /// Equatableでないため毎回ビューの再評価が走ってしまう。
+    private func cancelPendingChromeReveal() {
+        cancelToolbarRevealTask()
+        cancelProgressBarRevealTask()
+    }
+
+    private func cancelToolbarRevealTask() {
+        guard let task = toolbarRevealTask else { return }
+        task.cancel()
+        toolbarRevealTask = nil
+    }
+
+    private func cancelProgressBarRevealTask() {
+        guard let task = progressBarRevealTask else { return }
+        task.cancel()
+        progressBarRevealTask = nil
+    }
+
+    /// ツールバーを「表示までの時間」(環境設定。ツールバー・プログレスバー・サイドパネルで
+    /// それぞれ独立)だけ待ってから表示する。0(既定)ならその場で表示する。
+    ///
+    /// 待っている間にカーソルが帯から出れば、updateAutoHiddenChromeVisibilityが
+    /// hideAutoRevealedChromeNow()を呼んでこのタスクを取り消すので、何も表示されないまま終わる
+    /// (ユーザー要望: 別のウインドウやメニューバーへ移動したいだけのときに、通りすがりで
+    /// 隠している部分が反応してしまうのを避けるため)。
+    private func scheduleToolbarReveal() {
+        guard !isToolbarAutoRevealed else { return }
+        let delay = preferences.toolbarRevealDelayNanoseconds
+        guard delay > 0 else {
+            cancelToolbarRevealTask()
+            revealToolbarNow()
+            return
+        }
+        // 既に待機中なら積み直さない。積み直すと、帯の中でカーソルを動かし続けている限り
+        // いつまでも表示されないことになる。
+        guard toolbarRevealTask == nil else { return }
+        toolbarRevealTask = Task {
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                toolbarRevealTask = nil
+                guard isAutoRevealBandStillActive() else { return }
+                revealToolbarNow()
+            }
+        }
+    }
+
+    /// プログレスバー側の同じもの(scheduleToolbarReveal参照)。待ち時間だけが別の設定値になる。
+    private func scheduleProgressBarReveal() {
+        guard !isProgressBarAutoRevealed else { return }
+        let delay = preferences.progressBarRevealDelayNanoseconds
+        guard delay > 0 else {
+            cancelProgressBarRevealTask()
+            revealProgressBarNow()
+            return
+        }
+        guard progressBarRevealTask == nil else { return }
+        progressBarRevealTask = Task {
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                progressBarRevealTask = nil
+                guard isAutoRevealBandStillActive() else { return }
+                revealProgressBarNow()
+            }
+        }
+    }
+
+    private func revealToolbarNow() {
+        if !isToolbarAutoRevealed {
+            isToolbarAutoRevealed = true
+        }
+        if !appState.isChromeAutoRevealed {
+            appState.isChromeAutoRevealed = true
+        }
+    }
+
+    private func revealProgressBarNow() {
+        if !isProgressBarAutoRevealed {
+            isProgressBarAutoRevealed = true
+        }
+        if !appState.isChromeAutoRevealed {
+            appState.isChromeAutoRevealed = true
+        }
+    }
+
+    /// 待ち時間が明けた瞬間に、「今もカーソルが上端/下端の帯の中にあり、表示してよい状態か」を
+    /// 現在のカーソル位置から確かめ直す。
+    ///
+    /// 待っている間にカーソルがウインドウの外(メニューバー・他のアプリのウインドウ)へ抜けると、
+    /// このビューのローカルモニタには.mouseMovedが届かず、タスクが取り消されないまま残ることが
+    /// ある。「メニューバーへ移動したいだけなのに反応する」のを避けるための設定なので、ここで
+    /// 取りこぼすと目的そのものを外す。判定内容はupdateAutoHiddenChromeVisibilityと同じで、
+    /// 入力をイベントの座標ではなく現在のカーソル位置(NSEvent.mouseLocation)に替えただけ。
+    private func isAutoRevealBandStillActive() -> Bool {
+        guard !appState.isLoupeActive else { return false }
+        guard toolbarAutoHides || progressBarAutoHides else { return false }
+        // 待っている間にサイドパネルが先に開いたら、そちらに主導権を譲る
+        // (updateAutoHiddenChromeVisibilityの同じ判定と揃えてある)。
+        guard !appState.isSidePanelRevealed else { return false }
+        guard let window = hostWindow, window.isKeyWindow else { return false }
+        let screenLocation = NSEvent.mouseLocation
+        guard window.frame.contains(screenLocation) else { return false }
+        // locationInWindowと同じ座標系(ウインドウのフレーム左下が原点)へ変換してから、
+        // 上端/下端の帯の判定にかける。
+        let location = window.convertPoint(fromScreen: screenLocation)
+        return location.y >= toolbarBottomYInWindow || location.y < progressBarHeight
     }
 
     /// メニューバーの各種チェックマーク・グレーアウト状態を、現在のviewModelの値で更新する。

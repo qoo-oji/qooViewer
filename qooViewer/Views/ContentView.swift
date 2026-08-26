@@ -71,6 +71,10 @@ struct ContentView: View {
     /// このアプリのメニューが今開かれているかどうか(installMenuTrackingObserversIfNeeded参照)。
     /// 開いている間は、ホバー表示中のサイドパネルを閉じない。
     @State private var isMenuTracking = false
+    /// 端の帯に入ってから、環境設定の「表示までの時間」(サイドパネルぶん)が経つのを待って
+    /// いるタスク。待っている間に帯から出たらキャンセルする(scheduleSidePanelReveal参照)。
+    /// 遅延が0(既定)のときは使わず、その場で表示する。
+    @State private var sidePanelRevealTask: Task<Void, Never>?
 
     // MARK: - サイドパネルの行の右クリックからのリネーム・削除(ユーザー要望)
 
@@ -1100,30 +1104,28 @@ struct ContentView: View {
     /// 端に近づいただけでサイドパネルまで表示されてしまう(ユーザー報告)。
     /// appState.isChromeAutoRevealed(ツールバー/プログレスバーが今まさに表示されているか)を
     /// 見て、それらが既にカーソルの主導権を握っている間は新たに表示しない。
+    ///
+    /// 表示するのは、環境設定「表示までの時間」のサイドパネルぶん(既定0=即時)を待ってから
+    /// (scheduleSidePanelReveal参照)。隠すほうは待たない。
     private func updateSidePanelReveal(forMouseLocationInWindow location: CGPoint, window: NSWindow) {
-        guard preferences.sidePanelFeatureEnabled, appState.hideSidePanel else { return }
+        guard preferences.sidePanelFeatureEnabled, appState.hideSidePanel else {
+            cancelPendingSidePanelReveal()
+            return
+        }
         // 拡大鏡(ルーペ)表示中は、カーソルを端に近づけてもサイドパネルを表示させない
         // (ユーザー要望: 拡大鏡での閲覧を妨げないため。ONにした瞬間の強制非表示は
         // ViewerViewのisLoupeActiveのonChange側で行う)。
-        guard !appState.isLoupeActive else { return }
+        guard !appState.isLoupeActive else {
+            cancelPendingSidePanelReveal()
+            return
+        }
         // メニューが開いている間は、表示も非表示も行わない
         // (installMenuTrackingObserversIfNeededのコメント参照)。
         guard !isMenuTracking else { return }
         // パネルの行から開いたリネーム・削除のダイアログが出ている間も同じ
         // (isSidePanelEditingDialogPresentedのコメント参照)。
         guard !isSidePanelEditingDialogPresented else { return }
-        // パネルを置いている側のウインドウ端から、カーソルまでの距離。左配置ならX座標そのもの、
-        // 右配置なら「内容の右端からの距離」。以降の判定は左右で完全に共通になる。
-        let distanceFromPanelEdge: CGFloat
-        switch preferences.sidePanelPosition {
-        case .left:
-            distanceFromPanelEdge = location.x
-        case .right:
-            // ウインドウ座標系のX座標は、タイトルバーの有無に関わらず内容ビューの左端が原点。
-            // 右端の座標は内容ビューの幅そのものになる(取得できない場合のみフレーム幅で代用)。
-            let contentWidth = window.contentView?.bounds.width ?? window.frame.width
-            distanceFromPanelEdge = contentWidth - location.x
-        }
+        let distanceFromPanelEdge = distanceFromPanelEdge(forMouseLocationInWindow: location, window: window)
         if appState.isSidePanelRevealed {
             // + sidePanelHideMargin: パネルのビューア側の端にある幅調整ハンドル
             // (widthDragHitArea)自体が境界(sidePanelWidth)ぎりぎりの位置にあるため、
@@ -1135,8 +1137,83 @@ struct ContentView: View {
         } else if distanceFromPanelEdge <= Self.sidePanelRevealBandWidth, !appState.isChromeAutoRevealed {
             // ここでフォルダブラウザを再アンカーしてはいけない(本の切り替わりを見ている
             // .onChange(of: appState.currentBook?.id)のコメント参照)。表示するだけ。
-            appState.isSidePanelRevealed = true
+            scheduleSidePanelReveal()
+        } else {
+            // 帯から出たら、表示待ちは取り消す(通りすがりでは表示しない)。
+            cancelPendingSidePanelReveal()
         }
+    }
+
+    /// パネルを置いている側のウインドウ端から、カーソルまでの距離。左配置ならX座標そのもの、
+    /// 右配置なら「内容の右端からの距離」。これを挟むことで、以降の判定は左右で完全に共通になる。
+    private func distanceFromPanelEdge(forMouseLocationInWindow location: CGPoint, window: NSWindow) -> CGFloat {
+        switch preferences.sidePanelPosition {
+        case .left:
+            return location.x
+        case .right:
+            // ウインドウ座標系のX座標は、タイトルバーの有無に関わらず内容ビューの左端が原点。
+            // 右端の座標は内容ビューの幅そのものになる(取得できない場合のみフレーム幅で代用)。
+            let contentWidth = window.contentView?.bounds.width ?? window.frame.width
+            return contentWidth - location.x
+        }
+    }
+
+    /// サイドパネルを、環境設定の「表示までの時間」(ツールバー・プログレスバー・サイドパネルで
+    /// それぞれ独立して設定できる)だけ待ってから表示する。0(既定)ならその場で表示する。
+    ///
+    /// 待っている間にカーソルが帯から出れば、上のupdateSidePanelRevealがこのタスクを取り消すので、
+    /// パネルは出てこないまま終わる(ユーザー要望: 別のウインドウやメニューバーへカーソルを
+    /// 動かしたいだけのときに、通りすがりで隠している部分が反応するのを避けるため)。
+    private func scheduleSidePanelReveal() {
+        let delay = preferences.sidePanelRevealDelayNanoseconds
+        guard delay > 0 else {
+            cancelPendingSidePanelReveal()
+            appState.isSidePanelRevealed = true
+            return
+        }
+        // 既に待機中なら積み直さない。積み直すと、帯の中でカーソルを動かし続けている限り
+        // いつまでも表示されないことになる。
+        guard sidePanelRevealTask == nil else { return }
+        sidePanelRevealTask = Task {
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                sidePanelRevealTask = nil
+                guard isSidePanelRevealBandStillActive() else { return }
+                appState.isSidePanelRevealed = true
+            }
+        }
+    }
+
+    /// 表示待ちのタスクを取り消す。nilのときに何もしないのは意味の無い代入を避けるためだけでは
+    /// ない。ここはカーソルが帯の外にある間、マウスを動かすたびに呼ばれる経路にあり、@Stateへ
+    /// 代入すればTaskはEquatableでないため毎回ビューの再評価が走ってしまう。
+    private func cancelPendingSidePanelReveal() {
+        guard let task = sidePanelRevealTask else { return }
+        task.cancel()
+        sidePanelRevealTask = nil
+    }
+
+    /// 待ち時間が明けた瞬間に、「今もカーソルが端の帯の中にあり、表示してよい状態か」を
+    /// 現在のカーソル位置から確かめ直す。
+    ///
+    /// 待っている間にカーソルがウインドウの外(メニューバー・他のアプリのウインドウ)へ抜けると、
+    /// ローカルモニタには何も届かず、タスクが取り消されないまま残ることがある。
+    /// 「メニューバーへ移動したいだけなのに反応する」のを避けるための設定なので、ここで
+    /// 取りこぼすと目的そのものを外す。判定内容はupdateSidePanelRevealと同じで、入力を
+    /// イベントの座標ではなく現在のカーソル位置(NSEvent.mouseLocation)に替えただけ。
+    private func isSidePanelRevealBandStillActive() -> Bool {
+        guard preferences.sidePanelFeatureEnabled, appState.hideSidePanel else { return false }
+        guard !appState.isLoupeActive, !isMenuTracking, !isSidePanelEditingDialogPresented else { return false }
+        guard !appState.isChromeAutoRevealed else { return false }
+        guard let window = appState.hostWindow, window.isKeyWindow else { return false }
+        let screenLocation = NSEvent.mouseLocation
+        guard window.frame.contains(screenLocation) else { return false }
+        // locationInWindowと同じ座標系(ウインドウのフレーム左下が原点)へ変換してから、
+        // 端の帯の判定にかける。
+        let location = window.convertPoint(fromScreen: screenLocation)
+        return distanceFromPanelEdge(forMouseLocationInWindow: location, window: window)
+            <= Self.sidePanelRevealBandWidth
     }
 
     /// カーソルがこのウインドウの外に出ていれば、マウスの位置によって自動表示されているもの
@@ -1169,6 +1246,10 @@ struct ContentView: View {
         // パネルの行から開いたダイアログが出ている間も閉じない。ダイアログはウインドウの
         // 外側にはみ出さないが、そこへカーソルを運ぶ途中でウインドウの外を通ることはある。
         guard !isSidePanelEditingDialogPresented else { return true }
+        // 表示待ちの予約は、まだ何も表示されていなくても(=下のhasAutoRevealedChromeが
+        // falseでも)取り消す必要がある。外へ出たあとに待ち時間が明けて表示される、という
+        // 取り違えを防ぐため。
+        cancelPendingSidePanelReveal()
         // 閉じるものが1つも無ければ、外に出ていること(戻り値)だけ伝えて何もしない。
         // このアプリの他のウインドウ(環境設定ウインドウなど)の上でマウスを動かしている間は
         // ローカルモニタがマウス移動のたびにここへ来るため、無条件に@Publishedへ書き戻すと、
@@ -1257,6 +1338,7 @@ struct ContentView: View {
             NSEvent.removeMonitor(sidePanelHoverMonitor)
         }
         sidePanelHoverMonitor = nil
+        cancelPendingSidePanelReveal()
     }
 
     private func removeOutsideWindowMonitor() {

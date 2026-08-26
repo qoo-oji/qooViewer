@@ -7,9 +7,12 @@ import SwiftUI
 /// プログレスバー・サイドパネル)の背景色と透明度を、それぞれ個別に設定したい。加えて、
 /// アプリの見た目に関する設定が複数のタブに散らばっていたので、この画面へ集約する。
 ///
-/// 移してきたのは次の2つ。
+/// 移してきたのは次の3つ。
 ///   ・ビューアの背景色(旧「画像の表示」)
 ///   ・ページ一覧の見え方すべて(旧「閲覧中の動作」のサイズ・間隔・余白)
+///   ・自動的に隠れる3面(ツールバー・プログレスバー・サイドパネル)の「表示までの時間」
+///     ―― 当初は「閲覧中の動作」に3本まとめて置いていたが、その部分の設定は既にこの画面の
+///     面ごとのセクションにあるので、そちらへ統合した(ユーザーの指示)
 /// ページ一覧は「色や文字だけをこちらへ、寸法は元のまま」という分け方も考えたが、
 /// 1つのパネルの見た目を決める設定が2画面に分かれるほうが探しづらいという判断で、
 /// **一括でこちらへ**移した(ユーザーの指示)。逆に、ページ一覧に関する設定でも
@@ -196,7 +199,9 @@ struct AppearanceSettingsView: View {
 
     // MARK: - すりガラスの面
 
-    /// 1つの面ぶんのセクション。4面とも中身は同じ3項目で、`PanelSurface`から生成する。
+    /// 1つの面ぶんのセクション。すりガラスの4項目はどの面も共通で、`PanelSurface`から生成する。
+    /// 自動的に隠れる3面(ツールバー・プログレスバー・サイドパネル)だけ、末尾に
+    /// 「表示までの時間」が加わる(revealDelayBinding(for:)参照)。
     private func surfaceSection(_ surface: PanelSurface) -> some View {
         let style = preferences.surfaceStyleBinding(for: surface)
         return Section {
@@ -234,8 +239,35 @@ struct AppearanceSettingsView: View {
             ) { value in
                 PanelContentShadow.displayText(forLevel: Int(value.rounded()), locale: preferences.effectiveLocale)
             }
+            // 自動的に隠れる3面(ツールバー・プログレスバー・サイドパネル)にだけ、
+            // 「隠しているとき、端にカーソルを近づけてから表示されるまでの待ち時間」を添える
+            // (ユーザーの指示で、この面ごとのセクションへ統合した)。すりガラスの4項目と
+            // 違って全面に共通ではないので、面ごとの分岐はrevealDelayBinding(for:)が持つ。
+            if let revealDelay = revealDelayBinding(for: surface) {
+                SettingsSlider(
+                    "Delay Before Showing",
+                    value: revealDelay,
+                    in: AppPreferences.autoRevealDelayRange,
+                    step: 0.1,
+                    help: "How long the pointer has to stay near the window edge before this part appears while it is hidden. In full screen the toolbar and progress bar are always hidden, so it applies there too."
+                ) { value in
+                    String(format: "%.1f s", value)
+                }
+            }
         } header: {
             Text(surface.titleKey)
+        }
+    }
+
+    /// 「表示までの時間」のBinding。自動的に隠れる面だけが持ち、それ以外はnil
+    /// (ページ一覧パネルはキー/メニューで開閉するもので、浮かぶ表示は操作の結果として出る
+    /// ものなので、どちらもカーソルを端へ近づけて出す仕組みを持たない)。
+    private func revealDelayBinding(for surface: PanelSurface) -> Binding<Double>? {
+        switch surface {
+        case .toolbar: $preferences.toolbarRevealDelay
+        case .progressBar: $preferences.progressBarRevealDelay
+        case .sidePanel: $preferences.sidePanelRevealDelay
+        case .pageList, .overlays: nil
         }
     }
 

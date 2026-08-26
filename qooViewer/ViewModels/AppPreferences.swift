@@ -28,6 +28,9 @@ final class AppPreferences: ObservableObject {
         static let backgroundColorOption = "qooViewer.pref.backgroundColorOption"
         static let customBackgroundColor = "qooViewer.pref.customBackgroundColor"
         static let cursorAutoHideDelay = "qooViewer.pref.cursorAutoHideDelay"
+        static let toolbarRevealDelay = "qooViewer.pref.toolbarRevealDelay"
+        static let progressBarRevealDelay = "qooViewer.pref.progressBarRevealDelay"
+        static let sidePanelRevealDelay = "qooViewer.pref.sidePanelRevealDelay"
         static let prefetchPageCount = "qooViewer.pref.prefetchPageCount"
         static let displayLanguage = "qooViewer.pref.displayLanguage"
         static let reopenBehavior = "qooViewer.pref.reopenBehavior"
@@ -209,6 +212,41 @@ final class AppPreferences: ObservableObject {
     /// しばらく操作がないと判定してマウスカーソルを自動的に隠すまでの時間(秒)
     @Published var cursorAutoHideDelay: Double {
         didSet { UserDefaults.standard.set(cursorAutoHideDelay, forKey: Keys.cursorAutoHideDelay) }
+    }
+    /// 自動隠し中のツールバーを、カーソルをウインドウの端へ近づけてから実際に表示するまでの
+    /// 待ち時間(秒)。既定は0=これまでどおり即座に表示する。
+    ///
+    /// ユーザー要望: 別のウインドウやメニューバーへカーソルを動かしたいだけなのに、通りすがりで
+    /// 隠していた部分が反応するのが鬱陶しいことがある。待っている間にカーソルを端から離せば
+    /// 表示されないままになる(ViewerView.scheduleToolbarReveal参照)。
+    ///
+    /// 待ち時間はツールバー・プログレスバー・サイドパネルで**別々に**持つ(ユーザー要望)。
+    /// ツールバーとプログレスバーは従来どおり「上端/下端どちらの帯でも両方が対象」という
+    /// 同じきっかけで表示されるが、そこから何秒待つかだけがこの3つの値で決まる。
+    ///
+    /// 環境設定の画面上は「外観」の面ごとのセクション(ツールバー/プログレスバー/サイドパネル)に
+    /// あり、リセットの担当もそちらの画面になる(keys(for:)の.appearance参照。**画面の置き場所と
+    /// keys(for:)は必ず揃えること**)。
+    @Published var toolbarRevealDelay: Double {
+        didSet { UserDefaults.standard.set(toolbarRevealDelay, forKey: Keys.toolbarRevealDelay) }
+    }
+    /// プログレスバー側の同じもの(toolbarRevealDelay参照)。
+    @Published var progressBarRevealDelay: Double {
+        didSet { UserDefaults.standard.set(progressBarRevealDelay, forKey: Keys.progressBarRevealDelay) }
+    }
+    /// サイドパネル側の同じもの(toolbarRevealDelay参照)。こちらのきっかけは左右どちらかの
+    /// 端の帯(ContentView.updateSidePanelReveal参照)。
+    @Published var sidePanelRevealDelay: Double {
+        didSet { UserDefaults.standard.set(sidePanelRevealDelay, forKey: Keys.sidePanelRevealDelay) }
+    }
+    /// 上の3つに共通の、指定できる範囲。0.1秒刻みで最大2秒まで(ユーザーの指定)。
+    static let autoRevealDelayRange: ClosedRange<Double> = 0...2
+    /// 3つの遅延をTask.sleep用のナノ秒で返す。保存値が負でも0として扱う。
+    var toolbarRevealDelayNanoseconds: UInt64 { Self.revealDelayNanoseconds(toolbarRevealDelay) }
+    var progressBarRevealDelayNanoseconds: UInt64 { Self.revealDelayNanoseconds(progressBarRevealDelay) }
+    var sidePanelRevealDelayNanoseconds: UInt64 { Self.revealDelayNanoseconds(sidePanelRevealDelay) }
+    private static func revealDelayNanoseconds(_ seconds: Double) -> UInt64 {
+        UInt64(max(seconds, 0) * 1_000_000_000)
     }
     /// 現在のページの前後何ページ分を先読みするか
     @Published var prefetchPageCount: Double {
@@ -856,6 +894,10 @@ final class AppPreferences: ObservableObject {
             RGBColorValue(hexString: defaults.string(forKey: Keys.customBackgroundColor) ?? "")
             ?? Self.defaultCustomBackgroundColor
         self.cursorAutoHideDelay = defaults.object(forKey: Keys.cursorAutoHideDelay) as? Double ?? 2.0
+        // 既定は0(待たずに表示)。この設定を入れる前と同じ挙動にしておく。
+        self.toolbarRevealDelay = defaults.object(forKey: Keys.toolbarRevealDelay) as? Double ?? 0
+        self.progressBarRevealDelay = defaults.object(forKey: Keys.progressBarRevealDelay) as? Double ?? 0
+        self.sidePanelRevealDelay = defaults.object(forKey: Keys.sidePanelRevealDelay) as? Double ?? 0
         self.prefetchPageCount = defaults.object(forKey: Keys.prefetchPageCount) as? Double ?? 3
         self.displayLanguage = AppLanguage(rawValue: defaults.string(forKey: Keys.displayLanguage) ?? "") ?? .system
         self.reopenBehavior = ReopenBehavior(rawValue: defaults.string(forKey: Keys.reopenBehavior) ?? "") ?? .resume
@@ -1061,6 +1103,12 @@ extension AppPreferences {
                 // ホイールのスクロール行数もページ一覧パネル専用なので、画面ごと
                 // こちらへ移してある(ユーザーの指示)。
                 Keys.thumbnailGridWheelScrollRows,
+                // 「表示までの時間」は、面ごとのセクション(ツールバー/プログレスバー/
+                // サイドパネル)の中にあるので、この画面の担当
+                // (AppearanceSettingsView.revealDelayBinding(for:)参照)。
+                Keys.toolbarRevealDelay,
+                Keys.progressBarRevealDelay,
+                Keys.sidePanelRevealDelay,
             ] + PanelSurface.allCases.flatMap {
                 // 面ごとの設定を1つ増やしたら**ここにも足すこと**。`apply`が渡す
                 // `AppPreferences()`はUserDefaultsから読み直すので、キーを消し忘れると
@@ -1154,6 +1202,9 @@ extension AppPreferences {
             thumbnailGridBorderCustomColor = source.thumbnailGridBorderCustomColor
             showThumbnailHoverPreview = source.showThumbnailHoverPreview
             thumbnailGridWheelScrollRows = source.thumbnailGridWheelScrollRows
+            toolbarRevealDelay = source.toolbarRevealDelay
+            progressBarRevealDelay = source.progressBarRevealDelay
+            sidePanelRevealDelay = source.sidePanelRevealDelay
             for surface in PanelSurface.allCases {
                 setSurfaceStyle(source.surfaceStyle(for: surface), for: surface)
             }
