@@ -1293,6 +1293,38 @@
         }
       }
     },
+    "Archives found inside the books open in this launch that had to be written out to be read — RAR and 7z only, since ZIP is read directly from memory. Only the ones in use are kept; they are removed as you move on, when the book is closed, and when the app quits." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archives found inside the books open in this launch that had to be written out to be read — RAR and 7z only, since ZIP is read directly from memory. Only the ones in use are kept; they are removed as you move on, when the book is closed, and when the app quits."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この起動で開いた本の中で見つかった書庫のうち、読むためにファイルへ書き出す必要があったものです ―― ZIP形式はメモリから直接読むため、RAR・7z形式だけが対象です。使っているぶんだけを残し、読み進めるにつれて・本を閉じたとき・アプリを終了したときに削除されます。"
+          }
+        }
+      }
+    },
+    "Archives found inside this book that are open right now, against the “Nested archives kept in memory” setting. The count includes every format, but the size covers only ZIP archives — RAR and 7z have to be held as temporary files instead, which appear under On Disk ▸ Temporary files." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archives found inside this book that are open right now, against the “Nested archives kept in memory” setting. The count includes every format, but the size covers only ZIP archives — RAR and 7z have to be held as temporary files instead, which appear under On Disk ▸ Temporary files."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この本の中で見つかった書庫のうち、いま開いているもの。分母は設定「メモリに残しておく入れ子の書庫」です。件数は形式を問わず数えますが、サイズはZIP形式のぶんだけです ―― RAR・7z形式は一時ファイルとして持つほかなく、そちらは「ディスク上」の「一時ファイル」に出ます。"
+          }
+        }
+      }
+    },
     "Ascending" : {
       "localizations" : {
         "en" : {
@@ -4562,6 +4594,7 @@
       }
     },
     "Favorite" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -6850,6 +6883,38 @@
         }
       }
     },
+    "Nested archives" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nested archives"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "入れ子の書庫"
+          }
+        }
+      }
+    },
+    "Nested Archives Kept in Memory" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nested Archives Kept in Memory"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メモリに残しておく入れ子の書庫"
+          }
+        }
+      }
+    },
     "New Folder" : {
       "localizations" : {
         "en" : {
@@ -7731,6 +7796,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本を開く"
+          }
+        }
+      }
+    },
+    "Opening the book…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening the book…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を開いています…"
           }
         }
       }
@@ -8841,6 +8922,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "削除せずに終了"
+          }
+        }
+      }
+    },
+    "Read %lld of %lld archives" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read %lld of %lld archives"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld / %lld 個の書庫を読み込みました"
           }
         }
       }
@@ -12640,6 +12737,22 @@
         }
       }
     },
+    "When a book has other archives inside it, each one is opened only when you reach it, and the most recently used ones are kept here. Larger values move between chapters faster; smaller values use less memory and less temporary disk space. ZIP archives are kept in memory; RAR and 7z archives have to be written to a temporary file instead, and how much of that is kept follows this setting too. At 0, a temporary file is always used." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When a book has other archives inside it, each one is opened only when you reach it, and the most recently used ones are kept here. Larger values move between chapters faster; smaller values use less memory and less temporary disk space. ZIP archives are kept in memory; RAR and 7z archives have to be written to a temporary file instead, and how much of that is kept follows this setting too. At 0, a temporary file is always used."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本の中にさらに書庫が入っている場合、その書庫はそこまで読み進めたときに初めて開き、最近使ったものをここに残しておきます。大きくするほど章をまたぐ移動が速くなり、小さくするほどメモリと一時ディスクの使用量が減ります。ZIP形式はメモリに残せますが、RAR・7z形式は一時ファイルに書き出すほかなく、そちらをどれだけ残しておくかもこの設定に従います。0にすると常に一時ファイルを使います。"
+          }
+        }
+      }
+    },
     "When scrolling is not possible — that is, in Fit to Screen — the wheel always performs the action assigned to it in Mouse, whatever you choose here." : {
       "localizations" : {
         "en" : {
@@ -12845,118 +12958,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "お気に入り・ブックマーク・読書履歴を読み込めませんでした。このバージョンのqooViewerと互換性が無い可能性があります。\n\n続行すると、これらのデータはすべて完全に削除され、qooViewerはまっさらな状態から起動し直します。データを失いたくない場合は、削除せずに今すぐ終了してください(例: 別のバージョンのqooViewerを試す、サポートに相談する、など)。"
-          }
-        }
-      }
-    },
-    "Nested Archives Kept in Memory" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nested Archives Kept in Memory"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "メモリに残しておく入れ子の書庫"
-          }
-        }
-      }
-    },
-    "When a book has other archives inside it, each one is opened only when you reach it, and the most recently used ones are kept here. Larger values move between chapters faster; smaller values use less memory and less temporary disk space. ZIP archives are kept in memory; RAR and 7z archives have to be written to a temporary file instead, and how much of that is kept follows this setting too. At 0, a temporary file is always used." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "When a book has other archives inside it, each one is opened only when you reach it, and the most recently used ones are kept here. Larger values move between chapters faster; smaller values use less memory and less temporary disk space. ZIP archives are kept in memory; RAR and 7z archives have to be written to a temporary file instead, and how much of that is kept follows this setting too. At 0, a temporary file is always used."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本の中にさらに書庫が入っている場合、その書庫はそこまで読み進めたときに初めて開き、最近使ったものをここに残しておきます。大きくするほど章をまたぐ移動が速くなり、小さくするほどメモリと一時ディスクの使用量が減ります。ZIP形式はメモリに残せますが、RAR・7z形式は一時ファイルに書き出すほかなく、そちらをどれだけ残しておくかもこの設定に従います。0にすると常に一時ファイルを使います。"
-          }
-        }
-      }
-    },
-    "Opening the book…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Opening the book…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本を開いています…"
-          }
-        }
-      }
-    },
-    "Read %lld of %lld archives" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Read %lld of %lld archives"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld / %lld 個の書庫を読み込みました"
-          }
-        }
-      }
-    },
-    "Nested archives" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Nested archives"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "入れ子の書庫"
-          }
-        }
-      }
-    },
-    "Archives found inside this book that are open right now, against the “Nested archives kept in memory” setting. The count includes every format, but the size covers only ZIP archives — RAR and 7z have to be held as temporary files instead, which appear under On Disk ▸ Temporary files." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Archives found inside this book that are open right now, against the “Nested archives kept in memory” setting. The count includes every format, but the size covers only ZIP archives — RAR and 7z have to be held as temporary files instead, which appear under On Disk ▸ Temporary files."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本の中で見つかった書庫のうち、いま開いているもの。分母は設定「メモリに残しておく入れ子の書庫」です。件数は形式を問わず数えますが、サイズはZIP形式のぶんだけです ―― RAR・7z形式は一時ファイルとして持つほかなく、そちらは「ディスク上」の「一時ファイル」に出ます。"
-          }
-        }
-      }
-    },
-    "Archives found inside the books open in this launch that had to be written out to be read — RAR and 7z only, since ZIP is read directly from memory. Only the ones in use are kept; they are removed as you move on, when the book is closed, and when the app quits." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Archives found inside the books open in this launch that had to be written out to be read — RAR and 7z only, since ZIP is read directly from memory. Only the ones in use are kept; they are removed as you move on, when the book is closed, and when the app quits."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この起動で開いた本の中で見つかった書庫のうち、読むためにファイルへ書き出す必要があったものです ―― ZIP形式はメモリから直接読むため、RAR・7z形式だけが対象です。使っているぶんだけを残し、読み進めるにつれて・本を閉じたとき・アプリを終了したときに削除されます。"
           }
         }
       }
