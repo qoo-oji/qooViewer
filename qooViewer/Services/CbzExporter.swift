@@ -189,7 +189,8 @@ nonisolated enum CbzExporter {
                 case .page(let originalIndex):
                     guard let exportable = try await pageLoader.exportableImage(at: originalIndex) else {
                         throw CbzExportError.pageImageUnavailable(
-                            pageName: input.book.pages[originalIndex].displayName
+                            pageName: input.book.pages[originalIndex]
+                                .location(inBookAt: input.book.sourceURL).fullPath
                         )
                     }
                     imageData = exportable.data
@@ -318,7 +319,9 @@ nonisolated enum CbzExporter {
             // PageLoaderに問い合わせる。読み出せないページがあればここでエラーになり、
             // 書き出し先を作る前に中断できる(EpubExporterと同じ理由)。
             guard let originalIndex = originalIndexByKey[page.sortKey] else {
-                throw CbzExportError.pageImageUnavailable(pageName: page.displayName)
+                throw CbzExportError.pageImageUnavailable(
+                    pageName: page.location(inBookAt: input.book.sourceURL).fullPath
+                )
             }
             let ext = try await pageLoader.exportableImageFileExtension(at: originalIndex)
             let name = fileName(

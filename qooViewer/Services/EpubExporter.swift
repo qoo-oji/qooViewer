@@ -202,7 +202,9 @@ nonisolated enum EpubExporter {
             // 読み出せないページが含まれていればここでエラーになり、書き出し先を作る前に
             // 中断できる(下の書き込みループで初めて気付くと、途中まで書いたEPUBが残る)。
             guard let originalIndex = originalIndexByKey[page.sortKey] else {
-                throw EpubExportError.pageImageUnavailable(pageName: page.displayName)
+                throw EpubExportError.pageImageUnavailable(
+                    pageName: page.location(inBookAt: input.book.sourceURL).fullPath
+                )
             }
             // EPUBへそのまま入れられない形式は、ここでPNGに決めておく(実際の変換は下の
             // 書き込みループ。passthroughImageExtensions参照)。
@@ -314,11 +316,15 @@ nonisolated enum EpubExporter {
                 guard let originalIndex = originalIndexByKey[page.sortKey],
                       let exportable = try await pageLoader.exportableImage(at: originalIndex)
                 else {
-                    throw EpubExportError.pageImageUnavailable(pageName: page.displayName)
+                    throw EpubExportError.pageImageUnavailable(
+                        pageName: page.location(inBookAt: input.book.sourceURL).fullPath
+                    )
                 }
                 guard let imageData = epubImageData(exportable.data, sourceExtension: exportable.fileExtension)
                 else {
-                    throw EpubExportError.pageImageUnavailable(pageName: page.displayName)
+                    throw EpubExportError.pageImageUnavailable(
+                        pageName: page.location(inBookAt: input.book.sourceURL).fullPath
+                    )
                 }
                 let pixelSize = ImageDecoder.pixelSize(of: imageData)
                 if let pixelSize {

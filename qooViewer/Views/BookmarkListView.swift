@@ -2311,7 +2311,7 @@ private struct PageRowView: View {
             }
             .frame(width: columnWidths.thumbnail, height: columnWidths.thumbnailHeight)
             .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-            .help(row.displayName)
+            .help(row.fullPath)
             // ユーザー報告(ラグの原因調査): 以前はここに専用の.onTapGesture(count: 2){ onJump() }を
             // 付けていたが、行全体(selectableContent末尾の.simultaneousGesture)が同じクリックを
             // 既に検知してonJump()を呼ぶため、実質的に不要な重複だった。この位置にクリック回数2の
@@ -2514,12 +2514,25 @@ private struct PageRowView: View {
                 height: preferences.thumbnailHoverPreviewSideLength
             )
 
-            Text(row.displayName)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: preferences.thumbnailHoverPreviewSideLength)
+            VStack(spacing: 2) {
+                // 書庫の中のフォルダ・入れ子の書庫の中にある画像は、ファイル名だけでは
+                // どの章のページか分からない(章ごとに001.jpgから振り直されている本では
+                // 同じ名前が一覧に何度も並ぶ)。本の直下からの相対パスを、ファイル名より
+                // 一段弱い見た目で上に添える(ユーザー要望)。直下の画像ではnil。
+                if let folderPath = row.folderPath {
+                    Text(folderPath)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Text(row.displayName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: preferences.thumbnailHoverPreviewSideLength)
         }
         .padding(12)
         .task {

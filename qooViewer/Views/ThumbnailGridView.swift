@@ -159,7 +159,13 @@ struct ThumbnailGridView: View {
             let gridPixelSize = Self.gridThumbnailPixelSize(forCellHeight: cellHeight)
             let hSpacing = horizontalSpacing
             let count = columnCount(forPanelWidth: panelWidth)
-            let columns = Array(repeating: GridItem(.fixed(cellWidth), spacing: hSpacing), count: count)
+            // alignment: .top を明示する。GridItemの既定(.center)のままだと、キャプションが
+            // 1行のセル(本の直下に置かれた画像。相対パスの行が出ない)だけが行の中で上下中央に
+            // 置かれ、**そのセルのサムネイルだけが下にずれて見える**(ユーザー報告)。
+            // 上端を揃えれば、キャプションの行数が違ってもサムネイルは必ず一直線に並ぶ。
+            let columns = Array(
+                repeating: GridItem(.fixed(cellWidth), spacing: hSpacing, alignment: .top), count: count
+            )
             // 固定幅の列はLazyVGridの先頭(左)から詰められるので、グリッド自体の幅を列数ぶんに
             // 絞ってから中央に置く(そうしないと右側だけ余る)。
             let gridWidth = CGFloat(count) * cellWidth + CGFloat(max(count - 1, 0)) * hSpacing
@@ -543,22 +549,39 @@ private struct ThumbnailCell: View {
             // ページ番号のみ/ファイル名/表示なし)。「表示なし」のときは`Text`自体を
             // 置かないので、VStackのspacingぶんの隙間も消え、サムネイルだけが詰まって並ぶ。
             if let caption {
-                Text(caption)
-                    // 大きさも環境設定から(既定の11ptは、従来使っていた.caption2の実寸と同じ)。
-                    .font(.system(size: preferences.thumbnailGridCaptionFontSize))
-                    // ユーザー報告: .secondary(グレー)だと、サムネイル一覧パネルの背景
-                    // (.regularMaterial)上では視認性が悪い。白固定にして見やすくする。
-                    .foregroundStyle(.white)
-                    // 文字だけに輪郭を掛ける(すぐ上のサムネイルは画像なので対象外 ――
-                    // 掛けると画像の縁に色が回ってしまう)。この文字は白のベタ書きなので、
-                    // 明るい面では輪郭が無いと完全に消える。
-                    .panelOutlinedContent()
-                    // ファイル名はページ番号と違って長くなりうる。セルの幅で頭打ちにし、
-                    // 中央を省略する(先頭と末尾のほうが見分けに使えるため)。
-                    // 番号のときも同じ指定で問題ない(折り返しようがない短さのため)。
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: cellWidth)
+                VStack(spacing: 1) {
+                    // ファイル名表示のとき、書庫の中のフォルダ・入れ子の書庫の中にある画像は
+                    // 本の直下からの相対パスも添える(ユーザー要望。ファイル名だけでは、章ごとに
+                    // 001.jpgから振り直されている本でどの章のページか区別できないため)。
+                    // ページ番号表示のときと、本の直下にある画像のときはnilで、従来どおり1行。
+                    if let captionFolderPath {
+                        Text(captionFolderPath)
+                            .font(.system(size: preferences.thumbnailGridCaptionFontSize * 0.85))
+                            .foregroundStyle(.white.opacity(0.7))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Text(caption)
+                        // 大きさも環境設定から(既定の11ptは、従来使っていた.caption2の実寸と同じ)。
+                        .font(.system(size: preferences.thumbnailGridCaptionFontSize))
+                        // ユーザー報告: .secondary(グレー)だと、サムネイル一覧パネルの背景
+                        // (.regularMaterial)上では視認性が悪い。白固定にして見やすくする。
+                        .foregroundStyle(.white)
+                        // ファイル名はページ番号と違って長くなりうる。セルの幅で頭打ちにし、
+                        // 中央を省略する(先頭と末尾のほうが見分けに使えるため)。
+                        // 番号のときも同じ指定で問題ない(折り返しようがない短さのため)。
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                // 文字だけに輪郭を掛ける(すぐ上のサムネイルは画像なので対象外 ――
+                // 掛けると画像の縁に色が回ってしまう)。この文字は白のベタ書きなので、
+                // 明るい面では輪郭が無いと完全に消える。
+                .panelOutlinedContent()
+                .frame(maxWidth: cellWidth)
+                // セルの幅に収まりきらず省略された相対パスも、ここで全体を確かめられるように
+                // する(ページ番号表示のときは、キャプションからは分からないファイル名と
+                // 居場所がツールチップだけで分かることになる)。
+                .help(location.fullPath)
             }
         }
         // セルの大きさ(pixelSize)が変わったら、その解像度で読み直す(スライダーで拡大したときに
@@ -606,12 +629,22 @@ private struct ThumbnailCell: View {
                 height: preferences.thumbnailHoverPreviewSideLength
             )
 
-            Text(displayName)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: preferences.thumbnailHoverPreviewSideLength)
+            VStack(spacing: 2) {
+                // セル下のキャプションと同じ理由で、本の中での居場所も添える(location参照)。
+                if let folderPath = location.folderPath {
+                    Text(folderPath)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Text(location.fileName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: preferences.thumbnailHoverPreviewSideLength)
         }
         .padding(12)
         .task {
@@ -627,16 +660,25 @@ private struct ThumbnailCell: View {
     private var caption: String? {
         switch preferences.thumbnailGridCaptionStyle {
         case .pageNumber: return "\(index + 1)"
-        case .fileName: return displayName
+        case .fileName: return location.fileName
         case .none: return nil
         }
     }
 
-    /// プレビュー下に表示するファイル名。範囲外(理論上は起こらないはずだが、念のため)の場合は
-    /// 空文字にしておく。
-    private var displayName: String {
-        guard viewModel.book.pages.indices.contains(index) else { return "" }
-        return viewModel.book.pages[index].displayName
+    /// キャプションのファイル名の上に添える相対パス。ページ番号表示のときは出さない。
+    private var captionFolderPath: String? {
+        guard preferences.thumbnailGridCaptionStyle == .fileName else { return nil }
+        return location.folderPath
+    }
+
+    /// このページの本の中での居場所(ファイル名 + 書庫内フォルダ/入れ子書庫の相対パス。
+    /// PageRef.location(inBookAt:)参照)。範囲外(理論上は起こらないはずだが、念のため)の
+    /// 場合は空のファイル名にしておく。
+    private var location: PageLocation {
+        guard viewModel.book.pages.indices.contains(index) else {
+            return PageLocation(fileName: "", folderPath: nil)
+        }
+        return viewModel.book.pages[index].location(inBookAt: viewModel.book.sourceURL)
     }
 }
 

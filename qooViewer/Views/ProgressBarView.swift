@@ -287,16 +287,42 @@ struct ProgressBarView: View {
     }
 
     /// フィルムストリップの1セル。全セル同じ大きさで表示し、サムネイル画像の下に
-    /// ファイル名・ページ番号の2行を表示する。カーソル直下のセルだけ、サイズは変えずに
-    /// 次の3点で強調する。(1) 枠線を太く・アクセントカラーにする (2) アクセントカラーの
-    /// 光彩(shadow)を付ける (3) 他のセルの画像を少し暗くして相対的に目立たせる。
+    /// ファイル名・ページ番号の2行を表示する(書庫の中のフォルダ・入れ子の書庫の中にある画像は、
+    /// さらにサムネイルの**上**へ相対パスの行が加わる。位置の理由はその行のコメント参照)。
+    /// カーソル直下のセルだけ、サイズは変えずに次の3点で強調する。(1) 枠線を太く・アクセント
+    /// カラーにする (2) アクセントカラーの光彩(shadow)を付ける (3) 他のセルの画像を少し暗くして
+    /// 相対的に目立たせる。
     /// いずれも見た目だけの調整で、サムネイルのデコードや読み込み処理には一切影響しない
     /// (表示速度は変わらない)。
     @ViewBuilder
     private func filmstripCell(index: Int, isHighlighted: Bool, cellWidth: CGFloat) -> some View {
         let height = cellWidth * 1.2
 
+        let location = pageLocation(at: index)
+
         VStack(spacing: 3) {
+            // 書庫の中のフォルダ・入れ子の書庫の中にある画像は、ファイル名だけではどの章の
+            // ページか分からない(章ごとに001.jpgから振り直されている本では同じ名前が並ぶ)。
+            // 本の直下からの相対パスを、ファイル名より一段弱い見た目で添える(ユーザー要望)。
+            //
+            // **この行はサムネイルの上に置く。** フィルムストリップはHStack(alignment: .bottom)
+            // で並んでおり、下から積み上がる ―― 相対パスの行を持つセルと持たないセル
+            // (本の直下の画像)が混在しても、サムネイル・ファイル名・ページ番号の高さは
+            // 揃ったままで、増えた1行だけが上へ伸びる。ファイル名の上に置くと、その1枚だけ
+            // サムネイルが持ち上がってしまう。はみ出すぶんはfilmstripHeightのsafetyMarginが
+            // 吸収する(枠を切り詰めていないので、超えても描画は欠けない)。
+            if let folderPath = location.folderPath {
+                Text(folderPath)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(isHighlighted ? 0.7 : 0.5))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 3))
+                    .frame(width: cellWidth)
+            }
+
             ZStack {
                 RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.75))
                 if let cgImage = thumbnails[index] {
@@ -319,7 +345,7 @@ struct ProgressBarView: View {
             )
             .shadow(color: isHighlighted ? Color.accentColor.opacity(0.75) : .black.opacity(0.2), radius: isHighlighted ? 8 : 2)
 
-            Text(pageDisplayName(at: index))
+            Text(location.fileName)
                 .font(.caption)
                 .foregroundStyle(.white.opacity(isHighlighted ? 0.95 : 0.7))
                 .lineLimit(1)
@@ -349,10 +375,13 @@ struct ProgressBarView: View {
         .frame(width: cellWidth)
     }
 
-    /// ページに対応する画像ファイル名(フォルダの階層は含まない、ファイル名のみ)を返す。
-    private func pageDisplayName(at index: Int) -> String {
-        guard viewModel.book.pages.indices.contains(index) else { return "" }
-        return viewModel.book.pages[index].displayName
+    /// ページに対応する画像の、本の中での居場所(ファイル名と、書庫内フォルダ/入れ子の書庫の
+    /// 相対パス)を返す。詳細はPageRef.location(inBookAt:)参照。
+    private func pageLocation(at index: Int) -> PageLocation {
+        guard viewModel.book.pages.indices.contains(index) else {
+            return PageLocation(fileName: "", folderPath: nil)
+        }
+        return viewModel.book.pages[index].location(inBookAt: viewModel.book.sourceURL)
     }
 
     /// centerIndexが9枚のスロットのうち何番目(0が左端)に来るかを指定して、

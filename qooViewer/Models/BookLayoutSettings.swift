@@ -87,7 +87,8 @@ final class BookLayoutSettings {
     /// (EpubExporter参照)。
     ///
     /// 「本に含まれる既存ページを選ぶ」場合はcoverPageKeyに元のPageRef.sortKeyを設定する。
-    /// coverPageDisplayNameは、そのページの表示名(PageRef.displayName)を選択した時点の値で
+    /// coverPageDisplayNameは、そのページの表示名(本の中での相対パス。PageLocation.fullPath)を
+    /// 選択した時点の値で
     /// キャッシュしたもの。編集ウインドウの一覧に表示するためだけに使い、本を再読み込みせずに
     /// 済ませる(LayoutStore.setCoverPageKey参照)。
     ///

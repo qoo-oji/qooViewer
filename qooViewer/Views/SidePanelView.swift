@@ -1675,7 +1675,7 @@ private struct SidePanelPagesSectionView: View {
                             ForEach(pages.indices, id: \.self) { index in
                                 SidePanelPageCell(
                                     index: index,
-                                    displayName: pages[index].displayName,
+                                    location: pages[index].location(inBookAt: bookSourceURL),
                                     pageNumberWidth: pageNumberWidth,
                                     isCurrent: index == currentPageIndex,
                                     isBookmarked: bookmarkedPageIndices.contains(index),
@@ -1756,8 +1756,9 @@ private struct SidePanelPagesSectionView: View {
 /// (1行の読み込み完了が一覧全体の再描画を引き起こさないようにするため)。
 private struct SidePanelPageCell: View {
     let index: Int
-    /// 3列目に出すファイル名(PageRef.displayName)。
-    let displayName: String
+    /// 3列目に出すファイル名と、本の中でのその画像の居場所(PageRef.location(inBookAt:)参照)。
+    /// 書庫内のフォルダ・入れ子の書庫の中にある画像では、ファイル名の上に相対パスも出す。
+    let location: PageLocation
     /// 1列目のページ番号に割り当てる固定幅(SidePanelPagesSectionView.pageNumberWidth参照)。
     let pageNumberWidth: CGFloat
     let isCurrent: Bool
@@ -1847,17 +1848,31 @@ private struct SidePanelPageCell: View {
                 thumbnailPreviewContent
             }
 
-            Text(displayName)
-                .font(.caption)
-                .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
-                // この行はサムネイル(画像)と同じHStackに入っているため、まとめて掛けられない。
-                // 文字とブックマーク印にだけ個別に掛ける。
-                .panelOutlinedContent()
-                // パネルは幅が狭く、ファイル名は長くなりがちなため2行まで折り返す。それでも
-                // 収まらない場合は中間を省略する(先頭も末尾も手がかりになるファイル名が多いため)。
-                .lineLimit(2)
-                .truncationMode(.middle)
-                .help(displayName)
+            VStack(alignment: .leading, spacing: 1) {
+                // 書庫の中のフォルダ・入れ子の書庫の中にある画像は、ファイル名だけでは
+                // どの章のページか分からない(章ごとに001.jpgから振り直されている本では
+                // 同じ名前が一覧に何度も並ぶ)。本の直下からの相対パスを、ファイル名より
+                // 一段弱い見た目で上に添える(ユーザー要望)。直下の画像ではnilになり、
+                // 従来どおりファイル名だけの1行になる。
+                if let folderPath = location.folderPath {
+                    Text(folderPath)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Text(location.fileName)
+                    .font(.caption)
+                    .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
+                    // パネルは幅が狭く、ファイル名は長くなりがちなため2行まで折り返す。それでも
+                    // 収まらない場合は中間を省略する(先頭も末尾も手がかりになるファイル名が多いため)。
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+            }
+            // この2行はサムネイル(画像)と同じHStackに入っているため、まとめて掛けられない。
+            // 文字とブックマーク印にだけ個別に掛ける。
+            .panelOutlinedContent()
+            .help(location.fullPath)
             if isBookmarked {
                 Image(systemName: "bookmark.fill")
                     .font(.caption)
@@ -1911,12 +1926,22 @@ private struct SidePanelPageCell: View {
             }
             .frame(width: previewSize, height: previewSize)
 
-            Text(displayName)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: previewSize)
+            VStack(spacing: 2) {
+                // 行と同じ理由で、本の中での居場所も添える(location参照)。
+                if let folderPath = location.folderPath {
+                    Text(folderPath)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Text(location.fileName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: previewSize)
         }
         .padding(12)
         .task {

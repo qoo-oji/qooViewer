@@ -25,20 +25,33 @@ final class BookLayoutEditorViewModel: ObservableObject {
         /// この自然順インデックスを基準にするため、並べ替え後の表示位置とは別に保持する。
         let rawIndex: Int
         let displayName: String
+        /// この画像が入っているフォルダ/書庫の、本の直下からの相対パス(PageLocation.folderPath)。
+        /// 本の直下にある画像ではnil。
+        let folderPath: String?
         /// 除外ページを取り除いた「読書順」でのインデックス(ViewerViewModel.currentIndexと
         /// 同じ空間)。Bookmark.pageIndexとの突き合わせに使う。除外ページはnil。
         let effectiveReadingIndex: Int?
         var id: String { pageKey }
+
+        /// ツールチップ等、1つの文字列で「本の中のどこの画像か」を示したいときに使う
+        /// (PageLocation.fullPathと同じ組み立て)。
+        var fullPath: String {
+            guard let folderPath else { return displayName }
+            return "\(folderPath)/\(displayName)"
+        }
     }
 
     /// rebuildRowsが必要とするページ情報だけを抜き出したもの。
     ///
-    /// 行の組み立てにはPageRef.sortKeyとdisplayNameしか要らない。MangaBookから作る経路と、
-    /// ディスクキャッシュ(BookPageListCache)から作る経路の両方でこの型を使うことで、
-    /// 本体の読み込みを待たずに同じ行を組み立てられるようにしている。
+    /// 行の組み立てにはPageRef.sortKeyとdisplayName、それにその画像の居場所(folderPath)しか
+    /// 要らない。MangaBookから作る経路と、ディスクキャッシュ(BookPageListCache)から作る経路の
+    /// 両方でこの型を使うことで、本体の読み込みを待たずに同じ行を組み立てられるようにしている。
     struct PageDescriptor: Equatable, Sendable {
         let sortKey: String
         let displayName: String
+        /// PageLocation.folderPath。キャッシュがこの項目を持たない古い版だった場合はnilになり、
+        /// 本体の読み込み完了後に行が組み立て直されて埋まる。
+        let folderPath: String?
     }
 
     enum LoadState: Equatable {
@@ -201,7 +214,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
 
         let cached = await BookPageListCache.shared.pageList(forBookID: bookID)
         let cachedDescriptors = cached?.pages.map {
-            PageDescriptor(sortKey: $0.sortKey, displayName: $0.displayName)
+            PageDescriptor(sortKey: $0.sortKey, displayName: $0.displayName, folderPath: $0.folderPath)
         }
         if let cachedDescriptors, !cachedDescriptors.isEmpty {
             rebuildRows(from: cachedDescriptors)
@@ -240,7 +253,11 @@ final class BookLayoutEditorViewModel: ObservableObject {
         isBookReady = true
 
         let descriptors = loaded.pages.map {
-            PageDescriptor(sortKey: $0.sortKey, displayName: $0.displayName)
+            PageDescriptor(
+                sortKey: $0.sortKey,
+                displayName: $0.displayName,
+                folderPath: $0.location(inBookAt: loaded.sourceURL).folderPath
+            )
         }
         // キャッシュから描いた内容と同じなら組み立て直さない(無駄な再描画とちらつきを避ける)。
         // キャッシュへの書き戻しはBookLoader.load(from:)側で一括して行うため、ここでは不要
@@ -254,7 +271,11 @@ final class BookLayoutEditorViewModel: ObservableObject {
     /// pageOrderOverride(2.3節)を反映した表示順でrowsを組み立て直す。
     private func rebuildRows(from book: MangaBook) {
         rebuildRows(from: book.pages.map {
-            PageDescriptor(sortKey: $0.sortKey, displayName: $0.displayName)
+            PageDescriptor(
+                sortKey: $0.sortKey,
+                displayName: $0.displayName,
+                folderPath: $0.location(inBookAt: book.sourceURL).folderPath
+            )
         })
     }
 
@@ -275,6 +296,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
                 pageKey: page.sortKey,
                 rawIndex: rawIndexByKey[page.sortKey] ?? 0,
                 displayName: page.displayName,
+                folderPath: page.folderPath,
                 effectiveReadingIndex: nil
             )
         }
@@ -322,11 +344,23 @@ final class BookLayoutEditorViewModel: ObservableObject {
         var counter = 0
         return rows.map { row in
             guard overridesByKey[row.pageKey] != .excluded else {
-                return Row(pageKey: row.pageKey, rawIndex: row.rawIndex, displayName: row.displayName, effectiveReadingIndex: nil)
+                return Row(
+                pageKey: row.pageKey,
+                rawIndex: row.rawIndex,
+                displayName: row.displayName,
+                folderPath: row.folderPath,
+                effectiveReadingIndex: nil
+            )
             }
             let index = counter
             counter += 1
-            return Row(pageKey: row.pageKey, rawIndex: row.rawIndex, displayName: row.displayName, effectiveReadingIndex: index)
+            return Row(
+                pageKey: row.pageKey,
+                rawIndex: row.rawIndex,
+                displayName: row.displayName,
+                folderPath: row.folderPath,
+                effectiveReadingIndex: index
+            )
         }
     }
 

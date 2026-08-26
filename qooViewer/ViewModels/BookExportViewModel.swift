@@ -426,7 +426,17 @@ class BookExportViewModel: ObservableObject {
                 for: cached.pages, pageOrderOverride: settings?.pageOrderOverride, excludedKeys: excludedKeys
             )
             if let first = ordered.first {
-                resolvedCoverNames[bookID] = first.displayName
+                // 書庫の中のフォルダ・入れ子の書庫の中にある画像は、ファイル名だけでは
+                // どのページか区別できないため、本の直下からの相対パスで表示する
+                // (PageLocation参照)。folderPathを持たない古いキャッシュではnilになり、
+                // 従来どおりファイル名だけになる。
+                //
+                // EPUBをここでも改めて弾いているのは、**この経路だけが本体を読み直さない**ため。
+                // EPUBのfolderPathを残していた頃のキャッシュが手元にあると、その本を開き直す
+                // まで`OEBPS/Images/001.jpg`のままになってしまう。
+                let folderPath = isEpubFile(bookID) ? nil : first.folderPath
+                resolvedCoverNames[bookID] = folderPath.map { "\($0)/\(first.displayName)" }
+                    ?? first.displayName
                 return
             }
         }
@@ -436,7 +446,7 @@ class BookExportViewModel: ObservableObject {
             for: book, pageOrderOverride: settings?.pageOrderOverride, excludedKeys: excludedKeys
         )
         guard let first = ordered.first else { return }
-        resolvedCoverNames[bookID] = first.displayName
+        resolvedCoverNames[bookID] = first.location(inBookAt: book.sourceURL).fullPath
     }
 
     /// カバーピッカー(本のページ一覧を表示する画面)から呼ばれる。この本を読み込んで返す
@@ -458,8 +468,12 @@ class BookExportViewModel: ObservableObject {
 
     /// 本に含まれる既存ページをカバーに指定する。
     final func setCover(forBookID bookID: String, book: MangaBook, page: PageRef) {
-        layoutStore.setCoverPageKey(for: book, pageKey: page.sortKey, displayName: page.displayName)
-        resolvedCoverNames[bookID] = page.displayName
+        // 表示名は、書庫の中のフォルダ・入れ子の書庫まで含めた本の中での相対パスで持つ
+        // (ファイル名だけでは、章ごとに001.jpgから振り直されている本でどのページを
+        // カバーにしたのか分からないため。PageLocation参照)。
+        let coverName = page.location(inBookAt: book.sourceURL).fullPath
+        layoutStore.setCoverPageKey(for: book, pageKey: page.sortKey, displayName: coverName)
+        resolvedCoverNames[bookID] = coverName
     }
 
     /// 本に含まれない専用ファイルをカバーに指定する。この専用ファイルは本の一部として扱わない

@@ -556,6 +556,7 @@ private struct ExportCoverPickerContent: View {
                     List(Array(loadedBook.pages.enumerated()), id: \.element.id) { index, page in
                         ExportCoverPickerPageRow(
                             page: page,
+                            bookSourceURL: loadedBook.sourceURL,
                             index: index,
                             pageLoader: pageLoader,
                             thumbnails: $thumbnails,
@@ -617,6 +618,9 @@ private struct ExportCoverPickerContent: View {
 /// (350msの遅延の後にだけpopoverを出す。ドラッグ操作等は無いためここでは単純にホバー判定だけ)。
 private struct ExportCoverPickerPageRow: View {
     let page: PageRef
+    /// 本そのものの場所。この画像が本の中のどこにあるか(書庫内のフォルダ・入れ子の書庫)を
+    /// 求める起点(PageRef.location(inBookAt:)参照)。
+    let bookSourceURL: URL
     let index: Int
     let pageLoader: PageLoader?
     /// 小さいサムネイル画像のキャッシュ。ExportCoverPickerContent側の@Stateを共有し、
@@ -637,17 +641,35 @@ private struct ExportCoverPickerPageRow: View {
     /// 分からなくなるため。ユーザー指示)。
     @EnvironmentObject private var preferences: AppPreferences
 
+    /// このページの本の中での居場所(ファイル名 + 書庫内フォルダ/入れ子書庫の相対パス)。
+    private var location: PageLocation { page.location(inBookAt: bookSourceURL) }
+
     var body: some View {
         Button {
             onSelect()
         } label: {
             HStack(spacing: 8) {
                 thumbnailView
-                Text(page.displayName)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                VStack(alignment: .leading, spacing: 1) {
+                    // 書庫の中のフォルダ・入れ子の書庫の中にある画像は、ファイル名だけでは
+                    // どの章のページか分からない(章ごとに001.jpgから振り直されている本では
+                    // 同じ名前が一覧に何度も並ぶ)。本の直下からの相対パスを、ファイル名より
+                    // 一段弱い見た目で上に添える(ユーザー要望)。直下の画像ではnilになり、
+                    // 従来どおりファイル名だけの1行になる。
+                    if let folderPath = location.folderPath {
+                        Text(folderPath)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Text(location.fileName)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
                 Spacer()
             }
+            .help(location.fullPath)
         }
         .buttonStyle(.plain)
         .task(id: page.id) {
@@ -712,12 +734,22 @@ private struct ExportCoverPickerPageRow: View {
                 height: preferences.thumbnailHoverPreviewSideLength
             )
 
-            Text(page.displayName)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: preferences.thumbnailHoverPreviewSideLength)
+            VStack(spacing: 2) {
+                // 行と同じ理由で、本の中での居場所も添える(location参照)。
+                if let folderPath = location.folderPath {
+                    Text(folderPath)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Text(location.fileName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: preferences.thumbnailHoverPreviewSideLength)
         }
         .padding(12)
         .task {

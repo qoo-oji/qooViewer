@@ -410,7 +410,8 @@ final class LayoutStore: ObservableObject {
         Set(allBookLayoutSettings().filter(\.hasCoverOverride).map(\.bookID))
     }
 
-    /// 本に含まれる既存ページをカバーに指定する。displayNameは選択時点のPageRef.displayNameを
+    /// 本に含まれる既存ページをカバーに指定する。displayNameは選択時点の「本の中での相対パス」
+    /// (PageLocation.fullPath)を
     /// 呼び出し元(EPUB出力ウインドウのカバーピッカー)から渡してもらい、一覧のカバー列に
     /// 本を再読み込みせずに表示できるようキャッシュしておく。
     func setCoverPageKey(for book: MangaBook, pageKey: String, displayName: String) {

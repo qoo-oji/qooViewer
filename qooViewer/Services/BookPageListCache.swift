@@ -91,6 +91,13 @@ actor BookPageListCache {
             let sortKey: String
             /// PageRef.displayName。一覧のファイル名列に出す。
             let displayName: String
+            /// この画像が入っているフォルダ/書庫の、本の直下からの相対パス
+            /// (PageLocation.folderPath)。ファイル名と一緒に表示して、書庫の中のフォルダ・
+            /// 入れ子の書庫のどこにある画像なのかが分かるようにするためのもの。
+            /// 本の直下にある画像ではnil。この項目を入れる前に保存されたJSONでもnilになり、
+            /// その場合は従来どおりファイル名だけの表示に戻るだけ(本体を読み込み終えた
+            /// 時点で行が組み立て直され、そこで埋まる)。
+            var folderPath: String?
 
             // 以下は構造キャッシュ用(上のMARK参照)。
             //

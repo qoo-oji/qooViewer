@@ -108,6 +108,7 @@ nonisolated enum BookLoader {
             return BookPageListCache.Entry.Page(
                 sortKey: page.sortKey,
                 displayName: page.displayName,
+                folderPath: page.location(inBookAt: book.sourceURL).folderPath,
                 idSuffix: idSuffix,
                 nestedPath: nestedPath,
                 entryPath: entryPath,
