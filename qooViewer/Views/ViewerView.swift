@@ -99,15 +99,15 @@ struct ViewerView: View {
     /// ページ一覧パネルを閉じるクリックを拾うNSEventローカルモニタ
     /// (installThumbnailGridDismissMonitorIfNeeded参照)。
     @State private var thumbnailGridDismissMonitor: Any?
-    /// ページ一覧パネルのホイールスクロール量を自前で決めるNSEventローカルモニタ
-    /// (ThumbnailGridView.makeWheelMonitorが作る)。
+    /// ページ一覧パネルの上でのホイールスクロール量とピンチ(サムネイルの大きさ)を自前で
+    /// 扱うNSEventローカルモニタ(ThumbnailGridView.makeGridEventMonitorが作る)。
     ///
     /// **取り付けるのはパネル側だが、預かるのはこちら。** ページ一覧を出したまま
     /// ウインドウごと閉じられると、パネルの`.onDisappear`は呼ばれないことがあり
     /// (このリポジトリで確認済みの挙動)、パネル側だけで持つとモニタが残ってしまう。
     /// ここに置けば、上のthumbnailGridDismissMonitorと同じく`handleOnDisappear`からも
     /// 確実に外せる。
-    @State private var thumbnailGridWheelMonitor: Any?
+    @State private var thumbnailGridEventMonitor: Any?
     /// 「お気に入りに追加」シート(登録先フォルダを選ぶ。FavoriteFolderPickerView)の表示状態。
     @State private var showFavoriteFolderPicker = false
     /// 「お気に入り一覧」を表示中のネイティブNSMenuブリッジ(FavoritesNSMenuBridge)。
@@ -754,14 +754,14 @@ struct ViewerView: View {
         thumbnailGridDismissMonitor = nil
     }
 
-    /// ページ一覧パネルが取り付けたホイールモニタを外す(thumbnailGridWheelMonitorのコメント参照)。
-    /// パネル自身の`.onDisappear`からも同じ処理が走るが、先に外したほうがnilを入れるので
-    /// 二重解除にはならない。
-    private func removeThumbnailGridWheelMonitor() {
-        if let thumbnailGridWheelMonitor {
-            NSEvent.removeMonitor(thumbnailGridWheelMonitor)
+    /// ページ一覧パネルが取り付けたホイール/ピンチのモニタを外す
+    /// (thumbnailGridEventMonitorのコメント参照)。パネル自身の`.onDisappear`からも
+    /// 同じ処理が走るが、先に外したほうがnilを入れるので二重解除にはならない。
+    private func removeThumbnailGridEventMonitor() {
+        if let thumbnailGridEventMonitor {
+            NSEvent.removeMonitor(thumbnailGridEventMonitor)
         }
-        thumbnailGridWheelMonitor = nil
+        thumbnailGridEventMonitor = nil
     }
 
     /// .onDisappear{}の中身をprivateメソッドへ切り出したもの(handleOnAppearのコメント参照)。
@@ -778,7 +778,7 @@ struct ViewerView: View {
         }
         contextClickMonitor = nil
         removeThumbnailGridDismissMonitor()
-        removeThumbnailGridWheelMonitor()
+        removeThumbnailGridEventMonitor()
         clearAppStateBridgesIfStillOwner()
         // 自分の@StateObjectであるviewModelへ登録した橋渡しも、ここで確実に外す
         // (handleOnAppearのonRequestSiblingBookのコメント参照。appState側と違い、この
@@ -1157,7 +1157,7 @@ struct ViewerView: View {
                         // ビューアの右クリックと同じ、クリックした1ページだけを対象にするトグル。
                         onToggleBookmark: { toggleBookmark(atIndex: $0) },
                         onPanelScreenFrameChange: { thumbnailPanelScreenFrame = $0 },
-                        wheelMonitor: $thumbnailGridWheelMonitor
+                        eventMonitor: $thumbnailGridEventMonitor
                     )
                 }
                 .transition(.opacity)

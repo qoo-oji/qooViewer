@@ -34,15 +34,16 @@ struct ThumbnailGridView: View {
     /// このビュー全体の.backgroundとして取っていたが、パネルが余白を含む領域いっぱいに
     /// 広がる構成(bodyのGeometryReader参照)になったため、パネル本体に直接付ける必要がある。
     var onPanelScreenFrameChange: (CGRect) -> Void = { _ in }
-    /// ホイールのスクロール量を自前で決めるNSEventローカルモニタの預かり先。
+    /// このパネルの上でのホイール・ピンチを自前で扱うNSEventローカルモニタの預かり先
+    /// (makeGridEventMonitor参照)。
     ///
     /// 取り付け・取り外しはこのビューが行うが、**持ち主はViewerView**である。
     /// ページ一覧を出したままウインドウごと閉じられると、このビューの`.onDisappear`は
     /// 呼ばれないことがあり(このリポジトリで確認済みの挙動)、ここで持つとモニタが
     /// 残ってしまう。ViewerViewの`@State`にしておけば、あちらの`handleOnDisappear`からも
     /// 確実に外せる ―― 各モニタの解除を二重に置く、既存のやり方に揃えたもの
-    /// (ViewerView.thumbnailGridWheelMonitor参照)。
-    @Binding var wheelMonitor: Any?
+    /// (ViewerView.thumbnailGridEventMonitor参照)。
+    @Binding var eventMonitor: Any?
     @EnvironmentObject private var preferences: AppPreferences
 
     private static let contentPadding: CGFloat = 16
@@ -315,12 +316,12 @@ struct ThumbnailGridView: View {
             .background(PanelScreenFrameAccessor(onChange: onPanelScreenFrameChange))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onAppear {
-                guard wheelMonitor == nil else { return }
-                wheelMonitor = makeWheelMonitor()
+                guard eventMonitor == nil else { return }
+                eventMonitor = makeGridEventMonitor()
             }
             .onDisappear {
-                if let wheelMonitor { NSEvent.removeMonitor(wheelMonitor) }
-                wheelMonitor = nil
+                if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
+                eventMonitor = nil
             }
         }
     }
@@ -364,10 +365,16 @@ struct ThumbnailGridView: View {
         event.phase.isEmpty && event.momentumPhase.isEmpty
     }
 
-    /// ページ一覧の上でマウスホイールを回したときのスクロール量を、環境設定
-    /// (thumbnailGridWheelScrollRows)に従わせるためのNSEventローカルモニタ。
+    /// ページ一覧の上でのマウスホイール・トラックパッドのピンチを自前で扱うNSEventローカルモニタ。
+    /// 受け持つのは次の2つで、どちらも「本当にこのグリッドの上での操作か」の判定
+    /// (下記のヒットテスト)を共有するため、1つのモニタにまとめてある。
     ///
-    /// ■ 対象を物理マウスホイールだけに絞っている
+    /// - **ホイール**: 1ノッチあたりのスクロール量を環境設定(thumbnailGridWheelScrollRows)に
+    ///   従わせる(handleWheel参照)。
+    /// - **ピンチ**: サムネイルの大きさ(thumbnailGridCellSize)を拡大縮小する
+    ///   (handleMagnify参照。ユーザー要望)。
+    ///
+    /// ■ 対象を物理マウスホイールだけに絞っている(ホイール側)
     /// トラックパッドは1回の操作が細かいイベントの連なりとして届くため「1回ぶん」に
     /// 意味が無い。指の動きにそのまま追従する既定の挙動をそのまま通す(環境設定の
     /// invertTwoFingerScrollingが逆にトラックパッド側だけを対象にしているのと同じ考え方で、
@@ -385,10 +392,12 @@ struct ThumbnailGridView: View {
     ///
     /// ■ 既定のスクロールは行わせない(nilを返す)
     /// 自前で動かしたうえでイベントも通すと、AppKitの既定のスクロールと二重になって
-    /// 設定した量の何倍も動いてしまう。
+    /// 設定した量の何倍も動いてしまう。ピンチ側も同じ理由でnilを返す。
     ///
     /// なお、ViewerView側のスクロールモニタはページ一覧の表示中は素通し(return event)
-    /// なので、こちらと競合しない(ViewerView.makeScrollMonitor参照)。
+    /// なので、こちらと競合しない(ViewerView.makeScrollMonitor参照)。ピンチによる**画像の**
+    /// 拡大(ViewerView.handleMagnify)も、そのガードの内側にあるので走らない ――
+    /// ページ一覧を開いている間、ピンチの意味はサムネイルの大きさへ切り替わる。
     ///
     /// ■ クロージャが`self`を捕まえないようにしてある(重要)
     /// このViewは`viewModel`(ViewerViewModel、本ごとのPageLoaderと画像キャッシュを持つ)を
@@ -399,11 +408,10 @@ struct ThumbnailGridView: View {
     /// `handleOnDisappear`にも二重に置いているのはそのため)。
     /// そこで、クロージャが触るのは`scrollGeometryBox`(小さな入れ物)と
     /// `preferences`(アプリ全体で1つ)だけに限り、寸法の計算も`static`にしてある。
-    private func makeWheelMonitor() -> Any? {
+    private func makeGridEventMonitor() -> Any? {
         let scrollGeometryBox = self.scrollGeometryBox
         let preferences = self.preferences
-        return NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel]) { event in
-            guard Self.isWheelOriginated(event), event.deltaY != 0 else { return event }
+        return NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify]) { event in
             guard let scrollView = scrollGeometryBox.scrollView,
                   let window = scrollView.window, event.window === window,
                   let contentView = window.contentView
@@ -414,30 +422,74 @@ struct ThumbnailGridView: View {
             guard let hitView = contentView.hitTest(event.locationInWindow),
                   hitView.isDescendant(of: scrollView)
             else { return event }
-            guard let bounds = ScrollViewBounds(scrollGeometryBox.scrollView) else { return event }
 
-            let rows = preferences.thumbnailGridWheelScrollRows
-            let distance = Self.gridRowHeight(from: preferences) * CGFloat(rows)
-            var position = bounds.position
-            // ■ ノッチ数は`scrollingDeltaY`ではなく`deltaY`から取る
-            // `scrollingDeltaY`の単位は機器によって変わる ―― 従来のホイールは「行」だが、
-            // 高解像度ホイールは「ポイント」で届く(実測で1ノッチ=13.0)。これに行の高さを
-            // 掛けると、1ノッチで13行ぶん飛ぶことになる。
-            // 一方`deltaY`はどちらの機器でも**1ノッチ=±1**に正規化されている
-            // (実測値は上のisWheelOriginatedのコメント参照)ので、「1ノッチあたり何行」という
-            // この設定の意味とそのまま噛み合う。
-            //
-            // 符号: deltaYは「システム設定のナチュラルなスクロール」を反映済みの値で、
-            // 上へ回すと正になる。positionは下へ進むほど増える向きなので反転させる。
-            // 大きさをそのまま掛けているのは、速く回すとAppKitが1イベントへ複数ノッチ分を
-            // まとめてくる(実測で-3〜-6)ため、その加速をそのまま活かすため。
-            position.y -= event.deltaY * distance
-            // アニメーションは付けない。「1ノッチ = N行」をそのまま目に見える動きにするため
-            // (連続して回したときにアニメーション同士が競合して、行数と実際の移動量が
-            // 食い違って見えるのも避けられる)。可動範囲へのクランプはscroll(to:)が行う。
-            bounds.scroll(to: position)
-            return nil
+            switch event.type {
+            case .magnify:
+                return Self.handleMagnify(event, preferences: preferences)
+            default:
+                return Self.handleWheel(event, preferences: preferences, scrollGeometryBox: scrollGeometryBox)
+            }
         }
+    }
+
+    /// トラックパッドのピンチイン・ピンチアウトで、サムネイルの大きさを変える(ユーザー要望)。
+    /// 変更先は環境設定と同じ値(thumbnailGridCellSize)なので、パネル上部のスライダーの
+    /// つまみもその場で動き、指を離した大きさがそのまま次回にも引き継がれる。
+    ///
+    /// `event.magnification`は1イベントぶんの**変化量**なので、現在の大きさに
+    /// `(1 + magnification)`を掛けて積み上げる(ビューアの画像のピンチ拡大と同じ扱い。
+    /// ViewerView.handleMagnifyのコメントに、足し込みではいけない理由がある)。
+    ///
+    /// 10pt刻みへ丸めたりはしない ―― 丸めると、指をゆっくり動かしている間の1イベントぶんの
+    /// 変化が刻みより小さくなり、**現在値から計算し直すたびに同じ値へ戻って一切動かなくなる**。
+    /// 環境設定のスライダーは10pt刻みだが、途中の値を与えても位置は正しく描かれる
+    /// (次にスライダーを掴んだときに刻みへ吸着するだけ)。
+    ///
+    /// `self`を捕まえないこと(makeGridEventMonitorのコメント参照)。そのためstaticにしてある。
+    private static func handleMagnify(_ event: NSEvent, preferences: AppPreferences) -> NSEvent? {
+        guard event.magnification != 0 else { return event }
+        let range = AppPreferences.thumbnailGridCellSizeRange
+        let next = Double(cellSize(from: preferences) * (1 + CGFloat(event.magnification)))
+        let clamped = min(max(next, range.lowerBound), range.upperBound)
+        // 上限・下限に張り付いている間、同じ値を書き込み続けない(@Publishedの通知と
+        // UserDefaultsへの書き込みが、指を動かしている間ずっと空振りで走るのを避ける)。
+        if clamped != preferences.thumbnailGridCellSize {
+            preferences.thumbnailGridCellSize = clamped
+        }
+        // 既定の処理(SwiftUIのScrollViewは既定でmagnificationを受け付けないが、将来にわたって
+        // 二重に処理されないことを保証するため)へは渡さない。
+        return nil
+    }
+
+    /// 物理マウスホイール1ノッチぶんのスクロール量を、環境設定に従わせる
+    /// (makeGridEventMonitorのコメント参照)。`self`を捕まえないことが要るためstatic。
+    private static func handleWheel(
+        _ event: NSEvent, preferences: AppPreferences, scrollGeometryBox: ScrollGeometryBox
+    ) -> NSEvent? {
+        guard isWheelOriginated(event), event.deltaY != 0 else { return event }
+        guard let bounds = ScrollViewBounds(scrollGeometryBox.scrollView) else { return event }
+
+        let rows = preferences.thumbnailGridWheelScrollRows
+        let distance = gridRowHeight(from: preferences) * CGFloat(rows)
+        var position = bounds.position
+        // ■ ノッチ数は`scrollingDeltaY`ではなく`deltaY`から取る
+        // `scrollingDeltaY`の単位は機器によって変わる ―― 従来のホイールは「行」だが、
+        // 高解像度ホイールは「ポイント」で届く(実測で1ノッチ=13.0)。これに行の高さを
+        // 掛けると、1ノッチで13行ぶん飛ぶことになる。
+        // 一方`deltaY`はどちらの機器でも**1ノッチ=±1**に正規化されている
+        // (実測値は上のisWheelOriginatedのコメント参照)ので、「1ノッチあたり何行」という
+        // この設定の意味とそのまま噛み合う。
+        //
+        // 符号: deltaYは「システム設定のナチュラルなスクロール」を反映済みの値で、
+        // 上へ回すと正になる。positionは下へ進むほど増える向きなので反転させる。
+        // 大きさをそのまま掛けているのは、速く回すとAppKitが1イベントへ複数ノッチ分を
+        // まとめてくる(実測で-3〜-6)ため、その加速をそのまま活かすため。
+        position.y -= event.deltaY * distance
+        // アニメーションは付けない。「1ノッチ = N行」をそのまま目に見える動きにするため
+        // (連続して回したときにアニメーション同士が競合して、行数と実際の移動量が
+        // 食い違って見えるのも避けられる)。可動範囲へのクランプはscroll(to:)が行う。
+        bounds.scroll(to: position)
+        return nil
     }
 }
 
