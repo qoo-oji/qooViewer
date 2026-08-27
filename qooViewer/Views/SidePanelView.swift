@@ -207,6 +207,11 @@ struct SidePanelView: View {
                             forLevel: preferences.sidePanelSurfaceStyle.contentShadowLevel
                         )
                     )
+                    // パネルの空きスペースを右クリックしたら「サイドパネルを隠す」
+                    // (ユーザー要望。ツールバー・プログレスバーの帯と同じ扱い)。
+                    // 一覧の各行のように独自の`.contextMenu`を持つ部分はそちらが優先されるため、
+                    // ここが受け持つのは行の無い余白・見出し・モード切り替えの帯だけになる。
+                    .panelPartContextMenu(for: .sidePanel)
             }
             // ドラッグの当たり判定を持つビュー(widthDragHitArea)自体は、レイアウト上も
             // 見た目上も一切動かさない(offsetも含めて)。ジェスチャーを載せているビュー

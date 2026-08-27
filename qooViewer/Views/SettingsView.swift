@@ -32,7 +32,9 @@ struct SettingsView: View {
     /// (macOSのシステム設定も直前の画面を憶えている)。
     /// 保存済みの値が未知の文字列だった場合(将来caseを削除・改名したときなど)は
     /// `@AppStorage` が既定値を返すので、「一般」が開くだけで壊れない。
-    @AppStorage("qooViewer.settings.selectedPane") private var selectedPane: SettingsPane = .general
+    /// キーの綴りはSettingsNavigatorと共有する。あちらが「特定の画面を開いた状態で
+    /// 環境設定を呼び出す」ためにこのキーへ直接書き込むため(SettingsNavigator参照)。
+    @AppStorage(SettingsNavigator.selectedPaneDefaultsKey) private var selectedPane: SettingsPane = .general
 
     var body: some View {
         NavigationSplitView(columnVisibility: .constant(.all)) {

@@ -27,6 +27,11 @@ import SwiftUI
 struct AppearanceSettingsView: View {
     @EnvironmentObject private var preferences: AppPreferences
 
+    /// ツールバー/プログレスバー/サイドパネル/ページ一覧パネルを右クリック →「調整…」で
+    /// 開かれたとき、対応するセクションまでスクロールして見せるための行き先
+    /// (SettingsNavigator参照)。
+    @ObservedObject private var navigator = SettingsNavigator.shared
+
     /// いま色の指定ダイアログを開いている対象。`nil`なら閉じている。
     ///
     /// この画面には色を選ぶ場所が複数(背景色・枠の色・面ごとの重ね色)あるが、
@@ -69,17 +74,35 @@ struct AppearanceSettingsView: View {
     }
 
     var body: some View {
-        SettingsPaneContainer {
-            viewerSection
-            pageListSection
-            ForEach(PanelSurface.allCases) { surface in
-                surfaceSection(surface)
-            }
+        // 面ごとのセクションへ直接飛べるようにするためのScrollViewReader
+        // (ユーザー要望: 帯の右クリック →「調整…」でその面の設定まで一気に開きたい)。
+        // Formは内部にスクロールビューを持つので、ここで包めばproxy.scrollToが効く。
+        ScrollViewReader { proxy in
+            SettingsPaneContainer {
+                viewerSection
+                // スクロールの行き先の目印(AppearanceSection参照)。ページ一覧パネルの
+                // 右クリック →「調整…」はここへ着地する。
+                pageListSection
+                    .id(AppearanceSection.pageList)
+                ForEach(PanelSurface.allCases) { surface in
+                    surfaceSection(surface)
+                        // 同じく行き先の目印。PanelSurfaceから機械的に作っているので、
+                        // 面を1つ増やしてもここは触らなくてよい。
+                        .id(AppearanceSection.surface(surface))
+                }
 
-            SettingsResetSection(
-                help: "Restores every setting on this page, including the color of every frosted surface. Other pages are not affected."
-            ) {
-                preferences.resetToDefaults(.appearance)
+                SettingsResetSection(
+                    help: "Restores every setting on this page, including the color of every frosted surface. Other pages are not affected."
+                ) {
+                    preferences.resetToDefaults(.appearance)
+                }
+            }
+            // 開いた瞬間に行き先が入っている場合(環境設定ウインドウが閉じていた、または
+            // 別の画面を開いていた場合)と、既にこの画面が開いたまま別の面の「調整…」を
+            // 選ばれた場合の両方を拾う必要があるため、onAppearとonChangeの2本立てにする。
+            .onAppear { scrollToPendingTarget(using: proxy) }
+            .onChange(of: navigator.appearanceTarget) { _, _ in
+                scrollToPendingTarget(using: proxy)
             }
         }
         // シートは行ではなく画面の土台側に付ける(理由はSettingsColorRowのコメント参照)。
@@ -90,6 +113,22 @@ struct AppearanceSettingsView: View {
                 onCommit: { commit($0, for: target) },
                 onCancel: { revert(target) }
             )
+        }
+    }
+
+    /// 行き先が入っていればそこまでスクロールし、行き先を空に戻す。
+    ///
+    /// 1フレーム待ってからスクロールしているのは、onAppearの時点ではFormの中身がまだ
+    /// レイアウトされておらず、その場でscrollToを呼んでも何も起きないことがあるため
+    /// (環境設定ウインドウが閉じた状態から開いた場合に起きる)。
+    /// 行き先を空へ戻すのも同じTaskの中で行い、次に環境設定を開いたときに勝手に
+    /// 飛ばないようにする。
+    private func scrollToPendingTarget(using proxy: ScrollViewProxy) {
+        guard let section = navigator.appearanceTarget else { return }
+        Task { @MainActor in
+            await Task.yield()
+            withAnimation { proxy.scrollTo(section, anchor: .top) }
+            navigator.appearanceTarget = nil
         }
     }
 

@@ -1014,6 +1014,9 @@ struct ViewerView: View {
                         .panelSurfaceBackground(
                             preferences.toolbarSurfaceStyle, material: nil, in: Rectangle()
                         )
+                        // 帯を右クリックしたら「ツールバーを隠す」(ユーザー要望)。背景を敷いた
+                        // 後に付けることで、ボタンの無い余白も含めた帯全体が対象になる。
+                        .panelPartContextMenu(for: .toolbar)
                     Divider()
                 }
                 pageArea
@@ -1027,6 +1030,8 @@ struct ViewerView: View {
                         .panelSurfaceBackground(
                             preferences.progressBarSurfaceStyle, material: nil, in: Rectangle()
                         )
+                        // ツールバーと同じ(すぐ上のコメント参照)。こちらは「プログレスバーを隠す」。
+                        .panelPartContextMenu(for: .progressBar)
                 }
             }
 
@@ -1038,6 +1043,8 @@ struct ViewerView: View {
                         .panelSurfaceBackground(
                             preferences.toolbarSurfaceStyle, material: .ultraThinMaterial, in: Rectangle()
                         )
+                        // 常時表示のときと同じ(すぐ上の分岐のコメント参照)。
+                        .panelPartContextMenu(for: .toolbar)
                         // ツールバー(実際に表示されている帯)の下端が、ウインドウ座標系の
                         // どのY座標にあるかを実測する。この位置より上にマウスがあれば
                         // (=ツールバーの表示領域全体のどこであれ)表示を維持する
@@ -1064,6 +1071,8 @@ struct ViewerView: View {
                         .panelSurfaceBackground(
                             preferences.progressBarSurfaceStyle, material: .ultraThinMaterial, in: Rectangle()
                         )
+                        // 常時表示のときと同じ(すぐ上の分岐のコメント参照)。
+                        .panelPartContextMenu(for: .progressBar)
                 }
                 .opacity(showProgressBarOverlay ? 1 : 0)
                 .allowsHitTesting(showProgressBarOverlay)
@@ -1782,6 +1791,17 @@ struct ViewerView: View {
             )
         )
 
+
+        Divider()
+
+        // ユーザー要望: 画像を右クリックしたときにもページ一覧(サムネイルグリッド)を開けるように
+        // する。ツールバーの田の字ボタン・メニューバー「表示」→「ページ一覧を表示」・キーボード
+        // ショートカットとまったく同じ経路(perform(.showThumbnailGrid))を通るため、開いた
+        // パネルの閉じ方(外側クリック/同じ操作の再実行)も他の経路と揃う。
+        // 置き場所は、お気に入りグループのすぐ上に独立した1グループとして(ユーザーの指示)。
+        Button("Show Page Grid") {
+            perform(.showThumbnailGrid)
+        }
 
         Divider()
 

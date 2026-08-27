@@ -305,6 +305,13 @@ struct ThumbnailGridView: View {
             .onTapGesture {
                 isPresented = false
             }
+            // 余白を右クリックしたら「調整…」(ユーザー要望。ツールバー・プログレスバー・
+            // サイドパネルの帯と同じ扱い)。飛び先は環境設定「外観」画面の「ページ一覧」
+            // セクション。**左クリックで閉じる上の.onTapGestureとは競合しない** ――
+            // TapGestureが拾うのは左クリックだけで、右クリックはこのメニューが受け取る。
+            // このパネルには「隠す」設定が無いので、メニューは「調整…」の1項目だけになる
+            // (理由はViewerPanelPart.pageListのコメント参照)。
+            .panelPartContextMenu(for: .pageList)
             .background(PanelScreenFrameAccessor(onChange: onPanelScreenFrameChange))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onAppear {

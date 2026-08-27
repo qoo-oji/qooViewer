@@ -954,6 +954,22 @@
         }
       }
     },
+    "Adjust…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Adjust…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "調整…"
+          }
+        }
+      }
+    },
     "Advanced" : {
       "localizations" : {
         "en" : {
