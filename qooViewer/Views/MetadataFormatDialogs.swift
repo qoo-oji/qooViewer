@@ -6,16 +6,29 @@ import AppKit
 /// 同じ行に並べるボタンの幅を揃えるための、ラベル文字列からの幅の見積もり
 /// (ユーザー要望: 「ボタンの幅は３つとも揃えること」「ボタン幅は初期化ボタンと揃えること」)。
 ///
+/// 前者の「3つとも揃えること」はメタデータ編集ウインドウ上部に並べていた3つのボタンへの要望
+/// だったが、そのボタン群はツールバーの1つのプルダウンへ畳んだため、今の利用箇所は
+/// 下記のダイアログのフッター(初期化/閉じる)だけになっている。
+///
 /// `.frame(maxWidth: .infinity)`で揃える方法もあるが、それだと親の幅いっぱいまで
 /// 引き伸ばされてしまい、ウインドウ幅によってボタンが不自然に間延びする。
 /// ExportColumnWidthEstimatorと同じくNSStringの実測を使い、「一番長いラベルが
 /// 収まる幅」を求めて全ボタンへ同じ値を指定する。
 enum MetadataButtonWidthEstimator {
     /// ボタンのラベル以外に必要な左右の余白(macOSの標準ボタンのパディング相当)。
-    private static let chrome: CGFloat = 34
+    static let chrome: CGFloat = 34
+    /// `.controlSize(.small)`のボタン用の余白。標準サイズよりベゼルの左右が詰まる
+    /// (実機のスクリーンショットを実測して合わせた値)。
+    static let smallChrome: CGFloat = 16
 
-    static func equalWidth(for labels: [String], minWidth: CGFloat = 120) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+    /// フォントと余白を差し替えられるようにしてあるのは、小さいサイズのボタン
+    /// (メタデータ編集ウインドウの登録/削除ボタン)の列幅も同じ見積もりで求めるため。
+    static func equalWidth(
+        for labels: [String],
+        minWidth: CGFloat = 120,
+        font: NSFont = .systemFont(ofSize: NSFont.systemFontSize),
+        chrome: CGFloat = MetadataButtonWidthEstimator.chrome
+    ) -> CGFloat {
         let widest = labels.map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
         return max(minWidth, (widest + chrome).rounded(.up))
     }

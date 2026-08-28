@@ -4053,6 +4053,22 @@
         }
       }
     },
+    "Edit Formats" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Formats"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォーマットの編集"
+          }
+        }
+      }
+    },
     "Edit Layout…" : {
       "localizations" : {
         "en" : {

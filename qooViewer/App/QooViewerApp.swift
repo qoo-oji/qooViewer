@@ -1197,6 +1197,9 @@ struct QooViewerApp: App {
         }
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
+        // 検索欄と「フォーマットの編集」をツールバーに載せているため、タイトルとツールバーを
+        // 1行にまとめた純正アプリと同じ見た目にする(MetadataEditorWindow参照)。
+        .windowToolbarStyle(.unified)
 
         // PDF出力専用ウインドウ。EPUB出力ウインドウと同じ構成(favoritesStoreは不要)。
         Window("Export as PDF", id: "pdfExport") {
