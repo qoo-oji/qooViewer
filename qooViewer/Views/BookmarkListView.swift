@@ -1611,6 +1611,15 @@ private struct BookmarkDetailPane: View {
                 .background(ListAnchorAccessor(box: listAnchorBox))
                 .focusable()
                 .focused($isPageListFocused)
+                // バグ修正(ユーザー報告: レイアウトの編集を開いた直後にタイトルバーへ青い線が
+                // 出ることがある/右ペインを広げようとすると縦に青い線が出ることがある。
+                // どちらもマウスを動かすと消える)。.focusable()にSwiftUIが自動で付ける
+                // フォーカスリングが、レイアウトが確定する前の一瞬(高さ0=ウインドウ幅いっぱいの
+                // 横線、幅0=ペインの高さいっぱいの縦線)の矩形で描かれ、次の再描画まで残るのが
+                // 原因(実測で再現。8回開くと3回出た)。ここでの.focusable()はカーソルキーを
+                // 受け取るためだけのもので、キーボードフォーカスがどこにあるかはList自身の
+                // 選択色が示すため、リングは元々不要。
+                .focusEffectDisabled()
                 // 左ペイン(moveBookSelection)は.onMoveCommandで動作するが、こちらは動作しない
                 // (ユーザー報告: 右ペインだけカーソルキーで移動できない)。右ペインの行には
                 // ボタン(レイアウト列のメニュー、ブックマークの追加・削除)が含まれており、
