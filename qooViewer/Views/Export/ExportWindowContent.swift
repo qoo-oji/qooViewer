@@ -158,9 +158,13 @@ struct ExportWindowContent<Options: View>: View {
             if let warningBanner = configuration.warningBanner {
                 warningBannerView(warningBanner)
             }
-
-            Divider()
-            bottomSection
+        }
+        // 「すべて選択」と「出力オプション…」はウインドウのツールバーへ載せる(純正のmacOSアプリと
+        // 同じ作法。以前は下部のボタン行に4つとも並べていた)。確定操作(キャンセル/出力を開始)は
+        // 「右下に既定ボタン」という慣習どおり下部に残す。
+        .toolbar { toolbarItems }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            bottomBar
         }
         .frame(minWidth: max(configuration.minimumWindowWidth, contentMinWidth), minHeight: 480)
         // 一覧が非同期に埋まるため、表示直後と「行が入った瞬間」の両方で試みる
@@ -197,6 +201,11 @@ struct ExportWindowContent<Options: View>: View {
     /// この書き出し形式が構造的に持てない情報について、常に表示しておく注意書き
     /// (PDFの見開き/読み方向など)。一過性の通知ではなく機能の恒常的な制約のため、
     /// BookmarkListView.reorderWarningMessageと違って閉じるボタンは付けない。
+    ///
+    /// 見た目は「メール」などが使う角丸のインラインバナー。以前はウインドウ幅いっぱいの
+    /// オレンジ色の帯だったが、面積のわりに強い色で、ウインドウの構造の一部(下部バーの一種)
+    /// のようにも見えていた。角丸のカードにして左右に余白を取り、一覧の内容に添えられた
+    /// 注意書きだと分かる形にしている。
     private func warningBannerView(_ message: LocalizedStringKey) -> some View {
         HStack(alignment: .top, spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -206,9 +215,18 @@ struct ExportWindowContent<Options: View>: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.orange.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.orange.opacity(0.25))
+        )
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(Color.orange.opacity(0.12))
+        .padding(.top, 8)
     }
 
     // MARK: - 対象一覧
@@ -321,28 +339,46 @@ struct ExportWindowContent<Options: View>: View {
         .id(didAutoSizeColumns)
     }
 
-    // MARK: - 実行ボタン
+    // MARK: - ツールバー
 
-    private var bottomSection: some View {
-        HStack {
-            // 全選択/全解除(ユーザー要望: 「選択」メニュー・「選択解除」ボタンを廃止し、
-            // チェックボックス1つに一本化する)。一覧をネイティブのTableへ置き換えた際に、
-            // タイトル行からここへ移した(TableColumnの見出しはTextしか受け付けないため)。
-            Toggle("Select All", isOn: selectAllBinding)
-                .toggleStyle(.checkbox)
-                .help("Select All / Deselect All")
-                .disabled(viewModel.rows.isEmpty || viewModel.isExporting)
-
-            Spacer()
-
-            // 形式ごとの出力オプション(ユーザー要望: チェックボックス類はオプションとして
-            // まとめ、ボタンを押したときだけ出す。一覧の下の余白を無くしたい)。
-            // 見出しに形式名は入れず、3つのウインドウで同じ表記にする(ユーザー要望)。
-            Button("Export Options…") {
-                isOptionsPopoverPresented = true
+    @ToolbarContentBuilder
+    private var toolbarItems: some ToolbarContent {
+        // 全選択/全解除(ユーザー要望: 「選択」メニュー・「選択解除」ボタンを廃止し、
+        // チェックボックス1つに一本化する)。一覧をネイティブのTableへ置き換えた際に
+        // タイトル行から下部のボタン行へ移し、さらにツールバーへ移した。
+        // ツールバーにチェックボックスは載らないため、押している間だけ色が付く
+        // トグルボタン(すべて選択されているときON)にしてある。
+        ToolbarItem {
+            Toggle(isOn: selectAllBinding) {
+                // アイコンはユーザー選択。Finderの「すべてを選択」(角丸の枠＋中身)と同じ系統の
+                // 図形にしたいが、Finderのものは`character.textbox`で中身が表示言語で変わる文字
+                // (日本語では「あ」)なので、一覧の項目を全部選ぶ意味に合う
+                // "checkmark.rectangle.stack"にしてある。
+                Label("Select All", systemImage: "checkmark.rectangle.stack")
             }
+            .toggleStyle(.button)
+            .labelStyle(.titleAndIcon)
+            .help("Select All / Deselect All")
+            .disabled(viewModel.rows.isEmpty || viewModel.isExporting)
+        }
+
+        // 形式ごとの出力オプション(ユーザー要望: チェックボックス類はオプションとして
+        // まとめ、ボタンを押したときだけ出す。一覧の下の余白を無くしたい)。
+        // 見出しに形式名は入れず、3つのウインドウで同じ表記にする(ユーザー要望)。
+        ToolbarItem {
+            Button {
+                isOptionsPopoverPresented = true
+            } label: {
+                // アイコンはユーザー選択で歯車(macOSで「設定・オプション」を表す図形)。
+                // 当初の"slider.horizontal.3"は調整つまみに見えて好まれなかった。
+                Label("Export Options…", systemImage: "gearshape")
+            }
+            .labelStyle(.titleAndIcon)
             .disabled(viewModel.isExporting)
-            .popover(isPresented: $isOptionsPopoverPresented, arrowEdge: .top) {
+            // arrowEdgeは「アンカーのどちら側へポップオーバーを出すか」。下部のボタン行に
+            // あった頃は上へ出す.topが正しかったが、ツールバーへ移した今は下へ出す.bottomに
+            // する(.topのままだとウインドウの外、タイトルバーの上に浮いて出る)。
+            .popover(isPresented: $isOptionsPopoverPresented, arrowEdge: .bottom) {
                 // 中身はToggleが1〜3個だけなので、Formの列レイアウトではなく素直に左揃えで縦に
                 // 並べる(ポップオーバーは内容に合わせて縮むため、幅は下限だけ与えておく)。
                 VStack(alignment: .leading, spacing: 8) {
@@ -351,6 +387,17 @@ struct ExportWindowContent<Options: View>: View {
                 .padding(16)
                 .frame(minWidth: 260, alignment: .leading)
             }
+        }
+    }
+
+    // MARK: - 実行ボタン
+
+    /// 下部のボタン行。確定操作を持つウインドウの「右下に既定ボタン」は正しい慣習なので、
+    /// 並び(キャンセル→出力を開始)はそのままに、`.bar`素材の帯へ載せ替えてある
+    /// (一覧がこの帯の下へ透けて潜る。以前はDividerで区切った不透明な行だった)。
+    private var bottomBar: some View {
+        HStack {
+            Spacer()
 
             // ユーザー要望: 「出力を開始」ボタンの左に「キャンセル」ボタンを追加してほしい。
             // 他のウインドウ(FavoriteFolderPickerView.bottomBar等)と同じ並び
@@ -367,6 +414,8 @@ struct ExportWindowContent<Options: View>: View {
             .keyboardShortcut(.defaultAction)
         }
         .padding()
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
     }
 
     private func startExportButtonTapped() {

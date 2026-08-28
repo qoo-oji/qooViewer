@@ -1160,6 +1160,9 @@ struct QooViewerApp: App {
         }
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
+        // 「すべて選択」「出力オプション…」をツールバーに載せているため、タイトルと
+        // ツールバーを1行にまとめた純正アプリと同じ見た目にする(ExportWindowContent参照)。
+        .windowToolbarStyle(.unified)
 
         // 「本ごとの保存データを削除」ウインドウ(独立ウインドウ)。環境設定「リセット」タブの
         // ボタンからのみ開く(ユーザー要望: 環境設定からのみ呼び出せるものでよい)。
@@ -1212,6 +1215,9 @@ struct QooViewerApp: App {
         }
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
+        // 「すべて選択」「出力オプション…」をツールバーに載せているため、タイトルと
+        // ツールバーを1行にまとめた純正アプリと同じ見た目にする(ExportWindowContent参照)。
+        .windowToolbarStyle(.unified)
 
         // CBZ出力専用ウインドウ。EPUB/PDF出力ウインドウと同じ構成(favoritesStoreは不要)。
         Window("Export as CBZ", id: "cbzExport") {
@@ -1224,6 +1230,9 @@ struct QooViewerApp: App {
         }
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
+        // 「すべて選択」「出力オプション…」をツールバーに載せているため、タイトルと
+        // ツールバーを1行にまとめた純正アプリと同じ見た目にする(ExportWindowContent参照)。
+        .windowToolbarStyle(.unified)
     }
 
     /// 「新しいウインドウで開く」「新しいタブで開く」。ファイル/フォルダ選択パネルを表示し、
