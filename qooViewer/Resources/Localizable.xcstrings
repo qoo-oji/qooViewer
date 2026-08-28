@@ -3106,6 +3106,22 @@
         }
       }
     },
+    "Date Added" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Date Added"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "追加日時"
+          }
+        }
+      }
+    },
     "Date Added (Newest First)" : {
       "localizations" : {
         "en" : {
@@ -3166,6 +3182,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "変更日"
+          }
+        }
+      }
+    },
+    "Date Updated" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Date Updated"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新日時"
           }
         }
       }

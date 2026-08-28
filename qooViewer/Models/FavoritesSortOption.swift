@@ -31,6 +31,60 @@ enum FavoritesSortOption: String, CaseIterable, Identifiable, Codable, Hashable 
 
     var id: String { rawValue }
 
+    /// 並べ替えの基準そのもの(昇順・降順を含まない3種類)。
+    ///
+    /// 6つのcaseは「基準3種類 × 昇順/降順」の組み合わせでしかないため、その2つの軸を別々の
+    /// メニューとして選ばせたい画面(ブックマーク・レイアウトの編集ウインドウの左ペイン。
+    /// ユーザー要望)のために、分解して読み書きできるようにしてある。保存される値・
+    /// 並べ替えの実装は従来どおりFavoritesSortOptionのまま(お気に入りの整理ウインドウは
+    /// 6項目を1つのメニューに並べる形のままのため、両方の見せ方を同じ設定値で扱える)。
+    enum Field: String, CaseIterable, Identifiable, Hashable {
+        case name
+        case dateAdded
+        case dateUpdated
+
+        var id: String { rawValue }
+
+        var titleKey: LocalizedStringKey {
+            switch self {
+            case .name: return "Name"
+            case .dateAdded: return "Date Added"
+            case .dateUpdated: return "Date Updated"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .name: return "textformat"
+            case .dateAdded: return "calendar"
+            case .dateUpdated: return "clock.arrow.circlepath"
+            }
+        }
+    }
+
+    var field: Field {
+        switch self {
+        case .nameAscending, .nameDescending: return .name
+        case .dateAddedAscending, .dateAddedDescending: return .dateAdded
+        case .dateUpdatedAscending, .dateUpdatedDescending: return .dateUpdated
+        }
+    }
+
+    var isAscending: Bool {
+        switch self {
+        case .nameAscending, .dateAddedAscending, .dateUpdatedAscending: return true
+        case .nameDescending, .dateAddedDescending, .dateUpdatedDescending: return false
+        }
+    }
+
+    init(field: Field, ascending: Bool) {
+        switch field {
+        case .name: self = ascending ? .nameAscending : .nameDescending
+        case .dateAdded: self = ascending ? .dateAddedAscending : .dateAddedDescending
+        case .dateUpdated: self = ascending ? .dateUpdatedAscending : .dateUpdatedDescending
+        }
+    }
+
     var titleKey: LocalizedStringKey {
         switch self {
         case .nameAscending: return "Name (A–Z)"

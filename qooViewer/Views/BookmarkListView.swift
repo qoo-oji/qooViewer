@@ -337,6 +337,44 @@ struct BookmarkEditorView: View {
         }
     }
 
+    /// 並べ替えメニューの「基準」側(名前/追加日時/更新日時)。昇順・降順は保ったまま基準だけを
+    /// 差し替える(ユーザー要望: 基準と昇順/降順を別々に選べるようにしたい)。
+    /// 並べ替えは結果を即座に見たい操作のため、他のメニューと同じくwithoutAnimationを通す
+    /// (このファイル冒頭のコメント参照)。
+    private var sortFieldBinding: Binding<FavoritesSortOption.Field> {
+        withoutAnimation(
+            Binding(
+                get: { bookmarkStore.bookSortOption.field },
+                set: { newField in
+                    bookmarkStore.bookSortOption = FavoritesSortOption(
+                        field: newField, ascending: bookmarkStore.bookSortOption.isAscending
+                    )
+                }
+            )
+        )
+    }
+
+    /// 並べ替えメニューの「昇順/降順」側。基準は保ったまま向きだけを差し替える。
+    private var sortAscendingBinding: Binding<Bool> {
+        withoutAnimation(
+            Binding(
+                get: { bookmarkStore.bookSortOption.isAscending },
+                set: { isAscending in
+                    bookmarkStore.bookSortOption = FavoritesSortOption(
+                        field: bookmarkStore.bookSortOption.field, ascending: isAscending
+                    )
+                }
+            )
+        )
+    }
+
+    /// 右ペイン上段のツールバーを詰めて並べたときの幅(実測値。PageToolbarWidthKey参照)。
+    /// ウインドウの最小幅の算出にだけ使う。初期値は実測が届くまでの控えめな見積もり。
+    @State private var pageToolbarWidth: CGFloat = 450
+
+    /// ツールバーの左右の余白(BookmarkDetailPane側の.padding(.horizontal, 12)の合計)。
+    private static let pageToolbarHorizontalPadding: CGFloat = 24
+
     /// bookFilter・searchTextを適用し、bookmarkStore.bookSortOptionに従って並べた最終的な行一覧。
     private var filteredSortedRows: [EditorBookRow] {
         var rows = mergedRows
@@ -550,32 +588,83 @@ struct BookmarkEditorView: View {
                 .safeAreaInset(edge: .top) {
                     VStack(spacing: 6) {
                         HStack {
-                            Picker(selection: withoutAnimation($bookFilter)) {
-                                ForEach(EditorBookFilter.allCases) { filter in
-                                    Text(filter.titleKey).tag(filter)
-                                }
-                            } label: {
-                                Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
-                            }
-                            .pickerStyle(.menu)
-                            .fixedSize()
-
                             Spacer()
 
-                            Picker(selection: withoutAnimation($bookmarkStore.bookSortOption)) {
-                                ForEach(FavoritesSortOption.allCases) { option in
+                            // ユーザー要望: 絞り込みは並べ替えボタンのすぐ左に置く
+                            // (以前は左端に置き、間をSpacerで空けていた)。
+                            // ユーザー要望: 「絞り込み」という見出しは出さず、絞り込みの
+                            // マークを選択中の値の先頭に付ける(見出しと値で横に長くなって
+                            // いたぶんを詰める)。各項目をLabelにすると、閉じているときの
+                            // ボタンにもマーク付きで表示される。ラベル自体はlabelsHiddenで
+                            // 残してあるためVoiceOverでは読み上げられ、マウスには
+                            // ツールチップで補う。
+                            Picker(selection: withoutAnimation($bookFilter)) {
+                                ForEach(EditorBookFilter.allCases) { filter in
                                     Label {
-                                        Text(option.titleKey)
+                                        Text(filter.titleKey)
                                     } icon: {
-                                        Image(systemName: option.systemImage)
+                                        Image(systemName: "line.3.horizontal.decrease.circle")
                                     }
-                                    .tag(option)
+                                    .tag(filter)
                                 }
                             } label: {
-                                Label("Sort By", systemImage: "arrow.up.arrow.down")
+                                Text("Filter")
                             }
+                            .labelsHidden()
                             .pickerStyle(.menu)
                             .fixedSize()
+                            .help("Filter")
+
+                            // 並べ替え(ユーザー要望: 「名前(A→Z)」「名前(Z→A)」…と6項目を
+                            // 並べる形ではなく、基準3種類と昇順/降順の2つを別々に選ばせる形に
+                            // したい)。保存する値は従来どおりFavoritesSortOptionの6つのcaseの
+                            // ままで、その2つの軸へ分解して読み書きしている
+                            // (FavoritesSortOption.field/isAscending参照)。
+                            // メニュー内の2つのPickerは.inlineにしてあり、macOSではそれぞれの
+                            // グループにチェックマークが付く。
+                            Menu {
+                                Picker(selection: sortFieldBinding) {
+                                    ForEach(FavoritesSortOption.Field.allCases) { field in
+                                        Label {
+                                            Text(field.titleKey)
+                                        } icon: {
+                                            Image(systemName: field.systemImage)
+                                        }
+                                        .tag(field)
+                                    }
+                                } label: {
+                                    EmptyView()
+                                }
+                                .pickerStyle(.inline)
+
+                                Divider()
+
+                                Picker(selection: sortAscendingBinding) {
+                                    Text("Ascending").tag(true)
+                                    Text("Descending").tag(false)
+                                } label: {
+                                    EmptyView()
+                                }
+                                .pickerStyle(.inline)
+                            } label: {
+                                // ユーザー要望: 「並べ替え」の文字は出さず、アイコンだけの
+                                // ボタンにする。ラベル自体は残してあるので、VoiceOverでは
+                                // 読み上げられる(マウスにはツールチップで補う)。
+                                // アイコンだけのボタン。Labelのまま置くと、空のタイトルとの
+                                // 間隔(6pt)ぶんアイコンが左へ寄り、labelStyle(.iconOnly)に
+                                // すると今度は文字1行ぶんの高さが無くなって隣のポップアップ
+                                // より低くなる(どちらも実測。ボタン側がラベルを
+                                // アイコン+タイトルに組み直すため、HStackやpaddingで
+                                // 釣り合わせることはできない)。アイコンをTextの中へ入れて
+                                // しまえば、中身が1つだけ・高さは文字1行ぶんになるので、
+                                // 高さも中央揃えも隣のポップアップと一致する。
+                                Text(Image(systemName: "arrow.up.arrow.down"))
+                                    .accessibilityLabel(Text("Sort By"))
+                            }
+                            .menuStyle(.button)
+                            .menuIndicator(.hidden)
+                            .fixedSize()
+                            .help("Sort By")
                         }
 
                         HStack(spacing: 4) {
@@ -683,11 +772,24 @@ struct BookmarkEditorView: View {
                     )
                 }
             }
-            // バグ修正: 右ペインの「読み方向」ピッカー・「一括操作…」ボタン・絞り込みピッカーなど、
-            // 上段に横並びになる項目が、以前の右ペイン最小幅(400)だと窮屈になり、環境によっては
-            // ラベルが省略記号で切れて見えることがあった(ユーザー報告)。480へ広げることで
-            // 余裕を持たせる。
-            .frame(minWidth: max(640, sidebarWidth + 480), minHeight: 420)
+            // 右ペインの上段に横並びになる項目(読み方向ピッカー・「一括操作…」ボタン・
+            // 絞り込みピッカーなど)がラベルの省略記号で切れないだけの幅。
+            //
+            // 右ペインは「上段のツールバーのボタンがどれも省略されずに収まるぎりぎりの幅」に
+            // する(ユーザー要望)。必要な幅は表示言語や環境で変わるため決め打ちにせず、
+            // ツールバーと同じ内容をSpacer抜き・fixedSizeで組んだものを実測して受け取る
+            // (BookmarkDetailPane.pageToolbarRow(isMeasuring:) / PageToolbarWidthKey参照)。
+            // 経緯: 以前は400→480→450と数値を直に置いていたが、そのたびに「一括操作…」の
+            // ラベルが潰れる/逆に余白が余る、という取りこぼしが出ていた。
+            .frame(
+                minWidth: max(640, sidebarWidth + pageToolbarWidth + Self.pageToolbarHorizontalPadding),
+                minHeight: 420
+            )
+            .onPreferenceChange(PageToolbarWidthKey.self) { width in
+                // 本を選んでいない間(ツールバーが無い)は0が流れてくるので、直前の実測値を保つ。
+                guard width > 0 else { return }
+                pageToolbarWidth = width
+            }
             // バグ修正: 以前は.alert + TextField(NSAlertが内部で使うテキストフィールド)だったが、
             // 開いた瞬間に既存の名前が全選択された状態になるかどうかが不安定だった
             // (ユーザー報告)。加えて、同じブックマークを続けてリネームすると入力欄が空のまま
@@ -1186,6 +1288,15 @@ private struct ResizableColumnDivider: View {
 /// ページの読み込み(BookLoader経由)・並べ替え・レイアウト変更はBookLayoutEditorViewModelが
 /// 担当する。bookIDが変わるたびに親(BookmarkEditorView)側で.id(bookID)を付けて
 /// このView自体を作り直しているため、@StateObjectも本を切り替えるたびに正しく再生成される。
+/// 右ペイン上段のツールバーを「詰めて並べたときの幅」を、BookmarkDetailPaneから
+/// BookmarkEditorView(ウインドウの最小幅を決めている側)へ運ぶためのPreferenceKey。
+private struct PageToolbarWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 private struct BookmarkDetailPane: View {
     let bookID: String
     @ObservedObject var bookmarkStore: BookmarkStore
@@ -1657,117 +1768,23 @@ private struct BookmarkDetailPane: View {
                 // 絞り込みだけの行の2段に分かれていたが、1段にまとめた。表示順初期化ボタンは
                 // 使用頻度が低いため下部の「一括操作…」メニューへ移した(movePageUp/
                 // movePageDown/resetOrderの呼び出し先自体は変更していない)。
-                HStack {
-                    Button {
-                        movePageUp()
-                    } label: {
-                        Image(systemName: "chevron.up")
-                    }
-                    .disabled(selectedPageKey == nil || !viewModel.isBookReady)
-                    .help("Move Selected Page Earlier")
-
-                    Button {
-                        movePageDown()
-                    } label: {
-                        Image(systemName: "chevron.down")
-                    }
-                    .disabled(selectedPageKey == nil || !viewModel.isBookReady)
-                    .help("Move Selected Page Later")
-
-                    Group {
-                        Text("Reading Direction")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        // ユーザー報告: 上書き未設定のとき「Default」とだけ表示され、実際にこの本が
-                        // どちら向きで開かれるのか分からなかった。「既定」という選択肢自体を無くし、
-                        // 常に「右開き」「左開き」のどちらかで、実際に適用される値
-                        // (readingDirectionBinding参照)を表示するようにした。
-                        Picker(selection: readingDirectionBinding) {
-                            Text("Right-to-Left").tag(ReadingDirection.rightToLeft)
-                            Text("Left-to-Right").tag(ReadingDirection.leftToRight)
-                        } label: {
-                            EmptyView()
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        .fixedSize()
-                        // 読み方向の上書きの保存にはMangaBookが必要なため、本体の読み込みが
-                        // 終わるまでは操作させない(viewModel.isBookReadyのコメント参照)。
-                        .disabled(!viewModel.isBookReady)
-                    }
-
-                    // 4.4節: 「一括リネーム」「表示順を初期化」「ブックマークを全削除」
-                    // 「レイアウトを全削除」は、以前は右ペイン下部に独立したボタン/メニューとして
-                    // 常時表示していたが、読み方向・絞り込みと同じ最上段の1列にまとめてほしい
-                    // という要望により、この位置(読み方向と絞り込みの間)へ移動した。
-                    Menu {
-                        Button("Bulk Rename Bookmarks…") {
-                            pendingBulkRenameBookID = bookID
-                        }
-                        .disabled(bookmarkStore.bookmarks(forBookID: bookID).isEmpty)
-
-                        // ユーザー要望: 「一括リネーム」と「ブックマークを全削除」の間に
-                        // 区切り線を追加(リネーム系と削除系のグループを視覚的に分ける)。
-                        Divider()
-
-                        Button("Delete All Bookmarks…", role: .destructive) {
-                            pendingDeleteBookmarksBookID = bookID
-                        }
-                        .disabled(bookmarkStore.bookmarks(forBookID: bookID).isEmpty)
-
-                        Button("Delete All Layout Info…", role: .destructive) {
-                            pendingDeleteLayoutBookID = bookID
-                        }
-                        .disabled(!layoutStore.layoutBookIDs.contains(bookID))
-
-                        // ユーザー要望: 左ペインの右クリックメニューに追加した「ブックマークおよび
-                        // レイアウトを全削除」(pendingDeleteBookmarksAndLayoutBookIDのコメント参照)を、
-                        // こちらの「一括操作…」メニューにも追加してほしいとのことで追加した。
-                        // 上の個別2項目(ブックマークのみ/レイアウトのみを削除)はそのまま残している。
-                        Button("Delete All Bookmarks and Layouts…", role: .destructive) {
-                            pendingDeleteBookmarksAndLayoutBookID = bookID
-                        }
-                        .disabled(bookmarkStore.bookmarks(forBookID: bookID).isEmpty && !layoutStore.layoutBookIDs.contains(bookID))
-
-                        // ユーザー要望: 区切り線は削除系3項目(ブックマークを全削除/レイアウトを
-                        // 全削除/ブックマークおよびレイアウトを全削除)の直後、「表示順(ページ順)を
-                        // 初期化する」の直前へ移動(以前は削除系の1項目目と2項目目の間にあった)。
-                        Divider()
-
-                        // 4.3節「ページ順を初期化する」。使用頻度が低い操作のため、このメニューの
-                        // 最後尾に置いている(ユーザー要望)。カスタム並び替え(pageOrderOverride)が
-                        // 無い(既に自然順のまま)場合は押しても意味が無いため無効化する。
-                        Button("Reset Page Order") {
-                            viewModel.resetOrder()
-                        }
-                        .disabled(
-                            layoutStore.bookLayoutSettings(forBookID: bookID)?.pageOrderOverride == nil
-                                || !viewModel.isBookReady
-                        )
-                    } label: {
-                        Label("Bulk Operations…", systemImage: "ellipsis.circle")
-                    }
-                    .menuStyle(.button)
-
-                    // ページ一覧のキャッシュだけで先に描画している間の表示。本体の読み込みが
-                    // 終わるとサムネイルが埋まり、レイアウト変更・並べ替えも操作できるようになる。
-                    if !viewModel.isBookReady {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-
-                    Spacer()
-
-                    Picker(selection: withoutAnimation($pageFilter)) {
-                        ForEach(EditorPageFilter.allCases) { filter in
-                            Text(filter.titleKey).tag(filter)
-                        }
-                    } label: {
-                        Label("Filter", systemImage: "line.3.horizontal.decrease.circle")
-                    }
-                    .pickerStyle(.menu)
-                    .fixedSize()
-                }
+                // ユーザー要望: 右ペインの幅は、ツールバーのボタンがどれも省略されずに
+                // 収まるぎりぎりの幅にしたい。必要な幅は表示言語や環境で変わるため決め打ちにせず、
+                // 同じ内容をSpacer抜き・fixedSizeで組んだものを見えない状態で重ねて実測し、
+                // ウインドウの最小幅の算出(BookmarkEditorView側)へPreferenceで渡す。
+                pageToolbarRow(isMeasuring: false)
+                    .background(
+                        pageToolbarRow(isMeasuring: true)
+                            .fixedSize()
+                            .hidden()
+                            .background(
+                                GeometryReader { proxy in
+                                    Color.clear.preference(
+                                        key: PageToolbarWidthKey.self, value: proxy.size.width
+                                    )
+                                }
+                            )
+                    )
 
                 if let warning = viewModel.reorderWarningMessage {
                     HStack {
@@ -1912,6 +1929,146 @@ private struct BookmarkDetailPane: View {
             },
             set: { viewModel.setReadingDirectionOverride($0) }
         )
+    }
+
+    /// 右ペイン上段のツールバー1行分。
+    ///
+    /// isMeasuring: trueで組むと、左右を引き離しているSpacerを抜いた「すべてのボタンを
+    /// 詰めて並べたときの幅」になる。これをfixedSizeで実際に組んで測ったものが、この
+    /// ウインドウの最小幅の根拠になる(ユーザー要望: 右ペインはツールバーのボタンが
+    /// 見切れないぎりぎりの幅にしたい。数値を決め打ちにすると、表示言語によって
+    /// 「一括操作…」のラベルが潰れたり、逆に余白が余ったりする)。
+    @ViewBuilder
+    private func pageToolbarRow(isMeasuring: Bool) -> some View {
+        HStack {
+            Button {
+                movePageUp()
+            } label: {
+                Image(systemName: "chevron.up")
+            }
+            .disabled(selectedPageKey == nil || !viewModel.isBookReady)
+            .help("Move Selected Page Earlier")
+
+            Button {
+                movePageDown()
+            } label: {
+                Image(systemName: "chevron.down")
+            }
+            .disabled(selectedPageKey == nil || !viewModel.isBookReady)
+            .help("Move Selected Page Later")
+
+            // ページの読み込みが終わるまでの表示。上下ボタンと同じく左端に残す。
+            // 実測にも「出ているときだけ」入れる(常に場所を数えると、読み込みが終わって
+            // 消えたあとも24pt広いままになり、ユーザーが確認した幅より広くなるため。
+            // 読み込み中は右のボタン群との間のSpacerがこのぶんを吸う)。
+            if !viewModel.isBookReady {
+                ProgressView()
+                    .controlSize(.small)
+            }
+
+            // ユーザー要望: 読み方向・「一括操作…」は、右端の絞り込みのすぐ左に
+            // 並べる(以前はページ上下ボタンの直後=左端に置き、絞り込みとの間を
+            // Spacerで空けていた)。幅を実測するとき(isMeasuring)は、この隙間だけを
+            // 抜いた「詰めたときの幅」が欲しいのでSpacerを入れない。
+            if !isMeasuring {
+                Spacer()
+            }
+
+            // 4.4節: 「一括リネーム」「表示順を初期化」「ブックマークを全削除」
+            // 「レイアウトを全削除」は、以前は右ペイン下部に独立したボタン/メニューとして
+            // 常時表示していたが、読み方向・絞り込みと同じ最上段の1列にまとめてほしい
+            // という要望により、この最上段へ移動した(ユーザー要望により、その後
+            // 読み方向との前後も入れ替えて、今は「一括操作…」→読み方向→絞り込みの順)。
+            Menu {
+                Button("Bulk Rename Bookmarks…") {
+                    pendingBulkRenameBookID = bookID
+                }
+                .disabled(bookmarkStore.bookmarks(forBookID: bookID).isEmpty)
+
+                // ユーザー要望: 「一括リネーム」と「ブックマークを全削除」の間に
+                // 区切り線を追加(リネーム系と削除系のグループを視覚的に分ける)。
+                Divider()
+
+                Button("Delete All Bookmarks…", role: .destructive) {
+                    pendingDeleteBookmarksBookID = bookID
+                }
+                .disabled(bookmarkStore.bookmarks(forBookID: bookID).isEmpty)
+
+                Button("Delete All Layout Info…", role: .destructive) {
+                    pendingDeleteLayoutBookID = bookID
+                }
+                .disabled(!layoutStore.layoutBookIDs.contains(bookID))
+
+                // ユーザー要望: 左ペインの右クリックメニューに追加した「ブックマークおよび
+                // レイアウトを全削除」(pendingDeleteBookmarksAndLayoutBookIDのコメント参照)を、
+                // こちらの「一括操作…」メニューにも追加してほしいとのことで追加した。
+                // 上の個別2項目(ブックマークのみ/レイアウトのみを削除)はそのまま残している。
+                Button("Delete All Bookmarks and Layouts…", role: .destructive) {
+                    pendingDeleteBookmarksAndLayoutBookID = bookID
+                }
+                .disabled(bookmarkStore.bookmarks(forBookID: bookID).isEmpty && !layoutStore.layoutBookIDs.contains(bookID))
+
+                // ユーザー要望: 区切り線は削除系3項目(ブックマークを全削除/レイアウトを
+                // 全削除/ブックマークおよびレイアウトを全削除)の直後、「表示順(ページ順)を
+                // 初期化する」の直前へ移動(以前は削除系の1項目目と2項目目の間にあった)。
+                Divider()
+
+                // 4.3節「ページ順を初期化する」。使用頻度が低い操作のため、このメニューの
+                // 最後尾に置いている(ユーザー要望)。カスタム並び替え(pageOrderOverride)が
+                // 無い(既に自然順のまま)場合は押しても意味が無いため無効化する。
+                Button("Reset Page Order") {
+                    viewModel.resetOrder()
+                }
+                .disabled(
+                    layoutStore.bookLayoutSettings(forBookID: bookID)?.pageOrderOverride == nil
+                        || !viewModel.isBookReady
+                )
+            } label: {
+                Label("Bulk Operations…", systemImage: "ellipsis.circle")
+            }
+            .menuStyle(.button)
+
+            // ユーザー報告: 上書き未設定のとき「Default」とだけ表示され、実際にこの本が
+            // どちら向きで開かれるのか分からなかった。「既定」という選択肢自体を無くし、
+            // 常に「右開き」「左開き」のどちらかで、実際に適用される値
+            // (readingDirectionBinding参照)を表示するようにした。
+            //
+            // ユーザー要望: 添えていた「読み方向」という見出しは削除した(選択肢自体が
+            // 「右開き」「左開き」で意味が分かるため)。ラベルはlabelsHiddenで隠した形で
+            // 残してあり、VoiceOverでは読み上げられる。マウスではツールチップで補う。
+            Picker(selection: readingDirectionBinding) {
+                Text("Right-to-Left").tag(ReadingDirection.rightToLeft)
+                Text("Left-to-Right").tag(ReadingDirection.leftToRight)
+            } label: {
+                Text("Reading Direction")
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .fixedSize()
+            .help("Reading Direction")
+            // 読み方向の上書きの保存にはMangaBookが必要なため、本体の読み込みが
+            // 終わるまでは操作させない(viewModel.isBookReadyのコメント参照)。
+            .disabled(!viewModel.isBookReady)
+
+            // 左ペインの絞り込みと同じ見せ方(見出しは出さず、マークを選択中の値の
+            // 先頭に付ける)に揃える。
+            Picker(selection: withoutAnimation($pageFilter)) {
+                ForEach(EditorPageFilter.allCases) { filter in
+                    Label {
+                        Text(filter.titleKey)
+                    } icon: {
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+                    }
+                    .tag(filter)
+                }
+            } label: {
+                Text("Filter")
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .fixedSize()
+            .help("Filter")
+        }
     }
 
     private func movePageUp() {
