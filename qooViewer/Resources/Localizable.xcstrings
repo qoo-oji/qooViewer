@@ -4418,6 +4418,22 @@
         }
       }
     },
+    "Export Options…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export Options…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "出力オプション…"
+          }
+        }
+      }
+    },
     "Export Image" : {
       "localizations" : {
         "en" : {
@@ -10434,6 +10450,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "qooViewerにアクセスを許可するフォルダを選んでください(例: ホームフォルダ、外部ボリューム、ドライブのルートフォルダなど)。"
+          }
+        }
+      }
+    },
+    "Select All" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select All"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべて選択"
           }
         }
       }

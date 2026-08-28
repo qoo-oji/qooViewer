@@ -367,7 +367,7 @@ class BookExportViewModel: ObservableObject {
 
     /// ユーザー要望により、上部の「選択」メニュー(4条件)と「選択解除」ボタンは廃止し、
     /// 代わりに一覧のタイトル行にチェックボックスを設けて全選択/全選択解除を行う形にした
-    /// (各出力ウインドウのcolumnHeaderRowのselectAllBinding参照)。
+    /// (各出力ウインドウのExportWindowContent.selectAllBinding参照)。
     final func selectAll() { selectedBookIDs = Set(rows.map(\.bookID)) }
     final func deselectAll() { selectedBookIDs.removeAll() }
 

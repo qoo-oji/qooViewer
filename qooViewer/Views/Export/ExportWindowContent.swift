@@ -25,35 +25,35 @@ struct ExportWindowConfiguration {
 }
 
 /// 一覧の右端に並ぶインジケータ列(レイアウト/ブックマーク/メタデータ)の寸法。
-/// タイトル行・各行・ウインドウ最小幅の計算の3か所から参照するため、ジェネリックな
+/// 列の幅指定とウインドウ最小幅の計算の双方から参照するため、ジェネリックな
 /// ExportWindowContentの外に出してある(型引数を書かずに参照できるようにするため)。
 enum ExportRowMetrics {
-    /// レイアウトインジケータの左側の空白(ユーザー要望: レイアウトインジケータ左側の空白を
-    /// 縮めてほしい)。
-    static let indicatorLeadingGap: CGFloat = 4
-    /// ブックマークインジケータの右側の空白(ユーザー要望: ブックマークインジケータ右側の
-    /// 空白をもう少し広げてほしい)。
-    static let indicatorTrailingGap: CGFloat = 14
     /// アイコン3つ(レイアウト/ブックマーク/メタデータ)を並べた領域の幅。
     /// スロットの寸法とアイコンの出し分け方はExportIndicatorIconにまとめてある
     /// (行ごとに並びがずれていた不具合の経緯もそちらのコメント参照)。
     static let indicatorIconsWidth: CGFloat = ExportIndicatorIcon.totalWidth(iconCount: 3)
-    /// 右端のインジケータ列のために確保する幅の合計。ウインドウが縮んでも、この幅ぶんは
-    /// 常に表示領域が残るようにする(ユーザー要望: 右端のインジケータが見切れないようにしたい)。
-    static var trailingIndicatorWidth: CGFloat {
-        indicatorLeadingGap + indicatorIconsWidth + indicatorTrailingGap
-    }
+    /// インジケータ列そのものの幅。かつては「レイアウトインジケータ左側の空白は詰め、
+    /// ブックマークインジケータ右側はもう少し広く」というユーザー要望に合わせて自前の隙間を
+    /// 前後に足していたが、一覧をネイティブのTableへ置き換えてからは列の左右余白はTableが
+    /// 持つため、アイコン3つ分に僅かな余裕を足すだけにしてある。
+    static let indicatorColumnWidth: CGFloat = indicatorIconsWidth + 8
+    /// 先頭のチェックボックス列の幅。
+    static let checkboxColumnWidth: CGFloat = 20
 }
 
-/// ファイル名列・タイトル列・著者名列・カバー列の幅。タイトル行と各行で共有する
-/// (ユーザー要望: タイトル列の右にカバー画像の列を追加してほしい。さらにApple Books
-/// 互換性対応で、タイトル・著者名を編集できる列を追加。タイトル列の左には、元のファイル名を
-/// 表示するファイル名列を追加してほしい)。カバー列はshowsCoverColumnがfalseなら使わない。
-///
-/// ファイル名列だけは可変幅のため、この値は幅そのものではなく下限として使う
-/// (ExportWindowContent.columnHeaderRow参照)。
-struct ExportColumnWidths {
-    var fileName: CGFloat = 170
+/// ファイル名列・タイトル列・著者名列・カバー列の「開いた直後の幅」(ユーザー要望: 各列に
+/// 表示する文字列の長さに応じて、ウインドウ幅と各列の幅を自動調整してほしい)。
+/// TableColumnの`.width(min:ideal:)`のidealとして渡す値で、以降はユーザーがヘッダーの
+/// 区切り線をドラッグして自由に変えられる(結果はTableColumnCustomizationが保持する)。
+/// カバー列はshowsCoverColumnがfalseなら使わない。
+struct ExportColumnWidths: Equatable {
+    /// 各列がこれ以上狭くならない下限。ウインドウの最小幅の算出にも使う。
+    static let fileNameMin: CGFloat = 130
+    static let titleMin: CGFloat = 110
+    static let authorMin: CGFloat = 70
+    static let coverMin: CGFloat = 90
+
+    var fileName: CGFloat = 220
     var title: CGFloat = 190
     var author: CGFloat = 140
     var cover: CGFloat = 150
@@ -76,36 +76,33 @@ struct ExportWindowContent<Options: View>: View {
     /// 同じくEnvironmentのdismissアクションでウインドウを閉じる。
     @Environment(\.dismiss) private var dismiss
     @State private var insufficientSpaceMessage: String?
+    /// 形式ごとの出力オプション(optionsクロージャ)を出すポップオーバーの表示状態
+    /// (ユーザー要望: チェックボックス類は常時表示ではなく、ボタンを押したときだけ出す)。
+    @State private var isOptionsPopoverPresented = false
     @State private var columnWidths = ExportColumnWidths()
     /// autoSizeColumnsIfNeeded()を、一覧の行が出そろった時点で1回だけ実行するためのフラグ
     /// (SidebarWidthEstimatorと同じ考え方。以降はユーザーの手動ドラッグを優先し、
     /// 内容の変化のたびに勝手にリサイズしないようにする)。
     @State private var didAutoSizeColumns = false
+    /// ユーザーがタイトル行の区切り線をドラッグして変えた列幅を、Tableに保持させるための入れ物
+    /// (ユーザー要望: タイトル行の区切り線をドラッグして列の幅を調整できるようにしてほしい)。
+    /// 以前は自前のHStackとドラッグジェスチャーで再現していたが、タイトル行と各行の区切り線が
+    /// 揃わない・ファイル名列の区切り線だけドラッグできないといった不具合が避けられなかったため、
+    /// 一覧そのものをネイティブのTableへ置き換え、列幅の変更はTableに任せている。
+    @State private var columnCustomization = TableColumnCustomization<BookExportViewModel.Row>()
 
-    /// 各列の幅以外に、1行が必ず使う固定幅。内訳はチェックボックス列(20)＋区切り線(1ptずつ)
-    /// ＋インジケータ列＋左右の外側パディング(.padding(.leading, 12) + .padding(.trailing, 20)
-    /// = 32)＋HStack(spacing: 8)の要素間の間隔。区切り線と間隔の数はカバー列の有無で変わる。
-    ///
-    /// 間隔の数は、columnHeaderRow / ExportBookRowViewのHStackに実際に並ぶ要素数-1と一致させる
-    /// (チェックボックス・区切り線・各列・インジケータ左の隙間・インジケータの並び)。
-    /// 以前は間隔の数が実際の並びより少なく見積もられていて、カバー列を持たないPDF出力で
-    /// contentMinWidthから決まるウインドウ最小幅が数pt足りていなかった。
+    /// 各列の幅以外に、1行が必ず使う固定幅。チェックボックス列＋インジケータ列に加え、
+    /// Table(insetスタイル)の左右余白・列間の隙間・スクロールバーのためのおおよその余裕。
     private var fixedChromeWidth: CGFloat {
-        let dividerCount: CGFloat = configuration.showsCoverColumn ? 5 : 4
-        let spacingCount: CGFloat = configuration.showsCoverColumn ? 11 : 9
-        return 20 + dividerCount * 1 + spacingCount * 8 + ExportRowMetrics.trailingIndicatorWidth + 32
+        ExportRowMetrics.checkboxColumnWidth + ExportRowMetrics.indicatorColumnWidth + 72
     }
 
-    /// 現在の各列の幅から逆算した、ウインドウに最低限必要な幅(ユーザー要望: 右端の
-    /// インジケータが見切れないようにしたい)。列の幅が(自動調整・手動ドラッグのいずれかで)
-    /// 変わるたびに追随するため、ウインドウがそれより縮められることが無くなる。
-    ///
-    /// ファイル名列だけは可変幅(下限がcolumnWidths.fileName)のため、ここでの合計は
-    /// 「ウインドウをいちばん狭くしたときの幅」になる。ウインドウがこれより広い間は、
-    /// 余った幅はすべてファイル名列が受け取る(columnHeaderRow参照)。
+    /// 各列の下限幅から逆算した、ウインドウに最低限必要な幅(ユーザー要望: 右端の
+    /// インジケータが見切れないようにしたい)。ユーザーが列を広げたぶんについては、
+    /// Table自身が横スクロールで面倒を見る。
     private var contentMinWidth: CGFloat {
-        columnWidths.fileName + columnWidths.title + columnWidths.author
-            + (configuration.showsCoverColumn ? columnWidths.cover : 0)
+        ExportColumnWidths.fileNameMin + ExportColumnWidths.titleMin + ExportColumnWidths.authorMin
+            + (configuration.showsCoverColumn ? ExportColumnWidths.coverMin : 0)
             + fixedChromeWidth
     }
 
@@ -113,26 +110,30 @@ struct ExportWindowContent<Options: View>: View {
     /// ほしい。一覧に並ぶ内容(ファイル名・タイトル・著者名)を基に、省略表示("…")にならずに
     /// 済む幅をあらかじめ計算する。SidebarWidthEstimatorと同じく、リストの内容が変わるたびに
     /// 勝手にリサイズされると使い勝手が悪いため、行が出そろった最初の1回だけ行う
-    /// (以降はユーザーの手動ドラッグ(ExportResizableColumnDivider)に委ねる)。
+    /// (以降はユーザーのドラッグ=columnCustomizationに委ねる)。
     ///
     /// バグ修正(ユーザー報告: PDF/CBZ出力ウインドウでファイル名列が狭いまま省略表示になり、
     /// インジケータ列の左に異様に広い余白ができる): 以前はこれを.onAppearからだけ呼んでいた。
     /// しかしviewModel.rowsは、元ファイルの実在確認をメインアクターの外へ逃がした結果
     /// (reload()のTask.detached参照)、必ず.onAppearより後に埋まる。そのため
-    /// rows.isEmptyのguardに毎回はじかれ、自動調整は事実上一度も動いていなかった
-    /// (3つの出力ウインドウすべてが既定値の170/190/140のままだった)。行が入った時点でも
-    /// 呼ぶようにして、実際に自動調整が効くようにする。
+    /// rows.isEmptyのguardに毎回はじかれ、自動調整は事実上一度も動いていなかった。
+    /// 行が入った時点でも呼ぶようにして、実際に自動調整が効くようにする。
     private func autoSizeColumnsIfNeeded() {
         guard !didAutoSizeColumns, !viewModel.rows.isEmpty else { return }
-        didAutoSizeColumns = true
         let fileNames = viewModel.rows.map(\.displayName)
         let titles = viewModel.rows.map { viewModel.titleOverrides[$0.bookID] ?? $0.displayName }
         let authors = viewModel.rows.map { viewModel.authorOverrides[$0.bookID] ?? "" }
         columnWidths.fileName = ExportColumnWidthEstimator.idealWidth(
-            for: fileNames, minWidth: 130, maxWidth: 420, extraChrome: 44 // フォーマットバッジぶんの余白
+            for: fileNames, minWidth: ExportColumnWidths.fileNameMin, maxWidth: 420,
+            extraChrome: 44 // フォーマットバッジぶんの余白
         )
-        columnWidths.title = ExportColumnWidthEstimator.idealWidth(for: titles, minWidth: 130, maxWidth: 420)
-        columnWidths.author = ExportColumnWidthEstimator.idealWidth(for: authors, minWidth: 80, maxWidth: 260)
+        columnWidths.title = ExportColumnWidthEstimator.idealWidth(
+            for: titles, minWidth: ExportColumnWidths.titleMin, maxWidth: 420
+        )
+        columnWidths.author = ExportColumnWidthEstimator.idealWidth(
+            for: authors, minWidth: ExportColumnWidths.authorMin, maxWidth: 260
+        )
+        didAutoSizeColumns = true
     }
 
     var body: some View {
@@ -151,18 +152,13 @@ struct ExportWindowContent<Options: View>: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                bookListSection
+                bookTable
             }
 
             if let warningBanner = configuration.warningBanner {
                 warningBannerView(warningBanner)
             }
 
-            Divider()
-            Form {
-                options()
-            }
-            .padding()
             Divider()
             bottomSection
         }
@@ -217,10 +213,9 @@ struct ExportWindowContent<Options: View>: View {
 
     // MARK: - 対象一覧
 
-    /// 一覧のすべての行が選択されているかどうか。タイトル行のチェックボックスと双方向に
+    /// 一覧のすべての行が選択されているかどうか。「すべて選択」チェックボックスと双方向に
     /// 結び付けることで、チェックすると全選択、外すと全選択解除になる(ユーザー要望:
-    /// 上部の「選択」メニュー・「選択解除」ボタンを廃止し、タイトル行のチェックボックスに
-    /// 一本化する)。
+    /// 上部の「選択」メニュー・「選択解除」ボタンを廃止し、チェックボックスに一本化する)。
     private var selectAllBinding: Binding<Bool> {
         Binding(
             get: { !viewModel.rows.isEmpty && viewModel.selectedBookIDs.count == viewModel.rows.count },
@@ -234,124 +229,129 @@ struct ExportWindowContent<Options: View>: View {
         )
     }
 
-    /// 一覧のタイトル行。各行(ExportBookRowView)と列の位置を揃えるため、チェックボックス列・
-    /// ファイル名列・タイトル列・著者名列・カバー列にだけ見出しを置く。インジケータ列
-    /// (レイアウト/ブックマーク/メタデータのアイコン)には見出し文字を付けない(ユーザー要望)。
+    /// 対象の本の一覧。macOSネイティブの表(Table)で描く。
     ///
-    /// 各列は、それぞれ直後の区切り線をドラッグして幅を変更できる(ユーザー要望: タイトル行の
-    /// 区切り線をドラッグして列の幅を調整できるようにしてほしい。ExportResizableColumnDivider
-    /// 参照。チェックボックス列の直後だけは幅固定のExportColumnDividerLineのまま)。
-    private var columnHeaderRow: some View {
-        HStack(spacing: 8) {
-            Toggle("", isOn: selectAllBinding)
-                .toggleStyle(.checkbox)
-                .labelsHidden()
-                .help("Select All / Deselect All")
+    /// 以前はタイトル行と各行をそれぞれ自前のHStackで組み、区切り線も自前のRectangle、
+    /// 列幅の変更も自前のドラッグジェスチャーで再現していた。しかしタイトル行と各行は
+    /// 別々のList(余白の計算パイプラインが違う)に載っていたため区切り線の位置がずれ、
+    /// 余った幅を吸わせていたファイル名列の区切り線だけはドラッグしても何も起きない、という
+    /// 状態だった(ユーザー報告)。Tableに置き換えると、ヘッダーと本体の列位置が一致すること・
+    /// すべての区切り線をドラッグして幅を変えられることの双方がAppKit側の保証になる。
+    ///
+    /// 引き換えに、見出しに任意のビューを置けなくなる(TableColumnの見出しはTextのみ)ため、
+    /// タイトル行にあった「全選択/全解除」チェックボックスは下部のボタン行へ移してある。
+    private var bookTable: some View {
+        Table(viewModel.rows, columnCustomization: $columnCustomization) {
+            // 見出しの無い列。空のLocalizedStringKeyを文字列カタログへ登録させたくないため
+            // Text(verbatim:)で書く。幅の変更・並べ替え・非表示のいずれもさせない。
+            TableColumn(Text(verbatim: "")) { row in
+                ExportSelectionCell(row: row, viewModel: viewModel)
+            }
+            .width(ExportRowMetrics.checkboxColumnWidth)
+            .disabledCustomizationBehavior(.all)
 
-            ExportColumnDividerLine()
+            // ファイル名列(ユーザー要望: タイトル列の左に、元のファイル名を表示する列を
+            // 追加してほしい)。
+            TableColumn("File Name") { row in
+                HStack(spacing: 4) {
+                    Text(row.displayName)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    FormatBadgeView(bookID: row.bookID)
+                }
+            }
+            .width(min: ExportColumnWidths.fileNameMin, ideal: columnWidths.fileName)
+            .customizationID("fileName")
+            .disabledCustomizationBehavior([.reorder, .visibility])
 
-            // ファイル名列だけは可変幅にして、ウインドウが列の合計より広いときの余りを
-            // すべて受け取らせる(ユーザー報告: インジケータ列の左に異様に広い余白ができる
-            // 一方で、いちばん長いファイル名の列が省略表示になっていた)。BookmarkListViewの
-            // タイトル行の最終列(「ブックマーク」)と同じ考え方。
-            //
-            // 可変幅にしたぶん、この列の直後だけは幅固定のExportColumnDividerLineに戻している。
-            // ドラッグしてもウインドウに余りがある限り見た目が変わらず、操作できるのに何も
-            // 起きない区切り線になってしまうため(他の列のドラッグは従来どおり効き、広げた
-            // ぶんはファイル名列から引かれる)。
-            Text("File Name")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(minWidth: columnWidths.fileName, maxWidth: .infinity, alignment: .leading)
+            // タイトル列・著者名列(ユーザー要望: Apple Books互換性。ファイル名/フォルダ名から
+            // 取得したタイトル・著者名を、この画面で変更できるようにしたい)。
+            TableColumn("Title") { row in
+                TextField("", text: viewModel.titleBinding(forBookID: row.bookID))
+                    .textFieldStyle(.plain)
+                    .lineLimit(1)
+            }
+            .width(min: ExportColumnWidths.titleMin, ideal: columnWidths.title)
+            .customizationID("title")
+            .disabledCustomizationBehavior([.reorder, .visibility])
 
-            ExportColumnDividerLine()
-
-            Text("Title")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: columnWidths.title, alignment: .leading)
-
-            ExportResizableColumnDivider(width: $columnWidths.title)
-
-            // Apple Books互換性(ユーザー要望): ファイル名/フォルダ名から取得したタイトル・
-            // 著者名を、この画面で編集できるようにしたい。
-            Text("Author")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(width: columnWidths.author, alignment: .leading)
-
-            ExportResizableColumnDivider(width: $columnWidths.author, minWidth: 60, maxWidth: 260)
+            TableColumn("Author") { row in
+                TextField("", text: viewModel.authorBinding(forBookID: row.bookID))
+                    .textFieldStyle(.plain)
+                    .lineLimit(1)
+            }
+            .width(min: ExportColumnWidths.authorMin, ideal: columnWidths.author)
+            .customizationID("author")
+            .disabledCustomizationBehavior([.reorder, .visibility])
 
             if configuration.showsCoverColumn {
-                Text("Cover")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(width: columnWidths.cover, alignment: .leading)
-
-                ExportResizableColumnDivider(width: $columnWidths.cover, minWidth: 80, maxWidth: 300)
+                TableColumn("Cover") { row in
+                    ExportCoverCell(row: row, viewModel: viewModel)
+                }
+                .width(min: ExportColumnWidths.coverMin, ideal: columnWidths.cover)
+                .customizationID("cover")
+                .disabledCustomizationBehavior([.reorder, .visibility])
             }
 
-            // 各行のインジケータ列とまったく同じ幅を、見出しの無い空白として確保する。
-            // ここをSpacer()のままにすると、可変幅になったファイル名列と余った幅を分け合って
-            // しまい、タイトル行と各行とで列の位置がずれる。
-            Color.clear
-                .frame(width: ExportRowMetrics.indicatorLeadingGap, height: ExportColumnDividerLine.height)
-
-            Color.clear
-                .frame(width: ExportRowMetrics.indicatorIconsWidth, height: ExportColumnDividerLine.height)
-                .padding(.trailing, ExportRowMetrics.indicatorTrailingGap)
-        }
-        // ユーザー要望: インジケータの右側にもう少しスペースを開けたい(チェックボックスの
-        // 左側と同じくらい)。左右の余白を非対称にし、右側を広めにとる(ExportBookRowViewの
-        // .padding(.leading:.trailing:)と揃える。fixedChromeWidthもこの値に合わせてある)。
-        .padding(.leading, 12)
-        .padding(.trailing, 20)
-        .padding(.vertical, 4)
-        .background(.bar)
-    }
-
-    /// columnHeaderRowを、実際の本一覧(下のList(viewModel.rows))と全く同じ「List行」として
-    /// 描画するための入れ物。Listの内側と外側とでは余白の計算パイプラインが異なり、素の
-    /// HStackのままだとチェックボックスの位置が行とわずかにずれることがある(BookmarkListView.
-    /// columnHeaderRowContainerで実際に経験した不具合と同じ)ため、ここも同じ考え方で
-    /// 小さな非スクロールListに収めている。
-    private var columnHeaderRowContainer: some View {
-        List {
-            columnHeaderRow
-                .listRowInsets(EdgeInsets())
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-        }
-        .listStyle(.plain)
-        .scrollDisabled(true)
-        .frame(height: 28)
-    }
-
-    private var bookListSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            columnHeaderRowContainer
-
-            List(viewModel.rows) { row in
-                ExportBookRowView(
-                    row: row, viewModel: viewModel, columnWidths: columnWidths,
-                    showsCoverColumn: configuration.showsCoverColumn
-                )
-                // columnHeaderRowと同じ非対称の左右余白(ユーザー要望: インジケータの
-                // 右側にもう少しスペースを開けたい)。
-                .padding(.leading, 12)
-                .padding(.trailing, 20)
-                .padding(.vertical, 4)
-                .listRowInsets(EdgeInsets())
+            // レイアウト/ブックマーク/メタデータのインジケータ(ユーザー要望: 見出し文字は
+            // 付けない)。アイコンそれぞれを固定幅のスロットに収めることで、片方だけしか
+            // 無い行でも位置がずれない(ExportIndicatorIcon参照)。
+            TableColumn(Text(verbatim: "")) { row in
+                HStack(spacing: ExportIndicatorIcon.slotSpacing) {
+                    ExportIndicatorIcon(
+                        systemName: "square.stack", isOn: row.hasLayout, help: "Has page layout settings"
+                    )
+                    ExportIndicatorIcon(
+                        systemName: "bookmark.fill", isOn: row.hasBookmarks, help: "Has bookmarks"
+                    )
+                    // ユーザー要望: インジケータにメタデータを追加。
+                    ExportIndicatorIcon(
+                        systemName: "tag.fill", isOn: row.hasMetadata, help: "Has metadata"
+                    )
+                }
             }
-            .listStyle(.plain)
+            .width(ExportRowMetrics.indicatorColumnWidth)
+            .disabledCustomizationBehavior(.all)
         }
+        .tableStyle(.inset)
+        // 一覧は非同期に埋まるため、自動調整した幅(=.width(ideal:))が決まるのは最初の
+        // Table生成より1描画ぶん後になる。Tableは一度決めた列幅をidealの変化では作り直さない
+        // ため、自動調整が済んだ時点で一度だけ作り直す(ユーザーがドラッグして変えた幅は
+        // columnCustomizationがこのビューの外で保持しているので、これで失われることはない)。
+        .id(didAutoSizeColumns)
     }
 
     // MARK: - 実行ボタン
 
     private var bottomSection: some View {
         HStack {
+            // 全選択/全解除(ユーザー要望: 「選択」メニュー・「選択解除」ボタンを廃止し、
+            // チェックボックス1つに一本化する)。一覧をネイティブのTableへ置き換えた際に、
+            // タイトル行からここへ移した(TableColumnの見出しはTextしか受け付けないため)。
+            Toggle("Select All", isOn: selectAllBinding)
+                .toggleStyle(.checkbox)
+                .help("Select All / Deselect All")
+                .disabled(viewModel.rows.isEmpty || viewModel.isExporting)
+
             Spacer()
+
+            // 形式ごとの出力オプション(ユーザー要望: チェックボックス類はオプションとして
+            // まとめ、ボタンを押したときだけ出す。一覧の下の余白を無くしたい)。
+            // 見出しに形式名は入れず、3つのウインドウで同じ表記にする(ユーザー要望)。
+            Button("Export Options…") {
+                isOptionsPopoverPresented = true
+            }
+            .disabled(viewModel.isExporting)
+            .popover(isPresented: $isOptionsPopoverPresented, arrowEdge: .top) {
+                // 中身はToggleが1〜3個だけなので、Formの列レイアウトではなく素直に左揃えで縦に
+                // 並べる(ポップオーバーは内容に合わせて縮むため、幅は下限だけ与えておく)。
+                VStack(alignment: .leading, spacing: 8) {
+                    options()
+                }
+                .padding(16)
+                .frame(minWidth: 260, alignment: .leading)
+            }
+
             // ユーザー要望: 「出力を開始」ボタンの左に「キャンセル」ボタンを追加してほしい。
             // 他のウインドウ(FavoriteFolderPickerView.bottomBar等)と同じ並び
             // (キャンセル→既定ボタン)・同じキーボードショートカットの割り当て方に揃える。
@@ -397,125 +397,64 @@ struct ExportWindowContent<Options: View>: View {
     }
 }
 
-/// 一覧の1行。カバー列はボタンでpopoverを開き、本に含まれる画像またはそれ以外のファイルから
-/// カバー画像を選べるようにする(ユーザー要望: カバー画像はデフォルトで最初の画像を使い、
-/// このウインドウから変更できるようにしたい)。
-private struct ExportBookRowView: View {
+/// チェックボックス列のセル。双方向Bindingを作るためにViewModelを観測している必要があるため、
+/// TableColumnのクロージャに直接書かず小さなビューに分けてある。
+private struct ExportSelectionCell: View {
     let row: BookExportViewModel.Row
     @ObservedObject var viewModel: BookExportViewModel
-    let columnWidths: ExportColumnWidths
-    let showsCoverColumn: Bool
+
+    var body: some View {
+        Toggle(
+            "",
+            isOn: Binding(
+                get: { viewModel.selectedBookIDs.contains(row.bookID) },
+                set: { isOn in
+                    if isOn {
+                        viewModel.selectedBookIDs.insert(row.bookID)
+                    } else {
+                        viewModel.selectedBookIDs.remove(row.bookID)
+                    }
+                }
+            )
+        )
+        .toggleStyle(.checkbox)
+        .labelsHidden()
+    }
+}
+
+/// カバー列のセル(ユーザー要望: カバー画像はデフォルトで最初の画像を使い、このウインドウから
+/// 変更できるようにしたい)。現在カバー画像として使われることになっているファイル名を表示し、
+/// クリックすると本のページ一覧/外部ファイルから選び直せるpopoverを開く。
+private struct ExportCoverCell: View {
+    let row: BookExportViewModel.Row
+    @ObservedObject var viewModel: BookExportViewModel
 
     @State private var isCoverPickerPresented = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            Toggle(
-                "",
-                isOn: Binding(
-                    get: { viewModel.selectedBookIDs.contains(row.bookID) },
-                    set: { isOn in
-                        if isOn {
-                            viewModel.selectedBookIDs.insert(row.bookID)
-                        } else {
-                            viewModel.selectedBookIDs.remove(row.bookID)
-                        }
-                    }
-                )
-            )
-            .toggleStyle(.checkbox)
-            .labelsHidden()
-
-            ExportColumnDividerLine()
-
-            // ファイル名列(ユーザー要望: タイトル列の左に、元のファイル名を表示する列を
-            // 追加してほしい)。拡張子付きの実際のファイル名/フォルダ名をそのまま表示する。
+        Button {
+            isCoverPickerPresented = true
+        } label: {
             HStack(spacing: 4) {
-                Text(row.displayName)
+                Text(viewModel.coverDisplayName(forBookID: row.bookID))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                FormatBadgeView(bookID: row.bookID)
+                Image(systemName: "chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
-            // タイトル行のファイル名列と同じ可変幅(columnHeaderRowのコメント参照)。
-            .frame(minWidth: columnWidths.fileName, maxWidth: .infinity, alignment: .leading)
-
-            ExportColumnDividerLine()
-
-            // タイトル列(ユーザー要望: Apple Books互換性。ファイル名/フォルダ名から取得した
-            // タイトルを、この画面で変更できるようにしたい)。
-            TextField("", text: viewModel.titleBinding(forBookID: row.bookID))
-                .textFieldStyle(.plain)
-                .lineLimit(1)
-                .frame(width: columnWidths.title, alignment: .leading)
-
-            ExportColumnDividerLine()
-
-            // 著者名列(ユーザー要望: Apple Books互換性。ファイル名/フォルダ名から取得した
-            // 著者名を、この画面で変更できるようにしたい)。
-            TextField("", text: viewModel.authorBinding(forBookID: row.bookID))
-                .textFieldStyle(.plain)
-                .lineLimit(1)
-                .frame(width: columnWidths.author, alignment: .leading)
-
-            ExportColumnDividerLine()
-
-            if showsCoverColumn {
-                // カバー列(ユーザー要望)。現在カバー画像として使われることになっている
-                // ファイル名を表示し、クリックすると本のページ一覧/外部ファイルから
-                // 選び直せるpopoverを開く。
-                Button {
-                    isCoverPickerPresented = true
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(viewModel.coverDisplayName(forBookID: row.bookID))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Image(systemName: "chevron.down")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .buttonStyle(.plain)
-                .frame(width: columnWidths.cover, alignment: .leading)
-                .help("Change Cover Image")
-                .popover(isPresented: $isCoverPickerPresented) {
-                    ExportCoverPickerContent(bookID: row.bookID, viewModel: viewModel)
-                }
-
-                ExportColumnDividerLine()
-            }
-
-            // レイアウト/ブックマーク/メタデータのインジケータ(ユーザー要望: 右のインジケータが
-            // 見切れないようにしたい。さらにレイアウトインジケータの左側は詰め、
-            // ブックマークインジケータの右側はもう少し広めに空けたい)。アイコンそれぞれを
-            // 固定幅のスロットに収めることで、片方だけしか無い行でも位置がずれず、かつ
-            // 列全体としてはtrailingIndicatorWidthぶんを確保してウインドウが縮んでも
-            // 見切れないようにする(contentMinWidth参照)。
-            // 幅固定の隙間にしてある(Spacerのままだと、可変幅になったファイル名列と
-            // 余った幅を分け合ってしまう。columnHeaderRowのコメント参照)。
-            Color.clear
-                .frame(width: ExportRowMetrics.indicatorLeadingGap, height: ExportColumnDividerLine.height)
-
-            HStack(spacing: ExportIndicatorIcon.slotSpacing) {
-                ExportIndicatorIcon(
-                    systemName: "square.stack", isOn: row.hasLayout, help: "Has page layout settings"
-                )
-                ExportIndicatorIcon(
-                    systemName: "bookmark.fill", isOn: row.hasBookmarks, help: "Has bookmarks"
-                )
-                // ユーザー要望: インジケータにメタデータを追加。
-                ExportIndicatorIcon(
-                    systemName: "tag.fill", isOn: row.hasMetadata, help: "Has metadata"
-                )
-            }
-            .frame(width: ExportRowMetrics.indicatorIconsWidth, alignment: .leading)
-            .padding(.trailing, ExportRowMetrics.indicatorTrailingGap)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Change Cover Image")
+        .popover(isPresented: $isCoverPickerPresented) {
+            ExportCoverPickerContent(bookID: row.bookID, viewModel: viewModel)
         }
         // カバー列の表示名は、上書き設定が無い場合(既定=先頭ページ)は本を読み込んで確認する
         // 必要があるため非同期で解決する(BookmarkListView.PageRowViewのサムネイル読み込みと
-        // 同じ考え方)。カバー列を出さない形式では解決自体が不要。
+        // 同じ考え方)。
         .task(id: row.bookID) {
-            guard showsCoverColumn else { return }
             await viewModel.refreshCoverName(forBookID: row.bookID)
         }
     }
@@ -523,7 +462,7 @@ private struct ExportBookRowView: View {
 
 /// カバー画像の選択画面(ユーザー要望: 本に含まれる画像の中から選べることは勿論、本に含まれて
 /// いない画像ファイルをカバー画像専用として追加することもできるようにしたい)。
-/// ExportBookRowViewのカバー列ボタンからpopoverとして開く。
+/// ExportCoverCellのカバー列ボタンからpopoverとして開く。
 ///
 /// 追加した専用ファイルはLayoutStore.setExternalCoverが本(MangaBook.pages)には一切追加しない
 /// (BookLayoutSettingsの別プロパティとして保持するだけ)ため、ビューアのページ一覧には

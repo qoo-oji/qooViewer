@@ -8,69 +8,6 @@ import AppKit
 /// なるため、形式に依存しないものをここへ集約した(ViewModel側をBookExportViewModelへ
 /// 集約したのと同じ理由)。
 
-/// 列の区切り線(ユーザー要望: 出力ウインドウにも区切り線を追加してほしい)。BookmarkListView.
-/// ColumnDividerLineと同じ考え方で、素のRectangleをHStackへ直接置く(Divider()は既定で水平線に
-/// なるため使えない)。チェックボックス列の直後だけはユーザーがドラッグして広げる意味が無い
-/// ためこのまま(幅固定)で使い、ファイル名・タイトル・著者名・カバーの各列の直後は
-/// ドラッグ可能なExportResizableColumnDividerを使う(ユーザー要望: タイトル行の区切り線を
-/// ドラッグして列の幅を調整できるようにしてほしい)。ヘッダー行と各行の双方でこの同じ1pt幅の
-/// Rectangleだけを使う限り、ZStackの最大サイズ問題(BookmarkListViewで経験した不具合)は
-/// 起こりえない。
-struct ExportColumnDividerLine: View {
-    static let height: CGFloat = 18
-    var body: some View {
-        Rectangle()
-            .fill(Color(nsColor: .separatorColor))
-            .frame(width: 1, height: Self.height)
-    }
-}
-
-/// 区切り線をドラッグして、直前の列の幅(width、双方向Binding)を変更するためのハンドル
-/// (ユーザー要望: タイトル行の区切り線をドラッグして列の幅を調整できるようにしてほしい)。
-/// BookmarkListView.ResizableColumnDividerと全く同じ考え方・同じ実装(見た目は
-/// ExportColumnDividerLineと完全に同じ1pt線のままレイアウトさせ、掴みやすくするための8pt幅の
-/// 判定領域は.overlayとして重ねることで、見た目の線とレイアウト上の幅を一致させる。ZStackで
-/// 重ねると実際より広い幅を親のHStackへ報告してしまい列がずれるため、あえてoverlayにしている)。
-/// ヘッダー行だけで使い、各行側はドラッグ操作を持たない見た目だけのExportColumnDividerLine()の
-/// ままにする(カバー列のpopover等、既にジェスチャーが載っているため、列幅の変更操作は
-/// Finderのリスト表示などと同じくヘッダー行からだけ行える形にする)。
-struct ExportResizableColumnDivider: View {
-    @Binding var width: CGFloat
-    var minWidth: CGFloat = 90
-    var maxWidth: CGFloat = 420
-
-    @State private var widthAtDragStart: CGFloat?
-
-    var body: some View {
-        ExportColumnDividerLine()
-            .overlay(
-                Color.clear
-                    .frame(width: 8, height: ExportColumnDividerLine.height)
-                    .contentShape(Rectangle())
-                    .onHover { hovering in
-                        if hovering {
-                            NSCursor.resizeLeftRight.push()
-                        } else {
-                            NSCursor.pop()
-                        }
-                    }
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { value in
-                                if widthAtDragStart == nil {
-                                    widthAtDragStart = width
-                                }
-                                let proposed = (widthAtDragStart ?? width) + value.translation.width
-                                width = min(max(proposed, minWidth), maxWidth)
-                            }
-                            .onEnded { _ in
-                                widthAtDragStart = nil
-                            }
-                    )
-            )
-    }
-}
-
 /// 出力ウインドウの各列(ファイル名・タイトル・著者名)の幅を、ウインドウを開いた時点の
 /// 一覧の内容に応じて自動調整するための計算ロジック(ユーザー要望: 各列に表示する文字列の
 /// 長さに応じて、ウインドウ幅と各列の幅を自動調整してほしい)。SidebarWidthEstimatorと
