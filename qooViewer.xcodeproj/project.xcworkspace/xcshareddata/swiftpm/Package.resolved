@@ -1,5 +1,5 @@
 {
-  "originHash" : "12a36ad62ce65cebb1eb3f5279b894c5049274027bd434640774a8bce6ed750b",
+  "originHash" : "663b62434e96ba49a96b65bfb6bcadb799722b8c4f3a73988398b7fdcdeb1697",
   "pins" : [
     {
       "identity" : "sevenzip.swift",
@@ -13,10 +13,10 @@
     {
       "identity" : "universalcharsetdetection",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/fumoboy007/UniversalCharsetDetection",
+      "location" : "https://github.com/qoo-oji/UniversalCharsetDetection",
       "state" : {
-        "revision" : "dda2d63b7de4c772c20e359506afea0ab6ef5f98",
-        "version" : "1.0.0"
+        "revision" : "62ff57cfd7871e01ea7d12f2ea751575f2bc6fc5",
+        "version" : "1.0.1"
       }
     },
     {

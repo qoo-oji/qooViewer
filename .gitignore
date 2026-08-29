@@ -1,7 +1,35 @@
+# ── macOS ────────────────────────────────────────────────────────────────────
 .DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# ── Xcode: ユーザー個人の設定(ウインドウ配置・ブレークポイント・個人スキーム)──
+# 個人ごとに必ず違う内容になるうえ、他人のリポジトリでは無意味なので追跡しない。
+# 共有スキームは xcshareddata/ 側にあるため、これで消えることはない。
 xcuserdata/
 *.xcuserstate
+*.xcuserdatad
+
+# ── ビルド生成物 ─────────────────────────────────────────────────────────────
 DerivedData/
 build/
 .build/
+*.hmap
+*.dSYM
+*.dSYM.zip
+*.ipa
+*.moved-aside
+
+# ── Swift Package Manager ────────────────────────────────────────────────────
+# Xcode が自動生成する作業用ディレクトリ。
+# 依存の固定に使う Package.resolved は
+# qooViewer.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/ にあり、
+# こちらは意図的に追跡している(clone した人が同じバージョンでビルドできるように)。
 .swiftpm/
+Packages/
+
+# ── 署名まわりのローカル設定 ─────────────────────────────────────────────────
+# 各自の Apple Developer Team ID を書くためのファイル。
+# リポジトリには含めない(README「ビルド方法」参照)。
+Local.xcconfig

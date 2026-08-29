@@ -99,8 +99,13 @@ comments) — this is a known, deliberate simplification, not a bug.
 
 ## Docs in this repo
 
-- `README.md` — user-facing overview and from-scratch Xcode project setup instructions (for building the
-  app from the bare source folders, since the Xcode project itself isn't fully self-contained in git).
+- `README.md` — user-facing overview and build instructions. The repository is clone-and-build: the
+  `.xcodeproj` (with a shared scheme), `Info.plist`, app icon and String Catalog are all committed, and
+  `DEVELOPMENT_TEAM` is deliberately absent — a developer's own Team ID goes in the gitignored
+  `Configurations/Local.xcconfig`, which `Configurations/Shared.xcconfig` pulls in via `#include?`.
+  `UniversalCharsetDetection` is pinned to a fork of the upstream package: upstream's `uchardet`
+  submodule points at `git://cgit.freedesktop.org/...`, which no longer serves that protocol, so
+  upstream cannot be resolved by anyone. The fork changes only that URL.
 - `MANUAL.md` — end-user manual for the app's features.
 - `CHANGELOG.md` — Keep a Changelog format, Japanese, `[Unreleased]` section at top.
 

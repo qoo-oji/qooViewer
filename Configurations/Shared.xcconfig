@@ -1,0 +1,21 @@
+// qooViewer — プロジェクト共通のビルド設定
+//
+// このリポジトリには Apple Developer の Team ID を **意図的に含めていません**。
+// 特定の開発者のアカウントに結び付いた値をコミットしてしまうと、
+//   - その開発者のアカウント情報がリポジトリに残り、
+//   - clone した他の人は「そのTeamのアカウントが無い」というエラーでビルドできなくなる
+// ためです。Team を設定しなくても、Xcode は「Sign to Run Locally」
+// (ローカル実行用のアドホック署名)で自分の Mac 上でビルド・実行できます。
+//
+// 自分の開発者アカウントで署名したい場合は、このファイルの隣に
+// `Local.xcconfig` を作り、次の1行を書いてください(`.gitignore` 済みなので
+// リポジトリには入りません。Xcode の Signing & Capabilities で Team を選ぶ方法だと
+// project.pbxproj に直接書き込まれてしまい、うっかりコミットする事故が起きます)。
+//
+//     DEVELOPMENT_TEAM = ABCDE12345
+//
+// Team ID は https://developer.apple.com/account の Membership 画面で確認できます。
+
+// 末尾の `?` は「ファイルが無ければ黙って無視する」の意味。
+// Local.xcconfig を作っていない人でもそのままビルドできる。
+#include? "Local.xcconfig"

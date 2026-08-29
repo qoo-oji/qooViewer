@@ -1,0 +1,27 @@
+# 既定は Git にテキスト/バイナリを判定させ、リポジトリ内では LF で保持する。
+* text=auto eol=lf
+
+# ── Xcode のプロジェクトファイル ─────────────────────────────────────────────
+# Xcode が一字一句この形で書き戻すため、Git に改行コードを触らせない(-text)。
+# 差分は読めたほうがよいので binary にはしない。
+# 自動マージはファイルを壊しやすいので無効化し、衝突したら Xcode で開き直して
+# 手で直す(merge=binary は「マージせず衝突として報告する」の意味)。
+*.pbxproj        -text merge=binary
+*.xcworkspacedata -text
+*.xcscheme       -text
+
+# String Catalog は JSON だが Xcode がファイル全体を書き戻すため、同じ扱いにする。
+*.xcstrings      -text merge=binary
+
+# ── バイナリ ─────────────────────────────────────────────────────────────────
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.pdf  binary
+*.icns binary
+
+# ── GitHub の言語判定 ────────────────────────────────────────────────────────
+# 同梱ドキュメントが巨大なため、放っておくとリポジトリの言語が Swift ではなく
+# ドキュメント扱いに見えることがある。ソースだけを言語統計の対象にする。
+MANUAL.md    linguist-documentation
+CHANGELOG.md linguist-documentation

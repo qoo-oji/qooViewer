@@ -135,123 +135,71 @@ macOS 15 (Sequoia) 以降
 - [ZIPFoundation](https://github.com/weichsel/ZIPFoundation)(MIT License)
 - [SevenZip.swift](https://github.com/mtgto/SevenZip.swift)(MIT License)
 - [Unrar.swift](https://github.com/mtgto/Unrar.swift)(内部でRARLAB提供のunrarライブラリを使用)
-- [UniversalCharsetDetection](https://github.com/fumoboy007/UniversalCharsetDetection)(MIT License、内部でMozilla由来のuchardetを使用)
+- [UniversalCharsetDetection](https://github.com/qoo-oji/UniversalCharsetDetection)(MIT License、内部でMozilla由来のuchardetを使用)
+  - [本家](https://github.com/fumoboy007/UniversalCharsetDetection)のフォークです。本家は uchardet を
+    `git://cgit.freedesktop.org/uchardet/uchardet/` のサブモジュールとして参照していますが、このホストは
+    `git://` プロトコルでの配信をやめており、**依存の解決そのものが失敗して誰もビルドできません**。
+    フォークでは、同じコミットを持つ[GitHubのミラー](https://github.com/BYVoid/uchardet)を HTTPS で
+    参照するよう `.gitmodules` の1行だけを変更しています(ライブラリのコードは一切変えていません)。
 
 ## ビルド方法
 
 ### 前提
 
-- Xcode(無料、App Store からインストール)。最新版を推奨します。
+- macOS 15 (Sequoia) 以降
+- Xcode 26 以降(無料、App Store からインストール)。最新版を推奨します。
+  - Swift 6.2 の「既定のアクター分離を MainActor にする」設定を使っているため、これより古い
+    Xcode ではビルドできません。
 - 初回起動時にXcodeの追加コンポーネントのインストールを求められたら許可してください。
 
-### 新規プロジェクトを作成する
+### 手順
 
-1. Xcode を起動し、「Create New Project」を選択
-2. macOS タブ → 「App」を選んで Next
-3. 以下のように入力します
-   - Product Name: `qooViewer`
-   - Interface: **SwiftUI**
-   - Language: **Swift**
-   - 「Use Core Data」「Include Tests」はチェック不要(SwiftDataは自分でコード側から使うので、ここはチェック不要です)
-4. 保存先を選んで Create
+```sh
+git clone https://github.com/qoo-oji/qooViewer.git
+cd qooViewer
+open qooViewer.xcodeproj
+```
 
-### デプロイ対象 OS を設定する
+あとは Xcode で `Cmd + R` を押すだけです。依存ライブラリは Swift Package Manager が自動的に
+取得します(バージョンは `Package.resolved` に固定してあるので、誰がいつ clone しても同じ
+組み合わせでビルドされます)。初回だけ、C/C++で書かれたライブラリ(unrar・uchardet)をソースから
+ビルドするため数分かかります。
 
-1. 左のプロジェクトナビゲータで一番上の「qooViewer」(青いアイコン)をクリック
-2. 「General」タブ → 「Minimum Deployments」の macOS を **15.0** に設定
+コマンドラインからビルドすることもできます。
 
-### 依存ライブラリを追加する
+```sh
+xcodebuild -project qooViewer.xcodeproj -scheme qooViewer -configuration Debug build
+```
 
-「File」メニュー → 「Add Package Dependencies…」を選び、以下の4つを **1つずつ** 追加します。
+アプリアイコン、Finderからの関連付け(zip/cbz等のダブルクリック、フォルダや画像のDockへのドロップ)、
+日本語/Englishの翻訳データは、すべてリポジトリに含まれています。Xcode 側で追加の設定をする必要は
+ありません。
 
-1. `https://github.com/weichsel/ZIPFoundation`
-   - Dependency Rule: 「Up to Next Major Version」のままでOK → Add Package
-2. `https://github.com/mtgto/SevenZip.swift`
-   - **注意**: このライブラリはバージョンタグではなく最新コードを指定する必要があります
-   - Dependency Rule を「Branch」に変更し、`main` と入力 → Add Package
-3. `https://github.com/mtgto/Unrar.swift`
-   - Dependency Rule: 「Up to Next Major Version」のままでOK → Add Package
-4. `https://github.com/fumoboy007/UniversalCharsetDetection`
-   - zip内のファイル名の文字コード自動判定に使用(uchardetというMozilla由来のライブラリをSwiftから使えるようにしたもの)
-   - Dependency Rule: 「Up to Next Major Version」のままでOK → Add Package
-   - 内部でCライブラリ(uchardet)をソースからビルドするため、初回ビルドは少し時間がかかります
+### 署名について
 
-いずれも追加後に「Choose Package Products」という画面が出たら、対象を qooViewer ターゲットに追加してください。
+このリポジトリには Apple Developer の Team ID を **含めていません**。特定の開発者のアカウントに
+結び付いた値をコミットしてしまうと、clone した人が「そのTeamのアカウントが無い」というエラーで
+ビルドできなくなるためです。Team を設定しないままでも、Xcode は「Sign to Run Locally」
+(ローカル実行用のアドホック署名)でビルドし、自分のMac上で実行できます。
 
-SwiftData・ImageIO・AppKit(実寸表示ウインドウ・マウスカーソル制御用)・CoreImage(拡大鏡の高品質な
-拡大とコントラスト補正用)・PDFKit/CoreGraphics(PDF)はいずれもOS標準のフレームワークなので、追加の
-パッケージは不要です(コード側で `import` するだけで使えます)。表示モード・ブックマーク・スライドショー・
-環境設定・キー/マウスのカスタマイズ・リソースモニタもすべて標準フレームワークのみで実装しているため、
-この節で追加するパッケージは変わらず上記4つだけです。
+自分の開発者アカウントで署名したい場合は、`Configurations/Local.xcconfig` というファイルを
+新しく作り、次の1行だけを書いてください(`ABCDE12345` の部分はご自身の Team ID)。
 
-### ソースコードをプロジェクトに追加する
+```
+DEVELOPMENT_TEAM = ABCDE12345
+```
 
-1. プロジェクトナビゲータにある、Xcodeが最初から作った `qooViewerApp.swift` と `ContentView.swift` を選択して削除(Move to Trash)
-2. Finder で、このリポジトリの `qooViewer` フォルダ(`README.md` と同じ階層にあります)を開く
-3. その中の `App` `Models` `Resources` `Services` `ViewModels` `Views` の6つのフォルダを、そのまま Xcode のプロジェクトナビゲータ(qooViewerフォルダの上)にドラッグ&ドロップ
-4. 表示されるダイアログで
-   - 「Copy items if needed」にチェック
-   - 「Create groups」を選択
-   - Add to targets で `qooViewer` にチェック
-   - Finish
+このファイルは `.gitignore` 済みなので、リポジトリには入りません。Xcode の
+「Signing & Capabilities」で Team を選ぶ方法でも署名はできますが、そちらは `project.pbxproj` に
+直接書き込まれるため、うっかりコミットして Team ID を公開してしまう事故が起きます。
 
-同じ階層にある `Info.plist` は、下記「Finderから直接開けるようにする」で使う設定(`LSHandlerRank` など)が
-既に書かれた状態で同梱してあります。Xcodeが生成した `Info.plist` の代わりに使うか、必要な項目だけを
-書き写してください。
+### サンドボックスによる制限について
 
-### アプリアイコンを設定する(任意)
-
-独自のアプリアイコン一式は、リポジトリの `qooViewer/Assets.xcassets/AppIcon.appiconset` に
-(必要なサイズをすべて含んだ形で)同梱されています。Xcodeのプロジェクトナビゲータで `Assets.xcassets` 内の
-既定の(空の)`AppIcon` を削除し、Finder から `qooViewer/Assets.xcassets/AppIcon.appiconset` を
-Xcode の `Assets.xcassets` の上にドラッグ&ドロップして差し替えると、Dock・Finder・環境設定ウインドウなどに
-このアイコンが使われます(設定しなくてもビルド自体は可能です)。
-
-### 表示言語(日本語/English)を有効にする
-
-qooViewerは日本語とEnglishを切り替えられます(環境設定の「一般」画面→「表示言語」)。
-これを実際に機能させるには、Xcodeプロジェクト側にも2つ設定が必要です。
-
-1. `qooViewer/Resources/Localizable.xcstrings` が、上の「ソースコードをプロジェクトに追加する」手順の
-   ドラッグ&ドロップで他のフォルダと一緒にプロジェクトに追加されていることを確認してください
-   (`Resources`フォルダごとドラッグしていれば自動的に含まれます。個別に追加した場合は、
-   `Localizable.xcstrings` ファイル単体を同様にドラッグ&ドロップし、`qooViewer`ターゲットに
-   追加してください)。Xcodeはこの拡張子のファイルを自動的に「String Catalog」として認識し、
-   ビルド時に翻訳データへ変換してくれます。特別な設定は不要です。
-2. プロジェクトナビゲータで `Localizable.xcstrings` をクリックして開く(String Catalog専用の
-   エディタが開きます)。エディタ左側の言語一覧の下端にある **+** ボタンから **Japanese** を
-   追加してください(このファイルは英語をベースの言語として作られているため、Englishは
-   最初から自動的に含まれています。明示的に追加が必要なのはJapaneseだけです)。
-   - Xcodeのバージョンによっては、プロジェクト設定(「qooViewer」→「Info」タブ→
-     「Localizations」セクション)からも同様に言語を追加できますが、バージョンによって
-     この画面が見つかりにくいことがあるため、`Localizable.xcstrings` エディタから直接
-     追加する上記の方法がより確実です。
-
-この2点さえ済ませれば、あとはアプリ内の「表示言語」設定を切り替えるだけで、
-メニューバー・ツールバー・環境設定画面などアプリ全体の表示が日本語⇔Englishで切り替わります
-(macOS本体の言語設定とは独立して切り替えられます)。
-
-**「日本語」に切り替えても英語のままになる場合**: `Localizable.xcstrings` を開いたときに
-左側の言語一覧に「Japanese」が無ければ、上記2の手順で **+** ボタンから追加してください。
-すべての項目に日本語の訳文をあらかじめ登録済みなので、Japaneseが言語として登録されて
-いれば正しく切り替わるはずです。
-
-**注意**: エラーメッセージ(ファイルが開けなかった場合など、ごく一部の文言)は、
-アプリ内の表示言語設定ではなく、Macのシステム言語設定に従って表示されます。
-これは実装上の意図的な簡略化です。気になる場合はお知らせください。
-
-### サンドボックス設定(フォルダへのアクセス許可)
-
-1. プロジェクトナビゲータで「qooViewer」→ 「Signing & Capabilities」タブを開く
-2. 「App Sandbox」が既に追加されているはずです(なければ「+ Capability」から追加)
-3. 「File Access」の項目にある「User Selected File」を **Read/Write** に設定
-
-**注意**: サンドボックスを有効にすると、ユーザーがパネルやドラッグ&ドロップで直接選んだファイル/フォルダ
-にしかアクセス権がありません。「同じフォルダ内の次の本」機能、およびFileメニューの
+qooViewerはサンドボックス下で動作するため、ユーザーがパネルやドラッグ&ドロップで直接選んだ
+ファイル/フォルダにしかアクセス権がありません。「同じフォルダ内の次の本」機能、およびFileメニューの
 「同じフォルダのファイルを開く」機能は、まだアクセス許可のない兄弟ファイルを読もうとするため、
 **ファイル単体(zip/cbz等)を直接開いた場合**は一覧が空になります(フォルダを開いた場合は、
-その配下がまとめて許可されるため問題ありません)。これは開発中/配布後を問わず、サンドボックスが
-有効な限り常に起きる制限です。
+その配下がまとめて許可されるため問題ありません)。
 
 この場合は、環境設定(Cmd + ,)の「フォルダのアクセス権」画面から「フォルダを追加…」で、漫画ファイルを
 置いているフォルダ(ホームフォルダや外部ボリューム、ドライブのルートフォルダなど、どこでも
@@ -265,44 +213,28 @@ qooViewerは日本語とEnglishを切り替えられます(環境設定の「一
 なお「最近開いたファイルを開く」機能は、開いた時点でセキュリティスコープ付きブックマークとして
 アクセス許可を保存しておくため、サンドボックス下でも次回起動後に問題なく開けます。
 
-### Finderから直接開けるようにする(任意)
+### 表示言語について
 
-1. プロジェクトナビゲータで「qooViewer」ターゲット → 「Info」タブを開く
-2. 「Document Types」セクションで + を押し、`zip` `cbz` `rar` `cbr` `7z` `cb7` `pdf` `epub` の8つをそれぞれ
-   Extensionsに登録します(Nameは何でもよいです。例: "Comic Archive")
-3. これで対応ファイルを Finder でダブルクリック、または右クリック →「このアプリケーションで開く」→
-   qooViewer で開けるようになります
-4. フォルダも Dock の qooViewer アイコンへドロップして開けるようにするには、もう1つ Document Type を追加し、
-   Extensions ではなく「Types」(Identifier)に `public.folder` を登録します(Name は例: "Folder"、Role は
-   "Viewer")。Finder のフォルダの既定の開き方を乗っ取らないよう、`Info.plist` 上でこの項目の
-   `LSHandlerRank` を `None` にしておきます(リポジトリ同梱の `qooViewer/Info.plist` がその形になっています)
-5. 画像ファイルも同様に開けるようにするには、さらにもう1つ Document Type を追加し、Extensions に
-   `jpg` `jpeg` `png` `gif` `bmp` `webp` `heic` `tif` `tiff` `avif` の10個を登録します(Name は例: "Image"、
-   Role は "Viewer")。プレビュー.app から画像の既定アプリを奪ってしまわないよう、こちらも
-   `LSHandlerRank` を `None` にしておきます。`public.image` などのUTIではなく拡張子で指定しているのは、
-   webp/avif がUTI指定では取りこぼされることがあるためです
+qooViewerは日本語とEnglishを切り替えられます(環境設定の「一般」画面→「表示言語」)。翻訳データは
+`qooViewer/Resources/Localizable.xcstrings`(String Catalog)としてリポジトリに含まれており、
+macOS本体の言語設定とは独立して切り替えられます。
 
-### rarファイル名の文字化けを解消する(任意)
+**注意**: エラーメッセージ(ファイルが開けなかった場合など、ごく一部の文言)は、アプリ内の表示言語
+設定ではなく、Macのシステム言語設定に従って表示されます。これは実装上の意図的な簡略化です。
 
-`Unrar.swift` の既定実装のままだと、Shift-JIS等で作られた古い日本語rarのファイル名が文字化けする
-ことがあります。原因はライブラリ側にあります ― `Sources/Unrar/Entry.swift` が、unrarライブラリの
-ヘッダ構造体(`RARHeaderDataEx`)から8bit文字列の `FileName` だけを `String(cString:)` で読んでおり、
-Unicodeのファイル名が入っている `FileNameW`(UTF-16)を見ていないためです。
+### rar のファイル名について
 
-解消するには、`Unrar.swift` をご自身のGitHubアカウントにフォークし、`Sources/Unrar/Entry.swift` の
-`fileName` の初期化を、`FileNameW` が空でなければそちらをUTF-16として読むように書き換えてコミットした
-うえで、Xcode側の依存先(「Add Package Dependencies…」で追加したURL)をそのフォークに向け直します。
-依存先ライブラリ自体の修正になるため、qooViewer側のコードだけでは直せません。
+Unicodeのファイル名を持つrar/cbr(現在作られているものはほぼこれに該当します。RAR5、および
+Unicode名を併記したRAR4)は、日本語のファイル名でも正しく読み取れます。
 
-なお zip/cbz のファイル名の文字コードは、`UniversalCharsetDetection` を使って qooViewer 側で自動判定して
-いるため、この対処は不要です(rarだけがライブラリの内部でファイル名を文字列化しており、qooViewer から
-生のバイト列に触れないためこうなっています)。
+一方、Unicode名を一切持たない極めて古いRAR4(ファイル名をShift-JISのバイト列だけで持っているもの)は
+文字化けします。`Unrar.swift` が内部で使っているRARLAB提供のunrarライブラリが、アーカイブを読んだ
+時点で既にそのバイト列をシステムのロケール(macOSではUTF-8)として解釈してしまい、qooViewer側からは
+元の生のバイト列に手が届かないためです。ライブラリの外側では対処できません。
 
-### ビルド&実行
-
-1. 画面左上の実行ボタン(▶)か `Cmd + R`
-2. ウィンドウが開いたら「開く…」から、漫画のフォルダ、またはzip/cbz・rar/cbr・7z/cb7・PDF・EPUB・画像ファイルを選ぶ
-   (ウインドウへのドラッグ&ドロップでも開けます。画像は複数選択するとまとめて1冊になります)
+zip/cbz のファイル名の文字コードは、`UniversalCharsetDetection` を使って qooViewer 側で自動判定して
+いるため、この問題は起きません(rarだけがライブラリの内部でファイル名を文字列化しており、
+qooViewer から生のバイト列に触れないためこうなっています)。
 
 ## ライセンス
 

@@ -14,6 +14,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0AD120503014AA0000C0C526 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
 		0AD11FE03014A38C00C0C526 /* qooViewer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = qooViewer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -56,9 +57,18 @@
 		0AD11FD73014A38C00C0C526 = {
 			isa = PBXGroup;
 			children = (
+				0AD120513014AA0000C0C526 /* Configurations */,
 				0AD11FE23014A38C00C0C526 /* qooViewer */,
 				0AD11FE13014A38C00C0C526 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		0AD120513014AA0000C0C526 /* Configurations */ = {
+			isa = PBXGroup;
+			children = (
+				0AD120503014AA0000C0C526 /* Shared.xcconfig */,
+			);
+			path = Configurations;
 			sourceTree = "<group>";
 		};
 		0AD11FE13014A38C00C0C526 /* Products */ = {
@@ -119,6 +129,7 @@
 			knownRegions = (
 				en,
 				Base,
+				ja,
 			);
 			mainGroup = 0AD11FD73014A38C00C0C526;
 			minimizedProjectReferenceProxies = 1;
@@ -161,6 +172,7 @@
 /* Begin XCBuildConfiguration section */
 		0AD11FE93014A38D00C0C526 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0AD120503014AA0000C0C526 /* Shared.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -224,6 +236,7 @@
 		};
 		0AD11FEA3014A38D00C0C526 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0AD120503014AA0000C0C526 /* Shared.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -286,7 +299,6 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 2FF822GHRW;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
@@ -338,7 +350,6 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 2FF822GHRW;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
@@ -431,10 +442,10 @@
 		};
 		0AD11FF73014A63B00C0C526 /* XCRemoteSwiftPackageReference "UniversalCharsetDetection" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/fumoboy007/UniversalCharsetDetection";
+			repositoryURL = "https://github.com/qoo-oji/UniversalCharsetDetection";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 1.0.0;
+				minimumVersion = 1.0.1;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
