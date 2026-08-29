@@ -4884,6 +4884,38 @@
         }
       }
     },
+    "Filter Books" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filter Books"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を絞り込む"
+          }
+        }
+      }
+    },
+    "Filter Pages" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filter Pages"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページを絞り込む"
+          }
+        }
+      }
+    },
     "First Page if Finished" : {
       "extractionState" : "manual",
       "localizations" : {

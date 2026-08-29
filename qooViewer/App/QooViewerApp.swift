@@ -1104,6 +1104,10 @@ struct QooViewerApp: App {
         }
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
+        // 絞り込み・並べ替え(左ペイン)と、上下・一括操作・読み方向・ページの絞り込み
+        // (右ペイン)をツールバーに載せているため、タイトルとツールバーを1行にまとめた
+        // 純正アプリと同じ見た目にする(BookmarkListView参照)。
+        .windowToolbarStyle(.unified)
 
         // 5節: ブックマーク一括リネームウインドウ(新設)。4.4節の「一括リネーム」ボタンから、
         // launchCoordinator.pendingBulkRenameBookIDへ対象bookIDをセットしたうえで
