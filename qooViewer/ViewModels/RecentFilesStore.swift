@@ -247,11 +247,35 @@ final class RecentFilesStore: ObservableObject {
         publish([])
     }
 
-    /// 指定の項目を履歴から取り除く。
-    private func remove(_ entry: Entry) {
+    /// 指定の項目を履歴から取り除く。ファイルの実体には一切触れない。
+    ///
+    /// 呼び出し元は2種類 ―― 内部からはresolveForOpening(_:)(実体が失われていた項目の掃除)、
+    /// ユーザー操作としてはサイドパネル「履歴」モードの行とウェルカム画面の「最近開いた
+    /// ファイル」の右クリックメニュー(ユーザー要望: 「すべて消去」しかなく、見られたくない
+    /// 1件だけを消せなかった)。
+    ///
+    /// 照合はブックマークだけでなく**パスでも**行う。保存済みのデータには、同じ実体を指す
+    /// 項目がブックマーク違いで2件入りうる(重複判定はキャッシュ済みのパス同士の比較で
+    /// 行うため、パスが古いままの項目が残っていると別物として追加される。publish(_:)の
+    /// パス重複除去のコメント参照)。一覧に出ているのはそのうち1件だけなので、ブックマーク
+    /// だけで消すと、隠れていたもう1件が再検証のあとに現れて「消したはずの本が戻ってくる」。
+    func remove(_ entry: Entry) {
+        remove([entry])
+    }
+
+    /// 複数の項目をまとめて履歴から取り除く。照合の考え方は上のremove(_:)と同じ。
+    ///
+    /// 「履歴の項目を削除」ウインドウ(HistoryCleanupWindow)のチェックボックスによる一括削除用。
+    /// remove(_:)を選択件数ぶん呼ぶと、1件ごとに読み込み・保存・一覧の作り直しが走る
+    /// (LibraryCleanupViewModel.deleteReadingStates(forBookIDs:)がまとめて受け取るのと同じ理由)。
+    /// 保存と再表示は最後に1回だけにする。
+    func remove(_ entries: [Entry]) {
+        guard !entries.isEmpty else { return }
+        let bookmarks = Set(entries.map(\.bookmark))
+        let paths = Set(entries.map(\.path).filter { !$0.isEmpty })
         var stored = loadStored()
         let before = stored.count
-        stored.removeAll { $0.bookmark == entry.bookmark }
+        stored.removeAll { bookmarks.contains($0.bookmark) || paths.contains($0.path) }
         guard stored.count != before else { return }
         save(stored)
         publish(stored)

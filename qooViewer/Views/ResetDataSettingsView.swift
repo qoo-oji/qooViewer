@@ -42,57 +42,61 @@ import AppKit
 /// 「壊れているデータも正常なデータも一切合切消える」ことが保証できる。
 struct ResetDataSettingsView: View {
     @Environment(\.openWindow) private var openWindow
-    /// 「最近開いたファイル」の履歴(ユーザー要望により、この画面からも消せるようにした)。
+    /// ボタン幅の実測に使う表示言語。環境設定で切り替わるので、OSのロケールではなくこれを見る
+    /// (メタデータの編集ウインドウ・3つの編集ダイアログのフッターと同じ理由・同じ書き方)。
+    @Environment(\.locale) private var locale
+    /// 「最近開いたファイル」の履歴。この画面では、履歴が空のときに「開いたファイルの履歴の
+    /// 削除…」を無効にするためと、performReset()で明示的に消すために参照する。
     /// SwiftDataではなくUserDefaultsに保存されているため、下の「すべて削除」が行う
-    /// ストアファイルの削除では**消えない**。明示的に消す必要がある。
+    /// ストアファイルの削除では**消えない**。
     @EnvironmentObject private var recentFiles: RecentFilesStore
     @State private var isShowingConfirmation = false
     @State private var isShowingCompletion = false
-    @State private var isShowingHistoryConfirmation = false
 
     var body: some View {
         SettingsPaneContainer {
             // ユーザー要望: 検証用に開いただけの本など、DBに残ったままの不要なデータが煩わしい
-            // ので、任意の本だけを選んで削除できるようにしたい。
+            // ので、任意の本だけを選んで削除できるようにしたい。あわせて、同じことを履歴に
+            // ついてもできるようにしたい(ユーザー要望)。
             //
             // 下の「すべて削除」が、データが壊れて起動すらできない状況のための最後の手段
-            // (ストアの実ファイルごと消す)なのに対して、こちらは日常的な掃除のための本1冊単位の
-            // 操作。性質が異なるため、同じ「危険な操作」セクションには入れず、その手前に
-            // 独立したセクションとして置く(この操作自体は取り消せないが、対象が1冊分に
-            // 限られ、アプリの再起動も伴わない)。
+            // (ストアの実ファイルごと消す)なのに対して、こちらは日常的な掃除。性質が異なるため、
+            // 同じ「危険な操作」セクションには入れず、その手前に置く(この操作自体は取り消せない
+            // が、対象は選んだぶんだけで、アプリの再起動も伴わない)。
+            //
+            // 2つは同じ種類の操作なので**1つのセクションにまとめ、文言の形も揃える**
+            // (ユーザー指摘: 似た機能なのに名前に統一感が無かった)。どちらも一覧のウインドウを
+            // 開くだけで、この画面では何も消えない。
+            //
+            // 以前は履歴側に「『最近開いたファイル』の履歴を消去…」(全消去)も並べていたが、
+            // 新しいウインドウで「すべて選択」→「選択した項目を削除」をすれば同じことができる。
+            // 本の側(ウインドウを開くボタン1つだけ)と非対称になるうえ、削除ボタンが2つ並んで
+            // 押し間違えやすくなるため、ユーザーの判断で廃止した。全消去そのものは、
+            // サイドパネル「履歴」モードのゴミ箱ボタンと、ファイルメニューの
+            // 「メニューを消去」に残っている。
             Section {
+                // 2つのボタンは幅を揃える(ユーザー指摘: 似た操作が隣り合っているのに、
+                // 文言の長さのぶんだけ幅が違って見えていた)。長いほうの文言が省略されずに
+                // 収まる幅を実測して両方に与える ―― 3つの編集ダイアログのフッターで
+                // 「初期化」「閉じる」の幅を揃えているのと同じ部品・同じやり方。
                 Button {
                     openWindow(id: "libraryCleanup")
                 } label: {
-                    Label("Delete Saved Data for Individual Books…", systemImage: "trash.slash")
+                    Label("Delete Saved Data…", systemImage: "trash.slash")
+                        .frame(width: cleanUpButtonWidth, alignment: .leading)
                 }
-            } header: {
-                Text("Clean Up")
-            } footer: {
-                Text("Opens a window listing every book qooViewer has saved data for, so you can remove the ones you no longer need. The files themselves are never touched.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
 
-            // ユーザー要望: 「最近開いたファイル」やサイドパネルの履歴モードに出る履歴を、
-            // ここからも消せるようにしたい。
-            //
-            // 下の「すべて削除」とは性質が違うので独立したセクションにしてある ―― あちらは
-            // ストアが壊れて起動すらできない状況のための最後の手段で、実行後にアプリが
-            // 終了する。こちらは日常的な掃除で、消えるのは「どのファイルを開いたか」の
-            // 記録だけ、アプリの再起動も伴わない(「本ごとのデータを削除」と同じ立ち位置)。
-            Section {
                 Button {
-                    isShowingHistoryConfirmation = true
+                    openWindow(id: "historyCleanup")
                 } label: {
-                    Label("Clear Recently Opened History…", systemImage: "clock.arrow.circlepath")
+                    Label("Delete History…", systemImage: "clock.arrow.circlepath")
+                        .frame(width: cleanUpButtonWidth, alignment: .leading)
                 }
                 .disabled(recentFiles.entries.isEmpty)
             } header: {
-                Text("History")
+                Text("Clean Up")
             } footer: {
-                Text("Removes every entry from the File menu's Open Recent and from the side panel's History mode. Your files are not touched.")
+                Text("Each opens a window listing what qooViewer has saved, so you can pick what you no longer need and delete it. The files themselves are never touched.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -188,14 +192,6 @@ struct ResetDataSettingsView: View {
         // 削除はすでに完了しているため、ここでの選択肢は「Quit Now」の1つだけにしてある
         // (「キャンセルして使い続ける」という選択肢を出すと、削除済みのモデルを参照したままの
         // 状態でアプリを使い続けられるかのように誤解させてしまうため)。
-        .alert("Clear Recently Opened History?", isPresented: $isShowingHistoryConfirmation) {
-            Button("Cancel", role: .cancel) {}
-            Button("Clear", role: .destructive) {
-                recentFiles.removeAll()
-            }
-        } message: {
-            Text("This removes every entry from the File menu's Open Recent and from the side panel's History mode. Your files are not touched.")
-        }
         .alert("Reset Complete", isPresented: $isShowingCompletion) {
             Button("Quit Now") {
                 NSApp.terminate(nil)
@@ -204,6 +200,25 @@ struct ResetDataSettingsView: View {
             Text("All favorites, bookmarks, layout settings, and reading history have been deleted. qooViewer will now quit — please reopen it.")
         }
     }
+
+    /// 「整理」セクションの2つのボタンの共通幅。`.frame`を当てるのはボタンではなくラベル
+    /// (Labelそのもの)なので、ボタン自身の左右の余白は足さず、アイコンとテキストの間隔ぶん
+    /// だけを上乗せする。
+    private var cleanUpButtonWidth: CGFloat {
+        MetadataButtonWidthEstimator.equalWidth(
+            for: [
+                String(localized: "Delete Saved Data…", locale: locale),
+                String(localized: "Delete History…", locale: locale)
+            ],
+            minWidth: 0,
+            chrome: Self.labelIconChrome
+        )
+    }
+
+    /// Labelの先頭に付くSFシンボルと、その右の間隔ぶんの幅。実機のスクリーンショットを
+    /// 実測して合わせた値(MetadataButtonWidthEstimator.smallChromeと同じ決め方)。
+    /// 小さすぎると、長いほうの文言が「保存データの…」と省略される。
+    private static let labelIconChrome: CGFloat = 40
 
     private func performReset() {
         // ModelContext経由の個別delete()ではなく、ストアの実ファイルを直接削除する

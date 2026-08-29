@@ -81,10 +81,20 @@ struct WelcomeView: View {
                                 // bookIDはキャッシュ済みのパス。ここでブックマークを解決しては
                                 // いけない(RecentFilesStoreの型コメント参照)。解決するのは
                                 // 実際に選ばれた瞬間だけ。
-                                WelcomeQuickOpenItem(id: entry.id, title: entry.displayName, bookID: entry.path) {
-                                    guard let url = recentFiles.resolveForOpening(entry) else { return }
-                                    appState.open(url: url)
-                                }
+                                WelcomeQuickOpenItem(
+                                    id: entry.id,
+                                    title: entry.displayName,
+                                    bookID: entry.path,
+                                    action: {
+                                        guard let url = recentFiles.resolveForOpening(entry) else { return }
+                                        appState.open(url: url)
+                                    },
+                                    // ユーザー要望: 履歴から1件だけ消せるようにする。
+                                    // ファイルの実体には触れない(サイドパネルの「履歴」モードの
+                                    // 同じ項目と対になる操作。RecentFilesStore.remove(_:)参照)。
+                                    destructiveActionTitleKey: "Remove from History",
+                                    destructiveAction: { recentFiles.remove(entry) }
+                                )
                             }
                         )
                     }
@@ -144,6 +154,12 @@ private struct WelcomeQuickOpenItem: Identifiable {
     /// タイトルは拡張子を除いた名前で表示するため、epubとcbzの見分けがつかない)。
     let bookID: String
     let action: () -> Void
+    /// 非nilなら右クリックメニューに破壊的な項目を1つ出す(「最近開いたファイル」の
+    /// 「履歴から削除」用。ユーザー要望)。「最近お気に入りに追加したファイル」側は
+    /// nilのまま ―― そちらで消せるのは登録そのもの(お気に入りの削除)で、意味が違う。
+    /// お気に入りの整理は専用の「お気に入りを整理」ウインドウが担う。
+    var destructiveActionTitleKey: LocalizedStringKey?
+    var destructiveAction: (() -> Void)?
 }
 
 private struct WelcomeQuickOpenList: View {
@@ -157,23 +173,44 @@ private struct WelcomeQuickOpenList: View {
                 .foregroundStyle(.secondary)
                 .panelOutlinedContent()
             ForEach(items) { item in
-                Button {
-                    item.action()
-                } label: {
-                    HStack(spacing: 6) {
-                        // 輪郭は文字だけに掛ける。拡張子バッジ(FormatBadgeView)は自前の
-                        // 塗り地を持つので付けない(すりガラス面の決まりごとの例外側)。
-                        Text(item.title)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .panelOutlinedContent()
-                        FormatBadgeView(bookID: item.bookID)
-                    }
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.primary)
+                row(for: item)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// 1行分。破壊的な項目を持つ項目にだけ右クリックメニューを付ける。
+    ///
+    /// **.contextMenuを付けたうえで中身をifで空にする書き方は避ける。** 項目が1つも無い
+    /// コンテキストメニューは、macOSでは空の枠が一瞬出るだけの当たり所になり、右クリックが
+    /// 「何も起きない」のか「壊れている」のか分からない。付けるか付けないかで分岐する。
+    @ViewBuilder
+    private func row(for item: WelcomeQuickOpenItem) -> some View {
+        let button = Button {
+            item.action()
+        } label: {
+            HStack(spacing: 6) {
+                // 輪郭は文字だけに掛ける。拡張子バッジ(FormatBadgeView)は自前の
+                // 塗り地を持つので付けない(すりガラス面の決まりごとの例外側)。
+                Text(item.title)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .panelOutlinedContent()
+                FormatBadgeView(bookID: item.bookID)
+            }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+
+        if let titleKey = item.destructiveActionTitleKey,
+           let destructiveAction = item.destructiveAction {
+            // コンテキストメニューの中身はmacOSが不透明に描くので、すりガラス面の
+            // 決まりごと(輪郭)は不要(CLAUDE.md参照)。
+            button.contextMenu {
+                Button(titleKey, role: .destructive) { destructiveAction() }
+            }
+        } else {
+            button
+        }
     }
 }

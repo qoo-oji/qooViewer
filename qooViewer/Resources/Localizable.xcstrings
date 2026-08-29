@@ -196,7 +196,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%1$@.%2$@」は出力先フォルダにすでに存在します。"
+            "value" : "「%1$@.%2$@」は保存先フォルダにすでに存在します。"
           }
         }
       }
@@ -613,6 +613,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld冊を表示中"
+          }
+        }
+      }
+    },
+    "%lld selected" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld selected"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld冊を選択中"
           }
         }
       }
@@ -1061,7 +1077,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "すべてのお気に入り・ブックマーク・レイアウト設定・読書履歴を削除しました。qooViewerはこのあと終了します。もう一度起動し直してください。"
+            "value" : "すべてのお気に入り・ブックマーク・レイアウト設定・読書位置を削除しました。qooViewerはこのあと終了します。もう一度起動し直してください。"
           }
         }
       }
@@ -1707,7 +1723,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ブックマーク: %d件(%d冊)を取り込みました。"
+            "value" : "ブックマーク: %d件(%d冊)を読み込みました。"
           }
         }
       }
@@ -2092,7 +2108,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "書き出したCBZファイルの出力先フォルダを選んでください。"
+            "value" : "書き出したCBZファイルの保存先フォルダを選んでください。"
           }
         }
       }
@@ -2108,7 +2124,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "書き出したEPUBファイルの出力先フォルダを選んでください。"
+            "value" : "書き出したEPUBファイルの保存先フォルダを選んでください。"
           }
         }
       }
@@ -2124,7 +2140,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "書き出したPDFファイルの出力先フォルダを選んでください。"
+            "value" : "書き出したPDFファイルの保存先フォルダを選んでください。"
           }
         }
       }
@@ -2300,7 +2316,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "履歴を消去"
+            "value" : "履歴をすべて削除"
           }
         }
       }
@@ -2316,7 +2332,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "履歴を消去しますか?"
+            "value" : "履歴をすべて削除しますか?"
           }
         }
       }
@@ -2332,39 +2348,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "履歴を消去"
-          }
-        }
-      }
-    },
-    "Clear Recently Opened History?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Clear Recently Opened History?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「最近開いたファイル」の履歴を消去しますか?"
-          }
-        }
-      }
-    },
-    "Clear Recently Opened History…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Clear Recently Opened History…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「最近開いたファイル」の履歴を消去…"
+            "value" : "履歴をすべて削除"
           }
         }
       }
@@ -2508,7 +2492,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "見開きを結合してエクスポート…"
+            "value" : "見開きを結合して書き出す…"
           }
         }
       }
@@ -2733,7 +2717,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "画像をエクスポートできませんでした"
+            "value" : "画像を書き出せませんでした"
           }
         }
       }
@@ -2781,7 +2765,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "エクスポートする画像を読み込めませんでした。"
+            "value" : "書き出す画像を読み込めませんでした。"
           }
         }
       }
@@ -3429,18 +3413,34 @@
         }
       }
     },
-    "Delete All Shown…" : {
+    "Delete History" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Delete All Shown…"
+            "value" : "Delete History"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "表示中をすべて削除…"
+            "value" : "履歴の削除"
+          }
+        }
+      }
+    },
+    "Delete Selected…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Selected…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択した項目を削除…"
           }
         }
       }
@@ -3525,6 +3525,22 @@
         }
       }
     },
+    "Delete History…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete History…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴の削除…"
+          }
+        }
+      }
+    },
     "Delete Layout Info" : {
       "localizations" : {
         "en" : {
@@ -3541,18 +3557,34 @@
         }
       }
     },
-    "Delete Saved Book Data" : {
+    "Delete Saved Data" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Delete Saved Book Data"
+            "value" : "Delete Saved Data"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "本ごとの保存データを削除"
+            "value" : "保存データの削除"
+          }
+        }
+      }
+    },
+    "Delete Saved Data…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Saved Data…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存データの削除…"
           }
         }
       }
@@ -3585,22 +3617,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld冊の保存データを削除しますか?"
-          }
-        }
-      }
-    },
-    "Delete Saved Data for Individual Books…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete Saved Data for Individual Books…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本ごとの保存データを削除…"
           }
         }
       }
@@ -3921,6 +3937,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "1つの操作に複数のトリガーを割り当てられます。ドラッグジェスチャーは、30ポイント以上を1秒以内に動かしたときに成立します。右ボタンとcontrol+クリックは常にコンテキストメニューを開くため、割り当てられません。"
+          }
+        }
+      }
+    },
+    "Each opens a window listing what qooViewer has saved, so you can pick what you no longer need and delete it. The files themselves are never touched." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Each opens a window listing what qooViewer has saved, so you can pick what you no longer need and delete it. The files themselves are never touched."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "どちらも、qooViewer が保存している内容を一覧するウインドウを開きます。\n不要になったものを選んで削除できます。ファイルそのものには手を触れません。"
           }
         }
       }
@@ -4317,7 +4349,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CBZをエクスポート"
+            "value" : "CBZの書き出し"
           }
         }
       }
@@ -4333,7 +4365,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CBZをエクスポート…"
+            "value" : "CBZとして書き出す…"
           }
         }
       }
@@ -4349,7 +4381,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "EPUBをエクスポート"
+            "value" : "EPUBの書き出し"
           }
         }
       }
@@ -4365,7 +4397,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "EPUBをエクスポート…"
+            "value" : "EPUBとして書き出す…"
           }
         }
       }
@@ -4381,7 +4413,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "PDFをエクスポート"
+            "value" : "PDFの書き出し"
           }
         }
       }
@@ -4397,7 +4429,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "PDFをエクスポート…"
+            "value" : "PDFとして書き出す…"
           }
         }
       }
@@ -4413,7 +4445,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "エクスポートが完了しました"
+            "value" : "書き出しが完了しました"
           }
         }
       }
@@ -4429,7 +4461,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "エクスポートが完了しました。"
+            "value" : "書き出しが完了しました。"
           }
         }
       }
@@ -4445,7 +4477,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "エクスポートに失敗しました: %@"
+            "value" : "書き出しに失敗しました: %@"
           }
         }
       }
@@ -4461,7 +4493,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "出力オプション…"
+            "value" : "書き出しオプション…"
           }
         }
       }
@@ -4477,7 +4509,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "画像のエクスポート"
+            "value" : "画像の書き出し"
           }
         }
       }
@@ -4493,7 +4525,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "画像をエクスポート…"
+            "value" : "画像を書き出す…"
           }
         }
       }
@@ -4509,7 +4541,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "左のページをエクスポート…"
+            "value" : "左のページを書き出す…"
           }
         }
       }
@@ -4525,7 +4557,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ライブラリデータをエクスポート"
+            "value" : "ライブラリデータの書き出し"
           }
         }
       }
@@ -4541,7 +4573,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "右のページをエクスポート…"
+            "value" : "右のページを書き出す…"
           }
         }
       }
@@ -4557,7 +4589,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "このページをエクスポート…"
+            "value" : "このページを書き出す…"
           }
         }
       }
@@ -4573,7 +4605,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ライブラリデータをエクスポート…"
+            "value" : "ライブラリデータを書き出す…"
           }
         }
       }
@@ -4589,7 +4621,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CBZファイルをエクスポート中…"
+            "value" : "CBZファイルを書き出し中…"
           }
         }
       }
@@ -4605,7 +4637,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "EPUBファイルをエクスポート中…"
+            "value" : "EPUBファイルを書き出し中…"
           }
         }
       }
@@ -4621,7 +4653,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "PDFファイルをエクスポート中…"
+            "value" : "PDFファイルを書き出し中…"
           }
         }
       }
@@ -4815,7 +4847,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "お気に入り: フォルダ%d件、本%d件を取り込みました。"
+            "value" : "お気に入り: フォルダ%d件、本%d件を読み込みました。"
           }
         }
       }
@@ -5765,7 +5797,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ライブラリデータをインポート"
+            "value" : "ライブラリデータの読み込み"
           }
         }
       }
@@ -5781,7 +5813,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ライブラリデータをインポート…"
+            "value" : "ライブラリデータを読み込む…"
           }
         }
       }
@@ -6621,7 +6653,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "メタデータ: %d冊を取り込みました。"
+            "value" : "メタデータ: %d冊を読み込みました。"
           }
         }
       }
@@ -7207,6 +7239,22 @@
         }
       }
     },
+    "No History Entries" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No History Entries"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴がありません"
+          }
+        }
+      }
+    },
     "No book matches the current filter or search text." : {
       "localizations" : {
         "en" : {
@@ -7635,7 +7683,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "削除されるのはサムネイルだけです。\nお気に入り・ブックマーク・読書履歴には影響しません。\n次に必要になった時点で、ページを読み込み直すだけです。"
+            "value" : "削除されるのはサムネイルだけです。\nお気に入り・ブックマーク・読書位置には影響しません。\n次に必要になった時点で、ページを読み込み直すだけです。"
           }
         }
       }
@@ -7827,7 +7875,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "最近開いたファイルを開く"
+            "value" : "最近開いた本"
           }
         }
       }
@@ -7893,22 +7941,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本を開いています…"
-          }
-        }
-      }
-    },
-    "Opens a window listing every book qooViewer has saved data for, so you can remove the ones you no longer need. The files themselves are never touched." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Opens a window listing every book qooViewer has saved data for, so you can remove the ones you no longer need. The files themselves are never touched."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "qooViewer が保存データを持っているすべての本を一覧するウインドウを開きます。\n不要になったものを個別に削除できます。\nファイル自体には一切触れません。"
           }
         }
       }
@@ -8068,7 +8100,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「上書き」はファイルに含まれる本の既存データを置き換えます。「マージ」は既存のデータを変更せず、足りないものだけを追加します。「無視」はその種類を取り込みません。"
+            "value" : "「上書き」はファイルに含まれる本の既存データを置き換えます。「マージ」は既存のデータを変更せず、足りないものだけを追加します。「無視」はその種類を読み込みません。"
           }
         }
       }
@@ -8229,7 +8261,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ページレイアウト設定: %d冊を取り込みました。"
+            "value" : "ページレイアウト設定: %d冊を読み込みました。"
           }
         }
       }
@@ -8829,6 +8861,38 @@
         }
       }
     },
+    "Remove from History" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove from History"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "履歴から削除"
+          }
+        }
+      }
+    },
+    "Remove “%@” from the history?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove “%@” from the history?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」を履歴から削除しますか?"
+          }
+        }
+      }
+    },
     "qooViewer can only reach files you opened yourself. Granting a folder lets “Previous Book” and “Next Book” find the other files next to a book you opened directly. Access is remembered after you quit." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -9099,7 +9163,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "読書履歴 — 本ごとの最後に読んだページと表示設定"
+            "value" : "読書位置 — 本ごとの最後に読んだページと表示設定"
           }
         }
       }
@@ -9148,7 +9212,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "最近開いたファイル"
+            "value" : "最近開いた本"
           }
         }
       }
@@ -9180,7 +9244,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「最近開いたファイル」の履歴(ファイルメニュー・サイドパネル)"
+            "value" : "「最近開いた本」の履歴(ファイルメニュー・サイドパネル)"
           }
         }
       }
@@ -9505,22 +9569,6 @@
         }
       }
     },
-    "Removes every entry from the File menu's Open Recent and from the side panel's History mode. Your files are not touched." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Removes every entry from the File menu's Open Recent and from the side panel's History mode. Your files are not touched."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ファイルメニューの「最近開いたファイル」と、サイドパネルの履歴モードから、すべての項目を取り除きます。\nファイルそのものには手を触れません。"
-          }
-        }
-      }
-    },
     "Rename" : {
       "localizations" : {
         "en" : {
@@ -9725,7 +9773,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "すべてのお気に入り・ブックマーク・レイアウト設定・読書履歴を削除しますか?"
+            "value" : "すべてのお気に入り・ブックマーク・レイアウト設定・読書位置を削除しますか?"
           }
         }
       }
@@ -9741,7 +9789,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "すべてのお気に入り・ブックマーク・レイアウト設定・読書履歴を削除…"
+            "value" : "すべてのお気に入り・ブックマーク・レイアウト設定・読書位置を削除…"
           }
         }
       }
@@ -9885,7 +9933,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「データを保持する本の数」と「履歴の保存件数」を除いて、この画面のすべての設定を初期設定に戻します(この2つは、下げると保存済みのデータがその場で消えるため戻しません)。\nほかの画面の設定と、お気に入り・ブックマーク・読書履歴には影響しません。"
+            "value" : "「データを保持する本の数」と「履歴の保存件数」を除いて、この画面のすべての設定を初期設定に戻します(この2つは、下げると保存済みのデータがその場で消えるため戻しません)。\nほかの画面の設定と、お気に入り・ブックマーク・読書位置には影響しません。"
           }
         }
       }
@@ -9917,7 +9965,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この画面のすべての設定を初期設定に戻します(サムネイルのディスクキャッシュはOFFになり、削除されます)。\nほかの画面の設定と、お気に入り・ブックマーク・読書履歴には影響しません。"
+            "value" : "この画面のすべての設定を初期設定に戻します(サムネイルのディスクキャッシュはOFFになり、削除されます)。\nほかの画面の設定と、お気に入り・ブックマーク・読書位置には影響しません。"
           }
         }
       }
@@ -9933,7 +9981,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この画面のすべての設定を初期設定に戻します。\nほかの画面の設定と、お気に入り・ブックマーク・読書履歴には影響しません。"
+            "value" : "この画面のすべての設定を初期設定に戻します。\nほかの画面の設定と、お気に入り・ブックマーク・読書位置には影響しません。"
           }
         }
       }
@@ -10929,7 +10977,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "最近開いたファイルを表示する"
+            "value" : "最近開いた本を表示する"
           }
         }
       }
@@ -10977,7 +11025,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「File」→「Open Recent」と、サイドパネルの「履歴」に表示されます。"
+            "value" : "ファイルメニューの「最近開いた本」と、サイドパネルの「履歴」に表示されます。"
           }
         }
       }
@@ -11269,7 +11317,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CBZ出力を開始…"
+            "value" : "CBZの書き出しを開始…"
           }
         }
       }
@@ -11285,7 +11333,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "EPUB出力を開始…"
+            "value" : "EPUBの書き出しを開始…"
           }
         }
       }
@@ -11383,7 +11431,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "PDF出力を開始…"
+            "value" : "PDFの書き出しを開始…"
           }
         }
       }
@@ -11640,7 +11688,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "出力先ボリュームの空き容量が不足しています(選択した本の合計サイズの1.2倍以上が必要です)。別の出力先を選ぶか、選択する本を減らしてください。"
+            "value" : "保存先ボリュームの空き容量が不足しています(選択した本の合計サイズの1.2倍以上が必要です)。別の保存先を選ぶか、選択する本を減らしてください。"
           }
         }
       }
@@ -11944,7 +11992,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この操作は元に戻せません。実行後、qooViewerはただちに終了します。"
+            "value" : "この操作は取り消せません。実行後、qooViewerはただちに終了します。"
           }
         }
       }
@@ -12136,7 +12184,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "すべてのお気に入り・お気に入りフォルダ・ブックマーク・レイアウト設定、およびすべての本の保存済みの読書位置(最後に読んだページ・表示設定)を完全に削除します。この操作は元に戻せません。実行後、qooViewerはただちに終了します。"
+            "value" : "すべてのお気に入り・お気に入りフォルダ・ブックマーク・レイアウト設定、およびすべての本の保存済みの読書位置(最後に読んだページ・表示設定)を完全に削除します。この操作は取り消せません。実行後、qooViewerはただちに終了します。"
           }
         }
       }
@@ -12168,7 +12216,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この本について qooViewer が保存しているお気に入り・ブックマーク・レイアウト設定・メタデータ・読書履歴を完全に削除します。ファイル自体には触れません。この操作は取り消せません。"
+            "value" : "この本について qooViewer が保存しているお気に入り・ブックマーク・レイアウト設定・メタデータ・読書位置を完全に削除します。ファイル自体には触れません。この操作は取り消せません。"
           }
         }
       }
@@ -12200,7 +12248,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ファイルメニューの「最近開いたファイル」と、サイドパネルの履歴モードから、すべての項目を取り除きます。ファイルそのものには手を触れません。"
+            "value" : "ファイルメニューの「最近開いた本」と、サイドパネルの履歴モードから、すべての項目を削除します。ファイルそのものには手を触れません。"
           }
         }
       }
@@ -12216,7 +12264,23 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "履歴の一覧と、ファイルメニューの「最近開いたファイル」から、すべての項目を取り除きます。ファイルそのものには手を触れません。"
+            "value" : "履歴の一覧と、ファイルメニューの「最近開いた本」から、すべての項目を削除します。ファイルそのものには手を触れません。"
+          }
+        }
+      }
+    },
+    "This removes the selected entries from the File menu's Open Recent and from the side panel's History mode. Your files are not touched." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This removes the selected entries from the File menu's Open Recent and from the side panel's History mode. Your files are not touched."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択した項目を、ファイルメニューの「最近開いた本」と、サイドパネルの履歴モードから取り除きます。\nファイルそのものには手を触れません。"
           }
         }
       }
@@ -13086,7 +13150,55 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "お気に入り・ブックマーク・読書履歴を読み込めませんでした。このバージョンのqooViewerと互換性が無い可能性があります。\n\n続行すると、これらのデータはすべて完全に削除され、qooViewerはまっさらな状態から起動し直します。データを失いたくない場合は、削除せずに今すぐ終了してください(例: 別のバージョンのqooViewerを試す、サポートに相談する、など)。"
+            "value" : "お気に入り・ブックマーク・読書位置を読み込めませんでした。このバージョンのqooViewerと互換性が無い可能性があります。\n\n続行すると、これらのデータはすべて完全に削除され、qooViewerはまっさらな状態から起動し直します。データを失いたくない場合は、削除せずに今すぐ終了してください(例: 別のバージョンのqooViewerを試す、サポートに相談する、など)。"
+          }
+        }
+      }
+    },
+    "qooViewer hasn't recorded any book you opened yet." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer hasn't recorded any book you opened yet."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer はまだ本を開いた記録を持っていません。"
+          }
+        }
+      }
+    },
+    "No book matches the current search text." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No book matches the current search text."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在の検索文字列に一致する本はありません。"
+          }
+        }
+      }
+    },
+    "Remove %lld books from the history?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove %lld books from the history?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld冊を履歴から削除しますか?"
           }
         }
       }

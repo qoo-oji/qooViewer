@@ -1156,10 +1156,10 @@ struct QooViewerApp: App {
         // ツールバーを1行にまとめた純正アプリと同じ見た目にする(ExportWindowContent参照)。
         .windowToolbarStyle(.unified)
 
-        // 「本ごとの保存データを削除」ウインドウ(独立ウインドウ)。環境設定「リセット」タブの
+        // 「本ごとの保存データの削除」ウインドウ(独立ウインドウ)。環境設定「リセット」タブの
         // ボタンからのみ開く(ユーザー要望: 環境設定からのみ呼び出せるものでよい)。
         // 実在判定にfolderAccess(許可済みフォルダ)を、読書履歴の削除にModelContextを使う。
-        Window("Delete Saved Book Data", id: "libraryCleanup") {
+        Window("Delete Saved Data", id: "libraryCleanup") {
             LibraryCleanupWindow()
                 .environmentObject(favoritesStore)
                 .environmentObject(bookmarkStore)
@@ -1171,6 +1171,24 @@ struct QooViewerApp: App {
         }
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
+        // 絞り込み・すべて選択・削除・検索欄をツールバーに載せているため、タイトルと
+        // ツールバーを1行にまとめた純正アプリと同じ見た目にする(メタデータの編集・
+        // 書き出し3種と同じ。LibraryCleanupWindow参照)。
+        .windowToolbarStyle(.unified)
+
+        // 「開いたファイルの履歴の削除」ウインドウ(独立ウインドウ)。上の「本ごとの保存データの
+        // 削除」と対になる画面で、立ち位置・操作感・見た目をすべて揃えてある(ユーザー指摘:
+        // 似た機能なのに名前も見た目もバラバラだった)。同じく環境設定「リセット」タブの
+        // ボタンからのみ開く。
+        // 履歴はSwiftDataではなくUserDefaultsに入っているため、必要なのはrecentFilesだけ。
+        Window("Delete History", id: "historyCleanup") {
+            HistoryCleanupWindow()
+                .environmentObject(recentFiles)
+                .environment(\.locale, locale)
+        }
+        .handlesExternalEvents(matching: [])
+        .windowResizability(.contentSize)
+        .windowToolbarStyle(.unified)
 
         // 「メタデータの編集」ウインドウ(独立ウインドウ)。「ブックマーク・レイアウトの編集」と
         // 同じく、本を今開いているかどうかに関わらずいつでも開ける。

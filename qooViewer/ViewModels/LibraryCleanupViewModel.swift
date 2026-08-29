@@ -78,6 +78,15 @@ final class LibraryCleanupViewModel: ObservableObject {
         didSet { guard oldValue != filter else { return }; rebuildRows() }
     }
 
+    /// チェックボックスで選ばれている本(ユーザー要望: 複数の本のデータを選んで一括で消したい)。
+    ///
+    /// **絞り込み・検索を変えても選択は保持する。** 「"検証" で絞って数冊選び、"tmp" で絞って
+    /// さらに数冊選び、まとめて削除」という積み上げ方ができるようにするため(選択は一覧の
+    /// 見え方ではなくユーザーの意思であって、絞り込みの副作用で消えるべきではない)。
+    /// 代わりに、一覧に出ていない本が対象に含まれていても分かるよう、下部に選択件数を常に
+    /// 表示し、確認ダイアログでも件数を必ず見せる。
+    @Published var selectedBookIDs: Set<String> = []
+
     private let favoritesStore: FavoritesStore
     private let bookmarkStore: BookmarkStore
     private let layoutStore: LayoutStore
@@ -143,8 +152,32 @@ final class LibraryCleanupViewModel: ObservableObject {
             // いった掃除がしやすい)。
             .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
         totalRowCount = allRows.count
+        // 保存データが無くなった本(直前の削除など)のチェックは自動的に外す。残しておくと
+        // 一覧のどこにも出ていない本が削除対象に数えられ続けることになる。
+        selectedBookIDs.formIntersection(allRows.map(\.bookID))
         rebuildRows()
         scheduleExistenceScan(for: allRows.map(\.bookID))
+    }
+
+    // MARK: - 選択
+
+    /// 一覧に出ている行がすべて選ばれているか(下部の「表示中をすべて選択」の状態)。
+    var isEveryShownRowSelected: Bool {
+        !rows.isEmpty && rows.allSatisfy { selectedBookIDs.contains($0.bookID) }
+    }
+
+    /// 一覧に出ている行だけをまとめて選ぶ/選択解除する。
+    ///
+    /// **表示されていない行の選択には触れない。** 選択は絞り込みをまたいで積み上げられる
+    /// 作りなので(selectedBookIDsのコメント参照)、ここで丸ごと空にすると、別の絞り込みで
+    /// 付けたチェックまで巻き添えで消える。
+    func setAllShownRowsSelected(_ isSelected: Bool) {
+        let shown = rows.map(\.bookID)
+        if isSelected {
+            selectedBookIDs.formUnion(shown)
+        } else {
+            selectedBookIDs.subtract(shown)
+        }
     }
 
     private func rebuildRows() {

@@ -1540,7 +1540,7 @@ private struct SidePanelHistorySectionView: View {
         }
         .alert("Clear History?", isPresented: $isShowingClearConfirmation) {
             Button("Cancel", role: .cancel) {}
-            Button("Clear", role: .destructive) {
+            Button("Delete", role: .destructive) {
                 recentFiles.removeAll()
             }
         } message: {
@@ -1604,6 +1604,18 @@ private struct SidePanelHistorySectionView: View {
             // Finderへ場所を見せるよう頼むこと自体には、このアプリのアクセス権は要らない。
             Button("Show in Finder") {
                 FinderReveal.reveal(entry.displayURL, isDirectory: entry.isDirectory)
+            }
+
+            Divider()
+
+            // ユーザー要望: 「履歴をすべて消去」しかなく、見られたくない1件だけを
+            // 消すことができなかった。消えるのは履歴の項目だけで、ファイルの実体には
+            // 触れない(文言でもそれを明示する)。
+            //
+            // 「すべて消去」と違って確認のアラートは挟まない。対象が1件だけで、消えたことが
+            // 一覧からすぐ分かり、もう一度開けば履歴に戻る(record(url:))ため。
+            Button("Remove from History", role: .destructive) {
+                recentFiles.remove(entry)
             }
         }
     }

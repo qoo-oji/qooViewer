@@ -382,15 +382,14 @@ private struct MetadataEditorContentView: View {
     /// 独立ウインドウなので「閉じる」ボタンは置かない(タイトルバーの閉じるボタンで閉じるのが
     /// macOSの作法。Returnで閉じるのはシートの慣習)。
     private var statusBar: some View {
-        Text(
-            "\(metadataStore.registeredBookIDs.count) of \(viewModel.totalRowCount) books have metadata"
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 6)
-        .background(.bar)
-        .overlay(alignment: .top) { Divider() }
+        // 件数の表示は、位置も見た目も他の一覧ウインドウと同じ部品に載せる
+        // (ユーザー指摘: ウインドウごとに中央だったり右寄せだったりでバラバラだった。
+        // ListWindowStatusBar参照)。
+        ListWindowStatusBar {
+            Text(
+                "\(metadataStore.registeredBookIDs.count) of \(viewModel.totalRowCount) books have metadata"
+            )
+        }
     }
 }
 
