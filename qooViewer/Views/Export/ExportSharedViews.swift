@@ -22,12 +22,26 @@ enum ExportColumnWidthEstimator {
     static func idealWidth(
         for texts: [String], minWidth: CGFloat, maxWidth: CGFloat, extraChrome: CGFloat = 0
     ) -> CGFloat {
-        guard !texts.isEmpty else { return minWidth }
+        idealWidth(
+            for: texts.map { (text: $0, extraChrome: extraChrome) },
+            minWidth: minWidth, maxWidth: maxWidth
+        )
+    }
+
+    /// 行ごとに必要な余白が違う場合用。行末に付く形式バッジ(FormatBadgeView)のように、
+    /// 添え物の幅が項目ごとに変わるときは、一律の値で見積もると「7Z」に合わせて足りなく
+    /// なるか「フォルダ」に合わせて広すぎるかのどちらかになるため、項目ごとに渡す。
+    ///
+    /// - Parameter items: (テキスト, その行だけに必要な追加の余白)の一覧。
+    static func idealWidth(
+        for items: [(text: String, extraChrome: CGFloat)], minWidth: CGFloat, maxWidth: CGFloat
+    ) -> CGFloat {
+        guard !items.isEmpty else { return minWidth }
         let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
-        let widest = texts.map { text -> CGFloat in
-            (text as NSString).size(withAttributes: [.font: font]).width
+        let widest = items.map { item -> CGFloat in
+            (item.text as NSString).size(withAttributes: [.font: font]).width + item.extraChrome
         }.max() ?? 0
-        return min(maxWidth, max(minWidth, (widest + baseChrome + extraChrome).rounded(.up)))
+        return min(maxWidth, max(minWidth, (widest + baseChrome).rounded(.up)))
     }
 }
 

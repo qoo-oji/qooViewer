@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// 設計コンセプト9節: bookID(拡張子を含むフルパス)から導出する、ファイル形式を示す小さな
@@ -33,6 +34,32 @@ struct FormatBadgeView: View {
         .background(Color.secondary.opacity(0.15))
         .foregroundStyle(.secondary)
         .clipShape(Capsule())
+    }
+
+    /// バッジのテキストの左右に付くパディング(bodyのpadding(.horizontal, 5)の2つ分)と、
+    /// カプセルの丸みでテキストの端が詰まって見えないようにするためのわずかな余裕。
+    /// estimatedWidth(bookID:locale:)が使う。bodyの値と必ず揃えること。
+    private static let capsuleChrome: CGFloat = 12
+
+    /// このバッジが実際に占めるおおよその幅。
+    ///
+    /// ファイル名とこのバッジを横に並べた行の幅を実測から決めたい箇所(ウェルカム画面の
+    /// 「最近開いたファイル」「最近のお気に入り」の列幅。WelcomeQuickOpenWidth参照)で使う。
+    /// バッジの文字列は形式ごとに長さが違う(「7Z」と「EPUB」と「フォルダ」)ため、
+    /// 一律の固定値ではなく実際に表示する文字列を測る。
+    ///
+    /// - Parameter locale: 「フォルダ」の訳語を引くロケール。アプリ内の表示言語設定は
+    ///   OSのロケールとは独立しているため(CLAUDE.md参照)、呼び出し側が
+    ///   @Environment(\.locale)を渡すこと。
+    static func estimatedWidth(bookID: String, locale: Locale) -> CGFloat {
+        let pathExtension = URL(fileURLWithPath: bookID).pathExtension
+        let label = pathExtension.isEmpty
+            ? String(localized: "Folder", locale: locale)
+            : pathExtension.uppercased()
+        let font = NSFont.systemFont(
+            ofSize: NSFont.preferredFont(forTextStyle: .caption2).pointSize, weight: .semibold
+        )
+        return (label as NSString).size(withAttributes: [.font: font]).width + capsuleChrome
     }
 
     /// NSMenuItem/プレーンテキストのButtonタイトルなど、このView自体を埋め込めない場所
