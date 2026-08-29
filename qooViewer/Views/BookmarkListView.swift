@@ -197,6 +197,19 @@ struct BookmarkEditorView: View {
 
     /// 4.4節「一括リネーム」から開く一括リネームウインドウの対象bookID。
     @State private var pendingBulkRenameBookID: String?
+
+    /// 一括リネームのシートの対象。`.sheet(item:)`はIdentifiableを要求するため、bookIDを包む。
+    private struct BulkRenameTarget: Identifiable {
+        let bookID: String
+        var id: String { bookID }
+    }
+
+    private var bulkRenameTargetBinding: Binding<BulkRenameTarget?> {
+        Binding(
+            get: { pendingBulkRenameBookID.map(BulkRenameTarget.init) },
+            set: { pendingBulkRenameBookID = $0?.bookID }
+        )
+    }
     /// 4.4節「ブックマークを全削除」の確認ダイアログの対象bookID。
     @State private var pendingDeleteBookmarksBookID: String?
     /// 4.4節「レイアウトを全削除」の確認ダイアログの対象bookID。
@@ -875,12 +888,14 @@ struct BookmarkEditorView: View {
             } message: {
                 Text("This permanently deletes every bookmark and every layout setting (reading direction, page order, single/spread page settings) in this book. This cannot be undone.")
             }
-            // 4.4節「一括リネーム」。5節の一括リネームウインドウを開く。
-            .onChange(of: pendingBulkRenameBookID) { _, newValue in
-                guard let bookID = newValue else { return }
-                launchCoordinator.pendingBulkRenameBookID = bookID
-                openWindow(id: "bulkRenameBookmarks")
-                pendingBulkRenameBookID = nil
+            // 4.4節「一括リネーム」(5節)。以前は独立したWindowシーンを開き、対象のbookIDは
+            // launchCoordinator経由で渡していたが、常にこのウインドウの中の操作から開くもの
+            // なので、このウインドウ上のシートにした(BulkRenameBookmarksSheetのコメント参照)。
+            .sheet(item: bulkRenameTargetBinding) { target in
+                BulkRenameBookmarksSheet(bookID: target.bookID)
+                    .environmentObject(bookmarkStore)
+                    .environmentObject(layoutStore)
+                    .environmentObject(preferences)
             }
             // ユーザー要望: 左ペインでファイル名をダブルクリックしたら、その本を開く(openBook参照)。
             // BookmarkDetailPaneの同種のWindowAccessor/アラートと同じ仕組み。

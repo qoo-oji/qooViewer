@@ -1873,22 +1873,6 @@
         }
       }
     },
-    "Bulk Rename Bookmarks" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Bulk Rename Bookmarks"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ブックマークの一括リネーム"
-          }
-        }
-      }
-    },
     "Bulk Rename Bookmarks…" : {
       "localizations" : {
         "en" : {
@@ -7255,22 +7239,6 @@
         }
       }
     },
-    "No Book Selected" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No Book Selected"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本が選択されていません"
-          }
-        }
-      }
-    },
     "No Bookmarks Yet" : {
       "localizations" : {
         "en" : {
@@ -7860,22 +7828,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最近開いたファイルを開く"
-          }
-        }
-      }
-    },
-    "Open this window from the “Bulk Rename Bookmarks…” button in the bookmark editor." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open this window from the “Bulk Rename Bookmarks…” button in the bookmark editor."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「ブックマーク・レイアウトの編集」の「ブックマークを一括リネーム…」ボタンからこのウインドウを開いてください。"
           }
         }
       }
@@ -11609,22 +11561,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "色は「背景色の濃さ」を0%より上げるまで見た目に現れません。\n0%のまま色を選んだ場合は、選んだ色が分かるように濃さを自動で少し上げます。"
-          }
-        }
-      }
-    },
-    "The cover page and the last bookmark (if set to something other than “Normal Bookmark”) are excluded from the sequential numbering below." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The cover page and the last bookmark (if set to something other than “Normal Bookmark”) are excluded from the sequential numbering below."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "表紙、および「通常のブックマーク」以外に設定した最後のブックマークは、以下の連番リネームの対象から除外されます。"
           }
         }
       }

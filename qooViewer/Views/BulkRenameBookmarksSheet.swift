@@ -1,11 +1,15 @@
 import SwiftUI
+import AppKit
 
-/// 設計コンセプト5節: 選択中の本のブックマークをまとめてリネームするための小ウインドウ。
-/// 「ブックマーク・レイアウトの編集」ウインドウ(4.4節)の「一括リネーム」ボタンから開く。
+/// 設計コンセプト5節: 選択中の本のブックマークをまとめてリネームするための画面。
+/// 「ブックマーク・レイアウトの編集」ウインドウ(4.4節)の「一括リネーム」から開く。
 ///
-/// Windowシーンは単一インスタンス(for:による値のパラメータ化ができない)のため、対象bookIDは
-/// launchCoordinator.pendingBulkRenameBookID経由で受け取る(EditorInitialFocusと同じ仕組み。
-/// 詳細はLaunchCoordinator.swiftのコメント参照)。
+/// 以前は独立したWindowシーン(id: "bulkRenameBookmarks")だった。Windowシーンは単一インスタンスで
+/// `for:`による値のパラメータ化ができないため、対象のbookIDを
+/// launchCoordinator.pendingBulkRenameBookID経由で渡す橋渡しが要り、さらに「まだ値が来ていない
+/// 場合」のための「本が選ばれていません」というフォールバック画面まで抱えていた。
+/// 実際には常に編集ウインドウの中の操作から開くものなので、そのウインドウ上のシートにした。
+/// これで対象のbookIDは引数で受け取れるようになり、橋渡しの配管もフォールバック画面も消えた。
 enum LastBookmarkTreatment: String, CaseIterable, Identifiable {
     case normal
     case afterword
@@ -35,14 +39,14 @@ enum LastBookmarkTreatment: String, CaseIterable, Identifiable {
     }
 }
 
-struct BulkRenameBookmarksWindow: View {
+struct BulkRenameBookmarksSheet: View {
+    let bookID: String
+
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
-    @EnvironmentObject private var launchCoordinator: LaunchCoordinator
     @EnvironmentObject private var preferences: AppPreferences
     @Environment(\.dismiss) private var dismiss
 
-    @State private var bookID: String?
     @State private var assignFixedCover = false
     @State private var lastBookmarkTreatment: LastBookmarkTreatment = .normal
     @State private var startNumber = 1
@@ -55,26 +59,41 @@ struct BulkRenameBookmarksWindow: View {
     @State private var isEditingPrefix = false
     @State private var isEditingSuffix = false
 
+    /// このシートが対象にするブックマーク(ページ順)。
+    private var sortedBookmarks: [Bookmark] {
+        bookmarkStore.bookmarks(forBookID: bookID).sorted { $0.pageIndex < $1.pageIndex }
+    }
+
     var body: some View {
-        Group {
-            if let bookID {
-                content(for: bookID)
-            } else {
-                ContentUnavailableView(
-                    "No Book Selected",
-                    systemImage: "textformat",
-                    description: Text("Open this window from the “Bulk Rename Bookmarks…” button in the bookmark editor.")
-                )
-                .frame(minWidth: 420, minHeight: 320)
+        VStack(spacing: 0) {
+            content(for: bookID)
+            Divider()
+            bottomBar
+        }
+        .frame(minWidth: 420, minHeight: 480)
+        .onAppear { initializeDefaultsIfNeeded() }
+    }
+
+    /// シートなので、独立ウインドウだった頃はタイトルバーの閉じるボタンが担っていた「やめる」を
+    /// ボタンとして置く必要がある。並び(キャンセル→既定ボタン)とショートカットの割り当ては、
+    /// このアプリの他のダイアログ(FavoriteFolderPickerView.bottomBar等)と揃えてある。
+    private var bottomBar: some View {
+        HStack {
+            Spacer()
+
+            Button("Cancel") {
+                dismiss()
             }
+            .keyboardShortcut(.cancelAction)
+
+            Button("Apply") {
+                applyRenaming(bookID: bookID, bookmarks: sortedBookmarks)
+                dismiss()
+            }
+            .keyboardShortcut(.defaultAction)
+            .disabled(sortedBookmarks.isEmpty && !assignFixedCover)
         }
-        .onAppear {
-            bookID = launchCoordinator.pendingBulkRenameBookID
-            initializeDefaultsIfNeeded()
-        }
-        .onChange(of: launchCoordinator.pendingBulkRenameBookID) { _, newValue in
-            bookID = newValue
-        }
+        .padding()
     }
 
     private func initializeDefaultsIfNeeded() {
@@ -115,10 +134,6 @@ struct BulkRenameBookmarksWindow: View {
                         Text(treatment.titleKey).tag(treatment)
                     }
                 }
-            } footer: {
-                Text("The cover page and the last bookmark (if set to something other than “Normal Bookmark”) are excluded from the sequential numbering below.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             // ユーザー要望: 「番号前の文字列」「連番開始番号」「番号後の文字列」の3項目が縦に
@@ -200,31 +215,39 @@ struct BulkRenameBookmarksWindow: View {
                 // そのままForEachで全件並べれば、件数が多くてもスクロールして全件確認できる
                 // ため、6件への打ち切りをやめた。
                 Section("Preview") {
-                    ForEach(previewNames(bookID: bookID, bookmarks: bookmarks), id: \.id) { item in
-                        HStack {
+                    // ユーザー要望: 矢印と、リネーム後の名前の左端が縦に揃うようにする。
+                    // 変更前の名前の長さは行ごとにばらばらなので、いちばん長い名前の幅
+                    // (上限あり)を実測して1列ぶんの幅に固定し、そこへ左寄せで置く。
+                    let items = previewNames(bookID: bookID, bookmarks: bookmarks)
+                    let originalColumnWidth = Self.previewOriginalColumnWidth(for: items.map(\.originalName))
+                    ForEach(items, id: \.id) { item in
+                        HStack(spacing: 6) {
                             Text(item.originalName)
                                 .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .frame(width: originalColumnWidth, alignment: .leading)
                             Image(systemName: "arrow.right")
                                 .foregroundStyle(.secondary)
                                 .font(.caption2)
                             Text(item.newName)
+                                .lineLimit(1)
                         }
                         .font(.caption)
                     }
                 }
             }
 
-            Section {
-                Button("Apply") {
-                    applyRenaming(bookID: bookID, bookmarks: bookmarks)
-                    dismiss()
-                }
-                .disabled(bookmarks.isEmpty && !assignFixedCover)
-            }
         }
         .formStyle(.grouped)
-        .padding()
-        .frame(minWidth: 420, minHeight: 480)
+    }
+
+    /// プレビューの「変更前の名前」列の幅。いちばん長い名前に合わせつつ、極端に長い名前が
+    /// 1件あるだけでシートが横に広がらないよう上限を設ける(超えた名前は中略表示)。
+    private static func previewOriginalColumnWidth(for names: [String]) -> CGFloat {
+        let font = NSFont.preferredFont(forTextStyle: .caption1)
+        let widest = names.map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
+        return min(220, max(80, widest.rounded(.up)))
     }
 
     /// 前後の文字列ボタンの幅。全角文字5文字ぶんを切り詰めずに表示できる余裕を持たせてある

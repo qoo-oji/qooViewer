@@ -27,11 +27,6 @@ final class LaunchCoordinator: ObservableObject {
     /// もう一方の呼び出し元から改めて開かれた場合)の両方でこの値を読み、初期フィルタへ反映する。
     @Published var pendingEditorInitialFocus: EditorInitialFocus?
 
-    /// 5節の一括リネームウインドウ(Window(id: "bulkRenameBookmarks"))を開く直前に、
-    /// 対象のbookIDをセットしておく値。上のpendingEditorInitialFocusと同じ理由・同じ仕組み
-    /// (Windowシーンはfor:による値のパラメータ化ができない単一インスタンスのため)。
-    @Published var pendingBulkRenameBookID: String?
-
     /// アプリ起動時、最初に作られたウインドウのAppState。2つ目以降の(新しいウインドウ/タブで
     /// 開いた)ウインドウでは上書きしない。
     ///

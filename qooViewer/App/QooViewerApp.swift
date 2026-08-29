@@ -1112,21 +1112,6 @@ struct QooViewerApp: App {
         // 純正アプリと同じ見た目にする(BookmarkListView参照)。
         .windowToolbarStyle(.unified)
 
-        // 5節: ブックマーク一括リネームウインドウ(新設)。4.4節の「一括リネーム」ボタンから、
-        // launchCoordinator.pendingBulkRenameBookIDへ対象bookIDをセットしたうえで
-        // openWindow(id: "bulkRenameBookmarks")を呼んで開く(単一インスタンスのWindowシーンは
-        // for:による値のパラメータ化ができないため、pendingEditorInitialFocusと同じ橋渡し方式)。
-        Window("Bulk Rename Bookmarks", id: "bulkRenameBookmarks") {
-            BulkRenameBookmarksWindow()
-                .environmentObject(bookmarkStore)
-                .environmentObject(layoutStore)
-                .environmentObject(launchCoordinator)
-                .environmentObject(preferences)
-                .environment(\.locale, locale)
-        }
-        .handlesExternalEvents(matching: [])
-        .windowResizability(.contentSize)
-
         // 6節: JSONエクスポート/インポート用の独立ウインドウ。「ブックマーク・レイアウトの編集」と
         // 同じく、favoritesStore/bookmarkStore/layoutStoreはすべてmodelContainer.mainContextを
         // 共有する、アプリ全体で1つだけのインスタンスをそのまま渡す。
