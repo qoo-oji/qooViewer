@@ -13,13 +13,21 @@ import SwiftUI
 enum PanelSurface: String, CaseIterable, Identifiable, Hashable {
     /// ページ一覧(サムネイルグリッド)パネル本体。ThumbnailGridView。
     case pageList
-    /// ビューア上部のツールバー。自動的に隠す設定のときに重ねて表示される帯。
+    /// ビューア上部のツールバー。自動的に隠す設定のときは画像の上に重ねる帯
+    /// (ウインドウ内をぼかすすりガラス)。常時表示のときは、既定では色の層だけの帯で、
+    /// 「ウインドウの背後を透かす」(AppPreferences.toolbarDockedGlass)をONにすると
+    /// 背後を透かすすりガラスの帯になる(ViewerView.mainZStackの両分岐参照)。
     case toolbar
-    /// ビューア下部のプログレスバー。ツールバーと同じく自動的に隠すときの帯。
+    /// ビューア下部のプログレスバー。すりガラスの使い分けはツールバーと同じ。
     case progressBar
     /// サイドパネル。ここだけAppKitのNSVisualEffectViewで描いている
     /// (SidebarVisualEffectView参照。理由はそちらのコメント)。
     case sidePanel
+    /// ウェルカム画面(本を開いていないときの画面全体。WelcomeView)。
+    /// 「ウインドウの背後を透かす」(AppPreferences.welcomeGlass。既定OFF)をONにしたとき
+    /// だけ、背後のウインドウ/デスクトップを透かすすりガラスが敷かれ、この面の設定が
+    /// 効く。OFFなら従来どおりウインドウの地の色のまま(ユーザー要望で追加した面)。
+    case welcome
     /// 上の4つ以外で、このアプリが自分で描いている浮かぶ表示をまとめたもの ――
     /// 「情報を見る」パネル、操作のフィードバック(トースト)、ピンチ拡大中の拡大率表示。
     ///
@@ -39,6 +47,7 @@ enum PanelSurface: String, CaseIterable, Identifiable, Hashable {
         case .toolbar: "Toolbar"
         case .progressBar: "Progress Bar"
         case .sidePanel: "Side Panel"
+        case .welcome: "Welcome Screen"
         case .overlays: "Other Overlays"
         }
     }

@@ -182,7 +182,7 @@ struct ContentView: View {
             // ずっと画像の端がパネルの下に隠れ続けてしまう(ユーザー報告の不具合)。
             HStack(spacing: 0) {
                 if showsDockedSidePanel && panelPosition == .left {
-                    sidePanelView(dismissesOnAction: false)
+                    sidePanelView(dismissesOnAction: false, isDocked: true)
                 }
                 Group {
                     if let book = appState.currentBook {
@@ -217,7 +217,7 @@ struct ContentView: View {
                     }
                 }
                 if showsDockedSidePanel && panelPosition == .right {
-                    sidePanelView(dismissesOnAction: false)
+                    sidePanelView(dismissesOnAction: false, isDocked: true)
                 }
             }
 
@@ -227,7 +227,7 @@ struct ContentView: View {
             // 画像のサイズが変わってちらつくのを避けるため)。preferences.sidePanelFeatureEnabled
             // がOFF(環境設定「一般」タブ)のときは、サイドパネル機能自体を丸ごと無効化する。
             if preferences.sidePanelFeatureEnabled && appState.hideSidePanel && appState.isSidePanelRevealed {
-                sidePanelView(dismissesOnAction: true)
+                sidePanelView(dismissesOnAction: true, isDocked: false)
                     // 浮かせている間の位置をViewerViewへ知らせる。ページ一覧パネルを閉じる
                     // クリックの判定から、このパネルへのクリックを除くために要る
                     // (AppState.sidePanelScreenFrameのコメント参照)。
@@ -911,13 +911,15 @@ struct ContentView: View {
     /// 必要が無い(isSidePanelRevealedを操作しても常時表示の可視条件には影響しないため
     /// 実害は無いが、意味の無い代入を避けるため呼び分けている)。
     @ViewBuilder
-    private func sidePanelView(dismissesOnAction: Bool) -> some View {
+    private func sidePanelView(dismissesOnAction: Bool, isDocked: Bool) -> some View {
         SidePanelView(
             folderState: sidePanelBrowser,
             bookContentsState: bookContentsBrowser,
             mode: $preferences.sidePanelMode,
             width: $sidePanelWidth,
             position: preferences.sidePanelPosition,
+            // 背景のすりガラスのぼかし方の使い分け(SidePanelView.isDockedのコメント参照)。
+            isDocked: isDocked,
             bookPages: appState.currentBookPages,
             // バグ修正: 以前は`appState.fetchResourceSnapshot`をそのまま渡していた。受け取る
             // リソースモニタは1秒ごとのループを長寿命の`.task`で回しており、Viewはstructなので

@@ -45,14 +45,21 @@ struct WelcomeView: View {
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 420)
                 }
+                // 文字だけの塊なので、面の「文字の影」設定に乗せる(すりガラス面の決まりごと。
+                // CLAUDE.mdとpanelOutlinedContentのコメント参照。以下の文字・アイコンも同じ)。
+                .panelOutlinedContent()
                 .padding(.bottom, 8)
             }
             Image(systemName: "books.vertical")
                 .font(.system(size: 56))
                 .foregroundStyle(.secondary)
+                .panelOutlinedContent()
             Text("Open a manga folder, or a\nzip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
+                .panelOutlinedContent()
+            // 「開く…」ボタンは自前の不透明な地を持つ部品なので、輪郭は付けない
+            // (すりガラス面の決まりごとの例外側)。
             Button("Open…") {
                 appState.openWithPanel()
             }
@@ -60,6 +67,7 @@ struct WelcomeView: View {
             Text("You can also open by dragging and dropping here")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+                .panelOutlinedContent()
 
             if !recentEntries.isEmpty || !recentFavoriteBooks.isEmpty {
                 Divider()
@@ -96,6 +104,31 @@ struct WelcomeView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // 環境設定「外観」の「ウェルカム画面」に従う背景。「ウインドウの背後を透かす」
+        // (welcomeGlass。既定OFF)がONのときだけ、背後のウインドウ/デスクトップが
+        // わずかに透けるすりガラス+重ね色を敷く(ユーザー要望: のっぺりして見える。
+        // ただし既定では従来どおり、ウインドウの地の色のまま何も敷かない ―― 従来からの
+        // ユーザーは設定を変更しなければ見た目が変わらないこと、というユーザーの指定)。
+        // .underWindowBackgroundは「ウインドウのコンテンツ背景」用のいちばん控えめな
+        // マテリアルで、メモ.appの本文背景などと同じもの。2層の構成の意味は
+        // panelSurfaceBackgroundと同じだが、画面全体に敷くため安全領域も無視して広げる。
+        .panelContentOutline(
+            width: preferences.welcomeGlass
+                ? PanelContentShadow.outlineWidth(
+                    forLevel: preferences.welcomeSurfaceStyle.contentShadowLevel
+                )
+                : 0
+        )
+        .background {
+            if preferences.welcomeGlass {
+                ZStack {
+                    BehindWindowVisualEffectView(material: .underWindowBackground)
+                        .opacity(preferences.welcomeSurfaceStyle.materialOpacity)
+                    preferences.welcomeSurfaceStyle.resolvedTint
+                }
+                .ignoresSafeArea()
+            }
+        }
         // ファイル/フォルダのドロップは、ウェルカム画面だけでなくビューア画面・サイドパネルも
         // 含めたウインドウ全体で受ける(ContentView.applyFileDropTarget参照)。
     }
@@ -122,14 +155,18 @@ private struct WelcomeQuickOpenList: View {
             Text(title)
                 .font(.headline)
                 .foregroundStyle(.secondary)
+                .panelOutlinedContent()
             ForEach(items) { item in
                 Button {
                     item.action()
                 } label: {
                     HStack(spacing: 6) {
+                        // 輪郭は文字だけに掛ける。拡張子バッジ(FormatBadgeView)は自前の
+                        // 塗り地を持つので付けない(すりガラス面の決まりごとの例外側)。
                         Text(item.title)
                             .lineLimit(1)
                             .truncationMode(.middle)
+                            .panelOutlinedContent()
                         FormatBadgeView(bookID: item.bookID)
                     }
                 }

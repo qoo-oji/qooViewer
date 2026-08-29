@@ -278,6 +278,20 @@ struct AppearanceSettingsView: View {
             ) { value in
                 PanelContentShadow.displayText(forLevel: Int(value.rounded()), locale: preferences.effectiveLocale)
             }
+            // ウインドウの背後(デスクトップ/他のウインドウ)を透かすすりガラスのスイッチ
+            // (ユーザー要望)。持つのは、隠していない状態を持つ3面とウェルカム画面だけ
+            // (behindWindowGlassBinding(for:)参照)。**既定はOFF** ―― 従来からのユーザーが
+            // 設定を変更しなければ見た目が変わらないようにするため(ユーザーの指定。
+            // AppPreferences.toolbarDockedGlassのコメント参照)。
+            if let glassEnabled = behindWindowGlassBinding(for: surface) {
+                SettingsToggle(
+                    "Show What’s Behind the Window",
+                    isOn: glassEnabled,
+                    help: surface == .welcome
+                        ? "Other windows and the desktop show through the welcome screen faintly, following the settings above. When off, the welcome screen stays plain, as before."
+                        : "Other windows and the desktop show through faintly while this part is set to always show, following the settings above. When off, the always-visible look stays as before. The floating version shown while hidden is unaffected."
+                )
+            }
             // 自動的に隠れる3面(ツールバー・プログレスバー・サイドパネル)にだけ、
             // 「隠しているとき、端にカーソルを近づけてから表示されるまでの待ち時間」を添える
             // (ユーザーの指示で、この面ごとのセクションへ統合した)。すりガラスの4項目と
@@ -306,6 +320,19 @@ struct AppearanceSettingsView: View {
         case .toolbar: $preferences.toolbarRevealDelay
         case .progressBar: $preferences.progressBarRevealDelay
         case .sidePanel: $preferences.sidePanelRevealDelay
+        case .pageList, .welcome, .overlays: nil
+        }
+    }
+
+    /// 「ウインドウの背後を透かす」スイッチのBinding。隠していない(常に表示の)状態を
+    /// 持つ3面と、ウェルカム画面だけが持つ。ページ一覧と浮かぶ表示は常にウインドウ内の
+    /// 内容(ページ画像)の上に重なる面なので、背後のウインドウを透かす形は持たない。
+    private func behindWindowGlassBinding(for surface: PanelSurface) -> Binding<Bool>? {
+        switch surface {
+        case .toolbar: $preferences.toolbarDockedGlass
+        case .progressBar: $preferences.progressBarDockedGlass
+        case .sidePanel: $preferences.sidePanelDockedGlass
+        case .welcome: $preferences.welcomeGlass
         case .pageList, .overlays: nil
         }
     }

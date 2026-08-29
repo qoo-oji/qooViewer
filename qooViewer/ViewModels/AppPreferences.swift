@@ -31,6 +31,10 @@ final class AppPreferences: ObservableObject {
         static let toolbarRevealDelay = "qooViewer.pref.toolbarRevealDelay"
         static let progressBarRevealDelay = "qooViewer.pref.progressBarRevealDelay"
         static let sidePanelRevealDelay = "qooViewer.pref.sidePanelRevealDelay"
+        static let toolbarDockedGlass = "qooViewer.pref.toolbarDockedGlass"
+        static let progressBarDockedGlass = "qooViewer.pref.progressBarDockedGlass"
+        static let sidePanelDockedGlass = "qooViewer.pref.sidePanelDockedGlass"
+        static let welcomeGlass = "qooViewer.pref.welcomeGlass"
         static let prefetchPageCount = "qooViewer.pref.prefetchPageCount"
         static let displayLanguage = "qooViewer.pref.displayLanguage"
         static let reopenBehavior = "qooViewer.pref.reopenBehavior"
@@ -238,6 +242,33 @@ final class AppPreferences: ObservableObject {
     /// 端の帯(ContentView.updateSidePanelReveal参照)。
     @Published var sidePanelRevealDelay: Double {
         didSet { UserDefaults.standard.set(sidePanelRevealDelay, forKey: Keys.sidePanelRevealDelay) }
+    }
+    /// 隠していない(常に表示の)状態のツールバーにも、ウインドウの背後(デスクトップ/
+    /// 他のウインドウ)がうっすら透けるすりガラスを敷くかどうか。
+    ///
+    /// **既定はOFF** ―― 従来からのユーザーが設定を変更しなければ、見た目が1ピクセルも
+    /// 変わらないようにするため(ユーザーの指定。面ごとの設定の既定値と同じ方針)。
+    /// OFFのときの常時表示側は従来どおりの見た目 ―― ツールバー/プログレスバーは
+    /// 色の層だけ(重ね色の設定は従来から常時表示にも効いていたので、それはOFFでも効く)、
+    /// サイドパネルはウインドウ内をぼかすサイドバーのすりガラス。
+    /// 自動的に隠す設定で画像の上に浮かべる帯/パネルには、この設定は関係しない。
+    @Published var toolbarDockedGlass: Bool {
+        didSet { UserDefaults.standard.set(toolbarDockedGlass, forKey: Keys.toolbarDockedGlass) }
+    }
+    /// プログレスバー側の同じもの(toolbarDockedGlass参照)。
+    @Published var progressBarDockedGlass: Bool {
+        didSet { UserDefaults.standard.set(progressBarDockedGlass, forKey: Keys.progressBarDockedGlass) }
+    }
+    /// サイドパネル側の同じもの(toolbarDockedGlass参照)。
+    @Published var sidePanelDockedGlass: Bool {
+        didSet { UserDefaults.standard.set(sidePanelDockedGlass, forKey: Keys.sidePanelDockedGlass) }
+    }
+    /// ウェルカム画面版の同じもの(toolbarDockedGlass参照。既定OFFの理由も同じ)。
+    /// ウェルカム画面には「隠す」状態が無いので、これは画面全体のすりガラス
+    /// (と面の設定一式)を使うかどうかのスイッチになる。OFFなら従来どおり、
+    /// ウインドウの地の色のまま何も敷かない(WelcomeView参照)。
+    @Published var welcomeGlass: Bool {
+        didSet { UserDefaults.standard.set(welcomeGlass, forKey: Keys.welcomeGlass) }
     }
     /// 上の3つに共通の、指定できる範囲。0.1秒刻みで最大2秒まで(ユーザーの指定)。
     static let autoRevealDelayRange: ClosedRange<Double> = 0...2
@@ -694,6 +725,9 @@ final class AppPreferences: ObservableObject {
         didSet { Self.save(sidePanelSurfaceStyle, for: .sidePanel) }
     }
     /// 上記以外の浮かぶ表示(「情報を見る」パネル・トースト・拡大率表示)の背景。
+    @Published var welcomeSurfaceStyle: PanelSurfaceStyle {
+        didSet { Self.save(welcomeSurfaceStyle, for: .welcome) }
+    }
     @Published var overlaySurfaceStyle: PanelSurfaceStyle {
         didSet { Self.save(overlaySurfaceStyle, for: .overlays) }
     }
@@ -706,6 +740,7 @@ final class AppPreferences: ObservableObject {
         case .toolbar: return toolbarSurfaceStyle
         case .progressBar: return progressBarSurfaceStyle
         case .sidePanel: return sidePanelSurfaceStyle
+        case .welcome: return welcomeSurfaceStyle
         case .overlays: return overlaySurfaceStyle
         }
     }
@@ -717,6 +752,7 @@ final class AppPreferences: ObservableObject {
         case .toolbar: toolbarSurfaceStyle = style
         case .progressBar: progressBarSurfaceStyle = style
         case .sidePanel: sidePanelSurfaceStyle = style
+        case .welcome: welcomeSurfaceStyle = style
         case .overlays: overlaySurfaceStyle = style
         }
     }
@@ -976,7 +1012,15 @@ final class AppPreferences: ObservableObject {
         self.toolbarSurfaceStyle = Self.loadSurfaceStyle(for: .toolbar)
         self.progressBarSurfaceStyle = Self.loadSurfaceStyle(for: .progressBar)
         self.sidePanelSurfaceStyle = Self.loadSurfaceStyle(for: .sidePanel)
+        self.welcomeSurfaceStyle = Self.loadSurfaceStyle(for: .welcome)
         self.overlaySurfaceStyle = Self.loadSurfaceStyle(for: .overlays)
+        // 背後を透かすすりガラスの4スイッチ。既定OFF(toolbarDockedGlassのコメント参照)。
+        self.toolbarDockedGlass = defaults.object(forKey: Keys.toolbarDockedGlass) as? Bool ?? false
+        self.progressBarDockedGlass =
+            defaults.object(forKey: Keys.progressBarDockedGlass) as? Bool ?? false
+        self.sidePanelDockedGlass =
+            defaults.object(forKey: Keys.sidePanelDockedGlass) as? Bool ?? false
+        self.welcomeGlass = defaults.object(forKey: Keys.welcomeGlass) as? Bool ?? false
         self.launchInPrivateMode = defaults.object(forKey: Keys.launchInPrivateMode) as? Bool ?? false
         self.thumbnailDiskCacheEnabled =
             defaults.object(forKey: Keys.thumbnailDiskCacheEnabled) as? Bool ?? false
@@ -1109,6 +1153,12 @@ extension AppPreferences {
                 Keys.toolbarRevealDelay,
                 Keys.progressBarRevealDelay,
                 Keys.sidePanelRevealDelay,
+                // 背後を透かすすりガラスの4スイッチも、面ごとのセクションに並ぶ設定なので
+                // この画面の担当(AppearanceSettingsView.behindWindowGlassBinding(for:)参照)。
+                Keys.toolbarDockedGlass,
+                Keys.progressBarDockedGlass,
+                Keys.sidePanelDockedGlass,
+                Keys.welcomeGlass,
             ] + PanelSurface.allCases.flatMap {
                 // 面ごとの設定を1つ増やしたら**ここにも足すこと**。`apply`が渡す
                 // `AppPreferences()`はUserDefaultsから読み直すので、キーを消し忘れると
@@ -1205,6 +1255,10 @@ extension AppPreferences {
             toolbarRevealDelay = source.toolbarRevealDelay
             progressBarRevealDelay = source.progressBarRevealDelay
             sidePanelRevealDelay = source.sidePanelRevealDelay
+            toolbarDockedGlass = source.toolbarDockedGlass
+            progressBarDockedGlass = source.progressBarDockedGlass
+            sidePanelDockedGlass = source.sidePanelDockedGlass
+            welcomeGlass = source.welcomeGlass
             for surface in PanelSurface.allCases {
                 setSurfaceStyle(source.surfaceStyle(for: surface), for: surface)
             }

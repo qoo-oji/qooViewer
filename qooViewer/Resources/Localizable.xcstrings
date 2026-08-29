@@ -7945,6 +7945,38 @@
         }
       }
     },
+    "Other windows and the desktop show through faintly while this part is set to always show, following the settings above. When off, the always-visible look stays as before. The floating version shown while hidden is unaffected." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Other windows and the desktop show through faintly while this part is set to always show, following the settings above. When off, the always-visible look stays as before. The floating version shown while hidden is unaffected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "常に表示しているとき、背後のウインドウやデスクトップが上の設定に従ってうっすら透けます。オフのときの常時表示は従来どおりの見た目です。隠しているときに浮かぶ表示には影響しません。"
+          }
+        }
+      }
+    },
+    "Other windows and the desktop show through the welcome screen faintly, following the settings above. When off, the welcome screen stays plain, as before." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Other windows and the desktop show through the welcome screen faintly, following the settings above. When off, the welcome screen stays plain, as before."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "背後のウインドウやデスクトップが、上の設定に従ってウェルカム画面にうっすら透けます。オフのときは従来どおり、何も敷かない画面のままです。"
+          }
+        }
+      }
+    },
     "Outlines the text and icons so they stay readable whatever is behind them — a dark panel color, or a page showing through. 1 is the tightest outline and 5 spreads the most." : {
       "localizations" : {
         "en" : {
@@ -10914,6 +10946,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "右ページを実寸表示"
+          }
+        }
+      }
+    },
+    "Show What’s Behind the Window" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show What’s Behind the Window"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ウインドウの背後を透かす"
           }
         }
       }

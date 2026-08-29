@@ -53,6 +53,13 @@ struct SidePanelView: View {
     /// ビューア側を向いているか」に依存する部分だけ ― 幅調整ハンドル・ドラッグ中の目印の位置と
     /// ドラッグ方向、およびページモードの拡大プレビューを出す向き。
     var position: SidePanelPosition
+    /// 常時表示(HStackへの組み込み)かどうか。背景のすりガラスのぼかし方を使い分ける
+    /// ためだけに使う ―― 常時表示で、かつ環境設定「外観」の「ウインドウの背後を透かす」
+    /// (AppPreferences.sidePanelDockedGlass。既定OFF)がONなら、ウインドウの背後を透かす
+    /// `.behindWindow`。それ以外(ホバーによる一時表示、またはスイッチOFF)は従来どおり
+    /// ウインドウ内をぼかす`.withinWindow`
+    /// (使い分けの理由はSidebarVisualEffectViewのコメント参照)。
+    var isDocked: Bool
     /// 下段のダブルクリックで、クリックした画像が本の何ページ目かを特定するための一覧
     /// (AppState.currentBookPages。並び替え/除外の変更を追従できるよう、本を開いた時点の
     /// スナップショットではなく最新値をContentViewから渡してもらう)。
@@ -188,8 +195,13 @@ struct SidePanelView: View {
             .overlay(alignment: .leading) {
                 // すりガラスの濃さと重ね色は環境設定「外観」に従う(ユーザー要望)。
                 // 既定値では従来どおり SidebarVisualEffectView をそのまま敷いたのと
-                // 同じ描画になる(SidePanelSurfaceBackground参照)。
-                SidePanelSurfaceBackground(style: preferences.sidePanelSurfaceStyle)
+                // 同じ描画になる(SidePanelSurfaceBackground参照)。ぼかしの基準
+                // (blendingMode)の使い分けはisDockedのコメント参照。
+                SidePanelSurfaceBackground(
+                    style: preferences.sidePanelSurfaceStyle,
+                    blendingMode: isDocked && preferences.sidePanelDockedGlass
+                        ? .behindWindow : .withinWindow
+                )
                     .frame(width: effectiveWidth)
                     .frame(maxHeight: .infinity)
                     .transaction { $0.animation = nil }
@@ -2100,22 +2112,32 @@ private struct SidePanelSortMenu: View {
 /// 不具合が実機で確認された(SidePanelView.bodyのコメント参照)。実際のFinder等のサイドバーと
 /// 同じ.sidebarマテリアルを直接指定することでこれを回避する。
 struct SidebarVisualEffectView: NSViewRepresentable {
+    // ぼかしの基準をどちらにするか。
+    //   ・.behindWindow ―― ウインドウの「背後」(デスクトップ/他のウインドウ)を透過して
+    //     見せる方式。**常時表示(hideSidePanelがOFF、HStackへの組み込み)のときに使う**
+    //     (ユーザー要望: 隠していない状態のサイドパネルがのっぺりして見えるので、背後が
+    //     少しだけ透けて見えるようにしたい)。組み込み時のパネルはViewerViewと並んで置かれ、
+    //     ウインドウ内の不透明な描画と重ならないため、下記の震えの不具合は起きない
+    //     (幅のドラッグもHStackの再レイアウトとして同期的に行われ、はみ出しは生じない)。
+    //   ・.withinWindow ―― 同じウインドウ内の背後の描画をぼかす方式。**ホバーによる
+    //     一時表示(hideSidePanelがON、画像の上に浮かべる)のときに使う**。こちらを
+    //     .behindWindowにしてしまうと、パネルの背後に描画され続けているViewerViewの
+    //     不透明な内容と.behindWindowのサンプリング対象(ウインドウの背後)が競合し、
+    //     ドラッグでパネルを拡大する方向だけ震えて見える不具合が実機で確認された
+    //     (縮小方向は単に隠れていた領域を再び見せるだけのため問題が起きなかった)。
+    //     また浮かべているパネル越しに見えるべきなのは背後のページ画像であって
+    //     デスクトップではないので、見た目の意味としてもこちらが正しい。
+    var blendingMode: NSVisualEffectView.BlendingMode = .withinWindow
+
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.material = .sidebar
-        // .behindWindowは、ウインドウの「背後」(デスクトップ/他のウインドウ)を透過して
-        // 見せる方式で、ウインドウ全面がマテリアルになる典型的なサイドバー構成を想定した
-        // モード。本アプリはウインドウの一部(このパネルの幅)だけがマテリアルで、残り
-        // (ViewerView)は不透明なSwiftUIコンテンツという構成のため、ドラッグでパネルを
-        // 拡大してViewerView側の描画領域へ一時的にはみ出す瞬間、.behindWindowのサンプリング
-        // 対象(ウインドウの背後)と、そこに重なって描画され続けているViewerViewの不透明な
-        // 内容とが競合し、拡大方向へドラッグしたときだけ震えて見える不具合が実機で確認
-        // された(縮小方向は単に隠れていた領域を再び見せるだけのため問題が起きなかった)。
-        // 同じウインドウ内の描画を基準にする.withinWindowに変更することでこれを避ける。
-        view.blendingMode = .withinWindow
+        view.blendingMode = blendingMode
         view.state = .active
         return view
     }
 
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.blendingMode = blendingMode
+    }
 }

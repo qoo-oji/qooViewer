@@ -1008,11 +1008,19 @@ struct ViewerView: View {
         return ZStack {
             VStack(spacing: 0) {
                 if !toolbarAutoHides {
-                    // 常時表示のときは、すりガラスではなく色の層だけを敷く
-                    // (理由はpanelSurfaceBackgroundのmaterial引数のコメント参照)。
+                    // 常時表示の帯の背後(ウインドウ内)には何も描かれていないので、SwiftUIの
+                    // Materialではぼかす対象が無い。環境設定「外観」の「ウインドウの背後を
+                    // 透かす」がONのときだけ、ウインドウの背後(デスクトップ/他のウインドウ)を
+                    // 透かす.behindWindowのすりガラスを敷く(ユーザー要望: のっぺりして
+                    // 見えるので背後が少しだけ透けて見えるように。既定はOFFで従来どおり
+                    // 色の層だけ。panelSurfaceBackground(_:behindWindowMaterial:in:)の
+                    // コメント参照)。.titlebarはすぐ上のタイトルバーと同系の控えめな
+                    // マテリアルで、タイトルバーから帯まで質感が途切れずつながって見える。
                     toolbar
                         .panelSurfaceBackground(
-                            preferences.toolbarSurfaceStyle, material: nil, in: Rectangle()
+                            preferences.toolbarSurfaceStyle,
+                            behindWindowMaterial: preferences.toolbarDockedGlass ? .titlebar : nil,
+                            in: Rectangle()
                         )
                         // 帯を右クリックしたら「ツールバーを隠す」(ユーザー要望)。背景を敷いた
                         // 後に付けることで、ボタンの無い余白も含めた帯全体が対象になる。
@@ -1028,7 +1036,9 @@ struct ViewerView: View {
                     ProgressBarView(viewModel: viewModel)
                         .measuringHeight(into: $progressBarHeight)
                         .panelSurfaceBackground(
-                            preferences.progressBarSurfaceStyle, material: nil, in: Rectangle()
+                            preferences.progressBarSurfaceStyle,
+                            behindWindowMaterial: preferences.progressBarDockedGlass ? .titlebar : nil,
+                            in: Rectangle()
                         )
                         // ツールバーと同じ(すぐ上のコメント参照)。こちらは「プログレスバーを隠す」。
                         .panelPartContextMenu(for: .progressBar)

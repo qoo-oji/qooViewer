@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// すりガラスで描く面の背景を、環境設定「外観」の設定(`PanelSurfaceStyle`)に従って敷く。
@@ -27,26 +28,54 @@ extension View {
     /// - Parameters:
     ///   - style: 環境設定「外観」で決まったこの面の見た目。
     ///   - material: 設定を触っていないときに使う、従来どおりのマテリアル。
-    ///     **`nil`を渡すと色の層だけを敷く。**
     ///
-    ///     ツールバーとプログレスバーは、自動的に隠す設定のときだけ画像の上へ浮かべる
-    ///     半透明の帯として描かれ、常に表示する設定のときは`VStack`の一員として
-    ///     ビューアの背景色の上に不透明に置かれる。後者にはそもそもすりガラスが無いので、
-    ///     ここでマテリアルまで足すと**設定を触っていない人の見た目が変わってしまう**。
-    ///     一方で「ツールバーの色」を決めたのに常時表示だと何も起きない、というのも
-    ///     分かりにくい。そこで常時表示側には色の層だけを敷いて、色の設定は両方の
-    ///     状態に効き、すりガラスの濃さは浮かせているときにだけ効く、という形にしてある。
+    ///     SwiftUIの`Material`は**同じウインドウ内の、背後に描かれている内容**をぼかす方式。
+    ///     画像の上へ浮かべる帯やパネルはこれでよいが、常時表示(自動的に隠さない設定)の
+    ///     ツールバー・プログレスバーのように**背後(ウインドウ内)に何も描かれていない面**では
+    ///     ぼかす対象が無く、単なる灰色の板になる。そちらは下の`behindWindowMaterial:`版を使う。
     ///   - shape: 面の輪郭(ツールバー等は`Rectangle`、ページ一覧パネルは角丸)。
     func panelSurfaceBackground<S: Shape>(
         _ style: PanelSurfaceStyle,
-        material: Material?,
+        material: Material,
+        in shape: S
+    ) -> some View {
+        panelContentOutline(width: PanelContentShadow.outlineWidth(forLevel: style.contentShadowLevel))
+            .background {
+                ZStack {
+                    shape.fill(material)
+                        .opacity(style.materialOpacity)
+                    shape.fill(style.resolvedTint)
+                }
+            }
+    }
+
+    /// 上のSwiftUI `Material`版と同じ2層構成を、ウインドウの**背後**(デスクトップ/
+    /// 他のウインドウ)を透かして見せるAppKitのすりガラス(`.behindWindow`)で敷く版。
+    ///
+    /// 常時表示(自動的に隠さない設定)のツールバー・プログレスバーが使う。あの帯は
+    /// `VStack`の一員としてウインドウの端に置かれ、帯の背後(ウインドウ内)には何も
+    /// 描かれていないため、SwiftUIの`Material`では何もぼかせず単なる灰色の板になって
+    /// しまう(ユーザー要望: ウェルカム画面と、隠していない状態のツールバー・
+    /// プログレスバー・サイドパネルがのっぺりして見える。背後のウインドウやデスクトップが
+    /// 少しだけ透けて見えるようにしたい)。
+    ///
+    /// - Parameter material: **`nil`なら色の層だけを敷く**(すりガラス無し)。
+    ///   環境設定「外観」の「ウインドウの背後を透かす」スイッチ
+    ///   (AppPreferences.toolbarDockedGlassなど)がOFFのときの、従来どおりの描画。
+    ///   既定はOFF ―― 従来からのユーザーが設定を変更しなければ、常時表示の帯は
+    ///   以前と同じく色の層だけになる(重ね色の設定は従来から常時表示にも効いていた)。
+    ///   ONのときだけすりガラスの層が加わり、濃さ(materialOpacity)の設定も帯に効く。
+    func panelSurfaceBackground<S: Shape>(
+        _ style: PanelSurfaceStyle,
+        behindWindowMaterial material: NSVisualEffectView.Material?,
         in shape: S
     ) -> some View {
         panelContentOutline(width: PanelContentShadow.outlineWidth(forLevel: style.contentShadowLevel))
             .background {
                 ZStack {
                     if let material {
-                        shape.fill(material)
+                        BehindWindowVisualEffectView(material: material)
+                            .clipShape(shape)
                             .opacity(style.materialOpacity)
                     }
                     shape.fill(style.resolvedTint)
@@ -219,14 +248,48 @@ private struct PanelContentOutline: ViewModifier {
 /// SwiftUIの`.regularMaterial`へ置き換えてしまうと、フル高さでタイトルバー直下から続く
 /// サイドバー配置のときにウインドウがキーだと境界へ青い線が描かれる不具合が再発するため、
 /// **マテリアルの実体は差し替えないこと**(SidebarVisualEffectViewのコメント参照)。
+///
+/// `blendingMode`は、常時表示(HStackへの組み込み)かつ「ウインドウの背後を透かす」
+/// (AppPreferences.sidePanelDockedGlass。既定OFF)がONなら`.behindWindow`、それ以外
+/// (ホバーによる一時表示、またはスイッチOFF)は従来どおり`.withinWindow`を渡す ――
+/// 使い分けの理由はSidebarVisualEffectViewのコメント参照。
 struct SidePanelSurfaceBackground: View {
     let style: PanelSurfaceStyle
+    let blendingMode: NSVisualEffectView.BlendingMode
 
     var body: some View {
         ZStack {
-            SidebarVisualEffectView()
+            SidebarVisualEffectView(blendingMode: blendingMode)
                 .opacity(style.materialOpacity)
             style.resolvedTint
         }
+    }
+}
+
+/// ウインドウの背後(デスクトップ/他のウインドウ)を透かして見せる`.behindWindow`方式の
+/// すりガラス。SwiftUIの`Material`はウインドウ**内**の背後の内容しかぼかせないため、
+/// 背後に何も描かれていない面 ―― 常時表示のツールバー/プログレスバーの帯
+/// (`panelSurfaceBackground(_:behindWindowMaterial:in:)`)とウェルカム画面(WelcomeView) ――
+/// ではこちらを使う。
+///
+/// サイドパネルのホバー表示で確認された震えの不具合(SidebarVisualEffectViewのコメント参照)が
+/// ここで問題にならないのは、この面はウインドウ内の不透明な描画(ViewerViewの画像)と
+/// 重なる場所には敷かれないため。
+struct BehindWindowVisualEffectView: NSViewRepresentable {
+    var material: NSVisualEffectView.Material
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = material
+        view.blendingMode = .behindWindow
+        // ウインドウが非アクティブのときも質感を保つ。既定の.followsWindowActiveStateだと
+        // 非アクティブになった瞬間にただの灰色の板へ戻り、「のっぺりして見える」が再発する。
+        // サイドパネル(SidebarVisualEffectView)と同じ判断。
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
     }
 }
