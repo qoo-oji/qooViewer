@@ -270,6 +270,31 @@ private struct SettingsPopUp<Options: View, Label: View>: View {
     }
 
     var body: some View {
+        // macOS 26以降は、grouped Formの中でも標準のメニューボタンにベゼル(シェブロンの丸い
+        // 台座)が付くようになった(検証アプリで実測)。押せることがシステム標準の描画で伝わる
+        // ため、自前の枠は不要になる。macOS 15では従来どおり自前で描く(下のcustomDrawnの
+        // コメント参照。当時はベゼルが無く、値の文字とシェブロンが説明文と地続きに見えていた)。
+        if #available(macOS 26.0, *) {
+            standardPopUp
+        } else {
+            customDrawnPopUp
+        }
+    }
+
+    /// macOS 26以降。システムのメニューボタンの見た目をそのまま使う。
+    @available(macOS 26.0, *)
+    private var standardPopUp: some View {
+        Menu {
+            options()
+        } label: {
+            label()
+        }
+        .menuStyle(.button)
+        .modifier(PopUpWidth(width: width))
+    }
+
+    /// macOS 15向け。背景と境界線を自前で描く(このファイル上部のコメント参照)。
+    private var customDrawnPopUp: some View {
         Menu {
             options()
         } label: {
