@@ -24,8 +24,42 @@ struct FavoritesOrganizerView: View {
     /// 使う(openFavorite(_:to:relativeTo:) → BookWindowOpener参照)。
     @Environment(\.openWindow) private var openWindow
 
+    /// 右ペインの1行が名前以外に使う幅(本のアイコン・形式バッジ・件数・削除ボタン)。
+    /// SidebarWidthEstimatorが見込んでいる分(アイコン+件数)より、形式バッジと削除ボタンの
+    /// ぶんだけ広い。
+    private static let detailRowExtraChrome: CGFloat = 40
+    /// 右ペインがこれ以上狭く/広くならない下限・上限。上限は、名前が極端に長いお気に入りが
+    /// 1件あるだけでウインドウが画面いっぱいに開いてしまわないようにするためのもの。
+    private static let detailMinWidth: CGFloat = 400
+    private static let detailMaxWidth: CGFloat = 640
+
     /// nilは「お気に入りの一番上の階層(ルート直下)」を表す。
     @State private var selectedFolder: FavoriteFolder?
+
+    /// 並べ替えメニューの「基準」側。昇順/降順は保ったまま基準だけを差し替える
+    /// (「ブックマーク・レイアウトの編集」ウインドウのsortFieldBindingと同じもの)。
+    private var sortFieldBinding: Binding<FavoritesSortOption.Field> {
+        Binding(
+            get: { favoritesStore.sortOption.field },
+            set: { newField in
+                favoritesStore.sortOption = FavoritesSortOption(
+                    field: newField, ascending: favoritesStore.sortOption.isAscending
+                )
+            }
+        )
+    }
+
+    /// 並べ替えメニューの「昇順/降順」側。基準は保ったまま向きだけを差し替える。
+    private var sortAscendingBinding: Binding<Bool> {
+        Binding(
+            get: { favoritesStore.sortOption.isAscending },
+            set: { isAscending in
+                favoritesStore.sortOption = FavoritesSortOption(
+                    field: favoritesStore.sortOption.field, ascending: isAscending
+                )
+            }
+        )
+    }
 
     /// 右ペイン(詳細ペイン)で、今クリックして選択中の項目(フォルダ/お気に入り)のid。
     /// クリックしても選択されているのかどうか分かりにくいという指摘への対応で、左ペインの
@@ -63,6 +97,10 @@ struct FavoritesOrganizerView: View {
     /// 応じてonAppearで一度だけ計算する(SidebarWidthEstimator参照)。既定値220は、
     /// フォルダが無い/名前が短い場合のフォールバック。
     @State private var sidebarWidth: CGFloat = 220
+    /// 右ペインの「開いた直後の幅」。左ペインと同じく、登録されている名前の実測から決める
+    /// (ユーザー要望: 左右のペインとも、登録されている一番長い文字列に合わせること。
+    /// ただし広くなりすぎないよう上限を設けること)。
+    @State private var detailWidth: CGFloat = Self.detailMinWidth
     /// sidebarWidthの計算を、ウインドウを開いた時点の1回だけに限定するためのフラグ
     /// (以後、フォルダを追加/削除してもリストの内容が変わるたびに勝手にリサイズされないようにする)。
     @State private var hasComputedSidebarWidth = false
@@ -157,6 +195,13 @@ struct FavoritesOrganizerView: View {
                 guard !hasComputedSidebarWidth else { return }
                 hasComputedSidebarWidth = true
                 sidebarWidth = SidebarWidthEstimator.idealWidth(for: allFolderNamesWithDepth())
+                // 右ペインは、どのフォルダを選んでも同じ幅で開くよう、登録されている
+                // すべての名前(フォルダ名・お気に入りのタイトル)から測る。
+                detailWidth = SidebarWidthEstimator.idealWidth(
+                    forNames: allEntryNames(),
+                    minWidth: Self.detailMinWidth - Self.detailRowExtraChrome,
+                    maxWidth: Self.detailMaxWidth - Self.detailRowExtraChrome
+                ) + Self.detailRowExtraChrome
             }
             // 以前はここにツールバーの「新規フォルダ」ボタン(ToolbarItem)を置いていたが、
             // .labelStyle(.titleAndIcon)で文字付きにした結果ツールバーに収まりきらず、
@@ -371,40 +416,74 @@ struct FavoritesOrganizerView: View {
                 }
                 .disabled(!favoritesStore.canCreateSubfolder(in: selectedFolder))
             }
-            // 並び順(ファイル名/追加日時の昇順・降順)と、フォルダを常に上に表示するかを
-            // 切り替えるコントロール。フォルダ単位の設定ではなく、お気に入り全体に対する設定であり、
-            // 変更するとメニューバー・ツールバーのサブメニュー側にも即座に反映される
-            // (FavoritesStore.sortOption/foldersAlwaysOnTopのコメント参照)。ツールバーへ
-            // 文字付きボタンを足すと折りたたみ("...")が発生してしまう問題が既にあった
-            // (サイドバー側のNew Folderボタンについての同様のコメント参照)ため、ここでも
-            // 同じくsafeAreaInsetでリスト上部に常時表示する形にしている。
+            // 「フォルダを上に」と「並べ替え」は、ウインドウのツールバーの**右ペイン側**へ載せる。
+            // このウインドウは左ペイン側にツールバーのボタンを持たないため、左右で釣り合いを
+            // 取る必要が無く、置き場所は右端(.primaryAction)にしてある(ユーザー要望。
+            // 「ブックマーク・レイアウトの編集」ウインドウは左ペイン側にもボタンがあり、
+            // どちらのペインへの操作か分かるよう両方とも.principal=各ペインの真上に中央揃え)。どちらもフォルダ単位ではなく
+            // お気に入り全体に対する設定で、変更するとメニューバー・ツールバーのサブメニュー側にも
+            // 即座に反映される(FavoritesStore.sortOption/foldersAlwaysOnTopのコメント参照)。
             //
-            // 以前はここに「Add This Book」ボタンも並べていたが、ブックマーク編集画面の
-            // 「Add This Page」がペイン下部にあるのと位置・見た目が揃っていないという
-            // 指摘があったため、このボタンは下部(safeAreaInset(edge: .bottom))へ移動した。
-            .safeAreaInset(edge: .top) {
-                HStack {
-                    Toggle("Folders on Top", isOn: $favoritesStore.foldersAlwaysOnTop)
-                        .toggleStyle(.checkbox)
-                    Spacer()
-                    Picker(selection: $favoritesStore.sortOption) {
-                        ForEach(FavoritesSortOption.allCases) { option in
-                            Label {
-                                Text(option.titleKey)
-                            } icon: {
-                                Image(systemName: option.systemImage)
+            // 経緯: 以前はサイドバーへ「新規フォルダ」のツールバーボタンを置いたところ、文字付きの
+            // ラベルが収まりきらず「>>」の折りたたみが出たため、ツールバーを避けてペイン内の
+            // safeAreaInsetに並べていた。ここはボタン2つだけで、かつ「ブックマーク・レイアウトの
+            // 編集」ウインドウと同じ「ペインへの操作はそのペインの真上」という置き方に揃えるため、
+            // ツールバーへ移してある(「新規フォルダ」は今までどおりサイドバー下部のまま)。
+            //
+            // ツールバーにチェックボックスは載らないため、「フォルダを上に」はONのときだけ点灯する
+            // トグルボタンにする(EPUB/PDF/CBZ書き出しウインドウの「すべて選択」と同じ形)。
+            // ラベルはツールバーの上だと既定でアイコンだけに畳まれるので、.titleAndIconを明示する。
+            .toolbar {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Toggle(isOn: $favoritesStore.foldersAlwaysOnTop) {
+                        Label("Folders on Top", systemImage: "folder")
+                    }
+                    .toggleStyle(.button)
+                    .labelStyle(.titleAndIcon)
+                    .help("Folders on Top")
+
+                    // 並べ替えは、ボタンも中身も「ブックマーク・レイアウトの編集」ウインドウの
+                    // ものに合わせる(ユーザー要望): 上下矢印のアイコンだけのメニューボタンで、
+                    // 中は「基準(名前・追加日時・更新日時)」と「昇順/降順」の2つのグループに
+                    // 分け、それぞれにチェックマークが付く形。以前はこのウインドウだけ
+                    // 「名前(A→Z)」…と6項目を平らに並べていた。保存される値は従来どおり
+                    // FavoritesSortOptionの6つのcaseのままで、その2つの軸へ分解して読み書き
+                    // している(FavoritesSortOption.field/isAscending参照)。
+                    //
+                    // PickerのままだとボタンにFavoritesSortOption.systemImageが出るが、
+                    // 名前順のアイコン(textformat)は表示言語で字形が変わるシンボルで、
+                    // 日本語ではボタンに「あぁ」という文字が出てしまう(実機で確認)。
+                    Menu {
+                        Picker(selection: sortFieldBinding) {
+                            ForEach(FavoritesSortOption.Field.allCases) { field in
+                                Label {
+                                    Text(field.titleKey)
+                                } icon: {
+                                    Image(systemName: field.systemImage)
+                                }
+                                .tag(field)
                             }
-                            .tag(option)
+                        } label: {
+                            EmptyView()
                         }
+                        .pickerStyle(.inline)
+
+                        Divider()
+
+                        Picker(selection: sortAscendingBinding) {
+                            Text("Ascending").tag(true)
+                            Text("Descending").tag(false)
+                        } label: {
+                            EmptyView()
+                        }
+                        .pickerStyle(.inline)
                     } label: {
                         Label("Sort By", systemImage: "arrow.up.arrow.down")
                     }
-                    .pickerStyle(.menu)
+                    .labelStyle(.iconOnly)
                     .fixedSize()
+                    .help("Sort By")
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(.bar)
             }
             // ブックマーク編集画面の「Add This Page」ボタンと、位置(ペイン下部)・見た目
             // (行全体を左寄せのプレーンボタンとして使う、.bar背景の帯)を完全に揃えた
@@ -432,8 +511,18 @@ struct FavoritesOrganizerView: View {
         }
         // 左ペインが広がった分、右ペインが窮屈にならないよう、ウインドウ全体の最小幅も
         // 追随させる(要望: 右ペインがしわ寄せを受けるくらいなら、ウインドウ全体を広げてよい)。
-        // 400は右ペインに最低限確保したい幅の目安。
-        .frame(minWidth: max(640, sidebarWidth + 400), minHeight: 420)
+        // 最小幅は「左ペインの実測 + 右ペインの下限(detailMinWidth)」。
+        //
+        // idealWidthには左右の実測値の合計を渡してあるが、実測したところ、ウインドウの初期
+        // サイズはNavigationSplitView自身が持つ幅から決まっており、ここのidealは効いていない
+        // (今のデータでは合計860ptに対し、実際は900ptで開く)。それでも値としては正しいので
+        // ヒントとして残してある。なお、ウインドウの大きさを一度変えるとmacOSがそちらを
+        // 記憶するため、初期サイズが問題になるのは「まだ大きさを覚えていないウインドウ」だけ。
+        .frame(
+            minWidth: max(640, sidebarWidth + Self.detailMinWidth),
+            idealWidth: sidebarWidth + detailWidth,
+            minHeight: 420
+        )
         // このウインドウ自身のNSWindowを取得しておく(closeEditorWindow参照)。ViewerView/
         // ContentViewと同じWindowAccessorパターン。
         .background(WindowAccessor { window in
@@ -703,6 +792,21 @@ struct FavoritesOrganizerView: View {
         }
         walk(favoritesStore.rootFolders, depth: 0)
         return result
+    }
+
+    /// 右ペインに並びうるすべての名前(フォルダ名・お気に入りのタイトル)。
+    /// 右ペインの幅の実測に使うだけで、並び順は問わない。
+    private func allEntryNames() -> [String] {
+        var names: [String] = []
+        func walk(_ folder: FavoriteFolder?) {
+            names.append(contentsOf: favoritesStore.books(in: folder).map(\.title))
+            for subfolder in favoritesStore.subfolders(of: folder) {
+                names.append(subfolder.name)
+                walk(subfolder)
+            }
+        }
+        walk(nil)
+        return names
     }
 
     private func createFolder() {

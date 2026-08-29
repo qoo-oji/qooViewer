@@ -1082,6 +1082,9 @@ struct QooViewerApp: App {
         }
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
+        // 「フォルダを上に」「並べ替え」をツールバーに載せているため、タイトルとツールバーを
+        // 1行にまとめた純正アプリと同じ見た目にする(FavoritesOrganizerView参照)。
+        .windowToolbarStyle(.unified)
 
         // 「ブックマーク・レイアウトの編集」ウインドウ(独立ウインドウ、設計コンセプト4節)。
         // 以前は本を表示しているウインドウのシートで、かつ「今開いている本」のブックマークだけを
