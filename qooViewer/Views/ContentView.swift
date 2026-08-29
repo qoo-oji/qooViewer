@@ -201,7 +201,12 @@ struct ContentView: View {
                             // 実際に消費したかどうかに関わらず、ViewerViewのonAppearが
                             // appState.clearPendingInitialPage()で必ず後始末する。
                             initialPageID: appState.pendingInitialPage
-                                .flatMap { $0.bookID == book.id ? $0.pageID : nil }
+                                .flatMap { $0.bookID == book.id ? $0.pageID : nil },
+                            // 「次の本の最初のページへ」「前の本の最後のページへ」で来た場合の
+                            // 着地先(AppState.pendingInitialEdge参照)。こちらは本のIDで
+                            // 絞り込めない代わりに、読み込みを始めるたびにAppState側が
+                            // 上書き/破棄している。
+                            initialEdge: appState.pendingInitialEdge
                         )
                             .id(book.id)
                     } else {

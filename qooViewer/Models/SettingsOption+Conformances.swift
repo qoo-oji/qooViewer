@@ -85,13 +85,28 @@ extension ScalingMode: SettingsOption {
 
 // MARK: - 閲覧
 
-extension LoopBehavior: SettingsOption {
+extension FirstPageBehavior: SettingsOption {
+    var shortTitleKey: LocalizedStringKey {
+        switch self {
+        case .loop: return "Loop"
+        case .previousBookLastPage: return "Previous Book (Last Page)"
+        case .previousBook: return "Previous Book"
+        case .none: return "Do Nothing"
+        case .ask: return "Ask Each Time"
+        }
+    }
+}
+
+extension LastPageBehavior: SettingsOption {
     var shortTitleKey: LocalizedStringKey {
         switch self {
         case .loop: return "Loop"
         case .nextBookFirstPage: return "Next Book (First Page)"
         case .nextBook: return "Next Book"
+        case .closeBook: return "Close Book"
+        case .returnToWelcome: return "Return to Welcome Screen"
         case .none: return "Do Nothing"
+        case .ask: return "Ask Each Time"
         }
     }
 }

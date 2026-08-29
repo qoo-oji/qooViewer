@@ -89,9 +89,26 @@ final class ViewerViewModel: ObservableObject {
     /// 「前回表示したページから再開しますか?」の確認ダイアログを表示する。
     @Published private(set) var needsResumeConfirmation: Bool
 
-    /// ページ境界(最初/最後)を超えて隣の本へ移動する必要があるときに呼ばれる。
-    /// (true = 次の本へ, false = 前の本へ)。ViewerView側が appState 経由で実装をセットする。
-    var onRequestSiblingBook: ((Bool) -> Void)?
+    /// 最初/最後のページを超えてページ送りしようとしたときの処理のうち、このViewModelでは
+    /// 行えないもの(隣の本を開く・本を閉じる・ウェルカム画面へ戻る)をViewerViewへ依頼する。
+    /// ViewerView側が appState / ホストウインドウ経由で実装をセットする。
+    var onPageBoundaryRequest: ((PageBoundaryRequest) -> Void)?
+
+    /// 環境設定「最初のページで」「最後のページで」が「毎回確認」のとき、境界に達すると
+    /// その向きが入る。ViewerViewがこれを見て選択肢のシートを表示し、選ばれた挙動を
+    /// performFirstPageBehavior(_:)/performLastPageBehavior(_:)へ渡す。
+    @Published var pendingBoundaryPrompt: PageBoundaryDirection?
+
+    /// pendingBoundaryPromptの向き。ページの前後どちら側の境界に達したか。
+    /// シートを`.sheet(item:)`で出すためIdentifiableにしてある。
+    enum PageBoundaryDirection: String, Identifiable, Equatable {
+        /// 最初のページで「前のページへ」の操作をした
+        case backward
+        /// 最後のページで「次のページへ」の操作をした
+        case forward
+
+        var id: String { rawValue }
+    }
 
     /// この本にレイアウトデータ(BookLayoutSettings/PageLayoutOverride)が記録されていて、
     /// かつ差し替えの疑いがある(2.5節)ときだけ非nilになる。ViewerViewがこれを見て確認
@@ -278,10 +295,14 @@ final class ViewerViewModel: ObservableObject {
     ///   「同じフォルダの画像をすべて開く」が、直前まで見ていた画像のページへ着地させるために使う
     ///   (AppState.pendingInitialPage参照)。ページ番号ではなくIDなのは、フォルダを読み直すと
     ///   ページ数も並びも変わるため。見つからなければ何も指定しなかったのと同じ扱いにする。
+    /// - Parameter initialEdge: 開いた直後に着地させたい端(先頭/末尾)。環境設定
+    ///   「次の本の最初のページへ」「前の本の最後のページへ」でこの本へ来た場合だけ非nil
+    ///   (AppState.pendingInitialEdge参照)。initialPageIDの指定があればそちらが優先される
+    ///   (どちらも積まれるのは「同じフォルダの画像をすべて開く」だけで、そこでは端の指定は無い)。
     init(
         book incomingBook: MangaBook, modelContext: ModelContext, preferences: AppPreferences,
         layoutStore: LayoutStore, metadataStore: BookMetadataStore, skipsPersistence: Bool = false,
-        initialPageID: String? = nil
+        initialPageID: String? = nil, initialEdge: InitialPageEdge? = nil
     ) {
         self.modelContext = modelContext
         self.preferences = preferences
@@ -439,6 +460,15 @@ final class ViewerViewModel: ObservableObject {
         state.recordedSourceFileSize = currentFingerprint.fileSize
         self.readingState = state
 
+        // 見開きかどうかは、下の「開始ページ」の判定(initialEdgeの.lastが最後の見開きの
+        // 先頭を求める)より**先に**要るため、ここで確定させておく。優先順位と
+        // unimportedSourceHintの意味は、この値を実際にselfへ入れる少し下の代入の
+        // コメントを参照(そちらが本文で、ここはその前借り)。
+        let unimportedSourceHint: SourceLayoutHint? = (skipsPersistence && !isReturningToKnownBook
+            && bookLayoutSettings?.didImportSourceLayout != true) ? incomingBook.sourceLayoutHint : nil
+        let resolvedDisplayMode = bookLayoutSettings?.forcedDisplayMode
+            ?? unimportedSourceHint?.forcedDisplayMode ?? state.displayMode
+
         // 環境設定「本を開く」の「開始ページ」に応じて、実際にどのページから表示するかを決める。
         // (以前から読んでいる本(isReturningToKnownBookがtrueの場合)にのみ意味がある判定で、
         // 初めて開く本・中身が差し替わった本は常にlastPageIndexが0のため、どの設定でも結果は変わらない)
@@ -455,6 +485,26 @@ final class ViewerViewModel: ObservableObject {
             initialIndex = requestedIndex
             // 「前回のページから再開しますか?」の確認ダイアログは出さない。行き先が既に
             // 決まっているのに尋ねると、ダイアログの回答とこの指定が競合してしまう。
+            needsConfirmation = false
+        } else if let initialEdge {
+            // 「次の本の最初のページへ」「前の本の最後のページへ」でこの本へ来た場合。
+            // 環境設定「開始ページ」(reopenBehavior)や保存された読書位置より優先する ――
+            // ユーザーがその設定で望んだのは「隣の本のこの端から読み始めること」そのもので、
+            // 途中まで読んだ記憶を復元することではないため。上のinitialPageIDと同じ理由で
+            // 確認ダイアログも出さない。
+            //
+            // 末尾は「最後のページ」ではなく**最後の見開き**の先頭を指す。見開き表示で
+            // 最終ページ単体へ着地すると、組になるはずの1つ前のページを飛ばして相方の
+            // 無い1枚だけが出てしまう(handleBackwardBoundaryのループ処理と同じ考え方)。
+            // 実際の枚数はまだ画像を読んでいないので分からないため、ここでは表示モードから
+            // 見積もり、この後のnormalizedAnchorIndexで見開き指定によるずれを補正する。
+            switch initialEdge {
+            case .first:
+                initialIndex = 0
+            case .last:
+                let step = resolvedDisplayMode == .spread ? 2 : 1
+                initialIndex = max(0, preparedBook.pages.count - step)
+            }
             needsConfirmation = false
         } else {
             switch preferences.reopenBehavior {
@@ -487,9 +537,7 @@ final class ViewerViewModel: ObservableObject {
         // 通常ウインドウと同じ。ページ単位の見開き配置はlayoutHint(at:)がファイル側へ
         // フォールバックする既存経路で賄われる。
         self.hasSavedReadingState = isReturningToKnownBook
-        let unimportedSourceHint: SourceLayoutHint? = (skipsPersistence && !isReturningToKnownBook
-            && bookLayoutSettings?.didImportSourceLayout != true) ? incomingBook.sourceLayoutHint : nil
-        self.displayMode = bookLayoutSettings?.forcedDisplayMode ?? unimportedSourceHint?.forcedDisplayMode ?? state.displayMode
+        self.displayMode = resolvedDisplayMode
         self.readingDirection = bookLayoutSettings?.readingDirectionOverride
             ?? unimportedSourceHint?.pageProgressionDirection ?? state.readingDirection
         self.scalingMode = state.scalingMode
@@ -1743,24 +1791,58 @@ final class ViewerViewModel: ObservableObject {
         }
     }
 
-    // MARK: - 境界処理(ループ設定)
+    // MARK: - 境界処理(最初/最後のページでの挙動)
 
     private func handleForwardBoundary() {
-        switch preferences.loopBehavior {
+        // 「毎回確認」だけは、ここでは何も実行せずViewerViewへシートの表示を頼む。
+        // 選ばれた挙動はperformLastPageBehavior(_:)へ戻ってくる。
+        guard preferences.lastPageBehavior != .ask else {
+            pendingBoundaryPrompt = .forward
+            return
+        }
+        performLastPageBehavior(preferences.lastPageBehavior)
+    }
+
+    private func handleBackwardBoundary() {
+        guard preferences.firstPageBehavior != .ask else {
+            pendingBoundaryPrompt = .backward
+            return
+        }
+        performFirstPageBehavior(preferences.firstPageBehavior)
+    }
+
+    /// 最後のページで「次のページへ」の操作をしたときの挙動を実行する。
+    /// 環境設定がそのまま実行できる場合(handleForwardBoundary)と、「毎回確認」のシートで
+    /// ユーザーが選んだ場合(ViewerView)の両方から呼ばれる。
+    func performLastPageBehavior(_ behavior: LastPageBehavior) {
+        pendingBoundaryPrompt = nil
+        switch behavior {
         case .loop:
             cancelPendingPageFlip()
             currentIndex = normalizedAnchorIndex(0)
             persistState()
             reloadAsync()
-        case .nextBookFirstPage, .nextBook:
-            onRequestSiblingBook?(true)
-        case .none:
+        case .nextBookFirstPage:
+            onPageBoundaryRequest?(.openSiblingBook(forward: true, landsOnEdge: true))
+        case .nextBook:
+            onPageBoundaryRequest?(.openSiblingBook(forward: true, landsOnEdge: false))
+        case .closeBook:
+            onPageBoundaryRequest?(.closeBook)
+        case .returnToWelcome:
+            onPageBoundaryRequest?(.returnToWelcome)
+        // .askはシートの選択肢には出さない(LastPageBehavior.promptChoices参照)ので、
+        // ここへ来るのは環境設定が.askのまま渡された場合だけ。無限にシートを出し直しても
+        // 仕方がないので何もしない。
+        case .none, .ask:
             break
         }
     }
 
-    private func handleBackwardBoundary() {
-        switch preferences.loopBehavior {
+    /// 最初のページで「前のページへ」の操作をしたときの挙動を実行する
+    /// (performLastPageBehavior(_:)の逆向き。呼ばれ方も同じ)。
+    func performFirstPageBehavior(_ behavior: FirstPageBehavior) {
+        pendingBoundaryPrompt = nil
+        switch behavior {
         case .loop:
             cancelPendingPageFlip()
             let step = max(currentImages.count, 1)
@@ -1770,9 +1852,11 @@ final class ViewerViewModel: ObservableObject {
             currentIndex = normalizedAnchorIndex(rawIndex)
             persistState()
             reloadAsync()
-        case .nextBookFirstPage, .nextBook:
-            onRequestSiblingBook?(false)
-        case .none:
+        case .previousBookLastPage:
+            onPageBoundaryRequest?(.openSiblingBook(forward: false, landsOnEdge: true))
+        case .previousBook:
+            onPageBoundaryRequest?(.openSiblingBook(forward: false, landsOnEdge: false))
+        case .none, .ask:
             break
         }
     }

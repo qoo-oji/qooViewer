@@ -236,16 +236,19 @@ struct ViewerView: View {
     ///   initの引数で受け取る(initの時点ではEnvironmentObjectはまだ読めない)。
     /// - Parameter initialPageID: 開いた直後に表示したいページ(ViewerViewModel.init参照)。
     ///   StateObjectの生成時にしか渡せないため、skipsPersistenceと同じくinitで受け取る。
+    /// - Parameter initialEdge: 開いた直後に着地させたい端(ViewerViewModel.init参照)。
+    ///   initialPageIDと同じ理由でinitで受け取る。
     init(
         book: MangaBook, modelContext: ModelContext, preferences: AppPreferences,
         layoutStore: LayoutStore, metadataStore: BookMetadataStore, skipsPersistence: Bool = false,
-        initialPageID: String? = nil
+        initialPageID: String? = nil, initialEdge: InitialPageEdge? = nil
     ) {
         _viewModel = StateObject(
             wrappedValue: ViewerViewModel(
                 book: book, modelContext: modelContext, preferences: preferences,
                 layoutStore: layoutStore, metadataStore: metadataStore,
-                skipsPersistence: skipsPersistence, initialPageID: initialPageID
+                skipsPersistence: skipsPersistence, initialPageID: initialPageID,
+                initialEdge: initialEdge
             )
         )
         _preferences = ObservedObject(wrappedValue: preferences)
@@ -273,7 +276,7 @@ struct ViewerView: View {
         // クロージャの中でappState/viewModelに触れると「このViewer View自身のコピー」が丸ごと
         // キャプチャされる。そのコピーは@StateObjectのviewModel(同じViewerViewModelを強参照
         // する箱)を含むため、
-        //   ViewerViewModel → onRequestSiblingBook → ViewerViewのコピー → ViewerViewModel
+        //   ViewerViewModel → onPageBoundaryRequest → ViewerViewのコピー → ViewerViewModel
         // という循環参照になり、しかもこの代入はどこでもnilに戻していなかったため、
         // ViewerViewModelが永久に解放されなくなっていた。巻き添えでPageLoader(actor。
         // 画像キャッシュ・開いたままの書庫ハンドル)、ViewerViewModelのdeinitで解除するはずの
@@ -287,12 +290,27 @@ struct ViewerView: View {
         //   ViewerViewModel → このクロージャ → AppState → 橋渡し → ViewerViewのコピー → ViewerViewModel
         // という遠回りの循環が、両者の後始末が済むまでの間だけとはいえ成立してしまうため。
         // どちらも既に解放されているなら、そもそも次の本を開く先が無いので何もしなくてよい。
-        viewModel.onRequestSiblingBook = { [weak appState = self.appState, weak viewModel = self.viewModel] forward in
+        viewModel.onPageBoundaryRequest = { [weak appState = self.appState, weak viewModel = self.viewModel] request in
             guard let appState, let viewModel else { return }
-            if forward {
-                appState.openSibling(after: viewModel.book.sourceURL)
-            } else {
-                appState.openSibling(before: viewModel.book.sourceURL)
+            switch request {
+            case .openSiblingBook(let forward, let landsOnEdge):
+                if forward {
+                    appState.openSibling(after: viewModel.book.sourceURL, landsOnFirstPage: landsOnEdge)
+                } else {
+                    appState.openSibling(before: viewModel.book.sourceURL, landsOnLastPage: landsOnEdge)
+                }
+            case .closeBook:
+                // 「本を閉じる」はViewerAction.closeTabと同じ経路(タブが1枚ならウインドウごと)。
+                // 実体はperform(_:)にあり、ホストウインドウ(@State)を実行時に読む必要があるため、
+                // ここで直接呼ばずappStateに登録済みの橋渡しを経由する ―― このクロージャが
+                // ViewerView自身を強くキャプチャしてしまうのを避けるため(上のコメント参照)。
+                appState.performViewerAction?(.closeTab)
+            case .returnToWelcome:
+                // 本だけ閉じて、同じウインドウにウェルカム画面を出す。読書位置の保留分は
+                // ViewerViewが消えるときのonDisappearでも確定するが、こちらが先に走る保証は
+                // 無いのでここでも確定させておく(flushPendingSaveは二度呼んでも害が無い)。
+                viewModel.flushPendingSave()
+                appState.closeBook()
             }
         }
         appState.performViewerAction = { action in
@@ -304,7 +322,7 @@ struct ViewerView: View {
             viewModel.jump(to: bookmark)
         }
         // サイドパネルのリソースモニタへ、この本のキャッシュの状態を渡す橋渡し
-        // (AppState.fetchResourceSnapshotのコメント参照)。onRequestSiblingBookと同じ理由で
+        // (AppState.fetchResourceSnapshotのコメント参照)。onPageBoundaryRequestと同じ理由で
         // weakにする(ViewerViewのコピーごとviewModelを強くキャプチャしない)。
         appState.fetchResourceSnapshot = { [weak viewModel = self.viewModel] in
             await viewModel?.resourceSnapshot()
@@ -781,15 +799,15 @@ struct ViewerView: View {
         removeThumbnailGridEventMonitor()
         clearAppStateBridgesIfStillOwner()
         // 自分の@StateObjectであるviewModelへ登録した橋渡しも、ここで確実に外す
-        // (handleOnAppearのonRequestSiblingBookのコメント参照。appState側と違い、この
+        // (handleOnAppearのonPageBoundaryRequestのコメント参照。appState側と違い、この
         // viewModelはこのViewerView専用なのでトークンによる持ち主判定は不要)。
-        viewModel.onRequestSiblingBook = nil
+        viewModel.onPageBoundaryRequest = nil
         viewModel.stopSlideshow()
         viewModel.flushPendingSave()
         // このViewerViewはもう画面に無いので、本1冊ぶんのメモリキャッシュと走っている
         // 読み込みを明示的に手放す(ViewerViewModel.releaseResourcesのコメント参照)。
         // clearAppStateBridgesIfStillOwnerと違いトークンで持ち主を判定しないのは、
-        // このviewModelがこのViewerView専用だからで、上のonRequestSiblingBook等と同じ理由。
+        // このviewModelがこのViewerView専用だからで、上のonPageBoundaryRequest等と同じ理由。
         viewModel.releaseResources()
         cursorHideTask?.cancel()
         cursorHideTask = nil
@@ -819,7 +837,7 @@ struct ViewerView: View {
     ///
     /// これらのクロージャはいずれもViewerView(struct)のコピーを丸ごとキャプチャしており、
     /// そのコピーは@EnvironmentObjectのappState自身を強参照しているため、AppStateから見ると
-    /// 循環参照になっている(handleOnAppearのonRequestSiblingBookのコメント参照)。つまり
+    /// 循環参照になっている(handleOnAppearのonPageBoundaryRequestのコメント参照)。つまり
     /// 「この後始末が確実に走ること」がAppStateの解放条件そのものになっている。そのため
     /// onDisappearだけに頼らず、ウインドウが閉じるタイミング(setUpWindowObservers内の
     /// willCloseNotification)からも呼ぶ。SwiftUIの.onDisappearは、実際にNSWindowが破棄される
@@ -1340,6 +1358,22 @@ struct ViewerView: View {
             // showBookmarkEditor()がopenWindowで行う(BookmarkEditorWindow.swift参照)。
             // お気に入りへの登録(要望2)。登録先フォルダの選択・新規フォルダ作成・重複確認は
             // FavoriteFolderPickerView側で完結する。
+            // 環境設定「閲覧中の動作」の「最初のページで」「最後のページで」が「毎回確認」の
+            // ときに、境界に達したその場で残りの選択肢を選ばせるシート
+            // (ViewerViewModel.pendingBoundaryPrompt / PageBoundaryChoiceSheet参照)。
+            // シートを閉じるだけ(Esc・シート外のクリック)は「何もしない」と同じ結果になる。
+            .sheet(item: $viewModel.pendingBoundaryPrompt) { direction in
+                switch direction {
+                case .backward:
+                    PageBoundaryChoiceSheet<FirstPageBehavior>(titleKey: "This is the first page.") {
+                        viewModel.performFirstPageBehavior($0)
+                    }
+                case .forward:
+                    PageBoundaryChoiceSheet<LastPageBehavior>(titleKey: "This is the last page.") {
+                        viewModel.performLastPageBehavior($0)
+                    }
+                }
+            }
             .sheet(isPresented: $showFavoriteFolderPicker) {
                 FavoriteFolderPickerView(book: viewModel.book, favoritesStore: favoritesStore) {
                     showToast(
@@ -3345,7 +3379,7 @@ struct ViewerView: View {
             // 同じくMainActor.assumeIsolatedで「実行時には既にMainActor上にいる」ことを伝える。
             MainActor.assumeIsolated {
                 clearAppStateBridgesIfStillOwner()
-                viewModel.onRequestSiblingBook = nil
+                viewModel.onPageBoundaryRequest = nil
                 // handleOnDisappearと同じ理由で、資源の解放もここから先に行っておく
                 // (releaseResourcesは二度呼んでも何もしない)。
                 viewModel.releaseResources()
@@ -3915,7 +3949,7 @@ struct ViewerView: View {
         // ViewerView(struct)のコピーを丸ごとキャプチャしており、そのコピーはこの@State自身
         // (favoritesMenuBridgeを保持している箱)を含むため、
         //   bridge → onOpen → ViewerViewのコピー → @Stateの箱 → bridge
-        // という循環参照になっていた(handleOnAppearのonRequestSiblingBookと同型で、
+        // という循環参照になっていた(handleOnAppearのonPageBoundaryRequestと同型で、
         // お気に入り一覧を一度でも開くと成立する)。show()内のNSMenu.popUpはメニューが
         // 閉じるまで戻らない同期呼び出しのため、ここへ戻ってきた時点でこのbridgeはもう不要。
         favoritesMenuBridge = nil

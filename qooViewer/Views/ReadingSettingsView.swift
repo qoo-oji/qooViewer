@@ -9,8 +9,14 @@ struct ReadingSettingsView: View {
     var body: some View {
         SettingsPaneContainer {
             Section {
-                // 説明文は「最初/最後のページで」というラベルの言い換えだったので落とした。
-                SettingsPicker("At the First/Last Page", selection: $preferences.loopBehavior)
+                // 説明文はラベルの言い換えだったので落とした。
+                // 「前のページへ」「次のページへ」は物語的な向きで、右開きの本で画面右の
+                // ページへ進む操作なども含む(FirstPageBehavior/LastPageBehavior参照)。
+                SettingsPicker("At the First Page", selection: $preferences.firstPageBehavior)
+                SettingsPicker(
+                    "At the Last Page", selection: $preferences.lastPageBehavior,
+                    help: "“Close Book” closes this tab (the window too, if it is the only tab). “Return to Welcome Screen” keeps the window open."
+                )
                 SettingsToggle(
                     "Trackpad Flicks Turn Pages",
                     isOn: $preferences.treatTrackpadFlickAsWheel

@@ -102,10 +102,20 @@ final class AppState: ObservableObject {
         let pageID: String
     }
 
-    /// ViewerViewが`pendingInitialPage`を受け取り終えたあと(onAppear)に呼ぶ。
+    /// 次に開く本で、保存された読書位置や環境設定「開始ページ」より優先して着地させたい端。
+    /// 環境設定「閲覧中の動作」の「次の本の最初のページへ」「前の本の最後のページへ」専用。
+    ///
+    /// `pendingInitialPage`と違って本のIDで宛先を絞れない ―― 隣の本のIDは開いてみるまで
+    /// 分からないため。代わりに、実際に読み込みを始める`open(request:…)`が毎回この値を
+    /// 上書き(指定が無ければnilへ)することで、別の操作で開いた本へ取り違えて効かないように
+    /// してある。受け取ったViewerViewは`clearPendingInitialPage()`で必ず捨てる。
+    @Published private(set) var pendingInitialEdge: InitialPageEdge?
+
+    /// ViewerViewが`pendingInitialPage`/`pendingInitialEdge`を受け取り終えたあと(onAppear)に呼ぶ。
     /// 一度きりの指定なので、次に同じ本を開き直したときに再適用されないようここで捨てる。
     func clearPendingInitialPage() {
         pendingInitialPage = nil
+        pendingInitialEdge = nil
     }
     /// 現在開いている本と同じフォルダにある、他の本のURL一覧(現在の本自身は除く)。
     /// 「Fileメニュー」→「同じフォルダのファイルを開く」の一覧に使う。
@@ -735,10 +745,14 @@ final class AppState: ObservableObject {
 
     /// URLが1つ分かっている状態からの読み込み(次の本/前の本への移動、お気に入り・履歴からの
     /// 復元、Fileメニューからの選択など)。実体はopen(request:)。
-    func open(url: URL, recordsInHistory: Bool = true, reusesExistingWindow: Bool = true) {
+    func open(
+        url: URL, recordsInHistory: Bool = true, reusesExistingWindow: Bool = true,
+        initialEdge: InitialPageEdge? = nil
+    ) {
         open(
             request: BookOpenRequest(url, recordsInHistory: recordsInHistory),
-            reusesExistingWindow: reusesExistingWindow
+            reusesExistingWindow: reusesExistingWindow,
+            initialEdge: initialEdge
         )
     }
 
@@ -774,7 +788,13 @@ final class AppState: ObservableObject {
     ///   加えて、ウインドウが自分の初期値として受け取った本(ContentView.initialRequest)も
     ///   false ―― そのウインドウは**その本のために作られた**もので、ここで譲ると中身の無い
     ///   ウインドウだけが残る(そもそも作る前にBookWindowOpenerが同じ判定を済ませている)。
-    func open(request: BookOpenRequest, reusesExistingWindow: Bool = true) {
+    /// - Parameter initialEdge: 開いた本で、読書位置の記憶や環境設定「開始ページ」より優先して
+    ///   着地させたい端(`pendingInitialEdge`参照)。指定が無ければ、前の操作が積んだ指定を
+    ///   ここで確実に捨てる。
+    func open(
+        request: BookOpenRequest, reusesExistingWindow: Bool = true,
+        initialEdge: InitialPageEdge? = nil
+    ) {
         // ユーザー要望: 同じ本を、同じ性質のウインドウ/タブで二重に開かない。既に開いて
         // いるものがあれば、そちらを前面に出すだけにする(ページ位置はそのまま。向こうで
         // 読み進めた位置を巻き戻さない)。
@@ -809,6 +829,10 @@ final class AppState: ObservableObject {
             return
         }
         openTask?.cancel()
+        // 「次の本の最初のページへ」等の着地指定は、実際に読み込みを始めるここで毎回置き換える
+        // (pendingInitialEdgeのコメント参照)。上の早期returnを抜けた後でしか書かないので、
+        // 別のウインドウを前面に出して終わった場合はこのウインドウの指定に触れない。
+        pendingInitialEdge = initialEdge
         // 先に新しい本のぶんを開いてから、直前の本のぶんを閉じる(securityScopedBookURLsの
         // コメント参照)。この順序なのは、同じ本をもう一度開いた場合に、閉じる→開くの順だと
         // アクセスが一瞬途切れてしまうため(startAccessingSecurityScopedResourceは参照
@@ -914,6 +938,7 @@ final class AppState: ObservableObject {
                 self.currentBook = nil
                 self.clearSiblingBooks()
                 self.pendingInitialPage = nil
+                self.pendingInitialEdge = nil
                 self.errorMessage = (error as? LocalizedError)?.errorDescription
                     ?? String(localized: "The book could not be opened.", locale: locale)
             }
@@ -940,7 +965,9 @@ final class AppState: ObservableObject {
     }
 
     /// 同じフォルダ内の次の本へシームレスに移動する
-    func openSibling(after currentURL: URL) {
+    /// - Parameter landsOnFirstPage: 環境設定「最後のページで」が「次の本の最初のページへ」の
+    ///   場合にtrue。その本の読書位置の記憶や「開始ページ」の設定より優先して先頭へ着地させる。
+    func openSibling(after currentURL: URL, landsOnFirstPage: Bool = false) {
         // 並び順は**Taskの外で**取り出しておく(MainActor隔離のpreferencesを非同期の文脈から
         // 読み直さずに済ませるため。この直前まで有効だった設定でそのまま動く)。
         let order = siblingBookOrder
@@ -948,17 +975,25 @@ final class AppState: ObservableObject {
             guard let next = await SiblingFinder.url(after: currentURL, order: order) else { return }
             // ページ送りの延長なので、別のウインドウへ譲らない
             // (open(request:reusesExistingWindow:)のコメント参照)。
-            self?.open(url: next, reusesExistingWindow: false)
+            self?.open(
+                url: next, reusesExistingWindow: false,
+                initialEdge: landsOnFirstPage ? .first : nil
+            )
         }
     }
 
     /// 同じフォルダ内の前の本へシームレスに移動する
-    func openSibling(before currentURL: URL) {
+    /// - Parameter landsOnLastPage: 環境設定「最初のページで」が「前の本の最後のページへ」の
+    ///   場合にtrue(openSibling(after:landsOnFirstPage:)の逆向き)。
+    func openSibling(before currentURL: URL, landsOnLastPage: Bool = false) {
         let order = siblingBookOrder
         Task { [weak self] in
             guard let previous = await SiblingFinder.url(before: currentURL, order: order) else { return }
             // 次の本への移動と同じ理由で、別のウインドウへ譲らない。
-            self?.open(url: previous, reusesExistingWindow: false)
+            self?.open(
+                url: previous, reusesExistingWindow: false,
+                initialEdge: landsOnLastPage ? .last : nil
+            )
         }
     }
 

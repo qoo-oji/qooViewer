@@ -12,7 +12,11 @@ final class AppPreferences: ObservableObject {
     private enum Keys {
         static let launchOpensLastBook = "qooViewer.pref.launchOpensLastBook"
         static let launchFullScreen = "qooViewer.pref.launchFullScreen"
-        static let loopBehavior = "qooViewer.pref.loopBehavior"
+        static let firstPageBehavior = "qooViewer.pref.firstPageBehavior"
+        static let lastPageBehavior = "qooViewer.pref.lastPageBehavior"
+        /// 最初/最後のページで共通だった頃の旧キー。init()の移行処理でだけ読み、
+        /// 読んだ時点で削除する(下のmigrateLoopBehaviorIfNeeded参照)。
+        static let legacyLoopBehavior = "qooViewer.pref.loopBehavior"
         static let maxUpscalePercent = "qooViewer.pref.maxUpscalePercent"
         static let maxPinchZoomPercent = "qooViewer.pref.maxPinchZoomPercent"
         static let loupeMagnificationPercent = "qooViewer.pref.loupeMagnificationPercent"
@@ -109,9 +113,13 @@ final class AppPreferences: ObservableObject {
     @Published var launchFullScreen: Bool {
         didSet { UserDefaults.standard.set(launchFullScreen, forKey: Keys.launchFullScreen) }
     }
-    /// 最初/最後のページを超えてページ送りしようとしたときの挙動
-    @Published var loopBehavior: LoopBehavior {
-        didSet { UserDefaults.standard.set(loopBehavior.rawValue, forKey: Keys.loopBehavior) }
+    /// 最初のページで「前のページへ」の操作をしたときの挙動(FirstPageBehavior参照)
+    @Published var firstPageBehavior: FirstPageBehavior {
+        didSet { UserDefaults.standard.set(firstPageBehavior.rawValue, forKey: Keys.firstPageBehavior) }
+    }
+    /// 最後のページで「次のページへ」の操作をしたときの挙動(LastPageBehavior参照)
+    @Published var lastPageBehavior: LastPageBehavior {
+        didSet { UserDefaults.standard.set(lastPageBehavior.rawValue, forKey: Keys.lastPageBehavior) }
     }
     /// 画像が画面より小さいとき、最大何%まで拡大して表示するか(100〜800)
     @Published var maxUpscalePercent: Double {
@@ -905,11 +913,47 @@ final class AppPreferences: ObservableObject {
         displayLanguage.localeOverride ?? .autoupdatingCurrent
     }
 
+    /// 最初/最後のページで共通だった旧設定(`Keys.legacyLoopBehavior`)を、前後それぞれの
+    /// 新しい設定へ読み替える。既に読み替え済み(旧キーが無い)ならnilを返す。
+    ///
+    /// **読んだその場で旧キーを削除する**こと自体がこの処理の要。残しておくと、
+    /// 「この画面を初期設定に戻す」が新しい2つのキーを消して`AppPreferences()`を作り直す
+    /// (resetToDefaults参照)たびに、ここで旧設定が復活してしまい、閲覧中の動作だけ
+    /// 初期設定に戻らなくなる(keys(for:)のコメントにある、面ごとの設定で実際に起きた
+    /// ユーザー報告と同じ形の不具合)。
+    private static func migrateLoopBehaviorIfNeeded(_ defaults: UserDefaults) {
+        guard let legacy = defaults.string(forKey: Keys.legacyLoopBehavior) else { return }
+        defaults.removeObject(forKey: Keys.legacyLoopBehavior)
+        let migrated: (first: FirstPageBehavior, last: LastPageBehavior)
+        switch legacy {
+        case "loop": migrated = (.loop, .loop)
+        case "nextBookFirstPage": migrated = (.previousBookLastPage, .nextBookFirstPage)
+        case "nextBook": migrated = (.previousBook, .nextBook)
+        default: migrated = (.none, .none)
+        }
+        // **プロパティへ代入するのではなくUserDefaultsへ直接書く。** init内の代入では
+        // didSet(=保存)が走らないため、読み替えた値をメモリに載せるだけでは次回起動時に
+        // 消えてしまう(旧キーはここで既に削除済みなので、二度と復元できない)。
+        //
+        // 既に新しいキーがある場合は上書きしない ―― 分離後に設定し直した値のほうが新しい。
+        if defaults.string(forKey: Keys.firstPageBehavior) == nil {
+            defaults.set(migrated.first.rawValue, forKey: Keys.firstPageBehavior)
+        }
+        if defaults.string(forKey: Keys.lastPageBehavior) == nil {
+            defaults.set(migrated.last.rawValue, forKey: Keys.lastPageBehavior)
+        }
+    }
+
     init() {
         let defaults = UserDefaults.standard
         self.launchOpensLastBook = defaults.object(forKey: Keys.launchOpensLastBook) as? Bool ?? false
         self.launchFullScreen = defaults.object(forKey: Keys.launchFullScreen) as? Bool ?? false
-        self.loopBehavior = LoopBehavior(rawValue: defaults.string(forKey: Keys.loopBehavior) ?? "") ?? .none
+        // 旧設定の読み替えは、下の2つを読む**前に**済ませる(新しいキーへ書き込むため)。
+        Self.migrateLoopBehaviorIfNeeded(defaults)
+        self.firstPageBehavior =
+            FirstPageBehavior(rawValue: defaults.string(forKey: Keys.firstPageBehavior) ?? "") ?? .none
+        self.lastPageBehavior =
+            LastPageBehavior(rawValue: defaults.string(forKey: Keys.lastPageBehavior) ?? "") ?? .none
         self.maxUpscalePercent = defaults.object(forKey: Keys.maxUpscalePercent) as? Double ?? 200
         self.maxPinchZoomPercent = defaults.object(forKey: Keys.maxPinchZoomPercent) as? Double ?? 400
         self.loupeMagnificationPercent =
@@ -1191,7 +1235,8 @@ extension AppPreferences {
             ]
         case .reading:
             return [
-                Keys.loopBehavior,
+                Keys.firstPageBehavior,
+                Keys.lastPageBehavior,
                 Keys.treatTrackpadFlickAsWheel,
                 Keys.invertTwoFingerScrolling,
                 Keys.showProgressBarThumbnailPreview,
@@ -1276,7 +1321,8 @@ extension AppPreferences {
             loupeDiameter = source.loupeDiameter
             singlePageAspectRatioThreshold = source.singlePageAspectRatioThreshold
         case .reading:
-            loopBehavior = source.loopBehavior
+            firstPageBehavior = source.firstPageBehavior
+            lastPageBehavior = source.lastPageBehavior
             treatTrackpadFlickAsWheel = source.treatTrackpadFlickAsWheel
             invertTwoFingerScrolling = source.invertTwoFingerScrolling
             showProgressBarThumbnailPreview = source.showProgressBarThumbnailPreview
