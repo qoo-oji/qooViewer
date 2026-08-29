@@ -792,6 +792,8 @@ struct BookmarkEditorView: View {
             // ボタン類をウインドウのツールバーへ移した今は、入りきらないぶんをmacOSが
             // 「>>」へ畳むため、最小幅は「一覧が窮屈にならない」程度の値で足りる。
             .frame(minWidth: 640, minHeight: 420)
+            // ツールバーの下へ潜る一覧の、上端の縁の効果(ScrollEdgeEffect.swift参照)。
+            .hardTopScrollEdgeEffect()
             // バグ修正: 以前は.alert + TextField(NSAlertが内部で使うテキストフィールド)だったが、
             // 開いた瞬間に既存の名前が全選択された状態になるかどうかが不安定だった
             // (ユーザー報告)。加えて、同じブックマークを続けてリネームすると入力欄が空のまま

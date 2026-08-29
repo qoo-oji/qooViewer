@@ -523,6 +523,8 @@ struct FavoritesOrganizerView: View {
             idealWidth: sidebarWidth + detailWidth,
             minHeight: 420
         )
+        // ツールバーの下へ潜る一覧の、上端の縁の効果(ScrollEdgeEffect.swift参照)。
+        .hardTopScrollEdgeEffect()
         // このウインドウ自身のNSWindowを取得しておく(closeEditorWindow参照)。ViewerView/
         // ContentViewと同じWindowAccessorパターン。
         .background(WindowAccessor { window in

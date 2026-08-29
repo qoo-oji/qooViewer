@@ -171,6 +171,8 @@ private struct MetadataEditorContentView: View {
             // 以前の自前のTextFieldに付けていた`.releasesFocusOnOutsideClick()`は、
             // ネイティブの検索欄がEsc・欄外クリックでのフォーカス解除を自前で持つため不要。
             .searchable(text: $viewModel.searchText, placement: .toolbar, prompt: Text("Search"))
+            // ツールバーの下へ潜る一覧の、上端の縁の効果(ScrollEdgeEffect.swift参照)。
+            .hardTopScrollEdgeEffect()
         }
         .frame(minWidth: 900, minHeight: 480)
         // 一覧は非同期に埋まる(推測値が入るのはさらに後)ため、表示直後・行が入った瞬間・

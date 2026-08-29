@@ -163,6 +163,8 @@ struct ExportWindowContent<Options: View>: View {
         // 同じ作法。以前は下部のボタン行に4つとも並べていた)。確定操作(キャンセル/出力を開始)は
         // 「右下に既定ボタン」という慣習どおり下部に残す。
         .toolbar { toolbarItems }
+        // ツールバーの下へ潜る一覧の、上端の縁の効果(ScrollEdgeEffect.swift参照)。
+        .hardTopScrollEdgeEffect()
         .safeAreaInset(edge: .bottom, spacing: 0) {
             bottomBar
         }
