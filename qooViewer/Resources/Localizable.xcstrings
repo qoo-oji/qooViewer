@@ -13811,7 +13811,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "既定の書き出し先を設定"
+            "value" : "既定の保存先を設定"
           }
         }
       }

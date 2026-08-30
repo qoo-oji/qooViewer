@@ -142,7 +142,7 @@ struct LayoutSettingsView: View {
                           format.fixedFolder.lastFolderPath() == nil
                     else { return }
                     // 一度も設定されていないのにフォルダを選ばずに閉じられた。保存先の
-                    // 分からない「既定の書き出し先を設定」が残ってしまうので「毎回確認」へ戻す。
+                    // 分からない「既定の保存先を設定」が残ってしまうので「毎回確認」へ戻す。
                     stored.wrappedValue = .askEachTime
                 }
             }
