@@ -886,61 +886,87 @@ final class AppState: ObservableObject {
                     throw BookLoaderError.notFound
                 }
                 guard !Task.isCancelled, let self else { return }
-                self.loadingProgress = nil
-                // この本についてDBへ一切書かないかどうか。シークレットウインドウに加えて、
-                // **その場限りの本**(直接渡された画像から作った本)も同じ扱いにする。
-                // 複数枚をまとめた本のbookIDは実在パスではないため、下のreconcileBookIDIfMovedを
-                // 通すと、iノードが一致した既存のお気に入り/レイアウト/ブックマークのbookIDが
-                // その場限りのIDへ恒久的に書き換わり、復旧不能になる
-                // (詳細はMangaBook.BookOriginのコメント参照)。
-                let skipsPersistence = self.isPrivateWindow || book.isTransient
-                // ユーザー要望: お気に入り・レイアウト・ブックマークが、同一ボリューム内での
-                // ファイルの移動・リネームを引き継げるようにしたい。この本を開くたびに、現在の
-                // bookID(パス)でまだ見つからない登録済みデータがあれば、ファイルノード識別子
-                // (iノード番号)を手がかりに自動的に追従(bookIDを書き換え)させておく。本を
-                // 表示する前(currentBookを設定する前)に行うことで、ViewerViewModelの初期化時点
-                // では既に正しいbookIDでレイアウト/ブックマークが見つかる状態にしておく。
-                // シークレットウインドウでは、追従(bookIDの書き換え)も識別子の補完も既存行への
-                // 書き込みなので行わない(isPrivateWindowのコメント参照)。
-                if !skipsPersistence {
-                    self.favoritesStore?.reconcileBookIDIfMoved(book: book)
-                    self.layoutStore?.reconcileBookIDIfMoved(book: book)
-                    self.bookmarkStore?.reconcileBookIDIfMoved(book: book)
-                    self.metadataStore?.reconcileBookIDIfMoved(book: book)
+                // 読み込み完了の反映(currentBookの設定から履歴の記録まで)は、メニューバーの
+                // メニューが開いている間は保留する。**低速なストレージ上の本は、ユーザーが
+                // メニューを開いて待っている最中に読み込みが完了しがち**で、その瞬間の
+                // currentBookの発火は (1) ウインドウタイトルの変更を通じて、開いている最中の
+                // ウインドウメニューの項目リスト全体を何度も作り直させ(実測: 追跡中に262回の
+                // 項目追加/削除/変更)、(2) MenuCheckmarkStateのisTransientBook /
+                // isCurrentBookFavoritedを変えてメニューバー全体の再構築も引き起こしうる。
+                // どちらもmacOS 26のメニュー実装では描画崩れ/NSRangeExceptionの条件になる
+                // (詳細はMenuBarMenuGateの型コメント参照)。ユーザー報告(2026-08-30、
+                // 表示/ウインドウメニューの描画崩れ)は、BookLoader.loadに人工遅延を入れて
+                // 「読み込み中にウインドウメニューを開いたまま待つ」ことで再現・確認した。
+                //
+                // openTokenの照合: 保留中にユーザーが読み込みを中止した/別の本を開いた場合、
+                // この適用は既に古い(cancelOpen()と次のopen(request:)がopenTokenを進める)。
+                // Task.isCancelledは上で確認済みだが、それはメニューが開く前の時点の話なので、
+                // 適用の瞬間にもう一度確かめる。
+                MenuBarMenuGate.shared.run(self.menuGateKey("openCompleted")) { [weak self] in
+                    guard let self, self.openToken == token else { return }
+                    self.loadingProgress = nil
+                    // この本についてDBへ一切書かないかどうか。シークレットウインドウに加えて、
+                    // **その場限りの本**(直接渡された画像から作った本)も同じ扱いにする。
+                    // 複数枚をまとめた本のbookIDは実在パスではないため、下のreconcileBookIDIfMovedを
+                    // 通すと、iノードが一致した既存のお気に入り/レイアウト/ブックマークのbookIDが
+                    // その場限りのIDへ恒久的に書き換わり、復旧不能になる
+                    // (詳細はMangaBook.BookOriginのコメント参照)。
+                    let skipsPersistence = self.isPrivateWindow || book.isTransient
+                    // ユーザー要望: お気に入り・レイアウト・ブックマークが、同一ボリューム内での
+                    // ファイルの移動・リネームを引き継げるようにしたい。この本を開くたびに、現在の
+                    // bookID(パス)でまだ見つからない登録済みデータがあれば、ファイルノード識別子
+                    // (iノード番号)を手がかりに自動的に追従(bookIDを書き換え)させておく。本を
+                    // 表示する前(currentBookを設定する前)に行うことで、ViewerViewModelの初期化時点
+                    // では既に正しいbookIDでレイアウト/ブックマークが見つかる状態にしておく。
+                    // シークレットウインドウでは、追従(bookIDの書き換え)も識別子の補完も既存行への
+                    // 書き込みなので行わない(isPrivateWindowのコメント参照)。
+                    if !skipsPersistence {
+                        self.favoritesStore?.reconcileBookIDIfMoved(book: book)
+                        self.layoutStore?.reconcileBookIDIfMoved(book: book)
+                        self.bookmarkStore?.reconcileBookIDIfMoved(book: book)
+                        self.metadataStore?.reconcileBookIDIfMoved(book: book)
+                    }
+                    // メタデータを登録した時点ではこの本を開いていない(「メタデータの編集」
+                    // ウインドウはファイルを開かない)ことが多く、その場合はセキュリティスコープ付き
+                    // ブックマークもファイルノード識別子も持てていない。実際に本を開けた今なら
+                    // どちらも取得できるため、ここで補完しておく(EPUB/PDF出力が、今開いていない
+                    // 本の実ファイルへ到達するために必要)。
+                    if !skipsPersistence {
+                        self.metadataStore?.backfillIdentifiers(forBookID: book.id, sourceURL: book.sourceURL)
+                    }
+                    self.currentBook = book
+                    self.errorMessage = nil
+                    // 別の本向けだった指定(読み込み中にユーザーが他の本を開いた等)は捨てる。
+                    if self.pendingInitialPage?.bookID != book.id {
+                        self.pendingInitialPage = nil
+                    }
+                    // シークレットウインドウで開いた本は「最近開いたファイル」に残さない(ユーザー要望)。
+                    // その場限りの本も、そもそも1つのURLでは開き直せないため記録しない。
+                    // request.recordsInHistory: フォルダブラウザで通り抜けただけのフォルダを
+                    // 履歴に積まないための除外(BookOpenRequest.recordsInHistory参照)。
+                    if !skipsPersistence, request.recordsInHistory, let url = request.primaryURL {
+                        self.recentFiles?.record(url: url)
+                    }
+                    self.reloadSiblingBooks()
                 }
-                // メタデータを登録した時点ではこの本を開いていない(「メタデータの編集」
-                // ウインドウはファイルを開かない)ことが多く、その場合はセキュリティスコープ付き
-                // ブックマークもファイルノード識別子も持てていない。実際に本を開けた今なら
-                // どちらも取得できるため、ここで補完しておく(EPUB/PDF出力が、今開いていない
-                // 本の実ファイルへ到達するために必要)。
-                if !skipsPersistence {
-                    self.metadataStore?.backfillIdentifiers(forBookID: book.id, sourceURL: book.sourceURL)
-                }
-                self.currentBook = book
-                self.errorMessage = nil
-                // 別の本向けだった指定(読み込み中にユーザーが他の本を開いた等)は捨てる。
-                if self.pendingInitialPage?.bookID != book.id {
-                    self.pendingInitialPage = nil
-                }
-                // シークレットウインドウで開いた本は「最近開いたファイル」に残さない(ユーザー要望)。
-                // その場限りの本も、そもそも1つのURLでは開き直せないため記録しない。
-                // request.recordsInHistory: フォルダブラウザで通り抜けただけのフォルダを
-                // 履歴に積まないための除外(BookOpenRequest.recordsInHistory参照)。
-                if !skipsPersistence, request.recordsInHistory, let url = request.primaryURL {
-                    self.recentFiles?.record(url: url)
-                }
-                self.reloadSiblingBooks()
             } catch {
                 // 中止された場合も、オーバーレイだけは必ず片付ける(下のガードより先に行う。
                 // Task.isCancelledのときはそこで抜けてしまうため)。
                 if let self, self.openToken == token { self.loadingProgress = nil }
                 guard !Task.isCancelled, let self else { return }
-                self.currentBook = nil
-                self.clearSiblingBooks()
-                self.pendingInitialPage = nil
-                self.pendingInitialEdge = nil
-                self.errorMessage = (error as? LocalizedError)?.errorDescription
-                    ?? String(localized: "The book could not be opened.", locale: locale)
+                // 失敗の反映も成功と同じ理由で保留する(currentBookの変更はメニューに波及する。
+                // 上の成功側のコメント参照)。キーも成功側と共用する: 同じopen()の結果は
+                // どちらか一方しか来ないうえ、保留中に別のopen()の結果が来た場合は
+                // 最後の1つだけが適用されるのが正しい(openTokenの照合はその二重の保険)。
+                MenuBarMenuGate.shared.run(self.menuGateKey("openCompleted")) { [weak self] in
+                    guard let self, self.openToken == token else { return }
+                    self.currentBook = nil
+                    self.clearSiblingBooks()
+                    self.pendingInitialPage = nil
+                    self.pendingInitialEdge = nil
+                    self.errorMessage = (error as? LocalizedError)?.errorDescription
+                        ?? String(localized: "The book could not be opened.", locale: locale)
+                }
             }
         }
     }
