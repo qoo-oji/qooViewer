@@ -20,8 +20,11 @@ struct OpenBookExportSheet: View {
     let format: BookExportFormat
     /// いま開いている本。`MangaBook.sourceURL`はユーザーが実際に開いたURL(=アクセス権のある
     /// URL)なので、ストアに1行も無い本でもそのまま書き出せる
-    /// (`BookExportViewModel.exportOpenBook(_:to:)`参照)。
+    /// (`BookExportViewModel.exportOpenBook(_:displayState:to:)`参照)。
     let book: MangaBook
+    /// 画面での表示状態(読み方向・見開き/単ページ)。DBに保存が無い項目をこれで補う
+    /// (`BookExportViewModel.OpenBookDisplayState`参照)。
+    let displayState: BookExportViewModel.OpenBookDisplayState
     /// 環境設定で決めてある固定の保存先。nilなら保存先の選択から始める。
     let fixedDestination: URL?
     /// シートを閉じるときに呼ぶ。
@@ -190,7 +193,7 @@ struct OpenBookExportSheet: View {
         // 一覧で選択した本の合計サイズを見るもので、一覧を通らないこの経路では常に0冊ぶん=
         // 「足りている」としか答えられない。容量が足りなければ書き込みの失敗として現れ、
         // 下のfailureMessageで伝わる(中途半端なファイルは残らない。exportOne参照)。
-        let failure = await viewModel.exportOpenBook(book, to: destinationFolder)
+        let failure = await viewModel.exportOpenBook(book, displayState: displayState, to: destinationFolder)
         if let failure {
             failureMessage = failure
             return

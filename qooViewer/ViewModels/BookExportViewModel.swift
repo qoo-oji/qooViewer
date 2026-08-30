@@ -46,6 +46,28 @@ class BookExportViewModel: ObservableObject {
         case skip
     }
 
+    /// いま開いている本の、画面での表示状態(読み方向・見開き/単ページ)。
+    ///
+    /// ■ なぜ必要か(ユーザー報告と同じ構図の不具合)
+    /// 読み方向と見開き強制は、これまで`BookLayoutSettings`(本ごとのDBの行)からしか読んで
+    /// いなかった。ところが`ViewerViewModel.toggleReadingDirection()`/`toggleDisplayMode()`は、
+    /// **その行に既に上書きがある本にしか**書き戻さず、行が無い本では`BookReadingState`
+    /// (最後にどう表示していたか)にしか保存しない。画面の表示はそちらを見ている。
+    ///
+    /// そのため「レイアウト・ブックマーク・メタデータを1つも持っていない本」では、ツールバーで
+    /// 左開きに直して読んでいても、書き出されるEPUB/PDFは環境設定の既定の読み方向(例えば
+    /// 右開き)になっていた。環境設定「レイアウト」の自動レイアウトを併用している場合はもっと
+    /// 悪く、ページごとの見開き左右は画面の読み方向を基準に割り当てられるので、
+    /// **本全体の読み方向とページごとの左右配置が逆を向いたEPUB**が出来上がる。
+    ///
+    /// 3つの書き出しウインドウは本を開いていなくても使えるため、この情報を持てなかった。
+    /// 「いま開いている本を書き出す」導線ではそれが手元にあるので、DBに保存が無い項目を
+    /// これで補う(優先順位はDB > 画面 > 環境設定の既定値で、DBが勝つ関係は変わらない)。
+    struct OpenBookDisplayState {
+        let readingDirection: ReadingDirection
+        let displayMode: DisplayMode
+    }
+
     /// 同名ファイルの確認でユーザーが「スキップ」を選んだことを表す内部エラー。
     /// startExportはこれを失敗として数えない。
     struct ExportSkippedByUser: Error {}
@@ -630,8 +652,13 @@ class BookExportViewModel: ObservableObject {
             ?? metadataStore.resolvedURL(forBookID: bookID)
     }
 
-    /// 上のdirect分。exportOpenBook(_:to:)が呼ばれたときだけ埋まる。
+    /// 上のdirect分。exportOpenBook(_:displayState:to:)が呼ばれたときだけ埋まる。
     private var directSourceURLs: [String: URL] = [:]
+
+    /// いま開いている本を書き出すときに、**画面で見えているとおり**に補うための表示状態。
+    /// exportOpenBook(_:displayState:to:)が呼ばれたときだけ埋まる(3つの書き出しウインドウは
+    /// 本を開いていなくても使えるので、常にnilのまま)。
+    private var openBookDisplayState: OpenBookDisplayState?
 
     // MARK: - 出力実行
 
@@ -682,12 +709,17 @@ class BookExportViewModel: ObservableObject {
     /// 本のURLも、ストアに1行も無い本のために呼び出し側から直接受け取る
     /// (resolveURL(forBookID:)参照。ユーザーが実際に開いた=アクセス権のあるURL)。
     ///
+    /// - Parameter displayState: 画面での表示状態。DBに保存が無い読み方向・見開き強制を
+    ///   これで補う(OpenBookDisplayState参照)。
     /// - Returns: 失敗した場合はその理由。成功(またはユーザーが同名確認でスキップを選んだ場合)はnil。
     ///   成功しても結果シートは出さない(startExport(destinationFolder:)のコメント参照)ため、
     ///   呼び出し側が失敗だけを拾って知らせる。
-    final func exportOpenBook(_ book: MangaBook, to destinationFolder: URL) async -> String? {
+    final func exportOpenBook(
+        _ book: MangaBook, displayState: OpenBookDisplayState, to destinationFolder: URL
+    ) async -> String? {
         let bookID = book.id
         directSourceURLs[bookID] = book.sourceURL
+        openBookDisplayState = displayState
         let row = Row(
             bookID: bookID,
             hasLayout: layoutStore.layoutBookIDs.contains(bookID),
@@ -767,8 +799,13 @@ class BookExportViewModel: ObservableObject {
             book: book,
             pageOrderOverride: pageOrderOverride,
             pageOverrides: overrides,
-            forcedDisplayMode: settings?.forcedDisplayMode,
-            readingDirection: settings?.readingDirectionOverride ?? preferences.defaultReadingDirection,
+            // DB > 画面 > 環境設定の既定値。画面の値が入るのは「いま開いている本を書き出す」
+            // 経路だけで、3つの書き出しウインドウではこれまでどおりDB > 既定値になる
+            // (OpenBookDisplayState参照)。
+            forcedDisplayMode: settings?.forcedDisplayMode ?? openBookDisplayState?.displayMode,
+            readingDirection: settings?.readingDirectionOverride
+                ?? openBookDisplayState?.readingDirection
+                ?? preferences.defaultReadingDirection,
             bookmarks: exportBookmarks,
             coverOverride: resolveCoverOverride(settings: settings),
             title: titleOverrides[row.bookID],

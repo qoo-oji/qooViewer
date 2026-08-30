@@ -1508,6 +1508,13 @@ struct ViewerView: View {
                     viewModel: request.viewModel,
                     format: request.format,
                     book: viewModel.book,
+                    // 読み方向・見開きは、この本のDBの行に上書きが無いと環境設定の既定値に
+                    // なってしまうので、画面で見えているとおりの値を渡す
+                    // (BookExportViewModel.OpenBookDisplayStateのコメント参照)。
+                    displayState: .init(
+                        readingDirection: viewModel.readingDirection,
+                        displayMode: viewModel.displayMode
+                    ),
                     fixedDestination: request.fixedDestination
                 ) { didExport in
                     openBookExport = nil
@@ -2137,7 +2144,15 @@ struct ViewerView: View {
             }
         }
         // 書き出しが二重に始まらないように、進行中は閉じておく。
-        .disabled(openBookExport != nil)
+        //
+        // 画像を直接開いた「その場限りの本」(MangaBook.BookOrigin.imageFiles)も対象外にする。
+        // あの本のsourceURLは渡された画像のうちの**1枚目**でしかなく、書き出しは
+        // BookLoader.load(from: sourceURL)で本を読み直すため、5枚開いていても1ページだけの
+        // ファイルが黙って出来上がってしまう(idも実在するパスではない)。項目を消さずに
+        // グレーアウトするのは、このアプリで「その場限りの本・シークレットウインドウでは
+        // 使えない操作」を示す共通の作法(AppState.isPrivateWindowのコメント参照)。
+        // シークレットウインドウの普通の本は書き出せる ―― 書き出し自体は何も記録しないため。
+        .disabled(openBookExport != nil || viewModel.book.isTransient)
 
         // ユーザー要望: 右クリックしたページの画像ファイル情報(ファイル名・フォーマット・
         // 解像度・色情報・ファイルサイズ、いずれもヘッダーから分かる範囲)を表示する。対象ページの
