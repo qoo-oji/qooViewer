@@ -989,27 +989,48 @@ struct ViewerView: View {
         let id = UUID()
         let format: BookExportFormat
         let viewModel: BookExportViewModel
-        /// 環境設定「レイアウト」で固定の保存先が決めてあればそのフォルダ。
-        /// nilなら、シートが保存先の選択から始める。
-        let fixedDestination: URL?
+        /// 書き出し先。シートを出す前に必ず決まっている(startOpenBookExport参照)。
+        let destination: OpenBookExportSheet.Destination
+        /// falseなら、シートは何も尋ねずに開いた瞬間から書き出しを始める。
+        let asksBeforeExporting: Bool
     }
 
     /// 右クリック →「本の書き出し」→ 形式を選んだときに呼ばれる。
+    ///
+    /// 保存先は**シートを出すより先に**決める(ユーザー要望)。
+    /// - 環境設定「レイアウト」でこの形式の保存先を決めてあれば、それを使って何も尋ねない。
+    /// - そうでなければ、その場でフォルダ選択パネルを開く。初期位置はこの形式で前回選んだ
+    ///   フォルダ。**キャンセルされたらシート自体を出さない**(保存先が決まっていないのに
+    ///   タイトルやカバーを尋ねる画面だけが残るのはおかしいため)。
     private func startOpenBookExport(format: BookExportFormat) {
         guard openBookExport == nil else { return }
-        // 固定の保存先が設定されていても、そのブックマークがもう解決できない(フォルダが
-        // 消された・外付けが外れている)ことはある。その場合はnilのまま渡して、シートに
-        // 保存先を尋ねさせる ―― 黙って何もしないより、その場で選び直せるほうがよい。
-        let fixedDestination = preferences.bookExportDestinationMode(for: format) == .fixedFolder
-            ? format.fixedFolder.lastFolder()
-            : nil
+        let exportViewModel = format.makeExportViewModel(
+            bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore,
+            preferences: preferences, loadsEligibleRows: false
+        )
+
+        // 保存先を決めてあっても、そのブックマークがもう解決できない(フォルダが消された・
+        // 外付けが外れている)ことはある。その場合は下のパネルへ落として、その場で選び直せる
+        // ようにする ―― 黙って何もしないよりよい。
+        if preferences.bookExportDestinationMode(for: format) == .fixedFolder,
+           let fixedFolder = format.fixedFolder.lastFolder() {
+            openBookExport = OpenBookExportRequest(
+                format: format, viewModel: exportViewModel,
+                // 保存済みのブックマークから解決したフォルダなので、書き出しのあいだ
+                // セキュリティスコープを開く必要がある。
+                destination: .init(url: fixedFolder, isSecurityScoped: true),
+                asksBeforeExporting: false
+            )
+            return
+        }
+
+        guard let chosen = ExportDestinationPanel.present(
+            for: format, startingAt: nil, locale: preferences.effectiveLocale
+        ) else { return }
         openBookExport = OpenBookExportRequest(
-            format: format,
-            viewModel: format.makeExportViewModel(
-                bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore,
-                preferences: preferences, loadsEligibleRows: false
-            ),
-            fixedDestination: fixedDestination
+            format: format, viewModel: exportViewModel,
+            destination: .init(url: chosen, isSecurityScoped: false),
+            asksBeforeExporting: true
         )
     }
 
@@ -1515,7 +1536,8 @@ struct ViewerView: View {
                         readingDirection: viewModel.readingDirection,
                         displayMode: viewModel.displayMode
                     ),
-                    fixedDestination: request.fixedDestination,
+                    initialDestination: request.destination,
+                    asksBeforeExporting: request.asksBeforeExporting,
                     // シークレットウインドウ・その場限りの本ではカバーを選ばせない
                     // (指定がDBに残ってしまうため。OpenBookExportSheet参照)。
                     allowsCoverSelection: !viewModel.skipsPersistence

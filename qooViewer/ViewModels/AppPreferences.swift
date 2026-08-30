@@ -870,7 +870,7 @@ final class AppPreferences: ObservableObject {
         didSet { Self.saveFormatSettings(bookExportHistoryCleanups, key: Keys.bookExportHistoryCleanup) }
     }
 
-    /// 保存先の決め方(毎回確認 / 既定の保存先を設定)。
+    /// 保存先の決め方(毎回確認 / 保存先を設定)。
     func bookExportDestinationMode(for format: BookExportFormat) -> BookExportDestinationMode {
         bookExportDestinationModes[format] ?? .askEachTime
     }
@@ -1495,7 +1495,7 @@ extension AppPreferences {
                         Keys.bookExportIncludesExcludedPages($0),
                         // 固定の保存先そのもの(セキュリティスコープ付きブックマークと表示用の
                         // パス)も一緒に忘れる。保存先の決め方だけ「毎回確認」に戻して
-                        // フォルダの記憶が残ると、次に「既定の保存先を設定」を選んだ瞬間、
+                        // フォルダの記憶が残ると、次に「保存先を設定」を選んだ瞬間、
                         // 初期設定に戻したはずの古いフォルダが復活する。
                     ] + $0.fixedFolder.defaultsKeys
                 }

@@ -123,8 +123,8 @@ struct LayoutSettingsView: View {
 
     // MARK: - 固定の保存先
 
-    /// 保存先の決め方のBinding。「既定の保存先を設定」を選んだその場でフォルダを選ばせる
-    /// (ユーザー要望)。フォルダを選ばずに閉じられた場合、保存先の分からない「既定の保存先を設定」が
+    /// 保存先の決め方のBinding。「保存先を設定」を選んだその場でフォルダを選ばせる
+    /// (ユーザー要望)。フォルダを選ばずに閉じられた場合、保存先の分からない「保存先を設定」が
     /// 残ってしまうので「毎回確認」へ戻す ―― 既に一度設定したフォルダがあるなら、それを
     /// 選び直さなかっただけなのでそのまま残す。
     private func destinationModeBinding(for format: BookExportFormat) -> Binding<BookExportDestinationMode> {
@@ -142,7 +142,7 @@ struct LayoutSettingsView: View {
                           format.fixedFolder.lastFolderPath() == nil
                     else { return }
                     // 一度も設定されていないのにフォルダを選ばずに閉じられた。保存先の
-                    // 分からない「既定の保存先を設定」が残ってしまうので「毎回確認」へ戻す。
+                    // 分からない「保存先を設定」が残ってしまうので「毎回確認」へ戻す。
                     stored.wrappedValue = .askEachTime
                 }
             }

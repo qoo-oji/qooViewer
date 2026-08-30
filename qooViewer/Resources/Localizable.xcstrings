@@ -13799,23 +13799,6 @@
         }
       }
     },
-    "Set a Default Export Folder" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Set a Default Export Folder"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "既定の保存先を設定"
-          }
-        }
-      }
-    },
     "The cover can't be changed in a private window, because it would have to be saved." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -13845,6 +13828,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "(%1$lld / %2$lld)"
+          }
+        }
+      }
+    },
+    "Set a Destination Folder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set a Destination Folder"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存先を設定"
           }
         }
       }

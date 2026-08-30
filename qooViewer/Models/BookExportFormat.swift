@@ -80,7 +80,7 @@ enum BookExportFormat: String, CaseIterable, Identifiable, Codable, Hashable {
         }
     }
 
-    /// 環境設定「レイアウト」で「既定の保存先を設定」を選んだときの保存先フォルダ。
+    /// 環境設定「レイアウト」で「保存先を設定」を選んだときの保存先フォルダ。
     /// パネルの初期位置(`lastUsedFolder`)とは別に持つ理由はそちらのコメント参照。
     var fixedFolder: LastUsedFolderMemory { .fixedExportFolder(self) }
 
