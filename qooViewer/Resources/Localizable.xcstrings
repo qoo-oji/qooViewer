@@ -13815,6 +13815,23 @@
           }
         }
       }
+    },
+    "The cover can't be changed in a private window, because it would have to be saved." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The cover can't be changed in a private window, because it would have to be saved."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットウインドウでは、カバー画像を変更できません(指定を保存する必要があるためです)。"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

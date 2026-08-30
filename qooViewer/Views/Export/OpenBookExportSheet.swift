@@ -27,6 +27,9 @@ struct OpenBookExportSheet: View {
     let displayState: BookExportViewModel.OpenBookDisplayState
     /// 環境設定で決めてある固定の保存先。nilなら保存先の選択から始める。
     let fixedDestination: URL?
+    /// カバー画像を選ばせてよいか。falseにするのはDBへ書かない本
+    /// (シークレットウインドウ)のときだけ ―― カバーの指定はDBに残るため。
+    let allowsCoverSelection: Bool
     /// シートを閉じるときに呼ぶ。
     /// - Parameter didExport: 実際に1冊書き出せたか。falseなら(キャンセル・失敗)、
     ///   「書き出したあとの動作」へは進まない。
@@ -89,14 +92,56 @@ struct OpenBookExportSheet: View {
 
             Divider()
 
-            // 保存先。まだ選んでいなければ、下の「書き出す」は押せない。
-            // フォルダ名だけでなくパス全体を出す理由はExportDestinationLabel参照。
-            HStack(spacing: 8) {
-                Text("Destination")
-                Spacer(minLength: 12)
-                ExportDestinationLabel(path: destination?.path)
-                Button("Choose…") {
-                    chooseDestination()
+            // 保存先・タイトル・著者名・カバー画像。ラベルの幅を揃えたいのでGridで組む
+            // (書き出しウインドウでは一覧の「列」がその役目を果たしているが、こちらは
+            // 1冊ぶんのフォームなので縦に揃える)。
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 10) {
+                // まだ選んでいなければ、下の「書き出す」は押せない。
+                // フォルダ名だけでなくパス全体を出す理由はExportDestinationLabel参照。
+                GridRow {
+                    Text("Destination")
+                        .gridColumnAlignment(.leading)
+                    HStack(spacing: 8) {
+                        ExportDestinationLabel(path: destination?.path)
+                        Spacer(minLength: 0)
+                        Button("Choose…") {
+                            chooseDestination()
+                        }
+                    }
+                }
+
+                // タイトル・著者名(ユーザー要望: 書き出しウインドウと同じ項目をここにも)。
+                // 初期値の決め方も同じで、メタデータの登録があればそれを、無ければ
+                // ファイル名/フォルダ名からの推測を入れる
+                // (BookExportViewModel.prepareOpenBook / seedTitleAndAuthorIfNeeded参照)。
+                GridRow {
+                    Text("Title")
+                    TextField("", text: viewModel.titleBinding(forBookID: book.id))
+                        .textFieldStyle(.roundedBorder)
+                }
+                GridRow {
+                    Text("Author")
+                    TextField("", text: viewModel.authorBinding(forBookID: book.id))
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                // カバー画像。PDFはカバーという概念を持たないので出さない
+                // (BookExportViewModel.supportsCoverSelection参照)。
+                if viewModel.supportsCoverSelection {
+                    GridRow {
+                        Text("Cover")
+                        // 選び方は書き出しウインドウのカバー列とまったく同じ部品
+                        // (ExportCoverCell)。既定は本の実質的な先頭ページ。
+                        ExportCoverCell(bookID: book.id, viewModel: viewModel)
+                            // カバーの指定はDBへ書き込む(LayoutStore)。DBへ書かない本
+                            // ―― シークレットウインドウ ―― では、ここから記録を作って
+                            // しまわないよう操作させない(項目は消さずグレーアウトするのが
+                            // このアプリの作法。AppState.isPrivateWindowのコメント参照)。
+                            .disabled(!allowsCoverSelection)
+                            .help(allowsCoverSelection
+                                  ? "Change Cover Image"
+                                  : "The cover can't be changed in a private window, because it would have to be saved.")
+                    }
                 }
             }
 
@@ -127,10 +172,13 @@ struct OpenBookExportSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 420)
+        .frame(width: 480)
         .onAppear {
+            // タイトル・著者名の初期値とカバー画像の名前は、この下ごしらえが済んでいないと
+            // 解決できない(BookExportViewModel.prepareOpenBook参照)。
+            viewModel.prepareOpenBook(book)
             // 前回この形式で選んだ保存先を初期値にしておく(毎回同じフォルダへ書き出す使い方が
-            // 多いため。それを完全に無操作にしたい場合が、環境設定の「固定の保存先」)。
+            // 多いため。それを完全に無操作にしたい場合が、環境設定の「既定の保存先」)。
             if destination == nil {
                 destination = format.lastUsedFolder.lastFolder()
             }

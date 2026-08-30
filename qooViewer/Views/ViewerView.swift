@@ -1515,7 +1515,10 @@ struct ViewerView: View {
                         readingDirection: viewModel.readingDirection,
                         displayMode: viewModel.displayMode
                     ),
-                    fixedDestination: request.fixedDestination
+                    fixedDestination: request.fixedDestination,
+                    // シークレットウインドウ・その場限りの本ではカバーを選ばせない
+                    // (指定がDBに残ってしまうため。OpenBookExportSheet参照)。
+                    allowsCoverSelection: !viewModel.skipsPersistence
                 ) { didExport in
                     openBookExport = nil
                     guard didExport else { return }

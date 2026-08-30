@@ -305,7 +305,7 @@ struct ExportWindowContent<Options: View>: View {
 
             if configuration.showsCoverColumn {
                 TableColumn("Cover") { row in
-                    ExportCoverCell(row: row, viewModel: viewModel)
+                    ExportCoverCell(bookID: row.bookID, viewModel: viewModel)
                 }
                 .width(min: ExportColumnWidths.coverMin, ideal: columnWidths.cover)
                 .customizationID("cover")
@@ -521,8 +521,11 @@ private struct ExportSelectionCell: View {
 /// カバー列のセル(ユーザー要望: カバー画像はデフォルトで最初の画像を使い、このウインドウから
 /// 変更できるようにしたい)。現在カバー画像として使われることになっているファイル名を表示し、
 /// クリックすると本のページ一覧/外部ファイルから選び直せるpopoverを開く。
-private struct ExportCoverCell: View {
-    let row: BookExportViewModel.Row
+/// 内部公開なのは、ビューアの右クリックから1冊だけ書き出すシート(OpenBookExportSheet)でも
+/// **同じカバー画像の選び方**を使うため。あちらは一覧の行を持たないので、`Row`ではなく
+/// bookIDだけを受け取る形にしてある(このセルが行から使っていたのも元々bookIDだけだった)。
+struct ExportCoverCell: View {
+    let bookID: String
     @ObservedObject var viewModel: BookExportViewModel
 
     @State private var isCoverPickerPresented = false
@@ -532,7 +535,7 @@ private struct ExportCoverCell: View {
             isCoverPickerPresented = true
         } label: {
             HStack(spacing: 4) {
-                Text(viewModel.coverDisplayName(forBookID: row.bookID))
+                Text(viewModel.coverDisplayName(forBookID: bookID))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Image(systemName: "chevron.down")
@@ -545,13 +548,13 @@ private struct ExportCoverCell: View {
         .buttonStyle(.plain)
         .help("Change Cover Image")
         .popover(isPresented: $isCoverPickerPresented) {
-            ExportCoverPickerContent(bookID: row.bookID, viewModel: viewModel)
+            ExportCoverPickerContent(bookID: bookID, viewModel: viewModel)
         }
         // カバー列の表示名は、上書き設定が無い場合(既定=先頭ページ)は本を読み込んで確認する
         // 必要があるため非同期で解決する(BookmarkListView.PageRowViewのサムネイル読み込みと
         // 同じ考え方)。
-        .task(id: row.bookID) {
-            await viewModel.refreshCoverName(forBookID: row.bookID)
+        .task(id: bookID) {
+            await viewModel.refreshCoverName(forBookID: bookID)
         }
     }
 }

@@ -714,12 +714,20 @@ class BookExportViewModel: ObservableObject {
     /// - Returns: 失敗した場合はその理由。成功(またはユーザーが同名確認でスキップを選んだ場合)はnil。
     ///   成功しても結果シートは出さない(startExport(destinationFolder:)のコメント参照)ため、
     ///   呼び出し側が失敗だけを拾って知らせる。
-    final func exportOpenBook(
-        _ book: MangaBook, displayState: OpenBookDisplayState, to destinationFolder: URL
-    ) async -> String? {
+    /// いま開いている本を、このViewModelが扱える状態にする。
+    ///
+    /// 書き出しシートは、開いた時点で**タイトル・著者名の初期値とカバー画像の名前を出す**
+    /// 必要がある(ユーザー要望: 書き出しウインドウと同じ項目をシートにも置く)。どちらも
+    /// この下ごしらえが済んでいないと解決できないので、書き出しの実行時ではなく
+    /// シートが現れた時点で呼ぶ。
+    ///
+    /// 何度呼んでも同じ結果になる(タイトル・著者名は未設定のときだけ埋める)。
+    @discardableResult
+    final func prepareOpenBook(_ book: MangaBook) -> Row {
         let bookID = book.id
+        // この本はどのストアにも1行も無いことがあるので、ユーザーが実際に開いた
+        // (=アクセス権のある)URLを控えておく(resolveURL(forBookID:)参照)。
         directSourceURLs[bookID] = book.sourceURL
-        openBookDisplayState = displayState
         let row = Row(
             bookID: bookID,
             hasLayout: layoutStore.layoutBookIDs.contains(bookID),
@@ -727,6 +735,16 @@ class BookExportViewModel: ObservableObject {
             hasMetadata: metadataStore.isRegistered(bookID: bookID)
         )
         seedTitleAndAuthorIfNeeded(for: row)
+        return row
+    }
+
+    final func exportOpenBook(
+        _ book: MangaBook, displayState: OpenBookDisplayState, to destinationFolder: URL
+    ) async -> String? {
+        openBookDisplayState = displayState
+        // シートが既に呼んでいるのが普通だが、固定の保存先で何も尋ねずに書き出す経路も
+        // あるので、ここでも必ず通しておく(二度呼んでも害は無い)。
+        let row = prepareOpenBook(book)
         await runExport(targets: [row], destinationFolder: destinationFolder)
         return failures.first?.message
     }
