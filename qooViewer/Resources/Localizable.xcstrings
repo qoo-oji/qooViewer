@@ -13832,6 +13832,22 @@
           }
         }
       }
+    },
+    "(%lld / %lld)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(%1$lld / %2$lld)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(%1$lld / %2$lld)"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

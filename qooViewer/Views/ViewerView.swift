@@ -1856,10 +1856,36 @@ struct ViewerView: View {
             // ユーザー要望: メタデータとしてタイトル(と著者)が登録されている本については、
             // ファイル名の代わりに「[著者] タイトル」/「タイトル」を表示する。未登録の本は
             // 従来どおりファイル名のまま(判定はViewerViewModel.displayTitle参照)。
-            Text(viewModel.displayTitle)
-                .font(.headline)
-                .lineLimit(1)
-                .panelOutlinedContent()
+            //
+            // ユーザー要望: タイトルの右に「(現在のページ / 総ページ数)」を出す。
+            // ページ番号の書き方(「12 / 240」)はプログレスバーのバッジ・ホバー表示と
+            // 同じ文字列カタログの項目を使う(同じものを別の形で見せないため)。
+            // 見開き表示中でも数字は1つ ―― 現在位置を表すのはcurrentIndexだけ、という
+            // 扱いもプログレスバーと揃えてある。
+            //
+            // 総ページ数は除外(非表示)ページを取り除いた後の数(ViewerViewModel.pageCount)。
+            // 画面に出ないページを数に入れると、プログレスバーの表示とも食い違う。
+            HStack(spacing: 6) {
+                Text(viewModel.displayTitle)
+                    .font(.headline)
+                    .lineLimit(1)
+
+                if viewModel.pageCount > 0 {
+                    Text("(\(viewModel.currentIndex + 1) / \(viewModel.pageCount))")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        // ページを送るたびに幅が動いてタイトルが左右に揺れないよう、
+                        // 数字の字幅を固定する。
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        // ウインドウが狭いときに削られるのはタイトルのほう。
+                        // 短くて位置の手がかりになるこちらを残す。
+                        .layoutPriority(1)
+                }
+            }
+            // 中身がテキストだけのまとまりなので、すりガラスの面に対する縁取りは
+            // このHStackへまとめて掛ける(CLAUDE.mdのPanelSurfaceの約束)。
+            .panelOutlinedContent()
 
             Spacer()
 
