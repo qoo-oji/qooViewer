@@ -2235,11 +2235,73 @@ final class ViewerViewModel: ObservableObject {
     ///
     /// shouldPairWithNextPageと同じ理由(コメント参照)で、「単独で着地してはいけない位置」は
     /// 読み方向によって入れ替わる(右開き=2番目に読むページ=.left相当、左開き=.right相当)。
-    private func normalizedAnchorIndex(_ rawIndex: Int) -> Int {
+    ///
+    /// 補正条件は2つある(どちらも結論は「1つ前のページを起点にする」):
+    /// 1. rawIndex自身に「2番目に読むページ」の明示指定がある場合(上記)。
+    /// 2. rawIndex自身には明示指定が無いが、直前のページに「見開きの起点(1番目に読むページ)」の
+    ///    明示指定がある場合。shouldPairWithNextPageの仕様上、起点指定を持つページは相方
+    ///    (=rawIndex)が無指定なら必ずそのページと組む(明示指定が横長ヒューリスティックに
+    ///    勝つ)ため、rawIndexへそのまま着地するとその組を割ってしまう。こちらは組の判定が
+    ///    意味を持つ見開き表示中に限って補正する(単ページ表示中に適用すると、指定した
+    ///    ページではなく1つ前のページが表示されてしまう)。
+    ///
+    /// 経緯(条件2のユーザー報告): レイアウトの保存が無い右開きの本を自動レイアウトで開き、
+    /// 見開きの左ページ(=2番目に読むページ。自動レイアウトが「見開き左」を書き込んでいる)を
+    /// 右クリック→「レイアウト情報を削除する」すると、見開きが単ページ表示に崩れていた。
+    /// clearPageLayoutがreloadLayoutData(focusPageKey: 削除したページ)で削除対象のページへ
+    /// 表示を寄せる際、削除直後のそのページはヒントがnilのため条件1では補正されず、そのまま
+    /// 削除したページが起点になっていた。すると次のページ(次の見開きの起点指定を持つ)とは
+    /// 組めず(shouldPairWithNextPageのdisallowedForNext)、1枚だけの表示に落ちていた。
+    /// 相方(1つ前のページ)には起点指定が残っているのだから、その組へ着地し直すのが正しい。
+    ///
+    /// - Parameter honorsPredecessorClaim: falseの場合、条件2を適用しない。
+    ///   reloadLayoutDataがfocusPageKey無しで呼ばれた場合(=どこかへ着地し直す要求ではなく、
+    ///   「今表示している位置の描き直し」)だけfalseにする。条件2は「そのページ自身は何も
+    ///   語っていない」状況で周囲の指定から組を推測する補正のため、描き直しにまで適用すると、
+    ///   「1ページだけ送る」で意図的にずらした組み合わせ(起点指定を持つページの直後の無指定
+    ///   ページを起点にした表示)が、本の表示位置と無関係な再読込(例: 別ウインドウでの
+    ///   コントラスト補正切替が投げる通知)のたびに勝手に元へ引き戻されてしまう。
+    ///   条件1は適用したままにする ―― そのページ自身が「2番目に読むページ」と明示している
+    ///   以上、単独起点のままでは空白ページ入りの表示になってしまうし、開いた直後の
+    ///   自動レイアウト(autoLayoutForBookWithoutLayoutData)が再開位置を見開きの2枚目に
+    ///   変えた場合のfocus無し再読込は、この補正が無いと正しい組で表示できない。
+    private func normalizedAnchorIndex(_ rawIndex: Int, honorsPredecessorClaim: Bool = true) -> Int {
         guard book.pages.indices.contains(rawIndex), rawIndex > 0 else { return rawIndex }
-        let disallowedAlone: PageSpreadPosition = readingDirection == .rightToLeft ? .left : .right
-        guard layoutHint(at: rawIndex) == disallowedAlone else { return rawIndex }
-        return rawIndex - 1
+        let isRightToLeft = readingDirection == .rightToLeft
+        let disallowedAlone: PageSpreadPosition = isRightToLeft ? .left : .right
+        let hint = layoutHint(at: rawIndex)
+        if hint == disallowedAlone { return rawIndex - 1 }
+        // 条件2(上のコメント参照)。firstOfPairは「見開きの起点(1番目に読むページ)」の
+        // 画面上の位置(右開き=画面右、左開き=画面左。shouldPairWithNextPage参照)。
+        let firstOfPair: PageSpreadPosition = isRightToLeft ? .right : .left
+        if honorsPredecessorClaim, hint == nil, displayMode == .spread,
+           layoutHint(at: rawIndex - 1) == firstOfPair {
+            return rawIndex - 1
+        }
+        return rawIndex
+    }
+
+    /// reloadLayoutDataで、いま画面に出ている見開き(起点index・相方index+1)が、更新後の
+    /// レイアウトデータでも2枚組のまま成立するかを同期的に判定する(reloadLayoutDataの
+    /// anchorPageKey選択のコメント参照)。
+    ///
+    /// 判定基準はshouldPairWithNextPageの明示指定部分と同じ。どちらのページにも明示指定が
+    /// 無い場合だけは横長ヒューリスティックの判定が必要になるが、この関数は同期的なAPIで
+    /// 画像を読み込めないため、backwardStepSize/forwardStepSizeと同じ考え方でwideImageCacheを
+    /// 参照する ―― 起点のページは直前までまさに表示していたページなので、通常は判定結果が
+    /// 残っている。残っていない場合はfalse(=見開きの維持はあきらめ、従来どおり操作対象の
+    /// ページを基準にする安全側)に倒す。
+    private func spreadPairStillDisplayable(atAnchorIndex index: Int) -> Bool {
+        guard displayMode == .spread, book.pages.indices.contains(index + 1) else { return false }
+        let currentPosition = layoutHint(at: index)
+        let nextPosition = layoutHint(at: index + 1)
+        let isRightToLeft = readingDirection == .rightToLeft
+        let disallowedForCurrent: PageSpreadPosition = isRightToLeft ? .left : .right
+        let disallowedForNext: PageSpreadPosition = isRightToLeft ? .right : .left
+        if currentPosition == .center || currentPosition == disallowedForCurrent { return false }
+        if nextPosition == .center || nextPosition == disallowedForNext { return false }
+        if currentPosition != nil || nextPosition != nil { return true }
+        return cachedIsWideImage(at: index) == false
     }
 
     // MARK: - レイアウト設定(BookLayoutSettings/PageLayoutOverride)の解決
@@ -2447,7 +2509,37 @@ final class ViewerViewModel: ObservableObject {
 
         // 表示の移動先を決める基準ページのsortKey。focusPageKeyが指定されていれば常にそれを
         // 優先する。指定が無ければ、以前どおり現在表示中のページを維持しようとする。
-        let anchorPageKey = focusPageKey ?? (oldPages.indices.contains(currentIndex) ? oldPages[currentIndex].sortKey : nil)
+        var anchorPageKey = focusPageKey ?? (oldPages.indices.contains(currentIndex) ? oldPages[currentIndex].sortKey : nil)
+
+        // focusPageKeyの目的は「直接操作したページを更新後の表示に含める」ことであって、
+        // そのページを見開きの起点(1枚目)へ昇格させることではない。操作対象が「いま画面に
+        // 出ている見開きの2枚目」で、更新後のデータでもその見開きが2枚のまま成立するなら、
+        // 起点は動かさない(起点を2枚目へ移すと、元の1枚目が置き去りになったうえ、次のページと
+        // 組めない場合に見開きが単ページ表示へ崩れてしまう)。
+        //
+        // 経緯(ユーザー報告と、その調査で見つけた同型の不具合): 見開き表示中に
+        // 「レイアウト情報を削除する」を画面の2枚目のページ(右開きなら左ページ)へ実行すると、
+        // 見開きが単ページ表示に崩れていた。normalizedAnchorIndexの条件2(直前ページの
+        // 起点指定への引き寄せ)は1枚目側に明示指定が残っている場合しか救えず、先に1枚目の
+        // 情報を削除してから2枚目を削除する順序では、どちらのページも無指定になるため
+        // やはり崩れていた。表示中の見開きが維持できるかどうかを、削除後のデータで直接
+        // 確かめてから起点を決めることで、削除の順序に関係なく見開きを維持する。
+        if let focusPageKey,
+           let displayedRange = lastDisplayedPageRange, displayedRange.count == 2,
+           oldPages.indices.contains(displayedRange.lowerBound),
+           oldPages.indices.contains(displayedRange.lowerBound + 1),
+           oldPages[displayedRange.lowerBound + 1].sortKey == focusPageKey {
+            let firstPageKey = oldPages[displayedRange.lowerBound].sortKey
+            // 並べ替え・除外を経ても、新しい並びで1枚目が操作対象の直前に残っていること
+            // (この時点でbook.pages/pageLayoutStatesは更新済みのため、
+            // spreadPairStillDisplayableは新しいデータで判定できる)。
+            if let newFirstIndex = newPages.firstIndex(where: { $0.sortKey == firstPageKey }),
+               newPages.indices.contains(newFirstIndex + 1),
+               newPages[newFirstIndex + 1].sortKey == focusPageKey,
+               spreadPairStillDisplayable(atAnchorIndex: newFirstIndex) {
+                anchorPageKey = firstPageKey
+            }
+        }
 
         let restoredIndex: Int
         if let anchorPageKey, let newIndex = newPages.firstIndex(where: { $0.sortKey == anchorPageKey }) {
@@ -2462,8 +2554,11 @@ final class ViewerViewModel: ObservableObject {
         let clampedIndex = newPages.isEmpty ? 0 : min(max(restoredIndex, 0), newPages.count - 1)
         // 見開き右ページ単独に着地してしまわないよう、他の着地経路(jump等)と同じく補正する
         // (normalizedAnchorIndexのコメント参照。この時点でbook.pagesは既に最新のnewPagesに
-        // 揃っているため、安全に呼べる)。
-        currentIndex = normalizedAnchorIndex(clampedIndex)
+        // 揃っているため、安全に呼べる)。focusPageKeyが無い呼び出しは「今表示している位置の
+        // 描き直し」なので、周囲の指定から組を推測する補正(条件2)は適用しない ―― 適用すると、
+        // 「1ページだけ送る」でずらした組み合わせが無関係な再読込のたびに引き戻されてしまう
+        // (honorsPredecessorClaimのコメント参照)。
+        currentIndex = normalizedAnchorIndex(clampedIndex, honorsPredecessorClaim: focusPageKey != nil)
 
         // 以下2つの枝はどちらもignorePreviousDisplayedRange: trueでloadCurrentSpreadを呼ぶ。
         // レイアウトデータの読み直しは「同じ位置の描き直し」であってページ送りではないため、
