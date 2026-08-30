@@ -1261,7 +1261,11 @@ final class ViewerViewModel: ObservableObject {
         let loader = pageLoader
         Task { [weak self] in
             await loader.setContrastCorrectionEnabled(newValue)
-            await self?.loadCurrentSpread()
+            // reloadLayoutDataと同じ理由でignorePreviousDisplayedRange: true。ここも
+            // 「同じ位置の描き直し」であってページ送りではないため、直前に表示していたページ
+            // (=いま描き直そうとしている見開きそのもの)を相方から外してはいけない
+            // (reloadLayoutDataの経緯のコメント参照)。
+            await self?.loadCurrentSpread(ignorePreviousDisplayedRange: true)
         }
     }
 
@@ -2461,6 +2465,21 @@ final class ViewerViewModel: ObservableObject {
         // 揃っているため、安全に呼べる)。
         currentIndex = normalizedAnchorIndex(clampedIndex)
 
+        // 以下2つの枝はどちらもignorePreviousDisplayedRange: trueでloadCurrentSpreadを呼ぶ。
+        // レイアウトデータの読み直しは「同じ位置の描き直し」であってページ送りではないため、
+        // 「直前に表示していたページを新しい相方として再利用しない」制約(lastDisplayedPageRange、
+        // shouldPairWithNextPage参照)を適用してはいけない ―― その「直前に表示していたページ」は、
+        // いままさに描き直そうとしている見開きそのものだから。
+        //
+        // 経緯(ユーザー報告): 環境設定「レイアウト」の「保存データ」を「削除する」にして、
+        // 見開き表示中の本を右クリックから書き出すと、その見開きが一時的に単ページ表示に
+        // なっていた。書き出し後の後始末(ViewerView.cleanUpExportedBook)がPageLayoutOverrideを
+        // 消す → layoutDataDidChange → ここ、という流れで、ページ単位の明示指定が消えたことで
+        // ペア判定が横長ヒューリスティック側へ落ち、そこで初めてこの制約に引っかかっていた
+        // (明示指定が残っているうちはshouldPairWithNextPageが手前で結論を出すため表面化しない)。
+        //
+        // ページ一覧を作り直した場合(updatedBookがある側)は、lastDisplayedPageRangeの
+        // インデックス自体が古い並びを指していて意味を失っているため、なおさら参照しない。
         if let updatedBook {
             Task { [weak self] in
                 guard let self else { return }
@@ -2475,7 +2494,7 @@ final class ViewerViewModel: ObservableObject {
                 // 表示の再計算(loadCurrentSpread)より前に必ず終えておく必要があるため、
                 // 同じTask内で順番に行う。
                 await self.pageLoader.updateBook(updatedBook)
-                await self.loadCurrentSpread()
+                await self.loadCurrentSpread(ignorePreviousDisplayedRange: true)
             }
         } else {
             // 読み方向・見開き強制のロック状態や、focusPageKeyによる表示移動、コントラスト補正
@@ -2485,7 +2504,7 @@ final class ViewerViewModel: ObservableObject {
                 if newContrastCorrectionEnabled != previousContrastCorrectionEnabled {
                     await self.pageLoader.setContrastCorrectionEnabled(newContrastCorrectionEnabled)
                 }
-                await self.loadCurrentSpread()
+                await self.loadCurrentSpread(ignorePreviousDisplayedRange: true)
             }
         }
     }
