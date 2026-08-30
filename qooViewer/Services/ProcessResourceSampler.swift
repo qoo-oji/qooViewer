@@ -164,9 +164,6 @@ final class ProcessResourceSampler: ObservableObject {
 
     private var timer: Timer?
     private var previousReading: ProcessResourceReading?
-    /// メニューバーのメニューが開いている間に取ったサンプルの待機列(下のtick()参照)。
-    /// メニューが閉じてから、たまっていた分をまとめて@Publishedへ反映する。
-    private var pendingReadings: [(reading: ProcessResourceReading, sample: ResourceSample?)] = []
 
     init() {
         latest = ProcessResourceReading.current()
@@ -190,10 +187,15 @@ final class ProcessResourceSampler: ObservableObject {
         latestSample = nil
         previousReading = ProcessResourceReading.current()
         latest = previousReading
-        // RunLoop.commonにするのは、スライダーのドラッグ中など(イベントトラッキングモード)にも
+        // RunLoop.commonにするのは、メニューやスライダーのドラッグ中(トラッキングモード)に
         // サンプリングと(ウインドウ内の)グラフの更新が止まらないようにするため。
-        // メニューバーのメニューが開いている間だけは、サンプリングは続けつつ@Publishedへの
-        // 反映を保留する(tick()参照)。
+        //
+        // かつてこの毎秒の@Publishedの発火は、QooViewerAppのbody(全Scene+.commands)を
+        // 毎回再評価させ、**開いている最中のメニューバーのメニューを毎秒作り直させていた**
+        // (表示メニューの描画崩れの一因として実測で確認)。現在はQooViewerAppがストアを
+        // 直接観測しない構造(AppStores/MenuBarMenuRefresher参照)になったため、ここは
+        // 何も気にせず毎秒発火してよい ―― メニューへの反映はMenuBarMenuRefresherが
+        // メニューの閉じたあとへまとめて送り、ウインドウ内のグラフだけがそのまま毎秒動く。
         let timer = Timer(timeInterval: Self.interval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
@@ -209,60 +211,16 @@ final class ProcessResourceSampler: ObservableObject {
         previousReading = nil
         latestSample = nil
         history = ResourceHistory()
-        pendingReadings = []
     }
 
-    /// 1秒に1回のサンプリング。
-    ///
-    /// このクラスはQooViewerAppの@StateObjectなので、ここでの@Publishedの発火は
-    /// (メニュー側がこの値を一切読んでいなくても)Sceneのbodyごと`.commands`を再評価させ、
-    /// AppKitのメニューを作り直させる。計測ONのままメニューバーのメニューを開くと、
-    /// **開いているメニューが毎秒作り直される**のを実測で確認した(表示メニューの描画崩れの
-    /// 一因。追跡中の作り直しはmacOS 26ではクラッシュの条件でもある。詳細は
-    /// MenuBarMenuGateの型コメント参照)。
-    ///
-    /// そこで、メニューバーのメニューが開いている間は**測るだけ測って発火を保留**し、閉じて
-    /// から一気に反映する。サンプル自体は途切れないため、グラフに空白は生まれない。タイマーを
-    /// RunLoop.commonから外す(=トラッキング中はtick自体を止める)案では、スライダーの
-    /// ドラッグ中までグラフが止まるうえ、サンプルの間隔が乱れて区間速度の意味が変わってしまう。
     private func tick() {
         guard let current = ProcessResourceReading.current() else { return }
-        var sample: ResourceSample?
         if let previous = previousReading {
-            sample = ResourceSample(from: previous, to: current)
+            let sample = ResourceSample(from: previous, to: current)
+            history.append(sample)
+            latestSample = sample
         }
         previousReading = current
-
-        guard MenuBarMenuGate.shared.isTracking else {
-            publish(readings: [(current, sample)])
-            return
-        }
-        pendingReadings.append((current, sample))
-        // 同じキーでの再予約は最後の1つだけが残るが、閉じた時点のpendingReadingsを丸ごと
-        // 反映するクロージャなので、どのtickの分が実行されても取りこぼしは無い。
-        MenuBarMenuGate.shared.run("ProcessResourceSampler.flush") { [weak self] in
-            guard let self else { return }
-            let readings = self.pendingReadings
-            self.pendingReadings = []
-            // 保留中に計測がOFFにされた場合は捨てる(stop()が履歴も待機列も空にしている)。
-            guard self.isRecording, !readings.isEmpty else { return }
-            self.publish(readings: readings)
-        }
-    }
-
-    /// 読み値(と区間速度)を@Publishedへ反映する。メニュー保留からのまとめ反映でも
-    /// 発火は履歴・最新値の各1回で済む。
-    private func publish(readings: [(reading: ProcessResourceReading, sample: ResourceSample?)]) {
-        guard let last = readings.last else { return }
-        let samples = readings.compactMap(\.sample)
-        if !samples.isEmpty {
-            var updated = history
-            for sample in samples {
-                updated.append(sample)
-            }
-            history = updated
-            latestSample = samples.last
-        }
-        latest = last.reading
+        latest = current
     }
 }

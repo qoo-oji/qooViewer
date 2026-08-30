@@ -12,31 +12,33 @@ import Combine
 @main
 struct QooViewerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var preferences = AppPreferences()
-    @StateObject private var keyBindingStore = KeyBindingStore()
-    @StateObject private var recentFiles = RecentFilesStore()
-    @StateObject private var folderAccess = FolderAccessStore()
-    /// サイドパネルのリソースモニタの計測役。CPU・メモリ・ディスクI/Oはプロセスの値なので
-    /// アプリで1つ(ProcessResourceSamplerのコメント参照)。
-    @StateObject private var resourceSampler = ProcessResourceSampler()
-    /// お気に入り(階層フォルダ + 登録した本)。RecentFilesStore等と違いSwiftDataで永続化するため、
-    /// modelContainerから作ったModelContextを渡す必要があり、下のinit()で明示的に生成している。
-    @StateObject private var favoritesStore: FavoritesStore
-    /// ブックマーク(すべての本を横断)。favoritesStoreと同じ理由でModelContextを明示的に
-    /// 渡す必要があるため、下のinit()で組み立てる。
-    @StateObject private var bookmarkStore: BookmarkStore
-    /// ページレイアウト設定(すべての本を横断)。bookmarkStoreと同じ理由でModelContextを
-    /// 明示的に渡す必要があるため、下のinit()で組み立てる。
-    @StateObject private var layoutStore: LayoutStore
-    /// 書誌メタデータ(著者・タイトル・シリーズ・巻数。すべての本を横断)。layoutStoreと
-    /// 同じ理由でModelContextを明示的に渡す必要があるため、下のinit()で組み立てる。
-    @StateObject private var metadataStore: BookMetadataStore
-    /// メタデータをファイル名から推測するための3種類のルール(ファイル名フォーマット・
-    /// 巻数フォーマット・除外文字列)。UserDefaultsに保存するためModelContextは不要で、
-    /// AppPreferencesと同じく宣言時のデフォルト値で初期化できる。
-    @StateObject private var metadataFormatStore = MetadataFormatStore()
-    /// 複数ウインドウ/タブに対応するための調整役。詳細はLaunchCoordinator.swiftのコメント参照。
-    @StateObject private var launchCoordinator = LaunchCoordinator()
+    /// アプリ全体で共有するストア一式。**この型自体は何もpublishしない**(AppStoresの型
+    /// コメント参照)ため、@StateObjectとして持っていても、各ストアの@Publishedの発火で
+    /// このAppのbodyが再評価されることはない。以前は各ストアを1つずつ@StateObjectとして
+    /// 持っていたが、それだと**どれか1つの発火のたびにbody全体(全Scene+.commands)が
+    /// 再評価され、開いている最中のメニューバーのメニューまで作り直されて描画が崩れていた**
+    /// (メニュー描画崩れの根本原因。詳細はAppStoresとMenuBarMenuGateの型コメント参照)。
+    /// **共有ストアを増やすときは@StateObjectをここへ足さず、AppStoresへ足すこと。**
+    @StateObject private var stores: AppStores
+    /// ストアのどれかが変わったことを、メニューバーが安全なタイミングでだけこのbodyへ
+    /// 伝える中継役(MenuBarMenuRefresherの型コメント参照)。このAppが観測する唯一の
+    /// オブジェクト。bodyがrevisionを読む必要は無い ―― @StateObjectはbodyが値を読んで
+    /// いなくてもobjectWillChangeで再評価をかけるため、保持しているだけで機能する。
+    @StateObject private var menuBarRefresher: MenuBarMenuRefresher
+
+    // 以下は、各ストアを個別の@StateObjectとして持っていた頃からのbody内の参照
+    // (`preferences.…`など)をそのまま生かすための読み替え。実体はすべてstoresの中にある。
+    private var preferences: AppPreferences { stores.preferences }
+    private var keyBindingStore: KeyBindingStore { stores.keyBindingStore }
+    private var recentFiles: RecentFilesStore { stores.recentFiles }
+    private var folderAccess: FolderAccessStore { stores.folderAccess }
+    private var resourceSampler: ProcessResourceSampler { stores.resourceSampler }
+    private var favoritesStore: FavoritesStore { stores.favoritesStore }
+    private var bookmarkStore: BookmarkStore { stores.bookmarkStore }
+    private var layoutStore: LayoutStore { stores.layoutStore }
+    private var metadataStore: BookMetadataStore { stores.metadataStore }
+    private var metadataFormatStore: MetadataFormatStore { stores.metadataFormatStore }
+    private var launchCoordinator: LaunchCoordinator { stores.launchCoordinator }
     /// メニューバー(アプリ全体で1つ)から、今アクティブな(キーウインドウの)AppStateを
     /// 参照するための仕組み。詳細はAppState.swiftのFocusedValues拡張のコメント参照。
     @FocusedValue(\.qooViewerAppState) private var focusedAppState
@@ -95,7 +97,8 @@ struct QooViewerApp: App {
     /// 自分の意思で同じことを手動で行うための機能で、こちらは正常に起動できている場合のみ
     /// 使える。両方を用意することで、「起動できる場合」「起動できない場合」のどちらでも
     /// リセットできるようにしている)
-    private static let modelContainer: ModelContainer = {
+    // privateでないのは、SwiftData系ストアの生成時にAppStores.initがmainContextを取り出すため。
+    static let modelContainer: ModelContainer = {
         do {
             return try ModelContainer(for: modelSchema, configurations: [modelConfiguration])
         } catch {
@@ -203,18 +206,13 @@ struct QooViewerApp: App {
     /// この条件に該当しうる操作の密度はむしろ従来より上がる)。
     @MainActor
     init() {
-        _favoritesStore = StateObject(
-            wrappedValue: FavoritesStore(modelContext: QooViewerApp.modelContainer.mainContext)
-        )
-        _bookmarkStore = StateObject(
-            wrappedValue: BookmarkStore(modelContext: QooViewerApp.modelContainer.mainContext)
-        )
-        _layoutStore = StateObject(
-            wrappedValue: LayoutStore(modelContext: QooViewerApp.modelContainer.mainContext)
-        )
-        _metadataStore = StateObject(
-            wrappedValue: BookMetadataStore(modelContext: QooViewerApp.modelContainer.mainContext)
-        )
+        // storesとmenuBarRefresherは同じインスタンスを共有する必要があるため、両方とも
+        // ここで組み立てる。@StateObject(wrappedValue:)へ渡した値が実際に採用されるのは
+        // 最初の1回だけだが、Appのinit自体が1回しか走らない前提はこの書き換えの前
+        // (SwiftData系4ストアをここで生成していた頃)から同じ。
+        let stores = AppStores()
+        _stores = StateObject(wrappedValue: stores)
+        _menuBarRefresher = StateObject(wrappedValue: MenuBarMenuRefresher(observing: stores))
     }
 
     /// 本を表示するウインドウ("main"/"book"/"normal"/"private" の4つのWindowGroup)の中身。
@@ -1886,6 +1884,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 何をどう1冊にまとめるか(全部画像なら1冊 / それ以外は先頭のみ)の判定は、
         // ドロップ・パネル経由と食い違わないようBookOpenRequestの1箇所に集約してある。
         guard let request = BookOpenRequest(openingCandidates: urls) else { return }
+        // メニューバーのメニューが開いている間に外部(AppleScript・openコマンド等)から本を
+        // 渡された場合は、メニューが閉じるまで保留する。ウインドウの再利用でも新規作成でも、
+        // ウインドウタイトルの変更・ウインドウの生成・FocusedValueの変化を伴い、開いている
+        // 最中のメニューの再構築(=macOS 26での描画崩れ/クラッシュの条件)を引き起こすため
+        // (MenuBarMenuGateの型コメント参照)。Finderからの「開く」は、ユーザーがFinderへ
+        // クリックした時点でこちらのメニューは閉じている(アプリの非アクティブ化で
+        // MenuBarMenuGateが追跡を打ち切る)ため、実際に保留が働くのは自動化経由がほとんど。
+        // キーを毎回変えるのは、保留中に複数の「開く」が届いても届いた順にすべて実行するため
+        // (同じキーに重ねると最後の1件しか実行されない)。
+        MenuBarMenuGate.shared.run("AppDelegate.open-\(UUID().uuidString)") { [weak self] in
+            self?.performExternalOpen(request: request)
+        }
+    }
+
+    /// application(_:open:)の本体(メニューバーのメニューが開いている間の保留を挟むため、
+    /// 受け取りと実行を分けてある)。
+    private func performExternalOpen(request: BookOpenRequest) {
         // バグ修正(ユーザー報告): primaryAppStateそのものの有無だけでなく、
         // その`hostWindow`が今も実際に存在するかも確認する。SwiftUIのWindowGroup(id:)の
         // 標準の状態復元は、ウインドウを閉じてもその中身(@StateObjectのappState)をすぐには

@@ -310,27 +310,38 @@ struct ViewerView: View {
         //   ViewerViewModel → このクロージャ → AppState → 橋渡し → ViewerViewのコピー → ViewerViewModel
         // という遠回りの循環が、両者の後始末が済むまでの間だけとはいえ成立してしまうため。
         // どちらも既に解放されているなら、そもそも次の本を開く先が無いので何もしなくてよい。
+        // メニューバーのメニューが開いている間に境界動作が届いた場合(スライドショーは
+        // メニューを開いたままでも進み続けるため、末尾に達すればここが呼ばれる)は、閉じる
+        // まで保留する。「次の本へ」はcurrentBookの変更(=ウインドウタイトルの変更→開いて
+        // いる最中のウインドウメニューの作り直し)、「本を閉じる」「ウェルカム画面へ戻る」は
+        // ウインドウ/タブそのものやFocusedValueの変化を伴い、いずれも開いている最中の
+        // メニューの再構築を引き起こすため(MenuBarMenuGateの型コメント参照)。
+        // キーはウインドウ(viewModel)ごとに分ける ―― 複数ウインドウのスライドショーが
+        // 同時に末尾へ達しても、互いの保留をつぶさないように。
+        let boundaryGateKey = "ViewerView.pageBoundary-\(ObjectIdentifier(viewModel))"
         viewModel.onPageBoundaryRequest = { [weak appState = self.appState, weak viewModel = self.viewModel] request in
-            guard let appState, let viewModel else { return }
-            switch request {
-            case .openSiblingBook(let forward, let landsOnEdge):
-                if forward {
-                    appState.openSibling(after: viewModel.book.sourceURL, landsOnFirstPage: landsOnEdge)
-                } else {
-                    appState.openSibling(before: viewModel.book.sourceURL, landsOnLastPage: landsOnEdge)
+            MenuBarMenuGate.shared.run(boundaryGateKey) { [weak appState, weak viewModel] in
+                guard let appState, let viewModel else { return }
+                switch request {
+                case .openSiblingBook(let forward, let landsOnEdge):
+                    if forward {
+                        appState.openSibling(after: viewModel.book.sourceURL, landsOnFirstPage: landsOnEdge)
+                    } else {
+                        appState.openSibling(before: viewModel.book.sourceURL, landsOnLastPage: landsOnEdge)
+                    }
+                case .closeBook:
+                    // 「本を閉じる」はViewerAction.closeTabと同じ経路(タブが1枚ならウインドウごと)。
+                    // 実体はperform(_:)にあり、ホストウインドウ(@State)を実行時に読む必要があるため、
+                    // ここで直接呼ばずappStateに登録済みの橋渡しを経由する ―― このクロージャが
+                    // ViewerView自身を強くキャプチャしてしまうのを避けるため(上のコメント参照)。
+                    appState.performViewerAction?(.closeTab)
+                case .returnToWelcome:
+                    // 本だけ閉じて、同じウインドウにウェルカム画面を出す。読書位置の保留分は
+                    // ViewerViewが消えるときのonDisappearでも確定するが、こちらが先に走る保証は
+                    // 無いのでここでも確定させておく(flushPendingSaveは二度呼んでも害が無い)。
+                    viewModel.flushPendingSave()
+                    appState.closeBook()
                 }
-            case .closeBook:
-                // 「本を閉じる」はViewerAction.closeTabと同じ経路(タブが1枚ならウインドウごと)。
-                // 実体はperform(_:)にあり、ホストウインドウ(@State)を実行時に読む必要があるため、
-                // ここで直接呼ばずappStateに登録済みの橋渡しを経由する ―― このクロージャが
-                // ViewerView自身を強くキャプチャしてしまうのを避けるため(上のコメント参照)。
-                appState.performViewerAction?(.closeTab)
-            case .returnToWelcome:
-                // 本だけ閉じて、同じウインドウにウェルカム画面を出す。読書位置の保留分は
-                // ViewerViewが消えるときのonDisappearでも確定するが、こちらが先に走る保証は
-                // 無いのでここでも確定させておく(flushPendingSaveは二度呼んでも害が無い)。
-                viewModel.flushPendingSave()
-                appState.closeBook()
             }
         }
         appState.performViewerAction = { action in
@@ -1544,7 +1555,18 @@ struct ViewerView: View {
                 ) { didExport in
                     openBookExport = nil
                     guard didExport else { return }
-                    finishOpenBookExport(format: request.format)
+                    // 保存先を設定済みだと書き出しは何も尋ねずに進み、この完了はユーザーの
+                    // 操作と無関係なタイミングで届く。その瞬間にメニューバーのメニューが
+                    // 開いていた場合、後始末(保存データの削除=App共有ストアの変更)と
+                    // 「書き出したあとの動作」(本の切り替え/ウインドウを閉じる=ウインドウ
+                    // タイトルやFocusedValueの変化)が、開いている最中のメニューの再構築を
+                    // 引き起こすため、閉じるまで保留する(MenuBarMenuGateの型コメント参照)。
+                    // キーは境界動作と同様にウインドウ(viewModel)ごとに分ける。
+                    MenuBarMenuGate.shared.run(
+                        "ViewerView.exportCompletion-\(ObjectIdentifier(viewModel))"
+                    ) {
+                        finishOpenBookExport(format: request.format)
+                    }
                 }
             }
             // 「書き出したあとの動作」が「毎回確認」のときのシート。「最後のページで」の
