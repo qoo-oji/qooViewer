@@ -12,7 +12,6 @@ struct ExportWindowConfiguration {
     let emptyDescription: LocalizedStringKey
     /// 一覧の下に常時表示しておく注意書き(PDFの「見開き情報は失われる」など)。不要ならnil。
     let warningBanner: LocalizedStringKey?
-    let startButtonTitle: LocalizedStringKey
     let progressTitle: LocalizedStringKey
     /// 出力ファイルの拡張子。同名確認のメッセージに使う。
     let fileExtension: String
@@ -409,7 +408,14 @@ struct ExportWindowContent<Options: View>: View {
             }
             .keyboardShortcut(.cancelAction)
 
-            Button(configuration.startButtonTitle) {
+            // 「…」は「押すと必ず何か尋ねられる」ことを表す記号なので、保存先が決めてあって
+            // パネルが出ないときは付けない(コンテキストメニューの「EPUBとして書き出す」に
+            // 「…」を付けていないのと同じ理由。BookExportFormat.menuTitleKey参照)。
+            Button(
+                fixedDestination == nil
+                    ? viewModel.format.startExportTitleKey
+                    : viewModel.format.startExportWithoutPanelTitleKey
+            ) {
                 startExportButtonTapped()
             }
             .disabled(viewModel.selectedBookIDs.isEmpty || viewModel.isExporting)
@@ -420,8 +426,39 @@ struct ExportWindowContent<Options: View>: View {
         .overlay(alignment: .top) { Divider() }
     }
 
+    /// 環境設定「レイアウト」で、この形式の保存先が決めてあるか
+    /// (AppPreferences.bookExportDestinationMode参照)。
+    ///
+    /// 決めてあれば、このウインドウも保存先を尋ねない。
+    ///
+    /// ■ 経緯(ユーザーからの指摘)
+    /// 「保存先」の設定を入れた当初、それに従うのはビューアの右クリックからの書き出しだけで、
+    /// この3つのウインドウは**設定を無視して常にフォルダ選択パネルを開いていた**。
+    /// 同じ「EPUBの保存先」を決めたつもりでも、どのメニューから書き出したかで効いたり
+    /// 効かなかったりする、というちぐはぐな状態になっていた。
+    ///
+    /// 保存先は形式の性質であって、どの画面から呼んだかで変わるものではないので、
+    /// 設定は両方の経路に等しく効かせる。
+    private var fixedDestination: URL? {
+        guard preferences.bookExportDestinationMode(for: viewModel.format) == .fixedFolder else {
+            return nil
+        }
+        // 決めてあってもブックマークが解決できない(フォルダが消された・外付けが外れている)
+        // ことはある。その場合はnilを返してパネルへ落とし、その場で選び直せるようにする
+        // (ViewerView.startOpenBookExportと同じ考え方)。
+        return viewModel.format.fixedFolder.lastFolder()
+    }
+
     private func startExportButtonTapped() {
         let locale = preferences.effectiveLocale
+
+        if let fixedDestination {
+            // 保存済みのブックマークから解決したフォルダなので、書き出しのあいだ
+            // セキュリティスコープを開いておく(OpenBookExportSheet.runと同じ理由)。
+            startExport(to: fixedDestination, isSecurityScoped: true, locale: locale)
+            return
+        }
+
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -433,8 +470,15 @@ struct ExportWindowContent<Options: View>: View {
         }
         guard panel.runModal() == .OK, let destination = panel.url else { return }
         configuration.lastUsedFolder.remember(destination)
+        // パネルで今まさに選んだフォルダには既に権限が付いているので、開き直す必要は無い。
+        startExport(to: destination, isSecurityScoped: false, locale: locale)
+    }
+
+    private func startExport(to destination: URL, isSecurityScoped: Bool, locale: Locale) {
+        let didAccess = isSecurityScoped && destination.startAccessingSecurityScopedResource()
 
         guard viewModel.hasSufficientDiskSpace(at: destination) else {
+            if didAccess { destination.stopAccessingSecurityScopedResource() }
             insufficientSpaceMessage = String(
                 localized: "The destination volume doesn't have enough free space (at least 1.2× the total size of the selected books is required). Choose a different destination, or select fewer books.",
                 locale: locale
@@ -443,6 +487,7 @@ struct ExportWindowContent<Options: View>: View {
         }
 
         Task {
+            defer { if didAccess { destination.stopAccessingSecurityScopedResource() } }
             await viewModel.startExport(destinationFolder: destination)
         }
     }

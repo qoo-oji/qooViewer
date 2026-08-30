@@ -15,7 +15,6 @@ struct CbzExportWindow: View {
         showsCoverColumn: true,
         emptyDescription: "Books need bookmarks, page layout settings, or metadata before they can be exported as CBZ.",
         warningBanner: nil,
-        startButtonTitle: "Start CBZ Export…",
         progressTitle: "Exporting CBZ Files…",
         fileExtension: "cbz",
         destinationPanelMessage: { locale in

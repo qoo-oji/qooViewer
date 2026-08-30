@@ -52,6 +52,25 @@ enum BookExportFormat: String, CaseIterable, Identifiable, Codable, Hashable {
         }
     }
 
+    /// 書き出しウインドウ下部の実行ボタンの名前。保存先を尋ねるパネルが出る場合。
+    var startExportTitleKey: LocalizedStringKey {
+        switch self {
+        case .epub: "Start EPUB Export…"
+        case .pdf: "Start PDF Export…"
+        case .cbz: "Start CBZ Export…"
+        }
+    }
+
+    /// 同じボタンの、パネルが出ない場合(環境設定「レイアウト」で保存先を決めてある場合)の名前。
+    /// 「…」が付かないだけの違い(ExportWindowContentのボタンのコメント参照)。
+    var startExportWithoutPanelTitleKey: LocalizedStringKey {
+        switch self {
+        case .epub: "Start EPUB Export"
+        case .pdf: "Start PDF Export"
+        case .cbz: "Start CBZ Export"
+        }
+    }
+
     /// 書き出しウインドウの保存先パネルが最後に開いたフォルダ(次に開くときの初期位置)。
     var lastUsedFolder: LastUsedFolderMemory {
         switch self {

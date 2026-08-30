@@ -13764,6 +13764,57 @@
           }
         }
       }
+    },
+    "Start CBZ Export" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start CBZ Export"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CBZの書き出しを開始"
+          }
+        }
+      }
+    },
+    "Start EPUB Export" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start EPUB Export"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "EPUBの書き出しを開始"
+          }
+        }
+      }
+    },
+    "Start PDF Export" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start PDF Export"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PDFの書き出しを開始"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

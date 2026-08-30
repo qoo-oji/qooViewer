@@ -27,7 +27,6 @@ struct EpubExportWindow: View {
         showsCoverColumn: true,
         emptyDescription: "Books need bookmarks, page layout settings, or metadata before they can be exported as EPUB.",
         warningBanner: nil,
-        startButtonTitle: "Start EPUB Export…",
         progressTitle: "Exporting EPUB Files…",
         fileExtension: "epub",
         destinationPanelMessage: { locale in

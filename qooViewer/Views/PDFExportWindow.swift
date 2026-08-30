@@ -25,7 +25,6 @@ struct PDFExportWindow: View {
         // 「PDFでは何も引き継げない」という以前の状況とは重みが違ううえ、ページ単位の指定を
         // 使っている本自体が限られるため、全員に常時見せる警告は出さない。
         warningBanner: nil,
-        startButtonTitle: "Start PDF Export…",
         progressTitle: "Exporting PDF Files…",
         fileExtension: "pdf",
         destinationPanelMessage: { locale in
