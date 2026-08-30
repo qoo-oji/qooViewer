@@ -4501,7 +4501,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "CBZとして書き出す…"
+            "value" : "CBZの書き出し…"
           }
         }
       }
@@ -4533,7 +4533,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "EPUBとして書き出す…"
+            "value" : "EPUBの書き出し…"
           }
         }
       }
@@ -4565,7 +4565,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "PDFとして書き出す…"
+            "value" : "PDFの書き出し…"
           }
         }
       }
@@ -13731,23 +13731,6 @@
         }
       }
     },
-    "Choose a Folder" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose a Folder"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "フォルダを選択"
-          }
-        }
-      }
-    },
     "Once a folder is chosen, exporting from the right-click menu asks nothing and writes straight to it." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -13812,6 +13795,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PDFの書き出しを開始"
+          }
+        }
+      }
+    },
+    "Set a Default Export Folder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set a Default Export Folder"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "既定の書き出し先を設定"
           }
         }
       }
