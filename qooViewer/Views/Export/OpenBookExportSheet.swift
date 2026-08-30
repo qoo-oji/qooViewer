@@ -90,14 +90,11 @@ struct OpenBookExportSheet: View {
             Divider()
 
             // 保存先。まだ選んでいなければ、下の「書き出す」は押せない。
+            // フォルダ名だけでなくパス全体を出す理由はExportDestinationLabel参照。
             HStack(spacing: 8) {
                 Text("Destination")
                 Spacer(minLength: 12)
-                Text(destination?.lastPathComponent ?? String(localized: "Not Set"))
-                    .foregroundStyle(destination == nil ? .secondary : .primary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(destination?.path ?? "")
+                ExportDestinationLabel(path: destination?.path)
                 Button("Choose…") {
                     chooseDestination()
                 }

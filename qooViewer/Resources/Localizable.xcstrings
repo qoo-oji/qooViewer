@@ -13629,23 +13629,6 @@
         }
       }
     },
-    "Fixed Folder" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Fixed Folder"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "固定のフォルダ"
-          }
-        }
-      }
-    },
     "Lays out the whole book the same way “Auto-Layout Based on Current View” does, using the first page as the starting point. Books that already have layout data — including EPUB and PDF, whose layout is imported the first time you open them — are left alone." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -13748,19 +13731,36 @@
         }
       }
     },
-    "With a fixed folder, exporting from the right-click menu asks nothing and writes straight to that folder." : {
+    "Choose a Folder" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "With a fixed folder, exporting from the right-click menu asks nothing and writes straight to that folder."
+            "value" : "Choose a Folder"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "固定のフォルダにすると、右クリックからの書き出しは何も尋ねずにそのフォルダへ書き出します。"
+            "value" : "フォルダを選択"
+          }
+        }
+      }
+    },
+    "Once a folder is chosen, exporting from the right-click menu asks nothing and writes straight to it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Once a folder is chosen, exporting from the right-click menu asks nothing and writes straight to it."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダを決めておくと、右クリックからの書き出しは何も尋ねずにそのフォルダへ書き出します。"
           }
         }
       }

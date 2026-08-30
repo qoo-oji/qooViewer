@@ -144,7 +144,7 @@ extension BookExportDestinationMode: SettingsOption {
     var shortTitleKey: LocalizedStringKey {
         switch self {
         case .askEachTime: return "Ask Each Time"
-        case .fixedFolder: return "Fixed Folder"
+        case .fixedFolder: return "Choose a Folder"
         }
     }
 }

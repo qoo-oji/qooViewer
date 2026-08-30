@@ -197,3 +197,40 @@ private struct CbzVolumeElementToggle: View {
             .help("Kavita reads Volume as the volume number, but Komga appends it to the series name, which can split a series into one series per volume.")
     }
 }
+
+// MARK: - 保存先フォルダの表示
+
+/// 「いま保存先になっているフォルダ」を1行で見せる部品。
+///
+/// ■ なぜフォルダ名だけではいけないのか(ユーザー報告)
+/// 以前はフォルダ名(`lastPathComponent`)だけを出していた。書き出し先を形式名で分けて
+/// 管理している人 ―― `.../My Sample/EPUB`、`.../My Sample/CBZ` のような作り ―― では、
+/// 「保存先: EPUB」と出ることになり、**保存先ではなく書き出す形式が表示されているように
+/// 読めてしまう**。実際に表示していたのは正しいフォルダ名だったが、
+/// 名前だけでは「場所」だと伝わらない、という指摘。
+///
+/// フォルダのアイコンとパス全体を出して、場所であることを形からも文字からも示す。
+/// 見せ方は環境設定「フォルダのアクセス権」の一覧(名前の下にパスを添える)と同じ考え方で、
+/// あちらと違ってこの行はラベルとボタンに挟まれた1行なので、パスだけを中央省略で出す。
+struct ExportDestinationLabel: View {
+    /// 保存先のパス。まだ決まっていなければnil。
+    let path: String?
+
+    var body: some View {
+        if let path {
+            HStack(spacing: 4) {
+                Image(systemName: "folder")
+                    .foregroundStyle(.secondary)
+                Text(path)
+                    .lineLimit(1)
+                    // 末尾(=フォルダ名そのもの)は最後まで残したいので、省略は真ん中で行う。
+                    .truncationMode(.middle)
+            }
+            // 省略されて読めない場合のために、全体を吹き出しでも出す。
+            .help(path)
+        } else {
+            Text("Not Set")
+                .foregroundStyle(.secondary)
+        }
+    }
+}

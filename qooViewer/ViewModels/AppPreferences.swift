@@ -870,7 +870,7 @@ final class AppPreferences: ObservableObject {
         didSet { Self.saveFormatSettings(bookExportHistoryCleanups, key: Keys.bookExportHistoryCleanup) }
     }
 
-    /// 保存先の決め方(毎回確認 / 固定のフォルダ)。
+    /// 保存先の決め方(毎回確認 / フォルダを選択)。
     func bookExportDestinationMode(for format: BookExportFormat) -> BookExportDestinationMode {
         bookExportDestinationModes[format] ?? .askEachTime
     }

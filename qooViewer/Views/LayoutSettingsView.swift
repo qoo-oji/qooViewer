@@ -53,7 +53,7 @@ struct LayoutSettingsView: View {
                     SettingsPicker(
                         "Destination",
                         selection: destinationModeBinding(for: format),
-                        help: "With a fixed folder, exporting from the right-click menu asks nothing and writes straight to that folder."
+                        help: "Once a folder is chosen, exporting from the right-click menu asks nothing and writes straight to it."
                     )
                     if preferences.bookExportDestinationMode(for: format) == .fixedFolder {
                         fixedFolderRow(for: format)
@@ -142,7 +142,7 @@ struct LayoutSettingsView: View {
                           format.fixedFolder.lastFolderPath() == nil
                     else { return }
                     // 一度も設定されていないのにフォルダを選ばずに閉じられた。保存先の
-                    // 分からない「固定のフォルダ」が残ってしまうので「毎回確認」へ戻す。
+                    // 分からない「フォルダを選択」が残ってしまうので「毎回確認」へ戻す。
                     stored.wrappedValue = .askEachTime
                 }
             }
@@ -157,12 +157,9 @@ struct LayoutSettingsView: View {
         let path = { _ = fixedFolderGeneration; return format.fixedFolder.lastFolderPath() }()
         return SettingRow("Folder") {
             HStack(spacing: 8) {
-                Text(path.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "")
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    // フルパスは長すぎて行に収まらないので、ホバーの吹き出しで見せる
-                    // (SettingsColorRowが色の詳細をダイアログへ逃がしているのと同じ考え方)。
-                    .help(path ?? "")
+                // フォルダ名だけだと、書き出し先を形式名で分けている人には
+                // 「保存先」ではなく「形式」に見える(ExportDestinationLabel参照)。
+                ExportDestinationLabel(path: path)
                 Button("Change…") {
                     _ = chooseFixedFolder(for: format)
                 }
