@@ -9,7 +9,7 @@ import Foundation
 /// 仕組みが無く、実質的にPDFの1ページ目がカバーとして扱われるため
 /// (PDFExportInputのコメント、ユーザーの意向参照)。
 final class PDFExportViewModel: BookExportViewModel {
-    override var outputFileExtension: String { "pdf" }
+    override var format: BookExportFormat { .pdf }
 
     override func export(_ prepared: PreparedBook, to destinationURL: URL) async throws {
         let input = PDFExportInput(

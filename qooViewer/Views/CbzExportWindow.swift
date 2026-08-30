@@ -29,7 +29,7 @@ struct CbzExportWindow: View {
         Group {
             if let viewModel {
                 ExportWindowContent(viewModel: viewModel, configuration: Self.configuration) {
-                    CbzExportOptionsView(viewModel: viewModel)
+                    BookExportFormatOptions(format: .cbz, viewModel: viewModel)
                 }
             } else {
                 ProgressView()
@@ -42,20 +42,5 @@ struct CbzExportWindow: View {
                     }
             }
         }
-    }
-}
-
-/// CBZ固有の出力オプション(EpubExportOptionsViewと同じ理由で分けてある)。
-private struct CbzExportOptionsView: View {
-    @ObservedObject var viewModel: CbzExportViewModel
-
-    var body: some View {
-        Toggle("Renumber Image Files Sequentially", isOn: $viewModel.renumberImagesSequentially)
-            // CBZには読み順を表すメタデータが無く、ファイル名の並び順だけが順序を決めるため、
-            // OFFにするとページの並べ替え・除外が他アプリで再現されないことがある。
-            .help("CBZ files have no page-order metadata, so readers sort by file name. Turn this off only if you want to keep the original file names.")
-        Toggle("Include Excluded Pages", isOn: $viewModel.includeExcludedPages)
-        Toggle("Also Write the Volume Number to ComicInfo’s Volume Element", isOn: $viewModel.writesVolumeElement)
-            .help("Kavita reads Volume as the volume number, but Komga appends it to the series name, which can split a series into one series per volume.")
     }
 }

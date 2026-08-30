@@ -13356,6 +13356,414 @@
           }
         }
       }
+    },
+    "Afterwards" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afterwards"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "そのあと"
+          }
+        }
+      }
+    },
+    "Choose a destination folder for the exported book." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a destination folder for the exported book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出した本の保存先フォルダを選んでください。"
+          }
+        }
+      }
+    },
+    "Choose the folder to always export to." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose the folder to always export to."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "常に書き出し先にするフォルダを選んでください。"
+          }
+        }
+      }
+    },
+    "Choose…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択…"
+          }
+        }
+      }
+    },
+    "Couldn’t Export the Book" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t Export the Book"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を書き出せませんでした"
+          }
+        }
+      }
+    },
+    "Deletes this book's page layout, bookmarks, metadata and reading position once it has been exported. Favorites are kept. This can't be undone." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deletes this book's page layout, bookmarks, metadata and reading position once it has been exported. Favorites are kept. This can't be undone."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出しが終わった本のレイアウト・ブックマーク・メタデータ・読書位置を削除します。お気に入りは残ります。\nこの操作は取り消せません。"
+          }
+        }
+      }
+    },
+    "Destination" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Destination"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存先"
+          }
+        }
+      }
+    },
+    "Export" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出す"
+          }
+        }
+      }
+    },
+    "Export Book" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export Book"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本の書き出し"
+          }
+        }
+      }
+    },
+    "Export This Book as CBZ" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export This Book as CBZ"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CBZとして書き出す"
+          }
+        }
+      }
+    },
+    "Export This Book as EPUB" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export This Book as EPUB"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "EPUBとして書き出す"
+          }
+        }
+      }
+    },
+    "Export This Book as PDF" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export This Book as PDF"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PDFとして書き出す"
+          }
+        }
+      }
+    },
+    "Exporting Book…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exporting Book…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を書き出しています…"
+          }
+        }
+      }
+    },
+    "Exporting the Book You Are Reading" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exporting the Book You Are Reading"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示している本を書き出したとき"
+          }
+        }
+      }
+    },
+    "First Page as Single" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "First Page as Single"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1ページ目を単ページに"
+          }
+        }
+      }
+    },
+    "First Page as Spread" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "First Page as Spread"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1ページ目を見開きに"
+          }
+        }
+      }
+    },
+    "Fixed Folder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fixed Folder"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "固定のフォルダ"
+          }
+        }
+      }
+    },
+    "Lays out the whole book the same way “Auto-Layout Based on Current View” does, using the first page as the starting point. Books that already have layout data — including EPUB and PDF, whose layout is imported the first time you open them — are left alone." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lays out the whole book the same way “Auto-Layout Based on Current View” does, using the first page as the starting point. Books that already have layout data — including EPUB and PDF, whose layout is imported the first time you open them — are left alone."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「現在の表示を基準に自動でレイアウト」と同じ計算を、1ページ目を起点にして本全体に行います。\nレイアウトの保存データが既にある本には何もしません(EPUB・PDFは初めて開いた時点でファイル側のレイアウトを読み込むため、これに含まれます)。"
+          }
+        }
+      }
+    },
+    "Not Set" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not Set"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未設定"
+          }
+        }
+      }
+    },
+    "Opening a Book Without Layout Data" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening a Book Without Layout Data"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "レイアウトの保存データが無い本を開いたとき"
+          }
+        }
+      }
+    },
+    "Removes this book from the history list once it has been exported. The book itself is not touched." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removes this book from the history list once it has been exported. The book itself is not touched."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出しが終わった本を履歴から削除します。本そのものには触れません。"
+          }
+        }
+      }
+    },
+    "Restores every setting on this page, including the fixed destination folders. Other pages, and your favorites, bookmarks and reading history, are not affected." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores every setting on this page, including the fixed destination folders. Other pages, and your favorites, bookmarks and reading history, are not affected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この画面のすべての設定を初期設定に戻します(固定の保存先フォルダも含みます)。\n他の画面の設定と、お気に入り・ブックマーク・読書位置には影響しません。"
+          }
+        }
+      }
+    },
+    "The book has been exported." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The book has been exported."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を書き出しました。"
+          }
+        }
+      }
+    },
+    "With a fixed folder, exporting from the right-click menu asks nothing and writes straight to that folder." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "With a fixed folder, exporting from the right-click menu asks nothing and writes straight to that folder."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "固定のフォルダにすると、右クリックからの書き出しは何も尋ねずにそのフォルダへ書き出します。"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

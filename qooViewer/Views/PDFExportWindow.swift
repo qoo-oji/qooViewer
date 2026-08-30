@@ -39,7 +39,7 @@ struct PDFExportWindow: View {
         Group {
             if let viewModel {
                 ExportWindowContent(viewModel: viewModel, configuration: Self.configuration) {
-                    PDFExportOptionsView(viewModel: viewModel)
+                    BookExportFormatOptions(format: .pdf, viewModel: viewModel)
                 }
             } else {
                 ProgressView()
@@ -52,15 +52,5 @@ struct PDFExportWindow: View {
                     }
             }
         }
-    }
-}
-
-/// PDF固有の出力オプション(EpubExportOptionsViewと同じ理由で分けてある)。
-/// 連番リネームに相当する項目はPDF出力には無い(PDFExportOptions参照)。
-private struct PDFExportOptionsView: View {
-    @ObservedObject var viewModel: PDFExportViewModel
-
-    var body: some View {
-        Toggle("Include Excluded Pages", isOn: $viewModel.includeExcludedPages)
     }
 }

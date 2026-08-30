@@ -151,3 +151,49 @@ struct ExportResultSheet: View {
         .frame(minWidth: 420, minHeight: viewModel.failures.isEmpty ? 160 : 320)
     }
 }
+
+// MARK: - 形式ごとの書き出しオプション
+
+/// EPUB / PDF / CBZ それぞれの書き出しオプション(チェックボックス群)。
+///
+/// 元は各書き出しウインドウの中のprivateな型として3つ別々に置いてあった。ビューアの
+/// 右クリックから1冊だけ書き出すシート(`OpenBookExportSheet`)でも**同じ項目を同じ並びで**
+/// 出す必要が生まれたため、ここへ集約した(3か所で内容を揃える、というこのリポジトリの
+/// 既定の作法。`PageContextMenuItems`のコメント参照)。
+///
+/// 受け取るのは基底クラスの`BookExportViewModel`。CBZ固有の項目だけは、その場で
+/// `CbzExportViewModel`へ降ろして観測し直す(同じインスタンスなので、どちらで観測しても
+/// 変更通知は届く)。
+struct BookExportFormatOptions: View {
+    let format: BookExportFormat
+    @ObservedObject var viewModel: BookExportViewModel
+
+    var body: some View {
+        // どの項目を出すかはBookExportFormatが決める(環境設定「レイアウト」の既定値の行と
+        // 同じ判断を2か所に書かないため。BookExportFormat.supportsImageRenumbering参照)。
+        if format == .cbz {
+            Toggle("Renumber Image Files Sequentially", isOn: $viewModel.renumberImagesSequentially)
+                // CBZには読み順を表すメタデータが無く、ファイル名の並び順だけが順序を決めるため、
+                // OFFにするとページの並べ替え・除外が他アプリで再現されないことがある
+                // (この補足はCBZにしか当てはまらないので、EPUBの同じ項目には付けない)。
+                .help("CBZ files have no page-order metadata, so readers sort by file name. Turn this off only if you want to keep the original file names.")
+        } else if format.supportsImageRenumbering {
+            Toggle("Renumber Image Files Sequentially", isOn: $viewModel.renumberImagesSequentially)
+        }
+        Toggle("Include Excluded Pages", isOn: $viewModel.includeExcludedPages)
+        if format.supportsComicInfoVolumeElement, let cbz = viewModel as? CbzExportViewModel {
+            CbzVolumeElementToggle(viewModel: cbz)
+        }
+    }
+}
+
+/// CBZ固有の1項目。`writesVolumeElement`は`CbzExportViewModel`にしかないため、双方向の
+/// Bindingを作るにはその型として観測している必要がある。
+private struct CbzVolumeElementToggle: View {
+    @ObservedObject var viewModel: CbzExportViewModel
+
+    var body: some View {
+        Toggle("Also Write the Volume Number to ComicInfo\u{2019}s Volume Element", isOn: $viewModel.writesVolumeElement)
+            .help("Kavita reads Volume as the volume number, but Komga appends it to the series name, which can split a series into one series per volume.")
+    }
+}

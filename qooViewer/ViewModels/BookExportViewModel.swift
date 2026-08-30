@@ -17,7 +17,7 @@ import Combine
 /// - 出力の進捗・キャンセル・同名ファイル確認・失敗集約(startExport)
 ///
 /// サブクラスが必ず用意するもの(下の「サブクラスの拡張点」参照):
-/// - outputFileExtension
+/// - format
 /// - export(_:to:)
 ///
 /// @MainActor: SwiftUIのView(@ObservedObject)から直接観測される。
@@ -200,14 +200,34 @@ class BookExportViewModel: ObservableObject {
     /// deinitでの1回のstopでは釣り合わない。
     private var securityScopedURLs: Set<URL> = []
 
+    /// - Parameter loadsEligibleRows: 書き出しウインドウの対象一覧(レイアウト・ブックマーク・
+    ///   メタデータのいずれかを持つ本の一覧)を組み立てるかどうか。
+    ///
+    ///   ビューアの右クリックから**いま開いている1冊だけ**を書き出す場合はfalseにする。
+    ///   一覧の組み立ては登録済みの本すべてについて元ファイルの実在確認を行う(reload()参照)
+    ///   ので、1冊書き出すたびにそれを走らせるのは丸ごと無駄なうえ、その本が一覧の条件
+    ///   (レイアウト・ブックマーク・メタデータのいずれかを持つ)を満たしているとは限らない
+    ///   ―― ユーザー要望は「レイアウトやブックマーク、メタデータの有無に関わらず書き出す」
+    ///   なので、そもそも一覧を経由してはいけない(exportOpenBook(_:to:)参照)。
+    ///
+    ///   一覧を持たないインスタンスは変更通知も購読しない(reload()する相手が無いため)。
     init(
         bookmarkStore: BookmarkStore, layoutStore: LayoutStore, metadataStore: BookMetadataStore,
-        preferences: AppPreferences
+        preferences: AppPreferences, loadsEligibleRows: Bool = true
     ) {
         self.bookmarkStore = bookmarkStore
         self.layoutStore = layoutStore
         self.metadataStore = metadataStore
         self.preferences = preferences
+        // 書き出しオプションの初期値は、環境設定「レイアウト」の形式ごとの既定値から取る
+        // (ユーザー要望。AppPreferences.bookExportRenumbersImages参照)。画面のトグルは
+        // ここから始まる、その1回限りの上書きとして残る。
+        //
+        // formatはサブクラスが上書きする計算プロパティだが、Swiftではサブクラスの
+        // 格納プロパティはsuper.init()より前に初期化が済んでいるため、ここから呼んで問題ない。
+        self.renumberImagesSequentially = preferences.bookExportRenumbersImages(for: format)
+        self.includeExcludedPages = preferences.bookExportIncludesExcludedPages(for: format)
+        guard loadsEligibleRows else { return }
         reload()
 
         // queue: .mainを指定しているため実行時には必ずMainActor上で呼ばれるが、クロージャ自体の
@@ -237,14 +257,21 @@ class BookExportViewModel: ObservableObject {
 
     // MARK: - サブクラスの拡張点
 
-    /// 出力ファイルの拡張子("epub" / "pdf" / "cbz")。出力先のファイル名の決定にだけ使う。
+    /// このViewModelが書き出す形式。
     ///
     /// Swiftには抽象メンバーの仕組みが無いため、既定実装をpreconditionFailureにして
     /// 「サブクラスで必ず上書きすること」を実行時に強制している(この基底クラスは
     /// 直接インスタンス化されない)。
-    var outputFileExtension: String {
+    ///
+    /// 以前はここが`outputFileExtension`("epub"/"pdf"/"cbz")という文字列だった。形式ごとの
+    /// 既定オプション(環境設定「レイアウト」)を読むのに形式そのものが要るようになったため、
+    /// 拡張子を持つ`BookExportFormat`へ置き換えてある(拡張子はそちらから引ける)。
+    var format: BookExportFormat {
         preconditionFailure("サブクラスで必ず上書きすること")
     }
+
+    /// 出力ファイルの拡張子。出力先のファイル名の決定にだけ使う。
+    final var outputFileExtension: String { format.fileExtension }
 
     /// カバー画像の選択機能を持つか。trueのサブクラス(EPUB / CBZ)では、カバー画像だけを
     /// 上書き設定している本も対象一覧に含め、カバー列の解決処理も動かす。
@@ -351,16 +378,24 @@ class BookExportViewModel: ObservableObject {
         // タイトル・著者名の初期値。ユーザー要望により、メタデータDBに登録がある本は
         // そちらを優先し、無い本だけファイル名/フォルダ名から推測する。
         // 既にユーザーがこの画面で編集済みの値は上書きしない。
-        for row in rows where titleOverrides[row.bookID] == nil {
-            if let metadata = metadataStore.metadata(forBookID: row.bookID), !metadata.title.isEmpty {
-                titleOverrides[row.bookID] = metadata.title
-                authorOverrides[row.bookID] = metadata.author
-                continue
-            }
-            let parsed = TitleAuthorFilenameParser.parse(baseName: row.displayName)
-            titleOverrides[row.bookID] = parsed.title.isEmpty ? row.displayName : parsed.title
-            authorOverrides[row.bookID] = parsed.author
+        for row in rows {
+            seedTitleAndAuthorIfNeeded(for: row)
         }
+    }
+
+    /// 1冊ぶんのタイトル・著者名の初期値を入れる(まだ入っていなければ)。
+    /// 一覧を持たない書き出し(exportOpenBook(_:to:))からも同じ規則で使うため、
+    /// applyEligibleBookIDsのループから切り出してある。
+    private func seedTitleAndAuthorIfNeeded(for row: Row) {
+        guard titleOverrides[row.bookID] == nil else { return }
+        if let metadata = metadataStore.metadata(forBookID: row.bookID), !metadata.title.isEmpty {
+            titleOverrides[row.bookID] = metadata.title
+            authorOverrides[row.bookID] = metadata.author
+            return
+        }
+        let parsed = TitleAuthorFilenameParser.parse(baseName: row.displayName)
+        titleOverrides[row.bookID] = parsed.title.isEmpty ? row.displayName : parsed.title
+        authorOverrides[row.bookID] = parsed.author
     }
 
     // MARK: - 一括選択
@@ -585,10 +620,18 @@ class BookExportViewModel: ObservableObject {
     /// アクセス権の無いパスに対する存在確認自体が失敗するため、実在していても一覧から
     /// 落ちていた(BookMetadata.bookmarkDataは、まさにこの用途のために持っている)。
     private func resolveURL(forBookID bookID: String) -> URL? {
-        bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID)
+        // いま開いている本を書き出す経路では、ユーザーが実際に開いた(=アクセス権のある)URLを
+        // そのまま渡してもらう。この本はどのストアにも1行も無いことがあり(レイアウトも
+        // ブックマークもメタデータも付けずに読んでいる本)、その場合は下の3つがすべてnilを
+        // 返して「元のファイル/フォルダが見つかりません」になってしまう。
+        if let direct = directSourceURLs[bookID] { return direct }
+        return bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID)
             ?? layoutStore.resolvedURL(forBookID: bookID)
             ?? metadataStore.resolvedURL(forBookID: bookID)
     }
+
+    /// 上のdirect分。exportOpenBook(_:to:)が呼ばれたときだけ埋まる。
+    private var directSourceURLs: [String: URL] = [:]
 
     // MARK: - 出力実行
 
@@ -625,7 +668,40 @@ class BookExportViewModel: ObservableObject {
     final func startExport(destinationFolder: URL) async {
         let targets = rows.filter { selectedBookIDs.contains($0.bookID) }
         guard !targets.isEmpty else { return }
+        await runExport(targets: targets, destinationFolder: destinationFolder)
+        // 結果シート(「N冊中N冊を書き出しました」)を出す。1冊だけを書き出す経路
+        // (exportOpenBook)はこれを立てない ―― そちらは書き出しの後に「次の本へ」等が
+        // 続く流れの途中なので、毎回OKを押させるとその流れが途切れる(ユーザーの指示)。
+        didFinish = true
+    }
 
+    /// ビューアの右クリックから、**いま開いている1冊**を書き出す(ユーザー要望)。
+    ///
+    /// 対象一覧(rows)を通らないのが要点。一覧は「レイアウト・ブックマーク・メタデータの
+    /// いずれかを持つ本」だけを載せるが、この経路はその有無に関わらず書き出す。
+    /// 本のURLも、ストアに1行も無い本のために呼び出し側から直接受け取る
+    /// (resolveURL(forBookID:)参照。ユーザーが実際に開いた=アクセス権のあるURL)。
+    ///
+    /// - Returns: 失敗した場合はその理由。成功(またはユーザーが同名確認でスキップを選んだ場合)はnil。
+    ///   成功しても結果シートは出さない(startExport(destinationFolder:)のコメント参照)ため、
+    ///   呼び出し側が失敗だけを拾って知らせる。
+    final func exportOpenBook(_ book: MangaBook, to destinationFolder: URL) async -> String? {
+        let bookID = book.id
+        directSourceURLs[bookID] = book.sourceURL
+        let row = Row(
+            bookID: bookID,
+            hasLayout: layoutStore.layoutBookIDs.contains(bookID),
+            hasBookmarks: !bookmarkStore.bookmarks(forBookID: bookID).isEmpty,
+            hasMetadata: metadataStore.isRegistered(bookID: bookID)
+        )
+        seedTitleAndAuthorIfNeeded(for: row)
+        await runExport(targets: [row], destinationFolder: destinationFolder)
+        return failures.first?.message
+    }
+
+    /// 書き出しの本体(進捗・キャンセル・同名確認・失敗の集約)。一覧から選んだ複数冊も、
+    /// いま開いている1冊も、ここを通る。
+    private func runExport(targets: [Row], destinationFolder: URL) async {
         isExporting = true
         isCancelled = false
         failures = []
@@ -651,7 +727,6 @@ class BookExportViewModel: ObservableObject {
 
         isExporting = false
         currentBookDisplayName = nil
-        didFinish = true
     }
 
     /// 1冊ぶんの材料をDB・ファイルから集め、出力先を確定して、サブクラスのexport(_:to:)へ渡す。

@@ -34,6 +34,14 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     case rendering
     /// 閲覧中の動作(ページ送り・スクロール・スライドショー・ポインタの自動非表示)。
     case reading
+    /// 本のレイアウトの自動計算と、本を1冊まるごと書き出すときの既定の振る舞い。
+    ///
+    /// 「本」グループの最後に置いてある。この2つが同じ画面に同居しているのは、
+    /// **書き出しがレイアウトの行き先だから**(このアプリで付けた見開き・ページ順・除外を、
+    /// 他のアプリでも読める形にして持ち出すのが書き出し)。ユーザーの想定している流れも
+    /// 「新しい本を開く(自動でレイアウト)→ 書き出す → 次の本を開く」という一続きの作業で、
+    /// その一続きの設定が1枚に収まっている。
+    case layout
     /// 表示モードに依存しない、基本のキー割り当て。
     case keyboard
     /// 表示モードに依存しない、基本のマウス割り当て。
@@ -69,6 +77,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .opening: "Opening Books"
         case .rendering: "Image Display"
         case .reading: "While Reading"
+        case .layout: "Layout"
         case .keyboard: "Keyboard"
         case .mouse: "Mouse"
         case .modeInput: "Per Display Mode"
@@ -92,6 +101,9 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .opening: "book.closed.fill"
         case .rendering: "photo.fill"
         case .reading: "book.pages.fill"
+        // 書き出しウインドウの「レイアウトを持っている本」のインジケータと同じ図形にしてある
+        // (アプリ全体で「レイアウト」を表す形を1つに保つ。ExportWindowContent参照)。
+        case .layout: "square.stack.fill"
         case .keyboard: "keyboard"
         case .mouse: "computermouse.fill"
         case .modeInput: "rectangle.split.2x1.fill"
@@ -139,6 +151,9 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .opening: .blue
         case .rendering: .cyan
         case .reading: .indigo
+        // 「本」ブルー系の4段目。3段目のインディゴから折り返して、いちばん濃く緑寄りの青にする。
+        // 隣り合うシアン(画像の表示)とは明度がはっきり違うので、縦に並んでも取り違えない。
+        case .layout: .teal
         case .keyboard: .orange
         case .mouse: .yellow
         case .modeInput: .brown
@@ -155,7 +170,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     var group: SettingsPaneGroup {
         switch self {
         case .general, .appearance: .top
-        case .opening, .rendering, .reading: .books
+        case .opening, .rendering, .reading, .layout: .books
         case .keyboard, .mouse, .modeInput: .controls
         case .cache, .access, .reset: .advanced
         }
@@ -176,6 +191,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .opening: OpeningSettingsView()
         case .rendering: RenderingSettingsView()
         case .reading: ReadingSettingsView()
+        case .layout: LayoutSettingsView()
         case .keyboard: KeyBindingSettingsView()
         case .mouse: MouseBindingSettingsView()
         case .modeInput: ModeInputSettingsView()

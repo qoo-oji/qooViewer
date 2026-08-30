@@ -10,7 +10,7 @@ final class CbzExportViewModel: BookExportViewModel {
     /// 既定をOFFにしている理由はCbzExportOptions.writesVolumeElementのコメント参照。
     @Published var writesVolumeElement = false
 
-    override var outputFileExtension: String { "cbz" }
+    override var format: BookExportFormat { .cbz }
 
     /// ユーザー選択: CBZ出力にもカバー画像の選択機能を設ける(ComicInfo.xmlの
     /// `Page@Type="FrontCover"`として書き出す)。
@@ -18,16 +18,17 @@ final class CbzExportViewModel: BookExportViewModel {
 
     override init(
         bookmarkStore: BookmarkStore, layoutStore: LayoutStore, metadataStore: BookMetadataStore,
-        preferences: AppPreferences
+        preferences: AppPreferences, loadsEligibleRows: Bool = true
     ) {
         super.init(
             bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore,
-            preferences: preferences
+            preferences: preferences, loadsEligibleRows: loadsEligibleRows
         )
-        // CBZだけは連番リネームを既定ONにする。CBZには読み順を表すメタデータが無く、
-        // リーダーはファイル名の並び順だけでページ順を決めるため、ページの並べ替え・除外を
-        // 確実に反映するには連番へ振り直す必要がある(CbzExportOptionsのコメント参照)。
-        renumberImagesSequentially = true
+        // 連番リネームは基底クラスが環境設定「レイアウト」の既定値から入れる。CBZだけは
+        // 出荷時の既定がONで、それはこちらではなくAppPreferencesが持っている
+        // (CBZには読み順を表すメタデータが無く、リーダーはファイル名の並び順だけで
+        // ページ順を決めるため。CbzExportOptionsのコメント参照)。
+        writesVolumeElement = preferences.bookExportWritesVolumeElement
     }
 
     override func export(_ prepared: PreparedBook, to destinationURL: URL) async throws {

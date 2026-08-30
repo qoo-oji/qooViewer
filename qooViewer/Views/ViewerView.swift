@@ -21,6 +21,19 @@ struct ViewerView: View {
     /// 「今読んでいる本」を特定するために、このウインドウがキーウインドウになったことを
     /// 通知する(setUpWindowObservers参照)。
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
+    /// 右クリックの「本の書き出し」(exportOpenBook参照)が使う3つのストア。
+    /// initで受け取っているlayoutStore/metadataStoreと同じインスタンスだが、あちらは
+    /// ViewerViewModelを組み立てるためだけに素通ししていて、このビュー自身は保持していない。
+    @EnvironmentObject private var bookmarkStore: BookmarkStore
+    @EnvironmentObject private var layoutStore: LayoutStore
+    @EnvironmentObject private var metadataStore: BookMetadataStore
+    /// 書き出し後の後始末で、書き出した本を履歴から取り除くために使う
+    /// (環境設定「レイアウト」の「履歴: 削除」)。
+    @EnvironmentObject private var recentFilesStore: RecentFilesStore
+    /// 同じく後始末で、書き出した本の読書位置以外の保存データを消すために使う。
+    /// 読書位置(BookReadingState)だけはViewerViewModelが行(readingState)を握っているため、
+    /// ここからは触らずviewModel.discardReadingState()に任せる。
+    @Environment(\.modelContext) private var modelContext
     @FocusState private var isFocused: Bool
     /// このViewerViewインスタンス自身を表す使い捨てのトークン。同じウインドウ内で本を
     /// 切り替えたとき(.id(book.id)により、このView自体が古い本のものから新しい本のものへ
@@ -110,6 +123,13 @@ struct ViewerView: View {
     @State private var thumbnailGridEventMonitor: Any?
     /// 「お気に入りに追加」シート(登録先フォルダを選ぶ。FavoriteFolderPickerView)の表示状態。
     @State private var showFavoriteFolderPicker = false
+    /// 右クリックの「本の書き出し」で進行中の書き出し(OpenBookExportSheetの表示状態を兼ねる)。
+    /// nilなら何も出ていない。
+    @State private var openBookExport: OpenBookExportRequest?
+    /// 環境設定「レイアウト」の「書き出したあとの動作」が「毎回確認」のときに、書き出しを
+    /// 終えた直後に出すシートの表示状態(「最後のページで」の毎回確認とまったく同じ作りで、
+    /// 選択肢の正典もBookExportCompletionBehavior 1つに揃えてある)。
+    @State private var isShowingExportCompletionPrompt = false
     /// 「お気に入り一覧」を表示中のネイティブNSMenuブリッジ(FavoritesNSMenuBridge)。
     /// ツールバーのボタンのクリック・ショートカット(showFavoritesList)のどちらからも
     /// showFavoritesListMenu()を呼び出す形に統一している。popUp自体は同期呼び出しで
@@ -956,6 +976,114 @@ struct ViewerView: View {
         }
     }
 
+    // MARK: - 本の書き出し(右クリックの「本の書き出し」。ユーザー要望)
+
+    /// 右クリックから始めた1冊ぶんの書き出し。シートの表示状態と、その書き出しに使う
+    /// ViewModelを一緒に持つ。
+    ///
+    /// ViewModelを`@State`で1つ持ち回すのではなく、書き出しのたびに作って捨てる形にしてある。
+    /// 3つの形式は別々のサブクラス(EpubExportViewModel等)なので、形式を選んだ時点でしか
+    /// 決められないため。作るのは軽い ―― 書き出しウインドウの対象一覧は組み立てない
+    /// (BookExportViewModel.initのloadsEligibleRows参照)。
+    private struct OpenBookExportRequest: Identifiable {
+        let id = UUID()
+        let format: BookExportFormat
+        let viewModel: BookExportViewModel
+        /// 環境設定「レイアウト」で固定の保存先が決めてあればそのフォルダ。
+        /// nilなら、シートが保存先の選択から始める。
+        let fixedDestination: URL?
+    }
+
+    /// 右クリック →「本の書き出し」→ 形式を選んだときに呼ばれる。
+    private func startOpenBookExport(format: BookExportFormat) {
+        guard openBookExport == nil else { return }
+        // 固定の保存先が設定されていても、そのブックマークがもう解決できない(フォルダが
+        // 消された・外付けが外れている)ことはある。その場合はnilのまま渡して、シートに
+        // 保存先を尋ねさせる ―― 黙って何もしないより、その場で選び直せるほうがよい。
+        let fixedDestination = preferences.bookExportDestinationMode(for: format) == .fixedFolder
+            ? format.fixedFolder.lastFolder()
+            : nil
+        openBookExport = OpenBookExportRequest(
+            format: format,
+            viewModel: format.makeExportViewModel(
+                bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore,
+                preferences: preferences, loadsEligibleRows: false
+            ),
+            fixedDestination: fixedDestination
+        )
+    }
+
+    /// 1冊の書き出しが成功したあとの後始末(環境設定「レイアウト」)。
+    /// 保存データ・履歴を設定に従って片付けてから、「書き出したあとの動作」へ進む。
+    private func finishOpenBookExport(format: BookExportFormat) {
+        cleanUpExportedBook(format: format)
+
+        let behavior = preferences.bookExportCompletionBehavior
+        if behavior == .ask {
+            isShowingExportCompletionPrompt = true
+        } else {
+            performExportCompletionBehavior(behavior)
+        }
+    }
+
+    /// 書き出した本についてアプリが保存しているものを、設定に従って片付ける。
+    ///
+    /// DBへ書かない本(シークレットウインドウ・その場限りの本)では、そもそも消すものが無い
+    /// ので何もしない。お気に入りは消さない ―― レイアウトや読書位置と違って、ユーザーが
+    /// 明示的に手で登録したものだから(ユーザーの指示)。
+    private func cleanUpExportedBook(format: BookExportFormat) {
+        guard !viewModel.skipsPersistence else { return }
+        let book = viewModel.book
+
+        if preferences.bookExportDataCleanup(for: format) == .delete {
+            bookmarkStore.deleteAllBookmarks(forBookID: book.id)
+            layoutStore.discardLayoutData(forBookID: book.id)
+            metadataStore.delete(forBookID: book.id)
+            // 読書位置(BookReadingState)の行はViewerViewModelが握っているため、ここで
+            // modelContextから直接消してはいけない(消した行へページ送りのたびに書き込もうと
+            // してしまう)。ViewerViewModel.discardReadingState()参照。
+            viewModel.discardReadingState()
+        }
+
+        if preferences.bookExportHistoryCleanup(for: format) == .delete {
+            // 履歴の項目はブックマークとパスで照合する(RecentFilesStore.remove(_:)参照)。
+            // 同じ実体を指す項目が複数入っていることがあるので、一致するものをまとめて渡す。
+            let path = book.sourceURL.standardizedFileURL.path
+            let matches = recentFilesStore.entries.filter {
+                URL(fileURLWithPath: $0.path).standardizedFileURL.path == path
+            }
+            recentFilesStore.remove(matches)
+        }
+    }
+
+    /// 「書き出したあとの動作」の実行。
+    ///
+    /// 移動系の3つ(次の本・本を閉じる・ウェルカム画面へ戻る)は、環境設定「閲覧中の動作」の
+    /// 「最後のページで」がまったく同じことをしている。**同じ動作を2通りに実装しない**ため、
+    /// ViewerViewModelがそちら向けに用意している依頼の口(onPageBoundaryRequest経由で
+    /// ViewerViewが受け取る処理)をそのまま使う(PageBoundaryRequest参照)。
+    private func performExportCompletionBehavior(_ behavior: BookExportCompletionBehavior) {
+        switch behavior {
+        case .none, .ask:
+            // .askがここへ来ることは無い(finishOpenBookExportがシートへ回す)が、シートで
+            // 何も選ばずに閉じられた場合と同じく「何もしない」で受ける。
+            break
+        case .nextBookFirstPage:
+            appState.openSibling(after: viewModel.book.sourceURL, landsOnFirstPage: true)
+        case .nextBook:
+            appState.openSibling(after: viewModel.book.sourceURL)
+        case .closeBook:
+            // 「本を閉じる」はViewerAction.closeTabと同じ経路(タブが1枚ならウインドウごと)。
+            perform(.closeTab)
+        case .returnToWelcome:
+            // 本だけ閉じて、同じウインドウにウェルカム画面を出す。読書位置の保留分は
+            // onDisappearでも確定するが、先に走る保証が無いのでここでも確定させておく
+            // (ViewerViewModel.onPageBoundaryRequestの.returnToWelcomeと同じ)。
+            viewModel.flushPendingSave()
+            appState.closeBook()
+        }
+    }
+
     /// 保存先のフォルダとファイル名を指定するためのウインドウ(要望)。LibraryExportWindow.
     /// exportButtonTappedと同じ、同期的なNSSavePanel.runModal()。
     private func presentImageExportSavePanel(defaultFileName: String, contentType: UTType) -> URL? {
@@ -1372,6 +1500,29 @@ struct ViewerView: View {
                     PageBoundaryChoiceSheet<LastPageBehavior>(titleKey: "This is the last page.") {
                         viewModel.performLastPageBehavior($0)
                     }
+                }
+            }
+            // 右クリックの「本の書き出し」(OpenBookExportSheet参照)。
+            .sheet(item: $openBookExport) { request in
+                OpenBookExportSheet(
+                    viewModel: request.viewModel,
+                    format: request.format,
+                    book: viewModel.book,
+                    fixedDestination: request.fixedDestination
+                ) { didExport in
+                    openBookExport = nil
+                    guard didExport else { return }
+                    finishOpenBookExport(format: request.format)
+                }
+            }
+            // 「書き出したあとの動作」が「毎回確認」のときのシート。「最後のページで」の
+            // 毎回確認と同じ部品・同じ見た目で、選択肢だけが違う。
+            .sheet(isPresented: $isShowingExportCompletionPrompt) {
+                PageBoundaryChoiceSheet<BookExportCompletionBehavior>(
+                    titleKey: "The book has been exported."
+                ) { choice in
+                    isShowingExportCompletionPrompt = false
+                    performExportCompletionBehavior(choice)
                 }
             }
             .sheet(isPresented: $showFavoriteFolderPicker) {
@@ -1970,6 +2121,23 @@ struct ViewerView: View {
                 }
             }
         }
+
+        // ユーザー要望: いま開いている本を、そのまま1冊まるごと書き出す。
+        //
+        // File メニューの「EPUB/PDF/CBZの書き出し」ウインドウとは対象の決め方が違う。
+        // あちらは「レイアウト・ブックマーク・メタデータのいずれかを持つ本」の一覧から選ぶが、
+        // ここはその有無に関わらず、いま開いている本をそのまま書き出す(ユーザーの明示的な指示)。
+        // 保存先を環境設定「レイアウト」で固定してあれば何も尋ねずに書き出し、決めていなければ
+        // 保存先とオプションだけの小さなシートを出す(OpenBookExportSheet参照)。
+        Menu("Export Book") {
+            ForEach(BookExportFormat.allCases) { format in
+                Button(format.menuTitleKey) {
+                    startOpenBookExport(format: format)
+                }
+            }
+        }
+        // 書き出しが二重に始まらないように、進行中は閉じておく。
+        .disabled(openBookExport != nil)
 
         // ユーザー要望: 右クリックしたページの画像ファイル情報(ファイル名・フォーマット・
         // 解像度・色情報・ファイルサイズ、いずれもヘッダーから分かる範囲)を表示する。対象ページの

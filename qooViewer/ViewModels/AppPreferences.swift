@@ -83,6 +83,31 @@ final class AppPreferences: ObservableObject {
         static let thumbnailDiskCacheLimitMB = "qooViewer.pref.thumbnailDiskCacheLimitMB"
         static let pageImageCacheLimitMB = "qooViewer.pref.pageImageCacheLimitMB"
         static let nestedArchiveMemoryLimitMB = "qooViewer.pref.nestedArchiveMemoryLimitMB"
+        static let missingLayoutAutoLayout = "qooViewer.pref.missingLayoutAutoLayout"
+        static let bookExportCompletionBehavior = "qooViewer.pref.bookExportCompletionBehavior"
+
+        /// 書き出しの形式ごとの設定(BookExportFormat参照)。形式の識別子ごとに3つのキーへ
+        /// 分かれる。形式を1つ増やしてもここは触らなくてよい(allCasesから導出される)。
+        /// 固定の保存先フォルダ自体はブックマーク(Data)なので、ここではなく
+        /// LastUsedFolderMemory.fixedExportFolder(_:)が持つ。
+        static func bookExportDestinationMode(_ format: BookExportFormat) -> String {
+            "qooViewer.pref.bookExport.\(format.rawValue).destinationMode"
+        }
+        static func bookExportDataCleanup(_ format: BookExportFormat) -> String {
+            "qooViewer.pref.bookExport.\(format.rawValue).dataCleanup"
+        }
+        static func bookExportHistoryCleanup(_ format: BookExportFormat) -> String {
+            "qooViewer.pref.bookExport.\(format.rawValue).historyCleanup"
+        }
+        static func bookExportRenumbersImages(_ format: BookExportFormat) -> String {
+            "qooViewer.pref.bookExport.\(format.rawValue).renumbersImages"
+        }
+        static func bookExportIncludesExcludedPages(_ format: BookExportFormat) -> String {
+            "qooViewer.pref.bookExport.\(format.rawValue).includesExcludedPages"
+        }
+        /// CBZ専用の項目なので、形式ごとのキーにはしない(ComicInfo.xmlのVolume要素の話で、
+        /// EPUB/PDFには対応する概念が無い。CbzExportOptions.writesVolumeElement参照)。
+        static let bookExportWritesVolumeElement = "qooViewer.pref.bookExport.cbz.writesVolumeElement"
 
         /// すりガラスの面ごとの設定(PanelSurface参照)。面の識別子ごとに3つのキーへ分かれる。
         /// 面を1つ増やしてもここは触らなくてよい(PanelSurface.allCasesから導出される)。
@@ -804,6 +829,177 @@ final class AppPreferences: ObservableObject {
         )
     }
 
+    // MARK: - レイアウト(環境設定「レイアウト」画面。ユーザー要望)
+
+    /// レイアウトの保存データを持っていない本を開いたときに、本全体を自動レイアウトするか
+    /// (MissingLayoutAutoLayout参照)。
+    @Published var missingLayoutAutoLayout: MissingLayoutAutoLayout {
+        didSet {
+            UserDefaults.standard.set(missingLayoutAutoLayout.rawValue, forKey: Keys.missingLayoutAutoLayout)
+        }
+    }
+
+    /// 右クリックの「本の書き出し」で、いま開いている本を書き出し終えたあとの動作
+    /// (BookExportCompletionBehavior参照)。形式によらず1つの設定にしてある ――
+    /// 「書き出したら次の本へ」という流れは、どの形式で書き出すかとは無関係のため。
+    @Published var bookExportCompletionBehavior: BookExportCompletionBehavior {
+        didSet {
+            UserDefaults.standard.set(
+                bookExportCompletionBehavior.rawValue, forKey: Keys.bookExportCompletionBehavior
+            )
+        }
+    }
+
+    /// 書き出しの形式ごとの設定3つ(保存先の決め方・保存データの扱い・履歴の扱い)。
+    ///
+    /// 形式(3つ)×設定(3つ)で、素直に書けば`@Published`なプロパティが9本並ぶ。すりガラスの
+    /// 面ごとの設定(`surfaceStyle(for:)`)と同じく、**画面側が`allCases`をそのまま`ForEach`で
+    /// 回せる**ようにするのが目的なので、実体は辞書1つにして、読み書きは下の`for:`付きの
+    /// 窓口から行う。辞書ごと`@Published`にしてあるので、どの形式の値が変わっても
+    /// 環境設定の画面は正しく描き直される。
+    ///
+    /// 未知のrawValueが保存されていた場合(将来caseを消した・改名したとき)は、読み込み時に
+    /// 既定値へ落とす(`loadFormatSetting`)。
+    @Published private var bookExportDestinationModes: [BookExportFormat: BookExportDestinationMode] {
+        didSet { Self.saveFormatSettings(bookExportDestinationModes, key: Keys.bookExportDestinationMode) }
+    }
+    @Published private var bookExportDataCleanups: [BookExportFormat: BookExportCleanup] {
+        didSet { Self.saveFormatSettings(bookExportDataCleanups, key: Keys.bookExportDataCleanup) }
+    }
+    @Published private var bookExportHistoryCleanups: [BookExportFormat: BookExportCleanup] {
+        didSet { Self.saveFormatSettings(bookExportHistoryCleanups, key: Keys.bookExportHistoryCleanup) }
+    }
+
+    /// 保存先の決め方(毎回確認 / 固定のフォルダ)。
+    func bookExportDestinationMode(for format: BookExportFormat) -> BookExportDestinationMode {
+        bookExportDestinationModes[format] ?? .askEachTime
+    }
+    func setBookExportDestinationMode(_ mode: BookExportDestinationMode, for format: BookExportFormat) {
+        bookExportDestinationModes[format] = mode
+    }
+    func bookExportDestinationModeBinding(for format: BookExportFormat) -> Binding<BookExportDestinationMode> {
+        Binding(
+            get: { self.bookExportDestinationMode(for: format) },
+            set: { self.setBookExportDestinationMode($0, for: format) }
+        )
+    }
+
+    /// 書き出し終わった本の保存データ(レイアウト・ブックマーク・メタデータ・読書位置)の扱い。
+    func bookExportDataCleanup(for format: BookExportFormat) -> BookExportCleanup {
+        bookExportDataCleanups[format] ?? .keep
+    }
+    func bookExportDataCleanupBinding(for format: BookExportFormat) -> Binding<BookExportCleanup> {
+        Binding(
+            get: { self.bookExportDataCleanup(for: format) },
+            set: { self.bookExportDataCleanups[format] = $0 }
+        )
+    }
+
+    /// 書き出し終わった本の履歴(「履歴」メニュー・ウェルカム画面に並ぶもの)の扱い。
+    func bookExportHistoryCleanup(for format: BookExportFormat) -> BookExportCleanup {
+        bookExportHistoryCleanups[format] ?? .keep
+    }
+    func bookExportHistoryCleanupBinding(for format: BookExportFormat) -> Binding<BookExportCleanup> {
+        Binding(
+            get: { self.bookExportHistoryCleanup(for: format) },
+            set: { self.bookExportHistoryCleanups[format] = $0 }
+        )
+    }
+
+    // MARK: - 書き出しオプションの既定値(ユーザー要望)
+
+    /// 書き出しウインドウ・右クリックの書き出しシートの「書き出しオプション」の**開いた直後の値**。
+    ///
+    /// これまでオプションはウインドウを開くたびに固定の初期値(連番リネームはCBZだけON、
+    /// 他はOFF)から始まり、毎回同じ設定に直す必要があった。ここで既定値を決めておけば、
+    /// 書き出しのたびに触らずに済む ―― 特に固定の保存先と組み合わせて「何も尋ねずに書き出す」
+    /// 使い方では、オプションを事前に決めておけないと形式ごとの調整ができない。
+    ///
+    /// 各画面のトグルは**この既定値から始まる、その1回限りの上書き**として残してある
+    /// (BookExportViewModel.init参照)。触ってもここの既定値は変わらない。
+    ///
+    /// 出荷時の既定値は、この設定を入れる前の固定の初期値をそのまま引き継いでいる
+    /// (CBZの連番リネームだけON。理由はCbzExportOptions.renumberImagesSequentially参照)。
+    @Published private var bookExportRenumbersImages: [BookExportFormat: Bool] {
+        didSet { Self.saveFormatFlags(bookExportRenumbersImages, key: Keys.bookExportRenumbersImages) }
+    }
+    @Published private var bookExportIncludesExcludedPages: [BookExportFormat: Bool] {
+        didSet {
+            Self.saveFormatFlags(bookExportIncludesExcludedPages, key: Keys.bookExportIncludesExcludedPages)
+        }
+    }
+    /// CBZのComicInfo.xmlの`Volume`要素にも巻数を書き出すか(CBZ専用)。
+    @Published var bookExportWritesVolumeElement: Bool {
+        didSet {
+            UserDefaults.standard.set(bookExportWritesVolumeElement, forKey: Keys.bookExportWritesVolumeElement)
+        }
+    }
+
+    /// 画像ファイルを連番へリネームするか。PDF書き出しはページごとの画像ファイル名という概念を
+    /// 持たないため、この値を使わない(画面にも出さない。PDFExportOptions参照)。
+    func bookExportRenumbersImages(for format: BookExportFormat) -> Bool {
+        bookExportRenumbersImages[format] ?? (format == .cbz)
+    }
+    func bookExportRenumbersImagesBinding(for format: BookExportFormat) -> Binding<Bool> {
+        Binding(
+            get: { self.bookExportRenumbersImages(for: format) },
+            set: { self.bookExportRenumbersImages[format] = $0 }
+        )
+    }
+
+    /// 除外(非表示)ページを書き出しに含めるか。
+    func bookExportIncludesExcludedPages(for format: BookExportFormat) -> Bool {
+        bookExportIncludesExcludedPages[format] ?? false
+    }
+    func bookExportIncludesExcludedPagesBinding(for format: BookExportFormat) -> Binding<Bool> {
+        Binding(
+            get: { self.bookExportIncludesExcludedPages(for: format) },
+            set: { self.bookExportIncludesExcludedPages[format] = $0 }
+        )
+    }
+
+    private static func saveFormatFlags(
+        _ values: [BookExportFormat: Bool], key: (BookExportFormat) -> String
+    ) {
+        let defaults = UserDefaults.standard
+        for format in BookExportFormat.allCases {
+            guard let value = values[format] else { continue }
+            defaults.set(value, forKey: key(format))
+        }
+    }
+
+    private static func loadFormatFlags(
+        key: (BookExportFormat) -> String, fallback: (BookExportFormat) -> Bool
+    ) -> [BookExportFormat: Bool] {
+        let defaults = UserDefaults.standard
+        var result: [BookExportFormat: Bool] = [:]
+        for format in BookExportFormat.allCases {
+            result[format] = defaults.object(forKey: key(format)) as? Bool ?? fallback(format)
+        }
+        return result
+    }
+
+    private static func saveFormatSettings<Value: RawRepresentable>(
+        _ values: [BookExportFormat: Value], key: (BookExportFormat) -> String
+    ) where Value.RawValue == String {
+        let defaults = UserDefaults.standard
+        for format in BookExportFormat.allCases {
+            guard let value = values[format] else { continue }
+            defaults.set(value.rawValue, forKey: key(format))
+        }
+    }
+
+    private static func loadFormatSettings<Value: RawRepresentable>(
+        key: (BookExportFormat) -> String, fallback: Value
+    ) -> [BookExportFormat: Value] where Value.RawValue == String {
+        let defaults = UserDefaults.standard
+        var result: [BookExportFormat: Value] = [:]
+        for format in BookExportFormat.allCases {
+            result[format] = Value(rawValue: defaults.string(forKey: key(format)) ?? "") ?? fallback
+        }
+        return result
+    }
+
     // MARK: - シークレットウインドウを既定にする(ユーザー要望)
 
     /// 本を開くすべての経路 ― アプリの通常起動、Finderからのダブルクリック、Dockアイコンへの
@@ -1090,6 +1286,31 @@ final class AppPreferences: ObservableObject {
             defaults.set(determined.rawValue, forKey: Keys.defaultReadingDirection)
         }
 
+        self.missingLayoutAutoLayout =
+            MissingLayoutAutoLayout(rawValue: defaults.string(forKey: Keys.missingLayoutAutoLayout) ?? "")
+            ?? .none
+        self.bookExportCompletionBehavior =
+            BookExportCompletionBehavior(
+                rawValue: defaults.string(forKey: Keys.bookExportCompletionBehavior) ?? ""
+            ) ?? .none
+        self.bookExportDestinationModes = Self.loadFormatSettings(
+            key: Keys.bookExportDestinationMode, fallback: .askEachTime
+        )
+        self.bookExportDataCleanups = Self.loadFormatSettings(
+            key: Keys.bookExportDataCleanup, fallback: .keep
+        )
+        self.bookExportHistoryCleanups = Self.loadFormatSettings(
+            key: Keys.bookExportHistoryCleanup, fallback: .keep
+        )
+        self.bookExportRenumbersImages = Self.loadFormatFlags(
+            key: Keys.bookExportRenumbersImages, fallback: { $0 == .cbz }
+        )
+        self.bookExportIncludesExcludedPages = Self.loadFormatFlags(
+            key: Keys.bookExportIncludesExcludedPages, fallback: { _ in false }
+        )
+        self.bookExportWritesVolumeElement =
+            defaults.object(forKey: Keys.bookExportWritesVolumeElement) as? Bool ?? false
+
         // すべてのプロパティが揃ってから、サムネイルのディスクキャッシュへ設定を届ける
         // (didSetは初期化中には走らないので、ここで一度だけ明示的に呼ぶ必要がある)。
         // OFF(既定)ならこの呼び出しが、溜まっているキャッシュの削除の合図にもなる。
@@ -1259,6 +1480,25 @@ extension AppPreferences {
                 // (maxTrackedBooksCount/recentFilesLimit)と違って対象に含めてよい。
                 Keys.thumbnailDiskCacheLimitMB,
             ]
+        case .layout:
+            return [
+                Keys.missingLayoutAutoLayout,
+                Keys.bookExportCompletionBehavior,
+                Keys.bookExportWritesVolumeElement,
+            ]
+                + BookExportFormat.allCases.flatMap {
+                    [
+                        Keys.bookExportDestinationMode($0),
+                        Keys.bookExportDataCleanup($0),
+                        Keys.bookExportHistoryCleanup($0),
+                        Keys.bookExportRenumbersImages($0),
+                        Keys.bookExportIncludesExcludedPages($0),
+                        // 固定の保存先そのもの(セキュリティスコープ付きブックマークと表示用の
+                        // パス)も一緒に忘れる。保存先の決め方だけ「毎回確認」に戻して
+                        // フォルダの記憶が残ると、次に「固定の保存先」を選んだ瞬間、
+                        // 初期設定に戻したはずの古いフォルダが復活する。
+                    ] + $0.fixedFolder.defaultsKeys
+                }
         case .keyboard, .mouse, .modeInput, .access, .reset:
             return []
         }
@@ -1338,6 +1578,15 @@ extension AppPreferences {
             preloadThumbnailGridPreviews = source.preloadThumbnailGridPreviews
             thumbnailDiskCacheEnabled = source.thumbnailDiskCacheEnabled
             thumbnailDiskCacheLimitMB = source.thumbnailDiskCacheLimitMB
+        case .layout:
+            missingLayoutAutoLayout = source.missingLayoutAutoLayout
+            bookExportCompletionBehavior = source.bookExportCompletionBehavior
+            bookExportDestinationModes = source.bookExportDestinationModes
+            bookExportDataCleanups = source.bookExportDataCleanups
+            bookExportHistoryCleanups = source.bookExportHistoryCleanups
+            bookExportRenumbersImages = source.bookExportRenumbersImages
+            bookExportIncludesExcludedPages = source.bookExportIncludesExcludedPages
+            bookExportWritesVolumeElement = source.bookExportWritesVolumeElement
         case .keyboard, .mouse, .modeInput, .access, .reset:
             break
         }

@@ -41,7 +41,7 @@ struct EpubExportWindow: View {
         Group {
             if let viewModel {
                 ExportWindowContent(viewModel: viewModel, configuration: Self.configuration) {
-                    EpubExportOptionsView(viewModel: viewModel)
+                    BookExportFormatOptions(format: .epub, viewModel: viewModel)
                 }
             } else {
                 ProgressView()
@@ -54,16 +54,5 @@ struct EpubExportWindow: View {
                     }
             }
         }
-    }
-}
-
-/// EPUB固有の出力オプション。Toggleの双方向Bindingを作るには@ObservedObjectで
-/// ViewModelを観測している必要があるため、親(EpubExportWindow)から分けた小さなビューにする。
-private struct EpubExportOptionsView: View {
-    @ObservedObject var viewModel: EpubExportViewModel
-
-    var body: some View {
-        Toggle("Renumber Image Files Sequentially", isOn: $viewModel.renumberImagesSequentially)
-        Toggle("Include Excluded Pages", isOn: $viewModel.includeExcludedPages)
     }
 }

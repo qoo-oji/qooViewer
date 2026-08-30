@@ -7,7 +7,7 @@ import Foundation
 /// BookExportViewModelへ集約してある。このクラスに残っているのは、集めた材料を
 /// EpubExportInput/EpubExportOptionsへ詰め替えてEpubExporterを呼ぶところだけ。
 final class EpubExportViewModel: BookExportViewModel {
-    override var outputFileExtension: String { "epub" }
+    override var format: BookExportFormat { .epub }
 
     /// ユーザー要望: EPUB出力時のカバー画像を選択・変更できるようにしたい。
     override var supportsCoverSelection: Bool { true }

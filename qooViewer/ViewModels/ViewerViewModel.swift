@@ -123,6 +123,15 @@ final class ViewerViewModel: ObservableObject {
     /// インスタンス。ModelContextの自動保存はコンテキストに属するオブジェクトだけを書くので、
     /// 挿入しなければ好きに書き換えても何も残らない(persistStateのガードと二重の安全策)。
     private let readingState: BookReadingState
+    /// 書き出し後の後始末(環境設定「レイアウト」の「保存データ: 削除」)で、この本の
+    /// 読書位置(BookReadingState)をDBから削除したかどうか。
+    ///
+    /// 削除した行を`readingState`はまだ参照し続けているため、以後そこへ書き込んではいけない
+    /// (SwiftDataでは削除済みのオブジェクトへの書き込みは未定義で、実行時に落ちうる)。
+    /// この本を開いたまま「保存データを削除」した場合、ページを送るたびに`persistState()`が
+    /// 走るので、そこを止めるための番人。`skipsPersistence`と実質同じ意味になるが、あちらは
+    /// 本を開いた時点で決まる`let`で、途中から立てられない。
+    private var readingStateDiscarded = false
     /// この本について、アプリ側の記録をDBへ一切書いてはいけないかどうか。
     /// trueのとき、このクラスの永続化経路(読書状態・ブックマーク追加・レイアウト書き込み・
     /// EPUB/PDF/ComicInfoからの自動取り込み・ディスクサムネイルキャッシュ)はすべて何もしない。
@@ -568,6 +577,11 @@ final class ViewerViewModel: ObservableObject {
         // 高速に連続して回すと、primeWideImageCache(around:radius:)によるcurrentIndex付近だけの
         // 先読みでは判定が追いつかず、まだ未判定の遠いページまで一気に進んでしまうことがある)。
         warmUpWideImageCacheForEntireBook()
+        // 環境設定「レイアウト」で指定されていれば、レイアウトの保存データを持っていない本を
+        // 開いた時点で本全体を自動レイアウトする(autoLayoutForBookWithoutLayoutData参照)。
+        Task { [weak self] in
+            await self?.autoLayoutForBookWithoutLayoutData()
+        }
         reloadBookmarks()
 
         // 設計コンセプト7.5節「逆方向」: EPUBの目次(nav.xhtml)、またはPDFのアウトライン(しおり)が
@@ -1864,6 +1878,8 @@ final class ViewerViewModel: ObservableObject {
     // MARK: - 内部処理
 
     private func persistState() {
+        // 削除済みの行へは何も書かない(readingStateDiscardedのコメント参照)。
+        guard !readingStateDiscarded else { return }
         // メモリ上のreadingStateは即座に更新する(他のコードから参照されても常に最新の状態になるように)。
         readingState.lastPageIndex = currentIndex
         readingState.displayMode = displayMode
@@ -1890,7 +1906,7 @@ final class ViewerViewModel: ObservableObject {
     /// 読書位置が失われないよう、保留中の保存があれば即座に確定させる。
     /// ViewerViewのonDisappearから呼ばれる。
     func flushPendingSave() {
-        guard !skipsPersistence, saveDebounceTask != nil else { return }
+        guard !skipsPersistence, !readingStateDiscarded, saveDebounceTask != nil else { return }
         saveDebounceTask?.cancel()
         saveDebounceTask = nil
         try? modelContext.save()
@@ -2745,5 +2761,71 @@ final class ViewerViewModel: ObservableObject {
         )
         layoutStore.setPageLayoutStates(for: book, planned)
         reloadLayoutData()
+    }
+
+    /// 環境設定「レイアウト」の「レイアウトの保存データを持っていない本を開いたとき」
+    /// (ユーザー要望)。本を開いた直後に一度だけ呼ばれる。
+    ///
+    /// 計算そのものは「現在の表示を基準に自動でレイアウト」(autoLayoutFromCurrentView)と
+    /// 同じで、違うのは起点(anchor)だけ ―― あちらが「いま画面に出ている組み合わせ」を起点に
+    /// するのに対し、こちらは本の1ページ目を、設定に応じて単ページ/見開きの1枚目として
+    /// 起点にする。以降のページの組み方(横長画像は常に単独、端数は末尾へ)は共通。
+    ///
+    /// **既にレイアウトの保存データがある本には何もしない。** ユーザーが手で付けた設定を
+    /// 上書きしないためであり、EPUB/PDFのようにファイル自身がレイアウトを持つ本を
+    /// 巻き込まないためでもある(それらは本を初めて開いた時点で
+    /// LayoutStore.importSourceLayoutIfNeeded がDBへ取り込むので、ここへ来る頃には
+    /// 「レイアウトの保存データを持っている本」になっている)。
+    ///
+    /// 差し替えの疑いがある間(pendingLayoutReplacementStatus)も何もしない。あの状態は
+    /// 「確認ダイアログで解決されるまでDBのレイアウトデータには手を出さない」という約束で
+    /// 成り立っており、ここで書き込むとその約束を破ることになる(init内で
+    /// importSourceLayoutIfNeeded を見送っているのと同じ理由)。
+    private func autoLayoutForBookWithoutLayoutData() async {
+        let mode = preferences.missingLayoutAutoLayout
+        guard mode != .none, !skipsPersistence, pendingLayoutReplacementStatus == nil,
+              pageLayoutStates.isEmpty, !book.pages.isEmpty
+        else { return }
+
+        let orderedKeys = book.pages.map(\.sortKey)
+        let anchorKeys: [String]
+        switch mode {
+        case .none:
+            return
+        case .firstPageSingle:
+            anchorKeys = [orderedKeys[0]]
+        case .firstPageSpread:
+            // 2ページ目が無い(1ページだけの本)なら見開きにしようがないので単ページ扱い。
+            anchorKeys = orderedKeys.count >= 2 ? Array(orderedKeys.prefix(2)) : [orderedKeys[0]]
+        }
+
+        let wideness = await wideImageAspectRatios(for: orderedKeys)
+        // 待っているあいだに本を閉じた/レイアウトを手で編集した可能性があるので、
+        // 書き込む直前にもう一度、前提が崩れていないことを確かめる。
+        guard pageLayoutStates.isEmpty, pendingLayoutReplacementStatus == nil else { return }
+
+        let planned = LayoutAutoCalculator.recalculate(
+            orderedPageKeys: orderedKeys, anchor: .init(pageKeys: anchorKeys), scope: .wholeBook,
+            isWideImage: { wideness[$0] ?? false }, isRightToLeft: readingDirection == .rightToLeft
+        )
+        guard !planned.isEmpty else { return }
+        layoutStore.setPageLayoutStates(for: book, planned)
+        reloadLayoutData()
+    }
+
+    /// 書き出し後の後始末(環境設定「レイアウト」の「保存データ: 削除」)で、この本の
+    /// 読書位置(BookReadingState)を削除する。
+    ///
+    /// この本を開いたままでも呼べるように、ViewerViewModel自身に持たせてある。DBの行を
+    /// 消すだけでは、この後もページを送るたびに`persistState()`が削除済みの行へ書き込もうと
+    /// してしまうため、保留中の保存を捨て、以後の保存を止めるところまでを1つの操作にする
+    /// (readingStateDiscardedのコメント参照)。
+    func discardReadingState() {
+        guard !skipsPersistence, !readingStateDiscarded else { return }
+        saveDebounceTask?.cancel()
+        saveDebounceTask = nil
+        readingStateDiscarded = true
+        modelContext.delete(readingState)
+        try? modelContext.save()
     }
 }

@@ -124,3 +124,50 @@ extension ThumbnailCaptionStyle: SettingsOption {
 extension PageBorderColorOption: SettingsOption {
     var shortTitleKey: LocalizedStringKey { titleKey }
 }
+
+// MARK: - レイアウト
+
+extension MissingLayoutAutoLayout: SettingsOption {
+    /// 「1ページ目を単ページとして」「1ページ目を見開きとして」まで書くと閉じた状態で
+    /// 省略されるため、**何がその1ページ目になるか**だけを名前にしてある
+    /// (行のラベルが「レイアウトの無い本を開いたとき」なので、これで意味が通る)。
+    var shortTitleKey: LocalizedStringKey {
+        switch self {
+        case .none: return "Do Nothing"
+        case .firstPageSingle: return "First Page as Single"
+        case .firstPageSpread: return "First Page as Spread"
+        }
+    }
+}
+
+extension BookExportDestinationMode: SettingsOption {
+    var shortTitleKey: LocalizedStringKey {
+        switch self {
+        case .askEachTime: return "Ask Each Time"
+        case .fixedFolder: return "Fixed Folder"
+        }
+    }
+}
+
+extension BookExportCleanup: SettingsOption {
+    var shortTitleKey: LocalizedStringKey {
+        switch self {
+        case .keep: return "Do Nothing"
+        case .delete: return "Delete"
+        }
+    }
+}
+
+extension BookExportCompletionBehavior: SettingsOption {
+    /// `LastPageBehavior`の同じ選択肢と同じ短い名前を使う(片方だけ別の言い回しにしない)。
+    var shortTitleKey: LocalizedStringKey {
+        switch self {
+        case .none: return "Do Nothing"
+        case .nextBookFirstPage: return "Next Book (First Page)"
+        case .nextBook: return "Next Book"
+        case .closeBook: return "Close Book"
+        case .returnToWelcome: return "Return to Welcome Screen"
+        case .ask: return "Ask Each Time"
+        }
+    }
+}
