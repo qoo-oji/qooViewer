@@ -1511,9 +1511,11 @@ final class ViewerViewModel: ObservableObject {
             var seeded = book
             seeded.sourceLayoutHint = SourceLayoutHint(pageProgressionDirection: direction, forcedDisplayMode: nil)
             layoutStore.importSourceLayoutIfNeeded(for: seeded)
-            // reloadLayoutDataは読み方向を読み直さない(ページの並び・除外だけを扱う)ため、
             // 取り込んだ結果を今表示している本へ明示的に反映する。既にユーザーが設定していた
             // 場合は上の取り込みが値を書き換えないため、ここで代入しても現在値と同じになる。
+            // reloadLayoutDataも通知経由で読み方向の上書きを反映するようになった(そちらの
+            // コメント参照)が、あちらはデバウンス越しの後追いのため、ここでの即時反映は残す
+            // (どちらが先に走っても同じ値を代入するだけで害は無い)。
             if let imported = layoutStore.bookLayoutSettings(forBookID: book.id)?.readingDirectionOverride {
                 readingDirection = imported
             }
@@ -2481,6 +2483,39 @@ final class ViewerViewModel: ObservableObject {
         bookLayoutSettings = layoutStore.bookLayoutSettings(forBookID: book.id)
         let newContrastCorrectionEnabled = bookLayoutSettings?.contrastCorrectionEnabled ?? false
         isContrastCorrectionEnabled = newContrastCorrectionEnabled
+
+        // 読み方向・見開き強制の上書きも、この読み直しの時点でビューアへ反映する(ユーザー要望:
+        // 「ブックマーク・レイアウトの編集」ウインドウで開いている本のレイアウトを変更したら、
+        // 開き直しを待たず即時ビューアに反映されること)。以前はどちらもinit(と、ビューア自身の
+        // トグル操作・ComicInfo取り込み)でしか代入されず、編集ウインドウの読み方向ドロップ
+        // ダウンやJSONインポートで変わっても、本を開き直すまで表示に反映されなかった。
+        //
+        // 上書きがnil(未設定、または設定ごと削除)の場合は現在の表示を維持する。優先順位は
+        // DB(BookLayoutSettings) > BookReadingStateで、ビューアの現在値はそのフォールバック側の
+        // 値そのものだから、nilへ戻ったからといって表示を変える理由は無い。
+        //
+        // 差分はビューアの現在値(readingDirection/displayMode)との比較で取る(上のコントラスト
+        // 補正と同じ理由: マネージドオブジェクトは既に新しい値になっていて「変更前」を読めない)。
+        // ビューア自身のトグル操作(toggleReadingDirection/toggleDisplayMode)が書き込んだ場合の
+        // 通知エコーは、この比較が同値になるため自然に無視され、ループしない。
+        //
+        // 反映後のペアの組み直し(見開き左右の許可判定は読み方向で入れ替わる。
+        // shouldPairWithNextPage参照)は、この関数の末尾のloadCurrentSpreadが行う。ここでの
+        // 代入は、後続のnormalizedAnchorIndex/spreadPairStillDisplayableの判定より前で
+        // なければならない(どちらもreadingDirection/displayModeを参照する)。
+        if let directionOverride = bookLayoutSettings?.readingDirectionOverride,
+           directionOverride != readingDirection {
+            // toggleReadingDirectionと同じ後始末(resetPinchZoom)。
+            resetPinchZoom()
+            readingDirection = directionOverride
+        }
+        if let forcedMode = bookLayoutSettings?.forcedDisplayMode, forcedMode != displayMode {
+            // toggleDisplayModeと同じ後始末(resetPinchZoom+cancelPendingPageFlip)。
+            resetPinchZoom()
+            cancelPendingPageFlip()
+            displayMode = forcedMode
+        }
+
         var overridesByKey: [String: PageLayoutState] = [:]
         for override in layoutStore.pageOverrides(forBookID: book.id) {
             overridesByKey[override.pageKey] = override.state
@@ -2592,8 +2627,8 @@ final class ViewerViewModel: ObservableObject {
                 await self.loadCurrentSpread(ignorePreviousDisplayedRange: true)
             }
         } else {
-            // 読み方向・見開き強制のロック状態や、focusPageKeyによる表示移動、コントラスト補正
-            // 設定が変わった可能性があるため、現在の表示を再計算する。
+            // 読み方向・見開き強制(この関数の冒頭で反映済み)や、focusPageKeyによる表示移動、
+            // コントラスト補正設定が変わった可能性があるため、現在の表示を再計算する。
             Task { [weak self] in
                 guard let self else { return }
                 if newContrastCorrectionEnabled != previousContrastCorrectionEnabled {
