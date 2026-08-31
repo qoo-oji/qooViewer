@@ -1443,8 +1443,27 @@ final class ViewerViewModel: ObservableObject {
         // 不具合が実機で確認された(LayoutStore.pageOverrides(forBookID:)のコメント参照)ため、
         // 絞り込み無しで全件取得してからSwift側でfilter・sortする。
         let all = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
+        let mine = all.filter { $0.bookID == bookID }
+        // ページ番号は鍵から**毎回**導出し直す(Bookmark.pageKey参照)。init時に一度だけでは
+        // 足りない ―― 環境設定「並び順をFinderに揃える」の切り替え・ページの並べ替え・除外は
+        // 本を開いたまま起きるため、そのたびに番号を振り直さないと、鍵は正しいのに番号だけが
+        // 古い並びのまま残り、**別のページにブックマークが付いているように見える**
+        // (実機で確認した不具合)。鍵を持たない行(1.36以前・本を開かずに追加された行)は、
+        // ここでも必ず従来順で鍵へ変換する。
+        let currentOrderedKeys = book.pages.map(\.sortKey)
+        let legacyOrderedKeys = EffectivePageOrder.orderedPages(
+            for: rawPages, pageOrderSource: book.pageOrderSource,
+            pageOrderOverride: bookLayoutSettings?.pageOrderOverride,
+            excludedKeys: Set(pageLayoutStates.filter { $0.value == .excluded }.map(\.key)),
+            usesFinderOrderOverride: false
+        ).map(\.sortKey)
+        let (_, didChange) = BookmarkStore.resolveKeys(
+            for: mine, legacyOrderedKeys: legacyOrderedKeys, currentOrderedKeys: currentOrderedKeys,
+            persists: !skipsPersistence
+        )
+        if didChange { try? modelContext.save() }
         // シークレットウインドウでファイルから読んだ分(ephemeralBookmarks。DBには無い)も合成する。
-        bookmarks = (all.filter { $0.bookID == bookID } + ephemeralBookmarks).sorted { $0.pageIndex < $1.pageIndex }
+        bookmarks = (mine + ephemeralBookmarks).sorted { $0.pageIndex < $1.pageIndex }
     }
 
     /// EPUBの目次(nav.xhtml)から、ブックマークを自動的に取り込む(設計コンセプト7.5節「逆方向」)。
@@ -2639,6 +2658,12 @@ final class ViewerViewModel: ObservableObject {
             newBook.pages = rebuiltPages
             book = newBook
             updatedBook = newBook
+            // ページ番号で持っているもの(ブックマーク)を、新しい並びで振り直す。
+            // **ページを差し替えた直後に、必ずここで**行うこと ―― 並び順の設定変更・
+            // ページの並べ替え・除外は本を開いたまま起きるため、これを怠ると鍵は正しいのに
+            // 番号だけが古い並びのまま残り、別のページにブックマークが付いているように見える
+            // (実機で確認した不具合。Bookmark.pageKey / reloadBookmarksのコメント参照)。
+            reloadBookmarks()
         }
         // pagesChangedならbook.pagesは既にrebuiltPagesに差し替え済み、そうでなければ従来どおり
         // oldPagesのまま(参照の便宜上、以後はbook.pagesを直接使う)。
