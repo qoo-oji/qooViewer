@@ -296,9 +296,24 @@ final class BookLayoutEditorViewModel: ObservableObject {
         })
     }
 
+    /// この本のページ順の由来。本体を読み込めた後はMangaBookの値そのもの。キャッシュから
+    /// 行を組み立てる段階では本体が無いため、bookID(パス)の拡張子から推定する
+    /// (PDF/EPUBは.document。BookExportViewModel.resolveDefaultCoverNameと同じ判定)。
+    private var pageOrderSource: PageOrderSource {
+        book?.pageOrderSource ?? ((isPDFFile(bookID) || isEpubFile(bookID)) ? .document : .fileName)
+    }
+
     private func rebuildRows(from pages: [PageDescriptor]) {
         let overrideOrder = layoutStore.bookLayoutSettings(forBookID: bookID)?.pageOrderOverride
-        let orderedPages = Self.reorder(pages: pages, by: overrideOrder)
+        // ビューアと同じ実効順で並べる(環境設定「並び順をFinderに揃える」→ pageOrderOverride、
+        // の順に適用。EffectivePageOrderが唯一の適用点)。以前はpageOrderOverrideの並べ替えだけを
+        // ここに別実装で持っていて設定を見ておらず、設定がOFF(既定)のとき、並びが実際に
+        // 入れ替わる命名の本では右ペインの行順・読書順の番号がビューアと食い違っていた。
+        // 除外ページもこの一覧には(読書順の番号なしで)表示するため、excludedKeysは空で呼ぶ。
+        let orderedPages = EffectivePageOrder.orderedPages(
+            for: pages, pageOrderSource: pageOrderSource,
+            pageOrderOverride: overrideOrder, excludedKeys: []
+        )
         // sortKeyをキーにする辞書は、uniqueKeysWithValues(重複キーで実行時トラップ)ではなく
         // 「最初の1件を採る」形で組み立てる。PageRef.sortKeyは、書庫の中に`a.zip`という
         // ファイルと`a.zip/`というフォルダが同居しているような作りの本では、入れ子書庫の
@@ -320,23 +335,6 @@ final class BookLayoutEditorViewModel: ObservableObject {
         let overridesByKey = currentOverridesByKey()
         pageLayoutStates = overridesByKey
         rows = recomputeEffectiveIndices(for: baseRows, overridesByKey: overridesByKey)
-    }
-
-    private static func reorder(pages: [PageDescriptor], by overrideOrder: [String]?) -> [PageDescriptor] {
-        guard let overrideOrder else { return pages }
-        // rebuildRowsと同じ理由で「最初の1件を採る」形にする(コメント参照)。
-        var remaining = Dictionary(pages.map { ($0.sortKey, $0) }, uniquingKeysWith: { first, _ in first })
-        var result: [PageDescriptor] = []
-        result.reserveCapacity(pages.count)
-        for key in overrideOrder {
-            if let page = remaining.removeValue(forKey: key) {
-                result.append(page)
-            }
-        }
-        // overrideOrderに含まれない(新しく増えた)ページは、元の自然順のまま末尾に追加する
-        // (ViewerViewModel.applyLayoutDataと同じ考え方)。
-        result.append(contentsOf: pages.filter { remaining[$0.sortKey] != nil })
-        return result
     }
 
     /// この本のPageLayoutOverrideを、pageKeyをキーにした辞書として一括取得する。

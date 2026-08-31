@@ -33,6 +33,9 @@ nonisolated protocol PageOrderSortable {
 // 使えない(Services/ArchiveReading.swift冒頭のコメント参照)。
 nonisolated extension PageRef: PageOrderSortable {}
 nonisolated extension BookPageListCache.Entry.Page: PageOrderSortable {}
+// 「ブックマーク・レイアウトの編集」ウインドウの右ペインの行の材料。ビューアと同じ実効順で
+// 行を並べるため(BookLayoutEditorViewModel.rebuildRows参照)。
+nonisolated extension BookLayoutEditorViewModel.PageDescriptor: PageOrderSortable {}
 
 nonisolated enum EffectivePageOrder {
     /// 実際の読書順に並んだページの一覧(除外ページは含まない)。
