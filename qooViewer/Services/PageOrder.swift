@@ -92,3 +92,14 @@ nonisolated enum PageOrder {
             != keys.sorted { $0.compare($1, options: .numeric) == .orderedAscending }
     }
 }
+
+extension Notification.Name {
+    /// 環境設定「並び順をFinderに揃える」が変わったことを知らせる通知
+    /// (AppPreferences.usesFinderSortOrderのdidSetから送られる)。
+    ///
+    /// 受け取る側は、**本を読み込み直さずに手元のページ配列を並べ直せばよい**。並び順の
+    /// 切り替えはページ集合を変えず順序だけを変えるので、並べ直した結果は読み込み直した
+    /// 結果と必ず一致する(EffectivePageOrderを通せば、ユーザーの並べ替え・除外も同時に
+    /// 反映される)。
+    static let pageOrderSettingDidChange = Notification.Name("qooViewer.pageOrderSettingDidChange")
+}

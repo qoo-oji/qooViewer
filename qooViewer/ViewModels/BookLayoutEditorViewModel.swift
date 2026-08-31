@@ -146,6 +146,8 @@ final class BookLayoutEditorViewModel: ObservableObject {
     /// layoutDataChangeObserverと同じ考え方で、この本(bookID)宛ての変更通知を購読し、
     /// 気づいたら都度refreshEffectiveIndices()で読み直す。
     private var layoutDataChangeObserver: NSObjectProtocol?
+    /// 環境設定「並び順をFinderに揃える」の変更を受けて行を並べ直すための監視。
+    private var pageOrderSettingObserver: NSObjectProtocol?
 
     init(bookID: String, layoutStore: LayoutStore, preferences: AppPreferences, bookmarkStore: BookmarkStore) {
         self.bookID = bookID
@@ -167,9 +169,24 @@ final class BookLayoutEditorViewModel: ObservableObject {
                 self?.refreshEffectiveIndices()
             }
         }
+
+        // 並び順の設定が変わったら、右ペインの行もその場で並べ直す
+        // (Notification.Name.pageOrderSettingDidChange参照)。本を読み込み直す必要は無く、
+        // 手元のページ一覧を組み立て直すだけでよい。
+        pageOrderSettingObserver = NotificationCenter.default.addObserver(
+            forName: .pageOrderSettingDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let book = self.book else { return }
+                self.rebuildRows(from: book)
+            }
+        }
     }
 
     deinit {
+        if let pageOrderSettingObserver {
+            NotificationCenter.default.removeObserver(pageOrderSettingObserver)
+        }
         if let layoutDataChangeObserver {
             NotificationCenter.default.removeObserver(layoutDataChangeObserver)
         }

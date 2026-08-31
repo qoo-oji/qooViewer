@@ -255,7 +255,12 @@ class BookExportViewModel: ObservableObject {
         // queue: .mainを指定しているため実行時には必ずMainActor上で呼ばれるが、クロージャ自体の
         // 型はMainActorに分離されていないため、コンパイラは静的にそれを保証できない
         // (BookmarkStore.init/ViewerViewModel.initの同種のコメント参照)。
-        for name in [Notification.Name.bookmarksDidChange, .layoutDataDidChange, .bookMetadataDidChange] {
+        // pageOrderSettingDidChange: 並び順の設定が変わると「実質的な先頭ページ」が変わりうる
+        // ため、カバー名の表示も作り直す(Notification.Name.pageOrderSettingDidChange参照)。
+        for name in [
+            Notification.Name.bookmarksDidChange, .layoutDataDidChange, .bookMetadataDidChange,
+            .pageOrderSettingDidChange,
+        ] {
             let observer = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) {
                 [weak self] _ in
                 MainActor.assumeIsolated {

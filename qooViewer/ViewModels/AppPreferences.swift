@@ -435,7 +435,14 @@ final class AppPreferences: ObservableObject {
     /// (PageOrder.usesFinderOrder。他の設定のように引数で配らない理由もそこに書いてある)。
     /// ここが持つのは「画面に出すための値」と「didSetでの保存」だけ。
     @Published var usesFinderSortOrder: Bool {
-        didSet { UserDefaults.standard.set(usesFinderSortOrder, forKey: Keys.usesFinderSortOrder) }
+        didSet {
+            guard usesFinderSortOrder != oldValue else { return }
+            UserDefaults.standard.set(usesFinderSortOrder, forKey: Keys.usesFinderSortOrder)
+            // 開いている本・一覧をその場で並べ直させる(Notification.Name.
+            // pageOrderSettingDidChange参照)。UserDefaultsへ書いた**後**に送ること ――
+            // 受け取る側はPageOrder.usesFinderOrder(UserDefaults)を読んで並べ直すため。
+            NotificationCenter.default.post(name: .pageOrderSettingDidChange, object: nil)
+        }
     }
     /// 環境設定「一般」タブの、サイドパネル(上段・下段どちらも)のフォルダ・ファイルの
     /// 並び順(既定はフォルダをまとめて上に表示、Finderと同じ考え方)。DirectoryBrowser/
