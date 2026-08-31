@@ -245,13 +245,21 @@ enum LibraryImportExportService {
                     .filter { $0.state == .excluded }
                     .map(\.pageKey)
             )
-            let orderedKeys = EffectivePageOrder.pageKeys(
+            // 鍵を持っていればそれが権威(Bookmark.pageKey参照)。持っていない古い行だけ、
+            // 番号から引く ―― ただしその番号は**従来順**で記録されているため、今の実効順で
+            // 引くと別のページの鍵を書き出してしまう(BookExportViewModel.exportOneの
+            // 同種の変換と同じ規則。あちらに施した修正がここだけ漏れていた)。
+            let legacyOrderedKeys = EffectivePageOrder.legacyOrderedPageKeys(
                 for: book, pageOrderOverride: settings?.pageOrderOverride, excludedKeys: excludedKeys
             )
             var entries: [ExportedBookmark] = []
             for bookmark in bookmarks {
-                guard orderedKeys.indices.contains(bookmark.pageIndex) else { continue }
-                entries.append(ExportedBookmark(page: orderedKeys[bookmark.pageIndex], name: bookmark.name))
+                if let key = bookmark.pageKey {
+                    entries.append(ExportedBookmark(page: key, name: bookmark.name))
+                    continue
+                }
+                guard legacyOrderedKeys.indices.contains(bookmark.pageIndex) else { continue }
+                entries.append(ExportedBookmark(page: legacyOrderedKeys[bookmark.pageIndex], name: bookmark.name))
             }
             guard !entries.isEmpty else { continue }
             result.append(
