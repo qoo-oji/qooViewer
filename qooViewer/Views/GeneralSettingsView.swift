@@ -8,6 +8,32 @@ import Foundation
 /// (SettingsControls.swift の設計方針を参照)。
 struct GeneralSettingsView: View {
     @EnvironmentObject private var preferences: AppPreferences
+    /// 「並び順をFinderに揃える」を切り替えたときに、従来の並びのまま残る本を探すために使う
+    /// (LayoutStore.booksKeepingLegacyPageOrder参照)。
+    @EnvironmentObject private var layoutStore: LayoutStore
+    /// 並び順の設定を切り替えた結果、レイアウトを守るために従来の並びのまま残る本のID。
+    /// 空なら確認は出さない ―― 実際にはほとんどの本で並びは変わらないため、無関係な確認で
+    /// 不安にさせないこと自体が要件になっている。
+    @State private var booksKeepingLegacyOrder: [String] = []
+    @State private var showsLegacyOrderPrompt = false
+
+    /// 確認の本文。対象の冊数と、先頭いくつかの本の名前を挙げる(全部並べると長くなるため)。
+    private var legacyOrderPromptMessage: String {
+        let names = booksKeepingLegacyOrder.prefix(5)
+            .map { ($0 as NSString).lastPathComponent }
+            .joined(separator: "\n")
+        let remainder = booksKeepingLegacyOrder.count - min(booksKeepingLegacyOrder.count, 5)
+        let tail = remainder > 0 ? "\n" + String(localized: "and \(remainder) more") : ""
+        return String(
+            localized: """
+            These books have a layout you set up, so they keep the page order that layout was made \
+            for. Bookmarks and reading positions stay on the same images either way; only the \
+            spread pairing depends on the order.
+
+            \(names)\(tail)
+            """
+        )
+    }
 
     var body: some View {
         SettingsPaneContainer {
@@ -108,6 +134,27 @@ struct GeneralSettingsView: View {
                 )
             } header: {
                 Text("Page Order")
+            }
+            // 切り替えても、レイアウトを設定した本は当時の並びのまま残る(見開きの組み合わせを
+            // 守るため。LayoutStore.pinPageOrderIfNeeded参照)。該当する本があるときだけ、
+            // まとめて合わせるかどうかを尋ねる。
+            .onChange(of: preferences.usesFinderSortOrder) { _, _ in
+                let ids = layoutStore.booksKeepingLegacyPageOrder()
+                guard !ids.isEmpty else { return }
+                booksKeepingLegacyOrder = ids
+                showsLegacyOrderPrompt = true
+            }
+            .alert(
+                "Some books keep their current page order",
+                isPresented: $showsLegacyOrderPrompt
+            ) {
+                Button("Match the New Order") {
+                    layoutStore.clearPinnedPageOrder(forBookIDs: booksKeepingLegacyOrder)
+                    booksKeepingLegacyOrder = []
+                }
+                Button("Keep as They Are", role: .cancel) { booksKeepingLegacyOrder = [] }
+            } message: {
+                Text(legacyOrderPromptMessage)
             }
 
             Section {
