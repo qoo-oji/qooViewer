@@ -2465,7 +2465,14 @@ final class ViewerViewModel: ObservableObject {
             // 引き継ぎ必須。落とすとPDF/EPUBが名前順の本と誤認され、並び順の設定で
             // 並べ替えられてしまう(MangaBook.pageOrderSource参照)。
             pageOrderSource: rawBook.pageOrderSource,
-            sourceLayoutHint: rawBook.sourceLayoutHint
+            sourceLayoutHint: rawBook.sourceLayoutHint,
+            // これも引き継ぎ必須。既定値(.fileSystem)に落ちると、画像を直接開いた
+            // 「その場限りの本」でisTransientがfalseになる。ビューア側の本からこれを読んで
+            // いるのは右クリックの「本の書き出し」の無効化判定(ViewerView)で、落としたままだと
+            // **本来グレーアウトするはずの項目が選べてしまい、1枚目だけが入った1ページの
+            // ファイルが黙って出来上がる**(sourceURLが渡された画像の1枚目でしかないため。
+            // ViewerViewの.disabled(...)のコメント参照)。
+            origin: rawBook.origin
         )
         return (adjustedBook, .unaffected, settings, overridesByKey)
     }
