@@ -153,6 +153,22 @@
         }
       }
     },
+    "If you match the new order:\n\nLayout\n• It is not deleted\n• Spread pairings change\n\nBookmarks and reading positions\n• They stay on the same pages\n\nUndoing\n• One book cannot be put back alone\n• Turning this off restores the old order\n\n%@%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "If you match the new order:\n\nLayout\n• It is not deleted\n• Spread pairings change\n\nBookmarks and reading positions\n• They stay on the same pages\n\nUndoing\n• One book cannot be put back alone\n• Turning this off restores the old order\n\n%@%@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しい並び順に合わせると:\n\nレイアウト\n・削除されません\n・見開きの組み合わせは変わります\n\nブックマーク・読書位置\n・同じページを指したままです\n\n元に戻す\n・1冊だけ元に戻せません\n・OFFに戻せば元の並びに戻ります\n\n%@%@"
+          }
+        }
+      }
+    },
     "Keep as They Are" : {
       "localizations" : {
         "en" : {
@@ -279,22 +295,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Finderと同じ名前順で並べます。数字は数値として比べ、大文字小文字や記号もシステムの照合順序に従います。\nOFF(既定)のときは、以前のバージョンと同じ文字コード順です。大文字で始まる名前が、小文字で始まる名前よりすべて先に来ます。\n開いている本も一覧も、その場で並び替わります。レイアウトを設定した本だけは、そのレイアウトを作ったときの並びのままです(どのページが見開きで組になるかは並び順で決まるため)。"
-          }
-        }
-      }
-    },
-    "These books have a layout you set up, so they keep the page order that layout was made for.\n\nIf you match the new order:\n• The layout is not deleted. Each page keeps its setting (single, spread left/right, excluded). But which pages pair into a spread follows the order, so pairings can change and blank pages can appear. Run Auto Layout from the Current View to rebuild them.\n• Bookmarks and reading positions keep pointing at the same images. Only their page numbers are renumbered.\n• You cannot put a single book back on its own; turning this setting off again brings these books back to their old order.\n\n%@%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "These books have a layout you set up, so they keep the page order that layout was made for.\n\nIf you match the new order:\n• The layout is not deleted. Each page keeps its setting (single, spread left/right, excluded). But which pages pair into a spread follows the order, so pairings can change and blank pages can appear. Run Auto Layout from the Current View to rebuild them.\n• Bookmarks and reading positions keep pointing at the same images. Only their page numbers are renumbered.\n• You cannot put a single book back on its own; turning this setting off again brings these books back to their old order.\n\n%@%@"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "レイアウトを設定した本は、そのレイアウトを作ったときの並び順のままにしています。\n\n新しい並び順に合わせると:\n・レイアウトは削除されません。各ページの設定(単ページ/見開き左・右/除外)はそのまま残ります。ただし、どのページ同士が見開きで組むかは並び順で決まるため、組み合わせが変わったり、空白ページが入ったりすることがあります。作り直すには「現在の表示を基準に自動でレイアウト」を実行してください。\n・ブックマークと読書位置は、同じ画像を指したままです。ページ番号だけが新しい並びで振り直されます。\n・1冊だけを元に戻すことはできません。この設定をOFFに戻せば、これらの本も元の並び順に戻ります。\n\n%@%@"
           }
         }
       }

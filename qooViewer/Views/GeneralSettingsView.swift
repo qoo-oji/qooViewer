@@ -28,17 +28,18 @@ struct GeneralSettingsView: View {
         let tail = remainder > 0 ? "\n" + String(localized: "and \(remainder) more") : ""
         return String(
             localized: """
-            These books have a layout you set up, so they keep the page order that layout was made \
-            for.
-
             If you match the new order:
-            • The layout is not deleted. Each page keeps its setting (single, spread left/right, \
-            excluded). But which pages pair into a spread follows the order, so pairings can change \
-            and blank pages can appear. Run Auto Layout from the Current View to rebuild them.
-            • Bookmarks and reading positions keep pointing at the same images. Only their page \
-            numbers are renumbered.
-            • You cannot put a single book back on its own; turning this setting off again brings \
-            these books back to their old order.
+
+            Layout
+            • It is not deleted
+            • Spread pairings change
+
+            Bookmarks and reading positions
+            • They stay on the same pages
+
+            Undoing
+            • One book cannot be put back alone
+            • Turning this off restores the old order
 
             \(names)\(tail)
             """
