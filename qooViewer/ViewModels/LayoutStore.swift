@@ -103,39 +103,6 @@ final class LayoutStore: ObservableObject {
         Array(settingsByBookID().values)
     }
 
-    /// 環境設定「並び順をFinderに揃える」を切り替えたときに、**従来の並びのまま残る本**を
-    /// 探して返す(bookID → 表示名の材料になるパス)。
-    ///
-    /// 対象は「レイアウトを持つために並びを固定してある本」だけ。判定は保存されている並び
-    /// (pageOrderOverride)自身で行える ―― それが従来順そのものと一致し、かつ設定によって
-    /// 並びが変わる本であれば、この仕組みが固定したものだと分かる。ユーザーが手で並べ替えた
-    /// 本は従来順とは一致しないので、ここには出てこない(勝手に解除の候補にしない)。
-    ///
-    /// 該当が0件なら、切り替えても何も起きないということなので、確認を出す必要は無い。
-    func booksKeepingLegacyPageOrder() -> [String] {
-        allBookLayoutSettings().compactMap { settings -> String? in
-            guard let order = settings.pageOrderOverride, order.count > 1 else { return nil }
-            guard PageOrder.differsByOrderSetting(keys: order) else { return nil }
-            let legacySorted = order.sorted { $0.compare($1, options: .numeric) == .orderedAscending }
-            guard order == legacySorted else { return nil }
-            return settings.bookID
-        }
-    }
-
-    /// 上で見つけた本の固定を解除し、今の設定の並びに従わせる。
-    /// ブックマークと読書位置は鍵で保存されているので同じページを指し続けるが、見開きの
-    /// 組み合わせは並びに依存するため崩れることがある(LayoutStore.pinPageOrderIfNeeded参照)。
-    func clearPinnedPageOrder(forBookIDs bookIDs: [String]) {
-        guard !bookIDs.isEmpty else { return }
-        for bookID in bookIDs {
-            guard let settings = bookLayoutSettings(forBookID: bookID) else { continue }
-            settings.pageOrderOverride = nil
-            settings.updatedAt = Date()
-        }
-        try? modelContext.save()
-        NotificationCenter.default.post(name: .layoutDataDidChange, object: self)
-    }
-
     /// 新規insertしたBookLayoutSettingsをキャッシュへ反映する(キャッシュ未構築なら何もしない。
     /// 次回の読み取り時にフェッチで拾われるため)。
     private func cacheInsertedSettings(_ settings: BookLayoutSettings) {

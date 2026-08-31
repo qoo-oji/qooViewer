@@ -8,44 +8,6 @@ import Foundation
 /// (SettingsControls.swift の設計方針を参照)。
 struct GeneralSettingsView: View {
     @EnvironmentObject private var preferences: AppPreferences
-    /// 「並び順をFinderに揃える」を切り替えたときに、従来の並びのまま残る本を探すために使う
-    /// (LayoutStore.booksKeepingLegacyPageOrder参照)。
-    @EnvironmentObject private var layoutStore: LayoutStore
-    /// 並び順の設定を切り替えた結果、レイアウトを守るために従来の並びのまま残る本のID。
-    /// 空なら確認は出さない ―― 実際にはほとんどの本で並びは変わらないため、無関係な確認で
-    /// 不安にさせないこと自体が要件になっている。
-    @State private var booksKeepingLegacyOrder: [String] = []
-    @State private var showsLegacyOrderPrompt = false
-
-    /// 確認の本文。合わせたときに**何が起きて何が起きないか**まで書く ―― レイアウトが消える
-    /// のか、ブックマークがずれるのかは、ユーザーが判断するのに必要な情報のため。
-    /// 対象の本は先頭いくつかだけ挙げる(全部並べると長くなるため)。
-    private var legacyOrderPromptMessage: String {
-        let names = booksKeepingLegacyOrder.prefix(5)
-            .map { ($0 as NSString).lastPathComponent }
-            .joined(separator: "\n")
-        let remainder = booksKeepingLegacyOrder.count - min(booksKeepingLegacyOrder.count, 5)
-        let tail = remainder > 0 ? "\n" + String(localized: "and \(remainder) more") : ""
-        return String(
-            localized: """
-            If you match the new order:
-
-            Layout
-            • It is not deleted
-            • Spread pairings change
-
-            Bookmarks and reading positions
-            • They stay on the same pages
-
-            Undoing
-            • One book cannot be put back alone
-            • Turning this off restores the old order
-
-            Affected books
-            \(names)\(tail)
-            """
-        )
-    }
 
     var body: some View {
         SettingsPaneContainer {
@@ -138,39 +100,22 @@ struct GeneralSettingsView: View {
             // (先頭のアンダースコア、"-"と"_"の混在、大文字小文字の混在)。既定をFinderと
             // 同じ照合に変え、従来の並びに慣れている場合のためにOFFを残した
             // (AppPreferences.usesFinderSortOrder / comparePageOrder参照)。
+            // 切り替えても、レイアウトを設定した本は当時の並びのまま残る(見開きの組み合わせを
+            // 守るため。LayoutStore.pinPageOrderIfNeeded参照)。以前はここに「まとめて新しい
+            // 並びに合わせるか」を尋ねる確認ダイアログがあったが、削除した ―― 合わせても
+            // 見開きの組み合わせが崩れて自動レイアウトのやり直しになるだけで、正解が
+            // 「そのまま」に決まっている質問だったうえ、対象の列挙も原理的に不完全だった
+            // (一度も開いていない本のピン留めは初回オープン時に行われるため、切り替えの
+            // 時点では見つけられない)。合わせたい本は、編集ウインドウの「ページ順を
+            // 初期化する」で1冊ずつ合わせられる(ヘルプ文言で案内している)。
             Section {
                 SettingsToggle(
                     "Match Finder's Sort Order",
                     isOn: $preferences.usesFinderSortOrder,
-                    help: "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off — the default — names are compared by character code instead, as in earlier versions, so every name starting with an uppercase letter comes before every name starting with a lowercase one. Open books and lists reorder right away. Books you have given a layout keep the order that layout was made for, because which pages pair into a spread depends on it."
+                    help: "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off — the default — names are compared by character code instead, as in earlier versions, so every name starting with an uppercase letter comes before every name starting with a lowercase one. Open books and lists reorder right away. Books you have given a layout keep the order that layout was made for, because which pages pair into a spread depends on it; to make such a book follow the new order, use Reset Page Order in the Bookmarks & Layout window."
                 )
             } header: {
                 Text("Page Order")
-            }
-            // 切り替えても、レイアウトを設定した本は当時の並びのまま残る(見開きの組み合わせを
-            // 守るため。LayoutStore.pinPageOrderIfNeeded参照)。該当する本があるときだけ、
-            // まとめて合わせるかどうかを尋ねる。
-            .onChange(of: preferences.usesFinderSortOrder) { _, isOn in
-                // 尋ねるのはONにしたときだけ。固定してある並びは従来順そのものなので、
-                // OFFに戻したときは固定を外しても外さなくても見た目が同じ ―― 変わらない
-                // 操作について確認を出しても、ユーザーを迷わせるだけになる。
-                guard isOn else { return }
-                let ids = layoutStore.booksKeepingLegacyPageOrder()
-                guard !ids.isEmpty else { return }
-                booksKeepingLegacyOrder = ids
-                showsLegacyOrderPrompt = true
-            }
-            .alert(
-                "Some books keep their current page order",
-                isPresented: $showsLegacyOrderPrompt
-            ) {
-                Button("Match the New Order") {
-                    layoutStore.clearPinnedPageOrder(forBookIDs: booksKeepingLegacyOrder)
-                    booksKeepingLegacyOrder = []
-                }
-                Button("Keep as They Are", role: .cancel) { booksKeepingLegacyOrder = [] }
-            } message: {
-                Text(legacyOrderPromptMessage)
             }
 
             Section {

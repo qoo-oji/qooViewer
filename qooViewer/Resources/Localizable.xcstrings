@@ -52,22 +52,6 @@
         }
       }
     },
-    "and %lld more" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "and %lld more"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ほか %lld 冊"
-          }
-        }
-      }
-    },
     "At the First Page" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -153,38 +137,6 @@
         }
       }
     },
-    "If you match the new order:\n\nLayout\n• It is not deleted\n• Spread pairings change\n\nBookmarks and reading positions\n• They stay on the same pages\n\nUndoing\n• One book cannot be put back alone\n• Turning this off restores the old order\n\nAffected books\n%@%@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "If you match the new order:\n\nLayout\n• It is not deleted\n• Spread pairings change\n\nBookmarks and reading positions\n• They stay on the same pages\n\nUndoing\n• One book cannot be put back alone\n• Turning this off restores the old order\n\nAffected books\n%@%@"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新しい並び順に合わせると:\n\nレイアウト\n・削除されません\n・見開きの組み合わせは変わります\n\nブックマーク・読書位置\n・同じページを指したままです\n\n元に戻す\n・1冊だけ元に戻せません\n・OFFに戻せば元の並びに戻ります\n\n対象の本\n%@%@"
-          }
-        }
-      }
-    },
-    "Keep as They Are" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Keep as They Are"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "このままにする"
-          }
-        }
-      }
-    },
     "Match Finder's Sort Order" : {
       "localizations" : {
         "en" : {
@@ -197,22 +149,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "並び順をFinderに揃える"
-          }
-        }
-      }
-    },
-    "Match the New Order" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Match the New Order"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新しい並び順に合わせる"
           }
         }
       }
@@ -267,34 +203,18 @@
         }
       }
     },
-    "Some books keep their current page order" : {
+    "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off — the default — names are compared by character code instead, as in earlier versions, so every name starting with an uppercase letter comes before every name starting with a lowercase one. Open books and lists reorder right away. Books you have given a layout keep the order that layout was made for, because which pages pair into a spread depends on it; to make such a book follow the new order, use Reset Page Order in the Bookmarks & Layout window." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Some books keep their current page order"
+            "value" : "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off — the default — names are compared by character code instead, as in earlier versions, so every name starting with an uppercase letter comes before every name starting with a lowercase one. Open books and lists reorder right away. Books you have given a layout keep the order that layout was made for, because which pages pair into a spread depends on it; to make such a book follow the new order, use Reset Page Order in the Bookmarks & Layout window."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "一部の本は現在の並び順のままです"
-          }
-        }
-      }
-    },
-    "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off — the default — names are compared by character code instead, as in earlier versions, so every name starting with an uppercase letter comes before every name starting with a lowercase one. Open books and lists reorder right away. Books you have given a layout keep the order that layout was made for, because which pages pair into a spread depends on it." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off — the default — names are compared by character code instead, as in earlier versions, so every name starting with an uppercase letter comes before every name starting with a lowercase one. Open books and lists reorder right away. Books you have given a layout keep the order that layout was made for, because which pages pair into a spread depends on it."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Finderと同じ名前順で並べます。数字は数値として比べ、大文字小文字や記号もシステムの照合順序に従います。\nOFF(既定)のときは、以前のバージョンと同じ文字コード順です。大文字で始まる名前が、小文字で始まる名前よりすべて先に来ます。\n開いている本も一覧も、その場で並び替わります。レイアウトを設定した本だけは、そのレイアウトを作ったときの並びのままです(どのページが見開きで組になるかは並び順で決まるため)。"
+            "value" : "Finderと同じ名前順で並べます。数字は数値として比べ、大文字小文字や記号もシステムの照合順序に従います。\nOFF(既定)のときは、以前のバージョンと同じ文字コード順です。大文字で始まる名前が、小文字で始まる名前よりすべて先に来ます。\n開いている本も一覧も、その場で並び替わります。レイアウトを設定した本だけは、そのレイアウトを作ったときの並びのままです(どのページが見開きで組になるかは並び順で決まるため)。新しい並びに合わせたい本は、「ブックマーク・レイアウトの編集」ウインドウの「ページ順を初期化する」で1冊ずつ合わせられます。"
           }
         }
       }
