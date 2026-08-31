@@ -347,8 +347,20 @@ final class ViewerViewModel: ObservableObject {
         // 使うページ一覧に適用してからbookを確定する(設計コンセプト12節「アーキテクチャ上の
         // 変更点」参照)。差し替えの疑いがある場合(2.5節)は何も適用せず、生のページ一覧のまま
         // pendingLayoutReplacementStatusを立てる(確認ダイアログで解決されるまで安全側に倒す)。
+        // 1.36以前に作られたレイアウトを持つ本は、**そのレイアウトを作ったときの並び**
+        // (従来順)で読み続ける。ページごとのレイアウトは隣のページとの関係で定義されるため、
+        // 並びが変わると各ページの状態が残っていても見開きの組み合わせが変わってしまう
+        // (LayoutStore.pinPageOrderIfNeeded参照)。
+        //
+        // 対象は「並びが実際に入れ替わる本」だけ。差し替えの疑いがある間は、DBのレイアウト
+        // データに手を出さない約束(pendingLayoutReplacementStatus)があるので何もしない。
+        let legacyPin = Self.legacyPinIfNeeded(
+            for: incomingBook, layoutStore: layoutStore, replacementStatus: replacementStatus,
+            persists: !skipsPersistence
+        )
         let prepared = Self.prepareBook(
-            from: incomingBook, layoutStore: layoutStore, replacementStatus: replacementStatus
+            from: incomingBook, layoutStore: layoutStore, replacementStatus: replacementStatus,
+            fallbackPageOrderOverride: legacyPin
         )
         // book(@Published)は、他のストアドプロパティ(全体)が出揃うまでself経由で読み出せない
         // (@Publishedはラッパー経由の算出プロパティのため、Swiftの2段階初期化規則上「selfを
@@ -2385,9 +2397,29 @@ final class ViewerViewModel: ObservableObject {
     /// resolveLayoutReplacement(applyExisting:)で解決するまで安全側に倒す)。
     /// - Parameter replacementStatus: 差し替え検知の結果。指紋の照合はファイルへの問い合わせを
     ///   伴うため、呼び出し側(init / reloadLayoutData)が済ませたものを受け取る。
+    /// 1.36以前のレイアウトを持つ本の並びを、当時の並び(従来順)へ固定する。
+    /// 固定が要る場合はその並びを返す(DBへ書けない場合=シークレットウインドウでも、
+    /// 戻り値をprepareBookへ渡すことで見た目だけは同じになる)。
+    private static func legacyPinIfNeeded(
+        for book: MangaBook, layoutStore: LayoutStore,
+        replacementStatus: LayoutContentReplacementStatus, persists: Bool
+    ) -> [String]? {
+        guard replacementStatus == .unaffected, book.pageOrderSource == .fileName else { return nil }
+        guard layoutStore.bookLayoutSettings(forBookID: book.id)?.pageOrderOverride == nil else { return nil }
+        guard !layoutStore.pageOverrides(forBookID: book.id).isEmpty else { return nil }
+        let rawKeys = book.pages.map(\.sortKey)
+        guard PageOrder.differsByOrderSetting(keys: rawKeys) else { return nil }
+        // **必ず従来順で固定する。** 今の設定で固定すると、当時のレイアウトが前提にしていた
+        // 並びとは違う並びを焼き込むことになる(Bookmark.pageKeyの変換と同じ理由)。
+        let pinned = rawKeys.sorted { $0.compare($1, options: .numeric) == .orderedAscending }
+        if persists { layoutStore.setPageOrderOverride(for: book, pinned) }
+        return pinned
+    }
+
     private static func prepareBook(
         from rawBook: MangaBook, layoutStore: LayoutStore,
-        replacementStatus: LayoutContentReplacementStatus
+        replacementStatus: LayoutContentReplacementStatus,
+        fallbackPageOrderOverride: [String]? = nil
     ) -> (
         book: MangaBook,
         replacementStatus: LayoutContentReplacementStatus,
@@ -2405,7 +2437,8 @@ final class ViewerViewModel: ObservableObject {
         }
         let adjustedPages = applyLayoutData(
             to: rawBook.pages, pageOrderSource: rawBook.pageOrderSource,
-            pageOrderOverride: settings?.pageOrderOverride, overridesByKey: overridesByKey
+            pageOrderOverride: settings?.pageOrderOverride ?? fallbackPageOrderOverride,
+            overridesByKey: overridesByKey
         )
         let adjustedBook = MangaBook(
             id: rawBook.id,
@@ -2862,6 +2895,7 @@ final class ViewerViewModel: ObservableObject {
             // (shouldPairWithNextPage/layoutHint参照: 隣接する2ページのどちらか一方でも
             // 明示指定があれば、もう一方がcenter/left(または center/right)相当でない限りペア
             // 表示になる)ため、相方ページの行を書き換える必要は無い。
+            layoutStore.pinPageOrderIfNeeded(for: book, orderedKeys: rawPages.map(\.sortKey))
             layoutStore.setPageLayoutState(for: book, pageKey: targetPageKey, state: state)
             reloadLayoutData(focusPageKey: targetPageKey)
             postLayoutFocusChange(pageKey: targetPageKey)
@@ -2912,6 +2946,7 @@ final class ViewerViewModel: ObservableObject {
         for (pinnedPageKey, pinnedState) in anchorPinStates(pageAnchor, explicitState: state) {
             merged[pinnedPageKey] = pinnedState
         }
+        layoutStore.pinPageOrderIfNeeded(for: book, orderedKeys: rawPages.map(\.sortKey))
         layoutStore.setPageLayoutStates(for: book, merged)
         reloadLayoutData(focusPageKey: targetPageKey)
         postLayoutFocusChange(pageKey: targetPageKey)
@@ -2953,6 +2988,7 @@ final class ViewerViewModel: ObservableObject {
             orderedPageKeys: orderedKeys, anchor: pageAnchor, scope: .wholeBook,
             isWideImage: { wideness[$0] ?? false }, isRightToLeft: readingDirection == .rightToLeft
         )
+        layoutStore.pinPageOrderIfNeeded(for: book, orderedKeys: rawPages.map(\.sortKey))
         layoutStore.setPageLayoutStates(for: book, planned)
         reloadLayoutData()
     }
@@ -3003,6 +3039,7 @@ final class ViewerViewModel: ObservableObject {
             isWideImage: { wideness[$0] ?? false }, isRightToLeft: readingDirection == .rightToLeft
         )
         guard !planned.isEmpty else { return }
+        layoutStore.pinPageOrderIfNeeded(for: book, orderedKeys: rawPages.map(\.sortKey))
         layoutStore.setPageLayoutStates(for: book, planned)
         reloadLayoutData()
     }

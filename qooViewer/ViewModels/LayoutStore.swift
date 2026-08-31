@@ -333,6 +333,30 @@ final class LayoutStore: ObservableObject {
     }
 
     /// ページ順序の補正(2.3節)。nilを渡すと自然順ソートに戻す(4.3節「表示順を初期化する」)。
+    /// レイアウトを保存した本の**並びを固定する**(必要なときだけ)。
+    ///
+    /// ページごとのレイアウト(単ページ/見開き右/見開き左)は「隣のページとの関係」で定義されて
+    /// いるため、並びが変わると各ページの状態は残っていても**組み合わせが変わる**。ユーザーが
+    /// 作ったレイアウトをそのまま維持するには、並び自体を固定する必要がある。
+    ///
+    /// 固定にはユーザーの並べ替え(pageOrderOverride)をそのまま使う。鍵の配列なので、環境設定
+    /// 「並び順をFinderに揃える」を切り替えても影響を受けない。解除は既存の「ページ順を
+    /// 初期化する」がそのまま使える。
+    ///
+    /// **並びが実際に入れ替わる本にだけ行う。** 理屈の上では設定を変えれば並びは変わりうるが、
+    /// 実際にそうなる命名はごく稀で、無関係な本にまで印を付けると「ページ順を初期化する」が
+    /// 無用に有効化されたり、後から増えたページが末尾に付いたりする(PageOrder.
+    /// differsByOrderSetting参照)。
+    ///
+    /// - Parameter orderedKeys: 固定したい並び(除外ページも含む、その本の全ページの鍵)。
+    ///   レイアウトを保存した時点で画面に見えている並びを渡すこと。
+    func pinPageOrderIfNeeded(for book: MangaBook, orderedKeys: [String]) {
+        guard book.pageOrderSource == .fileName else { return }
+        guard bookLayoutSettings(forBookID: book.id)?.pageOrderOverride == nil else { return }
+        guard PageOrder.differsByOrderSetting(keys: orderedKeys) else { return }
+        setPageOrderOverride(for: book, orderedKeys)
+    }
+
     func setPageOrderOverride(for book: MangaBook, _ order: [String]?) {
         let settings = existingOrNewSettings(for: book)
         settings.pageOrderOverride = order
