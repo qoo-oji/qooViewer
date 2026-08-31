@@ -17,7 +17,9 @@ struct GeneralSettingsView: View {
     @State private var booksKeepingLegacyOrder: [String] = []
     @State private var showsLegacyOrderPrompt = false
 
-    /// 確認の本文。対象の冊数と、先頭いくつかの本の名前を挙げる(全部並べると長くなるため)。
+    /// 確認の本文。合わせたときに**何が起きて何が起きないか**まで書く ―― レイアウトが消える
+    /// のか、ブックマークがずれるのかは、ユーザーが判断するのに必要な情報のため。
+    /// 対象の本は先頭いくつかだけ挙げる(全部並べると長くなるため)。
     private var legacyOrderPromptMessage: String {
         let names = booksKeepingLegacyOrder.prefix(5)
             .map { ($0 as NSString).lastPathComponent }
@@ -27,8 +29,16 @@ struct GeneralSettingsView: View {
         return String(
             localized: """
             These books have a layout you set up, so they keep the page order that layout was made \
-            for. Bookmarks and reading positions stay on the same images either way; only the \
-            spread pairing depends on the order.
+            for.
+
+            If you match the new order:
+            • The layout is not deleted. Each page keeps its setting (single, spread left/right, \
+            excluded). But which pages pair into a spread follows the order, so pairings can change \
+            and blank pages can appear. Run Auto Layout from the Current View to rebuild them.
+            • Bookmarks and reading positions keep pointing at the same images. Only their page \
+            numbers are renumbered.
+            • You cannot put a single book back on its own; turning this setting off again brings \
+            these books back to their old order.
 
             \(names)\(tail)
             """
@@ -138,7 +148,11 @@ struct GeneralSettingsView: View {
             // 切り替えても、レイアウトを設定した本は当時の並びのまま残る(見開きの組み合わせを
             // 守るため。LayoutStore.pinPageOrderIfNeeded参照)。該当する本があるときだけ、
             // まとめて合わせるかどうかを尋ねる。
-            .onChange(of: preferences.usesFinderSortOrder) { _, _ in
+            .onChange(of: preferences.usesFinderSortOrder) { _, isOn in
+                // 尋ねるのはONにしたときだけ。固定してある並びは従来順そのものなので、
+                // OFFに戻したときは固定を外しても外さなくても見た目が同じ ―― 変わらない
+                // 操作について確認を出しても、ユーザーを迷わせるだけになる。
+                guard isOn else { return }
                 let ids = layoutStore.booksKeepingLegacyPageOrder()
                 guard !ids.isEmpty else { return }
                 booksKeepingLegacyOrder = ids

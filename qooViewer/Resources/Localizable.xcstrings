@@ -283,18 +283,18 @@
         }
       }
     },
-    "These books have a layout you set up, so they keep the page order that layout was made for. Bookmarks and reading positions stay on the same images either way; only the spread pairing depends on the order.\n\n%@%@" : {
+    "These books have a layout you set up, so they keep the page order that layout was made for.\n\nIf you match the new order:\n• The layout is not deleted. Each page keeps its setting (single, spread left/right, excluded). But which pages pair into a spread follows the order, so pairings can change and blank pages can appear. Run Auto Layout from the Current View to rebuild them.\n• Bookmarks and reading positions keep pointing at the same images. Only their page numbers are renumbered.\n• You cannot put a single book back on its own; turning this setting off again brings these books back to their old order.\n\n%@%@" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "These books have a layout you set up, so they keep the page order that layout was made for. Bookmarks and reading positions stay on the same images either way; only the spread pairing depends on the order.\n\n%@%@"
+            "value" : "These books have a layout you set up, so they keep the page order that layout was made for.\n\nIf you match the new order:\n• The layout is not deleted. Each page keeps its setting (single, spread left/right, excluded). But which pages pair into a spread follows the order, so pairings can change and blank pages can appear. Run Auto Layout from the Current View to rebuild them.\n• Bookmarks and reading positions keep pointing at the same images. Only their page numbers are renumbered.\n• You cannot put a single book back on its own; turning this setting off again brings these books back to their old order.\n\n%@%@"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "レイアウトを設定した本は、そのレイアウトを作ったときの並び順のままにしています。\nブックマークと読書位置はどちらの並びでも同じ画像を指したままです。並び順に依存するのは見開きの組み合わせだけです。\n\n%@%@"
+            "value" : "レイアウトを設定した本は、そのレイアウトを作ったときの並び順のままにしています。\n\n新しい並び順に合わせると:\n・レイアウトは削除されません。各ページの設定(単ページ/見開き左・右/除外)はそのまま残ります。ただし、どのページ同士が見開きで組むかは並び順で決まるため、組み合わせが変わったり、空白ページが入ったりすることがあります。作り直すには「現在の表示を基準に自動でレイアウト」を実行してください。\n・ブックマークと読書位置は、同じ画像を指したままです。ページ番号だけが新しい並びで振り直されます。\n・1冊だけを元に戻すことはできません。この設定をOFFに戻せば、これらの本も元の並び順に戻ります。\n\n%@%@"
           }
         }
       }
