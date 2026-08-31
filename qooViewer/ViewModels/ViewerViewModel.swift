@@ -2977,7 +2977,7 @@ final class ViewerViewModel: ObservableObject {
             // (shouldPairWithNextPage/layoutHint参照: 隣接する2ページのどちらか一方でも
             // 明示指定があれば、もう一方がcenter/left(または center/right)相当でない限りペア
             // 表示になる)ため、相方ページの行を書き換える必要は無い。
-            layoutStore.pinPageOrderIfNeeded(for: book, orderedKeys: rawPages.map(\.sortKey))
+            layoutStore.pinPageOrderIfNeeded(for: book, allPageKeys: rawPages.map(\.sortKey))
             layoutStore.setPageLayoutState(for: book, pageKey: targetPageKey, state: state)
             reloadLayoutData(focusPageKey: targetPageKey)
             postLayoutFocusChange(pageKey: targetPageKey)
@@ -3028,7 +3028,7 @@ final class ViewerViewModel: ObservableObject {
         for (pinnedPageKey, pinnedState) in anchorPinStates(pageAnchor, explicitState: state) {
             merged[pinnedPageKey] = pinnedState
         }
-        layoutStore.pinPageOrderIfNeeded(for: book, orderedKeys: rawPages.map(\.sortKey))
+        layoutStore.pinPageOrderIfNeeded(for: book, allPageKeys: rawPages.map(\.sortKey))
         layoutStore.setPageLayoutStates(for: book, merged)
         reloadLayoutData(focusPageKey: targetPageKey)
         postLayoutFocusChange(pageKey: targetPageKey)
@@ -3070,7 +3070,7 @@ final class ViewerViewModel: ObservableObject {
             orderedPageKeys: orderedKeys, anchor: pageAnchor, scope: .wholeBook,
             isWideImage: { wideness[$0] ?? false }, isRightToLeft: readingDirection == .rightToLeft
         )
-        layoutStore.pinPageOrderIfNeeded(for: book, orderedKeys: rawPages.map(\.sortKey))
+        layoutStore.pinPageOrderIfNeeded(for: book, allPageKeys: rawPages.map(\.sortKey))
         layoutStore.setPageLayoutStates(for: book, planned)
         reloadLayoutData()
     }
@@ -3121,7 +3121,7 @@ final class ViewerViewModel: ObservableObject {
             isWideImage: { wideness[$0] ?? false }, isRightToLeft: readingDirection == .rightToLeft
         )
         guard !planned.isEmpty else { return }
-        layoutStore.pinPageOrderIfNeeded(for: book, orderedKeys: rawPages.map(\.sortKey))
+        layoutStore.pinPageOrderIfNeeded(for: book, allPageKeys: rawPages.map(\.sortKey))
         layoutStore.setPageLayoutStates(for: book, planned)
         reloadLayoutData()
     }

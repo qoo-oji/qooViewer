@@ -381,13 +381,23 @@ final class LayoutStore: ObservableObject {
     /// 無用に有効化されたり、後から増えたページが末尾に付いたりする(PageOrder.
     /// differsByOrderSetting参照)。
     ///
-    /// - Parameter orderedKeys: 固定したい並び(除外ページも含む、その本の全ページの鍵)。
-    ///   レイアウトを保存した時点で画面に見えている並びを渡すこと。
-    func pinPageOrderIfNeeded(for book: MangaBook, orderedKeys: [String]) {
+    /// - Parameter allPageKeys: その本の全ページの鍵(除外ページも含む)。**順序は不問** ――
+    ///   実際に焼き付ける並びは、この関数が現在の設定の表示順(comparePageOrder)で並べ直して
+    ///   決める。呼び出し元に「画面に見えている並び」を要求しない: 呼び出し元が持っているのは
+    ///   正準順のrawPagesで、環境設定「並び順をFinderに揃える」がOFF(既定)のとき画面の並び
+    ///   (従来順)とは食い違う。以前は渡された並びをそのまま焼き付けていたため、OFFの差分本で
+    ///   レイアウトを1つ触った瞬間に本の並びが正準順へ入れ替わってしまっていた。
+    ///   なお、この関数が動くのはpageOrderOverrideが無い本だけなので、「表示順=設定の並びで
+    ///   ソートした順」が常に成り立ち、ここで並べ直した結果は画面の並びと必ず一致する。
+    func pinPageOrderIfNeeded(for book: MangaBook, allPageKeys: [String]) {
         guard book.pageOrderSource == .fileName else { return }
         guard bookLayoutSettings(forBookID: book.id)?.pageOrderOverride == nil else { return }
-        guard PageOrder.differsByOrderSetting(keys: orderedKeys) else { return }
-        setPageOrderOverride(for: book, orderedKeys)
+        guard PageOrder.differsByOrderSetting(keys: allPageKeys) else { return }
+        let usesFinderOrder = PageOrder.usesFinderOrder
+        let pinned = allPageKeys.sorted {
+            comparePageOrder($0, $1, usesFinderOrder: usesFinderOrder) == .orderedAscending
+        }
+        setPageOrderOverride(for: book, pinned)
     }
 
     func setPageOrderOverride(for book: MangaBook, _ order: [String]?) {

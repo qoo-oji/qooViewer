@@ -711,7 +711,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
             // (ViewerViewModel.shouldPairWithNextPage/layoutHint参照: 隣接する2ページの
             // どちらか一方でも明示指定があれば、もう一方がcenter/left(またはcenter/right)相当
             // でない限りペア表示になる)ため、相方ページの行を書き換える必要は無い。
-            layoutStore.pinPageOrderIfNeeded(for: book, orderedKeys: book.pages.map(\.sortKey))
+            layoutStore.pinPageOrderIfNeeded(for: book, allPageKeys: book.pages.map(\.sortKey))
             layoutStore.setPageLayoutState(for: book, pageKey: pageKey, state: state)
             // 除外状態が変わった可能性がある(このページ自身が除外される/除外から戻る)ため、
             // effectiveReadingIndexを振り直す。
@@ -757,7 +757,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
         for (pinnedPageKey, pinnedState) in anchorPinStates(pageAnchor, explicitState: state) {
             merged[pinnedPageKey] = pinnedState
         }
-        layoutStore.pinPageOrderIfNeeded(for: book, orderedKeys: book.pages.map(\.sortKey))
+        layoutStore.pinPageOrderIfNeeded(for: book, allPageKeys: book.pages.map(\.sortKey))
         layoutStore.setPageLayoutStates(for: book, merged)
         // 除外状態が変わった可能性があるため、effectiveReadingIndex(ブックマークの突き合わせに
         // 使う空間)を振り直す。並び順自体(rowsの順序)は変わらない。
