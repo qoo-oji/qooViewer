@@ -137,6 +137,38 @@
         }
       }
     },
+    "Match Finder's Sort Order" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Match Finder's Sort Order"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "並び順をFinderに揃える"
+          }
+        }
+      }
+    },
+    "Page Order" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Page Order"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページ順"
+          }
+        }
+      }
+    },
     "Previous Book (Last Page)" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -167,6 +199,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ウェルカム画面へ戻る"
+          }
+        }
+      }
+    },
+    "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off, names are compared by character code instead — every name starting with an uppercase letter comes before every name starting with a lowercase one. Applies to the pages of a book, the panel's list of the book's contents, and the page numbers written into an exported CBZ. Books that are already open keep their current order until you open them again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off, names are compared by character code instead — every name starting with an uppercase letter comes before every name starting with a lowercase one. Applies to the pages of a book, the panel's list of the book's contents, and the page numbers written into an exported CBZ. Books that are already open keep their current order until you open them again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finderと同じ名前順で並べます。数字は数値として比べ、大文字小文字や記号もシステムの照合順序に従います。\nOFFのときは文字コード順で比べます。大文字で始まる名前が、小文字で始まる名前よりすべて先に来ます。\n本のページ、パネルに表示する本の中身の一覧、CBZの書き出しが書き込むページ番号に効きます。\nすでに開いている本は、開き直すまで今の並びのままです。"
           }
         }
       }

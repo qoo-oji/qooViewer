@@ -54,6 +54,9 @@ final class AppPreferences: ObservableObject {
         static let sidePanelFeatureEnabled = "qooViewer.pref.sidePanelFeatureEnabled"
         static let sidePanelUsesDoubleClick = "qooViewer.pref.sidePanelUsesDoubleClick"
         static let sidePanelSortOrder = "qooViewer.pref.sidePanelSortOrder"
+        /// キーの実体はPageOrder側にある。nonisolatedなコード(BookLoaderなど)が同じ値を
+        /// 読むため、文字列を2か所に書かない(PageOrder.defaultsKeyのコメント参照)。
+        static let usesFinderSortOrder = PageOrder.defaultsKey
         static let folderBrowserSortKey = "qooViewer.pref.folderBrowserSortKey"
         static let folderBrowserSortDirection = "qooViewer.pref.folderBrowserSortDirection"
         static let siblingNavigationFollowsBrowserSort = "qooViewer.pref.siblingNavigationFollowsBrowserSort"
@@ -415,6 +418,24 @@ final class AppPreferences: ObservableObject {
     /// ボタン操作はこの設定に関わらず常にシングルクリックのまま。
     @Published var sidePanelUsesDoubleClick: Bool {
         didSet { UserDefaults.standard.set(sidePanelUsesDoubleClick, forKey: Keys.sidePanelUsesDoubleClick) }
+    }
+    /// 環境設定「一般」タブの「並び順をFinderに揃える」(既定はON)。ユーザー報告:
+    /// `_Com-title-cover.JPG` / `Com_title_name_size_0001.JPG` / `Com-title-cover-clean.JPG`
+    /// のような名前で、Finderの表示順と本のページ順が食い違い、しかも先頭の3文字が"Com"か
+    /// "com"かで並びが丸ごと変わっていた。
+    ///
+    /// 効く先は、本のページ順(BookLoader)・サイドパネル下段の本の中身の一覧
+    /// (BookInternalBrowsing)・複数の画像を1冊にまとめるときの並び
+    /// (naturalOrderSortedByPath)・CBZ書き出しのComicInfoが書くページ番号(CbzExporter)。
+    /// 上段のフォルダブラウザは元からFinderと同じ照合(DirectoryBrowser.compare)なので、
+    /// この設定に関わらず変わらない。
+    ///
+    /// **このプロパティを直接読んでよいのは、環境設定画面のトグルだけ。** 実際に並べ替える
+    /// 側はすべてnonisolatedなコードで、UserDefaultsから同じキーを読む
+    /// (PageOrder.usesFinderOrder。他の設定のように引数で配らない理由もそこに書いてある)。
+    /// ここが持つのは「画面に出すための値」と「didSetでの保存」だけ。
+    @Published var usesFinderSortOrder: Bool {
+        didSet { UserDefaults.standard.set(usesFinderSortOrder, forKey: Keys.usesFinderSortOrder) }
     }
     /// 環境設定「一般」タブの、サイドパネル(上段・下段どちらも)のフォルダ・ファイルの
     /// 並び順(既定はフォルダをまとめて上に表示、Finderと同じ考え方)。DirectoryBrowser/
@@ -1199,6 +1220,9 @@ final class AppPreferences: ObservableObject {
         self.sidePanelUsesDoubleClick = defaults.object(forKey: Keys.sidePanelUsesDoubleClick) as? Bool ?? false
         self.sidePanelSortOrder =
             SidePanelSortOrder(rawValue: defaults.string(forKey: Keys.sidePanelSortOrder) ?? "") ?? .foldersFirst
+        // 既定はON。未設定(object(forKey:)がnil)のときの既定値をPageOrder.usesFinderOrderと
+        // 必ず揃えること ―― 食い違うと、画面のトグルと実際の並びが逆になる。
+        self.usesFinderSortOrder = defaults.object(forKey: Keys.usesFinderSortOrder) as? Bool ?? true
         self.folderBrowserSortKey =
             FolderBrowserSortKey(rawValue: defaults.string(forKey: Keys.folderBrowserSortKey) ?? "")
                 ?? FolderBrowserSort.default.key
@@ -1389,6 +1413,7 @@ extension AppPreferences {
                 Keys.sidePanelUsesDoubleClick,
                 Keys.sidePanelSortOrder,
                 Keys.siblingNavigationFollowsBrowserSort,
+                Keys.usesFinderSortOrder,
             ]
         case .appearance:
             return [
@@ -1523,6 +1548,7 @@ extension AppPreferences {
             sidePanelUsesDoubleClick = source.sidePanelUsesDoubleClick
             sidePanelSortOrder = source.sidePanelSortOrder
             siblingNavigationFollowsBrowserSort = source.siblingNavigationFollowsBrowserSort
+            usesFinderSortOrder = source.usesFinderSortOrder
         case .appearance:
             backgroundColorOption = source.backgroundColorOption
             customBackgroundColor = source.customBackgroundColor

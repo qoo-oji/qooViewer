@@ -56,9 +56,16 @@ actor BookPageListCache {
         /// この本が入れ子の書庫を含んでいたか。**含んでいた本にだけ**高速経路を使う ――
         /// 平なcbzは元々列挙が一瞬で終わるので、キャッシュの整合性に賭ける理由が無い。
         var hasNestedArchives: Bool?
+        /// 保存した時点の「並び順をFinderに揃える」の設定(PageOrder.usesFinderOrder)。
+        /// pagesは並べ替え済みの順そのものを持っているため、設定が切り替わった後の
+        /// 復元に使うと**古い並びのまま開いてしまう**。合わなければ使わない。
+        var usesFinderSortOrder: Bool?
 
         /// 現在の版。
-        static let currentSchemaVersion = 1
+        /// 2: ページの並べ替えを`.numeric`比較からcomparePageOrder(既定でFinderと同じ照合)へ
+        ///    変更。保存されているのは並べ替え済みの順そのものなので、古い版は捨てて読み直す。
+        ///    どちらの並びで保存したかはusesFinderSortOrderが持つ。
+        static let currentSchemaVersion = 2
 
         /// 本体が差し替わっていないかを見るための軽い指紋(ContentFingerprintと同じ考え方で、
         /// フルハッシュは取らない)。ページ数は`pages.count`が持っているので含めない。

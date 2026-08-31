@@ -120,7 +120,8 @@ nonisolated enum BookLoader {
             schemaVersion: BookPageListCache.Entry.currentSchemaVersion,
             rootPath: rootPath,
             fingerprint: BookPageListCache.Entry.Fingerprint.current(for: book.sourceURL),
-            hasNestedArchives: hasNestedArchives
+            hasNestedArchives: hasNestedArchives,
+            usesFinderSortOrder: PageOrder.usesFinderOrder
         )
     }
 
@@ -137,6 +138,9 @@ nonisolated enum BookLoader {
         guard let entry = await BookPageListCache.shared.pageList(forBookID: url.path),
               entry.schemaVersion == BookPageListCache.Entry.currentSchemaVersion,
               entry.hasNestedArchives == true,
+              // 「並び順をFinderに揃える」を切り替えた後は、保存済みの並びが今の設定と
+              // 食い違う。並べ直さずそのまま使う経路なので、ここで捨てて読み直す。
+              entry.usesFinderSortOrder == PageOrder.usesFinderOrder,
               entry.rootPath == url.path,
               !entry.pages.isEmpty
         else { return nil }
@@ -253,7 +257,11 @@ nonisolated enum BookLoader {
         let pages = try collectPages(inFolder: url, context: context)
         guard !pages.isEmpty else { throw BookLoaderError.noPages }
 
-        let sortedPages = pages.sorted { $0.sortKey.compare($1.sortKey, options: .numeric) == .orderedAscending }
+        // 設定は並べ替え1回につき1度だけ読む(PageOrder.usesFinderOrderのコメント参照)。
+        let usesFinderOrder = PageOrder.usesFinderOrder
+        let sortedPages = pages.sorted {
+            comparePageOrder($0.sortKey, $1.sortKey, usesFinderOrder: usesFinderOrder) == .orderedAscending
+        }
         return MangaBook(
             id: url.path,
             title: url.lastPathComponent,
@@ -308,7 +316,11 @@ nonisolated enum BookLoader {
         )
         guard !pages.isEmpty else { throw BookLoaderError.noPages }
 
-        let sortedPages = pages.sorted { $0.sortKey.compare($1.sortKey, options: .numeric) == .orderedAscending }
+        // 設定は並べ替え1回につき1度だけ読む(PageOrder.usesFinderOrderのコメント参照)。
+        let usesFinderOrder = PageOrder.usesFinderOrder
+        let sortedPages = pages.sorted {
+            comparePageOrder($0.sortKey, $1.sortKey, usesFinderOrder: usesFinderOrder) == .orderedAscending
+        }
         return MangaBook(
             id: url.path,
             title: url.deletingPathExtension().lastPathComponent,

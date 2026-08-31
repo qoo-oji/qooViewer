@@ -163,10 +163,12 @@ nonisolated enum CbzExporter {
             // ブックマークがすべて別のページに付いてしまうため、ここで名前順の位置へ
             // 変換してから番号を振る。
             //
-            // 比較にoptions: .numericを使うのは、BookLoaderが本のページを並べるときと同じ
-            // 自然順(数字を数値として比較する)に揃えるため。
+            // 比較にcomparePageOrderを使うのは、BookLoaderが本のページを並べるときと同じ
+            // 名前順(Finderと同じ照合)に揃えるため。
+            let usesFinderOrder = PageOrder.usesFinderOrder
             let readerOrder = planned.indices.sorted {
-                planned[$0].fileName.compare(planned[$1].fileName, options: .numeric) == .orderedAscending
+                comparePageOrder(planned[$0].fileName, planned[$1].fileName, usesFinderOrder: usesFinderOrder)
+                    == .orderedAscending
             }
             var imageIndexByPlannedIndex = [Int](repeating: 0, count: planned.count)
             for (imageIndex, plannedIndex) in readerOrder.enumerated() {

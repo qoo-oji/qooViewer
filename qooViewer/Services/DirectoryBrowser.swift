@@ -237,8 +237,8 @@ nonisolated enum DirectoryBrowser {
         //
         // この機能を入れる前は`compare(_:options: .numeric)`だった(ロケールを見ず、
         // 大文字始まりの名前がすべて小文字始まりより先に来る)。下段(本の中身ブラウザ、
-        // BookInternalBrowsing)が今も.numericなのは意図的で、あちらの並びは本のページ順
-        // (BookLoaderのsortKey、同じく.numeric)と一致していなければならないため。
+        // BookInternalBrowsing)と本のページ順(BookLoaderのsortKey)も、後から同じ照合へ
+        // 揃えた(comparePageOrder参照)。あちらの並びは互いに一致していなければならない。
         let byName = lhs.displayName.localizedStandardCompare(rhs.displayName)
         if byName != .orderedSame { return byName }
         // 表示名が同じことは起こり得る(拡張子を隠す設定、別ボリュームで同じ名前など)。

@@ -96,6 +96,20 @@ struct GeneralSettingsView: View {
                 Text("Welcome Screen")
             }
 
+            // ユーザー報告: Finderの表示順と本のページ順が食い違う名前のパターンがある
+            // (先頭のアンダースコア、"-"と"_"の混在、大文字小文字の混在)。既定をFinderと
+            // 同じ照合に変え、従来の並びに慣れている場合のためにOFFを残した
+            // (AppPreferences.usesFinderSortOrder / comparePageOrder参照)。
+            Section {
+                SettingsToggle(
+                    "Match Finder's Sort Order",
+                    isOn: $preferences.usesFinderSortOrder,
+                    help: "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off, names are compared by character code instead — every name starting with an uppercase letter comes before every name starting with a lowercase one. Applies to the pages of a book, the panel's list of the book's contents, and the page numbers written into an exported CBZ. Books that are already open keep their current order until you open them again."
+                )
+            } header: {
+                Text("Page Order")
+            }
+
             Section {
                 SettingsToggle(
                     "Enable Side Panel",
