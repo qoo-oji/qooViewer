@@ -58,6 +58,15 @@ struct BulkRenameBookmarksSheet: View {
     /// これらは、そのボタンをクリックしたときに開くポップオーバーの表示制御に使う。
     @State private var isEditingPrefix = false
     @State private var isEditingSuffix = false
+    /// 「表紙」ブックマークを自動追加するときに使う、実質的な先頭ページの鍵(PageRef.sortKey)。
+    ///
+    /// applyRenamingは同期処理のためその場でページ一覧を読めない。シートが現れた時点で
+    /// ディスクキャッシュ(BookPageListCache)から非同期に解決しておく(BookExportViewModel.
+    /// resolveDefaultCoverNameと同じ判定)。キャッシュが無い本ではnilのままで、その場合は
+    /// 従来どおり鍵なしで追加される(次に本を開いた時点でresolveKeysが埋めるが、その解釈は
+    /// 従来順になる。Bookmark.pageKeyのコメント参照 ―― 並びが入れ替わる命名の本で、かつ
+    /// キャッシュも無い、という組み合わせでのみ従来の不正確さが残る)。
+    @State private var coverPageKey: String?
 
     /// このシートが対象にするブックマーク(ページ順)。
     private var sortedBookmarks: [Bookmark] {
@@ -72,6 +81,26 @@ struct BulkRenameBookmarksSheet: View {
         }
         .frame(minWidth: 420, minHeight: 480)
         .onAppear { initializeDefaultsIfNeeded() }
+        .task(id: bookID) { coverPageKey = await resolveCoverPageKey() }
+    }
+
+    /// 実質的な先頭ページ(実効順の1ページ目)の鍵を、本体を読み込まずにキャッシュから求める
+    /// (coverPageKeyのコメント参照)。
+    private func resolveCoverPageKey() async -> String? {
+        guard let cached = await BookPageListCache.shared.pageList(forBookID: bookID),
+              !cached.pages.isEmpty else { return nil }
+        let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
+        let excludedKeys = Set(
+            layoutStore.pageOverrides(forBookID: bookID).filter { $0.state == .excluded }.map(\.pageKey)
+        )
+        // キャッシュのEntryはpageOrderSourceを持たないため、bookID(パス)の拡張子から判定する
+        // (BookExportViewModel.resolveDefaultCoverNameと同じ)。
+        let pageOrderSource: PageOrderSource =
+            (isPDFFile(bookID) || isEpubFile(bookID)) ? .document : .fileName
+        return EffectivePageOrder.orderedPages(
+            for: cached.pages, pageOrderSource: pageOrderSource,
+            pageOrderOverride: settings?.pageOrderOverride, excludedKeys: excludedKeys
+        ).first?.sortKey
     }
 
     /// シートなので、独立ウインドウだった頃はタイトルバーの閉じるボタンが担っていた「やめる」を
@@ -392,8 +421,12 @@ struct BulkRenameBookmarksSheet: View {
                     fileNodeIdentifier = FileNodeIdentifier.current(for: url)
                     if didAccess { url.stopAccessingSecurityScopedResource() }
                 }
+                // pageKey: 鍵なしで作ると「1.36以前の番号だけの行」と区別が付かず、次に本を
+                // 開いたときに番号0が従来順として解釈される(並びが入れ替わる命名の本では、
+                // 実効順の1ページ目=表紙とは別のページに化ける。coverPageKeyのコメント参照)。
                 bookmarkStore.addBookmark(
-                    bookID: bookID, pageIndex: 0, name: coverName, fileNodeIdentifier: fileNodeIdentifier
+                    bookID: bookID, pageIndex: 0, pageKey: coverPageKey, name: coverName,
+                    fileNodeIdentifier: fileNodeIdentifier
                 )
                 sorted = bookmarkStore.bookmarks(forBookID: bookID).sorted { $0.pageIndex < $1.pageIndex }
                 if let cover = sorted.first(where: { $0.pageIndex == 0 }) {
