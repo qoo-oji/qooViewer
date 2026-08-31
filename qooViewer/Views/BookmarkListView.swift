@@ -1695,7 +1695,7 @@ private struct BookmarkDetailPane: View {
                     columnDividerCorrections: columnDividerCorrections,
                     isMoveEnabled: pageFilter == .all,
                     onJump: { openBookAndJump(toPageIndex: row.effectiveReadingIndex) },
-                    onAddBookmark: { addBookmark(atPageIndex: row.effectiveReadingIndex) },
+                    onAddBookmark: { addBookmark(atPageIndex: row.effectiveReadingIndex, pageKey: row.pageKey) },
                     onRenameBookmark: { bookmark in
                         // バグ修正: 以前は.alert + TextField(NSAlertが内部で使うテキストフィールド)
                         // 実装だったため、SwiftUIの@Stateが「代入する値が現在の値と同じ場合は
@@ -2090,7 +2090,11 @@ private struct BookmarkDetailPane: View {
     /// 直接SwiftDataへ書き込めるため、ここではそちらを使い、指定したpageIndexへ確実に
     /// 追加する。ブックマークの命名規則(「Page N」+作成時点の表示言語)はViewerViewModel.
     /// addBookmark()と同じものをそろえる。
-    private func addBookmark(atPageIndex pageIndex: Int?) {
+    /// - Parameter pageKey: そのページの鍵(行のpageKey。PageRef.sortKey)。**必ず渡すこと** ――
+    ///   鍵なしで作った行は「1.36以前の番号だけの行」と区別が付かず、次に本を開いたときに
+    ///   番号が**従来順**として解釈される(Bookmark.pageKeyのコメント参照)。この画面の行は
+    ///   実効順の番号を持っているため、並びが入れ替わる本では別のページの鍵が焼き付いてしまう。
+    private func addBookmark(atPageIndex pageIndex: Int?, pageKey: String) {
         guard let pageIndex else { return }
         let pagePrefix = String(localized: "Page", locale: preferences.effectiveLocale)
         // ユーザー要望: ここで新規作成するブックマークにもファイルノード識別子(iノード番号)を
@@ -2116,7 +2120,8 @@ private struct BookmarkDetailPane: View {
                 return FileNodeIdentifier.current(for: url)
             }.value
             bookmarkStore.addBookmark(
-                bookID: targetBookID, pageIndex: pageIndex, name: "\(pagePrefix) \(pageIndex + 1)",
+                bookID: targetBookID, pageIndex: pageIndex, pageKey: pageKey,
+                name: "\(pagePrefix) \(pageIndex + 1)",
                 fileNodeIdentifier: fileNodeIdentifier
             )
         }
