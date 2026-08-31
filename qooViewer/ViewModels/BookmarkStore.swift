@@ -388,17 +388,12 @@ final class BookmarkStore: ObservableObject {
         // (この変更を他のウインドウが今すぐ知る必要のある可視の変化ではないため)。
     }
 
-    /// 指定したbookIDのブックマークを、現在のsortOptionに従って並べ替えて返す。
-    /// (次/前のブックマークへジャンプする操作(ViewerViewModel.jumpToNextBookmark等)は
-    /// 常にページ番号順で判定する必要があるため、そちらは影響を受けないViewerViewModel.bookmarks
-    /// を直接使い続けている。ここで返す並びはあくまでこの編集画面の表示専用)。
-    /// #Predicateで直接bookIDを絞り込むのではなく、reload()と同じく絞り込み無しで全件取得して
-    /// からSwift側でfilterしている。SwiftDataの#Predicateクロージャ内でキャプチャしたローカル
-    /// 変数名が、比較対象のモデル側プロパティ名($0.bookID)と同名(bookID)だと、絞り込みフェッチが
-    /// 正しく機能しないことがある不具合が実機で確認された(LayoutStore.pageOverrides(forBookID:)の
-    /// コメント参照)ため、同じ理由でここも合わせて統一しておく。
-    /// この本のブックマークを「鍵で持つ」形へ揃え、番号を今の並びへ振り直す。
-    /// **本を開いてページ一覧が確定した時点で、ブックマークを読むより先に呼ぶこと。**
+    /// ブックマークを「鍵で持つ」形へ揃え、番号を今の並びへ振り直す。
+    /// **本を開いてページ一覧が確定した時点で、ブックマークを読むより先に呼ぶこと**
+    /// (呼び出し元はViewerViewModelのinit/reloadBookmarks。あちらはBookmarkStoreを持たず、
+    /// 同じModelContextからBookmarkを自分でfetchして渡してくる)。**この計算を2か所に
+    /// 書かないこと** ―― ブックマークが指すページそのものを決める処理で、片方だけずれると
+    /// 気付きにくい形で壊れる(EffectivePageOrderの二重実装で同じ問題があった)。
     ///
     /// - 鍵を持たない行(1.36以前に作られたもの)は、`legacyOrderedKeys`(必ず従来順)から鍵を求めて
     ///   埋める。ここで今の並びを使うと、別のページの鍵を焼き込んで元の対応が復元できなくなる
@@ -406,31 +401,9 @@ final class BookmarkStore: ObservableObject {
     ///   並び順の設定やユーザーの並べ替えが変わっても、同じ画像を指し続ける
     /// - 鍵に対応するページが今の本に無い場合(ファイルが消えた・除外された等)は番号を変えない
     ///
-    /// - Parameter persists: falseならDBへ書かない(シークレットウインドウ・その場限りの本)。
-    ///   その場合も戻り値の対応表は正しく、表示・ジャンプには使える。
-    /// - Returns: ブックマークのID → 今の並びでの番号。
-    @discardableResult
-    func resolveKeys(
-        forBookID bookID: String, legacyOrderedKeys: [String], currentOrderedKeys: [String],
-        persists: Bool
-    ) -> [UUID: Int] {
-        let targets = bookmarks(forBookID: bookID)
-        let (resolved, didChange) = Self.resolveKeys(
-            for: targets, legacyOrderedKeys: legacyOrderedKeys,
-            currentOrderedKeys: currentOrderedKeys, persists: persists
-        )
-        if didChange {
-            try? modelContext.save()
-            rebuildGroups()
-        }
-        return resolved
-    }
-
-    /// resolveKeys(forBookID:...)の実体。ViewerViewModelもこれを直接呼ぶ(あちらはBookmarkStoreを
-    /// 持たず、同じModelContextからBookmarkを自分でfetchしているため)。**この計算を2か所に
-    /// 書かないこと** ―― ブックマークが指すページそのものを決める処理で、片方だけずれると
-    /// 気付きにくい形で壊れる(EffectivePageOrderの二重実装で同じ問題があった)。
-    ///
+    /// - Parameter persists: falseならDBの行を書き換えない(シークレットウインドウ・その場限りの
+    ///   本)。その場合も戻り値の対応表は正しく、呼び出し元が表示・ジャンプへ反映する
+    ///   (ViewerViewModel.reloadBookmarksのコピー差し替え参照)。
     /// - Returns: (ブックマークのID → 今の並びでの番号, DBに変更を加えたか)
     static func resolveKeys(
         for targets: [Bookmark], legacyOrderedKeys: [String], currentOrderedKeys: [String],
@@ -471,6 +444,15 @@ final class BookmarkStore: ObservableObject {
         return (resolved, didChange)
     }
 
+    /// 指定したbookIDのブックマークを、現在のsortOptionに従って並べ替えて返す。
+    /// (次/前のブックマークへジャンプする操作(ViewerViewModel.jumpToNextBookmark等)は
+    /// 常にページ番号順で判定する必要があるため、そちらは影響を受けないViewerViewModel.bookmarks
+    /// を直接使い続けている。ここで返す並びはあくまでこの編集画面の表示専用)。
+    /// #Predicateで直接bookIDを絞り込むのではなく、reload()と同じく絞り込み無しで全件取得して
+    /// からSwift側でfilterしている。SwiftDataの#Predicateクロージャ内でキャプチャしたローカル
+    /// 変数名が、比較対象のモデル側プロパティ名($0.bookID)と同名(bookID)だと、絞り込みフェッチが
+    /// 正しく機能しないことがある不具合が実機で確認された(LayoutStore.pageOverrides(forBookID:)の
+    /// コメント参照)ため、同じ理由でここも合わせて統一しておく。
     func bookmarks(forBookID bookID: String) -> [Bookmark] {
         let fetched = bookmarksByBookID()[bookID] ?? []
         switch sortOption {

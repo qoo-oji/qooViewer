@@ -1457,13 +1457,46 @@ final class ViewerViewModel: ObservableObject {
             excludedKeys: Set(pageLayoutStates.filter { $0.value == .excluded }.map(\.key)),
             usesFinderOrderOverride: false
         ).map(\.sortKey)
-        let (_, didChange) = BookmarkStore.resolveKeys(
-            for: mine, legacyOrderedKeys: legacyOrderedKeys, currentOrderedKeys: currentOrderedKeys,
-            persists: !skipsPersistence
+        // ephemeralBookmarks(シークレットウインドウで目次から取り込んだ分。DBには無い)も
+        // 一緒に解決する。どのModelContextにも属さないため書き込みの心配は無いが、
+        // persists: falseでは書き換えられないので、下の対応表経由で番号を反映する。
+        let (resolved, didChange) = BookmarkStore.resolveKeys(
+            for: mine + ephemeralBookmarks, legacyOrderedKeys: legacyOrderedKeys,
+            currentOrderedKeys: currentOrderedKeys, persists: !skipsPersistence
         )
         if didChange { try? modelContext.save() }
+        // DBへ書けないウインドウ(シークレット・その場限りの本)では、resolveKeysは行を
+        // 書き換えず「あるべき番号」を対応表で返すだけ(persists: false)。共有ModelContextの
+        // マネージドオブジェクトをsave()せずに書き換えることもできない ―― mainContextは
+        // 自動保存されるため、書き換えた時点で実質DBへ書いたのと同じになる。そこで、番号が
+        // ずれている行だけ、表示・ジャンプ用の独立したコピー(どのModelContextにも属さない。
+        // ephemeralBookmarksと同じ扱い)へ差し替えて、対応表の番号を反映する。シークレット
+        // ウインドウのブックマークは表示とジャンプ専用(追加・削除はUIとaddBookmark側の
+        // 両方で無効化済み)なので、コピーで害は無い。
+        // 通常ウインドウ(persists: true)ではresolveKeysが行そのものを書き換えるため、
+        // ずれは常に0件で、この差し替えは起きない(挙動は従来と完全に同じ)。
+        let displayed = mine.map { bookmark -> Bookmark in
+            guard let resolvedIndex = resolved[bookmark.id], resolvedIndex != bookmark.pageIndex else {
+                return bookmark
+            }
+            let copy = Bookmark(
+                bookID: bookmark.bookID, pageIndex: resolvedIndex, pageKey: bookmark.pageKey,
+                name: bookmark.name, bookmarkData: bookmark.bookmarkData,
+                isEpubDerived: bookmark.isEpubDerived, fileNodeIdentifier: bookmark.fileNodeIdentifier
+            )
+            copy.id = bookmark.id
+            copy.createdAt = bookmark.createdAt
+            copy.updatedAt = bookmark.updatedAt
+            return copy
+        }
+        // ephemeralBookmarksはコピー不要で、番号を直接振り直せる(上記の通りDBとは無関係)。
+        for bookmark in ephemeralBookmarks {
+            if let resolvedIndex = resolved[bookmark.id], resolvedIndex != bookmark.pageIndex {
+                bookmark.pageIndex = resolvedIndex
+            }
+        }
         // シークレットウインドウでファイルから読んだ分(ephemeralBookmarks。DBには無い)も合成する。
-        bookmarks = (mine + ephemeralBookmarks).sorted { $0.pageIndex < $1.pageIndex }
+        bookmarks = (displayed + ephemeralBookmarks).sorted { $0.pageIndex < $1.pageIndex }
     }
 
     /// EPUBの目次(nav.xhtml)から、ブックマークを自動的に取り込む(設計コンセプト7.5節「逆方向」)。
