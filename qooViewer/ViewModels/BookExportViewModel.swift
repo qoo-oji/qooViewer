@@ -484,8 +484,16 @@ class BookExportViewModel: ObservableObject {
         )
 
         if let cached = await BookPageListCache.shared.pageList(forBookID: bookID), !cached.pages.isEmpty {
+            // キャッシュのEntryはpageOrderSourceを持たないため、本体を読まずに分かる情報
+            // (bookID=パスの拡張子)から判定する。PDF/EPUBはファイル自身が持つページ順
+            // (.document)なので名前順に並べ替えてはいけない(MangaBook.pageOrderSource参照。
+            // 現状はPDF/EPUBのsortKeyがゼロ埋め連番(%06d)のため並べ替えても偶然同じ順に
+            // なるが、その偶然に依存しないための明示)。
+            let pageOrderSource: PageOrderSource =
+                (isPDFFile(bookID) || isEpubFile(bookID)) ? .document : .fileName
             let ordered = EffectivePageOrder.orderedPages(
-                for: cached.pages, pageOrderOverride: settings?.pageOrderOverride, excludedKeys: excludedKeys
+                for: cached.pages, pageOrderSource: pageOrderSource,
+                pageOrderOverride: settings?.pageOrderOverride, excludedKeys: excludedKeys
             )
             if let first = ordered.first {
                 // 書庫の中のフォルダ・入れ子の書庫の中にある画像は、ファイル名だけでは
