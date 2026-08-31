@@ -39,12 +39,14 @@ final class BookReadingState {
     init(
         bookID: String,
         lastPageIndex: Int = 0,
+        lastPageKey: String? = nil,
         displayMode: DisplayMode = .spread,
         readingDirection: ReadingDirection = .rightToLeft,
         scalingMode: ScalingMode = .fitToScreen
     ) {
         self.bookID = bookID
         self.lastPageIndex = lastPageIndex
+        self.lastPageKey = lastPageKey
         self.displayModeRaw = displayMode.rawValue
         self.readingDirectionRaw = readingDirection.rawValue
         self.scalingModeRaw = scalingMode.rawValue

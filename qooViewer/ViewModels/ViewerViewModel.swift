@@ -464,6 +464,9 @@ final class ViewerViewModel: ObservableObject {
             state = BookReadingState(
                 bookID: bookID,
                 lastPageIndex: existingState?.lastPageIndex ?? 0,
+                // 鍵も一緒に写す。落とすと、実効順で記録されたlastPageIndexが下の鍵変換で
+                // 「従来順の番号」として誤解釈され、並びが入れ替わる本で読書位置がずれる。
+                lastPageKey: existingState?.lastPageKey,
                 displayMode: existingState?.displayMode ?? .spread,
                 readingDirection: existingState?.readingDirection ?? preferences.defaultReadingDirection,
                 scalingMode: existingState?.scalingMode ?? preferences.defaultScalingMode
@@ -518,14 +521,19 @@ final class ViewerViewModel: ObservableObject {
             ?? unimportedSourceHint?.forcedDisplayMode ?? state.displayMode
 
         // 環境設定「本を開く」の「開始ページ」に応じて、実際にどのページから表示するかを決める。
-        // (以前から読んでいる本(isReturningToKnownBookがtrueの場合)にのみ意味がある判定で、
-        // 初めて開く本・中身が差し替わった本は常にlastPageIndexが0のため、どの設定でも結果は変わらない)
         // 読書位置も鍵で解決する(ブックマークと同じ理由。Bookmark.pageKeyのコメント参照)。
         // 鍵を持たない行(1.36以前)は、その番号を**従来順**で引いて鍵に直してから、今の並びでの
         // 位置を求める。どちらの経路でも見つからなければ、番号をそのまま使う従来の挙動に落ちる。
-        let restoredKey = state.lastPageKey
-            ?? (legacyOrderedKeys.indices.contains(state.lastPageIndex)
-                ? legacyOrderedKeys[state.lastPageIndex] : nil)
+        //
+        // 鍵変換は**以前から読んでいる本に限る**。初めて開く本・中身が差し替わった本のstateは
+        // 作りたての既定値で、lastPageIndex=0は「記録」ではないため、これを従来順の番号として
+        // 変換すると、並びが入れ替わる本では従来順の先頭ページ(≠今の並びの1ページ目)から
+        // 始まってしまう。変換しなければrestoredIndexは素直に0になる。
+        let restoredKey: String? = isReturningToKnownBook
+            ? state.lastPageKey
+                ?? (legacyOrderedKeys.indices.contains(state.lastPageIndex)
+                    ? legacyOrderedKeys[state.lastPageIndex] : nil)
+            : nil
         let restoredIndexByKey = restoredKey.flatMap { key in currentOrderedKeys.firstIndex(of: key) }
         let restoredIndex = min(
             max(restoredIndexByKey ?? state.lastPageIndex, 0), max(preparedBook.pages.count - 1, 0)
