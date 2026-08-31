@@ -46,7 +46,8 @@ nonisolated enum EffectivePageOrder {
     /// だけを知りたい経路(EPUB出力ウインドウのカバー名列)で使う。
     static func orderedPages<Page: PageOrderSortable>(
         for pages: [Page], pageOrderSource: PageOrderSource = .fileName,
-        pageOrderOverride: [String]?, excludedKeys: Set<String>
+        pageOrderOverride: [String]?, excludedKeys: Set<String>,
+        usesFinderOrderOverride: Bool? = nil
     ) -> [Page] {
         // **ここが環境設定「並び順をFinderに揃える」の唯一の適用点。**
         //
@@ -59,7 +60,7 @@ nonisolated enum EffectivePageOrder {
         // PDF・EPUB(.document)はファイル自身が持つページ順なので並べ替えない。
         var ordered = pages
         if pageOrderSource == .fileName {
-            let usesFinderOrder = PageOrder.usesFinderOrder
+            let usesFinderOrder = usesFinderOrderOverride ?? PageOrder.usesFinderOrder
             ordered.sort {
                 comparePageOrder($0.sortKey, $1.sortKey, usesFinderOrder: usesFinderOrder) == .orderedAscending
             }
@@ -101,5 +102,21 @@ nonisolated enum EffectivePageOrder {
         for book: MangaBook, pageOrderOverride: [String]?, excludedKeys: Set<String>
     ) -> [String] {
         orderedPages(for: book, pageOrderOverride: pageOrderOverride, excludedKeys: excludedKeys).map(\.sortKey)
+    }
+
+    /// **1.36以前の並び**(環境設定「並び順をFinderに揃える」がOFFのときと同じ`.numeric`順)で
+    /// 並べたページキー。
+    ///
+    /// 用途は1つだけ ―― 鍵を持たない古いBookmark.pageIndex / BookReadingState.lastPageIndexを
+    /// 鍵へ変換すること。あの番号は必ずこの並びで記録されている(Bookmark.pageKeyのコメント参照)。
+    /// **今の設定で引いてはいけない。** 別のページの鍵を焼き込み、元の対応が復元できなくなる。
+    static func legacyOrderedPageKeys(
+        for book: MangaBook, pageOrderOverride: [String]?, excludedKeys: Set<String>
+    ) -> [String] {
+        orderedPages(
+            for: book.pages, pageOrderSource: book.pageOrderSource,
+            pageOrderOverride: pageOrderOverride, excludedKeys: excludedKeys,
+            usesFinderOrderOverride: false
+        ).map(\.sortKey)
     }
 }

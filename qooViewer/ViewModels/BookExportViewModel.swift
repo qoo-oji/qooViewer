@@ -801,15 +801,25 @@ class BookExportViewModel: ObservableObject {
         let excludedKeys = includeExcludedPages
             ? []
             : Set(overrides.filter { $0.value == .excluded }.map(\.key))
-        let orderedKeys = EffectivePageOrder.pageKeys(
+        let legacyOrderedKeys = EffectivePageOrder.legacyOrderedPageKeys(
             for: book, pageOrderOverride: pageOrderOverride, excludedKeys: excludedKeys
         )
 
         let bookmarksSorted = bookmarkStore.bookmarks(forBookID: row.bookID).sorted { $0.pageIndex < $1.pageIndex }
         var exportBookmarks: [ExportBookmark] = []
         for bookmark in bookmarksSorted {
-            guard orderedKeys.indices.contains(bookmark.pageIndex) else { continue }
-            exportBookmarks.append(ExportBookmark(pageKey: orderedKeys[bookmark.pageIndex], name: bookmark.name))
+            // 鍵を持っていればそれが権威(Bookmark.pageKey参照)。持っていない古い行だけ、
+            // 番号から引く ―― ただしその番号は従来順で記録されているため、今の並びで引くと
+            // 別のページを指す。そのため、この本を一度でも開けば鍵が埋まる設計にしてある
+            // (ViewerViewModel.init)。ここは本を開かずに書き出す経路のための保険。
+            if let key = bookmark.pageKey {
+                exportBookmarks.append(ExportBookmark(pageKey: key, name: bookmark.name))
+                continue
+            }
+            guard legacyOrderedKeys.indices.contains(bookmark.pageIndex) else { continue }
+            exportBookmarks.append(
+                ExportBookmark(pageKey: legacyOrderedKeys[bookmark.pageIndex], name: bookmark.name)
+            )
         }
 
         let prepared = PreparedBook(

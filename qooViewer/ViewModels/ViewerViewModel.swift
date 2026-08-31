@@ -358,6 +358,31 @@ final class ViewerViewModel: ObservableObject {
         // このpreparedBookローカル変数を代わりに使う。
         let preparedBook = prepared.book
         self.book = preparedBook
+
+        // ブックマークと読書位置を「鍵」で解決できる形へ揃える。**ページ一覧が確定した直後、
+        // それらを読むより先に**行うこと(Bookmark.pageKeyのコメント参照)。
+        //
+        // 1.36以前に保存された行は番号しか持たず、その番号は必ず従来順(.numeric)の並びで
+        // 記録されている。ここで今の並びを使って鍵へ変換すると、別のページの鍵を焼き込んで
+        // 元の対応が復元できなくなるため、legacyOrderedPageKeysを使う。
+        let currentOrderedKeys = preparedBook.pages.map(\.sortKey)
+        let legacyOrderedKeys: [String]
+        if prepared.settings?.pageOrderOverride != nil || !prepared.overrides.isEmpty
+            || currentOrderedKeys.count > 1 {
+            legacyOrderedKeys = EffectivePageOrder.legacyOrderedPageKeys(
+                for: incomingBook, pageOrderOverride: prepared.settings?.pageOrderOverride,
+                excludedKeys: Set(prepared.overrides.filter { $0.value == .excluded }.map(\.key))
+            )
+        } else {
+            legacyOrderedKeys = currentOrderedKeys
+        }
+        let allBookmarks = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
+        let (_, bookmarksDidChange) = BookmarkStore.resolveKeys(
+            for: allBookmarks.filter { $0.bookID == preparedBook.id },
+            legacyOrderedKeys: legacyOrderedKeys, currentOrderedKeys: currentOrderedKeys,
+            persists: !skipsPersistence
+        )
+        if bookmarksDidChange { try? modelContext.save() }
         // reloadLayoutDataでの再構築の元データとして、除外・並べ替え適用前の生のページ一覧を
         // 保持しておく(rawPagesのコメント参照)。
         self.rawPages = incomingBook.pages
@@ -481,7 +506,16 @@ final class ViewerViewModel: ObservableObject {
         // 環境設定「本を開く」の「開始ページ」に応じて、実際にどのページから表示するかを決める。
         // (以前から読んでいる本(isReturningToKnownBookがtrueの場合)にのみ意味がある判定で、
         // 初めて開く本・中身が差し替わった本は常にlastPageIndexが0のため、どの設定でも結果は変わらない)
-        let restoredIndex = min(max(state.lastPageIndex, 0), max(preparedBook.pages.count - 1, 0))
+        // 読書位置も鍵で解決する(ブックマークと同じ理由。Bookmark.pageKeyのコメント参照)。
+        // 鍵を持たない行(1.36以前)は、その番号を**従来順**で引いて鍵に直してから、今の並びでの
+        // 位置を求める。どちらの経路でも見つからなければ、番号をそのまま使う従来の挙動に落ちる。
+        let restoredKey = state.lastPageKey
+            ?? (legacyOrderedKeys.indices.contains(state.lastPageIndex)
+                ? legacyOrderedKeys[state.lastPageIndex] : nil)
+        let restoredIndexByKey = restoredKey.flatMap { key in currentOrderedKeys.firstIndex(of: key) }
+        let restoredIndex = min(
+            max(restoredIndexByKey ?? state.lastPageIndex, 0), max(preparedBook.pages.count - 1, 0)
+        )
         let wasOnLastPage = preparedBook.pages.count > 0 && restoredIndex >= preparedBook.pages.count - 1
         let initialIndex: Int
         var needsConfirmation = false
@@ -1559,7 +1593,11 @@ final class ViewerViewModel: ObservableObject {
             for entry in entries where book.pages.indices.contains(entry.pageIndex) {
                 guard !bookmarks.contains(where: { $0.pageIndex == entry.pageIndex }),
                       !added.contains(where: { $0.pageIndex == entry.pageIndex }) else { continue }
-                added.append(Bookmark(bookID: bookID, pageIndex: entry.pageIndex, name: entry.title, isEpubDerived: true))
+                added.append(Bookmark(
+                    bookID: bookID, pageIndex: entry.pageIndex,
+                    pageKey: book.pages[entry.pageIndex].sortKey,
+                    name: entry.title, isEpubDerived: true
+                ))
             }
             ephemeralBookmarks.append(contentsOf: added)
             reloadBookmarks()
@@ -1575,7 +1613,9 @@ final class ViewerViewModel: ObservableObject {
             // 取り込んだブックマークにも同じ扱いとしてtrueを立てる)。
             modelContext.insert(
                 Bookmark(
-                    bookID: bookID, pageIndex: entry.pageIndex, name: entry.title, isEpubDerived: true,
+                    bookID: bookID, pageIndex: entry.pageIndex,
+                    pageKey: book.pages[entry.pageIndex].sortKey,
+                    name: entry.title, isEpubDerived: true,
                     fileNodeIdentifier: fileNodeIdentifier
                 )
             )
@@ -1623,6 +1663,8 @@ final class ViewerViewModel: ObservableObject {
         let bookmark = Bookmark(
             bookID: book.id,
             pageIndex: index,
+            // 鍵を必ず持たせる(Bookmark.pageKey参照)。並び順が変わっても同じ画像を指し続ける。
+            pageKey: book.pages.indices.contains(index) ? book.pages[index].sortKey : nil,
             name: "\(pagePrefix) \(index + 1)",
             bookmarkData: bookmarkData,
             fileNodeIdentifier: FileNodeIdentifier.current(for: book.sourceURL)
@@ -1888,6 +1930,10 @@ final class ViewerViewModel: ObservableObject {
         guard !readingStateDiscarded else { return }
         // メモリ上のreadingStateは即座に更新する(他のコードから参照されても常に最新の状態になるように)。
         readingState.lastPageIndex = currentIndex
+        // 鍵も一緒に保存する。並び順が変わっても同じページに戻れるようにするため
+        // (Bookmark.pageKey / BookReadingState.lastPageKeyのコメント参照)。
+        readingState.lastPageKey = book.pages.indices.contains(currentIndex)
+            ? book.pages[currentIndex].sortKey : nil
         readingState.displayMode = displayMode
         readingState.readingDirection = readingDirection
         readingState.scalingMode = scalingMode

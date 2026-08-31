@@ -397,6 +397,80 @@ final class BookmarkStore: ObservableObject {
     /// 変数名が、比較対象のモデル側プロパティ名($0.bookID)と同名(bookID)だと、絞り込みフェッチが
     /// 正しく機能しないことがある不具合が実機で確認された(LayoutStore.pageOverrides(forBookID:)の
     /// コメント参照)ため、同じ理由でここも合わせて統一しておく。
+    /// この本のブックマークを「鍵で持つ」形へ揃え、番号を今の並びへ振り直す。
+    /// **本を開いてページ一覧が確定した時点で、ブックマークを読むより先に呼ぶこと。**
+    ///
+    /// - 鍵を持たない行(1.36以前に作られたもの)は、`legacyOrderedKeys`(必ず従来順)から鍵を求めて
+    ///   埋める。ここで今の並びを使うと、別のページの鍵を焼き込んで元の対応が復元できなくなる
+    /// - 鍵が求まった行は、`currentOrderedKeys`(今の実効順)での位置へ番号を振り直す。これにより
+    ///   並び順の設定やユーザーの並べ替えが変わっても、同じ画像を指し続ける
+    /// - 鍵に対応するページが今の本に無い場合(ファイルが消えた・除外された等)は番号を変えない
+    ///
+    /// - Parameter persists: falseならDBへ書かない(シークレットウインドウ・その場限りの本)。
+    ///   その場合も戻り値の対応表は正しく、表示・ジャンプには使える。
+    /// - Returns: ブックマークのID → 今の並びでの番号。
+    @discardableResult
+    func resolveKeys(
+        forBookID bookID: String, legacyOrderedKeys: [String], currentOrderedKeys: [String],
+        persists: Bool
+    ) -> [UUID: Int] {
+        let targets = bookmarks(forBookID: bookID)
+        let (resolved, didChange) = Self.resolveKeys(
+            for: targets, legacyOrderedKeys: legacyOrderedKeys,
+            currentOrderedKeys: currentOrderedKeys, persists: persists
+        )
+        if didChange {
+            try? modelContext.save()
+            rebuildGroups()
+        }
+        return resolved
+    }
+
+    /// resolveKeys(forBookID:...)の実体。ViewerViewModelもこれを直接呼ぶ(あちらはBookmarkStoreを
+    /// 持たず、同じModelContextからBookmarkを自分でfetchしているため)。**この計算を2か所に
+    /// 書かないこと** ―― ブックマークが指すページそのものを決める処理で、片方だけずれると
+    /// 気付きにくい形で壊れる(EffectivePageOrderの二重実装で同じ問題があった)。
+    ///
+    /// - Returns: (ブックマークのID → 今の並びでの番号, DBに変更を加えたか)
+    static func resolveKeys(
+        for targets: [Bookmark], legacyOrderedKeys: [String], currentOrderedKeys: [String],
+        persists: Bool
+    ) -> (resolved: [UUID: Int], didChange: Bool) {
+        guard !targets.isEmpty else { return ([:], false) }
+        var indexByKey: [String: Int] = [:]
+        indexByKey.reserveCapacity(currentOrderedKeys.count)
+        for (index, key) in currentOrderedKeys.enumerated() where indexByKey[key] == nil {
+            indexByKey[key] = index
+        }
+
+        var resolved: [UUID: Int] = [:]
+        var didChange = false
+        for bookmark in targets {
+            let key: String?
+            if let existing = bookmark.pageKey {
+                key = existing
+            } else if legacyOrderedKeys.indices.contains(bookmark.pageIndex) {
+                key = legacyOrderedKeys[bookmark.pageIndex]
+                if persists {
+                    bookmark.pageKey = key
+                    didChange = true
+                }
+            } else {
+                key = nil
+            }
+            guard let key, let newIndex = indexByKey[key] else {
+                resolved[bookmark.id] = bookmark.pageIndex
+                continue
+            }
+            resolved[bookmark.id] = newIndex
+            if bookmark.pageIndex != newIndex, persists {
+                bookmark.pageIndex = newIndex
+                didChange = true
+            }
+        }
+        return (resolved, didChange)
+    }
+
     func bookmarks(forBookID bookID: String) -> [Bookmark] {
         let fetched = bookmarksByBookID()[bookID] ?? []
         switch sortOption {
@@ -444,10 +518,21 @@ final class BookmarkStore: ObservableObject {
     ///   一括リネームウインドウの表紙自動追加)ため、呼び出し元でURLを解決できた場合にだけ
     ///   渡してもらう(解決できなければnilのままでよく、従来通りinode無しで作成される。
     ///   FileNodeIdentifierのコメント参照: 致命的な問題にはならない)。
+    /// - Parameter pageKey: そのページの鍵(PageRef.sortKey)。**分かるなら必ず渡すこと。**
+    ///   渡さないと「1.36以前に作られた番号だけの行」と区別が付かず、次に本を開いたときに
+    ///   従来順の番号として解釈される(Bookmark.pageKeyのコメント参照)。本を開いていない
+    ///   経路(ブックマーク一覧の「+」など)からはnilになりうるが、その場合も次に本を開いた
+    ///   時点でresolveKeysが埋める。
     @discardableResult
-    func addBookmark(bookID: String, pageIndex: Int, name: String, fileNodeIdentifier: FileNodeIdentifier? = nil) -> Bool {
+    func addBookmark(
+        bookID: String, pageIndex: Int, pageKey: String? = nil, name: String,
+        fileNodeIdentifier: FileNodeIdentifier? = nil
+    ) -> Bool {
         guard !bookmarks(forBookID: bookID).contains(where: { $0.pageIndex == pageIndex }) else { return false }
-        let bookmark = Bookmark(bookID: bookID, pageIndex: pageIndex, name: name, fileNodeIdentifier: fileNodeIdentifier)
+        let bookmark = Bookmark(
+            bookID: bookID, pageIndex: pageIndex, pageKey: pageKey, name: name,
+            fileNodeIdentifier: fileNodeIdentifier
+        )
         modelContext.insert(bookmark)
         try? modelContext.save()
         cacheInsertedBookmarks([bookmark], forBookID: bookID)
@@ -483,7 +568,8 @@ final class BookmarkStore: ObservableObject {
     /// 要件に対応)。
     @discardableResult
     func addBookmarks(
-        bookID: String, entries: [(pageIndex: Int, name: String)], fileNodeIdentifier: FileNodeIdentifier? = nil
+        bookID: String, entries: [(pageIndex: Int, pageKey: String?, name: String)],
+        fileNodeIdentifier: FileNodeIdentifier? = nil
     ) -> Int {
         guard !entries.isEmpty else { return 0 }
         var existingPageIndices = Set(bookmarks(forBookID: bookID).map(\.pageIndex))
@@ -491,7 +577,8 @@ final class BookmarkStore: ObservableObject {
         for entry in entries {
             guard !existingPageIndices.contains(entry.pageIndex) else { continue }
             let bookmark = Bookmark(
-                bookID: bookID, pageIndex: entry.pageIndex, name: entry.name, fileNodeIdentifier: fileNodeIdentifier
+                bookID: bookID, pageIndex: entry.pageIndex, pageKey: entry.pageKey, name: entry.name,
+                fileNodeIdentifier: fileNodeIdentifier
             )
             modelContext.insert(bookmark)
             existingPageIndices.insert(entry.pageIndex)

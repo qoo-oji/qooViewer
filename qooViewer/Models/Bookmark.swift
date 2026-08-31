@@ -16,7 +16,19 @@ import SwiftData
 final class Bookmark {
     var id: UUID
     var bookID: String
+    /// このブックマークが指すページの位置(実際の読書順の配列のインデックス)。
+    ///
+    /// **権威は下のpageKeyの方**で、こちらは表示・並べ替え・ジャンプに使う導出値。本を開くたびに
+    /// pageKeyから振り直される(BookmarkStore.resolveKeys参照)。並び順の設定やユーザーの
+    /// 並べ替えで本の並びが変わっても、ブックマークが同じ画像を指し続けるようにするため。
     var pageIndex: Int
+    /// このブックマークが指すページの鍵(PageRef.sortKey。ファイル名/アーカイブ内エントリパス)。
+    ///
+    /// nilは「1.36以前に作られた、番号しか持たない行」を意味する。**その番号は必ず
+    /// 従来順(`.numeric`)の並びで記録されている**ため、鍵へ変換するときは必ずその並びを使う
+    /// (今の並びで引くと、別のページの鍵を焼き込んでしまい復元できなくなる)。
+    /// 変換はBookmarkStore.resolveKeysが一手に引き受ける。
+    var pageKey: String?
     var name: String
     var createdAt: Date
     /// この本を指すセキュリティスコープ付きブックマーク(FavoriteBook.bookmarkDataと同じもの)。
@@ -76,12 +88,14 @@ final class Bookmark {
     var volumeDeviceNumber: Int64?
 
     init(
-        bookID: String, pageIndex: Int, name: String, bookmarkData: Data? = nil, isEpubDerived: Bool = false,
+        bookID: String, pageIndex: Int, pageKey: String? = nil, name: String,
+        bookmarkData: Data? = nil, isEpubDerived: Bool = false,
         fileNodeIdentifier: FileNodeIdentifier? = nil
     ) {
         self.id = UUID()
         self.bookID = bookID
         self.pageIndex = pageIndex
+        self.pageKey = pageKey
         self.name = name
         self.bookmarkData = bookmarkData
         self.isEpubDerived = isEpubDerived

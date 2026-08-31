@@ -667,10 +667,14 @@ enum LibraryImportExportService {
             // いったんpendingEntriesに貯めておき、addBookmarks(bookID:entries:)へまとめて渡す
             // ことで、この本につき保存・再フェッチ・通知を1回にまとめる(重複防止の意味は
             // addBookmarkのループ呼び出しと変わらない)。
-            var pendingEntries: [(pageIndex: Int, name: String)] = []
+            var pendingEntries: [(pageIndex: Int, pageKey: String?, name: String)] = []
             for bookmarkEntry in entry.bookmarks {
                 guard let pageIndex = keyToIndex[bookmarkEntry.page] else { continue }
-                pendingEntries.append((pageIndex: pageIndex, name: bookmarkEntry.name))
+                // JSONは元から鍵で持っているので、そのまま鍵として保存する
+                // (番号だけの行にしない。Bookmark.pageKeyのコメント参照)。
+                pendingEntries.append(
+                    (pageIndex: pageIndex, pageKey: bookmarkEntry.page, name: bookmarkEntry.name)
+                )
             }
             let addedCount = bookmarkStore.addBookmarks(
                 bookID: bookID, entries: pendingEntries, fileNodeIdentifier: resolvedFileNodeIdentifier

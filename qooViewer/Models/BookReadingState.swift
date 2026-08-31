@@ -18,7 +18,12 @@ import SwiftData
 @Model
 final class BookReadingState {
     var bookID: String
+    /// 最後に読んでいたページの位置。**権威は下のlastPageKey**で、こちらは導出値。
     var lastPageIndex: Int
+    /// 最後に読んでいたページの鍵(PageRef.sortKey)。nilは1.36以前に保存された行で、
+    /// その場合lastPageIndexは従来順(`.numeric`)の並びでの位置を指す
+    /// (Bookmark.pageKeyのコメント参照)。
+    var lastPageKey: String?
     var displayModeRaw: String
     var readingDirectionRaw: String
     var scalingModeRaw: String = ScalingMode.fitToScreen.rawValue
