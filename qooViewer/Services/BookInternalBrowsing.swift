@@ -73,12 +73,19 @@ nonisolated enum BookInternalBrowsing {
     /// PDF/EPUBがフォルダ/アーカイブ本の中にさらに入れ子で存在するケースは対象外とする —
     /// このブラウザの目的は「漫画のページ・入れ子になった漫画アーカイブを辿ること」で
     /// あり、PDF/EPUB用の別の閲覧モードを新設するほどの需要が無いための意図的な割り切り)。
-    static func entries(at level: BookEntryLevel, sortOrder: SidePanelSortOrder) throws -> [Entry] {
+    /// - Parameter pageOrder: 今開いている本の実際のページ順(sortKey → 読書順の位置)。
+    ///   一覧の並びはこれに従う ―― BookContentsBrowserState.pageOrder参照。
+    static func entries(
+        at level: BookEntryLevel, sortOrder: SidePanelSortOrder, pageOrder: [String: Int]
+    ) throws -> [Entry] {
         switch level {
         case .folder(let url):
-            return try folderEntries(in: url, sortOrder: sortOrder)
+            return try folderEntries(in: url, sortOrder: sortOrder, pageOrder: pageOrder)
         case .archive(_, let allPaths, let prefix, let matchKeyPrefix):
-            return archiveEntries(allPaths: allPaths, prefix: prefix, matchKeyPrefix: matchKeyPrefix, sortOrder: sortOrder)
+            return archiveEntries(
+                allPaths: allPaths, prefix: prefix, matchKeyPrefix: matchKeyPrefix,
+                sortOrder: sortOrder, pageOrder: pageOrder
+            )
         case .imageFileList(let urls):
             return imageFileEntries(urls)
         }
@@ -105,24 +112,73 @@ nonisolated enum BookInternalBrowsing {
         }
     }
 
-    /// 一覧を環境設定「一般」タブの並び順設定に従って並べ替える。「フォルダ」扱いは
-    /// isContainer(実フォルダ・ネストした書庫ファイルのどちらも踏み込めるため上位に
-    /// まとめる)、DirectoryBrowser.sortedEntries(_:order:)と同じ考え方。
-    private static func sortedEntries(_ entries: [Entry], order: SidePanelSortOrder) -> [Entry] {
+    /// 一覧を並べ替える。「フォルダ」扱いはisContainer(実フォルダ・ネストした書庫ファイルの
+    /// どちらも踏み込めるため上位にまとめる)で、環境設定「一般」タブの並び順設定に従う。
+    /// DirectoryBrowser.sortedEntries(_:order:)と同じ考え方。
+    ///
+    /// **並びの基準は名前ではなく、今開いている本のページ順そのもの**(pageOrder)。
+    /// この一覧は「今開いている本の中身」であり、ビューアに表示されている順と食い違うと
+    /// 分かりにくいため。名前で並べ直していた頃は、環境設定「並び順をFinderに揃える」や
+    /// ユーザーの並べ替え(pageOrderOverride)を反映できず、ビューアと食い違いえた。
+    /// 本のページに含まれない項目(除外ページ、本の対象外の画像、ページを1枚も含まない
+    /// フォルダ)は順位を持たないので、末尾へ名前順でまとめる。
+    private static func sortedEntries(
+        _ entries: [Entry], order: SidePanelSortOrder, pageOrder: [String: Int]
+    ) -> [Entry] {
+        let ranks = ranksByEntryID(entries, pageOrder: pageOrder)
+        func isBefore(_ lhs: Entry, _ rhs: Entry) -> Bool {
+            switch (ranks[lhs.id], ranks[rhs.id]) {
+            case let (l?, r?): return l != r ? l < r : compareName(lhs, rhs)
+            case (nil, _?): return false
+            case (_?, nil): return true
+            case (nil, nil): return compareName(lhs, rhs)
+            }
+        }
+        func compareName(_ lhs: Entry, _ rhs: Entry) -> Bool {
+            compareCanonicalPageOrder(lhs.displayName, rhs.displayName) == .orderedAscending
+        }
         switch order {
         case .mixedByName:
-            return entries.sorted {
-                compareCanonicalPageOrder($0.displayName, $1.displayName) == .orderedAscending
-            }
+            return entries.sorted(by: isBefore)
         case .foldersFirst:
             return entries.sorted { lhs, rhs in
                 if lhs.isContainer != rhs.isContainer { return lhs.isContainer }
-                return compareCanonicalPageOrder(lhs.displayName, rhs.displayName) == .orderedAscending
+                return isBefore(lhs, rhs)
             }
         }
     }
 
-    private static func folderEntries(in url: URL, sortOrder: SidePanelSortOrder) throws -> [Entry] {
+    /// 各項目の「本の中での位置」。画像はそのページの位置、コンテナ(フォルダ・入れ子の書庫)は
+    /// **中に含まれるページのうち最も早いものの位置**。
+    ///
+    /// コンテナのmatchKeyは、その中のページのsortKeyの接頭辞になっている
+    /// (どちらもBookLoaderと同じ組み立て方。archiveEntriesのmatchKey(for:)のコメント参照)。
+    /// ページを読書順に1回だけ走査し、まだ順位が決まっていないコンテナに最初に当たったところで
+    /// 確定させる(最小値になる)。
+    private static func ranksByEntryID(_ entries: [Entry], pageOrder: [String: Int]) -> [String: Int] {
+        var ranks: [String: Int] = [:]
+        var containers: [(id: String, prefix: String)] = []
+        for entry in entries {
+            if entry.isContainer {
+                containers.append((entry.id, entry.matchKey.hasSuffix("/") ? entry.matchKey : entry.matchKey + "/"))
+            } else if let index = pageOrder[entry.matchKey] {
+                ranks[entry.id] = index
+            }
+        }
+        guard !containers.isEmpty else { return ranks }
+        for (key, _) in pageOrder.sorted(by: { $0.value < $1.value }) {
+            guard !containers.isEmpty else { break }
+            if let hit = containers.firstIndex(where: { key.hasPrefix($0.prefix) }) {
+                ranks[containers[hit].id] = pageOrder[key]
+                containers.remove(at: hit)
+            }
+        }
+        return ranks
+    }
+
+    private static func folderEntries(
+        in url: URL, sortOrder: SidePanelSortOrder, pageOrder: [String: Int]
+    ) throws -> [Entry] {
         let children = try FileManager.default.contentsOfDirectory(
             at: url,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -151,7 +207,7 @@ nonisolated enum BookInternalBrowsing {
             }
             return nil
         }
-        return sortedEntries(entries, order: sortOrder)
+        return sortedEntries(entries, order: sortOrder, pageOrder: pageOrder)
     }
 
     /// フラットなパス一覧(ZIPFoundation/Unrar/SevenZipのlistFilePaths()はディレクトリ
@@ -159,7 +215,8 @@ nonisolated enum BookInternalBrowsing {
     /// 切り出す。prefix以降の残りを最初の"/"で分割し、"/"が見つかればそこまでがフォルダ名、
     /// 見つからなければそれ自体がこの階層のファイル。
     private static func archiveEntries(
-        allPaths: [String], prefix: String, matchKeyPrefix: String?, sortOrder: SidePanelSortOrder
+        allPaths: [String], prefix: String, matchKeyPrefix: String?, sortOrder: SidePanelSortOrder,
+        pageOrder: [String: Int]
     ) -> [Entry] {
         var folderNames = Set<String>()
         var fileEntries: [Entry] = []
@@ -205,6 +262,6 @@ nonisolated enum BookInternalBrowsing {
                 matchKey: matchKey(for: childPrefix), navigateTarget: .archiveVirtualFolder(prefix: childPrefix)
             )
         }
-        return sortedEntries(folderEntries + fileEntries, order: sortOrder)
+        return sortedEntries(folderEntries + fileEntries, order: sortOrder, pageOrder: pageOrder)
     }
 }

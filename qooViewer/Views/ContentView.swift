@@ -360,6 +360,11 @@ struct ContentView: View {
         // ことで**たいていは**ここが発火する。ただし**新旧の値が同じだと発火しない**ため、
         // それだけには頼れない(updateBookContentsBrowserForCurrentBook側で呼び直している。
         // 理由はあちらのコメント参照)。
+        .onChange(of: appState.currentBookPages) { _, _ in
+            // 並び順の設定変更・ユーザーの並べ替え・除外でページ一覧が変わったら、
+            // 下段の一覧もその順に並べ直す(BookContentsBrowserState.pageOrder参照)。
+            bookContentsBrowser?.pageOrder = pageOrderMap()
+        }
         .onChange(of: appState.currentVisiblePageSortKeys) { _, newValue in
             bookContentsBrowser?.revealCurrentPage(sortKeys: newValue)
         }
@@ -1359,6 +1364,16 @@ struct ContentView: View {
     /// (本の中身ブラウザ)を新しい本向けに作り直す。フォルダ/対応アーカイブ形式/直接渡された
     /// 画像ファイルのいずれでもない場合(PDF/EPUB)、または本を開いていない場合はnil
     /// (SidePanelViewが下段セクション自体を表示しない)。
+    /// サイドパネル下段へ渡す「本のページ順」(sortKey → 読書順の位置)。
+    /// AppState.currentBookPagesはViewerViewModelが同期している実効順そのもの
+    /// (並び順の設定・ユーザーの並べ替え・除外を適用した後)。
+    private func pageOrderMap() -> [String: Int] {
+        var map: [String: Int] = [:]
+        map.reserveCapacity(appState.currentBookPages.count)
+        for (index, page) in appState.currentBookPages.enumerated() { map[page.sortKey] = index }
+        return map
+    }
+
     private func updateBookContentsBrowserForCurrentBook() {
         // 旧世代が握っている資源(踏み込んだ入れ子の書庫のファイルハンドルと一時ファイル)を、
         // 参照を外す前にその場で手放させる。SwiftUIが旧世代のビューを抱えているとdeinitが
@@ -1370,6 +1385,8 @@ struct ContentView: View {
         }
         let newBrowser = BookContentsBrowserState(book: book)
         newBrowser?.preferences = preferences
+        // 一覧の並びを本のページ順に合わせる(BookContentsBrowserState.pageOrder参照)。
+        newBrowser?.pageOrder = pageOrderMap()
         bookContentsBrowser = newBrowser
         // 作り直した直後の一覧に、今表示しているページのハイライト+スクロールを反映させる。
         //

@@ -45,12 +45,28 @@ nonisolated enum EffectivePageOrder {
     /// (source)を必要とする経路で、後者は本体を読み込まずに「実質的な先頭ページのファイル名」
     /// だけを知りたい経路(EPUB出力ウインドウのカバー名列)で使う。
     static func orderedPages<Page: PageOrderSortable>(
-        for pages: [Page], pageOrderOverride: [String]?, excludedKeys: Set<String>
+        for pages: [Page], pageOrderSource: PageOrderSource = .fileName,
+        pageOrderOverride: [String]?, excludedKeys: Set<String>
     ) -> [Page] {
+        // **ここが環境設定「並び順をFinderに揃える」の唯一の適用点。**
+        //
+        // 渡ってくるpagesは必ず**正準順**(BookLoader/構造キャッシュが持つ順。
+        // PageOrder.swift冒頭の「並び順の全体設計」参照)。すでに並べ替え済みの一覧を渡すと、
+        // ユーザーの並べ替え(pageOrderOverride)を名前順で踏み潰すため**渡してはならない**。
+        // 呼び出し元は全員、BookLoader.loadの結果かキャッシュのページ一覧か、
+        // ViewerViewModelのrawPagesを渡している。
+        //
+        // PDF・EPUB(.document)はファイル自身が持つページ順なので並べ替えない。
         var ordered = pages
+        if pageOrderSource == .fileName {
+            let usesFinderOrder = PageOrder.usesFinderOrder
+            ordered.sort {
+                comparePageOrder($0.sortKey, $1.sortKey, usesFinderOrder: usesFinderOrder) == .orderedAscending
+            }
+        }
         if let pageOrderOverride {
             var pageByKey: [String: Page] = [:]
-            for page in pages { pageByKey[page.sortKey] = page }
+            for page in ordered { pageByKey[page.sortKey] = page }
             var seenKeys: Set<String> = []
             var reordered: [Page] = []
             for key in pageOrderOverride {
@@ -59,7 +75,7 @@ nonisolated enum EffectivePageOrder {
                     seenKeys.insert(key)
                 }
             }
-            for page in pages where !seenKeys.contains(page.sortKey) {
+            for page in ordered where !seenKeys.contains(page.sortKey) {
                 reordered.append(page)
             }
             ordered = reordered
@@ -67,11 +83,15 @@ nonisolated enum EffectivePageOrder {
         return ordered.filter { !excludedKeys.contains($0.sortKey) }
     }
 
-    /// MangaBookを受け取る版(呼び出し側の大半はこちら)。
+    /// MangaBookを受け取る版(呼び出し側の大半はこちら)。並べ替えの可否は本の
+    /// pageOrderSourceから決まるので、呼び出し側が意識する必要は無い。
     static func orderedPages(
         for book: MangaBook, pageOrderOverride: [String]?, excludedKeys: Set<String>
     ) -> [PageRef] {
-        orderedPages(for: book.pages, pageOrderOverride: pageOrderOverride, excludedKeys: excludedKeys)
+        orderedPages(
+            for: book.pages, pageOrderSource: book.pageOrderSource,
+            pageOrderOverride: pageOrderOverride, excludedKeys: excludedKeys
+        )
     }
 
     /// 実際の読書順に並んだpageKeyの一覧(除外ページは含まない)。

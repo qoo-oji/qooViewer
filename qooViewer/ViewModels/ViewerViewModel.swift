@@ -2358,44 +2358,42 @@ final class ViewerViewModel: ObservableObject {
             overridesByKey[override.pageKey] = override.state
         }
         let adjustedPages = applyLayoutData(
-            to: rawBook.pages, pageOrderOverride: settings?.pageOrderOverride, overridesByKey: overridesByKey
+            to: rawBook.pages, pageOrderSource: rawBook.pageOrderSource,
+            pageOrderOverride: settings?.pageOrderOverride, overridesByKey: overridesByKey
         )
         let adjustedBook = MangaBook(
             id: rawBook.id,
             title: rawBook.title,
             sourceURL: rawBook.sourceURL,
             pages: adjustedPages,
+            // 引き継ぎ必須。落とすとPDF/EPUBが名前順の本と誤認され、並び順の設定で
+            // 並べ替えられてしまう(MangaBook.pageOrderSource参照)。
+            pageOrderSource: rawBook.pageOrderSource,
             sourceLayoutHint: rawBook.sourceLayoutHint
         )
         return (adjustedBook, .unaffected, settings, overridesByKey)
     }
 
-    /// pageOrderOverride(2.3節)による並べ替えと、除外(excluded、2.2節)の除去を適用する。
-    /// - 並べ替え: pageOrderOverrideに含まれるpageKeyの順に並べ、保存後に増えたページ
-    ///   (未知のpageKeyを持つページ)は元の並び順のまま末尾に追加する。pageOrderOverrideに
-    ///   含まれるが現在のpagesに存在しないpageKey(ファイルが削除された等)は単純に無視する。
-    /// - 除外: pageKeyがoverridesByKeyで.excludedになっているページを取り除く。
+    /// 生のページ一覧(正準順)から、実際に読書フローで使う並びを作る。
+    /// 環境設定「並び順をFinderに揃える」・pageOrderOverride(2.3節)による並べ替え・
+    /// 除外(excluded、2.2節)の除去を、この順に適用する。
+    ///
+    /// 実体はEffectivePageOrderに一本化してある。以前はここに同じロジックの写しがあり、
+    /// 「一方を変更したらもう一方にも反映すること」という注意書きで運用していたが、
+    /// 並び順の設定という入力が増えたのを機に統合した(この計算はBookmark.pageIndexが指す
+    /// 位置そのものを決めるため、片方だけがずれると気付きにくい形で壊れる)。
+    ///
+    /// **渡すのは必ず正準順のページ一覧**(rawPages)。実効順を渡してはならない
+    /// (EffectivePageOrder.orderedPagesのコメント参照)。
     private static func applyLayoutData(
-        to pages: [PageRef], pageOrderOverride: [String]?, overridesByKey: [String: PageLayoutState]
+        to pages: [PageRef], pageOrderSource: PageOrderSource,
+        pageOrderOverride: [String]?, overridesByKey: [String: PageLayoutState]
     ) -> [PageRef] {
-        var ordered = pages
-        if let pageOrderOverride {
-            var pageByKey: [String: PageRef] = [:]
-            for page in pages { pageByKey[page.sortKey] = page }
-            var seenKeys: Set<String> = []
-            var reordered: [PageRef] = []
-            for key in pageOrderOverride {
-                if let page = pageByKey[key] {
-                    reordered.append(page)
-                    seenKeys.insert(key)
-                }
-            }
-            for page in pages where !seenKeys.contains(page.sortKey) {
-                reordered.append(page)
-            }
-            ordered = reordered
-        }
-        return ordered.filter { overridesByKey[$0.sortKey] != .excluded }
+        let excludedKeys = Set(overridesByKey.filter { $0.value == .excluded }.map(\.key))
+        return EffectivePageOrder.orderedPages(
+            for: pages, pageOrderSource: pageOrderSource,
+            pageOrderOverride: pageOrderOverride, excludedKeys: excludedKeys
+        )
     }
 
     /// 差し替え検知(2.5節)の確認ダイアログへの回答を反映する。
@@ -2523,7 +2521,8 @@ final class ViewerViewModel: ObservableObject {
         pageLayoutStates = overridesByKey
 
         let rebuiltPages = Self.applyLayoutData(
-            to: rawPages, pageOrderOverride: bookLayoutSettings?.pageOrderOverride, overridesByKey: overridesByKey
+            to: rawPages, pageOrderSource: book.pageOrderSource,
+            pageOrderOverride: bookLayoutSettings?.pageOrderOverride, overridesByKey: overridesByKey
         )
         let oldPages = book.pages
         // sortKeyの配列を2本作って比較すると、この関数が呼ばれるたびにページ数ぶんの

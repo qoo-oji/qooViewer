@@ -183,10 +183,19 @@ final class BookContentsBrowserState: ObservableObject {
         }
     }
 
+    /// 今開いている本の実際のページ順(sortKey → 読書順の位置)。一覧の並びはこれに従う
+    /// (BookInternalBrowsing.sortedEntries参照)。ContentViewがAppState.currentBookPages
+    /// (ViewerViewModelが同期している実効順)から流し込み、環境設定の並び順・ユーザーの
+    /// 並べ替え・除外が変わればそのたびに更新される。空のままでも動く(その場合は名前順)。
+    var pageOrder: [String: Int] = [:] {
+        didSet { if pageOrder != oldValue { reload() } }
+    }
+
     func reload() {
         do {
             entries = try BookInternalBrowsing.entries(
-                at: currentLevel, sortOrder: preferences?.sidePanelSortOrder ?? .foldersFirst
+                at: currentLevel, sortOrder: preferences?.sidePanelSortOrder ?? .foldersFirst,
+                pageOrder: pageOrder
             )
             navigationErrorMessage = nil
         } catch {
@@ -314,7 +323,8 @@ final class BookContentsBrowserState: ObservableObject {
         var path: [(BookEntryLevel, ArchiveLocator?)] = []
         for _ in 0..<Self.maxResolutionDepth {
             guard let levelEntries = try? BookInternalBrowsing.entries(
-                at: level, sortOrder: preferences?.sidePanelSortOrder ?? .foldersFirst
+                at: level, sortOrder: preferences?.sidePanelSortOrder ?? .foldersFirst,
+                pageOrder: pageOrder
             ) else { return nil }
             if levelEntries.contains(where: { $0.matchKey == matchKey }) {
                 return (path, (level, locator))
