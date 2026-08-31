@@ -109,19 +109,15 @@ nonisolated enum BookInternalBrowsing {
     /// isContainer(実フォルダ・ネストした書庫ファイルのどちらも踏み込めるため上位に
     /// まとめる)、DirectoryBrowser.sortedEntries(_:order:)と同じ考え方。
     private static func sortedEntries(_ entries: [Entry], order: SidePanelSortOrder) -> [Entry] {
-        // 設定は並べ替え1回につき1度だけ読む(PageOrder.usesFinderOrderのコメント参照)。
-        let usesFinderOrder = PageOrder.usesFinderOrder
         switch order {
         case .mixedByName:
             return entries.sorted {
-                comparePageOrder($0.displayName, $1.displayName, usesFinderOrder: usesFinderOrder)
-                    == .orderedAscending
+                compareCanonicalPageOrder($0.displayName, $1.displayName) == .orderedAscending
             }
         case .foldersFirst:
             return entries.sorted { lhs, rhs in
                 if lhs.isContainer != rhs.isContainer { return lhs.isContainer }
-                return comparePageOrder(lhs.displayName, rhs.displayName, usesFinderOrder: usesFinderOrder)
-                    == .orderedAscending
+                return compareCanonicalPageOrder(lhs.displayName, rhs.displayName) == .orderedAscending
             }
         }
     }

@@ -419,7 +419,7 @@ final class AppPreferences: ObservableObject {
     @Published var sidePanelUsesDoubleClick: Bool {
         didSet { UserDefaults.standard.set(sidePanelUsesDoubleClick, forKey: Keys.sidePanelUsesDoubleClick) }
     }
-    /// 環境設定「一般」タブの「並び順をFinderに揃える」(既定はON)。ユーザー報告:
+    /// 環境設定「一般」タブの「並び順をFinderに揃える」(既定はOFF)。ユーザー報告:
     /// `_Com-title-cover.JPG` / `Com_title_name_size_0001.JPG` / `Com-title-cover-clean.JPG`
     /// のような名前で、Finderの表示順と本のページ順が食い違い、しかも先頭の3文字が"Com"か
     /// "com"かで並びが丸ごと変わっていた。
@@ -1220,9 +1220,11 @@ final class AppPreferences: ObservableObject {
         self.sidePanelUsesDoubleClick = defaults.object(forKey: Keys.sidePanelUsesDoubleClick) as? Bool ?? false
         self.sidePanelSortOrder =
             SidePanelSortOrder(rawValue: defaults.string(forKey: Keys.sidePanelSortOrder) ?? "") ?? .foldersFirst
-        // 既定はON。未設定(object(forKey:)がnil)のときの既定値をPageOrder.usesFinderOrderと
-        // 必ず揃えること ―― 食い違うと、画面のトグルと実際の並びが逆になる。
-        self.usesFinderSortOrder = defaults.object(forKey: Keys.usesFinderSortOrder) as? Bool ?? true
+        // 既定はOFF(従来どおりの並び)。並びが変わるきっかけはユーザー自身の意思によるものに
+        // 限る、という方針のため。未設定(object(forKey:)がnil)のときの既定値を
+        // PageOrder.usesFinderOrderと必ず揃えること ―― 食い違うと、画面のトグルと実際の
+        // 並びが逆になる。
+        self.usesFinderSortOrder = defaults.object(forKey: Keys.usesFinderSortOrder) as? Bool ?? false
         self.folderBrowserSortKey =
             FolderBrowserSortKey(rawValue: defaults.string(forKey: Keys.folderBrowserSortKey) ?? "")
                 ?? FolderBrowserSort.default.key

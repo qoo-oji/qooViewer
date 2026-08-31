@@ -1,30 +1,43 @@
 import Foundation
 
-/// 本のページ順と、それに揃えたい一覧(サイドパネル下段の本の中身ブラウザなど)で使う名前順の比較。
+/// ページの名前順の比較と、「並び順をFinderに揃える」設定まわりの道具一式。
 ///
-/// 環境設定「一般」→「ページ順」→「並び順をFinderに揃える」(既定はON)で2通りに切り替わる。
+/// # 並び順の全体設計
 ///
-/// **ON(usesFinderOrder: true)** … `localizedStandardCompare`。Finderが名前順に使っているのと
-/// 同じ照合で、数字を数値として比べ、大文字小文字・全角半角を区別せず、記号もロケールの照合順序に
-/// 従う。フォルダ・お気に入り・ブックマークなど、このアプリの他の「人に見せる一覧」も元から
-/// この比較で揃えてある(DirectoryBrowser.compare等)。
+/// このアプリでは、ページの並び順を次の2層に分けて扱う。
 ///
-/// **OFF(usesFinderOrder: false)** … `compare(_:options: .numeric)`。この設定を入れる前からの
-/// 並びで、ロケールを見ないUnicodeスカラー順の比較。Finderとは食い違い、大文字始まりの名前が
-/// すべて小文字始まりより先に来るうえ、アンダースコア(U+005F)が大文字より後・小文字より前に
-/// 入る。ユーザー報告の`_Com-title-cover.JPG` / `Com_title_name_size_0001.JPG` /
-/// `Com-title-cover-clean.JPG`のような名前では、"Com"と"com"で並びが丸ごと変わってしまう。
-/// 従来の並びに慣れている本のために残してある選択肢で、既定にはしない。
+/// 1. **正準順(canonical)** … `compareCanonicalPageOrder`。Finderが名前順に使っているのと同じ
+///    照合(`localizedStandardCompare`)で、数字を数値として比べ、大文字小文字・全角半角を
+///    区別せず、記号もロケールの照合順序に従う。**保存物(本の読み込み結果・構造キャッシュ)は
+///    必ずこの順で持つ。** 設定に左右されないため、設定を切り替えても保存物を捨てる必要が無い。
+/// 2. **表示順(effective)** … 正準順に対して、環境設定「並び順をFinderに揃える」・ユーザーの
+///    並べ替え(`pageOrderOverride`)・除外ページを順に適用したもの。適用するのは
+///    `EffectivePageOrder`**1か所だけ**で、ここが唯一の適用点になっている。
 ///
-/// キーにフルパス(またはアーカイブ内のエントリパス)を渡す使い方は、どちらの設定でも同じように
-/// できる。`localizedStandardCompare`でも"/"は英数字より前・空白/ハイフン/ピリオドより後に
-/// 並ぶため、`.numeric`と同じく「フォルダごとにまとまった上で、各フォルダ内が名前順」になる。
+/// この2層に分けたことで、「設定を読む場所」が実質1か所に減り、経路ごとに読むタイミングが
+/// ずれて食い違う(ビューアと一覧で並びが違う、キャッシュだけ古い並びのまま等)ことが
+/// 構造的に起きなくなっている。
+///
+/// # 設定がOFFのときの並び(従来順)
+///
+/// `compare(_:options: .numeric)`。ロケールを見ないUnicodeスカラー順の比較で、1.36以前は
+/// これが唯一の並びだった。Finderとは食い違い、大文字始まりの名前がすべて小文字始まりより
+/// 先に来るうえ、アンダースコア(U+005F)が大文字より後・小文字より前に入る。ユーザー報告の
+/// `_Com-title-cover.JPG` / `Com_title_name_size_0001.JPG` / `Com-title-cover-clean.JPG` の
+/// ような名前では、"Com"と"com"で並びが丸ごと変わってしまう。
+///
+/// **既定はOFF(従来順)。** 並びが変わるきっかけは、ユーザー自身の意思によるものに限る。
+///
+/// # フルパスをキーに渡してよい
+///
+/// どちらの比較でも"/"は英数字より前・空白/ハイフン/ピリオドより後に並ぶため、フルパスや
+/// アーカイブ内のエントリパスをそのまま渡しても「フォルダごとにまとまった上で、各フォルダ内が
+/// 名前順」になる。
 ///
 /// `nonisolated`なのは、BookLoaderの`Task.detached`(メインアクタ外)から呼ばれるため。
-nonisolated func comparePageOrder(
-    _ lhs: String, _ rhs: String, usesFinderOrder: Bool
-) -> ComparisonResult {
-    guard usesFinderOrder else { return lhs.compare(rhs, options: .numeric) }
+
+/// 正準順の比較。保存物(本の読み込み結果・構造キャッシュ)は必ずこの順で持つ。
+nonisolated func compareCanonicalPageOrder(_ lhs: String, _ rhs: String) -> ComparisonResult {
     let byName = lhs.localizedStandardCompare(rhs)
     if byName != .orderedSame { return byName }
     // localizedStandardCompareは大文字小文字などを区別しないため、異なる文字列でも
@@ -34,26 +47,48 @@ nonisolated func comparePageOrder(
     return lhs.compare(rhs)
 }
 
-/// 上の比較の設定値を、メインアクタ外からも読めるようにする入れ物。
+/// 表示順の比較。`usesFinderOrder`が真なら正準順と同じ、偽なら従来順(`.numeric`)。
+nonisolated func comparePageOrder(
+    _ lhs: String, _ rhs: String, usesFinderOrder: Bool
+) -> ComparisonResult {
+    usesFinderOrder ? compareCanonicalPageOrder(lhs, rhs) : lhs.compare(rhs, options: .numeric)
+}
+
 nonisolated enum PageOrder {
     /// 「並び順をFinderに揃える」のUserDefaultsキー。**書く側はAppPreferencesだけ**
     /// (AppPreferences.Keys.usesFinderSortOrderがこの定数を参照している)。
     static let defaultsKey = "qooViewer.pref.usesFinderSortOrder"
 
-    /// 「並び順をFinderに揃える」の現在値(既定はON)。
+    /// 「並び順をFinderに揃える」の現在値(**既定はOFF**)。
     ///
-    /// このアプリの他の設定は、nonisolatedなコードへは引数で渡す流儀にしてある
-    /// (DirectoryBrowserへ渡すfolderBrowserSortなど。AppPreferencesが@MainActorの
-    /// ObservableObjectで、そのままでは読めないため)。ここだけUserDefaultsを直接読むのは、
-    /// この値を要る場所が`BookLoader.load`・`BookOpenRequest.init(openingCandidates:)`・
-    /// `BookInternalBrowsing.entries`・`CbzExporter`と広く散らばっており、そのすべてに
-    /// 引数を足して回ると、経路ごとに渡し忘れて**同じ本の中でページ順と一覧の順が食い違う**
-    /// 事故を作りやすいため。UserDefaultsは複数スレッドから読んで安全なので、
-    /// メインアクタ外から読むこと自体に問題は無い。
+    /// AppPreferencesは@MainActorのObservableObjectで、nonisolatedなコード(BookLoaderの
+    /// 検出処理・EffectivePageOrderなど)からは読めない。UserDefaultsは複数スレッドから読んで
+    /// 安全なので、ここを唯一の入口にしてある。**既定値をAppPreferences側と必ず揃えること** ――
+    /// 食い違うと、画面のトグルと実際の並びが逆になる。
     ///
     /// 並べ替え1回につき**1度だけ**読んで、比較関数へは値として渡すこと(比較のたびに
     /// 読みに行くと、ページ数の多い本で無駄が積み上がる)。
     static var usesFinderOrder: Bool {
-        UserDefaults.standard.object(forKey: defaultsKey) as? Bool ?? true
+        UserDefaults.standard.object(forKey: defaultsKey) as? Bool ?? false
+    }
+
+    /// この本が「並び順の設定によって実際にページの前後が入れ替わる本」かどうか。
+    ///
+    /// 理屈の上では設定を変えれば並びは変わりうるが、実際にそうなるのは
+    /// 「先頭のアンダースコア」「`-`と`_`の混在」「大文字小文字の混在」といった特定の命名を
+    /// 含む本だけで、実測ではほとんど存在しない(開発者の蔵書では、レイアウトを持つ66冊・
+    /// 最近開いた80冊/11,064ページのいずれも該当0件だった)。
+    ///
+    /// そのため、並びを固定する(pageOrderOverrideへの焼き付け)のも、設定を切り替えるときの
+    /// 確認を出すのも、**この判定が真になった本だけ**を対象にする。無関係な本にまで印を付けたり、
+    /// 影響が無いのに確認を出してユーザーを不安にさせたりしないための、唯一の判定関数。
+    ///
+    /// - Parameter keys: 判定したいページのキー(`PageRef.sortKey`)。本の全ページを渡すのが
+    ///   正確だが、一部しか手元に無い場合(DBのレイアウト行だけなど)でも、**真を返したら
+    ///   確実に影響がある**(偽は「その範囲では変わらない」までしか言えない)。
+    static func differsByOrderSetting(keys: [String]) -> Bool {
+        guard keys.count > 1 else { return false }
+        return keys.sorted { compareCanonicalPageOrder($0, $1) == .orderedAscending }
+            != keys.sorted { $0.compare($1, options: .numeric) == .orderedAscending }
     }
 }

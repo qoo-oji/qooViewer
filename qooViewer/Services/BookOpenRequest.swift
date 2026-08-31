@@ -126,15 +126,14 @@ nonisolated struct BookOpenRequest: Codable, Hashable, Sendable {
 
 /// ファイルパスの自然順(数字を数値として比較する順)で並べる。
 ///
-/// `BookLoader.loadFolder`が使っているのと同じ比較(comparePageOrder)で、キーもフルパス。
+/// `BookLoader.loadFolder`が使っているのと同じ**正準順**(compareCanonicalPageOrder)で、
+/// キーもフルパス。環境設定「並び順をFinderに揃える」はここでは見ない ―― 表示に使う並びは
+/// EffectivePageOrderが表示直前に決めるため(PageOrder.swift冒頭の「並び順の全体設計」参照)。
 /// フォルダをまたいで選択された場合でも、フォルダごとにまとまった上で各フォルダ内が名前順になる。
 ///
 /// macOSがドロップや`application(_:open:)`で渡すURLの順序は仕様上保証されていない(Finderの表示順に
 /// 見えることが多いだけ)ため、渡された順ではなく常にここで決め直す。同じ選択が常に同じ並びに
 /// なることは、BookOpenRequestを`WindowGroup`の提示値として使う上での前提でもある。
 nonisolated func naturalOrderSortedByPath(_ urls: [URL]) -> [URL] {
-    let usesFinderOrder = PageOrder.usesFinderOrder
-    return urls.sorted {
-        comparePageOrder($0.path, $1.path, usesFinderOrder: usesFinderOrder) == .orderedAscending
-    }
+    urls.sorted { compareCanonicalPageOrder($0.path, $1.path) == .orderedAscending }
 }

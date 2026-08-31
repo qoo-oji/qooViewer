@@ -85,6 +85,14 @@ nonisolated enum BookOrigin: Hashable {
     case imageFiles
 }
 
+/// 本のページ順が何で決まったか(MangaBook.pageOrderSource参照)。
+nonisolated enum PageOrderSource: Hashable, Sendable {
+    /// ファイル名を並べて決まった順(フォルダ・書庫・画像ファイル)。
+    case fileName
+    /// ファイル自身が持つページ順(PDFのページ番号、EPUBのspine)。並べ替えの対象外。
+    case document
+}
+
 /// 開いている1冊の漫画(画像フォルダ、zip/rar/7z アーカイブ、PDF、EPUB、画像ファイル)
 struct MangaBook: Identifiable, Hashable {
     /// 一意なID。フォルダ/アーカイブのファイルパスをそのまま使う
@@ -99,6 +107,17 @@ struct MangaBook: Identifiable, Hashable {
     /// 即座に反映できるよう、本を開き直さずにこの配列を丸ごと差し替え直すことがあるため
     /// (詳細はViewerViewModel.reloadLayoutDataのコメント参照)。
     var pages: [PageRef]
+    /// このページ一覧の並びが何で決まったか。
+    ///
+    /// `.fileName`(フォルダ・zip/rar/7z・画像ファイル)は名前順で並べたもので、環境設定
+    /// 「並び順をFinderに揃える」の適用対象になる。`.document`(PDF・EPUB)はファイル自身が
+    /// 持つページ順で、名前とは無関係なため**並べ替えてはいけない**。
+    ///
+    /// 既定値付きなのは、BookLoaderの生成箇所のうち名前順のものを変更せずに済ませるため。
+    /// PDF・EPUBの生成箇所だけが明示的に`.document`を渡す。以前はPDF/EPUBのsortKeyが
+    /// ゼロ埋めの連番(`%06d`)で、名前順に並べ直しても**偶然**同じ順になるというだけの状態
+    /// だった。それに依存しないよう、由来を型として持たせている。
+    var pageOrderSource: PageOrderSource = .fileName
     /// 本のソースファイル自身が持つ、本全体の表示ヒント。詳細はSourceLayoutHint参照。
     var sourceLayoutHint: SourceLayoutHint? = nil
     /// この本がどこから来たか。既定値付きなので、従来のBookLoaderの生成箇所は変更不要。

@@ -24,27 +24,18 @@ nonisolated enum BookLoader {
         nestedArchiveMemoryLimitBytes: Int = AppPreferences.defaultNestedArchiveMemoryLimitBytes,
         onProgress: (@Sendable (BookLoadProgress) -> Void)? = nil
     ) async throws -> MangaBook {
-        // 「並び順をFinderに揃える」は、1回の読み込みのあいだ**1度だけ**読む。並べ替え・
-        // 構造キャッシュの照合・書き戻しのすべてに同じ値を使うことが重要で、途中で読み直すと、
-        // 読み込みの最中に設定を切り替えられた場合に「古い並びのページ一覧を、新しい設定の
-        // ラベルを付けて保存する」ことが起こりうる(次に開いたとき、照合を素通りして古い並びの
-        // まま復元されてしまう)。
-        let usesFinderSortOrder = PageOrder.usesFinderOrder
         // 入れ子の書庫を含む本は、ページを数え上げるだけでも中の書庫を1つずつ取り出す必要が
         // ある。2回目以降はその走査ごと飛ばす(BookPageListCache.Entryの構造キャッシュの
         // コメント参照)。シークレットウインドウでは書かないだけでなく**読みもしない** ――
         // 通常ウインドウで作られたキャッシュを読むと痕跡こそ残らないが、同じ本でも開き方に
         // よって挙動が変わることになるため、安全側に倒して常にフルの読み込みにする。
-        if cachesPageList,
-           let restored = await restoredFromStructureCache(url: url, usesFinderSortOrder: usesFinderSortOrder) {
+        if cachesPageList, let restored = await restoredFromStructureCache(url: url) {
             return restored
         }
 
         let limits = NestedArchiveResolver.Limits.standard(inMemoryBytes: nestedArchiveMemoryLimitBytes)
         let task = Task.detached(priority: .userInitiated) { () throws -> MangaBook in
-            try loadSync(
-                from: url, limits: limits, usesFinderSortOrder: usesFinderSortOrder, onProgress: onProgress
-            )
+            try loadSync(from: url, limits: limits, onProgress: onProgress)
         }
         // Task.detachedはキャンセルを**継承しない**(Swiftの仕様。PageLoader.
         // cancellableInFlightKeysのコメントに同じ落とし穴の記録がある)。呼び出し側の
@@ -70,7 +61,7 @@ nonisolated enum BookLoader {
         // そのまま本の表示までの待ち時間に乗る。このキャッシュは次に同じ本を開くときまでに
         // 書けていればよく、失敗しても次回また読み込むだけ
         // (PageLoader.thumbnail(at:)がサムネイルの保存を待たないのと同じ考え方)。
-        let entry = structureCacheEntry(for: book, usesFinderSortOrder: usesFinderSortOrder)
+        let entry = structureCacheEntry(for: book)
         let bookID = book.id
         Task.detached(priority: .background) {
             await BookPageListCache.shared.store(entry, forBookID: bookID)
@@ -88,9 +79,6 @@ nonisolated enum BookLoader {
     private struct LoadContext {
         let resolver: NestedArchiveResolver
         let progress: LoadProgressReporter
-        /// この読み込みでページを並べるときの「Finderと同じ名前順にするか」
-        /// (load(from:)が1度だけ読んだ値。comparePageOrder参照)。
-        let usesFinderSortOrder: Bool
     }
 
     /// 読み込んだ本を、次回の高速経路のために保存できる形へ畳む
@@ -98,9 +86,7 @@ nonisolated enum BookLoader {
     ///
     /// ページの並び順とファイル名しか要らない画面(レイアウト編集ウインドウの右ペイン等)は
     /// 従来どおりsortKey/displayNameだけを見るので、この追加項目には影響されない。
-    private static func structureCacheEntry(
-        for book: MangaBook, usesFinderSortOrder: Bool
-    ) -> BookPageListCache.Entry {
+    private static func structureCacheEntry(for book: MangaBook) -> BookPageListCache.Entry {
         let rootPath = book.sourceURL.path
         var hasNestedArchives = false
         let pages = book.pages.map { page -> BookPageListCache.Entry.Page in
@@ -134,8 +120,7 @@ nonisolated enum BookLoader {
             schemaVersion: BookPageListCache.Entry.currentSchemaVersion,
             rootPath: rootPath,
             fingerprint: BookPageListCache.Entry.Fingerprint.current(for: book.sourceURL),
-            hasNestedArchives: hasNestedArchives,
-            usesFinderSortOrder: usesFinderSortOrder
+            hasNestedArchives: hasNestedArchives
         )
     }
 
@@ -145,18 +130,13 @@ nonisolated enum BookLoader {
     /// 適用するのは**入れ子の書庫を含む単一の書庫ファイルの本**だけ。平なcbz・PDF・EPUBは
     /// 元々列挙が速く、フォルダの本は指紋(更新日時)が孫ファイルの変更を拾わないため、
     /// いずれも「古い一覧のまま開いてしまう」危険に見合う利得が無い。
-    private static func restoredFromStructureCache(
-        url: URL, usesFinderSortOrder: Bool
-    ) async -> MangaBook? {
+    private static func restoredFromStructureCache(url: URL) async -> MangaBook? {
         guard isArchiveFile(url.lastPathComponent),
               !isPDFFile(url.lastPathComponent), !isEpubFile(url.lastPathComponent)
         else { return nil }
         guard let entry = await BookPageListCache.shared.pageList(forBookID: url.path),
               entry.schemaVersion == BookPageListCache.Entry.currentSchemaVersion,
               entry.hasNestedArchives == true,
-              // 「並び順をFinderに揃える」を切り替えた後は、保存済みの並びが今の設定と
-              // 食い違う。並べ直さずそのまま使う経路なので、ここで捨てて読み直す。
-              entry.usesFinderSortOrder == usesFinderSortOrder,
               entry.rootPath == url.path,
               !entry.pages.isEmpty
         else { return nil }
@@ -193,7 +173,6 @@ nonisolated enum BookLoader {
     private static func loadSync(
         from url: URL,
         limits: NestedArchiveResolver.Limits,
-        usesFinderSortOrder: Bool,
         onProgress: (@Sendable (BookLoadProgress) -> Void)?
     ) throws -> MangaBook {
         var isDirectory: ObjCBool = false
@@ -202,8 +181,7 @@ nonisolated enum BookLoader {
         }
         let context = LoadContext(
             resolver: NestedArchiveResolver(limits: limits),
-            progress: LoadProgressReporter(callback: onProgress),
-            usesFinderSortOrder: usesFinderSortOrder
+            progress: LoadProgressReporter(callback: onProgress)
         )
         // 失敗しても中止されても、この読み込みが作った一時ファイルはここで消える。
         defer { context.resolver.purgeAll() }
@@ -275,9 +253,10 @@ nonisolated enum BookLoader {
         let pages = try collectPages(inFolder: url, context: context)
         guard !pages.isEmpty else { throw BookLoaderError.noPages }
 
+        // 保存物は常に正準順。環境設定「並び順をFinderに揃える」の適用は表示直前に
+        // EffectivePageOrderが行う(PageOrder.swift冒頭の「並び順の全体設計」参照)。
         let sortedPages = pages.sorted {
-            comparePageOrder($0.sortKey, $1.sortKey, usesFinderOrder: context.usesFinderSortOrder)
-                == .orderedAscending
+            compareCanonicalPageOrder($0.sortKey, $1.sortKey) == .orderedAscending
         }
         return MangaBook(
             id: url.path,
@@ -333,9 +312,10 @@ nonisolated enum BookLoader {
         )
         guard !pages.isEmpty else { throw BookLoaderError.noPages }
 
+        // 保存物は常に正準順。環境設定「並び順をFinderに揃える」の適用は表示直前に
+        // EffectivePageOrderが行う(PageOrder.swift冒頭の「並び順の全体設計」参照)。
         let sortedPages = pages.sorted {
-            comparePageOrder($0.sortKey, $1.sortKey, usesFinderOrder: context.usesFinderSortOrder)
-                == .orderedAscending
+            compareCanonicalPageOrder($0.sortKey, $1.sortKey) == .orderedAscending
         }
         return MangaBook(
             id: url.path,
@@ -456,6 +436,8 @@ nonisolated enum BookLoader {
             title: url.deletingPathExtension().lastPathComponent,
             sourceURL: url,
             pages: pages,
+            // PDFのページ順はファイル自身のもの。名前順ではないので並べ替えない。
+            pageOrderSource: .document,
             sourceLayoutHint: PDFStructureResolver.resolveLayoutHint(document: document)
         )
     }
@@ -493,6 +475,8 @@ nonisolated enum BookLoader {
             title: url.deletingPathExtension().lastPathComponent,
             sourceURL: url,
             pages: pages,
+            // EPUBのページ順はspineが決める。名前順ではないので並べ替えない。
+            pageOrderSource: .document,
             sourceLayoutHint: SourceLayoutHint(
                 pageProgressionDirection: structure.pageProgressionDirection,
                 forcedDisplayMode: structure.forcedDisplayMode
