@@ -41,6 +41,7 @@ struct GeneralSettingsView: View {
             • One book cannot be put back alone
             • Turning this off restores the old order
 
+            Affected books
             \(names)\(tail)
             """
         )

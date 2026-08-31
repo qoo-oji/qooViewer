@@ -153,18 +153,18 @@
         }
       }
     },
-    "If you match the new order:\n\nLayout\n• It is not deleted\n• Spread pairings change\n\nBookmarks and reading positions\n• They stay on the same pages\n\nUndoing\n• One book cannot be put back alone\n• Turning this off restores the old order\n\n%@%@" : {
+    "If you match the new order:\n\nLayout\n• It is not deleted\n• Spread pairings change\n\nBookmarks and reading positions\n• They stay on the same pages\n\nUndoing\n• One book cannot be put back alone\n• Turning this off restores the old order\n\nAffected books\n%@%@" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "If you match the new order:\n\nLayout\n• It is not deleted\n• Spread pairings change\n\nBookmarks and reading positions\n• They stay on the same pages\n\nUndoing\n• One book cannot be put back alone\n• Turning this off restores the old order\n\n%@%@"
+            "value" : "If you match the new order:\n\nLayout\n• It is not deleted\n• Spread pairings change\n\nBookmarks and reading positions\n• They stay on the same pages\n\nUndoing\n• One book cannot be put back alone\n• Turning this off restores the old order\n\nAffected books\n%@%@"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "新しい並び順に合わせると:\n\nレイアウト\n・削除されません\n・見開きの組み合わせは変わります\n\nブックマーク・読書位置\n・同じページを指したままです\n\n元に戻す\n・1冊だけ元に戻せません\n・OFFに戻せば元の並びに戻ります\n\n%@%@"
+            "value" : "新しい並び順に合わせると:\n\nレイアウト\n・削除されません\n・見開きの組み合わせは変わります\n\nブックマーク・読書位置\n・同じページを指したままです\n\n元に戻す\n・1冊だけ元に戻せません\n・OFFに戻せば元の並びに戻ります\n\n対象の本\n%@%@"
           }
         }
       }
