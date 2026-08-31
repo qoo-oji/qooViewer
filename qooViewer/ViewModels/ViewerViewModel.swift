@@ -1646,7 +1646,24 @@ final class ViewerViewModel: ObservableObject {
 
         // ブックマーク(<Pages>のBookmark属性)。EPUBの目次・PDFのアウトラインと同じ挿入処理を
         // 使う(この本にまだブックマークが1件も無い場合に限る、という判定もそちらが持っている)。
-        importAutoTOCEntries(comicInfo.bookmarks.map { (title: $0.name, pageIndex: $0.pageIndex) })
+        //
+        // ComicInfoのページ番号は、書庫のファイル名の**正準順**を指す(CbzExporterが書き出し時に
+        // 番号を振るのと同じ順。外へ出るファイルはアプリ内の表示設定に左右させない、という規則)。
+        // 一方importAutoTOCEntriesが受け取る番号はビューアの実効順(環境設定「並び順をFinderに
+        // 揃える」がOFFだと従来順)なので、正準順の一覧(rawPages)で画像を特定してから、
+        // 実効順での位置へ変換して渡す。並びが入れ替わらない命名の本では従来と同じ結果になる。
+        // 実効順に無いページ(除外済み等)はスキップする。
+        var effectiveIndexByKey: [String: Int] = [:]
+        effectiveIndexByKey.reserveCapacity(book.pages.count)
+        for (index, page) in book.pages.enumerated() where effectiveIndexByKey[page.sortKey] == nil {
+            effectiveIndexByKey[page.sortKey] = index
+        }
+        importAutoTOCEntries(comicInfo.bookmarks.compactMap { bookmark in
+            guard rawPages.indices.contains(bookmark.pageIndex),
+                  let index = effectiveIndexByKey[rawPages[bookmark.pageIndex].sortKey]
+            else { return nil }
+            return (title: bookmark.name, pageIndex: index)
+        })
     }
 
     /// PDFのアウトライン(しおり)から、ブックマークを自動的に取り込む。autoImportEpub
