@@ -130,7 +130,7 @@ struct GeneralSettingsView: View {
                 SettingsToggle(
                     "Match Finder's Sort Order",
                     isOn: $preferences.usesFinderSortOrder,
-                    help: "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off, names are compared by character code instead — every name starting with an uppercase letter comes before every name starting with a lowercase one. Applies to the pages of a book, the panel's list of the book's contents, and the page numbers written into an exported CBZ. Books that are already open keep their current order until you open them again."
+                    help: "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off — the default — names are compared by character code instead, as in earlier versions, so every name starting with an uppercase letter comes before every name starting with a lowercase one. Open books and lists reorder right away. Books you have given a layout keep the order that layout was made for, because which pages pair into a spread depends on it."
                 )
             } header: {
                 Text("Page Order")

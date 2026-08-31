@@ -52,6 +52,22 @@
         }
       }
     },
+    "and %lld more" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "and %lld more"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ほか %lld 冊"
+          }
+        }
+      }
+    },
     "At the First Page" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -137,6 +153,22 @@
         }
       }
     },
+    "Keep as They Are" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep as They Are"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このままにする"
+          }
+        }
+      }
+    },
     "Match Finder's Sort Order" : {
       "localizations" : {
         "en" : {
@@ -149,6 +181,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "並び順をFinderに揃える"
+          }
+        }
+      }
+    },
+    "Match the New Order" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Match the New Order"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しい並び順に合わせる"
           }
         }
       }
@@ -203,18 +251,50 @@
         }
       }
     },
-    "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off, names are compared by character code instead — every name starting with an uppercase letter comes before every name starting with a lowercase one. Applies to the pages of a book, the panel's list of the book's contents, and the page numbers written into an exported CBZ. Books that are already open keep their current order until you open them again." : {
+    "Some books keep their current page order" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off, names are compared by character code instead — every name starting with an uppercase letter comes before every name starting with a lowercase one. Applies to the pages of a book, the panel's list of the book's contents, and the page numbers written into an exported CBZ. Books that are already open keep their current order until you open them again."
+            "value" : "Some books keep their current page order"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Finderと同じ名前順で並べます。数字は数値として比べ、大文字小文字や記号もシステムの照合順序に従います。\nOFFのときは文字コード順で比べます。大文字で始まる名前が、小文字で始まる名前よりすべて先に来ます。\n本のページ、パネルに表示する本の中身の一覧、CBZの書き出しが書き込むページ番号に効きます。\nすでに開いている本は、開き直すまで今の並びのままです。"
+            "value" : "一部の本は現在の並び順のままです"
+          }
+        }
+      }
+    },
+    "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off — the default — names are compared by character code instead, as in earlier versions, so every name starting with an uppercase letter comes before every name starting with a lowercase one. Open books and lists reorder right away. Books you have given a layout keep the order that layout was made for, because which pages pair into a spread depends on it." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off — the default — names are compared by character code instead, as in earlier versions, so every name starting with an uppercase letter comes before every name starting with a lowercase one. Open books and lists reorder right away. Books you have given a layout keep the order that layout was made for, because which pages pair into a spread depends on it."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finderと同じ名前順で並べます。数字は数値として比べ、大文字小文字や記号もシステムの照合順序に従います。\nOFF(既定)のときは、以前のバージョンと同じ文字コード順です。大文字で始まる名前が、小文字で始まる名前よりすべて先に来ます。\n開いている本も一覧も、その場で並び替わります。レイアウトを設定した本だけは、そのレイアウトを作ったときの並びのままです(どのページが見開きで組になるかは並び順で決まるため)。"
+          }
+        }
+      }
+    },
+    "These books have a layout you set up, so they keep the page order that layout was made for. Bookmarks and reading positions stay on the same images either way; only the spread pairing depends on the order.\n\n%@%@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "These books have a layout you set up, so they keep the page order that layout was made for. Bookmarks and reading positions stay on the same images either way; only the spread pairing depends on the order.\n\n%@%@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "レイアウトを設定した本は、そのレイアウトを作ったときの並び順のままにしています。\nブックマークと読書位置はどちらの並びでも同じ画像を指したままです。並び順に依存するのは見開きの組み合わせだけです。\n\n%@%@"
           }
         }
       }
