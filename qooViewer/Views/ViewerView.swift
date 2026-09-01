@@ -1936,10 +1936,17 @@ struct ViewerView: View {
             // 「現在の表示を基準に自動でレイアウトする」ボタン(設計コンセプト8.5節)。
             // ブックマーク追加・削除ボタンの左に配置する。本全体を上書きする操作のため、
             // 実行前に確認ダイアログ(isShowingAutoLayoutConfirmation)を挟む(3.1節)。
+            //
+            // アイコンは以前"rectangle.split.2x1"(左右に分かれた長方形)だったが、
+            // 「表示モードを見開きに切り替えるボタン」に見える、というユーザー報告があった
+            // (このツールバーに見開き切替ボタンは無いのに、そう読まれてしまう)。macOS全体で
+            // 「自動でやる」を表す語彙は写真の自動補正と同じ杖(wand)なので、それに揃えている。
+            // 見開きを想起させる長方形系のシンボル(rectangle.split/rectangle.3.group等)は、
+            // バッジを足しても元の誤読が残るため採らなかった。
             Button {
                 isShowingAutoLayoutConfirmation = true
             } label: {
-                Image(systemName: "rectangle.split.2x1")
+                Image(systemName: "wand.and.sparkles")
                     .panelIconButtonLabel()
             }
             .buttonStyle(.borderless)
