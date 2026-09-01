@@ -135,12 +135,6 @@ macOS 15 (Sequoia) 以降
 - [ZIPFoundation](https://github.com/weichsel/ZIPFoundation)(MIT License)
 - [SevenZip.swift](https://github.com/mtgto/SevenZip.swift)(MIT License)
 - [Unrar.swift](https://github.com/mtgto/Unrar.swift)(内部でRARLAB提供のunrarライブラリを使用)
-- [UniversalCharsetDetection](https://github.com/qoo-oji/UniversalCharsetDetection)(MIT License、内部でMozilla由来のuchardetを使用)
-  - [本家](https://github.com/fumoboy007/UniversalCharsetDetection)のフォークです。本家は uchardet を
-    `git://cgit.freedesktop.org/uchardet/uchardet/` のサブモジュールとして参照していますが、このホストは
-    `git://` プロトコルでの配信をやめており、**依存の解決そのものが失敗して誰もビルドできません**。
-    フォークでは、同じコミットを持つ[GitHubのミラー](https://github.com/BYVoid/uchardet)を HTTPS で
-    参照するよう `.gitmodules` の1行だけを変更しています(ライブラリのコードは一切変えていません)。
 
 ## ビルド方法
 
@@ -162,8 +156,8 @@ open qooViewer.xcodeproj
 
 あとは Xcode で `Cmd + R` を押すだけです。依存ライブラリは Swift Package Manager が自動的に
 取得します(バージョンは `Package.resolved` に固定してあるので、誰がいつ clone しても同じ
-組み合わせでビルドされます)。初回だけ、C/C++で書かれたライブラリ(unrar・uchardet)をソースから
-ビルドするため数分かかります。
+組み合わせでビルドされます)。初回だけ、C/C++で書かれたライブラリ(unrar)をソースから
+ビルドするため時間がかかります。
 
 コマンドラインからビルドすることもできます。
 
@@ -232,13 +226,15 @@ Unicode名を併記したRAR4)は、日本語のファイル名でも正しく�
 時点で既にそのバイト列をシステムのロケール(macOSではUTF-8)として解釈してしまい、qooViewer側からは
 元の生のバイト列に手が届かないためです。ライブラリの外側では対処できません。
 
-zip/cbz のファイル名の文字コードは、`UniversalCharsetDetection` を使って qooViewer 側で自動判定して
-いるため、この問題は起きません(rarだけがライブラリの内部でファイル名を文字列化しており、
-qooViewer から生のバイト列に触れないためこうなっています)。
+zip/cbz のファイル名の文字コードは、qooViewer 側で自動判定しているため、この問題は起きません
+(rarだけがライブラリの内部でファイル名を文字列化しており、qooViewer から生のバイト列に触れない
+ためこうなっています)。判定は書庫単位でまとめて行い、Shift_JIS(CP932)・EUC-JP・CP949(韓国語)・
+GBK/Big5(中国語)や、UTF-8 の目印が付いていない書庫を読み分けます。1つの書庫の中に複数の文字
+コードが混在している場合(UTF-8 との混在を除く)は、そのうちの1つに揃えて読むため、片方は
+文字化けしたままになります。
 
 ## ライセンス
 
 - qooViewer自体のソースコードはMITライセンスです(同梱の `LICENSE` 参照)。
-- 文字コード自動判定は `UniversalCharsetDetection`(内部で Mozilla 由来の uchardet を使用)に依存しています。MITライセンスです。
 - zip/cbz 対応は `ZIPFoundation` に、7z/cb7 対応は `SevenZip.swift` に依存しています。いずれもMITライセンスです。
 - rar/cbr 対応は `Unrar.swift`(内部で RARLAB 提供の unrar ライブラリを使用)に依存しています。[unrar のライセンス文](https://github.com/mtgto/Unrar.swift/blob/main/Sources/Cunrar/readme.txt)を参照してください。

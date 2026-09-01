@@ -11,15 +11,6 @@
       }
     },
     {
-      "identity" : "universalcharsetdetection",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/qoo-oji/UniversalCharsetDetection",
-      "state" : {
-        "revision" : "62ff57cfd7871e01ea7d12f2ea751575f2bc6fc5",
-        "version" : "1.0.1"
-      }
-    },
-    {
       "identity" : "unrar.swift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/mtgto/Unrar.swift",
