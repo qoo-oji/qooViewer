@@ -52,6 +52,22 @@
         }
       }
     },
+    "Applies to the file name, the page number, and the location shown above thumbnails that live in a folder inside the book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies to the file name, the page number, and the location shown above thumbnails that live in a folder inside the book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイル名とページ番号、および書庫の中のフォルダにある画像でサムネイルの上に表示される場所に適用されます。"
+          }
+        }
+      }
+    },
     "At the First Page" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -120,6 +136,54 @@
         }
       }
     },
+    "Dim the Other Pages" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dim the Other Pages"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カーソル位置以外を暗くする"
+          }
+        }
+      }
+    },
+    "Dimming every thumbnail except the one under the pointer makes that one stand out. Turn this off to see them all at full brightness — the one under the pointer is still marked by its border and page number." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dimming every thumbnail except the one under the pointer makes that one stand out. Turn this off to see them all at full brightness — the one under the pointer is still marked by its border and page number."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カーソル位置以外のサムネイルを暗くして、カーソル位置のページを目立たせます。OFFにするとすべて同じ明るさで表示されます(カーソル位置のページは枠とページ番号で分かります)。"
+          }
+        }
+      }
+    },
+    "File Name and Page Number" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File Name and Page Number"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイル名とページ番号"
+          }
+        }
+      }
+    },
     "Go to Previous Book's Last Page" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -137,6 +201,38 @@
         }
       }
     },
+    "Highlight Color" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Highlight Color"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カーソル位置の強調色"
+          }
+        }
+      }
+    },
+    "Highlight Thickness" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Highlight Thickness"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "強調の太さ"
+          }
+        }
+      }
+    },
     "Match Finder's Sort Order" : {
       "localizations" : {
         "en" : {
@@ -149,6 +245,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "並び順をFinderに揃える"
+          }
+        }
+      }
+    },
+    "Number of Thumbnails" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Number of Thumbnails"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サムネイルの数"
           }
         }
       }
@@ -186,6 +298,22 @@
         }
       }
     },
+    "Progress Bar Thumbnails" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Progress Bar Thumbnails"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プログレスバーのサムネイル"
+          }
+        }
+      }
+    },
     "Return to Welcome Screen" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -215,6 +343,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Finderと同じ名前順で並べます。数字は数値として比べ、大文字小文字や記号もシステムの照合順序に従います。\nOFF(既定)のときは、以前のバージョンと同じ文字コード順です。大文字で始まる名前が、小文字で始まる名前よりすべて先に来ます。\n開いている本も一覧も、その場で並び替わります。レイアウトを設定した本だけは、そのレイアウトを作ったときの並びのままです(どのページが見開きで組になるかは並び順で決まるため)。新しい並びに合わせたい本は、「ブックマーク・レイアウトの編集」ウインドウの「ページ順を初期化する」で1冊ずつ合わせられます。"
+          }
+        }
+      }
+    },
+    "The page number under the pointer is always shown. When file names are hidden, so is the location line above thumbnails that live in a folder inside the book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The page number under the pointer is always shown. When file names are hidden, so is the location line above thumbnails that live in a folder inside the book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カーソル位置のページ番号は、この設定に関わらず常に表示されます。ファイル名を表示しないときは、書庫の中のフォルダにある画像でサムネイルの上に出る場所の行も表示されません。"
+          }
+        }
+      }
+    },
+    "The thickness of the border around the thumbnail under the pointer." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The thickness of the border around the thumbnail under the pointer."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カーソル位置のサムネイルを囲む枠線の太さです。"
+          }
+        }
+      }
+    },
+    "The thumbnails always fill the width of the bar, so showing fewer of them makes each one larger." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The thumbnails always fill the width of the bar, so showing fewer of them makes each one larger."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サムネイルは常にバーの幅いっぱいに並ぶため、数を減らすほど1枚が大きくなります。"
           }
         }
       }
@@ -249,6 +425,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "最後のページです。"
+          }
+        }
+      }
+    },
+    "When off, hovering over the progress bar shows just the page number under the pointer, and no thumbnails are loaded." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When off, hovering over the progress bar shows just the page number under the pointer, and no thumbnails are loaded."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OFFにすると、プログレスバーにカーソルを合わせてもサムネイルは読み込まれず、カーソル位置のページ番号だけが表示されます。"
           }
         }
       }

@@ -35,16 +35,12 @@ struct ReadingSettingsView: View {
                 Text("Scrolling")
             }
 
-            Section {
-                // Sectionヘッダが「プログレスバー」なので、「プログレスバーにカーソルを
-                // 合わせたとき」は繰り返さずに済む。
-                SettingsToggle(
-                    "Preview the Page Under the Pointer",
-                    isOn: $preferences.showProgressBarThumbnailPreview
-                )
-            } header: {
-                Text("Progress Bar")
-            }
+            // プログレスバーのフィルムストリップの設定(ON/OFFも含めて)は、環境設定「外観」の
+            // 「プログレスバーのフィルムストリップ」セクションへ移した ―― 枚数・文字の大きさ・
+            // 強調の色と太さを足すにあたって、ON/OFFだけをこの画面に残すと
+            // 「どれがどこに効くのか分からない」状態になるため(ページ一覧の拡大プレビューを
+            // 「外観」へ移したときと同じ理由。AppPreferences.showProgressBarThumbnailPreviewの
+            // コメント参照)。
 
             // ページ一覧(サムネイルグリッド)にしか効かない設定は、見た目(サムネイルの
             // 大きさ・間隔・余白・キャプション・枠の色)も、拡大プレビューのON/OFF・先読みも、

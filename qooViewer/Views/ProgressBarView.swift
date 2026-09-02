@@ -1,13 +1,16 @@
 import SwiftUI
 import CoreGraphics
+// 強調色の明るさの判定(NSColor)と、サムネイルの解像度を決めるための画面の倍率(NSScreen)。
+import AppKit
 
 /// 画面下部にウインドウの横幅いっぱいに表示するページインジケータ(プログレスバー)。
 ///
 /// バーにカーソルを合わせると、カーソル位置付近を中心に前後合わせて最大
-/// filmstripVisibleCount(9)枚のサムネイルを横一列(フィルムストリップ)に表示する。
-/// 9枚それぞれの表示位置(スロット)は常に固定で、ホバー位置が変わると各スロットに
+/// filmstripVisibleCount枚(環境設定「外観」の「サムネイルの数」。既定9枚)のサムネイルを
+/// 横一列(フィルムストリップ)に表示する。
+/// 各スロットの表示位置は常に固定で、ホバー位置が変わると各スロットに
 /// 表示するページ(=画像)だけを差し替える(スライドするアニメーションは行わない)。
-/// カーソル直下のサムネイルは、9枚のスロットのうち常に真ん中に来るのではなく、
+/// カーソル直下のサムネイルは、スロットのうち常に真ん中に来るのではなく、
 /// カーソルの実際のx座標に近いスロットに来るようにする(バーの端に近い位置をホバー
 /// したときに違和感がないように)。
 ///
@@ -21,6 +24,11 @@ import CoreGraphics
 /// フィルムストリップの各セルはウインドウの横幅いっぱいを使って均等割りした同じ大きさで
 /// 表示し、カーソル直下のセルだけ拡大せず枠線の色とページ番号バッジで区別する。
 ///
+/// 見た目(枚数・文字の大きさ・カーソル位置以外を暗くするか・強調の色と太さ)は環境設定
+/// 「外観」の「プログレスバーのフィルムストリップ」で変えられる(ユーザー要望。
+/// AppearanceSettingsView.filmstripSection参照)。既定値のままなら、この設定を入れる前と
+/// 見た目は変わらない。
+///
 /// 環境設定「閲覧中の動作」の「カーソルを合わせたページをプレビュー」がOFFのときは、この
 /// フィルムストリップの代わりに、カーソル位置に対応するページ番号だけを表示するシンプルな
 /// 表示になる(hoverPageNumberBadge参照。サムネイルの読み込み自体も行わない)。
@@ -33,32 +41,131 @@ struct ProgressBarView: View {
 
     /// ホバー中のページ番号(0-indexed)。ホバーしていないときはnil。
     @State private var hoverIndex: Int?
-    /// ホバー中のページを、フィルムストリップの9スロットのうちどの位置(0が左端、
+    /// ホバー中のページを、フィルムストリップのスロットのうちどの位置(0が左端、
     /// filmstripVisibleCount-1が右端)に表示するか。カーソルの実際のx座標に応じて
-    /// 決まる値で、カーソルが1px動くたびに更新するのではなく、この値(0〜8の整数)
+    /// 決まる値で、カーソルが1px動くたびに更新するのではなく、この値(枚数と同じ段数の整数)
     /// 自体が変わったときだけ更新する(過去の不具合の反省を踏まえた安全策)。
     @State private var hoverSlot: Int = 0
     /// ホバー中のカーソルのx座標(バー内のローカル座標、ホバーしていないときはnil)。
     /// サムネイルプレビューがOFFのとき(hoverPageNumberBadge参照)だけ使う値で、その場合は
     /// サムネイルのデコード・フィルムストリップの再描画コストが一切発生しないため、
-    /// hoverSlotのように9段階に間引かず、カーソルの動きにそのまま追従させる
+    /// hoverSlotのようにスロットの段数へ間引かず、カーソルの動きにそのまま追従させる
     /// (サムネイルプレビューがONのときは、この値は更新しない。理由はファイル冒頭のコメント参照)。
     @State private var hoverXPosition: CGFloat?
     /// フィルムストリップに表示中のサムネイル(ページ番号→画像)。
-    @State private var thumbnails: [Int: CGImage] = [:]
+    @State private var thumbnails: [Int: LoadedThumbnail] = [:]
     /// サムネイル読み込み中のタスク。1件ずつ順番に読み込む(詳細はensureThumbnailsLoadedの
     /// コメント参照)ため、Dictionaryではなく1つだけ持つ。
     @State private var thumbnailLoadTask: Task<Void, Never>?
+
+    /// 読み込み済みのサムネイル1枚分。
+    ///
+    /// 画像と一緒に**どの解像度でデコードしたか**を持つ。セルの大きさが変わったとき
+    /// (枚数の設定・ウインドウ幅の変更・ページの縦横比の確定)に、解像度の足りない画像だけを
+    /// 選んで読み直すため ―― 一律に捨てて読み直すと、そのたびに全セルがスピナーへ戻って
+    /// ちらつく。読み直しが終わるまでは前の画像を出したままにできる。
+    private struct LoadedThumbnail {
+        /// デコードに失敗したページはnil。失敗も記録しておかないと、範囲が変わるたびに
+        /// 同じページの読み込みを延々と試みることになる。
+        let image: CGImage?
+        /// この画像をデコードしたときの最大ピクセルサイズ。
+        let pixelSize: CGFloat
+    }
     /// ページ数が多い本ではバーの1pxごとに対応ページが変わるため、カーソルの位置が短時間
     /// 落ち着いてから初めてサムネイル読み込みを開始する(マウスを素早く動かしただけで
     /// 大量の読み込み要求が発生するのを防ぐため)。
     @State private var thumbnailLoadDebounceTask: Task<Void, Never>?
+    /// 実際に読み込めたサムネイルから測った縦横比(幅/高さ)のサンプル。セルの枠は「最初の1枚」
+    /// ではなく、ここに溜めた**複数ページの中央値**に合わせる ―― 先頭だけ横長のカバーがある本で、
+    /// その1枚に全セルの形が引きずられないようにするため(ページ一覧とまったく同じ理由・同じ
+    /// 手順。ThumbnailGridViewのaspectSamples参照)。
+    @State private var aspectSamples: [CGFloat] = []
+    /// 中央値を確定したら以降は動かさない(サンプルが増えるたびに枠の形が変わってちらつくのを防ぐ)。
+    @State private var measuredPageAspect: CGFloat?
 
     private let barHeight: CGFloat = 6
     private let hitAreaHeight: CGFloat = 28
-    private let filmstripVisibleCount = 9
-    private let cellSpacing: CGFloat = 6
+    /// セル同士の最小の間隔。幅を均等割りしたセルが下のmaxCellHeightに収まっているあいだは、
+    /// 常にこの間隔で詰めて並ぶ(=従来どおり幅いっぱいに敷き詰める)。
+    private let minCellSpacing: CGFloat = 6
     private let filmstripBottomGap: CGFloat = 14
+    /// セル1枚の高さの上限(pt)。
+    ///
+    /// 枚数を減らすと1枚が大きくなる仕組み(cellWidth(for:)参照)なので、上限を設けないと
+    /// 広いウインドウで3枚にしたときにサムネイルがウインドウの高さを突き抜けてしまう。
+    /// 上限に達した場合は、余った幅をセルの間隔へ回して、スロットの位置(=カーソルの
+    /// x座標との対応)がずれないようにする(cellSpacing(for:)参照)。
+    ///
+    /// **幅ではなく高さで頭打ちにする。** セルの形はページの縦横比に合わせて変わる
+    /// (effectiveCellAspect参照)ので、幅で抑えても縦長の本では高さが伸び続けてしまう。
+    /// 360ptは、サムネイルのデコード解像度の上限(720px)を2倍のRetina画面で使い切る大きさ。
+    private let maxCellHeight: CGFloat = 360
+
+    /// セル枠の縦横比(幅/高さ)の初期値。実際のページのサムネイルが読めたら、その実寸から
+    /// 測った中央値(measuredPageAspect)へ差し替える。
+    ///
+    /// 以前はページの形に関わらず 1 : 1.2 の枠に`.fit`で収めていたため、多くの漫画
+    /// (≒0.66)ではサムネイルの左右に黒いプレースホルダーの帯が残っていた(ユーザー報告)。
+    /// ページ一覧が同じ指摘を受けて実測に合わせる形になっているので、こちらも揃える
+    /// (ThumbnailGridView.defaultCellAspectRatio参照。既定値0.66も同じ)。
+    private static let defaultCellAspectRatio: CGFloat = 0.66
+
+    /// 中央値を確定するのに必要なサンプル数。短い本では総ページ数で頭打ちにする。
+    private var aspectSampleTarget: Int { min(viewModel.pageCount, 9) }
+
+    /// 実際に使う縦横比。確定前は既定値。極端な値でレイアウトが破綻しないよう安全域へ収める
+    /// (ページ一覧と同じ範囲)。
+    private var effectiveCellAspect: CGFloat {
+        let raw = measuredPageAspect ?? Self.defaultCellAspectRatio
+        return min(max(raw, 0.35), 2.0)
+    }
+
+    /// サンプルを1つ受け取り、目標数に達したら中央値を確定する。
+    private func recordAspectSample(_ aspect: CGFloat) {
+        guard measuredPageAspect == nil, aspect.isFinite, aspect > 0 else { return }
+        aspectSamples.append(aspect)
+        guard aspectSamples.count >= aspectSampleTarget else { return }
+        let sorted = aspectSamples.sorted()
+        measuredPageAspect = sorted[sorted.count / 2]
+    }
+
+    /// セル1枚の高さ。幅はバーを均等割りして決まる(cellWidth(for:)参照)ので、
+    /// 高さのほうをページの縦横比に合わせる。
+    private func cellHeight(forCellWidth width: CGFloat) -> CGFloat {
+        width / effectiveCellAspect
+    }
+
+    /// フィルムストリップに一度に並べる枚数(環境設定。既定9枚)。
+    /// UserDefaultsを直接書き換えられていた場合に備えて、ここでも範囲へ丸める。
+    private var filmstripVisibleCount: Int {
+        let range = AppPreferences.filmstripThumbnailCountRange
+        let clamped = min(max(preferences.filmstripThumbnailCount, range.lowerBound), range.upperBound)
+        return Int(clamped.rounded())
+    }
+
+    /// カーソル直下のセルの強調に使う色(環境設定。既定はアクセントカラー)。
+    /// 枠線・光彩・ページ番号バッジの3つに同じ色を使う。
+    private var highlightColor: Color { preferences.effectiveFilmstripHighlightColor }
+
+    /// 強調色で塗ったページ番号バッジに載せる文字の色。
+    ///
+    /// 従来は常に白だったが、強調色を選べるようにしたことで**白や黄を選ぶと文字が消える**。
+    /// 選ばれた色の明るさを見て白/黒を切り替える(アクセントカラーのようにシステム追従で
+    /// 固定値を持たない色も、NSColorへ解決すれば実際の明るさが分かる)。
+    private var highlightTextColor: Color {
+        guard let srgb = NSColor(highlightColor).usingColorSpace(.sRGB) else { return .white }
+        let luminance =
+            0.299 * srgb.redComponent + 0.587 * srgb.greenComponent + 0.114 * srgb.blueComponent
+        return luminance > 0.6 ? .black : .white
+    }
+
+    /// サムネイルに添える文字(ファイル名・ページ番号・書庫内の相対パス)の大きさ(環境設定)。
+    /// 既定の10ptは、設定にする前に使っていた`.caption`/`.caption2`の実寸そのもの
+    /// (macOSではこの2つはどちらも10ptなので、既定値のままなら見た目は変わらない)。
+    private var labelFont: Font { .system(size: preferences.filmstripFontSize) }
+
+    /// カーソル直下のセル**以外**を暗くするか(環境設定。既定ON=従来どおり)。
+    private var dimsOtherPages: Bool { preferences.filmstripDimsOtherPages }
 
     /// 右開きのときは、本のページ順と同様にバーも右から左へ進むようにする
     private var isRightToLeft: Bool { viewModel.readingDirection == .rightToLeft }
@@ -196,10 +303,43 @@ struct ProgressBarView: View {
     }
 
     /// フィルムストリップの1セル分の幅。ウインドウの横幅いっぱいに filmstripVisibleCount 枚が
-    /// 並ぶよう、余白・セル間隔を差し引いた残りを均等割りする(上限を設けず、幅いっぱいまで使う)。
+    /// 並ぶよう、余白・セル間隔を差し引いた残りを均等割りする。
     /// バーの実際の表示幅から算出するため、セルの実描画サイズとオフセット計算が必ず一致する。
+    ///
+    /// **枚数を減らすほど1枚が大きくなる**のはこの均等割りによるもので、環境設定に
+    /// 「サムネイルの大きさ」を別に持たせていないのはそのため(幅いっぱいに並べる以上、
+    /// 大きさと枚数を独立には決められない)。ただし際限なく大きくすると画面を突き抜けるので、
+    /// maxCellHeightで頭を打たせる(高さで抑える理由はそちらのコメント参照)。
     private func cellWidth(for totalWidth: CGFloat) -> CGFloat {
-        max(24, (totalWidth - CGFloat(filmstripVisibleCount - 1) * cellSpacing) / CGFloat(filmstripVisibleCount))
+        let count = CGFloat(filmstripVisibleCount)
+        let evenlyDivided = (totalWidth - (count - 1) * minCellSpacing) / count
+        // 幅の上限は、高さの上限をページの縦横比で幅に直したもの(maxCellHeight参照)。
+        return min(max(24, evenlyDivided), maxCellHeight * effectiveCellAspect)
+    }
+
+    /// セル同士の間隔。上限(maxCellHeight)に達していないあいだは minCellSpacing のままで、
+    /// 達したときだけ余った幅をここへ回す ―― こうしておくと、セルは常にバーの左端から
+    /// 右端までを等間隔で埋めるので、「カーソルのx座標 → スロット番号」の対応
+    /// (highlightSlot(atX:width:))と実際のセルの位置がずれない。
+    private func cellSpacing(for totalWidth: CGFloat) -> CGFloat {
+        let count = CGFloat(filmstripVisibleCount)
+        guard count > 1 else { return 0 }
+        let leftover = (totalWidth - count * cellWidth(for: totalWidth)) / (count - 1)
+        return max(minCellSpacing, leftover)
+    }
+
+    /// このセルの高さ(pt)を、ぼやけずに描くのに要するデコード解像度(px)。
+    /// ページ一覧とまったく同じ考え方・同じ刻み(ThumbnailGridView.gridThumbnailPixelSize参照。
+    /// 120px刻みのバケットへ量子化して、幅が少し変わるたびに再デコードが起きるのを防ぐ)。
+    ///
+    /// 以前は本数によらず240px固定(ImageDecoder.progressBarThumbnailMaxPixelSize)だったが、
+    /// 枚数を減らして1枚を大きくできるようにした以上、その大きさで見るとぼやける。
+    /// 大きさに追随させるため、ページ一覧と同じ可変解像度のサムネイル
+    /// (ViewerViewModel.loadGridThumbnail)へ切り替えてある。
+    private func thumbnailPixelSize(forCellHeight height: CGFloat) -> CGFloat {
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        let bucketed = (height * scale / 120).rounded(.up) * 120
+        return min(max(bucketed, 240), 720)
     }
 
     /// フィルムストリップ全体の高さ(ファイル名ラベル・ページ番号ラベル分を含む)。
@@ -208,33 +348,51 @@ struct ProgressBarView: View {
     /// 原因)ことがないよう、余裕を持たせている。
     private func filmstripHeight(for totalWidth: CGFloat) -> CGFloat {
         let width = cellWidth(for: totalWidth)
-        let cellHeight = width * 1.2
-        let labelHeight: CGFloat = 20
+        let height = cellHeight(forCellWidth: width)
+        // 文字の大きさを設定で変えられるので、1行ぶんの高さもそれに追随させる
+        // (固定の20ptのままだと、大きくしたときにラベルがバーへ重なる)。
+        // +10ptは上下のpadding(1pt×2)と行間の余裕で、既定の10ptのときに従来と同じ20ptになる。
+        let labelHeight = preferences.filmstripFontSize + 10
         let labelSpacing: CGFloat = 3
         let safetyMargin: CGFloat = 24
         // ファイル名ラベル1行 + ページ番号ラベル1行の、合計2行分の高さを確保する。
-        return cellHeight + (labelSpacing + labelHeight) * 2 + safetyMargin
+        // 環境設定でどちらかを消していても2行ぶん確保したままにしてある ―― 中身は下端から
+        // 積むので、余ったぶんは上に空くだけで見た目には出ない(足りないと欠ける)。
+        return height + (labelSpacing + labelHeight) * 2 + safetyMargin
     }
 
     /// カーソル位置付近を中心に、前後合わせて最大 filmstripVisibleCount 枚のサムネイルを
-    /// 並べたフィルムストリップを表示する。9枚のスロット位置は固定で、ホバー位置に応じて
+    /// 並べたフィルムストリップを表示する。スロットの位置は固定で、ホバー位置に応じて
     /// 各スロットに表示するページを差し替えるだけ(位置のスライドは行わない)。カーソル
-    /// 直下のページは、9枚のうち`slot`番目(カーソルの実際のx座標に近い位置)に表示され、
+    /// 直下のページは`slot`番目(カーソルの実際のx座標に近い位置)に表示され、
     /// 枠線の色とページ番号表示で区別する(サイズは他のセルと変えない)。
     @ViewBuilder
     private func filmstrip(centeredOn centerIndex: Int, slot: Int, totalWidth: CGFloat) -> some View {
         let range = visibleRange(centeredOn: centerIndex, slot: slot)
         let indices = isRightToLeft ? Array(range).reversed() : Array(range)
         let width = cellWidth(for: totalWidth)
+        let pixelSize = thumbnailPixelSize(forCellHeight: cellHeight(forCellWidth: width))
 
-        HStack(alignment: .bottom, spacing: cellSpacing) {
+        HStack(alignment: .bottom, spacing: cellSpacing(for: totalWidth)) {
             ForEach(indices, id: \.self) { index in
-                filmstripCell(index: index, isHighlighted: index == centerIndex, cellWidth: width)
+                filmstripCell(
+                    index: index,
+                    isHighlighted: index == centerIndex,
+                    isCurrentPage: index == viewModel.currentIndex,
+                    cellWidth: width
+                )
             }
         }
         .frame(width: totalWidth, height: filmstripHeight(for: totalWidth), alignment: .bottom)
-        .onAppear { scheduleThumbnailLoad(for: range, centeredOn: centerIndex) }
-        .onChange(of: range) { _, newRange in scheduleThumbnailLoad(for: newRange, centeredOn: centerIndex) }
+        .onAppear { scheduleThumbnailLoad(for: range, centeredOn: centerIndex, pixelSize: pixelSize) }
+        .onChange(of: range) { _, newRange in
+            scheduleThumbnailLoad(for: newRange, centeredOn: centerIndex, pixelSize: pixelSize)
+        }
+        // 枚数の設定を変えた・ウインドウの幅が変わったときは、セルの大きさに合う解像度で
+        // 読み直す(ページ一覧がセルの大きさをidに含めて読み直すのと同じ理由)。
+        .onChange(of: pixelSize) { _, newSize in
+            scheduleThumbnailLoad(for: range, centeredOn: centerIndex, pixelSize: newSize)
+        }
     }
 
     /// 環境設定「閲覧中の動作」の「カーソルを合わせたページをプレビュー」がOFFのときに表示する、
@@ -242,7 +400,7 @@ struct ProgressBarView: View {
     /// 対応するページ番号(「現在 / 総ページ数」)だけを吹き出し状のバッジで表示する。サムネイルの読み込みは一切行わないため、ensureThumbnailsLoaded等は
     /// 呼ばない。
     ///
-    /// filmstrip表示と違いサムネイルの幅を考慮する必要がないため、9段階のスロットには
+    /// filmstrip表示と違いサムネイルの幅を考慮する必要がないため、スロットの段数には
     /// 間引かず、hoverXPosition(カーソルの実際のx座標)にそのまま追従させる
     /// (hoverXPositionのコメント参照)。
     @ViewBuilder
@@ -267,7 +425,7 @@ struct ProgressBarView: View {
     }
 
     /// hoverXPositionがまだ確定していない(ホバー開始直後など)ごく短い間の暫定位置として使う、
-    /// hoverSlot(0〜filmstripVisibleCount-1の9段階)からのおおよそのx座標。
+    /// hoverSlot(0〜filmstripVisibleCount-1)からのおおよそのx座標。
     private func badgeXPosition(forSlot slot: Int, totalWidth: CGFloat) -> CGFloat {
         guard filmstripVisibleCount > 1, totalWidth > 0 else { return totalWidth / 2 }
         let fraction = CGFloat(slot) / CGFloat(filmstripVisibleCount - 1)
@@ -277,28 +435,39 @@ struct ProgressBarView: View {
     /// カーソル位置が短時間落ち着いてから初めてサムネイル読み込みを開始する(理由は
     /// thumbnailLoadDebounceTaskのコメント参照)。範囲が変わるたびに呼ばれる想定で、
     /// 呼ばれるたびに前回分のタイマーはキャンセルして最新の範囲だけを予約し直す。
-    private func scheduleThumbnailLoad(for range: ClosedRange<Int>, centeredOn centerIndex: Int) {
+    private func scheduleThumbnailLoad(
+        for range: ClosedRange<Int>, centeredOn centerIndex: Int, pixelSize: CGFloat
+    ) {
         thumbnailLoadDebounceTask?.cancel()
         thumbnailLoadDebounceTask = Task {
             try? await Task.sleep(nanoseconds: 90_000_000)
             guard !Task.isCancelled else { return }
-            ensureThumbnailsLoaded(for: range, centeredOn: centerIndex)
+            ensureThumbnailsLoaded(for: range, centeredOn: centerIndex, pixelSize: pixelSize)
         }
     }
 
     /// フィルムストリップの1セル。全セル同じ大きさで表示し、サムネイル画像の下に
     /// ファイル名・ページ番号の2行を表示する(書庫の中のフォルダ・入れ子の書庫の中にある画像は、
     /// さらにサムネイルの**上**へ相対パスの行が加わる。位置の理由はその行のコメント参照)。
-    /// カーソル直下のセルだけ、サイズは変えずに次の3点で強調する。(1) 枠線を太く・アクセント
-    /// カラーにする (2) アクセントカラーの光彩(shadow)を付ける (3) 他のセルの画像を少し暗くして
+    /// 何を出すかは環境設定「サムネイルの下の表示」で変えられる(FilmstripCaptionStyle参照)。
+    /// カーソル直下のセルだけ、サイズは変えずに次の3点で強調する。(1) 枠線を太く・強調色に
+    /// する (2) 強調色の光彩(shadow)を付ける (3) 他のセルの画像を少し暗くして
     /// 相対的に目立たせる。
+    /// これとは別に、**いま開いているページ**のセルには白い破線の枠を重ねる(isCurrentPage)。
     /// いずれも見た目だけの調整で、サムネイルのデコードや読み込み処理には一切影響しない
     /// (表示速度は変わらない)。
     @ViewBuilder
-    private func filmstripCell(index: Int, isHighlighted: Bool, cellWidth: CGFloat) -> some View {
-        let height = cellWidth * 1.2
+    private func filmstripCell(
+        index: Int, isHighlighted: Bool, isCurrentPage: Bool, cellWidth: CGFloat
+    ) -> some View {
+        let height = cellHeight(forCellWidth: cellWidth)
 
         let location = pageLocation(at: index)
+        let captionStyle = preferences.filmstripCaptionStyle
+        // 「カーソル位置以外を暗くする」がOFFのときは、暗くする側の値を一切使わない
+        // (=すべてのセルがカーソル直下と同じ明るさで並ぶ)。強調は枠・光彩・
+        // ページ番号バッジの色だけが担う。
+        let isDimmed = dimsOtherPages && !isHighlighted
 
         VStack(spacing: 3) {
             // 書庫の中のフォルダ・入れ子の書庫の中にある画像は、ファイル名だけではどの章の
@@ -311,10 +480,12 @@ struct ProgressBarView: View {
             // 揃ったままで、増えた1行だけが上へ伸びる。ファイル名の上に置くと、その1枚だけ
             // サムネイルが持ち上がってしまう。はみ出すぶんはfilmstripHeightのsafetyMarginが
             // 吸収する(枠を切り詰めていないので、超えても描画は欠けない)。
-            if let folderPath = location.folderPath {
+            // ファイル名を出さない設定のときは、この行も出さない(ファイル名を補うための
+            // 行なので、単独で残しても手掛かりにならない。FilmstripCaptionStyle参照)。
+            if captionStyle.showsFileName, let folderPath = location.folderPath {
                 Text(folderPath)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(isHighlighted ? 0.7 : 0.5))
+                    .font(labelFont)
+                    .foregroundStyle(.white.opacity(isDimmed ? 0.5 : 0.7))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .padding(.horizontal, 4)
@@ -324,52 +495,94 @@ struct ProgressBarView: View {
             }
 
             ZStack {
+                // 読み込み中と、枠に比率の合わないページ(横長の見開きなど)のときにだけ
+                // 見える下地。枠が実測の縦横比(effectiveCellAspect)に合っているので、
+                // 通常のページでは画像が枠いっぱいに収まり、この下地は見えなくなる。
+                // 画像に余白(padding)を付けていないのも、そのぶんの帯を残さないため
+                // (ページ一覧のセルと同じ作り。ThumbnailGridViewのbody参照)。
                 RoundedRectangle(cornerRadius: 5).fill(Color.black.opacity(0.75))
-                if let cgImage = thumbnails[index] {
+                if let cgImage = thumbnails[index]?.image {
                     Image(decorative: cgImage, scale: 1)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                        .padding(2)
                 } else {
                     ProgressView().controlSize(.small)
                 }
             }
             // ハイライトされていないセルの画像だけを少し暗くすることで、カーソル直下の
             // セルが相対的に明るく目立つようにする(画像そのものの再デコードは発生しない)。
-            .opacity(isHighlighted ? 1 : 0.55)
+            // 暗くされたページの中身を読み取りたい場合のために、環境設定でOFFにできる。
+            .opacity(isDimmed ? 0.55 : 1)
             .frame(width: cellWidth, height: height)
             .clipShape(RoundedRectangle(cornerRadius: 5))
+            // 枠の太さと色は環境設定に従う(既定は3pt・アクセントカラーで、従来と同じ)。
             .overlay(
                 RoundedRectangle(cornerRadius: 5)
-                    .strokeBorder(isHighlighted ? Color.accentColor : Color.white.opacity(0.25), lineWidth: isHighlighted ? 3 : 1)
+                    .strokeBorder(
+                        isHighlighted ? highlightColor : Color.white.opacity(0.25),
+                        lineWidth: isHighlighted ? preferences.filmstripHighlightBorderWidth : 1
+                    )
             )
-            .shadow(color: isHighlighted ? Color.accentColor.opacity(0.75) : .black.opacity(0.2), radius: isHighlighted ? 8 : 2)
+            // いま開いているページ(ビューアに表示中のページ)の印。フィルムストリップには
+            // これまで「カーソルがどこを指しているか」の印しか無く、**そこから何ページ動くのか**
+            // を測る基準が画面に出ていなかった(ユーザー要望)。
+            //
+            // カーソル位置の強調と混同しないよう、印の付け方を変えてある ―― あちらは実線・
+            // 強調色・光彩付きで、こちらは白い**破線**。強調色に白を選んでいても、実線と破線なら
+            // 見分けが付く(色だけで区別すると、その組み合わせで見分けられなくなる)。
+            // 枠で示すこと自体はページ一覧と同じ語彙で、見開き表示のときに印が付くのが
+            // 左右どちらか一方(currentIndex)だけなのもページ一覧と同じ
+            // (ThumbnailGridViewのisCurrent参照)。
+            //
+            // 枠線の**内側**へ入れているので、同じセルがカーソル位置でもあるときは
+            // 外の実線と内の破線が両方見える(どちらの情報も失わない)。
+            .overlay {
+                if isCurrentPage {
+                    RoundedRectangle(cornerRadius: 4)
+                        .strokeBorder(Color.white, style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
+                        // 白いページの上でも破線が消えないように、輪郭代わりの薄い影を敷く。
+                        .shadow(color: .black.opacity(0.8), radius: 1)
+                        .padding(isHighlighted ? preferences.filmstripHighlightBorderWidth : 1)
+                }
+            }
+            .shadow(
+                color: isHighlighted ? highlightColor.opacity(0.75) : .black.opacity(0.2),
+                radius: isHighlighted ? 8 : 2
+            )
 
-            Text(location.fileName)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(isHighlighted ? 0.95 : 0.7))
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 1)
-                .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 3))
-                .frame(width: cellWidth)
+            if captionStyle.showsFileName {
+                Text(location.fileName)
+                    .font(labelFont)
+                    .foregroundStyle(.white.opacity(isDimmed ? 0.7 : 0.95))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 3))
+                    .frame(width: cellWidth)
+            }
 
             if isHighlighted {
                 Text("\(index + 1) / \(viewModel.pageCount)")
-                    .font(.caption)
+                    .font(labelFont)
                     .fontWeight(.semibold)
-                    .foregroundStyle(.white)
+                    // 白固定にしない理由はhighlightTextColorのコメント参照。
+                    .foregroundStyle(highlightTextColor)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
-                    .background(Color.accentColor, in: Capsule())
+                    .background(highlightColor, in: Capsule())
             } else {
                 Text("\(index + 1)")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.6))
+                    .font(labelFont)
+                    .foregroundStyle(.white.opacity(isDimmed ? 0.6 : 0.85))
                     .padding(.horizontal, 4)
                     .padding(.vertical, 1)
                     .background(Color.black.opacity(0.5), in: Capsule())
+                    // ページ番号を出さない設定でも、場所だけは空けたまま隠す。
+                    // セルはHStack(alignment: .bottom)で下から積むので、カーソル位置のセルにだけ
+                    // 残るページ番号(上の分岐)のぶん、そのセルのサムネイルだけが1行ぶん
+                    // 持ち上がってしまうため(相対パスの行と同じ理屈。そちらのコメント参照)。
+                    .opacity(captionStyle.showsPageNumber ? 1 : 0)
             }
         }
         .frame(width: cellWidth)
@@ -384,7 +597,7 @@ struct ProgressBarView: View {
         return viewModel.book.pages[index].location(inBookAt: viewModel.book.sourceURL)
     }
 
-    /// centerIndexが9枚のスロットのうち何番目(0が左端)に来るかを指定して、
+    /// centerIndexがスロットのうち何番目(0が左端)に来るかを指定して、
     /// フィルムストリップに表示するページ範囲を求める。端に近いときは、ページ数の範囲内に
     /// 収まるようずらす(そのときはcenterIndexが必ずしもslot番目に来なくなる)。
     private func visibleRange(centeredOn centerIndex: Int, slot: Int) -> ClosedRange<Int> {
@@ -418,22 +631,34 @@ struct ProgressBarView: View {
 
     /// 表示範囲内でまだ読み込んでいないページのサムネイルを、カーソル直下のページに近い順に
     /// **1件ずつ順番に**読み込む(同時並行では行わない。理由はファイル冒頭のコメント参照)。
-    private func ensureThumbnailsLoaded(for range: ClosedRange<Int>, centeredOn centerIndex: Int) {
+    private func ensureThumbnailsLoaded(
+        for range: ClosedRange<Int>, centeredOn centerIndex: Int, pixelSize: CGFloat
+    ) {
         thumbnailLoadTask?.cancel()
         // メモリを無駄に膨らませないよう、表示範囲から離れたキャッシュ済みサムネイルは間引く
         thumbnails = thumbnails.filter { range.contains($0.key) }
 
+        // まだ無いページと、**別の解像度で読んであるページ**が読み直しの対象
+        // (LoadedThumbnail参照)。読み直しのあいだも古い画像は消さずに出したままにする。
         let missing = range
-            .filter { thumbnails[$0] == nil }
+            .filter { thumbnails[$0]?.pixelSize != pixelSize }
             .sorted { abs($0 - centerIndex) < abs($1 - centerIndex) }
         guard !missing.isEmpty else { return }
 
         thumbnailLoadTask = Task {
             for index in missing {
                 guard !Task.isCancelled else { return }
-                let image = await viewModel.loadThumbnail(at: index)
+                // セルの大きさに合わせた解像度で読む(thumbnailPixelSize(forCellHeight:)参照)。
+                // デコード済みのものはPageLoader側のキャッシュから即座に返るので、
+                // 同じ解像度で見ている限り読み直しは起きない。
+                let image = await viewModel.loadGridThumbnail(at: index, maxPixelSize: pixelSize)
                 guard !Task.isCancelled else { return }
-                thumbnails[index] = image
+                thumbnails[index] = LoadedThumbnail(image: image, pixelSize: pixelSize)
+                // 読めた画像の実寸から、セル枠の縦横比を決めるサンプルを溜める
+                // (recordAspectSample参照)。デコードのついでなので追加のコストは無い。
+                if let image, image.height > 0 {
+                    recordAspectSample(CGFloat(image.width) / CGFloat(image.height))
+                }
             }
         }
     }
@@ -453,7 +678,7 @@ struct ProgressBarView: View {
     }
 
     /// カーソルの画面上のx座標(左端0〜右端1に正規化)に応じて、ホバー中のページを
-    /// フィルムストリップの9スロットのうち何番目(0が左端、filmstripVisibleCount-1が右端)に
+    /// フィルムストリップのスロットのうち何番目(0が左端、filmstripVisibleCount-1が右端)に
     /// 表示するかを決める。読む方向(RTL/LTR)に関わらず、画面上の実際の左右位置と
     /// スロット番号がそのまま対応するよう、rawFraction(反転前)をそのまま使う。
     private func highlightSlot(atX x: CGFloat, width: CGFloat) -> Int {

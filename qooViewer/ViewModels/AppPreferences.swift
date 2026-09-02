@@ -63,6 +63,15 @@ final class AppPreferences: ObservableObject {
         static let sidePanelPosition = "qooViewer.pref.sidePanelPosition"
         static let sidePanelMode = "qooViewer.pref.sidePanelMode"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
+        /// プログレスバーのフィルムストリップの見た目(ユーザー要望)。上のON/OFFと同じく
+        /// 環境設定「外観」の「プログレスバーのフィルムストリップ」セクションに並ぶ。
+        static let filmstripThumbnailCount = "qooViewer.pref.filmstripThumbnailCount"
+        static let filmstripFontSize = "qooViewer.pref.filmstripFontSize"
+        static let filmstripCaptionStyle = "qooViewer.pref.filmstripCaptionStyle"
+        static let filmstripDimsOtherPages = "qooViewer.pref.filmstripDimsOtherPages"
+        static let filmstripHighlightColorOption = "qooViewer.pref.filmstripHighlightColorOption"
+        static let filmstripHighlightCustomColor = "qooViewer.pref.filmstripHighlightCustomColor"
+        static let filmstripHighlightBorderWidth = "qooViewer.pref.filmstripHighlightBorderWidth"
         static let showRecentFilesOnWelcome = "qooViewer.pref.showRecentFilesOnWelcome"
         static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
         static let thumbnailGridCellSize = "qooViewer.pref.thumbnailGridCellSize"
@@ -524,6 +533,13 @@ final class AppPreferences: ObservableObject {
     /// ページ番号を含むプレビュー)を表示するかどうか(既定ON)。OFFにすると、サムネイルの
     /// 読み込みは一切行わず、カーソル位置に対応するページ番号だけを表示するシンプルな表示になる
     /// (ProgressBarView.swift参照)。
+    ///
+    /// 画面上の置き場所は、環境設定「閲覧中の動作」から「外観」の
+    /// 「プログレスバーのフィルムストリップ」セクションへ移してある。以下のフィルムストリップの
+    /// 見た目の設定(枚数・文字の大きさ・強調)を足すにあたって、**この1つだけ別の画面に残すと
+    /// 「どれがどこに効くのか分からない」**からで、ページ一覧の拡大プレビューを「外観」へ
+    /// 移したときとまったく同じ理由(AppearanceSettingsView.pageListSectionのコメント参照)。
+    /// keys(for:)/apply(_:for:)での担当も`.reading`から`.appearance`へ移してある。
     @Published var showProgressBarThumbnailPreview: Bool {
         didSet {
             UserDefaults.standard.set(
@@ -532,6 +548,105 @@ final class AppPreferences: ObservableObject {
             )
         }
     }
+
+    // MARK: - プログレスバーのフィルムストリップの見た目(ユーザー要望)
+
+    /// フィルムストリップに一度に並べるサムネイルの枚数(既定9枚)。
+    ///
+    /// **枚数を減らすと1枚が大きくなる**(バーの幅を均等割りするため。ProgressBarViewの
+    /// cellWidth(for:)参照)ので、「サムネイルの大きさ」の設定を別に持たせてはいない ――
+    /// 幅いっぱいに並べる仕組みでは、両方を独立に決めさせると必ず矛盾する
+    /// (大きさを指定できても、結局は幅に収まる枚数しか置けない)。
+    ///
+    /// 上限15枚は、これ以上並べても1枚が数十ptになってページを見分けられなくなるため。
+    /// 下限3枚は、カーソル位置の前後が1枚ずつは見えるという最低限。なお枚数を減らしすぎた
+    /// ときに1枚が画面を突き抜けるほど大きくならないよう、1枚の幅には上限がある
+    /// (ProgressBarView.maxCellWidth参照)。
+    /// SettingsSliderがDoubleを扱うため、枚数もDoubleとして持つ(recentFilesLimitと同じ)。
+    @Published var filmstripThumbnailCount: Double {
+        didSet { UserDefaults.standard.set(filmstripThumbnailCount, forKey: Keys.filmstripThumbnailCount) }
+    }
+    static let filmstripThumbnailCountRange: ClosedRange<Double> = 3...15
+
+    /// フィルムストリップのサムネイルに添える文字として何を出すか(FilmstripCaptionStyle参照)。
+    /// 既定はこれまでどおりファイル名とページ番号の2行。
+    ///
+    /// 枚数を増やすとファイル名は潰れて読めなくなり、ただの帯になってしまうため、
+    /// 出す情報を選べるようにした(ユーザー要望)。カーソル位置のページ番号だけは
+    /// この設定に関わらず常に出す(理由はFilmstripCaptionStyleのコメント参照)。
+    @Published var filmstripCaptionStyle: FilmstripCaptionStyle {
+        didSet {
+            UserDefaults.standard.set(filmstripCaptionStyle.rawValue, forKey: Keys.filmstripCaptionStyle)
+        }
+    }
+
+    /// フィルムストリップのサムネイルに添える文字(ファイル名・ページ番号・書庫内の相対パス)の
+    /// 大きさ(pt、既定10)。
+    ///
+    /// 既定の10ptは、設定にする前に使っていた`.caption`/`.caption2`の実寸そのもの ――
+    /// macOSではこの2つはどちらも10ptなので、既定値のままなら見た目は1ピクセルも変わらない
+    /// (thumbnailGridCaptionFontSizeの既定11ptと同じ考え方)。
+    /// 範囲もページ一覧の「文字の大きさ」と揃えてある(片方だけ別の範囲にしない)。
+    @Published var filmstripFontSize: Double {
+        didSet { UserDefaults.standard.set(filmstripFontSize, forKey: Keys.filmstripFontSize) }
+    }
+    static let filmstripFontSizeRange: ClosedRange<Double> = 8...20
+
+    /// カーソル位置以外のサムネイルを暗くするか(既定ON=従来どおり)。
+    ///
+    /// ONのときは、カーソル直下のセル**以外**の画像と文字を少し暗くして、直下のセルが
+    /// 相対的に目立つようにする。暗くされたページの中身を読み取りたい場合に邪魔になる
+    /// (画像そのものが暗いページでは特に)ため、OFFにできるようにした。OFFでも、
+    /// カーソル直下のセルは枠・光彩・ページ番号バッジの色で区別が付く。
+    @Published var filmstripDimsOtherPages: Bool {
+        didSet { UserDefaults.standard.set(filmstripDimsOtherPages, forKey: Keys.filmstripDimsOtherPages) }
+    }
+
+    /// カーソル位置のサムネイルを強調する色(プリセット、または「カスタム」)。
+    /// 枠線・光彩(shadow)・ページ番号バッジの3つに同じ色を使う(ProgressBarView参照)。
+    ///
+    /// 選択肢はページ一覧の「表示中のページの枠の色」と同じ`PageBorderColorOption`を使い回す ――
+    /// 「サムネイルの中の1枚を色で示す」というまったく同じ用途で、同じ選択肢が要るため
+    /// (同じ意味の列挙を2つ持つと、片方にだけ色を足したときに食い違う)。
+    /// 既定の`.accent`は従来どおりシステムの強調表示の色(多くの環境では青)。
+    @Published var filmstripHighlightColorOption: PageBorderColorOption {
+        didSet {
+            UserDefaults.standard.set(
+                filmstripHighlightColorOption.rawValue, forKey: Keys.filmstripHighlightColorOption
+            )
+        }
+    }
+    /// 上が`.custom`のときに使うRGB値(thumbnailGridBorderCustomColorとまったく同じ考え方)。
+    @Published var filmstripHighlightCustomColor: RGBColorValue {
+        didSet {
+            UserDefaults.standard.set(
+                filmstripHighlightCustomColor.hexString, forKey: Keys.filmstripHighlightCustomColor
+            )
+        }
+    }
+    /// カスタムの強調色をまだ一度も指定していないときの初期値。ページ一覧の枠と同じ橙
+    /// (既定の`.accent`から遠く、暗いサムネイルの上でも埋もれない色)。
+    static let defaultFilmstripHighlightCustomColor = RGBColorValue(red: 255, green: 149, blue: 0)
+
+    /// 実際に強調に使う色。プリセット・カスタム・アクセントカラーの解決をここへ集約する
+    /// (effectiveCurrentPageBorderColorとまったく同じ)。
+    var effectiveFilmstripHighlightColor: Color {
+        if let preset = filmstripHighlightColorOption.presetColor { return preset }
+        if filmstripHighlightColorOption == .accent { return .accentColor }
+        return filmstripHighlightCustomColor.color
+    }
+
+    /// カーソル位置のサムネイルの枠線の太さ(pt、既定3)。強調していないセルの枠は1ptのまま。
+    /// 上限8ptは、サムネイルを小さくしている(=枚数を多くしている)ときに枠だけで
+    /// セルが埋まってしまわない範囲。
+    @Published var filmstripHighlightBorderWidth: Double {
+        didSet {
+            UserDefaults.standard.set(
+                filmstripHighlightBorderWidth, forKey: Keys.filmstripHighlightBorderWidth
+            )
+        }
+    }
+    static let filmstripHighlightBorderWidthRange: ClosedRange<Double> = 1...8
     /// 「最近開いたファイル」の履歴として保持する件数(既定30件)。
     ///
     /// 以前はRecentFilesStore側に10件固定で埋め込まれていたが、サイドパネルの「履歴」モードで
@@ -1246,6 +1361,24 @@ final class AppPreferences: ObservableObject {
             SidePanelMode(rawValue: defaults.string(forKey: Keys.sidePanelMode) ?? "") ?? .browser
         self.showProgressBarThumbnailPreview =
             defaults.object(forKey: Keys.showProgressBarThumbnailPreview) as? Bool ?? true
+        // フィルムストリップの見た目。既定値はどれも「これまでの見た目と1ピクセルも変わらない」値
+        // (9枚・10pt・暗くする・アクセントカラー・3pt)。
+        self.filmstripThumbnailCount =
+            defaults.object(forKey: Keys.filmstripThumbnailCount) as? Double ?? 9
+        self.filmstripFontSize = defaults.object(forKey: Keys.filmstripFontSize) as? Double ?? 10
+        self.filmstripCaptionStyle =
+            FilmstripCaptionStyle(rawValue: defaults.string(forKey: Keys.filmstripCaptionStyle) ?? "")
+            ?? .fileNameAndPageNumber
+        self.filmstripDimsOtherPages =
+            defaults.object(forKey: Keys.filmstripDimsOtherPages) as? Bool ?? true
+        self.filmstripHighlightColorOption =
+            PageBorderColorOption(rawValue: defaults.string(forKey: Keys.filmstripHighlightColorOption) ?? "")
+            ?? .accent
+        self.filmstripHighlightCustomColor =
+            defaults.string(forKey: Keys.filmstripHighlightCustomColor).flatMap(RGBColorValue.init(hexString:))
+            ?? Self.defaultFilmstripHighlightCustomColor
+        self.filmstripHighlightBorderWidth =
+            defaults.object(forKey: Keys.filmstripHighlightBorderWidth) as? Double ?? 3
         self.recentFilesLimit =
             defaults.object(forKey: Self.recentFilesLimitDefaultsKey) as? Double
             ?? Self.defaultRecentFilesLimit
@@ -1446,6 +1579,17 @@ extension AppPreferences {
                 // ホイールのスクロール行数もページ一覧パネル専用なので、画面ごと
                 // こちらへ移してある(ユーザーの指示)。
                 Keys.thumbnailGridWheelScrollRows,
+                // プログレスバーのフィルムストリップ一式。ON/OFFも見た目の設定も画面上は
+                // 同じセクションに並んでいるので、担当もまとめてこの画面
+                // (AppearanceSettingsView.filmstripSection参照)。
+                Keys.showProgressBarThumbnailPreview,
+                Keys.filmstripThumbnailCount,
+                Keys.filmstripCaptionStyle,
+                Keys.filmstripFontSize,
+                Keys.filmstripDimsOtherPages,
+                Keys.filmstripHighlightColorOption,
+                Keys.filmstripHighlightCustomColor,
+                Keys.filmstripHighlightBorderWidth,
                 // 「表示までの時間」は、面ごとのセクション(ツールバー/プログレスバー/
                 // サイドパネル)の中にあるので、この画面の担当
                 // (AppearanceSettingsView.revealDelayBinding(for:)参照)。
@@ -1494,7 +1638,8 @@ extension AppPreferences {
                 Keys.lastPageBehavior,
                 Keys.treatTrackpadFlickAsWheel,
                 Keys.invertTwoFingerScrolling,
-                Keys.showProgressBarThumbnailPreview,
+                // フィルムストリップのON/OFF(showProgressBarThumbnailPreview)は、見た目の設定
+                // 一式と一緒に「外観」の担当へ移した(上のcase .appearance参照)。
                 // プレビューの遅延と大きさは4箇所すべてに共通なので、こちらの画面に残る
                 // (ページ一覧パネル専用のものは「外観」側。すぐ上のコメント参照)。
                 Keys.thumbnailHoverPreviewDelay,
@@ -1572,6 +1717,14 @@ extension AppPreferences {
             thumbnailGridBorderCustomColor = source.thumbnailGridBorderCustomColor
             showThumbnailHoverPreview = source.showThumbnailHoverPreview
             thumbnailGridWheelScrollRows = source.thumbnailGridWheelScrollRows
+            showProgressBarThumbnailPreview = source.showProgressBarThumbnailPreview
+            filmstripThumbnailCount = source.filmstripThumbnailCount
+            filmstripCaptionStyle = source.filmstripCaptionStyle
+            filmstripFontSize = source.filmstripFontSize
+            filmstripDimsOtherPages = source.filmstripDimsOtherPages
+            filmstripHighlightColorOption = source.filmstripHighlightColorOption
+            filmstripHighlightCustomColor = source.filmstripHighlightCustomColor
+            filmstripHighlightBorderWidth = source.filmstripHighlightBorderWidth
             toolbarRevealDelay = source.toolbarRevealDelay
             progressBarRevealDelay = source.progressBarRevealDelay
             sidePanelRevealDelay = source.sidePanelRevealDelay
@@ -1600,7 +1753,6 @@ extension AppPreferences {
             lastPageBehavior = source.lastPageBehavior
             treatTrackpadFlickAsWheel = source.treatTrackpadFlickAsWheel
             invertTwoFingerScrolling = source.invertTwoFingerScrolling
-            showProgressBarThumbnailPreview = source.showProgressBarThumbnailPreview
             thumbnailHoverPreviewDelay = source.thumbnailHoverPreviewDelay
             thumbnailHoverPreviewSize = source.thumbnailHoverPreviewSize
             slideshowInterval = source.slideshowInterval

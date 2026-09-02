@@ -125,6 +125,10 @@ extension PageBorderColorOption: SettingsOption {
     var shortTitleKey: LocalizedStringKey { titleKey }
 }
 
+extension FilmstripCaptionStyle: SettingsOption {
+    var shortTitleKey: LocalizedStringKey { titleKey }
+}
+
 // MARK: - レイアウト
 
 extension MissingLayoutAutoLayout: SettingsOption {
