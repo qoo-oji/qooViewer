@@ -45,6 +45,10 @@ extension AppLanguage: SettingsOption {
     var shortTitleKey: LocalizedStringKey { titleKey }
 }
 
+extension AppAppearance: SettingsOption {
+    var shortTitleKey: LocalizedStringKey { titleKey }
+}
+
 extension SidePanelPosition: SettingsOption {
     var shortTitleKey: LocalizedStringKey {
         switch self {

@@ -41,6 +41,7 @@ final class AppPreferences: ObservableObject {
         static let welcomeGlass = "qooViewer.pref.welcomeGlass"
         static let prefetchPageCount = "qooViewer.pref.prefetchPageCount"
         static let displayLanguage = "qooViewer.pref.displayLanguage"
+        static let appAppearance = "qooViewer.pref.appAppearance"
         static let reopenBehavior = "qooViewer.pref.reopenBehavior"
         static let confirmBeforeClosingMultipleTabsWindow =
             "qooViewer.pref.confirmBeforeClosingMultipleTabsWindow"
@@ -331,6 +332,17 @@ final class AppPreferences: ObservableObject {
     /// アプリの表示言語(既定は「システムに従う」)
     @Published var displayLanguage: AppLanguage {
         didSet { UserDefaults.standard.set(displayLanguage.rawValue, forKey: Keys.displayLanguage) }
+    }
+    /// アプリの外観(ライト/ダーク。既定は「システムに従う」)。
+    /// 表示言語と同じく、macOSのシステム設定とは独立して選べる(ユーザー要望)。
+    /// 表示言語はSceneごとの`.environment(\.locale, ...)`で効かせるが、こちらはウインドウの外の
+    /// AppKitのUI(ダイアログ・カラーパネル・Dockメニュー)にも効かせる必要があるため、
+    /// SwiftUIではなくNSApp.appearanceで反映する(AppAppearanceApplierの型コメント参照)。
+    @Published var appAppearance: AppAppearance {
+        didSet {
+            UserDefaults.standard.set(appAppearance.rawValue, forKey: Keys.appAppearance)
+            AppAppearanceApplier.shared.apply(appAppearance)
+        }
     }
     /// 以前開いたことのある本を再度開いたときの挙動(既定は「前回のページから再開する」)
     @Published var reopenBehavior: ReopenBehavior {
@@ -1319,6 +1331,7 @@ final class AppPreferences: ObservableObject {
         self.sidePanelRevealDelay = defaults.object(forKey: Keys.sidePanelRevealDelay) as? Double ?? 0
         self.prefetchPageCount = defaults.object(forKey: Keys.prefetchPageCount) as? Double ?? 3
         self.displayLanguage = AppLanguage(rawValue: defaults.string(forKey: Keys.displayLanguage) ?? "") ?? .system
+        self.appAppearance = AppAppearance(rawValue: defaults.string(forKey: Keys.appAppearance) ?? "") ?? .system
         self.reopenBehavior = ReopenBehavior(rawValue: defaults.string(forKey: Keys.reopenBehavior) ?? "") ?? .resume
         self.confirmBeforeClosingMultipleTabsWindow =
             defaults.object(forKey: Keys.confirmBeforeClosingMultipleTabsWindow) as? Bool ?? true
@@ -1481,6 +1494,10 @@ final class AppPreferences: ObservableObject {
         // (didSetは初期化中には走らないので、ここで一度だけ明示的に呼ぶ必要がある)。
         // OFF(既定)ならこの呼び出しが、溜まっているキャッシュの削除の合図にもなる。
         applyThumbnailDiskCacheSettings()
+        // 外観も同じ理由でここから1回。最初のウインドウが作られるより前(このinitは
+        // AppStores経由でQooViewerApp.init()から呼ばれる)なので、既定の外観が一瞬見えて
+        // から切り替わる、ということにはならない。
+        AppAppearanceApplier.shared.apply(appAppearance)
     }
 }
 
@@ -1559,6 +1576,9 @@ extension AppPreferences {
             ]
         case .appearance:
             return [
+                // アプリ全体のライト/ダーク。画面上もこの画面のいちばん上にある
+                // (AppearanceSettingsView.appSection参照)。
+                Keys.appAppearance,
                 Keys.backgroundColorOption,
                 Keys.customBackgroundColor,
                 Keys.thumbnailGridCellSize,
@@ -1704,6 +1724,7 @@ extension AppPreferences {
             siblingNavigationFollowsBrowserSort = source.siblingNavigationFollowsBrowserSort
             usesFinderSortOrder = source.usesFinderSortOrder
         case .appearance:
+            appAppearance = source.appAppearance
             backgroundColorOption = source.backgroundColorOption
             customBackgroundColor = source.customBackgroundColor
             thumbnailGridCellSize = source.thumbnailGridCellSize

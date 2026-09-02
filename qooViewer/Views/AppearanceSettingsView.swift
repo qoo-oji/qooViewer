@@ -85,6 +85,7 @@ struct AppearanceSettingsView: View {
         // Formは内部にスクロールビューを持つので、ここで包めばproxy.scrollToが効く。
         ScrollViewReader { proxy in
             SettingsPaneContainer {
+                appSection
                 viewerSection
                 // スクロールの行き先の目印(AppearanceSection参照)。ページ一覧パネルの
                 // 右クリック →「調整…」はここへ着地する。
@@ -142,6 +143,29 @@ struct AppearanceSettingsView: View {
             await Task.yield()
             withAnimation { proxy.scrollTo(section, anchor: .top) }
             navigator.appearanceTarget = nil
+        }
+    }
+
+    // MARK: - アプリ全体
+
+    /// アプリ全体のライト/ダーク(ユーザー要望: システム設定とは独立して選びたい)。
+    ///
+    /// この画面のいちばん上に置いてあるのは、ここだけが**アプリのすべての面**に効く設定で、
+    /// 以下のセクション(ビューア・ページ一覧・面ごとのすりガラス)がその上に重なる関係に
+    /// あるため。リセットの担当もこの画面(AppPreferences.keys(for:)の.appearance参照。
+    /// **画面の置き場所とkeys(for:)は必ず揃えること**)。
+    ///
+    /// ビューアの背景色(下の「ビューア」)はこの設定とは独立していて、ライト/ダークで
+    /// 勝手に変わることはない ―― 好きな色で絵を見るための設定なので、そちらが正しい。
+    private var appSection: some View {
+        Section {
+            SettingsPicker(
+                "Appearance Mode",
+                selection: $preferences.appAppearance,
+                help: "Applies to qooViewer only, whatever the system Light/Dark setting is. The viewer's background color is a separate setting."
+            )
+        } header: {
+            Text("App")
         }
     }
 
