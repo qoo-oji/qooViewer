@@ -203,7 +203,12 @@ nonisolated enum PDFImageExtractor {
                 var height: CGPDFInteger = 0
                 CGPDFDictionaryGetInteger(dictionary, "Width", &width)
                 CGPDFDictionaryGetInteger(dictionary, "Height", &height)
-                let pixelCount = Int(width) * Int(height)
+                // /Width・/Heightはファイル内の任意の整数(64bit)。範囲を確かめずに掛けると
+                // 細工されたPDFで整数オーバーフローのトラップ=クラッシュになる(監査で指摘。
+                // この経路はPDFのページを表示するたびに通る)。範囲外の画像は候補に入れない。
+                guard let pixelCount = PDFImageExtractor.pixelCount(width: width, height: height) else {
+                    return true
+                }
                 if pixelCount > collector.bestPixelCount {
                     collector.bestPixelCount = pixelCount
                     collector.best = stream
@@ -224,6 +229,27 @@ nonisolated enum PDFImageExtractor {
             return true
         }, Unmanaged.passUnretained(collector).toOpaque())
     }
+
+    /// 画像XObjectの`/Width`・`/Height`として受け付ける上限(1辺)。
+    ///
+    /// PDF内の整数は64bitで、ファイルがどんな値でも書ける。上限を設けるのは伸長爆弾よけ
+    /// ではなく、**掛け算そのものが溢れてトラップしない**ためのもの。65535×65535でも
+    /// 画素数は2^32に収まり、後段のbytesPerRow×heightもInt64の範囲に余裕で収まる。
+    /// 実在するスキャンのページ画像がこの1辺に達することはない(ImageDecoder.exportMaxPixelSize=
+    /// 20000より大きい)。
+    private static let maxImageDimension: CGPDFInteger = 65_535
+
+    /// `/Width`×`/Height`を、範囲を確かめたうえで求める。どちらかが0以下、または上限を
+    /// 超えているならnil(候補から外す)。
+    private static func pixelCount(width: CGPDFInteger, height: CGPDFInteger) -> Int? {
+        guard width > 0, height > 0, width <= maxImageDimension, height <= maxImageDimension else {
+            return nil
+        }
+        return Int(width) * Int(height)
+    }
+
+    /// `/BitsPerComponent`として受け付ける値(PDF仕様が許す5通り)。それ以外は不正なファイル。
+    private static let validBitsPerComponent: Set<CGPDFInteger> = [1, 2, 4, 8, 16]
 
     /// ストリームの`/Filter`を見て、書き出せる形式かどうかを判定する。
     ///
@@ -293,7 +319,9 @@ nonisolated enum PDFImageExtractor {
         var height: CGPDFInteger = 0
         guard CGPDFDictionaryGetInteger(dictionary, "Width", &width),
               CGPDFDictionaryGetInteger(dictionary, "Height", &height),
-              width > 0, height > 0
+              // 範囲検査(pixelCount(width:height:)参照)。ここで通した値は以下の掛け算で
+              // 溢れない(監査で指摘)。
+              pixelCount(width: width, height: height) != nil
         else { return nil }
 
         var isImageMask: CGPDFBoolean = 0
@@ -304,6 +332,8 @@ nonisolated enum PDFImageExtractor {
             // ImageMaskは仕様上必ず1bit。BitsPerComponent自体が省略されていることがある。
             bitsPerComponent = isImageMask != 0 ? 1 : 8
         }
+        // 仕様外の値(負・巨大)は不正なファイルとして扱う(掛け算の溢れよけでもある)。
+        guard validBitsPerComponent.contains(bitsPerComponent) else { return nil }
 
         let colorSpace: CGColorSpace?
         let componentCount: Int
@@ -400,7 +430,8 @@ nonisolated enum PDFImageExtractor {
         else { return nil }
 
         var lastIndex: CGPDFInteger = 0
-        guard CGPDFArrayGetInteger(array, 2, &lastIndex), lastIndex >= 0 else { return nil }
+        // 仕様上hivalは0〜255。それ以外は不正(上限を確かめないと下の掛け算が溢れうる)。
+        guard CGPDFArrayGetInteger(array, 2, &lastIndex), lastIndex >= 0, lastIndex <= 255 else { return nil }
 
         var paletteData: Data?
         var paletteString: CGPDFStringRef?

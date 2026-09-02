@@ -99,6 +99,12 @@ struct QooViewerApp: App {
     /// リセットできるようにしている)
     // privateでないのは、SwiftData系ストアの生成時にAppStores.initがmainContextを取り出すため。
     static let modelContainer: ModelContainer = {
+        // 環境設定「リセット」で予約された削除が、終了前に落ちるなどして残っていれば
+        // ここで行う(scheduleStoreReset参照)。併せて、本体の無い`-wal`/`-shm`だけが
+        // 残っている状態も片付ける(本体を消した直後の書き込みでSQLiteが作り直したもの。
+        // 本体と対応しないWALはSQLiteが無視するが、無用なファイルを残さない)。
+        performPendingStoreResetIfNeeded()
+        removeOrphanedAuxiliaryStoreFiles(at: modelConfiguration.url)
         do {
             return try ModelContainer(for: modelSchema, configurations: [modelConfiguration])
         } catch {
@@ -155,6 +161,40 @@ struct QooViewerApp: App {
         let directory = url.deletingLastPathComponent()
         let baseName = url.lastPathComponent
         for suffix in ["", "-wal", "-shm"] {
+            let candidate = directory.appendingPathComponent(baseName + suffix)
+            try? fileManager.removeItem(at: candidate)
+        }
+    }
+
+    /// 環境設定「リセット」(ResetDataSettingsView)が「すべて削除」を予約するためのUserDefaultsキー。
+    ///
+    /// ストアの実ファイルは**アプリを開いたままでは消さない**。ModelContainerが開いている間に
+    /// 本体を消すと、その後の書き込み(他のウインドウの読書位置の保存など)がSQLiteに`-wal`を
+    /// 作り直させ、本体の無いWALだけが残るといった中途半端な状態を作りうる(監査で指摘)。
+    /// ここでは予約だけを残し、実際の削除は終了時(AppDelegate.applicationWillTerminate)と、
+    /// 念のため次回起動時(modelContainerを作る前)の2箇所で行う ―― どちらも接続が無い時点。
+    static let pendingStoreResetDefaultsKey = "qooViewer.pendingStoreReset"
+
+    /// 「すべて削除」を予約する(ResetDataSettingsView.performReset参照)。
+    static func scheduleStoreReset() {
+        UserDefaults.standard.set(true, forKey: pendingStoreResetDefaultsKey)
+    }
+
+    /// 予約があればストアの実ファイルを消し、予約を取り下げる。接続が無い時点でだけ呼ぶこと
+    /// (pendingStoreResetDefaultsKeyのコメント参照)。
+    static func performPendingStoreResetIfNeeded() {
+        guard UserDefaults.standard.bool(forKey: pendingStoreResetDefaultsKey) else { return }
+        deleteStoreFiles(at: modelConfiguration.url)
+        UserDefaults.standard.removeObject(forKey: pendingStoreResetDefaultsKey)
+    }
+
+    /// ストア本体が無いのに`-wal`/`-shm`だけが残っていれば消す(modelContainerのコメント参照)。
+    private static func removeOrphanedAuxiliaryStoreFiles(at url: URL) {
+        let fileManager = FileManager.default
+        guard !fileManager.fileExists(atPath: url.path) else { return }
+        let directory = url.deletingLastPathComponent()
+        let baseName = url.lastPathComponent
+        for suffix in ["-wal", "-shm"] {
             let candidate = directory.appendingPathComponent(baseName + suffix)
             try? fileManager.removeItem(at: candidate)
         }
@@ -2035,6 +2075,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// 行ってよい(Task.detachedへ逃がすと、終了のほうが先に進んで走らないことがある)。
     func applicationWillTerminate(_ notification: Notification) {
         TemporaryFileStore.removeSessionDirectory()
+        // 環境設定「リセット」の「すべて削除」の予約があれば、ここで実ファイルを消す
+        // (QooViewerApp.pendingStoreResetDefaultsKeyのコメント参照)。
+        QooViewerApp.performPendingStoreResetIfNeeded()
     }
 }
 

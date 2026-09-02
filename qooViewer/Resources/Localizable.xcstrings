@@ -7517,6 +7517,38 @@
         }
       }
     },
+    "7z decompression buffer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7z decompression buffer"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7z の展開バッファ"
+          }
+        }
+      }
+    },
+    "The 7z library decompresses a whole solid block to read one page, and keeps that block in memory for as long as the book is open. This is the largest it can be — the total uncompressed size of the archive — because the library does not report the actual block size. It is released when the book is closed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The 7z library decompresses a whole solid block to read one page, and keeps that block in memory for as long as the book is open. This is the largest it can be — the total uncompressed size of the archive — because the library does not report the actual block size. It is released when the book is closed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7z のライブラリは1ページを読むためにソリッドブロック全体を展開し、本を開いている間そのブロックをメモリに保持し続けます。\nライブラリは実際のブロックの大きさを教えてくれないため、ここに出るのは最大値(書庫全体の非圧縮サイズ)です。\n本を閉じると解放されます。"
+          }
+        }
+      }
+    },
     "Nested Archives Kept in Memory" : {
       "localizations" : {
         "en" : {

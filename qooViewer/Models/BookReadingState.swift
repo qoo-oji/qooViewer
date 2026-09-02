@@ -68,3 +68,20 @@ final class BookReadingState {
         set { scalingModeRaw = newValue.rawValue }
     }
 }
+
+extension Notification.Name {
+    /// BookReadingStateの行を、その本を開いているViewerViewModel**以外**が削除したことを
+    /// 知らせる通知(「本ごとの保存データの削除」ウインドウ = LibraryCleanupViewModel)。
+    ///
+    /// ViewerViewModelは自分の本の行を握ったままページ送りのたびに書き込む(persistState)。
+    /// 削除済みのオブジェクトへの書き込みはSwiftDataでは未定義で実行時に落ちうるため、
+    /// 行を消す側はこの通知を投げ、開いているViewerViewModelは以後その行へ書かない
+    /// (ViewerViewModel.readingStateDiscarded参照。監査で指摘)。
+    /// userInfoの`bookIDs`(Set<String>)に、削除した本のbookIDが入る。
+    static let bookReadingStatesDidDelete = Notification.Name("qooViewer.bookReadingStatesDidDelete")
+}
+
+/// `Notification.Name.bookReadingStatesDidDelete`のuserInfoのキー。
+enum BookReadingStateDeletionNotification {
+    static let bookIDsUserInfoKey = "bookIDs"
+}

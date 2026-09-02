@@ -33,8 +33,20 @@ nonisolated enum ImageDecoder {
     /// (ViewerViewModel.highResolutionSourceImages参照)、常時保持されるのは高々1〜2枚。
     static let highResolutionMaxPixelSize: CGFloat = 8000
 
+    /// デコードを引き受ける元画像の画素数の上限(20000×20000 = 4億画素)。
+    ///
+    /// `CGImageSourceCreateThumbnailAtIndex`はJPEG以外(PNG/WebP/GIF/BMP/TIFF)では元画像を
+    /// フル解像度で展開してから縮小するため、一時メモリは出力サイズではなく**元画像の
+    /// 大きさ**で決まる。ヘッダーに巨大な寸法を書いた画像(細工されたファイル、または壊れた
+    /// ファイル)を渡すと、Image I/Oがその画素数ぶんの確保を試みてアプリごと落ちうる
+    /// (監査で指摘)。ヘッダーの寸法は展開せずに読めるので、先に確かめる。
+    /// 上限はexportMaxPixelSize(書き出しで許している1辺)の正方形に揃えてある ―― 実在する
+    /// ページ画像がこれに達することはなく、拒否によって読めなくなる本は無い。
+    static let maxSourcePixelCount = Int(exportMaxPixelSize) * Int(exportMaxPixelSize)
+
     static func decode(_ data: Data, maxPixelSize: CGFloat) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
+        guard hasAcceptablePixelCount(source) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
@@ -43,6 +55,22 @@ nonisolated enum ImageDecoder {
             kCGImageSourceShouldCache: false,
         ]
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+
+    /// 元画像の画素数がmaxSourcePixelCount以下か(decodeのコメント参照)。ヘッダーの解析だけ
+    /// なので、デコード本体に比べれば無視できる(かつ、この直後のデコードがImage I/Oの
+    /// 内部で同じヘッダーを読む)。寸法が取れないファイルはImage I/Oの判断に任せる
+    /// (=従来どおり通す。形式によってプロパティが欠けても読めなくならないように)。
+    private static func hasAcceptablePixelCount(_ source: CGImageSource) -> Bool {
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int
+        else { return true }
+        guard width > 0, height > 0 else { return false }
+        // 溢れよけ: 一辺だけで既に上限を超える寸法は掛けずに弾く。
+        let limit = Int(exportMaxPixelSize)
+        if width > limit * limit || height > limit * limit { return false }
+        return width * height <= maxSourcePixelCount
     }
 
     /// 画像全体をデコードせず、ヘッダー部分だけから読み取れる情報(ピクセルサイズ・色空間・

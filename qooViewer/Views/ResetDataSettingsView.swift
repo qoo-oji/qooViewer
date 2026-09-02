@@ -223,10 +223,16 @@ struct ResetDataSettingsView: View {
     private func performReset() {
         // ModelContext経由の個別delete()ではなく、ストアの実ファイルを直接削除する
         // (このView自体のコメント参照。壊れているデータも含めて確実に一切合切消すため)。
-        // 現在生きているfavoritesStore/bookmarkStore/layoutStore/開いている本のViewerViewModelは
-        // このあとすぐアプリを終了させる(下のisShowingCompletionアラート「Quit Now」)ため、
-        // 削除後もそれらが古いModelContextを参照し続けることについては考慮不要。
-        QooViewerApp.deleteStoreFiles(at: QooViewerApp.modelConfiguration.url)
+        //
+        // ただし**その場では消さず、終了時に消す**(QooViewerApp.scheduleStoreReset参照。
+        // 監査で指摘)。以前はここで即座にファイルを消していたが、ModelContainerはまだ
+        // 開いたままで、「Quit Now」を押すまでの間に他のウインドウの読書位置の保存
+        // (ViewerViewModel.persistStateの400msデバウンス)や各ストアが同じ接続へ書き込める。
+        // 消した直後の書き込みはSQLiteが`-wal`を作り直すため、次回起動時に本体の無い
+        // WALだけが残る、という中途半端な状態を作りうる。終了時(applicationWillTerminate)
+        // まで遅らせれば、書き込みが起こりうる時間そのものが無くなる。
+        // 万一終了前に落ちても、次回起動時にModelContainerを作る前に同じ削除を行う。
+        QooViewerApp.scheduleStoreReset()
         // ページサムネイル(ThumbnailDiskCache)とページ一覧(BookPageListCache)の永続
         // キャッシュも一緒に捨てる。どちらも消えても再生成できるだけの情報だが、
         // 「一切合切消す」という操作の期待には含まれるため。

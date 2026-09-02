@@ -875,12 +875,20 @@ actor PageLoader {
         for source: PageSource, maxPixelSize: CGFloat, isPrefetch: Bool = false, waiterKey: String? = nil
     ) async -> PagePixelBuffer? {
         // フルサイズのデコードは同時実行数を絞る(decodeSlotsのコメント参照)。サムネイルは
-        // 1枚の一時メモリが小さいので絞らない(ページ一覧の数十枚が直列に待たされる方が害)。
+        // 別の、より緩い枠で絞る(maxConcurrentThumbnailDecodesのコメント参照)。
         let isFullSize = maxPixelSize >= ImageDecoder.pageMaxPixelSize
         if isFullSize {
             await acquireDecodeSlot(isPrefetch: isPrefetch, waiterKey: waiterKey)
+        } else {
+            await acquireThumbnailDecodeSlot()
         }
-        defer { if isFullSize { releaseDecodeSlot() } }
+        defer {
+            if isFullSize {
+                releaseDecodeSlot()
+            } else {
+                releaseThumbnailDecodeSlot()
+            }
+        }
         guard !Task.isCancelled else { return nil }
 
         // PDFはCGImageを経由せず、バッファへ直接描ける(コントラスト補正が要る場合だけは
@@ -960,6 +968,49 @@ actor PageLoader {
             prefetchDecodeWaiters.removeFirst().continuation.resume()
         } else {
             activeDecodes -= 1
+        }
+    }
+
+    // MARK: - サムネイルデコードの同時実行数
+
+    /// サムネイル(進捗バー用・拡大サムネイル・ホバープレビュー)のデコードを同時に走らせて
+    /// よい数。フルサイズとは別の枠で、互いに待たせない。
+    ///
+    /// ■ なぜサムネイルも絞るのか(監査で指摘)
+    /// 以前は「サムネイルは1枚の一時メモリが小さい」として絞っていなかった。しかし
+    /// `CGImageSourceCreateThumbnailAtIndex`はJPEG以外(PNG/WebP/GIF/BMP/TIFF)では元画像を
+    /// フル解像度で展開してから縮小するため、一時メモリは出力の大きさではなく**元画像の
+    /// 大きさ**で決まる(4000×6000のPNGなら1枚あたり約96MB)。ページ一覧は表示中のセルの数だけ
+    /// 一斉にデコードを始める ―― セルを小さくした大型ディスプレイでは100を超え、拡大
+    /// プレビューの先読みをONにするとさらに1600px版が重なる。PNG中心の本では数GBの一時
+    /// メモリが一瞬で積み上がっていた。
+    ///
+    /// ■ 速度は落とさない
+    /// デコードはCPU負荷なので、コア数を超えて同時に走らせても速くはならない。コア数
+    /// (上限8・下限2)で頭打ちにすれば、体感の読み込み時間は変わらずに一時メモリだけが
+    /// 「この数 × 元画像1枚」で止まる。ディスクキャッシュから戻る経路(renderBuffer)は
+    /// デコードを伴わないのでこの枠を通らない。
+    private static let maxConcurrentThumbnailDecodes = max(2, min(8, ProcessInfo.processInfo.activeProcessorCount))
+    private var activeThumbnailDecodes = 0
+    private var thumbnailDecodeWaiters: [CheckedContinuation<Void, Never>] = []
+
+    private func acquireThumbnailDecodeSlot() async {
+        if activeThumbnailDecodes < Self.maxConcurrentThumbnailDecodes {
+            activeThumbnailDecodes += 1
+            return
+        }
+        // acquireDecodeSlotと同じ規約: 起こされた時点でスロットは自分のもの
+        // (releaseThumbnailDecodeSlotがactiveThumbnailDecodesを減らさずに次を起こす)。
+        await withCheckedContinuation { continuation in
+            thumbnailDecodeWaiters.append(continuation)
+        }
+    }
+
+    private func releaseThumbnailDecodeSlot() {
+        if !thumbnailDecodeWaiters.isEmpty {
+            thumbnailDecodeWaiters.removeFirst().resume()
+        } else {
+            activeThumbnailDecodes -= 1
         }
     }
 
@@ -1047,6 +1098,14 @@ actor PageLoader {
     private func rawData(for source: PageSource) -> Data? {
         switch source {
         case .file(let url):
+            // 書庫内エントリと同じ上限(maxDecodableEntryBytes)をフォルダの本にも掛ける
+            // (監査で指摘: 以前はこちらだけ上限が無く、画像フォルダに置かれた巨大な
+            // ファイルを丸ごとメモリへ読んでいた)。サイズの問い合わせはstat 1回で、
+            // 読み込み本体に比べれば無視できる。
+            if let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+               Int64(fileSize) > Self.maxDecodableEntryBytes {
+                return nil
+            }
             return try? Data(contentsOf: url)
         case .archive(let locator, let entryPath):
             guard let reader = reader(for: locator) else { return nil }

@@ -3,6 +3,9 @@ import Foundation
 enum ArchiveReaderError: Error {
     case cannotOpen
     case entryNotFound
+    /// `extract(at:to:maxByteCount:)`で、書き出したバイト数が上限を超えた(索引の申告より
+    /// 実際の展開結果が大きい、細工された・壊れた書庫)。
+    case entryTooLarge
 }
 
 /// zip / 7z / rar など、圧縮ファイルの中身を読み出すための共通インターフェース。
@@ -55,7 +58,22 @@ protocol ArchiveReading {
     ///
     /// 既定実装は`data(at:)`+`write(to:)`へのフォールバック(7zで使っているLZMA SDKは
     /// 展開結果をバッファごと返す形しか持たないため、そちらはこのまま)。
-    nonisolated func extract(at path: String, to url: URL) throws
+    ///
+    /// - Parameter maxByteCount: 書き出してよい上限。索引の申告サイズ(entryUncompressedSize)は
+    ///   呼び出し側が事前に見ているが、細工された・壊れた書庫では申告と実際が食い違う。
+    ///   **展開しながら数えて**、超えた時点で打ち切る(監査で指摘: 展開が終わってから
+    ///   測るだけでは、上限を超えて一時ファイルを書き潰すまで止まらない)。超えたら
+    ///   `ArchiveReaderError.entryTooLarge`を投げ、書きかけのファイルは残さない。
+    nonisolated func extract(at path: String, to url: URL, maxByteCount: Int) throws
+
+    /// このreaderが、エントリの取り出しのために**保持し続けている**展開バッファの上限見積り
+    /// (バイト)。ページ画像や入れ子の書庫のキャッシュとは別に、ライブラリの内部に
+    /// 居座っているメモリで、リソースモニタに出すためのもの。
+    ///
+    /// zip/rarは0(チャンクごとに読み捨てる)。7zはLZMA SDKが**ソリッドブロック全体**を
+    /// 伸長してバッファに保持し続けるため、そのブロックの大きさになる
+    /// (SevenZipArchiveReader参照)。
+    nonisolated var residentDecompressionBufferUpperBoundBytes: Int { get }
 }
 
 extension ArchiveReading {
@@ -70,11 +88,18 @@ extension ArchiveReading {
     /// 将来ArchiveReadingの実装が増えたときに「サイズを答えられない」を選べるようにしておく。
     nonisolated func entryUncompressedSize(at path: String) -> Int64? { nil }
 
-    /// extract(at:to:)の既定実装(プロトコル側のコメント参照)。逐次読み出しに対応できない
-    /// 実装(SevenZipArchiveReader)はこのまま=従来通りの全体読み+書き出しになる。
-    nonisolated func extract(at path: String, to url: URL) throws {
-        try data(at: path).write(to: url)
+    /// extract(at:to:maxByteCount:)の既定実装(プロトコル側のコメント参照)。逐次読み出しに
+    /// 対応できない実装(SevenZipArchiveReader)はこのまま=従来通りの全体読み+書き出しになる。
+    /// 全体を読んでしまう以上、上限の検査は読み終えた後にしかできないが、上限を超えたものを
+    /// ディスクへ書き出さない点は逐次版と同じ。
+    nonisolated func extract(at path: String, to url: URL, maxByteCount: Int) throws {
+        let data = try data(at: path)
+        guard data.count <= maxByteCount else { throw ArchiveReaderError.entryTooLarge }
+        try data.write(to: url)
     }
+
+    /// residentDecompressionBufferUpperBoundBytesの既定実装。バッファを抱えない形式は0。
+    nonisolated var residentDecompressionBufferUpperBoundBytes: Int { 0 }
 }
 
 /// 対応する画像の拡張子。AVIFはmacOS Sonoma(14)以降でImageIOがシステム全体で

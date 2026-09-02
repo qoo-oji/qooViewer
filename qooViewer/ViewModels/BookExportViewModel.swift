@@ -677,6 +677,19 @@ class BookExportViewModel: ObservableObject {
 
     final func cancel() {
         isCancelled = true
+        // 同名ファイルの確認(askOverwriteDecision)を待っている最中なら、その待ちも
+        // 「スキップ」で解く(監査で指摘)。以前はフラグを立てるだけで、待ちの
+        // continuationはそのままだった。確認ダイアログは4つのボタンのどれかで必ず
+        // 答えが返る作りだが、ビューアの右クリックから書き出している最中に
+        // 「タブを閉じる」/赤い閉じるボタンでウインドウごと閉じられると、ダイアログは
+        // 答えを返す前に消え、書き出しのTaskは永久にサスペンドしたまま、書き出し用の
+        // PageLoaderと読み込んだ本を抱えて残っていた(ViewerView側がその経路でcancel()を
+        // 呼ぶ)。resolveOverwriteと同じ手順で1回だけ再開する。
+        if let continuation = overwriteDecisionContinuation {
+            overwriteDecisionContinuation = nil
+            pendingOverwriteBookDisplayName = nil
+            continuation.resume(returning: .skip)
+        }
     }
 
     /// 結果シートを閉じる(OKボタン、またはシート自体のスワイプ/×での閉じ操作)。

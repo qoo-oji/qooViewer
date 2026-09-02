@@ -287,13 +287,25 @@ nonisolated enum BookLoader {
             } else if isArchiveFile(name) {
                 try Task.checkCancellation()
                 context.progress.didDiscoverArchive()
-                let nestedPages = (try? collectPages(
-                    at: ArchiveLocator(rootURL: fileURL),
-                    archive: context.resolver.openRoot(fileURL),
-                    idPrefix: fileURL.path,
-                    sortKeyPrefix: fileURL.path,
-                    context: context
-                )) ?? []
+                // 開けない・壊れている書庫は読み飛ばす(その書庫のページが無いだけで本は開く)。
+                // ただし**中止(CancellationError)だけは飲み込まずに投げ直す** ―― 以前は
+                // `try?`でまとめて握り潰していたため、入れ子の列挙の途中で中止しても、
+                // その書庫の残りを最後まで処理してから次のcheckCancellationで止まっていた
+                // (監査で指摘)。
+                let nestedPages: [PageRef]
+                do {
+                    nestedPages = try collectPages(
+                        at: ArchiveLocator(rootURL: fileURL),
+                        archive: context.resolver.openRoot(fileURL),
+                        idPrefix: fileURL.path,
+                        sortKeyPrefix: fileURL.path,
+                        context: context
+                    )
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    nestedPages = []
+                }
                 pages.append(contentsOf: nestedPages)
             }
         }

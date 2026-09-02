@@ -823,6 +823,15 @@ struct ContentView: View {
                 if launchCoordinator.primaryAppState === appState {
                     launchCoordinator.primaryAppState = nil
                 }
+                // NSEventのモニタとメニュー追跡の購読も、ここで確実に外す(監査で指摘)。
+                // 通常は.onDisappearが外すが、ウインドウごと閉じられたときに.onDisappearが
+                // 呼ばれないことがある(ViewerView.setUpWindowObservers末尾のコメント参照)。
+                // 外し損ねるとモニタのクロージャがこのContentViewのコピー(=appState)を
+                // 掴んだまま残り、閉じたウインドウぶんのモニタが積み上がる。二重に外しても
+                // 害は無い(それぞれnilを見て何もしない)。
+                removeSidePanelHoverMonitor()
+                removeOutsideWindowMonitor()
+                removeMenuTrackingObservers()
                 tokens.removeAll()
             }
         })

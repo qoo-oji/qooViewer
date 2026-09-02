@@ -189,6 +189,10 @@ struct BookmarkEditorView: View {
     @State private var doubleClickMonitor: Any?
     /// 上のモニタが「この一覧の中で起きたクリックか」を判定するために使う、一覧の矩形。
     @State private var listAnchorBox = ListAnchorBox()
+    /// ウインドウが閉じるときに上のモニタを確実に外すための購読(observeWindowClose参照)。
+    @State private var windowCloseTokens = NotificationObserverTokens()
+    /// その購読を張ったウインドウ(同じウインドウに二重に張らないため)。
+    @State private var closeObservedWindowBox = WeakWindowBox()
     @State private var renamingBookmark: Bookmark?
     @State private var renameText = ""
 
@@ -348,6 +352,30 @@ struct BookmarkEditorView: View {
             }
             return event
         }
+    }
+
+    /// ウインドウが閉じるときにダブルクリックのモニタを外す保険(監査で指摘)。
+    ///
+    /// 通常は.onDisappearが外すが、ウインドウごと閉じられたときに.onDisappearが呼ばれない
+    /// ことがある(ViewerView.setUpWindowObservers末尾のコメント参照)。外し損ねると、モニタの
+    /// クロージャがこのビューのコピーを掴んだまま残り、開き直すたびに1本ずつ増える。
+    /// WindowAccessorは何度も呼ばれるので、同じウインドウには一度しか張らない。
+    private func observeWindowClose(_ window: NSWindow?) {
+        guard let window, closeObservedWindowBox.window !== window else { return }
+        closeObservedWindowBox.window = window
+        windowCloseTokens.removeAll()
+        windowCloseTokens.add(NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: window, queue: .main
+        ) { _ in
+            // queue: .mainのため実行時には必ずMainActor上(プロジェクト内の同種の箇所と同じ対処)。
+            MainActor.assumeIsolated {
+                if let doubleClickMonitor {
+                    NSEvent.removeMonitor(doubleClickMonitor)
+                }
+                doubleClickMonitor = nil
+                windowCloseTokens.removeAll()
+            }
+        })
     }
 
     /// 並べ替えメニューの「基準」側(名前/追加日時/更新日時)。昇順・降順は保ったまま基準だけを
@@ -903,6 +931,7 @@ struct BookmarkEditorView: View {
             // BookmarkDetailPaneの同種のWindowAccessor/アラートと同じ仕組み。
             .background(WindowAccessor { window in
                 editorWindowBox.window = window
+                observeWindowClose(window)
             })
             .alert(
                 "Could Not Open Book",
@@ -1257,13 +1286,8 @@ private struct ResizableColumnDivider: View {
                 Color.clear
                     .frame(width: 8, height: Self.height)
                     .contentShape(Rectangle())
-                    .onHover { hovering in
-                        if hovering {
-                            NSCursor.resizeLeftRight.push()
-                        } else {
-                            NSCursor.pop()
-                        }
-                    }
+                    // push/popの対応はhoverCursorが取る(HoverCursor.swift参照)。
+                    .hoverCursor(.resizeLeftRight)
                     .gesture(
                         DragGesture(minimumDistance: 0)
                             .onChanged { value in
@@ -1322,6 +1346,10 @@ private struct BookmarkDetailPane: View {
     /// 「そのクリックがこの一覧の中か」を判定するための一覧の矩形。
     @State private var doubleClickMonitor: Any?
     @State private var listAnchorBox = ListAnchorBox()
+    /// ウインドウが閉じるときにモニタとPageLoaderを確実に手放すための購読
+    /// (observeWindowClose参照)と、それを張ったウインドウ。
+    @State private var windowCloseTokens = NotificationObserverTokens()
+    @State private var closeObservedWindowBox = WeakWindowBox()
     /// 各行が@Stateに保持したサムネイル・プレビューの合計量の帳簿。List(NSTableView backed)も
     /// 画面外へスクロールした行の保持物を半分程度は抱えたままにするため(LazyCellImageBudgetの
     /// 型コメント参照)、予算(128MB)を超えたら一覧を`.id(epoch)`で作り直してまとめて解放する。
@@ -1482,6 +1510,7 @@ private struct BookmarkDetailPane: View {
         }
         .background(WindowAccessor { window in
             editorWindowBox.window = window
+            observeWindowClose(window)
             // ツールバーにタイトルを出さない(ユーザー判断)。
             // 経緯: 「ブックマーク・レイアウトの編集」を主題＋編集中の本の名前を副題
             // (.navigationSubtitle)にする案、本の名前だけを主題にする案の順に実機で試したが、
@@ -1589,6 +1618,32 @@ private struct BookmarkDetailPane: View {
             }
             return event
         }
+    }
+
+    /// ウインドウが閉じるときに、ダブルクリックのモニタを外し、この本のPageLoaderを手放す保険
+    /// (監査で指摘。BookmarkEditorView.observeWindowCloseと同じ理由)。
+    ///
+    /// こちらは特に重要 ―― モニタのクロージャはこのビューのコピーを掴み、そのコピーは
+    /// @StateObjectのBookLayoutEditorViewModel(=PageLoader。書庫のハンドルとサムネイル)を
+    /// 抱えている。.onDisappearが呼ばれない経路で閉じられると、releaseResources()も走らず
+    /// 本1冊ぶんの資源がウインドウを開き直すたびに積み上がる。二重に呼んでも害は無い
+    /// (removeMonitorはnilを見て何もせず、releaseResourcesは2回目以降何もしない)。
+    private func observeWindowClose(_ window: NSWindow?) {
+        guard let window, closeObservedWindowBox.window !== window else { return }
+        closeObservedWindowBox.window = window
+        windowCloseTokens.removeAll()
+        windowCloseTokens.add(NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: window, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                if let doubleClickMonitor {
+                    NSEvent.removeMonitor(doubleClickMonitor)
+                }
+                doubleClickMonitor = nil
+                viewModel.releaseResources()
+                windowCloseTokens.removeAll()
+            }
+        })
     }
 
     /// カーソルキーの上下で、右ペインのページ選択を1つ動かす(nextSelectionIndexのコメント参照)。

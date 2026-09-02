@@ -29,6 +29,11 @@ nonisolated struct ResourceMonitorSnapshot: Equatable, Sendable {
     var nestedArchives: CacheUsage
     /// 一時ファイルとしてディスクに置いているぶんのバイト数(rar/7z、および上限を超えたzip)。
     var nestedArchiveTemporaryBytes: Int
+    /// 7zのライブラリが、この本の書庫(ルート・入れ子とも)から取り出すために**伸長したまま
+    /// 抱えているソリッドブロック**の上限見積り(バイト)。ページ画像のキャッシュとは別に
+    /// 居座るメモリで、本を開いている間ずっと残る(SevenZipArchiveReader参照)。
+    /// 7zを含まない本、またはまだ1ページも取り出していない間は0。
+    var sevenZipDecompressionBufferUpperBoundBytes: Int
 
     /// 現在ページ(0始まり)。見開きのときは**左右のうちファイル順で先のページ**。
     var currentIndex: Int
@@ -96,6 +101,7 @@ nonisolated struct ResourceMonitorSnapshot: Equatable, Sendable {
                 + statistics.nestedArchives.temporaryArchiveCount
         )
         nestedArchiveTemporaryBytes = statistics.nestedArchives.temporaryBytes
+        sevenZipDecompressionBufferUpperBoundBytes = statistics.nestedArchives.decompressionBufferUpperBoundBytes
         gridThumbnails = CacheUsage(
             usedBytes: statistics.gridThumbnails.totalBytes,
             limitBytes: statistics.gridThumbnailLimitBytes,

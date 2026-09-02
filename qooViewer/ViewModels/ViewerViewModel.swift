@@ -118,6 +118,9 @@ final class ViewerViewModel: ObservableObject {
     @Published private(set) var pendingLayoutReplacementStatus: LayoutContentReplacementStatus?
 
     private let modelContext: ModelContext
+    /// この本のbookID(book.idと同じ値)。`book`は@Published(MainActor隔離)のため
+    /// nonisolatedなdeinitから読めない。開いている本の一覧(openBookIDs)から外すためだけの控え。
+    private let openBookRegistryID: String
     /// この本の読書状態。通常はSwiftDataに挿入済みの行(変更は自動保存の対象)だが、
     /// skipsPersistenceのときは**どのModelContextにも挿入しない**独立した
     /// インスタンス。ModelContextの自動保存はコンテキストに属するオブジェクトだけを書くので、
@@ -225,6 +228,10 @@ final class ViewerViewModel: ObservableObject {
     /// 読み直すための監視トークン。詳細はBookmark.swiftのNotification.Name.bookmarksDidChange
     /// のコメント参照。
     private var bookmarksChangeObserver: NSObjectProtocol?
+    /// 「本ごとの保存データの削除」ウインドウ(LibraryCleanupViewModel)がこの本の
+    /// BookReadingStateの行を消したときに、以後その行へ書かないようにするための監視トークン
+    /// (Notification.Name.bookReadingStatesDidDeleteのコメント参照)。
+    private var readingStatesDeleteObserver: NSObjectProtocol?
     /// 環境設定「画像の表示」の「単ページ扱いの閾値(横÷縦)」(preferences.singlePageAspectRatioThreshold)が本を
     /// 開いたまま変更されたときに、wideImageCache(古いしきい値で判定した結果)を破棄するための
     /// 購読。破棄しないと、しきい値変更前に判定・キャッシュ済みのページについて、
@@ -418,6 +425,9 @@ final class ViewerViewModel: ObservableObject {
         Self.openBookCounter.withLock { $0 += 1 }
 
         let bookID = preparedBook.id
+        // 開いている本の一覧にも載せる(openBookIDs参照。件数と同じくreleaseResources/deinitで外す)。
+        self.openBookRegistryID = bookID
+        Self.registerOpenBook(bookID)
 
         // bookID(パス)が同じでも、そのファイル/フォルダの中身が実際には別のものに
         // 差し替わっていることがある(同じ名前で別の本をダウンロードし直した、フォルダの
@@ -500,9 +510,12 @@ final class ViewerViewModel: ObservableObject {
             // 本ごとのデータ(読書状態・ブックマーク)が環境設定の上限を超えていないか確認し、
             // 超えていれば最後に読んだ時刻が古い本から削除する(LibraryDataPruner.swift参照)。
             // 既存の本をそのまま開き直すだけのときは件数が増えないため、ここでは呼ばない。
+            // 今どこかのウインドウで開いている本は消さない(そのViewerViewModelが行を握って
+            // 書き続けているため。LibraryDataPruner.pruneIfNeededのexcludedBookIDs参照)。
             LibraryDataPruner.pruneIfNeeded(
                 modelContext: modelContext,
-                maxTrackedBooks: max(Int(preferences.maxTrackedBooksCount), 1)
+                maxTrackedBooks: max(Int(preferences.maxTrackedBooksCount), 1),
+                excludedBookIDs: Self.openBookIDs
             )
         }
         // 今回の指紋を常に記録しておく(次回開いたときの比較対象になる)。
@@ -717,6 +730,23 @@ final class ViewerViewModel: ObservableObject {
             }
         }
 
+        // 「本ごとの保存データの削除」ウインドウがこの本の読書位置の行を消したら、以後
+        // その行へ書かない(削除済みのオブジェクトへの書き込みはSwiftDataでは未定義。
+        // Notification.Name.bookReadingStatesDidDeleteのコメント参照。監査で指摘)。
+        // DBへ書かない本はそもそも行を持たないので対象外。
+        readingStatesDeleteObserver = NotificationCenter.default.addObserver(
+            forName: .bookReadingStatesDidDelete, object: nil, queue: .main
+        ) { [weak self] notification in
+            // bookmarksChangeObserverと同じ理由でMainActor.assumeIsolatedを使う。
+            MainActor.assumeIsolated {
+                guard let self, !self.skipsPersistence else { return }
+                guard let deletedBookIDs = notification.userInfo?[
+                    BookReadingStateDeletionNotification.bookIDsUserInfoKey
+                ] as? Set<String>, deletedBookIDs.contains(ownBookID) else { return }
+                self.stopWritingReadingState()
+            }
+        }
+
         // 「ブックマーク・レイアウトの編集」ウインドウ側でこの本のレイアウト設定が変更されても
         // 気づけないため、bookmarksChangeObserverと同じ考え方でbookIDが一致する変更だけを拾う。
         // ページの並び替え・除外を含め、reloadLayoutDataがその場でbook.pagesへ反映する
@@ -822,6 +852,7 @@ final class ViewerViewModel: ObservableObject {
         guard !hasReleasedResources else { return }
         hasReleasedResources = true
         Self.openBookCounter.withLock { $0 -= 1 }
+        Self.unregisterOpenBook(openBookRegistryID)
         // スライドショーもここで止める(監査で指摘)。通常はhandleOnDisappearが先に
         // stopSlideshow()を呼ぶが、ウインドウのwillClose経路はここしか通らない。止めないと、
         // 遅れて.onDisappearが走るまでの間、解放済みの本に対してループが回り続け、
@@ -853,9 +884,13 @@ final class ViewerViewModel: ObservableObject {
         // releaseResources()が走っていれば、そこで既に減らしてある。
         if !hasReleasedResources {
             Self.openBookCounter.withLock { $0 -= 1 }
+            Self.unregisterOpenBook(openBookRegistryID)
         }
         if let bookmarksChangeObserver {
             NotificationCenter.default.removeObserver(bookmarksChangeObserver)
+        }
+        if let readingStatesDeleteObserver {
+            NotificationCenter.default.removeObserver(readingStatesDeleteObserver)
         }
         if let pageOrderSettingObserver {
             NotificationCenter.default.removeObserver(pageOrderSettingObserver)
@@ -876,6 +911,29 @@ final class ViewerViewModel: ObservableObject {
     /// `nonisolated`なロックなのはdeinitがactor隔離の外で走るため。
     private static let openBookCounter = OSAllocatedUnfairLock(initialState: 0)
     nonisolated static var openBookCount: Int { openBookCounter.withLock { $0 } }
+
+    /// いま開いている本のbookID → 開いているウインドウ/タブの数(同じ本を複数のウインドウで
+    /// 開けるため件数で持つ)。LibraryDataPrunerが「開いている本の読書位置は消さない」ために
+    /// 見る(監査で指摘: 開いている本の行を消すと、そのViewerViewModelが削除済みの
+    /// オブジェクトへ書き続ける)。openBookCounterと同じく、initで足しreleaseResources()
+    /// (無ければdeinit)で引く。`nonisolated`なロックなのも同じ理由。
+    private static let openBookIDRegistry = OSAllocatedUnfairLock(initialState: [String: Int]())
+    nonisolated static var openBookIDs: Set<String> { openBookIDRegistry.withLock { Set($0.keys) } }
+
+    private nonisolated static func registerOpenBook(_ bookID: String) {
+        openBookIDRegistry.withLock { $0[bookID, default: 0] += 1 }
+    }
+
+    private nonisolated static func unregisterOpenBook(_ bookID: String) {
+        openBookIDRegistry.withLock { registry in
+            guard let count = registry[bookID] else { return }
+            if count <= 1 {
+                registry[bookID] = nil
+            } else {
+                registry[bookID] = count - 1
+            }
+        }
+    }
 
     /// リソースモニタ向けに、この本のメモリキャッシュとメモリ常駐の状態を取る。
     /// 1秒ごとに呼ばれる想定。PageLoaderの帳簿を読むだけで、画像には触れない。
@@ -1892,6 +1950,9 @@ final class ViewerViewModel: ObservableObject {
     func toggleLoupe() {
         isLoupeActive.toggle()
         updateHighResolutionSourceIfNeeded()
+        // 高解像度ソースが既に揃っている(ピンチ拡大中に拡大鏡を出した等)なら、結合画像は
+        // ここで作る。まだなら、揃った時点でscheduleHighResolutionSourceLoadが作る。
+        rebuildLoupeCombinedSourceImageIfNeeded()
     }
 
     /// 高解像度ソース(highResolutionSourceImages)を今必要としているか。利用者は
@@ -1935,10 +1996,10 @@ final class ViewerViewModel: ObservableObject {
             loupeCombinedSourceImage = nil
             return
         }
-        // 結合時の左右の並びは画面上の表示順(orderedCurrentImagesと同じ考え方)に合わせる。
         // ここで取得するimages自体はbook順(currentIndexが先頭)のまま保持する
         // (highResolutionSourceImagesはcurrentImagesと同じ順序であるという前提を崩さないため)。
-        let isRightToLeft = readingDirection == .rightToLeft
+        // 画面上の左右に並べ替えるのは結合画像を作るときだけ
+        // (rebuildLoupeCombinedSourceImageIfNeeded参照)。
         highResolutionSourceLoadTask = Task { [weak self] in
             guard let self else { return }
             var images: [CGImage] = []
@@ -1949,14 +2010,34 @@ final class ViewerViewModel: ObservableObject {
             }
             guard !Task.isCancelled else { return }
             self.highResolutionSourceImages = images
-            if images.count == 2 {
-                let screenLeft = isRightToLeft ? images[1] : images[0]
-                let screenRight = isRightToLeft ? images[0] : images[1]
-                self.loupeCombinedSourceImage = ImageExporter.combinedCGImage(leftImage: screenLeft, rightImage: screenRight)
-            } else {
-                self.loupeCombinedSourceImage = nil
-            }
+            // 前のページの結合画像は古い。捨ててから、拡大鏡が出ていれば作り直す。
+            self.loupeCombinedSourceImage = nil
+            self.rebuildLoupeCombinedSourceImageIfNeeded()
         }
+    }
+
+    /// 拡大鏡が見開きの境目をまたぐための結合画像(loupeCombinedSourceImage)を、**必要な
+    /// ときだけ**作る。
+    ///
+    /// 以前は高解像度ソースが揃うたびに無条件で結合していた。結合画像は2枚を横に並べた1枚の
+    /// ビットマップで、8000px上限の2枚なら16000×8000×4byte≒512MBになり、元の2枚
+    /// (各≤256MB)と合わせて瞬間的に1GB近くになりうる(監査で指摘)。しかも結合画像を使うのは
+    /// 拡大鏡だけなのに、ピンチ拡大(highResolutionSourceImagesしか使わない)でも作られていた。
+    /// 拡大鏡がONの間だけ持ち、OFFなら捨てる。ONにした瞬間に高解像度ソースが既に揃って
+    /// いればその場で作る(描画1回ぶん。以前はページを切り替えたときに同じコストを払って
+    /// いたので、合計の仕事量は増えない)。
+    private func rebuildLoupeCombinedSourceImageIfNeeded() {
+        guard isLoupeActive, currentImages.count == 2, highResolutionSourceImages.count == 2 else {
+            loupeCombinedSourceImage = nil
+            return
+        }
+        guard loupeCombinedSourceImage == nil else { return }
+        // 結合時の左右の並びは画面上の表示順(orderedCurrentImagesと同じ考え方)に合わせる。
+        let images = highResolutionSourceImages
+        let isRightToLeft = readingDirection == .rightToLeft
+        let screenLeft = isRightToLeft ? images[1] : images[0]
+        let screenRight = isRightToLeft ? images[0] : images[1]
+        loupeCombinedSourceImage = ImageExporter.combinedCGImage(leftImage: screenLeft, rightImage: screenRight)
     }
 
     // MARK: - 境界処理(最初/最後のページでの挙動)
@@ -3160,10 +3241,17 @@ final class ViewerViewModel: ObservableObject {
     /// (readingStateDiscardedのコメント参照)。
     func discardReadingState() {
         guard !skipsPersistence, !readingStateDiscarded else { return }
+        stopWritingReadingState()
+        modelContext.delete(readingState)
+        try? modelContext.save()
+    }
+
+    /// 以後readingStateへ書かない(保留中の保存も捨てる)。行そのものは消さない ―― 他所
+    /// (LibraryCleanupViewModel)が既に消した行に対して使う(readingStatesDeleteObserver参照)。
+    /// discardReadingStateはこれに削除を足したもの。
+    private func stopWritingReadingState() {
         saveDebounceTask?.cancel()
         saveDebounceTask = nil
         readingStateDiscarded = true
-        modelContext.delete(readingState)
-        try? modelContext.save()
     }
 }

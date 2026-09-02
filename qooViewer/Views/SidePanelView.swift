@@ -389,13 +389,8 @@ struct SidePanelView: View {
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
             .offset(x: position == .left ? width - 3 : -3)
-            .onHover { isHovering in
-                if isHovering {
-                    NSCursor.resizeLeftRight.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
+            // push/popの対応はhoverCursorが取る(HoverCursor.swift参照)。
+            .hoverCursor(.resizeLeftRight)
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .updating($widthDragOffset) { value, state, _ in
@@ -456,13 +451,8 @@ struct SidePanelView: View {
         }
         .frame(height: 8)
         .contentShape(Rectangle())
-        .onHover { isHovering in
-            if isHovering {
-                NSCursor.resizeUpDown.push()
-            } else {
-                NSCursor.pop()
-            }
-        }
+        // push/popの対応はhoverCursorが取る(HoverCursor.swift参照)。
+        .hoverCursor(.resizeUpDown)
         .gesture(
             DragGesture(minimumDistance: 0)
                 .updating($dragOffset) { value, state, _ in

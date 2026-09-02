@@ -89,6 +89,10 @@ nonisolated final class NestedArchiveResolver {
         var inMemoryLimitBytes: Int
         var temporaryArchiveCount: Int
         var temporaryBytes: Int
+        /// 開いているreader(ルートの書庫を含む)がライブラリの内部に抱えている展開バッファの
+        /// 上限見積り(ArchiveReading.residentDecompressionBufferUpperBoundBytes参照)。
+        /// 7zのソリッドブロックがここに現れる。zip/rarは常に0。
+        var decompressionBufferUpperBoundBytes: Int = 0
     }
 
     enum ResolveError: Error {
@@ -173,8 +177,9 @@ nonisolated final class NestedArchiveResolver {
         let url = TemporaryFileStore.makeFileURL(extension: (entryPath as NSString).pathExtension)
         do {
             // 逐次書き出し。ここも数百MBの書庫を丸ごとメモリに載せない
-            // (ArchiveReading.extract(at:to:)のコメント参照)。
-            try parent.reader.extract(at: entryPath, to: url)
+            // (ArchiveReading.extract(at:to:maxByteCount:)のコメント参照)。上限は
+            // 入れ子の書庫1本に許している大きさと同じ。
+            try parent.reader.extract(at: entryPath, to: url, maxByteCount: limits.maxSingleArchiveBytes)
         } catch {
             // 書きかけを残さない。ここは所有者が呼び出し側に移る前なので自分で片付ける。
             try? FileManager.default.removeItem(at: url)
@@ -205,6 +210,8 @@ nonisolated final class NestedArchiveResolver {
             inMemoryLimitBytes: limits.maxInMemoryBytes, temporaryArchiveCount: 0, temporaryBytes: 0
         )
         for entry in entries.values {
+            // ライブラリ内部の展開バッファ(7zのソリッドブロック)は置き場所を問わず数える。
+            stats.decompressionBufferUpperBoundBytes += entry.reader.residentDecompressionBufferUpperBoundBytes
             switch entry.storage {
             case .rootFile:
                 break
@@ -291,8 +298,11 @@ nonisolated final class NestedArchiveResolver {
             url: TemporaryFileStore.makeFileURL(extension: (entryPath as NSString).pathExtension)
         )
         // 親から一時ファイルへ**逐次**書き出す。data(at:)で受け取ってから書くと、その書庫の
-        // 全バイトが一度メモリに載ってしまう(ArchiveReading.extract(at:to:)のコメント参照)。
-        try parentReader.extract(at: entryPath, to: temporaryFile.url)
+        // 全バイトが一度メモリに載ってしまう(ArchiveReading.extract(at:to:maxByteCount:)の
+        // コメント参照)。上限も渡し、索引の申告より実際が大きい書庫は**書き出しの途中で**
+        // 打ち切る(監査で指摘: 下の事後検査だけでは、上限を超えて一時ファイルを書き潰す
+        // まで止まらなかった)。
+        try parentReader.extract(at: entryPath, to: temporaryFile.url, maxByteCount: limits.maxSingleArchiveBytes)
         let byteCount = (try? FileManager.default.attributesOfItem(atPath: temporaryFile.url.path)[.size]
             as? NSNumber)?.intValue ?? Int(declaredSize ?? 0)
         // 索引が申告したサイズを信じて書き出した後、実際の大きさをもう一度確かめる

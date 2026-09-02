@@ -370,5 +370,12 @@ final class LibraryCleanupViewModel: ObservableObject {
             modelContext.delete(state)
         }
         try? modelContext.save()
+        // 消した本を今開いているウインドウがあれば、そのViewerViewModelは削除済みの行を
+        // 握ったまま(同じModelContextなので同じオブジェクト)。以後そこへ書かせない
+        // (Notification.Name.bookReadingStatesDidDeleteのコメント参照。監査で指摘)。
+        NotificationCenter.default.post(
+            name: .bookReadingStatesDidDelete, object: self,
+            userInfo: [BookReadingStateDeletionNotification.bookIDsUserInfoKey: Set(matched.map(\.bookID))]
+        )
     }
 }

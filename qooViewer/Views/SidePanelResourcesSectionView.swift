@@ -443,6 +443,17 @@ private struct BookMemorySection: View, Equatable {
                     help: "Archives found inside this book that are open right now, against the “Nested archives kept in memory” setting. The count includes every format, but the size covers only ZIP archives — RAR and 7z have to be held as temporary files instead, which appear under On Disk ▸ Temporary files."
                 )
             }
+            // 7zのライブラリが伸長したまま抱えているソリッドブロック。ページ画像のキャッシュ
+            // とは別に居座るメモリで、上のどの帳簿にも載らない(監査で指摘: 「説明のつかない
+            // メモリ」としてしか見えていなかった)。7zを含まない本では出さない。
+            if snapshot.sevenZipDecompressionBufferUpperBoundBytes > 0 {
+                DetailRow(
+                    "7z decompression buffer",
+                    // 上限の見積り(実際はこれ以下)。値の側に「≤」を添えて上限だと分かるようにする。
+                    "≤ " + memoryText(snapshot.sevenZipDecompressionBufferUpperBoundBytes)
+                )
+                .help("The 7z library decompresses a whole solid block to read one page, and keeps that block in memory for as long as the book is open. This is the largest it can be — the total uncompressed size of the archive — because the library does not report the actual block size. It is released when the book is closed.")
+            }
         }
     }
 

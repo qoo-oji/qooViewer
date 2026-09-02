@@ -111,16 +111,33 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
         return (nil, entry.fileAttributes[.modificationDate] as? Date)
     }
 
-    /// ArchiveReading.extract(at:to:)のzip実装(プロトコル側のコメント参照)。
-    /// ZIPFoundationのextract(_:to:)は、伸長したチャンクをそのままFILE*へ書き出していく
+    /// ArchiveReading.extract(at:to:maxByteCount:)のzip実装(プロトコル側のコメント参照)。
+    /// ZIPFoundationのconsumer版extractは、伸長したチャンクを順にクロージャへ渡す
     /// (Archive+Reading.swift参照)ため、エントリの大きさに関わらずメモリのピークは
     /// バッファ1つぶんに収まる。
     ///
-    /// この関数は書き出し先が既に存在するとfileWriteFileExistsで失敗する。呼び出し側
-    /// (NestedArchiveResolver)が毎回UUIDで新しいパスを払い出すため、通常は起こらない。
-    func extract(at path: String, to url: URL) throws {
+    /// 以前は`extract(_:to:)`(ライブラリがファイルへ直接書く版)だったが、それだと書き出した
+    /// 量を数えられず、索引が嘘をついている書庫を上限で止められなかった(監査で指摘)。
+    /// チャンクごとに累計を数え、上限を超えた時点でthrowして伸長を打ち切る。書きかけの
+    /// ファイルは残さない。CRCの検証はライブラリの既定どおり行う(以前と同じ)。
+    func extract(at path: String, to url: URL, maxByteCount: Int) throws {
         guard let entry = entryByCorrectedPath[path] else { throw ArchiveReaderError.entryNotFound }
-        _ = try archive.extract(entry, to: url)
+        guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
+            throw ArchiveReaderError.cannotOpen
+        }
+        do {
+            let handle = try FileHandle(forWritingTo: url)
+            defer { try? handle.close() }
+            var writtenByteCount = 0
+            _ = try archive.extract(entry) { chunk in
+                writtenByteCount += chunk.count
+                guard writtenByteCount <= maxByteCount else { throw ArchiveReaderError.entryTooLarge }
+                try handle.write(contentsOf: chunk)
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            throw error
+        }
     }
 
     /// セントラルディレクトリが持つ非圧縮サイズをそのまま返す(展開は伴わない)。

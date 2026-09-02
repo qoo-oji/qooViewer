@@ -835,6 +835,7 @@ struct ViewerView: View {
         viewModel.onPageBoundaryRequest = nil
         viewModel.stopSlideshow()
         viewModel.flushPendingSave()
+        cancelOpenBookExportIfNeeded()
         // このViewerViewはもう画面に無いので、本1冊ぶんのメモリキャッシュと走っている
         // 読み込みを明示的に手放す(ViewerViewModel.releaseResourcesのコメント参照)。
         // clearAppStateBridgesIfStillOwnerと違いトークンで持ち主を判定しないのは、
@@ -1043,6 +1044,20 @@ struct ViewerView: View {
             destination: .init(url: chosen, isSecurityScoped: false),
             asksBeforeExporting: true
         )
+    }
+
+    /// 進行中の「本の書き出し」があれば止めて、シートを畳む。
+    ///
+    /// このビューが消えるとき(本の切り替え・ウインドウを閉じる)に呼ぶ(監査で指摘)。
+    /// 「タブを閉じる」(closeTab)と赤い閉じるボタン(forceCloseWindow)はシートやその上の
+    /// 同名確認のアラートを素通りしてウインドウを閉じられるため、何もしないと書き出しのTaskが
+    /// 同名確認の答えを永久に待ち続け、書き出し用のPageLoaderと読み込んだ本を抱えたまま残る。
+    /// BookExportViewModel.cancel()がその待ちを「スキップ」で解く。
+    /// 書き出し中でなければ(シートも出ていなければ)何もしない。
+    private func cancelOpenBookExportIfNeeded() {
+        guard let openBookExport else { return }
+        openBookExport.viewModel.cancel()
+        self.openBookExport = nil
     }
 
     /// 1冊の書き出しが成功したあとの後始末(環境設定「レイアウト」)。
@@ -3646,6 +3661,8 @@ struct ViewerView: View {
                 // handleOnDisappearと同じ理由で、資源の解放もここから先に行っておく
                 // (releaseResourcesは二度呼んでも何もしない)。
                 viewModel.releaseResources()
+                // 進行中の「本の書き出し」も止める(cancelOpenBookExportIfNeededのコメント参照)。
+                cancelOpenBookExportIfNeeded()
             }
         }
         windowObservers.append(closeToken)

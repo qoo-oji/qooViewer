@@ -12,6 +12,10 @@ nonisolated final class SevenZipArchiveReader: ArchiveReading {
     /// ZipArchiveReaderのentryByCorrectedPathと同じ考え方。同名エントリが複数存在する場合は
     /// 元の`entries.first(where:)`と同じく最初に見つかったものを優先する)。
     private var entryByPath: [String: SevenZip.Entry] = [:]
+    /// 全エントリの非圧縮サイズの合計。residentDecompressionBufferUpperBoundBytesの材料。
+    private let totalUncompressedBytes: Int
+    /// 一度でも取り出しを行ったか(それまではライブラリのバッファは空)。
+    private var hasExtracted = false
 
     init(url: URL) throws {
         self.archive = try SevenZip.Archive(fileURL: url)
@@ -19,6 +23,8 @@ nonisolated final class SevenZipArchiveReader: ArchiveReading {
         for entry in entries where entryByPath[entry.path] == nil {
             entryByPath[entry.path] = entry
         }
+        // 溢れよけにclampingで足す(索引が嘘をついていても落ちないように)。
+        totalUncompressedBytes = entries.reduce(0) { $0 &+ Int(clamping: $1.uncompressedSize) }
     }
 
     func listFilePaths() throws -> [String] {
@@ -29,7 +35,22 @@ nonisolated final class SevenZipArchiveReader: ArchiveReading {
         guard let entry = entryByPath[path] else {
             throw ArchiveReaderError.entryNotFound
         }
+        hasExtracted = true
         return try archive.extract(entry: entry)
+    }
+
+    /// SevenZip.swiftの`Archive.extract(entry:)`はLZMA SDKの`SzArEx_Extract`を
+    /// ブロックキャッシュ(blockIndex/outBuffer)付きで呼んでおり、1エントリを取り出すために
+    /// **そのエントリが属するソリッドブロック全体**を伸長し、そのバッファを`Archive`が
+    /// 解放されるまで保持し続ける(監査で指摘)。7-Zipの既定はソリッド圧縮なので、GB級の
+    /// cb7では本を開いている間ずっとGB単位のメモリがこのreaderの裏に居座る。
+    ///
+    /// ライブラリはブロックの構成(どのエントリがどのブロックか)を公開していないため、
+    /// 正確な大きさは分からない。ここでは「全エントリの非圧縮サイズの合計」を**上限の見積り**
+    /// として返す(ブロックが1つのソリッド書庫ではぴったり一致し、複数ブロック・非ソリッドの
+    /// 書庫では実際より大きく出る)。リソースモニタは「最大で」と添えて出す。
+    var residentDecompressionBufferUpperBoundBytes: Int {
+        hasExtracted ? totalUncompressedBytes : 0
     }
 
     /// 7zのエントリはSevenZip.Entry.modified(更新日時)しか持たず、作成日時という概念が無い

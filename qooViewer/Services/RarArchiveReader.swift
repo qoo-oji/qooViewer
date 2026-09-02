@@ -39,7 +39,7 @@ nonisolated final class RarArchiveReader: ArchiveReading {
         return (entry.creation, entry.modified)
     }
 
-    /// ArchiveReading.extract(at:to:)のrar実装(プロトコル側のコメント参照)。
+    /// ArchiveReading.extract(at:to:maxByteCount:)のrar実装(プロトコル側のコメント参照)。
     ///
     /// Unrar.swiftの`extract(_:) -> Data`は伸長結果をすべてDataへ積み上げてから返すため、
     /// 大きな書庫では**その書庫の全バイトが一度メモリに載る**。入れ子の書庫は数百MB〜数GBに
@@ -49,17 +49,26 @@ nonisolated final class RarArchiveReader: ArchiveReading {
     /// コールバックはthrowできないため、書き込みエラーは変数に控えてから`progress.cancel()`で
     /// 伸長そのものを打ち切る(Unrar.swift側はisCancelledを見てUNRARCALLBACKに-1を返し、
     /// RARProcessFileがエラーになる)。中途半端なファイルが残らないよう、失敗時はここで消す。
-    func extract(at path: String, to url: URL) throws {
+    /// 上限超過(maxByteCount)も同じ経路で打ち切る ―― 書き出した量を数え、超えた時点で
+    /// entryTooLargeを控えて伸長を止める(監査で指摘)。
+    func extract(at path: String, to url: URL, maxByteCount: Int) throws {
         guard let entry = entryByFileName[path] else { throw ArchiveReaderError.entryNotFound }
         guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
             throw ArchiveReaderError.cannotOpen
         }
         var writeError: Error?
+        var writtenByteCount = 0
         do {
             let handle = try FileHandle(forWritingTo: url)
             defer { try? handle.close() }
             try archive.extract(entry) { chunk, progress in
                 guard writeError == nil else { return }
+                writtenByteCount += chunk.count
+                guard writtenByteCount <= maxByteCount else {
+                    writeError = ArchiveReaderError.entryTooLarge
+                    progress.cancel()
+                    return
+                }
                 do {
                     try handle.write(contentsOf: chunk)
                 } catch {
