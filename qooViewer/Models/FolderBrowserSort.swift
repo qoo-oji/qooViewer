@@ -9,7 +9,7 @@ import SwiftUI
 /// (BookInternalBrowsing参照)ため、対象をファイルシステムを直接見ている上段に限っている。
 ///
 /// フォルダとファイルをグループ分けするかどうかは、この基準とは独立した別の設定
-/// (環境設定「一般」タブのSidePanelSortOrder。上段・下段の共通設定)のままで、ここには
+/// (環境設定「一般」タブのSidePanelSortOrder。こちらも上段専用)のままで、ここには
 /// 含めない。FolderBrowserSortがその2つを束ねる。
 ///
 /// nonisolated: 実際に並べ替えを行うDirectoryBrowserがnonisolated enum(メインスレッド外の

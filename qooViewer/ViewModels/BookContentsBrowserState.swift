@@ -194,8 +194,7 @@ final class BookContentsBrowserState: ObservableObject {
     func reload() {
         do {
             entries = try BookInternalBrowsing.entries(
-                at: currentLevel, sortOrder: preferences?.sidePanelSortOrder ?? .foldersFirst,
-                pageOrder: pageOrder
+                at: currentLevel, pageOrder: pageOrder
             )
             navigationErrorMessage = nil
         } catch {
@@ -323,8 +322,7 @@ final class BookContentsBrowserState: ObservableObject {
         var path: [(BookEntryLevel, ArchiveLocator?)] = []
         for _ in 0..<Self.maxResolutionDepth {
             guard let levelEntries = try? BookInternalBrowsing.entries(
-                at: level, sortOrder: preferences?.sidePanelSortOrder ?? .foldersFirst,
-                pageOrder: pageOrder
+                at: level, pageOrder: pageOrder
             ) else { return nil }
             if levelEntries.contains(where: { $0.matchKey == matchKey }) {
                 return (path, (level, locator))

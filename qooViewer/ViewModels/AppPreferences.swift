@@ -465,11 +465,17 @@ final class AppPreferences: ObservableObject {
             NotificationCenter.default.post(name: .pageOrderSettingDidChange, object: nil)
         }
     }
-    /// 環境設定「一般」タブの、サイドパネル(上段・下段どちらも)のフォルダ・ファイルの
-    /// 並び順(既定はフォルダをまとめて上に表示、Finderと同じ考え方)。DirectoryBrowser/
-    /// BookInternalBrowsingはどちらもnonisolated enum(MainActor隔離のAppPreferencesを
-    /// 直接読めない)のため、SidePanelBrowserState/BookContentsBrowserStateがreload()の
-    /// たびにこの値を引数として渡す。
+    /// 環境設定「一般」タブの、サイドパネル上段(フォルダブラウザ)のフォルダ・ファイルの
+    /// 並び順(既定はフォルダをまとめて上に表示、Finderと同じ考え方)。DirectoryBrowserは
+    /// nonisolated enum(MainActor隔離のAppPreferencesを直接読めない)のため、
+    /// SidePanelBrowserStateがreload()のたびにこの値を引数として渡す。
+    ///
+    /// **下段(本の中身ブラウザ)には効かせない。** 以前は下段にも「フォルダを上にまとめる」
+    /// だけが効いていた(名前順のほうは、下段が本のページ順で並ぶようになった時点で既に
+    /// 効かなくなっていた)が、下段の役目はビューアの表示ページを追従して「本の中のどこに
+    /// いるか」を示すことで、行の並びが本のページ順そのものでなければ追従の意味が薄れる。
+    /// フォルダを上にまとめると、ルートの表紙画像が章フォルダの列の下へ沈むなど、ページ順と
+    /// 食い違う並びになる(監査で指摘。BookInternalBrowsing.sortedEntries参照)。
     @Published var sidePanelSortOrder: SidePanelSortOrder {
         didSet { UserDefaults.standard.set(sidePanelSortOrder.rawValue, forKey: Keys.sidePanelSortOrder) }
     }
@@ -736,9 +742,17 @@ final class AppPreferences: ObservableObject {
     nonisolated static let defaultPageImageCacheLimitMB: Double = 300
     static let pageImageCacheLimitRangeMB: ClosedRange<Double> = 100...2000
     /// PageLoaderへ渡す形(バイト数)。
-    var pageImageCacheLimitBytes: Int {
-        let range = Self.pageImageCacheLimitRangeMB
-        let clamped = min(max(pageImageCacheLimitMB, range.lowerBound), range.upperBound)
+    var pageImageCacheLimitBytes: Int { Self.pageImageCacheLimitBytes(forMB: pageImageCacheLimitMB) }
+    /// 上と同じ換算を、値を引数で受ける形にしたもの。`$pageImageCacheLimitMB`の購読
+    /// (ViewerViewModel)が、受け取った新しい値をそのまま換算するために使う。
+    ///
+    /// **購読の中で`pageImageCacheLimitBytes`(プロパティ)を読んではいけない。** `@Published`の
+    /// 発行はプロパティが書き換わる**前**(willSet)に行われるため、そこで読めるのは1つ前の値で、
+    /// 設定と実体が常に1段ずれる(監査で指摘: 300→200と動かすと300が、次に200→100と動かすと
+    /// 200がPageLoaderへ渡っていた)。
+    static func pageImageCacheLimitBytes(forMB megabytes: Double) -> Int {
+        let range = pageImageCacheLimitRangeMB
+        let clamped = min(max(megabytes, range.lowerBound), range.upperBound)
         return Int(clamped) * 1024 * 1024
     }
 
@@ -766,8 +780,12 @@ final class AppPreferences: ObservableObject {
         Int(defaultNestedArchiveMemoryLimitMB) * 1024 * 1024
     /// PageLoader/BookLoaderへ渡す形(バイト数)。
     var nestedArchiveMemoryLimitBytes: Int {
-        let range = Self.nestedArchiveMemoryLimitRangeMB
-        let clamped = min(max(nestedArchiveMemoryLimitMB, range.lowerBound), range.upperBound)
+        Self.nestedArchiveMemoryLimitBytes(forMB: nestedArchiveMemoryLimitMB)
+    }
+    /// 値を引数で受ける版(pageImageCacheLimitBytes(forMB:)と同じ理由・同じ使い方)。
+    static func nestedArchiveMemoryLimitBytes(forMB megabytes: Double) -> Int {
+        let range = nestedArchiveMemoryLimitRangeMB
+        let clamped = min(max(megabytes, range.lowerBound), range.upperBound)
         return Int(clamped) * 1024 * 1024
     }
 

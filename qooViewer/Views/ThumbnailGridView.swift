@@ -554,6 +554,8 @@ private struct ThumbnailCell: View {
     /// loadPreviewImage参照)。一度読み込めば、同じセルを何度ホバーしても読み込み直さない
     /// よう@Stateにキャッシュしておく(素早くホバーを出し入れしたときのちらつき防止)。
     @State private var previewImage: CGImage?
+    /// previewImageをデコードしたときの解像度(loadPreviewImageIfNeeded参照)。
+    @State private var previewPixelSize: CGFloat = 0
     /// ホバー開始から実際にpopoverを出すまでの遅延用タスク。
     @State private var hoverPreviewTask: Task<Void, Never>?
     /// ホバー開始から実際にpopoverを出すまでの遅延(ナノ秒)。BookmarkListView.PageRowViewの
@@ -657,13 +659,27 @@ private struct ThumbnailCell: View {
             // 先にデコードしておく(PageLoaderのメモリキャッシュに載るので、プレビューが即座に
             // 出る)。LazyVGridは画面内のセルしか作らないため「表示中」に自然と限定される。
             if preferences.preloadThumbnailGridPreviews, preferences.showThumbnailHoverPreview,
-               previewImage == nil, !Task.isCancelled {
-                previewImage = await viewModel.loadPreviewImage(at: index)
-                if let previewImage {
-                    onRetainedImage(previewImage)
-                }
+               !Task.isCancelled {
+                await loadPreviewImageIfNeeded()
             }
         }
+    }
+
+    /// 拡大プレビュー用の画像を、まだ無いか**解像度が今の設定と違う**ときだけ読む。
+    ///
+    /// 環境設定「プレビューの大きさ」を上げると、必要なデコード解像度
+    /// (AppPreferences.thumbnailHoverPreviewPixelSize)も上がる。読んだ時点の解像度を
+    /// 覚えておかないと、小さく読んだ画像を大きな枠へ引き伸ばしてぼやけたまま出し続ける
+    /// (監査で指摘。PageLoader側のキャッシュは解像度込みのキーなので、古いのはこの
+    /// @Stateだけだった)。サイドパネルのページモード・ブックマーク編集・書き出しウインドウの
+    /// 同種のプレビューも同じ判定を持つ。
+    private func loadPreviewImageIfNeeded() async {
+        let pixelSize = preferences.thumbnailHoverPreviewPixelSize
+        guard previewImage == nil || previewPixelSize != pixelSize else { return }
+        guard let loaded = await viewModel.loadPreviewImage(at: index), !Task.isCancelled else { return }
+        previewImage = loaded
+        previewPixelSize = pixelSize
+        onRetainedImage(loaded)
     }
 
     /// サムネイルをホバーしたときのpopoverの中身。プレビュー画像(previewImage)とファイル名を
@@ -706,13 +722,7 @@ private struct ThumbnailCell: View {
             .frame(maxWidth: preferences.thumbnailHoverPreviewSideLength)
         }
         .padding(12)
-        .task {
-            guard previewImage == nil else { return }
-            previewImage = await viewModel.loadPreviewImage(at: index)
-            if let previewImage {
-                onRetainedImage(previewImage)
-            }
-        }
+        .task { await loadPreviewImageIfNeeded() }
     }
 
     /// サムネイルの下に書く文字。環境設定が「表示なし」ならnil(呼び出し側はTextごと省く)。

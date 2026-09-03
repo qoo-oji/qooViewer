@@ -2404,6 +2404,9 @@ private struct PageRowView: View {
     /// 拡大プレビュー用のフル解像度画像。一度読み込めば、同じ行を何度ホバーしても読み込み直さない
     /// よう@Stateにキャッシュしておく(素早くホバーを出し入れしたときのちらつき防止)。
     @State private var previewImage: CGImage?
+    /// previewImageをデコードしたときの解像度。設定が変わっていれば読み直すための控え
+    /// (ThumbnailGridView.ThumbnailCell.loadPreviewImageIfNeeded参照)。
+    @State private var previewPixelSize: CGFloat = 0
     /// ホバー開始から実際にpopoverを出すまでの遅延用タスク(bodyの.onHoverのコメント参照)。
     @State private var hoverPreviewTask: Task<Void, Never>?
     /// ホバー開始から実際にpopoverを出すまでの遅延(ナノ秒)。
@@ -2749,11 +2752,15 @@ private struct PageRowView: View {
         }
         .padding(12)
         .task {
-            guard previewImage == nil else { return }
-            previewImage = await viewModel.previewImage(rawIndex: row.rawIndex)
-            if let previewImage {
-                onRetainedImage(previewImage)
-            }
+            // 解像度が設定と違えば読み直す(ThumbnailGridView.ThumbnailCell.
+            // loadPreviewImageIfNeededと同じ理由)。
+            let pixelSize = preferences.thumbnailHoverPreviewPixelSize
+            guard previewImage == nil || previewPixelSize != pixelSize else { return }
+            guard let loaded = await viewModel.previewImage(rawIndex: row.rawIndex), !Task.isCancelled
+            else { return }
+            previewImage = loaded
+            previewPixelSize = pixelSize
+            onRetainedImage(loaded)
         }
     }
 }

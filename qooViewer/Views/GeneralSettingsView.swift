@@ -137,7 +137,13 @@ struct GeneralSettingsView: View {
                         isOn: $preferences.sidePanelUsesDoubleClick,
                         help: "Navigation buttons such as Back, Forward, and Up are unaffected."
                     )
-                    SettingsPicker("Sort Order", selection: $preferences.sidePanelSortOrder)
+                    // 上段のフォルダブラウザ専用。下段の本の中身の一覧は常に本のページ順
+                    // (理由はAppPreferences.sidePanelSortOrderのコメント参照)。
+                    SettingsPicker(
+                        "Sort Order",
+                        selection: $preferences.sidePanelSortOrder,
+                        help: "Applies to the folder browser at the top of the side panel. The book contents list below it always follows the book's page order."
+                    )
                     // ユーザー要望: 次/前の本へ移動する順番を、フォルダブラウザの並べ替えに
                     // 合わせたい。並べ替えの基準・向きを変える手段がパネル上部のメニューしか
                     // 無いため、この設定はサイドパネル欄の一部として置き、パネル機能がOFFの

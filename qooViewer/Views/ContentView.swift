@@ -275,8 +275,50 @@ struct ContentView: View {
             .animation(.easeInOut(duration: 0.12), value: isFileDropTargeted)
     }
 
+    /// 環境設定の変更に応じた後始末をまとめたグループ。
+    ///
+    /// bodyから切り出しているのは、applyFileDropTargetと同じく型チェックが長くかかりすぎる
+    /// 不具合の対策(windowContentのコメント参照。onChangeを1つ足しただけでbodyが
+    /// 「reasonable time」の限界を超えたため、環境設定に関わるものをここへ移した)。
+    private func applyPreferenceChangeHandlers<Content: View>(to content: Content) -> some View {
+        content
+            // サイドパネルを左右どちらに置くかを変更したら、ホバー表示中のパネルはいったん閉じる。
+            // そのまま反対側へ瞬間移動させると、カーソルは元の端に残ったままパネルだけが移りつつ、
+            // 次のマウス移動で「パネルより内側にいる」と判定されて即座に閉じることになり、
+            // ちらついて見えるため。常時表示中は表示位置が入れ替わるだけで、この値は使われない。
+            .onChange(of: preferences.sidePanelPosition) { _, _ in
+                appState.isSidePanelRevealed = false
+            }
+            // サイドパネル機能そのものをOFFにしたときも同じ。浮いていたパネルは消えるが、
+            // isSidePanelRevealedが立ったまま残ると、ツールバー/プログレスバーの自動表示が
+            // 「サイドパネルが主導権を握っている」と見なされてカーソルがウインドウの外へ出るまで
+            // 効かず、機能を再びONにした瞬間に端へ近づけてもいないのにパネルが浮く(監査で指摘。
+            // 環境設定ウインドウがこのウインドウに重なっていると、カーソルが枠の外へ出ないため
+            // 自動で閉じる経路も通らない)。「サイドパネルを隠す」をOFFにした場合の同じ後始末は
+            // AppState.hideSidePanelのdidSetが持つ。
+            .onChange(of: preferences.sidePanelFeatureEnabled) { _, _ in
+                cancelPendingSidePanelReveal()
+                appState.isSidePanelRevealed = false
+            }
+            // 「同じフォルダのファイルを開く」の一覧を、並び順に関わる設定が変わったその場で
+            // 並べ直す(ユーザー要望: フォルダブラウザの並べ替えに合わせる)。siblingBookOrderは
+            // 関係する4つの設定を束ねた値なので、パネル上部の並べ替えメニュー・環境設定の
+            // トグル・サイドパネル機能自体のON/OFF、どこから変えてもここで拾える
+            // (AppPreferences.siblingBookOrder参照)。
+            //
+            // フォルダブラウザ側(SidePanelBrowserState.applySortSettings)と違い、ディスクを
+            // 読み直す。あちらは一覧を保持していて並べ替えるだけで済むのに対し、こちらが持って
+            // いるのはURLの列だけで、サイズや日付といった並べ替えに要る値を持たないため。
+            // 設定の変更はユーザーの操作に伴う稀な出来事で、そのときこのメニューは開かれていない
+            // (メニューを開いている間の更新はMenuBarMenuGateが保留する)ので、走査を1回増やす
+            // ことよりも、AppStateが並べ替え用の属性まで抱え込まないほうを取った。
+            .onChange(of: preferences.siblingBookOrder) { _, _ in
+                appState.reloadSiblingBooks()
+            }
+    }
+
     var body: some View {
-        applyFileDropTarget(to: windowContent)
+        applyPreferenceChangeHandlers(to: applyFileDropTarget(to: windowContent))
         .animation(.easeInOut(duration: 0.15), value: appState.isSidePanelRevealed)
         .animation(.easeInOut(duration: 0.15), value: appState.hideSidePanel)
         // サイドパネル追加後、ウインドウがキーのときだけタイトルバーにまで達する青い
@@ -373,28 +415,6 @@ struct ContentView: View {
         // sidePanelWidthはAppStateではなくContentView自身の@Stateのため、ここで直接行う)。
         .onChange(of: sidePanelWidth) { _, newValue in
             preferences.sidePanelWidth = Double(newValue)
-        }
-        // サイドパネルを左右どちらに置くかを変更したら、ホバー表示中のパネルはいったん閉じる。
-        // そのまま反対側へ瞬間移動させると、カーソルは元の端に残ったままパネルだけが移りつつ、
-        // 次のマウス移動で「パネルより内側にいる」と判定されて即座に閉じることになり、
-        // ちらついて見えるため。常時表示中は表示位置が入れ替わるだけで、この値は使われない。
-        .onChange(of: preferences.sidePanelPosition) { _, _ in
-            appState.isSidePanelRevealed = false
-        }
-        // 「同じフォルダのファイルを開く」の一覧を、並び順に関わる設定が変わったその場で
-        // 並べ直す(ユーザー要望: フォルダブラウザの並べ替えに合わせる)。siblingBookOrderは
-        // 関係する4つの設定を束ねた値なので、パネル上部の並べ替えメニュー・環境設定の
-        // トグル・サイドパネル機能自体のON/OFF、どこから変えてもここで拾える
-        // (AppPreferences.siblingBookOrder参照)。
-        //
-        // フォルダブラウザ側(SidePanelBrowserState.applySortSettings)と違い、ディスクを
-        // 読み直す。あちらは一覧を保持していて並べ替えるだけで済むのに対し、こちらが持って
-        // いるのはURLの列だけで、サイズや日付といった並べ替えに要る値を持たないため。
-        // 設定の変更はユーザーの操作に伴う稀な出来事で、そのときこのメニューは開かれていない
-        // (メニューを開いている間の更新はMenuBarMenuGateが保留する)ので、走査を1回増やす
-        // ことよりも、AppStateが並べ替え用の属性まで抱え込まないほうを取った。
-        .onChange(of: preferences.siblingBookOrder) { _, _ in
-            appState.reloadSiblingBooks()
         }
         // カーソルがウインドウの外へ出たことを検知するグローバルモニタは、閉じるべきものが
         // 表示されている間だけ取り付ける(updateOutsideWindowMonitor参照)。

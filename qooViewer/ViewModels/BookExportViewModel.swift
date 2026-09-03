@@ -166,6 +166,14 @@ class BookExportViewModel: ObservableObject {
     /// 除外(非表示)ページを含めるか。false(既定)なら除外ページは出力に含めない。
     @Published var includeExcludedPages = false
 
+    /// 上の2つを環境設定「レイアウト」の形式ごとの既定値へ戻す。initが取り込むのと同じ値で、
+    /// 出力ウインドウが開かれるたびにExportWindowContent.onAppearから呼ぶ(理由はそちらの
+    /// コメント参照)。
+    func resetOptionsToDefaults() {
+        renumberImagesSequentially = preferences.bookExportRenumbersImages(for: format)
+        includeExcludedPages = preferences.bookExportIncludesExcludedPages(for: format)
+    }
+
     // MARK: - 実行中の状態
 
     @Published private(set) var isExporting = false

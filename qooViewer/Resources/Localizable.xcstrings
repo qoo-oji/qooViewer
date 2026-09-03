@@ -1751,6 +1751,22 @@
         }
       }
     },
+    "Applies to the folder browser at the top of the side panel. The book contents list below it always follows the book's page order." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies to the folder browser at the top of the side panel. The book contents list below it always follows the book's page order."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サイドパネル上段のフォルダブラウザに適用されます。\n下段の本の中身の一覧は、常に本のページ順に従います。"
+          }
+        }
+      }
+    },
     "Applies to the page list only." : {
       "localizations" : {
         "en" : {

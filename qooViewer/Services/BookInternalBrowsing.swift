@@ -76,15 +76,14 @@ nonisolated enum BookInternalBrowsing {
     /// - Parameter pageOrder: 今開いている本の実際のページ順(sortKey → 読書順の位置)。
     ///   一覧の並びはこれに従う ―― BookContentsBrowserState.pageOrder参照。
     static func entries(
-        at level: BookEntryLevel, sortOrder: SidePanelSortOrder, pageOrder: [String: Int]
+        at level: BookEntryLevel, pageOrder: [String: Int]
     ) throws -> [Entry] {
         switch level {
         case .folder(let url):
-            return try folderEntries(in: url, sortOrder: sortOrder, pageOrder: pageOrder)
+            return try folderEntries(in: url, pageOrder: pageOrder)
         case .archive(_, let allPaths, let prefix, let matchKeyPrefix):
             return archiveEntries(
-                allPaths: allPaths, prefix: prefix, matchKeyPrefix: matchKeyPrefix,
-                sortOrder: sortOrder, pageOrder: pageOrder
+                allPaths: allPaths, prefix: prefix, matchKeyPrefix: matchKeyPrefix, pageOrder: pageOrder
             )
         case .imageFileList(let urls):
             return imageFileEntries(urls)
@@ -93,12 +92,11 @@ nonisolated enum BookInternalBrowsing {
 
     /// 直接渡された画像ファイルの一覧。
     ///
-    /// **sortOrderを適用せず、渡された順(=本のページ順)のまま返す。** この階層に並ぶのは
+    /// **渡された順(=本のページ順)のまま返す。** この階層に並ぶのは
     /// 「今開いている本のページそのもの」であり、ビューアに表示されている順と一覧の順が
     /// 食い違うほうが分かりにくいため。フォルダをまたいで選択された場合、ファイル名だけで
     /// 並べ直すとページ順と一致しなくなる(本のページ順はフルパスの自然順。
-    /// BookOpenRequest.init(openingCandidates:)参照)。フォルダが1件も混ざらないので
-    /// foldersFirstとmixedByNameの区別も元々意味を持たない。
+    /// BookOpenRequest.init(openingCandidates:)参照)。
     ///
     /// matchKeyはフルパス。BookLoaderが画像の本のPageRefへ入れるsortKeyと同じもので、
     /// これが一致することでクリック時にそのページへジャンプできる
@@ -112,9 +110,7 @@ nonisolated enum BookInternalBrowsing {
         }
     }
 
-    /// 一覧を並べ替える。「フォルダ」扱いはisContainer(実フォルダ・ネストした書庫ファイルの
-    /// どちらも踏み込めるため上位にまとめる)で、環境設定「一般」タブの並び順設定に従う。
-    /// DirectoryBrowser.sortedEntries(_:order:)と同じ考え方。
+    /// 一覧を並べ替える。
     ///
     /// **並びの基準は名前ではなく、今開いている本のページ順そのもの**(pageOrder)。
     /// この一覧は「今開いている本の中身」であり、ビューアに表示されている順と食い違うと
@@ -122,9 +118,14 @@ nonisolated enum BookInternalBrowsing {
     /// ユーザーの並べ替え(pageOrderOverride)を反映できず、ビューアと食い違いえた。
     /// 本のページに含まれない項目(除外ページ、本の対象外の画像、ページを1枚も含まない
     /// フォルダ)は順位を持たないので、末尾へ名前順でまとめる。
-    private static func sortedEntries(
-        _ entries: [Entry], order: SidePanelSortOrder, pageOrder: [String: Int]
-    ) -> [Entry] {
+    ///
+    /// 環境設定「一般」タブの「フォルダをまとめて上に」(SidePanelSortOrder)は**ここには
+    /// 効かせない**(上段のフォルダブラウザ専用)。以前は下段でもコンテナを上へまとめていたが、
+    /// この一覧の役目はビューアの表示ページを追従して「本の中のどこにいるか」を示すことで、
+    /// 行の並びがページ順と食い違うと追従の意味が薄れる ―― ルートに表紙画像、章はフォルダ、
+    /// という本で、1ページ目の表紙が章フォルダの列の下へ沈んでいた(監査で指摘)。
+    /// コンテナは「中に含まれる最初のページ」の位置に、画像と混ざって並ぶ。
+    private static func sortedEntries(_ entries: [Entry], pageOrder: [String: Int]) -> [Entry] {
         let ranks = ranksByEntryID(entries, pageOrder: pageOrder)
         func isBefore(_ lhs: Entry, _ rhs: Entry) -> Bool {
             switch (ranks[lhs.id], ranks[rhs.id]) {
@@ -137,15 +138,7 @@ nonisolated enum BookInternalBrowsing {
         func compareName(_ lhs: Entry, _ rhs: Entry) -> Bool {
             compareCanonicalPageOrder(lhs.displayName, rhs.displayName) == .orderedAscending
         }
-        switch order {
-        case .mixedByName:
-            return entries.sorted(by: isBefore)
-        case .foldersFirst:
-            return entries.sorted { lhs, rhs in
-                if lhs.isContainer != rhs.isContainer { return lhs.isContainer }
-                return isBefore(lhs, rhs)
-            }
-        }
+        return entries.sorted(by: isBefore)
     }
 
     /// 各項目の「本の中での位置」。画像はそのページの位置、コンテナ(フォルダ・入れ子の書庫)は
@@ -177,7 +170,7 @@ nonisolated enum BookInternalBrowsing {
     }
 
     private static func folderEntries(
-        in url: URL, sortOrder: SidePanelSortOrder, pageOrder: [String: Int]
+        in url: URL, pageOrder: [String: Int]
     ) throws -> [Entry] {
         let children = try FileManager.default.contentsOfDirectory(
             at: url,
@@ -207,7 +200,7 @@ nonisolated enum BookInternalBrowsing {
             }
             return nil
         }
-        return sortedEntries(entries, order: sortOrder, pageOrder: pageOrder)
+        return sortedEntries(entries, pageOrder: pageOrder)
     }
 
     /// フラットなパス一覧(ZIPFoundation/Unrar/SevenZipのlistFilePaths()はディレクトリ
@@ -215,8 +208,7 @@ nonisolated enum BookInternalBrowsing {
     /// 切り出す。prefix以降の残りを最初の"/"で分割し、"/"が見つかればそこまでがフォルダ名、
     /// 見つからなければそれ自体がこの階層のファイル。
     private static func archiveEntries(
-        allPaths: [String], prefix: String, matchKeyPrefix: String?, sortOrder: SidePanelSortOrder,
-        pageOrder: [String: Int]
+        allPaths: [String], prefix: String, matchKeyPrefix: String?, pageOrder: [String: Int]
     ) -> [Entry] {
         var folderNames = Set<String>()
         var fileEntries: [Entry] = []
@@ -262,6 +254,6 @@ nonisolated enum BookInternalBrowsing {
                 matchKey: matchKey(for: childPrefix), navigateTarget: .archiveVirtualFolder(prefix: childPrefix)
             )
         }
-        return sortedEntries(folderEntries + fileEntries, order: sortOrder, pageOrder: pageOrder)
+        return sortedEntries(folderEntries + fileEntries, pageOrder: pageOrder)
     }
 }

@@ -390,6 +390,15 @@ final class AppState: ObservableObject {
         didSet {
             guard oldValue != hideSidePanel else { return }
             preferences?.hideSidePanel = hideSidePanel
+            // 常時表示へ戻したら、ホバー表示中の印は落とす。浮いていたパネルは組み込みの
+            // パネルに置き換わって見えなくなるが、この値が立ったままだとツールバー/
+            // プログレスバーの自動表示が「サイドパネルが主導権を握っている」と見なされて
+            // 効かなくなる(ViewerView.updateAutoHiddenChromeVisibility参照。浮いている
+            // パネル自身の右クリックから隠す設定を外した場合、カーソルはウインドウの中なので
+            // 自動で閉じる経路も通らない。監査で指摘)。
+            if !hideSidePanel {
+                isSidePanelRevealed = false
+            }
         }
     }
 

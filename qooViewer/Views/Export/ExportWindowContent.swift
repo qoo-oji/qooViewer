@@ -170,7 +170,16 @@ struct ExportWindowContent<Options: View>: View {
         .frame(minWidth: max(configuration.minimumWindowWidth, contentMinWidth), minHeight: 480)
         // 一覧が非同期に埋まるため、表示直後と「行が入った瞬間」の両方で試みる
         // (autoSizeColumnsIfNeeded()のコメント参照。実際に走るのは最初の1回だけ)。
-        .onAppear { autoSizeColumnsIfNeeded() }
+        .onAppear {
+            // 書き出しオプションは、ウインドウを開くたびに環境設定「レイアウト」の既定値から
+            // 始める(AppPreferences.bookExportRenumbersImagesのコメントどおりの
+            // 「開いた直後の値」)。ViewModelはinitでも取り込んでいるが、SwiftUIのWindow
+            // シーンは閉じたあとも中身を保持することがあり(Settingsシーンでの同種の挙動:
+            // FB21393010)、その場合initは二度と走らず、環境設定で既定値を変えて開き直しても
+            // 初回の値のまま残る(監査で指摘)。開く直後に必ず揃え直す。
+            viewModel.resetOptionsToDefaults()
+            autoSizeColumnsIfNeeded()
+        }
         .onChange(of: viewModel.rows.count) { _, _ in autoSizeColumnsIfNeeded() }
         .alert(
             "Not Enough Free Space",
@@ -671,6 +680,9 @@ private struct ExportCoverPickerPageRow: View {
     /// 拡大プレビュー用のフル解像度画像。一度読み込めば、同じ行を何度ホバーしても読み込み直さない
     /// よう@Stateにキャッシュしておく。
     @State private var previewImage: CGImage?
+    /// previewImageをデコードしたときの解像度。設定が変わっていれば読み直すための控え
+    /// (ThumbnailGridView.ThumbnailCell.loadPreviewImageIfNeeded参照)。
+    @State private var previewPixelSize: CGFloat = 0
     /// ホバー開始から実際にpopoverを出すまでの遅延用タスク。
     @State private var hoverPreviewTask: Task<Void, Never>?
     /// ホバー開始から実際にpopoverを出すまでの遅延(ナノ秒)。BookmarkListView.PageRowViewと同じ値。
@@ -791,11 +803,16 @@ private struct ExportCoverPickerPageRow: View {
         }
         .padding(12)
         .task {
-            guard previewImage == nil, let pageLoader else { return }
             // ポップオーバーの枠に合わせた解像度で読む(ViewerViewModel.loadPreviewImage参照)。
-            previewImage = await pageLoader.gridThumbnail(
-                at: index, maxPixelSize: preferences.thumbnailHoverPreviewPixelSize, usesDiskCache: false
-            )
+            // 解像度が設定と違えば読み直す(ThumbnailGridView.ThumbnailCell.
+            // loadPreviewImageIfNeededと同じ理由)。
+            let pixelSize = preferences.thumbnailHoverPreviewPixelSize
+            guard previewImage == nil || previewPixelSize != pixelSize, let pageLoader else { return }
+            guard let loaded = await pageLoader.gridThumbnail(
+                at: index, maxPixelSize: pixelSize, usesDiskCache: false
+            ), !Task.isCancelled else { return }
+            previewImage = loaded
+            previewPixelSize = pixelSize
         }
     }
 }

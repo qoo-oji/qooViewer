@@ -244,6 +244,10 @@ final class ViewerViewModel: ObservableObject {
     /// 環境設定「入れ子書庫をメモリに置く上限」(preferences.nestedArchiveMemoryLimitMB)を
     /// PageLoaderへ流すための購読(pageImageCacheLimitObserverと同じ考え方)。
     private var nestedArchiveMemoryLimitObserver: AnyCancellable?
+    /// 環境設定「表示言語」が変わったときにツールバーの表示名(displayTitle)を作り直す購読。
+    /// 影響するのは、ローカライズを含む名前を持つ本(複数枚の画像をまとめた本の
+    /// 「(N images)」)だけ(MangaBook.displayName(locale:)参照)。
+    private var displayLanguageObserver: AnyCancellable?
     /// 「メタデータの編集」ウインドウ側でこの本のメタデータが変更されたときに、ツールバーの
     /// 表示名(displayTitle)を作り直すための監視トークン。bookmarksChangeObserver/
     /// layoutDataChangeObserverと同じ考え方(Notification.Name.bookMetadataDidChange参照)。
@@ -800,30 +804,60 @@ final class ViewerViewModel: ObservableObject {
         // しきい値を変更されることがある。dropFirst()で初期値の即時発火は無視し、
         // 実際に値が変わったときだけwideImageCacheを破棄する(singlePageAspectRatioThreshold
         // Observerのコメント参照)。
+        //
+        // 破棄したうえで、いま表示している見開きも組み直す(監査で指摘)。以前はキャッシュを
+        // 捨てるだけで、次のページ送りまで古いしきい値の組のまま残っていた ―― 一方で
+        // 「横幅に合わせる(単ページ)」の分割判定(ViewerView.renderScale)はbodyがしきい値を
+        // 直接読むため即座に変わり、拡大率だけ新しくページの組は古い、という食い違いになっていた。
+        //
+        // ■ `@Published`の購読はプロパティが書き換わる**前**(willSet)に届く
+        // この中で`preferences.singlePageAspectRatioThreshold`を読むと1つ前の値になる。ここは
+        // 値を読まずキャッシュを捨てるだけで、組み直し(reloadAsync)は非同期のTaskへ積むので、
+        // 実際に判定し直す時点では新しい値になっている。値を読む必要がある購読(下の2つ)は、
+        // sinkが受け取った新しい値のほうを使うこと。
         singlePageAspectRatioThresholdObserver = preferences.$singlePageAspectRatioThreshold
             .dropFirst()
             .sink { [weak self] _ in
                 self?.wideImageCache.removeAll()
+                // 同じ位置の描き直しなので、直前に表示していたページを相方から外す制約は
+                // 適用しない(reloadLayoutDataの同じ扱いのコメント参照)。
+                self?.reloadAsync(ignorePreviousDisplayedRange: true)
             }
 
         // 環境設定「メモリに残しておくページ画像」も同様に、本を表示したまま変えられる。
-        // 値をそのままPageLoaderへ流す(上限を下げたぶんはNSCacheがその場で追い出す)。
+        // 値をそのままPageLoaderへ流す(上限を下げたぶんはその場で追い出される)。
+        //
+        // 換算にはsinkが受け取った新しい値(megabytes)を使う。以前は`self.preferences.
+        // pageImageCacheLimitBytes`を読んでいたが、上記のとおりwillSetの時点では1つ前の値で、
+        // 設定と実体が常に1段ずれていた(監査で指摘。AppPreferences.pageImageCacheLimitBytes
+        // (forMB:)のコメント参照)。
         pageImageCacheLimitObserver = preferences.$pageImageCacheLimitMB
             .dropFirst()
-            .sink { [weak self] _ in
+            .sink { [weak self] megabytes in
                 guard let self else { return }
-                let bytes = self.preferences.pageImageCacheLimitBytes
+                let bytes = AppPreferences.pageImageCacheLimitBytes(forMB: megabytes)
                 Task { await self.pageLoader.setImageCacheLimit(bytes: bytes) }
             }
 
         // 環境設定「入れ子書庫をメモリに置く上限」も同じ扱い。下げたぶんはNestedArchiveResolverが
-        // その場で追い出す(一時ファイルもそのタイミングで消える)。
+        // その場で追い出す(一時ファイルもそのタイミングで消える)。換算の注意も上と同じ。
         nestedArchiveMemoryLimitObserver = preferences.$nestedArchiveMemoryLimitMB
             .dropFirst()
-            .sink { [weak self] _ in
+            .sink { [weak self] megabytes in
                 guard let self else { return }
-                let bytes = self.preferences.nestedArchiveMemoryLimitBytes
+                let bytes = AppPreferences.nestedArchiveMemoryLimitBytes(forMB: megabytes)
                 Task { await self.pageLoader.setNestedArchiveMemoryLimit(bytes: bytes) }
+            }
+
+        // 環境設定「表示言語」。ツールバーの表示名はローカライズした文字列を@Publishedの
+        // 保存値として持つ(displayTitleのコメント参照)ため、言語が変わったら作り直す。
+        // 同じウインドウのタイトルバー(ContentView.windowTitle)はbodyで都度解決していて
+        // 追従するのに、ツールバーだけ古い言語のまま残っていた(監査で指摘)。
+        // willSetの時点で作り直すと古い言語で解決してしまうので、1ホップ遅らせる。
+        displayLanguageObserver = preferences.$displayLanguage
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in self?.refreshDisplayTitle() }
             }
     }
 
@@ -1885,9 +1919,12 @@ final class ViewerViewModel: ObservableObject {
     func startSlideshow() {
         guard !isSlideshowActive else { return }
         isSlideshowActive = true
-        let intervalSeconds = preferences.slideshowInterval
         slideshowTask = Task { [weak self] in
             while !Task.isCancelled {
+                // 間隔は周回のたびに読み直す。以前は開始時の値を取り込んだきりで、実行中に
+                // 環境設定で変えても止めて始め直すまで効かなかった(監査で指摘)。待っている間は
+                // selfを掴んでおかない(weakのまま値だけ取り出す)。
+                guard let intervalSeconds = self?.preferences.slideshowInterval else { return }
                 try? await Task.sleep(nanoseconds: UInt64(max(intervalSeconds, 0.5) * 1_000_000_000))
                 guard !Task.isCancelled else { return }
                 guard let self else { return }
