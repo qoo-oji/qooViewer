@@ -79,14 +79,17 @@ nonisolated enum ImageExporter {
         }
     }
 
+    /// NFCへ揃えるのは、EPUB/CBZ書き出しと同じ理由(nfcNormalizedForExportのコメント参照)。
+    /// 書き出し先はディスク上のフォルダだが、そのままWindowsへ渡されうるファイル名である点は
+    /// 書庫の中のエントリ名と変わらない。
     private static func baseName(for page: PageRef) -> String {
         switch page.source {
         case .file(let url):
-            return url.deletingPathExtension().lastPathComponent
+            return nfcNormalizedForExport(url.deletingPathExtension().lastPathComponent)
         case .archive(_, let entryPath):
-            return ((entryPath as NSString).lastPathComponent as NSString).deletingPathExtension
+            return nfcNormalizedForExport(((entryPath as NSString).lastPathComponent as NSString).deletingPathExtension)
         case .pdf(let pdfURL, let pageIndex):
-            return "\(pdfURL.deletingPathExtension().lastPathComponent)-\(pageIndex + 1)"
+            return nfcNormalizedForExport("\(pdfURL.deletingPathExtension().lastPathComponent)-\(pageIndex + 1)")
         }
     }
 

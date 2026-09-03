@@ -383,6 +383,10 @@ nonisolated enum BookLoader {
 
         var pages: [PageRef] = []
         for path in allPaths {
+            // macOSが書庫へ混ぜ込むリソースフォーク(`__MACOSX/._page01.jpg`)は、拡張子だけ
+            // 見ると画像に見えるがページではない(isAppleDoubleEntryのコメント参照)。
+            // 入れ子の書庫として`._chapter.cbz`を開こうとするのも無駄なので、両方まとめて弾く。
+            if isAppleDoubleEntry(path) { continue }
             if isImageFile(path) {
                 pages.append(PageRef(
                     id: "\(idPrefix)#\(path)",

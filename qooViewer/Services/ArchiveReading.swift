@@ -107,6 +107,26 @@ nonisolated func isArchiveFile(_ path: String) -> Bool {
     archiveExtensions.contains((path as NSString).pathExtension.lowercased())
 }
 
+/// macOSが書庫の中へ勝手に入れる、リソースフォーク/拡張属性の入れ物かどうか
+/// (`__MACOSX/`以下のエントリ、および`._`で始まるAppleDoubleファイル)。
+///
+/// ユーザー報告 2026-09-03: 拡張属性の付いたフォルダをFinderの「圧縮」で固めたcbzには
+/// `__MACOSX/B_src/._001.jpg`のようなエントリが入る。**拡張子が.jpgのため`isImageFile`を
+/// 通ってしまい**、3ページの本が6ページになり、実体は画像ではないので開けないページが
+/// 交互に並ぶ(書き出すと出力先にも`._001.jpg`として出る)。中身はAppleDouble形式の
+/// メタデータであって画像ではないため、ページの数え上げからも、サイドパネルの本の中身
+/// ブラウザからも除外する。
+///
+/// フォルダの本には同じ問題が無い ―― `FileManager`の列挙を`.skipsHiddenFiles`付きで
+/// 呼んでいるため、`.DS_Store`も`._`で始まるファイルも最初から返ってこない。
+/// 書庫のエントリ一覧にはその仕組みが無いので、ここで自分で弾く。
+///
+/// 判定はパスの要素単位で行う。`__MACOSX`は常に書庫の最上位に置かれるが、入れ子の書庫の
+/// 中にも同じ構造が現れうるため、先頭要素だけを見るのでは足りない。
+nonisolated func isAppleDoubleEntry(_ path: String) -> Bool {
+    path.split(separator: "/").contains { $0 == "__MACOSX" || $0.hasPrefix("._") }
+}
+
 /// PDFファイルかどうか。PDFは中身を展開するアーカイブではなく、1ファイルの中に複数ページを
 /// 直接持つ形式のため、アーカイブ(archiveExtensions)とは別に扱う(BookLoader.loadPDF、
 /// PageLoader.renderPDFPage参照)。

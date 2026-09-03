@@ -239,15 +239,19 @@ nonisolated enum EpubExporter {
         var tocEntries: [(href: String, title: String)] = []
         for bookmark in input.bookmarks {
             guard let xhtmlFileName = xhtmlFileNameByOriginalKey[bookmark.pageKey] else { continue }
-            tocEntries.append((href(textDirectory, xhtmlFileName), bookmark.name))
+            tocEntries.append((href(textDirectory, xhtmlFileName), nfcNormalizedForExport(bookmark.name)))
         }
 
         // Apple Books互換性(ユーザー要望): タイトル・著者名をEPUB出力ウインドウで編集できる
         // ようにしたい。空文字/空白のみの場合は編集していない扱いとし、元のbook.titleを使う。
+        // book.titleは元のファイル/フォルダ名なので、ファイル名と同じ理由でNFCへ揃える
+        // (nfcNormalizedForExportのコメント参照)。
         let trimmedTitleOverride = input.titleOverride?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let bookTitle = (trimmedTitleOverride?.isEmpty == false) ? trimmedTitleOverride! : input.book.title
+        let bookTitle = nfcNormalizedForExport(
+            (trimmedTitleOverride?.isEmpty == false) ? trimmedTitleOverride! : input.book.title
+        )
         let trimmedAuthor = input.author?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let author = (trimmedAuthor?.isEmpty == false) ? trimmedAuthor : nil
+        let author = (trimmedAuthor?.isEmpty == false) ? trimmedAuthor.map(nfcNormalizedForExport) : nil
         // dc:languageはEPUB3の必須要素のため、値が渡ってこなかった場合も省略はせず"en"にする
         // (EpubExportInput.languageのコメント参照)。
         let trimmedLanguage = input.language?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -397,12 +401,16 @@ nonisolated enum EpubExporter {
 
     // MARK: - ファイル名の決定(7.2節)
 
+    /// NFCへ揃えるのは、フォルダの本のファイル名がNFDのまま出てWindowsで濁点が分離して
+    /// 見える問題への対処(nfcNormalizedForExportのコメント参照)。ここで1回通せば、
+    /// zipのエントリ名・xhtmlのファイル名・OPF/XHTMLのhrefがすべて同じ文字列から
+    /// 組み立てられるため、参照が食い違うことは無い。
     private static func originalBaseName(for page: PageRef) -> String {
         switch page.source {
         case .file(let url):
-            return url.deletingPathExtension().lastPathComponent
+            return nfcNormalizedForExport(url.deletingPathExtension().lastPathComponent)
         case .archive(_, let entryPath):
-            return ((entryPath as NSString).lastPathComponent as NSString).deletingPathExtension
+            return nfcNormalizedForExport(((entryPath as NSString).lastPathComponent as NSString).deletingPathExtension)
         case .pdf:
             // 元がPDFの本は、この関数を通らない常時6桁連番の経路になる(export内の
             // isPDFSource参照)ため到達しない。

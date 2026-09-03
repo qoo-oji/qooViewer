@@ -223,6 +223,10 @@ nonisolated enum BookInternalBrowsing {
         }
 
         for path in allPaths {
+            // ページの数え上げ(BookLoader.collectPages)と同じ除外。ここを揃えないと、
+            // ブラウザにだけ`__MACOSX`フォルダや`._001.jpg`が並んでしまう
+            // (isAppleDoubleEntryのコメント参照)。
+            guard !isAppleDoubleEntry(path) else { continue }
             guard path.hasPrefix(prefix) else { continue }
             let remainder = String(path.dropFirst(prefix.count))
             guard !remainder.isEmpty else { continue }

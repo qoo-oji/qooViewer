@@ -232,7 +232,7 @@ nonisolated enum CbzExporter {
                 guard let imageIndex = imageIndexByPageKey[bookmark.pageKey],
                       comicInfoPages.indices.contains(imageIndex)
                 else { continue }
-                comicInfoPages[imageIndex]?.bookmark = bookmark.name
+                comicInfoPages[imageIndex]?.bookmark = nfcNormalizedForExport(bookmark.name)
             }
 
             // 全要素が必ず埋まる(imageIndexByPlannedIndexは0..<countの並べ替えのため)ので、
@@ -370,12 +370,14 @@ nonisolated enum CbzExporter {
         return lowered.isEmpty ? "jpg" : lowered
     }
 
+    /// NFCへ揃えるのは、フォルダの本のファイル名がNFDのまま出てWindowsで濁点が分離して
+    /// 見える問題への対処(nfcNormalizedForExportのコメント参照)。
     private static func originalBaseName(for page: PageRef) -> String {
         switch page.source {
         case .file(let url):
-            return url.deletingPathExtension().lastPathComponent
+            return nfcNormalizedForExport(url.deletingPathExtension().lastPathComponent)
         case .archive(_, let entryPath):
-            return ((entryPath as NSString).lastPathComponent as NSString).deletingPathExtension
+            return nfcNormalizedForExport(((entryPath as NSString).lastPathComponent as NSString).deletingPathExtension)
         case .pdf:
             // 元がPDFの本は常時6桁連番の経路になる(planEntriesのisPDFSource参照)ため到達しない。
             return "page"
@@ -409,16 +411,18 @@ nonisolated enum CbzExporter {
     private static func applyMetadata(
         to info: inout ComicInfo, input: CbzExportInput, options: CbzExportOptions, pages: [ComicInfoPage]
     ) {
-        let title = trimmedOrNil(input.titleOverride) ?? input.book.title
+        // book.titleは元のファイル/フォルダ名なので、ファイル名と同じ理由でNFCへ揃える
+        // (nfcNormalizedForExportのコメント参照)。ユーザーが入力した値も同じ扱いで通す。
+        let title = nfcNormalizedForExport(trimmedOrNil(input.titleOverride) ?? input.book.title)
         info.title = title
         // シリーズ名が未登録の本では、タイトルをそのままSeriesにも入れる(ユーザー選択)。
         // Komgaはフォルダからシリーズを決めるためSeriesが空でも困らないが、Kavitaは
         // ファイル名のパースに戻ってしまうため、単巻の本が意図せず分裂することがある。
-        info.series = trimmedOrNil(input.series) ?? title
+        info.series = trimmedOrNil(input.series).map(nfcNormalizedForExport) ?? title
 
         // 巻数。ComicInfoのNumberはxs:stringのため、「上」「下」のような値もそのまま書ける
         // (EPUBのgroup-positionやPDFのcalibreSI:series_indexと違い、数値へ丸める必要が無い)。
-        if let seriesIndex = trimmedOrNil(input.seriesIndex) {
+        if let seriesIndex = trimmedOrNil(input.seriesIndex).map(nfcNormalizedForExport) {
             info.number = seriesIndex
             // Volumeはxs:intのため、整数として解釈できる場合だけ書ける。
             if options.writesVolumeElement, let volume = Int(seriesIndex) {
@@ -429,7 +433,7 @@ nonisolated enum CbzExporter {
         // 著者は原作(Writer)と作画(Penciller)の両方へ入れる(ユーザー選択)。日本の漫画は
         // 同一人物であることが多く、Komga/Kavitaはどちらも役割ごとに著者を表示するため、
         // 片方だけだと「作画者不明」のように見えてしまう。
-        if let author = trimmedOrNil(input.author) {
+        if let author = trimmedOrNil(input.author).map(nfcNormalizedForExport) {
             info.writer = author
             info.penciller = author
         }

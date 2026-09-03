@@ -107,10 +107,14 @@ nonisolated enum PDFExporter {
 
         let pageLoader = PageLoader(book: input.book)
 
+        // book.titleは元のファイル/フォルダ名。PDFにファイル名は入らないが、書誌メタデータは
+        // EPUB/CBZと同じくNFCへ揃える(nfcNormalizedForExportのコメント参照)。
         let trimmedTitleOverride = input.titleOverride?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let bookTitle = (trimmedTitleOverride?.isEmpty == false) ? trimmedTitleOverride! : input.book.title
+        let bookTitle = nfcNormalizedForExport(
+            (trimmedTitleOverride?.isEmpty == false) ? trimmedTitleOverride! : input.book.title
+        )
         let trimmedAuthor = input.author?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let author = (trimmedAuthor?.isEmpty == false) ? trimmedAuthor : nil
+        let author = (trimmedAuthor?.isEmpty == false) ? trimmedAuthor.map(nfcNormalizedForExport) : nil
 
         var auxiliaryInfo: [String: Any] = [kCGPDFContextTitle as String: bookTitle]
         if let author {

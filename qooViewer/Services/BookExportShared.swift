@@ -31,3 +31,26 @@ nonisolated enum ExportCoverOverride {
     /// 本に含まれない専用ファイルをカバーにする。
     case externalFile(data: Data, fileExtension: String)
 }
+
+/// 書き出す文字列(ファイル名・書誌メタデータ)をUnicode正規化形式C(NFC)に揃える。
+///
+/// ■ なぜ必要か(ユーザー報告 2026-09-03)
+/// このアプリはファイル名を素通しで書き出す。フォルダの本の場合、名前はファイルシステムから
+/// 返ってきたものそのままで、APFSは正規化保存(書かれたバイト列をそのまま保つ)なので、
+/// NFDで作られたファイルは`readdir`もNFDで返す ―― 実測では"ば"が「は+結合濁点」の
+/// ままzipのエントリ名になり、EPUBのOPFのhrefにもNFDがパーセントエンコードされて入っていた。
+/// Windowsで展開すると、いわゆる文字化け(CP932誤読)は起きない ―― ZIPFoundationは
+/// エントリ名を常にUTF-8フラグ(汎用フラグbit11)付きで書くため ―― が、濁点・半濁点が
+/// 分離して表示され、並び順や検索も崩れる。
+///
+/// 書庫の本ではこの問題は起きにくい(実測では`ditto`(Finderの「圧縮」)もInfo-ZIPの`zip`も
+/// 書き込み時にNFCへ正規化していた)が、正規化の責任を相手のツールに委ねる理由が無いため、
+/// 書き出しの出口で一律に揃える。
+///
+/// ■ ファイル名に使うときの注意
+/// EPUBはzipのエントリ名とOPF/XHTMLのhrefが一致していなければ参照が切れる。**同じ
+/// 正規化済みの文字列から両方を組み立てること**(EpubExporterはimageFileName/xhtmlFileNameを
+/// 1箇所で決めており、hrefもそこから作っているため、入口で1回通せば両方に効く)。
+nonisolated func nfcNormalizedForExport(_ value: String) -> String {
+    value.precomposedStringWithCanonicalMapping
+}
