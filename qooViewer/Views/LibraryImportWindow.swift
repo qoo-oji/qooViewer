@@ -272,7 +272,7 @@ struct LibraryImportWindow: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.json]
-        panel.message = String(localized: "Choose a JSON file exported from qooViewer.", locale: locale)
+        panel.message = String(localized: "Choose a JSON file exported from qooViewer.", language: locale)
         if let lastFolder = LastUsedFolderMemory.libraryIO.lastFolder() {
             panel.directoryURL = lastFolder
         }
@@ -287,7 +287,7 @@ struct LibraryImportWindow: View {
             loadErrorMessage = nil
         } catch {
             loadErrorMessage = String(
-                format: String(localized: "This file couldn't be read: %@", locale: locale),
+                format: String(localized: "This file couldn't be read: %@", language: locale),
                 error.localizedDescription
             )
         }

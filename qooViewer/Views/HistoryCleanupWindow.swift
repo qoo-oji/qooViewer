@@ -243,7 +243,7 @@ struct HistoryCleanupWindow: View {
     /// 行の削除ボタンの列幅。
     private var actionColumnWidth: CGFloat {
         MetadataButtonWidthEstimator.equalWidth(
-            for: [String(localized: "Delete", locale: locale)],
+            for: [String(localized: "Delete", language: locale)],
             minWidth: 40,
             font: .systemFont(ofSize: NSFont.smallSystemFontSize),
             chrome: MetadataButtonWidthEstimator.smallChrome

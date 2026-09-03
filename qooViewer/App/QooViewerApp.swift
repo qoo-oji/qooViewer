@@ -268,6 +268,11 @@ struct QooViewerApp: App {
         initialRequest: BookOpenRequest? = nil, isPrivateWindow: Bool? = nil
     ) -> some View {
         ContentView(initialRequest: initialRequest, isPrivateWindow: isPrivateWindow)
+            // 表示言語は、Scene側の`.environment(\.locale, ...)`(メニューバーのcommands用)とは
+            // 別に、ウインドウの中身にも直接付ける。Sceneに付けただけでは中身の`Text`には届かず、
+            // 環境設定ウインドウ(SettingsView自身に付けている)だけが言語を切り替えられて、本の
+            // ウインドウはOSの言語のまま残っていた(監査で発覚)。
+            .environment(\.locale, currentLocale)
             .environmentObject(preferences)
             .environmentObject(keyBindingStore)
             .environmentObject(recentFiles)
@@ -1112,7 +1117,11 @@ struct QooViewerApp: App {
         // preferencesは、詳細ペインでお気に入りをダブルクリックして開いたときに、環境設定
         // 「お気に入りを開くとき」(favoriteOpenBehavior)を判定するために必要
         // (FavoritesOrganizerView.openFavoriteAccordingToPreference参照)。
-        Window("Edit Favorites", id: "favoritesOrganizer") {
+        // 補助ウインドウのタイトルは、`Window("キー", id:)`だとSwiftUIがOSの言語で解決してしまい
+        // 環境設定「表示言語」に従わない(Scene側の`.environment(\.locale, ...)`も効かない)ため、
+        // 表示言語で引いたStringを渡す(String(localized:language:)のコメント参照)。以下の
+        // Windowすべて同じ。
+        Window(String(localized: "Edit Favorites", language: locale), id: "favoritesOrganizer") {
             FavoritesOrganizerView(favoritesStore: favoritesStore)
                 .environmentObject(launchCoordinator)
                 .environmentObject(preferences)
@@ -1135,7 +1144,7 @@ struct QooViewerApp: App {
         // フィルタ(4.5節)の橋渡しに使う(BookmarkListView.swift参照)。preferencesは、右ペインの
         // ページ一覧読み込み(BookLayoutEditorViewModel)が横長画像ヒューリスティックの閾値
         // (preferences.singlePageAspectRatioThreshold)を参照するために必要。
-        Window("Edit Bookmarks & Layout", id: "editBookmarks") {
+        Window(String(localized: "Edit Bookmarks & Layout", language: locale), id: "editBookmarks") {
             BookmarkEditorWindow()
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
@@ -1153,7 +1162,7 @@ struct QooViewerApp: App {
         // 6節: JSONエクスポート/インポート用の独立ウインドウ。「ブックマーク・レイアウトの編集」と
         // 同じく、favoritesStore/bookmarkStore/layoutStoreはすべてmodelContainer.mainContextを
         // 共有する、アプリ全体で1つだけのインスタンスをそのまま渡す。
-        Window("Export Library Data", id: "libraryExport") {
+        Window(String(localized: "Export Library Data", language: locale), id: "libraryExport") {
             LibraryExportWindow()
                 .environmentObject(favoritesStore)
                 .environmentObject(bookmarkStore)
@@ -1166,7 +1175,7 @@ struct QooViewerApp: App {
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
 
-        Window("Import Library Data", id: "libraryImport") {
+        Window(String(localized: "Import Library Data", language: locale), id: "libraryImport") {
             LibraryImportWindow()
                 .environmentObject(favoritesStore)
                 .environmentObject(bookmarkStore)
@@ -1180,7 +1189,7 @@ struct QooViewerApp: App {
         .windowResizability(.contentSize)
 
         // 7節: EPUB出力専用ウインドウ。favoritesStoreは不要(お気に入りはEPUB出力の対象外)。
-        Window("Export as EPUB", id: "epubExport") {
+        Window(String(localized: "Export as EPUB", language: locale), id: "epubExport") {
             EpubExportWindow()
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
@@ -1197,7 +1206,7 @@ struct QooViewerApp: App {
         // 「本ごとの保存データの削除」ウインドウ(独立ウインドウ)。環境設定「リセット」タブの
         // ボタンからのみ開く(ユーザー要望: 環境設定からのみ呼び出せるものでよい)。
         // 実在判定にfolderAccess(許可済みフォルダ)を、読書履歴の削除にModelContextを使う。
-        Window("Delete Saved Data", id: "libraryCleanup") {
+        Window(String(localized: "Delete Saved Data", language: locale), id: "libraryCleanup") {
             LibraryCleanupWindow()
                 .environmentObject(favoritesStore)
                 .environmentObject(bookmarkStore)
@@ -1219,7 +1228,7 @@ struct QooViewerApp: App {
         // 似た機能なのに名前も見た目もバラバラだった)。同じく環境設定「リセット」タブの
         // ボタンからのみ開く。
         // 履歴はSwiftDataではなくUserDefaultsに入っているため、必要なのはrecentFilesだけ。
-        Window("Delete History", id: "historyCleanup") {
+        Window(String(localized: "Delete History", language: locale), id: "historyCleanup") {
             HistoryCleanupWindow()
                 .environmentObject(recentFiles)
                 .environment(\.locale, locale)
@@ -1235,7 +1244,7 @@ struct QooViewerApp: App {
         // layoutStore/metadataStoreに加えて、読書履歴(BookReadingState)を読むための
         // ModelContextも必要になる。他のシーンと同じくmodelContainerを渡すことで、
         // MetadataEditorWindow側の@Environment(\.modelContext)へ同じmainContextが注入される。
-        Window("Edit Metadata", id: "editMetadata") {
+        Window(String(localized: "Edit Metadata", language: locale), id: "editMetadata") {
             MetadataEditorWindow()
                 .environmentObject(metadataStore)
                 .environmentObject(metadataFormatStore)
@@ -1253,7 +1262,7 @@ struct QooViewerApp: App {
         .windowToolbarStyle(.unified)
 
         // PDF出力専用ウインドウ。EPUB出力ウインドウと同じ構成(favoritesStoreは不要)。
-        Window("Export as PDF", id: "pdfExport") {
+        Window(String(localized: "Export as PDF", language: locale), id: "pdfExport") {
             PDFExportWindow()
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
@@ -1268,7 +1277,7 @@ struct QooViewerApp: App {
         .windowToolbarStyle(.unified)
 
         // CBZ出力専用ウインドウ。EPUB/PDF出力ウインドウと同じ構成(favoritesStoreは不要)。
-        Window("Export as CBZ", id: "cbzExport") {
+        Window(String(localized: "Export as CBZ", language: locale), id: "cbzExport") {
             CbzExportWindow()
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
@@ -1300,7 +1309,7 @@ struct QooViewerApp: App {
         panel.canChooseDirectories = true
         // AppState.openWithPanelと同じ理由で複数選択を許可する。
         panel.allowsMultipleSelection = true
-        panel.prompt = String(localized: "Open", locale: locale)
+        panel.prompt = String(localized: "Open", language: locale)
         panel.message = String(
             // 画像ファイルも開けるようになったため文面を更新。画像は複数選択して1冊にまとめられる
             // (BookOpenRequest.init(openingCandidates:)参照)。
@@ -1729,8 +1738,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // (どちらが記録の残るウインドウなのかが名前だけで分かるようにするため。
         //  Fileメニュー側の「新規ノーマルウインドウ」のコメント参照)。
         let items: [(title: String, isPrivate: Bool)] = [
-            (String(localized: "New Normal Window", locale: locale), false),
-            (String(localized: "New Private Window", locale: locale), true),
+            (String(localized: "New Normal Window", language: locale), false),
+            (String(localized: "New Private Window", language: locale), true),
         ]
         for entry in items {
             let item = NSMenuItem(
@@ -2166,13 +2175,13 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = String(localized: "Multiple Tabs Are Open", locale: locale)
+        alert.messageText = String(localized: "Multiple Tabs Are Open", language: locale)
         alert.informativeText = String(
             localized: "This window has multiple tabs open. Are you sure you want to close it?",
-            locale: locale
+            language: locale
         )
-        alert.addButton(withTitle: String(localized: "Close Window", locale: locale))
-        alert.addButton(withTitle: String(localized: "Cancel", locale: locale))
+        alert.addButton(withTitle: String(localized: "Close Window", language: locale))
+        alert.addButton(withTitle: String(localized: "Cancel", language: locale))
         return alert.runModal() == .alertFirstButtonReturn
     }
 

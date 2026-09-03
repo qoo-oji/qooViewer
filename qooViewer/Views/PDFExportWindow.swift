@@ -28,7 +28,7 @@ struct PDFExportWindow: View {
         progressTitle: "Exporting PDF Files…",
         fileExtension: "pdf",
         destinationPanelMessage: { locale in
-            String(localized: "Choose a destination folder for the exported PDF files.", locale: locale)
+            String(localized: "Choose a destination folder for the exported PDF files.", language: locale)
         },
         lastUsedFolder: .pdfExport,
         minimumWindowWidth: 700

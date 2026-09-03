@@ -43,7 +43,7 @@ struct WelcomeView: View {
         // (アプリ内の表示言語)で1回だけ解決してから両方に使う。
         let columns = [
             recentEntries.isEmpty ? nil : WelcomeQuickOpenColumn(
-                title: String(localized: "Recent Files", locale: locale),
+                title: String(localized: "Recent Files", language: locale),
                 items: recentEntries.map { entry in
                     // bookIDはキャッシュ済みのパス。ここでブックマークを解決しては
                     // いけない(RecentFilesStoreの型コメント参照)。解決するのは
@@ -65,7 +65,7 @@ struct WelcomeView: View {
                 }
             ),
             recentFavoriteBooks.isEmpty ? nil : WelcomeQuickOpenColumn(
-                title: String(localized: "Recent Favorites", locale: locale),
+                title: String(localized: "Recent Favorites", language: locale),
                 items: recentFavoriteBooks.map { favorite in
                     WelcomeQuickOpenItem(
                         id: favorite.id.uuidString, title: favorite.title, bookID: favorite.bookID

@@ -122,8 +122,8 @@ private struct MetadataEditorContentView: View {
     private var actionColumnWidth: CGFloat {
         MetadataButtonWidthEstimator.equalWidth(
             for: [
-                String(localized: "Register", locale: locale),
-                String(localized: "Remove", locale: locale)
+                String(localized: "Register", language: locale),
+                String(localized: "Remove", language: locale)
             ],
             minWidth: 40,
             font: .systemFont(ofSize: NSFont.smallSystemFontSize),
@@ -305,24 +305,24 @@ private struct MetadataEditorContentView: View {
         guard !didAutoSizeColumns, !viewModel.rows.isEmpty, !viewModel.isPreparingDrafts else { return }
         let drafts = viewModel.rows.map { viewModel.drafts[$0.bookID] ?? MetadataEditorViewModel.Draft() }
         columnWidths.fileName = ExportColumnWidthEstimator.idealWidth(
-            for: viewModel.rows.map(\.fileName) + [String(localized: "File Name", locale: locale)],
+            for: viewModel.rows.map(\.fileName) + [String(localized: "File Name", language: locale)],
             minWidth: MetadataColumnWidths.fileNameMin, maxWidth: MetadataColumnWidths.fileNameMax,
             extraChrome: 44 // フォーマットバッジ(CBZ/EPUB等)ぶんの余白
         )
         columnWidths.author = ExportColumnWidthEstimator.idealWidth(
-            for: drafts.map(\.author) + [String(localized: "Author", locale: locale)],
+            for: drafts.map(\.author) + [String(localized: "Author", language: locale)],
             minWidth: MetadataColumnWidths.authorMin, maxWidth: MetadataColumnWidths.authorMax
         )
         columnWidths.title = ExportColumnWidthEstimator.idealWidth(
-            for: drafts.map(\.title) + [String(localized: "Title", locale: locale)],
+            for: drafts.map(\.title) + [String(localized: "Title", language: locale)],
             minWidth: MetadataColumnWidths.titleMin, maxWidth: MetadataColumnWidths.titleMax
         )
         columnWidths.series = ExportColumnWidthEstimator.idealWidth(
-            for: drafts.map(\.series) + [String(localized: "Series", locale: locale)],
+            for: drafts.map(\.series) + [String(localized: "Series", language: locale)],
             minWidth: MetadataColumnWidths.seriesMin, maxWidth: MetadataColumnWidths.seriesMax
         )
         columnWidths.volume = ExportColumnWidthEstimator.idealWidth(
-            for: drafts.map(\.seriesIndex) + [String(localized: "Volume", locale: locale)],
+            for: drafts.map(\.seriesIndex) + [String(localized: "Volume", language: locale)],
             minWidth: MetadataColumnWidths.volumeMin, maxWidth: MetadataColumnWidths.volumeMax
         )
         didAutoSizeColumns = true

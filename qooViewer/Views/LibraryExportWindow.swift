@@ -152,8 +152,8 @@ struct LibraryExportWindow: View {
         let locale = preferences.effectiveLocale
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = String(localized: "qooViewer Library.json", locale: locale)
-        panel.message = String(localized: "Choose where to save the exported JSON file.", locale: locale)
+        panel.nameFieldStringValue = String(localized: "qooViewer Library.json", language: locale)
+        panel.message = String(localized: "Choose where to save the exported JSON file.", language: locale)
         if let lastFolder = LastUsedFolderMemory.libraryIO.lastFolder() {
             panel.directoryURL = lastFolder
         }
@@ -176,12 +176,12 @@ struct LibraryExportWindow: View {
             do {
                 try LibraryImportExportService.write(file, to: url)
                 didSucceed = true
-                resultMessage = String(localized: "Export complete.", locale: locale)
+                resultMessage = String(localized: "Export complete.", language: locale)
                 skippedFilePaths = result.allSkippedFilePaths
             } catch {
                 didSucceed = false
                 resultMessage = String(
-                    format: String(localized: "Export failed: %@", locale: locale),
+                    format: String(localized: "Export failed: %@", language: locale),
                     error.localizedDescription
                 )
             }

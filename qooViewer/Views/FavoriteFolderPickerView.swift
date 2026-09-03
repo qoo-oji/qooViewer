@@ -17,6 +17,7 @@ struct FavoriteFolderPickerView: View {
     /// できなかった場合、および「Cancel」で閉じた場合は呼ばれない。
     var onAdded: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.locale) private var locale
 
     /// nilは「フォルダ分けせず、お気に入りの一番上の階層に直接置く」ことを表す。
     @State private var selectedFolder: FavoriteFolder?
@@ -53,7 +54,7 @@ struct FavoriteFolderPickerView: View {
                         )
                     }
                 }
-                .navigationTitle("Add to Favorites")
+                .navigationTitle(String(localized: "Add to Favorites", language: locale))
             }
 
             Divider()

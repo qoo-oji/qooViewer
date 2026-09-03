@@ -46,8 +46,8 @@ private struct MetadataDialogFooter: View {
     var body: some View {
         let buttonWidth = MetadataButtonWidthEstimator.equalWidth(
             for: [
-                String(localized: "Reset", locale: locale),
-                String(localized: "Close", locale: locale)
+                String(localized: "Reset", language: locale),
+                String(localized: "Close", language: locale)
             ],
             minWidth: 90
         )

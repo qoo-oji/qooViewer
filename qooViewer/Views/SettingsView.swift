@@ -20,7 +20,7 @@ import SwiftUI
 /// 見えるという **レイアウト上の制約への対処** であって、その名前が最適だったからではない
 /// (ユーザーからの指摘で短縮した経緯)。サイドバーは全行が同じ幅の縦並びなので制約が消えた。
 /// 「入力2」のような開くまで中身の分からない名前をやめ、意味の通る名前へ戻してある
-/// (`SettingsPane.titleKey` 参照)。
+/// (`SettingsPane.titleValue` 参照)。
 ///
 /// ■ 画面の一覧はここには無い
 /// サイドバーの行・右ペインの中身・ウインドウタイトルは、すべて `SettingsPane` から導出される。
@@ -35,6 +35,9 @@ struct SettingsView: View {
     /// キーの綴りはSettingsNavigatorと共有する。あちらが「特定の画面を開いた状態で
     /// 環境設定を呼び出す」ためにこのキーへ直接書き込むため(SettingsNavigator参照)。
     @AppStorage(SettingsNavigator.selectedPaneDefaultsKey) private var selectedPane: SettingsPane = .general
+    /// 環境設定「表示言語」(QooViewerAppがSceneごとに`.environment(\.locale, ...)`で流している)。
+    /// 画面の名前をウインドウのタイトルに出すときに使う(SettingsPane.titleValue参照)。
+    @Environment(\.locale) private var locale
 
     var body: some View {
         NavigationSplitView(columnVisibility: .constant(.all)) {
@@ -89,7 +92,7 @@ struct SettingsView: View {
                     ForEach(group.panes) { pane in
                         NavigationLink(value: pane) {
                             Label {
-                                Text(pane.titleKey)
+                                Text(pane.title(language: locale))
                             } icon: {
                                 SettingsPaneIcon(pane: pane)
                             }
@@ -146,7 +149,8 @@ struct SettingsView: View {
         selectedPane.destination
             // ウインドウのタイトルバーに、いま開いている画面の名前を出す
             // (システム設定と同じ。TabView時代もタブ名がタイトルに出ていた)。
-            .navigationTitle(Text(selectedPane.titleKey))
+            // `Text(key)`ではなく表示言語で引いたStringを渡す(SettingsPane.titleValue参照)。
+            .navigationTitle(selectedPane.title(language: locale))
             .navigationSplitViewColumnWidth(min: 560, ideal: 605)
     }
 }

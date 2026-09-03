@@ -30,7 +30,7 @@ struct EpubExportWindow: View {
         progressTitle: "Exporting EPUB Files…",
         fileExtension: "epub",
         destinationPanelMessage: { locale in
-            String(localized: "Choose a destination folder for the exported EPUB files.", locale: locale)
+            String(localized: "Choose a destination folder for the exported EPUB files.", language: locale)
         },
         lastUsedFolder: .epubExport,
         minimumWindowWidth: 820

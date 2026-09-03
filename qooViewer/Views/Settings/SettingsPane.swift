@@ -11,7 +11,7 @@ import SwiftUI
 /// その移行にあたり、画面の一覧を **この列挙型1つに集約** してある。
 /// サイドバーの行も、右ペインの中身も、ウインドウのタイトルも、すべてここから導出されるため、
 /// 画面を1つ増やすときに触るのは「このファイルにcaseを1つ足す」だけでよい。
-/// `titleKey` / `systemImage` / `tint` / `group` / `destination` はいずれも
+/// `titleValue` / `systemImage` / `tint` / `group` / `destination` はいずれも
 /// `switch self` の網羅性チェックを受けるので、**足し忘れはコンパイルエラーになる**
 /// (`default:` を書かないのはそのため。安易に `default:` を足さないこと)。
 ///
@@ -70,7 +70,12 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     /// サイドバーは全行が同じ幅の縦並びなので、その制約はもう無い。
     /// 「入力2」のような、開いてみるまで中身が分からない番号付きの名前をやめ、
     /// **その画面に何があるかが名前だけで分かる長さ** に戻してある。
-    var titleKey: LocalizedStringKey {
+    ///
+    /// `LocalizedStringKey` ではなく `String.LocalizationValue` で持ち、`title(language:)` で
+    /// 表示言語の文字列にして使う。ウインドウのタイトルは `.navigationTitle(Text(key))` だと
+    /// OS の言語で解決されてしまい、環境設定「表示言語」に従わなかった(ユーザー報告。
+    /// `String(localized:language:)` のコメント参照)。サイドバーの行も同じ文字列を使う。
+    var titleValue: String.LocalizationValue {
         switch self {
         case .general: "General"
         case .appearance: "Appearance"
@@ -85,6 +90,11 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .access: "Folder Access"
         case .reset: "Reset"
         }
+    }
+
+    /// 画面の名前を、環境設定「表示言語」(View の `@Environment(\.locale)`)で引いたもの。
+    func title(language locale: Locale) -> String {
+        String(localized: titleValue, language: locale)
     }
 
     /// アイコンタイルに描くSF Symbol。

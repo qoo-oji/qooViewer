@@ -472,7 +472,7 @@ struct ExportWindowContent<Options: View>: View {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.prompt = String(localized: "Choose", locale: locale)
+        panel.prompt = String(localized: "Choose", language: locale)
         panel.message = configuration.destinationPanelMessage(locale)
         if let lastFolder = configuration.lastUsedFolder.lastFolder() {
             panel.directoryURL = lastFolder
@@ -490,7 +490,7 @@ struct ExportWindowContent<Options: View>: View {
             if didAccess { destination.stopAccessingSecurityScopedResource() }
             insufficientSpaceMessage = String(
                 localized: "The destination volume doesn't have enough free space (at least 1.2× the total size of the selected books is required). Choose a different destination, or select fewer books.",
-                locale: locale
+                language: locale
             )
             return
         }

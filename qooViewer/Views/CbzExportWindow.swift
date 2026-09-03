@@ -18,7 +18,7 @@ struct CbzExportWindow: View {
         progressTitle: "Exporting CBZ Files…",
         fileExtension: "cbz",
         destinationPanelMessage: { locale in
-            String(localized: "Choose a destination folder for the exported CBZ files.", locale: locale)
+            String(localized: "Choose a destination folder for the exported CBZ files.", language: locale)
         },
         lastUsedFolder: .cbzExport,
         minimumWindowWidth: 820

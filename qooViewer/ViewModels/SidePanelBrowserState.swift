@@ -220,10 +220,10 @@ final class SidePanelBrowserState: ObservableObject {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.directoryURL = directory
-        panel.prompt = String(localized: "Grant Access", locale: locale)
+        panel.prompt = String(localized: "Grant Access", language: locale)
         panel.message = String(
             localized: "To show files in this folder, please select and grant access to it.",
-            locale: locale
+            language: locale
         )
         guard panel.runModal() == .OK, let grantedURL = panel.url else { return }
 

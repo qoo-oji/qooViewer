@@ -317,11 +317,11 @@ private struct LibraryCleanupContentView: View {
     private var existenceColumnWidth: CGFloat {
         ExportColumnWidthEstimator.idealWidth(
             for: [
-                String(localized: "Found", locale: locale),
-                String(localized: "Missing", locale: locale),
-                String(localized: "Checking…", locale: locale),
-                String(localized: "Unknown", locale: locale),
-                String(localized: "File", locale: locale)
+                String(localized: "Found", language: locale),
+                String(localized: "Missing", language: locale),
+                String(localized: "Checking…", language: locale),
+                String(localized: "Unknown", language: locale),
+                String(localized: "File", language: locale)
             ],
             minWidth: 70,
             maxWidth: 200,
@@ -335,7 +335,7 @@ private struct LibraryCleanupContentView: View {
         max(
             ExportIndicatorIcon.totalWidth(iconCount: 4) + 8,
             ExportColumnWidthEstimator.idealWidth(
-                for: [String(localized: "Saved Data", locale: locale)],
+                for: [String(localized: "Saved Data", language: locale)],
                 minWidth: 0, maxWidth: 200
             )
         )
@@ -345,7 +345,7 @@ private struct LibraryCleanupContentView: View {
     /// (メタデータの編集ウインドウの登録/削除ボタン列と同じ部品・同じ値の使い方)。
     private var actionColumnWidth: CGFloat {
         MetadataButtonWidthEstimator.equalWidth(
-            for: [String(localized: "Delete", locale: locale)],
+            for: [String(localized: "Delete", language: locale)],
             minWidth: 40,
             font: .systemFont(ofSize: NSFont.smallSystemFontSize),
             chrome: MetadataButtonWidthEstimator.smallChrome

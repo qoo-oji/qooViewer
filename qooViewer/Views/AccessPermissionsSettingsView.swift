@@ -71,10 +71,10 @@ struct AccessPermissionsSettingsView: View {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = false
-        panel.prompt = String(localized: "Grant Access", locale: locale)
+        panel.prompt = String(localized: "Grant Access", language: locale)
         panel.message = String(
             localized: "Select a folder to grant qooViewer access to (e.g. your home folder, an external volume, or a drive's root folder).",
-            locale: locale
+            language: locale
         )
         guard panel.runModal() == .OK, let url = panel.url else { return }
         // ここでstartAccessingSecurityScopedResource()を呼ぶ必要は無い(対になるstopが無く、

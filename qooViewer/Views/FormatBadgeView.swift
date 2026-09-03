@@ -54,7 +54,7 @@ struct FormatBadgeView: View {
     static func estimatedWidth(bookID: String, locale: Locale) -> CGFloat {
         let pathExtension = URL(fileURLWithPath: bookID).pathExtension
         let label = pathExtension.isEmpty
-            ? String(localized: "Folder", locale: locale)
+            ? String(localized: "Folder", language: locale)
             : pathExtension.uppercased()
         let font = NSFont.systemFont(
             ofSize: NSFont.preferredFont(forTextStyle: .caption2).pointSize, weight: .semibold

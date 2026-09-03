@@ -1848,7 +1848,7 @@ final class ViewerViewModel: ObservableObject {
         // ブックマークの名前(SwiftDataに永続化される実データ)は、後から表示言語を切り替えても
         // 変わらない「作成時点の言語」で作られる。作成時点の表示言語設定(preferences.effectiveLocale)を
         // 使ってその場で解決することで、システム言語とは独立したアプリ内表示言語にも対応する。
-        let pagePrefix = String(localized: "Page", locale: preferences.effectiveLocale)
+        let pagePrefix = String(localized: "Page", language: preferences.effectiveLocale)
         // セキュリティスコープ付きブックマークを一緒に保存しておく(FavoriteBook.bookmarkDataと
         // 同じ理由。「ブックマークの編集」ウインドウから、今開いていない本を新たに開いてジャンプ
         // する機能(要望2〜4)のために必要。今この本を開けている=このURLへのアクセス権を

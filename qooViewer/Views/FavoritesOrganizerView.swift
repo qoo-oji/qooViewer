@@ -185,7 +185,7 @@ struct FavoritesOrganizerView: View {
                 .padding(.vertical, 8)
                 .background(.bar)
             }
-            .navigationTitle("Favorites")
+            .navigationTitle(String(localized: "Favorites", language: preferences.effectiveLocale))
             // 左ペインの幅を、開いた時点で登録されているフォルダ名の長さ(階層の字下げ込み)に
             // 応じて広げる(ブックマーク編集画面の同様の対応と揃えている)。ideal:に渡した値は
             // ウインドウの初期サイズのヒントとしても使われるため、初めて開いたとき(まだ
@@ -507,7 +507,8 @@ struct FavoritesOrganizerView: View {
             // 移動するたびにウインドウのタイトルが変わっていたが、「ブックマークの編集」
             // ウインドウのタイトルが常に固定(ブックマークの編集)なのに対しこちらだけ
             // 可変なのはUIが揃わないという指摘があったため、こちらも常に固定のタイトルにした。
-            .navigationTitle("Edit Favorites")
+            // ウインドウのタイトルは表示言語で引いたStringを渡す(QooViewerAppのWindow群のコメント参照)。
+            .navigationTitle(String(localized: "Edit Favorites", language: preferences.effectiveLocale))
         }
         // 左ペインが広がった分、右ペインが窮屈にならないよう、ウインドウ全体の最小幅も
         // 追随させる(要望: 右ペインがしわ寄せを受けるくらいなら、ウインドウ全体を広げてよい)。

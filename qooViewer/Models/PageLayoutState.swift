@@ -56,10 +56,10 @@ nonisolated enum PageLayoutState: String, CaseIterable, Identifiable, Codable, H
     /// `@Environment(\.locale)`で受け取ったものをそのまま渡せばよい。
     func title(locale: Locale) -> String {
         switch self {
-        case .single: return String(localized: "Single Page", locale: locale)
-        case .spreadRight: return String(localized: "Spread Right", locale: locale)
-        case .spreadLeft: return String(localized: "Spread Left", locale: locale)
-        case .excluded: return String(localized: "Excluded (Hidden)", locale: locale)
+        case .single: return String(localized: "Single Page", language: locale)
+        case .spreadRight: return String(localized: "Spread Right", language: locale)
+        case .spreadLeft: return String(localized: "Spread Left", language: locale)
+        case .excluded: return String(localized: "Excluded (Hidden)", language: locale)
         }
     }
 

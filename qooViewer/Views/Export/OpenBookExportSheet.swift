@@ -269,8 +269,8 @@ enum ExportDestinationPanel {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.prompt = String(localized: "Choose", locale: locale)
-        panel.message = String(localized: "Choose a destination folder for the exported book.", locale: locale)
+        panel.prompt = String(localized: "Choose", language: locale)
+        panel.message = String(localized: "Choose a destination folder for the exported book.", language: locale)
         if let current = startingAt ?? format.lastUsedFolder.lastFolder() {
             panel.directoryURL = current
         }

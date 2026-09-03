@@ -1138,7 +1138,7 @@ struct ViewerView: View {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [contentType]
         panel.nameFieldStringValue = defaultFileName
-        panel.message = String(localized: "Choose where to save the exported image.", locale: locale)
+        panel.message = String(localized: "Choose where to save the exported image.", language: locale)
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
         return url
     }
@@ -1598,7 +1598,7 @@ struct ViewerView: View {
                 FavoriteFolderPickerView(book: viewModel.book, favoritesStore: favoritesStore) {
                     showToast(
                         String(
-                            format: String(localized: "Added “%@” to Favorites", locale: preferences.effectiveLocale),
+                            format: String(localized: "Added “%@” to Favorites", language: preferences.effectiveLocale),
                             viewModel.book.title
                         )
                     )
@@ -4130,7 +4130,7 @@ struct ViewerView: View {
         if let added = viewModel.bookmarks.first(where: { $0.pageIndex == index }) {
             showToast(
                 String(
-                    format: String(localized: "Added “%@” to Bookmarks", locale: preferences.effectiveLocale),
+                    format: String(localized: "Added “%@” to Bookmarks", language: preferences.effectiveLocale),
                     added.name
                 )
             )
@@ -4170,12 +4170,12 @@ struct ViewerView: View {
     private func bookmarkRemovalToastMessage(for names: [String]) -> String {
         if names.count >= 2 {
             return String(
-                format: String(localized: "Removed “%@” and “%@” from Bookmarks", locale: preferences.effectiveLocale),
+                format: String(localized: "Removed “%@” and “%@” from Bookmarks", language: preferences.effectiveLocale),
                 names[0], names[1]
             )
         }
         return String(
-            format: String(localized: "Removed “%@” from Bookmarks", locale: preferences.effectiveLocale),
+            format: String(localized: "Removed “%@” from Bookmarks", language: preferences.effectiveLocale),
             names.first ?? ""
         )
     }
@@ -4190,7 +4190,7 @@ struct ViewerView: View {
             favoritesStore.removeFavorites(forBookID: viewModel.book.id)
             showToast(
                 String(
-                    format: String(localized: "Removed “%@” from Favorites", locale: preferences.effectiveLocale),
+                    format: String(localized: "Removed “%@” from Favorites", language: preferences.effectiveLocale),
                     title
                 )
             )
@@ -4286,9 +4286,9 @@ struct ViewerView: View {
         // 静的解析からは「LocalizedStringKeyとして使われていない」ため参照を検出できず、
         // 「References to this key could not be found in source code.」という警告が出続けて
         // いた(実際には日本語表示時にも常に英語のまま表示されてしまう不具合でもあった)。
-        // String(localized:locale:)を明示的に使うことで、カタログから正しく参照が見つかる
+        // String(localized:language:)を明示的に使うことで、カタログから正しく参照が見つかる
         // ようになり、表示言語設定(preferences.effectiveLocale)にも従うようになる。
-        window.title = String(localized: "Actual Size", locale: preferences.effectiveLocale)
+        window.title = String(localized: "Actual Size", language: preferences.effectiveLocale)
         window.center()
         // このウインドウを閉じるとアプリ全体が強制終了してしまう不具合の原因はここ。
         // isReleasedWhenClosed(既定でtrue)がtrueのままだと、close()が呼ばれた瞬間に

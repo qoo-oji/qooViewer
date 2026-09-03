@@ -741,7 +741,7 @@ final class AppState: ObservableObject {
         // 画像は複数選択して1冊としてまとめて開ける(ユーザー要望)。画像以外を複数選んだ場合は
         // 従来どおり先頭の1つだけを開く(判定はBookOpenRequestに集約)。
         panel.allowsMultipleSelection = true
-        panel.prompt = String(localized: "Open", locale: locale)
+        panel.prompt = String(localized: "Open", language: locale)
         panel.message = String(
             // 画像ファイルも開けるようになったため文面を更新。画像は複数選択して1冊にまとめられる
             // (BookOpenRequest.init(openingCandidates:)参照)。
@@ -833,7 +833,7 @@ final class AppState: ObservableObject {
         guard !request.exceedsImageSelectionLimit else {
             errorMessage = String(
                 localized: "Too many images were selected. You can open up to \(BookOpenRequest.maxImageSelectionCount) images at once.",
-                locale: locale
+                language: locale
             )
             return
         }
@@ -974,7 +974,7 @@ final class AppState: ObservableObject {
                     self.pendingInitialPage = nil
                     self.pendingInitialEdge = nil
                     self.errorMessage = (error as? LocalizedError)?.errorDescription
-                        ?? String(localized: "The book could not be opened.", locale: locale)
+                        ?? String(localized: "The book could not be opened.", language: locale)
                 }
             }
         }
@@ -1095,7 +1095,7 @@ final class AppState: ObservableObject {
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
         let accessMessage = String(
             localized: "To open all images in this folder, please select and grant access to this folder.",
-            locale: locale
+            language: locale
         )
         guard ensureAccess(toFolder: folderURL, message: accessMessage) else { return }
         // フォルダの本のidはフォルダのパスそのもの(BookLoader.loadFolder)なので、
@@ -1133,7 +1133,7 @@ final class AppState: ObservableObject {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.directoryURL = folderURL
-        panel.prompt = String(localized: "Grant Access", locale: locale)
+        panel.prompt = String(localized: "Grant Access", language: locale)
         panel.message = message
         guard panel.runModal() == .OK, let grantedURL = panel.url else { return false }
         _ = folderAccess?.add(url: grantedURL)
@@ -1161,7 +1161,7 @@ final class AppState: ObservableObject {
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
         let accessMessage = String(
             localized: "To show files in the same folder, please select and grant access to this folder.",
-            locale: locale
+            language: locale
         )
         guard ensureAccess(toFolder: parent, message: accessMessage) else { return }
 

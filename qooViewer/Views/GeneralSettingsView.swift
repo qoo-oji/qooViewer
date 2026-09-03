@@ -12,7 +12,13 @@ struct GeneralSettingsView: View {
     var body: some View {
         SettingsPaneContainer {
             Section {
-                SettingsPicker("Display Language", selection: $preferences.displayLanguage)
+                // ウインドウの中身は選んだ瞬間に切り替わるが、メニューバーとOSが出すダイアログは
+                // 次回の起動から(AppLanguage.applyAppleLanguagesOverride参照)。それを吹き出しで言う。
+                SettingsPicker(
+                    "Display Language",
+                    selection: $preferences.displayLanguage,
+                    help: "Windows switch right away. The menu bar and system dialogs switch the next time qooViewer starts."
+                )
             } header: {
                 Text("Language")
             }

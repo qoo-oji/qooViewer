@@ -160,7 +160,7 @@ struct ContentView: View {
             )
         } ?? "qooViewer"
         guard isPrivateWindow else { return base }
-        return String(localized: "(Private) \(base)", locale: preferences.effectiveLocale)
+        return String(localized: "(Private) \(base)", language: preferences.effectiveLocale)
     }
 
     /// ウインドウの中身そのもの(サイドパネル + ビューア/ウェルカム画面)。

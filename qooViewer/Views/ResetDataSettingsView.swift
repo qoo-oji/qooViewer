@@ -207,8 +207,8 @@ struct ResetDataSettingsView: View {
     private var cleanUpButtonWidth: CGFloat {
         MetadataButtonWidthEstimator.equalWidth(
             for: [
-                String(localized: "Delete Saved Data…", locale: locale),
-                String(localized: "Delete History…", locale: locale)
+                String(localized: "Delete Saved Data…", language: locale),
+                String(localized: "Delete History…", language: locale)
             ],
             minWidth: 0,
             chrome: Self.labelIconChrome

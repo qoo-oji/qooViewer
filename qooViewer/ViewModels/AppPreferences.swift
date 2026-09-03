@@ -331,7 +331,12 @@ final class AppPreferences: ObservableObject {
     }
     /// アプリの表示言語(既定は「システムに従う」)
     @Published var displayLanguage: AppLanguage {
-        didSet { UserDefaults.standard.set(displayLanguage.rawValue, forKey: Keys.displayLanguage) }
+        didSet {
+            UserDefaults.standard.set(displayLanguage.rawValue, forKey: Keys.displayLanguage)
+            // メニューバーなど起動中には切り替えられない部分を、次回起動から揃える
+            // (AppLanguage.applyAppleLanguagesOverrideのコメント参照)。
+            AppLanguage.applyAppleLanguagesOverride(for: displayLanguage)
+        }
     }
     /// アプリの外観(ライト/ダーク。既定は「システムに従う」)。
     /// 表示言語と同じく、macOSのシステム設定とは独立して選べる(ユーザー要望)。
@@ -1276,7 +1281,9 @@ final class AppPreferences: ObservableObject {
     // 自分自身で持つように変更した(BookmarkStore.sortOption参照)。
 
     /// displayLanguage を実際の Locale に変換したもの。
-    /// SwiftUIのView階層外(AppState・ViewerViewModelなど)で動的な文字列を組み立てるときに使う。
+    /// SwiftUIのView階層外(AppState・ViewerViewModelなど)で動的な文字列を組み立てるときに、
+    /// `String(localized:language:)`(AppLanguage.swift)へ渡す。Foundationの
+    /// `String(localized:locale:)`に渡しても翻訳は切り替わらないので注意(同initのコメント参照)。
     /// View階層内では `.environment(\.locale:)` 経由で自動的に反映されるため、通常はこちらを使う必要はない。
     var effectiveLocale: Locale {
         displayLanguage.localeOverride ?? .autoupdatingCurrent
@@ -1348,7 +1355,15 @@ final class AppPreferences: ObservableObject {
         self.progressBarRevealDelay = defaults.object(forKey: Keys.progressBarRevealDelay) as? Double ?? 0
         self.sidePanelRevealDelay = defaults.object(forKey: Keys.sidePanelRevealDelay) as? Double ?? 0
         self.prefetchPageCount = defaults.object(forKey: Keys.prefetchPageCount) as? Double ?? 3
-        self.displayLanguage = AppLanguage(rawValue: defaults.string(forKey: Keys.displayLanguage) ?? "") ?? .system
+        let displayLanguage = AppLanguage(rawValue: defaults.string(forKey: Keys.displayLanguage) ?? "") ?? .system
+        self.displayLanguage = displayLanguage
+        // 以前のバージョンで選んだ表示言語には、次回起動からメニューバーにも効かせるための
+        // AppleLanguages(AppLanguage.applyAppleLanguagesOverride参照)が書かれていない。
+        // 選択が保存されているのに印が無い、という状態をここで一度だけ埋める(didSetは初期化では
+        // 走らない。効くのは次の起動から)。「システムに従う」なら何も書かない。
+        if displayLanguage != .system {
+            AppLanguage.applyAppleLanguagesOverride(for: displayLanguage, defaults: defaults)
+        }
         self.appAppearance = AppAppearance(rawValue: defaults.string(forKey: Keys.appAppearance) ?? "") ?? .system
         self.reopenBehavior = ReopenBehavior(rawValue: defaults.string(forKey: Keys.reopenBehavior) ?? "") ?? .resume
         self.confirmBeforeClosingMultipleTabsWindow =

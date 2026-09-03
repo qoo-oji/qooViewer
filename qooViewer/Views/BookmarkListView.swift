@@ -732,7 +732,8 @@ struct BookmarkEditorView: View {
                 // (Listに.focusable()を重ねると、List自身のフォーカス処理と競合しうる。
                 // 右ペインのページ一覧は選択がネイティブではないため、あちらには自前の
                 // 実装が残っている。pageListContentのコメント参照)。
-                .navigationTitle("Bookmarks & Layout")
+                // ウインドウのタイトルは表示言語で引いたStringを渡す(QooViewerAppのWindow群のコメント参照)。
+                .navigationTitle(String(localized: "Bookmarks & Layout", language: preferences.effectiveLocale))
                 .navigationSplitViewColumnWidth(min: 220, ideal: sidebarWidth, max: 560)
                 .onAppear {
                     installDoubleClickMonitor()
@@ -2151,7 +2152,7 @@ private struct BookmarkDetailPane: View {
     ///   実効順の番号を持っているため、並びが入れ替わる本では別のページの鍵が焼き付いてしまう。
     private func addBookmark(atPageIndex pageIndex: Int?, pageKey: String) {
         guard let pageIndex else { return }
-        let pagePrefix = String(localized: "Page", locale: preferences.effectiveLocale)
+        let pagePrefix = String(localized: "Page", language: preferences.effectiveLocale)
         // ユーザー要望: ここで新規作成するブックマークにもファイルノード識別子(iノード番号)を
         // 記録したい。この本を今開いているとは限らないため、ViewerViewModel.addBookmarkのように
         // 既に読み込み済みのbook.sourceURLを使うことはできず、都度解決する
@@ -2306,7 +2307,7 @@ private struct PageLayoutStateMenuButton: View {
         menu.autoenablesItems = false
 
         let noLayoutItem = NSMenuItem(
-            title: String(localized: "No Layout", locale: locale),
+            title: String(localized: "No Layout", language: locale),
             action: #selector(PageLayoutMenuHandler.selectState(_:)),
             keyEquivalent: ""
         )

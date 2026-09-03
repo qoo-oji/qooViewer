@@ -71,7 +71,7 @@ enum PanelContentShadow {
     /// (「0」だと、影の強さが0なのか段階の名前なのかが紛らわしいため)。
     static func displayText(forLevel level: Int, locale: Locale) -> String {
         let level = clampedLevel(level)
-        guard level > 0 else { return String(localized: "None", locale: locale) }
+        guard level > 0 else { return String(localized: "None", language: locale) }
         return "\(level)"
     }
 }

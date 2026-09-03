@@ -153,12 +153,13 @@ extension MangaBook {
     /// BookLoaderがnonisolatedでAppPreferencesを持たず、あちらで`String(localized:)`すると
     /// **アプリ内の表示言語設定(AppPreferences.displayLanguage)ではなくOSのロケール**が
     /// 使われてしまうため(同じ制約がBookLoaderError.errorDescriptionのコメントに記録されている)。
-    /// 表示層は`preferences.effectiveLocale`を持っているので、そこから渡してもらう。
+    /// 表示層は`preferences.effectiveLocale`を持っているので、そこから渡してもらう
+    /// (翻訳の選択まで表示言語に従わせるには`String(localized:language:)`が要る。同initのコメント参照)。
     ///
     /// 複数形の変化を持つ文字列にしていないのは、この分岐へ来る時点でページ数が必ず2以上のため。
     /// String Catalog側で単数形の亜種を用意する必要が無い。
     func displayName(locale: Locale) -> String {
         guard origin == .imageFiles, pages.count > 1 else { return title }
-        return String(localized: "\(title) (\(pages.count) images)", locale: locale)
+        return String(localized: "\(title) (\(pages.count) images)", language: locale)
     }
 }

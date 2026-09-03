@@ -27,7 +27,7 @@ enum LastBookmarkTreatment: String, CaseIterable, Identifiable {
         }
     }
 
-    /// String(localized:locale:)で使う、実際にリネームする際の固定名。
+    /// String(localized:language:)で使う、実際にリネームする際の固定名。
     /// .normalの場合は固定名を持たない(連番リネームの対象に含める)。
     var fixedNameKey: String.LocalizationValue? {
         switch self {
@@ -355,13 +355,13 @@ struct BulkRenameBookmarksSheet: View {
             // 訳語(カバー画像)のままでよいが、ここで割り当てるのはブックマークの名前そのもの
             // (ユーザー要望: 「表紙」という名前を付けてほしい)のため、共用すると列見出しの
             // 訳語まで意図せず変わってしまう。
-            let coverName = String(localized: "Cover Bookmark Name", locale: preferences.effectiveLocale)
+            let coverName = String(localized: "Cover Bookmark Name", language: preferences.effectiveLocale)
             items.append(PreviewItem(id: cover.id, originalName: cover.name, newName: coverName))
             excludedIDs.insert(cover.id)
         }
 
         if let fixedNameKey = lastBookmarkTreatment.fixedNameKey, let last = bookmarks.last, !excludedIDs.contains(last.id) {
-            let name = String(localized: fixedNameKey, locale: preferences.effectiveLocale)
+            let name = String(localized: fixedNameKey, language: preferences.effectiveLocale)
             items.append(PreviewItem(id: last.id, originalName: last.name, newName: name))
             excludedIDs.insert(last.id)
         }
@@ -403,7 +403,7 @@ struct BulkRenameBookmarksSheet: View {
             // 訳語(カバー画像)のままでよいが、ここで割り当てるのはブックマークの名前そのもの
             // (ユーザー要望: 「表紙」という名前を付けてほしい)のため、共用すると列見出しの
             // 訳語まで意図せず変わってしまう。
-            let coverName = String(localized: "Cover Bookmark Name", locale: preferences.effectiveLocale)
+            let coverName = String(localized: "Cover Bookmark Name", language: preferences.effectiveLocale)
             if let cover = sorted.first(where: { $0.pageIndex == 0 }) {
                 pendingRenames.append((cover, coverName))
                 excludedIDs.insert(cover.id)
@@ -436,7 +436,7 @@ struct BulkRenameBookmarksSheet: View {
         }
 
         if let fixedNameKey = lastBookmarkTreatment.fixedNameKey, let last = sorted.last, !excludedIDs.contains(last.id) {
-            let name = String(localized: fixedNameKey, locale: preferences.effectiveLocale)
+            let name = String(localized: fixedNameKey, language: preferences.effectiveLocale)
             pendingRenames.append((last, name))
             excludedIDs.insert(last.id)
         }

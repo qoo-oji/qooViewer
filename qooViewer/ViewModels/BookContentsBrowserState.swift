@@ -420,6 +420,6 @@ final class BookContentsBrowserState: ObservableObject {
 
     private func localizedErrorMessage(for error: Error, fallback: String.LocalizationValue) -> String {
         let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
-        return (error as? LocalizedError)?.errorDescription ?? String(localized: fallback, locale: locale)
+        return (error as? LocalizedError)?.errorDescription ?? String(localized: fallback, language: locale)
     }
 }
