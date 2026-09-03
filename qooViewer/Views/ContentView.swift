@@ -1009,6 +1009,7 @@ struct ContentView: View {
             },
             bookmarks: appState.currentBookmarks,
             currentPageIndex: appState.currentPageIndex,
+            partnerPageIndex: appState.currentPartnerPageIndex,
             hasBook: appState.currentBook != nil,
             currentBookPath: appState.currentBook?.id,
             loadPageThumbnail: appState.loadPageThumbnail,
@@ -1091,6 +1092,15 @@ struct ContentView: View {
                 bookmarkStore.delete(bookmark)
             }
         )
+        // 常時表示のときは、パネルの位置をViewerViewへ知らせる。パネルの上でのホイール操作を
+        // ページ送りの対象から外すために要る(AppState.dockedSidePanelScreenFrameのコメント参照)。
+        // 浮かせている表示のほうは、呼び出し側で別のフレーム(sidePanelScreenFrame)を報告している。
+        .background {
+            if isDocked {
+                PanelScreenFrameAccessor { appState.dockedSidePanelScreenFrame = $0 }
+                    .onDisappear { appState.dockedSidePanelScreenFrame = .zero }
+            }
+        }
     }
 
     /// 「ブックマーク・レイアウトの編集」ウインドウを、ブックマーク向けの絞り込みで開く

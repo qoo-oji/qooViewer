@@ -103,6 +103,9 @@ struct SidePanelView: View {
     var bookmarks: [Bookmark]
     /// 今表示しているページ番号(0始まり)。一覧内で該当するブックマークをハイライトするために使う。
     var currentPageIndex: Int
+    /// 見開きで2ページとも表示しているときの相方ページ(AppState.currentPartnerPageIndex)。
+    /// ページモードで、画面に出ている2ページの両方をハイライトするために使う。
+    var partnerPageIndex: Int?
     /// 本を開いているかどうか。「お気に入りに追加」「ブックマークを追加」の2ボタンは、本を
     /// 開いていない間は対象が無いため無効化する。
     var hasBook: Bool
@@ -174,6 +177,10 @@ struct SidePanelView: View {
     /// 各セクションのビューへは`.environmentObject`で配る。
     @StateObject private var contextHighlight = SidePanelContextMenuHighlight()
     @State private var folderFilterText = ""
+    /// 上段(フォルダブラウザ)の一覧のスクロール位置と、今開いている本の行が見えているか
+    /// どうかの判定(PanelListScrollTracker。3つの一覧で共有。行間・余白ゼロの詰めた一覧)。
+    @State private var folderScrollPosition = ScrollPosition()
+    @State private var folderScrollTracker = PanelListScrollTracker()
     @GestureState private var dragOffset: CGFloat = 0
     @GestureState private var widthDragOffset: CGFloat = 0
 
@@ -277,6 +284,7 @@ struct SidePanelView: View {
                     pages: bookPages,
                     bookSourceURL: bookSourceURL,
                     currentPageIndex: currentPageIndex,
+                    partnerPageIndex: partnerPageIndex,
                     bookmarkedPageIndices: bookmarkedPageIndices,
                     allowsBookmarking: allowsLibraryEditing,
                     thumbnailGeneration: pageThumbnailGeneration,
@@ -551,42 +559,53 @@ struct SidePanelView: View {
                             : "This folder holds images."
                     )
                 } else {
-                    ScrollViewReader { proxy in
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 0) {
-                                ForEach(entries) { entry in
-                                    folderRow(entry)
-                                }
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(entries) { entry in
+                                folderRow(entry)
                             }
                         }
-                        // ScrollView(NSScrollViewをラップ)は既定でキーボードフォーカスを受け取れる。
-                        // このパネルはクリック操作のみを想定しているため、Tabキーでの移動などで
-                        // 意図せずスクロール領域へフォーカスが移らないようにしておく
-                        // (フォーカスリング自体の抑制はContentView.body側の
-                        // .focusEffectDisabled()で行っている。絞り込み検索欄への入力は
-                        // これとは別で、通常どおりフォーカスを受け取れる)。
-                        .focusable(false)
-                        // 「サイドパネルを隠す」がONで、カーソルを左端に近づけてパネルが
-                        // 現れた瞬間にも、今開いている本の行が見えている状態から始める
-                        // (ユーザー要望)。下段(本の中身ブラウザ)の同名の.onAppearとまったく
-                        // 同じ理由: SidePanelBrowserStateはContentViewが保持し続けていて
-                        // 一覧(entries)は変わらないため下の.onChangeは発火せず、作り直された
-                        // ScrollViewだけが先頭に戻ってしまっていた。現れた瞬間のスクロールは
-                        // アニメーションさせない(パネルのスライドインと同時に中身も動くと
-                        // 落ち着かないため)。
-                        .onAppear { scrollToHighlightedFolder(proxy: proxy, animated: false) }
-                        // ハイライト対象(今開いている本)が変わったとき、または別のフォルダへ
-                        // 移動して一覧そのものが変わったときに、その行が表示枠内に見えるよう
-                        // スクロールする。highlightedURLの方も見ているのは、同じフォルダ内の
-                        // 別の本へ切り替えた場合はentriesが変わらずハイライト位置だけが動くため
-                        // (下段の本の中身ブラウザがhighlightedMatchKeysとentriesの両方を
-                        // 見ているのと同じ理由)。
-                        .onChange(of: folderState.highlightedURL) { _, _ in
-                            scrollToHighlightedFolder(proxy: proxy)
+                    }
+                    .scrollPosition($folderScrollPosition)
+                    // 一覧の寸法とスクロール量を実測して控える(PanelListScrollTracker参照)。
+                    .onScrollGeometryChange(for: PanelListScrollTracker.Metrics.self) { geometry in
+                        PanelListScrollTracker.Metrics(
+                            offsetY: geometry.contentOffset.y,
+                            visibleRect: geometry.visibleRect,
+                            contentHeight: geometry.contentSize.height
+                        )
+                    } action: { _, newValue in
+                        if folderScrollTracker.update(newValue, rowCount: entries.count) {
+                            scrollToHighlightedFolder(animated: false)
                         }
-                        .onChange(of: folderState.entries) { _, _ in
-                            scrollToHighlightedFolder(proxy: proxy)
-                        }
+                    }
+                    // ScrollView(NSScrollViewをラップ)は既定でキーボードフォーカスを受け取れる。
+                    // このパネルはクリック操作のみを想定しているため、Tabキーでの移動などで
+                    // 意図せずスクロール領域へフォーカスが移らないようにしておく
+                    // (フォーカスリング自体の抑制はContentView.body側の
+                    // .focusEffectDisabled()で行っている。絞り込み検索欄への入力は
+                    // これとは別で、通常どおりフォーカスを受け取れる)。
+                    .focusable(false)
+                    // 「サイドパネルを隠す」がONで、カーソルを左端に近づけてパネルが
+                    // 現れた瞬間にも、今開いている本の行が見えている状態から始める
+                    // (ユーザー要望)。下段(本の中身ブラウザ)の同名の.onAppearとまったく
+                    // 同じ理由: SidePanelBrowserStateはContentViewが保持し続けていて
+                    // 一覧(entries)は変わらないため下の.onChangeは発火せず、作り直された
+                    // ScrollViewだけが先頭に戻ってしまっていた。現れた瞬間のスクロールは
+                    // アニメーションさせない(パネルのスライドインと同時に中身も動くと
+                    // 落ち着かないため)。
+                    .onAppear { scrollToHighlightedFolder(animated: false) }
+                    // ハイライト対象(今開いている本)が変わったとき、または別のフォルダへ
+                    // 移動して一覧そのものが変わったときに、その行が表示枠内に見えるよう
+                    // スクロールする。highlightedURLの方も見ているのは、同じフォルダ内の
+                    // 別の本へ切り替えた場合はentriesが変わらずハイライト位置だけが動くため
+                    // (下段の本の中身ブラウザがhighlightedMatchKeysとentriesの両方を
+                    // 見ているのと同じ理由)。
+                    .onChange(of: folderState.highlightedURL) { _, _ in
+                        scrollToHighlightedFolder()
+                    }
+                    .onChange(of: folderState.entries) { _, _ in
+                        scrollToHighlightedFolder()
                     }
                 }
             }
@@ -607,16 +626,19 @@ struct SidePanelView: View {
 
     /// 今開いている本(folderState.highlightedURL)の行までスクロールする。
     /// 下段(本の中身ブラウザ)のscrollToHighlighted(proxy:animated:)のフォルダ一覧版。
-    private func scrollToHighlightedFolder(proxy: ScrollViewProxy, animated: Bool = true) {
+    /// 行が画面から外れていたら、見える位置まで最小限だけスクロールする(既に見えているなら
+    /// 何もしない)。計算と、なぜproxy.scrollToを使わないのかはPanelListScrollTracker参照。
+    private func scrollToHighlightedFolder(animated: Bool = true) {
+        let entries = filteredFolderEntries
         guard let highlighted = folderState.highlightedURL,
               // 絞り込みで一覧から外れている行へはスクロールできない。
-              filteredFolderEntries.contains(where: { $0.url.path == highlighted.path }) else { return }
-        DispatchQueue.main.async {
-            if animated {
-                withAnimation { proxy.scrollTo(highlighted.path, anchor: .center) }
-            } else {
-                proxy.scrollTo(highlighted.path, anchor: .center)
-            }
+              let row = entries.firstIndex(where: { $0.url.path == highlighted.path }),
+              let target = folderScrollTracker.offsetToReveal(rows: row...row, rowCount: entries.count)
+        else { return }
+        if animated {
+            withAnimation { folderScrollPosition.scrollTo(y: target) }
+        } else {
+            folderScrollPosition.scrollTo(y: target)
         }
     }
 
@@ -827,6 +849,10 @@ private struct BookContentsSectionView: View {
     /// 上段と同じ絞り込み検索欄の入力内容(SidePanelView.folderFilterText参照)。
     /// 本の中の階層を移動したら空に戻す。
     @State private var filterText = ""
+    /// 一覧のスクロール位置と、ハイライト行が見えているかどうかの判定
+    /// (PanelListScrollTracker。3つの一覧で共有。行間・余白ゼロの詰めた一覧)。
+    @State private var scrollPosition = ScrollPosition()
+    @State private var scrollTracker = PanelListScrollTracker()
 
     /// 絞り込みを適用した一覧。
     private var filteredEntries: [BookInternalBrowsing.Entry] {
@@ -888,47 +914,63 @@ private struct BookContentsSectionView: View {
                 if entries.isEmpty && !state.entries.isEmpty {
                     SidePanelEmptyMessage(textKey: "(No Matches)")
                 } else {
-                    ScrollViewReader { proxy in
-                        ScrollView {
-                            LazyVStack(alignment: .leading, spacing: 0) {
-                                ForEach(entries) { entry in
-                                    row(for: entry)
-                                }
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(entries) { entry in
+                                row(for: entry)
                             }
                         }
-                        // folderSectionの同名の.focusable(false)と同じ理由。
-                        .focusable(false)
-                        // 「サイドパネルを隠す」がONで、カーソルを左端に近づけてパネルが
-                        // 現れた瞬間にも、現在のページの行が見えている状態から始める
-                        // (ユーザー要望)。このときBookContentsBrowserState自体はContentViewが
-                        // 保持し続けていてハイライト対象(highlightedMatchKeys)も一覧(entries)も
-                        // 変わっていないため、下の.onChangeはどちらも発火せず、作り直された
-                        // ScrollViewが先頭のまま表示されてしまっていた。ページモードの一覧が
-                        // .onAppearでも現在ページへ合わせているのと同じ対処
-                        // (SidePanelPagesSectionView.scrollToCurrent参照)。
-                        // 現れた瞬間のスクロールはアニメーションさせない(パネルのスライドインと
-                        // 同時に中身も動くと落ち着かないため)。
-                        .onAppear { scrollToHighlighted(proxy: proxy, animated: false) }
-                        // ページ送りでハイライト対象が変わるたび、またはハイライト対象を含む
-                        // 新しい階層へ切り替わって一覧そのものが変わるたびに、その行が常に
-                        // 表示枠内に見えるようスクロールする(ユーザー要望)。
-                        .onChange(of: state.highlightedMatchKeys) { _, _ in scrollToHighlighted(proxy: proxy) }
-                        .onChange(of: state.entries) { _, _ in scrollToHighlighted(proxy: proxy) }
                     }
+                    .scrollPosition($scrollPosition)
+                    // 一覧の寸法とスクロール量を実測して控える(PanelListScrollTracker参照)。
+                    .onScrollGeometryChange(for: PanelListScrollTracker.Metrics.self) { geometry in
+                        PanelListScrollTracker.Metrics(
+                            offsetY: geometry.contentOffset.y,
+                            visibleRect: geometry.visibleRect,
+                            contentHeight: geometry.contentSize.height
+                        )
+                    } action: { _, newValue in
+                        if scrollTracker.update(newValue, rowCount: entries.count) {
+                            scrollToHighlighted(animated: false)
+                        }
+                    }
+                    // folderSectionの同名の.focusable(false)と同じ理由。
+                    .focusable(false)
+                    // 「サイドパネルを隠す」がONで、カーソルを左端に近づけてパネルが
+                    // 現れた瞬間にも、現在のページの行が見えている状態から始める
+                    // (ユーザー要望)。このときBookContentsBrowserState自体はContentViewが
+                    // 保持し続けていてハイライト対象(highlightedMatchKeys)も一覧(entries)も
+                    // 変わっていないため、下の.onChangeはどちらも発火せず、作り直された
+                    // ScrollViewが先頭のまま表示されてしまっていた。ページモードの一覧が
+                    // .onAppearでも現在ページへ合わせているのと同じ対処
+                    // (SidePanelPagesSectionView.revealCurrentPageIfNeeded参照)。
+                    // 現れた瞬間のスクロールはアニメーションさせない(パネルのスライドインと
+                    // 同時に中身も動くと落ち着かないため)。
+                    .onAppear { scrollToHighlighted(animated: false) }
+                    // ページ送りでハイライト対象が変わるたび、またはハイライト対象を含む
+                    // 新しい階層へ切り替わって一覧そのものが変わるたびに、その行が常に
+                    // 表示枠内に見えるようスクロールする(ユーザー要望)。
+                    .onChange(of: state.highlightedMatchKeys) { _, _ in scrollToHighlighted() }
+                    .onChange(of: state.entries) { _, _ in scrollToHighlighted() }
                 }
             }
         }
     }
 
-    private func scrollToHighlighted(proxy: ScrollViewProxy, animated: Bool = true) {
+    /// 今表示しているページの行(見開きで2ページとも表示中なら、その2行)が画面から外れて
+    /// いたら、見える位置まで最小限だけスクロールする。既に見えているなら何もしない
+    /// (計算と、なぜproxy.scrollToを使わないのかはPanelListScrollTracker参照)。
+    private func scrollToHighlighted(animated: Bool = true) {
+        let entries = filteredEntries
         // 絞り込みで一覧から外れている行へはスクロールできない(folderSectionと同じ理由)。
-        guard let target = filteredEntries.first(where: { state.highlightedMatchKeys.contains($0.matchKey) }) else { return }
-        DispatchQueue.main.async {
-            if animated {
-                withAnimation { proxy.scrollTo(target.id, anchor: .center) }
-            } else {
-                proxy.scrollTo(target.id, anchor: .center)
-            }
+        guard let first = entries.firstIndex(where: { state.highlightedMatchKeys.contains($0.matchKey) }),
+              let last = entries.lastIndex(where: { state.highlightedMatchKeys.contains($0.matchKey) }),
+              let target = scrollTracker.offsetToReveal(rows: first...last, rowCount: entries.count)
+        else { return }
+        if animated {
+            withAnimation { scrollPosition.scrollTo(y: target) }
+        } else {
+            scrollPosition.scrollTo(y: target)
         }
     }
 
@@ -1632,6 +1674,11 @@ private struct SidePanelPagesSectionView: View {
     /// 本そのものの場所(右クリックの「Finderで開く」用。PageContextMenuItems参照)。
     var bookSourceURL: URL?
     var currentPageIndex: Int
+    /// 見開きで2ページとも表示しているときの相方ページ(currentPageIndex + 1)。単ページ表示や、
+    /// 見開きでも実際には1枚しか出ていない場合はnil(AppState.currentPartnerPageIndex参照)。
+    /// 画面に出ている2ページは、どちらの行も同じようにハイライトする(ユーザー報告: 見開きで
+    /// 2枚表示しているのに一覧のハイライトが1行だけなのは違和感がある)。
+    var partnerPageIndex: Int?
     /// ブックマークが付いているページ番号(0始まり)。一覧の行にしおりアイコンで示すほか、
     /// 右クリックメニューの文言(追加/削除)の判定にも使う。
     var bookmarkedPageIndices: Set<Int>
@@ -1661,6 +1708,19 @@ private struct SidePanelPagesSectionView: View {
     /// 画面内ぶんの読み直しだけで再び予算へ達するループは起きない。
     private static let budgetMinimumCellCount = 120
 
+    /// 一覧の縦の余白と行間。現在ページの行がどこにあるかを実測値から割り出す
+    /// (revealCurrentPageIfNeeded)ときに使うため、レイアウトへ直接書かずここから配る。
+    static let listVerticalPadding: CGFloat = 6
+    static let rowSpacing: CGFloat = 6
+
+    /// 一覧のスクロール位置と、現在ページの行が見えているかどうかの判定
+    /// (PanelListScrollTracker。3つの一覧で共有している部品。理由はそちらのコメント参照)。
+    @State private var scrollPosition = ScrollPosition()
+    @State private var scrollTracker = PanelListScrollTracker(
+        verticalPadding: SidePanelPagesSectionView.listVerticalPadding,
+        rowSpacing: SidePanelPagesSectionView.rowSpacing
+    )
+
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
@@ -1688,64 +1748,86 @@ private struct SidePanelPagesSectionView: View {
             if pages.isEmpty || loadThumbnail == nil {
                 SidePanelEmptyMessage(textKey: "(No Book Open)")
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 6) {
-                            ForEach(pages.indices, id: \.self) { index in
-                                SidePanelPageCell(
-                                    index: index,
-                                    location: pages[index].location(inBookAt: bookSourceURL),
-                                    pageNumberWidth: pageNumberWidth,
-                                    isCurrent: index == currentPageIndex,
-                                    isBookmarked: bookmarkedPageIndices.contains(index),
-                                    thumbnailGeneration: thumbnailGeneration,
-                                    loadThumbnail: loadThumbnail,
-                                    loadPageImage: loadPageImage,
-                                    previewArrowEdge: previewArrowEdge,
-                                    onTap: { onJumpToPage(index) },
-                                    onRetainedImage: { image in
-                                        cellImageBudget.note(
-                                            retaining: image,
-                                            minimumCellCount: Self.budgetMinimumCellCount
-                                        )
-                                    }
-                                )
-                                .id(index)
-                                .sidePanelContextHighlight(rowID: "page:\(index)")
-                                // 右クリックの内容はページ一覧パネル・本の中身ブラウザと
-                                // 完全に同じ(ユーザー要望。PageContextMenuItems参照)。
-                                .contextMenu {
-                                    PageContextMenuItems(
-                                        page: pages[index],
-                                        bookSourceURL: bookSourceURL,
-                                        onExport: onExportPage.map { export in { export(index) } },
-                                        isBookmarked: bookmarkedPageIndices.contains(index),
-                                        allowsBookmarking: allowsBookmarking,
-                                        onToggleBookmark: { onToggleBookmark(index) }
+                ScrollView {
+                    LazyVStack(spacing: Self.rowSpacing) {
+                        ForEach(pages.indices, id: \.self) { index in
+                            SidePanelPageCell(
+                                index: index,
+                                location: pages[index].location(inBookAt: bookSourceURL),
+                                pageNumberWidth: pageNumberWidth,
+                                isCurrent: index == currentPageIndex || index == partnerPageIndex,
+                                isBookmarked: bookmarkedPageIndices.contains(index),
+                                thumbnailGeneration: thumbnailGeneration,
+                                loadThumbnail: loadThumbnail,
+                                loadPageImage: loadPageImage,
+                                previewArrowEdge: previewArrowEdge,
+                                onTap: { onJumpToPage(index) },
+                                onRetainedImage: { image in
+                                    cellImageBudget.note(
+                                        retaining: image,
+                                        minimumCellCount: Self.budgetMinimumCellCount
                                     )
                                 }
+                            )
+                            .id(index)
+                            .sidePanelContextHighlight(rowID: "page:\(index)")
+                            // 右クリックの内容はページ一覧パネル・本の中身ブラウザと
+                            // 完全に同じ(ユーザー要望。PageContextMenuItems参照)。
+                            .contextMenu {
+                                PageContextMenuItems(
+                                    page: pages[index],
+                                    bookSourceURL: bookSourceURL,
+                                    onExport: onExportPage.map { export in { export(index) } },
+                                    isBookmarked: bookmarkedPageIndices.contains(index),
+                                    allowsBookmarking: allowsBookmarking,
+                                    onToggleBookmark: { onToggleBookmark(index) }
+                                )
                             }
                         }
-                        // 保持量が予算を超えたら一覧ごと作り直して、画面外の行が抱えた
-                        // サムネイル・プレビューをまとめて解放する(cellImageBudgetのコメント参照)。
-                        .id(cellImageBudget.epoch)
-                        .padding(.vertical, 6)
                     }
-                    .focusable(false)
-                    // ページ送りに合わせて、現在ページの行が常に見えるようスクロールする
-                    // (サイドパネル上段のフォルダブラウザ・下段の本の中身ブラウザと同じ
-                    // 考え方・同じ組み合わせ)。
-                    // ・.onAppear: 「サイドパネルを隠す」がONのとき、カーソルを左端に近づけて
-                    //   パネルが現れた瞬間にも現在ページが見えている状態から始める。作り直された
-                    //   ScrollViewは先頭に戻ってしまうため必要(アニメーションはさせない。
-                    //   パネルのスライドインと同時に中身も動くと落ち着かないため)。
-                    // ・currentPageIndex: ページ送りでハイライト対象そのものが変わったとき。
-                    // ・pages: レイアウトの除外/ページ順補正で一覧の中身が変わったとき。同じ
-                    //   currentPageIndexでも行の位置が動くため、これも見る必要がある。
-                    .onAppear { scrollToCurrent(proxy: proxy, animated: false) }
-                    .onChange(of: currentPageIndex) { _, _ in scrollToCurrent(proxy: proxy, animated: true) }
-                    .onChange(of: pages) { _, _ in scrollToCurrent(proxy: proxy, animated: true) }
+                    // 保持量が予算を超えたら一覧ごと作り直して、画面外の行が抱えた
+                    // サムネイル・プレビューをまとめて解放する(cellImageBudgetのコメント参照)。
+                    .id(cellImageBudget.epoch)
+                    .padding(.vertical, Self.listVerticalPadding)
                 }
+                .scrollPosition($scrollPosition)
+                // 一覧の寸法とスクロール量を実測して控える。現在ページの行が本当に見えて
+                // いるのかを、推測ではなくこの値から判断する(revealCurrentPageIfNeeded)。
+                .onScrollGeometryChange(for: PanelListScrollTracker.Metrics.self) { geometry in
+                    PanelListScrollTracker.Metrics(
+                        offsetY: geometry.contentOffset.y,
+                        visibleRect: geometry.visibleRect,
+                        contentHeight: geometry.contentSize.height
+                    )
+                } action: { _, newValue in
+                    // 寸法が分かる前に来ていた指示(本を開いた直後など)は、ここで実行する。
+                    if scrollTracker.update(newValue, rowCount: pages.count) {
+                        revealCurrentPageIfNeeded(animated: false)
+                    }
+                }
+                .focusable(false)
+                // 現在ページの行が画面から外れていたら、見える位置まで一覧をスクロールする
+                // (サイドパネル上段のフォルダブラウザ・下段の本の中身ブラウザと同じ考え方)。
+                // ・.onAppear: 本を開いた/切り替えた直後と、「サイドパネルを隠す」がONのときに
+                //   カーソルを端へ寄せてパネルが現れた瞬間。現在ページが見えている状態から
+                //   始める(アニメーションはさせない。パネルのスライドインと同時に中身も
+                //   動くと落ち着かないため)。
+                // ・currentPageIndex: ページ送りでハイライト対象そのものが変わったとき。
+                // ・pages: レイアウトの除外/ページ順補正で一覧の中身が変わったとき。同じ
+                //   currentPageIndexでも行の位置が動くため、これも見る必要がある。
+                .onAppear { revealCurrentPageIfNeeded(animated: false) }
+                .onChange(of: currentPageIndex) { _, _ in revealCurrentPageIfNeeded(animated: true) }
+                .onChange(of: partnerPageIndex) { _, _ in revealCurrentPageIfNeeded(animated: true) }
+                .onChange(of: pages) { _, _ in revealCurrentPageIfNeeded(animated: true) }
+                // 本を切り替えたら一覧そのものを作り直す。世代番号は本を開くたびに増える
+                // (AppState.pageThumbnailGeneration)ので、同じ本を読んでいる間ここは変わらない。
+                // 狙いは2つ: 切り替え時に走る自動スクロールの起点を.onAppearの1本にまとめること
+                // (作り直さないとcurrentPageIndexとpagesの.onChangeが同時に発火する)と、
+                // 前の本の行がLazyVStackに抱えたままのサムネイルをまとめて解放すること
+                // (画面外の行は解放されない。LazyCellImageBudgetの型コメント参照)。
+                // 【注意】作り直してもスクロール量(pt)は前の本のまま残る(macOS 26で実測)。
+                // 先頭へ戻すのはあくまで上のrevealCurrentPageIfNeededの役目。
+                .id(thumbnailGeneration)
             }
         }
     }
@@ -1758,15 +1840,113 @@ private struct SidePanelPagesSectionView: View {
         return CGFloat(digits) * 8 + 2
     }
 
-    private func scrollToCurrent(proxy: ScrollViewProxy, animated: Bool) {
+    /// 現在ページ(見開きで2ページとも表示中なら、その相方も)の行が画面から外れていたら、
+    /// 見える位置まで一覧をスクロールする。既に見えているなら**何もしない**。
+    /// 位置の計算と、なぜproxy.scrollToを使わないのかはPanelListScrollTrackerを参照。
+    private func revealCurrentPageIfNeeded(animated: Bool) {
         guard pages.indices.contains(currentPageIndex) else { return }
-        DispatchQueue.main.async {
-            if animated {
-                withAnimation { proxy.scrollTo(currentPageIndex, anchor: .center) }
-            } else {
-                proxy.scrollTo(currentPageIndex, anchor: .center)
-            }
+        // 見開きで2ページとも表示しているときは、相方の行まで含めて見えるようにする
+        // (ハイライトも2行に付くため。SidePanelPageCell.isCurrent参照)。
+        let lastRow = partnerPageIndex.map { max(currentPageIndex, min($0, pages.count - 1)) }
+            ?? currentPageIndex
+        guard let target = scrollTracker.offsetToReveal(
+            rows: currentPageIndex...lastRow,
+            rowCount: pages.count
+        ) else { return }
+        if animated {
+            withAnimation { scrollPosition.scrollTo(y: target) }
+        } else {
+            scrollPosition.scrollTo(y: target)
         }
+    }
+}
+
+/// パネルの一覧(LazyVStack)で「対象の行が画面から外れていたら、見えるところまで最小限だけ
+/// スクロールする」を実測ベースで行うための控えと計算。サイドパネルの3つの一覧 ―― 上段の
+/// フォルダブラウザ・下段の本の中身ブラウザ・ページモード ―― で共有する。
+///
+/// 【なぜScrollViewReader(proxy.scrollTo)を使わないのか。macOS 26で実測して決めた】
+/// 120行のLazyVStackで測った、proxy.scrollToのanchorごとの挙動:
+///
+/// - `anchor: .center`(3つの一覧がいずれも以前使っていた): 目的の行が現在の描画範囲から遠いと、
+///   その行ではなく**コンテンツ全体の中央**へ飛ぶ。末尾まで読んだ状態から別の本へ切り替えると、
+///   1ページ目ではなく53ページ目付近が表示され、ハイライトがどこにも無い状態になっていた
+///   (ユーザー報告)。加えて、行が既に見えていてもページ送りのたびに中央へ寄せ直すため、
+///   一覧が絶えず不要にスクロールしていた(これもユーザー報告)。
+/// - `anchor: nil`(最小限のスクロール): ページ送りには具合が良いが、一覧の中身ごと
+///   差し替わった直後(本の切り替え)は**まったく動かない**ことがある。
+/// - `anchor: .top`: 遠い行へも確実に届くが、行が見えていてもそのたびに最上段へ跳ね上がる。
+///
+/// どれも「見えていなければ最小限だけ動かす」にはならないため、行の位置とスクロール量を
+/// 自分で持ち、pt単位で指定する(ScrollPosition.scrollTo(y:))。**行の高さは一覧内で全行同じ**
+/// なので、実測したコンテンツ全体の高さから正確に割り出せる(定数で持つと、行の作りを将来
+/// 変えたときに静かにずれる)。
+///
+/// スクロール中は毎フレーム実測値が届くため、@Stateではなくこの参照型に控える
+/// (@Stateに書くと、指を動かしている間じゅう一覧全体のbodyが評価され直す)。
+@MainActor final class PanelListScrollTracker {
+    /// 一覧の寸法とスクロール量の実測値(.onScrollGeometryChangeが届ける)。
+    struct Metrics: Equatable {
+        var offsetY: CGFloat
+        var visibleRect: CGRect
+        var contentHeight: CGFloat
+    }
+
+    /// 一覧の上下の余白と行間(一覧ごとに違うため、生成時に受け取る)。
+    private let verticalPadding: CGFloat
+    private let rowSpacing: CGFloat
+
+    init(verticalPadding: CGFloat = 0, rowSpacing: CGFloat = 0) {
+        self.verticalPadding = verticalPadding
+        self.rowSpacing = rowSpacing
+    }
+
+    private var metrics: Metrics?
+    /// metricsを観測したときの行数。行数が変われば1行の高さの計算も変わるため、
+    /// 古い高さのまま計算しないよう突き合わせる。
+    private var rowCount = 0
+    /// 寸法をまだ観測できていない時点で来た「この行を見せる」指示を覚えておく旗。
+    private(set) var hasPendingReveal = false
+
+    /// `.onScrollGeometryChange`のactionから呼ぶ。控えを更新し、保留中の指示があればtrueを返す
+    /// (呼び出し側はその場でスクロールをやり直す)。
+    func update(_ metrics: Metrics, rowCount: Int) -> Bool {
+        self.metrics = metrics
+        self.rowCount = rowCount
+        return hasPendingReveal
+    }
+
+    /// `rows`の行(見開きで2行にまたがるときは、その範囲)を見せるために必要なスクロール位置。
+    /// 既に見えていて動かす必要が無ければnil。寸法をまだ観測していない/控えが古い場合も、
+    /// 保留の旗を立ててnilを返す(次に実測値が届いた時点でやり直される)。
+    func offsetToReveal(rows: ClosedRange<Int>, rowCount: Int) -> CGFloat? {
+        guard let metrics, metrics.contentHeight > 0, rowCount > 0, self.rowCount == rowCount else {
+            hasPendingReveal = true
+            return nil
+        }
+        hasPendingReveal = false
+        // 行の高さ+行間。余白は上下に1つずつ、行間は行数-1個ある。
+        let pitch = (metrics.contentHeight - verticalPadding * 2 + rowSpacing) / CGFloat(rowCount)
+        guard pitch > rowSpacing else { return nil }
+        let rowHeight = pitch - rowSpacing
+        let top = verticalPadding + pitch * CGFloat(rows.lowerBound)
+        let bottom = verticalPadding + pitch * CGFloat(rows.upperBound) + rowHeight
+        let visible = metrics.visibleRect
+
+        let delta: CGFloat
+        if top < visible.minY {
+            // 上へはみ出している。はみ出した分だけ戻す。
+            delta = top - visible.minY
+        } else if bottom > visible.maxY {
+            // 下へはみ出している。はみ出した分だけ進める(2行が画面に収まらないほど狭い
+            // ときは、読み順で先にくる行の方を優先して見せる)。
+            delta = min(bottom - visible.maxY, top - visible.minY)
+        } else {
+            return nil // 既に見えている: 動かさない(ユーザー報告: 不要なスクロールが目障り)
+        }
+        let target = max(0, metrics.offsetY + delta)
+        guard abs(target - metrics.offsetY) > 0.5 else { return nil }
+        return target
     }
 }
 
@@ -2149,3 +2329,5 @@ struct SidebarVisualEffectView: NSViewRepresentable {
         nsView.blendingMode = blendingMode
     }
 }
+
+

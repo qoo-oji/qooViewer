@@ -409,6 +409,7 @@ struct ViewerView: View {
         appState.updateCurrentPageIndex(viewModel.currentIndex)
         appState.updateCurrentBookPages(viewModel.book.pages)
         appState.updateCurrentVisiblePageSortKeys(currentVisiblePageSortKeys)
+        appState.updateCurrentPartnerPageIndex(partnerPageIndex)
         // メニューバーの「表示モード切替」サブメニューから、特定のモードへ直接切り替える
         // ための橋渡し。
         appState.setScalingMode = { mode in
@@ -521,6 +522,17 @@ struct ViewerView: View {
                 return nil
             }
             guard !showThumbnailGrid, !appState.isSidePanelFloatingOverlay else { return event }
+            // 常時表示のサイドパネルの上での操作は、パネル自身のスクロールに任せて
+            // ページ送りには使わない(ユーザー報告: 一覧の上でホイールを回すと、一覧が
+            // スクロールすると同時にページ送りまで起きてしまう)。イベント自体は消費せず
+            // そのまま通す ―― 一覧のスクロールはこのモニタではなくパネル側の仕事のため。
+            // キー入力(.keyDown)は対象外。カーソルの位置に関わらず効くべきものであるため。
+            // 浮かせて表示しているパネルは、上のisSidePanelFloatingOverlayで既に除かれている。
+            if event.type != .keyDown,
+               appState.dockedSidePanelScreenFrame.contains(NSEvent.mouseLocation)
+            {
+                return event
+            }
             switch event.type {
             case .scrollWheel:
                 // トラックパッド(またはMagic Mouseなど)由来のスクロールイベントには
@@ -890,6 +902,7 @@ struct ViewerView: View {
         appState.updateCurrentPageIndex(0)
         appState.updateCurrentBookPages([])
         appState.updateCurrentVisiblePageSortKeys([])
+        appState.updateCurrentPartnerPageIndex(nil)
         appState.setScalingMode = nil
         appState.performLayoutStateChange = nil
         appState.performLayoutClear = nil
@@ -1494,6 +1507,7 @@ struct ViewerView: View {
         .onChange(of: viewModel.currentIndex) { _, newValue in
             appState.updateCurrentPageIndex(newValue)
             appState.updateCurrentVisiblePageSortKeys(currentVisiblePageSortKeys)
+            appState.updateCurrentPartnerPageIndex(partnerPageIndex)
             syncMenuCheckmarkState()
             // 新しいページは必ず読み始め側の隅から表示する(beginPageEntryScroll参照)。
             beginPageEntryScroll()
@@ -1509,6 +1523,7 @@ struct ViewerView: View {
         // 見開き表示なのにLayoutメニューが単一ページ用の項目のままになる)。
         .onChange(of: viewModel.currentImages.count) { _, _ in
             appState.updateCurrentVisiblePageSortKeys(currentVisiblePageSortKeys)
+            appState.updateCurrentPartnerPageIndex(partnerPageIndex)
             syncMenuCheckmarkState()
         }
         // 表示モードを切り替えた直後も、そのモードでの読み始め位置に合わせ直す

@@ -180,6 +180,18 @@ final class AppState: ObservableObject {
     /// ―― パネルを隠すと報告が止まり、この値は最後のフレームのまま古くなる。
     var sidePanelScreenFrame: CGRect = .zero
 
+    /// 常時表示(ドッキング)しているサイドパネルの、スクリーン座標系での現在のフレーム。
+    /// 表示していない間は`.zero`(ContentViewが表示中だけ報告し、消えるときに戻す)。
+    ///
+    /// ビューアのスクロール/スワイプによるページ送りから、**パネルの上での操作**を除くために
+    /// 使う(ViewerView.makeScrollMonitor参照。ユーザー報告: 一覧の上でホイールを回すと、
+    /// 一覧のスクロールと同時にページ送りまで起きてしまう)。浮かせているパネル
+    /// (sidePanelScreenFrame)の側は、isSidePanelFloatingOverlayによる全体のガードで既に
+    /// 除かれているため、ここで見るのは常時表示のときだけでよい。
+    ///
+    /// sidePanelScreenFrameと同じ理由で`@Published`にしていない(読むのはNSEventモニタだけ)。
+    var dockedSidePanelScreenFrame: CGRect = .zero
+
     /// ツールバー・プログレスバーの自動隠し(hideToolbar/hideProgressBar、またはフルスクリーン中)
     /// が、マウスカーソルの位置により今まさに一時的に表示されているかどうか。ViewerViewの
     /// updateAutoHiddenChromeVisibilityが更新する。ContentView側のサイドパネルのホバー検知
@@ -232,6 +244,20 @@ final class AppState: ObservableObject {
 
     func updateCurrentVisiblePageSortKeys(_ sortKeys: [String]) {
         currentVisiblePageSortKeys = sortKeys
+    }
+
+    /// 見開きで2ページとも表示しているときの、相方ページ(currentPageIndex + 1)。単ページ
+    /// 表示や、見開きでも実際には1枚しか出ていない場合(横長画像の自動単ページ化など)はnil。
+    ///
+    /// サイドパネルのページモードが、画面に出ている2ページの**両方**をハイライトし、両方が
+    /// 見えるようにスクロールするために使う(ユーザー報告: 見開きで2枚表示しているのに一覧の
+    /// ハイライトが1行だけなのは違和感がある)。下段の本の中身ブラウザは
+    /// currentVisiblePageSortKeysで既に2件ともハイライトしており、それに揃えた。
+    /// currentVisiblePageSortKeysと同じ場所でViewerViewから同期してもらう。
+    @Published private(set) var currentPartnerPageIndex: Int?
+
+    func updateCurrentPartnerPageIndex(_ index: Int?) {
+        currentPartnerPageIndex = index
     }
 
     /// 「ブックマークの編集」ウインドウ(独立ウインドウ。すべての本を横断するBookmarkStoreが
