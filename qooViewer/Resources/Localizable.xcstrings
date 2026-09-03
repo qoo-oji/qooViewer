@@ -52,415 +52,6 @@
         }
       }
     },
-    "Applies to the file name, the page number, and the location shown above thumbnails that live in a folder inside the book." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Applies to the file name, the page number, and the location shown above thumbnails that live in a folder inside the book."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ファイル名とページ番号、および書庫の中のフォルダにある画像でサムネイルの上に表示される場所に適用されます。"
-          }
-        }
-      }
-    },
-    "At the First Page" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "At the First Page"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最初のページで"
-          }
-        }
-      }
-    },
-    "At the Last Page" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "At the Last Page"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最後のページで"
-          }
-        }
-      }
-    },
-    "Choose what to do next." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose what to do next."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この先どうするかを選んでください。"
-          }
-        }
-      }
-    },
-    "Close Book" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Close Book"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本を閉じる"
-          }
-        }
-      }
-    },
-    "Dim the Other Pages" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dim the Other Pages"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "カーソル位置以外を暗くする"
-          }
-        }
-      }
-    },
-    "Dimming every thumbnail except the one under the pointer makes that one stand out. Turn this off to see them all at full brightness — the one under the pointer is still marked by its border and page number." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dimming every thumbnail except the one under the pointer makes that one stand out. Turn this off to see them all at full brightness — the one under the pointer is still marked by its border and page number."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "カーソル位置以外のサムネイルを暗くして、カーソル位置のページを目立たせます。OFFにするとすべて同じ明るさで表示されます(カーソル位置のページは枠とページ番号で分かります)。"
-          }
-        }
-      }
-    },
-    "File Name and Page Number" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "File Name and Page Number"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ファイル名とページ番号"
-          }
-        }
-      }
-    },
-    "Go to Previous Book's Last Page" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Go to Previous Book's Last Page"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "前の本の最後のページへ"
-          }
-        }
-      }
-    },
-    "Highlight Color" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Highlight Color"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "カーソル位置の強調色"
-          }
-        }
-      }
-    },
-    "Highlight Thickness" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Highlight Thickness"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "強調の太さ"
-          }
-        }
-      }
-    },
-    "Match Finder's Sort Order" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Match Finder's Sort Order"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "並び順をFinderに揃える"
-          }
-        }
-      }
-    },
-    "Number of Thumbnails" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Number of Thumbnails"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "サムネイルの数"
-          }
-        }
-      }
-    },
-    "Page Order" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Page Order"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ページ順"
-          }
-        }
-      }
-    },
-    "Previous Book (Last Page)" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Previous Book (Last Page)"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "前の本の最終ページへ"
-          }
-        }
-      }
-    },
-    "Progress Bar Thumbnails" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Progress Bar Thumbnails"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "プログレスバーのサムネイル"
-          }
-        }
-      }
-    },
-    "Return to Welcome Screen" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Return to Welcome Screen"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ウェルカム画面へ戻る"
-          }
-        }
-      }
-    },
-    "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off — the default — names are compared by character code instead, as in earlier versions, so every name starting with an uppercase letter comes before every name starting with a lowercase one. Open books and lists reorder right away. Books you have given a layout keep the order that layout was made for, because which pages pair into a spread depends on it; to make such a book follow the new order, use Reset Page Order in the Bookmarks & Layout window." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off — the default — names are compared by character code instead, as in earlier versions, so every name starting with an uppercase letter comes before every name starting with a lowercase one. Open books and lists reorder right away. Books you have given a layout keep the order that layout was made for, because which pages pair into a spread depends on it; to make such a book follow the new order, use Reset Page Order in the Bookmarks & Layout window."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Finderと同じ名前順で並べます。数字は数値として比べ、大文字小文字や記号もシステムの照合順序に従います。\nOFF(既定)のときは、以前のバージョンと同じ文字コード順です。大文字で始まる名前が、小文字で始まる名前よりすべて先に来ます。\n開いている本も一覧も、その場で並び替わります。レイアウトを設定した本だけは、そのレイアウトを作ったときの並びのままです(どのページが見開きで組になるかは並び順で決まるため)。新しい並びに合わせたい本は、「ブックマーク・レイアウトの編集」ウインドウの「ページ順を初期化する」で1冊ずつ合わせられます。"
-          }
-        }
-      }
-    },
-    "The page number under the pointer is always shown. When file names are hidden, so is the location line above thumbnails that live in a folder inside the book." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The page number under the pointer is always shown. When file names are hidden, so is the location line above thumbnails that live in a folder inside the book."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "カーソル位置のページ番号は、この設定に関わらず常に表示されます。ファイル名を表示しないときは、書庫の中のフォルダにある画像でサムネイルの上に出る場所の行も表示されません。"
-          }
-        }
-      }
-    },
-    "The thickness of the border around the thumbnail under the pointer." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The thickness of the border around the thumbnail under the pointer."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "カーソル位置のサムネイルを囲む枠線の太さです。"
-          }
-        }
-      }
-    },
-    "The thumbnails always fill the width of the bar, so showing fewer of them makes each one larger." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The thumbnails always fill the width of the bar, so showing fewer of them makes each one larger."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "サムネイルは常にバーの幅いっぱいに並ぶため、数を減らすほど1枚が大きくなります。"
-          }
-        }
-      }
-    },
-    "This is the first page." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This is the first page."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最初のページです。"
-          }
-        }
-      }
-    },
-    "This is the last page." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This is the last page."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "最後のページです。"
-          }
-        }
-      }
-    },
-    "When off, hovering over the progress bar shows just the page number under the pointer, and no thumbnails are loaded." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "When off, hovering over the progress bar shows just the page number under the pointer, and no thumbnails are loaded."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OFFにすると、プログレスバーにカーソルを合わせてもサムネイルは読み込まれず、カーソル位置のページ番号だけが表示されます。"
-          }
-        }
-      }
-    },
-    "Windows switch right away. The menu bar and system dialogs switch the next time qooViewer starts." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Windows switch right away. The menu bar and system dialogs switch the next time qooViewer starts."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ウインドウの中身はすぐに切り替わります。\nメニューバーとシステムのダイアログは、次回 qooViewer を起動したときから切り替わります。"
-          }
-        }
-      }
-    },
     "—" : {
       "comment" : "A placeholder text for a value that is not available.",
       "isCommentAutoGenerated" : true
@@ -477,23 +68,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「"
-          }
-        }
-      }
-    },
-    "“Close Book” closes this tab (the window too, if it is the only tab). “Return to Welcome Screen” keeps the window open." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "“Close Book” closes this tab (the window too, if it is the only tab). “Return to Welcome Screen” keeps the window open."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「本を閉じる」はこのタブを閉じます(タブが1枚だけならウインドウごと閉じます)。「ウェルカム画面へ戻る」はウインドウを残します。"
           }
         }
       }
@@ -610,6 +184,23 @@
         }
       }
     },
+    "“Close Book” closes this tab (the window too, if it is the only tab). “Return to Welcome Screen” keeps the window open." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“Close Book” closes this tab (the window too, if it is the only tab). “Return to Welcome Screen” keeps the window open."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「本を閉じる」はこのタブを閉じます(タブが1枚だけならウインドウごと閉じます)。「ウェルカム画面へ戻る」はウインドウを残します。"
+          }
+        }
+      }
+    },
     "“Save page thumbnails to disk” is off, but the thumbnail folder still contains files. Turning the setting off should delete them." : {
       "localizations" : {
         "en" : {
@@ -622,6 +213,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「ページのサムネイルをディスクに保存する」がオフなのに、サムネイルのフォルダにファイルが残っています。本来はオフにした時点で削除されます。"
+          }
+        }
+      }
+    },
+    "(%lld / %lld)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(%1$lld / %2$lld)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "(%1$lld / %2$lld)"
           }
         }
       }
@@ -1090,6 +697,22 @@
         }
       }
     },
+    "7z decompression buffer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7z decompression buffer"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7z の展開バッファ"
+          }
+        }
+      }
+    },
     "100% turns pinch zoom off." : {
       "localizations" : {
         "en" : {
@@ -1427,6 +1050,23 @@
         }
       }
     },
+    "Afterwards" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Afterwards"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "そのあと"
+          }
+        }
+      }
+    },
     "Afterword" : {
       "localizations" : {
         "en" : {
@@ -1621,22 +1261,6 @@
         }
       }
     },
-    "Appearance" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Appearance"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "外観"
-          }
-        }
-      }
-    },
     "App" : {
       "localizations" : {
         "en" : {
@@ -1653,6 +1277,22 @@
         }
       }
     },
+    "Appearance" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appearance"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "外観"
+          }
+        }
+      }
+    },
     "Appearance Mode" : {
       "localizations" : {
         "en" : {
@@ -1665,54 +1305,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "外観モード"
-          }
-        }
-      }
-    },
-    "Applies to qooViewer only, whatever the system Light/Dark setting is. The viewer's background color is a separate setting." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Applies to qooViewer only, whatever the system Light/Dark setting is. The viewer's background color is a separate setting."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "システムのライト/ダークの設定に関わらず、qooViewerだけをこの外観にします。ビューアの背景色は別の設定です。"
-          }
-        }
-      }
-    },
-    "Dark" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dark"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ダーク"
-          }
-        }
-      }
-    },
-    "Light" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Light"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ライト"
           }
         }
       }
@@ -1763,6 +1355,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「次の本へ」「前の本へ」と、ファイルメニューの「同じフォルダのファイルを開く」に効きます。\nフォルダの本とファイルの本を分けずに、パネルに表示されている順で行き来するようになります。\nOFFのときは名前順です。"
+          }
+        }
+      }
+    },
+    "Applies to qooViewer only, whatever the system Light/Dark setting is. The viewer's background color is a separate setting." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies to qooViewer only, whatever the system Light/Dark setting is. The viewer's background color is a separate setting."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "システムのライト/ダークの設定に関わらず、qooViewerだけをこの外観にします。ビューアの背景色は別の設定です。"
+          }
+        }
+      }
+    },
+    "Applies to the file name, the page number, and the location shown above thumbnails that live in a folder inside the book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies to the file name, the page number, and the location shown above thumbnails that live in a folder inside the book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイル名とページ番号、および書庫の中のフォルダにある画像でサムネイルの上に表示される場所に適用されます。"
           }
         }
       }
@@ -1907,6 +1531,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "毎回確認"
+          }
+        }
+      }
+    },
+    "At the First Page" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "At the First Page"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最初のページで"
+          }
+        }
+      }
+    },
+    "At the Last Page" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "At the Last Page"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最後のページで"
           }
         }
       }
@@ -2601,6 +2259,23 @@
         }
       }
     },
+    "Choose a destination folder for the exported book." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a destination folder for the exported book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出した本の保存先フォルダを選んでください。"
+          }
+        }
+      }
+    },
     "Choose a destination folder for the exported CBZ files." : {
       "localizations" : {
         "en" : {
@@ -2745,6 +2420,40 @@
         }
       }
     },
+    "Choose the folder to always export to." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose the folder to always export to."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "常に書き出し先にするフォルダを選んでください。"
+          }
+        }
+      }
+    },
+    "Choose what to do next." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose what to do next."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この先どうするかを選んでください。"
+          }
+        }
+      }
+    },
     "Choose where to save the exported image." : {
       "localizations" : {
         "en" : {
@@ -2773,6 +2482,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "書き出すJSONファイルの保存先を選んでください。"
+          }
+        }
+      }
+    },
+    "Choose…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択…"
           }
         }
       }
@@ -2869,6 +2595,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "閉じる"
+          }
+        }
+      }
+    },
+    "Close Book" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close Book"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を閉じる"
           }
         }
       }
@@ -3226,6 +2969,23 @@
         }
       }
     },
+    "Couldn’t Export the Book" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t Export the Book"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を書き出せませんでした"
+          }
+        }
+      }
+    },
     "Couldn't read the image for page “%@”, so this book can't be exported." : {
       "localizations" : {
         "en" : {
@@ -3542,6 +3302,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "危険な操作"
+          }
+        }
+      }
+    },
+    "Dark" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dark"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ダーク"
           }
         }
       }
@@ -4125,6 +3901,23 @@
         }
       }
     },
+    "Deletes this book's page layout, bookmarks, metadata and reading position once it has been exported. Favorites are kept. This can't be undone." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deletes this book's page layout, bookmarks, metadata and reading position once it has been exported. Favorites are kept. This can't be undone."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出しが終わった本のレイアウト・ブックマーク・メタデータ・読書位置を削除します。お気に入りは残ります。\nこの操作は取り消せません。"
+          }
+        }
+      }
+    },
     "Descending" : {
       "localizations" : {
         "en" : {
@@ -4141,6 +3934,23 @@
         }
       }
     },
+    "Destination" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Destination"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存先"
+          }
+        }
+      }
+    },
     "Diameter" : {
       "localizations" : {
         "en" : {
@@ -4153,6 +3963,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "直径"
+          }
+        }
+      }
+    },
+    "Dim the Other Pages" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dim the Other Pages"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カーソル位置以外を暗くする"
+          }
+        }
+      }
+    },
+    "Dimming every thumbnail except the one under the pointer makes that one stand out. Turn this off to see them all at full brightness — the one under the pointer is still marked by its border and page number." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dimming every thumbnail except the one under the pointer makes that one stand out. Turn this off to see them all at full brightness — the one under the pointer is still marked by its border and page number."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カーソル位置以外のサムネイルを暗くして、カーソル位置のページを目立たせます。OFFにするとすべて同じ明るさで表示されます(カーソル位置のページは枠とページ番号で分かります)。"
           }
         }
       }
@@ -4842,6 +4684,23 @@
         }
       }
     },
+    "Export" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出す"
+          }
+        }
+      }
+    },
     "Export as CBZ" : {
       "localizations" : {
         "en" : {
@@ -4934,6 +4793,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PDFの書き出し…"
+          }
+        }
+      }
+    },
+    "Export Book" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export Book"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本の書き出し"
           }
         }
       }
@@ -5082,6 +4958,57 @@
         }
       }
     },
+    "Export This Book as CBZ" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export This Book as CBZ"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CBZとして書き出す"
+          }
+        }
+      }
+    },
+    "Export This Book as EPUB" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export This Book as EPUB"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "EPUBとして書き出す"
+          }
+        }
+      }
+    },
+    "Export This Book as PDF" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export This Book as PDF"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PDFとして書き出す"
+          }
+        }
+      }
+    },
     "Export This Page…" : {
       "localizations" : {
         "en" : {
@@ -5110,6 +5037,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ライブラリデータを書き出す…"
+          }
+        }
+      }
+    },
+    "Exporting Book…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exporting Book…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を書き出しています…"
           }
         }
       }
@@ -5158,6 +5102,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PDFファイルを書き出し中…"
+          }
+        }
+      }
+    },
+    "Exporting the Book You Are Reading" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exporting the Book You Are Reading"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示している本を書き出したとき"
           }
         }
       }
@@ -5388,6 +5349,22 @@
         }
       }
     },
+    "File Name and Page Number" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File Name and Page Number"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイル名とページ番号"
+          }
+        }
+      }
+    },
     "Filter" : {
       "localizations" : {
         "en" : {
@@ -5432,6 +5409,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ページを絞り込む"
+          }
+        }
+      }
+    },
+    "First Page as Single" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "First Page as Single"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1ページ目を単ページに"
+          }
+        }
+      }
+    },
+    "First Page as Spread" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "First Page as Spread"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1ページ目を見開きに"
           }
         }
       }
@@ -5872,6 +5883,23 @@
         }
       }
     },
+    "Go to Previous Book's Last Page" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Go to Previous Book's Last Page"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前の本の最後のページへ"
+          }
+        }
+      }
+    },
     "Go to Previous Bookmark" : {
       "localizations" : {
         "en" : {
@@ -6205,6 +6233,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "多くするとページ送りが速くなりますが、メモリを多く使います。"
+          }
+        }
+      }
+    },
+    "Highlight Color" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Highlight Color"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カーソル位置の強調色"
+          }
+        }
+      }
+    },
+    "Highlight Thickness" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Highlight Thickness"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "強調の太さ"
           }
         }
       }
@@ -6792,6 +6852,23 @@
         }
       }
     },
+    "Lays out the whole book the same way “Auto-Layout Based on Current View” does, using the first page as the starting point. Books that already have layout data — including EPUB and PDF, whose layout is imported the first time you open them — are left alone." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lays out the whole book the same way “Auto-Layout Based on Current View” does, using the first page as the starting point. Books that already have layout data — including EPUB and PDF, whose layout is imported the first time you open them — are left alone."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「現在の表示を基準に自動でレイアウト」と同じ計算を、1ページ目を起点にして本全体に行います。\nレイアウトの保存データが既にある本には何もしません(EPUB・PDFは初めて開いた時点でファイル側のレイアウトを読み込むため、これに含まれます)。"
+          }
+        }
+      }
+    },
     "Left Button" : {
       "localizations" : {
         "en" : {
@@ -6885,6 +6962,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ライブラリのデータ"
+          }
+        }
+      }
+    },
+    "Light" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Light"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライト"
           }
         }
       }
@@ -7014,6 +7107,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "拡大率"
+          }
+        }
+      }
+    },
+    "Match Finder's Sort Order" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Match Finder's Sort Order"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "並び順をFinderに揃える"
           }
         }
       }
@@ -7581,38 +7690,6 @@
         }
       }
     },
-    "7z decompression buffer" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "7z decompression buffer"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "7z の展開バッファ"
-          }
-        }
-      }
-    },
-    "The 7z library decompresses a whole solid block to read one page, and keeps that block in memory for as long as the book is open. This is the largest it can be — the total uncompressed size of the archive — because the library does not report the actual block size. It is released when the book is closed." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The 7z library decompresses a whole solid block to read one page, and keeps that block in memory for as long as the book is open. This is the largest it can be — the total uncompressed size of the archive — because the library does not report the actual block size. It is released when the book is closed."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "7z のライブラリは1ページを読むためにソリッドブロック全体を展開し、本を開いている間そのブロックをメモリに保持し続けます。\nライブラリは実際のブロックの大きさを教えてくれないため、ここに出るのは最大値(書庫全体の非圧縮サイズ)です。\n本を閉じると解放されます。"
-          }
-        }
-      }
-    },
     "Nested Archives Kept in Memory" : {
       "localizations" : {
         "en" : {
@@ -8144,6 +8221,23 @@
         }
       }
     },
+    "Not Set" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not Set"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未設定"
+          }
+        }
+      }
+    },
     "Nothing" : {
       "localizations" : {
         "en" : {
@@ -8172,6 +8266,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "読書中"
+          }
+        }
+      }
+    },
+    "Number of Thumbnails" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Number of Thumbnails"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サムネイルの数"
           }
         }
       }
@@ -8237,6 +8347,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "起動時"
+          }
+        }
+      }
+    },
+    "Once a folder is chosen, exporting from the right-click menu asks nothing and writes straight to it." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Once a folder is chosen, exporting from the right-click menu asks nothing and writes straight to it."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダを決めておくと、右クリックからの書き出しは何も尋ねずにそのフォルダへ書き出します。"
           }
         }
       }
@@ -8477,6 +8604,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "開く…"
+          }
+        }
+      }
+    },
+    "Opening a Book Without Layout Data" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening a Book Without Layout Data"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "レイアウトの保存データが無い本を開いたとき"
           }
         }
       }
@@ -8852,6 +8996,7 @@
       }
     },
     "Page List" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -8927,6 +9072,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ページ番号"
+          }
+        }
+      }
+    },
+    "Page Order" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Page Order"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページ順"
           }
         }
       }
@@ -9382,6 +9543,23 @@
         }
       }
     },
+    "Previous Book (Last Page)" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Previous Book (Last Page)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前の本の最終ページへ"
+          }
+        }
+      }
+    },
     "Previous Image" : {
       "localizations" : {
         "en" : {
@@ -9458,6 +9636,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "プログレスバー"
+          }
+        }
+      }
+    },
+    "Progress Bar Thumbnails" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Progress Bar Thumbnails"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プログレスバーのサムネイル"
           }
         }
       }
@@ -10202,6 +10397,23 @@
         }
       }
     },
+    "Removes this book from the history list once it has been exported. The book itself is not touched." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Removes this book from the history list once it has been exported. The book itself is not touched."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出しが終わった本を履歴から削除します。本そのものには触れません。"
+          }
+        }
+      }
+    },
     "Rename" : {
       "localizations" : {
         "en" : {
@@ -10588,6 +10800,7 @@
       }
     },
     "Restores every setting on this page, including the color of every frosted surface. Other pages are not affected." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -10599,6 +10812,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この画面のすべての設定を初期設定に戻します(すりガラスの各面の色を含む)。\nほかの画面の設定には影響しません。"
+          }
+        }
+      }
+    },
+    "Restores every setting on this page, including the fixed destination folders. Other pages, and your favorites, bookmarks and reading history, are not affected." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores every setting on this page, including the fixed destination folders. Other pages, and your favorites, bookmarks and reading history, are not affected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この画面のすべての設定を初期設定に戻します(固定の保存先フォルダも含みます)。\n他の画面の設定と、お気に入り・ブックマーク・読書位置には影響しません。"
           }
         }
       }
@@ -10712,6 +10942,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "前回表示したページから再開しますか?"
+          }
+        }
+      }
+    },
+    "Return to Welcome Screen" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Return to Welcome Screen"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ウェルカム画面へ戻る"
           }
         }
       }
@@ -11291,6 +11538,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "シリーズ"
+          }
+        }
+      }
+    },
+    "Set a Destination Folder" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set a Destination Folder"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存先を設定"
           }
         }
       }
@@ -11875,6 +12139,22 @@
         }
       }
     },
+    "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off — the default — names are compared by character code instead, as in earlier versions, so every name starting with an uppercase letter comes before every name starting with a lowercase one. Open books and lists reorder right away. Books you have given a layout keep the order that layout was made for, because which pages pair into a spread depends on it; to make such a book follow the new order, use Reset Page Order in the Bookmarks & Layout window." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off — the default — names are compared by character code instead, as in earlier versions, so every name starting with an uppercase letter comes before every name starting with a lowercase one. Open books and lists reorder right away. Books you have given a layout keep the order that layout was made for, because which pages pair into a spread depends on it; to make such a book follow the new order, use Reset Page Order in the Bookmarks & Layout window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finderと同じ名前順で並べます。数字は数値として比べ、大文字小文字や記号もシステムの照合順序に従います。\nOFF(既定)のときは、以前のバージョンと同じ文字コード順です。大文字で始まる名前が、小文字で始まる名前よりすべて先に来ます。\n開いている本も一覧も、その場で並び替わります。レイアウトを設定した本だけは、そのレイアウトを作ったときの並びのままです(どのページが見開きで組になるかは並び順で決まるため)。新しい並びに合わせたい本は、「ブックマーク・レイアウトの編集」ウインドウの「ページ順を初期化する」で1冊ずつ合わせられます。"
+          }
+        }
+      }
+    },
     "Spread" : {
       "localizations" : {
         "en" : {
@@ -11955,6 +12235,23 @@
         }
       }
     },
+    "Start CBZ Export" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start CBZ Export"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CBZの書き出しを開始"
+          }
+        }
+      }
+    },
     "Start CBZ Export…" : {
       "localizations" : {
         "en" : {
@@ -11967,6 +12264,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "CBZの書き出しを開始…"
+          }
+        }
+      }
+    },
+    "Start EPUB Export" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start EPUB Export"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "EPUBの書き出しを開始"
           }
         }
       }
@@ -12065,6 +12379,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "開始ページ"
+          }
+        }
+      }
+    },
+    "Start PDF Export" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start PDF Export"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "PDFの書き出しを開始"
           }
         }
       }
@@ -12278,6 +12609,22 @@
         }
       }
     },
+    "The 7z library decompresses a whole solid block to read one page, and keeps that block in memory for as long as the book is open. This is the largest it can be — the total uncompressed size of the archive — because the library does not report the actual block size. It is released when the book is closed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The 7z library decompresses a whole solid block to read one page, and keeps that block in memory for as long as the book is open. This is the largest it can be — the total uncompressed size of the archive — because the library does not report the actual block size. It is released when the book is closed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7z のライブラリは1ページを読むためにソリッドブロック全体を展開し、本を開いている間そのブロックをメモリに保持し続けます。\nライブラリは実際のブロックの大きさを教えてくれないため、ここに出るのは最大値(書庫全体の非圧縮サイズ)です。\n本を閉じると解放されます。"
+          }
+        }
+      }
+    },
     "The book could not be opened." : {
       "localizations" : {
         "en" : {
@@ -12294,6 +12641,23 @@
         }
       }
     },
+    "The book has been exported." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The book has been exported."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を書き出しました。"
+          }
+        }
+      }
+    },
     "The color only shows once Color Strength is above 0%. Picking a color while it is 0% raises it for you, so you can see what you chose." : {
       "localizations" : {
         "en" : {
@@ -12306,6 +12670,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "色は「背景色の濃さ」を0%より上げるまで見た目に現れません。\n0%のまま色を選んだ場合は、選んだ色が分かるように濃さを自動で少し上げます。"
+          }
+        }
+      }
+    },
+    "The cover can't be changed in a private window, because it would have to be saved." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The cover can't be changed in a private window, because it would have to be saved."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットウインドウでは、カバー画像を変更できません(指定を保存する必要があるためです)。"
           }
         }
       }
@@ -12486,6 +12867,22 @@
         }
       }
     },
+    "The page number under the pointer is always shown. When file names are hidden, so is the location line above thumbnails that live in a folder inside the book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The page number under the pointer is always shown. When file names are hidden, so is the location line above thumbnails that live in a folder inside the book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カーソル位置のページ番号は、この設定に関わらず常に表示されます。ファイル名を表示しないときは、書庫の中のフォルダにある画像でサムネイルの上に出る場所の行も表示されません。"
+          }
+        }
+      }
+    },
     "The progress-bar thumbnails kept in memory have stayed above their built-in limit for several seconds." : {
       "localizations" : {
         "en" : {
@@ -12502,6 +12899,22 @@
         }
       }
     },
+    "The thickness of the border around the thumbnail under the pointer." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The thickness of the border around the thumbnail under the pointer."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カーソル位置のサムネイルを囲む枠線の太さです。"
+          }
+        }
+      }
+    },
     "The thumbnail folder is larger than the “Maximum size” setting, beyond the slack the cache allows itself before trimming." : {
       "localizations" : {
         "en" : {
@@ -12514,6 +12927,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "サムネイルのフォルダが環境設定「最大容量」を、刈り込み前に許される余裕を超えて上回っています。"
+          }
+        }
+      }
+    },
+    "The thumbnails always fill the width of the bar, so showing fewer of them makes each one larger." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The thumbnails always fill the width of the bar, so showing fewer of them makes each one larger."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サムネイルは常にバーの幅いっぱいに並ぶため、数を減らすほど1枚が大きくなります。"
           }
         }
       }
@@ -12770,6 +13199,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "このフォルダの画像を表示しています。"
+          }
+        }
+      }
+    },
+    "This is the first page." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This is the first page."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最初のページです。"
+          }
+        }
+      }
+    },
+    "This is the last page." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This is the last page."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最後のページです。"
           }
         }
       }
@@ -13596,6 +14059,22 @@
         }
       }
     },
+    "When off, hovering over the progress bar shows just the page number under the pointer, and no thumbnails are loaded." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When off, hovering over the progress bar shows just the page number under the pointer, and no thumbnails are loaded."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OFFにすると、プログレスバーにカーソルを合わせてもサムネイルは読み込まれず、カーソル位置のページ番号だけが表示されます。"
+          }
+        }
+      }
+    },
     "When scrolling is not possible — that is, in Fit to Screen — the wheel always performs the action assigned to it in Mouse, whatever you choose here." : {
       "localizations" : {
         "en" : {
@@ -13709,6 +14188,22 @@
         }
       }
     },
+    "Windows switch right away. The menu bar and system dialogs switch the next time qooViewer starts." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Windows switch right away. The menu bar and system dialogs switch the next time qooViewer starts."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ウインドウの中身はすぐに切り替わります。\nメニューバーとシステムのダイアログは、次回 qooViewer を起動したときから切り替わります。"
+          }
+        }
+      }
+    },
     "Written since launch" : {
       "localizations" : {
         "en" : {
@@ -13801,498 +14296,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "お気に入り・ブックマーク・読書位置を読み込めませんでした。このバージョンのqooViewerと互換性が無い可能性があります。\n\n続行すると、これらのデータはすべて完全に削除され、qooViewerはまっさらな状態から起動し直します。データを失いたくない場合は、削除せずに今すぐ終了してください(例: 別のバージョンのqooViewerを試す、サポートに相談する、など)。"
-          }
-        }
-      }
-    },
-    "Afterwards" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Afterwards"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "そのあと"
-          }
-        }
-      }
-    },
-    "Choose a destination folder for the exported book." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose a destination folder for the exported book."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "書き出した本の保存先フォルダを選んでください。"
-          }
-        }
-      }
-    },
-    "Choose the folder to always export to." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose the folder to always export to."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "常に書き出し先にするフォルダを選んでください。"
-          }
-        }
-      }
-    },
-    "Choose…" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Choose…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "選択…"
-          }
-        }
-      }
-    },
-    "Couldn’t Export the Book" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Couldn’t Export the Book"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本を書き出せませんでした"
-          }
-        }
-      }
-    },
-    "Deletes this book's page layout, bookmarks, metadata and reading position once it has been exported. Favorites are kept. This can't be undone." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deletes this book's page layout, bookmarks, metadata and reading position once it has been exported. Favorites are kept. This can't be undone."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "書き出しが終わった本のレイアウト・ブックマーク・メタデータ・読書位置を削除します。お気に入りは残ります。\nこの操作は取り消せません。"
-          }
-        }
-      }
-    },
-    "Destination" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Destination"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存先"
-          }
-        }
-      }
-    },
-    "Export" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Export"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "書き出す"
-          }
-        }
-      }
-    },
-    "Export Book" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Export Book"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本の書き出し"
-          }
-        }
-      }
-    },
-    "Export This Book as CBZ" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Export This Book as CBZ"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "CBZとして書き出す"
-          }
-        }
-      }
-    },
-    "Export This Book as EPUB" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Export This Book as EPUB"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "EPUBとして書き出す"
-          }
-        }
-      }
-    },
-    "Export This Book as PDF" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Export This Book as PDF"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PDFとして書き出す"
-          }
-        }
-      }
-    },
-    "Exporting Book…" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Exporting Book…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本を書き出しています…"
-          }
-        }
-      }
-    },
-    "Exporting the Book You Are Reading" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Exporting the Book You Are Reading"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "表示している本を書き出したとき"
-          }
-        }
-      }
-    },
-    "First Page as Single" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "First Page as Single"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1ページ目を単ページに"
-          }
-        }
-      }
-    },
-    "First Page as Spread" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "First Page as Spread"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "1ページ目を見開きに"
-          }
-        }
-      }
-    },
-    "Lays out the whole book the same way “Auto-Layout Based on Current View” does, using the first page as the starting point. Books that already have layout data — including EPUB and PDF, whose layout is imported the first time you open them — are left alone." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lays out the whole book the same way “Auto-Layout Based on Current View” does, using the first page as the starting point. Books that already have layout data — including EPUB and PDF, whose layout is imported the first time you open them — are left alone."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「現在の表示を基準に自動でレイアウト」と同じ計算を、1ページ目を起点にして本全体に行います。\nレイアウトの保存データが既にある本には何もしません(EPUB・PDFは初めて開いた時点でファイル側のレイアウトを読み込むため、これに含まれます)。"
-          }
-        }
-      }
-    },
-    "Not Set" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Not Set"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未設定"
-          }
-        }
-      }
-    },
-    "Opening a Book Without Layout Data" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Opening a Book Without Layout Data"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "レイアウトの保存データが無い本を開いたとき"
-          }
-        }
-      }
-    },
-    "Removes this book from the history list once it has been exported. The book itself is not touched." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Removes this book from the history list once it has been exported. The book itself is not touched."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "書き出しが終わった本を履歴から削除します。本そのものには触れません。"
-          }
-        }
-      }
-    },
-    "Restores every setting on this page, including the fixed destination folders. Other pages, and your favorites, bookmarks and reading history, are not affected." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Restores every setting on this page, including the fixed destination folders. Other pages, and your favorites, bookmarks and reading history, are not affected."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この画面のすべての設定を初期設定に戻します(固定の保存先フォルダも含みます)。\n他の画面の設定と、お気に入り・ブックマーク・読書位置には影響しません。"
-          }
-        }
-      }
-    },
-    "The book has been exported." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The book has been exported."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "本を書き出しました。"
-          }
-        }
-      }
-    },
-    "Once a folder is chosen, exporting from the right-click menu asks nothing and writes straight to it." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Once a folder is chosen, exporting from the right-click menu asks nothing and writes straight to it."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "フォルダを決めておくと、右クリックからの書き出しは何も尋ねずにそのフォルダへ書き出します。"
-          }
-        }
-      }
-    },
-    "Start CBZ Export" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Start CBZ Export"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "CBZの書き出しを開始"
-          }
-        }
-      }
-    },
-    "Start EPUB Export" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Start EPUB Export"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "EPUBの書き出しを開始"
-          }
-        }
-      }
-    },
-    "Start PDF Export" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Start PDF Export"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "PDFの書き出しを開始"
-          }
-        }
-      }
-    },
-    "The cover can't be changed in a private window, because it would have to be saved." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The cover can't be changed in a private window, because it would have to be saved."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シークレットウインドウでは、カバー画像を変更できません(指定を保存する必要があるためです)。"
-          }
-        }
-      }
-    },
-    "(%lld / %lld)" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "(%1$lld / %2$lld)"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "(%1$lld / %2$lld)"
-          }
-        }
-      }
-    },
-    "Set a Destination Folder" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Set a Destination Folder"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存先を設定"
           }
         }
       }
