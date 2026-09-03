@@ -38,6 +38,8 @@ struct SettingsView: View {
     /// 環境設定「表示言語」(QooViewerAppがSceneごとに`.environment(\.locale, ...)`で流している)。
     /// 画面の名前をウインドウのタイトルに出すときに使う(SettingsPane.titleValue参照)。
     @Environment(\.locale) private var locale
+    /// 「外観」の面ごとの子ページが開いているかどうか(タイトルバーの「戻る」の有効/無効)。
+    @ObservedObject private var navigator = SettingsNavigator.shared
 
     var body: some View {
         NavigationSplitView(columnVisibility: .constant(.all)) {
@@ -150,8 +152,39 @@ struct SettingsView: View {
             // ウインドウのタイトルバーに、いま開いている画面の名前を出す
             // (システム設定と同じ。TabView時代もタブ名がタイトルに出ていた)。
             // `Text(key)`ではなく表示言語で引いたStringを渡す(SettingsPane.titleValue参照)。
+            // 「外観」の面ごとの子ページは、この上から自分の名前で上書きする
+            // (PanelSurfaceSettingsView参照。内側の指定が勝つ)。
             .navigationTitle(selectedPane.title(language: locale))
             .navigationSplitViewColumnWidth(min: 560, ideal: 605)
+            .toolbar {
+                ToolbarItem(placement: .navigation) {
+                    backButton
+                }
+            }
+    }
+
+    /// タイトルバーの「戻る」。システム設定と同じく、タイトルの左に常に出ていて、
+    /// 戻る先が無いときは押せない(いま効くのは「外観」の面ごとの子ページだけ)。
+    ///
+    /// ■ なぜ常に出しておくのか
+    /// 子ページの間だけ出す形にすると、ツールバー項目の有無でタイトルバーの高さと
+    /// タイトルの位置がわずかに変わり、進む/戻るたびに画面全体が数ptずれる(実機で確認)。
+    /// 押せない状態で置いておけば、どの画面でもタイトルバーの形が同じになる。
+    ///
+    /// ■ なぜ子ページ側ではなくここにあるのか
+    /// ツールバー項目は詳細ペインの中身が差し替わるたびに作り直されるため、上の理由から
+    /// 全画面で共通の場所(ここ)に1つだけ置く。戻る先の状態は`SettingsNavigator`にある
+    /// (AppearanceSettingsView参照)。
+    private var backButton: some View {
+        Button {
+            navigator.openedAppearanceSurface = nil
+        } label: {
+            Label("Back", systemImage: "chevron.left")
+        }
+        .help(Text("Back"))
+        // Finder/Safariの「戻る」と同じキー。
+        .keyboardShortcut("[", modifiers: .command)
+        .disabled(!(selectedPane == .appearance && navigator.openedAppearanceSurface != nil))
     }
 }
 

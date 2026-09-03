@@ -25,18 +25,17 @@ enum ViewerPanelPart {
         }
     }
 
-    /// 「調整…」の飛び先。環境設定「外観」画面の、この部品の見た目を決めているセクション。
+    /// 「調整…」の飛び先。環境設定「外観」画面で、この部品の見た目を決めている面の子ページ。
     ///
-    /// ページ一覧だけ`.surface(.pageList)`(すりガラスの濃さ・重ね色)ではなく
-    /// `.pageList`(サムネイルの大きさ・間隔・余白・枠の色)を指しているのは、
-    /// **ユーザーがこのパネルについて調整したくなるのは主に後者だから**。「外観」画面では
-    /// この2つが隣り合って並んでいる(「ページ一覧」→「ページ一覧パネル」の順)ので、
-    /// 手前の方へ着地させれば両方が視界に入る。
-    var appearanceSection: AppearanceSection {
+    /// ページ一覧の子ページには、すりガラスの濃さ・重ね色と並んでサムネイルの大きさ・間隔・
+    /// 余白・枠の色も載っている(PanelSurfaceSettingsView参照)。**ユーザーがこのパネルに
+    /// ついて調整したくなるのは主に後者**だが、同じページに両方あるので飛び先は1つでよい
+    /// (以前は1枚の長い画面の中でスクロール位置を選び分けていた)。
+    var panelSurface: PanelSurface {
         switch self {
-        case .toolbar: return .surface(.toolbar)
-        case .progressBar: return .surface(.progressBar)
-        case .sidePanel: return .surface(.sidePanel)
+        case .toolbar: return .toolbar
+        case .progressBar: return .progressBar
+        case .sidePanel: return .sidePanel
         case .pageList: return .pageList
         }
     }
@@ -50,7 +49,7 @@ enum ViewerPanelPart {
 /// 4つの部品それぞれに付ける必要がある。中身は1〜2項目だけだが、
 /// - 対象の設定(AppState.hideToolbar/hideProgressBar/hideSidePanel)
 /// - 文言(メニューバーと共有する)
-/// - 「調整…」の飛び先(環境設定「外観」画面のどのセクションか)
+/// - 「調整…」の飛び先(環境設定「外観」画面のどの面の子ページか)
 /// - 空きスペースにも当たり判定を作る(.contentShape)
 /// の4点セットを手で書き写すと、片方だけ直し忘れる類のズレが起きる(ツールバーと
 /// プログレスバーは常時表示/自動隠しで取り付け箇所が2か所ずつあるため、実際には5か所)。
@@ -86,10 +85,10 @@ private struct PanelPartContextMenu: ViewModifier {
                 }
 
                 // ユーザー要望: 右クリックしたその部品の見た目を、その場から調整しに行けるように
-                // する。飛び先は環境設定「外観」画面の対応するセクション(appearanceSection参照)。
+                // する。飛び先は環境設定「外観」画面の対応する面の子ページ(panelSurface参照)。
                 // 行き先を先に預けてからウインドウを開く(順序の理由はprepareAppearance参照)。
                 Button("Adjust…") {
-                    SettingsNavigator.shared.prepareAppearance(scrollingTo: part.appearanceSection)
+                    SettingsNavigator.shared.prepareAppearance(opening: part.panelSurface)
                     openSettings()
                 }
             }

@@ -1991,6 +1991,22 @@
         }
       }
     },
+    "Background" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Background"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "背景"
+          }
+        }
+      }
+    },
     "Background Color" : {
       "localizations" : {
         "en" : {
@@ -5664,6 +5680,22 @@
         }
       }
     },
+    "Frosted Glass %@ · Color %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Frosted Glass %@ · Color %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すりガラス %1$@ · 背景色 %2$@"
+          }
+        }
+      }
+    },
     "Full Screen" : {
       "localizations" : {
         "en" : {
@@ -9077,6 +9109,22 @@
         }
       }
     },
+    "Panels" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Panels"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "パネル"
+          }
+        }
+      }
+    },
     "Path" : {
       "localizations" : {
         "en" : {
@@ -10487,6 +10535,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "リソース"
+          }
+        }
+      }
+    },
+    "Restores every setting on this page and on every panel’s page, including the color of every frosted surface. Other pages are not affected." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores every setting on this page and on every panel’s page, including the color of every frosted surface. Other pages are not affected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この画面と、各面のページのすべての設定を初期設定に戻します(すりガラスの各面の色を含む)。\nほかの画面の設定には影響しません。"
           }
         }
       }

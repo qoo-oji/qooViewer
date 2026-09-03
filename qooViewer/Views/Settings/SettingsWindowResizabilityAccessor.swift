@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// 環境設定ウインドウを載せている `NSWindow` に、リサイズ可能の指定(`.resizable`)を足すためだけの
-/// 透明なビュー。`SettingsView` の `.background` に敷いて使う。
+/// 環境設定ウインドウを載せている `NSWindow` に、リサイズ可能の指定(`.resizable`)と、
+/// ツールバーの様式(`toolbarStyle`)を足すためだけの透明なビュー。`SettingsView` の `.background` に敷いて使う。
 ///
 /// ■ なぜAppKitに降りる必要があるのか
 /// SwiftUIの `Settings` シーンが作るウインドウは、**リサイズできない状態で作られる**。
@@ -42,6 +42,14 @@ private final class ResizableWindowInserter: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         window?.styleMask.insert(.resizable)
+        // ツールバーの項目をタイトルバーの行に埋め込む(他の補助ウインドウと同じ見た目)。
+        // `Settings` シーンは `.windowToolbarStyle(.unified)` を書いても無視される
+        // (`.windowResizability` と同じ。実機で確認済み)。既定は「タイトルの下にアイコンが
+        // 並ぶ」段組(NSWindow.ToolbarStyle.preference)で、ツールバー項目を1つでも置くと
+        // タイトルが中央寄せになり、その下に大きなボタンの段が現れる。
+        // 環境設定「外観」の面ごとの子ページが出す「戻る」(AppearanceSettingsView参照)を
+        // システム設定と同じくタイトルの左へ出すため、ここで直接指定する。
+        window?.toolbarStyle = .unifiedCompact
     }
 
     /// 背景として敷くだけのビューなので、クリックなどの操作は一切受け取らない

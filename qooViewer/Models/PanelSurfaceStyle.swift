@@ -52,6 +52,27 @@ enum PanelSurface: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// `titleKey`と同じ名前を、ウインドウのタイトル用に`String`として引くためのもの。
+    /// 環境設定「外観」で面ごとの子ページを開いたときのタイトルに使う(PanelSurfaceSettingsView参照)。
+    /// `.navigationTitle(Text(key))`だとOSの言語で解決されて環境設定「表示言語」に従わないため、
+    /// `SettingsPane.titleValue`と同じく`String.LocalizationValue`で持って`title(language:)`で引く。
+    /// 文字列は`titleKey`と同じ綴りを保つこと(翻訳を共有している)。
+    var titleValue: String.LocalizationValue {
+        switch self {
+        case .pageList: "Page List Panel"
+        case .toolbar: "Toolbar"
+        case .progressBar: "Progress Bar"
+        case .sidePanel: "Side Panel"
+        case .welcome: "Welcome Screen"
+        case .overlays: "Other Overlays"
+        }
+    }
+
+    /// 面の名前を、環境設定「表示言語」(View の `@Environment(\.locale)`)で引いたもの。
+    func title(language locale: Locale) -> String {
+        String(localized: titleValue, language: locale)
+    }
+
     /// この面の既定値。**すべて「これまでの見た目と1ピクセルも変わらない」値**にしてある
     /// (ユーザー要望: 現在のパネルのデザインは気に入っているので、その見た目を維持した
     /// うえで調整できるようにしたい)。つまり、すりガラスは従来どおりの濃さ(1.0)で、
