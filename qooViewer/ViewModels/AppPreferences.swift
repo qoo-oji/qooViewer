@@ -761,15 +761,18 @@ final class AppPreferences: ObservableObject {
         return Int(clamped) * 1024 * 1024
     }
 
-    /// 入れ子になった書庫(書庫の中の書庫)を、メモリ上に置いておく合計の上限(MB、既定128)。
+    /// 入れ子になった書庫(書庫の中の書庫)を、メモリ上に置いておく合計の上限(MB、既定256)。
+    /// 2026-09に128から256へ上げた ―― 入れ子のrar/7zもメモリから開けるようになり、この値が
+    /// 「1本をメモリで開いてよい大きさ」も兼ねるため、章ごとの書庫(50〜200MB)が収まる余裕を持たせた。
     ///
     /// 入れ子の書庫は「必要になったときに親から取り出す」方式で、取り出したものをしばらく
     /// 手元に置いておくと、同じ章のページを続けて読むあいだ取り出し直さずに済む
     /// (NestedArchiveResolver参照)。ここはその置き場の大きさ。
     ///
-    /// zip/cbzだけがメモリに置ける。rar/7zはライブラリがファイルパスしか受け付けないため
-    /// 必ず一時ファイルになる ―― が、その一時ファイルの上限もこの値から導いている
-    /// (NestedArchiveResolver.Limits.standard参照)ので、この1つを動かせば両方が動く。
+    /// 3形式ともメモリに置ける(2026-09までrar/7zはライブラリがファイルパスしか受け付けず
+    /// 必ず一時ファイルになっていた)。これより大きい書庫は一時ファイルになるが、その一時
+    /// ファイルの上限もこの値から導いている(NestedArchiveResolver.Limits.standard参照)ので、
+    /// この1つを動かせば両方が動く。
     /// 上限を2つ3つ並べても意味が伝わらないため、ユーザーに見せるのはこれだけにしてある。
     ///
     /// 0にすると「メモリには一切置かず、常に一時ファイルを使う」という意味になる。
@@ -779,7 +782,7 @@ final class AppPreferences: ObservableObject {
     @Published var nestedArchiveMemoryLimitMB: Double {
         didSet { UserDefaults.standard.set(nestedArchiveMemoryLimitMB, forKey: Keys.nestedArchiveMemoryLimitMB) }
     }
-    nonisolated static let defaultNestedArchiveMemoryLimitMB: Double = 128
+    nonisolated static let defaultNestedArchiveMemoryLimitMB: Double = 256
     static let nestedArchiveMemoryLimitRangeMB: ClosedRange<Double> = 0...1024
     nonisolated static let defaultNestedArchiveMemoryLimitBytes =
         Int(defaultNestedArchiveMemoryLimitMB) * 1024 * 1024

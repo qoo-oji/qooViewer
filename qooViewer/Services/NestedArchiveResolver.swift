@@ -9,11 +9,12 @@ import Foundation
 /// 開く瞬間に全部の伸長と書き出しを一括で払っていた。ここはその2つを、
 /// 「使う書庫だけを、使う時に、予算の範囲で開く」に置き換えるための場所。
 ///
-/// ■ ディスクに出るかどうかは形式で決まる
-/// zip/cbzはZIPFoundationがData版のAPIを持つためメモリのまま開ける(=ディスクに一切出ない)。
-/// rar/7zはライブラリの公開APIがファイルパスしか受け付けないため、一時ファイルへ書き出す
-/// ほかない(ArchiveKind.opensFromMemory参照)。それでも、同時に開いておくぶんだけに
-/// 減るので、従来の「本1冊ぶん全部」とは桁が変わる。
+/// ■ ディスクに出るかどうかは大きさで決まる
+/// 3形式ともメモリ上のDataから開ける(makeArchiveReader(kind:data:))ので、環境設定の予算に
+/// 収まる書庫はディスクに一切出ない。予算より大きい書庫だけを一時ファイルへ書き出す。
+/// 2026-09までは、rar/7zのライブラリがファイルパスしか受け付けなかったため、この2形式は
+/// 大きさによらず一時ファイルにするほかなかった(ライブラリをフォークしてData版の入口を足した。
+/// ArchiveKind.opensFromMemory参照)。
 ///
 /// ■ 一時ファイルの寿命は「readerの寿命」に一致させてある
 /// 一時ファイルのURLを持つのは`TemporaryArchiveFile`(参照型)ただ1つで、削除はその`deinit`
@@ -50,7 +51,7 @@ nonisolated final class NestedArchiveResolver {
         var maxOpenReaders: Int
         /// メモリ上に載せておく入れ子書庫の合計バイト数。
         var maxInMemoryBytes: Int
-        /// 1本がこれを超えるzipはメモリに載せず一時ファイルへ倒す。
+        /// 1本がこれを超える書庫はメモリに載せず一時ファイルへ倒す。
         var spillToDiskThresholdBytes: Int
         /// 一時ファイルの合計バイト数。
         var maxTemporaryBytes: Int
@@ -62,8 +63,8 @@ nonisolated final class NestedArchiveResolver {
         ///
         /// - spillToDiskThreshold: メモリ上限**そのもの**。予算に収まる書庫は載せ、収まらない
         ///   ものだけディスクへ倒す、という素直な線引き。当初はここを「上限の1/4」にして
-        ///   いたが、実在する漫画の章の書庫は50〜200MBあり、既定(128MB)の1/4=32MBでは
-        ///   ほとんどの章が弾かれて「zipでもディスクを使う」状態になっていた。
+        ///   いたが、実在する漫画の章の書庫は50〜200MBあり、当時の既定(128MB)の1/4=32MBでは
+        ///   ほとんどの章が弾かれて「予算内に収まらずディスクを使う」状態になっていた。
         /// - maxTemporaryBytes: メモリ上限の2倍(最低256MB)。ここは「章をまたいで戻ったときに
         ///   取り出し直すか」だけを決める値で、実測では75MBの章の取り出しが約60ms(ローカルSSD)
         ///   だったため、たくさん温めておく利得は小さい。ディスク使用量を減らすことの方を優先する。
@@ -89,10 +90,6 @@ nonisolated final class NestedArchiveResolver {
         var inMemoryLimitBytes: Int
         var temporaryArchiveCount: Int
         var temporaryBytes: Int
-        /// 開いているreader(ルートの書庫を含む)がライブラリの内部に抱えている展開バッファの
-        /// 上限見積り(ArchiveReading.residentDecompressionBufferUpperBoundBytes参照)。
-        /// 7zのソリッドブロックがここに現れる。zip/rarは常に0。
-        var decompressionBufferUpperBoundBytes: Int = 0
     }
 
     enum ResolveError: Error {
@@ -210,8 +207,6 @@ nonisolated final class NestedArchiveResolver {
             inMemoryLimitBytes: limits.maxInMemoryBytes, temporaryArchiveCount: 0, temporaryBytes: 0
         )
         for entry in entries.values {
-            // ライブラリ内部の展開バッファ(7zのソリッドブロック)は置き場所を問わず数える。
-            stats.decompressionBufferUpperBoundBytes += entry.reader.residentDecompressionBufferUpperBoundBytes
             switch entry.storage {
             case .rootFile:
                 break
@@ -285,9 +280,11 @@ nonisolated final class NestedArchiveResolver {
         if fitsInMemory {
             // data(at:)は新しいDataを組み立てて返すため、親のバッファを巻き添えで
             // 保持することはない(ZipArchiveReader.init(data:)のコメント参照)。
+            // 7zのreaderはDataを1回コピーして自前で持つので、この関数を抜けて`data`が
+            // 解放されれば書庫1つぶんに戻る(SevenZipArchiveReader.init(data:)参照)。
             let data = try parentReader.data(at: entryPath)
             return OpenArchive(
-                reader: try ZipArchiveReader(data: data),
+                reader: try makeArchiveReader(kind: kind, data: data),
                 byteCount: data.count, storage: .inMemory, temporaryFile: nil
             )
         }
@@ -352,9 +349,9 @@ nonisolated final class OpenArchive {
     enum Storage {
         /// ディスク上の実ファイルをそのまま開いたもの(materializeしていない)。
         case rootFile
-        /// メモリ上のバイト列から開いたもの(zip/cbzのみ)。
+        /// メモリ上のバイト列から開いたもの(予算に収まる大きさの書庫)。
         case inMemory
-        /// 一時ファイルへ書き出してから開いたもの(rar/7z、および大きすぎるzip)。
+        /// 一時ファイルへ書き出してから開いたもの(予算より大きい書庫)。
         case temporaryFile
     }
 

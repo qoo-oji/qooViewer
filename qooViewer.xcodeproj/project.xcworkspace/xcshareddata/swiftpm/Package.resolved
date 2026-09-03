@@ -1,22 +1,22 @@
 {
-  "originHash" : "663b62434e96ba49a96b65bfb6bcadb799722b8c4f3a73988398b7fdcdeb1697",
+  "originHash" : "69c8acc16c23067b78f257c4d11335d20dace9b8151fb56f35574199c159fbbb",
   "pins" : [
     {
       "identity" : "sevenzip.swift",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/mtgto/SevenZip.swift",
+      "location" : "https://github.com/qoo-oji/SevenZip.swift",
       "state" : {
-        "branch" : "main",
-        "revision" : "215c504fe9452ee58e7cacd88f20c9793f2fc103"
+        "branch" : "streaming-extract",
+        "revision" : "42950bafb27aebdede2de7120e1b04217346cd65"
       }
     },
     {
       "identity" : "unrar.swift",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/mtgto/Unrar.swift",
+      "location" : "https://github.com/qoo-oji/Unrar.swift",
       "state" : {
-        "revision" : "7216007a38ac122dbdeae26cfdaf7f10775c868f",
-        "version" : "0.5.4"
+        "branch" : "memory-archive",
+        "revision" : "2fb14dc5ce6ac1ef7cf44402f381789611b0899c"
       }
     },
     {

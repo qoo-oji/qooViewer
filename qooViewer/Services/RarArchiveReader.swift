@@ -2,7 +2,13 @@ import Foundation
 import Unrar
 
 /// rar / cbr を読むための ArchiveReading 実装
-/// (Unrar.swift ライブラリを使用。パスワード付きアーカイブには非対応)
+/// (Unrar.swift をフォークした qoo-oji/Unrar.swift の `memory-archive` ブランチを使用。
+/// パスワード付きアーカイブには非対応)
+///
+/// フォークしたのは、入れ子の rar をメモリ上の Data から開けるようにするため(`init(data:)`)。
+/// 元の unrar の公開 API はファイルパスしか受け付けず、入れ子の rar は一時ファイルへ書き出すほか
+/// なかった。フォークは同梱の unrar に「メモリから読むモード」を足している
+/// (フォークの docs/MemoryArchive.md 参照)。伸長そのものは元のままで、速度も変わらない。
 /// nonisolated: PageLoader(actor、メインスレッド外)から呼ばれるため、Xcode 26既定の
 /// MainActor自動分離の対象外にしている(詳細はArchiveReading.swift冒頭のコメント参照)。
 nonisolated final class RarArchiveReader: ArchiveReading {
@@ -13,8 +19,22 @@ nonisolated final class RarArchiveReader: ArchiveReading {
     /// 元の`entries.first(where:)`と同じく最初に見つかったものを優先する)。
     private var entryByFileName: [String: Unrar.Entry] = [:]
 
-    init(url: URL) throws {
-        self.archive = try Unrar.Archive(fileURL: url)
+    convenience init(url: URL) throws {
+        try self.init(archive: Unrar.Archive(fileURL: url))
+    }
+
+    /// 入れ子になった書庫を、ディスクへ書き出さずメモリ上のDataから直接開く
+    /// (NestedArchiveResolver、およびArchiveKind.opensFromMemory参照)。
+    ///
+    /// フォーク側の`Archive(data:)`はDataをコピーせずに保持し、`entries()`/`extract()`のたびに
+    /// `withUnsafeBytes`で借りて unrar に渡す(各操作が開いて閉じる作りなので、ポインタの寿命が
+    /// 操作の中に収まる)。分割ボリュームはメモリからは辿れないが、入れ子の分割rarは現実には無い。
+    convenience init(data: Data) throws {
+        try self.init(archive: Unrar.Archive(data: data))
+    }
+
+    private init(archive: Unrar.Archive) throws {
+        self.archive = archive
         self.entries = try archive.entries()
         for entry in entries where entryByFileName[entry.fileName] == nil {
             entryByFileName[entry.fileName] = entry

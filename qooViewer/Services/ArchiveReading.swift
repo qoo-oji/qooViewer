@@ -29,7 +29,8 @@ protocol ArchiveReading {
     /// 打ち切る。
     ///
     /// 既定実装はdata(at:)による全体読みへのフォールバック。途中で伸長を打ち切れるかどうかは
-    /// 形式・ライブラリ依存のため、対応できる実装(ZipArchiveReader)だけが上書きする。
+    /// 形式・ライブラリ依存のため、対応できる実装(ZipArchiveReader、SevenZipArchiveReader)だけが
+    /// 上書きする。
     nonisolated func dataPrefix(at path: String, maxByteCount: Int) throws -> Data
     /// 指定エントリの作成日時・更新日時(コンテキストメニュー「情報を見る」、ユーザー要望向け)。
     /// アーカイブ形式によって保持している情報が異なる: zip/7zは更新日時のみ(作成日時という
@@ -56,8 +57,9 @@ protocol ArchiveReading {
     /// zip/rarはライブラリが逐次読み出しに対応しているため、チャンクごとに書き出せば
     /// ピークはバッファ1つぶんで済む。
     ///
-    /// 既定実装は`data(at:)`+`write(to:)`へのフォールバック(7zで使っているLZMA SDKは
-    /// 展開結果をバッファごと返す形しか持たないため、そちらはこのまま)。
+    /// 既定実装は`data(at:)`+`write(to:)`へのフォールバック。3形式とも上書きしているため
+    /// 実際には使われない(7zも、フォークしたライブラリが逐次読み出しを持つようになったので
+    /// 2026-09からチャンク書き出しになった)。
     ///
     /// - Parameter maxByteCount: 書き出してよい上限。索引の申告サイズ(entryUncompressedSize)は
     ///   呼び出し側が事前に見ているが、細工された・壊れた書庫では申告と実際が食い違う。
@@ -65,20 +67,11 @@ protocol ArchiveReading {
     ///   測るだけでは、上限を超えて一時ファイルを書き潰すまで止まらない)。超えたら
     ///   `ArchiveReaderError.entryTooLarge`を投げ、書きかけのファイルは残さない。
     nonisolated func extract(at path: String, to url: URL, maxByteCount: Int) throws
-
-    /// このreaderが、エントリの取り出しのために**保持し続けている**展開バッファの上限見積り
-    /// (バイト)。ページ画像や入れ子の書庫のキャッシュとは別に、ライブラリの内部に
-    /// 居座っているメモリで、リソースモニタに出すためのもの。
-    ///
-    /// zip/rarは0(チャンクごとに読み捨てる)。7zはLZMA SDKが**ソリッドブロック全体**を
-    /// 伸長してバッファに保持し続けるため、そのブロックの大きさになる
-    /// (SevenZipArchiveReader参照)。
-    nonisolated var residentDecompressionBufferUpperBoundBytes: Int { get }
 }
 
 extension ArchiveReading {
     /// dataPrefix(at:maxByteCount:)の既定実装(プロトコルのコメント参照)。
-    /// 7z/rarは使用しているライブラリが「エントリの先頭だけを伸長する」形の読み出しに
+    /// rarは使用しているライブラリが「エントリの先頭だけを伸長する」形の読み出しに
     /// 対応していないため、この既定実装のまま(=従来通りの全体読み)になる。
     nonisolated func dataPrefix(at path: String, maxByteCount: Int) throws -> Data {
         try data(at: path)
@@ -88,18 +81,15 @@ extension ArchiveReading {
     /// 将来ArchiveReadingの実装が増えたときに「サイズを答えられない」を選べるようにしておく。
     nonisolated func entryUncompressedSize(at path: String) -> Int64? { nil }
 
-    /// extract(at:to:maxByteCount:)の既定実装(プロトコル側のコメント参照)。逐次読み出しに
-    /// 対応できない実装(SevenZipArchiveReader)はこのまま=従来通りの全体読み+書き出しになる。
-    /// 全体を読んでしまう以上、上限の検査は読み終えた後にしかできないが、上限を超えたものを
-    /// ディスクへ書き出さない点は逐次版と同じ。
+    /// extract(at:to:maxByteCount:)の既定実装(プロトコル側のコメント参照)。3形式とも
+    /// 上書きしているため実際には使われないが、逐次読み出しに対応できない実装が将来現れた
+    /// ときのために残してある。全体を読んでしまう以上、上限の検査は読み終えた後にしかできないが、
+    /// 上限を超えたものをディスクへ書き出さない点は逐次版と同じ。
     nonisolated func extract(at path: String, to url: URL, maxByteCount: Int) throws {
         let data = try data(at: path)
         guard data.count <= maxByteCount else { throw ArchiveReaderError.entryTooLarge }
         try data.write(to: url)
     }
-
-    /// residentDecompressionBufferUpperBoundBytesの既定実装。バッファを抱えない形式は0。
-    nonisolated var residentDecompressionBufferUpperBoundBytes: Int { 0 }
 }
 
 /// 対応する画像の拡張子。AVIFはmacOS Sonoma(14)以降でImageIOがシステム全体で
@@ -141,14 +131,16 @@ nonisolated enum ArchiveKind {
     case sevenZip
     case rar
 
-    /// メモリ上のDataからそのまま開けるか。
+    /// メモリ上のDataからそのまま開けるか(makeArchiveReader(kind:data:)が使えるか)。
     ///
-    /// zipだけがtrue ―― ZIPFoundationがData版のAPI(ZipArchiveReader.init(data:))を持つため。
-    /// rar/7zで使っているライブラリは、いずれも公開APIがファイルパスしか受け付けない
-    /// (unrarのRAROpenArchiveEx、LZMA SDKのInFile_Open)ため、いったん一時ファイルへ
-    /// 書き出す必要がある。この違いが、入れ子の書庫でディスクを使うかどうかを分ける
-    /// (NestedArchiveResolver.materialize参照)。
-    var opensFromMemory: Bool { self == .zip }
+    /// いまは3形式ともtrue。zipはZIPFoundationがData版のAPIを持ち、rar/7zは2026-09に
+    /// ライブラリをフォークしてData版の入口を足した(qoo-oji/Unrar.swiftの`RAROpenArchiveMem`、
+    /// qoo-oji/SevenZip.swiftの`7zMemInStream`)。それまではunrarのRAROpenArchiveExもLZMA SDKの
+    /// InFile_Openもファイルパスしか受け付けず、入れ子のrar/7zは一時ファイルへ書き出すほか
+    /// なかった。入れ子の書庫がディスクに出るかどうかは、形式ではなく大きさ(環境設定の
+    /// メモリ上限)だけで決まる(NestedArchiveResolver.materialize参照)。
+    /// 将来「Dataから開けない形式」を足すときのために、判定そのものは残してある。
+    var opensFromMemory: Bool { true }
 }
 
 /// ファイル名の拡張子から書庫の形式を返す。書庫ではない(対応していない)ならnil。
@@ -188,5 +180,22 @@ nonisolated func makeArchiveReader(kind: ArchiveKind, url: URL) throws -> Archiv
         return try SevenZipArchiveReader(url: url)
     case .rar:
         return try RarArchiveReader(url: url)
+    }
+}
+
+/// メモリ上のDataから書庫を開く(入れ子の書庫用。NestedArchiveResolver.materialize参照)。
+///
+/// **渡すDataは必ず独立した実体にすること**(ZipArchiveReader.init(data:)のコメント参照。
+/// 3つのreaderともDataを保持するか読み出しのたびに借りるので、親のバッファのスライスを渡すと
+/// 親の全バイトが道連れで常駐する)。`ArchiveReading.data(at:)`の返り値をそのまま渡すぶんには
+/// 問題ない。
+nonisolated func makeArchiveReader(kind: ArchiveKind, data: Data) throws -> ArchiveReading {
+    switch kind {
+    case .zip:
+        return try ZipArchiveReader(data: data)
+    case .sevenZip:
+        return try SevenZipArchiveReader(data: data)
+    case .rar:
+        return try RarArchiveReader(data: data)
     }
 }

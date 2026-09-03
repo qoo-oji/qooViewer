@@ -422,18 +422,18 @@
 		};
 		0AD11FF13014A5C900C0C526 /* XCRemoteSwiftPackageReference "SevenZip" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/mtgto/SevenZip.swift";
+			repositoryURL = "https://github.com/qoo-oji/SevenZip.swift";
 			requirement = {
-				branch = main;
+				branch = "streaming-extract";
 				kind = branch;
 			};
 		};
 		0AD11FF43014A5E800C0C526 /* XCRemoteSwiftPackageReference "Unrar" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/mtgto/Unrar.swift";
+			repositoryURL = "https://github.com/qoo-oji/Unrar.swift";
 			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.5.4;
+				branch = "memory-archive";
+				kind = branch;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

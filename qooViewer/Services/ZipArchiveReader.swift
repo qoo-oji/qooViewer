@@ -21,8 +21,8 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
         indexEntries()
     }
 
-    /// 入れ子になった書庫を、ディスクへ書き出さずメモリ上のDataから直接開く。rar/7zと異なり
-    /// ZIPFoundation自体がData版のAPIを持っているため、一時ファイルが不要
+    /// 入れ子になった書庫を、ディスクへ書き出さずメモリ上のDataから直接開く。ZIPFoundation自体が
+    /// Data版のAPIを持っているため、一時ファイルが不要
     /// (NestedArchiveResolver、およびArchiveKind.opensFromMemory参照)。
     ///
     /// **渡すDataは必ず独立した実体にすること。** ZIPFoundationのMemoryFileはこのDataを

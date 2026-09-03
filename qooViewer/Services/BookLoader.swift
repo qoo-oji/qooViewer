@@ -398,7 +398,7 @@ nonisolated enum BookLoader {
                 do {
                     let nested = locator.appending(path)
                     // 取り出した子書庫は、この`do`ブロックを抜けた時点で解放される
-                    // (=rar/7zで作った一時ファイルもそこで消える)。列挙は深さ優先で一度ずつ
+                    // (=予算超過で作った一時ファイルもそこで消える)。列挙は深さ優先で一度ずつ
                     // 舐めるだけで同じ書庫へ二度と戻らないため、抱え続ける理由が無い
                     // (NestedArchiveResolver.openTransient参照)。ディスクに載るのは
                     // 「いま潜っている枝の祖先ぶん」だけになる。

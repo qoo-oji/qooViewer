@@ -55,7 +55,7 @@ struct CacheSettingsView: View {
                     value: $preferences.nestedArchiveMemoryLimitMB,
                     in: AppPreferences.nestedArchiveMemoryLimitRangeMB,
                     step: 32,
-                    help: "When a book has other archives inside it, each one is opened only when you reach it, and the most recently used ones are kept here. Larger values move between chapters faster; smaller values use less memory and less temporary disk space. ZIP archives are kept in memory; RAR and 7z archives have to be written to a temporary file instead, and how much of that is kept follows this setting too. At 0, a temporary file is always used."
+                    help: "When a book has other archives inside it, each one is opened only when you reach it, and the most recently used ones are kept here. Larger values move between chapters faster; smaller values use less memory. An archive larger than this is written to a temporary file instead, and how much of that is kept follows this setting too. At 0, a temporary file is always used."
                 ) { value in
                     "\(Int(value)) MB"
                 }

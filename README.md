@@ -134,8 +134,8 @@ macOS 15 (Sequoia) 以降
 ## 依存ライブラリ
 
 - [ZIPFoundation](https://github.com/weichsel/ZIPFoundation)(MIT License)
-- [SevenZip.swift](https://github.com/mtgto/SevenZip.swift)(MIT License)
-- [Unrar.swift](https://github.com/mtgto/Unrar.swift)(内部でRARLAB提供のunrarライブラリを使用)
+- [SevenZip.swift](https://github.com/mtgto/SevenZip.swift)(MIT License)―― [qoo-oji/SevenZip.swift](https://github.com/qoo-oji/SevenZip.swift) の `streaming-extract` ブランチ(フォーク)を使用。ソリッド書庫を必要なところまでだけ展開するストリーミング読み出しと、メモリ上の書庫を開く機能を追加してあります
+- [Unrar.swift](https://github.com/mtgto/Unrar.swift)(内部でRARLAB提供のunrarライブラリを使用)―― [qoo-oji/Unrar.swift](https://github.com/qoo-oji/Unrar.swift) の `memory-archive` ブランチ(フォーク)を使用。メモリ上の書庫を開く機能を追加してあります
 
 ## ビルド方法
 
@@ -237,5 +237,5 @@ GBK/Big5(中国語)や、UTF-8 の目印が付いていない書庫を読み分�
 ## ライセンス
 
 - qooViewer自体のソースコードはMITライセンスです(同梱の `LICENSE` 参照)。
-- zip/cbz 対応は `ZIPFoundation` に、7z/cb7 対応は `SevenZip.swift` に依存しています。いずれもMITライセンスです。
-- rar/cbr 対応は `Unrar.swift`(内部で RARLAB 提供の unrar ライブラリを使用)に依存しています。[unrar のライセンス文](https://github.com/mtgto/Unrar.swift/blob/main/Sources/Cunrar/readme.txt)を参照してください。
+- zip/cbz 対応は `ZIPFoundation` に、7z/cb7 対応は `SevenZip.swift`(のフォーク)に依存しています。いずれもMITライセンスです。
+- rar/cbr 対応は `Unrar.swift`(のフォーク。内部で RARLAB 提供の unrar ライブラリを使用)に依存しています。[unrar のライセンス文](https://github.com/qoo-oji/Unrar.swift/blob/memory-archive/Sources/Cunrar/readme.txt)を参照してください。

@@ -9,8 +9,8 @@ nonisolated enum BookEntryLevel {
     /// 開いた状態のアーカイブの中の、ある仮想パス階層。archiveは.archiveへ踏み込む
     /// たびに新しく開き直す。prefixは""=ルート、"chapter1/nested/"のように末尾"/"付き。
     ///
-    /// ArchiveReadingではなくOpenArchiveを持つのは、入れ子の書庫がrar/7zの場合、その
-    /// 裏付けである一時ファイルの寿命がこのオブジェクトに紐づいているため
+    /// ArchiveReadingではなくOpenArchiveを持つのは、入れ子の書庫が一時ファイル経路の場合、
+    /// その裏付けである一時ファイルの寿命がこのオブジェクトに紐づいているため
     /// (NestedArchiveResolver.OpenArchive参照)。readerだけを持つと、解決役のLRUから
     /// 追い出された瞬間にファイルが消え、戻る/進むで戻ってきた階層が読めなくなる。
     /// allPathsはreader.listFilePaths()の結果をキャッシュしたもの(階層を移動するたびに

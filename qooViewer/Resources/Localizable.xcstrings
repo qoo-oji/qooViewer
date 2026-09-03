@@ -697,22 +697,6 @@
         }
       }
     },
-    "7z decompression buffer" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "7z decompression buffer"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "7z の展開バッファ"
-          }
-        }
-      }
-    },
     "100% turns pinch zoom off." : {
       "localizations" : {
         "en" : {
@@ -1471,34 +1455,34 @@
         }
       }
     },
-    "Archives found inside the books open in this launch that had to be written out to be read — RAR and 7z only, since ZIP is read directly from memory. Only the ones in use are kept; they are removed as you move on, when the book is closed, and when the app quits." : {
+    "Archives found inside the books open in this launch that were too large for the “Nested archives kept in memory” setting and had to be written out to be read. Only the ones in use are kept; they are removed as you move on, when the book is closed, and when the app quits." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Archives found inside the books open in this launch that had to be written out to be read — RAR and 7z only, since ZIP is read directly from memory. Only the ones in use are kept; they are removed as you move on, when the book is closed, and when the app quits."
+            "value" : "Archives found inside the books open in this launch that were too large for the “Nested archives kept in memory” setting and had to be written out to be read. Only the ones in use are kept; they are removed as you move on, when the book is closed, and when the app quits."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この起動で開いた本の中で見つかった書庫のうち、読むためにファイルへ書き出す必要があったものです ―― ZIP形式はメモリから直接読むため、RAR・7z形式だけが対象です。使っているぶんだけを残し、読み進めるにつれて・本を閉じたとき・アプリを終了したときに削除されます。"
+            "value" : "この起動で開いた本の中で見つかった書庫のうち、設定「メモリに残しておく入れ子の書庫」より大きく、読むためにファイルへ書き出す必要があったものです。使っているぶんだけを残し、読み進めるにつれて・本を閉じたとき・アプリを終了したときに削除されます。"
           }
         }
       }
     },
-    "Archives found inside this book that are open right now, against the “Nested archives kept in memory” setting. The count includes every format, but the size covers only ZIP archives — RAR and 7z have to be held as temporary files instead, which appear under On Disk ▸ Temporary files." : {
+    "Archives found inside this book that are open right now, against the “Nested archives kept in memory” setting. Every format is read directly from memory; an archive larger than the setting is written to a temporary file instead, which appears under On Disk ▸ Temporary files." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Archives found inside this book that are open right now, against the “Nested archives kept in memory” setting. The count includes every format, but the size covers only ZIP archives — RAR and 7z have to be held as temporary files instead, which appear under On Disk ▸ Temporary files."
+            "value" : "Archives found inside this book that are open right now, against the “Nested archives kept in memory” setting. Every format is read directly from memory; an archive larger than the setting is written to a temporary file instead, which appears under On Disk ▸ Temporary files."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この本の中で見つかった書庫のうち、いま開いているもの。分母は設定「メモリに残しておく入れ子の書庫」です。件数は形式を問わず数えますが、サイズはZIP形式のぶんだけです ―― RAR・7z形式は一時ファイルとして持つほかなく、そちらは「ディスク上」の「一時ファイル」に出ます。"
+            "value" : "この本の中で見つかった書庫のうち、いま開いているもの。分母は設定「メモリに残しておく入れ子の書庫」です。形式を問わずメモリから直接読みますが、設定より大きい書庫は一時ファイルに書き出して開き、そちらは「ディスク上」の「一時ファイル」に出ます。"
           }
         }
       }
@@ -12625,22 +12609,6 @@
         }
       }
     },
-    "The 7z library decompresses a whole solid block to read one page, and keeps that block in memory for as long as the book is open. This is the largest it can be — the total uncompressed size of the archive — because the library does not report the actual block size. It is released when the book is closed." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The 7z library decompresses a whole solid block to read one page, and keeps that block in memory for as long as the book is open. This is the largest it can be — the total uncompressed size of the archive — because the library does not report the actual block size. It is released when the book is closed."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "7z のライブラリは1ページを読むためにソリッドブロック全体を展開し、本を開いている間そのブロックをメモリに保持し続けます。\nライブラリは実際のブロックの大きさを教えてくれないため、ここに出るのは最大値(書庫全体の非圧縮サイズ)です。\n本を閉じると解放されます。"
-          }
-        }
-      }
-    },
     "The book could not be opened." : {
       "localizations" : {
         "en" : {
@@ -14059,18 +14027,18 @@
         }
       }
     },
-    "When a book has other archives inside it, each one is opened only when you reach it, and the most recently used ones are kept here. Larger values move between chapters faster; smaller values use less memory and less temporary disk space. ZIP archives are kept in memory; RAR and 7z archives have to be written to a temporary file instead, and how much of that is kept follows this setting too. At 0, a temporary file is always used." : {
+    "When a book has other archives inside it, each one is opened only when you reach it, and the most recently used ones are kept here. Larger values move between chapters faster; smaller values use less memory. An archive larger than this is written to a temporary file instead, and how much of that is kept follows this setting too. At 0, a temporary file is always used." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "When a book has other archives inside it, each one is opened only when you reach it, and the most recently used ones are kept here. Larger values move between chapters faster; smaller values use less memory and less temporary disk space. ZIP archives are kept in memory; RAR and 7z archives have to be written to a temporary file instead, and how much of that is kept follows this setting too. At 0, a temporary file is always used."
+            "value" : "When a book has other archives inside it, each one is opened only when you reach it, and the most recently used ones are kept here. Larger values move between chapters faster; smaller values use less memory. An archive larger than this is written to a temporary file instead, and how much of that is kept follows this setting too. At 0, a temporary file is always used."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "本の中にさらに書庫が入っている場合、その書庫はそこまで読み進めたときに初めて開き、最近使ったものをここに残しておきます。大きくするほど章をまたぐ移動が速くなり、小さくするほどメモリと一時ディスクの使用量が減ります。ZIP形式はメモリに残せますが、RAR・7z形式は一時ファイルに書き出すほかなく、そちらをどれだけ残しておくかもこの設定に従います。0にすると常に一時ファイルを使います。"
+            "value" : "本の中にさらに書庫が入っている場合、その書庫はそこまで読み進めたときに初めて開き、最近使ったものをここに残しておきます。大きくするほど章をまたぐ移動が速くなり、小さくするほどメモリの使用量が減ります。これより大きい書庫は一時ファイルに書き出して開き、そちらをどれだけ残しておくかもこの設定に従います。0にすると常に一時ファイルを使います。"
           }
         }
       }
