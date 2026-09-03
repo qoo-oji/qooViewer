@@ -197,7 +197,7 @@ struct ExportWindowContent<Options: View>: View {
                 progressTitle: configuration.progressTitle,
                 overwriteMessage: { displayName in
                     String(
-                        format: String(localized: "“%1$@.%2$@” already exists in the destination folder."),
+                        format: String(localized: "“%1$@.%2$@” already exists in the destination folder.", language: preferences.effectiveLocale),
                         displayName, configuration.fileExtension
                     )
                 }
@@ -652,7 +652,7 @@ private struct ExportCoverPickerContent: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.image]
-        panel.message = String(localized: "Choose an image file to use as the cover.")
+        panel.message = String(localized: "Choose an image file to use as the cover.", language: preferences.effectiveLocale)
         guard panel.runModal() == .OK, let url = panel.url else { return }
         viewModel.setExternalCover(forBookID: bookID, book: loadedBook, fileURL: url)
     }

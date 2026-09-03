@@ -63,12 +63,12 @@ enum PDFExportError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noEligiblePages:
-            return String(localized: "This book has no pages to export (all pages may be excluded).")
+            return String(localized: "This book has no pages to export (all pages may be excluded).", language: AppLanguage.currentLocale)
         case .creationFailed:
-            return String(localized: "Couldn't create the PDF file.")
+            return String(localized: "Couldn't create the PDF file.", language: AppLanguage.currentLocale)
         case .writeFailed(let underlying):
             return String(
-                format: String(localized: "Couldn't write the PDF file: %@"),
+                format: String(localized: "Couldn't write the PDF file: %@", language: AppLanguage.currentLocale),
                 underlying.localizedDescription
             )
         }

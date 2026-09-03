@@ -70,7 +70,7 @@ struct OpenBookExportSheet: View {
                     progressTitle: "Exporting Book…",
                     overwriteMessage: { displayName in
                         String(
-                            format: String(localized: "“%1$@.%2$@” already exists in the destination folder."),
+                            format: String(localized: "“%1$@.%2$@” already exists in the destination folder.", language: preferences.effectiveLocale),
                             displayName, format.fileExtension
                         )
                     }

@@ -748,7 +748,7 @@ struct FavoritesOrganizerView: View {
             addCurrentBookErrorMessage = FavoritesLimitError.favoritesLimitReached.errorDescription
         case .failed:
             pendingBookForDuplicateConfirmation = nil
-            addCurrentBookErrorMessage = String(localized: "The favorite could not be registered.")
+            addCurrentBookErrorMessage = String(localized: "The favorite could not be registered.", language: preferences.effectiveLocale)
         }
     }
 

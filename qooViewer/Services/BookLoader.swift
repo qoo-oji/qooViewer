@@ -581,23 +581,20 @@ enum BookLoaderError: LocalizedError {
     /// 特定できなかった場合(リフロー型の小説EPUB、DRM付きEPUBなど)。
     case epubNotPictureBook
 
-    // Note: ここでは preferences.effectiveLocale(アプリ内の表示言語設定)ではなく
-    // デフォルトのLocale解決(システムのロケールに従う)を使っている。BookLoaderは
-    // AppPreferencesを持たないstatic enumのため、呼び出し元(AppState)まで
-    // Localeを引き回す必要があり、エラーメッセージという頻度の低い経路のために
-    // そこまでの変更は見送った。システム言語とアプリ内の表示言語設定を別々にしている
-    // 場合、エラーメッセージだけシステム言語で表示されることがある。
+    // BookLoaderはAppPreferencesを持たないstatic enumなので、表示言語はUserDefaultsから
+    // 直接読む(AppLanguage.currentLocale)。以前はデフォルトのLocale解決(OSの言語)のままで、
+    // アプリ内の表示言語をOSと別にしているとエラーメッセージだけOSの言語で出ていた。
     var errorDescription: String? {
         switch self {
         case .notFound:
-            return String(localized: "The file or folder could not be found.")
+            return String(localized: "The file or folder could not be found.", language: AppLanguage.currentLocale)
         case .noPages:
             return String(
-                localized: "No supported images were found. (Supports image folders, zip/cbz, rar/cbr, 7z/cb7, PDF, and EPUB.)"
+                localized: "No supported images were found. (Supports image folders, zip/cbz, rar/cbr, 7z/cb7, PDF, and EPUB.)", language: AppLanguage.currentLocale
             )
         case .epubNotPictureBook:
             return String(
-                localized: "This EPUB doesn't appear to be an image-based comic (fixed-layout) book, so it couldn't be opened. Text-based reflowable EPUBs and DRM-protected EPUBs are not supported."
+                localized: "This EPUB doesn't appear to be an image-based comic (fixed-layout) book, so it couldn't be opened. Text-based reflowable EPUBs and DRM-protected EPUBs are not supported.", language: AppLanguage.currentLocale
             )
         }
     }

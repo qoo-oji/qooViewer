@@ -554,7 +554,7 @@ final class BookLayoutEditorViewModel: ObservableObject {
             postLayoutFocusChange(pageKey: focusPageKey)
         }
         if didClearAny {
-            reorderWarningMessage = String(localized: "Pages were reordered. Some layout settings need to be redone.")
+            reorderWarningMessage = String(localized: "Pages were reordered. Some layout settings need to be redone.", language: preferences.effectiveLocale)
         }
     }
 

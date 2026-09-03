@@ -502,7 +502,7 @@ struct SidePanelView: View {
             }
             .padding(10)
 
-            Text(folderState.currentDirectory.map(DirectoryBrowser.displayName(for:)) ?? String(localized: "Computer"))
+            Text(folderState.currentDirectory.map(DirectoryBrowser.displayName(for:)) ?? String(localized: "Computer", language: preferences.effectiveLocale))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .panelOutlinedContent()

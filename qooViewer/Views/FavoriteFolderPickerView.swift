@@ -160,7 +160,7 @@ struct FavoriteFolderPickerView: View {
         case .limitReached:
             registrationErrorMessage = FavoritesLimitError.favoritesLimitReached.errorDescription
         case .failed:
-            registrationErrorMessage = String(localized: "The favorite could not be registered.")
+            registrationErrorMessage = String(localized: "The favorite could not be registered.", language: locale)
         }
     }
 

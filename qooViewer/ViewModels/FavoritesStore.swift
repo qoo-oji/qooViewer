@@ -30,12 +30,12 @@ enum FavoritesLimitError: LocalizedError {
         switch self {
         case .favoritesLimitReached:
             return String(
-                format: String(localized: "You can register up to %d favorites in total."),
+                format: String(localized: "You can register up to %d favorites in total.", language: AppLanguage.currentLocale),
                 FavoritesLimits.maxFavoritesCount
             )
         case .folderDepthLimitReached:
             return String(
-                format: String(localized: "Favorite folders can be nested up to %d levels deep."),
+                format: String(localized: "Favorite folders can be nested up to %d levels deep.", language: AppLanguage.currentLocale),
                 FavoritesLimits.maxFolderDepth
             )
         }
@@ -542,7 +542,7 @@ final class FavoritesStore: ObservableObject {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let siblingCount = subfolders(of: parent).count
         let folder = FavoriteFolder(
-            name: trimmed.isEmpty ? String(localized: "Untitled Folder") : trimmed,
+            name: trimmed.isEmpty ? String(localized: "Untitled Folder", language: AppLanguage.currentLocale) : trimmed,
             parent: parent,
             sortOrder: siblingCount
         )
@@ -775,7 +775,7 @@ final class FavoritesStore: ObservableObject {
         }
 
         if let otherEntry = existing.first {
-            let breadcrumb = otherEntry.folder?.breadcrumb ?? String(localized: "Favorites (Top Level)")
+            let breadcrumb = otherEntry.folder?.breadcrumb ?? String(localized: "Favorites (Top Level)", language: AppLanguage.currentLocale)
             return .needsDuplicateConfirmation(existingBreadcrumb: breadcrumb)
         }
 

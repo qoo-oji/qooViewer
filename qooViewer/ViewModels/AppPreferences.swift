@@ -40,7 +40,7 @@ final class AppPreferences: ObservableObject {
         static let sidePanelDockedGlass = "qooViewer.pref.sidePanelDockedGlass"
         static let welcomeGlass = "qooViewer.pref.welcomeGlass"
         static let prefetchPageCount = "qooViewer.pref.prefetchPageCount"
-        static let displayLanguage = "qooViewer.pref.displayLanguage"
+        static let displayLanguage = AppLanguage.defaultsKey
         static let appAppearance = "qooViewer.pref.appAppearance"
         static let reopenBehavior = "qooViewer.pref.reopenBehavior"
         static let confirmBeforeClosingMultipleTabsWindow =
@@ -1286,7 +1286,7 @@ final class AppPreferences: ObservableObject {
     /// `String(localized:locale:)`に渡しても翻訳は切り替わらないので注意(同initのコメント参照)。
     /// View階層内では `.environment(\.locale:)` 経由で自動的に反映されるため、通常はこちらを使う必要はない。
     var effectiveLocale: Locale {
-        displayLanguage.localeOverride ?? .autoupdatingCurrent
+        displayLanguage.locale
     }
 
     /// 最初/最後のページで共通だった旧設定(`Keys.legacyLoopBehavior`)を、前後それぞれの

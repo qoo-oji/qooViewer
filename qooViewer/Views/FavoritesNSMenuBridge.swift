@@ -43,7 +43,7 @@ final class FavoritesNSMenuBridge: NSObject {
         menu.autoenablesItems = false
         populate(menu, entries: favoritesStore.entries(in: nil))
         if menu.items.isEmpty {
-            let empty = NSMenuItem(title: String(localized: "(No Favorites)"), action: nil, keyEquivalent: "")
+            let empty = NSMenuItem(title: String(localized: "(No Favorites)", language: AppLanguage.currentLocale), action: nil, keyEquivalent: "")
             empty.isEnabled = false
             menu.addItem(empty)
         }
@@ -64,7 +64,7 @@ final class FavoritesNSMenuBridge: NSObject {
                 submenu.autoenablesItems = false
                 let childEntries = favoritesStore.entries(in: folder)
                 if childEntries.isEmpty {
-                    let empty = NSMenuItem(title: String(localized: "(Empty)"), action: nil, keyEquivalent: "")
+                    let empty = NSMenuItem(title: String(localized: "(Empty)", language: AppLanguage.currentLocale), action: nil, keyEquivalent: "")
                     empty.isEnabled = false
                     submenu.addItem(empty)
                 } else {

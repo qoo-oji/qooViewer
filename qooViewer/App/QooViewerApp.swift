@@ -112,16 +112,16 @@ struct QooViewerApp: App {
 
             let alert = NSAlert()
             alert.alertStyle = .critical
-            alert.messageText = String(localized: "qooViewer Can't Open Your Saved Data")
+            alert.messageText = String(localized: "qooViewer Can't Open Your Saved Data", language: AppLanguage.currentLocale)
             alert.informativeText = String(
                 localized: """
                 Your favorites, bookmarks, and reading history couldn't be loaded, possibly because they're incompatible with this version of qooViewer.
 
                 If you continue, all of this data will be permanently deleted and qooViewer will start fresh. If you don't want to lose this data, quit now without deleting it (for example, to try an older version of qooViewer, or to ask for help).
-                """
+                """, language: AppLanguage.currentLocale
             )
-            alert.addButton(withTitle: String(localized: "Delete and Continue"))
-            alert.addButton(withTitle: String(localized: "Quit Without Deleting"))
+            alert.addButton(withTitle: String(localized: "Delete and Continue", language: AppLanguage.currentLocale))
+            alert.addButton(withTitle: String(localized: "Quit Without Deleting", language: AppLanguage.currentLocale))
             let response = alert.runModal()
             guard response == .alertFirstButtonReturn else {
                 // この時点ではSwiftUIのRunLoop/NSApplicationのイベントループがまだ本格的に
@@ -136,9 +136,9 @@ struct QooViewerApp: App {
             } catch {
                 let failureAlert = NSAlert()
                 failureAlert.alertStyle = .critical
-                failureAlert.messageText = String(localized: "qooViewer Could Not Start")
+                failureAlert.messageText = String(localized: "qooViewer Could Not Start", language: AppLanguage.currentLocale)
                 failureAlert.informativeText = String(
-                    localized: "qooViewer couldn't start even after resetting its saved data. Please contact support."
+                    localized: "qooViewer couldn't start even after resetting its saved data. Please contact support.", language: AppLanguage.currentLocale
                 )
                 failureAlert.runModal()
                 fatalError("Failed to create ModelContainer even after resetting the store: \(error)")
@@ -205,7 +205,7 @@ struct QooViewerApp: App {
     /// WindowGroup・Settings両方のScene(メニューバーのcommandsを含む)にこれを適用することで、
     /// アプリ内でシステム言語とは独立して表示言語を切り替えられるようにしている。
     private var currentLocale: Locale {
-        preferences.displayLanguage.localeOverride ?? .autoupdatingCurrent
+        preferences.displayLanguage.locale
     }
 
     /// favoritesStoreはmodelContainerから作ったModelContextを必要とするため、他のStateObjectと

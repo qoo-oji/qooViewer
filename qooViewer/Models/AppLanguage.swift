@@ -18,14 +18,52 @@ enum AppLanguage: String, CaseIterable, Identifiable, Codable, Hashable {
     }
 
     /// この設定が実際に対応する Locale。「システムに従う」の場合は nil を返す
-    /// (呼び出し側は nil のとき Locale.autoupdatingCurrent 等、システムのロケールをそのまま使う)。
-    var localeOverride: Locale? {
+    /// (呼び出し側は nil のとき `systemLocale` を使う。`locale` がその合成)。
+    nonisolated var localeOverride: Locale? {
         switch self {
         case .system: return nil
         case .japanese: return Locale(identifier: "ja")
         case .english: return Locale(identifier: "en")
         }
     }
+
+    /// この設定で実際に使う Locale。`String(localized:language:)` や `.environment(\.locale, ...)` に渡す。
+    nonisolated var locale: Locale { localeOverride ?? Self.systemLocale }
+
+    /// 「システムに従う」で使う Locale。
+    ///
+    /// 通常は `Locale.autoupdatingCurrent`(地域・暦・数値の書式などユーザーの設定をそのまま保つ)。
+    /// ただし、起動中に別の言語から「システムに従う」へ戻した直後は、`Locale.current` /
+    /// `autoupdatingCurrent` が起動時に `AppleLanguages` で決まった言語をまだ指したままになる
+    /// (プロセス内では更新されない。実測)。そのため、いまの言語リストの先頭
+    /// (`UserDefaults` はアプリ自身の上書きが消えていれば OS のリストを返す)と言語が食い違う
+    /// ときだけ、そちらから作った Locale を返す。以前はこの場合、ウインドウの中身が再起動まで
+    /// 直前の言語のまま残っていた(applyAppleLanguagesOverride 参照)。
+    nonisolated static var systemLocale: Locale {
+        let launchLanguage = Locale.current.language.languageCode?.identifier
+        if let preferred = UserDefaults.standard.stringArray(forKey: "AppleLanguages")?.first,
+           Locale(identifier: preferred).language.languageCode?.identifier != launchLanguage {
+            return Locale(identifier: preferred)
+        }
+        return .autoupdatingCurrent
+    }
+
+    /// 環境設定に保存するときの UserDefaults のキー(AppPreferences.Keys.displayLanguage はこれを参照)。
+    nonisolated static let defaultsKey = "qooViewer.pref.displayLanguage"
+
+    /// いま環境設定に保存されている表示言語。
+    ///
+    /// AppPreferences も View 階層も持たない場所 ―― nonisolated なサービス層のエラー文
+    /// (BookLoaderError・各 Exporter)、環境設定を作る前に出す起動時のアラート、お気に入りの
+    /// NSMenu ―― から、表示言語で文字列を組み立てるために使う。それらが以前は OS の言語で
+    /// 表示されていた(監査で指摘)。AppPreferences か `@Environment(\.locale)` が手元にある場所では
+    /// そちらを使うこと(値は同じだが、あちらは設定の変更に追従して再描画される)。
+    nonisolated static var current: AppLanguage {
+        AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system
+    }
+
+    /// `current.locale` の略記。
+    nonisolated static var currentLocale: Locale { current.locale }
 
     /// 選んだ表示言語を、**次回の起動から**アプリ全体(メニューバー・AppKitが出すダイアログや
     /// ボタン・`String(localized:)`のすべて)にも効かせる。

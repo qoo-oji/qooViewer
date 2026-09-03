@@ -58,10 +58,10 @@ nonisolated enum PDFCatalogAugmenter {
         var errorDescription: String? {
             switch self {
             case .unsupportedStructure, .verificationFailed:
-                return String(localized: "Couldn't embed the series and layout information into the PDF file.")
+                return String(localized: "Couldn't embed the series and layout information into the PDF file.", language: AppLanguage.currentLocale)
             case .ioFailed(let underlying):
                 return String(
-                    format: String(localized: "Couldn't write the PDF file: %@"),
+                    format: String(localized: "Couldn't write the PDF file: %@", language: AppLanguage.currentLocale),
                     underlying.localizedDescription
                 )
             }

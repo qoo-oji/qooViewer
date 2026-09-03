@@ -48,19 +48,19 @@ nonisolated enum PDFImageExtractor {
             switch self {
             case .noEmbeddedImage(let pageNumber):
                 return String(
-                    format: String(localized: "Page %lld of this PDF has no embedded image, so it can't be exported."),
+                    format: String(localized: "Page %lld of this PDF has no embedded image, so it can't be exported.", language: AppLanguage.currentLocale),
                     pageNumber
                 )
             case .unsupportedImageFormat(let pageNumber):
                 return String(
                     format: String(
-                        localized: "Page %lld of this PDF uses an image format other than JPEG or Flate (lossless), which isn't supported for export."
+                        localized: "Page %lld of this PDF uses an image format other than JPEG or Flate (lossless), which isn't supported for export.", language: AppLanguage.currentLocale
                     ),
                     pageNumber
                 )
             case .imageDataUnavailable(let pageNumber):
                 return String(
-                    format: String(localized: "Couldn't read the image on page %lld of this PDF."),
+                    format: String(localized: "Couldn't read the image on page %lld of this PDF.", language: AppLanguage.currentLocale),
                     pageNumber
                 )
             }

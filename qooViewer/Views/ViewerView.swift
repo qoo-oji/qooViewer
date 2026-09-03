@@ -948,7 +948,7 @@ struct ViewerView: View {
                     // PDFの本でも書き出せるよう、生データではなく
                     // ViewerViewModel.exportableImage(at:)を使う(そちらのコメント参照)。
                     guard let exportable = try await viewModel.exportableImage(at: index) else {
-                        imageExportErrorMessage = String(localized: "Couldn't read the image to export.")
+                        imageExportErrorMessage = String(localized: "Couldn't read the image to export.", language: preferences.effectiveLocale)
                         return
                     }
                     try ImageExporter.writeSinglePage(data: exportable.data, to: url)
@@ -975,7 +975,7 @@ struct ViewerView: View {
                 guard let leftImage = await viewModel.fullResolutionImage(at: leftIndex),
                       let rightImage = await viewModel.fullResolutionImage(at: rightIndex)
                 else {
-                    imageExportErrorMessage = String(localized: "Couldn't read the image to export.")
+                    imageExportErrorMessage = String(localized: "Couldn't read the image to export.", language: preferences.effectiveLocale)
                     return
                 }
                 do {

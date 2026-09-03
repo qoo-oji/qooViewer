@@ -51,6 +51,7 @@ enum ExportColumnWidthEstimator {
 /// この進捗シート自身にalertを付ける(親ビュー側に付けると、進捗シートの上に正しく重なって
 /// 表示されない可能性があるため)。
 struct ExportProgressSheet: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var viewModel: BookExportViewModel
     /// 「EPUBファイルをエクスポート中…」など、形式ごとの見出し。
     let progressTitle: LocalizedStringKey
@@ -73,7 +74,7 @@ struct ExportProgressSheet: View {
                 .truncationMode(.middle)
                 .frame(width: 320)
             Text(
-                String(format: String(localized: "%d of %d"), viewModel.completedCount, viewModel.totalCount)
+                String(format: String(localized: "%d of %d", language: locale), viewModel.completedCount, viewModel.totalCount)
             )
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -112,6 +113,7 @@ struct ExportProgressSheet: View {
 /// 書き出し完了後の結果シート。成功件数と、失敗した本の一覧(理由つき)を表示する。
 /// 形式による差が無いため、そのまま3つのウインドウで共有する。
 struct ExportResultSheet: View {
+    @Environment(\.locale) private var locale
     @ObservedObject var viewModel: BookExportViewModel
 
     var body: some View {
@@ -120,7 +122,7 @@ struct ExportResultSheet: View {
                 .font(.headline)
             Text(
                 String(
-                    format: String(localized: "%d of %d book(s) exported successfully."),
+                    format: String(localized: "%d of %d book(s) exported successfully.", language: locale),
                     viewModel.successCount, viewModel.totalCount
                 )
             )

@@ -92,10 +92,15 @@ folder access (`FolderAccessStore`, security-scoped bookmarks). Keep this constr
 feature that reads files the user didn't explicitly pick.
 
 **Localization**: `Resources/Localizable.xcstrings` is a String Catalog (English base + Japanese). The
-in-app display language setting (`AppPreferences.displayLanguage`) is independent of the OS locale and is
-applied via `.environment(\.locale, ...)` on every Scene. A small number of error strings intentionally
-still follow the OS locale rather than the in-app setting (see BookLoader.swift's `errorDescription`
-comments) — this is a known, deliberate simplification, not a bug.
+in-app display language setting (`AppPreferences.displayLanguage`) is independent of the OS locale. SwiftUI
+`Text` follows it via `.environment(\.locale, ...)`, applied to the *content view* of every window (a
+scene-level `.environment` does not reach the window content). Strings built in code must use
+`String(localized:language:)` (Models/AppLanguage.swift) with `preferences.effectiveLocale`,
+`@Environment(\.locale)`, or `AppLanguage.currentLocale` (for nonisolated services / pre-preferences code)
+— Foundation's `String(localized:locale:)` only affects formatting and always picks the OS-language
+translation. Window titles must be passed as such Strings, never as `Text(key)` / `Window("key", id:)`.
+The menu bar and system dialogs cannot be switched at runtime; the setting is also written to the app's
+`AppleLanguages` so they follow from the next launch (`AppLanguage.applyAppleLanguagesOverride`).
 
 ## Docs in this repo
 

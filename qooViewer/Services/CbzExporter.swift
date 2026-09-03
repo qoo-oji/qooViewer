@@ -61,15 +61,15 @@ enum CbzExportError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noEligiblePages:
-            return String(localized: "This book has no pages to export (all pages may be excluded).")
+            return String(localized: "This book has no pages to export (all pages may be excluded).", language: AppLanguage.currentLocale)
         case .pageImageUnavailable(let pageName):
             return String(
-                format: String(localized: "Couldn't read the image for page “%@”, so this book can't be exported."),
+                format: String(localized: "Couldn't read the image for page “%@”, so this book can't be exported.", language: AppLanguage.currentLocale),
                 pageName
             )
         case .writeFailed(let underlying):
             return String(
-                format: String(localized: "Couldn't write the CBZ file: %@"),
+                format: String(localized: "Couldn't write the CBZ file: %@", language: AppLanguage.currentLocale),
                 underlying.localizedDescription
             )
         }

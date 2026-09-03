@@ -23,10 +23,10 @@ nonisolated enum ImageExporter {
         var errorDescription: String? {
             switch self {
             case .combineFailed:
-                return String(localized: "Couldn't create the combined image.")
+                return String(localized: "Couldn't create the combined image.", language: AppLanguage.currentLocale)
             case .writeFailed(let underlying):
                 return String(
-                    format: String(localized: "Couldn't save the image: %@"), underlying.localizedDescription
+                    format: String(localized: "Couldn't save the image: %@", language: AppLanguage.currentLocale), underlying.localizedDescription
                 )
             }
         }

@@ -451,7 +451,7 @@ class BookExportViewModel: ObservableObject {
 
     /// カバー列の表示文字列。まだ解決できていない間は読み込み中であることが分かる文字列を返す。
     final func coverDisplayName(forBookID bookID: String) -> String {
-        resolvedCoverNames[bookID] ?? String(localized: "Loading…")
+        resolvedCoverNames[bookID] ?? String(localized: "Loading…", language: preferences.effectiveLocale)
     }
 
     /// この本のカバー表示名を最新化する。呼び出し元(カバー列のセル)の.taskから、行の表示中に
@@ -816,7 +816,7 @@ class BookExportViewModel: ObservableObject {
     /// 1冊ぶんの材料をDB・ファイルから集め、出力先を確定して、サブクラスのexport(_:to:)へ渡す。
     private func exportOne(row: Row, destinationFolder: URL) async throws {
         guard let sourceURL = resolveURL(forBookID: row.bookID) else {
-            throw SimpleError(message: String(localized: "The original file/folder couldn't be found."))
+            throw SimpleError(message: String(localized: "The original file/folder couldn't be found.", language: preferences.effectiveLocale))
         }
         let didAccess = sourceURL.startAccessingSecurityScopedResource()
         defer { if didAccess { sourceURL.stopAccessingSecurityScopedResource() } }

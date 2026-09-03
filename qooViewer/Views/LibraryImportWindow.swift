@@ -189,7 +189,7 @@ struct LibraryImportWindow: View {
         if hasMetadata, metadataPolicy != .ignore {
             Text(
                 String(
-                    format: String(localized: "Metadata: %d book(s) imported."),
+                    format: String(localized: "Metadata: %d book(s) imported.", language: preferences.effectiveLocale),
                     summary.metadataImportedBooks
                 )
             )
@@ -206,7 +206,7 @@ struct LibraryImportWindow: View {
         if loadedFile?.favorites != nil, favoritesPolicy != .ignore {
             Text(
                 String(
-                    format: String(localized: "Favorites: %d folder(s), %d book(s) imported."),
+                    format: String(localized: "Favorites: %d folder(s), %d book(s) imported.", language: preferences.effectiveLocale),
                     summary.favoritesImportedFolders, summary.favoritesImportedBooks
                 )
             )
@@ -214,7 +214,7 @@ struct LibraryImportWindow: View {
             if summary.favoritesSkippedForLimit > 0 {
                 Text(
                     String(
-                        format: String(localized: "%d favorite(s) were skipped because the total limit was reached."),
+                        format: String(localized: "%d favorite(s) were skipped because the total limit was reached.", language: preferences.effectiveLocale),
                         summary.favoritesSkippedForLimit
                     )
                 )
@@ -225,7 +225,7 @@ struct LibraryImportWindow: View {
         if loadedFile?.bookmarks?.isEmpty == false, bookmarksPolicy != .ignore {
             Text(
                 String(
-                    format: String(localized: "Bookmarks: %d bookmark(s) across %d book(s) imported."),
+                    format: String(localized: "Bookmarks: %d bookmark(s) across %d book(s) imported.", language: preferences.effectiveLocale),
                     summary.bookmarksImportedEntries, summary.bookmarksImportedBooks
                 )
             )
@@ -233,7 +233,7 @@ struct LibraryImportWindow: View {
             if !summary.bookmarksSkippedBookIDs.isEmpty {
                 Text(
                     String(
-                        format: String(localized: "%d book(s) were skipped because their files couldn't be found."),
+                        format: String(localized: "%d book(s) were skipped because their files couldn't be found.", language: preferences.effectiveLocale),
                         summary.bookmarksSkippedBookIDs.count
                     )
                 )
@@ -244,7 +244,7 @@ struct LibraryImportWindow: View {
         if loadedFile?.layouts?.isEmpty == false, layoutsPolicy != .ignore {
             Text(
                 String(
-                    format: String(localized: "Page Layout Settings: %d book(s) imported."),
+                    format: String(localized: "Page Layout Settings: %d book(s) imported.", language: preferences.effectiveLocale),
                     summary.layoutsImportedBooks
                 )
             )
@@ -252,7 +252,7 @@ struct LibraryImportWindow: View {
             if !summary.layoutsSkippedBookIDs.isEmpty {
                 Text(
                     String(
-                        format: String(localized: "%d book(s) were skipped because their files couldn't be found."),
+                        format: String(localized: "%d book(s) were skipped because their files couldn't be found.", language: preferences.effectiveLocale),
                         summary.layoutsSkippedBookIDs.count
                     )
                 )
