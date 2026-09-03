@@ -7080,6 +7080,7 @@
       }
     },
     "Low Quality (Lightweight)" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
