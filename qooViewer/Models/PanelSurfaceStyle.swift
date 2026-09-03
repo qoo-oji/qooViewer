@@ -28,8 +28,13 @@ enum PanelSurface: String, CaseIterable, Identifiable, Hashable {
     /// だけ、背後のウインドウ/デスクトップを透かすすりガラスが敷かれ、この面の設定が
     /// 効く。OFFなら従来どおりウインドウの地の色のまま(ユーザー要望で追加した面)。
     case welcome
-    /// 上の4つ以外で、このアプリが自分で描いている浮かぶ表示をまとめたもの ――
+    /// 上の5つ以外で、このアプリが自分で描いている浮かぶ表示をまとめたもの ――
     /// 「情報を見る」パネル、操作のフィードバック(トースト)、ピンチ拡大中の拡大率表示。
+    ///
+    /// 画面に出す名前は「その他のパネル」(以前は「その他の浮かぶ表示」。ユーザーの指示で改名した
+    /// ―― 一覧の見出しが「パネル」なので、その中の1行だけ別の呼び方をしないため)。
+    /// **rawValueは`overlays`のまま**にしてある(保存済みの設定を読めなくしないため。
+    /// この列挙の冒頭のコメント参照)。
     ///
     /// ユーザー要望は「まだ設定できていないすりガラスの箇所(コンテキストメニューやダイアログ等)も
     /// まとめて設定したい」というものだったが、**コンテキストメニュー・システムのダイアログ
@@ -48,7 +53,7 @@ enum PanelSurface: String, CaseIterable, Identifiable, Hashable {
         case .progressBar: "Progress Bar"
         case .sidePanel: "Side Panel"
         case .welcome: "Welcome Screen"
-        case .overlays: "Other Overlays"
+        case .overlays: "Other Panels"
         }
     }
 
@@ -64,7 +69,7 @@ enum PanelSurface: String, CaseIterable, Identifiable, Hashable {
         case .progressBar: "Progress Bar"
         case .sidePanel: "Side Panel"
         case .welcome: "Welcome Screen"
-        case .overlays: "Other Overlays"
+        case .overlays: "Other Panels"
         }
     }
 

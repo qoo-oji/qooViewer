@@ -4814,6 +4814,22 @@
         }
       }
     },
+    "Export by Format" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export by Format"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "形式ごとの書き出し"
+          }
+        }
+      }
+    },
     "Export Complete" : {
       "localizations" : {
         "en" : {
@@ -8690,18 +8706,18 @@
         }
       }
     },
-    "Other Overlays" : {
+    "Other Panels" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Other Overlays"
+            "value" : "Other Panels"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "その他の浮かぶ表示"
+            "value" : "その他のパネル"
           }
         }
       }
@@ -10751,6 +10767,22 @@
         }
       }
     },
+    "Restores every setting on this page and on every format’s page, including the fixed destination folders. Other pages, and your favorites, bookmarks and reading history, are not affected." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores every setting on this page and on every format’s page, including the fixed destination folders. Other pages, and your favorites, bookmarks and reading history, are not affected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この画面と、各形式のページのすべての設定を初期設定に戻します(固定の保存先フォルダも含みます)。\n他の画面の設定と、お気に入り・ブックマーク・読書位置には影響しません。"
+          }
+        }
+      }
+    },
     "Restores every setting on this page and on every panel’s page, including the color of every frosted surface. Other pages are not affected." : {
       "localizations" : {
         "en" : {
@@ -10812,23 +10844,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この画面のすべての設定を初期設定に戻します(すりガラスの各面の色を含む)。\nほかの画面の設定には影響しません。"
-          }
-        }
-      }
-    },
-    "Restores every setting on this page, including the fixed destination folders. Other pages, and your favorites, bookmarks and reading history, are not affected." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Restores every setting on this page, including the fixed destination folders. Other pages, and your favorites, bookmarks and reading history, are not affected."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この画面のすべての設定を初期設定に戻します(固定の保存先フォルダも含みます)。\n他の画面の設定と、お気に入り・ブックマーク・読書位置には影響しません。"
           }
         }
       }
@@ -14055,6 +14070,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "本の中にさらに書庫が入っている場合、その書庫はそこまで読み進めたときに初めて開き、最近使ったものをここに残しておきます。大きくするほど章をまたぐ移動が速くなり、小さくするほどメモリと一時ディスクの使用量が減ります。ZIP形式はメモリに残せますが、RAR・7z形式は一時ファイルに書き出すほかなく、そちらをどれだけ残しておくかもこの設定に従います。0にすると常に一時ファイルを使います。"
+          }
+        }
+      }
+    },
+    "When Exporting as %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When Exporting as %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@で書き出すとき"
           }
         }
       }

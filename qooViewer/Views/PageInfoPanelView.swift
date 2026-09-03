@@ -133,7 +133,7 @@ struct PageInfoPanelView: View {
     @ViewBuilder
     private func row<Value: View>(label: LocalizedStringKey, @ViewBuilder value: () -> Value) -> some View {
         GridRow {
-            // 文字だけに輪郭を掛ける(環境設定「外観」の「その他の浮かぶ表示」の設定)。
+            // 文字だけに輪郭を掛ける(環境設定「外観」の「その他のパネル」の設定)。
             // 同じパネルにあるサムネイル(thumbnailView)は画像なので対象外
             // ―― 掛けると画像の縁に色が回ってしまう。
             Text(label)

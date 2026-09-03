@@ -45,7 +45,39 @@ final class SettingsNavigator: ObservableObject {
     /// (SettingsView.backButton参照)。環境設定ウインドウはアプリに1つなので、状態も1つでよい。
     @Published var openedAppearanceSurface: PanelSurface?
 
+    /// 「レイアウト」画面で**いま開いている**形式の子ページ。nilなら一覧。
+    ///
+    /// 「外観」の面と同じ二階層(LayoutSettingsView参照)。こちらには「これから開く行き先」に
+    /// 相当するものが無い ―― 「調整…」のような、アプリの他の場所から特定の形式のページを
+    /// 名指しで開く経路がまだ無いため。必要になったら`appearanceTarget`と同じ形を足す。
+    @Published var openedLayoutFormat: BookExportFormat?
+
     private init() {}
+
+    // MARK: - 子ページ(タイトルバーの「戻る」用)
+
+    /// その画面が、いま子ページを開いているか。
+    ///
+    /// ウインドウのタイトルバーの「戻る」は全画面で共通の1つ(SettingsView.backButton参照)
+    /// なので、押せるかどうかの判定もここに集約してある。子ページを持たない画面は
+    /// 常にfalse ―― 画面を増やしてもここを触らずに済むよう`default`にしてある
+    /// (`SettingsPane`側の網羅性チェックとは目的が違う)。
+    func hasOpenedSubpage(in pane: SettingsPane) -> Bool {
+        switch pane {
+        case .appearance: openedAppearanceSurface != nil
+        case .layout: openedLayoutFormat != nil
+        default: false
+        }
+    }
+
+    /// その画面の子ページを閉じて一覧へ戻す。
+    func closeSubpage(in pane: SettingsPane) {
+        switch pane {
+        case .appearance: openedAppearanceSurface = nil
+        case .layout: openedLayoutFormat = nil
+        default: break
+        }
+    }
 
     /// 環境設定の「外観」画面を選び、指定した面の子ページを行き先として覚える。
     /// ウインドウを実際に開く(または前面に出す)のは呼び出し側の`openSettings()`の役目。
