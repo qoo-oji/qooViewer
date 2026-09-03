@@ -18,7 +18,7 @@ import AppKit
 /// 対策として以下の点に注意して実装している。
 /// (1) カーソルのx座標そのものは@Stateに保持しない(表示上意味のある「ホバー中のページ番号」
 /// だけを保持し、値が変わったときだけ更新する)
-/// (2) サムネイル読み込みはデバウンス後に1件ずつ順番に行う(同時並行では行わない)
+/// (2) サムネイル読み込みはデバウンス後に始め、同時に走らせる数を絞る(ensureThumbnailsLoaded参照)
 /// (3) フィルムストリップのコンテナに実際の描画サイズと一致する明示的なframeを与え、
 /// バー本体と表示位置が重なるバグを防ぐ
 /// フィルムストリップの各セルはウインドウの横幅いっぱいを使って均等割りした同じ大きさで
@@ -54,8 +54,9 @@ struct ProgressBarView: View {
     @State private var hoverXPosition: CGFloat?
     /// フィルムストリップに表示中のサムネイル(ページ番号→画像)。
     @State private var thumbnails: [Int: LoadedThumbnail] = [:]
-    /// サムネイル読み込み中のタスク。1件ずつ順番に読み込む(詳細はensureThumbnailsLoadedの
-    /// コメント参照)ため、Dictionaryではなく1つだけ持つ。
+    /// サムネイル読み込み中のタスク。表示範囲1回ぶんの読み込みをまとめて1つのタスクで
+    /// 行う(中で同時数を絞って並列に読む。詳細はensureThumbnailsLoadedのコメント参照)ため、
+    /// Dictionaryではなく1つだけ持つ。
     @State private var thumbnailLoadTask: Task<Void, Never>?
 
     /// 読み込み済みのサムネイル1枚分。
@@ -629,8 +630,16 @@ struct ProgressBarView: View {
         return start...end
     }
 
-    /// 表示範囲内でまだ読み込んでいないページのサムネイルを、カーソル直下のページに近い順に
-    /// **1件ずつ順番に**読み込む(同時並行では行わない。理由はファイル冒頭のコメント参照)。
+    /// 表示範囲内でまだ読み込んでいないページのサムネイルを、カーソル直下のページに近い順に、
+    /// 同時に最大maxConcurrentThumbnailLoads件ずつ読み込む。
+    ///
+    /// 以前は「1件ずつ順番に」だった(ホバー中にメインスレッドが固まった不具合への対策の
+    /// 一つとして)。しかし固まっていた原因はカーソル座標の@State更新の積み重ねで、
+    /// サムネイルのデコード自体はPageLoaderがactorの外で行い、同時数もPageLoader側で
+    /// コア数に絞っている。直列にする理由は無く、既定9枚・最大15枚を1枚ずつ待つと
+    /// 元ファイルからのデコード(JPEGで20ms、PNGで30〜50ms)がそのまま積み上がって
+    /// 出揃うまで数百msかかっていた。結果は届いた順に1枚ずつ反映する(読み終えた順は
+    /// 開始順とほぼ同じで、近いページから埋まる)。
     private func ensureThumbnailsLoaded(
         for range: ClosedRange<Int>, centeredOn centerIndex: Int, pixelSize: CGFloat
     ) {
@@ -645,23 +654,39 @@ struct ProgressBarView: View {
             .sorted { abs($0 - centerIndex) < abs($1 - centerIndex) }
         guard !missing.isEmpty else { return }
 
+        let viewModel = viewModel
         thumbnailLoadTask = Task {
-            for index in missing {
-                guard !Task.isCancelled else { return }
-                // セルの大きさに合わせた解像度で読む(thumbnailPixelSize(forCellHeight:)参照)。
-                // デコード済みのものはPageLoader側のキャッシュから即座に返るので、
-                // 同じ解像度で見ている限り読み直しは起きない。
-                let image = await viewModel.loadGridThumbnail(at: index, maxPixelSize: pixelSize)
-                guard !Task.isCancelled else { return }
-                thumbnails[index] = LoadedThumbnail(image: image, pixelSize: pixelSize)
-                // 読めた画像の実寸から、セル枠の縦横比を決めるサンプルを溜める
-                // (recordAspectSample参照)。デコードのついでなので追加のコストは無い。
-                if let image, image.height > 0 {
-                    recordAspectSample(CGFloat(image.width) / CGFloat(image.height))
+            await withTaskGroup(of: (index: Int, image: CGImage?).self) { group in
+                var pending = missing[...]
+                // 近い順に、枠が空くたびに次を1件足す(常に最大maxConcurrentThumbnailLoads件が走る)。
+                func addNext() {
+                    guard let index = pending.popFirst() else { return }
+                    group.addTask {
+                        // セルの大きさに合わせた解像度で読む(thumbnailPixelSize(forCellHeight:)参照)。
+                        // デコード済みのものはPageLoader側のキャッシュから即座に返るので、
+                        // 同じ解像度で見ている限り読み直しは起きない。
+                        (index, await viewModel.loadGridThumbnail(at: index, maxPixelSize: pixelSize))
+                    }
+                }
+                for _ in 0..<Self.maxConcurrentThumbnailLoads { addNext() }
+                for await result in group {
+                    guard !Task.isCancelled else { return }
+                    thumbnails[result.index] = LoadedThumbnail(image: result.image, pixelSize: pixelSize)
+                    // 読めた画像の実寸から、セル枠の縦横比を決めるサンプルを溜める
+                    // (recordAspectSample参照)。デコードのついでなので追加のコストは無い。
+                    if let image = result.image, image.height > 0 {
+                        recordAspectSample(CGFloat(image.width) / CGFloat(image.height))
+                    }
+                    addNext()
                 }
             }
         }
     }
+
+    /// フィルムストリップのサムネイルを同時に読み込む数。PageLoader側もデコードの同時数を
+    /// コア数で絞っているので大きくしても速くはならず、ここは「届いた順に1枚ずつ反映する
+    /// 再描画の回数を積み上げない」程度の控えめな値にしてある。
+    private static let maxConcurrentThumbnailLoads = 4
 
     private func progressWidth(in totalWidth: CGFloat) -> CGFloat {
         guard viewModel.pageCount > 0 else { return 0 }

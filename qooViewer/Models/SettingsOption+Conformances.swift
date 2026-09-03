@@ -74,7 +74,6 @@ extension InterpolationQuality: SettingsOption {
         switch self {
         case .high: return "High"
         case .defaultQuality: return "Standard"
-        case .low: return "Low"
         }
     }
 }

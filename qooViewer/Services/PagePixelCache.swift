@@ -126,6 +126,14 @@ nonisolated final class PagePixelCache: @unchecked Sendable {
         }
     }
 
+    /// 「最後に触った」扱いに**しない**取り出し。PageLoaderが、サムネイルを作る材料として
+    /// 表示用のページ画像を覗くときに使う ―― サムネイルの要求で遠いページを新しい扱いに
+    /// してしまうと、いま読んでいる場所の周りを残すというLRUの並びが乱れる(型コメント参照)。
+    func peek(forKey key: NSString) -> PagePixelBuffer? {
+        let key = key as String
+        return state.withLock { $0.entries[key] }
+    }
+
     /// コストは常に`PagePixelBuffer.byteCount`(実際に占めているバイト数)。
     func store(_ buffer: PagePixelBuffer, forKey key: NSString) {
         let key = key as String

@@ -1335,7 +1335,9 @@ final class AppPreferences: ObservableObject {
         self.loupeMagnificationPercent =
             defaults.object(forKey: Keys.loupeMagnificationPercent) as? Double ?? 250
         self.loupeDiameter = defaults.object(forKey: Keys.loupeDiameter) as? Double ?? 400
-        self.interpolationQuality = InterpolationQuality(rawValue: defaults.string(forKey: Keys.interpolationQuality) ?? "") ?? .high
+        // 廃止した"low"の読み替えを含む(InterpolationQuality.init(storedRawValue:)参照)。
+        self.interpolationQuality =
+            InterpolationQuality(storedRawValue: defaults.string(forKey: Keys.interpolationQuality)) ?? .high
         self.autoHideCursor = defaults.object(forKey: Keys.autoHideCursor) as? Bool ?? true
         self.slideshowInterval = defaults.object(forKey: Keys.slideshowInterval) as? Double ?? 5
         self.defaultScalingMode = ScalingMode(rawValue: defaults.string(forKey: Keys.defaultScalingMode) ?? "") ?? .fitToScreen

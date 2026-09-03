@@ -367,6 +367,12 @@ actor PageLoader {
         if let cached = thumbnailCache.object(forKey: key) {
             return cached.makeImage()
         }
+        if let derived = await thumbnailDerivedFromPageImage(
+            pageID: page.id, maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize
+        ) {
+            thumbnailCache.store(derived, forKey: key)
+            return derived.makeImage()
+        }
 
         guard usesThumbnailDiskCache else {
             return await pixels(
@@ -422,6 +428,10 @@ actor PageLoader {
         if let cached = gridThumbnailCache.object(forKey: key) {
             return cached.makeImage()
         }
+        if let derived = await thumbnailDerivedFromPageImage(pageID: page.id, maxPixelSize: maxPixelSize) {
+            gridThumbnailCache.store(derived, forKey: key)
+            return derived.makeImage()
+        }
 
         // シークレットウインドウ(usesThumbnailDiskCache == false)ではディスクを読み書きしない。
         if usesDisk {
@@ -447,6 +457,27 @@ actor PageLoader {
             }
         }
         return decoded.makeImage()
+    }
+
+    /// 表示用のページ画像(imageCache)が既にあるページなら、それを縮小してサムネイルを作る。
+    /// 無ければnil(呼び出し側は従来どおりディスクキャッシュ→元ファイルのデコードへ進む)。
+    ///
+    /// 先読み(prefetch)で現在ページの前後は表示用の画像がメモリにあるので、進捗バーの
+    /// フィルムストリップやページ一覧でその付近を見るとき、元ファイルを読み直して
+    /// デコードし直す(書庫なら展開もし直す)必要が無い。縮小は3〜7msで、元ファイルからの
+    /// デコードより一桁近く速い(PagePixelBuffer.downscaled(toFit:)参照)。表示用の画像には
+    /// コントラスト補正も既に反映されているので、元ファイルから作った場合と同じ結果になる。
+    ///
+    /// `peek`(触った扱いにしない)で覗くのは、サムネイルの要求でLRUの並びを乱さないため
+    /// (PagePixelCache.peekのコメント参照)。縮小はactorの外で行う(renderBufferと同じ理由)。
+    /// ディスクキャッシュへの書き込みは行わない ―― この経路が使えるのはページ画像が
+    /// メモリにある間だけで、元ファイルから作る経路(thumbnail/gridThumbnail)が別途書く。
+    private func thumbnailDerivedFromPageImage(pageID: String, maxPixelSize: CGFloat) async -> PagePixelBuffer? {
+        guard let pageImage = imageCache.peek(forKey: pageID as NSString) else { return nil }
+        let task = Task.detached(priority: .userInitiated) { () -> PagePixelBuffer? in
+            pageImage.downscaled(toFit: maxPixelSize)
+        }
+        return await task.value
     }
 
     /// 生の画像データ(デコード前)を返す。EPUB書き出し(EpubExporter、7節)で、画質を落とさず
@@ -738,9 +769,38 @@ actor PageLoader {
     /// ImageDecoder.highResolutionMaxPixelSize(8000px)を上限にデコードする。fullResolutionImage
     /// 同様imageCache/thumbnailCacheには保存しない(呼び出し側のViewerViewModelが、現在表示中の
     /// 見開き分だけを単発キャッシュとして保持する設計のため)。
+    ///
+    /// ■ 表示用と同じ解像度にしかならないページは、表示用の画像をそのまま返す
+    /// 画像ファイルは、元の寸法がpageMaxPixelSize(4096)以下なら4096でも8000でもデコード結果は
+    /// 同じ(ImageIOは拡大しない)。以前はそれでも8000上限で別途デコードしており、拡大鏡を
+    /// 出す・ピンチ拡大を始めるたびに、いま表示している見開きと同じ画像をもう一度デコードして
+    /// (2500×3600のカラーJPEGで1枚30ms)、同じピクセルを二重に(1枚34MB)抱えていた。
+    /// マンガのスキャンの大半はこの上限以下なので、ほとんどの本では拡大のための待ちと
+    /// メモリがまるごと無駄だった。寸法はヘッダーだけから分かる(pageSize(at:))ので先に確かめ、
+    /// 表示用の経路(imageCache。無ければそこへ読み込む)を使う。PDFも同様に、描画の倍率が
+    /// 表示用と同じになる場合(pdfRenderScale参照)は表示用を使う。
     func highResolutionImage(at index: Int) async -> CGImage? {
         guard book.pages.indices.contains(index) else { return nil }
+        if await highResolutionMatchesPageImage(at: index) {
+            return await pageImage(at: index)
+        }
         return await decodedImage(for: book.pages[index].source, maxPixelSize: ImageDecoder.highResolutionMaxPixelSize)
+    }
+
+    /// highResolutionImage(at:)の結果がpageImage(at:)と同じ寸法になるか(同メソッドのコメント参照)。
+    /// 判断が付かない場合はfalse(従来どおり別途デコードする)。
+    private func highResolutionMatchesPageImage(at index: Int) async -> Bool {
+        let page = book.pages[index]
+        if case .pdf(let pdfURL, let pageIndex) = page.source {
+            guard let document = pdfDocument(for: pdfURL), let pdfPage = document.page(at: pageIndex + 1) else {
+                return false
+            }
+            return pdfRenderScale(for: pdfPage, maxPixelSize: ImageDecoder.highResolutionMaxPixelSize)
+                == pdfRenderScale(for: pdfPage, maxPixelSize: ImageDecoder.pageMaxPixelSize)
+        }
+        // EXIFの向きで幅と高さが入れ替わっても長辺は変わらないので、生の寸法で判定してよい。
+        guard let size = await pageSize(at: index) else { return false }
+        return CGFloat(max(size.width, size.height)) <= ImageDecoder.pageMaxPixelSize
     }
 
     /// index を中心に前後 radius ページ分を先読みする。
@@ -891,10 +951,23 @@ actor PageLoader {
         }
         guard !Task.isCancelled else { return nil }
 
-        // PDFはCGImageを経由せず、バッファへ直接描ける(コントラスト補正が要る場合だけは
-        // 補正がCGImageを相手にするため、従来どおりCGImage経由にする)。
-        if case .pdf(let pdfURL, let pageIndex) = source, !contrastCorrectionEnabled {
-            return renderPDFPixels(pdfURL: pdfURL, pageIndex: pageIndex, maxPixelSize: maxPixelSize)
+        // コントラスト補正が要る場合だけは、補正がCGImageを相手にするため従来どおり
+        // CGImage経由(decodedImage)にする。それ以外はCGImageを経由せずバッファへ直接描く:
+        // PDFはページ描画を、画像ファイルはデコード結果を、そのままバッファへ落とす
+        // (ImageDecoder.decodePixelsのコメント参照。上限以下の画像でコピーが1回減る)。
+        if !contrastCorrectionEnabled {
+            switch source {
+            case .pdf(let pdfURL, let pageIndex):
+                return renderPDFPixels(pdfURL: pdfURL, pageIndex: pageIndex, maxPixelSize: maxPixelSize)
+            case .file, .archive:
+                guard let data = rawData(for: source) else { return nil }
+                guard !Task.isCancelled else { return nil }
+                // decodedImage(for:maxPixelSize:)と同じく、デコードはactorの外で行う。
+                let decodeTask = Task.detached(priority: .userInitiated) { () -> PagePixelBuffer? in
+                    ImageDecoder.decodePixels(data, maxPixelSize: maxPixelSize)
+                }
+                return await decodeTask.value
+            }
         }
         guard let decoded = await decodedImage(for: source, maxPixelSize: maxPixelSize) else { return nil }
         guard !Task.isCancelled else { return nil }
@@ -919,8 +992,8 @@ actor PageLoader {
     /// 待ち行列は2本(表示要求・先読み)で、空きが出たら表示要求を先に起こす。これが無いと、
     /// ページ送りの直後に表示したいページが、先に並んでいた先読み21枚の後ろで待つことになる。
     ///
-    /// 3は「メモリの頭打ち(3×3倍≒300MB)」と「コアを遊ばせない」の折衷。コア数が少ない
-    /// マシンではそれに合わせて減らす。
+    /// 2は「メモリの頭打ち(2×3倍≒200MB)」と「コアを遊ばせない」の折衷。コア数の半分を
+    /// 上限にし、コアが少ないマシンではそれに合わせて減らす(最低1)。
     private static let maxConcurrentDecodes = max(1, min(2, ProcessInfo.processInfo.activeProcessorCount / 2))
     private var activeDecodes = 0
     /// 空き待ち。`key`はpixels(at:)のinFlightKey(合流の突き合わせ用。無い経路はnil)。
@@ -1146,6 +1219,28 @@ actor PageLoader {
         guard let page = document.page(at: pageIndex + 1) else { return nil }
 
         let mediaBox = page.getBoxRect(.mediaBox)
+        guard let scale = pdfRenderScale(for: page, maxPixelSize: maxPixelSize) else { return nil }
+        let pixelWidth = max(1, Int((mediaBox.width * scale).rounded()))
+        let pixelHeight = max(1, Int((mediaBox.height * scale).rounded()))
+
+        return PagePixelBuffer(
+            width: pixelWidth, height: pixelHeight, grayscale: false,
+            colorSpace: CGColorSpace(name: CGColorSpace.sRGB)
+        ) { context in
+            context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+            context.fill(CGRect(x: 0, y: 0, width: CGFloat(pixelWidth), height: CGFloat(pixelHeight)))
+
+            context.scaleBy(x: scale, y: scale)
+            // メディアボックスの原点が(0, 0)でない場合に備えて平行移動しておく。
+            context.translateBy(x: -mediaBox.origin.x, y: -mediaBox.origin.y)
+            context.drawPDFPage(page)
+        }
+    }
+
+    /// PDFのページを描くときの倍率(pt→px)。寸法が取れないページはnil。
+    /// renderPDFPixelsと、highResolutionImage(at:)の「表示用と同じ倍率になるか」の判定が共用する。
+    private func pdfRenderScale(for page: CGPDFPage, maxPixelSize: CGFloat) -> CGFloat? {
+        let mediaBox = page.getBoxRect(.mediaBox)
         guard mediaBox.width > 0, mediaBox.height > 0 else { return nil }
 
         // PDFのページ寸法はpt(72dpi基準)でしか分からないため、要求された最大ピクセル数まで
@@ -1176,21 +1271,7 @@ actor PageLoader {
                 scale = min(requestedScale, max(naturalScale, baselineScale))
             }
         }
-        let pixelWidth = max(1, Int((mediaBox.width * scale).rounded()))
-        let pixelHeight = max(1, Int((mediaBox.height * scale).rounded()))
-
-        return PagePixelBuffer(
-            width: pixelWidth, height: pixelHeight, grayscale: false,
-            colorSpace: CGColorSpace(name: CGColorSpace.sRGB)
-        ) { context in
-            context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-            context.fill(CGRect(x: 0, y: 0, width: CGFloat(pixelWidth), height: CGFloat(pixelHeight)))
-
-            context.scaleBy(x: scale, y: scale)
-            // メディアボックスの原点が(0, 0)でない場合に備えて平行移動しておく。
-            context.translateBy(x: -mediaBox.origin.x, y: -mediaBox.origin.y)
-            context.drawPDFPage(page)
-        }
+        return scale
     }
 
     /// この本の書庫のreaderを得る。入れ子の書庫は、ここで初めて必要になった時点で

@@ -69,10 +69,9 @@ nonisolated final class PagePixelBuffer: @unchecked Sendable {
     /// バックグラウンドタスクの中で行うので、表示の待ち時間には実質乗らない。
     convenience init?(rendering image: CGImage) {
         let isGray = Self.isGrayscaleWithoutAlpha(image)
-        // 描き写す先の色空間。元画像の色空間がビットマップコンテキストに使えない種類だった
-        // 場合は、指定init側でデバイスグレー/sRGBへ落ちる。
-        let colorSpace: CGColorSpace? = isGray ? image.colorSpace : Self.rgbColorSpace(for: image)
-        self.init(width: image.width, height: image.height, grayscale: isGray, colorSpace: colorSpace) { context in
+        self.init(
+            width: image.width, height: image.height, grayscale: isGray, colorSpace: Self.storageColorSpace(for: image)
+        ) { context in
             // 等倍の描き写しなので補間は要らない(ピクセルをそのまま運ぶ)。
             context.interpolationQuality = .none
             context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
@@ -144,6 +143,32 @@ nonisolated final class PagePixelBuffer: @unchecked Sendable {
         self.pixels = pixels
     }
 
+    /// このバッファを縮小した新しいバッファ(長辺が`maxPixelSize`以下)を作る。既にそれ以下なら
+    /// 自分自身を返す(拡大はしない。ImageIOのサムネイル生成も拡大はしないので、それと揃える)。
+    ///
+    /// PageLoaderが、表示用のページ画像(imageCache)が既にあるページのサムネイルを、元の
+    /// ファイルを読み直してデコードし直す代わりに、そのページ画像から作るために使う。
+    /// 2500×3600のページから720pxを作るのに3〜7ms(グレー/カラー)で、元ファイルからの
+    /// デコード(JPEGで20ms、PNGで30〜50ms)より一桁近く速く、書庫の展開(actorで直列)も
+    /// 通らない。`.high`補間はImageIOのサムネイル縮小と同じ結果になる(ImageDecoder.decodePixelsの
+    /// コメント参照)ので、見た目も元ファイルから作った場合と変わらない。
+    func downscaled(toFit maxPixelSize: CGFloat) -> PagePixelBuffer? {
+        let longest = CGFloat(max(width, height))
+        guard longest > maxPixelSize, longest > 0 else { return self }
+        let scale = maxPixelSize / longest
+        // 端数は切り捨てる(ImageIOのサムネイル生成と同じ丸め方。元ファイルから作った場合と
+        // 寸法を揃え、同じページのサムネイルが経路によって1px違うことのないようにする)。
+        let targetWidth = max(1, Int((CGFloat(width) * scale).rounded(.down)))
+        let targetHeight = max(1, Int((CGFloat(height) * scale).rounded(.down)))
+        guard let source = makeImage() else { return nil }
+        return PagePixelBuffer(
+            width: targetWidth, height: targetHeight, grayscale: bitsPerPixel == 8, colorSpace: colorSpace
+        ) { context in
+            context.interpolationQuality = .high
+            context.draw(source, in: CGRect(x: 0, y: 0, width: targetWidth, height: targetHeight))
+        }
+    }
+
     /// このバッファを参照する`CGImage`を作る(ピクセルのコピーは行わない)。
     ///
     /// 返る`CGImage`は呼び出し側が必要な間だけ持つこと。表示に使った`CGImage`を手放すと、
@@ -183,7 +208,8 @@ nonisolated final class PagePixelBuffer: @unchecked Sendable {
     // MARK: - 形式の判定
 
     /// 1バイト/画素のまま保持してよい画像か(8bitグレースケール・アルファ無し)。
-    private static func isGrayscaleWithoutAlpha(_ image: CGImage) -> Bool {
+    /// ImageDecoder.decodePixelsも同じ判定で描き先を決めるため、privateにしていない。
+    static func isGrayscaleWithoutAlpha(_ image: CGImage) -> Bool {
         guard image.bitsPerPixel == 8, image.bitsPerComponent == 8,
               image.colorSpace?.model == .monochrome
         else { return false }
@@ -193,9 +219,14 @@ nonisolated final class PagePixelBuffer: @unchecked Sendable {
         }
     }
 
-    /// カラー画像を描き写す先の色空間。元がRGB系ならそのまま(色を変えないため)、
-    /// それ以外(CMYK・Lab・インデックスカラー等)はsRGBへ変換する。
-    private static func rgbColorSpace(for image: CGImage) -> CGColorSpace {
+    /// `image`を描き写す先の色空間。グレースケール(isGrayscaleWithoutAlpha)なら元の色空間
+    /// (ビットマップコンテキストに使えない種類なら、指定init側でデバイスグレーへ落ちる)。
+    /// カラーは、元がRGB系ならそのまま(色を変えないため)、それ以外(CMYK・Lab・インデックス
+    /// カラー等)はsRGBへ変換する。ImageDecoder.decodePixelsも同じ判定を使う。
+    static func storageColorSpace(for image: CGImage) -> CGColorSpace? {
+        if isGrayscaleWithoutAlpha(image) {
+            return image.colorSpace
+        }
         if let colorSpace = image.colorSpace, colorSpace.model == .rgb {
             return colorSpace
         }

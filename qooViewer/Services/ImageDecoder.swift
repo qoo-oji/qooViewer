@@ -47,6 +47,10 @@ nonisolated enum ImageDecoder {
     static func decode(_ data: Data, maxPixelSize: CGFloat) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
         guard hasAcceptablePixelCount(source) else { return nil }
+        return decodeThumbnail(from: source, maxPixelSize: maxPixelSize)
+    }
+
+    private static func decodeThumbnail(from source: CGImageSource, maxPixelSize: CGFloat) -> CGImage? {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
@@ -55,6 +59,89 @@ nonisolated enum ImageDecoder {
             kCGImageSourceShouldCache: false,
         ]
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+
+    /// decode(_:maxPixelSize:)の結果をそのままPagePixelBuffer(キャッシュに入れる形)にしたもの。
+    /// PageLoaderの通常のページ表示・サムネイルはこちらを使う。
+    ///
+    /// ■ 上限以下の画像は「サムネイル」経路を通さない(実測に基づく)
+    /// `CGImageSourceCreateThumbnailAtIndex`は、縮小が要らない(元画像が上限以下の)画像でも
+    /// 一度ImageIO側のビットマップへ完全に展開してから返し、それをこちらがバッファへ描き写す
+    /// ので、ピクセルのコピーが2回になる。`CGImageSourceCreateImageAtIndex`が返す遅延デコードの
+    /// CGImageを**バッファへ直接描く**と、デコード結果がそのまま描き先へ落ちてコピーが1回減る。
+    /// 2500×3600のページで、カラーJPEGは38ms→29ms、カラーPNGは60ms→48ms、グレーJPEGは
+    /// 20ms→18ms(合成した検証画像での実測。出力のピクセルは従来と完全に一致)。
+    /// マンガのページは大半が上限(pageMaxPixelSize、4096)以下なので、ページ送りのたびに
+    /// 払っているデコード時間がそのぶん縮む。
+    ///
+    /// 縮小が要る(上限を超える)画像は従来どおりサムネイル経路に任せる。ImageIOの縮小は
+    /// CoreGraphicsの`.high`補間と同じ結果を同じ時間で返す(実測、ピクセル一致)ため、
+    /// 自前で縮小しても得るものが無い。
+    ///
+    /// ■ EXIFの向き
+    /// サムネイル経路は`kCGImageSourceCreateThumbnailWithTransform`で回転を反映してくれるが、
+    /// `CGImageSourceCreateImageAtIndex`は反映しない。ヘッダーの向き(1〜8)を読み、描き写す
+    /// ときにこちらで同じ変換をかける(orientedDrawing参照)。8方向すべてで従来の結果と
+    /// ピクセル一致することを確認済み。
+    static func decodePixels(_ data: Data, maxPixelSize: CGFloat) -> PagePixelBuffer? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
+        guard hasAcceptablePixelCount(source) else { return nil }
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int,
+              CGFloat(max(width, height)) <= maxPixelSize
+        else {
+            // 寸法が取れない・上限を超える: 従来どおりImageIOに縮小(と向きの反映)を任せる。
+            return decodeThumbnail(from: source, maxPixelSize: maxPixelSize).flatMap { PagePixelBuffer(rendering: $0) }
+        }
+        let orientation = properties[kCGImagePropertyOrientation] as? Int ?? 1
+        // kCGImageSourceShouldCacheImmediatelyは付けない(既定のfalse)。ここで先にデコードさせると
+        // ImageIO側のビットマップが1枚余計にでき、サムネイル経路より遅くなる(実測: グレーJPEGで
+        // 20ms→37ms)。描き写しの中で描き先へ直接デコードさせるのがいちばん速い。
+        guard let image = CGImageSourceCreateImageAtIndex(source, 0, sourceOptions) else { return nil }
+        let drawing = orientedDrawing(of: image, orientation: orientation)
+        return PagePixelBuffer(
+            width: drawing.width, height: drawing.height,
+            grayscale: PagePixelBuffer.isGrayscaleWithoutAlpha(image),
+            colorSpace: PagePixelBuffer.storageColorSpace(for: image)
+        ) { context in
+            // 等倍の描き写しなので補間は要らない(PagePixelBuffer(rendering:)と同じ)。
+            context.interpolationQuality = .none
+            drawing.prepare(context)
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        }
+    }
+
+    /// EXIF/TIFFの向き(kCGImagePropertyOrientation、1〜8)を、CoreGraphicsの座標系(原点が左下)
+    /// で描き先に適用するための、出力の寸法と描画前の座標変換。`prepare`を呼んだあとで
+    /// 元画像を(0, 0, 幅, 高さ)へ描くと、向きを反映した結果になる。
+    /// 5〜8は90度の回転を含むため幅と高さが入れ替わる。
+    private static func orientedDrawing(
+        of image: CGImage, orientation: Int
+    ) -> (width: Int, height: Int, prepare: (CGContext) -> Void) {
+        let w = CGFloat(image.width), h = CGFloat(image.height)
+        // xとyを入れ替える(対角線での反転)。
+        let transpose = CGAffineTransform(a: 0, b: 1, c: 1, d: 0, tx: 0, ty: 0)
+        switch orientation {
+        case 2: // 左右反転
+            return (image.width, image.height, { $0.translateBy(x: w, y: 0); $0.scaleBy(x: -1, y: 1) })
+        case 3: // 180度回転
+            return (image.width, image.height, { $0.translateBy(x: w, y: h); $0.rotate(by: .pi) })
+        case 4: // 上下反転
+            return (image.width, image.height, { $0.translateBy(x: 0, y: h); $0.scaleBy(x: 1, y: -1) })
+        case 5: // 左上-右下の対角線で反転
+            return (image.height, image.width, {
+                $0.translateBy(x: h, y: w); $0.scaleBy(x: -1, y: -1); $0.concatenate(transpose)
+            })
+        case 6: // 時計回りに90度
+            return (image.height, image.width, { $0.translateBy(x: 0, y: w); $0.rotate(by: -.pi / 2) })
+        case 7: // 右上-左下の対角線で反転
+            return (image.height, image.width, { $0.concatenate(transpose) })
+        case 8: // 反時計回りに90度
+            return (image.height, image.width, { $0.translateBy(x: h, y: 0); $0.rotate(by: .pi / 2) })
+        default: // 1(そのまま)、および未知の値
+            return (image.width, image.height, { _ in })
+        }
     }
 
     /// 元画像の画素数がmaxSourcePixelCount以下か(decodeのコメント参照)。ヘッダーの解析だけ
