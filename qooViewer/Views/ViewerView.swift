@@ -1763,14 +1763,11 @@ struct ViewerView: View {
         }
     }
 
-    /// 見開き表示中、実際に2枚組でペア表示されているときの「相方ページ」のインデックス
-    /// (currentIndex + 1)。単ページ表示中、または見開き中でも横長画像の自動単ページ化や
-    /// EPUBの見開き位置指定により実際には1枚しか表示されていない場合はnil(この場合、
-    /// currentIndex + 1が有効なページ番号であっても「今画面に見えているページ」ではないため
-    /// 対象に含めない)。viewModel.currentImages.count(実際に表示中の枚数)で判定する。
-    private var partnerPageIndex: Int? {
-        viewModel.currentImages.count > 1 ? viewModel.currentIndex + 1 : nil
-    }
+    /// 見開き表示中、実際に2枚組でペア表示されているときの「相方ページ」のインデックス。
+    /// 判定の実体はViewerViewModel.partnerPageIndex(プログレスバー・ページ一覧パネル・
+    /// サイドパネルと同じ判定を使うため、そちらへ集約した)。このビュー内での参照は多いので
+    /// 短い名前のまま残してある。
+    private var partnerPageIndex: Int? { viewModel.partnerPageIndex }
 
     /// 今実際に画面に表示されているページのsortKey(単ページ表示なら1件、見開きで2ページとも
     /// 表示中ならpartnerPageIndexも含めて2件、読み順)。AppState.currentVisiblePageSortKeysへ

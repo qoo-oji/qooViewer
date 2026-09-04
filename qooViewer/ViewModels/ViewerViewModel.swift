@@ -1313,6 +1313,21 @@ final class ViewerViewModel: ObservableObject {
         pageFlipGeneration &+= 1
     }
 
+    /// 見開きで2ページとも表示しているときの、相方ページ(currentIndex + 1)。単ページ表示中や、
+    /// 見開きでも実際には1枚しか出ていない場合(横長画像の自動単ページ化、EPUBの見開き位置指定、
+    /// 最終ページなど)はnil。実際に表示している枚数(currentImages.count)で判定する。
+    ///
+    /// 「今表示している画像」を印で示す一覧 ―― プログレスバーのフィルムストリップ、ページ一覧
+    /// パネル、サイドパネルのページモード/本の中身/ブックマーク ―― が**すべて同じ判定**を
+    /// 使えるように、ここへ集約している(ユーザー報告: 見開きで2枚表示しているのに印が1枚に
+    /// しか付かないのは違和感がある)。サイドパネルはViewerViewModelを直接参照できないため、
+    /// ViewerViewがAppState.currentPartnerPageIndexへ橋渡しする。
+    var partnerPageIndex: Int? {
+        guard currentImages.count > 1 else { return nil }
+        let partner = currentIndex + 1
+        return book.pages.indices.contains(partner) ? partner : nil
+    }
+
     /// 見開き/単ページ設定にかかわらず、常にちょうど1ページだけ進む/戻る。
     /// 見開きのページの組み合わせ(奇数/偶数ペア)がずれてしまったときに、手動で調整するための操作。
     /// (advanceと違い、ページ境界に達しても隣の本へは移動しない。あくまで微調整用)

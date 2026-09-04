@@ -379,7 +379,10 @@ struct ProgressBarView: View {
                 filmstripCell(
                     index: index,
                     isHighlighted: index == centerIndex,
-                    isCurrentPage: index == viewModel.currentIndex,
+                    // 見開きで2ページとも表示しているときは、2枚とも印を付ける
+                    // (ViewerViewModel.partnerPageIndex参照)。
+                    isCurrentPage: index == viewModel.currentIndex
+                        || index == viewModel.partnerPageIndex,
                     cellWidth: width
                 )
             }
@@ -531,9 +534,9 @@ struct ProgressBarView: View {
             // カーソル位置の強調と混同しないよう、印の付け方を変えてある ―― あちらは実線・
             // 強調色・光彩付きで、こちらは白い**破線**。強調色に白を選んでいても、実線と破線なら
             // 見分けが付く(色だけで区別すると、その組み合わせで見分けられなくなる)。
-            // 枠で示すこと自体はページ一覧と同じ語彙で、見開き表示のときに印が付くのが
-            // 左右どちらか一方(currentIndex)だけなのもページ一覧と同じ
-            // (ThumbnailGridViewのisCurrent参照)。
+            // 枠で示すこと自体はページ一覧と同じ語彙で、見開き表示のときに2枚とも印が付くのも
+            // ページ一覧・サイドパネルと同じ(ユーザー報告: 2枚表示しているのに印が1枚にしか
+            // 付かないのは違和感がある。判定はViewerViewModel.partnerPageIndexに集約)。
             //
             // 枠線の**内側**へ入れているので、同じセルがカーソル位置でもあるときは
             // 外の実線と内の破線が両方見える(どちらの情報も失わない)。

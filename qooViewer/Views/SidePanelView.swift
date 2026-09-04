@@ -360,6 +360,7 @@ struct SidePanelView: View {
                 SidePanelBookmarksSectionView(
                     bookmarks: bookmarks,
                     currentPageIndex: currentPageIndex,
+                    partnerPageIndex: partnerPageIndex,
                     hasBook: hasBook,
                     allowsEditing: allowsLibraryEditing,
                     onAdd: onAddBookmark,
@@ -1384,6 +1385,10 @@ private struct SidePanelBookmarksSectionView: View {
     @EnvironmentObject private var preferences: AppPreferences
     var bookmarks: [Bookmark]
     var currentPageIndex: Int
+    /// 見開きで2ページとも表示しているときの相方ページ(AppState.currentPartnerPageIndex)。
+    /// 相方のページに付いているブックマークも「今表示中」として印を付ける(ユーザー報告:
+    /// 2枚表示しているのに印が1枚にしか付かないのは違和感がある)。
+    var partnerPageIndex: Int?
     var hasBook: Bool
     /// falseなら追加・編集ボタンを無効にする(SidePanelView.allowsLibraryEditing参照)。
     var allowsEditing: Bool
@@ -1440,6 +1445,7 @@ private struct SidePanelBookmarksSectionView: View {
 
     private func row(for bookmark: Bookmark) -> some View {
         let isCurrent = bookmark.pageIndex == currentPageIndex
+            || bookmark.pageIndex == partnerPageIndex
         return HStack(spacing: 8) {
             Image(systemName: isCurrent ? "bookmark.fill" : "bookmark")
                 .frame(width: 16)

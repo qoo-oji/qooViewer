@@ -248,7 +248,11 @@ struct ThumbnailGridView: View {
                                 isPresented = false
                             } label: {
                                 ThumbnailCell(
-                                    viewModel: viewModel, index: index, isCurrent: index == viewModel.currentIndex,
+                                    viewModel: viewModel, index: index,
+                                    // 見開きで2ページとも表示しているときは、2枚とも枠で
+                                    // 囲む(ViewerViewModel.partnerPageIndex参照)。
+                                    isCurrent: index == viewModel.currentIndex
+                                        || index == viewModel.partnerPageIndex,
                                     cellWidth: cellWidth, cellHeight: cellHeight, pixelSize: gridPixelSize,
                                     onAspectMeasured: { aspect in
                                         // 複数ページの中央値でこの本のページ比率を決める
