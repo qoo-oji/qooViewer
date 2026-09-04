@@ -109,6 +109,7 @@ nonisolated final class RarArchiveReader: ArchiveReading {
     /// ヘッダーが持つ非圧縮サイズをそのまま返す(展開は伴わない)。
     func entryUncompressedSize(at path: String) -> Int64? {
         guard let entry = entryByFileName[path] else { return nil }
-        return Int64(entry.uncompressedSize)
+        // clampingで変換する理由はSevenZipArchiveReaderの同名メソッド参照。
+        return Int64(clamping: entry.uncompressedSize)
     }
 }

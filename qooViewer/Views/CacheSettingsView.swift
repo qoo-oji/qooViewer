@@ -29,6 +29,9 @@ struct CacheSettingsView: View {
     @State private var usedBytes: Int?
     /// 「今すぐ削除」の実行中(ボタンの二度押しを防ぐ)。
     @State private var isDeleting = false
+    /// ページ一覧のキャッシュ(BookPageListCache)の使用量と削除中フラグ(サムネイルと同じ扱い)。
+    @State private var pageListBytes: Int?
+    @State private var isDeletingPageLists = false
     /// 使用量を測り直させるための合図。削除の直後など、値が変わったはずのタイミングで
     /// 進めると`.task(id:)`が走り直す。
     @State private var usageRefreshToken = 0
@@ -114,23 +117,43 @@ struct CacheSettingsView: View {
             Section {
                 // この画面を作った理由そのものが「気づかないうちに数百MB」だったので、
                 // 現在の使用量は設定項目より前に置きたいくらい重要な情報。実際の数字を出す。
-                SettingRow("Currently Used") {
-                    Text(usedBytesDescription)
-                        .monospacedDigit()
-                        .fontWeight(.semibold)
+                // ディスクを使うキャッシュは2つ(サムネイル、ページ一覧)で、どちらも同じ形の1行
+                // 「項目名 / 使用量 + 削除ボタン」にする(書き出し先の「フォルダ」行と同じ、
+                // 値の右にボタンを置く形。BookExportFormatSettingsView.fixedFolderRow参照)。
+                // 説明は常時表示せず、ⓘの吹き出しに置く(SettingsControls.swift冒頭の方針)。
+                SettingRow(
+                    "Thumbnail cache",
+                    help: "Page thumbnails saved on disk, against the maximum size above. Deleting them does not affect your favorites, bookmarks, or reading history; pages are simply decoded again the next time you need them."
+                ) {
+                    HStack(spacing: 8) {
+                        Text(usedBytesDescription)
+                            .monospacedDigit()
+                        Button("Delete", role: .destructive) {
+                            deleteNow()
+                        }
+                        // 空のときに押せても何も起きない。計測中(nil)は押させない。
+                        .disabled(isDeleting || (usedBytes ?? 0) == 0)
+                    }
                 }
-                Button("Delete Cached Thumbnails Now", role: .destructive) {
-                    deleteNow()
+                // ページ一覧・構造・ページ寸法のキャッシュ(BookPageListCache)。サムネイルと違って
+                // ON/OFFは無い(上限50MB固定で、古いものから自動で削る)が、ユーザーが自分で消せる
+                // 手段と使用量の表示は要る(ユーザー要望: 知らないところでディスクが増えないこと)。
+                // 吹き出しの「50 MB」はBookPageListCache.maxTotalBytesと揃えること。
+                SettingRow(
+                    "Page list cache",
+                    help: "The order, names and image sizes of the pages of books you have opened, so that a book opens without scanning its archive again. Kept under 50 MB, oldest first. Deleting it only means the next open of a book scans it again. Nothing is written for books opened in a private window."
+                ) {
+                    HStack(spacing: 8) {
+                        Text(pageListBytesDescription)
+                            .monospacedDigit()
+                        Button("Delete", role: .destructive) {
+                            deletePageListsNow()
+                        }
+                        .disabled(isDeletingPageLists || (pageListBytes ?? 0) == 0)
+                    }
                 }
-                // 空のときに押せても何も起きない。計測中(nil)は押させない。
-                .disabled(isDeleting || (usedBytes ?? 0) == 0)
             } header: {
                 Text("Disk Usage")
-            } footer: {
-                Text("Only thumbnails are deleted. Your favorites, bookmarks, and reading history are not affected — pages are simply decoded again the next time you need them.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
             SettingsResetSection(
@@ -167,7 +190,15 @@ struct CacheSettingsView: View {
         )
     }
 
+    private var pageListBytesDescription: String {
+        guard let pageListBytes else { return "—" }
+        return Int64(pageListBytes).formatted(
+            .byteCount(style: .file).locale(preferences.effectiveLocale)
+        )
+    }
+
     private func refreshUsage() async {
+        pageListBytes = await BookPageListCache.shared.totalBytes()
         usedBytes = await ThumbnailDiskCache.shared.totalBytes()
         // トグルや上限の変更による削除・刈り込みは、環境設定とは別のタスクで進んでいる
         // (AppPreferences.applyThumbnailDiskCacheSettings → ThumbnailDiskCache.configure)。
@@ -176,6 +207,15 @@ struct CacheSettingsView: View {
         try? await Task.sleep(for: .milliseconds(500))
         guard !Task.isCancelled else { return }
         usedBytes = await ThumbnailDiskCache.shared.totalBytes()
+    }
+
+    private func deletePageListsNow() {
+        isDeletingPageLists = true
+        Task {
+            await BookPageListCache.shared.removeAll()
+            isDeletingPageLists = false
+            usageRefreshToken += 1
+        }
     }
 
     private func deleteNow() {

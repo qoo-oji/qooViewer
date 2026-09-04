@@ -1,6 +1,214 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Delete All Data…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete All Data…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべてのデータを削除…"
+          }
+        }
+      }
+    },
+    "Delete All Data?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete All Data?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべてのデータを削除しますか?"
+          }
+        }
+      }
+    },
+    "Use this only when your saved data is damaged and will not load — for example, after an app update. It deletes all data qooViewer has saved, except folder access permissions." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use this only when your saved data is damaged and will not load — for example, after an app update. It deletes all data qooViewer has saved, except folder access permissions."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存したデータが壊れて読み込めなくなったとき(アプリの更新後など)にだけ使ってください。\nフォルダのアクセス権を除く、qooViewerが保存したすべてのデータを削除します。"
+          }
+        }
+      }
+    },
+    "This deletes all data qooViewer has saved, except folder access permissions. This cannot be undone, and qooViewer will quit immediately afterward." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This deletes all data qooViewer has saved, except folder access permissions. This cannot be undone, and qooViewer will quit immediately afterward."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダのアクセス権を除く、qooViewerが保存したすべてのデータを削除します。この操作は取り消せません。実行後、qooViewerはただちに終了します。"
+          }
+        }
+      }
+    },
+    "All data has been deleted. qooViewer will now quit — please reopen it." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All data has been deleted. qooViewer will now quit — please reopen it."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべてのデータを削除しました。qooViewerはこのあと終了します。もう一度起動し直してください。"
+          }
+        }
+      }
+    },
+    "Page thumbnails saved on disk, against the maximum size above. Deleting them does not affect your favorites, bookmarks, or reading history; pages are simply decoded again the next time you need them." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Page thumbnails saved on disk, against the maximum size above. Deleting them does not affect your favorites, bookmarks, or reading history; pages are simply decoded again the next time you need them."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ディスクに保存しているページのサムネイルです。分母は上の「最大容量」です。\n削除しても、お気に入り・ブックマーク・読書位置には影響しません。\n次に必要になった時点で、ページを読み込み直すだけです。"
+          }
+        }
+      }
+    },
+    "The order, names and image sizes of the pages of books you have opened, so that a book opens without scanning its archive again. Kept under 50 MB, oldest first. Deleting it only means the next open of a book scans it again. Nothing is written for books opened in a private window." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The order, names and image sizes of the pages of books you have opened, so that a book opens without scanning its archive again. Kept under 50 MB, oldest first. Deleting it only means the next open of a book scans it again. Nothing is written for books opened in a private window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開いた本のページの並び順・ファイル名・画像の寸法です。次に開くときに書庫を走査し直さずに済ませるために残しています。\n合計50MBを上限に、古いものから削除されます。\n削除しても、次にその本を開くときに走査し直すだけです。\nシークレットウインドウで開いた本については何も書きません。"
+          }
+        }
+      }
+    },
+    "Leftover temporary files" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leftover temporary files"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前回の起動が残した一時ファイル"
+          }
+        }
+      }
+    },
+    "Temporary files left behind by a previous launch that did not get to clean up (a crash or a forced quit). They are deleted the next time the app starts." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Temporary files left behind by a previous launch that did not get to clean up (a crash or a forced quit). They are deleted the next time the app starts."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "後始末ができなかった前回の起動(クラッシュや強制終了)が残した一時ファイルです。次にアプリを起動したときに削除されます。"
+          }
+        }
+      }
+    },
+    "Page list cache" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Page list cache"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ページ一覧キャッシュ"
+          }
+        }
+      }
+    },
+    "The order, names and image sizes of the pages of books you have opened, so that a book opens without scanning its archive again. Kept under the limit shown, oldest first; you can delete it in Settings ▸ Cache. Nothing is written for books opened in a private window." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The order, names and image sizes of the pages of books you have opened, so that a book opens without scanning its archive again. Kept under the limit shown, oldest first; you can delete it in Settings ▸ Cache. Nothing is written for books opened in a private window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開いた本のページの並び順・ファイル名・画像の寸法です。次に開くときに書庫を走査し直さずに済ませるために残しています。表示の上限に収まるよう古いものから削除され、環境設定「キャッシュ」から削除できます。シークレットウインドウで開いた本については何も書きません。"
+          }
+        }
+      }
+    },
+    "7z decoder memory" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7z decoder memory"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7z のデコーダ"
+          }
+        }
+      }
+    },
+    "Memory the 7z library keeps between page reads so that the next page of a solid block can continue from where the last one ended (and a few pages back can be re-read without starting the block over): the LZMA dictionary of that block, whose size is chosen when the archive is made (usually 16–64 MB), plus small buffers. It is released when the book is closed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memory the 7z library keeps between page reads so that the next page of a solid block can continue from where the last one ended (and a few pages back can be re-read without starting the block over): the LZMA dictionary of that block, whose size is chosen when the archive is made (usually 16–64 MB), plus small buffers. It is released when the book is closed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7z のライブラリがページの読み取りの合間にも持ち続けているメモリです。ソリッドブロックの次のページを前回の続きから読む(数ページ戻るぶんはブロックを先頭から展開し直さずに済ませる)ために、そのブロックの LZMA 辞書(大きさは書庫を作るときに決まり、ふつう 16〜64MB)と小さなバッファを保持します。\n本を閉じると解放されます。"
+          }
+        }
+      }
+    },
     "" : {
 
     },
@@ -1095,22 +1303,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "すべての本"
-          }
-        }
-      }
-    },
-    "All favorites, bookmarks, layout settings, and reading history have been deleted. qooViewer will now quit — please reopen it." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "All favorites, bookmarks, layout settings, and reading history have been deleted. qooViewer will now quit — please reopen it."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "すべてのお気に入り・ブックマーク・レイアウト設定・読書位置を削除しました。qooViewerはこのあと終了します。もう一度起動し直してください。"
           }
         }
       }
@@ -3178,22 +3370,6 @@
         }
       }
     },
-    "Currently Used" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Currently Used"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "現在の使用量"
-          }
-        }
-      }
-    },
     "Custom" : {
       "localizations" : {
         "en" : {
@@ -3705,22 +3881,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ブックマークを削除"
-          }
-        }
-      }
-    },
-    "Delete Cached Thumbnails Now" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete Cached Thumbnails Now"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "サムネイルのキャッシュを今すぐ削除"
           }
         }
       }
@@ -5280,23 +5440,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "お気に入り・ブックマーク・読書位置・ページレイアウト・メタデータ(SwiftDataのストアとそのログ)です。"
-          }
-        }
-      }
-    },
-    "Favorites, including favorite folders" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Favorites, including favorite folders"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入り(お気に入りフォルダを含む)"
           }
         }
       }
@@ -8385,22 +8528,6 @@
         }
       }
     },
-    "Only thumbnails are deleted. Your favorites, bookmarks, and reading history are not affected — pages are simply decoded again the next time you need them." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Only thumbnails are deleted. Your favorites, bookmarks, and reading history are not affected — pages are simply decoded again the next time you need them."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "削除されるのはサムネイルだけです。\nお気に入り・ブックマーク・読書位置には影響しません。\n次に必要になった時点で、ページを読み込み直すだけです。"
-          }
-        }
-      }
-    },
     "Open" : {
       "localizations" : {
         "en" : {
@@ -8943,23 +9070,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ページレイアウト"
-          }
-        }
-      }
-    },
-    "Page layout settings" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Page layout settings"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ページレイアウト設定"
           }
         }
       }
@@ -9932,23 +10042,6 @@
         }
       }
     },
-    "Reading history — the last page and display settings for every book" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reading history — the last page and display settings for every book"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "読書位置 — 本ごとの最後に読んだページと表示設定"
-          }
-        }
-      }
-    },
     "Reading positions, layouts, and bookmarks are kept for this many books. The least recently opened are discarded first." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -10010,22 +10103,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "履歴の保存件数"
-          }
-        }
-      }
-    },
-    "Recently opened history, in the File menu and the side panel" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Recently opened history, in the File menu and the side panel"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「最近開いた本」の履歴(ファイルメニュー・サイドパネル)"
           }
         }
       }
@@ -10604,38 +10681,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "リセット"
-          }
-        }
-      }
-    },
-    "Reset All Favorites, Bookmarks, Layouts & Reading History?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reset All Favorites, Bookmarks, Layouts & Reading History?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "すべてのお気に入り・ブックマーク・レイアウト設定・読書位置を削除しますか?"
-          }
-        }
-      }
-    },
-    "Reset All Favorites, Bookmarks, Layouts & Reading History…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reset All Favorites, Bookmarks, Layouts & Reading History…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "すべてのお気に入り・ブックマーク・レイアウト設定・読書位置を削除…"
           }
         }
       }
@@ -13269,22 +13314,6 @@
         }
       }
     },
-    "This permanently deletes every favorite, favorite folder, bookmark, page layout setting, and saved reading position (last page, display settings) for every book. This cannot be undone, and qooViewer will quit immediately afterward." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This permanently deletes every favorite, favorite folder, bookmark, page layout setting, and saved reading position (last page, display settings) for every book. This cannot be undone, and qooViewer will quit immediately afterward."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "すべてのお気に入り・お気に入りフォルダ・ブックマーク・レイアウト設定、およびすべての本の保存済みの読書位置(最後に読んだページ・表示設定)を完全に削除します。この操作は取り消せません。実行後、qooViewerはただちに終了します。"
-          }
-        }
-      }
-    },
     "This permanently deletes every layout setting (reading direction, page order, single/spread page settings) in this book. This cannot be undone." : {
       "localizations" : {
         "en" : {
@@ -13880,23 +13909,6 @@
         }
       }
     },
-    "Use this only when your saved data is damaged and will not load — for example, after an app update. It deletes everything and starts over from a clean state." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Use this only when your saved data is damaged and will not load — for example, after an app update. It deletes everything and starts over from a clean state."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "保存したデータが壊れて読み込めなくなったとき(アプリの更新後など)にだけ使ってください。\nすべてを削除して、まっさらな状態からやり直します。"
-          }
-        }
-      }
-    },
     "Used the first time a book is opened. Changing it later affects only that book." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -13974,23 +13986,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ウェルカム画面"
-          }
-        }
-      }
-    },
-    "What gets deleted" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "What gets deleted"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "削除されるもの"
           }
         }
       }

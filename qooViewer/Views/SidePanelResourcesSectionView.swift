@@ -155,6 +155,7 @@ struct SidePanelResourcesSectionView: View {
             sessionTemporaryDirectory: TemporaryFileStore.sessionDirectory,
             temporaryRoot: FileManager.default.temporaryDirectory,
             thumbnailCacheDirectory: ThumbnailDiskCache.shared.directory,
+            pageListCacheDirectory: BookPageListCache.shared.directoryURL,
             databaseStoreURL: QooViewerApp.modelConfiguration.url
         )
         // Task.detachedはキャンセルを継承しないので、この`.task`が取り消されたら走査側の
@@ -443,10 +444,15 @@ private struct BookMemorySection: View, Equatable {
                     help: "Archives found inside this book that are open right now, against the “Nested archives kept in memory” setting. Every format is read directly from memory; an archive larger than the setting is written to a temporary file instead, which appears under On Disk ▸ Temporary files."
                 )
             }
-            // かつてここに「7zの展開バッファ」の行があった(7zのライブラリがソリッドブロック全体を
-            // 伸長したまま抱えていたため、その上限見積りを出していた)。2026-09にライブラリを
-            // フォークして必要なぶんだけ伸長するようにしたので、常駐はLZMA辞書(通常16〜64MB)+
-            // 数百KBに収まり、行ごと外した(SevenZipArchiveReader参照)。
+            // 7zのライブラリが次のページを続きから読むために持ち続けているデコーダ(LZMA辞書+
+            // バッファ)。ページ画像のキャッシュとは別に居座るメモリで、上のどの帳簿にも載らない。
+            // 以前はソリッドブロック全体が常駐していて上限見積り(「≤」付き)しか出せなかったが、
+            // 2026-09にライブラリをフォークして必要なぶんだけ伸長するようになり、実値が取れる
+            // (SevenZipArchiveReader参照)。7zを含まない本では出さない。
+            if snapshot.sevenZipDecoderBytes > 0 {
+                DetailRow("7z decoder memory", memoryText(snapshot.sevenZipDecoderBytes))
+                    .help("Memory the 7z library keeps between page reads so that the next page of a solid block can continue from where the last one ended (and a few pages back can be re-read without starting the block over): the LZMA dictionary of that block, whose size is chosen when the archive is made (usually 16–64 MB), plus small buffers. It is released when the book is closed.")
+            }
         }
     }
 
@@ -677,6 +683,14 @@ private struct StorageSection: View, Equatable {
             if let storage {
                 DetailRow("Temporary files", fileSizeText(storage.sessionTemporaryBytes))
                     .help("Archives found inside the books open in this launch that were too large for the “Nested archives kept in memory” setting and had to be written out to be read. Only the ones in use are kept; they are removed as you move on, when the book is closed, and when the app quits.")
+                // 他の起動が残した一時ファイル。起動時に掃除されるので普段は0で、0のときは行を出さない。
+                // 0でないときは「異常」にも出るが、内訳の合計が「コンテナ全体」と合うように、
+                // 容量そのものもここに載せる(ユーザー要望: このアプリが使っているディスクを正確に
+                // 把握できること。以前は異常判定にだけ使い、どの行にも載っていなかった)。
+                if storage.staleTemporaryBytes > 0 {
+                    DetailRow("Leftover temporary files", fileSizeText(storage.staleTemporaryBytes))
+                        .help("Temporary files left behind by a previous launch that did not get to clean up (a crash or a forced quit). They are deleted the next time the app starts.")
+                }
                 HStack(spacing: 0) {
                     DetailRow("Thumbnail cache", optionalSizeText(storage.thumbnailCacheBytes))
                     Group {
@@ -691,6 +705,18 @@ private struct StorageSection: View, Equatable {
                     .panelOutlinedContent()
                 }
                 .lineLimit(1)
+                // ページ一覧・構造・ページ寸法のキャッシュ(BookPageListCache)。サムネイルと同じく
+                // 「知らないうちに増える」性格のものなので、上限と並べて見せる(ユーザー要望)。
+                // 削除は環境設定「キャッシュ」から(CacheSettingsView)。
+                HStack(spacing: 0) {
+                    DetailRow("Page list cache", optionalSizeText(storage.pageListCacheBytes))
+                    Text(" / \(fileSizeText(BookPageListCache.maxTotalBytes))")
+                        .font(.callout)
+                        .monospacedDigit()
+                        .panelOutlinedContent()
+                }
+                .lineLimit(1)
+                .help("The order, names and image sizes of the pages of books you have opened, so that a book opens without scanning its archive again. Kept under the limit shown, oldest first; you can delete it in Settings ▸ Cache. Nothing is written for books opened in a private window.")
                 DetailRow("Database", optionalSizeText(storage.databaseBytes))
                     .help("Favorites, bookmarks, reading positions, page layouts, and metadata (the SwiftData store and its write-ahead log).")
                 DetailRow("Other", optionalSizeText(storage.otherBytes))

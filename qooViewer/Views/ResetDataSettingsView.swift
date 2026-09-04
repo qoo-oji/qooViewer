@@ -13,6 +13,11 @@ import AppKit
 /// 到達できない。そうした事態に備え、ここから手動ですべてのお気に入り・ブックマーク・
 /// 読書履歴を強制的に削除し、まっさらな状態からやり直せるようにする(ユーザーからの要望)。
 ///
+/// 2026-09-04から、この操作の対象は「フォルダのアクセス権を除く、このアプリがディスクに保存した
+/// すべて」になった(ユーザーの指示)。上のストアに加え、2つのディスクキャッシュと
+/// UserDefaults(環境設定・割り当て・履歴・ウインドウの位置)も消える。以前はストア・キャッシュ・
+/// 履歴だけで、環境設定が残る中途半端な範囲だった(QooViewerApp.pendingFullResetDefaultsKey参照)。
+///
 /// 非常に強力な(元に戻せない)操作のため、
 /// - 実行はこの専用画面からのみ行える(他のどの画面にもボタンを置いていない)
 /// - 実行前に内容を明記した確認アラートを必ず挟む(「間違ってクリックした場合に備えて」)
@@ -120,33 +125,19 @@ struct ResetDataSettingsView: View {
                 // **いちばん重要な文が、いちばん薄く小さい**という逆転が起きていた
                 // (ユーザーからの指摘)。補足文の見た目のまま重要な文を置いていたのが誤りで、
                 // ここは本文サイズ・地の文の濃さで書く。
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Use this only when your saved data is damaged and will not load — for example, after an app update. It deletes everything and starts over from a clean state.")
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("What gets deleted")
-                            .fontWeight(.semibold)
-
-                        SettingsBulletList([
-                            "Favorites, including favorite folders",
-                            "Bookmarks",
-                            "Page layout settings",
-                            "Reading history — the last page and display settings for every book",
-                            // ユーザー要望: この操作でも「最近開いたファイル」の履歴が消えて
-                            // ほしい。これだけはSwiftDataではなくUserDefaultsに入っているため、
-                            // performReset()が別途消している(そちらのコメント参照)。
-                            "Recently opened history, in the File menu and the side panel",
-                        ])
-                    }
-                }
-                .padding(.vertical, 4)
+                // 何が消えるかは「アクセス権を除くすべて」の1文で言い切る(ユーザーの指示)。
+                // 以前は消えるものを箇条書きで列挙していたが、対象が「保存したすべて」になった以上、
+                // 列挙は残るものを言うより長くて分かりにくい。残るのはフォルダのアクセス権だけ
+                // (QooViewerApp.pendingFullResetDefaultsKeyのコメント参照)。
+                Text("Use this only when your saved data is damaged and will not load — for example, after an app update. It deletes all data qooViewer has saved, except folder access permissions.")
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
 
                 Button(role: .destructive) {
                     isShowingConfirmation = true
                 } label: {
-                    Label("Reset All Favorites, Bookmarks, Layouts & Reading History…", systemImage: "trash")
+                    Label("Delete All Data…", systemImage: "trash")
                 }
             } header: {
                 // 「危険な操作」という文字だけでは、他の画面のSectionヘッダと同じ重さで流し読み
@@ -176,17 +167,14 @@ struct ResetDataSettingsView: View {
         }
         // 「間違ってクリックした場合に備えて」の確認アラート。既存の「Delete Folder?」等と
         // 同じ、ごく普通のCancel/Delete形式(要望どおり、文字入力による二重確認などは行わない)。
-        .alert(
-            "Reset All Favorites, Bookmarks, Layouts & Reading History?",
-            isPresented: $isShowingConfirmation
-        ) {
+        .alert("Delete All Data?", isPresented: $isShowingConfirmation) {
             Button("Cancel", role: .cancel) {}
-            Button("Reset", role: .destructive) {
+            Button("Delete", role: .destructive) {
                 performReset()
             }
         } message: {
             Text(
-                "This permanently deletes every favorite, favorite folder, bookmark, page layout setting, and saved reading position (last page, display settings) for every book. This cannot be undone, and qooViewer will quit immediately afterward."
+                "This deletes all data qooViewer has saved, except folder access permissions. This cannot be undone, and qooViewer will quit immediately afterward."
             )
         }
         // 削除はすでに完了しているため、ここでの選択肢は「Quit Now」の1つだけにしてある
@@ -197,7 +185,7 @@ struct ResetDataSettingsView: View {
                 NSApp.terminate(nil)
             }
         } message: {
-            Text("All favorites, bookmarks, layout settings, and reading history have been deleted. qooViewer will now quit — please reopen it.")
+            Text("All data has been deleted. qooViewer will now quit — please reopen it.")
         }
     }
 
@@ -232,22 +220,17 @@ struct ResetDataSettingsView: View {
         // WALだけが残る、という中途半端な状態を作りうる。終了時(applicationWillTerminate)
         // まで遅らせれば、書き込みが起こりうる時間そのものが無くなる。
         // 万一終了前に落ちても、次回起動時にModelContainerを作る前に同じ削除を行う。
-        QooViewerApp.scheduleStoreReset()
+        // 対象は「フォルダのアクセス権を除く、このアプリが保存したすべて」: ストアに加えて
+        // 2つのディスクキャッシュとUserDefaults(環境設定・割り当て・履歴・ウインドウの位置)。
+        // UserDefaultsはストアと同じ理由で終了時に消す(QooViewerApp.pendingFullResetDefaultsKey参照)。
+        QooViewerApp.scheduleFullReset()
         // ページサムネイル(ThumbnailDiskCache)とページ一覧(BookPageListCache)の永続
-        // キャッシュも一緒に捨てる。どちらも消えても再生成できるだけの情報だが、
-        // 「一切合切消す」という操作の期待には含まれるため。
-        // 完了は待たない(このあとユーザーが「Quit Now」を押すまでの間に終わればよく、
-        // 残ってしまってもキャッシュディレクトリ配下の無害なファイルにすぎない)。
+        // キャッシュはその場でも捨てる(終了時にもう一度消える)。完了は待たない(このあと
+        // ユーザーが「Quit Now」を押すまでの間に終わればよい)。
         Task { await ThumbnailDiskCache.shared.removeAll() }
         Task { await BookPageListCache.shared.removeAll() }
-        // ユーザー要望: この操作でも「最近開いたファイル」の履歴が消えてほしい。
-        // 履歴と「前回開いていた本」はSwiftDataではなくUserDefaultsに保存されているため、
-        // 上のストアファイルの削除では消えない。ここで明示的に消す。
-        //
-        // 「前回開いていた本」(LastActiveBookStore)も一緒に消す。画面のどこにも表示されない
-        // 記録だが、「どの本を読んでいたか」という読書履歴そのものであり、これだけ残ると
-        // 次回起動時に、消したはずの本が自動的に開いてしまう
-        // (環境設定「前回読んでいた本を開き直す」がONの場合)。
+        // 履歴と「前回開いていた本」は終了時のUserDefaultsの削除で消えるが、その場でも消しておく
+        // (「Quit Now」までの間に画面に残っていると、消えていないように見えるため)。
         recentFiles.removeAll()
         LastActiveBookStore.clear()
         isShowingCompletion = true

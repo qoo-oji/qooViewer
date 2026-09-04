@@ -2256,6 +2256,14 @@ final class ViewerViewModel: ObservableObject {
         // 読み込み中にさらに新しいページ送りが起きていたら、この結果は古いので捨てる
         guard generation == loadGeneration, !Task.isCancelled else { return }
         currentImages = images
+        // 直前の表示範囲との比較で、ユーザーがどちらへ読み進めているかを決める(先読みの向き。
+        // PageLoader.prefetchのdirection参照)。同じ位置の再表示や開いた直後は「不明」。
+        let direction: PageLoader.PrefetchDirection
+        if let previous = lastDisplayedPageRange, targetIndex != previous.lowerBound {
+            direction = targetIndex > previous.lowerBound ? .forward : .backward
+        } else {
+            direction = .unknown
+        }
         // 次にloadCurrentSpreadが呼ばれたときに参照できるよう、今回実際に表示した範囲を
         // 記録しておく(lastDisplayedPageRangeのコメント参照)。
         lastDisplayedPageRange = targetIndex..<(targetIndex + images.count)
@@ -2274,7 +2282,7 @@ final class ViewerViewModel: ObservableObject {
         // 見開きなら「表示中の2ページの前後にradius枚ずつ」。相方のページを先読み枠で
         // 数えてしまわないようにする(PageLoader.prefetchのdisplayedPageCount参照)。
         await pageLoader.prefetch(
-            around: targetIndex, radius: radius, displayedPageCount: images.count
+            around: targetIndex, radius: radius, displayedPageCount: images.count, direction: direction
         )
     }
 
@@ -2388,33 +2396,52 @@ final class ViewerViewModel: ObservableObject {
     /// 許容している。開いた直後・再開位置からごく近い範囲は既にprimeWideImageCache(即座に、
     /// 同じくバックグラウンドで)がカバーするため、この関数はあくまで「その先の、より広い
     /// 範囲への保険」という位置づけ。
+    ///
+    /// 書庫の本では、分かった寸法を構造キャッシュへ永続化する(PageLoader.persistPageSizesIfNeeded)。
+    /// 2回目以降はそこから読むので、この下調べは書庫に触らず一瞬で終わる。ソリッド7zでは
+    /// 本1冊ぶんの伸長を毎回払っていた(監査 2026-09-04)ため。読む側の工夫(専用reader、
+    /// サムネイルの同時生成)はPageLoader.scanPageのコメント参照。
     private func warmUpWideImageCacheForEntireBook() {
         let total = book.pages.count
         guard total > 0 else { return }
         let start = min(max(currentIndex, 0), total - 1)
 
-        // currentIndexから近い順(前後交互)に判定していく。高速スクロールで壊れやすいのは
-        // 「今いる位置から少し離れた、まだ見ていないページ」であるため、遠いページより
-        // 近いページを先に判定した方が実際の被害軽減効果が大きい。
-        var order: [Int] = [start]
-        var offset = 1
-        while order.count < total {
-            let forwardIndex = start + offset
-            let backwardIndex = start - offset
-            if forwardIndex < total { order.append(forwardIndex) }
-            if backwardIndex >= 0 { order.append(backwardIndex) }
-            offset += 1
-        }
+        // currentIndexから**末尾まで書庫順**に判定し、そのあと先頭からcurrentIndexの手前までを
+        // 同じく書庫順に判定する。高速スクロールで壊れやすいのは「今いる位置から少し離れた、
+        // まだ見ていないページ」で、読み進める方向は前方が基本なので、前方を先に片付ける。
+        //
+        // 以前はcurrentIndexから前後交互に広げていたが、これはソリッド7z(7-Zipの既定)で
+        // 致命的だった: 1ブロック=1本のストリームで、ライブラリは後方へは辞書の範囲(直近
+        // 16〜64MB)しか戻れず、その外はブロック先頭からの伸長し直しになる。交互に広げると
+        // 辞書の外へすぐ出て、一歩ごとにやり直しが起きる。監査(2026-09-04)の実測では、
+        // 250MB・100ページのソリッドcb7を中央から再開すると、このウォームアップと先読みだけで
+        // 275秒(辞書からの戻りを足しても228秒)の展開がPageLoaderのactorを塞ぎ、その間ページ送りが
+        // 数秒ずつ待たされた。書庫順に改めて10秒(旧経路のブロック丸ごと展開は6.9秒)。
+        // 詳細はSevenZipArchiveReaderの型コメント参照。zip/rar/フォルダは順序で差が出ない。
+        // 近傍の即時判定はprimeWideImageCache(around:radius:)が別途担っている。
+        var order: [Int] = Array(start..<total)
+        order += Array(0..<start)
 
+        // PageLoaderだけを強く捕まえる(selfは各ページで弱参照から取り直す。本を閉じたら
+        // ViewerViewModelが解放されて止まる。PageLoaderは解放後の要求を空振りにする)。
+        let pageLoader = self.pageLoader
         Task(priority: .utility) { [weak self] in
+            await pageLoader.loadPersistedPageSizes()
+            await pageLoader.beginWholeBookScan()
             for pageIndex in order {
-                guard !Task.isCancelled else { return }
-                guard let self else { return }
-                guard self.cachedIsWideImage(at: pageIndex) == nil else { continue }
-                guard let size = await self.pageLoader.pageSize(at: pageIndex) else { continue }
-                guard !Task.isCancelled else { return }
-                _ = self.isWideImage(width: size.width, height: size.height, pageIndex: pageIndex)
+                guard !Task.isCancelled, let self else { break }
+                // 判定済みのページ(primeWideImageCacheが近傍を先に判定している)でもscanPageは
+                // 呼ぶ ―― 初回の下調べにはサムネイルを作る仕事があり、飛ばすとその近傍だけ
+                // サムネイルが無い状態になる(実測: 24ページ中14枚)。作る仕事が無ければ
+                // 寸法のキャッシュを返すだけで一瞬。
+                guard let size = await pageLoader.scanPage(at: pageIndex) else { continue }
+                guard !Task.isCancelled else { break }
+                if self.cachedIsWideImage(at: pageIndex) == nil {
+                    _ = self.isWideImage(width: size.width, height: size.height, pageIndex: pageIndex)
+                }
             }
+            await pageLoader.endWholeBookScan()
+            await pageLoader.persistPageSizesIfNeeded()
         }
     }
 

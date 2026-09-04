@@ -90,6 +90,10 @@ nonisolated final class NestedArchiveResolver {
         var inMemoryLimitBytes: Int
         var temporaryArchiveCount: Int
         var temporaryBytes: Int
+        /// 開いているreader(ルートの書庫を含む)がライブラリの内部に抱えている展開用メモリ
+        /// (ArchiveReading.residentDecompressionBufferBytes参照)。7zのLZMA辞書がここに現れる。
+        /// zip/rarは常に0。
+        var decompressionBufferBytes: Int = 0
     }
 
     enum ResolveError: Error {
@@ -207,6 +211,8 @@ nonisolated final class NestedArchiveResolver {
             inMemoryLimitBytes: limits.maxInMemoryBytes, temporaryArchiveCount: 0, temporaryBytes: 0
         )
         for entry in entries.values {
+            // ライブラリ内部の展開用メモリ(7zのLZMA辞書)は置き場所を問わず数える。
+            stats.decompressionBufferBytes += entry.reader.residentDecompressionBufferBytes
             switch entry.storage {
             case .rootFile:
                 break
@@ -278,15 +284,24 @@ nonisolated final class NestedArchiveResolver {
             && declaredSize.map { $0 <= Int64(limits.spillToDiskThresholdBytes) } == true
 
         if fitsInMemory {
-            // data(at:)は新しいDataを組み立てて返すため、親のバッファを巻き添えで
+            // dataPrefix(at:)は新しいDataを組み立てて返すため、親のバッファを巻き添えで
             // 保持することはない(ZipArchiveReader.init(data:)のコメント参照)。
             // 7zのreaderはDataを1回コピーして自前で持つので、この関数を抜けて`data`が
             // 解放されれば書庫1つぶんに戻る(SevenZipArchiveReader.init(data:)参照)。
-            let data = try parentReader.data(at: entryPath)
-            return OpenArchive(
-                reader: try makeArchiveReader(kind: kind, data: data),
-                byteCount: data.count, storage: .inMemory, temporaryFile: nil
-            )
+            //
+            // 上限つきで読むのは、索引の申告と実体が食い違う書庫(壊れた・細工された書庫。zipは
+            // 申告より大きく展開されうる)への歯止め。一時ファイル経路には書き出しの途中で打ち切る
+            // 上限があるのに、こちらは申告だけを信じて丸ごとメモリに読んでいた(監査で指摘)。
+            // 上限+1バイトまで読み、超えていたら下の一時ファイル経路へ倒す(そちらの上限検査で
+            // 改めて止まる)。先頭だけの読み取りに対応していない形式(rar)では全体が返るが、
+            // 判定は同じ。
+            let data = try parentReader.dataPrefix(at: entryPath, maxByteCount: limits.spillToDiskThresholdBytes + 1)
+            if data.count <= limits.spillToDiskThresholdBytes {
+                return OpenArchive(
+                    reader: try makeArchiveReader(kind: kind, data: data),
+                    byteCount: data.count, storage: .inMemory, temporaryFile: nil
+                )
+            }
         }
 
         // 一時ファイル経路。**書き出しより先に所有権をTemporaryArchiveFileへ渡す**ことで、

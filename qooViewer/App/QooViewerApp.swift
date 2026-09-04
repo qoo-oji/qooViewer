@@ -174,18 +174,49 @@ struct QooViewerApp: App {
     /// ここでは予約だけを残し、実際の削除は終了時(AppDelegate.applicationWillTerminate)と、
     /// 念のため次回起動時(modelContainerを作る前)の2箇所で行う ―― どちらも接続が無い時点。
     static let pendingStoreResetDefaultsKey = "qooViewer.pendingStoreReset"
+    /// 上に加えて「このアプリが保存したすべて」(キャッシュ・環境設定を含む)を消す予約。
+    ///
+    /// 「すべてのデータを削除」は、ストア(お気に入り・ブックマーク・レイアウト・読書位置・
+    /// メタデータ)だけでなく、2つのディスクキャッシュとUserDefaults(環境設定・キー/マウスの
+    /// 割り当て・履歴・ウインドウの位置など)も対象にする(ユーザーの指示。以前はストアと
+    /// キャッシュと履歴だけで、環境設定が残る中途半端な範囲だった)。**フォルダのアクセス権だけは
+    /// 残す**(FolderAccessStore.defaultsKey。ユーザーの指示)。
+    ///
+    /// UserDefaultsもストアと同じく**終了時**に消す。開いたまま消すと、ウインドウを閉じるときの
+    /// フレームの保存やAppPreferencesのdidSetが、消した直後に書き戻してしまうため。
+    static let pendingFullResetDefaultsKey = "qooViewer.pendingFullReset"
 
-    /// 「すべて削除」を予約する(ResetDataSettingsView.performReset参照)。
-    static func scheduleStoreReset() {
+    /// 「すべてのデータを削除」を予約する(ResetDataSettingsView.performReset参照)。
+    static func scheduleFullReset() {
         UserDefaults.standard.set(true, forKey: pendingStoreResetDefaultsKey)
+        UserDefaults.standard.set(true, forKey: pendingFullResetDefaultsKey)
     }
 
-    /// 予約があればストアの実ファイルを消し、予約を取り下げる。接続が無い時点でだけ呼ぶこと
-    /// (pendingStoreResetDefaultsKeyのコメント参照)。
+    /// 予約があればストアの実ファイル(全削除の予約ならキャッシュとUserDefaultsも)を消し、
+    /// 予約を取り下げる。接続が無い時点でだけ呼ぶこと(pendingStoreResetDefaultsKeyのコメント参照)。
     static func performPendingStoreResetIfNeeded() {
-        guard UserDefaults.standard.bool(forKey: pendingStoreResetDefaultsKey) else { return }
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: pendingStoreResetDefaultsKey) else { return }
         deleteStoreFiles(at: modelConfiguration.url)
-        UserDefaults.standard.removeObject(forKey: pendingStoreResetDefaultsKey)
+        defaults.removeObject(forKey: pendingStoreResetDefaultsKey)
+        guard defaults.bool(forKey: pendingFullResetDefaultsKey) else { return }
+
+        // ディスクキャッシュ。ResetDataSettingsViewが予約時にも消しているが、その後の終了までに
+        // 書かれたぶん(ページ寸法の書き戻しなど)を取りこぼさないよう、ここでもう一度消す。
+        for directory in [ThumbnailDiskCache.shared.directory, BookPageListCache.shared.directoryURL] {
+            guard let directory else { continue }
+            try? FileManager.default.removeItem(at: directory)
+        }
+        // UserDefaultsのドメインを丸ごと消す(環境設定・割り当て・履歴・ウインドウの位置・
+        // 表示言語のAppleLanguages上書きなど)。フォルダのアクセス権だけは控えて書き戻す。
+        // 予約のキー自身もドメインごと消えるので、取り下げは要らない。
+        let folderAccess = defaults.object(forKey: FolderAccessStore.defaultsKey)
+        if let bundleID = Bundle.main.bundleIdentifier {
+            defaults.removePersistentDomain(forName: bundleID)
+        }
+        if let folderAccess {
+            defaults.set(folderAccess, forKey: FolderAccessStore.defaultsKey)
+        }
     }
 
     /// ストア本体が無いのに`-wal`/`-shm`だけが残っていれば消す(modelContainerのコメント参照)。

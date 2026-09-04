@@ -23,10 +23,12 @@ final class AppState: ObservableObject {
     /// - ブックマーク・お気に入り・レイアウト・メタデータの登録・編集、および
     ///   EPUB/PDF/ComicInfo.xmlからのそれらの自動取り込み
     /// - ディスク上のサムネイルキャッシュ(ThumbnailDiskCache)・ページ一覧キャッシュ
-    ///   (BookPageListCache。入れ子の書庫を含む本の**構造キャッシュ**も同じ保管庫にあり、
+    ///   (BookPageListCache。入れ子の書庫を含む本の**構造キャッシュ**と、下調べで分かった
+    ///   **ページ寸法**(Entry.pageSizes。PageLoader.persistPageSizesIfNeeded)も同じ保管庫にあり、
     ///   シークレットウインドウでは書かないだけでなく**読みもしない** ―― 読むだけなら痕跡は
     ///   残らないが、同じ本でも開き方によって挙動が変わるのを避けるため。
-    ///   BookLoader.restoredFromStructureCache参照)
+    ///   BookLoader.restoredFromStructureCache / PageLoader.loadPersistedPageSizes参照。
+    ///   下調べが作る進捗バー用サムネイル(PageLoader.scanPage)も同じガード)
     /// - 本の移動・リネーム追従によるbookIDの書き換え(reconcileBookIDIfMoved)や識別子の補完
     ///   (backfillIdentifiers)。これらも既存行への書き込みなので行わない
     /// 既存データの**読み取り**(登録済みブックマークへのジャンプ、保存済みレイアウトでの表示、

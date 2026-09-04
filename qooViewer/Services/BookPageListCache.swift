@@ -57,6 +57,21 @@ actor BookPageListCache {
         /// 平なcbzは元々列挙が一瞬で終わるので、キャッシュの整合性に賭ける理由が無い。
         var hasNestedArchives: Bool?
 
+        /// 各ページの画像の寸法(ピクセル)。キーはsortKey、値は[幅, 高さ]。
+        ///
+        /// ■ なぜここに持つのか(監査 2026-09-04)
+        /// 本を開くたびに全ページの横長判定(ViewerViewModel.warmUpWideImageCacheForEntireBook)が
+        /// 走り、書庫の本ではそのために全ページの先頭を読んでいた。ソリッド7zではこれが本1冊ぶんの
+        /// 伸長になるうえ、下調べの後に表示用のデコーダが本の末尾に居座り、以後のページ読みが
+        /// すべて「後方読み=ブロック先頭からのやり直し」になっていた。寸法は本体が変わらない限り
+        /// 不変なので、一度分かったら覚えておき、2回目以降は書庫に触らない。
+        ///
+        /// 書き手は2つある(BookLoaderの読み込み後のstoreと、PageLoader.persistPageSizesIfNeeded)。
+        /// storeは読み込みでは寸法が分からないので、同じ本体(指紋一致)なら前回の寸法を引き継ぐ。
+        /// 対象は本体が書庫ファイル1つの本だけ(フォルダの本は画像ファイルを直接開けるので
+        /// 要らず、フォルダの更新日時は指紋として信用できない)。
+        var pageSizes: [String: [Int]]?
+
         /// 現在の版。
         /// 2: ページの並びを**正準順**(compareCanonicalPageOrder。Finderと同じ照合)で持つように
         ///    変更。版1は`.numeric`順で保存されているため、正準順として使うと並びが狂う。
@@ -127,8 +142,9 @@ actor BookPageListCache {
         }
     }
 
-    /// キャッシュ全体の上限。1冊あたり500ページで24KB程度のため、50MBで2000冊分に相当する。
-    private static let maxTotalBytes: Int = 50 * 1024 * 1024
+    /// キャッシュ全体の上限。1冊あたり500ページで24KB程度(ページ寸法込みで36KB程度)のため、
+    /// 50MBで1400〜2000冊分に相当する。リソースモニタと環境設定「キャッシュ」が分母として表示する。
+    nonisolated static let maxTotalBytes: Int = 50 * 1024 * 1024
 
     /// 保存先(~/Library/Caches/<bundle id>/BookPageLists)。作成に失敗した場合はnilになり、
     /// このキャッシュは「常にミスする」だけの無害な存在になる。
@@ -139,6 +155,8 @@ actor BookPageListCache {
     /// ウインドウで本を選び直したときの表示速度に直結するため、待たせたくない
     /// (ThumbnailDiskCacheのdirectoryと同じ理由・同じ形)。
     private nonisolated let directory: URL?
+    /// 保存先(容量の走査用。StorageUsageScanner参照)。作れなかった場合はnil。
+    nonisolated var directoryURL: URL? { directory }
     /// 起動後に一度だけ容量の刈り込みを行うためのフラグ。
     /// 実際にactorの隔離が要るのはこれだけなので、ここだけをactor上に残す。
     private var hasTrimmed = false
@@ -187,9 +205,17 @@ actor BookPageListCache {
     /// 出した以上、書き込み途中のファイルを他のタスクが読みうるため、読み手が常に
     /// 「以前の内容」か「完成した内容」のどちらかしか見ないようにしておく必要がある。
     nonisolated func store(_ entry: Entry, forBookID bookID: String) async {
-        guard let url = fileURL(forBookID: bookID),
-              let data = try? JSONEncoder().encode(entry)
-        else { return }
+        guard let url = fileURL(forBookID: bookID) else { return }
+        var entry = entry
+        // 本を開くたびに書き直すが、ページ寸法は読み込みでは分からない(Entry.pageSizesの
+        // コメント参照)。同じ本体なら前回のぶんを引き継ぐ。
+        if entry.pageSizes == nil, entry.fingerprint != nil,
+           let previousData = try? Data(contentsOf: url),
+           let previous = try? JSONDecoder().decode(Entry.self, from: previousData),
+           previous.fingerprint == entry.fingerprint {
+            entry.pageSizes = previous.pageSizes
+        }
+        guard let data = try? JSONEncoder().encode(entry) else { return }
         try? data.write(to: url, options: .atomic)
 
         // 起動後の最初の書き込みのタイミングで一度だけ容量を点検する(ThumbnailDiskCacheと
@@ -199,6 +225,33 @@ actor BookPageListCache {
         // その外で行う(走査中に他のページ一覧の読み出しを待たせないため)。
         guard await claimTrim(), let directory else { return }
         Self.trimIfNeeded(in: directory)
+    }
+
+    /// 保存済みのページ寸法(Entry.pageSizes)。本体の指紋が一致するときだけ返す。
+    nonisolated func pageSizes(forBookID bookID: String, fingerprint: Entry.Fingerprint) async -> [String: [Int]]? {
+        guard let entry = await pageList(forBookID: bookID), entry.fingerprint == fingerprint else { return nil }
+        return entry.pageSizes
+    }
+
+    /// ページ寸法だけを書き足す(PageLoader.persistPageSizesIfNeeded参照)。本体の指紋が
+    /// 一致するEntryが既にあるときだけ書く(Entryそのものは本の読み込みが作る)。
+    /// `nonisolated`の理由はstore(_:forBookID:)と同じ。storeと同時に走ると片方の書き込みが
+    /// 負けることはありうるが、寸法は次に開いたときの下調べで埋め直されるので実害は無い。
+    nonisolated func storePageSizes(
+        _ sizes: [String: [Int]], forBookID bookID: String, fingerprint: Entry.Fingerprint
+    ) async {
+        guard !sizes.isEmpty,
+              let url = fileURL(forBookID: bookID),
+              let data = try? Data(contentsOf: url),
+              var entry = try? JSONDecoder().decode(Entry.self, from: data),
+              entry.fingerprint == fingerprint
+        else { return }
+        var merged = entry.pageSizes ?? [:]
+        for (key, value) in sizes { merged[key] = value }
+        guard merged != entry.pageSizes else { return }
+        entry.pageSizes = merged
+        guard let encoded = try? JSONEncoder().encode(entry) else { return }
+        try? encoded.write(to: url, options: .atomic)
     }
 
     /// 起動後まだ容量点検を行っていなければ、行う権利を1つだけ取得する。
@@ -237,7 +290,24 @@ actor BookPageListCache {
         }
     }
 
-    /// キャッシュを丸ごと捨てる(環境設定「リセット」タブの一括削除から呼ばれる)。
+    /// いまディスク上で占めている合計バイト数(環境設定「キャッシュ」の表示用)。
+    /// `nonisolated`: ディレクトリの走査をactorの上で行わないため(directoryのコメント参照)。
+    nonisolated func totalBytes() async -> Int {
+        guard let directory,
+              let contents = try? FileManager.default.contentsOfDirectory(
+                at: directory, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey]
+              )
+        else { return 0 }
+        return contents.reduce(0) { total, url in
+            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+                  values.isRegularFile == true
+            else { return total }
+            return total + (values.fileSize ?? 0)
+        }
+    }
+
+    /// キャッシュを丸ごと捨てる(環境設定「リセット」タブの一括削除、および「キャッシュ」タブの
+    /// 「ページ一覧のキャッシュを今すぐ削除」から呼ばれる)。
     func removeAll() {
         guard let directory else { return }
         try? FileManager.default.removeItem(at: directory)

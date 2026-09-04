@@ -17,6 +17,8 @@ nonisolated struct StorageUsage: Equatable, Sendable {
     var staleTemporaryEntryCount: Int
     /// サムネイルのディスクキャッシュ(ThumbnailDiskCache)。
     var thumbnailCacheBytes: Int?
+    /// ページ一覧・構造・ページ寸法のキャッシュ(BookPageListCache)。
+    var pageListCacheBytes: Int?
     /// SwiftDataのストア(`default.store` + `-wal` + `-shm`)。
     var databaseBytes: Int?
     var scannedAt: Date
@@ -24,7 +26,8 @@ nonisolated struct StorageUsage: Equatable, Sendable {
     /// コンテナ全体から、内訳として名前の付いているものを除いた残り。
     var otherBytes: Int? {
         guard let containerBytes else { return nil }
-        let known = sessionTemporaryBytes + staleTemporaryBytes + (thumbnailCacheBytes ?? 0) + (databaseBytes ?? 0)
+        let known = sessionTemporaryBytes + staleTemporaryBytes + (thumbnailCacheBytes ?? 0)
+            + (pageListCacheBytes ?? 0) + (databaseBytes ?? 0)
         return max(containerBytes - known, 0)
     }
 }
@@ -50,6 +53,7 @@ nonisolated enum StorageUsageScanner {
         var sessionTemporaryDirectory: URL
         var temporaryRoot: URL
         var thumbnailCacheDirectory: URL?
+        var pageListCacheDirectory: URL?
         var databaseStoreURL: URL
     }
 
@@ -67,6 +71,7 @@ nonisolated enum StorageUsageScanner {
             staleTemporaryBytes: stale.bytes,
             staleTemporaryEntryCount: stale.entryCount,
             thumbnailCacheBytes: locations.thumbnailCacheDirectory.flatMap { directorySize(at: $0)?.bytes },
+            pageListCacheBytes: locations.pageListCacheDirectory.flatMap { directorySize(at: $0)?.bytes },
             databaseBytes: databaseSize(storeURL: locations.databaseStoreURL),
             scannedAt: Date()
         )

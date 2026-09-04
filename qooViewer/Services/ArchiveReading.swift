@@ -67,6 +67,16 @@ protocol ArchiveReading {
     ///   測るだけでは、上限を超えて一時ファイルを書き潰すまで止まらない)。超えたら
     ///   `ArchiveReaderError.entryTooLarge`を投げ、書きかけのファイルは残さない。
     nonisolated func extract(at path: String, to url: URL, maxByteCount: Int) throws
+
+    /// このreaderが、エントリの取り出しのために**保持し続けている**展開用メモリ(バイト)。
+    /// ページ画像や入れ子の書庫のキャッシュとは別に、ライブラリの内部に居座っているメモリで、
+    /// リソースモニタに出すためのもの。
+    ///
+    /// zip/rarは0(チャンクごとに読み捨てる)。7zはフォークしたライブラリが「最後に読んだ
+    /// ブロックのデコーダ」を次の読み取りのために持ち続けるので、そのLZMA辞書(書庫を作るときに
+    /// 決まる。通常16〜64MB)+数百KBのバッファが常駐する(SevenZipArchiveReader参照)。
+    /// 2026-09まではソリッドブロック全体が常駐していて上限見積りしか出せなかったが、いまは実値。
+    nonisolated var residentDecompressionBufferBytes: Int { get }
 }
 
 extension ArchiveReading {
@@ -90,6 +100,9 @@ extension ArchiveReading {
         guard data.count <= maxByteCount else { throw ArchiveReaderError.entryTooLarge }
         try data.write(to: url)
     }
+
+    /// residentDecompressionBufferBytesの既定実装。バッファを抱えない形式は0。
+    nonisolated var residentDecompressionBufferBytes: Int { 0 }
 }
 
 /// 対応する画像の拡張子。AVIFはmacOS Sonoma(14)以降でImageIOがシステム全体で

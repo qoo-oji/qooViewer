@@ -36,7 +36,10 @@ final class FolderAccessStore: ObservableObject {
 
     @Published private(set) var entries: [Entry] = []
 
-    private let defaultsKey = "qooViewer.grantedFolderBookmarks"
+    /// アクセス権(セキュリティスコープ付きブックマーク)の保存先。環境設定「リセット」の
+    /// 「すべてのデータを削除」は、UserDefaultsのドメインを丸ごと消したうえで**このキーだけ**を
+    /// 書き戻す(QooViewerApp.performPendingStoreResetIfNeeded参照。ユーザーの指示: アクセス権は対象外)。
+    static let defaultsKey = "qooViewer.grantedFolderBookmarks"
 
     /// 今アクセスを開いている(startAccessingSecurityScopedResourceを呼んだ)URL。
     /// パス → 実際に開いたURLオブジェクト。stopは**開いたのと同じURLオブジェクト**へ
@@ -89,7 +92,7 @@ final class FolderAccessStore: ObservableObject {
             return existingURL.path == url.path || isAncestor(url, of: existingURL)
         }
         bookmarks.append(newData)
-        UserDefaults.standard.set(bookmarks, forKey: defaultsKey)
+        UserDefaults.standard.set(bookmarks, forKey: Self.defaultsKey)
         reload()
         return true
     }
@@ -99,7 +102,7 @@ final class FolderAccessStore: ObservableObject {
     func remove(_ entry: Entry) {
         var bookmarks = rawBookmarks()
         bookmarks.removeAll { resolvedURL(from: $0)?.path == entry.url.path }
-        UserDefaults.standard.set(bookmarks, forKey: defaultsKey)
+        UserDefaults.standard.set(bookmarks, forKey: Self.defaultsKey)
         reload()
     }
 
@@ -120,7 +123,7 @@ final class FolderAccessStore: ObservableObject {
     }
 
     private func rawBookmarks() -> [Data] {
-        UserDefaults.standard.array(forKey: defaultsKey) as? [Data] ?? []
+        UserDefaults.standard.array(forKey: Self.defaultsKey) as? [Data] ?? []
     }
 
     private func resolvedURL(from data: Data) -> URL? {

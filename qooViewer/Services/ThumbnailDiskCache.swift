@@ -179,6 +179,13 @@ actor ThumbnailDiskCache {
         return image
     }
 
+    /// キャッシュ済みかどうかだけを答える(読み込まず、更新日時も触らない)。
+    /// 本全体の下調べ(PageLoader.scanPage)が「まだ無いページだけ作る」ために使う。
+    nonisolated func hasThumbnail(bookKey: BookKey, pageID: String) async -> Bool {
+        guard await isEnabled, let url = fileURL(bookKey: bookKey, pageID: pageID) else { return false }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
     /// デコード済みのサムネイルを保存する。失敗しても呼び出し側には影響しない
     /// (次回もキャッシュミスになるだけ)。`nonisolated`の理由はthumbnail(bookKey:pageID:)と同じ。
     nonisolated func store(_ image: CGImage, bookKey: BookKey, pageID: String) async {
@@ -265,7 +272,8 @@ actor ThumbnailDiskCache {
 
     /// 読み書きの入口(thumbnail/store)が最初に見る値。
     /// actorの状態のうち、`nonisolated`な読み書きから参照する必要があるのはこれだけ。
-    private var isEnabled: Bool { configuration.isEnabled }
+    /// 設定でONかどうか(PageLoader.scanPageが「作っても捨てられるだけ」の判定に使う)。
+    var isEnabled: Bool { configuration.isEnabled }
 
     // MARK: - 容量の管理
 

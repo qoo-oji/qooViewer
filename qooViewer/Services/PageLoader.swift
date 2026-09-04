@@ -106,6 +106,27 @@ actor PageLoader {
     /// 素のDictionaryでよい。コントラスト補正の切り替え(setContrastCorrectionEnabled)でも
     /// ピクセル寸法は変わらないため、そちらでは破棄しない。
     private var pageSizeCache: [String: (width: Int, height: Int)] = [:]
+    /// pageSizeCacheに、まだディスク(BookPageListCache.Entry.pageSizes)へ書いていない
+    /// 寸法があるか(persistPageSizesIfNeededの判定)。
+    private var hasUnpersistedPageSizes = false
+
+    /// 表示・サムネイルのために読んだ書庫内エントリのバイト列から取ったヘッダー情報と、
+    /// そのバイト数。キーはheaderCacheKey(for:)。
+    ///
+    /// 「情報を見る」の先取り(pageImageInfo)と寸法の問い合わせ(pageSize)は、以前は同じページを
+    /// 書庫からもう一度取り出していた。ソリッド7zでは、表示のための先読みが進んだ後にそれを
+    /// 行うと「後方読み」になり、辞書の外ならブロック先頭からのやり直しになる(監査 2026-09-04。
+    /// SevenZipArchiveReaderの型コメント参照)。ヘッダーの解析は一瞬なので、バイト列が手元に
+    /// あるうちに取っておく。
+    private var headerInfoCache: [String: (header: ImageDecoder.HeaderInfo, byteCount: Int)] = [:]
+
+    /// 本全体の下調べ(scanPage)が進行中か。beginWholeBookScan/endWholeBookScanで切り替える。
+    private var isWholeBookScanActive = false
+    /// 下調べ専用のreader(ルートが7zの本だけ。scanReaderIfAvailable参照)。下調べの間だけ持つ。
+    private var scanReader: ArchiveReading?
+    /// loadPersistedPageSizesで寸法が1つでも戻ってきたか(=この本の下調べは初回ではない)。
+    /// 初回の下調べだけは、寸法が既に分かっているページも読む(scanPage参照)。
+    private var hadPersistedPageSizes = false
 
     /// 進行中のpageSize(at:)を、ページごとに覚えておく(image(at:)のinFlightTasksと同じ考え方)。
     /// pageSizeはactorの外へ処理を逃がすようになった=途中で中断点(await)を挟むため、同じページ
@@ -307,6 +328,10 @@ actor PageLoader {
         // 書いてある「書庫リーダーもここで閉じる」のと同じ理由。
         resolver.purgeAll()
         pdfDocuments.removeAll()
+        scanReader = nil
+        headerInfoCache.removeAll()
+        // 下調べが途中だった場合でも、ここまでに分かった寸法は次回のために書き戻しておく。
+        Task { await self.persistPageSizesIfNeeded() }
     }
 
     /// releaseAllResources()が呼ばれた後か。trueなら読み込み・先読みの入口はすべて何もせず
@@ -578,6 +603,12 @@ actor PageLoader {
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
         if let cached = pageSizeCache[page.id] { return cached }
+        // 表示のために既に読んだページなら、そのときのヘッダー情報から答える(headerInfoCache参照)。
+        if let key = Self.headerCacheKey(for: page.source), let cached = headerInfoCache[key] {
+            let size = (width: cached.header.pixelWidth, height: cached.header.pixelHeight)
+            notePageSize(size, for: page)
+            return size
+        }
         if let existing = inFlightPageSizeTasks[page.id] { return await existing.value }
 
         // PDFはページ寸法がCGPDFPageから直接取れる(ファイルの読み込み・解析を伴わない)ため、
@@ -646,9 +677,163 @@ actor PageLoader {
 
         // 取得できなかった場合(未対応フォーマット等)はキャッシュしない。次回改めて試みる。
         if let size {
-            pageSizeCache[page.id] = size
+            notePageSize(size, for: page)
         }
         return size
+    }
+
+    /// 分かった寸法をpageSizeCacheへ入れ、書庫の本ならディスクへの書き戻し対象として印を付ける
+    /// (persistPageSizesIfNeeded参照)。
+    private func notePageSize(_ size: (width: Int, height: Int), for page: PageRef) {
+        if pageSizeCache[page.id] == nil, case .archive = page.source {
+            hasUnpersistedPageSizes = true
+        }
+        pageSizeCache[page.id] = size
+    }
+
+    /// headerInfoCacheのキー。書庫内エントリだけが対象(フォルダの本はファイルを直接、PDFは
+    /// CGPDFPageを見れば済むので要らない)。
+    private nonisolated static func headerCacheKey(for source: PageSource) -> String? {
+        guard case .archive(let locator, let entryPath) = source else { return nil }
+        return locator.displayPath + "#" + entryPath
+    }
+
+    private func noteHeaderInfo(_ header: ImageDecoder.HeaderInfo, byteCount: Int, for source: PageSource) {
+        guard let key = Self.headerCacheKey(for: source) else { return }
+        headerInfoCache[key] = (header, byteCount)
+    }
+
+    // MARK: - 本全体の下調べ(ウォームアップ)と、ページ寸法の永続化
+
+    /// 本全体の下調べ(ViewerViewModel.warmUpWideImageCacheForEntireBook)を始める前に呼ぶ。
+    /// 終わったら(途中でやめる場合も)endWholeBookScan()を呼ぶこと。
+    func beginWholeBookScan() {
+        isWholeBookScanActive = true
+    }
+
+    /// 下調べ専用のreaderを手放す(辞書ぶんのメモリが戻る)。
+    func endWholeBookScan() {
+        isWholeBookScanActive = false
+        scanReader = nil
+    }
+
+    /// 下調べ用: pageSize(at:)と同じ寸法を返すが、**ルートが7zの本**では表示用とは別の専用reader
+    /// でエントリ全体を読み、ついでに進捗バー用サムネイルをディスクキャッシュへ作っておく。
+    ///
+    /// ■ なぜ専用readerか(監査 2026-09-04)
+    /// 下調べは本全体を書庫順に舐める。ソリッド7zではこれが本1冊ぶんの伸長で、表示用と同じ
+    /// デコーダで行うと、終わった後にデコーダが本の末尾に居座り、以後のページ読み(前方への
+    /// ページ送りであっても)がすべて「後方読み=ブロック先頭からのやり直し」になっていた。
+    /// 別のreader(=別のデコーダ)で読めば表示用の位置は動かない。追加のメモリは下調べの間の
+    /// 辞書1つぶん(16〜64MB)で、endWholeBookScan()で戻る。
+    ///
+    /// ■ なぜサムネイルも作るか
+    /// 先頭だけを読んでも、ソリッドではそのページの全バイトがデコーダを通る。どうせ通るなら
+    /// 全体を受け取ってサムネイルまで作っておけば、進捗バーのフィルムストリップや
+    /// サイドパネルが後からランダムに要求しても書庫に触らずに済む(ランダムアクセスは
+    /// ソリッド7zの最も苦手な読み方)。対象はディスクキャッシュを使える本(シークレット
+    /// ウインドウでない・設定でONの)だけで、既にあるページは作り直さない。コントラスト補正が
+    /// ONの本は、補正の適用がdecodedImage経由でしかできないので作らない(通常経路に任せる)。
+    ///
+    /// ■ 初回の下調べだけは、寸法が分かっているページも読む
+    /// 表示ページの近傍はprimeWideImageCacheが表示用readerで先に寸法を取ってしまうので、
+    /// 「寸法が無いページだけ読む」だとその近傍のサムネイルが作られない(実測: 24ページ中15枚)。
+    /// 寸法が永続化されていない=初回の下調べでは、サムネイルを作る条件のときに限り全ページを
+    /// 読む(近傍の十数ページを二度読むだけ)。2回目以降は寸法が永続化されているので書庫に触らない。
+    ///
+    /// 上の条件に当たらない本(zip/rar/フォルダ/PDF/EPUB、入れ子の7z)ではpageSize(at:)そのもの。
+    func scanPage(at index: Int) async -> (width: Int, height: Int)? {
+        guard !isReleased, book.pages.indices.contains(index) else { return nil }
+        let page = book.pages[index]
+        let cachedSize = pageSizeCache[page.id]
+        // ディスクキャッシュが設定でOFFなら作っても捨てられるだけなので、デコードもしない。
+        var makesThumbnail = usesThumbnailDiskCache && !contrastCorrectionEnabled && !hadPersistedPageSizes
+        if makesThumbnail {
+            makesThumbnail = await ThumbnailDiskCache.shared.isEnabled
+        }
+        if let cachedSize, !makesThumbnail { return cachedSize }
+        guard case .archive(let locator, let entryPath) = page.source,
+              let reader = scanReaderIfAvailable(for: locator)
+        else {
+            if let cachedSize { return cachedSize }
+            return await pageSize(at: index)
+        }
+
+        // 解凍爆弾よけはrawData(for:)と同じ。
+        if let declared = reader.entryUncompressedSize(at: entryPath), declared > Self.maxDecodableEntryBytes {
+            return nil
+        }
+        guard let data = try? reader.data(at: entryPath) else { return nil }
+        let diskKey = makesThumbnail
+            ? thumbnailDiskKey(maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize) : nil
+        let pageID = page.id
+        // 解析・デコードはactorの外で行う(pageSize(at:)と同じ理由)。
+        let task = Task.detached(priority: .utility) { () -> ImageDecoder.HeaderInfo? in
+            let header = ImageDecoder.headerInfo(of: data)
+            if let diskKey,
+               await !ThumbnailDiskCache.shared.hasThumbnail(bookKey: diskKey, pageID: pageID),
+               let thumbnail = ImageDecoder.decodePixels(
+                   data, maxPixelSize: ImageDecoder.progressBarThumbnailMaxPixelSize
+               )?.makeImage() {
+                await ThumbnailDiskCache.shared.store(thumbnail, bookKey: diskKey, pageID: pageID)
+            }
+            return header
+        }
+        guard let header = await task.value else { return nil }
+        noteHeaderInfo(header, byteCount: data.count, for: page.source)
+        let size = (width: header.pixelWidth, height: header.pixelHeight)
+        notePageSize(size, for: page)
+        return size
+    }
+
+    /// 下調べ専用のreader。下調べ中で、かつ本そのものが7zの書庫で、そのページがその書庫に
+    /// 直接入っている(入れ子ではない)ときだけ用意する。入れ子の7zは章単位で小さく、専用readerを
+    /// 作るとメモリ上の書庫をもう1部コピーすることになるので対象外。
+    private func scanReaderIfAvailable(for locator: ArchiveLocator) -> ArchiveReading? {
+        guard isWholeBookScanActive, !locator.isNested,
+              archiveKind(forFileName: locator.rootURL.lastPathComponent) == .sevenZip
+        else { return nil }
+        if let scanReader { return scanReader }
+        scanReader = try? makeArchiveReader(kind: .sevenZip, url: locator.rootURL)
+        return scanReader
+    }
+
+    /// 前回までに分かったページ寸法を構造キャッシュから読み込む(下調べの前に呼ぶ)。
+    /// 入っていたページはpageSize/scanPageが書庫に触らずに答えられる。
+    func loadPersistedPageSizes() async {
+        guard usesThumbnailDiskCache, let fingerprint = pageSizePersistenceFingerprint() else { return }
+        guard let sizes = await BookPageListCache.shared.pageSizes(forBookID: book.id, fingerprint: fingerprint),
+              !isReleased
+        else { return }
+        for page in book.pages {
+            guard pageSizeCache[page.id] == nil,
+                  let value = sizes[page.sortKey], value.count == 2, value[0] > 0, value[1] > 0
+            else { continue }
+            pageSizeCache[page.id] = (width: value[0], height: value[1])
+            hadPersistedPageSizes = true
+        }
+    }
+
+    /// 新しく分かったページ寸法を構造キャッシュへ書き戻す(下調べの後と、本を閉じるときに呼ぶ)。
+    func persistPageSizesIfNeeded() async {
+        guard hasUnpersistedPageSizes, usesThumbnailDiskCache,
+              let fingerprint = pageSizePersistenceFingerprint()
+        else { return }
+        hasUnpersistedPageSizes = false
+        var sizes: [String: [Int]] = [:]
+        for page in book.pages {
+            guard case .archive = page.source, let size = pageSizeCache[page.id] else { continue }
+            sizes[page.sortKey] = [size.width, size.height]
+        }
+        await BookPageListCache.shared.storePageSizes(sizes, forBookID: book.id, fingerprint: fingerprint)
+    }
+
+    /// 寸法を永続化してよい本(本体が書庫ファイル1つ。BookPageListCache.Entry.pageSizesの
+    /// コメント参照)なら、その本体の今の指紋。そうでなければnil。
+    private func pageSizePersistenceFingerprint() -> BookPageListCache.Entry.Fingerprint? {
+        let name = book.sourceURL.lastPathComponent
+        guard isArchiveFile(name), !isPDFFile(name), !isEpubFile(name) else { return nil }
+        return BookPageListCache.Entry.Fingerprint.current(for: book.sourceURL)
     }
 
     /// コンテキストメニュー「情報を見る」(ユーザー要望)向けに、指定ページの画像ファイル情報を
@@ -702,9 +887,19 @@ actor PageLoader {
                 hasAlphaChannel: header.hasAlpha
             )
         case .archive(let locator, let entryPath):
-            guard let data = rawData(for: page.source),
-                  let header = ImageDecoder.headerInfo(of: data)
-            else { return nil }
+            // 表示のために読んだバイト列から取っておいたヘッダー情報があればそれを使い、
+            // 書庫からは読み直さない(headerInfoCache参照)。
+            let header: ImageDecoder.HeaderInfo
+            let byteCount: Int
+            if let key = Self.headerCacheKey(for: page.source), let cached = headerInfoCache[key] {
+                (header, byteCount) = (cached.header, cached.byteCount)
+            } else {
+                guard let data = rawData(for: page.source),
+                      let parsed = ImageDecoder.headerInfo(of: data)
+                else { return nil }
+                (header, byteCount) = (parsed, data.count)
+                noteHeaderInfo(parsed, byteCount: data.count, for: page.source)
+            }
             let dates = reader(for: locator)?.entryDates(at: entryPath) ?? (created: nil, modified: nil)
             // アーカイブ内エントリ自身はディスク上のパスを持たないため、アーカイブファイルの
             // フルパスに、エントリのアーカイブ内フォルダパス(サブフォルダが無ければ空文字列)を
@@ -718,7 +913,7 @@ actor PageLoader {
                 pixelWidth: header.pixelWidth,
                 pixelHeight: header.pixelHeight,
                 colorModel: header.colorModel,
-                fileSizeBytes: Int64(data.count),
+                fileSizeBytes: Int64(byteCount),
                 location: location,
                 createdDate: dates.created,
                 modifiedDate: dates.modified,
@@ -810,7 +1005,12 @@ actor PageLoader {
     ///   indexではなく**表示中の最後のページ**にする。以前はどちらもindex基準で数えていたため、
     ///   見開きでは後ろ10ページのうち1ページが「いま隣に表示している相方」で埋まり、未見の
     ///   ページは9枚しか先読みされていなかった(ユーザー指摘)。単ページ表示なら従来どおり。
-    func prefetch(around index: Int, radius: Int = 3, displayedPageCount: Int = 1) {
+    ///
+    /// - Parameter direction: ユーザーがどちらへ読み進めているか(ViewerViewModel.loadCurrentSpreadが
+    ///   直前の表示範囲との比較で決める)。7zの本では、進んでいる方向だけを先読みする(下記)。
+    func prefetch(
+        around index: Int, radius: Int = 3, displayedPageCount: Int = 1, direction: PrefetchDirection = .unknown
+    ) {
         guard !isReleased else { return }
         guard !book.pages.isEmpty else { return }
         let lastDisplayed = index + max(displayedPageCount, 1) - 1
@@ -829,15 +1029,32 @@ actor PageLoader {
             prefetchTasks.removeValue(forKey: existingIndex)
         }
 
-        // 現在ページに近い順(前後交互)に始める。デコードの同時実行数を絞っているので
-        // (decodeSlotsのコメント参照)、始めた順がほぼそのまま仕上がる順になる。次に
-        // 表示される可能性が高いのは隣のページなので、そこから埋める。
+        // 表示中のページの直後から**前方を書庫順に**、次に**後方を昇順(遠いページから)**で始める。
+        // デコードの同時実行数を絞っているので(decodeSlotsのコメント参照)、始めた順がほぼ
+        // そのまま仕上がる順になる。次に表示される可能性が高いのは前方の隣なので、そこから埋める。
+        //
+        // 以前は「+1, -1, +2, -2, …」の前後交互だった。ソリッド7z(7-Zipの既定)は1ブロック=
+        // 1本のストリームで、ライブラリは後方へは辞書の範囲(直近16〜64MB)しか戻れず、その外は
+        // ブロック先頭からの伸長し直しになる(SevenZipArchiveReaderの型コメント参照)。
+        //
+        // さらに7zでは、**進んでいる方向だけ**を先読みする(監査 2026-09-04、実機ログで判明):
+        // 前後対称に先読みすると、前方の先読みが進めたデコーダの位置から見て、後方の先読みは
+        // 常に6〜20ページ後ろ(radius 3で7ページ以上)を読むことになり、16MB辞書の範囲を超えて
+        // 2〜3ステップごとにブロック先頭からのやり直し(250MBの本で4〜7秒)が起きていた。前へ
+        // 読んでいる間、後方のページは直前に表示したものでピクセルキャッシュにある。後ろへ
+        // 向かい始めたら前方を止めて後方だけを昇順に読む。方向転換の瞬間に辞書の外へ出れば
+        // 1回だけやり直しが起きるが、そこで止まる。zip/rar/フォルダはランダムアクセスできるので
+        // 従来どおり両方向を読む(方向が分からない直後に戻ったときの1ページの待ちを避ける)。
         var order: [Int] = (index...lastDisplayed).filter { lower...upper ~= $0 }
-        var offset = 1
-        while lastDisplayed + offset <= upper || index - offset >= lower {
-            if lastDisplayed + offset <= upper { order.append(lastDisplayed + offset) }
-            if index - offset >= lower { order.append(index - offset) }
-            offset += 1
+        let forwardPages = lastDisplayed + 1 <= upper ? Array((lastDisplayed + 1)...upper) : []
+        let backwardPages = lower <= index - 1 ? Array(lower...(index - 1)) : []
+        if Self.prefersSequentialAccess(book.pages[index].source) {
+            switch direction {
+            case .backward: order += backwardPages
+            case .forward, .unknown: order += forwardPages
+            }
+        } else {
+            order += forwardPages + backwardPages
         }
         for pageIndex in order {
             guard prefetchTasks[pageIndex] == nil else { continue }
@@ -853,6 +1070,21 @@ actor PageLoader {
             }
             prefetchTasks[pageIndex] = PrefetchEntry(task: task, inFlightKey: inFlightKey)
         }
+    }
+
+    /// ユーザーがどちらへ読み進めているか(prefetch(around:)のdirection)。
+    enum PrefetchDirection: Sendable {
+        case unknown
+        case forward
+        case backward
+    }
+
+    /// 後方読みが高くつく形式か: 7z(ソリッドが既定)の書庫に直接入っているページ。入れ子なら
+    /// 一番内側の書庫で判定する(zipの中の7zは7z、7zの中のzipはzip=ランダムアクセス可)。
+    /// rarのソリッドも同じ性質だが、WinRARの既定は非ソリッドなので対象にしていない。
+    private nonisolated static func prefersSequentialAccess(_ source: PageSource) -> Bool {
+        guard case .archive(let locator, _) = source else { return false }
+        return archiveKind(forFileName: locator.archiveFileName) == .sevenZip
     }
 
     /// prefetch(around:)専用の入り口。pageImage(at:)と同じ読み込みだが、「先読みとして
@@ -963,10 +1195,15 @@ actor PageLoader {
                 guard let data = rawData(for: source) else { return nil }
                 guard !Task.isCancelled else { return nil }
                 // decodedImage(for:maxPixelSize:)と同じく、デコードはactorの外で行う。
-                let decodeTask = Task.detached(priority: .userInitiated) { () -> PagePixelBuffer? in
-                    ImageDecoder.decodePixels(data, maxPixelSize: maxPixelSize)
+                // 書庫内エントリはヘッダー情報も同じバイト列から取っておく(headerInfoCache参照)。
+                let wantsHeader = Self.headerCacheKey(for: source).map { headerInfoCache[$0] == nil } ?? false
+                let decodeTask = Task.detached(priority: .userInitiated) { () -> (PagePixelBuffer?, ImageDecoder.HeaderInfo?) in
+                    (ImageDecoder.decodePixels(data, maxPixelSize: maxPixelSize),
+                     wantsHeader ? ImageDecoder.headerInfo(of: data) : nil)
                 }
-                return await decodeTask.value
+                let (pixels, header) = await decodeTask.value
+                if let header { noteHeaderInfo(header, byteCount: data.count, for: source) }
+                return pixels
             }
         }
         guard let decoded = await decodedImage(for: source, maxPixelSize: maxPixelSize) else { return nil }
@@ -1120,10 +1357,14 @@ actor PageLoader {
             // (Task.detachedのトレーリングクロージャに対する戻り値の型推論がXcodeのバージョンによって
             //  不安定なことがあるため、クロージャの戻り値の型を明示し、Taskの生成とvalueの待ち受けを
             //  分けて書くことで確実に型が決まるようにしている)
-            let decodeTask = Task.detached(priority: .userInitiated) { () -> CGImage? in
-                ImageDecoder.decode(data, maxPixelSize: maxPixelSize)
+            let wantsHeader = Self.headerCacheKey(for: source).map { headerInfoCache[$0] == nil } ?? false
+            let decodeTask = Task.detached(priority: .userInitiated) { () -> (CGImage?, ImageDecoder.HeaderInfo?) in
+                (ImageDecoder.decode(data, maxPixelSize: maxPixelSize),
+                 wantsHeader ? ImageDecoder.headerInfo(of: data) : nil)
             }
-            decoded = await decodeTask.value
+            let (image, header) = await decodeTask.value
+            if let header { noteHeaderInfo(header, byteCount: data.count, for: source) }
+            decoded = image
         }
 
         guard let decoded else { return nil }

@@ -29,6 +29,11 @@ nonisolated struct ResourceMonitorSnapshot: Equatable, Sendable {
     var nestedArchives: CacheUsage
     /// 一時ファイルとしてディスクに置いているぶんのバイト数(予算より大きい書庫)。
     var nestedArchiveTemporaryBytes: Int
+    /// 7zのライブラリが、この本の書庫(ルート・入れ子とも)の次のページを続きから読むために
+    /// 持ち続けているデコーダのメモリ(バイト)。実体はそのブロックのLZMA辞書+バッファで、
+    /// ページ画像のキャッシュとは別に、本を開いている間ずっと残る(SevenZipArchiveReader参照)。
+    /// 7zを含まない本、またはまだ1ページも取り出していない間は0。
+    var sevenZipDecoderBytes: Int
 
     /// 現在ページ(0始まり)。見開きのときは**左右のうちファイル順で先のページ**。
     var currentIndex: Int
@@ -96,6 +101,7 @@ nonisolated struct ResourceMonitorSnapshot: Equatable, Sendable {
                 + statistics.nestedArchives.temporaryArchiveCount
         )
         nestedArchiveTemporaryBytes = statistics.nestedArchives.temporaryBytes
+        sevenZipDecoderBytes = statistics.nestedArchives.decompressionBufferBytes
         gridThumbnails = CacheUsage(
             usedBytes: statistics.gridThumbnails.totalBytes,
             limitBytes: statistics.gridThumbnailLimitBytes,

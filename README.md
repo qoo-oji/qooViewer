@@ -134,7 +134,7 @@ macOS 15 (Sequoia) 以降
 ## 依存ライブラリ
 
 - [ZIPFoundation](https://github.com/weichsel/ZIPFoundation)(MIT License)
-- [SevenZip.swift](https://github.com/mtgto/SevenZip.swift)(MIT License)―― [qoo-oji/SevenZip.swift](https://github.com/qoo-oji/SevenZip.swift) の `streaming-extract` ブランチ(フォーク)を使用。ソリッド書庫を必要なところまでだけ展開するストリーミング読み出しと、メモリ上の書庫を開く機能を追加してあります
+- [SevenZip.swift](https://github.com/mtgto/SevenZip.swift)(MIT License)―― [qoo-oji/SevenZip.swift](https://github.com/qoo-oji/SevenZip.swift) の `streaming-extract` ブランチ(フォーク)を使用。ソリッド書庫を必要なところまでだけ展開するストリーミング読み出し(辞書の範囲での戻り読み、ファイル単位の CRC 検証を含む)と、メモリ上の書庫を開く機能を追加してあります
 - [Unrar.swift](https://github.com/mtgto/Unrar.swift)(内部でRARLAB提供のunrarライブラリを使用)―― [qoo-oji/Unrar.swift](https://github.com/qoo-oji/Unrar.swift) の `memory-archive` ブランチ(フォーク)を使用。メモリ上の書庫を開く機能を追加してあります
 
 ## ビルド方法
