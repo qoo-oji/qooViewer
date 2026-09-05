@@ -405,6 +405,17 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
 - 同名ファイルの確認は `resolveOverwrite(_:applyToRemaining: true)` を**先に**呼んでおけば、
   待ち合わせ(継続)を作らずに素通りする。時間で待つ形を避けられる。
 
+**B4 でできたもの(2026-09-06、435 → 441 テスト)**
+`AppState.openTask` を `private(set)` に(テストが `await openTask?.value` で待てるように)、
+`AppState.init(isPrivateWindow:usesPageListCache:)`(既定 true)。あわせて
+`RecentFilesStore.init(defaults:)`(B5 と共通の口)。テストは `AppStateOpenTests`。
+
+**B4 で分かったこと**
+- 完了の反映は `MenuBarMenuGate.shared.run` を通るが、メニューを追跡していなければ**その場で
+  走る**ので、テストからは `openTask` を待つだけでよい。
+- 画像の枚数の上限は、読み込みを始める前に弾く(`openTask` は作られない)。テストも
+  実在しないパスを並べるだけで通せる ―― 上限の判定はパスの数しか見ない。
+
 **口を開けるときの作法**: 既定値はこれまでどおり(通常経路の差分ゼロ)。時間で待たず `Task` の
 ハンドルを `await` する。既定引数にメインアクター分離の型を置かない(段階 3・4 で 2 度踏んだ。
 `QOO_CI_WARNINGS_AS_ERRORS=YES` で通してから push)。静的な登録簿(`ViewerViewModel.openBookIDs`、

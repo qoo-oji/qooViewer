@@ -68,7 +68,7 @@ final class RecentFilesStore: ObservableObject {
     /// コメント参照)。設定される前・不正な値の場合は既定値へフォールバックし、範囲外の値は
     /// 丸めておく。
     private var maxCount: Int {
-        let stored = UserDefaults.standard.object(forKey: AppPreferences.recentFilesLimitDefaultsKey) as? Double
+        let stored = defaults.object(forKey: AppPreferences.recentFilesLimitDefaultsKey) as? Double
         let value = stored ?? AppPreferences.defaultRecentFilesLimit
         let range = AppPreferences.recentFilesLimitRange
         return Int(min(max(value, range.lowerBound), range.upperBound))
@@ -99,7 +99,13 @@ final class RecentFilesStore: ObservableObject {
     /// 実行中のものが終わってから走らせる(scheduleRefresh/finishRefresh参照)。
     private var needsAnotherRefresh = false
 
-    init() {
+    /// 履歴の保存先。通常はアプリの `UserDefaults.standard` で、テストだけが専用の suite を
+    /// 渡す(`AppPreferences.defaults` と同じ理由)。
+    private let defaults: UserDefaults
+
+    /// - Parameter defaults: 履歴の保存先。既定は実際のアプリの保存先(`.standard`)。
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         // 起動時はキャッシュから即座に一覧を作る(ここではファイルアクセスを一切行わない)。
         publish(loadStored())
         // 実体の確認は起動直後に一度だけ、非同期で行う。旧形式からの移行(パスの穴埋め)も
@@ -238,12 +244,12 @@ final class RecentFilesStore: ObservableObject {
         // 射影で、旧形式から移行した直後などパスが未解決の項目は除かれている(publish参照)。
         // `entries`が空でも保存済みのデータは残っていることがあり、そこで打ち切ると
         // 「すべて削除」したはずの履歴が次回起動時に復活する。
-        let defaults = UserDefaults.standard
+        let defaults = defaults
         guard defaults.object(forKey: defaultsKey) != nil
             || defaults.object(forKey: legacyDefaultsKey) != nil
         else { return }
-        UserDefaults.standard.removeObject(forKey: defaultsKey)
-        UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)
+        defaults.removeObject(forKey: defaultsKey)
+        defaults.removeObject(forKey: legacyDefaultsKey)
         publish([])
     }
 
@@ -286,20 +292,20 @@ final class RecentFilesStore: ObservableObject {
     /// 保存済みの履歴を読む。新形式が無ければ旧形式(ブックマークデータの配列)から移行する。
     /// 移行直後はパスが空のままだが、起動直後のscheduleRefresh()が解決して埋める。
     private func loadStored() -> [StoredEntry] {
-        if let data = UserDefaults.standard.data(forKey: defaultsKey),
+        if let data = defaults.data(forKey: defaultsKey),
            let decoded = try? JSONDecoder().decode([StoredEntry].self, from: data) {
             return decoded
         }
-        let legacy = UserDefaults.standard.array(forKey: legacyDefaultsKey) as? [Data] ?? []
+        let legacy = defaults.array(forKey: legacyDefaultsKey) as? [Data] ?? []
         return legacy.map { StoredEntry(bookmark: $0, path: "", isDirectory: false) }
     }
 
     private func save(_ stored: [StoredEntry]) {
         if let data = try? JSONEncoder().encode(stored) {
-            UserDefaults.standard.set(data, forKey: defaultsKey)
+            defaults.set(data, forKey: defaultsKey)
         }
         // 旧バージョンのアプリに戻した場合でも履歴が残るよう、旧形式も併せて更新しておく。
-        UserDefaults.standard.set(stored.map(\.bookmark), forKey: legacyDefaultsKey)
+        defaults.set(stored.map(\.bookmark), forKey: legacyDefaultsKey)
     }
 
     /// キャッシュから@Publishedの一覧を作る。ファイルアクセスは行わない。

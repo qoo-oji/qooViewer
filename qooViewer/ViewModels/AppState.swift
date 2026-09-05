@@ -78,8 +78,14 @@ final class AppState: ObservableObject {
         !isPrivateWindow || AppPreferences.isPrivateModeDefault
     }
 
-    init(isPrivateWindow: Bool = false) {
+    /// 共有のディスクキャッシュ(ページ一覧。`BookPageListCache`)を使うか。
+    /// **テストのための口**で、既定はこれまでどおり使う ―― テストは実物のアプリと同じ
+    /// キャッシュへテスト用の本を残してはいけない(`ViewerViewModel.usesDiskCaches` と同じ話)。
+    private let usesPageListCache: Bool
+
+    init(isPrivateWindow: Bool = false, usesPageListCache: Bool = true) {
         self.isPrivateWindow = isPrivateWindow
+        self.usesPageListCache = usesPageListCache
     }
 
     @Published var currentBook: MangaBook?
@@ -720,7 +726,10 @@ final class AppState: ObservableObject {
 
     /// 現在進行中の読み込みタスク。開いている途中でさらに別の本を開こうとした場合、
     /// 古い方の結果でcurrentBookが上書きされてしまわないようキャンセルする。
-    private var openTask: Task<Void, Never>?
+    ///
+    /// `private(set)` にしてあるのは**テストが完了を待ち合わせる**ため
+    /// (`await openTask?.value`)。時間で待つ形は書かない(docs/13 の段階 2 の教訓)。
+    private(set) var openTask: Task<Void, Never>?
 
     /// いま本を読み込んでいる最中なら、その進み具合(BookLoadProgress)。読み込んでいない
     /// あいだはnil。ContentViewがこれを見て読み込み中のオーバーレイを出す。
@@ -886,7 +895,7 @@ final class AppState: ObservableObject {
         // `guard let self`まで弱参照にした意味が無くなる(BookLoader.loadは書庫の全走査を
         // 伴い、未接続の外付け/ネットワークボリューム上の本では長く待つ。その間ずっと
         // このAppStateが解放できなくなる)。Swift 6言語モードではエラーにもなる。
-        let cachesPageList = !isPrivateWindow && !request.opensImageFiles
+        let cachesPageList = usesPageListCache && !isPrivateWindow && !request.opensImageFiles
         // 同じ理由(Taskの中で`preferences`を読むと暗黙のselfを強参照で捕まえる)で、
         // 入れ子書庫のメモリ上限もここで取り出しておく。
         let nestedArchiveMemoryLimitBytes =
