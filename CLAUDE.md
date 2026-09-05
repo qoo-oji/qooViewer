@@ -22,8 +22,13 @@ xcodebuild -project qooViewer.xcodeproj -scheme qooViewer -configuration Release
 Normal development is done in Xcode (`Cmd+R`). There is no SwiftLint/SwiftFormat config and no test target in
 this project — do not assume either exists.
 
-Dependencies are Swift Package Manager (resolved automatically by Xcode/xcodebuild): ZIPFoundation, SevenZip.swift
-(tracks the `main` branch, not a version tag), Unrar.swift, UniversalCharsetDetection.
+Dependencies are Swift Package Manager (resolved automatically by Xcode/xcodebuild): ZIPFoundation (0.9.20),
+and two forks maintained by the app's author, each pinned by branch **and** revision in `Package.resolved`:
+`qoo-oji/SevenZip.swift` (`streaming-extract`) and `qoo-oji/Unrar.swift` (`memory-archive`). To move a fork
+forward, push the fork, hand-edit the `revision` in `Package.resolved`, then run
+`xcodebuild -resolvePackageDependencies`. What the forks change and why is in `docs/11-forked-dependencies.md`.
+`UniversalCharsetDetection` was removed on 2026-09-01 (commit `5eaca7f`); zip filename encoding is now
+detected archive-wide with Foundation (`EntryNameDecoder` in Services/ZipArchiveReader.swift).
 
 ## Architecture
 
@@ -108,11 +113,11 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
   `.xcodeproj` (with a shared scheme), `Info.plist`, app icon and String Catalog are all committed, and
   `DEVELOPMENT_TEAM` is deliberately absent — a developer's own Team ID goes in the gitignored
   `Configurations/Local.xcconfig`, which `Configurations/Shared.xcconfig` pulls in via `#include?`.
-  `UniversalCharsetDetection` is pinned to a fork of the upstream package: upstream's `uchardet`
-  submodule points at `git://cgit.freedesktop.org/...`, which no longer serves that protocol, so
-  upstream cannot be resolved by anyone. The fork changes only that URL.
 - `MANUAL.md` — end-user manual for the app's features.
 - `CHANGELOG.md` — Keep a Changelog format, Japanese, `[Unreleased]` section at top.
+- `docs/` — maintainer-facing specification (Japanese): architecture, the reasoning behind design
+  decisions, and the forked dependencies. Start at `docs/README.md`. Keep it in step with the code
+  when a design decision changes; it is not covered by the "do not update" rule below.
 
 ## Working conventions for this repository
 

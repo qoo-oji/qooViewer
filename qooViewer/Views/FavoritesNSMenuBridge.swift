@@ -10,9 +10,9 @@ import AppKit
 /// (ViewerAction.showFavoritesList)からもプログラム的に一覧を開けるようにする必要があり、
 /// SwiftUIのMenuには「コードから開く」ためのAPI(.popover(isPresented:)のような仕組み)が
 /// 無いため、SwiftUIのMenuをそのままツールバーへ使うことができない。
-/// (以前はList+DisclosureGroupの独自実装(FavoritesListPopoverContent.swift。現在は未使用だが
-/// 参考として残してある)で代替していたが、フォルダを開くたびにクリックが必要で、
-/// メニューバー側のようにホバーだけでサブフォルダが展開する使い勝手にはならなかった)。
+/// (以前はList+DisclosureGroupの独自実装(FavoritesListPopoverContent。既に削除済み)で
+/// 代替していたが、フォルダを開くたびにクリックが必要で、メニューバー側のようにホバーだけで
+/// サブフォルダが展開する使い勝手にはならなかった)。
 ///
 /// そこで、AppKitのNSMenuを直接組み立て、`popUp(positioning:at:in:)`で表示することで、
 /// ボタンクリック・キーボードショートカットのどちらから呼び出しても、メニューバー側と同じ
