@@ -38,6 +38,7 @@ struct SourceLayoutImportTests {
     func epubLayoutLandsInTheDatabase() async throws {
         let (_, book) = try await epubBook()
         let library = try InMemoryLibrary()
+        defer { library.close() }
 
         library.layouts.importSourceLayoutIfNeeded(for: book)
 
@@ -55,6 +56,7 @@ struct SourceLayoutImportTests {
     func theSecondImportIsANoOp() async throws {
         let (_, book) = try await epubBook()
         let library = try InMemoryLibrary()
+        defer { library.close() }
 
         library.layouts.importSourceLayoutIfNeeded(for: book)
         // 利用者が自分で変える(DB が正典)。
@@ -72,6 +74,7 @@ struct SourceLayoutImportTests {
     func existingBookLevelSettingsWin() async throws {
         let (_, book) = try await epubBook()
         let library = try InMemoryLibrary()
+        defer { library.close() }
         // 取り込み前に(例えば別の経路で)読み方向だけ決まっている状態。
         library.layouts.setReadingDirectionOverride(for: book, .leftToRight)
 
@@ -88,6 +91,7 @@ struct SourceLayoutImportTests {
     func existingPageStatesWin() async throws {
         let (_, book) = try await epubBook()
         let library = try InMemoryLibrary()
+        defer { library.close() }
         library.layouts.setPageLayoutState(for: book, pageKey: "000001", state: .spreadRight)
 
         library.layouts.importSourceLayoutIfNeeded(for: book)
@@ -106,6 +110,7 @@ struct SourceLayoutImportTests {
             label: "source-layout-epub-empty"
         )
         let library = try InMemoryLibrary()
+        defer { library.close() }
 
         library.layouts.importSourceLayoutIfNeeded(for: book)
 
@@ -119,6 +124,7 @@ struct SourceLayoutImportTests {
     func archivesCreateNoRow() async throws {
         let source = try await ExportSource.zip(pages: 3, label: "source-layout-zip")
         let library = try InMemoryLibrary()
+        defer { library.close() }
 
         library.layouts.importSourceLayoutIfNeeded(for: source.book)
 
@@ -142,6 +148,7 @@ struct SourceLayoutImportTests {
         )
         let book = try await FixtureBook.load(url)
         let library = try InMemoryLibrary()
+        defer { library.close() }
 
         library.layouts.importSourceLayoutIfNeeded(for: book)
 

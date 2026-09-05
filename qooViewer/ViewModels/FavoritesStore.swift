@@ -256,6 +256,20 @@ final class FavoritesStore: ObservableObject {
         }
     }
 
+    /// このストアが張った購読を外す。**テストのための口**(`BookmarkStore.releaseResources`と
+    /// 同じ理由・同じ形。あちらのコメント参照)。
+    func releaseResources() {
+        if let activationObserver {
+            NotificationCenter.default.removeObserver(activationObserver)
+            self.activationObserver = nil
+        }
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        for observer in volumeObservers {
+            workspaceCenter.removeObserver(observer)
+        }
+        volumeObservers = []
+    }
+
     // MARK: - 実体の存在確認(非同期・キャッシュ)
 
     /// キャッシュ済みの存在確認結果を返す。**ファイルアクセスは一切行わない**ので、

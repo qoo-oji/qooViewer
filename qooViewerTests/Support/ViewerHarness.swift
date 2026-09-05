@@ -77,6 +77,7 @@ final class ViewerHarness {
     func close() {
         for viewer in openViewers { viewer.releaseResources() }
         openViewers = []
+        library.close()
     }
 
     // MARK: - 保存されたもの

@@ -72,6 +72,7 @@ struct LibraryImportTests {
     func favoritesKeepTheFolderTree() async throws {
         let source = try await ExportSource.zip(pages: 3, label: "import-fav")
         let library = try InMemoryLibrary()
+        defer { library.close() }
 
         let summary = await library.apply(
             QooLibraryExportFile(favorites: favoritesFile(source, title: "本 A", folders: ["作者A", "続き"])),
@@ -89,6 +90,7 @@ struct LibraryImportTests {
     func mergingTwiceDoesNotDuplicate() async throws {
         let source = try await ExportSource.zip(pages: 3, label: "import-fav-twice")
         let library = try InMemoryLibrary()
+        defer { library.close() }
         let file = QooLibraryExportFile(favorites: favoritesFile(source, title: "本 A", folders: ["作者A"]))
 
         await library.apply(file, policies: .all(.merge))
@@ -104,6 +106,7 @@ struct LibraryImportTests {
     func overwriteReplacesTheWholeTree() async throws {
         let source = try await ExportSource.zip(pages: 3, label: "import-fav-overwrite")
         let library = try InMemoryLibrary()
+        defer { library.close() }
 
         await library.apply(
             QooLibraryExportFile(favorites: favoritesFile(source, title: "古い名前", folders: ["古いフォルダ"])),
@@ -126,6 +129,7 @@ struct LibraryImportTests {
         // (FavoritesStore.deleteAllFavorites のコメント参照)。
         let source = try await ExportSource.zip(pages: 3, label: "import-fav-root")
         let library = try InMemoryLibrary()
+        defer { library.close() }
         let folder = try #require(try? library.favorites.createFolder(name: "古いフォルダ", parent: nil).get())
         library.favorites.forceAddFavorite(book: source.book, to: folder)
         library.favorites.forceAddFavorite(book: source.book, to: nil)
@@ -144,6 +148,7 @@ struct LibraryImportTests {
     @Test("ファイルが見つからない本は、お気に入りに登録しない")
     func favoritesSkipMissingFiles() async throws {
         let library = try InMemoryLibrary()
+        defer { library.close() }
         let missing = ExportedFavorites(
             folders: [],
             books: [ExportedFavoriteBook(bookID: "/nowhere/missing.cbz", title: "無い本", folderId: nil)]
@@ -163,6 +168,7 @@ struct LibraryImportTests {
     func bookmarksConvertKeysToIndices() async throws {
         let source = try await ExportSource.zip(pages: 5, label: "import-bm")
         let library = try InMemoryLibrary()
+        defer { library.close() }
 
         let summary = await library.apply(
             QooLibraryExportFile(
@@ -187,6 +193,7 @@ struct LibraryImportTests {
         // 除外前の並びで数えてしまい、番号 3 は 5 枚目を指してしまう。
         let source = try await ExportSource.zip(pages: 5, label: "import-order")
         let library = try InMemoryLibrary()
+        defer { library.close() }
 
         await library.apply(
             QooLibraryExportFile(
@@ -205,6 +212,7 @@ struct LibraryImportTests {
     func bookmarksFollowTheImportedPageOrder() async throws {
         let source = try await ExportSource.zip(pages: 4, label: "import-order-reverse")
         let library = try InMemoryLibrary()
+        defer { library.close() }
 
         await library.apply(
             QooLibraryExportFile(
@@ -222,6 +230,7 @@ struct LibraryImportTests {
     func unknownKeysAreDropped() async throws {
         let source = try await ExportSource.zip(pages: 3, label: "import-bm-unknown")
         let library = try InMemoryLibrary()
+        defer { library.close() }
 
         let summary = await library.apply(
             QooLibraryExportFile(
@@ -238,6 +247,7 @@ struct LibraryImportTests {
     func missingBooksAreReportedAndSkipped() async throws {
         let source = try await ExportSource.zip(pages: 3, label: "import-bm-missing")
         let library = try InMemoryLibrary()
+        defer { library.close() }
 
         let summary = await library.apply(
             QooLibraryExportFile(
@@ -260,6 +270,7 @@ struct LibraryImportTests {
     func bookmarkPolicies() async throws {
         let source = try await ExportSource.zip(pages: 3, label: "import-bm-policy")
         let library = try InMemoryLibrary()
+        defer { library.close() }
         library.bookmarks.addBookmark(
             bookID: source.book.id, pageIndex: 0, pageKey: source.key(1), name: "自分で付けた名前"
         )
@@ -278,6 +289,7 @@ struct LibraryImportTests {
     func layoutsImportEverything() async throws {
         let source = try await ExportSource.zip(pages: 4, label: "import-layout")
         let library = try InMemoryLibrary()
+        defer { library.close() }
 
         let summary = await library.apply(
             QooLibraryExportFile(
@@ -306,6 +318,7 @@ struct LibraryImportTests {
     func mergeKeepsExistingBookLevelSettings() async throws {
         let source = try await ExportSource.zip(pages: 3, label: "import-layout-merge")
         let library = try InMemoryLibrary()
+        defer { library.close() }
         library.layouts.setReadingDirectionOverride(for: source.book, .rightToLeft)
 
         await library.apply(
@@ -332,6 +345,7 @@ struct LibraryImportTests {
     func mergeKeepsExistingPageStates() async throws {
         let source = try await ExportSource.zip(pages: 3, label: "import-layout-pages")
         let library = try InMemoryLibrary()
+        defer { library.close() }
         library.layouts.setPageLayoutState(for: source.book, pageKey: source.key(1), state: .spreadRight)
 
         await library.apply(
@@ -350,6 +364,7 @@ struct LibraryImportTests {
     func overwriteReplacesLayoutData() async throws {
         let source = try await ExportSource.zip(pages: 3, label: "import-layout-overwrite")
         let library = try InMemoryLibrary()
+        defer { library.close() }
         library.layouts.setReadingDirectionOverride(for: source.book, .rightToLeft)
         library.layouts.setPageLayoutState(for: source.book, pageKey: source.key(1), state: .spreadRight)
 
@@ -373,6 +388,7 @@ struct LibraryImportTests {
     @Test("メタデータは実ファイルが無くても取り込める")
     func metadataDoesNotNeedTheFile() async throws {
         let library = try InMemoryLibrary()
+        defer { library.close() }
         let entry = ExportedBookMetadataEntry(
             bookID: "/nowhere/missing.cbz", author: "著者", title: "題名", series: "シリーズ", seriesIndex: "3"
         )
@@ -390,6 +406,7 @@ struct LibraryImportTests {
     @Test("メタデータの merge は既存の登録を触らず、overwrite は置き換える")
     func metadataPolicies() async throws {
         let library = try InMemoryLibrary()
+        defer { library.close() }
         let bookID = "/nowhere/missing.cbz"
         let first = ExportedBookMetadataEntry(
             bookID: bookID, author: "最初の著者", title: "題名", series: "", seriesIndex: ""
@@ -412,6 +429,7 @@ struct LibraryImportTests {
     @Test("フォーマット定義は丸ごと差し替え、巻数ルールは「巻数 → シリーズ名の分離」の順に並ぶ")
     func metadataFormatsAreReplacedInOrder() async throws {
         let library = try InMemoryLibrary()
+        defer { library.close() }
 
         let summary = await library.apply(
             QooLibraryExportFile(
@@ -439,6 +457,7 @@ struct LibraryImportTests {
     func ignoreChangesNothing() async throws {
         let source = try await ExportSource.zip(pages: 3, label: "import-ignore")
         let library = try InMemoryLibrary()
+        defer { library.close() }
 
         let summary = await library.apply(
             QooLibraryExportFile(
@@ -475,7 +494,9 @@ struct LibraryImportTests {
     func aLibraryRoundTripsThroughTheFile() async throws {
         let source = try await ExportSource.zip(pages: 5, label: "roundtrip")
         let origin = try InMemoryLibrary(label: "origin")
+        defer { origin.close() }
         let destination = try InMemoryLibrary(label: "destination")
+        defer { destination.close() }
 
         // 移す側のライブラリを、4 カテゴリすべてが埋まった状態にする。
         let folder = try #require(try? origin.favorites.createFolder(name: "作者A", parent: nil).get())

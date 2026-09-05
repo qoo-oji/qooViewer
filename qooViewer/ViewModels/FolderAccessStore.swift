@@ -56,7 +56,13 @@ final class FolderAccessStore: ObservableObject {
     /// 差分だけを開閉する。
     private var accessedURLsByPath: [String: URL] = [:]
 
-    init() {
+    /// アクセス権の保存先。通常はアプリの `UserDefaults.standard` で、テストだけが専用の
+    /// suite を渡す(`AppPreferences.defaults` と同じ理由)。
+    private let defaults: UserDefaults
+
+    /// - Parameter defaults: アクセス権の保存先。既定は実際のアプリの保存先(`.standard`)。
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         reload()
     }
 
@@ -92,7 +98,7 @@ final class FolderAccessStore: ObservableObject {
             return existingURL.path == url.path || isAncestor(url, of: existingURL)
         }
         bookmarks.append(newData)
-        UserDefaults.standard.set(bookmarks, forKey: Self.defaultsKey)
+        defaults.set(bookmarks, forKey: Self.defaultsKey)
         reload()
         return true
     }
@@ -102,7 +108,7 @@ final class FolderAccessStore: ObservableObject {
     func remove(_ entry: Entry) {
         var bookmarks = rawBookmarks()
         bookmarks.removeAll { resolvedURL(from: $0)?.path == entry.url.path }
-        UserDefaults.standard.set(bookmarks, forKey: Self.defaultsKey)
+        defaults.set(bookmarks, forKey: Self.defaultsKey)
         reload()
     }
 
@@ -123,7 +129,7 @@ final class FolderAccessStore: ObservableObject {
     }
 
     private func rawBookmarks() -> [Data] {
-        UserDefaults.standard.array(forKey: Self.defaultsKey) as? [Data] ?? []
+        defaults.array(forKey: Self.defaultsKey) as? [Data] ?? []
     }
 
     private func resolvedURL(from data: Data) -> URL? {

@@ -185,6 +185,20 @@ final class BookmarkStore: ObservableObject {
         }
     }
 
+    /// このストアが張った購読を外す。**テストのための口**で、アプリのストアはアプリと同じ
+    /// 寿命なので呼ばない(上のdeinitも実際には走らない)。
+    ///
+    /// テストは自前のストアを次々に作っては捨てる。外さないと、**捨てられている最中の**
+    /// ストアが他のテストの投げた`.bookmarksDidChange`で目を覚まし、解放されかけた保存先へ
+    /// フェッチしに行ってテストホストごと落ちる(2026-09-06 に実測。deinitの解除だけでは
+    /// 間に合わない ―― 解放がメインスレッド以外で始まると、通知の処理と重なる)。
+    func releaseResources() {
+        if let changeObserver {
+            NotificationCenter.default.removeObserver(changeObserver)
+            self.changeObserver = nil
+        }
+    }
+
     /// すべてのブックマークをbookIDごとにグループ化し直す。
     ///
     /// 以前は、EPUBの目次/PDFのアウトラインから自動的に取り込んだブックマーク

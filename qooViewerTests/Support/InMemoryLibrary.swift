@@ -55,9 +55,22 @@ final class InMemoryLibrary {
         )
     }
 
+    /// このライブラリを閉じる。**テストの最後に必ず呼ぶこと**(`defer { library.close() }`)。
+    ///
+    /// ストアが張っている通知の購読を、コンテナが解放されるより**前に**外すためのもの。
+    /// 外さないと、捨てられている最中のストアが他のテストの `.bookmarksDidChange` で
+    /// 目を覚まし、解放されかけた保存先へフェッチしに行ってテストホストごと落ちる
+    /// (2026-09-06 に実測。`BookmarkStore.releaseResources` のコメント参照)。
+    /// deinit に任せられないのは、解放がメインスレッド以外で始まると通知の処理と重なるため。
+    func close() {
+        bookmarks.releaseResources()
+        favorites.releaseResources()
+        UserDefaults().removePersistentDomain(forName: metadataFormatsSuiteName)
+    }
+
     deinit {
-        // `TemporaryDirectory` と同じ後始末。メモリ内のコンテナはここで手放されて消えるが、
-        // `UserDefaults` の領域はファイルとして残るので明示的に消す。
+        // `close()` を呼び忘れた場合の保険。`UserDefaults` の領域はファイルとして残るので
+        // 明示的に消す(メモリ内のコンテナはここで手放されて消える)。
         UserDefaults().removePersistentDomain(forName: metadataFormatsSuiteName)
     }
 

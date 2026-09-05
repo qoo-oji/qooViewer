@@ -376,6 +376,24 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
   `modelContext.insert` ではなく**ストアの API を通す**こと。直接入れた行は
   `updatePageIndices` の対象にならない。
 
+**B3 でできたもの(2026-09-06、423 → 428 テスト)**
+`FolderAccessStore.init(defaults:)`、`BookmarkStore.releaseResources()` /
+`FavoritesStore.releaseResources()`(張った購読を外す)、`InMemoryLibrary.close()`。
+テストは `LibraryCleanupTests`。
+
+**B3 で分かったこと**
+- **テスト用のストアは、他のテストの通知で目を覚ます。** `.bookmarksDidChange` は
+  `NotificationCenter.default` へのアプリ全体の放送なので、**捨てられている最中の**
+  メモリ内ライブラリのストアがこれで `reload()` を始め、解放されかけた保存先へフェッチして
+  **テストホストが落ちた**(SwiftData の中で EXC_BREAKPOINT。並行して 5 つのライブラリを
+  作っては捨てるテストで再現し、ライブラリを生かしたままにすると再現しなくなることで確認)。
+  `BookmarkStore` は deinit で購読を外しているが**間に合わない** ―― 解放がメインスレッド
+  以外で始まると、メインキューでの通知の処理と重なる。`close()` で、コンテナが解放される
+  より前に、メインアクターの上で外す。
+- お気に入りの登録は**実体のあるファイル**でないと失敗する
+  (`FavoritesStore.makeBookmarkData` がセキュリティスコープ付きブックマークを作れない)。
+  `bookID` だけの本ではテストにならない。
+
 **口を開けるときの作法**: 既定値はこれまでどおり(通常経路の差分ゼロ)。時間で待たず `Task` の
 ハンドルを `await` する。既定引数にメインアクター分離の型を置かない(段階 3・4 で 2 度踏んだ。
 `QOO_CI_WARNINGS_AS_ERRORS=YES` で通してから push)。静的な登録簿(`ViewerViewModel.openBookIDs`、
