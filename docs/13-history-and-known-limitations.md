@@ -94,13 +94,13 @@
 - 環境設定「レイアウト」の形式ページを、アプリの他の場所から名指しで開く経路
   (`SettingsNavigator` に `appearanceTarget` 相当が無い)。
 
-### テストのパタンセット ―― 段階 2〜4(引き継ぎ、2026-09-05)
+### テストのパタンセット ―― 段階 3〜4(引き継ぎ、2026-09-06)
 
 `qooViewerTests` を「UI を伴わない nonisolated のパイプライン」まで広げる計画(段階 0〜4)のうち、
-**段階 0(フィクスチャ・台帳・生成スクリプト・Support のビルダー・golden テスト)と
-段階 1(読み込み側)は完了**(→ [02](02-project-and-build.md#テストのフィクスチャ))。
+**段階 0(フィクスチャ・台帳・生成スクリプト・Support のビルダー・golden テスト)・
+段階 1(読み込み側)・段階 2(純粋ロジック)は完了**(→ [02](02-project-and-build.md#テストのフィクスチャ))。
 決めごとは段階 0 と同じ ―― 共有の保存先に触れない、golden は `sortKey` の列、既知の限界は
-「落ちない・数は合う」で固定、テスト全体で 60 秒以内(現状 83 テスト・約 1.1 秒)。
+「落ちない・数は合う」で固定、テスト全体で 60 秒以内(現状 301 テスト・約 1.6 秒)。
 
 **段階 1 でできたもの(2026-09-05)**
 - `ArchiveReaderTests` ―― `ArchiveReading` の適合テスト。台帳に `archive`(`listFilePaths` の全件と、
@@ -129,25 +129,38 @@
 - `dataPrefix` の打ち切りは伸長のチャンク単位なので、小さなフィクスチャでは「頼んだバイト数ちょうど」
   にはならない(効き目は実物の本での実測の話)。
 
+**段階 2 でできたもの(2026-09-06、84 → 301 テスト)**
+suite の一覧は [02](02-project-and-build.md#テストターゲットqooviewertests)。計画に挙げた対象は
+すべて入っている ―― `EffectivePageOrder` / `BookOpenRequest` / `ComicInfoXML`・`ComicInfoResolver` /
+`MetadataFormatCompiler`・`BookMetadataDeriver` の既定ルール表 / `LayoutAutoCalculator` /
+`PageLayoutState ↔ PageSpreadPosition` / `PagePixelCache` / `BookPageListCache.Entry` の旧版 JSON /
+`ThumbnailDiskCache.trimThreshold` / `TemporaryFileStore.isStaleEntry` / `ImageDecoder` /
+`ContrastCorrector` / `DirectoryBrowser.sortedEntries` / `SiblingFinder` / `FileNodeIdentifier` /
+`QooLibraryExportFile` の往復と版 2 / `RemappableKey`・`MouseTrigger` / `String(localized:language:)`。
+
+計画から変えたところ:
+- **旧版の JSON はフィクスチャにしなかった**(`Fixtures/json/` を作っていない)。読めるテキストなので、
+  期待値の隣にテストの中へ直接書いたほうが分かりやすい(`LibraryJSONSchemaTests`)。
+- **avif はコミットした**。計画では「手元に encoder が無い」としていたが、実際は ImageIO からも
+  `sips` からも書ける。それでも実物を置いたのは、将来書けなくなっても気付けるようにするため。
+  webp は本当にエンコーダが無いので、`scripts/fixtures/make-webp.py` で自前で書いている
+  (単色なら画素のデータが 0 ビットで済む VP8L の性質を使う。→ [02](02-project-and-build.md#テストのフィクスチャ))。
+
+**段階 2 で分かったこと**
+- **時間で待つテストは、テストが増えると壊れる。** `BookLoaderBehaviorTests` の中止のテストは
+  「進み具合の通知で `Thread.sleep(0.2)`、100ms 後に中止」だった。`Thread.sleep` は協調スレッドを
+  塞ぐので、並行して走るテストが増えると**テスト側の `Task.sleep` が再開する前に読み込みが走り切り**、
+  必ず落ちるようになった(84 → 264 テストで再現)。中止の合図を走査そのもの(通知の中)から出す形へ
+  直した ―― 速さに依存しない。新しく足すテストでも、時間で待つ形は避けること。
+- `AppleLanguages` は NSGlobalDomain にもあるので、アプリの領域から消しても
+  `stringArray(forKey:)` は OS の値へ抜けて返る。「消えたこと」を見るには
+  `persistentDomain(forName:)` でその領域を直接覗く。
+- ヘッダーに巨大な寸法を書いただけの画像(`ImageDecoder.hasAcceptablePixelCount` を試したい)は
+  **フィクスチャにできない**。ImageIO は実データの無い PNG / JPEG に寸法を返さず(判定は素通しの
+  `true` になり、単に「壊れた画像」として nil になる)、実データを持たせると 200KB の上限を超える
+  (4 億画素を単色で deflate しても 1MB 超)。あの判定はテストで固定していない。
+
 **残っているもの**
-
-*段階 1 は完了*。最後に残っていた `folderStreamRestartCount` の回帰テストも、フォークで public に
-してから `ArchiveReaderTests.solidSevenZipDoesNotRestart` として入れた(→
-[11](11-forked-dependencies.md#upstream-から直したもの2026-09-05))。
-
-**段階 2: 純粋ロジック(約 70 テスト)** ―― `EffectivePageOrder`(override の欠落 / 余剰 / 除外 /
-`.document` は並べ替えない / `usesFinderOrderOverride`)、`BookOpenRequest(openingCandidates:)`
-(画像だけ → 1 冊・混在 → 先頭・重複・1000 枚上限)、`ComicInfoXML.parse`(大小文字 / 順序 / 重複 /
-XXE を読まない / 往復)と `ComicInfoResolver`、`MetadataFormatCompiler` と `BookMetadataDeriver.derive`
-の既定ルール表(20〜30 行)、`LayoutAutoCalculator.recalculate`(起点単 / 組、右開き・左開きで鏡、横長、
-端数は遠い側、before / after は起点を含まない)、`PageLayoutState ↔ PageSpreadPosition`、
-`PagePixelCache`(LRU、`peek` は昇格しない)、`BookPageListCache.Entry` の版 2 JSON、
-`ThumbnailDiskCache.trimThreshold`、`TemporaryFileStore.isStaleEntry`、`ImageDecoder`(png / jpg / gif /
-webp / avif / heic / bmp / tiff の寸法・EXIF 回転・`maxPixelSize`・切れた入力)、`ContrastCorrector`、
-`DirectoryBrowser.sortedEntries`、`SiblingFinder`、`FileNodeIdentifier`、`QooLibraryExportFile` の往復と
-旧版 JSON、`RemappableKey` / `MouseTrigger`、`String(localized:language:)`。画像形式のフィクスチャ
-(webp / avif は手元に encoder が無い ―― `sips` は heic まで)と旧版 JSON(自分の書き出しをダミー化)は
-このときに `Fixtures/images/`・`Fixtures/json/` へ足す。
 
 **段階 3: 書き出しのラウンドトリップ(約 20 テスト)** ―― `CbzExporter` / `EpubExporter` / `PDFExporter`
 で書き出し → `FixtureBook.load` / `EpubStructureResolver.resolve` / `CGPDFDocument` で開き直す

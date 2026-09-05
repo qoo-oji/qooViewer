@@ -25,7 +25,7 @@ done
 
 WORK=$(mktemp -d -t qoo-fixtures)
 trap 'rm -rf "$WORK"' EXIT
-mkdir -p "$OUT"/{zip,7z,rar,nested,pdf}
+mkdir -p "$OUT"/{zip,7z,rar,nested,pdf,images}
 
 # ── ページ画像 ───────────────────────────────────────────────────────────────
 page()      { mkdir -p "$(dirname "$1")"; python3 "$SCRIPTS/make-page-image.py" "$@"; }  # page DEST NUMBER [--wide]
@@ -221,6 +221,17 @@ make_pdf "$OUT/pdf/pdf-r2l-twopageleft.pdf" --pages 3 --direction R2L --page-lay
 make_pdf "$OUT/pdf/pdf-l2r-singlepage.pdf"  --pages 2 --direction L2R --page-layout SinglePage
 make_pdf "$OUT/pdf/pdf-plain.pdf"           --pages 3
 make_pdf "$OUT/pdf/pdf-outline.pdf"         --pages 4 --outline --title "テスト本" --author "作者" --keywords "fixture"
+
+# ── 画像形式 ─────────────────────────────────────────────────────────────────
+# ImageDecoder が扱う形式のうち、**テストの中では作れないもの**だけをここに置く。
+# png / jpg / tiff / gif / bmp / heic は PageImageFactory(ImageIO)が毎回作れるので置かない。
+#   - webp: macOS にエンコーダが無い(ImageIO の書き出し形式にも sips の Writable にも無い)。
+#           自前の最小の可逆 WebP を書く(make-webp.py)。
+#   - avif: sips でしか作れない(ImageIO からも書けるが、将来落ちても気付けないよう実物を置く)。
+page "$WORK/image-src.png" 1
+python3 "$SCRIPTS/make-webp.py" "$OUT/images/image-solid.webp" 1
+python3 "$SCRIPTS/make-webp.py" "$OUT/images/image-wide.webp" 2 --wide
+sips -s format avif "$WORK/image-src.png" --out "$OUT/images/image-solid.avif" > /dev/null
 
 # ── 台帳 ─────────────────────────────────────────────────────────────────────
 find "$OUT" -name .DS_Store -delete

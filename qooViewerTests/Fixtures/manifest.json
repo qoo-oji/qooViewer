@@ -132,6 +132,24 @@
         }
       }
     },
+    "images/image-solid.avif": {
+      "bytes": 377,
+      "sha256": "e863e6d4d59b4813b6b6a2a3b75fb5971b767d32a25a6b01f5bee8b9ae9bbdfe",
+      "howMade": "sips -s format avif(build-fixtures.sh)。8x12 px・R=1 の PNG から変換",
+      "purpose": "ImageDecoder が avif を読めること。非可逆なので中身の番号は ±2 の幅で見る"
+    },
+    "images/image-solid.webp": {
+      "bytes": 32,
+      "sha256": "18925d4a7ded2c794080312b7f7c99e8b1402374cb25de1c8ee9772c22d6adab",
+      "howMade": "make-webp.py(build-fixtures.sh)。自前の最小の可逆 WebP(VP8L)。8x12 px・R=1",
+      "purpose": "macOS に WebP のエンコーダが無いのでコミットしてある。ImageDecoder が webp を読めること(寸法・中身・maxPixelSize)"
+    },
+    "images/image-wide.webp": {
+      "bytes": 32,
+      "sha256": "295df48c007609a6b108e6d9326979827b9f48ce6d2add21b9e8ed8c80a0aaf2",
+      "howMade": "make-webp.py --wide(build-fixtures.sh)。24x12 px・R=2",
+      "purpose": "横長の webp。縦横比から横長と判定できること"
+    },
     "nested/nested-7z-in-zip.cbz": {
       "bytes": 769,
       "sha256": "7a415ca10e90372df6e5639c09a5241436fb53948d336cf0dd446417309863f1",

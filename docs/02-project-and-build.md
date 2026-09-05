@@ -58,12 +58,14 @@ Swift Testing の単体テストです(2026-09-05 追加)。アプリを TEST_HO
 `PageRef` までの経路と、EPUB / PDF の構造解決を、下記のフィクスチャで通します。画面の自動操作
 (AX 経由)は再現性が低いので載せません(→ [12](12-verification-and-debugging.md))。
 
-いまある suite(2026-09-05 時点、83 テスト・約 1.1 秒):
+いまある suite(2026-09-06 時点、301 テスト・約 1.6 秒):
+
+読み込みの経路(段階 1):
 
 | suite | 見るもの |
 | --- | --- |
 | `PageOrderTests` / `ArchiveClassificationTests` | 正準順・表示順の比較、拡張子の判定 |
-| `FixtureBookTests` | コミット済みの本 42 冊を開いて台帳の `book` と突き合わせる(golden) |
+| `FixtureBookTests` | コミット済みの本を開いて台帳の `book` と突き合わせる(golden) |
 | `GeneratedFixtureTests` | テストの中で作る本(フォルダ・zip・EPUB・PDF)を開く |
 | `ArchiveReaderTests` | `ArchiveReading` の適合(zip / 7z / rar × ファイル入力 / メモリ入力) |
 | `NestedArchiveResolverTests` | 入れ子の書庫の予算・行き先・一時ファイルの寿命・LRU |
@@ -72,7 +74,24 @@ Swift Testing の単体テストです(2026-09-05 追加)。アプリを TEST_HO
 | `BookInternalBrowsingTests` | 本の中身ブラウザの `matchKey` と並び |
 | `EpubStructureTests` / `PDFStructureTests` | spine / Catalog / 書誌メタデータ / 目次 |
 
-残っている段階(2〜4)は [13](13-history-and-known-limitations.md#テストのパタンセット--段階-24引き継ぎ2026-09-05)。
+純粋ロジック(段階 2、2026-09-06 追加):
+
+| suite | 見るもの |
+| --- | --- |
+| `EffectivePageOrderTests` | 並べ替え・除外・`.document`・旧版の並び(ブックマークの添字空間) |
+| `LayoutAutoCalculatorTests` / `PageLayoutStateTests` | 自動レイアウトのパリティ計算、EPUB の見開き配置との相互変換 |
+| `BookOpenRequestTests` | 「開く対象」の分類と正規化(重複除去・自然順・上限) |
+| `ComicInfoXMLTests` / `ComicInfoResolverTests` | ComicInfo.xml の生成・解析・往復・XXE の遮断、探し方 |
+| `BookMetadataDeriverTests` | ファイル名からの推測(既定のルール表) |
+| `PagePixelCacheTests` | 厳密な LRU、`peek` が昇格しないこと、上限を瞬間的にも超えないこと |
+| `CacheHousekeepingTests` | 構造キャッシュの JSON(旧版含む)、刈り込みの境目、一時ファイルの残骸の判定 |
+| `ImageDecoderTests` / `ContrastCorrectorTests` | 対応形式・EXIF の回転・壊れた入力、カラー判定とオートレベル |
+| `DirectoryBrowserTests` | 一覧と並べ替え(全順序)、`SiblingFinder`、`FileNodeIdentifier` |
+| `LibraryJSONSchemaTests` | 保存データの書き出し / 読み込みの往復と、版 2 のファイル |
+| `InputMappingTests` | `RemappableKey` / `MouseTrigger` の安定した識別子と判定 |
+| `AppLanguageTests` | `String(localized:language:)` が**翻訳の選択まで**切り替えること |
+
+残っている段階(3〜4)は [13](13-history-and-known-limitations.md#テストのパタンセット--段階-34引き継ぎ2026-09-06)。
 
 **テストは共有の保存先に触れません。** TEST_HOST は実物のアプリなので、手元では自分の履歴・
 キャッシュ・SwiftData と同じコンテナで走ります。本を開くときは `FixtureBook.load`
@@ -120,12 +139,26 @@ xcodebuild -project qooViewer.xcodeproj -scheme qooViewer -configuration Debug \
   合計 2 MB。
 - **テストの中で作るもの**: フォルダの本(`FixtureFolder`)、UTF-8 の zip(`ZipFixtureBuilder`)、
   EPUB(`EpubFixtureBuilder`: spine / spread / 読み方向 / 名前空間の書き方を選べる)、画像を貼った
-  PDF(`PDFFixtureBuilder`)。git のファイル名正規化や隠しファイルの扱いに左右されないよう、
-  名前そのものを試すものはこちら。`qooViewerTests/Support/` にあります。
+  PDF(`PDFFixtureBuilder`)、画素を指定した画像(`PixelGrid`: 階調・EXIF の回転)。git のファイル名
+  正規化や隠しファイルの扱いに左右されないよう、名前そのものを試すものはこちら。
+  `qooViewerTests/Support/` にあります。
+
+`Fixtures/images/` は画像形式の回帰用で、**テストの中では作れないものだけ**を置いています ――
+`webp`(macOS にエンコーダが無い。ImageIO の書き出し形式にも `sips --formats` の Writable にも
+無く、`cwebp` も標準では入っていない)と `avif`(`sips` でしか作れない)。webp は
+`scripts/fixtures/make-webp.py` が自前で書きます: 可逆 WebP(VP8L)は 5 つのハフマン木を
+「記号が 1 つだけの単純符号」にでき、その木は 1 記号あたり 0 ビットしか使わないので、**単色の画像
+なら画素のデータが 1 ビットも要らない**(ヘッダーと符号定義だけの 32 バイト)。png / jpg / tiff /
+gif / bmp / heic は `PageImageFactory` が毎回作れるので置きません。
+
+保存データの JSON(`QooLibraryExportFile` の旧版)はフィクスチャにせず、テストの中に直接書いて
+います ―― 読めるテキストなので、期待値の隣に置いたほうが分かりやすいためです
+(`LibraryJSONSchemaTests`)。
 
 作り直しは `scripts/fixtures/build-fixtures.sh`(手元だけ。`7zz` と `rar` が要る。rar 7.2x は RAR4
 を作れないので、RAR4 の書庫は実物が手に入ったときに手で置く)。`make-legacy-zip.py` はファイル名の
-バイト列を決めて zip を直接書き、`make-pdf.py` は xref を計算して小さな PDF を書きます。
+バイト列を決めて zip を直接書き、`make-pdf.py` は xref を計算して小さな PDF を、`make-webp.py` は
+最小の可逆 WebP を書きます。
 台帳の sha256 は `update-manifest.py` が書き、`scripts/ci/check-fixtures.sh` が「ファイルと台帳が
 1 対 1」「sha256 一致」「上限」「howMade / purpose が空でない」「`archive.entries` が空でない」を
 見ます。

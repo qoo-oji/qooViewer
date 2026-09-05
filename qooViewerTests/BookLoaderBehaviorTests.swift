@@ -14,19 +14,27 @@ struct BookLoaderBehaviorTests {
     /// `BookLoader.load` の中身は `Task.detached` で、**キャンセルは継承されない**(Swift の仕様)。
     /// `withTaskCancellationHandler` で手で伝えているので、そこが外れると中止が効かなくなる。
     /// 入れ子を辿るあいだ `Task.checkCancellation` を通るフィクスチャ(3 段の入れ子)を、進み具合の
-    /// 通知で待たせながら中止する。
+    /// 通知の中から中止する。
+    ///
+    /// **時間で待たないこと。** 以前は「進み具合の通知で 0.2 秒眠らせ、100ms 後に中止する」形
+    /// だったが、`Thread.sleep` は協調スレッドを塞ぐため、テストが増えて並行実行が混むと
+    /// テスト側の `Task.sleep` が再開する前に読み込みが走り切ってしまい、必ず落ちるように
+    /// なった(2026-09-06 に実測)。中止の合図を走査そのものから出せば、速さに依存しない。
     @Test("読み込み中の中止は CancellationError になる")
     func cancellation() async throws {
         let url = Fixtures.url("nested/nested-depth3.cbz")
-        // 進み具合の通知は読み込みのタスクの中で同期的に呼ばれるので、そこで眠らせれば走査も
-        // そのぶん止まる。最初の通知(本そのものの書庫を見つけた時点)は列挙より前に必ず来る。
-        let task = Task.detached {
-            _ = try await FixtureBook.load(url) { _ in Thread.sleep(forTimeInterval: 0.2) }
+        let box = CancellationBox()
+        box.task = Task.detached {
+            _ = try await FixtureBook.load(url) { _ in
+                // task へ代入し終わるまで待つ(下の signal で開く。以後は素通り)。
+                box.published.wait()
+                box.published.signal()
+                box.task?.cancel()
+            }
         }
-        try await Task.sleep(for: .milliseconds(100))
-        task.cancel()
+        box.published.signal()
 
-        await #expect(throws: CancellationError.self) { try await task.value }
+        await #expect(throws: CancellationError.self) { try await box.task?.value }
     }
 
     // MARK: - 進み具合
@@ -126,6 +134,13 @@ struct BookLoaderBehaviorTests {
         await #expect(throws: BookLoaderError.notFound) {
             _ = try await FixtureBook.load(temp.file("nope.cbz"))
         }
+    }
+
+    /// 読み込みのタスクを、その読み込み自身の通知から中止できるようにするための箱。
+    /// `published` は「`task` への代入が済んだ」ことを表す門で、通知が先に走っても待てるようにする。
+    private nonisolated final class CancellationBox: @unchecked Sendable {
+        let published = DispatchSemaphore(value: 0)
+        var task: Task<Void, any Error>?
     }
 
     /// `onProgress` はメインアクター外から呼ばれるので、受け取り側で守る。
