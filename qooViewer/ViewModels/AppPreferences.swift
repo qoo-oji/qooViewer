@@ -138,6 +138,25 @@ final class AppPreferences: ObservableObject {
         }
     }
 
+    /// 設定の保存先。通常はアプリの`UserDefaults.standard`で、テストだけが専用の
+    /// suite(`UserDefaults(suiteName:)`)を渡す。
+    ///
+    /// この型は**すべての設定の既定値の正典**(`init`の`?? 既定値`)であり、旧キーの読み替え
+    /// (`migrateLoopBehaviorIfNeeded`)や面ごとの「初期設定に戻す」(`resetToDefaults`)も
+    /// ここにしか無い。保存先が`.standard`に固定されていると、それらをテストから確かめる手段が
+    /// 実際にアプリの設定を書き換えることになってしまうため、保存先だけを差し替えられるように
+    /// してある。通常の経路(引数なしの`AppPreferences()`)の挙動はこれまでと1つも変わらない。
+    private let defaults: UserDefaults
+
+    /// 保存先が実際のアプリのもの(`.standard`)かどうか。
+    ///
+    /// falseのとき ―― つまりテストが専用のsuiteを渡したとき ―― は、**保存先の外へ出ていく
+    /// 副作用**を行わない: サムネイルのディスクキャッシュの設定(実ファイルの削除を伴う)、
+    /// 外観の適用(`NSApp.appearance`)、2つの通知(開いている本を並べ直させる/履歴を
+    /// 切り詰めさせる)。`AppleLanguages`は保存先の中で完結するので、こちらは`defaults`へ
+    /// 素直に書く(渡されたsuiteに書かれるだけで、アプリには効かない)。
+    private let sharesGlobalState: Bool
+
     /// 入力ファイルなしで起動した場合(Finderでの直接オープンやDockアイコンへの
     /// ドラッグ&ドロップ以外の、通常の起動)に、前回終了時にアクティブだった画面/タブが
     /// 表示していた本を自動的に開く。すべてのウインドウ・タブを復元するわけではなく、
@@ -145,23 +164,23 @@ final class AppPreferences: ObservableObject {
     /// 中身が変わっていないかを確認し、どちらかに該当する場合は復元しない
     /// (詳細はContentView.swiftのresolveLastActiveBookURLIfUnchanged参照)。
     @Published var launchOpensLastBook: Bool {
-        didSet { UserDefaults.standard.set(launchOpensLastBook, forKey: Keys.launchOpensLastBook) }
+        didSet { defaults.set(launchOpensLastBook, forKey: Keys.launchOpensLastBook) }
     }
     /// 起動時にフルスクリーンにする
     @Published var launchFullScreen: Bool {
-        didSet { UserDefaults.standard.set(launchFullScreen, forKey: Keys.launchFullScreen) }
+        didSet { defaults.set(launchFullScreen, forKey: Keys.launchFullScreen) }
     }
     /// 最初のページで「前のページへ」の操作をしたときの挙動(FirstPageBehavior参照)
     @Published var firstPageBehavior: FirstPageBehavior {
-        didSet { UserDefaults.standard.set(firstPageBehavior.rawValue, forKey: Keys.firstPageBehavior) }
+        didSet { defaults.set(firstPageBehavior.rawValue, forKey: Keys.firstPageBehavior) }
     }
     /// 最後のページで「次のページへ」の操作をしたときの挙動(LastPageBehavior参照)
     @Published var lastPageBehavior: LastPageBehavior {
-        didSet { UserDefaults.standard.set(lastPageBehavior.rawValue, forKey: Keys.lastPageBehavior) }
+        didSet { defaults.set(lastPageBehavior.rawValue, forKey: Keys.lastPageBehavior) }
     }
     /// 画像が画面より小さいとき、最大何%まで拡大して表示するか(100〜800)
     @Published var maxUpscalePercent: Double {
-        didSet { UserDefaults.standard.set(maxUpscalePercent, forKey: Keys.maxUpscalePercent) }
+        didSet { defaults.set(maxUpscalePercent, forKey: Keys.maxUpscalePercent) }
     }
     /// トラックパッドのピンチイン・ピンチアウトで、初期表示(=そのモードでの通常の表示倍率)を
     /// 100%としたとき、最大何%まで拡大できるか(100〜800)。
@@ -174,31 +193,31 @@ final class AppPreferences: ObservableObject {
     /// より高解像度のソース(highResolutionMaxPixelSize、8000px)へ差し替えて描画するため、
     /// 既定の400%程度までは実用的な画質を保てる(ViewerView.pageArea参照)。
     @Published var maxPinchZoomPercent: Double {
-        didSet { UserDefaults.standard.set(maxPinchZoomPercent, forKey: Keys.maxPinchZoomPercent) }
+        didSet { defaults.set(maxPinchZoomPercent, forKey: Keys.maxPinchZoomPercent) }
     }
     /// ルーペの拡大率(%、100〜800)
     @Published var loupeMagnificationPercent: Double {
-        didSet { UserDefaults.standard.set(loupeMagnificationPercent, forKey: Keys.loupeMagnificationPercent) }
+        didSet { defaults.set(loupeMagnificationPercent, forKey: Keys.loupeMagnificationPercent) }
     }
     /// ルーペの表示直径(pt)
     @Published var loupeDiameter: Double {
-        didSet { UserDefaults.standard.set(loupeDiameter, forKey: Keys.loupeDiameter) }
+        didSet { defaults.set(loupeDiameter, forKey: Keys.loupeDiameter) }
     }
     /// 拡大縮小時の補間品質
     @Published var interpolationQuality: InterpolationQuality {
-        didSet { UserDefaults.standard.set(interpolationQuality.rawValue, forKey: Keys.interpolationQuality) }
+        didSet { defaults.set(interpolationQuality.rawValue, forKey: Keys.interpolationQuality) }
     }
     /// しばらく操作がないときマウスカーソルを自動的に隠す
     @Published var autoHideCursor: Bool {
-        didSet { UserDefaults.standard.set(autoHideCursor, forKey: Keys.autoHideCursor) }
+        didSet { defaults.set(autoHideCursor, forKey: Keys.autoHideCursor) }
     }
     /// スライドショーでページがめくられる間隔(秒)
     @Published var slideshowInterval: Double {
-        didSet { UserDefaults.standard.set(slideshowInterval, forKey: Keys.slideshowInterval) }
+        didSet { defaults.set(slideshowInterval, forKey: Keys.slideshowInterval) }
     }
     /// 新しく開いた本に最初に適用する表示モード
     @Published var defaultScalingMode: ScalingMode {
-        didSet { UserDefaults.standard.set(defaultScalingMode.rawValue, forKey: Keys.defaultScalingMode) }
+        didSet { defaults.set(defaultScalingMode.rawValue, forKey: Keys.defaultScalingMode) }
     }
     /// トラックパッドでのページ送りに、Macの「ページ間をスワイプ」ジェスチャー(フリック)を
     /// 使用する。ONにすると、トラックパッドの2本指の縦スクロールによるページ送りは行われなく
@@ -206,7 +225,7 @@ final class AppPreferences: ObservableObject {
     /// (詳細はViewerView.swiftのhandleTrackpadScrollGesture/handleSwipeのコメント参照)。
     /// 物理的なマウスホイールでのページ送りには影響しない。
     @Published var treatTrackpadFlickAsWheel: Bool {
-        didSet { UserDefaults.standard.set(treatTrackpadFlickAsWheel, forKey: Keys.treatTrackpadFlickAsWheel) }
+        didSet { defaults.set(treatTrackpadFlickAsWheel, forKey: Keys.treatTrackpadFlickAsWheel) }
     }
     /// トラックパッド(およびMagic Mouseなど、phaseを伴う「なめらかな」スクロールを送ってくる
     /// 機器)でのスクロールについて、画像が動く向きを上下左右とも逆にする(ユーザー要望)。
@@ -222,22 +241,22 @@ final class AppPreferences: ObservableObject {
     /// なくなるため(ユーザーの判断)。ただし「スクロールできるモードで端まで来たらページを
     /// 送る」動作だけは、スクロールそのものの延長なので反転後の進行方向に従う。
     @Published var invertTwoFingerScrolling: Bool {
-        didSet { UserDefaults.standard.set(invertTwoFingerScrolling, forKey: Keys.invertTwoFingerScrolling) }
+        didSet { defaults.set(invertTwoFingerScrolling, forKey: Keys.invertTwoFingerScrolling) }
     }
     /// すべてのウインドウ(実寸表示・環境設定ウインドウを含む)を閉じたときにqooViewerを終了する。
     /// OFF(既定)のときは、macOSの標準的なアプリと同様にウインドウを閉じてもDockに残ります。
     @Published var quitWhenLastWindowClosed: Bool {
-        didSet { UserDefaults.standard.set(quitWhenLastWindowClosed, forKey: Keys.quitWhenLastWindowClosed) }
+        didSet { defaults.set(quitWhenLastWindowClosed, forKey: Keys.quitWhenLastWindowClosed) }
     }
     /// 見開き表示中でも、この値(横÷縦)以上の横長画像は単ページ表示にする。既定は1.0(正方形以上で単ページ)。
     @Published var singlePageAspectRatioThreshold: Double {
         didSet {
-            UserDefaults.standard.set(singlePageAspectRatioThreshold, forKey: Keys.singlePageAspectRatioThreshold)
+            defaults.set(singlePageAspectRatioThreshold, forKey: Keys.singlePageAspectRatioThreshold)
         }
     }
     /// ビューワーの背景色(プリセット、または「カスタム」)
     @Published var backgroundColorOption: BackgroundColorOption {
-        didSet { UserDefaults.standard.set(backgroundColorOption.rawValue, forKey: Keys.backgroundColorOption) }
+        didSet { defaults.set(backgroundColorOption.rawValue, forKey: Keys.backgroundColorOption) }
     }
     /// `backgroundColorOption`が`.custom`のときに使う、ユーザーが自分で指定した背景色。
     /// 環境設定「外観」の「ビューア」→「背景色」で「カスタム」を選ぶと開くダイアログ
@@ -247,7 +266,7 @@ final class AppPreferences: ObservableObject {
     /// 黒に戻してから再び「カスタム」を選び直しても、作った色はそのまま残る。
     @Published var customBackgroundColor: RGBColorValue {
         didSet {
-            UserDefaults.standard.set(customBackgroundColor.hexString, forKey: Keys.customBackgroundColor)
+            defaults.set(customBackgroundColor.hexString, forKey: Keys.customBackgroundColor)
         }
     }
     /// カスタム背景色をまだ一度も指定していないときの初期値(暗めのグレー)。
@@ -261,7 +280,7 @@ final class AppPreferences: ObservableObject {
     }
     /// しばらく操作がないと判定してマウスカーソルを自動的に隠すまでの時間(秒)
     @Published var cursorAutoHideDelay: Double {
-        didSet { UserDefaults.standard.set(cursorAutoHideDelay, forKey: Keys.cursorAutoHideDelay) }
+        didSet { defaults.set(cursorAutoHideDelay, forKey: Keys.cursorAutoHideDelay) }
     }
     /// 自動隠し中のツールバーを、カーソルをウインドウの端へ近づけてから実際に表示するまでの
     /// 待ち時間(秒)。既定は0=これまでどおり即座に表示する。
@@ -278,16 +297,16 @@ final class AppPreferences: ObservableObject {
     /// あり、リセットの担当もそちらの画面になる(keys(for:)の.appearance参照。**画面の置き場所と
     /// keys(for:)は必ず揃えること**)。
     @Published var toolbarRevealDelay: Double {
-        didSet { UserDefaults.standard.set(toolbarRevealDelay, forKey: Keys.toolbarRevealDelay) }
+        didSet { defaults.set(toolbarRevealDelay, forKey: Keys.toolbarRevealDelay) }
     }
     /// プログレスバー側の同じもの(toolbarRevealDelay参照)。
     @Published var progressBarRevealDelay: Double {
-        didSet { UserDefaults.standard.set(progressBarRevealDelay, forKey: Keys.progressBarRevealDelay) }
+        didSet { defaults.set(progressBarRevealDelay, forKey: Keys.progressBarRevealDelay) }
     }
     /// サイドパネル側の同じもの(toolbarRevealDelay参照)。こちらのきっかけは左右どちらかの
     /// 端の帯(ContentView.updateSidePanelReveal参照)。
     @Published var sidePanelRevealDelay: Double {
-        didSet { UserDefaults.standard.set(sidePanelRevealDelay, forKey: Keys.sidePanelRevealDelay) }
+        didSet { defaults.set(sidePanelRevealDelay, forKey: Keys.sidePanelRevealDelay) }
     }
     /// 隠していない(常に表示の)状態のツールバーにも、ウインドウの背後(デスクトップ/
     /// 他のウインドウ)がうっすら透けるすりガラスを敷くかどうか。
@@ -299,22 +318,22 @@ final class AppPreferences: ObservableObject {
     /// サイドパネルはウインドウ内をぼかすサイドバーのすりガラス。
     /// 自動的に隠す設定で画像の上に浮かべる帯/パネルには、この設定は関係しない。
     @Published var toolbarDockedGlass: Bool {
-        didSet { UserDefaults.standard.set(toolbarDockedGlass, forKey: Keys.toolbarDockedGlass) }
+        didSet { defaults.set(toolbarDockedGlass, forKey: Keys.toolbarDockedGlass) }
     }
     /// プログレスバー側の同じもの(toolbarDockedGlass参照)。
     @Published var progressBarDockedGlass: Bool {
-        didSet { UserDefaults.standard.set(progressBarDockedGlass, forKey: Keys.progressBarDockedGlass) }
+        didSet { defaults.set(progressBarDockedGlass, forKey: Keys.progressBarDockedGlass) }
     }
     /// サイドパネル側の同じもの(toolbarDockedGlass参照)。
     @Published var sidePanelDockedGlass: Bool {
-        didSet { UserDefaults.standard.set(sidePanelDockedGlass, forKey: Keys.sidePanelDockedGlass) }
+        didSet { defaults.set(sidePanelDockedGlass, forKey: Keys.sidePanelDockedGlass) }
     }
     /// ウェルカム画面版の同じもの(toolbarDockedGlass参照。既定OFFの理由も同じ)。
     /// ウェルカム画面には「隠す」状態が無いので、これは画面全体のすりガラス
     /// (と面の設定一式)を使うかどうかのスイッチになる。OFFなら従来どおり、
     /// ウインドウの地の色のまま何も敷かない(WelcomeView参照)。
     @Published var welcomeGlass: Bool {
-        didSet { UserDefaults.standard.set(welcomeGlass, forKey: Keys.welcomeGlass) }
+        didSet { defaults.set(welcomeGlass, forKey: Keys.welcomeGlass) }
     }
     /// 上の3つに共通の、指定できる範囲。0.1秒刻みで最大2秒まで(ユーザーの指定)。
     static let autoRevealDelayRange: ClosedRange<Double> = 0...2
@@ -327,15 +346,15 @@ final class AppPreferences: ObservableObject {
     }
     /// 現在のページの前後何ページ分を先読みするか
     @Published var prefetchPageCount: Double {
-        didSet { UserDefaults.standard.set(prefetchPageCount, forKey: Keys.prefetchPageCount) }
+        didSet { defaults.set(prefetchPageCount, forKey: Keys.prefetchPageCount) }
     }
     /// アプリの表示言語(既定は「システムに従う」)
     @Published var displayLanguage: AppLanguage {
         didSet {
-            UserDefaults.standard.set(displayLanguage.rawValue, forKey: Keys.displayLanguage)
+            defaults.set(displayLanguage.rawValue, forKey: Keys.displayLanguage)
             // メニューバーなど起動中には切り替えられない部分を、次回起動から揃える
             // (AppLanguage.applyAppleLanguagesOverrideのコメント参照)。
-            AppLanguage.applyAppleLanguagesOverride(for: displayLanguage)
+            AppLanguage.applyAppleLanguagesOverride(for: displayLanguage, defaults: defaults)
         }
     }
     /// アプリの外観(ライト/ダーク。既定は「システムに従う」)。
@@ -345,13 +364,13 @@ final class AppPreferences: ObservableObject {
     /// SwiftUIではなくNSApp.appearanceで反映する(AppAppearanceApplierの型コメント参照)。
     @Published var appAppearance: AppAppearance {
         didSet {
-            UserDefaults.standard.set(appAppearance.rawValue, forKey: Keys.appAppearance)
-            AppAppearanceApplier.shared.apply(appAppearance)
+            defaults.set(appAppearance.rawValue, forKey: Keys.appAppearance)
+            if sharesGlobalState { AppAppearanceApplier.shared.apply(appAppearance) }
         }
     }
     /// 以前開いたことのある本を再度開いたときの挙動(既定は「前回のページから再開する」)
     @Published var reopenBehavior: ReopenBehavior {
-        didSet { UserDefaults.standard.set(reopenBehavior.rawValue, forKey: Keys.reopenBehavior) }
+        didSet { defaults.set(reopenBehavior.rawValue, forKey: Keys.reopenBehavior) }
     }
     /// 複数のタブを開いているウインドウを、赤い閉じるボタンまたはウインドウメニューの
     /// 「ウインドウを閉じる」で閉じようとしたとき、本当に閉じてよいか確認するダイアログを
@@ -360,7 +379,7 @@ final class AppPreferences: ObservableObject {
     ///  QooViewerApp.swiftのBookClosingWindowDelegateのコメント参照)。
     @Published var confirmBeforeClosingMultipleTabsWindow: Bool {
         didSet {
-            UserDefaults.standard.set(
+            defaults.set(
                 confirmBeforeClosingMultipleTabsWindow,
                 forKey: Keys.confirmBeforeClosingMultipleTabsWindow
             )
@@ -369,7 +388,7 @@ final class AppPreferences: ObservableObject {
     /// 既に本を表示している状態で、Finderから(ダブルクリックや「このアプリケーションで開く」で)
     /// 別の本を開こうとしたときの挙動(既定は「現在の本を閉じて新しい本を開く」=以前からの挙動)。
     @Published var finderOpenBehavior: FinderOpenBehavior {
-        didSet { UserDefaults.standard.set(finderOpenBehavior.rawValue, forKey: Keys.finderOpenBehavior) }
+        didSet { defaults.set(finderOpenBehavior.rawValue, forKey: Keys.finderOpenBehavior) }
     }
     /// 既に本を表示している状態で、お気に入り一覧(メニューバー・ツールバー・ウェルカム画面)から
     /// 別の本を開こうとしたときの挙動(既定は「現在の本を閉じて新しい本を開く」)。
@@ -378,7 +397,7 @@ final class AppPreferences: ObservableObject {
     /// 「開く/新しいウインドウで開く/新しいタブで開く」を毎回選ぶ形式だったが、
     /// この環境設定1箇所で挙動を固定できるように変更した。
     @Published var favoriteOpenBehavior: FinderOpenBehavior {
-        didSet { UserDefaults.standard.set(favoriteOpenBehavior.rawValue, forKey: Keys.favoriteOpenBehavior) }
+        didSet { defaults.set(favoriteOpenBehavior.rawValue, forKey: Keys.favoriteOpenBehavior) }
     }
     /// 見開き表示中(実際に2ページ組でペア表示されているとき)、クリック位置の情報が無い経路
     /// (ツールバーのボタン・メニューバー「お気に入り」メニュー・キーボードショートカット)から
@@ -389,7 +408,7 @@ final class AppPreferences: ObservableObject {
     /// ユーザー報告: 見開き表示でのブックマーク追加対象を左右で正しく指定できるようにしてほしい)。
     @Published var spreadBookmarkTargetBehavior: SpreadBookmarkTargetBehavior {
         didSet {
-            UserDefaults.standard.set(
+            defaults.set(
                 spreadBookmarkTargetBehavior.rawValue, forKey: Keys.spreadBookmarkTargetBehavior
             )
         }
@@ -398,32 +417,32 @@ final class AppPreferences: ObservableObject {
     /// これを超えて新しい本を開くと、最後に読んだ時刻が古い本のデータから自動的に削除される
     /// (LibraryDataPruner参照)。データが際限なく増え続けるのを防ぐための設定(既定500冊)。
     @Published var maxTrackedBooksCount: Double {
-        didSet { UserDefaults.standard.set(maxTrackedBooksCount, forKey: Keys.maxTrackedBooksCount) }
+        didSet { defaults.set(maxTrackedBooksCount, forKey: Keys.maxTrackedBooksCount) }
     }
     /// 表示メニューの「ツールバーを隠す」。以前はAppState(ウインドウごとに新規作成される)だけが
     /// 持つ一時的な状態だったため、アプリを終了して再度起動するとOFFに戻ってしまっていた。
     /// ここに持たせてUserDefaultsへ保存することで、次回起動時にも再現するようにしている
     /// (新しく開いたウインドウは、AppState側でここの値を初期値として引き継ぐ)。
     @Published var hideToolbar: Bool {
-        didSet { UserDefaults.standard.set(hideToolbar, forKey: Keys.hideToolbar) }
+        didSet { defaults.set(hideToolbar, forKey: Keys.hideToolbar) }
     }
     /// 表示メニューの「プログレスバーを隠す」。hideToolbarと同じ理由でここに持たせている。
     @Published var hideProgressBar: Bool {
-        didSet { UserDefaults.standard.set(hideProgressBar, forKey: Keys.hideProgressBar) }
+        didSet { defaults.set(hideProgressBar, forKey: Keys.hideProgressBar) }
     }
     /// 表示メニューの「サイドパネルを隠す」。hideToolbarと同じ理由でここに持たせている。
     /// hideToolbar/hideProgressBarと異なり、サイドパネルは既定でOFF(=常時表示)。ONにすると
     /// ツールバー/プログレスバーの自動隠しと同様、マウスをウインドウ左端に近づけたときだけ
     /// 一時的に表示される(ContentView.installSidePanelHoverMonitorIfNeeded参照)。
     @Published var hideSidePanel: Bool {
-        didSet { UserDefaults.standard.set(hideSidePanel, forKey: Keys.hideSidePanel) }
+        didSet { defaults.set(hideSidePanel, forKey: Keys.hideSidePanel) }
     }
     /// サイドパネルの幅(pt)。ユーザーが右端のドラッグハンドルで調整した値を次回起動時にも
     /// 再現する(SidePanelView.widthDragHitArea参照)。CGFloatではなくDoubleで持つのは
     /// maxTrackedBooksCountと同じ理由(UserDefaultsとの親和性)で、ContentView側で
     /// CGFloatへ変換して使う。
     @Published var sidePanelWidth: Double {
-        didSet { UserDefaults.standard.set(sidePanelWidth, forKey: Keys.sidePanelWidth) }
+        didSet { defaults.set(sidePanelWidth, forKey: Keys.sidePanelWidth) }
     }
     /// 環境設定「一般」タブの、サイドパネル機能自体のON/OFF(既定ON)。hideSidePanelが
     /// 「常時表示か、ホバーで一時表示か」を切り替えるだけなのに対し、こちらはOFFにすると
@@ -431,7 +450,7 @@ final class AppPreferences: ObservableObject {
     /// 「サイドパネルを隠す」項目もメニューごと非表示になる(意味の無い設定を見せないため。
     /// QooViewerApp.swiftのCommandGroup参照)。
     @Published var sidePanelFeatureEnabled: Bool {
-        didSet { UserDefaults.standard.set(sidePanelFeatureEnabled, forKey: Keys.sidePanelFeatureEnabled) }
+        didSet { defaults.set(sidePanelFeatureEnabled, forKey: Keys.sidePanelFeatureEnabled) }
     }
     /// 環境設定「一般」タブの、サイドパネルの「開く」「移動する」操作をダブルクリックにする
     /// かどうか(既定OFF=シングルクリック)。OFF(既定)では、上段のファイル行・フォルダの
@@ -443,7 +462,7 @@ final class AppPreferences: ObservableObject {
     /// (DirectoryBrowser.directlyContainsImageFile参照。ユーザー要望)。戻る/進む/1階層上への
     /// ボタン操作はこの設定に関わらず常にシングルクリックのまま。
     @Published var sidePanelUsesDoubleClick: Bool {
-        didSet { UserDefaults.standard.set(sidePanelUsesDoubleClick, forKey: Keys.sidePanelUsesDoubleClick) }
+        didSet { defaults.set(sidePanelUsesDoubleClick, forKey: Keys.sidePanelUsesDoubleClick) }
     }
     /// 環境設定「一般」タブの「並び順をFinderに揃える」(既定はOFF)。ユーザー報告:
     /// `_Com-title-cover.JPG` / `Com_title_name_size_0001.JPG` / `Com-title-cover-clean.JPG`
@@ -463,11 +482,13 @@ final class AppPreferences: ObservableObject {
     @Published var usesFinderSortOrder: Bool {
         didSet {
             guard usesFinderSortOrder != oldValue else { return }
-            UserDefaults.standard.set(usesFinderSortOrder, forKey: Keys.usesFinderSortOrder)
+            defaults.set(usesFinderSortOrder, forKey: Keys.usesFinderSortOrder)
             // 開いている本・一覧をその場で並べ直させる(Notification.Name.
             // pageOrderSettingDidChange参照)。UserDefaultsへ書いた**後**に送ること ――
             // 受け取る側はPageOrder.usesFinderOrder(UserDefaults)を読んで並べ直すため。
-            NotificationCenter.default.post(name: .pageOrderSettingDidChange, object: nil)
+            if sharesGlobalState {
+                NotificationCenter.default.post(name: .pageOrderSettingDidChange, object: nil)
+            }
         }
     }
     /// 環境設定「一般」タブの、サイドパネル上段(フォルダブラウザ)のフォルダ・ファイルの
@@ -482,7 +503,7 @@ final class AppPreferences: ObservableObject {
     /// フォルダを上にまとめると、ルートの表紙画像が章フォルダの列の下へ沈むなど、ページ順と
     /// 食い違う並びになる(監査で指摘。BookInternalBrowsing.sortedEntries参照)。
     @Published var sidePanelSortOrder: SidePanelSortOrder {
-        didSet { UserDefaults.standard.set(sidePanelSortOrder.rawValue, forKey: Keys.sidePanelSortOrder) }
+        didSet { defaults.set(sidePanelSortOrder.rawValue, forKey: Keys.sidePanelSortOrder) }
     }
     /// サイドパネル上段(フォルダブラウザ)の並べ替えの基準と向き(ユーザー要望)。環境設定
     /// ウインドウではなく、パネル上部の並べ替えメニュー(SidePanelView.folderSection)から
@@ -490,11 +511,11 @@ final class AppPreferences: ObservableObject {
     /// 独立した設定で、そちらが上段・下段の共通設定なのに対し、こちらは上段専用
     /// (FolderBrowserSortKeyのコメント参照)。
     @Published var folderBrowserSortKey: FolderBrowserSortKey {
-        didSet { UserDefaults.standard.set(folderBrowserSortKey.rawValue, forKey: Keys.folderBrowserSortKey) }
+        didSet { defaults.set(folderBrowserSortKey.rawValue, forKey: Keys.folderBrowserSortKey) }
     }
     @Published var folderBrowserSortDirection: FolderBrowserSortDirection {
         didSet {
-            UserDefaults.standard.set(folderBrowserSortDirection.rawValue, forKey: Keys.folderBrowserSortDirection)
+            defaults.set(folderBrowserSortDirection.rawValue, forKey: Keys.folderBrowserSortDirection)
         }
     }
     /// 環境設定「一般」タブのサイドパネル欄の、「次の本へ」「前の本へ」およびファイルメニューの
@@ -508,7 +529,7 @@ final class AppPreferences: ObservableObject {
     /// このプロパティを直接見てよいのは、環境設定画面のトグルだけ。
     @Published var siblingNavigationFollowsBrowserSort: Bool {
         didSet {
-            UserDefaults.standard.set(
+            defaults.set(
                 siblingNavigationFollowsBrowserSort, forKey: Keys.siblingNavigationFollowsBrowserSort
             )
         }
@@ -542,7 +563,7 @@ final class AppPreferences: ObservableObject {
     /// 左右が入れ替わる(ContentView.updateSidePanelReveal参照)。
     /// sidePanelWidth/sidePanelModeと同じくアプリ全体で1つの値として持つ。
     @Published var sidePanelPosition: SidePanelPosition {
-        didSet { UserDefaults.standard.set(sidePanelPosition.rawValue, forKey: Keys.sidePanelPosition) }
+        didSet { defaults.set(sidePanelPosition.rawValue, forKey: Keys.sidePanelPosition) }
     }
     /// サイドパネルの表示モード(ブラウザ/ブックマーク。SidePanelMode参照)。パネル最上部の
     /// スイッチで切り替える。ウインドウごとではなくアプリ全体で1つの値として持つ
@@ -550,7 +571,7 @@ final class AppPreferences: ObservableObject {
     /// sidePanelWidthと違ってドラッグ中に高頻度で変化する値ではないため、ContentView側で
     /// @Stateへ写し取らず、この@Publishedを直接Bindingとして使う。
     @Published var sidePanelMode: SidePanelMode {
-        didSet { UserDefaults.standard.set(sidePanelMode.rawValue, forKey: Keys.sidePanelMode) }
+        didSet { defaults.set(sidePanelMode.rawValue, forKey: Keys.sidePanelMode) }
     }
     /// プログレスバーにカーソルを合わせたときに、フィルムストリップ(サムネイル・ファイル名・
     /// ページ番号を含むプレビュー)を表示するかどうか(既定ON)。OFFにすると、サムネイルの
@@ -565,7 +586,7 @@ final class AppPreferences: ObservableObject {
     /// keys(for:)/apply(_:for:)での担当も`.reading`から`.appearance`へ移してある。
     @Published var showProgressBarThumbnailPreview: Bool {
         didSet {
-            UserDefaults.standard.set(
+            defaults.set(
                 showProgressBarThumbnailPreview,
                 forKey: Keys.showProgressBarThumbnailPreview
             )
@@ -587,7 +608,7 @@ final class AppPreferences: ObservableObject {
     /// (ProgressBarView.maxCellWidth参照)。
     /// SettingsSliderがDoubleを扱うため、枚数もDoubleとして持つ(recentFilesLimitと同じ)。
     @Published var filmstripThumbnailCount: Double {
-        didSet { UserDefaults.standard.set(filmstripThumbnailCount, forKey: Keys.filmstripThumbnailCount) }
+        didSet { defaults.set(filmstripThumbnailCount, forKey: Keys.filmstripThumbnailCount) }
     }
     static let filmstripThumbnailCountRange: ClosedRange<Double> = 3...15
 
@@ -599,7 +620,7 @@ final class AppPreferences: ObservableObject {
     /// この設定に関わらず常に出す(理由はFilmstripCaptionStyleのコメント参照)。
     @Published var filmstripCaptionStyle: FilmstripCaptionStyle {
         didSet {
-            UserDefaults.standard.set(filmstripCaptionStyle.rawValue, forKey: Keys.filmstripCaptionStyle)
+            defaults.set(filmstripCaptionStyle.rawValue, forKey: Keys.filmstripCaptionStyle)
         }
     }
 
@@ -611,7 +632,7 @@ final class AppPreferences: ObservableObject {
     /// (thumbnailGridCaptionFontSizeの既定11ptと同じ考え方)。
     /// 範囲もページ一覧の「文字の大きさ」と揃えてある(片方だけ別の範囲にしない)。
     @Published var filmstripFontSize: Double {
-        didSet { UserDefaults.standard.set(filmstripFontSize, forKey: Keys.filmstripFontSize) }
+        didSet { defaults.set(filmstripFontSize, forKey: Keys.filmstripFontSize) }
     }
     static let filmstripFontSizeRange: ClosedRange<Double> = 8...20
 
@@ -622,7 +643,7 @@ final class AppPreferences: ObservableObject {
     /// (画像そのものが暗いページでは特に)ため、OFFにできるようにした。OFFでも、
     /// カーソル直下のセルは枠・光彩・ページ番号バッジの色で区別が付く。
     @Published var filmstripDimsOtherPages: Bool {
-        didSet { UserDefaults.standard.set(filmstripDimsOtherPages, forKey: Keys.filmstripDimsOtherPages) }
+        didSet { defaults.set(filmstripDimsOtherPages, forKey: Keys.filmstripDimsOtherPages) }
     }
 
     /// カーソル位置のサムネイルを強調する色(プリセット、または「カスタム」)。
@@ -634,7 +655,7 @@ final class AppPreferences: ObservableObject {
     /// 既定の`.accent`は従来どおりシステムの強調表示の色(多くの環境では青)。
     @Published var filmstripHighlightColorOption: PageBorderColorOption {
         didSet {
-            UserDefaults.standard.set(
+            defaults.set(
                 filmstripHighlightColorOption.rawValue, forKey: Keys.filmstripHighlightColorOption
             )
         }
@@ -642,7 +663,7 @@ final class AppPreferences: ObservableObject {
     /// 上が`.custom`のときに使うRGB値(thumbnailGridBorderCustomColorとまったく同じ考え方)。
     @Published var filmstripHighlightCustomColor: RGBColorValue {
         didSet {
-            UserDefaults.standard.set(
+            defaults.set(
                 filmstripHighlightCustomColor.hexString, forKey: Keys.filmstripHighlightCustomColor
             )
         }
@@ -664,7 +685,7 @@ final class AppPreferences: ObservableObject {
     /// セルが埋まってしまわない範囲。
     @Published var filmstripHighlightBorderWidth: Double {
         didSet {
-            UserDefaults.standard.set(
+            defaults.set(
                 filmstripHighlightBorderWidth, forKey: Keys.filmstripHighlightBorderWidth
             )
         }
@@ -683,10 +704,12 @@ final class AppPreferences: ObservableObject {
     /// recentFilesLimitDefaultsKeyを両者で共有する。
     @Published var recentFilesLimit: Double {
         didSet {
-            UserDefaults.standard.set(recentFilesLimit, forKey: Self.recentFilesLimitDefaultsKey)
+            defaults.set(recentFilesLimit, forKey: Self.recentFilesLimitDefaultsKey)
             // 件数を減らした場合に、その場で履歴側も切り詰めさせる(次に本を開くまで
             // 古い履歴が残り続けないようにするため)。
-            NotificationCenter.default.post(name: .recentFilesLimitDidChange, object: nil)
+            if sharesGlobalState {
+                NotificationCenter.default.post(name: .recentFilesLimitDidChange, object: nil)
+            }
         }
     }
     /// recentFilesLimitのUserDefaultsキー。RecentFilesStoreと共有する(上のコメント参照)。
@@ -707,7 +730,7 @@ final class AppPreferences: ObservableObject {
     /// この版を初めて起動した時点で、これまで黙って作られていたキャッシュが自動的に片付く。
     @Published var thumbnailDiskCacheEnabled: Bool {
         didSet {
-            UserDefaults.standard.set(thumbnailDiskCacheEnabled, forKey: Keys.thumbnailDiskCacheEnabled)
+            defaults.set(thumbnailDiskCacheEnabled, forKey: Keys.thumbnailDiskCacheEnabled)
             applyThumbnailDiskCacheSettings()
         }
     }
@@ -720,7 +743,7 @@ final class AppPreferences: ObservableObject {
     /// してあるのとは事情が違うので、こちらは対象に含めてある(keys(for:)参照)。
     @Published var thumbnailDiskCacheLimitMB: Double {
         didSet {
-            UserDefaults.standard.set(thumbnailDiskCacheLimitMB, forKey: Keys.thumbnailDiskCacheLimitMB)
+            defaults.set(thumbnailDiskCacheLimitMB, forKey: Keys.thumbnailDiskCacheLimitMB)
             applyThumbnailDiskCacheSettings()
         }
     }
@@ -740,7 +763,7 @@ final class AppPreferences: ObservableObject {
     /// 抑えられる。先読み(prefetchPageCount)ぶんが収まらないほど小さくすると、先読みした
     /// そばから追い出されて意味が無くなるので、下限は高解像度の見開きがいくつか収まる100MB。
     @Published var pageImageCacheLimitMB: Double {
-        didSet { UserDefaults.standard.set(pageImageCacheLimitMB, forKey: Keys.pageImageCacheLimitMB) }
+        didSet { defaults.set(pageImageCacheLimitMB, forKey: Keys.pageImageCacheLimitMB) }
     }
     /// nonisolated: PageLoader(actor)のinitの既定引数から参照されるため(MainActor隔離のままだと
     /// Swift 6モードでエラーになる)。
@@ -780,7 +803,7 @@ final class AppPreferences: ObservableObject {
     /// nonisolated: PageLoader(actor)とBookLoaderのinitの既定引数から参照されるため
     /// (defaultPageImageCacheLimitMBと同じ理由)。
     @Published var nestedArchiveMemoryLimitMB: Double {
-        didSet { UserDefaults.standard.set(nestedArchiveMemoryLimitMB, forKey: Keys.nestedArchiveMemoryLimitMB) }
+        didSet { defaults.set(nestedArchiveMemoryLimitMB, forKey: Keys.nestedArchiveMemoryLimitMB) }
     }
     nonisolated static let defaultNestedArchiveMemoryLimitMB: Double = 256
     static let nestedArchiveMemoryLimitRangeMB: ClosedRange<Double> = 0...1024
@@ -805,6 +828,9 @@ final class AppPreferences: ObservableObject {
     /// 呼び出しごとに世代番号を進めて渡す。独立した`Task`同士は到着順が保証されないので、
     /// 受け手(ThumbnailDiskCache.configure)が古い世代を捨てられるようにするため。
     private func applyThumbnailDiskCacheSettings() {
+        // テスト用の保存先で作られたインスタンスは、実物のキャッシュ(共有のディレクトリ)に
+        // 触らない。ここは設定OFFのときに溜まっているサムネイルを削除する入口でもあるため。
+        guard sharesGlobalState else { return }
         let isEnabled = thumbnailDiskCacheEnabled
         let maxTotalBytes = Int(thumbnailDiskCacheLimitMB) * 1024 * 1024
         thumbnailDiskCacheConfigurationGeneration &+= 1
@@ -822,12 +848,12 @@ final class AppPreferences: ObservableObject {
     /// 履歴として保持する件数(recentFilesLimit)を増やしても、ウェルカム画面の一覧は
     /// 画面が縦に伸びすぎないよう10件までに留める(WelcomeView参照)。
     @Published var showRecentFilesOnWelcome: Bool {
-        didSet { UserDefaults.standard.set(showRecentFilesOnWelcome, forKey: Keys.showRecentFilesOnWelcome) }
+        didSet { defaults.set(showRecentFilesOnWelcome, forKey: Keys.showRecentFilesOnWelcome) }
     }
     /// ウェルカム画面に「最近お気に入りに追加したファイル」一覧(最大10件)を表示するかどうか(既定ON)。
     @Published var showRecentFavoritesOnWelcome: Bool {
         didSet {
-            UserDefaults.standard.set(showRecentFavoritesOnWelcome, forKey: Keys.showRecentFavoritesOnWelcome)
+            defaults.set(showRecentFavoritesOnWelcome, forKey: Keys.showRecentFavoritesOnWelcome)
         }
     }
 
@@ -836,39 +862,39 @@ final class AppPreferences: ObservableObject {
     /// ページ一覧のサムネイル1枚の大きさ(pt、正方形の一辺)。パネル上部のスライダーと
     /// 環境設定「閲覧中の動作」の両方から同じ値を変える。以前は120pt固定だった。
     @Published var thumbnailGridCellSize: Double {
-        didSet { UserDefaults.standard.set(thumbnailGridCellSize, forKey: Keys.thumbnailGridCellSize) }
+        didSet { defaults.set(thumbnailGridCellSize, forKey: Keys.thumbnailGridCellSize) }
     }
     static let thumbnailGridCellSizeRange: ClosedRange<Double> = 80...320
     /// サムネイル同士の横の間隔(pt)。
     @Published var thumbnailGridHorizontalSpacing: Double {
-        didSet { UserDefaults.standard.set(thumbnailGridHorizontalSpacing, forKey: Keys.thumbnailGridHorizontalSpacing) }
+        didSet { defaults.set(thumbnailGridHorizontalSpacing, forKey: Keys.thumbnailGridHorizontalSpacing) }
     }
     /// サムネイル同士の縦の間隔(pt)。
     @Published var thumbnailGridVerticalSpacing: Double {
-        didSet { UserDefaults.standard.set(thumbnailGridVerticalSpacing, forKey: Keys.thumbnailGridVerticalSpacing) }
+        didSet { defaults.set(thumbnailGridVerticalSpacing, forKey: Keys.thumbnailGridVerticalSpacing) }
     }
     static let thumbnailGridSpacingRange: ClosedRange<Double> = 0...40
     /// パネルの左右に残す余白(画像表示領域の幅に対する片側の%)。列数は残りの幅から自動で決まる。
     @Published var thumbnailGridHorizontalMarginPercent: Double {
-        didSet { UserDefaults.standard.set(thumbnailGridHorizontalMarginPercent, forKey: Keys.thumbnailGridHorizontalMarginPercent) }
+        didSet { defaults.set(thumbnailGridHorizontalMarginPercent, forKey: Keys.thumbnailGridHorizontalMarginPercent) }
     }
     /// パネルの上下に残す余白(画像表示領域の高さに対する片側の%)。
     @Published var thumbnailGridVerticalMarginPercent: Double {
-        didSet { UserDefaults.standard.set(thumbnailGridVerticalMarginPercent, forKey: Keys.thumbnailGridVerticalMarginPercent) }
+        didSet { defaults.set(thumbnailGridVerticalMarginPercent, forKey: Keys.thumbnailGridVerticalMarginPercent) }
     }
     static let thumbnailGridMarginPercentRange: ClosedRange<Double> = 0...40
 
     /// サムネイルの下に何を書くか(ThumbnailCaptionStyle参照)。既定はこれまでどおりページ番号。
     @Published var thumbnailGridCaptionStyle: ThumbnailCaptionStyle {
         didSet {
-            UserDefaults.standard.set(thumbnailGridCaptionStyle.rawValue, forKey: Keys.thumbnailGridCaptionStyle)
+            defaults.set(thumbnailGridCaptionStyle.rawValue, forKey: Keys.thumbnailGridCaptionStyle)
         }
     }
     /// サムネイルの下の文字の大きさ(pt)。既定の11ptは、従来使っていた`.caption2`の実寸に
     /// 合わせたもの(値を変えていない人の見た目が変わらないようにするため)。
     @Published var thumbnailGridCaptionFontSize: Double {
         didSet {
-            UserDefaults.standard.set(thumbnailGridCaptionFontSize, forKey: Keys.thumbnailGridCaptionFontSize)
+            defaults.set(thumbnailGridCaptionFontSize, forKey: Keys.thumbnailGridCaptionFontSize)
         }
     }
     /// 下限8ptは、Retinaでもぎりぎり字形が潰れない大きさ。上限20ptは、サムネイルの最小サイズ
@@ -878,14 +904,14 @@ final class AppPreferences: ObservableObject {
     /// 表示中のページを示す枠の色(プリセット、または「カスタム」)。ユーザー要望。
     @Published var thumbnailGridBorderColorOption: PageBorderColorOption {
         didSet {
-            UserDefaults.standard.set(thumbnailGridBorderColorOption.rawValue, forKey: Keys.thumbnailGridBorderColorOption)
+            defaults.set(thumbnailGridBorderColorOption.rawValue, forKey: Keys.thumbnailGridBorderColorOption)
         }
     }
     /// 上が`.custom`のときに使うRGB値。`customBackgroundColor`とまったく同じ考え方で、
     /// プリセットへ戻してからカスタムを選び直しても、作った色はそのまま残る。
     @Published var thumbnailGridBorderCustomColor: RGBColorValue {
         didSet {
-            UserDefaults.standard.set(thumbnailGridBorderCustomColor.hexString, forKey: Keys.thumbnailGridBorderCustomColor)
+            defaults.set(thumbnailGridBorderCustomColor.hexString, forKey: Keys.thumbnailGridBorderCustomColor)
         }
     }
     /// カスタムの枠色をまだ一度も指定していないときの初期値。既定の`.accent`(多くの環境では青)
@@ -910,7 +936,7 @@ final class AppPreferences: ObservableObject {
     /// 極端になるため(そちらのコメント参照)。
     @Published var thumbnailGridWheelScrollRows: Double {
         didSet {
-            UserDefaults.standard.set(thumbnailGridWheelScrollRows, forKey: Keys.thumbnailGridWheelScrollRows)
+            defaults.set(thumbnailGridWheelScrollRows, forKey: Keys.thumbnailGridWheelScrollRows)
         }
     }
     /// 下限0.5行は「1ノッチで半行ぶんだけ動かして、行の途中を覗く」用途。上限5行は、
@@ -924,26 +950,26 @@ final class AppPreferences: ObservableObject {
 
     /// ページ一覧パネルの背景。
     @Published var pageListSurfaceStyle: PanelSurfaceStyle {
-        didSet { Self.save(pageListSurfaceStyle, for: .pageList) }
+        didSet { Self.save(pageListSurfaceStyle, for: .pageList, defaults: defaults) }
     }
     /// ツールバーの背景(自動的に隠す設定のときに重ねて表示される帯)。
     @Published var toolbarSurfaceStyle: PanelSurfaceStyle {
-        didSet { Self.save(toolbarSurfaceStyle, for: .toolbar) }
+        didSet { Self.save(toolbarSurfaceStyle, for: .toolbar, defaults: defaults) }
     }
     /// プログレスバーの背景(同上)。
     @Published var progressBarSurfaceStyle: PanelSurfaceStyle {
-        didSet { Self.save(progressBarSurfaceStyle, for: .progressBar) }
+        didSet { Self.save(progressBarSurfaceStyle, for: .progressBar, defaults: defaults) }
     }
     /// サイドパネルの背景。
     @Published var sidePanelSurfaceStyle: PanelSurfaceStyle {
-        didSet { Self.save(sidePanelSurfaceStyle, for: .sidePanel) }
+        didSet { Self.save(sidePanelSurfaceStyle, for: .sidePanel, defaults: defaults) }
     }
     /// 上記以外の浮かぶ表示(「情報を見る」パネル・トースト・拡大率表示)の背景。
     @Published var welcomeSurfaceStyle: PanelSurfaceStyle {
-        didSet { Self.save(welcomeSurfaceStyle, for: .welcome) }
+        didSet { Self.save(welcomeSurfaceStyle, for: .welcome, defaults: defaults) }
     }
     @Published var overlaySurfaceStyle: PanelSurfaceStyle {
-        didSet { Self.save(overlaySurfaceStyle, for: .overlays) }
+        didSet { Self.save(overlaySurfaceStyle, for: .overlays, defaults: defaults) }
     }
 
     /// 面を指定して現在の設定を読む。環境設定「外観」画面が`PanelSurface.allCases`を
@@ -979,8 +1005,9 @@ final class AppPreferences: ObservableObject {
         )
     }
 
-    private static func save(_ style: PanelSurfaceStyle, for surface: PanelSurface) {
-        let defaults = UserDefaults.standard
+    private static func save(
+        _ style: PanelSurfaceStyle, for surface: PanelSurface, defaults: UserDefaults
+    ) {
         defaults.set(style.materialOpacity, forKey: Keys.panelSurfaceMaterialOpacity(surface))
         defaults.set(style.tintColor.hexString, forKey: Keys.panelSurfaceTintColor(surface))
         defaults.set(style.tintOpacity, forKey: Keys.panelSurfaceTintOpacity(surface))
@@ -989,8 +1016,9 @@ final class AppPreferences: ObservableObject {
 
     /// 保存済みの設定を読む。1つでも欠けていればその項目だけ既定値で補う
     /// (面を後から増やしたときに、既存ユーザーの環境で既定値が使われるようにするため)。
-    private static func loadSurfaceStyle(for surface: PanelSurface) -> PanelSurfaceStyle {
-        let defaults = UserDefaults.standard
+    private static func loadSurfaceStyle(
+        for surface: PanelSurface, defaults: UserDefaults
+    ) -> PanelSurfaceStyle {
         let fallback = surface.defaultStyle
         let materialOpacity =
             defaults.object(forKey: Keys.panelSurfaceMaterialOpacity(surface)) as? Double
@@ -1016,7 +1044,7 @@ final class AppPreferences: ObservableObject {
     /// (MissingLayoutAutoLayout参照)。
     @Published var missingLayoutAutoLayout: MissingLayoutAutoLayout {
         didSet {
-            UserDefaults.standard.set(missingLayoutAutoLayout.rawValue, forKey: Keys.missingLayoutAutoLayout)
+            defaults.set(missingLayoutAutoLayout.rawValue, forKey: Keys.missingLayoutAutoLayout)
         }
     }
 
@@ -1025,7 +1053,7 @@ final class AppPreferences: ObservableObject {
     /// 「書き出したら次の本へ」という流れは、どの形式で書き出すかとは無関係のため。
     @Published var bookExportCompletionBehavior: BookExportCompletionBehavior {
         didSet {
-            UserDefaults.standard.set(
+            defaults.set(
                 bookExportCompletionBehavior.rawValue, forKey: Keys.bookExportCompletionBehavior
             )
         }
@@ -1042,13 +1070,13 @@ final class AppPreferences: ObservableObject {
     /// 未知のrawValueが保存されていた場合(将来caseを消した・改名したとき)は、読み込み時に
     /// 既定値へ落とす(`loadFormatSetting`)。
     @Published private var bookExportDestinationModes: [BookExportFormat: BookExportDestinationMode] {
-        didSet { Self.saveFormatSettings(bookExportDestinationModes, key: Keys.bookExportDestinationMode) }
+        didSet { Self.saveFormatSettings(bookExportDestinationModes, key: Keys.bookExportDestinationMode, defaults: defaults) }
     }
     @Published private var bookExportDataCleanups: [BookExportFormat: BookExportCleanup] {
-        didSet { Self.saveFormatSettings(bookExportDataCleanups, key: Keys.bookExportDataCleanup) }
+        didSet { Self.saveFormatSettings(bookExportDataCleanups, key: Keys.bookExportDataCleanup, defaults: defaults) }
     }
     @Published private var bookExportHistoryCleanups: [BookExportFormat: BookExportCleanup] {
-        didSet { Self.saveFormatSettings(bookExportHistoryCleanups, key: Keys.bookExportHistoryCleanup) }
+        didSet { Self.saveFormatSettings(bookExportHistoryCleanups, key: Keys.bookExportHistoryCleanup, defaults: defaults) }
     }
 
     /// 保存先の決め方(毎回確認 / 保存先を設定)。
@@ -1102,17 +1130,22 @@ final class AppPreferences: ObservableObject {
     /// 出荷時の既定値は、この設定を入れる前の固定の初期値をそのまま引き継いでいる
     /// (CBZの連番リネームだけON。理由はCbzExportOptions.renumberImagesSequentially参照)。
     @Published private var bookExportRenumbersImages: [BookExportFormat: Bool] {
-        didSet { Self.saveFormatFlags(bookExportRenumbersImages, key: Keys.bookExportRenumbersImages) }
+        didSet { Self.saveFormatFlags(
+                bookExportRenumbersImages, key: Keys.bookExportRenumbersImages, defaults: defaults
+            ) }
     }
     @Published private var bookExportIncludesExcludedPages: [BookExportFormat: Bool] {
         didSet {
-            Self.saveFormatFlags(bookExportIncludesExcludedPages, key: Keys.bookExportIncludesExcludedPages)
+            Self.saveFormatFlags(
+                bookExportIncludesExcludedPages, key: Keys.bookExportIncludesExcludedPages,
+                defaults: defaults
+            )
         }
     }
     /// CBZのComicInfo.xmlの`Volume`要素にも巻数を書き出すか(CBZ専用)。
     @Published var bookExportWritesVolumeElement: Bool {
         didSet {
-            UserDefaults.standard.set(bookExportWritesVolumeElement, forKey: Keys.bookExportWritesVolumeElement)
+            defaults.set(bookExportWritesVolumeElement, forKey: Keys.bookExportWritesVolumeElement)
         }
     }
 
@@ -1140,9 +1173,8 @@ final class AppPreferences: ObservableObject {
     }
 
     private static func saveFormatFlags(
-        _ values: [BookExportFormat: Bool], key: (BookExportFormat) -> String
+        _ values: [BookExportFormat: Bool], key: (BookExportFormat) -> String, defaults: UserDefaults
     ) {
-        let defaults = UserDefaults.standard
         for format in BookExportFormat.allCases {
             guard let value = values[format] else { continue }
             defaults.set(value, forKey: key(format))
@@ -1150,9 +1182,8 @@ final class AppPreferences: ObservableObject {
     }
 
     private static func loadFormatFlags(
-        key: (BookExportFormat) -> String, fallback: (BookExportFormat) -> Bool
+        key: (BookExportFormat) -> String, fallback: (BookExportFormat) -> Bool, defaults: UserDefaults
     ) -> [BookExportFormat: Bool] {
-        let defaults = UserDefaults.standard
         var result: [BookExportFormat: Bool] = [:]
         for format in BookExportFormat.allCases {
             result[format] = defaults.object(forKey: key(format)) as? Bool ?? fallback(format)
@@ -1161,9 +1192,8 @@ final class AppPreferences: ObservableObject {
     }
 
     private static func saveFormatSettings<Value: RawRepresentable>(
-        _ values: [BookExportFormat: Value], key: (BookExportFormat) -> String
+        _ values: [BookExportFormat: Value], key: (BookExportFormat) -> String, defaults: UserDefaults
     ) where Value.RawValue == String {
-        let defaults = UserDefaults.standard
         for format in BookExportFormat.allCases {
             guard let value = values[format] else { continue }
             defaults.set(value.rawValue, forKey: key(format))
@@ -1171,9 +1201,8 @@ final class AppPreferences: ObservableObject {
     }
 
     private static func loadFormatSettings<Value: RawRepresentable>(
-        key: (BookExportFormat) -> String, fallback: Value
+        key: (BookExportFormat) -> String, fallback: Value, defaults: UserDefaults
     ) -> [BookExportFormat: Value] where Value.RawValue == String {
-        let defaults = UserDefaults.standard
         var result: [BookExportFormat: Value] = [:]
         for format in BookExportFormat.allCases {
             result[format] = Value(rawValue: defaults.string(forKey: key(format)) ?? "") ?? fallback
@@ -1196,7 +1225,7 @@ final class AppPreferences: ObservableObject {
     /// `isEnabledInUserDefaults`から直接読めるようにしてある
     /// (RecentFilesStore.maxCountが同じ理由で直接UserDefaultsを読んでいるのと同じ)。
     @Published var launchInPrivateMode: Bool {
-        didSet { UserDefaults.standard.set(launchInPrivateMode, forKey: Keys.launchInPrivateMode) }
+        didSet { defaults.set(launchInPrivateMode, forKey: Keys.launchInPrivateMode) }
     }
 
     /// 上の値を、AppPreferencesのインスタンスを持たない箇所(ContentViewのinit、
@@ -1212,13 +1241,13 @@ final class AppPreferences: ObservableObject {
     /// ブックマーク編集・書き出しウインドウの同種のプレビューには効かせない(それらのサムネイルは
     /// サイズ調整が無く、拡大が無いと何のページか分からなくなるため。ユーザー指示)。
     @Published var showThumbnailHoverPreview: Bool {
-        didSet { UserDefaults.standard.set(showThumbnailHoverPreview, forKey: Keys.showThumbnailHoverPreview) }
+        didSet { defaults.set(showThumbnailHoverPreview, forKey: Keys.showThumbnailHoverPreview) }
     }
     /// ホバー開始からプレビューを出すまでの時間(秒)。こちらはページ一覧・サイドパネル・
     /// ブックマーク編集・書き出しウインドウのすべてで共通。以前は各所で350msの定数をコピー
     /// していた(通り抜けるだけの動きで次々開くのを避けるための遅延。0でも可)。
     @Published var thumbnailHoverPreviewDelay: Double {
-        didSet { UserDefaults.standard.set(thumbnailHoverPreviewDelay, forKey: Keys.thumbnailHoverPreviewDelay) }
+        didSet { defaults.set(thumbnailHoverPreviewDelay, forKey: Keys.thumbnailHoverPreviewDelay) }
     }
     static let thumbnailHoverPreviewDelayRange: ClosedRange<Double> = 0...1
     /// 上の遅延をTask.sleep用のナノ秒で返す。
@@ -1235,7 +1264,7 @@ final class AppPreferences: ObservableObject {
     /// (thumbnailHoverPreviewPixelSize参照)ので、大きくするとデコードの負荷とメモリは
     /// そのぶん増える(原寸を読んでいた頃よりはどちらも大幅に小さい)。
     @Published var thumbnailHoverPreviewSize: Double {
-        didSet { UserDefaults.standard.set(thumbnailHoverPreviewSize, forKey: Keys.thumbnailHoverPreviewSize) }
+        didSet { defaults.set(thumbnailHoverPreviewSize, forKey: Keys.thumbnailHoverPreviewSize) }
     }
     /// 下限を既定値(440pt)と同じにしてあるのは、**サムネイルより小さいプレビューを
     /// 作らせないため**(ユーザーの指示)。ページ一覧のサムネイルは最大320ptまで大きくでき、
@@ -1264,7 +1293,7 @@ final class AppPreferences: ObservableObject {
     /// ページ一覧で、画面に見えているサムネイルの原寸画像を裏で先にデコードしておくか
     /// (プレビューを即座に出すため。メモリとCPUを多く使うので既定OFF)。
     @Published var preloadThumbnailGridPreviews: Bool {
-        didSet { UserDefaults.standard.set(preloadThumbnailGridPreviews, forKey: Keys.preloadThumbnailGridPreviews) }
+        didSet { defaults.set(preloadThumbnailGridPreviews, forKey: Keys.preloadThumbnailGridPreviews) }
     }
     /// 新しい本を初めて開いたときの、読み方向の既定値(設計コンセプト11.1節)。
     ///
@@ -1275,7 +1304,7 @@ final class AppPreferences: ObservableObject {
     /// (init()参照。本ごとに毎回ロケール判定をやり直すわけではない)。
     @Published var defaultReadingDirection: ReadingDirection {
         didSet {
-            UserDefaults.standard.set(defaultReadingDirection.rawValue, forKey: Keys.defaultReadingDirection)
+            defaults.set(defaultReadingDirection.rawValue, forKey: Keys.defaultReadingDirection)
         }
     }
     // ブックマークの並べ替え基準は、以前はここ(AppPreferences.bookmarkSortOption)に
@@ -1323,8 +1352,11 @@ final class AppPreferences: ObservableObject {
         }
     }
 
-    init() {
-        let defaults = UserDefaults.standard
+    /// - Parameter defaults: 設定の保存先。既定は実際のアプリの保存先(`.standard`)。
+    ///   テストだけが専用の suite を渡す(`sharesGlobalState` のコメント参照)。
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        self.sharesGlobalState = defaults === UserDefaults.standard
         self.launchOpensLastBook = defaults.object(forKey: Keys.launchOpensLastBook) as? Bool ?? false
         self.launchFullScreen = defaults.object(forKey: Keys.launchFullScreen) as? Bool ?? false
         // 旧設定の読み替えは、下の2つを読む**前に**済ませる(新しいキーへ書き込むため)。
@@ -1465,12 +1497,12 @@ final class AppPreferences: ObservableObject {
             ?? Self.defaultThumbnailGridBorderCustomColor
         self.thumbnailGridWheelScrollRows =
             defaults.object(forKey: Keys.thumbnailGridWheelScrollRows) as? Double ?? 1
-        self.pageListSurfaceStyle = Self.loadSurfaceStyle(for: .pageList)
-        self.toolbarSurfaceStyle = Self.loadSurfaceStyle(for: .toolbar)
-        self.progressBarSurfaceStyle = Self.loadSurfaceStyle(for: .progressBar)
-        self.sidePanelSurfaceStyle = Self.loadSurfaceStyle(for: .sidePanel)
-        self.welcomeSurfaceStyle = Self.loadSurfaceStyle(for: .welcome)
-        self.overlaySurfaceStyle = Self.loadSurfaceStyle(for: .overlays)
+        self.pageListSurfaceStyle = Self.loadSurfaceStyle(for: .pageList, defaults: defaults)
+        self.toolbarSurfaceStyle = Self.loadSurfaceStyle(for: .toolbar, defaults: defaults)
+        self.progressBarSurfaceStyle = Self.loadSurfaceStyle(for: .progressBar, defaults: defaults)
+        self.sidePanelSurfaceStyle = Self.loadSurfaceStyle(for: .sidePanel, defaults: defaults)
+        self.welcomeSurfaceStyle = Self.loadSurfaceStyle(for: .welcome, defaults: defaults)
+        self.overlaySurfaceStyle = Self.loadSurfaceStyle(for: .overlays, defaults: defaults)
         // 背後を透かすすりガラスの4スイッチ。既定OFF(toolbarDockedGlassのコメント参照)。
         self.toolbarDockedGlass = defaults.object(forKey: Keys.toolbarDockedGlass) as? Bool ?? false
         self.progressBarDockedGlass =
@@ -1511,19 +1543,19 @@ final class AppPreferences: ObservableObject {
                 rawValue: defaults.string(forKey: Keys.bookExportCompletionBehavior) ?? ""
             ) ?? .none
         self.bookExportDestinationModes = Self.loadFormatSettings(
-            key: Keys.bookExportDestinationMode, fallback: .askEachTime
+            key: Keys.bookExportDestinationMode, fallback: .askEachTime, defaults: defaults
         )
         self.bookExportDataCleanups = Self.loadFormatSettings(
-            key: Keys.bookExportDataCleanup, fallback: .keep
+            key: Keys.bookExportDataCleanup, fallback: .keep, defaults: defaults
         )
         self.bookExportHistoryCleanups = Self.loadFormatSettings(
-            key: Keys.bookExportHistoryCleanup, fallback: .keep
+            key: Keys.bookExportHistoryCleanup, fallback: .keep, defaults: defaults
         )
         self.bookExportRenumbersImages = Self.loadFormatFlags(
-            key: Keys.bookExportRenumbersImages, fallback: { $0 == .cbz }
+            key: Keys.bookExportRenumbersImages, fallback: { $0 == .cbz }, defaults: defaults
         )
         self.bookExportIncludesExcludedPages = Self.loadFormatFlags(
-            key: Keys.bookExportIncludesExcludedPages, fallback: { _ in false }
+            key: Keys.bookExportIncludesExcludedPages, fallback: { _ in false }, defaults: defaults
         )
         self.bookExportWritesVolumeElement =
             defaults.object(forKey: Keys.bookExportWritesVolumeElement) as? Bool ?? false
@@ -1535,7 +1567,7 @@ final class AppPreferences: ObservableObject {
         // 外観も同じ理由でここから1回。最初のウインドウが作られるより前(このinitは
         // AppStores経由でQooViewerApp.init()から呼ばれる)なので、既定の外観が一瞬見えて
         // から切り替わる、ということにはならない。
-        AppAppearanceApplier.shared.apply(appAppearance)
+        if sharesGlobalState { AppAppearanceApplier.shared.apply(appAppearance) }
     }
 }
 
@@ -1567,11 +1599,10 @@ extension AppPreferences {
     func resetToDefaults(_ pane: SettingsPane) {
         let keys = Self.keys(for: pane)
         guard !keys.isEmpty else { return }
-        let defaults = UserDefaults.standard
         for key in keys {
             defaults.removeObject(forKey: key)
         }
-        apply(AppPreferences(), for: pane)
+        apply(AppPreferences(defaults: defaults), for: pane)
     }
 
     /// その画面が読み書きするUserDefaultsのキー。

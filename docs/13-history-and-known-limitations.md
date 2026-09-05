@@ -241,7 +241,7 @@ suite の一覧は [02](02-project-and-build.md#テストターゲットqooviewe
 symlink 経由のパスで開くと `location(inBookAt:)` の folderPath が nil になる小さな癖がある)。
 rar 7.2x は `-ma4` が無く RAR4 を作れない。
 
-### 段階 5 の候補 ―― GUI 依存の経路を CI へ移す(2026-09-06 点検、未着手)
+### 段階 5 ―― GUI 依存の経路を CI へ移す(2026-09-06 点検、着手済み)
 
 段階 0〜4 のあと、「実機でしか確かめられない」と扱ってきた領域を依存関係の側から点検した
 (ViewModels / Services / App / Views の全ファイル。点検メモ:
@@ -295,6 +295,35 @@ rar 7.2x は `-ma4` が無く RAR4 を作れない。
 **実機に残すもの**: `QooViewerApp.performExternalOpen` / `BookWindowOpener`(タブ化・配置・状態復元)、
 `MenuBarMenuGate` と `FocusedValue` 経由のメニュー状態、`ViewerView` のイベントモニタ・クロームの
 自動非表示・ルーペ、すりガラスの面の文字の縁取り。
+
+**A2 でできたもの(2026-09-06、361 → 378 テスト)**
+`AppPreferences.init(defaults: UserDefaults = .standard)`。`UserDefaults.standard` の直接参照 91 か所を
+保存先のプロパティへ替え、`static` の補助(すりガラスの面・書き出しの形式ごと)には `defaults:` を
+足した。テストは `Support/PreferencesSuite.swift`(その場限りの suite)と
+`Support/AppPreferencesProbe.swift`(Mirror での総なめと下ごしらえ)、`AppPreferencesTests`。
+suite の中身は [02](02-project-and-build.md#テストターゲットqooviewertests)。
+
+計画から変えたのは 1 点 ―― **`AppleLanguages` は「呼ばない」ではなく `defaults` へ流す**ことにした。
+渡された suite の中で完結するので実物のアプリには効かず、書かれたことをテストから見られる。
+保存先の外へ出ていくもの(`ThumbnailDiskCache.shared`・`NSApp.appearance`・
+`.pageOrderSettingDidChange` / `.recentFilesLimitDidChange` の 2 つの通知)だけを
+`sharesGlobalState`(= `defaults === .standard`)で止める。通知を足したのは計画に無かったぶん
+(受け手が実物の保存先を読み直して切り詰めるため)。
+
+**A2 で分かったこと**
+- **「初期設定に戻す」の網羅は、保存先を見るだけでは確かめられない。** `keys(for:)` に無く
+  `apply(_:for:)` にある設定(= ユーザー報告「文字の影だけリセットされない」の形)は、`apply` が
+  渡す `AppPreferences()` が**消し忘れたキーの古い値を読み直す**ので、画面の値も保存先も
+  「戻っていない」で一致してしまう。テスト側に**画面ごとの担当表**を別に持ち、戻った後の値を
+  出荷時の既定値(空の suite から作ったインスタンス)と突き合わせる形にした。抜けを入れて
+  実際に落ちること(`panelSurfaceContentShadowLevel` と `filmstripFontSize` を `keys(for:)` から
+  外す)まで確かめてある。
+- **`@Published` は Mirror で総なめにできる。** `_x: Published<T>` の `storage` が
+  `.value(T)` の列挙になっている(`$x` を購読すると `.publisher` へ移るので、テストは購読しない)。
+  設定を 1 つ足したときに、テスト側の書き写しが古いまま静かに素通りするのを防げる。
+  辞書の `description` は順序が変わるので、要素を並べ替えてから文字列にすること。
+- `Binding.wrappedValue` を使うテストのヘルパーには `import SwiftUI` が要る
+  (`MemberImportVisibility` が有効なので、`@testable import` だけでは見えない)。
 
 **口を開けるときの作法**: 既定値はこれまでどおり(通常経路の差分ゼロ)。時間で待たず `Task` の
 ハンドルを `await` する。既定引数にメインアクター分離の型を置かない(段階 3・4 で 2 度踏んだ。
