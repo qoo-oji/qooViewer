@@ -162,19 +162,26 @@ actor BookPageListCache {
     private var hasTrimmed = false
 
     private init() {
-        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-        guard let base else {
-            directory = nil
-            return
-        }
+        directory = Self.makeDefaultDirectory()
+    }
+
+    /// 保存先を指定して作る。**テストのための口**で、通常は`shared`だけを使う ――
+    /// テストが実物のキャッシュ(利用者のサムネイル/ページ一覧)へ書き込まないようにするため。
+    init(directory: URL?) {
+        self.directory = directory
+    }
+
+    private static func makeDefaultDirectory() -> URL? {
+        guard let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        else { return nil }
         let bundleID = Bundle.main.bundleIdentifier ?? "qooViewer"
         let url = base.appendingPathComponent(bundleID, isDirectory: true)
             .appendingPathComponent("BookPageLists", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            directory = url
+            return url
         } catch {
-            directory = nil
+            return nil
         }
     }
 

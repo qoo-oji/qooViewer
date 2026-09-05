@@ -91,19 +91,26 @@ actor ThumbnailDiskCache {
     private var lastConfigurationGeneration: UInt64 = 0
 
     private init() {
-        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-        guard let base else {
-            directory = nil
-            return
-        }
+        directory = Self.makeDefaultDirectory()
+    }
+
+    /// 保存先を指定して作る。**テストのための口**で、通常は`shared`だけを使う ――
+    /// テストが実物のキャッシュ(利用者のサムネイル/ページ一覧)へ書き込まないようにするため。
+    init(directory: URL?) {
+        self.directory = directory
+    }
+
+    private static func makeDefaultDirectory() -> URL? {
+        guard let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+        else { return nil }
         let bundleID = Bundle.main.bundleIdentifier ?? "qooViewer"
         let url = base.appendingPathComponent(bundleID, isDirectory: true)
             .appendingPathComponent("PageThumbnails", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            directory = url
+            return url
         } catch {
-            directory = nil
+            return nil
         }
     }
 
@@ -304,7 +311,8 @@ actor ThumbnailDiskCache {
 
     /// 上限を超えていたら、最終アクセスが古いものから削除する。
     /// `nonisolated static`: ディレクトリ全走査をactorの上で行わないため。
-    private nonisolated static func trimIfNeeded(in directory: URL, maxTotalBytes: Int) {
+    /// privateでないのはテストのため(刈り込みそのものを、指定したフォルダに対して確かめる)。
+    nonisolated static func trimIfNeeded(in directory: URL, maxTotalBytes: Int) {
         let keys: [URLResourceKey] = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
         guard let enumerator = FileManager.default.enumerator(
             at: directory, includingPropertiesForKeys: keys

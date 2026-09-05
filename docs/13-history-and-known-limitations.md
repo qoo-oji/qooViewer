@@ -460,6 +460,17 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
 **この処理は実物のストア・キャッシュ・環境設定を消す**ので、テストは必ず作業フォルダと
 その場限りの suite を渡す。
 
+**C5 でできたもの(2026-09-06、478 → 487 テスト)**
+`ThumbnailDiskCache.init(directory:)` / `BookPageListCache.init(directory:)`(`shared` の
+`private init()` は既定の保存先を作る形のまま)、`ThumbnailDiskCache.trimIfNeeded(in:maxTotalBytes:)`
+を internal に。テストは `DiskCacheTests`。
+
+**C5 で分かったこと**
+- 設定 OFF での**ディレクトリごとの削除**は `Task.detached` の投げっぱなしなので、完了を待つ口が
+  無い。テストで固定できたのは「OFF のあいだは書きも読みもしない」ところまで。刈り込みは
+  `trimIfNeeded` を直接呼んで確かめる ―― `store` 経由では 1MB 書かないと発火しない
+  (`trimThreshold` の下限)。
+
 **口を開けるときの作法**: 既定値はこれまでどおり(通常経路の差分ゼロ)。時間で待たず `Task` の
 ハンドルを `await` する。既定引数にメインアクター分離の型を置かない(段階 3・4 で 2 度踏んだ。
 `QOO_CI_WARNINGS_AS_ERRORS=YES` で通してから push)。静的な登録簿(`ViewerViewModel.openBookIDs`、
