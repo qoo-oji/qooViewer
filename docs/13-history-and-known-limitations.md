@@ -488,6 +488,56 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
 `QOO_CI_WARNINGS_AS_ERRORS=YES` で通してから push)。静的な登録簿(`ViewerViewModel.openBookIDs`、
 `MenuBarMenuGate.shared`、`UserDefaults(suiteName:)`)は後始末する。
 
+### 引き継ぎ(2026-09-06 時点)
+
+**いまの状態**: `qooViewerTests` は 487 テスト・53 suite(手元で約 3 秒)。段階 0〜5 はすべて
+実装済みで、CI(Build の Debug / Release と Check)は緑。suite ごとの中身は
+[02](02-project-and-build.md#テストターゲットqooviewertests)。
+
+**アプリ側に開けた口(段階 5)**。どれも既定値はこれまでどおりで、通常経路の差分はゼロ:
+
+| 口 | 何のため |
+| --- | --- |
+| `AppPreferences.init(defaults:)` / `KeyBindingStore.init(defaults:)` / `FolderAccessStore.init(defaults:)` / `RecentFilesStore.init(defaults:)` | `UserDefaults` の保存先をその場限りの suite へ |
+| `ThumbnailDiskCache.init(directory:)` / `BookPageListCache.init(directory:)` | ディスクキャッシュの保存先を作業フォルダへ |
+| `ViewerViewModel(usesDiskCaches:)` / `AppState(usesPageListCache:)` / `BookLayoutEditorViewModel.load(book:usesDiskCaches:)` | DB へは書くがディスクキャッシュには触れない、を表す |
+| `ViewerViewModel.settle()` / `AppState.openTask`(`private(set)`) | 起動時に投げた `Task` を待ち合わせる |
+| `BookmarkStore.releaseResources()` / `FavoritesStore.releaseResources()` | 張った購読を外す(下の「必ず守ること」参照) |
+| `BookExportViewModel.prepare(row:book:displayState:)` / `write(_:to:)` | 材料集めと書き込みを分ける |
+| `QooViewerApp.performPendingStoreResetIfNeeded(defaults:storeURL:domainName:cacheDirectories:)` / `removeOrphanedAuxiliaryStoreFiles(at:)` | 実物のストア・キャッシュ・環境設定を消さずに確かめる |
+
+純粋型へ出したのは `SpreadPairing` / `PageLanding` / `PageAreaLayout` / `FilmstripLayout` /
+`BulkBookmarkRenaming`(いずれも `Models/`、`nonisolated`)。画面や ViewModel 側は、そこを呼ぶだけの
+薄い包みとして残してある。
+
+**テストの土台**(`qooViewerTests/Support/`): `Fixtures` / `FixtureBook`(台帳付きの本)、
+`FixtureFolder` ほかのビルダー、`TemporaryDirectory`(作業フォルダ)、`InMemoryLibrary`(メモリ内の
+SwiftData + 5 つのストア)、`PreferencesSuite`(その場限りの `UserDefaults`)、
+`AppPreferencesProbe`(Mirror での総なめ)、`ViewerHarness`(本を開く一式)、`ExportHarness`。
+
+**必ず守ること**(どれも実際に踏んだもの):
+
+- **共有の保存先に触れない。** `UserDefaults.standard` / `*.shared` のキャッシュ /
+  `QooViewerApp.modelContainer.mainContext` は不可。上の口を使う。
+- **`InMemoryLibrary` は `defer { library.close() }`。** 外さないと、捨てられている最中のストアが
+  他のテストの `.bookmarksDidChange` で目を覚まし、テストホストごと落ちる(B3 参照)。
+- **時間で待たない。** `settle()` / `await openTask?.value` のように、合図は処理そのものから出す
+  (段階 2 参照)。
+- **環境で変わる既定値は明示する。** 読み方向の既定はシステムの言語から決まる(手元は右開き、
+  CI は左開き)。見開き左右が絡むテストは本ごとの上書きで固定する(B1 参照)。
+- **パスは実在の有無で形が変わる。** `standardizedFileURL` は先頭の `/private` を実在するときだけ
+  外す。手元(サンドボックスのコンテナ配下)では出ない食い違いが CI で出る(B5 参照)。
+- **push する前に `QOO_CI_WARNINGS_AS_ERRORS=YES` で通す。** 手元では警告どまりのものが CI では
+  エラーになる(段階 3・4 参照)。`scripts/ci/check-all.sh` も同じく push 前に。
+
+**残っている作業**:
+
+1. 上の表の下にある**「変更しなくても書けるテスト」15 項目**。アプリ側の変更は要らず、順序の
+   依存も無いので、どれからでも着手できる。
+2. **「実機に残すもの」**(ウインドウの生成・タブ化・状態復元、メニューの状態、`ViewerView` の
+   イベントモニタ・クロームの自動非表示・ルーペ、すりガラスの面の文字の縁取り)。これらは
+   意図的に CI へ載せない。確かめ方は [12](12-verification-and-debugging.md)。
+
 ## 古くなった記述・ファイル(2026-09-05 に整理済み)
 
 - `CLAUDE.md` の UniversalCharsetDetection と「SevenZip.swift は main を追跡」の記述は修正した。

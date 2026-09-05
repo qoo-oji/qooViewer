@@ -21,7 +21,7 @@
 | 10 | [10-sandbox-and-security.md](10-sandbox-and-security.md) | サンドボックス下でファイルに触るための約束事 |
 | 11 | [11-forked-dependencies.md](11-forked-dependencies.md) | 独自にフォークした依存ライブラリ(SevenZip.swift / Unrar.swift)に、何のためにどんな変更を加えたか |
 | 12 | [12-verification-and-debugging.md](12-verification-and-debugging.md) | 画面まわりをテストで押さえないこのアプリを、どうやって検証・計測・デバッグしてきたか |
-| 13 | [13-history-and-known-limitations.md](13-history-and-known-limitations.md) | 主な方針転換の履歴、既知の制限、未着手の課題 |
+| 13 | [13-history-and-known-limitations.md](13-history-and-known-limitations.md) | 主な方針転換の履歴、既知の制限、未着手の課題、テストのパタンセットの記録と**引き継ぎ** |
 
 急いでいるなら 01 → 03 → 06 → 11 の順に読めば、壊しやすい場所の見当が付きます。
 
