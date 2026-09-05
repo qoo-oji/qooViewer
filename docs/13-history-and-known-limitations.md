@@ -241,6 +241,66 @@ suite の一覧は [02](02-project-and-build.md#テストターゲットqooviewe
 symlink 経由のパスで開くと `location(inBookAt:)` の folderPath が nil になる小さな癖がある)。
 rar 7.2x は `-ma4` が無く RAR4 を作れない。
 
+### 段階 5 の候補 ―― GUI 依存の経路を CI へ移す(2026-09-06 点検、未着手)
+
+段階 0〜4 のあと、「実機でしか確かめられない」と扱ってきた領域を依存関係の側から点検した
+(ViewModels / Services / App / Views の全ファイル。点検メモ:
+<https://claude.ai/code/artifact/6a10ee64-bc26-4753-bdfc-4eaa1f4ccdb3>)。結論は、**画面の
+都合ではなく「共有の保存先に直結している」都合**でテストに載っていないものがかなりあり、
+アプリ側に小さな口を開ければ CI へ移せる、というもの。口の作法は段階 4 で開けた 3 つと同じ
+(既定値はこれまでどおり・通常経路の差分はゼロ)。
+
+栓は 3 つで、最初の 1 つを抜くと後ろが連鎖的に開く:
+
+1. **`AppPreferences` が共有の保存先と直結している。** `UserDefaults.standard` の直接参照が
+   91 か所、`init()` の最後で `ThumbnailDiskCache.shared.configure`(設定 OFF なら実物の
+   キャッシュを消す入口)と `AppAppearanceApplier.shared.apply` を呼ぶため、テストで
+   `AppPreferences()` を作れない。ほとんどの ViewModel がこの型を受け取るので、ここが最初の栓。
+2. **ディスクキャッシュの ON/OFF が `skipsPersistence` と一体。** `ViewerViewModel` は
+   `PageLoader(usesThumbnailDiskCache: !skipsPersistence)` で作るため、「DB(メモリ内)には
+   書きたいがディスクには書きたくない」というテストの要求を表せない。
+3. **完了の合図が無い `Task`。** `ViewerViewModel.init` が投げる 4 つの `Task` と、
+   `advance()` の待ち行列(`Task.sleep(pageFlipFrameDuration)` を挟む)を待つ口が無い。
+   段階 2 の教訓どおり時間で待ってはいけないので、ハンドルを `await` できる形が要る。
+
+候補(効き目の順。推奨順は A2 → A1 → A3 → A4 → B1 / B3 → B2 → B4 / B5 → C。A1 は A2 と独立):
+
+| # | 対象 | 開ける口 | 載る検証 |
+| --- | --- | --- | --- |
+| A1 | `ViewerViewModel` の見開きの組判定 | `shouldPairWithNextPage` / `backwardStepSize` / `forwardStepSize` / `spreadPairStillDisplayable` / `normalizedAnchorIndex` に 4 回コピーされている規則を `nonisolated` な純粋型へ移す(入力: displayMode / readingDirection / pageCount / hint / isWide) | 利用者報告 6 件ぶんの規則を表引きで固定。`fallbackIndex` と `jump(toPercentile:)` も同居 |
+| A2 | `AppPreferences` | `init(defaults: UserDefaults = .standard)`、`.standard` 91 か所を `defaults` へ、`defaults !== .standard` なら 3 つの副作用(ディスクキャッシュ・外観・`AppleLanguages`)を呼ばない。`resetToDefaults` の中の `AppPreferences()` も `defaults` を渡す | `migrateLoopBehaviorIfNeeded` の 4 分岐と「読んだその場で旧キーを消す」こと、初回起動の既定読み方向、**面ごとの「初期設定に戻す」の網羅**(`Keys` 82 個が `keys(for:)` と `apply(_:for:)` の両方にあるか。コメント自身が足し忘れを警告している) |
+| A3 | `ViewerViewModel` 全体 | `usesDiskCaches: Bool? = nil`(既定 `!skipsPersistence`)、起動時の `Task` と `pageFlipTask` をまとめて `await` する `settle()` | 開始ページの決定(`reopenBehavior` × 前回位置 × `initialEdge` × `initialPageID`)、差し替え検知と古い行の削除、鍵の解決、`advance` の着地と境界、`addBookmark` の重複除去、`toggleDisplayMode` の書き戻し先、`reloadLayoutData(focusPageKey:)`、`skipsPersistence` の契約。テストは必ず `releaseResources()` で静的な登録簿から外す |
+| A4 | `KeyBindingStore` | `init(defaults:)`、`fillingMissingDefaults` / `migratedLegacyMouseBindings` を `nonisolated static`(internal)に | 旧 4 択の読み替え、既定の補完の 2 条件(モード別には適用しない)、`resolvedClickAction` の優先順位(位置 > 全体、モード別 > 基本)、保存 → 読み直し |
+| B1 | `BookLayoutEditorViewModel` | 読み込み済みの本から行を組む `load(book:)`(`BookPageListCache.shared` と `BookLoader.load(from:)` の既定 `cachesPageList` を避ける) | `movePages` で除外ページが直前の読めるページに付いて動くこと、`applyNewOrder` が隣の変わった見開き左右だけ解除すること、ブックマーク番号の移行、伝播範囲 |
+| B2 | `BookExportViewModel` | `exportOne` から「材料集め」を `prepare(row:book:) -> PreparedBook` として分離。書き込みはテスト用サブクラスの `export` で差し替え | 読み方向の優先順位(DB > 開いている本 > 既定)、鍵なしブックマーク、出力先が元ファイルと同じでも元が消えないこと(一時ファイル → `replaceItemAt`) |
+| B3 | `LibraryCleanupViewModel` | `FolderAccessStore.init(defaults:)`(B5 と共通) | 6 つの保存先の合算、`deleteAllData(forBookIDs:)` が 6 つすべてから消すこと(段階 4 の `deleteAllFavorites` と同じ性質の経路) |
+| B4 | `AppState.open(request:)` | `openTask` を `private(set)` にして待てるように | `isPrivateWindow` のコメントに列挙された「何を書かないか」の契約(reconcile × 4・backfill・履歴・`cachesPageList`)、`recordsInHistory`、上限超過、失敗時 |
+| B5 | `RecentFilesStore` / `FolderAccessStore` | `init(defaults:)` | 旧形式からの移行・パスでの重複除去・上限・「`entries` が空でも保存済みを消す」、`add(url:)` の祖先/子孫の整理と `isAncestor` の区切り単位の比較 |
+| C1 | `ViewerView` の表示倍率とスロット | `slots(forOrderedImages:)` / `referenceHeight` / `displayWidth` / `totalContentSize` / `renderScale` / `scrollContentSize` を `CGSize` を受ける `nonisolated enum` へ | 4 つの表示モードの倍率(`fitWidthSplit` の分割判定・`maxUpscale`)、空白スロットの挿入 |
+| C2 | `ProgressBarView` | `visibleRange` / `pageIndex(atX:)` / `highlightSlot` を純粋関数へ | RTL の反転、端での詰め |
+| C3 | `BulkRenameBookmarksSheet` | `previewNames` と `applyRenaming` に二重実装されている命名規則を 1 つの関数に | 表紙・最後の除外 → 連番 → `pageIndex` 順。プレビューと結果のずれ |
+| C4 | `QooViewerApp` のストア復旧 | `removeOrphanedAuxiliaryStoreFiles` を internal に、`performPendingStoreResetIfNeeded` に `(defaults:storeURL:cacheDirectories:)` | 本体が無いときだけ `-wal`/`-shm` を消すこと、全削除で `FolderAccessStore.defaultsKey` だけ戻ること |
+| C5 | `ThumbnailDiskCache` / `BookPageListCache` | `init(directory:)` | 刈り込み、OFF で消えること、`store` → 読み直しの往復、ページ寸法の指紋照合 |
+
+**変更しなくても書ける(単に無い)テスト**: `ResourceAnomalyDetector.evaluate`、
+`TitleAuthorFilenameParser`、`ContentFingerprint`、`LibraryDataPruner`、`StorageUsageScanner`、
+`ImageExporter`、`PagePixelBuffer`、`ResourceHistory`、`PageLoader`(`usesThumbnailDiskCache: false`。
+テストからの参照は 2 か所だけ)、`FavoritesStore` の上限と `move(folder:to:)` の循環禁止、
+`BookmarkStore.resolveKeys` / `updatePageIndices` / `renameBookmarks`、`LayoutStore` の
+`setPageOrderOverride` / `checkContentReplacement` / `discardLayoutData`、`MetadataEditorViewModel`
+(依存 6 つすべて `InMemoryLibrary` にある)、`LaunchCoordinator.openAppState(forBookAt:isPrivate:)`、
+`BookExportRowFilter`、`RGBColorValue(hexString:)`、`WelcomeQuickOpenColumn.resolved`、
+`LayoutPropagationScope` の利用可否(`ViewerView` と `BookmarkListView` に二重実装 ―― まとめる価値あり)。
+
+**実機に残すもの**: `QooViewerApp.performExternalOpen` / `BookWindowOpener`(タブ化・配置・状態復元)、
+`MenuBarMenuGate` と `FocusedValue` 経由のメニュー状態、`ViewerView` のイベントモニタ・クロームの
+自動非表示・ルーペ、すりガラスの面の文字の縁取り。
+
+**口を開けるときの作法**: 既定値はこれまでどおり(通常経路の差分ゼロ)。時間で待たず `Task` の
+ハンドルを `await` する。既定引数にメインアクター分離の型を置かない(段階 3・4 で 2 度踏んだ。
+`QOO_CI_WARNINGS_AS_ERRORS=YES` で通してから push)。静的な登録簿(`ViewerViewModel.openBookIDs`、
+`MenuBarMenuGate.shared`、`UserDefaults(suiteName:)`)は後始末する。
+
 ## 古くなった記述・ファイル(2026-09-05 に整理済み)
 
 - `CLAUDE.md` の UniversalCharsetDetection と「SevenZip.swift は main を追跡」の記述は修正した。
