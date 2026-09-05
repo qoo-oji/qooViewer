@@ -85,6 +85,16 @@ Swift Testing の単体テストです(2026-09-05 追加)。アプリを TEST_HO
 TEST_HOST はビルドごとに別のアプリとして扱われ、起動のたびに macOS がリムーバブルボリュームへの
 アクセス許可を聞き直します。
 
+**テストターゲットもアプリと同じ既定分離(MainActor)です。** `@Test(arguments:)` に渡す引数は
+Swift Testing がメインアクター外で評価し、`onProgress` のような callback も読み込みのタスクの中から
+呼ばれるので、そこに出す `static` プロパティやヘルパー型には `nonisolated` を付けます。手元のビルドでは
+**警告どまり**ですが CI は警告をエラーにするので、push する前に CI と同じ形で通しておくこと:
+
+```sh
+xcodebuild -project qooViewer.xcodeproj -scheme qooViewer -configuration Debug \
+  -destination 'platform=macOS' QOO_CI_WARNINGS_AS_ERRORS=YES build-for-testing
+```
+
 #### テストのフィクスチャ
 
 `qooViewerTests/Fixtures/` に小さな「本」を置き、台帳 `manifest.json` に **sha256・作り方
