@@ -1100,39 +1100,19 @@ final class ViewerViewModel: ObservableObject {
     /// ティックの結果を画像無しに知りようが無い)場合だけ、従来通りの近似(fallback。今表示中の
     /// 枚数)にフォールバックする。
     private func backwardStepSize(from index: Int, fallback: Int) -> Int {
-        guard displayMode == .spread else { return fallback }
-        guard index - 1 >= 0 else { return fallback }
-        guard index - 2 >= 0 else { return 1 }
-
-        let earlierPosition = layoutHint(at: index - 2)
-        let laterPosition = layoutHint(at: index - 1)
-        let isRTL = readingDirection == .rightToLeft
-        let disallowedForEarlier: PageSpreadPosition = isRTL ? .left : .right
-        let disallowedForLater: PageSpreadPosition = isRTL ? .right : .left
-
-        if earlierPosition == .center || earlierPosition == disallowedForEarlier { return 1 }
-        if laterPosition == .center || laterPosition == disallowedForLater { return 1 }
-        if earlierPosition != nil || laterPosition != nil { return 2 }
-
-        // どちらの位置にも明示指定が無い場合、本来は横長ヒューリスティックの判定に画像の
-        // 読み込みが必要で、この同期的なAPIでは判定できない。ただし、index - 2のページを
-        // 過去に一度でも表示していれば、その判定結果がwideImageCacheに残っているため、
-        // 画像を読み込み直さずに正確な判定ができる(shouldPairWithNextPageと同じ基準:
-        // index - 2自身が横長なら単独ページとして確定するのでindex - 1と組めず、戻り幅は1。
-        // 横長でなければindex - 2とindex - 1が組になっていたはずなので、戻り幅は2)。
+        // 規則の本体はSpreadPairing。明示指定で決まらないときにwideImageCache
+        // (一度でも表示したページの横長判定)を見て、それも無ければfallbackへ落とす。
         //
         // 経緯(ユーザー報告): 1ページ目が横長画像で単独ページ、2ページ目以降は縦長画像で
         // 通常通り2ページずつ組になる本で、見開き表示中に「前のページへ戻る」を実行すると、
         // 本来は間にある単独ページ(1ページ目)を経由して2ページ目が単独表示されるべきところ、
         // このキャッシュが無い頃は「今表示中の枚数(2枚)」をそのまま戻り幅として使う近似に
         // 頼っており、1ページ目・2ページ目をまとめて飛び越えてしまっていた。
-        if let earlierIsWide = cachedIsWideImage(at: index - 2) {
-            return earlierIsWide ? 1 : 2
-        }
-
-        // キャッシュにも判定結果が無い(index - 2のページを一度も表示していない)場合だけ、
-        // 従来通りの近似(fallback)にフォールバックする。
-        return fallback
+        SpreadPairing.backwardStepSize(
+            from: index, fallback: fallback, displayMode: displayMode,
+            readingDirection: readingDirection, hint: { self.layoutHint(at: $0) },
+            cachedIsWide: { self.cachedIsWideImage(at: $0) }
+        )
     }
 
     /// advance(forward: true)(次のページへ進む)のステップ数を決める。backwardStepSizeの
@@ -1156,19 +1136,9 @@ final class ViewerViewModel: ObservableObject {
     /// 同じ基準)、判定できない(どちらにも明示指定が無く、横長ヒューリスティックの結果を
     /// 画像無しに知りようが無い)場合だけ、従来通りの近似(fallback)にフォールバックする。
     private func forwardStepSize(from index: Int, fallback: Int) -> Int {
-        guard displayMode == .spread else { return fallback }
-        guard index >= 0, index + 1 < book.pages.count else { return fallback }
-
-        let currentPosition = layoutHint(at: index)
-        let nextPosition = layoutHint(at: index + 1)
-        let isRTL = readingDirection == .rightToLeft
-        let disallowedForCurrent: PageSpreadPosition = isRTL ? .left : .right
-        let disallowedForNext: PageSpreadPosition = isRTL ? .right : .left
-
-        if currentPosition == .center || currentPosition == disallowedForCurrent { return 1 }
-        if nextPosition == .center || nextPosition == disallowedForNext { return 1 }
-        if currentPosition != nil || nextPosition != nil { return 2 }
-
+        // 規則の本体はSpreadPairing。以下のコメントは、その中のisDisplayedIndexと
+        // cachedIsWideの使い分けがなぜこの順序なのかの経緯。
+        //
         // indexが現在実際に表示中のページ(currentIndex)と一致する場合、fallback
         // (max(currentImages.count, 1)、advance参照)は「今まさに画面に出ている、実際の
         // 表示状態」をそのまま表しているため、wideImageCacheによる横長判定だけの予測より
@@ -1183,10 +1153,7 @@ final class ViewerViewModel: ObservableObject {
         // 進むべきところを2ページ分進めて次のページを飛び越えてしまっていた。fallbackは
         // その制約も含めて実際にレンダリングされた結果(currentImages.count)をそのまま使うため、
         // この問題が起きない。
-        if index == currentIndex {
-            return fallback
-        }
-
+        //
         // indexが現在表示中のページと一致しない(スクロールホイールなどで素早く連続して
         // advanceが呼ばれ、待ち行列に複数の目的地が積まれている)場合は、fallbackの元になる
         // currentImages.countが「今画面に実際に出ている(baseIndexとは別の、処理待ちの)ページ」
@@ -1194,13 +1161,14 @@ final class ViewerViewModel: ObservableObject {
         // この場合に限り、wideImageCacheを参照する(indexのページを過去に一度でも表示して
         // いれば、shouldPairWithNextPageと同じ基準(indexのページ自身が横長かどうか)で、
         // fallbackよりはましな判定ができる。前述のpreviousDisplayedRangeによる制約までは
-        // 反映できないため完全ではないが、素の近似よりは精度が高い)。
-        if let currentIsWide = cachedIsWideImage(at: index) {
-            return currentIsWide ? 1 : 2
-        }
-
-        // キャッシュにも判定結果が無い場合だけ、従来通りの近似(fallback)にフォールバックする。
-        return fallback
+        // 反映できないため完全ではないが、素の近似よりは精度が高い)。キャッシュにも判定結果が
+        // 無い場合だけ、従来通りの近似(fallback)にフォールバックする。
+        return SpreadPairing.forwardStepSize(
+            from: index, fallback: fallback, pageCount: book.pages.count,
+            isDisplayedIndex: index == currentIndex, displayMode: displayMode,
+            readingDirection: readingDirection, hint: { self.layoutHint(at: $0) },
+            cachedIsWide: { self.cachedIsWideImage(at: $0) }
+        )
     }
 
     /// advance(forward:)から呼ばれる、待ち行列への追加とアニメーション開始。
@@ -1379,8 +1347,7 @@ final class ViewerViewModel: ObservableObject {
     /// 実際の着地先の補正・境界チェックはjump(toPageIndex:)にそのまま委譲する。
     func jump(toPercentile percentile: Int) {
         guard !book.pages.isEmpty else { return }
-        let index = book.pages.count * percentile / 100
-        jump(toPageIndex: index)
+        jump(toPageIndex: PageLanding.pageIndex(forPercentile: percentile, pageCount: book.pages.count))
     }
 
     /// 現在表示中の見開きに、EPUBのpage-spread-left/right/rendition:page-spread-center指定
@@ -2481,30 +2448,20 @@ final class ViewerViewModel: ObservableObject {
     private func shouldPairWithNextPage(
         at targetIndex: Int, firstImage: CGImage, previousDisplayedRange: Range<Int>? = nil
     ) -> Bool {
-        guard displayMode == .spread, targetIndex + 1 < book.pages.count else { return false }
-
-        let currentPosition = layoutHint(at: targetIndex)
-        let nextPosition = layoutHint(at: targetIndex + 1)
-        let isRTL = readingDirection == .rightToLeft
-        let disallowedForCurrent: PageSpreadPosition = isRTL ? .left : .right
-        let disallowedForNext: PageSpreadPosition = isRTL ? .right : .left
-
-        if currentPosition == .center || currentPosition == disallowedForCurrent { return false }
-        if nextPosition == .center || nextPosition == disallowedForNext { return false }
-
-        if currentPosition != nil || nextPosition != nil { return true }
-
-        // 明示指定がどちらにも無く、横長ヒューリスティックだけで判定する場合に限り、直前の
-        // 見開きのページを再利用したペア化を拒否する(lastDisplayedPageRangeのコメント参照)。
-        // 明示指定がある場合(上のガードで既にtrue/falseが確定している場合)は、そちらの
-        // 権威的な指定を優先し、この制約は適用しない(EPUB/DB側の指定自体が常に整合した
-        // ペアを表しているはずのため、実務上ここに抵触することは無い想定だが、優先順位を
-        // 明確にしておく)。
-        if let previousDisplayedRange, previousDisplayedRange.contains(targetIndex + 1) {
-            return false
-        }
-
-        return !isWideImage(width: firstImage.width, height: firstImage.height, pageIndex: targetIndex)
+        // 規則の本体はSpreadPairing(Models/SpreadPairing.swift)。同じ規則がこのファイルの
+        // 5箇所へ別々に書かれていたため、1つにまとめてある。
+        SpreadPairing.shouldPairWithNextPage(
+            at: targetIndex, pageCount: book.pages.count, displayMode: displayMode,
+            readingDirection: readingDirection, hint: { self.layoutHint(at: $0) },
+            previousDisplayedRange: previousDisplayedRange,
+            // 明示指定で結論が出た場合は評価されない(isWideImageは判定結果をキャッシュへ
+            // 書き込む副作用を持つため、呼ぶ・呼ばないの順序を変えないこと)。
+            isFirstImageWide: {
+                self.isWideImage(
+                    width: firstImage.width, height: firstImage.height, pageIndex: targetIndex
+                )
+            }
+        )
     }
 
     /// 現在1枚だけ表示中(見開き表示中だが相方が見つからない、または単ページ表示モード)の
@@ -2580,19 +2537,11 @@ final class ViewerViewModel: ObservableObject {
     ///   自動レイアウト(autoLayoutForBookWithoutLayoutData)が再開位置を見開きの2枚目に
     ///   変えた場合のfocus無し再読込は、この補正が無いと正しい組で表示できない。
     private func normalizedAnchorIndex(_ rawIndex: Int, honorsPredecessorClaim: Bool = true) -> Int {
-        guard book.pages.indices.contains(rawIndex), rawIndex > 0 else { return rawIndex }
-        let isRightToLeft = readingDirection == .rightToLeft
-        let disallowedAlone: PageSpreadPosition = isRightToLeft ? .left : .right
-        let hint = layoutHint(at: rawIndex)
-        if hint == disallowedAlone { return rawIndex - 1 }
-        // 条件2(上のコメント参照)。firstOfPairは「見開きの起点(1番目に読むページ)」の
-        // 画面上の位置(右開き=画面右、左開き=画面左。shouldPairWithNextPage参照)。
-        let firstOfPair: PageSpreadPosition = isRightToLeft ? .right : .left
-        if honorsPredecessorClaim, hint == nil, displayMode == .spread,
-           layoutHint(at: rawIndex - 1) == firstOfPair {
-            return rawIndex - 1
-        }
-        return rawIndex
+        SpreadPairing.normalizedAnchorIndex(
+            rawIndex, pageCount: book.pages.count, displayMode: displayMode,
+            readingDirection: readingDirection, honorsPredecessorClaim: honorsPredecessorClaim,
+            hint: { self.layoutHint(at: $0) }
+        )
     }
 
     /// reloadLayoutDataで、いま画面に出ている見開き(起点index・相方index+1)が、更新後の
@@ -2606,16 +2555,11 @@ final class ViewerViewModel: ObservableObject {
     /// 残っている。残っていない場合はfalse(=見開きの維持はあきらめ、従来どおり操作対象の
     /// ページを基準にする安全側)に倒す。
     private func spreadPairStillDisplayable(atAnchorIndex index: Int) -> Bool {
-        guard displayMode == .spread, book.pages.indices.contains(index + 1) else { return false }
-        let currentPosition = layoutHint(at: index)
-        let nextPosition = layoutHint(at: index + 1)
-        let isRightToLeft = readingDirection == .rightToLeft
-        let disallowedForCurrent: PageSpreadPosition = isRightToLeft ? .left : .right
-        let disallowedForNext: PageSpreadPosition = isRightToLeft ? .right : .left
-        if currentPosition == .center || currentPosition == disallowedForCurrent { return false }
-        if nextPosition == .center || nextPosition == disallowedForNext { return false }
-        if currentPosition != nil || nextPosition != nil { return true }
-        return cachedIsWideImage(at: index) == false
+        SpreadPairing.spreadPairStillDisplayable(
+            atAnchorIndex: index, pageCount: book.pages.count, displayMode: displayMode,
+            readingDirection: readingDirection, hint: { self.layoutHint(at: $0) },
+            cachedIsWide: { self.cachedIsWideImage(at: $0) }
+        )
     }
 
     // MARK: - レイアウト設定(BookLayoutSettings/PageLayoutOverride)の解決
@@ -2809,7 +2753,7 @@ final class ViewerViewModel: ObservableObject {
     ///   ユーザーが直接操作したページのsortKey。指定があれば、以前どのページを表示していたかに
     ///   関わらず、更新後の表示にこのページを含めるよう表示位置を移動する(ユーザー要望:
     ///   「更新後のビューア画面は、直接操作されたページを表示に含める」)。そのページ自身が
-    ///   除外されて消えていた場合は、fallbackIndexで元々あった位置に一番近い現存ページへ
+    ///   除外されて消えていた場合は、PageLanding.fallbackIndexで元々あった位置に一番近い現存ページへ
     ///   自動的にフォールバックする。nil(既定値)の場合は、以前どおり現在表示中のページを
     ///   維持しようとする(読み方向の上書きなど、対象となる特定のページが無い変更向け)。
     private func reloadLayoutData(focusPageKey: String? = nil) {
@@ -2926,10 +2870,10 @@ final class ViewerViewModel: ObservableObject {
             restoredIndex = newIndex
         } else if let anchorPageKey, let oldIndex = oldPages.firstIndex(where: { $0.sortKey == anchorPageKey }) {
             // 基準ページ自身が除外されて消えていた場合、元々あった位置(oldIndex)を基準に
-            // 一番近い現存ページへフォールバックする(fallbackIndex参照)。
-            restoredIndex = Self.fallbackIndex(oldPages: oldPages, currentIndex: oldIndex, newPages: newPages)
+            // 一番近い現存ページへフォールバックする(PageLanding.fallbackIndex参照)。
+            restoredIndex = PageLanding.fallbackIndex(oldPages: oldPages, currentIndex: oldIndex, newPages: newPages)
         } else {
-            restoredIndex = Self.fallbackIndex(oldPages: oldPages, currentIndex: currentIndex, newPages: newPages)
+            restoredIndex = PageLanding.fallbackIndex(oldPages: oldPages, currentIndex: currentIndex, newPages: newPages)
         }
         let clampedIndex = newPages.isEmpty ? 0 : min(max(restoredIndex, 0), newPages.count - 1)
         // 見開き右ページ単独に着地してしまわないよう、他の着地経路(jump等)と同じく補正する
@@ -2994,26 +2938,6 @@ final class ViewerViewModel: ObservableObject {
         NotificationCenter.default.post(
             name: .layoutDataDidChange, object: nil, userInfo: ["bookID": book.id, "focusPageKey": pageKey]
         )
-    }
-
-    /// reloadLayoutDataで、除外(非表示)に設定されたことで直前まで表示していたページ自体が
-    /// 新しいbook.pagesから消えてしまった場合に、代わりに表示すべきページのインデックスを
-    /// 決める。元の並び順で現在位置以降(=直後)にある、まだ存在するページを優先し、
-    /// それも見つからなければ以前(=直前)のページを探す。1ページも残っていなければ0を返す。
-    private static func fallbackIndex(oldPages: [PageRef], currentIndex: Int, newPages: [PageRef]) -> Int {
-        guard !newPages.isEmpty else { return 0 }
-        guard oldPages.indices.contains(currentIndex) else { return 0 }
-        for oldPage in oldPages[currentIndex...] {
-            if let index = newPages.firstIndex(where: { $0.sortKey == oldPage.sortKey }) {
-                return index
-            }
-        }
-        for oldPage in oldPages[..<currentIndex].reversed() {
-            if let index = newPages.firstIndex(where: { $0.sortKey == oldPage.sortKey }) {
-                return index
-            }
-        }
-        return 0
     }
 
     // MARK: - レイアウト操作(3節)

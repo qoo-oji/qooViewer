@@ -325,6 +325,22 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
 - `Binding.wrappedValue` を使うテストのヘルパーには `import SwiftUI` が要る
   (`MemberImportVisibility` が有効なので、`@testable import` だけでは見えない)。
 
+**A1 でできたもの(2026-09-06、378 → 391 テスト)**
+`Models/SpreadPairing.swift`(`nonisolated enum SpreadPairing` / `enum PageLanding`)。
+`ViewerViewModel` の 5 か所へ同じ形で書かれていた「隣り合う 2 ページが組になるか」の規則を
+`explicitPairing(first:second:readingDirection:)` 1 つにまとめ、`shouldPairWithNextPage` /
+`backwardStepSize` / `forwardStepSize` / `spreadPairStillDisplayable` / `normalizedAnchorIndex` は
+そこを呼ぶだけにした。`fallbackIndex` と数字キーのジャンプは `PageLanding` へ。テストは
+`SpreadPairingTests`(表引き)。規則の説明は [07](07-page-order-layout-bookmarks.md#見開きの組み方spreadpairing)。
+
+**A1 で分かったこと**
+- **画像の横長判定は閉包で渡す。** 本体(`isWideImage`)は判定結果をキャッシュへ書き込む
+  副作用を持つので、`Bool` を渡す形にすると「明示指定で結論が出たら評価しない」という
+  順序が崩れる。テストは呼ばれたかどうかを見ている。
+- `nonisolated` な型から `DisplayMode` / `ReadingDirection` / `PageSpreadPosition` を
+  引数に取るのは、既定分離が `MainActor` でもそのまま通る(列挙のケースと合成された
+  `Equatable` は分離されない)。`ReadingDirection` などを `nonisolated` にする必要は無かった。
+
 **口を開けるときの作法**: 既定値はこれまでどおり(通常経路の差分ゼロ)。時間で待たず `Task` の
 ハンドルを `await` する。既定引数にメインアクター分離の型を置かない(段階 3・4 で 2 度踏んだ。
 `QOO_CI_WARNINGS_AS_ERRORS=YES` で通してから push)。静的な登録簿(`ViewerViewModel.openBookIDs`、

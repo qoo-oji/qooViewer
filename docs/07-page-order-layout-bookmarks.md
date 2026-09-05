@@ -95,7 +95,14 @@ PDF(`/ViewerPreferences/Direction`、`/PageLayout`)、ComicInfo.xml(`Manga`)が�
 `BookReadingState` にしか残らないため、「いま開いている本を書き出す」ときは画面の表示状態
 (`OpenBookDisplayState`)で補います(→ [08](08-export-and-import.md))。
 
-## 見開きの組み方(ViewerViewModel)
+## 見開きの組み方(SpreadPairing)
+
+規則そのものは `Models/SpreadPairing.swift`(`nonisolated`)にあります。以前は
+`ViewerViewModel` の 5 か所へ同じ形で書かれていました ―― どれも別々の時期に利用者報告を
+受けて足されたもので、**同じ規則が別々に書かれている**という形自体が、片方だけ直して
+もう片方が古いまま残る温床でした。`ViewerViewModel` 側は残っていますが、中身は
+`layoutHint(at:)` と `wideImageCache` を閉包で渡して呼ぶだけです
+(表引きのテストは `SpreadPairingTests` → [02](02-project-and-build.md#テストターゲットqooviewertests))。
 
 ### shouldPairWithNextPage
 
@@ -166,7 +173,7 @@ PDF(`/ViewerPreferences/Direction`、`/PageLayout`)、ComicInfo.xml(`Manga`)が�
   余分に1回走るだけ。
 - `focusPageKey`(ユーザーが直接操作したページ)があれば、そのページを更新後の表示に含める。
   ただし操作対象が「今の見開きの2枚目」で、新しいデータでも2枚組が成立するなら起点を動かさない
-  (削除の順序に関係なく見開きを維持する)。除外で消えたページは `fallbackIndex` で近くへ。
+  (削除の順序に関係なく見開きを維持する)。除外で消えたページは `PageLanding.fallbackIndex` で近くへ。
 - 読み方向・見開き強制・コントラスト補正の上書きもここで即時反映(以前は開き直すまで反映されなかった)。
 - `loadCurrentSpread(ignorePreviousDisplayedRange: true)`: 描き直しはページ送りではないので
   「直前のページを相方にしない」制約を掛けない(掛けると書き出し後の後始末で見開きが単ページに崩れた)。
