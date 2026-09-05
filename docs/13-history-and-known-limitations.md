@@ -341,6 +341,22 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
   引数に取るのは、既定分離が `MainActor` でもそのまま通る(列挙のケースと合成された
   `Equatable` は分離されない)。`ReadingDirection` などを `nonisolated` にする必要は無かった。
 
+**A3 でできたもの(2026-09-06、391 → 405 テスト)**
+`ViewerViewModel` に口を 2 つ ―― `usesDiskCaches: Bool? = nil`(既定 `!skipsPersistence`。
+`PageLoader(usesThumbnailDiskCache:)` へ渡る。サムネイルとページ寸法の両方がこの 1 つで
+決まる)と `settle()`(起動時に投げた Task・ページ送り・再読込を待ち合わせる)。テストは
+`Support/ViewerHarness.swift` と `ViewerViewModelTests`。
+
+**A3 で分かったこと**
+- **待ち合わせの終わりは「Task が無い」では判定できない。** `reloadTask` は終わっても nil に
+  戻らない(「前のを止める」ためだけのハンドル)ので、`settle()` は表示の世代
+  (`loadGeneration`)が進んだかどうかで見る。`Task` は構造体なので `===` で同一性を比べられない。
+- `hasSavedReadingState` は private のままにした。「初めて開く本として扱われたか」は
+  保存された行(`lastPageIndex` が作りたての 0)と `needsResumeConfirmation` から見えるので、
+  テストのために可視性を上げる必要は無かった ―― **口は必要なものだけ開ける**。
+- ビューアのテストは実際に画像をデコードするので、suite 全体の時間は 2.6 秒のまま
+  (並行して走る)だが、単独で回すと 0.3 秒ぶんそこに乗る。
+
 **口を開けるときの作法**: 既定値はこれまでどおり(通常経路の差分ゼロ)。時間で待たず `Task` の
 ハンドルを `await` する。既定引数にメインアクター分離の型を置かない(段階 3・4 で 2 度踏んだ。
 `QOO_CI_WARNINGS_AS_ERRORS=YES` で通してから push)。静的な登録簿(`ViewerViewModel.openBookIDs`、

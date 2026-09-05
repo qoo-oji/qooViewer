@@ -289,6 +289,9 @@ final class ViewerViewModel: ObservableObject {
     /// 素早く連続で呼ばれても新しいタスクを起動し直すのではなく、既存のタスクが
     /// そのまま続けて処理するので、積んだ順番通りにすべてのページが画面に一瞬ずつ映る
     /// (以前は毎回reloadTaskをキャンセルして最後の1回分しか表示していなかった)。
+    /// 本を開いた直後に投げるTask(最初の表示・本全体の横長判定・自動レイアウト・ファイル側の
+    /// 取り込み)の控え。`settle()`が待ち合わせるためだけに持つ ―― アプリの動作には関与しない。
+    private var startupTasks: [Task<Void, Never>] = []
     private var pageFlipQueue: [Int] = []
     private var pageFlipTask: Task<Void, Never>?
     /// ページめくりアニメーションの世代番号。cancelPendingPageFlip()のたびに増やし、
@@ -321,9 +324,15 @@ final class ViewerViewModel: ObservableObject {
     ///   「次の本の最初のページへ」「前の本の最後のページへ」でこの本へ来た場合だけ非nil
     ///   (AppState.pendingInitialEdge参照)。initialPageIDの指定があればそちらが優先される
     ///   (どちらも積まれるのは「同じフォルダの画像をすべて開く」だけで、そこでは端の指定は無い)。
+    /// - Parameter usesDiskCaches: 共有のディスクキャッシュ(サムネイルとページ寸法)を使うか。
+    ///   既定(nil)は`!skipsPersistence` ―― これまでどおり、シークレットウインドウだけが使わない。
+    ///   **テストのための口**で、テストは「DB(メモリ内のコンテナ)へは書くが、実物のアプリと
+    ///   共有するディスクキャッシュには触れない」という組み合わせを必要とする。この 2 つは
+    ///   `skipsPersistence` 1 つに束ねられていて、それが表せなかった。
     init(
         book incomingBook: MangaBook, modelContext: ModelContext, preferences: AppPreferences,
         layoutStore: LayoutStore, metadataStore: BookMetadataStore, skipsPersistence: Bool = false,
+        usesDiskCaches: Bool? = nil,
         initialPageID: String? = nil, initialEdge: InitialPageEdge? = nil
     ) {
         self.modelContext = modelContext
@@ -422,7 +431,7 @@ final class ViewerViewModel: ObservableObject {
         self.isContrastCorrectionEnabled = initialContrastCorrectionEnabled
         self.pageLoader = PageLoader(
             book: preparedBook, contrastCorrectionEnabled: initialContrastCorrectionEnabled,
-            usesThumbnailDiskCache: !skipsPersistence,
+            usesThumbnailDiskCache: usesDiskCaches ?? !skipsPersistence,
             imageCacheLimitBytes: preferences.pageImageCacheLimitBytes,
             nestedArchiveMemoryLimitBytes: preferences.nestedArchiveMemoryLimitBytes
         )
@@ -642,9 +651,9 @@ final class ViewerViewModel: ObservableObject {
         // メソッドのため、上のcurrentIndexへの代入が完了した後のこの位置で呼ぶ)。
         currentIndex = normalizedAnchorIndex(initialIndex)
 
-        Task { [weak self] in
+        startupTasks.append(Task { [weak self] in
             await self?.loadCurrentSpread()
-        }
+        })
         // 本を開いた直後から、本全体についてバックグラウンドで横長判定を進めておく
         // (warmUpWideImageCacheForEntireBookのコメント参照。ユーザー報告: スクロールホイールを
         // 高速に連続して回すと、primeWideImageCache(around:radius:)によるcurrentIndex付近だけの
@@ -652,9 +661,9 @@ final class ViewerViewModel: ObservableObject {
         warmUpWideImageCacheForEntireBook()
         // 環境設定「レイアウト」で指定されていれば、レイアウトの保存データを持っていない本を
         // 開いた時点で本全体を自動レイアウトする(autoLayoutForBookWithoutLayoutData参照)。
-        Task { [weak self] in
+        startupTasks.append(Task { [weak self] in
             await self?.autoLayoutForBookWithoutLayoutData()
-        }
+        })
         reloadBookmarks()
 
         // 設計コンセプト7.5節「逆方向」: EPUBの目次(nav.xhtml)、またはPDFのアウトライン(しおり)が
@@ -674,30 +683,30 @@ final class ViewerViewModel: ObservableObject {
         let sourceFileName = book.sourceURL.lastPathComponent
         if isEpubFile(sourceFileName) {
             if bookmarks.isEmpty {
-                Task { [weak self] in
+                startupTasks.append(Task { [weak self] in
                     await self?.autoImportEpubTableOfContentsAsBookmarksIfNeeded()
-                }
+                })
             }
-            Task { [weak self] in
+            startupTasks.append(Task { [weak self] in
                 await self?.importSourceMetadataIfNeeded(isEpub: true)
-            }
+            })
         } else if isPDFFile(sourceFileName) {
             if bookmarks.isEmpty {
-                Task { [weak self] in
+                startupTasks.append(Task { [weak self] in
                     await self?.autoImportPDFOutlineAsBookmarksIfNeeded()
-                }
+                })
             }
-            Task { [weak self] in
+            startupTasks.append(Task { [weak self] in
                 await self?.importSourceMetadataIfNeeded(isEpub: false)
-            }
+            })
         } else {
             // cbz/cbr/cb7、および画像フォルダ。ルート直下にComicInfo.xmlがあれば、書誌メタデータ・
             // 読み方向・ブックマークを同じ考え方(初めて開いたときにDBの初期値として1回だけ)で
             // 取り込む。EPUB/PDFと違い3種類の情報が1つのファイルにまとまっているため、
             // 読み込みも1回にまとめてある(importComicInfoIfNeeded参照)。
-            Task { [weak self] in
+            startupTasks.append(Task { [weak self] in
                 await self?.importComicInfoIfNeeded()
-            }
+            })
         }
 
         // 「ブックマークの編集」ウインドウは本のウインドウとは独立しているため、そちらで
@@ -882,6 +891,34 @@ final class ViewerViewModel: ObservableObject {
     /// 戻った直後の`loadCurrentSpread`が、解放した後のPageLoaderへ`prefetch(around:)`を
     /// 呼んで旧世代のキャッシュを最大で設定上限ぶん埋め直す(PageLoader側でも
     /// `isReleased`で二重に閉じている)。
+    /// 本を開いた直後に投げたTask(最初の表示・本全体の横長判定・自動レイアウト・ファイル側の
+    /// 取り込み)と、ページ送り/再読込のTaskを待ち合わせる。**テストのための口**で、通常の
+    /// 経路からは呼ばない。
+    ///
+    /// 時間で待つ(`Task.sleep`)テストは、並行して走るテストが増えると壊れる(段階 2 の実測。
+    /// docs/13 参照)。完了の合図は処理そのものから出す、というのがこの口の趣旨。
+    ///
+    /// 待っている間に新しいTaskが積まれる(表示 → 取り込み → 再読込)ため、積まれなくなるまで
+    /// 繰り返す。回数に上限を設けてあるのは、何かが延々とTaskを積み続けてもテストが止まらない
+    /// ようにするため。
+    func settle() async {
+        for _ in 0..<32 {
+            let pending = startupTasks
+            startupTasks = []
+            let flip = pageFlipTask
+            // reloadTaskは終わってもnilに戻らない(「前のを止める」ためだけのハンドル)ので、
+            // 待ち終えたかどうかは表示の世代(loadGeneration)が進んだかどうかで見る。
+            let generationBefore = loadGeneration
+            await flip?.value
+            await reloadTask?.value
+            for task in pending { await task.value }
+            if pending.isEmpty, flip == nil, startupTasks.isEmpty, pageFlipTask == nil,
+               loadGeneration == generationBefore {
+                return
+            }
+        }
+    }
+
     func releaseResources() {
         guard !hasReleasedResources else { return }
         hasReleasedResources = true
@@ -892,6 +929,8 @@ final class ViewerViewModel: ObservableObject {
         // 遅れて.onDisappearが走るまでの間、解放済みの本に対してループが回り続け、
         // persistState()経由のDB保存まで走ってしまう。
         stopSlideshow()
+        for task in startupTasks { task.cancel() }
+        startupTasks = []
         reloadTask?.cancel()
         reloadTask = nil
         pageFlipTask?.cancel()
@@ -2392,7 +2431,7 @@ final class ViewerViewModel: ObservableObject {
         // PageLoaderだけを強く捕まえる(selfは各ページで弱参照から取り直す。本を閉じたら
         // ViewerViewModelが解放されて止まる。PageLoaderは解放後の要求を空振りにする)。
         let pageLoader = self.pageLoader
-        Task(priority: .utility) { [weak self] in
+        startupTasks.append(Task(priority: .utility) { [weak self] in
             await pageLoader.loadPersistedPageSizes()
             await pageLoader.beginWholeBookScan()
             for pageIndex in order {
@@ -2409,7 +2448,7 @@ final class ViewerViewModel: ObservableObject {
             }
             await pageLoader.endWholeBookScan()
             await pageLoader.persistPageSizesIfNeeded()
-        }
+        })
     }
 
     /// targetIndexのページを、次のページ(targetIndex + 1)と組にして見開き表示すべきかどうかを
