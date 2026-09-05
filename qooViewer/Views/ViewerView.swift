@@ -2435,15 +2435,16 @@ struct ViewerView: View {
     /// 参照。空白スロットの挿入条件はどちらも同じ画像枚数・同じcurrentSoleImageForcedSpreadPosition
     /// に基づくため、対象の画像配列だけを差し替えて共通化できる)。
     private func slots(forOrderedImages images: [CGImage]) -> [SpreadPageSlot] {
-        guard images.count == 1,
-              let position = viewModel.currentSoleImageForcedSpreadPosition,
-              let onlyImage = images.first else {
-            return images.map { .image($0) }
-        }
-        switch position {
-        case .left: return [.image(onlyImage), .blank]
-        case .right: return [.blank, .image(onlyImage)]
-        case .center: return [.image(onlyImage)]
+        // 並べ方の規則はPageAreaLayout(Models/PageAreaLayout.swift)。
+        PageAreaLayout.placements(
+            imageCount: images.count,
+            soleImageForcedPosition: viewModel.currentSoleImageForcedSpreadPosition
+        ).compactMap { placement in
+            switch placement {
+            case .blank: return .blank
+            case .image(let index):
+                return images.indices.contains(index) ? .image(images[index]) : nil
+            }
         }
     }
 
@@ -2646,23 +2647,16 @@ struct ViewerView: View {
     /// pageArea(GeometryReader内)だけでなく、ピンチ拡大の位置合わせ(currentPageLayoutMetrics)
     /// からも同じ計算が必要になるため、関数として切り出してある。
     private func referenceHeight(for slots: [SpreadPageSlot]) -> CGFloat {
-        slots.compactMap { slot -> CGFloat? in
-            if case .image(let image) = slot { return CGFloat(image.height) }
-            return nil
-        }.max() ?? 0
+        PageAreaLayout.referenceHeight(for: slots.map(\.layoutSlot))
     }
 
     /// referenceHeight(見開き内で最大の高さ)に揃えたときの、このスロットのアスペクト比を
     /// 保った幅。単ページ表示(画像が1枚だけ、かつそれ自身が基準)のときはimage.widthと一致する。
     /// 空白スロットの場合はmirrorAspectRatio(orderedCurrentSlots参照)を使う。
     private func displayWidth(for slot: SpreadPageSlot, atHeight height: CGFloat, mirrorAspectRatio: CGFloat) -> CGFloat {
-        switch slot {
-        case .image(let image):
-            guard image.height > 0 else { return 0 }
-            return height * CGFloat(image.width) / CGFloat(image.height)
-        case .blank:
-            return height * mirrorAspectRatio
-        }
+        PageAreaLayout.displayWidth(
+            for: slot.layoutSlot, atHeight: height, mirrorAspectRatio: mirrorAspectRatio
+        )
     }
 
     /// スロット列の中に含まれる実画像のうち、最初に見つかったもののアスペクト比(幅/高さ)。
@@ -2671,57 +2665,23 @@ struct ViewerView: View {
     /// 生成する条件(必ず実画像が1枚存在する)の下でしか意味を持たないため、実際には
     /// 起こらない。
     private func referenceAspectRatio(for slots: [SpreadPageSlot]) -> CGFloat {
-        for slot in slots {
-            if case .image(let image) = slot, image.height > 0 {
-                return CGFloat(image.width) / CGFloat(image.height)
-            }
-        }
-        return 1
+        PageAreaLayout.referenceAspectRatio(for: slots.map(\.layoutSlot))
     }
 
     private func totalContentSize(for slots: [SpreadPageSlot], referenceHeight: CGFloat) -> CGSize {
-        guard !slots.isEmpty, referenceHeight > 0 else { return .zero }
-        let mirrorAspectRatio = referenceAspectRatio(for: slots)
-        let width = slots.reduce(CGFloat(0)) { $0 + displayWidth(for: $1, atHeight: referenceHeight, mirrorAspectRatio: mirrorAspectRatio) }
-        return CGSize(width: width, height: referenceHeight)
+        PageAreaLayout.totalContentSize(
+            for: slots.map(\.layoutSlot), referenceHeight: referenceHeight
+        )
     }
 
     private func renderScale(contentSize: CGSize, containerSize: CGSize) -> CGFloat {
-        guard contentSize.width > 0, contentSize.height > 0, containerSize.width > 0, containerSize.height > 0 else {
-            return 1
-        }
-        let maxUpscale = CGFloat(preferences.maxUpscalePercent / 100)
-        switch viewModel.scalingMode {
-        case .fitToScreen:
-            let fitScale = min(containerSize.width / contentSize.width, containerSize.height / contentSize.height)
-            return min(fitScale, maxUpscale)
-        case .fitWidth:
-            let widthScale = containerSize.width / contentSize.width
-            return min(widthScale, maxUpscale)
-        case .fitWidthSplit:
-            // 横幅に合わせる(単ページ): 表示中の内容の「横幅の半分」が画面幅いっぱいになる倍率まで拡大する
-            // (はみ出した分は左右スクロールで読む)。cooViewerのfitScreenMode == 3が
-            // rate = 画面幅 / (画像幅 / 2) としているのと同じ式。
-            //
-            // 分割する意味が無い内容(単ページ表示中の縦長ページなど)まで2倍に引き伸ばすと
-            // ただ読みにくくなるだけなので、その場合はfitWidthと全く同じ結果になるよう
-            // divisorを1に落とす。cooViewerも同じ考え方で、横長でない画像
-            // (isSmallImageがtrue)のときはfitScreenMode == 1と同じ処理へ分岐している。
-            //
-            // 判定に使うのは個々のページの縦横比ではなく、実際に表示している内容(contentSize)を
-            // 合成したあとの縦横比である点が重要。これにより「単ページ表示中の横長スキャン」と
-            // 「見開き表示で縦長2ページを合成した状態」の両方が、追加の判定なしに等しく
-            // 分割対象になる(どちらも合成後は横長になるため)。ViewerViewModelが持つ
-            // ページ単位の横長判定(wideImageCache)は画像の読み込みを伴う非同期のキャッシュで、
-            // 本を開いた直後は埋まっていないが、contentSizeは今まさに表示している画像から
-            // 同期的に求まるため、そちらに依存せずに済むという利点もある。
-            let contentAspectRatio = contentSize.width / contentSize.height
-            let isDividable = contentAspectRatio >= CGFloat(preferences.singlePageAspectRatioThreshold)
-            let widthScale = containerSize.width / (contentSize.width / (isDividable ? 2 : 1))
-            return min(widthScale, maxUpscale)
-        case .noScale:
-            return 1
-        }
+        // 倍率の規則はPageAreaLayout。fitWidthSplitの分割判定の考え方もそちらのコメント参照。
+        PageAreaLayout.renderScale(
+            contentSize: contentSize, containerSize: containerSize,
+            scalingMode: viewModel.scalingMode,
+            maxUpscalePercent: preferences.maxUpscalePercent,
+            singlePageAspectRatioThreshold: preferences.singlePageAspectRatioThreshold
+        )
     }
 
     /// 今、ページ画像をスクロールできる状態か。
@@ -2745,11 +2705,9 @@ struct ViewerView: View {
     /// 従来どおり中身の高さをそのまま使う(縦が画面より短いときは上詰め)。表示の前提が
     /// 変わってしまうため、ピンチ拡大の追加を機に既存モードの見え方を変えることはしない。
     private func scrollContentSize(contentSize: CGSize, scale: CGFloat, viewport: CGSize) -> CGSize {
-        let scaledWidth = contentSize.width * scale
-        let scaledHeight = contentSize.height * scale
-        return CGSize(
-            width: max(scaledWidth, viewport.width),
-            height: viewModel.scalingMode == .fitToScreen ? max(scaledHeight, viewport.height) : scaledHeight
+        PageAreaLayout.scrollContentSize(
+            contentSize: contentSize, scale: scale, viewport: viewport,
+            scalingMode: viewModel.scalingMode
         )
     }
 

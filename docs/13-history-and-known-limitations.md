@@ -429,6 +429,17 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
   **コンテナの中のファイル/フォルダ**なら作れる。お気に入り・履歴・アクセス権のテストは
   作業フォルダの中で完結する。
 
+**C1 でできたもの(2026-09-06、450 → 460 テスト)**
+`Models/PageAreaLayout.swift`(`nonisolated enum`)。`ViewerView` の private な幾何の計算
+(`slots(forOrderedImages:)` / `referenceHeight` / `displayWidth` / `referenceAspectRatio` /
+`totalContentSize` / `renderScale` / `scrollContentSize`)を、**画像ではなく寸法(`CGSize`)**を
+受ける形で出した。`ViewerView` 側の同名の関数は `SpreadPageSlot.layoutSlot` で写して呼ぶだけ。
+テストは `PageAreaLayoutTests`。
+
+**C1 で分かったこと**
+- 空白スロットの挿入は「何番目の実画像か / 空白か」の列(`Placement`)として出せる ――
+  画像そのものを持ち込まずに規則だけを取り出せた。
+
 **口を開けるときの作法**: 既定値はこれまでどおり(通常経路の差分ゼロ)。時間で待たず `Task` の
 ハンドルを `await` する。既定引数にメインアクター分離の型を置かない(段階 3・4 で 2 度踏んだ。
 `QOO_CI_WARNINGS_AS_ERRORS=YES` で通してから push)。静的な登録簿(`ViewerViewModel.openBookIDs`、

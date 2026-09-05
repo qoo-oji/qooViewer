@@ -11,6 +11,14 @@ import os
 enum SpreadPageSlot {
     case image(CGImage)
     case blank
+
+    /// 幾何の計算(PageAreaLayout)へ渡す形。あちらは画像そのものを必要とせず寸法だけで決まる。
+    var layoutSlot: PageAreaLayout.Slot {
+        switch self {
+        case .image(let image): return .image(CGSize(width: image.width, height: image.height))
+        case .blank: return .blank
+        }
+    }
 }
 
 /// ビューワー画面(ページ表示)の状態を管理する ViewModel。
