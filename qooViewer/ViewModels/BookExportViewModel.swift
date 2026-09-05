@@ -110,11 +110,37 @@ class BookExportViewModel: ObservableObject {
         let metadata: BookMetadata?
     }
 
+    /// 対象になりうる本のすべて(絞り込み前)。書き出しの対象になるのはこの中の
+    /// selectedBookIDsで、一覧に出ているかどうか(shownRows)とは関係しない。
     @Published private(set) var rows: [Row] = []
+
+    /// チェックボックスで選ばれている本。
+    ///
+    /// **rowFilterを変えても選択は保持する**(ユーザーの指示: 「絞り込みを解除してもファイルの
+    /// チェックボックスは維持されること」)。絞り込みで隠れている本の選択も残るため、
+    /// 「今この操作で何冊書き出されるのか」が一覧を見ただけでは分からないことがある。
+    /// 代わりに下部のステータスバーへ選択件数を常に出しておく
+    /// (保存データの削除ウインドウ = LibraryCleanupViewModel.selectedBookIDsと同じ扱い)。
     @Published var selectedBookIDs: Set<String> = []
+
+    /// 一覧の絞り込み条件(ユーザー要望)。ツールバーの「絞り込みオプション…」から編集する。
+    /// 見え方(shownRows)だけを変え、selectedBookIDsには一切触れない。
+    @Published var rowFilter = BookExportRowFilter()
+
     /// 対象一覧の絞り込み(実在確認)が進行中かどうか。ウインドウ側はこの間、
     /// 「対象の本がありません」ではなく読み込み中の表示にする(reload()参照)。
     @Published private(set) var isLoadingRows = false
+
+    /// いま一覧に出す行(rowFilterを通したもの)。
+    var shownRows: [Row] {
+        guard rowFilter.isActive else { return rows }
+        return rows.filter {
+            rowFilter.matches(
+                bookID: $0.bookID, hasLayout: $0.hasLayout, hasBookmarks: $0.hasBookmarks,
+                hasMetadata: $0.hasMetadata
+            )
+        }
+    }
 
     /// 絞り込みの世代番号。applyEligibleBookIDs(_:generation:)が「自分が最新の結果か」を
     /// 単体で判断できるようにするためのもの。
@@ -438,8 +464,20 @@ class BookExportViewModel: ObservableObject {
     /// ユーザー要望により、上部の「選択」メニュー(4条件)と「選択解除」ボタンは廃止し、
     /// 代わりに一覧のタイトル行にチェックボックスを設けて全選択/全選択解除を行う形にした
     /// (各出力ウインドウのExportWindowContent.selectAllBinding参照)。
-    final func selectAll() { selectedBookIDs = Set(rows.map(\.bookID)) }
-    final func deselectAll() { selectedBookIDs.removeAll() }
+    ///
+    /// 対象は**今一覧に出ている行だけ**(ユーザーの指示: 「絞り込んだ状態ですべて選択を
+    /// クリックすると、絞り込んだファイルだけがチェックボックスがONになる」)。絞り込みで
+    /// 隠れている行の選択には触れないため、「Aで絞って全選択 → Bで絞ってさらに全選択 →
+    /// まとめて書き出す」という積み上げ方ができる(保存データの削除ウインドウの
+    /// LibraryCleanupViewModel.setAllShownRowsSelectedと同じ扱い)。
+    final func selectAll() { selectedBookIDs.formUnion(shownRows.map(\.bookID)) }
+    final func deselectAll() { selectedBookIDs.subtract(shownRows.map(\.bookID)) }
+
+    /// 今一覧に出ている行がすべて選択されているか(ツールバーの「すべて選択」トグルの状態)。
+    var isEveryShownRowSelected: Bool {
+        let shown = shownRows
+        return !shown.isEmpty && shown.allSatisfy { selectedBookIDs.contains($0.bookID) }
+    }
 
     // MARK: - カバー画像(supportsCoverSelectionがtrueのサブクラスのみ使う)
 

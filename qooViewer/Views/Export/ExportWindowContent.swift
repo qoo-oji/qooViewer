@@ -78,6 +78,9 @@ struct ExportWindowContent<Options: View>: View {
     /// 形式ごとの出力オプション(optionsクロージャ)を出すポップオーバーの表示状態
     /// (ユーザー要望: チェックボックス類は常時表示ではなく、ボタンを押したときだけ出す)。
     @State private var isOptionsPopoverPresented = false
+    /// 対象一覧の絞り込み(ExportFilterOptions)を出すポップオーバーの表示状態。
+    /// 出し方は隣の「書き出しオプション…」と揃えてある(ユーザーの指示)。
+    @State private var isFilterPopoverPresented = false
     @State private var columnWidths = ExportColumnWidths()
     /// autoSizeColumnsIfNeeded()を、一覧の行が出そろった時点で1回だけ実行するためのフラグ
     /// (SidebarWidthEstimatorと同じ考え方。以降はユーザーの手動ドラッグを優先し、
@@ -150,6 +153,15 @@ struct ExportWindowContent<Options: View>: View {
                     description: Text(configuration.emptyDescription)
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if viewModel.shownRows.isEmpty {
+                // 対象の本はあるが、絞り込みの条件に合う本が1冊も無い。「対象の本がありません」
+                // と同じ文面を出すと、条件を外せば本があることが伝わらないため別の文面にする。
+                ContentUnavailableView(
+                    "No Books Match the Filter",
+                    systemImage: "line.3.horizontal.decrease.circle",
+                    description: Text("Change the conditions to show more books.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 bookTable
             }
@@ -165,7 +177,10 @@ struct ExportWindowContent<Options: View>: View {
         // ツールバーの下へ潜る一覧の、上端の縁の効果(ScrollEdgeEffect.swift参照)。
         .hardTopScrollEdgeEffect()
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            bottomBar
+            VStack(spacing: 0) {
+                statusBar
+                bottomBar
+            }
         }
         .frame(minWidth: max(configuration.minimumWindowWidth, contentMinWidth), minHeight: 480)
         // 一覧が非同期に埋まるため、表示直後と「行が入った瞬間」の両方で試みる
@@ -244,9 +259,11 @@ struct ExportWindowContent<Options: View>: View {
     /// 一覧のすべての行が選択されているかどうか。「すべて選択」チェックボックスと双方向に
     /// 結び付けることで、チェックすると全選択、外すと全選択解除になる(ユーザー要望:
     /// 上部の「選択」メニュー・「選択解除」ボタンを廃止し、チェックボックスに一本化する)。
+    ///
+    /// 絞り込み中は「今一覧に出ている行」だけが対象(BookExportViewModel.selectAll参照)。
     private var selectAllBinding: Binding<Bool> {
         Binding(
-            get: { !viewModel.rows.isEmpty && viewModel.selectedBookIDs.count == viewModel.rows.count },
+            get: { viewModel.isEveryShownRowSelected },
             set: { isOn in
                 if isOn {
                     viewModel.selectAll()
@@ -269,7 +286,7 @@ struct ExportWindowContent<Options: View>: View {
     /// 引き換えに、見出しに任意のビューを置けなくなる(TableColumnの見出しはTextのみ)ため、
     /// タイトル行にあった「全選択/全解除」チェックボックスは下部のボタン行へ移してある。
     private var bookTable: some View {
-        Table(viewModel.rows, columnCustomization: $columnCustomization) {
+        Table(viewModel.shownRows, columnCustomization: $columnCustomization) {
             // 見出しの無い列。空のLocalizedStringKeyを文字列カタログへ登録させたくないため
             // Text(verbatim:)で書く。幅の変更・並べ替え・非表示のいずれもさせない。
             TableColumn(Text(verbatim: "")) { row in
@@ -369,7 +386,44 @@ struct ExportWindowContent<Options: View>: View {
             .toggleStyle(.button)
             .labelStyle(.titleAndIcon)
             .help("Select All / Deselect All")
-            .disabled(viewModel.rows.isEmpty || viewModel.isExporting)
+            .disabled(viewModel.shownRows.isEmpty || viewModel.isExporting)
+        }
+
+        // 対象一覧の絞り込み(ユーザー要望)。位置は「すべて選択」と「書き出しオプション…」の
+        // 間(ユーザーの指示)。他の一覧ウインドウ(ブックマーク・レイアウトの編集 /
+        // 保存データの削除)は条件が1つなので選択中の値をそのまま出すPickerだが、こちらは
+        // 「保存データの3種類(AND)」と「ファイル形式」の2軸あるため、ボタンを押して開く
+        // ポップオーバー(ExportFilterOptions)にまとめてある。
+        //
+        // ユーザーの指示: 隣の「書き出しオプション…」と名前が似ている以上、出し方も揃える
+        // (当初はシートで作ったが、同じ「〜オプション」のボタンなのに見た目がまったく違うのは
+        // 違和感がある、という指摘)。**あちらのボタンはそのまま**にして、こちらを合わせて
+        // ある ―― ボタンの組み立て方(Button + Label + .titleAndIcon)も、ポップオーバーの
+        // 出る向き・余白・最小幅も、中身の並べ方(左揃えの縦一列)も同じにしてある。
+        ToolbarItem {
+            Button {
+                isFilterPopoverPresented = true
+            } label: {
+                // 絞り込み中はアイコンを塗りつぶし版にして、一覧に出ていない本があることを
+                // ボタンの見た目からも分かるようにする(件数は下部のステータスバー)。
+                Label(
+                    "Filter Options…",
+                    systemImage: viewModel.rowFilter.isActive
+                        ? "line.3.horizontal.decrease.circle.fill"
+                        : "line.3.horizontal.decrease.circle"
+                )
+            }
+            .labelStyle(.titleAndIcon)
+            .help("Filter Options…")
+            .disabled(viewModel.isExporting)
+            // arrowEdgeが.bottomである理由は、下の「書き出しオプション…」のコメント参照。
+            .popover(isPresented: $isFilterPopoverPresented, arrowEdge: .bottom) {
+                // 下の書き出しオプションと違い、幅の下限(minWidth)は与えない。項目名が
+                // どれも短いため、260ptを下限にすると右側にだけ広い余白が残って不格好になる
+                // (ユーザーの指摘)。ポップオーバーは中身に合わせて縮むので、そのまま任せる。
+                ExportFilterOptions(viewModel: viewModel)
+                    .padding(16)
+            }
         }
 
         // 形式ごとの出力オプション(ユーザー要望: チェックボックス類はオプションとして
@@ -396,6 +450,26 @@ struct ExportWindowContent<Options: View>: View {
                 }
                 .padding(16)
                 .frame(minWidth: 260, alignment: .leading)
+            }
+        }
+    }
+
+    // MARK: - 下部
+
+    /// 件数の表示。位置・見た目は他の一覧ウインドウと共通(ListWindowStatusBar参照)。
+    ///
+    /// 絞り込み(rowFilter)を変えても選択は残る(BookExportViewModel.selectedBookIDs参照)ため、
+    /// 「今この操作で何冊書き出されるのか」が一覧を見ただけでは分からないことがある。
+    /// 保存データの削除ウインドウと同じく、選択件数を常に出しておく。
+    private var statusBar: some View {
+        ListWindowStatusBar {
+            Text("\(viewModel.shownRows.count) of \(viewModel.rows.count) books shown")
+                .monospacedDigit()
+
+            if !viewModel.selectedBookIDs.isEmpty {
+                ListWindowStatusSeparator()
+                Text("\(viewModel.selectedBookIDs.count) selected")
+                    .monospacedDigit()
             }
         }
     }
