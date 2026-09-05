@@ -59,6 +59,17 @@ struct ImageDecoderTests {
 
     // MARK: - デコード
 
+    /// 中身の番号に許す幅は、**非可逆な形式だけ**広く取る。
+    ///
+    /// 可逆(png / gif / bmp / tif)は単色なので誤差ゼロで戻るべきで、そこはぴったり見る。
+    /// jpg / heic は encoder が環境で違い、**同じコードでも手元と CI で結果が変わる**
+    /// ―― 実測(2026-09-06): 手元(macOS 26.6)は heic も誤差ゼロだったが、CI(macos-26 の
+    /// ランナー)は 4 ずれて落ちた。ここで見たいのは「そのページの画像が返ること」であって
+    /// encoder の色再現ではないので、非可逆の側は「まったく別の色ではない」程度に緩める。
+    private static func colorTolerance(for fileExtension: String) -> Int {
+        ["jpg", "jpeg", "heic"].contains(fileExtension) ? 8 : 0
+    }
+
     @Test("その場で作れる形式をデコードして、中身の番号まで戻る",
           arguments: ["png", "jpg", "gif", "bmp", "tif", "heic"])
     func decodeGeneratedFormats(fileExtension: String) throws {
@@ -66,7 +77,8 @@ struct ImageDecoderTests {
         let image = try #require(ImageDecoder.decode(data, maxPixelSize: 4096))
         #expect(image.width == PageImageFactory.width)
         #expect(image.height == PageImageFactory.height)
-        #expect(abs((PageColorReader.number(in: image) ?? -1) - 42) <= 2)
+        let read = PageColorReader.number(in: image) ?? -1
+        #expect(abs(read - 42) <= Self.colorTolerance(for: fileExtension), "読めた番号: \(read)")
     }
 
     @Test("コミット済みの webp / avif もデコードできる",

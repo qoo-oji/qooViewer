@@ -185,6 +185,11 @@ suite の一覧は [02](02-project-and-build.md#テストターゲットqooviewe
   **ファイルが 1 バイトも変わらないこと**(壊れた PDF だけが残らないこと)を見る形にした。
 
 **段階 3 で分かったこと**
+- **非可逆な形式の色は、同じコードでも手元と CI で違う。** `ImageDecoderTests` の heic は
+  手元(macOS 26.6)では誤差ゼロなのに、CI(macos-26 のランナー)では 4 ずれて落ちた
+  (段階 2 のコミットから CI が赤いままだった)。可逆な形式(png / gif / bmp / tif)は誤差ゼロで
+  見て、非可逆(jpg / heic)だけ幅を持たせる形に直した ―― あの試験で見たいのは
+  「そのページの画像が返ること」であって encoder の色再現ではない。
 - 書き出した EPUB 14 本は EPUBCheck 5.3.0 で指摘ゼロ、ComicInfo.xml 8 本は v2.0 の XSD に適合
   (2026-09-06、手元で実測。java は Kindle Previewer 3 同梱の JRE を使った →
   [12](12-verification-and-debugging.md))。
