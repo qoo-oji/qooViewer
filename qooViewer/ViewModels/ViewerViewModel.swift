@@ -943,7 +943,7 @@ final class ViewerViewModel: ObservableObject {
     /// サイドパネルのリソースモニタが「この本のキャッシュは1冊あたりの値で、全体では
     /// N冊ぶん」と示すために使う。initで増やし、releaseResources()(無ければdeinit)で減らす。
     /// `nonisolated`なロックなのはdeinitがactor隔離の外で走るため。
-    private static let openBookCounter = OSAllocatedUnfairLock(initialState: 0)
+    private nonisolated static let openBookCounter = OSAllocatedUnfairLock(initialState: 0)
     nonisolated static var openBookCount: Int { openBookCounter.withLock { $0 } }
 
     /// いま開いている本のbookID → 開いているウインドウ/タブの数(同じ本を複数のウインドウで
@@ -951,7 +951,7 @@ final class ViewerViewModel: ObservableObject {
     /// 見る(監査で指摘: 開いている本の行を消すと、そのViewerViewModelが削除済みの
     /// オブジェクトへ書き続ける)。openBookCounterと同じく、initで足しreleaseResources()
     /// (無ければdeinit)で引く。`nonisolated`なロックなのも同じ理由。
-    private static let openBookIDRegistry = OSAllocatedUnfairLock(initialState: [String: Int]())
+    private nonisolated static let openBookIDRegistry = OSAllocatedUnfairLock(initialState: [String: Int]())
     nonisolated static var openBookIDs: Set<String> { openBookIDRegistry.withLock { Set($0.keys) } }
 
     private nonisolated static func registerOpenBook(_ bookID: String) {

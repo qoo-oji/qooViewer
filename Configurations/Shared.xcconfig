@@ -19,3 +19,17 @@
 // 末尾の `?` は「ファイルが無ければ黙って無視する」の意味。
 // Local.xcconfig を作っていない人でもそのままビルドできる。
 #include? "Local.xcconfig"
+
+// ── CI 専用: 警告をエラーにする ──────────────────────────────────────────────
+// GitHub Actions のビルド(.github/workflows/build.yml)は
+//     xcodebuild ... QOO_CI_WARNINGS_AS_ERRORS=YES
+// で呼び、このプロジェクトのターゲットだけ警告をエラーにします。手元の Xcode では
+// 変数が未定義(= 空 = NO)なので、警告は今まで通り警告のままです。
+//
+// SWIFT_TREAT_WARNINGS_AS_ERRORS=YES をコマンドラインで直接渡さないのは、それだと
+// SwiftPM の依存パッケージ(Xcode が -suppress-warnings を付けてビルドする)にも効いて
+//   Conflicting options '-warnings-as-errors' and '-suppress-warnings'
+// で落ちるためです。この xcconfig はこのプロジェクトのターゲットにしか掛からないので、
+// ここで間接参照にしておけば依存パッケージには影響しません。
+SWIFT_TREAT_WARNINGS_AS_ERRORS = $(QOO_CI_WARNINGS_AS_ERRORS)
+GCC_TREAT_WARNINGS_AS_ERRORS = $(QOO_CI_WARNINGS_AS_ERRORS)

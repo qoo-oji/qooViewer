@@ -1,0 +1,175 @@
+# qooViewer — ビルド検証
+#
+# README の「誰がいつ clone しても同じ組み合わせでビルドできる」を、push のたびに実証する。
+# 門番(required status check)にはしない。main へ直接 push する運用なので、失敗は
+# Actions タブと GitHub のメール通知で見る。方針と経緯は docs/02-project-and-build.md。
+#
+# やること(Debug / Release の 2 ジョブ):
+#   1. Package.resolved どおりに依存を解決し、解決後に Package.resolved が変わらないことを確認
+#      (フォークの branch が動いた・revision が消えた、を検知する)
+#   2. アプリターゲットだけ警告をエラーにしてビルド(QOO_CI_WARNINGS_AS_ERRORS → Shared.xcconfig)
+#   3. Debug: ビルドした .app を起動して 15 秒生きていることを確認(起動時のクラッシュを拾う)
+#      Release: universal(arm64 + x86_64)と署名を検品し、zip を artifact に残す
+#
+# 署名は検証用。Debug は署名しない、Release は ad-hoc(-)。配布用の zip は今まで通り
+# 手元の Apple Development 署名で作る(CI の zip は配布しない)。
+#
+# Xcode は DEVELOPER_DIR で明示固定する。ランナーの既定 Xcode は四半期ごとに上がるので、
+# 手元の Xcode を上げたときにここも一緒に上げる(macos-26 に入っている版の一覧:
+# https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md)。
+
+name: Build
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+  pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "LICENSE"
+  workflow_dispatch:
+
+# 同じ ref の古い実行は打ち切る(連続 push で macOS ランナーを重ねて回さない)。
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+  PROJECT: qooViewer.xcodeproj
+  SCHEME: qooViewer
+  PACKAGE_RESOLVED: qooViewer.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+  # SwiftPM の checkout 先。キャッシュするのはここだけ(DerivedData は入れない: ビルドが
+  # 30 秒台の規模で、壊れやすさに見合わない)。
+  SPM_DIR: ${{ github.workspace }}/../spm-checkouts
+  DERIVED_DATA: ${{ github.workspace }}/../DerivedData
+
+jobs:
+  build:
+    name: ${{ matrix.configuration }}
+    runs-on: macos-26
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - configuration: Debug
+            # 実行するので、ランナー自身のアーキテクチャ(arm64)だけをビルドする
+            destination: platform=macOS
+            signing: CODE_SIGNING_ALLOWED=NO
+          - configuration: Release
+            # 配布物と同じ universal にする(generic なら ONLY_ACTIVE_ARCH の対象外)
+            destination: generic/platform=macOS
+            signing: CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Xcode
+        run: xcodebuild -version
+
+      - name: Cache Swift packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.SPM_DIR }}
+          key: spm-${{ runner.os }}-${{ hashFiles(env.PACKAGE_RESOLVED) }}
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -project "$PROJECT" -scheme "$SCHEME" \
+            -clonedSourcePackagesDirPath "$SPM_DIR" \
+            -resolvePackageDependencies
+
+      # 解決の結果がピンと食い違ったら落とす。フォーク 2 本は branch + revision で固定して
+      # いる(docs/11)。branch が進んで revision が変わる、revision が消えている、などを
+      # ここで検知する。
+      - name: Package.resolved is unchanged
+        run: git diff --exit-code -- "$PACKAGE_RESOLVED"
+
+      - name: Build ${{ matrix.configuration }}
+        run: |
+          set -o pipefail
+          xcodebuild -project "$PROJECT" -scheme "$SCHEME" \
+            -configuration "${{ matrix.configuration }}" \
+            -destination "${{ matrix.destination }}" \
+            -derivedDataPath "$DERIVED_DATA" \
+            -clonedSourcePackagesDirPath "$SPM_DIR" \
+            -resultBundlePath "$RUNNER_TEMP/${{ matrix.configuration }}.xcresult" \
+            DEVELOPMENT_TEAM= ${{ matrix.signing }} \
+            QOO_CI_WARNINGS_AS_ERRORS=YES \
+            build \
+            | tee "$RUNNER_TEMP/xcodebuild-${{ matrix.configuration }}.log" \
+            | xcbeautify --renderer github-actions
+
+      # 「ビルドは通るが起動で落ちる」(SwiftData のストア初期化など)を拾う。
+      # 署名していないのでサンドボックスは効かず、あくまで起動確認。ランナーには GUI
+      # セッションがあるので NSApplication は普通に立ち上がる。
+      - name: Launch smoke test
+        if: matrix.configuration == 'Debug'
+        run: |
+          app="$DERIVED_DATA/Build/Products/Debug/qooViewer.app"
+          reports=~/Library/Logs/DiagnosticReports
+          count_reports() { find "$reports" -maxdepth 1 -name 'qooViewer*' 2>/dev/null | wc -l | tr -d ' '; }
+          before=$(count_reports)
+          "$app/Contents/MacOS/qooViewer" > "$RUNNER_TEMP/smoke.log" 2>&1 &
+          pid=$!
+          sleep 15
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "qooViewer is still running after 15 s"
+            kill "$pid"
+            wait "$pid" || true
+          else
+            wait "$pid" && rc=0 || rc=$?
+            echo "::error::qooViewer exited within 15 s (rc=$rc)"
+            cat "$RUNNER_TEMP/smoke.log"
+            exit 1
+          fi
+          after=$(count_reports)
+          if [ "$after" -gt "$before" ]; then
+            echo "::error::a crash report was written while qooViewer was running"
+            find "$reports" -maxdepth 1 -name 'qooViewer*' -exec head -c 20000 {} +
+            exit 1
+          fi
+
+      - name: Inspect Release app
+        if: matrix.configuration == 'Release'
+        run: |
+          app="$DERIVED_DATA/Build/Products/Release/qooViewer.app"
+          archs=$(lipo -archs "$app/Contents/MacOS/qooViewer")
+          echo "architectures: $archs"
+          case "$archs" in
+            *arm64*x86_64*|*x86_64*arm64*) ;;
+            *) echo "::error::expected a universal binary (arm64 + x86_64), got: $archs"; exit 1 ;;
+          esac
+          codesign --verify --strict --verbose=2 "$app"
+          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/qooViewer.zip"
+          shasum -a 256 "$RUNNER_TEMP/qooViewer.zip"
+
+      # 検証用。配布はしない(署名が ad-hoc で、配布物とは署名主体が違う)。
+      - name: Upload Release zip
+        if: matrix.configuration == 'Release'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: qooViewer-Release-${{ github.sha }}
+          path: ${{ runner.temp }}/qooViewer.zip
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build-log-${{ matrix.configuration }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/xcodebuild-${{ matrix.configuration }}.log
+            ${{ runner.temp }}/${{ matrix.configuration }}.xcresult
+            ${{ runner.temp }}/smoke.log
+          retention-days: 7
+          if-no-files-found: ignore

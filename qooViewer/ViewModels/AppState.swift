@@ -899,7 +899,7 @@ final class AppState: ObservableObject {
         // ―― 読み込みは未接続の外付け/ネットワークボリューム上の本では長く待つため、強参照だと
         // そのあいだこのAppStateごと解放できなくなる(上のcachesPageListと同じ話)。
         let onProgress: @Sendable (BookLoadProgress) -> Void = { [weak self] progress in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 guard let self, self.openToken == token else { return }
                 self.loadingProgress = progress
             }
