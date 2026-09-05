@@ -134,6 +134,10 @@ struct RecentFilesAndAccessTests {
         // サンドボックスのアクセス許可は配下すべてに及ぶので、追加の処理は要らない。
         #expect(store.add(url: child))
         #expect(store.entries.map(\.url.path) == [parent.path])
+        // **実在しないファイル**で確かめる ―― この判定は「見つからない本」に対しても行われる。
+        // `standardizedFileURL` は先頭の `/private` を実在するときだけ外すため、ここを実在する
+        // ファイルにすると、両側とも同じ形に揃ってしまい食い違いを見逃す
+        // (2026-09-06、作業フォルダが `/private/var/…` になる CI で実際に落ちた)。
         #expect(store.isPathCovered(child.appendingPathComponent("book.cbz")))
     }
 
@@ -160,6 +164,7 @@ struct RecentFilesAndAccessTests {
 
         #expect(store.add(url: granted))
         // 単純な前方一致だと "…/cover" が "…/coverage" にも一致してしまう。
+        // ここも実在しないファイルで確かめる(上のテストのコメント参照)。
         #expect(store.isPathCovered(granted.appendingPathComponent("book.cbz")))
         #expect(store.isPathCovered(sibling.appendingPathComponent("book.cbz")) == false)
         // フォルダ自身も「配下」に含む(改めて許可し直す必要は無い)。

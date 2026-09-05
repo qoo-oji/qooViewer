@@ -122,10 +122,31 @@ final class FolderAccessStore: ObservableObject {
     /// 比較して判定する(単純な文字列の前方一致では、「/Users/foo」が「/Users/foobar」にも
     /// 一致してしまう誤判定が起きるため、パス区切りの単位で比較する)。
     private func isAncestor(_ ancestor: URL, of target: URL) -> Bool {
-        let ancestorComponents = ancestor.standardizedFileURL.pathComponents
-        let targetComponents = target.standardizedFileURL.pathComponents
+        let ancestorComponents = normalizedComponents(ancestor)
+        let targetComponents = normalizedComponents(target)
         guard ancestorComponents.count <= targetComponents.count else { return false }
         return Array(targetComponents.prefix(ancestorComponents.count)) == ancestorComponents
+    }
+
+    /// 比較用にそろえたパスの構成要素。
+    ///
+    /// **`standardizedFileURL`だけでは足りない。** あれは先頭の`/private`を「そのパスが実在する
+    /// ときにだけ」外す(`NSString.standardizingPath`の仕様)。そのため、実在する許可済み
+    /// フォルダは`/var/…`に、実在しないファイル(削除された本の在処など。この判定は
+    /// LibraryCleanupViewModelが**見つからない本**に対しても行う)は`/private/var/…`のまま、
+    /// という食い違いが起きて、配下にあるのに「覆われていない」と判定される。
+    /// macOSでは`/private`直下の`etc`/`tmp`/`var`がルート直下から同名で張られている
+    /// (`/var` → `/private/var`)ので、先頭の`private`は必ず外して揃えてよい。
+    ///
+    /// 2026-09-06、CI(サンドボックス無し=作業フォルダが`/private/var/folders/…`)で実際に
+    /// 食い違って落ちた(手元はサンドボックスのコンテナ配下で`/private`を含まないため素通り
+    /// していた)。
+    private func normalizedComponents(_ url: URL) -> [String] {
+        var components = url.standardizedFileURL.pathComponents
+        if components.count > 1, components[1] == "private" {
+            components.remove(at: 1)
+        }
+        return components
     }
 
     private func rawBookmarks() -> [Data] {

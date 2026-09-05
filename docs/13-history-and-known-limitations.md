@@ -425,6 +425,14 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
 (B3 で入れたもの)に対するテスト ―― `RecentFilesAndAccessTests`。アプリ側の新しい口は無い。
 
 **B5 で分かったこと**
+- **`standardizedFileURL` は先頭の `/private` を「実在するときだけ」外す**
+  (`NSString.standardizingPath` の仕様)。`FolderAccessStore.isAncestor` がこれで比較していた
+  ため、許可済みフォルダ(実在 → `/var/…`)と**見つからない本**のパス(実在しない →
+  `/private/var/…`)が食い違い、配下にあるのに「覆われていない」と判定されていた。この判定は
+  `LibraryCleanupViewModel` が見つからない本に対しても行うので実際に効く経路。先頭の `private`
+  を必ず外して揃える形に直した(`normalizedComponents`)。**手元では素通りする** ―― サンドボックスの
+  コンテナ配下には `/private` が出ないため。CI(サンドボックス無し、作業フォルダが
+  `/private/var/folders/…`)で落ちて分かった。テストは**実在しないファイル**で確かめること。
 - `RecentFilesStore` は `init` で非同期の再検証(`scheduleRefresh`)を投げるが、実体のある
   ファイルを記録するぶんには結果が変わらないので、待ち合わせの口は要らなかった。旧形式からの
   移行(パスの穴埋め)だけはこの再検証が担うため、そこは「一覧が空でも保存済みは消える」
