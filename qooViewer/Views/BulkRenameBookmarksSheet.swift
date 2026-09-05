@@ -346,41 +346,34 @@ struct BulkRenameBookmarksSheet: View {
     /// 表紙をまだ追加していない状態(assignFixedCover ON、かつ先頭ページにブックマークが
     /// 無い)の場合は、追加される表紙自体はまだ存在しないためプレビューには含めない。
     private func previewNames(bookID: String, bookmarks: [Bookmark]) -> [PreviewItem] {
-        var excludedIDs: Set<UUID> = []
-        var items: [PreviewItem] = []
+        BulkBookmarkRenaming.renames(for: renameTargets(bookmarks), options: renameOptions)
+            .map { PreviewItem(id: $0.id, originalName: $0.currentName, newName: $0.newName) }
+    }
 
-        if assignFixedCover, let cover = bookmarks.first(where: { $0.pageIndex == 0 }) {
-            // EPUB出力ウインドウの列見出し(EpubExportWindow.swift)で使っている"Cover"キーとは
-            // 意図的に別のローカライズキーにしてある。あちらは「カバー画像」という列見出しの
-            // 訳語(カバー画像)のままでよいが、ここで割り当てるのはブックマークの名前そのもの
-            // (ユーザー要望: 「表紙」という名前を付けてほしい)のため、共用すると列見出しの
-            // 訳語まで意図せず変わってしまう。
-            let coverName = String(localized: "Cover Bookmark Name", language: preferences.effectiveLocale)
-            items.append(PreviewItem(id: cover.id, originalName: cover.name, newName: coverName))
-            excludedIDs.insert(cover.id)
+    /// 命名規則へ渡す形。ページ順であることが前提(sortedBookmarks を渡すこと)。
+    private func renameTargets(_ bookmarks: [Bookmark]) -> [BulkBookmarkRenaming.Target] {
+        bookmarks.map {
+            BulkBookmarkRenaming.Target(id: $0.id, pageIndex: $0.pageIndex, currentName: $0.name)
         }
+    }
 
-        if let fixedNameKey = lastBookmarkTreatment.fixedNameKey, let last = bookmarks.last, !excludedIDs.contains(last.id) {
-            let name = String(localized: fixedNameKey, language: preferences.effectiveLocale)
-            items.append(PreviewItem(id: last.id, originalName: last.name, newName: name))
-            excludedIDs.insert(last.id)
-        }
-
-        var number = startNumber
-        for bookmark in bookmarks where !excludedIDs.contains(bookmark.id) {
-            items.append(PreviewItem(id: bookmark.id, originalName: bookmark.name, newName: "\(prefix)\(number)\(suffix)"))
-            number += 1
-        }
-
-        // ソート比較のたびにbookmarksを線形探索すると要素数が多いほど二乗オーダーで重くなる
-        // (テキストフィールドを1文字打つたびに再計算されるため無視できない)。
-        // 事前にID -> pageIndexの辞書を1回だけ作り、比較はO(1)ルックアップにする(結果は従来と同一)。
-        let pageIndexByID = Dictionary(uniqueKeysWithValues: bookmarks.map { ($0.id, $0.pageIndex) })
-        return items.sorted { lhs, rhs in
-            let lhsIndex = pageIndexByID[lhs.id] ?? 0
-            let rhsIndex = pageIndexByID[rhs.id] ?? 0
-            return lhsIndex < rhsIndex
-        }
+    /// 画面で選んだ設定を、表示言語で解決済みの文字列にして渡す。
+    ///
+    /// 「表紙」の翻訳キーは、EPUB 出力ウインドウの列見出し(EpubExportWindow.swift)の "Cover" とは
+    /// **意図的に別のキー**にしてある。あちらは列見出しの訳語(カバー画像)でよいが、ここで
+    /// 割り当てるのはブックマークの名前そのもの(ユーザー要望:「表紙」)なので、共用すると
+    /// 列見出しの訳語まで意図せず変わってしまう。
+    private var renameOptions: BulkBookmarkRenaming.Options {
+        BulkBookmarkRenaming.Options(
+            assignsFixedCover: assignFixedCover,
+            coverName: String(localized: "Cover Bookmark Name", language: preferences.effectiveLocale),
+            lastBookmarkFixedName: lastBookmarkTreatment.fixedNameKey.map {
+                String(localized: $0, language: preferences.effectiveLocale)
+            },
+            startNumber: startNumber,
+            prefix: prefix,
+            suffix: suffix
+        )
     }
 
     /// 実際にリネームを適用する(設計コンセプト5節)。
@@ -394,59 +387,44 @@ struct BulkRenameBookmarksSheet: View {
     /// リネーム」の実行1回につき保存・再フェッチ・通知を1回にまとめる。
     private func applyRenaming(bookID: String, bookmarks: [Bookmark]) {
         var sorted = bookmarks
-        var excludedIDs: Set<UUID> = []
-        var pendingRenames: [(bookmark: Bookmark, newName: String)] = []
 
-        if assignFixedCover {
-            // EPUB出力ウインドウの列見出し(EpubExportWindow.swift)で使っている"Cover"キーとは
-            // 意図的に別のローカライズキーにしてある。あちらは「カバー画像」という列見出しの
-            // 訳語(カバー画像)のままでよいが、ここで割り当てるのはブックマークの名前そのもの
-            // (ユーザー要望: 「表紙」という名前を付けてほしい)のため、共用すると列見出しの
-            // 訳語まで意図せず変わってしまう。
-            let coverName = String(localized: "Cover Bookmark Name", language: preferences.effectiveLocale)
-            if let cover = sorted.first(where: { $0.pageIndex == 0 }) {
-                pendingRenames.append((cover, coverName))
-                excludedIDs.insert(cover.id)
-            } else {
-                // 先頭ページにブックマークが無い場合は自動で追加する(5節)。本を今開いているか
-                // どうかに関わらず動作させる必要があるため、BookmarkStore.addBookmark(bookID:
-                // pageIndex:name:)を直接呼ぶ(ViewerViewModel.addBookmarkは今開いている本にしか
-                // 使えないため)。これは新規追加(リネームではない)1件だけなので、まとめる対象には
-                // 含めない。
-                // ユーザー要望: ここで作成するブックマークにもファイルノード識別子を記録したい
-                // (BookmarkDetailPane.addBookmark(atPageIndex:)と同じ理由・同じ解決手段)。
-                var fileNodeIdentifier: FileNodeIdentifier?
-                if let url = layoutStore.resolvedURL(forBookID: bookID) {
-                    let didAccess = url.startAccessingSecurityScopedResource()
-                    fileNodeIdentifier = FileNodeIdentifier.current(for: url)
-                    if didAccess { url.stopAccessingSecurityScopedResource() }
-                }
-                // pageKey: 鍵なしで作ると「1.36以前の番号だけの行」と区別が付かず、次に本を
-                // 開いたときに番号0が従来順として解釈される(並びが入れ替わる命名の本では、
-                // 実効順の1ページ目=表紙とは別のページに化ける。coverPageKeyのコメント参照)。
-                bookmarkStore.addBookmark(
-                    bookID: bookID, pageIndex: 0, pageKey: coverPageKey, name: coverName,
-                    fileNodeIdentifier: fileNodeIdentifier
-                )
-                sorted = bookmarkStore.bookmarks(forBookID: bookID).sorted { $0.pageIndex < $1.pageIndex }
-                if let cover = sorted.first(where: { $0.pageIndex == 0 }) {
-                    excludedIDs.insert(cover.id)
-                }
+        // 先頭ページにブックマークが無い場合は自動で追加する(5節)。本を今開いているかどうかに
+        // 関わらず動作させる必要があるため、BookmarkStore.addBookmark(bookID:pageIndex:name:)を
+        // 直接呼ぶ(ViewerViewModel.addBookmarkは今開いている本にしか使えないため)。
+        // 名前の決定そのものは、この後の共通の規則(BulkBookmarkRenaming)に任せる。
+        if assignFixedCover, !sorted.contains(where: { $0.pageIndex == 0 }) {
+            // ユーザー要望: ここで作成するブックマークにもファイルノード識別子を記録したい
+            // (BookmarkDetailPane.addBookmark(atPageIndex:)と同じ理由・同じ解決手段)。
+            var fileNodeIdentifier: FileNodeIdentifier?
+            if let url = layoutStore.resolvedURL(forBookID: bookID) {
+                let didAccess = url.startAccessingSecurityScopedResource()
+                fileNodeIdentifier = FileNodeIdentifier.current(for: url)
+                if didAccess { url.stopAccessingSecurityScopedResource() }
             }
+            // pageKey: 鍵なしで作ると「1.36以前の番号だけの行」と区別が付かず、次に本を
+            // 開いたときに番号0が従来順として解釈される(並びが入れ替わる命名の本では、
+            // 実効順の1ページ目=表紙とは別のページに化ける。coverPageKeyのコメント参照)。
+            bookmarkStore.addBookmark(
+                bookID: bookID, pageIndex: 0, pageKey: coverPageKey,
+                name: String(localized: "Cover Bookmark Name", language: preferences.effectiveLocale),
+                fileNodeIdentifier: fileNodeIdentifier
+            )
+            sorted = bookmarkStore.bookmarks(forBookID: bookID).sorted { $0.pageIndex < $1.pageIndex }
         }
 
-        if let fixedNameKey = lastBookmarkTreatment.fixedNameKey, let last = sorted.last, !excludedIDs.contains(last.id) {
-            let name = String(localized: fixedNameKey, language: preferences.effectiveLocale)
-            pendingRenames.append((last, name))
-            excludedIDs.insert(last.id)
-        }
-
-        var number = startNumber
-        for bookmark in sorted where !excludedIDs.contains(bookmark.id) {
-            pendingRenames.append((bookmark, "\(prefix)\(number)\(suffix)"))
-            number += 1
-        }
-
+        // 経緯(ユーザー報告): 他にも「一括で処理できるはずのSQLite書き込みを個別に行っている
+        // 箇所」がないか確認してほしい、との依頼を受けて見つかった箇所。以前はここで
+        // bookmarkStore.rename(_:to:)を対象ブックマーク数ぶんループで個別に呼んでおり、
+        // そのたびに同期save()+reload()+通知が走っていた(本によっては数百件になることも
+        // 珍しくない)。まとめて1回で渡すことで、この「一括リネーム」の実行1回につき
+        // 保存・再フェッチ・通知を1回にまとめる。
+        let bookmarkByID = Dictionary(uniqueKeysWithValues: sorted.map { ($0.id, $0) })
+        let pendingRenames = BulkBookmarkRenaming
+            .renames(for: renameTargets(sorted), options: renameOptions)
+            .compactMap { rename -> (bookmark: Bookmark, newName: String)? in
+                guard let bookmark = bookmarkByID[rename.id] else { return nil }
+                return (bookmark, rename.newName)
+            }
         bookmarkStore.renameBookmarks(bookID: bookID, renames: pendingRenames)
     }
 }

@@ -446,6 +446,13 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
 移した。テストは `FilmstripLayoutTests`。**読み方向の反転はページ番号にだけ効き、
 スロット(画面上の位置)には効かない** ―― この非対称が要で、表引きで固定した。
 
+**C3 でできたもの(2026-09-06、466 → 473 テスト)**
+`Models/BulkBookmarkRenaming.swift`(`nonisolated enum`)。`BulkRenameBookmarksSheet` の
+`previewNames` と `applyRenaming` に**二重に書かれていた**命名規則を 1 つにまとめ、両方から
+呼ぶようにした(プレビューと結果がずれる余地を無くす)。画面側に残るのは、先頭ページに
+ブックマークが無いときの自動追加(DB への書き込み)と、翻訳の解決だけ。
+テストは `BulkBookmarkRenamingTests`。
+
 **口を開けるときの作法**: 既定値はこれまでどおり(通常経路の差分ゼロ)。時間で待たず `Task` の
 ハンドルを `await` する。既定引数にメインアクター分離の型を置かない(段階 3・4 で 2 度踏んだ。
 `QOO_CI_WARNINGS_AS_ERRORS=YES` で通してから push)。静的な登録簿(`ViewerViewModel.openBookIDs`、
