@@ -285,6 +285,26 @@ final class BookLayoutEditorViewModel: ObservableObject {
         loadState = .loaded
     }
 
+    /// 読み込み済みの本から行を組む。**テストのための口**で、通常の経路は上の`load()`。
+    ///
+    /// `load()` は共有のディスクキャッシュ(`BookPageListCache.shared`)を読み、その先の
+    /// `BookLoader.load(from:)` は既定でそこへ書き戻すため、テストからは**実物のキャッシュに
+    /// 触れずに行を用意できない**。行の組み立てと `PageLoader` の用意は `load()` と同じ。
+    ///
+    /// - Parameter usesDiskCaches: `PageLoader` が共有のディスクキャッシュ(サムネイル・
+    ///   ページ寸法)を使うか。既定はこれまでどおり使う。
+    func load(book loaded: MangaBook, usesDiskCaches: Bool = true) {
+        book = loaded
+        pageLoader = PageLoader(
+            book: loaded, usesThumbnailDiskCache: usesDiskCaches,
+            imageCacheLimitBytes: preferences.pageImageCacheLimitBytes
+        )
+        pageLoaderGeneration &+= 1
+        isBookReady = true
+        rebuildRows(from: loaded)
+        loadState = .loaded
+    }
+
     /// pageOrderOverride(2.3節)を反映した表示順でrowsを組み立て直す。
     private func rebuildRows(from book: MangaBook) {
         rebuildRows(from: book.pages.map {

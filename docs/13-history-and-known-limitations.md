@@ -363,6 +363,19 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
 `fillingMissingDefaults` は `nonisolated` にできたが、`migratedLegacyMouseBindings` は
 `MouseTrigger.id`(メインアクター分離)を引くので internal どまり ―― **必要なぶんだけ開ける**。
 
+**B1 でできたもの(2026-09-06、415 → 423 テスト)**
+`BookLayoutEditorViewModel.load(book:usesDiskCaches:)`(読み込み済みの本から行を組む)。
+通常の `load()` は `BookPageListCache.shared` を読み、その先の `BookLoader.load(from:)` は
+既定でそこへ書き戻すため、テストからは実物のキャッシュに触れずに行を用意できなかった。
+テストは `BookLayoutEditorTests`。
+
+**B1 で分かったこと**
+- **読み方向が絡むテストは、必ず本ごとの上書きで明示する。** 既定はシステムの言語から決まる
+  (手元は右開き・CI は左開き)ので、見開き左右の期待値がそのままでは環境で食い違う。
+- ストア(`BookmarkStore`)は自分のキャッシュを持つので、テストの下ごしらえも
+  `modelContext.insert` ではなく**ストアの API を通す**こと。直接入れた行は
+  `updatePageIndices` の対象にならない。
+
 **口を開けるときの作法**: 既定値はこれまでどおり(通常経路の差分ゼロ)。時間で待たず `Task` の
 ハンドルを `await` する。既定引数にメインアクター分離の型を置かない(段階 3・4 で 2 度踏んだ。
 `QOO_CI_WARNINGS_AS_ERRORS=YES` で通してから push)。静的な登録簿(`ViewerViewModel.openBookIDs`、
