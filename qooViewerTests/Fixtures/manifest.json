@@ -132,6 +132,12 @@
         }
       }
     },
+    "comicinfo/ComicInfo_v2.0.xsd": {
+      "bytes": 7556,
+      "sha256": "3d9109effff705014f5f6076d92b0ad8c8dad90d993f2592d744c10bad45311c",
+      "howMade": "anansi-project/comicinfo の schema/v2.0/ComicInfo.xsd をそのまま(2026-09-06 取得。MIT / Copyright (c) 2021 anansi-project。詳細は comicinfo/README.md)",
+      "purpose": "書き出した CBZ の ComicInfo.xml を CI が xmllint --schema にかけるためのスキーマ。テストからは読まない"
+    },
     "images/image-solid.avif": {
       "bytes": 377,
       "sha256": "e863e6d4d59b4813b6b6a2a3b75fb5971b767d32a25a6b01f5bee8b9ae9bbdfe",

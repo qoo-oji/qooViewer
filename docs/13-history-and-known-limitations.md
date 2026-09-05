@@ -94,13 +94,14 @@
 - 環境設定「レイアウト」の形式ページを、アプリの他の場所から名指しで開く経路
   (`SettingsNavigator` に `appearanceTarget` 相当が無い)。
 
-### テストのパタンセット ―― 段階 3〜4(引き継ぎ、2026-09-06)
+### テストのパタンセット ―― 段階 4(引き継ぎ、2026-09-06)
 
 `qooViewerTests` を「UI を伴わない nonisolated のパイプライン」まで広げる計画(段階 0〜4)のうち、
 **段階 0(フィクスチャ・台帳・生成スクリプト・Support のビルダー・golden テスト)・
-段階 1(読み込み側)・段階 2(純粋ロジック)は完了**(→ [02](02-project-and-build.md#テストのフィクスチャ))。
+段階 1(読み込み側)・段階 2(純粋ロジック)・段階 3(書き出しのラウンドトリップ + CI の検品)は完了**
+(→ [02](02-project-and-build.md#テストのフィクスチャ))。
 決めごとは段階 0 と同じ ―― 共有の保存先に触れない、golden は `sortKey` の列、既知の限界は
-「落ちない・数は合う」で固定、テスト全体で 60 秒以内(現状 301 テスト・約 1.6 秒)。
+「落ちない・数は合う」で固定、テスト全体で 60 秒以内(現状 335 テスト・約 1.9 秒)。
 
 **段階 1 でできたもの(2026-09-05)**
 - `ArchiveReaderTests` ―― `ArchiveReading` の適合テスト。台帳に `archive`(`listFilePaths` の全件と、
@@ -160,16 +161,38 @@ suite の一覧は [02](02-project-and-build.md#テストターゲットqooviewe
   `true` になり、単に「壊れた画像」として nil になる)、実データを持たせると 200KB の上限を超える
   (4 億画素を単色で deflate しても 1MB 超)。あの判定はテストで固定していない。
 
-**残っているもの**
+**段階 3 でできたもの(2026-09-06、301 → 335 テスト)**
+`CbzExportTests` / `EpubExportTests` / `PDFExportTests` と `Support/ExportHarness.swift`
+(`ExportSource` / `ExportInputs` / `ExportArtifacts`)。suite ごとの中身は
+[02](02-project-and-build.md#テストターゲットqooviewertests)。CI には Debug ジョブへ
+「Set up EPUBCheck」「Validate exported files」を足し、検品の本体は
+`scripts/ci/validate-exports.sh`(手元でも同じものが走る)。
 
-**段階 3: 書き出しのラウンドトリップ(約 20 テスト)** ―― `CbzExporter` / `EpubExporter` / `PDFExporter`
-で書き出し → `FixtureBook.load` / `EpubStructureResolver.resolve` / `CGPDFDocument` で開き直す
-(順序は `PageColorReader` で追う、NFC 正規化、ComicInfo、mimetype 先頭・無圧縮、`PDFCatalogAugmenter`
-の 2 回 apply、`PDFXMPMetadata` の往復)。`PageLoader(book:usesThumbnailDiskCache: false)` を必ず明示。
-決定済み: CI の Debug ジョブに「Validate exported files」ステップを足す ―― テストが
-`QOO_TEST_OUTPUT_DIR`(スキームの環境変数)へ書いた生成物を `xmllint --schema`(ComicInfo v2.0 の XSD、
-anansi-project の MIT 表記付きで `Fixtures/comicinfo/` に同梱)と EPUBCheck 5.2.1(jar を sha256 固定で
-取得、`actions/cache`)で検査する。
+計画から変えたところ:
+- **`QOO_TEST_OUTPUT_DIR` は使えなかった**。3 通りとも実測で駄目だった ―― スキームの環境変数の
+  値に `$(QOO_TEST_OUTPUT_DIR)` と書いてもビルド設定へは展開されず(テスト側には `$(…)` という
+  文字列がそのまま届く)、xcodebuild を起動したシェルの環境変数はテストホストへまったく
+  引き継がれず、手元の TEST_HOST は署名済み = サンドボックスの中なのでコンテナの外のパスへは
+  書けない(CI は `CODE_SIGNING_ALLOWED=NO` で書けてしまうため、**手元でだけ静かに失敗する**形に
+  なるところだった)。**Swift Testing の添付ファイル**(`Attachment.record`)に替えた ―― 結果
+  バンドルに入り、サンドボックスの中でも残り、CI は `xcrun xcresulttool export attachments` で
+  取り出す。取り出し先での名前は Xcode が付け直す(テスト名 + 連番)ので、検品は**拡張子で
+  振り分ける**。
+- **EPUBCheck は 5.3.0**(計画時の最新は 5.2.1)。zip の sha256 で固定して `actions/cache` に載せる。
+- **`PDFCatalogAugmenter` の 2 回 apply は「成功する」ではなく「断られる」が正解だった**。
+  追記済みの Catalog には `/Metadata`・`/PageLayout`・`/ViewerPreferences` が既にあり、単純に足すと
+  項目が重複するため、`readLayout` が意図的に `unsupportedStructure` を投げる。テストは
+  **ファイルが 1 バイトも変わらないこと**(壊れた PDF だけが残らないこと)を見る形にした。
+
+**段階 3 で分かったこと**
+- 書き出した EPUB 14 本は EPUBCheck 5.3.0 で指摘ゼロ、ComicInfo.xml 8 本は v2.0 の XSD に適合
+  (2026-09-06、手元で実測。java は Kindle Previewer 3 同梱の JRE を使った →
+  [12](12-verification-and-debugging.md))。
+- EPUB の本の `sortKey` は spine 上の位置(6 桁連番)で、エントリのパスは `id` に入る
+  (フォルダ = 絶対パス、書庫 = エントリパス、とは違う)。書き出した EPUB を開き直して
+  突き合わせるときはここを間違えやすい。
+
+**残っているもの**
 
 **段階 4(任意)** ―― メモリ内の `ModelContainer`(`isStoredInMemoryOnly`)を**テストが自前で作って**
 `LibraryImportExportService.apply` と `LayoutStore.importSourceLayoutIfNeeded` を通す。アプリの

@@ -82,6 +82,18 @@ qooViewer 側では**「ブロック先頭からのやり直し回数」**(`Arch
 
 ## 書き出しの検証
 
+- **往復そのものは `qooViewerTests` が見ています**(`CbzExportTests` / `EpubExportTests` /
+  `PDFExportTests`。書き出す → 読み込み側で開き直す → 中身の番号で並びを追う。
+  → [02](02-project-and-build.md#テストターゲットqooviewertests))。書式が仕様に合っているかは
+  CI が EPUBCheck と ComicInfo v2.0 の XSD で見ます(`scripts/ci/validate-exports.sh`)。
+  手元で同じことをするなら、テストを結果バンドル付きで走らせてからスクリプトへ渡します:
+
+  ```sh
+  xcodebuild -project qooViewer.xcodeproj -scheme qooViewer -configuration Debug \
+    -destination 'platform=macOS' -resultBundlePath /tmp/Tests.xcresult test
+  EPUBCHECK_JAR=~/epubcheck/epubcheck.jar scripts/ci/validate-exports.sh /tmp/Tests.xcresult
+  ```
+
 - 実物の Exporter(`EpubExporter` / `PDFExporter` / `CbzExporter` は nonisolated で UI に依存しない)
   を SwiftPM のコマンドラインツールへ取り込めば、CLI から動かして出力を検証できます。
 - EPUB は Kindle Previewer 3 の CLI と、同梱の JRE + EPUBCheck で検査します(`dc:language` の

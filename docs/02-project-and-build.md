@@ -58,7 +58,7 @@ Swift Testing の単体テストです(2026-09-05 追加)。アプリを TEST_HO
 `PageRef` までの経路と、EPUB / PDF の構造解決を、下記のフィクスチャで通します。画面の自動操作
 (AX 経由)は再現性が低いので載せません(→ [12](12-verification-and-debugging.md))。
 
-いまある suite(2026-09-06 時点、301 テスト・約 1.6 秒):
+いまある suite(2026-09-06 時点、335 テスト・約 1.9 秒):
 
 読み込みの経路(段階 1):
 
@@ -91,7 +91,27 @@ Swift Testing の単体テストです(2026-09-05 追加)。アプリを TEST_HO
 | `InputMappingTests` | `RemappableKey` / `MouseTrigger` の安定した識別子と判定 |
 | `AppLanguageTests` | `String(localized:language:)` が**翻訳の選択まで**切り替えること |
 
-残っている段階(3〜4)は [13](13-history-and-known-limitations.md#テストのパタンセット--段階-34引き継ぎ2026-09-06)。
+書き出しのラウンドトリップ(段階 3、2026-09-06 追加):
+
+| suite | 見るもの |
+| --- | --- |
+| `CbzExportTests` | 連番リネームが並べ替え・除外を焼き付けること、ComicInfo.xml(書誌・`Page@Image` が名前順であること・カバー・DoublePage・しおり)、元ファイルの ComicInfo の引き継ぎ、NFC 正規化 |
+| `EpubExportTests` | spine が並べ替えを運ぶこと、mimetype が先頭・無圧縮であること、読み方向 / 見開き(本全体・ページごと)、目次、書誌、素通ししない形式の PNG 変換 |
+| `PDFExportTests` | ページの並び、Catalog へ増分更新で書いた読み方向 / 見開き、Calibre 互換の XMP、アウトライン、**追記済みの PDF への 2 回目の追記を断ること**(ファイルに手を付けない) |
+
+いずれも「書き出す → 読み込み側(`FixtureBook.load` / `EpubStructureResolver` / `CGPDFDocument`)で
+開き直す」の往復で、**どのページがどこへ行ったかはファイル名ではなく中身の番号で追います**
+(ページ画像の R = ページ番号。`PageColorReader`)。素材は `qooViewerTests/Support/ExportHarness.swift`
+(`ExportSource` / `ExportInputs`)。
+
+書式そのものが仕様に合っているかは、外の実装に任せます ―― テストは書き出した EPUB と
+ComicInfo.xml を**添付ファイル**として結果バンドルに残し、CI が取り出して EPUBCheck と
+ComicInfo v2.0 の XSD にかけます(下の「CI」)。**添付にしているのは、サンドボックスの中でも確実に
+残せる唯一の手立てだから**です(2026-09-06 の実測: スキームの環境変数の値に `$(…)` と書いても
+ビルド設定へは展開されず、xcodebuild を起動したシェルの環境変数もテストホストへは引き継がれず、
+手元の TEST_HOST は署名済み = サンドボックスの中なのでコンテナの外へは書けない)。
+
+残っている段階(4)は [13](13-history-and-known-limitations.md#テストのパタンセット--段階-4引き継ぎ2026-09-06)。
 
 **テストは共有の保存先に触れません。** TEST_HOST は実物のアプリなので、手元では自分の履歴・
 キャッシュ・SwiftData と同じコンテナで走ります。本を開くときは `FixtureBook.load`
@@ -151,6 +171,11 @@ xcodebuild -project qooViewer.xcodeproj -scheme qooViewer -configuration Debug \
 なら画素のデータが 1 ビットも要らない**(ヘッダーと符号定義だけの 32 バイト)。png / jpg / tiff /
 gif / bmp / heic は `PageImageFactory` が毎回作れるので置きません。
 
+`Fixtures/comicinfo/` は例外で、**テストが読まないファイル**を置いています ――
+ComicInfo v2.0 の XSD(anansi-project/comicinfo、MIT)は CI の検品ツール(`xmllint --schema`)の
+入力です。台帳に載せてあるのは、第三者のファイルが知らないうちに差し替わらないようにするため
+(出所とライセンスは `Fixtures/comicinfo/README.md`)。
+
 保存データの JSON(`QooLibraryExportFile` の旧版)はフィクスチャにせず、テストの中に直接書いて
 います ―― 読めるテキストなので、期待値の隣に置いたほうが分かりやすいためです
 (`LibraryJSONSchemaTests`)。
@@ -184,7 +209,7 @@ Actions タブと GitHub のメール通知で見ます。README にバッジも
 
 | ワークフロー | ランナー | 内容 |
 |---|---|---|
-| `.github/workflows/build.yml` | `macos-26` + Xcode 26.6(`DEVELOPER_DIR` で固定) | Debug / Release の 2 ジョブ。依存解決後に `Package.resolved` が変わらないこと、警告ゼロでビルドできること。Debug は `qooViewerTests` を実行し、ビルドした .app を 15 秒起動して生存を確認、Release は universal(arm64 + x86_64)と署名を検品して zip を artifact(14 日)に残す |
+| `.github/workflows/build.yml` | `macos-26` + Xcode 26.6(`DEVELOPER_DIR` で固定) | Debug / Release の 2 ジョブ。依存解決後に `Package.resolved` が変わらないこと、警告ゼロでビルドできること。Debug は `qooViewerTests` を実行し、書き出した EPUB / ComicInfo.xml を検品し、ビルドした .app を 15 秒起動して生存を確認、Release は universal(arm64 + x86_64)と署名を検品して zip を artifact(14 日)に残す |
 | `.github/workflows/check.yml` | `ubuntu-latest` | `scripts/ci/check-all.sh`。Team ID の混入、Info.plist の書類の型とコードの拡張子の一致、`Localizable.xcstrings` の妥当性、`MARKETING_VERSION` の整合(タグ push 時はタグと CHANGELOG の見出しも)、テストのフィクスチャと台帳の一致、フォークのピン、改行コード、`docs/` のリンク切れ、actionlint |
 
 決めごと:
@@ -205,6 +230,14 @@ Actions タブと GitHub のメール通知で見ます。README にバッジも
 - **テストはビルドと分ける**。Debug ジョブは `build-for-testing` → `test-without-building` の2段で、
   どちらで落ちたのかがログで分かるようにしています。署名していない .app にテストバンドルを
   差し込む形になりますが(`CODE_SIGNING_ALLOWED=NO`)、手元で同じ条件で通ることを確認済みです。
+- **書き出したものは外の実装に照らす**。Debug ジョブの「Validate exported files」が
+  `scripts/ci/validate-exports.sh` を呼び、結果バンドルから取り出した EPUB を EPUBCheck
+  (W3C。zip の sha256 で版を固定し `actions/cache` に載せる)に、ComicInfo.xml を
+  ComicInfo v2.0 の XSD にかけます。自分で書いたものを自分で読み直せるのは当たり前で、
+  EPUB リーダーや Komga / Kavita が受け取れるかは別の話だからです。**素材が 1 つも
+  取り出せなければ失敗**にします(添付の仕組みが静かに壊れて「0 件を検品して合格」に
+  なるのを防ぐため)。手元で同じことをするなら、jar を落として
+  `EPUBCHECK_JAR=… scripts/ci/validate-exports.sh <結果バンドル>`(java が要る)。
 - 検査の本体はリポジトリ内のスクリプトで、手元でも同じものが走ります(→ [12](12-verification-and-debugging.md#基本))。
 
 ### 主要なビルド設定(project.pbxproj)

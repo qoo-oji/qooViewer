@@ -8,8 +8,9 @@
 #   1. Package.resolved どおりに依存を解決し、解決後に Package.resolved が変わらないことを確認
 #      (フォークの branch が動いた・revision が消えた、を検知する)
 #   2. アプリターゲットだけ警告をエラーにしてビルド(QOO_CI_WARNINGS_AS_ERRORS → Shared.xcconfig)
-#   3. Debug: qooViewerTests を実行し、ビルドした .app を起動して 15 秒生きていることを
-#      確認(起動時のクラッシュを拾う)
+#   3. Debug: qooViewerTests を実行し、書き出した EPUB / ComicInfo.xml を外の実装
+#      (EPUBCheck / ComicInfo v2.0 の XSD)に照らし、ビルドした .app を起動して 15 秒
+#      生きていることを確認(起動時のクラッシュを拾う)
 #      Release: universal(arm64 + x86_64)と署名を検品し、zip を artifact に残す
 #
 # Debug は build-for-testing → test-without-building に分けてある。xcodebuild test だと
@@ -55,6 +56,10 @@ env:
   # 30 秒台の規模で、壊れやすさに見合わない)。
   SPM_DIR: ${{ github.workspace }}/../spm-checkouts
   DERIVED_DATA: ${{ github.workspace }}/../DerivedData
+  # 書き出したファイルの検品に使う EPUBCheck(W3C)。zip の sha256 で固定する。
+  # 版を上げるときは両方を書き換える(scripts/ci/validate-exports.sh)。
+  EPUBCHECK_VERSION: "5.3.0"
+  EPUBCHECK_SHA256: "6c07e68584b2e2ce2f89fe06e1246dfead3eb36b46b340e7d93524f29dcff6c5"
 
 jobs:
   build:
@@ -131,6 +136,36 @@ jobs:
             test-without-building \
             | tee "$RUNNER_TEMP/xcodebuild-test.log" \
             | xcbeautify --renderer github-actions
+
+      # 書き出しのラウンドトリップのテスト(EpubExportTests / CbzExportTests)が、書き出した
+      # 実物を添付ファイルとして結果バンドルへ残している。それを取り出して、EPUB は EPUBCheck、
+      # ComicInfo.xml は ComicInfo v2.0 の XSD にかける。「自分で読み直せる」ことはテストが
+      # 見ているので、ここでは「他所の実装が受け取れる形か」だけを見る。
+      - name: Cache EPUBCheck
+        if: matrix.configuration == 'Debug'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/epubcheck
+          key: epubcheck-${{ env.EPUBCHECK_VERSION }}
+
+      - name: Set up EPUBCheck
+        if: matrix.configuration == 'Debug'
+        run: |
+          jar="$RUNNER_TEMP/epubcheck/epubcheck-$EPUBCHECK_VERSION/epubcheck.jar"
+          if [ ! -f "$jar" ]; then
+            mkdir -p "$RUNNER_TEMP/epubcheck"
+            curl -fsSL -o "$RUNNER_TEMP/epubcheck.zip" \
+              "https://github.com/w3c/epubcheck/releases/download/v$EPUBCHECK_VERSION/epubcheck-$EPUBCHECK_VERSION.zip"
+            echo "$EPUBCHECK_SHA256  $RUNNER_TEMP/epubcheck.zip" | shasum -a 256 -c -
+            unzip -q "$RUNNER_TEMP/epubcheck.zip" -d "$RUNNER_TEMP/epubcheck"
+          fi
+          # java が無いと validate-exports.sh は EPUBCheck を飛ばしてしまうので、ここで確かめる。
+          java -version
+          echo "EPUBCHECK_JAR=$jar" >> "$GITHUB_ENV"
+
+      - name: Validate exported files
+        if: matrix.configuration == 'Debug'
+        run: scripts/ci/validate-exports.sh "$RUNNER_TEMP/Tests.xcresult"
 
       # 「ビルドは通るが起動で落ちる」(SwiftData のストア初期化など)を拾う。
       # 署名していないのでサンドボックスは効かず、あくまで起動確認。ランナーには GUI

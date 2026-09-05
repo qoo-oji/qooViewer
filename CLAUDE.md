@@ -11,7 +11,8 @@ It supports folders, zip/cbz, rar/cbr, 7z/cb7, PDF, and EPUB (fixed-layout, imag
 
 This is a GUI app, verified by building and running it in Xcode. There is a unit test target
 (`qooViewerTests`, Swift Testing) covering the UI-free `nonisolated` pipeline: page ordering and filename
-classification, the archive-reader → `BookLoader` → `PageRef` path, and EPUB/PDF structure resolution,
+classification, the archive-reader → `BookLoader` → `PageRef` path, EPUB/PDF structure resolution, and the
+export round-trip (`CbzExporter`/`EpubExporter`/`PDFExporter` → read back),
 driven by small book fixtures in `qooViewerTests/Fixtures/` (ledger: `manifest.json`; golden = the
 `PageRef.sortKey` sequence, i.e. the DB page keys) plus in-test builders in `qooViewerTests/Support/`.
 Tests run inside the real app (TEST_HOST) and must never touch shared state — open books through
@@ -38,8 +39,9 @@ do not assume one exists.
 
 CI is GitHub Actions (`.github/workflows/`): `build.yml` builds Debug and Release on `macos-26` with warnings
 treated as errors (passed as `QOO_CI_WARNINGS_AS_ERRORS=YES`, routed through `Configurations/Shared.xcconfig`
-so it reaches only the app target, not the SwiftPM dependencies) and runs `qooViewerTests` in the Debug job,
-and `check.yml` runs
+so it reaches only the app target, not the SwiftPM dependencies), runs `qooViewerTests` in the Debug job
+and validates what its export tests wrote (EPUBCheck + the ComicInfo v2.0 XSD, via
+`scripts/ci/validate-exports.sh`), and `check.yml` runs
 `scripts/ci/check-all.sh` — repository consistency checks (Team ID leak, Info.plist ↔ `imageExtensions`,
 `MARKETING_VERSION` ↔ CHANGELOG ↔ tag, fork pins, line endings, docs links). **Run `scripts/ci/check-all.sh`
 before committing**; it is the same script CI runs. The CI signing is ad-hoc and for verification only —
