@@ -1,0 +1,47 @@
+# qooViewer — 約束事の検査
+#
+# CLAUDE.md / docs に「必ず一致させる」「入れない」と書いてある約束事を、scripts/ci/ の
+# スクリプトで機械的に確かめる。ビルドは build.yml。中身は scripts/ci/check-all.sh にあり、
+# 手元でも同じものが走る(コミット前に実行する)。
+#
+# macOS ランナーは要らない(git / jq / python3 だけ)。タグの push でも走らせるのは、
+# check-version.sh が「タグ vX.YY と MARKETING_VERSION と CHANGELOG の見出しが揃っているか」を
+# 確かめるため。文書だけの変更でも走る(docs/ のリンク切れを見るので paths-ignore しない)。
+
+name: Check
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  ACTIONLINT_VERSION: 1.7.12
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # 版を固定して入れる(main のインストールスクリプトを直接流さない)。
+      - name: Install actionlint
+        run: |
+          curl -sSL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            | tar xz -C "$RUNNER_TEMP" actionlint
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Run checks
+        env:
+          SHELLCHECK: /usr/bin/shellcheck
+        run: scripts/ci/check-all.sh "${{ github.ref_type == 'tag' && github.ref_name || '' }}"
