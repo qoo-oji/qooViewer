@@ -453,6 +453,13 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
 ブックマークが無いときの自動追加(DB への書き込み)と、翻訳の解決だけ。
 テストは `BulkBookmarkRenamingTests`。
 
+**C4 でできたもの(2026-09-06、473 → 478 テスト)**
+`QooViewerApp.removeOrphanedAuxiliaryStoreFiles(at:)` を internal に、
+`performPendingStoreResetIfNeeded` に 4 つの引数(`defaults` / `storeURL` / `domainName` /
+`cacheDirectories`。既定はどれも実際のアプリのもの)。テストは `StoreRecoveryTests`。
+**この処理は実物のストア・キャッシュ・環境設定を消す**ので、テストは必ず作業フォルダと
+その場限りの suite を渡す。
+
 **口を開けるときの作法**: 既定値はこれまでどおり(通常経路の差分ゼロ)。時間で待たず `Task` の
 ハンドルを `await` する。既定引数にメインアクター分離の型を置かない(段階 3・4 で 2 度踏んだ。
 `QOO_CI_WARNINGS_AS_ERRORS=YES` で通してから push)。静的な登録簿(`ViewerViewModel.openBookIDs`、

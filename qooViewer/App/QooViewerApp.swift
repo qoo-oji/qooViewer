@@ -197,25 +197,38 @@ struct QooViewerApp: App {
 
     /// 予約があればストアの実ファイル(全削除の予約ならキャッシュとUserDefaultsも)を消し、
     /// 予約を取り下げる。接続が無い時点でだけ呼ぶこと(pendingStoreResetDefaultsKeyのコメント参照)。
-    static func performPendingStoreResetIfNeeded() {
-        let defaults = UserDefaults.standard
+    /// - Parameters:
+    ///   - defaults: 予約を読む保存先。既定は実際のアプリのもの。
+    ///   - storeURL: ストア本体のURL。nilなら実際のアプリのストア。
+    ///   - domainName: 全削除で丸ごと消す`UserDefaults`のドメイン名。nilならこのアプリのもの。
+    ///   - cacheDirectories: 全削除で消すディスクキャッシュ。nilなら実際のアプリの2つ。
+    ///
+    ///   4つとも**テストのための口**で、既定はこれまでどおり実際のアプリのものを見る
+    ///   (通常経路の差分ゼロ)。テストがこれを既定のまま呼ぶと、実物のストアとキャッシュと
+    ///   環境設定を消してしまう。
+    static func performPendingStoreResetIfNeeded(
+        defaults: UserDefaults = .standard, storeURL: URL? = nil, domainName: String? = nil,
+        cacheDirectories: [URL]? = nil
+    ) {
         guard defaults.bool(forKey: pendingStoreResetDefaultsKey) else { return }
-        deleteStoreFiles(at: modelConfiguration.url)
+        deleteStoreFiles(at: storeURL ?? modelConfiguration.url)
         defaults.removeObject(forKey: pendingStoreResetDefaultsKey)
         guard defaults.bool(forKey: pendingFullResetDefaultsKey) else { return }
 
         // ディスクキャッシュ。ResetDataSettingsViewが予約時にも消しているが、その後の終了までに
         // 書かれたぶん(ページ寸法の書き戻しなど)を取りこぼさないよう、ここでもう一度消す。
-        for directory in [ThumbnailDiskCache.shared.directory, BookPageListCache.shared.directoryURL] {
-            guard let directory else { continue }
+        let directories = cacheDirectories
+            ?? [ThumbnailDiskCache.shared.directory, BookPageListCache.shared.directoryURL]
+                .compactMap { $0 }
+        for directory in directories {
             try? FileManager.default.removeItem(at: directory)
         }
         // UserDefaultsのドメインを丸ごと消す(環境設定・割り当て・履歴・ウインドウの位置・
         // 表示言語のAppleLanguages上書きなど)。フォルダのアクセス権だけは控えて書き戻す。
         // 予約のキー自身もドメインごと消えるので、取り下げは要らない。
         let folderAccess = defaults.object(forKey: FolderAccessStore.defaultsKey)
-        if let bundleID = Bundle.main.bundleIdentifier {
-            defaults.removePersistentDomain(forName: bundleID)
+        if let domain = domainName ?? Bundle.main.bundleIdentifier {
+            defaults.removePersistentDomain(forName: domain)
         }
         if let folderAccess {
             defaults.set(folderAccess, forKey: FolderAccessStore.defaultsKey)
@@ -223,7 +236,8 @@ struct QooViewerApp: App {
     }
 
     /// ストア本体が無いのに`-wal`/`-shm`だけが残っていれば消す(modelContainerのコメント参照)。
-    private static func removeOrphanedAuxiliaryStoreFiles(at url: URL) {
+    /// privateでないのはテストのため(このアプリのストアには触れない別のURLを渡して確かめる)。
+    static func removeOrphanedAuxiliaryStoreFiles(at url: URL) {
         let fileManager = FileManager.default
         guard !fileManager.fileExists(atPath: url.path) else { return }
         let directory = url.deletingLastPathComponent()
