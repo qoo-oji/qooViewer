@@ -15,7 +15,10 @@ import Testing
 struct ZipEntryNameTests {
     /// 台帳の zip/ のうち、開ける本になるもの。`zip-ditto.cbz` だけは `__MACOSX/._*` を含み
     /// listFilePaths と本のページが一致しないので、そちらは ArchiveReaderTests が見る。
-    static var paths: [String] {
+    ///
+    /// nonisolated: `@Test(arguments:)` の引数は Swift Testing がメインアクター外で評価する
+    /// (`Fixtures` を nonisolated にしてあるのと同じ理由)。
+    nonisolated static var paths: [String] {
         Fixtures.bookPaths.filter { path in
             guard path.hasPrefix("zip/"), path != "zip/zip-ditto.cbz" else { return false }
             return Fixtures.manifest.fixtures[path]?.book?.error == nil

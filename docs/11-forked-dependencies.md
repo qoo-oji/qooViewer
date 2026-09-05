@@ -116,23 +116,21 @@ let bytes = archive.residentDecoderBytes
 - `Archive` はスレッドセーフではない(本家と同じ)。qooViewer では `PageLoader`(actor)の中で
   しか触らない。
 
-### これから直すもの(フォーク側の変更が要る。2026-09-05 時点で未着手)
+### upstream から直したもの(2026-09-05)
 
-どちらもフォークへコミット → push → `Package.resolved` の `revision` を手で書き換え → 
-`xcodebuild -resolvePackageDependencies`(下記「ピンの更新手順」)。まとめて 1 回で済ませられます。
-
-1. **エントリの更新日時が常に nil**(本家から引き継いだ取り違え)。`Archive.init` の
-   `if SevenZip_SzBitWithVals_Check(&db.MTime, i) == 0 { …mtime を読む… } else { mtime = nil }` は
-   条件が逆で、`SzBitWithVals_Check` は**値がある**ときに非 0 を返します(`7z.h` のマクロ)。
-   そのため書庫が更新日時を持っていても(`7zz l -slt` では見える)`Entry.modified` は常に nil で、
-   コンテキストメニュー「情報を見る」の日時が 7z の本だけ空になります。さらに、値が**無い**書庫では
-   `db.MTime.Vals[i]` を読んでしまうので、`Defs` が NULL の書庫(`-mtm=off` 等)ではクラッシュしうる。
-   `!= 0` へ直すのが修正。2026-09-05、`ArchiveReaderTests.entryDates` で発見(現状の振る舞いを
-   テストで固定してある)。
-2. **`folderStreamRestartCount` を public にする**。「ブロック先頭からのやり直し回数」は今 internal
-   なので、`SevenZipArchiveReader` から読めません。public にして reader に読み取り専用プロパティを
-   足せば、「書庫順に読めばやり直し 0 回」を単体テストの回帰にできます
-   (→ [13](13-history-and-known-limitations.md#テストのパタンセット--段階-14引き継ぎ2026-09-05))。
+- **`Entry.modified` が常に nil だった。** `Archive.init` の
+  `SevenZip_SzBitWithVals_Check(&db.MTime, i) == 0` は条件が逆で(このマクロは値が**ある**ときに
+  非 0 を返す。`7z.h`)、日時を持つ書庫でも nil になり、逆に日時を持たない書庫では `MTime.Vals` を
+  NULL のまま読んでいました。そのためコンテキストメニュー「情報を見る」の日時が 7z の本だけ
+  空になっていました(qooViewer の `ArchiveReaderTests.entryDates` で発見)。`!= 0` と `Vals` の
+  nil 検査へ直し、FILETIME → Unix 時間の計算も 1970 より前でアンダーフローしないよう Double に
+  しました。フォーク側の `EntryDateTests` + フィクスチャ 2 本(`mtime.7z` / `no_mtime.7z`)。
+  **これは本家(mtgto/SevenZip.swift)から引き継いだ不具合**で、最初の実装(2021-10-18 の
+  `Implement`)から現在の `upstream/main` まで同じままです。フォークが足したストリーミング経路とは
+  無関係なので、そのまま upstream へ PR に出せます(未送出)。
+- **`folderStreamRestartCount` を public にしました。** `SevenZipArchiveReader.folderStreamRestartCount`
+  から読めるので、「書庫順に読めばブロック先頭からのやり直しは 1 ブロックにつき 1 回」を
+  単体テストの回帰にできます(`ArchiveReaderTests.solidSevenZipDoesNotRestart`)。表示には使いません。
 
 ---
 

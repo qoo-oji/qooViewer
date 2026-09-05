@@ -129,7 +129,9 @@ struct BookLoaderBehaviorTests {
     }
 
     /// `onProgress` はメインアクター外から呼ばれるので、受け取り側で守る。
-    private final class ProgressLog: @unchecked Sendable {
+    /// nonisolated: このターゲットも既定の分離が MainActor なので、付けないと `append` が
+    /// メインアクター隔離になり、読み込みのタスクの中から呼べない。
+    private nonisolated final class ProgressLog: @unchecked Sendable {
         private let lock = NSLock()
         private var reports: [BookLoadProgress] = []
 

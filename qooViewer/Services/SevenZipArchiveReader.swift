@@ -117,6 +117,15 @@ nonisolated final class SevenZipArchiveReader: ArchiveReading {
     /// まだ1ページも読んでいなければ0。
     var residentDecompressionBufferBytes: Int { archive.residentDecoderBytes }
 
+    /// ソリッドブロックを**先頭から伸長し直した回数**(フォークが数えている値)。
+    ///
+    /// 型コメントの「後方読みを出さないのは qooViewer 側の責任」を、実機のログではなく
+    /// テストで確かめるための窓。書庫順に読む限りブロックごとに1回で済み、辞書の範囲内へ
+    /// 戻るぶんには増えない ―― 増えていたら、それは読む側のアクセス順が変わった印
+    /// (ArchiveReaderTests の「書庫順に読めばやり直しは増えない」)。
+    /// 表示には使わない。
+    var folderStreamRestartCount: Int { archive.folderStreamRestartCount }
+
     /// ArchiveReading.extract(at:to:maxByteCount:)の7z実装(プロトコル側のコメント参照)。
     ///
     /// フォークの`read(entry:chunkSize:)`でチャンクごとにファイルへ書き出す。RarArchiveReaderと

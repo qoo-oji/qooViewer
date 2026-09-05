@@ -100,24 +100,25 @@ struct ArchiveReaderTests {
 
     // MARK: - 更新日時
 
-    /// 形式ごとに持っている情報が違う(`ArchiveReading.entryDates(at:)`)。zip は更新日時だけ、
+    /// 形式ごとに持っている情報が違う(`ArchiveReading.entryDates(at:)`)。zip / 7z は更新日時だけ、
     /// rar は作成日時も持つ。
     ///
-    /// **7z は今のところどちらも取れない(既知の限界、2026-09-05 にこのテストで発見)。**
-    /// 書庫自体は更新日時を持っている(`7zz l -slt` で見える)が、SevenZip.swift の
-    /// `Archive.init` が `SzBitWithVals_Check(&db.MTime, i) == 0`(=「値が**無い**とき」)を
-    /// 「値がある」と取り違えていて、常に nil になる。フォーク側の修正が要るので、直すまでは
-    /// 今の振る舞いを固定しておく(→ docs/11「これから直すもの」、docs/13「既知の制限」)。
-    @Test("entryDates: 更新日時は zip / rar で取れ、作成日時は rar だけ(7z はどちらも取れない)")
+    /// 7z の更新日時は 2026-09-05 まで常に nil だった(このテストで発見。SevenZip.swift が
+    /// `SzBitWithVals_Check` の真偽を取り違えていた)。フォーク側で直してある
+    /// (→ docs/11「upstream から直したもの」)。
+    @Test("entryDates: 更新日時は 3 形式とも取れ、作成日時は rar だけ")
     func entryDates() throws {
-        let cases: [(path: String, entry: String, hasModified: Bool, hasCreated: Bool)] = [
-            ("zip/zip-zipcli.cbz", "cover.png", true, false),
-            ("rar/rar-flat.cbr", "001.jpg", true, true),
-            ("7z/7z-flat.cb7", "001.jpg", false, false),
+        let cases: [(path: String, entry: String, hasCreated: Bool)] = [
+            ("zip/zip-zipcli.cbz", "cover.png", false),
+            ("7z/7z-flat.cb7", "001.jpg", false),
+            ("rar/rar-flat.cbr", "001.jpg", true),
         ]
-        for (path, entry, hasModified, hasCreated) in cases {
+        for (path, entry, hasCreated) in cases {
             let dates = try FixtureArchive.reader(path).entryDates(at: entry)
-            #expect((dates.modified != nil) == hasModified, "\(path) の更新日時: \(String(describing: dates.modified))")
+            let modified = try #require(dates.modified, "\(path) の更新日時が取れない")
+            // フィクスチャは 2026 年に作ったもの。桁が狂っていれば(FILETIME の基点ずれ)ここで出る。
+            #expect(modified > Date(timeIntervalSince1970: 1_735_689_600), "\(path): \(modified)")
+            #expect(modified < Date(timeIntervalSinceNow: 60 * 60 * 24), "\(path): \(modified)")
             #expect((dates.created != nil) == hasCreated, "\(path) の作成日時: \(String(describing: dates.created))")
         }
     }
@@ -184,6 +185,30 @@ struct ArchiveReaderTests {
             let number = try #require(expectation.entries[entryPath])
             #expect(PageColorReader.matches(try reader.data(at: entryPath), number: number), "\(entryPath)")
         }
+    }
+
+    /// ソリッドな 7z を**書庫順に読む限り、ブロックの伸長は 1 回で済む**こと
+    /// (`SevenZipArchiveReader` の型コメント「後方読みを出さないのは qooViewer 側の責任」)。
+    ///
+    /// ここが増える読み方をしていると、実機では 250MB・100 ページの本で 10 秒が 275 秒になる
+    /// (2026-09-04 の監査)。壊れても「落ちない・遅いだけ」なので、回数そのものを見る。
+    @Test("ソリッド 7z: 書庫順に読めばブロック先頭からのやり直しは 1 ブロックにつき 1 回")
+    func solidSevenZipDoesNotRestart() throws {
+        let expectation = Fixtures.archiveExpectation("7z/7z-solid.cb7")
+        let reader = try #require(try FixtureArchive.reader("7z/7z-solid.cb7") as? SevenZipArchiveReader)
+        #expect(reader.folderStreamRestartCount == 0, "まだ読んでいない")
+
+        for entryPath in expectation.imagePaths {
+            _ = try reader.data(at: entryPath)
+        }
+        // フィクスチャは 1 ブロックのソリッド書庫なので、最初の 1 回だけ。
+        #expect(reader.folderStreamRestartCount == 1)
+
+        // 辞書の範囲内(このフィクスチャは全体で数百バイト)へ戻るのは無料 ―― 増えない。
+        for entryPath in expectation.imagePaths.reversed() {
+            _ = try reader.data(at: entryPath)
+        }
+        #expect(reader.folderStreamRestartCount == 1)
     }
 
     /// リソースモニタに出す「ライブラリの中に居座っている展開用メモリ」

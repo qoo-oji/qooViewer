@@ -57,10 +57,8 @@
   `qooViewerTests/Fixtures/manifest.json` に「ページ数だけ」の期待として固定してある。
 - **7z**: BCJ2 はブロック丸ごと伸長にフォールバック。BZip2 / Deflate / 暗号化は読めない。
   辞書の外への後方ジャンプはブロック先頭からやり直し(読む側が書庫順を守る前提)。
-  **エントリの更新日時が常に nil**(「情報を見る」の日時が 7z だけ空になる)。書庫は日時を持って
-  いるのに、SevenZip.swift が `SzBitWithVals_Check` の真偽を取り違えているため
-  (2026-09-05、`ArchiveReaderTests.entryDates` で発見。直し方は
-  [11](11-forked-dependencies.md#これから直すものフォーク側の変更が要る2026-09-05-時点で未着手))。
+  (エントリの更新日時が常に nil だった件 ―― 2026-09-05 に `ArchiveReaderTests.entryDates` で
+  発見し、フォーク側で修正済み → [11](11-forked-dependencies.md#upstream-から直したもの2026-09-05))。
 - **並び順はロケール依存**: 正準順は `localizedStandardCompare`(Finder と同じ照合)なので、
   異なる文字体系が混ざった名前の前後は OS の言語で入れ替わる(例: 「日本語」と「第1巻」は
   日本語ロケールと英語ロケールで逆になる)。アプリとしては Finder に合わせている以上これが正しく、
@@ -122,7 +120,7 @@
   メタデータ・目次 / アウトライン。
 
 **段階 1 で分かったこと**
-- 7z のエントリの更新日時が常に nil(上記「既知の制限」。フォーク側の修正待ち)。
+- 7z のエントリの更新日時が常に nil だった(フォーク側の取り違え。同日に直して pin を更新した)。
 - 正準順はロケール依存で、CI(英語)と手元(日本語)で golden が食い違いうる(同上)。
 - `URL.resolvingSymlinksInPath()` は symlink を解いた後に先頭の `/private` を**外す**ため、
   サンドボックス無しで走る CI では `/var/folders/…` を返し、`FileManager` の列挙が返す
@@ -133,10 +131,9 @@
 
 **残っているもの**
 
-*段階 1 のやり残し*: `SevenZipArchiveReader` にフォークの `Archive.folderStreamRestartCount` を通し、
-「書庫順に読めばやり直し 0 回」を回帰テストにする。フォーク側で public にする変更が要る
-(→ [11](11-forked-dependencies.md#これから直すものフォーク側の変更が要る2026-09-05-時点で未着手)。
-7z の更新日時の修正と同じ 1 回の push でまとめられる)。
+*段階 1 は完了*。最後に残っていた `folderStreamRestartCount` の回帰テストも、フォークで public に
+してから `ArchiveReaderTests.solidSevenZipDoesNotRestart` として入れた(→
+[11](11-forked-dependencies.md#upstream-から直したもの2026-09-05))。
 
 **段階 2: 純粋ロジック(約 70 テスト)** ―― `EffectivePageOrder`(override の欠落 / 余剰 / 除外 /
 `.document` は並べ替えない / `usesFinderOrderOverride`)、`BookOpenRequest(openingCandidates:)`
