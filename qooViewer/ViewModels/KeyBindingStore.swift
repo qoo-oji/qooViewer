@@ -54,6 +54,11 @@ final class KeyBindingStore: ObservableObject {
     /// 並びにもこの順序を使う。
     static let overridableModes: [ScalingMode] = [.fitWidth, .fitWidthSplit, .noScale]
 
+    /// 割り当ての保存先。通常はアプリの `UserDefaults.standard` で、テストだけが専用の
+    /// suite を渡す(`AppPreferences.defaults` と同じ理由。テストは TEST_HOST = 実物のアプリの
+    /// 中で走るため、既定のままでは利用者のキー割り当てを書き換えてしまう)。
+    private let defaults: UserDefaults
+
     private let keyDefaultsKey = "qooViewer.keyBindings.v1"
     // マウスは「トリガー -> 操作」から「操作 -> トリガー(複数可)」へ作り直したのに伴い、
     // 保存する中身(InputTriggerのrawValue -> MouseTriggerのid)が変わるため、新しいキーで
@@ -224,7 +229,9 @@ final class KeyBindingStore: ObservableObject {
         Dictionary(uniqueKeysWithValues: overridableModes.map { ($0, defaultScrollStep) })
     }
 
-    init() {
+    /// - Parameter defaults: 割り当ての保存先。既定は実際のアプリの保存先(`.standard`)。
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         keyBindings = Self.defaultKeyBindings
         mouseBindings = Self.defaultMouseBindings
         modeKeyBindings = Self.defaultModeKeyBindings
@@ -418,11 +425,11 @@ final class KeyBindingStore: ObservableObject {
         persistModeBindings(modeMouseBindings, forKey: modeMouseDefaultsKey)
         let wheels = Dictionary(uniqueKeysWithValues: modeWheelBehaviors.map { ($0.key.rawValue, $0.value) })
         if let data = try? JSONEncoder().encode(wheels) {
-            UserDefaults.standard.set(data, forKey: modeWheelDefaultsKey)
+            defaults.set(data, forKey: modeWheelDefaultsKey)
         }
         let steps = Dictionary(uniqueKeysWithValues: modeScrollSteps.map { ($0.key.rawValue, $0.value) })
         if let data = try? JSONEncoder().encode(steps) {
-            UserDefaults.standard.set(data, forKey: modeScrollStepDefaultsKey)
+            defaults.set(data, forKey: modeScrollStepDefaultsKey)
         }
     }
 
@@ -430,7 +437,7 @@ final class KeyBindingStore: ObservableObject {
     /// (RemappableKey.id / MouseTrigger.id)。
     private func persistBindings(_ bindings: [String: ViewerAction], forKey key: String) {
         if let data = try? JSONEncoder().encode(bindings) {
-            UserDefaults.standard.set(data, forKey: key)
+            defaults.set(data, forKey: key)
         }
     }
 
@@ -439,7 +446,7 @@ final class KeyBindingStore: ObservableObject {
     ) {
         let dict = Dictionary(uniqueKeysWithValues: bindings.map { ($0.key.rawValue, $0.value) })
         if let data = try? JSONEncoder().encode(dict) {
-            UserDefaults.standard.set(data, forKey: key)
+            defaults.set(data, forKey: key)
         }
     }
 
@@ -469,7 +476,7 @@ final class KeyBindingStore: ObservableObject {
             modeMouseBindings = legacy.mapValues(Self.migratedLegacyMouseBindings)
         }
         loadModeWheelBehaviors()
-        if let data = UserDefaults.standard.data(forKey: modeScrollStepDefaultsKey),
+        if let data = defaults.data(forKey: modeScrollStepDefaultsKey),
             let decoded = try? JSONDecoder().decode([String: Double].self, from: data)
         {
             modeScrollSteps = Dictionary(
@@ -485,7 +492,7 @@ final class KeyBindingStore: ObservableObject {
     ///
     /// 当時のトリガーはいずれも「左ボタン・修飾キー無し」に相当する
     /// (ボタン番号も修飾キーも見ていなかったため)。
-    private static let legacyMouseTriggerIDs: [String: String] = [
+    static let legacyMouseTriggerIDs: [String: String] = [
         "clickLeftZone": MouseTrigger(input: .click(.left, .leftHalf), modifiers: []).id,
         "clickRightZone": MouseTrigger(input: .click(.left, .rightHalf), modifiers: []).id,
         "wheelUp": MouseTrigger(input: .wheel(.up), modifiers: []).id,
@@ -498,7 +505,9 @@ final class KeyBindingStore: ObservableObject {
     /// 旧形式には中ボタンも修飾キーも無かったため、これだけでは作り直しで増えた既定の
     /// 割り当て(中クリック=ルーペ、shift+クリック=1ページずらしなど)が入らないが、
     /// それは呼び出し側のfillingMissingDefaultsが補う。
-    private static func migratedLegacyMouseBindings(
+    /// `MouseTrigger.id`(メインアクターに分離されている)を引くため、こちらは
+    /// `nonisolated` にできない。テストから叩けるよう internal にしてある。
+    static func migratedLegacyMouseBindings(
         _ legacy: [String: ViewerAction]
     ) -> [String: ViewerAction] {
         Dictionary(
@@ -529,7 +538,7 @@ final class KeyBindingStore: ObservableObject {
     /// なお、表示モード別の上書き(modeKeyBindings/modeMouseBindings)には**適用しない**。
     /// あちらは項目が無いこと自体が「基本の割り当てへフォールバックする」という意味を持つため、
     /// 補ってしまうと、意図してフォールバックさせていた項目が上書きに変わってしまう。
-    private static func fillingMissingDefaults(
+    nonisolated static func fillingMissingDefaults(
         _ bindings: [String: ViewerAction], defaults: [String: ViewerAction]
     ) -> [String: ViewerAction] {
         let assignedActions = Set(bindings.values)
@@ -541,7 +550,7 @@ final class KeyBindingStore: ObservableObject {
     }
 
     private func loadModeWheelBehaviors() {
-        guard let data = UserDefaults.standard.data(forKey: modeWheelDefaultsKey),
+        guard let data = defaults.data(forKey: modeWheelDefaultsKey),
             let decoded = try? JSONDecoder().decode([String: WheelScrollBehavior].self, from: data)
         else { return }
         modeWheelBehaviors = Dictionary(
@@ -559,7 +568,7 @@ final class KeyBindingStore: ObservableObject {
     /// 「削除」が別々だった頃)に保存された `addBookmark` が残っているデータがあった。
     /// ここでは知らない名前をその1件だけ捨て、残りは活かす。
     private func loadBindings(forKey key: String) -> [String: ViewerAction]? {
-        guard let data = UserDefaults.standard.data(forKey: key),
+        guard let data = defaults.data(forKey: key),
             let decoded = try? JSONDecoder().decode([String: String].self, from: data)
         else { return nil }
         return Self.resolveActions(decoded)
@@ -586,7 +595,7 @@ final class KeyBindingStore: ObservableObject {
     }
 
     private func loadModeBindings(forKey key: String) -> [ScalingMode: [String: ViewerAction]]? {
-        guard let data = UserDefaults.standard.data(forKey: key),
+        guard let data = defaults.data(forKey: key),
             let decoded = try? JSONDecoder().decode([String: [String: String]].self, from: data)
         else { return nil }
         return Dictionary(

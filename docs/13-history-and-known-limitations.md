@@ -357,6 +357,12 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
 - ビューアのテストは実際に画像をデコードするので、suite 全体の時間は 2.6 秒のまま
   (並行して走る)だが、単独で回すと 0.3 秒ぶんそこに乗る。
 
+**A4 でできたもの(2026-09-06、405 → 415 テスト)**
+`KeyBindingStore.init(defaults:)` と、純粋な 2 つ(`fillingMissingDefaults` /
+`migratedLegacyMouseBindings`)を private から internal へ。テストは `KeyBindingStoreTests`。
+`fillingMissingDefaults` は `nonisolated` にできたが、`migratedLegacyMouseBindings` は
+`MouseTrigger.id`(メインアクター分離)を引くので internal どまり ―― **必要なぶんだけ開ける**。
+
 **口を開けるときの作法**: 既定値はこれまでどおり(通常経路の差分ゼロ)。時間で待たず `Task` の
 ハンドルを `await` する。既定引数にメインアクター分離の型を置かない(段階 3・4 で 2 度踏んだ。
 `QOO_CI_WARNINGS_AS_ERRORS=YES` で通してから push)。静的な登録簿(`ViewerViewModel.openBookIDs`、
