@@ -9,11 +9,21 @@ nonisolated final class TemporaryDirectory {
     let url: URL
 
     init(_ label: String = "fixture") throws {
-        // `temporaryDirectory` は `/var/...`(シンボリックリンク)で、FileManager の列挙は実体の
-        // `/private/var/...` を返す。フォルダの本の sortKey は絶対パスなので、期待値を組む側と
-        // 同じ形になるよう、最初から実体のパスにしておく。
-        url = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
-            .appendingPathComponent("qooViewerTests-\(label)-\(UUID().uuidString)", isDirectory: true)
+        // フォルダの本の sortKey は絶対パスで、その値は `FileManager` の列挙が返す**実体の**
+        // パスになる。期待値を組む側と食い違わないよう、置き場所を最初から実体にしておく。
+        //
+        // **`resolvingSymlinksInPath()` では足りない。** あれは symlink を解いた後で先頭の
+        // `/private` を**外して**返す仕様(NSURL のドキュメントに明記がある)なので、
+        // `/var/folders/…/T`(= `/private/var/folders/…/T` への symlink)はそのまま
+        // `/var/…` で返ってくる。手元はサンドボックスの中でコンテナの `tmp/` が
+        // `/Users/…/Library/Containers/…` と symlink を含まないため素通りしていたが、
+        // サンドボックス無しで走る CI では `/var/…` と列挙結果の `/private/var/…` が
+        // 食い違い、フォルダの本のテストが 2 件落ちた(2026-09-05、実測して確認)。
+        // `canonicalPathKey` は `/private/var/…` を返すので、そちらを使う。
+        let base = FileManager.default.temporaryDirectory
+        let canonicalBase = (try? base.resourceValues(forKeys: [.canonicalPathKey]))?.canonicalPath
+            .map { URL(fileURLWithPath: $0, isDirectory: true) } ?? base.resolvingSymlinksInPath()
+        url = canonicalBase.appendingPathComponent("qooViewerTests-\(label)-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     }
 

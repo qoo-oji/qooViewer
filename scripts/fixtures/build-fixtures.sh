@@ -100,10 +100,14 @@ legacy_zip "$OUT/zip/zip-utf8-noflag.zip" \
     "utf8:日本語/001.png=$SRC/legacy/001.png" \
     "utf8:日本語/002.png=$SRC/legacy/002.png" \
     "utf8:日本語/003.png=$SRC/legacy/003.png"
+# 名前の頭に ASCII を付けてあるのは、正準順(localizedStandardCompare)がロケール依存だから ――
+# 「日本語」と「第1巻」の前後は日本語ロケールと英語ロケールで入れ替わり、golden が CI で落ちた
+# (2026-09-05)。並びを ASCII で決めておけば、確かめたいこと(両方の名前が正しく戻ること)は
+# そのままにロケールに左右されなくなる。
 legacy_zip "$OUT/zip/zip-mixed-utf8-cp932.zip" \
-    "utf8flag:日本語/001.png=$SRC/legacy/001.png" \
-    "cp932:第1巻/001ページ.png=$SRC/legacy/002.png" \
-    "cp932:第1巻/002ページ.png=$SRC/legacy/003.png"
+    "utf8flag:a-日本語/001.png=$SRC/legacy/001.png" \
+    "cp932:b-第1巻/001ページ.png=$SRC/legacy/002.png" \
+    "cp932:b-第1巻/002ページ.png=$SRC/legacy/003.png"
 # 既知の限界: 1 つの書庫に CP932 と CP949 が混在すると一方に倒れる(docs/04)
 legacy_zip "$OUT/zip/zip-mixed-cp932-cp949.zip" \
     "cp932:第1巻/001.png=$SRC/legacy/001.png" \

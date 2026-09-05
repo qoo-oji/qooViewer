@@ -16,6 +16,13 @@
           "002.jpg",
           "003.jpg"
         ]
+      },
+      "archive": {
+        "entries": {
+          "001.jpg": 1,
+          "002.jpg": 2,
+          "003.jpg": 3
+        }
       }
     },
     "7z/7z-japanese-names.7z": {
@@ -44,6 +51,15 @@
           "004.png",
           "005.png"
         ]
+      },
+      "archive": {
+        "entries": {
+          "001.png": 1,
+          "002.png": 2,
+          "003.png": 3,
+          "004.png": 4,
+          "005.png": 5
+        }
       }
     },
     "7z/7z-solid.cb7": {
@@ -59,6 +75,15 @@
           "004.png",
           "005.png"
         ]
+      },
+      "archive": {
+        "entries": {
+          "001.png": 1,
+          "002.png": 2,
+          "003.png": 3,
+          "004.png": 4,
+          "005.png": 5
+        }
       }
     },
     "7z/7z-store.7z": {
@@ -74,6 +99,15 @@
           "004.png",
           "005.png"
         ]
+      },
+      "archive": {
+        "entries": {
+          "001.png": 1,
+          "002.png": 2,
+          "003.png": 3,
+          "004.png": 4,
+          "005.png": 5
+        }
       }
     },
     "7z/7z-with-dirs.cb7": {
@@ -88,6 +122,14 @@
           "vol2/001.png",
           "vol2/002.png"
         ]
+      },
+      "archive": {
+        "entries": {
+          "vol1/001.png": 1,
+          "vol1/002.png": 2,
+          "vol2/001.png": 3,
+          "vol2/002.png": 4
+        }
       }
     },
     "nested/nested-7z-in-zip.cbz": {
@@ -257,6 +299,12 @@
           "ch02.cbz/002.png",
           "ch02.cbz/003.png"
         ]
+      },
+      "archive": {
+        "entries": {
+          "ch01.cbz": 0,
+          "ch02.cbz": 0
+        }
       }
     },
     "pdf/pdf-l2r-singlepage.pdf": {
@@ -337,6 +385,14 @@
           "003.jpg"
         ],
         "note": "ページは開けない(暗号化)。Reader の適合テストで data(at:) の失敗を見る"
+      },
+      "archive": {
+        "entries": {
+          "001.jpg": 1,
+          "002.jpg": 2,
+          "003.jpg": 3
+        },
+        "encrypted": true
       }
     },
     "rar/rar-flat.cbr": {
@@ -350,6 +406,13 @@
           "002.jpg",
           "003.jpg"
         ]
+      },
+      "archive": {
+        "entries": {
+          "001.jpg": 1,
+          "002.jpg": 2,
+          "003.jpg": 3
+        }
       }
     },
     "rar/rar-japanese-names.cbr": {
@@ -378,6 +441,15 @@
           "004.png",
           "005.png"
         ]
+      },
+      "archive": {
+        "entries": {
+          "001.png": 1,
+          "002.png": 2,
+          "003.png": 3,
+          "004.png": 4,
+          "005.png": 5
+        }
       }
     },
     "rar/rar-with-dirs.cbr": {
@@ -392,6 +464,14 @@
           "vol2/001.png",
           "vol2/002.png"
         ]
+      },
+      "archive": {
+        "entries": {
+          "vol1/001.png": 1,
+          "vol1/002.png": 2,
+          "vol2/001.png": 3,
+          "vol2/002.png": 4
+        }
       }
     },
     "zip/zip-big5-noflag.zip": {
@@ -455,6 +535,16 @@
           "B_src/002.jpg",
           "B_src/003.jpg"
         ]
+      },
+      "archive": {
+        "entries": {
+          "B_src/001.jpg": 1,
+          "B_src/002.jpg": 2,
+          "B_src/003.jpg": 3,
+          "__MACOSX/B_src/._001.jpg": 0,
+          "__MACOSX/B_src/._002.jpg": 0,
+          "__MACOSX/B_src/._003.jpg": 0
+        }
       }
     },
     "zip/zip-empty.cbz": {
@@ -500,17 +590,17 @@
       }
     },
     "zip/zip-mixed-utf8-cp932.zip": {
-      "bytes": 585,
-      "sha256": "00ef50e7b9e375967dcc5790dbce32b4420d63b349af07d8aeff73732f4d8f93",
-      "howMade": "make-legacy-zip.py(build-fixtures.sh)。日本語/001.png は UTF-8 + フラグ、第1巻/001〜002ページ.png は CP932",
+      "bytes": 597,
+      "sha256": "a9066ff2bcdc59e60b209f72b83a8167eddd91c6efb4051652c166d5a129e347",
+      "howMade": "make-legacy-zip.py(build-fixtures.sh)。a-日本語/001.png は UTF-8 + フラグ、b-第1巻/001〜002ページ.png は CP932",
       "purpose": "UTF-8 のエントリと CP932 のエントリの同居。UTF-8 は判定の標本に混ぜず、両方とも正しく戻ること",
       "book": {
         "sortKeys": [
-          "第1巻/001ページ.png",
-          "第1巻/002ページ.png",
-          "日本語/001.png"
+          "a-日本語/001.png",
+          "b-第1巻/001ページ.png",
+          "b-第1巻/002ページ.png"
         ],
-        "note": "正準順(localizedStandardCompare)では「第」が「日」より前に来る"
+        "note": "名前の頭の ASCII で並びを決めてある。正準順(localizedStandardCompare)はロケール依存で、「日本語」と「第1巻」の前後は日本語ロケールと英語ロケール(CI)で入れ替わる(2026-09-05)"
       }
     },
     "zip/zip-nfc-nfd-same-name.zip": {
@@ -579,6 +669,15 @@
           "vol2/001.png",
           "vol2/002.png"
         ]
+      },
+      "archive": {
+        "entries": {
+          "cover.png": 5,
+          "vol1/001.png": 1,
+          "vol1/002.png": 2,
+          "vol2/001.png": 3,
+          "vol2/002.png": 4
+        }
       }
     }
   }

@@ -8,6 +8,7 @@
 #   - 大きさの上限(1 ファイル / 合計)を超えていないこと
 #   - 作り方(howMade)と何のためか(purpose)が書かれていること ―― 由来の分からないバイナリを増やさない
 #   - 本のフィクスチャ(book)には期待する結果(sortKeys か error)があること
+#   - reader の適合テストのフィクスチャ(archive)には、エントリ一覧(entries)があること
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 python3 - <<'EOF'
@@ -54,6 +55,13 @@ for relative in sorted(set(entries) & set(on_disk)):
     book = entry.get("book")
     if book is not None and not ({"sortKeys", "pageCount", "error"} & set(book)):
         failures.append(f"book に sortKeys / pageCount / error のどれも無い: {relative}")
+    archive = entry.get("archive")
+    if archive is not None:
+        listing = archive.get("entries")
+        if not isinstance(listing, dict) or not listing:
+            failures.append(f"archive.entries が無い/空: {relative}")
+        elif not all(isinstance(value, int) for value in listing.values()):
+            failures.append(f"archive.entries の値は整数(0 = 画像ではないエントリ): {relative}")
 if total > limits["maxTotalBytes"]:
     failures.append(f"合計の上限 {limits['maxTotalBytes']} バイトを超えている ({total})")
 

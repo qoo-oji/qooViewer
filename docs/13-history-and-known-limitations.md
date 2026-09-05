@@ -57,6 +57,15 @@
   `qooViewerTests/Fixtures/manifest.json` に「ページ数だけ」の期待として固定してある。
 - **7z**: BCJ2 はブロック丸ごと伸長にフォールバック。BZip2 / Deflate / 暗号化は読めない。
   辞書の外への後方ジャンプはブロック先頭からやり直し(読む側が書庫順を守る前提)。
+  **エントリの更新日時が常に nil**(「情報を見る」の日時が 7z だけ空になる)。書庫は日時を持って
+  いるのに、SevenZip.swift が `SzBitWithVals_Check` の真偽を取り違えているため
+  (2026-09-05、`ArchiveReaderTests.entryDates` で発見。直し方は
+  [11](11-forked-dependencies.md#これから直すものフォーク側の変更が要る2026-09-05-時点で未着手))。
+- **並び順はロケール依存**: 正準順は `localizedStandardCompare`(Finder と同じ照合)なので、
+  異なる文字体系が混ざった名前の前後は OS の言語で入れ替わる(例: 「日本語」と「第1巻」は
+  日本語ロケールと英語ロケールで逆になる)。アプリとしては Finder に合わせている以上これが正しく、
+  テストの golden 側で「名前の頭を ASCII にして並びを決める」ことで避けている(2026-09-05、
+  CI が英語ロケールで走って発覚)。
 - **EPUB**: 固定レイアウトの画像 EPUB のみ。目次は nav.xhtml だけ(`toc.ncx` へのフォールバック
   未対応)。
 - **PDF の書き出し**: ページ単位のレイアウト(このページだけ単独/左右)は PDF に概念が無く失われる。
@@ -87,35 +96,47 @@
 - 環境設定「レイアウト」の形式ページを、アプリの他の場所から名指しで開く経路
   (`SettingsNavigator` に `appearanceTarget` 相当が無い)。
 
-### テストのパタンセット ―― 段階 1〜4(引き継ぎ、2026-09-05)
+### テストのパタンセット ―― 段階 2〜4(引き継ぎ、2026-09-05)
 
 `qooViewerTests` を「UI を伴わない nonisolated のパイプライン」まで広げる計画(段階 0〜4)のうち、
-**段階 0(フィクスチャ・台帳・生成スクリプト・Support のビルダー・golden テスト)は完了**
-(→ [02](02-project-and-build.md#テストのフィクスチャ))。残りは次のとおりで、どこからでも着手できる。
+**段階 0(フィクスチャ・台帳・生成スクリプト・Support のビルダー・golden テスト)と
+段階 1(読み込み側)は完了**(→ [02](02-project-and-build.md#テストのフィクスチャ))。
 決めごとは段階 0 と同じ ―― 共有の保存先に触れない、golden は `sortKey` の列、既知の限界は
-「落ちない・数は合う」で固定、テスト全体で 60 秒以内。
+「落ちない・数は合う」で固定、テスト全体で 60 秒以内(現状 83 テスト・約 1.1 秒)。
 
-**段階 1: 読み込み側(約 55 テスト)**
-- `ArchiveReading` の適合テスト(zip / 7z / rar × ファイル / メモリ入力を `@Test(arguments:)` で):
-  `listFilePaths` が台帳と一致、`data(at:)` のバイト列が元画像と一致(`PageColorReader` で番号も)、
-  `dataPrefix(maxByteCount:)` の長さ、`entryUncompressedSize`、`entryDates`(zip / rar は非 nil)、
-  `extract(to:maxByteCount:)` の上限超過で throw し部分ファイルを残さない、無いパス・暗号化
-  (`rar-encrypted.cbr`)で throw、ソリッド 7z / rar を書庫順に読み切る。
-- `NestedArchiveResolver`: `Limits.standard` の導出、予算 0 で一時ファイル(`TemporaryFileStore`)、
-  `purgeAll` で消える、LRU(`maxOpenReaders`)、`openTransient` は LRU に載らない、
+**段階 1 でできたもの(2026-09-05)**
+- `ArchiveReaderTests` ―― `ArchiveReading` の適合テスト。台帳に `archive`(`listFilePaths` の全件と、
+  各エントリのページ番号)を持つ 12 のフィクスチャ × ファイル入力 / メモリ入力で、一覧・取り出し
+  (中身の番号まで)・`dataPrefix`・`entryUncompressedSize`・`entryDates`・`extract`(上限超過で
+  `entryTooLarge`・書きかけを残さない)・ソリッド書庫の順読み / 逆読み・`residentDecompressionBufferBytes`・
+  暗号化 rar・開けないファイルを見る。
+- `NestedArchiveResolverTests` ―― 予算の導出、メモリ / 一時ファイルの行き先、一時ファイルの寿命
+  (`OpenArchive` を手放すと消える)、LRU、`openTransient` が LRU に載らないこと、
   `materializeToIndependentFile`。
-- zip の文字コード(`ZipArchiveReader.listFilePaths` の黒箱。`EntryNameDecoder` は private のまま):
-  台帳の zip/ 各種。EUC-JP / CP949 は既知の限界として「ページ数のみ」(上記「既知の制限」)。
-- `BookLoader.load` の振る舞い: 中止(`nested-depth3.cbz` + 遅い `onProgress` で `CancellationError`)、
-  `onProgress` の回数、`load(imageFiles:)`、`nestedArchiveMemoryLimitBytes: 0` でも同じ sortKey 列。
-- `BookInternalBrowsing.entries`: 仮想フォルダ、`nestedArchiveEntry` / `realFolder`、`matchKey`。
-- `EpubStructureResolver`: `EpubFixtureBuilder` のフラグを一通り(spine 順 / spread / progression /
-  img と svg / 接頭辞付き名前空間 / media-type 省略 / 画像欠け / container 無し)、`resolveMetadata`
-  (dc / calibre / belongs-to-collection)、`normalizedSeriesIndex`、`resolveTableOfContents`(nav の入れ子)。
-- `PDFStructureResolver`: 台帳の pdf/(R2L+TwoPageLeft / L2R+SinglePage / 無指定 / アウトライン)、
-  `resolveMetadata`(Info の UTF-16BE)、`parseSeriesKeywords` の往復。
-- 決定済み: `SevenZipArchiveReader` にフォークの `Archive.folderStreamRestartCount` を通す
-  (nonisolated の読み取り専用プロパティ)。「書庫順に読んで 0 回」の回帰テストを書く。
+- `ZipEntryNameTests` ―― `EntryNameDecoder` の黒箱(`ZipArchiveReader.listFilePaths` 越し)。
+- `BookLoaderBehaviorTests` ―― 中止、`onProgress`、メモリ予算 0 でも同じ本になること、
+  `load(imageFiles:)`。
+- `BookInternalBrowsingTests` ―― `matchKey` が `PageRef.sortKey` と一致すること、仮想フォルダ /
+  入れ子の書庫 / 実フォルダの見分け、`__MACOSX` の除外、並びが本のページ順であること。
+- `EpubStructureTests` / `PDFStructureTests` ―― spine 順・見開き・読み方向・書き方の揺れ・書誌
+  メタデータ・目次 / アウトライン。
+
+**段階 1 で分かったこと**
+- 7z のエントリの更新日時が常に nil(上記「既知の制限」。フォーク側の修正待ち)。
+- 正準順はロケール依存で、CI(英語)と手元(日本語)で golden が食い違いうる(同上)。
+- `URL.resolvingSymlinksInPath()` は symlink を解いた後に先頭の `/private` を**外す**ため、
+  サンドボックス無しで走る CI では `/var/folders/…` を返し、`FileManager` の列挙が返す
+  `/private/var/folders/…` と食い違う。テストの作業フォルダは `canonicalPathKey` で実体にする
+  (`qooViewerTests/Support/TemporaryDirectory.swift`)。
+- `dataPrefix` の打ち切りは伸長のチャンク単位なので、小さなフィクスチャでは「頼んだバイト数ちょうど」
+  にはならない(効き目は実物の本での実測の話)。
+
+**残っているもの**
+
+*段階 1 のやり残し*: `SevenZipArchiveReader` にフォークの `Archive.folderStreamRestartCount` を通し、
+「書庫順に読めばやり直し 0 回」を回帰テストにする。フォーク側で public にする変更が要る
+(→ [11](11-forked-dependencies.md#これから直すものフォーク側の変更が要る2026-09-05-時点で未着手)。
+7z の更新日時の修正と同じ 1 回の push でまとめられる)。
 
 **段階 2: 純粋ロジック(約 70 テスト)** ―― `EffectivePageOrder`(override の欠落 / 余剰 / 除外 /
 `.document` は並べ替えない / `usesFinderOrderOverride`)、`BookOpenRequest(openingCandidates:)`
@@ -145,7 +166,7 @@ anansi-project の MIT 表記付きで `Fixtures/comicinfo/` に同梱)と EPUBC
 `mainContext` には触れない。
 
 **段階 0 で分かったこと**: `FileManager.temporaryDirectory` は `/var → /private/var` の symlink で、
-フォルダの本の sortKey は実体パスになる(`TemporaryDirectory` が最初から実体にしてある。アプリでも
+フォルダの本の sortKey は実体パスになる(`TemporaryDirectory` が実体にしてある。アプリでも
 symlink 経由のパスで開くと `location(inBookAt:)` の folderPath が nil になる小さな癖がある)。
 rar 7.2x は `-ma4` が無く RAR4 を作れない。
 

@@ -58,6 +58,22 @@ Swift Testing の単体テストです(2026-09-05 追加)。アプリを TEST_HO
 `PageRef` までの経路と、EPUB / PDF の構造解決を、下記のフィクスチャで通します。画面の自動操作
 (AX 経由)は再現性が低いので載せません(→ [12](12-verification-and-debugging.md))。
 
+いまある suite(2026-09-05 時点、83 テスト・約 1.1 秒):
+
+| suite | 見るもの |
+| --- | --- |
+| `PageOrderTests` / `ArchiveClassificationTests` | 正準順・表示順の比較、拡張子の判定 |
+| `FixtureBookTests` | コミット済みの本 42 冊を開いて台帳の `book` と突き合わせる(golden) |
+| `GeneratedFixtureTests` | テストの中で作る本(フォルダ・zip・EPUB・PDF)を開く |
+| `ArchiveReaderTests` | `ArchiveReading` の適合(zip / 7z / rar × ファイル入力 / メモリ入力) |
+| `NestedArchiveResolverTests` | 入れ子の書庫の予算・行き先・一時ファイルの寿命・LRU |
+| `ZipEntryNameTests` | UTF-8 フラグ無しの zip のファイル名の補正(`EntryNameDecoder` の黒箱) |
+| `BookLoaderBehaviorTests` | 中止・進み具合・メモリ予算・`load(imageFiles:)` |
+| `BookInternalBrowsingTests` | 本の中身ブラウザの `matchKey` と並び |
+| `EpubStructureTests` / `PDFStructureTests` | spine / Catalog / 書誌メタデータ / 目次 |
+
+残っている段階(2〜4)は [13](13-history-and-known-limitations.md#テストのパタンセット--段階-24引き継ぎ2026-09-05)。
+
 **テストは共有の保存先に触れません。** TEST_HOST は実物のアプリなので、手元では自分の履歴・
 キャッシュ・SwiftData と同じコンテナで走ります。本を開くときは `FixtureBook.load`
 (`BookLoader.load(cachesPageList: false)` を固定)を通し、`UserDefaults.standard`・
@@ -77,6 +93,16 @@ TEST_HOST はビルドごとに別のアプリとして扱われ、起動のた�
 = DB の pageKey、→ [04](04-book-loading.md#ページの識別子))と突き合わせます。並びを固定しない
 ものは `pageCount`、開けないことが正しいものは `error`(`noPages` / `unreadable`)。
 
+書庫として直接開くもの(reader の適合テスト)には `archive` も書きます ―― `entries` は
+`listFilePaths()` が返すはずの**全件**で、値はページ画像に埋めた番号(`PageImageFactory` の R)、
+**0 は画像ではないエントリ**(`__MACOSX/._*`、入れ子の書庫)。暗号化された書庫には
+`"encrypted": true`。`ArchiveReaderTests` がこれを使い、取り出したバイト列が本当にそのエントリの
+ものかを**中身の番号**で確かめます。
+
+**golden はロケールに左右されない名前で作ること。** 正準順は `localizedStandardCompare` なので、
+異なる文字体系が混ざった名前の前後は OS の言語で変わります(CI は英語、手元は日本語)。
+`zip-mixed-utf8-cp932.zip` は名前の頭を `a-` / `b-` にして並びを ASCII で決めてあります。
+
 - **コミットするもの**: 外部ツールや生のバイト列が要るもの ―― rar / 7z、UTF-8 フラグ無しの zip
   (CP932 / EUC-JP / CP949 / Big5)、Finder の「圧縮」相当(`__MACOSX/._*` 入り)、入れ子の書庫、
   壊れた書庫、Document Catalog に読み方向を書いた PDF。ページ画像は 8x12 px の単色 PNG で、
@@ -91,7 +117,8 @@ TEST_HOST はビルドごとに別のアプリとして扱われ、起動のた�
 を作れないので、RAR4 の書庫は実物が手に入ったときに手で置く)。`make-legacy-zip.py` はファイル名の
 バイト列を決めて zip を直接書き、`make-pdf.py` は xref を計算して小さな PDF を書きます。
 台帳の sha256 は `update-manifest.py` が書き、`scripts/ci/check-fixtures.sh` が「ファイルと台帳が
-1 対 1」「sha256 一致」「上限」「howMade / purpose が空でない」を見ます。
+1 対 1」「sha256 一致」「上限」「howMade / purpose が空でない」「`archive.entries` が空でない」を
+見ます。
 
 フィクスチャを増やすときは: (1) `build-fixtures.sh` に作り方を足す(または手で置く)、
 (2) `update-manifest.py` を走らせ、台帳に `howMade` / `purpose` / `book` を書く、
