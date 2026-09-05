@@ -860,6 +860,19 @@ class BookExportViewModel: ObservableObject {
         defer { if didAccess { sourceURL.stopAccessingSecurityScopedResource() } }
 
         let book = try await BookLoader.load(from: sourceURL)
+        try await write(prepare(row: row, book: book, displayState: openBookDisplayState), to: destinationFolder)
+    }
+
+    /// 読み込み済みの本から、1冊ぶんの材料をDB・環境設定・画面の状態から集める。
+    ///
+    /// 書き込みと分けてあるのは、**この集め方だけをテストから確かめられるようにする**ため
+    /// (読み方向の優先順位、鍵を持たない古いブックマークの解決)。`exportOne` は本を
+    /// `BookLoader.load(from:)` で読むので、そこを通すとテストが共有のページ一覧キャッシュに
+    /// 触れてしまう。
+    ///
+    /// - Parameter displayState: 「いま開いている本を書き出す」経路でだけ渡る画面の状態
+    ///   (`OpenBookDisplayState`)。3つの書き出しウインドウからは nil。
+    func prepare(row: Row, book: MangaBook, displayState: OpenBookDisplayState?) -> PreparedBook {
         let settings = layoutStore.bookLayoutSettings(forBookID: row.bookID)
         var overrides: [String: PageLayoutState] = [:]
         for override in layoutStore.pageOverrides(forBookID: row.bookID) {
@@ -902,9 +915,9 @@ class BookExportViewModel: ObservableObject {
             // DB > 画面 > 環境設定の既定値。画面の値が入るのは「いま開いている本を書き出す」
             // 経路だけで、3つの書き出しウインドウではこれまでどおりDB > 既定値になる
             // (OpenBookDisplayState参照)。
-            forcedDisplayMode: settings?.forcedDisplayMode ?? openBookDisplayState?.displayMode,
+            forcedDisplayMode: settings?.forcedDisplayMode ?? displayState?.displayMode,
             readingDirection: settings?.readingDirectionOverride
-                ?? openBookDisplayState?.readingDirection
+                ?? displayState?.readingDirection
                 ?? preferences.defaultReadingDirection,
             bookmarks: exportBookmarks,
             coverOverride: resolveCoverOverride(settings: settings),
@@ -912,7 +925,14 @@ class BookExportViewModel: ObservableObject {
             author: authorOverrides[row.bookID],
             metadata: metadataStore.metadata(forBookID: row.bookID)
         )
+        return prepared
+    }
 
+    /// 集めた材料を、サブクラスの `export(_:to:)` に書かせて出力先へ置く。
+    /// 同名ファイルの確認・一時ファイル・置き換えはここが持つ(`prepare` と分けてある理由は
+    /// そちらのコメント参照)。
+    func write(_ prepared: PreparedBook, to destinationFolder: URL) async throws {
+        let row = prepared.row
         let destinationFileURL = destinationFolder
             .appendingPathComponent("\(row.displayName).\(outputFileExtension)")
         if FileManager.default.fileExists(atPath: destinationFileURL.path) {

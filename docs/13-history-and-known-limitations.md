@@ -394,6 +394,17 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
   (`FavoritesStore.makeBookmarkData` がセキュリティスコープ付きブックマークを作れない)。
   `bookID` だけの本ではテストにならない。
 
+**B2 でできたもの(2026-09-06、428 → 435 テスト)**
+`BookExportViewModel.exportOne` を `prepare(row:book:displayState:)`(材料集め)と
+`write(_:to:)`(一時ファイル → 置き換え)へ分けた。`exportOne` はこの 2 つを呼ぶだけ。
+テストは `BookExportViewModelTests`(書き込みはサブクラスの `export` で差し替える)。
+
+**B2 で分かったこと**
+- 「いま開いている本の表示状態」は private の格納プロパティだったので、`prepare` の**引数**に
+  した。可視性を上げるより、値を渡す形にするほうが素直で、優先順位もその場で読める。
+- 同名ファイルの確認は `resolveOverwrite(_:applyToRemaining: true)` を**先に**呼んでおけば、
+  待ち合わせ(継続)を作らずに素通りする。時間で待つ形を避けられる。
+
 **口を開けるときの作法**: 既定値はこれまでどおり(通常経路の差分ゼロ)。時間で待たず `Task` の
 ハンドルを `await` する。既定引数にメインアクター分離の型を置かない(段階 3・4 で 2 度踏んだ。
 `QOO_CI_WARNINGS_AS_ERRORS=YES` で通してから push)。静的な登録簿(`ViewerViewModel.openBookIDs`、
