@@ -9,7 +9,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 actionlint="${ACTIONLINT:-$(command -v actionlint || true)}"
 if [ -z "$actionlint" ]; then
     note "actionlint が無いのでワークフローの検査は飛ばす"
-    finish
+    exit 0
 fi
 
 args=(-no-color)

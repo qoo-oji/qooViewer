@@ -9,7 +9,9 @@ It supports folders, zip/cbz, rar/cbr, 7z/cb7, PDF, and EPUB (fixed-layout, imag
 
 ## Build & run
 
-There is no CLI test target — this is a GUI app, verified by building and running it in Xcode.
+This is a GUI app, verified by building and running it in Xcode. There is a small unit test target
+(`qooViewerTests`, Swift Testing) covering `nonisolated` pure logic only — page ordering, filename
+classification and the like. Everything about the UI is still verified by running the app.
 
 ```bash
 # Build (Debug)
@@ -17,10 +19,23 @@ xcodebuild -project qooViewer.xcodeproj -scheme qooViewer -configuration Debug b
 
 # Build (Release)
 xcodebuild -project qooViewer.xcodeproj -scheme qooViewer -configuration Release build
+
+# Test (Debug; the tests are hosted in the app, so this builds the app too)
+xcodebuild -project qooViewer.xcodeproj -scheme qooViewer -configuration Debug \
+  -destination 'platform=macOS' test
 ```
 
-Normal development is done in Xcode (`Cmd+R`). There is no SwiftLint/SwiftFormat config and no test target in
-this project — do not assume either exists.
+Normal development is done in Xcode (`Cmd+R`). There is no SwiftLint/SwiftFormat config in this project —
+do not assume one exists.
+
+CI is GitHub Actions (`.github/workflows/`): `build.yml` builds Debug and Release on `macos-26` with warnings
+treated as errors (passed as `QOO_CI_WARNINGS_AS_ERRORS=YES`, routed through `Configurations/Shared.xcconfig`
+so it reaches only the app target, not the SwiftPM dependencies) and runs `qooViewerTests` in the Debug job,
+and `check.yml` runs
+`scripts/ci/check-all.sh` — repository consistency checks (Team ID leak, Info.plist ↔ `imageExtensions`,
+`MARKETING_VERSION` ↔ CHANGELOG ↔ tag, fork pins, line endings, docs links). **Run `scripts/ci/check-all.sh`
+before committing**; it is the same script CI runs. The CI signing is ad-hoc and for verification only —
+release zips are still built and signed locally. Details in `docs/02-project-and-build.md`.
 
 Dependencies are Swift Package Manager (resolved automatically by Xcode/xcodebuild): ZIPFoundation (0.9.20),
 and two forks maintained by the app's author, each pinned by branch **and** revision in `Package.resolved`:

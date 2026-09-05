@@ -12,9 +12,20 @@
 		0AD11FF63014A5E800C0C526 /* Unrar in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD11FF53014A5E800C0C526 /* Unrar */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		0AD120673014AB0000C0C526 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 0AD11FD83014A38C00C0C526 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0AD11FDF3014A38C00C0C526;
+			remoteInfo = qooViewer;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		0AD120503014AA0000C0C526 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
 		0AD11FE03014A38C00C0C526 /* qooViewer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = qooViewer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0AD120613014AB0000C0C526 /* qooViewerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = qooViewerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -36,6 +47,11 @@
 			path = qooViewer;
 			sourceTree = "<group>";
 		};
+		0AD120623014AB0000C0C526 /* qooViewerTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = qooViewerTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -49,6 +65,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		0AD120643014AB0000C0C526 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -57,6 +80,7 @@
 			children = (
 				0AD120513014AA0000C0C526 /* Configurations */,
 				0AD11FE23014A38C00C0C526 /* qooViewer */,
+				0AD120623014AB0000C0C526 /* qooViewerTests */,
 				0AD11FE13014A38C00C0C526 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -73,6 +97,7 @@
 			isa = PBXGroup;
 			children = (
 				0AD11FE03014A38C00C0C526 /* qooViewer.app */,
+				0AD120613014AB0000C0C526 /* qooViewerTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -105,6 +130,29 @@
 			productReference = 0AD11FE03014A38C00C0C526 /* qooViewer.app */;
 			productType = "com.apple.product-type.application";
 		};
+		0AD120603014AB0000C0C526 /* qooViewerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0AD120683014AB0000C0C526 /* Build configuration list for PBXNativeTarget "qooViewerTests" */;
+			buildPhases = (
+				0AD120633014AB0000C0C526 /* Sources */,
+				0AD120643014AB0000C0C526 /* Frameworks */,
+				0AD120653014AB0000C0C526 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				0AD120663014AB0000C0C526 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				0AD120623014AB0000C0C526 /* qooViewerTests */,
+			);
+			name = qooViewerTests;
+			packageProductDependencies = (
+			);
+			productName = qooViewerTests;
+			productReference = 0AD120613014AB0000C0C526 /* qooViewerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -117,6 +165,10 @@
 				TargetAttributes = {
 					0AD11FDF3014A38C00C0C526 = {
 						CreatedOnToolsVersion = 26.6;
+					};
+					0AD120603014AB0000C0C526 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = 0AD11FDF3014A38C00C0C526;
 					};
 				};
 			};
@@ -141,12 +193,20 @@
 			projectRoot = "";
 			targets = (
 				0AD11FDF3014A38C00C0C526 /* qooViewer */,
+				0AD120603014AB0000C0C526 /* qooViewerTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		0AD11FDE3014A38C00C0C526 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0AD120653014AB0000C0C526 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -163,7 +223,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		0AD120633014AB0000C0C526 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		0AD120663014AB0000C0C526 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0AD11FDF3014A38C00C0C526 /* qooViewer */;
+			targetProxy = 0AD120673014AB0000C0C526 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		0AD11FE93014A38D00C0C526 /* Debug */ = {
@@ -388,6 +463,46 @@
 			};
 			name = Release;
 		};
+		0AD120693014AB0000C0C526 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.qooProject.qooViewerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/qooViewer.app/Contents/MacOS/qooViewer";
+			};
+			name = Debug;
+		};
+		0AD1206A3014AB0000C0C526 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.qooProject.qooViewerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/qooViewer.app/Contents/MacOS/qooViewer";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -405,6 +520,15 @@
 			buildConfigurations = (
 				0AD11FEC3014A38D00C0C526 /* Debug */,
 				0AD11FED3014A38D00C0C526 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		0AD120683014AB0000C0C526 /* Build configuration list for PBXNativeTarget "qooViewerTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0AD120693014AB0000C0C526 /* Debug */,
+				0AD1206A3014AB0000C0C526 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

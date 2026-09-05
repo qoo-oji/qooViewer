@@ -13,7 +13,10 @@ qooViewer/
 │   ├── Views/                    SwiftUI ビュー(Export/ と Settings/ のサブフォルダあり)
 │   ├── Resources/Localizable.xcstrings   文字列カタログ(英語ベース+日本語)
 │   └── Info.plist                書類の型(下記)
-├── Configurations/Shared.xcconfig  署名の Team ID を外出しするための設定(下記)
+├── qooViewerTests/               単体テスト(Swift Testing、下記)
+├── Configurations/Shared.xcconfig  署名の Team ID を外出しするための設定(下記)。CI 用の警告設定もここ
+├── .github/workflows/            CI(build.yml / check.yml、下記)。dependabot.yml も
+├── scripts/ci/                   約束事の検査スクリプト(check-all.sh がまとめて走らせる。CI と手元で共用)
 ├── docs/                         この仕様書
 ├── README.md / MANUAL.md / CHANGELOG.md / LICENSE(MIT) / CLAUDE.md
 ├── .gitattributes                pbxproj と xcstrings は `-text merge=binary`、MANUAL/CHANGELOG は linguist-documentation
@@ -31,15 +34,62 @@ Swift のコードは約 6 万行(2026-09 時点)。「Standard MVVM」と呼ん
 
 ## ビルド
 
-CLI のテストターゲットはありません。GUI アプリなので、Xcode で `Cmd+R` して動かして確かめます
-(→ [12](12-verification-and-debugging.md))。
+GUI アプリなので、確かめ方の中心は Xcode で `Cmd+R` して動かすことです
+(→ [12](12-verification-and-debugging.md))。単体テストは `qooViewerTests` に少しだけあります(下記)。
 
 ```sh
 xcodebuild -project qooViewer.xcodeproj -scheme qooViewer -configuration Debug build
 xcodebuild -project qooViewer.xcodeproj -scheme qooViewer -configuration Release build
+xcodebuild -project qooViewer.xcodeproj -scheme qooViewer -configuration Debug \
+  -destination 'platform=macOS' test
 ```
 
 依存パッケージは SwiftPM で自動解決されます(→ [11](11-forked-dependencies.md))。
+
+### テストターゲット(qooViewerTests)
+
+Swift Testing の単体テストです(2026-09-05 追加)。アプリを TEST_HOST にした
+`com.apple.product-type.bundle.unit-test` で、`@testable import qooViewer` でアプリの型を直接見ます。
+ビルド設定はアプリ側と揃えてあります(`SWIFT_VERSION = 5.0`、`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`)。
+
+対象は **`nonisolated` な純粋ロジックだけ** です。入力と期待値が短く書けて、壊れたら
+すぐ分かるもの ―― いまはページの並び順(`PageOrder`)と拡張子の判定
+(`isImageFile` / `archiveKind` / `isAppleDoubleEntry`)。画面の自動操作(AX 経由)は
+再現性が低いので載せません(→ [12](12-verification-and-debugging.md))。
+
+`MARKETING_VERSION` はこのターゲットには置いていません。アプリ側の Debug / Release の2か所だけで
+持ち、`scripts/ci/check-version.sh` がその2つの一致を見ています。
+
+### CI
+
+GitHub Actions(2026-09-05 導入)。push のたびに「clone してビルドできる」ことと「約束事が守られている」ことを GitHub 上で確かめます。
+門番(required status check)にはしていません。main へ直接 push する運用なので、失敗は
+Actions タブと GitHub のメール通知で見ます。README にバッジも付けていません。
+
+| ワークフロー | ランナー | 内容 |
+|---|---|---|
+| `.github/workflows/build.yml` | `macos-26` + Xcode 26.6(`DEVELOPER_DIR` で固定) | Debug / Release の 2 ジョブ。依存解決後に `Package.resolved` が変わらないこと、警告ゼロでビルドできること。Debug は `qooViewerTests` を実行し、ビルドした .app を 15 秒起動して生存を確認、Release は universal(arm64 + x86_64)と署名を検品して zip を artifact(14 日)に残す |
+| `.github/workflows/check.yml` | `ubuntu-latest` | `scripts/ci/check-all.sh`。Team ID の混入、Info.plist の書類の型とコードの拡張子の一致、`Localizable.xcstrings` の妥当性、`MARKETING_VERSION` の整合(タグ push 時はタグと CHANGELOG の見出しも)、フォークのピン、改行コード、`docs/` のリンク切れ、actionlint |
+
+決めごと:
+
+- **警告はエラー**。CI は `QOO_CI_WARNINGS_AS_ERRORS=YES` を `xcodebuild` に渡し、`Shared.xcconfig` が
+  それを `SWIFT_TREAT_WARNINGS_AS_ERRORS` / `GCC_TREAT_WARNINGS_AS_ERRORS` に流します。間接参照に
+  しているのは、`SWIFT_TREAT_WARNINGS_AS_ERRORS=YES` を直接渡すと SwiftPM の依存パッケージ(Xcode が
+  `-suppress-warnings` を付ける)にも効いて `Conflicting options` で落ちるためです。手元では変数が
+  未定義なので警告は警告のままです。
+- **署名は検証用**。Debug は `CODE_SIGNING_ALLOWED=NO`、Release は ad-hoc(`CODE_SIGN_IDENTITY=-`)。
+  配布用の zip は今まで通り手元で Apple Development 証明書(Personal Team)で作ります。署名の主体を
+  バージョン間で変えないためで、CI の zip は配布しません。
+- **Xcode の版はワークフローで明示**。ランナーの既定 Xcode は四半期ごとに上がるので、手元の Xcode を
+  上げたら `build.yml` の `DEVELOPER_DIR` も一緒に上げます(ランナーに入っている版は
+  actions/runner-images の `macos-26-arm64-Readme.md` で確認)。
+- **Actions は SHA で固定**。`.github/dependabot.yml` が月 1 回、新しい版を PR で知らせます。
+  Swift パッケージは対象外(フォークは revision を手で動かす、→ [11](11-forked-dependencies.md))。
+- **テストはビルドと分ける**。Debug ジョブは `build-for-testing` → `test-without-building` の2段で、
+  どちらで落ちたのかがログで分かるようにしています。署名していない .app にテストバンドルを
+  差し込む形になりますが(`CODE_SIGNING_ALLOWED=NO`)、手元で同じ条件で通ることを確認済みです。
+- 検査の本体はリポジトリ内のスクリプトで、手元でも同じものが走ります(→ [12](12-verification-and-debugging.md#基本))。
 
 ### 主要なビルド設定(project.pbxproj)
 

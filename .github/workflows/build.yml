@@ -8,8 +8,12 @@
 #   1. Package.resolved どおりに依存を解決し、解決後に Package.resolved が変わらないことを確認
 #      (フォークの branch が動いた・revision が消えた、を検知する)
 #   2. アプリターゲットだけ警告をエラーにしてビルド(QOO_CI_WARNINGS_AS_ERRORS → Shared.xcconfig)
-#   3. Debug: ビルドした .app を起動して 15 秒生きていることを確認(起動時のクラッシュを拾う)
+#   3. Debug: qooViewerTests を実行し、ビルドした .app を起動して 15 秒生きていることを
+#      確認(起動時のクラッシュを拾う)
 #      Release: universal(arm64 + x86_64)と署名を検品し、zip を artifact に残す
+#
+# Debug は build-for-testing → test-without-building に分けてある。xcodebuild test だと
+# ビルドの出力とテストの出力が混ざり、どちらで落ちたのか読み取りにくいため。
 #
 # 署名は検証用。Debug は署名しない、Release は ad-hoc(-)。配布用の zip は今まで通り
 # 手元の Apple Development 署名で作る(CI の zip は配布しない)。
@@ -65,10 +69,13 @@ jobs:
             # 実行するので、ランナー自身のアーキテクチャ(arm64)だけをビルドする
             destination: platform=macOS
             signing: CODE_SIGNING_ALLOWED=NO
+            # テストバンドルも一緒にビルドする(実行は次のステップ)
+            action: build-for-testing
           - configuration: Release
             # 配布物と同じ universal にする(generic なら ONLY_ACTIVE_ARCH の対象外)
             destination: generic/platform=macOS
             signing: CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual
+            action: build
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -104,8 +111,25 @@ jobs:
             -resultBundlePath "$RUNNER_TEMP/${{ matrix.configuration }}.xcresult" \
             DEVELOPMENT_TEAM= ${{ matrix.signing }} \
             QOO_CI_WARNINGS_AS_ERRORS=YES \
-            build \
+            ${{ matrix.action }} \
             | tee "$RUNNER_TEMP/xcodebuild-${{ matrix.configuration }}.log" \
+            | xcbeautify --renderer github-actions
+
+      # qooViewerTests(Swift Testing)。対象は nonisolated な純粋ロジックだけで、GUI の
+      # 自動操作は載せない(再現性が低い)。署名していない .app にテストバンドルを差し込む
+      # 形になるが、手元で同じ条件(CODE_SIGNING_ALLOWED=NO)で通ることを確認済み。
+      - name: Test
+        if: matrix.configuration == 'Debug'
+        run: |
+          set -o pipefail
+          xcodebuild -project "$PROJECT" -scheme "$SCHEME" \
+            -configuration Debug \
+            -destination "${{ matrix.destination }}" \
+            -derivedDataPath "$DERIVED_DATA" \
+            -clonedSourcePackagesDirPath "$SPM_DIR" \
+            -resultBundlePath "$RUNNER_TEMP/Tests.xcresult" \
+            test-without-building \
+            | tee "$RUNNER_TEMP/xcodebuild-test.log" \
             | xcbeautify --renderer github-actions
 
       # 「ビルドは通るが起動で落ちる」(SwiftData のストア初期化など)を拾う。
@@ -170,6 +194,8 @@ jobs:
           path: |
             ${{ runner.temp }}/xcodebuild-${{ matrix.configuration }}.log
             ${{ runner.temp }}/${{ matrix.configuration }}.xcresult
+            ${{ runner.temp }}/xcodebuild-test.log
+            ${{ runner.temp }}/Tests.xcresult
             ${{ runner.temp }}/smoke.log
           retention-days: 7
           if-no-files-found: ignore

@@ -1,14 +1,18 @@
 # 12. 検証とデバッグの方法
 
-このアプリには CLI のテストターゲットがありません(フォークした2つのライブラリにはあります)。
-そのぶん、次のような「実物を動かして測る」やり方を積み重ねてきました。仕組みを変えるときは、
-同じやり方で前後を比べてください。
+このアプリの単体テスト(`qooViewerTests`)は、`nonisolated` な純粋ロジックだけを対象にした
+小さなものです(→ [02](02-project-and-build.md#テストターゲットqooviewertests))。画面まわりは
+テストで押さえていません。そのぶん、次のような「実物を動かして測る」やり方を積み重ねてきました。
+仕組みを変えるときは、同じやり方で前後を比べてください。
 
 ## 基本
 
 - Xcode で `Cmd+R`。ビルドだけなら `xcodebuild -project qooViewer.xcodeproj -scheme qooViewer
-  -configuration Debug build`。
+  -configuration Debug build`、単体テストは同じ行の末尾を `-destination 'platform=macOS' test` に。
 - SwiftLint / SwiftFormat の設定はありません。
+- コミット前に `scripts/ci/check-all.sh` を走らせます(タグを打つ前は `scripts/ci/check-all.sh v1.42`
+  のようにタグ名を渡すと、`MARKETING_VERSION` と CHANGELOG の見出しも照合します)。CI の `check.yml`
+  が走らせるのと同じスクリプトです(→ [02](02-project-and-build.md#ci))。
 - ビルドすると `Localizable.xcstrings` に差分が出ます。戻さずコミットします。
 - 統合ログは `/usr/bin/log`(zsh の `log` ビルトインに注意)。`NSLog` した保存失敗
   (`lastSaveErrorMessage`)は Console.app で追えます。

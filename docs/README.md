@@ -10,7 +10,7 @@
 | # | ファイル | 内容 |
 |---|---|---|
 | 01 | [01-overview.md](01-overview.md) | このアプリが何で、何を大事にして作られているか。設計原則と用語 |
-| 02 | [02-project-and-build.md](02-project-and-build.md) | リポジトリ構成・ビルド設定・署名・サンドボックス・ローカライズ・運用の約束 |
+| 02 | [02-project-and-build.md](02-project-and-build.md) | リポジトリ構成・ビルド設定・CI・署名・サンドボックス・ローカライズ・運用の約束 |
 | 03 | [03-architecture.md](03-architecture.md) | 全体構造。アプリ全体で1つのもの/ウインドウごとのもの、シーン構成、橋渡しの仕組み、並行処理の規約 |
 | 04 | [04-book-loading.md](04-book-loading.md) | 本(フォルダ・書庫・PDF・EPUB)を開いてページ一覧を作るまで。入れ子書庫、ページの識別子 |
 | 05 | [05-page-display-and-memory.md](05-page-display-and-memory.md) | ページ画像のデコード・キャッシュ・先読み・メモリ管理。ソリッド7zの扱い |
@@ -20,7 +20,7 @@
 | 09 | [09-ui-and-windows.md](09-ui-and-windows.md) | 画面の構成、入力の扱い、パネルの見た目、補助ウインドウの共通の形、環境設定の方針 |
 | 10 | [10-sandbox-and-security.md](10-sandbox-and-security.md) | サンドボックス下でファイルに触るための約束事 |
 | 11 | [11-forked-dependencies.md](11-forked-dependencies.md) | 独自にフォークした依存ライブラリ(SevenZip.swift / Unrar.swift)に、何のためにどんな変更を加えたか |
-| 12 | [12-verification-and-debugging.md](12-verification-and-debugging.md) | テストターゲットが無いこのアプリを、どうやって検証・計測・デバッグしてきたか |
+| 12 | [12-verification-and-debugging.md](12-verification-and-debugging.md) | 画面まわりをテストで押さえないこのアプリを、どうやって検証・計測・デバッグしてきたか |
 | 13 | [13-history-and-known-limitations.md](13-history-and-known-limitations.md) | 主な方針転換の履歴、既知の制限、未着手の課題 |
 
 急いでいるなら 01 → 03 → 06 → 11 の順に読めば、壊しやすい場所の見当が付きます。

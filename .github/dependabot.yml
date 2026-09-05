@@ -1,0 +1,9 @@
+# GitHub Actions の版を SHA で固定しているので、新しい版が出たら PR で知らせてもらう。
+# Swift パッケージは対象にしない: フォーク 2 本は Package.resolved の revision を手で動かす
+# 方針(docs/11-forked-dependencies.md)で、ZIPFoundation も同じ場所で固定している。
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
