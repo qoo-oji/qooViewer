@@ -6,7 +6,7 @@ qooViewer は3つの Swift パッケージに依存します。うち2つは開�
 | パッケージ | 参照先 | 固定方法 | 用途 |
 |---|---|---|---|
 | ZIPFoundation | `weichsel/ZIPFoundation` | バージョン 0.9.20 | zip / cbz / EPUB(zip コンテナ)の読み取り、CBZ / EPUB の書き出し |
-| SevenZip.swift | **`qoo-oji/SevenZip.swift`** ブランチ `streaming-extract` | revision `979634b` | 7z / cb7 の読み取り |
+| SevenZip.swift | **`qoo-oji/SevenZip.swift`** ブランチ `streaming-extract` | revision `dd39320` | 7z / cb7 の読み取り |
 | Unrar.swift | **`qoo-oji/Unrar.swift`** ブランチ `memory-archive` | revision `2fb14dc` | rar / cbr の読み取り |
 
 フォークの作業ツリーは、開発機ではリポジトリの隣(`../SevenZip.swift`、`../Unrar.swift`)にあり、
@@ -15,7 +15,10 @@ qooViewer は3つの Swift パッケージに依存します。うち2つは開�
 テストがあります。本章はそれらの要約と、**qooViewer 側から見た理由**を書きます。
 フォーク側の docs のほうが実装の細部は詳しいので、変更するときは必ずそちらも読んでください。
 
-どちらのフォークも **upstream へ還元する予定はなく、フォークとして育てる前提**です。
+どちらのフォークも、フォーク独自の機能(ストリーミング取り出し、メモリからの読み取り)は
+**upstream へ還元する予定はなく、フォークとして育てる前提**です。ただし作業の途中で見つかった
+**本家由来の不具合**は別で、SevenZip.swift のぶんは 2026-09-06 に4本の PR に分けて送りました
+(→ [upstream へ出した PR](#upstream-へ出した-pr))。
 
 ---
 
@@ -42,6 +45,8 @@ qooViewer はメモリ使用量を実測で詰めていく方針なので(→ [0
 | `42950ba` Add opening archives held in memory | `Archive(data:)`。メモリ上のバッファを読む `ISeekInStream` 実装(`7zMemInStream.{h,c}`)。入れ子の 7z を一時ファイルに書き出さずに開くため |
 | `381c826` Fix filter tails, read backwards from the dictionary, verify file CRCs | BCJ 等のフィルタ末尾の持ち越しの不具合修正、LZMA 辞書の範囲内での後方読み(replay)、ファイル単位の CRC 検証 |
 | `81730ce` Add a history ring … → `979634b` Revert | 辞書の外へ戻るための履歴リングを一度足したが、**撤回**。「メモリを減らすためのフォークに、別のバッファを足すのは筋が通らない」という判断。qooViewer 側で後方読みを出さない設計にした(下記) |
+| `a3d93ae` Fix Entry.modified and publish the restart counter | 本家由来の日時の不具合(下記)と、`folderStreamRestartCount` の public 化 |
+| `dd39320` Release the Archive when its last reference goes | 本家由来の参照循環(下記)。`Archive` が一度も解放されていなかった |
 
 追加・変更したファイルの一覧と API の詳細は `docs/StreamingExtraction.md` にあります。要点:
 
@@ -126,11 +131,41 @@ let bytes = archive.residentDecoderBytes
   nil 検査へ直し、FILETIME → Unix 時間の計算も 1970 より前でアンダーフローしないよう Double に
   しました。フォーク側の `EntryDateTests` + フィクスチャ 2 本(`mtime.7z` / `no_mtime.7z`)。
   **これは本家(mtgto/SevenZip.swift)から引き継いだ不具合**で、最初の実装(2021-10-18 の
-  `Implement`)から現在の `upstream/main` まで同じままです。フォークが足したストリーミング経路とは
-  無関係なので、そのまま upstream へ PR に出せます(未送出)。
+  `Implement`)から現在の `upstream/main` まで同じままです。
+- **`Archive` が一度も解放されていなかった(2026-09-06)。** `Entry` は自分の `Archive` を強参照で
+  持ち、その `Archive` が `entries: [Entry]` を保持していたため参照循環になり、`deinit` が走りません。
+  つまり `PageLoader.releaseAllResources` で reader を捨てても、ファイルディスクリプタ・索引・
+  `outBuffer`・**ブロックデコーダの LZMA 辞書(16〜64MB)**、さらに `Archive(data:)` が持つ書庫バイト列の
+  コピーが、本を開くたびにプロセスの終わりまで残っていました(しかも reader から辿れなくなるので、
+  リソースモニタの「7z デコーダ」にも出ません)。`entries` を格納プロパティから**アクセスのたびに
+  組み立てる計算プロパティ**へ変え、各ファイルの情報は archive への逆参照を持たない `EntryRecord` で
+  保持するようにしました。`Entry` を持っているあいだ `Archive` が生き続ける、という意味は変わりません。
+  フォーク側の `ArchiveLifetimeTests`。
+- **`deinit` がファイルを閉じていなかった。** `InFile_Open` で開いた fd が残ります(上の参照循環に
+  隠れて表に出ていませんでした)。フォークでは `42950ba` の時点で `File_Close` を呼んでいます。
+- **PPMd 圧縮の 7z が読めなかった。** `7zDec.c` は `Z7_PPMD_SUPPORT` が未定義だと PPMd を除外しますが、
+  `Ppmd7.c` / `Ppmd7Dec.c` はビルドされています。フォークでは define を追加済み。
 - **`folderStreamRestartCount` を public にしました。** `SevenZipArchiveReader.folderStreamRestartCount`
   から読めるので、「書庫順に読めばブロック先頭からのやり直しは 1 ブロックにつき 1 回」を
   単体テストの回帰にできます(`ArchiveReaderTests.solidSevenZipDoesNotRestart`)。表示には使いません。
+  これはフォーク独自の追加で、upstream には出していません。
+
+### upstream へ出した PR
+
+上のうち**本家由来の4件**は、フォークが足したコードに一切依存しないので、`upstream/main` から
+それぞれ独立したブランチを切って、**1件1 PR**で出しました(2026-09-06。メンテナが取捨選択できる
+ようにするため)。どれも単体で `swift test` が通ることを確認済みです。
+
+| PR | ブランチ | 内容 |
+|---|---|---|
+| [#5](https://github.com/mtgto/SevenZip.swift/pull/5) | `pr/fix-entry-modified` | `Entry.modified` が常に nil |
+| [#6](https://github.com/mtgto/SevenZip.swift/pull/6) | `pr/release-archive` | `Entry` ↔ `Archive` の参照循環 |
+| [#7](https://github.com/mtgto/SevenZip.swift/pull/7) | `pr/close-file-in-deinit` | `deinit` でファイルを閉じる |
+| [#8](https://github.com/mtgto/SevenZip.swift/pull/8) | `pr/enable-ppmd` | `Z7_PPMD_SUPPORT` を定義する |
+
+fd リークの回帰テストは #7 ではなく #6 側にあります(参照循環を直さないと `deinit` が走らず、
+そもそも観測できないため)。マージされたら、その時点の `upstream/main` を `streaming-extract` へ
+取り込みます。
 
 ---
 
