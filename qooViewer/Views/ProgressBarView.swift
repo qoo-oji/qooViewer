@@ -605,32 +605,11 @@ struct ProgressBarView: View {
     /// フィルムストリップに表示するページ範囲を求める。端に近いときは、ページ数の範囲内に
     /// 収まるようずらす(そのときはcenterIndexが必ずしもslot番目に来なくなる)。
     private func visibleRange(centeredOn centerIndex: Int, slot: Int) -> ClosedRange<Int> {
-        let pageCount = viewModel.pageCount
-        guard pageCount > 0 else { return 0...0 }
-        if pageCount <= filmstripVisibleCount {
-            return 0...(pageCount - 1)
-        }
-        let clampedSlot = min(max(slot, 0), filmstripVisibleCount - 1)
-        var start: Int
-        var end: Int
-        if isRightToLeft {
-            // RTLでは表示配列(indices)を反転させて並べるため、"右から数えたスロット"が
-            // 左からの見た目位置と一致するよう、centerIndexは範囲の上端側から数える。
-            end = centerIndex + clampedSlot
-            start = end - filmstripVisibleCount + 1
-        } else {
-            start = centerIndex - clampedSlot
-            end = start + filmstripVisibleCount - 1
-        }
-        if start < 0 {
-            start = 0
-            end = filmstripVisibleCount - 1
-        }
-        if end > pageCount - 1 {
-            end = pageCount - 1
-            start = end - filmstripVisibleCount + 1
-        }
-        return start...end
+        // 規則の本体はFilmstripLayout(Models/FilmstripLayout.swift)。
+        FilmstripLayout.visibleRange(
+            centeredOn: centerIndex, slot: slot, pageCount: viewModel.pageCount,
+            visibleCount: filmstripVisibleCount, isRightToLeft: isRightToLeft
+        )
     }
 
     /// 表示範囲内でまだ読み込んでいないページのサムネイルを、カーソル直下のページに近い順に、
@@ -698,11 +677,9 @@ struct ProgressBarView: View {
     }
 
     private func pageIndex(atX x: CGFloat, width: CGFloat) -> Int {
-        guard width > 0, viewModel.pageCount > 0 else { return 0 }
-        let rawFraction = min(max(x / width, 0), 1)
-        // 右開きのときは、バーが右から左へ進むのに合わせて、クリック位置の割合も左右反転させる
-        let fraction = isRightToLeft ? (1 - rawFraction) : rawFraction
-        return min(Int(fraction * CGFloat(viewModel.pageCount)), viewModel.pageCount - 1)
+        FilmstripLayout.pageIndex(
+            atX: x, width: width, pageCount: viewModel.pageCount, isRightToLeft: isRightToLeft
+        )
     }
 
     /// カーソルの画面上のx座標(左端0〜右端1に正規化)に応じて、ホバー中のページを
@@ -710,9 +687,6 @@ struct ProgressBarView: View {
     /// 表示するかを決める。読む方向(RTL/LTR)に関わらず、画面上の実際の左右位置と
     /// スロット番号がそのまま対応するよう、rawFraction(反転前)をそのまま使う。
     private func highlightSlot(atX x: CGFloat, width: CGFloat) -> Int {
-        guard width > 0 else { return filmstripVisibleCount / 2 }
-        let rawFraction = min(max(x / width, 0), 1)
-        let slot = Int((rawFraction * CGFloat(filmstripVisibleCount - 1)).rounded())
-        return min(max(slot, 0), filmstripVisibleCount - 1)
+        FilmstripLayout.highlightSlot(atX: x, width: width, visibleCount: filmstripVisibleCount)
     }
 }

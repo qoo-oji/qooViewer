@@ -440,6 +440,12 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
 - 空白スロットの挿入は「何番目の実画像か / 空白か」の列(`Placement`)として出せる ――
   画像そのものを持ち込まずに規則だけを取り出せた。
 
+**C2 でできたもの(2026-09-06、460 → 466 テスト)**
+`Models/FilmstripLayout.swift`(`nonisolated enum`)。`ProgressBarView` の
+`pageIndex(atX:width:)` / `highlightSlot(atX:width:)` / `visibleRange(centeredOn:slot:)` を
+移した。テストは `FilmstripLayoutTests`。**読み方向の反転はページ番号にだけ効き、
+スロット(画面上の位置)には効かない** ―― この非対称が要で、表引きで固定した。
+
 **口を開けるときの作法**: 既定値はこれまでどおり(通常経路の差分ゼロ)。時間で待たず `Task` の
 ハンドルを `await` する。既定引数にメインアクター分離の型を置かない(段階 3・4 で 2 度踏んだ。
 `QOO_CI_WARNINGS_AS_ERRORS=YES` で通してから push)。静的な登録簿(`ViewerViewModel.openBookIDs`、
