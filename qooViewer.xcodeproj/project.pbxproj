@@ -10,6 +10,7 @@
 		0AD11FF03014A59700C0C526 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD11FEF3014A59700C0C526 /* ZIPFoundation */; };
 		0AD11FF33014A5C900C0C526 /* SevenZip in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD11FF23014A5C900C0C526 /* SevenZip */; };
 		0AD11FF63014A5E800C0C526 /* Unrar in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD11FF53014A5E800C0C526 /* Unrar */; };
+		0AD1F101301500000C0C5261 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 0AD1F102301500000C0C5261 /* ZIPFoundation */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -49,6 +50,11 @@
 		};
 		0AD120623014AB0000C0C526 /* qooViewerTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+				Fixtures,
+			);
 			path = qooViewerTests;
 			sourceTree = "<group>";
 		};
@@ -69,6 +75,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0AD1F101301500000C0C5261 /* ZIPFoundation in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -148,6 +155,7 @@
 			);
 			name = qooViewerTests;
 			packageProductDependencies = (
+				0AD1F102301500000C0C5261 /* ZIPFoundation */,
 			);
 			productName = qooViewerTests;
 			productReference = 0AD120613014AB0000C0C526 /* qooViewerTests.xctest */;
@@ -577,6 +585,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 0AD11FF43014A5E800C0C526 /* XCRemoteSwiftPackageReference "Unrar" */;
 			productName = Unrar;
+		};
+		0AD1F102301500000C0C5261 /* ZIPFoundation */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0AD11FEE3014A59700C0C526 /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
+			productName = ZIPFoundation;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -50,7 +50,11 @@
 
 - **rar**: Unicode 名を持たない古い RAR4 のファイル名は文字化けする(ライブラリの外で対処不能)。
   分割ボリュームは非対応(メモリからは特に)。
-- **zip**: 1つの書庫にレガシーな文字コードが2種類以上混在すると一方に倒れる。
+- **zip**: 1つの書庫にレガシーな文字コードが2種類以上混在すると一方に倒れる。単一の文字コードでも、
+  Foundation の自動判定に頼るため **EUC-JP は当たらず**(Baltic / Latin-1 のような単バイトの文字コードとして
+  「読めて」しまう)、**CP949 は Shift-JIS / GB18030 に倒れる**(2026-09-05、テストのフィクスチャで発見。
+  `NSString.stringEncoding(for:)` は `likelyLanguageKey` を渡さないとロケール寄りに判定する)。どちらも
+  `qooViewerTests/Fixtures/manifest.json` に「ページ数だけ」の期待として固定してある。
 - **7z**: BCJ2 はブロック丸ごと伸長にフォールバック。BZip2 / Deflate / 暗号化は読めない。
   辞書の外への後方ジャンプはブロック先頭からやり直し(読む側が書庫順を守る前提)。
 - **EPUB**: 固定レイアウトの画像 EPUB のみ。目次は nav.xhtml だけ(`toc.ncx` へのフォールバック
@@ -82,6 +86,68 @@
   「一覧ウインドウの共通の形」として大半が実装済み。残りは各ウインドウのコメントで確認。
 - 環境設定「レイアウト」の形式ページを、アプリの他の場所から名指しで開く経路
   (`SettingsNavigator` に `appearanceTarget` 相当が無い)。
+
+### テストのパタンセット ―― 段階 1〜4(引き継ぎ、2026-09-05)
+
+`qooViewerTests` を「UI を伴わない nonisolated のパイプライン」まで広げる計画(段階 0〜4)のうち、
+**段階 0(フィクスチャ・台帳・生成スクリプト・Support のビルダー・golden テスト)は完了**
+(→ [02](02-project-and-build.md#テストのフィクスチャ))。残りは次のとおりで、どこからでも着手できる。
+決めごとは段階 0 と同じ ―― 共有の保存先に触れない、golden は `sortKey` の列、既知の限界は
+「落ちない・数は合う」で固定、テスト全体で 60 秒以内。
+
+**段階 1: 読み込み側(約 55 テスト)**
+- `ArchiveReading` の適合テスト(zip / 7z / rar × ファイル / メモリ入力を `@Test(arguments:)` で):
+  `listFilePaths` が台帳と一致、`data(at:)` のバイト列が元画像と一致(`PageColorReader` で番号も)、
+  `dataPrefix(maxByteCount:)` の長さ、`entryUncompressedSize`、`entryDates`(zip / rar は非 nil)、
+  `extract(to:maxByteCount:)` の上限超過で throw し部分ファイルを残さない、無いパス・暗号化
+  (`rar-encrypted.cbr`)で throw、ソリッド 7z / rar を書庫順に読み切る。
+- `NestedArchiveResolver`: `Limits.standard` の導出、予算 0 で一時ファイル(`TemporaryFileStore`)、
+  `purgeAll` で消える、LRU(`maxOpenReaders`)、`openTransient` は LRU に載らない、
+  `materializeToIndependentFile`。
+- zip の文字コード(`ZipArchiveReader.listFilePaths` の黒箱。`EntryNameDecoder` は private のまま):
+  台帳の zip/ 各種。EUC-JP / CP949 は既知の限界として「ページ数のみ」(上記「既知の制限」)。
+- `BookLoader.load` の振る舞い: 中止(`nested-depth3.cbz` + 遅い `onProgress` で `CancellationError`)、
+  `onProgress` の回数、`load(imageFiles:)`、`nestedArchiveMemoryLimitBytes: 0` でも同じ sortKey 列。
+- `BookInternalBrowsing.entries`: 仮想フォルダ、`nestedArchiveEntry` / `realFolder`、`matchKey`。
+- `EpubStructureResolver`: `EpubFixtureBuilder` のフラグを一通り(spine 順 / spread / progression /
+  img と svg / 接頭辞付き名前空間 / media-type 省略 / 画像欠け / container 無し)、`resolveMetadata`
+  (dc / calibre / belongs-to-collection)、`normalizedSeriesIndex`、`resolveTableOfContents`(nav の入れ子)。
+- `PDFStructureResolver`: 台帳の pdf/(R2L+TwoPageLeft / L2R+SinglePage / 無指定 / アウトライン)、
+  `resolveMetadata`(Info の UTF-16BE)、`parseSeriesKeywords` の往復。
+- 決定済み: `SevenZipArchiveReader` にフォークの `Archive.folderStreamRestartCount` を通す
+  (nonisolated の読み取り専用プロパティ)。「書庫順に読んで 0 回」の回帰テストを書く。
+
+**段階 2: 純粋ロジック(約 70 テスト)** ―― `EffectivePageOrder`(override の欠落 / 余剰 / 除外 /
+`.document` は並べ替えない / `usesFinderOrderOverride`)、`BookOpenRequest(openingCandidates:)`
+(画像だけ → 1 冊・混在 → 先頭・重複・1000 枚上限)、`ComicInfoXML.parse`(大小文字 / 順序 / 重複 /
+XXE を読まない / 往復)と `ComicInfoResolver`、`MetadataFormatCompiler` と `BookMetadataDeriver.derive`
+の既定ルール表(20〜30 行)、`LayoutAutoCalculator.recalculate`(起点単 / 組、右開き・左開きで鏡、横長、
+端数は遠い側、before / after は起点を含まない)、`PageLayoutState ↔ PageSpreadPosition`、
+`PagePixelCache`(LRU、`peek` は昇格しない)、`BookPageListCache.Entry` の版 2 JSON、
+`ThumbnailDiskCache.trimThreshold`、`TemporaryFileStore.isStaleEntry`、`ImageDecoder`(png / jpg / gif /
+webp / avif / heic / bmp / tiff の寸法・EXIF 回転・`maxPixelSize`・切れた入力)、`ContrastCorrector`、
+`DirectoryBrowser.sortedEntries`、`SiblingFinder`、`FileNodeIdentifier`、`QooLibraryExportFile` の往復と
+旧版 JSON、`RemappableKey` / `MouseTrigger`、`String(localized:language:)`。画像形式のフィクスチャ
+(webp / avif は手元に encoder が無い ―― `sips` は heic まで)と旧版 JSON(自分の書き出しをダミー化)は
+このときに `Fixtures/images/`・`Fixtures/json/` へ足す。
+
+**段階 3: 書き出しのラウンドトリップ(約 20 テスト)** ―― `CbzExporter` / `EpubExporter` / `PDFExporter`
+で書き出し → `FixtureBook.load` / `EpubStructureResolver.resolve` / `CGPDFDocument` で開き直す
+(順序は `PageColorReader` で追う、NFC 正規化、ComicInfo、mimetype 先頭・無圧縮、`PDFCatalogAugmenter`
+の 2 回 apply、`PDFXMPMetadata` の往復)。`PageLoader(book:usesThumbnailDiskCache: false)` を必ず明示。
+決定済み: CI の Debug ジョブに「Validate exported files」ステップを足す ―― テストが
+`QOO_TEST_OUTPUT_DIR`(スキームの環境変数)へ書いた生成物を `xmllint --schema`(ComicInfo v2.0 の XSD、
+anansi-project の MIT 表記付きで `Fixtures/comicinfo/` に同梱)と EPUBCheck 5.2.1(jar を sha256 固定で
+取得、`actions/cache`)で検査する。
+
+**段階 4(任意)** ―― メモリ内の `ModelContainer`(`isStoredInMemoryOnly`)を**テストが自前で作って**
+`LibraryImportExportService.apply` と `LayoutStore.importSourceLayoutIfNeeded` を通す。アプリの
+`mainContext` には触れない。
+
+**段階 0 で分かったこと**: `FileManager.temporaryDirectory` は `/var → /private/var` の symlink で、
+フォルダの本の sortKey は実体パスになる(`TemporaryDirectory` が最初から実体にしてある。アプリでも
+symlink 経由のパスで開くと `location(inBookAt:)` の folderPath が nil になる小さな癖がある)。
+rar 7.2x は `-ma4` が無く RAR4 を作れない。
 
 ## 古くなった記述・ファイル(2026-09-05 に整理済み)
 

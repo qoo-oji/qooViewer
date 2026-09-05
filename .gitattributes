@@ -20,6 +20,22 @@
 *.pdf  binary
 *.icns binary
 
+# テストのフィクスチャ(qooViewerTests/Fixtures/)。書庫と画像は中身で判定させず、必ずバイナリ扱いにする
+# (改行変換が入ると sha256 が台帳と食い違う。台帳の照合は scripts/ci/check-fixtures.sh)。
+*.zip  binary
+*.cbz  binary
+*.7z   binary
+*.cb7  binary
+*.rar  binary
+*.cbr  binary
+*.gif  binary
+*.bmp  binary
+*.tif  binary
+*.tiff binary
+*.webp binary
+*.avif binary
+*.heic binary
+
 # ── GitHub の言語判定 ────────────────────────────────────────────────────────
 # 同梱ドキュメントが巨大なため、放っておくとリポジトリの言語が Swift ではなく
 # ドキュメント扱いに見えることがある。ソースだけを言語統計の対象にする。

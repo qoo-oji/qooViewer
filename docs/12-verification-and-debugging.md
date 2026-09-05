@@ -1,8 +1,10 @@
 # 12. 検証とデバッグの方法
 
-このアプリの単体テスト(`qooViewerTests`)は、`nonisolated` な純粋ロジックだけを対象にした
-小さなものです(→ [02](02-project-and-build.md#テストターゲットqooviewertests))。画面まわりは
-テストで押さえていません。そのぶん、次のような「実物を動かして測る」やり方を積み重ねてきました。
+このアプリの単体テスト(`qooViewerTests`)は、UI を伴わない `nonisolated` のパイプライン ――
+拡張子の判定・並び順、書庫の読み取りから `BookLoader` → `PageRef` まで、EPUB / PDF の構造解決 ――
+を、小さな本のフィクスチャで通すものです(→ [02](02-project-and-build.md#テストターゲットqooviewertests))。
+golden は `PageRef.sortKey` の列で、DB の pageKey がここに乗っています。画面まわりはテストで
+押さえていません。そのぶん、次のような「実物を動かして測る」やり方を積み重ねてきました。
 仕組みを変えるときは、同じやり方で前後を比べてください。
 
 ## 基本

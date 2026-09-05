@@ -23,6 +23,7 @@ run() {
 
 run check-team-id.sh
 run check-extensions.sh
+run check-fixtures.sh
 run check-xcstrings.sh
 run check-version.sh "$tag"
 run check-package-pins.sh

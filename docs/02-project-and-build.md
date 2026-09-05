@@ -13,10 +13,11 @@ qooViewer/
 │   ├── Views/                    SwiftUI ビュー(Export/ と Settings/ のサブフォルダあり)
 │   ├── Resources/Localizable.xcstrings   文字列カタログ(英語ベース+日本語)
 │   └── Info.plist                書類の型(下記)
-├── qooViewerTests/               単体テスト(Swift Testing、下記)
+├── qooViewerTests/               単体テスト(Swift Testing、下記)。Fixtures/ に本のフィクスチャと台帳、Support/ にビルダー
 ├── Configurations/Shared.xcconfig  署名の Team ID を外出しするための設定(下記)。CI 用の警告設定もここ
 ├── .github/workflows/            CI(build.yml / check.yml、下記)。dependabot.yml も
 ├── scripts/ci/                   約束事の検査スクリプト(check-all.sh がまとめて走らせる。CI と手元で共用)
+├── scripts/fixtures/             テストのフィクスチャを作り直すスクリプト(手元だけ。下記)
 ├── docs/                         この仕様書
 ├── README.md / MANUAL.md / CHANGELOG.md / LICENSE(MIT) / CLAUDE.md
 ├── .gitattributes                pbxproj と xcstrings は `-text merge=binary`、MANUAL/CHANGELOG は linguist-documentation
@@ -52,10 +53,55 @@ Swift Testing の単体テストです(2026-09-05 追加)。アプリを TEST_HO
 `com.apple.product-type.bundle.unit-test` で、`@testable import qooViewer` でアプリの型を直接見ます。
 ビルド設定はアプリ側と揃えてあります(`SWIFT_VERSION = 5.0`、`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`)。
 
-対象は **`nonisolated` な純粋ロジックだけ** です。入力と期待値が短く書けて、壊れたら
-すぐ分かるもの ―― いまはページの並び順(`PageOrder`)と拡張子の判定
-(`isImageFile` / `archiveKind` / `isAppleDoubleEntry`)。画面の自動操作(AX 経由)は
-再現性が低いので載せません(→ [12](12-verification-and-debugging.md))。
+対象は **UI を伴わない `nonisolated` のパイプライン** です(2026-09-05 に「純粋ロジックだけ」から
+広げました)。拡張子の判定・並び順のような純粋な関数に加えて、書庫の読み取り → `BookLoader` →
+`PageRef` までの経路と、EPUB / PDF の構造解決を、下記のフィクスチャで通します。画面の自動操作
+(AX 経由)は再現性が低いので載せません(→ [12](12-verification-and-debugging.md))。
+
+**テストは共有の保存先に触れません。** TEST_HOST は実物のアプリなので、手元では自分の履歴・
+キャッシュ・SwiftData と同じコンテナで走ります。本を開くときは `FixtureBook.load`
+(`BookLoader.load(cachesPageList: false)` を固定)を通し、`UserDefaults.standard`・
+`BookPageListCache.shared`・`ThumbnailDiskCache.shared`・`modelContainer.mainContext` は読みも
+書きもしません。並び順の設定が絡むところは `EffectivePageOrder` の `usesFinderOrderOverride:` を
+明示します。
+
+手元でテストを回すときは通常の署名のままで(`CODE_SIGNING_ALLOWED=NO` を付けない)。署名の無い
+TEST_HOST はビルドごとに別のアプリとして扱われ、起動のたびに macOS がリムーバブルボリュームへの
+アクセス許可を聞き直します。
+
+#### テストのフィクスチャ
+
+`qooViewerTests/Fixtures/` に小さな「本」を置き、台帳 `manifest.json` に **sha256・作り方
+(`howMade`)・何のためか(`purpose`)・本として開いたときの期待(`book`)** を書きます。
+`FixtureBookTests` が台帳の全冊を `BookLoader` で開き、`book.sortKeys`(`PageRef.sortKey` の列
+= DB の pageKey、→ [04](04-book-loading.md#ページの識別子))と突き合わせます。並びを固定しない
+ものは `pageCount`、開けないことが正しいものは `error`(`noPages` / `unreadable`)。
+
+- **コミットするもの**: 外部ツールや生のバイト列が要るもの ―― rar / 7z、UTF-8 フラグ無しの zip
+  (CP932 / EUC-JP / CP949 / Big5)、Finder の「圧縮」相当(`__MACOSX/._*` 入り)、入れ子の書庫、
+  壊れた書庫、Document Catalog に読み方向を書いた PDF。ページ画像は 8x12 px の単色 PNG で、
+  **R = ページ番号**(書き出しの後で中身から順序を追えるように)。上限は 1 ファイル 200 KB・
+  合計 2 MB。
+- **テストの中で作るもの**: フォルダの本(`FixtureFolder`)、UTF-8 の zip(`ZipFixtureBuilder`)、
+  EPUB(`EpubFixtureBuilder`: spine / spread / 読み方向 / 名前空間の書き方を選べる)、画像を貼った
+  PDF(`PDFFixtureBuilder`)。git のファイル名正規化や隠しファイルの扱いに左右されないよう、
+  名前そのものを試すものはこちら。`qooViewerTests/Support/` にあります。
+
+作り直しは `scripts/fixtures/build-fixtures.sh`(手元だけ。`7zz` と `rar` が要る。rar 7.2x は RAR4
+を作れないので、RAR4 の書庫は実物が手に入ったときに手で置く)。`make-legacy-zip.py` はファイル名の
+バイト列を決めて zip を直接書き、`make-pdf.py` は xref を計算して小さな PDF を書きます。
+台帳の sha256 は `update-manifest.py` が書き、`scripts/ci/check-fixtures.sh` が「ファイルと台帳が
+1 対 1」「sha256 一致」「上限」「howMade / purpose が空でない」を見ます。
+
+フィクスチャを増やすときは: (1) `build-fixtures.sh` に作り方を足す(または手で置く)、
+(2) `update-manifest.py` を走らせ、台帳に `howMade` / `purpose` / `book` を書く、
+(3) `xcodebuild test` で `FixtureBookTests` が通ることを確かめる。`Fixtures/` は pbxproj の
+`explicitFolders`(フォルダ参照)なので、ファイルを置くだけでバンドルに入ります。
+
+既知の限界もテストで固定してあります(落ちない・ページ数は合う、の形)。zip のファイル名の文字コード
+判定は Foundation の自動判定に頼るため、**EUC-JP は当たらず(単バイトの文字コードとして「読めて」
+しまう)、CP949 は Shift-JIS / GB18030 に倒れます**(2026-09-05 に発見。判定は `likelyLanguageKey`
+を渡さない限りロケール寄りで、Big5 は日本語ロケールでは当たる)。→ [13](13-history-and-known-limitations.md)
 
 `MARKETING_VERSION` はこのターゲットには置いていません。アプリ側の Debug / Release の2か所だけで
 持ち、`scripts/ci/check-version.sh` がその2つの一致を見ています。
@@ -69,7 +115,7 @@ Actions タブと GitHub のメール通知で見ます。README にバッジも
 | ワークフロー | ランナー | 内容 |
 |---|---|---|
 | `.github/workflows/build.yml` | `macos-26` + Xcode 26.6(`DEVELOPER_DIR` で固定) | Debug / Release の 2 ジョブ。依存解決後に `Package.resolved` が変わらないこと、警告ゼロでビルドできること。Debug は `qooViewerTests` を実行し、ビルドした .app を 15 秒起動して生存を確認、Release は universal(arm64 + x86_64)と署名を検品して zip を artifact(14 日)に残す |
-| `.github/workflows/check.yml` | `ubuntu-latest` | `scripts/ci/check-all.sh`。Team ID の混入、Info.plist の書類の型とコードの拡張子の一致、`Localizable.xcstrings` の妥当性、`MARKETING_VERSION` の整合(タグ push 時はタグと CHANGELOG の見出しも)、フォークのピン、改行コード、`docs/` のリンク切れ、actionlint |
+| `.github/workflows/check.yml` | `ubuntu-latest` | `scripts/ci/check-all.sh`。Team ID の混入、Info.plist の書類の型とコードの拡張子の一致、`Localizable.xcstrings` の妥当性、`MARKETING_VERSION` の整合(タグ push 時はタグと CHANGELOG の見出しも)、テストのフィクスチャと台帳の一致、フォークのピン、改行コード、`docs/` のリンク切れ、actionlint |
 
 決めごと:
 

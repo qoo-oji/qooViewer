@@ -1,0 +1,585 @@
+{
+  "schemaVersion": 1,
+  "limits": {
+    "maxFileBytes": 204800,
+    "maxTotalBytes": 2097152
+  },
+  "fixtures": {
+    "7z/7z-flat.cb7": {
+      "bytes": 1605,
+      "sha256": "00294719a1f307af1223d340f825197966722e7d2b8fa404ab970a66e2911342",
+      "howMade": "7zz a -ms=off(scripts/fixtures/build-fixtures.sh)。001〜003.jpg(sips で PNG から変換)",
+      "purpose": "非ソリッドの 7z。SevenZipArchiveReader の基本(列挙・取り出し・prefix・更新日時)",
+      "book": {
+        "sortKeys": [
+          "001.jpg",
+          "002.jpg",
+          "003.jpg"
+        ]
+      }
+    },
+    "7z/7z-japanese-names.7z": {
+      "bytes": 308,
+      "sha256": "af50cca9ec3d71774563181f084610bf107ec8e8fe14609565b473966dd2cf3d",
+      "howMade": "7zz a(build-fixtures.sh)。第1巻/001〜003.png",
+      "purpose": "7z のファイル名は UTF-16 なので、日本語名がそのまま読めること",
+      "book": {
+        "sortKeys": [
+          "第1巻/001.png",
+          "第1巻/002.png",
+          "第1巻/003.png"
+        ]
+      }
+    },
+    "7z/7z-solid-lzma1.7z": {
+      "bytes": 334,
+      "sha256": "d3479f29bf30f0588a0827bb63e97a34b52bea3a747dce7cf6c36b4ea36f7979",
+      "howMade": "7zz a -ms=on -m0=LZMA(build-fixtures.sh)。001〜005.png",
+      "purpose": "LZMA(1)のソリッド書庫。フォークのストリーミング経路が LZMA2 以外でも書庫順に読み切れること",
+      "book": {
+        "sortKeys": [
+          "001.png",
+          "002.png",
+          "003.png",
+          "004.png",
+          "005.png"
+        ]
+      }
+    },
+    "7z/7z-solid.cb7": {
+      "bytes": 337,
+      "sha256": "e3e772cac27fc0f176a049db14ad43c25dd941dea4c78d986abf589aab7fc0c2",
+      "howMade": "7zz a -ms=on(build-fixtures.sh)。001〜005.png(LZMA2、7-Zip の既定)",
+      "purpose": "ソリッドの cb7。書庫順に全件読み切れること、dataPrefix で打ち切っても次が読めること",
+      "book": {
+        "sortKeys": [
+          "001.png",
+          "002.png",
+          "003.png",
+          "004.png",
+          "005.png"
+        ]
+      }
+    },
+    "7z/7z-store.7z": {
+      "bytes": 568,
+      "sha256": "9527051090e27a5f3b831f60253e37fb55fcbea355a7132ac5228b949ea6c6fe",
+      "howMade": "7zz a -m0=Copy(build-fixtures.sh)。001〜005.png",
+      "purpose": "無圧縮(Copy)の 7z。復号を伴わない経路",
+      "book": {
+        "sortKeys": [
+          "001.png",
+          "002.png",
+          "003.png",
+          "004.png",
+          "005.png"
+        ]
+      }
+    },
+    "7z/7z-with-dirs.cb7": {
+      "bytes": 340,
+      "sha256": "b4160caf391c1858b5eca626095cb0f0fd54b85527ba544b6ec7c9910ae138e7",
+      "howMade": "7zz a(build-fixtures.sh)。vol1/001〜002.png、vol2/001〜002.png(ディレクトリエントリを含む)",
+      "purpose": "ディレクトリエントリをページに数えないこと、フォルダごとにまとまる並び",
+      "book": {
+        "sortKeys": [
+          "vol1/001.png",
+          "vol1/002.png",
+          "vol2/001.png",
+          "vol2/002.png"
+        ]
+      }
+    },
+    "nested/nested-7z-in-zip.cbz": {
+      "bytes": 769,
+      "sha256": "7a415ca10e90372df6e5639c09a5241436fb53948d336cf0dd446417309863f1",
+      "howMade": "zip -r(build-fixtures.sh)。中身は ch01.cb7(1〜3)と ch02.cb7(4〜6)",
+      "purpose": "zip の中の 7z を辿る。sortKey が「親のエントリパス/中のパス」になること",
+      "book": {
+        "sortKeys": [
+          "ch01.cb7/001.png",
+          "ch01.cb7/002.png",
+          "ch01.cb7/003.png",
+          "ch02.cb7/001.png",
+          "ch02.cb7/002.png",
+          "ch02.cb7/003.png"
+        ]
+      }
+    },
+    "nested/nested-appledouble-inside.cbz": {
+      "bytes": 604,
+      "sha256": "8ce530e785da0a974d2f9e413638b57097edc9d8998c9e0800cc27df7c7599fd",
+      "howMade": "zip -r(build-fixtures.sh)。中身の ch01-ditto.cbz は ditto --sequesterRsrc で作り、__MACOSX/ch01/._*.png を含む",
+      "purpose": "入れ子の書庫の中の __MACOSX/._ も弾くこと(isAppleDoubleEntry は先頭要素だけを見ない)",
+      "book": {
+        "sortKeys": [
+          "ch01-ditto.cbz/ch01/001.png",
+          "ch01-ditto.cbz/ch01/002.png",
+          "ch01-ditto.cbz/ch01/003.png"
+        ]
+      }
+    },
+    "nested/nested-broken-inner.cbz": {
+      "bytes": 579,
+      "sha256": "d25d80d3f5942ba7b47e9a29aeea6d2f98d9ad47ab93c26329380c213d26c5b7",
+      "howMade": "zip -r(build-fixtures.sh)。中身は末尾を切った broken.cbz と正常な ch02.cbz(4〜6)",
+      "purpose": "開けない内側の書庫は飛ばし、残りだけで本になること(BookLoader.collectPages の catch)",
+      "book": {
+        "sortKeys": [
+          "ch02.cbz/001.png",
+          "ch02.cbz/002.png",
+          "ch02.cbz/003.png"
+        ]
+      }
+    },
+    "nested/nested-depth3.cbz": {
+      "bytes": 1075,
+      "sha256": "c84a1218cf490a249983ef953d942c72311cddfe817e3fbe228b7af94479ed8d",
+      "howMade": "zip -r(build-fixtures.sh)。外側 001〜003.png + level2.cbz(001〜003.png + level3.cbz(001〜002.png))",
+      "purpose": "3 段の入れ子。各段の画像が 1 冊に並び、sortKey が段ごとに / で連結されること",
+      "book": {
+        "sortKeys": [
+          "001.png",
+          "002.png",
+          "003.png",
+          "level2.cbz/001.png",
+          "level2.cbz/002.png",
+          "level2.cbz/003.png",
+          "level2.cbz/level3.cbz/001.png",
+          "level2.cbz/level3.cbz/002.png"
+        ]
+      }
+    },
+    "nested/nested-in-subfolder.cbz": {
+      "bytes": 795,
+      "sha256": "2787ae105df0f5210204ed7b441dde97342dd5fc8672b23dd0a318a87a204dde",
+      "howMade": "zip -r(build-fixtures.sh)。chapters/ch01.cbz(1〜3)と chapters/ch02.cbz(4〜6)",
+      "purpose": "書庫の中のフォルダに置かれた書庫。sortKey にフォルダ名が付くこと",
+      "book": {
+        "sortKeys": [
+          "chapters/ch01.cbz/001.png",
+          "chapters/ch01.cbz/002.png",
+          "chapters/ch01.cbz/003.png",
+          "chapters/ch02.cbz/001.png",
+          "chapters/ch02.cbz/002.png",
+          "chapters/ch02.cbz/003.png"
+        ]
+      }
+    },
+    "nested/nested-rar-in-zip.cbz": {
+      "bytes": 642,
+      "sha256": "d41d09f7659f07c4304a6f584a10d5e30a59f9df1d1e4ce75d91e9505dead2da",
+      "howMade": "zip -r(build-fixtures.sh)。中身は ch01.cbr(1〜3)と ch02.cbr(4〜6)",
+      "purpose": "zip の中の rar を辿る(Unrar.swift フォークのメモリ入力)",
+      "book": {
+        "sortKeys": [
+          "ch01.cbr/001.png",
+          "ch01.cbr/002.png",
+          "ch01.cbr/003.png",
+          "ch02.cbr/001.png",
+          "ch02.cbr/002.png",
+          "ch02.cbr/003.png"
+        ]
+      }
+    },
+    "nested/nested-same-name-file-and-folder.cbz": {
+      "bytes": 789,
+      "sha256": "2c3de6b554e8e5ae239b872779b50a3323fa73aba08bb1efaf397e5d80425715",
+      "howMade": "make-legacy-zip.py(build-fixtures.sh)。エントリ a.zip(= ch01.cbz、1〜3)と a.zip/001.png(番号 2)",
+      "purpose": "docs/04「書庫の中に a.zip というファイルと a.zip/ というフォルダが同居」。sortKey は一致しうるが id は衝突しない",
+      "book": {
+        "sortKeys": [
+          "a.zip/001.png",
+          "a.zip/001.png",
+          "a.zip/002.png",
+          "a.zip/003.png"
+        ],
+        "note": "先頭 2 つの sortKey は同じ。id の一意性はテスト側で別に見る"
+      }
+    },
+    "nested/nested-with-loose-pages.cbz": {
+      "bytes": 504,
+      "sha256": "619a832723416b97c2ea30b540bba95eaace208832375192acf6f97c35e2d02b",
+      "howMade": "zip -r(build-fixtures.sh)。cover.png(番号 7)と ch01.cbz(1〜3)",
+      "purpose": "直下の画像と書庫の同居。正準順で ch01.cbz/ が cover.png より前に来る",
+      "book": {
+        "sortKeys": [
+          "ch01.cbz/001.png",
+          "ch01.cbz/002.png",
+          "ch01.cbz/003.png",
+          "cover.png"
+        ]
+      }
+    },
+    "nested/nested-zip-in-7z.cb7": {
+      "bytes": 511,
+      "sha256": "95c4dcf9c4e933e41bc554a3056a095a923e5cd5192fc8dfa36fa83317c0e37d",
+      "howMade": "7zz a(build-fixtures.sh)。中身は ch01.cbz(1〜3)と ch02.cbz(4〜6)",
+      "purpose": "7z の中の zip を辿る",
+      "book": {
+        "sortKeys": [
+          "ch01.cbz/001.png",
+          "ch01.cbz/002.png",
+          "ch01.cbz/003.png",
+          "ch02.cbz/001.png",
+          "ch02.cbz/002.png",
+          "ch02.cbz/003.png"
+        ]
+      }
+    },
+    "nested/nested-zip-in-rar.cbr": {
+      "bytes": 682,
+      "sha256": "faadbd049ded7a208482e6d2af523a7a1c54aec341fd52f57dbbac09483f570a",
+      "howMade": "rar a -ma5(build-fixtures.sh)。中身は ch01.cbz(1〜3)と ch02.cbz(4〜6)",
+      "purpose": "rar の中の zip を辿る",
+      "book": {
+        "sortKeys": [
+          "ch01.cbz/001.png",
+          "ch01.cbz/002.png",
+          "ch01.cbz/003.png",
+          "ch02.cbz/001.png",
+          "ch02.cbz/002.png",
+          "ch02.cbz/003.png"
+        ]
+      }
+    },
+    "nested/nested-zip-in-zip.cbz": {
+      "bytes": 665,
+      "sha256": "8f5513fd088f3cf663ddb40b2f0f985ea8e1f6269913332405f89bf6efafb556",
+      "howMade": "zip -r(build-fixtures.sh)。中身は ch01.cbz(1〜3)と ch02.cbz(4〜6)",
+      "purpose": "zip の中の zip を辿る(入れ子の基本形)",
+      "book": {
+        "sortKeys": [
+          "ch01.cbz/001.png",
+          "ch01.cbz/002.png",
+          "ch01.cbz/003.png",
+          "ch02.cbz/001.png",
+          "ch02.cbz/002.png",
+          "ch02.cbz/003.png"
+        ]
+      }
+    },
+    "pdf/pdf-l2r-singlepage.pdf": {
+      "bytes": 769,
+      "sha256": "5a558ecd371bac4faa0138273e9e9fd870991b6d13ff3d53b447aa3e6447edba",
+      "howMade": "make-pdf.py --pages 2 --direction L2R --page-layout SinglePage(build-fixtures.sh)",
+      "purpose": "/Direction L2R は leftToRight、/PageLayout SinglePage は単ページ強制とみなさない(nil)",
+      "book": {
+        "sortKeys": [
+          "000000",
+          "000001"
+        ],
+        "pageOrderSource": "document",
+        "layoutHint": {
+          "direction": "leftToRight",
+          "displayMode": null
+        }
+      }
+    },
+    "pdf/pdf-outline.pdf": {
+      "bytes": 1813,
+      "sha256": "83018de650b16062b908e24baa9f240cf10bd1134ebe71182eb1ffaf7e1b57d7",
+      "howMade": "make-pdf.py --pages 4 --outline --title テスト本 --author 作者 --keywords fixture(build-fixtures.sh)",
+      "purpose": "入れ子のアウトライン(第1章 › 1.1 節、第2章)と Info 辞書(UTF-16BE の文字列)を読む正解",
+      "book": {
+        "sortKeys": [
+          "000000",
+          "000001",
+          "000002",
+          "000003"
+        ],
+        "pageOrderSource": "document",
+        "layoutHint": null
+      }
+    },
+    "pdf/pdf-plain.pdf": {
+      "bytes": 937,
+      "sha256": "d0f396dfab5a230e5cc618cbb7089cf47d0053473529e918f3448398af2b7bda",
+      "howMade": "make-pdf.py --pages 3(build-fixtures.sh)",
+      "purpose": "Catalog にレイアウトの項目が無い PDF。sourceLayoutHint が nil になること",
+      "book": {
+        "sortKeys": [
+          "000000",
+          "000001",
+          "000002"
+        ],
+        "pageOrderSource": "document",
+        "layoutHint": null
+      }
+    },
+    "pdf/pdf-r2l-twopageleft.pdf": {
+      "bytes": 1003,
+      "sha256": "ea46a7bd84059786899103f38b9521782953a536d7b29da1610cb644350434d4",
+      "howMade": "make-pdf.py --pages 3 --direction R2L --page-layout TwoPageLeft(build-fixtures.sh)",
+      "purpose": "/ViewerPreferences/Direction R2L → rightToLeft、/PageLayout TwoPageLeft → 見開き強制。生成側(PDFCatalogAugmenter)に依存しない読み取りの正解",
+      "book": {
+        "sortKeys": [
+          "000000",
+          "000001",
+          "000002"
+        ],
+        "pageOrderSource": "document",
+        "layoutHint": {
+          "direction": "rightToLeft",
+          "displayMode": "spread"
+        }
+      }
+    },
+    "rar/rar-encrypted.cbr": {
+      "bytes": 1985,
+      "sha256": "4dec3dbedc53b804a67849ee7784516540cdbce5a3b52b4c1763f6ca43c75ac8",
+      "howMade": "rar a -ma5 -phunter2(build-fixtures.sh)。001〜003.jpg。ヘッダは暗号化していない(-hp ではない)",
+      "purpose": "一覧は読めるが中身は取り出せない書庫。本としては開け、data(at:) が throw すること",
+      "book": {
+        "sortKeys": [
+          "001.jpg",
+          "002.jpg",
+          "003.jpg"
+        ],
+        "note": "ページは開けない(暗号化)。Reader の適合テストで data(at:) の失敗を見る"
+      }
+    },
+    "rar/rar-flat.cbr": {
+      "bytes": 1826,
+      "sha256": "e9c3f02a1978d99d102591ee7992663eae3629535af23281c2fd4daa5d627c07",
+      "howMade": "rar a -ma5(build-fixtures.sh)。001〜003.jpg",
+      "purpose": "RAR5 の基本。RarArchiveReader の列挙・取り出し・作成/更新日時",
+      "book": {
+        "sortKeys": [
+          "001.jpg",
+          "002.jpg",
+          "003.jpg"
+        ]
+      }
+    },
+    "rar/rar-japanese-names.cbr": {
+      "bytes": 442,
+      "sha256": "937d07b208abd807b9b52ee45065db80497b37458b079310bfe64f402262a9cc",
+      "howMade": "rar a -ma5(build-fixtures.sh)。第1巻/001〜003.png",
+      "purpose": "RAR5 の Unicode 名。RAR4 の非 Unicode 名(化ける既知の限界)は rar 7.2x で作れないため未収録",
+      "book": {
+        "sortKeys": [
+          "第1巻/001.png",
+          "第1巻/002.png",
+          "第1巻/003.png"
+        ]
+      }
+    },
+    "rar/rar-solid.cbr": {
+      "bytes": 421,
+      "sha256": "fbbd29a4b7892b28fffa4bc39432ed24817b8641558e731af0a735cfd7068123",
+      "howMade": "rar a -ma5 -s(build-fixtures.sh)。001〜005.png",
+      "purpose": "ソリッドの rar。順不同に取り出しても正しいこと(unrar が内部で頭から解く)",
+      "book": {
+        "sortKeys": [
+          "001.png",
+          "002.png",
+          "003.png",
+          "004.png",
+          "005.png"
+        ]
+      }
+    },
+    "rar/rar-with-dirs.cbr": {
+      "bytes": 586,
+      "sha256": "2ee5e5a636e87968de4e88af14c34f6eb79ffadcb3252a53defd38c393eae82e",
+      "howMade": "rar a -ma5 -r(build-fixtures.sh)。vol1/001〜002.png、vol2/001〜002.png(ディレクトリエントリを含む)",
+      "purpose": "ディレクトリエントリをページに数えないこと",
+      "book": {
+        "sortKeys": [
+          "vol1/001.png",
+          "vol1/002.png",
+          "vol2/001.png",
+          "vol2/002.png"
+        ]
+      }
+    },
+    "zip/zip-big5-noflag.zip": {
+      "bytes": 563,
+      "sha256": "f210ce7691e4ac060092677aabe9eff623a502bd2e67cfb59778863a4a4a80bf",
+      "howMade": "make-legacy-zip.py big5(build-fixtures.sh)。第1卷/001頁.png、002頁.png、封面.png。UTF-8 フラグ無し",
+      "purpose": "Big5(繁体字 Windows)の名前。自動判定と決め打ち候補(codepage950)",
+      "book": {
+        "sortKeys": [
+          "第1卷/001頁.png",
+          "第1卷/002頁.png",
+          "第1卷/封面.png"
+        ],
+        "note": "Big5 の判定は手元(日本語ロケール)では当たった。ロケールが違う CI で外れたら cp949 と同じくページ数だけに落とす"
+      }
+    },
+    "zip/zip-cp932-noflag.zip": {
+      "bytes": 579,
+      "sha256": "076436e63f0fafa4348d5f6d4cb4a9436d61109f6ab2e8cb4d58eea84954fbbc",
+      "howMade": "make-legacy-zip.py cp932(build-fixtures.sh)。第1巻/001ページ.png、002ページ.png、表紙.png。UTF-8 フラグ無し",
+      "purpose": "古い日本語 Windows/Mac の zip。EntryNameDecoder が書庫全体で CP932 と判定して戻すこと",
+      "book": {
+        "sortKeys": [
+          "第1巻/001ページ.png",
+          "第1巻/002ページ.png",
+          "第1巻/表紙.png"
+        ]
+      }
+    },
+    "zip/zip-cp932-short-names.zip": {
+      "bytes": 511,
+      "sha256": "4e1eef9239b5f4b72d6523f1926666071c77aec15e6a37257e628bd3c3ec2df4",
+      "howMade": "make-legacy-zip.py cp932(build-fixtures.sh)。あ.png、い.png、う.png",
+      "purpose": "1 文字の名前だけの書庫。1 件ずつでは判定が外れる長さでも、書庫全体で 1 回判定すれば戻ること(docs/04)",
+      "book": {
+        "sortKeys": [
+          "あ.png",
+          "い.png",
+          "う.png"
+        ]
+      }
+    },
+    "zip/zip-cp949-noflag.zip": {
+      "bytes": 563,
+      "sha256": "0ccc7be8d88be55628b75ba1b4fed186e2457482e24f7da4e24b684c74504d36",
+      "howMade": "make-legacy-zip.py cp949(build-fixtures.sh)。제1권/001쪽.png、002쪽.png、표지.png",
+      "purpose": "韓国語 Windows(Unified Hangul Code)の名前",
+      "book": {
+        "pageCount": 3,
+        "note": "既知の限界(2026-09-05 に発見): CP949 のバイト列は Shift-JIS としても妥当で、日本語ロケールでは Shift-JIS と判定され化ける。判定はロケールに依存しうるためページ数だけを固定する"
+      }
+    },
+    "zip/zip-ditto.cbz": {
+      "bytes": 3094,
+      "sha256": "53df4917f00f4ebd77cb2edfdb094d22e368bd8a8ab6071edb0c93ce3ac4276c",
+      "howMade": "ditto -c -k --sequesterRsrc --keepParent B_src(build-fixtures.sh。Finder の「圧縮」と同じ)。拡張属性付きの 001〜003.jpg なので __MACOSX/B_src/._*.jpg が入る",
+      "purpose": "ユーザー報告 2026-09-03 の再現。__MACOSX/._*.jpg をページに数えないこと、ディレクトリエントリ、NFC・フラグ無しの名前",
+      "book": {
+        "sortKeys": [
+          "B_src/001.jpg",
+          "B_src/002.jpg",
+          "B_src/003.jpg"
+        ]
+      }
+    },
+    "zip/zip-empty.cbz": {
+      "bytes": 22,
+      "sha256": "8739c76e681f900923b900c9df0ef75cf421d39cabb54650c4b9ad19b6a76d85",
+      "howMade": "make-legacy-zip.py(エントリ無し = EOCD だけの 22 バイト)",
+      "purpose": "空の zip。開けるがページが無い → BookLoaderError.noPages",
+      "book": {
+        "error": "noPages"
+      }
+    },
+    "zip/zip-eucjp-noflag.zip": {
+      "bytes": 579,
+      "sha256": "8e347d61af7d32ff1ac02ccfa6419d178df7cf2ef5474fafbfad2f83a530944e",
+      "howMade": "make-legacy-zip.py euc_jp(build-fixtures.sh)。zip-cp932-noflag.zip と同じ名前を EUC-JP で",
+      "purpose": "EUC-JP の名前(Unix 由来の古い zip)",
+      "book": {
+        "pageCount": 3,
+        "note": "既知の限界(2026-09-05 に発見): Foundation の自動判定が EUC-JP を当てられず、単バイトの文字コードとして「読めて」しまうため名前が化ける。ページ数だけを固定する"
+      }
+    },
+    "zip/zip-mixed-case.cbz": {
+      "bytes": 547,
+      "sha256": "55f37ba2bf320b9142bb2cb9c727b44c471fd1d951957fb837da3df202d9bdab",
+      "howMade": "make-legacy-zip.py utf8flag(build-fixtures.sh)。_Cover.PNG、Page_0001.png、page-0002.png",
+      "purpose": "1.37 の報告と同じ命名(先頭アンダースコア・大文字小文字・_ と - の混在)。正準順の並びと differsByOrderSetting",
+      "book": {
+        "sortKeys": [
+          "_Cover.PNG",
+          "Page_0001.png",
+          "page-0002.png"
+        ]
+      }
+    },
+    "zip/zip-mixed-cp932-cp949.zip": {
+      "bytes": 376,
+      "sha256": "853d08433aac0aa4e105a6f997039d55dc22ae99ba3c78e165599c0cb9a5ce67",
+      "howMade": "make-legacy-zip.py(build-fixtures.sh)。第1巻/001.png を CP932、제1권/001.png を CP949 で",
+      "purpose": "既知の限界(docs/04): 1 つの書庫に CP932 と CP949 が混在すると一方に倒れる。落ちず 2 ページになることだけを固定する",
+      "book": {
+        "pageCount": 2,
+        "note": "既知の限界。どちらの名前が化けるかは判定次第なので sortKeys は固定しない"
+      }
+    },
+    "zip/zip-mixed-utf8-cp932.zip": {
+      "bytes": 585,
+      "sha256": "00ef50e7b9e375967dcc5790dbce32b4420d63b349af07d8aeff73732f4d8f93",
+      "howMade": "make-legacy-zip.py(build-fixtures.sh)。日本語/001.png は UTF-8 + フラグ、第1巻/001〜002ページ.png は CP932",
+      "purpose": "UTF-8 のエントリと CP932 のエントリの同居。UTF-8 は判定の標本に混ぜず、両方とも正しく戻ること",
+      "book": {
+        "sortKeys": [
+          "第1巻/001ページ.png",
+          "第1巻/002ページ.png",
+          "日本語/001.png"
+        ],
+        "note": "正準順(localizedStandardCompare)では「第」が「日」より前に来る"
+      }
+    },
+    "zip/zip-nfc-nfd-same-name.zip": {
+      "bytes": 523,
+      "sha256": "1cd8e755eb6269a22fbe960c39c09a7eabd25eb8e9209a6edf5b4b42e0030b0d",
+      "howMade": "make-legacy-zip.py utf8flag(build-fixtures.sh)。001.png、が.png(NFC)、が.png(NFD: か + U+3099)",
+      "purpose": "既知の限界(zip-filename-unicode-normalization): NFC と NFD の同名は後勝ちで 1 ページになる",
+      "book": {
+        "sortKeys": [
+          "001.png",
+          "が.png"
+        ],
+        "note": "Swift の String == は正準等価なので、NFC/NFD どちらの形が残っても一致する"
+      }
+    },
+    "zip/zip-no-images.cbz": {
+      "bytes": 133,
+      "sha256": "273bdc2f2636e61aed61e1d9b3e5ff9e59802716a165eba3b5ffd1e0357cc800",
+      "howMade": "make-legacy-zip.py(build-fixtures.sh)。readme.txt だけ",
+      "purpose": "画像の無い zip → BookLoaderError.noPages",
+      "book": {
+        "error": "noPages"
+      }
+    },
+    "zip/zip-not-a-zip.cbz": {
+      "bytes": 27,
+      "sha256": "3601db14628623097009827baa09d69e86a7b3f6bc0b043b63bc2323aab633f9",
+      "howMade": "printf でテキストを書き、拡張子だけ .cbz",
+      "purpose": "zip ではないファイル。開けない(throw するが落ちない)",
+      "book": {
+        "error": "unreadable"
+      }
+    },
+    "zip/zip-truncated.cbz": {
+      "bytes": 300,
+      "sha256": "90460d5aecad83c1378d9da55c9a00e44e8609ee4c514f679e1d172c7290dd93",
+      "howMade": "make-legacy-zip.py --truncate 300(build-fixtures.sh)。3 ページの zip の先頭 300 バイトだけ",
+      "purpose": "セントラルディレクトリを失った zip。開けない(throw するが落ちない)",
+      "book": {
+        "error": "unreadable"
+      }
+    },
+    "zip/zip-utf8-noflag.zip": {
+      "bytes": 577,
+      "sha256": "be252d85717fe5a5c9e943be621fed695c11f6def2695c61dbca76efdf1a58ef",
+      "howMade": "make-legacy-zip.py utf8(build-fixtures.sh)。日本語/001〜003.png、UTF-8 だがフラグ無し",
+      "purpose": "UTF-8 フラグを立て忘れた書庫。バイト列で UTF-8 と分かるものはエントリ単位で先に拾うこと",
+      "book": {
+        "sortKeys": [
+          "日本語/001.png",
+          "日本語/002.png",
+          "日本語/003.png"
+        ]
+      }
+    },
+    "zip/zip-zipcli.cbz": {
+      "bytes": 1041,
+      "sha256": "b3cbc8868f2b6c62c193dfd8119c9035b388d9897ec63b83646601c6b865116e",
+      "howMade": "zip -r -X(build-fixtures.sh)。cover.png(番号 5)、vol1/001〜002.png、vol2/001〜002.png。ディレクトリエントリを含む",
+      "purpose": "Info-ZIP の zip(NFC・フラグ無し)。ディレクトリエントリを数えず、フォルダごとにまとまる並び",
+      "book": {
+        "sortKeys": [
+          "cover.png",
+          "vol1/001.png",
+          "vol1/002.png",
+          "vol2/001.png",
+          "vol2/002.png"
+        ]
+      }
+    }
+  }
+}
