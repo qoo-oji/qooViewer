@@ -53,12 +53,14 @@ Swift Testing の単体テストです(2026-09-05 追加)。アプリを TEST_HO
 `com.apple.product-type.bundle.unit-test` で、`@testable import qooViewer` でアプリの型を直接見ます。
 ビルド設定はアプリ側と揃えてあります(`SWIFT_VERSION = 5.0`、`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`)。
 
-対象は **UI を伴わない `nonisolated` のパイプライン** です(2026-09-05 に「純粋ロジックだけ」から
-広げました)。拡張子の判定・並び順のような純粋な関数に加えて、書庫の読み取り → `BookLoader` →
-`PageRef` までの経路と、EPUB / PDF の構造解決を、下記のフィクスチャで通します。画面の自動操作
-(AX 経由)は再現性が低いので載せません(→ [12](12-verification-and-debugging.md))。
+対象は **UI を伴わない経路**です(2026-09-05 に「純粋ロジックだけ」から広げました)。拡張子の
+判定・並び順のような純粋な関数に加えて、書庫の読み取り → `BookLoader` → `PageRef` までの経路、
+EPUB / PDF の構造解決、書き出しのラウンドトリップ、そして**メモリ内の SwiftData の上で動かす
+保存データの取り込み**(段階 4。ストアはメインアクターの型なので、そこだけ `nonisolated` では
+ありません)を、下記のフィクスチャで通します。画面の自動操作(AX 経由)は再現性が低いので
+載せません(→ [12](12-verification-and-debugging.md))。
 
-いまある suite(2026-09-06 時点、335 テスト・約 1.9 秒):
+いまある suite(2026-09-06 時点、361 テスト・約 2.1 秒):
 
 読み込みの経路(段階 1):
 
@@ -111,14 +113,28 @@ ComicInfo v2.0 の XSD にかけます(下の「CI」)。**添付にしている
 ビルド設定へは展開されず、xcodebuild を起動したシェルの環境変数もテストホストへは引き継がれず、
 手元の TEST_HOST は署名済み = サンドボックスの中なのでコンテナの外へは書けない)。
 
-残っている段階(4)は [13](13-history-and-known-limitations.md#テストのパタンセット--段階-4引き継ぎ2026-09-06)。
+保存データ(段階 4、2026-09-06 追加):
+
+| suite | 見るもの |
+| --- | --- |
+| `LibraryImportTests` | JSON を実際のライブラリへ流し込んだ結果 ―― 方針(overwrite / merge / ignore)ごとの増減、お気に入りの木、ブックマークの鍵 → 番号の変換、**レイアウトをブックマークより先に取り込むこと**(利用者報告の回帰)、フォーマット定義の差し替え、別のライブラリへ移す往復 |
+| `SourceLayoutImportTests` | EPUB / PDF が自分で持つレイアウトを DB へ**一度だけ**取り込むこと(`LayoutStore.importSourceLayoutIfNeeded`)。2 回目は何もしない・先にあった設定を上書きしない・取り込むものが無ければ行を作らない |
+
+ライブラリは `qooViewerTests/Support/InMemoryLibrary.swift` ―― `isStoredInMemoryOnly` の
+`ModelContainer` を**テストが自前で作り**、その `mainContext` の上にアプリと同じ 5 つのストアを
+載せたものです(アプリの `QooViewerApp.modelContainer.mainContext` には触れません)。スキーマは
+アプリの `QooViewerApp.modelSchema` をそのまま使います(モデル型の一覧を書き写すと、アプリに
+モデルを足したときテストだけ古いスキーマで走り続けるため)。
 
 **テストは共有の保存先に触れません。** TEST_HOST は実物のアプリなので、手元では自分の履歴・
 キャッシュ・SwiftData と同じコンテナで走ります。本を開くときは `FixtureBook.load`
 (`BookLoader.load(cachesPageList: false)` を固定)を通し、`UserDefaults.standard`・
 `BookPageListCache.shared`・`ThumbnailDiskCache.shared`・`modelContainer.mainContext` は読みも
 書きもしません。並び順の設定が絡むところは `EffectivePageOrder` の `usesFinderOrderOverride:` を
-明示します。
+明示します。保存データの取り込みも同じで、`LibraryImportExportService.apply` /
+`buildExportFile` の `cachesPageList:`(取り込みは本を読み直すため)を `false` にし、
+`MetadataFormatStore` にはこのテスト専用の `UserDefaults(suiteName:)` を渡します
+(どちらもテストのための口で、アプリからは既定のまま呼びます)。
 
 手元でテストを回すときは通常の署名のままで(`CODE_SIGNING_ALLOWED=NO` を付けない)。署名の無い
 TEST_HOST はビルドごとに別のアプリとして扱われ、起動のたびに macOS がリムーバブルボリュームへの

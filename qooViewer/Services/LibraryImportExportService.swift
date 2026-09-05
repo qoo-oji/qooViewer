@@ -47,13 +47,19 @@ enum LibraryImportExportService {
         }
     }
 
+    /// - Parameter cachesPageList: 取り込み/書き出しの途中で読み直す本を、ページ一覧の
+    ///   ディスクキャッシュ(BookPageListCache)へ書き戻すかどうか。単体テストはここをfalseに
+    ///   して、実物のアプリと同じ保存先(テストはTEST_HOST=実物のアプリの中で走る)へ
+    ///   テスト用の本の痕跡を残さないようにする。通常の経路(取り込み/書き出しウインドウ)は
+    ///   既定のtrueのまま ―― 一度読んだ本のページ一覧は、次に開くときの近道として残しておく。
     static func buildExportFile(
         selection: ExportSelection,
         favoritesStore: FavoritesStore,
         bookmarkStore: BookmarkStore,
         layoutStore: LayoutStore,
         metadataStore: BookMetadataStore,
-        metadataFormatStore: MetadataFormatStore
+        metadataFormatStore: MetadataFormatStore,
+        cachesPageList: Bool = true
     ) async -> (QooLibraryExportFile, ExportResult) {
         var file = QooLibraryExportFile()
         var result = ExportResult()
@@ -65,7 +71,8 @@ enum LibraryImportExportService {
         }
         if selection.includeBookmarks {
             let (bookmarks, skipped) = await exportBookmarks(
-                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+                cachesPageList: cachesPageList
             )
             file.bookmarks = bookmarks
             result.skippedBookmarkBookIDs = skipped
@@ -198,7 +205,8 @@ enum LibraryImportExportService {
     /// 失敗した場合(URLが解決できない/ファイルが見つからない/読み込みエラー)はnilを返す。
     private static func loadBook(
         bookID: String, fileNodeIdentifier: FileNodeIdentifier?,
-        favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore
+        favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
+        cachesPageList: Bool
     ) async -> MangaBook? {
         guard let url = resolveURL(
             bookID: bookID, fileNodeIdentifier: fileNodeIdentifier,
@@ -206,11 +214,12 @@ enum LibraryImportExportService {
         ) else { return nil }
         let didAccess = url.startAccessingSecurityScopedResource()
         defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
-        return try? await BookLoader.load(from: url)
+        return try? await BookLoader.load(from: url, cachesPageList: cachesPageList)
     }
 
     private static func exportBookmarks(
-        favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore
+        favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
+        cachesPageList: Bool
     ) async -> ([ExportedBookmarkEntry], [String]) {
         var result: [ExportedBookmarkEntry] = []
         var skipped: [String] = []
@@ -223,7 +232,8 @@ enum LibraryImportExportService {
             var fileNodeIdentifier = bookmarks.lazy.compactMap(\.fileNodeIdentifier).first
             guard let book = await loadBook(
                 bookID: group.bookID, fileNodeIdentifier: fileNodeIdentifier,
-                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+                cachesPageList: cachesPageList
             ) else {
                 skipped.append(group.bookID)
                 continue
@@ -391,6 +401,11 @@ enum LibraryImportExportService {
         var didImportMetadataFormats = false
     }
 
+    /// - Parameter cachesPageList: 取り込み/書き出しの途中で読み直す本を、ページ一覧の
+    ///   ディスクキャッシュ(BookPageListCache)へ書き戻すかどうか。単体テストはここをfalseに
+    ///   して、実物のアプリと同じ保存先(テストはTEST_HOST=実物のアプリの中で走る)へ
+    ///   テスト用の本の痕跡を残さないようにする。通常の経路(取り込み/書き出しウインドウ)は
+    ///   既定のtrueのまま ―― 一度読んだ本のページ一覧は、次に開くときの近道として残しておく。
     static func apply(
         _ file: QooLibraryExportFile,
         policies: ImportPolicies,
@@ -398,7 +413,8 @@ enum LibraryImportExportService {
         bookmarkStore: BookmarkStore,
         layoutStore: LayoutStore,
         metadataStore: BookMetadataStore,
-        metadataFormatStore: MetadataFormatStore
+        metadataFormatStore: MetadataFormatStore,
+        cachesPageList: Bool = true
     ) async -> ImportSummary {
         var summary = ImportSummary()
 
@@ -424,14 +440,14 @@ enum LibraryImportExportService {
             await applyLayouts(
                 layouts, policy: policies.layouts,
                 favoritesStore: favoritesStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore,
-                summary: &summary
+                cachesPageList: cachesPageList, summary: &summary
             )
         }
         if let bookmarks = file.bookmarks, policies.bookmarks != .ignore {
             await applyBookmarks(
                 bookmarks, policy: policies.bookmarks,
                 favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-                summary: &summary
+                cachesPageList: cachesPageList, summary: &summary
             )
         }
         if let metadata = file.metadata, policies.metadata != .ignore {
@@ -629,13 +645,14 @@ enum LibraryImportExportService {
     private static func applyBookmarks(
         _ bookmarks: [ExportedBookmarkEntry], policy: ImportPolicy,
         favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
-        summary: inout ImportSummary
+        cachesPageList: Bool, summary: inout ImportSummary
     ) async {
         for entry in bookmarks {
             guard !entry.bookmarks.isEmpty else { continue }
             guard let book = await loadBook(
                 bookID: entry.bookID, fileNodeIdentifier: entry.fileNodeIdentifier,
-                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+                cachesPageList: cachesPageList
             ) else {
                 summary.bookmarksSkippedBookIDs.append(entry.bookID)
                 continue
@@ -699,12 +716,13 @@ enum LibraryImportExportService {
     private static func applyLayouts(
         _ layouts: [ExportedBookLayoutEntry], policy: ImportPolicy,
         favoritesStore: FavoritesStore, layoutStore: LayoutStore, bookmarkStore: BookmarkStore,
-        summary: inout ImportSummary
+        cachesPageList: Bool, summary: inout ImportSummary
     ) async {
         for entry in layouts {
             guard let book = await loadBook(
                 bookID: entry.bookID, fileNodeIdentifier: entry.fileNodeIdentifier,
-                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+                cachesPageList: cachesPageList
             ) else {
                 summary.layoutsSkippedBookIDs.append(entry.bookID)
                 continue

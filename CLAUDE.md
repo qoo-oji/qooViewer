@@ -10,14 +10,16 @@ It supports folders, zip/cbz, rar/cbr, 7z/cb7, PDF, and EPUB (fixed-layout, imag
 ## Build & run
 
 This is a GUI app, verified by building and running it in Xcode. There is a unit test target
-(`qooViewerTests`, Swift Testing) covering the UI-free `nonisolated` pipeline: page ordering and filename
-classification, the archive-reader → `BookLoader` → `PageRef` path, EPUB/PDF structure resolution, and the
-export round-trip (`CbzExporter`/`EpubExporter`/`PDFExporter` → read back),
+(`qooViewerTests`, Swift Testing) covering the UI-free pipeline: page ordering and filename
+classification, the archive-reader → `BookLoader` → `PageRef` path, EPUB/PDF structure resolution, the
+export round-trip (`CbzExporter`/`EpubExporter`/`PDFExporter` → read back), and the saved-data import
+path (`LibraryImportExportService.apply` / `LayoutStore.importSourceLayoutIfNeeded`) on an
+in-memory SwiftData container the test builds itself (`qooViewerTests/Support/InMemoryLibrary.swift`),
 driven by small book fixtures in `qooViewerTests/Fixtures/` (ledger: `manifest.json`; golden = the
 `PageRef.sortKey` sequence, i.e. the DB page keys) plus in-test builders in `qooViewerTests/Support/`.
 Tests run inside the real app (TEST_HOST) and must never touch shared state — open books through
-`FixtureBook.load` (`cachesPageList: false`), never `UserDefaults.standard` / `*.shared` caches /
-`mainContext`. Run tests locally with normal signing (no `CODE_SIGNING_ALLOWED=NO`: an unsigned test
+`FixtureBook.load` (`cachesPageList: false`), build stores on `InMemoryLibrary`'s own container, never
+`UserDefaults.standard` / `*.shared` caches / `QooViewerApp.modelContainer.mainContext`. Run tests locally with normal signing (no `CODE_SIGNING_ALLOWED=NO`: an unsigned test
 host triggers a macOS removable-volume permission dialog on every launch). Fixture regeneration is
 `scripts/fixtures/build-fixtures.sh` (local only; needs `7zz` and `rar`); details in
 `docs/02-project-and-build.md`. Everything about the UI is still verified by running the app.

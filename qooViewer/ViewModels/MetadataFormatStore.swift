@@ -81,8 +81,13 @@ final class MetadataFormatStore: ObservableObject {
         revision &+= 1
     }
 
-    init() {
-        let defaults = UserDefaults.standard
+    /// 保存先。単体テストだけが`UserDefaults(suiteName:)`の一時的な領域を渡し、実物のアプリと
+    /// 同じ保存先(テストはTEST_HOST=実物のアプリの中で走る)にある利用者のルールを
+    /// 書き換えないようにする。アプリからは常に既定の`.standard`。
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         // 保存済みの値が無い(初回起動)、または壊れて読めない場合は既定値から始める。
         filenameFormats = Self.load([MetadataFilenameFormat].self, forKey: Keys.filenameFormats, from: defaults)
             ?? MetadataFilenameFormat.defaults
@@ -121,7 +126,7 @@ final class MetadataFormatStore: ObservableObject {
 
     private func persist<T: Encodable>(_ value: T, forKey key: String) {
         guard let data = try? JSONEncoder().encode(value) else { return }
-        UserDefaults.standard.set(data, forKey: key)
+        defaults.set(data, forKey: key)
     }
 
     private static func load<T: Decodable>(_ type: T.Type, forKey key: String, from defaults: UserDefaults) -> T? {

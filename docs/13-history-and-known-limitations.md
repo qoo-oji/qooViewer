@@ -94,14 +94,12 @@
 - 環境設定「レイアウト」の形式ページを、アプリの他の場所から名指しで開く経路
   (`SettingsNavigator` に `appearanceTarget` 相当が無い)。
 
-### テストのパタンセット ―― 段階 4(引き継ぎ、2026-09-06)
+### テストのパタンセット ―― 段階 0〜4(完了、2026-09-06)
 
-`qooViewerTests` を「UI を伴わない nonisolated のパイプライン」まで広げる計画(段階 0〜4)のうち、
-**段階 0(フィクスチャ・台帳・生成スクリプト・Support のビルダー・golden テスト)・
-段階 1(読み込み側)・段階 2(純粋ロジック)・段階 3(書き出しのラウンドトリップ + CI の検品)は完了**
-(→ [02](02-project-and-build.md#テストのフィクスチャ))。
+`qooViewerTests` を「UI を伴わない経路」まで広げる計画(段階 0〜4)は**全段階が完了**しました
+(→ [02](02-project-and-build.md#テストターゲットqooviewertests))。
 決めごとは段階 0 と同じ ―― 共有の保存先に触れない、golden は `sortKey` の列、既知の限界は
-「落ちない・数は合う」で固定、テスト全体で 60 秒以内(現状 335 テスト・約 1.9 秒)。
+「落ちない・数は合う」で固定、テスト全体で 60 秒以内(現状 361 テスト・約 2.1 秒)。
 
 **段階 1 でできたもの(2026-09-05)**
 - `ArchiveReaderTests` ―― `ArchiveReading` の適合テスト。台帳に `archive`(`listFilePaths` の全件と、
@@ -197,11 +195,46 @@ suite の一覧は [02](02-project-and-build.md#テストターゲットqooviewe
   (フォルダ = 絶対パス、書庫 = エントリパス、とは違う)。書き出した EPUB を開き直して
   突き合わせるときはここを間違えやすい。
 
-**残っているもの**
+**段階 4 でできたもの(2026-09-06、335 → 361 テスト)**
+`LibraryImportTests` / `SourceLayoutImportTests` と `Support/InMemoryLibrary.swift`
+(`isStoredInMemoryOnly` の `ModelContainer` をテストが自前で作り、その `mainContext` の上に
+アプリと同じ 5 つのストアを載せたもの)。suite ごとの中身は
+[02](02-project-and-build.md#テストターゲットqooviewertests)。
 
-**段階 4(任意)** ―― メモリ内の `ModelContainer`(`isStoredInMemoryOnly`)を**テストが自前で作って**
-`LibraryImportExportService.apply` と `LayoutStore.importSourceLayoutIfNeeded` を通す。アプリの
-`mainContext` には触れない。
+計画から変えたところ ―― **アプリ側に「テストのための口」を 3 つ開けた**。どれも既定値は
+これまでどおりで、通常の経路の挙動は変えていない:
+- `QooViewerApp.modelSchema` を private から通常のアクセスレベルへ(テストが同じスキーマから
+  メモリ内のコンテナを作るため。モデル型の一覧をテストへ書き写すと、アプリにモデルを足したとき
+  テストだけ古いスキーマのまま静かにずれる)。
+- `LibraryImportExportService.apply` / `buildExportFile` に `cachesPageList:`(既定 true)。
+  取り込みは本を読み直すため、これが無いとテスト用の本が実物のアプリの
+  `BookPageListCache` へ残る。
+- `MetadataFormatStore.init(defaults:)`(既定 `.standard`)。フォーマット定義だけは SwiftData では
+  なく `UserDefaults` にあるため、テストは専用の suite を渡す。
+
+**段階 4 で分かったこと**
+- **SwiftData の一括削除は、mandatory な逆リレーションがあると全件ぶん失敗する。**
+  このハーネスで見つけた実バグ(同日に修正済み)。`FavoritesStore.deleteAllFavorites()` の
+  `try? modelContext.delete(model: FavoriteBook.self)` が
+  `Constraint trigger violation: Batch delete failed due to mandatory OTO nullify inverse on
+  FavoriteBook/folder` を投げて 1 件も消えず(`try?` で握り潰されていた)、実際に消えていたのは
+  続く `delete(model: FavoriteFolder.self)` のカスケード = **フォルダの中の本だけ**。
+  つまり「保存データの読み込み」でお気に入りに**上書き**を選ぶと、ルート直下の古い登録が
+  そのまま残っていた(環境設定「リセット」はストアの実ファイルごと消す別経路なので無関係)。
+  直し方は、一括削除をやめてフェッチした行を 1 件ずつ `modelContext.delete(_:)`(上限 999 件)。
+  回帰テストは `LibraryImportTests.overwriteAlsoDeletesRootLevelFavorites`。
+  **`delete(model:)` を新しく書くときは、その型が mandatory な逆リレーションを持たないか確かめること。**
+- **`ModelContext` を作るなら `container.mainContext`。** アプリと同じく 1 つのコンテキストを
+  4 つのストアで共有する形にしないと、片方の変更がもう片方から見えない(CLAUDE.md /
+  [06](06-persistence.md))。テスト用のコンテナは別物なので、これでアプリの保存先には触れない。
+- **メインアクターのストアをテストの中で作ると、走っているアプリ側にも少しだけ触れる。**
+  `FavoritesStore` / `BookmarkStore` は固定のキーで `MenuBarMenuGate.shared` へ登録するので、
+  テストのストアがアプリのストアの登録を置き換える(影響はテストホストのメニューの更新だけで、
+  保存されるものは無い)。ブックマークの書き込みが投げる `.bookmarksDidChange` も同じで、
+  アプリ側は自分の保存先を読み直すだけ。
+- **既定引数の式はメインアクターの外として検査される**(段階 3 と同じ落とし穴を再び踏んだ)。
+  `func f(_ selection: X = .everything)` は、`X` がメインアクターに分離された型だと書けない。
+  手元では警告どまりなので、`QOO_CI_WARNINGS_AS_ERRORS=YES` で通すまで気付けない。
 
 **段階 0 で分かったこと**: `FileManager.temporaryDirectory` は `/var → /private/var` の symlink で、
 フォルダの本の sortKey は実体パスになる(`TemporaryDirectory` が実体にしてある。アプリでも

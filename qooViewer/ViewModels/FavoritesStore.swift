@@ -928,15 +928,30 @@ final class FavoritesStore: ObservableObject {
 
     // MARK: - 一括削除(環境設定「リセット」タブ)
 
-    /// お気に入り(フォルダ・登録した本)をすべて削除する。環境設定「リセット」タブの
-    /// 「すべてのお気に入り・ブックマーク・読書履歴を削除」から呼ばれる、緊急時向けの
-    /// 強力な操作(ResetDataSettingsView参照)。述語なしのdelete(model:)はその型の
-    /// 全レコードを削除するため、FavoriteFolder削除によるカスケード(FavoriteFolder.swiftの
-    /// deleteRule: .cascade)を当てにせず、念のためFavoriteBook/FavoriteFolder両方を
-    /// 明示的に削除している。
+    /// お気に入り(フォルダ・登録した本)をすべて削除する。JSONインポートで
+    /// お気に入りに「上書き」を選んだときに、取り込みの前段として呼ばれる
+    /// (LibraryImportExportService.applyFavorites参照。環境設定「リセット」タブの
+    /// 「すべて削除」はここを通らず、ストアの実ファイルごと消す。ResetDataSettingsView参照)。
+    ///
+    /// バグ修正(2026-09-06、qooViewerTestsのメモリ内コンテナで発見): 以前は
+    /// `try? modelContext.delete(model: FavoriteBook.self)`(述語なしの一括削除)を使っていたが、
+    /// **FavoriteBook.folderがFavoriteFolder.books(deleteRule: .cascade)のmandatoryな逆リレーション
+    /// であるため、SwiftDataのバッチ削除が全件ぶん失敗する**
+    /// (`Constraint trigger violation: Batch delete failed due to mandatory OTO nullify inverse on
+    /// FavoriteBook/folder`)。エラーはtry?で握り潰され、実際に消えていたのは続く
+    /// FavoriteFolderの削除によるカスケード=**フォルダの中の本だけ**で、ルート直下
+    /// (folder == nil)のお気に入りは残っていた。「上書きで取り込んだのに古い登録が残る」。
+    ///
+    /// 行をフェッチして1件ずつdelete(_:)すればこの制約には触れない。件数の上限は
+    /// FavoritesLimits.maxFavoritesCount(999件)で、1回きりの操作でもあるため速度の心配は無い。
     func deleteAllFavorites() {
-        try? modelContext.delete(model: FavoriteBook.self)
-        try? modelContext.delete(model: FavoriteFolder.self)
+        for favorite in (try? modelContext.fetch(FetchDescriptor<FavoriteBook>())) ?? [] {
+            modelContext.delete(favorite)
+        }
+        // 本を先に消してあるので、ここでのカスケードは実質フォルダの親子関係だけを辿る。
+        for folder in (try? modelContext.fetch(FetchDescriptor<FavoriteFolder>())) ?? [] {
+            modelContext.delete(folder)
+        }
         try? modelContext.save()
         reload()
     }

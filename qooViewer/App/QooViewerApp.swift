@@ -60,7 +60,10 @@ struct QooViewerApp: App {
     /// EPUBのpackage document相当のレイアウト情報をqooViewer自身が保持するための新規モデル
     /// (設計コンセプト2章参照)。追加のみのライトウェイトマイグレーションのため、
     /// 既存ユーザーのストアにも問題なく追加される。
-    private static let modelSchema = Schema([
+    /// privateではないのは、単体テスト(qooViewerTests)がこのスキーマから**メモリ内の**
+    /// ModelContainerを作るため。テストがモデル型の一覧を自前で書き写すと、ここへモデルを
+    /// 足したときにテスト側だけ古いスキーマのまま静かにずれるため、同じ値を使わせる。
+    static let modelSchema = Schema([
         BookReadingState.self, Bookmark.self, FavoriteFolder.self, FavoriteBook.self,
         BookLayoutSettings.self, PageLayoutOverride.self, BookMetadata.self
     ])
