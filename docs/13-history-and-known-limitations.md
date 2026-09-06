@@ -286,7 +286,8 @@ rar 7.2x は `-ma4` が無く RAR4 を作れない。
 | C4 | `QooViewerApp` のストア復旧 | `removeOrphanedAuxiliaryStoreFiles` を internal に、`performPendingStoreResetIfNeeded` に `(defaults:storeURL:cacheDirectories:)` | 本体が無いときだけ `-wal`/`-shm` を消すこと、全削除で `FolderAccessStore.defaultsKey` だけ戻ること |
 | C5 | `ThumbnailDiskCache` / `BookPageListCache` | `init(directory:)` | 刈り込み、OFF で消えること、`store` → 読み直しの往復、ページ寸法の指紋照合 |
 
-**変更しなくても書ける(単に無い)テスト**: `ResourceAnomalyDetector.evaluate`、
+**変更しなくても書ける(単に無い)テスト**(→ **段階 6 ですべて実装した**。下の「段階 6」参照):
+`ResourceAnomalyDetector.evaluate`、
 `TitleAuthorFilenameParser`、`ContentFingerprint`、`LibraryDataPruner`、`StorageUsageScanner`、
 `ImageExporter`、`PagePixelBuffer`、`ResourceHistory`、`PageLoader`(`usesThumbnailDiskCache: false`。
 テストからの参照は 2 か所だけ)、`FavoritesStore` の上限と `move(folder:to:)` の循環禁止、
@@ -295,6 +296,11 @@ rar 7.2x は `-ma4` が無く RAR4 を作れない。
 (依存 6 つすべて `InMemoryLibrary` にある)、`LaunchCoordinator.openAppState(forBookAt:isPrivate:)`、
 `BookExportRowFilter`、`RGBColorValue(hexString:)`、`WelcomeQuickOpenColumn.resolved`、
 `LayoutPropagationScope` の利用可否(`ViewerView` と `BookmarkListView` に二重実装 ―― まとめる価値あり)。
+
+このうち 2 つは、実際には**アプリ側に手を入れないと書けなかった** ―― `WelcomeQuickOpenColumn` /
+`WelcomeQuickOpenWidth` は `WelcomeView.swift` の中で `private` だったこと、`LayoutPropagationScope` の
+利用可否は 2 つの View の `private func` に閉じていたこと。どちらも段階 5 と同じ作法で開けた
+(下の「段階 6」)。
 
 **実機に残すもの**: `QooViewerApp.performExternalOpen` / `BookWindowOpener`(タブ化・配置・状態復元)、
 `MenuBarMenuGate` と `FocusedValue` 経由のメニュー状態、`ViewerView` のイベントモニタ・クロームの
@@ -488,9 +494,69 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
 `QOO_CI_WARNINGS_AS_ERRORS=YES` で通してから push)。静的な登録簿(`ViewerViewModel.openBookIDs`、
 `MenuBarMenuGate.shared`、`UserDefaults(suiteName:)`)は後始末する。
 
+### 段階 6 ―― 「変更しなくても書けるテスト」を消化する(2026-09-06。487 → 712 テスト)
+
+段階 5 の表の下に残していた 15 項目をすべて実装した。suite の一覧は
+[02](02-project-and-build.md#テストターゲットqooviewertests)。
+
+**アプリ側に開けた口は 2 つだけ**(どちらも既定の挙動は変わらない):
+
+| 口 | 何のため |
+| --- | --- |
+| `WelcomeQuickOpenItem` / `WelcomeQuickOpenColumn` / `WelcomeQuickOpenWidth` の `private` を外す(`minColumn` などの定数も) | ウェルカム画面の列幅の計算をテストから呼ぶため。使うのは今も `WelcomeView.swift` の中だけ |
+| `MetadataEditorViewModel.releaseResources()` | 張った 3 つの通知の購読を deinit を待たずに外す(下の「分かったこと」) |
+
+**まとめた重複が 1 つ**: 伝播範囲の選択肢の絞り込みが `ViewerView.availableScopes(forPageIndex:)` と
+`BookmarkListView.availableScopes(forPageKey:)` に二重に書かれていたのを、
+`LayoutPropagationScope.available(forIndex:lastIndex:)` へ寄せた。違うのは「どの空間の位置で
+見るか」だけ(ビューアはページ番号、編集ウインドウは除外ページを除いた読書順)なので、位置は
+呼び出し側が解決して渡す。両方の View に残っているのは、その解決だけを行う薄い包み。
+
+**段階 6 で分かったこと(実測)**
+
+- **`UTType(filenameExtension:)` は知らない拡張子に対しても nil を返さない。** `dyn.…` という
+  動的な UTI を作って返すので、`ImageExporter.contentType(forExtension:)` にあった
+  「解決できなければ JPEG へフォールバック」(`?? .jpeg`)は**一度も効いていなかった**。
+  「書けるか」は `CGImageDestinationCopyTypeIdentifiers()` に照らし、動的な UTI も弾いて判定する
+  (`ImageExporter.canWrite(fileExtension:)`)。
+- **見開きの結合が webp のページだと必ず失敗していた(同日に修正)。** 結合後の形式は「読み順で先の
+  ページ」に揃えるが、ページとして開ける拡張子(`imageExtensions`)のうち **webp だけは ImageIO に
+  エンコーダが無い**(`CGImageDestinationCopyTypeIdentifiers()` に含まれない。他の 9 つ
+  ―― jpg/jpeg/png/gif/bmp/heic/tif/tiff/avif ―― はすべて書ける)。そのため webp の本で
+  「見開きを結合してエクスポート」を選ぶと `.combineFailed`(「結合した画像を作れませんでした」)
+  になっていた。**書けない形式は PNG(可逆)へ倒す**ようにした ―― `EpubExporter` が EPUB へ
+  素通しできない形式を PNG へ変換するのと同じ考え方で、どのみち結合は再エンコードが避けられない
+  以上、可逆形式なら画質を落とさない。
+  倒す場所は **`mergedFileExtension` の 1 箇所だけ**。保存パネルに出す名前・`allowedContentTypes`・
+  実際のエンコードの 3 つがすべてそこから決まるので、「中身は PNG なのに名前は `.webp`」が
+  起きない。`combine` 自身は書けない形式を渡されたら黙って倒さず失敗させる(倒すとその食い違いが
+  起きるため)。単一ページの書き出しは**生データの複製**なので対象外 ―― webp のページは webp の
+  まま保存できる。回帰テストは `ImageExporterTests`
+  (`everySupportedPageFormatCanBeExportedAsASpread` / `aWebPSpreadIsExportedAsPNG`)。
+- **Swift の `String` の `==` は正規等価で比べる。** NFD の「が」と NFC の「が」は文字列としては
+  等しいので、NFC 正規化のテストは `unicodeScalars` の列で見る。`URL(fileURLWithPath:)` を通すと
+  Foundation がその場で NFC へ直してしまうため、正規化の経路を試せるのは**書庫の中のエントリ名**
+  (ただの `String`)だけ。
+- **通知を購読する ViewModel も `releaseResources()` が要る。** `MetadataEditorViewModel` は
+  `bookmarksDidChange` / `layoutDataDidChange` / `bookMetadataDidChange` を購読しており、
+  テストがこれを作っては捨てると、**別のテストが投げた通知で目を覚まし、捨てられている最中の
+  `ModelContainer` へ `collectKnownBookIDs()` がフェッチしに行って SwiftData がトラップする**
+  (クラッシュレポートで確認。`EXC_BREAKPOINT`、スタックは
+  `NSNotificationCenter post` → `MetadataEditorViewModel.reload` → SwiftData)。
+  `InMemoryLibrary.close()` と同じ話で、`deinit` では間に合わない。
+  **通知を購読する型をテストから作るときは、必ず購読を外す口を用意すること。**
+- **`FavoritesStore` / `BookmarkStore` の一覧の並びは `UserDefaults.standard` の並び順設定に従う。**
+  `sortOption` の `didSet` は `.standard` へ書き戻すので、テストから設定し直すと利用者の設定を
+  書き換えてしまう。一覧の**並び**は当てにせず、顔ぶれ(`Set`)で見る。
+- **`AppPreferences.isPrivateModeDefault` も `.standard` を読む。** `AppState.actsAsRegularWindow` が
+  これを見るので、シークレットウインドウが絡む判定は環境で変わる。`LaunchCoordinatorTests` は
+  `openAppState(forBookID:)` を通常ウインドウでだけ試している。
+- **`#expect` の中の配列リテラル同士の `==` は曖昧になることがある。** 片方を `let widths: [Int] = …` と
+  型注釈付きの変数へ出せば通る。
+
 ### 引き継ぎ(2026-09-06 時点)
 
-**いまの状態**: `qooViewerTests` は 487 テスト・53 suite(手元で約 3 秒)。段階 0〜5 はすべて
+**いまの状態**: `qooViewerTests` は 712 テスト・72 suite(手元で約 4.7 秒)。段階 0〜6 はすべて
 実装済みで、CI(Build の Debug / Release と Check)は緑。suite ごとの中身は
 [02](02-project-and-build.md#テストターゲットqooviewertests)。
 
@@ -505,10 +571,13 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
 | `BookmarkStore.releaseResources()` / `FavoritesStore.releaseResources()` | 張った購読を外す(下の「必ず守ること」参照) |
 | `BookExportViewModel.prepare(row:book:displayState:)` / `write(_:to:)` | 材料集めと書き込みを分ける |
 | `QooViewerApp.performPendingStoreResetIfNeeded(defaults:storeURL:domainName:cacheDirectories:)` / `removeOrphanedAuxiliaryStoreFiles(at:)` | 実物のストア・キャッシュ・環境設定を消さずに確かめる |
+| `MetadataEditorViewModel.releaseResources()`(段階 6) | 張った通知の購読を deinit を待たずに外す |
+| `WelcomeQuickOpenColumn` / `WelcomeQuickOpenWidth` から `private` を外す(段階 6) | ウェルカム画面の列幅の計算を呼べるようにする |
 
 純粋型へ出したのは `SpreadPairing` / `PageLanding` / `PageAreaLayout` / `FilmstripLayout` /
-`BulkBookmarkRenaming`(いずれも `Models/`、`nonisolated`)。画面や ViewModel 側は、そこを呼ぶだけの
-薄い包みとして残してある。
+`BulkBookmarkRenaming`(いずれも `Models/`、`nonisolated`)。段階 6 では
+`LayoutPropagationScope.available(forIndex:lastIndex:)` を足した(2 つの View の二重実装をまとめたもの)。
+画面や ViewModel 側は、そこを呼ぶだけの薄い包みとして残してある。
 
 **テストの土台**(`qooViewerTests/Support/`): `Fixtures` / `FixtureBook`(台帳付きの本)、
 `FixtureFolder` ほかのビルダー、`TemporaryDirectory`(作業フォルダ)、`InMemoryLibrary`(メモリ内の
@@ -530,13 +599,12 @@ SwiftData + 5 つのストア)、`PreferencesSuite`(その場限りの `UserDefa
 - **push する前に `QOO_CI_WARNINGS_AS_ERRORS=YES` で通す。** 手元では警告どまりのものが CI では
   エラーになる(段階 3・4 参照)。`scripts/ci/check-all.sh` も同じく push 前に。
 
-**残っている作業**:
+**残っている作業**: **「実機に残すもの」**(ウインドウの生成・タブ化・状態復元、メニューの状態、
+`ViewerView` のイベントモニタ・クロームの自動非表示・ルーペ、すりガラスの面の文字の縁取り)だけ。
+これらは意図的に CI へ載せない ―― 確かめ方は [12](12-verification-and-debugging.md)。
 
-1. 上の表の下にある**「変更しなくても書けるテスト」15 項目**。アプリ側の変更は要らず、順序の
-   依存も無いので、どれからでも着手できる。
-2. **「実機に残すもの」**(ウインドウの生成・タブ化・状態復元、メニューの状態、`ViewerView` の
-   イベントモニタ・クロームの自動非表示・ルーペ、すりガラスの面の文字の縁取り)。これらは
-   意図的に CI へ載せない。確かめ方は [12](12-verification-and-debugging.md)。
+段階 0〜6 で計画していたぶんは、これで打ち止め。次に足すとしたら、テストの無い経路を
+新しく見つけたときか、利用者報告の回帰を固定するとき。
 
 ## 古くなった記述・ファイル(2026-09-05 に整理済み)
 
