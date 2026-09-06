@@ -13,25 +13,29 @@ import Foundation
 /// サンドボックス環境では単なるファイルパスの文字列を保存しても、次回アプリを起動したときに
 /// そのURLへアクセスする権限がない。そのため、RecentFilesStoreと同じく
 /// 「セキュリティスコープ付きブックマーク」(bookmarkData)としてUserDefaultsに保存する。
+///
+/// 3つの関数が受け取る`defaults`は**テストのための口**で、既定はこれまでどおり`.standard`
+/// (LastUsedFolderMemory.init(defaults:)と同じ作法)。テストは実物のアプリと同じコンテナで
+/// 走るため、利用者の「前回開いていた本」を書き換えてはいけない。
 enum LastActiveBookStore {
     private static let defaultsKey = "qooViewer.lastActiveBookBookmark"
 
     /// アクティブなウインドウ/タブが表示している本が変わったとき、またはそのウインドウが
     /// キーウインドウになったときに呼ぶ。
-    static func record(url: URL) {
+    static func record(url: URL, defaults: UserDefaults = .standard) {
         guard let data = try? url.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         ) else { return }
-        UserDefaults.standard.set(data, forKey: defaultsKey)
+        defaults.set(data, forKey: defaultsKey)
     }
 
     /// アクティブなウインドウ/タブが「何も本を開いていない状態(ウェルカム画面)」になった
     /// ときに呼ぶ。記録をクリアすることで、次回起動時に誤って本を復元してしまわないようにする
     /// (終了時にウェルカム画面を見ていたなら、次回もウェルカム画面から始まるのが正しい)。
-    static func clear() {
-        UserDefaults.standard.removeObject(forKey: defaultsKey)
+    static func clear(defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: defaultsKey)
     }
 
     /// 保存されているブックマークからURLを解決する。ブックマークが存在しない場合や、
@@ -39,8 +43,8 @@ enum LastActiveBookStore {
     /// 内容が変わっていないかどうかまではここでは確認しない(呼び出し元のContentView.swift
     /// resolveLastActiveBookURLIfUnchanged参照。BookReadingStateの指紋と比較する必要があり、
     /// SwiftDataのModelContextを使うため、ここでは行わない)。
-    static func resolve() -> URL? {
-        guard let data = UserDefaults.standard.data(forKey: defaultsKey) else { return nil }
+    static func resolve(defaults: UserDefaults = .standard) -> URL? {
+        guard let data = defaults.data(forKey: defaultsKey) else { return nil }
         var isStale = false
         guard let url = try? URL(
             resolvingBookmarkData: data,

@@ -13,17 +13,22 @@ import Foundation
 /// 満たせるため、実装は1つにまとめて、用途ごとの違いはstaticなインスタンスとして表す。
 struct LastUsedFolderMemory {
     private let defaultsKey: String
+    /// 保存先。**テストのための口**で、既定はこれまでどおり`.standard`(AppPreferences.
+    /// init(defaults:)・KeyBindingStore.init(defaults:)と同じ作法)。テストは実物のアプリと
+    /// 同じコンテナで走るため、利用者の記憶しているフォルダを書き換えてはいけない。
+    private let defaults: UserDefaults
 
     /// 表示用のパスを保存するキー(lastFolderPath()参照)。ブックマークのキーから派生させて
     /// おくことで、用途を1つ足すたびに2つのキーを考えずに済む。
     private var pathDefaultsKey: String { defaultsKey + ".path" }
 
-    init(defaultsKey: String) {
+    init(defaultsKey: String, defaults: UserDefaults = .standard) {
         self.defaultsKey = defaultsKey
+        self.defaults = defaults
     }
 
     func lastFolder() -> URL? {
-        guard let data = UserDefaults.standard.data(forKey: defaultsKey) else { return nil }
+        guard let data = defaults.data(forKey: defaultsKey) else { return nil }
         var isStale = false
         return try? URL(
             resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil, bookmarkDataIsStale: &isStale
@@ -34,9 +39,9 @@ struct LastUsedFolderMemory {
         guard let data = try? folderURL.bookmarkData(
             options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
         ) else { return }
-        UserDefaults.standard.set(data, forKey: defaultsKey)
+        defaults.set(data, forKey: defaultsKey)
         // 表示用のパスも一緒に控える(lastFolderPath()のコメント参照)。
-        UserDefaults.standard.set(folderURL.path, forKey: pathDefaultsKey)
+        defaults.set(folderURL.path, forKey: pathDefaultsKey)
     }
 
     /// 記憶しているフォルダのパス(**表示専用**)。
@@ -50,13 +55,13 @@ struct LastUsedFolderMemory {
     /// 実際の場所とずれる。**このパスを使ってフォルダを開いてはいけない**(サンドボックス下では
     /// アクセス権も無い)。実際に書き出すときは必ず`lastFolder()`でブックマークを解決すること。
     func lastFolderPath() -> String? {
-        UserDefaults.standard.string(forKey: pathDefaultsKey)
+        defaults.string(forKey: pathDefaultsKey)
     }
 
     /// 記憶しているフォルダを忘れる(環境設定で「毎回確認」へ戻したときなど)。
     func forget() {
-        UserDefaults.standard.removeObject(forKey: defaultsKey)
-        UserDefaults.standard.removeObject(forKey: pathDefaultsKey)
+        defaults.removeObject(forKey: defaultsKey)
+        defaults.removeObject(forKey: pathDefaultsKey)
     }
 
     /// 「初期設定に戻す」がこの記憶ごと消せるように、使っているキーを公開する
