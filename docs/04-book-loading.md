@@ -18,15 +18,37 @@
 1. 進行中の読み込みがあれば `openToken` を進めて結果を捨てる(`cancelOpen` も同じ)。
 2. 前の本の `securityScopedBookURLs` を閉じ、新しい URL を開く。開けなければ
    `ensureAccess`(フォルダのアクセス権を求めるパネル)へ。
-3. `loadingProgress` を立てて `BookLoader.load(from:)` を待つ。`BookLoadingOverlay` は 400ms
+3. フォルダなら `ShelfFolderResolver.resolvedBookURLAsync` で**実際に開く1冊**へ解決する
+   (下記「棚のフォルダ」)。セキュリティスコープは要求どおりフォルダのほうで開いてあるので、
+   中のファイルへはそのまま到達できる。
+4. `loadingProgress` を立てて `BookLoader.load(from:)` を待つ。`BookLoadingOverlay` は 400ms
    待ってから出る(普通の本は一瞬で開くので、無条件に出すと点滅する)。
-4. 成功したら `reconcileBookIDIfMoved(book:)` を `FavoritesStore` / `BookmarkStore` /
+5. 成功したら `reconcileBookIDIfMoved(book:)` を `FavoritesStore` / `BookmarkStore` /
    `LayoutStore` / `BookMetadataStore` の4つで呼ぶ(同一ボリューム内の移動・リネームに
    inode で追従。→ [06](06-persistence.md#移動リネームへの追従))。
-5. 履歴(`RecentFilesStore.record`)と `LastActiveBookStore.record`。シークレットウインドウと
+6. 履歴(`RecentFilesStore.record`)と `LastActiveBookStore.record`。記録するのは
+   **`book.sourceURL`**(=解決後の1冊)で、要求された URL ではない。シークレットウインドウと
    その場限りの本では行わない。
-6. `currentBook` を差し替える → `ContentView` が `ViewerView` を作り直す。
-7. `reloadSiblingBooks()`(「次の本へ/前の本へ」の一覧を `SiblingFinder` で作り直す)。
+7. `currentBook` を差し替える → `ContentView` が `ViewerView` を作り直す。
+8. `reloadSiblingBooks()`(「次の本へ/前の本へ」の一覧を `SiblingFinder` で作り直す)。
+
+## 棚のフォルダ ―― 開くのは先頭の1冊
+
+ユーザー報告(2026-09-06): 書庫・PDF・EPUB が並んだフォルダをドロップすると、中の全ファイルを
+走査して1冊にまとめるため表示が遅く、履歴にもフォルダのほうが残る。期待は「先頭の本を直接
+ドロップしたのと同じ動作」。`ShelfFolderResolver` が、開く直前にフォルダを1冊へ解決します
+(判定に使うのはフォルダの一覧だけで、中の書庫・PDF は開きません)。
+
+| フォルダの中身 | 開くもの |
+|---|---|
+| 直下に画像がある | そのフォルダ全体で1冊(従来どおり。中の書庫・PDF・EPUB のページも含む) |
+| 本のファイルが無く、画像フォルダだけが並ぶ | そのフォルダ全体で1冊(章ごとに画像を分けた本) |
+| 直下に書庫・PDF・EPUB がある(棚) | 並び順の先頭の1冊。**画像フォルダも1冊として競う** |
+| 本を直接持たない中間フォルダだけ | 1段ずつ降りて、最初に見つかった本(深さ上限8) |
+
+「本」の定義(開ける形式のファイル、または画像を直接持つフォルダ)と並び順(`SiblingBookOrder`)は
+`SiblingFinder`・フォルダブラウザと共有します ―― 棚を開く → 「次の本へ」で2冊目、という並びが
+サイドパネルの見た目と一致します。
 
 ## BookLoader ―― 形式ごとの分岐
 
@@ -165,8 +187,10 @@ Unicode 名を持たない古い RAR4 は文字化けします。unrar ライブ
 
 ユーザー報告(2026-09-06)を受けて、**フォルダや書庫の中に置かれた PDF・EPUB も、その位置へ
 中身が展開されたかのように1冊のページ一覧へ統合**します(zip/cbz・rar・7z が以前からそうなって
-いたのと同じ扱い)。以前は画像と書庫しか拾わず、PDF と EPUB しか入っていないフォルダは
-「ページが無い」で開けませんでした。
+いたのと同じ扱い)。以前は画像と書庫しか拾わず、PDF・EPUB は読み飛ばしていました。
+
+対象になるのは「1冊として開くフォルダ」(上記の表の1・2行目)と書庫の中です。棚のフォルダは
+そもそも1冊にまとめないので、ここは通りません。
 
 - ページ順はそのファイル自身のもの(PDF はページ番号、EPUB は spine)。`sortKey` は
   そのファイルまでの接頭辞 + ゼロ埋めの連番(`…/chapters/vol1.pdf/000003`)で、書庫の入れ子と

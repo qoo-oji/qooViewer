@@ -897,9 +897,10 @@ final class AppState: ObservableObject {
         // このAppStateが解放できなくなる)。Swift 6言語モードではエラーにもなる。
         let cachesPageList = usesPageListCache && !isPrivateWindow && !request.opensImageFiles
         // 同じ理由(Taskの中で`preferences`を読むと暗黙のselfを強参照で捕まえる)で、
-        // 入れ子書庫のメモリ上限もここで取り出しておく。
+        // 入れ子書庫のメモリ上限と、棚の解決に使う並び順もここで取り出しておく。
         let nestedArchiveMemoryLimitBytes =
             preferences?.nestedArchiveMemoryLimitBytes ?? AppPreferences.defaultNestedArchiveMemoryLimitBytes
+        let shelfOrder = siblingBookOrder
 
         let token = UUID()
         openToken = token
@@ -922,8 +923,14 @@ final class AppState: ObservableObject {
                     // (BookLoader.load(imageFiles:)のコメント参照)。
                     book = try await BookLoader.load(imageFiles: request.urls)
                 } else if let url = request.primaryURL {
+                    // 本が並んでいるだけのフォルダ(棚)は、その先頭の1冊を開く ―― そのファイルを
+                    // 直接開いたときと同じ状態にする(ユーザー要望。ShelfFolderResolver参照)。
+                    // 棚でなければurlがそのまま返る。セキュリティスコープは要求どおり
+                    // **フォルダのほうで**開いてあるので(上のnewlyAccessedURLs)、その中の
+                    // ファイルへはそのまま到達できる。
+                    let target = await ShelfFolderResolver.resolvedBookURLAsync(for: url, order: shelfOrder)
                     book = try await BookLoader.load(
-                        from: url,
+                        from: target,
                         cachesPageList: cachesPageList,
                         nestedArchiveMemoryLimitBytes: nestedArchiveMemoryLimitBytes,
                         onProgress: onProgress
@@ -990,8 +997,10 @@ final class AppState: ObservableObject {
                     // その場限りの本も、そもそも1つのURLでは開き直せないため記録しない。
                     // request.recordsInHistory: フォルダブラウザで通り抜けただけのフォルダを
                     // 履歴に積まないための除外(BookOpenRequest.recordsInHistory参照)。
-                    if !skipsPersistence, request.recordsInHistory, let url = request.primaryURL {
-                        self.recentFiles?.record(url: url)
+                    // 記録するのは**実際に開いた本**(book.sourceURL)。棚を開いた場合は、
+                    // 要求されたフォルダではなくその中の1冊が残る(ShelfFolderResolver参照)。
+                    if !skipsPersistence, request.recordsInHistory, request.primaryURL != nil {
+                        self.recentFiles?.record(url: book.sourceURL)
                     }
                     self.reloadSiblingBooks()
                 }
