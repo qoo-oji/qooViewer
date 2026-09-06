@@ -26,7 +26,10 @@ import Foundation
 /// `_Com-title-cover.JPG` / `Com_title_name_size_0001.JPG` / `Com-title-cover-clean.JPG` の
 /// ような名前では、"Com"と"com"で並びが丸ごと変わってしまう。
 ///
-/// **既定はOFF(従来順)。** 並びが変わるきっかけは、ユーザー自身の意思によるものに限る。
+/// **既定はON(Finderと同じ名前順)。** 当初は「並びが変わるきっかけはユーザー自身の意思による
+/// ものに限る」という理由でOFFを既定にしていたが、Finderで見えている並びと食い違うほうが
+/// 説明のつかない挙動になる(ユーザーの判断でONへ変更)。既に自分で切り替えた人の値は
+/// UserDefaultsに入っているので影響を受けない。
 ///
 /// # フルパスをキーに渡してよい
 ///
@@ -59,7 +62,7 @@ nonisolated enum PageOrder {
     /// (AppPreferences.Keys.usesFinderSortOrderがこの定数を参照している)。
     static let defaultsKey = "qooViewer.pref.usesFinderSortOrder"
 
-    /// 「並び順をFinderに揃える」の現在値(**既定はOFF**)。
+    /// 「並び順をFinderに揃える」の現在値(**既定はON**)。
     ///
     /// AppPreferencesは@MainActorのObservableObjectで、nonisolatedなコード(BookLoaderの
     /// 検出処理・EffectivePageOrderなど)からは読めない。UserDefaultsは複数スレッドから読んで
@@ -69,7 +72,7 @@ nonisolated enum PageOrder {
     /// 並べ替え1回につき**1度だけ**読んで、比較関数へは値として渡すこと(比較のたびに
     /// 読みに行くと、ページ数の多い本で無駄が積み上がる)。
     static var usesFinderOrder: Bool {
-        UserDefaults.standard.object(forKey: defaultsKey) as? Bool ?? false
+        UserDefaults.standard.object(forKey: defaultsKey) as? Bool ?? true
     }
 
     /// この本が「並び順の設定によって実際にページの前後が入れ替わる本」かどうか。

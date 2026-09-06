@@ -103,9 +103,10 @@ struct GeneralSettingsView: View {
             }
 
             // ユーザー報告: Finderの表示順と本のページ順が食い違う名前のパターンがある
-            // (先頭のアンダースコア、"-"と"_"の混在、大文字小文字の混在)。既定をFinderと
-            // 同じ照合に変え、従来の並びに慣れている場合のためにOFFを残した
-            // (AppPreferences.usesFinderSortOrder / comparePageOrder参照)。
+            // (先頭のアンダースコア、"-"と"_"の混在、大文字小文字の混在)。Finderと同じ照合を
+            // 選べるようにし、2026-09-06にその既定をONへ変えた(ユーザーの判断。従来の並びに
+            // 慣れている場合のためにOFFは残してある。AppPreferences.usesFinderSortOrder /
+            // PageOrder.usesFinderOrder / comparePageOrder参照)。
             // 切り替えても、レイアウトを設定した本は当時の並びのまま残る(見開きの組み合わせを
             // 守るため。LayoutStore.pinPageOrderIfNeeded参照)。以前はここに「まとめて新しい
             // 並びに合わせるか」を尋ねる確認ダイアログがあったが、削除した ―― 合わせても
@@ -118,7 +119,7 @@ struct GeneralSettingsView: View {
                 SettingsToggle(
                     "Match Finder's Sort Order",
                     isOn: $preferences.usesFinderSortOrder,
-                    help: "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off — the default — names are compared by character code instead, as in earlier versions, so every name starting with an uppercase letter comes before every name starting with a lowercase one. Open books and lists reorder right away. Books you have given a layout keep the order that layout was made for, because which pages pair into a spread depends on it; to make such a book follow the new order, use Reset Page Order in the Bookmarks & Layout window."
+                    help: "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off, names are compared by character code instead, as in earlier versions, so every name starting with an uppercase letter comes before every name starting with a lowercase one. Open books and lists reorder right away. Books you have given a layout keep the order that layout was made for, because which pages pair into a spread depends on it; to make such a book follow the new order, use Reset Page Order in the Bookmarks & Layout window."
                 )
             } header: {
                 Text("Page Order")

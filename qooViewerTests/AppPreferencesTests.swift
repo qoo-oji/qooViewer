@@ -34,7 +34,8 @@ struct AppPreferencesTests {
         #expect(p.finderOpenBehavior == .replaceCurrentBook)
         #expect(p.displayLanguage == .system)
         #expect(p.appAppearance == .system)
-        #expect(p.usesFinderSortOrder == false)
+        // ユーザーの判断で既定 ON へ変更(PageOrder.usesFinderOrder のコメント参照)。
+        #expect(p.usesFinderSortOrder == true)
         #expect(p.prefetchPageCount == 3)
         #expect(p.pageImageCacheLimitMB == AppPreferences.defaultPageImageCacheLimitMB)
         // ユーザー報告(黙って数百MB溜まる)を受けて既定 OFF にしたもの。
@@ -65,7 +66,8 @@ struct AppPreferencesTests {
         p.maxUpscalePercent = 321
         p.appAppearance = .dark
         p.thumbnailDiskCacheEnabled = true
-        p.usesFinderSortOrder = true
+        // 既定(ON)と違う値を入れる ―― didSet は値が変わったときだけ書き込むため。
+        p.usesFinderSortOrder = false
         p.displayLanguage = .japanese
 
         let stored = suite.storedDomain
@@ -74,7 +76,7 @@ struct AppPreferencesTests {
         #expect(stored["qooViewer.pref.thumbnailDiskCacheEnabled"] as? Bool == true)
         #expect(stored[AppLanguage.defaultsKey] as? String == "japanese")
         // 並び順のキーだけは PageOrder 側に実体がある(nonisolated なコードが同じ値を読むため)。
-        #expect(stored[PageOrder.defaultsKey] as? Bool == true)
+        #expect(stored[PageOrder.defaultsKey] as? Bool == false)
     }
 
     @Test("テスト用の保存先を渡したインスタンスは、実物のアプリの設定に触れない")

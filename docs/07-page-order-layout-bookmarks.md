@@ -12,7 +12,8 @@
 | **従来順**(legacy) | 1.36 以前の `.numeric` 比較。ロケールを見ず、大文字始まりが先に来る | 1.36 以前に保存された行の「番号」はこの並びで記録されている |
 | **実効順**(effective) | 環境設定「並び順を Finder に揃える」 → `pageOrderOverride`(ユーザーの並べ替え) → 除外ページの除去、をこの順に適用したもの | `ViewerViewModel.book.pages`。`Bookmark.pageIndex` / `BookReadingState.lastPageIndex` が指す空間 |
 
-- `PageOrder.usesFinderOrder` は UserDefaults を直接読む(既定 OFF。nonisolated なコードが読むため、
+- `PageOrder.usesFinderOrder` は UserDefaults を直接読む(**既定 ON**。当初は OFF だったが、Finder と
+  食い違う並びのほうが説明がつかないためユーザーの判断で 2026-09-06 に変更。nonisolated なコードが読むため、
   `AppPreferences` を引数で配らない)。トグルの didSet は保存してから `pageOrderSettingDidChange`
   を投げ、開いている本・編集ウインドウ・書き出しウインドウがその場で並べ直す。
 - **`EffectivePageOrder.orderedPages(for:pageOrderSource:pageOrderOverride:excludedKeys:)` が

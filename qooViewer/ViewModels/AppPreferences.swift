@@ -1425,11 +1425,12 @@ final class AppPreferences: ObservableObject {
         self.sidePanelUsesDoubleClick = defaults.object(forKey: Keys.sidePanelUsesDoubleClick) as? Bool ?? false
         self.sidePanelSortOrder =
             SidePanelSortOrder(rawValue: defaults.string(forKey: Keys.sidePanelSortOrder) ?? "") ?? .foldersFirst
-        // 既定はOFF(従来どおりの並び)。並びが変わるきっかけはユーザー自身の意思によるものに
-        // 限る、という方針のため。未設定(object(forKey:)がnil)のときの既定値を
+        // 既定はON(Finderと同じ名前順)。当初はOFF(従来どおりの並び)だったが、Finderで
+        // 見えている並びと食い違うほうが説明のつかない挙動になるため変更した(PageOrder.
+        // usesFinderOrderのコメント参照)。未設定(object(forKey:)がnil)のときの既定値を
         // PageOrder.usesFinderOrderと必ず揃えること ―― 食い違うと、画面のトグルと実際の
         // 並びが逆になる。
-        self.usesFinderSortOrder = defaults.object(forKey: Keys.usesFinderSortOrder) as? Bool ?? false
+        self.usesFinderSortOrder = defaults.object(forKey: Keys.usesFinderSortOrder) as? Bool ?? true
         self.folderBrowserSortKey =
             FolderBrowserSortKey(rawValue: defaults.string(forKey: Keys.folderBrowserSortKey) ?? "")
                 ?? FolderBrowserSort.default.key
