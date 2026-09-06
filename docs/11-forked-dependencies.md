@@ -6,7 +6,7 @@ qooViewer は3つの Swift パッケージに依存します。うち2つは開�
 | パッケージ | 参照先 | 固定方法 | 用途 |
 |---|---|---|---|
 | ZIPFoundation | `weichsel/ZIPFoundation` | バージョン 0.9.20 | zip / cbz / EPUB(zip コンテナ)の読み取り、CBZ / EPUB の書き出し |
-| SevenZip.swift | **`qoo-oji/SevenZip.swift`** ブランチ `streaming-extract` | revision `dd39320` | 7z / cb7 の読み取り |
+| SevenZip.swift | **`qoo-oji/SevenZip.swift`** ブランチ `streaming-extract` | revision `35800eb` | 7z / cb7 の読み取り |
 | Unrar.swift | **`qoo-oji/Unrar.swift`** ブランチ `memory-archive` | revision `2fb14dc` | rar / cbr の読み取り |
 
 フォークの作業ツリーは、開発機ではリポジトリの隣(`../SevenZip.swift`、`../Unrar.swift`)にあり、
@@ -17,8 +17,8 @@ qooViewer は3つの Swift パッケージに依存します。うち2つは開�
 
 どちらのフォークも、フォーク独自の機能(ストリーミング取り出し、メモリからの読み取り)は
 **upstream へ還元する予定はなく、フォークとして育てる前提**です。ただし作業の途中で見つかった
-**本家由来の不具合**は別で、SevenZip.swift のぶんは 2026-09-06 に4本の PR に分けて送りました
-(→ [upstream へ出した PR](#upstream-へ出した-pr))。
+**本家由来の不具合**は別で、SevenZip.swift のぶんは 2026-09-06 に4本の PR に分けて送り、
+upstream v0.3.0 / v0.4.0 に入りました(→ [upstream へ出した PR](#upstream-へ出した-pr))。
 
 ---
 
@@ -47,6 +47,7 @@ qooViewer はメモリ使用量を実測で詰めていく方針なので(→ [0
 | `81730ce` Add a history ring … → `979634b` Revert | 辞書の外へ戻るための履歴リングを一度足したが、**撤回**。「メモリを減らすためのフォークに、別のバッファを足すのは筋が通らない」という判断。qooViewer 側で後方読みを出さない設計にした(下記) |
 | `a3d93ae` Fix Entry.modified and publish the restart counter | 本家由来の日時の不具合(下記)と、`folderStreamRestartCount` の public 化 |
 | `dd39320` Release the Archive when its last reference goes | 本家由来の参照循環(下記)。`Archive` が一度も解放されていなかった |
+| `35800eb` Merge upstream v0.4.0 | 上の4件が upstream に入ったので取り込み。参照循環の直し方は upstream の案(`Entry.archive` 削除)に寄せ、フォーク側の回避策は捨てた(下記) |
 
 追加・変更したファイルの一覧と API の詳細は `docs/StreamingExtraction.md` にあります。要点:
 
@@ -164,8 +165,18 @@ let bytes = archive.residentDecoderBytes
 | [#8](https://github.com/mtgto/SevenZip.swift/pull/8) | `pr/enable-ppmd` | `Z7_PPMD_SUPPORT` を定義する |
 
 fd リークの回帰テストは #7 ではなく #6 側にあります(参照循環を直さないと `deinit` が走らず、
-そもそも観測できないため)。マージされたら、その時点の `upstream/main` を `streaming-extract` へ
-取り込みます。
+そもそも観測できないため)。
+
+**結果**(2026-09-06):#5 / #7 / #8 はそのままマージされ v0.3.0 に、参照循環は **#6 とは違う直し方**で
+v0.4.0 に入りました。メンテナは `Entry.archive` そのものを削除する破壊的変更(#9)を選び、#6 は
+それを受けて閉じています。#6 は `Entry.archive` を残したまま `entries` をアクセスのたびに組み立てる
+案で、循環の芽が残るうえ `entries` が毎回配列を作り直すので、upstream の案のほうが素直でした
+(`Entry` が値だけになるので `Sendable` にもできる)。フォークもその形に合わせ、`entries` は
+格納プロパティへ戻しています。
+
+`Entry` が `Archive` を生かさなくなったので、エントリを使う側は `Archive` を自分で持つ必要があります
+(`SevenZipArchiveReader` はもともと `archive` を保持しているので、qooViewer 側の変更は不要でした)。
+取り込みは `35800eb` Merge upstream v0.4.0 です。
 
 ---
 
