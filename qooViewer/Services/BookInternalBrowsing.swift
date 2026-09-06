@@ -26,11 +26,26 @@ nonisolated enum BookEntryLevel {
     /// 誤って「新しい本として開く」フォールバックに落ちてしまうため、両者は必ず
     /// 同じロジックを保つ必要がある。
     case archive(archive: OpenArchive, allPaths: [String], prefix: String, matchKeyPrefix: String?)
+    /// フォルダ/書庫の中で見つかったPDF・EPUBの中身(そのファイルが持つページの一覧)。
+    ///
+    /// PDFのページもEPUBのページも、この一覧の中では「これ以上潜れない平坦な1階層」に
+    /// なる ―― PDFのページは書庫のエントリのようなファイルではなく、EPUBの中の
+    /// `OEBPS/Images/`のようなフォルダ構造は見せても意味が無いため(PageLocationの
+    /// 型コメントと同じ理由)。行のmatchKeyはBookContentsBrowserStateが踏み込む時点で
+    /// BookLoader.documentPageSortKeyから組み立てる。
+    case documentPages(fileName: String, pages: [BookDocumentPage])
     /// ユーザーが直接渡した画像ファイル(MangaBook.BookOrigin.imageFiles)そのものの一覧。
     /// この本には辿るべき「中身の階層」が存在しないため、常にこの1階層だけで完結し、
     /// 踏み込む(navigate)ことも1階層上がることもない。
     /// 並びは**本のページ順のまま**保持する(BookInternalBrowsing.entries参照)。
     case imageFileList([URL])
+}
+
+/// PDF/EPUBの中身(ページ)1件分。BookEntryLevel.documentPagesが持つ。
+/// displayNameはPageRef.displayNameと、matchKeyはPageRef.sortKeyと必ず同じ値にする。
+nonisolated struct BookDocumentPage: Hashable {
+    let displayName: String
+    let matchKey: String
 }
 
 /// 本の内部(フォルダ本ならその配下、アーカイブ本ならその中身、そこから踏み込んだネスト
@@ -56,6 +71,11 @@ nonisolated enum BookInternalBrowsing {
     }
 
     enum NavigateTarget {
+        /// フォルダの本の中で見つかった、ディスク上に実在するPDF/EPUBファイル。
+        case documentFileOnDisk(URL)
+        /// 現在開いているreaderの中で見つかったPDF/EPUBエントリ
+        /// (書庫と同じく、取り出してから中身を数え上げる)。
+        case documentEntry(entryPath: String)
         /// 実在するフォルダの中へ。
         case realFolder(URL)
         /// 同じreaderのまま、仮想パスをさらに深くする(I/O無し)。
@@ -68,11 +88,14 @@ nonisolated enum BookInternalBrowsing {
         case nestedArchiveEntry(entryPath: String)
     }
 
-    /// levelの直下1段分の一覧を返す。フォルダ/ネストアーカイブは常に含み、ファイルは
-    /// 画像またはアーカイブ形式のみに絞る(下段の目的上、それ以外は一覧のノイズになるため。
-    /// PDF/EPUBがフォルダ/アーカイブ本の中にさらに入れ子で存在するケースは対象外とする —
-    /// このブラウザの目的は「漫画のページ・入れ子になった漫画アーカイブを辿ること」で
-    /// あり、PDF/EPUB用の別の閲覧モードを新設するほどの需要が無いための意図的な割り切り)。
+    /// levelの直下1段分の一覧を返す。フォルダ/ネストアーカイブ/PDF/EPUBは常に含み、
+    /// ファイルはそれ以外では画像のみに絞る(下段の目的上、それ以外は一覧のノイズになるため)。
+    ///
+    /// フォルダ/書庫の中のPDF・EPUBは、以前は「別の閲覧モードを新設するほどの需要が無い」
+    /// として意図的に外していた。ユーザー要望(2026-09-06)でそれらも1冊のページとして
+    /// 統合するようになった以上、この一覧にも並べる ―― 並べないと、そのPDF/EPUBのページを
+    /// 表示している間だけ「本の中のどこにいるか」の追従が途切れてしまう。踏み込むと
+    /// そのファイルのページ一覧(.documentPages)になる。
     /// - Parameter pageOrder: 今開いている本の実際のページ順(sortKey → 読書順の位置)。
     ///   一覧の並びはこれに従う ―― BookContentsBrowserState.pageOrder参照。
     static func entries(
@@ -85,9 +108,24 @@ nonisolated enum BookInternalBrowsing {
             return archiveEntries(
                 allPaths: allPaths, prefix: prefix, matchKeyPrefix: matchKeyPrefix, pageOrder: pageOrder
             )
+        case .documentPages(_, let pages):
+            return documentEntries(pages, pageOrder: pageOrder)
         case .imageFileList(let urls):
             return imageFileEntries(urls)
         }
+    }
+
+    /// PDF/EPUBの中身(ページ)の一覧。踏み込む先を持たない画像行だけが並ぶ。
+    private static func documentEntries(_ pages: [BookDocumentPage], pageOrder: [String: Int]) -> [Entry] {
+        sortedEntries(
+            pages.map { page in
+                Entry(
+                    id: page.matchKey, displayName: page.displayName, isContainer: false,
+                    isImage: true, matchKey: page.matchKey, navigateTarget: nil
+                )
+            },
+            pageOrder: pageOrder
+        )
     }
 
     /// 直接渡された画像ファイルの一覧。
@@ -198,6 +236,12 @@ nonisolated enum BookInternalBrowsing {
                     matchKey: child.path, navigateTarget: .archiveFileOnDisk(child)
                 )
             }
+            if isPDFFile(name) || isEpubFile(name) {
+                return Entry(
+                    id: child.path, displayName: name, isContainer: true, isImage: false,
+                    matchKey: child.path, navigateTarget: .documentFileOnDisk(child)
+                )
+            }
             return nil
         }
         return sortedEntries(entries, pageOrder: pageOrder)
@@ -246,6 +290,11 @@ nonisolated enum BookInternalBrowsing {
                     fileEntries.append(Entry(
                         id: path, displayName: name, isContainer: true, isImage: false,
                         matchKey: matchKey(for: path), navigateTarget: .nestedArchiveEntry(entryPath: path)
+                    ))
+                } else if isPDFFile(name) || isEpubFile(name) {
+                    fileEntries.append(Entry(
+                        id: path, displayName: name, isContainer: true, isImage: false,
+                        matchKey: matchKey(for: path), navigateTarget: .documentEntry(entryPath: path)
                     ))
                 }
             }

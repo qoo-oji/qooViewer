@@ -24,8 +24,9 @@ nonisolated enum PageSource {
     /// ArchiveLocatorの型コメント参照)。形式の判定も`locator.archiveFileName`の拡張子を
     /// 見る1箇所へ集約でき、対応形式を増やすときに触る場所が減った。
     case archive(locator: ArchiveLocator, entryPath: String)
-    /// PDFファイル内の1ページ(0始まりのページ番号)
-    case pdf(pdfURL: URL, pageIndex: Int)
+    /// PDFの中の1ページ(0始まりのページ番号)。PDF自体の在り処は`PDFContainer`が表す
+    /// (ディスク上の実ファイルか、書庫の中のエントリか)。
+    case pdf(container: PDFContainer, pageIndex: Int)
 
     /// フォルダ内の独立した画像ファイルかどうか(書庫内エントリ・PDFのページではない)。
     /// この場合だけ、ファイルを丸ごと読まずにヘッダーだけを読むURLベースの経路が使える
@@ -33,6 +34,71 @@ nonisolated enum PageSource {
     var isFile: Bool {
         if case .file = self { return true }
         return false
+    }
+}
+
+/// PDFファイルそのものの在り処。
+///
+/// ユーザー要望により、フォルダの本・書庫の本の中に置かれたPDFも1冊のページ一覧へ統合する
+/// ようになったため、「PDFのページ」の出所はディスク上の実ファイルとは限らなくなった
+/// (BookLoader.collectPagesのコメント参照)。zip/rar/7zと同じ考え方で、実ファイルなら
+/// `.file`、書庫の中のエントリなら`.entry`(その書庫を指す`ArchiveLocator`+書庫内のパス)で表す。
+/// `.entry`のPDFを実際に読むときは、書庫からバイト列を取り出してCGPDFDocumentを作る
+/// (PageLoader.pdfDocument(for:)参照)。
+nonisolated enum PDFContainer: Hashable, Sendable {
+    /// ディスク上に実在するPDFファイル(本そのものがPDF、またはフォルダの本の中のPDF)。
+    case file(URL)
+    /// 書庫の中に入っているPDF。`locator`はそのPDFを**含んでいる**書庫を指し、
+    /// `entryPath`はその書庫の中でのPDFのパス(PageSource.archiveと同じ組み合わせ方)。
+    case entry(locator: ArchiveLocator, entryPath: String)
+
+    /// PDFのファイル名(拡張子付き)。
+    var fileName: String {
+        switch self {
+        case .file(let url): return url.lastPathComponent
+        case .entry(_, let entryPath): return (entryPath as NSString).lastPathComponent
+        }
+    }
+
+    /// 拡張子を落としたファイル名(ページの表示名の組み立てに使う)。
+    var baseName: String {
+        (fileName as NSString).deletingPathExtension
+    }
+
+    /// このPDFの`pageIndex`ページ目(0始まり)の表示名。PDFのページには個別のファイル名が
+    /// 無いため、PDFのファイル名とページ番号(1始まり)を組み合わせる。
+    /// PageRef.displayNameと、サイドパネル下段の本の中身ブラウザが共用する
+    /// (両者が食い違うと、同じページが場所によって別の名前で並ぶ)。
+    func pageDisplayName(pageIndex: Int) -> String {
+        "\(baseName) (\(pageIndex + 1))"
+    }
+
+    /// 「Finderで表示」が指す実体。書庫の中のPDFは実ファイルとして存在しないため、
+    /// その書庫(ユーザーが選んだ本、またはフォルダの中の書庫ファイル)を指す
+    /// (ArchiveLocator.rootURLは必ず実在する)。
+    var revealURL: URL {
+        switch self {
+        case .file(let url): return url
+        case .entry(let locator, _): return locator.rootURL
+        }
+    }
+
+    /// ユーザーに見せる「このPDFの場所」(「情報を見る」の“場所”欄)。
+    var displayPath: String {
+        switch self {
+        case .file(let url): return url.deletingLastPathComponent().path
+        case .entry(let locator, let entryPath):
+            let folder = (entryPath as NSString).deletingLastPathComponent
+            return folder.isEmpty ? locator.displayPath : "\(locator.displayPath)/\(folder)"
+        }
+    }
+
+    /// 開いたCGPDFDocumentを使い回すためのキー(PageLoader.pdfDocuments)。
+    var cacheKey: String {
+        switch self {
+        case .file(let url): return url.path
+        case .entry(let locator, let entryPath): return "\(locator.displayPath)#\(entryPath)"
+        }
     }
 }
 
@@ -73,10 +139,10 @@ nonisolated struct PageRef: Identifiable, Hashable {
             return url.lastPathComponent
         case .archive(_, let entryPath):
             return (entryPath as NSString).lastPathComponent
-        case .pdf(let pdfURL, let pageIndex):
+        case .pdf(let container, let pageIndex):
             // PDFのページ自体には(アーカイブ内エントリのような)個別のファイル名がないため、
             // 元のPDFファイル名とページ番号(1始まりで表示)を組み合わせて表示する。
-            return "\(pdfURL.deletingPathExtension().lastPathComponent) (\(pageIndex + 1))"
+            return container.pageDisplayName(pageIndex: pageIndex)
         }
     }
 }
@@ -90,12 +156,13 @@ nonisolated struct PageRef: Identifiable, Hashable {
 /// (ユーザー要望)。そこで画像のファイル名を出す画面では、ファイル名と一緒にこの
 /// `folderPath`を添える。
 ///
-/// **EPUBだけは例外で、常に`folderPath`がnilになる。** EPUBの画像は`OEBPS/Images/`のような
+/// **EPUBの中のフォルダだけは例外で、常に畳んで捨てる。** EPUBの画像は`OEBPS/Images/`のような
 /// 決まった場所にまとめて置かれているのが普通で、どのページにも同じ1行が付くだけで
-/// 「どこの画像か」の区別には何の役にも立たない(ユーザー指示)。EPUBのページが書庫の中の
-/// 別々の場所から来ることは仕組み上ありえない ―― `archiveExtensions`に`epub`は含まれないため、
-/// EPUBは常に本そのものであり、入れ子の書庫として開かれることも、中の書庫へ潜ることも無い
-/// (ArchiveReading.swiftのisEpubFileのコメント参照)。
+/// 「どこの画像か」の区別には何の役にも立たない(ユーザー指示)。本そのものがEPUBなら
+/// `folderPath`はnilになり、フォルダ/書庫の本の中に入っていたEPUBなら、その**EPUBファイル
+/// までの道順**だけが残る(`chapters/vol1.epub`)―― こちらは章ごとにEPUBが並んでいる本で
+/// 「どの巻のページか」を区別するのに要る(ユーザー要望による、フォルダ/書庫の中のPDF・EPUBの
+/// 統合。BookLoader.collectPages参照)。
 nonisolated struct PageLocation: Hashable {
     /// 画像のファイル名(`PageRef.displayName`と同じ)。
     let fileName: String
@@ -130,12 +197,6 @@ nonisolated extension PageRef {
                 folderPath: Self.relativePath(of: url.deletingLastPathComponent().path, under: root)
             )
         case .archive(let locator, let entryPath):
-            // EPUBは中のフォルダを出さない(理由はPageLocationの型コメント参照)。
-            guard !isEpubFile(locator.rootURL.lastPathComponent) else {
-                return PageLocation(
-                    fileName: (entryPath as NSString).lastPathComponent, folderPath: nil
-                )
-            }
             var components: [String] = []
             // 本そのものが書庫ならここは空になる。フォルダの本では、その中の書庫ファイルが
             // フォルダの中のどこにあるか(例: `chapters/vol1.cbz`)がそのまま入る。
@@ -146,19 +207,42 @@ nonisolated extension PageRef {
             // `chapters/ch03.cbz`のようにフォルダを含みうる(ArchiveLocator参照)。
             components.append(contentsOf: locator.nestedPath)
             // 書庫の中でのフォルダ。書庫の直下にある画像なら空文字列になる。
-            let entryFolder = (entryPath as NSString).deletingLastPathComponent
-            if !entryFolder.isEmpty { components.append(entryFolder) }
+            // EPUBの中のフォルダだけは、ここまで積んだ道順(EPUBファイルまで)を残したうえで
+            // 畳んで捨てる(理由はPageLocationの型コメント参照)。
+            if !isEpubFile(locator.archiveFileName) {
+                let entryFolder = (entryPath as NSString).deletingLastPathComponent
+                if !entryFolder.isEmpty { components.append(entryFolder) }
+            }
             return PageLocation(
                 fileName: (entryPath as NSString).lastPathComponent,
                 folderPath: components.isEmpty ? nil : components.joined(separator: "/")
             )
-        case .pdf(let pdfURL, _):
+        case .pdf(let container, _):
             // PDFのページは独立したファイルではないため、名前はdisplayNameの組み立て
-            // (ファイル名+ページ番号)に任せる。本そのものがそのPDFなので、通常フォルダは付かない。
-            return PageLocation(
-                fileName: displayName,
-                folderPath: Self.relativePath(of: pdfURL.deletingLastPathComponent().path, under: root)
-            )
+            // (ファイル名+ページ番号)に任せる。本そのものがそのPDFなら、フォルダは付かない。
+            switch container {
+            case .file(let pdfURL):
+                // 本そのものがそのPDFなら(rootと一致するので)nil。フォルダの本の中のPDFなら、
+                // そのPDFファイルまでの道順(`chapters/vol1.pdf`)がそのまま「どこの画像か」になる。
+                return PageLocation(
+                    fileName: displayName,
+                    folderPath: Self.relativePath(of: pdfURL.path, under: root)
+                )
+            case .entry(let locator, let entryPath):
+                // 書庫の中のPDF。書庫の中の画像と同じ道順を組み立て、最後にPDFファイル自身を
+                // 加える(そのページを含んでいるのはPDFであって、PDFが置かれたフォルダではない。
+                // フォルダの本の中のPDF・EPUBと同じ見え方に揃える)。
+                var components: [String] = []
+                if let archivePath = Self.relativePath(of: locator.rootURL.path, under: root) {
+                    components.append(archivePath)
+                }
+                components.append(contentsOf: locator.nestedPath)
+                components.append(entryPath)
+                return PageLocation(
+                    fileName: displayName,
+                    folderPath: components.isEmpty ? nil : components.joined(separator: "/")
+                )
+            }
         }
     }
 

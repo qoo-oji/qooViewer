@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import CoreGraphics
 
 /// サイドパネル下段(本の中身ブラウザ)の閲覧状態。本ごとに作り直す(ContentViewが
 /// `appState.currentBook?.id`の変化を見て新しいインスタンスに差し替える)。
@@ -73,6 +74,8 @@ final class BookContentsBrowserState: ObservableObject {
 
     private static func displayName(for level: BookEntryLevel) -> String? {
         switch level {
+        case .documentPages(let fileName, _):
+            return fileName
         case .imageFileList:
             // 常にルート階層のみ(踏み込めない)ため、そもそもここへ来ない。
             return nil
@@ -232,6 +235,43 @@ final class BookContentsBrowserState: ObservableObject {
         switch target {
         case .realFolder(let url):
             return (.folder(url), nil)
+        case .documentFileOnDisk(let url):
+            // フォルダの本の中のPDF/EPUB。matchKeyPrefixは、BookLoader.collectPages(inFolder:)が
+            // そのファイルへ渡すsortKeyPrefix(= fileURL.path)と全く同じ。
+            // locatorは「新しい本として開く」の対象(resolveImageClick参照)。そのファイル自身。
+            return (
+                try documentLevel(fileName: url.lastPathComponent, matchKeyPrefix: url.path) {
+                    // ディスク上に実在するので取り出しは要らない(フォルダの中の書庫と同じ)。
+                    if isPDFFile(url.lastPathComponent) {
+                        return .pdf(CGPDFDocument(url as CFURL), .file(url))
+                    }
+                    return .epub(try EpubStructureResolver.resolve(reader: try makeArchiveReader(for: url)))
+                },
+                ArchiveLocator(rootURL: url)
+            )
+        case .documentEntry(let entryPath):
+            guard case .archive(let parentArchive, _, _, let parentMatchKeyPrefix) = level,
+                  let locator
+            else { return nil }
+            // 書庫の中のPDF/EPUB。matchKeyPrefixの組み立てはネストした書庫と同じ式
+            // (BookLoader.collectPages(at:...)のsortKeyPrefixと揃える)。
+            let name = (entryPath as NSString).lastPathComponent
+            let matchKeyPrefix = parentMatchKeyPrefix.map { "\($0)/\(entryPath)" } ?? entryPath
+            let nested = locator.appending(entryPath)
+            return (
+                try documentLevel(fileName: name, matchKeyPrefix: matchKeyPrefix) {
+                    if isPDFFile(name) {
+                        return .pdf(
+                            BookLoader.pdfDocument(atEntry: entryPath, in: parentArchive.reader),
+                            .entry(locator: locator, entryPath: entryPath)
+                        )
+                    }
+                    // EPUBはzipコンテナなので、ネストした書庫と全く同じ取り出し方で開ける。
+                    let child = try self.resolver.openTransient(nested, parentReader: parentArchive.reader)
+                    return .epub(try EpubStructureResolver.resolve(reader: child.reader))
+                },
+                nested
+            )
         case .archiveVirtualFolder(let prefix):
             // 同じreaderのまま仮想パスを深くするだけ(I/O無し)なので、matchKeyPrefixは
             // 変わらない(BookInternalBrowsing.archiveEntriesのコメント参照 ―
@@ -255,6 +295,38 @@ final class BookContentsBrowserState: ObservableObject {
                 parentMatchKeyPrefix: parentMatchKeyPrefix
             )
         }
+    }
+
+    /// PDF/EPUBの中身の階層を組み立てる。行の名前とmatchKeyは、BookLoaderがページを
+    /// 作るときと**同じ式**で組み立てる(BookLoader.documentPageSortKey / PDFContainer.
+    /// pageDisplayName)。ここが食い違うと、ダブルクリックしても本のページとして認識されない。
+    private func documentLevel(
+        fileName: String, matchKeyPrefix: String, resolve: () throws -> ResolvedDocument
+    ) rethrows -> BookEntryLevel {
+        let pages: [BookDocumentPage]
+        switch try resolve() {
+        case .pdf(let document, let container):
+            pages = (0..<(document?.numberOfPages ?? 0)).map { index in
+                BookDocumentPage(
+                    displayName: container.pageDisplayName(pageIndex: index),
+                    matchKey: BookLoader.documentPageSortKey(index: index, prefix: matchKeyPrefix)
+                )
+            }
+        case .epub(let structure):
+            pages = structure.pages.enumerated().map { index, page in
+                BookDocumentPage(
+                    displayName: (page.entryPath as NSString).lastPathComponent,
+                    matchKey: BookLoader.documentPageSortKey(index: index, prefix: matchKeyPrefix)
+                )
+            }
+        }
+        return .documentPages(fileName: fileName, pages: pages)
+    }
+
+    /// documentLevelが受け取る、解決済みのPDF/EPUB。
+    private enum ResolvedDocument {
+        case pdf(CGPDFDocument?, PDFContainer)
+        case epub(EpubStructure)
     }
 
     func goBack() {

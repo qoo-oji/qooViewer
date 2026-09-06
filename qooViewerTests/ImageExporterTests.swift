@@ -30,7 +30,7 @@ struct ImageExporterTests {
 
     private func pdfPage(_ index: Int, pdf: String = "/books/scan.pdf") -> PageRef {
         PageRef(id: "\(pdf)#\(index)", sortKey: String(index),
-                source: .pdf(pdfURL: URL(fileURLWithPath: pdf), pageIndex: index))
+                source: .pdf(container: .file(URL(fileURLWithPath: pdf)), pageIndex: index))
     }
 
     // MARK: - 形式の決定

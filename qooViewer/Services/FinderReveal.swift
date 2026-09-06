@@ -89,8 +89,9 @@ nonisolated enum PageFileAccess {
             candidate = url
         case .archive(let locator, _):
             candidate = locator.rootURL
-        case .pdf(let pdfURL, _):
-            candidate = pdfURL
+        case .pdf(let container, _):
+            // 書庫の中のPDFはその書庫ファイルを指す(PDFContainer.revealURL参照)。
+            candidate = container.revealURL
         }
         if isInTemporaryDirectory(candidate), let bookSourceURL { return bookSourceURL }
         return candidate

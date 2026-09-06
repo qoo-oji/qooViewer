@@ -97,6 +97,12 @@ nonisolated enum BookLoader {
             // (locator.rootURLが章の書庫ファイルで、本のパスとは別)はここで弾かれ、
             // 結果としてhasNestedArchivesもfalseのまま=高速経路の対象外になる。
             // フォルダの更新日時は孫ファイルの変更を拾わず、指紋として信用できないため。
+            //
+            // 書庫の中のPDFのページ(.pdf)もここを通らないので、復元に要るページ番号を持たない。
+            // そのため、そうしたページを含む本はrestoredFromStructureCacheが丸ごと諦めて
+            // 通常の読み込みへ落ちる(中途半端な本を作らないための、あちらのguardがそのまま効く)。
+            // ページの並びとファイル名しか要らない画面(レイアウト編集ウインドウの右ペイン等)は
+            // このEntryをそのまま使えるので、書き戻し自体は続ける。
             if case .archive(let locator, let path) = page.source,
                locator.rootURL.path == rootPath,
                page.id.hasPrefix(rootPath) {
@@ -270,6 +276,13 @@ nonisolated enum BookLoader {
     /// 書庫ファイルが見つかった場合はcollectPages(at:...)でその中身も統合する。
     /// ここで見つかる書庫はディスク上に実在するファイルなので、そのままArchiveLocatorの
     /// ルートになる(取り出しは一切要らない)。
+    ///
+    /// ユーザー報告 2026-09-06: PDF/EPUBの入ったフォルダをドロップしても中身を認識しない
+    /// (zip/rar/7zはまとめて1冊になるのに、という指摘)。PDFとEPUBも同じように統合する。
+    /// 1ファイルの中に複数ページを持つ形式なので、書庫のように「中のエントリを名前順に
+    /// 並べる」のではなく、そのファイル自身が決めた順(PDFはページ番号、EPUBはspine)を
+    /// ゼロ埋めの連番にしたsortKeyで、そのファイルが置かれていた位置へそのまま差し込む
+    /// (pdfPages/epubPages参照)。
     private static func collectPages(inFolder url: URL, context: LoadContext) throws -> [PageRef] {
         var pages: [PageRef] = []
         guard let enumerator = FileManager.default.enumerator(
@@ -307,6 +320,32 @@ nonisolated enum BookLoader {
                     nestedPages = []
                 }
                 pages.append(contentsOf: nestedPages)
+            } else if isPDFFile(name) {
+                try Task.checkCancellation()
+                // 開けないPDFは読み飛ばす(書庫と同じ扱い。そのぶんのページが無いだけ)。
+                pages.append(contentsOf: pdfPages(
+                    of: CGPDFDocument(fileURL as CFURL),
+                    container: .file(fileURL),
+                    idPrefix: fileURL.path,
+                    sortKeyPrefix: fileURL.path
+                ))
+            } else if isEpubFile(name) {
+                try Task.checkCancellation()
+                context.progress.didDiscoverArchive()
+                // EPUBはzipコンテナなので、ディスク上のファイルをそのまま開ける
+                // (フォルダの中の書庫と同じく取り出しは要らない)。固定レイアウトの
+                // 画像ベースでないEPUB(リフロー型の小説など)はページを1枚も返さず、
+                // 結果として一覧に現れないだけになる。
+                if let reader = try? makeArchiveReader(for: fileURL),
+                   let structure = try? EpubStructureResolver.resolve(reader: reader) {
+                    pages.append(contentsOf: epubPages(
+                        of: structure,
+                        locator: ArchiveLocator(rootURL: fileURL),
+                        idPrefix: fileURL.path,
+                        sortKeyPrefix: fileURL.path
+                    ))
+                }
+                context.progress.didFinishArchive(named: name)
             }
         }
         return pages
@@ -419,9 +458,108 @@ nonisolated enum BookLoader {
                 } catch {
                     continue
                 }
+            } else if isPDFFile(path) {
+                // 書庫の中のPDF(ユーザー要望。collectPages(inFolder:)のコメント参照)。
+                // ページ数を数えるだけでもPDF全体のバイト列が要るため、入れ子の書庫と同じく
+                // 「取り出す→数える→捨てる」を1回だけ行う(CGPDFDocumentはここでは持ち帰らず、
+                // 実際に読むときにPageLoaderが自分で開き直す)。
+                try Task.checkCancellation()
+                context.progress.didDiscoverArchive()
+                let document = Self.pdfDocument(atEntry: path, in: archive.reader)
+                context.progress.didFinishArchive(named: (path as NSString).lastPathComponent)
+                pages.append(contentsOf: pdfPages(
+                    of: document,
+                    container: .entry(locator: locator, entryPath: path),
+                    idPrefix: "\(idPrefix)#\(path)",
+                    sortKeyPrefix: sortKeyPrefix.map { "\($0)/\(path)" } ?? path
+                ))
+            } else if isEpubFile(path), locator.depth < maxNestedArchiveDepth {
+                // 書庫の中のEPUB。EPUB自体がzipコンテナなので、取り出し方は入れ子の書庫と
+                // 全く同じ(archiveKind(forFileName:)がepubをzipとして返す)。違うのは
+                // 中の並べ方だけで、spineが決めた順にページを組み立てる。
+                try Task.checkCancellation()
+                context.progress.didDiscoverArchive()
+                do {
+                    let nested = locator.appending(path)
+                    let child = try context.resolver.openTransient(nested, parentReader: archive.reader)
+                    context.progress.didFinishArchive(named: (path as NSString).lastPathComponent)
+                    guard let structure = try? EpubStructureResolver.resolve(reader: child.reader) else { continue }
+                    pages.append(contentsOf: epubPages(
+                        of: structure,
+                        locator: nested,
+                        idPrefix: "\(idPrefix)#\(path)",
+                        sortKeyPrefix: sortKeyPrefix.map { "\($0)/\(path)" } ?? path
+                    ))
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    continue
+                }
             }
         }
         return pages
+    }
+
+    /// 書庫の中のPDFエントリを取り出してCGPDFDocumentを作る。取り出せない・大きすぎる・
+    /// PDFとして開けない場合はnil(呼び出し側はそのPDFのページが無いものとして続ける)。
+    ///
+    /// 上限はPageLoaderが書庫内エントリへ掛けているものと同じ(maxDecodableEntryBytes)。
+    /// 書庫の中のPDFはメモリ上のバイト列としてしか開けない ―― CGPDFDocumentはData
+    /// (CGDataProvider)から作ると、そのバイト列を丸ごと抱えたままになるため、ディスク上の
+    /// PDF(CoreGraphicsがmmapで必要なところだけ読む)と違って中身のぶんだけ常駐する。
+    static func pdfDocument(atEntry path: String, in reader: ArchiveReading) -> CGPDFDocument? {
+        if let declared = reader.entryUncompressedSize(at: path), Int64(declared) > maxInMemoryPDFBytes {
+            return nil
+        }
+        guard let data = try? reader.data(at: path), Int64(data.count) <= maxInMemoryPDFBytes,
+              let provider = CGDataProvider(data: data as CFData)
+        else { return nil }
+        return CGPDFDocument(provider)
+    }
+
+    /// 書庫の中のPDF1本としてメモリに載せてよい大きさ。PageLoaderが書庫内エントリへ
+    /// 掛けている上限(maxDecodableEntryBytes)と同じ値。
+    static let maxInMemoryPDFBytes: Int64 = 512 * 1024 * 1024
+
+    /// PDFのページ一覧を組み立てる。`sortKeyPrefix`がnilなら本そのものがPDFで、sortKeyは
+    /// 従来どおりゼロ埋めの連番そのもの。非nilならフォルダ/書庫の中で見つかったPDFで、
+    /// そのPDFファイルが兄弟ファイルと並んでいた位置へ中身が展開されたかのように並ぶよう、
+    /// 書庫の入れ子と同じ形("\(prefix)/\(連番)")にする。
+    ///
+    /// **この組み立て式は変更してはならない**(理由はcollectPages(at:...)のコメント参照)。
+    private static func pdfPages(
+        of document: CGPDFDocument?, container: PDFContainer, idPrefix: String, sortKeyPrefix: String?
+    ) -> [PageRef] {
+        guard let document else { return [] }
+        return (0..<document.numberOfPages).map { index in
+            PageRef(
+                id: "\(idPrefix)#pdf#\(index)",
+                sortKey: documentPageSortKey(index: index, prefix: sortKeyPrefix),
+                source: .pdf(container: container, pageIndex: index)
+            )
+        }
+    }
+
+    /// PDF/EPUBのページのsortKey。**この式は変更してはならない**(DBのページキーであり、
+    /// サイドパネル下段の本の中身ブラウザも同じ式で行のmatchKeyを組み立てる。
+    /// 食い違うとダブルクリックでそのページへ飛べなくなる)。
+    static func documentPageSortKey(index: Int, prefix: String?) -> String {
+        let number = String(format: "%06d", index)
+        return prefix.map { "\($0)/\(number)" } ?? number
+    }
+
+    /// EPUBのページ一覧を組み立てる(sortKey/idの考え方はpdfPagesと同じ)。
+    private static func epubPages(
+        of structure: EpubStructure, locator: ArchiveLocator, idPrefix: String, sortKeyPrefix: String?
+    ) -> [PageRef] {
+        structure.pages.enumerated().map { index, page in
+            PageRef(
+                id: "\(idPrefix)#\(page.entryPath)",
+                sortKey: documentPageSortKey(index: index, prefix: sortKeyPrefix),
+                source: .archive(locator: locator, entryPath: page.entryPath),
+                epubSpreadPosition: page.spreadPosition
+            )
+        }
     }
 
     /// PDFファイルを1冊の本として読み込む。zip/7z/rarのような「中身を展開するアーカイブ」とは
@@ -440,13 +578,9 @@ nonisolated enum BookLoader {
         let pageCount = document.numberOfPages
         guard pageCount > 0 else { throw BookLoaderError.noPages }
 
-        let pages = (0..<pageCount).map { index in
-            PageRef(
-                id: "\(url.path)#pdf#\(index)",
-                sortKey: String(format: "%06d", index),
-                source: .pdf(pdfURL: url, pageIndex: index)
-            )
-        }
+        let pages = pdfPages(
+            of: document, container: .file(url), idPrefix: url.path, sortKeyPrefix: nil
+        )
         return MangaBook(
             id: url.path,
             title: url.deletingPathExtension().lastPathComponent,
@@ -478,14 +612,9 @@ nonisolated enum BookLoader {
         }
         guard !structure.pages.isEmpty else { throw BookLoaderError.epubNotPictureBook }
 
-        let pages = structure.pages.enumerated().map { index, page in
-            PageRef(
-                id: "\(url.path)#\(page.entryPath)",
-                sortKey: String(format: "%06d", index),
-                source: .archive(locator: ArchiveLocator(rootURL: url), entryPath: page.entryPath),
-                epubSpreadPosition: page.spreadPosition
-            )
-        }
+        let pages = epubPages(
+            of: structure, locator: ArchiveLocator(rootURL: url), idPrefix: url.path, sortKeyPrefix: nil
+        )
         return MangaBook(
             id: url.path,
             title: url.deletingPathExtension().lastPathComponent,

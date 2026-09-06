@@ -128,8 +128,8 @@ nonisolated enum ImageExporter {
             return nfcNormalizedForExport(url.deletingPathExtension().lastPathComponent)
         case .archive(_, let entryPath):
             return nfcNormalizedForExport(((entryPath as NSString).lastPathComponent as NSString).deletingPathExtension)
-        case .pdf(let pdfURL, let pageIndex):
-            return nfcNormalizedForExport("\(pdfURL.deletingPathExtension().lastPathComponent)-\(pageIndex + 1)")
+        case .pdf(let container, let pageIndex):
+            return nfcNormalizedForExport("\(container.baseName)-\(pageIndex + 1)")
         }
     }
 

@@ -1047,10 +1047,10 @@ private struct BookContentsSectionView: View {
     /// 画像など)を「Finderで開く」ときに指す実体。
     private func revealTargetURL(for entry: BookInternalBrowsing.Entry) -> URL? {
         switch entry.navigateTarget {
-        case .realFolder(let url), .archiveFileOnDisk(let url):
-            // ディスク上に実在するフォルダ/書庫ファイル。そのまま示せる。
+        case .realFolder(let url), .archiveFileOnDisk(let url), .documentFileOnDisk(let url):
+            // ディスク上に実在するフォルダ/書庫/PDF/EPUBファイル。そのまま示せる。
             return url
-        case .archiveVirtualFolder, .nestedArchiveEntry:
+        case .archiveVirtualFolder, .nestedArchiveEntry, .documentEntry:
             // 書庫の中にしか存在しない。本そのものを示す。
             return bookSourceURL
         case nil:
@@ -1071,6 +1071,10 @@ private struct BookContentsSectionView: View {
             return "folder"
         case .archiveFileOnDisk, .nestedArchiveEntry:
             return "doc.zipper"
+        case .documentFileOnDisk(let url):
+            return sidePanelFileIconName(fileName: url.lastPathComponent)
+        case .documentEntry(let entryPath):
+            return sidePanelFileIconName(fileName: (entryPath as NSString).lastPathComponent)
         case nil:
             return "doc"
         }

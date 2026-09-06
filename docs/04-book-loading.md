@@ -34,8 +34,8 @@
 
 | 入力 | 処理 | ページ順の由来 |
 |---|---|---|
-| フォルダ | `loadFolder` → `collectPages(inFolder:)` を再帰。中に書庫があれば `collectPages(at:)` で中まで辿る | `.fileName`(正準順) |
-| zip/cbz/rar/cbr/7z/cb7 | `loadArchive` → `makeArchiveReader` → `collectPages(at:)`。中の書庫も再帰 | `.fileName` |
+| フォルダ | `loadFolder` → `collectPages(inFolder:)` を再帰。中に書庫・PDF・EPUB があれば中まで辿る | `.fileName`(正準順) |
+| zip/cbz/rar/cbr/7z/cb7 | `loadArchive` → `makeArchiveReader` → `collectPages(at:)`。中の書庫・PDF・EPUB も再帰 | `.fileName` |
 | PDF | `loadPDF`(`CGPDFDocument`)。ページ数ぶんの `PageRef` | `.document` |
 | EPUB | `loadEpub`(`EpubStructureResolver`)。spine の順に画像を解決 | `.document` |
 | 画像ファイル群 | `load(imageFiles:)` | `.fileName` |
@@ -56,7 +56,8 @@
   すべて開く」で元の画像へ着地する)に使う。
 - `sortKey` = `"\(prefix)/\(path)"`: **DB の `pageKey`** に使う(ブックマーク・レイアウト・
   読書位置がこの文字列でページを指す)。フォルダの本ならファイルの絶対パス、書庫なら
-  エントリのパス(入れ子は親のパスを `/` で連結)、PDF/EPUB はゼロ埋めの連番(`%06d`)。
+  エントリのパス(入れ子は親のパスを `/` で連結)、PDF/EPUB はゼロ埋めの連番(`%06d`。
+  `BookLoader.documentPageSortKey`)。
 
 `id` と `sortKey` で区切り文字が違うのは、書庫の中に `a.zip` というファイルと `a.zip/` という
 フォルダが同居するような本で、`sortKey` が偶然一致しうるためです(`id` は衝突しない)。
@@ -159,6 +160,32 @@ Unicode 名を持たない古い RAR4 は文字化けします。unrar ライブ
 
 環境設定「キャッシュ」から容量の確認と削除ができます。EPUB は `folderPath` を持たない
 (古いキャッシュに残っていても読まない)。
+
+## フォルダ・書庫の中の PDF と EPUB
+
+ユーザー報告(2026-09-06)を受けて、**フォルダや書庫の中に置かれた PDF・EPUB も、その位置へ
+中身が展開されたかのように1冊のページ一覧へ統合**します(zip/cbz・rar・7z が以前からそうなって
+いたのと同じ扱い)。以前は画像と書庫しか拾わず、PDF と EPUB しか入っていないフォルダは
+「ページが無い」で開けませんでした。
+
+- ページ順はそのファイル自身のもの(PDF はページ番号、EPUB は spine)。`sortKey` は
+  そのファイルまでの接頭辞 + ゼロ埋めの連番(`…/chapters/vol1.pdf/000003`)で、書庫の入れ子と
+  同じ組み立て方。`id` は、その PDF/EPUB を単体で開いたときと同じ形。
+- EPUB は zip コンテナなので、ページは `PageSource.archive`(その EPUB を指す `ArchiveLocator`)。
+  書庫の中の EPUB は入れ子の書庫とまったく同じ経路(`openTransient`)で開きます。
+- PDF のページは `PageSource.pdf(container:pageIndex:)`。`PDFContainer` が `.file`(ディスク上)か
+  `.entry`(書庫の中)かを持ちます。`.entry` は CGPDFDocument をバイト列から作るため中身が常駐
+  するので、`PageLoader` はメモリ上の PDF を3本までしか抱えません(上限は書庫内エントリと同じ
+  512MB/本)。書庫の中の PDF を含む本は、構造キャッシュの高速経路(復元にページ番号が要る)から
+  外れて通常の読み込みになります。
+- 本そのものは依然としてフォルダ/書庫なので `pageOrderSource` は `.fileName` のまま、
+  `sourceLayoutHint`(読み方向・見開き強制)も引き継ぎません。ページ単位の見開き指定
+  (`PageRef.epubSpreadPosition`)だけは、その EPUB のぶんがそのまま効きます。
+- サイドパネル下段の本の中身ブラウザにも並び、踏み込むとそのファイルのページ一覧
+  (`BookEntryLevel.documentPages`)になります。行の `matchKey` は `BookLoader.documentPageSortKey`
+  と同じ式で組み立てます(食い違うとページへ飛べません)。
+- 「本の中のどこか」(`PageLocation.folderPath`)は、その PDF/EPUB ファイルまでの道順
+  (`chapters/vol1.epub`)。EPUB の中のフォルダ(`OEBPS/Images/`)は従来どおり畳んで捨てます。
 
 ## PDF と EPUB
 

@@ -56,6 +56,14 @@ actor PageLoader {
     /// PDFファイルごとにCGPDFDocumentを使い回す(アーカイブのreaders同様、actorの外から
     /// 同時に触られることはないため安全に直列化される)。
     private var pdfDocuments: [String: CGPDFDocument] = [:]
+    /// メモリ上に中身を抱えているPDF(書庫の中のPDF)のキーを、使った順に並べたもの
+    /// (末尾が直近)。ディスク上のPDFはmmapで読まれるためここには入れない
+    /// (pdfDocument(for:)のコメント参照)。
+    private var inMemoryPDFKeys: [String] = []
+    /// メモリ上に同時に載せておく書庫内PDFの本数。1本あたりPDFファイルのバイト列を
+    /// 丸ごと抱えるため、入れ子の書庫(NestedArchiveResolver.Limits.maxOpenReaders)より
+    /// 更に絞ってある。見開き2ページが別々のPDFにまたがっても取り出し直しが起きない数。
+    private static let maxInMemoryPDFDocuments = 3
     /// 進行中の先読み。範囲外になったときに、ラッパーのTaskだけでなくその内側で走っている
     /// 実際の読み込み(inFlightTasks)も打ち切れるよう、対応するキーを一緒に覚えておく
     /// (cancellableInFlightKeysのコメント参照)。indexからその都度book.pagesを引いて求める
@@ -328,6 +336,7 @@ actor PageLoader {
         // 書いてある「書庫リーダーもここで閉じる」のと同じ理由。
         resolver.purgeAll()
         pdfDocuments.removeAll()
+        inMemoryPDFKeys.removeAll()
         scanReader = nil
         headerInfoCache.removeAll()
         // 下調べが途中だった場合でも、ここまでに分かった寸法は次回のために書き戻しておく。
@@ -515,6 +524,28 @@ actor PageLoader {
         return rawData(for: book.pages[index].source)
     }
 
+    /// PDF書き出しのパススルー用に、そのページの元PDFファイル**そのもの**のバイト列を返す。
+    ///
+    /// PDF→PDFの書き出しは元のページをそのまま写す(PDFExporter.exportのコメント参照)ため、
+    /// 書き出し側にCGPDFDocumentが要る。書庫の中のPDFは実ファイルとして存在しないので、
+    /// ここでバイト列だけを渡し、CGPDFDocumentの生成は書き出し側で行う ―― 書庫のreaderは
+    /// このactorの外へ出さない、というこのアプリの約束(CLAUDE.md)に従うため。
+    func rawPDFFileData(at index: Int) async -> Data? {
+        guard book.pages.indices.contains(index) else { return nil }
+        guard case .pdf(let container, _) = book.pages[index].source else { return nil }
+        switch container {
+        case .file(let url):
+            return try? Data(contentsOf: url)
+        case .entry(let locator, let entryPath):
+            guard let reader = reader(for: locator) else { return nil }
+            if let declared = reader.entryUncompressedSize(at: entryPath),
+               Int64(declared) > BookLoader.maxInMemoryPDFBytes {
+                return nil
+            }
+            return try? reader.data(at: entryPath)
+        }
+    }
+
     /// 書き出し(EPUB)にそのまま使える画像データと、その拡張子。
     ///
     /// ユーザー要望により、EPUB書き出しの対象へ元がPDFの本も含めるようになったため、
@@ -531,11 +562,11 @@ actor PageLoader {
     func exportableImage(at index: Int) async throws -> (data: Data, fileExtension: String)? {
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
-        guard case .pdf(let pdfURL, let pdfPageIndex) = page.source else {
+        guard case .pdf(let container, let pdfPageIndex) = page.source else {
             guard let data = rawData(for: page.source) else { return nil }
             return (data, Self.fileExtension(forEntryPathOf: page))
         }
-        guard let document = pdfDocument(for: pdfURL),
+        guard let document = pdfDocument(for: container),
               let pdfPage = document.page(at: pdfPageIndex + 1)
         else { return nil }
         let extracted = try PDFImageExtractor.extractImageData(from: pdfPage, pageNumber: pdfPageIndex + 1)
@@ -557,10 +588,10 @@ actor PageLoader {
             throw PDFImageExtractor.ExtractionError.imageDataUnavailable(pageNumber: index + 1)
         }
         let page = book.pages[index]
-        guard case .pdf(let pdfURL, let pdfPageIndex) = page.source else {
+        guard case .pdf(let container, let pdfPageIndex) = page.source else {
             return Self.fileExtension(forEntryPathOf: page)
         }
-        guard let document = pdfDocument(for: pdfURL),
+        guard let document = pdfDocument(for: container),
               let pdfPage = document.page(at: pdfPageIndex + 1)
         else {
             throw PDFImageExtractor.ExtractionError.imageDataUnavailable(pageNumber: pdfPageIndex + 1)
@@ -613,8 +644,8 @@ actor PageLoader {
 
         // PDFはページ寸法がCGPDFPageから直接取れる(ファイルの読み込み・解析を伴わない)ため、
         // actorの外へ逃がす意味が無い。ここで完結させる。
-        if case .pdf(let pdfURL, let pageIndex) = page.source {
-            guard let document = pdfDocument(for: pdfURL), let pdfPage = document.page(at: pageIndex + 1) else {
+        if case .pdf(let container, let pageIndex) = page.source {
+            guard let document = pdfDocument(for: container), let pdfPage = document.page(at: pageIndex + 1) else {
                 return nil
             }
             let box = pdfPage.getBoxRect(.mediaBox)
@@ -843,16 +874,17 @@ actor PageLoader {
         guard book.pages.indices.contains(index) else { return nil }
         let page = book.pages[index]
         switch page.source {
-        case .pdf(let pdfURL, let pageIndex):
+        case .pdf(let container, let pageIndex):
             // PDFのページは独立した画像ファイルではない(PDF自体の1ページ)ため、色空間・
             // カラープロファイル・アルファチャンネル・ファイルサイズはページ単位では
-            // 意味を持たない(nilのまま)。場所・作成日・変更日はPDFファイル自体のもの。
-            guard let document = pdfDocument(for: pdfURL), let pdfPage = document.page(at: pageIndex + 1) else {
+            // 意味を持たない(nilのまま)。場所・作成日・変更日はPDFファイル自体のもの
+            // (書庫の中のPDFなら、その書庫ファイルのもの)。
+            guard let document = pdfDocument(for: container), let pdfPage = document.page(at: pageIndex + 1) else {
                 return nil
             }
             let box = pdfPage.getBoxRect(.mediaBox)
             guard box.width > 0, box.height > 0 else { return nil }
-            let dates = Self.fileSystemDates(for: pdfURL)
+            let dates = Self.fileSystemDates(for: container.revealURL)
             return PageImageInfo(
                 fileName: page.displayName,
                 formatDescription: "PDF",
@@ -860,7 +892,7 @@ actor PageLoader {
                 pixelHeight: Int(box.height.rounded()),
                 colorModel: nil,
                 fileSizeBytes: nil,
-                location: pdfURL.deletingLastPathComponent().path,
+                location: container.displayPath,
                 createdDate: dates.created,
                 modifiedDate: dates.modified,
                 colorProfileName: nil,
@@ -986,8 +1018,8 @@ actor PageLoader {
     /// 判断が付かない場合はfalse(従来どおり別途デコードする)。
     private func highResolutionMatchesPageImage(at index: Int) async -> Bool {
         let page = book.pages[index]
-        if case .pdf(let pdfURL, let pageIndex) = page.source {
-            guard let document = pdfDocument(for: pdfURL), let pdfPage = document.page(at: pageIndex + 1) else {
+        if case .pdf(let container, let pageIndex) = page.source {
+            guard let document = pdfDocument(for: container), let pdfPage = document.page(at: pageIndex + 1) else {
                 return false
             }
             return pdfRenderScale(for: pdfPage, maxPixelSize: ImageDecoder.highResolutionMaxPixelSize)
@@ -1189,8 +1221,8 @@ actor PageLoader {
         // (ImageDecoder.decodePixelsのコメント参照。上限以下の画像でコピーが1回減る)。
         if !contrastCorrectionEnabled {
             switch source {
-            case .pdf(let pdfURL, let pageIndex):
-                return renderPDFPixels(pdfURL: pdfURL, pageIndex: pageIndex, maxPixelSize: maxPixelSize)
+            case .pdf(let container, let pageIndex):
+                return renderPDFPixels(container: container, pageIndex: pageIndex, maxPixelSize: maxPixelSize)
             case .file, .archive:
                 guard let data = rawData(for: source) else { return nil }
                 guard !Task.isCancelled else { return nil }
@@ -1346,9 +1378,9 @@ actor PageLoader {
     private func decodedImage(for source: PageSource, maxPixelSize: CGFloat) async -> CGImage? {
         let decoded: CGImage?
         switch source {
-        case .pdf(let pdfURL, let pageIndex):
+        case .pdf(let container, let pageIndex):
             guard !Task.isCancelled else { return nil }
-            decoded = renderPDFPage(pdfURL: pdfURL, pageIndex: pageIndex, maxPixelSize: maxPixelSize)
+            decoded = renderPDFPage(container: container, pageIndex: pageIndex, maxPixelSize: maxPixelSize)
         case .file, .archive:
             guard let data = rawData(for: source) else { return nil }
             guard !Task.isCancelled else { return nil }
@@ -1438,24 +1470,66 @@ actor PageLoader {
     }
 
     /// PDFファイルごとにCGPDFDocumentを使い回す。アーカイブのreader(for:)と同様の考え方。
-    private func pdfDocument(for pdfURL: URL) -> CGPDFDocument? {
-        if let cached = pdfDocuments[pdfURL.path] { return cached }
-        guard let document = CGPDFDocument(pdfURL as CFURL) else { return nil }
-        pdfDocuments[pdfURL.path] = document
+    ///
+    /// 書庫の中のPDF(ユーザー要望による、フォルダ/書庫の中のPDF・EPUBの統合。
+    /// BookLoader.collectPages参照)は、書庫からバイト列を取り出してCGDataProviderから作る。
+    /// この場合CoreGraphicsが中身を丸ごと抱えたままになるため、ディスク上のPDF(mmapで
+    /// 必要なところだけ読む)と違って常駐する ―― 章ごとにPDFが並んだ本で溜め込まないよう、
+    /// メモリ上のPDFだけは持っておく本数に上限を設けて古いものから手放す。
+    private func pdfDocument(for container: PDFContainer) -> CGPDFDocument? {
+        let key = container.cacheKey
+        if let cached = pdfDocuments[key] {
+            // 使用順を更新するのはメモリ上のPDF(書庫の中のPDF)だけ。ディスク上のPDFは
+            // 追い出しの対象ではないので、順序の列にも入れない。
+            if case .entry = container { touchInMemoryPDF(key) }
+            return cached
+        }
+        let document: CGPDFDocument?
+        switch container {
+        case .file(let url):
+            document = CGPDFDocument(url as CFURL)
+        case .entry(let locator, let entryPath):
+            guard let reader = reader(for: locator) else { return nil }
+            document = BookLoader.pdfDocument(atEntry: entryPath, in: reader)
+        }
+        guard let document else { return nil }
+        pdfDocuments[key] = document
+        if case .entry = container {
+            touchInMemoryPDF(key)
+            evictInMemoryPDFsIfNeeded()
+        }
         return document
+    }
+
+    /// メモリ上に載っているPDF(書庫の中のPDF)の使用順を更新する。
+    private func touchInMemoryPDF(_ key: String) {
+        guard let index = inMemoryPDFKeys.firstIndex(of: key) else {
+            inMemoryPDFKeys.append(key)
+            return
+        }
+        inMemoryPDFKeys.append(inMemoryPDFKeys.remove(at: index))
+    }
+
+    /// 上限を超えたぶんを、使っていないものから手放す。次にそのページへ戻ってきたときに
+    /// 取り出し直されるだけで、動作は変わらない(NestedArchiveResolverのLRUと同じ考え方)。
+    private func evictInMemoryPDFsIfNeeded() {
+        while inMemoryPDFKeys.count > Self.maxInMemoryPDFDocuments {
+            let key = inMemoryPDFKeys.removeFirst()
+            pdfDocuments[key] = nil
+        }
     }
 
     /// PDFの指定ページ(0始まり)を、長辺がmaxPixelSizeに収まる解像度でCGImageとして描画する。
     /// 透過を持つPDFページ(白紙部分が透明になっている場合など)でも、他の画像ページと同様に
     /// 不透明な画像として扱えるよう、白背景の上に描画する。
-    private func renderPDFPage(pdfURL: URL, pageIndex: Int, maxPixelSize: CGFloat) -> CGImage? {
-        renderPDFPixels(pdfURL: pdfURL, pageIndex: pageIndex, maxPixelSize: maxPixelSize)?.makeImage()
+    private func renderPDFPage(container: PDFContainer, pageIndex: Int, maxPixelSize: CGFloat) -> CGImage? {
+        renderPDFPixels(container: container, pageIndex: pageIndex, maxPixelSize: maxPixelSize)?.makeImage()
     }
 
     /// renderPDFPageの本体。描画先はPagePixelBufferが確保したmmap領域で、CGImageを経由しない
     /// (PagePixelBuffer.init(width:height:grayscale:colorSpace:draw:)のコメント参照)。
-    private func renderPDFPixels(pdfURL: URL, pageIndex: Int, maxPixelSize: CGFloat) -> PagePixelBuffer? {
-        guard let document = pdfDocument(for: pdfURL) else { return nil }
+    private func renderPDFPixels(container: PDFContainer, pageIndex: Int, maxPixelSize: CGFloat) -> PagePixelBuffer? {
+        guard let document = pdfDocument(for: container) else { return nil }
         // CGPDFDocumentのページ番号は1始まり(pageIndexは0始まり)。
         guard let page = document.page(at: pageIndex + 1) else { return nil }
 

@@ -160,10 +160,13 @@ nonisolated enum PDFExporter {
         // ページの内容をベクター・テキストも含めて丸ごと写すため、埋め込まれている画像の形式を
         // 問わず無劣化で、かつ再エンコードも発生しない
         // (ユーザー指示: PDF→PDFについては画像形式に関する制約は考えない)。
-        let sourcePDFDocument: CGPDFDocument? = {
-            guard case .pdf(let pdfURL, _) = input.book.pages.first?.source else { return nil }
-            return CGPDFDocument(pdfURL as CFURL)
-        }()
+        // 元PDFはページごとに違いうる ―― フォルダ/書庫の中に複数のPDFが並んだ本
+        // (ユーザー要望。BookLoader.collectPages参照)では、ページごとにどのPDFから来たかを
+        // 見てそのつど開く必要がある。本そのものが1つのPDFなら、従来どおりここは1本しか作らない。
+        // 書庫の中のPDFはバイト列をPageLoaderから受け取って開く(書庫のreaderはactorの外へ
+        // 出さない、というこのアプリの約束に従う)。
+        // 値がnilの項目は「開けなかったPDF」。同じPDFのページごとに取り出しを繰り返さない。
+        var sourcePDFDocuments: [String: CGPDFDocument?] = [:]
 
         var pageNumberByOriginalKey: [String: Int] = [:]
         var pageNumber = 0
@@ -176,8 +179,21 @@ nonisolated enum PDFExporter {
             var sourcePage: CGPDFPage?
             var image: CGImage?
             var mediaBox: CGRect
-            if let sourcePDFDocument, case .pdf(_, let pdfPageIndex) = page.source {
-                guard let pdfPage = sourcePDFDocument.page(at: pdfPageIndex + 1) else { continue }
+            if case .pdf(let container, let pdfPageIndex) = page.source {
+                let key = container.cacheKey
+                if sourcePDFDocuments[key] == nil {
+                    switch container {
+                    case .file(let url):
+                        sourcePDFDocuments[key] = CGPDFDocument(url as CFURL)
+                    case .entry:
+                        sourcePDFDocuments[key] = await pageLoader.rawPDFFileData(at: originalIndex)
+                            .flatMap { CGDataProvider(data: $0 as CFData) }
+                            .flatMap { CGPDFDocument($0) }
+                    }
+                }
+                guard let document = sourcePDFDocuments[key] ?? nil,
+                      let pdfPage = document.page(at: pdfPageIndex + 1)
+                else { continue }
                 let box = pdfPage.getBoxRect(.mediaBox)
                 guard box.width > 0, box.height > 0 else { continue }
                 sourcePage = pdfPage
