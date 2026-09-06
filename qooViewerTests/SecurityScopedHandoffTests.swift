@@ -16,11 +16,11 @@ import Testing
 struct SecurityScopedHandoffTests {
     /// 作業フォルダと、その中の「スコープを開ける URL」。
     ///
-    /// 素の file URL は `startAccessingSecurityScopedResource()` が false を返す(手元で実測)。
-    /// true を返す URL はセキュリティスコープ付きブックマークを解決して作る ―― ただし手元
-    /// (署名あり = サンドボックスの中)で作れることは確かめてあるが、CI は署名無しで
-    /// サンドボックスの外のため作れるとは限らない。作れなければ `scoped` が空になり、
-    /// それを使うテストは何もしない(素の URL 側のテストは両方で意味を持つ)。
+    /// **開けるかどうかは環境で変わる。** 手元(署名あり = サンドボックスの中)では素の file URL は
+    /// `startAccessingSecurityScopedResource()` が false を返し、スコープ付きブックマークを解決した
+    /// URL だけが true を返す。ところが**サンドボックスの外(CI は署名無し)では素の file URL でも
+    /// true が返る** ―― 消費するサンドボックスが無いため(2026-09-06 に CI で実測)。
+    /// そのため期待値は決め打ちにせず、`opensScope` でその環境の答えを聞いてから組む。
     private struct Environment {
         let temp: TemporaryDirectory
         /// スコープを開ける URL(この環境で作れなければ空)。
@@ -85,7 +85,8 @@ struct SecurityScopedHandoffTests {
     @Test("スコープを開けない URL しか無ければ、解放の Task は作らない")
     func plainURLsNeverStartATask() throws {
         let environment = try Environment(scopedCount: 0, plainCount: 3)
-        // 素の file URL でもスコープが開ける環境なら、この前提が崩れるので何も見ない。
+        // 素の file URL でもスコープが開ける環境(サンドボックスの外。CI がそう)では
+        // 前提そのものが無いので何も見ない。
         guard environment.plain.allSatisfy({ !Environment.opensScope($0) }) else { return }
 
         #expect(SecurityScopedHandoff.begin(environment.plain, releaseAfter: .zero) == nil)
@@ -95,16 +96,18 @@ struct SecurityScopedHandoffTests {
     func everyOpenedURLIsReleasedByASingleTask() async throws {
         let environment = try Environment(scopedCount: 3, plainCount: 2)
         guard !environment.scoped.isEmpty else { return }
+        let handedOver = environment.scoped + environment.plain
+        // 閉じられるはずのものは「この環境で開ける URL」―― サンドボックスの中なら
+        // スコープ付きの 3 つだけ、外なら素の 2 つも含めた 5 つ。
+        let expected = handedOver.filter { Environment.opensScope($0) }
 
         // **1 件ずつ begin(_:) を呼ぶ実装に戻したら、Task は URL の数だけ生まれる。**
-        // ここで見るのは「1 本の Task が、開けた 3 つを全部閉じる」こと。
-        let task = try #require(
-            SecurityScopedHandoff.begin(environment.scoped + environment.plain, releaseAfter: .zero)
-        )
+        // ここで見るのは「1 本の Task が、開けたものを全部閉じる」こと。
+        let task = try #require(SecurityScopedHandoff.begin(handedOver, releaseAfter: .zero))
         let released = await task.value
 
-        // 開けなかった素の URL は最初から対象に入らない(閉じもしない)。
-        #expect(released.map(\.path) == environment.scoped.map(\.path))
+        #expect(released.map(\.path) == expected.map(\.path))
+        #expect(!released.isEmpty)
     }
 
     @Test("URL 1 つの形も、同じ解放の経路を通る")
