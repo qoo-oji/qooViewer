@@ -119,8 +119,18 @@ protocol ArchiveReading {
 - `ZipArchiveReader`(ZIPFoundation)、`RarArchiveReader`(Unrar.swift フォーク)、
   `SevenZipArchiveReader`(SevenZip.swift フォーク)。`ArchiveKind` と `makeArchiveReader(url:)` /
   `makeArchiveReader(kind:data:)` で作る。
-- `imageExtensions`(Info.plist と一致させる)、`archiveExtensions`、`isAppleDoubleEntry`
-  (`__MACOSX/` と `._*` を除く。除かないと `._001.jpg` がページになる)。
+- `imageExtensions`(Info.plist と一致させる)、`archiveExtensions`、`isExcludedArchiveEntry`。
+  後者は 2 つの判定の OR で、書庫のエントリを数え上げる側(`BookLoader.collectPages`)と
+  本の中身ブラウザ(`BookInternalBrowsing`)が**必ず同じものを使う**(片方だけに足すと、
+  ページには無いものが一覧にだけ並ぶ)。
+  - `isAppleDoubleEntry`: `__MACOSX/` と `._*` を除く(除かないと `._001.jpg` がページになる)。
+  - `isHiddenArchiveEntry`: パスの要素のどれかが `.` で始まるものを除く。フォルダの本は
+    `FileManager` の列挙を `.skipsHiddenFiles` 付きで呼んでおり、隠しファイルも隠しフォルダの
+    中身も(そこへ降りていかないので)最初から見えない。同じ中身を書庫に固めた途端に
+    `.hidden/001.jpg` がページになるのは非対称なので、書庫の側でも揃える。書庫のエントリには
+    隠し属性に当たるものが実質無く(zip の DOS 属性は読んでいない)、判定できるのは名前だけ。
+  - どちらも「ユーザーが自分で開いたもの」には効かない。隠しフォルダや隠しファイルそのものを
+    ドロップ / ダイアログで開いた場合は普通に開く(列挙が外すのは中身だけ)。
 - reader は `Sendable` ではない。`PageLoader` の中でだけ触る。
 
 ### zip のファイル名の文字コード

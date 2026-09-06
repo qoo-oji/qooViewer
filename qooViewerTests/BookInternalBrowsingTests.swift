@@ -95,6 +95,22 @@ struct BookInternalBrowsingTests {
         #expect(!entries.contains { $0.displayName.hasPrefix("__MACOSX") })
     }
 
+    @Test("書庫の中: 隠しファイル・隠しフォルダも一覧に出さない(ページの数え上げと同じ除外)")
+    func archiveHidesHiddenEntries() async throws {
+        let temp = try TemporaryDirectory("browsing-hidden")
+        var zip = ZipFixtureBuilder()
+        zip.add("001.png", PageImageFactory.png(number: 1))
+        zip.add(".002.png", PageImageFactory.png(number: 2))
+        zip.addDirectory(".trash")
+        zip.add(".trash/003.png", PageImageFactory.png(number: 3))
+        let url = temp.file("book.cbz")
+        try zip.write(to: url)
+
+        let book = try await FixtureBook.load(url)
+        let entries = try BookInternalBrowsing.entries(at: rootLevel(of: url), pageOrder: pageOrder(of: book))
+        #expect(entries.map(\.displayName) == ["001.png"])
+    }
+
     // MARK: - フォルダの本
 
     @Test("フォルダの中: 実フォルダ・ディスク上の書庫・画像を見分ける")

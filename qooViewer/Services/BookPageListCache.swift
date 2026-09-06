@@ -83,7 +83,10 @@ actor BookPageListCache {
         /// 3: 書庫の中のリソースフォーク(`__MACOSX/._*.jpg`)をページとして数えるのを
         ///    やめた(isAppleDoubleEntry参照)。版2のJSONにはそのページが残っているため、
         ///    構造キャッシュから本を組み立て直すと、除外したはずのページが復活する。
-        static let currentSchemaVersion = 3
+        /// 4: 書庫の中の隠しファイル・隠しフォルダ(`.hidden/001.jpg`、`.001.jpg`)を
+        ///    ページとして数えるのをやめた(isHiddenArchiveEntry参照)。版3までのJSONには
+        ///    そのページが残っているため、版3と同じ理由で捨てて読み直すこと。
+        static let currentSchemaVersion = 4
 
         /// 本体が差し替わっていないかを見るための軽い指紋(ContentFingerprintと同じ考え方で、
         /// フルハッシュは取らない)。ページ数は`pages.count`が持っているので含めない。

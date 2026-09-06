@@ -13,12 +13,13 @@ struct BookPageListCacheEntryTests {
         try JSONDecoder().decode(BookPageListCache.Entry.self, from: Data(json.utf8))
     }
 
-    @Test("構造キャッシュの版は 3(版 2 以前は捨てて読み直す)")
-    func theCurrentSchemaVersionIsThree() {
+    @Test("構造キャッシュの版は 4(版 3 以前は捨てて読み直す)")
+    func theCurrentSchemaVersionIsFour() {
         // 2: 並びを正準順にした(版 1 の `.numeric` 順をそのまま使うと並びが狂う)。
         // 3: 書庫の中の `__MACOSX/._*.jpg` をページとして数えるのをやめた。
         //    版 2 の JSON にはそのページが残っているため、組み立て直すと復活する。
-        #expect(BookPageListCache.Entry.currentSchemaVersion == 3)
+        // 4: 書庫の中の隠しファイル・隠しフォルダをページとして数えるのをやめた(同上)。
+        #expect(BookPageListCache.Entry.currentSchemaVersion == 4)
     }
 
     @Test("版 2 の JSON も復号できる(欠けている項目は nil になるだけ)")

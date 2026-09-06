@@ -94,6 +94,31 @@ struct GeneratedFixtureTests {
         #expect(book.title == "book")
     }
 
+    /// フォルダの本は `FileManager` の列挙を `.skipsHiddenFiles` 付きで呼んでいるため、
+    /// 隠しファイルも隠しフォルダの中身も最初から見えない。同じ中身を zip に固めた途端に
+    /// ページが増えるのは非対称なので、書庫でも同じように外す(isHiddenArchiveEntry)。
+    @Test("zip: 隠しファイル・隠しフォルダはページに数えない")
+    func zipBookSkipsHiddenEntries() async throws {
+        let temp = try TemporaryDirectory("zip-hidden")
+        var zip = ZipFixtureBuilder()
+        zip.add("001.png", PageImageFactory.png(number: 1))
+        zip.add(".002.png", PageImageFactory.png(number: 2))
+        zip.addDirectory(".trash")
+        zip.add(".trash/003.png", PageImageFactory.png(number: 3))
+        // 隠しフォルダの下は、入れ子の書庫であっても丸ごと外す(潜りにも行かない)。
+        var inner = ZipFixtureBuilder()
+        inner.add("004.png", PageImageFactory.png(number: 4))
+        let innerURL = temp.file("old.cbz")
+        try inner.write(to: innerURL)
+        zip.add(".trash/old.cbz", try Data(contentsOf: innerURL), stored: true)
+        zip.add("vol.1/005.png", PageImageFactory.png(number: 5))  // 途中のドットは隠しではない
+        let url = temp.file("book.cbz")
+        try zip.write(to: url)
+
+        let book = try await FixtureBook.load(url)
+        #expect(book.pages.map(\.sortKey) == ["001.png", "vol.1/005.png"])
+    }
+
     // MARK: - EPUB
 
     @Test("EPUB: 並びは spine の順、見開き指定と読み方向は sourceLayoutHint と epubSpreadPosition に入る")

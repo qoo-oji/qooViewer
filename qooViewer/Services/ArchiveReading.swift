@@ -140,6 +140,29 @@ nonisolated func isAppleDoubleEntry(_ path: String) -> Bool {
     path.split(separator: "/").contains { $0 == "__MACOSX" || $0.hasPrefix("._") }
 }
 
+/// 書庫の中の隠しファイル・隠しフォルダかどうか(パスの要素のどれかが`.`で始まる)。
+///
+/// フォルダの本では`FileManager`の列挙を`.skipsHiddenFiles`付きで呼んでいるため、
+/// ドット始まりのファイルも、ドット始まりのフォルダの中身も(そこへ降りていかないので)
+/// 最初から返ってこない。同じ中身を書庫に固めた途端に`.hidden/001.jpg`や`.001.jpg`が
+/// ページとして現れるのは非対称なので、書庫の側でも同じように弾く。
+///
+/// 書庫のエントリには「隠し属性」に当たるものが実質無く(zipのDOS属性は読んでいない)、
+/// 判定できるのはドット始まりという命名だけ。`__MACOSX`はドット始まりではないため、
+/// AppleDoubleの判定(isAppleDoubleEntry)はこれとは別に要る。
+nonisolated func isHiddenArchiveEntry(_ path: String) -> Bool {
+    path.split(separator: "/").contains { $0.hasPrefix(".") }
+}
+
+/// 書庫のエントリのうち、ページの数え上げ(BookLoader.collectPages)からも、サイドパネルの
+/// 本の中身ブラウザ(BookInternalBrowsing)からも外すもの。
+///
+/// **この2箇所は必ず同じ判定を使うこと。** 片方だけに足すと、ページには無いものが
+/// ブラウザにだけ並ぶ(あるいはその逆)という食い違いが出る。
+nonisolated func isExcludedArchiveEntry(_ path: String) -> Bool {
+    isAppleDoubleEntry(path) || isHiddenArchiveEntry(path)
+}
+
 /// PDFファイルかどうか。PDFは中身を展開するアーカイブではなく、1ファイルの中に複数ページを
 /// 直接持つ形式のため、アーカイブ(archiveExtensions)とは別に扱う(BookLoader.loadPDF、
 /// PageLoader.renderPDFPage参照)。

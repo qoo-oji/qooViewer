@@ -424,8 +424,11 @@ nonisolated enum BookLoader {
         for path in allPaths {
             // macOSが書庫へ混ぜ込むリソースフォーク(`__MACOSX/._page01.jpg`)は、拡張子だけ
             // 見ると画像に見えるがページではない(isAppleDoubleEntryのコメント参照)。
-            // 入れ子の書庫として`._chapter.cbz`を開こうとするのも無駄なので、両方まとめて弾く。
-            if isAppleDoubleEntry(path) { continue }
+            // 隠しファイル・隠しフォルダ(`.hidden/001.jpg`)も、フォルダの本では
+            // `.skipsHiddenFiles`で最初から見えないので、書庫でも同じように外す
+            // (isHiddenArchiveEntry参照)。入れ子の書庫として`._chapter.cbz`や
+            // `.old/chapter.cbz`を開こうとするのも無駄なので、まとめて弾く。
+            if isExcludedArchiveEntry(path) { continue }
             if isImageFile(path) {
                 pages.append(PageRef(
                     id: "\(idPrefix)#\(path)",

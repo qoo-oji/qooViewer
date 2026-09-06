@@ -49,4 +49,28 @@ struct ArchiveClassificationTests {
         #expect(isAppleDoubleEntry("B_src/001.jpg") == false)
         #expect(isAppleDoubleEntry("_private/001.jpg") == false)
     }
+
+    /// フォルダの本では `.skipsHiddenFiles` が隠しファイルも隠しフォルダの中身も返さない
+    /// (実測: ドット始まりのフォルダへは降りていかない)。同じ中身を書庫に固めた途端に
+    /// ページが増えるのは非対称なので、書庫の側でも同じように弾く。
+    @Test("書庫の中の隠しファイル・隠しフォルダを弾く")
+    func hiddenArchiveEntriesAreRejected() {
+        #expect(isHiddenArchiveEntry(".001.jpg"))
+        #expect(isHiddenArchiveEntry(".hidden/001.jpg"))
+        // 隠しフォルダはどの深さにあっても、その下ごと外す。
+        #expect(isHiddenArchiveEntry("vol1/.trash/old/001.jpg"))
+        #expect(isHiddenArchiveEntry("vol1/001.jpg") == false)
+        // 隠しなのは名前の先頭のドットだけ。途中や末尾のドットは普通のファイル。
+        #expect(isHiddenArchiveEntry("vol.1/001.jpg") == false)
+        #expect(isHiddenArchiveEntry("_private/001.jpg") == false)
+    }
+
+    /// ページの数え上げ(BookLoader)と本の中身ブラウザ(BookInternalBrowsing)は、
+    /// この 1 つの判定を共有する。片方だけに足すと両者の中身が食い違う。
+    @Test("書庫から外すエントリは AppleDouble と隠しの両方")
+    func excludedArchiveEntriesCoverBothRules() {
+        #expect(isExcludedArchiveEntry("__MACOSX/B_src/._001.jpg"))
+        #expect(isExcludedArchiveEntry(".hidden/001.jpg"))
+        #expect(isExcludedArchiveEntry("B_src/001.jpg") == false)
+    }
 }
