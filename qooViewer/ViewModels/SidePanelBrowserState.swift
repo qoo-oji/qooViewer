@@ -44,7 +44,9 @@ final class SidePanelBrowserState: ObservableObject {
 
     private var backStack: [URL?] = []
     private var forwardStack: [URL?] = []
-    private var reloadTask: Task<Void, Never>?
+    /// 一覧の読み込み。`private(set)`なのは**テストが待ち合わせるため**で、アプリ側は
+    /// 触らない(AppState.openTaskと同じ口)。**時間で待つ形は書かないこと。**
+    private(set) var reloadTask: Task<Void, Never>?
     /// 今のentriesを並べ替えるのに使った設定。applySortSettings()が「設定が変わっていなければ
     /// 何もしない」と判断するために覚えておく。
     private var appliedSort: FolderBrowserSort?
