@@ -31,15 +31,27 @@ import Foundation
 ///
 /// 待ち時間は、ウインドウの出現を待つ各所のポーリング(25ms × 20回 = 0.5秒)よりずっと長く
 /// 取ってある。
+///
+/// ■ 猶予を引数にし、Taskを返してある理由
+/// この仕組みの要は「開けたものは必ず閉じる」という収支で、それを確かめるテストが**時間で
+/// 待ってはいけない**(協調スレッドが埋まると、テスト側のsleepが再開する前に対象が走り切る
+/// ―― docs/13の段階2参照)。そのため猶予を呼び出し側から差し替えられるようにし、解放を行う
+/// Taskをそのまま返す。テストは猶予0で呼んでawaitすれば、時間に頼らずに解放後の状態を見られる。
+/// アプリ側の6か所は引数を渡さず戻り値も使わないので、これまでとまったく同じ挙動になる。
 @MainActor
 enum SecurityScopedHandoff {
     /// 受け取り側が自分のアクセスを開くまでの猶予。
-    private static let releaseDelay: Duration = .seconds(10)
+    ///
+    /// `nonisolated`にしてあるのは、下の既定引数の式がメインアクターの外として検査されるため
+    /// (`@MainActor`な型のstaticをそのまま既定値に置くと、警告=エラーのCIでだけ落ちる。
+    ///  docs/13の段階3・4で2度踏んだ落とし穴)。
+    nonisolated static let releaseDelay: Duration = .seconds(10)
 
     /// `url`のセキュリティスコープを開き、猶予のあとに必ず閉じる。
     /// 開けなかった場合(スコープ付きでない素のfile URLなど)は何もしない。
-    static func begin(_ url: URL) {
-        begin([url])
+    @discardableResult
+    static func begin(_ url: URL, releaseAfter delay: Duration = releaseDelay) -> Task<[URL], Never>? {
+        begin([url], releaseAfter: delay)
     }
 
     /// 複数のURLをまとめて開く(Finderで複数選択された画像を1冊として新しいウインドウ/タブへ
@@ -47,12 +59,17 @@ enum SecurityScopedHandoff {
     ///
     /// **1件ずつbegin(_:)をループで呼ばないこと。** URL 1つにつきTaskを1本作ることになり、
     /// 数百枚の選択では数百本のTaskが猶予時間(10秒)のあいだ生き残ってしまう。
-    static func begin(_ urls: [URL]) {
+    ///
+    /// - Returns: 解放を行うTask(その値は実際に閉じたURL)。開けたURLが1つも無ければnil。
+    ///   戻り値は収支を確かめるテストのためのもので、アプリ側は使わない。
+    @discardableResult
+    static func begin(_ urls: [URL], releaseAfter delay: Duration = releaseDelay) -> Task<[URL], Never>? {
         let accessedURLs = urls.filter { $0.startAccessingSecurityScopedResource() }
-        guard !accessedURLs.isEmpty else { return }
-        Task { @MainActor in
-            try? await Task.sleep(for: releaseDelay)
+        guard !accessedURLs.isEmpty else { return nil }
+        return Task { @MainActor in
+            try? await Task.sleep(for: delay)
             accessedURLs.forEach { $0.stopAccessingSecurityScopedResource() }
+            return accessedURLs
         }
     }
 }
