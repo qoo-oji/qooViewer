@@ -171,7 +171,10 @@ struct WelcomeView: View {
 
 /// ウェルカム画面の「最近開いたファイル」「最近お気に入りに追加したファイル」で共通して使う、
 /// 1件分の項目。
-private struct WelcomeQuickOpenItem: Identifiable {
+///
+/// privateでないのは、列幅の計算(WelcomeQuickOpenWidth.resolved)をテストから呼ぶため
+/// (ThumbnailDiskCache.trimThresholdと同じ理由)。使うのはこのファイルの中だけ。
+struct WelcomeQuickOpenItem: Identifiable {
     let id: String
     let title: String
     /// MangaBook.idと同じ形式(拡張子を含むフルパス)の文字列。同名のcbz/epubが並んだときに
@@ -188,7 +191,8 @@ private struct WelcomeQuickOpenItem: Identifiable {
 }
 
 /// 一覧1つ分(「最近開いたファイル」または「最近のお気に入り」)。
-private struct WelcomeQuickOpenColumn: Identifiable {
+/// privateでない理由はWelcomeQuickOpenItemと同じ。
+struct WelcomeQuickOpenColumn: Identifiable {
     /// 画面には同じ見出しの列が2つ並ぶことはないので、見出しをそのままIDにできる。
     var id: String { title }
     /// ロケール解決済みの見出し。表示にも幅の実測にも同じ文字列を使う。
@@ -206,21 +210,22 @@ private struct WelcomeQuickOpenColumn: Identifiable {
 /// SidebarWidthEstimator / ExportColumnWidthEstimatorと同じ考え方(NSStringの実測)だが、
 /// あちらが「ウインドウを開いた時点で1回だけ決める」のに対し、こちらはウインドウの幅に
 /// 収める必要があるため、リサイズに追従して毎回計算し直す。
-private enum WelcomeQuickOpenWidth {
+/// privateでないのは、この計算をテストから呼ぶため(WelcomeQuickOpenItem参照)。
+enum WelcomeQuickOpenWidth {
     /// 2つの列の間隔。HStackのspacingと、ここでの見積もりで同じ値を使う。
     static let columnSpacing: CGFloat = 32
     /// 行の中の「ファイル名 ↔ 形式バッジ」の間隔。row(for:)のHStackと共通。
     static let rowBadgeSpacing: CGFloat = 6
     /// 名前が短いときでも、これより狭くはしない下限。
-    private static let minColumn: CGFloat = 160
+    static let minColumn: CGFloat = 160
     /// 名前が極端に長くても、ウェルカム画面の中央の塊が横に伸びすぎないための上限。
     /// SidebarWidthEstimatorの上限と同じ値。
-    private static let maxColumn: CGFloat = 560
+    static let maxColumn: CGFloat = 560
     /// ウインドウの左右の端に残す余白。一覧が窓枠に張り付いて見えないようにするため。
-    private static let windowMargin: CGFloat = 32
+    static let windowMargin: CGFloat = 32
     /// 幅の実測(onGeometryChange)が届く前の最初の1フレームで使う想定幅。従来の固定幅と
     /// 同じ520にしてあるので、狭いウインドウでも初回に横へはみ出すことはない。
-    private static let assumedWidth: CGFloat = 520
+    static let assumedWidth: CGFloat = 520
 
     /// 各列に実際に与える幅。全部の列の希望幅がウインドウに収まるならそのまま、収まらない
     /// ときは希望幅の比で按分する(長い名前が並ぶ列のほうを広くする)。
