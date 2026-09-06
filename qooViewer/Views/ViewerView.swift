@@ -1157,17 +1157,11 @@ struct ViewerView: View {
     }
 
     /// pending.pageIndexを基準に、伝播範囲選択ダイアログ(applyLayoutAlerts参照)へ渡す選択肢を
-    /// 絞り込む。先頭ページには「このページより前のページ全体」を、末尾ページには「このページ
-    /// より後のページ全体」を出さない(BookmarkListView.availableScopes(forPageKey:)と同じ考え方)。
+    /// 絞り込む。規則そのものは`LayoutPropagationScope.available(forIndex:lastIndex:)`にあり、
+    /// ここが決めるのは「どの空間の位置で見るか」だけ ―― この画面は**今開いている本の
+    /// ページ番号**で見る(BookmarkListView.availableScopes(forPageKey:)は読書順で見る)。
     private func availableScopes(forPageIndex pageIndex: Int) -> [LayoutPropagationScope] {
-        let maxIndex = viewModel.book.pages.count - 1
-        return LayoutPropagationScope.allCases.filter { scope in
-            switch scope {
-            case .thisPageOnly, .wholeBook: return true
-            case .beforeThisPage: return pageIndex > 0
-            case .afterThisPage: return pageIndex < maxIndex
-            }
-        }
+        LayoutPropagationScope.available(forIndex: pageIndex, lastIndex: viewModel.book.pages.count - 1)
     }
 
     // 以前はbody全体が「巨大なZStack + そこへ10個以上のモディファイア(.onAppear/.onDisappear/

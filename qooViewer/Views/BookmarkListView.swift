@@ -1561,30 +1561,15 @@ private struct BookmarkDetailPane: View {
         }
     }
 
-    /// pageKeyの読書順上の位置(除外ページを除いた空間、viewModel.rows[].effectiveReadingIndex)に
-    /// 応じて、意味のある伝播範囲(3.3節)だけに絞り込む(ユーザー報告: 先頭ページなのに
-    /// 「このページより前のページ全体」が選択肢に出てしまうのはおかしい)。
-    ///
-    /// - 読書順で先頭のページには「このページより前」を出さない(対象になるページが存在しないため)。
-    /// - 読書順で末尾のページには「このページより後」を出さない(同上)。
-    /// - 対象ページが除外(非表示)中で、まだeffectiveReadingIndexを持たない場合は、変更後に
-    ///   どの位置へ入るか事前には分からないため、判定を省略してすべての選択肢を出す
-    ///   (安全側に倒す。実害は「前/後を選んでも対象が0件」程度に留まる)。
+    /// 伝播範囲(3.3節)の選択肢。規則そのものは`LayoutPropagationScope.available(forIndex:lastIndex:)`
+    /// にあり、ここが決めるのは「どの空間の位置で見るか」だけ ―― この画面は**除外ページを
+    /// 除いた読書順**(viewModel.rows[].effectiveReadingIndex)で見る。除外中のページは
+    /// その位置を持たないため、nilのまま渡してすべての選択肢を出させる。
     private func availableScopes(forPageKey pageKey: String) -> [LayoutPropagationScope] {
-        guard let targetIndex = viewModel.rows.first(where: { $0.pageKey == pageKey })?.effectiveReadingIndex else {
-            return LayoutPropagationScope.allCases
-        }
-        let maxIndex = viewModel.rows.compactMap(\.effectiveReadingIndex).max()
-        return LayoutPropagationScope.allCases.filter { scope in
-            switch scope {
-            case .thisPageOnly, .wholeBook:
-                return true
-            case .beforeThisPage:
-                return targetIndex > 0
-            case .afterThisPage:
-                return maxIndex.map { targetIndex < $0 } ?? false
-            }
-        }
+        LayoutPropagationScope.available(
+            forIndex: viewModel.rows.first(where: { $0.pageKey == pageKey })?.effectiveReadingIndex,
+            lastIndex: viewModel.rows.compactMap(\.effectiveReadingIndex).max()
+        )
     }
 
     /// ページ行のダブルクリックで、その本を開いてそのページへジャンプする(ユーザー要望)。
