@@ -567,7 +567,7 @@ Mirror で間接的に押さえているものを除くと、**段階 5 の項�
 | 2 | `LastUsedFolderMemory` / `LastActiveBookStore` | `init(defaults:)` / 3 つの関数の `defaults:`(既定 `.standard`) | 保存されるのが**パスの文字列ではなくブックマーク**であること(サンドボックスでは次の起動でパスへアクセスできない)、表示用のパスを別のキーへ控えること、忘れると 2 つとも消えること、記録した本が消えていたら復元しないこと |
 | 3 | `SidePanelBrowserState` | `reloadTask` を `private(set)` に(`AppState.openTask` と同じ口) | 履歴スタックと上へ移動、本を開いたときの再アンカー(画像を直接開いた本だけもう 1 階層上)、パネル内クリックの見送り、読み込みの結果(一覧・「直下に画像があるか」・アクセス権が要るかを空フォルダと区別すること)、ディスクを読み直さない並べ替え |
 
-**残した 2 つ**(どちらも先に仕様の判断が要る):
+**残した 2 つ**(どちらも先に仕様の判断が要るとして送った。→ **段階 8 で実装した**):
 
 - `SecurityScopedHandoff` ―― 10 秒で解放する受け渡し。**時間で待つテストは書けない**(段階 2 の
   教訓)ので、期限を注入できる口を先に決める必要がある。
@@ -586,9 +586,37 @@ Mirror で間接的に押さえているものを除くと、**段階 5 の項�
   そこで分岐する。画像の並んだフォルダを `BookLoader.load(from:)` で開いても `.imageFiles` には
   ならない ―― その本を作るのは `BookLoader.load(imageFiles:)` だけ。
 
+### 段階 8 ―― 先送りにした 2 つを片付ける(2026-09-06。758 → 773 テスト)
+
+段階 7 で「先に仕様の判断が要る」として送った 2 つを、判断のうえ実装した。
+
+| # | 対象 | 判断 | 載せた検証 |
+| --- | --- | --- | --- |
+| 1 | `SecurityScopedHandoff` | 猶予を引数(`releaseAfter:`、既定は従来どおり 10 秒)にし、解放の Task を `@discardableResult` で返す。返す値は**実際に閉じた URL** | 開けた URL だけを**1 本の**Task がまとめて閉じること(URL 1 つにつき Task 1 本を作らないこと)、開けなかった URL には手を出さないこと、渡す URL が無ければ Task を作らないこと、猶予がウインドウの出現待ち(0.5 秒)よりずっと長いこと |
+| 2 | `CbzExportViewModel` / `EpubExportViewModel` / `PDFExportViewModel` | サブクラス側は分けない。`prepare` → `write` の往復で**実物を書き出して読み直す**(詰め替えをスタブで受け止めると、間違えてもテストが通る) | どの Exporter が呼ばれるか(拡張子・その形式として開き直せること)、オプションが出力まで届くこと(除外ページ・CBZ の `Volume`・言語)、巻数の書き方の違い、カバーの上書きが PDF には渡らないこと、開いた直後のオプションが環境設定の既定から始まること |
+
+**段階 8 で分かったこと(実測)**
+
+- **素の file URL は `startAccessingSecurityScopedResource()` が false を返す**(手元 =
+  サンドボックスの中で実測)。true を返す URL は、その場でセキュリティスコープ付きブックマークを
+  作って解決し直せば手に入る。ただし CI は署名無し = サンドボックスの外なので同じように作れるとは
+  限らず、**作れなかったらそのテストは何もしない**形にしてある(素の URL 側のテストは両方で意味を
+  持つ)。
+- **開けたスコープが閉じたかどうかを外から読む API は無い。** そこで `begin` の返す Task の値を
+  「実際に閉じた URL」にした。テストはそれを見て収支を確かめる。
+- **`#require` は入れ子にできない**(マクロの再帰展開になってコンパイルが通らない)。
+  `try #require(f(try #require(g())))` は 1 つずつ `let` へ解く。
+- **`struct` の `init` で、プロパティを初期化し終える前にクロージャへ `self` の値を渡せない**
+  (`plain = try (0..<n).map { temp.file(…) }` は「初期化前に捕まえた」で止まる)。先にローカルへ
+  作ってから代入する。
+- **`ComicInfo` の `Number` は xs:string、`Volume` は xs:int。** だから CBZ だけが生の
+  `seriesIndex` を渡し(「上」もそのまま `Number` に書ける)、EPUB / PDF は
+  `exportableSeriesIndex`(数値として読めるときだけ)を渡す ―― この違いを出力の側から固定できた。
+  `Volume` に書く指定でも、数値でなければ入らない。
+
 ### 引き継ぎ(2026-09-06 時点)
 
-**いまの状態**: `qooViewerTests` は 758 テスト・75 suite(手元で約 5 秒)。段階 0〜7 はすべて
+**いまの状態**: `qooViewerTests` は 773 テスト・77 suite(手元で約 10 秒)。段階 0〜8 はすべて
 実装済みで、CI(Build の Debug / Release と Check)は緑。suite ごとの中身は
 [02](02-project-and-build.md#テストターゲットqooviewertests)。
 
@@ -607,6 +635,7 @@ Mirror で間接的に押さえているものを除くと、**段階 5 の項�
 | `WelcomeQuickOpenColumn` / `WelcomeQuickOpenWidth` から `private` を外す(段階 6) | ウェルカム画面の列幅の計算を呼べるようにする |
 | `LastUsedFolderMemory.init(defaults:)` / `LastActiveBookStore` の `defaults:`(段階 7) | ブックマークで覚えた場所の保存先を、その場限りの suite へ |
 | `SidePanelBrowserState.reloadTask`(`private(set)`、段階 7) | フォルダ一覧の読み込みを待ち合わせる |
+| `SecurityScopedHandoff.begin(_:releaseAfter:)` が解放の `Task` を返す(`@discardableResult`、段階 8) | 10 秒の猶予を差し替え、解放し終えた合図を処理そのものから受け取る |
 
 純粋型へ出したのは `SpreadPairing` / `PageLanding` / `PageAreaLayout` / `FilmstripLayout` /
 `BulkBookmarkRenaming`(いずれも `Models/`、`nonisolated`)。段階 6 では
@@ -639,15 +668,13 @@ SwiftData + 5 つのストア)、`PreferencesSuite`(その場限りの `UserDefa
    イベントモニタ・クロームの自動非表示・ルーペ、すりガラスの面の文字の縁取り、
    `LaunchCoordinator.frontmostContentAppState`)。意図的に CI へ載せない ―― 確かめ方は
    [12](12-verification-and-debugging.md)。
-2. 段階 7 で**先送りにした 2 つ**(`SecurityScopedHandoff` と 3 つの書き出し ViewModel。
-   上の「段階 7」参照)。どちらも先に仕様の判断が要る。
-3. **固定できないと分かっているもの**: `ImageDecoder.hasAcceptablePixelCount`(200KB の
+2. **固定できないと分かっているもの**: `ImageDecoder.hasAcceptablePixelCount`(200KB の
    フィクスチャ上限内で「ヘッダーだけ巨大」な画像が作れない。段階 2 参照)、
    `StorageUsageScanner` の中断パス、`ProcessResourceSampler` 本体(Timer + RunLoop)。
    7z のアクセス順(ブロック先頭からのやり直し回数)は qooViewerTests ではなく
    フォーク側の実測ハーネスの担当。
 
-段階 0〜7 で計画していたぶんは、これで打ち止め。次に足すとしたら、テストの無い経路を
+段階 0〜8 で計画していたぶんは、これで打ち止め。次に足すとしたら、テストの無い経路を
 新しく見つけたときか、利用者報告の回帰を固定するとき。
 
 ## 古くなった記述・ファイル(2026-09-05 に整理済み)
