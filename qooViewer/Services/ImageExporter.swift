@@ -56,14 +56,54 @@ nonisolated enum ImageExporter {
 
     /// 結合後に書き出すファイル形式(拡張子)。要望: 元の画像に揃える。左右で形式が異なる場合は
     /// 「前の画像」(読み順で先のページ、leadingPage)に合わせる。
+    ///
+    /// ただし**ImageIOが書き出せない形式はPNG(可逆)へ倒す**(canWrite(fileExtension:)参照)。
+    /// 元の画像に揃えられるのは「揃えられる形式なら」という話で、書けない形式のまま進むと
+    /// エンコードに失敗して書き出しそのものが不可能になるため。EpubExporterが
+    /// EPUBへ素通しできない形式をPNGへ変換するのと同じ考え方(可逆なので再エンコードで
+    /// 画質を落とさない。どのみち結合は再エンコードが避けられない)。
+    ///
+    /// **拡張子の決定はここ1箇所に集約すること。** 保存パネルに出す名前・allowedContentTypes・
+    /// 実際のエンコードの3つが同じ値から決まっていないと、中身がPNGなのに名前が`.webp`という
+    /// ファイルができる(ViewerView.exportImage(_:)の.mergedSpread参照)。
     static func mergedFileExtension(leadingPage: PageRef, trailingPage: PageRef) -> String {
-        fileExtension(for: leadingPage)
+        let source = fileExtension(for: leadingPage)
+        return canWrite(fileExtension: source) ? source : "png"
     }
 
-    /// NSSavePanel.allowedContentTypesに渡すUTType。拡張子からUTTypeを解決できない
-    /// (未知の拡張子)場合はJPEGにフォールバックする。
+    /// ImageIOがこの拡張子の形式を**書き出せる**か。
+    ///
+    /// 読める形式とは一致しない。qooViewerがページとして開ける10形式(imageExtensions)のうち、
+    /// **webpだけはmacOSにエンコーダが無い**(2026-09-06の実測: webpは
+    /// `CGImageDestinationCopyTypeIdentifiers()`に含まれない。jpg/jpeg/png/gif/bmp/heic/
+    /// tif/tiff/avifはすべて含まれる)。
+    ///
+    /// 未知の拡張子もfalseにする ―― `UTType(filenameExtension:)`は知らない拡張子に対しても
+    /// `dyn.…`という**動的なUTIを作って返し、nilにはならない**ため、「解決できたか」では
+    /// 判定できない(以前ここにあった`?? .jpeg`のフォールバックは、そのため一度も効いていなかった)。
+    static func canWrite(fileExtension ext: String) -> Bool {
+        guard let type = UTType(filenameExtension: ext), !type.isDynamic else { return false }
+        return writableTypeIdentifiers.contains(type.identifier)
+    }
+
+    /// ImageIOが書き出せる形式のUTIの一覧(起動中に変わらないので1度だけ引く)。
+    private static let writableTypeIdentifiers: Set<String> = {
+        Set((CGImageDestinationCopyTypeIdentifiers() as? [String]) ?? [])
+    }()
+
+    /// NSSavePanel.allowedContentTypesに渡すUTType。
+    ///
+    /// **単一ページの書き出し(生データの複製)でも使う**ので、書き出せない形式でも
+    /// その形式のまま返す ―― あちらは再エンコードせずバイト列をそのまま置くので、
+    /// webpのページはwebpのまま保存できる(canWrite(fileExtension:)が偽でも構わない)。
+    /// PNGへ倒すのは、再エンコードが避けられない結合の側だけ(mergedFileExtension参照)。
+    ///
+    /// 拡張子からUTTypeを解決できない場合はPNG(可逆)にフォールバックする。実際には
+    /// `UTType(filenameExtension:)`が動的なUTIを返すため、これが効くのは
+    /// **動的なUTIになった=どの形式とも結び付いていない**場合になる。
     static func contentType(forExtension ext: String) -> UTType {
-        UTType(filenameExtension: ext) ?? .jpeg
+        guard let type = UTType(filenameExtension: ext), !type.isDynamic else { return .png }
+        return type
     }
 
     static func fileExtension(for page: PageRef) -> String {
@@ -104,7 +144,10 @@ nonisolated enum ImageExporter {
     ///     呼び出し側(ViewerView)が読み方向に応じてどちらのページを渡すかを解決済みのため、
     ///     ここでは単純に「左」「右」の位置へそのまま描画するだけでよい(要望の「２枚の画像を
     ///     左右どちらに結合するかは右開きと左開きで切り替える」は、この解決の時点で済んでいる)。
-    ///   - outputExtension: 書き出すファイル形式(mergedFileExtension参照)。
+    ///   - outputExtension: 書き出すファイル形式。**mergedFileExtensionが返した値を渡すこと**
+    ///     ―― ImageIOが書けない形式を渡すとcombineFailedになる。ここで黙ってPNGへ倒さないのは、
+    ///     保存パネルに出した名前(`…-….webp`)と中身が食い違ったファイルができるため。
+    ///     形式の決定はmergedFileExtensionの側で、保存パネルを出す前に済ませる。
     ///
     /// 結合の仕様(要望):
     ///   - 解像度は元の画像を維持する。ただし左右で縦の解像度(高さ)が異なる場合、
