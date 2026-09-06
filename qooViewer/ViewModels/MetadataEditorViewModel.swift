@@ -135,6 +135,24 @@ final class MetadataEditorViewModel: ObservableObject {
         }
     }
 
+    /// 張った購読(3つの変更通知とフォーマット定義の監視)を、deinitを待たずに外す。
+    ///
+    /// このウインドウは単一インスタンスのシーンで、一度作られたViewModelはアプリ終了まで
+    /// 使い回されるため、アプリの通常の動作では呼ばれない。**テストのための口**である
+    /// (BookmarkStore.releaseResources/FavoritesStore.releaseResourcesと同じ理由)。
+    /// テストはこのViewModelをテスト1つごとに作っては捨てるが、deinitは解放されるまで走らない。
+    /// その間に別のテストがbookMetadataDidChange等を投げると、捨てられている最中の
+    /// ModelContainerへcollectKnownBookIDs()がフェッチしに行き、SwiftDataがトラップして
+    /// テストホストごと落ちる(2026-09-06にクラッシュレポートで確認)。
+    func releaseResources() {
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        observers.removeAll()
+        formatChangeCancellable?.cancel()
+        formatChangeCancellable = nil
+    }
+
     // MARK: - 一覧の構築
 
     /// 対象の本を集め直し、行と編集中の値を作り直す。
