@@ -554,9 +554,41 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
 - **`#expect` の中の配列リテラル同士の `==` は曖昧になることがある。** 片方を `let widths: [Int] = …` と
   型注釈付きの変数へ出せば通る。
 
+### 段階 7 ―― 計画に無かった未カバーを拾う(2026-09-06。712 → 758 テスト)
+
+段階 6 で計画ぶんを消化したあと、`Services/` `ViewModels/` `Models/` の全ファイルを「その型の名前が
+テストのどこにも出てこないか」で機械的に洗った。設定の enum のように `AppPreferencesTests` が
+Mirror で間接的に押さえているものを除くと、**段階 5 の項目表に最初から入っていなかった**
+未カバーが 5 つ残っていた。効き目の順に上 3 つを実装した。
+
+| # | 対象 | 開けた口 | 載せた検証 |
+| --- | --- | --- | --- |
+| 1 | `BookURLResolver` | 不要(`static`・`nonisolated`) | 3 つのストアへの問い合わせの連鎖を写したものなので、**優先順位と素のパスへのフォールバックがどの段階で効くか**。特に「メタデータ側の候補は素のパスが実在しない本にしか効かない」という、読み流すと気付かない分岐 |
+| 2 | `LastUsedFolderMemory` / `LastActiveBookStore` | `init(defaults:)` / 3 つの関数の `defaults:`(既定 `.standard`) | 保存されるのが**パスの文字列ではなくブックマーク**であること(サンドボックスでは次の起動でパスへアクセスできない)、表示用のパスを別のキーへ控えること、忘れると 2 つとも消えること、記録した本が消えていたら復元しないこと |
+| 3 | `SidePanelBrowserState` | `reloadTask` を `private(set)` に(`AppState.openTask` と同じ口) | 履歴スタックと上へ移動、本を開いたときの再アンカー(画像を直接開いた本だけもう 1 階層上)、パネル内クリックの見送り、読み込みの結果(一覧・「直下に画像があるか」・アクセス権が要るかを空フォルダと区別すること)、ディスクを読み直さない並べ替え |
+
+**残した 2 つ**(どちらも先に仕様の判断が要る):
+
+- `SecurityScopedHandoff` ―― 10 秒で解放する受け渡し。**時間で待つテストは書けない**(段階 2 の
+  教訓)ので、期限を注入できる口を先に決める必要がある。
+- `CbzExportViewModel` / `EpubExportViewModel` / `PDFExportViewModel` ―― 基底の
+  `BookExportViewModel` は `BookExportViewModelTests` で押さえてある。形式ごとの薄い差分だけが
+  未カバーで、`prepare`/`write` の分離をサブクラス側にも広げるかどうかから決まる。
+
+**段階 7 で分かったこと(実測)**
+
+- **`URL` の `==` は末尾の `/` を区別する。** `deletingLastPathComponent()` が返す親フォルダは
+  末尾に `/` が付くが、`appendingPathComponent(_:)`(`isDirectory` を指定しない形)で作った
+  URL には付かない。同じ場所を指していても等しくならないので、フィクスチャのフォルダは
+  `isDirectory: true` で作るか、`path` で比べる。
+- **画像を「フォルダとして開く」と `.fileSystem`、「ファイルとして開く」と `.imageFiles`。**
+  `MangaBook.origin` はこの 2 つで変わり、フォルダブラウザの再アンカー先(親か、もう 1 階層上か)も
+  そこで分岐する。画像の並んだフォルダを `BookLoader.load(from:)` で開いても `.imageFiles` には
+  ならない ―― その本を作るのは `BookLoader.load(imageFiles:)` だけ。
+
 ### 引き継ぎ(2026-09-06 時点)
 
-**いまの状態**: `qooViewerTests` は 712 テスト・72 suite(手元で約 4.7 秒)。段階 0〜6 はすべて
+**いまの状態**: `qooViewerTests` は 758 テスト・75 suite(手元で約 5 秒)。段階 0〜7 はすべて
 実装済みで、CI(Build の Debug / Release と Check)は緑。suite ごとの中身は
 [02](02-project-and-build.md#テストターゲットqooviewertests)。
 
@@ -573,6 +605,8 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
 | `QooViewerApp.performPendingStoreResetIfNeeded(defaults:storeURL:domainName:cacheDirectories:)` / `removeOrphanedAuxiliaryStoreFiles(at:)` | 実物のストア・キャッシュ・環境設定を消さずに確かめる |
 | `MetadataEditorViewModel.releaseResources()`(段階 6) | 張った通知の購読を deinit を待たずに外す |
 | `WelcomeQuickOpenColumn` / `WelcomeQuickOpenWidth` から `private` を外す(段階 6) | ウェルカム画面の列幅の計算を呼べるようにする |
+| `LastUsedFolderMemory.init(defaults:)` / `LastActiveBookStore` の `defaults:`(段階 7) | ブックマークで覚えた場所の保存先を、その場限りの suite へ |
+| `SidePanelBrowserState.reloadTask`(`private(set)`、段階 7) | フォルダ一覧の読み込みを待ち合わせる |
 
 純粋型へ出したのは `SpreadPairing` / `PageLanding` / `PageAreaLayout` / `FilmstripLayout` /
 `BulkBookmarkRenaming`(いずれも `Models/`、`nonisolated`)。段階 6 では
@@ -599,11 +633,21 @@ SwiftData + 5 つのストア)、`PreferencesSuite`(その場限りの `UserDefa
 - **push する前に `QOO_CI_WARNINGS_AS_ERRORS=YES` で通す。** 手元では警告どまりのものが CI では
   エラーになる(段階 3・4 参照)。`scripts/ci/check-all.sh` も同じく push 前に。
 
-**残っている作業**: **「実機に残すもの」**(ウインドウの生成・タブ化・状態復元、メニューの状態、
-`ViewerView` のイベントモニタ・クロームの自動非表示・ルーペ、すりガラスの面の文字の縁取り)だけ。
-これらは意図的に CI へ載せない ―― 確かめ方は [12](12-verification-and-debugging.md)。
+**残っている作業**:
 
-段階 0〜6 で計画していたぶんは、これで打ち止め。次に足すとしたら、テストの無い経路を
+1. **「実機に残すもの」**(ウインドウの生成・タブ化・状態復元、メニューの状態、`ViewerView` の
+   イベントモニタ・クロームの自動非表示・ルーペ、すりガラスの面の文字の縁取り、
+   `LaunchCoordinator.frontmostContentAppState`)。意図的に CI へ載せない ―― 確かめ方は
+   [12](12-verification-and-debugging.md)。
+2. 段階 7 で**先送りにした 2 つ**(`SecurityScopedHandoff` と 3 つの書き出し ViewModel。
+   上の「段階 7」参照)。どちらも先に仕様の判断が要る。
+3. **固定できないと分かっているもの**: `ImageDecoder.hasAcceptablePixelCount`(200KB の
+   フィクスチャ上限内で「ヘッダーだけ巨大」な画像が作れない。段階 2 参照)、
+   `StorageUsageScanner` の中断パス、`ProcessResourceSampler` 本体(Timer + RunLoop)。
+   7z のアクセス順(ブロック先頭からのやり直し回数)は qooViewerTests ではなく
+   フォーク側の実測ハーネスの担当。
+
+段階 0〜7 で計画していたぶんは、これで打ち止め。次に足すとしたら、テストの無い経路を
 新しく見つけたときか、利用者報告の回帰を固定するとき。
 
 ## 古くなった記述・ファイル(2026-09-05 に整理済み)

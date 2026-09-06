@@ -60,7 +60,7 @@ EPUB / PDF の構造解決、書き出しのラウンドトリップ、そして
 ありません)を、下記のフィクスチャで通します。画面の自動操作(AX 経由)は再現性が低いので
 載せません(→ [12](12-verification-and-debugging.md))。
 
-いまある suite(2026-09-06 時点、712 テスト・約 4.7 秒):
+いまある suite(2026-09-06 時点、758 テスト・約 5 秒):
 
 読み込みの経路(段階 1):
 
@@ -170,6 +170,14 @@ deinit に任せられないのは、解放がメインスレッド以外で始�
 | `ContentFingerprintTests` | 中身の差し替え検知の指紋 ―― 3 点のいずれかが違えば疑う、記録が無い / 古いときは疑わない、フォルダの本にはファイルサイズが無いこと |
 | `RGBColorValueTests` / `BookExportRowFilterTests` / `LayoutPropagationScopeTests` / `WelcomeQuickOpenWidthTests` | 色の保存形式(`#RRGGBB` の往復・壊れた値・HSB・明るさ判定)、書き出し一覧の絞り込み(保存データは AND、形式は単一選択)、伝播範囲の選択肢(先頭 / 末尾で前後を出さない)、ウェルカム画面の列幅(上限・下限・按分・はみ出しを許す条件) |
 
+段階 7(2026-09-06 追加、計画に載っていなかった未カバーを洗い出したもの):
+
+| suite | 見るもの |
+| --- | --- |
+| `BookURLResolverTests` | bookID から開ける URL を解決する順番 ―― ブックマークが素のパスより優先すること、解決できない / 消えている候補を飛ばすこと、**メタデータ側の候補が効くのは素のパスも実在しないときだけ**、メインアクターの外から呼べること |
+| `FolderMemoryTests` | 場所をブックマークで覚える 2 つ(`LastUsedFolderMemory` / `LastActiveBookStore`)―― 保存されるのがパスの文字列ではなくブックマークであること、表示用のパスを別のキーへ控えること、忘れると 2 つとも消えること、出荷時のキー、「固定の保存先」がパネルの記憶と別のキーであること、記録した本が消えていたら復元しないこと |
+| `SidePanelBrowserStateTests` | フォルダブラウザの閲覧状態 ―― 履歴スタック(戻る / 進む / 分岐で進む先を捨てる / 行き止まり)、上へ移動と元いた場所の指し示し、本を開いたときの再アンカー(画像を直接開いた本だけもう 1 階層上)、パネル内クリックの見送り、一覧・「直下に画像があるか」・アクセス権が要るかの区別、ディスクを読み直さない並べ替え |
+
 ビューアは `qooViewerTests/Support/ViewerHarness.swift` から開きます ―― 作業フォルダ・
 `InMemoryLibrary`・その場限りの環境設定を束ね、`ViewerViewModel(usesDiskCaches: false)` で
 **実物のアプリと共有するディスクキャッシュ**(サムネイルとページ寸法)を塞ぎ、`close()` で
@@ -179,7 +187,9 @@ deinit に任せられないのは、解放がメインスレッド以外で始�
 `ThumbnailDiskCache` / `BookPageListCache` は保存先を `init(directory:)` で作業フォルダへ
 向けられます(既定の `shared` は利用者のキャッシュそのものなので、テストから触りません)。
 
-`AppPreferences` と `KeyBindingStore` は保存先を `init(defaults:)` で差し替えられます(既定は `.standard`)。テストは
+`AppPreferences` / `KeyBindingStore` / `RecentFilesStore` / `FolderAccessStore` / `LastUsedFolderMemory` は
+保存先を `init(defaults:)` で、`LastActiveBookStore` の 3 つの関数は引数の `defaults:` で
+差し替えられます(いずれも既定は `.standard`)。テストは
 その場限りの suite を渡し(`qooViewerTests/Support/PreferencesSuite.swift`)、利用者の環境設定には
 触れません。テスト用の保存先を渡したインスタンスは、**保存先の外へ出ていく副作用**
 ――サムネイルのディスクキャッシュの設定・`NSApp.appearance`・2 つの通知――を行いません。
