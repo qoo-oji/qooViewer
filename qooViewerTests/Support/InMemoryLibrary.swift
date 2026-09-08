@@ -33,6 +33,12 @@ final class InMemoryLibrary {
     let bookmarks: BookmarkStore
     let layouts: LayoutStore
     let metadata: BookMetadataStore
+    /// コレクション(ライブラリ → コレクション → 本)。カバー画像の保管庫だけは
+    /// SwiftData の外(ディスク上の JPEG)なので、**このライブラリ専用の一時フォルダ**を渡す
+    /// ―― 既定のままだと利用者の `Application Support` へテスト用のカバーが残る。
+    let collections: CollectionStore
+    let collectionCovers: CollectionCoverStore
+    private let collectionCoversDirectory: URL
     /// メタデータ推測のルールだけは SwiftData ではなく `UserDefaults` に載っているため、
     /// このライブラリ専用の領域(suite)を渡す。`UserDefaults.standard` に書くと利用者の
     /// ルールを書き換えてしまう。
@@ -49,6 +55,10 @@ final class InMemoryLibrary {
         bookmarks = BookmarkStore(modelContext: context)
         layouts = LayoutStore(modelContext: context)
         metadata = BookMetadataStore(modelContext: context)
+        collectionCoversDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("qooViewerTests.\(label).\(UUID().uuidString)", isDirectory: true)
+        collectionCovers = CollectionCoverStore(directory: collectionCoversDirectory)
+        collections = CollectionStore(modelContext: context, coverStore: collectionCovers)
         metadataFormatsSuiteName = "qooViewerTests.\(label).\(UUID().uuidString)"
         metadataFormats = MetadataFormatStore(
             defaults: UserDefaults(suiteName: metadataFormatsSuiteName) ?? .standard
@@ -65,13 +75,16 @@ final class InMemoryLibrary {
     func close() {
         bookmarks.releaseResources()
         favorites.releaseResources()
+        collections.releaseResources()
         UserDefaults().removePersistentDomain(forName: metadataFormatsSuiteName)
+        try? FileManager.default.removeItem(at: collectionCoversDirectory)
     }
 
     deinit {
-        // `close()` を呼び忘れた場合の保険。`UserDefaults` の領域はファイルとして残るので
-        // 明示的に消す(メモリ内のコンテナはここで手放されて消える)。
+        // `close()` を呼び忘れた場合の保険。`UserDefaults` の領域とカバー画像のフォルダは
+        // ファイルとして残るので明示的に消す(メモリ内のコンテナはここで手放されて消える)。
         UserDefaults().removePersistentDomain(forName: metadataFormatsSuiteName)
+        try? FileManager.default.removeItem(at: collectionCoversDirectory)
     }
 
     // MARK: - 取り込み / 書き出し
@@ -87,7 +100,7 @@ final class InMemoryLibrary {
             file, policies: policies,
             favoritesStore: favorites, bookmarkStore: bookmarks, layoutStore: layouts,
             metadataStore: metadata, metadataFormatStore: metadataFormats,
-            cachesPageList: false
+            collectionStore: collections, cachesPageList: false
         )
     }
 
@@ -104,7 +117,7 @@ final class InMemoryLibrary {
             selection: selection,
             favoritesStore: favorites, bookmarkStore: bookmarks, layoutStore: layouts,
             metadataStore: metadata, metadataFormatStore: metadataFormats,
-            cachesPageList: false
+            collectionStore: collections, cachesPageList: false
         )
     }
 
@@ -146,7 +159,7 @@ extension LibraryImportExportService.ExportSelection {
     /// 5 カテゴリすべてを書き出す選択。
     static let everything = Self(
         includeFavorites: true, includeBookmarks: true, includeLayouts: true,
-        includeMetadata: true, includeMetadataFormats: true
+        includeMetadata: true, includeMetadataFormats: true, includeCollections: true
     )
 }
 
@@ -157,7 +170,7 @@ extension LibraryImportExportService.ImportPolicies {
     static func all(_ policy: LibraryImportExportService.ImportPolicy) -> Self {
         Self(
             favorites: policy, bookmarks: policy, layouts: policy, metadata: policy,
-            metadataFormats: policy
+            metadataFormats: policy, collections: policy
         )
     }
 }

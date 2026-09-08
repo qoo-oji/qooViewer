@@ -104,6 +104,20 @@ final class BookLayoutSettings {
     var externalCoverBookmarkData: Data?
     var externalCoverFileName: String?
 
+    /// ユーザー要望(2026-09-09): 横長のカバー(見開き1枚をそのままカバーにしている本など)を
+    /// コレクションのタイルへ並べるとき、**どちら側を見せるか**を本ごとに選べるようにしたい。
+    /// CoverCropAnchor.rawValue("left"/"center"/"right")を保存する。
+    ///
+    /// nil = 自動 ―― その本の実効の読み方向から決める(右開きなら左端、左開きなら右端。
+    /// CoverImageResolver.croppedForGrid参照)。この属性を後から追加したため、既存の行は
+    /// すべてnil(=自動)になる。Optionalなのでライトウェイトマイグレーションで済む。
+    ///
+    /// **hasCoverOverrideには含めない。** カバー画像そのもの(coverPageKey/外部ファイル)とは
+    /// 独立した属性で、「カバーを既定に戻す」で位置の指定まで消えてしまわないようにするため
+    /// (位置の指定は本の属性として残る)。また、この指定が効くのはコレクションのグリッド表示
+    /// だけで、EPUB/CBZの書き出しのカバーはトリミングしない。
+    var coverCropAnchorRaw: String?
+
     /// ユーザー要望: 古いスキャン本(紙の黄ばみ等で白黒がくすんで見える)を、きっちりした
     /// 白黒に見えるよう補正する機能。本単位で記憶し(既定false=補正しない)、ユーザーが
     /// 明示的にONにした本にしか適用しない。実際の適用はPageLoader/ContrastCorrectorが行い、
@@ -171,6 +185,12 @@ final class BookLayoutSettings {
     /// 判定する。4.1節の絞り込みドロップダウン参照)。
     var isBookLevelSettingEmpty: Bool {
         readingDirectionOverrideRaw == nil && forcedDisplayModeRaw == nil && pageOrderOverrideJSON == nil
+    }
+
+    /// 横長カバーの見せ方のユーザー指定(nil = 自動)。coverCropAnchorRawのコメント参照。
+    var coverCropAnchor: CoverCropAnchor? {
+        get { coverCropAnchorRaw.flatMap(CoverCropAnchor.init(rawValue:)) }
+        set { coverCropAnchorRaw = newValue?.rawValue }
     }
 
     /// カバー画像が上書き設定されているかどうか(LayoutStore.coverOverrideBookIDs参照)。

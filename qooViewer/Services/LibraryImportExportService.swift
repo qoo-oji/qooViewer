@@ -24,6 +24,8 @@ enum LibraryImportExportService {
         var includeMetadata: Bool
         /// メタデータ推測用のフォーマット定義(アプリ全体の設定)を含めるかどうか。
         var includeMetadataFormats: Bool
+        /// ライブラリ・コレクション・その中の本(改善要望5)を含めるかどうか。
+        var includeCollections: Bool
     }
 
     struct ExportResult {
@@ -59,6 +61,7 @@ enum LibraryImportExportService {
         layoutStore: LayoutStore,
         metadataStore: BookMetadataStore,
         metadataFormatStore: MetadataFormatStore,
+        collectionStore: CollectionStore,
         cachesPageList: Bool = true
     ) async -> (QooLibraryExportFile, ExportResult) {
         var file = QooLibraryExportFile()
@@ -87,6 +90,9 @@ enum LibraryImportExportService {
         }
         if selection.includeMetadataFormats {
             file.metadataFormats = exportMetadataFormats(metadataFormatStore: metadataFormatStore)
+        }
+        if selection.includeCollections {
+            file.libraries = exportCollections(collectionStore: collectionStore)
         }
         return (file, result)
     }
@@ -337,6 +343,58 @@ enum LibraryImportExportService {
         return (result, skipped)
     }
 
+    // MARK: - コレクションの書き出し
+
+    /// ライブラリ → コレクション → 本を、ストアの公開APIだけを経由して書き出す。
+    ///
+    /// お気に入りと違い「ファイルが見つからなかった本」を`ExportResult`へ積まない ―― 参考情報
+    /// (パス・タイトル・追加日時)だけで書き出せるうえ、書き出しのたびに全冊ぶんのブックマーク
+    /// 解決を走らせると、未接続のボリューム上の本があるだけで1件あたり秒単位ブロックしうる。
+    /// 識別子を持たない古い行についてだけ、実体を1回探して補完する(exportFavoritesの同種の
+    /// 処理と同じ理由)。
+    ///
+    /// 並びは追加日時の昇順で固定する。同じ内容のライブラリから書き出したJSONが毎回同じ並びに
+    /// なり、差分を取りやすい(exportMetadataがbookID順に揃えているのと同じ理由)。
+    private static func exportCollections(collectionStore: CollectionStore) -> [ExportedLibrary] {
+        collectionStore.libraries.map { library in
+            ExportedLibrary(
+                name: library.name,
+                collections: collectionStore.collections(in: library, sort: .dateAddedAscending)
+                    .map { collection in
+                        ExportedCollection(
+                            name: collection.name,
+                            createdAt: collection.createdAt,
+                            books: collectionStore.items(in: collection, sort: .dateAddedAscending)
+                                .map { exportedBook(for: $0, collectionStore: collectionStore) }
+                        )
+                    }
+            )
+        }
+    }
+
+    private static func exportedBook(
+        for item: CollectionItem, collectionStore: CollectionStore
+    ) -> ExportedCollectionBook {
+        var identifier = item.fileNodeIdentifier
+        if identifier == nil, let url = collectionStore.resolvedExistingURL(for: item) {
+            let didAccess = url.startAccessingSecurityScopedResource()
+            identifier = FileNodeIdentifier.current(for: url)
+            if didAccess { url.stopAccessingSecurityScopedResource() }
+            if let identifier {
+                collectionStore.backfillFileNodeIdentifier(
+                    forBookID: item.bookID, identifier: identifier
+                )
+            }
+        }
+        return ExportedCollectionBook(
+            bookID: item.bookID,
+            inodeNumber: identifier?.inodeNumber,
+            volumeDeviceNumber: identifier?.volumeDeviceNumber,
+            title: item.title,
+            addedAt: item.addedAt
+        )
+    }
+
     // MARK: - JSONの読み書き
 
     static func write(_ file: QooLibraryExportFile, to url: URL) throws {
@@ -386,6 +444,9 @@ enum LibraryImportExportService {
         /// 出し分ける(LibraryImportWindow参照)。既定はignore = 相手のフォーマット定義で
         /// 自分の設定を勝手に置き換えない、という安全側。
         var metadataFormats: ImportPolicy = .ignore
+        /// コレクション(改善要望5)。overwriteはライブラリ・コレクション・登録した本を
+        /// すべて消してから取り込む(カバー画像も消える)。
+        var collections: ImportPolicy = .merge
     }
 
     struct ImportSummary {
@@ -399,6 +460,11 @@ enum LibraryImportExportService {
         var layoutsSkippedBookIDs: [String] = []
         var metadataImportedBooks = 0
         var didImportMetadataFormats = false
+        var collectionsImportedLibraries = 0
+        var collectionsImportedCollections = 0
+        var collectionsImportedBooks = 0
+        /// 実体が見つからず、コレクションへ入れられなかった本のbookID(=JSON上のパス)。
+        var collectionsSkippedBookIDs: [String] = []
     }
 
     /// - Parameter cachesPageList: 取り込み/書き出しの途中で読み直す本を、ページ一覧の
@@ -414,6 +480,7 @@ enum LibraryImportExportService {
         layoutStore: LayoutStore,
         metadataStore: BookMetadataStore,
         metadataFormatStore: MetadataFormatStore,
+        collectionStore: CollectionStore,
         cachesPageList: Bool = true
     ) async -> ImportSummary {
         var summary = ImportSummary()
@@ -422,6 +489,14 @@ enum LibraryImportExportService {
             applyFavorites(
                 favorites, policy: policies.favorites,
                 favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+                summary: &summary
+            )
+        }
+        if let libraries = file.libraries, policies.collections != .ignore {
+            applyCollections(
+                libraries, policy: policies.collections,
+                collectionStore: collectionStore, favoritesStore: favoritesStore,
+                bookmarkStore: bookmarkStore, layoutStore: layoutStore,
                 summary: &summary
             )
         }
@@ -523,6 +598,109 @@ enum LibraryImportExportService {
                 },
             exclusionRules: formats.exclusionPatterns.map { MetadataExclusionRule(pattern: $0) }
         )
+    }
+
+    // MARK: - コレクションの取り込み
+
+    /// ライブラリ → コレクション → 本を取り込む。
+    ///
+    /// - overwrite: 既存のライブラリ・コレクション・登録をすべて消してから入れ直す
+    ///   (カバー画像のファイルも消える)。
+    /// - merge: 同じ名前のライブラリ/コレクションがあればそこへ合流し、無ければ作る。
+    ///   同じコレクションに同じ本は入らない(CollectionStore.addがパス・iノードで弾く)。
+    ///
+    /// 取り込んだ本のカバーは`CollectionCoverStatus.pending`のまま置く。実際の抽出は
+    /// ウェルカム画面の`CollectionCoverExtractor.refill()`が行う ―― 取り込みの最中に
+    /// 全冊ぶんの本を開き始めると、件数によっては終わりが見えなくなるため。
+    private static func applyCollections(
+        _ libraries: [ExportedLibrary], policy: ImportPolicy,
+        collectionStore: CollectionStore, favoritesStore: FavoritesStore,
+        bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
+        summary: inout ImportSummary
+    ) {
+        if policy == .overwrite {
+            collectionStore.deleteAll()
+        }
+        // 上書きの後始末に使う(下の「空のライブラリを片付ける」参照)。
+        var touchedLibraryIDs: Set<UUID> = []
+
+        for exportedLibrary in libraries {
+            let name = exportedLibrary.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { continue }
+            // 同名のライブラリがあれば合流する。JSON側に同名のライブラリが2つあった場合も、
+            // 2つ目は1つ目へ合流する(createLibraryが重複を作らないため)。
+            let library: BookLibrary
+            if let existing = collectionStore.libraries.first(where: {
+                $0.name.trimmingCharacters(in: .whitespacesAndNewlines) == name
+            }) {
+                library = existing
+            } else if let created = collectionStore.createLibrary(name: name) {
+                library = created
+                summary.collectionsImportedLibraries += 1
+            } else {
+                continue
+            }
+            touchedLibraryIDs.insert(library.id)
+
+            for exportedCollection in exportedLibrary.collections {
+                let collectionName = exportedCollection.name
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !collectionName.isEmpty else { continue }
+
+                var pending: [CollectionStore.PendingItem] = []
+                var resolvedPaths: Set<String> = []
+                for book in exportedCollection.books {
+                    // ユーザー要望: JSONのファイルパスは参考情報。まずファイルノード識別子を
+                    // 手がかりに、ローカルに保存済みのセキュリティスコープ付きブックマークから
+                    // 現在のURLを解決する(applyFavoritesと同じ順序・同じ理由)。
+                    guard let url = resolveURL(
+                        bookID: book.bookID, fileNodeIdentifier: book.fileNodeIdentifier,
+                        favoritesStore: favoritesStore, bookmarkStore: bookmarkStore,
+                        layoutStore: layoutStore
+                    ) ?? book.fileNodeIdentifier.flatMap({
+                        collectionStore.resolvedURL(matching: $0)
+                    }) ?? {
+                        let fallback = URL(fileURLWithPath: book.bookID)
+                        return FileManager.default.fileExists(atPath: fallback.path) ? fallback : nil
+                    }() else {
+                        summary.collectionsSkippedBookIDs.append(book.bookID)
+                        continue
+                    }
+                    guard !resolvedPaths.contains(url.path) else { continue }
+                    guard let item = CollectionStore.makePendingItem(for: url) else {
+                        summary.collectionsSkippedBookIDs.append(book.bookID)
+                        continue
+                    }
+                    pending.append(item)
+                    resolvedPaths.insert(url.path)
+                }
+                // 1冊も見つからなかったコレクションは作らない(空のコレクションは作らない
+                // というアプリ全体の方針。CollectionStore.createCollection参照)。
+                guard !pending.isEmpty else { continue }
+
+                if let existing = collectionStore.collections(in: library, sort: .nameAscending)
+                    .first(where: {
+                        $0.name.trimmingCharacters(in: .whitespacesAndNewlines) == collectionName
+                    }) {
+                    summary.collectionsImportedBooks += collectionStore.add(pending, to: existing).count
+                } else if let created = collectionStore.createCollection(
+                    name: collectionName, in: library, items: pending
+                ) {
+                    summary.collectionsImportedCollections += 1
+                    summary.collectionsImportedBooks += created.items.count
+                }
+            }
+        }
+
+        // 上書きのときだけ: 取り込み先にならなかった空のライブラリを片付ける。
+        // deleteAll()の直後にCollectionStore.reload()が「ライブラリは必ず1つ以上」を保つため
+        // 既定の「Library」を作り直しており、JSON側にその名前が無いと空のまま残ってしまう。
+        if policy == .overwrite {
+            for library in collectionStore.libraries
+            where !touchedLibraryIDs.contains(library.id) && library.collections.isEmpty {
+                collectionStore.delete(library)
+            }
+        }
     }
 
     // MARK: - お気に入りの取り込み

@@ -537,4 +537,148 @@ struct LibraryImportTests {
         #expect(again.favorites?.books.map(\.bookID) == file.favorites?.books.map(\.bookID))
         #expect(again.favorites?.folders.map(\.name) == file.favorites?.folders.map(\.name))
     }
+
+    // MARK: - コレクション
+
+    /// ライブラリ 1 つ・コレクション 1 つ・本 1 冊だけの JSON。
+    private func collectionsFile(
+        _ sources: [ExportSource], library: String, collection: String
+    ) -> QooLibraryExportFile {
+        QooLibraryExportFile(libraries: [ExportedLibrary(
+            name: library,
+            collections: [ExportedCollection(
+                name: collection, createdAt: Date(timeIntervalSinceReferenceDate: 700_000_000),
+                books: sources.map {
+                    ExportedCollectionBook(
+                        bookID: $0.book.id, title: $0.book.title,
+                        addedAt: Date(timeIntervalSinceReferenceDate: 700_000_001)
+                    )
+                }
+            )]
+        )])
+    }
+
+    @Test("コレクションはライブラリ・コレクション・本の3段そのまま取り込まれる")
+    func collectionsAreImportedWholesale() async throws {
+        let source = try await ExportSource.zip(pages: 3, label: "import-collection")
+        let library = try InMemoryLibrary(label: "import-collection")
+        defer { library.close() }
+
+        let summary = await library.apply(
+            collectionsFile([source], library: "Manga", collection: "シリーズ"),
+            policies: .all(.merge)
+        )
+
+        #expect(summary.collectionsImportedLibraries == 1)
+        #expect(summary.collectionsImportedCollections == 1)
+        #expect(summary.collectionsImportedBooks == 1)
+        let target = try #require(library.collections.libraries.first { $0.name == "Manga" })
+        let collection = try #require(
+            library.collections.collections(in: target, sort: .nameAscending).first
+        )
+        #expect(collection.name == "シリーズ")
+        #expect(collection.items.map(\.bookID) == [source.book.id])
+        // カバーはまだ抽出していない(ウェルカム画面の refill が拾う)。
+        #expect(collection.items.first?.coverState == .pending)
+    }
+
+    @Test("同じファイルを 2 回 merge しても、ライブラリもコレクションも本も増えない")
+    func mergingCollectionsTwiceDoesNotDuplicate() async throws {
+        let source = try await ExportSource.zip(pages: 3, label: "import-collection-twice")
+        let library = try InMemoryLibrary(label: "import-collection-twice")
+        defer { library.close() }
+        let file = collectionsFile([source], library: "Manga", collection: "シリーズ")
+
+        await library.apply(file, policies: .all(.merge))
+        let second = await library.apply(file, policies: .all(.merge))
+
+        #expect(second.collectionsImportedLibraries == 0)
+        #expect(second.collectionsImportedCollections == 0)
+        #expect(second.collectionsImportedBooks == 0)
+        let target = try #require(library.collections.libraries.first { $0.name == "Manga" })
+        #expect(library.collections.collections(in: target, sort: .nameAscending).count == 1)
+        #expect(library.collections.membershipCount(forBookID: source.book.id) == 1)
+    }
+
+    @Test("overwrite は既存のコレクションを消してから入れ直し、空のライブラリを残さない")
+    func overwriteReplacesEveryCollection() async throws {
+        let source = try await ExportSource.zip(pages: 3, label: "import-collection-overwrite")
+        let library = try InMemoryLibrary(label: "import-collection-overwrite")
+        defer { library.close() }
+
+        await library.apply(
+            collectionsFile([source], library: "Old", collection: "古い棚"), policies: .all(.merge)
+        )
+        await library.apply(
+            collectionsFile([source], library: "New", collection: "新しい棚"),
+            policies: LibraryImportExportService.ImportPolicies(collections: .overwrite)
+        )
+
+        #expect(library.collections.libraries.map(\.name) == ["New"])
+        let target = try #require(library.collections.libraries.first)
+        #expect(library.collections.collections(in: target, sort: .nameAscending).map(\.name)
+            == ["新しい棚"])
+    }
+
+    @Test("ignore はコレクションに一切触らない")
+    func ignoreLeavesCollectionsAlone() async throws {
+        let source = try await ExportSource.zip(pages: 3, label: "import-collection-ignore")
+        let library = try InMemoryLibrary(label: "import-collection-ignore")
+        defer { library.close() }
+
+        let summary = await library.apply(
+            collectionsFile([source], library: "Manga", collection: "シリーズ"),
+            policies: .all(.ignore)
+        )
+
+        #expect(summary.collectionsImportedCollections == 0)
+        #expect(library.collections.allRegisteredBookIDs().isEmpty)
+    }
+
+    @Test("実体の見つからない本は飛ばす。1冊も残らなければコレクションを作らない")
+    func booksWithoutFilesAreSkipped() async throws {
+        let library = try InMemoryLibrary(label: "import-collection-missing")
+        defer { library.close() }
+        var file = QooLibraryExportFile(libraries: [ExportedLibrary(
+            name: "Manga",
+            collections: [ExportedCollection(
+                name: "シリーズ", createdAt: Date(timeIntervalSinceReferenceDate: 700_000_000),
+                books: [ExportedCollectionBook(
+                    bookID: "/nowhere/missing.cbz", title: "無い本",
+                    addedAt: Date(timeIntervalSinceReferenceDate: 700_000_001)
+                )]
+            )]
+        )])
+        file.formatVersion = 4
+
+        let summary = await library.apply(file, policies: .all(.merge))
+
+        #expect(summary.collectionsSkippedBookIDs == ["/nowhere/missing.cbz"])
+        #expect(summary.collectionsImportedCollections == 0)
+        let target = try #require(library.collections.libraries.first { $0.name == "Manga" })
+        #expect(library.collections.collections(in: target, sort: .nameAscending).isEmpty)
+    }
+
+    @Test("書き出して取り込み直すと、同じライブラリ・コレクション・本になる")
+    func collectionsRoundTripThroughTheFile() async throws {
+        let source = try await ExportSource.zip(pages: 3, label: "import-collection-roundtrip")
+        let origin = try InMemoryLibrary(label: "import-collection-roundtrip-origin")
+        defer { origin.close() }
+        let target = try #require(origin.collections.libraries.first)
+        origin.collections.rename(target, to: "Manga")
+        let pending = try #require(CollectionStore.makePendingItem(for: source.book.sourceURL))
+        _ = origin.collections.createCollection(name: "シリーズ", in: target, items: [pending])
+
+        let (file, _) = await origin.buildExportFile(.everything)
+        let destination = try InMemoryLibrary(label: "import-collection-roundtrip-dest")
+        defer { destination.close() }
+        await destination.apply(file, policies: .all(.merge))
+
+        let copied = try #require(destination.collections.libraries.first { $0.name == "Manga" })
+        let collection = try #require(
+            destination.collections.collections(in: copied, sort: .nameAscending).first
+        )
+        #expect(collection.name == "シリーズ")
+        #expect(collection.items.map(\.bookID) == [source.book.id])
+    }
 }

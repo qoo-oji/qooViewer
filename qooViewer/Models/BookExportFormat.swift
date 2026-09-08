@@ -91,23 +91,27 @@ enum BookExportFormat: String, CaseIterable, Identifiable, Codable, Hashable {
     @MainActor
     func makeExportViewModel(
         bookmarkStore: BookmarkStore, layoutStore: LayoutStore, metadataStore: BookMetadataStore,
-        preferences: AppPreferences, loadsEligibleRows: Bool
+        preferences: AppPreferences, collectionStore: CollectionStore? = nil,
+        loadsEligibleRows: Bool
     ) -> BookExportViewModel {
         switch self {
         case .epub:
             EpubExportViewModel(
                 bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore,
-                preferences: preferences, loadsEligibleRows: loadsEligibleRows
+                preferences: preferences, collectionStore: collectionStore,
+                loadsEligibleRows: loadsEligibleRows
             )
         case .pdf:
             PDFExportViewModel(
                 bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore,
-                preferences: preferences, loadsEligibleRows: loadsEligibleRows
+                preferences: preferences, collectionStore: collectionStore,
+                loadsEligibleRows: loadsEligibleRows
             )
         case .cbz:
             CbzExportViewModel(
                 bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore,
-                preferences: preferences, loadsEligibleRows: loadsEligibleRows
+                preferences: preferences, collectionStore: collectionStore,
+                loadsEligibleRows: loadsEligibleRows
             )
         }
     }

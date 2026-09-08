@@ -80,13 +80,24 @@ struct LibraryJSONSchemaTests {
                 volumeNumberPatterns: [#"第([0-9]+)巻"#],
                 seriesSeparatorPatterns: ["上巻|下巻"],
                 exclusionPatterns: [#"\(20[0-9]{2}\)"#]
-            )
+            ),
+            libraries: [ExportedLibrary(
+                name: "Manga",
+                collections: [ExportedCollection(
+                    name: "シリーズ",
+                    createdAt: Date(timeIntervalSinceReferenceDate: 700_000_000),
+                    books: [ExportedCollectionBook(
+                        bookID: "/books/a.cbz", inodeNumber: 12345, volumeDeviceNumber: 16777220,
+                        title: "本 A", addedAt: Date(timeIntervalSinceReferenceDate: 700_000_001)
+                    )]
+                )]
+            )]
         )
 
         let decoded = try JSONDecoder().decode(
             QooLibraryExportFile.self, from: try JSONEncoder().encode(file)
         )
-        #expect(decoded.formatVersion == 3)
+        #expect(decoded.formatVersion == 4)
         #expect(decoded.favorites?.folders.map(\.id) == ["f1", "f2"])
         #expect(decoded.favorites?.folders.last?.parentId == "f1")
         #expect(decoded.favorites?.books.first?.folderId == "f2")
@@ -97,11 +108,17 @@ struct LibraryJSONSchemaTests {
         #expect(decoded.layouts?.first?.layout.pages?["002.jpg"]?.state == "single")
         #expect(decoded.metadata?.first?.seriesIndex == "3")
         #expect(decoded.metadataFormats?.filenameFormats == ["[@author] @title"])
+        #expect(decoded.libraries?.first?.name == "Manga")
+        #expect(decoded.libraries?.first?.collections.first?.name == "シリーズ")
+        #expect(decoded.libraries?.first?.collections.first?.createdAt
+            == Date(timeIntervalSinceReferenceDate: 700_000_000))
+        #expect(decoded.libraries?.first?.collections.first?.books.first?.fileNodeIdentifier
+            == FileNodeIdentifier(inodeNumber: 12345, volumeDeviceNumber: 16777220))
     }
 
-    @Test("既定の formatVersion は 3")
-    func theDefaultFormatVersionIsThree() {
-        #expect(QooLibraryExportFile().formatVersion == 3)
+    @Test("既定の formatVersion は 4")
+    func theDefaultFormatVersionIsFour() {
+        #expect(QooLibraryExportFile().formatVersion == 4)
     }
 
     // MARK: - 旧版のファイル
@@ -132,9 +149,10 @@ struct LibraryJSONSchemaTests {
         #expect(file.bookmarks?.first?.fileNodeIdentifier == nil)
         #expect(file.layouts?.first?.layout.forcedDisplayMode == nil)
         #expect(file.layouts?.first?.layout.pageOrder == nil)
-        // 版 3 で足したキーは「含まれていない」= そのカテゴリは一切変更しない、という扱い。
+        // 版 3・4 で足したキーは「含まれていない」= そのカテゴリは一切変更しない、という扱い。
         #expect(file.metadata == nil)
         #expect(file.metadataFormats == nil)
+        #expect(file.libraries == nil)
     }
 
     @Test("チェックを外した種類はキーごと無い(含まれていない、と読める)")
@@ -143,6 +161,7 @@ struct LibraryJSONSchemaTests {
         #expect(file.favorites == nil)
         #expect(file.layouts == nil)
         #expect(file.metadata == nil)
+        #expect(file.libraries == nil)
         // 空配列は「含まれているが 1 件も無い」―― nil とは別の意味。
         #expect(file.bookmarks?.isEmpty == true)
     }
@@ -156,6 +175,7 @@ struct LibraryJSONSchemaTests {
         #expect(!json.contains("\"favorites\""))
         #expect(!json.contains("\"metadata\""))
         #expect(!json.contains("\"metadataFormats\""))
+        #expect(!json.contains("\"libraries\""))
     }
 
     @Test("ルールの id(UUID)は書き出さない")

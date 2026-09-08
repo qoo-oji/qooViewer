@@ -17,6 +17,8 @@ struct LibraryImportWindow: View {
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var metadataStore: BookMetadataStore
     @EnvironmentObject private var metadataFormatStore: MetadataFormatStore
+    @EnvironmentObject private var collectionStore: CollectionStore
+    @EnvironmentObject private var collectionCoverExtractor: CollectionCoverExtractor
     @EnvironmentObject private var preferences: AppPreferences
     @Environment(\.dismiss) private var dismiss
 
@@ -27,6 +29,7 @@ struct LibraryImportWindow: View {
     // 壊さずに残してあるので、復活させれば過去の書き出しファイルからそのまま取り込める。
     @State private var favoritesPolicy: LibraryImportExportService.ImportPolicy =
         FavoritesFeature.isEnabled ? .merge : .ignore
+    @State private var collectionsPolicy: LibraryImportExportService.ImportPolicy = .merge
     @State private var bookmarksPolicy: LibraryImportExportService.ImportPolicy = .merge
     @State private var layoutsPolicy: LibraryImportExportService.ImportPolicy = .merge
     @State private var metadataPolicy: LibraryImportExportService.ImportPolicy = .merge
@@ -42,6 +45,7 @@ struct LibraryImportWindow: View {
     /// 選ぶ前も含めて常に表示し続け、対象カテゴリが無い/ファイル未選択の間だけ無効化する
     /// ことで、選んだ瞬間にピッカーが増減してレイアウトが変わらないようにしたい)。
     private var hasFavorites: Bool { loadedFile?.favorites != nil }
+    private var hasCollections: Bool { loadedFile?.libraries?.isEmpty == false }
     private var hasBookmarks: Bool { loadedFile?.bookmarks?.isEmpty == false }
     private var hasLayouts: Bool { loadedFile?.layouts?.isEmpty == false }
     private var hasMetadata: Bool { loadedFile?.metadata?.isEmpty == false }
@@ -93,6 +97,8 @@ struct LibraryImportWindow: View {
                         policyPicker("Favorites", selection: $favoritesPolicy)
                             .disabled(!hasFavorites)
                     }
+                    policyPicker("Collections", selection: $collectionsPolicy)
+                        .disabled(!hasCollections)
                     policyPicker("Bookmarks", selection: $bookmarksPolicy)
                         .disabled(!hasBookmarks)
                     // ユーザー要望: 「ページレイアウトの設定」から「の設定」を省き、
@@ -228,6 +234,26 @@ struct LibraryImportWindow: View {
                 .foregroundStyle(.orange)
             }
         }
+        if hasCollections, collectionsPolicy != .ignore {
+            Text(
+                String(
+                    format: String(localized: "Collections: %d library(ies), %d collection(s), %d book(s) imported.", language: preferences.effectiveLocale),
+                    summary.collectionsImportedLibraries, summary.collectionsImportedCollections,
+                    summary.collectionsImportedBooks
+                )
+            )
+            .font(.caption)
+            if !summary.collectionsSkippedBookIDs.isEmpty {
+                Text(
+                    String(
+                        format: String(localized: "%d book(s) were skipped because their files couldn't be found.", language: preferences.effectiveLocale),
+                        summary.collectionsSkippedBookIDs.count
+                    )
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+            }
+        }
         if loadedFile?.bookmarks?.isEmpty == false, bookmarksPolicy != .ignore {
             Text(
                 String(
@@ -305,13 +331,18 @@ struct LibraryImportWindow: View {
         Task {
             let policies = LibraryImportExportService.ImportPolicies(
                 favorites: favoritesPolicy, bookmarks: bookmarksPolicy, layouts: layoutsPolicy,
-                metadata: metadataPolicy, metadataFormats: metadataFormatsPolicy
+                metadata: metadataPolicy, metadataFormats: metadataFormatsPolicy,
+                collections: collectionsPolicy
             )
             summary = await LibraryImportExportService.apply(
                 loadedFile, policies: policies,
                 favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-                metadataStore: metadataStore, metadataFormatStore: metadataFormatStore
+                metadataStore: metadataStore, metadataFormatStore: metadataFormatStore,
+                collectionStore: collectionStore
             )
+            // 取り込んだ本のカバーはpendingのまま置いてある(applyCollections参照)。
+            // ここで待ち行列へ入れておくと、ウェルカム画面を開いた時点で埋まり始める。
+            collectionCoverExtractor.refill()
             isImporting = false
         }
     }

@@ -38,6 +38,8 @@ struct QooViewerApp: App {
     private var layoutStore: LayoutStore { stores.layoutStore }
     private var metadataStore: BookMetadataStore { stores.metadataStore }
     private var metadataFormatStore: MetadataFormatStore { stores.metadataFormatStore }
+    private var collectionStore: CollectionStore { stores.collectionStore }
+    private var collectionCoverExtractor: CollectionCoverExtractor { stores.collectionCoverExtractor }
     private var launchCoordinator: LaunchCoordinator { stores.launchCoordinator }
     /// メニューバー(アプリ全体で1つ)から、今アクティブな(キーウインドウの)AppStateを
     /// 参照するための仕組み。詳細はAppState.swiftのFocusedValues拡張のコメント参照。
@@ -55,7 +57,8 @@ struct QooViewerApp: App {
     @State private var suppressesExternalEventWindows = false
 
     /// お気に入り・ブックマーク・読書履歴(BookReadingState)・ページレイアウト設定・
-    /// 書誌メタデータ(BookMetadata)のスキーマ。
+    /// 書誌メタデータ(BookMetadata)・コレクション(BookLibrary/BookCollection/CollectionItem)
+    /// のスキーマ。
     /// BookLayoutSettings/PageLayoutOverrideは、フォルダ・zip/cbz・rar/cbr・7z/cb7・PDFに対して
     /// EPUBのpackage document相当のレイアウト情報をqooViewer自身が保持するための新規モデル
     /// (設計コンセプト2章参照)。追加のみのライトウェイトマイグレーションのため、
@@ -65,7 +68,8 @@ struct QooViewerApp: App {
     /// 足したときにテスト側だけ古いスキーマのまま静かにずれるため、同じ値を使わせる。
     static let modelSchema = Schema([
         BookReadingState.self, Bookmark.self, FavoriteFolder.self, FavoriteBook.self,
-        BookLayoutSettings.self, PageLayoutOverride.self, BookMetadata.self
+        BookLayoutSettings.self, PageLayoutOverride.self, BookMetadata.self,
+        BookLibrary.self, BookCollection.self, CollectionItem.self
     ])
 
     /// スキーマの移行に失敗した場合に、ストアファイルを削除して作り直せるよう、URLを
@@ -201,7 +205,7 @@ struct QooViewerApp: App {
     ///   - defaults: 予約を読む保存先。既定は実際のアプリのもの。
     ///   - storeURL: ストア本体のURL。nilなら実際のアプリのストア。
     ///   - domainName: 全削除で丸ごと消す`UserDefaults`のドメイン名。nilならこのアプリのもの。
-    ///   - cacheDirectories: 全削除で消すディスクキャッシュ。nilなら実際のアプリの2つ。
+    ///   - cacheDirectories: 全削除で消すディスクキャッシュとカバー画像。nilなら実際のアプリの3つ。
     ///
     ///   4つとも**テストのための口**で、既定はこれまでどおり実際のアプリのものを見る
     ///   (通常経路の差分ゼロ)。テストがこれを既定のまま呼ぶと、実物のストアとキャッシュと
@@ -218,8 +222,8 @@ struct QooViewerApp: App {
         // ディスクキャッシュ。ResetDataSettingsViewが予約時にも消しているが、その後の終了までに
         // 書かれたぶん(ページ寸法の書き戻しなど)を取りこぼさないよう、ここでもう一度消す。
         let directories = cacheDirectories
-            ?? [ThumbnailDiskCache.shared.directory, BookPageListCache.shared.directoryURL]
-                .compactMap { $0 }
+            ?? ([ThumbnailDiskCache.shared.directory, BookPageListCache.shared.directoryURL]
+                .compactMap { $0 } + [CollectionCoverStore.defaultDirectory()])
         for directory in directories {
             try? FileManager.default.removeItem(at: directory)
         }
@@ -329,6 +333,8 @@ struct QooViewerApp: App {
             .environmentObject(bookmarkStore)
             .environmentObject(layoutStore)
             .environmentObject(metadataStore)
+            .environmentObject(collectionStore)
+            .environmentObject(collectionCoverExtractor)
             .environmentObject(launchCoordinator)
             .environmentObject(resourceSampler)
     }
@@ -1225,6 +1231,7 @@ struct QooViewerApp: App {
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 .environmentObject(metadataStore)
+                .environmentObject(collectionStore)
                 .environmentObject(metadataFormatStore)
                 .environmentObject(preferences)
                 .environment(\.locale, locale)
@@ -1238,6 +1245,8 @@ struct QooViewerApp: App {
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 .environmentObject(metadataStore)
+                .environmentObject(collectionStore)
+                .environmentObject(collectionCoverExtractor)
                 .environmentObject(metadataFormatStore)
                 .environmentObject(preferences)
                 .environment(\.locale, locale)
@@ -1251,6 +1260,7 @@ struct QooViewerApp: App {
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 .environmentObject(metadataStore)
+                .environmentObject(collectionStore)
                 .environmentObject(preferences)
                 .environment(\.locale, locale)
         }
@@ -1269,6 +1279,7 @@ struct QooViewerApp: App {
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 .environmentObject(metadataStore)
+                .environmentObject(collectionStore)
                 .environmentObject(folderAccess)
                 .modelContainer(QooViewerApp.modelContainer)
                 .environment(\.locale, locale)
@@ -1308,6 +1319,7 @@ struct QooViewerApp: App {
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 .environmentObject(favoritesStore)
+                .environmentObject(collectionStore)
                 .environmentObject(preferences)
                 .modelContainer(QooViewerApp.modelContainer)
                 .environment(\.locale, locale)
@@ -1324,6 +1336,7 @@ struct QooViewerApp: App {
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 .environmentObject(metadataStore)
+                .environmentObject(collectionStore)
                 .environmentObject(preferences)
                 .environment(\.locale, locale)
         }
@@ -1339,6 +1352,7 @@ struct QooViewerApp: App {
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 .environmentObject(metadataStore)
+                .environmentObject(collectionStore)
                 .environmentObject(preferences)
                 .environment(\.locale, locale)
         }

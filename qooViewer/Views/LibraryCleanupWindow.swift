@@ -17,6 +17,7 @@ struct LibraryCleanupWindow: View {
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var metadataStore: BookMetadataStore
+    @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var folderAccess: FolderAccessStore
     @Environment(\.modelContext) private var modelContext
 
@@ -32,6 +33,7 @@ struct LibraryCleanupWindow: View {
                     .onAppear {
                         viewModel = LibraryCleanupViewModel(
                             favoritesStore: favoritesStore,
+                            collectionStore: collectionStore,
                             bookmarkStore: bookmarkStore,
                             layoutStore: layoutStore,
                             metadataStore: metadataStore,
@@ -394,6 +396,7 @@ private struct LibraryCleanupContentView: View {
             if FavoritesFeature.isEnabled {
                 indicator("star.fill", isOn: row.favoriteCount > 0, help: "Is a favorite")
             }
+            indicator("books.vertical.fill", isOn: row.collectionCount > 0, help: "Is in a collection")
             indicator("bookmark.fill", isOn: row.bookmarkCount > 0, help: "Has bookmarks")
             indicator("rectangle.split.2x1", isOn: row.hasLayout, help: "Has page layout settings")
             indicator("tag.fill", isOn: row.hasMetadata, help: "Has metadata")

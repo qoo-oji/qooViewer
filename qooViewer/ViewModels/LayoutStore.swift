@@ -309,6 +309,73 @@ final class LayoutStore: ObservableObject {
         return created
     }
 
+    /// `existingOrNewSettings(for:)`の、**本を読み込まずに**行を用意する版。
+    ///
+    /// コレクション(改善要望5)は本を開かずにカバーの位置を指定できる ―― ウェルカム画面の
+    /// メタデータ編集シートも「メタデータの編集」ウインドウも、対象の本を開かないまま
+    /// 属性を書く。そのため、MangaBookを必要とする既存の版は使えない。
+    ///
+    /// 違いは差し替え検知の指紋(recordedPageCount等)を記録しないことだけ。ページ数は本を
+    /// 読まないと分からないためで、**中途半端な指紋を書くくらいなら書かない**
+    /// (指紋が無い行はcheckContentReplacementが「判定できない」として扱う。実際にその本を
+    /// 開いたときに既存の経路が埋める)。
+    private func existingOrNewSettings(forBookID bookID: String, sourceURL: URL?) -> BookLayoutSettings {
+        if let existing = bookLayoutSettings(forBookID: bookID) {
+            return existing
+        }
+        let created = BookLayoutSettings(
+            bookID: bookID,
+            fileNodeIdentifier: sourceURL.flatMap { FileNodeIdentifier.current(for: $0) }
+        )
+        created.bookmarkData = try? sourceURL?.bookmarkData(
+            options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
+        )
+        modelContext.insert(created)
+        cacheInsertedSettings(created)
+        return created
+    }
+
+    /// 横長カバーの見せ方(左端/中央/右端、nil = 自動)を本ごとに記録する
+    /// (ユーザー要望 2026-09-09。BookLayoutSettings.coverCropAnchorRawのコメント参照)。
+    ///
+    /// カバー画像そのものの指定(setCoverPageKey/setExternalCover)とは独立していて、
+    /// 「カバーを既定に戻す」(clearCoverOverride)でも消えない。この変更は
+    /// `.layoutDataDidChange`として流れ、CollectionCoverExtractorがカバーを作り直す。
+    func setCoverCropAnchor(forBookID bookID: String, sourceURL: URL?, anchor: CoverCropAnchor?) {
+        // 「自動のままにする」という指定で、まだ1行も無い本に空の行を作らない。
+        guard anchor != nil || bookLayoutSettings(forBookID: bookID) != nil else { return }
+        let settings = existingOrNewSettings(forBookID: bookID, sourceURL: sourceURL)
+        guard settings.coverCropAnchor != anchor else { return }
+        settings.coverCropAnchor = anchor
+        settings.updatedAt = Date()
+        saveAndNotify(bookID: bookID)
+    }
+
+    /// カバー抽出(CoverImageResolver)がメインアクターの外で使う値を、DBと環境設定から
+    /// 1つの値へ写し取る。
+    ///
+    /// - Parameter defaultReadingDirection: 環境設定の既定の読み方向。本ごとの上書きが
+    ///   無いときはこれが実効値になる(BookReadingStateは見ない ―― あちらは「最後に読んだ
+    ///   ときの状態」で、カバーの向きの根拠にするには弱い。優先順位はdocs/07の
+    ///   「DB > BookReadingState > ファイル自身」のうち、DBと既定の2つだけを使う)。
+    func coverOverrideSnapshot(
+        forBookID bookID: String, defaultReadingDirection: ReadingDirection
+    ) -> CoverImageResolver.OverrideSnapshot {
+        let settings = bookLayoutSettings(forBookID: bookID)
+        let excludedKeys = Set(
+            pageOverrides(forBookID: bookID).filter { $0.state == .excluded }.map(\.pageKey)
+        )
+        return CoverImageResolver.OverrideSnapshot(
+            coverPageKey: settings?.coverPageKey,
+            externalCoverURL: settings?.externalCoverBookmarkData == nil
+                ? nil : resolvedExternalCoverURL(forBookID: bookID),
+            pageOrderOverride: settings?.pageOrderOverride,
+            excludedKeys: excludedKeys,
+            readingDirection: settings?.readingDirectionOverride ?? defaultReadingDirection,
+            cropAnchor: settings?.coverCropAnchor
+        )
+    }
+
     func setReadingDirectionOverride(for book: MangaBook, _ direction: ReadingDirection?) {
         let settings = existingOrNewSettings(for: book)
         settings.readingDirectionOverride = direction

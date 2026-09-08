@@ -1,0 +1,246 @@
+import Foundation
+import SwiftData
+import Testing
+
+@testable import qooViewer
+
+/// ライブラリ・コレクション・その中の本(ViewModels/CollectionStore.swift)。
+///
+/// ここで押さえるのは、間違えると保存データが壊れる/画面が操作不能になるもの:
+/// - ライブラリは**必ず1つ以上**(帯が空になるとコレクションの作り先が無くなる)
+/// - 名前の一意性の範囲 ―― コレクションは「同じライブラリの中だけ」、ライブラリは全体
+/// - 同じコレクションに同じ本を二重に入れない(パスでも iノードでも)
+/// - 削除でディスク上のカバー画像まで消える(SwiftData の cascade はファイルを見ない)
+@MainActor
+struct CollectionStoreTests {
+    /// 実体のあるフォルダの本を作る。セキュリティスコープ付きブックマークを作る必要があるため、
+    /// コレクションへの登録は**実在するファイル/フォルダ**でないと失敗する(docs/13)。
+    private func makeBookFolder(_ temporary: TemporaryDirectory, named name: String) throws -> URL {
+        let directory = temporary.file(name)
+        try FixtureFolder.make(at: directory, pages: [.init("001.jpg", number: 1)])
+        return directory
+    }
+
+    private func pendingItems(_ urls: [URL]) -> [CollectionStore.PendingItem] {
+        urls.compactMap { CollectionStore.makePendingItem(for: $0) }
+    }
+
+    /// 非同期に走る後始末(カバー画像の削除)を待つ。時間ではなく条件で待つ。
+    private func waitUntil(_ condition: () -> Bool) async {
+        for _ in 0..<500 {
+            if condition() { return }
+            await Task.yield()
+        }
+        Issue.record("条件が満たされない")
+    }
+
+    // MARK: - ライブラリ
+
+    @Test("ストアを作った時点でライブラリが1つある(帯を空にしない)")
+    func aDefaultLibraryAlwaysExists() throws {
+        let library = try InMemoryLibrary(label: "collections-default")
+        defer { library.close() }
+        #expect(library.collections.libraries.count == 1)
+    }
+
+    @Test("ライブラリが1つしか無いときは削除できない")
+    func theLastLibraryCannotBeDeleted() throws {
+        let library = try InMemoryLibrary(label: "collections-last-library")
+        defer { library.close() }
+        let only = try #require(library.collections.libraries.first)
+        library.collections.delete(only)
+        #expect(library.collections.libraries.count == 1)
+    }
+
+    @Test("ライブラリ名は全体で一意(前後の空白は無視する)")
+    func libraryNamesAreUniqueAcrossTheWholeApp() throws {
+        let library = try InMemoryLibrary(label: "collections-library-names")
+        defer { library.close() }
+        #expect(library.collections.createLibrary(name: "Doujinshi") != nil)
+        #expect(library.collections.createLibrary(name: "  Doujinshi  ") == nil)
+        #expect(library.collections.createLibrary(name: "   ") == nil)
+        #expect(library.collections.libraries.filter { $0.name == "Doujinshi" }.count == 1)
+    }
+
+    // MARK: - コレクション
+
+    @Test("コレクション名は同じライブラリの中だけで一意(別のライブラリなら同名でよい)")
+    func collectionNamesAreUniqueWithinTheirLibrary() throws {
+        let library = try InMemoryLibrary(label: "collections-names")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-names")
+        let book = try makeBookFolder(temporary, named: "book-a")
+        let first = try #require(library.collections.libraries.first)
+        let second = try #require(library.collections.createLibrary(name: "Second"))
+
+        #expect(library.collections.createCollection(
+            name: "Series", in: first, items: pendingItems([book])
+        ) != nil)
+        // 同じライブラリの同名は作れない(前後の空白・大文字小文字はそのまま比べる)。
+        #expect(library.collections.createCollection(
+            name: " Series ", in: first, items: pendingItems([book])
+        ) == nil)
+        #expect(library.collections.hasCollectionNamed("series", in: first) == false)
+        // 別のライブラリなら同じ名前でよい。
+        #expect(library.collections.createCollection(
+            name: "Series", in: second, items: pendingItems([book])
+        ) != nil)
+    }
+
+    @Test("本が1冊も入らないコレクションは作らない")
+    func anEmptyCollectionIsNeverCreated() throws {
+        let library = try InMemoryLibrary(label: "collections-empty")
+        defer { library.close() }
+        let target = try #require(library.collections.libraries.first)
+        #expect(library.collections.createCollection(name: "Empty", in: target, items: []) == nil)
+        #expect(library.collections.collections(in: target, sort: .nameAscending).isEmpty)
+    }
+
+    @Test("同じコレクションに同じ本は1つだけ(パス一致・iノード一致のどちらでも)")
+    func aBookIsAddedToACollectionOnlyOnce() throws {
+        let library = try InMemoryLibrary(label: "collections-duplicates")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-duplicates")
+        let book = try makeBookFolder(temporary, named: "book-a")
+        let other = try makeBookFolder(temporary, named: "book-b")
+        let target = try #require(library.collections.libraries.first)
+        let collection = try #require(library.collections.createCollection(
+            name: "Series", in: target, items: pendingItems([book, book, other])
+        ))
+        #expect(collection.items.count == 2)
+
+        // 同じパスをもう一度。
+        #expect(library.collections.add(pendingItems([book]), to: collection).isEmpty)
+        #expect(collection.items.count == 2)
+
+        // パスは違うが同じ実体(iノードが一致する)を指すブックマークも弾く。
+        let identifier = try #require(FileNodeIdentifier.current(for: book))
+        let sameNodeDifferentPath = CollectionStore.PendingItem(
+            url: temporary.file("moved-away"),
+            bookmarkData: Data([0x01]), title: "moved-away", identifier: identifier
+        )
+        #expect(library.collections.add([sameNodeDifferentPath], to: collection).isEmpty)
+        #expect(collection.items.count == 2)
+    }
+
+    // MARK: - 削除
+
+    @Test("ライブラリを消すと、配下のコレクション・本・カバー画像まで消える")
+    func deletingALibraryCascadesToItsCoversOnDisk() async throws {
+        let library = try InMemoryLibrary(label: "collections-cascade")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-cascade")
+        let book = try makeBookFolder(temporary, named: "book-a")
+        // 消される側のライブラリ。既定のライブラリが残るので削除が通る。
+        let target = try #require(library.collections.createLibrary(name: "Doomed"))
+        let collection = try #require(library.collections.createCollection(
+            name: "Series", in: target, items: pendingItems([book])
+        ))
+        let item = try #require(collection.items.first)
+        try await library.collectionCovers.write(PageImageFactory.cgImage(number: 1), for: item.id)
+        let coverURL = library.collectionCovers.url(for: item.id)
+        #expect(FileManager.default.fileExists(atPath: coverURL.path))
+
+        library.collections.delete(target)
+
+        #expect(library.collections.libraries.contains { $0.id == target.id } == false)
+        #expect(library.collections.collection(withID: collection.id) == nil)
+        #expect(library.collections.item(withID: item.id) == nil)
+        await waitUntil { !FileManager.default.fileExists(atPath: coverURL.path) }
+    }
+
+    @Test("「保存データの削除」からの一括削除は、その本の登録だけを全コレクションから外す")
+    func removingABookLeavesTheOtherBooksAlone() throws {
+        let library = try InMemoryLibrary(label: "collections-remove-book")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-remove-book")
+        let book = try makeBookFolder(temporary, named: "book-a")
+        let other = try makeBookFolder(temporary, named: "book-b")
+        let target = try #require(library.collections.libraries.first)
+        let first = try #require(library.collections.createCollection(
+            name: "A", in: target, items: pendingItems([book, other])
+        ))
+        let second = try #require(library.collections.createCollection(
+            name: "B", in: target, items: pendingItems([book])
+        ))
+        #expect(library.collections.membershipCount(forBookID: book.path) == 2)
+
+        library.collections.removeItems(forBookID: book.path)
+
+        #expect(library.collections.membershipCount(forBookID: book.path) == 0)
+        #expect(first.items.map(\.bookID) == [other.path])
+        #expect(second.items.isEmpty)
+    }
+
+    @Test("deleteAll はライブラリ・コレクション・本をすべて消し、既定のライブラリを作り直す")
+    func deleteAllStartsOverWithOneLibrary() throws {
+        let library = try InMemoryLibrary(label: "collections-delete-all")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-delete-all")
+        let book = try makeBookFolder(temporary, named: "book-a")
+        let target = try #require(library.collections.createLibrary(name: "Doujinshi"))
+        _ = library.collections.createCollection(name: "Series", in: target, items: pendingItems([book]))
+
+        library.collections.deleteAll()
+
+        #expect(library.collections.libraries.count == 1)
+        #expect(library.collections.allRegisteredBookIDs().isEmpty)
+    }
+
+    // MARK: - 移動・リネームへの追従
+
+    @Test("同一ボリューム内で移動した本は、次に開いたときに登録が追従する")
+    func aMovedBookKeepsItsCollectionEntry() async throws {
+        let library = try InMemoryLibrary(label: "collections-reconcile")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-reconcile")
+        let original = try makeBookFolder(temporary, named: "book-a")
+        let target = try #require(library.collections.libraries.first)
+        _ = library.collections.createCollection(name: "Series", in: target, items: pendingItems([original]))
+
+        let moved = temporary.file("book-a-renamed")
+        try FileManager.default.moveItem(at: original, to: moved)
+        let book = try await FixtureBook.load(moved)
+        library.collections.reconcileBookIDIfMoved(book: book)
+
+        #expect(library.collections.allRegisteredBookIDs() == [moved.path])
+    }
+
+    // MARK: - 並び順
+
+    @Test("コレクションと本の並びは、指定した基準と向きに従う")
+    func sortingFollowsTheRequestedOrder() throws {
+        let library = try InMemoryLibrary(label: "collections-sort")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-sort")
+        let target = try #require(library.collections.libraries.first)
+        let bookB = try makeBookFolder(temporary, named: "b-book")
+        let bookA = try makeBookFolder(temporary, named: "a-book")
+
+        // 作成順は Zebra → Alpha。追加順は b → a。
+        let zebra = try #require(library.collections.createCollection(
+            name: "Zebra", in: target, items: pendingItems([bookB])
+        ))
+        _ = library.collections.add(pendingItems([bookA]), to: zebra)
+        _ = try #require(library.collections.createCollection(
+            name: "Alpha", in: target, items: pendingItems([bookA])
+        ))
+
+        #expect(library.collections.collections(in: target, sort: .nameAscending).map(\.name)
+            == ["Alpha", "Zebra"])
+        #expect(library.collections.collections(in: target, sort: .nameDescending).map(\.name)
+            == ["Zebra", "Alpha"])
+        #expect(library.collections.collections(in: target, sort: .dateAddedAscending).map(\.name)
+            == ["Zebra", "Alpha"])
+        #expect(library.collections.collections(in: target, sort: .dateAddedDescending).map(\.name)
+            == ["Alpha", "Zebra"])
+
+        #expect(library.collections.items(in: zebra, sort: .nameAscending).map(\.title)
+            == ["a-book", "b-book"])
+        #expect(library.collections.items(in: zebra, sort: .dateAddedAscending).map(\.title)
+            == ["b-book", "a-book"])
+        // 本には「更新日時」が無いので、追加日時と同じ並びになる(items(in:sort:) のコメント)。
+        #expect(library.collections.items(in: zebra, sort: .dateUpdatedAscending).map(\.title)
+            == ["b-book", "a-book"])
+    }
+}

@@ -22,7 +22,8 @@ struct MetadataEditorTests {
         MetadataEditorViewModel(
             metadataStore: library.metadata, formatStore: library.metadataFormats,
             bookmarkStore: library.bookmarks, layoutStore: library.layouts,
-            favoritesStore: library.favorites, modelContext: library.context
+            favoritesStore: library.favorites, collectionStore: library.collections,
+            modelContext: library.context
         )
     }
 

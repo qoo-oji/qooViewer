@@ -22,6 +22,9 @@ final class AppState: ObservableObject {
     /// - 読書状態(BookReadingState。読書位置・表示モード等)
     /// - ブックマーク・お気に入り・レイアウト・メタデータの登録・編集、および
     ///   EPUB/PDF/ComicInfo.xmlからのそれらの自動取り込み
+    /// - コレクションへの登録・編集(ライブラリ/コレクションの作成・リネーム・削除、本の
+    ///   追加・削除)と、そのカバー画像の抽出(CollectionCoverStore)。シークレット
+    ///   ウインドウのウェルカム画面は編集モードに入れないため、入り口の時点で塞がっている
     /// - ディスク上のサムネイルキャッシュ(ThumbnailDiskCache)・ページ一覧キャッシュ
     ///   (BookPageListCache。入れ子の書庫を含む本の**構造キャッシュ**と、下調べで分かった
     ///   **ページ寸法**(Entry.pageSizes。PageLoader.persistPageSizesIfNeeded)も同じ保管庫にあり、
@@ -705,6 +708,12 @@ final class AppState: ObservableObject {
     /// 他のストアと同じくweakにしか保持しない。(QooViewerAppのonAppearで設定される)
     weak var metadataStore: BookMetadataStore?
 
+    /// コレクション(ライブラリ → コレクション → 本)の管理。他のストアと同じく、
+    /// open(url:)で本を開くたびにreconcileBookIDIfMoved(ファイルノード識別子による自動追従)と
+    /// 識別子の補完を行うために参照する。weakにしか保持しない。
+    /// (QooViewerAppのonAppearで設定される)
+    weak var collectionStore: CollectionStore?
+
     /// お気に入りを開こうとしたが、対応するファイル/フォルダが実際には存在しなかったときにセットする。
     /// nilでなければ、ContentViewが「見つかりません。お気に入りから削除しますか?」というアラート
     /// (OK/お気に入りから削除の2択)を表示する。削除が選ばれた場合は、ContentView側から
@@ -978,6 +987,12 @@ final class AppState: ObservableObject {
                         self.layoutStore?.reconcileBookIDIfMoved(book: book)
                         self.bookmarkStore?.reconcileBookIDIfMoved(book: book)
                         self.metadataStore?.reconcileBookIDIfMoved(book: book)
+                        self.collectionStore?.reconcileBookIDIfMoved(book: book)
+                        if let identifier = FileNodeIdentifier.current(for: book.sourceURL) {
+                            self.collectionStore?.backfillFileNodeIdentifier(
+                                forBookID: book.id, identifier: identifier
+                            )
+                        }
                     }
                     // メタデータを登録した時点ではこの本を開いていない(「メタデータの編集」
                     // ウインドウはファイルを開かない)ことが多く、その場合はセキュリティスコープ付き

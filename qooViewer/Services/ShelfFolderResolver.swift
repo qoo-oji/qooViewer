@@ -56,6 +56,55 @@ nonisolated enum ShelfFolderResolver {
         }.value
     }
 
+    /// このフォルダが**それ自体で1冊**かどうか(型コメントの規則1・2)。
+    /// `firstBook`と`role(of:order:)`が同じ判定を使うために切り出してある。
+    private static func isSingleBook(_ listing: DirectoryBrowser.Listing) -> Bool {
+        // 1. 画像が直下にある = このフォルダ自体が1冊。
+        if listing.containsImageFile { return true }
+        // 2. 本のファイルが1つも無く、画像フォルダが並んでいる = 章ごとに画像を分けた1冊。
+        //    (書庫等のファイルが1つでも混ざっていれば棚。型コメントの場合分け参照)
+        let holdsBookFiles = listing.entries.contains { !$0.isDirectory }
+        return !holdsBookFiles
+            && listing.entries.contains { $0.isDirectory && $0.containsImageFile }
+    }
+
+    /// フォルダの立ち位置(型コメントの場合分けをそのまま値にしたもの)。
+    /// コレクションへのドロップの振り分け(CollectionDropClassifier)が使う。
+    enum FolderRole: Sendable, Equatable {
+        /// それ自体が1冊(規則1・2)。
+        case book
+        /// 棚(規則3)。`books`は**直下にある本だけ**を並び順どおりに並べたもの
+        /// (ファイルの本と、画像を直接持つフォルダの本。中間フォルダの中までは降りない ――
+        /// `firstBook`が「開く1冊」を探すために降りるのとはここが違う。コレクションへ入れる
+        /// のは「見えている棚に並んでいる本」であって、奥から拾ってきた1冊ではない)。
+        case shelf(books: [URL])
+        /// どちらでもない(空フォルダ、中間フォルダだけが並ぶフォルダ、読めないフォルダ)。
+        case neither
+    }
+
+    /// `url`が本なのか棚なのかを判定する。フォルダでないURLには`.neither`を返す
+    /// (ファイルの本かどうかの判定は呼び出し側の仕事)。
+    static func role(of url: URL, order: SiblingBookOrder) -> FolderRole {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              isDirectory.boolValue,
+              let listing = try? DirectoryBrowser.listing(in: url, sort: order.sort)
+        else { return .neither }
+        if isSingleBook(listing) { return .book }
+        // 規則3: 直下に本のファイルがあるフォルダが棚。
+        guard listing.entries.contains(where: { !$0.isDirectory }) else { return .neither }
+        let books = listing.entries
+            .filter { !$0.isDirectory || $0.containsImageFile }
+            .map(\.url)
+        return .shelf(books: books)
+    }
+
+    /// `folder`が棚なら、その直下に並んでいる本。棚でなければnil。
+    static func directBooks(in folder: URL, order: SiblingBookOrder) -> [URL]? {
+        guard case .shelf(let books) = role(of: folder, order: order) else { return nil }
+        return books
+    }
+
     /// `folder`を開いたときに実際に開くべき本。`folder`自身が1冊ならそれを返し、棚なら中を
     /// 順に見て最初に見つかった本を返す。本が1冊も無ければnil(呼び出し側は次の項目へ進むか、
     /// 元のフォルダをそのまま開く)。
@@ -63,15 +112,7 @@ nonisolated enum ShelfFolderResolver {
         guard depth <= maxDepth,
               let listing = try? DirectoryBrowser.listing(in: folder, sort: order.sort)
         else { return nil }
-        // 1. 画像が直下にある = このフォルダ自体が1冊。
-        if listing.containsImageFile { return folder }
-        // 2. 本のファイルが1つも無く、画像フォルダが並んでいる = 章ごとに画像を分けた1冊。
-        //    (書庫等のファイルが1つでも混ざっていれば棚。型コメントの場合分け参照)
-        let holdsBookFiles = listing.entries.contains { !$0.isDirectory }
-        if !holdsBookFiles,
-           listing.entries.contains(where: { $0.isDirectory && $0.containsImageFile }) {
-            return folder
-        }
+        if isSingleBook(listing) { return folder }
         // 3. ここからは棚。並びの先頭から順に、最初に本として開けるものを探す。
         for entry in listing.entries {
             // 開ける形式のファイル(DirectoryBrowserが一覧に残すのはこれだけ)。

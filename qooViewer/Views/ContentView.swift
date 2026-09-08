@@ -18,6 +18,7 @@ struct ContentView: View {
     /// 書誌メタデータ。ツールバーのファイル名表示を登録済みのタイトル・著者に差し替えるため、
     /// ViewerView経由でViewerViewModelへ渡す。
     @EnvironmentObject private var metadataStore: BookMetadataStore
+    @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
     @Environment(\.modelContext) private var modelContext
     /// サイドパネル(ブックマークモード)の「編集」ボタンから、お気に入り/ブックマークの
@@ -552,6 +553,7 @@ struct ContentView: View {
             appState.bookmarkStore = bookmarkStore
             appState.layoutStore = layoutStore
             appState.metadataStore = metadataStore
+            appState.collectionStore = collectionStore
             // 「同じ本を二重に開かない」判定のため
             // (AppState.open(request:reusesExistingWindow:)参照)。
             appState.launchCoordinator = launchCoordinator
@@ -724,6 +726,7 @@ struct ContentView: View {
                     appState.bookmarkStore = bookmarkStore
                     appState.layoutStore = layoutStore
                     appState.metadataStore = metadataStore
+                    appState.collectionStore = collectionStore
                     appState.launchCoordinator = launchCoordinator
                     sidePanelBrowser.folderAccess = folderAccess
                     sidePanelBrowser.preferences = preferences

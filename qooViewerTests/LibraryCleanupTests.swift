@@ -33,9 +33,10 @@ struct LibraryCleanupTests {
 
         func makeViewModel() -> LibraryCleanupViewModel {
             LibraryCleanupViewModel(
-                favoritesStore: library.favorites, bookmarkStore: library.bookmarks,
-                layoutStore: library.layouts, metadataStore: library.metadata,
-                folderAccess: folderAccess, modelContext: library.context
+                favoritesStore: library.favorites, collectionStore: library.collections,
+                bookmarkStore: library.bookmarks, layoutStore: library.layouts,
+                metadataStore: library.metadata, folderAccess: folderAccess,
+                modelContext: library.context
             )
         }
 
@@ -56,6 +57,18 @@ struct LibraryCleanupTests {
 
         /// 上の本の `bookID`(= 実体のパス)。
         func id(_ name: String) -> String { temporary.file(name).path }
+
+        /// この本をコレクションへ1冊入れる(既定のライブラリの中に作る)。
+        func addToCollection(named name: String) throws {
+            _ = try book(name)
+            let target = try #require(library.collections.libraries.first)
+            let pending = try #require(
+                CollectionStore.makePendingItem(for: temporary.file(name))
+            )
+            _ = library.collections.createCollection(
+                name: "Collection \(name)", in: target, items: [pending]
+            )
+        }
     }
 
     @Test("一覧は6つの保存先すべてから本を集める(どれか1つでもあれば行になる)")
@@ -74,22 +87,25 @@ struct LibraryCleanupTests {
         env.library.metadata.upsert(
             bookID: env.id("metadata"), author: "a", title: "t", series: "", seriesIndex: ""
         )
+        try env.addToCollection(named: "collected")
         env.library.context.insert(BookReadingState(bookID: env.id("reading")))
         try env.library.context.save()
 
         let viewModel = env.makeViewModel()
         #expect(
             Set(viewModel.rows.map(\.bookID)) == Set(
-                ["favorite", "bookmarked", "layout", "cover", "metadata", "reading"].map(env.id)
+                ["favorite", "bookmarked", "layout", "cover", "metadata", "collected", "reading"]
+                    .map(env.id)
             )
         )
-        #expect(viewModel.totalRowCount == 6)
+        #expect(viewModel.totalRowCount == 7)
         // 行は「何を持っているか」も示す(削除前の確認ダイアログの材料)。
         let layoutRow = viewModel.rows.first { $0.bookID == env.id("layout") }
         #expect(layoutRow?.hasLayout == true)
         #expect(layoutRow?.hasMetadata == false)
         #expect(viewModel.rows.first { $0.bookID == env.id("bookmarked") }?.bookmarkCount == 1)
         #expect(viewModel.rows.first { $0.bookID == env.id("favorite") }?.favoriteCount == 1)
+        #expect(viewModel.rows.first { $0.bookID == env.id("collected") }?.collectionCount == 1)
     }
 
     @Test("削除は、その本のデータを6つの保存先すべてから消す")
@@ -100,6 +116,7 @@ struct LibraryCleanupTests {
         let bookID = book.id
 
         _ = env.library.favorites.addFavorite(book: book, to: nil)
+        try env.addToCollection(named: "everything")
         env.library.bookmarks.addBookmark(bookID: bookID, pageIndex: 0, name: "b")
         env.library.layouts.setPageLayoutState(for: book, pageKey: "p1", state: .single)
         env.library.layouts.setCoverPageKey(for: book, pageKey: "p2", displayName: "p2")
@@ -116,6 +133,7 @@ struct LibraryCleanupTests {
 
         #expect(viewModel.rows.isEmpty)
         #expect(env.library.favorites.favoriteCount(forBookID: bookID) == 0)
+        #expect(env.library.collections.membershipCount(forBookID: bookID) == 0)
         #expect(env.library.bookmarks.bookmarks(forBookID: bookID).isEmpty)
         #expect(env.library.layouts.bookLayoutSettings(forBookID: bookID) == nil)
         #expect(env.library.layouts.pageOverrides(forBookID: bookID).isEmpty)

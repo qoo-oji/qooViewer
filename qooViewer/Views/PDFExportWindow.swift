@@ -7,6 +7,7 @@ struct PDFExportWindow: View {
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var metadataStore: BookMetadataStore
+    @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var preferences: AppPreferences
 
     @State private var viewModel: PDFExportViewModel?
@@ -46,7 +47,8 @@ struct PDFExportWindow: View {
                     .onAppear {
                         viewModel = PDFExportViewModel(
                             bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-                            metadataStore: metadataStore, preferences: preferences
+                            metadataStore: metadataStore, preferences: preferences,
+                            collectionStore: collectionStore
                         )
                     }
             }

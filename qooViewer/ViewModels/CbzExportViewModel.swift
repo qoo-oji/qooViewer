@@ -18,11 +18,13 @@ final class CbzExportViewModel: BookExportViewModel {
 
     override init(
         bookmarkStore: BookmarkStore, layoutStore: LayoutStore, metadataStore: BookMetadataStore,
-        preferences: AppPreferences, loadsEligibleRows: Bool = true
+        preferences: AppPreferences, collectionStore: CollectionStore? = nil,
+        loadsEligibleRows: Bool = true
     ) {
         super.init(
             bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore,
-            preferences: preferences, loadsEligibleRows: loadsEligibleRows
+            preferences: preferences, collectionStore: collectionStore,
+            loadsEligibleRows: loadsEligibleRows
         )
         // 連番リネームは基底クラスが環境設定「レイアウト」の既定値から入れる。CBZだけは
         // 出荷時の既定がONで、それはこちらではなくAppPreferencesが持っている

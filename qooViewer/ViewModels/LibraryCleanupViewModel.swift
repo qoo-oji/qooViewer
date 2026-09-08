@@ -42,6 +42,8 @@ final class LibraryCleanupViewModel: ObservableObject {
         let fileName: String
         let existence: FileExistence
         let favoriteCount: Int
+        /// この本が入っているコレクションの数(改善要望5)。
+        let collectionCount: Int
         let bookmarkCount: Int
         let hasLayout: Bool
         let hasMetadata: Bool
@@ -88,6 +90,7 @@ final class LibraryCleanupViewModel: ObservableObject {
     @Published var selectedBookIDs: Set<String> = []
 
     private let favoritesStore: FavoritesStore
+    private let collectionStore: CollectionStore
     private let bookmarkStore: BookmarkStore
     private let layoutStore: LayoutStore
     private let metadataStore: BookMetadataStore
@@ -99,6 +102,7 @@ final class LibraryCleanupViewModel: ObservableObject {
 
     init(
         favoritesStore: FavoritesStore,
+        collectionStore: CollectionStore,
         bookmarkStore: BookmarkStore,
         layoutStore: LayoutStore,
         metadataStore: BookMetadataStore,
@@ -106,6 +110,7 @@ final class LibraryCleanupViewModel: ObservableObject {
         modelContext: ModelContext
     ) {
         self.favoritesStore = favoritesStore
+        self.collectionStore = collectionStore
         self.bookmarkStore = bookmarkStore
         self.layoutStore = layoutStore
         self.metadataStore = metadataStore
@@ -128,6 +133,7 @@ final class LibraryCleanupViewModel: ObservableObject {
         bookIDs.formUnion(layoutStore.coverOverrideBookIDs())
         bookIDs.formUnion(bookmarkStore.groups.map(\.bookID))
         bookIDs.formUnion(favoritesStore.allRegisteredBookIDs())
+        bookIDs.formUnion(collectionStore.allRegisteredBookIDs())
         let readingStates = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
         bookIDs.formUnion(readingStates.map(\.bookID))
 
@@ -141,6 +147,7 @@ final class LibraryCleanupViewModel: ObservableObject {
                     // 「確認中」へ巻き戻らないようにする。
                     existence: existenceByBookID[bookID] ?? .checking,
                     favoriteCount: favoritesStore.favoriteCount(forBookID: bookID),
+                    collectionCount: collectionStore.membershipCount(forBookID: bookID),
                     bookmarkCount: bookmarkStore.bookmarks(forBookID: bookID).count,
                     hasLayout: layoutStore.bookLayoutSettings(forBookID: bookID) != nil
                         || !layoutStore.pageOverrides(forBookID: bookID).isEmpty,
@@ -242,7 +249,8 @@ final class LibraryCleanupViewModel: ObservableObject {
                     metadataStore.metadata(forBookID: bookID)?.bookmarkData,
                     layoutStore.bookLayoutSettings(forBookID: bookID)?.bookmarkData,
                     bookmarkStore.anyBookmarkData(forBookID: bookID),
-                    favoritesStore.anyBookmarkData(forBookID: bookID)
+                    favoritesStore.anyBookmarkData(forBookID: bookID),
+                    collectionStore.anyBookmarkData(forBookID: bookID)
                 ].compactMap { $0 },
                 isPathCovered: folderAccess.isPathCovered(URL(fileURLWithPath: bookID))
             )
@@ -275,6 +283,7 @@ final class LibraryCleanupViewModel: ObservableObject {
                 fileName: row.fileName,
                 existence: resolved,
                 favoriteCount: row.favoriteCount,
+                collectionCount: row.collectionCount,
                 bookmarkCount: row.bookmarkCount,
                 hasLayout: row.hasLayout,
                 hasMetadata: row.hasMetadata
@@ -336,6 +345,7 @@ final class LibraryCleanupViewModel: ObservableObject {
     func deleteAllData(forBookIDs bookIDs: [String]) {
         for bookID in bookIDs {
             favoritesStore.removeFavorites(forBookID: bookID)
+            collectionStore.removeItems(forBookID: bookID)
             bookmarkStore.deleteAllBookmarks(forBookID: bookID)
             layoutStore.discardLayoutData(forBookID: bookID)
             metadataStore.delete(forBookID: bookID)

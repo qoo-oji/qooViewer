@@ -16,6 +16,7 @@ struct MetadataEditorWindow: View {
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var favoritesStore: FavoritesStore
+    @EnvironmentObject private var collectionStore: CollectionStore
     @Environment(\.modelContext) private var modelContext
 
     @State private var viewModel: MetadataEditorViewModel?
@@ -34,6 +35,7 @@ struct MetadataEditorWindow: View {
                             bookmarkStore: bookmarkStore,
                             layoutStore: layoutStore,
                             favoritesStore: favoritesStore,
+                            collectionStore: collectionStore,
                             modelContext: modelContext
                         )
                     }

@@ -267,14 +267,19 @@ class BookExportViewModel: ObservableObject {
     ///   なので、そもそも一覧を経由してはいけない(exportOpenBook(_:to:)参照)。
     ///
     ///   一覧を持たないインスタンスは変更通知も購読しない(reload()する相手が無いため)。
+    /// - Parameter collectionStore: 元ファイルのURLを解決する手がかりを1つ増やすためだけに
+    ///   受け取る(コレクションに登録した本はセキュリティスコープ付きブックマークを持っている)。
+    ///   コレクションを持たない経路(単体テスト、ビューアからの1冊書き出し)はnilのままでよい。
     init(
         bookmarkStore: BookmarkStore, layoutStore: LayoutStore, metadataStore: BookMetadataStore,
-        preferences: AppPreferences, loadsEligibleRows: Bool = true
+        preferences: AppPreferences, collectionStore: CollectionStore? = nil,
+        loadsEligibleRows: Bool = true
     ) {
         self.bookmarkStore = bookmarkStore
         self.layoutStore = layoutStore
         self.metadataStore = metadataStore
         self.preferences = preferences
+        self.collectionStore = collectionStore
         // 書き出しオプションの初期値は、環境設定「レイアウト」の形式ごとの既定値から取る
         // (ユーザー要望。AppPreferences.bookExportRenumbersImages参照)。画面のトグルは
         // ここから始まる、その1回限りの上書きとして残る。
@@ -709,10 +714,15 @@ class BookExportViewModel: ObservableObject {
         return bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID)
             ?? layoutStore.resolvedURL(forBookID: bookID)
             ?? metadataStore.resolvedURL(forBookID: bookID)
+            ?? collectionStore?.anyBookmarkData(forBookID: bookID)
+                .flatMap { FavoritesStore.resolvedURL(fromBookmark: $0) }
     }
 
     /// 上のdirect分。exportOpenBook(_:displayState:to:)が呼ばれたときだけ埋まる。
     private var directSourceURLs: [String: URL] = [:]
+
+    /// URL解決の手がかりを増やすためだけに持つ(initのコメント参照)。
+    private weak var collectionStore: CollectionStore?
 
     /// いま開いている本を書き出すときに、**画面で見えているとおり**に補うための表示状態。
     /// exportOpenBook(_:displayState:to:)が呼ばれたときだけ埋まる(3つの書き出しウインドウは

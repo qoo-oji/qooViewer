@@ -7,6 +7,7 @@ struct CbzExportWindow: View {
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var metadataStore: BookMetadataStore
+    @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var preferences: AppPreferences
 
     @State private var viewModel: CbzExportViewModel?
@@ -36,7 +37,8 @@ struct CbzExportWindow: View {
                     .onAppear {
                         viewModel = CbzExportViewModel(
                             bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-                            metadataStore: metadataStore, preferences: preferences
+                            metadataStore: metadataStore, preferences: preferences,
+                            collectionStore: collectionStore
                         )
                     }
             }

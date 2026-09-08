@@ -12,6 +12,7 @@ struct LibraryExportWindow: View {
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var metadataStore: BookMetadataStore
     @EnvironmentObject private var metadataFormatStore: MetadataFormatStore
+    @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var preferences: AppPreferences
     @Environment(\.dismiss) private var dismiss
 
@@ -25,6 +26,8 @@ struct LibraryExportWindow: View {
     /// フォーマット定義(アプリ全体の設定)は、本ごとのデータとは性質が違ううえ、取り込み側の
     /// 設定を丸ごと置き換えるものになるため、既定ではチェックを外しておく。
     @State private var includeMetadataFormats = false
+    /// コレクション(改善要望5)。本ごとのデータと同じく既定でチェックを入れておく。
+    @State private var includeCollections = true
     @State private var isExporting = false
     @State private var resultMessage: String?
     @State private var didSucceed = false
@@ -35,7 +38,8 @@ struct LibraryExportWindow: View {
     @State private var skippedFilePaths: [String] = []
 
     private var hasSelection: Bool {
-        includeFavorites || includeBookmarks || includeLayouts || includeMetadata || includeMetadataFormats
+        includeFavorites || includeBookmarks || includeLayouts || includeMetadata
+            || includeMetadataFormats || includeCollections
     }
 
     // バグ修正(ユーザー報告): 以前はボタン行もFormの1Sectionとして中に含めていたが、
@@ -53,6 +57,7 @@ struct LibraryExportWindow: View {
                     if FavoritesFeature.isEnabled {
                         Toggle("Favorites", isOn: $includeFavorites)
                     }
+                    Toggle("Collections", isOn: $includeCollections)
                     Toggle("Bookmarks", isOn: $includeBookmarks)
                     Toggle("Page Layout Settings", isOn: $includeLayouts)
                     Toggle("Metadata", isOn: $includeMetadata)
@@ -172,11 +177,13 @@ struct LibraryExportWindow: View {
             let selection = LibraryImportExportService.ExportSelection(
                 includeFavorites: includeFavorites, includeBookmarks: includeBookmarks,
                 includeLayouts: includeLayouts, includeMetadata: includeMetadata,
-                includeMetadataFormats: includeMetadataFormats
+                includeMetadataFormats: includeMetadataFormats,
+                includeCollections: includeCollections
             )
             let (file, result) = await LibraryImportExportService.buildExportFile(
                 selection: selection, favoritesStore: favoritesStore, bookmarkStore: bookmarkStore,
-                layoutStore: layoutStore, metadataStore: metadataStore, metadataFormatStore: metadataFormatStore
+                layoutStore: layoutStore, metadataStore: metadataStore,
+                metadataFormatStore: metadataFormatStore, collectionStore: collectionStore
             )
             do {
                 try LibraryImportExportService.write(file, to: url)

@@ -76,6 +76,7 @@ final class MetadataEditorViewModel: ObservableObject {
     private let bookmarkStore: BookmarkStore
     private let layoutStore: LayoutStore
     private let favoritesStore: FavoritesStore
+    private let collectionStore: CollectionStore
     private let modelContext: ModelContext
 
     /// 絞り込み前の全行(検索文字列に関わらず保持しておき、検索のたびに集め直さずに済ませる)。
@@ -95,6 +96,7 @@ final class MetadataEditorViewModel: ObservableObject {
         bookmarkStore: BookmarkStore,
         layoutStore: LayoutStore,
         favoritesStore: FavoritesStore,
+        collectionStore: CollectionStore,
         modelContext: ModelContext
     ) {
         self.metadataStore = metadataStore
@@ -102,6 +104,7 @@ final class MetadataEditorViewModel: ObservableObject {
         self.bookmarkStore = bookmarkStore
         self.layoutStore = layoutStore
         self.favoritesStore = favoritesStore
+        self.collectionStore = collectionStore
         self.modelContext = modelContext
         self.derivedCacheRevision = formatStore.revision
         reload()
@@ -265,6 +268,7 @@ final class MetadataEditorViewModel: ObservableObject {
         bookIDs.formUnion(layoutStore.coverOverrideBookIDs())
         bookIDs.formUnion(bookmarkStore.groups.map(\.bookID))
         bookIDs.formUnion(favoritesStore.allRegisteredBookIDs())
+        bookIDs.formUnion(collectionStore.allRegisteredBookIDs())
         // 読書履歴。一度でも開いた本はすべてここに含まれるため、実質的にこれが一覧の母体になる
         // (BookReadingStateはLibraryDataPrunerによって上限件数まで自動的に間引かれる。
         // 環境設定「一般」の「データを保持する本の数」参照)。

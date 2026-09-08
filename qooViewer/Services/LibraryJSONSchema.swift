@@ -17,7 +17,11 @@ struct QooLibraryExportFile: Codable {
     /// formatVersion 3で、書誌メタデータ(metadata)と、メタデータ推測用のフォーマット定義
     /// (metadataFormats)を追加した。どちらもOptionalのため、2で書き出したファイルもそのまま
     /// 読める(該当キーが無い=そのカテゴリは含まれていない、という既存の扱いがそのまま働く)。
-    var formatVersion: Int = 3
+    ///
+    /// formatVersion 4で、コレクション(libraries)を追加した(改善要望5)。これもOptionalなので、
+    /// 2・3で書き出したファイルは`libraries == nil`= 「このファイルにコレクションは含まれて
+    /// いない」として今までどおり読める。
+    var formatVersion: Int = 4
     var favorites: ExportedFavorites?
     var bookmarks: [ExportedBookmarkEntry]?
     var layouts: [ExportedBookLayoutEntry]?
@@ -27,6 +31,44 @@ struct QooLibraryExportFile: Codable {
     /// ユーザー選択により、別のマシンへ移行する際に自分で育てたフォーマットも一緒に運べるよう、
     /// レコードとは別のカテゴリとしてこのファイルに含められるようにしてある。
     var metadataFormats: ExportedMetadataFormats?
+    /// ライブラリ → コレクション → 本(改善要望5)。カバー画像は含めない
+    /// (取り込んだ先で抽出し直す。CollectionCoverExtractor.refill参照)。
+    var libraries: [ExportedLibrary]?
+}
+
+// MARK: - コレクション
+
+/// 1つのライブラリと、その中のコレクション。お気に入り(ExportedFavorites)と違って階層が
+/// 2段で固定なので、フラットな配列 + 親idではなく素直な入れ子で持つ。
+struct ExportedLibrary: Codable {
+    var name: String
+    var collections: [ExportedCollection]
+}
+
+struct ExportedCollection: Codable {
+    var name: String
+    var createdAt: Date
+    var books: [ExportedCollectionBook]
+}
+
+/// コレクションに入っている本1冊。他のカテゴリと同じく、取り込み時の主たる照合手段は
+/// inodeNumber/volumeDeviceNumberで、bookIDは参考情報かつ最終手段
+/// (ExportedFavoriteBookのコメント参照)。
+///
+/// セキュリティスコープ付きブックマーク(bookmarkData)は**含めない**。お気に入りの書き出しも
+/// 含めていない ―― ブックマークは書き出した端末の中でしか意味を持たないため、取り込み側で
+/// 実体を探して作り直す。
+struct ExportedCollectionBook: Codable {
+    var bookID: String
+    var inodeNumber: Int64?
+    var volumeDeviceNumber: Int64?
+    var title: String
+    var addedAt: Date
+
+    var fileNodeIdentifier: FileNodeIdentifier? {
+        guard let inodeNumber, let volumeDeviceNumber else { return nil }
+        return FileNodeIdentifier(inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber)
+    }
 }
 
 // MARK: - 書誌メタデータ

@@ -2840,6 +2840,38 @@
         }
       }
     },
+    "Collections" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collections"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクション"
+          }
+        }
+      }
+    },
+    "Collections: %d library(ies), %d collection(s), %d book(s) imported." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collections: %d library(ies), %d collection(s), %d book(s) imported."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクション: ライブラリ%d件、コレクション%d件、本%d件を読み込みました。"
+          }
+        }
+      }
+    },
     "Colophon" : {
       "localizations" : {
         "en" : {
@@ -6673,6 +6705,22 @@
         }
       }
     },
+    "Is in a collection" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Is in a collection"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションに入っています"
+          }
+        }
+      }
+    },
     "Japanese" : {
       "localizations" : {
         "en" : {
@@ -7089,6 +7137,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "左開き(左から右)"
+          }
+        }
+      }
+    },
+    "Library" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Library"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブラリ"
           }
         }
       }

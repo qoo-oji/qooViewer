@@ -50,6 +50,18 @@ final class AppStores: ObservableObject {
     let layoutStore: LayoutStore
     /// 書誌メタデータ(著者・タイトル・シリーズ・巻数。すべての本を横断)。
     let metadataStore: BookMetadataStore
+    /// コレクションのカバー画像(ディスク上のJPEG)。CollectionStore/CollectionCoverExtractorの
+    /// 両方が同じ1つを見る必要があるため、ここで作って配る。
+    let collectionCoverStore: CollectionCoverStore
+    /// ライブラリ・コレクション・その中の本(改善要望5)。
+    ///
+    /// **allObjectWillChangePublishersには意図的に足していない。** コレクションはメニューバーに
+    /// 一切現れないため、その変更でメニューを作り直す理由が無い(お気に入りのpublishが
+    /// メニュー全体を作り直していた轍を踏まない。型コメント参照)。
+    let collectionStore: CollectionStore
+    /// カバー抽出の待ち行列。ウインドウをまたいで1本にするためここが持つ(同上の理由で
+    /// allObjectWillChangePublishersには足さない)。
+    let collectionCoverExtractor: CollectionCoverExtractor
 
     init() {
         // 生成の順序は、QooViewerAppが@StateObjectを個別に持っていた頃の
@@ -66,6 +78,14 @@ final class AppStores: ObservableObject {
         bookmarkStore = BookmarkStore(modelContext: context)
         layoutStore = LayoutStore(modelContext: context)
         metadataStore = BookMetadataStore(modelContext: context)
+        collectionCoverStore = CollectionCoverStore()
+        collectionStore = CollectionStore(modelContext: context, coverStore: collectionCoverStore)
+        collectionCoverExtractor = CollectionCoverExtractor(
+            collectionStore: collectionStore, coverStore: collectionCoverStore,
+            layoutStore: layoutStore, preferences: preferences
+        )
+        // 行の無いカバー画像(前回の起動が落ちた・ストアを作り直した等)を起動時に1度だけ掃除する。
+        collectionStore.sweepOrphanedCovers()
     }
 
     /// MenuBarMenuRefresherが購読する、全ストアのobjectWillChange。
