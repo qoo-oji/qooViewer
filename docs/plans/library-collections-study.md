@@ -118,6 +118,9 @@ BookLibrary        id: UUID, name: String, sortOrder: Int, createdAt: Date
 - **横長の画像は保存時に縦長(2:3)へトリミングする**(要望追加 2026-09-09): 右開きなら左側、左開きなら右側を残す
   (見開き1枚の画像なら表紙にあたる側)。読み方向はその本の実効値(DB の上書き > 環境設定の既定)。どちら側を切ったかを
   `CollectionItem.coverCropSide` に記録し、既定の読み方向や本の上書きが変わったら該当する本だけ作り直す(実装計画 §3.4・§3.5)。
+  自動で決めた側が気に入らない本のために、メタデータ編集シート/「メタデータの編集」ウインドウのカバー画像の右クリックから
+  **左端・中央・右端**を明示的に選べる(`BookLayoutSettings.coverCropAnchorRaw`、nil = 自動。明示した本は読み方向の変更に追従しない)。
+  この指定はコレクションのグリッド表示だけに効き、EPUB/CBZ の書き出しのカバーはトリミングしない。
 - **何を「先頭の画像」とするか**: 既存の書き出しのカバー決定ロジックをそのまま使う。
   `BookLayoutSettings.coverPageKey` / `externalCoverBookmarkData` があればそれ、無ければ
   `EffectivePageOrder.orderedPages(...)`(並べ替え・除外を反映した実効1ページ目)。

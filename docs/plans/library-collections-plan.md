@@ -248,16 +248,28 @@ nonisolated enum CoverImageResolver {
     /// **左右どちらかの端を残して** 縦長(2:3)にトリミングする。右開き(rightToLeft)なら左側、左開きなら右側
     /// ―― 見開き1枚の画像なら、表紙にあたる側が残る。縦長・正方形の画像はそのまま。
     /// 2:3 はコレクションのタイル(3×2)とコレクションの中のセルの縦横比と同じ値(CollectionCoverThumbnail.aspectRatio)。
-    static func croppedForGrid(_ image: CGImage, readingDirection: ReadingDirection) -> (image: CGImage, cropSide: CoverCropSide)
+    /// anchor が nil(自動)のときだけ読み方向で決める。ユーザーが明示的に選んだ anchor(左端/中央/右端)はそれに従う。
+    static func croppedForGrid(_ image: CGImage, readingDirection: ReadingDirection, anchor: CoverCropAnchor?) -> (image: CGImage, cropSide: CoverCropSide)
 }
 
-enum CoverCropSide: Int, Sendable { case none = 0, left = 1, right = 2 }
+/// 保存する側(実際にどこを切ったか)。CollectionItem.coverCropSide。
+enum CoverCropSide: Int, Sendable { case none = 0, left = 1, center = 2, right = 3 }
+/// ユーザーの指定(BookLayoutSettings.coverCropAnchorRaw)。nil = 自動(読み方向で決める)。
+enum CoverCropAnchor: String, Sendable, CaseIterable { case left, center, right }
 ```
 
 読み方向は「その本の実効値」= `BookLayoutSettings.readingDirectionOverride` があればそれ、無ければ環境設定の既定
-(`AppPreferences.defaultReadingDirection`)。`OverrideSnapshot` に `readingDirection: ReadingDirection` を足し、
-`LayoutStore.coverOverrideSnapshot(forBookID:defaultReadingDirection:)` が解決する。トリミング済みの画像を保存するので
-表示時の処理は無い。`CollectionCoverStore.write` の前に `croppedForGrid` を通し、結果の `cropSide` を `CollectionItem.coverCropSide` に記録する。
+(`AppPreferences.defaultReadingDirection`)。`OverrideSnapshot` に `readingDirection: ReadingDirection` と
+`cropAnchor: CoverCropAnchor?` を足し、`LayoutStore.coverOverrideSnapshot(forBookID:defaultReadingDirection:)` が解決する。
+トリミング済みの画像を保存するので表示時の処理は無い。`CollectionCoverStore.write` の前に `croppedForGrid` を通し、
+結果の `cropSide` を `CollectionItem.coverCropSide` に記録する。
+
+**ユーザーによる位置の指定(要望追加 2026-09-09)**: `BookLayoutSettings` に `var coverCropAnchorRaw: String?`(後追加なので
+Optional。nil = 自動)を足し、`LayoutStore.setCoverCropAnchor(forBookID:sourceURL:anchor: CoverCropAnchor?)`(`saveAndNotify` で
+`layoutDataDidChange` を投げる)で書く。カバー画像そのもの(`coverPageKey` / 外部ファイル)とは独立した属性で、
+`hasCoverOverride` には**含めない**(「カバーを既定に戻す」で位置指定まで消えないように。位置指定は本の属性として残る)。
+書き出し(EPUB/CBZ)のカバーはトリミングしない(元画像のまま)。この指定はコレクションのグリッド表示にだけ効く。
+入り口はメタデータ編集シートと「メタデータの編集」ウインドウのカバー列(§5.3・§5.4)。
 
 `LayoutStore.coverOverrideSnapshot(forBookID:)`(MainActor)がスナップショットを作る。`BookExportViewModel.resolveDefaultCoverName` の
 「構造キャッシュがあれば本体を読まない」最適化はカバー**名**の話なのでそのまま残し、画像の復号だけをここへ寄せる。
@@ -273,8 +285,9 @@ enum CoverCropSide: Int, Sendable { case none = 0, left = 1, right = 2 }
     func refill()                                     // coverStatus == 0 の行を全部 enqueue(ウェルカム画面の onAppear と JSON 読み込み後)
     // layoutDataDidChange(bookID 付き)を購読し、その bookID の item の直前のスナップショット(coverPageKey/externalCoverFileName/
     // 実効の読み方向)と違えば enqueue(ViewerViewModel.reloadLayoutData と同じ「自分の現在値と比べる」方式)。
-    // 環境設定の既定の読み方向(AppPreferences.defaultReadingDirection)が変わったら、coverCropSide != 0 かつ本ごとの上書きが無い
-    // item を全部 enqueue(トリミングする側が入れ替わるため。上書きがある本は影響を受けない)
+    // 環境設定の既定の読み方向(AppPreferences.defaultReadingDirection)が変わったら、coverCropSide != 0 かつ本ごとの読み方向の上書きが無く
+    // かつ coverCropAnchorRaw == nil(自動)の item を全部 enqueue(トリミングする側が入れ替わるため。上書き・明示指定がある本は影響を受けない)。
+    // coverCropAnchorRaw の変更は layoutDataDidChange(bookID 付き)でスナップショットの差分として拾う(上の行と同じ経路)
 }
 ```
 
@@ -328,7 +341,7 @@ nonisolated enum CollectionDropClassifier {
 |---|---|
 | `CollectionStoreTests`(新規) | 既定ライブラリが1つできる / 同名コレクションはライブラリが違えば可・同じなら不可(空白除去・大小区別) / 同じコレクションに同じ本は1つ(パス・inode) / ライブラリ削除で配下がカスケードし、カバーファイルも消える(`CollectionCoverStore` を一時フォルダで) / 1つしか無いライブラリは消せない / `reconcileBookIDIfMoved` / 並び(名前・作成日・追加日 × 昇降) |
 | `CollectionDropClassifierTests`(新規) | フィクスチャの `folder` 本 → book、書庫が並ぶ一時フォルダ → shelf(直下だけ)、空フォルダ・画像1枚 → ignored、複数を同時に |
-| `CoverImageResolverTests`(新規) | 上書きなし=実効1ページ目(除外・並べ替えを反映。フィクスチャの golden と一致)/ `coverPageKey` / 外部ファイル / 壊れた本で nil / `croppedForGrid`: 横長 4:3 を右開きで左側・左開きで右側の 2:3 に、縦長と正方形はそのまま(`cropSide == .none`)、極端に横長(パノラマ)でも幅は `height * 2/3` |
+| `CoverImageResolverTests`(新規) | 上書きなし=実効1ページ目(除外・並べ替えを反映。フィクスチャの golden と一致)/ `coverPageKey` / 外部ファイル / 壊れた本で nil / `croppedForGrid`: 横長 4:3 を右開きで左側・左開きで右側の 2:3 に、`anchor` が left/center/right なら読み方向に関わらずその位置、縦長と正方形はそのまま(`cropSide == .none`)、極端に横長(パノラマ)でも幅は `height * 2/3` |
 | `CollectionCoverStoreTests`(新規) | write → image → remove → sweepOrphans |
 | `LibraryJSONSchemaTests` | v4 の往復、v3 ファイルの読み込みで `libraries == nil` |
 | `LibraryImportTests` | overwrite/merge/ignore、取り込み後 `coverStatus == 0`、重複の飛ばし |
@@ -437,7 +450,9 @@ var welcomeDropHandler: (([URL]) -> Bool)?
 `@ObservedObject var controller: CoverOverrideController` を受ける形に変える(`ExportWindowContent` の呼び出しを更新)。
 
 `LayoutStore` に `bookID` + `sourceURL` 版の overload を足す(`existingOrNewSettings(forBookID:sourceURL:)`):
-`setCoverPageKey(forBookID:sourceURL:pageKey:displayName:)` / `setExternalCover(forBookID:sourceURL:fileURL:)`。既存の `MangaBook` 版はこれを呼ぶ。
+`setCoverPageKey(forBookID:sourceURL:pageKey:displayName:)` / `setExternalCover(forBookID:sourceURL:fileURL:)` /
+`setCoverCropAnchor(forBookID:sourceURL:anchor:)`。既存の `MangaBook` 版はこれを呼ぶ。
+`CoverOverrideController` にも `cropAnchor(forBookID:) -> CoverCropAnchor?` と `setCropAnchor(forBookID:_:)` を持たせる。
 
 ### 5.3 `Views/Welcome/BookMetadataSheet.swift`
 
@@ -448,6 +463,9 @@ var welcomeDropHandler: (([URL]) -> Bool)?
   - 画像ファイルのドロップ(自前の `.onDrop`、`.image` のみ)→ `layoutStore.setExternalCover(forBookID:sourceURL:fileURL:)`。
   - 右クリック: 「Choose Page in This Book…」(`ExportCoverPickerContent` を `.popover` で。中の「Choose File…」「Reset to Default」もそのまま使えるので
     メニューは実質この1項目でもよいが、要望どおり「Choose File…」「Reset to Default (First Page)」も並べる)。
+  - 右クリックの続き(`Divider` の後): サブメニュー「Landscape Cover Shows」に「Automatic(読み方向に従う)/ Left Edge / Center / Right Edge」を
+    チェックマーク付きで並べ、`layoutStore.setCoverCropAnchor(forBookID:sourceURL:anchor:)` を書く(要望追加 2026-09-09)。
+    横長でないカバー(`item.coverCropSide == .none` かつ `coverStatus == ready`)のときはサブメニューを `disabled`(効かない指定を選ばせない)。
   - 変更後の再抽出は `CollectionCoverExtractor` が `layoutDataDidChange` で拾う。シートの表示は `collectionsDidChange(bookID)` で更新。
 - 下部ボタン: Cancel / Register(同幅)。Register = `metadataStore.upsert(... sourceURL: sourceURL)`(このシートは本の URL を持てているので、
   ウインドウ版と違ってブックマークと inode も入る)。4欄すべて空で Register → `upsert` が行を消す(既存仕様)ので、ボタン名は変えない。
@@ -457,6 +475,9 @@ var welcomeDropHandler: (([URL]) -> Bool)?
 
 - `MetadataEditorWindow.bookTable` に `TableColumn("Cover") { row in ExportCoverCell(bookID: row.bookID, controller: viewModel.coverController) }`
   (巻数の後、登録ボタンの前)。`MetadataColumnWidths` に `cover`(実測: 表示名の幅、`ExportWindowContent.coverMin` = 90 と同じ下限・上限 150)。
+- `ExportCoverPickerContent` の下段(「Choose File…」の後)に同じ「Landscape Cover Shows」の4択を足す(`CoverOverrideController.setCropAnchor`)。
+  書き出しウインドウにも同じポップオーバーが出るが、そこでは書き出しに効かない指定なので、書き出しウインドウ側は
+  `ExportCoverPickerContent(showsCropAnchor: false)` で出さない(メタデータの編集ウインドウとシートだけ true)。
 - `MetadataEditorViewModel` に `let coverController: CoverOverrideController`(URL の解決は `BookExportViewModel.resolveURL` と同じ列:
   bookmark → layout → metadata → collection。`CoverOverrideController` が `resolveURL` を閉包で受ける)。
 - EPUB/CBZ 書き出しウインドウは `BookLayoutSettings` を読むだけなので変更不要(反映を実機で確認)。
