@@ -35,7 +35,9 @@ struct WelcomeView: View {
         // bodyの中で1回だけ計算して使い回す(isEmptyの判定とForEachの両方で同じ結果を使う)。
         // 「最近のお気に入り」も同様に出さない(ユーザー要望。登録済みデータではあるが、
         // 「最近」という切り口自体が利用の痕跡を映すため)。
-        let recentFavoriteBooks = preferences.showRecentFavoritesOnWelcome && !appState.isPrivateWindow
+        // 改善要望5でお気に入りを無効化したため、この列は出さない(FavoritesFeature参照)。
+        let recentFavoriteBooks = FavoritesFeature.isEnabled
+            && preferences.showRecentFavoritesOnWelcome && !appState.isPrivateWindow
             ? favoritesStore.recentFavorites(limit: 10)
             : []
 

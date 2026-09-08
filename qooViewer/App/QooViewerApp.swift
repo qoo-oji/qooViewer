@@ -902,32 +902,38 @@ struct QooViewerApp: App {
                 // ユーザー要望によりそのロック自体を廃止したため、レイアウト関連の項目は
                 // 「本を開いているかどうか」だけで判定する。
 
-                // 標準のカット/コピー/ペースト/すべてを選択グループと、この後に続く
-                // お気に入り/ブックマーク/レイアウト操作を区切る。
-                Divider()
+                // グループ1: お気に入り(追加/削除→編集→一覧の順)。改善要望5でお気に入りは
+                // 無効化したため、FavoritesFeature.isEnabledがfalseの間はこのグループごと出さない
+                // (項目を消すのではなく隠すだけ。FavoritesFeature参照)。グループの先頭にあった
+                // 「標準のカット/コピー/ペースト/すべてを選択グループとの区切り」のDividerも
+                // 一緒に隠し、区切りは次のブックマークグループの前のDividerが受け持つ。
+                if FavoritesFeature.isEnabled {
+                    // 標準のカット/コピー/ペースト/すべてを選択グループと、この後に続く
+                    // お気に入り/ブックマーク/レイアウト操作を区切る。
+                    Divider()
 
-                // グループ1: お気に入り(追加/削除→編集→一覧の順)
-                Button(
-                    menuCheckmarkState?.isCurrentBookFavorited == true
-                        ? "Remove This Book from Favorites" : "Add This Book to Favorites…"
-                ) {
-                    focusedAppState?.performViewerAction?(.toggleFavorite)
-                }
-                .disabled(!hasBook || isPrivate)
+                    Button(
+                        menuCheckmarkState?.isCurrentBookFavorited == true
+                            ? "Remove This Book from Favorites" : "Add This Book to Favorites…"
+                    ) {
+                        focusedAppState?.performViewerAction?(.toggleFavorite)
+                    }
+                    .disabled(!hasBook || isPrivate)
 
-                Button("Edit Favorites…") {
-                    openWindow(id: "favoritesOrganizer")
-                }
-                .disabled(isPrivate)
+                    Button("Edit Favorites…") {
+                        openWindow(id: "favoritesOrganizer")
+                    }
+                    .disabled(isPrivate)
 
-                // 階層構造のままサブメニューで一覧表示する(要望4)。開く/新しいウインドウで開く/
-                // 新しいタブで開くのみに絞り、並べ替え・移動はここでは行わない
-                // (「お気に入りの編集」ウインドウ側の役割。favorites_feature_assessment.md参照)。
-                Menu("Favorites List") {
-                    FavoritesMenuContent(
-                        favoritesStore: favoritesStore,
-                        onOpen: { favorite in openFavoriteAccordingToPreference(favorite) }
-                    )
+                    // 階層構造のままサブメニューで一覧表示する(要望4)。開く/新しいウインドウで開く/
+                    // 新しいタブで開くのみに絞り、並べ替え・移動はここでは行わない
+                    // (「お気に入りの編集」ウインドウ側の役割。favorites_feature_assessment.md参照)。
+                    Menu("Favorites List") {
+                        FavoritesMenuContent(
+                            favoritesStore: favoritesStore,
+                            onOpen: { favorite in openFavoriteAccordingToPreference(favorite) }
+                        )
+                    }
                 }
 
                 Divider()
@@ -1160,6 +1166,9 @@ struct QooViewerApp: App {
         // 「ブックマークの編集」と表現をそろえるため「編集」に変更した)。Settingsと同様、
         // 本を開いているウインドウとは独立した単独のウインドウとして、
         // openWindow(id: "favoritesOrganizer")で開く。
+        // 改善要望5でお気に入りを無効化したため、このウインドウを開く入り口(編集メニュー・
+        // ViewerAction.showFavoritesOrganizer)は現在どこにも出ていない。将来復活させられるよう
+        // Scene自体は残してある(FavoritesFeature参照)。
         // launchCoordinatorは、ツールバーの「現在の本を追加」ボタン(FavoritesOrganizerView参照)が
         // 「今読んでいる本」(launchCoordinator.activeBookAppState)を特定するために必要。
         // preferencesは、詳細ペインでお気に入りをダブルクリックして開いたときに、環境設定

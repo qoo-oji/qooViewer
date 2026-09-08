@@ -357,7 +357,11 @@ struct ContentView: View {
                 // objectWillChangeを発火させないため、ContentViewが自分自身のfavoritesStore
                 // (EnvironmentObject。この構造体自体がfavoritesStoreの変更のたびに作り直される
                 // ことで、値型のFocusedValueとしてメニューバー側へ正しく伝わる)から直接算出する。
-                isCurrentBookFavorited: appState.currentBook.map { favoritesStore.isFavorited(bookID: $0.id) } ?? false,
+                // 改善要望5でお気に入りを無効化した間は、常にfalseにしてメニューの文言
+                // (「お気に入りに追加」/「お気に入りから削除」)が切り替わらないようにする
+                // (FavoritesFeature参照)。
+                isCurrentBookFavorited: FavoritesFeature.isEnabled
+                    ? (appState.currentBook.map { favoritesStore.isFavorited(bookID: $0.id) } ?? false) : false,
                 // 以前はここでcurrentBookmarksとcurrentPageIndexから都度計算していたが、
                 // currentPageIndexはサイドパネルの追従のため保留対象から外してあるため、その
                 // ままではメニューを開いている最中(スライドショーのページ送り)に文言が変わり、

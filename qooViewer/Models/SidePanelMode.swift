@@ -6,7 +6,8 @@ import SwiftUI
 enum SidePanelMode: String, CaseIterable, Identifiable, Codable, Hashable {
     /// 従来のサイドパネル。上段=フォルダブラウザ、下段=本の中身ブラウザ。
     case browser
-    /// 上段=お気に入りのツリー、下段=今開いている本のブックマーク一覧。
+    /// 上段=お気に入りのツリー(改善要望5で無効化中。FavoritesFeature参照)、
+    /// 下段=今開いている本のブックマーク一覧。お気に入りが無効な間は下段だけの1列構成。
     case bookmarks
     /// 最近開いた本の履歴一覧(上下の分割は持たず、1つの一覧で全高を使う)。
     case history

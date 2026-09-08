@@ -336,27 +336,34 @@ struct SidePanelView: View {
     /// ブラウザモードと違い、上下どちらの段も常に表示する(本を開いていなくても、お気に入りの
     /// 閲覧・編集ウインドウの呼び出しはできる必要があり、ブックマーク側も「まだ何もない」
     /// ことが分かる形で見えていた方がよいため)。
+    ///
+    /// 改善要望5でお気に入りを無効化したため、FavoritesFeature.isEnabledがfalseの間は上段
+    /// (お気に入り)と分割ハンドルを出さず、ブックマーク一覧が全高を使う1列構成になる
+    /// (履歴モード・ページモードと同じ形)。上下分割の比率(bookmarksTopSectionFraction)は
+    /// 保存されたまま触らないので、復活させれば以前の比率がそのまま戻る。
     private var bookmarksModeBody: some View {
         GeometryReader { geometry in
             let fraction = effectiveTopFraction(
                 totalHeight: geometry.size.height, fraction: bookmarksTopSectionFraction
             )
             VStack(spacing: 0) {
-                SidePanelFavoritesSectionView(
-                    favoritesStore: favoritesStore,
-                    expandedFolderIDs: $expandedFavoriteFolderIDs,
-                    hasBook: hasBook,
-                    allowsEditing: allowsLibraryEditing,
-                    onAdd: onAddFavorite,
-                    onEdit: onEditFavorites,
-                    onOpen: onOpenFavorite,
-                    onOpenInNewWindow: onOpenFavoriteInNewWindow,
-                    onRename: onRenameFavorite,
-                    onDelete: onDeleteFavorite
-                )
-                .frame(height: max(80, geometry.size.height * fraction - 4))
-                .clipped()
-                dragHandle(totalHeight: geometry.size.height, fraction: $bookmarksTopSectionFraction)
+                if FavoritesFeature.isEnabled {
+                    SidePanelFavoritesSectionView(
+                        favoritesStore: favoritesStore,
+                        expandedFolderIDs: $expandedFavoriteFolderIDs,
+                        hasBook: hasBook,
+                        allowsEditing: allowsLibraryEditing,
+                        onAdd: onAddFavorite,
+                        onEdit: onEditFavorites,
+                        onOpen: onOpenFavorite,
+                        onOpenInNewWindow: onOpenFavoriteInNewWindow,
+                        onRename: onRenameFavorite,
+                        onDelete: onDeleteFavorite
+                    )
+                    .frame(height: max(80, geometry.size.height * fraction - 4))
+                    .clipped()
+                    dragHandle(totalHeight: geometry.size.height, fraction: $bookmarksTopSectionFraction)
+                }
                 SidePanelBookmarksSectionView(
                     bookmarks: bookmarks,
                     currentPageIndex: currentPageIndex,

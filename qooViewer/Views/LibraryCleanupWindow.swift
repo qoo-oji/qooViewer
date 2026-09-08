@@ -388,7 +388,12 @@ private struct LibraryCleanupContentView: View {
     /// レイアウト/ブックマークインジケータと同じ考え方)。
     private func savedDataIndicators(_ row: LibraryCleanupViewModel.Row) -> some View {
         HStack(spacing: 6) {
-            indicator("star.fill", isOn: row.favoriteCount > 0, help: "Is a favorite")
+            // 改善要望5でお気に入りを無効化したため、この列は出さない(FavoritesFeature参照)。
+            // 削除の実体(LibraryCleanupViewModel)はお気に入りも消し続けるので、残骸は
+            // このウインドウから掃除できる。
+            if FavoritesFeature.isEnabled {
+                indicator("star.fill", isOn: row.favoriteCount > 0, help: "Is a favorite")
+            }
             indicator("bookmark.fill", isOn: row.bookmarkCount > 0, help: "Has bookmarks")
             indicator("rectangle.split.2x1", isOn: row.hasLayout, help: "Has page layout settings")
             indicator("tag.fill", isOn: row.hasMetadata, help: "Has metadata")

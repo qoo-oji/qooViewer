@@ -1992,17 +1992,20 @@ struct ViewerView: View {
             .buttonStyle(.borderless)
             .help(isCurrentPageBookmarked ? "Remove This Page from Bookmarks" : "Add This Page to Bookmarks")
 
-            Button {
-                perform(.toggleFavorite)
-            } label: {
-                toggleToolbarIcon(
-                    outlineSystemName: "star",
-                    filledSystemName: "star.fill",
-                    isRegistered: isCurrentBookFavorited
-                )
+            // 改善要望5でお気に入りを無効化したため、星ボタンは出さない(FavoritesFeature参照)。
+            if FavoritesFeature.isEnabled {
+                Button {
+                    perform(.toggleFavorite)
+                } label: {
+                    toggleToolbarIcon(
+                        outlineSystemName: "star",
+                        filledSystemName: "star.fill",
+                        isRegistered: isCurrentBookFavorited
+                    )
+                }
+                .buttonStyle(.borderless)
+                .help(isCurrentBookFavorited ? "Remove This Book from Favorites" : "Add This Book to Favorites…")
             }
-            .buttonStyle(.borderless)
-            .help(isCurrentBookFavorited ? "Remove This Book from Favorites" : "Add This Book to Favorites…")
 
             Button {
                 perform(.showThumbnailGrid)
@@ -2113,18 +2116,23 @@ struct ViewerView: View {
         // CommandGroup(after: .pasteboard))に合わせている(お気に入り→ブックマーク→
         // レイアウトの順)。追加・削除は登録状態に応じて文言・動作が切り替わる1つのトグル項目に
         // まとめている(ツールバーと同じ考え方。ユーザー要望)。
-        Button(isCurrentBookFavorited ? "Remove This Book from Favorites" : "Add This Book to Favorites…") {
-            perform(.toggleFavorite)
-        }
-        .disabled(viewModel.skipsPersistence)
-        Menu("Favorites List") {
-            FavoritesMenuContent(
-                favoritesStore: favoritesStore,
-                onOpen: { favorite in openFavoriteAccordingToPreference(favorite) }
-            )
-        }
+        // 改善要望5でお気に入りを無効化したため、お気に入りグループは出さない
+        // (FavoritesFeature参照)。この後のDividerは、上の「ページ一覧」グループと
+        // 次のブックマークグループの区切りとして必要なので残す。
+        if FavoritesFeature.isEnabled {
+            Button(isCurrentBookFavorited ? "Remove This Book from Favorites" : "Add This Book to Favorites…") {
+                perform(.toggleFavorite)
+            }
+            .disabled(viewModel.skipsPersistence)
+            Menu("Favorites List") {
+                FavoritesMenuContent(
+                    favoritesStore: favoritesStore,
+                    onOpen: { favorite in openFavoriteAccordingToPreference(favorite) }
+                )
+            }
 
-        Divider()
+            Divider()
+        }
 
         // ユーザー報告: 見開き左の画像を右クリックして「現在のページをブックマークに追加」
         // しても見開き右がブックマークされてしまう。見開き表示中(実際に2ページ組で
@@ -3949,12 +3957,18 @@ struct ViewerView: View {
             showActualSizeWindow(forLeftPage: true)
         case .showActualSizeRight:
             showActualSizeWindow(forLeftPage: false)
+        // お気に入りは改善要望5で無効化した。既定のキー割り当て(⌥A/⌥B)は
+        // KeyBindingStoreに残したまま(復活時に既定が戻るようにするため)なので、
+        // 押されても何も起きないようにここで受け止める(FavoritesFeature参照)。
         case .toggleFavorite:
+            guard FavoritesFeature.isEnabled else { return }
             guard !viewModel.skipsPersistence else { return }
             toggleCurrentBookFavorite()
         case .showFavoritesList:
+            guard FavoritesFeature.isEnabled else { return }
             showFavoritesListMenu()
         case .showFavoritesOrganizer:
+            guard FavoritesFeature.isEnabled else { return }
             guard !viewModel.skipsPersistence else { return }
             openWindow(id: "favoritesOrganizer")
         // ウインドウを閉じる: 赤い閉じるボタン・メニューバーの「ウインドウを閉じる」と

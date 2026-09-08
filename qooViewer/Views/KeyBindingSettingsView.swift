@@ -59,10 +59,15 @@ struct KeyBindingSettingsView: View {
             .toggleSlideshow, .toggleLoupe, .showActualSizeLeft, .showActualSizeRight,
         ]
         let bookNavigationGroup: [ViewerAction] = [.previousBook, .nextBook]
-        let hidden: [ViewerAction] = [.showFavoritesList]
+        // 改善要望5でお気に入りを無効化した間は、この画面にもお気に入りの操作を出さない
+        // (FavoritesFeature参照)。既定の割り当て自体はKeyBindingStoreに残してある
+        // (消すと復活時に既定が戻らないため)。出さない操作は下のhiddenへ移す ―― placedの
+        // 集合に入れておかないと、末尾のセーフティネット(rest)が拾って結局並んでしまう。
+        let hidden: [ViewerAction] = [.showFavoritesList] + (FavoritesFeature.isEnabled ? [] : favoriteGroup)
 
         let ordered =
-            navigationGroup + displayGroup + pageListGroup + bookmarkGroup + favoriteGroup
+            navigationGroup + displayGroup + pageListGroup + bookmarkGroup
+            + (FavoritesFeature.isEnabled ? favoriteGroup : [])
             + slideshowAndActualSizeGroup + bookNavigationGroup
         // ViewerActionに新しいケースを追加した際、上記グループへの追加を忘れても一覧から
         // 漏れないよう、どのグループにも含まれていない残りのケースを末尾に補う

@@ -97,7 +97,12 @@ struct GeneralSettingsView: View {
 
             Section {
                 SettingsToggle("Show Recent Files", isOn: $preferences.showRecentFilesOnWelcome)
-                SettingsToggle("Show Recent Favorites", isOn: $preferences.showRecentFavoritesOnWelcome)
+                // 改善要望5でお気に入りを無効化したため、この設定は出さない(FavoritesFeature参照)。
+                // 設定値(showRecentFavoritesOnWelcome)自体は残してあるので、復活させれば
+                // 以前のON/OFFがそのまま戻る。
+                if FavoritesFeature.isEnabled {
+                    SettingsToggle("Show Recent Favorites", isOn: $preferences.showRecentFavoritesOnWelcome)
+                }
             } header: {
                 Text("Welcome Screen")
             }

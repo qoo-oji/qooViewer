@@ -22,7 +22,11 @@ struct LibraryImportWindow: View {
 
     @State private var loadedFile: QooLibraryExportFile?
     @State private var sourceFileName: String?
-    @State private var favoritesPolicy: LibraryImportExportService.ImportPolicy = .merge
+    // 改善要望5でお気に入りを無効化した間は、ファイルに`favorites`があっても取り込まない
+    // (取り込んでもどこにも見えないため。FavoritesFeature参照)。読み込みの経路自体は
+    // 壊さずに残してあるので、復活させれば過去の書き出しファイルからそのまま取り込める。
+    @State private var favoritesPolicy: LibraryImportExportService.ImportPolicy =
+        FavoritesFeature.isEnabled ? .merge : .ignore
     @State private var bookmarksPolicy: LibraryImportExportService.ImportPolicy = .merge
     @State private var layoutsPolicy: LibraryImportExportService.ImportPolicy = .merge
     @State private var metadataPolicy: LibraryImportExportService.ImportPolicy = .merge
@@ -85,8 +89,10 @@ struct LibraryImportWindow: View {
                 // ファイルを選ぶ前も常に表示したまま(隠さない)にし、対象カテゴリが無い間は
                 // 触れないようグレーアウトするだけにしたい。
                 Section {
-                    policyPicker("Favorites", selection: $favoritesPolicy)
-                        .disabled(!hasFavorites)
+                    if FavoritesFeature.isEnabled {
+                        policyPicker("Favorites", selection: $favoritesPolicy)
+                            .disabled(!hasFavorites)
+                    }
                     policyPicker("Bookmarks", selection: $bookmarksPolicy)
                         .disabled(!hasBookmarks)
                     // ユーザー要望: 「ページレイアウトの設定」から「の設定」を省き、

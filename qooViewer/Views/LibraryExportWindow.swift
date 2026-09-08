@@ -15,7 +15,10 @@ struct LibraryExportWindow: View {
     @EnvironmentObject private var preferences: AppPreferences
     @Environment(\.dismiss) private var dismiss
 
-    @State private var includeFavorites = true
+    // 改善要望5でお気に入りを無効化した間は、既定でも書き出しに含めない(FavoritesFeature参照)。
+    // 含めてしまうと、UIのどこにも出てこないものがJSONに混ざり「何を書き出したのか分からない」
+    // ファイルになる。読み込み側は既存の書き出しファイルを読める状態のまま残してある。
+    @State private var includeFavorites = FavoritesFeature.isEnabled
     @State private var includeBookmarks = true
     @State private var includeLayouts = true
     @State private var includeMetadata = true
@@ -47,7 +50,9 @@ struct LibraryExportWindow: View {
         VStack(spacing: 0) {
             Form {
                 Section {
-                    Toggle("Favorites", isOn: $includeFavorites)
+                    if FavoritesFeature.isEnabled {
+                        Toggle("Favorites", isOn: $includeFavorites)
+                    }
                     Toggle("Bookmarks", isOn: $includeBookmarks)
                     Toggle("Page Layout Settings", isOn: $includeLayouts)
                     Toggle("Metadata", isOn: $includeMetadata)

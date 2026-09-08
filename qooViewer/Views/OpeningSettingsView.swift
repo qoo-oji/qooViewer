@@ -41,11 +41,15 @@ struct OpeningSettingsView: View {
                     selection: $preferences.finderOpenBehavior,
                     help: "Applies only when qooViewer already has a book open. From the welcome screen, a book always opens in the current window."
                 )
-                SettingsPicker(
-                    "From Favorites",
-                    selection: $preferences.favoriteOpenBehavior,
-                    help: "Applies only when qooViewer already has a book open. From the welcome screen, a book always opens in the current window."
-                )
+                // 改善要望5でお気に入りを無効化したため、この設定は出さない(FavoritesFeature参照)。
+                // 設定値(favoriteOpenBehavior)自体は残してある。
+                if FavoritesFeature.isEnabled {
+                    SettingsPicker(
+                        "From Favorites",
+                        selection: $preferences.favoriteOpenBehavior,
+                        help: "Applies only when qooViewer already has a book open. From the welcome screen, a book always opens in the current window."
+                    )
+                }
             } header: {
                 Text("Opening Another Book")
             }
