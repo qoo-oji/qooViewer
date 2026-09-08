@@ -41,6 +41,24 @@ nonisolated enum CollectionDropClassifier {
         }.value
     }
 
+    /// **既にある**コレクションへ本を追加する場面で拾うURL。本はそのまま、棚はその中の本を
+    /// 展開して並べ、それ以外は捨てる。
+    ///
+    /// コレクションを**作る**場面(編集モード中のウェルカム画面へのドロップ)では、棚は
+    /// 「フォルダ名を既定の名前にしたコレクション1つ」という別の意味を持つため、そちらは
+    /// `classify(_:order:)`の結果をそのまま見る。追加の場面にはその曖昧さが無い ――
+    /// 開いているコレクションへ本の並んだフォルダを落として何も起きないのは、黙って失敗した
+    /// ようにしか見えない。
+    static func booksToAdd(from items: [Item]) -> [URL] {
+        items.flatMap { item -> [URL] in
+            switch item {
+            case .book(let url): return [url]
+            case .shelf(_, let books): return books
+            case .ignored: return []
+            }
+        }
+    }
+
     private static func classifyOne(_ url: URL, order: SiblingBookOrder) -> Item {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {

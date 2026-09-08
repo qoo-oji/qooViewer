@@ -67,12 +67,23 @@ actor CollectionCoverStore {
     ///
     /// `nonisolated`: ファイルの読み出しと復号をactorの上で行わない(directoryのコメント参照)。
     /// グリッドのセルごとに呼ばれるため、1枚の復号で他のセルの読み出しを待たせたくない。
-    nonisolated func image(for itemID: UUID) async -> CGImage? {
+    ///
+    /// - Parameter maxPixelSize: 指定するとその最大辺まで縮めて復号する(ImageIOのサムネイル
+    ///   生成に任せる)。保存してあるのは常に512px(maxPixelSize)だが、コレクションのタイルの
+    ///   中の1セルは実寸で50〜100pt程度しかない。等倍で復号すると1枚あたり1.5MB前後のビットマップ
+    ///   になり、6枚×タイル数ぶんが画面に載る ―― LazyVGridは画面外のセルの保持物を手放さない
+    ///   (LazyCellImageBudget参照)ため、表示に必要な大きさで復号することが効いてくる。
+    nonisolated func image(for itemID: UUID, maxPixelSize: CGFloat? = nil) async -> CGImage? {
         let fileURL = url(for: itemID)
-        guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
-        else { return nil }
-        return image
+        guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil) else { return nil }
+        guard let maxPixelSize else {
+            return CGImageSourceCreateImageAtIndex(source, 0, nil)
+        }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixelSize.rounded()),
+        ] as CFDictionary)
     }
 
     /// カバーを保存する。呼び出し側(CollectionCoverExtractor)は失敗を

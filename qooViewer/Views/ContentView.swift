@@ -118,6 +118,10 @@ struct ContentView: View {
     /// ファイル/フォルダがこのウインドウの上へドラッグされている最中かどうか
     /// (applyFileDropTarget参照)。
     @State private var isFileDropTargeted = false
+    /// ウェルカム画面(ライブラリ/コレクション)の表示の状態。1ウインドウに1つ
+    /// (WelcomeLibraryState参照)。本を開いている間もこのウインドウの中に残るので、
+    /// 「ウェルカム画面へ戻る」で帰ってきたときは同じライブラリ・同じコレクションの中に戻る。
+    @StateObject private var welcomeLibrary = WelcomeLibraryState()
 
     /// - Parameter isPrivateWindow: 明示的に決まっている場合だけ渡す(そのWindowGroupが
     ///   シークレット専用か通常専用かで決まる)。**nilを渡せるのは"main" WindowGroupだけ**で、
@@ -211,7 +215,7 @@ struct ContentView: View {
                         )
                             .id(book.id)
                     } else {
-                        WelcomeView()
+                        WelcomeView(state: welcomeLibrary)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -262,6 +266,10 @@ struct ContentView: View {
     private func applyFileDropTarget<Content: View>(to content: Content) -> some View {
         content
             .bookFileDropTarget(isTargeted: $isFileDropTargeted) { urls in
+                // ウェルカム画面が編集モードで出ている間は、ドロップは「開く」ではなく
+                // 「コレクションを作る/本を追加する」になる(AppState.welcomeDropHandler参照)。
+                // 引き受けられなければ従来どおり開く。
+                if let handler = appState.welcomeDropHandler, handler(urls) { return }
                 appState.open(urls: urls)
             }
             // 表示中の画像やパネルの見え方を変えたくないので、背景を染めるのではなく縁だけを
@@ -389,6 +397,10 @@ struct ContentView: View {
         // 限らない)に頼らず、本を開いている当のAppStateが持つウインドウへ確実に追加できる
         // ようにするため(詳細はAppState.hostWindowのコメント参照)。
         .onChange(of: appState.currentBook?.id) { _, _ in
+            // 本を開いたらウェルカム画面の編集モードは解除する(戻ってきたときに、
+            // 出しっぱなしの編集モードで誤って棚を触らないため)。どのコレクションの中に
+            // いたかは保つ(WelcomeLibraryState.openedCollectionID参照)。
+            if appState.currentBook != nil { welcomeLibrary.endEditing() }
             updateLastActiveBookRecordIfKeyWindow()
             updateBookContentsBrowserForCurrentBook()
             // サイドパネル上段(フォルダブラウザ)を、新しく開いた本のフォルダへ再アンカーする。

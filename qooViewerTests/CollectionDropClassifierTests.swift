@@ -104,4 +104,22 @@ struct CollectionDropClassifierTests {
             .ignored(empty),
         ])
     }
+
+    @Test("既にあるコレクションへの追加では、棚は中の本へ展開し、対象外は捨てる")
+    func booksToAddFlattensShelves() async throws {
+        let temporary = try TemporaryDirectory("drop-add")
+        let shelf = try makeShelf(temporary, named: "shelf")
+        let book = temporary.file("book")
+        try FixtureFolder.make(at: book, pages: [.init("001.png", number: 1)])
+        let empty = try temporary.directory("empty")
+
+        let classified = await CollectionDropClassifier.classifyAsync(
+            [shelf, book, empty], order: .byName
+        )
+        #expect(CollectionDropClassifier.booksToAdd(from: classified) == [
+            shelf.appendingPathComponent("01.cbz"),
+            shelf.appendingPathComponent("02.pdf"),
+            book,
+        ])
+    }
 }

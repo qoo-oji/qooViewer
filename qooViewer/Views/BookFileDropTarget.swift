@@ -21,6 +21,19 @@ extension View {
     func bookFileDropTarget(
         isTargeted: Binding<Bool>, openURLs: @escaping ([URL]) -> Void
     ) -> some View {
+        fileURLDropTarget(isTargeted: isTargeted, receiveURLs: openURLs)
+    }
+
+    /// 落とされたファイル/フォルダのURLを受け取るだけのドロップ先(本を開くとは限らない版)。
+    ///
+    /// 本を開く経路は必ず`bookFileDropTarget`を通ること。こちらを直に使うのは、**開くのでは
+    /// なくコレクションへ登録する**ウェルカム画面の「本を追加」パネル(AddBooksPanel)だけ。
+    /// あのパネルはシート = 別のNSWindowで、ウインドウ本体に付けた1つの受け口
+    /// (ContentView.applyFileDropTarget)がドロップを拾えないため、自前で受ける必要がある。
+    /// NSItemProviderからURLを取り出すところはこうして1か所に残してある。
+    func fileURLDropTarget(
+        isTargeted: Binding<Bool>, receiveURLs: @escaping ([URL]) -> Void
+    ) -> some View {
         onDrop(of: [.fileURL], isTargeted: isTargeted) { providers in
             guard !providers.isEmpty else { return false }
             // providersを1つも捨てずに全部からURLを取り出してからまとめて開く
@@ -39,7 +52,7 @@ extension View {
                         droppedURLs.append(url)
                     }
                 }
-                openURLs(droppedURLs)
+                receiveURLs(droppedURLs)
             }
             return true
         }

@@ -35,7 +35,10 @@ final class CollectionStore: ObservableObject {
     @Published private(set) var revision: UInt64 = 0
 
     private let modelContext: ModelContext
-    private let coverStore: CollectionCoverStore
+    /// カバー画像(ディスク上のJPEG)の保管庫。**書き込み・削除はこのストアが受け持つ**が、
+    /// 読み出しはグリッドのセル(CollectionCoverThumbnail)が直接行うため公開している
+    /// (`image(for:maxPixelSize:)`はnonisolatedで、actorの上を通らない)。
+    let coverStore: CollectionCoverStore
 
     /// 絞り込み無し全件フェッチの結果のキャッシュ(FavoritesStore.cachedFolders/cachedBooksと同じ)。
     /// このストアが3つのモデルの唯一の書き込み口であるため、insert/deleteのたびに捨てておけば

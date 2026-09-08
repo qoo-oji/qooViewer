@@ -1112,68 +1112,6 @@ private struct BookmarkRenameSheet: View {
     }
 }
 
-/// NSTextFieldをラップし、表示開始時に必ず内容を全選択した状態でフォーカスを当てる
-/// テキストフィールド(BookmarkRenameSheet専用)。
-///
-/// SwiftUIの`TextField`には「表示時に内容を全選択状態にする」ための標準APIが無く、
-/// `.alert`内の`TextField`(NSAlertが内部で使うテキストフィールド)は特に選択状態の
-/// 制御が効かないことがある(ユーザー報告: 開いたときに全選択されていたりされて
-/// いなかったりする)。AppKitの`NSTextField`を直接ラップし、
-/// `currentEditor()?.selectAll(nil)`を呼ぶことで確実に全選択状態にする。
-private struct SelectAllTextField: NSViewRepresentable {
-    @Binding var text: String
-    var onSubmit: () -> Void
-
-    func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField(string: text)
-        field.delegate = context.coordinator
-        field.isBordered = true
-        field.bezelStyle = .roundedBezel
-        field.focusRingType = .default
-        field.lineBreakMode = .byTruncatingTail
-        // WindowAccessor(ViewerView.swift)と同じ理由: このNSViewがまだウインドウに
-        // 追加される前のタイミングではfield.windowがnilなので、次のランループまで待ってから
-        // ファーストレスポンダにする。selectAll(nil)は「テキスト編集中の選択範囲」を操作する
-        // APIのため、先にcurrentEditor()が存在する状態(=ファーストレスポンダになった状態)を
-        // 作ってから呼ぶ必要がある。
-        DispatchQueue.main.async {
-            field.window?.makeFirstResponder(field)
-            field.currentEditor()?.selectAll(nil)
-        }
-        return field
-    }
-
-    func updateNSView(_ nsView: NSTextField, context: Context) {
-        if nsView.stringValue != text {
-            nsView.stringValue = text
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-
-    final class Coordinator: NSObject, NSTextFieldDelegate {
-        let parent: SelectAllTextField
-        init(_ parent: SelectAllTextField) { self.parent = parent }
-
-        func controlTextDidChange(_ obj: Notification) {
-            guard let field = obj.object as? NSTextField else { return }
-            parent.text = field.stringValue
-        }
-
-        /// Return(改行)キーで確定(Save)できるようにする。TextField(SwiftUI)の
-        /// .onSubmitに相当する挙動をNSTextFieldDelegate経由で実現する。
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                parent.onSubmit()
-                return true
-            }
-            return false
-        }
-    }
-}
-
 /// 右ペイン(ページ一覧)の各列の幅。ユーザー要望により、ドラッグハンドル列を除く4列
 /// (ページ・サムネイル・レイアウト・ブックマーク)に「スクロールしないタイトル行」を追加し、
 /// 各列の間に区切り線を表示し、その区切り線をドラッグして幅を変えられるようにした。

@@ -1,0 +1,188 @@
+import CoreGraphics
+import SwiftUI
+
+/// 選択中のライブラリのコレクションを、タイルで並べる画面(改善要望5)。
+///
+/// ■ 画面外のカバーを手放す
+/// SwiftUIのLazyコンテナは画面外へ出たセルの保持物を解放しない(LazyCellImageBudget参照)。
+/// タイル1枚につきカバーを最大6枚持つため、コレクションが多いライブラリでは端まで流すだけで
+/// 相応の量が積み上がる。ページ一覧グリッドと同じ帳簿で数え、予算を超えたらグリッドごと
+/// 作り直す。1枚あたりは表示に必要な画素数までしか復号していない
+/// (CollectionCoverStore.image(for:maxPixelSize:))ので、予算はあちらより小さくてよい。
+struct CollectionGridView: View {
+    @EnvironmentObject private var collectionStore: CollectionStore
+    @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
+    @EnvironmentObject private var appState: AppState
+    @ObservedObject var state: WelcomeLibraryState
+    let library: BookLibrary
+    let allowsEditing: Bool
+
+    /// タイルの間隔。
+    private static let spacing: CGFloat = 24
+    /// 画面外に残ってよいカバーの総量。
+    private static let coverByteBudget = 64 * 1024 * 1024
+
+    @State private var cellImageBudget = LazyCellImageBudget(byteBudget: coverByteBudget)
+    /// リネーム・削除の対象。**モデルの参照ではなくidで持つ。**`@Model`のクラスは
+    /// PersistentModel経由でIdentifiableに適合しており、自前の`id: UUID`と要件が衝突しうるため、
+    /// このアプリでは一貫してidを明示して扱う(BookLibrary.swift末尾のコメント参照)。
+    @State private var renamingCollectionID: UUID?
+    @State private var deletingCollectionID: UUID?
+
+    private var collections: [BookCollection] {
+        collectionStore.collections(in: library, sort: state.collectionSort)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Spacer(minLength: 0)
+                LibraryPaneControls(
+                    addHelp: "New Collection",
+                    onAdd: { beginCreatingCollection() },
+                    isEditing: $state.isEditing,
+                    sort: $state.collectionSort,
+                    sortFields: FavoritesSortOption.Field.allCases,
+                    size: $state.tileSize,
+                    sizeRange: WelcomeLibraryState.tileSizeRange,
+                    sizeHelp: "Tile Size",
+                    allowsEditing: allowsEditing
+                )
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+
+            if collections.isEmpty {
+                emptyMessage
+            } else {
+                grid
+            }
+        }
+        .sheet(
+            isPresented: Binding(
+                get: { renamingCollectionID != nil },
+                set: { if !$0 { renamingCollectionID = nil } }
+            )
+        ) {
+            if let collection = renamingCollectionID.flatMap({ collectionStore.collection(withID: $0) }) {
+                CollectionNameSheet(
+                    kind: .renameCollection,
+                    initialName: collection.name,
+                    isDuplicate: { name in
+                        collectionStore.hasCollectionNamed(name, in: library, excluding: collection)
+                    },
+                    onCommit: { name in collectionStore.rename(collection, to: name) }
+                )
+            }
+        }
+        .alert(
+            "Delete Collection?",
+            isPresented: Binding(
+                get: { deletingCollectionID != nil },
+                set: { if !$0 { deletingCollectionID = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) { deletingCollectionID = nil }
+            Button("Delete", role: .destructive) {
+                if let collection = deletingCollectionID.flatMap({ collectionStore.collection(withID: $0) }) {
+                    collectionStore.delete(collection)
+                }
+                deletingCollectionID = nil
+            }
+        } message: {
+            Text("The books themselves are not deleted. Only this collection and its cover images are removed.")
+        }
+    }
+
+    private var grid: some View {
+        ScrollView {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: state.tileSize), spacing: Self.spacing)],
+                spacing: Self.spacing
+            ) {
+                ForEach(collections, id: \.id) { collection in
+                    tile(for: collection)
+                }
+            }
+            .padding(24)
+            // 画面外セルの保持物をまとめて手放すための作り直し(型コメント参照)。
+            .id(cellImageBudget.epoch)
+        }
+    }
+
+    @ViewBuilder
+    private func tile(for collection: BookCollection) -> some View {
+        let tile = CollectionTile(
+            collection: collection,
+            items: Array(collectionStore.items(in: collection, sort: state.itemSort).prefix(6)),
+            exists: { collectionStore.cachedFileExists(for: $0) },
+            isExtracting: { coverExtractor.inFlightItemIDs.contains($0.id) },
+            coverStore: collectionStore.coverStore,
+            size: state.tileSize,
+            onImageRetained: { image in
+                // 1画面に並ぶタイル数の見積もり(帳簿の下限。LazyCellImageBudget参照)。
+                cellImageBudget.note(retaining: image, minimumCellCount: 48)
+            },
+            onOpen: { state.openedCollectionID = collection.id }
+        )
+        // 右クリックのメニューは編集モードのときだけ付ける。**項目が空のcontextMenuは付けない**
+        // ―― 空の枠が一瞬出るだけの当たり所になる(WelcomeQuickOpenList.rowの同じ判断)。
+        if allowsEditing && state.isEditing {
+            tile.contextMenu {
+                Button("Add Books…") {
+                    state.addingBooks = .init(
+                        collectionID: collection.id, name: collection.name, libraryID: library.id
+                    )
+                }
+                Divider()
+                Button("Rename…") { renamingCollectionID = collection.id }
+                Button("Delete…", role: .destructive) { deletingCollectionID = collection.id }
+            }
+        } else {
+            tile
+        }
+    }
+
+    private var emptyMessage: some View {
+        VStack(spacing: 16) {
+            Spacer(minLength: 0)
+            if appState.isPrivateWindow {
+                // シークレットウインドウであることと、その意味(何も記録されない)を、本を開く前に
+                // 明示する。タイトルバーの「(シークレット)」だけでは見落とされるため。
+                VStack(spacing: 6) {
+                    Label("Private Window", systemImage: "eyeglasses")
+                        .font(.headline)
+                    Text("Books opened in this window leave no trace: no history, reading position, bookmarks, favorites, layouts, metadata, or thumbnail cache is saved.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 420)
+                }
+                // 文字だけの塊なので、面の「文字の影」設定に乗せる(すりガラス面の決まりごと)。
+                .panelOutlinedContent()
+                .padding(.bottom, 8)
+            }
+            Image(systemName: "books.vertical")
+                .font(.system(size: 56))
+                .foregroundStyle(.secondary)
+                .panelOutlinedContent()
+            Text("No collections to show")
+                .foregroundStyle(.secondary)
+                .panelOutlinedContent()
+            Text("You can also open by dragging and dropping here")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .panelOutlinedContent()
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func beginCreatingCollection() {
+        // 名前だけ先に決める(本はこの後の「本を追加」パネルで入れる)。1冊も入らなければ
+        // コレクションの行は作られない(AddBooksPanelの型コメント参照)。
+        state.pendingCreations.append(
+            .init(defaultName: "", books: [], fromShelf: false)
+        )
+    }
+}

@@ -138,6 +138,16 @@ final class AppState: ObservableObject {
     /// 呼べるようにするためのもの。フルスクリーン時などメニューバー経由で操作したい場合に使う)
     var performViewerAction: ((ViewerAction) -> Void)?
 
+    /// ウェルカム画面が表示されている**間だけ**登録される、ドロップの横取り口(改善要望5)。
+    /// `true`を返したら「そのドロップはウェルカム画面が引き受けた」という意味で、本を開く
+    /// 処理(`open(urls:)`)へは回さない。
+    ///
+    /// ドロップの受け口はウインドウ全体に1つしか無い(ContentView.applyFileDropTarget参照)ので、
+    /// 「編集モード中のウェルカム画面へ落としたときだけコレクションを作る」という出し分けは、
+    /// performViewerActionと同じ「画面が自分自身を登録する」形で解いている。ウェルカム画面が
+    /// 出ていなければnilのままで、従来どおり本が開く。
+    var welcomeDropHandler: (([URL]) -> Bool)?
+
     /// 現在開いている本のブックマーク一覧。メニューバーの「ブックマーク」メニュー下部に
     /// 一覧表示するために、ViewerViewが自分自身のViewerViewModelの内容をここへ反映する
     /// (performViewerActionと同じ、本を表示している間だけ登録する仕組み)。
