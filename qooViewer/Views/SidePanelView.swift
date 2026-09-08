@@ -133,6 +133,10 @@ struct SidePanelView: View {
     /// (AppState.loadPageImage)。loadPageThumbnailと同時に登録・解除される。
     var loadPageImage: ((Int) async -> CGImage?)?
     var pageThumbnailGeneration: Int
+    /// 本だけ閉じて、同じウインドウにウェルカム画面を出す(モード切替の左のボタン)。
+    /// nil = 本を開いていない = ボタンを無効にする。実体はViewerViewのreturnToWelcome()で、
+    /// 呼び出し側はAppState.performViewerAction越しに渡す(ContentView.sidePanelView参照)。
+    var onReturnToWelcome: (() -> Void)?
     /// 今開いている本を、お気に入りへ追加する(登録先フォルダの選択シートを開く)。
     var onAddFavorite: () -> Void
     /// 「お気に入りの編集」ウインドウを開く。
@@ -260,7 +264,7 @@ struct SidePanelView: View {
     @ViewBuilder
     private var panelSections: some View {
         VStack(spacing: 0) {
-            SidePanelModeSwitcher(mode: $mode)
+            SidePanelModeSwitcher(mode: $mode, onReturnToWelcome: onReturnToWelcome)
             Divider()
             switch mode {
             case .browser:
@@ -1112,12 +1116,40 @@ private struct BookContentsSectionView: View {
 /// 並んでいる方が分かりやすいとの判断による。
 private struct SidePanelModeSwitcher: View {
     @Binding var mode: SidePanelMode
+    /// ウェルカム画面へ戻るボタン(左端)。nilなら無効(本を開いていない)。
+    let onReturnToWelcome: (() -> Void)?
 
     private static let spacing: CGFloat = 6
     private static let buttonHeight: CGFloat = 30
 
     var body: some View {
         HStack(spacing: Self.spacing) {
+            // ウェルカム画面へ戻る(改善要望5)。モードボタンと同じ高さ・同じ地にして
+            // 並びの流れは揃えつつ、**幅はモードボタンの等分に加えず高さと同じ30pt固定**に
+            // する ―― モードの選択肢ではないので、押しても選択状態にはならない。
+            // 区切りのDividerを挟んで「ここから右がモードの切り替え」と読めるようにする。
+            Button {
+                onReturnToWelcome?()
+            } label: {
+                Image(systemName: "books.vertical")
+                    .font(.system(size: 15, weight: .medium))
+                    // 地が7%しかなく実質パネルの上に直接アイコンが乗っているのと同じなので、
+                    // 未選択のモードボタンと同じく輪郭を掛ける。
+                    .panelOutlinedContent()
+                    .frame(width: Self.buttonHeight, height: Self.buttonHeight)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.primary.opacity(0.07))
+                    )
+                    .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(onReturnToWelcome == nil)
+            .help("Return to Welcome Screen")
+
+            Divider()
+                .frame(height: Self.buttonHeight)
+
             ForEach(SidePanelMode.allCases) { candidate in
                 let isSelected = candidate == mode
                 Button {

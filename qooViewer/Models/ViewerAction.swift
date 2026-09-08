@@ -124,6 +124,13 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
     case autoLayoutFromCurrentView
     case previousBook
     case nextBook
+    /// 本だけ閉じて、同じウインドウにウェルカム画面を出す(改善要望5)。ウインドウやタブは
+    /// 閉じない ―― そちらはcloseTab/closeWindowで、こちらは「読むのをやめて本を選び直す」操作。
+    /// 最終ページの動作(PageBoundaryBehavior.returnToWelcome)や書き出し後の動作
+    /// (BookExportCompletionBehavior.returnToWelcome)と同じ着地点を、任意のタイミングで
+    /// 呼べるようにしたもの。既定の割り当ては**キー・マウスとも持たない**(ユーザーからの指示。
+    /// KeyBindingStore.defaultKeyBindings/defaultMouseBindingsのどちらにも入れていない)。
+    case returnToWelcome
     /// 現在のページのブックマークを追加/削除する(付いていなければ追加、付いていれば削除する、
     /// 1つのボタン/ショートカットにまとめたトグル操作)。
     case toggleBookmark
@@ -251,6 +258,7 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
         case .autoLayoutFromCurrentView: return "Auto-Layout Based on Current View"
         case .previousBook: return "Previous Book"
         case .nextBook: return "Next Book"
+        case .returnToWelcome: return "Return to Welcome Screen"
         case .toggleBookmark: return "Toggle Bookmark"
         case .nextBookmark: return "Go to Next Bookmark"
         case .previousBookmark: return "Go to Previous Bookmark"

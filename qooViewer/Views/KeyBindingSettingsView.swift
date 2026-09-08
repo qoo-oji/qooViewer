@@ -58,7 +58,7 @@ struct KeyBindingSettingsView: View {
         let slideshowAndActualSizeGroup: [ViewerAction] = [
             .toggleSlideshow, .toggleLoupe, .showActualSizeLeft, .showActualSizeRight,
         ]
-        let bookNavigationGroup: [ViewerAction] = [.previousBook, .nextBook]
+        let bookNavigationGroup: [ViewerAction] = [.previousBook, .nextBook, .returnToWelcome]
         // 改善要望5でお気に入りを無効化した間は、この画面にもお気に入りの操作を出さない
         // (FavoritesFeature参照)。既定の割り当て自体はKeyBindingStoreに残してある
         // (消すと復活時に既定が戻らないため)。出さない操作は下のhiddenへ移す ―― placedの

@@ -41,6 +41,25 @@ struct KeyBindingStoreTests {
         #expect(KeyBindingStore.fillingMissingDefaults([:], defaults: defaults) == defaults)
     }
 
+    @Test("「ウェルカム画面へ戻る」には既定の割り当てが無く、補完でも現れない")
+    func returnToWelcomeStartsUnassigned() throws {
+        // 要望どおり、キーもマウスも「使いたい人が自分で割り当てる」状態から始める
+        // (ViewerAction.returnToWelcomeのコメント参照)。
+        #expect(KeyBindingStore.defaultKeyBindings.values.contains(.returnToWelcome) == false)
+        #expect(KeyBindingStore.defaultMouseBindings.values.contains(.returnToWelcome) == false)
+
+        let suite = PreferencesSuite()
+        let store = makeStore(suite)
+        #expect(store.keys(for: .returnToWelcome, in: .fitToScreen).isEmpty)
+        #expect(store.triggers(for: .returnToWelcome, in: .fitToScreen).isEmpty)
+
+        // 保存済みデータがあるとfillingMissingDefaultsが走るが、既定に無い操作は
+        // 補いようがないので、以前から使っているユーザーの手元にも現れない。
+        let stored: [String: ViewerAction] = [RemappableKey.character("j").id: .moveNext]
+        suite.defaults.set(try JSONEncoder().encode(stored), forKey: "qooViewer.keyBindings.v1")
+        #expect(makeStore(suite).keys(for: .returnToWelcome, in: .fitToScreen).isEmpty)
+    }
+
     @Test("表示モード別の上書きには、既定値の補完を適用しない")
     func theModeOverridesAreNotFilledWithDefaults() throws {
         let suite = PreferencesSuite()

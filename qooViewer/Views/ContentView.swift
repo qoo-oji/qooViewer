@@ -1024,6 +1024,14 @@ struct ContentView: View {
             allowsLibraryEditing: !isPrivateWindow && appState.currentBook?.isTransient != true,
             loadPageImage: appState.loadPageImage,
             pageThumbnailGeneration: appState.pageThumbnailGeneration,
+            // モード切替の左の「ウェルカム画面へ戻る」(改善要望5)。本を開いていなければnil
+            // = ボタンは押せない(既にウェルカム画面なので戻る先が無い)。
+            //
+            // appState.closeBook()を直接呼ばずperformViewerAction越しにするのは、保留中の
+            // 読書位置を確定させる(flushPendingSave)必要があり、それを持っているのが
+            // ViewerViewだけのため(ViewerView.returnToWelcome()参照)。
+            onReturnToWelcome: appState.currentBook == nil
+                ? nil : { appState.performViewerAction?(.returnToWelcome) },
             // お気に入りへの追加(登録先フォルダの選択シート)はViewerViewが持っているため、
             // AppState経由の橋渡しを使う(AppState.addFavoriteActionのコメント参照)。
             // 本を開いていないときはnil = ボタン自体がhasBook: falseで無効化されている。

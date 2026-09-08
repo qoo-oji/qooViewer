@@ -50,6 +50,15 @@ ViewerView(本1冊)
   表示モードの直接選択(⌘1〜⌘4)はメニューの `.keyboardShortcut`(メニューの並び順どおり)。
 - `closeWindow` / `closeTab` / `quitApplication` はマウス専用(⌘W/⌘Q と重なる)。
   `showFavoritesList` は入り口を失ったのでキー設定の一覧に出さない(列挙からは消さない)。
+  お気に入りが無効化されている間(`FavoritesFeature.isEnabled == false`)は
+  `toggleFavorite` / `showFavoritesOrganizer` も同様に出さない(既定の割り当ては残す)。
+- `returnToWelcome`(本だけ閉じてウェルカム画面へ。ウインドウ/タブは残る ―― 閉じるのは
+  `closeTab`)は**キー・マウスとも既定の割り当てを持たない**。主な入り口はツールバー左端と
+  サイドパネルのモード切替の左にあるボタンで、キー/マウスへ割り当てたい人だけが自分で割り当てる。
+  実体は `ViewerView.returnToWelcome()`(`flushPendingSave` → `AppState.closeBook()`)で、
+  最終ページの動作(`PageBoundaryBehavior`)・書き出し後の動作(`BookExportCompletionBehavior`)
+  とも共通。`ViewerViewModel.onPageBoundaryRequest` からは `performViewerAction` 越しに呼ぶ
+  ―― 直接呼ぶとクロージャが `ViewerView` のコピーを捕まえて循環参照が戻るため。
 
 ### マウス(MouseTrigger)
 
@@ -105,6 +114,9 @@ ViewerView(本1冊)
 
 5つのモード(`SidePanelMode`): ブラウザ(上段フォルダ/下段本の中身)・ブックマーク(上段お気に入り
 ツリー/下段ブックマーク)・履歴・ページ・リソース。幅 220〜480pt、左右どちらにも置ける。
+モード切替の並びの左端には「ウェルカム画面へ戻る」ボタンと区切り線がある。モードの選択肢では
+ないので、高さはモードボタンと同じ 30pt、**幅は等分に加えず 30pt 固定**で、押しても選択状態には
+ならない。本を開いていなければ無効(`onReturnToWelcome == nil`)。
 お気に入りが無効化されている間(`FavoritesFeature.isEnabled == false`)、ブックマークモードは
 上段と分割ハンドルを出さず、ブックマーク一覧が全高を使う1列構成になる(履歴・ページと同じ形)。
 分割比率は保存されたままなので、復活させれば以前の比率が戻る。

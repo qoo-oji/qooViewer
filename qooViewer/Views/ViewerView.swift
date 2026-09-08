@@ -336,11 +336,11 @@ struct ViewerView: View {
                     // ViewerView自身を強くキャプチャしてしまうのを避けるため(上のコメント参照)。
                     appState.performViewerAction?(.closeTab)
                 case .returnToWelcome:
-                    // 本だけ閉じて、同じウインドウにウェルカム画面を出す。読書位置の保留分は
-                    // ViewerViewが消えるときのonDisappearでも確定するが、こちらが先に走る保証は
-                    // 無いのでここでも確定させておく(flushPendingSaveは二度呼んでも害が無い)。
-                    viewModel.flushPendingSave()
-                    appState.closeBook()
+                    // 「ウェルカム画面へ戻る」も、上の「本を閉じる」と同じく橋渡し経由で
+                    // perform(_:)へ渡す ―― 実体(returnToWelcome())をここで直接呼ぶと、
+                    // このクロージャがViewerView自身のコピーをキャプチャして循環参照が戻って
+                    // しまうため(上のコメント参照)。
+                    appState.performViewerAction?(.returnToWelcome)
                 }
             }
         }
@@ -1122,6 +1122,18 @@ struct ViewerView: View {
     /// 「最後のページで」がまったく同じことをしている。**同じ動作を2通りに実装しない**ため、
     /// ViewerViewModelがそちら向けに用意している依頼の口(onPageBoundaryRequest経由で
     /// ViewerViewが受け取る処理)をそのまま使う(PageBoundaryRequest参照)。
+    /// 本だけ閉じて、同じウインドウにウェルカム画面を出す。ウインドウ/タブは閉じない
+    /// (閉じるのは.closeTab)。ViewerAction.returnToWelcome(ツールバー・サイドパネルの
+    /// ボタン、キー/マウスの割り当て)・最終ページの動作(PageBoundaryBehavior)・
+    /// 書き出し後の動作(BookExportCompletionBehavior)の共通の着地点。
+    ///
+    /// 読書位置の保留分は、ViewerViewが消えるときのonDisappearでも確定するが、こちらが
+    /// 先に走る保証は無いのでここでも確定させておく(flushPendingSaveは二度呼んでも害が無い)。
+    private func returnToWelcome() {
+        viewModel.flushPendingSave()
+        appState.closeBook()
+    }
+
     private func performExportCompletionBehavior(_ behavior: BookExportCompletionBehavior) {
         switch behavior {
         case .none, .ask:
@@ -1136,11 +1148,7 @@ struct ViewerView: View {
             // 「本を閉じる」はViewerAction.closeTabと同じ経路(タブが1枚ならウインドウごと)。
             perform(.closeTab)
         case .returnToWelcome:
-            // 本だけ閉じて、同じウインドウにウェルカム画面を出す。読書位置の保留分は
-            // onDisappearでも確定するが、先に走る保証が無いのでここでも確定させておく
-            // (ViewerViewModel.onPageBoundaryRequestの.returnToWelcomeと同じ)。
-            viewModel.flushPendingSave()
-            appState.closeBook()
+            returnToWelcome()
         }
     }
 
@@ -1842,6 +1850,22 @@ struct ViewerView: View {
         // 持つようになったぶん、以前(グループ内4pt/グループ間12pt)のままでは間延びして
         // 見えるため、グループ内は0pt・グループ間は8ptに詰めている。
         HStack(spacing: 8) {
+            // ウェルカム画面へ戻る(本だけ閉じて、ウインドウはそのまま。改善要望5)。
+            // ブラウザの「ホーム」ボタンと同じ位置付けなので、ページ送りの矢印群より
+            // さらに左の先頭に置く。矢印のグループと地続きに見えないよう、直後に
+            // 8ptの隙間を足してグループ間(spacing 8)と合わせた16ptだけ離す。
+            Button {
+                returnToWelcome()
+            } label: {
+                Image(systemName: "books.vertical")
+                    .panelIconButtonLabel()
+            }
+            .buttonStyle(.borderless)
+            .help("Return to Welcome Screen")
+
+            Spacer()
+                .frame(width: 8)
+
             // ページ移動・ファイル移動のボタン群。ブラウザの「戻る」「進む」ボタンのように、
             // ファイル名表示(アドレスバー相当)より左側に配置する。
 
@@ -3934,6 +3958,8 @@ struct ViewerView: View {
             appState.openSibling(before: viewModel.book.sourceURL)
         case .nextBook:
             appState.openSibling(after: viewModel.book.sourceURL)
+        case .returnToWelcome:
+            returnToWelcome()
         case .toggleBookmark:
             guard !viewModel.skipsPersistence else { return }
             toggleCurrentPageBookmark()
