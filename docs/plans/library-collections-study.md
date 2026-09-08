@@ -115,6 +115,9 @@ BookLibrary        id: UUID, name: String, sortOrder: Int, createdAt: Date
      全削除・本ごとの削除・起動時の孤児掃除(行の無いファイルを消す)を明示的に書ける。
 - 形式: JPEG 品質 0.8、長辺 **512px**(コレクションの中のグリッドで最大サイズにしても Retina で足りる。
   タイルの 3×2 はここから縮小)。Retina 対応で 2 サイズ持つ必要は無い。
+- **横長の画像は保存時に縦長(2:3)へトリミングする**(要望追加 2026-09-09): 右開きなら左側、左開きなら右側を残す
+  (見開き1枚の画像なら表紙にあたる側)。読み方向はその本の実効値(DB の上書き > 環境設定の既定)。どちら側を切ったかを
+  `CollectionItem.coverCropSide` に記録し、既定の読み方向や本の上書きが変わったら該当する本だけ作り直す(実装計画 §3.4・§3.5)。
 - **何を「先頭の画像」とするか**: 既存の書き出しのカバー決定ロジックをそのまま使う。
   `BookLayoutSettings.coverPageKey` / `externalCoverBookmarkData` があればそれ、無ければ
   `EffectivePageOrder.orderedPages(...)`(並べ替え・除外を反映した実効1ページ目)。

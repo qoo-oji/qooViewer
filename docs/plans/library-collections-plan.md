@@ -135,6 +135,7 @@ enum FavoritesFeature {
     var addedAt: Date
     var sortOrder: Int
     var coverStatus: Int = 0      // CollectionCoverStatus: 0 pending / 1 ready / 2 failed
+    var coverCropSide: Int = 0    // CoverCropSide: 0 そのまま / 1 横長を左側でトリミング / 2 右側(§3.4。読み方向が変わったときに作り直す対象を選ぶため)
     var inodeNumber: Int64?
     var volumeDeviceNumber: Int64?
     var collection: BookCollection?
@@ -242,8 +243,21 @@ nonisolated enum CoverImageResolver {
     /// 実効1ページ目(または上書き)を最大 maxPixelSize で復号。BookLoader.load → PageLoader.gridThumbnail(usesDiskCache: false)。
     /// 外部ファイルなら ImageDecoder.decode。失敗は nil。
     static func coverImage(bookAt url: URL, snapshot: OverrideSnapshot, maxPixelSize: CGFloat) async -> CGImage?
+
+    /// グリッド向けの整形(ユーザー要望 2026-09-09)。横長(width > height)の画像は、読み方向に合わせて
+    /// **左右どちらかの端を残して** 縦長(2:3)にトリミングする。右開き(rightToLeft)なら左側、左開きなら右側
+    /// ―― 見開き1枚の画像なら、表紙にあたる側が残る。縦長・正方形の画像はそのまま。
+    /// 2:3 はコレクションのタイル(3×2)とコレクションの中のセルの縦横比と同じ値(CollectionCoverThumbnail.aspectRatio)。
+    static func croppedForGrid(_ image: CGImage, readingDirection: ReadingDirection) -> (image: CGImage, cropSide: CoverCropSide)
 }
+
+enum CoverCropSide: Int, Sendable { case none = 0, left = 1, right = 2 }
 ```
+
+読み方向は「その本の実効値」= `BookLayoutSettings.readingDirectionOverride` があればそれ、無ければ環境設定の既定
+(`AppPreferences.defaultReadingDirection`)。`OverrideSnapshot` に `readingDirection: ReadingDirection` を足し、
+`LayoutStore.coverOverrideSnapshot(forBookID:defaultReadingDirection:)` が解決する。トリミング済みの画像を保存するので
+表示時の処理は無い。`CollectionCoverStore.write` の前に `croppedForGrid` を通し、結果の `cropSide` を `CollectionItem.coverCropSide` に記録する。
 
 `LayoutStore.coverOverrideSnapshot(forBookID:)`(MainActor)がスナップショットを作る。`BookExportViewModel.resolveDefaultCoverName` の
 「構造キャッシュがあれば本体を読まない」最適化はカバー**名**の話なのでそのまま残し、画像の復号だけをここへ寄せる。
@@ -257,8 +271,10 @@ nonisolated enum CoverImageResolver {
     func enqueue(_ items: [CollectionItem])           // 同時1、順番どおり。各 item: resolvedURL → startAccessing → CoverImageResolver → write → setCoverStatus
     func cancelAll()
     func refill()                                     // coverStatus == 0 の行を全部 enqueue(ウェルカム画面の onAppear と JSON 読み込み後)
-    // layoutDataDidChange(bookID 付き)を購読し、その bookID の item の直前のスナップショット(coverPageKey/externalCoverFileName)と
-    // 違えば enqueue(ViewerViewModel.reloadLayoutData と同じ「自分の現在値と比べる」方式)
+    // layoutDataDidChange(bookID 付き)を購読し、その bookID の item の直前のスナップショット(coverPageKey/externalCoverFileName/
+    // 実効の読み方向)と違えば enqueue(ViewerViewModel.reloadLayoutData と同じ「自分の現在値と比べる」方式)。
+    // 環境設定の既定の読み方向(AppPreferences.defaultReadingDirection)が変わったら、coverCropSide != 0 かつ本ごとの上書きが無い
+    // item を全部 enqueue(トリミングする側が入れ替わるため。上書きがある本は影響を受けない)
 }
 ```
 
@@ -312,7 +328,7 @@ nonisolated enum CollectionDropClassifier {
 |---|---|
 | `CollectionStoreTests`(新規) | 既定ライブラリが1つできる / 同名コレクションはライブラリが違えば可・同じなら不可(空白除去・大小区別) / 同じコレクションに同じ本は1つ(パス・inode) / ライブラリ削除で配下がカスケードし、カバーファイルも消える(`CollectionCoverStore` を一時フォルダで) / 1つしか無いライブラリは消せない / `reconcileBookIDIfMoved` / 並び(名前・作成日・追加日 × 昇降) |
 | `CollectionDropClassifierTests`(新規) | フィクスチャの `folder` 本 → book、書庫が並ぶ一時フォルダ → shelf(直下だけ)、空フォルダ・画像1枚 → ignored、複数を同時に |
-| `CoverImageResolverTests`(新規) | 上書きなし=実効1ページ目(除外・並べ替えを反映。フィクスチャの golden と一致)/ `coverPageKey` / 外部ファイル / 壊れた本で nil |
+| `CoverImageResolverTests`(新規) | 上書きなし=実効1ページ目(除外・並べ替えを反映。フィクスチャの golden と一致)/ `coverPageKey` / 外部ファイル / 壊れた本で nil / `croppedForGrid`: 横長 4:3 を右開きで左側・左開きで右側の 2:3 に、縦長と正方形はそのまま(`cropSide == .none`)、極端に横長(パノラマ)でも幅は `height * 2/3` |
 | `CollectionCoverStoreTests`(新規) | write → image → remove → sweepOrphans |
 | `LibraryJSONSchemaTests` | v4 の往復、v3 ファイルの読み込みで `libraries == nil` |
 | `LibraryImportTests` | overwrite/merge/ignore、取り込み後 `coverStatus == 0`、重複の飛ばし |
@@ -354,7 +370,7 @@ nonisolated enum CollectionDropClassifier {
 | `WelcomeLibraryPane.swift` | `openedCollectionID == nil` なら `CollectionGridView`、あれば `CollectionDetailView`(段階 5)。右上の操作列 `LibraryPaneControls`(`+` / 編集 / 並び替えメニュー / スライダー)は両画面で共通の部品にして引数で差し替える |
 | `CollectionGridView.swift` | `LazyVGrid(columns: [GridItem(.adaptive(minimum: tileSize), spacing: 24)])`。空なら「No collections to show」+「You can also open by dragging and dropping here」。`LazyCellImageBudget` で画面外のカバーを手放す |
 | `CollectionTile.swift` | 角丸正方形(`cornerRadius: tileSize * 0.08`)の中に `Grid` 3×2(各セル `CollectionCoverThumbnail(item)`。6冊未満は空)、右下に冊数バッジ(塗り地、輪郭なし)、下に名前(`.panelOutlinedContent()`、1行中央省略)。クリック → `openedCollectionID = id`。編集モード中の右クリック: Rename… / Delete…(非編集モードでは `.contextMenu` を**付けない**) |
-| `CollectionCoverThumbnail.swift` | `CollectionCoverStore.image(for:)` を `.task(id:)` で読む。`coverStatus == 0` は `ProgressView` 風の薄い地、`2` は灰色地+`FormatBadgeView`。存在しない本は `opacity(0.35)`(段階 5 の一覧でも同じ部品) |
+| `CollectionCoverThumbnail.swift` | セルの縦横比は 2:3 固定(`static let aspectRatio: CGFloat = 2/3`。横長のカバーは保存時に同じ比へトリミング済み。§3.4)。`CollectionCoverStore.image(for:)` を `.task(id:)` で読む。`coverStatus == 0` は `ProgressView` 風の薄い地、`2` は灰色地+`FormatBadgeView`。存在しない本は `opacity(0.35)`(段階 5 の一覧でも同じ部品) |
 | `CollectionNameSheet.swift` | タイトル(New Collection / Rename Collection / New Library / Rename Library)、`TextField`、欄の下に検証メッセージ(赤)、下に Cancel / Create(または Rename)を同幅(`.frame(minWidth: 80)`)。空欄 → "Enter a collection name."、重複 → "A collection with this name already exists."(ライブラリ版も同様)。**検証はストアの `hasCollectionNamed` で、確定ボタンは通らない間 `disabled`** |
 | `AddBooksPanel.swift` | シート。上に「Add Books…」(NSOpenPanel: `canChooseFiles/Directories = true`、`allowsMultipleSelection = true`、`allowedContentTypes` は書庫/PDF/EPUB/フォルダ)、中央は追加済みの本の一覧(タイトル+形式バッジ+抽出の状態)兼ドロップ面(**シートは別 NSWindow なので自前の `.onDrop`**。`BookFileDropTarget` のコメントに例外を追記)、下に「Done」。1冊も無ければ Done = 取り消し(コレクション行は最初の本が入るときに `createCollection` で作る)。抽出は `CollectionCoverExtractor.enqueue` |
 | `WelcomeButtonWidthEstimator.swift` | `MetadataButtonWidthEstimator` と同じ実測(2つのボタンのローカライズ済み文字列の幅の最大) |
