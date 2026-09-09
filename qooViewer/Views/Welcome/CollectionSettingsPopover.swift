@@ -26,6 +26,13 @@ struct CollectionSettingsPopover: View {
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var autoFolderScanner: CollectionAutoFolderScanner
 
+    /// 欄で編集している最中の値。**DBへはまだ書かない**(下書き)。
+    ///
+    /// パスは直接打てる(CollectionAutoFolderRow)ので、1文字ごとにDBへ書くと、そのたびに
+    /// save() と `.collectionsDidChange` の通知と `reload()` が走り、後ろの一覧が描き直される。
+    /// 打ち終わりを待って1回だけ書く。
+    @State private var draftFolder: URL?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
@@ -45,27 +52,32 @@ struct CollectionSettingsPopover: View {
                 Text("Auto-Add Folder")
                     .font(.subheadline)
                     .fontWeight(.semibold)
-                CollectionAutoFolderRow(folder: autoFolderSelection)
+                CollectionAutoFolderRow(folder: $draftFolder)
             }
         }
+        .onAppear { draftFolder = collection.autoFolderURL }
+        // 打ち終わりの合図は2つ ―― Returnと、この面が閉じたとき。`.onSubmit`は下にある
+        // TextFieldの確定を拾う(SwiftUIの確定は親へ伝わる)。パネルやドロップで選んだ場合も
+        // 同じく閉じたときに書かれる ―― どのみち結果が見えるのは一覧へ戻ってからなので、
+        // 入り口によって書く時機を変えない。
+        .onSubmit { commitDraft() }
+        .onDisappear { commitDraft() }
         .padding(12)
         // パスを出す欄があるので、ライブラリの設定より広めの下限を与える(それでも長いパスは
         // 中略されるが、末尾のフォルダ名は必ず見えるようにしてある)。
         .frame(minWidth: 340, alignment: .leading)
     }
 
-    /// DBが唯一の持ち主なので`@State`には写さず毎回読む(LibrarySettingsPopoverの
-    /// aspectRatioSelectionと同じ形)。
+    /// 下書きをDBへ書く。変わっていなければ何もしない。
     ///
     /// 書いた直後に走査を予約するのは、指定した瞬間にそのフォルダの本が入ってほしいため
     /// (次にアプリがアクティブになるまで何も起きないと、設定が効いているのか分からない)。
-    private var autoFolderSelection: Binding<URL?> {
-        Binding(
-            get: { collection.autoFolderURL },
-            set: { newValue in
-                collectionStore.setAutoFolder(newValue, for: collection)
-                autoFolderScanner.scheduleScan()
-            }
-        )
+    ///
+    /// LibrarySettingsPopoverのラジオは`@State`に写さず毎回DBを読んでいるが、こちらは
+    /// 打っている途中という中間状態があるので下書きを持つ(draftFolderのコメント参照)。
+    private func commitDraft() {
+        guard draftFolder?.path != collection.autoFolderPath else { return }
+        collectionStore.setAutoFolder(draftFolder, for: collection)
+        autoFolderScanner.scheduleScan()
     }
 }
