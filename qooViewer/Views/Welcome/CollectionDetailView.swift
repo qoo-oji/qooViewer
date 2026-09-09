@@ -300,10 +300,17 @@ struct CollectionDetailView: View {
             Text("No books in this collection")
                 .foregroundStyle(.secondary)
                 .panelOutlinedContent()
-            Text("Drag books here to add them")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .panelOutlinedContent()
+            // 一覧側と同じ理由で、案内はドロップの意味に合わせる
+            // (CollectionGridView.isRegisteringDropsのコメント参照)。ここも編集モードの
+            // 外では、落とした本は**コレクションに入らず開く**。
+            Text(
+                allowsEditing && state.isEditing
+                    ? "Drag books here to add them"
+                    : "You can also open by dragging and dropping here"
+            )
+            .font(.caption)
+            .foregroundStyle(.tertiary)
+            .panelOutlinedContent()
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

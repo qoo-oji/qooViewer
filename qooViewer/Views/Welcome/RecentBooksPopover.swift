@@ -5,7 +5,7 @@ import SwiftUI
 ///
 /// 従来のウェルカム画面は「最近開いたファイル」を10件だけ画面に並べていたが、画面が
 /// ライブラリ/コレクションのものになったため、履歴はここへ畳んだ。件数を10件に絞る理由も
-/// 無くなったので、環境設定の保存件数どおり全件をスクロールで見せる。
+/// 無くなったので、環境設定の保存件数どおり全件を見せる(入り切らないぶんだけスクロールする)。
 ///
 /// 行の見た目・右クリックの中身は、サイドパネルの「履歴」モード(SidePanelHistorySectionView)と
 /// 揃えてある。検索欄だけは付けない ―― 絞り込みたくなるほどの件数を扱うのはサイドパネル側の
@@ -23,6 +23,9 @@ struct RecentBooksPopover: View {
     /// 履歴が1件入っただけで倍近く広がり、同じボタンから出るものに見えない。
     private static let width: CGFloat = 360
 
+    /// 実測した中身の高さ(rowsHeightのコメント参照)。
+    @State private var contentHeight: CGFloat = 0
+
     var body: some View {
         VStack(spacing: 0) {
             if recentFiles.entries.isEmpty {
@@ -32,21 +35,40 @@ struct RecentBooksPopover: View {
                     .frame(width: Self.width)
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
+                    // **LazyVStackではなくVStack。** 高さを実測して面の高さに使う(rowsHeight)ので、
+                    // 画面外の行まで含めた本当の高さがその場で要る。Lazyだと見えているぶんしか
+                    // 作られないため、実測値が最初の数行ぶんで止まる。履歴は環境設定の保存件数
+                    // (既定20・上限100)までの短い一覧なので、全部作っても差し支えない。
+                    VStack(alignment: .leading, spacing: 0) {
                         ForEach(recentFiles.entries) { entry in
                             row(for: entry)
                         }
                     }
                     .padding(.vertical, 6)
+                    // 中身の高さを実測する。スクロール方向には枠から独立しているので、
+                    // これを面の高さへ返しても堂々巡りにはならない。
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.height
+                    } action: { height in
+                        contentHeight = height
+                    }
                 }
                 .frame(width: Self.width, height: rowsHeight)
             }
         }
     }
 
-    /// 件数に応じた高さ(少ないときに無駄な余白を出さない)。1行 = 24pt + 上下の余白。
+    /// 面の高さ。
+    ///
+    /// **行の高さを掛け算で見積もるのはやめた**(ユーザー指摘 2026-09-09)。1行24ptと見て
+    /// いたが実際はもう少し高く、7件でも中身が枠を超えてスクロールバーが出ていた ―― 行の
+    /// 中身(文字の行送り、形式バッジ)が変われば正しい値も変わるので、掛け算では追い切れない。
+    /// 実測した高さをそのまま使い、上限だけ決める。
+    ///
+    /// 上限は、履歴が多い人でも十分見えて、かつ小さめのウインドウでもはみ出さない程度
+    /// (macOSは収まらない面を自分で縮める・向きを変えるが、そこに任せきりにはしない)。
     private var rowsHeight: CGFloat {
-        min(420, max(80, CGFloat(recentFiles.entries.count) * 24 + 12))
+        min(560, max(80, contentHeight))
     }
 
     private func row(for entry: RecentFilesStore.Entry) -> some View {

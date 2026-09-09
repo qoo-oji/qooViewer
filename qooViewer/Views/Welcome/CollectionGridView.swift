@@ -187,6 +187,10 @@ struct CollectionGridView: View {
             ?? library.coverCropAnchor
     }
 
+    /// いまこの画面へのドロップが「登録」になるか(閲覧中は「開く」)。
+    /// シークレットウインドウは編集モードに入れないので常にfalse。
+    private var isRegisteringDrops: Bool { allowsEditing && state.isEditing }
+
     private var emptyMessage: some View {
         VStack(spacing: 16) {
             Spacer(minLength: 0)
@@ -213,10 +217,17 @@ struct CollectionGridView: View {
             Text("No collections to show")
                 .foregroundStyle(.secondary)
                 .panelOutlinedContent()
-            Text("You can also open by dragging and dropping here")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .panelOutlinedContent()
+            // ドロップの意味は編集モードで変わる(閲覧中は開く / 編集モード中は登録する。
+            // WelcomeView.handleDrop参照)ので、**案内も一緒に変える**。編集モードに入っても
+            // 「落とせば開けます」と出したままだったのは間違い(ユーザー指摘 2026-09-09)。
+            Text(
+                isRegisteringDrops
+                    ? "Drop books or folders here to make a collection"
+                    : "You can also open by dragging and dropping here"
+            )
+            .font(.caption)
+            .foregroundStyle(.tertiary)
+            .panelOutlinedContent()
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

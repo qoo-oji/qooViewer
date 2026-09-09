@@ -1,6 +1,22 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Drop books or folders here to make a collection" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drop books or folders here to make a collection"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本やフォルダをここに落とすとコレクションを作れます"
+          }
+        }
+      }
+    },
     "Landscape (3:2)" : {
       "localizations" : {
         "en" : {
