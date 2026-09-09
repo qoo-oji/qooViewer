@@ -11,7 +11,8 @@ import Testing
 ///   そのもの ―― 直下だけで、ファイルの本と画像を直接持つフォルダが並び順どおりに入る。
 ///   ここがずれると「フォルダを落としたときに入る本」と「自動で入る本」が食い違う。
 /// - **書き終わっていないファイルを登録しないこと。** コピー中のファイルを本として登録すると、
-///   カバーの抽出が`.failed`のまま固定される(`settlingInterval`のコメント参照)。
+///   カバーの抽出が`.failed`のまま固定される(`isSettled`のコメント参照)。一律の待ち時間では
+///   なく「書き込みが止まったか」で判定するので、その境界を全部通しておく。
 struct CollectionAutoFolderScanTests {
     /// 書庫・PDF が名前順に並び、画像フォルダの本と、本を持たない中間フォルダが混ざった棚。
     private func makeShelf(_ label: String) throws -> (TemporaryDirectory, URL) {
@@ -32,18 +33,14 @@ struct CollectionAutoFolderScanTests {
         return (temporary, shelf)
     }
 
-    /// このテストが作ったばかりのファイルを「落ち着いた」と見なさせるための時刻
-    /// (実時間を待たずに、更新時刻より十分あとから見る)。
-    private func settledNow() -> Date {
-        Date().addingTimeInterval(CollectionAutoFolderScan.settlingInterval + 60)
-    }
+    // MARK: - 拾う範囲
 
     @Test("拾うのは棚の直下だけで、並び順はフォルダブラウザと同じ")
     func picksUpOnlyTheBooksDirectlyInTheShelf() throws {
         let (temporary, shelf) = try makeShelf("auto-folder-shelf")
         defer { _ = temporary }
 
-        let books = CollectionAutoFolderScan.books(in: shelf, order: .byName, now: settledNow())
+        let books = CollectionAutoFolderScan.books(in: shelf, order: .byName)
 
         #expect(books == [
             shelf.appendingPathComponent("01.cbz"),
@@ -65,40 +62,94 @@ struct CollectionAutoFolderScanTests {
         // 空のフォルダ。
         let empty = try temporary.directory("empty")
 
-        let now = settledNow()
-        #expect(CollectionAutoFolderScan.books(in: singleBook, order: .byName, now: now).isEmpty)
-        #expect(CollectionAutoFolderScan.books(in: empty, order: .byName, now: now).isEmpty)
+        #expect(CollectionAutoFolderScan.books(in: singleBook, order: .byName).isEmpty)
+        #expect(CollectionAutoFolderScan.books(in: empty, order: .byName).isEmpty)
         #expect(
-            CollectionAutoFolderScan.books(
-                in: temporary.file("does-not-exist"), order: .byName, now: now
-            ).isEmpty
+            CollectionAutoFolderScan.books(in: temporary.file("does-not-exist"), order: .byName)
+                .isEmpty
         )
     }
 
-    @Test("書き終わったばかりのファイルは、次の走査まで見送る")
-    func freshlyWrittenBooksAreLeftForTheNextScan() throws {
-        let (temporary, shelf) = try makeShelf("auto-folder-settling")
-        defer { _ = temporary }
+    // MARK: - 書き込みが止まったかどうか
 
-        // いま作ったばかりの状態で見ると、まだどれも落ち着いていない。
-        #expect(CollectionAutoFolderScan.books(in: shelf, order: .byName, now: Date()).isEmpty)
-        // 待ち時間ぶん経ってから見ると、そのまま全部入る(見送りであって除外ではない)。
-        #expect(CollectionAutoFolderScan.books(in: shelf, order: .byName, now: settledNow()).count == 3)
+    private func observation(
+        size: Int64, modifiedAgo: TimeInterval, atAgo: TimeInterval = 0, now: Date
+    ) -> CollectionAutoFolderScan.Observation {
+        CollectionAutoFolderScan.Observation(
+            snapshot: .init(size: size, modified: now.addingTimeInterval(-modifiedAgo)),
+            at: now.addingTimeInterval(-atAgo)
+        )
+    }
+
+    @Test("更新が止まってしばらく経っていれば、その場で通す")
+    func afileThatStoppedChangingLongAgoIsSettledImmediately() {
+        let now = Date()
+        // 同じボリューム内の移動・リネームは元の更新時刻を引き継ぐので、ここで即座に通る。
+        let old = observation(size: 100, modifiedAgo: 60, now: now)
+        #expect(CollectionAutoFolderScan.isSettled(old, previous: nil))
+    }
+
+    @Test("書かれたばかりのファイルは、1回目の観測では通さない")
+    func afreshlyWrittenFileIsNotSettledOnTheFirstLook() {
+        let now = Date()
+        let fresh = observation(size: 100, modifiedAgo: 0.1, now: now)
+        #expect(CollectionAutoFolderScan.isSettled(fresh, previous: nil) == false)
+    }
+
+    @Test("間隔を空けた2回の観測で変わっていなければ通す")
+    func twoIdenticalLooksFarEnoughApartCountAsSettled() {
+        let now = Date()
+        let previous = observation(
+            size: 100, modifiedAgo: 0.6,
+            atAgo: CollectionAutoFolderScan.recheckDelay, now: now
+        )
+        let current = observation(size: 100, modifiedAgo: 0.6, now: now)
+        #expect(CollectionAutoFolderScan.isSettled(current, previous: previous))
+    }
+
+    @Test("まだ大きさが増えている間は通さない")
+    func agrowingFileIsNotSettled() {
+        let now = Date()
+        let previous = observation(
+            size: 100, modifiedAgo: 0.6,
+            atAgo: CollectionAutoFolderScan.recheckDelay, now: now
+        )
+        let current = observation(size: 200, modifiedAgo: 0.1, now: now)
+        #expect(CollectionAutoFolderScan.isSettled(current, previous: previous) == false)
+    }
+
+    @Test("2回の観測が近すぎるときは通さない(一瞬止まっただけを拾わない)")
+    func twoLooksTooCloseTogetherDoNotCount() {
+        let now = Date()
+        let previous = observation(size: 100, modifiedAgo: 0.2, atAgo: 0.01, now: now)
+        let current = observation(size: 100, modifiedAgo: 0.2, now: now)
+        #expect(CollectionAutoFolderScan.isSettled(current, previous: previous) == false)
     }
 
     @Test("更新時刻が未来のファイルも通す(通さないと永久に登録されない)")
-    func booksDatedInTheFutureAreStillPickedUp() throws {
-        let temporary = try TemporaryDirectory("auto-folder-future")
-        let shelf = try temporary.directory("shelf")
-        let book = shelf.appendingPathComponent("01.cbz")
+    func afileDatedInTheFutureIsSettled() {
+        let now = Date()
+        let future = CollectionAutoFolderScan.Observation(
+            snapshot: .init(size: 100, modified: now.addingTimeInterval(3600)), at: now
+        )
+        #expect(CollectionAutoFolderScan.isSettled(future, previous: nil))
+    }
+
+    @Test("大きさと更新時刻を実ファイルから読める")
+    func snapshotReadsTheSizeAndModificationDate() throws {
+        let temporary = try TemporaryDirectory("auto-folder-snapshot")
+        let file = temporary.file("01.cbz")
         var builder = ZipFixtureBuilder()
         builder.add("001.png", PageImageFactory.png(number: 1))
-        try builder.write(to: book)
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date().addingTimeInterval(3600)], ofItemAtPath: book.path
-        )
+        try builder.write(to: file)
+        let stamp = Date(timeIntervalSince1970: 1_600_000_000)
+        try FileManager.default.setAttributes([.modificationDate: stamp], ofItemAtPath: file.path)
 
-        #expect(CollectionAutoFolderScan.hasSettled(book, now: Date()))
-        #expect(CollectionAutoFolderScan.books(in: shelf, order: .byName, now: Date()) == [book])
+        let snapshot = try #require(CollectionAutoFolderScan.snapshot(of: file))
+
+        #expect(snapshot.size > 0)
+        #expect(abs(snapshot.modified.timeIntervalSince(stamp)) < 1)
+        // 読めないものはnil(呼び出し側は「判定の材料が無い」として通す)。
+        #expect(CollectionAutoFolderScan.snapshot(of: temporary.file("missing")) == nil)
     }
 }
