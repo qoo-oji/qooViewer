@@ -144,7 +144,14 @@ nonisolated enum CoverImageResolver {
     /// - Parameter cachesPageList: 読み込んだ本のページ一覧をディスクキャッシュ
     ///   (BookPageListCache)へ書き戻すか。単体テストはfalseで呼ぶ(実物のアプリと同じ
     ///   保存先へテスト用の本の痕跡を残さないため)。
-    static func coverImage(
+    ///
+    /// **`@concurrent`が要る**(監査で指摘 2026-09-09)。このプロジェクトはApproachable
+    /// Concurrency(`NonisolatedNonsendingByDefault`)が有効で、`nonisolated async`関数は
+    /// 呼び出し側のアクタ ―― ここではCollectionCoverExtractorのMainActor ―― を引き継いで走る。
+    /// 本体を開く経路はBookLoader/PageLoaderが自分で外へ逃げるので影響が無いが、外部カバー
+    /// ファイルの経路(`Data(contentsOf:)`と復号)はここで直に走るため、付けないと未接続の
+    /// ボリューム上の外部カバー1枚でメインが止まる。
+    @concurrent nonisolated static func coverImage(
         bookAt url: URL, snapshot: OverrideSnapshot, maxPixelSize: CGFloat,
         cachesPageList: Bool = true
     ) async -> CGImage? {

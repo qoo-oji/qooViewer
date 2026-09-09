@@ -26,6 +26,8 @@ struct CollectionGridView: View {
     private static let coverByteBudget = 64 * 1024 * 1024
 
     @State private var cellImageBudget = LazyCellImageBudget(byteBudget: coverByteBudget)
+    /// グリッドの見えている大きさ。帳簿の下限セル数(minimumCellCount)を見積もるためだけに持つ。
+    @State private var gridSize: CGSize = .zero
     /// リネーム・削除の対象。**モデルの参照ではなくidで持つ。**`@Model`のクラスは
     /// PersistentModel経由でIdentifiableに適合しており、自前の`id: UUID`と要件が衝突しうるため、
     /// このアプリでは一貫してidを明示して扱う(BookLibrary.swift末尾のコメント参照)。
@@ -133,6 +135,24 @@ struct CollectionGridView: View {
         state.clearSelection()
     }
 
+    /// 帳簿の下限セル数: 画面内に収まりうるカバーの数(列数 × 見えている行数 + 先読み分、
+    /// × 札1枚のセル数)の3倍。これ未満で作り直すと、画面内ぶんの読み直しだけで再び予算へ達して
+    /// 作り直しがループしかねない(LazyCellImageBudgetの型コメント参照。ThumbnailGridViewと
+    /// 同じ見積もり方)。
+    ///
+    /// 以前は定数48(札8枚ぶん)だった(監査で指摘 2026-09-09)。どのウインドウでも1画面に
+    /// 収まる札の数より少なく下限として効いておらず、27インチ5Kで札を最大・横長画像中心の
+    /// ライブラリでは、画面内の168セルだけで64MBを超えてループする計算だった。
+    private var minimumCellCount: Int {
+        let tileWidth = state.tileSize
+        // 札の高さ = 絵(ほぼ正方形。CoverAspectRatio.tileColumnsの計算)+ 名前の1行。
+        let tileHeight = tileWidth + 24
+        let columns = max(1, Int((gridSize.width - 48 + Self.spacing) / (tileWidth + Self.spacing)))
+        let rows = Int((gridSize.height / max(tileHeight + Self.spacing, 1)).rounded(.up)) + 2
+        let visibleCellEstimate = columns * rows * library.coverAspectRatio.tileCellCount
+        return max(visibleCellEstimate * 3, 64)
+    }
+
     private var grid: some View {
         ScrollView {
             LazyVGrid(
@@ -154,6 +174,11 @@ struct CollectionGridView: View {
             //   ここで作り直して失うものは無い。
             .id("\(library.id.uuidString)-\(cellImageBudget.epoch)")
         }
+        .onGeometryChange(for: CGSize.self) { proxy in
+            proxy.size
+        } action: { size in
+            gridSize = size
+        }
     }
 
     @ViewBuilder
@@ -172,8 +197,7 @@ struct CollectionGridView: View {
             backgroundColor: library.coverBackgroundColor?.color ?? Color.primary.opacity(0.07),
             size: state.tileSize,
             onImageRetained: { image in
-                // 1画面に並ぶタイル数の見積もり(帳簿の下限。LazyCellImageBudget参照)。
-                cellImageBudget.note(retaining: image, minimumCellCount: 48)
+                cellImageBudget.note(retaining: image, minimumCellCount: minimumCellCount)
             },
             isEditing: allowsEditing && state.isEditing,
             isSelected: state.selectedCollectionIDs.contains(collection.id),

@@ -38,8 +38,7 @@ struct WelcomeView: View {
     /// (別のウインドウで削除された場合。ライブラリは必ず1つ以上ある ――
     /// CollectionStore.ensureDefaultLibrary)。
     private var library: BookLibrary? {
-        state.selectedLibraryID.flatMap { collectionStore.library(withID: $0) }
-            ?? collectionStore.libraries.first
+        WelcomeDropHandling.resolvedLibrary(state: state, collectionStore: collectionStore)
     }
 
     var body: some View {
@@ -97,9 +96,24 @@ struct WelcomeView: View {
         .onAppear {
             coverExtractor.refill()
             // 自動登録フォルダを見に行く契機のひとつ(CollectionAutoFolderScannerの型コメント
-            // 参照。FSEventsで見張らない代わりに、この画面を見にきた時点で走らせる)。
+            // 参照。監視の取りこぼしを、この画面を見にきた時点で回収する)。
             autoFolderScanner.scheduleScan()
-            appState.welcomeDropHandler = { urls in handleDrop(urls) }
+            // **このViewの値(self)を閉包に捕まえない**(監査で指摘 2026-09-09)。捕まえると
+            // AppState → 閉包 → WelcomeViewの写し → @EnvironmentObject → AppState の循環になり、
+            // onDisappearが来るまで(来なければずっと)AppStateが解放されない。要るものだけを
+            // weakで捕まえ、振り分けの本体は状態を持たないWelcomeDropHandlingに置いてある。
+            let allowsEditing = allowsEditing
+            appState.welcomeDropHandler = {
+                [weak state, weak collectionStore, weak coverExtractor, weak preferences] urls in
+                guard let state, let collectionStore, let coverExtractor, let preferences else {
+                    return false
+                }
+                return WelcomeDropHandling.handle(
+                    urls, allowsEditing: allowsEditing, state: state,
+                    collectionStore: collectionStore, coverExtractor: coverExtractor,
+                    preferences: preferences
+                )
+            }
         }
         .onDisappear {
             appState.welcomeDropHandler = nil
@@ -186,31 +200,58 @@ struct WelcomeView: View {
             state.addingBooks = target
         }
     }
+}
 
-    // MARK: - ドロップ
+/// ウェルカム画面へのドロップの振り分け(WelcomeView.handleDropから切り出したもの)。
+///
+/// Viewの外にあるのは、AppState.welcomeDropHandlerへ登録する閉包に**Viewの値を捕まえさせない**
+/// ため(WelcomeView.onAppearのコメント参照)。状態は持たず、要るものはすべて引数で受ける。
+@MainActor
+private enum WelcomeDropHandling {
+    /// いま見ているライブラリ。保存されていたidの実体が無ければ先頭へ読み替える
+    /// (別のウインドウで削除された場合。ライブラリは必ず1つ以上ある ――
+    /// CollectionStore.ensureDefaultLibrary)。
+    static func resolvedLibrary(
+        state: WelcomeLibraryState, collectionStore: CollectionStore
+    ) -> BookLibrary? {
+        state.selectedLibraryID.flatMap { collectionStore.library(withID: $0) }
+            ?? collectionStore.libraries.first
+    }
 
     /// ウインドウへ落とされたURLの振り分け。`true`を返したらこのドロップは処理済みで、
     /// 本を開く処理へは回さない。
     ///
     /// **編集モードのときだけ引き受ける。** 閲覧中のドロップは従来どおり「その本を開く」で、
     /// 意味が変わるのは編集モードに入っている間だけ、という1つの規則にしてある。
-    private func handleDrop(_ urls: [URL]) -> Bool {
-        guard allowsEditing, state.isEditing, !urls.isEmpty, library != nil else { return false }
+    static func handle(
+        _ urls: [URL], allowsEditing: Bool, state: WelcomeLibraryState,
+        collectionStore: CollectionStore, coverExtractor: CollectionCoverExtractor,
+        preferences: AppPreferences
+    ) -> Bool {
+        guard allowsEditing, state.isEditing, !urls.isEmpty,
+              resolvedLibrary(state: state, collectionStore: collectionStore) != nil
+        else { return false }
         let order = preferences.siblingBookOrder
         let openedCollectionID = state.openedCollectionID
         Task {
             let classified = await CollectionDropClassifier.classifyAsync(urls, order: order)
             if let openedCollectionID,
                let collection = collectionStore.collection(withID: openedCollectionID) {
-                addBooks(CollectionDropClassifier.booksToAdd(from: classified), to: collection)
+                addBooks(
+                    CollectionDropClassifier.booksToAdd(from: classified), to: collection,
+                    collectionStore: collectionStore, coverExtractor: coverExtractor
+                )
             } else {
-                queueCreations(from: classified)
+                queueCreations(from: classified, into: state)
             }
         }
         return true
     }
 
-    private func addBooks(_ urls: [URL], to collection: BookCollection) {
+    private static func addBooks(
+        _ urls: [URL], to collection: BookCollection,
+        collectionStore: CollectionStore, coverExtractor: CollectionCoverExtractor
+    ) {
         let pending = urls.compactMap(CollectionStore.makePendingItem(for:))
         guard !pending.isEmpty else { return }
         coverExtractor.enqueue(collectionStore.add(pending, to: collection))
@@ -218,7 +259,9 @@ struct WelcomeView: View {
 
     /// 一覧へのドロップ。ばらの本はまとめて1つのコレクションに、棚(本が並んだフォルダ)は
     /// フォルダ名を既定の名前にしたコレクションに、それぞれ1件ずつ名前の入力待ちへ積む。
-    private func queueCreations(from classified: [CollectionDropClassifier.Item]) {
+    private static func queueCreations(
+        from classified: [CollectionDropClassifier.Item], into state: WelcomeLibraryState
+    ) {
         var queued: [WelcomeLibraryState.PendingCollectionCreation] = []
         let looseBooks = classified.compactMap { item -> URL? in
             if case .book(let url) = item { return url }
@@ -254,7 +297,7 @@ struct WelcomeView: View {
     /// ここで返るフォルダには**列挙する権限が付いてこない**(サンドボックスが許すのは落とされた
     /// ファイルそのものだけ。CLAUDE.md)。初期値としてパスを出すだけで、実際に走査が始まるのは
     /// ユーザーがアクセスを許可してから(CollectionAutoFolderRow参照)。
-    private func commonParentFolder(of books: [URL]) -> URL? {
+    private static func commonParentFolder(of books: [URL]) -> URL? {
         let parents = Set(books.map { $0.deletingLastPathComponent().path })
         guard parents.count == 1, let path = parents.first else { return nil }
         return URL(fileURLWithPath: path, isDirectory: true)

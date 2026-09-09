@@ -105,7 +105,14 @@ final class FolderChangeWatcher {
             if let created { Self.tearDownWithoutWaiting(created.ref) }
             return
         }
-        stream = created?.ref
+        // 生成に失敗したら「まだ何も見ていない」に戻す ―― `watchedPaths`を残したままだと、
+        // 同じ顔ぶれで呼ばれ続ける限り先頭の照合で弾かれ、二度と張り直されない
+        // (監査で指摘 2026-09-09)。次の契機(アクティブ化・画面の表示)でもう一度試みる。
+        guard let created else {
+            watchedPaths = []
+            return
+        }
+        stream = created.ref
     }
 
     /// 監視をやめる(テストと、フォルダが1つも無くなったとき)。

@@ -143,13 +143,30 @@ final class CollectionAutoFolderScanner: ObservableObject {
 
         isScanning = true
         let order = preferences.siblingBookOrder
+        // 既に入っている本のパスを先に写し取っておく。大きさと更新時刻を読む(stat)のは
+        // まだ入っていない本だけでよく、それをメインアクターの外で済ませるため
+        // (finishScanのコメント参照)。
+        let knownPathsByID: [UUID: Set<String>] = targets.reduce(into: [:]) { result, target in
+            result[target.id] = Set(
+                collectionStore.collection(withID: target.id)?.items.map(\.bookID) ?? []
+            )
+        }
         // [weak self]で受けたselfをawaitをまたぐ前に強参照へ変換する
         // (理由はRecentFilesStore.scheduleRefresh()の同種のコメント参照)。
         Task.detached(priority: .utility) { [weak self] in
-            var found: [(id: UUID, books: [URL])] = []
+            var found: [CollectionAutoFolderScan.FolderResult] = []
             for target in targets {
                 let books = CollectionAutoFolderScan.books(in: target.folder, order: order)
-                if !books.isEmpty { found.append((id: target.id, books: books)) }
+                let known = knownPathsByID[target.id] ?? []
+                let fresh = books.filter { !known.contains($0.path) }
+                guard !fresh.isEmpty else { continue }
+                found.append(
+                    .init(
+                        id: target.id,
+                        books: fresh.map { .init(url: $0, snapshot: CollectionAutoFolderScan.snapshot(of: $0)) },
+                        observedAt: Date()
+                    )
+                )
             }
             guard let self else { return }
             await self.finishScan(found)
@@ -168,46 +185,69 @@ final class CollectionAutoFolderScanner: ObservableObject {
         }
     }
 
-    private func finishScan(_ found: [(id: UUID, books: [URL])]) {
-        isScanning = false
+    /// 走査の結果を受けて、書き終わっている本をコレクションへ足す。
+    ///
+    /// **ファイルに触るところはメインアクターの外で済ませる**(監査で指摘 2026-09-09)。
+    /// 大きさ・更新時刻の読み出しは走査の側(scheduleScanのdetached)で、セキュリティスコープ付き
+    /// ブックマークの生成はここからもう一度detachedへ出す。千冊規模の棚を初めて指定したときに、
+    /// その冊数ぶんのstatとブックマーク生成でメインが秒に近く止まっていた。
+    ///
+    /// `isScanning`は**この関数を抜けるまで**立てたままにする。途中の`await`の間に届いた
+    /// scheduleScan()は`needsAnotherScan`に積まれ、抜けた直後にもう一度だけ走る。
+    private func finishScan(_ found: [CollectionAutoFolderScan.FolderResult]) async {
         defer {
+            isScanning = false
             if needsAnotherScan {
                 needsAnotherScan = false
                 scheduleScan()
             }
         }
 
-        let now = Date()
         var stillWriting: [URL: CollectionAutoFolderScan.Observation] = [:]
+        var toRegister: [(id: UUID, urls: [URL])] = []
 
         for entry in found {
             guard let collection = collectionStore.collection(withID: entry.id) else { continue }
-            // 既に入っている本を先に落としてから調べる(unregisteredURLsのコメント参照)。
-            let fresh = collectionStore.unregisteredURLs(entry.books, in: collection)
+            // 走査の側でも既知の本は落としているが、走査中に手で足された本がありうるので
+            // ここでもう一度落とす(unregisteredURLsのコメント参照)。
+            let fresh = Set(collectionStore.unregisteredURLs(entry.books.map(\.url), in: collection))
             guard !fresh.isEmpty else { continue }
 
             var settled: [URL] = []
-            for url in fresh {
-                guard let snapshot = CollectionAutoFolderScan.snapshot(of: url) else {
+            for book in entry.books where fresh.contains(book.url) {
+                guard let snapshot = book.snapshot else {
                     // 大きさも更新時刻も読めない = 判定の材料が無い。本かどうかは既に
                     // 決まっているので通す。
-                    settled.append(url)
+                    settled.append(book.url)
                     continue
                 }
-                let observation = CollectionAutoFolderScan.Observation(snapshot: snapshot, at: now)
-                if CollectionAutoFolderScan.isSettled(observation, previous: observations[url]) {
-                    settled.append(url)
+                let observation = CollectionAutoFolderScan.Observation(
+                    snapshot: snapshot, at: entry.observedAt
+                )
+                if CollectionAutoFolderScan.isSettled(observation, previous: observations[book.url]) {
+                    settled.append(book.url)
                 } else {
-                    stillWriting[url] = observation
+                    stillWriting[book.url] = observation
                 }
             }
-            guard !settled.isEmpty else { continue }
-            let pending = settled.compactMap(CollectionStore.makePendingItem(for:))
-            guard !pending.isEmpty else { continue }
-            coverExtractor.enqueue(collectionStore.add(pending, to: collection))
+            if !settled.isEmpty { toRegister.append((id: entry.id, urls: settled)) }
         }
 
         observations = stillWriting
+
+        if !toRegister.isEmpty {
+            let registrations = await Task.detached(priority: .utility) {
+                toRegister.map { entry in
+                    (id: entry.id, pending: entry.urls.compactMap(CollectionStore.makePendingItem(for:)))
+                }
+            }.value
+            for registration in registrations where !registration.pending.isEmpty {
+                // 待っている間に消されたコレクションには足さない。
+                guard let collection = collectionStore.collection(withID: registration.id) else { continue }
+                coverExtractor.enqueue(collectionStore.add(registration.pending, to: collection))
+            }
+        }
+
         if !stillWriting.isEmpty { scheduleRecheck() }
     }
 
@@ -248,6 +288,20 @@ nonisolated enum CollectionAutoFolderScan {
     struct Observation: Equatable, Sendable {
         var snapshot: Snapshot
         var at: Date
+    }
+
+    /// 走査がフォルダ1つについて持ち帰るもの。まだ入っていない本と、その時点の様子。
+    struct FolderResult: Sendable {
+        var id: UUID
+        var books: [FreshBook]
+        /// `books`の様子を読んだ時刻(Observation.atに使う)。
+        var observedAt: Date
+    }
+
+    /// まだ入っていない本1冊。`snapshot`がnilなら大きさも更新時刻も読めなかった。
+    struct FreshBook: Sendable {
+        var url: URL
+        var snapshot: Snapshot?
     }
 
     /// `folder`の直下に並んでいる本。

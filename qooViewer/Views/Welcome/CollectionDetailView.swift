@@ -36,10 +36,17 @@ struct CollectionDetailView: View {
     private static let coverByteBudget = 96 * 1024 * 1024
 
     @State private var cellImageBudget = LazyCellImageBudget(byteBudget: coverByteBudget)
+    /// グリッドの見えている大きさ。帳簿の下限セル数(minimumCellCount)を見積もるためだけに持つ。
+    @State private var gridSize: CGSize = .zero
     @State private var isRenaming = false
     /// 開こうとしたが実体が見つからなかった本。
-    @State private var missingItem: CollectionItem?
-    /// メタデータ編集シートを出している本(実体のURLは開く前に解決しておく)。
+    ///
+    /// **モデルの参照ではなくidと表示名で持つ**(監査で指摘 2026-09-09)。アラートを出している間に
+    /// 別のウインドウがその本を外してsaveすると、`CollectionItem`本体を持ったままでは、次の
+    /// 描き直しで消えた行の属性を読んで落ちる(SwiftDataの "model instance was invalidated")。
+    /// 削除するときはidから引き直し、無ければ黙って何もしない。
+    @State private var missingBook: MissingBook?
+    /// メタデータ編集シートを出している本(実体のURLは開く前に解決しておく)。同じ理由でidで持つ。
     @State private var metadataTarget: MetadataTarget?
     /// コレクションから外す確認を出している本。空なら出していない。右クリックの
     /// 「コレクションから削除」(1冊)とゴミ箱(選んだぶん)の両方がここへ集まる
@@ -57,11 +64,16 @@ struct CollectionDetailView: View {
     @State private var layoutRevision = 0
 
     /// メタデータ編集シートの対象。シートを出す時点で本のURLが解決できている必要があるため
-    /// (BookMetadataSheetのコメント参照)、行とURLを組にして持つ。
+    /// (BookMetadataSheetのコメント参照)、行のidとURLを組にして持つ。
     private struct MetadataTarget: Identifiable {
-        let item: CollectionItem
+        let id: UUID
         let url: URL
-        var id: UUID { item.id }
+    }
+
+    /// 「本が見つかりません」の対象(missingBookのコメント参照)。
+    private struct MissingBook {
+        let id: UUID
+        let title: String
     }
 
     private var items: [CollectionItem] {
@@ -98,21 +110,24 @@ struct CollectionDetailView: View {
         .alert(
             "Book Not Found",
             isPresented: Binding(
-                get: { missingItem != nil },
-                set: { if !$0 { missingItem = nil } }
+                get: { missingBook != nil },
+                set: { if !$0 { missingBook = nil } }
             )
         ) {
-            Button("OK") { missingItem = nil }
+            Button("OK") { missingBook = nil }
             // 削除はDBへの書き込みなので、シークレットウインドウでは出さない
             // (ContentViewの「お気に入りが見つかりません」と同じ判断)。
             if allowsEditing {
                 Button("Remove from Collection", role: .destructive) {
-                    if let missingItem { collectionStore.remove(missingItem) }
-                    missingItem = nil
+                    // 確認を出している間に別のウインドウが消していることがあるので、idから引き直す。
+                    if let item = missingBook.flatMap({ collectionStore.item(withID: $0.id) }) {
+                        collectionStore.remove(item)
+                    }
+                    missingBook = nil
                 }
             }
         } message: {
-            Text("The file or folder for “") + Text(missingItem?.title ?? "")
+            Text("The file or folder for “") + Text(missingBook?.title ?? "")
                 + Text("” could not be found. It may have been moved or deleted.")
         }
         .onReceive(NotificationCenter.default.publisher(for: .layoutDataDidChange)) { _ in
@@ -222,6 +237,16 @@ struct CollectionDetailView: View {
         state.clearSelection()
     }
 
+    /// 帳簿の下限セル数: 画面内に収まりうるカバーの数(列数 × 見えている行数 + 先読み分)の3倍
+    /// (CollectionGridView.minimumCellCountと同じ理由・同じ見積もり方。以前は定数24だった)。
+    private var minimumCellCount: Int {
+        let cellWidth = state.coverSize
+        let cellHeight = cellWidth / library.coverAspectRatio.value
+        let columns = max(1, Int((gridSize.width - 48 + Self.spacing) / (cellWidth + Self.spacing)))
+        let rows = Int((gridSize.height / max(cellHeight + Self.spacing, 1)).rounded(.up)) + 2
+        return max(columns * rows * 3, 64)
+    }
+
     private var grid: some View {
         ScrollView {
             LazyVGrid(
@@ -237,10 +262,15 @@ struct CollectionDetailView: View {
             // (CollectionGridViewの同じ`.id`のコメント参照)。
             .id("\(collection.id.uuidString)-\(cellImageBudget.epoch)")
         }
+        .onGeometryChange(for: CGSize.self) { proxy in
+            proxy.size
+        } action: { size in
+            gridSize = size
+        }
         // 名前のリネームとは別の階層に付ける ―― 同じビューに2つの.sheetを重ねると、
         // 片方しか出ないことがある(SwiftUIの既知の癖)。
         .sheet(item: $metadataTarget) { target in
-            BookMetadataSheet(item: target.item, sourceURL: target.url, library: library)
+            BookMetadataSheet(itemID: target.id, sourceURL: target.url, library: library)
         }
     }
 
@@ -260,7 +290,7 @@ struct CollectionDetailView: View {
             exists: collectionStore.cachedFileExists(for: item),
             isExtracting: coverExtractor.inFlightItemIDs.contains(item.id),
             onImageRetained: { image in
-                cellImageBudget.note(retaining: image, minimumCellCount: 24)
+                cellImageBudget.note(retaining: image, minimumCellCount: minimumCellCount)
             }
         )
         // 選択中の枠と印(CollectionTileと同じ形・同じ理由。輪郭の扱いは
@@ -295,7 +325,7 @@ struct CollectionDetailView: View {
                 onOpen: { open(item) },
                 onOpenIn: { destination in
                     guard let url = collectionStore.resolvedExistingURL(for: item) else {
-                        missingItem = item
+                        missingBook = MissingBook(id: item.id, title: item.title)
                         return
                     }
                     BookWindowOpener.open(
@@ -315,7 +345,7 @@ struct CollectionDetailView: View {
             // (FinderReveal.reveal(_:isDirectory:)のコメント参照)。
             Button("Show in Finder") {
                 guard let url = collectionStore.resolvedExistingURL(for: item) else {
-                    missingItem = item
+                    missingBook = MissingBook(id: item.id, title: item.title)
                     return
                 }
                 FinderReveal.reveal(url)
@@ -329,10 +359,10 @@ struct CollectionDetailView: View {
                 Divider()
                 Button("Edit Metadata…") {
                     guard let url = collectionStore.resolvedExistingURL(for: item) else {
-                        missingItem = item
+                        missingBook = MissingBook(id: item.id, title: item.title)
                         return
                     }
-                    metadataTarget = MetadataTarget(item: item, url: url)
+                    metadataTarget = MetadataTarget(id: item.id, url: url)
                 }
                 .disabled(!isSingle)
             }
@@ -389,7 +419,7 @@ struct CollectionDetailView: View {
 
     private func open(_ item: CollectionItem) {
         guard let url = collectionStore.resolvedExistingURL(for: item) else {
-            missingItem = item
+            missingBook = MissingBook(id: item.id, title: item.title)
             return
         }
         appState.open(url: url)

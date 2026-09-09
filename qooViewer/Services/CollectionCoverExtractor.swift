@@ -20,6 +20,15 @@ import CoreGraphics
 /// カバーは切らずに保存し、枠へ合わせるのは表示のたびに行うようになった
 /// (CoverImageResolver.cropped(_:to:anchor:)のコメント参照)ので、抽出が気にするのは
 /// 「どの画像か」だけになった。
+///
+/// ■ 実体が見つからない本は`.failed`にしない(監査で指摘 2026-09-09)
+/// 外付け/ネットワークボリュームが未接続のときに待ち行列が回ると、そのボリューム上の本が全冊
+/// `.failed`(灰色)になり、再接続しても二度と抽出されなかった。`.failed`は「本が壊れている」
+/// ときだけにして、実体が見つからない本は`.pending`のまま置く。表示側は存在確認の結果
+/// (CollectionStore.cachedFileExists)で淡く描くので、灰色と見分けがつく。
+/// 見つからない本を待ち行列へ入れ続けないよう、refill()は存在確認で「無い」と分かっている本を
+/// 飛ばし、存在確認の結果(`existenceByItemID`)が変わったとき ―― 再接続・アプリのアクティブ化
+/// ―― にもう一度refill()する。
 @MainActor
 final class CollectionCoverExtractor: ObservableObject {
     /// いま抽出中のitem(表示側がスピナーを出すために見る)。同時1件なので高々1つ。
@@ -67,6 +76,8 @@ final class CollectionCoverExtractor: ObservableObject {
     private var signatures: [String: CoverSignature] = [:]
 
     private var observers: [NSObjectProtocol] = []
+    /// 存在確認の結果が変わったら待ち行列を組み直す(型コメント「実体が見つからない本」参照)。
+    private var existenceCancellable: AnyCancellable?
 
     init(
         collectionStore: CollectionStore,
@@ -99,6 +110,13 @@ final class CollectionCoverExtractor: ObservableObject {
             MainActor.assumeIsolated { self?.refill() }
         }
         observers = [layoutObserver, collectionsObserver]
+        // `@Published`の投影はwillSetで飛ぶ(値はまだ差し替わっていない)ので、その場では読まず
+        // 次のメインアクターの番で組み直す。
+        existenceCancellable = collectionStore.$existenceByItemID
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in self?.refill() }
+            }
 
         // 既に登録済みの本(前回の起動で抽出を終えているもの)の条件を先に控えておく
         // (signaturesのコメント参照)。
@@ -121,6 +139,7 @@ final class CollectionCoverExtractor: ObservableObject {
             NotificationCenter.default.removeObserver(observer)
         }
         observers = []
+        existenceCancellable = nil
     }
 
     // MARK: - 待ち行列
@@ -138,17 +157,22 @@ final class CollectionCoverExtractor: ObservableObject {
     }
 
     /// まだ抽出できていない本(coverStatus == pending)をすべて予約し直す。
-    /// ウェルカム画面を表示したとき、JSONを取り込んだあと、そして`.collectionsDidChange`のたび。
+    /// ウェルカム画面を表示したとき、JSONを取り込んだあと、`.collectionsDidChange`のたび、
+    /// そして存在確認の結果が変わったとき。
+    ///
+    /// 存在確認で「無い」と分かっている本は積まない(型コメント「実体が見つからない本」参照)。
+    /// まだ確認できていない本は「ある」として扱われる(cachedFileExistsの既定)ので、起動直後は
+    /// 一度は試みる ―― 見つからなければ`.pending`のまま戻り、通知も出ないので、次に組み直す
+    /// 契機まで積み直されない。
     func refill() {
         seedSignatures(for: collectionStore.allRegisteredBookIDs())
-        enqueue(collectionStore.itemsAwaitingCover())
+        enqueue(collectionStore.itemsAwaitingCover().filter { collectionStore.cachedFileExists(for: $0) })
     }
 
     /// まだ控えていないbookIDの条件を、いまのDBの値で記録する(抽出はしない)。
     private func seedSignatures(for bookIDs: Set<String>) {
         for bookID in bookIDs where signatures[bookID] == nil {
-            let snapshot = layoutStore.coverOverrideSnapshot(forBookID: bookID)
-            signatures[bookID] = signature(forBookID: bookID, snapshot: snapshot)
+            signatures[bookID] = signature(forBookID: bookID)
         }
     }
 
@@ -191,15 +215,17 @@ final class CollectionCoverExtractor: ObservableObject {
     private func extract(itemID: UUID) async {
         guard let item = collectionStore.item(withID: itemID) else { return }
         let bookID = item.bookID
+        // ブックマークが解決できない・実体が無い本は`.pending`のまま置いて戻る
+        // (型コメント「実体が見つからない本」参照)。`.failed`は本を開けなかったときだけ。
+        guard let url = collectionStore.resolvedExistingURL(for: item) else { return }
         inFlightItemIDs.insert(itemID)
         defer { inFlightItemIDs.remove(itemID) }
 
-        guard let url = collectionStore.resolvedURL(for: item) else {
-            collectionStore.setCoverStatus(.failed, aspect: 0, for: item)
-            return
-        }
+        // 抽出に使う条件(外部カバーのURL解決を含む)はここでだけ組み立てる。控えに要るのは
+        // 「どの画像か」を表す2列だけなので、控えのほうは本を解決せずにDBの値から作る
+        // (signature(forBookID:)参照)。
         let snapshot = layoutStore.coverOverrideSnapshot(forBookID: bookID)
-        signatures[bookID] = signature(forBookID: bookID, snapshot: snapshot)
+        signatures[bookID] = signature(forBookID: bookID)
 
         let didAccess = url.startAccessingSecurityScopedResource()
         let image = await CoverImageResolver.coverImage(
@@ -228,13 +254,18 @@ final class CollectionCoverExtractor: ObservableObject {
         )
     }
 
-    private func signature(
-        forBookID bookID: String, snapshot: CoverImageResolver.OverrideSnapshot
-    ) -> CoverSignature {
-        CoverSignature(
-            coverPageKey: snapshot.coverPageKey,
-            externalCoverFileName: layoutStore.bookLayoutSettings(forBookID: bookID)?
-                .externalCoverFileName
+    /// 「どの画像か」の控え。**DBの2列だけから作り、外部カバーのURLは解決しない。**
+    ///
+    /// 以前はcoverOverrideSnapshot(forBookID:)を経由していたが、あれは外部カバーのセキュリティ
+    /// スコープ付きブックマークを解決して実体の有無まで確かめる。起動時に全登録冊ぶん
+    /// (seedSignatures)、レイアウトの通知のたび(handleLayoutChange)にそれが走ると、外部カバーが
+    /// 到達できない共有上にある本1冊ごとにメインが秒単位で止まる(監査で指摘 2026-09-09)。
+    /// 控えの比較に要るのはファイル名で足りる。
+    private func signature(forBookID bookID: String) -> CoverSignature {
+        let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
+        return CoverSignature(
+            coverPageKey: settings?.coverPageKey,
+            externalCoverFileName: settings?.externalCoverFileName
         )
     }
 
@@ -245,8 +276,7 @@ final class CollectionCoverExtractor: ObservableObject {
         guard let bookID else { return }
         let items = collectionStore.items(forBookID: bookID)
         guard !items.isEmpty else { return }
-        let snapshot = layoutStore.coverOverrideSnapshot(forBookID: bookID)
-        let current = signature(forBookID: bookID, snapshot: snapshot)
+        let current = signature(forBookID: bookID)
         // 控えが無い本は、この通知より後に登録されたもの。pendingのままなのでrefillが拾う。
         guard let previous = signatures[bookID] else {
             signatures[bookID] = current
@@ -274,8 +304,7 @@ final class CollectionCoverExtractor: ObservableObject {
         let key = "qooViewer.collections.coverStorageGeneration"
         guard defaults.integer(forKey: key) < Self.coverStorageGeneration else { return }
         defaults.set(Self.coverStorageGeneration, forKey: key)
-        for bookID in collectionStore.allRegisteredBookIDs() {
-            collectionStore.markCoversPending(forBookID: bookID)
-        }
+        // save()と通知は1回だけ(CollectionStore.markAllCoversPendingのコメント参照)。
+        collectionStore.markAllCoversPending()
     }
 }

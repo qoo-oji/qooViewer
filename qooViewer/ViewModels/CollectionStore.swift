@@ -490,7 +490,10 @@ final class CollectionStore: ObservableObject {
 
     /// 登録しようとしている本1冊ぶんの材料。SwiftDataのモデルを作る前に、URLから取れる情報を
     /// まとめておくためのもの(ドロップ・ファイル選択・JSON取り込みの3つの入り口が同じ形で渡す)。
-    struct PendingItem {
+    ///
+    /// `nonisolated` + `Sendable`: 自動登録フォルダの走査(CollectionAutoFolderScanner)が
+    /// メインアクターの外で組み立てて持ち帰るため。中身は値だけで、ストアには触れない。
+    nonisolated struct PendingItem: Sendable {
         let url: URL
         let bookmarkData: Data
         let title: String
@@ -499,7 +502,11 @@ final class CollectionStore: ObservableObject {
 
     /// URLから登録の材料を作る。セキュリティスコープ付きブックマークが作れなければnil
     /// (アクセス権が無いURL。FavoritesStore.makeBookmarkDataと同じ判断)。
-    static func makePendingItem(for url: URL) -> PendingItem? {
+    ///
+    /// `nonisolated`: ブックマークの生成はファイルへの問い合わせを伴い、1件あたりは短いが
+    /// 千冊規模の棚では合計で秒に近づく。自動登録フォルダの走査はこれをメインアクターの外で
+    /// 回す(CollectionAutoFolderScanner.finishScan参照)。ストアの状態には一切触れない。
+    nonisolated static func makePendingItem(for url: URL) -> PendingItem? {
         guard let bookmarkData = try? url.bookmarkData(
             options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
         ) else { return nil }
@@ -637,6 +644,19 @@ final class CollectionStore: ObservableObject {
         guard !targets.isEmpty else { return }
         for item in targets { item.coverState = .pending }
         saveAndNotify(bookID: bookID)
+    }
+
+    /// 登録してある本すべてを、抽出のやり直し待ち(`.pending`)へ戻す。保存と通知は1回だけ。
+    ///
+    /// カバーの保存の仕方が変わったときの一度きりの移行(CollectionCoverExtractor.
+    /// migrateCoverStorageIfNeeded)から呼ぶ。以前はbookIDごとにmarkCoversPending(forBookID:)を
+    /// 回していたが、それだと冊数ぶんのsave()と通知が起動時(最初のウインドウが出る前)に走る
+    /// (監査で指摘 2026-09-09)。
+    func markAllCoversPending() {
+        let targets = allItems().filter { $0.coverState != .pending }
+        guard !targets.isEmpty else { return }
+        for item in targets { item.coverState = .pending }
+        saveAndNotify()
     }
 
     /// まだ抽出できていない本(coverStatus == pending)。CollectionCoverExtractor.refill()が使う。
@@ -817,8 +837,13 @@ final class CollectionStore: ObservableObject {
     }
 
     /// 起動時に一度、行の無いカバー画像を掃除する(CollectionCoverStore.sweepOrphans参照)。
+    ///
+    /// **フェッチに失敗したら掃除しない。** allItems()は失敗を空配列に潰すので、そのまま渡すと
+    /// 「行が1つも無い」と見なして全カバーを消してしまう(監査で指摘 2026-09-09)。ここだけは
+    /// キャッシュを通さずにフェッチして、失敗を区別する。
     func sweepOrphanedCovers() {
-        let ids = Set(allItems().map(\.id))
+        guard let items = try? modelContext.fetch(FetchDescriptor<CollectionItem>()) else { return }
+        let ids = Set(items.map(\.id))
         let store = coverStore
         Task { await store.sweepOrphans(keeping: ids) }
     }

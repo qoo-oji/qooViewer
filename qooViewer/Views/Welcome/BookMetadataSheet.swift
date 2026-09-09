@@ -19,8 +19,13 @@ import UniformTypeIdentifiers
 ///
 /// シートの中身はmacOSが不透明に描くので、すりガラス面の輪郭は要らない(CLAUDE.md参照)。
 struct BookMetadataSheet: View {
-    /// 対象の本(コレクションの行)。カバーの状態(抽出済みか・横長を切ったか)もここから読む。
-    let item: CollectionItem
+    /// 対象の本(コレクションの行)のid。カバーの状態(抽出済みか・横長を切ったか)も行から読む。
+    ///
+    /// **モデルの参照ではなくidで受ける**(監査で指摘 2026-09-09)。シートを出している間に
+    /// 別のウインドウがその本をコレクションから外してsaveすると、`CollectionItem`本体を
+    /// 持ったままでは次の描き直しで消えた行の属性を読んで落ちる(SwiftDataの
+    /// "model instance was invalidated")。毎回ストアから引き直し、無くなっていたら閉じる。
+    let itemID: UUID
     /// 本の実体。呼び出し側が`CollectionStore.resolvedExistingURL`で解決してから渡す
     /// (解決できない本ではシートを出さず「本が見つかりません」のアラートにする)。
     let sourceURL: URL
@@ -48,10 +53,15 @@ struct BookMetadataSheet: View {
     /// 短いほうの下に用の無い余白が残る。
     private static let coverWidth: CGFloat = 130
 
+    /// 対象の行。別のウインドウが外していればnil(itemIDのコメント参照)。
+    private var item: CollectionItem? {
+        collectionStore.item(withID: itemID)
+    }
+
     /// 「残す位置」の指定が効くか。カバーの比が枠の比と違って**実際に切ることになる**ときだけ
     /// ―― ぴったり合っているカバーに位置を指定させても何も起きない。まだ抽出できていない
     /// (比が分からない)本では、選ばせておいて後から効かせる。
-    private var isCropAnchorEffective: Bool {
+    private func isCropAnchorEffective(for item: CollectionItem) -> Bool {
         guard item.coverState == .ready, item.coverAspect > 0 else { return true }
         return CoverImageResolver.cropsAnyEdge(
             imageAspect: CGFloat(item.coverAspect),
@@ -60,6 +70,17 @@ struct BookMetadataSheet: View {
     }
 
     var body: some View {
+        if let item {
+            content(for: item)
+        } else {
+            // 出している間に外された(itemIDのコメント参照)。何も描かずに閉じる。
+            Color.clear
+                .frame(width: 460, height: 120)
+                .onAppear { dismiss() }
+        }
+    }
+
+    private func content(for item: CollectionItem) -> some View {
         // **幅はボタンではなくラベルに与える。** `Button(...).frame(width:)`では、与えた幅は
         // レイアウト上の枠にしか効かず、実際に描かれるベゼルは文字列の長さのまま枠の中央に
         // 置かれる(実測。WelcomeTopBarの同じコメント参照)。ラベル側を同じ幅にすれば、
@@ -90,7 +111,7 @@ struct BookMetadataSheet: View {
             Divider()
 
             HStack(alignment: .top, spacing: 16) {
-                cover
+                cover(for: item)
                 VStack(alignment: .leading, spacing: 10) {
                     fields
                     Text("Drop an image file on the cover, or right-click it to choose a page.")
@@ -107,7 +128,7 @@ struct BookMetadataSheet: View {
                     Text("Cancel").frame(width: labelWidth)
                 }
                 .keyboardShortcut(.cancelAction)
-                Button { register() } label: {
+                Button { register(bookID: item.bookID) } label: {
                     Text("Register").frame(width: labelWidth)
                 }
                 .keyboardShortcut(.defaultAction)
@@ -175,11 +196,11 @@ struct BookMetadataSheet: View {
     /// コントローラにあるため、無い状態で描いても「未指定」としか出せず、しかもその状態で
     /// 組まれたメニューがそのまま残ることがある(下のCoverAreaのコメント参照)。
     @ViewBuilder
-    private var cover: some View {
+    private func cover(for item: CollectionItem) -> some View {
         if let coverController {
             CoverArea(
                 controller: coverController, item: item, library: library,
-                width: Self.coverWidth, isCropAnchorEnabled: isCropAnchorEffective,
+                width: Self.coverWidth, isCropAnchorEnabled: isCropAnchorEffective(for: item),
                 coverStore: collectionStore.coverStore, locale: locale
             )
         } else {
@@ -193,9 +214,9 @@ struct BookMetadataSheet: View {
 
     /// 4欄をDBへ登録する(登録済みなら上書き)。4欄すべてが空のまま押すと、既存仕様どおり
     /// `upsert`が行そのものを消す ―― 「解除」を兼ねるのでボタン名は「Register」のままにする。
-    private func register() {
+    private func register(bookID: String) {
         metadataStore.upsert(
-            bookID: item.bookID,
+            bookID: bookID,
             author: draft.author, title: draft.title,
             series: draft.series, seriesIndex: draft.seriesIndex,
             // ウインドウ版と違い、この画面は本のURLを持てている(ブックマークとinodeも入る)。

@@ -38,6 +38,12 @@ struct CollectionAutoFolderRow: View {
     /// 欄に見えている文字列。**打っている途中の状態を持つのはこちら**で、`folder`へは
     /// 前後の空白を除いたものを書き戻す(空なら自動登録なし = nil)。
     @State private var pathText = ""
+    /// `folder`の場所に実際にフォルダがあるか。nil = まだ確かめていない。
+    ///
+    /// 描画のたびに`fileExists`を呼んでいたのをやめた(監査で指摘 2026-09-09)。この欄は
+    /// 1文字ごとに描き直されるので、落ちたネットワーク共有のパスを打つと1文字ごとに
+    /// メインが止まる。確認はメインアクターの外で行い、結果だけをここへ写す。
+    @State private var folderExists: Bool?
 
     /// この行が出す注意書き。上から順に見て、最初に当てはまったものだけを1行出す。
     private enum Advice {
@@ -48,11 +54,9 @@ struct CollectionAutoFolderRow: View {
     }
 
     private var advice: Advice? {
-        guard let folder else { return nil }
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory),
-              isDirectory.boolValue
-        else { return .notFound }
+        // 確かめ終わるまでは何も言わない(存在しない前提で「見つかりません」を出さない)。
+        guard let folder, let folderExists else { return nil }
+        guard folderExists else { return .notFound }
         return folderAccess.isPathCovered(folder) ? nil : .needsAccess
     }
 
@@ -97,6 +101,19 @@ struct CollectionAutoFolderRow: View {
             .opacity(advice == nil ? 0 : 1)
         }
         .onAppear { pathText = folder?.path ?? "" }
+        // フォルダの有無をメインアクターの外で確かめる(folderExistsのコメント参照)。
+        // パスが変わるたびにやり直し、前の確認は取り消される。
+        .task(id: folder?.path ?? "") {
+            folderExists = nil
+            guard let path = folder?.path else { return }
+            let exists = await Task.detached(priority: .userInitiated) { () -> Bool in
+                var isDirectory: ObjCBool = false
+                return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+                    && isDirectory.boolValue
+            }.value
+            guard !Task.isCancelled else { return }
+            folderExists = exists
+        }
         // 外(パネル・ドロップ・別のウインドウ)から変わったときに欄を追従させる。
         //
         // **打っている最中の文字列を横から書き換えないこと。** 素朴に「`folder`のパスと欄の
