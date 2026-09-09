@@ -27,6 +27,30 @@ final class CoverOverrideController: ObservableObject {
     /// (BookExportViewModel.resolveURL / MetadataEditorViewModelのそれぞれの列)。
     private let resolveURL: (String) -> URL?
 
+    /// 「この本のカバーの見え方が変わった」ことだけを表す通し番号。**値そのものは誰も読まない。**
+    ///
+    /// カバーの指定(どの画像か / どこを残すか)はすべてDB(BookLayoutSettings)にあり、この
+    /// コントローラは毎回そこから読む。LayoutStoreはこの種の変更で`objectWillChange`を
+    /// 出さない(読み取りが頻繁なので、publishを「レイアウト情報を持つ本の集合が変わったとき」に
+    /// 絞ってある。LayoutStore.refreshLayoutBookID参照)ため、**このコントローラを見ている画面が
+    /// 描き直される契機が無かった。**
+    ///
+    /// ユーザー報告 2026-09-09: メタデータ編集シートでカバーの「切り取るときに残す位置」を
+    /// 変えても、カバーもメニューのチェックマークも更新されない(閉じて開き直すと反映済み)。
+    /// DBへの書き込みも読み戻しも成立していることは実測で確認済みで、古いのは表示だけだった。
+    /// 当時のシートは`@State`のカウンタを自分で増やして描き直しを促していたが、`.contextMenu`の
+    /// 中身は`@State`の変化だけでは組み直されないことがある ―― macOSのSwiftUIでは、メニュー系
+    /// (MenuBarExtra・ToolbarItem・contextMenu)が`@State`の変化に追随しない事例が知られており、
+    /// 回避策として案内されているのも「`@State`ではなく観測対象(ObservableObject)から描く」こと。
+    /// そこで契機をこの`@Published`に一本化し、見る側は`@ObservedObject`で購読する。
+    @Published private(set) var revision: UInt64 = 0
+
+    /// カバーの見え方が変わったことを知らせる(このクラスの書き込み口と、外から届く
+    /// `.layoutDataDidChange`の受け口が呼ぶ)。
+    func noteCoverDidChange() {
+        revision &+= 1
+    }
+
     /// カバー列に表示する名前のキャッシュ(bookID -> 表示名)。上書き設定がある場合は
     /// BookLayoutSettingsに保存済みの値をそのまま使えるが、既定(先頭ページ)の場合は本を
     /// 読み込んで確認する必要があるため、非同期で解決してここへキャッシュする
@@ -179,6 +203,7 @@ final class CoverOverrideController: ObservableObject {
         let coverName = page.location(inBookAt: book.sourceURL).fullPath
         layoutStore.setCoverPageKey(for: book, pageKey: page.sortKey, displayName: coverName)
         resolvedCoverNames[bookID] = coverName
+        noteCoverDidChange()
     }
 
     /// 本に含まれない専用ファイルをカバーに指定する。この専用ファイルは本の一部として扱わない
@@ -192,6 +217,7 @@ final class CoverOverrideController: ObservableObject {
             forBookID: bookID, sourceURL: resolveURL(bookID), fileURL: fileURL
         )) != nil else { return }
         resolvedCoverNames[bookID] = fileURL.lastPathComponent
+        noteCoverDidChange()
     }
 
     /// カバーの上書きを解除し、既定(先頭ページ)に戻す。
@@ -202,6 +228,7 @@ final class CoverOverrideController: ObservableObject {
     func resetCover(forBookID bookID: String) {
         layoutStore.clearCoverOverride(forBookID: bookID)
         resolvedCoverNames.removeValue(forKey: bookID)
+        noteCoverDidChange()
         Task { await refreshCoverName(forBookID: bookID) }
     }
 
@@ -222,5 +249,6 @@ final class CoverOverrideController: ObservableObject {
         layoutStore.setCoverCropAnchor(
             forBookID: bookID, sourceURL: resolveURL(bookID), anchor: anchor
         )
+        noteCoverDidChange()
     }
 }

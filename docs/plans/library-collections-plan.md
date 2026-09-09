@@ -948,6 +948,10 @@ LayoutStore 側を published にする案は採らなかった。アプリ全体
 シートの側は自分の操作でも数を進める。`coverController` を `@State` で持っていて購読していないため、
 自分で押した変更すら契機が無い(通知でも拾えるが、同じウインドウ内は待たずに反映したい)。
 
+> **`BookMetadataSheet` の `coverRevision` は段階 5.20 で撤回した**(`@State` の数え上げでは
+> `.contextMenu` が組み直されないことがある)。`CollectionGridView` / `CollectionDetailView` の
+> `layoutRevision` はメニューを持たないのでそのまま。
+
 ### 画面が移ったら編集モードから出る
 
 ライブラリを移っても、コレクションの中へ入っても、編集モードが残ったままだった。編集モードは
@@ -1159,6 +1163,49 @@ LayoutStore 側を published にする案は採らなかった。アプリ全体
 往復1本と「実在しないパスは設定しない」1本。走査の中核は `nonisolated` な純粋関数として
 切り出してあるので、ストアを組まずに直接叩ける。
 ---
+
+## 段階 5.20(不具合 2026-09-09). カバーの切り取り位置がシートに反映されない
+
+ユーザー報告: 登録直後のコレクションの本を「メタデータの編集」で開き、カバーを右クリックして
+「切り取るときに残す位置」を変えても、カバーもメニューのチェックマークも変わらない。閉じてその本を
+クリックし直すと反映済み。
+
+### 実測でモデルは無罪と分かった
+
+推測を重ねずに、コンテナへ追記するログを仕込んでユーザー自身に操作してもらった
+(統合ログには出てこなかったので `~/Library/Containers/…/Data/tmp/` へ直接書いた)。
+
+```
+MENU.tap   want=.start controller=true
+STORE.set  hadRow=false current=nil want=.start
+STORE.set  done readback=.start        ← DB は正しい
+SHEET.body rev=2 anchor=.start          ← body も正しい値を読んでいる
+MENU.build current=.start checked=true  ← メニューも正しく組まれている
+```
+
+書き込みも読み戻しも毎回成功しており、**古いのは画面だけ**。しかも**計測を入れると再現しなくなる**
+(タイミング依存)。この時点で自前のコードの筋ではなく SwiftUI 側を疑い、CLAUDE.md の決まりどおり
+先に検索した ―― macOS の SwiftUI ではメニュー系(MenuBarExtra・ToolbarItem・contextMenu)が
+`@State` の変化に追随しない事例が複数報告されており、案内されている回避策も
+「`@State` ではなく観測対象(ObservableObject)から描く」ことだった。
+
+### 直し方
+
+`CoverOverrideController` は `ObservableObject` なのに、シートが `@State` で持っていた
+(**`@State` に入れた `ObservableObject` は購読されない**)。そのため段階 5 では `coverRevision` を
+手で回して描き直しを促していたが、`.contextMenu` の組み直しはそこまで面倒を見てくれない。
+
+- コントローラに `@Published private(set) var revision` を足し、カバーの指定を書くすべての口
+  (ページ指定・外部ファイル・既定に戻す・切り取り位置)で `noteCoverDidChange()` を通す。
+  `.layoutDataDidChange`(別ウインドウからの変更)もここへ流し込み、契機を1本にする。
+- カバーの絵と右クリックメニューを `CoverArea` へ切り出し、`@ObservedObject` で購読する。
+  `coverRevision` は削除。
+- `.contextMenu` が確実に組み直されるよう `.id(controller.revision)` を掛ける。**掛けるのは
+  カバーとメニューだけ**で、ページを選ぶ画面を出しているかどうかの `@State` は外側の `CoverArea`
+  が持つ ―― 内側を作り直してもその画面が閉じないようにするため。作り直しが確実、というのは
+  画面外セルが解放されない件で `.id(epoch)` だけが効いたのと同じ判断。
+
+**再現しなくなった状態でしか確認できていない**(計測を外した修正版でユーザーが確認)。
 
 ## 段階 6. 仕上げ
 

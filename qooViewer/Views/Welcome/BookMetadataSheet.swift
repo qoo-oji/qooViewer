@@ -42,14 +42,6 @@ struct BookMetadataSheet: View {
     /// カバーの指定。環境オブジェクトが要るのでinitでは作れず、onAppearで組み立てる
     /// (MetadataEditorWindowが@StateのViewModelを組み立てるのと同じ形)。
     @State private var coverController: CoverOverrideController?
-    @State private var isPickingPage = false
-    @State private var isCoverDropTargeted = false
-    /// カバーの指定を変えるたびに増やすだけの数。**この値自体は読まない。**
-    ///
-    /// 切り出し位置もカバーの上書きもDB(BookLayoutSettings)から毎回読んでいるが、LayoutStoreは
-    /// その変更で`objectWillChange`を出さない(CollectionGridView.layoutRevisionのコメント参照)。
-    /// このシートは`coverController`を`@State`で持っていて購読もしていないので、契機が要る。
-    @State private var coverRevision = 0
 
     /// カバーの表示幅。高さはライブラリの縦横比から決まる(2:3なら1.5倍、1:1なら等倍)。
     /// 右の4欄+説明とだいたい同じ高さになる値にしてある ―― どちらかが極端に長いと、
@@ -124,9 +116,10 @@ struct BookMetadataSheet: View {
         .padding(20)
         .frame(width: 460)
         // 別のウインドウ(「メタデータの編集」ウインドウ・書き出しウインドウ)から同じ本の
-        // カバーを変えられたときも追いつく。
+        // カバーを変えられたときも追いつく。契機はコントローラの`revision`に一本化してある
+        // (CoverOverrideController.revisionのコメント参照)。
         .onReceive(NotificationCenter.default.publisher(for: .layoutDataDidChange)) { _ in
-            coverRevision &+= 1
+            coverController?.noteCoverDidChange()
         }
         .onAppear {
             draft = MetadataEditorViewModel.initialDraft(
@@ -176,15 +169,100 @@ struct BookMetadataSheet: View {
 
     // MARK: - カバー画像
 
+    /// カバーの絵と、その右クリックメニュー。
+    ///
+    /// **コントローラができるまでは出さない。** カバーの指定を読み書きする口がすべて
+    /// コントローラにあるため、無い状態で描いても「未指定」としか出せず、しかもその状態で
+    /// 組まれたメニューがそのまま残ることがある(下のCoverAreaのコメント参照)。
+    @ViewBuilder
     private var cover: some View {
-        CollectionCoverThumbnail(
-            item: item, coverStore: collectionStore.coverStore,
-            aspectRatio: library.coverAspectRatio,
-            anchor: coverController?.cropAnchor(forBookID: item.bookID)
-                ?? library.coverCropAnchor,
-            displayWidth: Self.coverWidth
+        if let coverController {
+            CoverArea(
+                controller: coverController, item: item, library: library,
+                width: Self.coverWidth, isCropAnchorEnabled: isCropAnchorEffective,
+                coverStore: collectionStore.coverStore, locale: locale
+            )
+        } else {
+            // 高さを合わせるためだけの場所取り(一瞬で入れ替わる)。
+            Color.clear
+                .frame(width: Self.coverWidth, height: Self.coverWidth / library.coverAspectRatio.value)
+        }
+    }
+
+    // MARK: - 登録
+
+    /// 4欄をDBへ登録する(登録済みなら上書き)。4欄すべてが空のまま押すと、既存仕様どおり
+    /// `upsert`が行そのものを消す ―― 「解除」を兼ねるのでボタン名は「Register」のままにする。
+    private func register() {
+        metadataStore.upsert(
+            bookID: item.bookID,
+            author: draft.author, title: draft.title,
+            series: draft.series, seriesIndex: draft.seriesIndex,
+            // ウインドウ版と違い、この画面は本のURLを持てている(ブックマークとinodeも入る)。
+            sourceURL: sourceURL
         )
-        .frame(width: Self.coverWidth)
+        dismiss()
+    }
+}
+
+/// カバーの絵と、その右クリックメニュー(BookMetadataSheetから切り出したもの)。
+///
+/// ■ なぜ別のビューにしたのか(ユーザー報告 2026-09-09)
+/// 元はシートの中の計算プロパティで、`CoverOverrideController`はシートが`@State`で持っていた。
+/// **`@State`に入れた`ObservableObject`は購読されない**ので、カバーの指定を変えても画面が
+/// 描き直される保証が無く、シート側は`@State`のカウンタ(`coverRevision`)を自分で増やして
+/// 描き直しを促していた。
+///
+/// これが「切り取るときに残す位置を変えても、カバーもチェックマークも変わらない(閉じて開き直すと
+/// 反映済み)」の正体だった。DBへの書き込みと読み戻しは毎回成功していることを実測で確認済みで、
+/// 古いのは表示だけ。**`.contextMenu`の中身は`@State`の変化だけでは組み直されないことがある** ――
+/// macOSのSwiftUIではメニュー系(MenuBarExtra・ToolbarItem・contextMenu)が`@State`に追随しない
+/// 事例が知られていて、案内されている回避策も「`@State`ではなく観測対象から描く」ことだった。
+/// 計測用のログを挟むと再現しなくなる(タイミング依存)ことも、この筋と符合する。
+///
+/// そこで、契機をコントローラの`@Published var revision`へ一本化し、こちらは
+/// `@ObservedObject`で購読する。カウンタを手で回す必要は無くなった。
+private struct CoverArea: View {
+    @ObservedObject var controller: CoverOverrideController
+    let item: CollectionItem
+    let library: BookLibrary
+    let width: CGFloat
+    /// 「残す位置」を選ばせてよいか(BookMetadataSheet.isCropAnchorEffective)。
+    let isCropAnchorEnabled: Bool
+    let coverStore: CollectionCoverStore
+    let locale: Locale
+
+    @State private var isPickingPage = false
+    @State private var isCoverDropTargeted = false
+
+    var body: some View {
+        // **`.id`はカバーとメニューにだけ掛ける。** `@ObservedObject`の購読だけでもbodyは
+        // 組み直されるが、`.contextMenu`が実際に組み直される保証はそこには無い(型コメント参照)。
+        // 作り直しを明示するのがいちばん確実で、これは他の箇所で見開き一覧に対して採った手と
+        // 同じ(画面外のセルが解放されない件で、`.id(epoch)`だけが効いた)。
+        //
+        // `@State`(ページを選ぶ画面を出しているか、ドロップの当たり判定)は**このビューが持つ**
+        // ので、中身を作り直しても消えない ―― ページを選ぶ画面の中でカバーを差し替えても、
+        // その画面が閉じてしまうことは無い。
+        thumbnailWithMenu
+            .id(controller.revision)
+            .popover(isPresented: $isPickingPage) {
+                ExportCoverPickerContent(
+                    bookID: item.bookID, controller: controller,
+                    showsCropAnchor: true, isCropAnchorEnabled: isCropAnchorEnabled
+                )
+            }
+            .accessibilityLabel(Text("Cover"))
+    }
+
+    private var thumbnailWithMenu: some View {
+        CollectionCoverThumbnail(
+            item: item, coverStore: coverStore,
+            aspectRatio: library.coverAspectRatio,
+            anchor: controller.cropAnchor(forBookID: item.bookID) ?? library.coverCropAnchor,
+            displayWidth: width
+        )
+        .frame(width: width)
         .overlay {
             if isCoverDropTargeted {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -196,18 +274,9 @@ struct BookMetadataSheet: View {
         // bookFileDropTargetは通さない。
         .fileURLDropTarget(isTargeted: $isCoverDropTargeted) { urls in
             guard let imageURL = urls.first(where: { isImageFile($0.lastPathComponent) }) else { return }
-            coverController?.setExternalCover(forBookID: item.bookID, fileURL: imageURL)
+            controller.setExternalCover(forBookID: item.bookID, fileURL: imageURL)
         }
         .contextMenu { coverMenu }
-        .popover(isPresented: $isPickingPage) {
-            if let coverController {
-                ExportCoverPickerContent(
-                    bookID: item.bookID, controller: coverController,
-                    showsCropAnchor: true, isCropAnchorEnabled: isCropAnchorEffective
-                )
-            }
-        }
-        .accessibilityLabel(Text("Cover"))
     }
 
     @ViewBuilder
@@ -218,7 +287,7 @@ struct BookMetadataSheet: View {
         Button("Choose Page in This Book…") { isPickingPage = true }
         Button("Choose File…") { chooseExternalFile() }
         Button("Reset to Default (First Page)") {
-            coverController?.resetCover(forBookID: item.bookID)
+            controller.resetCover(forBookID: item.bookID)
         }
 
         Divider()
@@ -232,17 +301,16 @@ struct BookMetadataSheet: View {
             cropAnchorItem("Center", .center)
             cropAnchorItem("Bottom / Right", .end)
         }
-        .disabled(!isCropAnchorEffective)
+        .disabled(!isCropAnchorEnabled)
     }
 
     private func cropAnchorItem(_ titleKey: LocalizedStringKey, _ anchor: CoverCropAnchor?) -> some View {
         Button {
-            coverController?.setCropAnchor(forBookID: item.bookID, anchor)
-            coverRevision &+= 1
+            controller.setCropAnchor(forBookID: item.bookID, anchor)
         } label: {
             // コンテキストメニューのButtonにはチェックマークが付かないため、選択中の項目には
             // 自分で印を添える(メニューバーのToggleと違い、ここは1つを選ぶ4択)。
-            if coverController?.cropAnchor(forBookID: item.bookID) == anchor {
+            if controller.cropAnchor(forBookID: item.bookID) == anchor {
                 Label(titleKey, systemImage: "checkmark")
             } else {
                 Text(titleKey)
@@ -260,21 +328,6 @@ struct BookMetadataSheet: View {
             localized: "Choose an image file to use as the cover.", language: locale
         )
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        coverController?.setExternalCover(forBookID: item.bookID, fileURL: url)
-    }
-
-    // MARK: - 登録
-
-    /// 4欄をDBへ登録する(登録済みなら上書き)。4欄すべてが空のまま押すと、既存仕様どおり
-    /// `upsert`が行そのものを消す ―― 「解除」を兼ねるのでボタン名は「Register」のままにする。
-    private func register() {
-        metadataStore.upsert(
-            bookID: item.bookID,
-            author: draft.author, title: draft.title,
-            series: draft.series, seriesIndex: draft.seriesIndex,
-            // ウインドウ版と違い、この画面は本のURLを持てている(ブックマークとinodeも入る)。
-            sourceURL: sourceURL
-        )
-        dismiss()
+        controller.setExternalCover(forBookID: item.bookID, fileURL: url)
     }
 }
