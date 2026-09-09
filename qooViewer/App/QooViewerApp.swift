@@ -59,6 +59,67 @@ struct QooViewerApp: App {
     /// (そこのコメント参照)。mainウインドウが最初に表示された時点でtrueになる。
     @State private var suppressesExternalEventWindows = false
 
+    /// 起動時にmainウインドウを開く大きさ。**前回終了時のフレームの大きさ**で、無ければ
+    /// 900x640(この機能を入れる前の固定値)。位置は`defaultMainWindowPosition`。
+    ///
+    /// ■ なぜ.defaultSizeにも渡すのか(ユーザー報告 2026-09-09)
+    /// 位置・サイズの復元は`ContentView.restoreMainWindowFrameIfNeeded`が行うが、あれが
+    /// 走るのはウインドウが**表示された後**なので、既定の900x640で一度出てから前回の大きさへ
+    /// 広がる様子が見えていた。しかもSwiftUIの中身は900pt幅で一度組まれてから広い幅で組み直され、
+    /// ウェルカム画面の一覧の列数が変わるので**中身のレイアウトまでガクッと入れ替わる**
+    /// (1930x1409で終了していれば、6列で組んでから14列へ組み直すことになる)。
+    /// 最初からその大きさで開けば、どちらも起きない(位置は`defaultMainWindowPosition`)。
+    ///
+    /// **起動時に1度だけ読む。** `.defaultSize`はSceneの宣言で、bodyの評価ごとに変わる値を
+    /// 渡すものではない(この値はウインドウを動かすたびに保存されるので、読み続けると
+    /// 「タブバーの＋で足したタブの大きさが直前の操作で変わる」ことになる)。
+    ///
+    /// これを渡すのは"main"だけ。「新しいウインドウで開く」("normal"/"private")は、
+    /// 主ウインドウの大きさとは関係なく開く既定のまま(900x640)にしてある。
+    private static let defaultMainWindowSize: CGSize =
+        savedMainWindowFrame?.size ?? CGSize(width: 900, height: 640)
+
+    /// 起動時にmainウインドウを開く位置。前回終了時のフレームの原点を、`.defaultPosition`が
+    /// 受け取る`UnitPoint`へ翻訳したもの。分からなければ中央(SwiftUIの既定と同じ)。
+    ///
+    /// ■ 翻訳の式(実測で確かめたもの 2026-09-09)
+    /// `.defaultPosition`を付けずに開いたウインドウの原点は、実測で
+    /// `visibleFrame.minX + (visibleFrame.width - ウインドウの幅) × 0.5` にぴったり一致した
+    /// (画面 {{90, 0}, {2470, 1409}}・幅1930のウインドウが x=360)。つまり
+    /// **原点 = 画面の余白 × UnitPoint**。これを逆に解いて、前回の原点になるUnitPointを求める。
+    /// yはUnitPointが上向き・AppKitの画面座標が下向きなので反転する。
+    ///
+    /// ■ なぜ位置まで合わせるのか
+    /// 大きさだけ合わせても、中央に出てから前回の位置へ**横に滑る**のが見える(実測で272pt)。
+    /// 復元そのものは`ContentView.restoreMainWindowFrameIfNeeded`が引き続き行うので、
+    /// ここの見積もりが外れても最終的な位置は変わらない ―― 外れたぶんだけ滑るのが見える、
+    /// という今までの挙動に戻るだけ。
+    ///
+    /// 前回のフレームが今の主画面に掛かっていないとき(別のディスプレイで終了した・その
+    /// ディスプレイが今は無い)は中央のまま。`.defaultPosition`が基準にするのは主画面なので、
+    /// 別の画面を基準に計算しても合わせようがない。
+    private static let defaultMainWindowPosition: UnitPoint = {
+        guard let frame = savedMainWindowFrame, let screen = NSScreen.main else { return .center }
+        let visible = screen.visibleFrame
+        guard visible.intersects(frame) else { return .center }
+        let slackX = visible.width - frame.width
+        let slackY = visible.height - frame.height
+        // 余白が無い(画面いっぱい)方向は、どのUnitPointでも同じ位置になるので0.5のままでよい。
+        let x = slackX > 0 ? (frame.minX - visible.minX) / slackX : 0.5
+        let y = slackY > 0 ? 1 - (frame.minY - visible.minY) / slackY : 0.5
+        return UnitPoint(x: min(max(x, 0), 1), y: min(max(y, 0), 1))
+    }()
+
+    /// 前回終了時のmainウインドウのフレーム(無ければnil)。
+    /// キー文字列はContentView.mainWindowFrameDefaultsKeyと同じもの(そちらのコメント参照)。
+    private static let savedMainWindowFrame: CGRect? = {
+        guard let saved = UserDefaults.standard.string(forKey: "qooViewer.mainWindowFrame")
+        else { return nil }
+        let rect = NSRectFromString(saved)
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        return rect
+    }()
+
     /// お気に入り・ブックマーク・読書履歴(BookReadingState)・ページレイアウト設定・
     /// 書誌メタデータ(BookMetadata)・コレクション(BookLibrary/BookCollection/CollectionItem)
     /// のスキーマ。
@@ -414,8 +475,11 @@ struct QooViewerApp: App {
         // 「保存された状態が無いときの初期サイズ」だけを別途指定した上で.automaticにすることで、
         // 初回起動時は900x640相当のサイズになりつつ、2回目以降はSwiftUI側がフレームに
         // 干渉せず、setFrameAutosaveNameによる復元がそのまま反映されるようにする。
+        // その初期サイズは**前回終了時の大きさ**を渡す(defaultMainWindowSizeのコメント参照)
+        // ―― 固定の900x640だと、起動のたびにウインドウが広がる様子と中身の組み直しが見えていた。
         .windowResizability(.automatic)
-        .defaultSize(width: 900, height: 640)
+        .defaultSize(Self.defaultMainWindowSize)
+        .defaultPosition(Self.defaultMainWindowPosition)
         // バグ修正(ユーザー報告): ウインドウをすべて閉じた状態から外部アプリ等で再アクティブ化
         // すると、macOSの標準ウインドウ状態復元の仕組みが「前回のmainウインドウを復元する」
         // つもりで空のウインドウを自動生成することがあり、これが閉じたはずの古いNSWindow

@@ -83,8 +83,17 @@ struct CollectionGridView: View {
 
             if collections.isEmpty {
                 emptyMessage
-            } else {
+            } else if appState.hasSettledWindowFrame {
                 grid
+            } else {
+                // **札はまだ描かない。** ウインドウの位置・サイズの復元と、トップバー・
+                // この画面の操作列といった基本パーツの描画を先に通す(ユーザー要望
+                // 2026-09-09。AppState.hasSettledWindowFrameのコメント参照)。1画面に札が
+                // 100枚載る棚では最初のフレームの費用がそのまま起動の待ちに乗り、ウインドウが
+                // 復元される様子まで見えていた。数フレーム遅れて札が現れるほうが穏当、
+                // という判断。
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .sheet(

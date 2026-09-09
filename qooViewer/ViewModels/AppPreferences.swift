@@ -1307,6 +1307,36 @@ final class AppPreferences: ObservableObject {
         UserDefaults.standard.bool(forKey: Keys.launchInPrivateMode)
     }
 
+    /// 「隠す」3つ(ツールバー / プログレスバー / サイドパネル)の、ウインドウを組み立てる
+    /// 時点での値。
+    ///
+    /// ■ なぜインスタンスを介さずに読むのか(ユーザー報告 2026-09-09)
+    /// この3つはウインドウごとの状態(AppState)で、これまでは`ContentView`の`onAppear`で
+    /// AppPreferencesから写していた。onAppearが走るのは**最初のフレームを描いた後**なので、
+    /// 隠してあるはずのパーツが1フレームだけ現れ、直後に閉じる様子が見えていた ――
+    /// サイドパネルは幅を持つうえ0.15秒のアニメーションが掛かるので、起動直後に
+    /// 「サイドパネルが隠れる様子」としてはっきり見える。AppStateを作る時点
+    /// (`ContentView.init`)で渡してしまえば、最初のフレームから正しい姿で描かれる。
+    /// onAppearの写しはそのまま残してある ―― 他のウインドウでこの設定が変わった後に
+    /// 開いたタブにも効かせるためで、値が同じなら何も起きない。
+    /// `nonisolated`: `AppState.init`の既定値として書けるようにするため。このプロジェクトは
+    /// 既定のアクター隔離がMainActorなので、そのままだとメンバーワイズのinit自体が
+    /// MainActor隔離になり、同期の非隔離文脈から呼べない。
+    nonisolated struct HiddenChrome: Equatable, Sendable {
+        var toolbar = false
+        var progressBar = false
+        var sidePanel = false
+    }
+
+    /// 上の値の窓口(isPrivateModeDefaultと同じ理由でstatic)。
+    static var hiddenChromeDefaults: HiddenChrome {
+        HiddenChrome(
+            toolbar: UserDefaults.standard.bool(forKey: Keys.hideToolbar),
+            progressBar: UserDefaults.standard.bool(forKey: Keys.hideProgressBar),
+            sidePanel: UserDefaults.standard.bool(forKey: Keys.hideSidePanel)
+        )
+    }
+
     // MARK: - サムネイルのホバー拡大プレビュー(ページ一覧・サイドパネル・ブックマーク編集・書き出し共通)
 
     /// ページ一覧のサムネイルにカーソルを合わせたとき拡大プレビュー(ポップオーバー)を出すか。

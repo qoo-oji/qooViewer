@@ -140,7 +140,13 @@ struct ContentView: View {
         // 値を渡してこないのは"main" WindowGroupだけ(isMainWindowGroupのコメント参照)。
         self.isMainWindowGroup = (isPrivateWindow == nil)
         _appState = StateObject(
-            wrappedValue: AppState(isPrivateWindow: isPrivateWindow ?? AppPreferences.isPrivateModeDefault)
+            wrappedValue: AppState(
+                isPrivateWindow: isPrivateWindow ?? AppPreferences.isPrivateModeDefault,
+                // 「隠す」3つは**ここで渡す**。onAppearで写していた頃は、隠してあるはずの
+                // パーツが最初のフレームにだけ現れて直後に閉じる様子が見えていた
+                // (AppPreferences.HiddenChromeのコメント参照)。
+                hiddenChrome: AppPreferences.hiddenChromeDefaults
+            )
         )
     }
 
@@ -527,7 +533,20 @@ struct ContentView: View {
                 restoreMainWindowFrameIfNeeded(window)
                 observeMainWindowFrameChanges(window)
             }
+            // ここまででウインドウの位置・サイズは決まっている。1ランループ置いてから
+            // 知らせるのは、**基本パーツだけの1フレームを先に描かせる**ため
+            // (AppState.hasSettledWindowFrameのコメント参照)。同じターンで立てると、
+            // 札の描画が最初のフレームに同居して起動の待ちがそのまま伸びる。
+            if window != nil {
+                DispatchQueue.main.async { appState.markWindowFrameSettled() }
+            }
         })
+        .onAppear {
+            // 上の保険。WindowAccessorが発火しない経路があっても、一覧が空のまま止まらない
+            // ようにする(AppState.hasSettledWindowFrameのコメント参照)。こちらも1ランループ
+            // 置くので、通常はWindowAccessor側と同じフレームで立つ。
+            DispatchQueue.main.async { appState.markWindowFrameSettled() }
+        }
         .onAppear {
             // すでに主ウインドウ(primaryAppState)が存在するのに、URLの指定なしで
             // 「main」ウインドウグループの新しいインスタンス(=このContentView)が

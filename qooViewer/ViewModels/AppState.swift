@@ -86,9 +86,21 @@ final class AppState: ObservableObject {
     /// キャッシュへテスト用の本を残してはいけない(`ViewerViewModel.usesDiskCaches` と同じ話)。
     private let usesPageListCache: Bool
 
-    init(isPrivateWindow: Bool = false, usesPageListCache: Bool = true) {
+    /// - Parameter hiddenChrome: 「隠す」3つの初期値。**最初のフレームから正しい姿で描く**
+    ///   ために、ウインドウを組み立てる時点で渡す(AppPreferences.HiddenChromeのコメント参照)。
+    ///   既定は「何も隠していない」で、テストはそのまま使う ―― 既定でUserDefaultsを読むと、
+    ///   テストが利用者の設定に触れることになる。
+    init(
+        isPrivateWindow: Bool = false, usesPageListCache: Bool = true,
+        hiddenChrome: AppPreferences.HiddenChrome = .init()
+    ) {
         self.isPrivateWindow = isPrivateWindow
         self.usesPageListCache = usesPageListCache
+        // initの中の代入はdidSetを通らないので、preferencesへの書き戻しは起きない
+        // (この時点ではまだpreferences自体がnil)。
+        self.hideToolbar = hiddenChrome.toolbar
+        self.hideProgressBar = hiddenChrome.progressBar
+        self.hideSidePanel = hiddenChrome.sidePanel
     }
 
     @Published var currentBook: MangaBook?
@@ -683,6 +695,26 @@ final class AppState: ObservableObject {
     /// 追加されてしまう不具合があった。本を開いているAppStateそのものが持つウインドウ参照を
     /// 直接使うことで、常に正しいウインドウへタブを追加できるようにしている。
     weak var hostWindow: NSWindow?
+
+    /// このウインドウの位置・サイズが決まって、最初の描画を1回通したか
+    /// (ContentViewのWindowAccessorが立てる)。
+    ///
+    /// ■ 何のためか(ユーザー報告 2026-09-09)
+    /// ウェルカム画面の一覧は、1画面に札が100枚載るような棚では最初のフレームの費用が
+    /// そのまま起動の待ちに乗る。ウインドウの位置・サイズの復元と、トップバーなどの
+    /// 基本パーツの描画を**先に**通してから札を描くために、一覧側がこれを見て待つ
+    /// (CollectionGridView.grid)。札が数フレーム遅れて現れるのは、ウインドウの復元が
+    /// 見えるより穏当だという判断(利用者の指定)。
+    ///
+    /// **必ずtrueになること。** WindowAccessorが発火しない経路があっても、ContentViewの
+    /// onAppearが保険で立てる ―― ここがfalseのままだと一覧が永久に空になる。
+    @Published private(set) var hasSettledWindowFrame = false
+
+    /// 上を立てる唯一の口。2度目以降は何もしない(publishを繰り返さない)。
+    func markWindowFrameSettled() {
+        guard !hasSettledWindowFrame else { return }
+        hasSettledWindowFrame = true
+    }
 
     /// hostWindowに被せたウインドウデリゲート(BookClosingWindowDelegate)の**所有者**。
     /// ViewerView.setUpWindowObserversが作って(または既存のものを見つけて)ここに預ける。
