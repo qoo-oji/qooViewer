@@ -8,7 +8,17 @@ import SwiftUI
 /// 2:3 なら3列2行で最大6冊、1:1 なら2列2行で最大4冊(CoverAspectRatio.tileColumns)。どちらも
 /// **札全体がほぼ正方形になる**組み合わせで、縦横比の指定を別に書かなくても正方形に落ち着く
 /// ので、タイルの大きさはスライダーの値(LazyVGridの`.adaptive(minimum:)`)にそのまま従わせられる
-/// (計算はCoverAspectRatio.tileColumnsのコメント)。
+/// (計算はCoverAspectRatio.tileColumnsのコメント)。余白と間隔の値はCollectionTileLayoutが持つ
+/// ―― 焼いた絵を作る側と表示側で食い違わせないため。
+///
+/// ■ 絵の出どころは2通り
+/// - **焼いた札の絵**(CollectionTileImageStore): 中身のカバーを敷き詰めた1枚を先に作って
+///   持っておき、ここではそれを切り分けて並べるだけ。1コレクションにつきファイル読みと復号が
+///   1回で済む(セルごとに読むと札100枚で600回になる。あちらの型コメント参照)
+/// - **生のセル**(CollectionCoverThumbnail): 抽出待ち・失敗・実体が見つからない本が混じる札は
+///   こちら。どれも状態で見た目が変わるもので、絵に焼き込むと状態が伝わらなくなる
+///
+/// 割り付けはどちらも同じ`grid(cell:)`を通るので、経路が切り替わっても1ptも動かない。
 ///
 /// ■ 編集モードでは「選ぶ」
 /// 編集モード中はクリックが**中へ入る**から**選ぶ/選び直す**に変わり、左上に選択の印
@@ -31,6 +41,8 @@ struct CollectionTile: View {
     /// この本のカバーで残す位置(本ごとの上書き ?? ライブラリの既定)。
     let cropAnchor: (CollectionItem) -> CoverCropAnchor
     let coverStore: CollectionCoverStore
+    /// 焼いた札の絵の保管庫。
+    let tileStore: CollectionTileImageStore
     /// このライブラリのカバーの縦横比。セルの形とここの割り付けの両方がこれで決まる。
     let aspectRatio: CoverAspectRatio
     /// 札の地の色(ライブラリの設定。既定は明暗どちらにも馴染む薄い地)。
@@ -40,7 +52,9 @@ struct CollectionTile: View {
     /// 札の下に出す名前の文字の大きさ(pt。環境設定「外観」→「ウェルカム画面」)。
     /// 既定の13ptは、設定にする前の`Text`の既定(macOSの`.body`)そのもの。
     var nameFontSize: CGFloat = 13
-    var onImageRetained: ((CGImage) -> Void)?
+    /// 保持した画像を呼び出し側の帳簿(LazyCellImageBudget)へ伝える。第2引数は
+    /// **その1枚が何セル分に相当するか** ―― 焼いた札の絵は1枚で中身のカバー全部を兼ねる。
+    var onImageRetained: ((CGImage, Int) -> Void)?
     /// 編集モードか。クリックの意味(開く/選ぶ)がこれで変わる。
     var isEditing: Bool = false
     var isSelected: Bool = false
@@ -48,20 +62,17 @@ struct CollectionTile: View {
     /// 編集モード中のクリック。
     var onToggleSelection: () -> Void = {}
 
-    /// セルの間隔(ユーザー指摘 2026-09-09で3ptから広げた ―― 詰まりすぎて、6冊が1枚の
-    /// 大きな絵のように見えていた)。
-    ///
-    /// 札がぴったり正方形にならないのはこの値のぶん(CoverAspectRatio.tileColumnsの計算)なので、
-    /// 広げるほど正方形から離れる。180ptの札で6ptのずれ = 3%程度なので、並べたときに気づく差には
-    /// ならない。
-    private static let cellSpacing: CGFloat = 6
-    /// 札の内側の余白。セルの間隔より狭いと、外周だけが窮屈に見えるので少し広く取る。
-    private static let padding: CGFloat = 8
+    /// いま持っている焼いた絵。`key`は`CollectionTileImageStore.cacheKey`で、これが
+    /// 一致しないもの(比を変えた・本が増えた・大きさを変えた)は使わない。
+    private struct LoadedSheet {
+        var key: String
+        var image: CGImage
+    }
+    @State private var loadedSheet: LoadedSheet?
 
     /// セル1つの実寸の見積もり(復号サイズの上限にだけ使う。実際の割り付けはGridが決める)。
     private var cellWidth: CGFloat {
-        let columns = CGFloat(aspectRatio.tileColumns)
-        return (size - Self.padding * 2 - Self.cellSpacing * (columns - 1)) / columns
+        CollectionTileLayout.cellWidth(tileWidth: size, aspectRatio: aspectRatio)
     }
 
     /// 札の角丸。選択の枠も同じ形で描く。
@@ -90,7 +101,60 @@ struct CollectionTile: View {
     }
 
     private var artwork: some View {
-        Grid(horizontalSpacing: Self.cellSpacing, verticalSpacing: Self.cellSpacing) {
+        // 注文書と鍵はここで1度だけ組み立てて、描画と`.task`の両方へ渡す(指紋の計算を
+        // bodyの中で二重に走らせない)。
+        let request = tileImageRequest
+        let key = request.map { CollectionTileImageStore.cacheKey($0, pixelSize: sheetPixelSize) }
+        return cells(request: request, key: key)
+            .padding(CollectionTileLayout.padding)
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(backgroundColor)
+            )
+            // 冊数バッジ。自前の塗り地を持つので輪郭は付けない(すりガラス面の決まりごとの例外側)。
+            .overlay(alignment: .bottomTrailing) {
+                Text("\(collection.items.count)")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.black.opacity(0.55))
+                    .foregroundStyle(Color.white)
+                    .clipShape(Capsule())
+                    .padding(6)
+            }
+            // 選択中の枠。印だけだと、札が小さいときにどれを選んだのか一目で分からない。
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Color.accentColor, lineWidth: 3)
+                    .opacity(isSelected ? 1 : 0)
+            }
+            .panelOutlinedAccent(
+                in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous),
+                isEnabled: isSelected
+            )
+            // 選択の印。編集モードのときだけ出す。
+            .overlay(alignment: .topLeading) {
+                if isEditing {
+                    SelectionCheckmarkBadge(isSelected: isSelected, size: size)
+                }
+            }
+            .contentShape(Rectangle())
+            // 焼いた絵の読み込み。鍵が変われば(比・並び・切り出す位置・大きさが変わった)
+            // 読み直す。焼いた絵を使えない札では鍵がnilで、何もしない。
+            .task(id: key ?? "live") {
+                await loadSheet(request: request, key: key)
+            }
+    }
+
+    // MARK: - 割り付け
+
+    /// 割り付けは焼いた絵でも生のセルでも同じ。
+    private func grid<Cell: View>(@ViewBuilder cell: @escaping (Int) -> Cell) -> some View {
+        Grid(
+            horizontalSpacing: CollectionTileLayout.cellSpacing,
+            verticalSpacing: CollectionTileLayout.cellSpacing
+        ) {
             ForEach(0..<aspectRatio.tileRows, id: \.self) { row in
                 GridRow {
                     ForEach(0..<aspectRatio.tileColumns, id: \.self) { column in
@@ -99,44 +163,41 @@ struct CollectionTile: View {
                 }
             }
         }
-        .padding(Self.padding)
-        .background(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(backgroundColor)
-        )
-        // 冊数バッジ。自前の塗り地を持つので輪郭は付けない(すりガラス面の決まりごとの例外側)。
-        .overlay(alignment: .bottomTrailing) {
-            Text("\(collection.items.count)")
-                .font(.caption)
-                .monospacedDigit()
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.black.opacity(0.55))
-                .foregroundStyle(Color.white)
-                .clipShape(Capsule())
-                .padding(6)
-        }
-        // 選択中の枠。印だけだと、札が小さいときにどれを選んだのか一目で分からない。
-        .overlay {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .strokeBorder(Color.accentColor, lineWidth: 3)
-                .opacity(isSelected ? 1 : 0)
-        }
-        .panelOutlinedAccent(
-            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous),
-            isEnabled: isSelected
-        )
-        // 選択の印。編集モードのときだけ出す。
-        .overlay(alignment: .topLeading) {
-            if isEditing {
-                SelectionCheckmarkBadge(isSelected: isSelected, size: size)
-            }
-        }
-        .contentShape(Rectangle())
     }
 
     @ViewBuilder
-    private func cell(_ index: Int) -> some View {
+    private func cells(request: CollectionTileImageRequest?, key: String?) -> some View {
+        if let request, let key, let sheet = sheetImage(forKey: key) {
+            grid { index in bakedCell(index, sheet: sheet, count: request.cells.count) }
+        } else {
+            grid { index in liveCell(index) }
+        }
+    }
+
+    /// 焼いた絵から切り出した1セル。`CGImage.cropping(to:)`は元画像を参照する部分画像を
+    /// 作るだけで、画素のコピーは起きない(CoverImageResolver.cropped(_:to:anchor:)と同じ)。
+    @ViewBuilder
+    private func bakedCell(_ index: Int, sheet: CGImage, count: Int) -> some View {
+        if index < count,
+           let slice = sheet.cropping(to: CollectionTileLayout.cellRect(
+               index: index, inImageOfSize: (sheet.width, sheet.height), aspectRatio: aspectRatio
+           )) {
+            Image(decorative: slice, scale: 1)
+                .resizable()
+                .aspectRatio(aspectRatio.value, contentMode: .fit)
+                .clipShape(
+                    RoundedRectangle(
+                        cornerRadius: CollectionCoverThumbnail.cornerRadius(forWidth: cellWidth),
+                        style: .continuous
+                    )
+                )
+        } else {
+            emptyCell
+        }
+    }
+
+    @ViewBuilder
+    private func liveCell(_ index: Int) -> some View {
         if index < items.count {
             let item = items[index]
             CollectionCoverThumbnail(
@@ -147,13 +208,88 @@ struct CollectionTile: View {
                 displayWidth: cellWidth,
                 exists: exists(item),
                 isExtracting: isExtracting(item),
-                onImageRetained: onImageRetained
+                onImageRetained: { onImageRetained?($0, 1) }
             )
         } else {
-            // 枠を埋めきらないぶんは、同じ大きさの空きとして残す(詰めて並べると、冊数によって
-            // 札の中の割り付けが変わり、一覧が揃って見えない)。
-            Color.clear
-                .aspectRatio(aspectRatio.value, contentMode: .fit)
+            emptyCell
         }
+    }
+
+    /// 枠を埋めきらないぶんは、同じ大きさの空きとして残す(詰めて並べると、冊数によって
+    /// 札の中の割り付けが変わり、一覧が揃って見えない)。
+    private var emptyCell: some View {
+        Color.clear
+            .aspectRatio(aspectRatio.value, contentMode: .fit)
+    }
+
+    // MARK: - 焼いた札の絵
+
+    /// この札を1枚の絵として焼けるか。焼けるならその注文書。
+    ///
+    /// 抽出待ち(スピナー)・失敗(形式バッジ)・実体が見つからない(淡く描く)が1つでも
+    /// 混じっていたら焼かない ―― どれも状態で見た目が変わるもので、絵にしてしまうと
+    /// 状態が変わったことが伝わらなくなる。棚が育ちきった後はほとんどの札が焼ける側に入る。
+    private var tileImageRequest: CollectionTileImageRequest? {
+        guard !items.isEmpty else { return nil }
+        var cells: [CollectionTileImageRequest.Cell] = []
+        cells.reserveCapacity(items.count)
+        for item in items {
+            guard item.coverState == .ready, exists(item) else { return nil }
+            cells.append(
+                .init(itemID: item.id, anchor: cropAnchor(item), coverAspect: item.coverAspect)
+            )
+        }
+        return CollectionTileImageRequest(
+            collectionID: collection.id, aspectRatio: aspectRatio, cells: cells
+        )
+    }
+
+    /// 焼いた絵を復号する最大辺(画素)。
+    ///
+    /// 焼いてあるのは一番大きく表示したとき(320pt)の画素数なので、それより小さい札では
+    /// そのぶん縮めて復号する。スライダーを動かすたびに鍵が1ptごとに変わると、ドラッグ中に
+    /// 復号し直しが延々と走るので32px刻みに量子化する。
+    private var sheetPixelSize: Int {
+        let sheet = CollectionTileLayout.sheetPixelSize(aspectRatio)
+        let referenceCellWidth = CGFloat(CollectionTileLayout.cellPixelSize(aspectRatio).width)
+        let scale = min(1, cellWidth * CollectionTileLayout.referenceScale / referenceCellWidth)
+        let needed = CGFloat(max(sheet.width, sheet.height)) * scale
+        return max(32, Int((needed / 32).rounded(.up)) * 32)
+    }
+
+    private func sheetImage(forKey key: String) -> CGImage? {
+        if let loadedSheet, loadedSheet.key == key { return loadedSheet.image }
+        // グリッドが作り直された直後(LazyCellImageBudget.epoch)は@Stateが空から始まる。
+        // メモリに残っていれば`.task`の到着を待たずにここで描けるので、絵がいったん消えて
+        // から出てくる、というちらつきが出ない(CollectionTileImageCacheの型コメント参照)。
+        return tileStore.cachedImage(forKey: key)
+    }
+
+    private func loadSheet(request: CollectionTileImageRequest?, key: String?) async {
+        guard let request, let key else {
+            if loadedSheet != nil { loadedSheet = nil }
+            return
+        }
+        if let hit = tileStore.cachedImage(forKey: key) {
+            adopt(hit, key: key)
+            return
+        }
+        let image = await tileStore.image(for: request, pixelSize: sheetPixelSize)
+        guard !Task.isCancelled else { return }
+        guard let image else {
+            // 焼けなかった(カバーのファイルが消えている等)。生のセルで描く。
+            if loadedSheet != nil { loadedSheet = nil }
+            return
+        }
+        adopt(image, key: key)
+    }
+
+    private func adopt(_ image: CGImage, key: String) {
+        loadedSheet = LoadedSheet(key: key, image: image)
+        // 帳簿へ渡すのは焼いた絵**1枚だけ**。セルはこの1枚を参照する部分画像で、実際に
+        // 確保されている画素はこの1枚ぶんだから(LazyCellImageBudget)。数えるセル数は
+        // 中身のぶん(tileCellCount)にする ―― 1枚=1セルと数えると、下限セル数に届くまでに
+        // 何画面ぶんも溜め込むことになる。
+        onImageRetained?(image, aspectRatio.tileCellCount)
     }
 }

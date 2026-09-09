@@ -157,6 +157,7 @@ struct SidePanelResourcesSectionView: View {
             thumbnailCacheDirectory: ThumbnailDiskCache.shared.directory,
             pageListCacheDirectory: BookPageListCache.shared.directoryURL,
             collectionCoverDirectory: CollectionCoverStore.defaultDirectory(),
+            collectionTileDirectory: CollectionTileImageStore.defaultDirectory(),
             databaseStoreURL: QooViewerApp.modelConfiguration.url
         )
         // Task.detachedはキャンセルを継承しないので、この`.task`が取り消されたら走査側の
@@ -722,6 +723,17 @@ private struct StorageSection: View, Equatable {
                 // 登録してある本を全冊読み直すことになる)ので、上限は並べずに容量だけ出す。
                 DetailRow("Collection covers", optionalSizeText(storage.collectionCoverBytes))
                     .help("One small JPEG per book registered in a collection, extracted once when the book is added. Not a cache: deleting it means re-reading every registered book, so there is no size limit and nothing is evicted. It goes away with the collection, the book’s entry, or “Delete All Data”.")
+                // 焼いたコレクションのタイル。カバーから作り直せるキャッシュなので、上限と
+                // 並べて見せる(上の2つと同じ扱い)。
+                HStack(spacing: 0) {
+                    DetailRow("Collection tiles", optionalSizeText(storage.collectionTileBytes))
+                    Text(" / \(fileSizeText(CollectionTileImageStore.maxTotalBytes))")
+                        .font(.callout)
+                        .monospacedDigit()
+                        .panelOutlinedContent()
+                }
+                .lineLimit(1)
+                .help("One JPEG per collection holding the covers shown on its tile, so the welcome screen draws each tile from a single image instead of reading every cover separately. Rebuilt from the collection covers whenever it is missing, and kept under the limit shown, oldest first.")
                 DetailRow("Database", optionalSizeText(storage.databaseBytes))
                     .help("Favorites, bookmarks, reading positions, page layouts, and metadata (the SwiftData store and its write-ahead log).")
                 DetailRow("Other", optionalSizeText(storage.otherBytes))

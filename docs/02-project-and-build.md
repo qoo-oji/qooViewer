@@ -177,11 +177,12 @@ deinit に任せられないのは、解放がメインスレッド以外で始�
 | --- | --- |
 | `CollectionStoreTests` | ライブラリは必ず 1 つ以上、名前の一意性の範囲、同じ本の二重登録の禁止(パス / i ノード)、削除でカバー画像まで消えること、移動(まとめて動かすときは 1 つでも衝突したら動かさない)、自動登録フォルダの設定、**全件を pending へ戻すのは save 1 回**、**起動時の掃除が行のあるカバーを消さないこと** |
 | `CollectionCoverStoreTests` / `CoverImageResolverTests` | カバーの保管庫の往復と孤児の掃除、「どのページがカバーか」(上書き > 実効 1 ページ目)、枠へ収める切り方(左右 / 上下、残す位置) |
+| `CollectionTileImageStoreTests` | 焼いた札の絵 ―― セルの矩形が隙間も重なりも無く 1 枚を覆うこと、指紋が「絵が変わるものすべて」に追随すること、合成の往復(注文どおりの並びで入る・カバーが 1 枚でも欠けたら焼かない)、1 コレクションにつき新しい 2 枚だけ残す刈り込み、`invalidate` / 孤児の掃除、切って捨てるぶんを見込んだ復号サイズ |
 | `CollectionCoverExtractorTests` | 抽出の司会役 ―― 開ける本は ready、**実体が見つからない本は failed にせず pending のまま**、開けない本だけ failed、**存在確認で「無い」本は積まない / 結果が変わったら組み直す**(`settleExistenceRefresh` で待つ)、**ページの指定で作り直し、切り出し位置では作り直さない**、保存の世代の移行は一度だけ・save 1 回 |
 | `CollectionAutoFolderScanTests` | 自動登録フォルダ ―― 拾う範囲がドロップと一致すること(直下だけ)、書き込みが止まったかの判定の境界、**走査役を端から端まで**(書き終わった本から順に入る・二重に入らない・権限の無いフォルダは見送る。`settle()` で待つ) |
 | `FolderChangeWatcherTests` | FSEvents の包み ―― 見張っているフォルダに本を置くと知らせが届くこと(知らせそのもので待つ) |
 | `CollectionDropClassifierTests` / `WelcomeDropHandlingTests` | ドロップの振り分け(本 / 棚 / 対象外)と、ウェルカム画面での扱い ―― 編集モードの外では引き受けない、ばらの本は 1 つの作成待ちに、棚はフォルダ名で、自動登録フォルダの初期値は「全部が同じフォルダ」のときだけ、コレクションの中へは本を足す(`onFinished` で待つ) |
-| `WelcomeLibraryStateTests` / `LazyCellImageBudgetTests` | 編集モードの選択を画面をまたいで残さないこと、Lazy コンテナの帳簿の下限セル数(**画面内ぶんだけでは作り直さない** ―― 定数だった頃の回帰) |
+| `WelcomeLibraryStateTests` / `LazyCellImageBudgetTests` | 編集モードの選択を画面をまたいで残さないこと、Lazy コンテナの帳簿の下限セル数(**画面内ぶんだけでは作り直さない** ―― 定数だった頃の回帰)と、焼いた札 1 枚を中身のカバーぶんのセル数として数えること |
 
 段階 7(2026-09-06 追加、計画に載っていなかった未カバーを洗い出したもの):
 
@@ -206,6 +207,9 @@ deinit に任せられないのは、解放がメインスレッド以外で始�
 
 `ThumbnailDiskCache` / `BookPageListCache` は保存先を `init(directory:)` で作業フォルダへ
 向けられます(既定の `shared` は利用者のキャッシュそのものなので、テストから触りません)。
+`CollectionCoverStore` / `CollectionTileImageStore` も同じで、**テストは必ず一時フォルダを渡します**
+(既定は利用者のカバー画像と札のキャッシュそのもの)。`InMemoryLibrary` はその 2 つを自分で作り、
+`close()` で消します。
 
 `AppPreferences` / `KeyBindingStore` / `RecentFilesStore` / `FolderAccessStore` / `LastUsedFolderMemory` は
 保存先を `init(defaults:)` で、`LastActiveBookStore` の 3 つの関数は引数の `defaults:` で

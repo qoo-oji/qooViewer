@@ -2920,6 +2920,22 @@
         }
       }
     },
+    "Collection tiles" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collection tiles"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションのタイル"
+          }
+        }
+      }
+    },
     "Collection Name Size" : {
       "localizations" : {
         "en" : {
@@ -9260,6 +9276,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "コレクションに登録した本1冊につき1枚の小さなJPEG。登録したときに1回だけ抽出します。キャッシュではありません ―― 消すと登録してある本を全冊読み直すことになるため、上限も自動削除もありません。コレクション・その本の登録・「すべてのデータを削除」と一緒に消えます。"
+          }
+        }
+      }
+    },
+    "One JPEG per collection holding the covers shown on its tile, so the welcome screen draws each tile from a single image instead of reading every cover separately. Rebuilt from the collection covers whenever it is missing, and kept under the limit shown, oldest first." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One JPEG per collection holding the covers shown on its tile, so the welcome screen draws each tile from a single image instead of reading every cover separately. Rebuilt from the collection covers whenever it is missing, and kept under the limit shown, oldest first."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクション1つにつき1枚のJPEG。そのタイルに並ぶカバーを1枚に焼いてあり、ウェルカム画面はカバーを1枚ずつ読む代わりにこれを描きます。無くなってもコレクションのカバーから作り直せるキャッシュで、上限を超えたら古いものから捨てます。"
           }
         }
       }

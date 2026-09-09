@@ -271,6 +271,10 @@ final class CollectionCoverExtractor: ObservableObject {
             collectionStore.setCoverStatus(.failed, aspect: 0, for: current)
             return
         }
+        // 焼いてある札の絵は、この本のカバーが**差し替わった**ことを自分では知りようがない
+        // (指紋にカバーの中身は入っていない)ので、ここで捨てる
+        // (CollectionStore.invalidateTileImages(forItemID:)参照)。
+        collectionStore.invalidateTileImages(forItemID: itemID)
         guard let stored = collectionStore.item(withID: itemID) else { return }
         collectionStore.setCoverStatus(
             .ready, aspect: Double(image.width) / Double(image.height), for: stored

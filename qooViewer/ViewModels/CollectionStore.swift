@@ -39,6 +39,9 @@ final class CollectionStore: ObservableObject {
     /// 読み出しはグリッドのセル(CollectionCoverThumbnail)が直接行うため公開している
     /// (`image(for:maxPixelSize:)`はnonisolatedで、actorの上を通らない)。
     let coverStore: CollectionCoverStore
+    /// 焼いた札の絵(ディスク上のJPEG + メモリキャッシュ)の保管庫。カバーと同じく、
+    /// 捨てるのはこのストアの仕事で、読み出しは札(CollectionTile)が直接行う。
+    let tileStore: CollectionTileImageStore
 
     /// 絞り込み無し全件フェッチの結果のキャッシュ(FavoritesStore.cachedFolders/cachedBooksと同じ)。
     /// このストアが3つのモデルの唯一の書き込み口であるため、insert/deleteのたびに捨てておけば
@@ -54,9 +57,13 @@ final class CollectionStore: ObservableObject {
     /// 走っている存在確認(settleExistenceRefreshが待つためだけに持つ)。
     private var existenceRefreshTask: Task<Void, Never>?
 
-    init(modelContext: ModelContext, coverStore: CollectionCoverStore) {
+    init(
+        modelContext: ModelContext, coverStore: CollectionCoverStore,
+        tileStore: CollectionTileImageStore
+    ) {
         self.modelContext = modelContext
         self.coverStore = coverStore
+        self.tileStore = tileStore
         reload()
 
         // 実体の存在確認は重いので、描画のたびではなく「古くなっている可能性が生まれたとき」に
@@ -361,10 +368,12 @@ final class CollectionStore: ObservableObject {
         // カスケードで消える前に、カバー画像のファイルを消すためのidを集めておく
         // (SwiftDataのcascadeはディスク上のファイルまでは面倒を見ない)。
         let itemIDs = library.collections.flatMap { $0.items.map(\.id) }
+        let collectionIDs = library.collections.map(\.id)
         modelContext.delete(library)
         invalidateLookupCaches()
         saveAndNotify()
         removeCovers(itemIDs)
+        removeTileImages(collectionIDs)
         reload()
     }
 
@@ -422,10 +431,12 @@ final class CollectionStore: ObservableObject {
         // カスケードで消える前に、カバー画像のファイルを消すためのidを集めておく
         // (SwiftDataのcascadeはディスク上のファイルまでは面倒を見ない)。
         let itemIDs = collections.flatMap { $0.items.map(\.id) }
+        let collectionIDs = collections.map(\.id)
         for collection in collections { modelContext.delete(collection) }
         invalidateLookupCaches()
         saveAndNotify()
         removeCovers(itemIDs)
+        removeTileImages(collectionIDs)
         for itemID in itemIDs { existenceByItemID.removeValue(forKey: itemID) }
         reload()
     }
@@ -840,6 +851,17 @@ final class CollectionStore: ObservableObject {
         reload()
     }
 
+    /// この本を含む札の焼いた絵を捨てる。**カバー画像そのものが差し替わった直後**に
+    /// CollectionCoverExtractorが呼ぶ。
+    ///
+    /// 焼いた絵の指紋にはカバーの**中身**が入っていない(入れるには札を描くたびに6ファイルを
+    /// statすることになる。CollectionTileImageRequest.signature参照)ため、中身だけが変わる
+    /// この場合だけは、差し替えた側から明示的に捨てないと古い絵が残る。
+    func invalidateTileImages(forItemID itemID: UUID) {
+        guard let collectionID = item(withID: itemID)?.collection?.id else { return }
+        removeTileImages([collectionID])
+    }
+
     /// 起動時に一度、行の無いカバー画像を掃除する(CollectionCoverStore.sweepOrphans参照)。
     ///
     /// **フェッチに失敗したら掃除しない。** allItems()は失敗を空配列に潰すので、そのまま渡すと
@@ -852,12 +874,33 @@ final class CollectionStore: ObservableObject {
         Task { await store.sweepOrphans(keeping: ids) }
     }
 
+    /// 起動時に一度、行の無いコレクションの焼いた絵を掃除する(容量の刈り込みも同時に行う。
+    /// CollectionTileImageStore.sweepOrphans参照)。**フェッチに失敗したら掃除しない**理由は
+    /// sweepOrphanedCovers()と同じ。
+    func sweepOrphanedTileImages() {
+        guard let collections = try? modelContext.fetch(FetchDescriptor<BookCollection>())
+        else { return }
+        let ids = Set(collections.map(\.id))
+        let store = tileStore
+        Task { await store.sweepOrphans(keeping: ids) }
+    }
+
     // MARK: - 保存と通知
 
     private func removeCovers(_ itemIDs: [UUID]) {
         guard !itemIDs.isEmpty else { return }
         let store = coverStore
         Task { await store.remove(itemIDs) }
+    }
+
+    /// 焼いた札の絵を捨てる。**本を1冊出し入れしただけのときは呼ばなくてよい** ――
+    /// 中身が変われば指紋が変わって別のファイルになり、古いほうは次に焼いたときに
+    /// 刈られる(CollectionTileImageStore.pruneOldSheets)。ここで消すのは、コレクション
+    /// そのものが消えたとき(二度と参照されない)とカバーが差し替わったとき。
+    private func removeTileImages(_ collectionIDs: [UUID]) {
+        guard !collectionIDs.isEmpty else { return }
+        let store = tileStore
+        Task { await store.invalidate(collectionIDs: collectionIDs) }
     }
 
     /// 保存して、変更を他のウインドウへ知らせる。`bookID`は**本に関わる変更**のときだけ渡す

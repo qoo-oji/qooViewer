@@ -246,6 +246,39 @@ nonisolated enum CoverImageResolver {
         }
     }
 
+    /// 枠へ切り出したあとに`croppedWidth`画素を確保するために、元のカバーを最大何画素で
+    /// 復号すればよいか。
+    ///
+    /// **切って捨てるぶんを見込んで大きめに求める** ―― 幅を半分に切る画像を必要な幅ちょうどで
+    /// 復号すると、切った後は半分になってしまう。元の比はDBに控えてある
+    /// (CollectionItem.coverAspect)ので、復号する前に必要な大きさが分かる。
+    ///
+    /// 保存してあるカバーは長辺768px(CollectionCoverStore.maxPixelSize)までなので、それを
+    /// 超える指定をしても元より大きくはならない(ImageIOは引き伸ばさない)。
+    ///
+    /// 表示のセル(CollectionCoverThumbnail)と、焼いた札の合成(CollectionTileImageStore.compose)の
+    /// **両方がここを見る** ―― 同じ絵を2通りの見積もりで復号すると、焼いた札と生のセルで
+    /// 精細さが食い違う。
+    ///
+    /// - Parameters:
+    ///   - croppedWidth: 切り出した**後**に欲しい幅(画素)。
+    ///   - targetAspect: 枠の比(幅 ÷ 高さ)。
+    ///   - imageAspect: 元のカバーの比。0以下(まだ分からない)なら枠の比とみなす。
+    static func decodePixelSize(
+        croppedWidth: CGFloat, targetAspect: CGFloat, imageAspect: CGFloat
+    ) -> CGFloat {
+        let neededWidth = max(1, croppedWidth)
+        guard targetAspect > 0 else { return neededWidth }
+        let imageAspect = imageAspect > 0 ? imageAspect : targetAspect
+        if imageAspect > targetAspect {
+            // 左右を切る。切った後の幅がneededWidthになるように、元の幅を逆算する。
+            return neededWidth / targetAspect * max(imageAspect, 1)
+        } else {
+            // 上下を切る。幅はそのまま残るので、長辺(高さ)のぶんだけ見込む。
+            return neededWidth * max(1, 1 / max(imageAspect, 0.01))
+        }
+    }
+
     /// この比の画像を枠へ収めるとき、実際にどこかを切ることになるか。
     ///
     /// メタデータ編集で「残す位置」の指定を有効にするかどうかの判定に使う ―― 比がぴったり

@@ -25,6 +25,11 @@ nonisolated struct StorageUsage: Equatable, Sendable {
     /// Cachesではなく Application Support に置いてある(CollectionCoverStoreの型コメント)。
     /// だからこそ、上限も自動削除も無いまま増えていく側の容量として内訳に出す。
     var collectionCoverBytes: Int?
+    /// 焼いたコレクションのタイル(CollectionTileImageStore)。
+    ///
+    /// **こちらはキャッシュ。** カバー画像から数msで作り直せるので Caches に置いてあり、
+    /// 上限(CollectionTileImageStore.maxTotalBytes)を超えたら古いものから捨てる。
+    var collectionTileBytes: Int?
     /// SwiftDataのストア(`default.store` + `-wal` + `-shm`)。
     var databaseBytes: Int?
     var scannedAt: Date
@@ -33,7 +38,8 @@ nonisolated struct StorageUsage: Equatable, Sendable {
     var otherBytes: Int? {
         guard let containerBytes else { return nil }
         let known = sessionTemporaryBytes + staleTemporaryBytes + (thumbnailCacheBytes ?? 0)
-            + (pageListCacheBytes ?? 0) + (collectionCoverBytes ?? 0) + (databaseBytes ?? 0)
+            + (pageListCacheBytes ?? 0) + (collectionCoverBytes ?? 0) + (collectionTileBytes ?? 0)
+            + (databaseBytes ?? 0)
         return max(containerBytes - known, 0)
     }
 }
@@ -61,6 +67,7 @@ nonisolated enum StorageUsageScanner {
         var thumbnailCacheDirectory: URL?
         var pageListCacheDirectory: URL?
         var collectionCoverDirectory: URL?
+        var collectionTileDirectory: URL?
         var databaseStoreURL: URL
     }
 
@@ -80,6 +87,7 @@ nonisolated enum StorageUsageScanner {
             thumbnailCacheBytes: locations.thumbnailCacheDirectory.flatMap { directorySize(at: $0)?.bytes },
             pageListCacheBytes: locations.pageListCacheDirectory.flatMap { directorySize(at: $0)?.bytes },
             collectionCoverBytes: locations.collectionCoverDirectory.flatMap { directorySize(at: $0)?.bytes },
+            collectionTileBytes: locations.collectionTileDirectory.flatMap { directorySize(at: $0)?.bytes },
             databaseBytes: databaseSize(storeURL: locations.databaseStoreURL),
             scannedAt: Date()
         )

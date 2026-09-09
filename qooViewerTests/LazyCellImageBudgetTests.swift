@@ -85,6 +85,28 @@ struct LazyCellImageBudgetTests {
         #expect(budget.epoch == 1)
     }
 
+    @Test("札1枚 = 中身のカバーぶんのセル数として数える(焼いた札の絵)")
+    func aBakedTileCountsAsAllOfItsCells() {
+        var budget = LazyCellImageBudget(byteBudget: Self.budget)
+        // 焼いた札は1枚で6冊ぶんの画素を抱える。1枚 = 1セルと数えると、下限
+        // (画面内に並びうる**カバー**の数から見積もる)に届くまでに6倍溜め込むことになる。
+        let sheetBytes = Self.landscapeCoverBytes * Self.cellsPerTile
+        for _ in 0..<(fiveKMinimum / Self.cellsPerTile) {
+            budget.note(
+                retainedBytes: sheetBytes, cellCount: Self.cellsPerTile,
+                minimumCellCount: fiveKMinimum
+            )
+        }
+        #expect(budget.epoch == 1)
+
+        // 数えないと、同じ枚数を抱えてもまだ下限に届かない(= 6倍抱え込む)。
+        var naive = LazyCellImageBudget(byteBudget: Self.budget)
+        for _ in 0..<(fiveKMinimum / Self.cellsPerTile) {
+            naive.note(retainedBytes: sheetBytes, minimumCellCount: fiveKMinimum)
+        }
+        #expect(naive.epoch == 0)
+    }
+
     @Test("予算に届かなければ、いくらセルを数えても作り直さない")
     func theByteBudgetStillGates() {
         var budget = LazyCellImageBudget(byteBudget: Self.budget)

@@ -71,6 +71,7 @@
 | `CoverImageResolver`(nonisolated) | 「この本のカバーはどの画像か」を決める唯一の場所(上書き > 実効1ページ目)と、枠へ収める切り方 `cropped(_:to:anchor:)` |
 | `CollectionCoverExtractor`(MainActor) | アプリ全体で1本の待ち行列。**同時1件**、上から順に埋まる。本を丸ごと開いて先頭ページを復号するので、並列にするとビューアの邪魔になる |
 | `CollectionCoverThumbnail` / `CollectionTile` | 描く側。`CGImageSourceCreateThumbnail` で描く大きさだけ読み、`LazyCellImageBudget` で画面外セルの分を数える(`LazyVGrid` は画面外セルを解放しない) |
+| `CollectionTileImageStore`(actor) / `CollectionTileImageCache` | 焼いた札の絵(下記)。`~/Library/Caches/<bundle id>/CollectionTiles/<BookCollection.id>-<署名>.jpg` と、その復号済みメモリ LRU |
 
 **Caches ではなく Application Support** に置くのは、消えると登録してある本を**全冊**読み直すことに
 なるため(未接続のボリューム上の本なら作り直せもしない)。キャッシュではないので上限も自動削除も
@@ -111,6 +112,52 @@ start / center / end。切る軸は画像と枠の比から決まるので軸に
 不具合になった(ログでモデルは無罪と確認。macOS の SwiftUI では `.contextMenu` が `@State` の変化に
 追随しない事例が複数報告されている)。今は `@Published revision` を出し、カバーとメニューの組を
 `.id(revision)` で作り直す。
+
+## 焼いた札の絵(タイルのキャッシュ)
+
+札1枚は最大6冊のカバーを敷き詰めたもので、当初はセル1つ1つが自前の `.task` を持ち、カバーの JPEG を
+**個別に**読んで復号し、表示のたびに切っていた。1画面に札が100枚載る棚では、それだけで600回の
+ファイル読み・600回の復号・600本のタスクになる ―― スクロールが引っかかる、起動直後の最初のフレームが
+遅れて**ウインドウの状態復元が目に見える**、という形で報告された(ユーザー報告 2026-09-09)。
+1コレクション = 1ファイル = 1回の復号にすれば、そこが素直に6分の1になる。
+
+**焼くのは「セルを隙間なく並べた1枚」だけ。** 余白・間隔・角丸・地の色・冊数バッジ・選択の枠・名前は
+焼き込まない。
+
+- 余白(8pt)と間隔(6pt)は札の幅が 120〜320pt と変わっても**変わらない**。余白ごと焼くと表示サイズへ
+  縮めた瞬間に間隔まで縮み、「詰まりすぎて1枚の大きな絵に見える」と言われて広げたばかりのものが元へ戻る。
+  隙間を焼かないぶん、この1枚の縦横比は札の大きさに依存しない定数になり、どの大きさでも歪まない。
+- 地の色の既定は `Color.primary.opacity(0.07)` で、**明暗の外観で解決が変わる**。焼き込むと外観の
+  切り替えだけで全札が作り直しになる。
+
+割り付けの正典は `CollectionTileLayout`(余白・間隔・焼く画素数・セルの矩形)で、焼く側と描く側の
+両方がここを見る。描くときは焼いた1枚から6つの矩形を `CGImage.cropping(to:)` で切り出して
+`Grid` に並べる ―― 部分画像を作るだけで画素のコピーは起きない。
+
+**焼けない札は今までどおりのセル方式に落ちる。** 抽出待ち(スピナー)・失敗(形式バッジ)・実体が
+見つからない(淡く描く)が1つでも混じる札は、どれも状態で見た目が変わるものなので焼かない。
+`existenceByItemID` は起動直後は空で `cachedFileExists` が既定 true を返すため、最初のフレームから
+焼いた絵が使える。
+
+**作り直しの契機**は指紋(`CollectionTileImageRequest.signature` = 比 + 描く item の並び + 切り出す
+位置 + カバーの比)で、中身・並び・位置・比が変われば自動的に別ファイルになる。**カバー画像そのものが
+差し替わったときだけは指紋が変わらない**(指紋に画像の中身は入っていない ―― 入れると札を描くたびに
+6ファイルを stat することになる)ので、抽出した側が明示的に捨てる
+(`CollectionCoverExtractor` → `CollectionStore.invalidateTileImages(forItemID:)`)。
+古い指紋のファイルは、焼くたびにそのコレクションの新しい2枚だけ残して刈る(並び替えの設定が違う
+2つのウインドウで署名が2つできるので1では足りない)。起動時に行の無いコレクションの札を掃除し、
+128MB を超えたら古いものから捨てる。合成は同時4件までに絞る(`PageLoader` のデコード枠と同じ考え方)。
+
+**メモリ LRU がグリッドの作り直しを見えなくする。** 予算超過で `.id(epoch)` ごと作り直すと画面内の
+札が読み直しになるが、`CollectionTileImageCache`(署名+復号サイズが鍵、96MB)に復号済みで残っている
+ので**同期で**描き直せる。ページ一覧グリッドは `PageLoader` のキャッシュがこれをやっているが、
+コレクションのカバーにはメモリキャッシュが一つも無く、作り直しのたびに絵がいったん消えてから出てくるのが
+見えていた(これが「スクロール時にカバー画像の読み込みがランダムに発生する」の正体)。
+帳簿へは焼いた絵1枚を `cellCount = tileCellCount` として渡す ―― 1枚=1セルと数えると、下限セル数
+(画面内に並びうる**カバー**の数から見積もる)に届くまでに6倍溜め込むことになる。
+
+Caches に置くのは、カバーから数 ms で作り直せる**派生物**だから(カバー本体が Application Support
+なのは上記のとおり別の理由)。リソースモニタの「ディスク上」には上限と並べて出す。
 
 ## ウェルカム画面の構成
 
@@ -297,11 +344,13 @@ FSEvents のコールバックが解放済みの `ModelContext` に触った ―
 `CollectionStoreTests` / `CollectionCoverStoreTests` / `CoverImageResolverTests` /
 `CollectionCoverExtractorTests` / `CollectionAutoFolderScanTests` / `FolderChangeWatcherTests` /
 `CollectionDropClassifierTests` / `WelcomeDropHandlingTests` / `WelcomeLibraryStateTests` /
-`LazyCellImageBudgetTests`(→ [02](02-project-and-build.md#テストターゲットqooviewertests))。
+`LazyCellImageBudgetTests` / `CollectionTileImageStoreTests`
+(→ [02](02-project-and-build.md#テストターゲットqooviewertests))。
 テストのための口(`settleExistenceRefresh` / `CollectionAutoFolderScanner.settle` /
 `CollectionCoverExtractor.waitUntilIdle` / `WelcomeDropHandling.handle(onFinished:)`)は、
-非同期の結果を「待つ」ためだけにあり、アプリのコードは使わない。`CollectionCoverStore` の
-テストは必ず一時フォルダを渡す(既定のままだと利用者のカバー画像を消す)。
+非同期の結果を「待つ」ためだけにあり、アプリのコードは使わない。`CollectionCoverStore` と
+`CollectionTileImageStore` のテストは必ず一時フォルダを渡す(既定のままだと利用者のカバー画像や
+キャッシュに書く)。
 
 画面そのものは実機で確かめる(→ [12](12-verification-and-debugging.md))。Finder からの実ドラッグは
 `cliclick` で、輪郭は「ダーク+白100%」「ライト+黒100%」の2条件で、検証後はストア・UserDefaults・

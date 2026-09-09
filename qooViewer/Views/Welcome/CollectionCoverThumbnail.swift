@@ -109,23 +109,13 @@ struct CollectionCoverThumbnail: View {
         image = CoverImageResolver.cropped(loaded, to: aspectRatio.value, anchor: anchor)
     }
 
-    /// 復号する画素数の上限。Retinaぶんを見込んで実寸の2倍を要求するが、**切って捨てるぶんを
-    /// 見込んで大きめに**求める ―― 幅を半分に切る画像を実寸の2倍で復号すると、切った後は
-    /// 実寸ちょうどになってしまう。元の比はDBに控えてある(CollectionItem.coverAspect)ので、
-    /// 復号する前に必要な大きさが分かる。
-    ///
-    /// 保存してあるのは長辺768px(CollectionCoverStore.maxPixelSize)までなので、それを超える
-    /// 指定をしても元より大きくはならない(ImageIOは引き伸ばさない)。
+    /// 復号する画素数の上限。Retinaぶんを見込んで実寸の2倍を要求する。切って捨てるぶんの
+    /// 見込みは`CoverImageResolver.decodePixelSize`が持つ(焼いた札の合成と同じ見積もりを
+    /// 使うため。あちらのコメント参照)。
     private var decodeMaxPixelSize: CGFloat {
-        let neededWidth = max(1, displayWidth * 2)
-        let target = aspectRatio.value
-        let imageAspect = item.coverAspect > 0 ? CGFloat(item.coverAspect) : target
-        if imageAspect > target {
-            // 左右を切る。切った後の幅がneededWidthになるように、元の幅を逆算する。
-            return neededWidth / target * max(imageAspect, 1)
-        } else {
-            // 上下を切る。幅はそのまま残るので、長辺(高さ)のぶんだけ見込む。
-            return neededWidth * max(1, 1 / max(imageAspect, 0.01))
-        }
+        CoverImageResolver.decodePixelSize(
+            croppedWidth: displayWidth * 2, targetAspect: aspectRatio.value,
+            imageAspect: CGFloat(item.coverAspect)
+        )
     }
 }

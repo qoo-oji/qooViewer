@@ -53,6 +53,9 @@ final class AppStores: ObservableObject {
     /// コレクションのカバー画像(ディスク上のJPEG)。CollectionStore/CollectionCoverExtractorの
     /// 両方が同じ1つを見る必要があるため、ここで作って配る。
     let collectionCoverStore: CollectionCoverStore
+    /// 焼いた札の絵(コレクションのタイル1枚を1枚のJPEGとして持っておくキャッシュ)。
+    /// CollectionStoreが捨てる側、札(CollectionTile)が読む側なので、ここで作って配る。
+    let collectionTileImageStore: CollectionTileImageStore
     /// ライブラリ・コレクション・その中の本(改善要望5)。
     ///
     /// **allObjectWillChangePublishersには意図的に足していない。** コレクションはメニューバーに
@@ -83,7 +86,11 @@ final class AppStores: ObservableObject {
         layoutStore = LayoutStore(modelContext: context)
         metadataStore = BookMetadataStore(modelContext: context)
         collectionCoverStore = CollectionCoverStore()
-        collectionStore = CollectionStore(modelContext: context, coverStore: collectionCoverStore)
+        collectionTileImageStore = CollectionTileImageStore(coverStore: collectionCoverStore)
+        collectionStore = CollectionStore(
+            modelContext: context, coverStore: collectionCoverStore,
+            tileStore: collectionTileImageStore
+        )
         collectionCoverExtractor = CollectionCoverExtractor(
             collectionStore: collectionStore, coverStore: collectionCoverStore,
             layoutStore: layoutStore
@@ -94,6 +101,8 @@ final class AppStores: ObservableObject {
         )
         // 行の無いカバー画像(前回の起動が落ちた・ストアを作り直した等)を起動時に1度だけ掃除する。
         collectionStore.sweepOrphanedCovers()
+        // 焼いた札の絵も同じく(こちらは容量の刈り込みも兼ねる)。
+        collectionStore.sweepOrphanedTileImages()
     }
 
     /// MenuBarMenuRefresherが購読する、全ストアのobjectWillChange。

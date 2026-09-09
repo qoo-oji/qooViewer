@@ -21,6 +21,7 @@
 | メタデータ推測ルール | UserDefaults(JSON) | `MetadataFormatStore` | ― |
 | フォルダ選択パネルの前回位置・固定の保存先 | UserDefaults(ブックマーク) | `LastUsedFolderMemory` | ― |
 | 環境設定で最後に開いていた画面 | UserDefaults | `SettingsNavigator.selectedPaneDefaultsKey` | ― |
+| コレクションのタイル | `~/Library/Caches/<bundle id>/CollectionTiles/<collectionID>-<署名>.jpg` | `CollectionTileImageStore` | **カバーから作り直せるキャッシュ**。上限 128MB、超えたら古いものから。1コレクションにつき新しい2枚まで。起動時に孤児を掃除 |
 | サムネイル | `~/Library/Caches/...` | `ThumbnailDiskCache` | 既定 OFF、上限 200MB |
 | 本の構造とページ寸法 | `~/Library/Caches/...` | `BookPageListCache` | 環境設定「キャッシュ」で削除 |
 | 入れ子書庫の一時ファイル | コンテナの `tmp/<pid>/` | `TemporaryFileStore` | 本を閉じる/起動時の掃除で消える |

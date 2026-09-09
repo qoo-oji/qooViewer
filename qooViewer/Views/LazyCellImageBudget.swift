@@ -58,10 +58,16 @@ struct LazyCellImageBudget {
     }
 
     /// セルが画像を保持したことを記録する。予算を超えたらepochを進めて帳簿を0に戻す。
-    /// - Parameter minimumCellCount: これ未満のセル数では作り直さない(型コメント参照)。
-    mutating func note(retainedBytes bytes: Int, minimumCellCount: Int) {
+    /// - Parameters:
+    ///   - cellCount: この1枚が**何セル分に相当するか**。既定は1。コレクションの札は中身の
+    ///     カバーを敷き詰めた1枚を保持する(CollectionTileImageStore)ため、札1枚で
+    ///     `CoverAspectRatio.tileCellCount`セル分を数える ―― ここを1のままにすると、
+    ///     下限セル数(1画面に収まるカバーの数から見積もる)に届くまでに何画面ぶんも
+    ///     溜め込むことになる。
+    ///   - minimumCellCount: これ未満のセル数では作り直さない(型コメント参照)。
+    mutating func note(retainedBytes bytes: Int, cellCount: Int = 1, minimumCellCount: Int) {
         retainedBytes += bytes
-        retainedCellCount += 1
+        retainedCellCount += max(1, cellCount)
         guard retainedBytes >= byteBudget, retainedCellCount >= minimumCellCount else { return }
         epoch &+= 1
         retainedBytes = 0
@@ -69,8 +75,11 @@ struct LazyCellImageBudget {
     }
 
     /// CGImage版の入り口。保持量はそのCGImageのビットマップの実サイズで数える。
-    mutating func note(retaining image: CGImage, minimumCellCount: Int) {
-        note(retainedBytes: image.bytesPerRow * image.height, minimumCellCount: minimumCellCount)
+    mutating func note(retaining image: CGImage, cellCount: Int = 1, minimumCellCount: Int) {
+        note(
+            retainedBytes: image.bytesPerRow * image.height, cellCount: cellCount,
+            minimumCellCount: minimumCellCount
+        )
     }
 
     /// 等間隔のグリッド(`LazyVGrid` の `.adaptive(minimum:)`)向けの、下限セル数の見積もり。

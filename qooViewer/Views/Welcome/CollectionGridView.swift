@@ -6,10 +6,15 @@ import SwiftUI
 ///
 /// ■ 画面外のカバーを手放す
 /// SwiftUIのLazyコンテナは画面外へ出たセルの保持物を解放しない(LazyCellImageBudget参照)。
-/// タイル1枚につきカバーを最大6枚持つため、コレクションが多いライブラリでは端まで流すだけで
-/// 相応の量が積み上がる。ページ一覧グリッドと同じ帳簿で数え、予算を超えたらグリッドごと
-/// 作り直す。1枚あたりは表示に必要な画素数までしか復号していない
-/// (CollectionCoverStore.image(for:maxPixelSize:))ので、予算はあちらより小さくてよい。
+/// コレクションが多いライブラリでは端まで流すだけで相応の量が積み上がるため、ページ一覧
+/// グリッドと同じ帳簿で数え、予算を超えたらグリッドごと作り直す。表示に必要な画素数までしか
+/// 復号していない(CollectionTileImageStore.image(for:pixelSize:))ので、予算はあちらより
+/// 小さくてよい。
+///
+/// 作り直しの直後は画面内の札が読み直しになるが、焼いた札の絵は復号済みのままメモリに
+/// 残っている(CollectionTileImageCache)ので、待たずに描き直せる ―― 以前はここに
+/// メモリキャッシュが無く、作り直しのたびに絵がいったん消えてから出てくるのが見えていた
+/// (ユーザー報告 2026-09-09)。
 struct CollectionGridView: View {
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
@@ -203,12 +208,15 @@ struct CollectionGridView: View {
             isExtracting: { coverExtractor.inFlightItemIDs.contains($0.id) },
             cropAnchor: { cropAnchor(for: $0) },
             coverStore: collectionStore.coverStore,
+            tileStore: collectionStore.tileStore,
             aspectRatio: library.coverAspectRatio,
             backgroundColor: preferences.effectiveCollectionTileBackground,
             size: state.tileSize,
             nameFontSize: preferences.collectionTileNameFontSize,
-            onImageRetained: { image in
-                cellImageBudget.note(retaining: image, minimumCellCount: minimumCellCount)
+            onImageRetained: { image, cellCount in
+                cellImageBudget.note(
+                    retaining: image, cellCount: cellCount, minimumCellCount: minimumCellCount
+                )
             },
             isEditing: allowsEditing && state.isEditing,
             isSelected: state.selectedCollectionIDs.contains(collection.id),

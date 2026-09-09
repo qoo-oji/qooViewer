@@ -45,6 +45,7 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 | `FavoritesStore` | SwiftData | お気に入り(階層フォルダ付き。無効化中) |
 | `CollectionStore` | SwiftData | ライブラリ / コレクション / その中の本。**`allObjectWillChangePublishers` に入れない**(メニューバーに出ないので、その publish でメニューを作り直さない) |
 | `CollectionCoverStore` | ディスク(Application Support) | コレクションのカバー画像(actor) |
+| `CollectionTileImageStore` | ディスク(Caches)+メモリ | 焼いた札の絵(タイル1枚 = JPEG 1枚)と、その復号済み LRU(actor) |
 | `CollectionCoverExtractor` | メモリ | カバー抽出の待ち行列(アプリ全体で1本、同時1件) |
 | `CollectionAutoFolderScanner` | メモリ | 自動登録フォルダの走査と FSEvents の監視(`FolderChangeWatcher`) |
 | `BookmarkStore` | SwiftData | すべての本を横断したブックマーク(「ブックマーク・レイアウトの編集」用) |

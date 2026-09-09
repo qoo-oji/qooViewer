@@ -232,6 +232,9 @@ struct ResetDataSettingsView: View {
         // コレクションのカバー画像も同じ扱い(こちらはキャッシュではなくApplication Support配下
         // だが、「このアプリが保存したすべて」に含まれる。CollectionCoverStoreの型コメント参照)。
         CollectionCoverStore.removeDefaultDirectory()
+        // 焼いた札の絵(CollectionTileImageStore)はカバーから作り直せるキャッシュだが、
+        // 消し残すと「削除したはずのコレクションの絵」がディスクに残る。
+        CollectionTileImageStore.removeDefaultDirectory()
         // 履歴と「前回開いていた本」は終了時のUserDefaultsの削除で消えるが、その場でも消しておく
         // (「Quit Now」までの間に画面に残っていると、消えていないように見えるため)。
         recentFiles.removeAll()

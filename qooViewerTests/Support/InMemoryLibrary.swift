@@ -39,6 +39,11 @@ final class InMemoryLibrary {
     let collections: CollectionStore
     let collectionCovers: CollectionCoverStore
     private let collectionCoversDirectory: URL
+    /// 焼いた札の絵(コレクションのタイル1枚ぶんのJPEG)。カバーと同じ理由で、
+    /// **このライブラリ専用の一時フォルダ**を渡す ―― 既定のままだと利用者の `Caches` へ
+    /// テスト用の札が残る。
+    let collectionTileImages: CollectionTileImageStore
+    private let collectionTileImagesDirectory: URL
     /// メタデータ推測のルールだけは SwiftData ではなく `UserDefaults` に載っているため、
     /// このライブラリ専用の領域(suite)を渡す。`UserDefaults.standard` に書くと利用者の
     /// ルールを書き換えてしまう。
@@ -58,7 +63,14 @@ final class InMemoryLibrary {
         collectionCoversDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("qooViewerTests.\(label).\(UUID().uuidString)", isDirectory: true)
         collectionCovers = CollectionCoverStore(directory: collectionCoversDirectory)
-        collections = CollectionStore(modelContext: context, coverStore: collectionCovers)
+        collectionTileImagesDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("qooViewerTests.\(label).tiles.\(UUID().uuidString)", isDirectory: true)
+        collectionTileImages = CollectionTileImageStore(
+            coverStore: collectionCovers, directory: collectionTileImagesDirectory
+        )
+        collections = CollectionStore(
+            modelContext: context, coverStore: collectionCovers, tileStore: collectionTileImages
+        )
         metadataFormatsSuiteName = "qooViewerTests.\(label).\(UUID().uuidString)"
         metadataFormats = MetadataFormatStore(
             defaults: UserDefaults(suiteName: metadataFormatsSuiteName) ?? .standard
@@ -78,6 +90,7 @@ final class InMemoryLibrary {
         collections.releaseResources()
         UserDefaults().removePersistentDomain(forName: metadataFormatsSuiteName)
         try? FileManager.default.removeItem(at: collectionCoversDirectory)
+        try? FileManager.default.removeItem(at: collectionTileImagesDirectory)
     }
 
     deinit {
@@ -85,6 +98,7 @@ final class InMemoryLibrary {
         // ファイルとして残るので明示的に消す(メモリ内のコンテナはここで手放されて消える)。
         UserDefaults().removePersistentDomain(forName: metadataFormatsSuiteName)
         try? FileManager.default.removeItem(at: collectionCoversDirectory)
+        try? FileManager.default.removeItem(at: collectionTileImagesDirectory)
     }
 
     // MARK: - 取り込み / 書き出し
