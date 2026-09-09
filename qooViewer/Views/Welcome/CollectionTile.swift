@@ -70,6 +70,42 @@ struct CollectionTile: View {
     }
     @State private var loadedSheet: LoadedSheet?
 
+    /// 焼いた絵を切り分けた結果の控え。**参照型**にしてあるのは、bodyの中で埋めても
+    /// ビューの再評価を起こさないため(`@State`の値をbodyから書き換えることはできない)。
+    ///
+    /// ■ なぜ控えるのか(ユーザー報告 2026-09-10「サイドパネルの表示・非表示でウインドウ全体が
+    /// 軽く明滅する」)
+    /// `CGImage.cropping(to:)`は画素をコピーしない代わりに、呼ぶたびに**別のオブジェクト**を
+    /// 返す。bodyのたびに切り直すと、SwiftUIから見て`Image`の中身が毎回すり替わったことになり
+    /// 描き直しになる。しかもContentViewはサイドパネルのホバー表示に`.animation(_:value:)`を
+    /// **ウインドウ全体へ**掛けているので、その差し替えがアニメーションの対象になり、カーソルを
+    /// 端へ近づけるたびに画面中の札がまとめてクロスフェードしていた(実測: 1回の表示/非表示で
+    /// 札104枚のbodyが再評価され、セル624枚を切り直していた)。同じオブジェクトを返せば
+    /// SwiftUIは「変わっていない」と判断して何も描き直さない。
+    private final class SliceCache {
+        private var key: String?
+        private var sheet: CGImage?
+        private var slices: [CGImage] = []
+
+        func slices(forKey key: String, sheet: CGImage, aspectRatio: CoverAspectRatio) -> [CGImage] {
+            // 鍵が同じでも、いったんメモリから落ちて復号し直した絵は別のオブジェクトになる。
+            if self.key == key, let cached = self.sheet, cached === sheet { return slices }
+            var made: [CGImage] = []
+            made.reserveCapacity(aspectRatio.tileCellCount)
+            for index in 0..<aspectRatio.tileCellCount {
+                guard let slice = sheet.cropping(to: CollectionTileLayout.cellRect(
+                    index: index, inImageOfSize: (sheet.width, sheet.height), aspectRatio: aspectRatio
+                )) else { break }
+                made.append(slice)
+            }
+            self.key = key
+            self.sheet = sheet
+            self.slices = made
+            return made
+        }
+    }
+    @State private var sliceCache = SliceCache()
+
     /// セル1つの実寸の見積もり(復号サイズの上限にだけ使う。実際の割り付けはGridが決める)。
     private var cellWidth: CGFloat {
         CollectionTileLayout.cellWidth(tileWidth: size, aspectRatio: aspectRatio)
@@ -168,7 +204,10 @@ struct CollectionTile: View {
     @ViewBuilder
     private func cells(request: CollectionTileImageRequest?, key: String?) -> some View {
         if let request, let key, let sheet = sheetImage(forKey: key) {
-            grid { index in bakedCell(index, sheet: sheet, count: request.cells.count) }
+            // 切り分けは控えから取る(SliceCacheの型コメント参照)。ここで毎回切り直すと、
+            // サイドパネルの表示・非表示のたびに画面中の札が描き直しになる。
+            let slices = sliceCache.slices(forKey: key, sheet: sheet, aspectRatio: aspectRatio)
+            grid { index in bakedCell(index, slices: slices, count: request.cells.count) }
         } else {
             grid { index in liveCell(index) }
         }
@@ -177,12 +216,9 @@ struct CollectionTile: View {
     /// 焼いた絵から切り出した1セル。`CGImage.cropping(to:)`は元画像を参照する部分画像を
     /// 作るだけで、画素のコピーは起きない(CoverImageResolver.cropped(_:to:anchor:)と同じ)。
     @ViewBuilder
-    private func bakedCell(_ index: Int, sheet: CGImage, count: Int) -> some View {
-        if index < count,
-           let slice = sheet.cropping(to: CollectionTileLayout.cellRect(
-               index: index, inImageOfSize: (sheet.width, sheet.height), aspectRatio: aspectRatio
-           )) {
-            Image(decorative: slice, scale: 1)
+    private func bakedCell(_ index: Int, slices: [CGImage], count: Int) -> some View {
+        if index < count, index < slices.count {
+            Image(decorative: slices[index], scale: 1)
                 .resizable()
                 .aspectRatio(aspectRatio.value, contentMode: .fit)
                 .clipShape(
