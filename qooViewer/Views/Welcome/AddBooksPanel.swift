@@ -10,6 +10,15 @@ import SwiftUI
 /// 2冊目以降は`add(_:to:)`。1冊も入れずに閉じれば何も残らない ―― つまり空のまま閉じる操作が
 /// そのまま取り消しになる。
 ///
+/// ■ 一覧に出るのは**この面で入れたぶんだけ**
+/// 以前は入れ先のコレクションの中身を丸ごと並べていたが、既に入っている本が並んでいると、
+/// いま落とした本がどれなのか読めない(ユーザー指摘 2026-09-09: 「すでに追加済みのファイルは
+/// 表示しないでほしい。まぎらわしい」)。この面を開いてから入った本だけを、入った順に積む。
+/// 棚全体の冊数は見出しのコレクション名の隣に出ているので、そちらで分かる。
+///
+/// 既に入っている本を落としたときは、`CollectionStore.add(_:to:)`がパス/iノードで弾くため
+/// 行は増えない ―― 「追加済みは出さない」がそのまま成り立つ。
+///
 /// ■ ドロップを自前で受ける理由
 /// シートは別のNSWindowなので、ウインドウ本体に付けた唯一のドロップ受け口
 /// (ContentView.applyFileDropTarget)には届かない。URLの取り出しだけは共通の
@@ -40,9 +49,21 @@ struct AddBooksPanel: View {
         collectionStore.library(withID: target.libraryID)
     }
 
+    /// この面で入れた本(入った順)。
+    ///
+    /// **モデルの参照ではなくidで覚えておく**(CollectionDetailView.missingBookと同じ理由)。
+    /// この面を出している間に別のウインドウが同じ本をコレクションから外してsaveすると、
+    /// `CollectionItem`本体を持ったままでは、次の描き直しで消えた行の属性を読んで落ちる。
+    @State private var addedItemIDs: [UUID] = []
+
+    /// 一覧に並べる本 = この面で入れたぶんだけ(型コメント参照)。外された本は黙って落ちる。
     private var items: [CollectionItem] {
-        // 入れた順に上から積まれるほうが、追加中の画面としては分かりやすい。
-        collection.map { collectionStore.items(in: $0, sort: .dateAddedAscending) } ?? []
+        addedItemIDs.compactMap { collectionStore.item(withID: $0) }
+    }
+
+    /// 見出しに出す冊数。こちらは**棚全体**の冊数(一覧と違い、入れ先が今どれだけ持っているか)。
+    private var collectionCount: Int {
+        collection?.items.count ?? 0
     }
 
     var body: some View {
@@ -57,7 +78,7 @@ struct AddBooksPanel: View {
                     .truncationMode(.middle)
                 // 冊数は名前のすぐ隣に置く ―― 下に裸の数字だけを置いても何の数か読めない
                 // (サイドパネルの各見出しと、コレクションの中の見出しと同じ並べ方)。
-                Text("\(items.count)")
+                Text("\(collectionCount)")
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
@@ -197,6 +218,8 @@ struct AddBooksPanel: View {
             } else {
                 added = []
             }
+            // 入った順に積む。既に入っていた本はadd(_:to:)が弾いて返さないので、ここには来ない。
+            addedItemIDs.append(contentsOf: added.map(\.id))
             coverExtractor.enqueue(added)
         }
     }
