@@ -240,11 +240,12 @@ struct CollectionDetailView: View {
     /// 帳簿の下限セル数: 画面内に収まりうるカバーの数(列数 × 見えている行数 + 先読み分)の3倍
     /// (CollectionGridView.minimumCellCountと同じ理由・同じ見積もり方。以前は定数24だった)。
     private var minimumCellCount: Int {
-        let cellWidth = state.coverSize
-        let cellHeight = cellWidth / library.coverAspectRatio.value
-        let columns = max(1, Int((gridSize.width - 48 + Self.spacing) / (cellWidth + Self.spacing)))
-        let rows = Int((gridSize.height / max(cellHeight + Self.spacing, 1)).rounded(.up)) + 2
-        return max(columns * rows * 3, 64)
+        LazyCellImageBudget.minimumCellCount(
+            visibleSize: gridSize,
+            cellWidth: state.coverSize,
+            cellHeight: state.coverSize / library.coverAspectRatio.value,
+            spacing: Self.spacing, padding: 24
+        )
     }
 
     private var grid: some View {

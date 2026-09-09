@@ -144,13 +144,14 @@ struct CollectionGridView: View {
     /// 収まる札の数より少なく下限として効いておらず、27インチ5Kで札を最大・横長画像中心の
     /// ライブラリでは、画面内の168セルだけで64MBを超えてループする計算だった。
     private var minimumCellCount: Int {
-        let tileWidth = state.tileSize
-        // 札の高さ = 絵(ほぼ正方形。CoverAspectRatio.tileColumnsの計算)+ 名前の1行。
-        let tileHeight = tileWidth + 24
-        let columns = max(1, Int((gridSize.width - 48 + Self.spacing) / (tileWidth + Self.spacing)))
-        let rows = Int((gridSize.height / max(tileHeight + Self.spacing, 1)).rounded(.up)) + 2
-        let visibleCellEstimate = columns * rows * library.coverAspectRatio.tileCellCount
-        return max(visibleCellEstimate * 3, 64)
+        LazyCellImageBudget.minimumCellCount(
+            visibleSize: gridSize,
+            cellWidth: state.tileSize,
+            // 札の高さ = 絵(ほぼ正方形。CoverAspectRatio.tileColumnsの計算)+ 名前の1行。
+            cellHeight: state.tileSize + 24,
+            spacing: Self.spacing, padding: 24,
+            cellsPerItem: library.coverAspectRatio.tileCellCount
+        )
     }
 
     private var grid: some View {

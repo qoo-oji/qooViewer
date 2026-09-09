@@ -51,6 +51,8 @@ final class CollectionStore: ObservableObject {
     private var volumeObservers: [NSObjectProtocol] = []
     private var isRefreshingExistence = false
     private var needsAnotherExistenceRefresh = false
+    /// 走っている存在確認(settleExistenceRefreshが待つためだけに持つ)。
+    private var existenceRefreshTask: Task<Void, Never>?
 
     init(modelContext: ModelContext, coverStore: CollectionCoverStore) {
         self.modelContext = modelContext
@@ -786,7 +788,7 @@ final class CollectionStore: ObservableObject {
         }
         // [weak self]で受けたselfを、awaitをまたぐ前にguard letで強参照へ変換しておく
         // (理由はRecentFilesStore.scheduleRefresh()の同種のコメント参照)。
-        Task.detached(priority: .utility) { [weak self] in
+        existenceRefreshTask = Task.detached(priority: .utility) { [weak self] in
             var result: [UUID: Bool] = [:]
             for probe in probes {
                 result[probe.id] = FavoritesStore.fileExists(bookmark: probe.bookmark)
@@ -796,8 +798,17 @@ final class CollectionStore: ObservableObject {
         }
     }
 
+    /// 予約した存在確認が終わるまで待つ(**テストのための口**。時間ではなく仕事の終わりで待つ。
+    /// ViewerViewModel.settleと同じ考え方)。待っている間に予約し直されたぶんも待つ。
+    func settleExistenceRefresh() async {
+        while let task = existenceRefreshTask {
+            await task.value
+        }
+    }
+
     private func finishExistenceRefresh(_ result: [UUID: Bool]) {
         isRefreshingExistence = false
+        existenceRefreshTask = nil
         defer {
             if needsAnotherExistenceRefresh {
                 needsAnotherExistenceRefresh = false

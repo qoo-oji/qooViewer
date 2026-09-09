@@ -52,6 +52,8 @@ final class CollectionAutoFolderScanner: ObservableObject {
     private var observations: [URL: CollectionAutoFolderScan.Observation] = [:]
     /// 見送ったファイルを見直すために予約した走査(二重に積まない)。
     private var recheckTask: Task<Void, Never>?
+    /// 走っている走査(settleが待つためだけに持つ)。
+    private var scanTask: Task<Void, Never>?
     private var activationObserver: NSObjectProtocol?
     private var volumeObservers: [NSObjectProtocol] = []
     /// 監視役。**`init`の中では作れない** ―― あそこの`self`はまだ確定しておらず、並行に走る
@@ -120,6 +122,10 @@ final class CollectionAutoFolderScanner: ObservableObject {
     /// 走査中に重ねて呼ばれたら、いま走っているぶんが終わってからもう一度だけ走る
     /// (CollectionStore.scheduleExistenceRefresh と同じ形)。
     func scheduleScan() {
+        // 解放したあとに届く契機(取り下げる前に飛んでいた監視の知らせ・見直しの予約)では
+        // 何もしない。ストアの側が先に片付いていることがある(テストで実測: 解放済みの
+        // ModelContext の行に触って落ちた)。
+        guard !didRelease else { return }
         // 権限が無いフォルダはここで落とす(走査も監視も始めない)。
         let targets = collectionStore.autoFolderTargets()
             .filter { folderAccess.isPathCovered($0.folder) }
@@ -153,7 +159,7 @@ final class CollectionAutoFolderScanner: ObservableObject {
         }
         // [weak self]で受けたselfをawaitをまたぐ前に強参照へ変換する
         // (理由はRecentFilesStore.scheduleRefresh()の同種のコメント参照)。
-        Task.detached(priority: .utility) { [weak self] in
+        scanTask = Task.detached(priority: .utility) { [weak self] in
             var found: [CollectionAutoFolderScan.FolderResult] = []
             for target in targets {
                 let books = CollectionAutoFolderScan.books(in: target.folder, order: order)
@@ -170,6 +176,24 @@ final class CollectionAutoFolderScanner: ObservableObject {
             }
             guard let self else { return }
             await self.finishScan(found)
+        }
+    }
+
+    /// 走っている走査と、見送ったファイルの見直し(recheckDelay後の再走査)がすべて終わるまで
+    /// 待つ(**テストのための口**。時間ではなく仕事の終わりで待つ。ViewerViewModel.settleと
+    /// 同じ考え方)。見直しが次の走査を予約するので、両方が空になるまで繰り返す。
+    func settle() async {
+        while true {
+            if let task = scanTask {
+                await task.value
+                if scanTask == task { scanTask = nil }
+                continue
+            }
+            if let task = recheckTask {
+                await task.value
+                continue
+            }
+            return
         }
     }
 
@@ -202,6 +226,8 @@ final class CollectionAutoFolderScanner: ObservableObject {
                 scheduleScan()
             }
         }
+        // 走査の最中に解放されていたら、結果は捨てる(scheduleScanの同じguardと同じ理由)。
+        guard !didRelease else { return }
 
         var stillWriting: [URL: CollectionAutoFolderScan.Observation] = [:]
         var toRegister: [(id: UUID, urls: [URL])] = []

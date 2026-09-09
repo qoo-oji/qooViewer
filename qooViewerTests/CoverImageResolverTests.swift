@@ -196,9 +196,10 @@ struct CoverImageResolverTests {
     @Test("2:3 の縦長ページも 1:1 の枠では上下が切られる(1:1 を選ぶ動機の裏返し)")
     func aportraitPageIsCroppedInASquareFrame() throws {
         let page = try makeStackedImage(width: 40, height: 60)
-        #expect(CoverImageResolver.cropsAnyEdge(
-            imageAspect: 40.0 / 60.0, targetAspect: Self.square
-        ))
+        // `#expect(` の中で呼び出しを複数行に折ると、マクロの展開が「結果が使われていない」
+        // 警告を出し、CI(警告=エラー)で落ちる。値を一度受けてから渡す。
+        let crops = CoverImageResolver.cropsAnyEdge(imageAspect: 40.0 / 60.0, targetAspect: Self.square)
+        #expect(crops)
         let result = CoverImageResolver.cropped(page, to: Self.square, anchor: .center)
         #expect(result.width == 40)
         #expect(result.height == 40)

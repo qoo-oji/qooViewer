@@ -60,7 +60,7 @@ EPUB / PDF の構造解決、書き出しのラウンドトリップ、そして
 ありません)を、下記のフィクスチャで通します。画面の自動操作(AX 経由)は再現性が低いので
 載せません(→ [12](12-verification-and-debugging.md))。
 
-いまある suite(2026-09-06 時点、773 テスト・77 suite・約 10 秒):
+いまある suite(2026-09-09 時点、885 テスト・88 suite・約 15 秒):
 
 読み込みの経路(段階 1):
 
@@ -168,7 +168,20 @@ deinit に任せられないのは、解放がメインスレッド以外で始�
 | `PagePixelBufferTests` | ページ画像の入れ物 ―― カラー 4 バイト / 白黒 1 バイトと 16 バイト境界の行、画素の往復、`CGImage` を何枚作ってもバイト列は 1 つ、縮小(切り捨て・最低 1 画素・白黒のまま) |
 | `TitleAuthorFilenameParserTests` | EPUB 書き出しのタイトル / 著者名の推測(doc コメントの 6 パターン) |
 | `ContentFingerprintTests` | 中身の差し替え検知の指紋 ―― 3 点のいずれかが違えば疑う、記録が無い / 古いときは疑わない、フォルダの本にはファイルサイズが無いこと |
-| `RGBColorValueTests` / `BookExportRowFilterTests` / `LayoutPropagationScopeTests` / `WelcomeQuickOpenWidthTests` | 色の保存形式(`#RRGGBB` の往復・壊れた値・HSB・明るさ判定)、書き出し一覧の絞り込み(保存データは AND、形式は単一選択)、伝播範囲の選択肢(先頭 / 末尾で前後を出さない)、ウェルカム画面の列幅(上限・下限・按分・はみ出しを許す条件) |
+| `RGBColorValueTests` / `BookExportRowFilterTests` / `LayoutPropagationScopeTests` | 色の保存形式(`#RRGGBB` の往復・壊れた値・HSB・明るさ判定)、書き出し一覧の絞り込み(保存データは AND、形式は単一選択)、伝播範囲の選択肢(先頭 / 末尾で前後を出さない)。`WelcomeQuickOpenWidthTests`(旧ウェルカム画面の列幅)は、画面をライブラリ / コレクションへ作り直した 2026-09-09 に対象ごと消えた |
+
+コレクション(2026-09-09 追加。ライブラリ / コレクション / 自動登録フォルダ / カバーの抽出。監査で
+直した箇所には回帰テストを付けてある):
+
+| suite | 見るもの |
+| --- | --- |
+| `CollectionStoreTests` | ライブラリは必ず 1 つ以上、名前の一意性の範囲、同じ本の二重登録の禁止(パス / i ノード)、削除でカバー画像まで消えること、移動(まとめて動かすときは 1 つでも衝突したら動かさない)、自動登録フォルダの設定、**全件を pending へ戻すのは save 1 回**、**起動時の掃除が行のあるカバーを消さないこと** |
+| `CollectionCoverStoreTests` / `CoverImageResolverTests` | カバーの保管庫の往復と孤児の掃除、「どのページがカバーか」(上書き > 実効 1 ページ目)、枠へ収める切り方(左右 / 上下、残す位置) |
+| `CollectionCoverExtractorTests` | 抽出の司会役 ―― 開ける本は ready、**実体が見つからない本は failed にせず pending のまま**、開けない本だけ failed、**存在確認で「無い」本は積まない / 結果が変わったら組み直す**(`settleExistenceRefresh` で待つ)、**ページの指定で作り直し、切り出し位置では作り直さない**、保存の世代の移行は一度だけ・save 1 回 |
+| `CollectionAutoFolderScanTests` | 自動登録フォルダ ―― 拾う範囲がドロップと一致すること(直下だけ)、書き込みが止まったかの判定の境界、**走査役を端から端まで**(書き終わった本から順に入る・二重に入らない・権限の無いフォルダは見送る。`settle()` で待つ) |
+| `FolderChangeWatcherTests` | FSEvents の包み ―― 見張っているフォルダに本を置くと知らせが届くこと(知らせそのもので待つ) |
+| `CollectionDropClassifierTests` / `WelcomeDropHandlingTests` | ドロップの振り分け(本 / 棚 / 対象外)と、ウェルカム画面での扱い ―― 編集モードの外では引き受けない、ばらの本は 1 つの作成待ちに、棚はフォルダ名で、自動登録フォルダの初期値は「全部が同じフォルダ」のときだけ、コレクションの中へは本を足す(`onFinished` で待つ) |
+| `WelcomeLibraryStateTests` / `LazyCellImageBudgetTests` | 編集モードの選択を画面をまたいで残さないこと、Lazy コンテナの帳簿の下限セル数(**画面内ぶんだけでは作り直さない** ―― 定数だった頃の回帰) |
 
 段階 7(2026-09-06 追加、計画に載っていなかった未カバーを洗い出したもの):
 

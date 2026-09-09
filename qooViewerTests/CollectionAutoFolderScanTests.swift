@@ -135,6 +135,117 @@ struct CollectionAutoFolderScanTests {
         #expect(CollectionAutoFolderScan.isSettled(future, previous: nil))
     }
 
+    // MARK: - 走査役(端から端まで)
+
+    /// 走査役 1 つぶんの支度。フォルダのアクセス権と環境設定は、その場限りの suite に載せる。
+    @MainActor
+    private struct ScannerHarness {
+        let library: InMemoryLibrary
+        let suite: PreferencesSuite
+        let folderAccess: FolderAccessStore
+        let extractor: CollectionCoverExtractor
+        let scanner: CollectionAutoFolderScanner
+
+        init(_ label: String) throws {
+            library = try InMemoryLibrary(label: label)
+            suite = PreferencesSuite(label: label)
+            folderAccess = FolderAccessStore(defaults: suite.defaults)
+            extractor = CollectionCoverExtractor(
+                collectionStore: library.collections, coverStore: library.collectionCovers,
+                layoutStore: library.layouts, cachesPageList: false, defaults: suite.defaults
+            )
+            scanner = CollectionAutoFolderScanner(
+                collectionStore: library.collections, coverExtractor: extractor,
+                folderAccess: folderAccess, preferences: suite.makePreferences()
+            )
+        }
+
+        /// 走査と、それが積んだ抽出が終わるまで待つ。
+        func settle() async {
+            await scanner.settle()
+            await extractor.waitUntilIdle()
+        }
+
+        func close() {
+            scanner.releaseResources()
+            extractor.releaseResources()
+            library.close()
+        }
+    }
+
+    private func writeArchive(_ url: URL, number: UInt8, modifiedAgo: TimeInterval? = nil) throws {
+        var builder = ZipFixtureBuilder()
+        builder.add("001.png", PageImageFactory.png(number: number))
+        try builder.write(to: url)
+        if let modifiedAgo {
+            try FileManager.default.setAttributes(
+                [.modificationDate: Date().addingTimeInterval(-modifiedAgo)], ofItemAtPath: url.path
+            )
+        }
+    }
+
+    @Test("自動登録フォルダに置いた本は、書き終わっているものから順に入る(二重には入らない)")
+    @MainActor
+    func booksPlacedInTheAutoFolderAreAdded() async throws {
+        let harness = try ScannerHarness("auto-folder-scanner")
+        defer { harness.close() }
+        let temporary = try TemporaryDirectory("auto-folder-scanner")
+        let shelf = try temporary.directory("shelf")
+        let seed = shelf.appendingPathComponent("00.cbz")
+        try writeArchive(seed, number: 1, modifiedAgo: 60)
+        let library = try #require(harness.library.collections.libraries.first)
+        // `#require` の中に `#require` を入れると、マクロが再帰的に展開されて通らない。
+        let seedItem = try #require(CollectionStore.makePendingItem(for: seed))
+        let collection = try #require(
+            harness.library.collections.createCollection(name: "Shelf", in: library, items: [seedItem])
+        )
+        harness.library.collections.setAutoFolder(shelf, for: collection)
+        #expect(harness.folderAccess.add(url: shelf))
+
+        // 更新が止まって久しいもの(同じボリューム内の移動など)と、書かれたばかりのもの。
+        let settled = shelf.appendingPathComponent("01.cbz")
+        let fresh = shelf.appendingPathComponent("02.cbz")
+        try writeArchive(settled, number: 2, modifiedAgo: 60)
+        try writeArchive(fresh, number: 3)
+
+        harness.scanner.scheduleScan()
+        await harness.settle()
+
+        // 書かれたばかりのものも、見直し(recheckDelay 後)で「書き込みが止まった」と分かれば入る。
+        #expect(Set(collection.items.map(\.bookID)) == [seed.path, settled.path, fresh.path])
+        // 入った本のカバーはそのまま抽出される。
+        #expect(collection.items.allSatisfy { $0.coverState == .ready })
+
+        // もう一度走らせても増えない。
+        harness.scanner.scheduleScan()
+        await harness.settle()
+        #expect(collection.items.count == 3)
+    }
+
+    @Test("列挙する権限の無いフォルダは黙って見送る")
+    @MainActor
+    func foldersWithoutAccessAreSkipped() async throws {
+        let harness = try ScannerHarness("auto-folder-scanner-no-access")
+        defer { harness.close() }
+        let temporary = try TemporaryDirectory("auto-folder-scanner-no-access")
+        let shelf = try temporary.directory("shelf")
+        let seed = shelf.appendingPathComponent("00.cbz")
+        try writeArchive(seed, number: 1, modifiedAgo: 60)
+        let library = try #require(harness.library.collections.libraries.first)
+        // `#require` の中に `#require` を入れると、マクロが再帰的に展開されて通らない。
+        let seedItem = try #require(CollectionStore.makePendingItem(for: seed))
+        let collection = try #require(
+            harness.library.collections.createCollection(name: "Shelf", in: library, items: [seedItem])
+        )
+        harness.library.collections.setAutoFolder(shelf, for: collection)
+        try writeArchive(shelf.appendingPathComponent("01.cbz"), number: 2, modifiedAgo: 60)
+
+        harness.scanner.scheduleScan()
+        await harness.settle()
+
+        #expect(collection.items.count == 1)
+    }
+
     @Test("大きさと更新時刻を実ファイルから読める")
     func snapshotReadsTheSizeAndModificationDate() throws {
         let temporary = try TemporaryDirectory("auto-folder-snapshot")

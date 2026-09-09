@@ -34,6 +34,10 @@ final class CollectionCoverExtractor: ObservableObject {
     /// いま抽出中のitem(表示側がスピナーを出すために見る)。同時1件なので高々1つ。
     @Published private(set) var inFlightItemIDs: Set<UUID> = []
 
+    /// 本を解決しにいった回数(**テストのための口**)。実体が見つからない本を積まなくなった
+    /// こと・切り出し位置の変更で抽出し直さないことを、状態ではなく回数で確かめるために持つ。
+    private(set) var extractionAttemptCount = 0
+
     private let collectionStore: CollectionStore
     private let coverStore: CollectionCoverStore
     private let layoutStore: LayoutStore
@@ -110,12 +114,15 @@ final class CollectionCoverExtractor: ObservableObject {
             MainActor.assumeIsolated { self?.refill() }
         }
         observers = [layoutObserver, collectionsObserver]
-        // `@Published`の投影はwillSetで飛ぶ(値はまだ差し替わっていない)ので、その場では読まず
-        // 次のメインアクターの番で組み直す。
+        // `@Published`の投影はwillSetで飛ぶ(ストアの値はまだ差し替わっていない)ので、
+        // 届いた値のほうで組み直す。代入はメインアクター上(finishExistenceRefresh)なので
+        // ここも同期的にメインアクター上で走る(FavoritesStore.initの同種のコメント参照)。
+        // Taskで1拍遅らせないのは、存在確認の待ち合わせ(CollectionStore.settleExistenceRefresh)
+        // が返った時点で待ち行列が組み直されている、と言えるようにするため。
         existenceCancellable = collectionStore.$existenceByItemID
             .dropFirst()
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in self?.refill() }
+            .sink { [weak self] existence in
+                MainActor.assumeIsolated { self?.refill(existence: existence) }
             }
 
         // 既に登録済みの本(前回の起動で抽出を終えているもの)の条件を先に控えておく
@@ -165,14 +172,29 @@ final class CollectionCoverExtractor: ObservableObject {
     /// 一度は試みる ―― 見つからなければ`.pending`のまま戻り、通知も出ないので、次に組み直す
     /// 契機まで積み直されない。
     func refill() {
+        refill(existence: collectionStore.existenceByItemID)
+    }
+
+    /// - Parameter existence: 判定に使う存在確認の結果(CollectionStore.existenceByItemID、
+    ///   またはその投影から届いた新しい値)。無い本は「ある」として扱う(cachedFileExistsと同じ)。
+    private func refill(existence: [UUID: Bool]) {
         seedSignatures(for: collectionStore.allRegisteredBookIDs())
-        enqueue(collectionStore.itemsAwaitingCover().filter { collectionStore.cachedFileExists(for: $0) })
+        enqueue(collectionStore.itemsAwaitingCover().filter { existence[$0.id] ?? true })
     }
 
     /// まだ控えていないbookIDの条件を、いまのDBの値で記録する(抽出はしない)。
     private func seedSignatures(for bookIDs: Set<String>) {
         for bookID in bookIDs where signatures[bookID] == nil {
             signatures[bookID] = signature(forBookID: bookID)
+        }
+    }
+
+    /// 待ち行列が空になり、走っている抽出が終わるまで待つ(**テストのための口**。
+    /// ViewerViewModel.settleと同じく、時間ではなく仕事の終わりで待つ)。
+    /// 待っている間に積まれたぶんも含めて、静かになるまで繰り返す。
+    func waitUntilIdle() async {
+        while let task = currentTask {
+            await task.value
         }
     }
 
@@ -215,6 +237,7 @@ final class CollectionCoverExtractor: ObservableObject {
     private func extract(itemID: UUID) async {
         guard let item = collectionStore.item(withID: itemID) else { return }
         let bookID = item.bookID
+        extractionAttemptCount += 1
         // ブックマークが解決できない・実体が無い本は`.pending`のまま置いて戻る
         // (型コメント「実体が見つからない本」参照)。`.failed`は本を開けなかったときだけ。
         guard let url = collectionStore.resolvedExistingURL(for: item) else { return }

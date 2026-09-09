@@ -72,4 +72,26 @@ struct LazyCellImageBudget {
     mutating func note(retaining image: CGImage, minimumCellCount: Int) {
         note(retainedBytes: image.bytesPerRow * image.height, minimumCellCount: minimumCellCount)
     }
+
+    /// 等間隔のグリッド(`LazyVGrid` の `.adaptive(minimum:)`)向けの、下限セル数の見積もり。
+    /// 画面内に収まりうるセル数(列数 × 見えている行数 + 先読み2行、× 1項目あたりのセル数)の
+    /// 3倍、ただし64を下回らない(型コメント「予算の決め方」参照)。
+    ///
+    /// コレクションの一覧・コレクションの中がこれを使う。以前はそれぞれ定数(48 / 24)を
+    /// 渡していて、1画面ぶんのセルが定数を超えると予算だけで作り直しが決まり、大画面で
+    /// 画面内ぶんだけで予算に達してループしうる計算だった(監査で指摘 2026-09-09)。
+    ///
+    /// - Parameters:
+    ///   - visibleSize: グリッドを載せている `ScrollView` の見えている大きさ。
+    ///   - cellWidth / cellHeight: 1項目(セルまたは札)のおおよその大きさ。
+    ///   - spacing: 項目の間隔。padding: グリッドの外側の余白(片側)。
+    ///   - cellsPerItem: 1項目が保持する画像の数(札なら中のカバーの数)。
+    static func minimumCellCount(
+        visibleSize: CGSize, cellWidth: CGFloat, cellHeight: CGFloat,
+        spacing: CGFloat, padding: CGFloat, cellsPerItem: Int = 1
+    ) -> Int {
+        let columns = max(1, Int((visibleSize.width - padding * 2 + spacing) / max(cellWidth + spacing, 1)))
+        let rows = Int((visibleSize.height / max(cellHeight + spacing, 1)).rounded(.up)) + 2
+        return max(columns * rows * max(cellsPerItem, 1) * 3, 64)
+    }
 }

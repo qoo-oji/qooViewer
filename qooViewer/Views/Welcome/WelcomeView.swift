@@ -207,7 +207,7 @@ struct WelcomeView: View {
 /// Viewの外にあるのは、AppState.welcomeDropHandlerへ登録する閉包に**Viewの値を捕まえさせない**
 /// ため(WelcomeView.onAppearのコメント参照)。状態は持たず、要るものはすべて引数で受ける。
 @MainActor
-private enum WelcomeDropHandling {
+enum WelcomeDropHandling {
     /// いま見ているライブラリ。保存されていたidの実体が無ければ先頭へ読み替える
     /// (別のウインドウで削除された場合。ライブラリは必ず1つ以上ある ――
     /// CollectionStore.ensureDefaultLibrary)。
@@ -223,10 +223,13 @@ private enum WelcomeDropHandling {
     ///
     /// **編集モードのときだけ引き受ける。** 閲覧中のドロップは従来どおり「その本を開く」で、
     /// 意味が変わるのは編集モードに入っている間だけ、という1つの規則にしてある。
+    ///
+    /// - Parameter onFinished: 振り分け(フォルダの列挙を伴うのでメインアクターの外で走る)が
+    ///   終わり、結果を積み終えたときに呼ぶ(**テストのための口**。画面は渡さない)。
     static func handle(
         _ urls: [URL], allowsEditing: Bool, state: WelcomeLibraryState,
         collectionStore: CollectionStore, coverExtractor: CollectionCoverExtractor,
-        preferences: AppPreferences
+        preferences: AppPreferences, onFinished: (@MainActor () -> Void)? = nil
     ) -> Bool {
         guard allowsEditing, state.isEditing, !urls.isEmpty,
               resolvedLibrary(state: state, collectionStore: collectionStore) != nil
@@ -244,6 +247,7 @@ private enum WelcomeDropHandling {
             } else {
                 queueCreations(from: classified, into: state)
             }
+            onFinished?()
         }
         return true
     }

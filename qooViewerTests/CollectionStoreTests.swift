@@ -247,6 +247,61 @@ struct CollectionStoreTests {
 
     // MARK: - コレクション
 
+    @Test("全件を pending へ戻すのは save 1 回(保存の世代の移行が使う)")
+    func markingEveryCoverPendingSavesOnce() throws {
+        let library = try InMemoryLibrary(label: "collections-mark-all-pending")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-mark-all-pending")
+        let shelf = try #require(library.collections.libraries.first)
+        let items = pendingItems([
+            try makeBookFolder(temporary, named: "a"), try makeBookFolder(temporary, named: "b"),
+        ])
+        let collection = try #require(
+            library.collections.createCollection(name: "Shelf", in: shelf, items: items)
+        )
+        for item in collection.items {
+            library.collections.setCoverStatus(.ready, aspect: 1.5, for: item)
+        }
+        let revisionBefore = library.collections.revision
+
+        library.collections.markAllCoversPending()
+
+        #expect(collection.items.allSatisfy { $0.coverState == .pending })
+        // 通し番号は save のたびに 1 進む。2 冊で 1 回だけ。
+        #expect(library.collections.revision == revisionBefore + 1)
+        // 戻すものが無ければ save も通知もしない。
+        library.collections.markAllCoversPending()
+        #expect(library.collections.revision == revisionBefore + 1)
+    }
+
+    @Test("起動時の掃除は、行の無いカバー画像だけを消す")
+    func sweepingOrphanedCoversKeepsTheLivingOnes() async throws {
+        let library = try InMemoryLibrary(label: "collections-sweep-orphans")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-sweep-orphans")
+        let shelf = try #require(library.collections.libraries.first)
+        let collection = try #require(
+            library.collections.createCollection(
+                name: "Shelf", in: shelf,
+                items: pendingItems([try makeBookFolder(temporary, named: "a")])
+            )
+        )
+        let living = try #require(collection.items.first)
+        let orphanID = UUID()
+        try await library.collectionCovers.write(PageImageFactory.cgImage(number: 1), for: living.id)
+        try await library.collectionCovers.write(PageImageFactory.cgImage(number: 2), for: orphanID)
+
+        library.collections.sweepOrphanedCovers()
+        // 掃除は保管庫の actor へ非同期に渡る。消えたことを条件に待つ(時間では待たない)。
+        for _ in 0..<500 {
+            if await library.collectionCovers.image(for: orphanID) == nil { break }
+            await Task.yield()
+        }
+
+        #expect(await library.collectionCovers.image(for: living.id) != nil)
+        #expect(await library.collectionCovers.image(for: orphanID) == nil)
+    }
+
     @Test("コレクション名は同じライブラリの中だけで一意(別のライブラリなら同名でよい)")
     func collectionNamesAreUniqueWithinTheirLibrary() throws {
         let library = try InMemoryLibrary(label: "collections-names")
