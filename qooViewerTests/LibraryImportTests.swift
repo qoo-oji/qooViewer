@@ -668,7 +668,13 @@ struct LibraryImportTests {
         origin.collections.rename(target, to: "Manga")
         origin.collections.setCoverAppearance(target, aspectRatio: .square, anchor: .end)
         let pending = try #require(CollectionStore.makePendingItem(for: source.book.sourceURL))
-        _ = origin.collections.createCollection(name: "シリーズ", in: target, items: [pending])
+        let created = try #require(
+            origin.collections.createCollection(name: "シリーズ", in: target, items: [pending])
+        )
+        // 自動登録フォルダは**パスだけ**を運ぶ(ExportedCollection.autoFolderPath 参照)。
+        // 実在するフォルダでないと取り込み側が設定しないので、本の入っている場所を指す。
+        let autoFolder = source.book.sourceURL.deletingLastPathComponent()
+        origin.collections.setAutoFolder(autoFolder, for: created)
 
         let (file, _) = await origin.buildExportFile(.everything)
         let destination = try InMemoryLibrary(label: "import-collection-roundtrip-dest")
@@ -684,6 +690,25 @@ struct LibraryImportTests {
         // カバーの見せ方もライブラリの属性なので一緒に運ぶ。
         #expect(copied.coverAspectRatio == .square)
         #expect(copied.coverCropAnchor == .end)
+        // 自動登録フォルダもパスとして運ばれる(その場所が実在するときだけ設定される)。
+        #expect(collection.autoFolderURL?.path == autoFolder.path)
+    }
+
+    @Test("JSON の自動登録フォルダは、実在しないパスなら設定しない")
+    func anAutoAddFolderThatDoesNotExistIsIgnored() async throws {
+        let source = try await ExportSource.zip(pages: 3, label: "import-collection-auto-missing")
+        let library = try InMemoryLibrary(label: "import-collection-auto-missing")
+        defer { library.close() }
+        var file = collectionsFile([source], library: "Manga", collection: "シリーズ")
+        file.libraries?[0].collections[0].autoFolderPath = "/nowhere/does-not-exist"
+
+        await library.apply(file, policies: .all(.merge))
+
+        let target = try #require(library.collections.libraries.first { $0.name == "Manga" })
+        let collection = try #require(
+            library.collections.collections(in: target, sort: .nameAscending).first
+        )
+        #expect(collection.autoFolderPath == nil)
     }
 
     @Test("カバーの見せ方が入っていない古い JSON を読んでも、既定(2:3・中央)のまま")

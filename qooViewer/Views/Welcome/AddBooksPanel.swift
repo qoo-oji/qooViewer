@@ -188,6 +188,11 @@ struct AddBooksPanel: View {
                           name: target.name, in: library, items: pending
                       ) {
                 target.collectionID = created.id
+                // 名前を決めるときに選ばれていた自動登録フォルダを、行ができたこの時点で
+                // 書き込む(AddBooksTarget.autoFolderのコメント参照)。
+                if let autoFolder = target.autoFolder {
+                    collectionStore.setAutoFolder(autoFolder, for: created)
+                }
                 added = collectionStore.items(in: created, sort: .dateAddedAscending)
             } else {
                 added = []

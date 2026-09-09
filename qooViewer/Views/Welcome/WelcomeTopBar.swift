@@ -180,7 +180,7 @@ struct WelcomeTopBar: View {
                 kind: .newLibrary,
                 initialName: "",
                 isDuplicate: { collectionStore.hasLibraryNamed($0) },
-                onCommit: { name in
+                onCommit: { name, _ in
                     if let created = collectionStore.createLibrary(name: name) {
                         state.selectedLibraryID = created.id
                         state.openedCollectionID = nil
@@ -195,7 +195,7 @@ struct WelcomeTopBar: View {
                     // (BookLibrary.displayName参照)。
                     initialName: library.displayName(language: locale),
                     isDuplicate: { collectionStore.hasLibraryNamed($0, excluding: library) },
-                    onCommit: { name in collectionStore.rename(library, to: name) }
+                    onCommit: { name, _ in collectionStore.rename(library, to: name) }
                 )
             }
         case nil:

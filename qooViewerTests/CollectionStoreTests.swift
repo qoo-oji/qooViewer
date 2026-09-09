@@ -340,55 +340,58 @@ struct CollectionStoreTests {
         #expect(library.collections.canMove(shelf, to: away) == false)
     }
 
-    @Test("本は別のコレクションへ移せる。行を付け替えるのでカバーの状態も残る")
-    func abookMovesBetweenCollections() throws {
-        let library = try InMemoryLibrary(label: "collections-move-book")
+    // MARK: - 自動登録フォルダ
+
+    @Test("自動登録フォルダは設定・変更・クリアでき、クリアしても中の本は残る")
+    func theAutoAddFolderIsStoredAndClearedWithoutTouchingTheBooks() throws {
+        let library = try InMemoryLibrary(label: "collections-auto-folder")
         defer { library.close() }
-        let temporary = try TemporaryDirectory("collections-move-book")
+        let temporary = try TemporaryDirectory("collections-auto-folder")
         let home = try #require(library.collections.libraries.first)
         let book = try makeBookFolder(temporary, named: "book")
-        let other = try makeBookFolder(temporary, named: "other")
-        let from = try #require(library.collections.createCollection(
-            name: "From", in: home, items: pendingItems([book])
+        let shelf = try temporary.directory("shelf")
+        let collection = try #require(library.collections.createCollection(
+            name: "Shelf", in: home, items: pendingItems([book])
         ))
-        let to = try #require(library.collections.createCollection(
-            name: "To", in: home, items: pendingItems([other])
-        ))
-        let item = try #require(from.items.first)
-        library.collections.setCoverStatus(.ready, aspect: 1.5, for: item)
-        let itemID = item.id
+        #expect(collection.autoFolderURL == nil)
+        #expect(library.collections.autoFolderTargets().isEmpty)
 
-        #expect(library.collections.move(item, to: to))
+        library.collections.setAutoFolder(shelf, for: collection)
 
-        #expect(from.items.isEmpty)
-        #expect(library.collections.items(in: to, sort: .nameAscending).map(\.id).contains(itemID))
-        // 行そのものを付け替えたので、抽出済みのカバーは作り直しにならない。
-        #expect(item.coverState == .ready)
-        #expect(item.coverAspect == 1.5)
-        // 同じコレクションへは移せない。
-        #expect(library.collections.move(item, to: to) == false)
+        #expect(collection.autoFolderURL?.path == shelf.path)
+        let targets = library.collections.autoFolderTargets()
+        #expect(targets.count == 1)
+        #expect(targets.first?.id == collection.id)
+        #expect(targets.first?.folder.path == shelf.path)
+
+        library.collections.setAutoFolder(nil, for: collection)
+
+        #expect(collection.autoFolderURL == nil)
+        #expect(library.collections.autoFolderTargets().isEmpty)
+        // クリアは設定を外すだけ。それまでに入った本はそのまま残る。
+        #expect(collection.items.count == 1)
     }
 
-    @Test("移す先に同じ本が既に居るときは、移す側の行を消すだけ")
-    func movingAbookThatIsAlreadyThereJustRemovesTheSource() throws {
-        let library = try InMemoryLibrary(label: "collections-move-duplicate")
+    @Test("走査が渡すURLからは、既に入っている本が落ちる")
+    func alreadyRegisteredBooksAreFilteredOutBeforeMakingBookmarks() throws {
+        let library = try InMemoryLibrary(label: "collections-auto-folder-filter")
         defer { library.close() }
-        let temporary = try TemporaryDirectory("collections-move-duplicate")
+        let temporary = try TemporaryDirectory("collections-auto-folder-filter")
         let home = try #require(library.collections.libraries.first)
-        let book = try makeBookFolder(temporary, named: "book")
-        let from = try #require(library.collections.createCollection(
-            name: "From", in: home, items: pendingItems([book])
+        let first = try makeBookFolder(temporary, named: "first")
+        let second = try makeBookFolder(temporary, named: "second")
+        let collection = try #require(library.collections.createCollection(
+            name: "Shelf", in: home, items: pendingItems([first])
         ))
-        let to = try #require(library.collections.createCollection(
-            name: "To", in: home, items: pendingItems([book])
-        ))
-        let item = try #require(from.items.first)
 
-        #expect(library.collections.move(item, to: to))
+        #expect(
+            library.collections.unregisteredURLs([first, second], in: collection).map(\.path)
+                == [second.path]
+        )
 
-        #expect(from.items.isEmpty)
-        // 移す先は増えない(同じ本を2つ置かない)。
-        #expect(to.items.count == 1)
+        _ = library.collections.add(pendingItems([second]), to: collection)
+
+        #expect(library.collections.unregisteredURLs([first, second], in: collection).isEmpty)
     }
 
     // MARK: - 削除

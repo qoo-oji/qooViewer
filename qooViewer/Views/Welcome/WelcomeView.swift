@@ -27,6 +27,8 @@ struct WelcomeView: View {
     @EnvironmentObject private var preferences: AppPreferences
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
+    @EnvironmentObject private var autoFolderScanner: CollectionAutoFolderScanner
+    @EnvironmentObject private var folderAccess: FolderAccessStore
     @ObservedObject var state: WelcomeLibraryState
 
     /// 編集操作を許すか。シークレットウインドウでは常にfalse(型コメント参照)。
@@ -94,6 +96,9 @@ struct WelcomeView: View {
         // 割り込ませてもらう(AppState.welcomeDropHandler参照)。
         .onAppear {
             coverExtractor.refill()
+            // 自動登録フォルダを見に行く契機のひとつ(CollectionAutoFolderScannerの型コメント
+            // 参照。FSEventsで見張らない代わりに、この画面を見にきた時点で走らせる)。
+            autoFolderScanner.scheduleScan()
             appState.welcomeDropHandler = { urls in handleDrop(urls) }
         }
         .onDisappear {
@@ -108,7 +113,10 @@ struct WelcomeView: View {
                 kind: .newCollection,
                 initialName: creation.defaultName,
                 isDuplicate: { collectionStore.hasCollectionNamed($0, in: library) },
-                onCommit: { name in finishCreation(creation, name: name, in: library) },
+                autoFolder: .init(initial: creation.autoFolder),
+                onCommit: { name, autoFolder in
+                    finishCreation(creation, name: name, autoFolder: autoFolder, in: library)
+                },
                 onCancel: { dropFirstPendingCreation() },
                 dismissesOnFinish: false
             )
@@ -119,23 +127,52 @@ struct WelcomeView: View {
 
     // MARK: - 作成
 
+    /// - Parameter autoFolder: シートで選ばれた自動登録フォルダ(未選択ならnil)。
     private func finishCreation(
-        _ creation: WelcomeLibraryState.PendingCollectionCreation, name: String, in library: BookLibrary
+        _ creation: WelcomeLibraryState.PendingCollectionCreation, name: String,
+        autoFolder: URL?, in library: BookLibrary
     ) {
         dropFirstPendingCreation()
-        let pending = creation.books.compactMap(CollectionStore.makePendingItem(for:))
-        // 本の入っていない作成(「＋」から)は、行を作らずに「本を追加」パネルへ進む。
-        // 1冊目が入った時点でCollectionStore.createCollectionが行を作る。
-        guard !pending.isEmpty else {
-            presentAddBooks(.init(collectionID: nil, name: name, libraryID: library.id))
-            return
+        let order = preferences.siblingBookOrder
+        Task {
+            var books = creation.books
+            // 「＋」から作って自動登録フォルダだけを選んだ場合は、そのフォルダに並んでいる本で
+            // 棚を作る ―― 指定した瞬間に中身が入るほうが素直で、そうしないと「空の棚は作らない」
+            // 方針(CollectionStore.createCollection)に阻まれて、行が作られないまま
+            // 「本を追加」パネルだけが開くことになる。
+            if books.isEmpty, let autoFolder, folderAccess.isPathCovered(autoFolder) {
+                books = await Task.detached(priority: .userInitiated) {
+                    CollectionAutoFolderScan.books(in: autoFolder, order: order)
+                }.value
+            }
+            let pending = books.compactMap(CollectionStore.makePendingItem(for:))
+            // 本の入っていない作成(「＋」から)は、行を作らずに「本を追加」パネルへ進む。
+            // 1冊目が入った時点でCollectionStore.createCollectionが行を作る ―― 選ばれていた
+            // 自動登録フォルダも、そのときに書き込めるようパネルへ持たせる。
+            guard !pending.isEmpty else {
+                presentAddBooks(
+                    .init(
+                        collectionID: nil, name: name, libraryID: library.id,
+                        autoFolder: autoFolder
+                    )
+                )
+                return
+            }
+            guard let created = collectionStore.createCollection(
+                name: name, in: library, items: pending
+            ) else { return }
+            if let autoFolder {
+                collectionStore.setAutoFolder(autoFolder, for: created)
+            }
+            coverExtractor.enqueue(collectionStore.items(in: created, sort: .dateAddedAscending))
+            // 要望どおり、作成のあとは本が入った状態の「本を追加」パネルを開く(そのまま足せる)。
+            presentAddBooks(
+                .init(
+                    collectionID: created.id, name: created.name, libraryID: library.id,
+                    autoFolder: autoFolder
+                )
+            )
         }
-        guard let created = collectionStore.createCollection(
-            name: name, in: library, items: pending
-        ) else { return }
-        coverExtractor.enqueue(collectionStore.items(in: created, sort: .dateAddedAscending))
-        // 要望どおり、作成のあとは本が入った状態の「本を追加」パネルを開く(そのまま足せる)。
-        presentAddBooks(.init(collectionID: created.id, name: created.name, libraryID: library.id))
     }
 
     private func dropFirstPendingCreation() {
@@ -188,13 +225,38 @@ struct WelcomeView: View {
             return nil
         }
         if !looseBooks.isEmpty {
-            queued.append(.init(defaultName: "", books: looseBooks, fromShelf: false))
+            queued.append(
+                .init(
+                    defaultName: "", books: looseBooks, fromShelf: false,
+                    autoFolder: commonParentFolder(of: looseBooks)
+                )
+            )
         }
         for item in classified {
-            guard case .shelf(let name, let books) = item else { continue }
-            queued.append(.init(defaultName: name, books: books, fromShelf: true))
+            guard case .shelf(let folder, let books) = item else { continue }
+            queued.append(
+                .init(
+                    defaultName: folder.lastPathComponent, books: books, fromShelf: true,
+                    autoFolder: folder
+                )
+            )
         }
         guard !queued.isEmpty else { return }
         state.pendingCreations.append(contentsOf: queued)
+    }
+
+    /// 落とされた本が全部同じフォルダに入っていたなら、そのフォルダ。
+    ///
+    /// **1つに定まらないときはnil**(空欄)にする ―― 別々の場所から集めた本で棚を作ったときに、
+    /// そのうちの1つのフォルダだけが自動登録フォルダとして選ばれていると、なぜそこなのかが
+    /// 画面から読めない。
+    ///
+    /// ここで返るフォルダには**列挙する権限が付いてこない**(サンドボックスが許すのは落とされた
+    /// ファイルそのものだけ。CLAUDE.md)。初期値としてパスを出すだけで、実際に走査が始まるのは
+    /// ユーザーがアクセスを許可してから(CollectionAutoFolderRow参照)。
+    private func commonParentFolder(of books: [URL]) -> URL? {
+        let parents = Set(books.map { $0.deletingLastPathComponent().path })
+        guard parents.count == 1, let path = parents.first else { return nil }
+        return URL(fileURLWithPath: path, isDirectory: true)
     }
 }

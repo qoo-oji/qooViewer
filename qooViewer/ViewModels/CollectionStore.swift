@@ -535,44 +535,6 @@ final class CollectionStore: ObservableObject {
         return created
     }
 
-    /// 本を別のコレクションへ移す(ユーザー要望 2026-09-09。右クリック → 「移動」)。
-    ///
-    /// **行そのものを付け替える**(消して作り直さない)。カバー画像のファイル名は行のid
-    /// (CollectionItem.id)なので、付け替えなら抽出済みのカバーがそのまま生きる。
-    ///
-    /// 移す先に同じ本が既に入っている場合は、**移す側の行を消すだけ**にする ―― 同じ
-    /// コレクションに同じ本を2つ置かない(insertItems)という決まりに合わせつつ、
-    /// 「移動したのに元にも残っている」を避ける。行が消えるのでカバーの画像も一緒に消す。
-    @discardableResult
-    func move(_ item: CollectionItem, to collection: BookCollection) -> Bool {
-        guard let source = item.collection, source.id != collection.id else { return false }
-        let now = Date()
-        let alreadyThere = collection.items.contains { other in
-            other.bookID == item.bookID
-                || (item.fileNodeIdentifier != nil
-                    && other.fileNodeIdentifier == item.fileNodeIdentifier)
-        }
-        if alreadyThere {
-            // 消したあとの行から属性を読まない(SwiftDataでは落ちうる)ので、先に控える。
-            let itemID = item.id
-            let bookID = item.bookID
-            modelContext.delete(item)
-            source.updatedAt = now
-            invalidateLookupCaches()
-            saveAndNotify(bookID: bookID)
-            removeCovers([itemID])
-            existenceByItemID.removeValue(forKey: itemID)
-            return true
-        }
-        item.collection = collection
-        item.sortOrder = collection.items.count
-        source.updatedAt = now
-        collection.updatedAt = now
-        invalidateLookupCaches()
-        saveAndNotify(bookID: item.bookID)
-        return true
-    }
-
     /// 本をコレクションから外す(カバー画像のファイルも消す)。
     func remove(_ item: CollectionItem) {
         let itemID = item.id
@@ -659,6 +621,45 @@ final class CollectionStore: ObservableObject {
     /// 指定したbookIDの登録(全コレクション横断)。
     func items(forBookID bookID: String) -> [CollectionItem] {
         allItems().filter { $0.bookID == bookID }
+    }
+
+    // MARK: - 自動登録フォルダ
+
+    /// 自動登録フォルダを設定する(nilで解除。ユーザー要望 2026-09-09)。
+    ///
+    /// **解除しても、それまでに入った本はそのまま残す。** 自動で入ったか手で入れたかを
+    /// 行に記録していない(区別する必要が出たことがない)し、仮に区別できたとしても、
+    /// 設定を1つ外しただけで棚の中身が消えるのは取り消しの利かない破壊になる。
+    ///
+    /// `updatedAt`は動かさない ―― これは棚の中身でも見出しでもなく、棚の設定であるため
+    /// (BookCollection.updatedAtのコメント参照。「更新順」の並びが設定を触るたびに
+    /// 入れ替わるのは、並びの意味として読めない)。
+    func setAutoFolder(_ url: URL?, for collection: BookCollection) {
+        let path = url?.path
+        guard collection.autoFolderPath != path else { return }
+        collection.autoFolderPath = path
+        saveAndNotify()
+        reload()
+    }
+
+    /// 自動登録フォルダが設定されているコレクション(走査役が使う)。
+    ///
+    /// SwiftDataのモデルはメインアクターの外へ渡せないので、**idとURLの組**にして返す
+    /// (scheduleExistenceRefreshが行をUUIDとDataへ写し取っているのと同じ理由)。
+    func autoFolderTargets() -> [(id: UUID, folder: URL)] {
+        allCollections().compactMap { collection in
+            collection.autoFolderURL.map { (id: collection.id, folder: $0) }
+        }
+    }
+
+    /// このコレクションに**まだ入っていない**URLだけを残す(走査役が使う)。
+    ///
+    /// 重複はinsertItemsがパス/iノードで弾くので通してしまっても結果は同じだが、
+    /// そこへ行き着く前に`makePendingItem`が1件ずつセキュリティスコープ付きブックマークを
+    /// 作ってしまう。走査は繰り返し走るものなので、既に入っている本のぶんを毎回作り直さない。
+    func unregisteredURLs(_ urls: [URL], in collection: BookCollection) -> [URL] {
+        let known = Set(collection.items.map(\.bookID))
+        return urls.filter { !known.contains($0.path) }
     }
 
     // MARK: - 移動・リネームへの追従

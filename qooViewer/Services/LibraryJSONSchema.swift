@@ -54,6 +54,19 @@ struct ExportedLibrary: Codable {
 struct ExportedCollection: Codable {
     var name: String
     var createdAt: Date
+    /// 自動登録フォルダのパス(BookCollection.autoFolderPath。ユーザー要望 2026-09-09)。
+    ///
+    /// **パスだけを書き出す。** セキュリティスコープ付きブックマークは書き出した端末でしか
+    /// 意味を持たない(ExportedCollectionBookと同じ理由)し、そもそもこのアプリでフォルダの
+    /// 権限を持っているのはFolderAccessStoreだけで、コレクションはパスしか持っていない。
+    ///
+    /// 取り込み側では、そのパスに**実際にフォルダがあるときだけ**設定する。無い場所を指した
+    /// 設定が残っていても、設定の面にありもしないパスが出るだけで何も起きないため。
+    /// フォルダがあっても権限は別途要る(「アクセスを許可」。CollectionAutoFolderRow参照)。
+    ///
+    /// Optionalなので、これを足す前に書き出したJSONもそのまま読める(formatVersionは据え置き。
+    /// ExportedLibrary.coverAspectRatioと同じ扱い)。
+    var autoFolderPath: String?
     var books: [ExportedCollectionBook]
 }
 

@@ -22,8 +22,12 @@ nonisolated enum CollectionDropClassifier {
     enum Item: Sendable, Equatable {
         /// 1冊の本(ファイル、または1冊にあたるフォルダ)。
         case book(URL)
-        /// 棚。`name`はコレクション名の既定値に使うフォルダ名、`books`は直下の本。
-        case shelf(name: String, books: [URL])
+        /// 棚。`folder`はそのフォルダ自身、`books`は直下の本。
+        ///
+        /// フォルダ名(コレクション名の既定値)だけでなく**フォルダのURLそのもの**を持つのは、
+        /// ここから作るコレクションの自動登録フォルダの初期値にするため
+        /// (BookCollection.autoFolderPath参照)。
+        case shelf(folder: URL, books: [URL])
         /// コレクションには入れられないもの。
         case ignored(URL)
     }
@@ -78,7 +82,7 @@ nonisolated enum CollectionDropClassifier {
             return .book(url)
         case .shelf(let books):
             // 本が1冊も無い棚は作らせない(空のコレクションは作らないという方針)。
-            return books.isEmpty ? .ignored(url) : .shelf(name: url.lastPathComponent, books: books)
+            return books.isEmpty ? .ignored(url) : .shelf(folder: url, books: books)
         case .neither:
             return .ignored(url)
         }

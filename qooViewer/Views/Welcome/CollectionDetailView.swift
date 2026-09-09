@@ -18,6 +18,7 @@ import SwiftUI
 struct CollectionDetailView: View {
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
+    @EnvironmentObject private var autoFolderScanner: CollectionAutoFolderScanner
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
@@ -90,7 +91,7 @@ struct CollectionDetailView: View {
                     isDuplicate: { name in
                         collectionStore.hasCollectionNamed(name, in: library, excluding: collection)
                     },
-                    onCommit: { name in collectionStore.rename(collection, to: name) }
+                    onCommit: { name, _ in collectionStore.rename(collection, to: name) }
                 )
             }
         }
@@ -117,6 +118,10 @@ struct CollectionDetailView: View {
         .onReceive(NotificationCenter.default.publisher(for: .layoutDataDidChange)) { _ in
             layoutRevision &+= 1
         }
+        // 自動登録フォルダを見に行く契機のひとつ(CollectionAutoFolderScannerの型コメント参照)。
+        // ウェルカム画面のonAppearは一覧から中へ入るときには走らないため、ここでも呼ぶ ――
+        // 開いた棚がその場で埋まるのが、この機能のいちばん見えるところなので。
+        .onAppear { autoFolderScanner.scheduleScan() }
     }
 
     private var header: some View {
@@ -178,6 +183,7 @@ struct CollectionDetailView: View {
                 sizeRange: WelcomeLibraryState.coverSizeRange,
                 sizeHelp: "Cover Size",
                 library: library,
+                collection: collection,
                 allowsEditing: allowsEditing
             )
         }
@@ -323,10 +329,12 @@ struct CollectionDetailView: View {
                 }
             }
             // コレクションから外すのは取り消せない削除なので、ゴミ箱と同じく編集モードの中に置く。
-            // 別のコレクションへ移すのも棚をいじる操作なので、同じ側に置く。
+            //
+            // **「別のコレクションへ移す」は置かない**(2026-09-09に一度入れて同日に撤回した)。
+            // 自動登録フォルダを持つコレクションから本を移しても、次の走査でそのまま戻ってくる
+            // ―― 移動が成立したりしなかったりする操作は、右クリックの一項目としては読めない。
+            // 移したいときは、移す先へ本を足してから元から外す。
             if allowsEditing && state.isEditing {
-                Divider()
-                moveMenu(for: item)
                 Divider()
                 Button("Remove from Collection", role: .destructive) {
                     // 1冊でも確認は出す(ゴミ箱と同じ扱い。取り消せない書き込みなので、
@@ -334,53 +342,6 @@ struct CollectionDetailView: View {
                     removingItemIDs = [item.id]
                 }
             }
-        }
-    }
-
-    /// この本を別のコレクションへ移す(ユーザー要望 2026-09-09)。
-    ///
-    /// ライブラリが1つしかなければ、そのライブラリのコレクションを**直に**並べる ―― 行き先が
-    /// 1つの入れ子を毎回開かせない。2つ以上あればライブラリごとの入れ子にする(コレクション名は
-    /// ライブラリをまたぐと重複しうるので、どの棚のものか分かる必要がある)。
-    ///
-    /// 移す先が1つも無いとき(コレクションがこれ1つだけ)は項目ごと出さない。
-    @ViewBuilder
-    private func moveMenu(for item: CollectionItem) -> some View {
-        let libraries = collectionStore.libraries
-        let targetsByLibrary = libraries.map { target in
-            (
-                library: target,
-                collections: collectionStore.collections(in: target, sort: .nameAscending)
-                    .filter { $0.id != collection.id }
-            )
-        }
-        .filter { !$0.collections.isEmpty }
-
-        if !targetsByLibrary.isEmpty {
-            Menu("Move to Collection") {
-                if targetsByLibrary.count == 1, let only = targetsByLibrary.first {
-                    ForEach(only.collections, id: \.id) { target in
-                        moveButton(for: item, to: target)
-                    }
-                } else {
-                    ForEach(targetsByLibrary, id: \.library.id) { entry in
-                        Menu(entry.library.displayName(language: locale)) {
-                            ForEach(entry.collections, id: \.id) { target in
-                                moveButton(for: item, to: target)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func moveButton(for item: CollectionItem, to target: BookCollection) -> some View {
-        Button(target.name) {
-            collectionStore.move(item, to: target)
-            // 移した先は今見えていないので、選択に残さない
-            // (見えていないものをゴミ箱が消さないための決まり)。
-            state.clearSelection()
         }
     }
 

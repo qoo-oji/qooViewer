@@ -60,13 +60,28 @@ struct CollectionNameSheet: View {
         }
     }
 
+    /// 自動登録フォルダの欄の設定。
+    struct AutoFolderField {
+        /// 欄の初期値。ドロップ由来なら落とされた場所、「＋」からならnil(空欄)。
+        var initial: URL?
+    }
+
     let kind: Kind
     /// 名前欄の初期値(リネームなら今の名前、棚のドロップならフォルダ名)。
     let initialName: String
     /// 前後の空白を除いた名前が既に使われているか。
     let isDuplicate: (String) -> Bool
-    /// 確定。前後の空白を除いた名前が渡る。
-    let onCommit: (String) -> Void
+    /// 自動登録フォルダの欄を出すか(ユーザー要望 2026-09-09)。**新しいコレクションを作る
+    /// ときだけ**渡す ―― リネームは名前を直すためだけの面で、ライブラリは自動登録を持たない。
+    ///
+    /// `nil`なら欄ごと出さない。`.some(nil)`(欄はあるが未選択)は「＋」から作った場合で、
+    /// ここに値が入るのはドロップ由来のときだけ
+    /// (WelcomeLibraryState.PendingCollectionCreation.autoFolder参照)。
+    var autoFolder: AutoFolderField?
+
+    /// 確定。前後の空白を除いた名前と、選ばれている自動登録フォルダ(欄を出していなければ
+    /// 常にnil)が渡る。
+    let onCommit: (String, URL?) -> Void
     /// 取り消し。待ち行列の先頭を取り除くために、Cancelでも呼び出し側へ返す必要がある
     /// (WelcomeLibraryState.pendingCreations参照)。
     var onCancel: () -> Void = {}
@@ -81,6 +96,8 @@ struct CollectionNameSheet: View {
     @Environment(\.locale) private var locale
     @Environment(\.dismiss) private var dismiss
     @State private var name: String = ""
+    /// 選ばれている自動登録フォルダ(欄を出しているときだけ意味がある)。
+    @State private var selectedAutoFolder: URL?
     /// 初期値をonAppearで入れるため、最初の1回だけ検証メッセージを出さない
     /// (開いた瞬間に赤い文字が出ているのは、まだ何も間違えていないので不親切)。
     @State private var didEdit = false
@@ -138,6 +155,15 @@ struct CollectionNameSheet: View {
                 .font(.caption)
             }
 
+            if autoFolder != nil {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Auto-Add Folder")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                    CollectionAutoFolderRow(folder: $selectedAutoFolder)
+                }
+            }
+
             HStack(spacing: 12) {
                 Spacer(minLength: 0)
                 Button(role: .cancel) {
@@ -160,10 +186,13 @@ struct CollectionNameSheet: View {
         // 出しているのかは特定できていない ―― 有力なのはNSViewRepresentable(SelectAllTextField)が
         // 親へ返す寸法だが、確かめていないので断定しない。いずれにせよ、欄の右にだけ
         // 説明のつかない余白が残るのは面として読めないので、ここで決め打ちにする。
-        // 名前を1つ入れるだけの面なので、欄が320ptになるこの値で足りる。
+        // 名前を1つ入れるだけの面なので、欄が320ptになるこの値で足りる。自動登録フォルダの
+        // 欄が増えてもこの幅のまま ―― パスは中略して出す(CollectionAutoFolderRow)ので、
+        // 面の幅をパスの長さに引きずられないようにする。
         .frame(width: 360)
         .onAppear {
             name = initialName
+            selectedAutoFolder = autoFolder?.initial
             // 初期値が入っているだけの状態を「編集した」と見なさない(didEditのコメント参照)。
             DispatchQueue.main.async { didEdit = false }
         }
@@ -171,7 +200,7 @@ struct CollectionNameSheet: View {
 
     private func commitIfPossible() {
         guard validationMessage == nil else { return }
-        onCommit(trimmedName)
+        onCommit(trimmedName, autoFolder == nil ? nil : selectedAutoFolder)
         if dismissesOnFinish { dismiss() }
     }
 }

@@ -62,6 +62,10 @@ final class AppStores: ObservableObject {
     /// カバー抽出の待ち行列。ウインドウをまたいで1本にするためここが持つ(同上の理由で
     /// allObjectWillChangePublishersには足さない)。
     let collectionCoverExtractor: CollectionCoverExtractor
+    /// 自動登録フォルダの走査役(ユーザー要望 2026-09-09)。カバー抽出と同じく、ウインドウを
+    /// またいで1つ ―― 同じフォルダを何枚もの画面が同時に走査する意味が無い(同上の理由で
+    /// allObjectWillChangePublishersには足さない)。
+    let collectionAutoFolderScanner: CollectionAutoFolderScanner
 
     init() {
         // 生成の順序は、QooViewerAppが@StateObjectを個別に持っていた頃の
@@ -83,6 +87,10 @@ final class AppStores: ObservableObject {
         collectionCoverExtractor = CollectionCoverExtractor(
             collectionStore: collectionStore, coverStore: collectionCoverStore,
             layoutStore: layoutStore
+        )
+        collectionAutoFolderScanner = CollectionAutoFolderScanner(
+            collectionStore: collectionStore, coverExtractor: collectionCoverExtractor,
+            folderAccess: folderAccess, preferences: preferences
         )
         // 行の無いカバー画像(前回の起動が落ちた・ストアを作り直した等)を起動時に1度だけ掃除する。
         collectionStore.sweepOrphanedCovers()

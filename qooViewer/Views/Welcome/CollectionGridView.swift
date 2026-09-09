@@ -91,7 +91,7 @@ struct CollectionGridView: View {
                     isDuplicate: { name in
                         collectionStore.hasCollectionNamed(name, in: library, excluding: collection)
                     },
-                    onCommit: { name in collectionStore.rename(collection, to: name) }
+                    onCommit: { name, _ in collectionStore.rename(collection, to: name) }
                 )
             }
         }

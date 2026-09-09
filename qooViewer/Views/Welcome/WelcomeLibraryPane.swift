@@ -7,8 +7,10 @@ import SwiftUI
 /// 引数で差し替える ―― 「＋」は一覧ならコレクションを作り、中なら本を足す。並べ替えと
 /// 大きさのスライダーも、それぞれの画面の対象に効く。**位置と見た目が変わらない**ことを
 /// 優先している(中へ入るたびにボタンが動くと、続けて操作するときに目で追う必要が出る)。
-/// いちばん右の歯車(ライブラリの設定)だけは両方の画面で**同じもの**を指す ―― カバーの
-/// 見せ方はライブラリ単位の設定なので、コレクションの中から変えても同じ場所に効く。
+/// いちばん右の歯車も同じ ―― 一覧では**ライブラリの設定**、コレクションの中では**その
+/// コレクションの設定**を出す(ユーザー指示 2026-09-09。以前はどちらでもライブラリの設定を
+/// 出していたが、棚を開いているのにその外側の設定が出るのは筋が通らない)。そのぶん、カバーの
+/// 見せ方(ライブラリ単位)を変えるには一覧へ戻ることになる。
 /// 編集モードのときだけ増える「ゴミ箱」を**「＋」の左**に足すのも同じ理由 ―― 列は右端に
 /// 揃えてあるので、左へ伸びるぶんには既にあるボタンが動かない。
 struct WelcomeLibraryPane: View {
@@ -88,10 +90,13 @@ struct LibraryPaneControls: View {
     let sizeHelp: LocalizedStringKey
     /// 歯車から設定するライブラリ(いま見ているライブラリ)。
     let library: BookLibrary
+    /// いま中を開いているコレクション。nil(一覧)ならライブラリの設定、開いていれば
+    /// **そのコレクションの設定**が歯車から出る(ユーザー指示 2026-09-09。型コメント参照)。
+    var collection: BookCollection?
     /// 編集操作を許すか(シークレットウインドウではfalse)。
     let allowsEditing: Bool
 
-    @State private var isShowingLibrarySettings = false
+    @State private var isShowingSettings = false
     /// 札の地の色を選ぶダイアログ。**ポップオーバーではなくこの列が持つ** ―― ポップオーバーの
     /// 中からシートを出すと、親のポップオーバーが閉じた時点でシートごと消える。
     @State private var isPickingBackgroundColor = false
@@ -120,20 +125,26 @@ struct LibraryPaneControls: View {
                 .frame(width: 110)
                 .panelControlWell()
                 .help(sizeHelp)
-            // ライブラリの設定(カバーの縦横比と切り出す位置)。**編集モードは条件にしない** ――
-            // 棚の中身を変える操作ではなく見え方の設定なので、閲覧しているだけのときにも
-            // 触れてよい。書き込みではあるので、シークレットウインドウでだけ塞ぐ。
+            // 設定。一覧ではライブラリ(カバーの見せ方)、コレクションの中ではそのコレクション
+            // (自動登録フォルダ)。**編集モードは条件にしない** ―― 棚の中身を変える操作では
+            // ないので、閲覧しているだけのときにも触れてよい。書き込みではあるので、
+            // シークレットウインドウでだけ塞ぐ。
             SidePanelNavButton(
-                systemName: "gearshape", isDisabled: !allowsEditing, help: "Library Settings"
+                systemName: "gearshape", isDisabled: !allowsEditing,
+                help: collection == nil ? "Library Settings" : "Collection Settings"
             ) {
-                isShowingLibrarySettings = true
+                isShowingSettings = true
             }
-            .popover(isPresented: $isShowingLibrarySettings, arrowEdge: .bottom) {
-                LibrarySettingsPopover(library: library) {
-                    // 閉じかけのポップオーバーの上へシートを重ねない(WelcomeView.presentAddBooksと
-                    // 同じ理由で1回だけ遅らせる)。
-                    isShowingLibrarySettings = false
-                    DispatchQueue.main.async { isPickingBackgroundColor = true }
+            .popover(isPresented: $isShowingSettings, arrowEdge: .bottom) {
+                if let collection {
+                    CollectionSettingsPopover(collection: collection)
+                } else {
+                    LibrarySettingsPopover(library: library) {
+                        // 閉じかけのポップオーバーの上へシートを重ねない
+                        // (WelcomeView.presentAddBooksと同じ理由で1回だけ遅らせる)。
+                        isShowingSettings = false
+                        DispatchQueue.main.async { isPickingBackgroundColor = true }
+                    }
                 }
             }
             .sheet(isPresented: $isPickingBackgroundColor) {

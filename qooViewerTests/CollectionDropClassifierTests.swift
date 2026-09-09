@@ -63,7 +63,7 @@ struct CollectionDropClassifierTests {
         )
 
         #expect(CollectionDropClassifier.classify([shelf], order: .byName) == [
-            .shelf(name: "Series A", books: [
+            .shelf(folder: shelf, books: [
                 shelf.appendingPathComponent("01.cbz"),
                 shelf.appendingPathComponent("02.pdf"),
                 shelf.appendingPathComponent("03-folder"),
@@ -97,7 +97,7 @@ struct CollectionDropClassifierTests {
             [shelf, book, empty], order: .byName
         )
         #expect(result == [
-            .shelf(name: "shelf", books: [
+            .shelf(folder: shelf, books: [
                 shelf.appendingPathComponent("01.cbz"), shelf.appendingPathComponent("02.pdf"),
             ]),
             .book(book),

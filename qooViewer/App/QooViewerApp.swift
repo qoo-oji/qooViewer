@@ -40,6 +40,9 @@ struct QooViewerApp: App {
     private var metadataFormatStore: MetadataFormatStore { stores.metadataFormatStore }
     private var collectionStore: CollectionStore { stores.collectionStore }
     private var collectionCoverExtractor: CollectionCoverExtractor { stores.collectionCoverExtractor }
+    private var collectionAutoFolderScanner: CollectionAutoFolderScanner {
+        stores.collectionAutoFolderScanner
+    }
     private var launchCoordinator: LaunchCoordinator { stores.launchCoordinator }
     /// メニューバー(アプリ全体で1つ)から、今アクティブな(キーウインドウの)AppStateを
     /// 参照するための仕組み。詳細はAppState.swiftのFocusedValues拡張のコメント参照。
@@ -335,6 +338,7 @@ struct QooViewerApp: App {
             .environmentObject(metadataStore)
             .environmentObject(collectionStore)
             .environmentObject(collectionCoverExtractor)
+            .environmentObject(collectionAutoFolderScanner)
             // メタデータ編集シート(BookMetadataSheet)がファイル名からの推測に使う。
             .environmentObject(metadataFormatStore)
             .environmentObject(launchCoordinator)

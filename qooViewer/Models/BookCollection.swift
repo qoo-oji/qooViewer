@@ -27,6 +27,32 @@ final class BookCollection {
     @Relationship(deleteRule: .cascade, inverse: \CollectionItem.collection)
     var items: [CollectionItem] = []
 
+    /// **自動登録フォルダ**(ユーザー要望 2026-09-09)。このフォルダの直下に並んだ本を、
+    /// ウェルカム画面を見にきたタイミングで自動的にこのコレクションへ足す
+    /// (走査はCollectionAutoFolderScanner)。nil = 自動登録なし。
+    ///
+    /// ■ なぜセキュリティスコープ付きブックマークではなく**パスの文字列**なのか
+    /// このアプリでフォルダを列挙する権限は、すべてFolderAccessStoreが一手に持っている
+    /// (許可済みフォルダのブックマークをUserDefaultsへ保存し、その配下すべてを起動中ずっと
+    /// 開いたままにする。FolderAccessStore.accessedURLsByPathのコメント参照)。ここに別の
+    /// ブックマークを持たせると、同じフォルダの権限を2箇所が別々に開閉することになり、
+    /// 過去に漏れを出したのと同じ形になる。走査する側はFolderAccessStore.isPathCoveredで
+    /// 「いま列挙してよいか」を訊き、覆われていなければ黙って見送る(設定の面が
+    /// 「アクセスを許可」を出す)。
+    ///
+    /// 代償として、フォルダを移動・リネームすると自動登録は静かに止まる。設定の面には
+    /// 常にパスが出ているので、選び直せば直る。
+    ///
+    /// **属性の後追加なのでOptional**(SwiftDataの軽量マイグレーション。既存の行はnil =
+    /// 自動登録なしで入る)。
+    var autoFolderPath: String?
+
+    /// 自動登録フォルダ(nil = 自動登録なし)。
+    var autoFolderURL: URL? {
+        get { autoFolderPath.map { URL(fileURLWithPath: $0, isDirectory: true) } }
+        set { autoFolderPath = newValue?.path }
+    }
+
     init(name: String, library: BookLibrary?) {
         self.id = UUID()
         self.name = name

@@ -1,6 +1,102 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Collection Settings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collection Settings"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションの設定"
+          }
+        }
+      }
+    },
+    "Auto-Add Folder" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto-Add Folder"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動登録フォルダ"
+          }
+        }
+      }
+    },
+    "None (no auto-add)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "None (no auto-add)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未設定(自動登録しない)"
+          }
+        }
+      }
+    },
+    "qooViewer needs permission to read this folder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer needs permission to read this folder."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このフォルダを読む権限がありません。"
+          }
+        }
+      }
+    },
+    "Choose a folder. Books added to it are added to this collection automatically." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a folder. Books added to it are added to this collection automatically."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダを選んでください。そのフォルダに本が増えると、このコレクションへ自動的に追加されます。"
+          }
+        }
+      }
+    },
+    "Grant access to this folder so books added to it can be added to the collection automatically." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grant access to this folder so books added to it can be added to the collection automatically."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このフォルダへのアクセスを許可すると、増えた本がこのコレクションへ自動的に追加されます。"
+          }
+        }
+      }
+    },
     "Collection covers" : {
       "localizations" : {
         "en" : {
@@ -45,22 +141,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "別のライブラリへ移動"
-          }
-        }
-      }
-    },
-    "Move to Collection" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Move to Collection"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "別のコレクションへ移動"
           }
         }
       }

@@ -139,6 +139,11 @@ final class WelcomeLibraryState: ObservableObject {
         /// まだ作っていないときの名前。
         var name: String
         var libraryID: UUID
+        /// 名前を決めるときに選ばれた自動登録フォルダ(BookCollection.autoFolderPath)。
+        ///
+        /// 行がまだ無い状態を跨いで運ぶために持つ ―― 1冊目が入って`createCollection`が行を
+        /// 作った直後に、このパネルがコレクションへ書き込む。
+        var autoFolder: URL?
     }
 
     struct PendingCollectionCreation: Identifiable {
@@ -148,6 +153,15 @@ final class WelcomeLibraryState: ObservableObject {
         var books: [URL]
         /// 棚(フォルダ)由来かどうか。文言の出し分けには使っていないが、由来が分かるように残す。
         let fromShelf: Bool
+        /// 自動登録フォルダの欄の初期値(ユーザー要望 2026-09-09)。
+        ///
+        /// 棚を落としたときはその棚、本のファイルを落としたときはそれらが入っていたフォルダ
+        /// (全部が同じフォルダのときだけ)。「＋」から作るときは常にnil = 空欄。
+        ///
+        /// **ファイル由来の初期値には、そのフォルダを列挙する権限が付いてこない**
+        /// (サンドボックス。CLAUDE.md)。パスは初期値として出すが、実際に自動登録が動き出す
+        /// のはユーザーがアクセスを許可してから(CollectionAutoFolderRow参照)。
+        var autoFolder: URL?
     }
 
     /// 保存先。通常はアプリの`UserDefaults.standard`で、テストだけが専用のsuiteを渡す

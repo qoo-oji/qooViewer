@@ -368,6 +368,7 @@ enum LibraryImportExportService {
                         ExportedCollection(
                             name: collection.name,
                             createdAt: collection.createdAt,
+                            autoFolderPath: collection.autoFolderPath,
                             books: collectionStore.items(in: collection, sort: .dateAddedAscending)
                                 .map { exportedBook(for: $0, collectionStore: collectionStore) }
                         )
@@ -703,11 +704,18 @@ enum LibraryImportExportService {
                         $0.name.trimmingCharacters(in: .whitespacesAndNewlines) == collectionName
                     }) {
                     summary.collectionsImportedBooks += collectionStore.add(pending, to: existing).count
+                    // 既にあるコレクションへ混ぜる場合は、**こちらの設定を上書きしない**
+                    // (まだ設定されていないときだけ入れる)。JSONを追加で取り込んだだけで、
+                    // 手元で決めた自動登録フォルダが差し替わるのは筋が通らない。
+                    if existing.autoFolderPath == nil {
+                        applyAutoFolder(exportedCollection, to: existing, collectionStore: collectionStore)
+                    }
                 } else if let created = collectionStore.createCollection(
                     name: collectionName, in: library, items: pending
                 ) {
                     summary.collectionsImportedCollections += 1
                     summary.collectionsImportedBooks += created.items.count
+                    applyAutoFolder(exportedCollection, to: created, collectionStore: collectionStore)
                 }
             }
         }
@@ -724,6 +732,21 @@ enum LibraryImportExportService {
     }
 
     // MARK: - お気に入りの取り込み
+
+
+    /// JSONに書かれていた自動登録フォルダを設定する(ExportedCollection.autoFolderPath参照)。
+    /// **その場所に実際にフォルダがあるときだけ**設定し、無ければ何もしない。
+    private static func applyAutoFolder(
+        _ exported: ExportedCollection, to collection: BookCollection,
+        collectionStore: CollectionStore
+    ) {
+        guard let path = exported.autoFolderPath, !path.isEmpty else { return }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+              isDirectory.boolValue
+        else { return }
+        collectionStore.setAutoFolder(URL(fileURLWithPath: path, isDirectory: true), for: collection)
+    }
 
     private static func applyFavorites(
         _ favorites: ExportedFavorites, policy: ImportPolicy,
