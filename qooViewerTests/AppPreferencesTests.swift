@@ -41,6 +41,10 @@ struct AppPreferencesTests {
         // ユーザー報告(黙って数百MB溜まる)を受けて既定 OFF にしたもの。
         #expect(p.thumbnailDiskCacheEnabled == false)
         #expect(p.missingLayoutAutoLayout == .none)
+        // コレクションのカバーの下は、従来どおり何も書かない(CollectionCoverCaptionStyle参照)。
+        #expect(p.collectionCoverCaptionStyle == .none)
+        #expect(p.collectionCoverCaptionFontSize == 10)
+        #expect(p.collectionTileNameFontSize == 13)
     }
 
     @Test("書き出しの既定値は形式ごとに違う(画像の連番付け直しは CBZ だけ ON)")
@@ -238,6 +242,8 @@ struct AppPreferencesTests {
             "filmstripHighlightCustomColor", "filmstripHighlightBorderWidth",
             "toolbarRevealDelay", "progressBarRevealDelay", "sidePanelRevealDelay",
             "toolbarDockedGlass", "progressBarDockedGlass", "sidePanelDockedGlass", "welcomeGlass",
+            "collectionCoverCaptionStyle", "collectionCoverCaptionFontSize",
+            "collectionTileNameFontSize",
             "pageListSurfaceStyle", "toolbarSurfaceStyle", "progressBarSurfaceStyle",
             "sidePanelSurfaceStyle", "welcomeSurfaceStyle", "overlaySurfaceStyle",
         ],

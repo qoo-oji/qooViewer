@@ -99,6 +99,9 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.progressBarDockedGlass.toggle()
     p.sidePanelDockedGlass.toggle()
     p.welcomeGlass.toggle()
+    p.collectionCoverCaptionStyle = otherCase(p.collectionCoverCaptionStyle)
+    p.collectionCoverCaptionFontSize += 1
+    p.collectionTileNameFontSize += 1
     for surface in PanelSurface.allCases {
         p.setSurfaceStyle(otherStyle(p.surfaceStyle(for: surface)), for: surface)
     }

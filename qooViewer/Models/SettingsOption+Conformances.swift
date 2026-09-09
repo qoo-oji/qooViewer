@@ -132,6 +132,10 @@ extension FilmstripCaptionStyle: SettingsOption {
     var shortTitleKey: LocalizedStringKey { titleKey }
 }
 
+extension CollectionCoverCaptionStyle: SettingsOption {
+    var shortTitleKey: LocalizedStringKey { titleKey }
+}
+
 // MARK: - レイアウト
 
 extension MissingLayoutAutoLayout: SettingsOption {

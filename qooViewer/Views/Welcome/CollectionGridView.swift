@@ -15,6 +15,8 @@ struct CollectionGridView: View {
     @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var appState: AppState
+    /// 札の下の名前の文字の大きさだけのために読む(nameLineHeight参照)。
+    @EnvironmentObject private var preferences: AppPreferences
     @Environment(\.locale) private var locale
     @ObservedObject var state: WelcomeLibraryState
     let library: BookLibrary
@@ -148,10 +150,17 @@ struct CollectionGridView: View {
             visibleSize: gridSize,
             cellWidth: state.tileSize,
             // 札の高さ = 絵(ほぼ正方形。CoverAspectRatio.tileColumnsの計算)+ 名前の1行。
-            cellHeight: state.tileSize + 24,
+            cellHeight: state.tileSize + nameLineHeight,
             spacing: Self.spacing, padding: 24,
             cellsPerItem: library.coverAspectRatio.tileCellCount
         )
+    }
+
+    /// 札の下の名前1行ぶんの高さ(概算)+ 絵との間隔(CollectionTileのVStackの6pt)。
+    /// 既定の13ptでは23ptで、この見積もりが定数24だった頃とほぼ同じ
+    /// (CollectionDetailView.captionHeightと同じ式)。
+    private var nameLineHeight: CGFloat {
+        (preferences.collectionTileNameFontSize * 1.3).rounded(.up) + 6
     }
 
     private var grid: some View {
@@ -197,6 +206,7 @@ struct CollectionGridView: View {
             aspectRatio: library.coverAspectRatio,
             backgroundColor: library.coverBackgroundColor?.color ?? Color.primary.opacity(0.07),
             size: state.tileSize,
+            nameFontSize: preferences.collectionTileNameFontSize,
             onImageRetained: { image in
                 cellImageBudget.note(retaining: image, minimumCellCount: minimumCellCount)
             },

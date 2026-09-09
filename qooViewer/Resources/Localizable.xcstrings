@@ -2771,6 +2771,22 @@
         }
       }
     },
+    "Caption Under Each Cover" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Caption Under Each Cover"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "カバーの下の表示"
+          }
+        }
+      }
+    },
     "Caption Under Each Thumbnail" : {
       "localizations" : {
         "en" : {
@@ -3284,6 +3300,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ウインドウを閉じる"
+          }
+        }
+      }
+    },
+    "Collection Name Size" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collection Name Size"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクション名の大きさ"
           }
         }
       }

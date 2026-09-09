@@ -37,6 +37,9 @@ struct CollectionTile: View {
     var backgroundColor: Color = Color.primary.opacity(0.07)
     /// タイルの一辺の目安(スライダーの値)。角丸とセルの復号サイズの見積もりに使う。
     let size: CGFloat
+    /// 札の下に出す名前の文字の大きさ(pt。環境設定「外観」→「ウェルカム画面」)。
+    /// 既定の13ptは、設定にする前の`Text`の既定(macOSの`.body`)そのもの。
+    var nameFontSize: CGFloat = 13
     var onImageRetained: ((CGImage) -> Void)?
     /// 編集モードか。クリックの意味(開く/選ぶ)がこれで変わる。
     var isEditing: Bool = false
@@ -78,6 +81,7 @@ struct CollectionTile: View {
             .buttonStyle(.plain)
 
             Text(collection.name)
+                .font(.system(size: nameFontSize))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .panelOutlinedContent()

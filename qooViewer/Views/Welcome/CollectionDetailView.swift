@@ -8,8 +8,10 @@ import SwiftUI
 /// (SelectionCheckmarkBadge)が出る。選んだ本は右上のゴミ箱でまとめてコレクションから
 /// 削除できる(本の実体は消えない)。編集モード中に開きたいときは右クリックの「開く」から。
 ///
-/// タイトルは出さない ―― カバーがそのまま見出しになるうえ、名前を添えると1冊あたりの高さが
-/// 揃わなくなる。どの本かはツールチップ(`.help`)で確かめられる。
+/// カバーの下に何を書くかは**アプリ全体の設定**(環境設定「外観」→「ウェルカム画面」。
+/// `AppPreferences.collectionCoverCaptionStyle`)。既定は**何も書かない** ―― カバーがそのまま
+/// 見出しになるうえ、名前を添えると1冊あたりの高さが増えて一覧性が落ちるため。書かない設定でも
+/// どの本かはツールチップ(`.help`)で確かめられる。
 ///
 /// ■ 実体が見つからない本
 /// 一覧を描くたびにディスクを触ることはせず、CollectionStoreが非同期に更新している
@@ -20,6 +22,10 @@ struct CollectionDetailView: View {
     @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
     @EnvironmentObject private var autoFolderScanner: CollectionAutoFolderScanner
     @EnvironmentObject private var layoutStore: LayoutStore
+    /// カバーの下に「タイトル」を出す設定のときだけ読む(caption(for:)参照)。
+    @EnvironmentObject private var metadataStore: BookMetadataStore
+    @EnvironmentObject private var formatStore: MetadataFormatStore
+    @EnvironmentObject private var preferences: AppPreferences
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
     @Environment(\.openWindow) private var openWindow
@@ -243,9 +249,17 @@ struct CollectionDetailView: View {
         LazyCellImageBudget.minimumCellCount(
             visibleSize: gridSize,
             cellWidth: state.coverSize,
-            cellHeight: state.coverSize / library.coverAspectRatio.value,
+            cellHeight: state.coverSize / library.coverAspectRatio.value + captionHeight,
             spacing: Self.spacing, padding: 24
         )
+    }
+
+    /// カバーの下の文字のぶんの高さ(出さない設定なら0)。1行ぶんの概算 + VStackの間隔で、
+    /// 見えている行数の見積もり(上のminimumCellCount)にだけ使う
+    /// (ThumbnailGridViewがキャプションのぶんを見込むのとまったく同じ式)。
+    private var captionHeight: CGFloat {
+        guard preferences.collectionCoverCaptionStyle != .none else { return 0 }
+        return (preferences.collectionCoverCaptionFontSize * 1.3).rounded(.up) + 4
     }
 
     private var grid: some View {
@@ -282,28 +296,41 @@ struct CollectionDetailView: View {
             cornerRadius: CollectionCoverThumbnail.cornerRadius(forWidth: state.coverSize),
             style: .continuous
         )
-        return CollectionCoverThumbnail(
-            item: item,
-            coverStore: collectionStore.coverStore,
-            aspectRatio: library.coverAspectRatio,
-            anchor: cropAnchor(for: item),
-            displayWidth: state.coverSize,
-            exists: collectionStore.cachedFileExists(for: item),
-            isExtracting: coverExtractor.inFlightItemIDs.contains(item.id),
-            onImageRetained: { image in
-                cellImageBudget.note(retaining: image, minimumCellCount: minimumCellCount)
+        return VStack(spacing: 4) {
+            CollectionCoverThumbnail(
+                item: item,
+                coverStore: collectionStore.coverStore,
+                aspectRatio: library.coverAspectRatio,
+                anchor: cropAnchor(for: item),
+                displayWidth: state.coverSize,
+                exists: collectionStore.cachedFileExists(for: item),
+                isExtracting: coverExtractor.inFlightItemIDs.contains(item.id),
+                onImageRetained: { image in
+                    cellImageBudget.note(retaining: image, minimumCellCount: minimumCellCount)
+                }
+            )
+            // 選択中の枠と印(CollectionTileと同じ形・同じ理由。輪郭の扱いは
+            // SelectionCheckmarkBadgeの型コメント参照)。**カバーにだけ掛ける** ――
+            // 下の文字まで枠で囲むと、選んだ範囲がカバー1枚に見えなくなる。
+            .overlay {
+                shape.strokeBorder(Color.accentColor, lineWidth: 3)
+                    .opacity(isSelected ? 1 : 0)
             }
-        )
-        // 選択中の枠と印(CollectionTileと同じ形・同じ理由。輪郭の扱いは
-        // SelectionCheckmarkBadgeの型コメント参照)。
-        .overlay {
-            shape.strokeBorder(Color.accentColor, lineWidth: 3)
-                .opacity(isSelected ? 1 : 0)
-        }
-        .panelOutlinedAccent(in: shape, isEnabled: isSelected)
-        .overlay(alignment: .topLeading) {
-            if isEditing {
-                SelectionCheckmarkBadge(isSelected: isSelected, size: state.coverSize)
+            .panelOutlinedAccent(in: shape, isEnabled: isSelected)
+            .overlay(alignment: .topLeading) {
+                if isEditing {
+                    SelectionCheckmarkBadge(isSelected: isSelected, size: state.coverSize)
+                }
+            }
+
+            // カバーの下の文字(設定が「表示しない」なら行ごと出さない)。すりガラス面に
+            // 直接置く文字なので輪郭が要る(CLAUDE.mdの表)。
+            if let caption = caption(for: item) {
+                Text(caption)
+                    .font(.system(size: preferences.collectionCoverCaptionFontSize))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .panelOutlinedContent()
             }
         }
         .contentShape(Rectangle())
@@ -382,6 +409,36 @@ struct CollectionDetailView: View {
                 }
             }
         }
+    }
+
+    /// カバーの下に出す文字。設定が「表示しない」(既定)ならnilで、行そのものを出さない。
+    private func caption(for item: CollectionItem) -> String? {
+        switch preferences.collectionCoverCaptionStyle {
+        case .none: return nil
+        case .fileName: return item.title
+        case .title: return metadataTitle(for: item)
+        }
+    }
+
+    /// 「メタデータの編集」がこの本に出すのと同じタイトル ―― 登録済みならDBの値、未登録なら
+    /// ファイル名からの推測値(`MetadataEditorViewModel.initialDraft`。同じ関数を通しているので、
+    /// シートを開いて確かめた文字列とここの表示が食い違うことはない)。
+    ///
+    /// どちらも空のとき(タイトルだけ空にして登録した本・推測が何も拾えなかった本)は、拡張子を
+    /// 除いたファイル名へ落とす。空文字のまま出すと、その1冊だけ下の行が潰れて高さが揃わない。
+    ///
+    /// 推測は**毎回その場で行う**(結果を覚えておかない)。1冊ぶんならメインアクター上でも一瞬で
+    /// 終わり、LazyVGridが組み立てるのは見えているセルだけなので、数千行をまとめて処理する
+    /// `MetadataEditorViewModel`(derivedCache)とは事情が違う。覚えておくと、メタデータの登録・
+    /// フォーマットの変更のたびに捨てる契機を自分で持つことになる。
+    private func metadataTitle(for item: CollectionItem) -> String {
+        let baseName = MetadataEditorViewModel.baseName(forBookID: item.bookID)
+        let draft = MetadataEditorViewModel.initialDraft(
+            forBookID: item.bookID, baseName: baseName,
+            metadataStore: metadataStore, formatStore: formatStore
+        )
+        let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? baseName : title
     }
 
     /// この右クリックが相手にする本(Finderと同じ規則。CollectionGridView.contextTargetsと同じ)。

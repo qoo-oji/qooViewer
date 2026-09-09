@@ -39,6 +39,9 @@ final class AppPreferences: ObservableObject {
         static let progressBarDockedGlass = "qooViewer.pref.progressBarDockedGlass"
         static let sidePanelDockedGlass = "qooViewer.pref.sidePanelDockedGlass"
         static let welcomeGlass = "qooViewer.pref.welcomeGlass"
+        static let collectionCoverCaptionStyle = "qooViewer.pref.collectionCoverCaptionStyle"
+        static let collectionCoverCaptionFontSize = "qooViewer.pref.collectionCoverCaptionFontSize"
+        static let collectionTileNameFontSize = "qooViewer.pref.collectionTileNameFontSize"
         static let prefetchPageCount = "qooViewer.pref.prefetchPageCount"
         static let displayLanguage = AppLanguage.defaultsKey
         static let appAppearance = "qooViewer.pref.appAppearance"
@@ -335,6 +338,39 @@ final class AppPreferences: ObservableObject {
     @Published var welcomeGlass: Bool {
         didSet { defaults.set(welcomeGlass, forKey: Keys.welcomeGlass) }
     }
+    /// コレクションの中で、本のカバーの下に何を書くか(CollectionCoverCaptionStyle参照)。
+    /// 既定は「表示しない」= 従来どおりカバーだけが並ぶ。
+    ///
+    /// すりガラスの設定ではないが、**ウェルカム画面の見え方を決める設定はウェルカム画面の
+    /// ページに揃える**という「外観」の方針(AppearanceSettingsView冒頭)に従って、
+    /// 環境設定「外観」→「ウェルカム画面」に置いてある。
+    @Published var collectionCoverCaptionStyle: CollectionCoverCaptionStyle {
+        didSet {
+            defaults.set(collectionCoverCaptionStyle.rawValue, forKey: Keys.collectionCoverCaptionStyle)
+        }
+    }
+    /// カバーの下の文字の大きさ(pt)。
+    ///
+    /// 既定の10ptは、設定にする前に使っていた`.caption`の実寸そのもの ―― 既定値のままなら
+    /// 見た目は1ピクセルも変わらない(filmstripFontSize / thumbnailGridCaptionFontSizeと
+    /// 同じ考え方)。**範囲もページ一覧の「文字の大きさ」と揃えてある**(片方だけ別の範囲にしない)。
+    @Published var collectionCoverCaptionFontSize: Double {
+        didSet {
+            defaults.set(collectionCoverCaptionFontSize, forKey: Keys.collectionCoverCaptionFontSize)
+        }
+    }
+    static let collectionCoverCaptionFontSizeRange: ClosedRange<Double> = 8...20
+
+    /// コレクションの一覧(札)で、札の下に出るコレクション名の文字の大きさ(pt)。
+    ///
+    /// 既定の13ptは、設定にする前の`Text`の既定(macOSの`.body` = システムのフォントサイズ)
+    /// そのもの ―― 既定値のままなら見た目は1ピクセルも変わらない。範囲は上の2つと揃える。
+    @Published var collectionTileNameFontSize: Double {
+        didSet {
+            defaults.set(collectionTileNameFontSize, forKey: Keys.collectionTileNameFontSize)
+        }
+    }
+    static let collectionTileNameFontSizeRange: ClosedRange<Double> = 8...20
     /// 上の3つに共通の、指定できる範囲。0.1秒刻みで最大2秒まで(ユーザーの指定)。
     static let autoRevealDelayRange: ClosedRange<Double> = 0...2
     /// 3つの遅延をTask.sleep用のナノ秒で返す。保存値が負でも0として扱う。
@@ -1511,6 +1547,14 @@ final class AppPreferences: ObservableObject {
         self.sidePanelDockedGlass =
             defaults.object(forKey: Keys.sidePanelDockedGlass) as? Bool ?? false
         self.welcomeGlass = defaults.object(forKey: Keys.welcomeGlass) as? Bool ?? false
+        self.collectionCoverCaptionStyle =
+            CollectionCoverCaptionStyle(
+                rawValue: defaults.string(forKey: Keys.collectionCoverCaptionStyle) ?? ""
+            ) ?? .none
+        self.collectionCoverCaptionFontSize =
+            defaults.object(forKey: Keys.collectionCoverCaptionFontSize) as? Double ?? 10
+        self.collectionTileNameFontSize =
+            defaults.object(forKey: Keys.collectionTileNameFontSize) as? Double ?? 13
         self.launchInPrivateMode = defaults.object(forKey: Keys.launchInPrivateMode) as? Bool ?? false
         self.thumbnailDiskCacheEnabled =
             defaults.object(forKey: Keys.thumbnailDiskCacheEnabled) as? Bool ?? false
@@ -1692,6 +1736,11 @@ extension AppPreferences {
                 Keys.progressBarDockedGlass,
                 Keys.sidePanelDockedGlass,
                 Keys.welcomeGlass,
+                // コレクションのカバーの下の表示も、画面上は「外観」→「ウェルカム画面」に
+                // ある(PanelSurfaceSettingsView.welcomeSection参照)。
+                Keys.collectionCoverCaptionStyle,
+                Keys.collectionCoverCaptionFontSize,
+                Keys.collectionTileNameFontSize,
             ] + PanelSurface.allCases.flatMap {
                 // 面ごとの設定を1つ増やしたら**ここにも足すこと**。`apply`が渡す
                 // `AppPreferences()`はUserDefaultsから読み直すので、キーを消し忘れると
@@ -1823,6 +1872,9 @@ extension AppPreferences {
             progressBarDockedGlass = source.progressBarDockedGlass
             sidePanelDockedGlass = source.sidePanelDockedGlass
             welcomeGlass = source.welcomeGlass
+            collectionCoverCaptionStyle = source.collectionCoverCaptionStyle
+            collectionCoverCaptionFontSize = source.collectionCoverCaptionFontSize
+            collectionTileNameFontSize = source.collectionTileNameFontSize
             for surface in PanelSurface.allCases {
                 setSurfaceStyle(source.surfaceStyle(for: surface), for: surface)
             }

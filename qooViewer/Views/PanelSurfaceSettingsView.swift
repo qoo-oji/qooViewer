@@ -16,6 +16,8 @@ import SwiftUI
 ///    ・ページ一覧パネル → サムネイルの大きさ・間隔・余白・キャプション・枠の色・
 ///      ホバー拡大・ホイールのスクロール量(thumbnailGridSection)
 ///    ・プログレスバー → カーソルを合わせたときのサムネイル(filmstripSection)
+///    ・ウェルカム画面 → 一覧(札)のコレクション名の大きさ(librarySection)と、
+///      コレクションの中で本のカバーの下に何を書くか(collectionSection)
 ///    1つのパネルの見た目を決める設定は必ず同じページに揃える、という「外観」の方針
 ///    (AppearanceSettingsView冒頭参照)に従って、ここに同居させている。以前は1枚の長い画面の
 ///    中で「ページ一覧」「プログレスバーのサムネイル」という独立したセクションだった。
@@ -67,7 +69,8 @@ struct PanelSurfaceSettingsView: View {
             switch surface {
             case .pageList: thumbnailGridSection
             case .progressBar: filmstripSection
-            case .toolbar, .sidePanel, .welcome, .overlays: EmptyView()
+            case .welcome: welcomeSections
+            case .toolbar, .sidePanel, .overlays: EmptyView()
             }
         }
         // 子ページの間はウインドウのタイトルを面の名前にする(一覧では「外観」)。
@@ -282,6 +285,77 @@ struct PanelSurfaceSettingsView: View {
             }
         } header: {
             Text("Thumbnails")
+        }
+    }
+
+    // MARK: - ウェルカム画面(ライブラリ / コレクション)
+
+    /// ウェルカム画面だけが持つ2つのセクション。**画面の階層に合わせて分けてある**
+    /// (ユーザー指示 2026-09-09。一度は1つの「コレクション」セクションに3行まとめたが、
+    /// 一覧側の設定と中身側の設定が混ざって読めなかった)。
+    ///
+    /// - **ライブラリ** … コレクションの一覧(札)の見え方。ここに並ぶのはコレクションなので、
+    ///   設定も「コレクション名の大きさ」1行。
+    /// - **コレクション** … コレクションを開いた中(本のカバーが並ぶ画面)の見え方。
+    ///
+    /// この順に並ぶのは、画面としても一覧を見てから中へ入るため。
+    @ViewBuilder
+    private var welcomeSections: some View {
+        librarySection
+        collectionSection
+    }
+
+    /// コレクションの一覧(札)の見え方。いま持っているのは札の下の名前の大きさだけ
+    /// (`CollectionTile`。既定13pt = 設定にする前の`Text`の既定 = macOSの`.body`)。
+    ///
+    /// カバーの縦横比・切り取る位置・札の地の色は**ライブラリごと**の設定なので、ここではなく
+    /// ウェルカム画面の歯車(LibrarySettingsPopover)にある ―― あちらはライブラリを選んでから
+    /// 決めるもので、アプリ全体の外観ではない。
+    private var librarySection: some View {
+        Section {
+            SettingsSlider(
+                "Collection Name Size",
+                value: $preferences.collectionTileNameFontSize,
+                in: AppPreferences.collectionTileNameFontSizeRange,
+                step: 1
+            ) { value in
+                "\(Int(value)) pt"
+            }
+        } header: {
+            Text("Library")
+        }
+    }
+
+    /// コレクションの中(棚を開いた画面)で、本のカバーの下に何を書くか・その大きさ
+    /// (ユーザー要望 2026-09-09)。
+    ///
+    /// **コレクションごとの設定にはしない。** 最初はコレクションの設定(歯車 →
+    /// CollectionSettingsPopover)へ置く案だったが、あの面はコレクション1つだけに効くので、
+    /// 棚ごとに下の文字が変わることになる ―― 一覧としての見え方が揃わないうえ、棚を作るたびに
+    /// 設定し直すことになる。アプリ全体の外観の設定として、ページ一覧のキャプション
+    /// (thumbnailGridSection)と同じ形で持たせる(ユーザーの判断)。
+    ///
+    /// 「タイトル」は書誌メタデータのタイトルで、未登録の本では「メタデータの編集」が候補として
+    /// 出すもの(ファイル名からの推測)がそのまま出る。どちらも取れないときはファイル名へ落ちる
+    /// (CollectionDetailView.caption(for:)参照)。
+    private var collectionSection: some View {
+        Section {
+            SettingsPicker(
+                "Caption Under Each Cover", selection: $preferences.collectionCoverCaptionStyle
+            )
+            SettingsSlider(
+                "Caption Size",
+                value: $preferences.collectionCoverCaptionFontSize,
+                in: AppPreferences.collectionCoverCaptionFontSizeRange,
+                step: 1
+            ) { value in
+                "\(Int(value)) pt"
+            }
+            // 文字を出さない設定のときは、大きさを決めても何も起きない
+            // (ページ一覧の「文字の大きさ」と同じ扱い)。
+            .disabled(preferences.collectionCoverCaptionStyle == .none)
+        } header: {
+            Text("Collections")
         }
     }
 

@@ -76,6 +76,42 @@ enum FilmstripCaptionStyle: String, CaseIterable, Identifiable, Codable, Hashabl
     }
 }
 
+/// コレクションの中(ウェルカム画面)で、本のカバーの下に何を書くか(ユーザー要望 2026-09-09)。
+///
+/// 上の2つ(ページ一覧・フィルムストリップ)と考え方は同じで、**選択肢だけが違う** ――
+/// ページではなく本を並べる場所なので「ページ番号」に意味が無く、代わりに「タイトル」が要る。
+/// 既存の`ThumbnailCaptionStyle`を使い回す案は採らなかった:選んでも何も起きない選択肢が
+/// 画面に並ぶことになる(FilmstripCaptionStyleを別に立てたときと同じ判断)。
+///
+/// **既定は`.none`(表示しない)。** コレクションはカバーそのものが見出しで、名前を添えると
+/// 1冊あたりの高さが増えて一覧性が落ちる ―― 従来の見え方をそのまま既定に残す
+/// (CollectionDetailViewの型コメント参照)。
+///
+/// これは**アプリ全体で1つの設定**(環境設定「外観」→「ウェルカム画面」)。コレクションごとの
+/// 設定として持たせる案もあったが、棚ごとに下の文字が変わると一覧としての見え方が揃わないため、
+/// アプリの外観の設定にした(ユーザーの判断 2026-09-09)。
+///
+/// rawValueはケース名(永続化用の安定した識別子)。
+enum CollectionCoverCaptionStyle: String, CaseIterable, Identifiable, Codable, Hashable {
+    /// 何も書かない。カバーだけが並ぶ従来どおりの見え方で、既定値。
+    case none
+    /// 登録した時点のファイル名/フォルダ名(CollectionItem.title)。
+    case fileName
+    /// 書誌メタデータのタイトル。登録済みならその値、未登録ならファイル名から推測した値
+    /// (「メタデータの編集」が候補として出すものと同じ。CollectionDetailView.caption(for:)参照)。
+    case title
+
+    var id: String { rawValue }
+
+    var titleKey: LocalizedStringKey {
+        switch self {
+        case .none: return "Nothing"
+        case .fileName: return "File Name"
+        case .title: return "Title"
+        }
+    }
+}
+
 /// 「表示中のページを示す枠」の色(ユーザー要望: 自由に設定できるようにしてほしい)。
 ///
 /// 背景色(`BackgroundColorOption`)とまったく同じ作りにしてある ―― よく使う色は
