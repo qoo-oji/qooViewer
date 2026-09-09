@@ -10,7 +10,17 @@ import SwiftUI
 /// 間延びしてしまうため。
 ///
 /// ■ 輪郭(すりガラス面の決まりごと)
-/// - 2つのボタン・「＋」 → 自前の地を持つ標準のボタンなので何も付けない
+/// - 2つのボタン → `.panelControlWell()`。**「標準のボタンは自前の不透明な地を持つから何も
+///   要らない」は誤り**だった ―― この面の背後にはウインドウ外を透かすすりガラス
+///   (`BehindWindowVisualEffectView`)が敷いてあり、その上のAppKitのボタンのベゼルは
+///   下地に合わせて描かれる。重ね色を文字色そのもの(ダーク+白100%)にすると、ベゼルも
+///   文字も面に溶けて**ボタンが2つとも跡形もなく消える**(実測。作り直す前のウェルカム画面の
+///   「開く…」も同じ状態だった)。輪郭ではなく溝を敷くのはスライダーと同じ理由で、
+///   ベゼルの落ち影までシルエットに含めて太らせるとにじむため。溝だけでは**文字**が
+///   薄いままなので、ラベルには併せて`.panelOutlinedContent()`も掛ける(溝は形を、輪郭は
+///   文字を救う。どちらも「文字の影」の設定が0なら1ピクセルも変わらない)。
+/// - 区切り線 → `.panelOutlinedContent()`。細い線1本なので、これも面に溶けて消える
+/// - 「＋」 → `.panelIconButtonLabel()`が内側で輪郭を掛けている
 /// - ライブラリ名 → 未選択は`.panelOutlinedContent()`、選択中はアクセント地なので
 ///   `.panelOutlinedAccent(in:)`(地の色と重ね色が近いと、どれを選んでいるか分からなくなる)
 struct WelcomeTopBar: View {
@@ -50,20 +60,23 @@ struct WelcomeTopBar: View {
             // 同じ幅にすれば、ベゼルもその幅+左右のインセットで揃う。
             // 余白(chrome)を0にしているのはそのため ―― 足すのはmacOS側で、こちらは
             // 「文字が省略されずに収まる幅」だけを測る。
+            //
+            // 揃える相手は**実際に並んでいるボタンだけ**。「履歴から開く」を出さない設定の
+            // ときにその幅まで見込むと、1つきりの「本を開く…」が理由もなく間延びする。
             let labelWidth = MetadataButtonWidthEstimator.equalWidth(
-                for: [
-                    String(localized: "Open Book…", language: locale),
-                    String(localized: "Open from History", language: locale),
-                ],
+                for: [String(localized: "Open Book…", language: locale)]
+                    + (preferences.showRecentFilesOnWelcome
+                        ? [String(localized: "Open from History", language: locale)] : []),
                 minWidth: 90,
                 chrome: 0
             )
             Button {
                 appState.openWithPanel()
             } label: {
-                Text("Open Book…").frame(width: labelWidth)
+                Text("Open Book…").panelOutlinedContent().frame(width: labelWidth)
             }
             .keyboardShortcut("o", modifiers: .command)
+            .panelControlWell()
             // 環境設定「一般」の「最近開いたファイルを表示」がOFFなら、この入り口ごと出さない
             // (以前のウェルカム画面で一覧の列を出さなかったのと同じ意味。履歴そのものは
             // サイドパネルの「履歴」モードとファイルメニューの「Open Recent」に残る)。
@@ -71,8 +84,9 @@ struct WelcomeTopBar: View {
                 Button {
                     isShowingRecentBooks = true
                 } label: {
-                    Text("Open from History").frame(width: labelWidth)
+                    Text("Open from History").panelOutlinedContent().frame(width: labelWidth)
                 }
+                .panelControlWell()
                 // シークレットウインドウでは履歴を一切見せない
                 // (AppState.isPrivateWindowのコメント参照)。
                 .disabled(appState.isPrivateWindow)
@@ -83,6 +97,7 @@ struct WelcomeTopBar: View {
 
             Divider()
                 .frame(height: 22)
+                .panelOutlinedContent()
 
             libraryChips
 

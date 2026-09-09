@@ -96,12 +96,17 @@ struct CollectionNameSheet: View {
     }
 
     var body: some View {
-        let buttonWidth = MetadataButtonWidthEstimator.equalWidth(
+        // **幅はボタンではなくラベルに与える。** `Button(...).frame(width:)`では、与えた幅は
+        // レイアウト上の枠にしか効かず、実際に描かれるベゼルは文字列の長さのまま枠の中央に
+        // 置かれる(実測。WelcomeTopBarの同じコメント参照)。ラベル側を同じ幅にすれば、
+        // ベゼルもその幅+左右のインセットで揃う。余白(chrome)を0にしているのはそのため。
+        let labelWidth = MetadataButtonWidthEstimator.equalWidth(
             for: [
                 String(localized: "Cancel", language: locale),
                 String(localized: kind.confirmLiteral, language: locale),
             ],
-            minWidth: 80
+            minWidth: 60,
+            chrome: 0
         )
         return VStack(alignment: .leading, spacing: 10) {
             Text(kind.titleKey)
@@ -127,16 +132,18 @@ struct CollectionNameSheet: View {
 
             HStack(spacing: 12) {
                 Spacer(minLength: 0)
-                Button("Cancel", role: .cancel) {
+                Button(role: .cancel) {
                     onCancel()
                     if dismissesOnFinish { dismiss() }
+                } label: {
+                    Text("Cancel").frame(width: labelWidth)
                 }
                 .keyboardShortcut(.cancelAction)
-                .frame(width: buttonWidth)
-                Button(kind.confirmKey) { commitIfPossible() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(validationMessage != nil)
-                    .frame(width: buttonWidth)
+                Button { commitIfPossible() } label: {
+                    Text(kind.confirmKey).frame(width: labelWidth)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(validationMessage != nil)
             }
         }
         .padding(20)

@@ -19,12 +19,17 @@ struct RecentBooksPopover: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismiss) private var dismiss
 
+    /// ポップオーバーの幅。空のときも同じ幅にする ―― 中身の文字幅なりに細くなると、
+    /// 履歴が1件入っただけで倍近く広がり、同じボタンから出るものに見えない。
+    private static let width: CGFloat = 360
+
     var body: some View {
         VStack(spacing: 0) {
             if recentFiles.entries.isEmpty {
                 Text("(No Recent Files)")
                     .foregroundStyle(.secondary)
                     .padding(24)
+                    .frame(width: Self.width)
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -34,7 +39,7 @@ struct RecentBooksPopover: View {
                     }
                     .padding(.vertical, 6)
                 }
-                .frame(width: 360, height: rowsHeight)
+                .frame(width: Self.width, height: rowsHeight)
             }
         }
     }

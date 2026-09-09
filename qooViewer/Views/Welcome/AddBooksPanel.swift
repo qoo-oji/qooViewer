@@ -44,29 +44,40 @@ struct AddBooksPanel: View {
             HStack(spacing: 8) {
                 Text("Add Books")
                     .font(.headline)
+                    .fixedSize()
                 Text(collection?.name ?? target.name)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Spacer(minLength: 0)
+                // 冊数は名前のすぐ隣に置く ―― 下に裸の数字だけを置いても何の数か読めない
+                // (サイドパネルの各見出しと、コレクションの中の見出しと同じ並べ方)。
+                Text("\(items.count)")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+                Spacer(minLength: 8)
                 Button("Add Books…") { chooseWithPanel() }
                     .disabled(isAdding)
+                    .fixedSize()
             }
 
             bookList
 
             HStack {
-                Text("\(items.count)")
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
                 Spacer()
-                Button("Done") { dismiss() }
-                    .keyboardShortcut(.defaultAction)
-                    .frame(
+                // 幅はボタンではなくラベルへ(BookMetadataSheetの同じコメント参照)。
+                // 1つきりのボタンなので揃える相手はいないが、「完了」の2文字だけの
+                // 小さすぎるボタンにしないための下限として使う。
+                Button { dismiss() } label: {
+                    Text("Done").frame(
                         width: MetadataButtonWidthEstimator.equalWidth(
-                            for: [String(localized: "Done", language: locale)], minWidth: 80
+                            for: [String(localized: "Done", language: locale)],
+                            minWidth: 60, chrome: 0
                         )
                     )
+                }
+                .keyboardShortcut(.defaultAction)
             }
         }
         .padding(20)

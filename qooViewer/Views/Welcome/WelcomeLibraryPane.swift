@@ -119,7 +119,9 @@ private struct WelcomeEditToggle: View {
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
-        .help("Edit")
+        // 押している間はチェックマーク(=このモードを抜ける)なので、説明も入れ替える。
+        // 「編集」のままだと、編集モード中に押すと何が起きるのかが読めない。
+        .help(isEditing ? "Done" : "Edit")
     }
 }
 
@@ -155,7 +157,14 @@ private struct WelcomeSortMenu: View {
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .frame(width: PanelIconButtonLabel.width)
+        // 以下2つはSidePanelSortMenuで実測済みの決まり事。同じ見た目のボタンなので同じ扱いにする。
+        // - fixedSize: Menuは既定で横に伸びようとするため、ラベルの寸法へ固定する
+        //   (frame(width:)では、AppKitが描くベゼル自体は伸びたままで隣との間隔がずれる)。
+        // - panelOutlinedContent: ラベル側に掛けた輪郭は`.borderlessButton`のMenuでは効かない
+        //   (AppKitがラベルを描き直す際にSwiftUIの効果が落ちる)。Menu自体へ掛け直さないと、
+        //   面を文字色で塗ったときにこのボタンだけ跡形もなく消える。
+        .fixedSize()
+        .panelOutlinedContent()
         .help("Sort By")
     }
 
