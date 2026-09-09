@@ -1220,11 +1220,30 @@ MENU.build current=.start checked=true  ← メニューも正しく組まれて
 
 ### 監視する
 
-`FolderChangeWatcher`(新規)= FSEvents の薄い包み。`kFSEventStreamCreateFlagFileEvents`
-(フォルダ単位ではなくファイル単位)+ `NoDefer`(最初のイベントを待たせない)、まとめる時間は 0.3 秒。
+`FolderChangeWatcher`(新規)= FSEvents の薄い包み。`FileEvents`(フォルダ単位ではなくファイル単位)
++ `NoDefer`(最初のイベントを待たせない)+ `WatchRoot` + `FullHistory`、まとめる時間は 0.3 秒。
 **イベントの中身は捨てて「何か変わった」とだけ伝える** ―― どの本が増えたかは走査側がフォルダを
 一覧して決める(判定を2箇所に分けない)。監視するのは `FolderAccessStore.isPathCovered` を
 通ったパスだけ。
+
+**作りは qooLibrary の実測に合わせた**(ユーザーの指摘 2026-09-09。
+`qoo-oji/qooLibrary` の `Sources/QooInfrastructure/Watch/FileSystemEventStream.swift` に、
+サンドボックス下で計測した結果が表でまとまっている)。最初に書いたものは3つ穴があった:
+
+1. **`FSEventStreamCreate` はブロックしうる**(到達できない共有上のパスを含めると30秒返らない)。
+   メインアクターから同期で呼んでいたので、共有が落ちた瞬間にアプリが固まる作りだった。
+   `watch(_:)` を `async` にし、生成はメインアクターの外へ出した。破棄も待たずに投げる。
+2. **`context.info` に `self` を `retain`/`release` 無しで渡していた。** 専用の箱を渡して
+   retain/release を CF に任せる形へ直した(`self` だと self → stream → self の循環になり
+   `deinit` が呼ばれない。箱は `passUnretained` で渡す ―― `retain` 指定の context は CF が
+   自分で +1 するため、`passRetained` にすると作り直すたびに漏れる)。
+3. **パスを差し替えるたびに `sinceWhen` を「今から」にしていた**ので、止めてから始めるまでの
+   変更を取りこぼした。`FSEventStreamGetLatestEventId` を引き継ぐ。生成を待っている間に
+   顔ぶれが変わったら作ったものを捨てる世代番号も足した(空集合でも世代は進める)。
+
+C へ渡すコールバックと箱は**ファイル直下**に置く。`@MainActor` の型の内側に書くとメインアクター
+隔離とみなされ、FSEvents 自身のキューから呼ばれた時点で `SIGTRAP` で落ちる(qooLibrary の実測)。
+`IgnoreSelf` は付けない ―― このアプリ自身が自動登録フォルダへ本を書き出すことがあるため。
 
 **人の操作を契機にする経路は残す。** FSEvents はネットワークボリューム(SMB/AFP)では飛ばず、
 アプリが止められている間の変更も取りこぼしうる。監視は「見ている間の即時反映」、従来の契機

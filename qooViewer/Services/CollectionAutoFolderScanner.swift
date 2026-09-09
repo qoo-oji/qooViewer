@@ -124,7 +124,13 @@ final class CollectionAutoFolderScanner: ObservableObject {
         let targets = collectionStore.autoFolderTargets()
             .filter { folderAccess.isPathCovered($0.folder) }
         ensureWatcher()
-        watcher?.watch(Set(targets.map(\.folder.path)))
+        // 監視するパスの入れ替えは**待たない**。`FSEventStreamCreate`は到達できない共有上の
+        // パスを含むと30秒返ってこないことがあり、ここで待つとアプリが固まる
+        // (FolderChangeWatcherの型コメント参照)。
+        let watchedPaths = Set(targets.map(\.folder.path))
+        if let watcher {
+            Task { await watcher.watch(watchedPaths) }
+        }
 
         guard !isScanning else {
             needsAnotherScan = true
