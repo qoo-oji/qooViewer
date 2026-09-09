@@ -18,6 +18,7 @@ struct StorageUsageScannerTests {
         let temporaryRoot: URL
         let thumbnailCache: URL
         let pageListCache: URL
+        let collectionCovers: URL
         let databaseStore: URL
 
         init(label: String) throws {
@@ -28,6 +29,8 @@ struct StorageUsageScannerTests {
                 "qooViewer-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
             thumbnailCache = root.appendingPathComponent("Library/Caches/thumbnails", isDirectory: true)
             pageListCache = root.appendingPathComponent("Library/Caches/pagelist", isDirectory: true)
+            collectionCovers = root.appendingPathComponent(
+                "Library/Application Support/CollectionCovers", isDirectory: true)
             databaseStore = root.appendingPathComponent("Library/Application Support/default.store")
         }
 
@@ -35,7 +38,8 @@ struct StorageUsageScannerTests {
             .init(
                 containerRoot: root, sessionTemporaryDirectory: sessionTemporary,
                 temporaryRoot: temporaryRoot, thumbnailCacheDirectory: thumbnailCache,
-                pageListCacheDirectory: pageListCache, databaseStoreURL: databaseStore
+                pageListCacheDirectory: pageListCache, collectionCoverDirectory: collectionCovers,
+                databaseStoreURL: databaseStore
             )
         }
 
@@ -61,6 +65,7 @@ struct StorageUsageScannerTests {
         try container.write("tmp/\(UUID().uuidString).cbz", bytes: 30)
         try container.write("Library/Caches/thumbnails/a.bin", bytes: 200)
         try container.write("Library/Caches/pagelist/a.json", bytes: 40)
+        try container.write("Library/Application Support/CollectionCovers/a.jpg", bytes: 90)
         try container.write("Library/Application Support/default.store", bytes: 500)
         try container.write("Library/Application Support/default.store-wal", bytes: 60)
         try container.write("Library/Application Support/default.store-shm", bytes: 20)
@@ -80,8 +85,9 @@ struct StorageUsageScannerTests {
         #expect(usage.staleTemporaryEntryCount == 2)
         #expect(usage.thumbnailCacheBytes == 200)
         #expect(usage.pageListCacheBytes == 40)
+        #expect(usage.collectionCoverBytes == 90)
         #expect(usage.databaseBytes == 580)          // 500 + wal 60 + shm 20
-        #expect(usage.containerBytes == 1007)
+        #expect(usage.containerBytes == 1097)
         #expect(usage.otherBytes == 7)
     }
 
@@ -184,7 +190,8 @@ struct StorageUsageScannerTests {
         let usage = StorageUsage(
             containerBytes: 100, sessionTemporaryBytes: 0, sessionTemporaryFileCount: 0,
             staleTemporaryBytes: 0, staleTemporaryEntryCount: 0, thumbnailCacheBytes: 5000,
-            pageListCacheBytes: nil, databaseBytes: nil, scannedAt: Date())
+            pageListCacheBytes: nil, collectionCoverBytes: nil, databaseBytes: nil,
+            scannedAt: Date())
         #expect(usage.otherBytes == 0)
     }
 }

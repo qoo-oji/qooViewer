@@ -1,6 +1,38 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Collection covers" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collection covers"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションのカバー"
+          }
+        }
+      }
+    },
+    "One small JPEG per book registered in a collection, extracted once when the book is added. Not a cache: deleting it means re-reading every registered book, so there is no size limit and nothing is evicted. It goes away with the collection, the book’s entry, or “Delete All Data”." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One small JPEG per book registered in a collection, extracted once when the book is added. Not a cache: deleting it means re-reading every registered book, so there is no size limit and nothing is evicted. It goes away with the collection, the book’s entry, or “Delete All Data”."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションに登録した本1冊につき1枚の小さなJPEG。登録したときに1回だけ抽出します。キャッシュではありません ―― 消すと登録してある本を全冊読み直すことになるため、上限も自動削除もありません。コレクション・その本の登録・「すべてのデータを削除」と一緒に消えます。"
+          }
+        }
+      }
+    },
     "Move to Library" : {
       "localizations" : {
         "en" : {

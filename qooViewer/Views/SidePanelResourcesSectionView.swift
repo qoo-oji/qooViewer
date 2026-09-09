@@ -156,6 +156,7 @@ struct SidePanelResourcesSectionView: View {
             temporaryRoot: FileManager.default.temporaryDirectory,
             thumbnailCacheDirectory: ThumbnailDiskCache.shared.directory,
             pageListCacheDirectory: BookPageListCache.shared.directoryURL,
+            collectionCoverDirectory: CollectionCoverStore.defaultDirectory(),
             databaseStoreURL: QooViewerApp.modelConfiguration.url
         )
         // Task.detachedはキャンセルを継承しないので、この`.task`が取り消されたら走査側の
@@ -717,6 +718,10 @@ private struct StorageSection: View, Equatable {
                 }
                 .lineLimit(1)
                 .help("The order, names and image sizes of the pages of books you have opened, so that a book opens without scanning its archive again. Kept under the limit shown, oldest first; you can delete it in Settings ▸ Cache. Nothing is written for books opened in a private window.")
+                // コレクションのカバー画像。上の2つと違って**キャッシュではない**(消えると
+                // 登録してある本を全冊読み直すことになる)ので、上限は並べずに容量だけ出す。
+                DetailRow("Collection covers", optionalSizeText(storage.collectionCoverBytes))
+                    .help("One small JPEG per book registered in a collection, extracted once when the book is added. Not a cache: deleting it means re-reading every registered book, so there is no size limit and nothing is evicted. It goes away with the collection, the book’s entry, or “Delete All Data”.")
                 DetailRow("Database", optionalSizeText(storage.databaseBytes))
                     .help("Favorites, bookmarks, reading positions, page layouts, and metadata (the SwiftData store and its write-ahead log).")
                 DetailRow("Other", optionalSizeText(storage.otherBytes))

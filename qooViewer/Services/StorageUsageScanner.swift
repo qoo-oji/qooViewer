@@ -19,6 +19,12 @@ nonisolated struct StorageUsage: Equatable, Sendable {
     var thumbnailCacheBytes: Int?
     /// ページ一覧・構造・ページ寸法のキャッシュ(BookPageListCache)。
     var pageListCacheBytes: Int?
+    /// コレクションのカバー画像(CollectionCoverStore。ユーザー要望 2026-09-09)。
+    ///
+    /// **キャッシュではない。** 消えると登録してある本の全冊ぶんを読み直すことになるので、
+    /// Cachesではなく Application Support に置いてある(CollectionCoverStoreの型コメント)。
+    /// だからこそ、上限も自動削除も無いまま増えていく側の容量として内訳に出す。
+    var collectionCoverBytes: Int?
     /// SwiftDataのストア(`default.store` + `-wal` + `-shm`)。
     var databaseBytes: Int?
     var scannedAt: Date
@@ -27,7 +33,7 @@ nonisolated struct StorageUsage: Equatable, Sendable {
     var otherBytes: Int? {
         guard let containerBytes else { return nil }
         let known = sessionTemporaryBytes + staleTemporaryBytes + (thumbnailCacheBytes ?? 0)
-            + (pageListCacheBytes ?? 0) + (databaseBytes ?? 0)
+            + (pageListCacheBytes ?? 0) + (collectionCoverBytes ?? 0) + (databaseBytes ?? 0)
         return max(containerBytes - known, 0)
     }
 }
@@ -54,6 +60,7 @@ nonisolated enum StorageUsageScanner {
         var temporaryRoot: URL
         var thumbnailCacheDirectory: URL?
         var pageListCacheDirectory: URL?
+        var collectionCoverDirectory: URL?
         var databaseStoreURL: URL
     }
 
@@ -72,6 +79,7 @@ nonisolated enum StorageUsageScanner {
             staleTemporaryEntryCount: stale.entryCount,
             thumbnailCacheBytes: locations.thumbnailCacheDirectory.flatMap { directorySize(at: $0)?.bytes },
             pageListCacheBytes: locations.pageListCacheDirectory.flatMap { directorySize(at: $0)?.bytes },
+            collectionCoverBytes: locations.collectionCoverDirectory.flatMap { directorySize(at: $0)?.bytes },
             databaseBytes: databaseSize(storeURL: locations.databaseStoreURL),
             scannedAt: Date()
         )

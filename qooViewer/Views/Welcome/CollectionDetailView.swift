@@ -293,6 +293,22 @@ struct CollectionDetailView: View {
                     )
                 }
             )
+            Divider()
+            // 「Finderで開く」(ユーザー要望 2026-09-09)。**編集モードを条件にしない** ――
+            // 棚をいじる操作ではなく、その本がどこにあるかを見るだけの操作なので。
+            //
+            // 実体のURLはここで解決する。コレクションが持っているのはセキュリティスコープ付きの
+            // ブックマークで、`isDirectory`を控えてはいない(履歴と違う点)。解決したURLを
+            // そのまま渡せば`FinderReveal`の既定の経路が種別を判定できる
+            // (FinderReveal.reveal(_:isDirectory:)のコメント参照)。
+            Button("Show in Finder") {
+                guard let url = collectionStore.resolvedExistingURL(for: item) else {
+                    missingItem = item
+                    return
+                }
+                FinderReveal.reveal(url)
+            }
+
             // 「メタデータの編集」は**編集モードを条件にしない**(ユーザー指摘 2026-09-09)。
             // 棚から本を出し入れする操作ではなく、その1冊の中身を整える操作なので、モードの
             // 奥に置く理由が無い(帯のリネームと同じ判断。WelcomeTopBar.canEditLibraries参照)。
