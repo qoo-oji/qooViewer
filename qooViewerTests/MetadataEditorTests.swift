@@ -18,11 +18,16 @@ import Testing
 /// 落ちる**(2026-09-06 にクラッシュレポートで確認。`InMemoryLibrary.close()` と同じ話)。
 @MainActor
 struct MetadataEditorTests {
+    /// 環境設定は ViewModel がカバー列のために持つだけ(CoverOverrideController)。
+    /// `UserDefaults.standard` を触らないよう、テストごとの suite から作る。
+    private let preferencesSuite = PreferencesSuite(label: "metadataEditor")
+
     private func makeViewModel(_ library: InMemoryLibrary) -> MetadataEditorViewModel {
         MetadataEditorViewModel(
             metadataStore: library.metadata, formatStore: library.metadataFormats,
             bookmarkStore: library.bookmarks, layoutStore: library.layouts,
             favoritesStore: library.favorites, collectionStore: library.collections,
+            preferences: preferencesSuite.makePreferences(),
             modelContext: library.context
         )
     }
@@ -167,6 +172,35 @@ struct MetadataEditorTests {
         // 「未登録の行も空のままでは残らない」こと。
         let derived = try #require(viewModel.drafts["/books/[山田太郎] 冒険の書.cbz"])
         #expect(!derived.isEmpty)
+    }
+
+    /// ウェルカム画面のメタデータ編集シート(改善要望5 §5.3)は、この一覧を持たないまま
+    /// 同じ初期値を作る。**一覧経由と同じ答えになる**ことを見る ―― ここがずれると、
+    /// シートで開いた本だけ初期値が違い、そのまま Register すると内容が化ける。
+    @Test("一覧を持たない画面でも、初期値の決め方は同じ")
+    func theSharedInitialDraftMatchesTheListView() async throws {
+        let library = try InMemoryLibrary(label: "metadata-initial-draft")
+        defer { library.close() }
+        let registeredID = "/books/registered.cbz"
+        let unregisteredID = "/books/[山田太郎] 冒険の書.cbz"
+        _ = library.metadata.upsert(
+            bookID: registeredID, author: "登録した著者", title: "登録した題",
+            series: "登録したシリーズ", seriesIndex: "3")
+        addReadingState(library, bookID: registeredID)
+        addReadingState(library, bookID: unregisteredID)
+
+        let viewModel = makeViewModel(library)
+        defer { viewModel.releaseResources() }
+        await settle(viewModel)
+
+        for bookID in [registeredID, unregisteredID] {
+            let shared = MetadataEditorViewModel.initialDraft(
+                forBookID: bookID,
+                baseName: MetadataEditorViewModel.baseName(forBookID: bookID),
+                metadataStore: library.metadata, formatStore: library.metadataFormats
+            )
+            #expect(shared == viewModel.drafts[bookID])
+        }
     }
 
     @Test("登録すると DB へ入り、解除すると推測値へ戻る")

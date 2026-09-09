@@ -237,25 +237,6 @@ class BookExportViewModel: ObservableObject {
     /// ウインドウを開いたままでも常に最新の対象一覧を表示できるようにする。
     private var changeObservers: [NSObjectProtocol] = []
 
-    /// loadBook(forBookID:)でstartAccessingSecurityScopedResource()に成功したURLの集合。
-    ///
-    /// 読み込んだ本は、この後もカバー列の表示名の解決やカバーピッカーのサムネイル取得で
-    /// 元のファイルを読み続けるため、loadBook()の中でアクセスを閉じることはできず、この
-    /// インスタンスが生きている間ずっと開いたままにしておく必要がある。そのため対になる
-    /// stopAccessingSecurityScopedResource()はdeinitで呼ぶ
-    /// (BookLayoutEditorViewModel.securityScopedURLと同じ方針)。
-    ///
-    /// 以前は`_ = url.startAccessingSecurityScopedResource()`と開きっぱなしにしており、
-    /// アクセス権がリークしていた。しかもBookLayoutEditorViewModel(1冊ごとに作り直される)と
-    /// 違い、このViewModelはウインドウを閉じてもアプリ終了まで使い回されるうえ、
-    /// loadBook()はカバー列のセルの.task(refreshCoverName)から行ごとに呼ばれるため、
-    /// 一覧をスクロールして行が再表示されるたびに対象の本の数だけ積み上がっていた。
-    ///
-    /// Set(URL単位で1回だけ開く)にしているのは、startAccessingSecurityScopedResourceが
-    /// 参照カウント式のため。同じ本を何度読み込んでも開くのは1回だけにしておかないと、
-    /// deinitでの1回のstopでは釣り合わない。
-    private var securityScopedURLs: Set<URL> = []
-
     /// - Parameter loadsEligibleRows: 書き出しウインドウの対象一覧(レイアウト・ブックマーク・
     ///   メタデータのいずれかを持つ本の一覧)を組み立てるかどうか。
     ///
@@ -314,11 +295,8 @@ class BookExportViewModel: ObservableObject {
         for observer in changeObservers {
             NotificationCenter.default.removeObserver(observer)
         }
-        // loadBook(forBookID:)で開いたセキュリティスコープ付きアクセスを閉じる
-        // (securityScopedURLsのコメント参照)。
-        for url in securityScopedURLs {
-            url.stopAccessingSecurityScopedResource()
-        }
+        // カバー画像のために開いたセキュリティスコープ付きアクセスは、coverControllerが
+        // 自分のdeinitで閉じる(CoverOverrideController.securityScopedURLsのコメント参照)。
     }
 
     // MARK: - サブクラスの拡張点
@@ -486,130 +464,20 @@ class BookExportViewModel: ObservableObject {
 
     // MARK: - カバー画像(supportsCoverSelectionがtrueのサブクラスのみ使う)
 
-    /// カバー列に表示する名前のキャッシュ(bookID -> 表示名)。上書き設定がある場合は
-    /// BookLayoutSettingsに保存済みの値をそのまま使えるが、既定(先頭ページ)の場合は本を
-    /// 読み込んで確認する必要があるため、非同期で解決してここへキャッシュする
-    /// (refreshCoverName(forBookID:)参照)。
-    @Published private(set) var resolvedCoverNames: [String: String] = [:]
-
-    /// カバー列の表示文字列。まだ解決できていない間は読み込み中であることが分かる文字列を返す。
-    final func coverDisplayName(forBookID bookID: String) -> String {
-        resolvedCoverNames[bookID] ?? String(localized: "Loading…", language: preferences.effectiveLocale)
-    }
-
-    /// この本のカバー表示名を最新化する。呼び出し元(カバー列のセル)の.taskから、行の表示中に
-    /// 一度だけ呼ぶ想定(BookmarkListView.PageRowViewのサムネイル読み込みと同じ考え方)。
-    final func refreshCoverName(forBookID bookID: String) async {
-        guard let settings = layoutStore.bookLayoutSettings(forBookID: bookID) else {
-            await resolveDefaultCoverName(forBookID: bookID)
-            return
-        }
-        if let externalName = settings.externalCoverFileName {
-            resolvedCoverNames[bookID] = externalName
-            return
-        }
-        if settings.coverPageKey != nil, let cached = settings.coverPageDisplayName {
-            resolvedCoverNames[bookID] = cached
-            return
-        }
-        await resolveDefaultCoverName(forBookID: bookID)
-    }
-
-    /// 既定(上書き無し)の場合のカバー名。実際に書き出したときと同じロジック
-    /// (EffectivePageOrder)で実質的な先頭ページを求める。
+    /// カバー画像の選び方そのもの(表示名の解決・ページピッカー・外部ファイル・既定に戻す)。
     ///
-    /// ユーザー報告と同じ構図の改善: 以前はここで必ずBookLoader.load(from:)を呼んでいた。
-    /// 欲しいのは「実質的な先頭ページのファイル名」1つだけなのに、そのために書庫を全走査して
-    /// いたことになる。しかもこれは一覧のカバー列のセルごと(=対象の本の数だけ)呼ばれるため、
-    /// 本体が未接続の外付け/ネットワークボリューム上にあるとウインドウを開くだけで延々と
-    /// 読み込みが続いていた。
+    /// 改善要望5で、本を開いていない画面(「メタデータの編集」ウインドウのカバー列・
+    /// ウェルカム画面のメタデータ編集シート)からも同じ選び方を使うことになったため、
+    /// CoverOverrideControllerへ丸ごと移した。ここに残っているのは、その結果としてDBに
+    /// 書かれた上書きをExporterの語彙へ詰め替えるresolveCoverOverride(settings:)だけ。
     ///
-    /// 並べ替え(pageOrderOverride)と除外(excluded)はDBから引けるので、必要な本体側の情報は
-    /// ページの並び順とファイル名だけ。まずキャッシュ(BookPageListCache)を見て、あればそれで
-    /// 済ませる。無い場合だけ従来どおり読み込む(その読み込み自体がBookLoader.load経由で
-    /// キャッシュを埋めるため、次回以降は読み込み無しで解決できる)。
-    private func resolveDefaultCoverName(forBookID bookID: String) async {
-        let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
-        let excludedKeys = Set(
-            layoutStore.pageOverrides(forBookID: bookID).filter { $0.state == .excluded }.map(\.pageKey)
-        )
+    /// lazyなのは、URLの解決手段(resolveURL(forBookID:))がこのViewModel自身の持ち物で、
+    /// 格納プロパティの初期化中はまだselfを閉包へ渡せないため。
+    private(set) lazy var coverController = CoverOverrideController(
+        layoutStore: layoutStore, preferences: preferences,
+        resolveURL: { [weak self] bookID in self?.resolveURL(forBookID: bookID) }
+    )
 
-        if let cached = await BookPageListCache.shared.pageList(forBookID: bookID), !cached.pages.isEmpty {
-            // キャッシュのEntryはpageOrderSourceを持たないため、本体を読まずに分かる情報
-            // (bookID=パスの拡張子)から判定する。PDF/EPUBはファイル自身が持つページ順
-            // (.document)なので名前順に並べ替えてはいけない(MangaBook.pageOrderSource参照。
-            // 現状はPDF/EPUBのsortKeyがゼロ埋め連番(%06d)のため並べ替えても偶然同じ順に
-            // なるが、その偶然に依存しないための明示)。
-            let pageOrderSource: PageOrderSource =
-                (isPDFFile(bookID) || isEpubFile(bookID)) ? .document : .fileName
-            let ordered = EffectivePageOrder.orderedPages(
-                for: cached.pages, pageOrderSource: pageOrderSource,
-                pageOrderOverride: settings?.pageOrderOverride, excludedKeys: excludedKeys
-            )
-            if let first = ordered.first {
-                // 書庫の中のフォルダ・入れ子の書庫の中にある画像は、ファイル名だけでは
-                // どのページか区別できないため、本の直下からの相対パスで表示する
-                // (PageLocation参照)。folderPathを持たない古いキャッシュではnilになり、
-                // 従来どおりファイル名だけになる。
-                //
-                // EPUBをここでも改めて弾いているのは、**この経路だけが本体を読み直さない**ため。
-                // EPUBのfolderPathを残していた頃のキャッシュが手元にあると、その本を開き直す
-                // まで`OEBPS/Images/001.jpg`のままになってしまう。
-                let folderPath = isEpubFile(bookID) ? nil : first.folderPath
-                resolvedCoverNames[bookID] = folderPath.map { "\($0)/\(first.displayName)" }
-                    ?? first.displayName
-                return
-            }
-        }
-
-        guard let book = await loadBook(forBookID: bookID) else { return }
-        let ordered = EffectivePageOrder.orderedPages(
-            for: book, pageOrderOverride: settings?.pageOrderOverride, excludedKeys: excludedKeys
-        )
-        guard let first = ordered.first else { return }
-        resolvedCoverNames[bookID] = first.location(inBookAt: book.sourceURL).fullPath
-    }
-
-    /// カバーピッカー(本のページ一覧を表示する画面)から呼ばれる。この本を読み込んで返す
-    /// (セキュリティスコープ付きアクセスはBookLayoutEditorViewModel.loadと同じく、ウインドウが
-    /// 開いている間ずっとサムネイルを読み込めるよう、明示的に閉じずに保持したままにし、
-    /// deinitでまとめて閉じる。securityScopedURLsのコメント参照)。
-    final func loadBookForCoverPicker(bookID: String) async -> MangaBook? {
-        await loadBook(forBookID: bookID)
-    }
-
-    private func loadBook(forBookID bookID: String) async -> MangaBook? {
-        guard let url = resolveURL(forBookID: bookID) else { return nil }
-        // 同じ本を何度読み込んでも、開くのは最初の1回だけにする(securityScopedURLsのコメント参照)。
-        if !securityScopedURLs.contains(url), url.startAccessingSecurityScopedResource() {
-            securityScopedURLs.insert(url)
-        }
-        return try? await BookLoader.load(from: url)
-    }
-
-    /// 本に含まれる既存ページをカバーに指定する。
-    final func setCover(forBookID bookID: String, book: MangaBook, page: PageRef) {
-        // 表示名は、書庫の中のフォルダ・入れ子の書庫まで含めた本の中での相対パスで持つ
-        // (ファイル名だけでは、章ごとに001.jpgから振り直されている本でどのページを
-        // カバーにしたのか分からないため。PageLocation参照)。
-        let coverName = page.location(inBookAt: book.sourceURL).fullPath
-        layoutStore.setCoverPageKey(for: book, pageKey: page.sortKey, displayName: coverName)
-        resolvedCoverNames[bookID] = coverName
-    }
-
-    /// 本に含まれない専用ファイルをカバーに指定する。この専用ファイルは本の一部として扱わない
-    /// ため、ビューアのページ一覧には現れない(LayoutStore.setExternalCoverのコメント参照)。
-    final func setExternalCover(forBookID bookID: String, book: MangaBook, fileURL: URL) {
-        guard (try? layoutStore.setExternalCover(for: book, fileURL: fileURL)) != nil else { return }
-        resolvedCoverNames[bookID] = fileURL.lastPathComponent
-    }
-
-    /// カバーの上書きを解除し、既定(先頭ページ)に戻す。
-    final func resetCover(forBookID bookID: String) {
-        layoutStore.clearCoverOverride(forBookID: bookID)
-        resolvedCoverNames.removeValue(forKey: bookID)
-        Task { await refreshCoverName(forBookID: bookID) }
-    }
 
     /// BookLayoutSettingsの上書き設定を、Exporterが受け取るExportCoverOverrideへ変換する
     /// (未設定ならnil=既定の先頭ページ)。

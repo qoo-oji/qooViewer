@@ -213,6 +213,93 @@ struct LayoutStoreTests {
         library.layouts.discardLayoutData(forBookID: source.book.id)  // 2 回目は消すものが無い
         #expect(secondCounter.count == 1)
     }
+
+    // MARK: - カバーの指定(本を読み込まずに書く版)
+
+    /// コレクションのメタデータ編集シートと「メタデータの編集」ウインドウは、対象の本を
+    /// **開かないまま**カバーを指定する。MangaBook を要る版と同じ行・同じ属性へ書けること
+    /// (別々の行が2つできると、書き出しと一覧で違うカバーが出る)。
+    @Test("本を読み込まない版のカバー指定は、MangaBook 版と同じ行へ書く")
+    func theBookIDVariantWritesTheSameRow() async throws {
+        let library = try InMemoryLibrary(label: "layout-cover-bookid")
+        defer { library.close() }
+        let source = try await makeSource("layout-cover-bookid")
+
+        library.layouts.setCoverPageKey(
+            forBookID: source.book.id, sourceURL: source.book.sourceURL,
+            pageKey: source.keys[2], displayName: "003.jpg"
+        )
+        #expect(settings(library, source.book)?.coverPageKey == source.keys[2])
+        #expect(settings(library, source.book)?.coverPageDisplayName == "003.jpg")
+
+        // MangaBook 版で上書きしても行は増えない。
+        library.layouts.setCoverPageKey(for: source.book, pageKey: source.keys[1], displayName: "002.jpg")
+        #expect(settings(library, source.book)?.coverPageKey == source.keys[1])
+        #expect(library.layouts.coverOverrideBookIDs() == [source.book.id])
+    }
+
+    @Test("専用ファイルの指定は、ページの指定を打ち消す(両方が同時に立たない)")
+    func anExternalCoverReplacesThePageCover() async throws {
+        let library = try InMemoryLibrary(label: "layout-cover-external")
+        defer { library.close() }
+        let source = try await makeSource("layout-cover-external")
+        let coverFile = source.temporary.file("cover.jpg")
+        try Data("not really a jpeg".utf8).write(to: coverFile)
+
+        library.layouts.setCoverPageKey(for: source.book, pageKey: source.keys[0], displayName: "001.jpg")
+        try library.layouts.setExternalCover(
+            forBookID: source.book.id, sourceURL: source.book.sourceURL, fileURL: coverFile
+        )
+        #expect(settings(library, source.book)?.coverPageKey == nil)
+        #expect(settings(library, source.book)?.externalCoverFileName == "cover.jpg")
+    }
+
+    /// 横長カバーの見せ方は「どの画像か」ではなく「その画像のどこを見せるか」なので、
+    /// カバーを既定へ戻しても残る(LayoutStore.setCoverCropAnchor のコメント)。
+    @Test("「カバーを既定に戻す」は、横長カバーの見せ方の指定まで消さない")
+    func resettingTheCoverKeepsTheCropAnchor() async throws {
+        let library = try InMemoryLibrary(label: "layout-cover-anchor")
+        defer { library.close() }
+        let source = try await makeSource("layout-cover-anchor")
+
+        library.layouts.setCoverPageKey(for: source.book, pageKey: source.keys[1], displayName: "002.jpg")
+        library.layouts.setCoverCropAnchor(
+            forBookID: source.book.id, sourceURL: source.book.sourceURL, anchor: .left
+        )
+        library.layouts.clearCoverOverride(forBookID: source.book.id)
+
+        #expect(settings(library, source.book)?.coverPageKey == nil)
+        #expect(settings(library, source.book)?.coverCropAnchor == .left)
+    }
+
+    @Test("「自動のまま」の指定は、まだ一行も無い本に空の行を作らない")
+    func settingTheAutomaticAnchorDoesNotCreateARow() throws {
+        let library = try InMemoryLibrary(label: "layout-cover-anchor-empty")
+        defer { library.close() }
+        let bookID = "/books/never-touched-\(UUID().uuidString).cbz"
+
+        library.layouts.setCoverCropAnchor(forBookID: bookID, sourceURL: nil, anchor: nil)
+        #expect(library.layouts.bookLayoutSettings(forBookID: bookID) == nil)
+
+        library.layouts.setCoverCropAnchor(forBookID: bookID, sourceURL: nil, anchor: .center)
+        #expect(library.layouts.bookLayoutSettings(forBookID: bookID)?.coverCropAnchor == .center)
+    }
+
+    /// 本を読み込まない版は差し替え検知の指紋を記録しない(ページ数が分からないため)。
+    /// 中途半端な指紋を書いてしまうと、その本を次に開いたときに「差し替えられた」と
+    /// 誤判定してレイアウトを捨てる提案が出る ―― それを踏まないことの確認。
+    @Test("本を読み込まずに作った行は指紋を持たず、差し替え検知は判定しない")
+    func theBookIDVariantDoesNotRecordAFingerprint() async throws {
+        let library = try InMemoryLibrary(label: "layout-cover-fingerprint")
+        defer { library.close() }
+        let source = try await makeSource("layout-cover-fingerprint")
+
+        library.layouts.setCoverCropAnchor(
+            forBookID: source.book.id, sourceURL: source.book.sourceURL, anchor: .right
+        )
+        #expect(settings(library, source.book)?.recordedPageCount == nil)
+        #expect(library.layouts.checkContentReplacement(book: source.book) == .unaffected)
+    }
 }
 
 /// 通知の回数を数えるだけの箱。`NotificationCenter` のクロージャは `@Sendable` なので、

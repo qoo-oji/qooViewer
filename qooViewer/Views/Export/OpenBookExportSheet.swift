@@ -152,7 +152,7 @@ struct OpenBookExportSheet: View {
                         Text("Cover")
                         // 選び方は書き出しウインドウのカバー列とまったく同じ部品
                         // (ExportCoverCell)。既定は本の実質的な先頭ページ。
-                        ExportCoverCell(bookID: book.id, viewModel: viewModel)
+                        ExportCoverCell(bookID: book.id, controller: viewModel.coverController)
                             // カバーの指定はDBへ書き込む(LayoutStore)。DBへ書かない本
                             // ―― シークレットウインドウ ―― では、ここから記録を作って
                             // しまわないよう操作させない(項目は消さずグレーアウトするのが

@@ -331,7 +331,7 @@ struct ExportWindowContent<Options: View>: View {
 
             if configuration.showsCoverColumn {
                 TableColumn("Cover") { row in
-                    ExportCoverCell(bookID: row.bookID, viewModel: viewModel)
+                    ExportCoverCell(bookID: row.bookID, controller: viewModel.coverController)
                 }
                 .width(min: ExportColumnWidths.coverMin, ideal: columnWidths.cover)
                 .customizationID("cover")
@@ -609,7 +609,15 @@ private struct ExportSelectionCell: View {
 /// bookIDだけを受け取る形にしてある(このセルが行から使っていたのも元々bookIDだけだった)。
 struct ExportCoverCell: View {
     let bookID: String
-    @ObservedObject var viewModel: BookExportViewModel
+    @ObservedObject var controller: CoverOverrideController
+    /// 横長カバーの見せ方(左端/中央/右端)をpopoverの下段に出すかどうか。
+    /// 書き出しウインドウでは出さない ―― あの指定はコレクションのグリッド表示にだけ効き、
+    /// 書き出されるEPUB/CBZのカバーはトリミングしないため、ここに置くと効かない指定を
+    /// 選ばせることになる(§3.4)。
+    var showsCropAnchor = false
+    /// 見せ方の選択を押せるようにするか。横長でないカバーには効かない指定なので、
+    /// それが分かっている呼び出し元(メタデータ編集シート)はfalseにして選ばせない。
+    var isCropAnchorEnabled = true
 
     @State private var isCoverPickerPresented = false
 
@@ -618,7 +626,7 @@ struct ExportCoverCell: View {
             isCoverPickerPresented = true
         } label: {
             HStack(spacing: 4) {
-                Text(viewModel.coverDisplayName(forBookID: bookID))
+                Text(controller.coverDisplayName(forBookID: bookID))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Image(systemName: "chevron.down")
@@ -631,13 +639,16 @@ struct ExportCoverCell: View {
         .buttonStyle(.plain)
         .help("Change Cover Image")
         .popover(isPresented: $isCoverPickerPresented) {
-            ExportCoverPickerContent(bookID: bookID, viewModel: viewModel)
+            ExportCoverPickerContent(
+                bookID: bookID, controller: controller, showsCropAnchor: showsCropAnchor,
+                isCropAnchorEnabled: isCropAnchorEnabled
+            )
         }
         // カバー列の表示名は、上書き設定が無い場合(既定=先頭ページ)は本を読み込んで確認する
         // 必要があるため非同期で解決する(BookmarkListView.PageRowViewのサムネイル読み込みと
         // 同じ考え方)。
         .task(id: bookID) {
-            await viewModel.refreshCoverName(forBookID: bookID)
+            await controller.refreshCoverName(forBookID: bookID)
         }
     }
 }
@@ -649,9 +660,13 @@ struct ExportCoverCell: View {
 /// 追加した専用ファイルはLayoutStore.setExternalCoverが本(MangaBook.pages)には一切追加しない
 /// (BookLayoutSettingsの別プロパティとして保持するだけ)ため、ビューアのページ一覧には
 /// 現れない(ユーザー要望通り)。
-private struct ExportCoverPickerContent: View {
+struct ExportCoverPickerContent: View {
     let bookID: String
-    @ObservedObject var viewModel: BookExportViewModel
+    @ObservedObject var controller: CoverOverrideController
+    /// ExportCoverCell.showsCropAnchorのコメント参照。
+    var showsCropAnchor = false
+    /// ExportCoverCell.isCropAnchorEnabledのコメント参照。
+    var isCropAnchorEnabled = true
     /// PageLoaderのページキャッシュ上限(環境設定「キャッシュ」)を渡すため。
     @EnvironmentObject private var preferences: AppPreferences
 
@@ -663,7 +678,7 @@ private struct ExportCoverPickerContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                viewModel.resetCover(forBookID: bookID)
+                controller.resetCover(forBookID: bookID)
             } label: {
                 Label("Reset to Default (First Page)", systemImage: "arrow.counterclockwise")
             }
@@ -681,7 +696,7 @@ private struct ExportCoverPickerContent: View {
                             index: index,
                             pageLoader: pageLoader,
                             thumbnails: $thumbnails,
-                            onSelect: { viewModel.setCover(forBookID: bookID, book: loadedBook, page: page) }
+                            onSelect: { controller.setCover(forBookID: bookID, book: loadedBook, page: page) }
                         )
                     }
                     .frame(minWidth: 260, minHeight: 260)
@@ -707,10 +722,29 @@ private struct ExportCoverPickerContent: View {
             .buttonStyle(.plain)
             .padding(8)
             .disabled(loadedBook == nil)
+
+            if showsCropAnchor {
+                Divider()
+
+                // 横長のカバーを縦長の枠へ収めるとき、どちら側を残すか(ユーザー要望
+                // 2026-09-09)。既定の「自動」は本の読み方向から決める ―― 見開き1枚の画像なら
+                // 表紙にあたる側が残る(CoverImageResolver.croppedForGrid)。
+                // Pickerにしているのは、いまどれが選ばれているかをチェックマークで示すのを
+                // 自前で書かずに済ませるため。
+                Picker("Landscape Cover Shows", selection: cropAnchorSelection) {
+                    Text("Automatic").tag(CoverCropAnchor?.none)
+                    Text("Left Edge").tag(CoverCropAnchor?.some(.left))
+                    Text("Center").tag(CoverCropAnchor?.some(.center))
+                    Text("Right Edge").tag(CoverCropAnchor?.some(.right))
+                }
+                .pickerStyle(.menu)
+                .padding(8)
+                .disabled(!isCropAnchorEnabled)
+            }
         }
         .task {
             guard loadedBook == nil else { return }
-            guard let book = await viewModel.loadBookForCoverPicker(bookID: bookID) else {
+            guard let book = await controller.loadBookForCoverPicker(bookID: bookID) else {
                 loadFailed = true
                 return
             }
@@ -719,8 +753,15 @@ private struct ExportCoverPickerContent: View {
         }
     }
 
+    /// 横長カバーの見せ方の選択。DBが唯一の持ち主なので、@Stateには写さず毎回読む。
+    private var cropAnchorSelection: Binding<CoverCropAnchor?> {
+        Binding(
+            get: { controller.cropAnchor(forBookID: bookID) },
+            set: { controller.setCropAnchor(forBookID: bookID, $0) }
+        )
+    }
+
     private func chooseExternalFile() {
-        guard let loadedBook else { return }
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -728,7 +769,7 @@ private struct ExportCoverPickerContent: View {
         panel.allowedContentTypes = [.image]
         panel.message = String(localized: "Choose an image file to use as the cover.", language: preferences.effectiveLocale)
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        viewModel.setExternalCover(forBookID: bookID, book: loadedBook, fileURL: url)
+        controller.setExternalCover(forBookID: bookID, fileURL: url)
     }
 }
 

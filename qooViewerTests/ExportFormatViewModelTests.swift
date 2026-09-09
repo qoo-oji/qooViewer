@@ -253,6 +253,48 @@ struct ExportFormatViewModelTests {
         #expect(pdf.prepare(row: environment.row, book: environment.book, displayState: nil).coverOverride == nil)
     }
 
+    /// カバーの選び方は `CoverOverrideController` へ切り出してあり(改善要望5 §5.2)、
+    /// 書き出しウインドウ・「メタデータの編集」ウインドウ・メタデータ編集シートが同じ部品を使う。
+    /// **切り出した先で書いたものが、そのまま書き出しへ届く**ことの確認 ―― ここが切れると
+    /// 「一覧では変えたのに、出てきた EPUB のカバーは元のまま」になる。
+    @Test("カバー列(CoverOverrideController)で選んだページが、そのまま書き出しへ渡る")
+    func aCoverChosenThroughTheControllerReachesTheExport() async throws {
+        let environment = try await Environment.make(label: "cover-controller")
+        defer { environment.close() }
+        let viewModel = environment.cbz()
+        let coverKey = environment.source.key(2)
+        let page = try #require(environment.book.pages.first { $0.sortKey == coverKey })
+
+        viewModel.coverController.setCover(
+            forBookID: environment.book.id, book: environment.book, page: page
+        )
+
+        // 表示名は本を読み直さずに、選んだその場のものが出る(カバー列の表示)。
+        #expect(
+            viewModel.coverController.coverDisplayName(forBookID: environment.book.id)
+                == page.location(inBookAt: environment.book.sourceURL).fullPath
+        )
+
+        let prepared = viewModel.prepare(row: environment.row, book: environment.book, displayState: nil)
+        guard case .existingPage(let pageKey) = prepared.coverOverride else {
+            Issue.record("カバーの上書きが書き出しへ渡っていない")
+            return
+        }
+        #expect(pageKey == coverKey)
+
+        // 既定へ戻せば、書き出しも既定(実質的な先頭ページ)に戻る。
+        //
+        // `CoverOverrideController.resetCover` はここでは呼ばない ―― あれは表示名を作り直す
+        // ために `BookPageListCache.shared` を読み、必要なら本を読み込んでそこへ書き戻す
+        // (テストは共有のキャッシュに触れないこと)。書き出しに効くのは DB の側だけなので、
+        // 同じ結果になる `LayoutStore.clearCoverOverride` で確かめる。
+        environment.library.layouts.clearCoverOverride(forBookID: environment.book.id)
+        #expect(
+            viewModel.prepare(row: environment.row, book: environment.book, displayState: nil)
+                .coverOverride == nil
+        )
+    }
+
     // MARK: - 開いた直後のオプション
 
     @Test("連番リネームの出荷時の既定は CBZ だけ ON", arguments: BookExportFormat.allCases)

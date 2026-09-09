@@ -27,6 +27,16 @@ struct CollectionDetailView: View {
     @State private var isRenaming = false
     /// 開こうとしたが実体が見つからなかった本。
     @State private var missingItem: CollectionItem?
+    /// メタデータ編集シートを出している本(実体のURLは開く前に解決しておく)。
+    @State private var metadataTarget: MetadataTarget?
+
+    /// メタデータ編集シートの対象。シートを出す時点で本のURLが解決できている必要があるため
+    /// (BookMetadataSheetのコメント参照)、行とURLを組にして持つ。
+    private struct MetadataTarget: Identifiable {
+        let item: CollectionItem
+        let url: URL
+        var id: UUID { item.id }
+    }
 
     private var items: [CollectionItem] {
         collectionStore.items(in: collection, sort: state.itemSort)
@@ -150,6 +160,11 @@ struct CollectionDetailView: View {
             .padding(24)
             .id(cellImageBudget.epoch)
         }
+        // 名前のリネームとは別の階層に付ける ―― 同じビューに2つの.sheetを重ねると、
+        // 片方しか出ないことがある(SwiftUIの既知の癖)。
+        .sheet(item: $metadataTarget) { target in
+            BookMetadataSheet(item: target.item, sourceURL: target.url)
+        }
     }
 
     private func cell(for item: CollectionItem) -> some View {
@@ -182,6 +197,13 @@ struct CollectionDetailView: View {
             )
             if allowsEditing && state.isEditing {
                 Divider()
+                Button("Edit Metadata…") {
+                    guard let url = collectionStore.resolvedExistingURL(for: item) else {
+                        missingItem = item
+                        return
+                    }
+                    metadataTarget = MetadataTarget(item: item, url: url)
+                }
                 Button("Remove from Collection", role: .destructive) {
                     collectionStore.remove(item)
                 }

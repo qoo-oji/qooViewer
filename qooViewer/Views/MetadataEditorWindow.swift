@@ -17,6 +17,7 @@ struct MetadataEditorWindow: View {
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var favoritesStore: FavoritesStore
     @EnvironmentObject private var collectionStore: CollectionStore
+    @EnvironmentObject private var preferences: AppPreferences
     @Environment(\.modelContext) private var modelContext
 
     @State private var viewModel: MetadataEditorViewModel?
@@ -36,6 +37,7 @@ struct MetadataEditorWindow: View {
                             layoutStore: layoutStore,
                             favoritesStore: favoritesStore,
                             collectionStore: collectionStore,
+                            preferences: preferences,
                             modelContext: modelContext
                         )
                     }
@@ -66,6 +68,8 @@ private struct MetadataColumnWidths: Equatable {
     static let titleMin: CGFloat = 100
     static let seriesMin: CGFloat = 100
     static let volumeMin: CGFloat = 44
+    /// カバー列の下限。EPUB/CBZ出力ウインドウのカバー列(ExportColumnWidths.coverMin)と同じ値。
+    static let coverMin: CGFloat = 90
 
     /// 実測がこれを超えたら省略表示にする上限(ユーザー要望: ウインドウ幅が過剰に広くならない
     /// ようにすること)。上限の合計＋巻数＋ボタン列が、既定のウインドウ幅(1300pt前後)に
@@ -80,6 +84,15 @@ private struct MetadataColumnWidths: Equatable {
     /// 巻数は「1」「12」程度しか入らないので、上限も見出し(「巻数」/「Volume」)が
     /// 収まる程度にとどめる。
     static let volumeMax: CGFloat = 90
+    /// カバー列の開いた直後の幅。上限は設けない(中身はファイル名や本の中での相対パスで、
+    /// いくらでも長くなりうる。狭いと感じたらドラッグで広げられる)。
+    ///
+    /// 出力ウインドウの同じ列(ExportColumnWidths.cover = 150)より狭くしてあるのは、この
+    /// ウインドウが列を6つ持つため。150にすると**開いた直後に横スクロールが出て**、
+    /// 右端の登録/削除ボタンが隠れかける(1300pt幅の実機で確認。この構造体の冒頭の
+    /// 「上限を大きくしすぎないこと」と同じ話)。ここを広げるなら、他の列の上限を
+    /// そのぶん削ること。
+    static let coverIdeal: CGFloat = 100
 
     /// 実測で決まった幅から、さらに手で広げられる余地。著者名・タイトル・シリーズは編集できる
     /// 欄なので、後から今より長い文字を入れたときにドラッグで広げられるようにしておく
@@ -95,6 +108,7 @@ private struct MetadataColumnWidths: Equatable {
     var title: CGFloat = 220
     var series: CGFloat = 180
     var volume: CGFloat = 56
+    var cover: CGFloat = MetadataColumnWidths.coverIdeal
 }
 
 /// MetadataEditorWindowの実体表示。@ObservedObjectでViewModelを直接観測するため、
@@ -284,6 +298,20 @@ private struct MetadataEditorContentView: View {
             .customizationID("volume")
             .disabledCustomizationBehavior([.reorder, .visibility])
 
+            // カバー列(改善要望5 §5.4)。EPUB/CBZ出力ウインドウのカバー列と同じ部品・同じ
+            // 保存先(BookLayoutSettings)なので、どちらで変えても双方に出る。
+            // 横長カバーの見せ方(showsCropAnchor)を出すのはこの画面とメタデータ編集シートだけ
+            // ―― あれはコレクションのグリッド表示にだけ効く指定で、書き出しには効かない
+            // (ExportCoverCell.showsCropAnchorのコメント参照)。
+            TableColumn("Cover") { row in
+                ExportCoverCell(
+                    bookID: row.bookID, controller: viewModel.coverController, showsCropAnchor: true
+                )
+            }
+            .width(min: MetadataColumnWidths.coverMin, ideal: columnWidths.cover)
+            .customizationID("cover")
+            .disabledCustomizationBehavior([.reorder, .visibility])
+
             // 登録/削除ボタンの列。見出しは付けない(ユーザー要望の一覧に見出しの指定が無く、
             // 操作列に見出しを置かないのはEPUB出力ウインドウのインジケータ列と同じ扱い)。
             TableColumn("") { row in
@@ -327,6 +355,9 @@ private struct MetadataEditorContentView: View {
             for: drafts.map(\.seriesIndex) + [String(localized: "Volume", language: locale)],
             minWidth: MetadataColumnWidths.volumeMin, maxWidth: MetadataColumnWidths.volumeMax
         )
+        // カバー列だけは実測しない。表示名は本を読んでから非同期に決まるので、この1回きりの
+        // 自動調整が走る時点ではまだ「読み込み中…」しか入っていない ―― 測っても意味が無い。
+        // 出力ウインドウと同じ固定値(coverIdeal)で開き、そこから先はドラッグに任せる。
         didAutoSizeColumns = true
     }
 

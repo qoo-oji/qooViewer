@@ -516,28 +516,72 @@ final class LayoutStore: ObservableObject {
     /// 呼び出し元(EPUB出力ウインドウのカバーピッカー)から渡してもらい、一覧のカバー列に
     /// 本を再読み込みせずに表示できるようキャッシュしておく。
     func setCoverPageKey(for book: MangaBook, pageKey: String, displayName: String) {
-        let settings = existingOrNewSettings(for: book)
+        applyCoverPageKey(
+            to: existingOrNewSettings(for: book), bookID: book.id,
+            pageKey: pageKey, displayName: displayName
+        )
+    }
+
+    /// 上の、**本を読み込まずに**書く版(コレクションのメタデータ編集シート・「メタデータの編集」
+    /// ウインドウのカバー列から使う。existingOrNewSettings(forBookID:sourceURL:)のコメント参照)。
+    ///
+    /// MangaBook版と別の入り口にしてあるのは、行を新しく作るときに差し替え検知の指紋を
+    /// 記録できるかどうかだけが違うため ―― 本を開いている呼び出し元からその機会を奪わないよう、
+    /// 実際の書き込みだけを下のapplyCoverPageKeyへ寄せてある。
+    func setCoverPageKey(
+        forBookID bookID: String, sourceURL: URL?, pageKey: String, displayName: String
+    ) {
+        applyCoverPageKey(
+            to: existingOrNewSettings(forBookID: bookID, sourceURL: sourceURL), bookID: bookID,
+            pageKey: pageKey, displayName: displayName
+        )
+    }
+
+    private func applyCoverPageKey(
+        to settings: BookLayoutSettings, bookID: String, pageKey: String, displayName: String
+    ) {
         settings.coverPageKey = pageKey
         settings.coverPageDisplayName = displayName
         settings.externalCoverBookmarkData = nil
         settings.externalCoverFileName = nil
         settings.updatedAt = Date()
-        saveAndNotify(bookID: book.id)
+        saveAndNotify(bookID: bookID)
     }
 
     /// 本に含まれない専用ファイルをカバーに指定する。このファイルは本の一部として扱わない
     /// (LayoutStore/BookLoaderのどこからも参照しない)ため、ビューアのページ一覧には現れない。
     func setExternalCover(for book: MangaBook, fileURL: URL) throws {
-        let data = try fileURL.bookmarkData(
+        let data = try externalCoverBookmarkData(for: fileURL)
+        applyExternalCover(
+            to: existingOrNewSettings(for: book), bookID: book.id, fileURL: fileURL, bookmarkData: data
+        )
+    }
+
+    /// 上の、**本を読み込まずに**書く版(setCoverPageKey(forBookID:sourceURL:pageKey:displayName:)
+    /// と同じ事情)。
+    func setExternalCover(forBookID bookID: String, sourceURL: URL?, fileURL: URL) throws {
+        let data = try externalCoverBookmarkData(for: fileURL)
+        applyExternalCover(
+            to: existingOrNewSettings(forBookID: bookID, sourceURL: sourceURL), bookID: bookID,
+            fileURL: fileURL, bookmarkData: data
+        )
+    }
+
+    private func externalCoverBookmarkData(for fileURL: URL) throws -> Data {
+        try fileURL.bookmarkData(
             options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
         )
-        let settings = existingOrNewSettings(for: book)
-        settings.externalCoverBookmarkData = data
+    }
+
+    private func applyExternalCover(
+        to settings: BookLayoutSettings, bookID: String, fileURL: URL, bookmarkData: Data
+    ) {
+        settings.externalCoverBookmarkData = bookmarkData
         settings.externalCoverFileName = fileURL.lastPathComponent
         settings.coverPageKey = nil
         settings.coverPageDisplayName = nil
         settings.updatedAt = Date()
-        saveAndNotify(bookID: book.id)
+        saveAndNotify(bookID: bookID)
     }
 
     /// カバーの上書きを解除し、既定(本の実質的な先頭ページ)に戻す。

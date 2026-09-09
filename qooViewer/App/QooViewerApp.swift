@@ -335,6 +335,8 @@ struct QooViewerApp: App {
             .environmentObject(metadataStore)
             .environmentObject(collectionStore)
             .environmentObject(collectionCoverExtractor)
+            // メタデータ編集シート(BookMetadataSheet)がファイル名からの推測に使う。
+            .environmentObject(metadataFormatStore)
             .environmentObject(launchCoordinator)
             .environmentObject(resourceSampler)
     }

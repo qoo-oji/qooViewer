@@ -77,7 +77,30 @@ final class MetadataEditorViewModel: ObservableObject {
     private let layoutStore: LayoutStore
     private let favoritesStore: FavoritesStore
     private let collectionStore: CollectionStore
+    private let preferences: AppPreferences
     private let modelContext: ModelContext
+
+    /// カバー画像の指定(改善要望5 §5.4。カバー列)。
+    ///
+    /// URLの解決手がかりの並びはBookExportViewModel.resolveURL(forBookID:)と同じ
+    /// ―― ブックマーク → レイアウト → メタデータ → コレクション。このウインドウは本を
+    /// 開いていないので、どれか1つでもセキュリティスコープ付きブックマークを持っていないと
+    /// ページ一覧からカバーを選べない(持っていない本でも「画像ファイルを選ぶ」は使える)。
+    ///
+    /// lazyなのは、閉包へselfを渡すのが格納プロパティの初期化後になるため
+    /// (BookExportViewModel.coverControllerと同じ)。
+    private(set) lazy var coverController = CoverOverrideController(
+        layoutStore: layoutStore, preferences: preferences,
+        resolveURL: { [weak self] bookID in self?.resolveURL(forBookID: bookID) }
+    )
+
+    private func resolveURL(forBookID bookID: String) -> URL? {
+        bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID)
+            ?? layoutStore.resolvedURL(forBookID: bookID)
+            ?? metadataStore.resolvedURL(forBookID: bookID)
+            ?? collectionStore.anyBookmarkData(forBookID: bookID)
+                .flatMap { FavoritesStore.resolvedURL(fromBookmark: $0) }
+    }
 
     /// 絞り込み前の全行(検索文字列に関わらず保持しておき、検索のたびに集め直さずに済ませる)。
     private var allRows: [Row] = []
@@ -97,6 +120,7 @@ final class MetadataEditorViewModel: ObservableObject {
         layoutStore: LayoutStore,
         favoritesStore: FavoritesStore,
         collectionStore: CollectionStore,
+        preferences: AppPreferences,
         modelContext: ModelContext
     ) {
         self.metadataStore = metadataStore
@@ -105,6 +129,7 @@ final class MetadataEditorViewModel: ObservableObject {
         self.layoutStore = layoutStore
         self.favoritesStore = favoritesStore
         self.collectionStore = collectionStore
+        self.preferences = preferences
         self.modelContext = modelContext
         self.derivedCacheRevision = formatStore.revision
         reload()
@@ -309,11 +334,27 @@ final class MetadataEditorViewModel: ObservableObject {
     }
 
     /// 行の初期値。登録済みならDBの値、未登録ならファイル名からの推測値。
+    /// 推測値はこのViewModelのキャッシュ(derivedCache)を通す点だけがinitialDraftと違う。
     private func makeInitialDraft(for row: Row) -> Draft {
         if let metadata = metadataStore.metadata(forBookID: row.bookID) {
             return Draft(metadata)
         }
         return Draft(derivedMetadata(for: row))
+    }
+
+    /// 上と同じ「登録済みならDBの値、未登録ならファイル名からの推測値」を、この一覧を持たない
+    /// 画面(ウェルカム画面のメタデータ編集シート。改善要望5 §5.3)からも使えるようにした版。
+    ///
+    /// 1冊ぶんの推測はメインアクター上でも一瞬で終わるため、キャッシュは持たない
+    /// (数千行をまとめて処理するのがscheduleDerivationの役目)。
+    static func initialDraft(
+        forBookID bookID: String, baseName: String,
+        metadataStore: BookMetadataStore, formatStore: MetadataFormatStore
+    ) -> Draft {
+        if let metadata = metadataStore.metadata(forBookID: bookID) {
+            return Draft(metadata)
+        }
+        return Draft(BookMetadataDeriver.derive(baseName: baseName, rules: formatStore.compiledRules))
     }
 
     /// 1行だけの推測。登録を解除した直後に、その行の表示を推測値へ戻すために使う

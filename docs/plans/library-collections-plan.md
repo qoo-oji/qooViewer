@@ -520,6 +520,41 @@ var welcomeDropHandler: (([URL]) -> Bool)?
 - 実機: コレクションの中でメタデータ登録 → 「メタデータの編集」ウインドウでロック(登録済み)表示。カバーを変える → コレクションのタイル・
   EPUB 書き出しウインドウのカバー列・実際の EPUB(Kindle Previewer で開く)の3か所が一致。実体の無い本が暗い。右クリックの4通りの開き方。
 
+### 5.6 実装時に計画から変えたところ(2026-09-09)
+
+- **`BookExportViewModel.coverController` は `let` ではなく `lazy var`。** URL の解決手段
+  (`resolveURL(forBookID:)`)がその ViewModel 自身の持ち物で、格納プロパティの初期化中には
+  まだ `self` を閉包へ渡せないため。`MetadataEditorViewModel` 側も同じ形。
+- **`LayoutStore` の `MangaBook` 版は bookID 版を呼ばない。** 呼ばせると、行を新しく作るときの
+  差し替え検知の指紋(`recordedPageCount` ほか)を記録する機会まで失う ―― 本を開いている
+  呼び出し元からそれを奪わないよう、**書き込みの本体だけ**を private な
+  `applyCoverPageKey` / `applyExternalCover` へ寄せ、行の用意の仕方だけが違う2つの入り口にした。
+- **`CoverOverrideController.setExternalCover` は `MangaBook` を取らない。** 受け取っていたのは
+  `LayoutStore` へ渡すためだけで、bookID + sourceURL 版ができたので要らなくなった
+  (メタデータ編集シートが本を読まずに画像を落とせるのはこのため)。
+- **横長カバーの見せ方の描き方は場所で変えた。** カバーピッカー(ポップオーバーの下段)は
+  `Picker(.menu)` ―― チェックマークを自前で描かずに済む。メタデータ編集シートの右クリックは
+  コンテキストメニューで `Picker` が使えないので、選択中の項目に `Label(systemImage:
+  "checkmark")` を自分で添える。
+- **「効かない指定を選ばせない」は `isCropAnchorEnabled` として呼び出し側から渡す。**
+  横長かどうかは `CollectionItem.coverCrop` から分かるが、それを持っているのはコレクション側
+  だけ ―― 「メタデータの編集」ウインドウは行に `CollectionItem` を持たないので常に有効にする。
+- **シートへの画像のドロップは自前の `.onDrop` ではなく `fileURLDropTarget`。** 計画では
+  自前で書くとしていたが、受け口を1か所にまとめる規則(`BookFileDropTarget`)は
+  「本を開かないドロップ」にも当てはまる。落ちてきた URL から画像だけを拾う。
+- **`MetadataEditorViewModel` に `preferences` を追加**(`CoverOverrideController` が要る)。
+  併せて、ウェルカム画面のウインドウ内容に `metadataFormatStore` を足した(メタデータ編集
+  シートがファイル名からの推測に使う)。
+- **`CollectionDetailView` のメタデータ編集シートは `grid` 側に付けた。** 同じビューに
+  `.sheet` を2つ重ねると片方しか出ないことがあるため(リネームのシートは外側の `VStack`)。
+- **テストの置き場所。** `LayoutStore` の bookID 版は `BookLayoutEditorTests` ではなく
+  `LayoutStoreTests`(カバーの上書きは本を開かない経路で、あちらは1冊を開いて編集する画面の
+  ロジック)。`CoverOverrideController` 経由の確認は、既にカバーの上書きを見ている
+  `ExportFormatViewModelTests` に足した。
+- **テストから `resetCover` は呼ばない。** あれは表示名を作り直すために
+  `BookPageListCache.shared` を読み、必要なら本を読み込んでそこへ書き戻す(テストは共有の
+  キャッシュに触れない)。書き出しに効くのは DB 側なので `clearCoverOverride` で確かめる。
+
 ---
 
 ## 段階 6. 仕上げ
