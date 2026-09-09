@@ -46,6 +46,13 @@ nonisolated enum BookLoader {
         } onCancel: {
             task.cancel()
         }
+        // 中止が**間に合わなかった**場合も、結果は返さず中止として扱う。上のTask.detachedは
+        // 生成した瞬間に別のスレッドで走り出すので、小さな本ならこちらがハンドラを据える前に
+        // 読み終わりうる(呼び出し側のTaskが先に中止されていると、据えた時点で中の中止が
+        // 呼ばれるが、もう止めるものが無い)。中止した読み込みが本を返すと、呼び出し側は
+        // 「中止したのに開いた」形になる。CIの並行実行で実際に踏んだ(BookLoaderBehaviorTests
+        // の中止のテストが、走査が走り切って本を返してしまい落ちた。2026-09-09)。
+        try Task.checkCancellation()
         guard cachesPageList else { return book }
         // 読み込みに成功したページ一覧は、ここで一括してキャッシュへ書き戻す。
         //
