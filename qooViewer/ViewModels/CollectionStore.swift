@@ -107,6 +107,7 @@ final class CollectionStore: ObservableObject {
         invalidateLookupCaches()
         libraries = allLibraries().sorted { $0.sortOrder < $1.sortOrder }
         ensureDefaultLibrary()
+        adoptDefaultLibraryName()
     }
 
     private func invalidateLookupCaches() {
@@ -140,13 +141,38 @@ final class CollectionStore: ObservableObject {
     /// 前提に描く(空の帯には何も選べず、コレクションの作り先も無い)。
     func ensureDefaultLibrary() {
         guard allLibraries().isEmpty else { return }
+        // 名前は持たせるが、表示には使わない(BookLibrary.usesDefaultNameのコメント参照)。
         let library = BookLibrary(
-            name: String(localized: "Library", language: AppLanguage.currentLocale), sortOrder: 0
+            name: BookLibrary.defaultName(language: AppLanguage.currentLocale),
+            sortOrder: 0, usesDefaultName: true
         )
         modelContext.insert(library)
         invalidateLookupCaches()
         try? modelContext.save()
         libraries = [library]
+    }
+
+    /// 既に保存されている行のうち、**まだ名前を付けていない既定のライブラリ**を拾い直す。
+    ///
+    /// `usesDefaultName`は後から足した属性なので、既存の行はすべてfalse(=名前がある)で
+    /// 入ってくる。そのうち「どれかの表示言語の既定名そのまま」の行は、アプリが仮に付けた
+    /// 見出しがそのまま残っているだけなので、既定のライブラリとして扱い直す ―― これで、
+    /// 日本語訳を入れる前のビルドが作った「Library」が「ライブラリ」と表示されるようになる。
+    ///
+    /// **ユーザーが自分で既定名(「ライブラリ」/「Library」)を付けた場合も既定扱いに戻る。**
+    /// 保存された文字列からは区別できないため。表示は同じ文字列のままなので、変わるのは
+    /// 「表示言語を切り替えたときに追従するかどうか」だけ。
+    func adoptDefaultLibraryName() {
+        let defaultNames = BookLibrary.allDefaultNames
+        var didAdopt = false
+        for library in allLibraries() where !library.usesDefaultName {
+            guard defaultNames.contains(library.name.trimmingCharacters(in: .whitespacesAndNewlines))
+            else { continue }
+            library.usesDefaultName = true
+            didAdopt = true
+        }
+        guard didAdopt else { return }
+        try? modelContext.save()
     }
 
     // MARK: - 読み取り
@@ -209,8 +235,8 @@ final class CollectionStore: ObservableObject {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         return allLibraries().contains {
-            $0.id != excluding?.id
-                && $0.name.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed
+            // 既定のライブラリは全言語の既定名を塞ぐ(BookLibrary.occupiedNames参照)。
+            $0.id != excluding?.id && $0.occupiedNames.contains(trimmed)
         }
     }
 
@@ -268,6 +294,10 @@ final class CollectionStore: ObservableObject {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !hasLibraryNamed(trimmed, excluding: library) else { return }
         library.name = trimmed
+        // 名前が付いた時点で「既定のライブラリ」ではなくなる(以後は表示言語で変わらない)。
+        // 付けた名前が既定名そのものだった場合だけは、この後のreloadで既定扱いへ戻る
+        // (adoptDefaultLibraryNameのコメント参照)。
+        library.usesDefaultName = false
         saveAndNotify()
         reload()
     }
@@ -332,11 +362,22 @@ final class CollectionStore: ObservableObject {
     }
 
     func delete(_ collection: BookCollection) {
-        let itemIDs = collection.items.map(\.id)
-        modelContext.delete(collection)
+        delete([collection])
+    }
+
+    /// コレクションをまとめて削除する(編集モードで選んだぶんをゴミ箱から)。
+    /// 1件ずつ消すとそのたびにsave()と通知が走るため、まとめて消して保存は1回だけにする
+    /// (removeItems(forBookID:)と同じ理由)。
+    func delete(_ collections: [BookCollection]) {
+        guard !collections.isEmpty else { return }
+        // カスケードで消える前に、カバー画像のファイルを消すためのidを集めておく
+        // (SwiftDataのcascadeはディスク上のファイルまでは面倒を見ない)。
+        let itemIDs = collections.flatMap { $0.items.map(\.id) }
+        for collection in collections { modelContext.delete(collection) }
         invalidateLookupCaches()
         saveAndNotify()
         removeCovers(itemIDs)
+        for itemID in itemIDs { existenceByItemID.removeValue(forKey: itemID) }
         reload()
     }
 
@@ -426,6 +467,29 @@ final class CollectionStore: ObservableObject {
         saveAndNotify(bookID: bookID)
         removeCovers([itemID])
         existenceByItemID.removeValue(forKey: itemID)
+    }
+
+    /// 本をまとめてコレクションから外す(編集モードで選んだぶんをゴミ箱から)。
+    ///
+    /// `.collectionsDidChange`のuserInfoに**bookIDは付けない** ―― 複数の本にまたがるので
+    /// 1冊ぶんしか入らない枠に何を入れても正しくない(Notification.Name.collectionsDidChangeの
+    /// コメント参照。付けなければ受け手は「何かが変わった」として全体を見直す)。
+    func remove(_ items: [CollectionItem]) {
+        guard !items.isEmpty else { return }
+        let itemIDs = items.map(\.id)
+        let now = Date()
+        var touchedCollections: [ObjectIdentifier: BookCollection] = [:]
+        for item in items {
+            if let collection = item.collection {
+                touchedCollections[ObjectIdentifier(collection)] = collection
+            }
+            modelContext.delete(item)
+        }
+        for collection in touchedCollections.values { collection.updatedAt = now }
+        invalidateLookupCaches()
+        saveAndNotify()
+        removeCovers(itemIDs)
+        for itemID in itemIDs { existenceByItemID.removeValue(forKey: itemID) }
     }
 
     /// この本の登録をすべてのコレクションから外す(「本ごとの保存データを削除」から)。

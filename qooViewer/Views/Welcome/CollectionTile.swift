@@ -10,9 +10,16 @@ import SwiftUI
 /// 縦横比の指定を別に書かなくても正方形に落ち着くので、タイルの大きさはスライダーの値
 /// (LazyVGridの`.adaptive(minimum:)`)にそのまま従わせられる。
 ///
+/// ■ 編集モードでは「選ぶ」
+/// 編集モード中はクリックが**中へ入る**から**選ぶ/選び直す**に変わり、左上に選択の印
+/// (SelectionCheckmarkBadge)が出る。選んだコレクションは右上のゴミ箱でまとめて削除できる。
+/// 編集モード中に中へ入りたいときは右クリックの「開く」から(CollectionGridView)。
+///
 /// ■ 輪郭(すりガラス面の決まりごと)
-/// - カバー画像・自前の地を持つ冊数バッジ → 何も付けない
+/// - カバー画像・自前の地を持つ冊数バッジ・選択の印 → 何も付けない
 /// - 札の下に置く名前 → `.panelOutlinedContent()`
+/// - 選択中を示すアクセント色の枠 → `.panelOutlinedAccent(in:)`(面をアクセント色で
+///   塗られると、枠だけが頼りの「選んである」が地に溶けるため)
 struct CollectionTile: View {
     let collection: BookCollection
     /// 表示する本(並び替え済み)。先頭6冊だけを描く。
@@ -25,7 +32,12 @@ struct CollectionTile: View {
     /// タイルの一辺の目安(スライダーの値)。角丸とセルの復号サイズの見積もりに使う。
     let size: CGFloat
     var onImageRetained: ((CGImage) -> Void)?
+    /// 編集モードか。クリックの意味(開く/選ぶ)がこれで変わる。
+    var isEditing: Bool = false
+    var isSelected: Bool = false
     let onOpen: () -> Void
+    /// 編集モード中のクリック。
+    var onToggleSelection: () -> Void = {}
 
     /// 3×2のセルの間隔。
     private static let cellSpacing: CGFloat = 3
@@ -37,9 +49,18 @@ struct CollectionTile: View {
         (size - Self.padding * 2 - Self.cellSpacing * 2) / 3
     }
 
+    /// 札の角丸。選択の枠も同じ形で描く。
+    private var cornerRadius: CGFloat { size * 0.08 }
+
     var body: some View {
         VStack(spacing: 6) {
-            Button(action: onOpen) {
+            Button {
+                if isEditing {
+                    onToggleSelection()
+                } else {
+                    onOpen()
+                }
+            } label: {
                 artwork
             }
             .buttonStyle(.plain)
@@ -63,7 +84,7 @@ struct CollectionTile: View {
         }
         .padding(Self.padding)
         .background(
-            RoundedRectangle(cornerRadius: size * 0.08, style: .continuous)
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(Color.primary.opacity(0.07))
         )
         // 冊数バッジ。自前の塗り地を持つので輪郭は付けない(すりガラス面の決まりごとの例外側)。
@@ -77,6 +98,22 @@ struct CollectionTile: View {
                 .foregroundStyle(Color.white)
                 .clipShape(Capsule())
                 .padding(6)
+        }
+        // 選択中の枠。印だけだと、札が小さいときにどれを選んだのか一目で分からない。
+        .overlay {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .strokeBorder(Color.accentColor, lineWidth: 3)
+                .opacity(isSelected ? 1 : 0)
+        }
+        .panelOutlinedAccent(
+            in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous),
+            isEnabled: isSelected
+        )
+        // 選択の印。編集モードのときだけ出す。
+        .overlay(alignment: .topLeading) {
+            if isEditing {
+                SelectionCheckmarkBadge(isSelected: isSelected, size: size)
+            }
         }
         .contentShape(Rectangle())
     }

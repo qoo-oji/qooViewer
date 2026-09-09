@@ -23,6 +23,11 @@ struct CollectionCoverThumbnail: View {
     /// セルの縦横比(幅 ÷ 高さ)。タイルの中の3×2の割り付けもこの値から決まる。
     static let aspectRatio: CGFloat = CoverImageResolver.gridAspectRatio
 
+    /// セルの角丸。選択中の枠(CollectionDetailView)も同じ形で描くため、ここを正典にする。
+    static func cornerRadius(forWidth width: CGFloat) -> CGFloat {
+        max(2, width * 0.03)
+    }
+
     let item: CollectionItem
     let coverStore: CollectionCoverStore
     /// 表示上の幅(pt)。復号する画素数の上限を決めるためだけに使う(枠の大きさはレイアウトが
@@ -63,7 +68,11 @@ struct CollectionCoverThumbnail: View {
             }
         }
         .aspectRatio(Self.aspectRatio, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: max(2, displayWidth * 0.03), style: .continuous))
+        .clipShape(
+            RoundedRectangle(
+                cornerRadius: Self.cornerRadius(forWidth: displayWidth), style: .continuous
+            )
+        )
         .opacity(exists ? 1 : 0.35)
         // 抽出のやり直し(カバーの変更・読み方向の変更)はcoverStatusをいったん.pendingへ戻して
         // から.readyにするため、状態を鍵に含めておけば読み直しの契機になる。

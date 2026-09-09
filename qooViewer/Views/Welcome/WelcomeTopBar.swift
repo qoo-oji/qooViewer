@@ -161,7 +161,9 @@ struct WelcomeTopBar: View {
             if let library = collectionStore.library(withID: libraryID) {
                 CollectionNameSheet(
                     kind: .renameLibrary,
-                    initialName: library.name,
+                    // 既定のライブラリは表示している見出しを初期値にする
+                    // (BookLibrary.displayName参照)。
+                    initialName: library.displayName(language: locale),
                     isDuplicate: { collectionStore.hasLibraryNamed($0, excluding: library) },
                     onCommit: { name in collectionStore.rename(library, to: name) }
                 )
@@ -197,7 +199,7 @@ struct WelcomeTopBar: View {
             // 今のライブラリには無いため)。
             state.openedCollectionID = nil
         } label: {
-            Text(library.name)
+            Text(library.displayName(language: locale))
                 .lineLimit(1)
                 // 選択中は不透明なアクセント地があるので輪郭は掛けない
                 // (SidePanelModeSwitcherと同じ判断)。

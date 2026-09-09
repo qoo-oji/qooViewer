@@ -46,11 +46,35 @@ final class WelcomeLibraryState: ObservableObject {
     ///
     /// **保存しない。** ただし本を開いて「ウェルカム画面へ戻る」で帰ってきたときは、
     /// このAppState(=ウインドウ)が生きている限り同じコレクションの中に戻る(Kindleと同じ)。
-    @Published var openedCollectionID: UUID?
+    @Published var openedCollectionID: UUID? {
+        didSet {
+            guard openedCollectionID != oldValue else { return }
+            // 見ている場所が変わったら選択は捨てる(selectedCollectionIDsのコメント参照)。
+            clearSelection()
+        }
+    }
 
     /// 編集モード。コレクションの作成・リネーム・削除、本の追加・削除ができる状態。
     /// 本を開いたら解除する(ContentViewの`currentBook`のonChange)。
-    @Published var isEditing = false
+    @Published var isEditing = false {
+        didSet {
+            guard isEditing != oldValue else { return }
+            clearSelection()
+        }
+    }
+
+    /// 編集モード中に選んだコレクション/本(ゴミ箱でまとめて削除するための選択)。
+    ///
+    /// **画面が変わったら必ず捨てる。** 選択は「いま目に見えている印」がすべてなので、
+    /// 編集モードを抜けたとき・コレクションの中へ入った/出たときに残っていると、
+    /// **見えていないものをゴミ箱が消す**ことになる。捨てる契機はこの2つのdidSetに集約してある
+    /// (どの画面も自前では消さない)。
+    ///
+    /// idで持つ理由はCollectionGridView.renamingCollectionIDと同じ ―― `@Model`のクラスを
+    /// そのまま集合に入れない(BookLibrary.swift末尾のコメント参照)。実体が別のウインドウから
+    /// 消された場合は、削除の直前にidを引き直す側(画面)が黙って取りこぼす。
+    @Published var selectedCollectionIDs: Set<UUID> = []
+    @Published var selectedItemIDs: Set<UUID> = []
 
     @Published var collectionSort: FavoritesSortOption {
         didSet {
@@ -140,9 +164,33 @@ final class WelcomeLibraryState: ObservableObject {
     /// 本を開いたとき・ウェルカム画面から離れるときの後始末。編集モードと出しかけのシートを
     /// 畳む(コレクションの中に居ることだけは保つ ―― openedCollectionIDのコメント参照)。
     func endEditing() {
+        // isEditingのdidSetが選択も捨てる。
         isEditing = false
         pendingCreations = []
         addingBooks = nil
+    }
+
+    /// 選択を捨てる。@Publishedは同じ値の代入でも発火するので、変化したときだけ書く。
+    func clearSelection() {
+        if !selectedCollectionIDs.isEmpty { selectedCollectionIDs = [] }
+        if !selectedItemIDs.isEmpty { selectedItemIDs = [] }
+    }
+
+    /// 編集モード中のクリック。選ばれていなければ選び、選ばれていれば外す。
+    func toggleCollectionSelection(_ id: UUID) {
+        if selectedCollectionIDs.contains(id) {
+            selectedCollectionIDs.remove(id)
+        } else {
+            selectedCollectionIDs.insert(id)
+        }
+    }
+
+    func toggleItemSelection(_ id: UUID) {
+        if selectedItemIDs.contains(id) {
+            selectedItemIDs.remove(id)
+        } else {
+            selectedItemIDs.insert(id)
+        }
     }
 }
 

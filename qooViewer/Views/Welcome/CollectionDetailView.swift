@@ -3,6 +3,10 @@ import SwiftUI
 
 /// コレクションの中(改善要望5)。登録した本のカバーを並べ、クリックで開く。
 ///
+/// 編集モード中はクリックが**開く**から**選ぶ/選び直す**に変わり、カバーの左上に選択の印
+/// (SelectionCheckmarkBadge)が出る。選んだ本は右上のゴミ箱でまとめてコレクションから
+/// 削除できる(本の実体は消えない)。編集モード中に開きたいときは右クリックの「開く」から。
+///
 /// タイトルは出さない ―― カバーがそのまま見出しになるうえ、名前を添えると1冊あたりの高さが
 /// 揃わなくなる。どの本かはツールチップ(`.help`)で確かめられる。
 ///
@@ -29,6 +33,10 @@ struct CollectionDetailView: View {
     @State private var missingItem: CollectionItem?
     /// メタデータ編集シートを出している本(実体のURLは開く前に解決しておく)。
     @State private var metadataTarget: MetadataTarget?
+    /// コレクションから外す確認を出している本。空なら出していない。右クリックの
+    /// 「コレクションから削除」(1冊)とゴミ箱(選んだぶん)の両方がここへ集まる
+    /// (CollectionGridView.deletingCollectionIDsと同じ理由)。
+    @State private var removingItemIDs: [UUID] = []
 
     /// メタデータ編集シートの対象。シートを出す時点で本のURLが解決できている必要があるため
     /// (BookMetadataSheetのコメント参照)、行とURLを組にして持つ。
@@ -133,6 +141,9 @@ struct CollectionDetailView: View {
                         libraryID: collection.library?.id ?? UUID()
                     )
                 },
+                deleteHelp: "Remove Selected Books",
+                canDelete: !state.selectedItemIDs.isEmpty,
+                onDelete: { removingItemIDs = Array(state.selectedItemIDs) },
                 isEditing: $state.isEditing,
                 sort: $state.itemSort,
                 // 本の行には「更新日時」に相当する情報が無い(CollectionStore.items(in:sort:))。
@@ -145,6 +156,37 @@ struct CollectionDetailView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
+        // 「本が見つかりません」のalertとは別の階層に付ける ―― 同じビューに`.alert`を2つ
+        // 重ねると片方しか出ないことがある(`.sheet`と同じSwiftUIの癖)。
+        .alert(
+            removalTitle,
+            isPresented: Binding(
+                get: { !removingItemIDs.isEmpty },
+                set: { if !$0 { removingItemIDs = [] } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) { removingItemIDs = [] }
+            Button("Delete", role: .destructive) { confirmRemoval() }
+        } message: {
+            Text("The books themselves are not deleted. Only their entries in this collection and their cover images are removed.")
+        }
+    }
+
+    /// 1冊のときと複数のときで鍵を分ける(英語で「1 books」にしないため。
+    /// CollectionGridView.deletionTitleと同じ判断)。
+    private var removalTitle: Text {
+        removingItemIDs.count == 1
+            ? Text("Remove this book from the collection?")
+            : Text("Remove \(removingItemIDs.count) books from the collection?")
+    }
+
+    private func confirmRemoval() {
+        // 確認を出している間に別のウインドウが消していることがあるので、idから引き直す。
+        let targets = removingItemIDs.compactMap { collectionStore.item(withID: $0) }
+        removingItemIDs = []
+        guard !targets.isEmpty else { return }
+        collectionStore.remove(targets)
+        state.clearSelection()
     }
 
     private var grid: some View {
@@ -168,7 +210,13 @@ struct CollectionDetailView: View {
     }
 
     private func cell(for item: CollectionItem) -> some View {
-        CollectionCoverThumbnail(
+        let isEditing = allowsEditing && state.isEditing
+        let isSelected = state.selectedItemIDs.contains(item.id)
+        let shape = RoundedRectangle(
+            cornerRadius: CollectionCoverThumbnail.cornerRadius(forWidth: state.coverSize),
+            style: .continuous
+        )
+        return CollectionCoverThumbnail(
             item: item,
             coverStore: collectionStore.coverStore,
             displayWidth: state.coverSize,
@@ -178,9 +226,28 @@ struct CollectionDetailView: View {
                 cellImageBudget.note(retaining: image, minimumCellCount: 24)
             }
         )
+        // 選択中の枠と印(CollectionTileと同じ形・同じ理由。輪郭の扱いは
+        // SelectionCheckmarkBadgeの型コメント参照)。
+        .overlay {
+            shape.strokeBorder(Color.accentColor, lineWidth: 3)
+                .opacity(isSelected ? 1 : 0)
+        }
+        .panelOutlinedAccent(in: shape, isEnabled: isSelected)
+        .overlay(alignment: .topLeading) {
+            if isEditing {
+                SelectionCheckmarkBadge(isSelected: isSelected, size: state.coverSize)
+            }
+        }
         .contentShape(Rectangle())
         .help(item.title)
-        .onTapGesture { open(item) }
+        // 編集モード中は「開く」ではなく「選ぶ/選び直す」。
+        .onTapGesture {
+            if isEditing {
+                state.toggleItemSelection(item.id)
+            } else {
+                open(item)
+            }
+        }
         .contextMenu {
             BookOpenContextMenuItems(
                 onOpen: { open(item) },
@@ -205,7 +272,9 @@ struct CollectionDetailView: View {
                     metadataTarget = MetadataTarget(item: item, url: url)
                 }
                 Button("Remove from Collection", role: .destructive) {
-                    collectionStore.remove(item)
+                    // 1冊でも確認は出す(ゴミ箱と同じ扱い。取り消せない書き込みなので、
+                    // 入り口によって確認の有無が変わらないようにする)。
+                    removingItemIDs = [item.id]
                 }
             }
         }

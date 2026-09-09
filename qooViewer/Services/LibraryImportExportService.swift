@@ -358,7 +358,9 @@ enum LibraryImportExportService {
     private static func exportCollections(collectionStore: CollectionStore) -> [ExportedLibrary] {
         collectionStore.libraries.map { library in
             ExportedLibrary(
-                name: library.name,
+                // 既定のライブラリは表示言語の見出しで書き出す(DBの文字列は表示に使って
+                // いないため。BookLibrary.displayName参照)。
+                name: library.displayName(language: AppLanguage.currentLocale),
                 collections: collectionStore.collections(in: library, sort: .dateAddedAscending)
                     .map { collection in
                         ExportedCollection(
@@ -631,7 +633,10 @@ enum LibraryImportExportService {
             // 2つ目は1つ目へ合流する(createLibraryが重複を作らないため)。
             let library: BookLibrary
             if let existing = collectionStore.libraries.first(where: {
-                $0.name.trimmingCharacters(in: .whitespacesAndNewlines) == name
+                // 既定のライブラリは全言語の既定名で合流させる ―― 英語環境で書き出した
+                // 「Library」が、日本語環境の既定のライブラリへ入るように
+                // (BookLibrary.occupiedNames参照)。
+                $0.occupiedNames.contains(name)
             }) {
                 library = existing
             } else if let created = collectionStore.createLibrary(name: name) {

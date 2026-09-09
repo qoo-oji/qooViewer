@@ -7,6 +7,8 @@ import SwiftUI
 /// 引数で差し替える ―― 「＋」は一覧ならコレクションを作り、中なら本を足す。並べ替えと
 /// 大きさのスライダーも、それぞれの画面の対象に効く。**位置と見た目が変わらない**ことを
 /// 優先している(中へ入るたびにボタンが動くと、続けて操作するときに目で追う必要が出る)。
+/// 編集モードのときだけ増える「ゴミ箱」を**「＋」の左**に足すのも同じ理由 ―― 列は右端に
+/// 揃えてあるので、左へ伸びるぶんには既にあるボタンが動かない。
 struct WelcomeLibraryPane: View {
     @EnvironmentObject private var collectionStore: CollectionStore
     @ObservedObject var state: WelcomeLibraryState
@@ -58,6 +60,13 @@ struct LibraryPaneControls: View {
     /// 「＋」。一覧では新しいコレクション、コレクションの中では本の追加。
     let addHelp: LocalizedStringKey
     let onAdd: () -> Void
+    /// ゴミ箱。一覧では選択したコレクションの削除、コレクションの中では選択した本の削除。
+    /// **編集モードのときだけ出す**(閲覧しているだけのときに削除の入り口を置かない)。
+    let deleteHelp: LocalizedStringKey
+    /// 選んだものが1つでもあるか。無いときはゴミ箱を淡色にする(押しても何も起きない、を
+    /// 押す前に見せる)。
+    let canDelete: Bool
+    let onDelete: () -> Void
     @Binding var isEditing: Bool
     @Binding var sort: FavoritesSortOption
     /// 並べ替えの基準として選ばせるもの。コレクションの中では「更新日時」を出さない
@@ -71,6 +80,13 @@ struct LibraryPaneControls: View {
 
     var body: some View {
         HStack(spacing: 6) {
+            if allowsEditing && isEditing {
+                SidePanelNavButton(
+                    systemName: "trash", isDisabled: !canDelete, help: deleteHelp
+                ) {
+                    onDelete()
+                }
+            }
             SidePanelNavButton(
                 systemName: "plus", isDisabled: !allowsEditing || !isEditing, help: addHelp
             ) {

@@ -27,7 +27,10 @@ struct CollectionGridView: View {
     /// PersistentModel経由でIdentifiableに適合しており、自前の`id: UUID`と要件が衝突しうるため、
     /// このアプリでは一貫してidを明示して扱う(BookLibrary.swift末尾のコメント参照)。
     @State private var renamingCollectionID: UUID?
-    @State private var deletingCollectionID: UUID?
+    /// 削除の確認を出している対象。空なら出していない。右クリックの「削除…」(1件)と
+    /// ゴミ箱(編集モードで選んだぶん)の**両方がここへ集まる** ―― 同じビューに`.alert`を
+    /// 2つ重ねると片方しか出ないことがあるため(WelcomeLibraryPaneの`.sheet`と同じ癖)。
+    @State private var deletingCollectionIDs: [UUID] = []
 
     private var collections: [BookCollection] {
         collectionStore.collections(in: library, sort: state.collectionSort)
@@ -40,6 +43,9 @@ struct CollectionGridView: View {
                 LibraryPaneControls(
                     addHelp: "New Collection",
                     onAdd: { beginCreatingCollection() },
+                    deleteHelp: "Delete Selected Collections",
+                    canDelete: !state.selectedCollectionIDs.isEmpty,
+                    onDelete: { deletingCollectionIDs = Array(state.selectedCollectionIDs) },
                     isEditing: $state.isEditing,
                     sort: $state.collectionSort,
                     sortFields: FavoritesSortOption.Field.allCases,
@@ -76,22 +82,38 @@ struct CollectionGridView: View {
             }
         }
         .alert(
-            "Delete Collection?",
+            deletionTitle,
             isPresented: Binding(
-                get: { deletingCollectionID != nil },
-                set: { if !$0 { deletingCollectionID = nil } }
+                get: { !deletingCollectionIDs.isEmpty },
+                set: { if !$0 { deletingCollectionIDs = [] } }
             )
         ) {
-            Button("Cancel", role: .cancel) { deletingCollectionID = nil }
-            Button("Delete", role: .destructive) {
-                if let collection = deletingCollectionID.flatMap({ collectionStore.collection(withID: $0) }) {
-                    collectionStore.delete(collection)
-                }
-                deletingCollectionID = nil
-            }
+            Button("Cancel", role: .cancel) { deletingCollectionIDs = [] }
+            Button("Delete", role: .destructive) { confirmDeletion() }
         } message: {
-            Text("The books themselves are not deleted. Only this collection and its cover images are removed.")
+            if deletingCollectionIDs.count == 1 {
+                Text("The books themselves are not deleted. Only this collection and its cover images are removed.")
+            } else {
+                Text("The books themselves are not deleted. Only these collections and their cover images are removed.")
+            }
         }
+    }
+
+    /// 1件のときは従来どおりの文言、まとめて消すときは冊数入りの文言。英語では
+    /// 「1 collections」になってしまうので、単数・複数で鍵を分けている。
+    private var deletionTitle: Text {
+        deletingCollectionIDs.count == 1
+            ? Text("Delete Collection?")
+            : Text("Delete \(deletingCollectionIDs.count) collections?")
+    }
+
+    private func confirmDeletion() {
+        // 確認を出している間に別のウインドウが消していることがあるので、idから引き直す。
+        let targets = deletingCollectionIDs.compactMap { collectionStore.collection(withID: $0) }
+        deletingCollectionIDs = []
+        guard !targets.isEmpty else { return }
+        collectionStore.delete(targets)
+        state.clearSelection()
     }
 
     private var grid: some View {
@@ -123,12 +145,19 @@ struct CollectionGridView: View {
                 // 1画面に並ぶタイル数の見積もり(帳簿の下限。LazyCellImageBudget参照)。
                 cellImageBudget.note(retaining: image, minimumCellCount: 48)
             },
-            onOpen: { state.openedCollectionID = collection.id }
+            isEditing: allowsEditing && state.isEditing,
+            isSelected: state.selectedCollectionIDs.contains(collection.id),
+            onOpen: { state.openedCollectionID = collection.id },
+            onToggleSelection: { state.toggleCollectionSelection(collection.id) }
         )
         // 右クリックのメニューは編集モードのときだけ付ける。**項目が空のcontextMenuは付けない**
         // ―― 空の枠が一瞬出るだけの当たり所になる(WelcomeQuickOpenList.rowの同じ判断)。
         if allowsEditing && state.isEditing {
             tile.contextMenu {
+                // 編集モード中はクリックが選択になるので、中へ入る道をここに残す
+                // (CollectionTileの型コメント参照)。
+                Button("Open") { state.openedCollectionID = collection.id }
+                Divider()
                 Button("Add Books…") {
                     state.addingBooks = .init(
                         collectionID: collection.id, name: collection.name, libraryID: library.id
@@ -136,7 +165,7 @@ struct CollectionGridView: View {
                 }
                 Divider()
                 Button("Rename…") { renamingCollectionID = collection.id }
-                Button("Delete…", role: .destructive) { deletingCollectionID = collection.id }
+                Button("Delete…", role: .destructive) { deletingCollectionIDs = [collection.id] }
             }
         } else {
             tile

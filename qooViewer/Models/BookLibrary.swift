@@ -17,22 +17,71 @@ import SwiftData
 @Model
 final class BookLibrary {
     var id: UUID
+    /// ユーザーが付けた名前。**既定のライブラリでは読まない**(`displayName(language:)`参照)。
     var name: String
     /// 帯に並ぶ順(作成順)。手動での並べ替えは用意していないが、FavoriteFolder.sortOrderと
     /// 同じく値自体は持っておく(将来ドラッグで並べ替えられるようにする場合に備えて)。
     var sortOrder: Int
     var createdAt: Date
 
+    /// **まだ名前を付けていない**、アプリが自分で作った既定のライブラリか(ユーザー報告:
+    /// 帯が「Library」と英語のまま)。
+    ///
+    /// 名前をDBの文字列として持つと、**作った時点の文字列がそのまま残る** ―― 日本語訳を
+    /// 入れる前のビルドで一度起動していると英語のままになり、表示言語を切り替えても直らない。
+    /// そこで、アプリが仮に付けた見出しは「名前を持たない」ことにして、表示のたびに
+    /// 表示言語で組み立てる(`displayName(language:)`)。ユーザーが名前を付けた時点で
+    /// falseになり、以後その文字列だけを使う(CollectionStore.rename)。
+    ///
+    /// **属性の後追加なので宣言時のデフォルト値が要る**(SwiftDataの軽量マイグレーション)。
+    /// 既定値はfalse ―― 既存の行はすべて「名前がある」として入り、そのうち既定名のままの
+    /// ものだけをCollectionStore.adoptDefaultLibraryName()が拾い直す。
+    var usesDefaultName: Bool = false
+
+    /// 表示・書き出し・重複判定に使う名前。既定のライブラリだけ、DBの文字列ではなく
+    /// 表示言語の訳を返す(型コメント参照)。
+    ///
+    /// - Parameter language: 表示言語のLocale。ビューは`@Environment(\.locale)`、
+    ///   それ以外は`AppLanguage.currentLocale`(Localization の決まりごと。CLAUDE.md)。
+    func displayName(language: Locale) -> String {
+        usesDefaultName ? Self.defaultName(language: language) : name
+    }
+
+    /// 既定のライブラリの見出し。
+    static func defaultName(language: Locale) -> String {
+        String(localized: "Library", language: language)
+    }
+
+    /// 表示言語ごとの既定名すべて。
+    static var allDefaultNames: Set<String> {
+        Set(AppLanguage.allCases.map { defaultName(language: $0.locale) })
+    }
+
+    /// 名前の重複判定(CollectionStore.hasLibraryNamed)で塞ぐ名前。
+    ///
+    /// 既定のライブラリは**すべての言語の既定名を塞ぐ**。日本語表示で「ライブラリ」を別に
+    /// 作れてしまうと、表示言語を英語へ切り替えた瞬間に同じ名前が2つ帯に並ぶため。
+    var occupiedNames: Set<String> {
+        var names: Set<String> = [name.trimmingCharacters(in: .whitespacesAndNewlines)]
+        if usesDefaultName { names.formUnion(Self.allDefaultNames) }
+        return names
+    }
+
     /// このライブラリに属するコレクション。ライブラリを削除したら中のコレクションも
     /// 連鎖して削除する(その先のCollectionItemもBookCollection.items側のcascadeで消える)。
     @Relationship(deleteRule: .cascade, inverse: \BookCollection.library)
     var collections: [BookCollection] = []
 
-    init(name: String, sortOrder: Int = 0) {
+    /// - Parameter usesDefaultName: アプリが自分で作った既定のライブラリならtrue
+    ///   (CollectionStore.ensureDefaultLibraryだけが渡す)。`name`にはそのときの表示言語の
+    ///   既定名を入れておく ―― 表示には使わないが、列を空にしないため、また古いビルドや
+    ///   書き出しJSONから読んだときに名前が消えて見えないようにするため。
+    init(name: String, sortOrder: Int = 0, usesDefaultName: Bool = false) {
         self.id = UUID()
         self.name = name
         self.sortOrder = sortOrder
         self.createdAt = Date()
+        self.usesDefaultName = usesDefaultName
     }
 }
 

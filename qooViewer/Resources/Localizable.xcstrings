@@ -1,6 +1,118 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Delete Selected Collections" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Selected Collections"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択したコレクションを削除"
+          }
+        }
+      }
+    },
+    "Delete %lld collections?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete %lld collections?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld個のコレクションを削除しますか?"
+          }
+        }
+      }
+    },
+    "The books themselves are not deleted. Only these collections and their cover images are removed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The books themselves are not deleted. Only these collections and their cover images are removed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本の実体は削除されません。選択したコレクションとカバー画像だけを削除します。"
+          }
+        }
+      }
+    },
+    "Remove Selected Books" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Selected Books"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択した本をコレクションから削除"
+          }
+        }
+      }
+    },
+    "Remove this book from the collection?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove this book from the collection?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この本をコレクションから削除しますか?"
+          }
+        }
+      }
+    },
+    "Remove %lld books from the collection?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove %lld books from the collection?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld冊をコレクションから削除しますか?"
+          }
+        }
+      }
+    },
+    "The books themselves are not deleted. Only their entries in this collection and their cover images are removed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The books themselves are not deleted. Only their entries in this collection and their cover images are removed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本の実体は削除されません。このコレクションの登録とカバー画像だけを削除します。"
+          }
+        }
+      }
+    },
     "Delete All Data…" : {
       "localizations" : {
         "en" : {

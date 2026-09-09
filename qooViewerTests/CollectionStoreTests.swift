@@ -52,6 +52,64 @@ struct CollectionStoreTests {
         #expect(library.collections.libraries.count == 1)
     }
 
+    @Test("既定のライブラリは名前を持たず、表示言語の見出しを出す")
+    func theDefaultLibraryHasNoNameOfItsOwn() throws {
+        let library = try InMemoryLibrary(label: "collections-default-name")
+        defer { library.close() }
+        let only = try #require(library.collections.libraries.first)
+
+        #expect(only.usesDefaultName)
+        #expect(only.displayName(language: Locale(identifier: "ja")) == "ライブラリ")
+        #expect(only.displayName(language: Locale(identifier: "en")) == "Library")
+    }
+
+    @Test("日本語訳を入れる前のビルドが作った「Library」も既定のライブラリとして拾い直す")
+    func anOldDefaultLibraryIsAdoptedByItsName() throws {
+        let library = try InMemoryLibrary(label: "collections-default-adopt")
+        defer { library.close() }
+        let store = library.collections
+        let only = try #require(store.libraries.first)
+        // 属性を足す前の保存データの再現(名前だけがあり、既定の印は付いていない)。
+        only.name = "Library"
+        only.usesDefaultName = false
+
+        store.adoptDefaultLibraryName()
+
+        #expect(only.usesDefaultName)
+        #expect(only.displayName(language: Locale(identifier: "ja")) == "ライブラリ")
+    }
+
+    @Test("名前を付けたら既定ではなくなる(表示言語を変えても付けた名前のまま)")
+    func namingALibraryStopsItFromFollowingTheDisplayLanguage() throws {
+        let library = try InMemoryLibrary(label: "collections-default-rename")
+        defer { library.close() }
+        let store = library.collections
+        let only = try #require(store.libraries.first)
+
+        store.rename(only, to: "マンガ")
+
+        #expect(only.usesDefaultName == false)
+        #expect(only.displayName(language: Locale(identifier: "ja")) == "マンガ")
+        #expect(only.displayName(language: Locale(identifier: "en")) == "マンガ")
+    }
+
+    @Test("既定のライブラリは、どの言語の既定名でも二重に作らせない")
+    func theDefaultLibraryOccupiesItsNameInEveryLanguage() throws {
+        let library = try InMemoryLibrary(label: "collections-default-unique")
+        defer { library.close() }
+        let store = library.collections
+
+        // 表示言語が何であれ、「ライブラリ」も「Library」も既定のライブラリが塞いでいる
+        // (許すと、表示言語を切り替えた瞬間に同じ名前が2つ帯に並ぶ)。
+        #expect(store.hasLibraryNamed("ライブラリ"))
+        #expect(store.hasLibraryNamed("Library"))
+        #expect(store.createLibrary(name: "ライブラリ") == nil)
+        #expect(store.createLibrary(name: " Library ") == nil)
+        #expect(store.libraries.count == 1)
+        // 関係のない名前は作れる。
+        #expect(store.createLibrary(name: "Doujinshi") != nil)
+    }
+
     @Test("ライブラリ名は全体で一意(前後の空白は無視する)")
     func libraryNamesAreUniqueAcrossTheWholeApp() throws {
         let library = try InMemoryLibrary(label: "collections-library-names")
@@ -147,6 +205,64 @@ struct CollectionStoreTests {
         #expect(library.collections.collection(withID: collection.id) == nil)
         #expect(library.collections.item(withID: item.id) == nil)
         await waitUntil { !FileManager.default.fileExists(atPath: coverURL.path) }
+    }
+
+    @Test("コレクションをまとめて削除すると、選んだぶんだけがカバー画像ごと消える")
+    func deletingSeveralCollectionsAtOnceLeavesTheRestAlone() async throws {
+        let library = try InMemoryLibrary(label: "collections-bulk-delete")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-bulk-delete")
+        let target = try #require(library.collections.libraries.first)
+
+        var doomedCoverURLs: [URL] = []
+        var doomed: [BookCollection] = []
+        for name in ["A", "B"] {
+            let book = try makeBookFolder(temporary, named: "book-\(name)")
+            let collection = try #require(library.collections.createCollection(
+                name: name, in: target, items: pendingItems([book])
+            ))
+            let item = try #require(collection.items.first)
+            try await library.collectionCovers.write(PageImageFactory.cgImage(number: 1), for: item.id)
+            doomedCoverURLs.append(library.collectionCovers.url(for: item.id))
+            doomed.append(collection)
+        }
+        let keptBook = try makeBookFolder(temporary, named: "book-kept")
+        let kept = try #require(library.collections.createCollection(
+            name: "Kept", in: target, items: pendingItems([keptBook])
+        ))
+        #expect(doomedCoverURLs.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
+
+        library.collections.delete(doomed)
+
+        #expect(library.collections.collections(in: target, sort: .nameAscending).map(\.name) == ["Kept"])
+        #expect(library.collections.collection(withID: kept.id) != nil)
+        await waitUntil {
+            doomedCoverURLs.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) }
+        }
+    }
+
+    @Test("本をまとめてコレクションから外しても、外さなかった本とその実体は残る")
+    func removingSeveralBooksAtOnceLeavesTheRestAlone() async throws {
+        let library = try InMemoryLibrary(label: "collections-bulk-remove")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-bulk-remove")
+        let books = try ["a", "b", "c"].map { try makeBookFolder(temporary, named: "book-\($0)") }
+        let target = try #require(library.collections.libraries.first)
+        let collection = try #require(library.collections.createCollection(
+            name: "Series", in: target, items: pendingItems(books)
+        ))
+        let removed = Array(library.collections.items(in: collection, sort: .nameAscending).prefix(2))
+        let coverURLs = removed.map { library.collectionCovers.url(for: $0.id) }
+        for item in removed {
+            try await library.collectionCovers.write(PageImageFactory.cgImage(number: 1), for: item.id)
+        }
+
+        library.collections.remove(removed)
+
+        #expect(library.collections.items(in: collection, sort: .nameAscending).map(\.title) == ["book-c"])
+        await waitUntil { coverURLs.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) } }
+        // 本の実体には触れない(コレクションから外すだけ)。
+        #expect(books.allSatisfy { FileManager.default.fileExists(atPath: $0.path) })
     }
 
     @Test("「保存データの削除」からの一括削除は、その本の登録だけを全コレクションから外す")
