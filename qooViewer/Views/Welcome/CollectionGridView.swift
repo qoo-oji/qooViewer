@@ -183,44 +183,72 @@ struct CollectionGridView: View {
         // 右クリックのメニューは編集モードのときだけ付ける。**項目が空のcontextMenuは付けない**
         // ―― 空の枠が一瞬出るだけの当たり所になる(WelcomeQuickOpenList.rowの同じ判断)。
         if allowsEditing && state.isEditing {
+            let targets = contextTargets(for: collection)
+            // 1つを相手にする操作は、複数選んでいる間は**選べないようにする**(ユーザー指摘
+            // 2026-09-09)。押せてしまうと、右クリックした1つだけに効くのか選んだ全部に効くのかが
+            // 画面から読めない。
+            let isSingle = targets.count == 1
             tile.contextMenu {
                 // 編集モード中はクリックが選択になるので、中へ入る道をここに残す
                 // (CollectionTileの型コメント参照)。
                 Button("Open") { state.openedCollectionID = collection.id }
+                    .disabled(!isSingle)
                 Divider()
                 Button("Add Books…") {
                     state.addingBooks = .init(
                         collectionID: collection.id, name: collection.name, libraryID: library.id
                     )
                 }
+                .disabled(!isSingle)
                 Divider()
-                moveMenu(for: collection)
+                moveMenu(for: targets)
                 Divider()
                 Button("Rename…") { renamingCollectionID = collection.id }
-                Button("Delete…", role: .destructive) { deletingCollectionIDs = [collection.id] }
+                    .disabled(!isSingle)
+                Button("Delete…", role: .destructive) {
+                    deletingCollectionIDs = targets.map(\.id)
+                }
             }
         } else {
             tile
         }
     }
 
-    /// このコレクションを別のライブラリへ移す(ユーザー要望 2026-09-09)。
+    /// この右クリックが相手にするコレクション(Finderと同じ規則)。
+    ///
+    /// **選んであるタイルを右クリックしたなら、選んだぶん全部。選択の外を右クリックしたなら、
+    /// その1つだけ**(選択は変えない)。こうしておくと、ゴミ箱で消せるものと右クリックで消せる
+    /// ものが食い違わない ―― 以前は右クリックの「削除」だけが常に1つきりで、3つ選んだ状態から
+    /// 右クリックしても1つしか消えなかった。
+    private func contextTargets(for collection: BookCollection) -> [BookCollection] {
+        guard state.selectedCollectionIDs.count > 1,
+              state.selectedCollectionIDs.contains(collection.id)
+        else { return [collection] }
+        return collections.filter { state.selectedCollectionIDs.contains($0.id) }
+    }
+
+    /// 選んだコレクションを別のライブラリへ移す(ユーザー要望 2026-09-09)。
+    ///
+    /// **まとめて動かせる操作**(ユーザー指摘 2026-09-09)。複数選んで右クリックしたら、選んだ
+    /// ぶんが1回で移る ―― 棚をライブラリ間で整理するのに、1つずつ動かさせる理由が無い。
     ///
     /// ライブラリが1つしか無いときは項目ごと出さない ―― 行き先が存在しないメニューを開けても
     /// 意味が無い(「項目が空のcontextMenuは付けない」と同じ判断)。
     ///
     /// 移す先に同じ名前のコレクションがあるときは**選べないようにし、理由を名前に添える**。
     /// 押しても何も起きない項目にするより、なぜ選べないかがその場で分かるほうがよい
-    /// (CollectionStore.canMove参照)。
+    /// (CollectionStore.canMove参照)。まとめて動かすときは**1つでも名前が衝突したらその
+    /// 行き先ごと選べない** ―― 選んだうちのどれが動いてどれが残ったのかが読めない状態を作らない
+    /// ため(CollectionStore.move(_ collections:to:)参照)。
     @ViewBuilder
-    private func moveMenu(for collection: BookCollection) -> some View {
+    private func moveMenu(for targets: [BookCollection]) -> some View {
         let others = collectionStore.libraries.filter { $0.id != library.id }
         if !others.isEmpty {
             Menu("Move to Library") {
                 ForEach(others, id: \.id) { target in
-                    let canMove = collectionStore.canMove(collection, to: target)
+                    let canMove = targets.allSatisfy { collectionStore.canMove($0, to: target) }
                     Button {
-                        collectionStore.move(collection, to: target)
+                        collectionStore.move(targets, to: target)
                         // 移した先は今見えていないので、選択に残さない
                         // (見えていないものをゴミ箱が消さないための決まり)。
                         state.clearSelection()

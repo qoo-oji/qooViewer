@@ -340,6 +340,41 @@ struct CollectionStoreTests {
         #expect(library.collections.canMove(shelf, to: away) == false)
     }
 
+    @Test("コレクションはまとめて移せる。1つでも同名が居たら1つも動かさない")
+    func collectionsMoveTogetherOrNotAtAll() throws {
+        let library = try InMemoryLibrary(label: "collections-move-many")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-move-many")
+        let home = try #require(library.collections.libraries.first)
+        let away = try #require(library.collections.createLibrary(name: "CG"))
+        let first = try #require(library.collections.createCollection(
+            name: "A", in: home, items: pendingItems([try makeBookFolder(temporary, named: "a")])
+        ))
+        let second = try #require(library.collections.createCollection(
+            name: "B", in: home, items: pendingItems([try makeBookFolder(temporary, named: "b")])
+        ))
+
+        #expect(library.collections.move([first, second], to: away))
+        #expect(library.collections.collections(in: home, sort: .nameAscending).isEmpty)
+        #expect(
+            library.collections.collections(in: away, sort: .nameAscending).map(\.name) == ["A", "B"]
+        )
+
+        // 移した先に同名が1つでも居たら、選んだぶんは1つも動かさない。
+        let third = try #require(library.collections.createCollection(
+            name: "A", in: home, items: pendingItems([try makeBookFolder(temporary, named: "c")])
+        ))
+        let fourth = try #require(library.collections.createCollection(
+            name: "C", in: home, items: pendingItems([try makeBookFolder(temporary, named: "d")])
+        ))
+        #expect(library.collections.move([third, fourth], to: away) == false)
+        #expect(third.library?.id == home.id)
+        #expect(fourth.library?.id == home.id)
+
+        // 空の指定は何もしない。
+        #expect(library.collections.move([], to: away) == false)
+    }
+
     // MARK: - 自動登録フォルダ
 
     @Test("自動登録フォルダは設定・変更・クリアでき、クリアしても中の本は残る")

@@ -453,6 +453,32 @@ final class CollectionStore: ObservableObject {
         return true
     }
 
+    /// コレクションをまとめて別のライブラリへ移す(編集モードで選んだぶんを右クリックから。
+    /// ユーザー要望 2026-09-09)。
+    ///
+    /// 1件ずつmove(_:to:)を呼ぶとそのたびにsave()と通知とreloadが走るため、まとめて付け替えて
+    /// 保存は1回にする(remove(_ items:)と同じ理由)。
+    ///
+    /// **1つでも移せないものが混ざっていたら何もしない。** 移せるものだけ動かすと、選んだうちの
+    /// どれが動いてどれが残ったのかが画面から読めない ―― 呼び出し側は`canMove(_:to:)`を
+    /// 全部について先に見て、1つでも通らなければその行き先を選べないようにする。
+    @discardableResult
+    func move(_ collections: [BookCollection], to library: BookLibrary) -> Bool {
+        guard !collections.isEmpty,
+              collections.allSatisfy({ canMove($0, to: library) })
+        else { return false }
+        let now = Date()
+        for collection in collections {
+            collection.library = library
+            // 「更新順」の並びで、移したものが上に来るようにする(棚をいじった記録として素直)。
+            collection.updatedAt = now
+        }
+        invalidateLookupCaches()
+        saveAndNotify()
+        reload()
+        return true
+    }
+
     /// このコレクションをそのライブラリへ移せるか(いま居るライブラリと、名前が衝突する先を除く)。
     func canMove(_ collection: BookCollection, to library: BookLibrary) -> Bool {
         guard collection.library?.id != library.id else { return false }

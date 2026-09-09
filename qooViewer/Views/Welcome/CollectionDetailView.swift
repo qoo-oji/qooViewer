@@ -286,6 +286,11 @@ struct CollectionDetailView: View {
             }
         }
         .contextMenu {
+            let targets = contextTargets(for: item)
+            // 1冊を相手にする操作は、複数選んでいる間は**選べないようにする**(ユーザー指摘
+            // 2026-09-09)。押せてしまうと、右クリックした1冊だけに効くのか選んだ全部に効くのかが
+            // 画面から読めない。まとめてできるのは「コレクションから削除」だけ。
+            let isSingle = targets.count == 1
             BookOpenContextMenuItems(
                 onOpen: { open(item) },
                 onOpenIn: { destination in
@@ -299,6 +304,7 @@ struct CollectionDetailView: View {
                     )
                 }
             )
+            .disabled(!isSingle)
             Divider()
             // 「Finderで開く」(ユーザー要望 2026-09-09)。**編集モードを条件にしない** ――
             // 棚をいじる操作ではなく、その本がどこにあるかを見るだけの操作なので。
@@ -314,6 +320,7 @@ struct CollectionDetailView: View {
                 }
                 FinderReveal.reveal(url)
             }
+            .disabled(!isSingle)
 
             // 「メタデータの編集」は**編集モードを条件にしない**(ユーザー指摘 2026-09-09)。
             // 棚から本を出し入れする操作ではなく、その1冊の中身を整える操作なので、モードの
@@ -327,6 +334,7 @@ struct CollectionDetailView: View {
                     }
                     metadataTarget = MetadataTarget(item: item, url: url)
                 }
+                .disabled(!isSingle)
             }
             // コレクションから外すのは取り消せない削除なので、ゴミ箱と同じく編集モードの中に置く。
             //
@@ -339,10 +347,22 @@ struct CollectionDetailView: View {
                 Button("Remove from Collection", role: .destructive) {
                     // 1冊でも確認は出す(ゴミ箱と同じ扱い。取り消せない書き込みなので、
                     // 入り口によって確認の有無が変わらないようにする)。
-                    removingItemIDs = [item.id]
+                    removingItemIDs = targets.map(\.id)
                 }
             }
         }
+    }
+
+    /// この右クリックが相手にする本(Finderと同じ規則。CollectionGridView.contextTargetsと同じ)。
+    ///
+    /// **選んである本を右クリックしたなら、選んだぶん全部。選択の外を右クリックしたなら、
+    /// その1冊だけ**(選択は変えない)。これでゴミ箱と右クリックの「コレクションから削除」が
+    /// 同じものを相手にする ―― 以前は右クリックだけが常に1冊きりだった。
+    private func contextTargets(for item: CollectionItem) -> [CollectionItem] {
+        guard state.selectedItemIDs.count > 1,
+              state.selectedItemIDs.contains(item.id)
+        else { return [item] }
+        return items.filter { state.selectedItemIDs.contains($0.id) }
     }
 
     private var emptyMessage: some View {
