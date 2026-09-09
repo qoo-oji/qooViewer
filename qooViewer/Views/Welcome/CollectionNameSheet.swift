@@ -108,27 +108,35 @@ struct CollectionNameSheet: View {
             minWidth: 60,
             chrome: 0
         )
-        return VStack(alignment: .leading, spacing: 10) {
+        return VStack(alignment: .leading, spacing: 12) {
             Text(kind.titleKey)
                 .font(.headline)
 
-            // SwiftUIの`TextField`ではなくNSTextFieldのラッパー(SelectAllTextField)を使う。
-            // ブックマークのリネームシートと同じ部品で、開いた瞬間に今の名前が全選択される ――
-            // リネームでそのまま打ち直せる、という同じ要望がここにも当てはまるため。
-            SelectAllTextField(text: $name, onSubmit: commitIfPossible)
-                .frame(width: 320, height: 22)
-                .onChange(of: name) { _, _ in didEdit = true }
+            // 欄と検証メッセージは**1つの塊**にする(ユーザー指摘 2026-09-09)。以前は3つを同じ
+            // 間隔で並べていたので、見えていないメッセージのぶんだけ欄とボタンが離れて見えた。
+            VStack(alignment: .leading, spacing: 2) {
+                // SwiftUIの`TextField`ではなくNSTextFieldのラッパー(SelectAllTextField)を使う。
+                // ブックマークのリネームシートと同じ部品で、開いた瞬間に今の名前が全選択される ――
+                // リネームでそのまま打ち直せる、という同じ要望がここにも当てはまるため。
+                //
+                // 幅は**面に合わせて伸ばす**。固定幅(320)にしていたときは、シートの幅が別の
+                // 都合で決まると欄の右にだけ余白が残った(ユーザー指摘)。
+                SelectAllTextField(text: $name, onSubmit: commitIfPossible)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 22)
+                    .onChange(of: name) { _, _ in didEdit = true }
 
-            // 高さを予約しておく(メッセージの有無でシートの高さが跳ねないようにするため)。
-            Group {
-                if didEdit, let validationMessage {
-                    Text(validationMessage)
-                        .foregroundStyle(.red)
-                } else {
-                    Text(verbatim: " ")
+                // 高さを予約しておく(メッセージの有無でシートの高さが跳ねないようにするため)。
+                Group {
+                    if didEdit, let validationMessage {
+                        Text(validationMessage)
+                            .foregroundStyle(.red)
+                    } else {
+                        Text(verbatim: " ")
+                    }
                 }
+                .font(.caption)
             }
-            .font(.caption)
 
             HStack(spacing: 12) {
                 Spacer(minLength: 0)
@@ -147,6 +155,13 @@ struct CollectionNameSheet: View {
             }
         }
         .padding(20)
+        // **幅は自分で決める。** 決めないと面の幅が中身から決まるのだが、いちばん広い部品が
+        // 320ptの欄なのに**実測470pt**になっていた(ユーザー指摘 2026-09-09)。何がその幅を
+        // 出しているのかは特定できていない ―― 有力なのはNSViewRepresentable(SelectAllTextField)が
+        // 親へ返す寸法だが、確かめていないので断定しない。いずれにせよ、欄の右にだけ
+        // 説明のつかない余白が残るのは面として読めないので、ここで決め打ちにする。
+        // 名前を1つ入れるだけの面なので、欄が320ptになるこの値で足りる。
+        .frame(width: 360)
         .onAppear {
             name = initialName
             // 初期値が入っているだけの状態を「編集した」と見なさない(didEditのコメント参照)。

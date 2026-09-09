@@ -120,6 +120,44 @@ struct CollectionStoreTests {
         #expect(library.collections.libraries.filter { $0.name == "Doujinshi" }.count == 1)
     }
 
+    // MARK: - 帯の並べ替え
+
+    @Test("ライブラリの並びは、渡した順に付け替わる")
+    func reorderingLibrariesFollowsTheGivenOrder() throws {
+        let library = try InMemoryLibrary(label: "collections-reorder")
+        defer { library.close() }
+        let first = try #require(library.collections.libraries.first)
+        let second = try #require(library.collections.createLibrary(name: "CG"))
+        let third = try #require(library.collections.createLibrary(name: "資料"))
+        #expect(library.collections.libraries.map(\.id) == [first.id, second.id, third.id])
+
+        // 3 番目を先頭へ(チップを左端へ落としたとき)。
+        library.collections.reorderLibraries([third.id, first.id, second.id])
+
+        #expect(library.collections.libraries.map(\.id) == [third.id, first.id, second.id])
+        #expect(third.sortOrder == 0)
+        #expect(first.sortOrder == 1)
+        #expect(second.sortOrder == 2)
+    }
+
+    @Test("数が合わない並びは黙って捨てる(別のウインドウが同時に増減させていた場合)")
+    func apartialOrderIsIgnored() throws {
+        let library = try InMemoryLibrary(label: "collections-reorder-partial")
+        defer { library.close() }
+        let first = try #require(library.collections.libraries.first)
+        let second = try #require(library.collections.createLibrary(name: "CG"))
+        let before = library.collections.libraries.map(\.id)
+
+        // 1 つ足りない / 重複している / 知らない id が混ざっている、のいずれも何も起きない。
+        library.collections.reorderLibraries([second.id])
+        library.collections.reorderLibraries([second.id, second.id])
+        library.collections.reorderLibraries([second.id, UUID()])
+
+        #expect(library.collections.libraries.map(\.id) == before)
+        #expect(first.sortOrder == 0)
+        #expect(second.sortOrder == 1)
+    }
+
     // MARK: - カバーの見せ方(ライブラリ単位)
 
     @Test("新しいライブラリのカバーは 2:3・中央から始まる")

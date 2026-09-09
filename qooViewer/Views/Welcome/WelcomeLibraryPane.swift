@@ -61,6 +61,7 @@ struct WelcomeLibraryPane: View {
 /// 一覧・コレクションの中に共通の、右上の操作列。
 struct LibraryPaneControls: View {
     /// 「＋」。一覧では新しいコレクション、コレクションの中では本の追加。
+    /// **編集モードとは無関係に押せる**(ユーザー指摘 2026-09-09。下の`isEditing`のコメント参照)。
     let addHelp: LocalizedStringKey
     let onAdd: () -> Void
     /// ゴミ箱。一覧では選択したコレクションの削除、コレクションの中では選択した本の削除。
@@ -70,6 +71,13 @@ struct LibraryPaneControls: View {
     /// 押す前に見せる)。
     let canDelete: Bool
     let onDelete: () -> Void
+    /// 編集モード。**ゴミ箱を出すかどうかだけ**に効く。
+    ///
+    /// 当初は「＋」も編集モード中しか押せなかったが、やめた(ユーザー指摘 2026-09-09。帯の
+    /// ライブラリを編集モードから切り離したのと同じ話。WelcomeTopBar.canEditLibraries参照)。
+    /// 編集モードがあるのは、クリックの意味が変わる(開く/選ぶ)ことと、まとめて削除するための
+    /// 選択が要るからで、**足す操作にはどちらの事情も無い** ―― 棚を作る・本を入れるのは
+    /// この画面で最初にやることなのに、それがモードの奥に隠れていた。
     @Binding var isEditing: Bool
     @Binding var sort: FavoritesSortOption
     /// 並べ替えの基準として選ばせるもの。コレクションの中では「更新日時」を出さない
@@ -95,7 +103,7 @@ struct LibraryPaneControls: View {
                 }
             }
             SidePanelNavButton(
-                systemName: "plus", isDisabled: !allowsEditing || !isEditing, help: addHelp
+                systemName: "plus", isDisabled: !allowsEditing, help: addHelp
             ) {
                 onAdd()
             }

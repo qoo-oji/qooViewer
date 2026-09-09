@@ -302,6 +302,34 @@ final class CollectionStore: ObservableObject {
         reload()
     }
 
+    /// 帯のライブラリの並びを、渡された順に付け替える(ユーザー要望 2026-09-09。
+    /// チップのドラッグ&ドロップ)。
+    ///
+    /// `sortOrder`は最初からこのために持っていた列(BookLibrary.sortOrderのコメント)。
+    /// 呼び出し側(WelcomeTopBar)が「動かした後の並び」をidの配列として作って渡す ―― どこへ
+    /// 落としたかの解釈は画面の都合なので、ストアは言われたとおりに番号を振り直すだけにする。
+    ///
+    /// 渡された配列が今あるライブラリと1対1で対応しないときは**何もしない**。別のウインドウが
+    /// 同時にライブラリを増減させていた場合に、取りこぼした行のsortOrderが0のまま残って
+    /// 並びが壊れるより、その一回を捨てるほうがよい(次のドラッグでやり直せる)。
+    func reorderLibraries(_ orderedIDs: [UUID]) {
+        let all = allLibraries()
+        guard orderedIDs.count == all.count, Set(orderedIDs).count == all.count else { return }
+        var byID: [UUID: BookLibrary] = [:]
+        for library in all { byID[library.id] = library }
+        guard orderedIDs.allSatisfy({ byID[$0] != nil }) else { return }
+
+        var didChange = false
+        for (index, id) in orderedIDs.enumerated() {
+            guard let library = byID[id], library.sortOrder != index else { continue }
+            library.sortOrder = index
+            didChange = true
+        }
+        guard didChange else { return }
+        saveAndNotify()
+        reload()
+    }
+
     /// このライブラリのカバーの見せ方(縦横比と、比が合わないときに残す位置)を書き込む
     /// (ユーザー要望 2026-09-09。歯車 → LibrarySettingsPopover)。
     ///
