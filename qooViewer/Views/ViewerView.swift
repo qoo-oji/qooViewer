@@ -2336,6 +2336,20 @@ struct ViewerView: View {
                 set: { _ in hostWindow?.toggleFullScreen(nil) }
             )
         )
+
+        Divider()
+
+        // ユーザー要望: 画像の右クリックからも本を閉じられるようにする(メニューのいちばん下)。
+        // 行き先はウェルカム画面 ―― ウインドウ/タブは残したまま本だけを閉じる
+        // ViewerAction.returnToWelcomeをそのまま呼ぶ(サイドパネル左端の本棚ボタン・
+        // 最終ページの動作・書き出し後の動作と同じ着地点。実体はreturnToWelcome())。
+        //
+        // 文言は環境設定の「本を閉じる」(PageBoundaryBehavior/BookExportCompletionBehaviorの
+        // .closeBook = タブごと閉じる)と同じ「Close Book」になるが、ここは**この項目の
+        // 文言と動作を明示したユーザーの指示**に従っている。
+        Button("Close Book") {
+            perform(.returnToWelcome)
+        }
     }
 
     /// レイアウトサブメニュー(コンテキストメニュー・メニューバー共通の構成)の、1ページ分の

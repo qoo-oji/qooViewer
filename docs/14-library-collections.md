@@ -269,6 +269,12 @@ FSEvents のコールバックが解放済みの `ModelContext` に触った ―
 モード切替の左のボタンが主な入り口で、**キー・マウスとも既定の割り当ては無い**。実体と橋渡しの
 注意点は [09](09-ui-and-windows.md#キーkeybindingstore--remappablekey--vieweraction)。
 
+画像の右クリックメニュー(`ViewerView.contextMenuContent`)のいちばん下の項目も、同じ
+`ViewerAction.returnToWelcome` を呼ぶ。**表示は「本を閉じる」**(ユーザーの指示)で、環境設定の
+最後のページ/書き出し後の動作にある同名の選択肢(`PageBoundaryBehavior.closeBook` /
+`BookExportCompletionBehavior.closeBook` = `.closeTab` = タブごと閉じる)とは**動作が違う**点に注意。
+文言を触るときは両方を見比べること。
+
 ## テスト
 
 `CollectionStoreTests` / `CollectionCoverStoreTests` / `CoverImageResolverTests` /
