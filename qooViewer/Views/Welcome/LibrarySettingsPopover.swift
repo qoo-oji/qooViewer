@@ -86,10 +86,19 @@ struct LibrarySettingsPopover: View {
                         .frame(width: 36, height: 16)
                     Button("Change…") { onPickBackgroundColor() }
                     // 既定に戻す道は、色を決めてあるときだけ出す。
+                    //
+                    // **文字ではなくアイコンにする。** 「見本 + 変更… + リセット」を文字で並べると
+                    // 面の幅を越えて、リセットが切れて出た(実機で確認。ポップオーバーの幅は
+                    // いちばん広い行に合わせて伸びてはくれなかった)。この面は幅を詰めてある
+                    // (ユーザー指示)ので、行の側を細くする。
                     if library.coverBackgroundColor != nil {
-                        Button("Reset") {
+                        Button {
                             collectionStore.setCoverBackgroundColor(library, nil)
+                        } label: {
+                            Image(systemName: "arrow.counterclockwise")
                         }
+                        .help("Reset")
+                        .accessibilityLabel(Text("Reset"))
                     }
                 }
             }

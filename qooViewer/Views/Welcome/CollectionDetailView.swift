@@ -227,7 +227,9 @@ struct CollectionDetailView: View {
                 }
             }
             .padding(24)
-            .id(cellImageBudget.epoch)
+            // コレクションが変わったときも作り直して、前のコレクションのカバーを手放す
+            // (CollectionGridViewの同じ`.id`のコメント参照)。
+            .id("\(collection.id.uuidString)-\(cellImageBudget.epoch)")
         }
         // 名前のリネームとは別の階層に付ける ―― 同じビューに2つの.sheetを重ねると、
         // 片方しか出ないことがある(SwiftUIの既知の癖)。

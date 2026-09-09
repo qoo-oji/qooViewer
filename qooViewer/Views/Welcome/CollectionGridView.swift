@@ -144,8 +144,15 @@ struct CollectionGridView: View {
                 }
             }
             .padding(24)
-            // 画面外セルの保持物をまとめて手放すための作り直し(型コメント参照)。
-            .id(cellImageBudget.epoch)
+            // 作り直しの鍵は2つ。
+            //
+            // - `epoch` … 画面外セルの保持物をまとめて手放すため(型コメント参照)
+            // - `library.id` … ライブラリを切り替えたときに、**前のライブラリのカバーを手放す**
+            //   ため。Lazyコンテナは ForEach の中身が総入れ替えになっても前に作ったセルを
+            //   解放しない(型コメントと同じ話)ので、切り替えるたびに前の棚のぶんが
+            //   `cellImageBudget` に乗ったまま積み上がる。並ぶものが全部変わる場面なので、
+            //   ここで作り直して失うものは無い。
+            .id("\(library.id.uuidString)-\(cellImageBudget.epoch)")
         }
     }
 
