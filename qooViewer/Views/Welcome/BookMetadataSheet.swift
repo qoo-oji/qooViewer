@@ -23,6 +23,9 @@ struct BookMetadataSheet: View {
     /// 本の実体。呼び出し側が`CollectionStore.resolvedExistingURL`で解決してから渡す
     /// (解決できない本ではシートを出さず「本が見つかりません」のアラートにする)。
     let sourceURL: URL
+    /// この本が入っているライブラリ。カバーのプレビューをそのライブラリの縦横比で描き、
+    /// 「残す位置」の既定(=ライブラリの設定)を示すために要る。
+    let library: BookLibrary
 
     @EnvironmentObject private var metadataStore: BookMetadataStore
     @EnvironmentObject private var formatStore: MetadataFormatStore
@@ -41,15 +44,20 @@ struct BookMetadataSheet: View {
     @State private var isPickingPage = false
     @State private var isCoverDropTargeted = false
 
-    /// カバーの表示幅。縦横比は2:3固定(CollectionCoverThumbnail)なので、高さはこの1.5倍。
+    /// カバーの表示幅。高さはライブラリの縦横比から決まる(2:3なら1.5倍、1:1なら等倍)。
     /// 右の4欄+説明とだいたい同じ高さになる値にしてある ―― どちらかが極端に長いと、
     /// 短いほうの下に用の無い余白が残る。
     private static let coverWidth: CGFloat = 130
 
-    /// 横長カバーの見せ方が効くか。カバーを抽出できていて、かつ実際に横長だった
-    /// (=どちらかの側を切った)ときだけ ―― 縦長のカバーに左端/右端を指定させても何も起きない。
+    /// 「残す位置」の指定が効くか。カバーの比が枠の比と違って**実際に切ることになる**ときだけ
+    /// ―― ぴったり合っているカバーに位置を指定させても何も起きない。まだ抽出できていない
+    /// (比が分からない)本では、選ばせておいて後から効かせる。
     private var isCropAnchorEffective: Bool {
-        item.coverState != .ready || item.coverCrop != .none
+        guard item.coverState == .ready, item.coverAspect > 0 else { return true }
+        return CoverImageResolver.cropsAnyEdge(
+            imageAspect: CGFloat(item.coverAspect),
+            targetAspect: library.coverAspectRatio.value
+        )
     }
 
     var body: some View {
@@ -158,7 +166,11 @@ struct BookMetadataSheet: View {
 
     private var cover: some View {
         CollectionCoverThumbnail(
-            item: item, coverStore: collectionStore.coverStore, displayWidth: Self.coverWidth
+            item: item, coverStore: collectionStore.coverStore,
+            aspectRatio: library.coverAspectRatio,
+            anchor: coverController?.cropAnchor(forBookID: item.bookID)
+                ?? library.coverCropAnchor,
+            displayWidth: Self.coverWidth
         )
         .frame(width: Self.coverWidth)
         .overlay {
@@ -199,13 +211,14 @@ struct BookMetadataSheet: View {
 
         Divider()
 
-        // 横長のカバーを縦長の枠へ収めるとき、どちら側を残すか(ユーザー要望 2026-09-09)。
-        // 「自動」は本の読み方向から決める(CoverImageResolver.croppedForGrid)。
-        Menu("Landscape Cover Shows") {
-            cropAnchorItem("Automatic", nil)
-            cropAnchorItem("Left Edge", .left)
+        // カバーの比が枠の比と違うぶんを、どこで切るか(ユーザー要望 2026-09-09)。切る軸は
+        // 画像ごとに決まるのでラベルは両方の軸を併記する(CoverCropAnchor参照)。
+        // 「ライブラリの設定に従う」= 本ごとの上書きを持たない状態(nil)。
+        Menu("Keep When Cropping") {
+            cropAnchorItem("Use Library Setting", nil)
+            cropAnchorItem("Top / Left", .start)
             cropAnchorItem("Center", .center)
-            cropAnchorItem("Right Edge", .right)
+            cropAnchorItem("Bottom / Right", .end)
         }
         .disabled(!isCropAnchorEffective)
     }

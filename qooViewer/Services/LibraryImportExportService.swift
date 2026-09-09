@@ -361,6 +361,8 @@ enum LibraryImportExportService {
                 // 既定のライブラリは表示言語の見出しで書き出す(DBの文字列は表示に使って
                 // いないため。BookLibrary.displayName参照)。
                 name: library.displayName(language: AppLanguage.currentLocale),
+                coverAspectRatio: library.coverAspectRatio.rawValue,
+                coverCropAnchor: library.coverCropAnchor.rawValue,
                 collections: collectionStore.collections(in: library, sort: .dateAddedAscending)
                     .map { collection in
                         ExportedCollection(
@@ -646,6 +648,19 @@ enum LibraryImportExportService {
                 continue
             }
             touchedLibraryIDs.insert(library.id)
+            // カバーの見せ方はJSONにあるときだけ上書きする(古いJSON・未知の値では触らない)。
+            // 合流先が既存のライブラリでも書き替える ―― 保存データの取り込みは「向こうの状態を
+            // 再現する」ものなので、名前だけ合流させて見た目が元のまま、では復元にならない。
+            let importedAspect = exportedLibrary.coverAspectRatio
+                .flatMap(CoverAspectRatio.init(rawValue:))
+            let importedAnchor = CoverCropAnchor.stored(exportedLibrary.coverCropAnchor)
+            if importedAspect != nil || importedAnchor != nil {
+                collectionStore.setCoverAppearance(
+                    library,
+                    aspectRatio: importedAspect ?? library.coverAspectRatio,
+                    anchor: importedAnchor ?? library.coverCropAnchor
+                )
+            }
 
             for exportedCollection in exportedLibrary.collections {
                 let collectionName = exportedCollection.name

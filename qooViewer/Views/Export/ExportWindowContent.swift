@@ -610,12 +610,12 @@ private struct ExportSelectionCell: View {
 struct ExportCoverCell: View {
     let bookID: String
     @ObservedObject var controller: CoverOverrideController
-    /// 横長カバーの見せ方(左端/中央/右端)をpopoverの下段に出すかどうか。
+    /// カバーの切り出し位置(始端/中央/終端)をpopoverの下段に出すかどうか。
     /// 書き出しウインドウでは出さない ―― あの指定はコレクションのグリッド表示にだけ効き、
     /// 書き出されるEPUB/CBZのカバーはトリミングしないため、ここに置くと効かない指定を
     /// 選ばせることになる(§3.4)。
     var showsCropAnchor = false
-    /// 見せ方の選択を押せるようにするか。横長でないカバーには効かない指定なので、
+    /// 位置の選択を押せるようにするか。比が枠とぴったり合っているカバーには効かない指定なので、
     /// それが分かっている呼び出し元(メタデータ編集シート)はfalseにして選ばせない。
     var isCropAnchorEnabled = true
 
@@ -726,16 +726,16 @@ struct ExportCoverPickerContent: View {
             if showsCropAnchor {
                 Divider()
 
-                // 横長のカバーを縦長の枠へ収めるとき、どちら側を残すか(ユーザー要望
-                // 2026-09-09)。既定の「自動」は本の読み方向から決める ―― 見開き1枚の画像なら
-                // 表紙にあたる側が残る(CoverImageResolver.croppedForGrid)。
+                // カバーの比が枠の比と違うぶんを、どこで切るか(ユーザー要望 2026-09-09)。
+                // 切る軸(左右か上下か)は画像ごとに決まるので、ラベルは両方の軸を併記する
+                // (CoverCropAnchor参照)。未指定はそのライブラリの設定に従う。
                 // Pickerにしているのは、いまどれが選ばれているかをチェックマークで示すのを
                 // 自前で書かずに済ませるため。
-                Picker("Landscape Cover Shows", selection: cropAnchorSelection) {
-                    Text("Automatic").tag(CoverCropAnchor?.none)
-                    Text("Left Edge").tag(CoverCropAnchor?.some(.left))
+                Picker("Keep When Cropping", selection: cropAnchorSelection) {
+                    Text("Use Library Setting").tag(CoverCropAnchor?.none)
+                    Text("Top / Left").tag(CoverCropAnchor?.some(.start))
                     Text("Center").tag(CoverCropAnchor?.some(.center))
-                    Text("Right Edge").tag(CoverCropAnchor?.some(.right))
+                    Text("Bottom / Right").tag(CoverCropAnchor?.some(.end))
                 }
                 .pickerStyle(.menu)
                 .padding(8)
@@ -753,7 +753,7 @@ struct ExportCoverPickerContent: View {
         }
     }
 
-    /// 横長カバーの見せ方の選択。DBが唯一の持ち主なので、@Stateには写さず毎回読む。
+    /// カバーの切り出し位置の選択。DBが唯一の持ち主なので、@Stateには写さず毎回読む。
     private var cropAnchorSelection: Binding<CoverCropAnchor?> {
         Binding(
             get: { controller.cropAnchor(forBookID: bookID) },

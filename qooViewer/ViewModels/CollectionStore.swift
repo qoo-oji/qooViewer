@@ -302,6 +302,24 @@ final class CollectionStore: ObservableObject {
         reload()
     }
 
+    /// このライブラリのカバーの見せ方(縦横比と、比が合わないときに残す位置)を書き込む
+    /// (ユーザー要望 2026-09-09。歯車 → LibrarySettingsPopover)。
+    ///
+    /// カバー画像そのものは作り直さない ―― 保存してあるのは切っていない画像で、枠へ合わせるのは
+    /// 表示のたびに行うため、切り替えは即時かつ無損失(CoverImageResolver.cropped(_:to:anchor:)
+    /// のコメント参照)。`.collectionsDidChange`で他のウインドウの一覧も描き直される。
+    func setCoverAppearance(
+        _ library: BookLibrary, aspectRatio: CoverAspectRatio, anchor: CoverCropAnchor
+    ) {
+        guard library.coverAspectRatio != aspectRatio || library.coverCropAnchor != anchor else {
+            return
+        }
+        library.coverAspectRatio = aspectRatio
+        library.coverCropAnchor = anchor
+        saveAndNotify()
+        reload()
+    }
+
     /// ライブラリを削除する(配下のコレクション・本はカスケードで消える)。
     ///
     /// **ライブラリが1つしか無いときは何もしない。** 帯が空になると、コレクションの作り先が
@@ -514,12 +532,14 @@ final class CollectionStore: ObservableObject {
     }
 
     /// カバー抽出の結果を書き戻す(CollectionCoverExtractorから)。
+    ///
+    /// - Parameter aspect: 保存できたカバーの縦横比(幅 ÷ 高さ)。失敗したときは0。
     func setCoverStatus(
-        _ status: CollectionCoverStatus, cropSide: CoverCropSide, for item: CollectionItem
+        _ status: CollectionCoverStatus, aspect: Double, for item: CollectionItem
     ) {
-        guard item.coverState != status || item.coverCrop != cropSide else { return }
+        guard item.coverState != status || item.coverAspect != aspect else { return }
         item.coverState = status
-        item.coverCrop = cropSide
+        item.coverAspect = aspect
         saveAndNotify(bookID: item.bookID)
     }
 
@@ -535,13 +555,6 @@ final class CollectionStore: ObservableObject {
     /// まだ抽出できていない本(coverStatus == pending)。CollectionCoverExtractor.refill()が使う。
     func itemsAwaitingCover() -> [CollectionItem] {
         allItems().filter { $0.coverState == .pending }
-    }
-
-    /// カバーの作り直しが要る本を選ぶための材料。読み方向の既定が変わったときに
-    /// 「横長を切ってある本のうち、本ごとの上書きも明示的な位置指定も無いもの」を拾う
-    /// (CollectionCoverExtractor参照)。
-    func itemsWithCroppedCover() -> [CollectionItem] {
-        allItems().filter { $0.coverCrop != .none }
     }
 
     /// 指定したbookIDの登録(全コレクション横断)。

@@ -335,12 +335,14 @@ final class LayoutStore: ObservableObject {
         return created
     }
 
-    /// 横長カバーの見せ方(左端/中央/右端、nil = 自動)を本ごとに記録する
-    /// (ユーザー要望 2026-09-09。BookLayoutSettings.coverCropAnchorRawのコメント参照)。
+    /// カバーの切り出し位置(始端/中央/終端、nil = そのライブラリの設定に従う)を本ごとに
+    /// 記録する(ユーザー要望 2026-09-09。BookLayoutSettings.coverCropAnchorRawのコメント参照)。
     ///
     /// カバー画像そのものの指定(setCoverPageKey/setExternalCover)とは独立していて、
-    /// 「カバーを既定に戻す」(clearCoverOverride)でも消えない。この変更は
-    /// `.layoutDataDidChange`として流れ、CollectionCoverExtractorがカバーを作り直す。
+    /// 「カバーを既定に戻す」(clearCoverOverride)でも消えない。
+    ///
+    /// この変更で**カバーを作り直す必要は無い** ―― 保存してあるのは切っていない画像で、
+    /// 枠へ合わせるのは表示のたびに行う(CoverImageResolver.cropped(_:to:anchor:)のコメント参照)。
     func setCoverCropAnchor(forBookID bookID: String, sourceURL: URL?, anchor: CoverCropAnchor?) {
         // 「自動のままにする」という指定で、まだ1行も無い本に空の行を作らない。
         guard anchor != nil || bookLayoutSettings(forBookID: bookID) != nil else { return }
@@ -351,16 +353,11 @@ final class LayoutStore: ObservableObject {
         saveAndNotify(bookID: bookID)
     }
 
-    /// カバー抽出(CoverImageResolver)がメインアクターの外で使う値を、DBと環境設定から
-    /// 1つの値へ写し取る。
+    /// カバー抽出(CoverImageResolver)がメインアクターの外で使う値を、DBから1つの値へ写し取る。
     ///
-    /// - Parameter defaultReadingDirection: 環境設定の既定の読み方向。本ごとの上書きが
-    ///   無いときはこれが実効値になる(BookReadingStateは見ない ―― あちらは「最後に読んだ
-    ///   ときの状態」で、カバーの向きの根拠にするには弱い。優先順位はdocs/07の
-    ///   「DB > BookReadingState > ファイル自身」のうち、DBと既定の2つだけを使う)。
-    func coverOverrideSnapshot(
-        forBookID bookID: String, defaultReadingDirection: ReadingDirection
-    ) -> CoverImageResolver.OverrideSnapshot {
+    /// **切り出しに関する値は入らない**(読み方向も、位置の指定も)。カバーは切らずに保存し、
+    /// 枠へ合わせるのは表示のたびに行うようになったため、抽出が要るのは「どの画像か」だけ。
+    func coverOverrideSnapshot(forBookID bookID: String) -> CoverImageResolver.OverrideSnapshot {
         let settings = bookLayoutSettings(forBookID: bookID)
         let excludedKeys = Set(
             pageOverrides(forBookID: bookID).filter { $0.state == .excluded }.map(\.pageKey)
@@ -370,9 +367,7 @@ final class LayoutStore: ObservableObject {
             externalCoverURL: settings?.externalCoverBookmarkData == nil
                 ? nil : resolvedExternalCoverURL(forBookID: bookID),
             pageOrderOverride: settings?.pageOrderOverride,
-            excludedKeys: excludedKeys,
-            readingDirection: settings?.readingDirectionOverride ?? defaultReadingDirection,
-            cropAnchor: settings?.coverCropAnchor
+            excludedKeys: excludedKeys
         )
     }
 

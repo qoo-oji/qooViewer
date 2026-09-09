@@ -34,6 +34,12 @@ struct AddBooksPanel: View {
         target.collectionID.flatMap { collectionStore.collection(withID: $0) }
     }
 
+    /// 入れ先のライブラリ。カバーの縦横比だけのために引く(この一覧の22ptのセルも、
+    /// 一覧に並んだときと同じ形で出したい)。
+    private var library: BookLibrary? {
+        collectionStore.library(withID: target.libraryID)
+    }
+
     private var items: [CollectionItem] {
         // 入れた順に上から積まれるほうが、追加中の画面としては分かりやすい。
         collection.map { collectionStore.items(in: $0, sort: .dateAddedAscending) } ?? []
@@ -126,6 +132,8 @@ struct AddBooksPanel: View {
             CollectionCoverThumbnail(
                 item: item,
                 coverStore: collectionStore.coverStore,
+                aspectRatio: library?.coverAspectRatio ?? .portrait,
+                anchor: library?.coverCropAnchor ?? .center,
                 displayWidth: 22,
                 exists: collectionStore.cachedFileExists(for: item),
                 isExtracting: coverExtractor.inFlightItemIDs.contains(item.id)

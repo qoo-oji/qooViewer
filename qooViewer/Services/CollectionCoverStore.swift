@@ -10,8 +10,8 @@ import UniformTypeIdentifiers
 /// ページサムネイル(ThumbnailDiskCache)は「消えても元ファイルから作り直せる」ためCaches配下に
 /// 置いてあり、実際OSは容量が逼迫すると消してよい。カバーはそうではない ―― 消えると
 /// ウェルカム画面のタイルが全部空になり、登録してある本の**全冊ぶん**を読み直すことになる
-/// (未接続の外付けボリューム上の本なら作り直せもしない)。1冊あたり512px/JPEG品質0.8で
-/// 数十KB程度と小さく、上限を設けて刈り込む必要も無いため、消えては困るデータとして
+/// (未接続の外付けボリューム上の本なら作り直せもしない)。1冊あたり768px/JPEG品質0.8で
+/// 百数十KB程度と小さく、上限を設けて刈り込む必要も無いため、消えては困るデータとして
 /// Application Supportに置く。
 ///
 /// ■ なぜSwiftDataの外部ストレージ(@Attribute(.externalStorage))ではないのか
@@ -21,9 +21,13 @@ import UniformTypeIdentifiers
 /// actorそのものは(このプロジェクトの既定のMainActor隔離とは無関係に)固有の隔離を持つため、
 /// `nonisolated`の指定は不要かつ書けない。
 actor CollectionCoverStore {
-    /// 保存するカバーの最大辺。コレクションのタイルは1辺320pt(スライダーの上限)で、その中の
-    /// 3×2のセルは短辺で1/3以下。Retinaの2倍を見ても512pxあれば足りる。
-    static let maxPixelSize: CGFloat = 512
+    /// 保存するカバーの最大辺。
+    ///
+    /// 決め手はタイルではなく**コレクションの中**の一覧で、こちらはセルの幅が最大300pt
+    /// (WelcomeLibraryState.coverSizeRange)、Retinaの2倍で600px要る。さらにカバーは切らずに
+    /// 保存する(CoverImageResolver.cropped(_:to:anchor:))ので、横長の画像から正方形(1:1)を
+    /// 切り出すと**長辺の一部しか残らない** ―― 512pxだと目に見えて甘くなるため768pxにしてある。
+    static let maxPixelSize: CGFloat = 768
     static let jpegQuality: CGFloat = 0.8
 
     /// 保存先。`nonisolated let`にしてあるのは、読み書きの本体(復号・JPEGエンコード・ファイル
@@ -69,7 +73,7 @@ actor CollectionCoverStore {
     /// グリッドのセルごとに呼ばれるため、1枚の復号で他のセルの読み出しを待たせたくない。
     ///
     /// - Parameter maxPixelSize: 指定するとその最大辺まで縮めて復号する(ImageIOのサムネイル
-    ///   生成に任せる)。保存してあるのは常に512px(maxPixelSize)だが、コレクションのタイルの
+    ///   生成に任せる)。保存してあるのは常に768px(maxPixelSize)だが、コレクションのタイルの
     ///   中の1セルは実寸で50〜100pt程度しかない。等倍で復号すると1枚あたり1.5MB前後のビットマップ
     ///   になり、6枚×タイル数ぶんが画面に載る ―― LazyVGridは画面外のセルの保持物を手放さない
     ///   (LazyCellImageBudget参照)ため、表示に必要な大きさで復号することが効いてくる。

@@ -9,7 +9,7 @@ import Testing
 /// 押さえるのは 2 つ:
 /// - どのページが選ばれるか ―― 上書き指定 > 実効1ページ目(除外・並べ替えを反映した後の先頭)。
 ///   ページ画像の R にページ番号が埋めてあるので、選ばれた**中身**で確かめられる(PageColorReader)。
-/// - 横長のカバーの切り方 ―― 読み方向(自動)と、ユーザーが選んだ位置。
+/// - 枠へ収めるときの切り方 ―― 左右を切るのか上下を切るのか、そして残す位置。
 ///
 /// `cachesPageList: false` は固定。既定のままだと実物のアプリのページ一覧キャッシュへ
 /// テスト用の本が残る(InMemoryLibrary の同じ注意書きと同じ話)。
@@ -107,11 +107,15 @@ struct CoverImageResolverTests {
         #expect(await coverNumber(bookAt: broken, snapshot: .init()) == nil)
     }
 
-    // MARK: - 横長カバーの切り方
+    // MARK: - 枠へ収めるときの切り方
 
-    /// 4:3 の横長画像。左半分を黒(R=0)、右半分を白(R=255)に塗り分けて、どちら側が
-    /// 残ったかを中央の画素の色で見分けられるようにする。
-    private func makeLandscapeImage(width: Int = 40, height: Int = 30) throws -> CGImage {
+    private static let portrait = CoverAspectRatio.portrait.value
+    private static let square = CoverAspectRatio.square.value
+
+    /// 横長の画像。左半分を黒(R=0)、右半分を白(R=255)に塗り分けて、どちら側が残ったかを
+    /// 中央の画素の色で見分けられるようにする。CGContext の x はそのまま CGImage の x なので、
+    /// 「左に塗ったものは左に残る」で読んでよい。
+    private func makeSideBySideImage(width: Int = 40, height: Int = 30) throws -> CGImage {
         let context = try #require(CGContext(
             data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
@@ -123,69 +127,100 @@ struct CoverImageResolverTests {
         return try #require(context.makeImage())
     }
 
-    @Test("縦長・正方形のカバーは切らない")
-    func portraitCoversAreLeftAlone() throws {
-        let portrait = PageImageFactory.cgImage(number: 1)
-        let result = CoverImageResolver.croppedForGrid(
-            portrait, readingDirection: .rightToLeft, anchor: nil
-        )
-        #expect(result.cropSide == .none)
-        #expect(result.image.width == portrait.width)
-        #expect(result.image.height == portrait.height)
+    /// 縦長の画像。**CGImage の上半分**を黒(R=0)、下半分を白(R=255)にする。
+    ///
+    /// CGContext の y は下から上なので、`y: 0` に塗ったものは CGImage では**下**に来る ――
+    /// ここを取り違えると「上端を残したはずが下端だった」に気づけないので、塗り分けの向きを
+    /// この関数の中で吸収しておく(判定するテストの側は素直に読めるようにする)。
+    private func makeStackedImage(width: Int = 30, height: Int = 40) throws -> CGImage {
+        let context = try #require(CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ))
+        // 下半分(CGContext の y = 0 側)を白 = CGImage の下半分。
+        context.setFillColor(red: 1, green: 1, blue: 1, alpha: 1)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height / 2))
+        context.setFillColor(red: 0, green: 0, blue: 0, alpha: 1)
+        context.fill(CGRect(x: 0, y: height / 2, width: width, height: height - height / 2))
+        return try #require(context.makeImage())
     }
 
-    @Test("自動のとき、右開きは左端・左開きは右端を残す(表紙にあたる側)")
-    func theAutomaticCropFollowsTheReadingDirection() throws {
-        let landscape = try makeLandscapeImage()
-        let expectedWidth = Int((CGFloat(landscape.height) * CoverImageResolver.gridAspectRatio).rounded())
-
-        let rightToLeft = CoverImageResolver.croppedForGrid(
-            landscape, readingDirection: .rightToLeft, anchor: nil
+    @Test("比がぴったり合っている画像は切らない")
+    func anImageThatAlreadyFitsIsLeftAlone() throws {
+        let image = try makeSideBySideImage(width: 40, height: 60)
+        let result = CoverImageResolver.cropped(image, to: Self.portrait, anchor: .center)
+        #expect(result.width == 40)
+        #expect(result.height == 60)
+        // `#expect(!f(...))` は展開の都合で判定を取り違えるので、いったん受けてから比べる。
+        let crops = CoverImageResolver.cropsAnyEdge(
+            imageAspect: 40.0 / 60.0, targetAspect: Self.portrait
         )
-        #expect(rightToLeft.cropSide == .left)
-        #expect(rightToLeft.image.width == expectedWidth)
-        #expect(rightToLeft.image.height == landscape.height)
-        #expect(PageColorReader.number(in: rightToLeft.image) == 0)
-
-        let leftToRight = CoverImageResolver.croppedForGrid(
-            landscape, readingDirection: .leftToRight, anchor: nil
-        )
-        #expect(leftToRight.cropSide == .right)
-        #expect(PageColorReader.number(in: leftToRight.image) == 255)
+        #expect(crops == false)
     }
 
-    @Test("位置を明示したら、読み方向に関わらずその位置で切る")
-    func anExplicitAnchorOverridesTheReadingDirection() throws {
-        let landscape = try makeLandscapeImage()
-        let expectedWidth = Int((CGFloat(landscape.height) * CoverImageResolver.gridAspectRatio).rounded())
+    @Test("相対的に横長な画像は左右を切る。start は左端、end は右端が残る")
+    func awiderImageIsCroppedHorizontally() throws {
+        let landscape = try makeSideBySideImage()
+        let expectedWidth = Int((CGFloat(landscape.height) * Self.portrait).rounded())
 
-        // 右開き(自動なら左端)でも、右端を指定すれば右端が残る。
-        let right = CoverImageResolver.croppedForGrid(
-            landscape, readingDirection: .rightToLeft, anchor: .right
-        )
-        #expect(right.cropSide == .right)
-        #expect(PageColorReader.number(in: right.image) == 255)
+        let start = CoverImageResolver.cropped(landscape, to: Self.portrait, anchor: .start)
+        #expect(start.width == expectedWidth)
+        #expect(start.height == landscape.height)
+        #expect(PageColorReader.number(in: start) == 0)
 
-        let center = CoverImageResolver.croppedForGrid(
-            landscape, readingDirection: .rightToLeft, anchor: .center
-        )
-        #expect(center.cropSide == .center)
-        #expect(center.image.width == expectedWidth)
+        let end = CoverImageResolver.cropped(landscape, to: Self.portrait, anchor: .end)
+        #expect(end.width == expectedWidth)
+        #expect(PageColorReader.number(in: end) == 255)
 
-        let left = CoverImageResolver.croppedForGrid(
-            landscape, readingDirection: .leftToRight, anchor: .left
-        )
-        #expect(left.cropSide == .left)
-        #expect(PageColorReader.number(in: left.image) == 0)
+        // 中央は塗り分けの境目にかかるので、色ではなく寸法と位置で見る。
+        let center = CoverImageResolver.cropped(landscape, to: Self.portrait, anchor: .center)
+        #expect(center.width == expectedWidth)
+        #expect(center.height == landscape.height)
     }
 
-    @Test("極端に横長(パノラマ)でも、幅は高さ × 2/3 になる")
-    func aPanoramaIsCroppedToTheSameAspectRatio() throws {
-        let panorama = try makeLandscapeImage(width: 300, height: 30)
-        let result = CoverImageResolver.croppedForGrid(
-            panorama, readingDirection: .rightToLeft, anchor: nil
-        )
-        #expect(result.image.height == 30)
-        #expect(result.image.width == Int((CGFloat(30) * CoverImageResolver.gridAspectRatio).rounded()))
+    @Test("相対的に縦長な画像は上下を切る。start は上端、end は下端が残る")
+    func atallerImageIsCroppedVertically() throws {
+        // 30 × 40(比 0.75)を 1:1 の枠へ。高さだけが 30 に詰まる。
+        let tall = try makeStackedImage()
+        let start = CoverImageResolver.cropped(tall, to: Self.square, anchor: .start)
+        #expect(start.width == 30)
+        #expect(start.height == 30)
+        // CGImage.cropping(to:) の原点は左上なので、start(y = 0)は**上端**。
+        #expect(PageColorReader.number(in: start) == 0)
+
+        let end = CoverImageResolver.cropped(tall, to: Self.square, anchor: .end)
+        #expect(end.height == 30)
+        #expect(PageColorReader.number(in: end) == 255)
+    }
+
+    @Test("2:3 の縦長ページも 1:1 の枠では上下が切られる(1:1 を選ぶ動機の裏返し)")
+    func aportraitPageIsCroppedInASquareFrame() throws {
+        let page = try makeStackedImage(width: 40, height: 60)
+        #expect(CoverImageResolver.cropsAnyEdge(
+            imageAspect: 40.0 / 60.0, targetAspect: Self.square
+        ))
+        let result = CoverImageResolver.cropped(page, to: Self.square, anchor: .center)
+        #expect(result.width == 40)
+        #expect(result.height == 40)
+    }
+
+    @Test("極端に横長(パノラマ)でも、切った後の比は枠と同じ")
+    func apanoramaIsCroppedToTheSameAspectRatio() throws {
+        let panorama = try makeSideBySideImage(width: 300, height: 30)
+        let portrait = CoverImageResolver.cropped(panorama, to: Self.portrait, anchor: .center)
+        #expect(portrait.height == 30)
+        #expect(portrait.width == Int((CGFloat(30) * Self.portrait).rounded()))
+
+        let square = CoverImageResolver.cropped(panorama, to: Self.square, anchor: .center)
+        #expect(square.height == 30)
+        #expect(square.width == 30)
+    }
+
+    @Test("1:1 のほうが横長画像の横を多く残す(この機能の目的)")
+    func thesquareFrameKeepsMoreOfAWideImage() throws {
+        let landscape = try makeSideBySideImage(width: 120, height: 60)
+        let portrait = CoverImageResolver.cropped(landscape, to: Self.portrait, anchor: .center)
+        let square = CoverImageResolver.cropped(landscape, to: Self.square, anchor: .center)
+        #expect(square.width > portrait.width)
     }
 }

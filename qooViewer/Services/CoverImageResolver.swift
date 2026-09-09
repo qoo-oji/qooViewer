@@ -1,25 +1,96 @@
 import Foundation
 import CoreGraphics
 
-/// 横長のカバーを縦長へ切るとき、**実際にどちら側を残したか**。CollectionItem.coverCropSideに
-/// 保存する。読み方向の既定が変わったときに「作り直すべき本」を選ぶために覚えておく
-/// (`.none`=切っていない本は、読み方向が変わってもカバーの見た目が変わらない)。
-nonisolated enum CoverCropSide: Int, Sendable {
-    case none = 0
-    case left = 1
-    case center = 2
-    case right = 3
-}
-
-/// 横長のカバーのどこを見せるか、という**ユーザーの指定**(BookLayoutSettings.coverCropAnchorRaw)。
-/// nilは「自動」= 読み方向から決める(CoverImageResolver.croppedForGrid参照)。
+/// コレクションのカバーを並べるときの縦横比(ユーザー要望 2026-09-09)。**ライブラリ単位**で選ぶ
+/// (BookLibrary.coverAspectRatioRaw)。
+///
+/// 商業コミックのように縦長ページばかりの本は`.portrait`(2:3)でよいが、同人CG集のように
+/// **横長画像だけで構成された本**では、2:3へ切ると横幅の半分以上を捨てた札が並ぶ。そのため
+/// `.square`(1:1)を、さらに**このアプリを漫画ビューアではなく画像ビューアとして使う**人のために
+/// `.landscape`(3:2)を選べるようにした(ユーザー指摘 2026-09-09 ―― 写真や壁紙のような素材は、
+/// 横長のまま並ぶほうが素直)。
+///
+/// ライブラリ単位にしてあるのは、1つのグリッドに比の違う札が混ざらないようにするため
+/// (同じ大きさの札が整然と並ぶことが、一覧の目的である「どの本かを見分ける」に効く)。
 ///
 /// rawValueを明示的な文字列にしてあるのは、そのままDBとJSONに書くため
 /// (ReadingDirection.stableIDと同じ理由。表示文言を変えても保存済みの値が壊れないように)。
+nonisolated enum CoverAspectRatio: String, Sendable, CaseIterable {
+    /// 2:3。縦長のページをそのまま並べる既定。
+    case portrait
+    /// 1:1。横長画像中心の本を、横を捨てずに並べる。
+    case square
+    /// 3:2。横長の画像そのものを見せたい使い方(画像ビューアとして)向け。
+    case landscape
+
+    /// 幅 ÷ 高さ。
+    var value: CGFloat {
+        switch self {
+        case .portrait: 2.0 / 3.0
+        case .square: 1.0
+        case .landscape: 3.0 / 2.0
+        }
+    }
+
+    /// コレクションのタイル(CollectionTile)の中に敷き詰めるセルの列数・行数。
+    ///
+    /// **札全体がほぼ正方形になる**組み合わせを選んである(セルの幅をw・間隔をsとして):
+    /// - 2:3 … 3列2行。幅 = 3w + 2s / 高さ = 2 × 1.5w + s = 3w + s
+    /// - 1:1 … 2列2行。幅 = 2w + s / 高さ = 2w + s
+    /// - 3:2 … 2列3行(2:3の裏返し)。幅 = 2w + s / 高さ = 3 × (2w/3) + 2s = 2w + 2s
+    ///
+    /// 縦長・横長は間隔1本ぶん(3pt)だけ正方形からずれるが、縦横比の指定を別に書かなくても
+    /// ほぼ正方形に落ち着くので、タイルの大きさはスライダーの値にそのまま従わせられる。
+    var tileColumns: Int {
+        switch self {
+        case .portrait: 3
+        case .square, .landscape: 2
+        }
+    }
+
+    var tileRows: Int {
+        switch self {
+        case .portrait, .square: 2
+        case .landscape: 3
+        }
+    }
+
+    var tileCellCount: Int { tileColumns * tileRows }
+}
+
+/// 画像の比が枠の比と違うとき、**どこを残すか**という指定。切る軸(左右か上下か)は画像と枠の比から
+/// 決まるので、この値自体は軸に依存しない3値にしてある(ユーザー要望 2026-09-09)。
+///
+/// - `.start` … 左右を切るなら左端、上下を切るなら上端を残す
+/// - `.center` … 中央を残す(ライブラリの既定)
+/// - `.end` … 左右を切るなら右端、上下を切るなら下端を残す
+///
+/// 以前は「自動 = その本の読み方向から決める(右開きなら左端)」という4つ目の状態があったが、
+/// 廃止した(2026-09-09)。上下方向の切り出しには読み方向が何も言えないうえ、読み方向を変えると
+/// カバーの見た目まで変わるのは予想しにくい挙動だったため。
+///
+/// 保存先は2か所ある。**ライブラリの既定**(BookLibrary.coverCropAnchorRaw、非Optional)と、
+/// **本ごとの上書き**(BookLayoutSettings.coverCropAnchorRaw、Optional。nil = ライブラリに従う)。
+///
+/// rawValueを明示的な文字列にしてあるのは、そのままDBとJSONに書くため。
 nonisolated enum CoverCropAnchor: String, Sendable, CaseIterable {
-    case left
+    case start
     case center
-    case right
+    case end
+
+    /// DB/JSONに保存されている文字列を読む。
+    ///
+    /// 「自動」があった頃の値("left"/"right")も受ける ―― この機能が入る前のビルドで
+    /// 位置を指定していた本が、未知の値として黙って既定へ落ちないようにするため
+    /// (このアプリはまだ未リリースだが、開発中のDBには実際にその値が入っている)。
+    static func stored(_ raw: String?) -> CoverCropAnchor? {
+        guard let raw else { return nil }
+        switch raw {
+        case "left": return .start
+        case "right": return .end
+        default: return CoverCropAnchor(rawValue: raw)
+        }
+    }
 }
 
 /// 「この本のカバーは何か」を決める唯一の場所。
@@ -34,13 +105,12 @@ nonisolated enum CoverCropAnchor: String, Sendable, CaseIterable {
 /// `await`で呼ぶ)。プロジェクト既定の「Default Actor Isolation = MainActor」の対象外にする
 /// 理由はArchiveReading.swift冒頭のコメント参照。
 nonisolated enum CoverImageResolver {
-    /// コレクションのタイル/セルの縦横比(幅 ÷ 高さ)。横長のカバーはこの比へ切って保存する。
-    /// 表示側(CollectionCoverThumbnail)も同じ値を使う。
-    static let gridAspectRatio: CGFloat = 2.0 / 3.0
-
-    /// DB(BookLayoutSettings / PageLayoutOverride / 環境設定)から、メインアクターの外へ
-    /// 持ち出すための値のスナップショット。組み立てるのは
-    /// `LayoutStore.coverOverrideSnapshot(forBookID:defaultReadingDirection:)`。
+    /// DB(BookLayoutSettings / PageLayoutOverride)から、メインアクターの外へ持ち出すための値の
+    /// スナップショット。組み立てるのは`LayoutStore.coverOverrideSnapshot(forBookID:)`。
+    ///
+    /// **切り出しに関する値はここに含まれない。** カバーは切らずに保存し、表示のたびに切るように
+    /// なった(cropped(_:to:anchor:)のコメント参照)ので、抽出が知る必要があるのは
+    /// 「どの画像か」だけになった。
     struct OverrideSnapshot: Sendable {
         /// 本に含まれる既存ページをカバーに指定している場合、そのPageRef.sortKey。
         var coverPageKey: String?
@@ -50,25 +120,17 @@ nonisolated enum CoverImageResolver {
         var pageOrderOverride: [String]?
         /// 除外されているページのキー。
         var excludedKeys: Set<String> = []
-        /// この本の**実効の**読み方向(本ごとの上書きがあればそれ、無ければ環境設定の既定)。
-        var readingDirection: ReadingDirection = .rightToLeft
-        /// 横長カバーの見せ方のユーザー指定。nil = 自動(読み方向に従う)。
-        var cropAnchor: CoverCropAnchor?
 
         init(
             coverPageKey: String? = nil,
             externalCoverURL: URL? = nil,
             pageOrderOverride: [String]? = nil,
-            excludedKeys: Set<String> = [],
-            readingDirection: ReadingDirection = .rightToLeft,
-            cropAnchor: CoverCropAnchor? = nil
+            excludedKeys: Set<String> = []
         ) {
             self.coverPageKey = coverPageKey
             self.externalCoverURL = externalCoverURL
             self.pageOrderOverride = pageOrderOverride
             self.excludedKeys = excludedKeys
-            self.readingDirection = readingDirection
-            self.cropAnchor = cropAnchor
         }
     }
 
@@ -102,7 +164,7 @@ nonisolated enum CoverImageResolver {
               let index = book.pages.firstIndex(where: { $0.sortKey == target.sortKey })
         else { return nil }
 
-        // 3. 復号。カバーは512px程度の小さな画像なので、grid用の経路をそのまま借りる。
+        // 3. 復号。カバーは1000px弱の小さな画像なので、grid用の経路をそのまま借りる。
         //    ディスクキャッシュ(ThumbnailDiskCache)は使わない ―― カバーはこの後
         //    CollectionCoverStoreへJPEGで永続化するので、同じ絵を2か所に置く意味が無い。
         let loader = PageLoader(book: book, usesThumbnailDiskCache: false)
@@ -126,43 +188,65 @@ nonisolated enum CoverImageResolver {
         ).first
     }
 
-    /// グリッド向けの整形(ユーザー要望 2026-09-09)。
+    /// 画像を枠の比(`targetAspect` = 幅 ÷ 高さ)へ切り出す。はみ出す側だけを切り、`anchor`で
+    /// どこを残すかを決める。
     ///
-    /// 横長(width > height)の画像は、左右どちらかの端を残して縦長(2:3)へ切る。
-    /// `anchor`がnil(自動)のときは読み方向で決める ―― 右開きなら**左側**、左開きなら**右側**。
-    /// 見開き1枚をそのままカバーにしている本で、表紙にあたる側が残る。
-    /// `anchor`が指定されていれば読み方向に関わらずそれに従う。
+    /// ■ なぜ**表示のたびに**切るのか(2026-09-09に保存時から移した)
+    /// 以前は抽出した時点で2:3へ切ってJPEGを保存していた。ライブラリごとに比を選べるように
+    /// した以上、その方式だと**トグル1つでそのライブラリの全冊を読み直す**ことになる ――
+    /// 書庫を展開し直すので冊数ぶんの時間がかかり、外付けボリュームが未接続なら抽出に失敗して
+    /// カバーが灰色(`.failed`)へ落ちる。表示の設定を変えただけでカバーが消えるのは受け入れ難い。
+    /// 保存するのは切っていない画像1枚だけにして、比も位置も表示時に効かせれば、切り替えは
+    /// **即時かつ無損失**になる。`CGImage.cropping(to:)`は元画像を参照する部分画像を作るだけで、
+    /// 画素のコピーは起きない。
     ///
-    /// 縦長・正方形の画像はそのまま返す(`cropSide == .none`)。切った結果はそのまま保存するので、
-    /// 表示のたびに切り直す処理は無い。
-    static func croppedForGrid(
-        _ image: CGImage, readingDirection: ReadingDirection, anchor: CoverCropAnchor?
-    ) -> (image: CGImage, cropSide: CoverCropSide) {
+    /// ■ 座標系
+    /// `CGImage.cropping(to:)`のrectは**左上が原点**(CGContextの座標系ではない)。したがって
+    /// 上下を切るときは`.start`がy=0、つまり画像の**上端**を残す。取り違えやすいので
+    /// CoverImageResolverTestsで固定してある。
+    static func cropped(
+        _ image: CGImage, to targetAspect: CGFloat, anchor: CoverCropAnchor
+    ) -> CGImage {
         let width = image.width
         let height = image.height
-        guard width > height else { return (image, .none) }
+        guard width > 0, height > 0, targetAspect > 0 else { return image }
+        let imageAspect = CGFloat(width) / CGFloat(height)
 
-        // 高さは残したまま、幅だけを 2:3 に詰める。極端に横長(パノラマ)でも同じ計算でよい。
-        let targetWidth = max(1, Int((CGFloat(height) * gridAspectRatio).rounded()))
-        guard targetWidth < width else { return (image, .none) }
+        if imageAspect > targetAspect {
+            // 相対的に横長。高さは残したまま、幅だけを詰める(極端なパノラマでも同じ計算でよい)。
+            let targetWidth = max(1, Int((CGFloat(height) * targetAspect).rounded()))
+            guard targetWidth < width else { return image }
+            let originX: Int
+            switch anchor {
+            case .start: originX = 0
+            case .center: originX = (width - targetWidth) / 2
+            case .end: originX = width - targetWidth
+            }
+            let rect = CGRect(x: originX, y: 0, width: targetWidth, height: height)
+            return image.cropping(to: rect) ?? image
+        } else {
+            // 相対的に縦長。幅は残したまま、高さだけを詰める。
+            let targetHeight = max(1, Int((CGFloat(width) / targetAspect).rounded()))
+            guard targetHeight < height else { return image }
+            let originY: Int
+            switch anchor {
+            case .start: originY = 0
+            case .center: originY = (height - targetHeight) / 2
+            case .end: originY = height - targetHeight
+            }
+            let rect = CGRect(x: 0, y: originY, width: width, height: targetHeight)
+            return image.cropping(to: rect) ?? image
+        }
+    }
 
-        let side: CoverCropSide
-        switch anchor {
-        case .left: side = .left
-        case .center: side = .center
-        case .right: side = .right
-        case nil:
-            // 自動。右開き(rightToLeft)の本は右から左へ読むので、見開きの**左端**が表紙。
-            side = readingDirection == .rightToLeft ? .left : .right
-        }
-        let originX: Int
-        switch side {
-        case .left, .none: originX = 0
-        case .center: originX = (width - targetWidth) / 2
-        case .right: originX = width - targetWidth
-        }
-        let rect = CGRect(x: originX, y: 0, width: targetWidth, height: height)
-        guard let cropped = image.cropping(to: rect) else { return (image, .none) }
-        return (cropped, side)
+    /// この比の画像を枠へ収めるとき、実際にどこかを切ることになるか。
+    ///
+    /// メタデータ編集で「残す位置」の指定を有効にするかどうかの判定に使う ―― 比がぴったり
+    /// 合っている本に位置を選ばせても、選んだ結果が何も変わらない。判定は画素数ではなく比だけで
+    /// 行うため、cropped(_:to:anchor:)の整数丸めと厳密に一致させる必要は無い(1%の差は
+    /// 「切らない」として扱う)。
+    static func cropsAnyEdge(imageAspect: CGFloat, targetAspect: CGFloat) -> Bool {
+        guard imageAspect > 0, targetAspect > 0 else { return false }
+        return abs(imageAspect - targetAspect) > targetAspect * 0.01
     }
 }

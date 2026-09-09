@@ -82,7 +82,7 @@ final class AppStores: ObservableObject {
         collectionStore = CollectionStore(modelContext: context, coverStore: collectionCoverStore)
         collectionCoverExtractor = CollectionCoverExtractor(
             collectionStore: collectionStore, coverStore: collectionCoverStore,
-            layoutStore: layoutStore, preferences: preferences
+            layoutStore: layoutStore
         )
         // 行の無いカバー画像(前回の起動が落ちた・ストアを作り直した等)を起動時に1度だけ掃除する。
         collectionStore.sweepOrphanedCovers()

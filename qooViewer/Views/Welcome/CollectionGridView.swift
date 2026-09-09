@@ -12,6 +12,7 @@ import SwiftUI
 struct CollectionGridView: View {
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
+    @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var appState: AppState
     @ObservedObject var state: WelcomeLibraryState
     let library: BookLibrary
@@ -52,6 +53,7 @@ struct CollectionGridView: View {
                     size: $state.tileSize,
                     sizeRange: WelcomeLibraryState.tileSizeRange,
                     sizeHelp: "Tile Size",
+                    library: library,
                     allowsEditing: allowsEditing
                 )
             }
@@ -136,10 +138,15 @@ struct CollectionGridView: View {
     private func tile(for collection: BookCollection) -> some View {
         let tile = CollectionTile(
             collection: collection,
-            items: Array(collectionStore.items(in: collection, sort: state.itemSort).prefix(6)),
+            items: Array(
+                collectionStore.items(in: collection, sort: state.itemSort)
+                    .prefix(library.coverAspectRatio.tileCellCount)
+            ),
             exists: { collectionStore.cachedFileExists(for: $0) },
             isExtracting: { coverExtractor.inFlightItemIDs.contains($0.id) },
+            cropAnchor: { cropAnchor(for: $0) },
             coverStore: collectionStore.coverStore,
+            aspectRatio: library.coverAspectRatio,
             size: state.tileSize,
             onImageRetained: { image in
                 // 1画面に並ぶタイル数の見積もり(帳簿の下限。LazyCellImageBudget参照)。
@@ -170,6 +177,14 @@ struct CollectionGridView: View {
         } else {
             tile
         }
+    }
+
+    /// このカバーで残す位置。本ごとの上書き(BookLayoutSettings)があればそれ、無ければ
+    /// ライブラリの既定。`bookLayoutSettings`はbookIDの辞書引きなのでセル単位で呼んでよい
+    /// (LayoutStore.settingsByBookID参照)。
+    private func cropAnchor(for item: CollectionItem) -> CoverCropAnchor {
+        layoutStore.bookLayoutSettings(forBookID: item.bookID)?.coverCropAnchor
+            ?? library.coverCropAnchor
     }
 
     private var emptyMessage: some View {

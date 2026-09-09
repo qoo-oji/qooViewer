@@ -666,6 +666,7 @@ struct LibraryImportTests {
         defer { origin.close() }
         let target = try #require(origin.collections.libraries.first)
         origin.collections.rename(target, to: "Manga")
+        origin.collections.setCoverAppearance(target, aspectRatio: .square, anchor: .end)
         let pending = try #require(CollectionStore.makePendingItem(for: source.book.sourceURL))
         _ = origin.collections.createCollection(name: "シリーズ", in: target, items: [pending])
 
@@ -680,5 +681,24 @@ struct LibraryImportTests {
         )
         #expect(collection.name == "シリーズ")
         #expect(collection.items.map(\.bookID) == [source.book.id])
+        // カバーの見せ方もライブラリの属性なので一緒に運ぶ。
+        #expect(copied.coverAspectRatio == .square)
+        #expect(copied.coverCropAnchor == .end)
+    }
+
+    @Test("カバーの見せ方が入っていない古い JSON を読んでも、既定(2:3・中央)のまま")
+    func anolderFileLeavesTheCoverAppearanceAlone() async throws {
+        let source = try await ExportSource.zip(pages: 3, label: "import-collection-legacy")
+        let library = try InMemoryLibrary(label: "import-collection-legacy")
+        defer { library.close() }
+        // collectionsFile はカバーの 2 フィールドを入れない = これらを足す前に書き出した JSON。
+        var file = collectionsFile([source], library: "Manga", collection: "シリーズ")
+        file.formatVersion = 4
+
+        await library.apply(file, policies: .all(.merge))
+
+        let target = try #require(library.collections.libraries.first { $0.name == "Manga" })
+        #expect(target.coverAspectRatio == .portrait)
+        #expect(target.coverCropAnchor == .center)
     }
 }

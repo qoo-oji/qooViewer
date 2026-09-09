@@ -7,6 +7,8 @@ import SwiftUI
 /// 引数で差し替える ―― 「＋」は一覧ならコレクションを作り、中なら本を足す。並べ替えと
 /// 大きさのスライダーも、それぞれの画面の対象に効く。**位置と見た目が変わらない**ことを
 /// 優先している(中へ入るたびにボタンが動くと、続けて操作するときに目で追う必要が出る)。
+/// いちばん右の歯車(ライブラリの設定)だけは両方の画面で**同じもの**を指す ―― カバーの
+/// 見せ方はライブラリ単位の設定なので、コレクションの中から変えても同じ場所に効く。
 /// 編集モードのときだけ増える「ゴミ箱」を**「＋」の左**に足すのも同じ理由 ―― 列は右端に
 /// 揃えてあるので、左へ伸びるぶんには既にあるボタンが動かない。
 struct WelcomeLibraryPane: View {
@@ -25,7 +27,8 @@ struct WelcomeLibraryPane: View {
             // 開いていたコレクションが別のウインドウから消された場合は、黙って一覧へ戻す。
             if let collection = openedCollection {
                 CollectionDetailView(
-                    state: state, collection: collection, allowsEditing: allowsEditing
+                    state: state, collection: collection, library: library,
+                    allowsEditing: allowsEditing
                 )
             } else {
                 CollectionGridView(
@@ -75,8 +78,12 @@ struct LibraryPaneControls: View {
     @Binding var size: CGFloat
     let sizeRange: ClosedRange<CGFloat>
     let sizeHelp: LocalizedStringKey
+    /// 歯車から設定するライブラリ(いま見ているライブラリ)。
+    let library: BookLibrary
     /// 編集操作を許すか(シークレットウインドウではfalse)。
     let allowsEditing: Bool
+
+    @State private var isShowingLibrarySettings = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -100,6 +107,17 @@ struct LibraryPaneControls: View {
                 .frame(width: 110)
                 .panelControlWell()
                 .help(sizeHelp)
+            // ライブラリの設定(カバーの縦横比と切り出す位置)。**編集モードは条件にしない** ――
+            // 棚の中身を変える操作ではなく見え方の設定なので、閲覧しているだけのときにも
+            // 触れてよい。書き込みではあるので、シークレットウインドウでだけ塞ぐ。
+            SidePanelNavButton(
+                systemName: "gearshape", isDisabled: !allowsEditing, help: "Library Settings"
+            ) {
+                isShowingLibrarySettings = true
+            }
+            .popover(isPresented: $isShowingLibrarySettings, arrowEdge: .bottom) {
+                LibrarySettingsPopover(library: library)
+            }
         }
     }
 }

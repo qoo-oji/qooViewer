@@ -42,6 +42,12 @@ struct QooLibraryExportFile: Codable {
 /// 2段で固定なので、フラットな配列 + 親idではなく素直な入れ子で持つ。
 struct ExportedLibrary: Codable {
     var name: String
+    /// カバーの縦横比(CoverAspectRatio.rawValue)。この2つはどちらもOptionalで、
+    /// 無ければ取り込み側の既定(2:3 / 中央)のまま ―― これらを足す前に書き出したJSONも
+    /// そのまま読めるようにしてある(formatVersionは据え置き)。
+    var coverAspectRatio: String?
+    /// 比が合わないときに残す位置(CoverCropAnchor.rawValue)。
+    var coverCropAnchor: String?
     var collections: [ExportedCollection]
 }
 

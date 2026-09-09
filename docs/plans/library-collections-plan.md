@@ -728,6 +728,94 @@ var welcomeDropHandler: (([URL]) -> Bool)?
 
 ---
 
+## 段階 5.10(要望追加 2026-09-09). カバーの縦横比をライブラリ単位で選ぶ(2:3 / 1:1 / 3:2)
+
+カバーは 2:3 固定で、横長の画像は抽出の時点で 2:3 へ切って保存していた。商業コミックならそれで
+よいが、**同人 CG 集のように横長画像だけで構成された本**では、横幅の半分以上を捨てた札が並ぶ。
+さらに、このアプリを**漫画ビューアではなく画像ビューアとして使う**人にとっては、写真や壁紙が
+縦長に切られること自体が不便(同日のユーザー指摘)。そこで縦横比を **2:3 / 1:1 / 3:2** から
+選べるようにし、比が合わないときにどこを切るかも選べるようにした。
+
+### 決定事項
+
+- **粒度はライブラリ単位**(`BookLibrary.coverAspectRatioRaw` / `coverCropAnchorRaw`、どちらも
+  非 Optional + 宣言時デフォルト = 軽量マイグレーション)。1 つのグリッドに比の違う札が混ざらない
+  ようにするため ―― 「同じ大きさの札が整然と並ぶ」ことが、一覧の目的(どの本かを見分ける)に効く。
+- **札の割り付けは比から決まる。** 2:3 は 3 列 2 行(最大 6 冊)、1:1 は 2 列 2 行(最大 4 冊)、
+  3:2 は 2 列 3 行(最大 6 冊。2:3 の裏返し)。いずれも札全体がほぼ正方形に落ち着く組み合わせで、
+  縦横比を別に指定しなくてよい(`CoverAspectRatio.tileColumns` のコメントに計算。縦長・横長は
+  間隔 1 本ぶんだけずれる)。
+- **切り出しを「保存時」から「表示時」へ移した。** これが今回いちばん大きな変更。
+  比を選べるようにした以上、抽出時に切る方式だと**トグル 1 つでそのライブラリの全冊を読み直す**
+  ことになる ―― 書庫を展開し直すので冊数ぶんの時間がかかり、外付けボリュームが未接続なら抽出に
+  失敗してカバーが灰色(`.failed`)へ落ちる。**表示の設定を変えただけでカバーが消える**のは
+  受け入れ難い。保存するのは切っていない画像 1 枚だけにして、比も位置も表示時に効かせれば、
+  切り替えは即時かつ無損失になる(`CGImage.cropping(to:)` は元画像を参照する部分画像を作るだけ)。
+- **「自動(読み方向から決める)」は廃止**(段階 5.7 で入れたばかりの挙動を同日に覆した)。
+  上下方向の切り出しには読み方向が何も言えないうえ、読み方向を変えるとカバーの見た目まで変わるのは
+  予想しにくい。`CoverCropAnchor` は軸に依存しない `start` / `center` / `end` の 3 値になり、
+  切る軸(左右か上下か)は画像と枠の比から決まる。ラベルだけは「上／左」「下／右」と両軸を併記する。
+- **本ごとの上書きの意味が変わった。** `BookLayoutSettings.coverCropAnchorRaw` の `nil` は、
+  「自動」ではなく**「そのライブラリの設定に従う」**。旧値 `"left"` / `"right"` は
+  `CoverCropAnchor.stored(_:)` が `start` / `end` として読み替える。
+- **保存するカバーの長辺を 512px → 768px** へ(`CollectionCoverStore.maxPixelSize`)。切らずに
+  保存するようになったため、横長画像から 1:1 を切り出すと長辺の一部しか残らない。コレクションの中の
+  セルは最大 300pt = Retina で 600px 要る。
+- **世代番号で一度だけ作り直す。** 既に保存済みのカバーは 2:3 に切られた状態なので、そのままだと
+  1:1 で「二重に切る」ことになる。`CollectionCoverExtractor.coverStorageGeneration` を
+  `UserDefaults`(`qooViewer.pref.` で始まらないキー)と突き合わせ、上がっていたら起動時に 1 回だけ
+  全件を `.pending` へ戻す。
+- 歯車は**スライダーの右**、コレクションの一覧とコレクションの中の**両方**に出る
+  (`LibraryPaneControls` が共通なので自動的にそうなる)。**編集モードは条件にしない** ―― 棚の中身を
+  変える操作ではなく見え方の設定なので、閲覧しているだけのときにも触れてよい。書き込みではあるので
+  シークレットウインドウでだけ塞ぐ。
+- **設定パネルに説明文は置かない**(同日のユーザー指示)。ラジオが並ぶだけの小さな面で、
+  文章を 1 つ足すと面の半分が字で埋まる。見出しは Picker のラベルではなく**上に自前で置く**
+  ―― `Picker("見出し", …)` のままだと 2 つの設定で見出しの長さが違うぶんラジオの左端が揃わず、
+  右側に使い道の無い余白が残る(実測)。「本ごとに上書きできる」といった説明は MANUAL.md 側へ。
+- 輪郭(すりガラス面の決まりごと): 歯車は `SidePanelNavButton` = `.panelIconButtonLabel()` が
+  内側で輪郭を掛けている。ポップオーバーの中身は macOS が不透明に描くので何も要らない。
+
+### 減った仕掛け
+
+カバーの画素が読み方向にも位置指定にも依存しなくなったので、再抽出の契機がまとめて消えた:
+`CollectionCoverExtractor.handleDefaultReadingDirectionChange()` と
+`preferences.$defaultReadingDirection` の購読(= 抽出役から `AppPreferences` 依存そのもの)、
+`CoverSignature` の `readingDirection` / `cropAnchor`、`CollectionStore.itemsWithCroppedCover()`、
+`CollectionItem.coverCropSide` と `CoverCropSide`、`OverrideSnapshot.readingDirection`。
+`CollectionItem` には代わりに `coverAspect`(保存したカバーの 幅 ÷ 高さ)が入る ―― メタデータ編集で
+「位置の指定が効くか」を画像を復号せずに判定するため。
+
+### 変更したファイル
+
+`Services/CoverImageResolver.swift`(`CoverAspectRatio` 新規 / `CoverCropAnchor` を 3 値へ /
+`croppedForGrid` → `cropped(_:to:anchor:)` + `cropsAnyEdge`)、`Models/BookLibrary.swift`、
+`Models/CollectionItem.swift`、`Models/BookLayoutSettings.swift`(意味の書き替え)、
+`Services/CollectionCoverStore.swift`、`Services/CollectionCoverExtractor.swift`、
+`Services/LibraryJSONSchema.swift` / `LibraryImportExportService.swift`(`ExportedLibrary` に
+Optional 2 つ。`formatVersion` は 4 のまま)、`ViewModels/CollectionStore.swift`
+(`setCoverAppearance`)、`ViewModels/LayoutStore.swift`、`ViewModels/CoverOverrideController.swift`、
+`App/AppStores.swift`、`Views/Welcome/LibrarySettingsPopover.swift`(新規)、
+`WelcomeLibraryPane.swift` / `CollectionCoverThumbnail.swift` / `CollectionTile.swift` /
+`CollectionGridView.swift` / `CollectionDetailView.swift` / `BookMetadataSheet.swift` /
+`AddBooksPanel.swift`、`Views/Export/ExportWindowContent.swift`、`Views/MetadataEditorWindow.swift`。
+
+テストは `CoverImageResolverTests`(切り方を左右・上下の両方で。**`CGImage.cropping(to:)` の原点は
+左上**なので `.start` が上端 ―― 取り違えを検出するために、上下で色を変えた画像で固定した)、
+`CollectionStoreTests`(既定値 / ライブラリごとに独立 / 比を変えても再抽出にならない /
+どの比でも札がほぼ正方形になる割り付けか)、
+`LayoutStoreTests`(新しい enum)、`LibraryImportTests`(JSON の往復と、フィールドが無い古い JSON)。
+
+なお `#expect(!f(...))` はマクロ展開の都合で判定を取り違えることがある(実際に踏んだ)。
+否定は一度ローカルへ受けてから `== false` で比べる。
+
+札の割り付けは、使い捨てのテストで `CollectionTile` を `ImageRenderer` に描かせて目で確かめた
+(3×2 と 2×2 がどちらもほぼ正方形に収まること。確認後に削除)。`.task` は `ImageRenderer` では
+走らないので、この方法で見えるのは**割り付けだけ**で、実際のカバー画像は出ない ―― 切り方の正しさは
+`CoverImageResolverTests` の画素の判定側で押さえている。
+
+---
+
 ## 段階 6. 仕上げ
 
 - `docs/14-library-collections.md`(新規): モデル・ストア・カバーの決定事項・ドロップの振り分け・ウェルカム画面の構成。`docs/README.md` から辿る。

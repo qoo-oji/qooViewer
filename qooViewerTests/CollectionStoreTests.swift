@@ -120,6 +120,72 @@ struct CollectionStoreTests {
         #expect(library.collections.libraries.filter { $0.name == "Doujinshi" }.count == 1)
     }
 
+    // MARK: - カバーの見せ方(ライブラリ単位)
+
+    @Test("新しいライブラリのカバーは 2:3・中央から始まる")
+    func anewLibraryStartsWithThePortraitDefaults() throws {
+        let library = try InMemoryLibrary(label: "collections-cover-defaults")
+        defer { library.close() }
+        let target = try #require(library.collections.libraries.first)
+        #expect(target.coverAspectRatio == .portrait)
+        #expect(target.coverCropAnchor == .center)
+        #expect(target.coverAspectRatio.tileCellCount == 6)
+    }
+
+    @Test("カバーの縦横比と切り出し位置はライブラリごとに保存され、他のライブラリには移らない")
+    func thecoverAppearanceIsPerLibrary() throws {
+        let library = try InMemoryLibrary(label: "collections-cover-appearance")
+        defer { library.close() }
+        let first = try #require(library.collections.libraries.first)
+        let second = try #require(library.collections.createLibrary(name: "CG"))
+
+        library.collections.setCoverAppearance(second, aspectRatio: .square, anchor: .start)
+
+        #expect(second.coverAspectRatio == .square)
+        #expect(second.coverCropAnchor == .start)
+        // 1:1 の札は 2 列 2 段 = 4 冊(CoverAspectRatio.tileColumns)。
+        #expect(second.coverAspectRatio.tileCellCount == 4)
+        #expect(first.coverAspectRatio == .portrait)
+        #expect(first.coverCropAnchor == .center)
+    }
+
+    @Test("札の割り付けは、どの比でもほぼ正方形に収まる組み合わせになっている")
+    func thetileLayoutStaysSquareForEveryRatio() {
+        // セルの幅を w・間隔を s とすると、幅 = 列 × w + (列 - 1)s、
+        // 高さ = 行 × (w / 比) + (行 - 1)s。ずれは間隔 1 本ぶんまで。
+        let w: CGFloat = 60
+        let s: CGFloat = 3
+        for ratio in CoverAspectRatio.allCases {
+            let width = CGFloat(ratio.tileColumns) * w + CGFloat(ratio.tileColumns - 1) * s
+            let height = CGFloat(ratio.tileRows) * (w / ratio.value) + CGFloat(ratio.tileRows - 1) * s
+            #expect(abs(width - height) <= s, "\(ratio.rawValue) は \(width) × \(height)")
+        }
+        #expect(CoverAspectRatio.landscape.tileColumns == 2)
+        #expect(CoverAspectRatio.landscape.tileRows == 3)
+    }
+
+    @Test("カバーの見せ方を変えても、抽出済みのカバーは作り直しにならない")
+    func changingTheCoverAppearanceDoesNotInvalidateCovers() throws {
+        let library = try InMemoryLibrary(label: "collections-cover-appearance-keeps")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-cover-appearance-keeps")
+        let target = try #require(library.collections.libraries.first)
+        let book = try makeBookFolder(temporary, named: "book")
+        let collection = try #require(library.collections.createCollection(
+            name: "Shelf", in: target, items: pendingItems([book])
+        ))
+        let item = try #require(collection.items.first)
+        library.collections.setCoverStatus(.ready, aspect: 1.6, for: item)
+
+        library.collections.setCoverAppearance(target, aspectRatio: .square, anchor: .end)
+
+        // 保存してあるのは切っていない画像なので、比を変えても抽出待ちには戻らない
+        // (CoverImageResolver.cropped(_:to:anchor:) のコメント)。
+        #expect(item.coverState == .ready)
+        #expect(item.coverAspect == 1.6)
+        #expect(library.collections.itemsAwaitingCover().isEmpty)
+    }
+
     // MARK: - コレクション
 
     @Test("コレクション名は同じライブラリの中だけで一意(別のライブラリなら同名でよい)")

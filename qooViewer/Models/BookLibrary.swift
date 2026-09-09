@@ -67,10 +67,38 @@ final class BookLibrary {
         return names
     }
 
+    /// このライブラリのカバーを並べるときの縦横比(ユーザー要望 2026-09-09)。
+    /// CoverAspectRatio.rawValue("portrait" = 2:3 / "square" = 1:1)を保存する。
+    ///
+    /// **ライブラリ単位**にしてある理由と、`.square`を足した動機はCoverAspectRatioの
+    /// コメント参照。**属性の後追加なので宣言時のデフォルト値が要る**(SwiftDataの軽量
+    /// マイグレーション)。既存の行はすべて従来どおりの2:3で入る。
+    var coverAspectRatioRaw: String = CoverAspectRatio.portrait.rawValue
+
+    /// 画像の比が上の枠と違うとき、既定でどこを残すか。CoverCropAnchor.rawValueを保存する。
+    ///
+    /// 本ごとの上書き(BookLayoutSettings.coverCropAnchorRaw)があればそちらが勝つ。
+    /// こちらは非Optional ―― ライブラリは「従う先」がこれ以上無い一番外側なので、
+    /// 「未設定」の状態を持たせず必ず具体的な値にしておく。既定は中央。
+    var coverCropAnchorRaw: String = CoverCropAnchor.center.rawValue
+
     /// このライブラリに属するコレクション。ライブラリを削除したら中のコレクションも
     /// 連鎖して削除する(その先のCollectionItemもBookCollection.items側のcascadeで消える)。
     @Relationship(deleteRule: .cascade, inverse: \BookCollection.library)
     var collections: [BookCollection] = []
+
+    /// カバーの縦横比。保存済みの値が読めない(将来caseを消した等)ときは既定の2:3。
+    var coverAspectRatio: CoverAspectRatio {
+        get { CoverAspectRatio(rawValue: coverAspectRatioRaw) ?? .portrait }
+        set { coverAspectRatioRaw = newValue.rawValue }
+    }
+
+    /// 画像の比が枠と違うときに残す位置(既定は中央)。旧「自動」時代の値の読み替えは
+    /// CoverCropAnchor.stored(_:)が行う。
+    var coverCropAnchor: CoverCropAnchor {
+        get { CoverCropAnchor.stored(coverCropAnchorRaw) ?? .center }
+        set { coverCropAnchorRaw = newValue.rawValue }
+    }
 
     /// - Parameter usesDefaultName: アプリが自分で作った既定のライブラリならtrue
     ///   (CollectionStore.ensureDefaultLibraryだけが渡す)。`name`にはそのときの表示言語の

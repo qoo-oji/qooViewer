@@ -104,13 +104,14 @@ final class BookLayoutSettings {
     var externalCoverBookmarkData: Data?
     var externalCoverFileName: String?
 
-    /// ユーザー要望(2026-09-09): 横長のカバー(見開き1枚をそのままカバーにしている本など)を
-    /// コレクションのタイルへ並べるとき、**どちら側を見せるか**を本ごとに選べるようにしたい。
-    /// CoverCropAnchor.rawValue("left"/"center"/"right")を保存する。
+    /// ユーザー要望(2026-09-09): コレクションの札にカバーを並べるとき、画像の比が枠の比と
+    /// 違うぶんを**どこで切るか**を本ごとに選べるようにしたい。CoverCropAnchor.rawValue
+    /// ("start"/"center"/"end")を保存する。
     ///
-    /// nil = 自動 ―― その本の実効の読み方向から決める(右開きなら左端、左開きなら右端。
-    /// CoverImageResolver.croppedForGrid参照)。この属性を後から追加したため、既存の行は
-    /// すべてnil(=自動)になる。Optionalなのでライトウェイトマイグレーションで済む。
+    /// **nil = そのライブラリの設定に従う**(BookLibrary.coverCropAnchorRaw)。当初は
+    /// nil = 「自動(読み方向から決める)」だったが、比を1:1にもできるようにした際に自動を
+    /// 廃止した(上下方向の切り出しには読み方向が何も言えないため。CoverCropAnchorのコメント参照)。
+    /// Optionalなのでライトウェイトマイグレーションで済む。
     ///
     /// **hasCoverOverrideには含めない。** カバー画像そのもの(coverPageKey/外部ファイル)とは
     /// 独立した属性で、「カバーを既定に戻す」で位置の指定まで消えてしまわないようにするため
@@ -187,9 +188,10 @@ final class BookLayoutSettings {
         readingDirectionOverrideRaw == nil && forcedDisplayModeRaw == nil && pageOrderOverrideJSON == nil
     }
 
-    /// 横長カバーの見せ方のユーザー指定(nil = 自動)。coverCropAnchorRawのコメント参照。
+    /// カバーの切り出し位置の本ごとの上書き(nil = ライブラリの設定に従う)。
+    /// coverCropAnchorRawのコメント参照。
     var coverCropAnchor: CoverCropAnchor? {
-        get { coverCropAnchorRaw.flatMap(CoverCropAnchor.init(rawValue:)) }
+        get { CoverCropAnchor.stored(coverCropAnchorRaw) }
         set { coverCropAnchorRaw = newValue?.rawValue }
     }
 

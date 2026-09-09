@@ -196,7 +196,7 @@ final class CoverOverrideController: ObservableObject {
 
     /// カバーの上書きを解除し、既定(先頭ページ)に戻す。
     ///
-    /// 横長カバーの見せ方(setCropAnchor)はここでは消さない ―― あちらは「どの画像か」ではなく
+    /// カバーの切り出し位置(setCropAnchor)はここでは消さない ―― あちらは「どの画像か」ではなく
     /// 「その画像のどこを見せるか」という本の属性で、カバーを既定に戻しても意味を失わない
     /// (LayoutStore.setCoverCropAnchorのコメント参照)。
     func resetCover(forBookID bookID: String) {
@@ -205,9 +205,9 @@ final class CoverOverrideController: ObservableObject {
         Task { await refreshCoverName(forBookID: bookID) }
     }
 
-    // MARK: - 横長カバーの見せ方(コレクションのグリッド表示にだけ効く)
+    // MARK: - カバーの切り出し位置(コレクションのグリッド表示にだけ効く)
 
-    /// 横長カバーの見せ方のユーザー指定(nil = 自動。読み方向から決める)。
+    /// 本ごとの切り出し位置の上書き(nil = そのライブラリの設定に従う)。
     func cropAnchor(forBookID bookID: String) -> CoverCropAnchor? {
         layoutStore.bookLayoutSettings(forBookID: bookID)?.coverCropAnchor
     }

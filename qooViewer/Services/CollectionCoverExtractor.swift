@@ -13,13 +13,13 @@ import CoreGraphics
 ///
 /// ■ 抽出をやり直す契機
 /// - カバーの上書き(ページ指定・外部ファイル)が変わったとき
-/// - 横長カバーの見せ方(CoverCropAnchor)が変わったとき
-/// - その本の読み方向の上書きが変わったとき
-///   → いずれも`.layoutDataDidChange`(bookID付き)で届く。自分が最後に使った値と**比べて**
-///     違うときだけやり直す(ViewerViewModel.reloadLayoutDataと同じ方式)。
-/// - 環境設定の**既定の**読み方向が変わったとき
-///   → 横長を切ってある本のうち、本ごとの上書きも明示的な位置指定も無いものだけ作り直す
-///     (切る側が左右入れ替わるため。縦長のカバーは影響を受けない)。
+///   → `.layoutDataDidChange`(bookID付き)で届く。自分が最後に使った値と**比べて**違うときだけ
+///     やり直す(ViewerViewModel.reloadLayoutDataと同じ方式)。
+///
+/// 契機はこれだけ ―― **カバーの見せ方(比・切り出す位置・読み方向)では作り直さない。**
+/// カバーは切らずに保存し、枠へ合わせるのは表示のたびに行うようになった
+/// (CoverImageResolver.cropped(_:to:anchor:)のコメント参照)ので、抽出が気にするのは
+/// 「どの画像か」だけになった。
 @MainActor
 final class CollectionCoverExtractor: ObservableObject {
     /// いま抽出中のitem(表示側がスピナーを出すために見る)。同時1件なので高々1つ。
@@ -28,10 +28,19 @@ final class CollectionCoverExtractor: ObservableObject {
     private let collectionStore: CollectionStore
     private let coverStore: CollectionCoverStore
     private let layoutStore: LayoutStore
-    private let preferences: AppPreferences
     /// 抽出のために読み込んだ本のページ一覧を、ディスクキャッシュへ書き戻すか
     /// (**テストのための口**。LibraryImportExportService.cachesPageListと同じ理由)。
     private let cachesPageList: Bool
+    /// カバーの保存世代(migrateCoverStorageIfNeeded)の置き場所。通常はアプリの
+    /// `UserDefaults.standard`で、テストだけが専用のsuiteを渡す(共有状態に触らないため。
+    /// WelcomeLibraryState.defaultsと同じ理由)。
+    private let defaults: UserDefaults
+
+    /// 保存してあるカバーの作り方の世代。上げると次回の起動で全件が抽出し直される
+    /// (migrateCoverStorageIfNeeded)。
+    /// - 1: 抽出の時点で2:3へ切って保存していた
+    /// - 2: 切らずに保存し、枠へ合わせるのは表示時(2026-09-09)
+    static let coverStorageGeneration = 2
 
     /// 待ち行列(CollectionItem.id)。同じidを二重に積まない。
     private var queue: [UUID] = []
@@ -54,26 +63,23 @@ final class CollectionCoverExtractor: ObservableObject {
     private struct CoverSignature: Equatable {
         var coverPageKey: String?
         var externalCoverFileName: String?
-        var readingDirection: ReadingDirection
-        var cropAnchor: CoverCropAnchor?
     }
     private var signatures: [String: CoverSignature] = [:]
 
     private var observers: [NSObjectProtocol] = []
-    private var cancellables: [AnyCancellable] = []
 
     init(
         collectionStore: CollectionStore,
         coverStore: CollectionCoverStore,
         layoutStore: LayoutStore,
-        preferences: AppPreferences,
-        cachesPageList: Bool = true
+        cachesPageList: Bool = true,
+        defaults: UserDefaults = .standard
     ) {
         self.collectionStore = collectionStore
         self.coverStore = coverStore
         self.layoutStore = layoutStore
-        self.preferences = preferences
         self.cachesPageList = cachesPageList
+        self.defaults = defaults
 
         // queue: .mainを指定しているため実行時には必ずMainActor上で呼ばれるが、クロージャ自体の
         // 型はMainActorに分離されていないため、コンパイラは静的にそれを保証できない
@@ -98,13 +104,7 @@ final class CollectionCoverExtractor: ObservableObject {
         // (signaturesのコメント参照)。
         seedSignatures(for: collectionStore.allRegisteredBookIDs())
 
-        preferences.$defaultReadingDirection
-            .dropFirst()
-            .removeDuplicates()
-            .sink { [weak self] _ in
-                MainActor.assumeIsolated { self?.handleDefaultReadingDirectionChange() }
-            }
-            .store(in: &cancellables)
+        migrateCoverStorageIfNeeded()
     }
 
     deinit {
@@ -121,7 +121,6 @@ final class CollectionCoverExtractor: ObservableObject {
             NotificationCenter.default.removeObserver(observer)
         }
         observers = []
-        cancellables = []
     }
 
     // MARK: - 待ち行列
@@ -148,9 +147,7 @@ final class CollectionCoverExtractor: ObservableObject {
     /// まだ控えていないbookIDの条件を、いまのDBの値で記録する(抽出はしない)。
     private func seedSignatures(for bookIDs: Set<String>) {
         for bookID in bookIDs where signatures[bookID] == nil {
-            let snapshot = layoutStore.coverOverrideSnapshot(
-                forBookID: bookID, defaultReadingDirection: preferences.defaultReadingDirection
-            )
+            let snapshot = layoutStore.coverOverrideSnapshot(forBookID: bookID)
             signatures[bookID] = signature(forBookID: bookID, snapshot: snapshot)
         }
     }
@@ -198,12 +195,10 @@ final class CollectionCoverExtractor: ObservableObject {
         defer { inFlightItemIDs.remove(itemID) }
 
         guard let url = collectionStore.resolvedURL(for: item) else {
-            collectionStore.setCoverStatus(.failed, cropSide: .none, for: item)
+            collectionStore.setCoverStatus(.failed, aspect: 0, for: item)
             return
         }
-        let snapshot = layoutStore.coverOverrideSnapshot(
-            forBookID: bookID, defaultReadingDirection: preferences.defaultReadingDirection
-        )
+        let snapshot = layoutStore.coverOverrideSnapshot(forBookID: bookID)
         signatures[bookID] = signature(forBookID: bookID, snapshot: snapshot)
 
         let didAccess = url.startAccessingSecurityScopedResource()
@@ -215,21 +210,22 @@ final class CollectionCoverExtractor: ObservableObject {
 
         // 読み込んでいる間にコレクションから外された可能性があるので、書き戻す前に引き直す。
         guard let current = collectionStore.item(withID: itemID) else { return }
-        guard let image else {
-            collectionStore.setCoverStatus(.failed, cropSide: .none, for: current)
+        guard let image, image.width > 0, image.height > 0 else {
+            collectionStore.setCoverStatus(.failed, aspect: 0, for: current)
             return
         }
-        let cropped = CoverImageResolver.croppedForGrid(
-            image, readingDirection: snapshot.readingDirection, anchor: snapshot.cropAnchor
-        )
+        // **切らずに**そのまま保存する。枠の比(ライブラリごと)へ合わせるのは表示側の仕事
+        // (CoverImageResolver.cropped(_:to:anchor:)のコメント参照)。
         do {
-            try await coverStore.write(cropped.image, for: itemID)
+            try await coverStore.write(image, for: itemID)
         } catch {
-            collectionStore.setCoverStatus(.failed, cropSide: .none, for: current)
+            collectionStore.setCoverStatus(.failed, aspect: 0, for: current)
             return
         }
         guard let stored = collectionStore.item(withID: itemID) else { return }
-        collectionStore.setCoverStatus(.ready, cropSide: cropped.cropSide, for: stored)
+        collectionStore.setCoverStatus(
+            .ready, aspect: Double(image.width) / Double(image.height), for: stored
+        )
     }
 
     private func signature(
@@ -238,9 +234,7 @@ final class CollectionCoverExtractor: ObservableObject {
         CoverSignature(
             coverPageKey: snapshot.coverPageKey,
             externalCoverFileName: layoutStore.bookLayoutSettings(forBookID: bookID)?
-                .externalCoverFileName,
-            readingDirection: snapshot.readingDirection,
-            cropAnchor: snapshot.cropAnchor
+                .externalCoverFileName
         )
     }
 
@@ -251,9 +245,7 @@ final class CollectionCoverExtractor: ObservableObject {
         guard let bookID else { return }
         let items = collectionStore.items(forBookID: bookID)
         guard !items.isEmpty else { return }
-        let snapshot = layoutStore.coverOverrideSnapshot(
-            forBookID: bookID, defaultReadingDirection: preferences.defaultReadingDirection
-        )
+        let snapshot = layoutStore.coverOverrideSnapshot(forBookID: bookID)
         let current = signature(forBookID: bookID, snapshot: snapshot)
         // 控えが無い本は、この通知より後に登録されたもの。pendingのままなのでrefillが拾う。
         guard let previous = signatures[bookID] else {
@@ -266,17 +258,24 @@ final class CollectionCoverExtractor: ObservableObject {
         enqueue(items)
     }
 
-    /// 環境設定の既定の読み方向が変わったとき。**横長を切ってある**本のうち、本ごとの
-    /// 読み方向の上書きも、明示的な位置の指定も無いものだけがトリミングの向きを変える。
-    private func handleDefaultReadingDirectionChange() {
-        let targets = collectionStore.itemsWithCroppedCover().filter { item in
-            let settings = layoutStore.bookLayoutSettings(forBookID: item.bookID)
-            return settings?.readingDirectionOverride == nil && settings?.coverCropAnchor == nil
-        }
-        guard !targets.isEmpty else { return }
-        for bookID in Set(targets.map(\.bookID)) {
+    // MARK: - 保存の仕方が変わったときの一度きりの作り直し
+
+    /// 保存してあるカバーの**作り方**が変わったときに、全件を抽出し直す。
+    ///
+    /// この起動で必要なのは第2世代への移行 ―― 第1世代は抽出の時点で2:3へ切ってJPEGを保存して
+    /// いた(CoverImageResolver.cropped(_:to:anchor:)のコメント参照)。そのまま残すと、
+    /// 1:1のライブラリで「一度2:3に切られた画像をさらに正方形へ切る」ことになり、横が二重に
+    /// 失われる。世代番号をUserDefaultsに持ち、上がっていたら1回だけ`.pending`へ戻す。
+    ///
+    /// `qooViewer.pref.`で始まらないキーにしてあるのは、環境設定の「初期設定に戻す」で
+    /// 消えないようにするため ―― 消えると起動のたびに全件を抽出し直してしまう
+    /// (WelcomeLibraryStateのキーと同じ判断)。
+    private func migrateCoverStorageIfNeeded() {
+        let key = "qooViewer.collections.coverStorageGeneration"
+        guard defaults.integer(forKey: key) < Self.coverStorageGeneration else { return }
+        defaults.set(Self.coverStorageGeneration, forKey: key)
+        for bookID in collectionStore.allRegisteredBookIDs() {
             collectionStore.markCoversPending(forBookID: bookID)
         }
-        enqueue(targets)
     }
 }

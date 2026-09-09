@@ -43,12 +43,12 @@ final class CollectionItem {
 
     /// カバー画像の抽出状態(CollectionCoverStatusのrawValue)。
     var coverStatus: Int = 0
-    /// 抽出したカバーの**どこを切ったか**(CoverCropSideのrawValue)。
+    /// 保存してあるカバー画像の縦横比(幅 ÷ 高さ)。0 = まだ抽出できていない。
     ///
-    /// 横長の画像は縦長(2:3)へトリミングして保存する(CoverImageResolver.croppedForGrid)。
-    /// どちら側を残したかを覚えておくのは、読み方向の既定が変わったときに「作り直すべき本」を
-    /// 選び出すため ―― 切っていない(=縦長だった)カバーは読み方向が変わっても変化しない。
-    var coverCropSide: Int = 0
+    /// カバーは**切らずに**保存し、枠の比(ライブラリごと)へ合わせるのは表示のたびに行う
+    /// (CoverImageResolver.cropped(_:to:anchor:)のコメント参照)。この値を行に持っておくのは、
+    /// メタデータ編集で「残す位置」の指定が効くかどうかを、画像を復号せずに判定するため。
+    var coverAspect: Double = 0
 
     /// 所属コレクション。
     var collection: BookCollection?
@@ -74,7 +74,7 @@ final class CollectionItem {
         self.sortOrder = sortOrder
         self.addedAt = Date()
         self.coverStatus = CollectionCoverStatus.pending.rawValue
-        self.coverCropSide = CoverCropSide.none.rawValue
+        self.coverAspect = 0
         self.inodeNumber = fileNodeIdentifier?.inodeNumber
         self.volumeDeviceNumber = fileNodeIdentifier?.volumeDeviceNumber
     }
@@ -90,11 +90,6 @@ final class CollectionItem {
     var coverState: CollectionCoverStatus {
         get { CollectionCoverStatus(rawValue: coverStatus) ?? .pending }
         set { coverStatus = newValue.rawValue }
-    }
-
-    var coverCrop: CoverCropSide {
-        get { CoverCropSide(rawValue: coverCropSide) ?? .none }
-        set { coverCropSide = newValue.rawValue }
     }
 }
 

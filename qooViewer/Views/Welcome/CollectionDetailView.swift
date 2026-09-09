@@ -17,11 +17,16 @@ import SwiftUI
 struct CollectionDetailView: View {
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
+    @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
     @Environment(\.openWindow) private var openWindow
     @ObservedObject var state: WelcomeLibraryState
     let collection: BookCollection
+    /// このコレクションが属するライブラリ。`collection.library`からも辿れるが、カバーの
+    /// 縦横比のように**必ず要る**値の出どころがOptionalだと描き分けが増えるため、
+    /// 帯で選択中のものを呼び出し側(WelcomeLibraryPane)から渡してもらう。
+    let library: BookLibrary
     let allowsEditing: Bool
 
     private static let spacing: CGFloat = 16
@@ -48,6 +53,12 @@ struct CollectionDetailView: View {
 
     private var items: [CollectionItem] {
         collectionStore.items(in: collection, sort: state.itemSort)
+    }
+
+    /// このカバーで残す位置(本ごとの上書き ?? ライブラリの既定。CollectionGridViewと同じ)。
+    private func cropAnchor(for item: CollectionItem) -> CoverCropAnchor {
+        layoutStore.bookLayoutSettings(forBookID: item.bookID)?.coverCropAnchor
+            ?? library.coverCropAnchor
     }
 
     var body: some View {
@@ -151,6 +162,7 @@ struct CollectionDetailView: View {
                 size: $state.coverSize,
                 sizeRange: WelcomeLibraryState.coverSizeRange,
                 sizeHelp: "Cover Size",
+                library: library,
                 allowsEditing: allowsEditing
             )
         }
@@ -205,7 +217,7 @@ struct CollectionDetailView: View {
         // 名前のリネームとは別の階層に付ける ―― 同じビューに2つの.sheetを重ねると、
         // 片方しか出ないことがある(SwiftUIの既知の癖)。
         .sheet(item: $metadataTarget) { target in
-            BookMetadataSheet(item: target.item, sourceURL: target.url)
+            BookMetadataSheet(item: target.item, sourceURL: target.url, library: library)
         }
     }
 
@@ -219,6 +231,8 @@ struct CollectionDetailView: View {
         return CollectionCoverThumbnail(
             item: item,
             coverStore: collectionStore.coverStore,
+            aspectRatio: library.coverAspectRatio,
+            anchor: cropAnchor(for: item),
             displayWidth: state.coverSize,
             exists: collectionStore.cachedFileExists(for: item),
             isExtracting: coverExtractor.inFlightItemIDs.contains(item.id),

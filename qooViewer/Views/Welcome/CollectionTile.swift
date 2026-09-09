@@ -1,14 +1,14 @@
 import CoreGraphics
 import SwiftUI
 
-/// コレクション1つ分のタイル(改善要望5)。中身のカバーを最大6冊ぶん3×2で敷き詰めた
-/// 角丸の札で、クリックするとその中へ入る。
+/// コレクション1つ分のタイル(改善要望5)。中身のカバーを敷き詰めた角丸の札で、クリックすると
+/// その中へ入る。
 ///
-/// ■ なぜ3×2なのか
-/// セルの縦横比は2:3(CollectionCoverThumbnail)なので、3列2行にすると
-/// 「幅 = 3w + 2s」「高さ = 2 × 1.5w + s = 3w + s」となり、**札全体がほぼ正方形になる**。
-/// 縦横比の指定を別に書かなくても正方形に落ち着くので、タイルの大きさはスライダーの値
-/// (LazyVGridの`.adaptive(minimum:)`)にそのまま従わせられる。
+/// ■ 割り付けはライブラリの縦横比で決まる
+/// 2:3 なら3列2行で最大6冊、1:1 なら2列2行で最大4冊(CoverAspectRatio.tileColumns)。どちらも
+/// **札全体がほぼ正方形になる**組み合わせで、縦横比の指定を別に書かなくても正方形に落ち着く
+/// ので、タイルの大きさはスライダーの値(LazyVGridの`.adaptive(minimum:)`)にそのまま従わせられる
+/// (計算はCoverAspectRatio.tileColumnsのコメント)。
 ///
 /// ■ 編集モードでは「選ぶ」
 /// 編集モード中はクリックが**中へ入る**から**選ぶ/選び直す**に変わり、左上に選択の印
@@ -22,13 +22,17 @@ import SwiftUI
 ///   塗られると、枠だけが頼りの「選んである」が地に溶けるため)
 struct CollectionTile: View {
     let collection: BookCollection
-    /// 表示する本(並び替え済み)。先頭6冊だけを描く。
+    /// 表示する本(並び替え済み)。先頭`aspectRatio.tileCellCount`冊だけを描く。
     let items: [CollectionItem]
     /// この本の実体が見つかっているか。
     let exists: (CollectionItem) -> Bool
     /// いま抽出中か。
     let isExtracting: (CollectionItem) -> Bool
+    /// この本のカバーで残す位置(本ごとの上書き ?? ライブラリの既定)。
+    let cropAnchor: (CollectionItem) -> CoverCropAnchor
     let coverStore: CollectionCoverStore
+    /// このライブラリのカバーの縦横比。セルの形とここの割り付けの両方がこれで決まる。
+    let aspectRatio: CoverAspectRatio
     /// タイルの一辺の目安(スライダーの値)。角丸とセルの復号サイズの見積もりに使う。
     let size: CGFloat
     var onImageRetained: ((CGImage) -> Void)?
@@ -39,14 +43,15 @@ struct CollectionTile: View {
     /// 編集モード中のクリック。
     var onToggleSelection: () -> Void = {}
 
-    /// 3×2のセルの間隔。
+    /// セルの間隔。
     private static let cellSpacing: CGFloat = 3
     /// 札の内側の余白。
     private static let padding: CGFloat = 6
 
     /// セル1つの実寸の見積もり(復号サイズの上限にだけ使う。実際の割り付けはGridが決める)。
     private var cellWidth: CGFloat {
-        (size - Self.padding * 2 - Self.cellSpacing * 2) / 3
+        let columns = CGFloat(aspectRatio.tileColumns)
+        return (size - Self.padding * 2 - Self.cellSpacing * (columns - 1)) / columns
     }
 
     /// 札の角丸。選択の枠も同じ形で描く。
@@ -75,11 +80,12 @@ struct CollectionTile: View {
 
     private var artwork: some View {
         Grid(horizontalSpacing: Self.cellSpacing, verticalSpacing: Self.cellSpacing) {
-            GridRow {
-                cell(0); cell(1); cell(2)
-            }
-            GridRow {
-                cell(3); cell(4); cell(5)
+            ForEach(0..<aspectRatio.tileRows, id: \.self) { row in
+                GridRow {
+                    ForEach(0..<aspectRatio.tileColumns, id: \.self) { column in
+                        cell(row * aspectRatio.tileColumns + column)
+                    }
+                }
             }
         }
         .padding(Self.padding)
@@ -125,16 +131,18 @@ struct CollectionTile: View {
             CollectionCoverThumbnail(
                 item: item,
                 coverStore: coverStore,
+                aspectRatio: aspectRatio,
+                anchor: cropAnchor(item),
                 displayWidth: cellWidth,
                 exists: exists(item),
                 isExtracting: isExtracting(item),
                 onImageRetained: onImageRetained
             )
         } else {
-            // 6冊に満たないぶんは、同じ大きさの空きとして残す(詰めて並べると、冊数によって
+            // 枠を埋めきらないぶんは、同じ大きさの空きとして残す(詰めて並べると、冊数によって
             // 札の中の割り付けが変わり、一覧が揃って見えない)。
             Color.clear
-                .aspectRatio(CollectionCoverThumbnail.aspectRatio, contentMode: .fit)
+                .aspectRatio(aspectRatio.value, contentMode: .fit)
         }
     }
 }

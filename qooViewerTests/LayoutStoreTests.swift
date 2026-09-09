@@ -254,9 +254,9 @@ struct LayoutStoreTests {
         #expect(settings(library, source.book)?.externalCoverFileName == "cover.jpg")
     }
 
-    /// 横長カバーの見せ方は「どの画像か」ではなく「その画像のどこを見せるか」なので、
+    /// 切り出し位置は「どの画像か」ではなく「その画像のどこを見せるか」なので、
     /// カバーを既定へ戻しても残る(LayoutStore.setCoverCropAnchor のコメント)。
-    @Test("「カバーを既定に戻す」は、横長カバーの見せ方の指定まで消さない")
+    @Test("「カバーを既定に戻す」は、カバーの切り出し位置の指定まで消さない")
     func resettingTheCoverKeepsTheCropAnchor() async throws {
         let library = try InMemoryLibrary(label: "layout-cover-anchor")
         defer { library.close() }
@@ -264,16 +264,16 @@ struct LayoutStoreTests {
 
         library.layouts.setCoverPageKey(for: source.book, pageKey: source.keys[1], displayName: "002.jpg")
         library.layouts.setCoverCropAnchor(
-            forBookID: source.book.id, sourceURL: source.book.sourceURL, anchor: .left
+            forBookID: source.book.id, sourceURL: source.book.sourceURL, anchor: .start
         )
         library.layouts.clearCoverOverride(forBookID: source.book.id)
 
         #expect(settings(library, source.book)?.coverPageKey == nil)
-        #expect(settings(library, source.book)?.coverCropAnchor == .left)
+        #expect(settings(library, source.book)?.coverCropAnchor == .start)
     }
 
-    @Test("「自動のまま」の指定は、まだ一行も無い本に空の行を作らない")
-    func settingTheAutomaticAnchorDoesNotCreateARow() throws {
+    @Test("「ライブラリに従う」のままの指定は、まだ一行も無い本に空の行を作らない")
+    func settingTheInheritedAnchorDoesNotCreateARow() throws {
         let library = try InMemoryLibrary(label: "layout-cover-anchor-empty")
         defer { library.close() }
         let bookID = "/books/never-touched-\(UUID().uuidString).cbz"
@@ -295,7 +295,7 @@ struct LayoutStoreTests {
         let source = try await makeSource("layout-cover-fingerprint")
 
         library.layouts.setCoverCropAnchor(
-            forBookID: source.book.id, sourceURL: source.book.sourceURL, anchor: .right
+            forBookID: source.book.id, sourceURL: source.book.sourceURL, anchor: .end
         )
         #expect(settings(library, source.book)?.recordedPageCount == nil)
         #expect(library.layouts.checkContentReplacement(book: source.book) == .unaffected)
