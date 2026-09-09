@@ -341,6 +341,39 @@ struct QooViewerApp: App {
             .environmentObject(resourceSampler)
     }
 
+    /// 「お気に入りの編集」ウインドウ。bodyから切り出してあるのは、この1つだけに
+    /// `.commandsRemoved()`を掛けるため。
+    ///
+    /// **`Window`シーンは、宣言するだけで「ウインドウ」メニューに項目が並ぶ。** 改善要望5で
+    /// お気に入りを無効化し、開く入り口(編集メニューの「お気に入りの編集…」・
+    /// ViewerAction.showFavoritesOrganizer)はすべてFavoritesFeature.isEnabledで塞いだが、
+    /// このメニュー項目だけは残っていて、そこからユーザーの登録内容ごと編集できる状態で開けた
+    /// (実機で確認)。`.commandsRemoved()`はそのシーンが足す既定のコマンド ―― この自動の
+    /// メニュー項目 ―― を取り除く。
+    ///
+    /// **フラグでSceneの宣言ごと囲むことはできない**: SwiftUIの`SceneBuilder`が受け付ける
+    /// 条件分岐は`if #available`だけで(`buildOptional`は`_LimitedAvailabilitySceneMarker`版
+    /// しか使えない)、普通の`if`を書くと型チェックが通らない(実測: "failed to produce
+    /// diagnostic for expression")。
+    ///
+    /// お気に入りを復活させるとき(FavoritesFeature.isEnabled = true)は、編集メニューの
+    /// 項目が入り口として戻るので、ここはこのままでよい ―― 「ウインドウ」メニューにも
+    /// 並べたければ`.commandsRemoved()`を外す。
+    private func favoritesOrganizerScene(locale: Locale) -> some Scene {
+        Window(String(localized: "Edit Favorites", language: locale), id: "favoritesOrganizer") {
+            FavoritesOrganizerView(favoritesStore: favoritesStore)
+                .environmentObject(launchCoordinator)
+                .environmentObject(preferences)
+                .environment(\.locale, locale)
+        }
+        .handlesExternalEvents(matching: [])
+        .windowResizability(.contentSize)
+        // 「フォルダを上に」「並べ替え」をツールバーに載せているため、タイトルとツールバーを
+        // 1行にまとめた純正アプリと同じ見た目にする(FavoritesOrganizerView参照)。
+        .windowToolbarStyle(.unified)
+        .commandsRemoved()
+    }
+
     var body: some Scene {
         // 表示言語のLocaleは全Sceneで共通の値なので、bodyの評価ごとに1回だけ解決して使い回す
         // (以前は各Sceneの`.environment(\.locale, currentLocale)`が9箇所に分散しており、bodyが
@@ -1176,7 +1209,8 @@ struct QooViewerApp: App {
         // openWindow(id: "favoritesOrganizer")で開く。
         // 改善要望5でお気に入りを無効化したため、このウインドウを開く入り口(編集メニュー・
         // ViewerAction.showFavoritesOrganizer)は現在どこにも出ていない。将来復活させられるよう
-        // Scene自体は残してある(FavoritesFeature参照)。
+        // Scene自体は残してある(FavoritesFeature参照)。「ウインドウ」メニューに自動で並ぶ
+        // 項目だけは`.commandsRemoved()`で落としてある(favoritesOrganizerScene参照)。
         // launchCoordinatorは、ツールバーの「現在の本を追加」ボタン(FavoritesOrganizerView参照)が
         // 「今読んでいる本」(launchCoordinator.activeBookAppState)を特定するために必要。
         // preferencesは、詳細ペインでお気に入りをダブルクリックして開いたときに、環境設定
@@ -1186,17 +1220,7 @@ struct QooViewerApp: App {
         // 環境設定「表示言語」に従わない(Scene側の`.environment(\.locale, ...)`も効かない)ため、
         // 表示言語で引いたStringを渡す(String(localized:language:)のコメント参照)。以下の
         // Windowすべて同じ。
-        Window(String(localized: "Edit Favorites", language: locale), id: "favoritesOrganizer") {
-            FavoritesOrganizerView(favoritesStore: favoritesStore)
-                .environmentObject(launchCoordinator)
-                .environmentObject(preferences)
-                .environment(\.locale, locale)
-        }
-        .handlesExternalEvents(matching: [])
-        .windowResizability(.contentSize)
-        // 「フォルダを上に」「並べ替え」をツールバーに載せているため、タイトルとツールバーを
-        // 1行にまとめた純正アプリと同じ見た目にする(FavoritesOrganizerView参照)。
-        .windowToolbarStyle(.unified)
+        favoritesOrganizerScene(locale: locale)
 
         // 「ブックマーク・レイアウトの編集」ウインドウ(独立ウインドウ、設計コンセプト4節)。
         // 以前は本を表示しているウインドウのシートで、かつ「今開いている本」のブックマークだけを

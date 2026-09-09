@@ -141,12 +141,42 @@ final class MetadataEditorViewModel: ObservableObject {
         //
         // queue: .mainを指定しているため実行時には必ずMainActor上で呼ばれるが、クロージャ自体の
         // 型はMainActorに分離されていないため、コンパイラは静的にそれを保証できない。
-        for name in [Notification.Name.bookmarksDidChange, .layoutDataDidChange, .bookMetadataDidChange] {
+        for name in [Notification.Name.bookmarksDidChange, .layoutDataDidChange] {
             let observer = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.reload() }
             }
             observers.append(observer)
         }
+
+        // メタデータそのものの変更だけは、reload()では足りない ―― reload()は編集中の値
+        // (drafts)を意図的に残すため、**この一覧の外で登録・変更された本の行が、登録前の
+        // 推測値のまま残ってしまう**(実機で確認: ウェルカム画面のメタデータ編集シートで
+        // 著者名を登録したのに、開いていたこのウインドウの行は著者名が空のまま。しかも
+        // 「登録済み」の見た目になるため、そのまま登録し直すと空の値でDBを上書きできてしまう)。
+        // 変更された本の値だけを作り直す。userInfoに"bookID"が無い通知は全件変更
+        // (一括取り込み・全件削除)なので、編集中の値をすべて捨てて作り直す
+        // (Notification.Name.bookMetadataDidChangeのコメントの約束どおり)。
+        //
+        // ここだけ`object:`でこのウインドウが表示しているストアに絞っているのは、下の
+        // 「bookIDが無ければ全行を作り直す」が編集中の値を捨てる操作だからである
+        // (アプリでは BookMetadataStore はAppStoresの1つだけなので絞っても取りこぼさない。
+        // テストは1つのプロセスで複数のストアを並行して動かすため、絞らないと**別のテストの
+        // 一括変更でこちらの入力途中の値が消える**)。
+        let metadataObserver = NotificationCenter.default.addObserver(
+            forName: .bookMetadataDidChange, object: metadataStore, queue: .main
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let changedBookID = notification.userInfo?["bookID"] as? String {
+                    self.reload()
+                    self.refreshDraft(forBookID: changedBookID)
+                } else {
+                    self.drafts.removeAll(keepingCapacity: true)
+                    self.reload()
+                }
+            }
+        }
+        observers.append(metadataObserver)
 
         // フォーマット定義が変わったら、推測値のキャッシュを捨てて全行を作り直す
         // (未登録の行の表示内容が変わるため。登録済みの行はDBの値なので影響を受けない)。

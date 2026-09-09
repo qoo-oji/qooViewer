@@ -41,6 +41,15 @@ struct MetadataEditorTests {
         Issue.record("推測が終わらない")
     }
 
+    /// 変更通知(`queue: .main`)は投げた直後には届かないため、条件が成り立つまで回す。
+    private func waitUntil(_ condition: () -> Bool) async {
+        for _ in 0..<500 {
+            if condition() { return }
+            await Task.yield()
+        }
+        Issue.record("条件が成り立たない")
+    }
+
     private func addReadingState(_ library: InMemoryLibrary, bookID: String) {
         library.context.insert(BookReadingState(bookID: bookID))
         try? library.context.save()
@@ -315,6 +324,57 @@ struct MetadataEditorTests {
 
         #expect(viewModel.drafts[bookID]?.title == "入力途中")
         #expect(viewModel.rows.count == 2)
+    }
+
+    @Test("この一覧の外で登録された本は、行の表示も登録後の値に入れ替わる")
+    func externalRegistrationRefreshesTheRow() async throws {
+        let library = try InMemoryLibrary(label: "metadata-external-register")
+        defer { library.close() }
+        let bookID = "/books/外で登録される本.cbz"
+        addReadingState(library, bookID: bookID)
+        let viewModel = makeViewModel(library)
+        defer { viewModel.releaseResources() }
+        await settle(viewModel)
+        // まだ未登録なので、表示はファイル名からの推測(著者は空)。
+        #expect(viewModel.drafts[bookID]?.author == "")
+
+        // ウェルカム画面のメタデータ編集シートからの登録に相当する
+        // (この ViewModel を通さずにストアだけが変わる経路)。
+        _ = library.metadata.upsert(
+            bookID: bookID, author: "外の著者", title: "外のタイトル",
+            series: "", seriesIndex: "", sourceURL: nil
+        )
+        await waitUntil { viewModel.drafts[bookID]?.author == "外の著者" }
+
+        // 変更通知だけで、行の表示が DB の値へ入れ替わる(reload() は編集中の値を残すため、
+        // これが無いと「登録済み」の見た目のまま推測値が残り、登録し直すと上書きしてしまう)。
+        #expect(viewModel.drafts[bookID]?.author == "外の著者")
+        #expect(viewModel.drafts[bookID]?.title == "外のタイトル")
+        #expect(viewModel.isRegistered(bookID: bookID))
+    }
+
+    @Test("全件変更の通知(bookID なし)では、すべての行を作り直す")
+    func aBulkChangeRebuildsEveryDraft() async throws {
+        let library = try InMemoryLibrary(label: "metadata-external-bulk")
+        defer { library.close() }
+        let bookID = "/books/一括で消される本.cbz"
+        addReadingState(library, bookID: bookID)
+        _ = library.metadata.upsert(
+            bookID: bookID, author: "消える著者", title: "消えるタイトル",
+            series: "", seriesIndex: "", sourceURL: nil
+        )
+        let viewModel = makeViewModel(library)
+        defer { viewModel.releaseResources() }
+        await settle(viewModel)
+        #expect(viewModel.drafts[bookID]?.author == "消える著者")
+
+        // 「保存データの削除」やライブラリデータの取り込み(置き換え)に相当する。
+        library.metadata.deleteAllMetadata()
+        await waitUntil { viewModel.drafts[bookID]?.author == "" }
+        await settle(viewModel)
+
+        #expect(viewModel.drafts[bookID]?.author == "")
+        #expect(viewModel.isRegistered(bookID: bookID) == false)
     }
 
     @Test("一覧から消えた本の編集中の値は捨てる")
