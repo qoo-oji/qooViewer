@@ -45,6 +45,9 @@ struct AppPreferencesTests {
         #expect(p.collectionCoverCaptionStyle == .none)
         #expect(p.collectionCoverCaptionFontSize == 10)
         #expect(p.collectionTileNameFontSize == 13)
+        // 札の地の色は「未指定」から始める ―― 既定の薄い地は明暗の外観に追従する
+        // (AppPreferences.collectionTileBackgroundColor参照)。
+        #expect(p.collectionTileBackgroundColor == nil)
     }
 
     @Test("書き出しの既定値は形式ごとに違う(画像の連番付け直しは CBZ だけ ON)")
@@ -243,7 +246,7 @@ struct AppPreferencesTests {
             "toolbarRevealDelay", "progressBarRevealDelay", "sidePanelRevealDelay",
             "toolbarDockedGlass", "progressBarDockedGlass", "sidePanelDockedGlass", "welcomeGlass",
             "collectionCoverCaptionStyle", "collectionCoverCaptionFontSize",
-            "collectionTileNameFontSize",
+            "collectionTileNameFontSize", "collectionTileBackgroundColor",
             "pageListSurfaceStyle", "toolbarSurfaceStyle", "progressBarSurfaceStyle",
             "sidePanelSurfaceStyle", "welcomeSurfaceStyle", "overlaySurfaceStyle",
         ],

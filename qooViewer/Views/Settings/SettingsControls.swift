@@ -651,41 +651,62 @@ struct SettingsResetSection: View {
 /// スクロールによる行の再生成に表示状態が引きずられうる。RenderingSettingsView/
 /// AppearanceSettingsViewの`.sheet`のコメント参照)。そのためこの行は「押された」ことを
 /// `action`で伝えるだけにして、どのダイアログを開くかは画面側が決める。
+///
+/// ■ 「既定に戻す」は、未指定の状態を持つ設定にだけ付く(`reset`)
+/// 色の設定はたいてい常に具体的な値を持つ(面に重ねる色・枠の色)ので、戻す先は画面末尾の
+/// 「初期設定に戻す」だけでよい。「未指定 = 既定」を別の状態として持つ設定
+/// (札の地の色。AppPreferences.collectionTileBackgroundColor参照)だけ、その1つを未指定へ
+/// 戻す道がここに要る。**未指定のときは渡さない**(nil)ことで、押しても何も起きない
+/// ボタンが並ばないようにする。
 struct SettingsColorRow: View {
     private let title: LocalizedStringKey
     private let help: LocalizedStringKey?
     private let color: Color
+    private let reset: (() -> Void)?
     private let action: () -> Void
 
     init(
         _ title: LocalizedStringKey,
         color: Color,
         help: LocalizedStringKey? = nil,
+        reset: (() -> Void)? = nil,
         action: @escaping () -> Void
     ) {
         self.title = title
         self.color = color
         self.help = help
+        self.reset = reset
         self.action = action
     }
 
     var body: some View {
         SettingRow(title, help: help) {
-            Button(action: action) {
-                HStack(spacing: 8) {
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(color)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                // 白や白に近い色が行の地に溶けないよう、常に薄い枠線を敷く
-                                // (CustomColorPickerSheetのパレットのマスと同じ理由)。
-                                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
-                        )
-                        .frame(width: 36, height: 16)
-                    Text("Change…")
+            HStack(spacing: 8) {
+                Button(action: action) {
+                    HStack(spacing: 8) {
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(color)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    // 白や白に近い色が行の地に溶けないよう、常に薄い枠線を敷く
+                                    // (CustomColorPickerSheetのパレットのマスと同じ理由)。
+                                    .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+                            )
+                            .frame(width: 36, height: 16)
+                        Text("Change…")
+                    }
+                }
+                .accessibilityLabel(Text(title))
+                // 文字ではなくアイコンにする。「見本 + 変更… + 既定に戻す」を文字で並べると
+                // 行が長くなり、幅の足りない環境設定ウインドウでSettingRowが段替えする。
+                if let reset {
+                    Button(action: reset) {
+                        Image(systemName: "arrow.counterclockwise")
+                    }
+                    .help("Reset")
+                    .accessibilityLabel(Text("Reset"))
                 }
             }
-            .accessibilityLabel(Text(title))
         }
     }
 }

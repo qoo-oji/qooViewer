@@ -204,7 +204,7 @@ struct CollectionGridView: View {
             cropAnchor: { cropAnchor(for: $0) },
             coverStore: collectionStore.coverStore,
             aspectRatio: library.coverAspectRatio,
-            backgroundColor: library.coverBackgroundColor?.color ?? Color.primary.opacity(0.07),
+            backgroundColor: preferences.effectiveCollectionTileBackground,
             size: state.tileSize,
             nameFontSize: preferences.collectionTileNameFontSize,
             onImageRetained: { image in
@@ -358,7 +358,7 @@ struct CollectionGridView: View {
         // 名前だけ先に決める(本はこの後の「本を追加」パネルで入れる)。1冊も入らなければ
         // コレクションの行は作られない(AddBooksPanelの型コメント参照)。
         state.pendingCreations.append(
-            .init(defaultName: "", books: [], fromShelf: false)
+            .init(defaultName: "", books: [], fromShelf: false, fromDrop: false)
         )
     }
 }

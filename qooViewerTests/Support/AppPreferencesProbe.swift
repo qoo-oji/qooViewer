@@ -102,6 +102,9 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.collectionCoverCaptionStyle = otherCase(p.collectionCoverCaptionStyle)
     p.collectionCoverCaptionFontSize += 1
     p.collectionTileNameFontSize += 1
+    // 既定は nil(= 外観に追従する薄い地)なので、色を1つ入れれば動いたことになる。
+    p.collectionTileBackgroundColor = p.collectionTileBackgroundColor.map(otherColor)
+        ?? RGBColorValue(red: 20, green: 30, blue: 60)
     for surface in PanelSurface.allCases {
         p.setSurfaceStyle(otherStyle(p.surfaceStyle(for: surface)), for: surface)
     }

@@ -16,7 +16,7 @@ import SwiftUI
 ///    ・ページ一覧パネル → サムネイルの大きさ・間隔・余白・キャプション・枠の色・
 ///      ホバー拡大・ホイールのスクロール量(thumbnailGridSection)
 ///    ・プログレスバー → カーソルを合わせたときのサムネイル(filmstripSection)
-///    ・ウェルカム画面 → 一覧(札)のコレクション名の大きさ(librarySection)と、
+///    ・ウェルカム画面 → 一覧(札)のコレクション名の大きさと地の色(librarySection)と、
 ///      コレクションの中で本のカバーの下に何を書くか(collectionSection)
 ///    1つのパネルの見た目を決める設定は必ず同じページに揃える、という「外観」の方針
 ///    (AppearanceSettingsView冒頭参照)に従って、ここに同居させている。以前は1枚の長い画面の
@@ -41,6 +41,8 @@ struct PanelSurfaceSettingsView: View {
         case pageBorder
         /// プログレスバーのサムネイルで、カーソル位置のページを示す色(同上)。
         case filmstripHighlight
+        /// コレクションの一覧(札)の地の色(「未指定 = 既定」から離れるとき)。
+        case collectionTileBackground
 
         var id: Self { self }
 
@@ -50,6 +52,7 @@ struct PanelSurfaceSettingsView: View {
             // 「表示中のページ」と「カーソル位置のページ」で指す対象は違うが、どちらも
             // 「サムネイル1枚を色で示す」ためのカスタム色なので、同じ見出しでよい。
             case .pageBorder, .filmstripHighlight: "Custom Highlight Color"
+            case .collectionTileBackground: "Custom Tile Background Color"
             }
         }
     }
@@ -305,12 +308,15 @@ struct PanelSurfaceSettingsView: View {
         collectionSection
     }
 
-    /// コレクションの一覧(札)の見え方。いま持っているのは札の下の名前の大きさだけ
-    /// (`CollectionTile`。既定13pt = 設定にする前の`Text`の既定 = macOSの`.body`)。
+    /// コレクションの一覧(札)の見え方。札の下の名前の大きさ(`CollectionTile`。既定13pt =
+    /// 設定にする前の`Text`の既定 = macOSの`.body`)と、札の地の色。
     ///
-    /// カバーの縦横比・切り取る位置・札の地の色は**ライブラリごと**の設定なので、ここではなく
-    /// ウェルカム画面の歯車(LibrarySettingsPopover)にある ―― あちらはライブラリを選んでから
-    /// 決めるもので、アプリ全体の外観ではない。
+    /// 地の色は**アプリ全体で1つ**。以前はライブラリごと(ウェルカム画面の歯車 →
+    /// LibrarySettingsPopover)だったが、ライブラリを選び直すたびに一覧の地の色が入れ替わる
+    /// のは外観として落ち着かないので、ここへ移した(ユーザー指示 2026-09-09。経緯は
+    /// AppPreferences.collectionTileBackgroundColor参照)。カバーの縦横比と切り取る位置は
+    /// ライブラリごとのままなので、引き続きウェルカム画面の歯車にある ―― あちらは
+    /// 「そのライブラリの本をどう見せるか」で、アプリの外観の設定ではない。
     private var librarySection: some View {
         Section {
             SettingsSlider(
@@ -320,6 +326,17 @@ struct PanelSurfaceSettingsView: View {
                 step: 1
             ) { value in
                 "\(Int(value)) pt"
+            }
+            SettingsColorRow(
+                "Tile Background Color",
+                color: preferences.effectiveCollectionTileBackground,
+                help: "The backdrop each collection's covers are laid out on. Until you pick a color it follows the Light/Dark appearance.",
+                // 色を決めてあるときだけ、既定(外観に追従する薄い地)へ戻す道を出す。
+                reset: preferences.collectionTileBackgroundColor == nil
+                    ? nil
+                    : { preferences.collectionTileBackgroundColor = nil }
+            ) {
+                colorTarget = .collectionTileBackground
             }
         } header: {
             Text("Library")
@@ -480,6 +497,11 @@ struct PanelSurfaceSettingsView: View {
         case .surfaceTint: preferences.surfaceStyle(for: surface).tintColor
         case .pageBorder: preferences.thumbnailGridBorderCustomColor
         case .filmstripHighlight: preferences.filmstripHighlightCustomColor
+        // 未指定のまま開いたときは、既定の見た目に近い中間のグレーから始める(真っ黒から
+        // 始めると、少し変えたいだけの人が毎回遠回りになる)。
+        case .collectionTileBackground:
+            preferences.collectionTileBackgroundColor
+                ?? RGBColorValue(red: 128, green: 128, blue: 128)
         }
     }
 
@@ -506,6 +528,8 @@ struct PanelSurfaceSettingsView: View {
             preferences.thumbnailGridBorderCustomColor = color
         case .filmstripHighlight:
             preferences.filmstripHighlightCustomColor = color
+        case .collectionTileBackground:
+            preferences.collectionTileBackgroundColor = color
         }
     }
 
@@ -513,8 +537,8 @@ struct PanelSurfaceSettingsView: View {
     /// 開いた場合だけ、その選択自体を開く前の値へ戻す(「キャンセルしたのに色の種類だけ
     /// 変わってしまった」を防ぐため)。直前も「カスタム」だったなら、色だけが元のまま残る。
     ///
-    /// 面の重ね色にはプリセットが無く、ダイアログを開くこと自体が設定を変えないので、
-    /// 戻すものが無い。
+    /// 面の重ね色と札の地の色にはプリセットが無く、ダイアログを開くこと自体が設定を
+    /// 変えないので、戻すものが無い。
     private func revert(_ target: ColorTarget) {
         switch target {
         case .surfaceTint:
@@ -529,6 +553,9 @@ struct PanelSurfaceSettingsView: View {
                 preferences.filmstripHighlightColorOption = previous
             }
             filmstripHighlightOptionBeforeCustomizing = nil
+        // 札の地の色もプリセットを持たない(ダイアログを開くだけでは何も変わらない)。
+        case .collectionTileBackground:
+            break
         }
     }
 }

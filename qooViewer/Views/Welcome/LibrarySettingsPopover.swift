@@ -10,12 +10,11 @@ import SwiftUI
 /// - **残す位置** … 画像の比が枠と違うぶんをどこで切るか。切る軸(左右か上下か)は画像ごとに
 ///   決まるので、選択肢は軸に依存しない3つ(CoverCropAnchor参照)。ラベルだけは両方の軸を
 ///   併記する ―― 「始端」では何が起きるのか読めないため。
-/// - **背景色** … コレクションの札(グリッド表示)の下地。nilのままなら既定の薄い地で、
-///   これは明暗どちらの外観にも馴染む値。色を決め打ちで保存すると外観の切り替えに追従できなく
-///   なるので、「未指定」の状態を残してある(BookLibrary.coverBackgroundColorRaw参照)。
 ///
-/// 並びは**カバーの見せ方が2つ続いて、色は最後**(ユーザー指示 2026-09-09)。形と切り方は同じ
-/// 「カバーをどう出すか」の話なので隣り合わせにする。
+/// **札の地の色はここには無い。** 一度はこの面の3つ目に置いていたが、ライブラリを選び直す
+/// たびに一覧の地の色が入れ替わるのは外観として落ち着かないので、アプリ全体で1つの設定として
+/// 環境設定「外観」→「パネル」→「ウェルカム画面」→「ライブラリ」へ移した
+/// (ユーザー指示 2026-09-09。AppPreferences.collectionTileBackgroundColor参照)。
 ///
 /// **説明文は置かない**(ユーザー指示 2026-09-09)。ラジオが並ぶだけの小さな面なので、文章を
 /// 1つ足すとそれだけで面の半分が字で埋まる。幅も内容なりに任せ、余白は詰めてある。
@@ -28,12 +27,6 @@ import SwiftUI
 /// ポップオーバーの中身はmacOSが不透明に描くので、すりガラス面の輪郭は要らない(CLAUDE.md)。
 struct LibrarySettingsPopover: View {
     let library: BookLibrary
-    /// 色の指定ダイアログを開いてほしい、を呼び出し側へ伝える。
-    ///
-    /// **この面が自分で`.sheet`を出さない**のは、ポップオーバーの中からシートを出すと、
-    /// 親のポップオーバーが閉じた時点でシートごと消えるため。開くのは、この面を出している側
-    /// (LibraryPaneControls)の仕事にしてある。
-    let onPickBackgroundColor: () -> Void
 
     @EnvironmentObject private var collectionStore: CollectionStore
     @Environment(\.locale) private var locale
@@ -70,36 +63,6 @@ struct LibrarySettingsPopover: View {
                     Text("Bottom / Right").tag(CoverCropAnchor.end)
                 } label: {
                     EmptyView()
-                }
-            }
-
-            group("Background Color") {
-                HStack(spacing: 8) {
-                    // 色見本。白や白に近い色が地に溶けないよう、常に薄い枠線を敷く
-                    // (SettingsColorRowと同じ理由)。
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(library.coverBackgroundColor?.color ?? Color.primary.opacity(0.07))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
-                        )
-                        .frame(width: 36, height: 16)
-                    Button("Change…") { onPickBackgroundColor() }
-                    // 既定に戻す道は、色を決めてあるときだけ出す。
-                    //
-                    // **文字ではなくアイコンにする。** 「見本 + 変更… + リセット」を文字で並べると
-                    // 面の幅を越えて、リセットが切れて出た(実機で確認。ポップオーバーの幅は
-                    // いちばん広い行に合わせて伸びてはくれなかった)。この面は幅を詰めてある
-                    // (ユーザー指示)ので、行の側を細くする。
-                    if library.coverBackgroundColor != nil {
-                        Button {
-                            collectionStore.setCoverBackgroundColor(library, nil)
-                        } label: {
-                            Image(systemName: "arrow.counterclockwise")
-                        }
-                        .help("Reset")
-                        .accessibilityLabel(Text("Reset"))
-                    }
                 }
             }
         }

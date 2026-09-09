@@ -82,11 +82,13 @@ final class BookLibrary {
     /// 「未設定」の状態を持たせず必ず具体的な値にしておく。既定は中央。
     var coverCropAnchorRaw: String = CoverCropAnchor.center.rawValue
 
-    /// コレクションの札の地の色(ユーザー要望 2026-09-09)。RGBColorValue.hexStringを保存する。
+    /// **もう読み書きしていない属性。** コレクションの札の地の色をライブラリごとに持って
+    /// いたときの名残で、スキーマのマイグレーションを起こさないためだけに残してある
+    /// (BookLayoutSettings.hasEpubLayoutLockと同じ扱い)。
     ///
-    /// **nil = 既定**(`Color.primary.opacity(0.07)`= 明暗どちらの外観にも馴染む薄い地)。
-    /// 色を1つ決め打ちで保存してしまうと外観の切り替えに追従できなくなるので、「未指定」の
-    /// 状態を残してある。Optionalなのでライトウェイトマイグレーションで済む。
+    /// 札の地の色はアプリ全体で1つの設定になり、環境設定「外観」→「パネル」→
+    /// 「ウェルカム画面」→「ライブラリ」へ移した(ユーザー指示 2026-09-09。経緯は
+    /// AppPreferences.collectionTileBackgroundColor参照)。
     var coverBackgroundColorRaw: String?
 
     /// このライブラリに属するコレクション。ライブラリを削除したら中のコレクションも
@@ -107,11 +109,6 @@ final class BookLibrary {
         set { coverCropAnchorRaw = newValue.rawValue }
     }
 
-    /// 札の地の色(nil = 既定)。coverBackgroundColorRawのコメント参照。
-    var coverBackgroundColor: RGBColorValue? {
-        get { coverBackgroundColorRaw.flatMap(RGBColorValue.init(hexString:)) }
-        set { coverBackgroundColorRaw = newValue?.hexString }
-    }
 
     /// - Parameter usesDefaultName: アプリが自分で作った既定のライブラリならtrue
     ///   (CollectionStore.ensureDefaultLibraryだけが渡す)。`name`にはそのときの表示言語の

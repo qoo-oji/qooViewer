@@ -42,6 +42,7 @@ final class AppPreferences: ObservableObject {
         static let collectionCoverCaptionStyle = "qooViewer.pref.collectionCoverCaptionStyle"
         static let collectionCoverCaptionFontSize = "qooViewer.pref.collectionCoverCaptionFontSize"
         static let collectionTileNameFontSize = "qooViewer.pref.collectionTileNameFontSize"
+        static let collectionTileBackgroundColor = "qooViewer.pref.collectionTileBackgroundColor"
         static let prefetchPageCount = "qooViewer.pref.prefetchPageCount"
         static let displayLanguage = AppLanguage.defaultsKey
         static let appAppearance = "qooViewer.pref.appAppearance"
@@ -371,6 +372,42 @@ final class AppPreferences: ObservableObject {
         }
     }
     static let collectionTileNameFontSizeRange: ClosedRange<Double> = 8...20
+
+    /// コレクションの一覧(札)の地の色。**nil = 既定**(`defaultCollectionTileBackground`)。
+    ///
+    /// ■ ライブラリごとの設定から、アプリ全体で1つの設定へ移した(ユーザー指示 2026-09-09)
+    /// 最初はライブラリ1つ分の設定(ウェルカム画面の歯車 → LibrarySettingsPopover)として
+    /// `BookLibrary.coverBackgroundColorRaw`に持たせていたが、棚の地の色はライブラリを
+    /// 切り替えるたびに変わってよいものではない ―― 帯でライブラリを選び直すたびに一覧の
+    /// 地の色が入れ替わると、同じアプリの同じ画面には見えなくなる。カバーの形と切り取る
+    /// 位置(こちらはライブラリごとのまま)と違って、これは「アプリの外観」の設定なので、
+    /// 環境設定「外観」→「パネル」→「ウェルカム画面」の「ライブラリ」へ移した。
+    ///
+    /// ■ nilを残してあるのは、既定の地が明暗の外観に追従するため
+    /// 既定は`Color.primary.opacity(0.07)`= ライト/ダークのどちらにも馴染む薄い地で、
+    /// 色を1つ決め打ちで保存するとこの追従が失われる。「未指定」を別の状態として持ち、
+    /// 「初期設定に戻す」とは別に、行の右の矢印ボタンでいつでもここへ戻せる。
+    @Published var collectionTileBackgroundColor: RGBColorValue? {
+        didSet {
+            // nilは「キーごと消す」。空文字などの番人を書くと、既定値の判定が
+            // 「無い or 空」の2通りになってしまう。
+            if let hexString = collectionTileBackgroundColor?.hexString {
+                defaults.set(hexString, forKey: Keys.collectionTileBackgroundColor)
+            } else {
+                defaults.removeObject(forKey: Keys.collectionTileBackgroundColor)
+            }
+        }
+    }
+
+    /// 色を指定していないときの札の地(明暗どちらの外観にも馴染む薄い地)。
+    static let defaultCollectionTileBackground = Color.primary.opacity(0.07)
+
+    /// 実際に札の地を塗るのに使う色。既定とカスタムの解決をここ1箇所に集約し、
+    /// 表示側(CollectionGridView)がnilの扱いを持たなくて済むようにしている
+    /// (`effectiveBackgroundColor`と同じ形)。
+    var effectiveCollectionTileBackground: Color {
+        collectionTileBackgroundColor?.color ?? Self.defaultCollectionTileBackground
+    }
     /// 上の3つに共通の、指定できる範囲。0.1秒刻みで最大2秒まで(ユーザーの指定)。
     static let autoRevealDelayRange: ClosedRange<Double> = 0...2
     /// 3つの遅延をTask.sleep用のナノ秒で返す。保存値が負でも0として扱う。
@@ -1555,6 +1592,9 @@ final class AppPreferences: ObservableObject {
             defaults.object(forKey: Keys.collectionCoverCaptionFontSize) as? Double ?? 10
         self.collectionTileNameFontSize =
             defaults.object(forKey: Keys.collectionTileNameFontSize) as? Double ?? 13
+        self.collectionTileBackgroundColor =
+            defaults.string(forKey: Keys.collectionTileBackgroundColor)
+            .flatMap(RGBColorValue.init(hexString:))
         self.launchInPrivateMode = defaults.object(forKey: Keys.launchInPrivateMode) as? Bool ?? false
         self.thumbnailDiskCacheEnabled =
             defaults.object(forKey: Keys.thumbnailDiskCacheEnabled) as? Bool ?? false
@@ -1741,6 +1781,7 @@ extension AppPreferences {
                 Keys.collectionCoverCaptionStyle,
                 Keys.collectionCoverCaptionFontSize,
                 Keys.collectionTileNameFontSize,
+                Keys.collectionTileBackgroundColor,
             ] + PanelSurface.allCases.flatMap {
                 // 面ごとの設定を1つ増やしたら**ここにも足すこと**。`apply`が渡す
                 // `AppPreferences()`はUserDefaultsから読み直すので、キーを消し忘れると
@@ -1875,6 +1916,7 @@ extension AppPreferences {
             collectionCoverCaptionStyle = source.collectionCoverCaptionStyle
             collectionCoverCaptionFontSize = source.collectionCoverCaptionFontSize
             collectionTileNameFontSize = source.collectionTileNameFontSize
+            collectionTileBackgroundColor = source.collectionTileBackgroundColor
             for surface in PanelSurface.allCases {
                 setSurfaceStyle(source.surfaceStyle(for: surface), for: surface)
             }

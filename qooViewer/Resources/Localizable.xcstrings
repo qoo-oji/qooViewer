@@ -3610,6 +3610,22 @@
         }
       }
     },
+    "Custom Tile Background Color" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom Tile Background Color"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タイルのカスタム背景色"
+          }
+        }
+      }
+    },
     "Cycle Display Mode" : {
       "localizations" : {
         "en" : {
@@ -13633,6 +13649,22 @@
         }
       }
     },
+    "The backdrop each collection's covers are laid out on. Until you pick a color it follows the Light/Dark appearance." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The backdrop each collection's covers are laid out on. Until you pick a color it follows the Light/Dark appearance."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションのカバーを並べる下地です。色を決めるまでは、ライト/ダークの外観に合わせた薄い地になります。"
+          }
+        }
+      }
+    },
     "The book could not be opened." : {
       "localizations" : {
         "en" : {
@@ -14611,6 +14643,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "プログレスバーとページ一覧用のサムネイルと、その固定の上限です。"
+          }
+        }
+      }
+    },
+    "Tile Background Color" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tile Background Color"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タイルの背景色"
           }
         }
       }

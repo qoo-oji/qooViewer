@@ -350,13 +350,6 @@ final class CollectionStore: ObservableObject {
         reload()
     }
 
-    /// 札の地の色を書き込む(nil = 既定に戻す。ユーザー要望 2026-09-09)。
-    func setCoverBackgroundColor(_ library: BookLibrary, _ color: RGBColorValue?) {
-        guard library.coverBackgroundColor != color else { return }
-        library.coverBackgroundColor = color
-        saveAndNotify()
-        reload()
-    }
 
     /// ライブラリを削除する(配下のコレクション・本はカスケードで消える)。
     ///

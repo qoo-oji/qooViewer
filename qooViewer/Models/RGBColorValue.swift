@@ -7,9 +7,10 @@ import SwiftUI
 /// 色空間の解釈もOS任せになる。ここでは「#RRGGBB」の文字列1本で保存し、復元時は
 /// `Color(.sRGB, ...)`と明示的にsRGBで組み立てることで、保存形式が読めて、かつ
 /// 保存→復元で色がずれないようにしている。
-/// `nonisolated`: SwiftDataのモデル(BookLibrary.coverBackgroundColor)のアクセサから読み書きする
-/// ため。あちらはメインアクターに分離されていない文脈で評価されうる。中身は数値3つの値型で、
-/// 共有状態を一切持たないので分離する意味が無い(ArchiveReading.swift冒頭のコメントと同じ話)。
+/// `nonisolated`: 元はSwiftDataのモデル(ライブラリごとの札の地の色)のアクセサから読み書き
+/// していたため。その設定はアプリ全体の環境設定へ移ってメインアクター上だけの値になったが、
+/// 中身は数値3つの値型で共有状態を一切持たず、分離しない理由が無いのでそのままにしてある
+/// (ArchiveReading.swift冒頭のコメントと同じ話)。
 nonisolated struct RGBColorValue: Equatable, Hashable {
     /// 0〜255の範囲に丸められる(範囲外の値を代入しても安全)。
     /// didSet内での再代入はdidSetを再帰的に呼ばないため、無限ループにはならない。

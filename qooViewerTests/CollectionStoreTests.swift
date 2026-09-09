@@ -187,27 +187,6 @@ struct CollectionStoreTests {
         #expect(first.coverCropAnchor == .center)
     }
 
-    @Test("札の地の色はライブラリごとに保存され、既定へも戻せる")
-    func thetileBackgroundColorIsPerLibrary() throws {
-        let library = try InMemoryLibrary(label: "collections-tile-background")
-        defer { library.close() }
-        let first = try #require(library.collections.libraries.first)
-        let second = try #require(library.collections.createLibrary(name: "CG"))
-        // 未指定のまま = 既定(表示側が明暗どちらにも馴染む薄い地を使う)。
-        #expect(first.coverBackgroundColor == nil)
-
-        let navy = RGBColorValue(red: 20, green: 30, blue: 60)
-        library.collections.setCoverBackgroundColor(first, navy)
-        #expect(first.coverBackgroundColor == navy)
-        // 保存形式は「#RRGGBB」の文字列そのもの(RGBColorValue.hexString)。
-        #expect(first.coverBackgroundColorRaw == "#141E3C")
-        #expect(second.coverBackgroundColor == nil)
-
-        library.collections.setCoverBackgroundColor(first, nil)
-        #expect(first.coverBackgroundColor == nil)
-        #expect(first.coverBackgroundColorRaw == nil)
-    }
-
     @Test("札の割り付けは、どの比でもほぼ正方形に収まる組み合わせになっている")
     func thetileLayoutStaysSquareForEveryRatio() {
         // セルの幅を w・間隔を s とすると、幅 = 列 × w + (列 - 1)s、
