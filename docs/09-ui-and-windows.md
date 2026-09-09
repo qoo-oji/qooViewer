@@ -4,7 +4,7 @@
 
 ```
 ContentView(ウインドウ/タブの中身)
- ├─ HStack: [SidePanelView(常時表示)] + (ViewerView | WelcomeView) [+ SidePanelView(右配置)]
+ ├─ HStack: [SidePanelView(常時表示)] + (ViewerView | WelcomeView(Views/Welcome/)) [+ SidePanelView(右配置)]
  ├─ ZStack overlay: SidePanelView(「隠す」設定のときのホバー表示)
  ├─ BookLoadingOverlay(読み込み中)
  ├─ ファイルのドロップ先(ウインドウ全体に1つ)
@@ -12,7 +12,7 @@ ContentView(ウインドウ/タブの中身)
 
 ViewerView(本1冊)
  ├─ mainZStack
- │   ├─ VStack: [ツールバー(常時表示)] + pageArea + [プログレスバー(常時表示)]
+ │   ├─ VStack: [ツールバー(常時表示。左端は「ウェルカム画面へ戻る」)] + pageArea + [プログレスバー(常時表示)]
  │   ├─ ツールバー/プログレスバー(自動隠しのときは画像の上に浮かべる)
  │   ├─ ThumbnailGridView(ページ一覧。外側クリックで閉じる)
  │   ├─ PageInfoPanelView(「情報を見る」)
@@ -214,10 +214,16 @@ AppState を参照しない作り(参照するとページ送りのたびに本�
 
 ### ウェルカム画面
 
-本棚は無い。「最近開いたファイル」「最近のお気に入り」を各 10 件(存在確認済みのものだけ、
-ブックマークは解決しない)。シークレットウインドウでは両方とも出さない。列幅は見出しと
-バッジの実測。お気に入りが無効化されている間(`FavoritesFeature.isEnabled == false`)は
-「最近のお気に入り」列を出さない(環境設定「一般」の同名のトグルも同様)。
+2026-09-09 に本棚(ライブラリ/コレクション)へ作り直した。構成・編集モードの規則・ドロップの振り分け・
+自動登録フォルダは [14](14-library-collections.md) にまとめてある。ここに残す約束事だけ:
+
+- 面は `PanelSurface.welcome`。帯の標準ボタンにも `.panelControlWell()` + ラベルの
+  `.panelOutlinedContent()` が要る(背後のすりガラスに合わせて描かれるベゼルは文字色の重ね色で消える)。
+- 履歴は帯の「履歴から開く」ポップオーバー(`RecentBooksPopover`)へ畳んだ。10 件の上限は無くなり、
+  環境設定の保存件数どおり全件。行の見た目と右クリックはサイドパネルの「履歴」モードと揃える。
+  ブックマークは一覧では解決しない。環境設定「一般」の「最近開いた本を表示する」はこのボタンの
+  出し分けに読み替えてある。シークレットウインドウでは出さない。
+- 旧 `WelcomeView.swift`(`WelcomeQuickOpen*` の列幅計算)は削除した。
 
 ### 環境設定(SettingsView)
 
@@ -229,6 +235,9 @@ AppState を参照しない作り(参照するとページ送りのたびに本�
   幅が足りなければ `ViewThatFits` で縦積み。ポップアップは自前の背景と境界線で「ドロップダウン
   だと分かる」ようにする。
 - 「外観」と「レイアウト」は2階層(面ごと/形式ごとの子ページ)。子ページは次回に持ち越さない。
+  面の子ページには「背景」の下に**その面だけの設定**が続く(ページ一覧パネルのサムネイル、プログレス
+  バーのサムネイル、ウェルカム画面の「ライブラリ」「コレクション」)。1つのパネルの見た目に効く設定は
+  必ず同じページに揃える。
   タイトルバーの「戻る」は全画面共通で `SettingsNavigator` が状態を持つ。右クリックの「調整…」は
   `SettingsNavigator.appearanceTarget` に行き先を置いてから `openSettings`。
 - `Settings` シーンのウインドウはリサイズ不可で作られ、SwiftUI から変えられないため

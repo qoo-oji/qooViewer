@@ -10,6 +10,9 @@
 | レイアウト(ページ単位) | SwiftData `PageLayoutOverride` | `LayoutStore` | 無制限 |
 | お気に入り(**無効化中**) | SwiftData `FavoriteBook` / `FavoriteFolder` | `FavoritesStore` | 上限 999 件、フォルダ3階層(`FavoritesLimits`)。改善要望5で UI の入り口をすべて閉じた(`FavoritesFeature.isEnabled == false`)。モデル・ストア・ウインドウ・JSON は残してあり、フラグを true に戻せば以前の登録がそのまま見える |
 | 書誌メタデータ | SwiftData `BookMetadata` | `BookMetadataStore` | 無制限 |
+| ライブラリ / コレクション / その中の本 | SwiftData `BookLibrary` / `BookCollection` / `CollectionItem` | `CollectionStore` | 無制限。ライブラリは必ず1つ以上(既定のライブラリは名前を持たず表示言語で組み立てる)。→ [14](14-library-collections.md) |
+| コレクションのカバー画像 | `~/Library/Application Support/<bundle id>/CollectionCovers/<itemID>.jpg` | `CollectionCoverStore` | **キャッシュではない**(消えると登録した本を全冊読み直す)。上限も自動削除も無し。行と一緒に消す。起動時に孤児を掃除 |
+| ウェルカム画面の表示の状態 | UserDefaults(`qooViewer.welcome.*`) | `WelcomeLibraryState` | 選択中のライブラリ・並び順2つ・大きさ2つ。`qooViewer.pref.*` ではないので「初期設定に戻す」の対象外、全削除では消える |
 | 環境設定 | UserDefaults(`qooViewer.pref.*`) | `AppPreferences` | ― |
 | 履歴 | UserDefaults(`recentBookEntries` + 旧 `recentBookBookmarks`) | `RecentFilesStore` | 環境設定「履歴の保存件数」(既定 30) |
 | フォルダのアクセス権 | UserDefaults(`qooViewer.grantedFolderBookmarks`) | `FolderAccessStore` | 全削除でも残す |
@@ -158,7 +161,8 @@ JSON 読み込みの重複判定も inode を使います。
 
 - **ウインドウ単位の `let`**(Chrome のシークレットウインドウに倣った)。通常ウインドウと並行して使える。
 - true のとき書かないもの: 履歴・最後に開いていた本・読書状態・ブックマーク/お気に入り/
-  レイアウト/メタデータの登録と編集・EPUB/PDF/ComicInfo からの自動取り込み・サムネイルの
+  レイアウト/メタデータの登録と編集・コレクションへの登録と編集(ウェルカム画面の編集モードに
+  入れない。カバーの指定も変えられない)・EPUB/PDF/ComicInfo からの自動取り込み・サムネイルの
   ディスクキャッシュ・**構造キャッシュ(読みもしない**。同じ本でも開き方で挙動が変わるのを
   避けるため)・bookID の追従と識別子の補完。
 - 既存データの**読み取り**(ブックマークへのジャンプ、保存済みレイアウトでの表示)は行う。
@@ -181,8 +185,8 @@ JSON 読み込みの重複判定も inode を使います。
 
 | 操作 | 場所 | 範囲 |
 |---|---|---|
-| 本ごとの保存データの削除 | 環境設定「リセット」→「保存データの削除」ウインドウ | 選んだ本の読書位置・ブックマーク・レイアウト・メタデータ・お気に入り。実在判定は3値(exists/missing/unknown)で、アクセス権が無くて確認できない本を「消えた」と誤解させない |
+| 本ごとの保存データの削除 | 環境設定「リセット」→「保存データの削除」ウインドウ | 選んだ本の読書位置・ブックマーク・レイアウト・メタデータ・お気に入り・コレクションの登録(カバー画像も)。実在判定は3値(exists/missing/unknown)で、アクセス権が無くて確認できない本を「消えた」と誤解させない |
 | 履歴の削除 | 同「履歴の削除」ウインドウ | 選んだ履歴。ブックマークは解決しない |
 | ブックマークの全削除など | 各編集ウインドウ | ― |
-| すべてのデータを削除 | 環境設定「リセット」 | **フォルダのアクセス権を除く、このアプリがディスクに保存したすべて**(ストアの実ファイル・2つのキャッシュ・UserDefaults)。予約(`pendingFullResetDefaultsKey`)して**終了時**に実行し、次回起動時にも再確認する(開いたまま消すと didSet やウインドウ位置の保存が書き戻す)。実行前の確認と、実行後の終了は必須 |
+| すべてのデータを削除 | 環境設定「リセット」 | **フォルダのアクセス権を除く、このアプリがディスクに保存したすべて**(ストアの実ファイル・2つのキャッシュ・コレクションのカバー画像・UserDefaults)。予約(`pendingFullResetDefaultsKey`)して**終了時**に実行し、次回起動時にも再確認する(開いたまま消すと didSet やウインドウ位置の保存が書き戻す)。実行前の確認と、実行後の終了は必須 |
 | 書き出し後の後始末 | 環境設定「レイアウト」形式ごとの「保存データ/履歴: 削除」 | 書き出した本のぶんだけ |

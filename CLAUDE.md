@@ -82,8 +82,8 @@ actor (used from `PageLoader`, an actor, or from `BookLoader`'s detached tasks) 
 `nonisolated` — see the top of Services/ArchiveReading.swift. Keep this in mind when adding new
 free functions/types touched from those code paths.
 
-**SwiftData persistence**: `FavoritesStore`, `BookmarkStore`, `LayoutStore`, and `BookMetadataStore`
-(ViewModels/) all share a
+**SwiftData persistence**: `FavoritesStore`, `BookmarkStore`, `LayoutStore`, `BookMetadataStore`, and
+`CollectionStore` (ViewModels/) all share a
 single `ModelContext` (`QooViewerApp.modelContainer.mainContext`), constructed once in
 App/QooViewerApp.swift and injected via `.environmentObject`/`.modelContext` everywhere. Do not create
 additional/separate `ModelContext` instances for these models — a prior split-context design caused
@@ -93,6 +93,17 @@ succession on the same context (see comments in PageLoader-adjacent model files,
 Models/PageLayoutOverride.swift / Models/BookLayoutSettings.swift, before touching uniqueness constraints).
 `QooViewerApp.modelSchema`/`modelConfiguration` also has a user-facing recovery path if the store fails to
 load (offers to delete and recreate) — keep new model types additive/lightweight-migration-friendly.
+
+**Welcome screen = the bookshelf (libraries / collections)**: `Views/Welcome/` plus `CollectionStore`,
+`CollectionCoverStore` (covers on disk under Application Support — not a cache, never evicted),
+`CollectionCoverExtractor` (one app-wide queue) and `CollectionAutoFolderScanner` + `FolderChangeWatcher`
+(FSEvents). Covers are stored uncropped; aspect ratio / crop anchor are per-library and applied at draw
+time. The auto-add folder holds a *path only* — folder permission stays with `FolderAccessStore`. Edit
+mode only decides what a click/drop means and whether the trash shows; creating/adding/renaming are not
+gated on it. `CollectionStore` is deliberately *not* in `AppStores.allObjectWillChangePublishers`
+(collections never appear in the menu bar). The favorites feature is hidden behind
+`FavoritesFeature.isEnabled == false` — models, stores, window and JSON schema are kept so the data
+survives. Design and the reasons are in `docs/14-library-collections.md`.
 
 **Menu bar ↔ viewer bridging**: `AppState` (ViewModels/AppState.swift) is one-per-window and is exposed to
 the menu bar via `FocusedValue` (see the `qooViewerAppState`/`qooViewerMenuCheckmarkState` extension in

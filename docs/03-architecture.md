@@ -15,8 +15,9 @@ ContentView(ウインドウ/タブごと)
  ├─ AppState(このウインドウの状態。本を開く/閉じる、橋渡しクロージャ、メニュー用の値)
  ├─ SidePanelBrowserState(フォルダブラウザ。本の切替をまたいで生きる)
  ├─ BookContentsBrowserState(本の中身ブラウザ。本ごとに作り直す)
+ ├─ WelcomeLibraryState(ウェルカム画面の表示の状態。選択中のライブラリ・編集モード・並び順)
  ├─ SidePanelView
- └─ ViewerView(本ごとに `.id(book.id)` で作り直す) / WelcomeView
+ └─ ViewerView(本ごとに `.id(book.id)` で作り直す) / WelcomeView(Views/Welcome/ → [14](14-library-collections.md))
       └─ ViewerViewModel(表示状態・ページ送り・レイアウト・ブックマーク)
            └─ PageLoader(actor。書庫のハンドル・デコード・キャッシュ・先読み)
                 ├─ ArchiveReading(Zip / Rar / SevenZip の各 reader)
@@ -41,7 +42,11 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 | `AppPreferences` | UserDefaults | 環境設定。1プロパティ=1キー、`didSet` で即保存 |
 | `RecentFilesStore` | UserDefaults | 履歴(セキュリティスコープ付きブックマーク+パスのキャッシュ) |
 | `FolderAccessStore` | UserDefaults | 環境設定「フォルダのアクセス権」。起動中ずっとアクセスを開いたまま維持 |
-| `FavoritesStore` | SwiftData | お気に入り(階層フォルダ付き) |
+| `FavoritesStore` | SwiftData | お気に入り(階層フォルダ付き。無効化中) |
+| `CollectionStore` | SwiftData | ライブラリ / コレクション / その中の本。**`allObjectWillChangePublishers` に入れない**(メニューバーに出ないので、その publish でメニューを作り直さない) |
+| `CollectionCoverStore` | ディスク(Application Support) | コレクションのカバー画像(actor) |
+| `CollectionCoverExtractor` | メモリ | カバー抽出の待ち行列(アプリ全体で1本、同時1件) |
+| `CollectionAutoFolderScanner` | メモリ | 自動登録フォルダの走査と FSEvents の監視(`FolderChangeWatcher`) |
 | `BookmarkStore` | SwiftData | すべての本を横断したブックマーク(「ブックマーク・レイアウトの編集」用) |
 | `LayoutStore` | SwiftData | すべての本のレイアウト設定 |
 | `BookMetadataStore` | SwiftData | 書誌メタデータ |
@@ -100,7 +105,7 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 | `WindowGroup(for: BookOpenRequest.self)` | `private` | 常にシークレットウインドウ |
 | `WindowGroup(for: BookOpenRequest.self)` | `normal` | File ›「新規ノーマルウインドウ」専用(値なし、ウェルカム画面から)。`.automatic` |
 | `Settings` | ― | 環境設定 |
-| `Window` | `favoritesOrganizer` / `editBookmarks` / `editMetadata` / `epubExport` / `pdfExport` / `cbzExport` / `libraryExport` / `libraryImport` / `libraryCleanup` / `historyCleanup` | 単一インスタンスの補助ウインドウ |
+| `Window` | `favoritesOrganizer` / `editBookmarks` / `editMetadata` / `epubExport` / `pdfExport` / `cbzExport` / `libraryExport` / `libraryImport` / `libraryCleanup` / `historyCleanup` | 単一インスタンスの補助ウインドウ。`favoritesOrganizer` は `.commandsRemoved()` で「ウインドウ」メニューの自動の項目を落としてある(`Window` は宣言するだけでそこに並ぶ。`SceneBuilder` は `if #available` 以外の条件分岐を受け付けないので、フラグでシーンごと囲むことはできない) |
 
 すべての本のウインドウは `.restorationBehavior(.disabled)` です。macOS の標準の状態復元が、
 ウインドウ0枚からの再アクティブ化で古い `NSWindow` を再利用し、「Finder から開くと一瞬出て消える/
@@ -163,6 +168,7 @@ SwiftData のモデルの変更は SwiftUI の再描画を自動では起こし�
 | `bookReadingStatesDidDelete` | `LibraryCleanupViewModel` | `bookIDs`(Set) | `ViewerViewModel`(以後その行へ書かない) |
 | `pageOrderSettingDidChange` | `AppPreferences.usesFinderSortOrder` の didSet | ― | `ViewerViewModel`、編集 VM、書き出し VM |
 | `recentFilesLimitDidChange` | `AppPreferences.recentFilesLimit` の didSet | ― | `RecentFilesStore` |
+| `collectionsDidChange` | `CollectionStore`(`saveAndNotify`) | 本に関わる変更のときだけ `bookID`(複数の本にまたがる一括削除では無し) | ウェルカム画面の各ビュー、`CollectionCoverExtractor`、書き出し・メタデータ編集・掃除の VM |
 
 約束事:
 
@@ -197,7 +203,7 @@ SwiftData のモデルの変更は SwiftUI の再描画を自動では起こし�
 
 ## データの流れ(本を1冊開くとき)
 
-1. 入口(ウェルカム画面・ドロップ・Finder・履歴・お気に入り・サイドパネル・隣の本)が
+1. 入口(ウェルカム画面のコレクション・ドロップ・Finder・履歴・サイドパネル・隣の本)が
    `BookOpenRequest` を作る。複数の画像なら1冊のその場限りの本、それ以外は先頭1件だけ。
 2. `AppState.open(request:)` が前の本のセキュリティスコープを閉じ、新しい URL を開き、
    `BookLoader.load(from:progress:)` を `Task.detached` で走らせる(→ [04](04-book-loading.md))。

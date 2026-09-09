@@ -26,7 +26,8 @@ entitlement は無く、通信は一切しません。エンタイトルメン�
 | 場所 | 何のため |
 |---|---|
 | `RecentFilesStore` | 履歴から開く |
-| `FavoriteBook.bookmarkData` | お気に入りから開く |
+| `FavoriteBook.bookmarkData` | お気に入りから開く(無効化中) |
+| `CollectionItem.bookmarkData` | コレクションから開く・カバーを抽出する |
 | `Bookmark.bookmarkData` | 編集ウインドウから今開いていない本を開いてジャンプ |
 | `BookLayoutSettings.bookmarkData` | 編集ウインドウでレイアウトだけある本のサムネイル |
 | `BookLayoutSettings.externalCoverBookmarkData` | 本に含まれないカバー画像 |
@@ -34,6 +35,16 @@ entitlement は無く、通信は一切しません。エンタイトルメン�
 | `LastActiveBookStore` | 起動時に前回の本を開く |
 | `FolderAccessStore` | 許可したフォルダ |
 | `LastUsedFolderMemory` | フォルダ選択パネルの前回位置、書き出しの固定の保存先 |
+
+コレクションの**自動登録フォルダ**(`BookCollection.autoFolderPath`)は意図的にブックマークを持たず
+パスだけです。フォルダを列挙する権限は `FolderAccessStore` に一本化してあり、走査と FSEvents の監視は
+`isPathCovered` に「いま列挙してよいか」を訊いて、覆われていなければ黙って見送ります(設定の面が
+「アクセスを許可」を出す)。別のブックマークを持たせると、同じフォルダの権限を2箇所が別々に開閉する
+―― 過去に漏れを出したのと同じ形になります(→ [14](14-library-collections.md#自動登録フォルダ))。
+
+FSEvents は App Sandbox で追加の entitlement 無しに動き、読み取り権限の無いパスのイベントも届きます
+(届いても列挙できなければ何もできないので、許可済みのフォルダだけを渡す)。ネットワークボリューム
+(SMB/AFP)では飛びません。
 
 `bookID` はパス文字列でしかなく、それだけでは(許可済みフォルダの配下でない限り)開けません。
 ブックマークを持たない古い行は、本を開けた(=アクセス権がある)タイミングで補完します(`backfill*`)。

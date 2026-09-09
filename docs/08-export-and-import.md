@@ -111,9 +111,10 @@
 
 ## ライブラリデータの JSON 書き出し・読み込み
 
-`LibraryImportExportService` と `LibraryJSONSchema`(`formatVersion` 3)。qooViewer 専用の
-1ファイルで、お気に入り(フォルダ階層)・ブックマーク・レイアウト・メタデータ・メタデータの
-推測ルールを選んで出し入れします。
+`LibraryImportExportService` と `LibraryJSONSchema`(`formatVersion` 4)。qooViewer 専用の
+1ファイルで、コレクション(ライブラリ → コレクション → 本)・ブックマーク・レイアウト・メタデータ・
+メタデータの推測ルール・お気に入り(無効化中)を選んで出し入れします。3 で書き出したファイルは
+`libraries == nil`(= コレクションを含まない)として今までどおり読めます。
 
 - 本の照合は **bookID(パス)と inode の両方**。パスが変わっていても同じファイルなら
   「登録済み」と判定し、ローカルのセキュリティスコープ付きブックマークから現在の URL を解決する。
@@ -129,6 +130,11 @@
   どちらにも「お気に入り」の行を出さず、書き出しの既定は**含めない**、読み込みの既定は**無視**。
   スキーマ・サービス側の経路はそのまま残してあるので、過去の書き出しファイルは読める
   (→ [06](06-persistence.md#一覧))。
+- コレクション(`ExportedLibrary` / `ExportedCollection` / `ExportedCollectionBook`)は**カバー画像を
+  含めない**(取り込んだ先で `CollectionCoverExtractor` が抽出し直す。読み込みウインドウが完了時に
+  `refill()` を呼ぶ)。ライブラリの縦横比・残す位置は Optional(無ければ既定)。自動登録フォルダは
+  **パスだけ**を書き、取り込み側は実在するフォルダで、かつまだ設定されていないときだけ入れる。
+  既定のライブラリは表示名で書き、合流は `occupiedNames` で判定する(→ [14](14-library-collections.md#環境設定json削除))。
 
 ## 掃除のウインドウ
 
