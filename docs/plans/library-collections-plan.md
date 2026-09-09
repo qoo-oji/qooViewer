@@ -1221,7 +1221,8 @@ MENU.build current=.start checked=true  ← メニューも正しく組まれて
 ### 監視する
 
 `FolderChangeWatcher`(新規)= FSEvents の薄い包み。`FileEvents`(フォルダ単位ではなくファイル単位)
-+ `NoDefer`(最初のイベントを待たせない)+ `WatchRoot` + `FullHistory`、まとめる時間は 0.3 秒。
++ `NoDefer`(最初のイベントを待たせない)+ `FullHistory`、まとめる時間は 0.3 秒(当初は `WatchRoot` も
+付けていたが、ルートごとに祖先の fd を握って上限に達したため外した ―― docs/14 参照)。
 **イベントの中身は捨てて「何か変わった」とだけ伝える** ―― どの本が増えたかは走査側がフォルダを
 一覧して決める(判定を2箇所に分けない)。監視するのは `FolderAccessStore.isPathCovered` を
 通ったパスだけ。

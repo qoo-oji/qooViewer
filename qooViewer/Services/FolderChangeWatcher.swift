@@ -201,16 +201,22 @@ private nonisolated func makeFolderChangeStream(
 
     // FileEvents: フォルダ単位ではなくファイル単位で拾う(書庫を1つ置いただけでも飛ぶ)。
     // NoDefer: 最初のイベントを latency ぶん待たせない(待つのは続けて起きた変更をまとめるとき)。
-    // WatchRoot: 見張っているフォルダ自身の改名・移動・削除も知らせる(自動登録が黙って
-    //   止まるのではなく、走査が空振りして「見つかりません」に落ちる)。
     // FullHistory: 異常終了の直前に起きた変更を取りこぼさない。走査は何度やっても同じ結果
     //   (重複はinsertItemsが弾く)なので、余分に届いても害が無い。
+    //
+    // **WatchRoot は付けない**(実機で発覚 2026-09-09)。このフラグは見張っているフォルダ自身の
+    // 改名・移動を知らせるために、**ルートとその祖先ディレクトリを1階層ごとに open して握り続ける**
+    // (`/Volumes/X/A/B/C` なら5個。実測: ルート1本・深さ13で DIR fd が13個、2本で26個、
+    // 無しなら0個)。自動登録フォルダはコレクションの数だけルートになるので、49個 × 5 = 245 で
+    // GUI アプリの soft limit(256)を起動直後に使い切り、以後のあらゆる open が EMFILE で落ちた
+    // ―― カバー画像が全部空になり、ドロップした本のブックマークも黙って作れなくなった。
+    // 改名・削除は走査側がフォルダを列挙して「見つかりません」に落ちるので、失うのは
+    // 「改名した瞬間に気づく」ことだけ(次の契機で追いつく)。
     //
     // **IgnoreSelf は付けない。** このアプリ自身が自動登録フォルダへ本を書き出すことがあり
     // (CBZ/EPUB/PDFの書き出し先に選べる)、それを抑止する理由が無い。
     let flags = FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents)
         | FSEventStreamCreateFlags(kFSEventStreamCreateFlagNoDefer)
-        | FSEventStreamCreateFlags(kFSEventStreamCreateFlagWatchRoot)
         | FSEventStreamCreateFlags(kFSEventStreamCreateFlagFullHistory)
 
     guard let created = FSEventStreamCreate(

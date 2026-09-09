@@ -26,4 +26,33 @@ struct FolderChangeWatcherTests {
         for await _ in changes { break }
         watcher.tearDown()
     }
+
+    /// 見張るフォルダの数だけファイル記述子が増えてはいけない。`WatchRoot` を付けていたときは
+    /// ルートごとに祖先ディレクトリを1階層ずつ握り(深さ5なら5個)、自動登録フォルダ49個で
+    /// GUI アプリの上限256を起動直後に使い切っていた(実機で発覚 2026-09-09。カバーが全部空になり、
+    /// ドロップのブックマークも作れなくなった)。数えるのは open されている fd の総数
+    /// (`fcntl(F_GETFD)` が通るもの)で、ストリーム自体が要するぶんの余裕だけ見ておく。
+    @Test("見張るフォルダの数だけファイル記述子が増えない", .timeLimit(.minutes(1)))
+    func watchingManyRootsDoesNotHoldAFileDescriptorPerRoot() async throws {
+        let temporary = try TemporaryDirectory("folder-watch-fds")
+        // 実機と同じ深さ(/Volumes/<disk>/<棚>/<ライブラリ>/<作者>)に寄せる。
+        var roots: Set<String> = []
+        for index in 0..<40 {
+            roots.insert(try temporary.directory("shelf/library/author\(index)/books").path)
+        }
+        let watcher = FolderChangeWatcher {}
+        let before = Self.openFileDescriptorCount()
+        await watcher.watch(roots)
+        let during = Self.openFileDescriptorCount()
+        watcher.tearDown()
+
+        // WatchRoot 付きなら 40 × 5 階層以上増える。ストリーム1本ぶんの余裕(数個)だけ許す。
+        #expect(during - before < 8, "fds before=\(before) during=\(during)")
+    }
+
+    private static func openFileDescriptorCount() -> Int {
+        (0..<getdtablesize()).reduce(into: 0) { count, fd in
+            if fcntl(fd, F_GETFD) != -1 { count += 1 }
+        }
+    }
 }
