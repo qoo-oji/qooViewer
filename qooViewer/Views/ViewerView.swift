@@ -184,7 +184,9 @@ struct ViewerView: View {
     /// didResignKeyNotification のオブザーバートークン。onDisappearで確実に解除するために保持する。
     @State private var windowObservers: [NSObjectProtocol] = []
     /// Fileメニューの「閉じる」(Cmd+W)を「本を閉じる」動作に変更するためのウインドウデリゲート。
-    /// NSWindow.delegateは弱参照のため、ここで強参照を保持しておかないと解放されてしまう。
+    /// NSWindow.delegateは弱参照のため、強参照をどこかで保持しておかないと解放されてしまう。
+    /// **所有者はAppState.bookClosingDelegate**(本を閉じたあとも生かしておく必要がある ――
+    /// そのコメント参照)。ここにあるのは、このViewerViewが被せたものへの手元の参照だけ。
     @State private var bookClosingDelegate: BookClosingWindowDelegate?
     /// お気に入り・ブックマークの追加/削除トグルボタンを操作したときに、画面中央下部へ
     /// 一時的に表示するフィードバック文言(例:「“Xxx”をお気に入りに追加しました」)。
@@ -3523,6 +3525,10 @@ struct ViewerView: View {
             window.delegate = delegate
             bookClosingDelegate = delegate
         }
+        // 所有権はウインドウと同じ寿命のAppStateへ(AppState.bookClosingDelegateのコメント参照。
+        // この@Stateだけが持っていると、本を閉じたあとデリゲートごと解放されて、赤い閉じる
+        // ボタンがシートのあとグレーのままになる)。
+        appState.bookClosingDelegate = bookClosingDelegate
         // ウインドウ左上の赤い閉じるボタンは、標準では上のwindowShouldCloseを経由してしまい
         // (「本だけ閉じる」動作が優先されてしまう)、常にウインドウ自体を閉じてほしいという
         // 要望と食い違う。そのため、このボタンのtarget/actionだけを直接差し替えて、

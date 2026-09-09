@@ -684,6 +684,25 @@ final class AppState: ObservableObject {
     /// 直接使うことで、常に正しいウインドウへタブを追加できるようにしている。
     weak var hostWindow: NSWindow?
 
+    /// hostWindowに被せたウインドウデリゲート(BookClosingWindowDelegate)の**所有者**。
+    /// ViewerView.setUpWindowObserversが作って(または既存のものを見つけて)ここに預ける。
+    ///
+    /// バグ修正(ユーザー報告 2026-09-09): 以前はViewerViewの@Stateだけが強参照していた。
+    /// NSWindow.delegateも、赤い閉じるボタンのtargetも弱参照なので、本を閉じてウェルカム画面へ
+    /// 戻ったあとSwiftUIが古いViewerViewの@Stateを手放した時点(手放すタイミングは一定しない ――
+    /// コレクションへ入るなどでContentView以下が組み替わったときに起きることを実測)で
+    /// デリゲートが解放され、閉じるボタンは「target=nil・action=forceCloseWindow:」になる。
+    /// AppKitはシートが終わるとき、閉じるボタンをactionの送り先が見つかるかで再検証する
+    /// (単体のAppKitで実測: 既定のtargetなら再び有効、生きた独自targetならシート中も無効に
+    /// ならない、target=nilなら**シートが終わっても無効のまま**で、タイトル変更・キー状態の
+    /// 変化・スタイルマスク変更・ツールバー差し替え・contentView差し替えのどれでも戻らない)。
+    /// これが「コレクションの作成やメタデータ編集のシートを閉じると、赤い閉じるボタンが
+    /// たまにグレーのままになる」正体で、次に本を開いてtargetが入れ直されるまで戻らなかった。
+    /// 同時に、originalDelegate(SwiftUIがタブ管理・状態復元のために付けたデリゲート)もこの
+    /// デリゲートだけが強参照しているので、ウインドウのデリゲートごと失われていた。
+    /// ウインドウと同じ寿命を持つAppState(1ウインドウ1つ)が所有すれば、どちらも起きない。
+    var bookClosingDelegate: BookClosingWindowDelegate?
+
     /// 「最近開いたファイルを開く」メニュー用の履歴。開くのに成功するたびに記録する。
     /// (QooViewerAppのonAppearで設定される)
     weak var recentFiles: RecentFilesStore?
