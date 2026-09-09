@@ -172,7 +172,14 @@ actor ThumbnailDiskCache {
     /// `nonisolated`: ファイルの読み出しとデコードをactorの上で行わないため(directoryの
     /// コメント参照)。`async`のまま残してあるのは、呼び出し側の`await`をそのまま有効に
     /// しておくためと、将来actorの状態が要るようになったときに呼び出し側を変えずに済むため。
-    nonisolated func thumbnail(bookKey: BookKey, pageID: String) async -> CGImage? {
+    ///
+    /// **`@concurrent`が要る**(監査で指摘 2026-09-09)。このプロジェクトはApproachable
+    /// Concurrency(`NonisolatedNonsendingByDefault`)が有効で、`nonisolated async`関数は
+    /// **呼び出し側のアクタを引き継いで**走る。`nonisolated`だけでは「actorの外」にはならず、
+    /// PageLoader(actor)から呼べばそのactorの上で、画面(MainActor)から呼べばメインスレッドで
+    /// ファイルI/Oが走っていた。`@concurrent`を付けて初めてグローバルエグゼキュータへ移る。
+    /// この型の他の`nonisolated async`も同じ理由で付けてある。
+    @concurrent nonisolated func thumbnail(bookKey: BookKey, pageID: String) async -> CGImage? {
         // 無効のあいだはディスクに何も残っていないので読んでも無駄だが、それ以上に、
         // 読むだけでもヒットしたファイルの更新日時を触ってしまう(下記)ため、必ず先に弾く。
         guard await isEnabled,
@@ -188,14 +195,14 @@ actor ThumbnailDiskCache {
 
     /// キャッシュ済みかどうかだけを答える(読み込まず、更新日時も触らない)。
     /// 本全体の下調べ(PageLoader.scanPage)が「まだ無いページだけ作る」ために使う。
-    nonisolated func hasThumbnail(bookKey: BookKey, pageID: String) async -> Bool {
+    @concurrent nonisolated func hasThumbnail(bookKey: BookKey, pageID: String) async -> Bool {
         guard await isEnabled, let url = fileURL(bookKey: bookKey, pageID: pageID) else { return false }
         return FileManager.default.fileExists(atPath: url.path)
     }
 
     /// デコード済みのサムネイルを保存する。失敗しても呼び出し側には影響しない
     /// (次回もキャッシュミスになるだけ)。`nonisolated`の理由はthumbnail(bookKey:pageID:)と同じ。
-    nonisolated func store(_ image: CGImage, bookKey: BookKey, pageID: String) async {
+    @concurrent nonisolated func store(_ image: CGImage, bookKey: BookKey, pageID: String) async {
         guard await isEnabled, let url = fileURL(bookKey: bookKey, pageID: pageID) else { return }
         do {
             try FileManager.default.createDirectory(
@@ -345,7 +352,9 @@ actor ThumbnailDiskCache {
     /// (この機能の発端が「気づかないうちに数百MB」だったので、見えること自体に意味がある)。
     ///
     /// `nonisolated`: ディレクトリ全走査をactorの上で行わないため(trimIfNeededと同じ)。
-    nonisolated func totalBytes() async -> Int {
+    /// `@concurrent`が無いと、環境設定の画面から呼んだときにメインスレッドで全走査になる
+    /// (thumbnail(bookKey:pageID:)のコメント参照)。
+    @concurrent nonisolated func totalBytes() async -> Int {
         guard let directory else { return 0 }
         return Self.totalBytes(in: directory)
     }

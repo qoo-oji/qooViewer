@@ -201,7 +201,14 @@ actor BookPageListCache {
     /// (directoryのコメント参照)。`async`のまま残してあるのは、呼び出し側の`await`を
     /// そのまま有効にしておくためと、将来actorの状態が要るようになったときに
     /// 呼び出し側を変えずに済むため。
-    nonisolated func pageList(forBookID bookID: String) async -> Entry? {
+    ///
+    /// **`@concurrent`が要る**(監査で指摘 2026-09-09)。このプロジェクトはApproachable
+    /// Concurrency(`NonisolatedNonsendingByDefault`)が有効で、`nonisolated async`関数は
+    /// **呼び出し側のアクタを引き継いで**走る。`nonisolated`だけでは「actorの外」にはならず、
+    /// PageLoader(actor)から呼べばそのactorの上で、画面やViewModel(MainActor)から呼べばメインスレッドで
+    /// ファイルI/Oが走っていた。`@concurrent`を付けて初めてグローバルエグゼキュータへ移る。
+    /// この型の他の`nonisolated async`も同じ理由で付けてある。
+    @concurrent nonisolated func pageList(forBookID bookID: String) async -> Entry? {
         guard let url = fileURL(forBookID: bookID),
               let data = try? Data(contentsOf: url),
               let entry = try? JSONDecoder().decode(Entry.self, from: data)
@@ -214,7 +221,7 @@ actor BookPageListCache {
     /// 書き込みは`.atomic`(一時ファイルへ書いてからリネーム)で行う。読み書きをactorの外へ
     /// 出した以上、書き込み途中のファイルを他のタスクが読みうるため、読み手が常に
     /// 「以前の内容」か「完成した内容」のどちらかしか見ないようにしておく必要がある。
-    nonisolated func store(_ entry: Entry, forBookID bookID: String) async {
+    @concurrent nonisolated func store(_ entry: Entry, forBookID bookID: String) async {
         guard let url = fileURL(forBookID: bookID) else { return }
         var entry = entry
         // 本を開くたびに書き直すが、ページ寸法は読み込みでは分からない(Entry.pageSizesの
@@ -238,7 +245,9 @@ actor BookPageListCache {
     }
 
     /// 保存済みのページ寸法(Entry.pageSizes)。本体の指紋が一致するときだけ返す。
-    nonisolated func pageSizes(forBookID bookID: String, fingerprint: Entry.Fingerprint) async -> [String: [Int]]? {
+    @concurrent nonisolated func pageSizes(
+        forBookID bookID: String, fingerprint: Entry.Fingerprint
+    ) async -> [String: [Int]]? {
         guard let entry = await pageList(forBookID: bookID), entry.fingerprint == fingerprint else { return nil }
         return entry.pageSizes
     }
@@ -247,7 +256,7 @@ actor BookPageListCache {
     /// 一致するEntryが既にあるときだけ書く(Entryそのものは本の読み込みが作る)。
     /// `nonisolated`の理由はstore(_:forBookID:)と同じ。storeと同時に走ると片方の書き込みが
     /// 負けることはありうるが、寸法は次に開いたときの下調べで埋め直されるので実害は無い。
-    nonisolated func storePageSizes(
+    @concurrent nonisolated func storePageSizes(
         _ sizes: [String: [Int]], forBookID bookID: String, fingerprint: Entry.Fingerprint
     ) async {
         guard !sizes.isEmpty,
@@ -302,7 +311,9 @@ actor BookPageListCache {
 
     /// いまディスク上で占めている合計バイト数(環境設定「キャッシュ」の表示用)。
     /// `nonisolated`: ディレクトリの走査をactorの上で行わないため(directoryのコメント参照)。
-    nonisolated func totalBytes() async -> Int {
+    /// `@concurrent`が無いと、環境設定の画面から呼んだときにメインスレッドで走査になる
+    /// (pageList(forBookID:)のコメント参照)。
+    @concurrent nonisolated func totalBytes() async -> Int {
         guard let directory,
               let contents = try? FileManager.default.contentsOfDirectory(
                 at: directory, includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey]
