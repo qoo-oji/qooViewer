@@ -1,3 +1,4 @@
+import Combine
 import CoreGraphics
 import SwiftUI
 
@@ -14,6 +15,7 @@ struct CollectionGridView: View {
     @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var appState: AppState
+    @Environment(\.locale) private var locale
     @ObservedObject var state: WelcomeLibraryState
     let library: BookLibrary
     let allowsEditing: Bool
@@ -32,6 +34,16 @@ struct CollectionGridView: View {
     /// ゴミ箱(編集モードで選んだぶん)の**両方がここへ集まる** ―― 同じビューに`.alert`を
     /// 2つ重ねると片方しか出ないことがあるため(WelcomeLibraryPaneの`.sheet`と同じ癖)。
     @State private var deletingCollectionIDs: [UUID] = []
+
+    /// `.layoutDataDidChange` が届くたびに増やすだけの数。**この値自体は読まない。**
+    ///
+    /// カバーの切り出し位置は本ごとの上書き(BookLayoutSettings)から読んでいるが、LayoutStoreは
+    /// その変更で`objectWillChange`を出さない ―― レイアウトの読み取りは頻繁なので、published を
+    /// 「レイアウト情報を持つ本の集合が変わったとき」だけに絞ってある(LayoutStore.
+    /// refreshLayoutBookID のコメント)。そのため、通知を自分で拾って body を組み直す必要がある。
+    /// 拾わないと、メタデータ編集で位置を変えても**次に何かをクリックするまで絵が変わらない**
+    /// (ユーザー指摘 2026-09-09)。
+    @State private var layoutRevision = 0
 
     private var collections: [BookCollection] {
         collectionStore.collections(in: library, sort: state.collectionSort)
@@ -99,6 +111,9 @@ struct CollectionGridView: View {
                 Text("The books themselves are not deleted. Only these collections and their cover images are removed.")
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .layoutDataDidChange)) { _ in
+            layoutRevision &+= 1
+        }
     }
 
     /// 1件のときは従来どおりの文言、まとめて消すときは冊数入りの文言。英語では
@@ -147,6 +162,7 @@ struct CollectionGridView: View {
             cropAnchor: { cropAnchor(for: $0) },
             coverStore: collectionStore.coverStore,
             aspectRatio: library.coverAspectRatio,
+            backgroundColor: library.coverBackgroundColor?.color ?? Color.primary.opacity(0.07),
             size: state.tileSize,
             onImageRetained: { image in
                 // 1画面に並ぶタイル数の見積もり(帳簿の下限。LazyCellImageBudget参照)。
@@ -171,11 +187,46 @@ struct CollectionGridView: View {
                     )
                 }
                 Divider()
+                moveMenu(for: collection)
+                Divider()
                 Button("Rename…") { renamingCollectionID = collection.id }
                 Button("Delete…", role: .destructive) { deletingCollectionIDs = [collection.id] }
             }
         } else {
             tile
+        }
+    }
+
+    /// このコレクションを別のライブラリへ移す(ユーザー要望 2026-09-09)。
+    ///
+    /// ライブラリが1つしか無いときは項目ごと出さない ―― 行き先が存在しないメニューを開けても
+    /// 意味が無い(「項目が空のcontextMenuは付けない」と同じ判断)。
+    ///
+    /// 移す先に同じ名前のコレクションがあるときは**選べないようにし、理由を名前に添える**。
+    /// 押しても何も起きない項目にするより、なぜ選べないかがその場で分かるほうがよい
+    /// (CollectionStore.canMove参照)。
+    @ViewBuilder
+    private func moveMenu(for collection: BookCollection) -> some View {
+        let others = collectionStore.libraries.filter { $0.id != library.id }
+        if !others.isEmpty {
+            Menu("Move to Library") {
+                ForEach(others, id: \.id) { target in
+                    let canMove = collectionStore.canMove(collection, to: target)
+                    Button {
+                        collectionStore.move(collection, to: target)
+                        // 移した先は今見えていないので、選択に残さない
+                        // (見えていないものをゴミ箱が消さないための決まり)。
+                        state.clearSelection()
+                    } label: {
+                        if canMove {
+                            Text(target.displayName(language: locale))
+                        } else {
+                            Text("\(target.displayName(language: locale)) (name already used)")
+                        }
+                    }
+                    .disabled(!canMove)
+                }
+            }
         }
     }
 

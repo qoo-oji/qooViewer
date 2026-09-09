@@ -62,24 +62,47 @@ struct WelcomeLibraryStateTests {
         #expect(state.selectedCollectionIDs.isEmpty)
     }
 
-    @Test("コレクションの中へ入る/出ると選択は捨てる(見えていないものを消さない)")
-    func movingBetweenTheGridAndACollectionClearsTheSelection() {
+    @Test("コレクションの中へ入る/出ると、編集モードから出て選択も捨てる")
+    func movingBetweenTheGridAndACollectionLeavesEditMode() {
         let (state, suite) = makeState("welcome-navigate")
         defer { withExtendedLifetime(suite) {} }
         state.isEditing = true
         state.toggleCollectionSelection(UUID())
 
-        let collectionID = UUID()
-        state.openedCollectionID = collectionID
+        state.openedCollectionID = UUID()
+        #expect(state.isEditing == false)
         #expect(state.selectedCollectionIDs.isEmpty)
 
+        state.isEditing = true
         state.toggleItemSelection(UUID())
         state.openedCollectionID = nil
+        #expect(state.isEditing == false)
         #expect(state.selectedItemIDs.isEmpty)
-        // 場所が変わらない代入では何も起きない(@Published の再代入で選択を落とさない)。
+
+        // 場所が変わらない代入では何も起きない(@Published の再代入で編集モードを落とさない)。
+        state.isEditing = true
         state.toggleItemSelection(UUID())
         state.openedCollectionID = nil
+        #expect(state.isEditing)
         #expect(state.selectedItemIDs.count == 1)
+    }
+
+    @Test("ライブラリを移っても編集モードから出る")
+    func switchingLibrariesLeavesEditMode() {
+        let (state, suite) = makeState("welcome-library-switch")
+        defer { withExtendedLifetime(suite) {} }
+        state.selectedLibraryID = UUID()
+        state.isEditing = true
+        state.toggleCollectionSelection(UUID())
+
+        state.selectedLibraryID = UUID()
+        #expect(state.isEditing == false)
+        #expect(state.selectedCollectionIDs.isEmpty)
+
+        // 同じライブラリを選び直しただけなら何も起きない。
+        let current = state.selectedLibraryID
+        state.isEditing = true
+        state.selectedLibraryID = current
         #expect(state.isEditing)
     }
 }

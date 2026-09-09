@@ -187,6 +187,27 @@ struct CollectionStoreTests {
         #expect(first.coverCropAnchor == .center)
     }
 
+    @Test("札の地の色はライブラリごとに保存され、既定へも戻せる")
+    func thetileBackgroundColorIsPerLibrary() throws {
+        let library = try InMemoryLibrary(label: "collections-tile-background")
+        defer { library.close() }
+        let first = try #require(library.collections.libraries.first)
+        let second = try #require(library.collections.createLibrary(name: "CG"))
+        // 未指定のまま = 既定(表示側が明暗どちらにも馴染む薄い地を使う)。
+        #expect(first.coverBackgroundColor == nil)
+
+        let navy = RGBColorValue(red: 20, green: 30, blue: 60)
+        library.collections.setCoverBackgroundColor(first, navy)
+        #expect(first.coverBackgroundColor == navy)
+        // 保存形式は「#RRGGBB」の文字列そのもの(RGBColorValue.hexString)。
+        #expect(first.coverBackgroundColorRaw == "#141E3C")
+        #expect(second.coverBackgroundColor == nil)
+
+        library.collections.setCoverBackgroundColor(first, nil)
+        #expect(first.coverBackgroundColor == nil)
+        #expect(first.coverBackgroundColorRaw == nil)
+    }
+
     @Test("札の割り付けは、どの比でもほぼ正方形に収まる組み合わせになっている")
     func thetileLayoutStaysSquareForEveryRatio() {
         // セルの幅を w・間隔を s とすると、幅 = 列 × w + (列 - 1)s、
@@ -283,6 +304,91 @@ struct CollectionStoreTests {
         )
         #expect(library.collections.add([sameNodeDifferentPath], to: collection).isEmpty)
         #expect(collection.items.count == 2)
+    }
+
+    // MARK: - 移動
+
+    @Test("コレクションは別のライブラリへ移せる。同名が居る先へは移せない")
+    func acollectionMovesBetweenLibraries() throws {
+        let library = try InMemoryLibrary(label: "collections-move-collection")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-move-collection")
+        let home = try #require(library.collections.libraries.first)
+        let away = try #require(library.collections.createLibrary(name: "CG"))
+        let book = try makeBookFolder(temporary, named: "book")
+        let shelf = try #require(library.collections.createCollection(
+            name: "シリーズ", in: home, items: pendingItems([book])
+        ))
+
+        #expect(library.collections.canMove(shelf, to: away))
+        #expect(library.collections.move(shelf, to: away))
+        #expect(library.collections.collections(in: home, sort: .nameAscending).isEmpty)
+        #expect(library.collections.collections(in: away, sort: .nameAscending).map(\.name) == ["シリーズ"])
+        // 中の本は付いていく。
+        #expect(shelf.items.count == 1)
+
+        // 移した先に同名が居るときは動かさない(同じライブラリ内で名前は重複させない)。
+        let other = try makeBookFolder(temporary, named: "other")
+        let clash = try #require(library.collections.createCollection(
+            name: "シリーズ", in: home, items: pendingItems([other])
+        ))
+        #expect(library.collections.canMove(clash, to: away) == false)
+        #expect(library.collections.move(clash, to: away) == false)
+        #expect(clash.library?.id == home.id)
+
+        // いま居るライブラリへは移せない。
+        #expect(library.collections.canMove(shelf, to: away) == false)
+    }
+
+    @Test("本は別のコレクションへ移せる。行を付け替えるのでカバーの状態も残る")
+    func abookMovesBetweenCollections() throws {
+        let library = try InMemoryLibrary(label: "collections-move-book")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-move-book")
+        let home = try #require(library.collections.libraries.first)
+        let book = try makeBookFolder(temporary, named: "book")
+        let other = try makeBookFolder(temporary, named: "other")
+        let from = try #require(library.collections.createCollection(
+            name: "From", in: home, items: pendingItems([book])
+        ))
+        let to = try #require(library.collections.createCollection(
+            name: "To", in: home, items: pendingItems([other])
+        ))
+        let item = try #require(from.items.first)
+        library.collections.setCoverStatus(.ready, aspect: 1.5, for: item)
+        let itemID = item.id
+
+        #expect(library.collections.move(item, to: to))
+
+        #expect(from.items.isEmpty)
+        #expect(library.collections.items(in: to, sort: .nameAscending).map(\.id).contains(itemID))
+        // 行そのものを付け替えたので、抽出済みのカバーは作り直しにならない。
+        #expect(item.coverState == .ready)
+        #expect(item.coverAspect == 1.5)
+        // 同じコレクションへは移せない。
+        #expect(library.collections.move(item, to: to) == false)
+    }
+
+    @Test("移す先に同じ本が既に居るときは、移す側の行を消すだけ")
+    func movingAbookThatIsAlreadyThereJustRemovesTheSource() throws {
+        let library = try InMemoryLibrary(label: "collections-move-duplicate")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-move-duplicate")
+        let home = try #require(library.collections.libraries.first)
+        let book = try makeBookFolder(temporary, named: "book")
+        let from = try #require(library.collections.createCollection(
+            name: "From", in: home, items: pendingItems([book])
+        ))
+        let to = try #require(library.collections.createCollection(
+            name: "To", in: home, items: pendingItems([book])
+        ))
+        let item = try #require(from.items.first)
+
+        #expect(library.collections.move(item, to: to))
+
+        #expect(from.items.isEmpty)
+        // 移す先は増えない(同じ本を2つ置かない)。
+        #expect(to.items.count == 1)
     }
 
     // MARK: - 削除

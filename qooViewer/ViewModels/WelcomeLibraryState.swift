@@ -39,6 +39,8 @@ final class WelcomeLibraryState: ObservableObject {
         didSet {
             guard selectedLibraryID != oldValue else { return }
             defaults.set(selectedLibraryID?.uuidString, forKey: Keys.selectedLibraryID)
+            // 画面が移ったら編集モードから出る(isEditingのコメント参照)。
+            isEditing = false
         }
     }
 
@@ -49,13 +51,21 @@ final class WelcomeLibraryState: ObservableObject {
     @Published var openedCollectionID: UUID? {
         didSet {
             guard openedCollectionID != oldValue else { return }
-            // 見ている場所が変わったら選択は捨てる(selectedCollectionIDsのコメント参照)。
-            clearSelection()
+            // 画面が移ったら編集モードから出る(isEditingのコメント参照)。didSetの中で
+            // clearSelection()も走るので、選択を捨てるのはここに書かなくてよい。
+            isEditing = false
         }
     }
 
-    /// 編集モード。コレクションの作成・リネーム・削除、本の追加・削除ができる状態。
-    /// 本を開いたら解除する(ContentViewの`currentBook`のonChange)。
+    /// 編集モード。いま効くのは**ゴミ箱を出すかどうか**と、クリック/ドロップの意味
+    /// (開く ↔ 選ぶ・登録する)だけ ―― 「足す」操作はモードと無関係になった
+    /// (LibraryPaneControls.isEditingのコメント参照)。
+    ///
+    /// **画面が移ったら必ず解除する。** 本を開いたとき(ContentViewの`currentBook`のonChange)に
+    /// 加えて、ライブラリを移ったとき・コレクションの中へ入った/出たときも解除する
+    /// (ユーザー指摘 2026-09-09)。編集モードはいま見えているものに手を入れるための状態なので、
+    /// 別のものを見始めた時点で持ち越す理由が無い ―― 持ち越すと、入った先でクリックの意味が
+    /// 変わったままなのに、なぜそうなっているのかが画面から読めない。
     @Published var isEditing = false {
         didSet {
             guard isEditing != oldValue else { return }

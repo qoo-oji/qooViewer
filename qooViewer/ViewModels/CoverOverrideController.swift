@@ -205,6 +205,12 @@ final class CoverOverrideController: ObservableObject {
         Task { await refreshCoverName(forBookID: bookID) }
     }
 
+    /// いまカバーに指定されている本の中のページ(未指定・外部ファイル指定ならnil)。
+    /// ページを選ぶ画面が「いまどれが選ばれているか」を出すために読む。
+    func coverPageKey(forBookID bookID: String) -> String? {
+        layoutStore.bookLayoutSettings(forBookID: bookID)?.coverPageKey
+    }
+
     // MARK: - カバーの切り出し位置(コレクションのグリッド表示にだけ効く)
 
     /// 本ごとの切り出し位置の上書き(nil = そのライブラリの設定に従う)。

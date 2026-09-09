@@ -82,6 +82,13 @@ final class BookLibrary {
     /// 「未設定」の状態を持たせず必ず具体的な値にしておく。既定は中央。
     var coverCropAnchorRaw: String = CoverCropAnchor.center.rawValue
 
+    /// コレクションの札の地の色(ユーザー要望 2026-09-09)。RGBColorValue.hexStringを保存する。
+    ///
+    /// **nil = 既定**(`Color.primary.opacity(0.07)`= 明暗どちらの外観にも馴染む薄い地)。
+    /// 色を1つ決め打ちで保存してしまうと外観の切り替えに追従できなくなるので、「未指定」の
+    /// 状態を残してある。Optionalなのでライトウェイトマイグレーションで済む。
+    var coverBackgroundColorRaw: String?
+
     /// このライブラリに属するコレクション。ライブラリを削除したら中のコレクションも
     /// 連鎖して削除する(その先のCollectionItemもBookCollection.items側のcascadeで消える)。
     @Relationship(deleteRule: .cascade, inverse: \BookCollection.library)
@@ -98,6 +105,12 @@ final class BookLibrary {
     var coverCropAnchor: CoverCropAnchor {
         get { CoverCropAnchor.stored(coverCropAnchorRaw) ?? .center }
         set { coverCropAnchorRaw = newValue.rawValue }
+    }
+
+    /// 札の地の色(nil = 既定)。coverBackgroundColorRawのコメント参照。
+    var coverBackgroundColor: RGBColorValue? {
+        get { coverBackgroundColorRaw.flatMap(RGBColorValue.init(hexString:)) }
+        set { coverBackgroundColorRaw = newValue?.hexString }
     }
 
     /// - Parameter usesDefaultName: アプリが自分で作った既定のライブラリならtrue

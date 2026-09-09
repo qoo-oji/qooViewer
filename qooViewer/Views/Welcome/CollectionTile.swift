@@ -33,6 +33,8 @@ struct CollectionTile: View {
     let coverStore: CollectionCoverStore
     /// このライブラリのカバーの縦横比。セルの形とここの割り付けの両方がこれで決まる。
     let aspectRatio: CoverAspectRatio
+    /// 札の地の色(ライブラリの設定。既定は明暗どちらにも馴染む薄い地)。
+    var backgroundColor: Color = Color.primary.opacity(0.07)
     /// タイルの一辺の目安(スライダーの値)。角丸とセルの復号サイズの見積もりに使う。
     let size: CGFloat
     var onImageRetained: ((CGImage) -> Void)?
@@ -43,10 +45,15 @@ struct CollectionTile: View {
     /// 編集モード中のクリック。
     var onToggleSelection: () -> Void = {}
 
-    /// セルの間隔。
-    private static let cellSpacing: CGFloat = 3
-    /// 札の内側の余白。
-    private static let padding: CGFloat = 6
+    /// セルの間隔(ユーザー指摘 2026-09-09で3ptから広げた ―― 詰まりすぎて、6冊が1枚の
+    /// 大きな絵のように見えていた)。
+    ///
+    /// 札がぴったり正方形にならないのはこの値のぶん(CoverAspectRatio.tileColumnsの計算)なので、
+    /// 広げるほど正方形から離れる。180ptの札で6ptのずれ = 3%程度なので、並べたときに気づく差には
+    /// ならない。
+    private static let cellSpacing: CGFloat = 6
+    /// 札の内側の余白。セルの間隔より狭いと、外周だけが窮屈に見えるので少し広く取る。
+    private static let padding: CGFloat = 8
 
     /// セル1つの実寸の見積もり(復号サイズの上限にだけ使う。実際の割り付けはGridが決める)。
     private var cellWidth: CGFloat {
@@ -91,7 +98,7 @@ struct CollectionTile: View {
         .padding(Self.padding)
         .background(
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.primary.opacity(0.07))
+                .fill(backgroundColor)
         )
         // 冊数バッジ。自前の塗り地を持つので輪郭は付けない(すりガラス面の決まりごとの例外側)。
         .overlay(alignment: .bottomTrailing) {

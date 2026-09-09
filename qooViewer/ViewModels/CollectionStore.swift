@@ -348,6 +348,14 @@ final class CollectionStore: ObservableObject {
         reload()
     }
 
+    /// 札の地の色を書き込む(nil = 既定に戻す。ユーザー要望 2026-09-09)。
+    func setCoverBackgroundColor(_ library: BookLibrary, _ color: RGBColorValue?) {
+        guard library.coverBackgroundColor != color else { return }
+        library.coverBackgroundColor = color
+        saveAndNotify()
+        reload()
+    }
+
     /// ライブラリを削除する(配下のコレクション・本はカスケードで消える)。
     ///
     /// **ライブラリが1つしか無いときは何もしない。** 帯が空になると、コレクションの作り先が
@@ -427,7 +435,32 @@ final class CollectionStore: ObservableObject {
         reload()
     }
 
+    /// コレクションを別のライブラリへ移す(ユーザー要望 2026-09-09。右クリック → 「移動」)。
+    ///
+    /// 移す先に同じ名前のコレクションがあるときは**何もしない** ―― 同じライブラリの中で名前が
+    /// 重複しないという決まり(hasCollectionNamed)を、移動だけ例外にはできない。UI側は
+    /// `canMove(_:to:)`で先に見て、その行を選べないようにする(押しても何も起きないボタンを
+    /// 押させない)。
+    @discardableResult
+    func move(_ collection: BookCollection, to library: BookLibrary) -> Bool {
+        guard canMove(collection, to: library) else { return false }
+        collection.library = library
+        // 「更新順」の並びで、移したものが上に来るようにする(棚をいじった記録として素直)。
+        collection.updatedAt = Date()
+        invalidateLookupCaches()
+        saveAndNotify()
+        reload()
+        return true
+    }
+
+    /// このコレクションをそのライブラリへ移せるか(いま居るライブラリと、名前が衝突する先を除く)。
+    func canMove(_ collection: BookCollection, to library: BookLibrary) -> Bool {
+        guard collection.library?.id != library.id else { return false }
+        return !hasCollectionNamed(collection.name, in: library)
+    }
+
     // MARK: - 本
+
 
     /// 登録しようとしている本1冊ぶんの材料。SwiftDataのモデルを作る前に、URLから取れる情報を
     /// まとめておくためのもの(ドロップ・ファイル選択・JSON取り込みの3つの入り口が同じ形で渡す)。
@@ -500,6 +533,44 @@ final class CollectionStore: ObservableObject {
         }
         if !created.isEmpty { invalidateLookupCaches() }
         return created
+    }
+
+    /// 本を別のコレクションへ移す(ユーザー要望 2026-09-09。右クリック → 「移動」)。
+    ///
+    /// **行そのものを付け替える**(消して作り直さない)。カバー画像のファイル名は行のid
+    /// (CollectionItem.id)なので、付け替えなら抽出済みのカバーがそのまま生きる。
+    ///
+    /// 移す先に同じ本が既に入っている場合は、**移す側の行を消すだけ**にする ―― 同じ
+    /// コレクションに同じ本を2つ置かない(insertItems)という決まりに合わせつつ、
+    /// 「移動したのに元にも残っている」を避ける。行が消えるのでカバーの画像も一緒に消す。
+    @discardableResult
+    func move(_ item: CollectionItem, to collection: BookCollection) -> Bool {
+        guard let source = item.collection, source.id != collection.id else { return false }
+        let now = Date()
+        let alreadyThere = collection.items.contains { other in
+            other.bookID == item.bookID
+                || (item.fileNodeIdentifier != nil
+                    && other.fileNodeIdentifier == item.fileNodeIdentifier)
+        }
+        if alreadyThere {
+            // 消したあとの行から属性を読まない(SwiftDataでは落ちうる)ので、先に控える。
+            let itemID = item.id
+            let bookID = item.bookID
+            modelContext.delete(item)
+            source.updatedAt = now
+            invalidateLookupCaches()
+            saveAndNotify(bookID: bookID)
+            removeCovers([itemID])
+            existenceByItemID.removeValue(forKey: itemID)
+            return true
+        }
+        item.collection = collection
+        item.sortOrder = collection.items.count
+        source.updatedAt = now
+        collection.updatedAt = now
+        invalidateLookupCaches()
+        saveAndNotify(bookID: item.bookID)
+        return true
     }
 
     /// 本をコレクションから外す(カバー画像のファイルも消す)。

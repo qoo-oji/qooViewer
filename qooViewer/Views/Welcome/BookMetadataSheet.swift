@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -43,6 +44,12 @@ struct BookMetadataSheet: View {
     @State private var coverController: CoverOverrideController?
     @State private var isPickingPage = false
     @State private var isCoverDropTargeted = false
+    /// カバーの指定を変えるたびに増やすだけの数。**この値自体は読まない。**
+    ///
+    /// 切り出し位置もカバーの上書きもDB(BookLayoutSettings)から毎回読んでいるが、LayoutStoreは
+    /// その変更で`objectWillChange`を出さない(CollectionGridView.layoutRevisionのコメント参照)。
+    /// このシートは`coverController`を`@State`で持っていて購読もしていないので、契機が要る。
+    @State private var coverRevision = 0
 
     /// カバーの表示幅。高さはライブラリの縦横比から決まる(2:3なら1.5倍、1:1なら等倍)。
     /// 右の4欄+説明とだいたい同じ高さになる値にしてある ―― どちらかが極端に長いと、
@@ -116,6 +123,11 @@ struct BookMetadataSheet: View {
         }
         .padding(20)
         .frame(width: 460)
+        // 別のウインドウ(「メタデータの編集」ウインドウ・書き出しウインドウ)から同じ本の
+        // カバーを変えられたときも追いつく。
+        .onReceive(NotificationCenter.default.publisher(for: .layoutDataDidChange)) { _ in
+            coverRevision &+= 1
+        }
         .onAppear {
             draft = MetadataEditorViewModel.initialDraft(
                 forBookID: item.bookID,
@@ -226,6 +238,7 @@ struct BookMetadataSheet: View {
     private func cropAnchorItem(_ titleKey: LocalizedStringKey, _ anchor: CoverCropAnchor?) -> some View {
         Button {
             coverController?.setCropAnchor(forBookID: item.bookID, anchor)
+            coverRevision &+= 1
         } label: {
             // コンテキストメニューのButtonにはチェックマークが付かないため、選択中の項目には
             // 自分で印を添える(メニューバーのToggleと違い、ここは1つを選ぶ4択)。

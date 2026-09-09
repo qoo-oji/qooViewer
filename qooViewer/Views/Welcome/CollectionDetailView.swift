@@ -1,3 +1,4 @@
+import Combine
 import CoreGraphics
 import SwiftUI
 
@@ -21,6 +22,7 @@ struct CollectionDetailView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.locale) private var locale
     @ObservedObject var state: WelcomeLibraryState
     let collection: BookCollection
     /// このコレクションが属するライブラリ。`collection.library`からも辿れるが、カバーの
@@ -42,6 +44,16 @@ struct CollectionDetailView: View {
     /// 「コレクションから削除」(1冊)とゴミ箱(選んだぶん)の両方がここへ集まる
     /// (CollectionGridView.deletingCollectionIDsと同じ理由)。
     @State private var removingItemIDs: [UUID] = []
+
+    /// `.layoutDataDidChange` が届くたびに増やすだけの数。**この値自体は読まない。**
+    ///
+    /// カバーの切り出し位置は本ごとの上書き(BookLayoutSettings)から読んでいるが、LayoutStoreは
+    /// その変更で`objectWillChange`を出さない ―― レイアウトの読み取りは頻繁なので、published を
+    /// 「レイアウト情報を持つ本の集合が変わったとき」だけに絞ってある(LayoutStore.
+    /// refreshLayoutBookID のコメント)。そのため、通知を自分で拾って body を組み直す必要がある。
+    /// 拾わないと、メタデータ編集で位置を変えても**次に何かをクリックするまで絵が変わらない**
+    /// (ユーザー指摘 2026-09-09)。
+    @State private var layoutRevision = 0
 
     /// メタデータ編集シートの対象。シートを出す時点で本のURLが解決できている必要があるため
     /// (BookMetadataSheetのコメント参照)、行とURLを組にして持つ。
@@ -101,6 +113,9 @@ struct CollectionDetailView: View {
         } message: {
             Text("The file or folder for “") + Text(missingItem?.title ?? "")
                 + Text("” could not be found. It may have been moved or deleted.")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .layoutDataDidChange)) { _ in
+            layoutRevision &+= 1
         }
     }
 
@@ -276,7 +291,10 @@ struct CollectionDetailView: View {
                     )
                 }
             )
-            if allowsEditing && state.isEditing {
+            // 「メタデータの編集」は**編集モードを条件にしない**(ユーザー指摘 2026-09-09)。
+            // 棚から本を出し入れする操作ではなく、その1冊の中身を整える操作なので、モードの
+            // 奥に置く理由が無い(帯のリネームと同じ判断。WelcomeTopBar.canEditLibraries参照)。
+            if allowsEditing {
                 Divider()
                 Button("Edit Metadata…") {
                     guard let url = collectionStore.resolvedExistingURL(for: item) else {
@@ -285,12 +303,66 @@ struct CollectionDetailView: View {
                     }
                     metadataTarget = MetadataTarget(item: item, url: url)
                 }
+            }
+            // コレクションから外すのは取り消せない削除なので、ゴミ箱と同じく編集モードの中に置く。
+            // 別のコレクションへ移すのも棚をいじる操作なので、同じ側に置く。
+            if allowsEditing && state.isEditing {
+                Divider()
+                moveMenu(for: item)
+                Divider()
                 Button("Remove from Collection", role: .destructive) {
                     // 1冊でも確認は出す(ゴミ箱と同じ扱い。取り消せない書き込みなので、
                     // 入り口によって確認の有無が変わらないようにする)。
                     removingItemIDs = [item.id]
                 }
             }
+        }
+    }
+
+    /// この本を別のコレクションへ移す(ユーザー要望 2026-09-09)。
+    ///
+    /// ライブラリが1つしかなければ、そのライブラリのコレクションを**直に**並べる ―― 行き先が
+    /// 1つの入れ子を毎回開かせない。2つ以上あればライブラリごとの入れ子にする(コレクション名は
+    /// ライブラリをまたぐと重複しうるので、どの棚のものか分かる必要がある)。
+    ///
+    /// 移す先が1つも無いとき(コレクションがこれ1つだけ)は項目ごと出さない。
+    @ViewBuilder
+    private func moveMenu(for item: CollectionItem) -> some View {
+        let libraries = collectionStore.libraries
+        let targetsByLibrary = libraries.map { target in
+            (
+                library: target,
+                collections: collectionStore.collections(in: target, sort: .nameAscending)
+                    .filter { $0.id != collection.id }
+            )
+        }
+        .filter { !$0.collections.isEmpty }
+
+        if !targetsByLibrary.isEmpty {
+            Menu("Move to Collection") {
+                if targetsByLibrary.count == 1, let only = targetsByLibrary.first {
+                    ForEach(only.collections, id: \.id) { target in
+                        moveButton(for: item, to: target)
+                    }
+                } else {
+                    ForEach(targetsByLibrary, id: \.library.id) { entry in
+                        Menu(entry.library.displayName(language: locale)) {
+                            ForEach(entry.collections, id: \.id) { target in
+                                moveButton(for: item, to: target)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func moveButton(for item: CollectionItem, to target: BookCollection) -> some View {
+        Button(target.name) {
+            collectionStore.move(item, to: target)
+            // 移した先は今見えていないので、選択に残さない
+            // (見えていないものをゴミ箱が消さないための決まり)。
+            state.clearSelection()
         }
     }
 

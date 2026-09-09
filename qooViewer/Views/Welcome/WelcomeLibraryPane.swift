@@ -92,6 +92,11 @@ struct LibraryPaneControls: View {
     let allowsEditing: Bool
 
     @State private var isShowingLibrarySettings = false
+    /// 札の地の色を選ぶダイアログ。**ポップオーバーではなくこの列が持つ** ―― ポップオーバーの
+    /// 中からシートを出すと、親のポップオーバーが閉じた時点でシートごと消える。
+    @State private var isPickingBackgroundColor = false
+
+    @EnvironmentObject private var collectionStore: CollectionStore
 
     var body: some View {
         HStack(spacing: 6) {
@@ -124,7 +129,23 @@ struct LibraryPaneControls: View {
                 isShowingLibrarySettings = true
             }
             .popover(isPresented: $isShowingLibrarySettings, arrowEdge: .bottom) {
-                LibrarySettingsPopover(library: library)
+                LibrarySettingsPopover(library: library) {
+                    // 閉じかけのポップオーバーの上へシートを重ねない(WelcomeView.presentAddBooksと
+                    // 同じ理由で1回だけ遅らせる)。
+                    isShowingLibrarySettings = false
+                    DispatchQueue.main.async { isPickingBackgroundColor = true }
+                }
+            }
+            .sheet(isPresented: $isPickingBackgroundColor) {
+                CustomColorPickerSheet(
+                    titleKey: "Background Color",
+                    // 既定のままの状態から開いたときは、既定の見た目に近いところから始める
+                    // (真っ黒から始めると、少し変えたいだけの人が毎回遠回りになる)。
+                    initialColor: library.coverBackgroundColor
+                        ?? RGBColorValue(red: 128, green: 128, blue: 128),
+                    onCommit: { collectionStore.setCoverBackgroundColor(library, $0) },
+                    onCancel: {}
+                )
             }
         }
     }

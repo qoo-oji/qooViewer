@@ -660,6 +660,16 @@ struct ExportCoverCell: View {
 /// 追加した専用ファイルはLayoutStore.setExternalCoverが本(MangaBook.pages)には一切追加しない
 /// (BookLayoutSettingsの別プロパティとして保持するだけ)ため、ビューアのページ一覧には
 /// 現れない(ユーザー要望通り)。
+///
+/// ■ ページを選ぶのは2段構え(ユーザー指摘 2026-09-09)
+/// 以前は行を押した瞬間にカバーが決まっていたが、**押しても画面が何も変わらず、面も閉じない**
+/// ので、決まったのかどうかも、どうやって閉じるのかも分からなかった。行を押すのは「選ぶ」まで
+/// にして、下の「選択」で確定して閉じる/「キャンセル」で何もせず閉じる。
+///
+/// 下2つ(「既定に戻す」「ファイルを選ぶ…」)と切り出し位置は**その場で効く**まま。前2つは
+/// それ自体が終わりの操作なので、効かせたらそのまま閉じる ―― 「キャンセルで戻るのはどれか」を
+/// 面の上に残さないため。切り出し位置だけは設定なので居座るが、これは元から即時保存の側
+/// (BookMetadataSheetの型コメント参照)。
 struct ExportCoverPickerContent: View {
     let bookID: String
     @ObservedObject var controller: CoverOverrideController
@@ -670,15 +680,20 @@ struct ExportCoverPickerContent: View {
     /// PageLoaderのページキャッシュ上限(環境設定「キャッシュ」)を渡すため。
     @EnvironmentObject private var preferences: AppPreferences
 
+    @Environment(\.dismiss) private var dismiss
+
     @State private var loadedBook: MangaBook?
     @State private var loadFailed = false
     @State private var pageLoader: PageLoader?
     @State private var thumbnails: [String: CGImage] = [:]
+    /// いま選んでいるページ(まだ確定していない)。開いた時点では、既に指定されているページ。
+    @State private var selectedPageKey: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
                 controller.resetCover(forBookID: bookID)
+                dismiss()
             } label: {
                 Label("Reset to Default (First Page)", systemImage: "arrow.counterclockwise")
             }
@@ -696,7 +711,8 @@ struct ExportCoverPickerContent: View {
                             index: index,
                             pageLoader: pageLoader,
                             thumbnails: $thumbnails,
-                            onSelect: { controller.setCover(forBookID: bookID, book: loadedBook, page: page) }
+                            isSelected: selectedPageKey == page.sortKey,
+                            onSelect: { selectedPageKey = page.sortKey }
                         )
                     }
                     .frame(minWidth: 260, minHeight: 260)
@@ -741,6 +757,24 @@ struct ExportCoverPickerContent: View {
                 .padding(8)
                 .disabled(!isCropAnchorEnabled)
             }
+
+            Divider()
+
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Choose") {
+                    if let loadedBook, let selectedPageKey,
+                       let page = loadedBook.pages.first(where: { $0.sortKey == selectedPageKey }) {
+                        controller.setCover(forBookID: bookID, book: loadedBook, page: page)
+                    }
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(selectedPageKey == nil)
+            }
+            .padding(8)
         }
         .task {
             guard loadedBook == nil else { return }
@@ -750,6 +784,9 @@ struct ExportCoverPickerContent: View {
             }
             loadedBook = book
             pageLoader = PageLoader(book: book, imageCacheLimitBytes: preferences.pageImageCacheLimitBytes)
+            // 開いた時点で、既に指定されているページに印を付けておく(何も指定していない本では
+            // どこにも印が付かず、「選択」も押せない = 選ぶまで何も起きない)。
+            selectedPageKey = controller.coverPageKey(forBookID: bookID)
         }
     }
 
@@ -770,6 +807,7 @@ struct ExportCoverPickerContent: View {
         panel.message = String(localized: "Choose an image file to use as the cover.", language: preferences.effectiveLocale)
         guard panel.runModal() == .OK, let url = panel.url else { return }
         controller.setExternalCover(forBookID: bookID, fileURL: url)
+        dismiss()
     }
 }
 
@@ -788,6 +826,8 @@ private struct ExportCoverPickerPageRow: View {
     /// 小さいサムネイル画像のキャッシュ。ExportCoverPickerContent側の@Stateを共有し、
     /// popoverを開閉しても読み込み直さないようにする(BookmarkListView.thumbnailsと同じ考え方)。
     @Binding var thumbnails: [String: CGImage]
+    /// いまこの行が選ばれているか(選ぶだけで、確定は下の「選択」ボタン)。
+    let isSelected: Bool
     let onSelect: () -> Void
 
     /// カーソルが小さいサムネイルの上にあるかどうか(拡大プレビュー用のpopoverの表示制御)。
@@ -833,8 +873,19 @@ private struct ExportCoverPickerPageRow: View {
                         .truncationMode(.middle)
                 }
                 Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(Color.accentColor)
+                }
             }
             .help(location.fullPath)
+            .padding(.vertical, 2)
+            .padding(.horizontal, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .task(id: page.id) {
