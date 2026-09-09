@@ -104,6 +104,9 @@ struct WelcomeDropHandlingTests {
         #expect(creation.defaultName.isEmpty)
         #expect(creation.fromShelf == false)
         #expect(creation.autoFolder?.path == folder.path)
+        // ドロップ由来なので、名前を決めたあとに「本を追加」パネルは出さない
+        // (WelcomeView.finishCreation参照)。
+        #expect(creation.fromDrop)
     }
 
     @Test("別々のフォルダから集めた本には自動登録フォルダの初期値を付けない")
@@ -147,6 +150,9 @@ struct WelcomeDropHandlingTests {
         #expect(shelfCreation.books == [shelfBook])
         #expect(shelfCreation.fromShelf)
         #expect(shelfCreation.autoFolder?.path == shelf.path)
+        // 棚もばらの本も、ドロップから来たことは同じ(looseCreation.fromDropも真)。
+        #expect(looseCreation.fromDrop)
+        #expect(shelfCreation.fromDrop)
     }
 
     @Test("コレクションの中へ落とすと、そのコレクションへ本が足される(棚は中の本へ展開する)")

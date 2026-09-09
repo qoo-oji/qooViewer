@@ -163,7 +163,11 @@ struct WelcomeView: View {
             // 本の入っていない作成(「＋」から)は、行を作らずに「本を追加」パネルへ進む。
             // 1冊目が入った時点でCollectionStore.createCollectionが行を作る ―― 選ばれていた
             // 自動登録フォルダも、そのときに書き込めるようパネルへ持たせる。
+            //
+            // ドロップから来た作成では、ここへ来るのは落とされたものが1つも本にならなかった
+            // ときだけ。空のパネルを出しても入れるものが無いので、何もせず終わる。
             guard !pending.isEmpty else {
+                guard !creation.fromDrop else { return }
                 presentAddBooks(
                     .init(
                         collectionID: nil, name: name, libraryID: library.id,
@@ -179,7 +183,12 @@ struct WelcomeView: View {
                 collectionStore.setAutoFolder(autoFolder, for: created)
             }
             coverExtractor.enqueue(collectionStore.items(in: created, sort: .dateAddedAscending))
-            // 要望どおり、作成のあとは本が入った状態の「本を追加」パネルを開く(そのまま足せる)。
+            // **ドロップで作ったときはパネルを出さない**(ユーザー指示 2026-09-09)。
+            // 入れたい本はドロップで渡し終えているので、そのうえで空の「本を追加」パネルが
+            // 出るのは、棚を1つ作るたびに閉じるだけの手間が増えるということでしかない。
+            // 「＋」から作ったときだけは、本を入れる場がそこにしか無いので開く
+            // (作成の直後は本が入った状態で開き、そのまま足せる)。
+            guard !creation.fromDrop else { return }
             presentAddBooks(
                 .init(
                     collectionID: created.id, name: created.name, libraryID: library.id,
@@ -274,7 +283,7 @@ enum WelcomeDropHandling {
         if !looseBooks.isEmpty {
             queued.append(
                 .init(
-                    defaultName: "", books: looseBooks, fromShelf: false,
+                    defaultName: "", books: looseBooks, fromShelf: false, fromDrop: true,
                     autoFolder: commonParentFolder(of: looseBooks)
                 )
             )
@@ -284,7 +293,7 @@ enum WelcomeDropHandling {
             queued.append(
                 .init(
                     defaultName: folder.lastPathComponent, books: books, fromShelf: true,
-                    autoFolder: folder
+                    fromDrop: true, autoFolder: folder
                 )
             )
         }
