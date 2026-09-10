@@ -21,8 +21,15 @@ import SwiftUI
 /// 実体が見つからない本(`exists == false`)は、状態に関わらず全体を淡く描く。
 ///
 /// ■ 輪郭(すりガラス面の決まりごと)
-/// 画像・自前の地を持つ形式バッジのどちらも輪郭を付けない側なので、この部品自体には
-/// `.panelOutlinedContent()`を掛けない(CLAUDE.mdの表参照)。
+/// カバー画像そのものは輪郭を付けない側なので、この部品に`.panelOutlinedContent()`は掛けない
+/// (CLAUDE.mdの表参照)。ただし**絵が出ていないセルは別**で、次の3つを手当てしてある
+/// (ユーザー指示で実測 2026-09-10。以前は「形式バッジは自前の地を持つから何も要らない」と
+/// 書いてあったが、あの地は`Color.secondary.opacity(0.15)`しかなく地になっていなかった ――
+/// 面を白100%で塗ると、下地もバッジもスピナーも画素がまっ白に消え、カバーが並んでいる場所に
+/// 何も無いように見えていた。カバー下の名前は既定で出さない設定なので手がかりもゼロ)。
+/// - 下地(絵が無いとき) → `.panelOutlinedFrame(in:)`でセルの縁を1本引く
+/// - 形式バッジ         → `.panelControlWell()`(文字ごと消えるので、反対色の溝に載せる)
+/// - スピナー           → `.panelControlWell()`(輪郭が使えない部品。スライダーと同じ扱い)
 struct CollectionCoverThumbnail: View {
     /// セルの角丸。選択中の枠(CollectionDetailView)も同じ形で描くため、ここを正典にする。
     static func cornerRadius(forWidth width: CGFloat) -> CGFloat {
@@ -48,8 +55,16 @@ struct CollectionCoverThumbnail: View {
 
     @State private var image: CGImage?
 
+    /// 絵が出ているか。出ていないセルだけ縁を引く(型コメントの「輪郭」参照)。
+    private var hasArtwork: Bool {
+        item.coverState == .ready && image != nil
+    }
+
     var body: some View {
-        ZStack {
+        let shape = RoundedRectangle(
+            cornerRadius: Self.cornerRadius(forWidth: displayWidth), style: .continuous
+        )
+        return ZStack {
             switch item.coverState {
             case .ready:
                 if let image {
@@ -64,21 +79,24 @@ struct CollectionCoverThumbnail: View {
                 if isExtracting {
                     ProgressView()
                         .controlSize(.small)
+                        // 輪郭が使えない部品なので、反対色の溝に載せる(panelControlWell参照)。
+                        .panelControlWell()
                 }
             case .failed:
                 placeholder(Color.primary.opacity(0.12))
                 FormatBadgeView(bookID: item.bookID)
+                    // バッジ自身の地は15%しかなく、面を文字色で塗ると文字ごと消える
+                    // (型コメントの「輪郭」参照)。溝はバッジと一緒に縮める。
+                    .panelControlWell()
                     // 小さいセルではバッジがはみ出すので、収まらないときは黙って消す。
                     .fixedSize()
                     .scaleEffect(min(1, displayWidth / 60))
             }
         }
         .aspectRatio(aspectRatio.value, contentMode: .fit)
-        .clipShape(
-            RoundedRectangle(
-                cornerRadius: Self.cornerRadius(forWidth: displayWidth), style: .continuous
-            )
-        )
+        .clipShape(shape)
+        // 絵が無いセルの縁。面を文字色で塗ってもセルの在りかが分かるようにする。
+        .panelOutlinedFrame(in: shape, isEnabled: !hasArtwork)
         .opacity(exists ? 1 : 0.35)
         // 読み直しの契機は3つ。抽出のやり直し(カバーの変更)はcoverStatusをいったん.pendingへ
         // 戻してから.readyにするので状態を鍵に含め、比と位置は**切り直し**が要るので含める

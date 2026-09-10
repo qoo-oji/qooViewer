@@ -86,6 +86,21 @@ struct CollectionDetailView: View {
         collectionStore.items(in: collection, sort: state.itemSort)
     }
 
+    /// いま出ている本が残らず選ばれているか。空のときは false(押せる先が無い)。
+    private var isEveryItemSelected: Bool {
+        let shown = items
+        return !shown.isEmpty && shown.allSatisfy { state.selectedItemIDs.contains($0.id) }
+    }
+
+    /// 全選択 / 全選択解除。**いま出ているぶんだけ**を入れ替える(CollectionGridViewと同じ)。
+    private func toggleSelectAll() {
+        if isEveryItemSelected {
+            state.clearSelection()
+        } else {
+            state.selectedItemIDs = Set(items.map(\.id))
+        }
+    }
+
     /// このカバーで残す位置(本ごとの上書き ?? ライブラリの既定。CollectionGridViewと同じ)。
     private func cropAnchor(for item: CollectionItem) -> CoverCropAnchor {
         layoutStore.bookLayoutSettings(forBookID: item.bookID)?.coverCropAnchor
@@ -193,6 +208,9 @@ struct CollectionDetailView: View {
                         libraryID: collection.library?.id ?? UUID()
                     )
                 },
+                isAllSelected: isEveryItemSelected,
+                canSelectAll: !items.isEmpty,
+                onToggleSelectAll: { toggleSelectAll() },
                 deleteHelp: "Remove Selected Books",
                 canDelete: !state.selectedItemIDs.isEmpty,
                 onDelete: { removingItemIDs = Array(state.selectedItemIDs) },

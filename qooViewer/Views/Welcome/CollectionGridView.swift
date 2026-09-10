@@ -65,6 +65,9 @@ struct CollectionGridView: View {
                 LibraryPaneControls(
                     addHelp: "New Collection",
                     onAdd: { beginCreatingCollection() },
+                    isAllSelected: isEveryCollectionSelected,
+                    canSelectAll: !collections.isEmpty,
+                    onToggleSelectAll: { toggleSelectAll() },
                     deleteHelp: "Delete Selected Collections",
                     canDelete: !state.selectedCollectionIDs.isEmpty,
                     onDelete: { deletingCollectionIDs = Array(state.selectedCollectionIDs) },
@@ -140,6 +143,22 @@ struct CollectionGridView: View {
         deletingCollectionIDs.count == 1
             ? Text("Delete Collection?")
             : Text("Delete \(deletingCollectionIDs.count) collections?")
+    }
+
+    /// いま出ているコレクションが残らず選ばれているか。空のときは false(押せる先が無い)。
+    private var isEveryCollectionSelected: Bool {
+        let shown = collections
+        return !shown.isEmpty && shown.allSatisfy { state.selectedCollectionIDs.contains($0.id) }
+    }
+
+    /// 全選択 / 全選択解除。**いま出ているぶんだけ**を入れ替える ―― 選択は「いま目に見えて
+    /// いる印」がすべて、という決まりに合わせる(WelcomeLibraryState.selectedCollectionIDs参照)。
+    private func toggleSelectAll() {
+        if isEveryCollectionSelected {
+            state.clearSelection()
+        } else {
+            state.selectedCollectionIDs = Set(collections.map(\.id))
+        }
     }
 
     private func confirmDeletion() {

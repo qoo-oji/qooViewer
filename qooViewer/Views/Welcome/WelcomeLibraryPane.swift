@@ -11,8 +11,8 @@ import SwiftUI
 /// コレクションの設定**を出す(ユーザー指示 2026-09-09。以前はどちらでもライブラリの設定を
 /// 出していたが、棚を開いているのにその外側の設定が出るのは筋が通らない)。そのぶん、カバーの
 /// 見せ方(ライブラリ単位)を変えるには一覧へ戻ることになる。
-/// 編集モードのときだけ増える「ゴミ箱」を**「＋」の左**に足すのも同じ理由 ―― 列は右端に
-/// 揃えてあるので、左へ伸びるぶんには既にあるボタンが動かない。
+/// 編集モードのときだけ増える「全選択」と「ゴミ箱」を**「＋」の左**に足すのも同じ理由 ―― 列は
+/// 右端に揃えてあるので、左へ伸びるぶんには既にあるボタンが動かない。
 struct WelcomeLibraryPane: View {
     @EnvironmentObject private var collectionStore: CollectionStore
     @ObservedObject var state: WelcomeLibraryState
@@ -66,6 +66,16 @@ struct LibraryPaneControls: View {
     /// **編集モードとは無関係に押せる**(ユーザー指摘 2026-09-09。下の`isEditing`のコメント参照)。
     let addHelp: LocalizedStringKey
     let onAdd: () -> Void
+    /// 全選択 / 全選択解除。ゴミ箱と同じく**編集モードのときだけ出し**、その左に並べる。
+    /// 押すと、いまこの画面に出ているものを全部選ぶ ―― 既に全部選ばれていれば全部外す
+    /// (ユーザー要望 2026-09-10)。**外す側も要る** ―― 選択を外す道はタイルを1枚ずつ
+    /// クリックし直すしかなく、100枚選んだあとに気が変わったときの逃げ道が無かった。
+    /// 形もアイコンも、書き出しウインドウ・履歴の整理・保存データの整理と揃えてある
+    /// (ExportWindowContent / HistoryCleanupWindow / LibraryCleanupWindow)。
+    let isAllSelected: Bool
+    /// 選べるものがあるか。空の棚では淡色にする(押しても何も起きない、を押す前に見せる)。
+    let canSelectAll: Bool
+    let onToggleSelectAll: () -> Void
     /// ゴミ箱。一覧では選択したコレクションの削除、コレクションの中では選択した本の削除。
     /// **編集モードのときだけ出す**(閲覧しているだけのときに削除の入り口を置かない)。
     let deleteHelp: LocalizedStringKey
@@ -101,6 +111,12 @@ struct LibraryPaneControls: View {
     var body: some View {
         HStack(spacing: 6) {
             if allowsEditing && isEditing {
+                SidePanelNavButton(
+                    systemName: "checkmark.rectangle.stack", isDisabled: !canSelectAll,
+                    help: "Select All / Deselect All"
+                ) {
+                    onToggleSelectAll()
+                }
                 SidePanelNavButton(
                     systemName: "trash", isDisabled: !canDelete, help: deleteHelp
                 ) {

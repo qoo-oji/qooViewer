@@ -172,7 +172,14 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
   - bare text / bare icons → add `.panelOutlinedContent()` (or apply it to a container that holds
     nothing but text and icons)
   - a part with its own opaque background (search field, filled badge, selected mode button), or an
-    image/thumbnail → leave it alone; an outline there looks wrong
+    image/thumbnail → leave it alone; an outline there looks wrong. **Check that the background is
+    actually opaque before deciding this** — a faint ground such as `Color.secondary.opacity(0.15)`
+    is not one, and the part vanishes with its contents (measured on the collection cover's format
+    badge, 2026-09-10)
+  - a region that has only a faint ground and no text of its own (a cover cell with no artwork yet) →
+    `.panelOutlinedFrame(in:)`, which draws the same reversed-colour border as
+    `.panelOutlinedAccent(in:)` but for a different reason: not "the state is lost", but "you cannot
+    tell anything is there at all"
   - a native control whose silhouette smears (the page list's slider) → `.panelControlWell()` instead
   - something tinted with the accent colour whose *state* would be lost against a matching panel
     colour → `.panelOutlinedAccent(in:)`

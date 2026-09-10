@@ -161,11 +161,32 @@ extension View {
     ///   - shape: 縁取る形(モードボタンは角丸、行のハイライトは矩形)。
     ///   - isEnabled: 選択されていない行・ボタンには縁を出さないための口。
     func panelOutlinedAccent<S: InsettableShape>(in shape: S, isEnabled: Bool = true) -> some View {
-        modifier(PanelAccentOutline(shape: shape, isEnabled: isEnabled))
+        modifier(PanelShapeOutline(shape: shape, isEnabled: isEnabled))
+    }
+
+    /// **薄い地しか持たない区画**の縁を、反対色の線で囲む。
+    ///
+    /// 上の`panelOutlinedAccent(in:)`とは描くものが同じで、要る理由が違う ―― あちらは
+    /// 「アクセント色の状態が面の色に溶ける」件、こちらは「区画そのものが面の色に溶けて、
+    /// **何かがそこにある**ことすら伝わらなくなる」件。
+    ///
+    /// 具体例はコレクションのカバー1枚分(CollectionCoverThumbnail)の、絵がまだ無いセル。
+    /// 下地は`Color.primary.opacity(0.06〜0.12)`しかないので、面を文字色で塗りつぶすと
+    /// 下地も、その上の形式バッジもスピナーも消え、**カバーが並んでいる場所に何も無いように
+    /// 見える**(実測 2026-09-10。白100%の面で画素がまっ白になることを確認)。文字が無い区画
+    /// なので`panelOutlinedContent()`では手が出せず、縁を1本引くのがいちばん確実。
+    ///
+    /// - Parameter isEnabled: 絵が出ているセルには掛けない ―― 写真の縁に線を足すと、
+    ///   一覧が枠だらけになって見分けの邪魔になる。
+    func panelOutlinedFrame<S: InsettableShape>(in shape: S, isEnabled: Bool = true) -> some View {
+        modifier(PanelShapeOutline(shape: shape, isEnabled: isEnabled))
     }
 }
 
-private struct PanelAccentOutline<S: InsettableShape>: ViewModifier {
+/// `panelOutlinedAccent(in:)`と`panelOutlinedFrame(in:)`の実体。描くものは同じ
+/// (反対色の`strokeBorder`)で、呼び分けているのは**なぜ縁が要るのか**が違うため
+/// (各`func`のコメント参照)。
+private struct PanelShapeOutline<S: InsettableShape>: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.panelContentOutlineWidth) private var width
 

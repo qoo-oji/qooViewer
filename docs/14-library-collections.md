@@ -184,7 +184,7 @@ WelcomeView(PanelSurface.welcome)
  ├─ WelcomeTopBar(44pt): [本を開く…][履歴から開く] | ライブラリのチップ(横スクロール) | ＋
  ├─ Divider
  └─ WelcomeLibraryPane
-     ├─ LibraryPaneControls(右上): [ゴミ箱(編集中のみ)] ＋ 編集 並べ替え スライダー 歯車
+     ├─ LibraryPaneControls(右上): [全選択 ゴミ箱(編集中のみ)] ＋ 編集 並べ替え スライダー 歯車
      ├─ CollectionGridView(札の一覧。LazyVGrid .adaptive)      ← openedCollectionID == nil
      └─ CollectionDetailView(中の本。カバーの一覧)             ← 開いているとき
 ```
@@ -199,7 +199,10 @@ WelcomeView(PanelSurface.welcome)
 1. クリックの意味 ―― 閲覧中は「開く/中へ入る」、編集中は「選ぶ」(左上の印+アクセント色の枠)。
 2. ドロップの意味 ―― 閲覧中は「開く」、編集中は「コレクションを作る/本を足す」。
    空のときの案内文もこれに合わせて切り替える。
-3. ゴミ箱を出すか、と右クリックの「削除…」「コレクションから削除」。
+3. 全選択とゴミ箱を出すか、と右クリックの「削除…」「コレクションから削除」。
+   全選択(`checkmark.rectangle.stack`)は**いま出ているぶんだけ**を選び、既に全部選ばれていれば
+   全部外す(書き出しウインドウ・履歴の整理・保存データの整理と同じ形・同じアイコン)。外す側も
+   要るのは、選択を外す道がタイルを1枚ずつ押し直すことしか無かったため。
 
 **編集モードを条件にしないもの**: ライブラリの作成・リネーム・削除・並べ替え、ペインの「＋」、
 歯車、「メタデータの編集…」「Finderで開く」。当初は全部を編集モードの奥に置いていたが、
@@ -222,7 +225,13 @@ WelcomeView(PanelSurface.welcome)
 `.panelControlWell()` **と** ラベルへの `.panelOutlinedContent()` の両方 ――「標準のボタンは自前の
 不透明な地を持つから何も要らない」は**誤り**で、背後の `BehindWindowVisualEffectView` に合わせて
 描かれるベゼルは、重ね色を文字色にすると文字ごと消える(実測)。区切り線も輪郭。選択中のチップと
-選択の枠は `.panelOutlinedAccent(in:)`。カバー・冊数バッジ・選択の印は自前の地を持つので何もしない。
+選択の枠は `.panelOutlinedAccent(in:)`。カバーの絵・冊数バッジ・選択の印は自前の地を持つので何もしない。
+**絵が出ていないカバーのセルだけは別**(実測 2026-09-10) ―― 下地(`Color.primary.opacity(0.06〜0.12)`)も
+形式バッジ(地は `Color.secondary.opacity(0.15)` しかない)もスピナーも、面を白100%で塗ると画素まで
+まっ白に消え、カバーが並んでいる場所に何も無いように見えていた(カバー下の名前は既定で出さないので
+手がかりもゼロ)。セルの縁に `.panelOutlinedFrame(in:)`、バッジとスピナーに `.panelControlWell()` を
+掛けてある。`panelOutlinedFrame` は `panelOutlinedAccent` と描くものは同じで、要る理由が違う ――
+あちらは「状態が伝わらない」、こちらは「区画そのものが在ることが伝わらない」。
 ポップオーバー・シートの中身は macOS が不透明に描くので何も要らない。
 
 実測して決めた細部(理由は各ファイルのコメント): ボタンの幅は `Button` ではなく**ラベル**に与える
