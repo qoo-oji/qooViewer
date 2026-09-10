@@ -3,13 +3,17 @@ import SwiftUI
 /// ライブラリ1つ分の設定(ユーザー要望 2026-09-09)。ウェルカム画面の右上、スライダーの右の
 /// 歯車から出す。コレクションの一覧からもコレクションの中からも同じものが開く。
 ///
-/// いま持っているのはカバーの見せ方だけ:
+/// 持っているのはカバーの見せ方と、並び順から外して端へ置くコレクションの指定:
 /// - **縦横比** … 2:3 / 1:1 / 3:2。商業コミックなら2:3でよいが、同人CG集のように横長画像だけで
 ///   構成された本は、2:3へ切ると横幅の半分以上を捨てることになる。画像ビューアとして使うなら
 ///   3:2 がいちばん素直(CoverAspectRatio参照)。
 /// - **残す位置** … 画像の比が枠と違うぶんをどこで切るか。切る軸(左右か上下か)は画像ごとに
 ///   決まるので、選択肢は軸に依存しない3つ(CoverCropAnchor参照)。ラベルだけは両方の軸を
 ///   併記する ―― 「始端」では何が起きるのか読めないため。
+/// - **常に先頭/末尾に表示** … ここで指定したコレクションだけ、並び順(名前順・更新順…)に
+///   関わらず必ず端に出る(ユーザー要望 2026-09-10)。未分類の本をまとめておく棚が並び替えの
+///   たびに移動して探しにくい、というのが動機。既定はどちらも「指定なし」で、そのときは
+///   従来どおり全部が並び順に従う。それぞれ1つずつ(CollectionStore.setPinnedCollection)。
 ///
 /// **札の地の色はここには無い。** 一度はこの面の3つ目に置いていたが、ライブラリを選び直す
 /// たびに一覧の地の色が入れ替わるのは外観として落ち着かないので、アプリ全体で1つの設定として
@@ -65,10 +69,62 @@ struct LibrarySettingsPopover: View {
                     EmptyView()
                 }
             }
+
+            // コレクションが1つも無いライブラリでは、選ぶ先が「指定なし」しか無いので節ごと
+            // 出さない(空のメニューを開けても意味が無い)。
+            if !sortedCollections.isEmpty {
+                Divider()
+                pinGroup(
+                    "Always First", selection: pinnedSelection(atStart: true),
+                    excluding: library.pinnedLastCollectionID
+                )
+                pinGroup(
+                    "Always Last", selection: pinnedSelection(atStart: false),
+                    excluding: library.pinnedFirstCollectionID
+                )
+            }
         }
         .padding(12)
         // 幅は内容なりに。長いのはライブラリ名だけなので、そこだけ上限を決めて省略させる。
         .frame(minWidth: 180, alignment: .leading)
+    }
+
+    /// 「常に先頭/末尾に表示」1つぶん。ラジオではなくメニュー ―― 候補はコレクションの数だけ
+    /// あり、ラジオで縦に並べるとライブラリによっては面が画面の高さを超える。
+    ///
+    /// **もう片方に指定されているコレクションは候補に出さない**(`excluding`)。同じものを
+    /// 先頭にも末尾にも置くことはできないので、選べてしまうより最初から並べないほうがよい
+    /// (選んだ場合の後始末はCollectionStore.setPinnedCollectionが持っている)。
+    private func pinGroup(
+        _ title: LocalizedStringKey, selection: Binding<UUID?>, excluding: UUID?
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+            Picker(selection: selection) {
+                Text("None").tag(UUID?.none)
+                ForEach(sortedCollections.filter { $0.id != excluding }, id: \.id) { collection in
+                    Text(collection.name).tag(UUID?.some(collection.id))
+                }
+            } label: {
+                EmptyView()
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            // 長い名前のコレクションに引きずられて面が横に伸びないよう、上限を決めておく
+            // (ライブラリ名と同じ扱い)。**alignment: .leading を必ず付ける** ―― 既定の
+            // .center だと、メニューが上限240の枠の中央へ寄って、上の見出しやラジオの左端と
+            // 揃わない(実測 2026-09-10)。
+            .frame(maxWidth: 240, alignment: .leading)
+        }
+    }
+
+    /// 候補に出すコレクション(名前順)。**CollectionStore.collections(in:sort:)は通さない**
+    /// ―― あちらは指定したコレクションを端へ出す(それがこの設定の効果そのもの)ので、
+    /// 選ぶための一覧としては読みにくくなる。ここは常に名前順のまま。
+    private var sortedCollections: [BookCollection] {
+        library.collections.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     /// 見出しを**上に**置いた設定1つぶん。
@@ -98,6 +154,22 @@ struct LibrarySettingsPopover: View {
                 collectionStore.setCoverAppearance(
                     library, aspectRatio: $0, anchor: library.coverCropAnchor
                 )
+            }
+        )
+    }
+
+    /// 常に先頭/末尾に表示するコレクション。DBが唯一の持ち主なので`@State`には写さない
+    /// (aspectRatioSelectionと同じ形)。
+    private func pinnedSelection(atStart: Bool) -> Binding<UUID?> {
+        Binding(
+            get: {
+                atStart
+                    ? collectionStore.pinnedFirstCollection(in: library)?.id
+                    : collectionStore.pinnedLastCollection(in: library)?.id
+            },
+            set: { id in
+                let collection = id.flatMap { collectionStore.collection(withID: $0) }
+                collectionStore.setPinnedCollection(collection, atStart: atStart, in: library)
             }
         )
     }

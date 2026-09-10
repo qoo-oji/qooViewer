@@ -132,7 +132,11 @@
   (→ [06](06-persistence.md#一覧))。
 - コレクション(`ExportedLibrary` / `ExportedCollection` / `ExportedCollectionBook`)は**カバー画像を
   含めない**(取り込んだ先で `CollectionCoverExtractor` が抽出し直す。読み込みウインドウが完了時に
-  `refill()` を呼ぶ)。ライブラリの縦横比・残す位置は Optional(無ければ既定)。自動登録フォルダは
+  `refill()` を呼ぶ)。ライブラリの縦横比・残す位置は Optional(無ければ既定)。**常に先頭/末尾に
+  表示するコレクション**(`pinnedFirstCollection` / `pinnedLastCollection`)は**名前**で書き出す
+  ―― 取り込み側では id を作り直すため。取り込みはそのライブラリのコレクションを作り終えてから
+  名前で引き直し、JSON にあるときだけ設定する(書かれていなければ手元の指定はそのまま)。
+  自動登録フォルダは
   **パスだけ**を書き、取り込み側は実在するフォルダで、かつまだ設定されていないときだけ入れる。
   既定のライブラリは表示名で書き、合流は `occupiedNames` で判定する(→ [14](14-library-collections.md#環境設定json削除))。
 

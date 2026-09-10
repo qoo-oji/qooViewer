@@ -12,6 +12,8 @@ import Combine
 ///   メニュー全体を作り直していた轍を踏まないため(AppStoresの型コメント参照)。
 /// - 並び順(FavoritesSortOption)はこのストアが持たない。ウェルカム画面の状態
 ///   (WelcomeLibraryState)が持ち、`collections(in:sort:)`/`items(in:sort:)`へ都度渡す。
+///   例外は「常に先頭/末尾に表示するコレクション」で、これはウインドウごとの見え方ではなく
+///   棚そのものの決めごとなのでDB(BookLibrary)に持つ(全ウインドウ共通。setPinnedCollection)。
 /// - 件数・階層の上限は無い(ライブラリ → コレクション → 本の2段で固定)。
 ///
 /// ■ SwiftDataの約束事(docs/06・CLAUDE.md)
@@ -186,15 +188,94 @@ final class CollectionStore: ObservableObject {
 
     // MARK: - 読み取り
 
-    /// このライブラリのコレクション(指定した並び順)。
-    func collections(in library: BookLibrary, sort: FavoritesSortOption) -> [BookCollection] {
-        sorted(library.collections, sort: sort)
+    /// このライブラリのコレクション(指定した並び順)。**常に先頭/末尾に表示する指定**が
+    /// あればそれを外へ出す(pinned(_:in:)参照)。
+    ///
+    /// - Parameter applyingPins: falseにすると指定を無視して純粋な並び順で返す。JSONの書き出し
+    ///   だけが使う ―― あちらは「追加日時の昇順で固定」して差分を取りやすくするための並びで、
+    ///   画面の見え方とは別物(exportCollections参照)。
+    func collections(
+        in library: BookLibrary, sort: FavoritesSortOption, applyingPins: Bool = true
+    ) -> [BookCollection] {
+        let sorted = sorted(library.collections, sort: sort)
+        return applyingPins ? pinned(sorted, in: library) : sorted
+    }
+
+    /// 「常に先頭に表示」に指定されているコレクション(指定なし・指した先が既に無いときはnil)。
+    ///
+    /// **idから毎回引き直す。**指した先が削除された/別のライブラリへ移されたときに、
+    /// 引けない = 指定なしとして静かに戻るようにするため(BookLibrary.pinnedFirstCollectionID
+    /// のコメント参照)。
+    func pinnedFirstCollection(in library: BookLibrary) -> BookCollection? {
+        collection(withID: library.pinnedFirstCollectionID, in: library)
+    }
+
+    /// 「常に末尾に表示」に指定されているコレクション(同上)。
+    func pinnedLastCollection(in library: BookLibrary) -> BookCollection? {
+        collection(withID: library.pinnedLastCollectionID, in: library)
+    }
+
+    private func collection(withID id: UUID?, in library: BookLibrary) -> BookCollection? {
+        guard let id else { return nil }
+        return library.collections.first { $0.id == id }
+    }
+
+    /// 常に先頭/末尾に表示するコレクションを決める(ユーザー要望 2026-09-10)。
+    ///
+    /// **先頭と末尾に同じコレクションは入れない。** 片方に指定したものをもう片方へ指定したら、
+    /// 元の側は指定なしへ戻す ―― 「先頭かつ末尾」という置き場所の無い状態を作らないため
+    /// (設定の面も候補から相手の選択を外すので、ここは二重の防御)。
+    ///
+    /// - Parameters:
+    ///   - collection: 指定するコレクション。nilで指定なしへ戻す。
+    ///   - atStart: trueなら先頭、falseなら末尾。
+    func setPinnedCollection(
+        _ collection: BookCollection?, atStart: Bool, in library: BookLibrary
+    ) {
+        // 別のライブラリのコレクションは指定できない(設定の面はそのライブラリのぶんしか
+        // 出さないので、ここも二重の防御)。
+        guard collection == nil || collection?.library?.id == library.id else { return }
+        let id = collection?.id
+        if atStart {
+            guard library.pinnedFirstCollectionID != id else { return }
+            library.pinnedFirstCollectionID = id
+            if id != nil, library.pinnedLastCollectionID == id {
+                library.pinnedLastCollectionID = nil
+            }
+        } else {
+            guard library.pinnedLastCollectionID != id else { return }
+            library.pinnedLastCollectionID = id
+            if id != nil, library.pinnedFirstCollectionID == id {
+                library.pinnedFirstCollectionID = nil
+            }
+        }
+        saveAndNotify()
+        reload()
     }
 
     /// このコレクションの本(指定した並び順)。「更新日時」の基準は本の追加日時(addedAt)で
     /// 解釈する ―― 本の行には「後から更新される」情報が無いため。
     func items(in collection: BookCollection, sort: FavoritesSortOption) -> [CollectionItem] {
         sorted(collection.items, sort: sort)
+    }
+
+    /// これらのコレクションを指している「常に先頭/末尾」の指定を、すべてのライブラリから外す。
+    /// **削除・別のライブラリへの移動の前に呼ぶ**(保存は呼び出し側のsaveAndNotifyに乗せる)。
+    ///
+    /// 引く側(pinnedFirstCollection)はどのみち`library.collections`の中からしか探さないので、
+    /// これを呼ばなくても表示は正しい。それでも消しておくのは、設定の面に「指定なし」以外の
+    /// 何かが残らないようにするためと、移したコレクションを元のライブラリへ戻したときに
+    /// 固定が勝手に復活しないようにするため。
+    private func clearPins(referencing collectionIDs: Set<UUID>) {
+        guard !collectionIDs.isEmpty else { return }
+        for library in allLibraries() {
+            if let id = library.pinnedFirstCollectionID, collectionIDs.contains(id) {
+                library.pinnedFirstCollectionID = nil
+            }
+            if let id = library.pinnedLastCollectionID, collectionIDs.contains(id) {
+                library.pinnedLastCollectionID = nil
+            }
+        }
     }
 
     func library(withID id: UUID) -> BookLibrary? {
@@ -266,6 +347,30 @@ final class CollectionStore: ObservableObject {
         case .dateUpdatedDescending:
             return collections.sorted { $0.updatedAt > $1.updatedAt }
         }
+    }
+
+    /// 並べ替え済みの一覧から、常に先頭/末尾に指定されたコレクションを抜き出して端へ置き直す
+    /// (ユーザー要望 2026-09-10)。指定が無ければ受け取ったものをそのまま返す。
+    ///
+    /// **並び順の昇降に関わらず位置は変わらない。** 「未分類」のような棚を端に固定しておくための
+    /// 設定なので、ソートの都合で反対側へ回ってしまっては意味が無い。
+    private func pinned(_ collections: [BookCollection], in library: BookLibrary) -> [BookCollection] {
+        let firstID = pinnedFirstCollection(in: library)?.id
+        let lastID = pinnedLastCollection(in: library)?.id
+        guard firstID != nil || lastID != nil else { return collections }
+        var head: [BookCollection] = []
+        var tail: [BookCollection] = []
+        var middle: [BookCollection] = []
+        for collection in collections {
+            if collection.id == firstID {
+                head.append(collection)
+            } else if collection.id == lastID {
+                tail.append(collection)
+            } else {
+                middle.append(collection)
+            }
+        }
+        return head + middle + tail
     }
 
     private func sorted(_ items: [CollectionItem], sort: FavoritesSortOption) -> [CollectionItem] {
@@ -432,6 +537,8 @@ final class CollectionStore: ObservableObject {
         // (SwiftDataのcascadeはディスク上のファイルまでは面倒を見ない)。
         let itemIDs = collections.flatMap { $0.items.map(\.id) }
         let collectionIDs = collections.map(\.id)
+        // 消える前に、常に先頭/末尾の指定から外しておく(clearPins(referencing:)参照)。
+        clearPins(referencing: Set(collectionIDs))
         for collection in collections { modelContext.delete(collection) }
         invalidateLookupCaches()
         saveAndNotify()
@@ -450,6 +557,8 @@ final class CollectionStore: ObservableObject {
     @discardableResult
     func move(_ collection: BookCollection, to library: BookLibrary) -> Bool {
         guard canMove(collection, to: library) else { return false }
+        // 元のライブラリの「常に先頭/末尾」の指定から外す(clearPins(referencing:)参照)。
+        clearPins(referencing: [collection.id])
         collection.library = library
         // 「更新順」の並びで、移したものが上に来るようにする(棚をいじった記録として素直)。
         collection.updatedAt = Date()
@@ -473,6 +582,7 @@ final class CollectionStore: ObservableObject {
         guard !collections.isEmpty,
               collections.allSatisfy({ canMove($0, to: library) })
         else { return false }
+        clearPins(referencing: Set(collections.map(\.id)))
         let now = Date()
         for collection in collections {
             collection.library = library

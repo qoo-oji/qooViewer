@@ -1259,6 +1259,22 @@
         }
       }
     },
+    "Always First" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Always First"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "常に先頭に表示"
+          }
+        }
+      }
+    },
     "Always First Page" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1272,6 +1288,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "常に最初から"
+          }
+        }
+      }
+    },
+    "Always Last" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Always Last"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "常に末尾に表示"
           }
         }
       }

@@ -363,7 +363,13 @@ enum LibraryImportExportService {
                 name: library.displayName(language: AppLanguage.currentLocale),
                 coverAspectRatio: library.coverAspectRatio.rawValue,
                 coverCropAnchor: library.coverCropAnchor.rawValue,
-                collections: collectionStore.collections(in: library, sort: .dateAddedAscending)
+                // 常に先頭/末尾の指定は**名前で**書き出す(ExportedLibrary.pinnedFirstCollection)。
+                pinnedFirstCollection: collectionStore.pinnedFirstCollection(in: library)?.name,
+                pinnedLastCollection: collectionStore.pinnedLastCollection(in: library)?.name,
+                // 並びそのものには指定を効かせない(applyingPins: false)。ここは差分を取りやすく
+                // するための固定の並びで、画面の見え方とは別物。
+                collections: collectionStore
+                    .collections(in: library, sort: .dateAddedAscending, applyingPins: false)
                     .map { collection in
                         ExportedCollection(
                             name: collection.name,
@@ -718,6 +724,10 @@ enum LibraryImportExportService {
                     applyAutoFolder(exportedCollection, to: created, collectionStore: collectionStore)
                 }
             }
+
+            // 常に先頭/末尾の指定は、そのライブラリのコレクションを作り終えてから名前で
+            // 引き直して設定する(applyPinnedCollections参照)。
+            applyPinnedCollections(exportedLibrary, to: library, collectionStore: collectionStore)
         }
 
         // 上書きのときだけ: 取り込み先にならなかった空のライブラリを片付ける。
@@ -746,6 +756,32 @@ enum LibraryImportExportService {
               isDirectory.boolValue
         else { return }
         collectionStore.setAutoFolder(URL(fileURLWithPath: path, isDirectory: true), for: collection)
+    }
+
+    /// JSONに書かれていた「常に先頭/末尾に表示するコレクション」を設定する
+    /// (ExportedLibrary.pinnedFirstCollection参照。ユーザー要望 2026-09-10)。
+    ///
+    /// **名前で引き直す** ―― 取り込み側ではコレクションのidが作り直されるため。書かれていない、
+    /// あるいはその名前のコレクションが取り込み先に無い(本が1冊も見つからず作られなかった等)
+    /// ときは何もしない。「JSONにあるときだけ上書きする」というライブラリの設定の扱いに揃えて
+    /// あり(カバーの見せ方と同じ)、手元の指定を黙って消すことはない。
+    private static func applyPinnedCollections(
+        _ exported: ExportedLibrary, to library: BookLibrary, collectionStore: CollectionStore
+    ) {
+        func resolve(_ name: String?) -> BookCollection? {
+            guard let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty
+            else { return nil }
+            return library.collections.first {
+                $0.name.trimmingCharacters(in: .whitespacesAndNewlines) == trimmed
+            }
+        }
+        if let first = resolve(exported.pinnedFirstCollection) {
+            collectionStore.setPinnedCollection(first, atStart: true, in: library)
+        }
+        if let last = resolve(exported.pinnedLastCollection) {
+            collectionStore.setPinnedCollection(last, atStart: false, in: library)
+        }
     }
 
     private static func applyFavorites(

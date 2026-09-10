@@ -48,6 +48,17 @@ struct ExportedLibrary: Codable {
     var coverAspectRatio: String?
     /// 比が合わないときに残す位置(CoverCropAnchor.rawValue)。
     var coverCropAnchor: String?
+    /// 常に先頭に表示するコレクションの**名前**(ユーザー要望 2026-09-10)。指定なしならnil。
+    ///
+    /// **idではなく名前で書き出す。** 取り込み側ではコレクションを作り直すのでidは一致せず、
+    /// 同じライブラリの中で名前は重複しない(CollectionStore.hasCollectionNamed)ので、
+    /// 名前が唯一の手がかりになる。名前を頼りに引けなかったときは指定なしのまま。
+    ///
+    /// Optionalなので、これを足す前に書き出したJSONもそのまま読める(formatVersionは据え置き。
+    /// coverAspectRatioと同じ扱い)。
+    var pinnedFirstCollection: String?
+    /// 常に末尾に表示するコレクションの名前(同上)。
+    var pinnedLastCollection: String?
     var collections: [ExportedCollection]
 }
 

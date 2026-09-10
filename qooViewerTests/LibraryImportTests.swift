@@ -711,6 +711,66 @@ struct LibraryImportTests {
         #expect(collection.autoFolderPath == nil)
     }
 
+    @Test("常に先頭/末尾の指定は、書き出して取り込み直しても残る")
+    func pinnedCollectionsRoundTripThroughTheFile() async throws {
+        let alphaSource = try await ExportSource.zip(pages: 2, label: "import-collection-pin-a")
+        let miscSource = try await ExportSource.zip(pages: 2, label: "import-collection-pin-b")
+        let origin = try InMemoryLibrary(label: "import-collection-pin-origin")
+        defer { origin.close() }
+        let target = try #require(origin.collections.libraries.first)
+        origin.collections.rename(target, to: "Manga")
+        // #require の入れ子は展開が再帰してビルドが通らないので、先に取り出しておく。
+        let alphaItem = try #require(CollectionStore.makePendingItem(for: alphaSource.book.sourceURL))
+        let miscItem = try #require(CollectionStore.makePendingItem(for: miscSource.book.sourceURL))
+        let alpha = try #require(origin.collections.createCollection(
+            name: "Alpha", in: target, items: [alphaItem]
+        ))
+        let misc = try #require(origin.collections.createCollection(
+            name: "未分類", in: target, items: [miscItem]
+        ))
+        origin.collections.setPinnedCollection(misc, atStart: true, in: target)
+        origin.collections.setPinnedCollection(alpha, atStart: false, in: target)
+
+        let (file, _) = await origin.buildExportFile(.everything)
+        // JSON には**名前**で入る(取り込み側では id を作り直すため。
+        // ExportedLibrary.pinnedFirstCollection 参照)。
+        #expect(file.libraries?.first?.pinnedFirstCollection == "未分類")
+        #expect(file.libraries?.first?.pinnedLastCollection == "Alpha")
+
+        let destination = try InMemoryLibrary(label: "import-collection-pin-dest")
+        defer { destination.close() }
+        await destination.apply(file, policies: .all(.merge))
+
+        let copied = try #require(destination.collections.libraries.first { $0.name == "Manga" })
+        #expect(destination.collections.pinnedFirstCollection(in: copied)?.name == "未分類")
+        #expect(destination.collections.pinnedLastCollection(in: copied)?.name == "Alpha")
+        // 名前順なら Alpha が先に来るところを、指定が勝つ。
+        #expect(destination.collections.collections(in: copied, sort: .nameAscending).map(\.name)
+            == ["未分類", "Alpha"])
+    }
+
+    @Test("常に先頭/末尾の指定が入っていない JSON を読んでも、手元の指定は消えない")
+    func aFileWithoutPinsLeavesTheExistingPinAlone() async throws {
+        let source = try await ExportSource.zip(pages: 3, label: "import-collection-pin-legacy")
+        let library = try InMemoryLibrary(label: "import-collection-pin-legacy")
+        defer { library.close() }
+        // collectionsFile は指定の2フィールドを入れない = これらを足す前に書き出した JSON。
+        var file = collectionsFile([source], library: "Manga", collection: "シリーズ")
+        file.formatVersion = 4
+        await library.apply(file, policies: .all(.merge))
+
+        let target = try #require(library.collections.libraries.first { $0.name == "Manga" })
+        let collection = try #require(
+            library.collections.collections(in: target, sort: .nameAscending).first
+        )
+        library.collections.setPinnedCollection(collection, atStart: true, in: target)
+
+        // 同じ JSON をもう一度読んでも、手元で決めた指定はそのまま。
+        await library.apply(file, policies: .all(.merge))
+
+        #expect(library.collections.pinnedFirstCollection(in: target)?.name == "シリーズ")
+    }
+
     @Test("カバーの見せ方が入っていない古い JSON を読んでも、既定(2:3・中央)のまま")
     func anolderFileLeavesTheCoverAppearanceAlone() async throws {
         let source = try await ExportSource.zip(pages: 3, label: "import-collection-legacy")

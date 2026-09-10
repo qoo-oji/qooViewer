@@ -641,4 +641,82 @@ struct CollectionStoreTests {
         #expect(library.collections.items(in: zebra, sort: .dateUpdatedAscending).map(\.title)
             == ["b-book", "a-book"])
     }
+
+    // MARK: - 常に先頭/末尾に表示
+
+    @Test("常に先頭/末尾に指定したコレクションは、並び順の向きに関わらず端に出る")
+    func pinnedCollectionsStayAtTheEnds() throws {
+        let library = try InMemoryLibrary(label: "collections-pin")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-pin")
+        let target = try #require(library.collections.libraries.first)
+        let book = try makeBookFolder(temporary, named: "book")
+        let names = ["Alpha", "Middle", "Zebra", "未分類"]
+        var created: [String: BookCollection] = [:]
+        for name in names {
+            created[name] = try #require(library.collections.createCollection(
+                name: name, in: target, items: pendingItems([book])
+            ))
+        }
+
+        library.collections.setPinnedCollection(created["未分類"], atStart: true, in: target)
+        library.collections.setPinnedCollection(created["Zebra"], atStart: false, in: target)
+
+        #expect(library.collections.collections(in: target, sort: .nameAscending).map(\.name)
+            == ["未分類", "Alpha", "Middle", "Zebra"])
+        // 向きを逆にしても端の2つは動かない(間だけが入れ替わる)。
+        #expect(library.collections.collections(in: target, sort: .nameDescending).map(\.name)
+            == ["未分類", "Middle", "Alpha", "Zebra"])
+        // 書き出しが使う「指定を無視した純粋な並び」(applyingPins: false)。
+        #expect(
+            library.collections
+                .collections(in: target, sort: .nameAscending, applyingPins: false).map(\.name)
+                == ["Alpha", "Middle", "Zebra", "未分類"]
+        )
+    }
+
+    @Test("同じコレクションを先頭と末尾の両方には指定できない(元の側が外れる)")
+    func aCollectionCannotBePinnedToBothEnds() throws {
+        let library = try InMemoryLibrary(label: "collections-pin-both")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-pin-both")
+        let target = try #require(library.collections.libraries.first)
+        let book = try makeBookFolder(temporary, named: "book")
+        let collection = try #require(library.collections.createCollection(
+            name: "未分類", in: target, items: pendingItems([book])
+        ))
+
+        library.collections.setPinnedCollection(collection, atStart: true, in: target)
+        library.collections.setPinnedCollection(collection, atStart: false, in: target)
+
+        #expect(target.pinnedFirstCollectionID == nil)
+        #expect(library.collections.pinnedLastCollection(in: target)?.name == "未分類")
+    }
+
+    @Test("指定したコレクションを削除・別のライブラリへ移すと、指定は外れる")
+    func pinsAreClearedWhenTheCollectionLeaves() throws {
+        let library = try InMemoryLibrary(label: "collections-pin-clear")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-pin-clear")
+        let home = try #require(library.collections.libraries.first)
+        let away = try #require(library.collections.createLibrary(name: "別の棚"))
+        let book = try makeBookFolder(temporary, named: "book")
+        let moving = try #require(library.collections.createCollection(
+            name: "移すほう", in: home, items: pendingItems([book])
+        ))
+        let deleting = try #require(library.collections.createCollection(
+            name: "消すほう", in: home, items: pendingItems([book])
+        ))
+
+        library.collections.setPinnedCollection(moving, atStart: true, in: home)
+        library.collections.setPinnedCollection(deleting, atStart: false, in: home)
+
+        #expect(library.collections.move(moving, to: away))
+        library.collections.delete(deleting)
+
+        #expect(home.pinnedFirstCollectionID == nil)
+        #expect(home.pinnedLastCollectionID == nil)
+        // 移した先で勝手に固定されることもない。
+        #expect(away.pinnedFirstCollectionID == nil)
+    }
 }
