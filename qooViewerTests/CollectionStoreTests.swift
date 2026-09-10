@@ -654,9 +654,13 @@ struct CollectionStoreTests {
         let names = ["Alpha", "Middle", "Zebra", "未分類"]
         var created: [String: BookCollection] = [:]
         for name in names {
-            created[name] = try #require(library.collections.createCollection(
+            // #require の結果を辞書へ直に入れない ―― 代入先が Optional なので、マクロが
+            // 「元から非 Optional」と誤って判断して「この #require は不要」の警告を出す
+            // (CI は警告をエラーにする)。いったん let で受ける。
+            let collection = try #require(library.collections.createCollection(
                 name: name, in: target, items: pendingItems([book])
             ))
+            created[name] = collection
         }
 
         library.collections.setPinnedCollection(created["未分類"], atStart: true, in: target)
