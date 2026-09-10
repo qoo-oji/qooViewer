@@ -50,6 +50,13 @@ final class AppStores: ObservableObject {
     let layoutStore: LayoutStore
     /// 書誌メタデータ(著者・タイトル・シリーズ・巻数。すべての本を横断)。
     let metadataStore: BookMetadataStore
+    /// 本のタイトルを求める役(登録済みならDBの値、未登録ならファイル名からの推測値)。
+    /// コレクションの並び順「タイトル」とカバー下のキャプションが**同じ1つ**を見る必要が
+    /// あるため、ここで作って配る(BookTitleResolverの型コメント参照)。
+    ///
+    /// **allObjectWillChangePublishersには足さない** ―― 何もpublishしない(読まれたその場で
+    /// 自分のキャッシュの古さを確かめるだけの)入れ物である。
+    let bookTitleResolver: BookTitleResolver
     /// コレクションのカバー画像(ディスク上のJPEG)。CollectionStore/CollectionCoverExtractorの
     /// 両方が同じ1つを見る必要があるため、ここで作って配る。
     let collectionCoverStore: CollectionCoverStore
@@ -85,11 +92,14 @@ final class AppStores: ObservableObject {
         bookmarkStore = BookmarkStore(modelContext: context)
         layoutStore = LayoutStore(modelContext: context)
         metadataStore = BookMetadataStore(modelContext: context)
+        bookTitleResolver = BookTitleResolver(
+            metadataStore: metadataStore, formatStore: metadataFormatStore
+        )
         collectionCoverStore = CollectionCoverStore()
         collectionTileImageStore = CollectionTileImageStore(coverStore: collectionCoverStore)
         collectionStore = CollectionStore(
             modelContext: context, coverStore: collectionCoverStore,
-            tileStore: collectionTileImageStore
+            tileStore: collectionTileImageStore, titleResolver: bookTitleResolver
         )
         collectionCoverExtractor = CollectionCoverExtractor(
             collectionStore: collectionStore, coverStore: collectionCoverStore,

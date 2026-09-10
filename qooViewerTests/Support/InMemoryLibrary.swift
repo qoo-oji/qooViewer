@@ -49,6 +49,8 @@ final class InMemoryLibrary {
     /// ルールを書き換えてしまう。
     let metadataFormats: MetadataFormatStore
     private let metadataFormatsSuiteName: String
+    /// 本のタイトルを求める役(コレクションの並び順「タイトル」が使う)。
+    let bookTitles: BookTitleResolver
 
     init(label: String = "library") throws {
         let configuration = ModelConfiguration(
@@ -68,12 +70,16 @@ final class InMemoryLibrary {
         collectionTileImages = CollectionTileImageStore(
             coverStore: collectionCovers, directory: collectionTileImagesDirectory
         )
-        collections = CollectionStore(
-            modelContext: context, coverStore: collectionCovers, tileStore: collectionTileImages
-        )
+        // フォーマットのルールは**コレクションより先に**作る ―― 並び順「タイトル」の鍵を
+        // 作る BookTitleResolver が、メタデータのストアとルールの両方を要るため。
         metadataFormatsSuiteName = "qooViewerTests.\(label).\(UUID().uuidString)"
         metadataFormats = MetadataFormatStore(
             defaults: UserDefaults(suiteName: metadataFormatsSuiteName) ?? .standard
+        )
+        bookTitles = BookTitleResolver(metadataStore: metadata, formatStore: metadataFormats)
+        collections = CollectionStore(
+            modelContext: context, coverStore: collectionCovers, tileStore: collectionTileImages,
+            titleResolver: bookTitles
         )
     }
 

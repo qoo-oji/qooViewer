@@ -25,6 +25,15 @@ final class BookMetadataStore: ObservableObject {
     /// ことを前提に、各更新メソッドの最後で(saveAndNotify経由で)更新する。
     @Published private(set) var registeredBookIDs: Set<String> = []
 
+    /// 「メタデータのどれかが変わった」ことだけを表す通し番号。**値そのものに意味は無い**
+    /// (CollectionStore.revisionと同じ)。
+    ///
+    /// DBの内容から作った値を手元に覚えている側(BookTitleResolverのタイトルのキャッシュ)が、
+    /// **読むその場で**古くなっていないかを確かめるために使う。.bookMetadataDidChangeの購読でも
+    /// 捨てられるが、あの通知はメインキューへ積まれる = 画面の描き直しとの前後が保証されない
+    /// ため、1フレームだけ古い文字が出うる。
+    @Published private(set) var revision: UInt64 = 0
+
     /// 全件フェッチ結果をbookIDで引ける形にしてキャッシュしたもの。nilは「キャッシュ未構築」。
     /// LayoutStore.cachedSettingsByBookIDと同じ考え方・同じ理由(絞り込みフェッチではなく
     /// 全件フェッチ+Swift側での仕分け、かつinsert/deleteのたびに差分だけをキャッシュへ反映)。
@@ -144,6 +153,7 @@ final class BookMetadataStore: ObservableObject {
                 registeredBookIDs.remove(bookID)
             }
         }
+        revision &+= 1
         // どの本かを特定しない通知として1回だけ投げる(全件リセットと同じ形。
         // 購読側は"bookID"が無い通知を「本を問わず対象」として扱う。BookMetadata.swift参照)。
         NotificationCenter.default.post(name: .bookMetadataDidChange, object: self, userInfo: nil)
@@ -247,6 +257,7 @@ final class BookMetadataStore: ObservableObject {
         // (LayoutStore.deleteAllLayoutDataと同じ理由)。
         cachedByBookID = [:]
         registeredBookIDs = []
+        revision &+= 1
         NotificationCenter.default.post(name: .bookMetadataDidChange, object: self, userInfo: nil)
     }
 
@@ -344,6 +355,7 @@ final class BookMetadataStore: ObservableObject {
         } else {
             registeredBookIDs.remove(bookID)
         }
+        revision &+= 1
         NotificationCenter.default.post(
             name: .bookMetadataDidChange, object: self, userInfo: ["bookID": bookID]
         )

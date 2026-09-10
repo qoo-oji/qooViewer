@@ -66,6 +66,26 @@
   戻す(`clearPins(referencing:)`。設定の面に消えたものを残さない、移し戻したときに固定が
   勝手に復活しない)。先頭と末尾に同じものは入らない(`setPinnedCollection` が元の側を外し、
   設定の面も相手の選択を候補から外す)。JSON へは**名前で**書き出す(下記)。
+- 並べ替えの基準は `FavoritesSortOption`(お気に入り・ブックマークと共通)だが、**「タイトル」だけは
+  コレクションの中(`CollectionDetailView`)にしか出さない**(ユーザー要望 2026-09-10)。
+  書誌のタイトルを持つのは本だけで、コレクション・フォルダ・ブックマークには名前しか無いため
+  ―― 選んでも何も起きない選択肢を並べない(`CollectionCoverCaptionStyle` を別に立てたのと同じ判断)。
+  それ以外の並べ替えメニューは `Field.allCases` ではなく `Field.withoutTitle` を渡す。
+  - 「名前」は登録した時点のファイル名(`CollectionItem.title`)、「タイトル」は書誌のタイトル
+    ―― 登録済みなら DB の値、未登録ならファイル名からの推測値(`MetadataEditorViewModel.initialDraft`。
+    カバーの下のキャプション「タイトル」とまったく同じ文字列)。どちらも空なら拡張子を除いた
+    ファイル名へ落とす(空文字のまま並べると一箇所へ固まる)。
+  - タイトルを求めるのは `BookTitleResolver`(アプリ全体で1つ。`AppStores` が持ち、
+    `CollectionStore` とカバーのキャプションが**同じ1つ**を見る ―― 並びと見えている文字が
+    食い違わないため)。**キャッシュを持つ**: 並べるにはコレクションの全冊ぶんのタイトルが要り、
+    `items(in:sort:)` は描き直しのたびに呼ばれるが、推測はルールの数だけ `NSRegularExpression` を
+    回すため。捨てる契機は通知ではなく**読むその場での通し番号の照合**
+    (`BookMetadataStore.revision` / `MetadataFormatStore.revision`) ―― メインキューへ積まれる
+    `.bookMetadataDidChange` では描き直しとの前後が保証されず、このクラスは何も publish しないので
+    古いまま残りうる。
+  - タイトルが同じ本はファイル名で決める(`sorted(by:)` は安定ではないので、描き直すたびに
+    順番が入れ替わらないよう最後まで決め手を用意する)。
+
 - 件数・階層の上限は無い。
 - **まとめて消す経路**を持つ(`delete(_ collections:)` / `remove(_ items:)` / `move(_ collections:to:)`)。
   1件ずつ既存の API を呼ぶと保存と通知がその回数だけ走る。複数の本にまたがる通知には

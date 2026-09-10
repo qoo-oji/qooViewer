@@ -22,7 +22,10 @@ struct CollectionDetailView: View {
     @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
     @EnvironmentObject private var autoFolderScanner: CollectionAutoFolderScanner
     @EnvironmentObject private var layoutStore: LayoutStore
-    /// カバーの下に「タイトル」を出す設定のときだけ読む(caption(for:)参照)。
+    /// **値は読まない。**タイトル(caption(for:)と並び順「タイトル」)は
+    /// `collectionStore.titleResolver`から取るが、あちらはpublishしないキャッシュなので、
+    /// メタデータ/フォーマットが変わったときに描き直すための購読としてここに残す
+    /// (外すと、別のウインドウでタイトルを登録してもこの画面の文字と並びが古いまま残る)。
     @EnvironmentObject private var metadataStore: BookMetadataStore
     @EnvironmentObject private var formatStore: MetadataFormatStore
     @EnvironmentObject private var preferences: AppPreferences
@@ -245,7 +248,10 @@ struct CollectionDetailView: View {
                 isEditing: $state.isEditing,
                 sort: $state.itemSort,
                 // 本の行には「更新日時」に相当する情報が無い(CollectionStore.items(in:sort:))。
-                sortFields: [.name, .dateAdded],
+                // 「タイトル」を出すのはこの画面だけ(ユーザー要望 2026-09-10。
+                // FavoritesSortOptionの型コメント参照)。ファイル名と並べて見せるため、
+                // 同じ文字の基準どうしを隣に置く。
+                sortFields: [.name, .title, .dateAdded],
                 size: $state.coverSize,
                 sizeRange: WelcomeLibraryState.coverSizeRange,
                 sizeHelp: "Cover Size",
@@ -494,25 +500,15 @@ struct CollectionDetailView: View {
         }
     }
 
-    /// 「メタデータの編集」がこの本に出すのと同じタイトル ―― 登録済みならDBの値、未登録なら
-    /// ファイル名からの推測値(`MetadataEditorViewModel.initialDraft`。同じ関数を通しているので、
-    /// シートを開いて確かめた文字列とここの表示が食い違うことはない)。
+    /// 「メタデータの編集」がこの本に出すのと同じタイトル(登録済みならDBの値、未登録なら
+    /// ファイル名からの推測値。決め方はBookTitleResolverの型コメント参照)。
     ///
-    /// どちらも空のとき(タイトルだけ空にして登録した本・推測が何も拾えなかった本)は、拡張子を
-    /// 除いたファイル名へ落とす。空文字のまま出すと、その1冊だけ下の行が潰れて高さが揃わない。
-    ///
-    /// 推測は**毎回その場で行う**(結果を覚えておかない)。1冊ぶんならメインアクター上でも一瞬で
-    /// 終わり、LazyVGridが組み立てるのは見えているセルだけなので、数千行をまとめて処理する
-    /// `MetadataEditorViewModel`(derivedCache)とは事情が違う。覚えておくと、メタデータの登録・
-    /// フォーマットの変更のたびに捨てる契機を自分で持つことになる。
+    /// 以前はここで毎回その場で推測していた ―― 1冊ぶんならメインアクター上でも一瞬で終わり、
+    /// LazyVGridが組み立てるのは見えているセルだけだったため。並び順に「タイトル」が増えて
+    /// (ユーザー要望 2026-09-10)、見えていない本ぶんも要るようになったので、覚えておく役を
+    /// BookTitleResolverへ移した。**表示と並べ替えが同じ関数を通る**ようにもなる。
     private func metadataTitle(for item: CollectionItem) -> String {
-        let baseName = MetadataEditorViewModel.baseName(forBookID: item.bookID)
-        let draft = MetadataEditorViewModel.initialDraft(
-            forBookID: item.bookID, baseName: baseName,
-            metadataStore: metadataStore, formatStore: formatStore
-        )
-        let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return title.isEmpty ? baseName : title
+        collectionStore.titleResolver.title(forBookID: item.bookID)
     }
 
     /// この右クリックが相手にする本(Finderと同じ規則。CollectionGridView.contextTargetsと同じ)。

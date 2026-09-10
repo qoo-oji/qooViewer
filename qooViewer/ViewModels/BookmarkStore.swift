@@ -288,9 +288,12 @@ final class BookmarkStore: ObservableObject {
         _ groups: [BookmarkBookGroup], by option: FavoritesSortOption
     ) -> [BookmarkBookGroup] {
         switch option {
-        case .nameAscending:
+        // 「タイトル」(書誌のタイトル)はコレクションの中でしか選べない基準で、ここには
+        // 出さない(ブックマークが持つのは自分に付けた名前だけ。FavoritesSortOptionの型コメント
+        // 参照)。保存してある値が何かの拍子に回ってきても並びが崩れないよう、名前として扱う。
+        case .nameAscending, .titleAscending:
             return groups.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
-        case .nameDescending:
+        case .nameDescending, .titleDescending:
             return groups.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedDescending }
         case .dateAddedAscending:
             return groups.sorted { $0.earliestCreatedAt < $1.earliestCreatedAt }
@@ -472,9 +475,10 @@ final class BookmarkStore: ObservableObject {
     func bookmarks(forBookID bookID: String) -> [Bookmark] {
         let fetched = bookmarksByBookID()[bookID] ?? []
         switch sortOption {
-        case .nameAscending:
+        // 「タイトル」を名前として扱う理由はsortedGroups(_:by:)と同じ。
+        case .nameAscending, .titleAscending:
             return fetched.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        case .nameDescending:
+        case .nameDescending, .titleDescending:
             return fetched.sorted { $0.name.localizedStandardCompare($1.name) == .orderedDescending }
         case .dateAddedAscending:
             return fetched.sorted { $0.createdAt < $1.createdAt }

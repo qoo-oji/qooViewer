@@ -14759,6 +14759,38 @@
         }
       }
     },
+    "Title (A–Z)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Title (A–Z)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タイトル(A→Z)"
+          }
+        }
+      }
+    },
+    "Title (Z–A)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Title (Z–A)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タイトル(Z→A)"
+          }
+        }
+      }
+    },
     "To open all images in this folder, please select and grant access to this folder." : {
       "localizations" : {
         "en" : {

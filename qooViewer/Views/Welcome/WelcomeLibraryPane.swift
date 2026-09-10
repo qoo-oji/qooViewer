@@ -94,6 +94,8 @@ struct LibraryPaneControls: View {
     @Binding var sort: FavoritesSortOption
     /// 並べ替えの基準として選ばせるもの。コレクションの中では「更新日時」を出さない
     /// (本の行には後から更新される情報が無いため。CollectionStore.items(in:sort:)参照)。
+    /// 逆に「タイトル」はコレクションの中だけに出す(書誌のタイトルを持つのは本だけ。
+    /// FavoritesSortOptionの型コメント参照)。
     let sortFields: [FavoritesSortOption.Field]
     @Binding var size: CGFloat
     let sizeRange: ClosedRange<CGFloat>

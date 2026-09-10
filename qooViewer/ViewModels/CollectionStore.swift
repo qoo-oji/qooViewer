@@ -48,6 +48,10 @@ final class CollectionStore: ObservableObject {
     /// 焼いた札の絵(ディスク上のJPEG + メモリキャッシュ)の保管庫。カバーと同じく、
     /// 捨てるのはこのストアの仕事で、読み出しは札(CollectionTile)が直接行う。
     let tileStore: CollectionTileImageStore
+    /// 本のタイトルを求める役(BookTitleResolver)。並び順「タイトル」の鍵をここで作る
+    /// (ユーザー要望 2026-09-10)。カバーの下のキャプションも同じものを読むため公開している
+    /// ―― 並べ替えと表示で別の関数を通すと、並びと見えている文字が食い違いうる。
+    let titleResolver: BookTitleResolver
 
     /// 絞り込み無し全件フェッチの結果のキャッシュ(FavoritesStore.cachedFolders/cachedBooksと同じ)。
     /// このストアが3つのモデルの唯一の書き込み口であるため、insert/deleteのたびに捨てておけば
@@ -65,11 +69,12 @@ final class CollectionStore: ObservableObject {
 
     init(
         modelContext: ModelContext, coverStore: CollectionCoverStore,
-        tileStore: CollectionTileImageStore
+        tileStore: CollectionTileImageStore, titleResolver: BookTitleResolver
     ) {
         self.modelContext = modelContext
         self.coverStore = coverStore
         self.tileStore = tileStore
+        self.titleResolver = titleResolver
         reload()
 
         // 実体の存在確認は重いので、描画のたびではなく「古くなっている可能性が生まれたとき」に
@@ -259,6 +264,10 @@ final class CollectionStore: ObservableObject {
 
     /// このコレクションの本(指定した並び順)。「更新日時」の基準は本の追加日時(addedAt)で
     /// 解釈する ―― 本の行には「後から更新される」情報が無いため。
+    ///
+    /// 「名前」は登録した時点のファイル名(CollectionItem.title)、「タイトル」は書誌の
+    /// タイトル(BookTitleResolver)で、この2つは別物。前者はDBの列を読むだけだが、後者は
+    /// 未登録の本ではファイル名からの推測が走る(sortedByTitle参照)。
     func items(in collection: BookCollection, sort: FavoritesSortOption) -> [CollectionItem] {
         sorted(collection.items, sort: sort)
     }
@@ -342,6 +351,13 @@ final class CollectionStore: ObservableObject {
             return collections.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         case .nameDescending:
             return collections.sorted { $0.name.localizedStandardCompare($1.name) == .orderedDescending }
+        // コレクションには書誌のタイトルが無い(棚に付けた名前がすべて)。「タイトル」は本を
+        // 並べるときだけの基準なのでメニューにも出さない(FavoritesSortOptionの型コメント)が、
+        // 保存してある値が何かの拍子にこちらへ回ってきても並びが崩れないよう、名前として扱う。
+        case .titleAscending:
+            return collections.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        case .titleDescending:
+            return collections.sorted { $0.name.localizedStandardCompare($1.name) == .orderedDescending }
         case .dateAddedAscending:
             return collections.sorted { $0.createdAt < $1.createdAt }
         case .dateAddedDescending:
@@ -383,6 +399,8 @@ final class CollectionStore: ObservableObject {
             return items.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
         case .nameDescending:
             return items.sorted { $0.title.localizedStandardCompare($1.title) == .orderedDescending }
+        case .titleAscending, .titleDescending:
+            return sortedByTitle(items, ascending: sort.isAscending)
         // 本には「更新日時」に相当する情報が無いため、追加日時と同じものとして扱う
         // (items(in:sort:)のコメント参照)。
         case .dateAddedAscending, .dateUpdatedAscending:
@@ -390,6 +408,25 @@ final class CollectionStore: ObservableObject {
         case .dateAddedDescending, .dateUpdatedDescending:
             return items.sorted { $0.addedAt > $1.addedAt }
         }
+    }
+
+    /// 書誌のタイトル(BookTitleResolver)で本を並べる(ユーザー要望 2026-09-10)。
+    ///
+    /// **タイトルは1冊ずつ求めてから並べる**(比較のたびに引き直さない)。キャッシュが効いて
+    /// いても辞書引き × 比較回数ぶんになるうえ、キャッシュが空の1回目は推測が走る
+    /// (BookTitleResolverの型コメント参照)。
+    ///
+    /// タイトルが同じ本(同じ作品の別ファイル・タイトルを空にして登録した本)はファイル名で
+    /// 決める。`sorted(by:)`は安定ではないので、決め手を最後まで用意しておかないと、
+    /// 同じ並びを描き直すたびに順番が入れ替わりうる。
+    private func sortedByTitle(_ items: [CollectionItem], ascending: Bool) -> [CollectionItem] {
+        let wanted: ComparisonResult = ascending ? .orderedAscending : .orderedDescending
+        let keyed = items.map { (item: $0, title: titleResolver.title(forBookID: $0.bookID)) }
+        return keyed.sorted { lhs, rhs in
+            let order = lhs.title.localizedStandardCompare(rhs.title)
+            guard order == .orderedSame else { return order == wanted }
+            return lhs.item.title.localizedStandardCompare(rhs.item.title) == wanted
+        }.map(\.item)
     }
 
     // MARK: - ライブラリ

@@ -78,7 +78,9 @@ struct CollectionGridView: View {
                     onDelete: { deletingCollectionIDs = Array(state.selectedCollectionIDs) },
                     isEditing: $state.isEditing,
                     sort: $state.collectionSort,
-                    sortFields: FavoritesSortOption.Field.allCases,
+                    // コレクションそのものには書誌のタイトルが無いので「タイトル」は出さない
+                    // (FavoritesSortOptionの型コメント参照)。
+                    sortFields: FavoritesSortOption.Field.withoutTitle,
                     size: $state.tileSize,
                     sizeRange: WelcomeLibraryState.tileSizeRange,
                     sizeHelp: "Tile Size",

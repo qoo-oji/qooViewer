@@ -856,6 +856,67 @@ struct CollectionStoreTests {
             == ["b-book", "a-book"])
     }
 
+    @Test("「タイトル」順は書誌のタイトルで並び、登録し直せばその場で並びが変わる")
+    func sortingByTitleFollowsTheBookMetadata() throws {
+        let library = try InMemoryLibrary(label: "collections-sort-title")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-sort-title")
+        let target = try #require(library.collections.libraries.first)
+        let books = try ["a-book", "b-book", "c-book"].map {
+            try makeBookFolder(temporary, named: $0)
+        }
+        let collection = try #require(library.collections.createCollection(
+            name: "Series", in: target, items: pendingItems(books)
+        ))
+        let bookID = { (name: String) -> String in
+            collection.items.first { $0.title == name }?.bookID ?? ""
+        }
+
+        // まだ何も登録していないので、タイトルはファイル名からの推測値(= ファイル名)。
+        // ここで一度並べて、キャッシュに推測値を載せておく(下で捨てられることを見るため)。
+        #expect(library.collections.items(in: collection, sort: .titleAscending).map(\.title)
+            == ["a-book", "b-book", "c-book"])
+
+        // 「a-book」に Zulu、「c-book」に Alpha を登録すると、ファイル名の並びとは逆になる。
+        library.metadata.upsert(
+            bookID: bookID("a-book"), author: "", title: "Zulu", series: "", seriesIndex: ""
+        )
+        library.metadata.upsert(
+            bookID: bookID("c-book"), author: "", title: "Alpha", series: "", seriesIndex: ""
+        )
+
+        #expect(library.collections.items(in: collection, sort: .titleAscending).map(\.title)
+            == ["c-book", "b-book", "a-book"])
+        // 降順はその逆(同じ基準で向きだけが変わる)。
+        #expect(library.collections.items(in: collection, sort: .titleDescending).map(\.title)
+            == ["a-book", "b-book", "c-book"])
+        // 「名前」はファイル名のままで、タイトルの登録に影響されない。
+        #expect(library.collections.items(in: collection, sort: .nameAscending).map(\.title)
+            == ["a-book", "b-book", "c-book"])
+    }
+
+    @Test("タイトルを空にして登録した本は、ファイル名で並ぶ(空文字で固まらない)")
+    func aBookRegisteredWithoutATitleSortsByItsFileName() throws {
+        let library = try InMemoryLibrary(label: "collections-sort-title-empty")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-sort-title-empty")
+        let target = try #require(library.collections.libraries.first)
+        let books = try ["m-book", "z-book"].map { try makeBookFolder(temporary, named: $0) }
+        let collection = try #require(library.collections.createCollection(
+            name: "Series", in: target, items: pendingItems(books)
+        ))
+        let zBookID = try #require(collection.items.first { $0.title == "z-book" }?.bookID)
+
+        // 著者だけを登録した本(タイトルは空)。空文字のまま並べると先頭へ回ってしまうため、
+        // 拡張子を除いたファイル名へ落ちる(BookTitleResolverの型コメント参照)。
+        library.metadata.upsert(
+            bookID: zBookID, author: "著者", title: "", series: "", seriesIndex: ""
+        )
+
+        #expect(library.collections.items(in: collection, sort: .titleAscending).map(\.title)
+            == ["m-book", "z-book"])
+    }
+
     // MARK: - 常に先頭/末尾に表示
 
     @Test("常に先頭/末尾に指定したコレクションは、並び順の向きに関わらず端に出る")

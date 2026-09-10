@@ -450,12 +450,15 @@ struct FavoritesOrganizerView: View {
                     // FavoritesSortOptionの6つのcaseのままで、その2つの軸へ分解して読み書き
                     // している(FavoritesSortOption.field/isAscending参照)。
                     //
+                    // 候補が`allCases`でないのは、「タイトル」を出さないため(書誌のタイトルを
+                    // 持つのは本だけで、フォルダには名前しか無い。FavoritesSortOptionの型コメント)。
+                    //
                     // PickerのままだとボタンにFavoritesSortOption.systemImageが出るが、
                     // 名前順のアイコン(textformat)は表示言語で字形が変わるシンボルで、
                     // 日本語ではボタンに「あぁ」という文字が出てしまう(実機で確認)。
                     Menu {
                         Picker(selection: sortFieldBinding) {
-                            ForEach(FavoritesSortOption.Field.allCases) { field in
+                            ForEach(FavoritesSortOption.Field.withoutTitle) { field in
                                 Label {
                                     Text(field.titleKey)
                                 } icon: {

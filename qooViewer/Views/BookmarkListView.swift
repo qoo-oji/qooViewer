@@ -425,9 +425,11 @@ struct BookmarkEditorView: View {
             rows = rows.filter { $0.displayName.localizedCaseInsensitiveContains(trimmedSearch) }
         }
         switch bookmarkStore.bookSortOption {
-        case .nameAscending:
+        // 「タイトル」(書誌のタイトル)はこの一覧の基準には出さない。名前として扱う理由は
+        // BookmarkStore.sortedGroups(_:by:)と同じ。
+        case .nameAscending, .titleAscending:
             rows.sort { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
-        case .nameDescending:
+        case .nameDescending, .titleDescending:
             rows.sort { $0.displayName.localizedStandardCompare($1.displayName) == .orderedDescending }
         case .dateAddedAscending:
             rows.sort { $0.earliestDate < $1.earliestDate }
@@ -666,10 +668,12 @@ struct BookmarkEditorView: View {
                         // ままで、その2つの軸へ分解して読み書きしている
                         // (FavoritesSortOption.field/isAscending参照)。
                         // メニュー内の2つのPickerは.inlineにしてあり、macOSではそれぞれの
-                        // グループにチェックマークが付く。
+                        // グループにチェックマークが付く。候補が`allCases`でないのは、
+                        // 「タイトル」を出さないため(ブックマークには名前しか無い。
+                        // FavoritesSortOptionの型コメント参照)。
                         Menu {
                             Picker(selection: sortFieldBinding) {
-                                ForEach(FavoritesSortOption.Field.allCases) { field in
+                                ForEach(FavoritesSortOption.Field.withoutTitle) { field in
                                     Label {
                                         Text(field.titleKey)
                                     } icon: {
