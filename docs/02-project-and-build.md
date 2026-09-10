@@ -88,7 +88,8 @@ EPUB / PDF の構造解決、書き出しのラウンドトリップ、そして
 | `PagePixelCacheTests` | 厳密な LRU、`peek` が昇格しないこと、上限を瞬間的にも超えないこと |
 | `CacheHousekeepingTests` | 構造キャッシュの JSON(旧版含む)、刈り込みの境目、一時ファイルの残骸の判定 |
 | `ImageDecoderTests` / `ContrastCorrectorTests` | 対応形式・EXIF の回転・壊れた入力、カラー判定とオートレベル |
-| `DirectoryBrowserTests` | 一覧と並べ替え(全順序)、`SiblingFinder`、`FileNodeIdentifier` |
+| `DirectoryBrowserTests` | 一覧と並べ替え(全順序)、`SiblingFinder`、`FileNodeIdentifier`(**ボリューム UUID が主・デバイス番号が控え**、補完の対象) |
+| `BookLocationTests` | 本が「いまどうなっているか」の判定 ―― 実体がある / **ボリュームは健在で消えている**(掃除の対象) / **ボリュームが未接続**(対象外) / ブックマークが使えない(対象外)、UUID を持たない古い行の見当のつけ方 |
 | `LibraryJSONSchemaTests` | 保存データの書き出し / 読み込みの往復と、版 2 のファイル |
 | `InputMappingTests` | `RemappableKey` / `MouseTrigger` の安定した識別子と判定 |
 | `AppLanguageTests` | `String(localized:language:)` が**翻訳の選択まで**切り替えること |
@@ -175,7 +176,7 @@ deinit に任せられないのは、解放がメインスレッド以外で始�
 
 | suite | 見るもの |
 | --- | --- |
-| `CollectionStoreTests` | ライブラリは必ず 1 つ以上、名前の一意性の範囲、同じ本の二重登録の禁止(パス / i ノード)、削除でカバー画像まで消えること、移動(まとめて動かすときは 1 つでも衝突したら動かさない)、自動登録フォルダの設定、**全件を pending へ戻すのは save 1 回**、**起動時の掃除が行のあるカバーを消さないこと** |
+| `CollectionStoreTests` | ライブラリは必ず 1 つ以上、名前の一意性の範囲、同じ本の二重登録の禁止(パス / i ノード)、削除でカバー画像まで消えること、移動(まとめて動かすときは 1 つでも衝突したら動かさない)、自動登録フォルダの設定、**全件を pending へ戻すのは save 1 回**、**起動時の掃除が行のあるカバーを消さないこと**、リネームへの追従(表示名も付け直す・デバイス番号がズレても UUID で追える)、**見つからない本の掃除**(対象は実体が消えた本だけ・空になったコレクションごと消える・未接続のボリュームの本は入らない・実行までに消えていた本は飛ばす) |
 | `CollectionCoverStoreTests` / `CoverImageResolverTests` | カバーの保管庫の往復と孤児の掃除、「どのページがカバーか」(上書き > 実効 1 ページ目)、枠へ収める切り方(左右 / 上下、残す位置) |
 | `CollectionTileImageStoreTests` | 焼いた札の絵 ―― セルの矩形が隙間も重なりも無く 1 枚を覆うこと、指紋が「絵が変わるものすべて」に追随すること、合成の往復(注文どおりの並びで入る・カバーが 1 枚でも欠けたら焼かない)、1 コレクションにつき新しい 2 枚だけ残す刈り込み、`invalidate` / 孤児の掃除、切って捨てるぶんを見込んだ復号サイズ |
 | `CollectionCoverExtractorTests` | 抽出の司会役 ―― 開ける本は ready、**実体が見つからない本は failed にせず pending のまま**、開けない本だけ failed、**存在確認で「無い」本は積まない / 結果が変わったら組み直す**(`settleExistenceRefresh` で待つ)、**ページの指定で作り直し、切り出し位置では作り直さない**、保存の世代の移行は一度だけ・save 1 回 |
