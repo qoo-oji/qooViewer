@@ -229,7 +229,8 @@ struct AppPreferencesTests {
         .general: [
             "displayLanguage", "launchOpensLastBook", "launchFullScreen", "launchInPrivateMode",
             "quitWhenLastWindowClosed", "confirmBeforeClosingMultipleTabsWindow",
-            "showRecentFilesOnWelcome", "showRecentFavoritesOnWelcome", "sidePanelFeatureEnabled",
+            "showRecentFilesOnWelcome", "showRecentFavoritesOnWelcome",
+            "offersRemovingMissingCollectionBooks", "sidePanelFeatureEnabled",
             "sidePanelPosition", "sidePanelUsesDoubleClick", "sidePanelSortOrder",
             "siblingNavigationFollowsBrowserSort", "usesFinderSortOrder",
         ],

@@ -97,6 +97,14 @@ struct GeneralSettingsView: View {
 
             Section {
                 SettingsToggle("Show Recent Files", isOn: $preferences.showRecentFilesOnWelcome)
+                // ユーザー要望 2026-09-10。勝手に消す設定ではなく「起動時に一覧を出して尋ねる」
+                // 設定なので、ラベルも Offer(尋ねる)にしてある。何を対象にするか
+                // (外付けを外しているだけの本は対象外)は吹き出しへ。
+                SettingsToggle(
+                    "Offer to Remove Books That Are No Longer There",
+                    isOn: $preferences.offersRemovingMissingCollectionBooks,
+                    help: "At launch, lists the books in your collections whose file is gone even though the volume it was on is connected, and asks whether to remove them. Books on a volume you have disconnected are never listed, and nothing is removed until you choose Remove. A collection whose every book is gone is removed along with them."
+                )
                 // 改善要望5でお気に入りを無効化したため、この設定は出さない(FavoritesFeature参照)。
                 // 設定値(showRecentFavoritesOnWelcome)自体は残してあるので、復活させれば
                 // 以前のON/OFFがそのまま戻る。

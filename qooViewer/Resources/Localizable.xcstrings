@@ -15545,6 +15545,166 @@
           }
         }
       }
+    },
+    "Offer to Remove Books That Are No Longer There" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Offer to Remove Books That Are No Longer There"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "見つからなくなった本の削除を尋ねる"
+          }
+        }
+      }
+    },
+    "At launch, lists the books in your collections whose file is gone even though the volume it was on is connected, and asks whether to remove them. Books on a volume you have disconnected are never listed, and nothing is removed until you choose Remove. A collection whose every book is gone is removed along with them." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "At launch, lists the books in your collections whose file is gone even though the volume it was on is connected, and asks whether to remove them. Books on a volume you have disconnected are never listed, and nothing is removed until you choose Remove. A collection whose every book is gone is removed along with them."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "起動したときに、ボリュームは接続されているのに実体が無くなっている本をコレクションの中から探し、削除するかどうかを尋ねます。取り外しているボリュームにある本は対象になりません。「削除」を押すまで何も削除されません。中の本が全部なくなるコレクションは、コレクションごと削除されます。"
+          }
+        }
+      }
+    },
+    "Books That Are No Longer There" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books That Are No Longer There"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "見つからなくなった本"
+          }
+        }
+      }
+    },
+    "The volume these books were on is connected, but their files are no longer there. They can be removed from their collections. The files themselves are already gone — removing does not delete anything." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The volume these books were on is connected, but their files are no longer there. They can be removed from their collections. The files themselves are already gone — removing does not delete anything."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "これらの本があったボリュームは接続されていますが、実体が見つかりません。コレクションから削除できます。実体は既に無いので、削除してもファイルが消えることはありません。"
+          }
+        }
+      }
+    },
+    "Every book in these collections is gone, so the collections are removed too:" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every book in these collections is gone, so the collections are removed too:"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次のコレクションは中の本が全部なくなるため、コレクションごと削除されます:"
+          }
+        }
+      }
+    },
+    "You can turn this off in Settings ▸ General ▸ Welcome Screen." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You can turn this off in Settings ▸ General ▸ Welcome Screen."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この確認は環境設定「一般」→「ウェルカム画面」で止められます。"
+          }
+        }
+      }
+    },
+    "The volume that holds “" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The volume that holds “"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「"
+          }
+        }
+      }
+    },
+    "” is not connected. Connect it and try again — nothing has been lost." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "” is not connected. Connect it and try again — nothing has been lost."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "」があるボリュームが接続されていません。接続してからもう一度お試しください(データは失われていません)。"
+          }
+        }
+      }
+    },
+    "qooViewer could not work out where “" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer could not work out where “"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「"
+          }
+        }
+      }
+    },
+    "” is. The file may still be there: open it once from its current location and the collection will catch up." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "” is. The file may still be there: open it once from its current location and the collection will catch up."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "」の場所を特定できませんでした。実体はまだあるかもしれません。いまある場所から一度開くと、コレクションの登録もそこへ追従します。"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

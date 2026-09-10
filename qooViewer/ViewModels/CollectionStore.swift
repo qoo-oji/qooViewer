@@ -27,10 +27,14 @@ final class CollectionStore: ObservableObject {
     /// 帯に並ぶライブラリ(sortOrder順)。
     @Published private(set) var libraries: [BookLibrary] = []
 
-    /// 本の実体がまだ存在するかどうかのキャッシュ(CollectionItem.id -> 存在するか)。
+    /// 本が「いまどうなっているか」のキャッシュ(CollectionItem.id -> BookLocation)。
     /// 確認そのものはメインアクターの外で行い、表示側はこの辞書を読むだけ
     /// (FavoritesStore.existenceByFavoriteIDと同じ理由・同じ作り)。
-    @Published private(set) var existenceByItemID: [UUID: Bool] = [:]
+    ///
+    /// 以前は Bool(あるか無いか)だった。**消してよいかの判断には理由が要る**ので
+    /// `BookLocation`に変えてある(あちらの型コメント参照)。淡く描くだけの用途は
+    /// `cachedFileExists(for:)`がそのまま担う。
+    @Published private(set) var locationByItemID: [UUID: BookLocation] = [:]
 
     /// 「ライブラリ/コレクション/本のどれかが変わった」ことだけを表す通し番号
     /// (saveAndNotifyのコメント参照)。値そのものは誰も読まない。
@@ -544,7 +548,7 @@ final class CollectionStore: ObservableObject {
         saveAndNotify()
         removeCovers(itemIDs)
         removeTileImages(collectionIDs)
-        for itemID in itemIDs { existenceByItemID.removeValue(forKey: itemID) }
+        for itemID in itemIDs { locationByItemID.removeValue(forKey: itemID) }
         reload()
     }
 
@@ -701,7 +705,7 @@ final class CollectionStore: ObservableObject {
         collection?.updatedAt = Date()
         saveAndNotify(bookID: bookID)
         removeCovers([itemID])
-        existenceByItemID.removeValue(forKey: itemID)
+        locationByItemID.removeValue(forKey: itemID)
     }
 
     /// 本をまとめてコレクションから外す(編集モードで選んだぶんをゴミ箱から)。
@@ -724,7 +728,7 @@ final class CollectionStore: ObservableObject {
         invalidateLookupCaches()
         saveAndNotify()
         removeCovers(itemIDs)
-        for itemID in itemIDs { existenceByItemID.removeValue(forKey: itemID) }
+        for itemID in itemIDs { locationByItemID.removeValue(forKey: itemID) }
     }
 
     /// この本の登録をすべてのコレクションから外す(「本ごとの保存データを削除」から)。
@@ -745,7 +749,7 @@ final class CollectionStore: ObservableObject {
         invalidateLookupCaches()
         saveAndNotify(bookID: bookID)
         removeCovers(itemIDs)
-        for itemID in itemIDs { existenceByItemID.removeValue(forKey: itemID) }
+        for itemID in itemIDs { locationByItemID.removeValue(forKey: itemID) }
     }
 
     /// カバー抽出の結果を書き戻す(CollectionCoverExtractorから)。
@@ -904,7 +908,26 @@ final class CollectionStore: ObservableObject {
     /// 自由に呼んでよい。まだ確認できていない項目は「存在する」として扱う
     /// (FavoritesStore.cachedFileExistsと同じ理由: 起動直後に全部が消えたように見せない)。
     func cachedFileExists(for item: CollectionItem) -> Bool {
-        existenceByItemID[item.id] ?? true
+        locationByItemID[item.id]?.exists ?? true
+    }
+
+    /// 確認済みの「どうなっているか」。まだ確認できていない本はnil
+    /// (「本が見つかりません」の文言を理由ごとに変えるために使う)。
+    func cachedLocation(for item: CollectionItem) -> BookLocation? {
+        locationByItemID[item.id]
+    }
+
+    /// 1冊ぶんの「どうなっているか」をその場で割り出す。開こうとして失敗した本の理由を
+    /// アラートに出すために使う(1件だけなのでメインアクター上で構わない。一覧の淡い表示に
+    /// 使う一括の確認は`scheduleExistenceRefresh`のほう)。
+    func location(for item: CollectionItem) -> BookLocation {
+        BookLocationResolver.resolve(
+            BookLocationResolver.Probe(
+                itemID: item.id, bookmark: item.bookmarkData, recordedPath: item.bookID,
+                volumeUUID: item.volumeUUID
+            ),
+            mountedVolumeUUIDs: BookLocationResolver.mountedVolumeUUIDs()
+        )
     }
 
     /// 全登録の実体確認を非同期に予約する(FavoritesStore.scheduleExistenceRefreshと同じ作り)。
@@ -916,18 +939,28 @@ final class CollectionStore: ObservableObject {
         isRefreshingExistence = true
         // SwiftDataのモデルはそのまま外へ渡せないので、メインアクターにいるうちに
         // Sendableな値(UUIDとData)へ写し取る。
-        let probes = allItems().map { (id: $0.id, bookmark: $0.bookmarkData) }
+        let probes = allItems().map {
+            BookLocationResolver.Probe(
+                itemID: $0.id, bookmark: $0.bookmarkData, recordedPath: $0.bookID,
+                volumeUUID: $0.volumeUUID
+            )
+        }
         guard !probes.isEmpty else {
             isRefreshingExistence = false
-            if !existenceByItemID.isEmpty { existenceByItemID = [:] }
+            if !locationByItemID.isEmpty { locationByItemID = [:] }
             return
         }
         // [weak self]で受けたselfを、awaitをまたぐ前にguard letで強参照へ変換しておく
         // (理由はRecentFilesStore.scheduleRefresh()の同種のコメント参照)。
         existenceRefreshTask = Task.detached(priority: .utility) { [weak self] in
-            var result: [UUID: Bool] = [:]
+            // マウント中のボリュームは1回だけ数えて使い回す(本ごとに数え直すと、
+            // 数百冊の棚でマウント一覧の問い合わせがそのぶん繰り返される)。
+            let mountedVolumeUUIDs = BookLocationResolver.mountedVolumeUUIDs()
+            var result: [UUID: BookLocation] = [:]
             for probe in probes {
-                result[probe.id] = FavoritesStore.fileExists(bookmark: probe.bookmark)
+                result[probe.itemID] = BookLocationResolver.resolve(
+                    probe, mountedVolumeUUIDs: mountedVolumeUUIDs
+                )
             }
             guard let self else { return }
             await self.finishExistenceRefresh(result)
@@ -942,7 +975,7 @@ final class CollectionStore: ObservableObject {
         }
     }
 
-    private func finishExistenceRefresh(_ result: [UUID: Bool]) {
+    private func finishExistenceRefresh(_ result: [UUID: BookLocation]) {
         isRefreshingExistence = false
         existenceRefreshTask = nil
         defer {
@@ -952,8 +985,96 @@ final class CollectionStore: ObservableObject {
             }
         }
         // @Publishedは値が同じでも代入のたびに発火するため、変化したときだけ代入する。
-        guard result != existenceByItemID else { return }
-        existenceByItemID = result
+        guard result != locationByItemID else { return }
+        locationByItemID = result
+    }
+
+    // MARK: - 見つからない本の掃除
+
+    /// 起動時に「コレクションから外しますか」と尋ねる材料(ユーザー要望 2026-09-10)。
+    ///
+    /// 対象は`BookLocation.missing`の本だけ ―― **ボリュームは付いているのに、ブックマークでも
+    /// 記録してあるパスでも実体に届かない**本に限る。外付けを外しているだけの本
+    /// (`.volumeUnavailable`)や、ブックマークが使えなくなっただけの本(`.unreachable`)は
+    /// 入らない(判定の根拠はBookLocationの型コメント)。
+    ///
+    /// 実体確認が済んでいない本(辞書に無い)も入らない。呼ぶ側は
+    /// `settleExistenceRefresh()`で確認の完了を待ってから呼ぶこと。
+    struct MissingBookSweep: Equatable {
+        /// 外す本1冊。シートに並べるための表示用の値で、モデルへの参照は持たない
+        /// (シートを開いている間に別のウインドウが消していることがあるため、実行時にidから
+        /// 引き直す。CollectionDetailViewの「本が見つかりません」と同じ作り)。
+        struct Book: Equatable, Identifiable {
+            let id: UUID
+            let title: String
+            let path: String
+            let collectionName: String
+        }
+
+        var books: [Book] = []
+        /// 中の本が全部なくなるため、一緒に削除されるコレクションの名前(表示用)。
+        var emptiedCollectionNames: [String] = []
+
+        var isEmpty: Bool { books.isEmpty }
+    }
+
+    /// 掃除の候補を数える(何も消さない)。
+    func missingBookSweep() -> MissingBookSweep {
+        var sweep = MissingBookSweep()
+        var missingCountByCollectionID: [UUID: Int] = [:]
+        for item in allItems() {
+            guard locationByItemID[item.id] == .missing else { continue }
+            let collection = item.collection
+            sweep.books.append(
+                MissingBookSweep.Book(
+                    id: item.id, title: item.title, path: item.bookID,
+                    collectionName: collection?.name ?? ""
+                )
+            )
+            if let collection { missingCountByCollectionID[collection.id, default: 0] += 1 }
+        }
+        guard !sweep.books.isEmpty else { return sweep }
+        // 「全部なくなる」の判定は、そのコレクションの冊数と突き合わせる。
+        for collection in allCollections() {
+            guard let missingCount = missingCountByCollectionID[collection.id],
+                  missingCount == collection.items.count
+            else { continue }
+            sweep.emptiedCollectionNames.append(collection.name)
+        }
+        // コレクションごとにまとめ、その中は名前順(シートで読める並びにする)。
+        sweep.books.sort {
+            let byCollection = $0.collectionName.localizedStandardCompare($1.collectionName)
+            if byCollection != .orderedSame { return byCollection == .orderedAscending }
+            return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+        }
+        sweep.emptiedCollectionNames.sort { $0.localizedStandardCompare($1) == .orderedAscending }
+        return sweep
+    }
+
+    /// 掃除を実行する。本をコレクションから外し、**中身が空になったコレクションは削除する**
+    /// (ユーザーの指定。自動登録フォルダを持つコレクションも同じ扱い ―― フォルダの指定も
+    /// 一緒に失われる点は承知の上での選択)。
+    ///
+    /// 候補を数えてから実行するまでの間に別のウインドウが消していることがあるので、**idから
+    /// 引き直してから**消す。数え直しはしない(確認した一覧と違うものを消さないため)。
+    func applyMissingBookSweep(_ sweep: MissingBookSweep) {
+        let items = sweep.books.compactMap { item(withID: $0.id) }
+        guard !items.isEmpty else { return }
+        // 外す前に、どのコレクションが空になるかを数える(外した後では items が減っていて
+        // 「元から空だったコレクション」と区別できない)。
+        var removedCountByCollection: [UUID: (collection: BookCollection, count: Int)] = [:]
+        for item in items {
+            guard let collection = item.collection else { continue }
+            let entry = removedCountByCollection[collection.id]
+            removedCountByCollection[collection.id] = (collection, (entry?.count ?? 0) + 1)
+        }
+        let emptiedCollections = removedCountByCollection.values
+            .filter { $0.count == $0.collection.items.count }
+            .map(\.collection)
+
+        remove(items)
+        guard !emptiedCollections.isEmpty else { return }
+        delete(emptiedCollections)
     }
 
     // MARK: - 一括削除
@@ -977,7 +1098,7 @@ final class CollectionStore: ObservableObject {
         }
         invalidateLookupCaches()
         saveAndNotify()
-        existenceByItemID = [:]
+        locationByItemID = [:]
         let store = coverStore
         Task { await store.removeAll() }
         reload()

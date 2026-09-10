@@ -712,6 +712,112 @@ struct CollectionStoreTests {
         #expect(collection.items.map(\.title) == ["book-a"])
     }
 
+    // MARK: - 見つからない本の掃除
+
+    @Test("掃除の対象は、ボリュームが健在で実体が無い本だけ")
+    func theSweepOnlyTakesBooksThatAreTrulyGone() async throws {
+        let library = try InMemoryLibrary(label: "collections-sweep")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-sweep")
+        let target = try #require(library.collections.libraries.first)
+        let gone = try makeBookFolder(temporary, named: "gone")
+        let alive = try makeBookFolder(temporary, named: "alive")
+        let collection = try #require(library.collections.createCollection(
+            name: "Series", in: target, items: pendingItems([gone, alive])
+        ))
+        try FileManager.default.removeItem(at: gone)
+
+        library.collections.scheduleExistenceRefresh()
+        await library.collections.settleExistenceRefresh()
+
+        let sweep = library.collections.missingBookSweep()
+        #expect(sweep.books.map(\.title) == ["gone"])
+        #expect(sweep.books.first?.collectionName == "Series")
+        // 1冊残るのでコレクションは消えない。
+        #expect(sweep.emptiedCollectionNames.isEmpty)
+
+        library.collections.applyMissingBookSweep(sweep)
+        #expect(collection.items.map(\.title) == ["alive"])
+        #expect(library.collections.collections(in: target, sort: .nameAscending).count == 1)
+    }
+
+    @Test("本が全部なくなるコレクションは、コレクションごと消える(自動登録フォルダがあっても)")
+    func anEmptiedCollectionIsRemovedToo() async throws {
+        let library = try InMemoryLibrary(label: "collections-sweep-empty")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-sweep-empty")
+        let target = try #require(library.collections.libraries.first)
+        let gone = try makeBookFolder(temporary, named: "gone")
+        let other = try makeBookFolder(temporary, named: "kept")
+        let emptied = try #require(library.collections.createCollection(
+            name: "Emptied", in: target, items: pendingItems([gone])
+        ))
+        // 自動登録フォルダを持つコレクションも同じ扱いにする(ユーザーの指定 2026-09-10。
+        // フォルダの指定も一緒に失われることは承知の上)。
+        library.collections.setAutoFolder(temporary.url, for: emptied)
+        _ = try #require(library.collections.createCollection(
+            name: "Kept", in: target, items: pendingItems([other])
+        ))
+        try FileManager.default.removeItem(at: gone)
+
+        library.collections.scheduleExistenceRefresh()
+        await library.collections.settleExistenceRefresh()
+
+        let sweep = library.collections.missingBookSweep()
+        #expect(sweep.emptiedCollectionNames == ["Emptied"])
+
+        library.collections.applyMissingBookSweep(sweep)
+        #expect(library.collections.collections(in: target, sort: .nameAscending).map(\.name) == ["Kept"])
+    }
+
+    @Test("ボリュームを外しているだけの本は掃除に入らない")
+    func booksOnAnAbsentVolumeAreNeverSwept() async throws {
+        let library = try InMemoryLibrary(label: "collections-sweep-volume")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-sweep-volume")
+        let target = try #require(library.collections.libraries.first)
+        let book = try makeBookFolder(temporary, named: "on-external")
+        let collection = try #require(library.collections.createCollection(
+            name: "Series", in: target, items: pendingItems([book])
+        ))
+        let item = try #require(collection.items.first)
+        // 外付けにある本を再現する ―― 記録してあるボリュームUUIDを、いまマウントされて
+        // いないものに差し替える(実体も消してある)。
+        item.volumeUUID = "NOT-MOUNTED-\(UUID().uuidString)"
+        try FileManager.default.removeItem(at: book)
+
+        library.collections.scheduleExistenceRefresh()
+        await library.collections.settleExistenceRefresh()
+
+        #expect(library.collections.cachedLocation(for: item) == .volumeUnavailable)
+        #expect(library.collections.missingBookSweep().isEmpty)
+    }
+
+    @Test("掃除を実行するまでに消えていた本は飛ばす(別のウインドウが先に消した場合)")
+    func theSweepSkipsBooksThatAreAlreadyGoneFromTheCollection() async throws {
+        let library = try InMemoryLibrary(label: "collections-sweep-race")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-sweep-race")
+        let target = try #require(library.collections.libraries.first)
+        let gone = try makeBookFolder(temporary, named: "gone")
+        let alive = try makeBookFolder(temporary, named: "alive")
+        let collection = try #require(library.collections.createCollection(
+            name: "Series", in: target, items: pendingItems([gone, alive])
+        ))
+        try FileManager.default.removeItem(at: gone)
+        library.collections.scheduleExistenceRefresh()
+        await library.collections.settleExistenceRefresh()
+        let sweep = library.collections.missingBookSweep()
+
+        // 確認シートを開いている間に、その本が別のウインドウで外された。
+        let goneItem = try #require(collection.items.first { $0.title == "gone" })
+        library.collections.remove(goneItem)
+
+        // 残っている本を巻き込まない(数え直さず、idで引けたものだけを消す)。
+        library.collections.applyMissingBookSweep(sweep)
+        #expect(collection.items.map(\.title) == ["alive"])
+    }
+
     // MARK: - 並び順
 
     @Test("コレクションと本の並びは、指定した基準と向きに従う")

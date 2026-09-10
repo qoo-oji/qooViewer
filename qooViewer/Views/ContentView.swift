@@ -118,6 +118,11 @@ struct ContentView: View {
     /// ファイル/フォルダがこのウインドウの上へドラッグされている最中かどうか
     /// (applyFileDropTarget参照)。
     @State private var isFileDropTargeted = false
+
+    /// 起動時に出す「見つからなくなった本をコレクションから外しますか」の対象
+    /// (nil = 出さない。環境設定offersRemovingMissingCollectionBooksがONのときだけ入る。
+    /// MissingBooksCleanupSheet参照)。
+    @State private var pendingMissingBookSweep: CollectionStore.MissingBookSweep?
     /// ウェルカム画面(ライブラリ/コレクション)の表示の状態。1ウインドウに1つ
     /// (WelcomeLibraryState参照)。本を開いている間もこのウインドウの中に残るので、
     /// 「ウェルカム画面へ戻る」で帰ってきたときは同じライブラリ・同じコレクションの中に戻る。
@@ -634,6 +639,26 @@ struct ContentView: View {
             folderPendingDeletion: $favoriteFolderPendingDeletion,
             bookPendingDeletion: $favoriteBookPendingDeletion
         )
+        // 起動時の「見つからなくなった本をコレクションから外しますか」(既定OFFの設定)。
+        // 主ウインドウでしか出ない ―― 数えるのも尋ねるのも起動時の1回だけ
+        // (performLaunchActionsIfNeededがLaunchCoordinatorの旗で1度に絞っている)。
+        .sheet(
+            isPresented: Binding(
+                get: { pendingMissingBookSweep != nil },
+                set: { if !$0 { pendingMissingBookSweep = nil } }
+            )
+        ) {
+            if let sweep = pendingMissingBookSweep {
+                MissingBooksCleanupSheet(
+                    sweep: sweep,
+                    onRemove: {
+                        collectionStore.applyMissingBookSweep(sweep)
+                        pendingMissingBookSweep = nil
+                    },
+                    onCancel: { pendingMissingBookSweep = nil }
+                )
+            }
+        }
         .alert(
             "Error",
             isPresented: Binding(
@@ -710,6 +735,25 @@ struct ContentView: View {
                     window.toggleFullScreen(nil)
                 }
             }
+        }
+
+        offerRemovingMissingCollectionBooksIfNeeded()
+    }
+
+    /// 「見つからなくなった本をコレクションから外しますか」を起動時に1度だけ尋ねる
+    /// (ユーザー要望 2026-09-10。既定OFFの設定。MissingBooksCleanupSheet参照)。
+    ///
+    /// **実体確認の完了を待ってから数える。** 起動直後のlocationByItemIDは空で、まだ確認できて
+    /// いない本は「ある」として扱われる(cachedFileExistsの既定)ため、待たずに数えると
+    /// 必ず0件になる。シークレットウインドウでは行わない ―― 削除はDBへの書き込みなので
+    /// (AppState.isPrivateWindowのコメント参照)。
+    private func offerRemovingMissingCollectionBooksIfNeeded() {
+        guard preferences.offersRemovingMissingCollectionBooks, !isPrivateWindow else { return }
+        Task { @MainActor in
+            await collectionStore.settleExistenceRefresh()
+            let sweep = collectionStore.missingBookSweep()
+            guard !sweep.isEmpty else { return }
+            pendingMissingBookSweep = sweep
         }
     }
 

@@ -81,9 +81,34 @@ struct CollectionDetailView: View {
     }
 
     /// 「本が見つかりません」の対象(missingBookのコメント参照)。
+    ///
+    /// `reason`は開こうとして失敗した時点で割り出したもの(CollectionStore.location(for:))。
+    /// **「見つからない」の理由は1つではない**ので、文言を分けるために持つ ―― 外付けを
+    /// 外しているだけなら「削除」を勧めるべきではないし、ブックマークが使えなくなっただけなら
+    /// 実体はまだあるかもしれない(BookLocationの型コメント参照)。
     private struct MissingBook {
         let id: UUID
         let title: String
+        let reason: BookLocation
+    }
+
+    /// 「本が見つかりません」の本文。理由ごとに書き分ける(MissingBook.reason参照)。
+    @ViewBuilder
+    private var missingBookMessage: some View {
+        let name = Text(missingBook?.title ?? "")
+        switch missingBook?.reason {
+        case .volumeUnavailable:
+            Text("The volume that holds “") + name
+                + Text("” is not connected. Connect it and try again — nothing has been lost.")
+        case .unreachable:
+            Text("qooViewer could not work out where “") + name
+                + Text("” is. The file may still be there: open it once from its current location and the collection will catch up.")
+        default:
+            // .missing(ボリュームは付いているのに実体に届かない)と、確認が間に合って
+            // いない場合。移動と削除は区別できないので、どちらとも言わない。
+            Text("The file or folder for “") + name
+                + Text("” could not be found. It may have been moved or deleted.")
+        }
     }
 
     private var items: [CollectionItem] {
@@ -152,8 +177,7 @@ struct CollectionDetailView: View {
                 }
             }
         } message: {
-            Text("The file or folder for “") + Text(missingBook?.title ?? "")
-                + Text("” could not be found. It may have been moved or deleted.")
+            missingBookMessage
         }
         .onReceive(NotificationCenter.default.publisher(for: .layoutDataDidChange)) { _ in
             layoutRevision &+= 1
@@ -394,7 +418,10 @@ struct CollectionDetailView: View {
                 onOpen: { open(item) },
                 onOpenIn: { destination in
                     guard let url = collectionStore.resolvedExistingURL(for: item) else {
-                        missingBook = MissingBook(id: item.id, title: item.title)
+                        missingBook = MissingBook(
+                        id: item.id, title: item.title,
+                        reason: collectionStore.location(for: item)
+                    )
                         return
                     }
                     BookWindowOpener.open(
@@ -414,7 +441,10 @@ struct CollectionDetailView: View {
             // (FinderReveal.reveal(_:isDirectory:)のコメント参照)。
             Button("Show in Finder") {
                 guard let url = collectionStore.resolvedExistingURL(for: item) else {
-                    missingBook = MissingBook(id: item.id, title: item.title)
+                    missingBook = MissingBook(
+                        id: item.id, title: item.title,
+                        reason: collectionStore.location(for: item)
+                    )
                     return
                 }
                 FinderReveal.reveal(url)
@@ -428,7 +458,10 @@ struct CollectionDetailView: View {
                 Divider()
                 Button("Edit Metadata…") {
                     guard let url = collectionStore.resolvedExistingURL(for: item) else {
-                        missingBook = MissingBook(id: item.id, title: item.title)
+                        missingBook = MissingBook(
+                        id: item.id, title: item.title,
+                        reason: collectionStore.location(for: item)
+                    )
                         return
                     }
                     metadataTarget = MetadataTarget(id: item.id, url: url)
@@ -518,7 +551,10 @@ struct CollectionDetailView: View {
 
     private func open(_ item: CollectionItem) {
         guard let url = collectionStore.resolvedExistingURL(for: item) else {
-            missingBook = MissingBook(id: item.id, title: item.title)
+            missingBook = MissingBook(
+                        id: item.id, title: item.title,
+                        reason: collectionStore.location(for: item)
+                    )
             return
         }
         appState.open(url: url)

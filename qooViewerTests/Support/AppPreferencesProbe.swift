@@ -61,6 +61,7 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.maxTrackedBooksCount += 1
     p.recentFilesLimit += 1
     p.showRecentFilesOnWelcome.toggle()
+    p.offersRemovingMissingCollectionBooks.toggle()
     p.showRecentFavoritesOnWelcome.toggle()
     p.sidePanelFeatureEnabled.toggle()
     p.sidePanelPosition = otherCase(p.sidePanelPosition)

@@ -27,7 +27,7 @@ import CoreGraphics
 /// ときだけにして、実体が見つからない本は`.pending`のまま置く。表示側は存在確認の結果
 /// (CollectionStore.cachedFileExists)で淡く描くので、灰色と見分けがつく。
 /// 見つからない本を待ち行列へ入れ続けないよう、refill()は存在確認で「無い」と分かっている本を
-/// 飛ばし、存在確認の結果(`existenceByItemID`)が変わったとき ―― 再接続・アプリのアクティブ化
+/// 飛ばし、実体確認の結果(`locationByItemID`)が変わったとき ―― 再接続・アプリのアクティブ化
 /// ―― にもう一度refill()する。
 @MainActor
 final class CollectionCoverExtractor: ObservableObject {
@@ -119,10 +119,10 @@ final class CollectionCoverExtractor: ObservableObject {
         // ここも同期的にメインアクター上で走る(FavoritesStore.initの同種のコメント参照)。
         // Taskで1拍遅らせないのは、存在確認の待ち合わせ(CollectionStore.settleExistenceRefresh)
         // が返った時点で待ち行列が組み直されている、と言えるようにするため。
-        existenceCancellable = collectionStore.$existenceByItemID
+        existenceCancellable = collectionStore.$locationByItemID
             .dropFirst()
-            .sink { [weak self] existence in
-                MainActor.assumeIsolated { self?.refill(existence: existence) }
+            .sink { [weak self] locations in
+                MainActor.assumeIsolated { self?.refill(locations: locations) }
             }
 
         // 既に登録済みの本(前回の起動で抽出を終えているもの)の条件を先に控えておく
@@ -172,14 +172,15 @@ final class CollectionCoverExtractor: ObservableObject {
     /// 一度は試みる ―― 見つからなければ`.pending`のまま戻り、通知も出ないので、次に組み直す
     /// 契機まで積み直されない。
     func refill() {
-        refill(existence: collectionStore.existenceByItemID)
+        refill(locations: collectionStore.locationByItemID)
     }
 
-    /// - Parameter existence: 判定に使う存在確認の結果(CollectionStore.existenceByItemID、
-    ///   またはその投影から届いた新しい値)。無い本は「ある」として扱う(cachedFileExistsと同じ)。
-    private func refill(existence: [UUID: Bool]) {
+    /// - Parameter locations: 判定に使う実体確認の結果(CollectionStore.locationByItemID、
+    ///   またはその投影から届いた新しい値)。まだ確認していない本は「ある」として扱う
+    ///   (cachedFileExistsと同じ)。
+    private func refill(locations: [UUID: BookLocation]) {
         seedSignatures(for: collectionStore.allRegisteredBookIDs())
-        enqueue(collectionStore.itemsAwaitingCover().filter { existence[$0.id] ?? true })
+        enqueue(collectionStore.itemsAwaitingCover().filter { locations[$0.id]?.exists ?? true })
     }
 
     /// まだ控えていないbookIDの条件を、いまのDBの値で記録する(抽出はしない)。

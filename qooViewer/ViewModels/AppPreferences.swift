@@ -78,6 +78,8 @@ final class AppPreferences: ObservableObject {
         static let filmstripHighlightCustomColor = "qooViewer.pref.filmstripHighlightCustomColor"
         static let filmstripHighlightBorderWidth = "qooViewer.pref.filmstripHighlightBorderWidth"
         static let showRecentFilesOnWelcome = "qooViewer.pref.showRecentFilesOnWelcome"
+        static let offersRemovingMissingCollectionBooks =
+            "qooViewer.pref.offersRemovingMissingCollectionBooks"
         static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
         static let thumbnailGridCellSize = "qooViewer.pref.thumbnailGridCellSize"
         static let thumbnailGridHorizontalSpacing = "qooViewer.pref.thumbnailGridHorizontalSpacing"
@@ -923,6 +925,26 @@ final class AppPreferences: ObservableObject {
     @Published var showRecentFilesOnWelcome: Bool {
         didSet { defaults.set(showRecentFilesOnWelcome, forKey: Keys.showRecentFilesOnWelcome) }
     }
+    /// 起動時に、**見つからなくなった本をコレクションから外すか**を尋ねるかどうか
+    /// (ユーザー要望 2026-09-10。既定OFF)。
+    ///
+    /// 尋ねる対象は`BookLocation.missing`の本だけ ―― ボリュームは付いているのに実体に届かない
+    /// 本に限る(外付けを外しているだけの本は入らない。判定の根拠はBookLocationの型コメント)。
+    /// ONでも勝手には消さず、**起動時に一覧を出して「削除」を押されたときだけ**消す
+    /// (キャンセルすれば何も起きず、次の起動でまた尋ねる)。中の本が全部なくなる
+    /// コレクションは、コレクションごと削除する。
+    ///
+    /// 既定をOFFにしてあるのは、取り消せない削除を、設定を見ていない人の起動経路に
+    /// 割り込ませないため(従来からのユーザーは設定を変えなければ何も変わらない、という
+    /// このアプリの既定の決め方に従う)。
+    @Published var offersRemovingMissingCollectionBooks: Bool {
+        didSet {
+            defaults.set(
+                offersRemovingMissingCollectionBooks,
+                forKey: Keys.offersRemovingMissingCollectionBooks
+            )
+        }
+    }
     /// ウェルカム画面に「最近お気に入りに追加したファイル」一覧(最大10件)を表示するかどうか(既定ON)。
     @Published var showRecentFavoritesOnWelcome: Bool {
         didSet {
@@ -1571,6 +1593,8 @@ final class AppPreferences: ObservableObject {
             ?? Self.defaultRecentFilesLimit
         self.showRecentFilesOnWelcome =
             defaults.object(forKey: Keys.showRecentFilesOnWelcome) as? Bool ?? true
+        self.offersRemovingMissingCollectionBooks =
+            defaults.object(forKey: Keys.offersRemovingMissingCollectionBooks) as? Bool ?? false
         self.showRecentFavoritesOnWelcome =
             defaults.object(forKey: Keys.showRecentFavoritesOnWelcome) as? Bool ?? true
         self.thumbnailGridCellSize = defaults.object(forKey: Keys.thumbnailGridCellSize) as? Double ?? 120
@@ -1751,6 +1775,7 @@ extension AppPreferences {
                 // maxTrackedBooksCount / recentFilesLimit は意図的に含めない(上のコメント参照)。
                 Keys.showRecentFilesOnWelcome,
                 Keys.showRecentFavoritesOnWelcome,
+                Keys.offersRemovingMissingCollectionBooks,
                 Keys.sidePanelFeatureEnabled,
                 Keys.sidePanelPosition,
                 Keys.sidePanelUsesDoubleClick,
@@ -1907,6 +1932,7 @@ extension AppPreferences {
             // maxTrackedBooksCount / recentFilesLimit は意図的に戻さない(keys(for:)のコメント参照)。
             showRecentFilesOnWelcome = source.showRecentFilesOnWelcome
             showRecentFavoritesOnWelcome = source.showRecentFavoritesOnWelcome
+            offersRemovingMissingCollectionBooks = source.offersRemovingMissingCollectionBooks
             sidePanelFeatureEnabled = source.sidePanelFeatureEnabled
             sidePanelPosition = source.sidePanelPosition
             sidePanelUsesDoubleClick = source.sidePanelUsesDoubleClick
