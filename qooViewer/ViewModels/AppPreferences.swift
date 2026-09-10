@@ -58,6 +58,7 @@ final class AppPreferences: ObservableObject {
         static let sidePanelWidth = "qooViewer.pref.sidePanelWidth"
         static let sidePanelFeatureEnabled = "qooViewer.pref.sidePanelFeatureEnabled"
         static let sidePanelUsesDoubleClick = "qooViewer.pref.sidePanelUsesDoubleClick"
+        static let showSidePanelOnWelcome = "qooViewer.pref.showSidePanelOnWelcome"
         static let sidePanelSortOrder = "qooViewer.pref.sidePanelSortOrder"
         /// キーの実体はPageOrder側にある。nonisolatedなコード(BookLoaderなど)が同じ値を
         /// 読むため、文字列を2か所に書かない(PageOrder.defaultsKeyのコメント参照)。
@@ -538,6 +539,16 @@ final class AppPreferences: ObservableObject {
     /// ボタン操作はこの設定に関わらず常にシングルクリックのまま。
     @Published var sidePanelUsesDoubleClick: Bool {
         didSet { defaults.set(sidePanelUsesDoubleClick, forKey: Keys.sidePanelUsesDoubleClick) }
+    }
+    /// 環境設定「一般」タブの、ウェルカム画面(本を開いていない状態)でもサイドパネルを
+    /// 表示するかどうか(既定ON=表示する。ユーザー要望)。OFFにすると、本を開いていない
+    /// 間はサイドパネルが一切出てこなくなる ―― 常時表示(hideSidePanelがOFF)のときに
+    /// 場所を取ることも、隠す設定(hideSidePanelがON)のときにカーソルを端へ近づけて
+    /// 一時的に出てくることも無い(ContentView.isSidePanelSuppressedForWelcome参照)。
+    /// sidePanelFeatureEnabledと違ってパネル機能自体は生きているので、本を開けば
+    /// これまでどおりのサイドパネルが戻る。
+    @Published var showSidePanelOnWelcome: Bool {
+        didSet { defaults.set(showSidePanelOnWelcome, forKey: Keys.showSidePanelOnWelcome) }
     }
     /// 環境設定「一般」タブの「並び順をFinderに揃える」(既定はOFF)。ユーザー報告:
     /// `_Com-title-cover.JPG` / `Com_title_name_size_0001.JPG` / `Com-title-cover-clean.JPG`
@@ -1548,6 +1559,7 @@ final class AppPreferences: ObservableObject {
         self.sidePanelWidth = defaults.object(forKey: Keys.sidePanelWidth) as? Double ?? 280
         self.sidePanelFeatureEnabled = defaults.object(forKey: Keys.sidePanelFeatureEnabled) as? Bool ?? true
         self.sidePanelUsesDoubleClick = defaults.object(forKey: Keys.sidePanelUsesDoubleClick) as? Bool ?? false
+        self.showSidePanelOnWelcome = defaults.object(forKey: Keys.showSidePanelOnWelcome) as? Bool ?? true
         self.sidePanelSortOrder =
             SidePanelSortOrder(rawValue: defaults.string(forKey: Keys.sidePanelSortOrder) ?? "") ?? .foldersFirst
         // 既定はON(Finderと同じ名前順)。当初はOFF(従来どおりの並び)だったが、Finderで
@@ -1779,6 +1791,7 @@ extension AppPreferences {
                 Keys.sidePanelFeatureEnabled,
                 Keys.sidePanelPosition,
                 Keys.sidePanelUsesDoubleClick,
+                Keys.showSidePanelOnWelcome,
                 Keys.sidePanelSortOrder,
                 Keys.siblingNavigationFollowsBrowserSort,
                 Keys.usesFinderSortOrder,
@@ -1936,6 +1949,7 @@ extension AppPreferences {
             sidePanelFeatureEnabled = source.sidePanelFeatureEnabled
             sidePanelPosition = source.sidePanelPosition
             sidePanelUsesDoubleClick = source.sidePanelUsesDoubleClick
+            showSidePanelOnWelcome = source.showSidePanelOnWelcome
             sidePanelSortOrder = source.sidePanelSortOrder
             siblingNavigationFollowsBrowserSort = source.siblingNavigationFollowsBrowserSort
             usesFinderSortOrder = source.usesFinderSortOrder

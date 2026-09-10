@@ -12887,6 +12887,22 @@
         }
       }
     },
+    "Show on the Welcome Screen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show on the Welcome Screen"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ウェルカム画面でも表示する"
+          }
+        }
+      }
+    },
     "Show Page Grid" : {
       "localizations" : {
         "en" : {
@@ -15349,6 +15365,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "OFFにすると、プログレスバーにカーソルを合わせてもサムネイルは読み込まれず、カーソル位置のページ番号だけが表示されます。"
+          }
+        }
+      }
+    },
+    "When off, the side panel does not appear while no book is open — it neither takes up space nor slides out when you move the pointer to the edge of the window with Hide Side Panel on. Open a book and the panel comes back." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When off, the side panel does not appear while no book is open — it neither takes up space nor slides out when you move the pointer to the edge of the window with Hide Side Panel on. Open a book and the panel comes back."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オフにすると、本を開いていない間はサイドパネルが出てこなくなります。場所を取ることも、「サイドパネルを隠す」がオンのときにウインドウの端へカーソルを近づけて出てくることもありません。本を開けば元どおり表示されます。"
           }
         }
       }

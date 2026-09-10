@@ -247,7 +247,8 @@ struct ContentView: View {
             // こちらはあえてHStackに組み込まず画像の上に浮かべる(表示・非表示のたびに
             // 画像のサイズが変わってちらつくのを避けるため)。preferences.sidePanelFeatureEnabled
             // がOFF(環境設定「一般」タブ)のときは、サイドパネル機能自体を丸ごと無効化する。
-            if preferences.sidePanelFeatureEnabled && appState.hideSidePanel && appState.isSidePanelRevealed {
+            if preferences.sidePanelFeatureEnabled && appState.hideSidePanel && appState.isSidePanelRevealed
+                && !isSidePanelSuppressedForWelcome {
                 sidePanelView(dismissesOnAction: true, isDocked: false)
                     // 浮かせている間の位置をViewerViewへ知らせる。ページ一覧パネルを閉じる
                     // クリックの判定から、このパネルへのクリックを除くために要る
@@ -317,6 +318,15 @@ struct ContentView: View {
             // 自動で閉じる経路も通らない)。「サイドパネルを隠す」をOFFにした場合の同じ後始末は
             // AppState.hideSidePanelのdidSetが持つ。
             .onChange(of: preferences.sidePanelFeatureEnabled) { _, _ in
+                cancelPendingSidePanelReveal()
+                appState.isSidePanelRevealed = false
+            }
+            // 「ウェルカム画面でも表示する」をOFFにしたときも同じ後始末をする。ウェルカム画面で
+            // パネルを浮かせたまま環境設定を変えると、パネルは消えてもisSidePanelRevealedが
+            // 立ったまま残るため(上のsidePanelFeatureEnabledと同じ理由)。本を開いている間に
+            // 変えた場合はこの時点で何も表示されていないので、実質何も起きない。
+            .onChange(of: preferences.showSidePanelOnWelcome) { _, _ in
+                guard appState.currentBook == nil else { return }
                 cancelPendingSidePanelReveal()
                 appState.isSidePanelRevealed = false
             }
@@ -422,6 +432,13 @@ struct ContentView: View {
             // ユーザーの指示で、隠す設定でも常時表示と同じ(移動した場所はそのまま保たれ、
             // 本が切り替わったときだけ本の場所へ移る)に揃えた。
             sidePanelBrowser.handlePanelRevealed(currentBook: appState.currentBook)
+            // 本を閉じてウェルカム画面へ戻ったとき、ホバー表示中だったパネルの後始末をする
+            // (isSidePanelSuppressedForWelcome参照。表示条件からは外れて見えなくなるが、
+            // isSidePanelRevealedが立ったまま残るとツールバー等の自動表示が抑えられる)。
+            if isSidePanelSuppressedForWelcome {
+                cancelPendingSidePanelReveal()
+                appState.isSidePanelRevealed = false
+            }
         }
         // サイドパネル下段(本の中身ブラウザ)を、今実際に表示されているページへ追従させる
         // (ユーザー要望: ページ送りのたびにハイライト・スクロールをリアルタイムに追従させ、
@@ -1015,7 +1032,20 @@ struct ContentView: View {
     /// サイドパネルを、HStackの実レイアウトとして常時表示すべきかどうか(body参照)。
     /// 左右どちらに置くかによって組み込む位置が変わるため、条件式を1箇所にまとめてある。
     private var showsDockedSidePanel: Bool {
-        preferences.sidePanelFeatureEnabled && !appState.hideSidePanel
+        preferences.sidePanelFeatureEnabled && !appState.hideSidePanel && !isSidePanelSuppressedForWelcome
+    }
+
+    /// 今このウインドウでは、ウェルカム画面用の設定によってサイドパネルを出さないことに
+    /// なっているかどうか(環境設定「一般」タブの「ウェルカム画面でも表示する」がOFF、かつ
+    /// 本を開いていない。AppPreferences.showSidePanelOnWelcome参照)。
+    ///
+    /// 常時表示(showsDockedSidePanel)とホバーでの一時表示(bodyのオーバーレイ分岐・
+    /// updateSidePanelReveal・isSidePanelRevealBandStillActive)の**両方**を止める。
+    /// 片方だけにすると、「常時表示にしていれば出ないのに、隠す設定にすると端で出てくる」
+    /// という食い違いになる(この設定は「ウェルカム画面ではサイドパネルを使わない」という
+    /// 意思表示なので、隠しているかどうかに関わらず出さない)。
+    private var isSidePanelSuppressedForWelcome: Bool {
+        appState.currentBook == nil && !preferences.showSidePanelOnWelcome
     }
 
     /// カーソルの位置によって一時的に表示されているもの(ホバー表示中のサイドパネル、
@@ -1253,6 +1283,12 @@ struct ContentView: View {
             cancelPendingSidePanelReveal()
             return
         }
+        // ウェルカム画面でサイドパネルを出さない設定のときは、端に近づいても反応しない
+        // (isSidePanelSuppressedForWelcome参照)。
+        guard !isSidePanelSuppressedForWelcome else {
+            cancelPendingSidePanelReveal()
+            return
+        }
         // 拡大鏡(ルーペ)表示中は、カーソルを端に近づけてもサイドパネルを表示させない
         // (ユーザー要望: 拡大鏡での閲覧を妨げないため。ONにした瞬間の強制非表示は
         // ViewerViewのisLoupeActiveのonChange側で行う)。
@@ -1345,6 +1381,7 @@ struct ContentView: View {
     /// イベントの座標ではなく現在のカーソル位置(NSEvent.mouseLocation)に替えただけ。
     private func isSidePanelRevealBandStillActive() -> Bool {
         guard preferences.sidePanelFeatureEnabled, appState.hideSidePanel else { return false }
+        guard !isSidePanelSuppressedForWelcome else { return false }
         guard !appState.isLoupeActive, !isMenuTracking, !isSidePanelEditingDialogPresented else { return false }
         guard !appState.isChromeAutoRevealed else { return false }
         guard let window = appState.hostWindow, window.isKeyWindow else { return false }

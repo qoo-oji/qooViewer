@@ -157,6 +157,14 @@ struct GeneralSettingsView: View {
                         isOn: $preferences.sidePanelUsesDoubleClick,
                         help: "Navigation buttons such as Back, Forward, and Up are unaffected."
                     )
+                    // ユーザー要望: ウェルカム画面(棚)ではサイドパネルを出したくない。
+                    // 常時表示でも、隠す設定でカーソルを端に近づけたときでも出さない
+                    // (ContentView.isSidePanelSuppressedForWelcome参照)。
+                    SettingsToggle(
+                        "Show on the Welcome Screen",
+                        isOn: $preferences.showSidePanelOnWelcome,
+                        help: "When off, the side panel does not appear while no book is open — it neither takes up space nor slides out when you move the pointer to the edge of the window with Hide Side Panel on. Open a book and the panel comes back."
+                    )
                     // 上段のフォルダブラウザ専用。下段の本の中身の一覧は常に本のページ順
                     // (理由はAppPreferences.sidePanelSortOrderのコメント参照)。
                     SettingsPicker(

@@ -784,6 +784,10 @@ struct QooViewerApp: App {
                             set: { focusedAppState?.hideSidePanel = $0 }
                         )
                     )
+                    // ただし「ウェルカム画面でも表示する」がOFFなら、本を開いていない間は
+                    // どちらに倒してもパネルは出てこないため、hideToolbar/hideProgressBarと
+                    // 同じくグレーアウトする(効かない設定を触れるままにしない)。
+                    .disabled(!hasBook && !preferences.showSidePanelOnWelcome)
                 }
 
                 Divider()

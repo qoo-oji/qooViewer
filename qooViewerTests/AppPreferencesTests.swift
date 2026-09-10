@@ -231,7 +231,8 @@ struct AppPreferencesTests {
             "quitWhenLastWindowClosed", "confirmBeforeClosingMultipleTabsWindow",
             "showRecentFilesOnWelcome", "showRecentFavoritesOnWelcome",
             "offersRemovingMissingCollectionBooks", "sidePanelFeatureEnabled",
-            "sidePanelPosition", "sidePanelUsesDoubleClick", "sidePanelSortOrder",
+            "sidePanelPosition", "sidePanelUsesDoubleClick", "showSidePanelOnWelcome",
+            "sidePanelSortOrder",
             "siblingNavigationFollowsBrowserSort", "usesFinderSortOrder",
         ],
         .appearance: [

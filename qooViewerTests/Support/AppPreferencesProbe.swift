@@ -66,6 +66,7 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.sidePanelFeatureEnabled.toggle()
     p.sidePanelPosition = otherCase(p.sidePanelPosition)
     p.sidePanelUsesDoubleClick.toggle()
+    p.showSidePanelOnWelcome.toggle()
     p.sidePanelSortOrder = otherCase(p.sidePanelSortOrder)
     p.siblingNavigationFollowsBrowserSort.toggle()
     p.usesFinderSortOrder.toggle()
