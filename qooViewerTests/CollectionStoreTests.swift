@@ -594,7 +594,9 @@ struct CollectionStoreTests {
         let temporary = try TemporaryDirectory("collections-reconcile")
         let original = try makeBookFolder(temporary, named: "book-a")
         let target = try #require(library.collections.libraries.first)
-        _ = library.collections.createCollection(name: "Series", in: target, items: pendingItems([original]))
+        let collection = try #require(library.collections.createCollection(
+            name: "Series", in: target, items: pendingItems([original])
+        ))
 
         let moved = temporary.file("book-a-renamed")
         try FileManager.default.moveItem(at: original, to: moved)
@@ -602,6 +604,51 @@ struct CollectionStoreTests {
         library.collections.reconcileBookIDIfMoved(book: book)
 
         #expect(library.collections.allRegisteredBookIDs() == [moved.path])
+        // 表示名も新しいフォルダ名へ追従する(カバー下のキャプションに古い名前が残らない)。
+        #expect(collection.items.map(\.title) == ["book-a-renamed"])
+    }
+
+    @Test("リネームに追従した書庫の表示名は、登録時と同じ規則(拡張子を落とす)で付け直される")
+    func aRenamedArchiveKeepsTheRegistrationTitleRule() async throws {
+        let library = try InMemoryLibrary(label: "collections-reconcile-title")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-reconcile-title")
+        var builder = ZipFixtureBuilder()
+        builder.add("001.png", PageImageFactory.png(number: 1))
+        let original = temporary.file("volume-01.cbz")
+        try builder.write(to: original)
+        let target = try #require(library.collections.libraries.first)
+        let collection = try #require(library.collections.createCollection(
+            name: "Series", in: target, items: pendingItems([original])
+        ))
+        #expect(collection.items.map(\.title) == ["volume-01"])
+
+        let renamed = temporary.file("volume-02.cbz")
+        try FileManager.default.moveItem(at: original, to: renamed)
+        let book = try await FixtureBook.load(renamed)
+        library.collections.reconcileBookIDIfMoved(book: book)
+
+        #expect(library.collections.allRegisteredBookIDs() == [renamed.path])
+        #expect(collection.items.map(\.title) == ["volume-02"])
+    }
+
+    @Test("iノードが一致しない別のファイルでは、登録も表示名も書き換えない")
+    func anUnrelatedBookLeavesTheEntryAlone() async throws {
+        let library = try InMemoryLibrary(label: "collections-reconcile-other")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-reconcile-other")
+        let registered = try makeBookFolder(temporary, named: "book-a")
+        let other = try makeBookFolder(temporary, named: "book-b")
+        let target = try #require(library.collections.libraries.first)
+        let collection = try #require(library.collections.createCollection(
+            name: "Series", in: target, items: pendingItems([registered])
+        ))
+
+        let book = try await FixtureBook.load(other)
+        library.collections.reconcileBookIDIfMoved(book: book)
+
+        #expect(library.collections.allRegisteredBookIDs() == [registered.path])
+        #expect(collection.items.map(\.title) == ["book-a"])
     }
 
     // MARK: - 並び順

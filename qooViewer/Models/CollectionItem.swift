@@ -33,8 +33,13 @@ final class CollectionItem {
     var bookID: String
     /// セキュリティスコープ付きブックマーク。開くときはこれを解決してURLを得る。
     var bookmarkData: Data
-    /// 登録時のファイル/フォルダ名。グリッドには表示せず、ツールチップ(`.help`)と
-    /// 「本が見つかりません」のアラートでだけ使う。
+    /// この本のファイル/フォルダ名(フォルダはそのまま、ファイルは拡張子を落とす。
+    /// `CollectionStore.itemTitle(for:isDirectory:)`)。ツールチップ(`.help`)、
+    /// 「本が見つかりません」のアラート、カバー下のキャプション(設定が「ファイル名」のとき)で使う。
+    ///
+    /// 登録時の名前で固定ではなく、**iノードで同一ファイルと確定したリネームには追従する**
+    /// (`CollectionStore.reconcileBookIDIfMoved`。FavoriteBook.titleと違い、ユーザーが表示名を
+    /// 付け替える操作は無いので、上書きして構わない)。
     var title: String
     var addedAt: Date
     /// コレクション内へ追加された順(小さいほど先)。表示順はCollectionStoreの並び替え設定に

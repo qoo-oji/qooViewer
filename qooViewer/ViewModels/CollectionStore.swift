@@ -626,17 +626,24 @@ final class CollectionStore: ObservableObject {
         guard let bookmarkData = try? url.bookmarkData(
             options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
         ) else { return nil }
-        // タイトルの作り方はBookLoaderがMangaBook.titleを決めるのと同じ
-        // (フォルダはそのまま、ファイルは拡張子を落とす)。
         var isDirectory: ObjCBool = false
         _ = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
-        let title = isDirectory.boolValue
-            ? url.lastPathComponent
-            : url.deletingPathExtension().lastPathComponent
+        let title = itemTitle(for: url, isDirectory: isDirectory.boolValue)
         return PendingItem(
             url: url, bookmarkData: bookmarkData, title: title,
             identifier: FileNodeIdentifier.current(for: url)
         )
+    }
+
+    /// CollectionItem.titleの作り方。BookLoaderがMangaBook.titleを決めるのと同じ流儀
+    /// (フォルダはそのまま、ファイルは拡張子を落とす)。
+    ///
+    /// 登録時(makePendingItem)とリネーム追従時(reconcileBookIDIfMoved)で同じ文字列になる
+    /// 必要があるため、規則はここ1箇所に置く。追従側は`MangaBook.title`をそのまま使う
+    /// ―― .fileSystemの本(フォルダ/書庫/PDF/EPUB)についてはBookLoaderの全経路がこの規則で
+    /// titleを決めており、ファイルへの問い合わせを足さずに同じ値が得られる。
+    nonisolated static func itemTitle(for url: URL, isDirectory: Bool) -> String {
+        isDirectory ? url.lastPathComponent : url.deletingPathExtension().lastPathComponent
     }
 
     /// コレクションへ本をまとめて追加する。**同じコレクションに同じ本は入らない**
@@ -828,6 +835,16 @@ final class CollectionStore: ObservableObject {
 
     /// 同一ボリューム内での移動・リネームに追従する(FavoritesStore.reconcileBookIDIfMovedと
     /// 同じ考え方・同じ手順。AppState.open(url:)から本を開くたびに呼ばれる)。
+    ///
+    /// **パスだけでなくtitleも新しいファイル名へ書き換える**(ユーザー要望 2026-09-10)。
+    /// お気に入り(FavoritesStore)がtitleに触れないのは、あちらには表示名を自分で付け替える操作
+    /// (rename(_ favorite:to:))があり、ユーザーが付けた名前を上書きしてはいけないため。
+    /// コレクションの本にその操作は無く、CollectionItem.titleは「そのファイル/フォルダの名前」
+    /// そのものなので、iノードで同一ファイルと確定した以上は古い名前を残す理由がない
+    /// (カバー下のキャプションを「ファイル名」にしているとリネーム前の名前が出たままになる)。
+    ///
+    /// collection.updatedAtは**進めない**。あれは棚の並び「更新順」の基準で、ユーザーが本を
+    /// 1冊開いただけで棚全体の順番が入れ替わるのは操作と結果が噛み合わない。
     func reconcileBookIDIfMoved(book: MangaBook) {
         guard items(forBookID: book.id).isEmpty else { return }
         guard let identifier = FileNodeIdentifier.current(for: book.sourceURL) else { return }
@@ -835,7 +852,10 @@ final class CollectionStore: ObservableObject {
             $0.bookID != book.id && $0.fileNodeIdentifier == identifier
         }
         guard !candidates.isEmpty else { return }
-        for candidate in candidates { candidate.bookID = book.id }
+        for candidate in candidates {
+            candidate.bookID = book.id
+            candidate.title = book.title
+        }
         saveAndNotify(bookID: book.id)
     }
 

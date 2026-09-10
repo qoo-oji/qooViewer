@@ -24,8 +24,9 @@
 4. `loadingProgress` を立てて `BookLoader.load(from:)` を待つ。`BookLoadingOverlay` は 400ms
    待ってから出る(普通の本は一瞬で開くので、無条件に出すと点滅する)。
 5. 成功したら `reconcileBookIDIfMoved(book:)` を `FavoritesStore` / `BookmarkStore` /
-   `LayoutStore` / `BookMetadataStore` の4つで呼ぶ(同一ボリューム内の移動・リネームに
-   inode で追従。→ [06](06-persistence.md#移動リネームへの追従))。
+   `LayoutStore` / `BookMetadataStore` / `CollectionStore` の5つで呼ぶ(同一ボリューム内の
+   移動・リネームに inode で追従。コレクションはファイル名の表示もここで追従する。
+   → [06](06-persistence.md#移動リネームへの追従))。
 6. 履歴(`RecentFilesStore.record`)と `LastActiveBookStore.record`。記録するのは
    **`book.sourceURL`**(=解決後の1冊)で、要求された URL ではない。シークレットウインドウと
    その場限りの本では行わない。

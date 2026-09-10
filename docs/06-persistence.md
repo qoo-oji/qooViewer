@@ -87,12 +87,19 @@ bookID(パス)が同じでも中身が別物になっていることがありま
 
 ## 移動・リネームへの追従
 
-4つのモデル(`Bookmark` / `BookLayoutSettings` / `BookMetadata` / `FavoriteBook`)は作成時の
+5つのモデル(`Bookmark` / `BookLayoutSettings` / `BookMetadata` / `FavoriteBook` /
+`CollectionItem`)は作成時の
 `FileNodeIdentifier`(inode + デバイス番号)を持ち、本を開くたびに各ストアの
 `reconcileBookIDIfMoved(book:)` が「現在のパスに行が無く、同じ inode の行がある」なら bookID を
 書き換えます(同一ボリューム内の移動・リネームだけ。ボリュームをまたぐ移動は諦める)。
 識別子を持たない古い行は、本を開けた(=アクセス権がある)タイミングで `backfill*` が補完します。
 JSON 読み込みの重複判定も inode を使います。
+
+`CollectionItem` だけは bookID と一緒に **`title` も新しいファイル名へ書き換えます**
+(`MangaBook.title` をそのまま入れる。棚のカバー下キャプションを「ファイル名」にしていると、
+古い名前が残ったままになるため)。`FavoriteBook.title` は触りません ―― お気に入りには表示名を
+自分で付け替える操作があり、ユーザーが付けた名前を上書きしてはいけないからです。コレクションの
+本にその操作はありません。`BookCollection.updatedAt`(棚の並び「更新順」の基準)も進めません。
 
 ## 通知と自己エコー
 
