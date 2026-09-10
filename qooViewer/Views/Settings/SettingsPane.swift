@@ -55,6 +55,11 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     case cache
     /// サンドボックス下でのフォルダアクセス許可の管理。
     case access
+    /// 保存データとコレクション表紙の読み込み・書き出し。
+    ///
+    /// 元はファイルメニューにあったが、**どちらも実際の利用頻度がごく低い**という指摘を受けて
+    /// ここへ集めた(2026-09-11。DataTransferSettingsViewの型コメント参照)。
+    case dataTransfer
     /// お気に入り・ブックマーク・読書履歴の全削除(取り消し不可)。
     case reset
 
@@ -88,6 +93,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .modeInput: "Per Display Mode"
         case .cache: "Cache"
         case .access: "Folder Access"
+        case .dataTransfer: "Import & Export"
         case .reset: "Reset"
         }
     }
@@ -121,6 +127,8 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         // シンボルにすると「ページ一覧の見た目の設定」と紛らわしくなる。
         case .cache: "internaldrive.fill"
         case .access: "lock.shield.fill"
+        // 出し入れそのもの。上下の矢印なので、書き出し(上)と読み込み(下)の両方を1つで表せる。
+        case .dataTransfer: "arrow.up.arrow.down.circle.fill"
         case .reset: "exclamationmark.triangle.fill"
         }
     }
@@ -142,6 +150,8 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     /// 同系統の3段目としてブラウンを足してある。オレンジ・イエローと地続きの暖色で、
     /// レッド系(詳細)ともブルー系(本)とも取り違えにくい。
     ///
+    /// 「詳細」も4項目になった(「読み込みと書き出し」を足した)ため、レッド系は4段になっている。
+    ///
     /// 「一般」はどのグループにも属さない単独の項目なので、どの系統とも重ならない無彩色にする。
     ///
     /// ■ 「リセット」の赤について
@@ -150,6 +160,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     /// **系統内でいちばん彩度の高い純粋な赤を「リセット」に残し**、「フォルダのアクセス権」は
     /// 一段落ち着いたピンク寄りの赤にしてある。同じ系統の中に置いても、
     /// 「リセットだけ明らかに強い」という関係は保たれる(ユーザーとの相談のうえで決定)。
+    /// 4段目(読み込みと書き出し)を暗い臙脂にしてあるのも同じ理由 ―― 暗い色は警告に見えない。
     /// 警告としてはこれに加えて、赤の警告三角のシンボルが担う。
     var tint: Color {
         switch self {
@@ -168,10 +179,14 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .mouse: .yellow
         case .modeInput: .brown
         // 「詳細」レッド系の3段目。既定色の.pink(アクセス権)・.red(リセット)のどちらとも
-        // 取り違えないよう、彩度を落とした赤にしてある。3項目の中でいちばん穏やかな色が
+        // 取り違えないよう、彩度を落とした赤にしてある。4項目の中でいちばん穏やかな色が
         // いちばん穏やかな操作(キャッシュ)に当たる、という並びになる。
         case .cache: Color(red: 0.72, green: 0.42, blue: 0.45)
         case .access: .pink
+        // 「詳細」レッド系の4段目。いちばん暗い臙脂にしてあるので、くすんだ赤(キャッシュ)・
+        // ピンク寄りの赤(アクセス権)・純粋な赤(リセット)のどれとも取り違えない。
+        // 「いちばん強い赤はリセット」という関係も崩れない(暗い色は警告には見えない)。
+        case .dataTransfer: Color(red: 0.50, green: 0.18, blue: 0.22)
         case .reset: .red
         }
     }
@@ -182,7 +197,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .general, .appearance: .top
         case .opening, .rendering, .reading, .layout: .books
         case .keyboard, .mouse, .modeInput: .controls
-        case .cache, .access, .reset: .advanced
+        case .cache, .access, .dataTransfer, .reset: .advanced
         }
     }
 
@@ -207,6 +222,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .modeInput: ModeInputSettingsView()
         case .cache: CacheSettingsView()
         case .access: AccessPermissionsSettingsView()
+        case .dataTransfer: DataTransferSettingsView()
         case .reset: ResetDataSettingsView()
         }
     }

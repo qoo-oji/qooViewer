@@ -150,7 +150,7 @@ struct BookMetadataSheet: View {
             )
             guard coverController == nil else { return }
             coverController = CoverOverrideController(
-                layoutStore: layoutStore, preferences: preferences,
+                target: .collectionCover, layoutStore: layoutStore, preferences: preferences,
                 // この画面は対象の本を1冊しか扱わないので、URLの解決は済んだものを返すだけ。
                 resolveURL: { _ in sourceURL }
             )
@@ -273,7 +273,7 @@ private struct CoverArea: View {
                     showsCropAnchor: true, isCropAnchorEnabled: isCropAnchorEnabled
                 )
             }
-            .accessibilityLabel(Text("Cover"))
+            .accessibilityLabel(Text("Collection Cover"))
     }
 
     private var thumbnailWithMenu: some View {
@@ -295,7 +295,7 @@ private struct CoverArea: View {
         // bookFileDropTargetは通さない。
         .fileURLDropTarget(isTargeted: $isCoverDropTargeted) { urls in
             guard let imageURL = urls.first(where: { isImageFile($0.lastPathComponent) }) else { return }
-            controller.setExternalCover(forBookID: item.bookID, fileURL: imageURL)
+            Task { await controller.setCoverFile(forBookID: item.bookID, fileURL: imageURL) }
         }
         .contextMenu { coverMenu }
     }
@@ -349,6 +349,6 @@ private struct CoverArea: View {
             localized: "Choose an image file to use as the cover.", language: locale
         )
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        controller.setExternalCover(forBookID: item.bookID, fileURL: url)
+        Task { await controller.setCoverFile(forBookID: item.bookID, fileURL: url) }
     }
 }

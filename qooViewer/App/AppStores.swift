@@ -111,6 +111,9 @@ final class AppStores: ObservableObject {
         )
         // 行の無いカバー画像(前回の起動が落ちた・ストアを作り直した等)を起動時に1度だけ掃除する。
         collectionStore.sweepOrphanedCovers()
+        // コレクション表紙の元画像も同じく(CollectionCoverExtractorのinitが分離の移行で
+        // 複製を作るので、**その後で**掃除すること)。
+        layoutStore.sweepOrphanedShelfCoverImages()
         // 焼いた札の絵も同じく(こちらは容量の刈り込みも兼ねる)。
         collectionStore.sweepOrphanedTileImages()
     }

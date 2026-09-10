@@ -68,8 +68,13 @@ final class LayoutStore: ObservableObject {
     private var cachedSettingsByBookID: [String: BookLayoutSettings]?
     private var cachedOverridesByBookID: [String: [PageLayoutOverride]]?
 
-    init(modelContext: ModelContext) {
+    /// コレクション表紙の元画像の保管庫(CollectionCoverSourceStore)。
+    /// **テストは必ず一時フォルダを指すものを渡すこと**(既定は実際のアプリの保存先)。
+    let coverSourceStore: CollectionCoverSourceStore
+
+    init(modelContext: ModelContext, coverSourceStore: CollectionCoverSourceStore = .init()) {
         self.modelContext = modelContext
+        self.coverSourceStore = coverSourceStore
         rebuildLayoutBookIDs()
     }
 
@@ -356,19 +361,21 @@ final class LayoutStore: ObservableObject {
         saveAndNotify(bookID: bookID)
     }
 
-    /// カバー抽出(CoverImageResolver)がメインアクターの外で使う値を、DBから1つの値へ写し取る。
+    /// コレクション表紙の抽出(CoverImageResolver)がメインアクターの外で使う値を、DBから1つの
+    /// 値へ写し取る。**読むのはshelfCover*の列**で、書き出し用のカバー画像とは無関係
+    /// (2026-09-11に分離。BookLayoutSettingsの型コメント参照)。
     ///
-    /// **切り出しに関する値は入らない**(読み方向も、位置の指定も)。カバーは切らずに保存し、
+    /// **切り出しに関する値は入らない**(読み方向も、位置の指定も)。表紙は切らずに保存し、
     /// 枠へ合わせるのは表示のたびに行うようになったため、抽出が要るのは「どの画像か」だけ。
-    func coverOverrideSnapshot(forBookID bookID: String) -> CoverImageResolver.OverrideSnapshot {
+    func shelfCoverSnapshot(forBookID bookID: String) -> CoverImageResolver.OverrideSnapshot {
         let settings = bookLayoutSettings(forBookID: bookID)
         let excludedKeys = Set(
             pageOverrides(forBookID: bookID).filter { $0.state == .excluded }.map(\.pageKey)
         )
         return CoverImageResolver.OverrideSnapshot(
-            coverPageKey: settings?.coverPageKey,
-            externalCoverURL: settings?.externalCoverBookmarkData == nil
-                ? nil : resolvedExternalCoverURL(forBookID: bookID),
+            coverPageKey: settings?.shelfCoverPageKey,
+            imageFileURL: settings?.shelfCoverImageFileName
+                .flatMap { coverSourceStore.url(forFileName: $0) },
             pageOrderOverride: settings?.pageOrderOverride,
             excludedKeys: excludedKeys
         )
@@ -591,6 +598,214 @@ final class LayoutStore: ObservableObject {
         settings.externalCoverFileName = nil
         settings.updatedAt = Date()
         saveAndNotify(bookID: bookID)
+    }
+
+    // MARK: - コレクション表紙(棚・コレクションの表示に使う絵)
+    //
+    // 上の「カバー画像」がEPUB/CBZ/PDFの書き出しにだけ効くのに対し、こちらは棚の表示にだけ
+    // 効く。2026-09-11に分けた(理由はBookLayoutSettingsの型コメント)。書き方の形はカバー画像
+    // 側とわざと揃えてある ―― 片方だけ直して他方を直し忘れる、を起こしにくくするため。
+
+    /// コレクション表紙を上書きしている本のbookID一覧(「メタデータの編集」の一覧の母体に
+    /// 加えるため。coverOverrideBookIDs()と同じ趣旨)。
+    func shelfCoverBookIDs() -> Set<String> {
+        Set(allBookLayoutSettings().filter(\.hasShelfCoverOverride).map(\.bookID))
+    }
+
+    /// いま参照されている表紙の元画像のファイル名(起動時の孤児掃除用)。
+    func shelfCoverImageFileNames() -> Set<String> {
+        Set(allBookLayoutSettings().compactMap(\.shelfCoverImageFileName))
+    }
+
+    /// 起動時に一度、どの行からも参照されていない表紙の元画像を掃除する。
+    ///
+    /// **フェッチに失敗したら掃除しない**(CollectionStore.sweepOrphanedCoversと同じ理由)。
+    /// settingsByBookID()は失敗を空辞書に潰すので、そのまま渡すと「参照が1つも無い」と
+    /// 見なして全部消してしまう ―― しかもこれは作り直せない絵だ。
+    func sweepOrphanedShelfCoverImages() {
+        guard let all = try? modelContext.fetch(FetchDescriptor<BookLayoutSettings>()) else { return }
+        let names = Set(all.compactMap(\.shelfCoverImageFileName))
+        coverSourceStore.sweepOrphans(keeping: names)
+    }
+
+    /// 本に含まれる既存ページを表紙にする。displayNameはsetCoverPageKeyと同じ扱い
+    /// (選んだ時点の「本の中での相対パス」を、本を読み直さずに一覧へ出すためのキャッシュ)。
+    func setShelfCoverPageKey(
+        forBookID bookID: String, sourceURL: URL?, pageKey: String, displayName: String
+    ) {
+        let settings = existingOrNewSettings(forBookID: bookID, sourceURL: sourceURL)
+        // 画像指定から切り替えるときは、参照が外れる複製を消してから差し替える
+        // (残すと二度と参照されないJPEGが保管庫に溜まる)。
+        coverSourceStore.remove(fileName: settings.shelfCoverImageFileName)
+        settings.shelfCoverImageFileName = nil
+        settings.shelfCoverPageKey = pageKey
+        settings.shelfCoverPageDisplayName = displayName
+        settings.updatedAt = Date()
+        saveAndNotify(bookID: bookID)
+    }
+
+    /// 利用者が用意した画像を表紙にする。**画像はアプリの中へ複製する**
+    /// (CollectionCoverSourceStoreの型コメント参照)。呼び出し側は、セキュリティスコープが
+    /// 要るURLならあらかじめアクセスを開始しておくこと。
+    /// 復号と再エンコードはメインアクターの外で行う(大きな画像を指定されても画面が
+    /// 止まらないように。CollectionCoverSourceStore.store(imageAt:)参照)。
+    func setShelfCoverImage(forBookID bookID: String, sourceURL: URL?, fileURL: URL) async throws {
+        let didAccess = fileURL.startAccessingSecurityScopedResource()
+        defer { if didAccess { fileURL.stopAccessingSecurityScopedResource() } }
+        // 先に複製を作る ―― 途中で失敗したときに、いま出ている表紙を壊さないため。
+        let storedName = try await coverSourceStore.store(imageAt: fileURL)
+        let settings = existingOrNewSettings(forBookID: bookID, sourceURL: sourceURL)
+        coverSourceStore.remove(fileName: settings.shelfCoverImageFileName)
+        settings.shelfCoverImageFileName = storedName
+        settings.shelfCoverPageKey = nil
+        settings.shelfCoverPageDisplayName = nil
+        settings.updatedAt = Date()
+        saveAndNotify(bookID: bookID)
+    }
+
+    /// zipから読み込んだ画像を表紙にする(ShelfCoverImportViewModel)。
+    ///
+    /// **検査に通れば元のバイトのまま保存する**(CollectionCoverSourceStore.inspectAndStore →
+    /// ImageIntegrityCheckの型コメント参照)。検査に落ちた画像はここで例外になり、呼び出し側が
+    /// 理由を一覧に出す。
+    ///
+    /// - Returns: こちらで焼き直したか(上限より大きい・終端を確かめられない形式だった)。
+    ///   呼び出し側はこれを結果の一覧に出して、どれが無劣化で入ったのかを分かるようにする。
+    @discardableResult
+    func setShelfCoverImage(forBookID bookID: String, sourceURL: URL?, data: Data) async throws -> Bool {
+        // **同じ絵をもう一度読み込んだときは何もしない。**
+        //
+        // 検査に通った画像は元のバイトのまま保存する(ImageIntegrityCheck参照)ので、書き出した
+        // zipを読み戻すと、いま持っている元画像と1バイトも違わないものが届く。それでも
+        // 律儀に入れ替えると、`.layoutDataDidChange`から表示用の絵(CollectionCovers)が
+        // 焼き直され、**同じzipを当てるたびにJPEGの世代が1つずつ増えていく**
+        // (実測 2026-09-11: 131冊の往復で表示用の絵が131枚とも書き換わった)。
+        // 中身が同じなら、そのまま黙って戻る。
+        if let existing = bookLayoutSettings(forBookID: bookID)?.shelfCoverImageFileName,
+           let existingURL = coverSourceStore.url(forFileName: existing),
+           let existingData = try? Data(contentsOf: existingURL, options: .mappedIfSafe),
+           existingData == data {
+            return false
+        }
+
+        let outcome = await CollectionCoverSourceStore.inspectAndStore(
+            imported: data, into: coverSourceStore
+        )
+        let stored = try outcome.get()
+        let settings = existingOrNewSettings(forBookID: bookID, sourceURL: sourceURL)
+        coverSourceStore.remove(fileName: settings.shelfCoverImageFileName)
+        settings.shelfCoverImageFileName = stored.fileName
+        settings.shelfCoverPageKey = nil
+        settings.shelfCoverPageDisplayName = nil
+        settings.updatedAt = Date()
+        saveAndNotify(bookID: bookID)
+        return stored.wasReencoded
+    }
+
+    /// 表紙の上書きを解除して既定(実質的な先頭ページ)に戻す。切り出し位置は消さない
+    /// (clearCoverOverrideと同じ理由)。
+    func clearShelfCover(forBookID bookID: String) {
+        guard let settings = bookLayoutSettings(forBookID: bookID), settings.hasShelfCoverOverride
+        else { return }
+        coverSourceStore.remove(fileName: settings.shelfCoverImageFileName)
+        settings.shelfCoverImageFileName = nil
+        settings.shelfCoverPageKey = nil
+        settings.shelfCoverPageDisplayName = nil
+        settings.updatedAt = Date()
+        saveAndNotify(bookID: bookID)
+    }
+
+    /// いま表紙に指定されている本の中のページ(未指定・画像指定ならnil)。
+    func shelfCoverPageKey(forBookID bookID: String) -> String? {
+        bookLayoutSettings(forBookID: bookID)?.shelfCoverPageKey
+    }
+
+    /// 表紙に指定されている画像の保存名(未指定・ページ指定ならnil)。
+    func shelfCoverImageFileName(forBookID bookID: String) -> String? {
+        bookLayoutSettings(forBookID: bookID)?.shelfCoverImageFileName
+    }
+
+    /// zipへ書き出せるコレクション表紙を集める(ShelfCoverArchive参照)。
+    ///
+    /// 対象は**利用者が画像を指定した表紙だけ**。本の中のページを選んだだけの表紙や既定の表紙は、
+    /// その本さえあれば作り直せるので出す意味が無い。
+    ///
+    /// bookIDで並べてから名前を決めるのは、**同じ名前の本が複数あったときの連番を安定させる**
+    /// ため ―― 辞書の列挙順のままだと、書き出すたびに`(2)`が別の本に付きうる。
+    func shelfCoverArchiveEntries() -> [ShelfCoverArchive.Entry] {
+        var used: Set<String> = []
+        var entries: [ShelfCoverArchive.Entry] = []
+        let targets = allBookLayoutSettings()
+            .filter { $0.shelfCoverImageFileName != nil }
+            .sorted { $0.bookID < $1.bookID }
+        for settings in targets {
+            guard let storedName = settings.shelfCoverImageFileName,
+                  let sourceURL = coverSourceStore.url(forFileName: storedName)
+            else { continue }
+            let fileName = ShelfCoverArchive.uniqueFileName(
+                forBaseName: MetadataEditorViewModel.baseName(forBookID: settings.bookID),
+                extension: sourceURL.pathExtension.isEmpty ? "jpg" : sourceURL.pathExtension,
+                used: &used
+            )
+            entries.append(
+                ShelfCoverArchive.Entry(
+                    fileName: fileName, bookID: settings.bookID, sourceURL: sourceURL
+                )
+            )
+        }
+        return entries
+    }
+
+    // MARK: - カバー画像と表紙の分離(2026-09-11の一度きりの移行)
+
+    /// 分離前に「カバー画像」として保存されていた指定を、コレクション表紙へ引き取る。
+    ///
+    /// ■ 何をするか
+    /// - **外部ファイル指定**: `storeImage(bookID)`が返した保存名を表紙に設定し、書き出し用の
+    ///   4列をクリアする。呼び出し側(CollectionCoverExtractor)は、その本の
+    ///   `CollectionCovers/<itemID>.jpg` ―― 分離前から棚に出ていた絵そのもの ―― を保管庫へ
+    ///   複製して名前を返す。元ファイルは実測で131冊すべて失われており、書き出し側は既に
+    ///   黙って既定へ落ちていたので、クリアしても書き出し結果は変わらない
+    /// - **本の中のページ指定**: 表紙にも同じページを設定し、書き出し側は**残す**。どちらも
+    ///   壊れていないので、どちらの見え方も変えない
+    ///
+    /// 既に表紙側が設定されている本は触らない(何度呼んでも同じ結果になる)。
+    ///
+    /// - Parameter storeImage: bookIDを渡すと、その本の表紙の元画像を保管庫へ複製して保存名を
+    ///   返す閉包。複製できなければnil(その本は次の起動でもう一度試される)。
+    /// - Returns: 引き取った件数(画像 / ページ)。
+    func migrateCoverSeparation(
+        storeImage: (String) -> String?
+    ) -> (images: Int, pages: Int) {
+        var images = 0
+        var pages = 0
+        for settings in allBookLayoutSettings() {
+            guard !settings.hasShelfCoverOverride else { continue }
+            if settings.externalCoverBookmarkData != nil {
+                guard let storedName = storeImage(settings.bookID) else { continue }
+                settings.shelfCoverImageFileName = storedName
+                settings.shelfCoverPageKey = nil
+                settings.shelfCoverPageDisplayName = nil
+                settings.externalCoverBookmarkData = nil
+                settings.externalCoverFileName = nil
+                settings.updatedAt = Date()
+                images += 1
+            } else if let pageKey = settings.coverPageKey {
+                settings.shelfCoverPageKey = pageKey
+                settings.shelfCoverPageDisplayName = settings.coverPageDisplayName
+                settings.updatedAt = Date()
+                pages += 1
+            }
+        }
+        guard images + pages > 0 else { return (0, 0) }
+        // 起動直後の一度きりなので、保存も通知もまとめて1回だけ(markAllCoversPendingと同じ判断)。
+        do {
+            try modelContext.save()
+        } catch {
+            NSLog("%@", "qooViewer: LayoutStore.migrateCoverSeparation save failed: \(error)")
+        }
+        NotificationCenter.default.post(name: .layoutDataDidChange, object: self)
+        return (images, pages)
     }
 
     /// externalCoverBookmarkDataからURLを解決する(resolvedURL(forBookID:)と同じ考え方)。

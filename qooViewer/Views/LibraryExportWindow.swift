@@ -149,7 +149,7 @@ struct LibraryExportWindow: View {
             }
             .keyboardShortcut(.cancelAction)
 
-            Button("Export Library Data") {
+            Button("Export Saved Data") {
                 exportButtonTapped()
             }
             .disabled(!hasSelection || isExporting)

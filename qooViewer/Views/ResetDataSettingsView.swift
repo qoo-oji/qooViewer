@@ -232,6 +232,9 @@ struct ResetDataSettingsView: View {
         // コレクションのカバー画像も同じ扱い(こちらはキャッシュではなくApplication Support配下
         // だが、「このアプリが保存したすべて」に含まれる。CollectionCoverStoreの型コメント参照)。
         CollectionCoverStore.removeDefaultDirectory()
+        // コレクション表紙の元画像(利用者が指定した画像の複製)も同じ扱い。こちらは作り直せない
+        // ―― 元ファイルは利用者が既に捨てているかもしれない(CollectionCoverSourceStore参照)。
+        CollectionCoverSourceStore.removeDefaultDirectory()
         // 焼いた札の絵(CollectionTileImageStore)はカバーから作り直せるキャッシュだが、
         // 消し残すと「削除したはずのコレクションの絵」がディスクに残る。
         CollectionTileImageStore.removeDefaultDirectory()

@@ -474,7 +474,7 @@ class BookExportViewModel: ObservableObject {
     /// lazyなのは、URLの解決手段(resolveURL(forBookID:))がこのViewModel自身の持ち物で、
     /// 格納プロパティの初期化中はまだselfを閉包へ渡せないため。
     private(set) lazy var coverController = CoverOverrideController(
-        layoutStore: layoutStore, preferences: preferences,
+        target: .coverImage, layoutStore: layoutStore, preferences: preferences,
         resolveURL: { [weak self] bookID in self?.resolveURL(forBookID: bookID) }
     )
 

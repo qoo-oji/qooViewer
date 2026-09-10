@@ -637,7 +637,8 @@ struct ExportCoverCell: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Change Cover Image")
+        .help(controller.target == .coverImage
+            ? Text("Change Cover Image") : Text("Change Collection Cover"))
         .popover(isPresented: $isCoverPickerPresented) {
             ExportCoverPickerContent(
                 bookID: bookID, controller: controller, showsCropAnchor: showsCropAnchor,
@@ -806,7 +807,7 @@ struct ExportCoverPickerContent: View {
         panel.allowedContentTypes = [.image]
         panel.message = String(localized: "Choose an image file to use as the cover.", language: preferences.effectiveLocale)
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        controller.setExternalCover(forBookID: bookID, fileURL: url)
+        Task { await controller.setCoverFile(forBookID: bookID, fileURL: url) }
         dismiss()
     }
 }

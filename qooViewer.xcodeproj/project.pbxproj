@@ -24,8 +24,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		0AD120503014AA0000C0C526 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
 		0AD11FE03014A38C00C0C526 /* qooViewer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = qooViewer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0AD120503014AA0000C0C526 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
 		0AD120613014AB0000C0C526 /* qooViewerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = qooViewerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -50,8 +50,6 @@
 		};
 		0AD120623014AB0000C0C526 /* qooViewerTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			explicitFileTypes = {
-			};
 			explicitFolders = (
 				Fixtures,
 			);
@@ -92,14 +90,6 @@
 			);
 			sourceTree = "<group>";
 		};
-		0AD120513014AA0000C0C526 /* Configurations */ = {
-			isa = PBXGroup;
-			children = (
-				0AD120503014AA0000C0C526 /* Shared.xcconfig */,
-			);
-			path = Configurations;
-			sourceTree = "<group>";
-		};
 		0AD11FE13014A38C00C0C526 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -107,6 +97,14 @@
 				0AD120613014AB0000C0C526 /* qooViewerTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		0AD120513014AA0000C0C526 /* Configurations */ = {
+			isa = PBXGroup;
+			children = (
+				0AD120503014AA0000C0C526 /* Shared.xcconfig */,
+			);
+			path = Configurations;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */

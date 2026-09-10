@@ -90,7 +90,7 @@ final class MetadataEditorViewModel: ObservableObject {
     /// lazyなのは、閉包へselfを渡すのが格納プロパティの初期化後になるため
     /// (BookExportViewModel.coverControllerと同じ)。
     private(set) lazy var coverController = CoverOverrideController(
-        layoutStore: layoutStore, preferences: preferences,
+        target: .collectionCover, layoutStore: layoutStore, preferences: preferences,
         resolveURL: { [weak self] bookID in self?.resolveURL(forBookID: bookID) }
     )
 
@@ -317,19 +317,20 @@ final class MetadataEditorViewModel: ObservableObject {
     }
 
     /// 「このアプリが知っている本」のbookIDを、重複を除いて集める。
+    ///
+    /// 中身はKnownBooksへ移した ―― コレクション表紙の読み込み画面が、**同じ母体**に対して
+    /// 名前で照合する必要があるため(あちらの型コメント参照)。
     private func collectKnownBookIDs() -> Set<String> {
-        var bookIDs = metadataStore.registeredBookIDs
-        bookIDs.formUnion(layoutStore.layoutBookIDs)
-        bookIDs.formUnion(layoutStore.coverOverrideBookIDs())
-        bookIDs.formUnion(bookmarkStore.groups.map(\.bookID))
-        bookIDs.formUnion(favoritesStore.allRegisteredBookIDs())
-        bookIDs.formUnion(collectionStore.allRegisteredBookIDs())
-        // 読書履歴。一度でも開いた本はすべてここに含まれるため、実質的にこれが一覧の母体になる
-        // (BookReadingStateはLibraryDataPrunerによって上限件数まで自動的に間引かれる。
-        // 環境設定「一般」の「データを保持する本の数」参照)。
-        let readingStates = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
-        bookIDs.formUnion(readingStates.map(\.bookID))
-        return bookIDs
+        KnownBooks.collect(from: knownBookSources)
+    }
+
+    /// 上の母体になるストア一式。
+    var knownBookSources: KnownBooks.Sources {
+        KnownBooks.Sources(
+            metadataStore: metadataStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+            favoritesStore: favoritesStore, collectionStore: collectionStore,
+            modelContext: modelContext
+        )
     }
 
     /// 検索文字列による絞り込みだけをやり直す(対象の本を集め直さない、軽い経路)。

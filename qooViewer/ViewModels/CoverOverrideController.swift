@@ -2,7 +2,13 @@ import Combine
 import Foundation
 import SwiftUI
 
-/// 「この本のカバーを何にするか」というユーザーの指定を扱う部品。
+/// 「この本の表紙/カバーを何にするか」というユーザーの指定を扱う部品。
+///
+/// ■ 2つの別物を、同じ形で扱う(2026-09-11)
+/// この部品が編集する対象は`Target`で決まる ―― EPUB/CBZ/PDFへ書き出す**カバー画像**か、
+/// 棚に並ぶ**コレクション表紙**か。2つは別の列に保存され、片方を変えてももう片方は変わらない
+/// (分けた理由はBookLayoutSettingsの型コメント)。選び方・表示名の出し方・既定の意味は
+/// まったく同じなので、画面と手順はこの1つで賄い、**行き先だけ**を切り替える。
 ///
 /// 元はBookExportViewModelの一部だった(EPUB/CBZ出力ウインドウのカバー列)。改善要望5で
 /// コレクションが加わり、**本を開いていない画面**からも同じ選び方をしたくなったため、
@@ -19,6 +25,16 @@ import SwiftUI
 /// @MainActor: SwiftUIのView(@ObservedObject)から直接観測される。
 @MainActor
 final class CoverOverrideController: ObservableObject {
+    /// この部品がどちらを編集するか。
+    enum Target {
+        /// EPUB/CBZ/PDFへ書き出すカバー画像(書き出しウインドウ、1冊書き出しシート)。
+        case coverImage
+        /// 棚・コレクションに出るコレクション表紙(「メタデータの編集」ウインドウ、
+        /// ウェルカム画面のメタデータ編集シート)。
+        case collectionCover
+    }
+
+    let target: Target
     private let layoutStore: LayoutStore
     private let preferences: AppPreferences
 
@@ -78,9 +94,10 @@ final class CoverOverrideController: ObservableObject {
     private var securityScopedURLs: Set<URL> = []
 
     init(
-        layoutStore: LayoutStore, preferences: AppPreferences,
+        target: Target, layoutStore: LayoutStore, preferences: AppPreferences,
         resolveURL: @escaping (String) -> URL?
     ) {
+        self.target = target
         self.layoutStore = layoutStore
         self.preferences = preferences
         self.resolveURL = resolveURL
@@ -108,13 +125,31 @@ final class CoverOverrideController: ObservableObject {
             await resolveDefaultCoverName(forBookID: bookID)
             return
         }
-        if let externalName = settings.externalCoverFileName {
-            resolvedCoverNames[bookID] = externalName
-            return
-        }
-        if settings.coverPageKey != nil, let cached = settings.coverPageDisplayName {
-            resolvedCoverNames[bookID] = cached
-            return
+        switch target {
+        case .coverImage:
+            if let externalName = settings.externalCoverFileName {
+                resolvedCoverNames[bookID] = externalName
+                return
+            }
+            if settings.coverPageKey != nil, let cached = settings.coverPageDisplayName {
+                resolvedCoverNames[bookID] = cached
+                return
+            }
+        case .collectionCover:
+            // 画像指定の表紙は、元の画像をアプリの中へ複製してある(名前はこちらが振ったUUID)。
+            // 利用者に見せるのはその機械的な名前ではなく、「画像を指定している」という事実
+            // ―― 元のファイル名は複製した時点の名前でしかなく、指し示す先はもう無いかも
+            // しれない(それがそもそも分離した理由。BookLayoutSettingsの型コメント参照)。
+            if settings.shelfCoverImageFileName != nil {
+                resolvedCoverNames[bookID] = String(
+                    localized: "Selected Image", language: preferences.effectiveLocale
+                )
+                return
+            }
+            if settings.shelfCoverPageKey != nil, let cached = settings.shelfCoverPageDisplayName {
+                resolvedCoverNames[bookID] = cached
+                return
+            }
         }
         await resolveDefaultCoverName(forBookID: bookID)
     }
@@ -201,22 +236,48 @@ final class CoverOverrideController: ObservableObject {
         // (ファイル名だけでは、章ごとに001.jpgから振り直されている本でどのページを
         // カバーにしたのか分からないため。PageLocation参照)。
         let coverName = page.location(inBookAt: book.sourceURL).fullPath
-        layoutStore.setCoverPageKey(for: book, pageKey: page.sortKey, displayName: coverName)
+        switch target {
+        case .coverImage:
+            layoutStore.setCoverPageKey(for: book, pageKey: page.sortKey, displayName: coverName)
+        case .collectionCover:
+            layoutStore.setShelfCoverPageKey(
+                forBookID: bookID, sourceURL: book.sourceURL,
+                pageKey: page.sortKey, displayName: coverName
+            )
+        }
         resolvedCoverNames[bookID] = coverName
         noteCoverDidChange()
     }
 
-    /// 本に含まれない専用ファイルをカバーに指定する。この専用ファイルは本の一部として扱わない
-    /// ため、ビューアのページ一覧には現れない(LayoutStore.setExternalCoverのコメント参照)。
+    /// 本に含まれない画像ファイルを指定する。行き先で扱いが違う:
+    /// - `.coverImage`: そのファイルへのブックマークを持つ(従来どおり。書き出しのたびに
+    ///   元ファイルを読み直すので、原寸のまま書き出せる)
+    /// - `.collectionCover`: **画像をアプリの中へ複製する**(元ファイルがどうなっても表紙は
+    ///   壊れない。CollectionCoverSourceStoreの型コメント参照)
+    ///
+    /// どちらの場合も、指定した画像は本の一部としては扱わない(ビューアのページ一覧には
+    /// 現れない)。
     ///
     /// 本を読み込まずに呼べる(メタデータ編集シートへの画像のドロップ)。行がまだ無い本のために
     /// 元ファイルのURLを一緒に渡すが、解決できなくても指定自体は成立する
     /// (LayoutStore.existingOrNewSettings(forBookID:sourceURL:)参照)。
-    func setExternalCover(forBookID bookID: String, fileURL: URL) {
-        guard (try? layoutStore.setExternalCover(
-            forBookID: bookID, sourceURL: resolveURL(bookID), fileURL: fileURL
-        )) != nil else { return }
-        resolvedCoverNames[bookID] = fileURL.lastPathComponent
+    func setCoverFile(forBookID bookID: String, fileURL: URL) async {
+        switch target {
+        case .coverImage:
+            guard (try? layoutStore.setExternalCover(
+                forBookID: bookID, sourceURL: resolveURL(bookID), fileURL: fileURL
+            )) != nil else { return }
+            resolvedCoverNames[bookID] = fileURL.lastPathComponent
+        case .collectionCover:
+            // 表紙は画像をアプリの中へ複製する(元ファイルが消えても壊れないようにするため。
+            // CollectionCoverSourceStoreの型コメント参照)。画像として読めなければ何もしない。
+            guard (try? await layoutStore.setShelfCoverImage(
+                forBookID: bookID, sourceURL: resolveURL(bookID), fileURL: fileURL
+            )) != nil else { return }
+            resolvedCoverNames[bookID] = String(
+                localized: "Selected Image", language: preferences.effectiveLocale
+            )
+        }
         noteCoverDidChange()
     }
 
@@ -226,7 +287,10 @@ final class CoverOverrideController: ObservableObject {
     /// 「その画像のどこを見せるか」という本の属性で、カバーを既定に戻しても意味を失わない
     /// (LayoutStore.setCoverCropAnchorのコメント参照)。
     func resetCover(forBookID bookID: String) {
-        layoutStore.clearCoverOverride(forBookID: bookID)
+        switch target {
+        case .coverImage: layoutStore.clearCoverOverride(forBookID: bookID)
+        case .collectionCover: layoutStore.clearShelfCover(forBookID: bookID)
+        }
         resolvedCoverNames.removeValue(forKey: bookID)
         noteCoverDidChange()
         Task { await refreshCoverName(forBookID: bookID) }
@@ -235,7 +299,11 @@ final class CoverOverrideController: ObservableObject {
     /// いまカバーに指定されている本の中のページ(未指定・外部ファイル指定ならnil)。
     /// ページを選ぶ画面が「いまどれが選ばれているか」を出すために読む。
     func coverPageKey(forBookID bookID: String) -> String? {
-        layoutStore.bookLayoutSettings(forBookID: bookID)?.coverPageKey
+        let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
+        switch target {
+        case .coverImage: return settings?.coverPageKey
+        case .collectionCover: return settings?.shelfCoverPageKey
+        }
     }
 
     // MARK: - カバーの切り出し位置(コレクションのグリッド表示にだけ効く)

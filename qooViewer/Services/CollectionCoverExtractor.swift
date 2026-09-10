@@ -11,8 +11,14 @@ import CoreGraphics
 /// ディスクI/Oも一気に食い、ビューアでページをめくる操作の邪魔になる。順番どおり1冊ずつ
 /// 進めれば、画面の上から順にカバーが埋まっていく見え方にもなる。
 ///
+/// ■ 何の絵を作るのか
+/// **コレクション表紙**(棚・コレクションの表示に使う絵)であって、EPUB/CBZ/PDFへ書き出す
+/// カバー画像ではない。2つは2026-09-11に分けた(BookLayoutSettingsの型コメント参照)ので、
+/// この司会役が見るのは`shelfCover*`の列だけ ―― 書き出し用のカバー画像を変えても、ここは
+/// 何もしない。
+///
 /// ■ 抽出をやり直す契機
-/// - カバーの上書き(ページ指定・外部ファイル)が変わったとき
+/// - コレクション表紙の上書き(ページ指定・画像指定)が変わったとき
 ///   → `.layoutDataDidChange`(bookID付き)で届く。自分が最後に使った値と**比べて**違うときだけ
 ///     やり直す(ViewerViewModel.reloadLayoutDataと同じ方式)。
 ///
@@ -74,8 +80,8 @@ final class CollectionCoverExtractor: ObservableObject {
     /// 「比べる相手が無い」を理由に変更を取りこぼす ―― 起動してすぐカバーのページを変えても
     /// 作り直されない、という形で出る。
     private struct CoverSignature: Equatable {
-        var coverPageKey: String?
-        var externalCoverFileName: String?
+        var shelfCoverPageKey: String?
+        var shelfCoverImageFileName: String?
     }
     private var signatures: [String: CoverSignature] = [:]
 
@@ -124,6 +130,10 @@ final class CollectionCoverExtractor: ObservableObject {
             .sink { [weak self] locations in
                 MainActor.assumeIsolated { self?.refill(locations: locations) }
             }
+
+        // **控えを取る前に**分離の移行を済ませる ―― 移行はshelfCover*の列を書き換えるので、
+        // 先に控えを取ると「移行によって変わった」ことを変更と見なして全件抽出し直してしまう。
+        migrateShelfCoverSeparationIfNeeded()
 
         // 既に登録済みの本(前回の起動で抽出を終えているもの)の条件を先に控えておく
         // (signaturesのコメント参照)。
@@ -180,7 +190,12 @@ final class CollectionCoverExtractor: ObservableObject {
     ///   (cachedFileExistsと同じ)。
     private func refill(locations: [UUID: BookLocation]) {
         seedSignatures(for: collectionStore.allRegisteredBookIDs())
-        enqueue(collectionStore.itemsAwaitingCover().filter { locations[$0.id]?.exists ?? true })
+        enqueue(collectionStore.itemsAwaitingCover().filter { item in
+            // 実体が見つからない本は積まない ―― ただし、利用者が用意した画像を表紙にして
+            // いる本は本を開かずに作れるので積む(extract(itemID:)のコメント参照)。
+            if locations[item.id]?.exists ?? true { return true }
+            return layoutStore.shelfCoverImageFileName(forBookID: item.bookID) != nil
+        })
     }
 
     /// まだ控えていないbookIDの条件を、いまのDBの値で記録する(抽出はしない)。
@@ -239,24 +254,28 @@ final class CollectionCoverExtractor: ObservableObject {
         guard let item = collectionStore.item(withID: itemID) else { return }
         let bookID = item.bookID
         extractionAttemptCount += 1
+        // 抽出に使う条件はここでだけ組み立てる。控えに要るのは「どの画像か」を表す2列だけなので、
+        // 控えのほうは本を解決せずにDBの値から作る(signature(forBookID:)参照)。
+        let snapshot = layoutStore.shelfCoverSnapshot(forBookID: bookID)
+        let url = collectionStore.resolvedExistingURL(for: item)
         // ブックマークが解決できない・実体が無い本は`.pending`のまま置いて戻る
         // (型コメント「実体が見つからない本」参照)。`.failed`は本を開けなかったときだけ。
-        guard let url = collectionStore.resolvedExistingURL(for: item) else { return }
+        //
+        // **ただし、利用者が用意した画像を表紙にしている本は別**(2026-09-11) ―― その絵は
+        // 保管庫(CollectionCoverSourceStore)にあり、本を1バイトも読まずに作れる。未接続の
+        // 外付けボリューム上の本でも表紙は出せるので、ここで弾いてはいけない。
+        guard url != nil || snapshot.imageFileURL != nil else { return }
         inFlightItemIDs.insert(itemID)
         defer { inFlightItemIDs.remove(itemID) }
 
-        // 抽出に使う条件(外部カバーのURL解決を含む)はここでだけ組み立てる。控えに要るのは
-        // 「どの画像か」を表す2列だけなので、控えのほうは本を解決せずにDBの値から作る
-        // (signature(forBookID:)参照)。
-        let snapshot = layoutStore.coverOverrideSnapshot(forBookID: bookID)
         signatures[bookID] = signature(forBookID: bookID)
 
-        let didAccess = url.startAccessingSecurityScopedResource()
+        let didAccess = url?.startAccessingSecurityScopedResource() ?? false
         let image = await CoverImageResolver.coverImage(
             bookAt: url, snapshot: snapshot,
             maxPixelSize: CollectionCoverStore.maxPixelSize, cachesPageList: cachesPageList
         )
-        if didAccess { url.stopAccessingSecurityScopedResource() }
+        if didAccess { url?.stopAccessingSecurityScopedResource() }
 
         // 読み込んでいる間にコレクションから外された可能性があるので、書き戻す前に引き直す。
         guard let current = collectionStore.item(withID: itemID) else { return }
@@ -284,16 +303,20 @@ final class CollectionCoverExtractor: ObservableObject {
 
     /// 「どの画像か」の控え。**DBの2列だけから作り、外部カバーのURLは解決しない。**
     ///
-    /// 以前はcoverOverrideSnapshot(forBookID:)を経由していたが、あれは外部カバーのセキュリティ
-    /// スコープ付きブックマークを解決して実体の有無まで確かめる。起動時に全登録冊ぶん
+    /// 以前はshelfCoverSnapshot(forBookID:)を経由していたが、当時のあれは外部カバーの
+    /// セキュリティスコープ付きブックマークを解決して実体の有無まで確かめていた
+    /// (表紙の絵はアプリの中へ複製するようになったので、今はもう解決しない)。起動時に全登録冊ぶん
     /// (seedSignatures)、レイアウトの通知のたび(handleLayoutChange)にそれが走ると、外部カバーが
     /// 到達できない共有上にある本1冊ごとにメインが秒単位で止まる(監査で指摘 2026-09-09)。
     /// 控えの比較に要るのはファイル名で足りる。
+    ///
+    /// 2026-09-11の分離以降、見るのは**コレクション表紙の列だけ**。書き出し用のカバー画像を
+    /// 変えても棚の絵は変わらないので、あちらの変更でここが反応してはいけない。
     private func signature(forBookID bookID: String) -> CoverSignature {
         let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
         return CoverSignature(
-            coverPageKey: settings?.coverPageKey,
-            externalCoverFileName: settings?.externalCoverFileName
+            shelfCoverPageKey: settings?.shelfCoverPageKey,
+            shelfCoverImageFileName: settings?.shelfCoverImageFileName
         )
     }
 
@@ -314,6 +337,55 @@ final class CollectionCoverExtractor: ObservableObject {
         signatures[bookID] = current
         collectionStore.markCoversPending(forBookID: bookID)
         enqueue(items)
+    }
+
+    // MARK: - カバー画像と表紙の分離(2026-09-11の一度きりの移行)
+
+    /// 分離前に「カバー画像」として保存されていた指定を、コレクション表紙へ引き取る
+    /// (LayoutStore.migrateCoverSeparationのコメントに、何をどちらへ寄せるかを書いてある)。
+    ///
+    /// ■ 抽出はし直さない
+    /// 外部ファイル指定だった本の表紙の元画像として渡すのは、**その本の
+    /// `CollectionCovers/<itemID>.jpg`そのもの** ―― 分離前から棚に出ていた絵だ。元ファイルは
+    /// 実測で131冊すべて失われており、この768pxのJPEGがその絵の最後の1枚になっている。
+    /// 焼き直さずにバイトのまま保管庫へ複製し(CollectionCoverSourceStore.storeCopy)、
+    /// `CollectionCovers`側には指一本触れない ―― 棚の見え方は1枚も変わらず、JPEGの世代も
+    /// 増えない。
+    ///
+    /// ■ 取りこぼしたら次の起動でやり直す
+    /// まだ抽出できていない(`.pending`)本は複製元が無い。その1冊のために移行全体を諦めるのは
+    /// もったいないので、**1冊でも取りこぼしたときだけ**済み印を立てずに戻る(既に引き取った
+    /// 本は`hasShelfCoverOverride`で飛ばされるので、やり直しても二重には入らない)。
+    ///
+    /// キーが`qooViewer.pref.`で始まらないのはmigrateCoverStorageIfNeededと同じ理由
+    /// (環境設定の「初期設定に戻す」で消えると、移行がもう一度走ってしまう)。
+    private func migrateShelfCoverSeparationIfNeeded() {
+        let key = "qooViewer.collections.shelfCoverSeparation"
+        guard !defaults.bool(forKey: key) else { return }
+
+        var didSkip = false
+        let sourceStore = layoutStore.coverSourceStore
+        let result = layoutStore.migrateCoverSeparation { [collectionStore, coverStore] bookID in
+            for item in collectionStore.items(forBookID: bookID) {
+                let source = coverStore.url(for: item.id)
+                guard FileManager.default.fileExists(atPath: source.path) else { continue }
+                if let storedName = try? sourceStore.storeCopy(of: source) {
+                    return storedName
+                }
+            }
+            didSkip = true
+            return nil
+        }
+        if !didSkip {
+            defaults.set(true, forKey: key)
+        }
+        if result.images + result.pages > 0 || didSkip {
+            NSLog(
+                "%@",
+                "qooViewer: shelf cover separation migrated images=\(result.images) "
+                    + "pages=\(result.pages) skipped=\(didSkip)"
+            )
+        }
     }
 
     // MARK: - 保存の仕方が変わったときの一度きりの作り直し

@@ -19,10 +19,13 @@ nonisolated struct StorageUsage: Equatable, Sendable {
     var thumbnailCacheBytes: Int?
     /// ページ一覧・構造・ページ寸法のキャッシュ(BookPageListCache)。
     var pageListCacheBytes: Int?
-    /// コレクションのカバー画像(CollectionCoverStore。ユーザー要望 2026-09-09)。
+    /// コレクション表紙(ユーザー要望 2026-09-09)。表示用に焼いた768pxのJPEG
+    /// (CollectionCoverStore)と、利用者が指定した画像の複製(CollectionCoverSourceStore)の
+    /// 合計。利用者から見れば同じ「コレクション表紙」なので1つの数にまとめる。
     ///
     /// **キャッシュではない。** 消えると登録してある本の全冊ぶんを読み直すことになるので、
     /// Cachesではなく Application Support に置いてある(CollectionCoverStoreの型コメント)。
+    /// しかも複製のほうは作り直せない(利用者が元ファイルを既に捨てているかもしれない)。
     /// だからこそ、上限も自動削除も無いまま増えていく側の容量として内訳に出す。
     var collectionCoverBytes: Int?
     /// 焼いたコレクションのタイル(CollectionTileImageStore)。
@@ -67,8 +70,18 @@ nonisolated enum StorageUsageScanner {
         var thumbnailCacheDirectory: URL?
         var pageListCacheDirectory: URL?
         var collectionCoverDirectory: URL?
+        /// コレクション表紙の元画像(CollectionCoverSourceStore)。上と足して1つの数にする。
+        var collectionCoverSourceDirectory: URL?
         var collectionTileDirectory: URL?
         var databaseStoreURL: URL
+    }
+
+    /// コレクション表紙の合計(焼いた絵 + 元画像の複製)。どちらも無ければnil。
+    private static func coverBytes(_ locations: Locations) -> Int? {
+        let rendered = locations.collectionCoverDirectory.flatMap { directorySize(at: $0)?.bytes }
+        let sources = locations.collectionCoverSourceDirectory.flatMap { directorySize(at: $0)?.bytes }
+        guard rendered != nil || sources != nil else { return nil }
+        return (rendered ?? 0) + (sources ?? 0)
     }
 
     /// 呼び出し側のTaskが取り消されたら、途中で打ち切ってnilを返す(ディレクトリの列挙の
@@ -86,7 +99,7 @@ nonisolated enum StorageUsageScanner {
             staleTemporaryEntryCount: stale.entryCount,
             thumbnailCacheBytes: locations.thumbnailCacheDirectory.flatMap { directorySize(at: $0)?.bytes },
             pageListCacheBytes: locations.pageListCacheDirectory.flatMap { directorySize(at: $0)?.bytes },
-            collectionCoverBytes: locations.collectionCoverDirectory.flatMap { directorySize(at: $0)?.bytes },
+            collectionCoverBytes: coverBytes(locations),
             collectionTileBytes: locations.collectionTileDirectory.flatMap { directorySize(at: $0)?.bytes },
             databaseBytes: databaseSize(storeURL: locations.databaseStoreURL),
             scannedAt: Date()

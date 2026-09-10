@@ -175,7 +175,7 @@ struct LibraryImportWindow: View {
             }
             .keyboardShortcut(.cancelAction)
 
-            Button("Import Library Data") {
+            Button("Import Saved Data") {
                 importButtonTapped()
             }
             .disabled(loadedFile == nil || isImporting)

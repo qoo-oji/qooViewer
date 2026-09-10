@@ -1926,7 +1926,8 @@ extension AppPreferences {
                         // 初期設定に戻したはずの古いフォルダが復活する。
                     ] + $0.fixedFolder.defaultsKeys
                 }
-        case .keyboard, .mouse, .modeInput, .access, .reset:
+        // 「読み込みと書き出し」はウインドウを開くボタンだけで、戻せる設定を持たない。
+        case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
             return []
         }
     }
@@ -2029,7 +2030,7 @@ extension AppPreferences {
             bookExportRenumbersImages = source.bookExportRenumbersImages
             bookExportIncludesExcludedPages = source.bookExportIncludesExcludedPages
             bookExportWritesVolumeElement = source.bookExportWritesVolumeElement
-        case .keyboard, .mouse, .modeInput, .access, .reset:
+        case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
             break
         }
     }

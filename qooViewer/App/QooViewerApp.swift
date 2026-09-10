@@ -666,23 +666,17 @@ struct QooViewerApp: App {
                 }
             }
 
-            // 6.2節: 「インポート・エクスポート」グループ。Fileメニューの標準「閉じる」
-            // (Cmd+W)の直前(=上のグループ2〜4を含むnewItemグループの直後)に置く。
-            // 「ブックマーク・レイアウトの編集」ウインドウ(editBookmarks)と同じく、本を今開いて
-            // いなくても・複数開いていても常に1つの独立ウインドウとして開く(openWindow(id:)は
-            // 既に開いていれば前面に出すだけで、新しく作り直しはしない)。
+            // Fileメニューの標準「閉じる」(Cmd+W)の直前(=上のグループ2〜4を含むnewItemグループの
+            // 直後)に置くグループ。
+            //
+            // ■ 保存データ/コレクション表紙の読み込み・書き出しはここに無い(2026-09-11)
+            // 元は先頭に「読み込み…」「書き出し…」が並んでいたが、**どちらも実際の利用頻度が
+            // ごく低い**という指摘を受けて環境設定「読み込みと書き出し」へ移した
+            // (DataTransferSettingsViewの型コメント参照)。このメニューに残すのは
+            // 「いま開いている本」に効く操作と、本そのものを書き出す操作だけにする。
             CommandGroup(after: .newItem) {
                 Divider()
-                Button("Import…") {
-                    openWindow(id: "libraryImport")
-                }
-                Button("Export…") {
-                    openWindow(id: "libraryExport")
-                }
-
-                Divider()
-                // 画像のエクスポート機能(要望)。データベースのインポート・エクスポートの
-                // グループと、EPUBのエクスポートのグループの間に配置する。本を開いていないと
+                // 画像のエクスポート機能(要望)。本を開いていないと
                 // 実行しようがないため無効化する(EPUB出力・DBインポート/エクスポートと異なり
                 // hasBook不問にはしない)。見開き表示中で、かつ実際に2ページとも表示されている
                 // (hasPartnerPageDisplayed)ときだけ左右2件+結合の3件を、それ以外(単一ページ表示、
@@ -1323,7 +1317,7 @@ struct QooViewerApp: App {
         // 6節: JSONエクスポート/インポート用の独立ウインドウ。「ブックマーク・レイアウトの編集」と
         // 同じく、favoritesStore/bookmarkStore/layoutStoreはすべてmodelContainer.mainContextを
         // 共有する、アプリ全体で1つだけのインスタンスをそのまま渡す。
-        Window(String(localized: "Export Library Data", language: locale), id: "libraryExport") {
+        Window(String(localized: "Export Saved Data", language: locale), id: "libraryExport") {
             LibraryExportWindow()
                 .environmentObject(favoritesStore)
                 .environmentObject(bookmarkStore)
@@ -1337,7 +1331,39 @@ struct QooViewerApp: App {
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
 
-        Window(String(localized: "Import Library Data", language: locale), id: "libraryImport") {
+        // コレクション表紙をzipにまとめて書き出す(ユーザー要望 2026-09-11)。保存データの
+        // 書き出しとは別のウインドウにしてある(ShelfCoverExportWindowの型コメント参照)。
+        Window(
+            String(localized: "Export Collection Covers", language: locale), id: "shelfCoverExport"
+        ) {
+            ShelfCoverExportWindow()
+                .environmentObject(layoutStore)
+                .environmentObject(preferences)
+                .environment(\.locale, locale)
+        }
+        .handlesExternalEvents(matching: [])
+        // 一覧ウインドウなので、対になる読み込みと同じくツールバーは統合スタイル。
+        .windowToolbarStyle(.unified)
+
+        // コレクション表紙をzipから読み込む(ユーザー要望 2026-09-11)。名前で本と結び付ける
+        // ので、母体になるストアを一式渡す(KnownBooks参照)。
+        Window(
+            String(localized: "Import Collection Covers", language: locale), id: "shelfCoverImport"
+        ) {
+            ShelfCoverImportWindow()
+                .environmentObject(metadataStore)
+                .environmentObject(bookmarkStore)
+                .environmentObject(layoutStore)
+                .environmentObject(favoritesStore)
+                .environmentObject(collectionStore)
+                .environmentObject(preferences)
+                .environment(\.locale, locale)
+                .modelContext(QooViewerApp.modelContainer.mainContext)
+        }
+        .handlesExternalEvents(matching: [])
+        .windowToolbarStyle(.unified)
+
+        Window(String(localized: "Import Saved Data", language: locale), id: "libraryImport") {
             LibraryImportWindow()
                 .environmentObject(favoritesStore)
                 .environmentObject(bookmarkStore)
@@ -2020,11 +2046,55 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// 「ファイル」メニューの中で、**区切り線が2本続いてしまう箇所**を1本に詰める。
+    ///
+    /// ユーザー報告 2026-09-11: 「CBZの書き出し…」と「閉じる」の間に区切り線が2本ある。
+    ///
+    /// ■ 原因はこのアプリのコマンドではない(実機で切り分け済み)
+    /// `CommandGroup(after: .newItem)`の中身を空にしても、そのグループごと消しても、2本のまま
+    /// だった。SwiftUIが`CommandGroup(replacing: .newItem)`を含むメニューを組み立てる時点で
+    /// 2本出ている ―― グループの終わりの1本と、AppKitが標準の「閉じる」の前に置く1本が
+    /// そのまま並ぶ。placementを変えて回避する余地は無く、SwiftUIのメニュー生成の既知の癖
+    /// (CommandGroupとDividerの組み合わせで余分な区切り線が出る)にあたる。
+    ///
+    /// ■ なぜNSMenuを直接触ってよいのか
+    /// 「編集」メニューの末尾から「自動入力」を取り除いているcleanUpEditMenu()と**同じ形**に
+    /// してある(呼ぶ契機も同じ)。メニューを開いている最中の項目数の変更はmacOS 26で落ちうる
+    /// (MenuBarMenuGateの型コメント参照)が、こちらは`didBeginTracking`= **これから開く**
+    /// 時点で、しかも「余分な区切り線を消す」1回きりの整形であり、あちらと同じ条件で動く。
+    ///
+    /// 「ファイル」メニューかどうかは、タイトル(ローカライズで変わる)ではなく、このアプリが
+    /// 必ず置いている項目の有無で判定する(cleanUpEditMenuと同じ考え方)。**下の定数は
+    /// ファイルメニューの実際の項目と必ず一致させること。**
+    private static let fileMenuOwnItemTitles: Set<String> = ["Export as CBZ…", "CBZの書き出し…"]
+
+    @MainActor
+    private func collapseFileMenuSeparators() {
+        guard let topLevelItems = NSApp.mainMenu?.items else { return }
+        for topLevelItem in topLevelItems {
+            guard let menu = topLevelItem.submenu else { continue }
+            guard menu.items.contains(where: {
+                AppDelegate.fileMenuOwnItemTitles.contains($0.title)
+            }) else { continue }
+            // 後ろから見て、区切り線が続いていたら後ろのほうを消す(前から消すと添字がずれる)。
+            var index = menu.items.count - 1
+            while index > 0 {
+                if menu.items[index].isSeparatorItem, menu.items[index - 1].isSeparatorItem {
+                    menu.removeItem(at: index)
+                }
+                index -= 1
+            }
+            return
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         cleanUpEditMenu()
+        collapseFileMenuSeparators()
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.cleanUpEditMenu()
+            self.collapseFileMenuSeparators()
         }
 
         // バグ修正(ビルド時の警告): [weak self]でキャプチャしたselfをそのままネストした
@@ -2040,6 +2110,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             Task { @MainActor in
                 self.cleanUpEditMenu()
+                self.collapseFileMenuSeparators()
             }
         }
     }

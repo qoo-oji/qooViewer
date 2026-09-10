@@ -106,16 +106,18 @@ nonisolated enum CoverCropAnchor: String, Sendable, CaseIterable {
 /// 理由はArchiveReading.swift冒頭のコメント参照。
 nonisolated enum CoverImageResolver {
     /// DB(BookLayoutSettings / PageLayoutOverride)から、メインアクターの外へ持ち出すための値の
-    /// スナップショット。組み立てるのは`LayoutStore.coverOverrideSnapshot(forBookID:)`。
+    /// スナップショット。組み立てるのは`LayoutStore.shelfCoverSnapshot(forBookID:)`。
     ///
     /// **切り出しに関する値はここに含まれない。** カバーは切らずに保存し、表示のたびに切るように
     /// なった(cropped(_:to:anchor:)のコメント参照)ので、抽出が知る必要があるのは
     /// 「どの画像か」だけになった。
     struct OverrideSnapshot: Sendable {
-        /// 本に含まれる既存ページをカバーに指定している場合、そのPageRef.sortKey。
+        /// 本に含まれる既存ページを表紙に指定している場合、そのPageRef.sortKey。
         var coverPageKey: String?
-        /// 本に含まれない専用ファイルをカバーに指定している場合、その解決済みURL。
-        var externalCoverURL: URL?
+        /// 利用者が用意した画像を表紙に指定している場合、その保管庫の中のURL
+        /// (CollectionCoverSourceStore)。**アプリ自身の領域なので、セキュリティスコープの
+        /// 開始は要らない。**
+        var imageFileURL: URL?
         /// ページ順序の補正(未設定ならnil)。
         var pageOrderOverride: [String]?
         /// 除外されているページのキー。
@@ -123,23 +125,26 @@ nonisolated enum CoverImageResolver {
 
         init(
             coverPageKey: String? = nil,
-            externalCoverURL: URL? = nil,
+            imageFileURL: URL? = nil,
             pageOrderOverride: [String]? = nil,
             excludedKeys: Set<String> = []
         ) {
             self.coverPageKey = coverPageKey
-            self.externalCoverURL = externalCoverURL
+            self.imageFileURL = imageFileURL
             self.pageOrderOverride = pageOrderOverride
             self.excludedKeys = excludedKeys
         }
     }
 
-    /// この本のカバー画像を、最大`maxPixelSize`で復号する。失敗した場合はnil。
+    /// この本のコレクション表紙を、最大`maxPixelSize`で復号する。失敗した場合はnil。
     ///
     /// 呼び出し側は、サンドボックスでアクセス権が必要なURLに対して、あらかじめ
     /// `startAccessingSecurityScopedResource()`を呼んでおくこと(この関数は本体URLの
-    /// アクセス権の開始/終了を行わない。外部カバーファイルのぶんだけはここで面倒を見る ――
-    /// あちらのURLはこの関数の中で初めて出てくるため)。
+    /// アクセス権の開始/終了を行わない)。
+    ///
+    /// - Parameter url: 本そのものの場所。**指定した画像を表紙にしている本ではnilでよい** ――
+    ///   その場合この関数は本を一切開かない。未接続のボリューム上にある本でも表紙が出せる
+    ///   のはこのため(CollectionCoverExtractor.extractのコメント参照)。
     ///
     /// - Parameter cachesPageList: 読み込んだ本のページ一覧をディスクキャッシュ
     ///   (BookPageListCache)へ書き戻すか。単体テストはfalseで呼ぶ(実物のアプリと同じ
@@ -152,18 +157,18 @@ nonisolated enum CoverImageResolver {
     /// ファイルの経路(`Data(contentsOf:)`と復号)はここで直に走るため、付けないと未接続の
     /// ボリューム上の外部カバー1枚でメインが止まる。
     @concurrent nonisolated static func coverImage(
-        bookAt url: URL, snapshot: OverrideSnapshot, maxPixelSize: CGFloat,
+        bookAt url: URL?, snapshot: OverrideSnapshot, maxPixelSize: CGFloat,
         cachesPageList: Bool = true
     ) async -> CGImage? {
-        // 1. 本に含まれない専用ファイルが指定されていれば、本体を開かずにそれを読む。
-        if let externalURL = snapshot.externalCoverURL {
-            let didAccess = externalURL.startAccessingSecurityScopedResource()
-            defer { if didAccess { externalURL.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: externalURL) else { return nil }
+        // 1. 利用者が用意した画像が指定されていれば、本体を開かずにそれを読む。
+        //    保管庫はこのアプリ自身の領域なので、セキュリティスコープの開始は要らない。
+        if let imageFileURL = snapshot.imageFileURL {
+            guard let data = try? Data(contentsOf: imageFileURL) else { return nil }
             return ImageDecoder.decode(data, maxPixelSize: maxPixelSize)
         }
 
         // 2. 本を読み込んで、対象のページを決める。
+        guard let url else { return nil }
         guard let book = try? await BookLoader.load(from: url, cachesPageList: cachesPageList),
               !book.pages.isEmpty
         else { return nil }

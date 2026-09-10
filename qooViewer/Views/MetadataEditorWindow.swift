@@ -298,14 +298,15 @@ private struct MetadataEditorContentView: View {
             .customizationID("volume")
             .disabledCustomizationBehavior([.reorder, .visibility])
 
-            // カバー列(改善要望5 §5.4)。EPUB/CBZ出力ウインドウのカバー列と同じ部品・同じ
-            // 保存先(BookLayoutSettings)なので、どちらで変えても双方に出る。
-            // カバーの切り出し位置(showsCropAnchor)を出すのはこの画面とメタデータ編集シート
-            // だけ ―― あれはコレクションのグリッド表示にだけ効く指定で、書き出しには効かない
-            // (ExportCoverCell.showsCropAnchorのコメント参照)。
+            // コレクション表紙の列(改善要望5 §5.4)。**書き出しウインドウの「カバー画像」列とは
+            // 別物**(2026-09-11に分離。BookLayoutSettingsの型コメント参照) ―― 部品と画面は
+            // 同じものを使い回すが、行き先はtargetで分かれていて、ここで変えても書き出される
+            // カバー画像は変わらない。
+            // 切り出し位置(showsCropAnchor)を出すのはこの画面とメタデータ編集シートだけ ――
+            // あれはコレクションの表示にだけ効く指定で、書き出しには効かない。
             // この画面は本がどのライブラリに属するか分からない(0個にも複数にもなりうる)ため、
             // 「効くかどうか」の判定はせず常に選ばせる(isCropAnchorEnabledは既定のtrue)。
-            TableColumn("Cover") { row in
+            TableColumn("Collection Cover") { row in
                 ExportCoverCell(
                     bookID: row.bookID, controller: viewModel.coverController, showsCropAnchor: true
                 )

@@ -74,7 +74,7 @@ struct GeneralSettingsView: View {
                     "\(Int(value))"
                 }
             } header: {
-                Text("Library Data")
+                Text("Saved Data")
             }
 
             // 要望7: ウェルカム画面の「最近開いたファイル」「最近お気に入りに追加したファイル」の

@@ -186,7 +186,7 @@ struct CollectionCoverExtractorTests {
 
     // MARK: - やり直しの契機
 
-    @Test("カバーのページを変えると作り直すが、切り出し位置の変更では作り直さない")
+    @Test("コレクション表紙のページを変えると作り直すが、切り出し位置とカバー画像の変更では作り直さない")
     func changingTheCoverPageReExtractsButTheCropAnchorDoesNot() async throws {
         let library = try InMemoryLibrary(label: "cover-extractor-signature")
         defer { library.close() }
@@ -208,9 +208,19 @@ struct CollectionCoverExtractorTests {
         #expect(extractor.extractionAttemptCount == attemptsAfterFirst)
         #expect(item.coverState == .ready)
 
-        // ページの指定はカバーそのものが変わるので、pending へ戻して作り直す。
-        // フォルダの本の sortKey は絶対パス(PageRef.sortKey)。
+        // 書き出し用のカバー画像は棚の絵とは別物なので、こちらを変えても作り直さない
+        // (2026-09-11の分離。ShelfCoverSeparationTests 参照)。
         library.layouts.setCoverPageKey(
+            forBookID: item.bookID, sourceURL: url,
+            pageKey: url.appendingPathComponent("002.png").path, displayName: "002.png"
+        )
+        await extractor.waitUntilIdle()
+        #expect(extractor.extractionAttemptCount == attemptsAfterFirst)
+        #expect(await coverNumber(of: item, in: library) == 1)
+
+        // コレクション表紙のページ指定は絵そのものが変わるので、pending へ戻して作り直す。
+        // フォルダの本の sortKey は絶対パス(PageRef.sortKey)。
+        library.layouts.setShelfCoverPageKey(
             forBookID: item.bookID, sourceURL: url,
             pageKey: url.appendingPathComponent("002.png").path, displayName: "002.png"
         )

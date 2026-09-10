@@ -157,6 +157,7 @@ struct SidePanelResourcesSectionView: View {
             thumbnailCacheDirectory: ThumbnailDiskCache.shared.directory,
             pageListCacheDirectory: BookPageListCache.shared.directoryURL,
             collectionCoverDirectory: CollectionCoverStore.defaultDirectory(),
+            collectionCoverSourceDirectory: CollectionCoverSourceStore.defaultDirectory(),
             collectionTileDirectory: CollectionTileImageStore.defaultDirectory(),
             databaseStoreURL: QooViewerApp.modelConfiguration.url
         )

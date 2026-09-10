@@ -81,7 +81,20 @@ final class BookLayoutSettings {
     /// Bookmark.bookmarkDataと同じくOptional(この属性を追加する前から存在する行には無いため)。
     var bookmarkData: Data?
 
-    /// カバー画像の上書き(ユーザー要望: EPUB出力時のカバー画像を選択・変更できるようにしたい)。
+    /// **書き出し用のカバー画像**の上書き(ユーザー要望: EPUB出力時のカバー画像を選択・変更
+    /// できるようにしたい)。EPUB/CBZ/PDFの書き出しにだけ効く ―― 棚(コレクション)の表示に使う
+    /// 絵は別物で、下のshelfCover*が持つ。
+    ///
+    /// ■ なぜ分けたのか(2026-09-11)
+    /// 元はこの4列1つで両方を賄っていた。ところが**寿命が違う**: 棚の絵はアプリが768pxのJPEGに
+    /// 焼いて持つ(CollectionCoverStore)ので元ファイルが消えても表示され続けるのに対し、
+    /// 書き出しは毎回この列のブックマークから元ファイルを読み直す。つまり元ファイルを消すと
+    /// 書き出しのカバーだけが黙って既定へ戻り、棚は何も変わらないので**誰も気づけない**。
+    /// 実測(2026-09-11)では、外部ファイルを指定していた131冊すべてで元ファイルが失われていた
+    /// (置き場所は全件`~/Downloads`で、名前も使い回されていた)。
+    /// そこで用語ごと分け、棚側(コレクション表紙)はアプリの中で完結させた。書き出し用の
+    /// カバー画像は従来どおり書き出しウインドウでだけ指定し、既定は実質的な先頭ページに戻した。
+    ///
     /// coverPageKey/externalCoverBookmarkDataがどちらもnilの間は「既定」で、書き出し時に本の
     /// 実質的な先頭ページ(除外・並べ替えを反映した後の1ページ目)をカバーとして使う
     /// (EpubExporter参照)。
@@ -104,6 +117,24 @@ final class BookLayoutSettings {
     var externalCoverBookmarkData: Data?
     var externalCoverFileName: String?
 
+    /// **コレクション表紙**(棚・コレクションの表示に使う絵)の上書き。上の書き出し用カバー画像
+    /// とは完全に独立していて、片方を変えてももう片方は変わらない(分けた理由は上のコメント)。
+    ///
+    /// どちらもnilの間は「既定」で、その本の実質的な先頭ページを表紙にする(従来と同じ)。
+    /// 「本に含まれるページを選ぶ」場合はshelfCoverPageKeyに元のPageRef.sortKeyを、
+    /// shelfCoverPageDisplayNameにその時点の表示名(PageLocation.fullPath)を入れる。
+    ///
+    /// 「利用者が用意した画像を使う」場合はshelfCoverImageFileNameに、**アプリが自分の
+    /// Application Supportへ複製した画像**のファイル名を入れる(CollectionCoverSourceStore)。
+    /// ここがブックマークではなくファイル名なのが要点で、利用者が元の画像を消しても捨てても
+    /// 表紙は壊れない ―― 上に書いた131冊の事故は、この経路を持たなかったことが原因。
+    ///
+    /// 両方が同時に設定されることは無い(LayoutStore.setShelfCoverPageKey/setShelfCoverImageが
+    /// 互いをクリアする)。3列とも後から足したのでOptional(軽量マイグレーション)。
+    var shelfCoverPageKey: String?
+    var shelfCoverPageDisplayName: String?
+    var shelfCoverImageFileName: String?
+
     /// ユーザー要望(2026-09-09): コレクションの札にカバーを並べるとき、画像の比が枠の比と
     /// 違うぶんを**どこで切るか**を本ごとに選べるようにしたい。CoverCropAnchor.rawValue
     /// ("start"/"center"/"end")を保存する。
@@ -113,10 +144,10 @@ final class BookLayoutSettings {
     /// 廃止した(上下方向の切り出しには読み方向が何も言えないため。CoverCropAnchorのコメント参照)。
     /// Optionalなのでライトウェイトマイグレーションで済む。
     ///
-    /// **hasCoverOverrideには含めない。** カバー画像そのもの(coverPageKey/外部ファイル)とは
-    /// 独立した属性で、「カバーを既定に戻す」で位置の指定まで消えてしまわないようにするため
-    /// (位置の指定は本の属性として残る)。また、この指定が効くのはコレクションのグリッド表示
-    /// だけで、EPUB/CBZの書き出しのカバーはトリミングしない。
+    /// **コレクション表紙だけに効く設定**(書き出すカバー画像はトリミングしない)。
+    /// **hasShelfCoverOverrideには含めない。** 絵そのもの(shelfCoverPageKey/画像ファイル)とは
+    /// 独立した属性で、「表紙を既定に戻す」で位置の指定まで消えてしまわないようにするため
+    /// (位置の指定は本の属性として残る)。
     var coverCropAnchorRaw: String?
 
     /// ユーザー要望: 古いスキャン本(紙の黄ばみ等で白黒がくすんで見える)を、きっちりした
@@ -207,6 +238,11 @@ final class BookLayoutSettings {
     /// カバー画像が上書き設定されているかどうか(LayoutStore.coverOverrideBookIDs参照)。
     var hasCoverOverride: Bool {
         coverPageKey != nil || externalCoverBookmarkData != nil
+    }
+
+    /// コレクション表紙を上書きしているか(既定=実質的な先頭ページ、ではないか)。
+    var hasShelfCoverOverride: Bool {
+        shelfCoverPageKey != nil || shelfCoverImageFileName != nil
     }
 }
 

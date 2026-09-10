@@ -26,7 +26,7 @@ struct CoverImageResolverTests {
     }
 
     private func coverNumber(
-        bookAt url: URL, snapshot: CoverImageResolver.OverrideSnapshot
+        bookAt url: URL?, snapshot: CoverImageResolver.OverrideSnapshot
     ) async -> Int? {
         guard let image = await CoverImageResolver.coverImage(
             bookAt: url, snapshot: snapshot, maxPixelSize: Self.maxPixelSize, cachesPageList: false
@@ -89,14 +89,28 @@ struct CoverImageResolverTests {
         #expect(await coverNumber(bookAt: book, snapshot: snapshot) == 1)
     }
 
-    @Test("本に含まれない専用ファイルを指定していれば、本体を開かずにそれを読む")
-    func anExternalCoverFileIsUsedAsIs() async throws {
+    @Test("利用者が指定した画像があれば、本体を開かずにそれを読む")
+    func aChosenImageFileIsUsedAsIs() async throws {
         let temporary = try TemporaryDirectory("cover-external")
         let book = try makeBook(temporary)
         let external = temporary.file("external-cover.png")
         try PageImageFactory.png(number: 9).write(to: external)
-        let snapshot = CoverImageResolver.OverrideSnapshot(externalCoverURL: external)
+        let snapshot = CoverImageResolver.OverrideSnapshot(imageFileURL: external)
         #expect(await coverNumber(bookAt: book, snapshot: snapshot) == 9)
+    }
+
+    @Test("指定した画像があれば、本の場所が分からなくても読める")
+    func aChosenImageFileNeedsNoBook() async throws {
+        let temporary = try TemporaryDirectory("cover-external-nobook")
+        let external = temporary.file("external-cover.png")
+        try PageImageFactory.png(number: 6).write(to: external)
+        let snapshot = CoverImageResolver.OverrideSnapshot(imageFileURL: external)
+        #expect(await coverNumber(bookAt: nil, snapshot: snapshot) == 6)
+    }
+
+    @Test("本の場所が無く、指定した画像も無ければ nil")
+    func noBookAndNoImageYieldsNil() async throws {
+        #expect(await coverNumber(bookAt: nil, snapshot: .init()) == nil)
     }
 
     @Test("開けない本は nil(呼び出し側が failed として記録する)")

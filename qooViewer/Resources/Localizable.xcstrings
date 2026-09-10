@@ -120,6 +120,38 @@
         }
       }
     },
+    "” is not connected. Connect it and try again — nothing has been lost." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "” is not connected. Connect it and try again — nothing has been lost."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "」があるボリュームが接続されていません。接続してからもう一度お試しください(データは失われていません)。"
+          }
+        }
+      }
+    },
+    "” is. The file may still be there: open it once from its current location and the collection will catch up." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "” is. The file may still be there: open it once from its current location and the collection will catch up."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "」の場所を特定できませんでした。実体はまだあるかもしれません。いまある場所から一度開くと、コレクションの登録もそこへ追従します。"
+          }
+        }
+      }
+    },
     "”." : {
       "localizations" : {
         "en" : {
@@ -585,6 +617,22 @@
         }
       }
     },
+    "%lld couldn't be imported." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld couldn't be imported."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld件は読み込めませんでした。"
+          }
+        }
+      }
+    },
     "%lld missing" : {
       "localizations" : {
         "en" : {
@@ -633,6 +681,22 @@
         }
       }
     },
+    "%lld of %lld images shown" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld of %lld images shown"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld件 / %2$lld件を表示中"
+          }
+        }
+      }
+    },
     "%lld open" : {
       "localizations" : {
         "en" : {
@@ -661,6 +725,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld冊を選択中"
+          }
+        }
+      }
+    },
+    "%lld skipped" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld skipped"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld件を飛ばしました"
+          }
+        }
+      }
+    },
+    "%lld were larger than the limit and were reduced." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld were larger than the limit and were reduced."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "うち%lld件は上限より大きかったため縮小しました。"
+          }
+        }
+      }
+    },
+    "%lld will be imported" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld will be imported"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld冊ぶんを読み込みます"
           }
         }
       }
@@ -1647,6 +1759,22 @@
         }
       }
     },
+    "At launch, lists the books in your collections whose file is gone even though the volume it was on is connected, and asks whether to remove them. Books on a volume you have disconnected are never listed, and nothing is removed until you choose Remove. A collection whose every book is gone is removed along with them." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "At launch, lists the books in your collections whose file is gone even though the volume it was on is connected, and asks whether to remove them. Books on a volume you have disconnected are never listed, and nothing is removed until you choose Remove. A collection whose every book is gone is removed along with them."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "起動したときに、ボリュームは接続されているのに実体が無くなっている本をコレクションの中から探し、削除するかどうかを尋ねます。取り外しているボリュームにある本は対象になりません。「削除」を押すまで何も削除されません。中の本が全部なくなるコレクションは、コレクションごと削除されます。"
+          }
+        }
+      }
+    },
     "At the First Page" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1885,6 +2013,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "おまけ"
+          }
+        }
+      }
+    },
+    "Book" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Book"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本"
           }
         }
       }
@@ -2146,6 +2290,22 @@
         }
       }
     },
+    "Books That Are No Longer There" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books That Are No Longer There"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "見つからなくなった本"
+          }
+        }
+      }
+    },
     "Books to Keep Data For" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2387,6 +2547,22 @@
         }
       }
     },
+    "Change Collection Cover" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Change Collection Cover"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクション表紙を変更"
+          }
+        }
+      }
+    },
     "Change Cover Image" : {
       "localizations" : {
         "en" : {
@@ -2612,6 +2788,38 @@
         }
       }
     },
+    "Choose a zip file of collection covers to import." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a zip file of collection covers to import."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み込むコレクション表紙のzipファイルを選んでください。"
+          }
+        }
+      }
+    },
+    "Choose a zip file of collection covers. Each image is matched to a book by its file name, and you can check the result before importing." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a zip file of collection covers. Each image is matched to a book by its file name, and you can check the result before importing."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクション表紙のzipファイルを選んでください。中の画像は、ファイル名を手がかりに本と結び付けます。結び付いた結果を確かめてから読み込めます。"
+          }
+        }
+      }
+    },
     "Choose an image file to use as the cover." : {
       "localizations" : {
         "en" : {
@@ -2754,6 +2962,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "書き出すJSONファイルの保存先を選んでください。"
+          }
+        }
+      }
+    },
+    "Choose where to save the exported zip file." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose where to save the exported zip file."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出すzipファイルの保存先を選んでください。"
           }
         }
       }
@@ -2936,6 +3160,22 @@
         }
       }
     },
+    "Collection Cover" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collection Cover"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクション表紙"
+          }
+        }
+      }
+    },
     "Collection covers" : {
       "localizations" : {
         "en" : {
@@ -2952,18 +3192,35 @@
         }
       }
     },
-    "Collection tiles" : {
+    "Collection Covers" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Collection tiles"
+            "value" : "Collection Covers"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "コレクションのタイル"
+            "value" : "コレクション表紙"
+          }
+        }
+      }
+    },
+    "Collection covers to export" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collection covers to export"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出せるコレクション表紙"
           }
         }
       }
@@ -2996,6 +3253,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "コレクションの設定"
+          }
+        }
+      }
+    },
+    "Collection tiles" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collection tiles"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションのタイル"
           }
         }
       }
@@ -3173,6 +3446,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "コンテナ全体"
+          }
+        }
+      }
+    },
+    "Contains more than one frame" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Contains more than one frame"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フレームが複数あります"
           }
         }
       }
@@ -3398,6 +3687,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "書き出す画像を読み込めませんでした。"
+          }
+        }
+      }
+    },
+    "Couldn't read the zip file: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't read the zip file: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "zipファイルを読めませんでした: %@"
           }
         }
       }
@@ -4671,6 +4976,22 @@
         }
       }
     },
+    "Don't Import" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Don't Import"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み込まない"
+          }
+        }
+      }
+    },
     "Done" : {
       "localizations" : {
         "en" : {
@@ -5212,6 +5533,22 @@
         }
       }
     },
+    "Every book in these collections is gone, so the collections are removed too:" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every book in these collections is gone, so the collections are removed too:"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次のコレクションは中の本が全部なくなるため、コレクションごと削除されます:"
+          }
+        }
+      }
+    },
     "Every book opens in a private window — nothing is recorded: no reading position, bookmarks, favorites, layouts, or history. Use File ▸ New Normal Window when you do want a book to be remembered." : {
       "localizations" : {
         "en" : {
@@ -5454,6 +5791,38 @@
         }
       }
     },
+    "Export Collection Covers" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export Collection Covers"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクション表紙の書き出し"
+          }
+        }
+      }
+    },
+    "Export Collection Covers…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export Collection Covers…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクション表紙の書き出し…"
+          }
+        }
+      }
+    },
     "Export Complete" : {
       "localizations" : {
         "en" : {
@@ -5551,6 +5920,7 @@
       }
     },
     "Export Library Data" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5562,6 +5932,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ライブラリデータの書き出し"
+          }
+        }
+      }
+    },
+    "Export Library Data…" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export Library Data…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブラリデータの書き出し…"
           }
         }
       }
@@ -5594,6 +5981,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "右のページを書き出す…"
+          }
+        }
+      }
+    },
+    "Export Saved Data" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export Saved Data"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存データの書き出し"
+          }
+        }
+      }
+    },
+    "Export Saved Data…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Export Saved Data…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存データの書き出し…"
           }
         }
       }
@@ -5666,6 +6085,7 @@
       }
     },
     "Export…" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5677,6 +6097,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ライブラリデータを書き出す…"
+          }
+        }
+      }
+    },
+    "Exported %lld collection covers." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exported %lld collection covers."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 冊ぶんのコレクション表紙を書き出しました。"
           }
         }
       }
@@ -5759,6 +6195,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "表示している本を書き出したとき"
+          }
+        }
+      }
+    },
+    "Extra data follows the image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extra data follows the image"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "画像の後ろに別のデータが続いています"
           }
         }
       }
@@ -5920,6 +6372,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "お気に入り・ブックマーク・読書位置・ページレイアウト・メタデータ(SwiftDataのストアとそのログ)です。"
+          }
+        }
+      }
+    },
+    "Favorites, collections, bookmarks, page layout settings and metadata, as a single JSON file that only qooViewer can read back in. Collection covers are not included — use the section below for those." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favorites, collections, bookmarks, page layout settings and metadata, as a single JSON file that only qooViewer can read back in. Collection covers are not included — use the section below for those."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "お気に入り・コレクション・ブックマーク・ページレイアウト設定・メタデータを、qooViewerだけが読み戻せるJSONファイル1つにまとめます。コレクション表紙は含まれません ―― そちらは下の項目から出し入れします。"
           }
         }
       }
@@ -7053,6 +7521,22 @@
         }
       }
     },
+    "Image in the Zip" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image in the Zip"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "zipの中の画像"
+          }
+        }
+      }
+    },
     "Image Quality" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -7070,7 +7554,56 @@
         }
       }
     },
+    "Import & Export" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import & Export"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み込みと書き出し"
+          }
+        }
+      }
+    },
+    "Import Collection Covers" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import Collection Covers"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクション表紙の読み込み"
+          }
+        }
+      }
+    },
+    "Import Collection Covers…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import Collection Covers…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクション表紙の読み込み…"
+          }
+        }
+      }
+    },
     "Import Library Data" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7086,7 +7619,57 @@
         }
       }
     },
+    "Import Library Data…" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import Library Data…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブラリデータの読み込み…"
+          }
+        }
+      }
+    },
+    "Import Saved Data" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import Saved Data"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存データの読み込み"
+          }
+        }
+      }
+    },
+    "Import Saved Data…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import Saved Data…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存データの読み込み…"
+          }
+        }
+      }
+    },
     "Import…" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7098,6 +7681,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ライブラリデータを読み込む…"
+          }
+        }
+      }
+    },
+    "Imported %lld collection covers." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Imported %lld collection covers."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld冊ぶんのコレクション表紙を読み込みました。"
           }
         }
       }
@@ -7522,6 +8121,22 @@
         }
       }
     },
+    "Larger than the limit — will be reduced" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Larger than the limit — will be reduced"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上限より大きいため縮小します"
+          }
+        }
+      }
+    },
     "Larger thumbnails for the page list grid and hover previews, against their built-in limit." : {
       "localizations" : {
         "en" : {
@@ -7718,6 +8333,7 @@
       }
     },
     "Library Data" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -7728,7 +8344,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ライブラリのデータ"
+            "value" : "ライブラリデータ"
           }
         }
       }
@@ -7907,6 +8523,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "並び順をFinderに揃える"
+          }
+        }
+      }
+    },
+    "Matched by file name" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Matched by file name"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイル名で一致"
+          }
+        }
+      }
+    },
+    "Matched by the zip's own list" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Matched by the zip's own list"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "zipの対応表で一致"
           }
         }
       }
@@ -8845,6 +9493,38 @@
         }
       }
     },
+    "No Collection Covers Loaded" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Collection Covers Loaded"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクション表紙を読み込んでいません"
+          }
+        }
+      }
+    },
+    "No Collection Covers to Export" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Collection Covers to Export"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書き出せるコレクション表紙がありません"
+          }
+        }
+      }
+    },
     "No collections to show" : {
       "localizations" : {
         "en" : {
@@ -8937,6 +9617,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "レイアウトなし"
+          }
+        }
+      }
+    },
+    "No matching book" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No matching book"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一致する本がありません"
           }
         }
       }
@@ -9085,6 +9781,22 @@
         }
       }
     },
+    "Not a readable image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not a readable image"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "画像として読めません"
+          }
+        }
+      }
+    },
     "Not Enough Free Space" : {
       "localizations" : {
         "en" : {
@@ -9214,6 +9926,22 @@
         }
       }
     },
+    "Offer to Remove Books That Are No Longer There" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Offer to Remove Books That Are No Longer There"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "見つからなくなった本の削除を尋ねる"
+          }
+        }
+      }
+    },
     "OK" : {
       "localizations" : {
         "en" : {
@@ -9296,18 +10024,18 @@
         }
       }
     },
-    "One small JPEG per book registered in a collection, extracted once when the book is added. Not a cache: deleting it means re-reading every registered book, so there is no size limit and nothing is evicted. It goes away with the collection, the book’s entry, or “Delete All Data”." : {
+    "One image per book, as a zip file named after each book. Only books whose collection cover is an image you chose are included. Reading one back matches each image to a book by its file name, and shows you the result before importing." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "One small JPEG per book registered in a collection, extracted once when the book is added. Not a cache: deleting it means re-reading every registered book, so there is no size limit and nothing is evicted. It goes away with the collection, the book’s entry, or “Delete All Data”."
+            "value" : "One image per book, as a zip file named after each book. Only books whose collection cover is an image you chose are included. Reading one back matches each image to a book by its file name, and shows you the result before importing."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "コレクションに登録した本1冊につき1枚の小さなJPEG。登録したときに1回だけ抽出します。キャッシュではありません ―― 消すと登録してある本を全冊読み直すことになるため、上限も自動削除もありません。コレクション・その本の登録・「すべてのデータを削除」と一緒に消えます。"
+            "value" : "本1冊につき1枚の画像を、その本の名前を付けてzipファイルにまとめます。対象は、コレクション表紙に画像を指定した本だけです。読み込むときは、中の画像をファイル名で本と結び付け、結果を確かめてから取り込めます。"
           }
         }
       }
@@ -9324,6 +10052,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "コレクション1つにつき1枚のJPEG。そのタイルに並ぶカバーを1枚に焼いてあり、ウェルカム画面はカバーを1枚ずつ読む代わりにこれを描きます。無くなってもコレクションのカバーから作り直せるキャッシュで、上限を超えたら古いものから捨てます。"
+          }
+        }
+      }
+    },
+    "One small JPEG per book registered in a collection, extracted once when the book is added. Not a cache: deleting it means re-reading every registered book, so there is no size limit and nothing is evicted. It goes away with the collection, the book’s entry, or “Delete All Data”." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One small JPEG per book registered in a collection, extracted once when the book is added. Not a cache: deleting it means re-reading every registered book, so there is no size limit and nothing is evicted. It goes away with the collection, the book’s entry, or “Delete All Data”."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションに登録した本1冊につき1枚の小さなJPEG。登録したときに1回だけ抽出します。キャッシュではありません ―― 消すと登録してある本を全冊読み直すことになるため、上限も自動削除もありません。コレクション・その本の登録・「すべてのデータを削除」と一緒に消えます。"
+          }
+        }
+      }
+    },
+    "Only books whose collection cover is an image you chose are included. Covers taken from a page of the book can always be made again from the book itself." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only books whose collection cover is an image you chose are included. Covers taken from a page of the book can always be made again from the book itself."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "対象は、コレクション表紙に画像を指定した本だけです。本のページから取った表紙は、その本さえあればいつでも作り直せます。"
           }
         }
       }
@@ -10682,6 +11442,22 @@
         }
       }
     },
+    "qooViewer Collection Covers.zip" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer Collection Covers.zip"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer コレクション表紙.zip"
+          }
+        }
+      }
+    },
     "qooViewer Could Not Start" : {
       "localizations" : {
         "en" : {
@@ -10694,6 +11470,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "qooViewerを起動できませんでした"
+          }
+        }
+      }
+    },
+    "qooViewer could not work out where “" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer could not work out where “"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「"
           }
         }
       }
@@ -12550,6 +13342,22 @@
         }
       }
     },
+    "Selected Image" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Selected Image"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "指定した画像"
+          }
+        }
+      }
+    },
     "Sepia" : {
       "localizations" : {
         "en" : {
@@ -12723,6 +13531,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この表示モードのあいだ、「キーボード」「マウス」の割り当てより優先されます。\nここで設定していない項目は「キーボード」「マウス」のまま働きます。"
+          }
+        }
+      }
+    },
+    "Several books match" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Several books match"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "複数の本が一致します"
           }
         }
       }
@@ -13552,6 +14376,22 @@
         }
       }
     },
+    "Status" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Status"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "状態"
+          }
+        }
+      }
+    },
     "Stop Recording" : {
       "localizations" : {
         "en" : {
@@ -13987,6 +14827,22 @@
         }
       }
     },
+    "The image's size doesn't match its header" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The image's size doesn't match its header"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "画像の寸法がヘッダーの申告と一致しません"
+          }
+        }
+      }
+    },
     "The order, names and image sizes of the pages of books you have opened, so that a book opens without scanning its archive again. Kept under 50 MB, oldest first. Deleting it only means the next open of a book scans it again. Nothing is written for books opened in a private window." : {
       "localizations" : {
         "en" : {
@@ -14147,6 +15003,38 @@
         }
       }
     },
+    "The volume that holds “" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The volume that holds “"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「"
+          }
+        }
+      }
+    },
+    "The volume these books were on is connected, but their files are no longer there. They can be removed from their collections. The files themselves are already gone — removing does not delete anything." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The volume these books were on is connected, but their files are no longer there. They can be removed from their collections. The files themselves are already gone — removing does not delete anything."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "これらの本があったボリュームは接続されていますが、実体が見つかりません。コレクションから削除できます。実体は既に無いので、削除してもファイルが消えることはありません。"
+          }
+        }
+      }
+    },
     "These only separate the series name — the volume field is left empty even if the expression contains a capture group. They are tried after the entries above." : {
       "localizations" : {
         "en" : {
@@ -14287,6 +15175,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "qooViewerだけが読み込める1つのJSONファイルを作成します。ComicInfo.xmlには対応していません。"
+          }
+        }
+      }
+    },
+    "This creates a single zip file containing one image per book, named after the book's file or folder. Only books whose collection cover is an image you chose are included — covers taken from a page of the book can always be made again from the book itself." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This creates a single zip file containing one image per book, named after the book's file or folder. Only books whose collection cover is an image you chose are included — covers taken from a page of the book can always be made again from the book itself."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本1冊につき1枚の画像を、その本のファイル名(フォルダ名)を付けて1つのzipファイルにまとめます。対象は、コレクション表紙に画像を指定した本だけです ―― 本のページから取った表紙は、その本さえあればいつでも作り直せます。"
           }
         }
       }
@@ -15080,6 +15985,22 @@
         }
       }
     },
+    "Unsupported image format" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unsupported image format"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "対応していない画像形式です"
+          }
+        }
+      }
+    },
     "Untitled Folder" : {
       "localizations" : {
         "en" : {
@@ -15481,6 +16402,22 @@
         }
       }
     },
+    "Will be converted to JPEG" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Will be converted to JPEG"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "JPEGへ変換します"
+          }
+        }
+      }
+    },
     "Windows & Tabs" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -15594,102 +16531,6 @@
         }
       }
     },
-    "Your favorites, bookmarks, and reading history couldn't be loaded, possibly because they're incompatible with this version of qooViewer.\n\nIf you continue, all of this data will be permanently deleted and qooViewer will start fresh. If you don't want to lose this data, quit now without deleting it (for example, to try an older version of qooViewer, or to ask for help)." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your favorites, bookmarks, and reading history couldn't be loaded, possibly because they're incompatible with this version of qooViewer.\n\nIf you continue, all of this data will be permanently deleted and qooViewer will start fresh. If you don't want to lose this data, quit now without deleting it (for example, to try an older version of qooViewer, or to ask for help)."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "お気に入り・ブックマーク・読書位置を読み込めませんでした。このバージョンのqooViewerと互換性が無い可能性があります。\n\n続行すると、これらのデータはすべて完全に削除され、qooViewerはまっさらな状態から起動し直します。データを失いたくない場合は、削除せずに今すぐ終了してください(例: 別のバージョンのqooViewerを試す、サポートに相談する、など)。"
-          }
-        }
-      }
-    },
-    "Offer to Remove Books That Are No Longer There" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Offer to Remove Books That Are No Longer There"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "見つからなくなった本の削除を尋ねる"
-          }
-        }
-      }
-    },
-    "At launch, lists the books in your collections whose file is gone even though the volume it was on is connected, and asks whether to remove them. Books on a volume you have disconnected are never listed, and nothing is removed until you choose Remove. A collection whose every book is gone is removed along with them." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "At launch, lists the books in your collections whose file is gone even though the volume it was on is connected, and asks whether to remove them. Books on a volume you have disconnected are never listed, and nothing is removed until you choose Remove. A collection whose every book is gone is removed along with them."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "起動したときに、ボリュームは接続されているのに実体が無くなっている本をコレクションの中から探し、削除するかどうかを尋ねます。取り外しているボリュームにある本は対象になりません。「削除」を押すまで何も削除されません。中の本が全部なくなるコレクションは、コレクションごと削除されます。"
-          }
-        }
-      }
-    },
-    "Books That Are No Longer There" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Books That Are No Longer There"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "見つからなくなった本"
-          }
-        }
-      }
-    },
-    "The volume these books were on is connected, but their files are no longer there. They can be removed from their collections. The files themselves are already gone — removing does not delete anything." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The volume these books were on is connected, but their files are no longer there. They can be removed from their collections. The files themselves are already gone — removing does not delete anything."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "これらの本があったボリュームは接続されていますが、実体が見つかりません。コレクションから削除できます。実体は既に無いので、削除してもファイルが消えることはありません。"
-          }
-        }
-      }
-    },
-    "Every book in these collections is gone, so the collections are removed too:" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Every book in these collections is gone, so the collections are removed too:"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "次のコレクションは中の本が全部なくなるため、コレクションごと削除されます:"
-          }
-        }
-      }
-    },
     "You can turn this off in Settings ▸ General ▸ Welcome Screen." : {
       "localizations" : {
         "en" : {
@@ -15706,66 +16547,18 @@
         }
       }
     },
-    "The volume that holds “" : {
+    "Your favorites, bookmarks, and reading history couldn't be loaded, possibly because they're incompatible with this version of qooViewer.\n\nIf you continue, all of this data will be permanently deleted and qooViewer will start fresh. If you don't want to lose this data, quit now without deleting it (for example, to try an older version of qooViewer, or to ask for help)." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The volume that holds “"
+            "value" : "Your favorites, bookmarks, and reading history couldn't be loaded, possibly because they're incompatible with this version of qooViewer.\n\nIf you continue, all of this data will be permanently deleted and qooViewer will start fresh. If you don't want to lose this data, quit now without deleting it (for example, to try an older version of qooViewer, or to ask for help)."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「"
-          }
-        }
-      }
-    },
-    "” is not connected. Connect it and try again — nothing has been lost." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "” is not connected. Connect it and try again — nothing has been lost."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "」があるボリュームが接続されていません。接続してからもう一度お試しください(データは失われていません)。"
-          }
-        }
-      }
-    },
-    "qooViewer could not work out where “" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "qooViewer could not work out where “"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "「"
-          }
-        }
-      }
-    },
-    "” is. The file may still be there: open it once from its current location and the collection will catch up." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "” is. The file may still be there: open it once from its current location and the collection will catch up."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "」の場所を特定できませんでした。実体はまだあるかもしれません。いまある場所から一度開くと、コレクションの登録もそこへ追従します。"
+            "value" : "お気に入り・ブックマーク・読書位置を読み込めませんでした。このバージョンのqooViewerと互換性が無い可能性があります。\n\n続行すると、これらのデータはすべて完全に削除され、qooViewerはまっさらな状態から起動し直します。データを失いたくない場合は、削除せずに今すぐ終了してください(例: 別のバージョンのqooViewerを試す、サポートに相談する、など)。"
           }
         }
       }

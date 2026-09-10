@@ -39,6 +39,8 @@ final class InMemoryLibrary {
     let collections: CollectionStore
     let collectionCovers: CollectionCoverStore
     private let collectionCoversDirectory: URL
+    /// コレクション表紙の元画像(利用者が指定した画像の複製)の置き場所。
+    private let coverSourcesDirectory: URL
     /// 焼いた札の絵(コレクションのタイル1枚ぶんのJPEG)。カバーと同じ理由で、
     /// **このライブラリ専用の一時フォルダ**を渡す ―― 既定のままだと利用者の `Caches` へ
     /// テスト用の札が残る。
@@ -60,7 +62,15 @@ final class InMemoryLibrary {
         context = container.mainContext
         favorites = FavoritesStore(modelContext: context)
         bookmarks = BookmarkStore(modelContext: context)
-        layouts = LayoutStore(modelContext: context)
+        // コレクション表紙の元画像も SwiftData の外(ディスク上の JPEG)なので、
+        // **このライブラリ専用の一時フォルダ**を渡す ―― 既定のままだと利用者の
+        // `Application Support` へテスト用の画像が残る(カバー画像の保管庫と同じ理由)。
+        coverSourcesDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("qooViewerTests.\(label).covers.\(UUID().uuidString)", isDirectory: true)
+        layouts = LayoutStore(
+            modelContext: context,
+            coverSourceStore: CollectionCoverSourceStore(directory: coverSourcesDirectory)
+        )
         metadata = BookMetadataStore(modelContext: context)
         collectionCoversDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("qooViewerTests.\(label).\(UUID().uuidString)", isDirectory: true)
@@ -97,6 +107,7 @@ final class InMemoryLibrary {
         UserDefaults().removePersistentDomain(forName: metadataFormatsSuiteName)
         try? FileManager.default.removeItem(at: collectionCoversDirectory)
         try? FileManager.default.removeItem(at: collectionTileImagesDirectory)
+        try? FileManager.default.removeItem(at: coverSourcesDirectory)
     }
 
     deinit {
@@ -105,6 +116,16 @@ final class InMemoryLibrary {
         UserDefaults().removePersistentDomain(forName: metadataFormatsSuiteName)
         try? FileManager.default.removeItem(at: collectionCoversDirectory)
         try? FileManager.default.removeItem(at: collectionTileImagesDirectory)
+        try? FileManager.default.removeItem(at: coverSourcesDirectory)
+    }
+
+    /// 「このアプリが知っている本」を数え上げる母体(KnownBooks参照)。コレクション表紙の
+    /// 読み込み(ShelfCoverImportViewModel)が本と名前で照合するために要る。
+    var knownBookSources: KnownBooks.Sources {
+        KnownBooks.Sources(
+            metadataStore: metadata, bookmarkStore: bookmarks, layoutStore: layouts,
+            favoritesStore: favorites, collectionStore: collections, modelContext: context
+        )
     }
 
     // MARK: - 取り込み / 書き出し
