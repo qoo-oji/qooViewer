@@ -32,6 +32,14 @@ struct FolderChangeWatcherTests {
     /// GUI アプリの上限256を起動直後に使い切っていた(実機で発覚 2026-09-09。カバーが全部空になり、
     /// ドロップのブックマークも作れなくなった)。数えるのは open されている fd の総数
     /// (`fcntl(F_GETFD)` が通るもの)で、ストリーム自体が要するぶんの余裕だけ見ておく。
+    ///
+    /// **測るのは1度きりにしない。** fd の総数はプロセス全体の値で、Swift Testing は既定で
+    /// テストを**並行に**走らせるため、同じテストホストで動いている別のテストがちょうどこの
+    /// 前後でファイルを開くと、その1個2個がこの差分に混ざる(CI で差分9になって落ちた
+    /// 2026-09-10。そのときこのテスト自体は 6.459 秒かかっており、手元で単独に走らせると
+    /// 0.039 秒・差分1)。見たいのは「見張るたびに増え続けるか」なので、何度か測って**いちばん
+    /// 小さい差分**を採る ―― 周りの雑音は測るたびに出たり出なかったりするが、ルートごとに
+    /// fd を握る作りへ戻れば毎回同じだけ増えるので、最小値でも必ず引っかかる。
     @Test("見張るフォルダの数だけファイル記述子が増えない", .timeLimit(.minutes(1)))
     func watchingManyRootsDoesNotHoldAFileDescriptorPerRoot() async throws {
         let temporary = try TemporaryDirectory("folder-watch-fds")
@@ -40,14 +48,20 @@ struct FolderChangeWatcherTests {
         for index in 0..<40 {
             roots.insert(try temporary.directory("shelf/library/author\(index)/books").path)
         }
-        let watcher = FolderChangeWatcher {}
-        let before = Self.openFileDescriptorCount()
-        await watcher.watch(roots)
-        let during = Self.openFileDescriptorCount()
-        watcher.tearDown()
+        var smallestGrowth = Int.max
+        var measurements: [String] = []
+        for _ in 0..<5 {
+            let watcher = FolderChangeWatcher {}
+            let before = Self.openFileDescriptorCount()
+            await watcher.watch(roots)
+            let during = Self.openFileDescriptorCount()
+            watcher.tearDown()
+            smallestGrowth = min(smallestGrowth, during - before)
+            measurements.append("\(before)→\(during)")
+        }
 
         // WatchRoot 付きなら 40 × 5 階層以上増える。ストリーム1本ぶんの余裕(数個)だけ許す。
-        #expect(during - before < 8, "fds before=\(before) during=\(during)")
+        #expect(smallestGrowth < 8, "fds \(measurements.joined(separator: ", "))")
     }
 
     private static func openFileDescriptorCount() -> Int {
