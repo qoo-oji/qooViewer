@@ -1049,7 +1049,23 @@ final class AppState: ObservableObject {
                         self.bookmarkStore?.reconcileBookIDIfMoved(book: book)
                         self.metadataStore?.reconcileBookIDIfMoved(book: book)
                         self.collectionStore?.reconcileBookIDIfMoved(book: book)
+                        // 識別子の補完(backfill)は5つのストアすべてに対して行う。
+                        // 識別子を持たない古い行に足すのが元々の役目だったが、**ボリュームUUIDを
+                        // 持たない行をUUIDでの照合へ昇格させる唯一の経路**でもある
+                        // (FileNodeIdentifier.needsBackfill参照)。ここで5つ揃えておかないと、
+                        // マウント順でデバイス番号が変わる外付けの本で、追従するストアと
+                        // しないストアが混ざる。識別子の取得は1回で済ませて使い回す
+                        // (未接続のボリュームでは秒単位ブロックしうる問い合わせのため)。
                         if let identifier = FileNodeIdentifier.current(for: book.sourceURL) {
+                            self.favoritesStore?.backfillFileNodeIdentifier(
+                                forBookID: book.id, identifier: identifier
+                            )
+                            self.layoutStore?.backfillFileNodeIdentifier(
+                                forBookID: book.id, identifier: identifier
+                            )
+                            self.bookmarkStore?.backfillFileNodeIdentifier(
+                                forBookID: book.id, identifier: identifier
+                            )
                             self.collectionStore?.backfillFileNodeIdentifier(
                                 forBookID: book.id, identifier: identifier
                             )

@@ -202,9 +202,11 @@ final class BookMetadataStore: ObservableObject {
                 if existing.bookmarkData == nil {
                     existing.bookmarkData = Self.makeBookmarkData(for: sourceURL)
                 }
-                if existing.fileNodeIdentifier == nil, let identifier = FileNodeIdentifier.current(for: sourceURL) {
+                if FileNodeIdentifier.needsBackfill(existing.fileNodeIdentifier),
+                   let identifier = FileNodeIdentifier.current(for: sourceURL) {
                     existing.inodeNumber = identifier.inodeNumber
                     existing.volumeDeviceNumber = identifier.volumeDeviceNumber
+                    existing.volumeUUID = identifier.volumeUUID
                 }
             }
             return .updated(existing)
@@ -297,9 +299,11 @@ final class BookMetadataStore: ObservableObject {
     func backfillIdentifiers(forBookID bookID: String, sourceURL: URL) {
         guard let metadata = metadata(forBookID: bookID) else { return }
         var didChange = false
-        if metadata.fileNodeIdentifier == nil, let identifier = FileNodeIdentifier.current(for: sourceURL) {
+        if FileNodeIdentifier.needsBackfill(metadata.fileNodeIdentifier),
+           let identifier = FileNodeIdentifier.current(for: sourceURL) {
             metadata.inodeNumber = identifier.inodeNumber
             metadata.volumeDeviceNumber = identifier.volumeDeviceNumber
+            metadata.volumeUUID = identifier.volumeUUID
             didChange = true
         }
         if metadata.bookmarkData == nil, let data = Self.makeBookmarkData(for: sourceURL) {

@@ -862,11 +862,13 @@ final class CollectionStore: ObservableObject {
     /// 識別子を持たない古い行に、パスから取り直した識別子を補完する
     /// (FavoritesStore.backfillFileNodeIdentifierと同じ役割)。
     func backfillFileNodeIdentifier(forBookID bookID: String, identifier: FileNodeIdentifier) {
-        let targets = items(forBookID: bookID).filter { $0.fileNodeIdentifier == nil }
+        let targets = items(forBookID: bookID)
+            .filter { FileNodeIdentifier.needsBackfill($0.fileNodeIdentifier) }
         guard !targets.isEmpty else { return }
         for item in targets {
             item.inodeNumber = identifier.inodeNumber
             item.volumeDeviceNumber = identifier.volumeDeviceNumber
+            item.volumeUUID = identifier.volumeUUID
         }
         try? modelContext.save()
         cachedItems = nil

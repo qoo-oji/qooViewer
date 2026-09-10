@@ -305,8 +305,66 @@ struct FileNodeIdentifierTests {
 
     @Test("Codable で往復する(DB へ入る値)")
     func codableRoundTrip() throws {
-        let identifier = FileNodeIdentifier(inodeNumber: 12345, volumeDeviceNumber: 16777220)
+        let identifier = FileNodeIdentifier(
+            inodeNumber: 12345, volumeDeviceNumber: 16777220, volumeUUID: "F1AC5994-5E3B-4E83-A7EC-FD38F90A3D54"
+        )
         let data = try JSONEncoder().encode(identifier)
         #expect(try JSONDecoder().decode(FileNodeIdentifier.self, from: data) == identifier)
+    }
+
+    @Test("ボリュームUUIDが取れている(サンドボックス下でも)")
+    func theVolumeUUIDIsAvailable() throws {
+        let workspace = try TemporaryDirectory("inode-uuid")
+        let url = workspace.file("a.cbz")
+        try Data("a".utf8).write(to: url)
+        let identifier = try #require(FileNodeIdentifier.current(for: url))
+        // テストはアプリ本体(TEST_HOST)の中で走るので、これはサンドボックス下での実測になる。
+        // ここが nil になるとデバイス番号だけの照合へ落ちるため、取れること自体を押さえておく。
+        let uuid = try #require(identifier.volumeUUID)
+        #expect(UUID(uuidString: uuid) != nil)
+        // 同じボリュームの別ファイルでも同じUUID(ボリュームの識別子であってファイルの識別子ではない)。
+        let other = workspace.file("b.cbz")
+        try Data("b".utf8).write(to: other)
+        #expect(FileNodeIdentifier.current(for: other)?.volumeUUID == uuid)
+    }
+
+    @Test("UUIDが一致するなら、デバイス番号が変わっていても同じファイル")
+    func theUUIDWinsOverTheDeviceNumber() {
+        // 実測の再現: 他のボリュームを先にマウントすると st_dev だけが変わる
+        // (FileNodeIdentifier の型コメント参照)。UUID があるので同じファイルと分かる。
+        let registered = FileNodeIdentifier(inodeNumber: 17, volumeDeviceNumber: 16777249, volumeUUID: "VOL-A")
+        let remounted = FileNodeIdentifier(inodeNumber: 17, volumeDeviceNumber: 16777253, volumeUUID: "VOL-A")
+        #expect(registered == remounted)
+        #expect(registered.hashValue == remounted.hashValue)
+    }
+
+    @Test("UUIDが食い違うなら、デバイス番号が同じでも別のファイル")
+    func differingUUIDsAreNotTheSameFile() {
+        // 逆の向きの実測: デバイス番号はスロット番号なので、別のボリュームが同じ番号を取りうる。
+        let onVolumeA = FileNodeIdentifier(inodeNumber: 17, volumeDeviceNumber: 16777249, volumeUUID: "VOL-A")
+        let onVolumeB = FileNodeIdentifier(inodeNumber: 17, volumeDeviceNumber: 16777249, volumeUUID: "VOL-B")
+        #expect(onVolumeA != onVolumeB)
+    }
+
+    @Test("片側にUUIDが無ければデバイス番号で比べる(UUIDを記録する前の行)")
+    func theDeviceNumberIsTheFallback() {
+        let legacy = FileNodeIdentifier(inodeNumber: 17, volumeDeviceNumber: 16777249, volumeUUID: nil)
+        let sameDevice = FileNodeIdentifier(inodeNumber: 17, volumeDeviceNumber: 16777249, volumeUUID: "VOL-A")
+        let otherDevice = FileNodeIdentifier(inodeNumber: 17, volumeDeviceNumber: 16777253, volumeUUID: "VOL-A")
+        #expect(legacy == sameDevice)
+        #expect(legacy != otherDevice)
+        // iノード番号が違えば、どう転んでも別物。
+        #expect(legacy != FileNodeIdentifier(inodeNumber: 18, volumeDeviceNumber: 16777249, volumeUUID: nil))
+    }
+
+    @Test("補完の対象は、識別子が無い行とUUIDを持たない行")
+    func backfillTargetsRowsWithoutAUUID() {
+        #expect(FileNodeIdentifier.needsBackfill(nil))
+        #expect(FileNodeIdentifier.needsBackfill(
+            FileNodeIdentifier(inodeNumber: 17, volumeDeviceNumber: 16777249, volumeUUID: nil)
+        ))
+        #expect(!FileNodeIdentifier.needsBackfill(
+            FileNodeIdentifier(inodeNumber: 17, volumeDeviceNumber: 16777249, volumeUUID: "VOL-A")
+        ))
     }
 }

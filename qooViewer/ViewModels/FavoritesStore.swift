@@ -707,11 +707,13 @@ final class FavoritesStore: ObservableObject {
     /// 同じ考え方(LibraryImportExportService.exportFavoritesが、書き出し対象の本のURLを
     /// 解決できたタイミングで呼ぶ)。
     func backfillFileNodeIdentifier(forBookID bookID: String, identifier: FileNodeIdentifier) {
-        let targets = existingFavorites(forBookID: bookID).filter { $0.fileNodeIdentifier == nil }
+        let targets = existingFavorites(forBookID: bookID)
+            .filter { FileNodeIdentifier.needsBackfill($0.fileNodeIdentifier) }
         guard !targets.isEmpty else { return }
         for favorite in targets {
             favorite.inodeNumber = identifier.inodeNumber
             favorite.volumeDeviceNumber = identifier.volumeDeviceNumber
+            favorite.volumeUUID = identifier.volumeUUID
         }
         try? modelContext.save()
         cachedBooks = nil

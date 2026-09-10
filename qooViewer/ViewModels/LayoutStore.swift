@@ -243,9 +243,12 @@ final class LayoutStore: ObservableObject {
     /// backfillFileNodeIdentifier(forBookID:identifier:)と同じ考え方(LibraryImportExportService.
     /// exportLayoutsが、書き出し対象の本のURLを解決できたタイミングで呼ぶ)。
     func backfillFileNodeIdentifier(forBookID bookID: String, identifier: FileNodeIdentifier) {
-        guard let settings = bookLayoutSettings(forBookID: bookID), settings.fileNodeIdentifier == nil else { return }
+        guard let settings = bookLayoutSettings(forBookID: bookID),
+              FileNodeIdentifier.needsBackfill(settings.fileNodeIdentifier)
+        else { return }
         settings.inodeNumber = identifier.inodeNumber
         settings.volumeDeviceNumber = identifier.volumeDeviceNumber
+        settings.volumeUUID = identifier.volumeUUID
         try? modelContext.save()
         // キャッシュが保持しているのはこのsettings自身(同じ参照)なので、フィールドを書き換えた
         // だけのここではキャッシュ側に手を入れる必要は無い(行の増減もbookIDの変化も無い)。

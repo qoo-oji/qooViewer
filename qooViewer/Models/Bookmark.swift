@@ -86,6 +86,12 @@ final class Bookmark {
     /// 変わっていないかをこれと照合し、変わっていれば自動的に追従させる。
     var inodeNumber: Int64?
     var volumeDeviceNumber: Int64?
+    /// ボリュームのUUID。**デバイス番号だけではボリュームを同定できない**(マウント順で変わる)
+    /// ことが実測で分かったため後から追加した。詳細はFileNodeIdentifierの型コメント参照。
+    ///
+    /// **後追加なのでOptional**(SwiftDataの軽量マイグレーション)。既存の行はnilで入り、
+    /// その本を開いたときにストアのbackfillFileNodeIdentifierが書き足す。
+    var volumeUUID: String?
 
     init(
         bookID: String, pageIndex: Int, pageKey: String? = nil, name: String,
@@ -101,6 +107,7 @@ final class Bookmark {
         self.isEpubDerived = isEpubDerived
         self.inodeNumber = fileNodeIdentifier?.inodeNumber
         self.volumeDeviceNumber = fileNodeIdentifier?.volumeDeviceNumber
+        self.volumeUUID = fileNodeIdentifier?.volumeUUID
         let now = Date()
         self.createdAt = now
         self.updatedAt = now
@@ -109,7 +116,9 @@ final class Bookmark {
     /// inodeNumber/volumeDeviceNumberが両方揃っている場合のみFileNodeIdentifierとして返す。
     var fileNodeIdentifier: FileNodeIdentifier? {
         guard let inodeNumber, let volumeDeviceNumber else { return nil }
-        return FileNodeIdentifier(inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber)
+        return FileNodeIdentifier(
+            inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber, volumeUUID: volumeUUID
+        )
     }
 }
 

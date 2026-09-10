@@ -111,6 +111,7 @@ enum LibraryImportExportService {
                     bookID: metadata.bookID,
                     inodeNumber: metadata.inodeNumber,
                     volumeDeviceNumber: metadata.volumeDeviceNumber,
+                    volumeUUID: metadata.volumeUUID,
                     author: metadata.author,
                     title: metadata.title,
                     series: metadata.series,
@@ -175,6 +176,7 @@ enum LibraryImportExportService {
                         bookID: book.bookID,
                         inodeNumber: fileNodeIdentifier?.inodeNumber,
                         volumeDeviceNumber: fileNodeIdentifier?.volumeDeviceNumber,
+                        volumeUUID: fileNodeIdentifier?.volumeUUID,
                         title: book.title,
                         folderId: folderID
                     )
@@ -283,6 +285,7 @@ enum LibraryImportExportService {
                     bookID: group.bookID,
                     inodeNumber: fileNodeIdentifier?.inodeNumber,
                     volumeDeviceNumber: fileNodeIdentifier?.volumeDeviceNumber,
+                    volumeUUID: fileNodeIdentifier?.volumeUUID,
                     bookmarks: entries
                 )
             )
@@ -331,6 +334,7 @@ enum LibraryImportExportService {
                     bookID: bookID,
                     inodeNumber: fileNodeIdentifier?.inodeNumber,
                     volumeDeviceNumber: fileNodeIdentifier?.volumeDeviceNumber,
+                    volumeUUID: fileNodeIdentifier?.volumeUUID,
                     layout: ExportedBookLayout(
                         readingDirection: settings?.readingDirectionOverride?.stableID,
                         forcedDisplayMode: settings?.forcedDisplayMode?.stableID,
@@ -401,6 +405,7 @@ enum LibraryImportExportService {
             bookID: item.bookID,
             inodeNumber: identifier?.inodeNumber,
             volumeDeviceNumber: identifier?.volumeDeviceNumber,
+            volumeUUID: identifier?.volumeUUID,
             title: item.title,
             addedAt: item.addedAt
         )

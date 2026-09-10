@@ -389,11 +389,13 @@ final class BookmarkStore: ObservableObject {
     /// 対象が無ければ何もしない(呼び出しコストを抑えるため、呼び出し前にidentifierが必要な
     /// 行があるかどうかは呼び出し側で判定する)。
     func backfillFileNodeIdentifier(forBookID bookID: String, identifier: FileNodeIdentifier) {
-        let targets = (bookmarksByBookID()[bookID] ?? []).filter { $0.fileNodeIdentifier == nil }
+        let targets = (bookmarksByBookID()[bookID] ?? [])
+            .filter { FileNodeIdentifier.needsBackfill($0.fileNodeIdentifier) }
         guard !targets.isEmpty else { return }
         for bookmark in targets {
             bookmark.inodeNumber = identifier.inodeNumber
             bookmark.volumeDeviceNumber = identifier.volumeDeviceNumber
+            bookmark.volumeUUID = identifier.volumeUUID
         }
         try? modelContext.save()
         // キャッシュが保持しているのはこれらのBookmark自身(同じ参照)なので、フィールドを

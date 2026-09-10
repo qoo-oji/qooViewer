@@ -88,12 +88,26 @@ bookID(パス)が同じでも中身が別物になっていることがありま
 ## 移動・リネームへの追従
 
 5つのモデル(`Bookmark` / `BookLayoutSettings` / `BookMetadata` / `FavoriteBook` /
-`CollectionItem`)は作成時の
-`FileNodeIdentifier`(inode + デバイス番号)を持ち、本を開くたびに各ストアの
-`reconcileBookIDIfMoved(book:)` が「現在のパスに行が無く、同じ inode の行がある」なら bookID を
+`CollectionItem`)は作成時の `FileNodeIdentifier` を持ち、本を開くたびに各ストアの
+`reconcileBookIDIfMoved(book:)` が「現在のパスに行が無く、同じファイルの行がある」なら bookID を
 書き換えます(同一ボリューム内の移動・リネームだけ。ボリュームをまたぐ移動は諦める)。
-識別子を持たない古い行は、本を開けた(=アクセス権がある)タイミングで `backfill*` が補完します。
-JSON 読み込みの重複判定も inode を使います。
+JSON 読み込みの重複判定も同じ識別子を使います。
+
+識別子は **inode + ボリューム**の組で、ボリュームの同定は `volumeUUID`
+(`.volumeUUIDStringKey`)を主、デバイス番号(`st_dev`)を控えとします。**デバイス番号は
+マウント順で変わります** ―― 他のボリュームを先に挿しただけで変わることをディスクイメージで
+実測しました(2026-09-10。同一ファイル・無変更で `st_dev` が 16777249 → 16777253)。
+これに気づく前は外付けの本で5つのストアの追従がすべて黙って失敗しえたので、UUID を主に変えて
+あります。`==` は「両方が UUID を持つときだけ UUID で、片方でも欠けていればデバイス番号で」
+比べるため**推移的ではありません**(だから `hash(into:)` は inode だけを混ぜる。
+この型を `Set` に入れてよいのは重複判定の用途だけ)。経緯と実測値は
+`FileNodeIdentifier` の型コメントが正典です。
+
+識別子を持たない古い行と、**UUID を持たない行**(UUID を記録する前に保存されたもの)は、本を
+開けた(=アクセス権がある)タイミングで各ストアの `backfillFileNodeIdentifier` が書き足します
+(対象の判定は `FileNodeIdentifier.needsBackfill`)。`AppState.open` はこれを**5つのストア
+すべて**に対して呼びます ―― 1つでも漏らすと、外付けの本で追従するストアとしないストアが
+混ざります。
 
 `CollectionItem` だけは bookID と一緒に **`title` も新しいファイル名へ書き換えます**
 (`MangaBook.title` をそのまま入れる。棚のカバー下キャプションを「ファイル名」にしていると、

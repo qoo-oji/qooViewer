@@ -54,6 +54,12 @@ final class FavoriteBook {
     /// bookID(パス)が変わっていないかをこれと照合し、変わっていれば自動的に追従させる。
     var inodeNumber: Int64?
     var volumeDeviceNumber: Int64?
+    /// ボリュームのUUID。**デバイス番号だけではボリュームを同定できない**(マウント順で変わる)
+    /// ことが実測で分かったため後から追加した。詳細はFileNodeIdentifierの型コメント参照。
+    ///
+    /// **後追加なのでOptional**(SwiftDataの軽量マイグレーション)。既存の行はnilで入り、
+    /// その本を開いたときにストアのbackfillFileNodeIdentifierが書き足す。
+    var volumeUUID: String?
 
     init(
         bookID: String,
@@ -71,6 +77,7 @@ final class FavoriteBook {
         self.sortOrder = sortOrder
         self.inodeNumber = fileNodeIdentifier?.inodeNumber
         self.volumeDeviceNumber = fileNodeIdentifier?.volumeDeviceNumber
+        self.volumeUUID = fileNodeIdentifier?.volumeUUID
         let now = Date()
         self.addedAt = now
         self.updatedAt = now
@@ -80,7 +87,9 @@ final class FavoriteBook {
     /// (どちらか一方だけ記録されていることは無い想定だが、念のため両方の存在を要求する)。
     var fileNodeIdentifier: FileNodeIdentifier? {
         guard let inodeNumber, let volumeDeviceNumber else { return nil }
-        return FileNodeIdentifier(inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber)
+        return FileNodeIdentifier(
+            inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber, volumeUUID: volumeUUID
+        )
     }
 }
 

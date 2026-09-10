@@ -632,6 +632,67 @@ struct CollectionStoreTests {
         #expect(collection.items.map(\.title) == ["volume-02"])
     }
 
+    @Test("デバイス番号がズレていても、ボリュームUUIDが一致すれば追従する")
+    func theVolumeUUIDCarriesTheFollowThroughARemount() async throws {
+        let library = try InMemoryLibrary(label: "collections-reconcile-remount")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-reconcile-remount")
+        let original = try makeBookFolder(temporary, named: "book-a")
+        let target = try #require(library.collections.libraries.first)
+        let collection = try #require(library.collections.createCollection(
+            name: "Series", in: target, items: pendingItems([original])
+        ))
+        let item = try #require(collection.items.first)
+        try #require(item.volumeUUID != nil)
+        // 外付けを挿す順番が変わって st_dev だけ変わった状態を作る(実測した現象。
+        // FileNodeIdentifier の型コメント参照)。iノードとUUIDはそのまま。
+        let recordedDevice = try #require(item.volumeDeviceNumber)
+        item.volumeDeviceNumber = recordedDevice + 4
+
+        let moved = temporary.file("book-a-renamed")
+        try FileManager.default.moveItem(at: original, to: moved)
+        let book = try await FixtureBook.load(moved)
+        library.collections.reconcileBookIDIfMoved(book: book)
+
+        #expect(library.collections.allRegisteredBookIDs() == [moved.path])
+        #expect(collection.items.map(\.title) == ["book-a-renamed"])
+    }
+
+    @Test("UUIDを持たない古い行は、デバイス番号が頼りのまま(昇格の必要性そのもの)")
+    func aRowWithoutAUUIDStillDependsOnTheDeviceNumber() async throws {
+        let library = try InMemoryLibrary(label: "collections-reconcile-legacy")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("collections-reconcile-legacy")
+        let original = try makeBookFolder(temporary, named: "book-a")
+        let target = try #require(library.collections.libraries.first)
+        let collection = try #require(library.collections.createCollection(
+            name: "Series", in: target, items: pendingItems([original])
+        ))
+        let item = try #require(collection.items.first)
+        // UUIDを記録する前のバージョンが作った行を再現する。
+        let recordedDevice = try #require(item.volumeDeviceNumber)
+        item.volumeUUID = nil
+        item.volumeDeviceNumber = recordedDevice + 4
+
+        let moved = temporary.file("book-a-renamed")
+        try FileManager.default.moveItem(at: original, to: moved)
+        let book = try await FixtureBook.load(moved)
+        library.collections.reconcileBookIDIfMoved(book: book)
+
+        // 追従できない ―― これが修正前の全ストアの挙動で、UUIDの昇格が要る理由。
+        #expect(library.collections.allRegisteredBookIDs() == [original.path])
+
+        // 本を開けたときの補完でUUIDが入り(AppState.openが5つのストアに対して行う)、
+        // 以降はデバイス番号のズレに巻き込まれない。
+        let identifier = try #require(FileNodeIdentifier.current(for: moved))
+        library.collections.backfillFileNodeIdentifier(forBookID: original.path, identifier: identifier)
+        #expect(item.volumeUUID == identifier.volumeUUID)
+        #expect(item.volumeDeviceNumber == identifier.volumeDeviceNumber)
+
+        library.collections.reconcileBookIDIfMoved(book: book)
+        #expect(library.collections.allRegisteredBookIDs() == [moved.path])
+    }
+
     @Test("iノードが一致しない別のファイルでは、登録も表示名も書き換えない")
     func anUnrelatedBookLeavesTheEntryAlone() async throws {
         let library = try InMemoryLibrary(label: "collections-reconcile-other")

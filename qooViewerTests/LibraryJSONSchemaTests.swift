@@ -155,6 +155,42 @@ struct LibraryJSONSchemaTests {
         #expect(file.libraries == nil)
     }
 
+    @Test("ボリュームUUIDは書き出され、持たないファイルはデバイス番号へ落ちる")
+    func theVolumeUUIDTravelsInTheFile() throws {
+        // UUID入りで書いたものが往復する。
+        var file = QooLibraryExportFile()
+        file.favorites = ExportedFavorites(
+            folders: [],
+            books: [ExportedFavoriteBook(
+                bookID: "/books/a.cbz", inodeNumber: 17, volumeDeviceNumber: 16_777_249,
+                volumeUUID: "F1AC5994-5E3B-4E83-A7EC-FD38F90A3D54", title: "本 A", folderId: nil
+            )]
+        )
+        let decoded = try JSONDecoder().decode(
+            QooLibraryExportFile.self, from: try JSONEncoder().encode(file)
+        )
+        let identifier = try #require(decoded.favorites?.books.first?.fileNodeIdentifier)
+        #expect(identifier.volumeUUID == "F1AC5994-5E3B-4E83-A7EC-FD38F90A3D54")
+        // 取り込み先でデバイス番号が変わっていても、同じボリュームだと分かる
+        // (マウント順で st_dev が変わる件。FileNodeIdentifier の型コメント参照)。
+        #expect(identifier == FileNodeIdentifier(
+            inodeNumber: 17, volumeDeviceNumber: 16_777_253,
+            volumeUUID: "F1AC5994-5E3B-4E83-A7EC-FD38F90A3D54"
+        ))
+
+        // UUIDを足す前に書き出した版 4 のファイル(キーが無い)。formatVersion は据え置きなので、
+        // 「キーが無ければ nil」でそのまま読め、照合は従来どおりデバイス番号で行われる。
+        let legacy = try decode(
+            #"{"formatVersion": 4, "favorites": {"folders": [], "books": ["#
+            + #"{"bookID": "/books/a.cbz", "inodeNumber": 17, "volumeDeviceNumber": 16777249,"#
+            + #" "title": "本 A"}]}}"#
+        )
+        let legacyIdentifier = try #require(legacy.favorites?.books.first?.fileNodeIdentifier)
+        #expect(legacyIdentifier.volumeUUID == nil)
+        #expect(legacyIdentifier == FileNodeIdentifier(inodeNumber: 17, volumeDeviceNumber: 16_777_249))
+        #expect(legacyIdentifier != FileNodeIdentifier(inodeNumber: 17, volumeDeviceNumber: 16_777_253))
+    }
+
     @Test("チェックを外した種類はキーごと無い(含まれていない、と読める)")
     func omittedCategoriesAreAbsentKeys() throws {
         let file = try decode(#"{"formatVersion": 3, "bookmarks": []}"#)

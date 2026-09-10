@@ -92,12 +92,21 @@ struct ExportedCollectionBook: Codable {
     var bookID: String
     var inodeNumber: Int64?
     var volumeDeviceNumber: Int64?
+    /// FileNodeIdentifier.volumeUUID相当。マウント順で変わるデバイス番号と違い、ボリュームを
+    /// マウントを跨いで同定できる(FileNodeIdentifierの型コメント参照)。
+    ///
+    /// Optionalなので、これを足す前に書き出したJSONもそのまま読める(formatVersionは据え置き。
+    /// ExportedLibrary.coverAspectRatioと同じ扱い)。取り込み側は、UUIDが無ければ従来どおり
+    /// デバイス番号で照合する。
+    var volumeUUID: String?
     var title: String
     var addedAt: Date
 
     var fileNodeIdentifier: FileNodeIdentifier? {
         guard let inodeNumber, let volumeDeviceNumber else { return nil }
-        return FileNodeIdentifier(inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber)
+        return FileNodeIdentifier(
+            inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber, volumeUUID: volumeUUID
+        )
     }
 }
 
@@ -113,6 +122,13 @@ struct ExportedBookMetadataEntry: Codable {
     var bookID: String
     var inodeNumber: Int64?
     var volumeDeviceNumber: Int64?
+    /// FileNodeIdentifier.volumeUUID相当。マウント順で変わるデバイス番号と違い、ボリュームを
+    /// マウントを跨いで同定できる(FileNodeIdentifierの型コメント参照)。
+    ///
+    /// Optionalなので、これを足す前に書き出したJSONもそのまま読める(formatVersionは据え置き。
+    /// ExportedLibrary.coverAspectRatioと同じ扱い)。取り込み側は、UUIDが無ければ従来どおり
+    /// デバイス番号で照合する。
+    var volumeUUID: String?
     var author: String
     var title: String
     var series: String
@@ -120,7 +136,9 @@ struct ExportedBookMetadataEntry: Codable {
 
     var fileNodeIdentifier: FileNodeIdentifier? {
         guard let inodeNumber, let volumeDeviceNumber else { return nil }
-        return FileNodeIdentifier(inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber)
+        return FileNodeIdentifier(
+            inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber, volumeUUID: volumeUUID
+        )
     }
 }
 
@@ -169,6 +187,13 @@ struct ExportedFavoriteBook: Codable {
     var inodeNumber: Int64?
     /// FileNodeIdentifier.volumeDeviceNumber相当。エクスポート時点で取得できていた場合のみ値を持つ。
     var volumeDeviceNumber: Int64?
+    /// FileNodeIdentifier.volumeUUID相当。マウント順で変わるデバイス番号と違い、ボリュームを
+    /// マウントを跨いで同定できる(FileNodeIdentifierの型コメント参照)。
+    ///
+    /// Optionalなので、これを足す前に書き出したJSONもそのまま読める(formatVersionは据え置き。
+    /// ExportedLibrary.coverAspectRatioと同じ扱い)。取り込み側は、UUIDが無ければ従来どおり
+    /// デバイス番号で照合する。
+    var volumeUUID: String?
     var title: String
     /// ルート直下(フォルダに属さない)の場合はnil。
     var folderId: String?
@@ -176,7 +201,9 @@ struct ExportedFavoriteBook: Codable {
     /// inodeNumber/volumeDeviceNumberが両方揃っている場合のみFileNodeIdentifierとして返す。
     var fileNodeIdentifier: FileNodeIdentifier? {
         guard let inodeNumber, let volumeDeviceNumber else { return nil }
-        return FileNodeIdentifier(inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber)
+        return FileNodeIdentifier(
+            inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber, volumeUUID: volumeUUID
+        )
     }
 }
 
@@ -199,11 +226,20 @@ struct ExportedBookmarkEntry: Codable {
     var bookID: String
     var inodeNumber: Int64?
     var volumeDeviceNumber: Int64?
+    /// FileNodeIdentifier.volumeUUID相当。マウント順で変わるデバイス番号と違い、ボリュームを
+    /// マウントを跨いで同定できる(FileNodeIdentifierの型コメント参照)。
+    ///
+    /// Optionalなので、これを足す前に書き出したJSONもそのまま読める(formatVersionは据え置き。
+    /// ExportedLibrary.coverAspectRatioと同じ扱い)。取り込み側は、UUIDが無ければ従来どおり
+    /// デバイス番号で照合する。
+    var volumeUUID: String?
     var bookmarks: [ExportedBookmark]
 
     var fileNodeIdentifier: FileNodeIdentifier? {
         guard let inodeNumber, let volumeDeviceNumber else { return nil }
-        return FileNodeIdentifier(inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber)
+        return FileNodeIdentifier(
+            inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber, volumeUUID: volumeUUID
+        )
     }
 }
 
@@ -229,11 +265,20 @@ struct ExportedBookLayoutEntry: Codable {
     var bookID: String
     var inodeNumber: Int64?
     var volumeDeviceNumber: Int64?
+    /// FileNodeIdentifier.volumeUUID相当。マウント順で変わるデバイス番号と違い、ボリュームを
+    /// マウントを跨いで同定できる(FileNodeIdentifierの型コメント参照)。
+    ///
+    /// Optionalなので、これを足す前に書き出したJSONもそのまま読める(formatVersionは据え置き。
+    /// ExportedLibrary.coverAspectRatioと同じ扱い)。取り込み側は、UUIDが無ければ従来どおり
+    /// デバイス番号で照合する。
+    var volumeUUID: String?
     var layout: ExportedBookLayout
 
     var fileNodeIdentifier: FileNodeIdentifier? {
         guard let inodeNumber, let volumeDeviceNumber else { return nil }
-        return FileNodeIdentifier(inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber)
+        return FileNodeIdentifier(
+            inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber, volumeUUID: volumeUUID
+        )
     }
 }
 
