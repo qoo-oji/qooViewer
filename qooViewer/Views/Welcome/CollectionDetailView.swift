@@ -69,6 +69,10 @@ struct CollectionDetailView: View {
     /// (ユーザー指摘 2026-09-09)。
     @State private var layoutRevision = 0
 
+    /// 余白から帯を引いてまとめて選ぶための入れ物(MarqueeSelection参照。`@State`で持つだけで
+    /// 購読しない理由はCollectionGridViewの同じ宣言のコメント)。
+    @State private var marquee = MarqueeSelection()
+
     /// メタデータ編集シートの対象。シートを出す時点で本のURLが解決できている必要があるため
     /// (BookMetadataSheetのコメント参照)、行のidとURLを組にして持つ。
     private struct MetadataTarget: Identifiable {
@@ -280,6 +284,11 @@ struct CollectionDetailView: View {
         return (preferences.collectionCoverCaptionFontSize * 1.3).rounded(.up) + 4
     }
 
+    /// グリッドの作り直しの鍵(下の`.id`とマーキーの控えの捨て方の両方が使う)。
+    private var gridID: String {
+        "\(collection.id.uuidString)-\(cellImageBudget.epoch)"
+    }
+
     private var grid: some View {
         ScrollView {
             LazyVGrid(
@@ -288,18 +297,32 @@ struct CollectionDetailView: View {
             ) {
                 ForEach(items, id: \.id) { item in
                     cell(for: item)
+                        // 帯の当たり判定に使う矩形を知らせる(MarqueeSelection参照)。
+                        .marqueeCell(item.id, in: marquee)
                 }
             }
             .padding(24)
+            // 編集モード中は、余白(カバーの隙間・外周・最後の行より下)から帯を引いて
+            // まとめて選べる。カバーの上で押し始めたドラッグは従来どおりカバーのもの。
+            .marqueeSelectable(
+                marquee,
+                isEnabled: allowsEditing && state.isEditing,
+                minimumHeight: gridSize.height,
+                selection: $state.selectedItemIDs,
+                shownIDs: Set(items.map(\.id))
+            )
             // コレクションが変わったときも作り直して、前のコレクションのカバーを手放す
             // (CollectionGridViewの同じ`.id`のコメント参照)。
-            .id("\(collection.id.uuidString)-\(cellImageBudget.epoch)")
+            .id(gridID)
         }
         .onGeometryChange(for: CGSize.self) { proxy in
             proxy.size
         } action: { size in
             gridSize = size
         }
+        // 並ぶものが総入れ替えになったら、帯が覚えている矩形を捨てる(コレクションの
+        // 切り替え・グリッドの作り直し)。`.id`より外に付ける理由はCollectionGridView参照。
+        .onChange(of: gridID) { marquee.forgetFrames() }
         // 名前のリネームとは別の階層に付ける ―― 同じビューに2つの.sheetを重ねると、
         // 片方しか出ないことがある(SwiftUIの既知の癖)。
         .sheet(item: $metadataTarget) { target in

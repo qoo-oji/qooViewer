@@ -54,6 +54,11 @@ struct CollectionGridView: View {
     /// (ユーザー指摘 2026-09-09)。
     @State private var layoutRevision = 0
 
+    /// 余白から帯を引いてまとめて選ぶための入れ物(MarqueeSelection参照)。**`@State`で持つ
+    /// だけで購読しない** ―― 帯はドラッグ中ずっと動くので、購読すると一覧全体のbodyが
+    /// 毎フレーム走る。帯を描くのは自分を購読する小さなビューのほう。
+    @State private var marquee = MarqueeSelection()
+
     private var collections: [BookCollection] {
         collectionStore.collections(in: library, sort: state.collectionSort)
     }
@@ -196,6 +201,11 @@ struct CollectionGridView: View {
         (preferences.collectionTileNameFontSize * 1.3).rounded(.up) + 6
     }
 
+    /// グリッドの作り直しの鍵(下の`.id`とマーキーの控えの捨て方の両方が使う)。
+    private var gridID: String {
+        "\(library.id.uuidString)-\(cellImageBudget.epoch)"
+    }
+
     private var grid: some View {
         ScrollView {
             LazyVGrid(
@@ -204,9 +214,20 @@ struct CollectionGridView: View {
             ) {
                 ForEach(collections, id: \.id) { collection in
                     tile(for: collection)
+                        // 帯の当たり判定に使う矩形を知らせる(MarqueeSelection参照)。
+                        .marqueeCell(collection.id, in: marquee)
                 }
             }
             .padding(24)
+            // 編集モード中は、余白(札の隙間・外周・最後の行より下)から帯を引いて
+            // まとめて選べる。札の上で押し始めたドラッグは従来どおり札のもの。
+            .marqueeSelectable(
+                marquee,
+                isEnabled: allowsEditing && state.isEditing,
+                minimumHeight: gridSize.height,
+                selection: $state.selectedCollectionIDs,
+                shownIDs: Set(collections.map(\.id))
+            )
             // 作り直しの鍵は2つ。
             //
             // - `epoch` … 画面外セルの保持物をまとめて手放すため(型コメント参照)
@@ -215,13 +236,17 @@ struct CollectionGridView: View {
             //   解放しない(型コメントと同じ話)ので、切り替えるたびに前の棚のぶんが
             //   `cellImageBudget` に乗ったまま積み上がる。並ぶものが全部変わる場面なので、
             //   ここで作り直して失うものは無い。
-            .id("\(library.id.uuidString)-\(cellImageBudget.epoch)")
+            .id(gridID)
         }
         .onGeometryChange(for: CGSize.self) { proxy in
             proxy.size
         } action: { size in
             gridSize = size
         }
+        // 並ぶものが総入れ替えになったら、帯が覚えている矩形を捨てる(ライブラリの切り替え・
+        // グリッドの作り直し)。**`.id`より外に付けること** ―― 中に付けるとビューごと
+        // 作り直されて、変化に気づく前に消える。
+        .onChange(of: gridID) { marquee.forgetFrames() }
     }
 
     @ViewBuilder
