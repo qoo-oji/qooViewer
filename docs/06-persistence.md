@@ -11,7 +11,8 @@
 | お気に入り(**無効化中**) | SwiftData `FavoriteBook` / `FavoriteFolder` | `FavoritesStore` | 上限 999 件、フォルダ3階層(`FavoritesLimits`)。改善要望5で UI の入り口をすべて閉じた(`FavoritesFeature.isEnabled == false`)。モデル・ストア・ウインドウ・JSON は残してあり、フラグを true に戻せば以前の登録がそのまま見える |
 | 書誌メタデータ | SwiftData `BookMetadata` | `BookMetadataStore` | 無制限 |
 | ライブラリ / コレクション / その中の本 | SwiftData `BookLibrary` / `BookCollection` / `CollectionItem` | `CollectionStore` | 無制限。ライブラリは必ず1つ以上(既定のライブラリは名前を持たず表示言語で組み立てる)。→ [14](14-library-collections.md) |
-| コレクションのカバー画像 | `~/Library/Application Support/<bundle id>/CollectionCovers/<itemID>.jpg` | `CollectionCoverStore` | **キャッシュではない**(消えると登録した本を全冊読み直す)。上限も自動削除も無し。行と一緒に消す。起動時に孤児を掃除 |
+| コレクション表紙(表示用) | `~/Library/Application Support/<bundle id>/CollectionCovers/<itemID>.jpg` | `CollectionCoverStore` | **キャッシュではない**(消えると登録した本を全冊読み直す)。長辺768px。上限も自動削除も無し。行と一緒に消す。起動時に孤児を掃除 |
+| コレクション表紙(元画像) | `~/Library/Application Support/<bundle id>/CollectionCoverSources/<uuid>.jpg` | `CollectionCoverSourceStore` | 利用者が「ファイルを選ぶ…」で指定した画像の複製(長辺1536px)。**作り直せない**(元ファイルは捨てられているかもしれない)。`BookLayoutSettings.shelfCoverImageFileName` から参照し、起動時に孤児を掃除 |
 | ウェルカム画面の表示の状態 | UserDefaults(`qooViewer.welcome.*`) | `WelcomeLibraryState` | 選択中のライブラリ・並び順2つ・大きさ2つ。`qooViewer.pref.*` ではないので「初期設定に戻す」の対象外、全削除では消える |
 | 環境設定 | UserDefaults(`qooViewer.pref.*`) | `AppPreferences` | ― |
 | 履歴 | UserDefaults(`recentBookEntries` + 旧 `recentBookBookmarks`) | `RecentFilesStore` | 環境設定「履歴の保存件数」(既定 30) |
@@ -207,8 +208,8 @@ JSON 読み込みの重複判定も同じ識別子を使います。
 
 | 操作 | 場所 | 範囲 |
 |---|---|---|
-| 本ごとの保存データの削除 | 環境設定「リセット」→「保存データの削除」ウインドウ | 選んだ本の読書位置・ブックマーク・レイアウト・メタデータ・お気に入り・コレクションの登録(カバー画像も)。実在判定は3値(exists/missing/unknown)で、アクセス権が無くて確認できない本を「消えた」と誤解させない |
+| 本ごとの保存データの削除 | 環境設定「リセット」→「保存データの削除」ウインドウ | 選んだ本の読書位置・ブックマーク・レイアウト・メタデータ・お気に入り・コレクションの登録(コレクション表紙も)。実在判定は3値(exists/missing/unknown)で、アクセス権が無くて確認できない本を「消えた」と誤解させない |
 | 履歴の削除 | 同「履歴の削除」ウインドウ | 選んだ履歴。ブックマークは解決しない |
 | ブックマークの全削除など | 各編集ウインドウ | ― |
-| すべてのデータを削除 | 環境設定「リセット」 | **フォルダのアクセス権を除く、このアプリがディスクに保存したすべて**(ストアの実ファイル・2つのキャッシュ・コレクションのカバー画像・UserDefaults)。予約(`pendingFullResetDefaultsKey`)して**終了時**に実行し、次回起動時にも再確認する(開いたまま消すと didSet やウインドウ位置の保存が書き戻す)。実行前の確認と、実行後の終了は必須 |
+| すべてのデータを削除 | 環境設定「リセット」 | **フォルダのアクセス権を除く、このアプリがディスクに保存したすべて**(ストアの実ファイル・2つのキャッシュ・コレクション表紙の2つの保管庫・UserDefaults)。予約(`pendingFullResetDefaultsKey`)して**終了時**に実行し、次回起動時にも再確認する(開いたまま消すと didSet やウインドウ位置の保存が書き戻す)。実行前の確認と、実行後の終了は必須 |
 | 書き出し後の後始末 | 環境設定「レイアウト」形式ごとの「保存データ/履歴: 削除」 | 書き出した本のぶんだけ |

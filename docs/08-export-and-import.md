@@ -109,7 +109,7 @@
 - ページ一覧・サイドパネルからの「画像を書き出す」は `PageContextMenuItems` で、書庫や PDF の
   中のページ(Finder で実物を示せないもの)にだけ出す。
 
-## ライブラリデータの JSON 書き出し・読み込み
+## 保存データの JSON 書き出し・読み込み
 
 `LibraryImportExportService` と `LibraryJSONSchema`(`formatVersion` 4)。qooViewer 専用の
 1ファイルで、コレクション(ライブラリ → コレクション → 本)・ブックマーク・レイアウト・メタデータ・
@@ -130,7 +130,7 @@
   どちらにも「お気に入り」の行を出さず、書き出しの既定は**含めない**、読み込みの既定は**無視**。
   スキーマ・サービス側の経路はそのまま残してあるので、過去の書き出しファイルは読める
   (→ [06](06-persistence.md#一覧))。
-- コレクション(`ExportedLibrary` / `ExportedCollection` / `ExportedCollectionBook`)は**カバー画像を
+- コレクション(`ExportedLibrary` / `ExportedCollection` / `ExportedCollectionBook`)は**表紙の画像を
   含めない**(取り込んだ先で `CollectionCoverExtractor` が抽出し直す。読み込みウインドウが完了時に
   `refill()` を呼ぶ)。ライブラリの縦横比・残す位置は Optional(無ければ既定)。**常に先頭/末尾に
   表示するコレクション**(`pinnedFirstCollection` / `pinnedLastCollection`)は**名前**で書き出す

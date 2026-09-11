@@ -16,7 +16,7 @@
 | 05 | [05-page-display-and-memory.md](05-page-display-and-memory.md) | ページ画像のデコード・キャッシュ・先読み・メモリ管理。ソリッド7zの扱い |
 | 06 | [06-persistence.md](06-persistence.md) | 何をどこに保存するか。SwiftData の落とし穴、シークレットウインドウ、リセット |
 | 07 | [07-page-order-layout-bookmarks.md](07-page-order-layout-bookmarks.md) | ページの並び順・見開きの組み方・レイアウト設定・ブックマークの鍵 |
-| 08 | [08-export-and-import.md](08-export-and-import.md) | EPUB/PDF/CBZ の書き出し、画像の書き出し、ライブラリデータ(JSON)の書き出し・読み込み |
+| 08 | [08-export-and-import.md](08-export-and-import.md) | EPUB/PDF/CBZ の書き出し、画像の書き出し、保存データ(JSON)の書き出し・読み込み |
 | 09 | [09-ui-and-windows.md](09-ui-and-windows.md) | 画面の構成、入力の扱い、パネルの見た目、補助ウインドウの共通の形、環境設定の方針 |
 | 10 | [10-sandbox-and-security.md](10-sandbox-and-security.md) | サンドボックス下でファイルに触るための約束事 |
 | 11 | [11-forked-dependencies.md](11-forked-dependencies.md) | 独自にフォークした依存ライブラリ(SevenZip.swift / Unrar.swift)に、何のためにどんな変更を加えたか |

@@ -100,12 +100,16 @@
 `LibraryCleanupViewModel`(保存データの削除)と `MetadataEditorViewModel`(知っている本)と
 `BookExportViewModel`(URL の解決)は、コレクションの登録も数える・使う。
 
-## カバー画像
+## コレクション表紙
+
+> **「コレクション表紙」と「カバー画像」は別物**(2026-09-11 に分離)。棚に出るのが前者、
+> EPUB/CBZ/PDF へ書き出すのが後者。分けた理由と移行は下の「カバー画像との分離」を参照。
 
 | 部品 | 役割 |
 |---|---|
-| `CollectionCoverStore`(actor) | `~/Library/Application Support/<bundle id>/CollectionCovers/<CollectionItem.id>.jpg`。長辺 768px、JPEG 0.8。**切らずに**保存する |
-| `CoverImageResolver`(nonisolated) | 「この本のカバーはどの画像か」を決める唯一の場所(上書き > 実効1ページ目)と、枠へ収める切り方 `cropped(_:to:anchor:)` |
+| `CollectionCoverStore`(actor) | `~/Library/Application Support/<bundle id>/CollectionCovers/<CollectionItem.id>.jpg`。長辺 768px、JPEG 0.8。**切らずに**保存する。**表示のために焼いた派生物**でアイテム単位 |
+| `CollectionCoverSourceStore`(struct) | `.../CollectionCoverSources/<uuid>.jpg`。利用者が指定した画像の**複製**(長辺 1536px、JPEG 0.85)。**作り直しの元**で本単位 |
+| `CoverImageResolver`(nonisolated) | 「この本の表紙はどの画像か」を決める唯一の場所(上書き > 実効1ページ目)と、枠へ収める切り方 `cropped(_:to:anchor:)` |
 | `CollectionCoverExtractor`(MainActor) | アプリ全体で1本の待ち行列。**同時1件**、上から順に埋まる。本を丸ごと開いて先頭ページを復号するので、並列にするとビューアの邪魔になる |
 | `CollectionCoverThumbnail` / `CollectionTile` | 描く側。`CGImageSourceCreateThumbnail` で描く大きさだけ読み、`LazyCellImageBudget` で画面外セルの分を数える(`LazyVGrid` は画面外セルを解放しない) |
 | `CollectionTileImageStore`(actor) / `CollectionTileImageCache` | 焼いた札の絵(下記)。`~/Library/Caches/<bundle id>/CollectionTiles/<BookCollection.id>-<署名>.jpg` と、その復号済みメモリ LRU |
@@ -129,17 +133,21 @@ start / center / end。切る軸は画像と枠の比から決まるので軸に
 読み方向は何も言えないうえ、読み方向を変えるとカバーの見た目まで変わるのは予想しにくい。
 
 本ごとの上書き:
-- **どの画像か** ―― `BookLayoutSettings.coverPageKey` / `externalCoverBookmarkData`。EPUB/CBZ の
-  書き出しウインドウのカバー列と同じ行を読むので、どこで変えても3か所(コレクション・
-  「メタデータの編集」ウインドウのカバー列・書き出しウインドウ)が一致する。
+- **どの画像か** ―― `BookLayoutSettings.shelfCoverPageKey` / `shelfCoverImageFileName`。
+  **書き出し用の `coverPageKey` / `externalCover*` とは別の列**で、片方を変えてももう片方は
+  変わらない(下の「カバー画像との分離」)。画像指定のほうはブックマークではなく**保管庫の中の
+  ファイル名**なので、利用者が元の画像を消しても表紙は壊れない。
 - **残す位置** ―― `BookLayoutSettings.coverCropAnchorRaw`(nil = ライブラリの設定に従う)。
   `hasCoverOverride` には数えないので「既定に戻す」で消えない。**コレクションの表示にだけ効き、
   書き出すカバーはトリミングしない**ので、書き出しウインドウのピッカーには出さない
   (`ExportCoverCell.showsCropAnchor`)。
 - 抽出をやり直す契機は「どの画像か」が変わったときだけ(`.layoutDataDidChange` を自分が最後に
-  使った値と比べる)。比・位置・読み方向では作り直さない。
+  使った値と比べる)。比・位置・読み方向では作り直さない。**書き出し用のカバー画像の変更でも
+  作り直さない**(控えは `shelfCover*` の2列だけを見る)。
 
-実体が見つからない本は `.failed`(灰色)にせず `.pending` のまま置き、存在確認で「無い」と分かって
+**画像指定の表紙は本を開かずに作れる**ので、本体が未接続でも抽出する(`CoverImageResolver.coverImage`
+は `bookAt:` が nil でも保管庫の画像だけで返す)。それ以外の実体が見つからない本は
+`.failed`(灰色)にせず `.pending` のまま置き、存在確認で「無い」と分かって
 いる間は待ち行列へ積まない。存在確認の結果が変わったら `refill()` する。外付けが未接続のときに
 待ち行列が回ると全冊 `.failed` になり、再接続しても二度と抽出されなかった(監査で指摘)。
 
@@ -149,6 +157,72 @@ start / center / end。切る軸は画像と枠の比から決まるので軸に
 不具合になった(ログでモデルは無罪と確認。macOS の SwiftUI では `.contextMenu` が `@State` の変化に
 追随しない事例が複数報告されている)。今は `@Published revision` を出し、カバーとメニューの組を
 `.id(revision)` で作り直す。
+
+## カバー画像との分離(2026-09-11)
+
+分離前は `BookLayoutSettings.coverPageKey` / `externalCover*` の1組が、棚の表紙と書き出しの
+カバー画像を兼ねていた。**寿命が違う**のが問題だった:
+
+- 棚の絵はアプリが 768px の JPEG に焼いて持つので、元ファイルが消えても出続ける
+- 書き出しは毎回そのブックマークから**元ファイルを読み直す**
+
+つまり元ファイルを消すと、**書き出しのカバーだけが黙って既定(実効1ページ目)へ戻り、棚は何も
+変わらないので誰も気づけない**。2026-09-11 の実測では、外部ファイルを指定していた **131冊すべて**で
+元ファイルが失われていた(置き場所は全件 `~/Downloads`、名前も `表紙.webp` のような使い回し)。
+「これから消す場所に置いた画像を指定する」という自然な操作が、そのまま壊れる操作になっていた。
+
+用途から見ても兼ねられない。EPUB は生成したカバーページ、CBZ は**先頭ページそのもの**として
+書き出されるので、表紙用に縮めた絵を流用すると本文より明らかに眠い1ページになる。
+
+分けた結果:
+
+| | コレクション表紙 | カバー画像 |
+|---|---|---|
+| 用途 | 棚・コレクションの表示 | EPUB/CBZ/PDF の書き出し |
+| 列 | `shelfCoverPageKey` / `shelfCoverImageFileName` | `coverPageKey` / `externalCover*` |
+| 設定場所 | 「メタデータの編集」ウインドウ・シート | 書き出しウインドウ・1冊書き出しシート |
+| 画像の実体 | **アプリの中に複製**(`CollectionCoverSourceStore`) | 元ファイルをブックマーク参照(従来どおり) |
+
+書き出し側を従来どおりブックマーク参照のままにしたのはユーザー判断(原寸で書き出すため)。
+そのぶん「指定した画像ファイルは消さないこと」がマニュアルの注意として要る。
+
+`coverCropAnchorRaw` は**表紙専用**の設定として据え置き(書き出すカバーはトリミングしない)。
+
+### 移行(起動時に一度きり)
+
+`CollectionCoverExtractor.migrateShelfCoverSeparationIfNeeded` → `LayoutStore.migrateCoverSeparation`。
+
+- **外部ファイル指定** → 表紙側へ引き取り、書き出し側の4列をクリアする。元画像として渡すのは
+  その本の `CollectionCovers/<itemID>.jpg` ―― 元ファイルが全滅している以上、**その絵の最後の1枚**。
+  焼き直さずバイトのまま複製し(`storeCopy`)、`CollectionCovers` には指一本触れない。棚の見え方は
+  1枚も変わらず、JPEG の世代も増えない。書き出し側は既に既定へ落ちていたのでクリアしても結果は同じ
+- **本の中のページ指定** → 表紙側にも複製し、書き出し側は残す。どちらも壊れていないので両方そのまま
+- まだ抽出できていない本があると複製元が無い。**1冊でも取りこぼしたら済み印を立てずに戻る**ので、
+  次の起動でやり直せる(既に引き取った本は `hasShelfCoverOverride` で飛ばされる)
+- 済み印は `UserDefaults` の `qooViewer.collections.shelfCoverSeparation`。`qooViewer.pref.` で
+  始めないのは、環境設定の「初期設定に戻す」で消えると移行がもう一度走るため
+
+実測(2026-09-11、実データ): 131冊の複製が棚の JPEG と**バイト一致**、`CollectionCovers` 2242枚は
+移行前のバックアップと**差分ゼロ**。
+
+## 表紙の書き出し・読み込み(zip)
+
+環境設定「読み込みと書き出し」(`DataTransferSettingsView`)から開く2つの一覧ウインドウ。
+保存データの JSON には画像が入らないので、表紙はこちらで別に出し入れする。
+
+- `ShelfCoverArchive` が zip の読み書き。**書き出しは保管庫の JPEG をバイトのまま複製するだけ**
+  (復号も再エンコードもしない)。エントリ名は本の名前(`MetadataEditorViewModel.baseName`)＋連番、
+  対応表 `qooViewer-covers.json` を同梱する
+- 読み込みは manifest 優先 → ファイル名で照合(`KnownBooks.matchKey` が NFC と大文字小文字を畳む)。
+  母体は「メタデータの編集」と同じ `KnownBooks.collect`。曖昧な行は**選ばれていない状態**で出す
+- `ImageIntegrityCheck` が取り込む前に見る: 形式(中身から)・単一フレーム・**復号した寸法とヘッダの
+  一致**・**バイト列が形式自身の終端で終わっていること**(JPEG の EOI / PNG の IEND。画像の後ろに
+  別のファイルを継ぎ足す細工を弾く)。通ったものは**元のバイトのまま**保存する ―― 再エンコードで
+  落とせるのは埋め込みメタデータと継ぎ足しだけで、後者は直接確かめられる。危ないのは「信用できない
+  バイト列を Image I/O に復号させる」ところで、それは検査のためにどのみち通る
+- zip 側の防御: エントリ名は**照合にしか使わない**(保存名はこちらが振る UUID)ので Zip Slip は
+  構造的に起きない。エントリ数・1件あたり・合計のサイズに上限。展開はメモリ上だけ
+- 同じ zip を読み直しても、中身が同じ表紙には何もしない(毎回焼き直すと JPEG の世代が増える)
 
 ## 焼いた札の絵(タイルのキャッシュ)
 
@@ -457,7 +531,7 @@ FSEvents のコールバックが解放済みの `ModelContext` に触った ―
   表示」のメニュー(既定「なし」。候補はそのライブラリのコレクションを名前順で、もう片方に
   指定されているものは出さない。コレクションが1つも無いライブラリでは節ごと出さない)。
   設定パネルに説明文は置かない(ユーザー指示)。
-- **JSON**(`formatVersion` 4、→ [08](08-export-and-import.md#ライブラリデータの-json-書き出し読み込み)):
+- **JSON**(`formatVersion` 4、→ [08](08-export-and-import.md#保存データの-json-書き出し読み込み)):
   `libraries` → `collections` → `books` の素直な入れ子。カバー画像は含めない(取り込んだ先で
   抽出し直す)。ライブラリの縦横比・残す位置は Optional で、無ければ既定。
   常に先頭/末尾に表示するコレクションは**名前**で書き出す(id は取り込み側で作り直されるため。
