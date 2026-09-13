@@ -14,7 +14,8 @@ entitlement は無く、通信は一切しません。エンタイトルメン�
    として保存し、次回以降に解決して `startAccessingSecurityScopedResource()` したもの、
 3. 環境設定「フォルダのアクセス権」で許可したフォルダの配下すべて(`FolderAccessStore` が起動中
    ずっと開いたまま維持する)、
-4. 自分のコンテナ(`~/Library/Containers/com.qooProject.qooViewer/`)の中
+4. 自分のコンテナ(`~/Library/Containers/com.qooProject.qooViewer/`。Debug ビルドは
+   `com.qooProject.qooViewer.debug/` で、中身は共有しない → [02](02-project-and-build.md))の中
 
 だけです。**書庫ファイルを1つ開いただけでは、同じフォルダの他のファイルは見えません。**
 「次の本へ/前の本へ」「同じフォルダのファイルを開く」「サイドパネルのフォルダブラウザ」は、

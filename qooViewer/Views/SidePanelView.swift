@@ -17,8 +17,10 @@ import AppKit
 /// PDF/EPUBはページがファイル単位で存在しない、またはzipコンテナの生の中身を見せても
 /// かえって分かりづらいため下段は非表示のまま(BookContentsBrowserState.init?がnilを返す)。
 ///
-/// **ブックマークモード**: 上段はお気に入りのツリー、下段は今開いている本のブックマーク一覧。
-/// どちらの段も「追加」「編集ウインドウを開く」の2ボタンを持つ(ユーザー要望)。実際の追加
+/// **ブックマークモード**: 上段は今開いている本のブックマーク一覧、下段はライブラリ → コレクション →
+/// 本のツリー(2026-09-13。お気に入りを有効にしたときは、上段がお気に入りのツリー、下段が
+/// ブックマーク一覧)。ブックマーク・お気に入りの段は「追加」「編集ウインドウを開く」の2ボタンを
+/// 持つ(ユーザー要望)。実際の追加
 /// (登録先フォルダの選択シート)・編集ウインドウの表示は、このViewではなく呼び出し側
 /// (ContentView、およびそこからAppState経由でViewerView)が行う。
 ///
@@ -165,6 +167,10 @@ struct SidePanelView: View {
     /// ダイアログをContentViewに持たせている理由はonRenameFavoriteのコメント参照。
     var onRenameBookmark: (Bookmark) -> Void
     var onDeleteBookmark: (Bookmark) -> Void
+    /// ブックマークモード下段のライブラリのツリーの並び順(同じウインドウのウェルカム画面の
+    /// 並び順。SidePanelLibraryTreeSectionの型コメント)。
+    var librarySort: FavoritesSortOption = .nameAscending
+    var libraryItemSort: FavoritesSortOption = .nameAscending
 
     @State private var topSectionFraction: CGFloat = 0.5
     /// ブックマークモードの上下分割比。ブラウザモードのtopSectionFraction(フォルダブラウザと
@@ -174,6 +180,10 @@ struct SidePanelView: View {
     /// お気に入りツリーで展開中のフォルダのid一覧(FavoritesOrganizerView.expandedFolderIDsと
     /// 同じ考え方)。パネルの生存期間中は保持され、モードを切り替えても展開状態は残る。
     @State private var expandedFavoriteFolderIDs: Set<UUID> = []
+    /// ブックマークモード下段(ライブラリのツリー)で展開中のライブラリ・コレクション。
+    /// 最初は何も開いていない = ライブラリだけが並ぶ(ユーザー要望 2026-09-13)。
+    @State private var expandedLibraryIDs: Set<UUID> = []
+    @State private var expandedCollectionIDs: Set<UUID> = []
     /// 上段(フォルダブラウザ)の絞り込み検索欄の入力内容。フォルダを移動すると空に戻す
     /// (folderSection参照)。1つのフォルダに数百冊入っているケースで目的の本を素早く
     /// 見つけるための機能(ユーザー要望)。
@@ -336,15 +346,21 @@ struct SidePanelView: View {
         }
     }
 
-    /// ブックマークモード(上段=お気に入りツリー、下段=ブックマーク一覧)の中身。
+    /// ブックマークモードの中身。
+    ///
+    /// **いまの形(2026-09-13〜): 上段=ブックマーク一覧、下段=ライブラリのツリー**
+    /// (ユーザー要望。SidePanelLibraryTreeSection)。お気に入りが無効な間は、お気に入りの
+    /// あった場所をブックマークが引き継ぎ、空いた下半分にライブラリ・コレクション・本のツリーが入る。
+    /// 分割の比率はお気に入りのときと同じ`bookmarksTopSectionFraction`を使う。
+    ///
+    /// 以下は、お気に入りを有効にしたとき(上段=お気に入りツリー、下段=ブックマーク一覧)の説明。
     /// ブラウザモードと違い、上下どちらの段も常に表示する(本を開いていなくても、お気に入りの
     /// 閲覧・編集ウインドウの呼び出しはできる必要があり、ブックマーク側も「まだ何もない」
     /// ことが分かる形で見えていた方がよいため)。
     ///
-    /// 改善要望5でお気に入りを無効化したため、FavoritesFeature.isEnabledがfalseの間は上段
-    /// (お気に入り)と分割ハンドルを出さず、ブックマーク一覧が全高を使う1列構成になる
-    /// (履歴モード・ページモードと同じ形)。上下分割の比率(bookmarksTopSectionFraction)は
-    /// 保存されたまま触らないので、復活させれば以前の比率がそのまま戻る。
+    /// 改善要望5でお気に入りを無効化してから2026-09-13までは、FavoritesFeature.isEnabledがfalseの
+    /// 間はブックマーク一覧が全高を使う1列構成だった。いまはその下半分をライブラリのツリーが使う
+    /// (上記)。お気に入りを復活させた場合の形(お気に入り/ブックマークの2段)は変えていない。
     private var bookmarksModeBody: some View {
         GeometryReader { geometry in
             let fraction = effectiveTopFraction(
@@ -367,23 +383,44 @@ struct SidePanelView: View {
                     .frame(height: max(80, geometry.size.height * fraction - 4))
                     .clipped()
                     dragHandle(totalHeight: geometry.size.height, fraction: $bookmarksTopSectionFraction)
+                    bookmarksSection
+                        .frame(maxHeight: .infinity)
+                        .clipped()
+                } else {
+                    bookmarksSection
+                        .frame(height: max(80, geometry.size.height * fraction - 4))
+                        .clipped()
+                    dragHandle(totalHeight: geometry.size.height, fraction: $bookmarksTopSectionFraction)
+                    SidePanelLibraryTreeSection(
+                        expandedLibraryIDs: $expandedLibraryIDs,
+                        expandedCollectionIDs: $expandedCollectionIDs,
+                        collectionSort: librarySort,
+                        itemSort: libraryItemSort,
+                        currentBookPath: currentBookPath,
+                        onOpen: onOpen,
+                        onOpenInNewWindow: onOpenInNewWindow
+                    )
+                    .frame(maxHeight: .infinity)
+                    .clipped()
                 }
-                SidePanelBookmarksSectionView(
-                    bookmarks: bookmarks,
-                    currentPageIndex: currentPageIndex,
-                    partnerPageIndex: partnerPageIndex,
-                    hasBook: hasBook,
-                    allowsEditing: allowsLibraryEditing,
-                    onAdd: onAddBookmark,
-                    onEdit: onEditBookmarks,
-                    onJump: onJumpToBookmark,
-                    onRename: onRenameBookmark,
-                    onDelete: onDeleteBookmark
-                )
-                .frame(maxHeight: .infinity)
-                .clipped()
             }
         }
+    }
+
+    /// ブックマークモードのブックマーク一覧(お気に入りの有無で上段にも下段にもなる)。
+    private var bookmarksSection: some View {
+        SidePanelBookmarksSectionView(
+            bookmarks: bookmarks,
+            currentPageIndex: currentPageIndex,
+            partnerPageIndex: partnerPageIndex,
+            hasBook: hasBook,
+            allowsEditing: allowsLibraryEditing,
+            onAdd: onAddBookmark,
+            onEdit: onEditBookmarks,
+            onJump: onJumpToBookmark,
+            onRename: onRenameBookmark,
+            onDelete: onDeleteBookmark
+        )
     }
 
     private var effectiveWidth: CGFloat {

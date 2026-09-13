@@ -36,7 +36,10 @@ xcodebuild -project qooViewer.xcodeproj -scheme qooViewer -configuration Debug \
   -destination 'platform=macOS' test
 ```
 
-Normal development is done in Xcode (`Cmd+R`). There is no SwiftLint/SwiftFormat config in this project —
+Normal development is done in Xcode (`Cmd+R`). **The Debug configuration uses its own bundle identifier
+(`com.qooProject.qooViewer.debug`, shown as "qooViewer Debug")**, so a Debug build — and the test host —
+has a separate sandbox container and never touches the everyday app's saved data; checks that need real
+data go through the installed Release app. There is no SwiftLint/SwiftFormat config in this project —
 do not assume one exists.
 
 CI is GitHub Actions (`.github/workflows/`): `build.yml` builds Debug and Release on `macos-26` with warnings
@@ -93,6 +96,14 @@ succession on the same context (see comments in PageLoader-adjacent model files,
 Models/PageLayoutOverride.swift / Models/BookLayoutSettings.swift, before touching uniqueness constraints).
 `QooViewerApp.modelSchema`/`modelConfiguration` also has a user-facing recovery path if the store fails to
 load (offers to delete and recreate) — keep new model types additive/lightweight-migration-friendly.
+**Whenever a `@Model` changes (or `QooViewerApp.modelTypes` does), add a row to
+`StoreSchemaGuard.generations`** (`StoreSchemaGuardTests` fails otherwise), and cover any new persisted
+attribute with a save → close → reopen test on a disposable on-disk store (`DisposableStore` /
+`StorePersistenceTests`) — in-memory stores never exercise reopening or migration. SwiftData silently
+"migrates" a newer store down to an older model and drops the columns that model doesn't know; on
+2026-09-11 launching the previous release did exactly that to 131 collection covers. Never run an older
+build of the app (including a test host built from an old tag) against real data. Details in
+`docs/06-persistence.md`.
 
 **Welcome screen = the bookshelf (libraries / collections)**: `Views/Welcome/` plus `CollectionStore`,
 `CollectionCoverStore` (covers on disk under Application Support — not a cache, never evicted),

@@ -58,6 +58,9 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
 
 ## 実物のアプリを外から操作する
 
+- **Debug ビルドのコンテナは `com.qooProject.qooViewer.debug`**(普段使いのアプリとは保存データが別。
+  → [02](02-project-and-build.md))。`defaults` のドメイン名もこちら。実データが要る確認は、
+  普段使いのアプリで行うか、Debug 側に検証用のデータを作って行う。
 - `open -a` でコンテナの `defaults` を書いてから起動し、シークレットモードで検証する。
   **ファイル選択ダイアログは自動操作しない**(サンドボックスの権限付与を伴うため)。
 - System Events(アクセシビリティ)でメニューやボタンを叩き、`screencapture -R` で見た目を自分の

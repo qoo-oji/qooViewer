@@ -22,7 +22,11 @@ import CoreGraphics
 ///   → `.layoutDataDidChange`(bookID付き)で届く。自分が最後に使った値と**比べて**違うときだけ
 ///     やり直す(ViewerViewModel.reloadLayoutDataと同じ方式)。
 ///
-/// 契機はこれだけ ―― **カバーの見せ方(比・切り出す位置・読み方向)では作り直さない。**
+/// - 「並び順をFinderに揃える」を切り替えて、**実効1ページ目が変わる本**(ユーザー要望 2026-09-13)
+///   → `.pageOrderSettingDidChange`。表紙を指定していない本だけが対象で、**表紙を出したまま**
+///     裏で作り直す(handlePageOrderSettingChange)。
+///
+/// それ以外 ―― **カバーの見せ方(比・切り出す位置・読み方向)では作り直さない。**
 /// カバーは切らずに保存し、枠へ合わせるのは表示のたびに行うようになった
 /// (CoverImageResolver.cropped(_:to:anchor:)のコメント参照)ので、抽出が気にするのは
 /// 「どの画像か」だけになった。
@@ -85,6 +89,17 @@ final class CollectionCoverExtractor: ObservableObject {
     }
     private var signatures: [String: CoverSignature] = [:]
 
+    /// 抽出中にもう一度作り直しを頼まれたitem。走っている抽出は古い条件で読み始めているので、
+    /// 終わったらもう一度積む(並び順の設定を続けて切り替えたとき。handlePageOrderSettingChange)。
+    private var redoAfterExtraction: Set<UUID> = []
+    /// 並び順の設定を変えたときの判定(ページ一覧のキャッシュを読む)。次の切り替えが来たら取り消す。
+    private var pageOrderEvaluation: Task<Void, Never>?
+    /// 「並び順をFinderに揃える」の現在値の読み口(**テストのための口**。既定は環境設定。
+    /// PageOrder.usesFinderOrderはUserDefaults.standardを読むので、テストは差し替える)。
+    private let usesFinderOrder: () -> Bool
+    /// 本のページ一覧のキャッシュの読み口(**テストのための口**。既定はBookPageListCache.shared)。
+    private let cachedPageList: @Sendable (String) async -> [BookPageListCache.Entry.Page]?
+
     private var observers: [NSObjectProtocol] = []
     /// 存在確認の結果が変わったら待ち行列を組み直す(型コメント「実体が見つからない本」参照)。
     private var existenceCancellable: AnyCancellable?
@@ -94,13 +109,19 @@ final class CollectionCoverExtractor: ObservableObject {
         coverStore: CollectionCoverStore,
         layoutStore: LayoutStore,
         cachesPageList: Bool = true,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        usesFinderOrder: @escaping () -> Bool = { PageOrder.usesFinderOrder },
+        cachedPageList: @escaping @Sendable (String) async -> [BookPageListCache.Entry.Page]? = {
+            await BookPageListCache.shared.pageList(forBookID: $0)?.pages
+        }
     ) {
         self.collectionStore = collectionStore
         self.coverStore = coverStore
         self.layoutStore = layoutStore
         self.cachesPageList = cachesPageList
         self.defaults = defaults
+        self.usesFinderOrder = usesFinderOrder
+        self.cachedPageList = cachedPageList
 
         // queue: .mainを指定しているため実行時には必ずMainActor上で呼ばれるが、クロージャ自体の
         // 型はMainActorに分離されていないため、コンパイラは静的にそれを保証できない
@@ -119,7 +140,13 @@ final class CollectionCoverExtractor: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.refill() }
         }
-        observers = [layoutObserver, collectionsObserver]
+        // 並び順の設定が変わったら、実効1ページ目が変わる本の表紙を作り直す(型コメント参照)。
+        let pageOrderObserver = NotificationCenter.default.addObserver(
+            forName: .pageOrderSettingDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.handlePageOrderSettingChange() }
+        }
+        observers = [layoutObserver, collectionsObserver, pageOrderObserver]
         // `@Published`の投影はwillSetで飛ぶ(ストアの値はまだ差し替わっていない)ので、
         // 届いた値のほうで組み直す。代入はメインアクター上(finishExistenceRefresh)なので
         // ここも同期的にメインアクター上で走る(FavoritesStore.initの同種のコメント参照)。
@@ -218,6 +245,9 @@ final class CollectionCoverExtractor: ObservableObject {
     func cancelAll() {
         queue.removeAll()
         queuedIDs.removeAll()
+        redoAfterExtraction.removeAll()
+        pageOrderEvaluation?.cancel()
+        pageOrderEvaluation = nil
         currentTask?.cancel()
         currentTask = nil
         isRunning = false
@@ -241,6 +271,12 @@ final class CollectionCoverExtractor: ObservableObject {
             while !Task.isCancelled {
                 guard let extractor = self, let itemID = extractor.takeNext() else { break }
                 await extractor.extract(itemID: itemID)
+                // 抽出中に作り直しを頼まれていたら、もう一度積む(redoAfterExtractionのコメント)。
+                if extractor.redoAfterExtraction.remove(itemID) != nil,
+                   !extractor.queuedIDs.contains(itemID) {
+                    extractor.queue.append(itemID)
+                    extractor.queuedIDs.insert(itemID)
+                }
             }
             guard let extractor = self, extractor.runGeneration == generation else { return }
             extractor.isRunning = false
@@ -256,7 +292,9 @@ final class CollectionCoverExtractor: ObservableObject {
         extractionAttemptCount += 1
         // 抽出に使う条件はここでだけ組み立てる。控えに要るのは「どの画像か」を表す2列だけなので、
         // 控えのほうは本を解決せずにDBの値から作る(signature(forBookID:)参照)。
-        let snapshot = layoutStore.shelfCoverSnapshot(forBookID: bookID)
+        var snapshot = layoutStore.shelfCoverSnapshot(forBookID: bookID)
+        // 並び順の設定は、作り直しの判定(handlePageOrderSettingChange)と同じ読み口から取る。
+        snapshot.usesFinderOrder = usesFinderOrder()
         let url = collectionStore.resolvedExistingURL(for: item)
         // ブックマークが解決できない・実体が無い本は`.pending`のまま置いて戻る
         // (型コメント「実体が見つからない本」参照)。`.failed`は本を開けなかったときだけ。
@@ -294,10 +332,10 @@ final class CollectionCoverExtractor: ObservableObject {
         // 焼いてある札の絵は、この本のカバーが**差し替わった**ことを自分では知りようがない
         // (指紋にカバーの中身は入っていない)ので、ここで捨てる
         // (CollectionStore.invalidateTileImages(forItemID:)参照)。
-        collectionStore.invalidateTileImages(forItemID: itemID)
+        await collectionStore.invalidateTileImages(forItemID: itemID)
         guard let stored = collectionStore.item(withID: itemID) else { return }
-        collectionStore.setCoverStatus(
-            .ready, aspect: Double(image.width) / Double(image.height), for: stored
+        collectionStore.setCoverReady(
+            aspect: Double(image.width) / Double(image.height), for: stored
         )
     }
 
@@ -337,6 +375,90 @@ final class CollectionCoverExtractor: ObservableObject {
         signatures[bookID] = current
         collectionStore.markCoversPending(forBookID: bookID)
         enqueue(items)
+    }
+
+    /// 「並び順をFinderに揃える」が切り替わった(ユーザー要望 2026-09-13)。
+    ///
+    /// ■ 何を作り直すか
+    /// 表紙を指定していない(= 実効1ページ目を表紙にしている)`.ready`の本のうち、**新旧の設定で
+    /// 実効1ページ目が変わる本だけ**。並べ替え(レイアウト)で順番を固定した本・PDF/EPUBは、
+    /// 判定の式(CoverImageResolver.firstPage)がそのまま「変わらない」と答える。
+    /// 判定は本を開かずに、ページ一覧のキャッシュ(BookPageListCache)で行う。**キャッシュが無い本は
+    /// 作り直す**(ユーザーの判断 2026-09-13 ―― 判定できないまま古い表紙を残すより、1冊ずつ
+    /// 読み直して確実に合わせる。作り直した本はキャッシュが埋まるので、次からは判定できる)。
+    ///
+    /// ■ 表紙を出したまま作り直す
+    /// `.pending`へ戻さない ―― 戻すと、作り直しが順番を待つ間ずっと表紙が下地とスピナーになる。
+    /// 待ち行列へ積むだけにして、書き終えた時点で差し替える(CollectionStore.setCoverReadyが
+    /// 描き直しの合図を出す)。本が見つからなければextractが何もせずに戻り、古い表紙が残る。
+    func handlePageOrderSettingChange() {
+        pageOrderEvaluation?.cancel()
+        let newValue = usesFinderOrder()
+        // SwiftDataのモデルはメインアクターの外へ渡せないので、判定に要る値へ写し取る。
+        struct Candidate: Sendable {
+            let bookID: String
+            let isDocument: Bool
+            let snapshot: CoverImageResolver.OverrideSnapshot
+        }
+        var seen: Set<String> = []
+        var candidates: [Candidate] = []
+        for item in collectionStore.allItems() where item.coverState == .ready {
+            guard seen.insert(item.bookID).inserted else { continue }
+            let snapshot = layoutStore.shelfCoverSnapshot(forBookID: item.bookID)
+            // 表紙を指定している本は、並び順と関係が無い。
+            guard snapshot.coverPageKey == nil, snapshot.imageFileURL == nil else { continue }
+            candidates.append(Candidate(
+                bookID: item.bookID,
+                isDocument: isPDFFile(item.bookID) || isEpubFile(item.bookID),
+                snapshot: snapshot
+            ))
+        }
+        guard !candidates.isEmpty else { return }
+        let cachedPageList = cachedPageList
+        pageOrderEvaluation = Task { [weak self] in
+            let affected = await Task.detached(priority: .utility) { () -> [String] in
+                var affected: [String] = []
+                for candidate in candidates {
+                    if Task.isCancelled { return [] }
+                    // PDF/EPUBはファイル自身のページ順なので、設定で先頭は変わらない。
+                    guard !candidate.isDocument else { continue }
+                    guard let pages = await cachedPageList(candidate.bookID), !pages.isEmpty else {
+                        affected.append(candidate.bookID)
+                        continue
+                    }
+                    var before = candidate.snapshot
+                    before.usesFinderOrder = !newValue
+                    var after = candidate.snapshot
+                    after.usesFinderOrder = newValue
+                    let oldFirst = CoverImageResolver.firstPage(of: pages, pageOrderSource: .fileName, snapshot: before)
+                    let newFirst = CoverImageResolver.firstPage(of: pages, pageOrderSource: .fileName, snapshot: after)
+                    if oldFirst?.sortKey != newFirst?.sortKey { affected.append(candidate.bookID) }
+                }
+                return affected
+            }.value
+            guard !Task.isCancelled, let self else { return }
+            self.refreshCovers(forBookIDs: affected)
+        }
+    }
+
+    /// 表紙を出したまま、これらの本のカバーを作り直す(handlePageOrderSettingChangeのコメント)。
+    private func refreshCovers(forBookIDs bookIDs: [String]) {
+        var items: [CollectionItem] = []
+        for bookID in bookIDs {
+            for item in collectionStore.items(forBookID: bookID) where item.coverState == .ready {
+                if inFlightItemIDs.contains(item.id) {
+                    redoAfterExtraction.insert(item.id)
+                } else {
+                    items.append(item)
+                }
+            }
+        }
+        enqueue(items)
+    }
+
+    /// 並び順の設定の判定が終わるまで待つ(**テストのための口**)。
+    func settlePageOrderEvaluation() async {
+        await pageOrderEvaluation?.value
     }
 
     // MARK: - カバー画像と表紙の分離(2026-09-11の一度きりの移行)

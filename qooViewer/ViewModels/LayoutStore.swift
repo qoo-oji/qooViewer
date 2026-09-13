@@ -622,6 +622,9 @@ final class LayoutStore: ObservableObject {
     /// **フェッチに失敗したら掃除しない**(CollectionStore.sweepOrphanedCoversと同じ理由)。
     /// settingsByBookID()は失敗を空辞書に潰すので、そのまま渡すと「参照が1つも無い」と
     /// 見なして全部消してしまう ―― しかもこれは作り直せない絵だ。
+    ///
+    /// 参照の無いファイルも、すぐには消さずに30日隔離する(CollectionCoverSourceStore.sweepOrphans。
+    /// 2026-09-11に参照のほうが間違って消え、この掃除が元画像を131枚消した)。
     func sweepOrphanedShelfCoverImages() {
         guard let all = try? modelContext.fetch(FetchDescriptor<BookLayoutSettings>()) else { return }
         let names = Set(all.compactMap(\.shelfCoverImageFileName))

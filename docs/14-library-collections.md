@@ -86,6 +86,21 @@
   - タイトルが同じ本はファイル名で決める(`sorted(by:)` は安定ではないので、描き直すたびに
     順番が入れ替わらないよう最後まで決め手を用意する)。
 
+- **「作成日」「変更日」もコレクションの中にしか出さない**(ユーザー要望 2026-09-13)。本の
+  ファイル/フォルダの `creationDate` / `contentModificationDate`(Finder の「作成日」「変更日」と
+  同じ値)で、**DB には保存しない**(アプリの外で変わる)。実体確認と同じ契機・同じ
+  `Task.detached` で読み(`fileDatesByItemID`)、登録した直後はその場で読む(`PendingItem.fileDates`)。
+  日付の分からない本(実体が見つからない等)は昇順・降順のどちらでも末尾へ、同じ日付は名前で決める。
+  お気に入り・ブックマーク・コレクションの並べ替えに回ってきたときは名前として扱う(「タイトル」と同じ)。
+
+- **検索**(ユーザー要望 2026-09-13): `collections(in:sort:matching:)` は**コレクションの名前**か
+  **中の本**が一致するもの、`items(in:sort:matching:)` は本自身が一致するもの。本の照合に使う文字列は
+  **ファイル名/フォルダ名(拡張子つき)と登録済みのメタデータ(タイトル・作者・シリーズ・巻数)**で、
+  `BookTitleResolver.searchableText` がタイトルと同じ規則(通し番号の照合で捨てる)で覚えておく。
+  照合の規則は `LibrarySearchQuery`: 空白区切りの語をすべて含む(AND。全角の空白も区切り)、
+  大文字小文字・全角半角・Unicode の正規化(NFC)を畳む、**濁点は畳まない**
+  (`.diacriticInsensitive` は「が」と「か」を同じにし、半角の `ﾊﾟ` を壊れた文字列にする。実測)。
+
 - 件数・階層の上限は無い。
 - **まとめて消す経路**を持つ(`delete(_ collections:)` / `remove(_ items:)` / `move(_ collections:to:)`)。
   1件ずつ既存の API を呼ぶと保存と通知がその回数だけ走る。複数の本にまたがる通知には
@@ -114,6 +129,13 @@
 | `CollectionCoverThumbnail` / `CollectionTile` | 描く側。`CGImageSourceCreateThumbnail` で描く大きさだけ読み、`LazyCellImageBudget` で画面外セルの分を数える(`LazyVGrid` は画面外セルを解放しない) |
 | `CollectionTileImageStore`(actor) / `CollectionTileImageCache` | 焼いた札の絵(下記)。`~/Library/Caches/<bundle id>/CollectionTiles/<BookCollection.id>-<署名>.jpg` と、その復号済みメモリ LRU |
 
+**表紙の元画像(`CollectionCoverSources`)は、参照が無くてもすぐには消さない**(2026-09-13)。
+起動時の掃除は保管庫の中の `.orphaned/` へ隔離し、30日経ったものだけを消す。参照が戻れば
+(DB を戻した・修復した)隔離から戻す。2026-09-11 に**参照のほうが間違って消えた**とき
+(→ [06](06-persistence.md#古いアプリで新しいストアを開くと列が黙って消える2026-09-11-の事故と対策))、
+この掃除が作り直せない画像を131枚まとめて消した ―― DB の記録が正しいとは限らない以上、
+「参照が無い」は「要らない」の証明にならない。
+
 **Caches ではなく Application Support** に置くのは、消えると登録してある本を**全冊**読み直すことに
 なるため(未接続のボリューム上の本なら作り直せもしない)。キャッシュではないので上限も自動削除も
 無く、リソースモニタの「ディスク上」にも上限を並べずに容量だけ出す。コレクション・本の登録・
@@ -141,9 +163,20 @@ start / center / end。切る軸は画像と枠の比から決まるので軸に
   `hasCoverOverride` には数えないので「既定に戻す」で消えない。**コレクションの表示にだけ効き、
   書き出すカバーはトリミングしない**ので、書き出しウインドウのピッカーには出さない
   (`ExportCoverCell.showsCropAnchor`)。
-- 抽出をやり直す契機は「どの画像か」が変わったときだけ(`.layoutDataDidChange` を自分が最後に
-  使った値と比べる)。比・位置・読み方向では作り直さない。**書き出し用のカバー画像の変更でも
-  作り直さない**(控えは `shelfCover*` の2列だけを見る)。
+- 抽出をやり直す契機は「どの画像か」が変わったとき(`.layoutDataDidChange` を自分が最後に
+  使った値と比べる)と、下の「並び順の設定」だけ。比・位置・読み方向では作り直さない。
+  **書き出し用のカバー画像の変更でも作り直さない**(控えは `shelfCover*` の2列だけを見る)。
+- **「並び順をFinderに揃える」を切り替えたら、実効1ページ目が変わる本だけ作り直す**
+  (ユーザー要望 2026-09-13。`handlePageOrderSettingChange`)。表紙を指定していない `.ready` の本の
+  うち、ページ一覧のキャッシュ(`BookPageListCache`)で新旧の設定の先頭を比べて、違う本だけ。
+  **キャッシュの無い本は作り直す**(ユーザーの判断)。判定と抽出は同じ式
+  (`CoverImageResolver.firstPage`)を通す。レイアウトで順番を固定した本・PDF/EPUB は、その式が
+  そのまま「変わらない」と答える。
+  **表紙を出したまま作り直す** ―― `.pending` へ戻すと順番待ちの間ずっと下地とスピナーになるので、
+  待ち行列へ積むだけにして、書き終えたら `CollectionStore.setCoverReady` が差し替えの合図
+  (`coverRevisionByItemID`。保存しない回数)を出す。状態が `.ready` のまま変わらないので、表示側は
+  読み直しの鍵にこの回数を入れている。札の古い絵は、合図を出す**前に**捨て終える
+  (`invalidateTileImages` を await する)。抽出中に頼まれた作り直しは、終わってからもう一度積む。
 
 **画像指定の表紙は本を開かずに作れる**ので、本体が未接続でも抽出する(`CoverImageResolver.coverImage`
 は `bookAt:` が nil でも保管庫の画像だけで返す)。それ以外の実体が見つからない本は
@@ -267,6 +300,17 @@ start / center / end。切る軸は画像と枠の比から決まるので軸に
 帳簿へは焼いた絵1枚を `cellCount = tileCellCount` として渡す ―― 1枚=1セルと数えると、下限セル数
 (画面内に並びうる**カバー**の数から見積もる)に届くまでに6倍溜め込むことになる。
 
+**大きさを変えている間は、同じ絵の別の大きさでつなぐ**(ユーザー報告 2026-09-13「スライダーで
+大きさを変えると表紙が一瞬消えて点滅して見える」)。札の復号サイズは段に丸めてあり、段をまたぐと
+鍵が変わる。以前はその瞬間に焼いた絵が見つからず、札が**生のセル**(空の `@State` から始まる)へ
+落ちて下地が見えていた。いまは `sheetImage(forKey:request:)` が、ちょうどの大きさが無ければ
+手元の絵(`LoadedSheet.sheetPrefix` が同じもの)かメモリ LRU の同じ絵の別の大きさ
+(`cachedImage(anySizeFor:)`)を返し、ちょうどの大きさが届いたら差し替える。段は 32px から 128px
+刻みへ粗くした ―― 細かいとドラッグ1回で十数回の読み直しになり、帳簿へ積まれてグリッドの作り直し
+(= 本当に絵が消える)まで呼び込んでいた。生のセルとコレクションの中のカバー
+(`CollectionCoverThumbnail`)も、**新しい絵が届くまで古い絵を手放さない**・**小さくする方向では
+読み直さない**(256px の段)。
+
 **切り分けた結果は控える(`CollectionTile.SliceCache`)。** `CGImage.cropping(to:)` は画素を
 コピーしない代わりに、呼ぶたびに**別のオブジェクト**を返す。body のたびに切り直すと SwiftUI からは
 `Image` の中身が毎回すり替わったように見え、描き直しになる。しかも `ContentView` はサイドパネルの
@@ -295,10 +339,37 @@ WelcomeView(PanelSurface.welcome)
  ├─ WelcomeTopBar(44pt): [本を開く…][履歴から開く] | ライブラリのチップ(横スクロール) | ＋
  ├─ Divider
  └─ WelcomeLibraryPane
-     ├─ LibraryPaneControls(右上): [全選択 ゴミ箱(編集中のみ)] ＋ 編集 並べ替え スライダー 歯車
+     ├─ WelcomePaneHeaderLayout: [戻る・名前・冊数(中のみ)] | 検索欄(中央) | LibraryPaneControls
+     │    LibraryPaneControls(右): [全選択 ゴミ箱(編集中のみ)] ＋ 編集 並べ替え スライダー 歯車
      ├─ CollectionGridView(札の一覧。LazyVGrid .adaptive)      ← openedCollectionID == nil
      └─ CollectionDetailView(中の本。カバーの一覧)             ← 開いているとき
 ```
+
+**操作列の行**(改善要望6、2026-09-13):
+
+- **中央に検索欄**(`WelcomeSearchField`)。「左・中央・右」を割り付ける `WelcomePaneHeaderLayout` が、
+  右の列の幅を左右に予約した上で行の中央へ置く(HStack + Spacer では左右の部品の幅の差だけ
+  ずれる)。狭いときは中央を諦めて右の列の隣へ寄せる。地は不透明(輪郭を掛けない側)。
+  絞り込み中は、コレクションの中の冊数を「出ている数 / 全体」にする。
+- **検索を捨てる契機**は、ライブラリの切り替えと、絞り込んだ一覧から**一致する本の無い**
+  コレクションを開いたとき(名前だけが一致した棚)。**戻るときは残す**(戻るボタン・選択中の
+  チップ)。ユーザーの判断で一度「戻るでも捨てる」に振れてから、この形に決まった。検索が変わったら
+  選択を捨てる(見えなくなったものをゴミ箱が消さない)。全選択・マーキー・右クリックの対象も、
+  絞り込んだ後の並び。
+- **札・カバーはスライダーの値ちょうどの幅で並ぶ**(`WelcomeGridColumns`)。以前の
+  `.adaptive(minimum:)` は残りの幅を列へ配り直すので、列数が変わる瞬間にしか大きさが変わらず
+  (しかも跳ぶ)、「無段階にスムーズに」に合わなかった。ページ一覧パネルと同じ固定幅の列にして、
+  余りは左右に均等に空ける。幅は `GeometryReader` で取る(最初のフレームで1列から並び直すのを
+  見せない)。常に表示するスクロールバーの幅は使える幅から引く。
+- **ピンチで大きさを変える**(`welcomeGridPinch`)。ページ一覧パネルと同じく NSEvent のローカル
+  モニタで、ポインタの下のビューがそのグリッドの NSScrollView の子孫のときだけ受ける。
+  積み上げは `(1 + magnification)` の掛け算。
+- **戻るボタンの押せる範囲**は、見出しの行の左と上下の余白(横16・縦8)まで。
+  `contentShape` を負の余白で戻す形は**効かなかった**(SwiftUI の当たり判定は枠の外へ伸びない。
+  実測)ので、行の左と上下の余白をボタン自身の大きさとして持たせ、検索欄の中央はその分を勘定に
+  入れて求める(`leadingInset`)。
+- **選択中のライブラリのチップを押すと、そのライブラリの一覧へ戻る**(以前は何も起きなかった)。
+  検索は残す(ライブラリは移っていない)。
 
 状態は `WelcomeLibraryState`(`ContentView` が `@StateObject` で1ウインドウに1つ):
 選択中のライブラリ(UserDefaults `qooViewer.welcome.*` ―― `qooViewer.pref.*` ではないので
@@ -371,6 +442,10 @@ WelcomeView(PanelSurface.welcome)
 掛けてある。`panelOutlinedFrame` は `panelOutlinedAccent` と描くものは同じで、要る理由が違う ――
 あちらは「状態が伝わらない」、こちらは「区画そのものが在ることが伝わらない」。
 ポップオーバー・シートの中身は macOS が不透明に描くので何も要らない。
+改善要望6で足した部品(2026-09-13。「ダーク+白100%」「ライト+黒100%」の両方で実測): 検索欄は
+**不透明な地**(`textBackgroundColor` + `separatorColor` の縁)なので輪郭を掛けない。一致なしの案内・
+コレクションの中の見出しの冊数・サイドパネルのツリーの行は `.panelOutlinedContent()`。冊数バッジの
+白い縁は、黒100%の面でカプセルの形が消えないことにも効いている。
 
 実測して決めた細部(理由は各ファイルのコメント): ボタンの幅は `Button` ではなく**ラベル**に与える
 (ベゼルは文字列の長さのまま枠の中央に置かれる)、チップの幅は名前ではなく2つのボタンと同じ
@@ -378,6 +453,20 @@ WelcomeView(PanelSurface.welcome)
 で落とし先はチップを丸ごと縁取る(挿入線はドラッグの絵の下に隠れて見えない)、履歴のポップオーバーは
 行の高さを掛け算で見積もらず `onGeometryChange` で実測(そのため `LazyVStack` ではなく `VStack`)、
 名前入力シートは 360pt に決め打ち。
+
+## サイドパネルのライブラリのツリー
+
+ブックマークモードの**下段**(上段はブックマーク一覧。ユーザー要望 2026-09-13。
+`SidePanelLibraryTreeSection`)。お気に入りが無効な間、空いていた下半分を使う。
+
+- 最初はライブラリだけ。行を押すとコレクション、さらに本へ展開する(開閉は常にシングルクリック)。
+  展開状態はパネルの `@State`(保存しない)
+- 並び順は**同じウインドウのウェルカム画面と同じ**(`WelcomeLibraryState` の2つの並び順)
+- 本の右クリックは履歴モードの行と同じ「開く / 新規◯◯で開く / Finderで表示」。**ライブラリ・
+  コレクションの右クリックは無い**(ユーザー指定: ひとまず非サポート)
+- 実体が見つからない本は淡く描き、開こうとすると警告音だけ(理由を書き分けたアラートは
+  ウェルカム画面のコレクションの中が持つ)
+- 行はツリーを平らにした1本の配列を `LazyVStack` へ流す(階層が2段で固定なので、再帰の View は要らない)
 
 ## ドロップの振り分け
 
@@ -515,8 +604,12 @@ FSEvents のコールバックが解放済みの `ModelContext` に触った ―
 ## 環境設定・JSON・削除
 
 - **環境設定「外観」→「ウェルカム画面」**(`PanelSurfaceSettingsView.welcomeSections`):
-  「ライブラリ」セクション(一覧の札のコレクション名の大きさ)と「コレクション」セクション
+  「ライブラリ」セクション(一覧の札のコレクション名の大きさ・**冊数バッジの大きさ**)と「コレクション」セクション
   (カバーの下の表示: 表示しない(既定)/ ファイル名 / タイトル、その文字の大きさ)。
+  **冊数バッジ**(札の右下)は3段(`CollectionTileBadgeSize`。既定の「小」は設定にする前の
+  `.caption` の大きさ)で、文字・余白・縁の太さを一緒に変える。**白い縁**を付けた(ユーザー要望
+  2026-09-13)―― 地が半透明の黒なので、暗いカバーの上でカプセルの形が溶けていた。地も文字も
+  外観で変わらない部品なので、縁も固定の白。
   コレクションごとの設定にはしない ―― 棚ごとに下の文字が変わると一覧として揃わず、作るたびに
   設定し直すことになる。「タイトル」は `MetadataEditorViewModel.initialDraft` をそのまま通す
   (登録済みなら DB、未登録ならファイル名からの推測)ので、「メタデータの編集」で見える文字列と
@@ -562,7 +655,8 @@ FSEvents のコールバックが解放済みの `ModelContext` に触った ―
 `CollectionStoreTests` / `CollectionCoverStoreTests` / `CoverImageResolverTests` /
 `CollectionCoverExtractorTests` / `CollectionAutoFolderScanTests` / `FolderChangeWatcherTests` /
 `CollectionDropClassifierTests` / `WelcomeDropHandlingTests` / `WelcomeLibraryStateTests` /
-`LazyCellImageBudgetTests` / `CollectionTileImageStoreTests`
+`LazyCellImageBudgetTests` / `CollectionTileImageStoreTests` / `LibrarySearchTests`(検索・作成日と
+変更日の並び・列の割り付け) / `CollectionCoverSourceStoreTests` / `StorePersistenceTests`
 (→ [02](02-project-and-build.md#テストターゲットqooviewertests))。
 テストのための口(`settleExistenceRefresh` / `CollectionAutoFolderScanner.settle` /
 `CollectionCoverExtractor.waitUntilIdle` / `WelcomeDropHandling.handle(onFinished:)`)は、

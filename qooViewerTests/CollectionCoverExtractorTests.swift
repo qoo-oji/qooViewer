@@ -230,6 +230,100 @@ struct CollectionCoverExtractorTests {
         #expect(await coverNumber(of: item, in: library) == 2)
     }
 
+    /// 並び順の設定を差し替えられる入れ物(テストが共有の環境設定に触れないため)。
+    private final class OrderSetting {
+        var usesFinderOrder = true
+    }
+
+    @Test("「並び順をFinderに揃える」を切り替えると、先頭が変わる本だけを、表紙を出したまま作り直す")
+    func togglingTheFinderOrderRefreshesOnlyBooksWhoseFirstPageChanges() async throws {
+        let library = try InMemoryLibrary(label: "cover-extractor-page-order")
+        defer { library.close() }
+        let suite = PreferencesSuite(label: "cover-extractor-page-order")
+        defer { withExtendedLifetime(suite) {} }
+        let temporary = try TemporaryDirectory("cover-extractor-page-order")
+        // 大文字小文字が混ざった名前: Finderの順なら a が先、文字コード順なら B が先。
+        let mixed = temporary.file("mixed")
+        try FixtureFolder.make(at: mixed, pages: [.init("a.png", number: 1), .init("B.png", number: 2)])
+        // どちらの順でも 001 が先の本(作り直してはいけない)。
+        let plain = try makeFolderBook(temporary, named: "plain")
+        let shelf = try #require(library.collections.libraries.first)
+        let collection = try #require(library.collections.createCollection(
+            name: "Shelf", in: shelf,
+            items: [mixed, plain].compactMap(CollectionStore.makePendingItem(for:))
+        ))
+        let mixedItem = try #require(collection.items.first { $0.bookID == mixed.path })
+        let plainItem = try #require(collection.items.first { $0.bookID == plain.path })
+
+        let setting = OrderSetting()
+        // mixed はキャッシュが無い(= 判定できないので作り直す)、plain はキャッシュで判定できる。
+        let plainPages = [
+            BookPageListCache.Entry.Page(sortKey: plain.appendingPathComponent("001.png").path, displayName: "001.png"),
+            BookPageListCache.Entry.Page(sortKey: plain.appendingPathComponent("002.png").path, displayName: "002.png"),
+        ]
+        let plainBookID = plain.path
+        let extractor = CollectionCoverExtractor(
+            collectionStore: library.collections, coverStore: library.collectionCovers,
+            layoutStore: library.layouts, cachesPageList: false, defaults: suite.defaults,
+            usesFinderOrder: { setting.usesFinderOrder },
+            cachedPageList: { bookID in bookID == plainBookID ? plainPages : nil }
+        )
+        defer { extractor.releaseResources() }
+        extractor.enqueue([mixedItem, plainItem])
+        await extractor.waitUntilIdle()
+        #expect(await coverNumber(of: mixedItem, in: library) == 1)
+        let attempts = extractor.extractionAttemptCount
+        let revision = library.collections.coverRevision(for: mixedItem)
+
+        setting.usesFinderOrder = false
+        extractor.handlePageOrderSettingChange()
+        // 作り直しを待つ間も表紙は出たまま(pending へ戻さない)。
+        #expect(mixedItem.coverState == .ready)
+        await extractor.settlePageOrderEvaluation()
+        await extractor.waitUntilIdle()
+
+        #expect(extractor.extractionAttemptCount == attempts + 1)
+        #expect(await coverNumber(of: mixedItem, in: library) == 2)
+        #expect(await coverNumber(of: plainItem, in: library) == 1)
+        #expect(mixedItem.coverState == .ready)
+        // 状態が変わらなくても、画面が読み直す合図は進む。
+        #expect(library.collections.coverRevision(for: mixedItem) == revision + 1)
+    }
+
+    @Test("表紙を指定してある本は、並び順の設定を変えても作り直さない")
+    func booksWithAChosenCoverIgnoreTheFinderOrder() async throws {
+        let library = try InMemoryLibrary(label: "cover-extractor-page-order-pinned")
+        defer { library.close() }
+        let suite = PreferencesSuite(label: "cover-extractor-page-order-pinned")
+        defer { withExtendedLifetime(suite) {} }
+        let temporary = try TemporaryDirectory("cover-extractor-page-order-pinned")
+        let mixed = temporary.file("mixed")
+        try FixtureFolder.make(at: mixed, pages: [.init("a.png", number: 1), .init("B.png", number: 2)])
+        let item = try register(mixed, in: library)
+        library.layouts.setShelfCoverPageKey(
+            forBookID: item.bookID, sourceURL: mixed,
+            pageKey: mixed.appendingPathComponent("a.png").path, displayName: "a.png"
+        )
+        let setting = OrderSetting()
+        let extractor = CollectionCoverExtractor(
+            collectionStore: library.collections, coverStore: library.collectionCovers,
+            layoutStore: library.layouts, cachesPageList: false, defaults: suite.defaults,
+            usesFinderOrder: { setting.usesFinderOrder }, cachedPageList: { _ in nil }
+        )
+        defer { extractor.releaseResources() }
+        extractor.enqueue([item])
+        await extractor.waitUntilIdle()
+        let attempts = extractor.extractionAttemptCount
+
+        setting.usesFinderOrder = false
+        extractor.handlePageOrderSettingChange()
+        await extractor.settlePageOrderEvaluation()
+        await extractor.waitUntilIdle()
+
+        #expect(extractor.extractionAttemptCount == attempts)
+        #expect(await coverNumber(of: item, in: library) == 1)
+    }
+
     // MARK: - 保存の仕方の世代
 
     @Test("保存の世代が上がっていたら全件を pending へ戻す(一度だけ・save は 1 回)")

@@ -130,11 +130,16 @@ struct QooViewerApp: App {
     /// privateではないのは、単体テスト(qooViewerTests)がこのスキーマから**メモリ内の**
     /// ModelContainerを作るため。テストがモデル型の一覧を自前で書き写すと、ここへモデルを
     /// 足したときにテスト側だけ古いスキーマのまま静かにずれるため、同じ値を使わせる。
-    static let modelSchema = Schema([
+    static let modelSchema = Schema(modelTypes)
+
+    /// スキーマを作るモデル型の一覧。**ここへモデルを足したり、モデルの属性を変えたりしたら、
+    /// StoreSchemaGuard.generationsへ世代を1行足すこと**(忘れるとStoreSchemaGuardTestsが落ちる。
+    /// 古いアプリが新しいストアを開いて列を消す事故を止めるための記録。あちらの型コメント参照)。
+    static let modelTypes: [any PersistentModel.Type] = [
         BookReadingState.self, Bookmark.self, FavoriteFolder.self, FavoriteBook.self,
         BookLayoutSettings.self, PageLayoutOverride.self, BookMetadata.self,
         BookLibrary.self, BookCollection.self, CollectionItem.self
-    ])
+    ]
 
     /// スキーマの移行に失敗した場合に、ストアファイルを削除して作り直せるよう、URLを
     /// 参照できる明示的なModelConfigurationを介して構築する(`ModelContainer(for:)`の
@@ -176,8 +181,13 @@ struct QooViewerApp: App {
         // 本体と対応しないWALはSQLiteが無視するが、無用なファイルを残さない)。
         performPendingStoreResetIfNeeded()
         removeOrphanedAuxiliaryStoreFiles(at: modelConfiguration.url)
+        // **開く前に**、このストアが新しいqooViewerのものではないかを確かめる
+        // (StoreSchemaGuardの型コメント。古いアプリで開くと、SwiftDataが黙って列を消す)。
+        confirmOpeningNewerStoreIfNeeded(at: modelConfiguration.url)
         do {
-            return try ModelContainer(for: modelSchema, configurations: [modelConfiguration])
+            let container = try ModelContainer(for: modelSchema, configurations: [modelConfiguration])
+            StoreSchemaGuard.recordOpened(in: .standard)
+            return container
         } catch {
             NSLog("qooViewer: ModelContainer creation failed, will ask the user whether to reset the store: \(error)")
 
@@ -203,7 +213,9 @@ struct QooViewerApp: App {
 
             deleteStoreFiles(at: modelConfiguration.url)
             do {
-                return try ModelContainer(for: modelSchema, configurations: [modelConfiguration])
+                let container = try ModelContainer(for: modelSchema, configurations: [modelConfiguration])
+                StoreSchemaGuard.recordOpened(in: .standard)
+                return container
             } catch {
                 let failureAlert = NSAlert()
                 failureAlert.alertStyle = .critical
@@ -216,6 +228,42 @@ struct QooViewerApp: App {
             }
         }
     }()
+
+    /// 新しいqooViewerが使ったストアを、このバージョンで開こうとしていたら止めて尋ねる
+    /// (StoreSchemaGuardの型コメント)。
+    ///
+    /// 既定は**開かずに終了**。「それでも開く」を選んだときだけ先へ進む ―― そのとき消えるのは
+    /// 新しいバージョンにしか無い情報で、利用者が承知の上なら止める理由は無い(例えば、新しい
+    /// バージョンを捨てて古いバージョンへ戻すと決めた場合)。
+    ///
+    /// ウインドウはまだ1枚も出ていないので、上のストアを開けなかったときと同じくNSAlertを
+    /// 同期で出し、終了はexit(0)で行う。
+    private static func confirmOpeningNewerStoreIfNeeded(at url: URL) {
+        let verdict = StoreSchemaGuard.verdict(
+            storeHashes: StoreSchemaGuard.storeHashes(at: url),
+            currentHashes: StoreSchemaGuard.currentHashes(for: modelTypes),
+            recordedGeneration: StoreSchemaGuard.recordedGeneration(in: .standard)
+        )
+        guard verdict == .newerStore else { return }
+        NSLog("qooViewer: the store was written by a newer version; asking before opening it")
+
+        let locale = AppLanguage.currentLocale
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = String(
+            localized: "Your Saved Data Is From a Newer qooViewer", language: locale
+        )
+        alert.informativeText = String(
+            localized: """
+            A newer version of qooViewer has already used this saved data. If this older version opens it, anything only the newer version knows about (for example, the collection covers you chose) is permanently deleted.
+
+            To keep that data, quit and open the newer version of qooViewer instead.
+            """, language: locale
+        )
+        alert.addButton(withTitle: String(localized: "Quit", language: locale))
+        alert.addButton(withTitle: String(localized: "Open Anyway", language: locale))
+        guard alert.runModal() == .alertSecondButtonReturn else { exit(0) }
+    }
 
     /// SwiftDataのストア本体、および付随するWAL/SHMファイル(SQLiteの補助ファイル)を削除する。
     /// これらが残っていると、ストア本体だけ削除してもデータの一部が復元されてしまうことがある。

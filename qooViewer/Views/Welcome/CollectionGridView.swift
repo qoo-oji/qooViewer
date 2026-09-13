@@ -29,6 +29,8 @@ struct CollectionGridView: View {
 
     /// タイルの間隔。
     private static let spacing: CGFloat = 24
+    /// グリッドの外周の余白。
+    private static let gridPadding: CGFloat = 24
     /// 画面外に残ってよいカバーの総量。
     private static let coverByteBudget = 64 * 1024 * 1024
 
@@ -59,14 +61,22 @@ struct CollectionGridView: View {
     /// 毎フレーム走る。帯を描くのは自分を購読する小さなビューのほう。
     @State private var marquee = MarqueeSelection()
 
+    /// 検索欄の文字列を照合できる形にしたもの。空欄ならnil(絞り込まない)。
+    private var searchQuery: LibrarySearchQuery? {
+        LibrarySearchQuery(state.searchText)
+    }
+
+    /// いま出ているコレクション(検索で絞り込んだ後)。全選択・マーキー・右クリックの対象は
+    /// すべてこれ ―― 見えていないものに手を出さない決まり(WelcomeLibraryState.searchText参照)。
     private var collections: [BookCollection] {
-        collectionStore.collections(in: library, sort: state.collectionSort)
+        collectionStore.collections(in: library, sort: state.collectionSort, matching: searchQuery)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Spacer(minLength: 0)
+            WelcomePaneHeaderLayout {
+                Color.clear.frame(width: 0, height: 0)
+                WelcomeSearchField(text: $state.searchText, prompt: "Search Collections")
                 LibraryPaneControls(
                     addHelp: "New Collection",
                     onAdd: { beginCreatingCollection() },
@@ -92,7 +102,11 @@ struct CollectionGridView: View {
             .padding(.vertical, 8)
 
             if collections.isEmpty {
-                emptyMessage
+                if searchQuery != nil, !library.collections.isEmpty {
+                    WelcomeNoMatchesMessage(textKey: "No collections match the search.")
+                } else {
+                    emptyMessage
+                }
             } else if appState.hasSettledWindowFrame {
                 grid
             } else {
@@ -191,7 +205,7 @@ struct CollectionGridView: View {
             cellWidth: state.tileSize,
             // 札の高さ = 絵(ほぼ正方形。CoverAspectRatio.tileColumnsの計算)+ 名前の1行。
             cellHeight: state.tileSize + nameLineHeight,
-            spacing: Self.spacing, padding: 24,
+            spacing: Self.spacing, padding: Self.gridPadding,
             cellsPerItem: library.coverAspectRatio.tileCellCount
         )
     }
@@ -209,36 +223,52 @@ struct CollectionGridView: View {
     }
 
     private var grid: some View {
-        ScrollView {
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: state.tileSize), spacing: Self.spacing)],
-                spacing: Self.spacing
-            ) {
-                ForEach(collections, id: \.id) { collection in
-                    tile(for: collection)
-                        // 帯の当たり判定に使う矩形を知らせる(MarqueeSelection参照)。
-                        .marqueeCell(collection.id, in: marquee)
-                }
-            }
-            .padding(24)
-            // 編集モード中は、余白(札の隙間・外周・最後の行より下)から帯を引いて
-            // まとめて選べる。札の上で押し始めたドラッグは従来どおり札のもの。
-            .marqueeSelectable(
-                marquee,
-                isEnabled: allowsEditing && state.isEditing,
-                minimumHeight: gridSize.height,
-                selection: $state.selectedCollectionIDs,
-                shownIDs: Set(collections.map(\.id))
+        // 列は**スライダーの値ちょうどの幅**で並べる(ユーザー要望 2026-09-13。
+        // WelcomeGridColumns参照)。幅はGeometryReaderで取る ―― onGeometryChangeで測った
+        // gridSizeは最初のフレームでは0で、1列で描いてから並び直すのが見えてしまう。
+        GeometryReader { proxy in
+            let columns = WelcomeGridColumns(
+                availableWidth: proxy.size.width, itemWidth: state.tileSize,
+                spacing: Self.spacing, padding: Self.gridPadding
             )
-            // 作り直しの鍵は2つ。
-            //
-            // - `epoch` … 画面外セルの保持物をまとめて手放すため(型コメント参照)
-            // - `library.id` … ライブラリを切り替えたときに、**前のライブラリのカバーを手放す**
-            //   ため。Lazyコンテナは ForEach の中身が総入れ替えになっても前に作ったセルを
-            //   解放しない(型コメントと同じ話)ので、切り替えるたびに前の棚のぶんが
-            //   `cellImageBudget` に乗ったまま積み上がる。並ぶものが全部変わる場面なので、
-            //   ここで作り直して失うものは無い。
-            .id(gridID)
+            ScrollView {
+                LazyVGrid(columns: columns.gridItems(alignment: .top), spacing: Self.spacing) {
+                    ForEach(collections, id: \.id) { collection in
+                        tile(for: collection)
+                            // 帯の当たり判定に使う矩形を知らせる(MarqueeSelection参照)。
+                            .marqueeCell(collection.id, in: marquee)
+                    }
+                }
+                // 固定幅の列はLazyVGridの左から詰められるので、グリッドの幅を列数ぶんに
+                // 絞ってから中央に置く(ThumbnailGridViewと同じ)。**マーキーより内側で**
+                // 広げ直すこと ―― 帯は余白(左右の空き)からも引けなければならない。
+                .frame(width: columns.contentWidth)
+                .frame(maxWidth: .infinity)
+                .padding(Self.gridPadding)
+                // 編集モード中は、余白(札の隙間・外周・最後の行より下)から帯を引いて
+                // まとめて選べる。札の上で押し始めたドラッグは従来どおり札のもの。
+                .marqueeSelectable(
+                    marquee,
+                    isEnabled: allowsEditing && state.isEditing,
+                    minimumHeight: gridSize.height,
+                    selection: $state.selectedCollectionIDs,
+                    shownIDs: Set(collections.map(\.id))
+                )
+                // 作り直しの鍵は2つ。
+                //
+                // - `epoch` … 画面外セルの保持物をまとめて手放すため(型コメント参照)
+                // - `library.id` … ライブラリを切り替えたときに、**前のライブラリのカバーを手放す**
+                //   ため。Lazyコンテナは ForEach の中身が総入れ替えになっても前に作ったセルを
+                //   解放しない(型コメントと同じ話)ので、切り替えるたびに前の棚のぶんが
+                //   `cellImageBudget` に乗ったまま積み上がる。並ぶものが全部変わる場面なので、
+                //   ここで作り直して失うものは無い。
+                .id(gridID)
+            }
+        }
+        // ピンチで札の大きさを変える(ユーザー要望 2026-09-13。ページ一覧パネルと同じ操作)。
+        // 閉包はViewの値を捕まえない(welcomeGridPinchのコメント参照)。
+        .welcomeGridPinch(scrollBox: marquee.scrollBox) { [weak state] magnification in
+            state?.resizeTiles(byMagnification: magnification)
         }
         .onGeometryChange(for: CGSize.self) { proxy in
             proxy.size
@@ -262,12 +292,14 @@ struct CollectionGridView: View {
             exists: { collectionStore.cachedFileExists(for: $0) },
             isExtracting: { coverExtractor.inFlightItemIDs.contains($0.id) },
             cropAnchor: { cropAnchor(for: $0) },
+            coverRevision: { collectionStore.coverRevision(for: $0) },
             coverStore: collectionStore.coverStore,
             tileStore: collectionStore.tileStore,
             aspectRatio: library.coverAspectRatio,
             backgroundColor: preferences.effectiveCollectionTileBackground,
             size: state.tileSize,
             nameFontSize: preferences.collectionTileNameFontSize,
+            badgeSize: preferences.collectionTileBadgeSize,
             onImageRetained: { image, cellCount in
                 cellImageBudget.note(
                     retaining: image, cellCount: cellCount, minimumCellCount: minimumCellCount
@@ -275,7 +307,7 @@ struct CollectionGridView: View {
             },
             isEditing: allowsEditing && state.isEditing,
             isSelected: state.selectedCollectionIDs.contains(collection.id),
-            onOpen: { state.openedCollectionID = collection.id },
+            onOpen: { open(collection) },
             onToggleSelection: { state.toggleCollectionSelection(collection.id) }
         )
         // 右クリックのメニューは編集モードのときだけ付ける。**項目が空のcontextMenuは付けない**
@@ -289,7 +321,7 @@ struct CollectionGridView: View {
             tile.contextMenu {
                 // 編集モード中はクリックが選択になるので、中へ入る道をここに残す
                 // (CollectionTileの型コメント参照)。
-                Button("Open") { state.openedCollectionID = collection.id }
+                Button("Open") { open(collection) }
                     .disabled(!isSingle)
                 Divider()
                 Button("Add Books…") {
@@ -310,6 +342,16 @@ struct CollectionGridView: View {
         } else {
             tile
         }
+    }
+
+    /// コレクションの中へ入る。**検索を残すかはここで決める** ―― 中に一致する本があれば残して
+    /// そのまま本を絞り込み、名前だけが一致した棚なら捨てて全冊を出す
+    /// (ユーザー要望 2026-09-13。WelcomeLibraryState.searchTextのコメント参照)。
+    private func open(_ collection: BookCollection) {
+        let keepsSearch = searchQuery.map {
+            collectionStore.containsItem(in: collection, matching: $0)
+        } ?? false
+        state.openCollection(collection.id, keepingSearch: keepsSearch)
     }
 
     /// この右クリックが相手にするコレクション(Finderと同じ規則)。

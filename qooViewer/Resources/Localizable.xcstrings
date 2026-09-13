@@ -16562,6 +16562,176 @@
           }
         }
       }
+    },
+    "Search Collections" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションを検索"
+          }
+        }
+      }
+    },
+    "Search Books" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を検索"
+          }
+        }
+      }
+    },
+    "No collections match the search." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "検索に一致するコレクションがありません"
+          }
+        }
+      }
+    },
+    "No books match the search." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "検索に一致する本がありません"
+          }
+        }
+      }
+    },
+    "Book Count Badge Size" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "冊数バッジの大きさ"
+          }
+        }
+      }
+    },
+    "Small" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "小"
+          }
+        }
+      }
+    },
+    "Medium" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "中"
+          }
+        }
+      }
+    },
+    "Large" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "大"
+          }
+        }
+      }
+    },
+    "Date Created (Oldest First)" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作成日(古い順)"
+          }
+        }
+      }
+    },
+    "Date Created (Newest First)" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "作成日(新しい順)"
+          }
+        }
+      }
+    },
+    "Date Modified (Oldest First)" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "変更日(古い順)"
+          }
+        }
+      }
+    },
+    "Date Modified (Newest First)" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "変更日(新しい順)"
+          }
+        }
+      }
+    },
+    "Libraries" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブラリ"
+          }
+        }
+      }
+    },
+    "Your Saved Data Is From a Newer qooViewer" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存データは新しいqooViewerで使われています"
+          }
+        }
+      }
+    },
+    "A newer version of qooViewer has already used this saved data. If this older version opens it, anything only the newer version knows about (for example, the collection covers you chose) is permanently deleted.\n\nTo keep that data, quit and open the newer version of qooViewer instead." : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいバージョンのqooViewerが、この保存データを既に使っています。この古いバージョンで開くと、新しいバージョンだけが扱える情報(例: 自分で選んだコレクション表紙)が削除されます。この操作は取り消せません。\n\n削除したくない場合は、終了して新しいバージョンのqooViewerで開いてください。"
+          }
+        }
+      }
+    },
+    "Quit" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "終了"
+          }
+        }
+      }
+    },
+    "Open Anyway" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "それでも開く"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

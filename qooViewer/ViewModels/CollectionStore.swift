@@ -36,6 +36,12 @@ final class CollectionStore: ObservableObject {
     /// `cachedFileExists(for:)`がそのまま担う。
     @Published private(set) var locationByItemID: [UUID: BookLocation] = [:]
 
+    /// 本のファイル/フォルダの作成日・変更日のキャッシュ(CollectionItem.id -> 日付)。並び順
+    /// 「作成日」「変更日」の鍵(ユーザー要望 2026-09-13。BookFileDatesの型コメント)。
+    /// 実体確認と同じ契機・同じ`Task.detached`で読み、表示側は辞書を読むだけ。
+    /// まだ読めていない本(実体が見つからない本を含む)は辞書に無い。
+    @Published private(set) var fileDatesByItemID: [UUID: BookFileDates] = [:]
+
     /// 「ライブラリ/コレクション/本のどれかが変わった」ことだけを表す通し番号
     /// (saveAndNotifyのコメント参照)。値そのものは誰も読まない。
     @Published private(set) var revision: UInt64 = 0
@@ -150,7 +156,8 @@ final class CollectionStore: ObservableObject {
         return fetched
     }
 
-    private func allItems() -> [CollectionItem] {
+    /// 登録してあるすべての本(全コレクション横断)。
+    func allItems() -> [CollectionItem] {
         if let cachedItems { return cachedItems }
         let fetched = (try? modelContext.fetch(FetchDescriptor<CollectionItem>())) ?? []
         cachedItems = fetched
@@ -272,6 +279,46 @@ final class CollectionStore: ObservableObject {
         sorted(collection.items, sort: sort)
     }
 
+    // MARK: - 検索(ユーザー要望 2026-09-13)
+
+    /// 検索に一致する本だけを、指定した並び順で。`query`がnilなら絞り込まない。
+    ///
+    /// **絞り込んでから並べる**(並べてから絞ると、「タイトル」順で一致しない本のぶんまで
+    /// タイトルを求めることになる)。
+    func items(
+        in collection: BookCollection, sort: FavoritesSortOption, matching query: LibrarySearchQuery?
+    ) -> [CollectionItem] {
+        guard let query else { return items(in: collection, sort: sort) }
+        return sorted(collection.items.filter { itemMatches($0, query: query) }, sort: sort)
+    }
+
+    /// 検索に一致するコレクションだけを、指定した並び順で(常に先頭/末尾の指定も効かせる)。
+    ///
+    /// 一致するのは、**コレクションの名前**が一致するもの、または**中に一致する本がある**もの
+    /// (本の名前・メタデータ。BookTitleResolver.searchableText参照)。
+    func collections(
+        in library: BookLibrary, sort: FavoritesSortOption, matching query: LibrarySearchQuery?
+    ) -> [BookCollection] {
+        let all = collections(in: library, sort: sort)
+        guard let query else { return all }
+        return all.filter { collection in
+            query.matches(normalized: LibrarySearchQuery.normalized(collection.name))
+                || containsItem(in: collection, matching: query)
+        }
+    }
+
+    /// このコレクションの中に、検索に一致する本が1冊でもあるか。
+    ///
+    /// 絞り込んだ一覧からコレクションを開くとき、検索を残すかどうかをこれで決める
+    /// (WelcomeLibraryState.searchTextのコメント参照)。
+    func containsItem(in collection: BookCollection, matching query: LibrarySearchQuery) -> Bool {
+        collection.items.contains { itemMatches($0, query: query) }
+    }
+
+    private func itemMatches(_ item: CollectionItem, query: LibrarySearchQuery) -> Bool {
+        query.matches(normalized: titleResolver.searchableText(forBookID: item.bookID))
+    }
+
     /// これらのコレクションを指している「常に先頭/末尾」の指定を、すべてのライブラリから外す。
     /// **削除・別のライブラリへの移動の前に呼ぶ**(保存は呼び出し側のsaveAndNotifyに乗せる)。
     ///
@@ -354,9 +401,10 @@ final class CollectionStore: ObservableObject {
         // コレクションには書誌のタイトルが無い(棚に付けた名前がすべて)。「タイトル」は本を
         // 並べるときだけの基準なのでメニューにも出さない(FavoritesSortOptionの型コメント)が、
         // 保存してある値が何かの拍子にこちらへ回ってきても並びが崩れないよう、名前として扱う。
-        case .titleAscending:
+        // 作成日・変更日もコレクションには無い(ファイルシステム上の日付を持つのは本だけ)。
+        case .titleAscending, .dateCreatedAscending, .dateModifiedAscending:
             return collections.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        case .titleDescending:
+        case .titleDescending, .dateCreatedDescending, .dateModifiedDescending:
             return collections.sorted { $0.name.localizedStandardCompare($1.name) == .orderedDescending }
         case .dateAddedAscending:
             return collections.sorted { $0.createdAt < $1.createdAt }
@@ -401,6 +449,10 @@ final class CollectionStore: ObservableObject {
             return items.sorted { $0.title.localizedStandardCompare($1.title) == .orderedDescending }
         case .titleAscending, .titleDescending:
             return sortedByTitle(items, ascending: sort.isAscending)
+        case .dateCreatedAscending, .dateCreatedDescending:
+            return sortedByFileDate(items, ascending: sort.isAscending, date: \.created)
+        case .dateModifiedAscending, .dateModifiedDescending:
+            return sortedByFileDate(items, ascending: sort.isAscending, date: \.modified)
         // 本には「更新日時」に相当する情報が無いため、追加日時と同じものとして扱う
         // (items(in:sort:)のコメント参照)。
         case .dateAddedAscending, .dateUpdatedAscending:
@@ -408,6 +460,31 @@ final class CollectionStore: ObservableObject {
         case .dateAddedDescending, .dateUpdatedDescending:
             return items.sorted { $0.addedAt > $1.addedAt }
         }
+    }
+
+    /// 本のファイル/フォルダの作成日・変更日で並べる(ユーザー要望 2026-09-13)。
+    ///
+    /// **日付の分からない本は、昇順・降順のどちらでも末尾へ**まとめる(実体が見つからない本・
+    /// まだ読めていない本)。先頭に来ると、並べ替えた直後に淡く描かれた本が並んで目的の本が
+    /// 押し出される。日付が同じ本(と日付の分からない本どうし)は名前で決める ―― `sorted(by:)`は
+    /// 安定ではないので、描き直すたびに順番が入れ替わらないよう最後まで決め手を用意する
+    /// (sortedByTitleと同じ)。
+    private func sortedByFileDate(
+        _ items: [CollectionItem], ascending: Bool, date: KeyPath<BookFileDates, Date?>
+    ) -> [CollectionItem] {
+        let keyed = items.map { (item: $0, date: fileDatesByItemID[$0.id]?[keyPath: date]) }
+        return keyed.sorted { lhs, rhs in
+            switch (lhs.date, rhs.date) {
+            case let (left?, right?) where left != right:
+                return ascending ? left < right : left > right
+            case (.some, nil):
+                return true
+            case (nil, .some):
+                return false
+            default:
+                return lhs.item.title.localizedStandardCompare(rhs.item.title) == .orderedAscending
+            }
+        }.map(\.item)
     }
 
     /// 書誌のタイトル(BookTitleResolver)で本を並べる(ユーザー要望 2026-09-10)。
@@ -655,6 +732,9 @@ final class CollectionStore: ObservableObject {
         let bookmarkData: Data
         let title: String
         let identifier: FileNodeIdentifier?
+        /// 登録する時点で読んだ作成日・変更日。次の実体確認を待たずに並べられるようにする
+        /// (fileDatesByItemIDのコメント)。読めなければnil。
+        var fileDates: BookFileDates? = nil
     }
 
     /// URLから登録の材料を作る。セキュリティスコープ付きブックマークが作れなければnil
@@ -672,7 +752,8 @@ final class CollectionStore: ObservableObject {
         let title = itemTitle(for: url, isDirectory: isDirectory.boolValue)
         return PendingItem(
             url: url, bookmarkData: bookmarkData, title: title,
-            identifier: FileNodeIdentifier.current(for: url)
+            identifier: FileNodeIdentifier.current(for: url),
+            fileDates: BookFileDates.read(at: url)
         )
     }
 
@@ -723,6 +804,7 @@ final class CollectionStore: ObservableObject {
                 fileNodeIdentifier: pending.identifier
             )
             modelContext.insert(item)
+            if let dates = pending.fileDates { fileDatesByItemID[item.id] = dates }
             existingPaths.insert(bookID)
             if let identifier = pending.identifier { existingIdentifiers.insert(identifier) }
             nextSortOrder += 1
@@ -792,6 +874,38 @@ final class CollectionStore: ObservableObject {
     /// カバー抽出の結果を書き戻す(CollectionCoverExtractorから)。
     ///
     /// - Parameter aspect: 保存できたカバーの縦横比(幅 ÷ 高さ)。失敗したときは0。
+    /// カバーの**絵そのもの**が差し替わった回数(CollectionItem.id → 回数)。保存しない。
+    ///
+    /// 表示側(CollectionCoverThumbnail / CollectionTile)は読み直しの鍵にカバーの状態
+    /// (coverStatus)を入れている。抽出のやり直しが状態を`.pending`経由で変える間はそれで
+    /// 足りたが、**表紙を出したまま作り直す**(並び順の設定を変えたとき。
+    /// CollectionCoverExtractor.handlePageOrderSettingChange)と、状態は`.ready`のまま変わらず、
+    /// 画面は古い絵を持ち続ける。その変化を鍵へ入れるための数。
+    ///
+    /// **publishしない。** 増やすのはsetCoverReadyだけで、あちらが保存と`revision`の更新で
+    /// 描き直しを起こす。起動のたびに0から始まるが、比べる相手も同じ起動の中の値なので困らない。
+    private(set) var coverRevisionByItemID: [UUID: Int] = [:]
+
+    func coverRevision(for item: CollectionItem) -> Int {
+        coverRevisionByItemID[item.id] ?? 0
+    }
+
+    /// 抽出が終わり、新しいカバーを書き終えた(CollectionCoverExtractor.extract)。
+    ///
+    /// setCoverStatus(.ready, ...)と違って、**状態も比も変わっていなくても**描き直させる
+    /// (coverRevisionByItemIDのコメント参照)。
+    func setCoverReady(aspect: Double, for item: CollectionItem) {
+        coverRevisionByItemID[item.id, default: 0] &+= 1
+        guard item.coverState != .ready || item.coverAspect != aspect else {
+            // DBは変わらないので保存はしない。描き直しの合図だけ出す。
+            revision &+= 1
+            return
+        }
+        item.coverState = .ready
+        item.coverAspect = aspect
+        saveAndNotify(bookID: item.bookID)
+    }
+
     func setCoverStatus(
         _ status: CollectionCoverStatus, aspect: Double, for item: CollectionItem
     ) {
@@ -985,6 +1099,7 @@ final class CollectionStore: ObservableObject {
         guard !probes.isEmpty else {
             isRefreshingExistence = false
             if !locationByItemID.isEmpty { locationByItemID = [:] }
+            if !fileDatesByItemID.isEmpty { fileDatesByItemID = [:] }
             return
         }
         // [weak self]で受けたselfを、awaitをまたぐ前にguard letで強参照へ変換しておく
@@ -994,13 +1109,20 @@ final class CollectionStore: ObservableObject {
             // 数百冊の棚でマウント一覧の問い合わせがそのぶん繰り返される)。
             let mountedVolumeUUIDs = BookLocationResolver.mountedVolumeUUIDs()
             var result: [UUID: BookLocation] = [:]
+            var dates: [UUID: BookFileDates] = [:]
             for probe in probes {
-                result[probe.itemID] = BookLocationResolver.resolve(
-                    probe, mountedVolumeUUIDs: mountedVolumeUUIDs
-                )
+                let location = BookLocationResolver.resolve(probe, mountedVolumeUUIDs: mountedVolumeUUIDs)
+                result[probe.itemID] = location
+                // 実体に届いた本だけ、ついでに作成日・変更日を読む(fileDatesByItemIDのコメント)。
+                // 読むのは属性だけだが、サンドボックスの外の本なのでスコープを開けてから。
+                if let url = location.url {
+                    let didStart = url.startAccessingSecurityScopedResource()
+                    dates[probe.itemID] = BookFileDates.read(at: url)
+                    if didStart { url.stopAccessingSecurityScopedResource() }
+                }
             }
             guard let self else { return }
-            await self.finishExistenceRefresh(result)
+            await self.finishExistenceRefresh(result, fileDates: dates)
         }
     }
 
@@ -1012,7 +1134,9 @@ final class CollectionStore: ObservableObject {
         }
     }
 
-    private func finishExistenceRefresh(_ result: [UUID: BookLocation]) {
+    private func finishExistenceRefresh(
+        _ result: [UUID: BookLocation], fileDates: [UUID: BookFileDates]
+    ) {
         isRefreshingExistence = false
         existenceRefreshTask = nil
         defer {
@@ -1022,6 +1146,9 @@ final class CollectionStore: ObservableObject {
             }
         }
         // @Publishedは値が同じでも代入のたびに発火するため、変化したときだけ代入する。
+        // 日付を先に入れる ―― locationByItemIDの購読者(抽出の待ち行列)より、並びに使う値が
+        // 先に揃っているほうが、描き直しが1回で済む。
+        if fileDates != fileDatesByItemID { fileDatesByItemID = fileDates }
         guard result != locationByItemID else { return }
         locationByItemID = result
     }
@@ -1147,9 +1274,16 @@ final class CollectionStore: ObservableObject {
     /// 焼いた絵の指紋にはカバーの**中身**が入っていない(入れるには札を描くたびに6ファイルを
     /// statすることになる。CollectionTileImageRequest.signature参照)ため、中身だけが変わる
     /// この場合だけは、差し替えた側から明示的に捨てないと古い絵が残る。
-    func invalidateTileImages(forItemID itemID: UUID) {
+    ///
+    /// **捨て終わるまで待つ。** 呼んだ直後に「差し替わった」ことを画面へ知らせる
+    /// (setCoverReady)ので、そのとき札が読みにいく先に古い絵がディスクにもメモリにも
+    /// 残っていてはいけない ―― 以前は捨てる処理を`Task`で投げっぱなしにしていたが、
+    /// 抽出の直後はカバーの状態が`.pending`を経由していたので、札が読み直すのは必ず後だった。
+    /// 表紙を出したまま作り直す経路(CollectionCoverExtractor.handlePageOrderSettingChange)では
+    /// その前提が無い。
+    func invalidateTileImages(forItemID itemID: UUID) async {
         guard let collectionID = item(withID: itemID)?.collection?.id else { return }
-        removeTileImages([collectionID])
+        await tileStore.invalidate(collectionIDs: [collectionID])
     }
 
     /// 起動時に一度、行の無いカバー画像を掃除する(CollectionCoverStore.sweepOrphans参照)。

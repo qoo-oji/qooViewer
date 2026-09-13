@@ -40,6 +40,8 @@ struct CollectionTile: View {
     let isExtracting: (CollectionItem) -> Bool
     /// この本のカバーで残す位置(本ごとの上書き ?? ライブラリの既定)。
     let cropAnchor: (CollectionItem) -> CoverCropAnchor
+    /// この本のカバーの絵が差し替わった回数(CollectionStore.coverRevision(for:))。
+    var coverRevision: (CollectionItem) -> Int = { _ in 0 }
     let coverStore: CollectionCoverStore
     /// 焼いた札の絵の保管庫。
     let tileStore: CollectionTileImageStore
@@ -52,6 +54,8 @@ struct CollectionTile: View {
     /// 札の下に出す名前の文字の大きさ(pt。環境設定「外観」→「ウェルカム画面」)。
     /// 既定の13ptは、設定にする前の`Text`の既定(macOSの`.body`)そのもの。
     var nameFontSize: CGFloat = 13
+    /// 右下の冊数バッジの大きさ(環境設定「外観」→「ウェルカム画面」。CollectionTileBadgeSize)。
+    var badgeSize: CollectionTileBadgeSize = .small
     /// 保持した画像を呼び出し側の帳簿(LazyCellImageBudget)へ伝える。第2引数は
     /// **その1枚が何セル分に相当するか** ―― 焼いた札の絵は1枚で中身のカバー全部を兼ねる。
     var onImageRetained: ((CGImage, Int) -> Void)?
@@ -66,6 +70,9 @@ struct CollectionTile: View {
     /// 一致しないもの(比を変えた・本が増えた・大きさを変えた)は使わない。
     private struct LoadedSheet {
         var key: String
+        /// 復号サイズを除いた鍵(CollectionTileImageStore.sheetKeyPrefix)。大きさだけが違う
+        /// 同じ絵かどうかの判定に使う。
+        var sheetPrefix: String
         var image: CGImage
     }
     @State private var loadedSheet: LoadedSheet?
@@ -141,22 +148,35 @@ struct CollectionTile: View {
         // bodyの中で二重に走らせない)。
         let request = tileImageRequest
         let key = request.map { CollectionTileImageStore.cacheKey($0, pixelSize: sheetPixelSize) }
+        // 読み直しの鍵には、中身のカバーが**状態を変えずに**差し替わった回数も入れる
+        // (CollectionStore.coverRevisionByItemIDのコメント参照)。焼いた絵そのものの鍵
+        // (key)には入れない ―― 差し替えた側が古い絵を捨て終えてから知らせるので、同じ鍵で
+        // 読み直せば新しい絵が焼かれる。
+        let taskKey = key.map { "\($0)#\(revisionToken)" } ?? "live"
         return cells(request: request, key: key)
             .padding(CollectionTileLayout.padding)
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(backgroundColor)
             )
-            // 冊数バッジ。自前の塗り地を持つので輪郭は付けない(すりガラス面の決まりごとの例外側)。
+            // 冊数バッジ。自前の塗り地を持つので輪郭(panelOutlinedContent)は付けない
+            // (すりガラス面の決まりごとの例外側)。
+            //
+            // **白い縁を付ける**(ユーザー要望 2026-09-13)。地は半透明の黒なので、暗いカバーの
+            // 上に載るとカプセルの形が溶けて、数字だけが浮いて見えていた。縁は地の反対色で、
+            // カバーの明暗によらず形が読める。明暗の外観で色を変えない ―― 地と文字の色が外観で
+            // 変わらない部品なので、縁も合わせて固定にする。
             .overlay(alignment: .bottomTrailing) {
                 Text("\(collection.items.count)")
-                    .font(.caption)
+                    .font(.system(size: badgeSize.fontSize))
                     .monospacedDigit()
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.black.opacity(0.55))
+                    .padding(.horizontal, badgeSize.horizontalPadding)
+                    .padding(.vertical, badgeSize.verticalPadding)
+                    .background(Capsule().fill(Color.black.opacity(0.55)))
+                    .overlay(
+                        Capsule().strokeBorder(Color.white.opacity(0.9), lineWidth: badgeSize.borderWidth)
+                    )
                     .foregroundStyle(Color.white)
-                    .clipShape(Capsule())
                     .padding(6)
             }
             // 選択中の枠。印だけだと、札が小さいときにどれを選んだのか一目で分からない。
@@ -178,7 +198,7 @@ struct CollectionTile: View {
             .contentShape(Rectangle())
             // 焼いた絵の読み込み。鍵が変われば(比・並び・切り出す位置・大きさが変わった)
             // 読み直す。焼いた絵を使えない札では鍵がnilで、何もしない。
-            .task(id: key ?? "live") {
+            .task(id: taskKey) {
                 await loadSheet(request: request, key: key)
             }
     }
@@ -203,7 +223,7 @@ struct CollectionTile: View {
 
     @ViewBuilder
     private func cells(request: CollectionTileImageRequest?, key: String?) -> some View {
-        if let request, let key, let sheet = sheetImage(forKey: key) {
+        if let request, let key, let sheet = sheetImage(forKey: key, request: request) {
             // 切り分けは控えから取る(SliceCacheの型コメント参照)。ここで毎回切り直すと、
             // サイドパネルの表示・非表示のたびに画面中の札が描き直しになる。
             let slices = sliceCache.slices(forKey: key, sheet: sheet, aspectRatio: aspectRatio)
@@ -244,6 +264,7 @@ struct CollectionTile: View {
                 displayWidth: cellWidth,
                 exists: exists(item),
                 isExtracting: isExtracting(item),
+                coverRevision: coverRevision(item),
                 onImageRetained: { onImageRetained?($0, 1) }
             )
         } else {
@@ -284,21 +305,45 @@ struct CollectionTile: View {
     ///
     /// 焼いてあるのは一番大きく表示したとき(320pt)の画素数なので、それより小さい札では
     /// そのぶん縮めて復号する。スライダーを動かすたびに鍵が1ptごとに変わると、ドラッグ中に
-    /// 復号し直しが延々と走るので32px刻みに量子化する。
+    /// 復号し直しが延々と走るので量子化する。
+    ///
+    /// 刻みは128px(以前は32px)。焼いた絵の長辺は600px弱なので、全域でも5段で済む。32px刻みでは
+    /// ドラッグ1回で十数回の読み直しになり、そのたびに帳簿(LazyCellImageBudget)へ積まれて
+    /// グリッドの作り直しまで呼び込んでいた(ユーザー報告 2026-09-13「点滅して見える」の一因)。
     private var sheetPixelSize: Int {
         let sheet = CollectionTileLayout.sheetPixelSize(aspectRatio)
         let referenceCellWidth = CGFloat(CollectionTileLayout.cellPixelSize(aspectRatio).width)
         let scale = min(1, cellWidth * CollectionTileLayout.referenceScale / referenceCellWidth)
         let needed = CGFloat(max(sheet.width, sheet.height)) * scale
-        return max(32, Int((needed / 32).rounded(.up)) * 32)
+        let step = Self.sheetPixelSizeStep
+        return max(step, Int((needed / CGFloat(step)).rounded(.up)) * step)
     }
 
-    private func sheetImage(forKey key: String) -> CGImage? {
+    private static let sheetPixelSizeStep = 128
+
+    /// 中身のカバーの差し替え回数をまとめた文字列(読み直しの鍵に入れる。artwork参照)。
+    private var revisionToken: String {
+        items.prefix(aspectRatio.tileCellCount).map { String(coverRevision($0)) }.joined(separator: ".")
+    }
+
+    /// いま描く焼いた絵。**ちょうどの大きさが無ければ、同じ絵の別の大きさでつなぐ。**
+    ///
+    /// ■ なぜつなぐのか(ユーザー報告 2026-09-13「スライダーで大きさを変えると、グリッドの中の
+    /// 表紙が一瞬消えて再描写される(点滅したように見える)」)
+    /// 札の大きさが復号サイズの段をまたぐと鍵が変わる。以前はその瞬間にこの関数がnilを返し、
+    /// 札は**生のセル**(CollectionCoverThumbnail)へ落ちていた。生のセルは自前の`@State`が
+    /// 空から始まるので、`.task`が届くまで下地だけが見え、届くと焼いた絵へ戻る ―― これが
+    /// 「1枚絵として持っているはずなのに消える」の正体。同じ絵を少し粗い/細かいまま拡大縮小して
+    /// 描き、ちょうどの大きさが届いたら差し替えれば、何も消えない。
+    private func sheetImage(forKey key: String, request: CollectionTileImageRequest) -> CGImage? {
         if let loadedSheet, loadedSheet.key == key { return loadedSheet.image }
         // グリッドが作り直された直後(LazyCellImageBudget.epoch)は@Stateが空から始まる。
         // メモリに残っていれば`.task`の到着を待たずにここで描けるので、絵がいったん消えて
         // から出てくる、というちらつきが出ない(CollectionTileImageCacheの型コメント参照)。
-        return tileStore.cachedImage(forKey: key)
+        if let hit = tileStore.cachedImage(forKey: key) { return hit }
+        let prefix = CollectionTileImageStore.sheetKeyPrefix(request)
+        if let loadedSheet, loadedSheet.sheetPrefix == prefix { return loadedSheet.image }
+        return tileStore.cachedImage(anySizeFor: request)
     }
 
     private func loadSheet(request: CollectionTileImageRequest?, key: String?) async {
@@ -307,7 +352,7 @@ struct CollectionTile: View {
             return
         }
         if let hit = tileStore.cachedImage(forKey: key) {
-            adopt(hit, key: key)
+            adopt(hit, key: key, request: request)
             return
         }
         let image = await tileStore.image(for: request, pixelSize: sheetPixelSize)
@@ -317,11 +362,13 @@ struct CollectionTile: View {
             if loadedSheet != nil { loadedSheet = nil }
             return
         }
-        adopt(image, key: key)
+        adopt(image, key: key, request: request)
     }
 
-    private func adopt(_ image: CGImage, key: String) {
-        loadedSheet = LoadedSheet(key: key, image: image)
+    private func adopt(_ image: CGImage, key: String, request: CollectionTileImageRequest) {
+        loadedSheet = LoadedSheet(
+            key: key, sheetPrefix: CollectionTileImageStore.sheetKeyPrefix(request), image: image
+        )
         // 帳簿へ渡すのは焼いた絵**1枚だけ**。セルはこの1枚を参照する部分画像で、実際に
         // 確保されている画素はこの1枚ぶんだから(LazyCellImageBudget)。数えるセル数は
         // 中身のぶん(tileCellCount)にする ―― 1枚=1セルと数えると、下限セル数に届くまでに

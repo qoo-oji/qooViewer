@@ -200,14 +200,62 @@ nonisolated struct CollectionCoverSourceStore: Sendable {
     /// どの行からも参照されていないファイルを掃除する。起動時に1回だけ呼ぶ
     /// (CollectionCoverStore.sweepOrphansと同じ理由 ―― 削除の経路を丁寧に書いても、
     /// アプリが落ちれば参照だけ消えることはある)。
-    func sweepOrphans(keeping fileNames: Set<String>) {
-        guard let urls = try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: nil
+    ///
+    /// ■ すぐには消さず、`orphanRetention`のあいだ隔離しておく(2026-09-13)
+    /// ここにあるのは**作り直せない絵**(利用者が選んだ画像の複製で、元ファイルはもう無いことが
+    /// 多い)。以前は参照が無ければその場で消していたが、2026-09-11に**参照のほうが間違って
+    /// 消えた**(古いqooViewerがストアを開き、表紙の列を削除した。StoreSchemaGuardの型コメント)
+    /// ときに、この掃除が131枚の元画像をまとめて消した。DBの記録が正しいとは限らない以上、
+    /// 「参照が無い」は「要らない」の証明にならない。
+    ///
+    /// 隔離先は保管庫の中の`.orphaned/`。消すのは隔離してから`orphanRetention`を過ぎたものだけ。
+    /// **参照が戻っていれば隔離から戻す**(DBをバックアップから戻した・修復した、など)。
+    ///
+    /// - Parameter now: 隔離した時刻と経過の判定に使う(**テストのための口**)。
+    func sweepOrphans(keeping fileNames: Set<String>, now: Date = Date()) {
+        let fileManager = FileManager.default
+        let quarantine = directory.appendingPathComponent(Self.quarantineFolderName, isDirectory: true)
+
+        // 1. 参照が戻っているものを隔離から戻す(同名のファイルが保管庫に無いときだけ)。
+        if let quarantined = try? fileManager.contentsOfDirectory(at: quarantine, includingPropertiesForKeys: nil) {
+            for url in quarantined where fileNames.contains(url.lastPathComponent) {
+                let restored = directory.appendingPathComponent(url.lastPathComponent, isDirectory: false)
+                guard !fileManager.fileExists(atPath: restored.path) else { continue }
+                try? fileManager.moveItem(at: url, to: restored)
+            }
+        }
+
+        // 2. 参照の無いものを隔離する。隔離した時刻を更新時刻に刻む(期限はそこから数える)。
+        if let urls = try? fileManager.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: [.isDirectoryKey]
+        ) {
+            for url in urls where !fileNames.contains(url.lastPathComponent) {
+                guard (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory != true else { continue }
+                try? fileManager.createDirectory(at: quarantine, withIntermediateDirectories: true)
+                let destination = quarantine.appendingPathComponent(url.lastPathComponent, isDirectory: false)
+                try? fileManager.removeItem(at: destination)
+                guard (try? fileManager.moveItem(at: url, to: destination)) != nil else { continue }
+                try? fileManager.setAttributes([.modificationDate: now], ofItemAtPath: destination.path)
+            }
+        }
+
+        // 3. 期限を過ぎた隔離を消す。
+        guard let quarantined = try? fileManager.contentsOfDirectory(
+            at: quarantine, includingPropertiesForKeys: [.contentModificationDateKey]
         ) else { return }
-        for url in urls where !fileNames.contains(url.lastPathComponent) {
-            try? FileManager.default.removeItem(at: url)
+        for url in quarantined {
+            let movedAt = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate ?? now
+            if now.timeIntervalSince(movedAt) > Self.orphanRetention {
+                try? fileManager.removeItem(at: url)
+            }
         }
     }
+
+    /// 参照を失った元画像を消すまでの猶予(30日)。
+    static let orphanRetention: TimeInterval = 30 * 24 * 60 * 60
+    /// 隔離先のフォルダ名(保管庫の中)。先頭の`.`はFinderで見えなくするため。
+    static let quarantineFolderName = ".orphaned"
 
     /// 保管庫が使っているディスク容量(サイドパネルの「リソース」モードの内訳用)。
     func totalByteCount() -> Int64 {

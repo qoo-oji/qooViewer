@@ -97,6 +97,21 @@ nonisolated final class CollectionTileImageCache: @unchecked Sendable {
         }
     }
 
+    /// この接頭辞で始まる鍵のうち、**最後に触ったもの**を返す(「最後に触った」扱いにはしない)。
+    ///
+    /// 札の大きさを変えている最中に、ちょうどの復号サイズがまだ無いとき、**同じ絵の別の大きさ**で
+    /// つないで描くために使う(CollectionTile.sheetImage(forKey:)参照。ユーザー報告 2026-09-13
+    /// 「スライダーで大きさを変えると表紙が一瞬消えて点滅して見える」)。ちょうどの鍵で
+    /// 見つからなかったときにだけ呼ばれるので、全件の走査(上限400件)で足りる。
+    /// 使った絵を「触った」ことにしないのは、つなぎに使っただけの古い大きさをLRUの手前へ
+    /// 引き戻さないため。
+    func mostRecentImage(withPrefix prefix: String) -> CGImage? {
+        state.withLock { state in
+            guard let key = state.recency.last(where: { $0.hasPrefix(prefix) }) else { return nil }
+            return state.entries[key]
+        }
+    }
+
     func store(_ image: CGImage, forKey key: String) {
         state.withLock { state in
             state.remove(key)

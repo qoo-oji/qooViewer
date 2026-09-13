@@ -42,6 +42,8 @@ struct CollectionDetailView: View {
     let allowsEditing: Bool
 
     private static let spacing: CGFloat = 16
+    /// グリッドの外周の余白。
+    private static let gridPadding: CGFloat = 24
     private static let coverByteBudget = 96 * 1024 * 1024
 
     @State private var cellImageBudget = LazyCellImageBudget(byteBudget: coverByteBudget)
@@ -114,8 +116,15 @@ struct CollectionDetailView: View {
         }
     }
 
+    /// 検索欄の文字列を照合できる形にしたもの。空欄ならnil(絞り込まない)。
+    private var searchQuery: LibrarySearchQuery? {
+        LibrarySearchQuery(state.searchText)
+    }
+
+    /// いま出ている本(検索で絞り込んだ後)。全選択・マーキー・右クリックの対象はすべてこれ
+    /// (見えていないものに手を出さない決まり。WelcomeLibraryState.searchText参照)。
     private var items: [CollectionItem] {
-        collectionStore.items(in: collection, sort: state.itemSort)
+        collectionStore.items(in: collection, sort: state.itemSort, matching: searchQuery)
     }
 
     /// いま出ている本が残らず選ばれているか。空のときは false(押せる先が無い)。
@@ -143,7 +152,11 @@ struct CollectionDetailView: View {
         VStack(spacing: 0) {
             header
             if items.isEmpty {
-                emptyMessage
+                if searchQuery != nil, !collection.items.isEmpty {
+                    WelcomeNoMatchesMessage(textKey: "No books match the search.")
+                } else {
+                    emptyMessage
+                }
             } else {
                 grid
             }
@@ -192,12 +205,69 @@ struct CollectionDetailView: View {
     }
 
     private var header: some View {
+        // 左に戻るボタンと名前、中央に検索欄、右に操作列(WelcomePaneHeaderLayout参照)。
+        //
+        // 左と上下の余白は**戻るボタンが自分の押せる範囲として持つ**(backButtonのコメント)ので、
+        // 行の余白は右だけ。検索欄の中央は、持たせた左の余白ぶんを勘定に入れて求める
+        // (leadingInset)。
+        WelcomePaneHeaderLayout(leadingInset: Self.backButtonHitSlop.width) {
+            titleArea
+
+            WelcomeSearchField(text: $state.searchText, prompt: "Search Books")
+
+            LibraryPaneControls(
+                addHelp: "Add Books…",
+                onAdd: {
+                    state.addingBooks = .init(
+                        collectionID: collection.id, name: collection.name,
+                        libraryID: collection.library?.id ?? UUID()
+                    )
+                },
+                isAllSelected: isEveryItemSelected,
+                canSelectAll: !items.isEmpty,
+                onToggleSelectAll: { toggleSelectAll() },
+                deleteHelp: "Remove Selected Books",
+                canDelete: !state.selectedItemIDs.isEmpty,
+                onDelete: { removingItemIDs = Array(state.selectedItemIDs) },
+                isEditing: $state.isEditing,
+                sort: $state.itemSort,
+                // 本の行には「更新日時」に相当する情報が無い(CollectionStore.items(in:sort:))。
+                // 「タイトル」を出すのはこの画面だけ(ユーザー要望 2026-09-10。
+                // FavoritesSortOptionの型コメント参照)。ファイル名と並べて見せるため、
+                // 同じ文字の基準どうしを隣に置く。本のファイルの「作成日」「変更日」
+                // (ユーザー要望 2026-09-13。Finderと同じ値)も、日付の基準として追加日の後ろに。
+                sortFields: [.name, .title, .dateAdded, .dateCreated, .dateModified],
+                size: $state.coverSize,
+                sizeRange: WelcomeLibraryState.coverSizeRange,
+                sizeHelp: "Cover Size",
+                library: library,
+                collection: collection,
+                allowsEditing: allowsEditing
+            )
+        }
+        .padding(.trailing, 16)
+        // 「本が見つかりません」のalertとは別の階層に付ける ―― 同じビューに`.alert`を2つ
+        // 重ねると片方しか出ないことがある(`.sheet`と同じSwiftUIの癖)。
+        .alert(
+            removalTitle,
+            isPresented: Binding(
+                get: { !removingItemIDs.isEmpty },
+                set: { if !$0 { removingItemIDs = [] } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) { removingItemIDs = [] }
+            Button("Delete", role: .destructive) { confirmRemoval() }
+        } message: {
+            Text("The books themselves are not deleted. Only their entries in this collection and their cover images are removed.")
+        }
+    }
+
+    /// 見出しの左側: 戻るボタン・コレクション名・冊数。
+    private var titleArea: some View {
         HStack(spacing: 8) {
-            SidePanelNavButton(
-                systemName: "chevron.backward", isDisabled: false, help: "Back to Collections"
-            ) {
-                state.openedCollectionID = nil
-            }
+            backButton
+                // ボタンが右に持った4ptぶん、名前との間隔を詰める(見た目の間隔は従来の8pt)。
+                .padding(.trailing, -4)
             // 編集モード中は名前を押すとリネームのシートが出る。TextFieldをその場に置く案も
             // あったが、空欄・重複の知らせ方を作成のシートと揃えたいので、同じ部品を使う。
             Group {
@@ -223,60 +293,55 @@ struct CollectionDetailView: View {
             .truncationMode(.middle)
             .panelOutlinedContent()
 
-            Text("\(collection.items.count)")
-                .font(.caption)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-                .panelOutlinedContent()
-
-            Spacer(minLength: 8)
-
-            LibraryPaneControls(
-                addHelp: "Add Books…",
-                onAdd: {
-                    state.addingBooks = .init(
-                        collectionID: collection.id, name: collection.name,
-                        libraryID: collection.library?.id ?? UUID()
-                    )
-                },
-                isAllSelected: isEveryItemSelected,
-                canSelectAll: !items.isEmpty,
-                onToggleSelectAll: { toggleSelectAll() },
-                deleteHelp: "Remove Selected Books",
-                canDelete: !state.selectedItemIDs.isEmpty,
-                onDelete: { removingItemIDs = Array(state.selectedItemIDs) },
-                isEditing: $state.isEditing,
-                sort: $state.itemSort,
-                // 本の行には「更新日時」に相当する情報が無い(CollectionStore.items(in:sort:))。
-                // 「タイトル」を出すのはこの画面だけ(ユーザー要望 2026-09-10。
-                // FavoritesSortOptionの型コメント参照)。ファイル名と並べて見せるため、
-                // 同じ文字の基準どうしを隣に置く。
-                sortFields: [.name, .title, .dateAdded],
-                size: $state.coverSize,
-                sizeRange: WelcomeLibraryState.coverSizeRange,
-                sizeHelp: "Cover Size",
-                library: library,
-                collection: collection,
-                allowsEditing: allowsEditing
-            )
+            // 冊数。検索で絞り込んでいる間は「出ている数 / 全体」にする ―― 絞り込みが効いて
+            // いることと、どれだけ残っているかが見出しだけで読める。
+            Group {
+                if searchQuery != nil {
+                    Text("\(items.count) / \(collection.items.count)")
+                } else {
+                    Text("\(collection.items.count)")
+                }
+            }
+            .font(.caption)
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+            .panelOutlinedContent()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        // 「本が見つかりません」のalertとは別の階層に付ける ―― 同じビューに`.alert`を2つ
-        // 重ねると片方しか出ないことがある(`.sheet`と同じSwiftUIの癖)。
-        .alert(
-            removalTitle,
-            isPresented: Binding(
-                get: { !removingItemIDs.isEmpty },
-                set: { if !$0 { removingItemIDs = [] } }
-            )
-        ) {
-            Button("Cancel", role: .cancel) { removingItemIDs = [] }
-            Button("Delete", role: .destructive) { confirmRemoval() }
-        } message: {
-            Text("The books themselves are not deleted. Only their entries in this collection and their cover images are removed.")
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    /// 一覧へ戻るボタン(ユーザー要望 2026-09-13: 見た目はそのままで、押せる範囲を広げる)。
+    ///
+    /// 見た目はSidePanelNavButton(32×28のアイコンボタン)と同じ。押せる範囲だけを、見出しの
+    /// 行の高さいっぱい(上下の余白ぶん)と左の余白、名前との間まで広げてある ―― 画面の左上の角へ
+    /// 向かってポインタを投げたとき、少し外れても押せるように(Fittsの法則。端に近いものほど
+    /// 外れにくい)。広げたぶんは透明な余白で、描画は1ptも変えない。
+    ///
+    /// **余白はレイアウト上の大きさとして持たせる。** 最初は余白を足して`contentShape`を掛け、
+    /// 負の余白で元の大きさへ戻す形にしたが、実物では広げたところを押しても何も起きなかった
+    /// (実測 2026-09-13)。SwiftUIの当たり判定はビューの枠の外まで伸びない。そのため見出しの行は
+    /// 左と上下の余白を持たず、このボタンがその余白ぶん大きくなっている(header参照)。
+    /// ホバーの淡い地は出さない ―― 他のアイコンボタンと同じく、押せることは形とツールチップで伝える。
+    private var backButton: some View {
+        Button {
+            state.openedCollectionID = nil
+        } label: {
+            Image(systemName: "chevron.backward")
+                .panelIconButtonLabel()
+                .padding(.vertical, Self.backButtonHitSlop.height)
+                .padding(.leading, Self.backButtonHitSlop.width)
+                .padding(.trailing, 4)
+                .contentShape(Rectangle())
+        }
+        // `.borderless`はAppKitのボタンとして描かれ、当たり判定がボタンの枠に閉じる(contentShapeで
+        // 外へ広げても効かない)。SwiftUI側で判定させるため、押している間だけ淡くする自前の
+        // スタイルにする。
+        .buttonStyle(PressDimmingButtonStyle())
+        .help("Back to Collections")
+    }
+
+    /// 戻るボタンの当たり判定を外へ広げる量(一覧側の見出しの余白 横16・縦8 と同じ)。
+    private static let backButtonHitSlop = CGSize(width: 16, height: 8)
 
     /// 1冊のときと複数のときで鍵を分ける(英語で「1 books」にしないため。
     /// CollectionGridView.deletionTitleと同じ判断)。
@@ -302,7 +367,7 @@ struct CollectionDetailView: View {
             visibleSize: gridSize,
             cellWidth: state.coverSize,
             cellHeight: state.coverSize / library.coverAspectRatio.value + captionHeight,
-            spacing: Self.spacing, padding: 24
+            spacing: Self.spacing, padding: Self.gridPadding
         )
     }
 
@@ -320,30 +385,42 @@ struct CollectionDetailView: View {
     }
 
     private var grid: some View {
-        ScrollView {
-            LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: state.coverSize), spacing: Self.spacing)],
-                spacing: Self.spacing
-            ) {
-                ForEach(items, id: \.id) { item in
-                    cell(for: item)
-                        // 帯の当たり判定に使う矩形を知らせる(MarqueeSelection参照)。
-                        .marqueeCell(item.id, in: marquee)
-                }
-            }
-            .padding(24)
-            // 編集モード中は、余白(カバーの隙間・外周・最後の行より下)から帯を引いて
-            // まとめて選べる。カバーの上で押し始めたドラッグは従来どおりカバーのもの。
-            .marqueeSelectable(
-                marquee,
-                isEnabled: allowsEditing && state.isEditing,
-                minimumHeight: gridSize.height,
-                selection: $state.selectedItemIDs,
-                shownIDs: Set(items.map(\.id))
+        // 列はスライダーの値ちょうどの幅で並べる(CollectionGridView.gridと同じ理由・同じ作り。
+        // WelcomeGridColumns参照)。
+        GeometryReader { proxy in
+            let columns = WelcomeGridColumns(
+                availableWidth: proxy.size.width, itemWidth: state.coverSize,
+                spacing: Self.spacing, padding: Self.gridPadding
             )
-            // コレクションが変わったときも作り直して、前のコレクションのカバーを手放す
-            // (CollectionGridViewの同じ`.id`のコメント参照)。
-            .id(gridID)
+            ScrollView {
+                LazyVGrid(columns: columns.gridItems(alignment: .top), spacing: Self.spacing) {
+                    ForEach(items, id: \.id) { item in
+                        cell(for: item)
+                            // 帯の当たり判定に使う矩形を知らせる(MarqueeSelection参照)。
+                            .marqueeCell(item.id, in: marquee)
+                    }
+                }
+                // 列数ぶんに絞って中央へ(CollectionGridView.gridの同じ箇所のコメント参照)。
+                .frame(width: columns.contentWidth)
+                .frame(maxWidth: .infinity)
+                .padding(Self.gridPadding)
+                // 編集モード中は、余白(カバーの隙間・外周・最後の行より下)から帯を引いて
+                // まとめて選べる。カバーの上で押し始めたドラッグは従来どおりカバーのもの。
+                .marqueeSelectable(
+                    marquee,
+                    isEnabled: allowsEditing && state.isEditing,
+                    minimumHeight: gridSize.height,
+                    selection: $state.selectedItemIDs,
+                    shownIDs: Set(items.map(\.id))
+                )
+                // コレクションが変わったときも作り直して、前のコレクションのカバーを手放す
+                // (CollectionGridViewの同じ`.id`のコメント参照)。
+                .id(gridID)
+            }
+        }
+        // ピンチでカバーの大きさを変える(ユーザー要望 2026-09-13。welcomeGridPinch参照)。
+        .welcomeGridPinch(scrollBox: marquee.scrollBox) { [weak state] magnification in
+            state?.resizeCovers(byMagnification: magnification)
         }
         .onGeometryChange(for: CGSize.self) { proxy in
             proxy.size
@@ -376,6 +453,7 @@ struct CollectionDetailView: View {
                 displayWidth: state.coverSize,
                 exists: collectionStore.cachedFileExists(for: item),
                 isExtracting: coverExtractor.inFlightItemIDs.contains(item.id),
+                coverRevision: collectionStore.coverRevision(for: item),
                 onImageRetained: { image in
                     cellImageBudget.note(retaining: image, minimumCellCount: minimumCellCount)
                 }
@@ -554,5 +632,13 @@ struct CollectionDetailView: View {
             return
         }
         appState.open(url: url)
+    }
+}
+
+/// 押している間だけ淡く描く、地を持たないボタンのスタイル(戻るボタン用。backButtonのコメント参照)。
+private struct PressDimmingButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.5 : 1)
     }
 }

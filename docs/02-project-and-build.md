@@ -60,7 +60,18 @@ EPUB / PDF の構造解決、書き出しのラウンドトリップ、そして
 ありません)を、下記のフィクスチャで通します。画面の自動操作(AX 経由)は再現性が低いので
 載せません(→ [12](12-verification-and-debugging.md))。
 
-いまある suite(2026-09-09 時点、885 テスト・88 suite・約 15 秒):
+いまある suite(2026-09-13 時点、982 テスト・97 suite・約 13 秒):
+
+保存データ(ディスク上の使い捨てストア。2026-09-13 追加 → [06](06-persistence.md#古いアプリで新しいストアを開くと列が黙って消える2026-09-11-の事故と対策)):
+
+| suite | 見るもの |
+| --- | --- |
+| `StoreSchemaGuardTests` | 古いアプリが新しいストアを開くのを止める判定、スキーマの世代の表(モデルを変えたら行を足す)、SwiftData が古いモデルで列を消すという前提 |
+| `StorePersistenceTests` | 足した列が「書く → 閉じる → 開き直す」で残ること、1.54 のストアからの移行(`SchemaSnapshot_1_54`) |
+| `CollectionCoverSourceStoreTests` | 表紙の元画像の掃除が、消さずに隔離して、参照が戻れば戻すこと |
+
+メモリ内のストア(`InMemoryLibrary`)は**開き直しも移行も通らない**。永続化する属性を足したら、
+`DisposableStore` で開き直しを1本足すこと。
 
 読み込みの経路(段階 1):
 
@@ -370,11 +381,28 @@ Actions タブと GitHub のメール通知で見ます。README にバッジも
 | `ENABLE_APP_SANDBOX` | YES | App Sandbox。`.entitlements` ファイルは無く、ビルド設定から生成される |
 | `ENABLE_HARDENED_RUNTIME` | YES | 公証の前提 |
 | `ENABLE_USER_SELECTED_FILES` | readwrite | ユーザーが選んだファイル/フォルダの読み書き |
-| `PRODUCT_BUNDLE_IDENTIFIER` | com.qooProject.qooViewer | 変えると SwiftData のストア・UserDefaults・キャッシュの場所が変わる |
+| `PRODUCT_BUNDLE_IDENTIFIER` | Release: com.qooProject.qooViewer / **Debug: com.qooProject.qooViewer.debug** | 変えると SwiftData のストア・UserDefaults・キャッシュの場所が変わる。Debug を分けた理由は下 |
+| `INFOPLIST_KEY_CFBundleDisplayName` | Debug だけ「qooViewer Debug」 | Dock・Finder で普段使いのアプリと見分ける |
+| `QOO_DOCUMENT_HANDLER_RANK` | Release: Default / Debug: Alternate | `Info.plist` の本の書類型の `LSHandlerRank`。Debug ビルドが Finder のダブルクリックの既定候補を奪わない |
 | `MARKETING_VERSION` | 1.41(2026-09-05 時点) | アプリのバージョン。Debug/Release 両方にある |
 | `CURRENT_PROJECT_VERSION` | 1 | ビルド番号は使っていない |
 
 ネットワークの entitlement はありません。このアプリは一切通信しません。
+
+**Debug ビルドは保存データが別**(2026-09-13 から)。バンドルIDが違うので、サンドボックスのコンテナ
+(`~/Library/Containers/com.qooProject.qooViewer.debug/`)ごと別になり、SwiftData のストア・
+UserDefaults・カバー画像・キャッシュのどれも普段使いのアプリ(Release)と共有しない。
+テストのホストも Debug ビルドなので、テストが動くのもこちらのコンテナ。
+
+分けたのは、2026-09-11 に**普段使いのデータを、バージョンの違うアプリが入れ替わりに開いた**ことで
+表紙の列が消えたため(→ [06](06-persistence.md#古いアプリで新しいストアを開くと列が黙って消える2026-09-11-の事故と対策))。
+開発中のビルドは日に何度もスキーマが変わる。同じデータを共有していると、作りかけのビルドが実データを
+移行・書き換えるうえ、その後で普段使いのアプリ(古い)を起動すると今回と同じことが起きる。
+
+代償: Xcode から起動したアプリは空の本棚から始まる。**実データでの確認は普段使いのアプリ
+(`/Applications` に入れた Release)で行う。** ストアを Debug 側へ複写しても、コレクションや
+お気に入りの**セキュリティスコープ付きブックマークはアプリごとに発行されたもの**なので、
+Debug ビルドからは解決できず、本はほぼ「場所を確定できない」になる(→ [10](10-sandbox-and-security.md))。
 
 「Swift 5 モード + 既定隔離 MainActor」という組み合わせがこのプロジェクトの最大の落とし穴です。
 Swift 6 モードのようなデータ競合の完全検査はされませんが、**隔離のミスマッチは厳しくエラーに

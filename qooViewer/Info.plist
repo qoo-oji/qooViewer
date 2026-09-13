@@ -20,8 +20,14 @@
 			<string>Comic Archive</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
+			<!--
+			  Release は Default、Debug は Alternate(ビルド設定 QOO_DOCUMENT_HANDLER_RANK)。
+			  Debug ビルドはバンドルIDが別(com.qooProject.qooViewer.debug)で保存データも別なので、
+			  Finder で本をダブルクリックしたときに開くアプリの候補を普段使いのアプリから奪わないようにする
+			  (docs/02「主要なビルド設定」参照)。
+			-->
 			<key>LSHandlerRank</key>
-			<string>Default</string>
+			<string>$(QOO_DOCUMENT_HANDLER_RANK)</string>
 		</dict>
 		<!--
 		  フォルダをDockアイコンへドロップして開けるようにするための宣言(ユーザー要望)。

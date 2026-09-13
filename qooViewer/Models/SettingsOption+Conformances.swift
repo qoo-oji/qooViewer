@@ -136,6 +136,10 @@ extension CollectionCoverCaptionStyle: SettingsOption {
     var shortTitleKey: LocalizedStringKey { titleKey }
 }
 
+extension CollectionTileBadgeSize: SettingsOption {
+    var shortTitleKey: LocalizedStringKey { titleKey }
+}
+
 // MARK: - レイアウト
 
 extension MissingLayoutAutoLayout: SettingsOption {

@@ -1210,7 +1210,11 @@ struct ContentView: View {
             // ブックマークだけは確認を挟まずその場で消す(SidePanelView側のコメント参照)。
             onDeleteBookmark: { bookmark in
                 bookmarkStore.delete(bookmark)
-            }
+            },
+            // ブックマークモード下段のライブラリのツリーは、このウインドウのウェルカム画面と
+            // 同じ並び順で並べる(SidePanelLibraryTreeSectionの型コメント)。
+            librarySort: welcomeLibrary.collectionSort,
+            libraryItemSort: welcomeLibrary.itemSort
         )
         // 常時表示のときは、パネルの位置をViewerViewへ知らせる。パネルの上でのホイール操作を
         // ページ送りの対象から外すために要る(AppState.dockedSidePanelScreenFrameのコメント参照)。

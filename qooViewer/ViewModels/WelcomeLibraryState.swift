@@ -26,7 +26,9 @@ final class WelcomeLibraryState: ObservableObject {
         static let coverSize = "qooViewer.welcome.coverSize"
     }
 
-    /// コレクションのタイルの大きさ(LazyVGridの`.adaptive(minimum:)`に渡す下限)。
+    /// コレクションのタイルの大きさ。**札はこの幅ちょうどで並ぶ**(2026-09-13まではLazyVGridの
+    /// `.adaptive(minimum:)`に渡す下限で、列数が変わる瞬間にしか大きさが変わらなかった。
+    /// WelcomeGridColumns参照)。
     static let tileSizeRange: ClosedRange<CGFloat> = 120...320
     static let defaultTileSize: CGFloat = 180
     /// コレクションの中に並ぶカバーの大きさ。
@@ -41,6 +43,8 @@ final class WelcomeLibraryState: ObservableObject {
             defaults.set(selectedLibraryID?.uuidString, forKey: Keys.selectedLibraryID)
             // 画面が移ったら編集モードから出る(isEditingのコメント参照)。
             isEditing = false
+            // 別の棚を見始めたら検索も捨てる(searchTextのコメント参照)。
+            searchText = ""
         }
     }
 
@@ -54,7 +58,41 @@ final class WelcomeLibraryState: ObservableObject {
             // 画面が移ったら編集モードから出る(isEditingのコメント参照)。didSetの中で
             // clearSelection()も走るので、選択を捨てるのはここに書かなくてよい。
             isEditing = false
+            // 検索はここでは触らない。一覧へ戻るときは残し、中へ入るときに残すかどうかは
+            // 入り口のopenCollection(_:keepingSearch:)が先に決めてある(searchTextのコメント参照)。
         }
+    }
+
+    /// 検索欄の文字列(ユーザー要望 2026-09-13)。一覧ではコレクションを、コレクションの中では
+    /// 本を絞り込む(照合の規則はLibrarySearchQuery)。
+    ///
+    /// **保存しない。捨てる契機は2つ**(ユーザー指示 2026-09-13。検討の途中で「戻るでも捨てる」
+    /// に一度振れてから、この形に落ち着いた):
+    /// - ライブラリを切り替えたとき(別の棚を見始めたので、前の棚向けの絞り込みを持ち越さない)
+    /// - 絞り込んだ一覧からコレクションを開いて、**その中に一致する本が無い**とき
+    ///   (名前だけが一致した棚を開いたのに中身が空に見える、を作らない。
+    ///   openCollection(_:keepingSearch:))
+    ///
+    /// **コレクションから一覧へ戻るときは残す**(戻るボタン・選択中のライブラリのチップ)。
+    /// 絞り込んだ一覧から棚を覗いて戻り、隣の棚を開く、を続けられるようにするため。
+    /// 中に一致する本がある棚を開いたときも残す ―― 探していた本がそのまま絞り込まれて出る。
+    ///
+    /// **変わったら選択を捨てる。** 絞り込みで見えなくなったものが選択に残ると、ゴミ箱が
+    /// 見えていないものを消す(selectedCollectionIDsのコメントと同じ決まり)。
+    @Published var searchText: String = "" {
+        didSet {
+            guard searchText != oldValue else { return }
+            clearSelection()
+        }
+    }
+
+    /// コレクションの中へ入る。一覧から開く道はすべてここを通す(クリック・右クリックの「開く」)。
+    ///
+    /// - Parameter keepingSearch: 検索を残すか。呼び出し側が「この棚の中に検索に一致する本が
+    ///   あるか」を調べて渡す(searchTextのコメント参照)。
+    func openCollection(_ id: UUID, keepingSearch: Bool) {
+        if !keepingSearch { searchText = "" }
+        openedCollectionID = id
     }
 
     /// 編集モード。いま効くのは**ゴミ箱を出すかどうか**と、クリック/ドロップの意味
@@ -112,6 +150,21 @@ final class WelcomeLibraryState: ObservableObject {
             guard coverSize != oldValue else { return }
             defaults.set(Double(coverSize), forKey: Keys.coverSize)
         }
+    }
+
+    /// トラックパッドのピンチで札の大きさを変える(ユーザー要望 2026-09-13)。`magnification`は
+    /// 1イベントぶんの変化量なので、いまの大きさに`(1 + magnification)`を掛けて積み上げる
+    /// (ThumbnailGridView.handleMagnifyと同じ扱い。刻みへ丸めない理由もあちら)。
+    func resizeTiles(byMagnification magnification: CGFloat) {
+        let next = Self.tileSizeRange.clamping(tileSize * (1 + magnification))
+        // 上限・下限に張り付いている間、同じ値を書き続けない(UserDefaultsへの空振りの書き込み)。
+        if next != tileSize { tileSize = next }
+    }
+
+    /// コレクションの中のカバーの大きさ版(resizeTiles(byMagnification:)と同じ)。
+    func resizeCovers(byMagnification magnification: CGFloat) {
+        let next = Self.coverSizeRange.clamping(coverSize * (1 + magnification))
+        if next != coverSize { coverSize = next }
     }
 
     /// 名前の入力を待っている「これから作るコレクション」の待ち行列。

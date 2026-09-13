@@ -60,6 +60,36 @@ final class BookTitleResolver {
         return resolved
     }
 
+    /// bookID -> 検索に照合する文字列(正規化済み)。
+    private var searchableCache: [String: String] = [:]
+
+    /// ウェルカム画面の検索(LibrarySearchQuery)が照合する、この本の文字列(ユーザー要望 2026-09-13)。
+    ///
+    /// 中身は**ファイル名/フォルダ名**(拡張子つき)と、**登録済みのメタデータ**(タイトル・作者・
+    /// シリーズ・巻数)。ファイル名からの推測値は入れない ―― 推測はファイル名から取り出した
+    /// 部分文字列なので、ファイル名で既に一致する。
+    ///
+    /// ■ 覚えておく理由と捨てる契機はtitle(forBookID:)と同じ
+    /// 一覧の絞り込みは、描き直しのたびに棚の全冊ぶん照合する。正規化(folding)は1冊ずつなら
+    /// 一瞬だが、数千冊では描き直しごとに効いてくる。DBが変われば通し番号の照合で捨てる。
+    /// bookIDはリネーム・移動に追従して書き換わる(CollectionStore.reconcileBookIDIfMoved)ので、
+    /// 名前が変われば鍵ごと別物になり、古い文字列は使われない。
+    ///
+    /// 語は改行で区切って1つにまとめる。語に改行は入らないので、項目の境目をまたいで
+    /// 一致することはない。
+    func searchableText(forBookID bookID: String) -> String {
+        invalidateIfStale()
+        if let cached = searchableCache[bookID] { return cached }
+        var fields = [URL(fileURLWithPath: bookID).lastPathComponent]
+        if let metadata = metadataStore.metadata(forBookID: bookID) {
+            fields += [metadata.title, metadata.author, metadata.series, metadata.seriesIndex]
+                .filter { !$0.isEmpty }
+        }
+        let text = LibrarySearchQuery.normalized(fields.joined(separator: "\n"))
+        searchableCache[bookID] = text
+        return text
+    }
+
     /// DBの内容・推測のルールのどちらかが変わっていたら、覚えているものを全部捨てる。
     ///
     /// 変わった1冊だけを捨てる形にはしない ―― どのタイトルがDBの値でどれが推測値かを
@@ -71,6 +101,7 @@ final class BookTitleResolver {
         guard metadataRevision != cachedMetadataRevision || formatRevision != cachedFormatRevision
         else { return }
         cache.removeAll(keepingCapacity: true)
+        searchableCache.removeAll(keepingCapacity: true)
         cachedMetadataRevision = metadataRevision
         cachedFormatRevision = formatRevision
     }

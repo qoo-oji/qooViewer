@@ -237,7 +237,15 @@ struct WelcomeTopBar: View {
         let isSelected = library.id == selectedLibraryID
         let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         let button = Button {
-            guard !isSelected else { return }
+            // 選択中のライブラリをもう一度押したら、そのライブラリのコレクション一覧へ戻る
+            // (ユーザー要望 2026-09-13)。以前は何も起きなかったが、コレクションの中にいるとき
+            // 「ライブラリの名前を押す = そのライブラリの一番上へ」と読むのが自然。
+            // **検索は残す** ―― ライブラリは移っていないので、戻るボタンと同じ扱いにする
+            // (WelcomeLibraryState.searchTextのコメント参照)。
+            guard !isSelected else {
+                state.openedCollectionID = nil
+                return
+            }
             state.selectedLibraryID = library.id
             // 別のライブラリへ移ったら、開いていたコレクションからは出る(そのコレクションは
             // 今のライブラリには無いため)。

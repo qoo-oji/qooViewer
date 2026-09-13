@@ -71,6 +71,60 @@
     本を閉じるときに `flushPendingSave()`。一括登録(`upsertAll`、`forceAddFavorites`、
     `setPageLayoutStates`、`clearPageLayoutStates`)は保存と通知を1回にする(JSON 読み込みが
     1行ごとに SQLite へ書いて非常に遅かった)。
+11. **モデルを変えたら、スキーマの世代を1つ足す**(`StoreSchemaGuard.generations`)。足し忘れは
+    `StoreSchemaGuardTests` が落とす。理由は次の節。
+12. **足した列は、ディスク上の使い捨てストアで「書く → 閉じる → 開き直す」を通す**
+    (`StorePersistenceTests` / `DisposableStore`)。メモリ内のストア(`InMemoryLibrary`)は
+    開き直しも移行も通らない。
+
+### 古いアプリで新しいストアを開くと、列が黙って消える(2026-09-11 の事故と対策)
+
+**何が起きたか。** 1.55 で足したコレクション表紙の3列(`BookLayoutSettings.shelfCover*`)が、
+131冊ぶん丸ごと空になった。1.55 で分離の移行を済ませた数時間後、`/Applications` に残っていた
+**1つ前の qooViewer を起動した**(統一ログでアプリのパスを確認)。SwiftData は、ストアとモデルが
+食い違うと**向きを問わず**軽量マイグレーションをかける ―― 新しい列を知らない古いモデルへの
+「移行」は、その列を中身ごと削除する。エラーも警告も出ない。その後 1.55 を入れ直して列は戻ったが
+中身は空で、起動時の孤児掃除が、参照を失った表紙の元画像(`CollectionCoverSources`)まで消した。
+棚の表示は別に焼いた JPEG(`CollectionCovers`)なので何も変わらず、書き出しの一覧から消えたことで
+初めて気づいた(改善要望6)。
+
+同じ種類の事故は以前にもあった(同じバンドルIDの古いビルドが同じストアを開いてリレーションが
+壊れた。`QooViewerApp.deleteStoreFiles` のコメント)。
+
+**切り分けで分かったこと。**
+
+- 使い捨てのストアで再現する: 新しいモデルで書く → 古いモデルで開く(**成功する**) → 新しいモデルで
+  開き直すと、古いモデルが知らない列だけが空(`StoreSchemaGuardTests.olderModelSilentlyDropsNewerColumns`)
+- 1.55 のコード自体は正しく保存していた。1.54 時代のストアの写しに分離の移行(アプリと同じ
+  `CollectionCoverExtractor` の初期化)と zip の読み込みを通し、開き直して全件残ることを確認した
+- **SQLite の持続履歴(`ACHANGE.ZCOLUMNS`)で「どの列が書かれたか」を読むのは当てにならない。**
+  事故の後で見ると、移行も読み込みも `updatedAt` しか書いていないように見え、「保存されなかった」と
+  一度誤診した。移行でエンティティの列の並びが変わると、古い履歴の列番号は意味を失う。
+  当時の作業ログに残っていた「移行直後・読み込み直後の DB の件数」(131件入っていた)で覆った
+
+**対策。**
+
+| 対策 | どこ | 何を防ぐか |
+|---|---|---|
+| 開く前の番人 | `StoreSchemaGuard` / `QooViewerApp.confirmOpeningNewerStoreIfNeeded` | 新しいアプリが使ったストアを古いアプリが開こうとしたら、開かずに尋ねる(既定は終了) |
+| スキーマの世代の表 | `StoreSchemaGuard.generations` + `StoreSchemaGuardTests` | 世代の上げ忘れ(番人の判定材料が古くなる) |
+| 使い捨てストアのテスト | `DisposableStore` / `StorePersistenceTests` | 足した列が開き直しで残らない・前のバージョンのストアから移行できない |
+| 前のバージョンのスキーマの写し | `SchemaSnapshot_1_54`(指紋を 1.54 時代の実物と照合) | 古いアプリを実際に走らせずに「前のバージョンのストア」を作る(テストホストはアプリそのもので、起動した瞬間に本物のストアを開くため、古いビルドを走らせること自体が事故になる) |
+| 表紙の元画像の隔離 | `CollectionCoverSourceStore.sweepOrphans` | 参照が間違って消えたときに、作り直せない画像まで即座に消える |
+
+**番人の判定**(`StoreSchemaGuard.verdict`、純粋関数):
+
+1. ストアが無い・いまのモデルと同じ版の指紋 → 開く(移行が起きない)
+2. UserDefaults `qooViewer.store.schemaGeneration`(開けたときに記録する、**大きいほうを残す**)が
+   自分の世代より大きい → **止める**
+3. ストアのメタデータに、いまのモデルが知らないエンティティがある → **止める**(記録が消えていても分かる)
+4. それ以外 → 古いストアからの移行なので開く
+
+版の指紋は `NSManagedObjectModel.makeManagedObjectModel(for:)` の `entityVersionHashesByName` と、
+ストアのメタデータの `NSStoreModelVersionHashes`。**両者が一致すること**(SwiftData がストアへ書く
+ものと、番人がモデルから計算するものが同じであること)もテストで押さえてある。
+
+**限界。** 番人を持たないバージョン(1.55 以前)へ戻したときは止められない。
 
 ## 指紋と差し替え検知
 

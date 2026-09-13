@@ -50,10 +50,17 @@ struct CollectionCoverThumbnail: View {
     var exists: Bool = true
     /// いまカバーを抽出中か(CollectionCoverExtractor.inFlightItemIDs)。
     var isExtracting: Bool = false
+    /// カバーの絵が差し替わった回数(CollectionStore.coverRevision(for:))。状態が`.ready`のまま
+    /// 絵だけが変わったときに読み直すための鍵。
+    var coverRevision: Int = 0
     /// 保持した画像の大きさを呼び出し側の帳簿(LazyCellImageBudget)へ伝える。
     var onImageRetained: ((CGImage) -> Void)?
 
     @State private var image: CGImage?
+    /// いま持っている絵を、どの復号サイズの段(decodeTier)で読んだか。
+    @State private var loadedTier = 0
+    /// その絵のcontentKey。比・位置・絵が変わったら大きさに関わらず読み直す。
+    @State private var loadedContentKey = ""
 
     /// 絵が出ているか。出ていないセルだけ縁を引く(型コメントの「輪郭」参照)。
     private var hasArtwork: Bool {
@@ -98,10 +105,14 @@ struct CollectionCoverThumbnail: View {
         // 絵が無いセルの縁。面を文字色で塗ってもセルの在りかが分かるようにする。
         .panelOutlinedFrame(in: shape, isEnabled: !hasArtwork)
         .opacity(exists ? 1 : 0.35)
-        // 読み直しの契機は3つ。抽出のやり直し(カバーの変更)はcoverStatusをいったん.pendingへ
-        // 戻してから.readyにするので状態を鍵に含め、比と位置は**切り直し**が要るので含める
-        // (歯車で比を変えた瞬間に、抽出を待たずに一覧が変わるのはこのため)。
-        .task(id: "\(item.id.uuidString)-\(item.coverStatus)-\(aspectRatio.rawValue)-\(anchor.rawValue)") {
+        // 読み直しの契機。抽出のやり直し(カバーの変更)はcoverStatusをいったん.pendingへ
+        // 戻してから.readyにするので状態を鍵に含め、状態を変えずに絵だけ差し替わったときの
+        // ためにcoverRevisionも含める。比と位置は**切り直し**が要るので含める(歯車で比を
+        // 変えた瞬間に、抽出を待たずに一覧が変わるのはこのため)。復号サイズの段は、スライダー・
+        // ピンチで大きくしたときに粗いまま引き伸ばさないため(decodeTierのコメント参照)。
+        .task(
+            id: "\(item.id.uuidString)-\(item.coverStatus)-\(coverRevision)-\(aspectRatio.rawValue)-\(anchor.rawValue)-\(decodeTier)"
+        ) {
             await loadImage()
         }
     }
@@ -113,9 +124,23 @@ struct CollectionCoverThumbnail: View {
     private func loadImage() async {
         guard item.coverState == .ready else {
             if image != nil { image = nil }
+            loadedTier = 0
             return
         }
-        let loaded = await coverStore.image(for: item.id, maxPixelSize: decodeMaxPixelSize)
+        // **表示中の絵は、新しい絵が届くまで手放さない**(ユーザー報告 2026-09-13「スライダーで
+        // 大きさを変えると表紙が一瞬消えて点滅して見える」)。ここでnilへ戻すと、読み直しの
+        // 間だけ下地が見える。
+        //
+        // 大きさだけが変わった(比・位置・絵は同じ)ときは、**小さくする方向では読み直さない。**
+        // 持っている絵を縮めて描けば足りるうえ、読み直した画像は帳簿(LazyCellImageBudget)に
+        // 積まれていくので、ドラッグのたびに往復するとグリッドの作り直しを呼び込み、
+        // 結局そこで絵が消える。
+        let tier = decodeTier
+        let key = contentKey
+        if image != nil, loadedContentKey == key, tier <= loadedTier { return }
+        let loaded = await coverStore.image(
+            for: item.id, maxPixelSize: Self.decodePixelSize(forTier: tier)
+        )
         guard !Task.isCancelled else { return }
         guard let loaded else {
             image = nil
@@ -125,6 +150,13 @@ struct CollectionCoverThumbnail: View {
         // 部分画像で、実際に確保されている画素は切る前のぶんだから(LazyCellImageBudget)。
         onImageRetained?(loaded)
         image = CoverImageResolver.cropped(loaded, to: aspectRatio.value, anchor: anchor)
+        loadedTier = tier
+        loadedContentKey = key
+    }
+
+    /// 大きさ以外で絵が変わる要素(読み直しの鍵から復号サイズの段を除いたもの)。
+    private var contentKey: String {
+        "\(item.id.uuidString)-\(coverRevision)-\(aspectRatio.rawValue)-\(anchor.rawValue)"
     }
 
     /// 復号する画素数の上限。Retinaぶんを見込んで実寸の2倍を要求する。切って捨てるぶんの
@@ -135,5 +167,20 @@ struct CollectionCoverThumbnail: View {
             croppedWidth: displayWidth * 2, targetAspect: aspectRatio.value,
             imageAspect: CGFloat(item.coverAspect)
         )
+    }
+
+    /// 復号サイズを**段**に丸めたもの(1段 = 256px)。
+    ///
+    /// スライダー・ピンチで大きさを連続的に変えると必要な画素数も連続的に変わるが、1pxごとに
+    /// 読み直すとドラッグ中ずっと復号が走る。保存してあるカバーは長辺768pxまで
+    /// (CollectionCoverStore.maxPixelSize)なので、256px刻みなら全域でも数段で済む。
+    private var decodeTier: Int {
+        max(1, Int((decodeMaxPixelSize / Self.decodeTierStep).rounded(.up)))
+    }
+
+    private static let decodeTierStep: CGFloat = 256
+
+    private static func decodePixelSize(forTier tier: Int) -> CGFloat {
+        CGFloat(tier) * decodeTierStep
     }
 }

@@ -37,6 +37,14 @@ enum FavoritesSortOption: String, CaseIterable, Identifiable, Codable, Hashable 
     case dateAddedDescending
     case dateUpdatedAscending
     case dateUpdatedDescending
+    /// 本のファイル/フォルダの作成日・変更日(Finderの「作成日」「変更日」と同じ値)。
+    /// **本を並べる画面だけに出す**(ユーザー要望 2026-09-13。「タイトル」と同じ扱い ――
+    /// ファイルシステム上の日付を持つのは本だけ。お気に入り・ブックマーク・コレクションの
+    /// 並べ替えでは名前として扱う)。
+    case dateCreatedAscending
+    case dateCreatedDescending
+    case dateModifiedAscending
+    case dateModifiedDescending
 
     var id: String { rawValue }
 
@@ -54,6 +62,10 @@ enum FavoritesSortOption: String, CaseIterable, Identifiable, Codable, Hashable 
         case title
         case dateAdded
         case dateUpdated
+        /// 本のファイル/フォルダの作成日(Finderの「作成日」)。本を並べる画面だけに出す。
+        case dateCreated
+        /// 本のファイル/フォルダの変更日(Finderの「変更日」)。本を並べる画面だけに出す。
+        case dateModified
 
         var id: String { rawValue }
 
@@ -67,6 +79,8 @@ enum FavoritesSortOption: String, CaseIterable, Identifiable, Codable, Hashable 
             case .title: return "Title"
             case .dateAdded: return "Date Added"
             case .dateUpdated: return "Date Updated"
+            case .dateCreated: return "Date Created"
+            case .dateModified: return "Date Modified"
             }
         }
 
@@ -76,6 +90,8 @@ enum FavoritesSortOption: String, CaseIterable, Identifiable, Codable, Hashable 
             case .title: return "text.book.closed"
             case .dateAdded: return "calendar"
             case .dateUpdated: return "clock.arrow.circlepath"
+            case .dateCreated: return "calendar.badge.plus"
+            case .dateModified: return "pencil.and.list.clipboard"
             }
         }
     }
@@ -86,14 +102,18 @@ enum FavoritesSortOption: String, CaseIterable, Identifiable, Codable, Hashable 
         case .titleAscending, .titleDescending: return .title
         case .dateAddedAscending, .dateAddedDescending: return .dateAdded
         case .dateUpdatedAscending, .dateUpdatedDescending: return .dateUpdated
+        case .dateCreatedAscending, .dateCreatedDescending: return .dateCreated
+        case .dateModifiedAscending, .dateModifiedDescending: return .dateModified
         }
     }
 
     var isAscending: Bool {
         switch self {
-        case .nameAscending, .titleAscending, .dateAddedAscending, .dateUpdatedAscending:
+        case .nameAscending, .titleAscending, .dateAddedAscending, .dateUpdatedAscending,
+             .dateCreatedAscending, .dateModifiedAscending:
             return true
-        case .nameDescending, .titleDescending, .dateAddedDescending, .dateUpdatedDescending:
+        case .nameDescending, .titleDescending, .dateAddedDescending, .dateUpdatedDescending,
+             .dateCreatedDescending, .dateModifiedDescending:
             return false
         }
     }
@@ -104,6 +124,8 @@ enum FavoritesSortOption: String, CaseIterable, Identifiable, Codable, Hashable 
         case .title: self = ascending ? .titleAscending : .titleDescending
         case .dateAdded: self = ascending ? .dateAddedAscending : .dateAddedDescending
         case .dateUpdated: self = ascending ? .dateUpdatedAscending : .dateUpdatedDescending
+        case .dateCreated: self = ascending ? .dateCreatedAscending : .dateCreatedDescending
+        case .dateModified: self = ascending ? .dateModifiedAscending : .dateModifiedDescending
         }
     }
 
@@ -117,6 +139,10 @@ enum FavoritesSortOption: String, CaseIterable, Identifiable, Codable, Hashable 
         case .dateAddedDescending: return "Date Added (Newest First)"
         case .dateUpdatedAscending: return "Date Updated (Oldest First)"
         case .dateUpdatedDescending: return "Date Updated (Newest First)"
+        case .dateCreatedAscending: return "Date Created (Oldest First)"
+        case .dateCreatedDescending: return "Date Created (Newest First)"
+        case .dateModifiedAscending: return "Date Modified (Oldest First)"
+        case .dateModifiedDescending: return "Date Modified (Newest First)"
         }
     }
 
@@ -127,6 +153,8 @@ enum FavoritesSortOption: String, CaseIterable, Identifiable, Codable, Hashable 
         case .titleAscending, .titleDescending: return "text.book.closed"
         case .dateAddedAscending, .dateAddedDescending: return "calendar"
         case .dateUpdatedAscending, .dateUpdatedDescending: return "clock.arrow.circlepath"
+        case .dateCreatedAscending, .dateCreatedDescending: return "calendar.badge.plus"
+        case .dateModifiedAscending, .dateModifiedDescending: return "pencil.and.list.clipboard"
         }
     }
 }

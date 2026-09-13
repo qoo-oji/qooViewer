@@ -327,6 +327,9 @@ struct PanelSurfaceSettingsView: View {
             ) { value in
                 "\(Int(value)) pt"
             }
+            // 札の右下の冊数バッジの大きさ(ユーザー要望 2026-09-13。3段。
+            // CollectionTileBadgeSize参照)。
+            SettingsPicker("Book Count Badge Size", selection: $preferences.collectionTileBadgeSize)
             SettingsColorRow(
                 "Tile Background Color",
                 color: preferences.effectiveCollectionTileBackground,

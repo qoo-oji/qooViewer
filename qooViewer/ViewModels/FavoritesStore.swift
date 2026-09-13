@@ -479,9 +479,9 @@ final class FavoritesStore: ObservableObject {
         // 「タイトル」(書誌のタイトル)はコレクションの中でしか選べない基準で、ここには
         // 出さない(お気に入りが持つのは登録したときの名前だけ。FavoritesSortOptionの型コメント
         // 参照)。保存してある値が何かの拍子に回ってきても並びが崩れないよう、名前として扱う。
-        case .nameAscending, .titleAscending:
+        case .nameAscending, .titleAscending, .dateCreatedAscending, .dateModifiedAscending:
             entries.sort { $0.sortName.localizedStandardCompare($1.sortName) == .orderedAscending }
-        case .nameDescending, .titleDescending:
+        case .nameDescending, .titleDescending, .dateCreatedDescending, .dateModifiedDescending:
             entries.sort { $0.sortName.localizedStandardCompare($1.sortName) == .orderedDescending }
         case .dateAddedAscending:
             entries.sort { $0.dateAdded < $1.dateAdded }
@@ -503,9 +503,9 @@ final class FavoritesStore: ObservableObject {
     private func sorted(_ folders: [FavoriteFolder]) -> [FavoriteFolder] {
         switch sortOption {
         // 「タイトル」を名前として扱う理由はentries(in:)と同じ。
-        case .nameAscending, .titleAscending:
+        case .nameAscending, .titleAscending, .dateCreatedAscending, .dateModifiedAscending:
             return folders.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        case .nameDescending, .titleDescending:
+        case .nameDescending, .titleDescending, .dateCreatedDescending, .dateModifiedDescending:
             return folders.sorted { $0.name.localizedStandardCompare($1.name) == .orderedDescending }
         case .dateAddedAscending:
             return folders.sorted { $0.createdAt < $1.createdAt }
@@ -525,9 +525,9 @@ final class FavoritesStore: ObservableObject {
         switch sortOption {
         // 「タイトル」を名前として扱う理由はentries(in:)と同じ(FavoriteBook.titleは登録した
         // ときの名前で、書誌のタイトルではない)。
-        case .nameAscending, .titleAscending:
+        case .nameAscending, .titleAscending, .dateCreatedAscending, .dateModifiedAscending:
             return books.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-        case .nameDescending, .titleDescending:
+        case .nameDescending, .titleDescending, .dateCreatedDescending, .dateModifiedDescending:
             return books.sorted { $0.title.localizedStandardCompare($1.title) == .orderedDescending }
         case .dateAddedAscending:
             return books.sorted { $0.addedAt < $1.addedAt }

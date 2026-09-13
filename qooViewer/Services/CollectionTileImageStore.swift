@@ -231,6 +231,12 @@ actor CollectionTileImageStore {
         "\(collectionID.uuidString)|"
     }
 
+    /// 復号サイズを除いた鍵(`cacheKey`から末尾の画素数を落としたもの)。同じ絵の大きさ違いを
+    /// まとめて指す(cachedImage(anySizeFor:)参照)。
+    nonisolated static func sheetKeyPrefix(_ request: CollectionTileImageRequest) -> String {
+        "\(request.collectionID.uuidString)|\(request.signature)|"
+    }
+
     nonisolated func fileURL(for request: CollectionTileImageRequest) -> URL? {
         directory?.appendingPathComponent(
             "\(request.collectionID.uuidString)-\(request.signature).jpg", isDirectory: false
@@ -243,6 +249,12 @@ actor CollectionTileImageStore {
     /// `.task`の到着を待たずに描くために使う(CollectionTileImageCacheの型コメント参照)。
     nonisolated func cachedImage(forKey key: String) -> CGImage? {
         memoryCache.image(forKey: key)
+    }
+
+    /// 同じ絵の、**大きさを問わない**復号済みの1枚(メモリにあるぶんだけ、同期で)。
+    /// ちょうどの大きさが届くまでのつなぎに使う(CollectionTileImageCache.mostRecentImageのコメント)。
+    nonisolated func cachedImage(anySizeFor request: CollectionTileImageRequest) -> CGImage? {
+        memoryCache.mostRecentImage(withPrefix: Self.sheetKeyPrefix(request))
     }
 
     /// 焼いた絵を返す。まだ無ければ焼いてから返す。焼けなければnil(表示側はカバーを

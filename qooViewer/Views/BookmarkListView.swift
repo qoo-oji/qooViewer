@@ -427,9 +427,9 @@ struct BookmarkEditorView: View {
         switch bookmarkStore.bookSortOption {
         // 「タイトル」(書誌のタイトル)はこの一覧の基準には出さない。名前として扱う理由は
         // BookmarkStore.sortedGroups(_:by:)と同じ。
-        case .nameAscending, .titleAscending:
+        case .nameAscending, .titleAscending, .dateCreatedAscending, .dateModifiedAscending:
             rows.sort { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
-        case .nameDescending, .titleDescending:
+        case .nameDescending, .titleDescending, .dateCreatedDescending, .dateModifiedDescending:
             rows.sort { $0.displayName.localizedStandardCompare($1.displayName) == .orderedDescending }
         case .dateAddedAscending:
             rows.sort { $0.earliestDate < $1.earliestDate }

@@ -45,6 +45,8 @@ struct AppPreferencesTests {
         #expect(p.collectionCoverCaptionStyle == .none)
         #expect(p.collectionCoverCaptionFontSize == 10)
         #expect(p.collectionTileNameFontSize == 13)
+        // 札の冊数バッジは、設定にする前と同じ小さい段(CollectionTileBadgeSize参照)。
+        #expect(p.collectionTileBadgeSize == .small)
         // 札の地の色は「未指定」から始める ―― 既定の薄い地は明暗の外観に追従する
         // (AppPreferences.collectionTileBackgroundColor参照)。
         #expect(p.collectionTileBackgroundColor == nil)
@@ -248,7 +250,7 @@ struct AppPreferencesTests {
             "toolbarRevealDelay", "progressBarRevealDelay", "sidePanelRevealDelay",
             "toolbarDockedGlass", "progressBarDockedGlass", "sidePanelDockedGlass", "welcomeGlass",
             "collectionCoverCaptionStyle", "collectionCoverCaptionFontSize",
-            "collectionTileNameFontSize", "collectionTileBackgroundColor",
+            "collectionTileNameFontSize", "collectionTileBadgeSize", "collectionTileBackgroundColor",
             "pageListSurfaceStyle", "toolbarSurfaceStyle", "progressBarSurfaceStyle",
             "sidePanelSurfaceStyle", "welcomeSurfaceStyle", "overlaySurfaceStyle",
         ],

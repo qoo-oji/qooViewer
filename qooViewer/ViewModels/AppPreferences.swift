@@ -42,6 +42,7 @@ final class AppPreferences: ObservableObject {
         static let collectionCoverCaptionStyle = "qooViewer.pref.collectionCoverCaptionStyle"
         static let collectionCoverCaptionFontSize = "qooViewer.pref.collectionCoverCaptionFontSize"
         static let collectionTileNameFontSize = "qooViewer.pref.collectionTileNameFontSize"
+        static let collectionTileBadgeSize = "qooViewer.pref.collectionTileBadgeSize"
         static let collectionTileBackgroundColor = "qooViewer.pref.collectionTileBackgroundColor"
         static let prefetchPageCount = "qooViewer.pref.prefetchPageCount"
         static let displayLanguage = AppLanguage.defaultsKey
@@ -375,6 +376,14 @@ final class AppPreferences: ObservableObject {
         }
     }
     static let collectionTileNameFontSizeRange: ClosedRange<Double> = 8...20
+
+    /// コレクションの札の右下に出す冊数バッジの大きさ(ユーザー要望 2026-09-13。
+    /// CollectionTileBadgeSize参照)。既定の`.small`は設定にする前の大きさ。
+    @Published var collectionTileBadgeSize: CollectionTileBadgeSize {
+        didSet {
+            defaults.set(collectionTileBadgeSize.rawValue, forKey: Keys.collectionTileBadgeSize)
+        }
+    }
 
     /// コレクションの一覧(札)の地の色。**nil = 既定**(`defaultCollectionTileBackground`)。
     ///
@@ -1658,6 +1667,10 @@ final class AppPreferences: ObservableObject {
             defaults.object(forKey: Keys.collectionCoverCaptionFontSize) as? Double ?? 10
         self.collectionTileNameFontSize =
             defaults.object(forKey: Keys.collectionTileNameFontSize) as? Double ?? 13
+        self.collectionTileBadgeSize =
+            CollectionTileBadgeSize(
+                rawValue: defaults.string(forKey: Keys.collectionTileBadgeSize) ?? ""
+            ) ?? .small
         self.collectionTileBackgroundColor =
             defaults.string(forKey: Keys.collectionTileBackgroundColor)
             .flatMap(RGBColorValue.init(hexString:))
@@ -1849,6 +1862,7 @@ extension AppPreferences {
                 Keys.collectionCoverCaptionStyle,
                 Keys.collectionCoverCaptionFontSize,
                 Keys.collectionTileNameFontSize,
+                Keys.collectionTileBadgeSize,
                 Keys.collectionTileBackgroundColor,
             ] + PanelSurface.allCases.flatMap {
                 // 面ごとの設定を1つ増やしたら**ここにも足すこと**。`apply`が渡す
@@ -1987,6 +2001,7 @@ extension AppPreferences {
             collectionCoverCaptionStyle = source.collectionCoverCaptionStyle
             collectionCoverCaptionFontSize = source.collectionCoverCaptionFontSize
             collectionTileNameFontSize = source.collectionTileNameFontSize
+            collectionTileBadgeSize = source.collectionTileBadgeSize
             collectionTileBackgroundColor = source.collectionTileBackgroundColor
             for surface in PanelSurface.allCases {
                 setSurfaceStyle(source.surfaceStyle(for: surface), for: surface)
