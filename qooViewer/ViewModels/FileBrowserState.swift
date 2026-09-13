@@ -116,6 +116,8 @@ final class FileBrowserState: ObservableObject {
     /// 名前の編集を始めてほしい項目(新規フォルダの直後・右クリックの「名前を変更」)。
     /// 一覧はこの項目が見えるようになった時点で編集を始める。
     @Published private(set) var renameRequest: ScrollRequest?
+    /// 「移動」メニューの「フォルダへ移動…」のシートを出しているか。
+    @Published var isShowingGoToFolder = false
     /// 自分の操作でファイルが変わったフォルダ(ツリーが開いている行を読み直す)。
     @Published private(set) var fileSystemChange: FileSystemChange?
 

@@ -1399,6 +1399,9 @@ struct MenuCheckmarkState: Equatable {
     var fileBrowserRedoTitle: String?
     /// ファイルメニューの「新規フォルダ」(⇧⌘N)を使えるか(ファイルブラウザがフォルダを表示中)。
     var canCreateFolderInFileBrowser = false
+    /// ファイルブラウザが出ているなら、その戻る/進む/上へ の可否。**nil でない間、「移動」メニューの中身が
+    /// Finder の「移動」メニューと同じ項目に入れ替わる**(FileBrowserGoMenuItems)。
+    var fileBrowserNavigation: FileBrowserMenuNavigation?
 }
 
 /// メニューバーのLayoutメニュー(8.2節)で、見開き表示中に左右どちらのページを対象にする

@@ -247,10 +247,14 @@ final class WelcomeLibraryState: ObservableObject {
     /// (AppPreferences.defaultsと同じ理由 ―― テストは共有状態に触らない)。
     private let defaults: UserDefaults
 
-    init(defaults: UserDefaults = .standard) {
+    /// - Parameter restoresMode: false なら保存したモードを読まずに本棚で始める(保存値は書き換えない)。
+    ///   **テストホストのウインドウ用**: ファイルブラウザで始めると、テストの実行中にウインドウが実際のホームを
+    ///   読みに行く(共有の状態に触れる。環境によってはデスクトップ・書類の TCC の確認が出うる)。
+    ///   しかもテストがメインスレッドを塞ぐので、そのウインドウは虹色のカーソルのまま見えていた(2026-09-13 ユーザー報告)。
+    init(defaults: UserDefaults = .standard, restoresMode: Bool = true) {
         self.defaults = defaults
         selectedLibraryID = (defaults.string(forKey: Keys.selectedLibraryID)).flatMap(UUID.init(uuidString:))
-        mode = WelcomeMode(rawValue: defaults.string(forKey: Keys.mode) ?? "") ?? .shelf
+        mode = restoresMode ? (WelcomeMode(rawValue: defaults.string(forKey: Keys.mode) ?? "") ?? .shelf) : .shelf
         collectionSort = FavoritesSortOption(
             rawValue: defaults.string(forKey: Keys.collectionSort) ?? ""
         ) ?? .nameAscending

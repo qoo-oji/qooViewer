@@ -24,7 +24,7 @@ WelcomeView(PanelSurface.welcome)
     mode == .browser → FileBrowserPane
         ├─ FileBrowserTreeView(NSOutlineView): ボリューム / ホーム / よく使う項目 ＋
         ├─ WelcomeSeparator(縦。幅のドラッグ)
-        └─ 右: 操作列 [‹ › ↑] [検索欄] [大きさ(アイコン表示のみ)][リスト][アイコン][並べ替え]
+        └─ 右: 操作列 [‹ › ↑] [フォルダ名] [大きさ(アイコン表示のみ)][リスト][アイコン][並べ替え][検索]
                FileBrowserListView(NSTableView) / FileBrowserIconView(LazyVGrid)
                FileBrowserPathBar(NSPathControl)
 ```
@@ -47,6 +47,50 @@ WelcomeView(PanelSurface.welcome)
   帯の下の線は本棚のときも同じ。右ペインの中(操作列の下・パスバーの上)は標準の `Divider` のまま。
 - アイコンの大きさのスライダーは**アイコン表示のときだけ出し、列の左端(リスト表示ボタンの左)に置く**。列は右端に揃えてあるので、
   出し入れしても表示切替・並べ替えのボタンが動かない。検索欄は `WelcomePaneHeaderLayout` が行の中央に置くので動かない。
+
+## 操作列の中央と検索(2026-09-13、ユーザー要望)
+
+- 行の中央は**いまのフォルダの名前**(パスの綴りのまま。`/` だけは起動ディスクの名前、コンピュータは「コンピュータ」)。
+  すりガラス面に直に置く文字なので `.panelOutlinedContent()`。body でファイルシステムに問い合わせない(`displayName(atPath:)` は使わない)。
+- 検索は右端の虫眼鏡のボタン。押すと幅 200 の欄に広がって焦点が入る。**欄が空のまま焦点が外れたら**(他をクリック・
+  ✕ で消してから外す・フォルダを移って空になった)ボタンへ戻る。Esc は文字を消してボタンへ戻す。文字が入っている間は欄のまま。
+  Esc は `WelcomeSearchField(onEscape:)` で**欄そのものに**付ける(外側の `.onExitCommand` には欄が Esc を受けて届かなかった。実測)。
+
+## 「移動」メニュー(2026-09-13、ユーザー要望)
+
+ファイルブラウザが出ている間(`MenuCheckmarkState.fileBrowserNavigation` が nil でない間)、「移動」メニューの中身が
+`FileBrowserGoMenuItems` に入れ替わる。**この機の Finder の「移動」メニューを AX で読んだ並びとキー**:
+戻る ⌘[ / 進む ⌘] / 上の階層 ⌘↑ / 起動ディスクを選択 ⇧⌘↑ ― 書類 ⇧⌘O / デスクトップ ⇧⌘D / ダウンロード ⌥⌘L /
+ホーム ⇧⌘H(⌥ でライブラリ)/ コンピュータ ⇧⌘C / アプリケーション ⇧⌘A / ユーティリティ ⇧⌘U ― フォルダへ移動… ⇧⌘G。
+
+- 置かないもの(qooViewer に無い機能。ユーザー指示): 最近の項目・最近使ったフォルダ・AirDrop・ネットワーク・iCloud Drive・共有・
+  サーバへ接続、「内包しているフォルダ」の ⌥ / ⌃ の代替。
+- 標準の場所は**実際のホーム**の下(`FileBrowserStandardLocation`)。開く前に触って確かめない(TCC の引き金になる)。読めなければ
+  右ペインの「アクセスを許可…」、書類・デスクトップは TCC の確認も出る。
+- 「フォルダへ移動…」(`FileBrowserGoToFolderSheet`): `/` か `~` で始まるパスだけ。`~` は実際のホームに読み替える。
+  フォルダが無ければシートを閉じずに知らせる。読む権限は確かめない。
+- 項目の数が変わるのは本を開く・閉じる・本棚と切り替えるときだけ(メニューを開いている最中には起きない)。
+
+## 効果音(2026-09-13、ユーザー要望。qooLibrary と同じ)
+
+`SystemSoundPlayer`(Services/FileOperations)が macOS 同梱のシステムサウンドを鳴らす。**鳴らすのは `FileCommandStack` の 1 箇所**
+(`FileCommand.completionSound`)。
+
+| 操作 | 音 |
+|---|---|
+| コピー・移動(ペースト) | `system/Volume Mount.aif` |
+| ゴミ箱に入れる | `dock/drag to trash.aif`(`finder/move to trash.aif` は Finder が使っていない) |
+| 完全削除 | `finder/empty trash.aif` |
+| 名前の変更・新規フォルダ | 鳴らさない |
+
+完全に済んだときとやり直しで鳴らし、**取り消し・部分的な成功・中止では鳴らさない**。まとめた操作は最初に音を持つ子の 1 回だけ。
+システム設定「ユーザインターフェイスのサウンドエフェクトを再生」に従い、アプリに設定は持たない。テストホストの中では鳴らさない。
+
+## テストホスト
+
+テストは実物のアプリの中で走り、ウインドウも出る。`ContentView` は `WelcomeLibraryState(restoresMode: !RuntimeEnvironment.isRunningTests)`
+で、**テスト中は保存したモードを読まずに本棚で始める**(保存値は書き換えない)。以前は Debug の設定がファイルブラウザだと、テストの
+たびにウインドウが実際のホームを読みに行っていた(共有の状態に触れる。TCC の確認の引き金にもなりうる)。→ [12](12-verification-and-debugging.md#テスト中に出る虹色のカーソル)
 
 ## 一覧の読み込み
 
@@ -189,6 +233,8 @@ WelcomeView(PanelSurface.welcome)
 | `FileBrowserListingTests` | 全ファイル・隠しファイル・パッケージ、`notFound` / `needsAccess` の分類、コンピュータの行の選び方、絞り込み、退避先 |
 | `FileBrowserStateTests` | 一覧と並べ替え(読み直さない)、保存、絞り込みと選択、上へ/戻る/進む、世代番号、消えたフォルダの退避、reveal、選択の維持、クリックと矢印、起動時のフォルダ、シークレットで書かない |
 | `FileBrowserOperationsTests` | コピー/カット/⌥⌘V の移動とコピーの判定、同じフォルダの複製、衝突(スキップ・両方残す)、ゴミ箱と完全削除の確認、新規フォルダの名前と編集の依頼、名前の変更と取り消し、直列、ツリーへの通知、残り時間、名前の選択範囲 |
+| `FileBrowserGoMenuTests` | 「フォルダへ移動…」のパスの解釈(`~`・相対パスを断る)、標準の場所が実際のホームの下 |
+| `FileCommandSoundTests`(FileOperations) | 音源の実在と登録、音の割り当て、成功とやり直しだけで鳴ること |
 | `FileBrowserModelTests` | `GridKeyboardNavigation`、`WindowContentRequest` の往復と `nonce`、`FavoriteLocationStore`、`WelcomeLibraryState.mode` |
 
 画面そのものは実機で確認する(→ [12](12-verification-and-debugging.md#ファイルブラウザ))。

@@ -15,6 +15,9 @@ protocol FileCommand: AnyObject {
     var displayName: String { get }
     /// false なら FileCommandStack が積まない(ゴミ箱の無い場所での削除)。
     var isUndoable: Bool { get }
+    /// 済んだときに鳴らす音(nil は無音)。**鳴らすのは FileCommandStack の 1 箇所だけ**
+    /// (Finder と同じ構造。経路が増えても鳴らし忘れ・二重再生が起きない ―― qooLibrary)。
+    var completionSound: SystemSoundEffect? { get }
     func execute() async throws -> FileCommandResult
     func undo() async throws -> FileUndoResult
     /// 既定は `execute()` のやり直し(undo が完全に元へ戻したことが前提 ―― 部分的な取り消しは
@@ -26,6 +29,9 @@ extension FileCommand {
     func redo() async throws -> FileCommandResult {
         try await execute()
     }
+
+    /// 既定は無音(名前の変更・新規フォルダは一瞬で終わり、結果がすぐ画面で分かる)。
+    var completionSound: SystemSoundEffect? { nil }
 }
 
 nonisolated enum FileCommandResult: Sendable, Equatable {
@@ -90,6 +96,9 @@ final class CompositeFileCommand: FileCommand {
     }
 
     var isUndoable: Bool { children.allSatisfy(\.isUndoable) }
+
+    /// 子のうち最初に音を持つものを 1 つだけ(コピーと移動が混ざっても鳴るのは 1 回)。
+    var completionSound: SystemSoundEffect? { children.lazy.compactMap(\.completionSound).first }
 
     func execute() async throws -> FileCommandResult {
         var executed: [any FileCommand] = []

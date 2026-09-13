@@ -87,4 +87,13 @@ struct FileBrowserModelTests {
         #expect(!state.isEditing)
         #expect(WelcomeLibraryState(defaults: suite.defaults).mode == .browser)
     }
+
+    @Test("restoresMode: false(テストホストのウインドウ)は保存値がファイルブラウザでも本棚で始め、保存値を書き換えない")
+    func testHostStartsInShelf() {
+        let suite = PreferencesSuite(label: "welcome-mode-testhost")
+        WelcomeLibraryState(defaults: suite.defaults).mode = .browser
+        let state = WelcomeLibraryState(defaults: suite.defaults, restoresMode: false)
+        #expect(state.mode == .shelf)
+        #expect(suite.defaults.string(forKey: "qooViewer.welcome.mode") == "browser")
+    }
 }

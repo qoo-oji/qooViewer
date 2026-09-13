@@ -11,6 +11,11 @@ import SwiftUI
 struct WelcomeSearchField: View {
     @Binding var text: String
     let prompt: LocalizedStringKey
+    /// 焦点を外から持つ(ファイルブラウザの、ボタンから広がる検索欄)。nil なら持たない。
+    var focus: FocusState<Bool>.Binding?
+    /// Esc を押したとき(nil なら何もしない)。**欄そのものに付ける**: 外側の `.onExitCommand` には、
+    /// 欄が Esc を受けてしまい届かなかった(実測 2026-09-13)。
+    var onEscape: (() -> Void)?
 
     static let height: CGFloat = PanelIconButtonLabel.height
 
@@ -22,6 +27,8 @@ struct WelcomeSearchField: View {
                 .foregroundStyle(.secondary)
             TextField(prompt, text: $text)
                 .textFieldStyle(.plain)
+                .focusedIfBound(focus)
+                .onExitCommand(perform: onEscape)
                 // 欄の外をクリックしたらフォーカスを外す(文字は残す。FocusReleasingField参照)。
                 .releasesFocusOnOutsideClick()
             if !text.isEmpty {
@@ -40,6 +47,13 @@ struct WelcomeSearchField: View {
         .frame(height: Self.height)
         .background(shape.fill(Color(nsColor: .textBackgroundColor)))
         .overlay(shape.strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1))
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func focusedIfBound(_ focus: FocusState<Bool>.Binding?) -> some View {
+        if let focus { focused(focus) } else { self }
     }
 }
 

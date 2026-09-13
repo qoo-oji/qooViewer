@@ -21,7 +21,10 @@ The file-operation engine for the file browser (`Services/FileOperations/`, `Vie
 covered, partly on disposable disk-image volumes that the scheme's Test pre-/post-action attaches with
 `scripts/test/test-volumes.sh` — the sandboxed test host cannot run `hdiutil` itself (tests fail, not skip, when the
 volumes are missing; run the script by hand if you test outside the scheme). Tests never touch the real Trash
-(`FileOperationEnvironment.pseudoTrash`). Tests run inside the real app (TEST_HOST) and must never touch shared state — open books through
+(`FileOperationEnvironment.pseudoTrash`). Tests run inside the real app (TEST_HOST) — its window and startup code really run, so anything the app would do on
+its own that touches shared state or makes noise is switched off under `RuntimeEnvironment.isRunningTests` (the welcome
+screen starts on the bookshelf instead of listing the real home folder, file-operation sounds are silent); the window
+still shows a spinning cursor while main-actor tests run, which is expected. Tests must never touch shared state — open books through
 `FixtureBook.load` (`cachesPageList: false`), build stores on `InMemoryLibrary`'s own container, never
 `UserDefaults.standard` / `*.shared` caches / `QooViewerApp.modelContainer.mainContext`. Run tests locally with normal signing (no `CODE_SIGNING_ALLOWED=NO`: an unsigned test
 host triggers a macOS removable-volume permission dialog on every launch). Fixture regeneration is

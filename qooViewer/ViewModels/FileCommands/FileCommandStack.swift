@@ -24,6 +24,12 @@ final class FileCommandStack: ObservableObject {
         didSet { publish() }
     }
 
+    private let soundPlayer: any SystemSoundPlaying
+
+    init(soundPlayer: any SystemSoundPlaying = SystemSoundPlayer.shared) {
+        self.soundPlayer = soundPlayer
+    }
+
     /// 実行して積む。新しい操作をしたら redo は捨てる(分岐した「やり直し」先は残さない)。
     ///
     /// 投げた(1 件も動かなかった)ときは積まない。部分的に済んだときは積む ―― 動いた分を ⌘Z で戻せるように
@@ -31,6 +37,7 @@ final class FileCommandStack: ObservableObject {
     @discardableResult
     func run(_ command: any FileCommand) async throws -> FileCommandResult {
         let result = try await command.execute()
+        await playCompletionSound(for: command, result: result)
         if command.isUndoable, result.hasEffect {
             undoStack.append(command)
             if undoStack.count > Self.depth { undoStack.removeFirst() }
@@ -64,6 +71,7 @@ final class FileCommandStack: ObservableObject {
         guard let command = redoStack.popLast() else { return .nothingToDo }
         do {
             let result = try await command.redo()
+            await playCompletionSound(for: command, result: result)
             undoStack.append(command)
             switch result {
             case .success:
@@ -82,6 +90,15 @@ final class FileCommandStack: ObservableObject {
         if error is CancellationError { return true }
         let nsError = error as NSError
         return nsError.domain == NSCocoaErrorDomain && nsError.code == NSUserCancelledError
+    }
+
+    /// 済んだ音。**完全に済んだときだけ**(部分的な成功・中止では鳴らさない ―― Finder も鳴らす前に
+    /// エラーの有無を見ている)。**取り消しでは鳴らさない**: 音は「その操作が起きた」ことに付くもので、
+    /// ⌘Z でゴミ箱の音が鳴るのは意味が逆。やり直しは操作をもう一度起こすので鳴らす(qooLibrary と同じ判断)。
+    /// 積まない操作(完全削除)でも鳴らす。
+    private func playCompletionSound(for command: any FileCommand, result: FileCommandResult) async {
+        guard case .success = result, let effect = command.completionSound else { return }
+        await soundPlayer.play(effect)
     }
 
     private func publish() {

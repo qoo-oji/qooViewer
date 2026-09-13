@@ -34,8 +34,14 @@ struct FileBrowserPane: View {
     /// 左の幅をドラッグしている間の幅(離したときに状態へ書く。毎フレーム保存しない)。
     @State private var liveTreeWidth: CGFloat?
     @State private var dragStartWidth: CGFloat = 0
+    /// 検索がボタンから欄へ広がっているか(ユーザー要望 2026-09-13)。
+    @State private var isSearchExpanded = false
+    @FocusState private var isSearchFocused: Bool
 
     private static let coordinateSpace = "fileBrowser.pane"
+    /// 起動ディスクの名前(ローカルなので一度だけ引いて覚える)。
+    private static let startupVolumeName: String =
+        (try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeLocalizedNameKey]))?.volumeLocalizedName ?? "/"
 
     var body: some View {
         let treeWidth = liveTreeWidth ?? state.treeWidth
@@ -77,6 +83,9 @@ struct FileBrowserPane: View {
         .onDisappear {
             state.deactivate()
         }
+        .sheet(isPresented: $state.isShowingGoToFolder) {
+            FileBrowserGoToFolderSheet(state: state)
+        }
     }
 
     private func connectActions() {
@@ -107,7 +116,8 @@ struct FileBrowserPane: View {
                     state.goUp()
                 }
             }
-            WelcomeSearchField(text: $state.filterText, prompt: "Search This Folder")
+            // 行の中央は**いまのフォルダの名前**。検索は右端のボタンから広がる(ユーザー要望 2026-09-13)。
+            folderTitle
             HStack(spacing: 6) {
                 // アイコンの大きさ。**アイコン表示のときだけ出し、列の左端(リスト表示ボタンの左)に置く**
                 // (ユーザー指示 2026-09-13)。列は右端に揃えてあるので、左へ伸びる形にしておけば出し入れしても
@@ -125,10 +135,55 @@ struct FileBrowserPane: View {
                 FileBrowserViewModeButton(mode: .list, selection: $state.viewMode)
                 FileBrowserViewModeButton(mode: .icons, selection: $state.viewMode)
                 FileBrowserSortMenu(key: $state.sortKey, direction: $state.sortDirection)
+                search
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    /// いまのフォルダの名前(コンピュータなら「コンピュータ」)。すりガラス面に直に置く文字なので輪郭を掛ける。
+    private var folderTitle: some View {
+        // 名前はパスの綴りのまま(パスバーと同じ)。`FileManager.displayName(atPath:)` はファイルシステムに
+        // 問い合わせる(ネットワークで止まりうる)ので body では呼ばない。起動ディスクの `/` だけはボリューム名。
+        Text(state.currentFolder.map { $0.path == "/" ? Self.startupVolumeName : $0.lastPathComponent }
+             ?? String(localized: "Computer", language: locale))
+            .font(.system(size: 13, weight: .semibold))
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .panelOutlinedContent()
+            .frame(maxWidth: .infinity)
+            .help(state.currentFolder?.path ?? "")
+    }
+
+    /// 検索: ふだんは虫眼鏡のボタン、押すと欄に広がって焦点が入る。**欄が空のまま焦点が外れたら**(Esc・
+    /// 他をクリック・フォルダを移って空になった)ボタンへ戻る。文字が入っている間は欄のまま
+    /// (絞り込み中だと分かるように。ユーザー決定 2026-09-13)。欄は不透明な地を持つので輪郭は掛けない。
+    @ViewBuilder
+    private var search: some View {
+        if isSearchExpanded || !state.filterText.isEmpty {
+            WelcomeSearchField(
+                text: $state.filterText, prompt: "Search This Folder", focus: $isSearchFocused,
+                onEscape: {
+                    state.filterText = ""
+                    isSearchFocused = false
+                    isSearchExpanded = false
+                }
+            )
+                .frame(width: 200)
+                .onChange(of: isSearchFocused) { _, focused in
+                    if !focused, state.filterText.isEmpty { isSearchExpanded = false }
+                }
+                .onChange(of: state.filterText) { _, text in
+                    if text.isEmpty, !isSearchFocused { isSearchExpanded = false }
+                }
+        } else {
+            SidePanelNavButton(systemName: "magnifyingglass", isDisabled: false, help: "Search") {
+                isSearchExpanded = true
+                // 欄が出来てから焦点を入れる(同じ更新の中では TextField がまだ無い)。
+                DispatchQueue.main.async { isSearchFocused = true }
+            }
+        }
     }
 
     // MARK: - 中身

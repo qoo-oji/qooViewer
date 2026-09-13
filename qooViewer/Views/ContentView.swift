@@ -129,7 +129,9 @@ struct ContentView: View {
     /// ウェルカム画面(ライブラリ/コレクション)の表示の状態。1ウインドウに1つ
     /// (WelcomeLibraryState参照)。本を開いている間もこのウインドウの中に残るので、
     /// 「ウェルカム画面へ戻る」で帰ってきたときは同じライブラリ・同じコレクションの中に戻る。
-    @StateObject private var welcomeLibrary = WelcomeLibraryState()
+    /// テストホストのウインドウは本棚で始める(ファイルブラウザで始めると実際のホームを読みに行く。
+    /// WelcomeLibraryState.init(restoresMode:) のコメント)。
+    @StateObject private var welcomeLibrary = WelcomeLibraryState(restoresMode: !RuntimeEnvironment.isRunningTests)
     /// ウェルカム画面のファイルブラウザの閲覧状態(改善要望7 段階3)。本を開いている間もこの
     /// ウインドウの中に残り、戻ってきたときは離れたときのフォルダのまま(FileBrowserState参照)。
     @StateObject private var fileBrowser = FileBrowserState()
@@ -406,7 +408,13 @@ struct ContentView: View {
                 hasPartnerPageLayoutOverride: appState.hasPartnerPageLayoutOverride,
                 fileBrowserUndoTitle: isFileBrowserShown ? fileBrowser.commandStack.undoTitle : nil,
                 fileBrowserRedoTitle: isFileBrowserShown ? fileBrowser.commandStack.redoTitle : nil,
-                canCreateFolderInFileBrowser: isFileBrowserShown && fileBrowser.currentFolder != nil
+                canCreateFolderInFileBrowser: isFileBrowserShown && fileBrowser.currentFolder != nil,
+                fileBrowserNavigation: isFileBrowserShown
+                    ? FileBrowserMenuNavigation(
+                        canGoBack: fileBrowser.canGoBack, canGoForward: fileBrowser.canGoForward,
+                        canGoUp: fileBrowser.canGoUp
+                    )
+                    : nil
             )
         )
         .frame(minWidth: 900, minHeight: 640)

@@ -35,6 +35,8 @@ final class MoveFilesCommand: FileCommand {
     }
 
     let isUndoable = true
+    /// ペースト・D&D の完了音(Finder もペーストで鳴らす)。
+    let completionSound: SystemSoundEffect? = .operationComplete
 
     func execute() async throws -> FileCommandResult {
         outcome = try await fileOps.move(items, to: destination, options: options)
@@ -75,6 +77,7 @@ final class CopyFilesCommand: FileCommand {
     }
 
     let isUndoable = true
+    let completionSound: SystemSoundEffect? = .operationComplete
 
     func execute() async throws -> FileCommandResult {
         outcome = try await fileOps.copy(items, to: destination, options: options)
@@ -213,6 +216,7 @@ final class TrashFilesCommand: FileCommand {
     }
 
     let isUndoable = true
+    let completionSound: SystemSoundEffect? = .moveToTrash
 
     func execute() async throws -> FileCommandResult {
         outcome = try await fileOps.trash(items)
@@ -251,6 +255,7 @@ final class DeleteFilesImmediatelyCommand: FileCommand {
     }
 
     let isUndoable = false
+    let completionSound: SystemSoundEffect? = .permanentDelete
 
     func execute() async throws -> FileCommandResult {
         outcome = await fileOps.deletePermanently(items)

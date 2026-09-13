@@ -230,6 +230,75 @@ struct QooViewerApp: App {
         }
     }()
 
+    /// 本を表示しているとき(と本棚)の「移動」メニューの中身。ファイルブラウザの間は FileBrowserGoMenuItems に入れ替わる。
+    @ViewBuilder
+    private var viewerMoveMenuItems: some View {
+        let hasBook = focusedAppState?.currentBook != nil
+        // 「右から左へ」がONのときは左方向が「次」、右方向が「前」になる
+        // (マンガの標準的な読み方向)。OFFのときはその逆(左が前、右が次)。
+        // menuCheckmarkStateを読むのはチェックマークの不具合と同じ理由
+        // (値型のFocusedValueでないと変化が検知されないため)。
+        let isRightToLeft = menuCheckmarkState?.isRightToLeft ?? false
+
+        Button("Move to Next") {
+            focusedAppState?.performViewerAction?(isRightToLeft ? .spatialLeft : .spatialRight)
+        }
+        .disabled(!hasBook)
+
+        Button("Move to Previous") {
+            focusedAppState?.performViewerAction?(isRightToLeft ? .spatialRight : .spatialLeft)
+        }
+        .disabled(!hasBook)
+
+        Divider()
+
+        // EPUBが見開き内の配置(page-spread-left/right/center)を明示している場合、
+        // この調整でその組み合わせを崩してしまわないよう無効化する
+        // (詳細はViewerViewModel.isPageShiftLocked参照)。
+        Button("Shift One Page to Next") {
+            focusedAppState?.performViewerAction?(isRightToLeft ? .shiftOnePageLeft : .shiftOnePageRight)
+        }
+        .disabled(!hasBook || (menuCheckmarkState?.isPageShiftLocked ?? false))
+
+        Button("Shift One Page to Previous") {
+            focusedAppState?.performViewerAction?(isRightToLeft ? .shiftOnePageRight : .shiftOnePageLeft)
+        }
+        .disabled(!hasBook || (menuCheckmarkState?.isPageShiftLocked ?? false))
+
+        Divider()
+
+        Button("Move to First") {
+            focusedAppState?.performViewerAction?(.firstPage)
+        }
+        .disabled(!hasBook)
+
+        Button("Move to Last") {
+            focusedAppState?.performViewerAction?(.lastPage)
+        }
+        .disabled(!hasBook)
+
+        Divider()
+
+        Button("Go to Previous Book") {
+            if let url = focusedAppState?.currentBook?.sourceURL {
+                focusedAppState?.openSibling(before: url)
+            }
+        }
+        .disabled(!hasBook)
+
+        Button("Go to Next Book") {
+            if let url = focusedAppState?.currentBook?.sourceURL {
+                focusedAppState?.openSibling(after: url)
+            }
+        }
+        .disabled(!hasBook)
+    }
+
+    /// キーウインドウでテキストを編集中か(編集メニューの「取り消す」をその欄へ流す。改善要望7 段階4)。
+    private static var isEditingText: Bool {
+        (NSApp.keyWindow?.firstResponder as? NSTextView)?.isEditable == true
+    }
+
     /// 新しいqooViewerが使ったストアを、このバージョンで開こうとしていたら止めて尋ねる
     /// (StoreSchemaGuardの型コメント)。
     ///
@@ -239,11 +308,6 @@ struct QooViewerApp: App {
     ///
     /// ウインドウはまだ1枚も出ていないので、上のストアを開けなかったときと同じくNSAlertを
     /// 同期で出し、終了はexit(0)で行う。
-    /// キーウインドウでテキストを編集中か(編集メニューの「取り消す」をその欄へ流す。改善要望7 段階4)。
-    private static var isEditingText: Bool {
-        (NSApp.keyWindow?.firstResponder as? NSTextView)?.isEditable == true
-    }
-
     private static func confirmOpeningNewerStoreIfNeeded(at url: URL) {
         let verdict = StoreSchemaGuard.verdict(
             storeHashes: StoreSchemaGuard.storeHashes(at: url),
@@ -961,65 +1025,15 @@ struct QooViewerApp: App {
             }
 
             CommandMenu("Move") {
-                let hasBook = focusedAppState?.currentBook != nil
-                // 「右から左へ」がONのときは左方向が「次」、右方向が「前」になる
-                // (マンガの標準的な読み方向)。OFFのときはその逆(左が前、右が次)。
-                // menuCheckmarkStateを読むのはチェックマークの不具合と同じ理由
-                // (値型のFocusedValueでないと変化が検知されないため)。
-                let isRightToLeft = menuCheckmarkState?.isRightToLeft ?? false
-
-                Button("Move to Next") {
-                    focusedAppState?.performViewerAction?(isRightToLeft ? .spatialLeft : .spatialRight)
+                // ファイルブラウザを表示している間は、Finder の「移動」メニューと同じ項目に入れ替える
+                // (改善要望7 段階4 の追加要望。FileBrowserGoMenuItems のコメント)。項目の数が変わるのは
+                // 本を開く・閉じる・本棚と切り替えるときだけで、どれもメニューを開いている最中には起きない
+                // (MenuBarMenuGate の「開いている最中に項目数が変わると落ちる」に当たらない)。
+                if let navigation = menuCheckmarkState?.fileBrowserNavigation {
+                    FileBrowserGoMenuItems(navigation: navigation, browser: focusedAppState?.fileBrowser)
+                } else {
+                    viewerMoveMenuItems
                 }
-                .disabled(!hasBook)
-
-                Button("Move to Previous") {
-                    focusedAppState?.performViewerAction?(isRightToLeft ? .spatialRight : .spatialLeft)
-                }
-                .disabled(!hasBook)
-
-                Divider()
-
-                // EPUBが見開き内の配置(page-spread-left/right/center)を明示している場合、
-                // この調整でその組み合わせを崩してしまわないよう無効化する
-                // (詳細はViewerViewModel.isPageShiftLocked参照)。
-                Button("Shift One Page to Next") {
-                    focusedAppState?.performViewerAction?(isRightToLeft ? .shiftOnePageLeft : .shiftOnePageRight)
-                }
-                .disabled(!hasBook || (menuCheckmarkState?.isPageShiftLocked ?? false))
-
-                Button("Shift One Page to Previous") {
-                    focusedAppState?.performViewerAction?(isRightToLeft ? .shiftOnePageRight : .shiftOnePageLeft)
-                }
-                .disabled(!hasBook || (menuCheckmarkState?.isPageShiftLocked ?? false))
-
-                Divider()
-
-                Button("Move to First") {
-                    focusedAppState?.performViewerAction?(.firstPage)
-                }
-                .disabled(!hasBook)
-
-                Button("Move to Last") {
-                    focusedAppState?.performViewerAction?(.lastPage)
-                }
-                .disabled(!hasBook)
-
-                Divider()
-
-                Button("Go to Previous Book") {
-                    if let url = focusedAppState?.currentBook?.sourceURL {
-                        focusedAppState?.openSibling(before: url)
-                    }
-                }
-                .disabled(!hasBook)
-
-                Button("Go to Next Book") {
-                    if let url = focusedAppState?.currentBook?.sourceURL {
-                        focusedAppState?.openSibling(after: url)
-                    }
-                }
-                .disabled(!hasBook)
             }
 
             // 標準の「ウインドウ」(Window)メニューに「ウインドウを閉じる」を追加する。
