@@ -17,7 +17,11 @@ path (`LibraryImportExportService.apply` / `LayoutStore.importSourceLayoutIfNeed
 in-memory SwiftData container the test builds itself (`qooViewerTests/Support/InMemoryLibrary.swift`),
 driven by small book fixtures in `qooViewerTests/Fixtures/` (ledger: `manifest.json`; golden = the
 `PageRef.sortKey` sequence, i.e. the DB page keys) plus in-test builders in `qooViewerTests/Support/`.
-Tests run inside the real app (TEST_HOST) and must never touch shared state — open books through
+The file-operation engine for the file browser (`Services/FileOperations/`, `ViewModels/FileCommands/`) is also
+covered, partly on disposable disk-image volumes that the scheme's Test pre-/post-action attaches with
+`scripts/test/test-volumes.sh` — the sandboxed test host cannot run `hdiutil` itself (tests fail, not skip, when the
+volumes are missing; run the script by hand if you test outside the scheme). Tests never touch the real Trash
+(`FileOperationEnvironment.pseudoTrash`). Tests run inside the real app (TEST_HOST) and must never touch shared state — open books through
 `FixtureBook.load` (`cachesPageList: false`), build stores on `InMemoryLibrary`'s own container, never
 `UserDefaults.standard` / `*.shared` caches / `QooViewerApp.modelContainer.mainContext`. Run tests locally with normal signing (no `CODE_SIGNING_ALLOWED=NO`: an unsigned test
 host triggers a macOS removable-volume permission dialog on every launch). Fixture regeneration is

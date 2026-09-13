@@ -29,6 +29,44 @@
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES"
       shouldAutocreateTestPlan = "YES">
+      <PreActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Attach test volumes"
+               scriptText = "&quot;${PROJECT_DIR}/scripts/test/test-volumes.sh&quot; attach&#10;"
+               shellToInvoke = "/bin/sh">
+               <EnvironmentBuildable>
+               <BuildableReference
+                  BuildableIdentifier = "primary"
+                  BlueprintIdentifier = "0AD11FDF3014A38C00C0C526"
+                  BuildableName = "qooViewer.app"
+                  BlueprintName = "qooViewer"
+                  ReferencedContainer = "container:qooViewer.xcodeproj">
+               </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PreActions>
+      <PostActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Detach test volumes"
+               scriptText = "&quot;${PROJECT_DIR}/scripts/test/test-volumes.sh&quot; detach&#10;"
+               shellToInvoke = "/bin/sh">
+               <EnvironmentBuildable>
+               <BuildableReference
+                  BuildableIdentifier = "primary"
+                  BlueprintIdentifier = "0AD11FDF3014A38C00C0C526"
+                  BuildableName = "qooViewer.app"
+                  BlueprintName = "qooViewer"
+                  ReferencedContainer = "container:qooViewer.xcodeproj">
+               </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PostActions>
       <Testables>
          <TestableReference
             skipped = "NO">

@@ -137,6 +137,20 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
   疑い、`leaks --traceTree` の `__strong` 付きの近い持ち主(この件では `SwiftUIAppKitButton
   .configuration.action.context` と `AppKitDialogBridge.lastDialogValues`)を先に読む。
 
+## テスト用の使い捨てボリューム
+
+別ボリュームへの移動・exFAT の縮退経路・空き容量の検査は、起動ボリュームの一時フォルダでは確かめられない
+(同一ボリュームの移動は rename、APFS のコピーはクローンで、バイトを運ぶ経路が通らない)。
+`scripts/test/test-volumes.sh attach` が `/Volumes/qooViewerTest-{apfs,exfat,fat32,tiny}` を `-nobrowse` で付け、
+`detach` が外してイメージを消す。スキーム qooViewer の Test の前後で自動で走るので、普段は意識しなくてよい。
+
+- xcodebuild を途中で止める(kill)と Post-action が走らず残る。次の `attach` が最初に外すが、すぐ片付けるなら
+  `scripts/test/test-volumes.sh detach`。
+- テストを止めるときに `pkill -f` を使うなら、**Debug のテストホストだけに当たるパターンにする**
+  (`qooViewer.app/Contents/MacOS/qooViewer` だけだと、`/Applications` の Release 版を開いていれば一緒に落とす)。
+- 実機の検証(本を置いて開く)は従来どおり自分で作った使い捨てボリュームで行う(→「実物のアプリを外から操作する」)。
+  テスト用の 4 本はテストが作業フォルダを作って消すので、手で物を置かない。
+
 ## 応答しないネットワークボリュームを作る
 
 「到達できない共有でファイルに触るとスレッドが止まる」経路は、使い捨ての WebDAV で再現できる

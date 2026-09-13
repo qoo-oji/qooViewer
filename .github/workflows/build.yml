@@ -123,10 +123,15 @@ jobs:
       # qooViewerTests(Swift Testing)。対象は nonisolated な純粋ロジックだけで、GUI の
       # 自動操作は載せない(再現性が低い)。署名していない .app にテストバンドルを差し込む
       # 形になるが、手元で同じ条件(CODE_SIGNING_ALLOWED=NO)で通ることを確認済み。
+      #
+      # テスト用の使い捨てボリューム(exFAT / FAT32 など)はテストの外で付ける ―― テストホストは
+      # サンドボックスの中で、そこから hdiutil を起動できないため。スキームの Test の Pre-action も同じ
+      # スクリプトを呼ぶが、test-without-building でも確実に付くようにここでも付ける(何度呼んでもよい)。
       - name: Test
         if: matrix.configuration == 'Debug'
         run: |
           set -o pipefail
+          scripts/test/test-volumes.sh attach
           xcodebuild -project "$PROJECT" -scheme "$SCHEME" \
             -configuration Debug \
             -destination "${{ matrix.destination }}" \
@@ -136,6 +141,10 @@ jobs:
             test-without-building \
             | tee "$RUNNER_TEMP/xcodebuild-test.log" \
             | xcbeautify --renderer github-actions
+
+      - name: Detach test volumes
+        if: always() && matrix.configuration == 'Debug'
+        run: scripts/test/test-volumes.sh detach
 
       # 書き出しのラウンドトリップのテスト(EpubExportTests / CbzExportTests)が、書き出した
       # 実物を添付ファイルとして結果バンドルへ残している。それを取り出して、EPUB は EPUBCheck、

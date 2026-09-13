@@ -2,7 +2,7 @@
 
 立案日: 2026-09-13 / ブランチ: `feature/file-browser` / 検討メモ: [file-browser-study.md](file-browser-study.md)(決定事項は同 §11)
 
-段階は §11 の決定を反映して 0 → 9 の順。段階 0・1 は済み。各段階は単独でビルド・テストが通り、
+段階は §11 の決定を反映して 0 → 9 の順。段階 0・1・2 は済み。各段階は単独でビルド・テストが通り、
 レビューできる大きさにする。段階 2 までは UI を持たない(テストで検証)。段階 3 で初めてウェルカム画面が変わる。
 この計画に出てくる既存コードの行番号は立案時点(`ecda25f` + 段階 0)のもの。
 
@@ -110,7 +110,70 @@
 
 ## 段階 2. 操作エンジン(UI なし)
 
-**次に着手するのはここ。** 段階 1 の変更で前提が変わった点は無い。
+**実装済み・コミット済み(2026-09-13。全 1049 テスト・105 suite 通過。画面が無いので実機検証は無し)。** 実装は qooLibrary の同名の型を写し、
+下の計画に合わせて変えた。計画から変えた点・実測で分かった点:
+
+- **テストホストからは hdiutil を起動できない**(サンドボックス。`hdiutil create` が「装置が構成されていません」、
+  カーネルのログに `deny(1) mach-lookup com.apple.system.hdiejectd.xpc`)。一方、**外で付けたボリュームへは
+  テストから読み書きできる**(実測)。そこで `DisposableVolume` は自分でイメージを作らず、**スキームの Test の
+  Pre-action / Post-action が `scripts/test/test-volumes.sh attach|detach` で 4 本付け外し**
+  (`/Volumes/qooViewerTest-{apfs,exfat,fat32,tiny}`、`-nobrowse`)、テストはその上に UUID 付きの作業フォルダを作る。
+  ボリュームが無ければ**テストを失敗させる**(飛ばさない)。CI の Debug ジョブは `test-without-building` の前後でも
+  同じスクリプトを呼ぶ(`build.yml`)。
+- **`TrashAvailability` は `url(for: .trashDirectory, create: false)` だけで決めない。** 作ったばかりのローカルの
+  ボリューム(APFS / exFAT / FAT32)ではこの問い合わせが 3328 で失敗するが、`NSWorkspace.recycle` は `.Trashes` を
+  作って普通にゴミ箱へ入れる(実測。`create: true` も exFAT/FAT32 では ENOTDIR で失敗)。問い合わせだけで決めると、
+  買ったばかりの USB メモリで「すぐに削除されます」が出る。→ 問い合わせが通る **か、マウント表でローカル**ならある。
+- **exFAT(fskit)でも `renamex_np(RENAME_EXCL)` が ENOTSUP を返す**(宛先なし。macOS 26.6 実測)。qooLibrary が
+  SMB で見つけた縮退経路(lstat + rename)は、手元の USB メモリでも通る経路だった。テストで前提ごと固定した。
+- 「置き換える」の退避は `.qooViewer-replace-<UUID>/<元の名前>`(隠しフォルダの中に元の名前のまま)。フォルダごと
+  改名して退避すると、ゴミ箱に `.qooViewer-replace-…` の名前で入り何を置き換えたのか分からないため。
+  **落ちたときに退避を戻す記録(qooLibrary の `ReplaceBackupJournal`)は段階 4 へ**(UI から `.replace` に届くのが段階 4)。
+- 完全削除はロックされた項目のロックを外さず、失敗として返す(確認の UI が無いので消さない側)。段階 4 で確認を付けるなら足す。
+- `FileNameValidation` の UTF-8 255 バイトの規則は**入口では見ない**(APFS では日本語 86 文字以上の名前も作れるため)。
+  宛先が `smbfs` のときだけ事前検査で見る(`FileOperationPreflight.nameByteLimit`)。
+- `untitledFolderName` の 2 つ目以降(`名称未設定フォルダ 2`)は**まだ実機の Finder と突き合わせていない**(段階 4 で新規フォルダの
+  ボタンを置くときに確かめる)。
+- 一括の移動・コピーは**最初の失敗で止まり**、`TransferOutcome` に動いた分の受領書・止まった項目・手つかずの項目を入れて返す
+  (1 件も動かなければ投げる)。「以降すべてに適用」は 1 回の操作の中でエンジンが覚える(`ConflictDecision.applyToRemaining`)。
+- **自分のフォルダへの移動は方針によらず何もしない**(「両方残す」で `name 2` に改名しない)。同じフォルダへのコピーは
+  「両方残す」なら複製、それ以外は何もしない(「置き換える」で自分自身を退避すると運ぶ元ごと消える)。
+- ゴミ箱に触る口は `FileOperationEnvironment`(`live` / テスト用の `pseudoTrash(at:)`)。テストは実ゴミ箱に触れない。
+- コマンドの名前: `MoveFilesCommand` / `CopyFilesCommand` / `RenameFileCommand` / `TrashFilesCommand` /
+  `DeleteFilesImmediatelyCommand`(積まない)/ `CreateFolderCommand` / `CompositeFileCommand`。移動・コピーの取り消しは、
+  「置き換える」でゴミ箱へ送った元の項目も空いた場所へ戻す。
+- `FileIO` の枯渇テストは**測定をすべてプールの外(Thread と semaphore)で行う**。async で書くと、塞いだ瞬間にテスト自身の
+  継続も `.timeLimit` の見張りも動けず、テストホストごと止まった(最初の形)。期限のテストも「200ms で戻る」ではなく
+  「本体より先に戻る」を見る(テスト全体を並行に走らせると、戻った継続が走り出すまで 9 秒待たされた)。
+- `MountTable` に `areOnSameVolume` / `isOnAnUnmountedVolume` / `volumeIdentifier`。`BookLocationResolver` のマウント一覧の
+  読み取りをここへ寄せた(`getmntinfo` → `getmntinfo_r_np`)。
+
+### 2.7 引き継ぎ(段階 2 → 段階 3、2026-09-13)
+
+**次に着手するのは段階 3(読むだけの画面)。** 段階 2 の変更で段階 3 の計画の前提が変わった点は無い。
+始める前に知っておくこと:
+
+- **置き場所**: エンジンは `Services/FileOperations/`(`FileIO` / `MountTable` / `FileCopyEngine` / `TrashAvailability` /
+  `FileOperationPreflight` / `FileOperationTypes` / `FileOperationService`)、名前の規則は `Models/FileNameValidation.swift`、
+  コマンドは `ViewModels/FileCommands/`(`FileCommand` / `FileCommandStack` / `FileCommands`)。どれもまだ画面から呼ばれていない。
+- **一覧の読み込み(§3.1)は `FileIO.perform` の上で**。`DirectoryBrowser.listingAsync` は `Task.detached` なので流用しない
+  (応答しない共有でプールごと止まる)。取り消しは `Cancellation.isRequestedInCurrentScope`、世代番号で古い結果を捨てるのは従来どおり。
+- **`FileCommandStack` は `FileBrowserState` が 1 つ持つ**(ウインドウごと)。`run` は投げたら積まない・何も起きなければ積まない。
+  `undo`/`redo` は `FileUndoOutcome` を返すだけで、見せるのは呼び出し側(段階 4 の帯とアラート)。`needsAttention` が true なら必ず見せる。
+- **ゴミ箱の判定**は `TrashAvailability.hasTrash(forAll:)` を `FileIO` の上で。ローカルは「ある」、ネットワーク越しで `.Trashes` が
+  無ければ「無い」(→ 確認のうえ `DeleteFilesImmediatelyCommand`)。
+- **段階 4 へ持ち越したもの**: 「置き換える」の途中で落ちたときの退避の復旧記録(qooLibrary の `ReplaceBackupJournal`)、
+  ロックされた項目の削除の確認、`untitledFolderName` の 2 つ目以降の番号を実機の Finder で確かめること、
+  ゴミ箱の無い場所での「置き換える」(置き換えた元を完全削除するしかない)の確認。
+- **テスト**: 使い捨てボリュームが要るテストは `DisposableVolume.make(.apfs / .exfat / .fat32 / .tiny, "label")`。スキームの Test から
+  走らせれば自動で付く(外から走らせるなら `scripts/test/test-volumes.sh attach`)。ゴミ箱は `FileOperationEnvironment.pseudoTrash(at:)`。
+  協調プールを塞ぐテストを書くときは、測定をプールの外(Thread と semaphore)で行う(async のまま塞ぐとテストホストごと止まる)。
+  **テストを kill するときは Debug のテストホストだけを狙う**(docs/12「テスト用の使い捨てボリューム」)。
+- **文言**: `xcodebuild` のビルドは `Localizable.xcstrings` へ新しい鍵を書き戻さない。段階 2 の 43 件は JSON へ手で足した
+  (`json.dumps(indent=2, separators=(',', ' : '), ensure_ascii=False)` で Xcode の書式と一致する)。Xcode で開いてビルドすると
+  並びが書き戻されることがあるが、その差分はそのままコミットしてよい。
+- **CI**: `build.yml` の Debug ジョブで `test-volumes.sh` を呼ぶ変更は、この段階のコミットで初めて GitHub で走る。
+  macos-26 のランナーで exFAT / FAT32 のイメージが付かなければ `FileOperationVolumeTests` が落ちるので、最初の run を確認すること。
 
 ### 2.1 `Services/FileOperations/FileIO.swift`(新規)
 

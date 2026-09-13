@@ -18,6 +18,7 @@ qooViewer/
 ├── .github/workflows/            CI(build.yml / check.yml、下記)。dependabot.yml も
 ├── scripts/ci/                   約束事の検査スクリプト(check-all.sh がまとめて走らせる。CI と手元で共用)
 ├── scripts/fixtures/             テストのフィクスチャを作り直すスクリプト(手元だけ。下記)
+├── scripts/test/                 テスト用の使い捨てボリュームの付け外し(スキームの Test の前後と CI から呼ぶ。下記)
 ├── docs/                         この仕様書
 ├── README.md / MANUAL.md / CHANGELOG.md / LICENSE(MIT) / CLAUDE.md
 ├── .gitattributes                pbxproj と xcstrings は `-text merge=binary`、MANUAL/CHANGELOG は linguist-documentation
@@ -60,7 +61,7 @@ EPUB / PDF の構造解決、書き出しのラウンドトリップ、そして
 ありません)を、下記のフィクスチャで通します。画面の自動操作(AX 経由)は再現性が低いので
 載せません(→ [12](12-verification-and-debugging.md))。
 
-いまある suite(2026-09-13 時点、982 テスト・97 suite・約 13 秒):
+いまある suite(2026-09-13 時点、1049 テスト・105 suite・約 15 秒):
 
 保存データ(ディスク上の使い捨てストア。2026-09-13 追加 → [06](06-persistence.md#古いアプリで新しいストアを開くと列が黙って消える2026-09-11-の事故と対策)):
 
@@ -211,6 +212,29 @@ deinit に任せられないのは、解放がメインスレッド以外で始�
 | `SecurityScopedHandoffTests` | 別のウインドウ / タブへ渡すあいだだけ開けておくスコープの**収支** ―― 開けた URL だけを 1 本の Task がまとめて閉じること(URL の数だけ Task を作らないこと)、開けなかった URL には手を出さないこと、渡す URL が無ければ Task を作らないこと、猶予がウインドウの出現待ちよりずっと長いこと |
 | `ExportFormatViewModelTests` | 3 つの書き出し ViewModel の**形式ごとの差分** ―― どの Exporter が呼ばれるか(拡張子とその形式として開き直せること)、オプションが出力まで届くこと(除外ページ・CBZ の Volume・言語)、巻数の書き方の違い(CBZ は生のまま / EPUB・PDF は数値のときだけ)、カバーの上書きが PDF には渡らないこと、開いた直後のオプションが環境設定の既定から始まること |
 
+ファイル操作(改善要望7 段階 2、2026-09-13 追加。`Services/FileOperations/` と `ViewModels/FileCommands/`):
+
+| suite | 見るもの |
+| --- | --- |
+| `FileIOTests` | ブロッキング I/O の窓口 ―― **協調スレッドプールをコア数ぶん塞いでも走り出すこと**(測定はプールの外で)、期限で待つのをやめること(本体は止めない)、タスクの取り消しと中止ボタンの旗が借りたスレッドの上で見えること |
+| `MountTableTests` | マウント表の最長一致(まだ無いパスも `/` へ後退しない)、外れたボリュームの判定、接頭辞が同じだけの隣を配下とみなさないこと |
+| `FileNameValidationTests` | 断る名前(`/`・`.`・`..`・NUL・NFD 後 255 単位)と断らない名前、Finder と同じ `name 2.ext`(既存の数字を解釈しない・大小文字と正規化を畳む)、新規フォルダの名前が表示言語に従うこと |
+| `FileOperationServiceTests` / `MoveVerificationTests` | 起動ボリュームの上で ―― 同一ボリュームの移動が i ノードを変えない、クローン、EXCL と縮退経路が上書きしない、自分の中へ運ばない、パス長、衝突 4 方針と「以降すべてに適用」、部分失敗の受領書、実コピーの進捗、**置き換えの最中に中止すると元が戻る**、ゴミ箱と戻す(擬似ゴミ箱)、完全削除、元が運ぶ間に変わったかの規則 |
+| `FileOperationVolumeTests` | 使い捨てボリュームの上で ―― 別ボリュームへの移動(ファイル・フォルダ)、**exFAT の `RENAME_EXCL` が ENOTSUP を返すこと**と縮退経路、クローンできない形式のコピー、FAT32 の 4GB 上限、空き容量の事前検査、作ったばかりのボリュームにもゴミ箱があること |
+| `FileCommandStackTests` / `FileCommandsTests` | 取り消し・やり直しの積み方(深さ 50、部分的な取り消しは redo へ積まない、投げた・何も起きなかった・取り消せない操作は積まない、まとめた操作は中止のときだけ巻き戻す)と、各コマンドの取り消し(元の場所が塞がっていたら `name 2` で戻して「部分的」、置き換えた元も戻す、中身のある新規フォルダは戻さない) |
+
+**使い捨てボリュームはテストの外で付けます。** テストホストはサンドボックスの中で、そこから起動した
+`hdiutil` は止められます(2026-09-13 実測: `hdiutil create` が「装置が構成されていません」、カーネルの
+ログに `deny(1) mach-lookup com.apple.system.hdiejectd.xpc`)。一方、外で付けたボリュームへはテストから
+読み書きできます。そこで**スキーム qooViewer の Test の Pre-action / Post-action** が
+`scripts/test/test-volumes.sh attach` / `detach` を呼び、`/Volumes/qooViewerTest-{apfs,exfat,fat32,tiny}` を
+`-nobrowse` で付け外しします(イメージは `$TMPDIR/qooViewerTestVolumes/`。前の実行が落ちて残ったものは
+attach の最初に外します)。テストは `qooViewerTests/Support/DisposableVolume.swift` でその上に UUID 付きの
+作業フォルダを作り、**ボリュームが無ければ失敗します**(黙って飛ばさない)。スキームを通さずに
+テストを走らせたときは、先に `scripts/test/test-volumes.sh attach` を手で呼んでください。CI の Debug ジョブは
+`test-without-building` の前後でも同じスクリプトを呼びます。ゴミ箱は本物に触れず、
+`FileOperationEnvironment.pseudoTrash(at:)` で一時フォルダを代わりにします。
+
 ビューアは `qooViewerTests/Support/ViewerHarness.swift` から開きます ―― 作業フォルダ・
 `InMemoryLibrary`・その場限りの環境設定を束ね、`ViewerViewModel(usesDiskCaches: false)` で
 **実物のアプリと共有するディスクキャッシュ**(サムネイルとページ寸法)を塞ぎ、`close()` で
@@ -243,8 +267,8 @@ deinit に任せられないのは、解放がメインスレッド以外で始�
 キャッシュ・SwiftData と同じコンテナで走ります。本を開くときは `FixtureBook.load`
 (`BookLoader.load(cachesPageList: false)` を固定)を通し、`UserDefaults.standard`・
 `BookPageListCache.shared`・`ThumbnailDiskCache.shared`・`modelContainer.mainContext` は読みも
-書きもしません。並び順の設定が絡むところは `EffectivePageOrder` の `usesFinderOrderOverride:` を
-明示します。保存データの取り込みも同じで、`LibraryImportExportService.apply` /
+書きもしません(並び順の設定は 2026-09-13 に撤去したので、`EffectivePageOrder` は環境設定を読みません)。
+保存データの取り込みも同じで、`LibraryImportExportService.apply` /
 `buildExportFile` の `cachesPageList:`(取り込みは本を読み直すため)を `false` にし、
 `MetadataFormatStore` にはこのテスト専用の `UserDefaults(suiteName:)` を渡します
 (どちらもテストのための口で、アプリからは既定のまま呼びます)。

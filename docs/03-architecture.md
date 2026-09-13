@@ -59,6 +59,7 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 | `MenuBarMenuGate` / `MenuBarTracking` | メモリ | メニューが開いている間の更新の保留 |
 | `ThumbnailDiskCache` / `BookPageListCache` / `TemporaryFileStore` | ディスク | actor / enum のシングルトン |
 | `SettingsNavigator` / `AppAppearanceApplier` | メモリ | 環境設定の行き先、外観の適用 |
+| `FileOperationService.shared` | なし(状態を持たない actor) | ファイルブラウザのコピー・移動・名前の変更・ゴミ箱・完全削除(改善要望7 段階 2。まだ画面から呼ばれていない)。取り消し・やり直しの `FileCommandStack` は**ウインドウごと**に持たせる予定(段階 3 の `FileBrowserState`) |
 
 **SwiftData のストアは全部が同じ1つの `ModelContext`(`modelContainer.mainContext`)を共有します。**
 分けた設計は過去に「一方のコンテキストの更新がもう一方に反映されず静かに失敗する」不具合を
@@ -216,6 +217,11 @@ SwiftData のモデルの変更は SwiftUI の再描画を自動では起こし�
 - `@Published` の購読(`$prop.sink`)は**値が書き換わる前**(willSet)に届く。購読の中で
   同じプロパティを読むと1つ前の値になる。sink が受け取った新しい値を使う
   (`AppPreferences.pageImageCacheLimitBytes(forMB:)` のコメント)。
+- **ファイルブラウザのファイル操作・一覧の読み込みは `FileIO.perform` の中で行う**(`Services/FileOperations/FileIO.swift`)。
+  `Task.detached` は協調スレッドプールの上なので、応答しない共有でブロックするとプールごと止まる。`FileIO` は
+  投入ごとに新しい serial queue を作って走らせる。その中では `Task.isCancelled` が常に false なので、
+  取り消しは `Cancellation.isRequestedInCurrentScope` で読む。マウント表(ローカルか・同じボリュームか)は
+  `MountTable` で、ファイルシステムに触れずに答える。
 - セキュリティスコープ付きブックマークの解決は、未接続のボリュームで秒単位ブロックする。
   **表示のためにメインスレッドで解決しない**(→ [10](10-sandbox-and-security.md))。
 

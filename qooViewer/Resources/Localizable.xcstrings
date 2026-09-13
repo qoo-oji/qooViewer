@@ -52,6 +52,630 @@
         }
       }
     },
+    "A name can’t contain “%@”." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A name can’t contain “%@”."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前に「%@」は使えません。"
+          }
+        }
+      }
+    },
+    "An item named “%@” already exists in this location." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An item named “%@” already exists in this location."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この場所には「%@」という名前の項目がすでにあります。"
+          }
+        }
+      }
+    },
+    "An item with the same name already exists." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An item with the same name already exists."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同じ名前の項目がすでにあります。"
+          }
+        }
+      }
+    },
+    "An item with the same name was already there, so it was put back as “%@”." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An item with the same name was already there, so it was put back as “%@”."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "元の場所に同じ名前の項目があったため、「%@」という名前で戻しました。"
+          }
+        }
+      }
+    },
+    "Copy of %lld Items" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy of %lld Items"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 項目のコピー"
+          }
+        }
+      }
+    },
+    "Copy of “%@”" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy of “%@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」のコピー"
+          }
+        }
+      }
+    },
+    "Deletion of %lld Items" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deletion of %lld Items"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 項目の削除"
+          }
+        }
+      }
+    },
+    "Deletion of “%@”" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deletion of “%@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」の削除"
+          }
+        }
+      }
+    },
+    "Enter a name." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter a name."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前を入力してください。"
+          }
+        }
+      }
+    },
+    "Items deleted immediately can’t be restored." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Items deleted immediately can’t be restored."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この操作は取り消せません。"
+          }
+        }
+      }
+    },
+    "Move of %lld Items" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move of %lld Items"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 項目の移動"
+          }
+        }
+      }
+    },
+    "Move of %lld Items to the Trash" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move of %lld Items to the Trash"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 項目のゴミ箱への移動"
+          }
+        }
+      }
+    },
+    "Move of “%@”" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move of “%@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」の移動"
+          }
+        }
+      }
+    },
+    "Move of “%@” to the Trash" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move of “%@” to the Trash"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」のゴミ箱への移動"
+          }
+        }
+      }
+    },
+    "Not processed." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not processed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "処理されませんでした。"
+          }
+        }
+      }
+    },
+    "Rename of “%@”" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename of “%@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」の名前の変更"
+          }
+        }
+      }
+    },
+    "The file is too large for the destination volume." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The file is too large for the destination volume."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルが大きすぎて、移動先のボリュームに置けません。"
+          }
+        }
+      }
+    },
+    "The folder “%@” can’t be put inside itself." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The folder “%@” can’t be put inside itself."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダ「%@」をそれ自身の中に入れることはできません。"
+          }
+        }
+      }
+    },
+    "The item could not be found." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The item could not be found."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "項目が見つかりませんでした。"
+          }
+        }
+      }
+    },
+    "The item is in use. An app may have a file inside it open." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The item is in use. An app may have a file inside it open."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "項目が使用中です。中のファイルを開いているアプリがある可能性があります。"
+          }
+        }
+      }
+    },
+    "The item is no longer in the Trash." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The item is no longer in the Trash."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "項目はもうゴミ箱にありません。"
+          }
+        }
+      }
+    },
+    "The item’s location in the Trash is unknown." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The item’s location in the Trash is unknown."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ゴミ箱の中での項目の場所が分かりません。"
+          }
+        }
+      }
+    },
+    "The name is too long (%1$lld characters; the limit is %2$lld)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The name is too long (%1$lld characters; the limit is %2$lld)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前が長すぎます(%1$lld 文字。上限は %2$lld 文字)。"
+          }
+        }
+      }
+    },
+    "The name or path is too long." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The name or path is too long."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前またはパスが長すぎます。"
+          }
+        }
+      }
+    },
+    "The name “%1$@” is too long for the destination (%2$lld bytes; the limit is %3$lld)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The name “%1$@” is too long for the destination (%2$lld bytes; the limit is %3$lld)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前「%1$@」は移動先には長すぎます(%2$lld バイト。上限は %3$lld バイト)。"
+          }
+        }
+      }
+    },
+    "The names “.” and “..” are reserved by the system." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The names “.” and “..” are reserved by the system."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「.」と「..」はシステムが使う名前のため使えません。"
+          }
+        }
+      }
+    },
+    "The operation couldn’t be completed for “%1$@”. %2$@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The operation couldn’t be completed for “%1$@”. %2$@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%1$@」の操作を完了できませんでした。%2$@"
+          }
+        }
+      }
+    },
+    "The original folder no longer exists." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The original folder no longer exists."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "元のフォルダがもうありません。"
+          }
+        }
+      }
+    },
+    "The original “%1$@” couldn’t be put back. It was kept as the hidden item “%2$@” in the same folder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The original “%1$@” couldn’t be put back. It was kept as the hidden item “%2$@” in the same folder."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "元の「%1$@」を戻せませんでした。同じフォルダの中に、隠し項目「%2$@」として残っています。"
+          }
+        }
+      }
+    },
+    "The path of “%1$@” would be too long at the destination (%2$lld bytes; the limit is %3$lld)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The path of “%1$@” would be too long at the destination (%2$lld bytes; the limit is %3$lld)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%1$@」を置くと、移動先でのパスが長すぎます(%2$lld バイト。上限は %3$lld バイト)。"
+          }
+        }
+      }
+    },
+    "The volume containing “%@” doesn’t have a Trash." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The volume containing “%@” doesn’t have a Trash."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」があるボリュームにはゴミ箱がありません。"
+          }
+        }
+      }
+    },
+    "The volume didn’t respond within %@ seconds." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The volume didn’t respond within %@ seconds."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボリュームが %@ 秒以内に応答しませんでした。"
+          }
+        }
+      }
+    },
+    "The volume is read-only." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The volume is read-only."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボリュームは読み出し専用です。"
+          }
+        }
+      }
+    },
+    "There isn’t enough free space on “%1$@”. %2$@ is needed, but only %3$@ is available." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "There isn’t enough free space on “%1$@”. %2$@ is needed, but only %3$@ is available."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%1$@」の空き容量が足りません。%2$@ 必要ですが、空きは %3$@ です。"
+          }
+        }
+      }
+    },
+    "There isn’t enough free space." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "There isn’t enough free space."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "空き容量が足りません。"
+          }
+        }
+      }
+    },
+    "There’s nothing to undo." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "There’s nothing to undo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取り消す操作がありません。"
+          }
+        }
+      }
+    },
+    "untitled folder" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "untitled folder"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名称未設定フォルダ"
+          }
+        }
+      }
+    },
+    "You don’t have permission to write to “%@”." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You don’t have permission to write to “%@”."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」に書き込むアクセス権がありません。"
+          }
+        }
+      }
+    },
+    "You don’t have permission." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "You don’t have permission."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アクセス権がありません。"
+          }
+        }
+      }
+    },
     "—" : {
       "comment" : "A placeholder text for a value that is not available.",
       "isCommentAutoGenerated" : true
@@ -68,6 +692,70 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「"
+          }
+        }
+      }
+    },
+    "“%1$@” (%2$@) is larger than the destination volume allows (%3$@)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%1$@” (%2$@) is larger than the destination volume allows (%3$@)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%1$@」(%2$@)は、移動先のボリュームに置ける大きさ(%3$@)を超えています。"
+          }
+        }
+      }
+    },
+    "“%@” changed while it was being copied, so the operation was stopped." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” changed while it was being copied, so the operation was stopped."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」がコピーの途中で変更されたため、操作を中止しました。"
+          }
+        }
+      }
+    },
+    "“%@” could not be found." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” could not be found."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」が見つかりませんでした。"
+          }
+        }
+      }
+    },
+    "“%@” is on a read-only volume." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is on a read-only volume."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」は読み出し専用のボリュームにあります。"
           }
         }
       }

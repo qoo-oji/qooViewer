@@ -60,31 +60,19 @@ nonisolated enum BookLocationResolver {
     /// 再現: 実体確認のTask.detachedがSwift Concurrencyのスレッドを1本握ったまま止まり、
     /// その共有に1冊も登録していなくても、全冊の実体確認が終わらなかった)。
     ///
-    /// マウントの一覧は`getmntinfo(MNT_NOWAIT)`で取る ―― カーネルが控えている値を返すだけで、
+    /// マウントの一覧は`getmntinfo_r_np(MNT_NOWAIT)`で取る ―― カーネルが控えている値を返すだけで、
     /// ファイルシステムへ問い合わせない。UUIDを読みにいくのは**ローカルのボリュームだけ**
     /// (`MNT_LOCAL`)。ネットワークボリュームはそもそもUUIDを持たないことが多く
     /// (FileNodeIdentifierの型コメント)、その上の本はUUIDの無い行としてマウント先のパスで
     /// 判定される(isVolumeAvailable)。
+    ///
+    /// 読み取りは`MountTable`(改善要望7 段階2でファイル操作と共用にした。`getmntinfo`の共有バッファを
+    /// 避ける`_r_np`版になった以外は同じ)。
     static func mountedVolumeUUIDs() -> Set<String> {
-        Set(mountedFileSystems().filter(\.isLocal).compactMap { mount in
-            (try? URL(fileURLWithPath: mount.path, isDirectory: true)
+        Set(MountTable.current().entries.filter(\.isLocal).compactMap { mount in
+            (try? URL(fileURLWithPath: mount.mountPoint, isDirectory: true)
                 .resourceValues(forKeys: [.volumeUUIDStringKey]))?.volumeUUIDString
         })
-    }
-
-    /// マウント中のファイルシステム(マウント先のパスと、ローカルかどうか)。
-    /// **ファイルシステムへは問い合わせない**(mountedVolumeUUIDsのコメント参照)。
-    static func mountedFileSystems() -> [(path: String, isLocal: Bool)] {
-        var buffer: UnsafeMutablePointer<statfs>?
-        let count = getmntinfo(&buffer, MNT_NOWAIT)
-        guard count > 0, let buffer else { return [] }
-        return (0..<Int(count)).map { index in
-            var entry = buffer[index]
-            let path = withUnsafePointer(to: &entry.f_mntonname) {
-                $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) { String(cString: $0) }
-            }
-            return (path, entry.f_flags & UInt32(MNT_LOCAL) != 0)
-        }
     }
 
     /// 判定の本体。**迷ったら消せない側に倒す**(`.missing`を返すのは、実体が無いと積極的に
@@ -177,6 +165,6 @@ nonisolated enum BookLocationResolver {
         let components = URL(fileURLWithPath: probe.recordedPath).standardizedFileURL.pathComponents
         guard components.count > 2, components[1] == "Volumes" else { return true }
         let mountPoint = "/Volumes/\(components[2])"
-        return mountedFileSystems().contains { $0.path == mountPoint }
+        return MountTable.current().isMounted(mountPoint)
     }
 }

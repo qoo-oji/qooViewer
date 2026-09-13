@@ -137,6 +137,18 @@ FSEvents は App Sandbox で追加の entitlement 無しに動き、読み取り
 入れ物のファイルを選択(代わりに「画像を書き出す」の導線を出す)。入れ子書庫のページは
 一時ファイルではなく本を指す。サイドパネルのフォルダブラウザは `NSWorkspace.shared.open`。
 
+## ゴミ箱と使い捨てボリューム(改善要望7 段階 2、2026-09-13 実測)
+
+- **サンドボックスでも `NSWorkspace.recycle` は実ホームの `~/.Trash`(外付けなら `.Trashes/<uid>/`)へ送り、
+  戻せる**(qooLibrary と今回の実測)。`FileOperationEnvironment.live` はこれを使う。
+- **ゴミ箱があるかは問い合わせだけで決めない**(`TrashAvailability`)。作ったばかりの APFS / exFAT / FAT32 では
+  `url(for: .trashDirectory, create: false)` が 3328 で失敗するのに、recycle は `.Trashes` を作って普通に入れる。
+  問い合わせが通る**か**マウント表でローカルなら「ある」。ネットワーク越し(SMB)で `.Trashes` が無ければ「無い」
+  ―― そこで recycle すると OS の確認を経て完全削除され、ゴミ箱の中の URL が返らない(qooLibrary 実測)。
+- **テストホスト(サンドボックスの中)からは `hdiutil` を起動できない**(`deny(1) mach-lookup com.apple.system.hdiejectd.xpc`)。
+  外で付けたボリュームへの読み書きはできるので、テスト用のボリュームはスキームの前後処理で付ける
+  (→ [02](02-project-and-build.md) の「テストターゲット」)。
+
 ## 一時ファイルとキャッシュ
 
 コンテナの `tmp/` と `Caches/` の中だけを使います。一時ファイルは起動ごとのディレクトリで、
