@@ -232,6 +232,7 @@ struct FileBrowserListView: NSViewRepresentable {
             if let request = view.state.renameRequest, request != appliedRename,
                let row = entries.firstIndex(where: { $0.id == request.id }) {
                 appliedRename = request
+                view.state.finishRenameRequest(request)
                 beginEditingName(row: row)
             }
         }

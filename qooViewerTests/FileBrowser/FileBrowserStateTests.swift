@@ -262,6 +262,69 @@ struct FileBrowserStateTests {
         #expect(state.scrollRequest?.id == ids[1])
     }
 
+    @Test("名前の編集の依頼は、一覧が済ませたら下ろす(別の依頼は残す)。フォルダを移ると捨てる")
+    func renameRequestLifecycle() async throws {
+        let fixture = try Fixture("fb-rename-request")
+        let state = fixture.state
+        state.navigate(to: fixture.root)
+        await state.settle()
+        let ids = state.entries.map(\.id)
+
+        state.requestRename(ids[0])
+        let first = try #require(state.renameRequest)
+        state.requestRename(ids[1])
+        // 古い依頼を済ませても、新しい依頼は下ろさない。
+        state.finishRenameRequest(first)
+        for _ in 0..<5 { await Task.yield() }
+        #expect(state.renameRequest?.id == ids[1])
+
+        let second = try #require(state.renameRequest)
+        state.finishRenameRequest(second)
+        for _ in 0..<20 where state.renameRequest != nil { await Task.yield() }
+        #expect(state.renameRequest == nil)
+
+        state.requestRename(ids[0])
+        state.navigate(to: fixture.aFolder)
+        #expect(state.renameRequest == nil)
+        await state.settle()
+    }
+
+    @Test("type-select: 1文字は選択の次から一巡、2文字以上は先頭から、1秒空くと打ち直し、見つからなければそのまま")
+    func typeSelectRules() async throws {
+        let fixture = try Fixture("fb-typeselect")
+        let state = fixture.state
+        state.navigate(to: fixture.root)
+        await state.settle()
+        // a-folder, b-folder, B.cbz, c.txt
+        let ids = state.entries.map(\.id)
+        let origin = Date(timeIntervalSinceReferenceDate: 1000)
+
+        #expect(state.typeSelect("b", now: origin))
+        #expect(state.selection == [ids[1]])
+        // 同じ文字の連打は次の同じ頭文字へ(大小文字は区別しない)。
+        #expect(state.typeSelect("b", now: origin + 0.3))
+        #expect(state.selection == [ids[2]])
+        #expect(state.scrollRequest?.id == ids[2])
+        // 1秒空いたので "c" から打ち直し。
+        #expect(state.typeSelect("c", now: origin + 1.5))
+        #expect(state.selection == [ids[3]])
+        // 2文字以上は先頭から。
+        #expect(state.typeSelect("b", now: origin + 3))
+        #expect(state.selection == [ids[1]])
+        #expect(state.typeSelect("-", now: origin + 3.2))
+        #expect(state.selection == [ids[1]])
+        #expect(state.typeSelect("B", now: origin + 5))
+        #expect(state.selection == [ids[2]])
+        // 見つからなければ選択は変えない。
+        #expect(state.typeSelect("x", now: origin + 5.2) == false)
+        #expect(state.selection == [ids[2]])
+        #expect(state.typeSelect("b", now: origin + 7))
+        #expect(state.selection == [ids[1]])
+        // "b." は先頭から探して B.cbz。
+        #expect(state.typeSelect(".", now: origin + 7.2))
+        #expect(state.selection == [ids[2]])
+    }
+
     // MARK: - 起動時のフォルダと保存
 
     @Test("起動時のフォルダ: ホーム / よく使う項目(無ければホーム) / 最後のフォルダ")

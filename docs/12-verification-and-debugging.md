@@ -169,6 +169,9 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
   `NSEvent.modifierFlags` は修飾なしを返す(アプリは離した瞬間のイベントから読むので通るが、判定のログを読むときに混乱する)。
   受け口の判定はコンテナの `tmp/` へのログで見た(SwiftUI の `dropUpdated` が `performDrop` の後にも届くのはこれで分かった)。
   Finder のウインドウは AppleScript で使い捨てボリュームを表示させ、アプリのウインドウと重ならない位置に置く。
+- **クリックとキーを送る前に、毎回 qooViewer が最前面かを確かめる**(`System Events` の `bundle identifier of first process whose frontmost is true`。
+  違えば打たずに止める)。2026-09-14、起動直後に送ったクリックが前にいた別のアプリのウインドウへ入った。
+  `cliclick t:` は日本語のキー配列では文字を打てない。`keystroke` はかな入力になるので、編集欄に焦点があるうちに英数キー(`key code 102`)を送ってから打つ。
 
 ## テスト中に出る虹色のカーソル
 

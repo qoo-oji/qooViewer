@@ -174,6 +174,9 @@ final class FileBrowserState: ObservableObject {
     private var stackObservation: AnyCancellable?
     /// ⇧クリックと矢印キーの起点。
     private var selectionAnchor: String?
+    /// type-select で溜めている文字と、最後に打った時刻。
+    private var typeSelectBuffer = ""
+    private var typeSelectLastInput: Date?
     private var scrollSerial = 0
     private var watcher: FolderChangeWatcher?
     private var preferenceObservation: AnyCancellable?
@@ -400,6 +403,50 @@ final class FileBrowserState: ObservableObject {
         scrollRequest = ScrollRequest(id: id, serial: scrollSerial)
     }
 
+    /// type-select(アイコン表示。リスト表示は`NSTableView`の標準)。打った文字を名前の先頭に持つ項目を1件だけ選んで、
+    /// 見える位置へスクロールする。見つからなければ選択は変えない。
+    ///
+    /// - 前の入力から`typeSelectResetInterval`が過ぎたら打ち直し(溜めた文字を捨てる)。
+    /// - **1文字のとき(同じ文字の連打を含む)は、いま選んでいる項目の次から**探して一巡する ―― 同じ頭文字の項目を
+    ///   順に渡り歩ける。**2文字以上は先頭から**(打ち足すたびに選択が先へ逃げない)。
+    /// - 比べ方は大小文字・濁点の有無・全角半角を区別しない、先頭一致(表示名)。
+    ///
+    /// - Returns: 選び直したか(テストのための戻り値。キーは見つからなくても受けたことにする)。
+    @discardableResult
+    func typeSelect(_ characters: String, now: Date = Date()) -> Bool {
+        guard !characters.isEmpty else { return false }
+        if let last = typeSelectLastInput, now.timeIntervalSince(last) < Self.typeSelectResetInterval {
+            typeSelectBuffer += characters
+        } else {
+            typeSelectBuffer = characters
+        }
+        typeSelectLastInput = now
+        guard !entries.isEmpty else { return false }
+
+        let buffer = typeSelectBuffer
+        let isSingleCharacter = Set(buffer.lowercased()).count == 1
+        let needle = isSingleCharacter ? String(buffer.prefix(1)) : buffer
+        let current = selectionAnchor.flatMap { anchor in
+            selection.contains(anchor) ? entries.firstIndex(where: { $0.id == anchor }) : nil
+        } ?? entries.firstIndex(where: { selection.contains($0.id) })
+        let start = isSingleCharacter ? ((current ?? -1) + 1) : 0
+        let options: String.CompareOptions = [.anchored, .caseInsensitive, .diacriticInsensitive, .widthInsensitive]
+        for offset in 0..<entries.count {
+            let index = (start + offset) % entries.count
+            guard entries[index].displayName.range(of: needle, options: options) != nil else { continue }
+            let id = entries[index].id
+            selection = [id]
+            selectionAnchor = id
+            scrollSerial += 1
+            scrollRequest = ScrollRequest(id: id, serial: scrollSerial)
+            return true
+        }
+        return false
+    }
+
+    /// type-select の打ち直しまでの間隔(秒)。
+    static let typeSelectResetInterval: TimeInterval = 1
+
     /// 選んでいる項目(表示順)。
     var selectedEntries: [FileBrowserEntry] {
         entries.filter { selection.contains($0.id) }
@@ -462,6 +509,16 @@ final class FileBrowserState: ObservableObject {
         scrollRequest = ScrollRequest(id: id, serial: scrollSerial)
     }
 
+    /// 一覧が名前の編集を始めたら返してもらう。**残しておくと、表示形式を切り替えて作り直された一覧が
+    /// 古い依頼をもう一度拾って、頼んでもいない編集を始める**(一覧は作り直すと「済んだ依頼」を覚えていない)。
+    /// 一覧の更新の最中に呼ばれうるので、次のランループで下ろす。
+    func finishRenameRequest(_ request: ScrollRequest) {
+        Task { @MainActor [weak self] in
+            guard let self, self.renameRequest == request else { return }
+            self.renameRequest = nil
+        }
+    }
+
     /// どこが変わったか分からない変更(取り消し・やり直し。コマンドは何を戻したかを場所で返さない)。
     func noteFileSystemChangeInUnknownScope() {
         changeSerial += 1
@@ -499,6 +556,8 @@ final class FileBrowserState: ObservableObject {
             filterText = ""
             applyFilter()
             loadError = nil
+            // 前のフォルダの項目への名前の編集の依頼は、もう叶わない(finishRenameRequest のコメント)。
+            renameRequest = nil
         }
         selection = reveal.map { [$0] } ?? []
         pendingReveal = reveal
