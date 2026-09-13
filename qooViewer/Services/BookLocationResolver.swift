@@ -52,13 +52,39 @@ nonisolated enum BookLocationResolver {
     }
 
     /// いまマウントされているボリュームのUUID。1回の掃き出しで1度だけ数えて使い回す。
+    ///
+    /// **応答しないネットワークボリュームで止まらないこと**(実測 2026-09-13)。以前は
+    /// `FileManager.mountedVolumeURLs(includingResourceValuesForKeys: [.volumeUUIDStringKey])`
+    /// で全ボリュームのUUIDを読んでいた。これはマウントごとに`getattrlist`を呼ぶので、落ちた
+    /// SMB/WebDAVの共有が1つあると**そこで返ってこない**(使い捨てのWebDAVをサーバごと止めて
+    /// 再現: 実体確認のTask.detachedがSwift Concurrencyのスレッドを1本握ったまま止まり、
+    /// その共有に1冊も登録していなくても、全冊の実体確認が終わらなかった)。
+    ///
+    /// マウントの一覧は`getmntinfo(MNT_NOWAIT)`で取る ―― カーネルが控えている値を返すだけで、
+    /// ファイルシステムへ問い合わせない。UUIDを読みにいくのは**ローカルのボリュームだけ**
+    /// (`MNT_LOCAL`)。ネットワークボリュームはそもそもUUIDを持たないことが多く
+    /// (FileNodeIdentifierの型コメント)、その上の本はUUIDの無い行としてマウント先のパスで
+    /// 判定される(isVolumeAvailable)。
     static func mountedVolumeUUIDs() -> Set<String> {
-        let urls = FileManager.default.mountedVolumeURLs(
-            includingResourceValuesForKeys: [.volumeUUIDStringKey], options: [.skipHiddenVolumes]
-        ) ?? []
-        return Set(urls.compactMap {
-            (try? $0.resourceValues(forKeys: [.volumeUUIDStringKey]))?.volumeUUIDString
+        Set(mountedFileSystems().filter(\.isLocal).compactMap { mount in
+            (try? URL(fileURLWithPath: mount.path, isDirectory: true)
+                .resourceValues(forKeys: [.volumeUUIDStringKey]))?.volumeUUIDString
         })
+    }
+
+    /// マウント中のファイルシステム(マウント先のパスと、ローカルかどうか)。
+    /// **ファイルシステムへは問い合わせない**(mountedVolumeUUIDsのコメント参照)。
+    static func mountedFileSystems() -> [(path: String, isLocal: Bool)] {
+        var buffer: UnsafeMutablePointer<statfs>?
+        let count = getmntinfo(&buffer, MNT_NOWAIT)
+        guard count > 0, let buffer else { return [] }
+        return (0..<Int(count)).map { index in
+            var entry = buffer[index]
+            let path = withUnsafePointer(to: &entry.f_mntonname) {
+                $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) { String(cString: $0) }
+            }
+            return (path, entry.f_flags & UInt32(MNT_LOCAL) != 0)
+        }
     }
 
     /// 判定の本体。**迷ったら消せない側に倒す**(`.missing`を返すのは、実体が無いと積極的に
@@ -140,10 +166,17 @@ nonisolated enum BookLocationResolver {
     /// マウントされているボリュームの一覧と照合する。
     private static func isVolumeAvailable(_ probe: Probe, mountedVolumeUUIDs: Set<String>) -> Bool {
         if let volumeUUID = probe.volumeUUID { return mountedVolumeUUIDs.contains(volumeUUID) }
-        // UUIDを記録する前に保存された行。パスから見当をつける ―― `/Volumes/<名前>`が無ければ
-        // そのボリュームは付いていない。`/Volumes`の下でなければ起動ボリュームなので必ず付いている。
+        // UUIDを記録していない行(UUIDを持たないネットワークボリューム・記録する前に保存された行)。
+        // パスから見当をつける ―― `/Volumes/<名前>`にマウントが無ければそのボリュームは付いていない。
+        // `/Volumes`の下でなければ起動ボリュームなので必ず付いている。
+        //
+        // マウントの一覧から判定し、`/Volumes/<名前>`そのものには触らない(以前は`fileExists`で、
+        // 落ちたネットワークボリュームのマウント先に触ると返ってこなかった。mountedVolumeUUIDsの
+        // コメント参照)。マウントではないただのフォルダが`/Volumes`の下にある場合は「付いていない」
+        // 側に倒れる ―― 消せない側への倒れ方なので構わない。
         let components = URL(fileURLWithPath: probe.recordedPath).standardizedFileURL.pathComponents
         guard components.count > 2, components[1] == "Volumes" else { return true }
-        return FileManager.default.fileExists(atPath: "/Volumes/\(components[2])")
+        let mountPoint = "/Volumes/\(components[2])"
+        return mountedFileSystems().contains { $0.path == mountPoint }
     }
 }
