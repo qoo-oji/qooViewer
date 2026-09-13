@@ -13,9 +13,13 @@ import Testing
 struct FileBrowserOperationsTests {
     final class ScriptedPresenter: FileBrowserOperationPresenting {
         var confirmsDeletion = false
+        var confirmsLockedItems = false
         var conflictAnswer = ConflictDecision(.skip)
         private(set) var deletionPrompts: [[URL]] = []
+        private(set) var lockedPrompts: [(urls: [URL], deletesImmediately: Bool)] = []
         private(set) var conflicts: [FileConflict] = []
+        /// 尋ねたときの「置き換えるとすぐに消える」の値(衝突 1 件ごと)。
+        private(set) var replacingDeletesImmediately: [Bool] = []
         private(set) var problems: [FileBrowserProblem] = []
 
         func confirmImmediateDeletion(of urls: [URL]) async -> Bool {
@@ -23,8 +27,14 @@ struct FileBrowserOperationsTests {
             return confirmsDeletion
         }
 
-        func resolveConflict(_ conflict: FileConflict, cancellation: Cancellation) async -> ConflictDecision {
+        func confirmLockedItems(_ urls: [URL], deletesImmediately: Bool) async -> Bool {
+            lockedPrompts.append((urls, deletesImmediately))
+            return confirmsLockedItems
+        }
+
+        func resolveConflict(_ conflict: FileConflict, replacingDeletesImmediately: Bool, cancellation: Cancellation) async -> ConflictDecision {
             conflicts.append(conflict)
+            self.replacingDeletesImmediately.append(replacingDeletesImmediately)
             return conflictAnswer
         }
 
@@ -235,6 +245,39 @@ struct FileBrowserOperationsTests {
         #expect(fixture.names(in: fixture.other) == ["a 2.txt", "a.txt"])
     }
 
+    @Test("「置き換える」なら元の項目をゴミ箱へ送って置き、取り消すと元の項目が戻る")
+    func conflictReplaceAndUndo() async throws {
+        let fixture = try Fixture("fbops-replace")
+        let file = fixture.root.appendingPathComponent("a.txt")
+        let existing = fixture.other.appendingPathComponent("a.txt")
+        try Data("other".utf8).write(to: existing)
+        fixture.presenter.conflictAnswer = ConflictDecision(.replace)
+        fixture.state.operations.copy([fixture.entry(file)])
+        fixture.state.operations.paste(into: fixture.other)
+        await fixture.finish()
+        #expect(fixture.presenter.replacingDeletesImmediately == [false])
+        #expect(try String(contentsOf: existing, encoding: .utf8) == "a")
+        #expect(fixture.names(in: fixture.other) == ["a.txt"], "退避用の隠しフォルダが残っている")
+        #expect(fixture.names(in: fixture.trash) == ["a.txt"])
+
+        fixture.state.operations.undo()
+        await fixture.finish()
+        #expect(try String(contentsOf: existing, encoding: .utf8) == "other")
+        #expect(fixture.presenter.problems.isEmpty)
+    }
+
+    @Test("ゴミ箱の無い場所への衝突は「置き換えるとすぐに消える」と伝えて尋ねる")
+    func conflictWithoutTrashSaysReplacingDeletes() async throws {
+        let fixture = try Fixture("fbops-replace-notrash", hasTrash: false)
+        let file = fixture.root.appendingPathComponent("a.txt")
+        try Data("other".utf8).write(to: fixture.other.appendingPathComponent("a.txt"))
+        fixture.presenter.conflictAnswer = ConflictDecision(.skip)
+        fixture.state.operations.copy([fixture.entry(file)])
+        fixture.state.operations.paste(into: fixture.other)
+        await fixture.finish()
+        #expect(fixture.presenter.replacingDeletesImmediately == [true])
+    }
+
     @Test("ペーストボードの読み戻しは末尾の / が違ってもカットと一致する")
     func cutPathsIgnoreTrailingSlash() {
         let plain = URL(fileURLWithPath: "/tmp/qooViewerTests-never/folder")
@@ -257,6 +300,56 @@ struct FileBrowserOperationsTests {
         fixture.state.operations.undo()
         await fixture.finish()
         #expect(fixture.exists(file))
+    }
+
+    @Test("ロックされた項目は確認し、断れば何もしない。続ければゴミ箱の中でもロックされ、取り消すとロックごと戻る")
+    func trashingLockedItemsAsks() async throws {
+        let fixture = try Fixture("fbops-trash-locked")
+        let file = fixture.root.appendingPathComponent("a.txt")
+        let plain = fixture.root.appendingPathComponent("b.txt")
+        try Data("b".utf8).write(to: plain)
+        FileOperationService.setLocked(file, true)
+
+        fixture.presenter.confirmsLockedItems = false
+        fixture.state.operations.moveToTrash([fixture.entry(file), fixture.entry(plain)])
+        await fixture.finish()
+        #expect(fixture.presenter.lockedPrompts.map(\.urls) == [[file]])
+        #expect(fixture.presenter.lockedPrompts.map(\.deletesImmediately) == [false])
+        #expect(fixture.exists(file))
+        #expect(fixture.exists(plain), "断ったのにロックされていない項目だけ送った")
+
+        fixture.presenter.confirmsLockedItems = true
+        fixture.state.operations.moveToTrash([fixture.entry(file), fixture.entry(plain)])
+        await fixture.finish()
+        #expect(!fixture.exists(file))
+        #expect(FileOperationService.isLocked(fixture.trash.appendingPathComponent("a.txt")))
+        #expect(fixture.presenter.problems.isEmpty)
+
+        fixture.state.operations.undo()
+        await fixture.finish()
+        #expect(fixture.exists(file))
+        #expect(FileOperationService.isLocked(file))
+    }
+
+    @Test("ゴミ箱の無い場所では、中にロックされた項目があるフォルダも確認してから消す")
+    func deletingFoldersWithLockedItemsAsks() async throws {
+        let fixture = try Fixture("fbops-delete-locked", hasTrash: false)
+        let inner = fixture.sub.appendingPathComponent("inner.txt")
+        try Data("x".utf8).write(to: inner)
+        FileOperationService.setLocked(inner, true)
+        fixture.presenter.confirmsDeletion = true
+
+        fixture.presenter.confirmsLockedItems = false
+        fixture.state.operations.moveToTrash([fixture.entry(fixture.sub)])
+        await fixture.finish()
+        #expect(fixture.presenter.lockedPrompts.map(\.deletesImmediately) == [true])
+        #expect(fixture.exists(inner))
+
+        fixture.presenter.confirmsLockedItems = true
+        fixture.state.operations.moveToTrash([fixture.entry(fixture.sub)])
+        await fixture.finish()
+        #expect(!fixture.exists(fixture.sub))
+        #expect(fixture.presenter.problems.isEmpty)
     }
 
     @Test("ゴミ箱の無い場所では確認し、断れば何も消えない")

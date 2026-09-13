@@ -172,6 +172,11 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
 - **クリックとキーを送る前に、毎回 qooViewer が最前面かを確かめる**(`System Events` の `bundle identifier of first process whose frontmost is true`。
   違えば打たずに止める)。2026-09-14、起動直後に送ったクリックが前にいた別のアプリのウインドウへ入った。
   `cliclick t:` は日本語のキー配列では文字を打てない。`keystroke` はかな入力になるので、編集欄に焦点があるうちに英数キー(`key code 102`)を送ってから打つ。
+- 「置き換える」の起動時の復旧(段階 4b、2026-09-14): Debug のコンテナの `Application Support/FileOperations/replace-backups.json` に
+  `[{"backupPath": …, "targetPath": …}]` を手で書き、使い捨てボリュームに `.qooViewer-replace-<任意>/<名前>` を作って起動する。
+  終わったら**記録のフォルダごと消す**(残すと、外したボリュームを次の起動で探して警告が出る)。ロックは `chflags uchg` で掛ける。
+  使い捨てボリュームの `.Trashes` はシェルから読めない(Permission denied)ので、ゴミ箱の中の状態は ⌘Z の結果で確かめる。
+  **ゴミ箱に触るプローブを一時フォルダで走らせない**(`NSWorkspace.recycle` は起動ボリュームなら本物の `~/.Trash` へ入れる)。
 
 ## テスト中に出る虹色のカーソル
 

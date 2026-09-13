@@ -1,5 +1,7 @@
 import Foundation
 
+@testable import qooViewer
+
 /// テスト 1 つぶんの作業フォルダ。生成フィクスチャ(フォルダの本・zip・EPUB・PDF)の置き場。
 ///
 /// `FileManager.default.temporaryDirectory` の下に UUID 付きで作り、手放したときに消す。
@@ -28,6 +30,12 @@ nonisolated final class TemporaryDirectory {
     }
 
     deinit {
+        // ロックのテスト(uchg)が途中で落ちても片付くよう、先にロックを外す(ロックされた項目があると removeItem が途中で止まる)。
+        if let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: nil) {
+            for case let child as URL in enumerator where FileOperationService.isLocked(child) {
+                FileOperationService.setLocked(child, false)
+            }
+        }
         try? FileManager.default.removeItem(at: url)
     }
 

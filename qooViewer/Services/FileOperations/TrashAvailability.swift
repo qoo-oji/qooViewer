@@ -62,6 +62,8 @@ nonisolated struct FileOperationEnvironment: Sendable {
     /// 「置き換える」で退避した元の項目をゴミ箱へ送る(同期。FileIO の上で呼ばれる)。
     /// 送った先を返す。送れなければ nil(呼び出し側は完全削除へ落とす)。
     var trashItemSynchronously: @Sendable (URL) -> URL?
+    /// 「置き換える」の退避の記録(ReplaceBackupJournal)。テストは自分の一時フォルダの記録を使う。
+    var replaceJournal: ReplaceBackupJournal = .shared
 
     /// 本物。`FileManager.trashItem` ではなく `NSWorkspace.recycle` を使うのは、Finder の「戻す」と
     /// 互換にするため(qooLibrary と同じ)。**サンドボックスでも実ホームの `~/.Trash` が返り、戻せる**(同実測)。
@@ -85,7 +87,12 @@ nonisolated struct FileOperationEnvironment: Sendable {
     )
 
     /// テスト用: `trashFolder` をゴミ箱の代わりにする。`hasTrash` は `hasTrash` で決める。
-    static func pseudoTrash(at trashFolder: URL, hasTrash: @escaping @Sendable (URL) -> Bool = { _ in true }) -> FileOperationEnvironment {
+    /// 退避の記録は、指定が無ければゴミ箱の代わりのフォルダの隣に置く(本物の記録にもほかのテストの記録にも触れない)。
+    static func pseudoTrash(
+        at trashFolder: URL,
+        hasTrash: @escaping @Sendable (URL) -> Bool = { _ in true },
+        replaceJournal: ReplaceBackupJournal? = nil
+    ) -> FileOperationEnvironment {
         @Sendable func moveIntoTrash(_ url: URL) -> URL? {
             let name = FileNameValidation.nextAvailableName(for: url.lastPathComponent) { candidate in
                 (try? FileManager.default.attributesOfItem(atPath: trashFolder.appendingPathComponent(candidate).path)) != nil
@@ -106,7 +113,10 @@ nonisolated struct FileOperationEnvironment: Sendable {
                 }
                 return (mapping, nil)
             },
-            trashItemSynchronously: { moveIntoTrash($0) }
+            trashItemSynchronously: { moveIntoTrash($0) },
+            replaceJournal: replaceJournal ?? ReplaceBackupJournal(
+                storageURL: trashFolder.deletingLastPathComponent().appendingPathComponent("replace-backups-\(UUID().uuidString).json")
+            )
         )
     }
 }

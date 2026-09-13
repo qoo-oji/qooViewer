@@ -18,10 +18,11 @@ import Foundation
 /// (本番はウインドウのシート。テストは台本どおりに答える偽物)。**問題を見せる前に進捗の帯を片付ける**
 /// (qooLibrary で、帯が出たままダイアログが出て「まだ動いている」ように見えた)。
 ///
-/// ■ 「置き換える」はまだ出さない
+/// ■ 「置き換える」
 /// 置き換えの途中でアプリが落ちると、元の項目が隠しフォルダに退避されたまま残る(FileOperationServiceの
-/// checkConflictのコメント)。起動時に戻す記録(qooLibrary の ReplaceBackupJournal)を入れるまで、
-/// 衝突の確認は「両方残す / スキップ / 中止」だけにする。
+/// checkConflictのコメント)。退避は作る前に `ReplaceBackupJournal` へ記録し、次の起動で戻す
+/// (`ReplaceBackupRecovery`)。それが入るまで(2026-09-13〜14)衝突の確認は「両方残す / スキップ / 中止」だけだった。
+/// ゴミ箱の無い場所では置き換えた元をすぐに消すしかないので、確認の文でそう伝える(`replacingDeletesImmediately`)。
 @MainActor
 final class FileBrowserOperations: ObservableObject {
     /// いま走っている操作(進捗の帯)。nil なら帯を出さない。
@@ -167,13 +168,22 @@ final class FileBrowserOperations: ObservableObject {
             guard let self, !urls.isEmpty else { return }
             let hasTrash = self.hasTrash
             let canTrash = await FileIO.perform { TrashAvailability.hasTrash(forAll: urls, using: hasTrash) }
-            let command: any FileCommand
-            if canTrash {
-                command = TrashFilesCommand(items: urls, fileOps: self.fileOps)
-            } else {
+            if !canTrash {
                 guard await self.presenter?.confirmImmediateDeletion(of: urls) == true else { return }
-                command = DeleteFilesImmediatelyCommand(items: urls, fileOps: self.fileOps)
             }
+            // ロックされた項目は確認してから(Finder と同じ「続ける / 中止」)。ゴミ箱へ送るなら項目自身のロックだけが
+            // 邪魔をする(中にロックされた項目があるフォルダは送れる。実測)が、完全に削除するなら中の項目も見る。
+            let locked = await FileIO.perform {
+                urls.filter { canTrash ? FileOperationService.isLocked($0) : FileOperationService.containsLockedItem($0) }
+            }
+            var unlocking = false
+            if !locked.isEmpty {
+                guard await self.presenter?.confirmLockedItems(locked, deletesImmediately: !canTrash) == true else { return }
+                unlocking = true
+            }
+            let command: any FileCommand = canTrash
+                ? TrashFilesCommand(items: urls, unlockingLocked: unlocking, fileOps: self.fileOps)
+                : DeleteFilesImmediatelyCommand(items: urls, unlockingLocked: unlocking, fileOps: self.fileOps)
             let locale = AppLanguage.currentLocale
             let title = urls.count == 1
                 ? String(format: String(localized: "Moving “%@” to the Trash…", language: locale), urls[0].lastPathComponent)
@@ -323,7 +333,10 @@ final class FileBrowserOperations: ObservableObject {
             conflictPolicy: policy,
             conflictResolver: { [weak self] conflict in
                 guard let self, let presenter = self.presenter else { return ConflictDecision(.skip) }
-                return await presenter.resolveConflict(conflict, cancellation: cancellation)
+                let hasTrash = self.hasTrash
+                let folder = conflict.destination.deletingLastPathComponent()
+                let deletesImmediately = await FileIO.perform { !hasTrash(folder) }
+                return await presenter.resolveConflict(conflict, replacingDeletesImmediately: deletesImmediately, cancellation: cancellation)
             },
             progress: sink,
             cancellation: cancellation
@@ -478,7 +491,10 @@ struct FileBrowserProblem: Equatable {
 protocol FileBrowserOperationPresenting: AnyObject {
     /// 「すぐに削除されます。取り消せません」。削除してよければ true。
     func confirmImmediateDeletion(of urls: [URL]) async -> Bool
+    /// ロックされた項目をゴミ箱へ送る(`deletesImmediately` なら完全に削除する)か。続けてよければ true。
+    func confirmLockedItems(_ urls: [URL], deletesImmediately: Bool) async -> Bool
     /// 同じ名前の項目があった。「中止」は `cancellation.request()` してスキップを返す。
-    func resolveConflict(_ conflict: FileConflict, cancellation: Cancellation) async -> ConflictDecision
+    /// - Parameter replacingDeletesImmediately: 宛先にゴミ箱が無く、「置き換える」と元の項目がすぐに消える。
+    func resolveConflict(_ conflict: FileConflict, replacingDeletesImmediately: Bool, cancellation: Cancellation) async -> ConflictDecision
     func showProblem(_ problem: FileBrowserProblem)
 }

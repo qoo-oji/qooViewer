@@ -2212,6 +2212,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.cleanUpEditMenu()
             self.collapseFileMenuSeparators()
         }
+        // ファイルブラウザの「置き換える」の途中で落ちたときに残った退避を、元の場所へ戻して知らせる
+        // (改善要望7 段階4b。ReplaceBackupRecovery)。フォルダのアクセス権は AppStores の生成時に開いている。
+        ReplaceBackupRecovery.runAtLaunch()
 
         // バグ修正(ビルド時の警告): [weak self]でキャプチャしたselfをそのままネストした
         // Task { @MainActor in ... }の中で再び参照すると、「弱参照(var相当)を並行実行される

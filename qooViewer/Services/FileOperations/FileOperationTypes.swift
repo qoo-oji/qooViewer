@@ -204,6 +204,8 @@ nonisolated enum FileOperationError: Error, Sendable, Equatable {
     case fileTooLargeForDestination(item: URL, size: Int64, limit: Int64)
     /// 「置き換える」で退避した元の項目を戻せなかった。元の項目は `backup` の名前(先頭がドット)で残っている。
     case replaceBackupOrphaned(backup: URL, target: URL)
+    /// 項目がロックされている(Finder の「ロック」)。ゴミ箱へ送る・完全に削除する・置き換えるのどれもできない。
+    case itemLocked(URL)
 }
 
 extension FileOperationError: LocalizedError {
@@ -260,6 +262,8 @@ extension FileOperationError: LocalizedError {
                 format: String(localized: "The original “%1$@” couldn’t be put back. It was kept as the hidden item “%2$@” in the same folder.", language: locale),
                 target.lastPathComponent, backup.lastPathComponent
             )
+        case let .itemLocked(url):
+            return String(format: String(localized: "“%@” is locked.", language: locale), url.lastPathComponent)
         }
     }
 }

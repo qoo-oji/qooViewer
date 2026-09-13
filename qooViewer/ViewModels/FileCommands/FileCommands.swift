@@ -87,10 +87,11 @@ final class CopyFilesCommand: FileCommand {
     func undo() async throws -> FileUndoResult {
         guard !outcome.receipts.isEmpty else { return .impossible(reason: TransferUndo.nothingToRestore) }
         // コピーの取り消しは受領書をまとめて 1 回でゴミ箱へ(ゴミ箱の無い場所では取り消せない ――
-        // 黙って完全削除しない。確認の UI は段階 4)。
+        // 黙って完全削除しない)。ロックされた元をコピーするとロックも写るので、**自分が作ったものに限って**
+        // 尋ねずにロックを外して送る(ゴミ箱の中でロックは掛け直される)。
         let trashed: TrashOutcome
         do {
-            trashed = try await fileOps.trash(outcome.receipts.map(\.destination))
+            trashed = try await fileOps.trash(outcome.receipts.map(\.destination), unlockingLocked: true)
         } catch {
             return .impossible(reason: error.localizedDescription)
         }
@@ -200,11 +201,14 @@ final class RenameFileCommand: FileCommand {
 @MainActor
 final class TrashFilesCommand: FileCommand {
     private let items: [URL]
+    /// ロックされた項目もロックを外して送る(利用者が確認で「続ける」と答えた)。
+    private let unlockingLocked: Bool
     private let fileOps: FileOperationService
     private(set) var outcome = TrashOutcome()
 
-    init(items: [URL], fileOps: FileOperationService = .shared) {
+    init(items: [URL], unlockingLocked: Bool = false, fileOps: FileOperationService = .shared) {
         self.items = items
+        self.unlockingLocked = unlockingLocked
         self.fileOps = fileOps
     }
 
@@ -219,7 +223,7 @@ final class TrashFilesCommand: FileCommand {
     let completionSound: SystemSoundEffect? = .moveToTrash
 
     func execute() async throws -> FileCommandResult {
-        outcome = try await fileOps.trash(items)
+        outcome = try await fileOps.trash(items, unlockingLocked: unlockingLocked)
         let restorable = outcome.receipts.filter { $0.trashURL != nil }.count
         guard !outcome.failures.isEmpty || restorable != items.count else { return .success }
         return .partial(succeeded: restorable, failures: outcome.failures, wasCancelled: false)
@@ -239,11 +243,14 @@ final class TrashFilesCommand: FileCommand {
 @MainActor
 final class DeleteFilesImmediatelyCommand: FileCommand {
     private let items: [URL]
+    /// ロックされた項目もロックを外して消す(利用者が確認で「続ける」と答えた)。
+    private let unlockingLocked: Bool
     private let fileOps: FileOperationService
     private(set) var outcome = DeletionOutcome()
 
-    init(items: [URL], fileOps: FileOperationService = .shared) {
+    init(items: [URL], unlockingLocked: Bool = false, fileOps: FileOperationService = .shared) {
         self.items = items
+        self.unlockingLocked = unlockingLocked
         self.fileOps = fileOps
     }
 
@@ -258,7 +265,7 @@ final class DeleteFilesImmediatelyCommand: FileCommand {
     let completionSound: SystemSoundEffect? = .permanentDelete
 
     func execute() async throws -> FileCommandResult {
-        outcome = await fileOps.deletePermanently(items)
+        outcome = await fileOps.deletePermanently(items, unlockingLocked: unlockingLocked)
         return outcome.failures.isEmpty
             ? .success
             : .partial(succeeded: outcome.deleted.count, failures: outcome.failures, wasCancelled: false)

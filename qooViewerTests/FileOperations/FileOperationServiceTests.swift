@@ -330,6 +330,70 @@ struct FileOperationServiceTests {
         #expect(!FileManager.default.fileExists(atPath: folder.path))
     }
 
+    // MARK: - ロックされた項目
+
+    @Test("ロックの判定と掛け外しはシンボリックリンクを辿らない")
+    func lockingDoesNotFollowSymbolicLinks() throws {
+        let file = try write("x", to: "lock-link/a.txt")
+        let link = temporary.file("lock-link/link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: file)
+        #expect(FileOperationService.setLocked(file, true))
+        #expect(FileOperationService.isLocked(file))
+        #expect(!FileOperationService.isLocked(link))
+        #expect(FileOperationService.lockedItems(atOrUnder: link).isEmpty)
+        #expect(FileOperationService.setLocked(file, false))
+        #expect(!FileOperationService.isLocked(file))
+    }
+
+    @Test("ロックされた項目は、許されなければゴミ箱へ送らず「ロックされています」の失敗にする")
+    func trashLeavesLockedItemsUnlessAllowed() async throws {
+        let locked = try write("locked", to: "trash-locked/locked.txt")
+        let plain = try write("plain", to: "trash-locked/plain.txt")
+        FileOperationService.setLocked(locked, true)
+
+        let outcome = try await service.trash([locked, plain])
+        #expect(outcome.receipts.map(\.originalURL) == [plain])
+        #expect(outcome.failures.map(\.url) == [locked])
+        #expect(outcome.failures.first?.reason == FileOperationError.itemLocked(locked).localizedDescription)
+        #expect(FileOperationService.isLocked(locked))
+
+        await #expect(throws: FileOperationError.itemLocked(locked)) { _ = try await service.trash([locked]) }
+    }
+
+    @Test("ロックを外して送ると、ゴミ箱の中でもロックされていて、戻すとロックも戻る")
+    func trashUnlockingKeepsTheLockInTheTrash() async throws {
+        let locked = try write("locked", to: "trash-unlock/locked.txt")
+        FileOperationService.setLocked(locked, true)
+
+        let outcome = try await service.trash([locked], unlockingLocked: true)
+        let trashed = try #require(outcome.receipts.first?.trashURL)
+        #expect(!FileManager.default.fileExists(atPath: locked.path))
+        #expect(FileOperationService.isLocked(trashed))
+
+        let restored = await service.restoreFromTrash(outcome.receipts)
+        #expect(restored.restored == [locked])
+        #expect(FileOperationService.isLocked(locked))
+        #expect(try read(locked) == "locked")
+    }
+
+    @Test("中にロックされた項目があるフォルダは、許されなければ 1 つも消さない。許されれば全部消す")
+    func deletePermanentlyWithLockedDescendants() async throws {
+        let folder = try temporary.directory("delete-locked/folder")
+        let first = try write("1", to: "delete-locked/folder/1.txt")
+        let inner = try write("2", to: "delete-locked/folder/sub/2.txt")
+        FileOperationService.setLocked(inner, true)
+
+        let refused = await service.deletePermanently([folder])
+        #expect(refused.deleted.isEmpty)
+        #expect(refused.failures.first?.reason == FileOperationError.itemLocked(folder).localizedDescription)
+        #expect(FileManager.default.fileExists(atPath: first.path), "触る前に断っていない(途中まで消えた)")
+        #expect(FileOperationService.isLocked(inner))
+
+        let allowed = await service.deletePermanently([folder], unlockingLocked: true)
+        #expect(allowed.deleted == [folder])
+        #expect(!FileManager.default.fileExists(atPath: folder.path))
+    }
+
     @Test("起動ボリュームにはゴミ箱がある")
     func bootVolumeHasATrash() async {
         let url = temporary.url

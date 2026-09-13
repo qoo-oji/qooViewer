@@ -18141,22 +18141,6 @@
         }
       }
     },
-    "Do you want to keep both items, or skip this item?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Do you want to keep both items, or skip this item?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "両方の項目を残しますか? それともこの項目をスキップしますか?"
-          }
-        }
-      }
-    },
     "Keep Both" : {
       "localizations" : {
         "en" : {
@@ -18649,6 +18633,246 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "フォルダが見つかりません。"
+          }
+        }
+      }
+    },
+    "“%@” is locked." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is locked."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はロックされています。"
+          }
+        }
+      }
+    },
+    "“%@” is locked. Do you want to delete it anyway?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is locked. Do you want to delete it anyway?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はロックされています。削除してもよろしいですか?"
+          }
+        }
+      }
+    },
+    "“%@” is locked. Do you want to move it to the Trash anyway?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is locked. Do you want to move it to the Trash anyway?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はロックされています。ゴミ箱に入れてもよろしいですか?"
+          }
+        }
+      }
+    },
+    "%lld items are locked. Do you want to delete them anyway?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld items are locked. Do you want to delete them anyway?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 項目がロックされています。削除してもよろしいですか?"
+          }
+        }
+      }
+    },
+    "%lld items are locked. Do you want to move them to the Trash anyway?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld items are locked. Do you want to move them to the Trash anyway?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 項目がロックされています。ゴミ箱に入れてもよろしいですか?"
+          }
+        }
+      }
+    },
+    "Locked items, or folders that contain locked items, are unlocked and then deleted." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Locked items, or folders that contain locked items, are unlocked and then deleted."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ロックされた項目と、ロックされた項目を含むフォルダは、ロックを外してから削除されます。"
+          }
+        }
+      }
+    },
+    "Locked items stay locked in the Trash." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Locked items stay locked in the Trash."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ゴミ箱の中でもロックされたままです。"
+          }
+        }
+      }
+    },
+    "Continue" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Continue"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "続ける"
+          }
+        }
+      }
+    },
+    "Replace" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Replace"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "置き換える"
+          }
+        }
+      }
+    },
+    "Do you want to replace it, keep both items, or skip this item?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Do you want to replace it, keep both items, or skip this item?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "置き換えますか? 両方の項目を残しますか? それともこの項目をスキップしますか?"
+          }
+        }
+      }
+    },
+    "This location doesn’t have a Trash, so if you replace the item, it will be deleted immediately. You can’t undo this action." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This location doesn’t have a Trash, so if you replace the item, it will be deleted immediately. You can’t undo this action."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この場所にはゴミ箱が無いため、置き換えると元の項目はすぐに削除されます。この操作は取り消せません。"
+          }
+        }
+      }
+    },
+    "Items that were being replaced were put back." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Items that were being replaced were put back."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "置き換えの途中だった項目を元に戻しました。"
+          }
+        }
+      }
+    },
+    "qooViewer quit while replacing these items, so the original items were put back where they were:" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer quit while replacing these items, so the original items were put back where they were:"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前回、次の項目を置き換えている途中で qooViewer が終了したため、元の項目を元の場所に戻しました:"
+          }
+        }
+      }
+    },
+    "Some items that were being replaced couldn’t be put back." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Some items that were being replaced couldn’t be put back."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "置き換えの途中だった項目の一部を元に戻せませんでした。"
+          }
+        }
+      }
+    },
+    "qooViewer quit while replacing these items. The original items are kept as hidden items in the same folder. qooViewer will try to put them back the next time it opens (if an item with the same name is in the way, move it somewhere else first):" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer quit while replacing these items. The original items are kept as hidden items in the same folder. qooViewer will try to put them back the next time it opens (if an item with the same name is in the way, move it somewhere else first):"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "前回、次の項目を置き換えている途中で qooViewer が終了しました。元の項目は同じフォルダの中に隠し項目として残っています。次に qooViewer を開いたときにもう一度戻します(同じ名前の項目があるときは、先にそれを別の場所へ移してください):"
           }
         }
       }

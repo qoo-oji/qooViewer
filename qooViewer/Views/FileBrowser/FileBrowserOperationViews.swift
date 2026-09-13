@@ -35,17 +35,58 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
         return await run(alert) == .alertFirstButtonReturn
     }
 
-    func resolveConflict(_ conflict: FileConflict, cancellation: Cancellation) async -> ConflictDecision {
+    /// Finder の「“名前”はロックされています。ゴミ箱に入れますか?」に当たる確認。既定のボタンは「中止」
+    /// (ロックは「うっかり消さない」ための印なので、Return で越えさせない)。
+    func confirmLockedItems(_ urls: [URL], deletesImmediately: Bool) async -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        if urls.count == 1 {
+            alert.messageText = String(
+                format: deletesImmediately
+                    ? String(localized: "“%@” is locked. Do you want to delete it anyway?", language: locale)
+                    : String(localized: "“%@” is locked. Do you want to move it to the Trash anyway?", language: locale),
+                urls[0].lastPathComponent
+            )
+        } else {
+            alert.messageText = String(
+                format: deletesImmediately
+                    ? String(localized: "%lld items are locked. Do you want to delete them anyway?", language: locale)
+                    : String(localized: "%lld items are locked. Do you want to move them to the Trash anyway?", language: locale),
+                urls.count
+            )
+        }
+        alert.informativeText = deletesImmediately
+            ? String(localized: "Locked items, or folders that contain locked items, are unlocked and then deleted.", language: locale)
+            : String(localized: "Locked items stay locked in the Trash.", language: locale)
+        let proceed = alert.addButton(withTitle: String(localized: "Continue", language: locale))
+        alert.addButton(withTitle: String(localized: "Stop", language: locale))
+        proceed.keyEquivalent = ""
+        alert.buttons[1].keyEquivalent = "\r"
+        return await run(alert) == .alertFirstButtonReturn
+    }
+
+    /// 並びは「両方を残す(既定)/ 置き換える / スキップ / 中止」。Finder の既定は「置き換える」だが、
+    /// Return 1 回で既存の項目がゴミ箱へ行かないよう、それまでと同じ「両方を残す」を既定のままにした。
+    func resolveConflict(_ conflict: FileConflict, replacingDeletesImmediately: Bool, cancellation: Cancellation) async -> ConflictDecision {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = String(
             format: String(localized: "An item named “%@” already exists in this location.", language: locale),
             conflict.destination.lastPathComponent
         )
-        alert.informativeText = String(
-            localized: "Do you want to keep both items, or skip this item?", language: locale
+        var information = String(
+            localized: "Do you want to replace it, keep both items, or skip this item?", language: locale
         )
+        if replacingDeletesImmediately {
+            information += "\n\n" + String(
+                localized: "This location doesn’t have a Trash, so if you replace the item, it will be deleted immediately. You can’t undo this action.",
+                language: locale
+            )
+        }
+        alert.informativeText = information
         alert.addButton(withTitle: String(localized: "Keep Both", language: locale))
+        let replace = alert.addButton(withTitle: String(localized: "Replace", language: locale))
+        replace.hasDestructiveAction = replacingDeletesImmediately
         alert.addButton(withTitle: String(localized: "Skip", language: locale))
         alert.addButton(withTitle: String(localized: "Stop", language: locale))
         alert.showsSuppressionButton = true
@@ -56,6 +97,8 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
         case .alertFirstButtonReturn:
             return ConflictDecision(.keepBoth, applyToRemaining: applyToAll)
         case .alertSecondButtonReturn:
+            return ConflictDecision(.replace, applyToRemaining: applyToAll)
+        case .alertThirdButtonReturn:
             return ConflictDecision(.skip, applyToRemaining: applyToAll)
         default:
             // 中止: 残りを止める。この項目はスキップとして返す(エンジンは次の区切りで止まる)。

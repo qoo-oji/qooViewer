@@ -115,17 +115,51 @@ actor FileOperationService {
     /// `TrashAvailability` で見て、確認のうえ `deletePermanently` へ振り分ける。TrashAvailability の型コメント)。
     ///
     /// 一部だけ送れた場合も、送れた分の受領書は捨てない(捨てると、ゴミ箱へ行ったのに Undo で戻せない)。
-    func trash(_ items: [URL]) async throws -> TrashOutcome {
+    ///
+    /// - Parameter unlockingLocked: **ロックされた項目**(`uchg`)は `NSWorkspace.recycle` も `trashItem` も
+    ///   「アクセス権がありません」で断る(2026-09-14 実測。中にロックされた項目があるだけのフォルダは送れる)。
+    ///   false ならロックされた項目は送らずに「ロックされています」の失敗にする。true(利用者が「続ける」と答えた)
+    ///   なら、ロックを外して送り、**ゴミ箱の中でロックを掛け直す**(Finder もゴミ箱の中でロックを保つ。
+    ///   戻したときにロックも戻る)。送れなかった項目はその場でロックを戻す。
+    func trash(_ items: [URL], unlockingLocked: Bool = false) async throws -> TrashOutcome {
         guard let first = items.first else { return TrashOutcome() }
         let environment = environment
         let hasTrash = await FileIO.perform { TrashAvailability.hasTrash(forAll: items, using: environment.hasTrash) }
         guard hasTrash else { throw FileOperationError.trashUnavailable(first) }
 
+        var outcome = TrashOutcome()
+        let locked = await FileIO.perform { Set(items.filter { Self.isLocked($0) }) }
+        let refusesLocked = !locked.isEmpty && !unlockingLocked
+        let sending = refusesLocked ? items.filter { !locked.contains($0) } : items
+        let unlocked: Set<URL> = !locked.isEmpty && unlockingLocked
+            ? await FileIO.perform { Set(locked.filter { Self.setLocked($0, false) }) }
+            : []
+        if refusesLocked {
+            for item in items where locked.contains(item) {
+                outcome.failures.append(FailedItem(url: item, reason: FileOperationError.itemLocked(item).localizedDescription))
+            }
+        }
+        guard !sending.isEmpty else { throw FileOperationError.itemLocked(first) }
+
         // recycle は完了ハンドラの非同期 API なので FileIO.perform には載せない(待っているスレッドが無い)。
         // 代わりに期限を付ける。
-        let result = try await FileIO.withDeadline(Self.trashTimeout) { await environment.recycle(items) }
-        var outcome = TrashOutcome()
-        for item in items {
+        let result: (mapping: [URL: URL], error: (any Error)?)
+        do {
+            result = try await FileIO.withDeadline(Self.trashTimeout) { await environment.recycle(sending) }
+        } catch {
+            // 待つのをやめた。外したロックは、まだ元の場所にあるものだけ戻す。
+            _ = await FileIO.perform { unlocked.filter { Self.itemExists(at: $0) }.map { Self.setLocked($0, true) } }
+            throw error
+        }
+        if !unlocked.isEmpty {
+            await FileIO.perform {
+                for item in unlocked {
+                    // ゴミ箱へ行ったならその中で、行かなかったなら元の場所で掛け直す。
+                    _ = Self.setLocked(result.mapping[item] ?? item, true)
+                }
+            }
+        }
+        for item in sending {
             if let trashed = result.mapping[item] {
                 outcome.receipts.append(TrashReceipt(originalURL: item, trashURL: trashed))
             } else if let error = result.error {
@@ -145,19 +179,29 @@ actor FileOperationService {
     ///
     /// 1 件の失敗で全体を止めない(消えた項目と消えなかった項目を分けて返す)。部分的な成功は巻き戻せない。
     ///
-    /// - Note: ロックされた項目(`isUserImmutable`)はロックを外さずに失敗として返す。qooLibrary は項目ごとに
-    ///   確認してから外すが、段階 2 では確認の UI が無いので安全側(消さない)に倒す。
-    func deletePermanently(_ items: [URL]) async -> DeletionOutcome {
+    /// - Parameter unlockingLocked: false なら、ロックされた項目(自身か、フォルダなら中のどれか)は消さずに
+    ///   「ロックされています」の失敗にする(`removeItem` はロックされた子に当たった時点で止まり、そこまでの子だけが
+    ///   消えた中途半端な木を残すので、**触る前に**断る)。true(利用者が「続ける」と答えた)なら、消す直前に
+    ///   まとめて外す。消せなかったら外したロックを戻す(「消えてもいないのにロックだけ外れた」を残さない)。
+    func deletePermanently(_ items: [URL], unlockingLocked: Bool = false) async -> DeletionOutcome {
         var outcome = DeletionOutcome()
         for item in items {
             let failure: String? = await FileIO.perform {
                 guard Self.itemExists(at: item) else {
                     return String(localized: "The item could not be found.", language: AppLanguage.currentLocale)
                 }
+                // ロックの確かめ・外す・消すを**1 つのかたまり**にする(往復を分けると、その隙間で止まったときに
+                // ロックだけ外れた状態が残る)。
+                var cleared: [URL] = []
+                if Self.containsLockedItem(item) {
+                    guard unlockingLocked else { return FileOperationError.itemLocked(item).localizedDescription }
+                    cleared = Self.lockedItems(atOrUnder: item).filter { Self.setLocked($0, false) }
+                }
                 do {
                     try Self.removeAbsorbingTransientFailure(at: item)
                     return nil
                 } catch {
+                    for url in cleared where Self.itemExists(at: url) { _ = Self.setLocked(url, true) }
                     return error.localizedDescription
                 }
             }
@@ -188,13 +232,20 @@ actor FileOperationService {
                 guard Self.itemExists(at: receipt.originalURL.deletingLastPathComponent()) else {
                     return String(localized: "The original folder no longer exists.", language: AppLanguage.currentLocale)
                 }
+                // ロックしたまま送った項目(trash の unlockingLocked)は、ゴミ箱の中でもロックされていて rename できない。
+                // 外して戻し、戻した先で掛け直す。戻せなければゴミ箱の中で掛け直す。
+                let wasLocked = Self.isLocked(trashURL) && Self.setLocked(trashURL, false)
                 var code = Self.exclusiveRename(from: trashURL, to: receipt.originalURL)
                 if code == EXDEV {
                     // ゴミ箱が元と別のボリューム(実ホームの ~/.Trash とボリュームの .Trashes は通常同じ
                     // ボリュームだが、ネットワークホーム等の例外に備える)。
-                    guard !Self.itemExists(at: receipt.originalURL) else { return PosixFailure.reason(EEXIST) }
-                    code = (try? FileManager.default.moveItem(at: trashURL, to: receipt.originalURL)) != nil ? 0 : EIO
+                    if Self.itemExists(at: receipt.originalURL) {
+                        code = EEXIST
+                    } else {
+                        code = (try? FileManager.default.moveItem(at: trashURL, to: receipt.originalURL)) != nil ? 0 : EIO
+                    }
                 }
+                if wasLocked { _ = Self.setLocked(code == 0 ? receipt.originalURL : trashURL, true) }
                 return code == 0 ? nil : PosixFailure.reason(code)
             }
             if let failure {
@@ -225,6 +276,7 @@ actor FileOperationService {
         tracker.begin()
 
         let environment = environment
+        let journal = environment.replaceJournal
         var outcome = TransferOutcome()
         var firstError: (any Error)?
         /// 「以降すべてに適用」で決まった答え。この 1 回の操作の中だけで覚える。
@@ -240,7 +292,7 @@ actor FileOperationService {
             let target = folder.appendingPathComponent(item.lastPathComponent)
             do {
                 let resolution = try await resolveDestination(
-                    item, target, policy: blanketPolicy ?? options.conflictPolicy, options: options, isMove: isMove
+                    item, target, policy: blanketPolicy ?? options.conflictPolicy, options: options, isMove: isMove, journal: journal
                 )
                 if let remembered = resolution.rememberedPolicy { blanketPolicy = remembered }
                 guard let resolved = resolution.destination else {
@@ -342,9 +394,9 @@ actor FileOperationService {
     /// FileIO の上、後者(conflictResolver の await)はこの actor の上。尋ねたあとにもう一度調べるのは、
     /// 考えている間に宛先が変わっているかもしれないため。
     private func resolveDestination(
-        _ source: URL, _ target: URL, policy: ConflictPolicy, options: FileOperationOptions, isMove: Bool
+        _ source: URL, _ target: URL, policy: ConflictPolicy, options: FileOperationOptions, isMove: Bool, journal: ReplaceBackupJournal
     ) async throws -> Resolution {
-        var check = try await FileIO.perform { try Self.checkConflict(source, target, policy: policy, isMove: isMove) }
+        var check = try await FileIO.perform { try Self.checkConflict(source, target, policy: policy, isMove: isMove, journal: journal) }
         var remembered: ConflictPolicy?
         if case .needsUserDecision = check {
             guard let resolver = options.conflictResolver else {
@@ -353,7 +405,7 @@ actor FileOperationService {
             let decision = await resolver(FileConflict(source: source, destination: target))
             guard decision.policy != .ask else { throw FileOperationError.conflictResolutionRequired(destination: target) }
             if decision.applyToRemaining { remembered = decision.policy }
-            check = try await FileIO.perform { try Self.checkConflict(source, target, policy: decision.policy, isMove: isMove) }
+            check = try await FileIO.perform { try Self.checkConflict(source, target, policy: decision.policy, isMove: isMove, journal: journal) }
         }
         switch check {
         case .decided(let resolved): return Resolution(destination: resolved, rememberedPolicy: remembered)
@@ -362,7 +414,12 @@ actor FileOperationService {
         }
     }
 
-    private nonisolated static func checkConflict(_ source: URL, _ target: URL, policy: ConflictPolicy, isMove: Bool) throws -> ConflictCheck {
+    /// 「置き換える」の退避用の隠しフォルダの名前の頭。
+    nonisolated static let replaceHolderPrefix = ".qooViewer-replace-"
+
+    private nonisolated static func checkConflict(
+        _ source: URL, _ target: URL, policy: ConflictPolicy, isMove: Bool, journal: ReplaceBackupJournal
+    ) throws -> ConflictCheck {
         // 存在は**リンクを辿らずに**見る。fileExists はリンクを辿るので、リンク切れのシンボリックリンクが
         // 名前を占めていると「空いている」と誤判定し、直後の EXCL が EEXIST で失敗する。
         guard itemExists(at: target) else { return .decided(ResolvedDestination(target: target, backupOfReplaced: nil)) }
@@ -392,19 +449,29 @@ actor FileOperationService {
             // (壊れたコピーで健康なファイルを書き潰さない。qooLibrary でのユーザー指摘)。同じフォルダ内の
             // 移動なので rename で一瞬。
             //
-            // - Note: 退避してから片付けるまでの間にアプリが落ちると、元の項目は先頭がドットの名前のまま残る
-            //   (Finder にも見えない)。qooLibrary は起動時に戻す記録(ReplaceBackupJournal)を持つが、
-            //   段階 2 では UI から `.replace` に届かないので入れていない。段階 4 で「置き換える」を出すときに足す。
+            // 退避してから片付けるまでの間にアプリが落ちると、元の項目は先頭がドットの名前のまま残る
+            // (Finder にも見えない)。**退避を作る前に記録し**(ReplaceBackupJournal)、次の起動で戻す
+            // (段階 4b、2026-09-14)。記録が後だと、その間に落ちたときに見失う。
             //
             // 退避先は `.qooViewer-replace-<UUID>/<元の名前>`(隠しフォルダの中に元の名前のまま)。フォルダごと
             // 名前を変えて退避すると、ゴミ箱へ送ったときに「.qooViewer-replace-…」という名前で入り、利用者が
             // 何を置き換えたのか分からない。
-            let holder = target.deletingLastPathComponent().appendingPathComponent(".qooViewer-replace-\(UUID().uuidString)", isDirectory: true)
-            guard mkdir(holder.path, 0o700) == 0 else { throw FileOperationError.posixFailure(item: target, errnoCode: errno) }
+            //
+            // ロックされた項目は rename できない(EPERM)。「権限がありません」ではなく「ロックされています」と伝える。
+            if isLocked(target) { throw FileOperationError.itemLocked(target) }
+            let holder = target.deletingLastPathComponent().appendingPathComponent("\(replaceHolderPrefix)\(UUID().uuidString)", isDirectory: true)
             let backup = holder.appendingPathComponent(target.lastPathComponent)
+            journal.record(backup: backup, target: target)
+            guard mkdir(holder.path, 0o700) == 0 else {
+                let code = errno
+                journal.forget(backup: backup)
+                throw FileOperationError.posixFailure(item: target, errnoCode: code)
+            }
             let code = exclusiveRename(from: target, to: backup)
             guard code == 0 else {
                 rmdir(holder.path)
+                // 退避を作れなかったのだから記録も要らない(残すと、無い退避を次の起動で探す)。
+                journal.forget(backup: backup)
                 throw FileOperationError.posixFailure(item: target, errnoCode: code)
             }
             return .decided(ResolvedDestination(target: target, backupOfReplaced: backup))
@@ -434,7 +501,7 @@ actor FileOperationService {
                 throw FileOperationError.sourceChangedDuringOperation(item)
             }
         } catch {
-            try restoreReplacedItem(resolved, after: error)
+            try restoreReplacedItem(resolved, journal: environment.replaceJournal)
             throw error
         }
 
@@ -442,7 +509,7 @@ actor FileOperationService {
             // 中止。**フォルダの再帰コピーを止めると copyfile は途中まで作った木を残す**(1 ファイルなら
             // 自分で消す)。受領書を返さない = Undo にも残らないので、ここで消さないと誰も片付けられない。
             removePartialWrite(at: resolved.target)
-            try restoreReplacedItem(resolved, after: nil)
+            try restoreReplacedItem(resolved, journal: environment.replaceJournal)
             return nil
         }
 
@@ -452,6 +519,9 @@ actor FileOperationService {
             // ゴミ箱へ送れない場所(SMB)では消すしかない ―― そこで「置き換える」を選ぶ前の確認は段階 4 の UI の仕事。
             replacedInTrash = environment.trashItemSynchronously(backup)
             if replacedInTrash == nil { try? removeAbsorbingTransientFailure(at: backup) }
+            // 片付いたときだけ記録を落とす。**消せなければ残す**(次の起動の復旧が、元の場所が埋まっているので
+            // 「隠れた項目が残っている」と知らせる)。
+            if !itemExists(at: backup) { environment.replaceJournal.forget(backup: backup) }
             rmdir(backup.deletingLastPathComponent().path)
         }
         return TransferReceipt(source: item, destination: resolved.target, replacedItemInTrash: replacedInTrash)
@@ -459,12 +529,14 @@ actor FileOperationService {
 
     /// 書き終えなかったときに、退避した元の項目を戻す。戻せなければ `replaceBackupOrphaned` を投げる
     /// (元の失敗より「元の項目が見えない名前で残っている」ほうが伝えるべき事実)。
-    private nonisolated static func restoreReplacedItem(_ resolved: ResolvedDestination, after error: (any Error)?) throws {
+    /// 戻せなかったときは記録を残す(次の起動の復旧がもう一度試す。相手がネットワークなら、次は繋がっているかもしれない)。
+    private nonisolated static func restoreReplacedItem(_ resolved: ResolvedDestination, journal: ReplaceBackupJournal) throws {
         guard let backup = resolved.backupOfReplaced else { return }
         removePartialWrite(at: resolved.target)
         if exclusiveRename(from: backup, to: resolved.target) != 0 {
             throw FileOperationError.replaceBackupOrphaned(backup: backup.deletingLastPathComponent(), target: resolved.target)
         }
+        journal.forget(backup: backup)
         rmdir(backup.deletingLastPathComponent().path)
     }
 
@@ -548,6 +620,44 @@ actor FileOperationService {
     /// 書きかけを片付ける。失敗しても投げない(呼び出し側は既に別の失敗・中止を伝えている)。
     private nonisolated static func removePartialWrite(at url: URL) {
         try? removeAbsorbingTransientFailure(at: url)
+    }
+
+    // MARK: - ロック(ブロッキング側)
+
+    /// Finder の「ロック」(`uchg`)が掛かっているか。**リンクを辿らない**(lstat)。
+    nonisolated static func isLocked(_ url: URL) -> Bool {
+        var info = stat()
+        return lstat(url.path, &info) == 0 && info.st_flags & UInt32(UF_IMMUTABLE) != 0
+    }
+
+    /// ロックを掛ける・外す。**リンクを辿らない**(lchflags。リンク先のロックを外してしまわない)。成功なら true。
+    @discardableResult
+    nonisolated static func setLocked(_ url: URL, _ locked: Bool) -> Bool {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { return false }
+        let flags = locked ? info.st_flags | UInt32(UF_IMMUTABLE) : info.st_flags & ~UInt32(UF_IMMUTABLE)
+        return flags == info.st_flags || lchflags(url.path, flags) == 0
+    }
+
+    /// その項目自身か、フォルダなら中のどれかがロックされているか(見つけた時点で打ち切る)。
+    nonisolated static func containsLockedItem(_ url: URL) -> Bool {
+        isLocked(url) || !lockedItems(atOrUnder: url, stopAtFirst: true).isEmpty
+    }
+
+    /// その項目自身と、フォルダなら中のロックされた項目。**シンボリックリンクの先へは入らない**
+    /// (`removeItem` はリンク自体しか消さないので、リンク先のロックを外す理由が無い。qooLibrary でレビューにより発見)。
+    nonisolated static func lockedItems(atOrUnder url: URL, stopAtFirst: Bool = false) -> [URL] {
+        var result: [URL] = isLocked(url) ? [url] : []
+        if stopAtFirst, !result.isEmpty { return result }
+        var info = stat()
+        guard lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
+              let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: nil, options: [])
+        else { return result }
+        for case let child as URL in enumerator where isLocked(child) {
+            result.append(child)
+            if stopAtFirst { break }
+        }
+        return result
     }
 
     /// シンボリックリンク自体も「ある」と数える(fileExists はリンクを辿るので、リンク切れを「無い」と誤る)。

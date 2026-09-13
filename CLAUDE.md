@@ -126,7 +126,9 @@ gated on it. The welcome screen has a second mode, the **file browser** (`Welcom
 icons are SwiftUI, listing runs on `FileIO` (never `Task.detached`), and new tabs/windows receive a folder through
 `WindowContentRequest.browse` (the value type of the book `WindowGroup`s). Every write operation (copy/cut/paste, trash,
 new folder, rename, undo/redo) goes through `FileBrowserOperations` (one per `FileBrowserState`, serial, confirmations via
-`FileBrowserOperationPresenting`); tests inject a pseudo trash, a uniquely named pasteboard and a scripted presenter. Drag and drop
+`FileBrowserOperationPresenting`); tests inject a pseudo trash, a uniquely named pasteboard and a scripted presenter. "Replace" moves the existing item into a hidden
+`.qooViewer-replace-<UUID>/` folder only after recording it in `ReplaceBackupJournal`, and `ReplaceBackupRecovery` puts it back at launch
+(skipped under tests) — keep that record-before-backup order. Drag and drop
 decides move/copy in one place (`FileDropPlan` + `FileBrowserDropDecision`); the right pane is covered by a drop target that refuses
 *as a target*, because a refused inner SwiftUI drop falls through to the window-wide "open book" drop target. Design in `docs/15-file-browser.md`,
 remaining stages and the handoff in `docs/plans/file-browser-plan.md`.
