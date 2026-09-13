@@ -100,33 +100,54 @@ nonisolated enum FileBrowserStandardLocation: CaseIterable {
 struct FileBrowserGoToFolderSheet: View {
     @ObservedObject var state: FileBrowserState
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.locale) private var locale
     @State private var path = ""
     @State private var errorKey: LocalizedStringKey?
     @State private var isChecking = false
 
     var body: some View {
+        // **ボタンの幅は揃える**(「キャンセル」と「移動」で大きさが違うのは美しくない ―― ユーザー指摘 2026-09-13)。
+        // 幅はボタンではなくラベルに与える(CollectionNameSheet と同じ。`Button.frame(width:)` はベゼルに効かない)。
+        let labelWidth = MetadataButtonWidthEstimator.equalWidth(
+            for: [String(localized: "Cancel", language: locale), String(localized: "Go", language: locale)],
+            minWidth: 60,
+            chrome: 0
+        )
         VStack(alignment: .leading, spacing: 12) {
             Text("Go to Folder")
                 .font(.headline)
-            TextField("Path", text: $path)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 380)
-                .onSubmit(go)
-            if let errorKey {
-                Text(errorKey)
-                    .font(.callout)
-                    .foregroundStyle(.red)
+            // 欄と知らせは 1 つの塊にし、知らせの高さを予約する(出たときにシートの高さが跳ねない)。
+            VStack(alignment: .leading, spacing: 4) {
+                // **欄は面の幅いっぱいに伸ばし、面の幅はシート側で決める。** 以前は欄だけを 380pt に固定していたので、
+                // シートがそれより広くなると欄の右にだけ余白が残り、左右の余白が揃わなかった(ユーザー指摘 2026-09-13)。
+                TextField("Path", text: $path)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: .infinity)
+                    .onSubmit(go)
+                Group {
+                    if let errorKey {
+                        Text(errorKey).foregroundStyle(.red)
+                    } else {
+                        Text(verbatim: " ")
+                    }
+                }
+                .font(.caption)
             }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Button("Go", action: go)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(path.trimmingCharacters(in: .whitespaces).isEmpty || isChecking)
+            HStack(spacing: 12) {
+                Spacer(minLength: 0)
+                Button { dismiss() } label: {
+                    Text("Cancel").frame(width: labelWidth)
+                }
+                .keyboardShortcut(.cancelAction)
+                Button(action: go) {
+                    Text("Go").frame(width: labelWidth)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(path.trimmingCharacters(in: .whitespaces).isEmpty || isChecking)
             }
         }
         .padding(20)
+        .frame(width: 440)
         .onAppear {
             path = state.currentFolder?.path ?? ""
         }

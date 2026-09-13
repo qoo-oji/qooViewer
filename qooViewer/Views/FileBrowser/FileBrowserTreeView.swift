@@ -7,8 +7,11 @@ import SwiftUI
 /// **よく使う項目**(FavoriteLocationStore。見出しの右に「＋」)。
 ///
 /// ■ 子は開いたときだけ読み、たたんだら捨てる
-/// 行が展開できるかは「フォルダである」だけで決め、**サブフォルダがあるかは調べない**
-/// (TCC と往復の両方の理由。FileBrowserEntryの型コメント)。開いてみて空なら空と分かる。
+/// 子を読むとき、**それぞれの子に直下のサブフォルダがあるかも 1 回だけ調べ**、無ければその行に三角を出さない
+/// (2026-09-13、ユーザー要望。qooLibrary と同じ。`DirectoryProbe`)。段階3では TCC と往復を理由に調べていなかったが、
+/// TCC の保護下の場所はパスだけで除外し、ネットワーク越しの場所はマウント表で除外すれば避けられる。
+/// 調べていない・調べられない行(ボリューム・ホーム・よく使う項目の根、保護下、ネットワーク、読めない)は
+/// 今までどおり三角を出す(`Node.hasSubfolders` が nil)。
 /// **起動時はボリュームもホームも閉じている**(要望)。展開の状態は保存しない。
 ///
 /// ■ クリック
@@ -119,12 +122,16 @@ struct FileBrowserTreeView: NSViewRepresentable {
         var children: [Node]?
         /// 読み込みの世代(たたんでから開き直したとき、前の読み込みの結果を捨てる)。
         var loadGeneration = 0
+        /// 直下にツリーに出るサブフォルダがあるか。**false のときだけ三角を消す**。nil は調べていない・調べられない
+        /// (三角を出す。誤って消すと行き止まりになるが、誤って出しても「開いたら空」で済む)。
+        var hasSubfolders: Bool?
 
-        init(kind: Kind, url: URL?, name: String, children: [Node]? = nil) {
+        init(kind: Kind, url: URL?, name: String, children: [Node]? = nil, hasSubfolders: Bool? = nil) {
             self.kind = kind
             self.url = url
             self.name = name
             self.children = children
+            self.hasSubfolders = hasSubfolders
         }
 
         var isGroup: Bool {
@@ -224,7 +231,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
             }
             if let change = view.state.fileSystemChange, change != appliedChange {
                 appliedChange = change
-                reloadExpandedRows(in: change.folderIDs)
+                reloadExpandedRows(in: change.isUnknownScope ? nil : change.folderIDs)
             }
             let folderID = FileBrowserState.id(of: view.state.currentFolder)
             if folderID != appliedFolderID || needsRedraw {
@@ -273,14 +280,32 @@ struct FileBrowserTreeView: NSViewRepresentable {
 
         /// 自分の操作で中身が変わったフォルダのうち、**開いていて子を読み終えている行だけ**を読み直す
         /// (段階3の既知の制限「たたんで開き直すまで反映されない」の手当て。閉じた行は次に開いたときに読む)。
-        private func reloadExpandedRows(in folderIDs: Set<String>) {
+        /// - Parameter folderIDs: nil はどこが変わったか分からない(取り消し・やり直し)。見えている行を全部見直す。
+        private func reloadExpandedRows(in folderIDs: Set<String>?) {
             guard let outline else { return }
             for row in 0..<outline.numberOfRows {
-                guard let node = outline.item(atRow: row) as? Node, node.loadsChildren, node.children != nil,
-                      let url = node.url, folderIDs.contains(FileBrowserState.id(for: url)),
-                      outline.isItemExpanded(node)
+                guard let node = outline.item(atRow: row) as? Node, node.loadsChildren,
+                      let url = node.url, folderIDs?.contains(FileBrowserState.id(for: url)) ?? true
                 else { continue }
-                loadChildren(of: node)
+                if outline.isItemExpanded(node) {
+                    if node.children != nil { loadChildren(of: node) }
+                } else if node.hasSubfolders != nil {
+                    // 閉じている行も、中でフォルダを作った・運び込んだ・運び出したなら三角の有無が変わる。
+                    reprobe(node)
+                }
+            }
+        }
+
+        /// 閉じている行の「サブフォルダがあるか」を調べ直し、変わっていれば行を描き直す。
+        private func reprobe(_ node: Node) {
+            guard let url = node.url else { return }
+            Task { [weak self, weak node] in
+                let result = await FileIO.perform { DirectoryProbe.hasSubdirectory(at: url) }
+                guard let self, let node, let outline = self.outline, node.hasSubfolders != result,
+                      !outline.isItemExpanded(node)
+                else { return }
+                node.hasSubfolders = result
+                outline.reloadItem(node, reloadChildren: false)
             }
         }
 
@@ -289,13 +314,16 @@ struct FileBrowserTreeView: NSViewRepresentable {
             node.loadGeneration += 1
             let mine = node.loadGeneration
             Task { [weak self, weak node] in
-                let folders: [(URL, String)]
+                let folders: [(URL, String, Bool?)]
                 do {
                     folders = try await FileIO.perform {
-                        try FileBrowserListing.entries(in: url)
+                        // 三角のための問い合わせは、子を読むこの 1 回にまとめる(行を描くたびに調べない)。
+                        // **ネットワーク越しでは調べない**(子の数だけ往復する)。マウント表はファイルシステムに触らない。
+                        let probes = !MountTable.current().isRemote(url)
+                        return try FileBrowserListing.entries(in: url)
                             .filter(\.isNavigableFolder)
                             .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
-                            .map { ($0.url, $0.displayName) }
+                            .map { ($0.url, $0.displayName, probes ? DirectoryProbe.hasSubdirectory(at: $0.url) : nil) }
                     }
                 } catch {
                     folders = []
@@ -309,7 +337,12 @@ struct FileBrowserTreeView: NSViewRepresentable {
                     (node.children ?? []).compactMap { child in child.url.map { (FileBrowserState.id(for: $0), child) } },
                     uniquingKeysWith: { first, _ in first }
                 )
-                node.children = folders.map { previous[FileBrowserState.id(for: $0.0)] ?? Node(kind: .folder, url: $0.0, name: $0.1) }
+                node.children = folders.map { url, name, hasSubfolders in
+                    let child = previous[FileBrowserState.id(for: url)] ?? Node(kind: .folder, url: url, name: name)
+                    // 開いている孫の行は、読み直しの一瞬の判定で三角を消さない(開いたまま展開できない行になる)。
+                    if !(outline.isItemExpanded(child) && hasSubfolders == false) { child.hasSubfolders = hasSubfolders }
+                    return child
+                }
                 outline.reloadItem(node, reloadChildren: true)
                 self.applySelection(folderID: self.appliedFolderID ?? nil)
             }
@@ -328,8 +361,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
-            // フォルダである、だけで決める(サブフォルダの有無を調べない。型コメント)。
-            true
+            // サブフォルダが無いと分かった行だけ三角を消す(型コメント)。
+            (item as? Node)?.hasSubfolders != false
         }
 
         func outlineView(_ outlineView: NSOutlineView, isGroupItem item: Any) -> Bool {
@@ -342,6 +375,15 @@ struct FileBrowserTreeView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, shouldShowOutlineCellForItem item: Any) -> Bool {
             true
+        }
+
+        /// **ドラッグ中は行を開かない**(スプリングローデッドを止める)。`NSOutlineView` はドラッグで静止した行を
+        /// 自動で開くが、開いた直後はその行が受け口から外れ、マウスを動かさずに離したドロップが黙って断られた
+        /// (ツリーの行へ落としたのに何も起きず、絵が元へ戻る。静止 1.2〜1.7 秒で開いた回は 5 回とも失敗、開いていない回は
+        /// 成功。実機 2026-09-13。子の入れ方を `reloadItem` から `insertItems` に変えても同じ)。検討メモ §9 の
+        /// 「スプリングローデッドは最初は入れない」にも合う。
+        func outlineView(_ outlineView: NSOutlineView, shouldExpandItem item: Any) -> Bool {
+            !((outlineView as? FileBrowserOutlineView)?.isReceivingDrag ?? false)
         }
 
         func outlineViewItemWillExpand(_ notification: Notification) {
@@ -440,6 +482,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
         func outlineView(
             _ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo, item: Any?, childIndex index: Int
         ) -> Bool {
+            (outlineView as? FileBrowserOutlineView)?.noteDropAccepted()
             guard let actions, let node = item as? Node, !node.isGroup, let url = node.url else { return false }
             let (decision, urls) = actions.dropDecision(for: info, into: url)
             actions.performDrop(decision, urls: urls)

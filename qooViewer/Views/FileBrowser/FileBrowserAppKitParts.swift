@@ -256,6 +256,31 @@ final class FileBrowserTableHeaderView: NSTableHeaderView {
 /// ボタンの絵を、反対色の輪郭を焼き込んだ絵に差し替える。
 final class FileBrowserOutlineView: NSOutlineView {
     var outlineWidth: CGFloat = 0
+    /// いまこの一覧の上でドラッグを受けているか(ドラッグ中に行を開かないため。TreeView の shouldExpandItem)。
+    /// 入ったら立て、出たら・落とされたら(`noteDropAccepted`)下ろす。**`draggingEnded` / `concludeDragOperation` は
+    /// 上書きしない** ―― 上書きすると、この一覧へ落としたときにドラッグ元(リスト)の
+    /// `draggingSession(_:endedAt:operation:)` が呼ばれなくなり、アプリの中のドラッグの記録
+    /// (FileBrowserDragTracker)が残り続けた(実機 2026-09-13)。下ろし忘れても、マウスのボタンが離れていれば
+    /// ドラッグ中とは見なさない(`isReceivingDrag` の読み出し側)。
+    private var dragInside = false
+
+    var isReceivingDrag: Bool {
+        dragInside && NSEvent.pressedMouseButtons & 1 != 0
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        dragInside = true
+        return super.draggingEntered(sender)
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        dragInside = false
+        super.draggingExited(sender)
+    }
+
+    func noteDropAccepted() {
+        dragInside = false
+    }
 
     override func makeView(withIdentifier identifier: NSUserInterfaceItemIdentifier, owner: Any?) -> NSView? {
         let view = super.makeView(withIdentifier: identifier, owner: owner)

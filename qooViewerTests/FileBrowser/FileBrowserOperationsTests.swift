@@ -354,6 +354,14 @@ struct FileBrowserOperationsTests {
         await fixture.finish()
         let change = try #require(fixture.state.fileSystemChange)
         #expect(change.folderIDs.contains(FileBrowserState.id(for: fixture.other)))
+        #expect(!change.isUnknownScope)
+
+        // 取り消しはどのフォルダが変わったかを返さないので、全体を見直してもらう。
+        fixture.state.operations.undo()
+        await fixture.finish()
+        let undoChange = try #require(fixture.state.fileSystemChange)
+        #expect(undoChange.isUnknownScope)
+        #expect(undoChange.serial > change.serial)
     }
 
     // MARK: - 進捗・報告

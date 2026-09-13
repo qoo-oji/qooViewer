@@ -53,7 +53,7 @@ final class FileBrowserOperations: ObservableObject {
         enqueue { [weak self] in
             guard let self, let stack = self.commandStack else { return }
             let outcome = await stack.undo()
-            self.didChangeFileSystem()
+            self.didChangeFileSystem(inUnknownScope: true)
             self.presentIfNeeded(outcome, isRedo: false)
         }
     }
@@ -63,7 +63,7 @@ final class FileBrowserOperations: ObservableObject {
         enqueue { [weak self] in
             guard let self, let stack = self.commandStack else { return }
             let outcome = await stack.redo()
-            self.didChangeFileSystem()
+            self.didChangeFileSystem(inUnknownScope: true)
             self.presentIfNeeded(outcome, isRedo: true)
         }
     }
@@ -331,13 +331,19 @@ final class FileBrowserOperations: ObservableObject {
     }
 
     /// 操作のあとで一覧とツリーを読み直す。ネットワークでは FSEvents が飛ばないので、待たずに明示的に読む。
-    private func didChangeFileSystem(affected: [URL] = [], selecting placed: [URL] = []) {
+    /// - Parameter inUnknownScope: 取り消し・やり直し。どのフォルダが変わったか分からないので、ツリーには全体を
+    ///   見直してもらう(以前は何も知らせず、取り消しで戻ったフォルダがツリーに出てこなかった。実機 2026-09-13)。
+    private func didChangeFileSystem(affected: [URL] = [], selecting placed: [URL] = [], inUnknownScope: Bool = false) {
         guard let state else { return }
         let current = FileBrowserState.id(of: state.currentFolder)
         let selectable = Set(placed.filter { FileBrowserState.id(for: $0.deletingLastPathComponent()) == current }
             .map(FileBrowserState.id(for:)))
         state.reload(selecting: selectable.isEmpty ? nil : selectable)
-        state.noteFileSystemChange(in: affected)
+        if inUnknownScope {
+            state.noteFileSystemChangeInUnknownScope()
+        } else {
+            state.noteFileSystemChange(in: affected)
+        }
     }
 
     private func presentIfNeeded(_ outcome: FileUndoOutcome, isRedo: Bool) {

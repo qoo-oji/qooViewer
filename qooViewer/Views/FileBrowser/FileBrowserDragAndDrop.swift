@@ -7,8 +7,14 @@ import UniformTypeIdentifiers
 // ■ 受け口と出し口
 // - 出し口: リスト(NSTableView)・ツリーのフォルダの行(NSOutlineView)・アイコン表示のセル
 //   (FileBrowserIconDragSource)。ペーストボードには**実際のファイルの URL**(`NSURL`)を書く
-//   (`NSFilePromiseProvider` は使わない。検討メモ §9)。アプリの外へは**コピーだけ**を許す ――
-//   Finder がこちらの「移動」を受けて元を消してくれるかは文書に無い(検討メモ §12)。
+//   (`NSFilePromiseProvider` は使わない。検討メモ §9)。**アプリの外へも移動を許す**(copy / move / generic)。
+//   Finder へ落とすと、Finder 自身が Finder の規則で移動・コピーする(同じボリュームは移動、別はコピー、⌥ でコピー、
+//   ⌘ で移動。実機 2026-09-14。移動は Finder が行うのでサンドボックスに掛からない)。こちらは元を消さない
+//   (`endedAt` で何もしない)ので、移動を受けて自分で元を消さない相手へ落としてもコピーで済む。
+//   最初は「Finder が移動してくれるかは文書に無い」としてコピーだけにしていたが、Finder の代わりに使うと
+//   Finder のウインドウ同士と挙動が違うのは期待に反する(ユーザー指摘 2026-09-13)。
+//   Dock のゴミ箱へのドロップ(`.delete`)は許していない ―― 足しても合成したドラッグでは Finder からでさえ
+//   ゴミ箱が受け付けず、確かめられなかったため。
 // - 受け口: リストの行と空きスペース・ツリーの行・パスバーの項目(いずれも AppKit の delegate)、
 //   アイコン表示のフォルダのセルと右ペインの残り全部(FileBrowserDropDelegate)。
 //   **何をするかの判定は `FileBrowserDropDecision` の 1 か所**で、実行は `FileBrowserOperations`。
@@ -161,12 +167,12 @@ extension FileBrowserActions {
     }
 }
 
-/// AppKit の出し口が共有する、アプリの外へはコピーだけを許す設定。
+/// AppKit の出し口が共有する設定。アプリの外へも移動を許す(ファイル冒頭のコメント)。
 @MainActor
 func configureFileBrowserDragSource(_ table: NSTableView) {
     table.registerForDraggedTypes([.fileURL])
     table.setDraggingSourceOperationMask([.copy, .move, .generic], forLocal: true)
-    table.setDraggingSourceOperationMask(.copy, forLocal: false)
+    table.setDraggingSourceOperationMask([.copy, .move, .generic], forLocal: false)
     table.verticalMotionCanBeginDrag = true
 }
 
@@ -320,8 +326,8 @@ final class FileBrowserIconDragHandle: NSObject, NSDraggingSource {
     func draggingSession(
         _ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext
     ) -> NSDragOperation {
-        // アプリの外へはコピーだけ(ファイル全体の型コメント)。
-        context == .withinApplication ? [.copy, .move, .generic] : .copy
+        // アプリの外へも移動を許す(ファイル冒頭のコメント)。
+        [.copy, .move, .generic]
     }
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {

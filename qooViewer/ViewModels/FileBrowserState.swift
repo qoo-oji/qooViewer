@@ -125,6 +125,8 @@ final class FileBrowserState: ObservableObject {
         let serial: Int
         /// 変わったフォルダの id(`FileBrowserState.id(for:)`)。
         let folderIDs: Set<String>
+        /// どのフォルダが変わったか分からない(取り消し・やり直し)。ツリーは開いている行と三角を全部見直す。
+        var isUnknownScope = false
     }
 
     /// 「フォルダを上に」を読む。差し替えたら購読し直す。
@@ -458,6 +460,12 @@ final class FileBrowserState: ObservableObject {
         selectionAnchor = id
         scrollSerial += 1
         scrollRequest = ScrollRequest(id: id, serial: scrollSerial)
+    }
+
+    /// どこが変わったか分からない変更(取り消し・やり直し。コマンドは何を戻したかを場所で返さない)。
+    func noteFileSystemChangeInUnknownScope() {
+        changeSerial += 1
+        fileSystemChange = FileSystemChange(serial: changeSerial, folderIDs: [], isUnknownScope: true)
     }
 
     func noteFileSystemChange(in folders: [URL]) {

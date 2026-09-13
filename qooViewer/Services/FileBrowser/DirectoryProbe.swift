@@ -1,0 +1,98 @@
+import Foundation
+
+/// ファイルブラウザのツリーで、行に開閉の三角を出すかを決める「直下にサブフォルダがあるか」の問い合わせ
+/// (2026-09-13、ユーザー要望。qooLibrary の `DirectoryProbe.hasSubdirectory` を写したもの)。
+///
+/// **FileIO の上で呼ぶこと。** 応答しない共有では `opendir(3)` の時点で止まる(呼び出し側はネットワーク越しの
+/// 場所をそもそも調べない ―― `MountTable.isRemote`)。
+///
+/// ■ 段階3で「調べない」にしていた理由と、それをどう避けるか
+/// 三角のために子フォルダの中を読むと、(1) TCC の保護下の場所で許可のダイアログが出る、(2) ネットワークでは
+/// 行の数だけ往復する。qooLibrary は (1) をパスの文字列だけで保護下の場所を除外し、(2) をマウント表で除外して
+/// 解いていた。判定できないとき(除外・読めない)は nil を返し、呼び出し側は**三角を出す** ―― 誤って消すと
+/// 開けるはずのフォルダが行き止まりになるが、誤って出しても「開いたら空だった」で済む。
+nonisolated enum DirectoryProbe {
+    /// 直下に、ツリーに出るフォルダ(隠しでない・パッケージでない・記号リンクでない)が 1 つでもあるか。
+    /// 判定できなければ nil。
+    ///
+    /// `readdir(3)` を最初のサブフォルダで打ち切る。`d_type` を見れば 1 件ごとの `stat` が要らないので、
+    /// `contentsOfDirectory` + `resourceValues` より桁で速い(qooLibrary 実測: 2,000 件で 0.89ms 対 4.66ms)。
+    /// ディレクトリの `st_nlink` や `.directoryEntryCount` は APFS では全エントリ数で、フォルダの数ではない
+    /// (同実測)ので、これより安い手段は無い。
+    ///
+    /// **数える規則はツリーの一覧(`FileBrowserListing.entries` → `isNavigableFolder`)と揃える**:
+    /// - 名前が `.` で始まる項目と `UF_HIDDEN` の項目は数えない(`.skipsHiddenFiles` はどちらも隠す。qooLibrary では
+    ///   `UF_HIDDEN` を見落として「空なのに三角が出る」になった)
+    /// - パッケージは数えない(ツリーに出さない)
+    /// - 記号リンクは数えない(一覧の `.isDirectoryKey` はリンク自身を見るので、ツリーに出ない)
+    static func hasSubdirectory(at url: URL, protectedPrefixes: [String] = protectedPrefixes) -> Bool? {
+        if isPrivacyProtected(url, prefixes: protectedPrefixes) { return nil }
+        guard let directory = opendir(url.path) else { return nil }
+        defer { closedir(directory) }
+        while let entry = readdir(directory) {
+            var value = entry.pointee
+            let name = withUnsafePointer(to: &value.d_name) {
+                String(cString: UnsafeRawPointer($0).assumingMemoryBound(to: CChar.self))
+            }
+            if name.hasPrefix(".") { continue }
+            let type = Int32(value.d_type)
+            let child = url.appendingPathComponent(name)
+            var status = stat()
+            switch type {
+            case DT_DIR:
+                // UF_HIDDEN を見るための lstat。引けなければ隠れていない側へ倒す(型コメントの害の非対称)。
+                if lstat(child.path, &status) == 0, status.st_flags & UInt32(UF_HIDDEN) != 0 { continue }
+            case DT_UNKNOWN:
+                // d_type を返さないファイルシステムのための保険。リンクは辿らない(lstat)。
+                guard lstat(child.path, &status) == 0, status.st_mode & S_IFMT == S_IFDIR,
+                      status.st_flags & UInt32(UF_HIDDEN) == 0
+                else { continue }
+            default:
+                continue
+            }
+            if !isPackage(child) { return true }
+        }
+        return false
+    }
+
+    /// Finder が 1 つの項目として扱うディレクトリか。引けなければ「パッケージではない」に倒す。
+    private static func isPackage(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isPackageKey]))?.isPackage ?? false
+    }
+
+    /// TCC の許可を要する場所(またはその中)か。**ファイルシステムに一切問い合わせない**(パスの文字列だけ)。
+    static func isPrivacyProtected(_ url: URL, prefixes: [String] = protectedPrefixes) -> Bool {
+        let path = MountTable.normalized(url.path)
+        return prefixes.contains { path == $0 || path.hasPrefix($0 + "/") }
+    }
+
+    /// 保護下の場所。実際のホームから組み立てる(サンドボックスの `homeDirectoryForCurrentUser` はコンテナ)。
+    ///
+    /// qooLibrary の一覧(`~/Library` の中の他アプリのデータ・File Provider の置き場など。`~/Library` を開いただけで
+    /// 許可のダイアログが次々に出た実測から)に、**デスクトップ・書類・ダウンロードを足した**。qooViewer はホームの
+    /// 読み取りを許可してもらって一覧するので、ホームを開いた時点でこの 3 つの中を読むと、利用者が入ってもいないのに
+    /// TCC のダイアログが出る(段階3の約束「入ったときだけ 1 回出る」を破る)。qooLibrary は許可の無い場所として
+    /// `opendir` が失敗するのに任せていた。
+    static let protectedPrefixes: [String] = {
+        let home = MountTable.normalized(FileBrowserListing.realHomeDirectory().path)
+        let library = home + "/Library"
+        return [
+            home + "/Desktop",
+            home + "/Documents",
+            home + "/Downloads",
+            library + "/CloudStorage",
+            library + "/Mobile Documents",
+            library + "/Containers",
+            library + "/Group Containers",
+            library + "/Application Support",
+            library + "/Mail",
+            library + "/Safari",
+            library + "/Messages",
+            library + "/Cookies",
+            library + "/IdentityServices",
+            library + "/HomeKit",
+            library + "/Suggestions",
+            library + "/Metadata/CoreSpotlight",
+        ]
+    }()
+}
