@@ -223,6 +223,14 @@ deinit に任せられないのは、解放がメインスレッド以外で始�
 | `FileOperationVolumeTests` | 使い捨てボリュームの上で ―― 別ボリュームへの移動(ファイル・フォルダ)、**exFAT の `RENAME_EXCL` が ENOTSUP を返すこと**と縮退経路、クローンできない形式のコピー、FAT32 の 4GB 上限、空き容量の事前検査、作ったばかりのボリュームにもゴミ箱があること |
 | `FileCommandStackTests` / `FileCommandsTests` | 取り消し・やり直しの積み方(深さ 50、部分的な取り消しは redo へ積まない、投げた・何も起きなかった・取り消せない操作は積まない、まとめた操作は中止のときだけ巻き戻す)と、各コマンドの取り消し(元の場所が塞がっていたら `name 2` で戻して「部分的」、置き換えた元も戻す、中身のある新規フォルダは戻さない) |
 
+ファイルブラウザ(改善要望7 段階 3、2026-09-13 追加。`Services/FileBrowser/` と `ViewModels/FileBrowserState.swift`):
+
+| suite | 見るもの |
+| --- | --- |
+| `FileBrowserListingTests` | 一覧の読み取り ―― 全ファイルを出し隠しファイルを出さない、パッケージは 1 項目でファイルの側に並ぶ、無いフォルダ(`notFound`)と読めないフォルダ(`needsAccess`)の分類、コンピュータに出すボリュームの選び方、絞り込みの規則、消えたフォルダの退避先 |
+| `FileBrowserStateTests` | 閲覧状態 ―― 並べ替えが読み直さない、表示の設定の保存、絞り込みと選択、上へ・戻る・進む、速く移動したときの世代番号、消えたフォルダの祖先への退避、reveal、読み直しで選択が残る、クリックと矢印キーの選択、起動時のフォルダ、シークレットウインドウで最後のフォルダを書かない |
+| `FileBrowserModelTests` | 矢印キーの移動先(`GridKeyboardNavigation`)、`WindowContentRequest` の往復と「同じフォルダでも毎回別の値」、`FavoriteLocationStore`、ウェルカム画面のモードの保存 |
+
 **使い捨てボリュームはテストの外で付けます。** テストホストはサンドボックスの中で、そこから起動した
 `hdiutil` は止められます(2026-09-13 実測: `hdiutil create` が「装置が構成されていません」、カーネルの
 ログに `deny(1) mach-lookup com.apple.system.hdiejectd.xpc`)。一方、外で付けたボリュームへはテストから

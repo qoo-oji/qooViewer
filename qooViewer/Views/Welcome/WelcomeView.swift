@@ -30,6 +30,8 @@ struct WelcomeView: View {
     @EnvironmentObject private var autoFolderScanner: CollectionAutoFolderScanner
     @EnvironmentObject private var folderAccess: FolderAccessStore
     @ObservedObject var state: WelcomeLibraryState
+    /// ファイルブラウザの閲覧状態(改善要望7 段階3)。ウインドウに1つ(ContentViewが持つ)。
+    let fileBrowser: FileBrowserState
 
     /// 編集操作を許すか。シークレットウインドウでは常にfalse(型コメント参照)。
     private var allowsEditing: Bool { !appState.isPrivateWindow }
@@ -47,7 +49,9 @@ struct WelcomeView: View {
                 state: state, allowsEditing: allowsEditing, selectedLibraryID: library?.id
             )
             Divider()
-            if let library {
+            if state.mode == .browser {
+                FileBrowserPane(state: fileBrowser)
+            } else if let library {
                 WelcomeLibraryPane(state: state, library: library, allowsEditing: allowsEditing)
             } else {
                 Spacer(minLength: 0)

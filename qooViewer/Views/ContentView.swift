@@ -19,6 +19,7 @@ struct ContentView: View {
     /// ViewerView経由でViewerViewModelへ渡す。
     @EnvironmentObject private var metadataStore: BookMetadataStore
     @EnvironmentObject private var collectionStore: CollectionStore
+    @EnvironmentObject private var favoriteLocations: FavoriteLocationStore
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
     @Environment(\.modelContext) private var modelContext
     /// サイドパネル(ブックマークモード)の「編集」ボタンから、お気に入り/ブックマークの
@@ -29,7 +30,9 @@ struct ContentView: View {
     /// このウインドウで最初から開いておきたい対象。通常の(何も指定しない)ウインドウではnil。
     /// URL1つではなくBookOpenRequestなのは、Finderで複数選択された画像を1冊として
     /// 新しいウインドウ/タブで開けるようにするため(BookOpenRequestのコメント参照)。
-    var initialRequest: BookOpenRequest?
+    /// さらにWindowContentRequestで包んであるのは、フォルダを新しいタブ/ウインドウの
+    /// ファイルブラウザで開くため(改善要望7 段階3。WindowContentRequestのコメント参照)。
+    var initialRequest: WindowContentRequest?
     /// このウインドウがシークレットウインドウかどうか(何を記録しないかの定義は
     /// `AppState.isPrivateWindow`のコメント参照)。
     ///
@@ -127,6 +130,9 @@ struct ContentView: View {
     /// (WelcomeLibraryState参照)。本を開いている間もこのウインドウの中に残るので、
     /// 「ウェルカム画面へ戻る」で帰ってきたときは同じライブラリ・同じコレクションの中に戻る。
     @StateObject private var welcomeLibrary = WelcomeLibraryState()
+    /// ウェルカム画面のファイルブラウザの閲覧状態(改善要望7 段階3)。本を開いている間もこの
+    /// ウインドウの中に残り、戻ってきたときは離れたときのフォルダのまま(FileBrowserState参照)。
+    @StateObject private var fileBrowser = FileBrowserState()
 
     /// - Parameter isPrivateWindow: 明示的に決まっている場合だけ渡す(そのWindowGroupが
     ///   シークレット専用か通常専用かで決まる)。**nilを渡せるのは"main" WindowGroupだけ**で、
@@ -140,7 +146,7 @@ struct ContentView: View {
     ///   (残すとinitのたびに読み直されてAppStateと食い違う。`isPrivateWindow`のコメント参照)。
     ///   `@StateObject`のwrappedValueはウインドウにつき一度しか評価されないため、
     ///   `AppState.isPrivateWindow`はウインドウが閉じるまで変わらない。
-    init(initialRequest: BookOpenRequest? = nil, isPrivateWindow: Bool? = nil) {
+    init(initialRequest: WindowContentRequest? = nil, isPrivateWindow: Bool? = nil) {
         self.initialRequest = initialRequest
         // 値を渡してこないのは"main" WindowGroupだけ(isMainWindowGroupのコメント参照)。
         self.isMainWindowGroup = (isPrivateWindow == nil)
@@ -226,7 +232,7 @@ struct ContentView: View {
                         )
                             .id(book.id)
                     } else {
-                        WelcomeView(state: welcomeLibrary)
+                        WelcomeView(state: welcomeLibrary, fileBrowser: fileBrowser)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -603,6 +609,9 @@ struct ContentView: View {
             appState.launchCoordinator = launchCoordinator
             sidePanelBrowser.folderAccess = folderAccess
             sidePanelBrowser.preferences = preferences
+            fileBrowser.preferences = preferences
+            fileBrowser.favoriteLocations = favoriteLocations
+            fileBrowser.isPrivate = isPrivateWindow
             // 「ツールバーを隠す」「プログレスバーを隠す」「サイドパネルを隠す」は、前回終了時
             // (またはこのセッション中に他のウインドウで変更された時点)の値をpreferencesから
             // 引き継ぐ。これにより、新しいウインドウ/タブや次回起動時にも同じ表示状態で始まる。
@@ -623,7 +632,13 @@ struct ContentView: View {
             // ウインドウ/タブをアクティブにする」機能のために、このウインドウ/タブのAppStateを
             // 開いている一覧へ登録する(QooViewerApp.openInNewWindow参照)。
             launchCoordinator.registerOpenAppState(appState)
-            if let initialRequest {
+            if let folder = initialRequest?.browsedFolder {
+                // フォルダを新しいタブ/ウインドウのファイルブラウザで開いた(改善要望7 段階3)。
+                // 起動時の動作(前回の本を開く)はしない ―― このウインドウはこのフォルダを
+                // 見るために作られた。表示はWelcomeView(ファイルブラウザ)が出た時点で始まる。
+                welcomeLibrary.mode = .browser
+                fileBrowser.prepare(showing: folder)
+            } else if let initialRequest = initialRequest?.bookRequest {
                 // このウインドウはこの本のために作られたので、既に同じ本を開いている
                 // ウインドウがあっても譲らない(譲ると中身の無いウインドウだけが残る。
                 // そもそも作る前にBookWindowOpenerが同じ判定を済ませている)。
@@ -942,6 +957,8 @@ struct ContentView: View {
                 removeSidePanelHoverMonitor()
                 removeOutsideWindowMonitor()
                 removeMenuTrackingObservers()
+                // ファイルブラウザのFSEventsの監視と購読も(FileBrowserState.releaseResources)。
+                fileBrowser.releaseResources()
                 tokens.removeAll()
             }
         })

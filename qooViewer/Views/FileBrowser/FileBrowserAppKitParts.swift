@@ -1,0 +1,300 @@
+import AppKit
+import UniformTypeIdentifiers
+
+// ファイルブラウザのAppKit部品(リスト = NSTableView、ツリー = NSOutlineView)が共有する小物
+// (改善要望7 段階3、2026-09-13)。
+//
+// ■ すりガラス面の決まりごと(CLAUDE.md)をAppKitで守る
+// ウェルカム画面は`PanelSurface.welcome`で、面を文字色で塗りつぶされうる。SwiftUIの
+// `.panelOutlinedContent()`はAppKitのセルには届かないので、同じ輪郭(反対色の形を上下左右へ
+// ずらして後ろに敷く。PanelContentShadow)をセルの描画で行う:
+// - 行の文字 → `FileBrowserOutlinedTextFieldCell`(選択中はアクセント地の上なので掛けない)
+// - 選択の地 → `FileBrowserRowView`がアクセント色で塗り、反対色の縁を付ける(`.panelOutlinedAccent(in:)`相当)
+// - アイコン → ファイルの種類のアイコン(色付きの絵)なので掛けない(「画像・サムネイルには掛けない」)
+// - 列の見出し → `NSTableHeaderView`のまま(不透明な地を持つ)
+
+/// 輪郭の色。文字色の反対色(ダークなら黒、ライトなら白)。PanelContentOutline.outlineColorと同じ。
+@MainActor
+func fileBrowserOutlineColor(for view: NSView) -> NSColor {
+    view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .black : .white
+}
+
+/// 輪郭を持つ文字のセル。
+final class FileBrowserOutlinedTextFieldCell: NSTextFieldCell {
+    /// 輪郭の太さ(pt)。0なら何もしない(環境設定「外観」の「文字の影」が既定の0なら従来どおり)。
+    var outlineWidth: CGFloat = 0
+
+    override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
+        // 選択中(アクセント地の上の白い文字)には掛けない ―― 不透明な地を持つ部品と同じ扱い。
+        if outlineWidth > 0, backgroundStyle != .emphasized, !attributedStringValue.string.isEmpty {
+            let outlined = NSMutableAttributedString(attributedString: attributedStringValue)
+            let whole = NSRange(location: 0, length: outlined.length)
+            outlined.addAttribute(.foregroundColor, value: fileBrowserOutlineColor(for: controlView), range: whole)
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineBreakMode = lineBreakMode
+            paragraph.alignment = alignment
+            outlined.addAttribute(.paragraphStyle, value: paragraph, range: whole)
+            let rect = drawingRect(forBounds: cellFrame)
+            for direction in PanelContentShadow.outlineDirections {
+                outlined.draw(
+                    with: rect.offsetBy(dx: direction.x * outlineWidth, dy: direction.y * outlineWidth),
+                    options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine]
+                )
+            }
+        }
+        super.drawInterior(withFrame: cellFrame, in: controlView)
+    }
+}
+
+/// 行の地。選択はアクセント色の角丸で塗り、面の色に溶けないよう反対色の縁を付ける。
+final class FileBrowserRowView: NSTableRowView {
+    var outlineWidth: CGFloat = 0 {
+        didSet { if outlineWidth != oldValue { needsDisplay = true } }
+    }
+    /// リストの交互の地(面の色に追従するよう、不透明な色ではなく文字色のごく薄い重ねで描く)。
+    var isStriped = false {
+        didSet { if isStriped != oldValue { needsDisplay = true } }
+    }
+
+    override func drawBackground(in dirtyRect: NSRect) {
+        guard isStriped else { return }
+        NSColor.labelColor.withAlphaComponent(0.04).setFill()
+        bounds.fill()
+    }
+
+    override func drawSelection(in dirtyRect: NSRect) {
+        guard selectionHighlightStyle != .none else { return }
+        let rect = bounds.insetBy(dx: 4, dy: 1)
+        let path = NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5)
+        NSColor.controlAccentColor.setFill()
+        path.fill()
+        if outlineWidth > 0 {
+            fileBrowserOutlineColor(for: self).setStroke()
+            let border = NSBezierPath(
+                roundedRect: rect.insetBy(dx: outlineWidth / 2, dy: outlineWidth / 2),
+                xRadius: 5, yRadius: 5
+            )
+            border.lineWidth = outlineWidth
+            border.stroke()
+        }
+    }
+
+    /// 選択中は常に「強調」(白い文字)。ウインドウが後ろにあっても地はアクセント色のままなので、
+    /// 文字もそれに合わせる(灰色の地に切り替えると、面の色によっては選択そのものが見えなくなる)。
+    override var interiorBackgroundStyle: NSView.BackgroundStyle {
+        isSelected ? .emphasized : .normal
+    }
+}
+
+/// 名前などを1行で出すセル(アイコンは任意)。
+final class FileBrowserCellView: NSTableCellView {
+    let label: NSTextField
+    let icon: NSImageView?
+
+    init(identifier: NSUserInterfaceItemIdentifier, showsIcon: Bool, iconSize: CGFloat = 16) {
+        let cell = FileBrowserOutlinedTextFieldCell(textCell: "")
+        cell.lineBreakMode = .byTruncatingMiddle
+        cell.truncatesLastVisibleLine = true
+        cell.isEditable = false
+        cell.isSelectable = false
+        cell.drawsBackground = false
+        let field = NSTextField(frame: .zero)
+        field.cell = cell
+        field.isBordered = false
+        field.drawsBackground = false
+        field.translatesAutoresizingMaskIntoConstraints = false
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        label = field
+        if showsIcon {
+            let imageView = NSImageView(frame: .zero)
+            imageView.imageScaling = .scaleProportionallyUpOrDown
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            icon = imageView
+        } else {
+            icon = nil
+        }
+        super.init(frame: .zero)
+        self.identifier = identifier
+        textField = field
+        addSubview(field)
+        if let icon {
+            imageView = icon
+            addSubview(icon)
+            NSLayoutConstraint.activate([
+                icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+                icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+                icon.widthAnchor.constraint(equalToConstant: iconSize),
+                icon.heightAnchor.constraint(equalToConstant: iconSize),
+                field.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 5),
+            ])
+        } else {
+            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2).isActive = true
+        }
+        NSLayoutConstraint.activate([
+            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+            field.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    func configure(text: String, color: NSColor = .labelColor, font: NSFont = .systemFont(ofSize: 13), outlineWidth: CGFloat) {
+        label.stringValue = text
+        label.textColor = color
+        label.font = font
+        if let cell = label.cell as? FileBrowserOutlinedTextFieldCell, cell.outlineWidth != outlineWidth {
+            cell.outlineWidth = outlineWidth
+            label.needsDisplay = true
+        }
+    }
+}
+
+/// ファイルの種類ごとのアイコン。**ファイルシステムに触らない**(拡張子と種類だけで引く)。
+///
+/// `NSWorkspace.icon(forFile:)`は、到達できない共有上のパスで30秒ブロックして「返る」(qooLibrary 実測)うえ、
+/// フォルダのカスタムアイコンを読みにデスクトップ・書類の中へ触れると**TCCのダイアログが出る**
+/// (検討メモ §3.3 の「勝手に出さない」)。種類のアイコンなら I/O が無い。フォルダのカスタムアイコンと
+/// アプリ固有のアイコンは出ない ―― 本と画像の中身の絵は段階7のサムネイルで出す。
+@MainActor
+enum FileBrowserIconProvider {
+    private static var cache: [String: NSImage] = [:]
+
+    static func icon(for entry: FileBrowserEntry) -> NSImage {
+        let key: String
+        let type: UTType
+        if entry.isVolume {
+            key = "volume"
+            type = .volume
+        } else if entry.isNavigableFolder {
+            key = "folder"
+            type = .folder
+        } else {
+            let ext = entry.url.pathExtension.lowercased()
+            key = (entry.isPackage ? "package." : "file.") + ext
+            type = UTType(filenameExtension: ext).flatMap { $0.isDynamic ? nil : $0 }
+                ?? (entry.isPackage ? .package : .data)
+        }
+        if let cached = cache[key] { return cached }
+        let image = NSWorkspace.shared.icon(for: type)
+        cache[key] = image
+        return image
+    }
+
+    static var folderIcon: NSImage {
+        if let cached = cache["folder"] { return cached }
+        let image = NSWorkspace.shared.icon(for: .folder)
+        cache["folder"] = image
+        return image
+    }
+
+    static var volumeIcon: NSImage {
+        if let cached = cache["volume"] { return cached }
+        let image = NSWorkspace.shared.icon(for: .volume)
+        cache["volume"] = image
+        return image
+    }
+}
+
+/// 線画のアイコン(テンプレート画像)だけのボタン。**アイコンに輪郭を掛ける**(ツリーの「＋」)。
+/// SwiftUIの`.panelIconButtonLabel()`が内側で輪郭を掛けるのと同じ扱い。
+final class FileBrowserOutlinedIconButton: NSButton {
+    var outlineWidth: CGFloat = 0 {
+        didSet { if outlineWidth != oldValue { needsDisplay = true } }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if outlineWidth > 0, let image, let tinted = Self.tinted(image, color: fileBrowserOutlineColor(for: self)) {
+            let size = image.size
+            let origin = NSPoint(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2)
+            let base = NSRect(origin: origin, size: size)
+            for direction in PanelContentShadow.outlineDirections {
+                tinted.draw(
+                    in: base.offsetBy(dx: direction.x * outlineWidth, dy: direction.y * outlineWidth),
+                    from: .zero, operation: .sourceOver, fraction: isEnabled ? 1 : 0.5
+                )
+            }
+        }
+        super.draw(dirtyRect)
+    }
+
+    private static func tinted(_ image: NSImage, color: NSColor) -> NSImage? {
+        let size = image.size
+        guard size.width > 0, size.height > 0 else { return nil }
+        return NSImage(size: size, flipped: false) { rect in
+            image.draw(in: rect)
+            color.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+    }
+}
+
+/// 列の見出し。**不透明な地を自分で敷く。** 既定の見出しは半透明のマテリアルで、ウェルカム画面の面を
+/// 文字色で塗りつぶすと(ダーク+白100%)見出しの文字ごと面に溶けて消えた(実測 2026-09-13)。
+/// 地があれば輪郭は要らない(CLAUDE.md の「不透明な地を持つ部品」)。
+final class FileBrowserTableHeaderView: NSTableHeaderView {
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.controlBackgroundColor.setFill()
+        dirtyRect.fill()
+        super.draw(dirtyRect)
+    }
+}
+
+/// 開閉の三角に輪郭を付ける`NSOutlineView`。
+///
+/// 三角はAppKitが作るボタン(`disclosureButtonIdentifier`)で、灰色の線画。面を文字色で塗ると
+/// (ダーク+白100%)**選ばれていない行の三角が跡形もなく消えた**(実測 2026-09-13)。作られた
+/// ボタンの絵を、反対色の輪郭を焼き込んだ絵に差し替える。
+final class FileBrowserOutlineView: NSOutlineView {
+    var outlineWidth: CGFloat = 0
+
+    override func makeView(withIdentifier identifier: NSUserInterfaceItemIdentifier, owner: Any?) -> NSView? {
+        let view = super.makeView(withIdentifier: identifier, owner: owner)
+        if identifier == NSOutlineView.disclosureButtonIdentifier, let button = view as? NSButton {
+            decorate(button)
+        }
+        return view
+    }
+
+    private var originalImages: [ObjectIdentifier: (NSImage?, NSImage?)] = [:]
+
+    private func decorate(_ button: NSButton) {
+        let key = ObjectIdentifier(button)
+        if originalImages[key] == nil { originalImages[key] = (button.image, button.alternateImage) }
+        guard let (image, alternate) = originalImages[key] else { return }
+        guard outlineWidth > 0 else {
+            button.image = image
+            button.alternateImage = alternate
+            return
+        }
+        let outline = fileBrowserOutlineColor(for: self)
+        button.image = image.map { Self.outlined($0, width: outlineWidth, outline: outline) }
+        button.alternateImage = alternate.map { Self.outlined($0, width: outlineWidth, outline: outline) }
+    }
+
+    /// テンプレートの絵を「反対色の輪郭 + 文字色(副)の本体」で焼き直す。
+    private static func outlined(_ image: NSImage, width: CGFloat, outline: NSColor) -> NSImage {
+        let size = image.size
+        let result = NSImage(size: size, flipped: false) { rect in
+            func tinted(_ color: NSColor) -> NSImage {
+                NSImage(size: size, flipped: false) { inner in
+                    image.draw(in: inner)
+                    color.set()
+                    inner.fill(using: .sourceAtop)
+                    return true
+                }
+            }
+            let back = tinted(outline)
+            for direction in PanelContentShadow.outlineDirections {
+                back.draw(in: rect.offsetBy(dx: direction.x * width, dy: direction.y * width))
+            }
+            tinted(.secondaryLabelColor).draw(in: rect)
+            return true
+        }
+        result.isTemplate = false
+        return result
+    }
+}

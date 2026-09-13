@@ -193,78 +193,9 @@ nonisolated enum DirectoryBrowser {
     /// 呼び直す(SidePanelBrowserState.applySortSettings参照)。Entryが並べ替えに必要な値を
     /// すべて確定値として持っているため、ここではファイルアクセスが一切発生しない。
     static func sortedEntries(_ entries: [Entry], sort: FolderBrowserSort) -> [Entry] {
-        entries.sorted { lhs, rhs in
-            // グループ分け(フォルダを先に)は基準・向きより先に効かせる。降順にしても
-            // フォルダは上のまま ― Finderの「フォルダを常に上部に表示」と同じ挙動。
-            if sort.grouping == .foldersFirst, lhs.isDirectory != rhs.isDirectory {
-                return lhs.isDirectory
-            }
-            switch compare(lhs, rhs, key: sort.key) {
-            case .orderedAscending: return sort.direction == .ascending
-            case .orderedDescending: return sort.direction == .descending
-            // compareは必ず名前・パスまで見て決着させるため、ここへは来ない(同じ一覧に
-            // 同じパスの項目は現れない)。来た場合も並びが揺れないようfalseで固定する。
-            case .orderedSame: return false
-            }
-        }
-    }
-
-    /// 2件の前後関係を、選ばれている基準で決める。値を持たない項目(フォルダのサイズなど)や
-    /// 同じ値だった項目は名前で、それも同じなら最後はパスで決着させる。
-    ///
-    /// 常に全順序(どの2件を比べても必ず前後が決まる)になるようにしてあるため、降順は昇順の
-    /// 完全な逆順になり、同じフォルダを開き直しても並びが揺れない。
-    private static func compare(_ lhs: Entry, _ rhs: Entry, key: FolderBrowserSortKey) -> ComparisonResult {
-        let primary: ComparisonResult
-        switch key {
-        case .name:
-            // 名前そのものが下のタイブレークなので、ここでは何もしない。
-            primary = .orderedSame
-        case .size:
-            primary = compareOptional(lhs.fileSize, rhs.fileSize)
-        case .kind:
-            primary = compareOptional(lhs.typeDescription, rhs.typeDescription) { $0.localizedStandardCompare($1) }
-        case .creationDate:
-            primary = compareOptional(lhs.creationDate, rhs.creationDate)
-        case .modificationDate:
-            primary = compareOptional(lhs.modificationDate, rhs.modificationDate)
-        }
-        if primary != .orderedSame { return primary }
-        // Finderと同じ並び(localizedStandardCompare: 数字は数値として比べ、大文字小文字・
-        // 全角半角は区別せず、ロケールの照合順序に従う)。お気に入り・ブックマーク・
-        // メタデータ編集など、このアプリの他の「人に見せる一覧」もこの比較で揃えてある
-        // (FavoritesStore.sortedBooks等)。
-        //
-        // この機能を入れる前は`compare(_:options: .numeric)`だった(ロケールを見ず、
-        // 大文字始まりの名前がすべて小文字始まりより先に来る)。下段(本の中身ブラウザ、
-        // BookInternalBrowsing)と本のページ順(BookLoaderのsortKey)も、後から同じ照合へ
-        // 揃えた(compareCanonicalPageOrder参照)。あちらの並びは互いに一致していなければならない。
-        let byName = lhs.displayName.localizedStandardCompare(rhs.displayName)
-        if byName != .orderedSame { return byName }
-        // 表示名が同じことは起こり得る(拡張子を隠す設定、別ボリュームで同じ名前など)。
-        // 最後にパスで決着させ、全順序を保証する。
-        return lhs.url.path.compare(rhs.url.path)
-    }
-
-    /// 値を持たない(nil)側を「小さい」扱いにして比べる。サイズを持たないフォルダや、
-    /// 属性を読み取れなかった項目が、昇順では先頭側にまとまる(そのうえで名前順に並ぶ)。
-    private static func compareOptional<Value>(
-        _ lhs: Value?, _ rhs: Value?, by compare: (Value, Value) -> ComparisonResult
-    ) -> ComparisonResult {
-        switch (lhs, rhs) {
-        case let (lhs?, rhs?): return compare(lhs, rhs)
-        case (nil, nil): return .orderedSame
-        case (nil, _): return .orderedAscending
-        case (_, nil): return .orderedDescending
-        }
-    }
-
-    private static func compareOptional<Value: Comparable>(_ lhs: Value?, _ rhs: Value?) -> ComparisonResult {
-        compareOptional(lhs, rhs) { lhs, rhs in
-            if lhs < rhs { return .orderedAscending }
-            if rhs < lhs { return .orderedDescending }
-            return .orderedSame
-        }
+        // 比較の本体はファイルブラウザ(FileBrowserEntry)と共有している
+        // (FolderBrowserSortable参照。2つに書き分けると同じフォルダの並びが画面ごとに食い違う)。
+        sort.sorted(entries)
     }
 
     /// directory直下(サブフォルダは見ない)に画像ファイルが1つでもあるかどうか。
@@ -369,4 +300,9 @@ nonisolated enum DirectoryBrowser {
         if standardized.path == "/" { return true }
         return mountedVolumeURLs().contains { $0.standardizedFileURL == standardized }
     }
+}
+
+nonisolated extension DirectoryBrowser.Entry: FolderBrowserSortable {
+    /// この一覧はパッケージを区別しない(`.app`もフォルダの行として並ぶ。従来どおり)。
+    var sortsAsFolder: Bool { isDirectory }
 }

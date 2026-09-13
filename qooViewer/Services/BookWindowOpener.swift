@@ -43,11 +43,8 @@ enum BookWindowOpener {
         openWindow: OpenWindowAction,
         onOpened: (() -> Void)? = nil
     ) {
-        let sourceWindow = source?.hostWindow
         let windowGroupID = BookWindowGroup.id(for: destination, inheritingFrom: source)
         let opensPrivately = (windowGroupID == "private")
-        // タブとして開けるのは、追加先のウインドウが実在する場合だけ。
-        let asTab = destination.isTab && sourceWindow != nil
 
         // すでにこの本を開いているウインドウ/タブがあれば、同じ本をもう1つ開く代わりに
         // それをアクティブにする。探す相手は「これから作ろうとしているウインドウと**同じ
@@ -72,8 +69,46 @@ enum BookWindowOpener {
             SecurityScopedHandoff.begin(request.urls)
         }
 
+        presentNewWindow(
+            groupID: windowGroupID, value: .book(request), destination: destination,
+            source: source, openWindow: openWindow, onOpened: onOpened
+        )
+    }
+
+    /// フォルダを`destination`のファイルブラウザで開く(改善要望7 段階3)。
+    ///
+    /// 本と違って**重複の判定をしない**(同じフォルダを2枚で見るのは普通のこと。
+    /// WindowContentRequestの型コメント)。セキュリティスコープの受け渡しは本と同じ10秒
+    /// (SecurityScopedHandoff)。受け取った側がFolderAccessStoreの許可で読み直すまでの橋渡し。
+    static func openFolder(
+        _ folder: URL,
+        to destination: BookOpenDestination,
+        from source: AppState?,
+        openWindow: OpenWindowAction
+    ) {
+        SecurityScopedHandoff.begin(folder)
+        presentNewWindow(
+            groupID: BookWindowGroup.id(forBrowsing: destination, inheritingFrom: source),
+            value: .browse(folder), destination: destination, source: source,
+            openWindow: openWindow, onOpened: nil
+        )
+    }
+
+    /// ③〜⑧(型コメントの手順)。本もフォルダも同じ。
+    private static func presentNewWindow(
+        groupID windowGroupID: String,
+        value: WindowContentRequest,
+        destination: BookOpenDestination,
+        source: AppState?,
+        openWindow: OpenWindowAction,
+        onOpened: (() -> Void)?
+    ) {
+        let sourceWindow = source?.hostWindow
+        let opensPrivately = (windowGroupID == "private")
+        // タブとして開けるのは、追加先のウインドウが実在する場合だけ。
+        let asTab = destination.isTab && sourceWindow != nil
         let existingWindowIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
-        openWindow(id: windowGroupID, value: request)
+        openWindow(id: windowGroupID, value: value)
 
         Task { @MainActor in
             guard let newWindow = await newlyOpenedWindow(excluding: existingWindowIDs) else { return }

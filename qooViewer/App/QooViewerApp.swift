@@ -32,6 +32,7 @@ struct QooViewerApp: App {
     private var keyBindingStore: KeyBindingStore { stores.keyBindingStore }
     private var recentFiles: RecentFilesStore { stores.recentFiles }
     private var folderAccess: FolderAccessStore { stores.folderAccess }
+    private var favoriteLocations: FavoriteLocationStore { stores.favoriteLocations }
     private var resourceSampler: ProcessResourceSampler { stores.resourceSampler }
     private var favoritesStore: FavoritesStore { stores.favoritesStore }
     private var bookmarkStore: BookmarkStore { stores.bookmarkStore }
@@ -435,7 +436,7 @@ struct QooViewerApp: App {
     /// - Parameter isPrivateWindow: nilなら環境設定「シークレットモードで起動」に従う
     ///   ("main"だけがnilを渡す。ContentView.initのコメント参照)。
     private func contentWindow(
-        initialRequest: BookOpenRequest? = nil, isPrivateWindow: Bool? = nil
+        initialRequest: WindowContentRequest? = nil, isPrivateWindow: Bool? = nil
     ) -> some View {
         ContentView(initialRequest: initialRequest, isPrivateWindow: isPrivateWindow)
             // 表示言語は、Scene側の`.environment(\.locale, ...)`(メニューバーのcommands用)とは
@@ -447,6 +448,7 @@ struct QooViewerApp: App {
             .environmentObject(keyBindingStore)
             .environmentObject(recentFiles)
             .environmentObject(folderAccess)
+            .environmentObject(favoriteLocations)
             .environmentObject(favoritesStore)
             .environmentObject(bookmarkStore)
             .environmentObject(layoutStore)
@@ -1212,7 +1214,7 @@ struct QooViewerApp: App {
         // 管理の外側になってしまい、作成直後は「今アクティブなウインドウ」としてメニューバー側の
         // `.focusedSceneValue`/`@FocusedValue`にすぐには認識されず、Viewerメニューの項目が
         // 一時的にすべてグレーアウトしてしまう不具合があったため、この方式に変更した。
-        WindowGroup(id: "book", for: BookOpenRequest.self) { requestBinding in
+        WindowGroup(id: "book", for: WindowContentRequest.self) { requestBinding in
             // isPrivateWindow: false を明示する。環境設定「シークレットモードで起動」が
             // ONのとき、値を渡さないと"main"と同じくシークレットとして作られてしまうが、
             // このWindowGroupは**常に通常ウインドウ**でなければならない
@@ -1244,7 +1246,7 @@ struct QooViewerApp: App {
         // 「新しいウインドウ/タブで開く」はURL付きで開く(openInNewWindow参照)。
         // 状態復元は"book"と同じ理由で無効化する。そもそも次回起動時にシークレットウインドウが
         // 復活してはならない。
-        WindowGroup(id: "private", for: BookOpenRequest.self) { requestBinding in
+        WindowGroup(id: "private", for: WindowContentRequest.self) { requestBinding in
             contentWindow(initialRequest: requestBinding.wrappedValue, isPrivateWindow: true)
         }
         // ここだけ"book"の`.contentSize`ではなく"main"と同じ`.automatic` + `.defaultSize`に
@@ -1276,7 +1278,7 @@ struct QooViewerApp: App {
         // サイズが失われてしまう ―― これは"private"を`.automatic`にした理由とまったく同じ
         // 現象である(すぐ上の"private" WindowGroupのコメント参照)。同じ性質の入口なので、
         // Sceneの指定も"private"に完全に揃えてある。
-        WindowGroup(id: "normal", for: BookOpenRequest.self) { requestBinding in
+        WindowGroup(id: "normal", for: WindowContentRequest.self) { requestBinding in
             contentWindow(initialRequest: requestBinding.wrappedValue, isPrivateWindow: false)
         }
         .windowResizability(.automatic)
@@ -1294,6 +1296,8 @@ struct QooViewerApp: App {
                 .environmentObject(preferences)
                 .environmentObject(keyBindingStore)
                 .environmentObject(folderAccess)
+                // 環境設定「ファイルブラウザ」の起動時のフォルダで、よく使う項目から選ばせる。
+                .environmentObject(favoriteLocations)
                 // 「リセット」画面が履歴(最近開いたファイル)の消去も担当するため
                 // (ResetDataSettingsView参照。ユーザー要望)。
                 .environmentObject(recentFiles)
@@ -1753,7 +1757,7 @@ struct QooViewerApp: App {
         }
 
         let existingWindowIDs = Set(NSApp.windows.map(ObjectIdentifier.init))
-        openWindow(id: windowGroupID, value: request)
+        openWindow(id: windowGroupID, value: WindowContentRequest.book(request))
 
         Task { @MainActor in
             guard let newWindow = await BookWindowOpener.newlyOpenedWindow(excluding: existingWindowIDs) else { return }

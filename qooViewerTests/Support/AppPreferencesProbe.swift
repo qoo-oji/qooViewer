@@ -68,6 +68,11 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.sidePanelSortOrder = otherCase(p.sidePanelSortOrder)
     p.siblingNavigationFollowsBrowserSort.toggle()
 
+    // MARK: ファイルブラウザ
+    p.fileBrowserStartupLocation = otherCase(p.fileBrowserStartupLocation)
+    p.fileBrowserStartupFavoriteID += "-moved"
+    p.fileBrowserFoldersFirst.toggle()
+
     // MARK: 外観
     p.appAppearance = otherCase(p.appAppearance)
     p.backgroundColorOption = otherCase(p.backgroundColorOption)

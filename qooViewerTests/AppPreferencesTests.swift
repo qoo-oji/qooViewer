@@ -270,6 +270,9 @@ struct AppPreferencesTests {
             "bookExportDataCleanups", "bookExportHistoryCleanups", "bookExportRenumbersImages",
             "bookExportIncludesExcludedPages", "bookExportWritesVolumeElement",
         ],
+        .fileBrowser: [
+            "fileBrowserStartupLocation", "fileBrowserStartupFavoriteID", "fileBrowserFoldersFirst",
+        ],
         // キー・マウスの割り当ては KeyBindingStore が持つ(各画面が自分で store 側を呼ぶ)。
         // 「フォルダのアクセス権」「リセット」には戻すべき設定が無い。
         .keyboard: [], .mouse: [], .modeInput: [], .access: [], .reset: [],

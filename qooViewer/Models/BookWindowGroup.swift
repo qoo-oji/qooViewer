@@ -55,3 +55,23 @@ extension BookWindowGroup {
         }
     }
 }
+
+extension BookWindowGroup {
+    /// フォルダを新しいタブ/ウインドウのファイルブラウザで開くときの WindowGroup の id
+    /// (改善要望7 段階3)。
+    ///
+    /// 本のときと違い、通常のウインドウは**"book"ではなく"normal"**で開く。"book"は
+    /// `.windowResizability(.contentSize)`で、ウェルカム画面から始まったウインドウで本を開いた
+    /// 瞬間にフレームが作り直される(QooViewerApp.swiftの"normal"/"private"のコメント)。
+    /// ファイルブラウザで開いたウインドウはまさにウェルカム画面から始まる。
+    static func id(forBrowsing destination: BookOpenDestination, inheritingFrom source: AppState?) -> String {
+        switch destination {
+        case .newWindow, .newTab:
+            return id(inheritingFrom: source) == "private" ? "private" : "normal"
+        case .newNormalWindow:
+            return "normal"
+        case .newPrivateWindow:
+            return "private"
+        }
+    }
+}

@@ -35,12 +35,25 @@ import SwiftUI
 /// 一覧のbodyが毎フレーム評価される(PanelListScrollTrackerが実測値を参照型に控えるのと同じ
 /// 判断)。帯そのものも、購読するのは帯を描く小さなビュー(MarqueeBandView)だけにしてある。
 /// 一覧側はこのオブジェクトを`@State`で持つだけで購読しない。
+///
+/// ■ 選ぶものの鍵は`AnyHashable`(改善要望7 段階3、2026-09-13)
+/// 本棚の2画面は`UUID`、ファイルブラウザのアイコン表示はパス(`String`)で選ぶ。鍵の型の出し入れは
+/// ビュー側の修飾(`marqueeCell` / `marqueeSelectable`、どちらも型引数付き)が受け持つ。
+/// **このクラス自体を型引数付きにしてはいけない** ―― `MarqueeSelection<ID>`にしたところ、Release(-O)の
+/// ビルドでコンパイラが`deinit`の最適化(EarlyPerfInliner)中に落ちた(Swift 6.3.3、2026-09-13 実測)。
+/// Debug では通るので、CI の Release ジョブで初めて見つかる種類の壊れ方。
 @MainActor
 final class MarqueeSelection: ObservableObject {
-    /// セルの矩形と帯の座標をやりとりする座標空間(グリッドの中身に張る)。
-    /// `nonisolated`にしてあるのは、`.onGeometryChange`の測る側の閉包(Sendable。
-    /// メインアクターの外から呼ばれうる)から名前を参照するため。
-    nonisolated static let coordinateSpace = "welcome.marquee"
+    typealias ID = AnyHashable
+
+    /// 帯の意味。
+    enum Mode {
+        /// 帯は選択を**足す**(⌘で外す)。本棚の編集モード ―― クリックがトグルなのに揃える。
+        case additive
+        /// Finderと同じ: 修飾キーなしの帯は選択を**置き換え**、⇧/⌘を押しながらなら足す。
+        /// ファイルブラウザ ―― クリックが「その1件だけを選ぶ」なのに揃える。
+        case replacing
+    }
 
     /// いま引いている帯(`coordinateSpace`の座標)。nilなら引いていない。
     @Published private(set) var band: CGRect?
@@ -49,23 +62,23 @@ final class MarqueeSelection: ObservableObject {
     let scrollBox = ScrollGeometryBox()
 
     /// セルの矩形(`coordinateSpace`の座標)。型コメントの理由でpublishしない。
-    private var frames: [UUID: CGRect] = [:]
+    private var frames: [ID: CGRect] = [:]
     /// 帯の起点。押した場所で、スクロールしても動かない(コンテンツ側の座標なので)。
     private var anchor: CGPoint = .zero
     /// 帯のいまの角。自動スクロールで中身が動いたぶんもここへ足し込む。
     private var corner: CGPoint = .zero
     /// 引き始めた時点の選択。
-    private var base: Set<UUID> = []
+    private var base: Set<ID> = []
     /// いま画面に出ているものだけを相手にするための絞り(型コメント「足す」参照)。
     /// **見えていないものを選ばない**という決まりを、ここで最後に担保する
     /// (WelcomeLibraryState.selectedCollectionIDsのコメント)。
-    private var shown: Set<UUID> = []
+    private var shown: Set<ID> = []
     /// ⌘を押しながら引き始めたか(選んだぶんを外す)。
     private var isSubtracting = false
     /// 選択の書き戻し口。ドラッグのあいだだけ持つ。
-    private var apply: ((Set<UUID>) -> Void)?
+    private var apply: ((Set<ID>) -> Void)?
     /// 最後に書き戻した選択。同じ値を書き戻さない(publishの空振りを避ける)ためだけに持つ。
-    private var applied: Set<UUID>?
+    private var applied: Set<ID>?
     /// 自動スクロールのループ。
     private var ticker: Task<Void, Never>?
 
@@ -74,7 +87,7 @@ final class MarqueeSelection: ObservableObject {
 
     // MARK: - セルの矩形
 
-    func setFrame(_ rect: CGRect, for id: UUID) {
+    func setFrame(_ rect: CGRect, for id: ID) {
         frames[id] = rect
     }
 
@@ -88,19 +101,24 @@ final class MarqueeSelection: ObservableObject {
     // MARK: - 帯
 
     func begin(
-        at point: CGPoint, selection: Set<UUID>, shown: Set<UUID>,
-        apply: @escaping (Set<UUID>) -> Void
+        at point: CGPoint, selection: Set<ID>, shown: Set<ID>, mode: Mode = .additive,
+        apply: @escaping (Set<ID>) -> Void
     ) {
         anchor = point
         corner = point
-        base = selection
+        switch mode {
+        case .additive:
+            base = selection
+        case .replacing:
+            base = Self.isExtendingSelection ? selection : []
+        }
         self.shown = shown
         self.apply = apply
         applied = selection
         // 修飾キーはSwiftUIのDragGestureからは読めないので、AppKit側から見る。途中で
         // 押し直しても意味は変わらない ―― 引き始めに決まった向き(足す/外す)のまま最後まで
         // 進むほうが、帯を戻したときの結果が読める。
-        isSubtracting = Self.isCommandDown
+        isSubtracting = mode == .additive && Self.isCommandDown
         band = Self.rect(from: anchor, to: corner)
         startTicking()
     }
@@ -132,7 +150,7 @@ final class MarqueeSelection: ObservableObject {
     private func update() {
         let rect = Self.rect(from: anchor, to: corner)
         if band != rect { band = rect }
-        var covered: Set<UUID> = []
+        var covered: Set<ID> = []
         for (id, frame) in frames where frame.intersects(rect) {
             covered.insert(id)
         }
@@ -155,6 +173,18 @@ final class MarqueeSelection: ObservableObject {
             return event.modifierFlags.contains(.command)
         }
         return NSEvent.modifierFlags.contains(.command)
+    }
+
+    /// ⇧か⌘が押されているか(`.replacing`の帯で「足す」に切り替える)。
+    private static var isExtendingSelection: Bool {
+        let flags: NSEvent.ModifierFlags
+        if let event = NSApp.currentEvent,
+           event.type == .leftMouseDown || event.type == .leftMouseDragged {
+            flags = event.modifierFlags
+        } else {
+            flags = NSEvent.modifierFlags
+        }
+        return flags.contains(.command) || flags.contains(.shift)
     }
 
     private static func rect(from a: CGPoint, to b: CGPoint) -> CGRect {
@@ -216,11 +246,11 @@ final class MarqueeSelection: ObservableObject {
 
 extension View {
     /// このセルの矩形を帯へ知らせる(帯の当たり判定に使う)。グリッドのセルに掛ける。
-    func marqueeCell(_ id: UUID, in marquee: MarqueeSelection) -> some View {
+    func marqueeCell<ID: Hashable>(_ id: ID, in marquee: MarqueeSelection) -> some View {
         onGeometryChange(for: CGRect.self) { proxy in
-            proxy.frame(in: .named(MarqueeSelection.coordinateSpace))
+            proxy.frame(in: .named(MarqueeCoordinateSpace.name))
         } action: { rect in
-            marquee.setFrame(rect, for: id)
+            marquee.setFrame(rect, for: AnyHashable(id))
         }
     }
 
@@ -232,25 +262,33 @@ extension View {
     ///   - minimumHeight: 中身をこの高さまで広げる(ScrollViewの見えている高さを渡す)。
     ///     並ぶものが少なくても、**最後の行より下の余白から帯を引ける**ようにするため。
     ///   - shownIDs: いま出ているもののid。見えていないものを選ばないための絞り。
-    func marqueeSelectable(
+    ///   - mode: 帯の意味(MarqueeSelection.Mode)。
+    ///   - onBackgroundClick: 余白をクリックしたとき(帯にならなかったとき)。ファイルブラウザは
+    ///     選択を外す(Finderと同じ)。
+    func marqueeSelectable<ID: Hashable>(
         _ marquee: MarqueeSelection, isEnabled: Bool, minimumHeight: CGFloat,
-        selection: Binding<Set<UUID>>, shownIDs: Set<UUID>
+        selection: Binding<Set<ID>>, shownIDs: Set<ID>,
+        mode: MarqueeSelection.Mode = .additive,
+        onBackgroundClick: (() -> Void)? = nil
     ) -> some View {
         modifier(
             MarqueeSelectable(
                 marquee: marquee, isEnabled: isEnabled, minimumHeight: minimumHeight,
-                selection: selection, shownIDs: shownIDs
+                selection: selection, shownIDs: shownIDs, mode: mode,
+                onBackgroundClick: onBackgroundClick
             )
         )
     }
 }
 
-private struct MarqueeSelectable: ViewModifier {
+private struct MarqueeSelectable<ID: Hashable>: ViewModifier {
     let marquee: MarqueeSelection
     let isEnabled: Bool
     let minimumHeight: CGFloat
-    @Binding var selection: Set<UUID>
-    let shownIDs: Set<UUID>
+    @Binding var selection: Set<ID>
+    let shownIDs: Set<ID>
+    let mode: MarqueeSelection.Mode
+    let onBackgroundClick: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -267,11 +305,12 @@ private struct MarqueeSelectable: ViewModifier {
                         Color.clear
                             .contentShape(Rectangle())
                             .gesture(bandGesture)
+                            .onTapGesture { onBackgroundClick?() }
                     }
                 }
             }
             .overlay(alignment: .topLeading) { MarqueeBandView(marquee: marquee) }
-            .coordinateSpace(.named(MarqueeSelection.coordinateSpace))
+            .coordinateSpace(.named(MarqueeCoordinateSpace.name))
             // 編集モードを抜けた/画面が消えた瞬間に引きかけの帯が残らないようにする
             // (ジェスチャーが取り付けごと消えるため、.onEndedは来ない)。
             .onChange(of: isEnabled) { marquee.cancel() }
@@ -281,12 +320,15 @@ private struct MarqueeSelectable: ViewModifier {
     private var bandGesture: some Gesture {
         // 4pt動くまでは帯にしない ―― 余白のクリックで選択が変わらないようにする
         // (余白を押しただけでは何も起きない、が編集モードの既定の振る舞い)。
-        DragGesture(minimumDistance: 4, coordinateSpace: .named(MarqueeSelection.coordinateSpace))
+        DragGesture(minimumDistance: 4, coordinateSpace: .named(MarqueeCoordinateSpace.name))
             .onChanged { value in
                 if marquee.band == nil {
                     marquee.begin(
-                        at: value.startLocation, selection: selection, shown: shownIDs,
-                        apply: { selection = $0 }
+                        at: value.startLocation,
+                        selection: Set(selection.map(AnyHashable.init)),
+                        shown: Set(shownIDs.map(AnyHashable.init)),
+                        mode: mode,
+                        apply: { selection = Set($0.compactMap { $0.base as? ID }) }
                     )
                 }
                 marquee.drag(to: value.location)
@@ -316,4 +358,12 @@ private struct MarqueeBandView: View {
                 .allowsHitTesting(false)
         }
     }
+}
+
+/// セルの矩形と帯の座標をやりとりする座標空間の名前(グリッドの中身に張る)。
+/// 型引数付きの修飾(MarqueeSelectable)からも同じ名前を引くため、クラスの外に置いてある。
+/// `nonisolated`にしてあるのは、`.onGeometryChange`の測る側の閉包(Sendable。
+/// メインアクターの外から呼ばれうる)から名前を参照するため。
+enum MarqueeCoordinateSpace {
+    nonisolated static let name = "welcome.marquee"
 }

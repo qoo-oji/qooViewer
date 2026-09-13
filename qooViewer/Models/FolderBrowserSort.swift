@@ -74,3 +74,99 @@ nonisolated struct FolderBrowserSort: Equatable, Hashable {
     /// (フォルダが先、名前の昇順)と完全に同じになるようにしてある。
     static let `default` = FolderBrowserSort(grouping: .foldersFirst, key: .name, direction: .ascending)
 }
+
+/// `FolderBrowserSort`で並べられる一覧の行。サイドパネルのフォルダブラウザ(DirectoryBrowser.Entry)と
+/// ウェルカム画面のファイルブラウザ(FileBrowserEntry)が**同じ比較**で並ぶようにするための口
+/// (改善要望7 段階3、2026-09-13)。比較の本体を2つに書き分けると、同じフォルダを2つの画面で
+/// 見たときに並びが食い違う。
+nonisolated protocol FolderBrowserSortable {
+    /// 「フォルダを上に」でフォルダの側へ寄せるか。パッケージ(`.app`など)はFinderと同じく
+    /// ファイルの側に置くので、`isDirectory`とは限らない。
+    var sortsAsFolder: Bool { get }
+    var displayName: String { get }
+    var fileSize: Int64? { get }
+    var typeDescription: String? { get }
+    var creationDate: Date? { get }
+    var modificationDate: Date? { get }
+    var url: URL { get }
+}
+
+nonisolated extension FolderBrowserSort {
+    /// 一覧を並べ替える。値はすべて行が持っているので、ディスクには一切触らない。
+    func sorted<Row: FolderBrowserSortable>(_ rows: [Row]) -> [Row] {
+        rows.sorted { lhs, rhs in
+            // グループ分け(フォルダを先に)は基準・向きより先に効かせる。降順にしても
+            // フォルダは上のまま ― Finderの「フォルダを常に上部に表示」と同じ挙動。
+            if grouping == .foldersFirst, lhs.sortsAsFolder != rhs.sortsAsFolder {
+                return lhs.sortsAsFolder
+            }
+            switch Self.compare(lhs, rhs, key: key) {
+            case .orderedAscending: return direction == .ascending
+            case .orderedDescending: return direction == .descending
+            // compareは必ず名前・パスまで見て決着させるため、ここへは来ない(同じ一覧に
+            // 同じパスの項目は現れない)。来た場合も並びが揺れないようfalseで固定する。
+            case .orderedSame: return false
+            }
+        }
+    }
+
+    /// 2件の前後関係を、選ばれている基準で決める。値を持たない項目(フォルダのサイズなど)や
+    /// 同じ値だった項目は名前で、それも同じなら最後はパスで決着させる。
+    ///
+    /// 常に全順序(どの2件を比べても必ず前後が決まる)になるようにしてあるため、降順は昇順の
+    /// 完全な逆順になり、同じフォルダを開き直しても並びが揺れない。
+    private static func compare<Row: FolderBrowserSortable>(
+        _ lhs: Row, _ rhs: Row, key: FolderBrowserSortKey
+    ) -> ComparisonResult {
+        let primary: ComparisonResult
+        switch key {
+        case .name:
+            // 名前そのものが下のタイブレークなので、ここでは何もしない。
+            primary = .orderedSame
+        case .size:
+            primary = compareOptional(lhs.fileSize, rhs.fileSize)
+        case .kind:
+            primary = compareOptional(lhs.typeDescription, rhs.typeDescription) { $0.localizedStandardCompare($1) }
+        case .creationDate:
+            primary = compareOptional(lhs.creationDate, rhs.creationDate)
+        case .modificationDate:
+            primary = compareOptional(lhs.modificationDate, rhs.modificationDate)
+        }
+        if primary != .orderedSame { return primary }
+        // Finderと同じ並び(localizedStandardCompare: 数字は数値として比べ、大文字小文字・
+        // 全角半角は区別せず、ロケールの照合順序に従う)。お気に入り・ブックマーク・
+        // メタデータ編集など、このアプリの他の「人に見せる一覧」もこの比較で揃えてある
+        // (FavoritesStore.sortedBooks等)。
+        //
+        // この機能を入れる前は`compare(_:options: .numeric)`だった(ロケールを見ず、
+        // 大文字始まりの名前がすべて小文字始まりより先に来る)。下段(本の中身ブラウザ、
+        // BookInternalBrowsing)と本のページ順(BookLoaderのsortKey)も、後から同じ照合へ
+        // 揃えた(compareCanonicalPageOrder参照)。あちらの並びは互いに一致していなければならない。
+        let byName = lhs.displayName.localizedStandardCompare(rhs.displayName)
+        if byName != .orderedSame { return byName }
+        // 表示名が同じことは起こり得る(拡張子を隠す設定、別ボリュームで同じ名前など)。
+        // 最後にパスで決着させ、全順序を保証する。
+        return lhs.url.path.compare(rhs.url.path)
+    }
+
+    /// 値を持たない(nil)側を「小さい」扱いにして比べる。サイズを持たないフォルダや、
+    /// 属性を読み取れなかった項目が、昇順では先頭側にまとまる(そのうえで名前順に並ぶ)。
+    private static func compareOptional<Value>(
+        _ lhs: Value?, _ rhs: Value?, by compare: (Value, Value) -> ComparisonResult
+    ) -> ComparisonResult {
+        switch (lhs, rhs) {
+        case let (lhs?, rhs?): return compare(lhs, rhs)
+        case (nil, nil): return .orderedSame
+        case (nil, _): return .orderedAscending
+        case (_, nil): return .orderedDescending
+        }
+    }
+
+    private static func compareOptional<Value: Comparable>(_ lhs: Value?, _ rhs: Value?) -> ComparisonResult {
+        compareOptional(lhs, rhs) { lhs, rhs in
+            if lhs < rhs { return .orderedAscending }
+            if rhs < lhs { return .orderedDescending }
+            return .orderedSame
+        }
+    }
+}

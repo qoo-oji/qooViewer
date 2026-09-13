@@ -1,0 +1,307 @@
+import Foundation
+import Testing
+
+@testable import qooViewer
+
+/// ファイルブラウザの閲覧状態(ViewModels/FileBrowserState.swift)。
+///
+/// 見るのは状態機械 ―― 一覧・並べ替え・絞り込み・戻る/進む/上・世代番号・消えたフォルダの退避・
+/// reveal・クリックの選択規則・保存。**画面に出していない**(`activate`を呼ばない)ので、FSEvents の
+/// 監視は動かない。読み込みの待ち合わせは`settle()`(テストのための口)。**時間で待たないこと。**
+@MainActor
+struct FileBrowserStateTests {
+    private struct Fixture {
+        let temporary: TemporaryDirectory
+        let suite: PreferencesSuite
+        let preferences: AppPreferences
+        let state: FileBrowserState
+        /// `root/{b-folder, a-folder/inner}` と `root/{c.txt, B.cbz}`。
+        let root: URL
+        let aFolder: URL
+        let inner: URL
+        let bFolder: URL
+
+        init(_ label: String) throws {
+            temporary = try TemporaryDirectory(label)
+            suite = PreferencesSuite(label: label)
+            preferences = suite.makePreferences()
+            state = FileBrowserState(defaults: suite.defaults)
+            state.preferences = preferences
+            root = try temporary.directory("root")
+            aFolder = try temporary.directory("root/a-folder")
+            inner = try temporary.directory("root/a-folder/inner")
+            bFolder = try temporary.directory("root/b-folder")
+            try Data(repeating: 1, count: 30).write(to: root.appendingPathComponent("c.txt"))
+            try Data(repeating: 1, count: 10).write(to: root.appendingPathComponent("B.cbz"))
+        }
+
+        func names() -> [String] { state.entries.map(\.url.lastPathComponent) }
+
+        func id(_ url: URL) -> String { FileBrowserState.id(for: url) }
+    }
+
+    // MARK: - 一覧と並べ替え
+
+    @Test("移動すると一覧を読み、フォルダを上にして名前順に並ぶ")
+    func navigateListsFoldersFirst() async throws {
+        let fixture = try Fixture("fb-list")
+        fixture.state.navigate(to: fixture.root)
+        await fixture.state.settle()
+        #expect(fixture.state.loadError == nil)
+        #expect(fixture.names() == ["a-folder", "b-folder", "B.cbz", "c.txt"])
+        #expect(FileBrowserState.id(of: fixture.state.currentFolder) == fixture.id(fixture.root))
+    }
+
+    @Test("並べ替えの基準と向きを変えると、読み直さずに並べ替わる。「フォルダを上に」を切ると混ざる")
+    func sortingReordersInPlace() async throws {
+        let fixture = try Fixture("fb-sort")
+        fixture.state.navigate(to: fixture.root)
+        await fixture.state.settle()
+
+        fixture.state.sortKey = .size
+        fixture.state.sortDirection = .descending
+        // フォルダはサイズを持たない(nil は小さい側)が、「フォルダを上に」が先に効く。
+        #expect(fixture.names() == ["b-folder", "a-folder", "c.txt", "B.cbz"])
+
+        fixture.preferences.fileBrowserFoldersFirst = false
+        // 設定の変更は次のランループで反映される(FileBrowserState.observePreferences)。
+        await Task.yield()
+        for _ in 0..<20 where fixture.names().first != "c.txt" { await Task.yield() }
+        #expect(fixture.names() == ["c.txt", "B.cbz", "b-folder", "a-folder"])
+    }
+
+    @Test("並べ替えの基準・向き・表示形式・アイコンの大きさは保存され、次に作った状態へ引き継がれる")
+    func viewSettingsPersist() throws {
+        let suite = PreferencesSuite(label: "fb-persist")
+        let state = FileBrowserState(defaults: suite.defaults)
+        state.sortKey = .modificationDate
+        state.sortDirection = .descending
+        state.viewMode = .icons
+        state.iconSize = 150
+        state.treeWidth = 300
+
+        let reopened = FileBrowserState(defaults: suite.defaults)
+        #expect(reopened.sortKey == .modificationDate)
+        #expect(reopened.sortDirection == .descending)
+        #expect(reopened.viewMode == .icons)
+        #expect(reopened.iconSize == 150)
+        #expect(reopened.treeWidth == 300)
+    }
+
+    @Test("絞り込みは表示だけを絞り、見えなくなった項目を選択から外す。フォルダを移ると空になる")
+    func filteringDropsHiddenSelection() async throws {
+        let fixture = try Fixture("fb-filter")
+        fixture.state.navigate(to: fixture.root)
+        await fixture.state.settle()
+        fixture.state.selection = [fixture.id(fixture.aFolder), fixture.id(fixture.bFolder)]
+
+        fixture.state.filterText = "b"
+        #expect(fixture.names() == ["b-folder", "B.cbz"])
+        #expect(fixture.state.selection == [fixture.id(fixture.bFolder)])
+
+        fixture.state.navigate(to: fixture.aFolder)
+        #expect(fixture.state.filterText.isEmpty)
+        await fixture.state.settle()
+        #expect(fixture.names() == ["inner"])
+    }
+
+    // MARK: - 移動と履歴
+
+    @Test("上へ移動すると元いたフォルダを選び、戻る/進むで行き来できる")
+    func upBackAndForward() async throws {
+        let fixture = try Fixture("fb-history")
+        let state = fixture.state
+        #expect(!state.canGoBack)
+        state.navigate(to: fixture.root)
+        await state.settle()
+        state.navigate(to: fixture.aFolder)
+        await state.settle()
+        #expect(state.canGoBack)
+
+        state.goUp()
+        await state.settle()
+        #expect(FileBrowserState.id(of: state.currentFolder) == fixture.id(fixture.root))
+        #expect(state.selection == [fixture.id(fixture.aFolder)])
+        #expect(state.scrollRequest?.id == fixture.id(fixture.aFolder))
+
+        state.goBack()
+        await state.settle()
+        #expect(FileBrowserState.id(of: state.currentFolder) == fixture.id(fixture.aFolder))
+        #expect(state.canGoForward)
+
+        // 戻り先(root)が直前のフォルダ(a-folder)の親なら、そのフォルダを選ぶ。
+        state.goBack()
+        await state.settle()
+        #expect(FileBrowserState.id(of: state.currentFolder) == fixture.id(fixture.root))
+        #expect(state.selection == [fixture.id(fixture.aFolder)])
+
+        state.goForward()
+        await state.settle()
+        #expect(FileBrowserState.id(of: state.currentFolder) == fixture.id(fixture.aFolder))
+    }
+
+    @Test("新しく移動すると、進むの履歴は捨てる")
+    func navigatingClearsForward() async throws {
+        let fixture = try Fixture("fb-forward")
+        let state = fixture.state
+        state.navigate(to: fixture.root)
+        state.navigate(to: fixture.aFolder)
+        state.goBack()
+        #expect(state.canGoForward)
+        state.navigate(to: fixture.bFolder)
+        #expect(!state.canGoForward)
+        await state.settle()
+    }
+
+    @Test("起動ボリュームの / から上へ行くとコンピュータ(nil)。そこでは上へ行けない")
+    func upFromRootReachesComputer() async throws {
+        let suite = PreferencesSuite(label: "fb-computer")
+        let state = FileBrowserState(defaults: suite.defaults)
+        state.navigate(to: URL(fileURLWithPath: "/", isDirectory: true))
+        state.goUp()
+        #expect(state.currentFolder == nil)
+        #expect(!state.canGoUp)
+        await state.settle()
+        #expect(state.entries.contains { $0.url.path == "/" && $0.isVolume })
+    }
+
+    @Test("速く移動したとき、前のフォルダの結果は新しいフォルダの一覧に出ない(世代番号)")
+    func staleResultsAreDiscarded() async throws {
+        let fixture = try Fixture("fb-generation")
+        let state = fixture.state
+        state.navigate(to: fixture.root)
+        state.navigate(to: fixture.aFolder)
+        state.navigate(to: fixture.bFolder)
+        await state.settle()
+        #expect(FileBrowserState.id(of: state.currentFolder) == fixture.id(fixture.bFolder))
+        #expect(state.entries.isEmpty)
+        #expect(state.loadError == nil)
+    }
+
+    @Test("表示していたフォルダが消えたら、残っているいちばん近い祖先へ移る")
+    func vanishedFolderRetreatsToAncestor() async throws {
+        let fixture = try Fixture("fb-retreat")
+        let state = fixture.state
+        state.navigate(to: fixture.inner)
+        await state.settle()
+        try FileManager.default.removeItem(at: fixture.aFolder)
+
+        state.reload()
+        await state.settle()
+        #expect(FileBrowserState.id(of: state.currentFolder) == fixture.id(fixture.root))
+        #expect(state.loadError == nil)
+        #expect(fixture.names() == ["b-folder", "B.cbz", "c.txt"])
+    }
+
+    @Test("reveal は入っているフォルダへ移り、その項目を選んでスクロールを頼む")
+    func revealSelectsTheItem() async throws {
+        let fixture = try Fixture("fb-reveal")
+        let state = fixture.state
+        state.navigate(to: fixture.bFolder)
+        await state.settle()
+        let target = fixture.root.appendingPathComponent("c.txt")
+
+        state.reveal(target)
+        await state.settle()
+        #expect(FileBrowserState.id(of: state.currentFolder) == fixture.id(fixture.root))
+        #expect(state.selection == [fixture.id(target)])
+        #expect(state.scrollRequest?.id == fixture.id(target))
+        #expect(state.canGoBack)
+    }
+
+    @Test("読み直しても、残っている項目の選択は保つ")
+    func reloadKeepsSurvivingSelection() async throws {
+        let fixture = try Fixture("fb-keep")
+        let state = fixture.state
+        state.navigate(to: fixture.root)
+        await state.settle()
+        state.selection = [fixture.id(fixture.aFolder), fixture.id(fixture.bFolder)]
+        try FileManager.default.removeItem(at: fixture.bFolder)
+
+        state.reload()
+        await state.settle()
+        #expect(state.selection == [fixture.id(fixture.aFolder)])
+    }
+
+    // MARK: - クリック
+
+    @Test("クリックは1件、⌘は反転、⇧は起点からの範囲(表示順)")
+    func clickRules() async throws {
+        let fixture = try Fixture("fb-click")
+        let state = fixture.state
+        state.navigate(to: fixture.root)
+        await state.settle()
+        let ids = state.entries.map(\.id)
+
+        state.click(ids[1], modifier: .none)
+        #expect(state.selection == [ids[1]])
+        state.click(ids[3], modifier: .range)
+        #expect(state.selection == Set(ids[1...3]))
+        state.click(ids[2], modifier: .toggle)
+        #expect(state.selection == [ids[1], ids[3]])
+        state.click(ids[0], modifier: .none)
+        #expect(state.selection == [ids[0]])
+    }
+
+    @Test("矢印キーは列数に沿って1件を選び直す")
+    func arrowKeysMoveTheSelection() async throws {
+        let fixture = try Fixture("fb-arrows")
+        let state = fixture.state
+        state.navigate(to: fixture.root)
+        await state.settle()
+        let ids = state.entries.map(\.id)
+
+        state.moveSelection(.right, columns: 2)
+        #expect(state.selection == [ids[0]])
+        state.moveSelection(.down, columns: 2)
+        #expect(state.selection == [ids[2]])
+        state.moveSelection(.right, columns: 2)
+        #expect(state.selection == [ids[3]])
+        state.moveSelection(.up, columns: 2)
+        #expect(state.selection == [ids[1]])
+        #expect(state.scrollRequest?.id == ids[1])
+    }
+
+    // MARK: - 起動時のフォルダと保存
+
+    @Test("起動時のフォルダ: ホーム / よく使う項目(無ければホーム) / 最後のフォルダ")
+    func startupFolderResolution() async throws {
+        let fixture = try Fixture("fb-startup")
+        let state = fixture.state
+        let favorites = FavoriteLocationStore(defaults: fixture.suite.defaults)
+        state.favoriteLocations = favorites
+        let home = FileBrowserListing.realHomeDirectory()
+
+        #expect(state.startupFolder()?.path == home.path)
+
+        fixture.preferences.fileBrowserStartupLocation = .favorite
+        #expect(state.startupFolder()?.path == home.path)
+        let item = favorites.add(fixture.bFolder)
+        fixture.preferences.fileBrowserStartupFavoriteID = item.id.uuidString
+        #expect(state.startupFolder()?.path == fixture.bFolder.path)
+        favorites.remove(id: item.id)
+        #expect(state.startupFolder()?.path == home.path)
+
+        fixture.preferences.fileBrowserStartupLocation = .lastFolder
+        #expect(state.startupFolder()?.path == home.path)
+        state.navigate(to: fixture.aFolder)
+        await state.settle()
+        let next = FileBrowserState(defaults: fixture.suite.defaults)
+        next.preferences = fixture.preferences
+        #expect(next.startupFolder()?.path == fixture.aFolder.path)
+    }
+
+    @Test("シークレットウインドウでは最後に表示したフォルダを書かない")
+    func privateWindowDoesNotRememberTheFolder() async throws {
+        let fixture = try Fixture("fb-private")
+        fixture.preferences.fileBrowserStartupLocation = .lastFolder
+        let state = fixture.state
+        state.isPrivate = true
+        state.navigate(to: fixture.aFolder)
+        await state.settle()
+
+        let next = FileBrowserState(defaults: fixture.suite.defaults)
+        next.preferences = fixture.preferences
+        #expect(next.startupFolder()?.path == FileBrowserListing.realHomeDirectory().path)
+    }
+}

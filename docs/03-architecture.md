@@ -59,7 +59,8 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 | `MenuBarMenuGate` / `MenuBarTracking` | メモリ | メニューが開いている間の更新の保留 |
 | `ThumbnailDiskCache` / `BookPageListCache` / `TemporaryFileStore` | ディスク | actor / enum のシングルトン |
 | `SettingsNavigator` / `AppAppearanceApplier` | メモリ | 環境設定の行き先、外観の適用 |
-| `FileOperationService.shared` | なし(状態を持たない actor) | ファイルブラウザのコピー・移動・名前の変更・ゴミ箱・完全削除(改善要望7 段階 2。まだ画面から呼ばれていない)。取り消し・やり直しの `FileCommandStack` は**ウインドウごと**に持たせる予定(段階 3 の `FileBrowserState`) |
+| `FileOperationService.shared` | なし(状態を持たない actor) | ファイルブラウザのコピー・移動・名前の変更・ゴミ箱・完全削除(改善要望7 段階 2。画面から呼ぶのは段階 4)。取り消し・やり直しの `FileCommandStack` は**ウインドウごと**(`FileBrowserState` が持つ) |
+| `FavoriteLocationStore` | UserDefaults | ファイルブラウザの「よく使う項目」(パスだけ。改善要望7 段階 3)。メニューバーに出ないので `allObjectWillChangePublishers` には足さない(→ [15](15-file-browser.md)) |
 
 **SwiftData のストアは全部が同じ1つの `ModelContext`(`modelContainer.mainContext`)を共有します。**
 分けた設計は過去に「一方のコンテキストの更新がもう一方に反映されず静かに失敗する」不具合を
@@ -81,6 +82,10 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
   `performLayoutStateChange` など。`ViewerView` が `onAppear` で登録し `onDisappear` で外す。
   同じウインドウで本を切り替えると古い `ViewerView` の `onDisappear` が新しい登録を消して
   しまうため、`activeViewerToken`(UUID)で「自分が登録したものか」を確認してから外す。
+- **同じウインドウのほかの状態**: `WelcomeLibraryState`(本棚の表示の状態と、本棚/ファイルブラウザのモード)、
+  `FileBrowserState`(ファイルブラウザの現在のフォルダ・一覧・選択・戻る/進む。`willClose` で
+  `releaseResources()`)、`SidePanelBrowserState`。どれも `ContentView` の `@StateObject` で、本を開いている
+  間もウインドウの中に残る(→ [15](15-file-browser.md))。
 - **メニュー用の値**: `MenuCheckmarkState`(値型)にチェックマークや有効/無効の判定に必要な
   Bool をまとめ、`FocusedValue` でメニューバーへ渡す。**クラス参照ではなく値型**なのは、
   `FocusedValue` の変化検知が値の比較で行われるため(クラスを渡すと中身が変わっても
@@ -104,9 +109,13 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 | シーン | id | 用途 |
 |---|---|---|
 | `WindowGroup` | `main` | 起動時に SwiftUI が自動で作る。環境設定「シークレットモードで起動」に従う。`.handlesExternalEvents(matching:)` は最初のウインドウが現れるまで `"*"`、以後は `[]` |
-| `WindowGroup(for: BookOpenRequest.self)` | `book` | 常に通常ウインドウ。本を指定して開く。`.windowResizability(.contentSize)` |
-| `WindowGroup(for: BookOpenRequest.self)` | `private` | 常にシークレットウインドウ |
-| `WindowGroup(for: BookOpenRequest.self)` | `normal` | File ›「新規ノーマルウインドウ」専用(値なし、ウェルカム画面から)。`.automatic` |
+| `WindowGroup(for: WindowContentRequest.self)` | `book` | 常に通常ウインドウ。本を指定して開く。`.windowResizability(.contentSize)` |
+| `WindowGroup(for: WindowContentRequest.self)` | `private` | 常にシークレットウインドウ |
+| `WindowGroup(for: WindowContentRequest.self)` | `normal` | File ›「新規ノーマルウインドウ」(値なし、ウェルカム画面から)と、フォルダをファイルブラウザで開く通常ウインドウ。`.automatic` |
+
+提示値は `WindowContentRequest`(`.book(BookOpenRequest)` / `.browse(folder:nonce:)`)。2026-09-13 までは
+`BookOpenRequest` で、フォルダを新しいタブ/ウインドウのファイルブラウザで開けなかった(改善要望7 段階 3)。
+`browse` だけが開くたびに変わる `nonce` を持つ(同じフォルダを 2 枚で見るため。→ [15](15-file-browser.md))。
 | `Settings` | ― | 環境設定 |
 | `Window` | `favoritesOrganizer` / `editBookmarks` / `editMetadata` / `epubExport` / `pdfExport` / `cbzExport` / `libraryExport` / `libraryImport` / `libraryCleanup` / `historyCleanup` | 単一インスタンスの補助ウインドウ。`favoritesOrganizer` は `.commandsRemoved()` で「ウインドウ」メニューの自動の項目を落としてある(`Window` は宣言するだけでそこに並ぶ。`SceneBuilder` は `if #available` 以外の条件分岐を受け付けないので、フラグでシーンごと囲むことはできない) |
 
@@ -137,7 +146,7 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 購読して一覧を読み直す必要があります(`BookExportViewModel` / `MetadataEditorViewModel`)。
 
 **新しいウインドウ/タブで本を開く**経路は `BookWindowOpener.open(_:to:from:)` の1本に集約されて
-います。行き先は `BookOpenDestination`(引き継ぐ新ウインドウ/必ず通常/必ずシークレット/タブ)、
+います(フォルダをファイルブラウザで開くのは `BookWindowOpener.openFolder`。ウインドウを見つけて置く後半は共有)。行き先は `BookOpenDestination`(引き継ぐ新ウインドウ/必ず通常/必ずシークレット/タブ)、
 使う WindowGroup は `BookWindowGroup.id(for:inheritingFrom:)` が決めます。タブにだけ
 「通常/シークレットを選ぶ」版が無いのは、1枚のウインドウに記録の残るタブと残らないタブが
 混ざるとタイトルバーから区別できなくなるためです。既に開いている本は

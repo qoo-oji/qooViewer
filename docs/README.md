@@ -23,6 +23,7 @@
 | 12 | [12-verification-and-debugging.md](12-verification-and-debugging.md) | 画面まわりをテストで押さえないこのアプリを、どうやって検証・計測・デバッグしてきたか |
 | 13 | [13-history-and-known-limitations.md](13-history-and-known-limitations.md) | 主な方針転換の履歴、既知の制限、未着手の課題、テストのパタンセットの記録と**引き継ぎ** |
 | 14 | [14-library-collections.md](14-library-collections.md) | ウェルカム画面の本棚(ライブラリ/コレクション)。モデル・ストア・カバー画像・ドロップの振り分け・自動登録フォルダ・編集モードの規則 |
+| 15 | [15-file-browser.md](15-file-browser.md) | ウェルカム画面のファイルブラウザ(改善要望7)。一覧の読み込み・移動の規則・新しいタブ/ウインドウへの受け渡し・AppKit の一覧とすりガラス面・保存するもの |
 
 急いでいるなら 01 → 03 → 06 → 11 の順に読めば、壊しやすい場所の見当が付きます。
 

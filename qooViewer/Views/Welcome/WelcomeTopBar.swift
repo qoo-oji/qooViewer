@@ -2,11 +2,14 @@ import SwiftUI
 
 /// ウェルカム画面いちばん上の帯(改善要望5)。左にライブラリの並び、右端にライブラリを増やす「＋」。
 ///
+/// ■ 左端の「ファイルブラウザ」(改善要望7 段階3、2026-09-13)
+/// 押すたびに本棚 ⇄ ファイルブラウザを切り替える(WelcomeLibraryState.mode)。ファイルブラウザの
+/// 間はどのライブラリのチップも選ばれていない見た目にし、チップを押すと本棚へ戻る。
+///
 /// ■ 以前あった左端の2つのボタン(2026-09-13に撤去、改善要望7)
 /// 「本を開く…」と「履歴から開く」(ポップオーバー)が並んでいた。本を開くのはファイルメニューの
 /// 「開く…」(⌘O)、履歴はファイルメニューの「最近使った項目を開く」とサイドパネルの「履歴」
-/// モードに残る。左端にはファイルブラウザへの切り替えが入る予定(docs/plans/file-browser-plan.md
-/// 段階3)。
+/// モードに残る。
 ///
 /// 2つのボタンにはAppKitのベゼルが面に溶けて消える問題があり、`.panelControlWell()`で溝を
 /// 敷いていた(重ね色を文字色そのもの ―― ダーク+白100% ―― にするとベゼルも文字も跡形もなく
@@ -14,6 +17,8 @@ import SwiftUI
 ///
 /// ■ 輪郭(すりガラス面の決まりごと)
 /// - 「＋」 → `.panelIconButtonLabel()`が内側で輪郭を掛けている
+/// - 「ファイルブラウザ」 → 押していないときは`.panelOutlinedContent()`、押している間はアクセント地
+///   なので`.panelOutlinedAccent(in:)`(本棚の編集トグルと同じ描き方)
 /// - ライブラリ名 → 未選択は`.panelOutlinedContent()`、選択中はアクセント地なので
 ///   `.panelOutlinedAccent(in:)`(地の色と重ね色が近いと、どれを選んでいるか分からなくなる)
 struct WelcomeTopBar: View {
@@ -72,6 +77,8 @@ struct WelcomeTopBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            fileBrowserToggle
+
             libraryChips
 
             Spacer(minLength: 0)
@@ -113,6 +120,26 @@ struct WelcomeTopBar: View {
         } message: {
             Text("Every collection in this library is removed too. The books themselves are not deleted.")
         }
+    }
+
+    /// 本棚 ⇄ ファイルブラウザ。
+    private var fileBrowserToggle: some View {
+        let isBrowsing = state.mode == .browser
+        let shape = RoundedRectangle(cornerRadius: PanelIconButtonLabel.cornerRadius, style: .continuous)
+        return Button {
+            state.mode = isBrowsing ? .shelf : .browser
+        } label: {
+            Image(systemName: "folder")
+                .font(.system(size: 15, weight: .medium))
+                .panelOutlinedContent(isEnabled: !isBrowsing)
+                .frame(width: PanelIconButtonLabel.width, height: PanelIconButtonLabel.height)
+                .background(shape.fill(isBrowsing ? Color.accentColor : Color.clear))
+                .panelOutlinedAccent(in: shape, isEnabled: isBrowsing)
+                .foregroundStyle(isBrowsing ? Color.white : Color.primary)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("File Browser")
     }
 
     @ViewBuilder
@@ -177,7 +204,8 @@ struct WelcomeTopBar: View {
 
     @ViewBuilder
     private func chip(for library: BookLibrary) -> some View {
-        let isSelected = library.id == selectedLibraryID
+        // ファイルブラウザの間はどのチップも選ばれていない見た目にする(型コメント)。
+        let isSelected = library.id == selectedLibraryID && state.mode == .shelf
         let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         let button = Button {
             // 選択中のライブラリをもう一度押したら、そのライブラリのコレクション一覧へ戻る
@@ -185,6 +213,12 @@ struct WelcomeTopBar: View {
             // 「ライブラリの名前を押す = そのライブラリの一番上へ」と読むのが自然。
             // **検索は残す** ―― ライブラリは移っていないので、戻るボタンと同じ扱いにする
             // (WelcomeLibraryState.searchTextのコメント参照)。
+            // ファイルブラウザの間にチップを押したら本棚へ戻る。見ていたライブラリのチップなら、
+            // 開いていたコレクションもそのまま(離れたときの棚へ戻る)。
+            if state.mode == .browser {
+                state.mode = .shelf
+                if library.id == selectedLibraryID { return }
+            }
             guard !isSelected else {
                 state.openedCollectionID = nil
                 return

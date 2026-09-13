@@ -366,9 +366,10 @@ Caches に置くのは、カバーから数 ms で作り直せる**派生物**�
 
 ```
 WelcomeView(PanelSurface.welcome)
- ├─ WelcomeTopBar(44pt): ライブラリのチップ(横スクロール) | ＋
+ ├─ WelcomeTopBar(44pt): [ファイルブラウザ] ライブラリのチップ(横スクロール) | ＋
  ├─ Divider
- └─ WelcomeLibraryPane
+ ├─ FileBrowserPane                                         ← WelcomeLibraryState.mode == .browser(→ 15)
+ └─ WelcomeLibraryPane                                      ← mode == .shelf
      ├─ WelcomePaneHeaderLayout: [戻る・名前・冊数(中のみ)] | 検索欄(中央) | LibraryPaneControls
      │    LibraryPaneControls(右): [全選択 ゴミ箱(編集中のみ)] ＋ 編集 並べ替え スライダー 歯車
      ├─ CollectionGridView(札の一覧。LazyVGrid .adaptive)      ← openedCollectionID == nil

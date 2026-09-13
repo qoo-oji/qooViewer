@@ -2,7 +2,7 @@
 
 立案日: 2026-09-13 / ブランチ: `feature/file-browser` / 検討メモ: [file-browser-study.md](file-browser-study.md)(決定事項は同 §11)
 
-段階は §11 の決定を反映して 0 → 9 の順。段階 0・1・2 は済み。各段階は単独でビルド・テストが通り、
+段階は §11 の決定を反映して 0 → 9 の順。段階 0・1・2・3 は済み(段階 3 の結果と引き継ぎは §3.8・§3.9)。各段階は単独でビルド・テストが通り、
 レビューできる大きさにする。段階 2 までは UI を持たない(テストで検証)。段階 3 で初めてウェルカム画面が変わる。
 この計画に出てくる既存コードの行番号は立案時点(`ecda25f` + 段階 0)のもの。
 
@@ -276,6 +276,9 @@ actor FileOperationService {
 
 ## 段階 3. 画面(読むだけ)
 
+**実装済み・実機検証済み(2026-09-13。全 1079 テスト・108 suite 通過)。** いま入っているものの説明は
+[docs/15-file-browser.md](../15-file-browser.md)。下の §3.1〜3.7 は立案時の計画のまま残し、変えた点を §3.8、次の人への引き継ぎを §3.9 に書く。
+
 ### 3.1 状態: `ViewModels/FileBrowserState.swift`(新規、`ContentView` が `@StateObject`)
 
 ```swift
@@ -381,6 +384,71 @@ actor FileOperationService {
 - 実機(使い捨てボリューム + 合成名): モード切替、ボリューム/ホーム/よく使う項目、ホームの初回許可が 1 回で済むこと、**デスクトップ/書類/ダウンロードへ
   入ったときだけ TCC が 1 回出ること**(`tccutil reset All com.qooProject.qooViewer.debug` で戻して再確認)、`~/Library` を開いてもダイアログが出ないこと、
   すりガラス 2 条件、ウインドウを閉じたあとの `AppState` 残留が増えていないこと(`heap`。docs/12)。
+
+### 3.8 計画から変えた点・実測で分かった点(2026-09-13)
+
+- **設定の保存先**: 並べ替えの基準と向き・表示形式・アイコンの大きさ・左の幅は `AppPreferences` ではなく
+  `FileBrowserState` が `qooViewer.fileBrowser.*` へ(環境設定の画面に並ばない値。`WelcomeLibraryState` と同じ扱い)。
+  「フォルダを上に」だけは環境設定の行なので `qooViewer.pref.fileBrowser.foldersFirst`(サイドパネルの「並び順」とは独立)。
+- **最後に表示したフォルダはパスだけ**(`qooViewer.fileBrowser.lastFolderPath`)。`LastUsedFolderMemory` のブックマークは
+  開かないスコープを抱えるだけで意味が無い(読む権限は `FolderAccessStore` に一本化)。
+- **環境設定「ファイルブラウザ」はいま効く 2 行だけ**(起動時のフォルダ・フォルダを上に)。外からのドロップ・圧縮の拡張子・
+  「ファイルブラウザで開く」の行き先・動画のサムネイル・キャッシュの行は、それを使う段階(4・6・8・7)で足す。
+- **「このアプリケーションで開く」は段階 8 へ**(3 つの一覧で揃えて入れる。SwiftUI の `.contextMenu` の中で LaunchServices を
+  引くと、行の本体評価のたびに走りうる)。
+- **右クリックの「開く」の画像フォルダ判定はメニューを開くときではなく、選んだときに `FileIO` で**(`NSMenuDelegate` で項目を
+  一時的に無効にする仕掛けが要らない。項目の数も状態で変わらない)。新規タブ/ウインドウも同じ判定で本かファイルブラウザかを決める。
+- **アイコンは種類だけで引く**(`FileBrowserIconProvider`)。`icon(forFile:)` はネットワークでブロックし、デスクトップ・書類の
+  カスタムアイコンを読みに行くと TCC のダイアログが出る。
+- **`MarqueeSelection` の鍵を `AnyHashable` にした**(型の出し入れは型引数付きの `marqueeCell` / `marqueeSelectable`。帯の意味
+  `.additive` / `.replacing`、余白のクリックを追加)。**クラスを `MarqueeSelection<ID>` にすると Release(-O)でコンパイラが `deinit` の
+  最適化中に落ちた**(Swift 6.3.3。Debug では通る)ので、型引数はビュー側に置いた。座標空間の名前は `MarqueeCoordinateSpace.name`。
+  **CI と同じ `-configuration Release QOO_CI_WARNINGS_AS_ERRORS=YES` のビルドをコミット前に通すこと。**
+- **並べ替えの比較を共有にした**(`FolderBrowserSort.sorted` + `FolderBrowserSortable`)。`DirectoryBrowser.sortedEntries` はそこへ委譲。
+- **`WindowContentRequest.browse` は `nonce` 付き**(`openWindow(id:value:)` が等値のウインドウを前面に出すだけになるため)。
+  フォルダの通常ウインドウは `"book"` ではなく `"normal"`(`BookWindowGroup.id(forBrowsing:)`)。
+- **ツリーのグループ(ボリューム/ホーム/よく使う項目)の見出しは開いた状態で始め、中の行を閉じておく**
+  (「起動時はボリュームもホームも閉じている」をこう読んだ)。
+- **実機で見つけて直したもの**(すりガラス 2 条件): ダーク+白 100% で**ツリーの開閉の三角が消えた** →
+  `FileBrowserOutlineView` がボタンの絵を輪郭入りに焼き直す。同じ条件で**列の見出しが文字ごと消えた**(既定の見出しは半透明)→
+  `FileBrowserTableHeaderView` が不透明な地を敷く。ライト+黒 100% で**「アクセスを許可…」の文字が地に溶けた**
+  (`.panelControlWell()` の溝では足りない)→ `.borderedProminent`。
+- 実機で確認できたこと: モードの切り替えと保存、コンピュータ・ボリューム・ツリーの展開(子は開いたときだけ)、ツリーの行での移動と
+  右ペインとの選択の同期、リスト/アイコンの切り替え、ダブルクリックで移動、上へで元のフォルダが選ばれる、パスバーの移動、
+  検索の絞り込み、⇧クリックの範囲・矢印キー・帯での置き換え選択・余白のクリックで解除、右クリックの「開く」で画像フォルダが本として開く、
+  「ウェルカム画面へ戻る」で同じフォルダに戻る、新規タブでフォルダが開く、FSEvents の即時反映(選択は残る)、表示中のフォルダを
+  消すと祖先へ移る、読めないフォルダの案内、左の幅のドラッグと保存、空のフォルダの案内、すりガラス 2 条件、開閉 6 回で
+  `FileBrowserState` / `AppState` が増えないこと(`heap`)。
+
+### 3.9 引き継ぎ(段階 3 → 段階 4、2026-09-13)
+
+**次に着手するのは段階 4(書く操作の UI)。** 始める前に知っておくこと:
+
+- **まだ実機で確かめていないもの**(ファイル選択ダイアログが要るので自動操作していない。ユーザーに操作してもらう):
+  「アクセスを許可…」で許可すると一覧が出ること、よく使う項目の「＋」→ 登録 → 起動時のフォルダに選べること、
+  **ホームの初回の許可が 1 回で済むこと**、**デスクトップ/書類/ダウンロードへ入ったときだけ TCC が 1 回出ること**
+  (`tccutil reset All com.qooProject.qooViewer.debug` で戻して再確認)、`~/Library` を開いてもダイアログが出ないこと、
+  シークレットウインドウで「＋」「削除」が淡色になること、「Finder で表示」、新規ノーマル/シークレットウインドウでフォルダを開くこと。
+  段階 4 の最初にまとめて頼むとよい。
+- **置き場所**: 画面は `Views/FileBrowser/`(`FileBrowserPane` / `FileBrowserTreeView` / `FileBrowserListView` / `FileBrowserIconView` /
+  `FileBrowserPathBar` / `FileBrowserActions` / `FileBrowserAppKitParts`)、状態は `ViewModels/FileBrowserState.swift`、
+  一覧の読み取りは `Services/FileBrowser/FileBrowserListing.swift`、環境設定は `Views/FileBrowserSettingsView.swift`。
+- **右クリックの項目は `FileBrowserMenuCommand` に足す**(3 つの一覧が共有。AppKit は `FileBrowserMenuBuilder`、SwiftUI は
+  `FileBrowserContextMenuItems`)。**項目の数を状態で変えない**(淡色にする)。空きスペースの右クリックはまだ無い
+  (リストは `clickedRow == -1` で空のメニュー、アイコンは余白に `.contextMenu` が無い)。
+- **レスポンダチェーン**: リストは `FileBrowserTableView`(`NSTableView` のサブクラス。Return / ⌘↓ を `onReturn` へ)に
+  `copy:` / `cut:` / `paste:` / `delete:` を足せば標準の編集メニューが効く。アイコン表示はまだ `NSView` で包んでいない
+  (`.focusable()` + `.onKeyPress` で矢印と Return だけ)。計画どおり `FileBrowserKeyResponder` で包む。
+- **コマンドの実行**: `state.commandStack`(`FileCommandStack`、ウインドウごと)。操作のあとは `state.reload()` を待たなくても
+  FSEvents が読み直すが、ネットワークでは飛ばないので明示的に `reload()` する。選択して見せるなら `reveal(_:)` か `select` + `scrollRequest`。
+- **ツリーは子をたたむまで読み直さない**(docs/15 の既知の制限)。段階 4 で新規フォルダ・移動を入れると目に付くので、
+  操作の後に該当する親の行を読み直す口(`Coordinator.loadChildren(of:)` を開いている行に対して呼ぶ)を足すこと。
+- **インラインリネーム**は未実装(`FileBrowserCellView` のラベルは編集不可。リストは `NSTextField.isEditable` とフィールドエディタで)。
+- **リーク**: AppKit の部品を足したら `dismantleNSView` で delegate・メニュー・対象・閉包を切る。`FileBrowserActions` は相手を weak で。
+  開閉を繰り返して `heap` で数える(docs/12「ファイルブラウザ」)。
+- **すりガラス 2 条件**は実機で必ず見る。AppKit の既定の部品(三角・見出し・ベゼル)は SwiftUI の輪郭が届かず、ここでしか見つからなかった。
+- **文言**: 段階 3 で 26 件を `Localizable.xcstrings` へ手で足した(書式は段階 2 の引き継ぎと同じ。空の辞書 `"" : {}` だけ
+  Xcode は `{\n\n    }` と書くので、`json.dumps` の後で置き換えると差分が出ない)。
 
 ---
 

@@ -76,6 +76,9 @@ final class AppStores: ObservableObject {
     /// またいで1つ ―― 同じフォルダを何枚もの画面が同時に走査する意味が無い(同上の理由で
     /// allObjectWillChangePublishersには足さない)。
     let collectionAutoFolderScanner: CollectionAutoFolderScanner
+    /// ファイルブラウザの「よく使う項目」(改善要望7 段階3)。メニューバーに現れないので
+    /// allObjectWillChangePublishersには足さない(CollectionStoreと同じ理由)。
+    let favoriteLocations: FavoriteLocationStore
 
     init() {
         // 予約された「すべてのデータを削除」の残り(終了前に落ちた場合)は、**どのストアよりも
@@ -94,6 +97,7 @@ final class AppStores: ObservableObject {
         resourceSampler = ProcessResourceSampler()
         metadataFormatStore = MetadataFormatStore()
         launchCoordinator = LaunchCoordinator()
+        favoriteLocations = FavoriteLocationStore()
         let context = QooViewerApp.modelContainer.mainContext
         favoritesStore = FavoritesStore(modelContext: context)
         bookmarkStore = BookmarkStore(modelContext: context)

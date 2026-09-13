@@ -63,6 +63,10 @@ final class AppPreferences: ObservableObject {
         static let folderBrowserSortKey = "qooViewer.pref.folderBrowserSortKey"
         static let folderBrowserSortDirection = "qooViewer.pref.folderBrowserSortDirection"
         static let siblingNavigationFollowsBrowserSort = "qooViewer.pref.siblingNavigationFollowsBrowserSort"
+        /// 環境設定「ファイルブラウザ」(改善要望7 段階3)。
+        static let fileBrowserStartupLocation = "qooViewer.pref.fileBrowser.startupLocation"
+        static let fileBrowserStartupFavoriteID = "qooViewer.pref.fileBrowser.startupFavoriteID"
+        static let fileBrowserFoldersFirst = "qooViewer.pref.fileBrowser.foldersFirst"
         static let sidePanelPosition = "qooViewer.pref.sidePanelPosition"
         static let sidePanelMode = "qooViewer.pref.sidePanelMode"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
@@ -593,6 +597,29 @@ final class AppPreferences: ObservableObject {
                 siblingNavigationFollowsBrowserSort, forKey: Keys.siblingNavigationFollowsBrowserSort
             )
         }
+    }
+
+    // MARK: - ファイルブラウザ(改善要望7 段階3、2026-09-13)
+
+    /// ファイルブラウザを最初に開いたときに表示するフォルダ(環境設定「ファイルブラウザ」)。
+    /// ウインドウごとに1回だけ効く ―― 一度開いたあとは、そのウインドウで最後にいた場所に戻る
+    /// (FileBrowserState.activate)。
+    @Published var fileBrowserStartupLocation: FileBrowserStartupLocation {
+        didSet { defaults.set(fileBrowserStartupLocation.rawValue, forKey: Keys.fileBrowserStartupLocation) }
+    }
+    /// 上が`.favorite`のときに開く、よく使う項目の id(FavoriteLocationStore.Item.id の文字列)。
+    /// 空なら未選択(ホームへ読み替える)。**UUID? ではなく文字列で持つ** ―― 登録を消した項目の id が
+    /// 残っていても、読む側が「無ければホーム」と読み替えるだけで済むので、型で守る意味が薄い。
+    @Published var fileBrowserStartupFavoriteID: String {
+        didSet { defaults.set(fileBrowserStartupFavoriteID, forKey: Keys.fileBrowserStartupFavoriteID) }
+    }
+    /// ファイルブラウザで、フォルダを名前などの並びより先にまとめて上に出すか(既定ON)。
+    ///
+    /// **サイドパネルの「並び順」(sidePanelSortOrder)とは別に持つ。** あちらは「一般」の設定で、
+    /// ファイルブラウザの環境設定の画面から変えられるものが別の画面の設定を書き換えると、
+    /// 「初期設定に戻す」の担当もずれる。Finderでも「フォルダを常に上部に表示」は独立した設定。
+    @Published var fileBrowserFoldersFirst: Bool {
+        didSet { defaults.set(fileBrowserFoldersFirst, forKey: Keys.fileBrowserFoldersFirst) }
     }
 
     /// 上段フォルダブラウザの並べ替えに必要な設定をまとめた値。DirectoryBrowser
@@ -1537,6 +1564,11 @@ final class AppPreferences: ObservableObject {
                 ?? FolderBrowserSort.default.direction
         self.siblingNavigationFollowsBrowserSort =
             defaults.object(forKey: Keys.siblingNavigationFollowsBrowserSort) as? Bool ?? false
+        self.fileBrowserStartupLocation = FileBrowserStartupLocation(
+            rawValue: defaults.string(forKey: Keys.fileBrowserStartupLocation) ?? ""
+        ) ?? .home
+        self.fileBrowserStartupFavoriteID = defaults.string(forKey: Keys.fileBrowserStartupFavoriteID) ?? ""
+        self.fileBrowserFoldersFirst = defaults.object(forKey: Keys.fileBrowserFoldersFirst) as? Bool ?? true
         self.sidePanelPosition =
             SidePanelPosition(rawValue: defaults.string(forKey: Keys.sidePanelPosition) ?? "") ?? .left
         self.sidePanelMode =
@@ -1887,6 +1919,12 @@ extension AppPreferences {
                         // 初期設定に戻したはずの古いフォルダが復活する。
                     ] + $0.fixedFolder.defaultsKeys
                 }
+        case .fileBrowser:
+            return [
+                Keys.fileBrowserStartupLocation,
+                Keys.fileBrowserStartupFavoriteID,
+                Keys.fileBrowserFoldersFirst,
+            ]
         // 「読み込みと書き出し」はウインドウを開くボタンだけで、戻せる設定を持たない。
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
             return []
@@ -1989,6 +2027,10 @@ extension AppPreferences {
             bookExportRenumbersImages = source.bookExportRenumbersImages
             bookExportIncludesExcludedPages = source.bookExportIncludesExcludedPages
             bookExportWritesVolumeElement = source.bookExportWritesVolumeElement
+        case .fileBrowser:
+            fileBrowserStartupLocation = source.fileBrowserStartupLocation
+            fileBrowserStartupFavoriteID = source.fileBrowserStartupFavoriteID
+            fileBrowserFoldersFirst = source.fileBrowserFoldersFirst
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
             break
         }

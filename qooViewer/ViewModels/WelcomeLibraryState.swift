@@ -24,6 +24,23 @@ final class WelcomeLibraryState: ObservableObject {
         static let itemSort = "qooViewer.welcome.itemSort"
         static let tileSize = "qooViewer.welcome.tileSize"
         static let coverSize = "qooViewer.welcome.coverSize"
+        static let mode = "qooViewer.welcome.mode"
+    }
+
+    /// 本棚かファイルブラウザか(改善要望7 段階3、2026-09-13)。帯の左端のボタンで切り替える。
+    ///
+    /// **保存する**(次に開くウインドウは前回のモードで始まる ―― Finderの代わりに使う人は
+    /// いつもファイルブラウザから始めたい)。本を開いて「ウェルカム画面へ戻る」で帰ってきたときは、
+    /// このウインドウで離れたときのモードのまま(openedCollectionIDと同じ扱い)。
+    ///
+    /// 本棚へ戻ったら編集モードからは出る(ファイルブラウザの間に編集中のまま残っていると、
+    /// 戻った瞬間にクリックの意味が変わっている理由が画面から読めない。isEditingのコメント参照)。
+    @Published var mode: WelcomeMode {
+        didSet {
+            guard mode != oldValue else { return }
+            defaults.set(mode.rawValue, forKey: Keys.mode)
+            isEditing = false
+        }
     }
 
     /// コレクションのタイルの大きさ。**札はこの幅ちょうどで並ぶ**(2026-09-13まではLazyVGridの
@@ -233,6 +250,7 @@ final class WelcomeLibraryState: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         selectedLibraryID = (defaults.string(forKey: Keys.selectedLibraryID)).flatMap(UUID.init(uuidString:))
+        mode = WelcomeMode(rawValue: defaults.string(forKey: Keys.mode) ?? "") ?? .shelf
         collectionSort = FavoritesSortOption(
             rawValue: defaults.string(forKey: Keys.collectionSort) ?? ""
         ) ?? .nameAscending

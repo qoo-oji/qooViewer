@@ -137,6 +137,28 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
   疑い、`leaks --traceTree` の `__strong` 付きの近い持ち主(この件では `SwiftUIAppKitButton
   .configuration.action.context` と `AppKitDialogBridge.lastDialogValues`)を先に読む。
 
+## ファイルブラウザ
+
+2026-09-13 の段階 3 の実機検証の手順(→ [15](15-file-browser.md))。上の「実物のアプリを外から操作する」の手順
+(Debug のストア・表紙・defaults を控えて退避し、空の本棚で起動)に次を足した。
+
+- 使い捨てボリュームは **`-nobrowse` を付けずに**付ける(付けると「コンピュータ」とツリーに出ない ―― Finder と同じ規則)。
+  中は合成名のフォルダ・画像フォルダ・zip で作った cbz・テキスト。起動時のフォルダは defaults で
+  `qooViewer.welcome.mode = browser`、`qooViewer.pref.fileBrowser.startupLocation = lastFolder`、
+  `qooViewer.fileBrowser.lastFolderPath = /Volumes/<ボリューム>` にして、**ホームや蔵書のボリュームへ移動しない**
+  (画面に実在のフォルダ名が写る)。
+- 読めないフォルダは `chmod 000` で作る(サンドボックスの `needsAccess` と同じ表示になる)。FSEvents の追従と
+  「消えたフォルダの祖先への退避」は、表示中にシェルからファイルを足す/フォルダを消して確かめる。
+- **画面がロックされていると、`screencapture` は真っ黒、System Events はウインドウ 0 枚を返す**(アプリは動いている)。
+  `CGSessionCopyCurrentDictionary()` の `CGSSessionScreenIsLocked` を先に見る。
+- すりガラス 2 条件は defaults で `qooViewer.pref.surface.welcome.{tintColor,tintOpacity,contentShadowLevel}` と
+  `qooViewer.pref.appAppearance` を書いて起動し直す。AppKit の部品(三角・列の見出し・標準のボタン)が消えるのは
+  ここでしか見つからなかった。
+- リークは File ›「新規ノーマルウインドウ」→ ⌘W を繰り返し、`heap <pid>` で `FileBrowserState` / `AppState` /
+  `FileBrowserTableView` の数が増えないことを見る(閉じた直後の 1 つぶんは SwiftUI が遅れて手放すので、回数を増やして比べる)。
+- 終わったら `NSTableView … qooViewer.fileBrowser.list` など**検証で増えたキーを消してから** `defaults import`。
+- ファイル選択ダイアログ(「アクセスを許可…」・よく使う項目の「＋」)とホームの初回の許可・TCC のダイアログは自動操作しない。
+
 ## テスト用の使い捨てボリューム
 
 別ボリュームへの移動・exFAT の縮退経路・空き容量の検査は、起動ボリュームの一時フォルダでは確かめられない
