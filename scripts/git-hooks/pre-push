@@ -11,8 +11,7 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
     else
         range="$remote_sha..$local_sha"
     fi
-    # shellcheck disable=SC2086
-    scripts/ci/check-private-terms.sh --require-terms --commits $range || status=1
+    scripts/ci/check-private-terms.sh --require-terms --commits "$range" || status=1
 done
 scripts/ci/check-private-terms.sh --require-terms || status=1
 exit $status

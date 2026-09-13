@@ -22,6 +22,7 @@ hook からは --require-terms で呼ぶ: 手元の一覧が無ければ**検査
 import argparse
 import os
 import re
+import shlex
 import subprocess
 import sys
 import unicodedata
@@ -181,7 +182,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--staged", action="store_true", help="ステージされた中身だけを見る(pre-commit)")
     parser.add_argument("--message", help="コミットメッセージのファイル(commit-msg)")
-    parser.add_argument("--commits", help="この範囲のコミットメッセージを見る(例: origin/main..HEAD)")
+    # `git log` の範囲指定を 1 つの文字列で受けて分割する(pre-push は `<sha> --not --remotes=origin` の形で
+    # 渡す。nargs で複数受けると argparse が `--not` をオプションと見なして拒む)。
+    parser.add_argument("--commits", help="この範囲のコミットメッセージを見る(例: 'origin/main..HEAD')")
     parser.add_argument("--terms", default=os.environ.get("QOO_PRIVATE_TERMS", DEFAULT_TERMS))
     parser.add_argument("--allow", default=os.environ.get("QOO_PRIVATE_TERMS_ALLOW", DEFAULT_ALLOW))
     parser.add_argument("--require-terms", action="store_true", help="手元の一覧が無ければ失敗させる(hook 用)")
@@ -195,7 +198,7 @@ def main() -> int:
         with open(args.message, encoding="utf-8", errors="replace") as f:
             sources.append(("<コミットメッセージ>", f.read()))
     if args.commits:
-        sources.append((f"<コミットメッセージ {args.commits}>", git("log", "--format=%H%n%B", args.commits)))
+        sources.append((f"<コミットメッセージ {args.commits}>", git("log", "--format=%H%n%B", *shlex.split(args.commits))))
     if not (args.staged or args.message or args.commits):
         sources += tracked_sources()
         sources.append(("<全コミットメッセージ>", git("log", "--all", "--format=%H%n%B")))
