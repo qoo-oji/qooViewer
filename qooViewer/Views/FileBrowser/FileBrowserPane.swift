@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// ウェルカム画面のファイルブラウザ(改善要望7 段階3、2026-09-13)。帯の下、本棚の代わりに出る。
 ///
@@ -36,6 +37,8 @@ struct FileBrowserPane: View {
     @State private var dragStartWidth: CGFloat = 0
     /// 検索がボタンから欄へ広がっているか(ユーザー要望 2026-09-13)。
     @State private var isSearchExpanded = false
+    /// 右ペインがドロップの受け口として反応しているか(表示中のフォルダへ落とす。段階4b)。
+    @State private var isDropTargeted = false
     @FocusState private var isSearchFocused: Bool
 
     private static let coordinateSpace = "fileBrowser.pane"
@@ -67,12 +70,34 @@ struct FileBrowserPane: View {
                 FileBrowserPathBar(
                     folder: state.currentFolder,
                     computerTitle: String(localized: "Computer", language: locale),
+                    actions: actions,
                     onNavigate: { [weak state] folder in state?.navigate(to: folder) }
                 )
                 .frame(height: 24)
                 .padding(.horizontal, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color(nsColor: .controlBackgroundColor))
+            }
+            // 右ペインの残り全部を受け口で覆う(操作列・案内・アイコン表示の余白やファイルのセル)。
+            // リスト・パスバー・フォルダのセルは自分の受け口が先に受ける。覆っておかないと、断ったドロップを
+            // ウインドウ全体の「本を開く」受け口が拾う(FileBrowserDragAndDrop.swift の冒頭のコメント)。
+            .onDrop(
+                of: [.fileURL],
+                delegate: FileBrowserDropDelegate(
+                    destination: state.currentFolder, actions: actions,
+                    onTargetChange: { isDropTargeted = $0 }
+                )
+            )
+            // 受け口の強調はアクセント色の枠(ContentView のウインドウ全体の受け口と同じ描き方)。
+            // すりガラス面の上のアクセント色なので輪郭を付ける。
+            .overlay {
+                if isDropTargeted {
+                    let shape = RoundedRectangle(cornerRadius: 6)
+                    shape
+                        .strokeBorder(Color.accentColor, lineWidth: 3)
+                        .panelOutlinedAccent(in: shape)
+                        .allowsHitTesting(false)
+                }
             }
         }
         .coordinateSpace(.named(Self.coordinateSpace))

@@ -100,37 +100,51 @@ final class FileBrowserOperations: ObservableObject {
         return transfer(urls, to: folder, isMove: isMove)
     }
 
-    /// 移動またはコピー(ペースト・ドラッグ&ドロップ)。
+    /// 移動またはコピー(ペースト)。
     @discardableResult
     func transfer(_ urls: [URL], to folder: URL, isMove: Bool) -> Task<Void, Never> {
+        transfer(moving: isMove ? urls : [], copying: isMove ? [] : urls, to: folder)
+    }
+
+    /// ドラッグ&ドロップ(段階4b)。移動とコピーが混ざった 1 回のドロップは**1 回の取り消しで戻る**
+    /// (`CompositeFileCommand`。検討メモ §9)。
+    @discardableResult
+    func drop(_ plan: FileDropPlan, into folder: URL) -> Task<Void, Never> {
+        transfer(moving: plan.moves, copying: plan.copies, to: folder)
+    }
+
+    private func transfer(moving moves: [URL], copying copies: [URL], to folder: URL) -> Task<Void, Never> {
         enqueue { [weak self] in
             guard let self else { return }
             let destinationPath = FileBrowserState.id(for: folder)
-            let sameFolder = urls.filter { FileBrowserState.id(for: $0.deletingLastPathComponent()) == destinationPath }
-            let others = urls.filter { FileBrowserState.id(for: $0.deletingLastPathComponent()) != destinationPath }
+            let isInDestination = { (url: URL) in FileBrowserState.id(for: url.deletingLastPathComponent()) == destinationPath }
+            // 自分のフォルダへの移動は何もしない(エンジンの決まり)ので、同じフォルダの項目は外す。
+            let movers = moves.filter { !isInDestination($0) }
+            let duplicates = copies.filter(isInDestination)
+            let copiers = copies.filter { !isInDestination($0) }
             let cancellation = Cancellation()
             let options = self.transferOptions(policy: .ask, cancellation: cancellation)
             var commands: [any FileCommand] = []
-            if isMove {
-                // 自分のフォルダへの移動は何もしない(エンジンの決まり)ので、同じフォルダの項目は外す。
-                if !others.isEmpty {
-                    commands.append(MoveFilesCommand(items: others, destination: folder, options: options, fileOps: self.fileOps))
-                }
-            } else {
-                if !sameFolder.isEmpty {
-                    var duplicate = options
-                    duplicate.conflictPolicy = .keepBoth
-                    commands.append(CopyFilesCommand(items: sameFolder, destination: folder, options: duplicate, fileOps: self.fileOps))
-                }
-                if !others.isEmpty {
-                    commands.append(CopyFilesCommand(items: others, destination: folder, options: options, fileOps: self.fileOps))
-                }
+            if !movers.isEmpty {
+                commands.append(MoveFilesCommand(items: movers, destination: folder, options: options, fileOps: self.fileOps))
+            }
+            if !duplicates.isEmpty {
+                // 同じフォルダへのコピーは複製(「両方残す」。Finder の「のコピー」に当たる)。
+                var duplicate = options
+                duplicate.conflictPolicy = .keepBoth
+                commands.append(CopyFilesCommand(items: duplicates, destination: folder, options: duplicate, fileOps: self.fileOps))
+            }
+            if !copiers.isEmpty {
+                commands.append(CopyFilesCommand(items: copiers, destination: folder, options: options, fileOps: self.fileOps))
             }
             guard !commands.isEmpty else { return }
+            let count = moves.count + copies.count
+            let isMove = copies.isEmpty
+            let urls = moves + copies
             let command: any FileCommand = commands.count == 1
                 ? commands[0]
-                : CompositeFileCommand(displayName: Self.transferName(count: urls.count, isMove: isMove), children: commands)
-            let title = Self.activityTitle(count: urls.count, isMove: isMove)
+                : CompositeFileCommand(displayName: Self.transferName(count: count, isMove: isMove), children: commands)
+            let title = Self.activityTitle(count: count, isMove: isMove)
             await self.run(command, title: title, cancellation: cancellation, affected: [folder] + urls.map { $0.deletingLastPathComponent() }) { result in
                 // 運んだものを選ぶ(今のフォルダへ貼ったとき)。
                 let placed = commands.flatMap { child -> [URL] in

@@ -67,6 +67,7 @@ final class AppPreferences: ObservableObject {
         static let fileBrowserStartupLocation = "qooViewer.pref.fileBrowser.startupLocation"
         static let fileBrowserStartupFavoriteID = "qooViewer.pref.fileBrowser.startupFavoriteID"
         static let fileBrowserFoldersFirst = "qooViewer.pref.fileBrowser.foldersFirst"
+        static let fileBrowserExternalDropAction = "qooViewer.pref.fileBrowser.externalDropAction"
         static let sidePanelPosition = "qooViewer.pref.sidePanelPosition"
         static let sidePanelMode = "qooViewer.pref.sidePanelMode"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
@@ -620,6 +621,11 @@ final class AppPreferences: ObservableObject {
     /// 「初期設定に戻す」の担当もずれる。Finderでも「フォルダを常に上部に表示」は独立した設定。
     @Published var fileBrowserFoldersFirst: Bool {
         didSet { defaults.set(fileBrowserFoldersFirst, forKey: Keys.fileBrowserFoldersFirst) }
+    }
+    /// 他のアプリからファイルブラウザへドロップしたときにすること(既定: ビューアで開く)。
+    /// アプリの中のドラッグには効かない(FileBrowserExternalDropActionの型コメント)。
+    @Published var fileBrowserExternalDropAction: FileBrowserExternalDropAction {
+        didSet { defaults.set(fileBrowserExternalDropAction.rawValue, forKey: Keys.fileBrowserExternalDropAction) }
     }
 
     /// 上段フォルダブラウザの並べ替えに必要な設定をまとめた値。DirectoryBrowser
@@ -1569,6 +1575,9 @@ final class AppPreferences: ObservableObject {
         ) ?? .home
         self.fileBrowserStartupFavoriteID = defaults.string(forKey: Keys.fileBrowserStartupFavoriteID) ?? ""
         self.fileBrowserFoldersFirst = defaults.object(forKey: Keys.fileBrowserFoldersFirst) as? Bool ?? true
+        self.fileBrowserExternalDropAction = FileBrowserExternalDropAction(
+            rawValue: defaults.string(forKey: Keys.fileBrowserExternalDropAction) ?? ""
+        ) ?? .openInViewer
         self.sidePanelPosition =
             SidePanelPosition(rawValue: defaults.string(forKey: Keys.sidePanelPosition) ?? "") ?? .left
         self.sidePanelMode =
@@ -1924,6 +1933,7 @@ extension AppPreferences {
                 Keys.fileBrowserStartupLocation,
                 Keys.fileBrowserStartupFavoriteID,
                 Keys.fileBrowserFoldersFirst,
+                Keys.fileBrowserExternalDropAction,
             ]
         // 「読み込みと書き出し」はウインドウを開くボタンだけで、戻せる設定を持たない。
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
@@ -2031,6 +2041,7 @@ extension AppPreferences {
             fileBrowserStartupLocation = source.fileBrowserStartupLocation
             fileBrowserStartupFavoriteID = source.fileBrowserStartupFavoriteID
             fileBrowserFoldersFirst = source.fileBrowserFoldersFirst
+            fileBrowserExternalDropAction = source.fileBrowserExternalDropAction
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
             break
         }

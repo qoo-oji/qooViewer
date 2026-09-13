@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// ファイルブラウザのアイコン表示(改善要望7 段階3、2026-09-13)。SwiftUIの`LazyVGrid`。
 ///
@@ -12,15 +13,25 @@ import SwiftUI
 /// 余白からのドラッグ = 帯で選ぶ(修飾キーなしなら置き換え)。単発は`simultaneousGesture`で即時に効かせる
 /// (`onTapGesture`の1回と2回を並べると、単発がダブルクリックの間隔ぶん遅れる ―― qooLibrary 実測)。
 ///
+/// ■ ドラッグ&ドロップ(段階4b)
+/// セルを掴むと、選ばれていればその全部、選ばれていなければその1件だけを選び直して運ぶ(Finder と同じ)。
+/// 運ぶのは AppKit のドラッグセッション(FileBrowserIconDragHandle のコメント)。フォルダのセルは受け口で、
+/// 反応している間はアイコンの地をアクセント色にする。それ以外(ファイルのセル・余白)へ落とすと、
+/// 右ペイン全体の受け口(FileBrowserPane)が表示中のフォルダへ落とす。
+///
 /// ■ 輪郭(すりガラス面の決まりごと)
 /// - 名前 → 未選択は`.panelOutlinedContent()`、選択中はアクセント地なので`.panelOutlinedAccent(in:)`
 /// - アイコン → 種類のアイコン(色付きの絵)なので掛けない。選択中の地(薄い灰)は
 ///   `.panelOutlinedFrame(in:)`で縁取る(薄い地だけでは面の色に溶ける)
+/// - ドロップの受け口になっているフォルダの地(アクセント色)→ `.panelOutlinedAccent(in:)`
 struct FileBrowserIconView: View {
     @ObservedObject var state: FileBrowserState
     let actions: FileBrowserActions
 
     @State private var marquee = MarqueeSelection()
+    @State private var dragHandle = FileBrowserIconDragHandle()
+    /// ドロップの受け口として反応しているフォルダのセル。
+    @State private var dropTargetID: String?
     @FocusState private var isFocused: Bool
 
     private static let spacing: CGFloat = 12
@@ -52,6 +63,7 @@ struct FileBrowserIconView: View {
                         }
                     )
                 }
+                .background(FileBrowserIconDragSource(handle: dragHandle))
                 .focusable()
                 .focused($isFocused)
                 .focusEffectDisabled()
@@ -113,6 +125,7 @@ struct FileBrowserIconView: View {
 
     private func cell(for entry: FileBrowserEntry) -> some View {
         let isSelected = state.selection.contains(entry.id)
+        let isDropTarget = dropTargetID == entry.id
         let iconShape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         let nameShape = RoundedRectangle(cornerRadius: 4, style: .continuous)
         return VStack(spacing: 4) {
@@ -122,8 +135,11 @@ struct FileBrowserIconView: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(width: state.iconSize, height: state.iconSize)
                 .padding(4)
-                .background(iconShape.fill(isSelected ? Color.primary.opacity(0.12) : Color.clear))
-                .panelOutlinedFrame(in: iconShape, isEnabled: isSelected)
+                .background(iconShape.fill(
+                    isDropTarget ? Color.accentColor.opacity(0.35) : isSelected ? Color.primary.opacity(0.12) : Color.clear
+                ))
+                .panelOutlinedFrame(in: iconShape, isEnabled: isSelected && !isDropTarget)
+                .panelOutlinedAccent(in: iconShape, isEnabled: isDropTarget)
             Text(entry.displayName)
                 .font(.system(size: 12))
                 .lineLimit(2)
@@ -145,6 +161,23 @@ struct FileBrowserIconView: View {
             isFocused = true
             state.click(entry.id, modifier: Self.currentClickModifier)
         })
+        .simultaneousGesture(DragGesture(minimumDistance: 4).onChanged { value in
+            // 掴んだセルが選ばれていなければ、その1件だけを選び直して運ぶ(型コメント)。
+            if !state.selection.contains(entry.id) { state.click(entry.id, modifier: .none) }
+            dragHandle.beginIfNeeded(
+                gestureStart: value.startLocation, entries: state.selectedEntries, iconSize: state.iconSize
+            )
+        })
+        .modifier(FileBrowserFolderDropTarget(
+            entry: entry, actions: actions,
+            onTargetChange: { isTargeted in
+                if isTargeted {
+                    dropTargetID = entry.id
+                } else if dropTargetID == entry.id {
+                    dropTargetID = nil
+                }
+            }
+        ))
         .opacity(state.isCut(entry) ? 0.5 : 1)
         .contextMenu {
             FileBrowserContextMenuItems(
@@ -232,6 +265,25 @@ struct FileBrowserKeyMonitor: NSViewRepresentable {
             if let monitor { NSEvent.removeMonitor(monitor) }
             monitor = nil
             actions = nil
+        }
+    }
+}
+
+/// フォルダのセルだけを受け口にする(ファイルのセルに付けると、右ペイン全体の受け口 = 表示中のフォルダへ
+/// 落ちなくなる)。
+private struct FileBrowserFolderDropTarget: ViewModifier {
+    let entry: FileBrowserEntry
+    let actions: FileBrowserActions
+    let onTargetChange: (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        if entry.isNavigableFolder {
+            content.onDrop(
+                of: [.fileURL],
+                delegate: FileBrowserDropDelegate(destination: entry.url, actions: actions, onTargetChange: onTargetChange)
+            )
+        } else {
+            content
         }
     }
 }

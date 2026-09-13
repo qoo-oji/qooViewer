@@ -18,6 +18,11 @@ import SwiftUI
 /// 編集が始まる**(`NSTableView`の標準。複数選択中は始めない ―― `FileBrowserTableView`)。編集中に一覧が
 /// 読み直されると編集が消えるので、編集が終わるまで`reloadData`を待たせる。
 ///
+/// ■ ドラッグ&ドロップ(段階4b)
+/// 行は出し口(ファイルの URL を運ぶ)で、受け口でもある。フォルダの行の上ならそのフォルダへ、
+/// それ以外(ファイルの行・行の間・空きスペース)なら表示中のフォルダへ落とす(Finder と同じ)。
+/// 何をするかは`FileBrowserDropDecision`(FileBrowserDragAndDrop.swift)が決める。
+///
 /// ■ リーク
 /// 閉包・delegate・メニューの対象は`dismantleNSView`で切る(CLAUDE.md)。`NSTrackingArea`は使わない。
 struct FileBrowserListView: NSViewRepresentable {
@@ -69,6 +74,7 @@ struct FileBrowserListView: NSViewRepresentable {
         table.doubleAction = #selector(Coordinator.handleDoubleClick(_:))
         table.onReturn = { [weak coordinator] in coordinator?.openSelection() }
         table.editResponder = actions
+        configureFileBrowserDragSource(table)
 
         let menu = NSMenu()
         menu.delegate = coordinator
@@ -99,6 +105,7 @@ struct FileBrowserListView: NSViewRepresentable {
             table.doubleAction = nil
             table.onReturn = nil
             table.editResponder = nil
+            table.unregisterDraggedTypes()
             table.menu?.delegate = nil
             table.menu = nil
         }
@@ -378,6 +385,60 @@ struct FileBrowserListView: NSViewRepresentable {
         func tableView(_ tableView: NSTableView, typeSelectStringFor tableColumn: NSTableColumn?, row: Int) -> String? {
             guard tableColumn?.identifier == Column.name.identifier, entries.indices.contains(row) else { return nil }
             return entries[row].displayName
+        }
+
+        // MARK: ドラッグ&ドロップ
+
+        func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
+            guard entries.indices.contains(row), !isEditingName else { return nil }
+            return FileBrowserActions.pasteboardWriter(for: entries[row])
+        }
+
+        func tableView(
+            _ tableView: NSTableView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint,
+            forRowIndexes rowIndexes: IndexSet
+        ) {
+            FileBrowserDragTracker.begin(rowIndexes.compactMap { row in
+                entries.indices.contains(row) && !entries[row].isVolume ? entries[row].url : nil
+            })
+        }
+
+        func tableView(
+            _ tableView: NSTableView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint,
+            operation: NSDragOperation
+        ) {
+            FileBrowserDragTracker.end()
+        }
+
+        func tableView(
+            _ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int,
+            proposedDropOperation dropOperation: NSTableView.DropOperation
+        ) -> NSDragOperation {
+            guard let actions else { return [] }
+            let folder = dropFolder(row: row, operation: dropOperation)
+            if folder == nil {
+                // フォルダの行の上でなければ、表全体(表示中のフォルダ)を受け口として強調する。
+                tableView.setDropRow(-1, dropOperation: .on)
+            }
+            let (decision, _) = actions.dropDecision(for: info, into: folder ?? state?.currentFolder)
+            return decision.dragOperation(sourceMask: info.draggingSourceOperationMask)
+        }
+
+        func tableView(
+            _ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int,
+            dropOperation: NSTableView.DropOperation
+        ) -> Bool {
+            guard let actions else { return false }
+            let destination = dropFolder(row: row, operation: dropOperation) ?? state?.currentFolder
+            let (decision, urls) = actions.dropDecision(for: info, into: destination)
+            actions.performDrop(decision, urls: urls)
+            return decision.isAccepted
+        }
+
+        /// 行の上へのドロップで、その行がフォルダ(パッケージでない)ならそのフォルダ。
+        private func dropFolder(row: Int, operation: NSTableView.DropOperation) -> URL? {
+            guard operation == .on, entries.indices.contains(row), entries[row].isNavigableFolder else { return nil }
+            return entries[row].url
         }
 
         // MARK: 操作

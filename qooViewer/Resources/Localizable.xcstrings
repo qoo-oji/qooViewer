@@ -148,6 +148,22 @@
         }
       }
     },
+    "Copy or Move" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy or Move"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コピー・移動"
+          }
+        }
+      }
+    },
     "Deletion of %lld Items" : {
       "localizations" : {
         "en" : {
@@ -176,6 +192,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%@」の削除"
+          }
+        }
+      }
+    },
+    "Drag and Drop" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag and Drop"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ドラッグ&ドロップ"
           }
         }
       }
@@ -288,6 +320,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "処理されませんでした。"
+          }
+        }
+      }
+    },
+    "Open in Viewer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open in Viewer"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ビューアで開く"
+          }
+        }
+      }
+    },
+    "Open in Viewer opens the dropped items as a book, as when you drop them anywhere else in the window. Copy or Move puts them in the folder you drop them on, like the Finder: items on the same volume are moved and items from another volume are copied. Hold Option to always copy or Command to always move. Dragging within qooViewer always copies or moves." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open in Viewer opens the dropped items as a book, as when you drop them anywhere else in the window. Copy or Move puts them in the folder you drop them on, like the Finder: items on the same volume are moved and items from another volume are copied. Hold Option to always copy or Command to always move. Dragging within qooViewer always copies or moves."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「ビューアで開く」は、ウインドウのほかの場所へドロップしたときと同じく本として開きます。「コピー・移動」は Finder と同じく、ドロップしたフォルダへ入れます。同じボリュームの項目は移動、別のボリュームの項目はコピーになり、option キーを押していると常にコピー、command キーを押していると常に移動します。qooViewer の中でのドラッグは常にコピー・移動です。"
           }
         }
       }
@@ -624,6 +688,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "取り消す操作がありません。"
+          }
+        }
+      }
+    },
+    "When Items Are Dropped from Other Apps" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When Items Are Dropped from Other Apps"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "他のアプリからドロップしたとき"
           }
         }
       }

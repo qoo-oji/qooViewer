@@ -174,6 +174,41 @@ struct FileBrowserOperationsTests {
         #expect(fixture.presenter.conflicts.isEmpty)
     }
 
+    // MARK: - ドラッグ&ドロップ
+
+    @Test("ドロップで移動とコピーが混ざっても 1 回の取り消しで両方戻る")
+    func mixedDropUndoesAsOneStep() async throws {
+        let fixture = try Fixture("fbops-drop-mixed")
+        let file = fixture.root.appendingPathComponent("a.txt")
+        let away = fixture.other.appendingPathComponent("b.txt")
+        try Data("b".utf8).write(to: away)
+        let plan = FileDropPlan(moves: [file], copies: [away])
+        fixture.state.operations.drop(plan, into: fixture.sub)
+        await fixture.finish()
+        #expect(!fixture.exists(file))
+        #expect(fixture.exists(away))
+        #expect(fixture.names(in: fixture.sub) == ["a.txt", "b.txt"])
+
+        fixture.state.operations.undo()
+        await fixture.finish()
+        #expect(fixture.exists(file))
+        #expect(fixture.names(in: fixture.sub).isEmpty)
+        #expect(!fixture.state.commandStack.canUndo)
+        #expect(fixture.presenter.problems.isEmpty)
+    }
+
+    @Test("⌥ で同じフォルダへ落としたコピーは尋ねずに複製し、表示中なら選ぶ")
+    func optionDropIntoSameFolderDuplicates() async throws {
+        let fixture = try Fixture("fbops-drop-dup")
+        await fixture.showRoot()
+        let file = fixture.root.appendingPathComponent("a.txt")
+        fixture.state.operations.drop(FileDropPlan(moves: [], copies: [file]), into: fixture.root)
+        await fixture.finish()
+        #expect(fixture.names(in: fixture.root) == ["a 2.txt", "a.txt", "sub"])
+        #expect(fixture.presenter.conflicts.isEmpty)
+        #expect(fixture.state.selection == [FileBrowserState.id(for: fixture.root.appendingPathComponent("a 2.txt"))])
+    }
+
     @Test("別のフォルダで名前がぶつかったら尋ね、「スキップ」なら何も起きず、積まれない")
     func conflictAsksAndSkips() async throws {
         let fixture = try Fixture("fbops-conflict")

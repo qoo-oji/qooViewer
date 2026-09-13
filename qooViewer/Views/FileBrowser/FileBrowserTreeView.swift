@@ -14,6 +14,12 @@ import SwiftUI
 /// ■ クリック
 /// 行を選ぶと右ペインがそのフォルダへ移る。右ペインで移動したら、そのフォルダの行が見えていれば
 /// 選んだ状態にする(見えていなければ選択を外す ―― 違う行が選ばれたまま残らないように)。
+///
+/// ■ ドラッグ&ドロップ(段階4b)
+/// どの行(ボリューム・ホーム・よく使う項目・フォルダ)の上にも落とせる。行の間へ落とそうとしたら、
+/// その行の親のフォルダの上へ落とす形に直す(グループの見出しの中なら断る)。掴んで運べるのは
+/// **ふつうのフォルダの行だけ** ―― ボリューム・ホーム・よく使う項目の行を動かすと、ツリーの根そのものが
+/// 消える(よく使う項目は登録したパスを失う)。
 struct FileBrowserTreeView: NSViewRepresentable {
     @ObservedObject var state: FileBrowserState
     @ObservedObject var favoriteLocations: FavoriteLocationStore
@@ -46,6 +52,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
 
         outline.dataSource = coordinator
         outline.delegate = coordinator
+        configureFileBrowserDragSource(outline)
         let menu = NSMenu()
         menu.delegate = coordinator
         outline.menu = menu
@@ -72,6 +79,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
         if let outline = coordinator.outline {
             outline.dataSource = nil
             outline.delegate = nil
+            outline.unregisterDraggedTypes()
             outline.menu?.delegate = nil
             outline.menu = nil
         }
@@ -393,6 +401,49 @@ struct FileBrowserTreeView: NSViewRepresentable {
             let id = FileBrowserState.id(for: url)
             appliedFolderID = id
             state?.navigate(to: url)
+        }
+
+        // MARK: ドラッグ&ドロップ
+
+        func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
+            guard let node = item as? Node, node.kind == .folder, let url = node.url else { return nil }
+            return url as NSURL
+        }
+
+        func outlineView(
+            _ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint,
+            forItems draggedItems: [Any]
+        ) {
+            FileBrowserDragTracker.begin(draggedItems.compactMap { ($0 as? Node)?.url })
+        }
+
+        func outlineView(
+            _ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint,
+            operation: NSDragOperation
+        ) {
+            FileBrowserDragTracker.end()
+        }
+
+        func outlineView(
+            _ outlineView: NSOutlineView, validateDrop info: NSDraggingInfo, proposedItem item: Any?,
+            proposedChildIndex index: Int
+        ) -> NSDragOperation {
+            guard let actions, let node = item as? Node, !node.isGroup, let url = node.url else { return [] }
+            if index != NSOutlineViewDropOnItemIndex {
+                // 行の間 → その親の行の上へ(型コメント)。
+                outlineView.setDropItem(node, dropChildIndex: NSOutlineViewDropOnItemIndex)
+            }
+            let (decision, _) = actions.dropDecision(for: info, into: url)
+            return decision.dragOperation(sourceMask: info.draggingSourceOperationMask)
+        }
+
+        func outlineView(
+            _ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo, item: Any?, childIndex index: Int
+        ) -> Bool {
+            guard let actions, let node = item as? Node, !node.isGroup, let url = node.url else { return false }
+            let (decision, urls) = actions.dropDecision(for: info, into: url)
+            actions.performDrop(decision, urls: urls)
+            return decision.isAccepted
         }
 
         @objc private func addFavorite(_ sender: Any?) {

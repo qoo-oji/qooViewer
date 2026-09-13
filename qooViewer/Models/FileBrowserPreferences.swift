@@ -44,6 +44,31 @@ enum FileBrowserStartupLocation: String, CaseIterable, Identifiable, Hashable {
     var id: String { rawValue }
 }
 
+/// 他のアプリ(Finder など)からファイルブラウザへ項目をドロップしたときにすること
+/// (環境設定「ファイルブラウザ」。改善要望7 段階4b、2026-09-13)。
+///
+/// **既定は「ビューアで開く」**: ファイルブラウザが入る前から、ウインドウへのドロップは本を開く操作だった
+/// (ContentView.applyFileDropTarget)。ファイルブラウザを出しているときだけ黙ってコピーに変わると、
+/// 本を開くつもりで落とした人の書庫が今のフォルダに複製される。アプリの中からのドラッグには効かない
+/// (そちらは常にコピー・移動)。
+enum FileBrowserExternalDropAction: String, CaseIterable, Identifiable, Hashable {
+    /// 落とされたものを本として開く(ウインドウのほかの場所へ落としたときと同じ)。
+    case openInViewer
+    /// 落とした場所へコピー・移動する(Finder と同じ規則。FileDropPlan)。
+    case copyOrMove
+
+    var id: String { rawValue }
+}
+
+extension FileBrowserExternalDropAction: SettingsOption {
+    var shortTitleKey: LocalizedStringKey {
+        switch self {
+        case .openInViewer: "Open in Viewer"
+        case .copyOrMove: "Copy or Move"
+        }
+    }
+}
+
 extension FileBrowserStartupLocation: SettingsOption {
     var shortTitleKey: LocalizedStringKey {
         switch self {
