@@ -13,6 +13,11 @@ import SwiftUI
 /// (配列を毎回比べない)。選択は双方向: 表での選択を`state.selection`へ書き、状態の選択が表と
 /// 違えば表へ反映する(反映中の通知は書き戻さない)。
 ///
+/// ■ 名前の変更(段階4)
+/// 名前の欄は編集できるセル。**選ばれている1行をもう一度クリックすると、ダブルクリックの間隔を待って
+/// 編集が始まる**(`NSTableView`の標準。複数選択中は始めない ―― `FileBrowserTableView`)。編集中に一覧が
+/// 読み直されると編集が消えるので、編集が終わるまで`reloadData`を待たせる。
+///
 /// ■ リーク
 /// 閉包・delegate・メニューの対象は`dismantleNSView`で切る(CLAUDE.md)。`NSTrackingArea`は使わない。
 struct FileBrowserListView: NSViewRepresentable {
@@ -63,6 +68,7 @@ struct FileBrowserListView: NSViewRepresentable {
         table.target = coordinator
         table.doubleAction = #selector(Coordinator.handleDoubleClick(_:))
         table.onReturn = { [weak coordinator] in coordinator?.openSelection() }
+        table.editResponder = actions
 
         let menu = NSMenu()
         menu.delegate = coordinator
@@ -92,6 +98,7 @@ struct FileBrowserListView: NSViewRepresentable {
             table.target = nil
             table.doubleAction = nil
             table.onReturn = nil
+            table.editResponder = nil
             table.menu?.delegate = nil
             table.menu = nil
         }
@@ -144,7 +151,7 @@ struct FileBrowserListView: NSViewRepresentable {
     // MARK: - Coordinator
 
     @MainActor
-    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate, NSTextFieldDelegate {
         weak var table: FileBrowserTableView?
         var state: FileBrowserState?
         var actions: FileBrowserActions?
@@ -153,6 +160,12 @@ struct FileBrowserListView: NSViewRepresentable {
         private var outlineWidth: CGFloat = 0
         private var locale = Locale.current
         private var appliedScroll: FileBrowserState.ScrollRequest?
+        private var appliedRename: FileBrowserState.ScrollRequest?
+        private var appliedCutPaths: Set<String> = []
+        /// 名前の編集中に一覧が変わった(編集が終わったら読み直す)。
+        private var needsReloadAfterEditing = false
+        /// Esc で編集を取りやめた(確定の通知を名前の変更として扱わない)。
+        private var isCancellingEdit = false
         /// 状態から表へ選択を写している最中(その通知を状態へ書き戻さない)。
         private var isApplyingSelection = false
         private var isApplyingSort = false
@@ -183,15 +196,23 @@ struct FileBrowserListView: NSViewRepresentable {
                 outlineWidth = view.outlineWidth
                 needsReload = true
             }
+            if view.state.cutPaths != appliedCutPaths {
+                appliedCutPaths = view.state.cutPaths
+                needsReload = true
+            }
             if view.state.entriesRevision != revision {
                 revision = view.state.entriesRevision
                 entries = view.state.entries
                 needsReload = true
             }
             if needsReload {
-                isApplyingSelection = true
-                table.reloadData()
-                isApplyingSelection = false
+                if isEditingName {
+                    needsReloadAfterEditing = true
+                } else {
+                    isApplyingSelection = true
+                    table.reloadData()
+                    isApplyingSelection = false
+                }
             }
             applySortDescriptors(from: view.state)
             applySelection(from: view.state)
@@ -200,6 +221,71 @@ struct FileBrowserListView: NSViewRepresentable {
                 if let row = entries.firstIndex(where: { $0.id == request.id }) {
                     table.scrollRowToVisible(row)
                 }
+            }
+            if let request = view.state.renameRequest, request != appliedRename,
+               let row = entries.firstIndex(where: { $0.id == request.id }) {
+                appliedRename = request
+                beginEditingName(row: row)
+            }
+        }
+
+        // MARK: 名前の変更
+
+        /// 名前の欄が編集中か(フィールドエディタがこの表の中の欄を編集している)。
+        private var isEditingName: Bool {
+            guard let table, let editor = table.window?.firstResponder as? NSTextView, editor.isFieldEditor,
+                  let field = editor.delegate as? NSTextField
+            else { return false }
+            return field.isDescendant(of: table)
+        }
+
+        private func beginEditingName(row: Int) {
+            guard let table, entries.indices.contains(row), !entries[row].isVolume else { return }
+            let column = table.column(withIdentifier: Column.name.identifier)
+            guard column >= 0 else { return }
+            table.scrollRowToVisible(row)
+            table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            table.editColumn(column, row: row, with: nil, select: true)
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard commandSelector == #selector(NSResponder.cancelOperation(_:)), let field = control as? NSTextField else {
+                return false
+            }
+            // Esc: 取りやめて元の名前に戻す。
+            isCancellingEdit = true
+            field.abortEditing()
+            isCancellingEdit = false
+            finishEditing(restoring: field)
+            return true
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            guard !isCancellingEdit, let table, let field = notification.object as? FileBrowserNameField else { return }
+            let row = table.row(for: field)
+            let newName = field.stringValue
+            if entries.indices.contains(row), let state {
+                let entry = entries[row]
+                if newName != entry.url.lastPathComponent {
+                    state.operations.rename(entry, to: newName)
+                }
+            }
+            finishEditing(restoring: field)
+        }
+
+        /// 編集の後始末: 欄の文字を表示名へ戻し(変更が済めば読み直しで新しい名前になる)、表へ焦点を返し、
+        /// 待たせていた読み直しを行う。
+        private func finishEditing(restoring field: NSTextField) {
+            guard let table else { return }
+            let row = table.row(for: field)
+            if entries.indices.contains(row) { field.stringValue = entries[row].displayName }
+            table.window?.makeFirstResponder(table)
+            if needsReloadAfterEditing {
+                needsReloadAfterEditing = false
+                isApplyingSelection = true
+                table.reloadData()
+                isApplyingSelection = false
+                if let state { applySelection(from: state) }
             }
         }
 
@@ -249,10 +335,15 @@ struct FileBrowserListView: NSViewRepresentable {
             let identifier = NSUserInterfaceItemIdentifier("cell." + column.rawValue)
             let cell = (tableView.makeView(withIdentifier: identifier, owner: nil) as? FileBrowserCellView)
                 ?? FileBrowserCellView(identifier: identifier, showsIcon: column == .name)
+            // カットした項目は淡く(Finder と同じ)。
+            cell.alphaValue = state?.isCut(entry) == true ? 0.5 : 1
             switch column {
             case .name:
                 cell.icon?.image = FileBrowserIconProvider.icon(for: entry)
                 cell.configure(text: entry.displayName, outlineWidth: outlineWidth)
+                cell.nameField.editingName = entry.isVolume ? nil : entry.url.lastPathComponent
+                cell.nameField.selectsWholeName = entry.isDirectory && !entry.isPackage
+                cell.label.delegate = self
             case .modified:
                 cell.configure(text: entry.modificationDate.map(dateFormatter.string(from:)) ?? "--",
                                color: .secondaryLabelColor, outlineWidth: outlineWidth)
@@ -318,25 +409,37 @@ struct FileBrowserListView: NSViewRepresentable {
         }
 
         /// 右クリック: 選択に含まれる行ならその全部、外ならその1行だけ(選択は変えない。Finderと同じ)。
+        /// 行の外(空きスペース)ならペースト・新規フォルダ・表示・表示順序。
         func menuNeedsUpdate(_ menu: NSMenu) {
             guard let table else { return }
             let clicked = table.clickedRow
-            var targets: [FileBrowserEntry] = []
-            if clicked >= 0, entries.indices.contains(clicked) {
-                if table.selectedRowIndexes.contains(clicked) {
-                    targets = table.selectedRowIndexes.compactMap { entries.indices.contains($0) ? entries[$0] : nil }
-                } else {
-                    targets = [entries[clicked]]
-                }
+            let folder = state?.currentFolder
+            guard clicked >= 0, entries.indices.contains(clicked) else {
+                menuBuilder.rebuild(
+                    menu, for: FileBrowserMenuContext(kind: .background, entries: [], folder: folder),
+                    actions: actions, locale: locale
+                )
+                return
             }
-            menuBuilder.rebuild(menu, for: targets, actions: actions, locale: locale)
+            let targets: [FileBrowserEntry]
+            if table.selectedRowIndexes.contains(clicked) {
+                targets = table.selectedRowIndexes.compactMap { entries.indices.contains($0) ? entries[$0] : nil }
+            } else {
+                targets = [entries[clicked]]
+            }
+            menuBuilder.rebuild(
+                menu, for: FileBrowserMenuContext(kind: .of(entries[clicked]), entries: targets, folder: folder),
+                actions: actions, locale: locale
+            )
         }
     }
 }
 
-/// Return で開く(`NSTableView`の既定では Return は何もしない)。
-final class FileBrowserTableView: NSTableView {
+/// Return で開く(`NSTableView`の既定では Return は何もしない)。編集メニューのコピー・カット・ペーストと、
+/// ファイルブラウザのキー(⌘⌫ / ⌥⌘V / ⌘[ / ⌘] / ⌘↑)を`editResponder`へ渡す(段階4)。
+final class FileBrowserTableView: NSTableView, NSMenuItemValidation {
     var onReturn: (() -> Void)?
+    weak var editResponder: (any FileBrowserEditResponding)?
 
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -346,6 +449,31 @@ final class FileBrowserTableView: NSTableView {
             onReturn?()
             return
         }
+        if let command = FileBrowserEditCommand.forKey(event), let editResponder {
+            if editResponder.canPerform(command) { editResponder.perform(command) }
+            return
+        }
         super.keyDown(with: event)
+    }
+
+    /// 選ばれている行をもう一度クリックして名前の編集を始めるのは、**1行だけを選んでいるときだけ**
+    /// (複数選択中のクリックは選択を1件に絞る操作。Finder と同じ)。
+    override func validateProposedFirstResponder(_ responder: NSResponder, for event: NSEvent?) -> Bool {
+        if responder is FileBrowserNameField, selectedRowIndexes.count != 1 { return false }
+        return super.validateProposedFirstResponder(responder, for: event)
+    }
+
+    @objc func copy(_ sender: Any?) { editResponder?.perform(.copy) }
+    @objc func cut(_ sender: Any?) { editResponder?.perform(.cut) }
+    @objc func paste(_ sender: Any?) { editResponder?.perform(.paste) }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(copy(_:)): editResponder?.canPerform(.copy) ?? false
+        case #selector(cut(_:)): editResponder?.canPerform(.cut) ?? false
+        case #selector(paste(_:)): editResponder?.canPerform(.paste) ?? false
+        case #selector(selectAll(_:)): numberOfRows > 0
+        default: true
+        }
     }
 }

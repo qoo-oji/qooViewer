@@ -344,6 +344,12 @@ struct ContentView: View {
             }
     }
 
+    /// ファイルブラウザが画面に出ているか(本を開いていない + ウェルカム画面がファイルブラウザ)。
+    /// 編集メニューの「取り消す」「やり直す」はこのときだけファイル操作を指す。
+    private var isFileBrowserShown: Bool {
+        appState.currentBook == nil && welcomeLibrary.mode == .browser
+    }
+
     var body: some View {
         applyPreferenceChangeHandlers(to: applyFileDropTarget(to: windowContent))
         .animation(.easeInOut(duration: 0.15), value: appState.isSidePanelRevealed)
@@ -397,7 +403,10 @@ struct ContentView: View {
                 isCurrentPageBookmarked: appState.isCurrentPageBookmarked,
                 hasPartnerPageDisplayed: appState.hasPartnerPageDisplayed,
                 hasCurrentPageLayoutOverride: appState.hasCurrentPageLayoutOverride,
-                hasPartnerPageLayoutOverride: appState.hasPartnerPageLayoutOverride
+                hasPartnerPageLayoutOverride: appState.hasPartnerPageLayoutOverride,
+                fileBrowserUndoTitle: isFileBrowserShown ? fileBrowser.commandStack.undoTitle : nil,
+                fileBrowserRedoTitle: isFileBrowserShown ? fileBrowser.commandStack.redoTitle : nil,
+                canCreateFolderInFileBrowser: isFileBrowserShown && fileBrowser.currentFolder != nil
             )
         )
         .frame(minWidth: 900, minHeight: 640)
@@ -612,6 +621,7 @@ struct ContentView: View {
             fileBrowser.preferences = preferences
             fileBrowser.favoriteLocations = favoriteLocations
             fileBrowser.isPrivate = isPrivateWindow
+            appState.fileBrowser = fileBrowser
             // 「ツールバーを隠す」「プログレスバーを隠す」「サイドパネルを隠す」は、前回終了時
             // (またはこのセッション中に他のウインドウで変更された時点)の値をpreferencesから
             // 引き継ぐ。これにより、新しいウインドウ/タブや次回起動時にも同じ表示状態で始まる。

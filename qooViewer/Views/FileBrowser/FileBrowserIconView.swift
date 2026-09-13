@@ -56,6 +56,12 @@ struct FileBrowserIconView: View {
                 .focused($isFocused)
                 .focusEffectDisabled()
                 .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow]) { press in
+                    if press.modifiers.contains(.command) {
+                        // ⌘↑ は上へ、⌘↓ は開く(リストと同じ)。
+                        if press.key == .upArrow { actions.perform(.goUp) }
+                        if press.key == .downArrow { actions.open(state.selectedEntries) }
+                        return .handled
+                    }
                     let direction: GridKeyboardNavigation.Direction = switch press.key {
                     case .upArrow: .up
                     case .downArrow: .down
@@ -68,6 +74,19 @@ struct FileBrowserIconView: View {
                 .onKeyPress(.return) {
                     actions.open(state.selectedEntries)
                     return .handled
+                }
+                // 編集メニューのコピー・カット・ペースト(段階4)。焦点がこの一覧にあるときだけ届く。
+                // ⌘⌫ / ⌥⌘V / ⌘[ / ⌘] は AppKit のキー監視で受ける(FileBrowserKeyMonitor のコメント)。
+                .background(FileBrowserKeyMonitor(actions: actions))
+                .onCommand(#selector(NSText.copy(_:))) { actions.perform(.copy) }
+                .onCommand(#selector(NSText.cut(_:))) { actions.perform(.cut) }
+                .onCommand(#selector(NSText.paste(_:))) { actions.perform(.paste) }
+                .contextMenu {
+                    // 空きスペースの右クリック(セルの上ではセルのメニューが先に出る)。
+                    FileBrowserContextMenuItems(
+                        context: FileBrowserMenuContext(kind: .background, entries: [], folder: state.currentFolder),
+                        actions: actions
+                    )
                 }
                 .onChange(of: state.scrollRequest) { _, request in
                     guard let request else { return }
@@ -126,8 +145,14 @@ struct FileBrowserIconView: View {
             isFocused = true
             state.click(entry.id, modifier: Self.currentClickModifier)
         })
+        .opacity(state.isCut(entry) ? 0.5 : 1)
         .contextMenu {
-            FileBrowserContextMenuItems(entries: contextTargets(for: entry), actions: actions)
+            FileBrowserContextMenuItems(
+                context: FileBrowserMenuContext(
+                    kind: .of(entry), entries: contextTargets(for: entry), folder: state.currentFolder
+                ),
+                actions: actions
+            )
         }
         .help(entry.displayName)
     }
@@ -142,5 +167,71 @@ struct FileBrowserIconView: View {
         if flags.contains(.command) { return .toggle }
         if flags.contains(.shift) { return .range }
         return .none
+    }
+}
+
+/// アイコン表示のファイル操作のキー(⌘⌫ / ⌥⌘V / ⌘[ / ⌘])を、このビューが出ている間だけ受ける。
+///
+/// ■ なぜ `.onKeyPress` ではないのか
+/// `.onKeyPress(phases:)` でも、キーを列挙した `.onKeyPress(keys:)` でも、ScrollView に焦点がある状態で
+/// ⌘⌫ と ⌘[ が届かなかった(⌘↑ は矢印キーの `.onKeyPress` で届いた。段階4の実機検証 2026-09-13、macOS 26.6)。
+/// リストは `NSTableView.keyDown` で同じキーを受けているので、割り当ては `FileBrowserEditCommand.forKey` を共有する。
+///
+/// ■ 受けない場合
+/// 別のウインドウのキー、**テキストを編集中**(検索欄での ⌘⌫ は行頭まで消す操作)。監視は
+/// `dismantleNSView` で必ず外す(CLAUDE.md: 閉包がウインドウより長生きしてリークする)。
+struct FileBrowserKeyMonitor: NSViewRepresentable {
+    let actions: FileBrowserActions
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.install(on: view, actions: actions)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.actions = actions
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.uninstall()
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    @MainActor
+    final class Coordinator {
+        weak var actions: FileBrowserActions?
+        private weak var view: NSView?
+        private var monitor: Any?
+
+        func install(on view: NSView, actions: FileBrowserActions) {
+            self.view = view
+            self.actions = actions
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                // NSEvent は Sendable でないので、メインアクターの閉包へは値だけを渡す(Swift 6)。
+                let windowNumber = event.windowNumber
+                let keyCode = event.keyCode
+                let flags = event.modifierFlags
+                let handled = MainActor.assumeIsolated { () -> Bool in
+                    guard let self, let window = self.view?.window, windowNumber == window.windowNumber,
+                          !((window.firstResponder as? NSTextView)?.isEditable ?? false),
+                          let command = FileBrowserEditCommand.forKey(keyCode: keyCode, flags: flags), command != .goUp,
+                          let actions = self.actions
+                    else { return false }
+                    actions.perform(command)
+                    return true
+                }
+                return handled ? nil : event
+            }
+        }
+
+        func uninstall() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            actions = nil
+        }
     }
 }

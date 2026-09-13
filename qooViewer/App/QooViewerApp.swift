@@ -239,6 +239,11 @@ struct QooViewerApp: App {
     ///
     /// ウインドウはまだ1枚も出ていないので、上のストアを開けなかったときと同じくNSAlertを
     /// 同期で出し、終了はexit(0)で行う。
+    /// キーウインドウでテキストを編集中か(編集メニューの「取り消す」をその欄へ流す。改善要望7 段階4)。
+    private static var isEditingText: Bool {
+        (NSApp.keyWindow?.firstResponder as? NSTextView)?.isEditable == true
+    }
+
     private static func confirmOpeningNewerStoreIfNeeded(at url: URL) {
         let verdict = StoreSchemaGuard.verdict(
             storeHashes: StoreSchemaGuard.storeHashes(at: url),
@@ -602,7 +607,8 @@ struct QooViewerApp: App {
                 // そこから「新しいタブで開く」したタブ)は履歴・読書位置・ブックマーク等を
                 // 書かない(何を書かないかはAppState.isPrivateWindowのコメント参照)。
                 // 同じ「新しいウインドウを作る」仲間としてこのグループに置く。ショートカットは
-                // Chrome/Safariと同じ⇧⌘N。
+                // 当初Chrome/Safariと同じ⇧⌘Nだったが、改善要望7 段階4(2026-09-13)でファイルブラウザの
+                // 「新規フォルダ」をFinderと同じ⇧⌘Nにするため、⌥⌘Nへ移した(ユーザーの指示)。
                 //
                 // ■ 2項目とも、環境設定「シークレットモードで起動」の値に関わらず常に置く
                 // (ユーザーの指示)。設定に応じて1項目のラベルと動作を入れ替える案もあったが、
@@ -623,7 +629,17 @@ struct QooViewerApp: App {
                 Button("New Private Window") {
                     openNewWindow(isPrivate: true)
                 }
+                .keyboardShortcut("n", modifiers: [.command, .option])
+
+                // ファイルブラウザの新規フォルダ(改善要望7 段階4)。Finderと同じ⇧⌘N。表示中のフォルダに作り、
+                // そのまま名前の編集が始まる。ファイルブラウザが出ていない・コンピュータ(ボリュームの一覧)を
+                // 表示中は淡色(項目の数は変えない ―― MenuBarMenuGate参照)。
+                Button("New Folder") {
+                    guard let browser = focusedAppState?.fileBrowser, let folder = browser.currentFolder else { return }
+                    browser.operations.newFolder(in: folder)
+                }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
+                .disabled(menuCheckmarkState?.canCreateFolderInFileBrowser != true)
 
                 Divider()
 
@@ -1034,7 +1050,35 @@ struct QooViewerApp: App {
             // 原因になっていた。ユーザー報告で発覚)。SwiftUIの既定のpasteboardコマンド group は
             // 現在のファーストレスポンダに応じて自動的に有効/無効を切り替えてくれるため、あえて
             // 独自実装はせずSwiftUIの既定のままにしておく。
-            CommandGroup(replacing: .undoRedo) { }
+            //
+            // 改善要望7 段階4(2026-09-13): ファイルブラウザのファイル操作の取り消し/やり直しをここに置く。
+            // 題はフォーカス中のウインドウの MenuCheckmarkState(値型)から引く。ファイルブラウザが出ていない・
+            // 積まれていないときは淡色(本の表示中に ⌘Z がファイル操作を戻すと、何が戻ったのか見えない)。
+            // テキスト欄を編集中なら、ファイル操作ではなくその欄の取り消しへ流す。
+            CommandGroup(replacing: .undoRedo) {
+                let undoTitle = menuCheckmarkState?.fileBrowserUndoTitle
+                let redoTitle = menuCheckmarkState?.fileBrowserRedoTitle
+                Button(undoTitle.map { String(format: String(localized: "Undo %@"), $0) }
+                       ?? String(localized: "Undo")) {
+                    if Self.isEditingText {
+                        NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
+                    } else {
+                        focusedAppState?.fileBrowser?.operations.undo()
+                    }
+                }
+                .keyboardShortcut("z", modifiers: .command)
+                .disabled(undoTitle == nil)
+                Button(redoTitle.map { String(format: String(localized: "Redo %@"), $0) }
+                       ?? String(localized: "Redo")) {
+                    if Self.isEditingText {
+                        NSApp.sendAction(Selector(("redo:")), to: nil, from: nil)
+                    } else {
+                        focusedAppState?.fileBrowser?.operations.redo()
+                    }
+                }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+                .disabled(redoTitle == nil)
+            }
 
             // 「編集」(Edit)メニューの実際の内容。以前はそれぞれ「お気に入り」「レイアウト」と
             // いう独立したトップレベルメニュー(CommandMenu)だったが、この「編集」メニューへ
@@ -1662,7 +1706,7 @@ struct QooViewerApp: App {
             if let previousKeyWindow {
                 BookWindowOpener.place(newWindow, basedOn: previousKeyWindow, asTab: false)
             } else if let saved = UserDefaults.standard.string(forKey: "qooViewer.mainWindowFrame") {
-                // 基準にできるウインドウが1つも無い場合(ウインドウをすべて閉じた状態で⇧⌘Nを
+                // 基準にできるウインドウが1つも無い場合(ウインドウをすべて閉じた状態で⌥⌘Nを
                 // 押した場合)は、起動時の主ウインドウと同じく、前回終了時に記憶しておいた
                 // フレームで開く。ここでも「通常の新規ウインドウと同じ」に見えるようにするため。
                 // キー文字列はContentView.mainWindowFrameDefaultsKeyと同じもの(そちらのコメント

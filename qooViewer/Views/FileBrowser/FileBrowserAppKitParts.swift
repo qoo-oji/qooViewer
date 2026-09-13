@@ -91,6 +91,12 @@ final class FileBrowserCellView: NSTableCellView {
     let label: NSTextField
     let icon: NSImageView?
 
+    /// 名前の欄(編集できるのは`editingName`を入れたセルだけ)。
+    var nameField: FileBrowserNameField {
+        // init が必ず FileBrowserNameField を作る。
+        label as! FileBrowserNameField // swiftlint:disable:this force_cast
+    }
+
     init(identifier: NSUserInterfaceItemIdentifier, showsIcon: Bool, iconSize: CGFloat = 16) {
         let cell = FileBrowserOutlinedTextFieldCell(textCell: "")
         cell.lineBreakMode = .byTruncatingMiddle
@@ -98,7 +104,7 @@ final class FileBrowserCellView: NSTableCellView {
         cell.isEditable = false
         cell.isSelectable = false
         cell.drawsBackground = false
-        let field = NSTextField(frame: .zero)
+        let field = FileBrowserNameField(frame: .zero)
         field.cell = cell
         field.isBordered = false
         field.drawsBackground = false
@@ -296,5 +302,42 @@ final class FileBrowserOutlineView: NSOutlineView {
         }
         result.isTemplate = false
         return result
+    }
+}
+
+/// 名前の欄。`editingName`を入れると編集できる欄になり、編集を始めた瞬間に**表示名ではなく実際の名前**へ
+/// 差し替えて、拡張子を除いた部分を選ぶ(Finder と同じ。フォルダは全体)。
+final class FileBrowserNameField: NSTextField {
+    /// 編集に使う名前(`url.lastPathComponent`)。nil なら編集させない。
+    var editingName: String? {
+        didSet {
+            let editable = editingName != nil
+            if isEditable != editable {
+                isEditable = editable
+                isSelectable = editable
+            }
+        }
+    }
+
+    /// フォルダなら名前全体を選ぶ(`.` 以降も名前の一部)。
+    var selectsWholeName = false
+
+    override func becomeFirstResponder() -> Bool {
+        if let editingName, isEditable { stringValue = editingName }
+        let accepted = super.becomeFirstResponder()
+        if accepted, let editingName, let editor = currentEditor() {
+            editor.selectedRange = selectsWholeName
+                ? NSRange(location: 0, length: (editingName as NSString).length)
+                : Self.baseNameRange(of: editingName)
+        }
+        return accepted
+    }
+
+    /// 拡張子を除いた部分の範囲(UTF-16)。先頭の . だけの名前(`.hidden`)と拡張子の無い名前は全体。
+    static func baseNameRange(of name: String) -> NSRange {
+        let ns = name as NSString
+        let dot = ns.range(of: ".", options: .backwards)
+        guard dot.location != NSNotFound, dot.location > 0 else { return NSRange(location: 0, length: ns.length) }
+        return NSRange(location: 0, length: dot.location)
     }
 }

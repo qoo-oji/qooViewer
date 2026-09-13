@@ -696,6 +696,10 @@ final class AppState: ObservableObject {
     /// 直接使うことで、常に正しいウインドウへタブを追加できるようにしている。
     weak var hostWindow: NSWindow?
 
+    /// このウインドウのファイルブラウザ(改善要望7 段階4)。編集メニューの「取り消す」「やり直す」が
+    /// ここから操作の積み場所へ届く。持ち主はContentView(`@StateObject`)なので weak。
+    weak var fileBrowser: FileBrowserState?
+
     /// このウインドウの位置・サイズが決まって、最初の描画を1回通したか
     /// (ContentViewのWindowAccessorが立てる)。
     ///
@@ -1389,6 +1393,12 @@ struct MenuCheckmarkState: Equatable {
     var hasCurrentPageLayoutOverride = false
     /// パートナーページに既にレイアウト上書きが設定されているかどうか。
     var hasPartnerPageLayoutOverride = false
+    /// ファイルブラウザの「取り消す」「やり直す」の対象の名前(改善要望7 段階4)。ファイルブラウザが
+    /// 画面に出ていない・積まれていないなら nil(編集メニューの項目を淡色にする)。
+    var fileBrowserUndoTitle: String?
+    var fileBrowserRedoTitle: String?
+    /// ファイルメニューの「新規フォルダ」(⇧⌘N)を使えるか(ファイルブラウザがフォルダを表示中)。
+    var canCreateFolderInFileBrowser = false
 }
 
 /// メニューバーのLayoutメニュー(8.2節)で、見開き表示中に左右どちらのページを対象にする

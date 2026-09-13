@@ -32,6 +32,17 @@ nonisolated enum FolderBrowserSortKey: String, CaseIterable, Identifiable, Codab
     /// (PageInfoPanelView)と同じ文言をそのまま流用する。日付の2つだけは、Finderの
     /// 並べ替えメニューに合わせて"Date Created"/"Date Modified"という別のキーにしてある
     /// (日本語はどちらも「作成日」「変更日」で同じ)。
+    /// AppKitのメニュー項目用(`String(localized:language:)`で引く)。`titleKey`と同じ文字列。
+    var titleValue: String.LocalizationValue {
+        switch self {
+        case .name: "Name"
+        case .size: "Size"
+        case .kind: "Kind"
+        case .creationDate: "Date Created"
+        case .modificationDate: "Date Modified"
+        }
+    }
+
     var titleKey: LocalizedStringKey {
         switch self {
         case .name: return "Name"
@@ -50,6 +61,14 @@ nonisolated enum FolderBrowserSortDirection: String, CaseIterable, Identifiable,
     case descending
 
     var id: String { rawValue }
+
+    /// AppKitのメニュー項目用。`titleKey`と同じ文字列。
+    var titleValue: String.LocalizationValue {
+        switch self {
+        case .ascending: "Ascending"
+        case .descending: "Descending"
+        }
+    }
 
     var titleKey: LocalizedStringKey {
         switch self {

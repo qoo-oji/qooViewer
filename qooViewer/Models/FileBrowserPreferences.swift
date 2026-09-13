@@ -17,6 +17,14 @@ nonisolated enum FileBrowserViewMode: String, CaseIterable, Codable, Hashable, S
     case list
     /// アイコンを並べたグリッド(SwiftUIのLazyVGrid)。
     case icons
+
+    /// 空きスペースの右クリック「表示」のサブメニューの項目名。
+    var menuTitle: String.LocalizationValue {
+        switch self {
+        case .list: "as List"
+        case .icons: "as Icons"
+        }
+    }
 }
 
 /// ファイルブラウザを最初に開いたときに表示するフォルダ(環境設定「ファイルブラウザ」)。

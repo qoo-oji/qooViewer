@@ -9,8 +9,8 @@ import SwiftUI
 ///          | パスバー(NSPathControl)
 /// ```
 ///
-/// 段階3は**読むだけ**(移動・開く・新規タブ/ウインドウ・Finderで表示)。書く操作(コピー・移動・
-/// 名前の変更・ゴミ箱・新規フォルダ)と Undo は段階4で載る。
+/// 書く操作(コピー・カット・ペースト・名前の変更・ゴミ箱・新規フォルダ・取り消し)は段階4で載った
+/// (FileBrowserOperations)。走っている間はパスバーの上に進捗の帯(FileBrowserProgressBar)が出る。
 ///
 /// ■ すりガラス面の決まりごと
 /// この画面全体が`PanelSurface.welcome`。操作列のアイコン → `.panelIconButtonLabel()`(輪郭込み)、
@@ -56,6 +56,7 @@ struct FileBrowserPane: View {
                 Divider()
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                FileBrowserProgressBar(operations: state.operations)
                 Divider()
                 FileBrowserPathBar(
                     folder: state.currentFolder,
@@ -86,6 +87,9 @@ struct FileBrowserPane: View {
         actions.favoriteLocations = favoriteLocations
         actions.preferences = preferences
         actions.openWindow = openWindow
+        if state.operations.presenter == nil {
+            state.operations.presenter = FileBrowserSheetPresenter(appState: appState)
+        }
     }
 
     // MARK: - 操作列
@@ -133,18 +137,27 @@ struct FileBrowserPane: View {
     private var content: some View {
         if let error = state.loadError {
             loadErrorMessage(error)
-        } else if state.entries.isEmpty, !state.isLoading {
-            if !state.filterText.isEmpty {
-                WelcomeNoMatchesMessage(textKey: "No items match your search.")
-            } else {
-                FileBrowserMessage(systemImage: "folder", textKey: "This folder is empty.")
-            }
         } else {
-            switch state.viewMode {
-            case .list:
-                FileBrowserListView(state: state, actions: actions, outlineWidth: outlineWidth, locale: locale)
-            case .icons:
-                FileBrowserIconView(state: state, actions: actions)
+            // 空のフォルダでも一覧そのものは置き、案内はその上に重ねる(クリックは一覧へ通す)。
+            // 案内だけに差し替えると、⌘V を受ける一覧も空きスペースの右クリックも無くなり、
+            // **空のフォルダへペーストできなかった**(段階4の実機検証 2026-09-13)。
+            ZStack {
+                switch state.viewMode {
+                case .list:
+                    FileBrowserListView(state: state, actions: actions, outlineWidth: outlineWidth, locale: locale)
+                case .icons:
+                    FileBrowserIconView(state: state, actions: actions)
+                }
+                if state.entries.isEmpty, !state.isLoading {
+                    Group {
+                        if !state.filterText.isEmpty {
+                            WelcomeNoMatchesMessage(textKey: "No items match your search.")
+                        } else {
+                            FileBrowserMessage(systemImage: "folder", textKey: "This folder is empty.")
+                        }
+                    }
+                    .allowsHitTesting(false)
+                }
             }
         }
     }

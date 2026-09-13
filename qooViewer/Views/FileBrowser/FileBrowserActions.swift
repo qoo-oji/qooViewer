@@ -104,6 +104,46 @@ final class FileBrowserActions {
         NSWorkspace.shared.activateFileViewerSelecting(entries.map(\.url))
     }
 
+    // MARK: - 書く操作(段階4。実体は FileBrowserOperations)
+
+    /// 書く操作ができる項目か(ボリュームそのもの・コンピュータの行は動かさない)。
+    func canModify(_ entries: [FileBrowserEntry]) -> Bool {
+        !entries.isEmpty && !entries.contains(where: \.isVolume)
+    }
+
+    func copy(_ entries: [FileBrowserEntry]) {
+        state?.operations.copy(entries)
+    }
+
+    func cut(_ entries: [FileBrowserEntry]) {
+        state?.operations.cut(entries)
+    }
+
+    func canPaste(into folder: URL?) -> Bool {
+        folder != nil && (state?.operations.canPaste ?? false)
+    }
+
+    func paste(into folder: URL?, forceMove: Bool = false) {
+        guard let folder else { return }
+        state?.operations.paste(into: folder, forceMove: forceMove)
+    }
+
+    func moveToTrash(_ entries: [FileBrowserEntry]) {
+        guard canModify(entries) else { return }
+        state?.operations.moveToTrash(entries)
+    }
+
+    func newFolder(in folder: URL?) {
+        guard let folder else { return }
+        state?.operations.newFolder(in: folder)
+    }
+
+    /// 右クリックの「名前を変更」。一覧に名前の編集を始めてもらう。
+    func beginRename(_ entries: [FileBrowserEntry]) {
+        guard entries.count == 1, let entry = entries.first, !entry.isVolume else { return }
+        state?.requestRename(entry.id)
+    }
+
     // MARK: - アクセス権・よく使う項目
 
     /// いま見ようとしているフォルダの読み取りを許可してもらう(SidePanelBrowserState.requestFolderAccessと同じ形)。
@@ -185,19 +225,141 @@ final class FileBrowserActions {
     }
 }
 
-/// 右クリックメニューの項目(3つの一覧で同じ並び)。
-enum FileBrowserMenuCommand: CaseIterable {
+/// キーと編集メニューから届く操作(段階4)。リスト(`FileBrowserTableView`)とアイコン表示が同じ口へ渡す。
+enum FileBrowserEditCommand {
+    case copy, cut, paste
+    /// ⌥⌘V「ここに項目を移動」。
+    case moveItemHere
+    /// ⌘⌫。
+    case moveToTrash
+    case goBack, goForward, goUp
+
+    /// 一覧のキー操作から引く(⌘C/⌘X/⌘V は編集メニューが受けるのでここには無い)。
+    static func forKey(_ event: NSEvent) -> FileBrowserEditCommand? {
+        forKey(keyCode: event.keyCode, flags: event.modifierFlags)
+    }
+
+    static func forKey(keyCode: UInt16, flags modifierFlags: NSEvent.ModifierFlags) -> FileBrowserEditCommand? {
+        let flags = modifierFlags.intersection([.command, .option, .shift, .control])
+        switch (keyCode, flags) {
+        case (51, [.command]): return .moveToTrash                // ⌘⌫
+        case (9, [.command, .option]): return .moveItemHere       // ⌥⌘V
+        case (33, [.command]): return .goBack                     // ⌘[
+        case (30, [.command]): return .goForward                  // ⌘]
+        case (126, [.command]): return .goUp                      // ⌘↑
+        default: return nil
+        }
+    }
+}
+
+@MainActor
+protocol FileBrowserEditResponding: AnyObject {
+    func canPerform(_ command: FileBrowserEditCommand) -> Bool
+    func perform(_ command: FileBrowserEditCommand)
+}
+
+/// 対象は**いまの選択**(リストの選択は`state.selection`へ写してある)、行き先は表示中のフォルダ。
+extension FileBrowserActions: FileBrowserEditResponding {
+    func canPerform(_ command: FileBrowserEditCommand) -> Bool {
+        guard let state else { return false }
+        switch command {
+        case .copy, .cut, .moveToTrash: return canModify(state.selectedEntries)
+        case .paste, .moveItemHere: return canPaste(into: state.currentFolder)
+        case .goBack: return state.canGoBack
+        case .goForward: return state.canGoForward
+        case .goUp: return state.canGoUp
+        }
+    }
+
+    func perform(_ command: FileBrowserEditCommand) {
+        guard let state, canPerform(command) else { return }
+        switch command {
+        case .copy: copy(state.selectedEntries)
+        case .cut: cut(state.selectedEntries)
+        case .paste: paste(into: state.currentFolder)
+        case .moveItemHere: paste(into: state.currentFolder, forceMove: true)
+        case .moveToTrash: moveToTrash(state.selectedEntries)
+        case .goBack: state.goBack()
+        case .goForward: state.goForward()
+        case .goUp: state.goUp()
+        }
+    }
+}
+
+/// 右クリックメニューの種類(要望の一覧どおり、フォルダ・ファイル・空きスペース・ツリーで並びが違う)。
+/// **項目の数は選択の状態で変えない**(できない項目は淡色 ―― 計画 段階4)。
+enum FileBrowserMenuKind {
+    case folder
+    case file
+    /// 一覧の空きスペース。
+    case background
+    /// 左のツリーの行(共通の右クリックメニュー)。
+    case tree
+
+    /// 右クリックした項目から決める(複数選択でも、右クリックした 1 件の種類で決める)。
+    static func of(_ entry: FileBrowserEntry) -> FileBrowserMenuKind {
+        entry.isNavigableFolder ? .folder : .file
+    }
+}
+
+/// 右クリックメニューの対象。
+struct FileBrowserMenuContext {
+    let kind: FileBrowserMenuKind
+    let entries: [FileBrowserEntry]
+    /// 「ペースト」「新規フォルダ」の行き先。一覧では表示中のフォルダ、ツリーではその行のフォルダ。
+    let folder: URL?
+}
+
+/// 右クリックメニューの項目(リスト・アイコン・ツリーで共有)。
+enum FileBrowserMenuCommand {
     case open
     case openInNewTab
     case openInNewNormalWindow
     case openInNewPrivateWindow
+    case createCollection
+    case addToCollection
+    case openWith
+    case rename
+    case copy
+    case cut
+    case paste
+    case newFolder
+    case moveToTrash
+    case compress
+    case extract
+    case editMetadata
+    case exportBook
     case showInFinder
 
-    /// 区切り線を**この項目の前に**入れる。
-    var startsGroup: Bool {
-        switch self {
-        case .openInNewTab, .showInFinder: true
-        default: false
+    /// 種類ごとの並び。内側の配列が区切り線で分かれる 1 群。
+    static func groups(for kind: FileBrowserMenuKind) -> [[FileBrowserMenuCommand]] {
+        switch kind {
+        case .folder:
+            [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow],
+             [.createCollection, .addToCollection],
+             [.openWith],
+             [.rename, .copy, .cut, .paste, .newFolder],
+             [.moveToTrash],
+             [.compress],
+             [.editMetadata, .exportBook],
+             [.showInFinder]]
+        case .file:
+            [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow],
+             [.createCollection, .addToCollection],
+             [.openWith],
+             [.rename, .copy, .cut, .paste],
+             [.moveToTrash],
+             [.compress, .extract],
+             [.editMetadata, .exportBook],
+             [.showInFinder]]
+        case .tree:
+            [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow],
+             [.openWith],
+             [.newFolder, .paste],
+             [.showInFinder]]
+        case .background:
+            // 「表示」「表示順序」のサブメニューは組む側が足す(FileBrowserMenuBuilder / FileBrowserBackgroundMenuItems)。
+            [[.paste, .newFolder]]
         }
     }
 
@@ -207,28 +369,66 @@ enum FileBrowserMenuCommand: CaseIterable {
         case .openInNewTab: "Open in New Tab"
         case .openInNewNormalWindow: "Open in New Normal Window"
         case .openInNewPrivateWindow: "Open in New Private Window"
+        case .createCollection: "Create Collection"
+        case .addToCollection: "Add to Collection"
+        case .openWith: "Open With"
+        case .rename: "Rename"
+        case .copy: "Copy"
+        case .cut: "Cut"
+        case .paste: "Paste"
+        case .newFolder: "New Folder"
+        case .moveToTrash: "Move to Trash"
+        case .compress: "Compress"
+        case .extract: "Extract"
+        case .editMetadata: "Edit Metadata…"
+        case .exportBook: "Export Book"
         case .showInFinder: "Show in Finder"
         }
     }
 
-    /// 1件用の項目を複数選択中に淡色にする(**項目の数は状態で変えない** ―― 計画 段階4)。
     @MainActor
-    func isEnabled(for entries: [FileBrowserEntry], actions: FileBrowserActions) -> Bool {
+    func isEnabled(in context: FileBrowserMenuContext, actions: FileBrowserActions) -> Bool {
+        let entries = context.entries
         switch self {
-        case .open, .showInFinder:
-            return !entries.isEmpty
+        case .open:
+            // ファイルは本と画像だけ(要望)。フォルダは中へ(画像フォルダなら本として)。
+            return !entries.isEmpty && entries.allSatisfy { $0.isNavigableFolder || $0.opensAsBook }
         case .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow:
             return actions.canOpenInNewWindow(entries)
+        case .createCollection, .addToCollection, .openWith, .editMetadata, .exportBook:
+            // 段階8で既存機能とつなぐ。それまでは淡色で置く(項目の数を変えない)。
+            return false
+        case .compress, .extract:
+            // 段階6。
+            return false
+        case .rename:
+            return entries.count == 1 && actions.canModify(entries)
+        case .copy, .cut, .moveToTrash:
+            return actions.canModify(entries)
+        case .paste:
+            return actions.canPaste(into: context.folder)
+        case .newFolder:
+            return context.folder != nil
+        case .showInFinder:
+            return !entries.isEmpty
         }
     }
 
     @MainActor
-    func perform(on entries: [FileBrowserEntry], actions: FileBrowserActions) {
+    func perform(in context: FileBrowserMenuContext, actions: FileBrowserActions) {
+        let entries = context.entries
         switch self {
         case .open: actions.openFromMenu(entries)
         case .openInNewTab: entries.first.map { actions.open($0, in: .newTab) }
         case .openInNewNormalWindow: entries.first.map { actions.open($0, in: .newNormalWindow) }
         case .openInNewPrivateWindow: entries.first.map { actions.open($0, in: .newPrivateWindow) }
+        case .createCollection, .addToCollection, .openWith, .compress, .extract, .editMetadata, .exportBook: break
+        case .rename: actions.beginRename(entries)
+        case .copy: actions.copy(entries)
+        case .cut: actions.cut(entries)
+        case .paste: actions.paste(into: context.folder)
+        case .newFolder: actions.newFolder(in: context.folder)
+        case .moveToTrash: actions.moveToTrash(entries)
         case .showInFinder: actions.showInFinder(entries)
         }
     }
@@ -237,31 +437,88 @@ enum FileBrowserMenuCommand: CaseIterable {
 /// AppKitの一覧(リスト・ツリー)の右クリックメニューを組む。項目は`FileBrowserMenuCommand`に委ねる。
 @MainActor
 final class FileBrowserMenuBuilder: NSObject {
-    private var targets: [FileBrowserEntry] = []
+    private var context = FileBrowserMenuContext(kind: .background, entries: [], folder: nil)
     private weak var actions: FileBrowserActions?
 
-    /// `menu`の中身を`entries`向けに作り直す。
-    func rebuild(_ menu: NSMenu, for entries: [FileBrowserEntry], actions: FileBrowserActions?, locale: Locale) {
+    /// `menu`の中身を`context`向けに作り直す。空きスペースには「表示」「表示順序」のサブメニューも付ける。
+    func rebuild(_ menu: NSMenu, for context: FileBrowserMenuContext, actions: FileBrowserActions?, locale: Locale) {
         menu.removeAllItems()
-        targets = entries
+        // 既定の autoenablesItems = true は、対象がアクションに応答するだけで項目を有効にし、`isEnabled` を
+        // 無視する(段階3から、淡色にしたはずの項目がすべて押せる状態だった。段階4の実機検証 2026-09-13)。
+        menu.autoenablesItems = false
+        self.context = context
         self.actions = actions
-        guard let actions, !entries.isEmpty else { return }
-        for command in FileBrowserMenuCommand.allCases {
-            if command.startsGroup, !menu.items.isEmpty { menu.addItem(.separator()) }
-            let item = NSMenuItem(
-                title: String(localized: command.title, language: locale),
-                action: #selector(performCommand(_:)), keyEquivalent: ""
-            )
-            item.target = self
-            item.representedObject = CommandBox(command)
-            item.isEnabled = command.isEnabled(for: entries, actions: actions)
-            menu.addItem(item)
+        guard let actions else { return }
+        for group in FileBrowserMenuCommand.groups(for: context.kind) {
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
+            for command in group {
+                let item = NSMenuItem(
+                    title: String(localized: command.title, language: locale),
+                    action: #selector(performCommand(_:)), keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = CommandBox(command)
+                item.isEnabled = command.isEnabled(in: context, actions: actions)
+                menu.addItem(item)
+            }
         }
+        guard context.kind == .background, let state = actions.state else { return }
+        menu.addItem(.separator())
+        let view = NSMenu()
+        for mode in FileBrowserViewMode.allCases {
+            let item = NSMenuItem(title: String(localized: mode.menuTitle, language: locale),
+                                  action: #selector(chooseViewMode(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = mode.rawValue
+            item.state = state.viewMode == mode ? .on : .off
+            view.addItem(item)
+        }
+        let viewItem = NSMenuItem(title: String(localized: "View", language: locale), action: nil, keyEquivalent: "")
+        viewItem.submenu = view
+        menu.addItem(viewItem)
+
+        let sort = NSMenu()
+        for key in FolderBrowserSortKey.allCases {
+            let item = NSMenuItem(title: String(localized: key.titleValue, language: locale),
+                                  action: #selector(chooseSortKey(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = key.rawValue
+            item.state = state.sortKey == key ? .on : .off
+            sort.addItem(item)
+        }
+        sort.addItem(.separator())
+        for direction in FolderBrowserSortDirection.allCases {
+            let item = NSMenuItem(title: String(localized: direction.titleValue, language: locale),
+                                  action: #selector(chooseSortDirection(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = direction.rawValue
+            item.state = state.sortDirection == direction ? .on : .off
+            sort.addItem(item)
+        }
+        let sortItem = NSMenuItem(title: String(localized: "Sort By", language: locale), action: nil, keyEquivalent: "")
+        sortItem.submenu = sort
+        menu.addItem(sortItem)
     }
 
     @objc private func performCommand(_ sender: NSMenuItem) {
         guard let box = sender.representedObject as? CommandBox, let actions else { return }
-        box.command.perform(on: targets, actions: actions)
+        box.command.perform(in: context, actions: actions)
+    }
+
+    @objc private func chooseViewMode(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let mode = FileBrowserViewMode(rawValue: raw) else { return }
+        actions?.state?.viewMode = mode
+    }
+
+    @objc private func chooseSortKey(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let key = FolderBrowserSortKey(rawValue: raw) else { return }
+        actions?.state?.sortKey = key
+    }
+
+    @objc private func chooseSortDirection(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let direction = FolderBrowserSortDirection(rawValue: raw) else { return }
+        actions?.state?.sortDirection = direction
     }
 
     /// 項目の`representedObject`に列挙型を載せるための箱。
@@ -274,16 +531,57 @@ final class FileBrowserMenuBuilder: NSObject {
 /// SwiftUIの一覧(アイコン表示)の右クリックメニュー。AppKitの側と同じ項目・同じ並び。
 struct FileBrowserContextMenuItems: View {
     @Environment(\.locale) private var locale
-    let entries: [FileBrowserEntry]
+    let context: FileBrowserMenuContext
     let actions: FileBrowserActions
 
     var body: some View {
-        ForEach(Array(FileBrowserMenuCommand.allCases.enumerated()), id: \.offset) { index, command in
-            if command.startsGroup, index > 0 { Divider() }
-            Button(String(localized: command.title, language: locale)) {
-                command.perform(on: entries, actions: actions)
+        let groups = FileBrowserMenuCommand.groups(for: context.kind)
+        ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
+            if index > 0 { Divider() }
+            ForEach(Array(group.enumerated()), id: \.offset) { _, command in
+                Button(String(localized: command.title, language: locale)) {
+                    command.perform(in: context, actions: actions)
+                }
+                .disabled(!command.isEnabled(in: context, actions: actions))
             }
-            .disabled(!command.isEnabled(for: entries, actions: actions))
+        }
+        if context.kind == .background, let state = actions.state {
+            Divider()
+            FileBrowserBackgroundMenuItems(state: state)
+        }
+    }
+}
+
+/// 空きスペースの「表示」「表示順序」。
+private struct FileBrowserBackgroundMenuItems: View {
+    @Environment(\.locale) private var locale
+    @ObservedObject var state: FileBrowserState
+
+    var body: some View {
+        Picker("View", selection: $state.viewMode) {
+            ForEach(FileBrowserViewMode.allCases, id: \.self) { mode in
+                Text(String(localized: mode.menuTitle, language: locale)).tag(mode)
+            }
+        }
+        .pickerStyle(.menu)
+        Menu("Sort By") {
+            Picker(selection: $state.sortKey) {
+                ForEach(FolderBrowserSortKey.allCases) { key in
+                    Text(key.titleKey).tag(key)
+                }
+            } label: {
+                EmptyView()
+            }
+            .pickerStyle(.inline)
+            Divider()
+            Picker(selection: $state.sortDirection) {
+                ForEach(FolderBrowserSortDirection.allCases) { direction in
+                    Text(direction.titleKey).tag(direction)
+                }
+            } label: {
+                EmptyView()
+            }
+            .pickerStyle(.inline)
         }
     }
 }

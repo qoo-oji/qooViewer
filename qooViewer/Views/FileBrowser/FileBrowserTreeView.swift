@@ -150,6 +150,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
         private var allowsEditingFavorites = false
         private var appliedFavorites: [FavoriteLocationStore.Item] = []
         private var appliedFolderID: String??
+        private var appliedChange: FileBrowserState.FileSystemChange?
         private var isApplyingSelection = false
         private let menuBuilder = FileBrowserMenuBuilder()
         private var volumeObservers: [NSObjectProtocol] = []
@@ -213,6 +214,10 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 outline.reloadData()
                 for group in groups { outline.expandItem(group) }
             }
+            if let change = view.state.fileSystemChange, change != appliedChange {
+                appliedChange = change
+                reloadExpandedRows(in: change.folderIDs)
+            }
             let folderID = FileBrowserState.id(of: view.state.currentFolder)
             if folderID != appliedFolderID || needsRedraw {
                 appliedFolderID = folderID
@@ -258,6 +263,19 @@ struct FileBrowserTreeView: NSViewRepresentable {
             }
         }
 
+        /// 自分の操作で中身が変わったフォルダのうち、**開いていて子を読み終えている行だけ**を読み直す
+        /// (段階3の既知の制限「たたんで開き直すまで反映されない」の手当て。閉じた行は次に開いたときに読む)。
+        private func reloadExpandedRows(in folderIDs: Set<String>) {
+            guard let outline else { return }
+            for row in 0..<outline.numberOfRows {
+                guard let node = outline.item(atRow: row) as? Node, node.loadsChildren, node.children != nil,
+                      let url = node.url, folderIDs.contains(FileBrowserState.id(for: url)),
+                      outline.isItemExpanded(node)
+                else { continue }
+                loadChildren(of: node)
+            }
+        }
+
         private func loadChildren(of node: Node) {
             guard let url = node.url else { return }
             node.loadGeneration += 1
@@ -277,7 +295,13 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 guard let self, let node, let outline = self.outline, node.loadGeneration == mine,
                       outline.isItemExpanded(node)
                 else { return }
-                node.children = folders.map { Node(kind: .folder, url: $0.0, name: $0.1) }
+                // 読み直し(reloadExpandedRows)で開いている孫の行が閉じないよう、同じパスの行は同じ Node を使い回す
+                // (NSOutlineView は開閉を項目の同一性で覚えている)。
+                let previous = Dictionary(
+                    (node.children ?? []).compactMap { child in child.url.map { (FileBrowserState.id(for: $0), child) } },
+                    uniquingKeysWith: { first, _ in first }
+                )
+                node.children = folders.map { previous[FileBrowserState.id(for: $0.0)] ?? Node(kind: .folder, url: $0.0, name: $0.1) }
                 outline.reloadItem(node, reloadChildren: true)
                 self.applySelection(folderID: self.appliedFolderID ?? nil)
             }
@@ -384,7 +408,10 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 menu.removeAllItems()
                 return
             }
-            menuBuilder.rebuild(menu, for: [entry], actions: actions, locale: locale)
+            menuBuilder.rebuild(
+                menu, for: FileBrowserMenuContext(kind: .tree, entries: [entry], folder: node.url),
+                actions: actions, locale: locale
+            )
             if case .favorite(let id) = node.kind {
                 menu.addItem(.separator())
                 let item = NSMenuItem(

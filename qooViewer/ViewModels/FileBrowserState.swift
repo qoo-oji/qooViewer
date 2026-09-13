@@ -106,8 +106,24 @@ final class FileBrowserState: ObservableObject {
         }
     }
 
-    /// 取り消し・やり直しの積み場所(ウインドウごと。FileCommandStackの型コメント)。段階4で使い始める。
+    /// 取り消し・やり直しの積み場所(ウインドウごと。FileCommandStackの型コメント)。
     let commandStack = FileCommandStack()
+    /// 書く操作の窓口(段階4)。
+    let operations = FileBrowserOperations()
+
+    /// ⌘X で覚えた項目のパス(`FileBrowserOperations.paths(of:)`の規則)。一覧で淡く描き、ペーストで一致すれば移動。
+    @Published private(set) var cutPaths: Set<String> = []
+    /// 名前の編集を始めてほしい項目(新規フォルダの直後・右クリックの「名前を変更」)。
+    /// 一覧はこの項目が見えるようになった時点で編集を始める。
+    @Published private(set) var renameRequest: ScrollRequest?
+    /// 自分の操作でファイルが変わったフォルダ(ツリーが開いている行を読み直す)。
+    @Published private(set) var fileSystemChange: FileSystemChange?
+
+    struct FileSystemChange: Equatable {
+        let serial: Int
+        /// 変わったフォルダの id(`FileBrowserState.id(for:)`)。
+        let folderIDs: Set<String>
+    }
 
     /// 「フォルダを上に」を読む。差し替えたら購読し直す。
     weak var preferences: AppPreferences? {
@@ -147,6 +163,11 @@ final class FileBrowserState: ObservableObject {
     private var isVisible = false
     /// 読み込みが終わったら選んでスクロールする項目(上へ・戻る・reveal)。
     private var pendingReveal: String?
+    /// 読み込みが終わったら選ぶ項目(ペーストで運んだもの)。
+    private var pendingSelection: Set<String>?
+    private var changeSerial = 0
+    private var renameSerial = 0
+    private var stackObservation: AnyCancellable?
     /// ⇧クリックと矢印キーの起点。
     private var selectionAnchor: String?
     private var scrollSerial = 0
@@ -171,6 +192,9 @@ final class FileBrowserState: ObservableObject {
             Task { @MainActor [weak self] in self?.handleFolderChanged() }
         }
         observeSystem()
+        operations.state = self
+        // 取り消しの題が変わったら、メニューバーの値(ContentViewのMenuCheckmarkState)を作り直してもらう。
+        stackObservation = commandStack.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
 
     // MARK: - 表示の出入り
@@ -215,6 +239,8 @@ final class FileBrowserState: ObservableObject {
         watcher?.tearDown()
         systemObservations.removeAll()
         preferenceObservation = nil
+        stackObservation = nil
+        operations.presenter = nil
     }
 
     // MARK: - 移動
@@ -264,6 +290,12 @@ final class FileBrowserState: ObservableObject {
             forwardStack.removeAll()
         }
         move(to: parent, selecting: Self.id(for: url))
+    }
+
+    /// 今のフォルダを読み直し、読み終わったら `ids` を選んで最初の1件を見える位置へ(自分の操作で作ったもの)。
+    func reload(selecting ids: Set<String>?) {
+        if let ids { pendingSelection = ids }
+        reload()
     }
 
     /// 今のフォルダを読み直す(選択は、残っている項目のぶんだけ保つ)。
@@ -390,9 +422,46 @@ final class FileBrowserState: ObservableObject {
             applyFilter()
             scrollSerial += 1
             scrollRequest = ScrollRequest(id: reveal, serial: scrollSerial)
+        } else if let wanted = pendingSelection {
+            pendingSelection = nil
+            let present = wanted.filter { id in allEntries.contains { $0.id == id } }
+            applyFilter()
+            let visible = entries.filter { present.contains($0.id) }
+            if !visible.isEmpty {
+                selection = Set(visible.map(\.id))
+                selectionAnchor = visible[0].id
+                scrollSerial += 1
+                scrollRequest = ScrollRequest(id: visible[0].id, serial: scrollSerial)
+            }
         } else {
             applyFilter()
         }
+    }
+
+    // MARK: - 書く操作の補助(段階4)
+
+    func setCutPaths(_ paths: Set<String>) {
+        if cutPaths != paths { cutPaths = paths }
+    }
+
+    /// 項目がカット済みか(淡く描く)。
+    func isCut(_ entry: FileBrowserEntry) -> Bool {
+        !cutPaths.isEmpty && cutPaths.contains(MountTable.normalized(entry.url.standardizedFileURL.path))
+    }
+
+    func requestRename(_ id: String) {
+        renameSerial += 1
+        renameRequest = ScrollRequest(id: id, serial: renameSerial)
+        selection = [id]
+        selectionAnchor = id
+        scrollSerial += 1
+        scrollRequest = ScrollRequest(id: id, serial: scrollSerial)
+    }
+
+    func noteFileSystemChange(in folders: [URL]) {
+        guard !folders.isEmpty else { return }
+        changeSerial += 1
+        fileSystemChange = FileSystemChange(serial: changeSerial, folderIDs: Set(folders.map { Self.id(for: $0) }))
     }
 
     private func resort() {
