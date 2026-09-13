@@ -172,7 +172,9 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
 
 - **Do not update README.md/MANUAL.md/CHANGELOG.md, and do not run `git commit`, unless explicitly
   instructed for that specific change.** Likewise, do not create release tags (e.g. `vX.YY`) unless
-  explicitly instructed.
+  explicitly instructed. **A request to "update the documentation" (ドキュメントを更新) is such an
+  instruction and covers the whole set** — CHANGELOG.md (`[Unreleased]`), MANUAL.md, README.md, docs/, and
+  this file as needed — not just docs/. It does not cover bumping `MARKETING_VERSION` or cutting a release.
 - **CHANGELOG.md entries**: Keep a Changelog format, written in Japanese, and limited strictly to
   user-visible impact (what changed for someone using the app) — not implementation detail. Match the
   tone/granularity already in the file (short bullet per change, nested bullets for multi-part changes).
