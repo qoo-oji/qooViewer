@@ -172,9 +172,10 @@
 - **文言**: `xcodebuild` のビルドは `Localizable.xcstrings` へ新しい鍵を書き戻さない。段階 2 の 43 件は JSON へ手で足した
   (`json.dumps(indent=2, separators=(',', ' : '), ensure_ascii=False)` で Xcode の書式と一致する)。Xcode で開いてビルドすると
   並びが書き戻されることがあるが、その差分はそのままコミットしてよい。
-- **CI**: `build.yml` は main への push でしか走らない(このブランチでは走らない)ので、`test-volumes.sh` を呼ぶ変更は
-  **main へ入れたときに初めて GitHub で試される**。macos-26 のランナーで exFAT / FAT32 のイメージが付かなければ
-  `FileOperationVolumeTests` が落ちるので、マージ後の最初の run を確認すること(先に試すなら workflow_dispatch か一時的な branches 追加)。
+- **CI**: `build.yml` / `check.yml` は main への push でしか自動では走らない(このブランチでは走らない)。`test-volumes.sh` を呼ぶ変更は
+  **このブランチで手動実行(workflow_dispatch)して確認済み(2026-09-13)** ―― macos-26 のランナーでも 4 本のボリュームが付いて外れ、
+  `FileOperationVolumeTests` の 7 件(exFAT の ENOTSUP・FAT32 の上限を含む)を含めて全テストが通った。Check(actionlint を含む)も成功。
+  このブランチで CI に関わる変更をしたら、同じく `gh workflow run build.yml --ref feature/file-browser`(と `check.yml`)で確かめる。
 
 ### 2.1 `Services/FileOperations/FileIO.swift`(新規)
 
