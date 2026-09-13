@@ -17,13 +17,13 @@
 
 ```
 WelcomeView(PanelSurface.welcome)
- ├─ WelcomeTopBar: [ファイルブラウザ] ライブラリのチップ … ＋
- ├─ Divider
+ ├─ WelcomeTopBar: [ファイルブラウザ] | ライブラリのチップ … ＋      ← | は WelcomeSeparator
+ ├─ WelcomeSeparator(横)
  └─ mode == .shelf   → WelcomeLibraryPane(本棚)
     mode == .browser → FileBrowserPane
         ├─ FileBrowserTreeView(NSOutlineView): ボリューム / ホーム / よく使う項目 ＋
-        ├─ 区切り線(幅のドラッグ)
-        └─ 右: 操作列 [‹ › ↑] [検索欄] [リスト|アイコン][並べ替え][大きさ]
+        ├─ WelcomeSeparator(縦。幅のドラッグ)
+        └─ 右: 操作列 [‹ › ↑] [検索欄] [大きさ(アイコン表示のみ)][リスト][アイコン][並べ替え]
                FileBrowserListView(NSTableView) / FileBrowserIconView(LazyVGrid)
                FileBrowserPathBar(NSPathControl)
 ```
@@ -36,6 +36,16 @@ WelcomeView(PanelSurface.welcome)
 | `FileBrowserListing` / `FileBrowserEntry` / `FileBrowserLoadError` | Services/FileBrowser | 一覧の読み取り(nonisolated、`FileIO` の上で呼ぶ) |
 | `FileBrowserActions` | Views/FileBrowser | ペインの `@State`。3 つの一覧が共有する「開く」などの口(相手は全部 weak) |
 | `WindowContentRequest` | Models | 本のウインドウの提示値(`book` / `browse`) |
+
+## 帯と操作列の見た目(2026-09-13、ユーザー指示)
+
+- 帯の切り替えは**「ファイルブラウザ」と文字で出す**ボタン(先頭に小さなフォルダのアイコン)。ライブラリのチップと同じ形・地で、
+  **幅は文字に合わせる**(チップの固定幅にしない)。アイコンだけのボタンは、何に切り替わるのか読めなかった。
+- 切り替えボタンとライブラリの並びの間、帯の下、ツリーと右ペインの間は **`WelcomeSeparator`**(文字色 28% の 1pt の線 +
+  `.panelOutlinedContent()`)。標準の `Divider`(`separatorColor`)はすりガラスの上で薄く、境目が読み取りにくかった。
+  帯の下の線は本棚のときも同じ。右ペインの中(操作列の下・パスバーの上)は標準の `Divider` のまま。
+- アイコンの大きさのスライダーは**アイコン表示のときだけ出し、列の左端(リスト表示ボタンの左)に置く**。列は右端に揃えてあるので、
+  出し入れしても表示切替・並べ替えのボタンが動かない。検索欄は `WelcomePaneHeaderLayout` が行の中央に置くので動かない。
 
 ## 一覧の読み込み
 

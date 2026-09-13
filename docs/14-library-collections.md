@@ -366,8 +366,8 @@ Caches に置くのは、カバーから数 ms で作り直せる**派生物**�
 
 ```
 WelcomeView(PanelSurface.welcome)
- ├─ WelcomeTopBar(44pt): [ファイルブラウザ] ライブラリのチップ(横スクロール) | ＋
- ├─ Divider
+ ├─ WelcomeTopBar(44pt): [ファイルブラウザ] | ライブラリのチップ(横スクロール) | ＋
+ ├─ WelcomeSeparator(標準の Divider より濃い線。→ 15)
  ├─ FileBrowserPane                                         ← WelcomeLibraryState.mode == .browser(→ 15)
  └─ WelcomeLibraryPane                                      ← mode == .shelf
      ├─ WelcomePaneHeaderLayout: [戻る・名前・冊数(中のみ)] | 検索欄(中央) | LibraryPaneControls

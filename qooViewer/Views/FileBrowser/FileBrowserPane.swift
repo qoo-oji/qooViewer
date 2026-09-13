@@ -47,7 +47,8 @@ struct FileBrowserPane: View {
             )
             .frame(width: treeWidth)
 
-            Divider()
+            // 左右の境目。標準の Divider はすりガラスの上で薄い(WelcomeSeparator参照)。
+            WelcomeSeparator(axis: .vertical)
                 .overlay { widthDragHandle(currentWidth: treeWidth) }
 
             VStack(spacing: 0) {
@@ -104,16 +105,22 @@ struct FileBrowserPane: View {
             }
             WelcomeSearchField(text: $state.filterText, prompt: "Search This Folder")
             HStack(spacing: 6) {
+                // アイコンの大きさ。**アイコン表示のときだけ出し、列の左端(リスト表示ボタンの左)に置く**
+                // (ユーザー指示 2026-09-13)。列は右端に揃えてあるので、左へ伸びる形にしておけば出し入れしても
+                // 表示切替・並べ替えのボタンが動かない(LibraryPaneControlsで編集モードの2ボタンを「＋」の左に
+                // 足すのと同じ理由)。リスト表示で淡色のスライダーが残っていると、何を変えるものなのか読めない。
+                // 行の中央の検索欄はWelcomePaneHeaderLayoutが行の中央に置くので動かない。
+                // ネイティブのスライダーはつまみが白く明るい面で消えるので、輪郭ではなく溝を敷く
+                // (LibraryPaneControlsと同じ)。
+                if state.viewMode == .icons {
+                    Slider(value: $state.iconSize, in: FileBrowserState.iconSizeRange)
+                        .frame(width: 110)
+                        .panelControlWell()
+                        .help("Icon Size")
+                }
                 FileBrowserViewModeButton(mode: .list, selection: $state.viewMode)
                 FileBrowserViewModeButton(mode: .icons, selection: $state.viewMode)
                 FileBrowserSortMenu(key: $state.sortKey, direction: $state.sortDirection)
-                // ネイティブのスライダーはつまみが白く明るい面で消えるので、輪郭ではなく溝を敷く
-                // (LibraryPaneControlsと同じ)。
-                Slider(value: $state.iconSize, in: FileBrowserState.iconSizeRange)
-                    .frame(width: 110)
-                    .panelControlWell()
-                    .disabled(state.viewMode != .icons)
-                    .help("Icon Size")
             }
         }
         .padding(.horizontal, 12)

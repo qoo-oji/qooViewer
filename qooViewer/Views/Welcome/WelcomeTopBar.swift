@@ -18,7 +18,7 @@ import SwiftUI
 /// ■ 輪郭(すりガラス面の決まりごと)
 /// - 「＋」 → `.panelIconButtonLabel()`が内側で輪郭を掛けている
 /// - 「ファイルブラウザ」 → 押していないときは`.panelOutlinedContent()`、押している間はアクセント地
-///   なので`.panelOutlinedAccent(in:)`(本棚の編集トグルと同じ描き方)
+///   なので`.panelOutlinedAccent(in:)`(ライブラリのチップと同じ描き方)
 /// - ライブラリ名 → 未選択は`.panelOutlinedContent()`、選択中はアクセント地なので
 ///   `.panelOutlinedAccent(in:)`(地の色と重ね色が近いと、どれを選んでいるか分からなくなる)
 struct WelcomeTopBar: View {
@@ -79,6 +79,10 @@ struct WelcomeTopBar: View {
         HStack(spacing: 8) {
             fileBrowserToggle
 
+            // ファイルブラウザ(モードの切り替え)とライブラリの並び(本棚の中の選択)は別の役割なので区切る
+            // (ユーザー要望 2026-09-13)。
+            WelcomeSeparator(axis: .vertical, length: 20)
+
             libraryChips
 
             Spacer(minLength: 0)
@@ -123,23 +127,31 @@ struct WelcomeTopBar: View {
     }
 
     /// 本棚 ⇄ ファイルブラウザ。
+    ///
+    /// **アイコンではなく「ファイルブラウザ」と文字で出す**(ユーザー指示 2026-09-13)。フォルダの絵だけでは
+    /// 何に切り替わるボタンなのか読めなかった。見た目はライブラリのチップと同じ形(地・角丸・余白)に揃え、
+    /// **幅は文字に合わせる**(チップのように固定幅にしない。横長になってよい、というユーザーの指定)。
+    /// チップと区別できるよう、先頭にフォルダのアイコンを添える。
     private var fileBrowserToggle: some View {
         let isBrowsing = state.mode == .browser
-        let shape = RoundedRectangle(cornerRadius: PanelIconButtonLabel.cornerRadius, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         return Button {
             state.mode = isBrowsing ? .shelf : .browser
         } label: {
-            Image(systemName: "folder")
-                .font(.system(size: 15, weight: .medium))
+            Label("File Browser", systemImage: "folder")
+                .labelStyle(.titleAndIcon)
+                .lineLimit(1)
+                .fixedSize()
+                // 選択中は不透明なアクセント地があるので輪郭は掛けない(チップと同じ判断)。
                 .panelOutlinedContent(isEnabled: !isBrowsing)
-                .frame(width: PanelIconButtonLabel.width, height: PanelIconButtonLabel.height)
-                .background(shape.fill(isBrowsing ? Color.accentColor : Color.clear))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(shape.fill(isBrowsing ? Color.accentColor : Color.primary.opacity(0.07)))
                 .panelOutlinedAccent(in: shape, isEnabled: isBrowsing)
                 .foregroundStyle(isBrowsing ? Color.white : Color.primary)
-                .contentShape(Rectangle())
+                .contentShape(shape)
         }
         .buttonStyle(.plain)
-        .help("File Browser")
     }
 
     @ViewBuilder

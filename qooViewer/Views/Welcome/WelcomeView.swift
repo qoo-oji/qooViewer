@@ -48,7 +48,8 @@ struct WelcomeView: View {
             WelcomeTopBar(
                 state: state, allowsEditing: allowsEditing, selectedLibraryID: library?.id
             )
-            Divider()
+            // 標準の Divider はすりガラスの上で薄く、帯と中身の境目が読みにくい(WelcomeSeparator参照)。
+            WelcomeSeparator(axis: .horizontal)
             if state.mode == .browser {
                 FileBrowserPane(state: fileBrowser)
             } else if let library {

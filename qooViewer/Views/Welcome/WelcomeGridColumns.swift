@@ -70,3 +70,43 @@ struct WelcomeNoMatchesMessage: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
+
+/// ウェルカム画面の区切り線(改善要望7 段階3、2026-09-13)。帯の下・帯の中(ファイルブラウザとライブラリの間)・
+/// ファイルブラウザの左右の間に使う。
+///
+/// ■ なぜ`Divider()`ではないのか
+/// ユーザー指摘: すりガラスの面の上では標準の区切り線(`separatorColor`、ダークで白の約10%)が薄く、
+/// 領域の境目が読み取りにくい。文字色を少し濃くした線にする。
+///
+/// ■ 輪郭(すりガラス面の決まりごと)
+/// 線は文字色から作るので、面を文字色で塗りつぶすと線ごと消える。`.panelOutlinedContent()`で
+/// 文字と同じ反対色の輪郭を付ける(線の形がそのまま太って縁取られる)。
+struct WelcomeSeparator: View {
+    enum Axis {
+        /// 横に伸びる線(上下の区切り)。
+        case horizontal
+        /// 縦に伸びる線(左右の区切り)。
+        case vertical
+    }
+
+    let axis: Axis
+    /// 線の長さ。nil なら親の大きさいっぱい。
+    var length: CGFloat?
+
+    static let thickness: CGFloat = 1
+    static let opacity: Double = 0.28
+
+    var body: some View {
+        let line = Rectangle().fill(Color.primary.opacity(Self.opacity))
+        Group {
+            switch axis {
+            case .horizontal:
+                line.frame(maxWidth: length ?? .infinity).frame(height: Self.thickness)
+            case .vertical:
+                line.frame(width: Self.thickness).frame(maxHeight: length ?? .infinity)
+            }
+        }
+        .panelOutlinedContent()
+        .accessibilityHidden(true)
+    }
+}
