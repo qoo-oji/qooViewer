@@ -6,7 +6,7 @@ import Testing
 
 /// ドラッグ&ドロップの判定(Models/FileDropPlan.swift と FileBrowserDragAndDrop.swift の FileBrowserDropDecision)。
 /// ファイルシステムに触らない純粋な判定なので、実在しないパスで確かめる。「同じボリュームか」は
-/// `/Volumes/Other` の下かどうかで答える偽物を渡す。
+/// `/Volumes/XOther` の下かどうかで答える偽物を渡す。
 @MainActor
 struct FileDropPlanTests {
     private static let home = URL(fileURLWithPath: "/tmp/qooDropPlan/home", isDirectory: true)
