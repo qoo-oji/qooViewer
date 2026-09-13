@@ -68,4 +68,17 @@ struct FileNameValidationTests {
         let japanese = Locale(identifier: "ja")
         #expect(FileNameValidation.untitledFolderName(existing: [], locale: japanese) == "名称未設定フォルダ")
     }
+
+    /// 期待値は実機の Finder(macOS 26.6、日本語)の「新規フォルダ」で作られた名前(2026-09-14 実測)。
+    @Test("新規フォルダの番号は実機の Finder と同じ", arguments: [
+        (["名称未設定フォルダ", "名称未設定フォルダ 2"], "名称未設定フォルダ 3"),
+        (["名称未設定フォルダ", "名称未設定フォルダ 3"], "名称未設定フォルダ 2"),
+        (["名称未設定フォルダ 2"], "名称未設定フォルダ"),
+        (["名称未設定フォルダ 2 2", "名称未設定フォルダ"], "名称未設定フォルダ 2"),
+        (["名称未設定フォルダ 1", "名称未設定フォルダ"], "名称未設定フォルダ 2"),
+    ])
+    func untitledFolderNameMatchesFinder(existing: [String], expected: String) {
+        let japanese = Locale(identifier: "ja")
+        #expect(FileNameValidation.untitledFolderName(existing: Set(existing), locale: japanese) == expected)
+    }
 }

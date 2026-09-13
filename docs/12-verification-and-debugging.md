@@ -177,6 +177,13 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
   終わったら**記録のフォルダごと消す**(残すと、外したボリュームを次の起動で探して警告が出る)。ロックは `chflags uchg` で掛ける。
   使い捨てボリュームの `.Trashes` はシェルから読めない(Permission denied)ので、ゴミ箱の中の状態は ⌘Z の結果で確かめる。
   **ゴミ箱に触るプローブを一時フォルダで走らせない**(`NSWorkspace.recycle` は起動ボリュームなら本物の `~/.Trash` へ入れる)。
+- **サンドボックスの許可の有無を測るときは、Debug に残っている許可を先に疑う**(2026-09-14、Finder からのペーストの実測)。
+  ① テストで作られた Debug の app(DerivedData)には Xcode が `com.apple.security.temporary-exception.files.absolute-path.read-only` = `/` を
+  足している(`codesign -d --entitlements -` で見える)。`-derivedDataPath` を scratchpad にした素の `build` なら付かない。
+  ② Debug の defaults の `qooViewer.grantedFolderBookmarks` に `/` の許可が入っていることがある(開発中に付けたもの)。控えてから `defaults delete`
+  して起動し、終わったら `defaults import` で戻す。どちらも、プロセスへの判定を `sandbox_check(pid, "file-read-data", SANDBOX_FILTER_PATH, path)` を
+  呼ぶ小さな C のプログラムで確かめてから測る(一度、両方が効いたまま「拡張の無い URL でも読める」と測ってしまった)。
+  対照は「一度もペーストボードに載せていない同じボリュームのファイル」が拒否されること。
 
 ## テスト中に出る虹色のカーソル
 

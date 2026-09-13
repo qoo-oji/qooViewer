@@ -81,9 +81,10 @@ nonisolated enum FileNameValidation {
 
     /// 新規フォルダの名前。1 つ目は「名称未設定フォルダ」、塞がっていれば「名称未設定フォルダ 2」…。
     ///
-    /// - Note: 2 つ目以降の番号の付け方は Finder の「新規フォルダ」の既知の挙動(`untitled folder 2`)に
-    ///   合わせてあるが、**この機の Finder ではまだ確かめていない**(計画 §2.4)。段階 4 で新規フォルダの
-    ///   ボタンを置くときに実機の Finder と突き合わせる。
+    /// - Note: 2 つ目以降の番号の付け方は、この機(macOS 26.6、日本語)の Finder の「新規フォルダ」と
+    ///   突き合わせて同じだった(2026-09-14)。2 から数えて最初に空いた番号を使い(`2` を消せば次は `2`)、
+    ///   基の名前が空いていれば番号は付けず、同じ名前の**ファイル**も塞がっているものとして数え、
+    ///   `… 1` や `… 2 2` のような既存の名前の数字は解釈しない。`FileNameValidationTests` に固定してある。
     static func untitledFolderName(existing: Set<String>, locale: Locale = AppLanguage.currentLocale) -> String {
         nextAvailableName(
             for: String(localized: "untitled folder", language: locale),
