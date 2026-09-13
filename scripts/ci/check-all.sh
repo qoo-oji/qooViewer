@@ -22,6 +22,7 @@ run() {
 }
 
 run check-team-id.sh
+run check-private-terms.sh
 run check-extensions.sh
 run check-fixtures.sh
 run check-xcstrings.sh

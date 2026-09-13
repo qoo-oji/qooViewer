@@ -33,3 +33,11 @@ Packages/
 # 各自の Apple Developer Team ID を書くためのファイル。
 # リポジトリには含めない(README「ビルド方法」参照)。
 Local.xcconfig
+
+# ── 個人情報の流出防止(改善要望7) ────────────────────────────────────────────
+# 蔵書のフォルダ名・ファイル名から作る禁止語の一覧は、リポジトリの**外**
+# (~/Library/Application Support/qooViewer-dev/)に置くのが正で、中に置くことはない。
+# 万一置かれても追跡されないよう、名前のパターンでも塞ぐ。追跡されていないことは
+# scripts/ci/check-private-terms.sh が確かめる。
+private-terms*.txt
+*.local

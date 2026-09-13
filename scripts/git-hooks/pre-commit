@@ -1,0 +1,5 @@
+#!/bin/bash
+# ステージされた中身に蔵書の名前・個人のパスが無いことを確かめる(scripts/ci/check-private-terms.sh)。
+# 有効にするには scripts/dev/install-git-hooks.sh を一度実行する(core.hooksPath をこのフォルダにする)。
+cd "$(git rev-parse --show-toplevel)" || exit 1
+exec scripts/ci/check-private-terms.sh --require-terms --staged

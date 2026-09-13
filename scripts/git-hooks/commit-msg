@@ -1,0 +1,4 @@
+#!/bin/bash
+# コミットメッセージに蔵書の名前・個人のパスが無いことを確かめる。
+cd "$(git rev-parse --show-toplevel)" || exit 1
+exec scripts/ci/check-private-terms.sh --require-terms --message "$1"

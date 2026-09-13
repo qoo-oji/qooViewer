@@ -180,6 +180,18 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
 
 ## Working conventions for this repository
 
+- **個人情報の流出防止(改善要望7、2026-09-13)。蔵書のフォルダ名・ファイル名(ボリューム名は除く)を、コード・
+  コメント・docs・テスト・フィクスチャ・コミットメッセージ・ブランチ/タグ名・スクリーンショットのどこにも書かない。**
+  「一般的な語だから」は理由にならない(実在する名前は語の意味に関わらず流出)。書いてよいのは集計と形だけ。
+  検査は `scripts/ci/check-private-terms.sh`(`check-all.sh` の一部。手元の禁止語リスト
+  `~/Library/Application Support/qooViewer-dev/private-terms.txt` は `scripts/dev/build-private-terms.py` で自分の
+  蔵書から作る ―― **リポジトリの外に置き、絶対にコミットしない**)と git hook(`scripts/dev/install-git-hooks.sh` を
+  一度実行。リストが無いとコミットは拒否される)。検査の出力に語そのものは出ない(`--reveal` は手元だけ)。
+  一般語として見逃す語は `private-terms-allow.txt` へ ―― 実在の固有名は絶対に足さない。実機検証は使い捨て
+  ボリューム(`hdiutil`)に合成名の本を置いて行い、実蔵書を表示したウインドウのスクリーンショットは撮らない。
+  既存の 1 件(ルートのフォルダ名、`8adb1d9` 以降の履歴)はユーザー判断で履歴に残してある。
+  詳細は `docs/02-project-and-build.md`「CI」と `docs/plans/file-browser-study.md` §1。
+
 - **Do not update README.md/MANUAL.md/CHANGELOG.md, and do not run `git commit`, unless explicitly
   instructed for that specific change.** Likewise, do not create release tags (e.g. `vX.YY`) unless
   explicitly instructed. **A request to "update the documentation" (ドキュメントを更新) is such an

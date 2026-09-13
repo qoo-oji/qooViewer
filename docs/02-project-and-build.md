@@ -339,7 +339,7 @@ Actions タブと GitHub のメール通知で見ます。README にバッジも
 | ワークフロー | ランナー | 内容 |
 |---|---|---|
 | `.github/workflows/build.yml` | `macos-26` + Xcode 26.6(`DEVELOPER_DIR` で固定) | Debug / Release の 2 ジョブ。依存解決後に `Package.resolved` が変わらないこと、警告ゼロでビルドできること。Debug は `qooViewerTests` を実行し、書き出した EPUB / ComicInfo.xml を検品し、ビルドした .app を 15 秒起動して生存を確認、Release は universal(arm64 + x86_64)と署名を検品して zip を artifact(14 日)に残す |
-| `.github/workflows/check.yml` | `ubuntu-latest` | `scripts/ci/check-all.sh`。Team ID の混入、Info.plist の書類の型とコードの拡張子の一致、`Localizable.xcstrings` の妥当性、`MARKETING_VERSION` の整合(タグ push 時はタグと CHANGELOG の見出しも)、テストのフィクスチャと台帳の一致、フォークのピン、改行コード、`docs/` のリンク切れ、actionlint |
+| `.github/workflows/check.yml` | `ubuntu-latest` | `scripts/ci/check-all.sh`。Team ID の混入、個人のパスの混入(一般形)、Info.plist の書類の型とコードの拡張子の一致、`Localizable.xcstrings` の妥当性、`MARKETING_VERSION` の整合(タグ push 時はタグと CHANGELOG の見出しも)、テストのフィクスチャと台帳の一致、フォークのピン、改行コード、`docs/` のリンク切れ、actionlint |
 
 決めごと:
 
@@ -368,6 +368,19 @@ Actions タブと GitHub のメール通知で見ます。README にバッジも
   なるのを防ぐため)。手元で同じことをするなら、jar を落として
   `EPUBCHECK_JAR=… scripts/ci/validate-exports.sh <結果バンドル>`(java が要る)。
 - 検査の本体はリポジトリ内のスクリプトで、手元でも同じものが走ります(→ [12](12-verification-and-debugging.md#基本))。
+- **個人情報の流出防止**(改善要望7、2026-09-13。`scripts/ci/check-private-terms.sh` + `check-private-terms.py`)。蔵書の
+  フォルダ名・ファイル名がリポジトリに入っていないことを 2 層で見ます: ①手元の禁止語リスト
+  (`~/Library/Application Support/qooViewer-dev/private-terms.txt`。`scripts/dev/build-private-terms.py <蔵書のフォルダ>…` で
+  作る。**リポジトリの外**。中身が個人情報なので `.gitignore` の `private-terms*.txt` と検査の「追跡されていないこと」の
+  項目でも塞いである)との一致 ―― NFC + 大小畳み、ASCII の語は単語境界、和文は文字種の境界で語の一部を除く。
+  先頭 2 文字で引く索引で本文を 1 パス(語ごとに探すと 2 万語で 2 分超、索引で 2 秒。実測)。②リストが無くても動く
+  一般形(`/Users/<名前>/…`、`/Volumes/<ボリューム>/<フォルダ>…`。説明用の `nobody` / `X` / `<名前>` は許可)。
+  対象は追跡ファイルの中身と名前、全コミットメッセージ、ブランチ・タグ名。**一致した語は出力しない**(検査の出力も
+  漏洩経路。手元で `--reveal`)。CI には①が無いので②だけが走ります。①を確実に走らせるのが git hook
+  (`scripts/git-hooks/pre-commit` = ステージ済み、`commit-msg`、`pre-push` = push 範囲のメッセージ + 全体。
+  `scripts/dev/install-git-hooks.sh` が `core.hooksPath` を設定。**リストが無ければコミットを拒否**します ―― 「検査
+  できなかった」を「問題なし」と読み替えない)。一般語として見逃す語は `private-terms-allow.txt`(同じ場所)に書き、
+  実在の固有名は絶対に足さないこと。
 
 ### 主要なビルド設定(project.pbxproj)
 
