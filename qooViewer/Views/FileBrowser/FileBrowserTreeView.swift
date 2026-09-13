@@ -18,6 +18,17 @@ import SwiftUI
 /// 行を選ぶと右ペインがそのフォルダへ移る。右ペインで移動したら、そのフォルダの行が見えていれば
 /// 選んだ状態にする(見えていなければ選択を外す ―― 違う行が選ばれたまま残らないように)。
 ///
+/// ■ 現在のフォルダまで開く(環境設定、既定OFF。2026-09-14、ユーザー要望)
+/// ON なら右ペインで移動するたびに、現在のフォルダを含む根(ボリューム・ホーム・よく使う項目)のうち**いちばん深いもの**
+/// から、現在のフォルダの親までの行を 1 段ずつ開き、現在のフォルダの行を選んで見える位置へスクロールする
+/// (道筋は FileBrowserTreePath)。約束事:
+/// - **右ペインがそのフォルダを読み終えてから始める**(読めなかったら開かない)。道筋の階層はどれも現在のフォルダの
+///   祖先なので、右ペインが読めた以上 TCC の確認をここで新しく出すことはない。
+/// - 子は開いたときに `FileIO` で読む非同期なので、**1 段ずつ読み終わるのを待って**次を開く。途中で別のフォルダへ
+///   移った・ツリーの行をクリックした・設定を OFF にしたら、世代番号で残りをやめる。
+/// - ツリーの行をクリックして移動したときは何もしない(その行はもう見えている)。開いたほかの行はたたまない。
+/// - 隠しフォルダ・パッケージ・リンクの先など、ツリーに出ない階層で道筋が切れたら、そこまで開いて止める。
+///
 /// ■ ドラッグ&ドロップ(段階4b)
 /// どの行(ボリューム・ホーム・よく使う項目・フォルダ)の上にも落とせる。行の間へ落とそうとしたら、
 /// その行の親のフォルダの上へ落とす形に直す(グループの見出しの中なら断る)。掴んで運べるのは
@@ -31,6 +42,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
     let locale: Locale
     /// よく使う項目の「＋」と「削除」を許すか(シークレットウインドウでは false)。
     let allowsEditingFavorites: Bool
+    /// 右ペインで移動するたびに現在のフォルダまで開くか(型コメント「現在のフォルダまで開く」)。
+    let expandsToCurrentFolder: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -125,6 +138,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
         /// 直下にツリーに出るサブフォルダがあるか。**false のときだけ三角を消す**。nil は調べていない・調べられない
         /// (三角を出す。誤って消すと行き止まりになるが、誤って出しても「開いたら空」で済む)。
         var hasSubfolders: Bool?
+        /// いちばん新しい子の読み込み。「現在のフォルダまで開く」が読み終わりを待つ。
+        var childrenTask: Task<Void, Never>?
 
         init(kind: Kind, url: URL?, name: String, children: [Node]? = nil, hasSubfolders: Bool? = nil) {
             self.kind = kind
@@ -170,6 +185,13 @@ struct FileBrowserTreeView: NSViewRepresentable {
         private let menuBuilder = FileBrowserMenuBuilder()
         private var volumeObservers: [NSObjectProtocol] = []
         private var volumeLoadGeneration = 0
+        /// ボリュームの一覧を 1 度読み終えたか(それまではボリュームの配下へ開けない)。
+        private var hasLoadedVolumes = false
+        private var expandsToCurrentFolder = false
+        /// 右ペインが読み終わったら開く、現在のフォルダの id。
+        private var pendingRevealFolderID: String?
+        /// 「現在のフォルダまで開く」の世代(型コメントの「途中でやめる」)。
+        private var revealGeneration = 0
 
         private let volumesGroup = Node(kind: .group(.volumes), url: nil, name: "", children: [])
         private let homeGroup: Node = {
@@ -234,10 +256,79 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 reloadExpandedRows(in: change.isUnknownScope ? nil : change.folderIDs)
             }
             let folderID = FileBrowserState.id(of: view.state.currentFolder)
+            if view.expandsToCurrentFolder != expandsToCurrentFolder {
+                // ON にしたら、いまのフォルダまで開く。OFF にしたら走っている展開をやめる。
+                expandsToCurrentFolder = view.expandsToCurrentFolder
+                revealGeneration += 1
+                pendingRevealFolderID = expandsToCurrentFolder ? folderID : nil
+            }
             if folderID != appliedFolderID || needsRedraw {
+                if folderID != appliedFolderID {
+                    revealGeneration += 1
+                    pendingRevealFolderID = expandsToCurrentFolder ? folderID : nil
+                }
                 appliedFolderID = folderID
                 applySelection(folderID: folderID)
             }
+            startPendingRevealIfReady()
+        }
+
+        // MARK: 現在のフォルダまで開く
+
+        /// 右ペインが現在のフォルダを読み終えていれば開き始める(型コメント)。まだ読んでいる間は待つ
+        /// (読み終わりの `isLoading` の変化でまた `update` が呼ばれる)。
+        private func startPendingRevealIfReady() {
+            guard let target = pendingRevealFolderID, let state else { return }
+            guard FileBrowserState.id(of: state.currentFolder) == target, state.loadError == nil else {
+                pendingRevealFolderID = nil
+                return
+            }
+            guard !state.isLoading, hasLoadedVolumes else { return }
+            pendingRevealFolderID = nil
+            let mine = revealGeneration
+            Task { [weak self] in await self?.reveal(target, generation: mine) }
+        }
+
+        private func reveal(_ target: String, generation: Int) async {
+            let roots = groups.flatMap { $0.children ?? [] }.compactMap { node in node.url.map { (node, $0.path) } }
+            guard let plan = FileBrowserTreePath.plan(to: target, roots: roots.map(\.1)) else { return }
+            var node = roots[plan.rootIndex].0
+            var reachedTarget = plan.steps.isEmpty
+            for (offset, step) in plan.steps.enumerated() {
+                guard let children = await expandedChildren(of: node, generation: generation),
+                      let index = FileBrowserTreePath.index(of: step, in: children.map { $0.url?.path ?? "" })
+                else { break }
+                node = children[index]
+                reachedTarget = offset == plan.steps.count - 1
+            }
+            guard revealGeneration == generation, let outline else { return }
+            if reachedTarget { applySelection(folderID: appliedFolderID ?? nil) }
+            let row = outline.row(forItem: node)
+            if row >= 0 { outline.scrollRowToVisible(row) }
+        }
+
+        /// 行を開いて、子を読み終えるまで待つ。開けなかった・途中でやめたら nil。
+        private func expandedChildren(of node: Node, generation: Int) async -> [Node]? {
+            guard revealGeneration == generation, let outline else { return nil }
+            if !outline.isItemExpanded(node) {
+                if node.hasSubfolders == false {
+                    // 三角を消した後で(Finder などで)サブフォルダができている。右ペインがその配下を読めた以上、ある。
+                    node.hasSubfolders = nil
+                    outline.reloadItem(node, reloadChildren: false)
+                }
+                outline.expandItem(node)
+                // ドラッグ中は開かない(shouldExpandItem)。
+                guard outline.isItemExpanded(node) else { return nil }
+            }
+            // 読み直しが重なったら、いちばん新しい読み込みまで待つ。
+            while let task = node.childrenTask {
+                await task.value
+                if node.childrenTask == task { break }
+            }
+            guard revealGeneration == generation, let outline = self.outline, outline.isItemExpanded(node) else {
+                return nil
+            }
+            return node.children
         }
 
         /// 右ペインのフォルダの行を選ぶ(見えていなければ選択を外す)。
@@ -275,6 +366,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 outline.reloadItem(self.volumesGroup, reloadChildren: true)
                 outline.expandItem(self.volumesGroup)
                 self.applySelection(folderID: self.appliedFolderID ?? nil)
+                self.hasLoadedVolumes = true
+                self.startPendingRevealIfReady()
             }
         }
 
@@ -313,7 +406,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
             guard let url = node.url else { return }
             node.loadGeneration += 1
             let mine = node.loadGeneration
-            Task { [weak self, weak node] in
+            node.childrenTask = Task { [weak self, weak node] in
                 let folders: [(URL, String, Bool?)]
                 do {
                     folders = try await FileIO.perform {
@@ -442,6 +535,9 @@ struct FileBrowserTreeView: NSViewRepresentable {
             else { return }
             let id = FileBrowserState.id(for: url)
             appliedFolderID = id
+            // 行をクリックして移ったときは開かない(型コメント)。走っている展開もやめる。
+            revealGeneration += 1
+            pendingRevealFolderID = nil
             state?.navigate(to: url)
         }
 

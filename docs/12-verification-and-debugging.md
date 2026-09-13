@@ -184,6 +184,9 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
   して起動し、終わったら `defaults import` で戻す。どちらも、プロセスへの判定を `sandbox_check(pid, "file-read-data", SANDBOX_FILTER_PATH, path)` を
   呼ぶ小さな C のプログラムで確かめてから測る(一度、両方が効いたまま「拡張の無い URL でも読める」と測ってしまった)。
   対照は「一度もペーストボードに載せていない同じボリュームのファイル」が拒否されること。
+- **環境設定ウインドウを撮るときは、先に defaults で画面を選ぶ**(2026-09-14、ツリーの自動展開の検証)。環境設定は前回の画面
+  (`qooViewer.settings.selectedPane`)で開き、「フォルダのアクセス権」には許可したフォルダの実名が出る。アプリを終えた状態で
+  `defaults write … qooViewer.settings.selectedPane fileBrowser` としてから起動して ⌘, で開く。キーは後始末の `defaults import` で戻る。
 
 ## テスト中に出る虹色のカーソル
 

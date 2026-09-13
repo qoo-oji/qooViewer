@@ -17661,6 +17661,54 @@
         }
       }
     },
+    "Tree" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tree"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ツリー"
+          }
+        }
+      }
+    },
+    "Expand the Tree to the Current Folder" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expand the Tree to the Current Folder"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在のフォルダまでツリーを自動で展開する"
+          }
+        }
+      }
+    },
+    "Each time you move to another folder, the tree on the left opens down to that folder and selects it. Folders you opened before stay open." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Each time you move to another folder, the tree on the left opens down to that folder and selects it. Folders you opened before stay open."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "別のフォルダへ移動するたびに、左のツリーをそのフォルダまで開いて選びます。それまでに開いていたフォルダは開いたままです。"
+          }
+        }
+      }
+    },
     "Restores every setting on this page. Your favorite locations and folder access are not affected." : {
       "localizations" : {
         "en" : {

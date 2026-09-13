@@ -180,6 +180,21 @@ WelcomeView(PanelSurface.welcome)
   どのフォルダが変わったか分からない**ので `isUnknownScope` で全体を見直す(以前は何も知らせず、取り消しで戻ったフォルダがツリーに
   出てこなかった)。Finder など外での変更は、従来どおり親をたたんで開き直すまで反映されない。
 
+## 現在のフォルダまでツリーを開く(2026-09-14、ユーザー要望)
+
+環境設定「ファイルブラウザ」の「現在のフォルダまでツリーを自動で展開する」(`fileBrowserExpandsTreeToCurrentFolder`、**既定 OFF**)。
+ON なら右ペインで移動するたびに、現在のフォルダを含む根(ボリューム・ホーム・よく使う項目)のうち**いちばん深いもの**から親までの行を
+1 段ずつ開き、現在のフォルダの行を選んで `scrollRowToVisible` する。道筋は `FileBrowserTreePath`(純粋関数。深さが同じ根は先に並ぶほう、
+道筋の 1 段は完全一致を優先して無ければ大小文字を無視)、行を開いて待つのは `FileBrowserTreeView.Coordinator.reveal`。
+
+- **右ペインがそのフォルダを読み終えてから始める**(`isLoading` が下りて `loadError` が無いとき)。読めなかったら開かない。道筋の階層は
+  どれも現在のフォルダの祖先なので、右ペインが読めた以上ここで TCC の確認を新しく出さない。
+- 子の読み込みは非同期なので、`Node.childrenTask` を待ってから次の段を開く。**途中で別のフォルダへ移った・ツリーの行をクリックした・
+  設定を OFF にしたら**世代番号(`revealGeneration`)で残りをやめる。起動直後はボリュームの一覧を読み終えるまで待つ。
+- ツリーの行をクリックして移ったときは何もしない。開いていたほかの行はたたまない。三角を消した行(`hasSubfolders == false`)が道筋に
+  あれば、三角を戻して開く(右ペインが配下を読めた以上、サブフォルダはある)。
+- 隠しフォルダ・パッケージ・記号リンクの先など、ツリーに出ない階層で道筋が切れたら、そこまで開いてその行までスクロールし、選択は外れたまま。
+
 ## クリックとキー(アイコン表示)
 
 `FileBrowserState.click(_:modifier:)`(1 件 / ⌘ 反転 / ⇧ 起点からの範囲)と `moveSelection(_:columns:)`(`GridKeyboardNavigation`)。
@@ -304,9 +319,9 @@ WelcomeView(PanelSurface.welcome)
 | 最後に表示したフォルダ | `qooViewer.fileBrowser.lastFolderPath` | **パスだけ**(空文字はコンピュータ)。読む権限は `FolderAccessStore` だけが持つ。**シークレットウインドウでは書かない** |
 | よく使う項目 | `qooViewer.fileBrowser.favoriteLocations`(JSON) | パスだけ。「＋」は `NSOpenPanel` → `FolderAccessStore.add` → 登録。シークレットウインドウでは登録・削除させない |
 | リストの列幅・並び | `NSTableView Columns v3 qooViewer.fileBrowser.list` など | `autosaveName` |
-| 起動時のフォルダ・フォルダを上に・他のアプリからドロップしたとき | `qooViewer.pref.fileBrowser.*` | 環境設定「ファイルブラウザ」(`SettingsPane.fileBrowser`) |
+| 起動時のフォルダ・フォルダを上に・現在のフォルダまでツリーを展開・他のアプリからドロップしたとき | `qooViewer.pref.fileBrowser.*` | 環境設定「ファイルブラウザ」(`SettingsPane.fileBrowser`) |
 
-環境設定「ファイルブラウザ」には**いま効く行だけ**を置いた(起動時のフォルダ・フォルダを上に・他のアプリからドロップしたとき)。計画にある残りの行
+環境設定「ファイルブラウザ」には**いま効く行だけ**を置いた(起動時のフォルダ・フォルダを上に・現在のフォルダまでツリーを展開・他のアプリからドロップしたとき)。計画にある残りの行
 (圧縮の拡張子・「ファイルブラウザで開く」の行き先・動画のサムネイル・キャッシュ)は、それを使う段階で足す。
 
 ## リーク
@@ -327,6 +342,7 @@ WelcomeView(PanelSurface.welcome)
 | `FileBrowserGoMenuTests` | 「フォルダへ移動…」のパスの解釈(`~`・相対パスを断る)、標準の場所が実際のホームの下 |
 | `ReplaceBackupJournalTests`(FileOperations) | 起動時の復旧(戻す・上書きしない・再試行・片付いていた・壊れた記録)、置き換えの最中は記録があり成功・中止で消えること、ロックされた宛先を置き換えないこと、知らせる内容 |
 | `FileCommandSoundTests`(FileOperations) | 音源の実在と登録、音の割り当て、成功とやり直しだけで鳴ること |
+| `FileBrowserTreePathTests` | ツリーを現在のフォルダまで開く道筋(いちばん深い根、`/` の直下、根そのもの、名前の途中までの一致を祖先にしない、同じ深さの根、1 段の探し方) |
 | `FileBrowserModelTests` | `GridKeyboardNavigation`、`WindowContentRequest` の往復と `nonce`、`FavoriteLocationStore`、`WelcomeLibraryState.mode` |
 
 画面そのものは実機で確認する(→ [12](12-verification-and-debugging.md#ファイルブラウザ))。

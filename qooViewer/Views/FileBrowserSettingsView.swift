@@ -2,7 +2,8 @@ import SwiftUI
 
 /// 環境設定ウインドウの「ファイルブラウザ」画面(改善要望7 段階3、2026-09-13)。
 ///
-/// 段階3で並べるのは**いま効くものだけ**(起動時のフォルダ・フォルダを上に。段階4bで「外からドロップしたとき」)。計画
+/// 段階3で並べるのは**いま効くものだけ**(起動時のフォルダ・フォルダを上に。段階4bで「外からドロップしたとき」、
+/// 2026-09-14 に「現在のフォルダまでツリーを自動で展開する」)。計画
 /// (docs/plans/file-browser-plan.md §3.6)に挙げた残りの行 ―― 圧縮の拡張子・
 /// 「ファイルブラウザで開く」の行き先・動画のサムネイル・サムネイルのキャッシュ ―― は、それを使う
 /// 機能が入る段階で足す。押しても何も変わらない設定を先に並べると、効かない理由が画面から読めない。
@@ -33,6 +34,16 @@ struct FileBrowserSettingsView: View {
                 )
             } header: {
                 Text("Sorting")
+            }
+
+            Section {
+                SettingsToggle(
+                    "Expand the Tree to the Current Folder",
+                    isOn: $preferences.fileBrowserExpandsTreeToCurrentFolder,
+                    help: "Each time you move to another folder, the tree on the left opens down to that folder and selects it. Folders you opened before stay open."
+                )
+            } header: {
+                Text("Tree")
             }
 
             Section {

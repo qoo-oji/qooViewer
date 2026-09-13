@@ -73,6 +73,7 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.fileBrowserStartupFavoriteID += "-moved"
     p.fileBrowserFoldersFirst.toggle()
     p.fileBrowserExternalDropAction = otherCase(p.fileBrowserExternalDropAction)
+    p.fileBrowserExpandsTreeToCurrentFolder.toggle()
 
     // MARK: 外観
     p.appAppearance = otherCase(p.appAppearance)

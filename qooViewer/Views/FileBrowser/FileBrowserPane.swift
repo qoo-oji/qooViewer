@@ -52,7 +52,8 @@ struct FileBrowserPane: View {
             FileBrowserTreeView(
                 state: state, favoriteLocations: favoriteLocations, actions: actions,
                 outlineWidth: outlineWidth, locale: locale,
-                allowsEditingFavorites: !appState.isPrivateWindow
+                allowsEditingFavorites: !appState.isPrivateWindow,
+                expandsToCurrentFolder: preferences.fileBrowserExpandsTreeToCurrentFolder
             )
             .frame(width: treeWidth)
 

@@ -68,6 +68,7 @@ final class AppPreferences: ObservableObject {
         static let fileBrowserStartupFavoriteID = "qooViewer.pref.fileBrowser.startupFavoriteID"
         static let fileBrowserFoldersFirst = "qooViewer.pref.fileBrowser.foldersFirst"
         static let fileBrowserExternalDropAction = "qooViewer.pref.fileBrowser.externalDropAction"
+        static let fileBrowserExpandsTreeToCurrentFolder = "qooViewer.pref.fileBrowser.expandsTreeToCurrentFolder"
         static let sidePanelPosition = "qooViewer.pref.sidePanelPosition"
         static let sidePanelMode = "qooViewer.pref.sidePanelMode"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
@@ -626,6 +627,13 @@ final class AppPreferences: ObservableObject {
     /// アプリの中のドラッグには効かない(FileBrowserExternalDropActionの型コメント)。
     @Published var fileBrowserExternalDropAction: FileBrowserExternalDropAction {
         didSet { defaults.set(fileBrowserExternalDropAction.rawValue, forKey: Keys.fileBrowserExternalDropAction) }
+    }
+    /// 右ペインで移動するたびに、左のツリーを現在のフォルダまで開いてその行を選ぶか(既定OFF。2026-09-14、ユーザー要望)。
+    /// 開き方は FileBrowserTreeView の型コメント「現在のフォルダまで開く」。
+    @Published var fileBrowserExpandsTreeToCurrentFolder: Bool {
+        didSet {
+            defaults.set(fileBrowserExpandsTreeToCurrentFolder, forKey: Keys.fileBrowserExpandsTreeToCurrentFolder)
+        }
     }
 
     /// 上段フォルダブラウザの並べ替えに必要な設定をまとめた値。DirectoryBrowser
@@ -1578,6 +1586,8 @@ final class AppPreferences: ObservableObject {
         self.fileBrowserExternalDropAction = FileBrowserExternalDropAction(
             rawValue: defaults.string(forKey: Keys.fileBrowserExternalDropAction) ?? ""
         ) ?? .openInViewer
+        self.fileBrowserExpandsTreeToCurrentFolder =
+            defaults.object(forKey: Keys.fileBrowserExpandsTreeToCurrentFolder) as? Bool ?? false
         self.sidePanelPosition =
             SidePanelPosition(rawValue: defaults.string(forKey: Keys.sidePanelPosition) ?? "") ?? .left
         self.sidePanelMode =
@@ -1934,6 +1944,7 @@ extension AppPreferences {
                 Keys.fileBrowserStartupFavoriteID,
                 Keys.fileBrowserFoldersFirst,
                 Keys.fileBrowserExternalDropAction,
+                Keys.fileBrowserExpandsTreeToCurrentFolder,
             ]
         // 「読み込みと書き出し」はウインドウを開くボタンだけで、戻せる設定を持たない。
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
@@ -2042,6 +2053,7 @@ extension AppPreferences {
             fileBrowserStartupFavoriteID = source.fileBrowserStartupFavoriteID
             fileBrowserFoldersFirst = source.fileBrowserFoldersFirst
             fileBrowserExternalDropAction = source.fileBrowserExternalDropAction
+            fileBrowserExpandsTreeToCurrentFolder = source.fileBrowserExpandsTreeToCurrentFolder
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
             break
         }
