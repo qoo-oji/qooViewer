@@ -2506,6 +2506,15 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
         guard confirmCloseIfMultipleTabs(for: window) else { return }
         let windowsToClose = window.tabGroup?.windows ?? [window]
         for windowToClose in windowsToClose {
+            // 本を閉じてから(windowShouldCloseと同じ)。close()はwindowShouldCloseを通らないので、
+            // ここで呼ばないと読書状態の保存とセキュリティスコープ付きアクセスの解放が
+            // AppStateのdeinit任せになる ―― そのAppStateはウインドウを閉じた後も
+            // SwiftUIのfocusedValuesに掴まれて解放されない(実測 2026-09-13。
+            // docs/13-history-and-known-limitations.md)ので、アクセスが開いたままになっていた。
+            if let closingAppState = (windowToClose.delegate as? BookClosingWindowDelegate)?.appState,
+               closingAppState.currentBook != nil {
+                closingAppState.closeBook()
+            }
             windowToClose.close()
         }
     }

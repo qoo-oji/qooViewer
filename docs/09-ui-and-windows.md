@@ -58,6 +58,13 @@ ViewerView(本1冊)
   実体は `ViewerView.returnToWelcome()`(`flushPendingSave` → `AppState.closeBook()`)で、
   最終ページの動作(`PageBoundaryBehavior`)・書き出し後の動作(`BookExportCompletionBehavior`)
   とも共通。`ViewerViewModel.onPageBoundaryRequest` からは `performViewerAction` 越しに呼ぶ
+- **ウインドウを閉じる2つの経路は、どちらも `AppState.closeBook()` を先に通す**(2026-09-13)。
+  Cmd+W とタブの×は `windowShouldClose`、赤い閉じるボタンと「ウインドウを閉じる」は
+  `BookClosingWindowDelegate.forceCloseWindow`(`close()` を直に呼ぶので `windowShouldClose` を
+  通らない)。後者が `closeBook()` を呼んでいなかった間、本のセキュリティスコープ付きアクセスの解放は
+  `AppState.deinit` 任せで、その deinit は SwiftUI の `focusedValues` に掴まれて来ない
+  (→ [13](13-history-and-known-limitations.md#既知の制限))ため、赤いボタンで閉じるたびに
+  アクセスが開いたままになっていた。
   ―― 直接呼ぶとクロージャが `ViewerView` のコピーを捕まえて循環参照が戻るため。
 
 ### マウス(MouseTrigger)
