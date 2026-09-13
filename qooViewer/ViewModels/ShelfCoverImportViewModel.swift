@@ -21,9 +21,13 @@ final class ShelfCoverImportViewModel: ObservableObject {
     /// 一覧の1行。zipの中の画像1枚に対応する。
     struct Row: Identifiable, Sendable {
         let id = UUID()
+        /// zipの中でのパス。取り込むときに読み直すためだけに使う(ShelfCoverArchive.ImportedEntryの
+        /// コメント参照 ―― 行は画像のバイト列を持たない)。
+        let entryPath: String
         /// zipの中でのファイル名(表示と照合にだけ使う。ディスクのパスには絶対に流さない)。
         let entryName: String
-        let data: Data
+        /// 読み込んだ時点のバイト数(取り込むときに読み直す量の見積もり)。
+        let byteCount: Int
         let verdict: ImageIntegrityCheck.Verdict
         /// 名前/manifestから見つかった本。0件・1件・複数件。
         var candidates: [String]
@@ -51,6 +55,8 @@ final class ShelfCoverImportViewModel: ObservableObject {
     @Published private(set) var didSucceed = false
     /// 読み込んだzipの名前(ウインドウ下部に出す)。
     @Published private(set) var loadedFileName: String?
+    /// 読み込んだzipの場所。取り込むときに画像を読み直す(Row.entryPathのコメント参照)。
+    private var loadedZipURL: URL?
 
     private let sources: KnownBooks.Sources
     private let preferences: AppPreferences
@@ -78,6 +84,7 @@ final class ShelfCoverImportViewModel: ObservableObject {
         isLoading = true
         resultMessage = nil
         loadedFileName = url.lastPathComponent
+        loadedZipURL = url
         defer { isLoading = false }
 
         // 展開・復号・検査はメインアクターの外(ShelfCoverArchive.readの約束)。
@@ -105,13 +112,15 @@ final class ShelfCoverImportViewModel: ObservableObject {
                 // (別の環境で作られたzipなら、名前での照合へ落ちる)。
                 if let bookID = entry.bookIDFromManifest, known.contains(bookID) {
                     return Row(
-                        entryName: entry.entryName, data: entry.data, verdict: entry.verdict,
+                        entryPath: entry.path, entryName: entry.entryName,
+                        byteCount: entry.byteCount, verdict: entry.verdict,
                         candidates: [bookID], selectedBookID: bookID, isFromManifest: true
                     )
                 }
                 let candidates = index[KnownBooks.matchKey(entry.baseName)] ?? []
                 return Row(
-                    entryName: entry.entryName, data: entry.data, verdict: entry.verdict,
+                    entryPath: entry.path, entryName: entry.entryName,
+                    byteCount: entry.byteCount, verdict: entry.verdict,
                     candidates: candidates,
                     // 候補が1つに定まるときだけ、初めから選んでおく(型コメント参照)。
                     selectedBookID: candidates.count == 1 ? candidates[0] : nil,
@@ -153,16 +162,44 @@ final class ShelfCoverImportViewModel: ObservableObject {
         var imported = 0
         var reencoded = 0
         var failed = 0
-        for row in rows where row.isImportable {
-            guard let bookID = row.selectedBookID else { continue }
-            do {
-                let wasReencoded = try await sources.layoutStore.setShelfCoverImage(
-                    forBookID: bookID, sourceURL: resolveURL(forBookID: bookID), data: row.data
-                )
-                imported += 1
-                if wasReencoded { reencoded += 1 }
-            } catch {
-                failed += 1
+        // 画像はここで**少しずつ**読み直す(ShelfCoverArchive.readEntriesのコメント参照)。
+        // 読んだぶんを取り込み終えてから次を読むので、メモリに載るのは1回ぶんだけ。
+        let targets = rows.filter(\.isImportable)
+        var batches: [[Row]] = []
+        var batchBytes = 0
+        for row in targets {
+            if batches.isEmpty || batchBytes + row.byteCount > ShelfCoverArchive.maxBatchBytes {
+                batches.append([])
+                batchBytes = 0
+            }
+            batches[batches.count - 1].append(row)
+            batchBytes += row.byteCount
+        }
+        for batch in batches {
+            let paths = batch.map(\.entryPath)
+            var dataByPath: [String: Data] = [:]
+            if let zipURL = loadedZipURL {
+                let didAccess = zipURL.startAccessingSecurityScopedResource()
+                dataByPath = await Task.detached {
+                    (try? ShelfCoverArchive.readEntries(zipAt: zipURL, paths: paths)) ?? [:]
+                }.value
+                if didAccess { zipURL.stopAccessingSecurityScopedResource() }
+            }
+            for row in batch {
+                // 読み込んだ後にzipが消された・差し替えられた場合は読めない(失敗として数える)。
+                guard let bookID = row.selectedBookID, let data = dataByPath[row.entryPath] else {
+                    failed += 1
+                    continue
+                }
+                do {
+                    let wasReencoded = try await sources.layoutStore.setShelfCoverImage(
+                        forBookID: bookID, sourceURL: resolveURL(forBookID: bookID), data: data
+                    )
+                    imported += 1
+                    if wasReencoded { reencoded += 1 }
+                } catch {
+                    failed += 1
+                }
             }
         }
         didSucceed = failed == 0

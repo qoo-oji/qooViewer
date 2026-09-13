@@ -198,7 +198,8 @@ struct AddBooksPanel: View {
             let classified = await CollectionDropClassifier.classifyAsync(urls, order: order)
             let books = CollectionDropClassifier.booksToAdd(from: classified)
             guard !books.isEmpty else { return }
-            let pending = books.compactMap(CollectionStore.makePendingItem(for:))
+            // ブックマークの生成はメインアクターの外で(CollectionStore.makePendingItemsのコメント参照)。
+            let pending = await CollectionStore.makePendingItems(for: books)
             guard !pending.isEmpty else { return }
 
             let added: [CollectionItem]

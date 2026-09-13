@@ -509,7 +509,7 @@ enum LibraryImportExportService {
             )
         }
         if let libraries = file.libraries, policies.collections != .ignore {
-            applyCollections(
+            await applyCollections(
                 libraries, policy: policies.collections,
                 collectionStore: collectionStore, favoritesStore: favoritesStore,
                 bookmarkStore: bookmarkStore, layoutStore: layoutStore,
@@ -618,6 +618,70 @@ enum LibraryImportExportService {
 
     // MARK: - コレクションの取り込み
 
+    /// JSONの中のコレクションの位置(何番目のライブラリの何番目のコレクションか)。
+    private struct CollectionPosition: Hashable {
+        let library: Int
+        let collection: Int
+    }
+
+    /// 取り込む本1冊ぶんの、場所を探す手がかり。メインアクターの外へ持ち出せる値だけで作る。
+    nonisolated struct BookLocatorHints: Sendable {
+        let bookID: String
+        /// 試す順に並べたセキュリティスコープ付きブックマーク。
+        let bookmarks: [Data]
+    }
+
+    /// 1冊ぶんの手がかりを、以前の`resolveURL` + `collectionStore.resolvedURL(matching:)` +
+    /// 素のパス、と**同じ優先順**で集める(解決はしない)。
+    private static func bookLocatorHints(
+        bookID: String, fileNodeIdentifier: FileNodeIdentifier?,
+        favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
+        collectionStore: CollectionStore
+    ) -> BookLocatorHints {
+        var bookmarks: [Data] = []
+        if let fileNodeIdentifier {
+            bookmarks += favoritesStore.bookmarkDataCandidates(matching: fileNodeIdentifier)
+            bookmarks += layoutStore.bookmarkDataCandidates(matching: fileNodeIdentifier)
+            bookmarks += bookmarkStore.bookmarkDataCandidates(matching: fileNodeIdentifier)
+        }
+        bookmarks += bookmarkStore.bookmarks(forBookID: bookID).compactMap(\.bookmarkData)
+        if let data = layoutStore.bookLayoutSettings(forBookID: bookID)?.bookmarkData {
+            bookmarks.append(data)
+        }
+        if let fileNodeIdentifier {
+            bookmarks += collectionStore.bookmarkDataCandidates(matching: fileNodeIdentifier)
+        }
+        return BookLocatorHints(bookID: bookID, bookmarks: bookmarks)
+    }
+
+    /// 手がかりから、コレクションへ登録する材料を作る。見つからなければその本はnil。
+    ///
+    /// **メインアクターの外で走る**(applyCollectionsのコメント参照)。
+    ///
+    /// **ブックマークを解決したURLは、アクセスを開始してから触る**(監査で指摘 2026-09-13)。
+    /// 以前は開始しないまま存在確認とブックマークの生成をしていたので、許可済みフォルダの外に
+    /// ある本は、実在して有効なブックマークもあるのに「見つからない」として飛ばされえた。
+    /// 見つからなかったブックマークは次の候補へ進む(以前はお気に入り由来の1件目が解決できた
+    /// 時点で打ち切り、それが消えた場所を指していても次を試さなかった)。
+    @concurrent nonisolated static func makePendingItems(
+        for hints: [BookLocatorHints]
+    ) async -> [CollectionStore.PendingItem?] {
+        hints.map { hint in
+            for data in hint.bookmarks {
+                guard let url = FavoritesStore.resolvedURL(fromBookmark: data) else { continue }
+                let didAccess = url.startAccessingSecurityScopedResource()
+                defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+                guard FileManager.default.fileExists(atPath: url.path),
+                      let item = CollectionStore.makePendingItem(for: url)
+                else { continue }
+                return item
+            }
+            let fallback = URL(fileURLWithPath: hint.bookID)
+            guard FileManager.default.fileExists(atPath: fallback.path) else { return nil }
+            return CollectionStore.makePendingItem(for: fallback)
+        }
+    }
+
     /// ライブラリ → コレクション → 本を取り込む。
     ///
     /// - overwrite: 既存のライブラリ・コレクション・登録をすべて消してから入れ直す
@@ -628,19 +692,58 @@ enum LibraryImportExportService {
     /// 取り込んだ本のカバーは`CollectionCoverStatus.pending`のまま置く。実際の抽出は
     /// ウェルカム画面の`CollectionCoverExtractor.refill()`が行う ―― 取り込みの最中に
     /// 全冊ぶんの本を開き始めると、件数によっては終わりが見えなくなるため。
+    ///
+    /// ■ 本の場所の解決は、先にまとめてメインアクターの外で行う(監査で指摘 2026-09-13)
+    /// 以前は本1冊ごとに、メインアクター上で各ストアのブックマークを解決して存在を確かめ、
+    /// さらにブックマークを作り直していた。数千冊のJSONで、到達できないボリュームを指す
+    /// ブックマークが混ざると、1冊あたり秒単位でメインが止まり、取り込み中の表示すら出ない。
+    /// いまは(1)メインで各ストアから**ブックマークのバイト列だけ**を集め(bookLocatorHints)、
+    /// (2)解決・存在確認・ブックマークの生成を外で済ませ(makePendingItems)、(3)メインへ
+    /// 戻って行を作る。
+    ///
+    /// 手がかりは**上書きで消す前に**集める。以前は消してから探していたので、コレクション自身の
+    /// 登録(collectionStore.bookmarkDataCandidates)が上書きのときには必ず空振りしていた。
+    ///
+    /// **`libraries`が空なら何もしない**(上書きでも消さない)。アプリ自身は必ずライブラリを
+    /// 1つ以上書き出す(CollectionStore.ensureDefaultLibrary)ので、空の配列は手で編集した
+    /// ファイルにしか現れない。そこへ前のファイルで選んだ「上書き」が残っていると、何も
+    /// 取り込まれないまま全コレクションと表紙が消えていた(監査で指摘 2026-09-13)。
     private static func applyCollections(
         _ libraries: [ExportedLibrary], policy: ImportPolicy,
         collectionStore: CollectionStore, favoritesStore: FavoritesStore,
         bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
         summary: inout ImportSummary
-    ) {
+    ) async {
+        guard !libraries.isEmpty else { return }
+
+        // (1) 手がかりを集める(メイン。DBを読むだけ)。本はJSONの並びどおりに平らに並べ、
+        //     どのコレクションの何冊目からかを控えておく ―― 下のループはライブラリを作れずに
+        //     飛ばすことがあるので、順に読み出す形にするとそこから先が1冊ずつずれる。
+        var hints: [BookLocatorHints] = []
+        var startIndexByCollection: [CollectionPosition: Int] = [:]
+        for (libraryIndex, exportedLibrary) in libraries.enumerated() {
+            for (collectionIndex, exportedCollection) in exportedLibrary.collections.enumerated() {
+                startIndexByCollection[CollectionPosition(library: libraryIndex, collection: collectionIndex)] = hints.count
+                for book in exportedCollection.books {
+                    hints.append(bookLocatorHints(
+                        bookID: book.bookID, fileNodeIdentifier: book.fileNodeIdentifier,
+                        favoritesStore: favoritesStore, bookmarkStore: bookmarkStore,
+                        layoutStore: layoutStore, collectionStore: collectionStore
+                    ))
+                }
+            }
+        }
+        // (2) 解決と登録の材料づくり(外)。
+        let resolved = await makePendingItems(for: hints)
+
+        // (3) ここからメイン。
         if policy == .overwrite {
             collectionStore.deleteAll()
         }
         // 上書きの後始末に使う(下の「空のライブラリを片付ける」参照)。
         var touchedLibraryIDs: Set<UUID> = []
 
-        for exportedLibrary in libraries {
+        for (libraryIndex, exportedLibrary) in libraries.enumerated() {
             let name = exportedLibrary.name.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else { continue }
             // 同名のライブラリがあれば合流する。JSON側に同名のライブラリが2つあった場合も、
@@ -674,37 +777,30 @@ enum LibraryImportExportService {
                 )
             }
 
-            for exportedCollection in exportedLibrary.collections {
+            for (collectionIndex, exportedCollection) in exportedLibrary.collections.enumerated() {
                 let collectionName = exportedCollection.name
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !collectionName.isEmpty else { continue }
+                guard !collectionName.isEmpty,
+                      let startIndex = startIndexByCollection[
+                          CollectionPosition(library: libraryIndex, collection: collectionIndex)
+                      ]
+                else { continue }
 
                 var pending: [CollectionStore.PendingItem] = []
                 var resolvedPaths: Set<String> = []
-                for book in exportedCollection.books {
+                for (offset, book) in exportedCollection.books.enumerated() {
+                    // (2)で解決済み。
+                    //
                     // ユーザー要望: JSONのファイルパスは参考情報。まずファイルノード識別子を
                     // 手がかりに、ローカルに保存済みのセキュリティスコープ付きブックマークから
-                    // 現在のURLを解決する(applyFavoritesと同じ順序・同じ理由)。
-                    guard let url = resolveURL(
-                        bookID: book.bookID, fileNodeIdentifier: book.fileNodeIdentifier,
-                        favoritesStore: favoritesStore, bookmarkStore: bookmarkStore,
-                        layoutStore: layoutStore
-                    ) ?? book.fileNodeIdentifier.flatMap({
-                        collectionStore.resolvedURL(matching: $0)
-                    }) ?? {
-                        let fallback = URL(fileURLWithPath: book.bookID)
-                        return FileManager.default.fileExists(atPath: fallback.path) ? fallback : nil
-                    }() else {
+                    // 現在のURLを解決する(applyFavoritesと同じ順序・同じ理由。bookLocatorHints参照)。
+                    guard let item = resolved[startIndex + offset] else {
                         summary.collectionsSkippedBookIDs.append(book.bookID)
                         continue
                     }
-                    guard !resolvedPaths.contains(url.path) else { continue }
-                    guard let item = CollectionStore.makePendingItem(for: url) else {
-                        summary.collectionsSkippedBookIDs.append(book.bookID)
-                        continue
-                    }
+                    guard !resolvedPaths.contains(item.url.path) else { continue }
                     pending.append(item)
-                    resolvedPaths.insert(url.path)
+                    resolvedPaths.insert(item.url.path)
                 }
                 // 1冊も見つからなかったコレクションは作らない(空のコレクションは作らない
                 // というアプリ全体の方針。CollectionStore.createCollection参照)。
@@ -999,7 +1095,9 @@ enum LibraryImportExportService {
             let existingSettings = layoutStore.bookLayoutSettings(forBookID: bookID)
 
             if policy == .overwrite {
-                layoutStore.discardLayoutData(forBookID: bookID)
+                // 行ごとは消さない ―― JSONに無いコレクション表紙・カバー画像などが同居している
+                // (LayoutStore.discardImportableLayoutDataのコメント参照)。
+                layoutStore.discardImportableLayoutData(forBookID: bookID)
             }
 
             // マージ時、本全体の設定(読み方向・見開き強制・ページ順)は「まだ何も設定されて

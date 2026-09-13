@@ -65,6 +65,13 @@ final class CollectionStore: ObservableObject {
     private var cachedLibraries: [BookLibrary]?
     private var cachedCollections: [BookCollection]?
     private var cachedItems: [CollectionItem]?
+    /// 上の`cachedItems`をbookIDで引けるようにした索引。**cachedItemsと必ず一緒に捨てる。**
+    ///
+    /// 本1冊ぶんを引くたびに全件を線形に舐めていた(items(forBookID:)・membershipCount・
+    /// anyBookmarkData)。「保存データの削除」ウインドウは知っている本の数だけこれを呼ぶので、
+    /// 知っている本 × 登録件数の比較がメインアクター上で走り、削除のたびに繰り返されていた
+    /// (監査で指摘 2026-09-13)。
+    private var cachedItemsByBookID: [String: [CollectionItem]]?
 
     private var activationObserver: NSObjectProtocol?
     private var volumeObservers: [NSObjectProtocol] = []
@@ -140,6 +147,7 @@ final class CollectionStore: ObservableObject {
         cachedLibraries = nil
         cachedCollections = nil
         cachedItems = nil
+        cachedItemsByBookID = nil
     }
 
     private func allLibraries() -> [BookLibrary] {
@@ -162,6 +170,14 @@ final class CollectionStore: ObservableObject {
         let fetched = (try? modelContext.fetch(FetchDescriptor<CollectionItem>())) ?? []
         cachedItems = fetched
         return fetched
+    }
+
+    /// bookID → その本の登録(全コレクション横断)。cachedItemsByBookIDのコメント参照。
+    private func itemsByBookID() -> [String: [CollectionItem]] {
+        if let cachedItemsByBookID { return cachedItemsByBookID }
+        let index = Dictionary(grouping: allItems(), by: \.bookID)
+        cachedItemsByBookID = index
+        return index
     }
 
     /// ライブラリが1つも無ければ既定のものを1つ作る。ウェルカム画面の帯は「必ず1つ以上」を
@@ -358,13 +374,13 @@ final class CollectionStore: ObservableObject {
 
     /// この本が登録されているコレクションの件数(同じ本を複数のコレクションへ入れられるため件数)。
     func membershipCount(forBookID bookID: String) -> Int {
-        allItems().filter { $0.bookID == bookID }.count
+        itemsByBookID()[bookID]?.count ?? 0
     }
 
     /// この本を指すセキュリティスコープ付きブックマークのうち最初に見つかったもの
     /// (BookmarkStore/FavoritesStoreの同名メソッドと同じ用途)。
     func anyBookmarkData(forBookID bookID: String) -> Data? {
-        allItems().first { $0.bookID == bookID }?.bookmarkData
+        itemsByBookID()[bookID]?.first?.bookmarkData
     }
 
     /// 同じライブラリの中に同じ名前のコレクションが既にあるか(前後の空白を除いた完全一致)。
@@ -757,6 +773,19 @@ final class CollectionStore: ObservableObject {
         )
     }
 
+    /// `makePendingItem(for:)`をまとめて、**メインアクターの外で**行う版。
+    ///
+    /// ドロップ・「本を追加」パネル・「＋」からの作成は、以前これを`Task {}`(メインアクター)の
+    /// 中で1冊ずつ同期に回していた。1冊あたりブックマークの生成・stat・日付の読み取りの3回
+    /// ファイルに問い合わせるので、千冊規模の棚やネットワークボリュームではその間メインが
+    /// 止まる(監査で指摘 2026-09-13)。自動登録フォルダの走査が同じ理由で外へ出していたのに、
+    /// 画面の入り口だけが取り残されていた。
+    ///
+    /// `@concurrent`が要る理由はCollectionCoverStore.image(for:maxPixelSize:)と同じ。
+    @concurrent nonisolated static func makePendingItems(for urls: [URL]) async -> [PendingItem] {
+        urls.compactMap(makePendingItem(for:))
+    }
+
     /// CollectionItem.titleの作り方。BookLoaderがMangaBook.titleを決めるのと同じ流儀
     /// (フォルダはそのまま、ファイルは拡張子を落とす)。
     ///
@@ -853,7 +882,7 @@ final class CollectionStore: ObservableObject {
     /// この本の登録をすべてのコレクションから外す(「本ごとの保存データを削除」から)。
     /// 1件ずつremove(_:)を呼ぶとそのたびにsave()が走るため、まとめて消して保存は1回にする。
     func removeItems(forBookID bookID: String) {
-        let targets = allItems().filter { $0.bookID == bookID }
+        let targets = items(forBookID: bookID)
         guard !targets.isEmpty else { return }
         let itemIDs = targets.map(\.id)
         let now = Date()
@@ -944,7 +973,7 @@ final class CollectionStore: ObservableObject {
 
     /// 指定したbookIDの登録(全コレクション横断)。
     func items(forBookID bookID: String) -> [CollectionItem] {
-        allItems().filter { $0.bookID == bookID }
+        itemsByBookID()[bookID] ?? []
     }
 
     // MARK: - 自動登録フォルダ
@@ -1011,6 +1040,8 @@ final class CollectionStore: ObservableObject {
             candidate.bookID = book.id
             candidate.title = book.title
         }
+        // 索引の鍵(bookID)を書き換えたので捨てる(cachedItemsByBookIDのコメント参照)。
+        cachedItemsByBookID = nil
         saveAndNotify(bookID: book.id)
     }
 
@@ -1027,6 +1058,13 @@ final class CollectionStore: ObservableObject {
         }
         try? modelContext.save()
         cachedItems = nil
+        cachedItemsByBookID = nil
+    }
+
+    /// ファイルノード識別子が一致する登録のブックマーク(解決はしない)。取り込みが、解決と存在確認を
+    /// メインアクターの外でまとめて行うための材料(LibraryImportExportService.applyCollections)。
+    func bookmarkDataCandidates(matching identifier: FileNodeIdentifier) -> [Data] {
+        allItems().filter { $0.fileNodeIdentifier == identifier }.map(\.bookmarkData)
     }
 
     /// ファイルノード識別子が一致する登録から、現在の実際のURLを解決する

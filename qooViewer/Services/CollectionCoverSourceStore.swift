@@ -235,7 +235,14 @@ nonisolated struct CollectionCoverSourceStore: Sendable {
                 let destination = quarantine.appendingPathComponent(url.lastPathComponent, isDirectory: false)
                 try? fileManager.removeItem(at: destination)
                 guard (try? fileManager.moveItem(at: url, to: destination)) != nil else { continue }
-                try? fileManager.setAttributes([.modificationDate: now], ofItemAtPath: destination.path)
+                // **刻めなかったら隔離から戻す**(監査で指摘 2026-09-13)。刻めないまま置くと、
+                // すぐ下の3.が元の更新時刻で期限を判定し、30日より古い画像をこの場で消してしまう
+                // ―― 隔離の猶予がこの画像にだけ効かない。戻しておけば次の起動でやり直せる。
+                do {
+                    try fileManager.setAttributes([.modificationDate: now], ofItemAtPath: destination.path)
+                } catch {
+                    try? fileManager.moveItem(at: destination, to: url)
+                }
             }
         }
 

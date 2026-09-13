@@ -925,6 +925,13 @@ final class FavoritesStore: ObservableObject {
     /// いても、ファイルノード識別子(iノード番号)を手がかりに、ローカルに既に保存されている
     /// セキュリティスコープ付きブックマークから現在の実際のURLを解決できるようにしたい。
     /// 一致する登録が複数ある場合は、実際に解決できた最初の1件を返す。
+    /// ファイルノード識別子が一致する行のブックマーク(解決はしない)。保存データの取り込みが、
+    /// 解決と存在確認をメインアクターの外でまとめて行うための材料
+    /// (LibraryImportExportService.bookLocatorHintsのコメント参照)。
+    func bookmarkDataCandidates(matching identifier: FileNodeIdentifier) -> [Data] {
+        allFavoriteBooks().filter { $0.fileNodeIdentifier == identifier }.map(\.bookmarkData)
+    }
+
     func resolvedURL(matching identifier: FileNodeIdentifier) -> URL? {
         for favorite in allFavoriteBooks() where favorite.fileNodeIdentifier == identifier {
             if let url = resolvedURL(for: favorite) { return url }

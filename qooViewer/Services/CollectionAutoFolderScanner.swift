@@ -50,6 +50,9 @@ final class CollectionAutoFolderScanner: ObservableObject {
     private var needsAnotherScan = false
     /// まだ書き込みが止まっていないファイルの、直前の観測。次の走査で見比べる。
     private var observations: [URL: CollectionAutoFolderScan.Observation] = [:]
+    /// そのファイルをどのコレクションへ入れる途中か(observationsと同じ鍵)。見直し
+    /// (recheckPendingFiles)が、フォルダを列挙し直さずにそのファイルだけを見るために持つ。
+    private var pendingCollectionIDByURL: [URL: UUID] = [:]
     /// 見送ったファイルを見直すために予約した走査(二重に積まない)。
     private var recheckTask: Task<Void, Never>?
     /// 走っている走査(settleが待つためだけに持つ)。
@@ -144,6 +147,7 @@ final class CollectionAutoFolderScanner: ObservableObject {
         }
         guard !targets.isEmpty else {
             observations = [:]
+            pendingCollectionIDByURL = [:]
             return
         }
 
@@ -230,6 +234,7 @@ final class CollectionAutoFolderScanner: ObservableObject {
         guard !didRelease else { return }
 
         var stillWriting: [URL: CollectionAutoFolderScan.Observation] = [:]
+        var stillWritingCollectionIDs: [URL: UUID] = [:]
         var toRegister: [(id: UUID, urls: [URL])] = []
 
         for entry in found {
@@ -254,12 +259,14 @@ final class CollectionAutoFolderScanner: ObservableObject {
                     settled.append(book.url)
                 } else {
                     stillWriting[book.url] = observation
+                    stillWritingCollectionIDs[book.url] = entry.id
                 }
             }
             if !settled.isEmpty { toRegister.append((id: entry.id, urls: settled)) }
         }
 
         observations = stillWriting
+        pendingCollectionIDByURL = stillWritingCollectionIDs
 
         if !toRegister.isEmpty {
             let registrations = await Task.detached(priority: .utility) {
@@ -284,7 +291,52 @@ final class CollectionAutoFolderScanner: ObservableObject {
             try? await Task.sleep(for: .seconds(CollectionAutoFolderScan.recheckDelay))
             guard let self, !Task.isCancelled else { return }
             self.recheckTask = nil
-            self.scheduleScan()
+            self.recheckPendingFiles()
+        }
+    }
+
+    /// 見送ったファイル**だけ**の大きさと更新時刻を読み直し、書き終わっていれば登録する。
+    ///
+    /// ■ なぜフォルダを列挙し直さないのか(監査で指摘 2026-09-13)
+    /// 以前はここでscheduleScan()を呼んでいた。書き込み中のファイルが1つでもあると、0.5秒ごとに
+    /// **すべての**自動登録フォルダを列挙し直すことになる ―― 大きな書庫をネットワーク
+    /// ボリュームへコピーしている間(FSEventsが飛ばないので、見直しだけが頼り)、何十もの
+    /// フォルダの一覧をSMB越しに取り続けていた。知りたいのは見送ったファイルが書き終わったか
+    /// だけなので、そのファイルをstatすれば足りる。新しく置かれたファイルは、監視と従来の契機
+    /// (アクティブ化・画面の表示)が拾う。
+    ///
+    /// 消えたファイル(コピーを取り消した等)と、自動登録フォルダが外された/権限を失った
+    /// コレクションのぶんは、ここで落とす。
+    private func recheckPendingFiles() {
+        guard !didRelease else { return }
+        // 走査中なら、その走査が見送ったファイルを見直す(終わった直後にもう一度だけ走らせる)。
+        guard !isScanning else {
+            needsAnotherScan = true
+            return
+        }
+        let activeIDs = Set(
+            collectionStore.autoFolderTargets()
+                .filter { folderAccess.isPathCovered($0.folder) }
+                .map(\.id)
+        )
+        let pending = pendingCollectionIDByURL.filter { activeIDs.contains($0.value) }
+        guard !pending.isEmpty else {
+            observations = [:]
+            pendingCollectionIDByURL = [:]
+            return
+        }
+        isScanning = true
+        scanTask = Task.detached(priority: .utility) { [weak self] in
+            var found: [CollectionAutoFolderScan.FolderResult] = []
+            for (id, entries) in Dictionary(grouping: pending, by: \.value) {
+                let books = entries.map(\.key)
+                    .filter { FileManager.default.fileExists(atPath: $0.path) }
+                    .map { CollectionAutoFolderScan.FreshBook(url: $0, snapshot: CollectionAutoFolderScan.snapshot(of: $0)) }
+                guard !books.isEmpty else { continue }
+                found.append(.init(id: id, books: books, observedAt: Date()))
+            }
+            guard let self else { return }
+            await self.finishScan(found)
         }
     }
 }

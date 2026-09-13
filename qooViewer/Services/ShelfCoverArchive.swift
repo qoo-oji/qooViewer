@@ -65,9 +65,22 @@ nonisolated enum ShelfCoverArchive {
     static func write(entries: [Entry], to destination: URL) throws -> ExportResult {
         // 途中で失敗したときに、書きかけのzipを保存先に残さない ―― 一時ファイルへ作ってから
         // 差し替える(CollectionCoverStore.writeが`.atomic`で書くのと同じ考え方)。
-        let workURL = FileManager.default.temporaryDirectory
+        //
+        // 一時ファイルは**保存先と同じボリューム**の置き換え用フォルダに作る(下の差し替えを
+        // 名前の付け替えだけで済ませるため。サンドボックスでも使える、`.atomic`の書き込みと
+        // 同じ場所)。取れなければ従来どおりアプリの一時フォルダ。
+        let workDirectory = (try? FileManager.default.url(
+            for: .itemReplacementDirectory, in: .userDomainMask,
+            appropriateFor: destination, create: true
+        )) ?? FileManager.default.temporaryDirectory
+        let workURL = workDirectory
             .appendingPathComponent("qooViewer-covers-\(UUID().uuidString).zip", isDirectory: false)
-        defer { try? FileManager.default.removeItem(at: workURL) }
+        defer {
+            try? FileManager.default.removeItem(at: workURL)
+            if workDirectory != FileManager.default.temporaryDirectory {
+                try? FileManager.default.removeItem(at: workDirectory)
+            }
+        }
 
         let archive = try Archive(url: workURL, accessMode: .create)
         var written: [Manifest.Item] = []
@@ -90,10 +103,15 @@ nonisolated enum ShelfCoverArchive {
             to: archive, path: manifestFileName, data: try encoder.encode(manifest), compressed: true
         )
 
+        // **消してから移さない**(監査で指摘 2026-09-13)。以前は既存のファイルを先に消して
+        // いたので、その後の移動が失敗すると(別ボリューム・権限・容量)、書き出したzipは
+        // 残らず、置き換えるはずだった前のzip ―― 表紙の唯一の控えかもしれない ―― だけが
+        // 消えていた。replaceItemAtは、差し替えに失敗したら元のファイルを残す。
         if FileManager.default.fileExists(atPath: destination.path) {
-            try FileManager.default.removeItem(at: destination)
+            _ = try FileManager.default.replaceItemAt(destination, withItemAt: workURL)
+        } else {
+            try FileManager.default.moveItem(at: workURL, to: destination)
         }
-        try FileManager.default.moveItem(at: workURL, to: destination)
         return ExportResult(written: written.count, skipped: skipped)
     }
 
@@ -132,14 +150,24 @@ nonisolated enum ShelfCoverArchive {
     // MARK: - 読み込み
 
     /// zipから読み出した表紙1件。
+    ///
+    /// **画像のバイト列は持たない**(監査で指摘 2026-09-13)。以前は全エントリのDataをここに
+    /// 入れ、それが一覧の行(ShelfCoverImportViewModel.Row)へそのまま渡っていた ―― 上限
+    /// (maxTotalBytes = 1GB)ぶんまで、ウインドウが開いている間ずっとメモリに残り、取り込んだ
+    /// 後も解放されなかった。判定に要るのは検査の結果だけなので、ここでは結果と在処だけを返し、
+    /// 実際に取り込むときにreadEntries(zipAt:paths:)で読み直す。
     struct ImportedEntry: Sendable {
+        /// zipの中でのパス(フォルダ込み)。**読み直すためだけに使う**(照合にもディスクのパスにも
+        /// 使わない)。
+        let path: String
         /// zipの中でのファイル名。**照合にしか使わない。** 保管庫へ書くときの名前は
         /// こちらが振るUUIDなので、この文字列がディスクのパスへ流れ込むことは無い
         /// (CollectionCoverSourceStoreの型コメント参照。これでZip Slipは構造的に起きない)。
         let entryName: String
         /// 拡張子を落とした照合用の名前。
         let baseName: String
-        let data: Data
+        /// 読み出した時点のバイト数(取り込むときに、まとめて読み直す量を見積もるために使う)。
+        let byteCount: Int
         /// そのまま持てるか、焼き直しが要るか、取り込めないか。
         let verdict: ImageIntegrityCheck.Verdict
         /// manifestに書かれていた本(名前を付け替えられていればnil)。
@@ -197,9 +225,10 @@ nonisolated enum ShelfCoverArchive {
             guard total <= maxTotalBytes else { break }
             result.entries.append(
                 ImportedEntry(
+                    path: path,
                     entryName: name,
                     baseName: (name as NSString).deletingPathExtension,
-                    data: data,
+                    byteCount: data.count,
                     verdict: ImageIntegrityCheck.inspect(data, maxPixelSize: maxPixelSize),
                     bookIDFromManifest: manifestByEntryName[name]
                 )
@@ -210,6 +239,29 @@ nonisolated enum ShelfCoverArchive {
         }
         return result
     }
+
+    /// 取り込むエントリだけを読み直す(read(zipAt:maxPixelSize:)が返したImportedEntry.pathで指す)。
+    /// **必ずメインアクターの外から呼ぶこと。**
+    ///
+    /// 呼び出し側はこれを**少しずつ**(maxBatchBytes程度ごとに)呼び、読んだぶんを取り込んでから
+    /// 次を読む ―― まとめて読むと、read側でバイト列を持たないようにした意味が無くなる。
+    /// 読めなかった・大きさの上限を超えたエントリは結果に入らない(読み込んだ後にzipが
+    /// 差し替えられていても、取り込み側がもう一度検査する)。
+    static func readEntries(zipAt url: URL, paths: [String]) throws -> [String: Data] {
+        let reader = try makeArchiveReader(for: url)
+        var result: [String: Data] = [:]
+        for path in paths {
+            if let size = reader.entryUncompressedSize(at: path), size > maxEntryBytes { continue }
+            guard let data = try? reader.data(at: path), !data.isEmpty,
+                  Int64(data.count) <= maxEntryBytes
+            else { continue }
+            result[path] = data
+        }
+        return result
+    }
+
+    /// 取り込むときに一度に読み直す量の目安。
+    static let maxBatchBytes = 64 * 1024 * 1024
 
     /// zipのエントリ名から最後の要素だけを取る。**フォルダに入ったzipも受け取れるようにする**
     /// ため ―― Finderの「圧縮」はフォルダごと固めると`表紙/第1巻.jpg`のような名前になる。

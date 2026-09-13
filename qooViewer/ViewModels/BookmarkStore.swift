@@ -368,6 +368,13 @@ final class BookmarkStore: ObservableObject {
     /// ユーザー要望: JSONインポート(LibraryImportExportService)時、ファイルパスが古くなって
     /// いても、ファイルノード識別子(iノード番号)を手がかりに、ローカルに既に保存されている
     /// セキュリティスコープ付きブックマークから現在の実際のURLを解決できるようにしたい。
+    /// ファイルノード識別子が一致する行のブックマーク(解決はしない)。保存データの取り込みが、
+    /// 解決と存在確認をメインアクターの外でまとめて行うための材料
+    /// (LibraryImportExportService.bookLocatorHintsのコメント参照)。
+    func bookmarkDataCandidates(matching identifier: FileNodeIdentifier) -> [Data] {
+        allBookmarks().filter { $0.fileNodeIdentifier == identifier }.compactMap(\.bookmarkData)
+    }
+
     func resolvedURL(matching identifier: FileNodeIdentifier) -> URL? {
         for bookmark in allBookmarks() where bookmark.fileNodeIdentifier == identifier {
             guard let data = bookmark.bookmarkData else { continue }

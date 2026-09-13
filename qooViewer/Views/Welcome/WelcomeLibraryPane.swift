@@ -52,7 +52,9 @@ struct WelcomeLibraryPane: View {
                 AddBooksPanel(
                     target: Binding(
                         get: { state.addingBooks ?? target },
-                        set: { state.addingBooks = $0 }
+                        // 閉じた後に書き戻さない ―― 追加の途中(フォルダの振り分けを待っている間)に
+                        // 閉じると、終わった時点の書き戻しでパネルがもう一度開いていた。
+                        set: { if state.addingBooks != nil { state.addingBooks = $0 } }
                     )
                 )
             }
@@ -150,7 +152,7 @@ struct LibraryPaneControls: View {
             }
             .popover(isPresented: $isShowingSettings, arrowEdge: .bottom) {
                 if let collection {
-                    CollectionSettingsPopover(collection: collection)
+                    CollectionSettingsPopover(collectionID: collection.id)
                 } else {
                     LibrarySettingsPopover(library: library)
                 }

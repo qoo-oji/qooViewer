@@ -103,14 +103,21 @@ struct CollectionAutoFolderRow: View {
         .onAppear { pathText = folder?.path ?? "" }
         // フォルダの有無をメインアクターの外で確かめる(folderExistsのコメント参照)。
         // パスが変わるたびにやり直し、前の確認は取り消される。
+        //
+        // **打っている間は確かめない・確かめるのは1本ずつ**(監査で指摘 2026-09-13)。以前は1文字
+        // ごとに`Task.detached`で`fileExists`を投げていた。`.task`を取り消しても外へ出した仕事は
+        // 止まらず、`fileExists`自体も途中で止められないので、到達できない共有
+        // (`/Volumes/落ちた共有/…`)を打っている間、1文字ごとにSwift Concurrencyのスレッドが
+        // 1本ずつタイムアウトまで塞がれていた。そのスレッドは数に限りがあり(コア数程度)、
+        // 十数文字でページの復号・実体確認・表紙の抽出までまとめて止まる。いまは入力が止まって
+        // から確かめ、確かめる本体はスレッドプールの外の直列キューで1本ずつ走らせる
+        // (FolderExistenceProbe)。
         .task(id: folder?.path ?? "") {
             folderExists = nil
             guard let path = folder?.path else { return }
-            let exists = await Task.detached(priority: .userInitiated) { () -> Bool in
-                var isDirectory: ObjCBool = false
-                return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
-                    && isDirectory.boolValue
-            }.value
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            let exists = await FolderExistenceProbe.isDirectory(atPath: path)
             guard !Task.isCancelled else { return }
             folderExists = exists
         }
@@ -215,5 +222,26 @@ struct CollectionAutoFolderRow: View {
         )
         guard panel.runModal() == .OK, let granted = panel.url else { return }
         folderAccess.add(url: granted)
+    }
+}
+
+/// フォルダの有無を、**Swift Concurrencyのスレッドプールの外で1本ずつ**確かめる
+/// (CollectionAutoFolderRowの`.task`のコメント参照)。
+///
+/// 到達できないネットワーク上のパスでは`fileExists`がタイムアウトまで返ってこない。直列の
+/// DispatchQueueに載せておけば、塞がるのはこのキューの1本だけで、待っている側は
+/// continuationで待つのでスレッドを握らない。溜まった確認は順に片付く(`.task`が取り消された
+/// ぶんは結果を捨てるだけ)。
+nonisolated enum FolderExistenceProbe {
+    private static let queue = DispatchQueue(label: "jp.qooViewer.folderExistenceProbe", qos: .userInitiated)
+
+    static func isDirectory(atPath path: String) async -> Bool {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                var isDirectory: ObjCBool = false
+                let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+                continuation.resume(returning: exists && isDirectory.boolValue)
+            }
+        }
     }
 }

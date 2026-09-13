@@ -145,7 +145,10 @@ struct ShelfCoverImportTests {
         let storedName = try #require(library.layouts.shelfCoverImageFileName(forBookID: "/books/第1巻.cbz"))
         let storedURL = try #require(library.layouts.coverSourceStore.url(forFileName: storedName))
         // **焼き直していない**(zipの中身とバイト単位で同じ)。
-        #expect(try Data(contentsOf: storedURL) == exported.data)
+        let exportedData = try #require(
+            try ShelfCoverArchive.readEntries(zipAt: zipURL, paths: [exported.path])[exported.path]
+        )
+        #expect(try Data(contentsOf: storedURL) == exportedData)
     }
 
     @Test("同じzipをもう一度読み込んでも、表紙は焼き直されない")

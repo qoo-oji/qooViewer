@@ -229,6 +229,13 @@ final class LayoutStore: ObservableObject {
     /// ユーザー要望: JSONインポート(LibraryImportExportService)時、ファイルパスが古くなって
     /// いても、ファイルノード識別子(iノード番号)を手がかりに、ローカルに既に保存されている
     /// セキュリティスコープ付きブックマークから現在の実際のURLを解決できるようにしたい。
+    /// ファイルノード識別子が一致する行のブックマーク(解決はしない)。保存データの取り込みが、
+    /// 解決と存在確認をメインアクターの外でまとめて行うための材料
+    /// (LibraryImportExportService.bookLocatorHintsのコメント参照)。
+    func bookmarkDataCandidates(matching identifier: FileNodeIdentifier) -> [Data] {
+        allBookLayoutSettings().filter { $0.fileNodeIdentifier == identifier }.compactMap(\.bookmarkData)
+    }
+
     func resolvedURL(matching identifier: FileNodeIdentifier) -> URL? {
         for settings in allBookLayoutSettings() where settings.fileNodeIdentifier == identifier {
             guard let data = settings.bookmarkData else { continue }
@@ -776,13 +783,21 @@ final class LayoutStore: ObservableObject {
     ///
     /// - Parameter storeImage: bookIDを渡すと、その本の表紙の元画像を保管庫へ複製して保存名を
     ///   返す閉包。複製できなければnil(その本は次の起動でもう一度試される)。
-    /// - Returns: 引き取った件数(画像 / ページ)。
+    /// - Returns: 引き取った件数(画像 / ページ)と、**最後まで確かに済んだか**(`completed`)。
+    ///   行のフェッチか保存に失敗したときはfalseで、呼び出し側は済み印を立てずに次の起動で
+    ///   やり直す(監査で指摘 2026-09-13)。以前はallBookLayoutSettings()を通していたので、
+    ///   フェッチの失敗が「行が1つも無い」に化け、移行したことにして二度と走らなかった
+    ///   ―― sweepOrphanedShelfCoverImagesがフェッチの失敗を区別しているのと同じ理由。
     func migrateCoverSeparation(
         storeImage: (String) -> String?
-    ) -> (images: Int, pages: Int) {
+    ) -> (images: Int, pages: Int, completed: Bool) {
+        guard let all = try? modelContext.fetch(FetchDescriptor<BookLayoutSettings>()) else {
+            NSLog("%@", "qooViewer: LayoutStore.migrateCoverSeparation fetch failed")
+            return (0, 0, false)
+        }
         var images = 0
         var pages = 0
-        for settings in allBookLayoutSettings() {
+        for settings in all {
             guard !settings.hasShelfCoverOverride else { continue }
             if settings.externalCoverBookmarkData != nil {
                 guard let storedName = storeImage(settings.bookID) else { continue }
@@ -800,15 +815,17 @@ final class LayoutStore: ObservableObject {
                 pages += 1
             }
         }
-        guard images + pages > 0 else { return (0, 0) }
+        guard images + pages > 0 else { return (0, 0, true) }
         // 起動直後の一度きりなので、保存も通知もまとめて1回だけ(markAllCoversPendingと同じ判断)。
+        var completed = true
         do {
             try modelContext.save()
         } catch {
+            completed = false
             NSLog("%@", "qooViewer: LayoutStore.migrateCoverSeparation save failed: \(error)")
         }
         NotificationCenter.default.post(name: .layoutDataDidChange, object: self)
-        return (images, pages)
+        return (images, pages, completed)
     }
 
     /// externalCoverBookmarkDataからURLを解決する(resolvedURL(forBookID:)と同じ考え方)。
@@ -1062,6 +1079,42 @@ final class LayoutStore: ObservableObject {
             modelContext.delete(settings)
             cachedSettingsByBookID?[bookID] = nil
         }
+        for override in overrides {
+            modelContext.delete(override)
+        }
+        cachedOverridesByBookID?[bookID] = nil
+        saveAndNotify(bookID: bookID)
+    }
+
+    /// 保存データのJSONを**上書きで**取り込む直前に、その本の「JSONが持っているレイアウト」だけを
+    /// 消す(LibraryImportExportService.applyLayouts)。
+    ///
+    /// ■ なぜdiscardLayoutDataではないのか(監査で指摘 2026-09-13)
+    /// 以前は上書きの前にdiscardLayoutDataで行を丸ごと消していた。ところがこの行には、JSONに
+    /// **書き出されない**列が同居している ―― コレクション表紙(shelfCover*)・切り出し位置
+    /// (coverCropAnchorRaw)・書き出し用のカバー画像(coverPageKey/externalCover*)・
+    /// コントラスト補正。行を消すとそれらも消え、JSONからは戻らない。コレクション表紙の画像は
+    /// 参照を失ったまま次の起動で隔離され、30日後に消える(CollectionCoverSourceStore.sweepOrphans)。
+    /// 「バックアップから戻す」という操作が、作り直せない絵を黙って失う操作になっていた。
+    ///
+    /// ここで消すのはJSONのExportedBookLayoutが表すもの(読み方向・見開き強制・ページ順と、
+    /// ページ単位の設定)だけ。**書き出されない列が1つも使われていない行は、従来どおり行ごと消す**
+    /// (空の行を残して一覧や指紋の扱いを変えない)。行を残すときは、EPUB/PDFのファイル側の
+    /// レイアウトを取り込み直せるよう`didImportSourceLayout`も戻す ―― 行を消していた頃と同じ結果。
+    func discardImportableLayoutData(forBookID bookID: String) {
+        guard let settings = bookLayoutSettings(forBookID: bookID), settings.holdsNonExportedData
+        else {
+            discardLayoutData(forBookID: bookID)
+            return
+        }
+        let overrides = pageOverrides(forBookID: bookID)
+        guard !settings.isBookLevelSettingEmpty || settings.didImportSourceLayout || !overrides.isEmpty
+        else { return }
+        settings.readingDirectionOverrideRaw = nil
+        settings.forcedDisplayModeRaw = nil
+        settings.pageOrderOverrideJSON = nil
+        settings.didImportSourceLayout = false
+        settings.updatedAt = Date()
         for override in overrides {
             modelContext.delete(override)
         }

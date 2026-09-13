@@ -789,6 +789,15 @@ struct ExportCoverPickerContent: View {
             // どこにも印が付かず、「選択」も押せない = 選ぶまで何も起きない)。
             selectedPageKey = controller.coverPageKey(forBookID: bookID)
         }
+        // 読み込みで開いたアクセスを閉じる(CoverOverrideController.pickerScopedURLByBookIDの
+        // コメント参照)。持ち主はアプリ終了まで生きるので、ここで閉じないと残り続ける。
+        .onDisappear {
+            // 書庫の読み取り役もここで手放す(アクセスを閉じた後に読みに行かせない)。
+            if let pageLoader {
+                Task { await pageLoader.releaseAllResources() }
+            }
+            controller.endCoverPicker(bookID: bookID)
+        }
     }
 
     /// カバーの切り出し位置の選択。DBが唯一の持ち主なので、@Stateには写さず毎回読む。

@@ -73,25 +73,34 @@ final class CoverOverrideController: ObservableObject {
     /// (refreshCoverName(forBookID:)参照)。
     @Published private(set) var resolvedCoverNames: [String: String] = [:]
 
-    /// loadBook(forBookID:)でstartAccessingSecurityScopedResource()に成功したURLの集合。
+    /// カバーピッカーが開いている本のセキュリティスコープ付きアクセス(bookID → 開いたURL)。
     ///
-    /// 読み込んだ本は、この後もカバー列の表示名の解決やカバーピッカーのサムネイル取得で
-    /// 元のファイルを読み続けるため、loadBook()の中でアクセスを閉じることはできず、この
-    /// インスタンスが生きている間ずっと開いたままにしておく必要がある。そのため対になる
-    /// stopAccessingSecurityScopedResource()はdeinitで呼ぶ
-    /// (BookLayoutEditorViewModel.securityScopedURLと同じ方針)。
+    /// ピッカーは開いている間ずっとサムネイルを読むので、読み込みの後もアクセスを閉じられない。
+    /// 閉じるのは**ピッカーが閉じたとき**(endCoverPicker)。
     ///
-    /// 以前は`_ = url.startAccessingSecurityScopedResource()`と開きっぱなしにしており、
-    /// アクセス権がリークしていた。しかもBookLayoutEditorViewModel(1冊ごとに作り直される)と
-    /// 違い、この持ち主(書き出しウインドウのViewModel)はウインドウを閉じてもアプリ終了まで
-    /// 使い回されるうえ、loadBook()はカバー列のセルの.task(refreshCoverName)から行ごとに
-    /// 呼ばれるため、一覧をスクロールして行が再表示されるたびに対象の本の数だけ
-    /// 積み上がっていた。
+    /// ■ 経緯
+    /// 最初は`_ = url.startAccessingSecurityScopedResource()`と開きっぱなしで、次にURLの集合に
+    /// 控えてdeinitで閉じる形にした。ところがこの持ち主(書き出しウインドウ・「メタデータの編集」
+    /// ウインドウのViewModel)はウインドウを閉じてもアプリ終了まで使い回されるので、deinitは
+    /// 事実上来ない。しかもカバー列の表示名の解決(セルの.task)も同じ口で読み込んでいたため、
+    /// 一覧をスクロールするだけで**表示した本の数だけ**アクセスが終了まで積み上がっていた
+    /// (監査で指摘 2026-09-13。「メタデータの編集」は知っている本すべてを並べるので特に多い。
+    /// Appleはスコープを漏らし続けるとサンドボックスへの追加が効かなくなると明記している)。
+    /// いまは、表示名のための読み込みは読み終えた時点で閉じ(loadBookForCoverName)、
+    /// 開いたままにするのはピッカーのぶんだけにしてある。
     ///
-    /// Set(URL単位で1回だけ開く)にしているのは、startAccessingSecurityScopedResourceが
-    /// 参照カウント式のため。同じ本を何度読み込んでも開くのは1回だけにしておかないと、
-    /// deinitでの1回のstopでは釣り合わない。
-    private var securityScopedURLs: Set<URL> = []
+    /// bookID単位で1回だけ開くのは、startAccessingSecurityScopedResourceが参照カウント式のため
+    /// (閉じる側の1回のstopと釣り合わせる)。
+    private var pickerScopedURLByBookID: [String: URL] = [:]
+
+    /// 表示名を求めるための本の読み込みを、同時に走らせてよい数。
+    ///
+    /// 読み込みは書庫の展開・フォルダの再帰走査を伴い、セルの.taskから行ごとに呼ばれる。
+    /// 絞らないと、一覧をスクロールしただけで見えた行の数だけ本を同時に開くことになる
+    /// (監査で指摘 2026-09-13。CollectionTileImageStore.maxConcurrentComposesと同じ考え方)。
+    private static let maxConcurrentNameLoads = 2
+    private var activeNameLoads = 0
+    private var nameLoadWaiters: [CheckedContinuation<Void, Never>] = []
 
     init(
         target: Target, layoutStore: LayoutStore, preferences: AppPreferences,
@@ -104,9 +113,8 @@ final class CoverOverrideController: ObservableObject {
     }
 
     deinit {
-        // loadBook(forBookID:)で開いたセキュリティスコープ付きアクセスを閉じる
-        // (securityScopedURLsのコメント参照)。
-        for url in securityScopedURLs {
+        // 閉じ損ねたピッカーのぶん(pickerScopedURLByBookIDのコメント参照)。
+        for url in pickerScopedURLByBookID.values {
             url.stopAccessingSecurityScopedResource()
         }
     }
@@ -201,7 +209,7 @@ final class CoverOverrideController: ObservableObject {
             }
         }
 
-        guard let book = await loadBook(forBookID: bookID) else { return }
+        guard let book = await loadBookForCoverName(bookID: bookID) else { return }
         let ordered = EffectivePageOrder.orderedPages(
             for: book, pageOrderOverride: settings?.pageOrderOverride, excludedKeys: excludedKeys
         )
@@ -211,21 +219,61 @@ final class CoverOverrideController: ObservableObject {
 
     // MARK: - 本の読み込み
 
-    /// カバーピッカー(本のページ一覧を表示する画面)から呼ばれる。この本を読み込んで返す
-    /// (セキュリティスコープ付きアクセスはBookLayoutEditorViewModel.loadと同じく、ウインドウが
-    /// 開いている間ずっとサムネイルを読み込めるよう、明示的に閉じずに保持したままにし、
-    /// deinitでまとめて閉じる。securityScopedURLsのコメント参照)。
+    /// カバーピッカー(本のページ一覧を表示する画面)から呼ばれる。この本を読み込んで返す。
+    /// セキュリティスコープ付きアクセスは、ピッカーが開いている間ずっとサムネイルを読めるよう
+    /// 開いたままにする。**ピッカーを閉じたら必ずendCoverPicker(bookID:)を呼ぶこと**
+    /// (pickerScopedURLByBookIDのコメント参照)。
     func loadBookForCoverPicker(bookID: String) async -> MangaBook? {
-        await loadBook(forBookID: bookID)
+        guard let url = resolveURL(bookID) else { return nil }
+        if pickerScopedURLByBookID[bookID] == nil, url.startAccessingSecurityScopedResource() {
+            pickerScopedURLByBookID[bookID] = url
+        }
+        let book = try? await BookLoader.load(from: url)
+        // 読み込んでいる間にピッカーが閉じられていたら(.taskが取り消される)、endCoverPickerは
+        // 既に通り過ぎている。ここで閉じないと終了まで残る。
+        if Task.isCancelled {
+            endCoverPicker(bookID: bookID)
+            return nil
+        }
+        return book
     }
 
-    private func loadBook(forBookID bookID: String) async -> MangaBook? {
-        guard let url = resolveURL(bookID) else { return nil }
-        // 同じ本を何度読み込んでも、開くのは最初の1回だけにする(securityScopedURLsのコメント参照)。
-        if !securityScopedURLs.contains(url), url.startAccessingSecurityScopedResource() {
-            securityScopedURLs.insert(url)
-        }
+    /// ピッカーが閉じた。開いていたアクセスを閉じる。
+    func endCoverPicker(bookID: String) {
+        pickerScopedURLByBookID.removeValue(forKey: bookID)?.stopAccessingSecurityScopedResource()
+    }
+
+    /// 表示名を求めるためだけに本を読む。**読み終えたらアクセスを閉じる**(使うのはページの
+    /// 並びと名前だけで、読み込んだ後に元のファイルへは触らない)。同時に走る数は絞る
+    /// (maxConcurrentNameLoadsのコメント参照)。
+    private func loadBookForCoverName(bookID: String) async -> MangaBook? {
+        await acquireNameLoadSlot()
+        defer { releaseNameLoadSlot() }
+        // 順番を待っている間に行が画面外へ流れていたら、読まずに戻る。
+        guard !Task.isCancelled, let url = resolveURL(bookID) else { return nil }
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
         return try? await BookLoader.load(from: url)
+    }
+
+    private func acquireNameLoadSlot() async {
+        if activeNameLoads < Self.maxConcurrentNameLoads {
+            activeNameLoads += 1
+            return
+        }
+        // 起こされた時点で枠は自分のもの(releaseNameLoadSlotが数を減らさずに次を起こす)。
+        // CollectionTileImageStore.acquireComposeSlotと同じ規約。
+        await withCheckedContinuation { continuation in
+            nameLoadWaiters.append(continuation)
+        }
+    }
+
+    private func releaseNameLoadSlot() {
+        if !nameLoadWaiters.isEmpty {
+            nameLoadWaiters.removeFirst().resume()
+        } else {
+            activeNameLoads -= 1
+        }
     }
 
     // MARK: - カバーの指定

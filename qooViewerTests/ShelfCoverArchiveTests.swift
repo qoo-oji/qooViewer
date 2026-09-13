@@ -193,4 +193,32 @@ struct ShelfCoverArchiveTests {
         let name = ShelfCoverArchive.uniqueFileName(forBaseName: long, extension: "jpg", used: &used)
         #expect(name.utf8.count <= 255)
     }
+
+    @Test("既にあるzipへ書き出すと、中身が新しいものに入れ替わる(一時ファイルも残らない)")
+    func writingOverAnExistingZipReplacesIt() async throws {
+        let library = try InMemoryLibrary(label: "cover-zip-replace")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("cover-zip-replace")
+        let zipURL = temporary.file("covers.zip")
+
+        try await library.layouts.setShelfCoverImage(
+            forBookID: "/books/第1巻.cbz", sourceURL: nil,
+            fileURL: try makeImage(temporary, "one.png", number: 1)
+        )
+        _ = try ShelfCoverArchive.write(entries: library.layouts.shelfCoverArchiveEntries(), to: zipURL)
+
+        try await library.layouts.setShelfCoverImage(
+            forBookID: "/books/第2巻.cbz", sourceURL: nil,
+            fileURL: try makeImage(temporary, "two.png", number: 2)
+        )
+        let result = try ShelfCoverArchive.write(
+            entries: library.layouts.shelfCoverArchiveEntries(), to: zipURL
+        )
+
+        #expect(result.written == 2)
+        #expect(try contents(of: zipURL).keys.sorted() == ["qooViewer-covers.json", "第1巻.jpg", "第2巻.jpg"])
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: temporary.url.path)
+            .filter { $0.hasPrefix("qooViewer-covers-") }
+        #expect(leftovers.isEmpty)
+    }
 }

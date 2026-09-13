@@ -18,13 +18,24 @@ import UniformTypeIdentifiers
 /// 1. 形式が許可した5種のいずれかで、拡張子ではなく**中身から**判定できる
 /// 2. フレームが1つだけ(複数フレームを仕込んだファイルを弾く)
 /// 3. ヘッダーが寸法を申告していて、0でも上限超えでもない
-/// 4. **実際に復号した画素寸法が、ヘッダーの申告と一致する**
+/// 4. **画素データを実際に最後まで復号でき**、その寸法がヘッダーの申告と一致する
 /// 5. **バイト列が、その形式自身の終端で終わっている**(画像の後ろに別のファイルを継ぎ足した
 ///    よくある細工を弾く)
 ///
 /// 5を確かめられるのはJPEGとPNGだけなので、**そのまま持てるのもこの2形式だけ**にしてある。
 /// 他の形式(HEIC/WebP/TIFF)は焼き直して取り込む。このアプリが書き出すのは常にJPEGなので、
 /// 自分で書き出したzipは必ず無劣化で往復する。
+///
+/// ■ 4が実際に言えること(実測 2026-09-13)
+/// 以前は`CGImageSourceCreateImageAtIndex`の戻り値の寸法を見ていたが、あれは**遅延デコード**で、
+/// 途中で切り詰めたJPEGにもヘッダーの寸法のCGImageを0msで返す ―― 画素は1つも復号されておらず、
+/// 検査として空振りしていた。いまは`kCGImageSourceShouldCacheImmediately`で**その場で全復号**させる
+/// (1200×900で約7ms、描画は0.4msに落ちる = 復号済み)。
+/// ただし全復号しても、Image I/Oは壊れた部分を埋めて**失敗しない**(中央1/3を乱数で潰したJPEG・
+/// 半分で切ってEOIを付け直したJPEGとも、nilにならず同じ寸法で返った)。したがって4が弾けるのは
+/// 「復号そのものが通らないもの」と「寸法の食い違い」だけで、**画素が正しいことまでは言えない**。
+/// 危ないバイト列(復号器を落とす細工)を、取り込んだ後の表示ではなくこの検査の中で踏ませる、
+/// というのがこの手順の実際の役目。切り詰め・継ぎ足しは5(終端)が受け持つ。
 ///
 /// ■ 4の全復号が重くならない理由
 /// 全復号を通すのは**上限内の画像だけ**。上限を超えるものはどのみち縮小して焼き直すので、
@@ -93,7 +104,11 @@ nonisolated enum ImageIntegrityCheck {
         // ここから先は長辺maxPixelSize以下の画像だけが通る。
         // CGImageSourceCreateImageAtIndexは向き(EXIF Orientation)を適用しないので、
         // 復号結果の寸法はヘッダーの申告とそのまま突き合わせられる。
-        guard let decoded = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+        // **ShouldCacheImmediatelyで全復号させる**(型コメント「4が実際に言えること」参照。
+        // 付けないと遅延デコードで、画素に触れないまま寸法だけが返る)。
+        guard let decoded = CGImageSourceCreateImageAtIndex(
+            source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary
+        ) else {
             return .rejected(.unreadable)
         }
         guard decoded.width == width, decoded.height == height else {

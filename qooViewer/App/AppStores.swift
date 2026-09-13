@@ -78,6 +78,13 @@ final class AppStores: ObservableObject {
     let collectionAutoFolderScanner: CollectionAutoFolderScanner
 
     init() {
+        // 予約された「すべてのデータを削除」の残り(終了前に落ちた場合)は、**どのストアよりも
+        // 先に**片付ける(監査で指摘 2026-09-13)。以前はmodelContainerの初期化の中でだけ
+        // 行っていたが、そこへ届くのは下の4つ(環境設定・キーの割り当て・履歴・フォルダの
+        // アクセス権)がUserDefaultsを読み終えた後だった。消した直後にそれらのdidSetが古い値を
+        // 書き戻すので、この経路の全削除では環境設定が生き残っていた。modelContainerの中の
+        // 呼び出しはそのまま残す(予約はここで取り下げられているので、あちらは何もしない)。
+        QooViewerApp.performPendingStoreResetIfNeeded()
         // 生成の順序は、QooViewerAppが@StateObjectを個別に持っていた頃の
         // 「宣言時デフォルト値(宣言順)→ init()内のSwiftData系4つ」の順をそのまま保つ。
         preferences = AppPreferences()

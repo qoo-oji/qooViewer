@@ -333,9 +333,15 @@ struct QooViewerApp: App {
 
         // ディスクキャッシュ。ResetDataSettingsViewが予約時にも消しているが、その後の終了までに
         // 書かれたぶん(ページ寸法の書き戻しなど)を取りこぼさないよう、ここでもう一度消す。
+        //
+        // コレクション表紙の元画像と焼いた札の絵も入れる(ResetDataSettingsView.performResetと
+        // 同じ範囲)。以前はこの経路にだけ入っておらず、終了前に落ちた場合の全削除では残っていた
+        // (元画像は参照を失って隔離されるだけで、30日間ディスクに残る)。
         let directories = cacheDirectories
-            ?? ([ThumbnailDiskCache.shared.directory, BookPageListCache.shared.directoryURL]
-                .compactMap { $0 } + [CollectionCoverStore.defaultDirectory()])
+            ?? ([ThumbnailDiskCache.shared.directory, BookPageListCache.shared.directoryURL,
+                 CollectionTileImageStore.defaultDirectory()]
+                .compactMap { $0 }
+                + [CollectionCoverStore.defaultDirectory(), CollectionCoverSourceStore.defaultDirectory()])
         for directory in directories {
             try? FileManager.default.removeItem(at: directory)
         }
@@ -2412,6 +2418,57 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
     weak var window: NSWindow?
     /// 複数タブ確認ダイアログのON/OFF設定・表示言語を参照するため。
     weak var preferences: AppPreferences?
+
+    /// このデリゲートを`window`自身に持たせる(関連オブジェクト)。NSWindow.delegateも赤い閉じる
+    /// ボタンのtargetも弱参照なので、誰かが強参照していないと解放される。
+    ///
+    /// ■ なぜウインドウに持たせるのか
+    /// バグ修正(ユーザー報告 2026-09-09): 最初はViewerViewの@Stateだけが強参照していた。
+    /// 本を閉じてウェルカム画面へ戻ったあとSwiftUIが古いViewerViewの@Stateを手放した時点
+    /// (手放すタイミングは一定しない ―― コレクションへ入るなどでContentView以下が組み替わった
+    /// ときに起きることを実測)でデリゲートが解放され、閉じるボタンは「target=nil・
+    /// action=forceCloseWindow:」になる。AppKitはシートが終わるとき、閉じるボタンをactionの
+    /// 送り先が見つかるかで再検証する(単体のAppKitで実測: 既定のtargetなら再び有効、生きた独自
+    /// targetならシート中も無効にならない、target=nilなら**シートが終わっても無効のまま**で、
+    /// タイトル変更・キー状態の変化・スタイルマスク変更・ツールバー差し替え・contentView差し替えの
+    /// どれでも戻らない)。これが「コレクションの作成やメタデータ編集のシートを閉じると、赤い閉じる
+    /// ボタンがたまにグレーのままになる」正体で、次に本を開いてtargetが入れ直されるまで戻らなかった。
+    /// 同時に、originalDelegate(SwiftUIがタブ管理・状態復元のために付けたデリゲート)もこの
+    /// デリゲートだけが強参照しているので、ウインドウのデリゲートごと失われていた。
+    ///
+    /// 次に所有者をAppState(1ウインドウに1つ)にしたが、**監査で循環の恐れを指摘された**
+    /// (2026-09-13): このデリゲートはoriginalDelegateを強参照するので、SwiftUIのデリゲートが
+    /// ウインドウを強参照していると「ウインドウ → ホスティングビュー → AppState → このデリゲート →
+    /// originalDelegate → ウインドウ」が輪になり、閉じたウインドウもAppStateも解放されない
+    /// (AppState.deinitが解放するセキュリティスコープ付きアクセスごと残る)。SwiftUIの内部の
+    /// 持ち方はコードからは確かめられないので、輪ができない持ち方にした: ウインドウに持たせれば
+    /// 輪の中にAppStateは入らず、デリゲートの寿命はちょうどウインドウの寿命になる。
+    func retain(by window: NSWindow) {
+        objc_setAssociatedObject(
+            window, &Self.associationKey, self, .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+
+    nonisolated(unsafe) private static var associationKey: UInt8 = 0
+
+    /// 閉じるウインドウから、このデリゲートを手放させる(retain(by:)の対)。
+    ///
+    /// ウインドウに持たせたままだと、今度はSwiftUIのデリゲートがウインドウを強参照していた
+    /// 場合に「ウインドウ → このデリゲート → originalDelegate → ウインドウ」の輪が残る。閉じた
+    /// 後のウインドウにデリゲートは要らないので、ここで輪を切る。**この呼び出しの最中に自分を
+    /// 解放しない**よう、手放すのは1拍おいてから。
+    ///
+    /// NSWindowDelegateのメソッドを実装したので、responds(to:)の自動の転送には乗らなくなる。
+    /// 元のデリゲートへは自分で渡す。
+    func windowWillClose(_ notification: Notification) {
+        originalDelegate?.windowWillClose?(notification)
+        guard let closing = notification.object as? NSWindow else { return }
+        Task { @MainActor in
+            objc_setAssociatedObject(
+                closing, &Self.associationKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+    }
 
     /// Cmd+W(File>閉じる)・タブバー自身の×ボタンのどちらでも、この経路(performClose経由)
     /// を通る。AppKitからはどちらがきっかけかを区別できないため、ここでは複数タブの確認は

@@ -21,7 +21,12 @@ import SwiftUI
 ///
 /// ポップオーバーの中身はmacOSが不透明に描くので、すりガラス面の輪郭は要らない(CLAUDE.md)。
 struct CollectionSettingsPopover: View {
-    let collection: BookCollection
+    /// **モデルの参照ではなくidで持ち、使うたびに引き直す**(監査で指摘 2026-09-13)。
+    /// 開いている間に別のウインドウがこのコレクションを消すと、一覧側が組み変わってこの面が
+    /// 閉じ、`onDisappear`の書き込み(commitDraft)が走る。参照を持ったままだと、そこで
+    /// 削除済みのSwiftDataモデルに触れて落ちうる(他の画面が削除・リネームの対象をidで
+    /// 持っているのと同じ理由。CollectionGridView.renamingCollectionID参照)。
+    let collectionID: UUID
 
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var autoFolderScanner: CollectionAutoFolderScanner
@@ -33,12 +38,17 @@ struct CollectionSettingsPopover: View {
     /// 打ち終わりを待って1回だけ書く。
     @State private var draftFolder: URL?
 
+    /// いまのコレクション(消されていればnil)。
+    private var collection: BookCollection? {
+        collectionStore.collection(withID: collectionID)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Collection Settings")
                     .font(.headline)
-                Text(collection.name)
+                Text(collection?.name ?? "")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -55,7 +65,7 @@ struct CollectionSettingsPopover: View {
                 CollectionAutoFolderRow(folder: $draftFolder)
             }
         }
-        .onAppear { draftFolder = collection.autoFolderURL }
+        .onAppear { draftFolder = collection?.autoFolderURL }
         // 打ち終わりの合図は2つ ―― Returnと、この面が閉じたとき。`.onSubmit`は下にある
         // TextFieldの確定を拾う(SwiftUIの確定は親へ伝わる)。パネルやドロップで選んだ場合も
         // 同じく閉じたときに書かれる ―― どのみち結果が見えるのは一覧へ戻ってからなので、
@@ -76,7 +86,7 @@ struct CollectionSettingsPopover: View {
     /// LibrarySettingsPopoverのラジオは`@State`に写さず毎回DBを読んでいるが、こちらは
     /// 打っている途中という中間状態があるので下書きを持つ(draftFolderのコメント参照)。
     private func commitDraft() {
-        guard draftFolder?.path != collection.autoFolderPath else { return }
+        guard let collection, draftFolder?.path != collection.autoFolderPath else { return }
         collectionStore.setAutoFolder(draftFolder, for: collection)
         autoFolderScanner.scheduleScan()
     }

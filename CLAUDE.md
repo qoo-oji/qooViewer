@@ -99,7 +99,10 @@ load (offers to delete and recreate) — keep new model types additive/lightweig
 **Whenever a `@Model` changes (or `QooViewerApp.modelTypes` does), add a row to
 `StoreSchemaGuard.generations`** (`StoreSchemaGuardTests` fails otherwise), and cover any new persisted
 attribute with a save → close → reopen test on a disposable on-disk store (`DisposableStore` /
-`StorePersistenceTests`) — in-memory stores never exercise reopening or migration. SwiftData silently
+`StorePersistenceTests`) — in-memory stores never exercise reopening or migration. When the new attribute
+lives on `BookLayoutSettings`, also decide whether the saved-data JSON exports it: a column that is
+*not* exported must be listed in `BookLayoutSettings.holdsNonExportedData`, or an "overwrite" import
+silently drops it (this is how collection covers were lost on overwrite imports until 2026-09-13). SwiftData silently
 "migrates" a newer store down to an older model and drops the columns that model doesn't know; on
 2026-09-11 launching the previous release did exactly that to 131 collection covers. Never run an older
 build of the app (including a test host built from an old tag) against real data. Details in

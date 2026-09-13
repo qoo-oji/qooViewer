@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Combine
 import CoreGraphics
@@ -100,6 +101,17 @@ final class CollectionCoverExtractor: ObservableObject {
     /// 本のページ一覧のキャッシュの読み口(**テストのための口**。既定はBookPageListCache.shared)。
     private let cachedPageList: @Sendable (String) async -> [BookPageListCache.Entry.Page]?
 
+    /// **一時的な理由で**抽出できなかったitem。次にアプリがアクティブになるまで積み直さない。
+    ///
+    /// ■ なぜ`.failed`にしないのか(監査で指摘 2026-09-13)
+    /// `.failed`は表紙の指定を変えるまで二度と抽出されない。以前はディスクが一杯でJPEGを
+    /// 書けなかったとき・読んでいる途中で外付けを抜いたときも`.failed`にしていたので、原因が
+    /// 解消しても灰色のまま戻らなかった。とはいえ`.pending`のまま置くだけだと、
+    /// `.collectionsDidChange`のたび(=他の本の抽出が1冊終わるたび)にrefill()が積み直し、
+    /// ディスクが一杯の間じゅう失敗を繰り返す。そこで状態は`.pending`のまま、この集合で
+    /// 「いまは積まない」とし、アクティブ化(利用者が何かをしに戻ってきた)で解く。
+    private var deferredItemIDs: Set<UUID> = []
+
     private var observers: [NSObjectProtocol] = []
     /// 存在確認の結果が変わったら待ち行列を組み直す(型コメント「実体が見つからない本」参照)。
     private var existenceCancellable: AnyCancellable?
@@ -146,7 +158,17 @@ final class CollectionCoverExtractor: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.handlePageOrderSettingChange() }
         }
-        observers = [layoutObserver, collectionsObserver, pageOrderObserver]
+        // 一時的な理由で見送ったitemを、戻ってきた時点で積み直す(deferredItemIDsのコメント参照)。
+        let activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.deferredItemIDs.isEmpty else { return }
+                self.deferredItemIDs.removeAll()
+                self.refill()
+            }
+        }
+        observers = [layoutObserver, collectionsObserver, pageOrderObserver, activationObserver]
         // `@Published`の投影はwillSetで飛ぶ(ストアの値はまだ差し替わっていない)ので、
         // 届いた値のほうで組み直す。代入はメインアクター上(finishExistenceRefresh)なので
         // ここも同期的にメインアクター上で走る(FavoritesStore.initの同種のコメント参照)。
@@ -218,6 +240,8 @@ final class CollectionCoverExtractor: ObservableObject {
     private func refill(locations: [UUID: BookLocation]) {
         seedSignatures(for: collectionStore.allRegisteredBookIDs())
         enqueue(collectionStore.itemsAwaitingCover().filter { item in
+            // 一時的な理由で見送ったものは、アクティブ化まで積まない(deferredItemIDsのコメント)。
+            guard !deferredItemIDs.contains(item.id) else { return false }
             // 実体が見つからない本は積まない ―― ただし、利用者が用意した画像を表紙にして
             // いる本は本を開かずに作れるので積む(extract(itemID:)のコメント参照)。
             if locations[item.id]?.exists ?? true { return true }
@@ -318,6 +342,13 @@ final class CollectionCoverExtractor: ObservableObject {
         // 読み込んでいる間にコレクションから外された可能性があるので、書き戻す前に引き直す。
         guard let current = collectionStore.item(withID: itemID) else { return }
         guard let image, image.width > 0, image.height > 0 else {
+            // 読んでいる途中で本が見えなくなった(外付けを抜いた・共有が落ちた)なら、本が壊れて
+            // いるとは言えない。`.pending`のまま置き、実体確認の結果が変われば積み直される
+            // (deferredItemIDsのコメント・型コメント「実体が見つからない本」参照)。
+            if url != nil, snapshot.imageFileURL == nil,
+               collectionStore.resolvedExistingURL(for: current) == nil {
+                return
+            }
             collectionStore.setCoverStatus(.failed, aspect: 0, for: current)
             return
         }
@@ -326,7 +357,10 @@ final class CollectionCoverExtractor: ObservableObject {
         do {
             try await coverStore.write(image, for: itemID)
         } catch {
-            collectionStore.setCoverStatus(.failed, aspect: 0, for: current)
+            // 書けなかったのはこちら側の事情(ディスクが一杯など)で、本は読めている。
+            // `.failed`にせず、アクティブ化まで見送る(deferredItemIDsのコメント参照)。
+            NSLog("%@", "qooViewer: collection cover write failed for \(itemID): \(error)")
+            deferredItemIDs.insert(itemID)
             return
         }
         // 焼いてある札の絵は、この本のカバーが**差し替わった**ことを自分では知りようがない
@@ -373,6 +407,8 @@ final class CollectionCoverExtractor: ObservableObject {
         }
         guard previous != current else { return }
         signatures[bookID] = current
+        // 利用者が表紙を選び直した = いま試すべき契機。見送りは解く。
+        for item in items { deferredItemIDs.remove(item.id) }
         collectionStore.markCoversPending(forBookID: bookID)
         enqueue(items)
     }
@@ -498,14 +534,16 @@ final class CollectionCoverExtractor: ObservableObject {
             didSkip = true
             return nil
         }
-        if !didSkip {
+        // 行のフェッチ・保存に失敗したときも済み印を立てない(LayoutStore.migrateCoverSeparationの
+        // 戻り値のコメント参照)。
+        if !didSkip, result.completed {
             defaults.set(true, forKey: key)
         }
-        if result.images + result.pages > 0 || didSkip {
+        if result.images + result.pages > 0 || didSkip || !result.completed {
             NSLog(
                 "%@",
                 "qooViewer: shelf cover separation migrated images=\(result.images) "
-                    + "pages=\(result.pages) skipped=\(didSkip)"
+                    + "pages=\(result.pages) skipped=\(didSkip) completed=\(result.completed)"
             )
         }
     }

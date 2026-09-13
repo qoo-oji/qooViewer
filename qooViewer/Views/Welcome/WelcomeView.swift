@@ -159,7 +159,8 @@ struct WelcomeView: View {
                     CollectionAutoFolderScan.books(in: autoFolder, order: order)
                 }.value
             }
-            let pending = books.compactMap(CollectionStore.makePendingItem(for:))
+            // ブックマークの生成はメインアクターの外で(CollectionStore.makePendingItemsのコメント参照)。
+            let pending = await CollectionStore.makePendingItems(for: books)
             // 本の入っていない作成(「＋」から)は、行を作らずに「本を追加」パネルへ進む。
             // 1冊目が入った時点でCollectionStore.createCollectionが行を作る ―― 選ばれていた
             // 自動登録フォルダも、そのときに書き込めるようパネルへ持たせる。
@@ -248,11 +249,19 @@ enum WelcomeDropHandling {
         Task {
             let classified = await CollectionDropClassifier.classifyAsync(urls, order: order)
             if let openedCollectionID,
-               let collection = collectionStore.collection(withID: openedCollectionID) {
-                addBooks(
-                    CollectionDropClassifier.booksToAdd(from: classified), to: collection,
-                    collectionStore: collectionStore, coverExtractor: coverExtractor
+               collectionStore.collection(withID: openedCollectionID) != nil {
+                // ブックマークの生成はメインアクターの外で(CollectionStore.makePendingItemsの
+                // コメント参照)。待っている間に消されたコレクションには足さないよう、戻ってから
+                // idで引き直す。
+                let pending = await CollectionStore.makePendingItems(
+                    for: CollectionDropClassifier.booksToAdd(from: classified)
                 )
+                if let collection = collectionStore.collection(withID: openedCollectionID) {
+                    addBooks(
+                        pending, to: collection,
+                        collectionStore: collectionStore, coverExtractor: coverExtractor
+                    )
+                }
             } else {
                 queueCreations(from: classified, into: state)
             }
@@ -262,10 +271,9 @@ enum WelcomeDropHandling {
     }
 
     private static func addBooks(
-        _ urls: [URL], to collection: BookCollection,
+        _ pending: [CollectionStore.PendingItem], to collection: BookCollection,
         collectionStore: CollectionStore, coverExtractor: CollectionCoverExtractor
     ) {
-        let pending = urls.compactMap(CollectionStore.makePendingItem(for:))
         guard !pending.isEmpty else { return }
         coverExtractor.enqueue(collectionStore.add(pending, to: collection))
     }

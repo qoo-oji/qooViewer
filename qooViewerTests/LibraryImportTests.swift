@@ -786,4 +786,89 @@ struct LibraryImportTests {
         #expect(target.coverAspectRatio == .portrait)
         #expect(target.coverCropAnchor == .center)
     }
+
+    // MARK: - 監査の指摘(2026-09-13)の回帰
+
+    @Test("レイアウトの overwrite は、JSON に無いコレクション表紙・切り出し位置を消さない")
+    func layoutOverwriteKeepsColumnsTheFileDoesNotCarry() async throws {
+        let source = try await ExportSource.zip(pages: 3, label: "import-layout-keeps-cover")
+        let library = try InMemoryLibrary(label: "import-layout-keeps-cover")
+        defer { library.close() }
+        let image = source.temp.file("cover.png")
+        try PageImageFactory.png(number: 9).write(to: image)
+        try await library.layouts.setShelfCoverImage(
+            forBookID: source.book.id, sourceURL: source.book.sourceURL, fileURL: image
+        )
+        library.layouts.setCoverCropAnchor(
+            forBookID: source.book.id, sourceURL: source.book.sourceURL, anchor: .end
+        )
+        library.layouts.setReadingDirectionOverride(for: source.book, .rightToLeft)
+        library.layouts.setPageLayoutState(for: source.book, pageKey: source.key(1), state: .spreadRight)
+        let storedName = try #require(library.layouts.shelfCoverImageFileName(forBookID: source.book.id))
+
+        await library.apply(
+            QooLibraryExportFile(
+                layouts: [layoutEntry(
+                    source, forcedDisplayMode: DisplayMode.single.stableID, pages: [source.key(2): .excluded]
+                )]
+            ),
+            policies: LibraryImportExportService.ImportPolicies(layouts: .overwrite)
+        )
+
+        let settings = try #require(library.layouts.bookLayoutSettings(forBookID: source.book.id))
+        // JSON が持っているもの: 入れ替わる。
+        #expect(settings.readingDirectionOverride == nil)
+        #expect(settings.forcedDisplayMode == .single)
+        #expect(library.pageStates(forBookID: source.book.id) == [source.key(2): .excluded])
+        // JSON が持っていないもの: 残る(以前は行ごと消え、表紙の画像は隔離の後に消えていた)。
+        #expect(settings.shelfCoverImageFileName == storedName)
+        #expect(settings.coverCropAnchor == .end)
+        #expect(library.layouts.shelfCoverImageFileNames() == [storedName])
+    }
+
+    @Test("libraries が空の JSON を overwrite で読んでも、コレクションは消えない")
+    func emptyLibrariesDoNotWipeCollections() async throws {
+        let source = try await ExportSource.zip(pages: 3, label: "import-collection-empty")
+        let library = try InMemoryLibrary(label: "import-collection-empty")
+        defer { library.close() }
+        await library.apply(
+            collectionsFile([source], library: "Manga", collection: "シリーズ"), policies: .all(.merge)
+        )
+
+        await library.apply(
+            QooLibraryExportFile(libraries: []),
+            policies: LibraryImportExportService.ImportPolicies(collections: .overwrite)
+        )
+
+        #expect(library.collections.membershipCount(forBookID: source.book.id) == 1)
+        #expect(library.collections.libraries.contains { $0.name == "Manga" })
+    }
+
+    @Test("改名した本も、overwrite の取り込みでコレクション自身の登録から見つけ直す")
+    func overwriteFindsRenamedBooksThroughTheirOwnRegistration() async throws {
+        let source = try await ExportSource.zip(pages: 3, label: "import-collection-renamed")
+        let library = try InMemoryLibrary(label: "import-collection-renamed")
+        defer { library.close() }
+        await library.apply(
+            collectionsFile([source], library: "Manga", collection: "シリーズ"), policies: .all(.merge)
+        )
+        let identifier = try #require(FileNodeIdentifier.current(for: source.book.sourceURL))
+        let renamed = source.temp.file("renamed.zip")
+        try FileManager.default.moveItem(at: source.book.sourceURL, to: renamed)
+
+        // JSON のパスは改名前のまま。手がかりはファイルノード識別子と、コレクションの登録が持つ
+        // ブックマークだけ(以前は上書きで登録を消してから探していたので、必ず見失っていた)。
+        var file = collectionsFile([source], library: "Manga", collection: "シリーズ")
+        file.libraries?[0].collections[0].books[0].inodeNumber = identifier.inodeNumber
+        file.libraries?[0].collections[0].books[0].volumeDeviceNumber = identifier.volumeDeviceNumber
+        file.libraries?[0].collections[0].books[0].volumeUUID = identifier.volumeUUID
+        let summary = await library.apply(
+            file, policies: LibraryImportExportService.ImportPolicies(collections: .overwrite)
+        )
+
+        #expect(summary.collectionsSkippedBookIDs.isEmpty)
+        #expect(summary.collectionsImportedBooks == 1)
+        let bookIDs = library.collections.allRegisteredBookIDs()
+        #expect(bookIDs.map { ($0 as NSString).lastPathComponent } == ["renamed.zip"])
+    }
 }

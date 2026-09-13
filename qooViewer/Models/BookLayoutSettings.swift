@@ -244,6 +244,16 @@ final class BookLayoutSettings {
     var hasShelfCoverOverride: Bool {
         shelfCoverPageKey != nil || shelfCoverImageFileName != nil
     }
+
+    /// 保存データのJSONへ**書き出されない**設定を持っているか(LayoutStore.
+    /// discardImportableLayoutDataのコメント参照)。上書きの取り込みでこの行を消してよいかの判定。
+    ///
+    /// **列を足したら、JSONへ書き出すかどうかを決めてここも見直すこと。** 書き出さない列を
+    /// ここへ入れ忘れると、上書きの取り込みで黙って消える。
+    var holdsNonExportedData: Bool {
+        hasCoverOverride || hasShelfCoverOverride || coverCropAnchorRaw != nil
+            || contrastCorrectionEnabled
+    }
 }
 
 /// レイアウト設定(BookLayoutSettings/PageLayoutOverride)の追加・変更・削除が、変更した側
