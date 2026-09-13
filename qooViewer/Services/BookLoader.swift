@@ -266,8 +266,8 @@ nonisolated enum BookLoader {
         let pages = try collectPages(inFolder: url, context: context)
         guard !pages.isEmpty else { throw BookLoaderError.noPages }
 
-        // 保存物は常に正準順。環境設定「並び順をFinderに揃える」の適用は表示直前に
-        // EffectivePageOrderが行う(PageOrder.swift冒頭の「並び順の全体設計」参照)。
+        // 保存物は常に正準順。並べ替え・除外の適用は表示直前にEffectivePageOrderが行う
+        // (PageOrder.swift冒頭の「並び順の全体設計」参照)。
         let sortedPages = pages.sorted {
             compareCanonicalPageOrder($0.sortKey, $1.sortKey) == .orderedAscending
         }
@@ -370,8 +370,8 @@ nonisolated enum BookLoader {
         )
         guard !pages.isEmpty else { throw BookLoaderError.noPages }
 
-        // 保存物は常に正準順。環境設定「並び順をFinderに揃える」の適用は表示直前に
-        // EffectivePageOrderが行う(PageOrder.swift冒頭の「並び順の全体設計」参照)。
+        // 保存物は常に正準順。並べ替え・除外の適用は表示直前にEffectivePageOrderが行う
+        // (PageOrder.swift冒頭の「並び順の全体設計」参照)。
         let sortedPages = pages.sorted {
             compareCanonicalPageOrder($0.sortKey, $1.sortKey) == .orderedAscending
         }

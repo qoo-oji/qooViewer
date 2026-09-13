@@ -50,23 +50,22 @@ nonisolated enum EffectivePageOrder {
     static func orderedPages<Page: PageOrderSortable>(
         for pages: [Page], pageOrderSource: PageOrderSource = .fileName,
         pageOrderOverride: [String]?, excludedKeys: Set<String>,
-        usesFinderOrderOverride: Bool? = nil
+        usesLegacyOrder: Bool = false
     ) -> [Page] {
-        // **ここが環境設定「並び順をFinderに揃える」の唯一の適用点。**
-        //
         // 渡ってくるpagesは必ず**正準順**(BookLoader/構造キャッシュが持つ順。
         // PageOrder.swift冒頭の「並び順の全体設計」参照)。すでに並べ替え済みの一覧を渡すと、
         // ユーザーの並べ替え(pageOrderOverride)を名前順で踏み潰すため**渡してはならない**。
         // 呼び出し元は全員、BookLoader.loadの結果かキャッシュのページ一覧か、
         // ViewerViewModelのrawPagesを渡している。
         //
+        // それでも並べ直すのは、呼び出し元が持つ一覧が「正準順で並んでいるはず」に頼らないため
+        // (従来順で並べる`usesLegacyOrder`の経路と式を1本にしておく意味もある)。
+        //
         // PDF・EPUB(.document)はファイル自身が持つページ順なので並べ替えない。
         var ordered = pages
         if pageOrderSource == .fileName {
-            let usesFinderOrder = usesFinderOrderOverride ?? PageOrder.usesFinderOrder
-            ordered.sort {
-                comparePageOrder($0.sortKey, $1.sortKey, usesFinderOrder: usesFinderOrder) == .orderedAscending
-            }
+            let compare = usesLegacyOrder ? compareLegacyPageOrder : compareCanonicalPageOrder
+            ordered.sort { compare($0.sortKey, $1.sortKey) == .orderedAscending }
         }
         if let pageOrderOverride {
             var pageByKey: [String: Page] = [:]
@@ -107,7 +106,7 @@ nonisolated enum EffectivePageOrder {
         orderedPages(for: book, pageOrderOverride: pageOrderOverride, excludedKeys: excludedKeys).map(\.sortKey)
     }
 
-    /// **1.36以前の並び**(環境設定「並び順をFinderに揃える」がOFFのときと同じ`.numeric`順)で
+    /// **1.36以前の並び**(従来順。`compareLegacyPageOrder`)で
     /// 並べたページキー。
     ///
     /// 用途は1つだけ ―― 鍵を持たない古いBookmark.pageIndex / BookReadingState.lastPageIndexを
@@ -119,7 +118,7 @@ nonisolated enum EffectivePageOrder {
         orderedPages(
             for: book.pages, pageOrderSource: book.pageOrderSource,
             pageOrderOverride: pageOrderOverride, excludedKeys: excludedKeys,
-            usesFinderOrderOverride: false
+            usesLegacyOrder: true
         ).map(\.sortKey)
     }
 }

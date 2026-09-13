@@ -321,15 +321,6 @@ struct ContentView: View {
                 cancelPendingSidePanelReveal()
                 appState.isSidePanelRevealed = false
             }
-            // 「ウェルカム画面でも表示する」をOFFにしたときも同じ後始末をする。ウェルカム画面で
-            // パネルを浮かせたまま環境設定を変えると、パネルは消えてもisSidePanelRevealedが
-            // 立ったまま残るため(上のsidePanelFeatureEnabledと同じ理由)。本を開いている間に
-            // 変えた場合はこの時点で何も表示されていないので、実質何も起きない。
-            .onChange(of: preferences.showSidePanelOnWelcome) { _, _ in
-                guard appState.currentBook == nil else { return }
-                cancelPendingSidePanelReveal()
-                appState.isSidePanelRevealed = false
-            }
             // 「同じフォルダのファイルを開く」の一覧を、並び順に関わる設定が変わったその場で
             // 並べ直す(ユーザー要望: フォルダブラウザの並べ替えに合わせる)。siblingBookOrderは
             // 関係する4つの設定を束ねた値なので、パネル上部の並べ替えメニュー・環境設定の
@@ -1035,17 +1026,21 @@ struct ContentView: View {
         preferences.sidePanelFeatureEnabled && !appState.hideSidePanel && !isSidePanelSuppressedForWelcome
     }
 
-    /// 今このウインドウでは、ウェルカム画面用の設定によってサイドパネルを出さないことに
-    /// なっているかどうか(環境設定「一般」タブの「ウェルカム画面でも表示する」がOFF、かつ
-    /// 本を開いていない。AppPreferences.showSidePanelOnWelcome参照)。
+    /// 本を開いていない間は、サイドパネルを出さない(改善要望7、2026-09-13)。
+    ///
+    /// 以前は環境設定「一般」の「ウェルカム画面でも表示する」で選べた(既定ON)。ウェルカム画面に
+    /// ファイルブラウザが入るので、フォルダブラウザ(サイドパネル)と同時に見せないよう、設定ごと
+    /// 撤去して常に出さないことにした。
     ///
     /// 常時表示(showsDockedSidePanel)とホバーでの一時表示(bodyのオーバーレイ分岐・
     /// updateSidePanelReveal・isSidePanelRevealBandStillActive)の**両方**を止める。
     /// 片方だけにすると、「常時表示にしていれば出ないのに、隠す設定にすると端で出てくる」
-    /// という食い違いになる(この設定は「ウェルカム画面ではサイドパネルを使わない」という
-    /// 意思表示なので、隠しているかどうかに関わらず出さない)。
+    /// という食い違いになる。
+    ///
+    /// 本を閉じた瞬間にホバーで浮いていたパネルの後始末は、currentBookの変化を受ける側が持つ
+    /// (onChange(of: appState.currentBook?.id)の中でisSidePanelRevealedを下ろしている)。
     private var isSidePanelSuppressedForWelcome: Bool {
-        appState.currentBook == nil && !preferences.showSidePanelOnWelcome
+        appState.currentBook == nil
     }
 
     /// カーソルの位置によって一時的に表示されているもの(ホバー表示中のサイドパネル、

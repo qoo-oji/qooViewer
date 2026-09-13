@@ -23,9 +23,10 @@ import CoreGraphics
 ///   → `.layoutDataDidChange`(bookID付き)で届く。自分が最後に使った値と**比べて**違うときだけ
 ///     やり直す(ViewerViewModel.reloadLayoutDataと同じ方式)。
 ///
-/// - 「並び順をFinderに揃える」を切り替えて、**実効1ページ目が変わる本**(ユーザー要望 2026-09-13)
-///   → `.pageOrderSettingDidChange`。表紙を指定していない本だけが対象で、**表紙を出したまま**
-///     裏で作り直す(handlePageOrderSettingChange)。
+/// - 撤去した環境設定「並び順をFinderに揃える」をOFFで使っていた人の、**実効1ページ目が変わる本**
+///   → 起動時に一度だけ。表紙を指定していない本だけが対象で、**表紙を出したまま**裏で作り直す
+///     (refreshCoversForRetiredOrderSettingIfNeeded)。設定があった間は切り替えのたびに同じ判定を
+///     していた(ユーザー要望 2026-09-13)。
 ///
 /// それ以外 ―― **カバーの見せ方(比・切り出す位置・読み方向)では作り直さない。**
 /// カバーは切らずに保存し、枠へ合わせるのは表示のたびに行うようになった
@@ -91,13 +92,10 @@ final class CollectionCoverExtractor: ObservableObject {
     private var signatures: [String: CoverSignature] = [:]
 
     /// 抽出中にもう一度作り直しを頼まれたitem。走っている抽出は古い条件で読み始めているので、
-    /// 終わったらもう一度積む(並び順の設定を続けて切り替えたとき。handlePageOrderSettingChange)。
+    /// 終わったらもう一度積む(refreshCoversForRetiredOrderSettingIfNeeded)。
     private var redoAfterExtraction: Set<UUID> = []
-    /// 並び順の設定を変えたときの判定(ページ一覧のキャッシュを読む)。次の切り替えが来たら取り消す。
+    /// 撤去した並び順の設定の後始末の判定(ページ一覧のキャッシュを読む)。
     private var pageOrderEvaluation: Task<Void, Never>?
-    /// 「並び順をFinderに揃える」の現在値の読み口(**テストのための口**。既定は環境設定。
-    /// PageOrder.usesFinderOrderはUserDefaults.standardを読むので、テストは差し替える)。
-    private let usesFinderOrder: () -> Bool
     /// 本のページ一覧のキャッシュの読み口(**テストのための口**。既定はBookPageListCache.shared)。
     private let cachedPageList: @Sendable (String) async -> [BookPageListCache.Entry.Page]?
 
@@ -122,7 +120,6 @@ final class CollectionCoverExtractor: ObservableObject {
         layoutStore: LayoutStore,
         cachesPageList: Bool = true,
         defaults: UserDefaults = .standard,
-        usesFinderOrder: @escaping () -> Bool = { PageOrder.usesFinderOrder },
         cachedPageList: @escaping @Sendable (String) async -> [BookPageListCache.Entry.Page]? = {
             await BookPageListCache.shared.pageList(forBookID: $0)?.pages
         }
@@ -132,7 +129,6 @@ final class CollectionCoverExtractor: ObservableObject {
         self.layoutStore = layoutStore
         self.cachesPageList = cachesPageList
         self.defaults = defaults
-        self.usesFinderOrder = usesFinderOrder
         self.cachedPageList = cachedPageList
 
         // queue: .mainを指定しているため実行時には必ずMainActor上で呼ばれるが、クロージャ自体の
@@ -152,12 +148,6 @@ final class CollectionCoverExtractor: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.refill() }
         }
-        // 並び順の設定が変わったら、実効1ページ目が変わる本の表紙を作り直す(型コメント参照)。
-        let pageOrderObserver = NotificationCenter.default.addObserver(
-            forName: .pageOrderSettingDidChange, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.handlePageOrderSettingChange() }
-        }
         // 一時的な理由で見送ったitemを、戻ってきた時点で積み直す(deferredItemIDsのコメント参照)。
         let activationObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
@@ -168,7 +158,7 @@ final class CollectionCoverExtractor: ObservableObject {
                 self.refill()
             }
         }
-        observers = [layoutObserver, collectionsObserver, pageOrderObserver, activationObserver]
+        observers = [layoutObserver, collectionsObserver, activationObserver]
         // `@Published`の投影はwillSetで飛ぶ(ストアの値はまだ差し替わっていない)ので、
         // 届いた値のほうで組み直す。代入はメインアクター上(finishExistenceRefresh)なので
         // ここも同期的にメインアクター上で走る(FavoritesStore.initの同種のコメント参照)。
@@ -189,6 +179,7 @@ final class CollectionCoverExtractor: ObservableObject {
         seedSignatures(for: collectionStore.allRegisteredBookIDs())
 
         migrateCoverStorageIfNeeded()
+        refreshCoversForRetiredOrderSettingIfNeeded()
     }
 
     deinit {
@@ -316,9 +307,7 @@ final class CollectionCoverExtractor: ObservableObject {
         extractionAttemptCount += 1
         // 抽出に使う条件はここでだけ組み立てる。控えに要るのは「どの画像か」を表す2列だけなので、
         // 控えのほうは本を解決せずにDBの値から作る(signature(forBookID:)参照)。
-        var snapshot = layoutStore.shelfCoverSnapshot(forBookID: bookID)
-        // 並び順の設定は、作り直しの判定(handlePageOrderSettingChange)と同じ読み口から取る。
-        snapshot.usesFinderOrder = usesFinderOrder()
+        let snapshot = layoutStore.shelfCoverSnapshot(forBookID: bookID)
         let url = collectionStore.resolvedExistingURL(for: item)
         // ブックマークが解決できない・実体が無い本は`.pending`のまま置いて戻る
         // (型コメント「実体が見つからない本」参照)。`.failed`は本を開けなかったときだけ。
@@ -413,10 +402,18 @@ final class CollectionCoverExtractor: ObservableObject {
         enqueue(items)
     }
 
-    /// 「並び順をFinderに揃える」が切り替わった(ユーザー要望 2026-09-13)。
+    /// 撤去した環境設定「並び順をFinderに揃える」を**OFFで使っていた人**の表紙を、起動時に一度だけ
+    /// 今の並び(正準順)へ合わせる(2026-09-13)。
+    ///
+    /// ■ なぜ要るのか
+    /// 設定があった間は、切り替えのたびにこの判定をして作り直していた(ユーザー要望 2026-09-13)。
+    /// 設定を撤去すると、OFFだった人の表示順は黙って正準順へ変わる ―― 本の中身はその場で
+    /// 並び直るが、保存してある表紙の絵は従来順の1ページ目のまま残る。そこで「OFFから正準順へ
+    /// 切り替えた」のと同じ判定を1回だけ行う。値が未設定かONの人(既定)は何もしない。
+    /// UserDefaultsの値そのものは消さない(PageOrder.retiredSettingKeyのコメント参照)。
     ///
     /// ■ 何を作り直すか
-    /// 表紙を指定していない(= 実効1ページ目を表紙にしている)`.ready`の本のうち、**新旧の設定で
+    /// 表紙を指定していない(= 実効1ページ目を表紙にしている)`.ready`の本のうち、**従来順と正準順で
     /// 実効1ページ目が変わる本だけ**。並べ替え(レイアウト)で順番を固定した本・PDF/EPUBは、
     /// 判定の式(CoverImageResolver.firstPage)がそのまま「変わらない」と答える。
     /// 判定は本を開かずに、ページ一覧のキャッシュ(BookPageListCache)で行う。**キャッシュが無い本は
@@ -427,9 +424,11 @@ final class CollectionCoverExtractor: ObservableObject {
     /// `.pending`へ戻さない ―― 戻すと、作り直しが順番を待つ間ずっと表紙が下地とスピナーになる。
     /// 待ち行列へ積むだけにして、書き終えた時点で差し替える(CollectionStore.setCoverReadyが
     /// 描き直しの合図を出す)。本が見つからなければextractが何もせずに戻り、古い表紙が残る。
-    func handlePageOrderSettingChange() {
-        pageOrderEvaluation?.cancel()
-        let newValue = usesFinderOrder()
+    func refreshCoversForRetiredOrderSettingIfNeeded() {
+        let doneKey = "qooViewer.collections.retiredOrderSettingCovers"
+        guard defaults.object(forKey: PageOrder.retiredSettingKey) as? Bool == false,
+              !defaults.bool(forKey: doneKey)
+        else { return }
         // SwiftDataのモデルはメインアクターの外へ渡せないので、判定に要る値へ写し取る。
         struct Candidate: Sendable {
             let bookID: String
@@ -449,23 +448,27 @@ final class CollectionCoverExtractor: ObservableObject {
                 snapshot: snapshot
             ))
         }
-        guard !candidates.isEmpty else { return }
+        // 済み印は**待ち行列へ積んだ時点で**立てる。積んだ抽出が終わる前にアプリを終えると
+        // その本は古い表紙のまま残るが、そのために毎回の起動で全冊を判定し直すほうが高くつく。
+        guard !candidates.isEmpty else {
+            defaults.set(true, forKey: doneKey)
+            return
+        }
         let cachedPageList = cachedPageList
         pageOrderEvaluation = Task { [weak self] in
             let affected = await Task.detached(priority: .utility) { () -> [String] in
                 var affected: [String] = []
                 for candidate in candidates {
                     if Task.isCancelled { return [] }
-                    // PDF/EPUBはファイル自身のページ順なので、設定で先頭は変わらない。
+                    // PDF/EPUBはファイル自身のページ順なので、名前の照合で先頭は変わらない。
                     guard !candidate.isDocument else { continue }
                     guard let pages = await cachedPageList(candidate.bookID), !pages.isEmpty else {
                         affected.append(candidate.bookID)
                         continue
                     }
                     var before = candidate.snapshot
-                    before.usesFinderOrder = !newValue
-                    var after = candidate.snapshot
-                    after.usesFinderOrder = newValue
+                    before.usesLegacyOrder = true
+                    let after = candidate.snapshot
                     let oldFirst = CoverImageResolver.firstPage(of: pages, pageOrderSource: .fileName, snapshot: before)
                     let newFirst = CoverImageResolver.firstPage(of: pages, pageOrderSource: .fileName, snapshot: after)
                     if oldFirst?.sortKey != newFirst?.sortKey { affected.append(candidate.bookID) }
@@ -474,10 +477,11 @@ final class CollectionCoverExtractor: ObservableObject {
             }.value
             guard !Task.isCancelled, let self else { return }
             self.refreshCovers(forBookIDs: affected)
+            self.defaults.set(true, forKey: doneKey)
         }
     }
 
-    /// 表紙を出したまま、これらの本のカバーを作り直す(handlePageOrderSettingChangeのコメント)。
+    /// 表紙を出したまま、これらの本のカバーを作り直す(refreshCoversForRetiredOrderSettingIfNeededのコメント)。
     private func refreshCovers(forBookIDs bookIDs: [String]) {
         var items: [CollectionItem] = []
         for bookID in bookIDs {
@@ -492,7 +496,7 @@ final class CollectionCoverExtractor: ObservableObject {
         enqueue(items)
     }
 
-    /// 並び順の設定の判定が終わるまで待つ(**テストのための口**)。
+    /// 撤去した並び順の設定の後始末の判定が終わるまで待つ(**テストのための口**)。
     func settlePageOrderEvaluation() async {
         await pageOrderEvaluation?.value
     }

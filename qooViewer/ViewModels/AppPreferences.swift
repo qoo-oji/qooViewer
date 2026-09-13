@@ -59,11 +59,7 @@ final class AppPreferences: ObservableObject {
         static let sidePanelWidth = "qooViewer.pref.sidePanelWidth"
         static let sidePanelFeatureEnabled = "qooViewer.pref.sidePanelFeatureEnabled"
         static let sidePanelUsesDoubleClick = "qooViewer.pref.sidePanelUsesDoubleClick"
-        static let showSidePanelOnWelcome = "qooViewer.pref.showSidePanelOnWelcome"
         static let sidePanelSortOrder = "qooViewer.pref.sidePanelSortOrder"
-        /// キーの実体はPageOrder側にある。nonisolatedなコード(BookLoaderなど)が同じ値を
-        /// 読むため、文字列を2か所に書かない(PageOrder.defaultsKeyのコメント参照)。
-        static let usesFinderSortOrder = PageOrder.defaultsKey
         static let folderBrowserSortKey = "qooViewer.pref.folderBrowserSortKey"
         static let folderBrowserSortDirection = "qooViewer.pref.folderBrowserSortDirection"
         static let siblingNavigationFollowsBrowserSort = "qooViewer.pref.siblingNavigationFollowsBrowserSort"
@@ -79,7 +75,6 @@ final class AppPreferences: ObservableObject {
         static let filmstripHighlightColorOption = "qooViewer.pref.filmstripHighlightColorOption"
         static let filmstripHighlightCustomColor = "qooViewer.pref.filmstripHighlightCustomColor"
         static let filmstripHighlightBorderWidth = "qooViewer.pref.filmstripHighlightBorderWidth"
-        static let showRecentFilesOnWelcome = "qooViewer.pref.showRecentFilesOnWelcome"
         static let offersRemovingMissingCollectionBooks =
             "qooViewer.pref.offersRemovingMissingCollectionBooks"
         static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
@@ -160,8 +155,7 @@ final class AppPreferences: ObservableObject {
     ///
     /// falseのとき ―― つまりテストが専用のsuiteを渡したとき ―― は、**保存先の外へ出ていく
     /// 副作用**を行わない: サムネイルのディスクキャッシュの設定(実ファイルの削除を伴う)、
-    /// 外観の適用(`NSApp.appearance`)、2つの通知(開いている本を並べ直させる/履歴を
-    /// 切り詰めさせる)。`AppleLanguages`は保存先の中で完結するので、こちらは`defaults`へ
+    /// 外観の適用(`NSApp.appearance`)、履歴を切り詰めさせる通知。`AppleLanguages`は保存先の中で完結するので、こちらは`defaults`へ
     /// 素直に書く(渡されたsuiteに書かれるだけで、アプリには効かない)。
     private let sharesGlobalState: Bool
 
@@ -549,43 +543,14 @@ final class AppPreferences: ObservableObject {
     @Published var sidePanelUsesDoubleClick: Bool {
         didSet { defaults.set(sidePanelUsesDoubleClick, forKey: Keys.sidePanelUsesDoubleClick) }
     }
-    /// 環境設定「一般」タブの、ウェルカム画面(本を開いていない状態)でもサイドパネルを
-    /// 表示するかどうか(既定ON=表示する。ユーザー要望)。OFFにすると、本を開いていない
-    /// 間はサイドパネルが一切出てこなくなる ―― 常時表示(hideSidePanelがOFF)のときに
-    /// 場所を取ることも、隠す設定(hideSidePanelがON)のときにカーソルを端へ近づけて
-    /// 一時的に出てくることも無い(ContentView.isSidePanelSuppressedForWelcome参照)。
-    /// sidePanelFeatureEnabledと違ってパネル機能自体は生きているので、本を開けば
-    /// これまでどおりのサイドパネルが戻る。
-    @Published var showSidePanelOnWelcome: Bool {
-        didSet { defaults.set(showSidePanelOnWelcome, forKey: Keys.showSidePanelOnWelcome) }
-    }
-    /// 環境設定「一般」タブの「並び順をFinderに揃える」(既定はOFF)。ユーザー報告:
-    /// `_Com-title-cover.JPG` / `Com_title_name_size_0001.JPG` / `Com-title-cover-clean.JPG`
-    /// のような名前で、Finderの表示順と本のページ順が食い違い、しかも先頭の3文字が"Com"か
-    /// "com"かで並びが丸ごと変わっていた。
-    ///
-    /// 効く先は、本のページ順(BookLoader)・サイドパネル下段の本の中身の一覧
-    /// (BookInternalBrowsing)・複数の画像を1冊にまとめるときの並び
-    /// (naturalOrderSortedByPath)・CBZ書き出しのComicInfoが書くページ番号(CbzExporter)。
-    /// 上段のフォルダブラウザは元からFinderと同じ照合(DirectoryBrowser.compare)なので、
-    /// この設定に関わらず変わらない。
-    ///
-    /// **このプロパティを直接読んでよいのは、環境設定画面のトグルだけ。** 実際に並べ替える
-    /// 側はすべてnonisolatedなコードで、UserDefaultsから同じキーを読む
-    /// (PageOrder.usesFinderOrder。他の設定のように引数で配らない理由もそこに書いてある)。
-    /// ここが持つのは「画面に出すための値」と「didSetでの保存」だけ。
-    @Published var usesFinderSortOrder: Bool {
-        didSet {
-            guard usesFinderSortOrder != oldValue else { return }
-            defaults.set(usesFinderSortOrder, forKey: Keys.usesFinderSortOrder)
-            // 開いている本・一覧をその場で並べ直させる(Notification.Name.
-            // pageOrderSettingDidChange参照)。UserDefaultsへ書いた**後**に送ること ――
-            // 受け取る側はPageOrder.usesFinderOrder(UserDefaults)を読んで並べ直すため。
-            if sharesGlobalState {
-                NotificationCenter.default.post(name: .pageOrderSettingDidChange, object: nil)
-            }
-        }
-    }
+    // 撤去した設定(改善要望7、2026-09-13)。**UserDefaultsの値は消さない** ―― 古い版を起動した
+    // 人の設定を壊さないため。キーの一覧はdocs/06「環境設定」。
+    // - 「ウェルカム画面でも表示する」(qooViewer.pref.showSidePanelOnWelcome) … 本を開いていない
+    //   間はサイドパネルを常に出さなくなった(ContentView.isSidePanelSuppressedForWelcome)
+    // - 「並び順をFinderに揃える」(PageOrder.retiredSettingKey) … 表示順は常に正準順
+    //   (PageOrder.swift冒頭)
+    // - 「最近開いたファイルを表示」(qooViewer.pref.showRecentFilesOnWelcome) … ウェルカム画面の
+    //   「履歴から開く」ボタンごと無くなった(WelcomeTopBar)
     /// 環境設定「一般」タブの、サイドパネル上段(フォルダブラウザ)のフォルダ・ファイルの
     /// 並び順(既定はフォルダをまとめて上に表示、Finderと同じ考え方)。DirectoryBrowserは
     /// nonisolated enum(MainActor隔離のAppPreferencesを直接読めない)のため、
@@ -939,12 +904,6 @@ final class AppPreferences: ObservableObject {
     /// applyThumbnailDiskCacheSettingsが進める世代番号(MainActor上でのみ触る)。
     private var thumbnailDiskCacheConfigurationGeneration: UInt64 = 0
 
-    /// ウェルカム画面に「最近開いたファイル」一覧(最大10件)を表示するかどうか(既定ON)。
-    /// 履歴として保持する件数(recentFilesLimit)を増やしても、ウェルカム画面の一覧は
-    /// 画面が縦に伸びすぎないよう10件までに留める(WelcomeView参照)。
-    @Published var showRecentFilesOnWelcome: Bool {
-        didSet { defaults.set(showRecentFilesOnWelcome, forKey: Keys.showRecentFilesOnWelcome) }
-    }
     /// 起動時に、**見つからなくなった本をコレクションから外すか**を尋ねるかどうか
     /// (ユーザー要望 2026-09-10。既定OFF)。
     ///
@@ -1568,15 +1527,8 @@ final class AppPreferences: ObservableObject {
         self.sidePanelWidth = defaults.object(forKey: Keys.sidePanelWidth) as? Double ?? 280
         self.sidePanelFeatureEnabled = defaults.object(forKey: Keys.sidePanelFeatureEnabled) as? Bool ?? true
         self.sidePanelUsesDoubleClick = defaults.object(forKey: Keys.sidePanelUsesDoubleClick) as? Bool ?? false
-        self.showSidePanelOnWelcome = defaults.object(forKey: Keys.showSidePanelOnWelcome) as? Bool ?? true
         self.sidePanelSortOrder =
             SidePanelSortOrder(rawValue: defaults.string(forKey: Keys.sidePanelSortOrder) ?? "") ?? .foldersFirst
-        // 既定はON(Finderと同じ名前順)。当初はOFF(従来どおりの並び)だったが、Finderで
-        // 見えている並びと食い違うほうが説明のつかない挙動になるため変更した(PageOrder.
-        // usesFinderOrderのコメント参照)。未設定(object(forKey:)がnil)のときの既定値を
-        // PageOrder.usesFinderOrderと必ず揃えること ―― 食い違うと、画面のトグルと実際の
-        // 並びが逆になる。
-        self.usesFinderSortOrder = defaults.object(forKey: Keys.usesFinderSortOrder) as? Bool ?? true
         self.folderBrowserSortKey =
             FolderBrowserSortKey(rawValue: defaults.string(forKey: Keys.folderBrowserSortKey) ?? "")
                 ?? FolderBrowserSort.default.key
@@ -1612,8 +1564,6 @@ final class AppPreferences: ObservableObject {
         self.recentFilesLimit =
             defaults.object(forKey: Self.recentFilesLimitDefaultsKey) as? Double
             ?? Self.defaultRecentFilesLimit
-        self.showRecentFilesOnWelcome =
-            defaults.object(forKey: Keys.showRecentFilesOnWelcome) as? Bool ?? true
         self.offersRemovingMissingCollectionBooks =
             defaults.object(forKey: Keys.offersRemovingMissingCollectionBooks) as? Bool ?? false
         self.showRecentFavoritesOnWelcome =
@@ -1798,16 +1748,13 @@ extension AppPreferences {
                 Keys.quitWhenLastWindowClosed,
                 Keys.confirmBeforeClosingMultipleTabsWindow,
                 // maxTrackedBooksCount / recentFilesLimit は意図的に含めない(上のコメント参照)。
-                Keys.showRecentFilesOnWelcome,
                 Keys.showRecentFavoritesOnWelcome,
                 Keys.offersRemovingMissingCollectionBooks,
                 Keys.sidePanelFeatureEnabled,
                 Keys.sidePanelPosition,
                 Keys.sidePanelUsesDoubleClick,
-                Keys.showSidePanelOnWelcome,
                 Keys.sidePanelSortOrder,
                 Keys.siblingNavigationFollowsBrowserSort,
-                Keys.usesFinderSortOrder,
             ]
         case .appearance:
             return [
@@ -1958,16 +1905,13 @@ extension AppPreferences {
             quitWhenLastWindowClosed = source.quitWhenLastWindowClosed
             confirmBeforeClosingMultipleTabsWindow = source.confirmBeforeClosingMultipleTabsWindow
             // maxTrackedBooksCount / recentFilesLimit は意図的に戻さない(keys(for:)のコメント参照)。
-            showRecentFilesOnWelcome = source.showRecentFilesOnWelcome
             showRecentFavoritesOnWelcome = source.showRecentFavoritesOnWelcome
             offersRemovingMissingCollectionBooks = source.offersRemovingMissingCollectionBooks
             sidePanelFeatureEnabled = source.sidePanelFeatureEnabled
             sidePanelPosition = source.sidePanelPosition
             sidePanelUsesDoubleClick = source.sidePanelUsesDoubleClick
-            showSidePanelOnWelcome = source.showSidePanelOnWelcome
             sidePanelSortOrder = source.sidePanelSortOrder
             siblingNavigationFollowsBrowserSort = source.siblingNavigationFollowsBrowserSort
-            usesFinderSortOrder = source.usesFinderSortOrder
         case .appearance:
             appAppearance = source.appAppearance
             backgroundColorOption = source.backgroundColorOption

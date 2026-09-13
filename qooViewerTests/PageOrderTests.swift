@@ -62,14 +62,13 @@ struct PageOrderTests {
         ])
     }
 
-    // MARK: - 表示順の切り替え
+    // MARK: - 従来順
 
-    @Test("usesFinderOrder が偽なら従来順(.numeric)になる")
-    func effectiveOrderFollowsTheSetting() {
-        #expect(comparePageOrder("A.jpg", "a.jpg", usesFinderOrder: false)
-            == "A.jpg".compare("a.jpg", options: .numeric))
-        #expect(comparePageOrder("A.jpg", "a.jpg", usesFinderOrder: true)
-            == compareCanonicalPageOrder("A.jpg", "a.jpg"))
+    @Test("従来順は 1.36 以前の .numeric 比較")
+    func legacyOrderIsTheNumericComparison() {
+        #expect(compareLegacyPageOrder("A.jpg", "a.jpg") == "A.jpg".compare("a.jpg", options: .numeric))
+        #expect(compareLegacyPageOrder("B.jpg", "a.jpg") == .orderedAscending)
+        #expect(compareCanonicalPageOrder("B.jpg", "a.jpg") == .orderedDescending)
     }
 
     // MARK: - 設定で並びが変わる本の判定

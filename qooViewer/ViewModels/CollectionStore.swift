@@ -907,8 +907,8 @@ final class CollectionStore: ObservableObject {
     ///
     /// 表示側(CollectionCoverThumbnail / CollectionTile)は読み直しの鍵にカバーの状態
     /// (coverStatus)を入れている。抽出のやり直しが状態を`.pending`経由で変える間はそれで
-    /// 足りたが、**表紙を出したまま作り直す**(並び順の設定を変えたとき。
-    /// CollectionCoverExtractor.handlePageOrderSettingChange)と、状態は`.ready`のまま変わらず、
+    /// 足りたが、**表紙を出したまま作り直す**(撤去した並び順の設定がOFFだった人の一度きりの
+    /// 作り直し。CollectionCoverExtractor.refreshCoversForRetiredOrderSettingIfNeeded)と、状態は`.ready`のまま変わらず、
     /// 画面は古い絵を持ち続ける。その変化を鍵へ入れるための数。
     ///
     /// **publishしない。** 増やすのはsetCoverReadyだけで、あちらが保存と`revision`の更新で
@@ -1317,7 +1317,7 @@ final class CollectionStore: ObservableObject {
     /// (setCoverReady)ので、そのとき札が読みにいく先に古い絵がディスクにもメモリにも
     /// 残っていてはいけない ―― 以前は捨てる処理を`Task`で投げっぱなしにしていたが、
     /// 抽出の直後はカバーの状態が`.pending`を経由していたので、札が読み直すのは必ず後だった。
-    /// 表紙を出したまま作り直す経路(CollectionCoverExtractor.handlePageOrderSettingChange)では
+    /// 表紙を出したまま作り直す経路(CollectionCoverExtractor.refreshCoversForRetiredOrderSettingIfNeeded)では
     /// その前提が無い。
     func invalidateTileImages(forItemID itemID: UUID) async {
         guard let collectionID = item(withID: itemID)?.collection?.id else { return }

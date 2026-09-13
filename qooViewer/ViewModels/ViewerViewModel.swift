@@ -229,8 +229,6 @@ final class ViewerViewModel: ObservableObject {
     /// ページの並び替え・除外(book.pagesの構造そのもの)も、reloadLayoutData内でrawPagesから
     /// 都度再構築することで、この本を開き直さずに反映する(詳細はreloadLayoutDataのコメント参照)。
     private var layoutDataChangeObserver: NSObjectProtocol?
-    /// 環境設定「並び順をFinderに揃える」の変更を受けて、ページの並びを作り直すための監視。
-    private var pageOrderSettingObserver: NSObjectProtocol?
     /// 「ブックマークの編集」ウインドウ(BookmarkStore、この本を今開いていなくても操作できる
     /// 独立ウインドウ)側でこの本のブックマークが変更されたときに、自分のbookmarks配列を
     /// 読み直すための監視トークン。詳細はBookmark.swiftのNotification.Name.bookmarksDidChange
@@ -790,18 +788,6 @@ final class ViewerViewModel: ObservableObject {
             }
         }
 
-        // 環境設定「並び順をFinderに揃える」が変わったら、本を開き直さずにその場で並べ直す。
-        // reloadLayoutDataはrawPages(正準順)から実効順を組み立て直すため、この通知を受けて
-        // 呼ぶだけで新しい並びになる(表示中のページも維持される)。並びを固定してある本
-        // (pageOrderOverrideを持つ本)は、その並びが優先されるので何も変わらない。
-        pageOrderSettingObserver = NotificationCenter.default.addObserver(
-            forName: .pageOrderSettingDidChange, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.scheduleLayoutDataReload(focusPageKey: nil)
-            }
-        }
-
         // ツールバーのファイル名表示(displayTitle)は登録済みメタデータを反映するため、
         // 「メタデータの編集」ウインドウ側でこの本のメタデータが登録・変更・解除されたら
         // 作り直す(上の2つの監視と同じ考え方。userInfoに"bookID"が無い通知=全件リセットは
@@ -972,9 +958,6 @@ final class ViewerViewModel: ObservableObject {
         }
         if let readingStatesDeleteObserver {
             NotificationCenter.default.removeObserver(readingStatesDeleteObserver)
-        }
-        if let pageOrderSettingObserver {
-            NotificationCenter.default.removeObserver(pageOrderSettingObserver)
         }
         if let layoutDataChangeObserver {
             NotificationCenter.default.removeObserver(layoutDataChangeObserver)
@@ -1574,7 +1557,7 @@ final class ViewerViewModel: ObservableObject {
         let all = (try? modelContext.fetch(FetchDescriptor<Bookmark>())) ?? []
         let mine = all.filter { $0.bookID == bookID }
         // ページ番号は鍵から**毎回**導出し直す(Bookmark.pageKey参照)。init時に一度だけでは
-        // 足りない ―― 環境設定「並び順をFinderに揃える」の切り替え・ページの並べ替え・除外は
+        // 足りない ―― ページの並べ替え・除外は
         // 本を開いたまま起きるため、そのたびに番号を振り直さないと、鍵は正しいのに番号だけが
         // 古い並びのまま残り、**別のページにブックマークが付いているように見える**
         // (実機で確認した不具合)。鍵を持たない行(1.36以前・本を開かずに追加された行)は、
@@ -1584,7 +1567,7 @@ final class ViewerViewModel: ObservableObject {
             for: rawPages, pageOrderSource: book.pageOrderSource,
             pageOrderOverride: bookLayoutSettings?.pageOrderOverride,
             excludedKeys: Set(pageLayoutStates.filter { $0.value == .excluded }.map(\.key)),
-            usesFinderOrderOverride: false
+            usesLegacyOrder: true
         ).map(\.sortKey)
         // ephemeralBookmarks(シークレットウインドウで目次から取り込んだ分。DBには無い)も
         // 一緒に解決する。どのModelContextにも属さないため書き込みの心配は無いが、
@@ -2706,8 +2689,7 @@ final class ViewerViewModel: ObservableObject {
     }
 
     /// 生のページ一覧(正準順)から、実際に読書フローで使う並びを作る。
-    /// 環境設定「並び順をFinderに揃える」・pageOrderOverride(2.3節)による並べ替え・
-    /// 除外(excluded、2.2節)の除去を、この順に適用する。
+    /// pageOrderOverride(2.3節)による並べ替え・除外(excluded、2.2節)の除去を、この順に適用する。
     ///
     /// 実体はEffectivePageOrderに一本化してある。以前はここに同じロジックの写しがあり、
     /// 「一方を変更したらもう一方にも反映すること」という注意書きで運用していたが、

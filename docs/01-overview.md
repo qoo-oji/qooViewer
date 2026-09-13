@@ -159,7 +159,6 @@ UI の文言とコードの語彙で、同じものを別の語で呼ばない�
 | 本を追加 / コレクションから削除 | コレクションへ本を入れる / 外す(本の実体には触れない) | `CollectionStore.add` / `remove` |
 | 自動登録フォルダ | その直下に増えた本が自動でコレクションへ入るフォルダ(コレクションに1つ) | `BookCollection.autoFolderPath` |
 | カバー | コレクションで本を表す画像(上書きが無ければ実効1ページ目)。「表紙」とは呼ばない | `CoverImageResolver` / `CollectionCoverStore` |
-| 履歴から開く | ウェルカム画面の帯のボタン。最近開いたファイルの一覧 | `RecentBooksPopover` |
 | お気に入り(無効化中) | 本そのものの登録(階層フォルダ付き)。入り口は `FavoritesFeature.isEnabled == false` で閉じてある | `FavoriteBook` / `FavoriteFolder` |
 | 履歴 | 最近開いたファイル | `RecentFilesStore` |
 | レイアウト | 読み方向の上書き・見開き強制・ページ順補正・ページ単位の状態 | `BookLayoutSettings` / `PageLayoutOverride` |

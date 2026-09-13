@@ -192,10 +192,15 @@ JSON 読み込みの重複判定も同じ識別子を使います。
 - 旧キー(`loopBehavior` → `firstPageBehavior` / `lastPageBehavior`、`interpolationQuality` の
   `"low"`)は init で読み替え、**旧キーはその場で削除**する(残すと「初期設定に戻す」のたびに
   復活する)。読み替えた値は UserDefaults へ直接書く(init 内の代入では保存されない)。
-- nonisolated なコードから読む設定(並び順・履歴件数・シークレットモード既定・入れ子書庫の
+- nonisolated なコードから読む設定(履歴件数・シークレットモード既定・入れ子書庫の
   予算)は、`static let` のキー/既定値を公開し、そちらが UserDefaults を直接読む
-  (`PageOrder.usesFinderOrder`、`RecentFilesStore.maxCount`、`AppPreferences.isPrivateModeDefault`)。
+  (`RecentFilesStore.maxCount`、`AppPreferences.isPrivateModeDefault`)。
   `AppPreferences` のプロパティ自身を読んでよいのは環境設定画面のトグルだけ。
+- **撤去した設定のキーは UserDefaults から消さない**(古い版を起動した人の設定を壊さないため。
+  プロパティと `keys(for:)` からは外すので「初期設定に戻す」でも消えない)。2026-09-13 に撤去したもの:
+  `qooViewer.pref.usesFinderSortOrder`(並び順を Finder に揃える。`PageOrder.retiredSettingKey` として
+  表紙の一度きりの作り直しだけが読む)、`qooViewer.pref.showSidePanelOnWelcome`(ウェルカム画面でも
+  表示する)、`qooViewer.pref.showRecentFilesOnWelcome`(最近開いた本を表示する)。どれも読まれていない。
 
 ### RecentFilesStore
 

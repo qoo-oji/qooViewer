@@ -185,7 +185,6 @@ SwiftData のモデルの変更は SwiftUI の再描画を自動では起こし�
 | `layoutDataDidChange` | `LayoutStore`、`ViewerViewModel`、`BookLayoutEditorViewModel` | `bookID`、任意で `focusPageKey` | `ViewerViewModel`(16ms のデバウンス)、編集 VM、書き出し VM |
 | `bookMetadataDidChange` | `BookMetadataStore` | `bookID` | `ViewerViewModel`(ツールバーの表示名)、各 VM |
 | `bookReadingStatesDidDelete` | `LibraryCleanupViewModel` | `bookIDs`(Set) | `ViewerViewModel`(以後その行へ書かない) |
-| `pageOrderSettingDidChange` | `AppPreferences.usesFinderSortOrder` の didSet | ― | `ViewerViewModel`、編集 VM、書き出し VM |
 | `recentFilesLimitDidChange` | `AppPreferences.recentFilesLimit` の didSet | ― | `RecentFilesStore` |
 | `collectionsDidChange` | `CollectionStore`(`saveAndNotify`) | 本に関わる変更のときだけ `bookID`(複数の本にまたがる一括削除では無し) | ウェルカム画面の各ビュー、`CollectionCoverExtractor`、書き出し・メタデータ編集・掃除の VM |
 

@@ -868,9 +868,8 @@ struct SidePanelView: View {
     }
 }
 
-/// ファイル名(拡張子)から行アイコンを決める。SidePanelView.iconName、ブックマークモードの
-/// お気に入りツリー(SidePanelFavoriteRow)、そしてウェルカム画面の履歴ポップオーバー
-/// (RecentBooksPopover)から使うため、View外の関数として切り出している。
+/// ファイル名(拡張子)から行アイコンを決める。SidePanelView.iconNameとブックマークモードの
+/// お気に入りツリー(SidePanelFavoriteRow)から使うため、View外の関数として切り出している。
 func sidePanelFileIconName(fileName: String?) -> String {
     guard let fileName else { return "doc" }
     if isArchiveFile(fileName) { return "doc.zipper" }

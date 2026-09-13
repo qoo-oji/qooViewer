@@ -60,16 +60,13 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.displayLanguage = otherCase(p.displayLanguage)
     p.maxTrackedBooksCount += 1
     p.recentFilesLimit += 1
-    p.showRecentFilesOnWelcome.toggle()
     p.offersRemovingMissingCollectionBooks.toggle()
     p.showRecentFavoritesOnWelcome.toggle()
     p.sidePanelFeatureEnabled.toggle()
     p.sidePanelPosition = otherCase(p.sidePanelPosition)
     p.sidePanelUsesDoubleClick.toggle()
-    p.showSidePanelOnWelcome.toggle()
     p.sidePanelSortOrder = otherCase(p.sidePanelSortOrder)
     p.siblingNavigationFollowsBrowserSort.toggle()
-    p.usesFinderSortOrder.toggle()
 
     // MARK: 外観
     p.appAppearance = otherCase(p.appAppearance)

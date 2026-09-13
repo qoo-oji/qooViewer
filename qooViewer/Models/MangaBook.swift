@@ -109,8 +109,8 @@ struct MangaBook: Identifiable, Hashable {
     var pages: [PageRef]
     /// このページ一覧の並びが何で決まったか。
     ///
-    /// `.fileName`(フォルダ・zip/rar/7z・画像ファイル)は名前順で並べたもので、環境設定
-    /// 「並び順をFinderに揃える」の適用対象になる。`.document`(PDF・EPUB)はファイル自身が
+    /// `.fileName`(フォルダ・zip/rar/7z・画像ファイル)は名前順で並べたもので、表示直前にも
+    /// 名前順で並べ直される(EffectivePageOrder)。`.document`(PDF・EPUB)はファイル自身が
     /// 持つページ順で、名前とは無関係なため**並べ替えてはいけない**。
     ///
     /// 既定値付きなのは、BookLoaderの生成箇所のうち名前順のものを変更せずに済ませるため。

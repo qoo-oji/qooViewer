@@ -2,7 +2,7 @@
 
 立案日: 2026-09-13 / ブランチ: `feature/file-browser` / 検討メモ: [file-browser-study.md](file-browser-study.md)(決定事項は同 §11)
 
-段階は §11 の決定を反映して 0 → 9 の順。段階 0 は済み。各段階は単独でビルド・テストが通り、
+段階は §11 の決定を反映して 0 → 9 の順。段階 0・1 は済み。各段階は単独でビルド・テストが通り、
 レビューできる大きさにする。段階 2 までは UI を持たない(テストで検証)。段階 3 で初めてウェルカム画面が変わる。
 この計画に出てくる既存コードの行番号は立案時点(`ecda25f` + 段階 0)のもの。
 
@@ -44,6 +44,16 @@
 
 ## 段階 1. 環境設定の整理 + 帯のボタン 2 つの撤去
 
+**実装済み・コミット済み(2026-09-13。全 986 テスト通過、実機検証済み)。計画から変えた点:**
+- 「並び順を Finder に揃える」の表紙の作り直し(`handlePageOrderSettingChange`)は消さず、
+  **OFF で使っていた人だけ起動時に一度**従来順 → 正準順の判定をする
+  `CollectionCoverExtractor.refreshCoversForRetiredOrderSettingIfNeeded` に変えた(消すと、OFF だった人の
+  表紙が従来順の先頭のまま残る)。`comparePageOrder` は `compareLegacyPageOrder` に、
+  `usesFinderOrderOverride` は `usesLegacyOrder` に置き換え(古い番号を鍵へ直す経路が従来順を要るため)。
+  `PageOrder.defaultsKey` は `retiredSettingKey` に改名して残した。
+- `showRecentFilesOnWelcome` も**プロパティごと消した**(読む側が無くなるため。キーの値は残す。docs/06)。
+- 帯の左端の「ファイルブラウザ」ボタンは**段階 3 へ回した**(`WelcomeMode` が無い段階で押しても何も起きないため)。
+
 ### 1.1 「並び順を Finder に揃える」
 
 | ファイル | 変更 |
@@ -84,9 +94,23 @@
 - 既存テスト全通過。`WelcomeLibraryStateTests` に影響なし。
 - 実機: 設定を OFF にしていた Debug コンテナで起動しても落ちないこと。ウェルカム画面でサイドパネルが出ないこと。
 
+**結果(2026-09-13、Debug ビルド、空の本棚 + 使い捨てボリュームの合成名の本。手順は docs/12「実物のアプリを外から操作する」)**
+- 撤去した 3 つのキーを残したまま(`usesFinderSortOrder = NO`・`showSidePanelOnWelcome = YES`・
+  `showRecentFilesOnWelcome = YES`)起動 → 落ちない。
+- 帯はライブラリのチップと「＋」だけ。常時表示(`hideSidePanel = NO`)でもウェルカム画面にパネルは出ない。
+  「表示」→「サイドパネルを隠す」はグレーアウト。
+- 環境設定「一般」に「ページ順」セクション・「最近開いた本を表示する」・「ウェルカム画面でも表示する」が無い。
+- `a.png` / `B.png` / `c.png` の本を開く → a → B → c(正準順。従来順なら B が先)。パネルが戻る。
+  本を閉じるとパネルが消える。
+- `hideSidePanel = YES` で左端にカーソルを置く → ウェルカム画面では出ない。本を開いた状態では同じ操作で出る(対照)。
+- 後始末: ストア・表紙の保管庫・UserDefaults を控えから戻して一致を確認、ボリュームを外し、残ったページ一覧
+  キャッシュ 1 件を削除。
+
 ---
 
 ## 段階 2. 操作エンジン(UI なし)
+
+**次に着手するのはここ。** 段階 1 の変更で前提が変わった点は無い。
 
 ### 2.1 `Services/FileOperations/FileIO.swift`(新規)
 
@@ -260,6 +284,9 @@ actor FileOperationService {
 - 画面外セルの絵は `LazyCellImageBudget` で手放す。
 
 ### 3.5 操作列・パスバー・切替
+
+(段階 1 から回した)`WelcomeTopBar` の左端に「ファイルブラウザ」ボタン(`SidePanelNavButton` の形、`systemImage: "folder"`)。
+押されている状態(`.browser`)はアクセント地 + `.panelOutlinedAccent(in:)`(`WelcomeEditToggle` と同じ描き方)。
 
 - `Views/FileBrowser/FileBrowserPane.swift`: 左右の幅ドラッグ(`SidePanelView.widthDragHitArea` と同じ作り。幅は保存)。上の操作列は
   `WelcomePaneHeaderLayout`(左: ‹ › ↑、中央: `WelcomeSearchField`、右: 表示切替(`Picker` の 2 アイコン `list.bullet` / `square.grid.2x2`)、

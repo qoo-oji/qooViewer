@@ -418,31 +418,29 @@ final class LayoutStore: ObservableObject {
     /// いるため、並びが変わると各ページの状態は残っていても**組み合わせが変わる**。ユーザーが
     /// 作ったレイアウトをそのまま維持するには、並び自体を固定する必要がある。
     ///
-    /// 固定にはユーザーの並べ替え(pageOrderOverride)をそのまま使う。鍵の配列なので、環境設定
-    /// 「並び順をFinderに揃える」を切り替えても影響を受けない。解除は既存の「ページ順を
-    /// 初期化する」がそのまま使える。
+    /// 固定にはユーザーの並べ替え(pageOrderOverride)をそのまま使う。鍵の配列なので、名前の
+    /// 照合が変わっても影響を受けない。解除は既存の「ページ順を初期化する」がそのまま使える。
     ///
-    /// **並びが実際に入れ替わる本にだけ行う。** 理屈の上では設定を変えれば並びは変わりうるが、
-    /// 実際にそうなる命名はごく稀で、無関係な本にまで印を付けると「ページ順を初期化する」が
-    /// 無用に有効化されたり、後から増えたページが末尾に付いたりする(PageOrder.
-    /// differsByOrderSetting参照)。
+    /// ■ 並び順の設定を撤去した後も残している理由(2026-09-13)
+    /// 環境設定「並び順をFinderに揃える」が無くなり、表示順は常に正準順になった
+    /// (PageOrder.swift冒頭)。それでも固定を続けるのは、正準順の照合
+    /// (`localizedStandardCompare`)がロケール・OSの版に左右されうるから ―― 見開きの組み合わせを
+    /// 作ったときの並びを鍵で持っておけば、照合の側が変わってもレイアウトは崩れない。
+    /// 設定がOFFだった時代に焼いた固定も、そのまま効き続ける。
+    ///
+    /// **並びが実際に入れ替わりうる本にだけ行う。** 無関係な本にまで印を付けると「ページ順を
+    /// 初期化する」が無用に有効化されたり、後から増えたページが末尾に付いたりする
+    /// (PageOrder.differsByOrderSetting参照)。
     ///
     /// - Parameter allPageKeys: その本の全ページの鍵(除外ページも含む)。**順序は不問** ――
-    ///   実際に焼き付ける並びは、この関数が現在の設定の表示順(comparePageOrder)で並べ直して
-    ///   決める。呼び出し元に「画面に見えている並び」を要求しない: 呼び出し元が持っているのは
-    ///   正準順のrawPagesで、環境設定「並び順をFinderに揃える」がOFF(既定)のとき画面の並び
-    ///   (従来順)とは食い違う。以前は渡された並びをそのまま焼き付けていたため、OFFの差分本で
-    ///   レイアウトを1つ触った瞬間に本の並びが正準順へ入れ替わってしまっていた。
-    ///   なお、この関数が動くのはpageOrderOverrideが無い本だけなので、「表示順=設定の並びで
-    ///   ソートした順」が常に成り立ち、ここで並べ直した結果は画面の並びと必ず一致する。
+    ///   実際に焼き付ける並びは、この関数が表示順(正準順)で並べ直して決める。この関数が
+    ///   動くのはpageOrderOverrideが無い本だけなので、ここで並べ直した結果は画面の並びと
+    ///   必ず一致する。
     func pinPageOrderIfNeeded(for book: MangaBook, allPageKeys: [String]) {
         guard book.pageOrderSource == .fileName else { return }
         guard bookLayoutSettings(forBookID: book.id)?.pageOrderOverride == nil else { return }
         guard PageOrder.differsByOrderSetting(keys: allPageKeys) else { return }
-        let usesFinderOrder = PageOrder.usesFinderOrder
-        let pinned = allPageKeys.sorted {
-            comparePageOrder($0, $1, usesFinderOrder: usesFinderOrder) == .orderedAscending
-        }
+        let pinned = allPageKeys.sorted { compareCanonicalPageOrder($0, $1) == .orderedAscending }
         setPageOrderOverride(for: book, pinned)
     }
 

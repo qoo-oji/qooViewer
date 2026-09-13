@@ -167,11 +167,14 @@ start / center / end。切る軸は画像と枠の比から決まるので軸に
   書き出すカバーはトリミングしない**ので、書き出しウインドウのピッカーには出さない
   (`ExportCoverCell.showsCropAnchor`)。
 - 抽出をやり直す契機は「どの画像か」が変わったとき(`.layoutDataDidChange` を自分が最後に
-  使った値と比べる)と、下の「並び順の設定」だけ。比・位置・読み方向では作り直さない。
+  使った値と比べる)と、下の「撤去した並び順の設定」の一度きりの後始末だけ。比・位置・読み方向では作り直さない。
   **書き出し用のカバー画像の変更でも作り直さない**(控えは `shelfCover*` の2列だけを見る)。
-- **「並び順をFinderに揃える」を切り替えたら、実効1ページ目が変わる本だけ作り直す**
-  (ユーザー要望 2026-09-13。`handlePageOrderSettingChange`)。表紙を指定していない `.ready` の本の
-  うち、ページ一覧のキャッシュ(`BookPageListCache`)で新旧の設定の先頭を比べて、違う本だけ。
+- **撤去した「並び順をFinderに揃える」を OFF で使っていた人は、起動時に一度だけ、実効1ページ目が
+  変わる本を作り直す**(`refreshCoversForRetiredOrderSettingIfNeeded`。済み印は
+  `qooViewer.collections.retiredOrderSettingCovers`)。設定があった間は切り替えのたびに同じ判定をしていた
+  (ユーザー要望 2026-09-13)が、同じ日の改善要望7で設定ごと撤去したので、OFF → 正準順への切り替えを
+  1 回だけ行う形に変えた。表紙を指定していない `.ready` の本のうち、ページ一覧のキャッシュ
+  (`BookPageListCache`)で従来順と正準順の先頭を比べて、違う本だけ。
   **キャッシュの無い本は作り直す**(ユーザーの判断)。判定と抽出は同じ式
   (`CoverImageResolver.firstPage`)を通す。レイアウトで順番を固定した本・PDF/EPUB は、その式が
   そのまま「変わらない」と答える。
@@ -180,6 +183,7 @@ start / center / end。切る軸は画像と枠の比から決まるので軸に
   (`coverRevisionByItemID`。保存しない回数)を出す。状態が `.ready` のまま変わらないので、表示側は
   読み直しの鍵にこの回数を入れている。札の古い絵は、合図を出す**前に**捨て終える
   (`invalidateTileImages` を await する)。抽出中に頼まれた作り直しは、終わってからもう一度積む。
+  済み印は待ち行列へ積んだ時点で立てる(抽出の途中で終了すると、その本は古い表紙のまま残る)。
 
 **画像指定の表紙は本を開かずに作れる**ので、本体が未接続でも抽出する(`CoverImageResolver.coverImage`
 は `bookAt:` が nil でも保管庫の画像だけで返す)。それ以外の実体が見つからない本は
@@ -362,7 +366,7 @@ Caches に置くのは、カバーから数 ms で作り直せる**派生物**�
 
 ```
 WelcomeView(PanelSurface.welcome)
- ├─ WelcomeTopBar(44pt): [本を開く…][履歴から開く] | ライブラリのチップ(横スクロール) | ＋
+ ├─ WelcomeTopBar(44pt): ライブラリのチップ(横スクロール) | ＋
  ├─ Divider
  └─ WelcomeLibraryPane
      ├─ WelcomePaneHeaderLayout: [戻る・名前・冊数(中のみ)] | 検索欄(中央) | LibraryPaneControls
@@ -451,7 +455,7 @@ WelcomeView(PanelSurface.welcome)
 開く・Finderで開く・メタデータの編集…)は複数選択中は淡色にする。
 
 **シークレットウインドウ**は編集モードに入れない(`allowsEditing == false`。「＋」「編集」「歯車」
-「履歴から開く」が無効、チップの右クリックもドラッグも効かない)。閲覧と、そこから本を開くことは
+が無効、チップの右クリックもドラッグも効かない)。閲覧と、そこから本を開くことは
 できる。コレクションの登録は DB への書き込みなので「何も記録しない」の約束から外れる
 (→ [06](06-persistence.md#シークレットウインドウとその場限りの本))。
 

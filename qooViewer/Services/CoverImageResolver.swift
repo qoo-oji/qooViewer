@@ -122,23 +122,21 @@ nonisolated enum CoverImageResolver {
         var pageOrderOverride: [String]?
         /// 除外されているページのキー。
         var excludedKeys: Set<String> = []
-        /// 「並び順をFinderに揃える」の値。nilなら抽出の時点の環境設定(PageOrder.usesFinderOrder)。
-        /// 呼び出し側が決めた値で先頭ページを選ぶための口(CollectionCoverExtractorが、並び順の
-        /// 設定を変えたときの作り直しと同じ値で選ぶ。テストが共有の環境設定に触れずに済む)。
-        var usesFinderOrder: Bool?
+        /// 従来順(PageOrder.swift冒頭)で先頭ページを選ぶか。**抽出では常にfalse。** 真にするのは
+        /// 撤去した環境設定がOFFだった頃の表紙と比べる判定だけ
+        /// (CollectionCoverExtractor.refreshCoversForRetiredOrderSettingIfNeeded)。
+        var usesLegacyOrder = false
 
         init(
             coverPageKey: String? = nil,
             imageFileURL: URL? = nil,
             pageOrderOverride: [String]? = nil,
-            excludedKeys: Set<String> = [],
-            usesFinderOrder: Bool? = nil
+            excludedKeys: Set<String> = []
         ) {
             self.coverPageKey = coverPageKey
             self.imageFileURL = imageFileURL
             self.pageOrderOverride = pageOrderOverride
             self.excludedKeys = excludedKeys
-            self.usesFinderOrder = usesFinderOrder
         }
     }
 
@@ -205,11 +203,11 @@ nonisolated enum CoverImageResolver {
         )
     }
 
-    /// 上書きが無いときの表紙 = 実効1ページ目(除外・並べ替え・並び順の設定を反映した先頭)。
+    /// 上書きが無いときの表紙 = 実効1ページ目(除外・並べ替えを反映した先頭)。
     ///
     /// 本を読み込んだ結果(PageRef)とページ一覧のキャッシュ(BookPageListCache.Entry.Page)の
-    /// どちらでも引ける ―― 並び順の設定を変えたとき、本を開かずに「表紙が変わる本か」を
-    /// 判定するのに使う(CollectionCoverExtractor.handlePageOrderSettingChange)。抽出と
+    /// どちらでも引ける ―― 本を開かずに「表紙が変わる本か」を判定するのに使う
+    /// (CollectionCoverExtractor.refreshCoversForRetiredOrderSettingIfNeeded)。抽出と
     /// 判定が別の式を通ると、「変わると判定したのに同じ絵ができる」が起きる。
     static func firstPage<Page: PageOrderSortable>(
         of pages: [Page], pageOrderSource: PageOrderSource, snapshot: OverrideSnapshot
@@ -217,7 +215,7 @@ nonisolated enum CoverImageResolver {
         EffectivePageOrder.orderedPages(
             for: pages, pageOrderSource: pageOrderSource,
             pageOrderOverride: snapshot.pageOrderOverride, excludedKeys: snapshot.excludedKeys,
-            usesFinderOrderOverride: snapshot.usesFinderOrder
+            usesLegacyOrder: snapshot.usesLegacyOrder
         ).first
     }
 

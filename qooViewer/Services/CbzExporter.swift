@@ -164,9 +164,9 @@ nonisolated enum CbzExporter {
             // 変換してから番号を振る。
             //
             // 比較に正準順を使うのは、BookLoaderが本のページを並べるときと同じ名前順
-            // (Finderと同じ照合)に揃えるため。**環境設定「並び順をFinderに揃える」は見ない** ――
-            // 外へ出るファイルの中身を、アプリ内の表示設定に左右させないため
-            // (PageOrder.swift冒頭の「並び順の全体設計」参照)。
+            // (Finderと同じ照合)に揃えるため。以前あった環境設定「並び順をFinderに揃える」も
+            // ここでは見ていなかった ―― 外へ出るファイルの中身を、アプリ内の表示設定に左右させない
+            // ため(PageOrder.swift冒頭の「並び順の全体設計」参照)。
             let readerOrder = planned.indices.sorted {
                 compareCanonicalPageOrder(planned[$0].fileName, planned[$1].fileName) == .orderedAscending
             }

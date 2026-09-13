@@ -1,6 +1,6 @@
 import Foundation
 
-/// ページの名前順の比較と、「並び順をFinderに揃える」設定まわりの道具一式。
+/// ページの名前順の比較の道具一式。
 ///
 /// # 並び順の全体設計
 ///
@@ -9,27 +9,30 @@ import Foundation
 /// 1. **正準順(canonical)** … `compareCanonicalPageOrder`。Finderが名前順に使っているのと同じ
 ///    照合(`localizedStandardCompare`)で、数字を数値として比べ、大文字小文字・全角半角を
 ///    区別せず、記号もロケールの照合順序に従う。**保存物(本の読み込み結果・構造キャッシュ)は
-///    必ずこの順で持つ。** 設定に左右されないため、設定を切り替えても保存物を捨てる必要が無い。
-/// 2. **表示順(effective)** … 正準順に対して、環境設定「並び順をFinderに揃える」・ユーザーの
-///    並べ替え(`pageOrderOverride`)・除外ページを順に適用したもの。適用するのは
-///    `EffectivePageOrder`**1か所だけ**で、ここが唯一の適用点になっている。
+///    必ずこの順で持つ。**
+/// 2. **表示順(effective)** … 正準順に対して、ユーザーの並べ替え(`pageOrderOverride`)と
+///    除外ページを順に適用したもの。適用するのは`EffectivePageOrder`**1か所だけ**。
 ///
-/// この2層に分けたことで、「設定を読む場所」が実質1か所に減り、経路ごとに読むタイミングが
-/// ずれて食い違う(ビューアと一覧で並びが違う、キャッシュだけ古い並びのまま等)ことが
-/// 構造的に起きなくなっている。
+/// # 表示順の切り替えは無くなった(2026-09-13、改善要望7)
 ///
-/// # 設定がOFFのときの並び(従来順)
+/// 以前は環境設定「並び順をFinderに揃える」があり、OFFのときは表示順だけを従来順
+/// (`compareLegacyPageOrder`)で並べていた(2026-09-06から既定ON)。設定の整理で撤去し、
+/// 表示順は常に正準順になった。UserDefaultsの値(`retiredSettingKey`)は消していない ――
+/// 古い版を起動した人の設定を壊さないためと、OFFで使っていた人のコレクション表紙を一度だけ
+/// 作り直す判定に使うため(CollectionCoverExtractor.refreshCoversForRetiredOrderSettingIfNeeded)。
+///
+/// 従来順が残っているのは次の2つの用途だけ。
+/// - 鍵を持たない古いBookmark.pageIndex等を鍵へ変換する(EffectivePageOrder.legacyOrderedPageKeys)
+/// - `differsByOrderSetting` ―― レイアウトを保存した本の並びを固定するかの判定
+///   (LayoutStore.pinPageOrderIfNeeded)。OFFの時代に焼いた`pageOrderOverride`はそのまま効き続ける。
+///
+/// # 従来順
 ///
 /// `compare(_:options: .numeric)`。ロケールを見ないUnicodeスカラー順の比較で、1.36以前は
 /// これが唯一の並びだった。Finderとは食い違い、大文字始まりの名前がすべて小文字始まりより
 /// 先に来るうえ、アンダースコア(U+005F)が大文字より後・小文字より前に入る。ユーザー報告の
 /// `_Com-title-cover.JPG` / `Com_title_name_size_0001.JPG` / `Com-title-cover-clean.JPG` の
 /// ような名前では、"Com"と"com"で並びが丸ごと変わってしまう。
-///
-/// **既定はON(Finderと同じ名前順)。** 当初は「並びが変わるきっかけはユーザー自身の意思による
-/// ものに限る」という理由でOFFを既定にしていたが、Finderで見えている並びと食い違うほうが
-/// 説明のつかない挙動になる(ユーザーの判断でONへ変更)。既に自分で切り替えた人の値は
-/// UserDefaultsに入っているので影響を受けない。
 ///
 /// # フルパスをキーに渡してよい
 ///
@@ -50,34 +53,21 @@ nonisolated func compareCanonicalPageOrder(_ lhs: String, _ rhs: String) -> Comp
     return lhs.compare(rhs)
 }
 
-/// 表示順の比較。`usesFinderOrder`が真なら正準順と同じ、偽なら従来順(`.numeric`)。
-nonisolated func comparePageOrder(
-    _ lhs: String, _ rhs: String, usesFinderOrder: Bool
-) -> ComparisonResult {
-    usesFinderOrder ? compareCanonicalPageOrder(lhs, rhs) : lhs.compare(rhs, options: .numeric)
+/// 従来順(1.36以前の並び)の比較。用途はPageOrder.swift冒頭の「従来順が残っているのは」の2つだけ。
+nonisolated func compareLegacyPageOrder(_ lhs: String, _ rhs: String) -> ComparisonResult {
+    lhs.compare(rhs, options: .numeric)
 }
 
 nonisolated enum PageOrder {
-    /// 「並び順をFinderに揃える」のUserDefaultsキー。**書く側はAppPreferencesだけ**
-    /// (AppPreferences.Keys.usesFinderSortOrderがこの定数を参照している)。
-    static let defaultsKey = "qooViewer.pref.usesFinderSortOrder"
+    /// 撤去した環境設定「並び順をFinderに揃える」のUserDefaultsキー。**もう誰も書かない。**
+    /// 値は消さずに残してあり、読むのはCollectionCoverExtractorの一度きりの作り直しだけ
+    /// (冒頭の「表示順の切り替えは無くなった」参照)。
+    static let retiredSettingKey = "qooViewer.pref.usesFinderSortOrder"
 
-    /// 「並び順をFinderに揃える」の現在値(**既定はON**)。
+    /// この本が「正準順と従来順で実際にページの前後が入れ替わる本」かどうか(名前は設定があった
+    /// 頃のまま)。
     ///
-    /// AppPreferencesは@MainActorのObservableObjectで、nonisolatedなコード(BookLoaderの
-    /// 検出処理・EffectivePageOrderなど)からは読めない。UserDefaultsは複数スレッドから読んで
-    /// 安全なので、ここを唯一の入口にしてある。**既定値をAppPreferences側と必ず揃えること** ――
-    /// 食い違うと、画面のトグルと実際の並びが逆になる。
-    ///
-    /// 並べ替え1回につき**1度だけ**読んで、比較関数へは値として渡すこと(比較のたびに
-    /// 読みに行くと、ページ数の多い本で無駄が積み上がる)。
-    static var usesFinderOrder: Bool {
-        UserDefaults.standard.object(forKey: defaultsKey) as? Bool ?? true
-    }
-
-    /// この本が「並び順の設定によって実際にページの前後が入れ替わる本」かどうか。
-    ///
-    /// 理屈の上では設定を変えれば並びは変わりうるが、実際にそうなるのは
+    /// 実際にそうなるのは
     /// 「先頭のアンダースコア」「`-`と`_`の混在」「大文字小文字の混在」といった特定の命名を
     /// 含む本だけで、実測ではほとんど存在しない(開発者の蔵書では、レイアウトを持つ66冊・
     /// 最近開いた80冊/11,064ページのいずれも該当0件だった)。
@@ -91,17 +81,6 @@ nonisolated enum PageOrder {
     static func differsByOrderSetting(keys: [String]) -> Bool {
         guard keys.count > 1 else { return false }
         return keys.sorted { compareCanonicalPageOrder($0, $1) == .orderedAscending }
-            != keys.sorted { $0.compare($1, options: .numeric) == .orderedAscending }
+            != keys.sorted { compareLegacyPageOrder($0, $1) == .orderedAscending }
     }
-}
-
-extension Notification.Name {
-    /// 環境設定「並び順をFinderに揃える」が変わったことを知らせる通知
-    /// (AppPreferences.usesFinderSortOrderのdidSetから送られる)。
-    ///
-    /// 受け取る側は、**本を読み込み直さずに手元のページ配列を並べ直せばよい**。並び順の
-    /// 切り替えはページ集合を変えず順序だけを変えるので、並べ直した結果は読み込み直した
-    /// 結果と必ず一致する(EffectivePageOrderを通せば、ユーザーの並べ替え・除外も同時に
-    /// 反映される)。
-    static let pageOrderSettingDidChange = Notification.Name("qooViewer.pageOrderSettingDidChange")
 }

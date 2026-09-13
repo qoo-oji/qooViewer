@@ -9,13 +9,14 @@
 | 名前 | 定義 | どこで使う |
 |---|---|---|
 | **正準順**(canonical) | ファイル名を `localizedStandardCompare`(Finder と同じ)で並べたもの | `BookLoader` が返す `MangaBook.pages`(`rawPages`)。ComicInfo のページ番号、CBZ の連番リネーム |
-| **従来順**(legacy) | 1.36 以前の `.numeric` 比較。ロケールを見ず、大文字始まりが先に来る | 1.36 以前に保存された行の「番号」はこの並びで記録されている |
-| **実効順**(effective) | 環境設定「並び順を Finder に揃える」 → `pageOrderOverride`(ユーザーの並べ替え) → 除外ページの除去、をこの順に適用したもの | `ViewerViewModel.book.pages`。`Bookmark.pageIndex` / `BookReadingState.lastPageIndex` が指す空間 |
+| **従来順**(legacy) | 1.36 以前の `.numeric` 比較(`compareLegacyPageOrder`)。ロケールを見ず、大文字始まりが先に来る | 1.36 以前に保存された行の「番号」はこの並びで記録されている。`pinPageOrderIfNeeded` の判定 |
+| **実効順**(effective) | 正準順 → `pageOrderOverride`(ユーザーの並べ替え) → 除外ページの除去、をこの順に適用したもの | `ViewerViewModel.book.pages`。`Bookmark.pageIndex` / `BookReadingState.lastPageIndex` が指す空間 |
 
-- `PageOrder.usesFinderOrder` は UserDefaults を直接読む(**既定 ON**。当初は OFF だったが、Finder と
-  食い違う並びのほうが説明がつかないためユーザーの判断で 2026-09-06 に変更。nonisolated なコードが読むため、
-  `AppPreferences` を引数で配らない)。トグルの didSet は保存してから `pageOrderSettingDidChange`
-  を投げ、開いている本・編集ウインドウ・書き出しウインドウがその場で並べ直す。
+- **表示順の切り替えは無い**(2026-09-13 に撤去、改善要望7)。以前は環境設定「並び順を Finder に揃える」
+  (1.37 で追加、既定 OFF → 2026-09-06 に既定 ON)が OFF のとき、実効順の名前順だけを従来順にしていた。
+  UserDefaults の値(`PageOrder.retiredSettingKey`)は消していない。読むのは
+  `CollectionCoverExtractor.refreshCoversForRetiredOrderSettingIfNeeded` だけで、OFF で使っていた人の
+  コレクション表紙を起動時に一度だけ正準順の先頭へ合わせる(→ [14](14-library-collections.md))。
 - **`EffectivePageOrder.orderedPages(for:pageOrderSource:pageOrderOverride:excludedKeys:)` が
   唯一の適用点**です。以前は `ViewerViewModel` と編集ウインドウに写しがあり、片方だけずれる
   不具合の温床でした。**渡すのは必ず正準順**(実効順を渡してはいけない)。
@@ -162,7 +163,8 @@ PDF(`/ViewerPreferences/Direction`、`/PageLayout`)、ComicInfo.xml(`Manga`)が�
 計算対象から外れています(`book.pages` に含まれない)。
 
 自動レイアウトを掛ける前に `pinPageOrderIfNeeded` で並びを固定します(ページごとのレイアウトは
-隣との関係で定義されるため、後から「Finder に揃える」を切り替えても組が壊れないように)。
+隣との関係で定義されるため、名前の照合が変わっても組が壊れないように。設定を撤去した後も残しているのは、
+正準順の `localizedStandardCompare` がロケール・OS の版に左右されうるため。OFF の時代に焼いた固定もそのまま効く)。
 1.36 以前のレイアウトを持つ本は `legacyPinIfNeeded` で**従来順**に固定します。
 
 ## レイアウト変更の反映(reloadLayoutData)

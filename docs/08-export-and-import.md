@@ -13,7 +13,7 @@
 1. **対象一覧**: レイアウト・ブックマーク・メタデータ(EPUB/CBZ はカバー上書きも)のどれかを持つ本。
    実在確認(`BookURLResolver`)はメインアクターの外で行い、結果が返るまで直前の一覧を出したまま
    (以前はウインドウを開くだけで、未接続ボリュームの本の数だけ秒単位ブロックした)。
-   `bookmarksDidChange` / `layoutDataDidChange` / `bookMetadataDidChange` / `pageOrderSettingDidChange`
+   `bookmarksDidChange` / `layoutDataDidChange` / `bookMetadataDidChange`
    で読み直す(ウインドウは単一インスタンスで ViewModel が使い回されるため)。
 2. **絞り込み**(`BookExportRowFilter`): 保存データの3種は AND のチェックボックス、ファイル形式は
    単一選択。**絞り込みは見え方だけを変え、チェック(選択)には触れない**。「すべて選択」は

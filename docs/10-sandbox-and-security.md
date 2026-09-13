@@ -26,7 +26,7 @@ entitlement は無く、通信は一切しません。エンタイトルメン�
 
 | 場所 | 何のため |
 |---|---|
-| `RecentFilesStore` | 履歴から開く |
+| `RecentFilesStore` | 履歴(ファイルメニュー・サイドパネル)から開く |
 | `FavoriteBook.bookmarkData` | お気に入りから開く(無効化中) |
 | `CollectionItem.bookmarkData` | コレクションから開く・カバーを抽出する |
 | `Bookmark.bookmarkData` | 編集ウインドウから今開いていない本を開いてジャンプ |

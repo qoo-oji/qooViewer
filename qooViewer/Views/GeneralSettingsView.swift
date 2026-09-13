@@ -96,7 +96,6 @@ struct GeneralSettingsView: View {
             }
 
             Section {
-                SettingsToggle("Show Recent Files", isOn: $preferences.showRecentFilesOnWelcome)
                 // ユーザー要望 2026-09-10。勝手に消す設定ではなく「起動時に一覧を出して尋ねる」
                 // 設定なので、ラベルも Offer(尋ねる)にしてある。何を対象にするか
                 // (外付けを外しているだけの本は対象外)は吹き出しへ。
@@ -113,29 +112,6 @@ struct GeneralSettingsView: View {
                 }
             } header: {
                 Text("Welcome Screen")
-            }
-
-            // ユーザー報告: Finderの表示順と本のページ順が食い違う名前のパターンがある
-            // (先頭のアンダースコア、"-"と"_"の混在、大文字小文字の混在)。Finderと同じ照合を
-            // 選べるようにし、2026-09-06にその既定をONへ変えた(ユーザーの判断。従来の並びに
-            // 慣れている場合のためにOFFは残してある。AppPreferences.usesFinderSortOrder /
-            // PageOrder.usesFinderOrder / comparePageOrder参照)。
-            // 切り替えても、レイアウトを設定した本は当時の並びのまま残る(見開きの組み合わせを
-            // 守るため。LayoutStore.pinPageOrderIfNeeded参照)。以前はここに「まとめて新しい
-            // 並びに合わせるか」を尋ねる確認ダイアログがあったが、削除した ―― 合わせても
-            // 見開きの組み合わせが崩れて自動レイアウトのやり直しになるだけで、正解が
-            // 「そのまま」に決まっている質問だったうえ、対象の列挙も原理的に不完全だった
-            // (一度も開いていない本のピン留めは初回オープン時に行われるため、切り替えの
-            // 時点では見つけられない)。合わせたい本は、編集ウインドウの「ページ順を
-            // 初期化する」で1冊ずつ合わせられる(ヘルプ文言で案内している)。
-            Section {
-                SettingsToggle(
-                    "Match Finder's Sort Order",
-                    isOn: $preferences.usesFinderSortOrder,
-                    help: "Sorts by name the way Finder does: digits compare as numbers, and letter case and symbols follow the system's collation. When off, names are compared by character code instead, as in earlier versions, so every name starting with an uppercase letter comes before every name starting with a lowercase one. Open books and lists reorder right away. Books you have given a layout keep the order that layout was made for, because which pages pair into a spread depends on it; to make such a book follow the new order, use Reset Page Order in the Bookmarks & Layout window."
-                )
-            } header: {
-                Text("Page Order")
             }
 
             Section {
@@ -156,14 +132,6 @@ struct GeneralSettingsView: View {
                         "Require a Double-Click to Open or Move Into Folders",
                         isOn: $preferences.sidePanelUsesDoubleClick,
                         help: "Navigation buttons such as Back, Forward, and Up are unaffected."
-                    )
-                    // ユーザー要望: ウェルカム画面(棚)ではサイドパネルを出したくない。
-                    // 常時表示でも、隠す設定でカーソルを端に近づけたときでも出さない
-                    // (ContentView.isSidePanelSuppressedForWelcome参照)。
-                    SettingsToggle(
-                        "Show on the Welcome Screen",
-                        isOn: $preferences.showSidePanelOnWelcome,
-                        help: "When off, the side panel does not appear while no book is open — it neither takes up space nor slides out when you move the pointer to the edge of the window with Hide Side Panel on. Open a book and the panel comes back."
                     )
                     // 上段のフォルダブラウザ専用。下段の本の中身の一覧は常に本のページ順
                     // (理由はAppPreferences.sidePanelSortOrderのコメント参照)。

@@ -10,8 +10,8 @@ import Testing
 /// 保存済みのブックマークが別のページを指す。`ViewerViewModel.applyLayoutData` に同じ
 /// ロジックの写しがあり、「一方を変えたら他方にも反映する」運用になっている(型コメント参照)。
 ///
-/// 並び順の設定(`PageOrder.usesFinderOrder` = UserDefaults)はテストから触らない約束なので、
-/// 名前順が絡む呼び出しでは必ず `usesFinderOrderOverride` を明示する。
+/// 名前順は常に正準順(環境設定「並び順を Finder に揃える」は 2026-09-13 に撤去)。従来順は
+/// `usesLegacyOrder: true` のときだけ ―― 古い番号を鍵へ直す経路の専用。
 struct EffectivePageOrderTests {
     // MARK: - 並べ替え(override 無し)
 
@@ -19,21 +19,20 @@ struct EffectivePageOrderTests {
     func sortsByNameWithoutOverride() {
         let pages = SamplePages.pages(["010.jpg", "002.jpg", "001.jpg"])
         let ordered = EffectivePageOrder.orderedPages(
-            for: pages, pageOrderOverride: nil, excludedKeys: [], usesFinderOrderOverride: true
+            for: pages, pageOrderOverride: nil, excludedKeys: []
         )
         #expect(ordered.map(\.sortKey) == ["001.jpg", "002.jpg", "010.jpg"])
     }
 
-    @Test("名前順は「並び順を Finder に揃える」の唯一の適用点")
-    func theFinderOrderSettingAppliesHere() {
-        // 1.37 の報告そのもの(PageOrderTests 参照)。ここが唯一の適用点なので、
-        // 設定の効き目もここで固定しておく。
+    @Test("名前順は正準順。従来順は usesLegacyOrder を明示したときだけ")
+    func namesSortCanonicallyUnlessLegacyIsRequested() {
+        // 1.37 の報告そのもの(PageOrderTests 参照)。
         let pages = SamplePages.pages(["Com-title-cover.JPG", "_Com-title.JPG", "Com_title_0001.JPG"])
         let canonical = EffectivePageOrder.orderedPages(
-            for: pages, pageOrderOverride: nil, excludedKeys: [], usesFinderOrderOverride: true
+            for: pages, pageOrderOverride: nil, excludedKeys: []
         )
         let legacy = EffectivePageOrder.orderedPages(
-            for: pages, pageOrderOverride: nil, excludedKeys: [], usesFinderOrderOverride: false
+            for: pages, pageOrderOverride: nil, excludedKeys: [], usesLegacyOrder: true
         )
         #expect(canonical.map(\.sortKey) == ["_Com-title.JPG", "Com_title_0001.JPG", "Com-title-cover.JPG"])
         #expect(legacy.map(\.sortKey) == ["Com-title-cover.JPG", "Com_title_0001.JPG", "_Com-title.JPG"])
@@ -45,7 +44,7 @@ struct EffectivePageOrderTests {
         let pages = SamplePages.pages(["010.jpg", "002.jpg", "001.jpg"])
         let ordered = EffectivePageOrder.orderedPages(
             for: pages, pageOrderSource: .document,
-            pageOrderOverride: nil, excludedKeys: [], usesFinderOrderOverride: true
+            pageOrderOverride: nil, excludedKeys: []
         )
         #expect(ordered.map(\.sortKey) == ["010.jpg", "002.jpg", "001.jpg"])
     }
@@ -55,8 +54,7 @@ struct EffectivePageOrderTests {
         let pages = SamplePages.pages(["001.jpg", "002.jpg", "003.jpg"])
         let ordered = EffectivePageOrder.orderedPages(
             for: pages, pageOrderSource: .document,
-            pageOrderOverride: ["003.jpg", "001.jpg", "002.jpg"], excludedKeys: [],
-            usesFinderOrderOverride: true
+            pageOrderOverride: ["003.jpg", "001.jpg", "002.jpg"], excludedKeys: []
         )
         #expect(ordered.map(\.sortKey) == ["003.jpg", "001.jpg", "002.jpg"])
     }
@@ -67,8 +65,7 @@ struct EffectivePageOrderTests {
     func overrideDecidesTheOrder() {
         let pages = SamplePages.pages(["001.jpg", "002.jpg", "003.jpg"])
         let ordered = EffectivePageOrder.orderedPages(
-            for: pages, pageOrderOverride: ["002.jpg", "003.jpg", "001.jpg"], excludedKeys: [],
-            usesFinderOrderOverride: true
+            for: pages, pageOrderOverride: ["002.jpg", "003.jpg", "001.jpg"], excludedKeys: []
         )
         #expect(ordered.map(\.sortKey) == ["002.jpg", "003.jpg", "001.jpg"])
     }
@@ -77,8 +74,7 @@ struct EffectivePageOrderTests {
     func pagesMissingFromOverrideGoToTheEnd() {
         let pages = SamplePages.pages(["001.jpg", "002.jpg", "003.jpg", "004.jpg"])
         let ordered = EffectivePageOrder.orderedPages(
-            for: pages, pageOrderOverride: ["003.jpg", "001.jpg"], excludedKeys: [],
-            usesFinderOrderOverride: true
+            for: pages, pageOrderOverride: ["003.jpg", "001.jpg"], excludedKeys: []
         )
         // 末尾の 2 件は元の並び(名前順)を保つ。
         #expect(ordered.map(\.sortKey) == ["003.jpg", "001.jpg", "002.jpg", "004.jpg"])
@@ -88,8 +84,7 @@ struct EffectivePageOrderTests {
     func overrideEntriesForMissingPagesAreIgnored() {
         let pages = SamplePages.pages(["001.jpg", "002.jpg"])
         let ordered = EffectivePageOrder.orderedPages(
-            for: pages, pageOrderOverride: ["ghost.jpg", "002.jpg", "001.jpg"], excludedKeys: [],
-            usesFinderOrderOverride: true
+            for: pages, pageOrderOverride: ["ghost.jpg", "002.jpg", "001.jpg"], excludedKeys: []
         )
         #expect(ordered.map(\.sortKey) == ["002.jpg", "001.jpg"])
     }
@@ -98,7 +93,7 @@ struct EffectivePageOrderTests {
     func emptyOverrideKeepsEveryPage() {
         let pages = SamplePages.pages(["002.jpg", "001.jpg"])
         let ordered = EffectivePageOrder.orderedPages(
-            for: pages, pageOrderOverride: [], excludedKeys: [], usesFinderOrderOverride: true
+            for: pages, pageOrderOverride: [], excludedKeys: []
         )
         #expect(ordered.map(\.sortKey) == ["001.jpg", "002.jpg"])
     }
@@ -109,8 +104,7 @@ struct EffectivePageOrderTests {
     func excludedPagesAreRemoved() {
         let pages = SamplePages.pages(["001.jpg", "002.jpg", "003.jpg"])
         let ordered = EffectivePageOrder.orderedPages(
-            for: pages, pageOrderOverride: nil, excludedKeys: ["002.jpg"],
-            usesFinderOrderOverride: true
+            for: pages, pageOrderOverride: nil, excludedKeys: ["002.jpg"]
         )
         #expect(ordered.map(\.sortKey) == ["001.jpg", "003.jpg"])
     }
@@ -120,7 +114,7 @@ struct EffectivePageOrderTests {
         let pages = SamplePages.pages(["001.jpg", "002.jpg", "003.jpg"])
         let ordered = EffectivePageOrder.orderedPages(
             for: pages, pageOrderOverride: ["002.jpg", "001.jpg", "003.jpg"],
-            excludedKeys: ["001.jpg", "003.jpg"], usesFinderOrderOverride: true
+            excludedKeys: ["001.jpg", "003.jpg"]
         )
         #expect(ordered.map(\.sortKey) == ["002.jpg"])
     }
@@ -129,8 +123,7 @@ struct EffectivePageOrderTests {
     func exclusionOfMissingKeysIsHarmless() {
         let pages = SamplePages.pages(["001.jpg"])
         let ordered = EffectivePageOrder.orderedPages(
-            for: pages, pageOrderOverride: nil, excludedKeys: ["ghost.jpg"],
-            usesFinderOrderOverride: true
+            for: pages, pageOrderOverride: nil, excludedKeys: ["ghost.jpg"]
         )
         #expect(ordered.map(\.sortKey) == ["001.jpg"])
     }
@@ -138,8 +131,7 @@ struct EffectivePageOrderTests {
     @Test("ページが1枚も無い本でも落ちない")
     func emptyBookIsFine() {
         let ordered = EffectivePageOrder.orderedPages(
-            for: [PageRef](), pageOrderOverride: ["001.jpg"], excludedKeys: ["002.jpg"],
-            usesFinderOrderOverride: true
+            for: [PageRef](), pageOrderOverride: ["001.jpg"], excludedKeys: ["002.jpg"]
         )
         #expect(ordered.isEmpty)
     }
@@ -175,16 +167,16 @@ struct EffectivePageOrderTests {
         #expect(keys == ["003.jpg", "001.jpg"])
     }
 
-    @Test("legacyOrderedPageKeys は、設定に関わらず必ず 1.36 以前の並び")
+    @Test("legacyOrderedPageKeys は必ず 1.36 以前の並び")
     func legacyKeysAlwaysUseTheOldOrder() {
-        // 鍵を持たない古い pageIndex を鍵へ直す唯一の用途。今の設定で引くと別のページを指す。
+        // 鍵を持たない古い pageIndex を鍵へ直す唯一の用途。今の並びで引くと別のページを指す。
         let book = SamplePages.book(sortKeys: ["Com-title.JPG", "_Com-title.JPG", "Com_title.JPG"])
         let legacy = EffectivePageOrder.legacyOrderedPageKeys(
             for: book, pageOrderOverride: nil, excludedKeys: []
         )
         #expect(legacy == ["Com-title.JPG", "Com_title.JPG", "_Com-title.JPG"])
         #expect(legacy == EffectivePageOrder.orderedPages(
-            for: book.pages, pageOrderOverride: nil, excludedKeys: [], usesFinderOrderOverride: false
+            for: book.pages, pageOrderOverride: nil, excludedKeys: [], usesLegacyOrder: true
         ).map(\.sortKey))
     }
 }
