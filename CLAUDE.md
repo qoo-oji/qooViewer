@@ -126,6 +126,13 @@ AppState.swift). The active `ViewerView` registers closures on `AppState` (`perf
 disposable UUID token (`activeViewerToken`) to resolve ordering races when switching books in the same
 window. Menu checkmark/enabled state is pushed into `AppState` as plain `Equatable` value fields (not read
 off the `ViewerViewModel` class reference) because `FocusedValue` change detection needs a value type.
+**Closures in the viewer's toolbar buttons, context menu items, Toggle bindings and confirmation dialogs
+must go through `ViewerActionRelay` (`relay.send { $0.perform(.x) }`), never capture `ViewerView`
+directly.** SwiftUI hands those closures to AppKit objects that outlive the window, so a direct capture
+kept each closed book window's AppState/ViewerViewModel/PageLoader/NSWindow alive (about 118 MB per close,
+fixed 2026-09-13). Same rule for `NSViewRepresentable` callbacks (clear them in `dismantleNSView`) and
+`NSTrackingArea(owner: self)`. Leaks here are silent — verify with `heap`/`footprint` as in
+`docs/12-verification-and-debugging.md`. Details in `docs/09-ui-and-windows.md`.
 
 **EPUB/PDF layout is a seed, not an authority**: when a book carries `MangaBook.sourceLayoutHint` (page
 progression direction / forced spread) or per-page spread hints, those are imported into the database

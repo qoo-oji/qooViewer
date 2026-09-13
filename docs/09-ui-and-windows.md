@@ -58,6 +58,16 @@ ViewerView(本1冊)
   実体は `ViewerView.returnToWelcome()`(`flushPendingSave` → `AppState.closeBook()`)で、
   最終ページの動作(`PageBoundaryBehavior`)・書き出し後の動作(`BookExportCompletionBehavior`)
   とも共通。`ViewerViewModel.onPageBoundaryRequest` からは `performViewerAction` 越しに呼ぶ
+- **ビューアのボタン・右クリックメニューの閉包は `ViewerView` を直接捕まえない**(2026-09-13)。
+  `Button { perform(.x) }` は `self`(ViewerView の写し → appState・viewModel → PageLoader)を丸ごと
+  捕まえ、SwiftUI はその閉包を AppKit のボタン(`SwiftUIAppKitButton`)・NSMenuItem・確認ダイアログへ
+  渡す。それらはウインドウを閉じた後も解放されないので、本のウインドウを閉じるたびに約118MB残っていた
+  (→ [13](13-history-and-known-limitations.md#既知の制限))。**`relay.send { $0.perform(.x) }` と書く**
+  (`ViewerActionRelay`。中身は onAppear で入れ、onDisappear とウインドウを閉じるときに空にする)。
+  `NSViewRepresentable` に閉包を渡すなら `dismantleNSView` で切る、`NSTrackingArea(owner: self)` は
+  ウインドウから外れたら外す、Binding の閉包は `AppState` を weak で捕まえる、も同じ理由。
+  **新しくボタン・メニュー項目・Toggle を足すときもこの形にすること**(直接書いても動くので、
+  漏れは実測でしか分からない ―― 測り方は [12](12-verification-and-debugging.md#閉じたウインドウが解放されるかの測り方))。
 - **ウインドウを閉じる2つの経路は、どちらも `AppState.closeBook()` を先に通す**(2026-09-13)。
   Cmd+W とタブの×は `windowShouldClose`、赤い閉じるボタンと「ウインドウを閉じる」は
   `BookClosingWindowDelegate.forceCloseWindow`(`close()` を直に呼ぶので `windowShouldClose` を
