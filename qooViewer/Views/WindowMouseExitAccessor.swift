@@ -32,6 +32,11 @@ struct WindowMouseExitAccessor: NSViewRepresentable {
         // ContentViewが再評価されるたびに、最新の状態を捉えたクロージャへ差し替える。
         nsView.onExit = onExit
     }
+
+    /// 閉包を切る(ViewerView.swiftのClickZoneArea.dismantleNSViewのコメント参照)。
+    static func dismantleNSView(_ nsView: MouseExitTrackingView, coordinator: ()) {
+        nsView.onExit = nil
+    }
 }
 
 /// 上記の実体。`.background`として敷かれ、ウインドウの内容領域いっぱいに広がる。
@@ -46,6 +51,8 @@ final class MouseExitTrackingView: NSView {
         for area in trackingAreas {
             removeTrackingArea(area)
         }
+        // ウインドウに載っていない間は張らない(viewDidMoveToWindowのコメント参照)。
+        guard window != nil else { return }
         addTrackingArea(
             NSTrackingArea(
                 rect: .zero,
@@ -53,6 +60,26 @@ final class MouseExitTrackingView: NSView {
                 owner: self
             )
         )
+    }
+
+    /// **ウインドウから外れたら、トラッキング領域と閉包を手放す**(実測 2026-09-13。閉じた
+    /// ウインドウの`AppState`が残る件)。
+    ///
+    /// `NSTrackingArea`は`owner`を強参照し、このビューは`trackingAreas`で領域を強参照するので、
+    /// `owner: self`で張った瞬間に「ビュー → 領域 → ビュー」の輪ができる。ウインドウが閉じても
+    /// この輪は自然には切れず、`onExit`が掴んでいるContentViewの写し(→ `AppState`)ごと
+    /// アプリ終了まで残っていた(leaks --traceTreeで NSTrackingArea._owner →
+    /// MouseExitTrackingView.onExit.context → AppState の経路を実測)。SwiftUIの
+    /// `dismantleNSView`はウインドウを閉じた経路では呼ばれなかったので、AppKitの側の合図で切る。
+    /// ウインドウへ戻れば(タブを別のウインドウへ移した等)`updateTrackingAreas`が張り直し、
+    /// 閉包は次の`updateNSView`で入り直す。
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window == nil else { return }
+        for area in trackingAreas {
+            removeTrackingArea(area)
+        }
+        onExit = nil
     }
 
     override func mouseExited(with event: NSEvent) {

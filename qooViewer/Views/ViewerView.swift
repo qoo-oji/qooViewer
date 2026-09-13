@@ -148,6 +148,8 @@ struct ViewerView: View {
     /// 強参照のままだと閉じたウインドウとそのビュー階層ごと掴み続けてしまう危険がある。
     /// AppState.hostWindowが最初からweakなのと同じ理由で、weakな箱に入れて保持する。
     @State private var hostWindowBox = WeakWindowBox()
+    /// ツールバー・右クリックメニューの閉包が捕まえる唯一のもの(ViewerActionRelayの型コメント参照)。
+    @State private var actionRelay = ViewerActionRelay()
     private var hostWindow: NSWindow? { hostWindowBox.window }
     /// 現在フルスクリーン表示中かどうか。
     @State private var isFullScreen = false
@@ -281,6 +283,8 @@ struct ViewerView: View {
     /// 長くかかりすぎる不具合対策)。処理内容自体は以前と同じ(橋渡し処理の登録・
     /// 各種ローカルモニタの起動)。
     private func handleOnAppear() {
+        // ボタン・メニューの閉包が届く先(ViewerActionRelayの型コメント参照)。
+        actionRelay.target = self
         isFocused = true
         // クリックでのページ送りは、ウェルカム画面からのダブルクリックの2回目のクリックを
         // 読み捨てるため、一定時間経ってから有効にする(詳細はisClickZoneArmedのコメント参照)。
@@ -833,6 +837,8 @@ struct ViewerView: View {
     private func handleOnDisappear() {
         clickZoneArmTask?.cancel()
         clickZoneArmTask = nil
+        // ボタン・メニューの閉包の届く先を空にする(ViewerActionRelayの型コメント参照)。
+        actionRelay.target = nil
         if let scrollMonitor {
             NSEvent.removeMonitor(scrollMonitor)
         }
@@ -1848,6 +1854,12 @@ struct ViewerView: View {
     }
 
     private var toolbar: some View {
+        // ボタンの閉包はrelayだけを捕まえる(ViewerActionRelayの型コメント参照)。
+        let relay = actionRelay
+        return toolbarContent(relay: relay)
+    }
+
+    private func toolbarContent(relay: ViewerActionRelay) -> some View {
         // ボタンはサイドパネルのボタンと同じ見た目(枠なし・15ptのアイコン・32x28のタップ領域。
         // panelIconButtonLabel参照)に揃えてある(ユーザー要望)。ボタン自身が広めの余白を
         // 持つようになったぶん、以前(グループ内4pt/グループ間12pt)のままでは間延びして
@@ -1858,7 +1870,9 @@ struct ViewerView: View {
             // さらに左の先頭に置く。矢印のグループと地続きに見えないよう、直後に
             // 8ptの隙間を足してグループ間(spacing 8)と合わせた16ptだけ離す。
             Button {
-                returnToWelcome()
+                relay.send { view in
+                    view.returnToWelcome()
+                }
             } label: {
                 Image(systemName: "books.vertical")
                     .panelIconButtonLabel()
@@ -1875,7 +1889,9 @@ struct ViewerView: View {
             // 次の画像/前の画像(見開き時は2枚、単ページ時は1枚移動。読み方向によって左右の意味が入れ替わる)
             HStack(spacing: 0) {
                 Button {
-                    viewModel.advance(forward: viewModel.readingDirection == .rightToLeft)
+                    relay.send { view in
+                        view.viewModel.advance(forward: view.viewModel.readingDirection == .rightToLeft)
+                    }
                 } label: {
                     Image(systemName: "chevron.left.2")
                         .panelIconButtonLabel()
@@ -1884,7 +1900,9 @@ struct ViewerView: View {
                 .help(viewModel.readingDirection == .rightToLeft ? "Next Image" : "Previous Image")
 
                 Button {
-                    viewModel.advance(forward: viewModel.readingDirection == .leftToRight)
+                    relay.send { view in
+                        view.viewModel.advance(forward: view.viewModel.readingDirection == .leftToRight)
+                    }
                 } label: {
                     Image(systemName: "chevron.right.2")
                         .panelIconButtonLabel()
@@ -1899,7 +1917,9 @@ struct ViewerView: View {
             // (詳細はViewerViewModel.isPageShiftLocked参照)。
             HStack(spacing: 0) {
                 Button {
-                    viewModel.shiftByOnePage(forward: viewModel.readingDirection == .rightToLeft)
+                    relay.send { view in
+                        view.viewModel.shiftByOnePage(forward: view.viewModel.readingDirection == .rightToLeft)
+                    }
                 } label: {
                     Image(systemName: "chevron.left")
                         .panelIconButtonLabel()
@@ -1908,7 +1928,9 @@ struct ViewerView: View {
                 .help(viewModel.readingDirection == .rightToLeft ? "Next Image by One" : "Previous Image by One")
 
                 Button {
-                    viewModel.shiftByOnePage(forward: viewModel.readingDirection == .leftToRight)
+                    relay.send { view in
+                        view.viewModel.shiftByOnePage(forward: view.viewModel.readingDirection == .leftToRight)
+                    }
                 } label: {
                     Image(systemName: "chevron.right")
                         .panelIconButtonLabel()
@@ -1922,7 +1944,9 @@ struct ViewerView: View {
             // 本の間を移動する。読み方向に関係なく、上が前、下が次。詳細はSiblingFinder参照)
             HStack(spacing: 0) {
                 Button {
-                    appState.openSibling(before: viewModel.book.sourceURL)
+                    relay.send { view in
+                        view.appState.openSibling(before: view.viewModel.book.sourceURL)
+                    }
                 } label: {
                     Image(systemName: "chevron.up")
                         .panelIconButtonLabel()
@@ -1931,7 +1955,9 @@ struct ViewerView: View {
                 .help("Previous Book")
 
                 Button {
-                    appState.openSibling(after: viewModel.book.sourceURL)
+                    relay.send { view in
+                        view.appState.openSibling(after: view.viewModel.book.sourceURL)
+                    }
                 } label: {
                     Image(systemName: "chevron.down")
                         .panelIconButtonLabel()
@@ -1992,7 +2018,9 @@ struct ViewerView: View {
             // 見開きを想起させる長方形系のシンボル(rectangle.split/rectangle.3.group等)は、
             // バッジを足しても元の誤読が残るため採らなかった。
             Button {
-                isShowingAutoLayoutConfirmation = true
+                relay.send { view in
+                    view.isShowingAutoLayoutConfirmation = true
+                }
             } label: {
                 Image(systemName: "wand.and.sparkles")
                     .panelIconButtonLabel()
@@ -2008,7 +2036,9 @@ struct ViewerView: View {
             // 反転させる(toggleToolbarIcon参照)ことで、他のツールバーボタンと視覚的にも
             // はっきり見分けが付くようにする。
             Button {
-                perform(.toggleBookmark)
+                relay.send { view in
+                    view.perform(.toggleBookmark)
+                }
             } label: {
                 toggleToolbarIcon(
                     outlineSystemName: "bookmark",
@@ -2022,7 +2052,9 @@ struct ViewerView: View {
             // 改善要望5でお気に入りを無効化したため、星ボタンは出さない(FavoritesFeature参照)。
             if FavoritesFeature.isEnabled {
                 Button {
-                    perform(.toggleFavorite)
+                    relay.send { view in
+                        view.perform(.toggleFavorite)
+                    }
                 } label: {
                     toggleToolbarIcon(
                         outlineSystemName: "star",
@@ -2035,7 +2067,9 @@ struct ViewerView: View {
             }
 
             Button {
-                perform(.showThumbnailGrid)
+                relay.send { view in
+                    view.perform(.showThumbnailGrid)
+                }
             } label: {
                 Image(systemName: "square.grid.2x2")
                     .panelIconButtonLabel()
@@ -2044,7 +2078,9 @@ struct ViewerView: View {
             .help("Show Page Grid")
 
             Button {
-                viewModel.toggleSlideshow()
+                relay.send { view in
+                    view.viewModel.toggleSlideshow()
+                }
             } label: {
                 Image(systemName: viewModel.isSlideshowActive ? "pause.fill" : "play.fill")
                     .panelIconButtonLabel()
@@ -2066,42 +2102,60 @@ struct ViewerView: View {
     @ViewBuilder
     private var contextMenuContent: some View {
         let isRightToLeft = viewModel.readingDirection == .rightToLeft
+        // 項目の閉包はrelayだけを捕まえる(ViewerActionRelayの型コメント参照)。
+        let relay = actionRelay
 
         Menu("Page Navigation") {
             Button("Move to Next") {
-                perform(isRightToLeft ? .spatialLeft : .spatialRight)
+                relay.send { view in
+                    view.perform(isRightToLeft ? .spatialLeft : .spatialRight)
+                }
             }
             Button("Move to Previous") {
-                perform(isRightToLeft ? .spatialRight : .spatialLeft)
+                relay.send { view in
+                    view.perform(isRightToLeft ? .spatialRight : .spatialLeft)
+                }
             }
 
             Divider()
 
             Button("Shift One Page to Next") {
-                perform(isRightToLeft ? .shiftOnePageLeft : .shiftOnePageRight)
+                relay.send { view in
+                    view.perform(isRightToLeft ? .shiftOnePageLeft : .shiftOnePageRight)
+                }
             }
             .disabled(viewModel.isPageShiftLocked)
             Button("Shift One Page to Previous") {
-                perform(isRightToLeft ? .shiftOnePageRight : .shiftOnePageLeft)
+                relay.send { view in
+                    view.perform(isRightToLeft ? .shiftOnePageRight : .shiftOnePageLeft)
+                }
             }
             .disabled(viewModel.isPageShiftLocked)
 
             Divider()
 
             Button("Move to First") {
-                perform(.firstPage)
+                relay.send { view in
+                    view.perform(.firstPage)
+                }
             }
             Button("Move to Last") {
-                perform(.lastPage)
+                relay.send { view in
+                    view.perform(.lastPage)
+                }
             }
         }
 
         Menu("Book Navigation") {
             Button("Go to Previous Book") {
-                perform(.previousBook)
+                relay.send { view in
+                    view.perform(.previousBook)
+                }
             }
             Button("Go to Next Book") {
-                perform(.nextBook)
+                relay.send { view in
+                    view.perform(.nextBook)
+                }
             }
         }
 
@@ -2110,8 +2164,8 @@ struct ViewerView: View {
         Toggle(
             "Spread",
             isOn: Binding(
-                get: { viewModel.displayMode == .spread },
-                set: { _ in perform(.toggleDisplayMode) }
+                get: { [weak viewModel] in viewModel?.displayMode == .spread },
+                set: { _ in relay.send { $0.perform(.toggleDisplayMode) } }
             )
         )
 
@@ -2119,8 +2173,8 @@ struct ViewerView: View {
         Toggle(
             "Right-to-Left",
             isOn: Binding(
-                get: { viewModel.readingDirection == .rightToLeft },
-                set: { _ in perform(.toggleReadingDirection) }
+                get: { [weak viewModel] in viewModel?.readingDirection == .rightToLeft },
+                set: { _ in relay.send { $0.perform(.toggleReadingDirection) } }
             )
         )
 
@@ -2133,7 +2187,9 @@ struct ViewerView: View {
         // パネルの閉じ方(外側クリック/同じ操作の再実行)も他の経路と揃う。
         // 置き場所は、お気に入りグループのすぐ上に独立した1グループとして(ユーザーの指示)。
         Button("Show Page Grid") {
-            perform(.showThumbnailGrid)
+            relay.send { view in
+                view.perform(.showThumbnailGrid)
+            }
         }
 
         Divider()
@@ -2148,7 +2204,9 @@ struct ViewerView: View {
         // 次のブックマークグループの区切りとして必要なので残す。
         if FavoritesFeature.isEnabled {
             Button(isCurrentBookFavorited ? "Remove This Book from Favorites" : "Add This Book to Favorites…") {
-                perform(.toggleFavorite)
+                relay.send { view in
+                    view.perform(.toggleFavorite)
+                }
             }
             .disabled(viewModel.skipsPersistence)
             Menu("Favorites List") {
@@ -2176,12 +2234,14 @@ struct ViewerView: View {
             Button(
                 bookmarkContextMenuTitle(isLeft: isLastContextClickOnLeftHalf, isBookmarked: isClickedPageBookmarked)
             ) {
-                toggleBookmark(atIndex: clickedPageIndex)
+                relay.send { $0.toggleBookmark(atIndex: clickedPageIndex) }
             }
             .disabled(viewModel.skipsPersistence)
         } else {
             Button(isCurrentPageBookmarked ? "Remove This Page from Bookmarks" : "Add This Page to Bookmarks") {
-                perform(.toggleBookmark)
+                relay.send { view in
+                    view.perform(.toggleBookmark)
+                }
             }
             .disabled(viewModel.skipsPersistence)
         }
@@ -2192,7 +2252,9 @@ struct ViewerView: View {
             } else {
                 ForEach(appState.currentBookmarks, id: \.id) { bookmark in
                     Button("\(bookmark.name) (\(bookmark.pageIndex + 1))") {
-                        appState.jumpToBookmark?(bookmark)
+                        relay.send { view in
+                            view.appState.jumpToBookmark?(bookmark)
+                        }
                     }
                 }
             }
@@ -2214,7 +2276,9 @@ struct ViewerView: View {
         // PageAreaFrameAccessorのコメント参照。
         Menu("Layout") {
             Button("Auto-Layout Based on Current View") {
-                isShowingAutoLayoutConfirmation = true
+                relay.send { view in
+                    view.isShowingAutoLayoutConfirmation = true
+                }
             }
 
             Divider()
@@ -2248,19 +2312,27 @@ struct ViewerView: View {
                 let rightPageIndex = isRightToLeft ? viewModel.currentIndex : partnerPageIndex
                 if isLastContextClickOnLeftHalf {
                     Button("Export Left Page…") {
-                        exportImage(.singlePage(index: leftPageIndex))
+                        relay.send { view in
+                            view.exportImage(.singlePage(index: leftPageIndex))
+                        }
                     }
                 } else {
                     Button("Export Right Page…") {
-                        exportImage(.singlePage(index: rightPageIndex))
+                        relay.send { view in
+                            view.exportImage(.singlePage(index: rightPageIndex))
+                        }
                     }
                 }
                 Button("Combine Spread and Export…") {
-                    exportImage(.mergedSpread(leftIndex: leftPageIndex, rightIndex: rightPageIndex))
+                    relay.send { view in
+                        view.exportImage(.mergedSpread(leftIndex: leftPageIndex, rightIndex: rightPageIndex))
+                    }
                 }
             } else {
                 Button("Export This Page…") {
-                    exportImage(.singlePage(index: viewModel.currentIndex))
+                    relay.send { view in
+                        view.exportImage(.singlePage(index: view.viewModel.currentIndex))
+                    }
                 }
             }
         }
@@ -2275,7 +2347,9 @@ struct ViewerView: View {
         Menu("Export Book") {
             ForEach(BookExportFormat.allCases) { format in
                 Button(format.menuTitleKey) {
-                    startOpenBookExport(format: format)
+                    relay.send { view in
+                        view.startOpenBookExport(format: format)
+                    }
                 }
             }
         }
@@ -2300,7 +2374,9 @@ struct ViewerView: View {
         // 文字列1本ずつしか持てず列揃えができないための変更。SwiftUIの.popoverはウインドウの
         // 外にはみ出す吹き出しとして表示され意図と異なる(ユーザー報告)ため使っていない。
         Button("Get Info") {
-            isShowingPageInfoPanel = true
+            relay.send { view in
+                view.isShowingPageInfoPanel = true
+            }
         }
 
         Divider()
@@ -2309,7 +2385,9 @@ struct ViewerView: View {
         // ファイルメニュー(QooViewerApp.swift)と同じ実装(AppState.revealCurrentBookInFinder)を
         // 共有する。
         Button("Show in Finder") {
-            appState.revealCurrentBookInFinder()
+            relay.send { view in
+                view.appState.revealCurrentBookInFinder()
+            }
         }
 
         Divider()
@@ -2317,8 +2395,8 @@ struct ViewerView: View {
         Toggle(
             "Slideshow",
             isOn: Binding(
-                get: { viewModel.isSlideshowActive },
-                set: { _ in perform(.toggleSlideshow) }
+                get: { [weak viewModel] in viewModel?.isSlideshowActive ?? false },
+                set: { _ in relay.send { $0.perform(.toggleSlideshow) } }
             )
         )
 
@@ -2349,7 +2427,9 @@ struct ViewerView: View {
         // .closeBook = タブごと閉じる)と同じ「Close Book」になるが、ここは**この項目の
         // 文言と動作を明示したユーザーの指示**に従っている。
         Button("Close Book") {
-            perform(.returnToWelcome)
+            relay.send { view in
+                view.perform(.returnToWelcome)
+            }
         }
     }
 
@@ -2358,23 +2438,34 @@ struct ViewerView: View {
     /// レイアウト上書きが設定されている場合のみ表示する。
     @ViewBuilder
     private func layoutStateMenuItems(forPageIndex pageIndex: Int) -> some View {
+        let relay = actionRelay
         Button("Set as Single Page") {
-            pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .single)
+            relay.send { view in
+                view.pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .single)
+            }
         }
         Button("Set as Spread Right Page") {
-            pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .spreadRight)
+            relay.send { view in
+                view.pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .spreadRight)
+            }
         }
         Button("Set as Spread Left Page") {
-            pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .spreadLeft)
+            relay.send { view in
+                view.pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .spreadLeft)
+            }
         }
         Button("Set as Excluded (Hidden)") {
-            pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .excluded)
+            relay.send { view in
+                view.pendingLayoutStateChange = PendingLayoutStateChange(pageIndex: pageIndex, state: .excluded)
+            }
         }
         if viewModel.hasPageLayoutOverride(atIndex: pageIndex) {
             Divider()
             Button("Delete Layout Info") {
-                viewModel.clearPageLayout(atIndex: pageIndex)
-                syncMenuCheckmarkState()
+                relay.send { view in
+                    view.viewModel.clearPageLayout(atIndex: pageIndex)
+                    view.syncMenuCheckmarkState()
+                }
             }
         }
     }
@@ -3673,6 +3764,9 @@ struct ViewerView: View {
             // エラー)。プロジェクト内の他の箇所(BookmarkStore.init/ViewerViewModel.initなど)と
             // 同じくMainActor.assumeIsolatedで「実行時には既にMainActor上にいる」ことを伝える。
             MainActor.assumeIsolated {
+                // ボタン・メニューの閉包の届く先を空にする(ViewerActionRelayの型コメント参照)。
+                // onDisappearはウインドウが閉じた後に来ることがあるので、ここでも。
+                actionRelay.target = nil
                 clearAppStateBridgesIfStillOwner()
                 viewModel.onPageBoundaryRequest = nil
                 // handleOnDisappearと同じ理由で、資源の解放もここから先に行っておく
@@ -4370,6 +4464,33 @@ struct WeakWindowBox {
     weak var window: NSWindow?
 }
 
+/// ツールバーのボタン・右クリックメニューの項目の閉包に、**ViewerView(struct)の写しを捕まえさせない**
+/// ための中継役(実測 2026-09-13。閉じたウインドウの中身が残る件)。
+///
+/// ■ 何が起きていたか
+/// `Button { perform(.next) }`の閉包は`self`=ViewerViewの写し(約1.5KB)を丸ごと捕まえ、写しは
+/// appState・viewModel(→PageLoader)を強参照する。SwiftUIはこの閉包をAppKitのボタン
+/// (`SwiftUIAppKitButton`)や確認ダイアログの値に渡し、**それらはウインドウを閉じた後も解放されない**
+/// (通知センターの登録・セル・`_previousKeyWindow`などが握る)。結果、本のウインドウを閉じるたびに
+/// AppState・ViewerViewModel・NSWindowとその描画面が1組残り、**1回ごとに約118MB**増えていた
+/// (Debugビルド、5回で+594MB。ウェルカム画面だけのウインドウは増えない)。
+///
+/// ■ 仕組み
+/// 閉包は`relay.send { $0.perform(.next) }`と書く。捕まえるのはこの箱だけで、箱が持つ
+/// ViewerViewの写し(`target`)はonAppearで入れ、onDisappearとウインドウが閉じるときに`nil`へ戻す。
+/// AppKitが閉包ごとボタンを抱え続けても、届く先は空になった箱1つで済む。
+/// `$0`に渡るのはonAppear時点の写しだが、@State・@StateObject・@EnvironmentObjectはどの写しからでも
+/// 同じ保存領域を指すので、従来の閉包(bodyの時点の写し)と振る舞いは変わらない。
+@MainActor
+final class ViewerActionRelay {
+    var target: ViewerView?
+
+    func send(_ operation: (ViewerView) -> Void) {
+        guard let target else { return }
+        operation(target)
+    }
+}
+
 struct WindowAccessor: NSViewRepresentable {
     let onResolve: (NSWindow?) -> Void
 
@@ -4441,6 +4562,18 @@ private struct ClickZoneArea: NSViewRepresentable {
         // 古いクロージャを握ったままにしないよう、更新のたびに必ず上書きする。
         nsView.onClick = onClick
         nsView.onGesture = onGesture
+    }
+
+    /// **ビューが外れたら閉包を切る**(実測 2026-09-13。閉じたウインドウの中身が残る件)。
+    /// ここに入る閉包はViewerView(struct)の写しを丸ごと掴んでおり、写しはappState・viewModel
+    /// (→PageLoaderと画像キャッシュ)を強参照している。AppKitはこのNSViewをウインドウが閉じた後も
+    /// グローバルな表(`_MergedGlobals`のCFDictionary)から手放さないことがあり、閉包を残すと
+    /// 本1冊ぶんの中身がアプリ終了まで残る(leaks --traceTreeでClickZoneView.onGesture →
+    /// ViewerViewの写し → ViewerViewModel の経路を実測)。NSView自体が残るのは止められないが、
+    /// 閉包を切れば残るのは空のNSView1つになる。
+    static func dismantleNSView(_ nsView: ClickZoneView, coordinator: ()) {
+        nsView.onClick = nil
+        nsView.onGesture = nil
     }
 }
 
@@ -4727,6 +4860,11 @@ private struct WindowYPositionAccessor: NSViewRepresentable {
             view.reportPosition()
         }
     }
+
+    /// 閉包を切る(ClickZoneArea.dismantleNSViewのコメント参照)。
+    static func dismantleNSView(_ nsView: NSView, coordinator: ()) {
+        (nsView as? WindowYPositionReportingView)?.onPositionChange = nil
+    }
 }
 
 /// WindowYPositionAccessorが差し込む実際のNSView。自身がウインドウに追加されたとき
@@ -4781,6 +4919,11 @@ private struct PageAreaFrameAccessor: NSViewRepresentable {
             view.reportFrame()
         }
     }
+
+    /// 閉包を切る(ClickZoneArea.dismantleNSViewのコメント参照)。
+    static func dismantleNSView(_ nsView: NSView, coordinator: ()) {
+        (nsView as? PageAreaFrameReportingView)?.onFrameChange = nil
+    }
 }
 
 /// PageAreaFrameAccessorが実際に使うNSView本体。自身がウインドウに追加されたとき
@@ -4831,6 +4974,11 @@ struct PanelScreenFrameAccessor: NSViewRepresentable {
         DispatchQueue.main.async {
             view.reportFrame()
         }
+    }
+
+    /// 閉包を切る(ClickZoneArea.dismantleNSViewのコメント参照)。
+    static func dismantleNSView(_ nsView: NSView, coordinator: ()) {
+        (nsView as? PanelScreenFrameReportingView)?.onFrameChange = nil
     }
 }
 

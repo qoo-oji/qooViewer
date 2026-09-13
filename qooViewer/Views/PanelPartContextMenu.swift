@@ -98,14 +98,29 @@ private struct PanelPartContextMenu: ViewModifier {
     /// AppStateのdidSetがAppPreferencesへ書き戻し、UserDefaultsに残る
     /// (AppState.hideToolbarのコメント参照)ので、次回起動時にも状態が再現する。
     /// 「隠す」設定を持たない部品(ページ一覧パネル)ではnil。
+    ///
+    /// **AppStateはweakで捕まえる**(実測 2026-09-13)。この閉包はSwiftUIがNSMenuItemへ渡し、
+    /// ウインドウを閉じた後も残ることがある。`self`(このModifierの写し)を捕まえるとその中の
+    /// `@EnvironmentObject`経由でAppStateが解放されない(ViewerView.swiftのViewerActionRelayの
+    /// 型コメント参照)。
     private var hideBinding: Binding<Bool>? {
+        let appState = self.appState
         switch part {
         case .toolbar:
-            return Binding(get: { appState.hideToolbar }, set: { appState.hideToolbar = $0 })
+            return Binding(
+                get: { [weak appState] in appState?.hideToolbar ?? false },
+                set: { [weak appState] in appState?.hideToolbar = $0 }
+            )
         case .progressBar:
-            return Binding(get: { appState.hideProgressBar }, set: { appState.hideProgressBar = $0 })
+            return Binding(
+                get: { [weak appState] in appState?.hideProgressBar ?? false },
+                set: { [weak appState] in appState?.hideProgressBar = $0 }
+            )
         case .sidePanel:
-            return Binding(get: { appState.hideSidePanel }, set: { appState.hideSidePanel = $0 })
+            return Binding(
+                get: { [weak appState] in appState?.hideSidePanel ?? false },
+                set: { [weak appState] in appState?.hideSidePanel = $0 }
+            )
         case .pageList:
             return nil
         }

@@ -114,35 +114,34 @@
   いないように見える、「本が見つかりません」のアラートに OK とキャンセルが並ぶ(お気に入り側と同じ形)。
   カバーの位置指定がシートに反映されない件(2026-09-09)は、再現しなくなった状態でしか確認できていない。
 
-- **本を表示したウインドウを閉じても、中身が解放されない**(実測 2026-09-13。**原因未特定・未修正**)。
-  ウインドウを閉じるたびに、そのウインドウの `AppState`・`ViewerViewModel`・`PageLoader`
-  (画像キャッシュを持つ)・SwiftUI のビューグラフ・`NSWindow` 自身が1組ずつ残る。アプリを終了するまで
-  戻らないので、本を開いては閉じる使い方ほどメモリが積み上がる。
-  - 測り方: Debug ビルドで「本を開く → 別のウインドウを1枚出す → 本のウインドウを赤いボタンで閉じる」を
-    繰り返し、`heap <pid>` で `AppState` の生存数を数える(→ [12](12-verification-and-debugging.md#閉じたウインドウが解放されるかの測り方))。
-    修正前(`782d419`)も修正後(`7a8cc71`)も、6回の開閉で `AppState` 7個・`ViewerViewModel` 6個・
-    `PageLoader` 6個・`AppKitWindow` 7枚。**本を開かないウインドウは同じ開閉で増えない。**
-  - 閉じる経路では `BookClosingWindowDelegate.windowWillClose`・`NSWindow.willCloseNotification` の購読・
-    `ViewerView.onDisappear` が**すべて走っている**(ファイルへ書き出したログで確認)のに、`AppState.deinit`
-    が来ない。CGWindowList では閉じたウインドウが `onscreen=false` のまま残っている。
-  - 試して**効かなかった**もの: (1) デリゲートの持ち主を `AppState` からウインドウ(関連オブジェクト)へ
-    移す(`7a8cc71` で入れた監査の #16。循環の恐れへの予防として入れたが、このリークには効いていない)、
-    (2) ウインドウが閉じるときに NSEvent のローカルモニタも外す、(3) 閉じる直前にデリゲートを SwiftUI の
-    ものへ戻し、`originalDelegate` の強参照も手放す。(2)(3) はコミットしていない。
-  - 手がかり: `leaks --traceTree` では、残った `ViewerViewModel` への経路の1本が SwiftUI の `Menu`
-    (`AppKitPopUpAdaptor<MenuStyleConfiguration.Label>.PlatformView.Coordinator`)の閉包 → NotificationCenter
-    の登録、を通っていた(保守的なスキャンなので誤検出を含む)。heap の差分で1回の開閉ごとに増えるのは、
-    `ViewerView` 配下のもの一式と `BookClosingWindowDelegate`・`AppKitWindowController`・`NSThread` など。
-  - 同系統の既知の報告(候補。どれが当たるかは未確認): 独自の NSWindowDelegate に差し替えたままにすると
-    SwiftUI の後始末が走らない(回避策は元のデリゲートを **weak** で持ち、閉じる直前に戻す。
-    [This Window Is Leaking](https://byla.lt/posts/this-window-is-leaking/))、`.contextMenu` にカスタム
-    ビューを入れるとボタンの閉包ごと残る([Forums 740131](https://developer.apple.com/forums/thread/740131))、
-    sheet が掴んだオブジェクトが残る([SwiftUIMemoryLeakWorkaround](https://github.com/jbafford/SwiftUIMemoryLeakWorkaround))、
-    NSMenuItem の SwiftUI ビューが解放されない([FB7539293](https://github.com/feedback-assistant/reports/issues/84))、
-    Settings シーンの `@State` が閉じても残る(macOS 26.2。[Forums 810939](https://developer.apple.com/forums/thread/810939))。
-  - 次に調べるときの注意: 仮説を立てる前に、上の報告を全文読んで自分のコードとの差分を書き出すこと
-    (この調査では記事の要旨だけで回避策を試し、「元のデリゲートを weak で持つ」を読み落とした)。
-    デリゲートを付けない状態との比較は、付けないと赤いボタンで閉じられなくなるので、閉じ方を変えて行う。
+- **本を表示したウインドウを閉じると、`AppState` が1つ残る**(実測 2026-09-13。小さな残留。
+  下の「経緯」参照)。持ち主は SwiftUI の `focusedValues`(閉じたウインドウの hosting view がまだ
+  持っている)で、アプリ側から切る手は見つけていない。実害は `AppState.deinit` が閉じるはずの
+  セキュリティスコープ付きアクセスが残ること。
+  - **経緯**: 当初は閉じるたびに `AppState`・`ViewerViewModel`・`PageLoader`・SwiftUI のビューグラフ・
+    `NSWindow` とその描画面が1組ずつ残り、**1回ごとに約118MB**(Debug ビルドで5回開閉して +594MB)
+    増えていた。ウェルカム画面だけのウインドウでは増えない。真因は**ツールバーのボタン・右クリック
+    メニュー・確認ダイアログの閉包が `ViewerView`(struct)の写しを丸ごと捕まえ**、SwiftUI がその閉包を
+    AppKit のボタン(`SwiftUIAppKitButton`)や NSMenuItem・ダイアログの値に渡し、**それらが閉じた後も
+    解放されない**(通知センターの登録・セル・`_previousKeyWindow` などが握る)こと。同じ形の漏れが
+    `NSViewRepresentable` の閉包(`ClickZoneView` など)と、`NSTrackingArea(owner: self)` の循環
+    (`MouseExitTrackingView`)にもあった。
+  - **修正**(同日): (1) 閉包は `ViewerActionRelay`(参照型の箱)だけを捕まえ、箱の中身は onAppear で
+    入れて onDisappear と `willCloseNotification` で空にする ―― AppKit が閉包ごとボタンを抱え続けても
+    届く先は空の箱1つ、(2) `NSViewRepresentable` は `dismantleNSView` で閉包を切る、
+    (3) `MouseExitTrackingView` はウインドウから外れたらトラッキング領域と閉包を手放す、
+    (4) 帯の右クリックメニューの Binding は `AppState` を weak で捕まえる、(5) `BookClosingWindowDelegate`
+    は閉じるときに SwiftUI のデリゲートへの強参照も手放す。修正後: 5回開閉で 261 → 289MB(+28MB、
+    2回目以降はほぼ増えない)、`ViewerViewModel`・`PageLoader`・`NSWindow` は消える。
+  - **測り方の注意**: 閉じた直後に数えると残って見える。解放は次のイベントまで遅れることがあるので、
+    マウスを動かして数秒待ってから数える(→ [12](12-verification-and-debugging.md#閉じたウインドウが解放されるかの測り方))。
+  - 効かなかった試み: デリゲートの持ち主をウインドウへ移すだけ(`7a8cc71`)、閉じるときに NSEvent の
+    ローカルモニタを外すだけ、閉じる直前にデリゲートを戻すだけ ―― どれも上の閉包が残る限り無効。
+  - 同系統の公開報告: 独自 NSWindowDelegate([This Window Is Leaking](https://byla.lt/posts/this-window-is-leaking/))、
+    `.contextMenu` のカスタムビュー([Forums 740131](https://developer.apple.com/forums/thread/740131))、
+    sheet([SwiftUIMemoryLeakWorkaround](https://github.com/jbafford/SwiftUIMemoryLeakWorkaround))、
+    NSMenuItem の SwiftUI ビュー([FB7539293](https://github.com/feedback-assistant/reports/issues/84))、
+    Settings シーンの `@State`([Forums 810939](https://developer.apple.com/forums/thread/810939))。
 
 ## 未着手・「今後の改善課題」と書かれているもの
 

@@ -2444,11 +2444,9 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
     /// 持ち方はコードからは確かめられないので、輪ができない持ち方にした: ウインドウに持たせれば
     /// 輪の中にAppStateは入らず、デリゲートの寿命はちょうどウインドウの寿命になる。
     ///
-    /// **ただし、これで閉じたウインドウが解放されるようにはなっていない**(実測 2026-09-13)。
-    /// 本を表示したウインドウを閉じると、この持ち方の前も後も、ウインドウとその中身一式
-    /// (AppState・ViewerViewModel・PageLoader)が1回ごとに1組ずつ残る。閉じる直前に元の
-    /// デリゲートへ戻す+強参照を手放す、閉じるときにイベントモニタも外す、も試したが止まらず、
-    /// 原因は未特定。経過と試したことは docs/13-history-and-known-limitations.md の既知の制限。
+    /// これだけでは閉じたウインドウは解放されなかった(実測 2026-09-13)。真因はボタン・メニューの
+    /// 閉包がViewerViewの写しを捕まえていたことで、ViewerActionRelay(ViewerView.swift)で
+    /// 直した。このデリゲートの側は、閉じるときにoriginalDelegateも手放す(windowWillClose)。
     func retain(by window: NSWindow) {
         objc_setAssociatedObject(
             window, &Self.associationKey, self, .OBJC_ASSOCIATION_RETAIN_NONATOMIC
@@ -2470,6 +2468,10 @@ final class BookClosingWindowDelegate: NSObject, NSWindowDelegate {
         originalDelegate?.windowWillClose?(notification)
         guard let closing = notification.object as? NSWindow else { return }
         Task { @MainActor in
+            // SwiftUIのデリゲート(AppKitWindowController)は自分のウインドウを強参照する。
+            // 持ったままだと「ウインドウ → このデリゲート → originalDelegate → ウインドウ」の
+            // 輪が残るので、閉じた後は手放す(実測 2026-09-13)。
+            self.originalDelegate = nil
             objc_setAssociatedObject(
                 closing, &Self.associationKey, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC
             )
