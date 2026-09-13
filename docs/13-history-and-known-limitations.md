@@ -114,6 +114,36 @@
   いないように見える、「本が見つかりません」のアラートに OK とキャンセルが並ぶ(お気に入り側と同じ形)。
   カバーの位置指定がシートに反映されない件(2026-09-09)は、再現しなくなった状態でしか確認できていない。
 
+- **本を表示したウインドウを閉じても、中身が解放されない**(実測 2026-09-13。**原因未特定・未修正**)。
+  ウインドウを閉じるたびに、そのウインドウの `AppState`・`ViewerViewModel`・`PageLoader`
+  (画像キャッシュを持つ)・SwiftUI のビューグラフ・`NSWindow` 自身が1組ずつ残る。アプリを終了するまで
+  戻らないので、本を開いては閉じる使い方ほどメモリが積み上がる。
+  - 測り方: Debug ビルドで「本を開く → 別のウインドウを1枚出す → 本のウインドウを赤いボタンで閉じる」を
+    繰り返し、`heap <pid>` で `AppState` の生存数を数える(→ [12](12-verification-and-debugging.md#閉じたウインドウが解放されるかの測り方))。
+    修正前(`782d419`)も修正後(`7a8cc71`)も、6回の開閉で `AppState` 7個・`ViewerViewModel` 6個・
+    `PageLoader` 6個・`AppKitWindow` 7枚。**本を開かないウインドウは同じ開閉で増えない。**
+  - 閉じる経路では `BookClosingWindowDelegate.windowWillClose`・`NSWindow.willCloseNotification` の購読・
+    `ViewerView.onDisappear` が**すべて走っている**(ファイルへ書き出したログで確認)のに、`AppState.deinit`
+    が来ない。CGWindowList では閉じたウインドウが `onscreen=false` のまま残っている。
+  - 試して**効かなかった**もの: (1) デリゲートの持ち主を `AppState` からウインドウ(関連オブジェクト)へ
+    移す(`7a8cc71` で入れた監査の #16。循環の恐れへの予防として入れたが、このリークには効いていない)、
+    (2) ウインドウが閉じるときに NSEvent のローカルモニタも外す、(3) 閉じる直前にデリゲートを SwiftUI の
+    ものへ戻し、`originalDelegate` の強参照も手放す。(2)(3) はコミットしていない。
+  - 手がかり: `leaks --traceTree` では、残った `ViewerViewModel` への経路の1本が SwiftUI の `Menu`
+    (`AppKitPopUpAdaptor<MenuStyleConfiguration.Label>.PlatformView.Coordinator`)の閉包 → NotificationCenter
+    の登録、を通っていた(保守的なスキャンなので誤検出を含む)。heap の差分で1回の開閉ごとに増えるのは、
+    `ViewerView` 配下のもの一式と `BookClosingWindowDelegate`・`AppKitWindowController`・`NSThread` など。
+  - 同系統の既知の報告(候補。どれが当たるかは未確認): 独自の NSWindowDelegate に差し替えたままにすると
+    SwiftUI の後始末が走らない(回避策は元のデリゲートを **weak** で持ち、閉じる直前に戻す。
+    [This Window Is Leaking](https://byla.lt/posts/this-window-is-leaking/))、`.contextMenu` にカスタム
+    ビューを入れるとボタンの閉包ごと残る([Forums 740131](https://developer.apple.com/forums/thread/740131))、
+    sheet が掴んだオブジェクトが残る([SwiftUIMemoryLeakWorkaround](https://github.com/jbafford/SwiftUIMemoryLeakWorkaround))、
+    NSMenuItem の SwiftUI ビューが解放されない([FB7539293](https://github.com/feedback-assistant/reports/issues/84))、
+    Settings シーンの `@State` が閉じても残る(macOS 26.2。[Forums 810939](https://developer.apple.com/forums/thread/810939))。
+  - 次に調べるときの注意: 仮説を立てる前に、上の報告を全文読んで自分のコードとの差分を書き出すこと
+    (この調査では記事の要旨だけで回避策を試し、「元のデリゲートを weak で持つ」を読み落とした)。
+    デリゲートを付けない状態との比較は、付けないと赤いボタンで閉じられなくなるので、閉じ方を変えて行う。
+
 ## 未着手・「今後の改善課題」と書かれているもの
 
 - `ViewerViewModel.setPageLayout`: 除外を伝播範囲で「解除する」選択肢(設計コンセプト 2.3/3.3 節に

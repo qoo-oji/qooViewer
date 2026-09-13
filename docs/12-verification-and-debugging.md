@@ -98,6 +98,42 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
 - リソースモニタ(サイドパネル)は、このアプリに組み込まれた計測器です。「説明のつかないメモリ」
   (footprint − 意図して確保しているキャッシュ)が増えていないか、異常の欄が空か、を見ます。
 
+## 閉じたウインドウが解放されるかの測り方
+
+2026-09-13 に「本のウインドウを閉じても中身が残る」を測ったときの手順と、踏んだ罠
+(結論は [13](13-history-and-known-limitations.md#既知の制限))。
+
+- **生存数は `heap <pid>` で数える。** Swift のクラスも名前で出る(`AppState`・`ViewerViewModel`・
+  `PageLoader`・`..NSKVONotifying_SwiftUI.AppKitWindow`)。コードに手を入れずに測れる。アドレスは
+  `heap -q --noContent --addresses=AppState <pid>`、持ち主の経路は `leaks --traceTree=<addr> <pid>`
+  (保守的なスキャンなので Swift Metadata・Dispatch continuations を根にした誤検出が大量に混ざる。
+  名前の付いたオブジェクトの近いほうだけを読む)。2回ぶんの `heap` を差分にして「1回ごとに1個ずつ
+  増えるクラス」を拾うと、残っている一式の範囲が分かる。
+- **ウインドウが本当に閉じたかは CGWindowList で見る**(`CGWindowListCopyWindowInfo([.optionAll], …)`)。
+  AX のウインドウ一覧から消えても、`onscreen=false` で残っていることがある。
+- **最後のウインドウを閉じるとアプリが終了する**ので、閉じる前に「新規ノーマルウインドウ」をもう1枚出す。
+- **同じ本が既に開いていると `open -a <app> <本>` は既存のウインドウを前に出すだけ**で、新しく開かない。
+  繰り返しの計測では、前の回の本のウインドウが本当に消えているかを毎回確かめる。
+- **メニューの「ウインドウを閉じる」は `NSApp.keyWindow` に効く。** AX の `AXRaise` ではキーウインドウは
+  変わらないので、狙ったウインドウを閉じるなら、そのウインドウの閉じるボタン
+  (`first button of window "…" whose subrole is "AXCloseButton"`)を押す。
+- **Debug ビルドの `NSLog` は unified log(`/usr/bin/log show`)に出てこなかった。** ライフサイクルの
+  確認は、コンテナの `tmp/` のファイルへ追記する一時的な関数で行った(コミットしない)。
+- 本を表示したウインドウと、本を開かないウインドウを**必ず並べて**測る。後者が解放されるなら、
+  原因は本の表示側に絞れる。
+
+## 応答しないネットワークボリュームを作る
+
+「到達できない共有でファイルに触るとスレッドが止まる」経路は、使い捨ての WebDAV で再現できる
+(`scripts/dev/webdav-server.py`。標準の `mount_webdav` だけで、管理者権限も追加のソフトも要らない)。
+
+```bash
+python3 scripts/dev/webdav-server.py <公開するフォルダ> 18089 &
+/sbin/mount_webdav -S http://127.0.0.1:18089/ <マウント先>   # サンドボックスのアプリに触らせるなら、そのコンテナの tmp/ の中
+kill -STOP <サーバのpid>    # ここから、まだ取得していないパスへの stat が 40〜90 秒止まる(alarm でも中断できない)
+kill -CONT <サーバのpid>    # 解放。終わったら umount <マウント先>
+```
+
 ## 描画経路の測り方
 
 `NSHostingView` のレイヤーツリーを実測して、SwiftUI の補間設定が CALayer のどのフィルタに
