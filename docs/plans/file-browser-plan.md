@@ -1238,7 +1238,7 @@ MANUAL の「いまの制限」に残っていた「本の表紙は表示され�
   `Menu` の中身のビューは毎回できる。コレクションが数百のときのスクロールの重さは測っていない。
 - 「このアプリケーションで開く」の候補は拡張子ごとに覚え、qooViewer が前面に戻ったときに捨てる。前面のまま他のアプリが入れ替わっても古いまま。
 - 「ファイルブラウザで開く」で見せたフォルダに読む許可が無いと、ファイルブラウザ側の「アクセスを許可…」が出るだけ(本を開いた許可からフォルダの許可へは広げない)。
-- 「コレクションに登録」は足し終えても何も出さない(本棚ではないので目に見える変化が無い)。
+- ~~「コレクションに登録」は足し終えても何も出さない(本棚ではないので目に見える変化が無い)。~~ → 右ペインの下に 2 秒の知らせを出すようにした(2026-09-14、ユーザー要望。docs/15「右クリック」)。
 
 **次に着手する候補(順番はユーザーに選んでもらう)**:
 1. 段階 8 の実機確認(上の「確かめていないもの」)
@@ -1343,7 +1343,7 @@ CLAUDE.md(アーキテクチャの段落)・docs/15・docs/12 はここまでの
 - **アプリの外への D&D は、ON の間はコピーだけ**(計画は「元を変えない」として許すままだった)。出し口が移動を許すと、Finder へ落としたときに
   Finder が同じボリュームの項目を移動する(§4b のコメント、実機 2026-09-14)。
 - 環境設定の行は先頭に置いた(既定 ON なので、ファイルを変えたい人が最初に探す場所)。
-- 読み取り専用であることを画面(操作列・パスバー)には出していない。淡色の項目だけで理由が読み取れるかは実機で見てもらう。
+- 読み取り専用であることを画面(操作列・パスバー)には出していない。**出さないことにユーザーが決めた(2026-09-14、§8.5.3)。**
 
 **(実機の確認前に書いた)確かめていないもの**: 環境設定の行の見た目と英語表示、切り替えたときに右クリック(リスト・アイコン・ツリー)と
 メニューバーがすぐ淡色になるか、リストで選んだ行をクリックしても名前の編集が始まらないこと、アイコン表示の名前のクリック、⌘⌫・⌥⌘V・⌘X が何もしないこと、
@@ -1434,7 +1434,107 @@ Caches・defaults が控えと一致、ボリュームは外した)**:
 
 **確かめていないもの**: 書き出した cbz / epub を Finder・`unzip -l` で見たときの日時(テストは同じ ZIPFoundation での往復と、直す前に落ちることだけ)。
 
-**次に着手する候補(順番はユーザーに選んでもらう)**: §8.5.2 の 2・3(段階 9、読み取り専用であることを画面に出すか)。
+**`9666a25` での全体の確認(2026-09-14)**: §8.5.1 の後の 3 コミットは全テストを手元で流しておらず、「CI の Debug のジョブで流れる」と書いたが
+CI はこのブランチでは手動起動(`workflow_dispatch`)の 2026-09-13 の 1 回しか走っていなかった。手元(JST)で Debug の全テスト(1282 件・123 suite、失敗・スキップ無し。
+使い捨てボリュームはスキームの後処理で外れた)、CI と同じ `-configuration Release QOO_CI_WARNINGS_AS_ERRORS=YES` のビルド、`scripts/ci/check-all.sh` が通った。
+
+**次に着手する候補**: 段階 9(検証と文書。§8.5.1・§8.2・§7.1・§7.2 の「確かめていないもの」を含む)。
+
+**ユーザーが決めたこと(2026-09-14)**: 読み取り専用であることを画面(操作列・パスバーなど)には**出さない**。淡色の項目だけで伝える(§8.5.2 の候補 3 と「ユーザーに頼むこと」はこれで閉じた)。
+
+### 8.5.4 引き継ぎ(「コレクションに登録」の知らせと、ブランチ全体のコード監査、2026-09-14)
+
+**ブランチの状態**: `feature/file-browser` にコミット・プッシュ(2026-09-14、ユーザー指示)。この節と一緒に、右クリックの「コレクションに登録」の
+知らせ(`FileBrowserState.showToast` → `Views/OverlayToast.swift`。ビューアのお気に入り/ブックマークのトーストと同じ見た目に共通化、
+`FileBrowserLibraryActions.addedToCollectionMessage` に文の出し分け、`FileBrowserIntegrationTests` に文の判定)を入れた。CHANGELOG には足していない
+(指示が無かったので。`[Unreleased]` の「追加」のコレクション登録の行に 1 文足すのが妥当)。docs/15「右クリック」と §8.1 の「確かめていないもの」は更新済み。
+
+**コード監査(2026-09-14、ユーザー指示)**: ブランチで足した/変えたコード全体を、資源リーク・クラッシュ・ハング・ファイルの破損と消失・
+メモリとディスクの過大な消費に絞って監査した。方法は、ファイル操作エンジンの精読 + 独立した 5 系統の読み合わせ(エンジンの二重監査・UI 層・
+状態と監視の層・サムネイル層・既存サービスの差分)で、疑わしいものは**実測**で裏を取った。実測の道具は 2 つ:
+`qooViewerTests/FileOperations/` に一時テスト(`Issue.record` で結果を出す)を置いて
+`xcodebuild … -only-testing:qooViewerTests/<Suite> test` で回す(スキームの Pre-action が使い捨てボリュームを付ける。1 回 2〜3 分。**終わったら消す**)、
+および `swift` で直接走らせる小さなスクリプト(`copyfile`・`removeItem`・`trashItem`・`recycle` の素の挙動)。監査で実測したプラットフォームの事実は
+その場で確かめたものなので、直すときはもう一度同じ手で確かめる。
+
+**見つかったもの(重い順。どれもまだ直していない)**:
+
+1. **【最重要・実測で消失】別ボリュームへの移動で、元の削除が途中で失敗すると宛先の完全なコピーまで消す**
+   (`FileOperationService.moveItem`、`removeAbsorbingTransientFailure(at: source)` の catch で `removePartialWrite(at: target)`)。
+   `FileManager.removeItem` は木の削除が途中で失敗しても消した分を戻さない(実測)。実測(APFS の使い捨てボリューム): `01〜05.cbz`・`zz.cbz`・
+   `uappnd` フラグ付き `log.txt` を含むフォルダを移動 → 元も宛先も `log.txt` だけになり **6 ファイルが消失**(ゴミ箱にも無い)。
+   `MoveFilesCommand.undo`(逆向きの別ボリューム移動)も同じ経路。現実の引き金: SMB で他のクライアントやこのアプリ自身(開いている本)が
+   掴んでいるファイル(EBUSY / ENOTEMPTY は再試行しない)、途中で現れた `.DS_Store`、`uappnd`・ACL の付いた子。
+   **直し方**: 元の削除を始めた後は宛先を消さない。削除に失敗したら**コピーを残して**「コピーは済んだが元を消せなかった」と報告する
+   (受領書は返す)。ついでに `lockedItems` が見るのを `UF_IMMUTABLE` だけでなく `UF_APPEND` にも広げるかは検討。
+2. **【実測】フォルダのコピー/移動が途中で失敗すると、宛先に中途半端な木がその名前のまま残る**(`carry` の catch は退避の復元だけ、
+   `restoreReplacedItem` は退避が無ければ `removePartialWrite` の前に return。中止のときだけ片付けている)。
+   **同じ実測で分かった別の欠陥**: 中身のある 0555 のサブフォルダを含むフォルダのコピーが、同一ボリュームでも別ボリュームでも EACCES で失敗する。
+   原因は `COPYFILE_CLONE | COPYFILE_RECURSIVE` の組み合わせ(`FileCopyEngine.copy`)で、CLONE 無しなら同じ木を写せる(`swift` スクリプトで実測)。
+   読み取り専用メディアから戻したフォルダで普通に起きる。**直し方**: エラー時も宛先の書きかけを消す(1 の条件下では消さない)。
+   CLONE で EACCES なら CLONE 無しで試し直す(要実測)。
+3. **「置き換える」の退避の記録が、退避先のボリュームが外れた状態で起動すると捨てられる**(`ReplaceBackupJournal.recoverAll`:
+   `itemExists(at: backup)` は lstat なので未マウントでも false → `alreadyClean` → 記録を消す)。繋ぎ直しても元の項目は
+   `.qooViewer-replace-<UUID>/` に隠れたまま二度と知らされない。`restoreReplacedItem` は「次は繋がっているかもしれない」と記録を残すのに、
+   起動時の復旧がそれを打ち消している(`ReplaceBackupJournalTests` の「退避が無ければ記録だけを捨てる」がこの挙動を固定)。
+   **直し方**: 退避先の親フォルダが実在する(`MountTable.isOnAnUnmountedVolume` が偽)ときだけ忘れる。
+4. **現在のフォルダの配下全体の FSEvents で一覧を読み直す**(`FileBrowserState` の `FolderChangeWatcher(onChange:)` はパスを見ずに `reload()`)。
+   FSEvents は渡したパスの階層全体のイベントを返すので、ホーム(既定の起動フォルダ)や `/` を表示している間は `~/Library` 配下の書き込みで
+   0.3 秒ごとに再列挙が走り続ける。`reload()` は前の列挙を取り消す(列挙は 256 件ごとに中断)ので、列挙に 0.3 秒以上かかるフォルダの配下で
+   ダウンロード/バックアップ/コピーが続く間は**一覧が永遠に出ない**(livelock)。ツリー側は `onChangedPaths` で親を突き合わせているので同じ形にする。
+   付随: ネットワーク上のフォルダも見張ろうとし、応答しない共有では `FSEventStreamCreate` が `Task.detached`(協調プール)で最大 30 秒塞ぐ
+   (`MountTable.isRemote` なら `watch([])` でよい)。`lastEventID` を別のパスの組にも引き継ぐ(`kFSEventStreamCreateFlagFullHistory`)ため、
+   移動のたびに新しいフォルダの履歴が再生される(パスの組が変わったら `SinceNow` へ戻す)。
+5. **リスト表示で名前を編集中に一覧が変わると、別のファイルの名前を変える**(`FileBrowserListView.Coordinator.update`: 編集中は `reloadData()` を
+   先送りするのに `entries` は差し替える。`controlTextDidEndEditing` が `table.row(for:)` = 古い行番号で新しい `entries` を引いて `rename`)。
+   引き金は編集中の `reload()`(4 の配下全体の FSEvents、アプリの再アクティブ化、ボリュームの着脱、他ウインドウの操作)。
+   `applySelection` / `scrollRowToVisible` も同じ添字ずれ。**直し方**: 編集中は `revision` / `entries` の取り込み自体を先送りし、`finishEditing` で
+   取り込み → `reloadData` → 選択の反映をまとめて行う。
+
+中程度:
+
+6. サムネイルが iCloud 等の**追い出されたファイルをダウンロードさせる**: 動画だけ `VideoThumbnailer.isDataless` を見て、書庫・画像・PDF・EPUB・
+   フォルダの経路(`BookThumbnailer.thumbnail`)には検査が無い。「ストレージを最適化」したデスクトップをアイコン表示で開くと 4 本並列で落ちてくる。
+7. フォルダを表示しただけで zip の**伸長爆弾**を踏む: `BookThumbnailer.decodeEntry` は宣言サイズを見てから `data(at:)` で全部伸長し、後から
+   `count` を見る。`dataPrefix(at:maxByteCount:)` で `maxEntryBytes + 1` を読めば上限が本当に効く(`PageLoader.rawData` も同じ形だが、
+   あちらは本を開く操作が要る)。
+8. 「置き換える」で退避のゴミ箱送り(`FileManager.trashItem`)が失敗すると、元の項目を確認なしに完全削除する(`carry`)。
+   実測では新品の exFAT / FAT32 / APFS でも `trashItem` は `.Trashes/501/` を作って通り、ロックされた子を含むフォルダも送れる
+   (項目自身が `uchg` なら -5000)ので発生確率は低いが、失敗したら退避と記録を残す側に倒すべき。
+9. `controlTextDidEndEditing` が 2 度届くと**表示名への改名**を積む(要実測): `finishEditing` で欄を表示名に戻してから `makeFirstResponder(table)` を
+   呼び、再入の防護が無い(`isCancellingEdit` は Esc だけ)。ローカライズされたシステムフォルダ・拡張子を隠したファイル・`.app` で実名と違う名前へ
+   `rename` されうる。コンテナ内のログで 2 度目が来るかを確かめ、来なくてもフラグ 1 つで塞ぐ。
+10. `.contextMenu` の中で `FileBrowserState` への Binding(`FileBrowserBackgroundMenuItems` の `$state.viewMode` など)、`FileBrowserActions` が
+    `OpenWindowAction` を保持。CLAUDE.md の relay 規則の例外で、`entries`・取り消し履歴がウインドウより長生きしうる。`heap` で確認する。
+11. メインアクター上の LaunchServices 問い合わせ(`OpenWithApplications`: 右クリックとアイコン表示のセルごと。拡張子の無いファイルはパスごと)。
+    応答しない共有の項目でメインが待たされうる。`FileIO` の上で作って結果だけを覚える形にできる。
+12. サムネイルの鍵の `tv_sec * 1_000_000_000`(`FileBrowserThumbnailKey.of`)が桁あふれでトラップ。APFS は mtime をクランプするので起きないが、
+    SMB / NFS / 他社ドライバの壊れた日時では落ちる。`multipliedReportingOverflow` か、秒と ns を別々に文字列へ。
+
+軽微(直すなら 1〜12 の後):
+環境設定の MB 値の `Int(Double)` が NaN / 範囲外の plist で起動時にトラップ(`AppPreferences`、既存列も同形)。取り消し/やり直しのたびにツリーの
+閉じた行の数だけ `FileIO` スレッドを同時に起こす(`reloadExpandedRows(in: nil)`)。`FileBrowserDragTracker` の残留だけで「アプリ内のドラッグ」を
+判定する脆さ(AppKit 側は `draggingSource` で確かめられる)。zip の索引作成が展開専用の descriptor を毎回全項目ぶん作る(`ZipArchiveReader.indexEntries`)。
+補正後パスが重複する 2 エントリで 1 つ目に 2 つ目の中身が入る(zip だけ last-wins)。`withLocksLifted` が同一ボリュームの移動でも木を全部歩き、
+別ボリュームの移動は木を最大 6 回歩く。ハードリンクの兄弟への `rename` が成功扱いの no-op。PDF の box が非有限なら `Int(NaN)` でトラップ
+(`BookThumbnailer.render`、`PageLoader` も同形)。`RetaggedHEVCThumbnailLoader` の期限待ちが呼び出し側の取り消しを見ない。先読み役がフォルダごとに
+`MountTable.current()`。EPUB の絵で spine 全部の XHTML を読む。
+
+**実測で否定した疑い**(直す必要なし): exFAT / FAT32 への xattr 付きフォルダの移動・コピーが AppleDouble(`._*`)の分で「変更された」と断られる
+→ 両方成功した(カーネルが `._*` を隠す)。新品のボリュームで `FileManager.trashItem` が失敗する → 通った。`NSWorkspace.recycle` の対応表の鍵が
+渡した URL と一致しない → 末尾 `/` の有無ごと一致した。
+
+**監査で問題なしと確認した範囲**: 退避の記録 → 作成の順序と失敗時の巻き戻し、`RENAME_EXCL` / `COPYFILE_EXCL` / `O_EXCL | O_NOFOLLOW` による
+上書き防止、記号リンクの不追従、ゴミ箱の無い場所の確認と完全削除の分離、`FileIdentity` による取り消しの取り違え防止、展開の Zip Slip 対策・限度・
+一時フォルダ・中止の片付け、圧縮の一時名と縮み/伸び検出、一括リネームの衝突回避、`FileIO` / `Cancellation` / `withDeadline`、`MountTable`、
+監視の寿命(`releaseResources` / `dismantleNSView` / weak 参照)、サムネイル提供役の並行制御、Matroska / EBML パーサの境界、QuickLook / 再タグ付けの
+資源解放、ディスクキャッシュ、zip の日時補正の往復、`@Model` の変更が無いこと。
+
+**次に着手する候補(順番はユーザーに選んでもらう)**:
+1. 上の 1〜3(ファイルの消失・取り残し。エンジンだけで直せ、`FileOperationVolumeTests` に上の実測をそのまま回帰テストとして足せる:
+   `uappnd` のファイルを含むフォルダの別ボリューム移動、0555 のサブフォルダを含む木のコピー、未マウントの退避先の記録)
+2. 4 と 5(一覧の読み直しと名前の編集。状態と UI)
+3. 6〜12、そのあと段階 9(検証と文書)
 
 ## 段階 9. 検証と文書
 

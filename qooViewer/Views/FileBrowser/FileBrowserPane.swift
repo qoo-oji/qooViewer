@@ -71,6 +71,20 @@ struct FileBrowserPane: View {
                 Divider()
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // 操作の結果の知らせ(「コレクションに登録」。FileBrowserState.showToast)。一覧の下に浮かべ、
+                    // クリックは一覧へ通す。見た目はビューアのトーストと共通(OverlayToast。文字の輪郭もそちらで掛ける)。
+                    .overlay(alignment: .bottom) {
+                        ZStack {
+                            if let message = state.toastMessage {
+                                OverlayToast(message: message)
+                                    .padding(.horizontal, 16)
+                                    .padding(.bottom, 20)
+                                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                            }
+                        }
+                        .allowsHitTesting(false)
+                        .animation(.easeInOut(duration: 0.2), value: state.toastMessage)
+                    }
                 FileBrowserProgressBar(operations: state.operations)
                 Divider()
                 FileBrowserPathBar(

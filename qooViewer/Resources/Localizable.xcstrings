@@ -1844,6 +1844,70 @@
         }
       }
     },
+    "Added %1$lld books to the collection “%2$@”" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added %1$lld books to the collection “%2$@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld 冊をコレクション「%2$@」に登録しました"
+          }
+        }
+      }
+    },
+    "Added %1$lld of %2$lld books to the collection “%3$@” (the rest were already in it)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added %1$lld of %2$lld books to the collection “%3$@” (the rest were already in it)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%2$lld 冊のうち %1$lld 冊をコレクション「%3$@」に登録しました(残りは登録済みです)"
+          }
+        }
+      }
+    },
+    "Added “%1$@” to the collection “%2$@”" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Added “%1$@” to the collection “%2$@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%1$@」をコレクション「%2$@」に登録しました"
+          }
+        }
+      }
+    },
+    "Already in the collection “%@”" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Already in the collection “%@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すでにコレクション「%@」に登録されています"
+          }
+        }
+      }
+    },
     "Adjust…" : {
       "localizations" : {
         "en" : {

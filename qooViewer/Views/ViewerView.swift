@@ -1315,17 +1315,8 @@ struct ViewerView: View {
             if let toastMessage {
                 VStack {
                     Spacer()
-                    Text(toastMessage)
-                        .font(.callout)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                        .panelOutlinedContent()
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .panelSurfaceBackground(
-                            preferences.overlaySurfaceStyle, material: .ultraThinMaterial, in: Capsule()
-                        )
-                        .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+                    // 見た目はファイルブラウザの「コレクションに登録」と共通(OverlayToast)。
+                    OverlayToast(message: toastMessage)
                         .padding(.bottom, 48)
                 }
                 .allowsHitTesting(false)

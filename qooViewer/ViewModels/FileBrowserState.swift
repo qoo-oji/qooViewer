@@ -155,6 +155,8 @@ final class FileBrowserState: ObservableObject {
     @Published var bookSheet: FileBrowserBookSheet?
     /// 自分の操作でファイルが変わったフォルダ(ツリーが開いている行を読み直す)。
     @Published private(set) var fileSystemChange: FileSystemChange?
+    /// 右ペインの下に短い間だけ浮かべる知らせ(OverlayToast)。nil なら出していない。`showToast(_:)` で出す。
+    @Published private(set) var toastMessage: String?
 
     struct FileSystemChange: Equatable {
         let serial: Int
@@ -218,7 +220,11 @@ final class FileBrowserState: ObservableObject {
     private var watcher: FolderChangeWatcher?
     private var preferenceObservation: AnyCancellable?
     private var systemObservations: [AnyCancellable] = []
+    private var toastDismissTask: Task<Void, Never>?
     private let defaults: UserDefaults
+
+    /// 知らせを出しておく時間(ビューアのトーストと同じ 2 秒。ViewerView.showToast)。
+    static let toastDuration: Duration = .seconds(2)
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -321,6 +327,23 @@ final class FileBrowserState: ObservableObject {
         // (ViewerView.cancelOpenBookExportIfNeeded と同じ)。
         bookSheet?.cancelExport()
         bookSheet = nil
+        toastDismissTask?.cancel()
+        toastDismissTask = nil
+        toastMessage = nil
+    }
+
+    // MARK: - 知らせ
+
+    /// 操作の結果を右ペインの下に `toastDuration` だけ出す(ユーザー要望 2026-09-14: 右クリックから
+    /// コレクションに登録したとき)。出している間に次が来たら差し替えて数え直す(ViewerView.showToast と同じ)。
+    func showToast(_ message: String) {
+        toastDismissTask?.cancel()
+        toastMessage = message
+        toastDismissTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.toastDuration)
+            guard !Task.isCancelled else { return }
+            self?.toastMessage = nil
+        }
     }
 
     // MARK: - 移動

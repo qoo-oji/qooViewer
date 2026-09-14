@@ -418,12 +418,34 @@ struct FileBrowserIntegrationTests {
             name: "Shelf", in: target, items: [firstItem]
         ))
 
+        let locale = fixture.preferences.effectiveLocale
         await fixture.actions.addToCollection([fixture.entry(shelf)], collectionID: collection.id)?.value
         #expect(fixture.presenter.problems.isEmpty)
         let items = { fixture.library.collections.items(in: collection, sort: .nameAscending) }
         #expect(Set(items().map(\.bookID)) == [first.path, second.path])
+        // 登録の後に知らせが出る(棚の 2 冊のうち 1 冊は入っていた)。
+        #expect(fixture.state.toastMessage == FileBrowserActions.addedToCollectionMessage(
+            addedTitles: ["02"], requestedCount: 2, collectionName: "Shelf", locale: locale
+        ))
         await fixture.actions.addToCollection([fixture.entry(second)], collectionID: collection.id)?.value
         #expect(items().count == 2)
+        #expect(fixture.state.toastMessage == FileBrowserActions.addedToCollectionMessage(
+            addedTitles: [], requestedCount: 1, collectionName: "Shelf", locale: locale
+        ))
+    }
+
+    @Test("「コレクションに登録」の知らせは、1 冊なら名前・複数なら冊数・入っていた本があればそれも伝える")
+    func addedToCollectionMessageWording() {
+        let ja = Locale(identifier: "ja")
+        func message(_ titles: [String], of requested: Int) -> String {
+            FileBrowserActions.addedToCollectionMessage(
+                addedTitles: titles, requestedCount: requested, collectionName: "Shelf", locale: ja
+            )
+        }
+        #expect(message(["Book"], of: 1) == "「Book」をコレクション「Shelf」に登録しました")
+        #expect(message(["A", "B", "C"], of: 3) == "3 冊をコレクション「Shelf」に登録しました")
+        #expect(message(["A"], of: 3) == "3 冊のうち 1 冊をコレクション「Shelf」に登録しました(残りは登録済みです)")
+        #expect(message([], of: 2) == "すでにコレクション「Shelf」に登録されています")
     }
 
     @Test("シークレットウインドウでは、コレクションにもメタデータにも手を付けない")

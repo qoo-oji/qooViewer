@@ -94,7 +94,42 @@ extension FileBrowserActions {
             // 引数ごと評価されず、本が足されない(テストで踏んだ)。
             let added = collectionStore.add(pending, to: collection)
             self.coverExtractor?.enqueue(added)
+            // 本棚ではないので登録しても画面に変化が無い。何が入ったかを短く知らせる(ユーザー要望 2026-09-14)。
+            self.state?.showToast(Self.addedToCollectionMessage(
+                addedTitles: added.map(\.title), requestedCount: pending.count, collectionName: collection.name,
+                locale: self.preferences?.effectiveLocale ?? .autoupdatingCurrent
+            ))
         }
+    }
+
+    /// 「コレクションに登録」の後の知らせの文。1 冊なら本の名前、複数なら冊数。既に入っていて足さなかった本
+    /// (CollectionStore.add が弾いたもの)があれば、それも分かるようにする。
+    static func addedToCollectionMessage(
+        addedTitles: [String], requestedCount: Int, collectionName: String, locale: Locale
+    ) -> String {
+        let addedCount = addedTitles.count
+        if addedCount == 0 {
+            return String(
+                format: String(localized: "Already in the collection “%@”", language: locale), collectionName
+            )
+        }
+        if addedCount < requestedCount {
+            return String(
+                format: String(localized: "Added %1$lld of %2$lld books to the collection “%3$@” (the rest were already in it)",
+                               language: locale),
+                addedCount, requestedCount, collectionName
+            )
+        }
+        if addedCount == 1 {
+            return String(
+                format: String(localized: "Added “%1$@” to the collection “%2$@”", language: locale),
+                addedTitles[0], collectionName
+            )
+        }
+        return String(
+            format: String(localized: "Added %1$lld books to the collection “%2$@”", language: locale),
+            addedCount, collectionName
+        )
     }
 
     // MARK: - このアプリケーションで開く
