@@ -31,6 +31,7 @@ final class FileBrowserState: ObservableObject {
         static let iconSize = "qooViewer.fileBrowser.iconSize"
         static let treeWidth = "qooViewer.fileBrowser.treeWidth"
         static let lastFolderPath = "qooViewer.fileBrowser.lastFolderPath"
+        static let bulkRename = "qooViewer.fileBrowser.bulkRename"
     }
 
     static let iconSizeRange: ClosedRange<CGFloat> = 48...256
@@ -171,6 +172,7 @@ final class FileBrowserState: ObservableObject {
     private var pendingSelection: Set<String>?
     private var changeSerial = 0
     private var renameSerial = 0
+    private var sessionBulkRenameSettings: BulkRenameSettings?
     private var stackObservation: AnyCancellable?
     /// ⇧クリックと矢印キーの起点。
     private var selectionAnchor: String?
@@ -588,6 +590,25 @@ final class FileBrowserState: ObservableObject {
             guard let path = defaults.string(forKey: Keys.lastFolderPath) else { return home }
             // 空文字はコンピュータにいた、の記録。
             return path.isEmpty ? nil : URL(fileURLWithPath: path, isDirectory: true)
+        }
+    }
+
+    // MARK: - 一括リネームの前回の入力(段階 5)
+
+    /// 一括リネームのシートに出す前回の入力。**シークレットウインドウでは保存しない**(決定事項 Q8。打った文字に
+    /// 蔵書の名前が入りうる)が、そのウインドウの間は覚えておく。
+    var bulkRenameSettings: BulkRenameSettings {
+        get {
+            if let sessionBulkRenameSettings { return sessionBulkRenameSettings }
+            guard let data = defaults.data(forKey: Keys.bulkRename),
+                  let saved = try? JSONDecoder().decode(BulkRenameSettings.self, from: data)
+            else { return BulkRenameSettings() }
+            return saved
+        }
+        set {
+            sessionBulkRenameSettings = newValue
+            guard !isPrivate, let data = try? JSONEncoder().encode(newValue) else { return }
+            defaults.set(data, forKey: Keys.bulkRename)
         }
     }
 

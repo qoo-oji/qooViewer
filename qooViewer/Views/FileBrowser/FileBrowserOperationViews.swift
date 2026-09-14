@@ -63,8 +63,13 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
                 : String(format: String(localized: "%lld items are locked. Do you want to move them anyway?", language: locale), urls.count)
             information = String(localized: "Locked items are unlocked while they’re moved and locked again at the new location.", language: locale)
         case .rename:
-            alert.messageText = String(format: String(localized: "“%@” is locked. Do you want to rename it anyway?", language: locale), name)
-            information = String(localized: "The item is unlocked while it’s renamed and locked again afterward.", language: locale)
+            // 複数は一括リネーム(段階 5)。
+            alert.messageText = single
+                ? String(format: String(localized: "“%@” is locked. Do you want to rename it anyway?", language: locale), name)
+                : String(format: String(localized: "%lld items are locked. Do you want to rename them anyway?", language: locale), urls.count)
+            information = single
+                ? String(localized: "The item is unlocked while it’s renamed and locked again afterward.", language: locale)
+                : String(localized: "Locked items are unlocked while they’re renamed and locked again afterward.", language: locale)
         case let .replace(deletesImmediately):
             alert.messageText = String(format: String(localized: "“%@” is locked. Do you want to replace it anyway?", language: locale), name)
             information = deletesImmediately
@@ -158,6 +163,10 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
             cancellation.request()
             return ConflictDecision(.skip)
         }
+    }
+
+    func requestBulkRename(_ request: BulkRenameRequest) async -> BulkRenameSettings? {
+        await BulkRenamePanel.run(request, on: appState?.hostWindow, locale: locale)
     }
 
     func showProblem(_ problem: FileBrowserProblem) {

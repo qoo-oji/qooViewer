@@ -191,6 +191,12 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
 - **環境設定ウインドウを撮るときは、先に defaults で画面を選ぶ**(2026-09-14、ツリーの自動展開の検証)。環境設定は前回の画面
   (`qooViewer.settings.selectedPane`)で開き、「フォルダのアクセス権」には許可したフォルダの実名が出る。アプリを終えた状態で
   `defaults write … qooViewer.settings.selectedPane fileBrowser` としてから起動して ⌘, で開く。キーは後始末の `defaults import` で戻る。
+- **Finder の挙動を写すときは、実物の Finder を同じ手順で操作して測る**(2026-09-14、一括リネーム)。使い捨てボリュームに合成名のファイルを置き、
+  AppleScript で Finder のウインドウに表示・選択し、System Events でメニュー(1 件選択だと項目名が「“名前”を名称変更」に変わる)とシートを操作して、
+  結果はシェルの `ls` と中身で対応を取る。**始める前に `com.apple.finder` の関係するキーを控え、終わったら書き戻す**(Finder は入力を覚える)。
+  AX で欄に `set value` した値は例の行へ反映されないことがあるが、押した結果には使われる。文言と書式は Finder の
+  `Resources/<言語>.lproj/*.strings`・`LocalizableMerged.strings` を `plutil -p` で読める(日付の書式 `DATE_FORMATTER1` はここにあった)。
+  APFS は大文字小文字を区別しないので、`aA.txt` と `Aa.txt` を続けて作ると 1 つになる(測り間違えた)。
 
 ## テスト中に出る虹色のカーソル
 

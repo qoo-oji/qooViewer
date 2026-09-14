@@ -48,6 +48,15 @@ struct FileBrowserOperationsTests {
             return conflictAnswer
         }
 
+        /// 一括リネームのシートの答え(nil は「キャンセル」)。
+        var bulkRenameAnswer: BulkRenameSettings?
+        private(set) var bulkRenameRequests: [BulkRenameRequest] = []
+
+        func requestBulkRename(_ request: BulkRenameRequest) async -> BulkRenameSettings? {
+            bulkRenameRequests.append(request)
+            return bulkRenameAnswer
+        }
+
         func showProblem(_ problem: FileBrowserProblem) {
             problems.append(problem)
         }
@@ -673,6 +682,117 @@ struct FileBrowserOperationsTests {
         await fixture.finish()
         #expect(fixture.exists(fixture.root.appendingPathComponent("renamed.txt")))
         #expect(fixture.state.selection.isEmpty)
+    }
+
+    // MARK: - 一括リネーム(段階 5)
+
+    /// フォーマット「名前とカウンタ」の答え。
+    private static func counterAnswer(_ custom: String) -> BulkRenameSettings {
+        var settings = BulkRenameSettings()
+        settings.kind = .format
+        settings.formatStyle = .nameAndCounter
+        settings.customFormat = custom
+        return settings
+    }
+
+    @Test("一括リネームは表示順に番号を振り、変えた項目を選ぶ。1 回の取り消しで全部戻り、入力は次に出す")
+    func bulkRenameNumbersInDisplayOrderAndUndoesAtOnce() async throws {
+        let fixture = try Fixture("fbops-bulk")
+        try Data("b".utf8).write(to: fixture.root.appendingPathComponent("b.txt"))
+        await fixture.showRoot()
+        // 表示はフォルダが上(sub, a.txt, b.txt)。渡す順は逆にしても、番号は表示順。
+        let targets = ["b.txt", "a.txt", "sub"].map { fixture.entry(fixture.root.appendingPathComponent($0)) }
+        fixture.presenter.bulkRenameAnswer = Self.counterAnswer("F")
+        fixture.state.operations.bulkRename(targets)
+        await fixture.finish()
+
+        #expect(fixture.presenter.bulkRenameRequests.map(\.names) == [["sub", "a.txt", "b.txt"]])
+        #expect(fixture.presenter.bulkRenameRequests.first?.existingNames == ["sub", "a.txt", "b.txt"])
+        #expect(fixture.names(in: fixture.root) == ["F00001", "F00002.txt", "F00003.txt"])
+        #expect(String(decoding: try Data(contentsOf: fixture.root.appendingPathComponent("F00002.txt")), as: UTF8.self) == "a")
+        #expect(fixture.state.selection == Set(["F00001", "F00002.txt", "F00003.txt"].map {
+            FileBrowserState.id(for: fixture.root.appendingPathComponent($0))
+        }))
+        #expect(fixture.state.commandStack.undoTitle == String(format: String(localized: "Rename of %lld Items", language: AppLanguage.currentLocale), 3))
+        #expect(fixture.state.bulkRenameSettings == Self.counterAnswer("F"))
+
+        fixture.state.operations.undo()
+        await fixture.finish()
+        #expect(fixture.names(in: fixture.root) == ["a.txt", "b.txt", "sub"])
+        #expect(fixture.presenter.problems.isEmpty)
+
+        // 次に開くシートには前回の入力が渡る(保存先はこのテストの使い捨ての defaults)。
+        let reopened = FileBrowserState(defaults: fixture.suite.defaults)
+        #expect(reopened.bulkRenameSettings == Self.counterAnswer("F"))
+    }
+
+    @Test("シートで「キャンセル」なら何も変えず、積まない")
+    func bulkRenameCancelled() async throws {
+        let fixture = try Fixture("fbops-bulk-cancel")
+        try Data("b".utf8).write(to: fixture.root.appendingPathComponent("b.txt"))
+        await fixture.showRoot()
+        fixture.presenter.bulkRenameAnswer = nil
+        fixture.state.operations.bulkRename(["a.txt", "b.txt"].map { fixture.entry(fixture.root.appendingPathComponent($0)) })
+        await fixture.finish()
+        #expect(fixture.presenter.bulkRenameRequests.count == 1)
+        #expect(fixture.names(in: fixture.root) == ["a.txt", "b.txt", "sub"])
+        #expect(!fixture.state.commandStack.canUndo)
+    }
+
+    @Test("シークレットウインドウでは一括リネームの入力を保存しない(そのウインドウの間は覚える)")
+    func bulkRenameSettingsAreNotSavedInPrivateWindows() async throws {
+        let fixture = try Fixture("fbops-bulk-private")
+        fixture.state.isPrivate = true
+        try Data("b".utf8).write(to: fixture.root.appendingPathComponent("b.txt"))
+        await fixture.showRoot()
+        fixture.presenter.bulkRenameAnswer = Self.counterAnswer("P")
+        fixture.state.operations.bulkRename(["a.txt", "b.txt"].map { fixture.entry(fixture.root.appendingPathComponent($0)) })
+        await fixture.finish()
+        #expect(fixture.state.bulkRenameSettings == Self.counterAnswer("P"))
+        #expect(FileBrowserState(defaults: fixture.suite.defaults).bulkRenameSettings == BulkRenameSettings())
+    }
+
+    @Test("使えない名前ができるなら報告して何も変えない。変わらない項目だけなら何もしない")
+    func bulkRenameRefusesInvalidNames() async throws {
+        let fixture = try Fixture("fbops-bulk-invalid")
+        try Data("b".utf8).write(to: fixture.root.appendingPathComponent("ba.txt"))
+        await fixture.showRoot()
+        let targets = ["a.txt", "ba.txt"].map { fixture.entry(fixture.root.appendingPathComponent($0)) }
+        var settings = BulkRenameSettings()
+        settings.find = "a"
+        settings.replaceWith = ""
+        fixture.presenter.bulkRenameAnswer = settings
+        fixture.state.operations.bulkRename(targets)
+        await fixture.finish()
+        // a.txt → 「.txt」(先頭がドット)。Finder と同じく、ba.txt も含めて何も変えない。
+        #expect(fixture.names(in: fixture.root) == ["a.txt", "ba.txt", "sub"])
+        #expect(fixture.presenter.problems.count == 1)
+
+        settings.find = "zzz"
+        fixture.presenter.bulkRenameAnswer = settings
+        fixture.state.operations.bulkRename(targets)
+        await fixture.finish()
+        #expect(!fixture.state.commandStack.canUndo)
+        #expect(fixture.presenter.problems.count == 1)
+    }
+
+    @Test("一括リネームでロックされた項目は尋ね、「ロックされた項目をスキップ」なら残りだけ変える")
+    func bulkRenameAsksAboutLockedItems() async throws {
+        let fixture = try Fixture("fbops-bulk-locked")
+        let file = fixture.root.appendingPathComponent("a.txt")
+        try Data("b".utf8).write(to: fixture.root.appendingPathComponent("b.txt"))
+        await fixture.showRoot()
+        FileOperationService.setLocked(file, true)
+        defer { FileOperationService.setLocked(file, false) }
+        fixture.presenter.bulkRenameAnswer = Self.counterAnswer("F")
+        fixture.presenter.lockedAnswer = .skipLocked
+        fixture.state.operations.bulkRename(["a.txt", "b.txt"].map { fixture.entry(fixture.root.appendingPathComponent($0)) })
+        await fixture.finish()
+        #expect(fixture.presenter.lockedPrompts.map(\.urls) == [[file]])
+        #expect(fixture.presenter.lockedPrompts.map(\.totalCount) == [2])
+        #expect(fixture.presenter.lockedPrompts.map(\.action) == [.rename])
+        // 番号は全部で決めたまま(a.txt が 1 番、b.txt が 2 番)。
+        #expect(fixture.names(in: fixture.root) == ["F00002.txt", "a.txt", "sub"])
     }
 
     @Test("同じ名前への変更は何もせず、積まない")

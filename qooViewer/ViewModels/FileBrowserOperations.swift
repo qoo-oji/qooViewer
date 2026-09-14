@@ -306,6 +306,85 @@ final class FileBrowserOperations: ObservableObject {
         }
     }
 
+    // MARK: - 一括リネーム(段階 5)
+
+    /// 複数の項目の「名前を変更…」。シートで方式を尋ね、Finder と同じ規則で名前を決めて(BulkRename)、全体を 1 回の取り消しで戻せる形で変える。
+    ///
+    /// 番号は**表示順**(`state.entries` の並び)に振る。選択は集合なので、渡された順のままだと Finder と違う順に番号が付く
+    /// (qooLibrary で踏んだ)。名前は**押した時点で**決め直す(シートを開いている間にフォルダが変わっても、日付が進んでも、
+    /// 付くのは押した瞬間の結果)。
+    @discardableResult
+    func bulkRename(_ entries: [FileBrowserEntry]) -> Task<Void, Never> {
+        let order = Dictionary((state?.entries ?? []).enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let targets = entries.filter { !$0.isVolume }
+            .enumerated()
+            .sorted { (order[$0.element.id] ?? Int.max, $0.offset) < (order[$1.element.id] ?? Int.max, $1.offset) }
+            .map(\.element.url)
+        return enqueue { [weak self] in
+            guard let self, let state = self.state, let first = targets.first else { return }
+            let folder = first.deletingLastPathComponent()
+            let folderID = FileBrowserState.id(for: folder)
+            guard targets.allSatisfy({ FileBrowserState.id(for: $0.deletingLastPathComponent()) == folderID }) else { return }
+            let names = targets.map(\.lastPathComponent)
+            guard let existing = await Self.names(in: folder),
+                  let settings = await self.presenter?.requestBulkRename(
+                      BulkRenameRequest(names: names, existingNames: existing, settings: state.bulkRenameSettings)
+                  )
+            else { return }
+            state.bulkRenameSettings = settings
+            let locale = AppLanguage.currentLocale
+            let mode = settings.mode(locale: locale)
+            guard BulkRename.canApply(mode) else { return }
+            // シートを開いている間に Finder などで変わっていてもよいよう、押した時点の中身で決め直す。
+            let current = await Self.names(in: folder) ?? existing
+            let plan = BulkRename.plan(names: names, existingNames: current, mode: mode, locale: locale)
+            if let problem = BulkRename.firstProblem(in: plan), let reason = problem.problem {
+                // シートが押させないはずだが、決め直した結果で出たときの受け皿。何も変えない(Finder と同じ)。
+                self.presenter?.showProblem(FileBrowserProblem(
+                    title: String(localized: "The items couldn’t be renamed.", language: locale),
+                    message: reason.message(for: problem.originalName, locale: locale)
+                ))
+                return
+            }
+            var renames = zip(targets, plan).filter { $0.1.isChanged }.map { (item: $0.0, newName: $0.1.newName) }
+            guard !renames.isEmpty else { return }
+            // ロックされた項目は尋ねてから(1 件の名前の変更と同じ)。
+            let candidates = renames.map(\.item)
+            let locked = await FileIO.perform { candidates.filter { FileOperationService.isLocked($0) } }
+            var unlocking = false
+            if !locked.isEmpty {
+                switch await self.presenter?.confirmLockedItems(locked, totalCount: renames.count, action: .rename) ?? .stop {
+                case .proceed:
+                    unlocking = true
+                case .skipLocked:
+                    let lockedSet = Set(locked)
+                    renames.removeAll { lockedSet.contains($0.item) }
+                    guard !renames.isEmpty else { return }
+                case .stop:
+                    return
+                }
+            }
+            let cancellation = Cancellation()
+            let sink = ProgressSink { [weak self] progress in
+                Task { @MainActor [weak self] in self?.report(progress) }
+            }
+            let command = BulkRenameFileCommand(
+                renames: renames, unlockingLocked: unlocking, progress: sink, cancellation: cancellation, fileOps: self.fileOps
+            )
+            let title = String(format: String(localized: "Renaming %lld items…", language: locale), renames.count)
+            await self.run(command, title: title, cancellation: cancellation, affected: [folder]) { _ in
+                command.receipts.map(\.renamed)
+            }
+        }
+    }
+
+    /// フォルダの中の名前全部(隠しファイルを含む)。読めなければ nil。
+    private nonisolated static func names(in folder: URL) async -> Set<String>? {
+        await FileIO.perform {
+            (try? FileManager.default.contentsOfDirectory(atPath: folder.path)).map(Set.init)
+        }
+    }
+
     // MARK: - 進捗の帯
 
     /// 帯の中止ボタン。次の区切り(項目の境目・copyfile の callback)で止まる。
@@ -663,5 +742,17 @@ protocol FileBrowserOperationPresenting: AnyObject {
     /// 同じ名前の項目があった。「中止」は `cancellation.request()` してスキップを返す。
     /// - Parameter replacingDeletesImmediately: 宛先にゴミ箱が無く、「置き換える」と元の項目がすぐに消える。
     func resolveConflict(_ conflict: FileConflict, replacingDeletesImmediately: Bool, cancellation: Cancellation) async -> ConflictDecision
+    /// 一括リネームのシート。「名称変更」なら入力を、「キャンセル」なら nil を返す。
+    func requestBulkRename(_ request: BulkRenameRequest) async -> BulkRenameSettings?
     func showProblem(_ problem: FileBrowserProblem)
+}
+
+/// 一括リネームのシートに渡すもの(例の行と、使えない名前の判定に使う)。
+struct BulkRenameRequest: Equatable {
+    /// 対象の名前(表示順)。
+    let names: [String]
+    /// そのフォルダの名前全部。
+    let existingNames: Set<String>
+    /// 前回の入力。
+    let settings: BulkRenameSettings
 }

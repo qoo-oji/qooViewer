@@ -124,10 +124,11 @@ actor FileOperationService {
     ///   名前の変更のつもりが別フォルダへの移動になる)。
     /// - Parameter unlockingLocked: ロックされた項目は rename(2) が EPERM で断る。true(利用者が確認で「続ける」と答えた、
     ///   または取り消しで自分が名前を変えたものを戻す)ならロックを外して変え、変えた先で掛け直す。false なら「ロックされています」。
-    func rename(_ item: URL, to name: String, unlockingLocked: Bool = false) async throws -> RenameReceipt {
+    /// - Parameter keepsNameExactly: 前後の空白を落とさない(一括リネーム。`FileNameValidation.validatedExactly`)。
+    func rename(_ item: URL, to name: String, unlockingLocked: Bool = false, keepsNameExactly: Bool = false) async throws -> RenameReceipt {
         let validName: String
         do {
-            validName = try FileNameValidation.validated(name)
+            validName = keepsNameExactly ? try FileNameValidation.validatedExactly(name) : try FileNameValidation.validated(name)
         } catch let failure as FileNameValidation.Failure {
             throw FileOperationError.invalidName(name, reason: failure)
         }

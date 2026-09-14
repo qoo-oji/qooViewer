@@ -138,10 +138,14 @@ final class FileBrowserActions {
         state?.operations.newFolder(in: folder)
     }
 
-    /// 右クリックの「名前を変更」。一覧に名前の編集を始めてもらう。
+    /// 右クリックの「名前を変更」。1 件なら一覧に名前の編集を始めてもらい、複数なら一括リネームのシートを出す(段階 5。Finder と同じ)。
     func beginRename(_ entries: [FileBrowserEntry]) {
-        guard entries.count == 1, let entry = entries.first, !entry.isVolume else { return }
-        state?.requestRename(entry.id)
+        guard canModify(entries) else { return }
+        if entries.count == 1, let entry = entries.first {
+            state?.requestRename(entry.id)
+        } else {
+            state?.operations.bulkRename(entries)
+        }
     }
 
     // MARK: - アクセス権・よく使う項目
@@ -386,6 +390,15 @@ enum FileBrowserMenuCommand {
         }
     }
 
+    /// 項目の表示名。複数を選んで右クリックしたときの「名前を変更」だけ、件数入りの「N 項目の名前を変更…」にする
+    /// (Finder の「^0項目の名称変更…」。押すと一括リネームのシートが出る)。項目の数は変わらない。
+    func title(in context: FileBrowserMenuContext, locale: Locale) -> String {
+        if self == .rename, context.entries.count > 1 {
+            return String(format: String(localized: "Rename %lld Items…", language: locale), context.entries.count)
+        }
+        return String(localized: title, language: locale)
+    }
+
     @MainActor
     func isEnabled(in context: FileBrowserMenuContext, actions: FileBrowserActions) -> Bool {
         let entries = context.entries
@@ -402,7 +415,7 @@ enum FileBrowserMenuCommand {
             // 段階6。
             return false
         case .rename:
-            return entries.count == 1 && actions.canModify(entries)
+            return actions.canModify(entries)
         case .copy, .cut, .moveToTrash:
             return actions.canModify(entries)
         case .paste:
@@ -453,7 +466,7 @@ final class FileBrowserMenuBuilder: NSObject {
             if !menu.items.isEmpty { menu.addItem(.separator()) }
             for command in group {
                 let item = NSMenuItem(
-                    title: String(localized: command.title, language: locale),
+                    title: command.title(in: context, locale: locale),
                     action: #selector(performCommand(_:)), keyEquivalent: ""
                 )
                 item.target = self
@@ -539,7 +552,7 @@ struct FileBrowserContextMenuItems: View {
         ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
             if index > 0 { Divider() }
             ForEach(Array(group.enumerated()), id: \.offset) { _, command in
-                Button(String(localized: command.title, language: locale)) {
+                Button(command.title(in: context, locale: locale)) {
                     command.perform(in: context, actions: actions)
                 }
                 .disabled(!command.isEnabled(in: context, actions: actions))

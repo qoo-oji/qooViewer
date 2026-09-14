@@ -36,14 +36,20 @@ nonisolated enum FileNameValidation {
     /// 入力を整えて返す。使えない名前なら `Failure` を投げる。
     /// 整えるのは前後の空白と改行を落とすことだけ(Finder も落とす)。文字の置き換えはしない。
     static func validated(_ raw: String) throws -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { throw Failure.empty }
-        if trimmed.contains("/") { throw Failure.forbiddenCharacter("/") }
-        if trimmed.unicodeScalars.contains("\0") { throw Failure.forbiddenCharacter("\\0") }
-        guard trimmed != ".", trimmed != ".." else { throw Failure.reservedDotName }
-        let units = trimmed.decomposedStringWithCanonicalMapping.utf16.count
+        try validatedExactly(raw.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// 前後の空白も落とさずに検査する(一括リネーム ―― 段階 5)。Finder の一括リネームは、カスタムフォーマットの
+    /// 末尾の空白(既定の「ファイル 」)をそのまま名前に残す(「1ファイル 」。2026-09-14 実測)。計画した名前と
+    /// 実際に付く名前が食い違うと、衝突を避けて振った番号の判定が崩れる。
+    static func validatedExactly(_ name: String) throws -> String {
+        guard !name.isEmpty else { throw Failure.empty }
+        if name.contains("/") { throw Failure.forbiddenCharacter("/") }
+        if name.unicodeScalars.contains("\0") { throw Failure.forbiddenCharacter("\\0") }
+        guard name != ".", name != ".." else { throw Failure.reservedDotName }
+        let units = name.decomposedStringWithCanonicalMapping.utf16.count
         guard units <= maxNameUnits else { throw Failure.tooLong(units: units) }
-        return trimmed
+        return name
     }
 
     static func isAcceptable(_ raw: String) -> Bool {

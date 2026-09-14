@@ -3,7 +3,7 @@ import Foundation
 // ファイルブラウザの個々の操作(改善要望7 段階 2、2026-09-13。qooLibrary の FileCommands.swift を写したもの)。
 // どの操作も、取り消しは**実行時に受け取った受領書だけ**を頼りに組み立てる(実行後に画面や名前から推測しない)。
 //
-// 一括リネーム(段階 5)と圧縮・展開(段階 6)のコマンドはそれぞれの段階で足す。
+// 圧縮・展開(段階 6)のコマンドはその段階で足す。
 
 extension FileOperationService {
     /// ファイルブラウザのコマンドが既定で使うインスタンス。状態を持たないので 1 つで足りる。
@@ -251,6 +251,97 @@ final class RenameFileCommand: FileCommand {
             // 名前は変わっていない。元の名前が埋まっている・権限なら、片付けてから試し直せる。
             return .impossible(reason: error.localizedDescription, canRetry: true)
         }
+    }
+}
+
+/// 一括リネーム(段階 5)。**全体で 1 回の取り消し**(Finder と同じ)。
+///
+/// 名前は BulkRename が決めてある。新しい名前は元の名前のどれとも重ならない(BulkRename の型コメント)ので、
+/// 上から順に変えるだけで途中の項目を踏み潰さない ―― 計画にあった一時名への 2 パスは要らなかった。
+///
+/// 1 件が失敗しても残りは続ける(どれも `RENAME_EXCL` で、失敗した項目は元の名前のまま。計画した後に Finder などで
+/// 同じ名前の項目が作られた、など)。済んだ分は取り消せ、失敗は報告に並ぶ。中止ボタンは項目の境目で止まる。
+@MainActor
+final class BulkRenameFileCommand: FileCommand {
+    private let renames: [(item: URL, newName: String)]
+    private let unlockingLocked: Bool
+    private let progress: ProgressSink?
+    private let cancellation: Cancellation
+    private let fileOps: FileOperationService
+    private(set) var receipts: [RenameReceipt] = []
+
+    init(
+        renames: [(item: URL, newName: String)], unlockingLocked: Bool = false, progress: ProgressSink? = nil,
+        cancellation: Cancellation = Cancellation(), fileOps: FileOperationService = .shared
+    ) {
+        self.renames = renames
+        self.unlockingLocked = unlockingLocked
+        self.progress = progress
+        self.cancellation = cancellation
+        self.fileOps = fileOps
+    }
+
+    var displayName: String {
+        let locale = AppLanguage.currentLocale
+        return renames.count == 1
+            ? String(format: String(localized: "Rename of “%@”", language: locale), renames[0].item.lastPathComponent)
+            : String(format: String(localized: "Rename of %lld Items", language: locale), renames.count)
+    }
+
+    let isUndoable = true
+
+    func execute() async throws -> FileCommandResult {
+        receipts = []
+        var failures: [FailedItem] = []
+        var report = FileOperationProgress(totalItems: renames.count)
+        for (index, rename) in renames.enumerated() {
+            report.completedItems = index
+            report.currentItemName = rename.item.lastPathComponent
+            progress?.report(report)
+            if cancellation.isRequested {
+                let notProcessed = String(localized: "Not processed.", language: AppLanguage.currentLocale)
+                failures += renames[index...].map { FailedItem(url: $0.item, reason: notProcessed) }
+                return .partial(succeeded: receipts.count, failures: failures, wasCancelled: true)
+            }
+            do {
+                receipts.append(try await fileOps.rename(
+                    rename.item, to: rename.newName, unlockingLocked: unlockingLocked, keepsNameExactly: true
+                ))
+            } catch {
+                failures.append(FailedItem(url: rename.item, reason: error.localizedDescription))
+            }
+        }
+        return failures.isEmpty ? .success : .partial(succeeded: receipts.count, failures: failures, wasCancelled: false)
+    }
+
+    /// 後に変えたものから元の名前へ戻す。変えたそのものでなくなった項目(FileIdentity の型コメント)には触らない。
+    func undo() async throws -> FileUndoResult {
+        guard !receipts.isEmpty else { return .impossible(reason: TransferUndo.nothingToRestore) }
+        var restored = 0
+        var failures: [FailedItem] = []
+        var hasPermanentFailure = false
+        for receipt in receipts.reversed() {
+            let isOurs = await FileIO.perform { FileIdentity.matches(receipt.renamed, receipt.identity) }
+            guard isOurs else {
+                failures.append(FailedItem(
+                    url: receipt.renamed, reason: await FileIO.perform { TransferUndo.changedReason(for: receipt.renamed) }
+                ))
+                hasPermanentFailure = true
+                continue
+            }
+            do {
+                _ = try await fileOps.rename(
+                    receipt.renamed, to: receipt.original.lastPathComponent, unlockingLocked: true, keepsNameExactly: true
+                )
+                restored += 1
+            } catch {
+                failures.append(FailedItem(url: receipt.renamed, reason: error.localizedDescription))
+            }
+        }
+        if failures.isEmpty { return .complete }
+        return restored == 0
+            ? .impossible(reason: failures[0].reason, canRetry: !hasPermanentFailure)
+            : .partial(succeeded: restored, failures: failures)
     }
 }
 

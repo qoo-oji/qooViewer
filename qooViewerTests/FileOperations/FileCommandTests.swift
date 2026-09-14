@@ -293,6 +293,57 @@ struct FileCommandsTests {
         #expect(try await rename.undo() == .complete)
     }
 
+    @Test("一括リネームは 1 件が失敗しても残りを変え、取り消しは変えた分だけ戻す。末尾の空白も名前のまま残す")
+    func bulkRenameContinuesPastFailures() async throws {
+        let first = try write("1", to: "bulk/a.txt")
+        let second = try write("2", to: "bulk/b.txt")
+        let third = try write("3", to: "bulk/c.txt")
+        // 計画した後に、2 件目の行き先が外で作られた。
+        _ = try write("stranger", to: "bulk/2ファイル .txt")
+        let command = BulkRenameFileCommand(
+            renames: [(first, "1ファイル .txt"), (second, "2ファイル .txt"), (third, "3ファイル ")], fileOps: fileOps
+        )
+        guard case let .partial(succeeded, failures, wasCancelled) = try await command.execute() else {
+            Issue.record("失敗が報告されなかった")
+            return
+        }
+        #expect(succeeded == 2 && failures.compactMap(\.url) == [second] && !wasCancelled)
+        let folder = first.deletingLastPathComponent()
+        #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("3ファイル ").path))
+
+        #expect(try await command.undo() == .complete)
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: folder.path)) == ["a.txt", "b.txt", "c.txt", "2ファイル .txt"])
+    }
+
+    @Test("一括リネームの中止は項目の境目で止まり、取り消しは同じ名前の別の項目に触らない")
+    func bulkRenameStopsAndUndoChecksIdentity() async throws {
+        let first = try write("1", to: "bulk-stop/a.txt")
+        let second = try write("2", to: "bulk-stop/b.txt")
+        let cancellation = Cancellation()
+        let sink = ProgressSink { progress in
+            // 2 件目に取りかかる前に中止ボタンが押された。
+            if progress.completedItems == 1 { cancellation.request() }
+        }
+        let command = BulkRenameFileCommand(
+            renames: [(first, "x.txt"), (second, "y.txt")], progress: sink, cancellation: cancellation, fileOps: fileOps
+        )
+        guard case .partial(1, _, true) = try await command.execute() else {
+            Issue.record("中止で止まらなかった")
+            return
+        }
+        let folder = first.deletingLastPathComponent()
+        #expect(FileManager.default.fileExists(atPath: second.path))
+
+        let renamed = folder.appendingPathComponent("x.txt")
+        try FileManager.default.removeItem(at: renamed)
+        try Data("stranger".utf8).write(to: renamed)
+        guard case .impossible(_, false) = try await command.undo() else {
+            Issue.record("別の項目に変わったのに取り消そうとした")
+            return
+        }
+        #expect(FileManager.default.fileExists(atPath: renamed.path))
+    }
+
     @Test("新規フォルダの取り消しは、空のときだけゴミ箱へ送る")
     func createFolderUndoOnlyWhenEmpty() async throws {
         let emptyFolder = temporary.file("empty-new")
