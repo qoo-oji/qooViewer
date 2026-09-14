@@ -73,6 +73,81 @@ struct FileOperationVolumeTests {
         FileOperationService.setLocked(moved, false)
     }
 
+    @Test("別ボリュームへの移動で元の削除が途中で止まっても、宛先の写しは消さずに残し「元を消せなかった」と伝える")
+    func crossVolumeMoveKeepsTheCopyWhenTheSourceCannotBeRemoved() async throws {
+        guard let volume = DisposableVolume.make(.apfs, "cross-append-only") else { return }
+        // 2026-09-14 の監査の実測そのもの: 以前は元も宛先も `log.txt` だけになり、6 ファイルが消えた。
+        let folder = try temporary.directory("AppendOnly")
+        let names = ["01.cbz", "02.cbz", "03.cbz", "04.cbz", "05.cbz", "zz.cbz"]
+        for name in names { try Data(name.utf8).write(to: folder.appendingPathComponent(name)) }
+        let log = folder.appendingPathComponent("log.txt")
+        try Data("log".utf8).write(to: log)
+        #expect(chflags(log.path, UInt32(UF_APPEND)) == 0)
+        let moved = volume.file("AppendOnly")
+        defer {
+            chflags(log.path, 0)
+            chflags(moved.appendingPathComponent("log.txt").path, 0)
+        }
+
+        let outcome = try await service.move([folder], to: volume.url, options: .init(conflictPolicy: .ask))
+        #expect(outcome.receipts.map(\.destination) == [moved], "写しは宛先に揃っているので受領書を返す")
+        #expect(outcome.failures.map(\.url) == [folder])
+        #expect(!outcome.isCompleteSuccess)
+        for name in names + ["log.txt"] {
+            #expect(FileManager.default.fileExists(atPath: moved.appendingPathComponent(name).path), "宛先の \(name)")
+        }
+        #expect(FileManager.default.fileExists(atPath: log.path), "消せなかった元は残る")
+    }
+
+    @Test("中身のある 0555 のサブフォルダを含むフォルダも、同じボリュームにも別のボリュームにもコピーできる")
+    func copiesTreesWithReadOnlySubfolders() async throws {
+        guard let volume = DisposableVolume.make(.apfs, "read-only-subfolder") else { return }
+        let folder = try temporary.directory("FromDisc")
+        let readOnly = folder.appendingPathComponent("ro", isDirectory: true)
+        try FileManager.default.createDirectory(at: readOnly, withIntermediateDirectories: true)
+        try Data("a".utf8).write(to: readOnly.appendingPathComponent("a.cbz"))
+        try Data("b".utf8).write(to: folder.appendingPathComponent("b.cbz"))
+        #expect(chmod(readOnly.path, 0o555) == 0)
+        let sameVolume = try temporary.directory("Copies")
+        let copies = [sameVolume.appendingPathComponent("FromDisc"), volume.file("FromDisc")]
+        defer {
+            for root in [folder] + copies { chmod(root.appendingPathComponent("ro").path, 0o755) }
+        }
+
+        for destination in [sameVolume, volume.url] {
+            // 以前は `COPYFILE_CLONE | COPYFILE_RECURSIVE` が EACCES で失敗し、作りかけの木を宛先に残した。
+            let outcome = try await service.copy([folder], to: destination, options: .init(conflictPolicy: .ask))
+            #expect(outcome.isCompleteSuccess)
+        }
+        for copy in copies {
+            #expect(try Data(contentsOf: copy.appendingPathComponent("ro/a.cbz")) == Data("a".utf8))
+            #expect(FileManager.default.fileExists(atPath: copy.appendingPathComponent("b.cbz").path))
+            var info = stat()
+            #expect(lstat(copy.appendingPathComponent("ro").path, &info) == 0 && info.st_mode & 0o777 == 0o555, "権限ごと写る")
+        }
+    }
+
+    @Test("フォルダのコピー・別ボリュームへの移動が途中で失敗したら、宛先に書きかけの木を残さない")
+    func failedFolderTransferLeavesNoPartialTree() async throws {
+        guard let volume = DisposableVolume.make(.apfs, "partial-tree") else { return }
+        let folder = try temporary.directory("Unreadable")
+        try Data("1".utf8).write(to: folder.appendingPathComponent("01.cbz"))
+        let unreadable = folder.appendingPathComponent("02.cbz")
+        try Data("2".utf8).write(to: unreadable)
+        #expect(chmod(unreadable.path, 0o000) == 0)
+        defer { chmod(unreadable.path, 0o644) }
+
+        await #expect(throws: FileOperationError.self) {
+            _ = try await service.copy([folder], to: volume.url, options: .init(conflictPolicy: .ask))
+        }
+        #expect(!FileOperationService.itemExists(at: volume.file("Unreadable")))
+        await #expect(throws: FileOperationError.self) {
+            _ = try await service.move([folder], to: volume.url, options: .init(conflictPolicy: .ask))
+        }
+        #expect(!FileOperationService.itemExists(at: volume.file("Unreadable")))
+        #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("01.cbz").path), "元は触らない")
+    }
+
     @Test("exFAT では RENAME_EXCL が ENOTSUP を返すので、縮退経路で同じボリューム内を移動できる")
     func exFATMoveUsesTheDegradedRename() async throws {
         guard let volume = DisposableVolume.make(.exfat, "exfat-move") else { return }

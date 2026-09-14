@@ -110,7 +110,12 @@ actor FileOperationService {
         }
         do {
             let outcome = try body()
-            if case .completed = outcome { relock(under: target) } else { relock(under: source) }
+            switch outcome {
+            case .completed: relock(under: target)
+            case .cancelled: relock(under: source)
+            // 写し終えたが元が途中まで残った。両方の同じ場所で掛け直す(無くなった側は setLocked が何もしない)。
+            case .copiedButSourceRemains: relock(under: target); relock(under: source)
+            }
             return outcome
         } catch {
             relock(under: itemExists(at: source) ? source : target)
@@ -355,13 +360,20 @@ actor FileOperationService {
                 let carried = try await FileIO.perform(cancellation: options.cancellation) {
                     try Self.carry(item, to: resolved, using: perform, tracker: tracker, environment: environment)
                 }
-                guard let receipt = carried else {
+                guard let carried else {
                     outcome.wasCancelled = true
                     outcome.unprocessed = Array(items[index...])
                     break
                 }
-                outcome.receipts.append(receipt)
+                outcome.receipts.append(carried.receipt)
                 tracker.finishItem()
+                if let sourceRemains = carried.sourceRemains {
+                    // 写しは宛先に揃っている(受領書は返した)が、元を消せなかった。失敗として止める ―― 利用者は
+                    // 「移動した」つもりで、元に同じ名前が(一部だけ)残っていることを知らないと、後で混乱する。
+                    outcome.failures.append(FailedItem(url: item, reason: sourceRemains))
+                    outcome.unprocessed = Array(items[(index + 1)...])
+                    break
+                }
             } catch {
                 firstError = error
                 outcome.failures.append(FailedItem(url: item, reason: error.localizedDescription))
@@ -572,6 +584,13 @@ actor FileOperationService {
 
     // MARK: - 1 項目を運ぶ(ブロッキング側)
 
+    /// 1 項目を運んだ結果。
+    private nonisolated struct Carried: Sendable {
+        let receipt: TransferReceipt
+        /// 別ボリュームへの移動で写し終えたが元を消せなかった(表示言語の理由)。
+        let sourceRemains: String?
+    }
+
     /// 1 項目を運ぶ。中止されたら nil(書きかけは片付け、`.replace` の退避は戻してある)。
     private nonisolated static func carry(
         _ item: URL,
@@ -579,7 +598,7 @@ actor FileOperationService {
         using perform: (URL, URL, @escaping (Int64) -> Void) throws -> FileCopyEngine.Outcome,
         tracker: ProgressTracker,
         environment: FileOperationEnvironment
-    ) throws -> TransferReceipt? {
+    ) throws -> Carried? {
         let stampBefore = MoveVerification.stamp(of: item)
         let outcome: FileCopyEngine.Outcome
         do {
@@ -597,7 +616,7 @@ actor FileOperationService {
             throw error
         }
 
-        guard case .completed = outcome else {
+        guard outcome.hasCompleteCopy else {
             // 中止。**フォルダの再帰コピーを止めると copyfile は途中まで作った木を残す**(1 ファイルなら
             // 自分で消す)。受領書を返さない = Undo にも残らないので、ここで消さないと誰も片付けられない。
             removePartialWrite(at: resolved.target)
@@ -630,9 +649,13 @@ actor FileOperationService {
             if !itemExists(at: backup) { environment.replaceJournal.forget(backup: backup) }
             rmdir(backup.deletingLastPathComponent().path)
         }
-        return TransferReceipt(
+        let receipt = TransferReceipt(
             source: item, destination: resolved.target, replacedItemInTrash: replacedInTrash, identity: FileIdentity.of(resolved.target)
         )
+        if case let .copiedButSourceRemains(_, reason) = outcome {
+            return Carried(receipt: receipt, sourceRemains: reason)
+        }
+        return Carried(receipt: receipt, sourceRemains: nil)
     }
 
     /// 書き終えなかったときに、退避した元の項目を戻す。戻せなければ `replaceBackupOrphaned` を投げる
@@ -671,9 +694,16 @@ actor FileOperationService {
         do {
             try removeAbsorbingTransientFailure(at: source)
         } catch {
-            // 元を消せなかったら、写した側を片付けてから失敗させる(残すと受領書の無い複製ができる)。
-            removePartialWrite(at: target)
-            throw error
+            // **元を消し始めたあとは、写した側を絶対に消さない。** `removeItem` は木の削除が途中で失敗しても消した分を
+            // 戻さないので、ここで宛先を片付けると元からも宛先からも兄弟が消える(2026-09-14 の監査で実測: `uappnd` の
+            // ファイルを含むフォルダの移動で、元も宛先もそのファイルだけになり 6 ファイルが消失。以前はここで宛先を消していた)。
+            // 引き金は他のクライアントやこのアプリが掴んでいる SMB 上のファイル(EBUSY / ENOTEMPTY)、途中で現れた
+            // `.DS_Store`、`uappnd`・ACL の付いた子。写しを残して「元を消せなかった」と伝える(受領書は返す)。
+            guard case let .completed(bytes) = outcome else { return outcome }
+            return .copiedButSourceRemains(
+                bytes: bytes,
+                reason: FileOperationError.sourceRemainsAfterMove(item: source, reason: removalFailureReason(error)).localizedDescription
+            )
         }
         return outcome
     }
@@ -719,6 +749,14 @@ actor FileOperationService {
         }
     }
 
+    /// 削除の失敗を表示言語の短い文へ(Foundation の説明は OS の言語なので、errno が分かればそちらを使う)。
+    nonisolated static func removalFailureReason(_ error: any Error) -> String {
+        let nsError = error as NSError
+        let underlying = nsError.domain == NSPOSIXErrorDomain ? nsError : nsError.userInfo[NSUnderlyingErrorKey] as? NSError
+        if let underlying, underlying.domain == NSPOSIXErrorDomain { return PosixFailure.reason(Int32(underlying.code)) }
+        return nsError.localizedDescription
+    }
+
     nonisolated static func isTransientRemovalFailure(_ error: any Error) -> Bool {
         let nsError = error as NSError
         let underlying = nsError.domain == NSPOSIXErrorDomain ? nsError : nsError.userInfo[NSUnderlyingErrorKey] as? NSError
@@ -727,7 +765,8 @@ actor FileOperationService {
     }
 
     /// 書きかけを片付ける。失敗しても投げない(呼び出し側は既に別の失敗・中止を伝えている)。
-    private nonisolated static func removePartialWrite(at url: URL) {
+    /// **自分が書いたものにだけ使う**(FileCopyEngine の失敗時の片付けもここを通る)。
+    nonisolated static func removePartialWrite(at url: URL) {
         try? removeAbsorbingTransientFailure(at: url)
     }
 

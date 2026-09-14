@@ -43,7 +43,8 @@ enum ReplaceBackupRecovery {
         var orphaned: [(backup: URL, target: URL, reason: String)] = []
         for outcome in outcomes {
             switch outcome {
-            case .alreadyClean: break
+            // 届かないものは記録を残してあり、繋がった次の起動で戻す。毎回の警告にはしない。
+            case .alreadyClean, .unreachable: break
             case let .restored(target): restored.append(target)
             case let .orphaned(backup, target, reason): orphaned.append((backup, target, reason))
             }

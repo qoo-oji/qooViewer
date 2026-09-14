@@ -1457,7 +1457,7 @@ CI はこのブランチでは手動起動(`workflow_dispatch`)の 2026-09-13 �
 および `swift` で直接走らせる小さなスクリプト(`copyfile`・`removeItem`・`trashItem`・`recycle` の素の挙動)。監査で実測したプラットフォームの事実は
 その場で確かめたものなので、直すときはもう一度同じ手で確かめる。
 
-**見つかったもの(重い順。どれもまだ直していない)**:
+**見つかったもの(重い順。1〜3 は 2026-09-14 に直した ―― 下の「1〜3 の修正」。4 以降はまだ)**:
 
 1. **【最重要・実測で消失】別ボリュームへの移動で、元の削除が途中で失敗すると宛先の完全なコピーまで消す**
    (`FileOperationService.moveItem`、`removeAbsorbingTransientFailure(at: source)` の catch で `removePartialWrite(at: target)`)。
@@ -1529,6 +1529,20 @@ CI はこのブランチでは手動起動(`workflow_dispatch`)の 2026-09-13 �
 一時フォルダ・中止の片付け、圧縮の一時名と縮み/伸び検出、一括リネームの衝突回避、`FileIO` / `Cancellation` / `withDeadline`、`MountTable`、
 監視の寿命(`releaseResources` / `dismantleNSView` / weak 参照)、サムネイル提供役の並行制御、Matroska / EBML パーサの境界、QuickLook / 再タグ付けの
 資源解放、ディスクキャッシュ、zip の日時補正の往復、`@Model` の変更が無いこと。
+
+**1〜3 の修正(2026-09-14、ユーザー指示「致命的な不具合をまず修正」)**: 未コミット。
+- 1: `moveItem` は元の削除に失敗しても宛先を消さず、`FileCopyEngine.Outcome.copiedButSourceRemains` を返す。`carry` は受領書を返し、
+  `transfer` は `FileOperationError.sourceRemainsAfterMove` の文を失敗に積んで止まる(残りは unprocessed)。`withLocksLifted` はこのとき
+  宛先と元の両方で掛け直す。取り消しは元に同じ名前が残っているので「両方残す」で `name 2` へ戻り、部分的な取り消しとして報告される(消失はしない)。
+  `lockedItems` を `UF_APPEND` へ広げるのは見送った(広げなくても消失はしなくなった。確認の文言が「ロック」なので意味もずれる)。
+- 2: `FileCopyEngine.copy` が失敗時に書きかけを消す(errno が EEXIST で、かつ callback が頂点より下へ進んでいないときだけ残す)。
+  EACCES で、元の木に持ち主の書き込み権の無いフォルダがあれば、CLONE 無しで 1 回だけやり直す(1 回目に報告したバイト数は差し引く)。
+  部分的な木の削除は 0555 のサブフォルダを含んでも通ることを `swift` スクリプトで再確認(失敗時点の木は中身が入る前なので書ける)。
+- 3: `ReplaceBackupJournal.presence(of:mounts:)` で、lstat が ENOENT / ENOTDIR かつ `isOnAnUnmountedVolume` が偽のときだけ `.absent`。
+  それ以外(外れたボリューム、EPERM / EACCES)は `.unreachable` で記録を残し、`ReplaceBackupRecovery` は知らせない。
+- 回帰テスト: `FileOperationVolumeTests` に 3 件(`uappnd` の子を含むフォルダの別ボリューム移動 / 0555 のサブフォルダを含む木の同一・別ボリュームへの
+  コピー / 読めないファイルを含むフォルダのコピーと移動で書きかけが残らない)、`ReplaceBackupJournalTests` に 1 件(外れたボリューム上の記録)。
+  **修正前のコードで 3 件とも失敗し、修正後に通ることを確認した**。全体 1287 件成功、`check-all.sh` 成功。
 
 **次に着手する候補(順番はユーザーに選んでもらう)**:
 1. 上の 1〜3(ファイルの消失・取り残し。エンジンだけで直せ、`FileOperationVolumeTests` に上の実測をそのまま回帰テストとして足せる:

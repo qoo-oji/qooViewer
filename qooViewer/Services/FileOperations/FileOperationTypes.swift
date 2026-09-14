@@ -269,6 +269,9 @@ nonisolated enum FileOperationError: Error, Sendable, Equatable {
     case replaceBackupOrphaned(backup: URL, target: URL)
     /// 項目がロックされている(Finder の「ロック」)。ゴミ箱へ送る・完全に削除する・置き換えるのどれもできない。
     case itemLocked(URL)
+    /// 別ボリュームへの移動で、写し終えたが元を消せなかった。**写しは宛先に残してある**(元は途中まで消えているかもしれない)。
+    /// 投げずに `TransferOutcome.failures` の理由の文として使う(FileCopyEngine.Outcome.copiedButSourceRemains)。
+    case sourceRemainsAfterMove(item: URL, reason: String)
 }
 
 extension FileOperationError: LocalizedError {
@@ -327,6 +330,11 @@ extension FileOperationError: LocalizedError {
             )
         case let .itemLocked(url):
             return String(format: String(localized: "“%@” is locked.", language: locale), url.lastPathComponent)
+        case let .sourceRemainsAfterMove(item, reason):
+            return String(
+                format: String(localized: "“%1$@” was copied to the destination, but the original couldn’t be removed, so both were kept. %2$@", language: locale),
+                item.lastPathComponent, reason
+            )
         }
     }
 }

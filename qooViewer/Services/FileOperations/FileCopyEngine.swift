@@ -23,7 +23,20 @@ nonisolated enum FileCopyEngine {
     enum Outcome: Equatable {
         /// 運び終えた。`bytes` は実際に書いたバイト数(クローンなら 0)。
         case completed(bytes: Int64)
+        /// **別ボリュームへの移動で、写し終えたが元を消せなかった**(`FileOperationService.moveItem` だけが返す)。
+        /// 宛先の完全なコピーは残してあり、元は途中まで消えているかもしれない。`reason` は表示言語の文。
+        /// 失敗(throw)にしないのは、途中の catch がどれも「書きかけを片付ける」ので、宛先の**唯一の完全な写し**を
+        /// 消してしまうから(2026-09-14 の監査で実測: `uappnd` の子を含むフォルダの移動で 6 ファイルが元にも宛先にも無くなった)。
+        case copiedButSourceRemains(bytes: Int64, reason: String)
         case cancelled
+
+        /// 宛先に完全な写しがある(受領書を返す)。
+        var hasCompleteCopy: Bool {
+            switch self {
+            case .completed, .copiedButSourceRemains: true
+            case .cancelled: false
+            }
+        }
     }
 
     /// `source` を `destination` へ複製する。`destination` は無い前提(衝突は呼び出し側が解決済み)。
@@ -31,13 +44,40 @@ nonisolated enum FileCopyEngine {
     /// - Parameter allowsCloning: false で必ず実コピーにする。**テストのための逃げ道**
     ///   (進捗と中断が働くのはクローンできない経路だけなので)。本番は指定しない。
     /// - Parameter onBytesCopied: 実コピーのときだけ、増分のバイト数で呼ばれる。
+    ///
+    /// **失敗したら、自分が作った書きかけの木を消してから投げる**(2026-09-14 の監査で実測: フォルダの再帰コピーが途中で
+    /// 失敗すると、copyfile は作りかけの木をその名前のまま残していた。受領書が無いので Undo でも誰も片付けない)。
+    /// 例外は宛先の名前自体が EEXIST で断られたとき ―― そこにあるのは他人の項目で、1 バイトも書いていない。
     static func copy(
         from source: URL,
         to destination: URL,
         allowsCloning: Bool = true,
         onBytesCopied: @escaping (Int64) -> Void
     ) throws -> Outcome {
-        let context = CallbackContext(onBytesCopied: onBytesCopied)
+        do {
+            return try copyOnce(from: source, to: destination, allowsCloning: allowsCloning, onBytesCopied: onBytesCopied)
+        } catch let retry as RetryWithoutCloning {
+            // **中身のある 0555 のサブフォルダを含む木は、CLONE 付きの再帰コピーが EACCES で必ず失敗する**(同じボリュームでも
+            // 別のボリュームでも。CLONE 無しなら同じ木が 0555 ごと写る。2026-09-14 実測)。読み取り専用のメディアから
+            // 戻したフォルダで普通に起きる。書きかけは消してあるので、CLONE 無しで最初からやり直す。
+            // 1 回目で報告したバイト数は 2 回目で報告し直さない(進捗が 100% を超えて張り付く)。
+            var remainingToSkip = retry.bytesAlreadyReported
+            return try copyOnce(from: source, to: destination, allowsCloning: false) { delta in
+                let skipped = min(delta, remainingToSkip)
+                remainingToSkip -= skipped
+                if delta > skipped { onBytesCopied(delta - skipped) }
+            }
+        }
+    }
+
+    /// `copy` の 1 回ぶん。CLONE 無しでやり直すべき失敗なら `RetryWithoutCloning` を投げる(書きかけは消してある)。
+    private static func copyOnce(
+        from source: URL,
+        to destination: URL,
+        allowsCloning: Bool,
+        onBytesCopied: @escaping (Int64) -> Void
+    ) throws -> Outcome {
+        let context = CallbackContext(onBytesCopied: onBytesCopied, sourcePath: source.path)
         let state = copyfile_state_alloc()
         defer { copyfile_state_free(state) }
         copyfile_state_set(state, UInt32(COPYFILE_STATE_STATUS_CB), unsafeBitCast(statusCallback, to: UnsafeRawPointer.self))
@@ -53,7 +93,34 @@ nonisolated enum FileCopyEngine {
 
         if result == 0 { return .completed(bytes: context.totalCopied) }
         if context.didCancel { return .cancelled }
+        // EEXIST でも、中の項目まで進んでいたなら頂点は自分が作ったもの(大文字小文字だけが違う 2 つの名前を、区別しない
+        // ボリュームへ写したときなど)。頂点で断られたときだけ、そこにあるのは他人の項目なので触らない。
+        if failure != EEXIST || context.reachedChild {
+            FileOperationService.removePartialWrite(at: destination)
+        }
+        if failure == EACCES, allowsCloning, containsReadOnlyDirectory(source) {
+            throw RetryWithoutCloning(bytesAlreadyReported: context.totalCopied)
+        }
         throw FileOperationError.posixFailure(item: source, errnoCode: failure)
+    }
+
+    private struct RetryWithoutCloning: Error {
+        let bytesAlreadyReported: Int64
+    }
+
+    /// 木の中に、持ち主に書き込み権の無いフォルダがあるか(CLONE で EACCES になる形)。**リンクの先へは入らない。**
+    /// 失敗したあとにだけ歩くので、成功する普通のコピーには費用が掛からない。
+    private static func containsReadOnlyDirectory(_ root: URL) -> Bool {
+        var info = stat()
+        guard lstat(root.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return false }
+        if info.st_mode & S_IWUSR == 0 { return true }
+        guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil, options: []) else { return false }
+        for case let child as URL in enumerator {
+            if Cancellation.isRequestedInCurrentScope { return false }
+            guard lstat(child.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { continue }
+            if info.st_mode & S_IWUSR == 0 { return true }
+        }
+        return false
     }
 
     /// status callback が読み書きする箱。copyfile は呼び出し元のスレッドで同期に走るので並行アクセスは無い。
@@ -65,9 +132,13 @@ nonisolated enum FileCopyEngine {
         /// ファイルが変わったら基準を取り直して増分を積む。
         var currentFilePath: String?
         var currentFileCopied: Int64 = 0
+        let sourcePath: String
+        /// 頂点より下の項目の callback が届いた(= 頂点の宛先は自分が作った)。
+        var reachedChild = false
 
-        init(onBytesCopied: @escaping (Int64) -> Void) {
+        init(onBytesCopied: @escaping (Int64) -> Void, sourcePath: String) {
             self.onBytesCopied = onBytesCopied
+            self.sourcePath = sourcePath
         }
 
         func note(path: String, copiedSoFar: Int64) {
@@ -97,6 +168,9 @@ nonisolated enum FileCopyEngine {
         // **エラー段階で COPYFILE_CONTINUE を返さない。** それは「その失敗は無視して続けろ」の指示で、
         // 戻り値まで成功になる ―― EXCL の拒否も権限エラーもディスク不足も黙って握り潰された
         // (qooLibrary の回帰テストが捕まえた)。QUIT なら -1 と errno が返る。
+        if let sourcePath, !context.reachedChild, strcmp(sourcePath, context.sourcePath) != 0 {
+            context.reachedChild = true
+        }
         if stage == COPYFILE_ERR { return COPYFILE_QUIT }
 
         guard what == COPYFILE_COPY_DATA, stage == COPYFILE_PROGRESS else { return COPYFILE_CONTINUE }

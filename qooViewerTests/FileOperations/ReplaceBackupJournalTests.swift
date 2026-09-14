@@ -74,6 +74,20 @@ struct ReplaceBackupJournalTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: target.deletingLastPathComponent().path).isEmpty)
     }
 
+    @Test("退避先のボリュームが外れているなら、無いとは見なさず記録を残して黙る")
+    func keepsRecordsWhoseVolumeIsNotMounted() throws {
+        // 2026-09-14 の監査で発見: 外れたボリューム上の退避は lstat が ENOENT なので、以前は「片付いていた」として記録を捨てた。
+        let volume = "/Volumes/qooViewerTest-unmounted-\(UUID().uuidString)"
+        let backup = URL(fileURLWithPath: "\(volume)/folder/\(FileOperationService.replaceHolderPrefix)\(UUID().uuidString)/a.txt")
+        let target = URL(fileURLWithPath: "\(volume)/folder/a.txt")
+        journal.record(backup: backup, target: target)
+        defer { journal.forget(backup: backup) }
+
+        #expect(journal.recoverAll() == [.unreachable(backup: backup)])
+        #expect(journal.pendingBackupCount() == 1)
+        #expect(ReplaceBackupRecovery.notices(for: [.unreachable(backup: backup)]).isEmpty, "外付けを繋がずに起動するたびに警告しない")
+    }
+
     @Test("記録して消すと、記録のファイルは残らない")
     func forgettingLeavesNothingBehind() throws {
         let backup = temporary.file("x/\(FileOperationService.replaceHolderPrefix)1/a.txt")

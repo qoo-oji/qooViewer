@@ -35,6 +35,9 @@ nonisolated final class ReplaceBackupJournal: @unchecked Sendable {
         case restored(target: URL)
         /// 戻せなかった。退避はその名前のまま残っていて、記録も残す(次の起動でもう一度試す)。
         case orphaned(backup: URL, target: URL, reason: String)
+        /// 退避のある場所に今は届かない(ボリュームが外れている・読めない)。**記録を残して黙る**(繋ぎ直した次の起動で戻す)。
+        /// 知らせないのは、外付けを繋がずに起動するたびに警告が出続けるため。
+        case unreachable(backup: URL)
     }
 
     private let lock = NSLock()
@@ -94,6 +97,7 @@ nonisolated final class ReplaceBackupJournal: @unchecked Sendable {
         let entries = load()
         guard !entries.isEmpty else { return [] }
         let locale = AppLanguage.currentLocale
+        let mounts = MountTable.current()
         var outcomes: [Outcome] = []
         var survivors: [Entry] = []
 
@@ -102,7 +106,20 @@ nonisolated final class ReplaceBackupJournal: @unchecked Sendable {
             let target = URL(fileURLWithPath: entry.targetPath)
             let holder = backup.deletingLastPathComponent()
             // 存在はリンクを辿らずに見る(リンク切れのシンボリックリンクも「ある」)。
-            guard FileOperationService.itemExists(at: backup) else {
+            //
+            // **「無い」と「今は見えない」を分ける**(2026-09-14 の監査で発見)。退避先のボリュームが外れたまま起動すると
+            // lstat は ENOENT を返すので、以前はここで「片付いていた」として記録を捨てていた。繋ぎ直しても元の項目は
+            // `.qooViewer-replace-<UUID>/` に隠れたまま二度と知らされない(`restoreReplacedItem` が「次は繋がっているかも
+            // しれない」と残した記録を、起動時の復旧が打ち消していた)。サンドボックスの許可を取り消したときの
+            // EPERM / EACCES も同じく「見えない」側。
+            switch Self.presence(of: backup, mounts: mounts) {
+            case .present:
+                break
+            case .unreachable:
+                outcomes.append(.unreachable(backup: backup))
+                survivors.append(entry)
+                continue
+            case .absent:
                 // 退避用の隠しフォルダだけが残っていることがある(作った直後に落ちた)。空なら片付ける。
                 Self.removeHolderIfEmpty(holder)
                 outcomes.append(.alreadyClean)
@@ -132,6 +149,23 @@ nonisolated final class ReplaceBackupJournal: @unchecked Sendable {
             current.removeAll { entries.contains($0) && !survivorSet.contains($0) }
         }
         return outcomes
+    }
+
+    enum Presence: Equatable {
+        case present
+        /// 確かに無い(載っているボリュームは繋がっていて、lstat が ENOENT / ENOTDIR)。
+        case absent
+        /// あるかどうか分からない(ボリュームが外れている、読めない)。
+        case unreachable
+    }
+
+    /// 退避があるか。**確かに無いと言えるときだけ `.absent`**(記録を捨ててよいのはそのときだけ)。
+    static func presence(of backup: URL, mounts: MountTable) -> Presence {
+        var info = stat()
+        if lstat(backup.path, &info) == 0 { return .present }
+        let code = errno
+        guard code == ENOENT || code == ENOTDIR else { return .unreachable }
+        return mounts.isOnAnUnmountedVolume(backup) ? .unreachable : .absent
     }
 
     /// 退避用の隠しフォルダ(`.qooViewer-replace-<UUID>`)が空なら消す。rmdir は中身があれば失敗するので、
