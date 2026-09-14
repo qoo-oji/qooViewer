@@ -104,6 +104,8 @@ final class AppPreferences: ObservableObject {
         static let launchInPrivateMode = "qooViewer.pref.launchInPrivateMode"
         static let thumbnailDiskCacheEnabled = "qooViewer.pref.thumbnailDiskCacheEnabled"
         static let thumbnailDiskCacheLimitMB = "qooViewer.pref.thumbnailDiskCacheLimitMB"
+        static let fileBrowserThumbnailCacheEnabled = "qooViewer.pref.fileBrowserThumbnailCacheEnabled"
+        static let fileBrowserThumbnailCacheLimitMB = "qooViewer.pref.fileBrowserThumbnailCacheLimitMB"
         static let pageImageCacheLimitMB = "qooViewer.pref.pageImageCacheLimitMB"
         static let nestedArchiveMemoryLimitMB = "qooViewer.pref.nestedArchiveMemoryLimitMB"
         static let missingLayoutAutoLayout = "qooViewer.pref.missingLayoutAutoLayout"
@@ -950,6 +952,42 @@ final class AppPreferences: ObservableObject {
     /// applyThumbnailDiskCacheSettingsが進める世代番号(MainActor上でのみ触る)。
     private var thumbnailDiskCacheConfigurationGeneration: UInt64 = 0
 
+    /// ファイルブラウザの絵をディスクにも保存しておくか(FileBrowserThumbnailDiskCache、**既定はON**。改善要望7 段階 7a)。
+    ///
+    /// ページサムネイル(thumbnailDiskCacheEnabled)と既定が逆なのは、ユーザーの判断(2026-09-14)。書庫の並んだフォルダを
+    /// 開くたびに全冊の索引を読み直すことになるので、既定で持つ。代わりに環境設定「キャッシュ」に使用量と削除を並べて見えるようにし、
+    /// OFF にすればその場で消える(ページサムネイルが「黙って数百MB」と言われたのは、見えなかったことのほう)。
+    @Published var fileBrowserThumbnailCacheEnabled: Bool {
+        didSet {
+            defaults.set(fileBrowserThumbnailCacheEnabled, forKey: Keys.fileBrowserThumbnailCacheEnabled)
+            applyFileBrowserThumbnailCacheSettings()
+        }
+    }
+    /// ファイルブラウザの絵のディスクキャッシュの合計上限(MB、既定200)。刈り込みの規則はページサムネイルと同じ。
+    @Published var fileBrowserThumbnailCacheLimitMB: Double {
+        didSet {
+            defaults.set(fileBrowserThumbnailCacheLimitMB, forKey: Keys.fileBrowserThumbnailCacheLimitMB)
+            applyFileBrowserThumbnailCacheSettings()
+        }
+    }
+    static let defaultFileBrowserThumbnailCacheLimitMB: Double = 200
+    static let fileBrowserThumbnailCacheLimitRangeMB: ClosedRange<Double> = 50...2000
+
+    /// applyThumbnailDiskCacheSettingsと同じ(起動時の1回と、変更のたびに世代番号付きで届ける)。
+    private func applyFileBrowserThumbnailCacheSettings() {
+        guard sharesGlobalState else { return }
+        let isEnabled = fileBrowserThumbnailCacheEnabled
+        let maxTotalBytes = Int(fileBrowserThumbnailCacheLimitMB) * 1024 * 1024
+        fileBrowserThumbnailCacheConfigurationGeneration &+= 1
+        let generation = fileBrowserThumbnailCacheConfigurationGeneration
+        Task {
+            await FileBrowserThumbnailDiskCache.shared.configure(
+                isEnabled: isEnabled, maxTotalBytes: maxTotalBytes, generation: generation
+            )
+        }
+    }
+    private var fileBrowserThumbnailCacheConfigurationGeneration: UInt64 = 0
+
     /// 起動時に、**見つからなくなった本をコレクションから外すか**を尋ねるかどうか
     /// (ユーザー要望 2026-09-10。既定OFF)。
     ///
@@ -1689,6 +1727,11 @@ final class AppPreferences: ObservableObject {
         self.thumbnailDiskCacheLimitMB =
             defaults.object(forKey: Keys.thumbnailDiskCacheLimitMB) as? Double
             ?? Self.defaultThumbnailDiskCacheLimitMB
+        self.fileBrowserThumbnailCacheEnabled =
+            defaults.object(forKey: Keys.fileBrowserThumbnailCacheEnabled) as? Bool ?? true
+        self.fileBrowserThumbnailCacheLimitMB =
+            defaults.object(forKey: Keys.fileBrowserThumbnailCacheLimitMB) as? Double
+            ?? Self.defaultFileBrowserThumbnailCacheLimitMB
         self.pageImageCacheLimitMB =
             defaults.object(forKey: Keys.pageImageCacheLimitMB) as? Double
             ?? Self.defaultPageImageCacheLimitMB
@@ -1737,6 +1780,7 @@ final class AppPreferences: ObservableObject {
         // (didSetは初期化中には走らないので、ここで一度だけ明示的に呼ぶ必要がある)。
         // OFF(既定)ならこの呼び出しが、溜まっているキャッシュの削除の合図にもなる。
         applyThumbnailDiskCacheSettings()
+        applyFileBrowserThumbnailCacheSettings()
         // 外観も同じ理由でここから1回。最初のウインドウが作られるより前(このinitは
         // AppStores経由でQooViewerApp.init()から呼ばれる)なので、既定の外観が一瞬見えて
         // から切り替わる、ということにはならない。
@@ -1926,6 +1970,8 @@ extension AppPreferences {
                 // 上限を下げても消えるのは再生成できるサムネイルだけなので、保管件数の2つ
                 // (maxTrackedBooksCount/recentFilesLimit)と違って対象に含めてよい。
                 Keys.thumbnailDiskCacheLimitMB,
+                Keys.fileBrowserThumbnailCacheEnabled,
+                Keys.fileBrowserThumbnailCacheLimitMB,
             ]
         case .layout:
             return [
@@ -2048,6 +2094,8 @@ extension AppPreferences {
             preloadThumbnailGridPreviews = source.preloadThumbnailGridPreviews
             thumbnailDiskCacheEnabled = source.thumbnailDiskCacheEnabled
             thumbnailDiskCacheLimitMB = source.thumbnailDiskCacheLimitMB
+            fileBrowserThumbnailCacheEnabled = source.fileBrowserThumbnailCacheEnabled
+            fileBrowserThumbnailCacheLimitMB = source.fileBrowserThumbnailCacheLimitMB
         case .layout:
             missingLayoutAutoLayout = source.missingLayoutAutoLayout
             bookExportCompletionBehavior = source.bookExportCompletionBehavior

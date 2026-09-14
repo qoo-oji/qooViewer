@@ -264,6 +264,7 @@ struct AppPreferencesTests {
         .cache: [
             "pageImageCacheLimitMB", "nestedArchiveMemoryLimitMB", "prefetchPageCount",
             "preloadThumbnailGridPreviews", "thumbnailDiskCacheEnabled", "thumbnailDiskCacheLimitMB",
+            "fileBrowserThumbnailCacheEnabled", "fileBrowserThumbnailCacheLimitMB",
         ],
         .layout: [
             "missingLayoutAutoLayout", "bookExportCompletionBehavior", "bookExportDestinationModes",

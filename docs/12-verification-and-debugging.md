@@ -202,6 +202,11 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
   名前の欄の文字のメニュー(Google で検索・スペルと文法…)に変わる。選ばれていない行は右クリックだけで選ばれる。編集が始まってしまったら Esc を 2 回(メニュー・編集)。
 - **書庫の日時は `stat` と `unzip -l` で突き合わせる**(2026-09-14)。同じライブラリで書いて読み戻すテストは一致してしまい、ZIPFoundation が MS-DOS 形式の
   日時を UTC として扱う(9 時間ずれる)ことは実物の Finder の zip を展開して初めて見つかった。
+- **空の本棚で起動すると `Caches/<bundle id>/CollectionTiles/` が空になる**(2026-09-14、段階 7a の検証)。起動時の孤児の掃除が、ストアに無い
+  コレクションのタイルを消す。表紙から作り直せるキャッシュなので戻さなくてよいが、控えと突き合わせるなら Caches も控えておく。
+  ファイルブラウザの絵のキャッシュ(`FileBrowserThumbnails/`)は検証で作られるので、終わったら消す。
+- 環境設定の右ペインを下まで送るには、AX で `scroll bar 1 of scroll area 1 of group 2 of splitter group 1 of group 1 of window "<画面名>"` の
+  `value` を 1 にする。SwiftUI のボタンは AX の名前を持たないので、撮った画像から座標を出して `cliclick` で押す。
 - **使い捨てボリュームが外れないときは `lsof +D` で持ち主を見る**。ほかのアプリのサムネイルの拡張(書庫を読みに来る)が書庫を開いたままで、
   `hdiutil detach` が「リソースが使用中」になった。`-force` で外した。
 

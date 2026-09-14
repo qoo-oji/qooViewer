@@ -150,6 +150,8 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.preloadThumbnailGridPreviews.toggle()
     p.thumbnailDiskCacheEnabled.toggle()
     p.thumbnailDiskCacheLimitMB += 1
+    p.fileBrowserThumbnailCacheEnabled.toggle()
+    p.fileBrowserThumbnailCacheLimitMB += 1
 
     // MARK: レイアウトと書き出し
     p.missingLayoutAutoLayout = otherCase(p.missingLayoutAutoLayout)

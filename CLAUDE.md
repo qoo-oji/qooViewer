@@ -131,7 +131,9 @@ new folder, rename, bulk rename, undo/redo) goes through `FileBrowserOperations`
 (skipped under tests) — keep that record-before-backup order. Bulk rename copies
 Finder's measured rules (`Models/BulkRename.swift`; registered extensions, collisions avoided rather than refused, so no two-pass rename) — change them only against the real Finder. Drag and drop
 decides move/copy in one place (`FileDropPlan` + `FileBrowserDropDecision`); the right pane is covered by a drop target that refuses
-*as a target*, because a refused inner SwiftUI drop falls through to the window-wide "open book" drop target. Design in `docs/15-file-browser.md`,
+*as a target*, because a refused inner SwiftUI drop falls through to the window-wide "open book" drop target. The icon view shows
+book/image thumbnails via `FileBrowserThumbnailProvider` (one app-wide, in `AppStores`; `BookThumbnailer` reads only the first image,
+never `BookLoader.load`; disk cache `FileBrowserThumbnailDiskCache`, on by default). Design in `docs/15-file-browser.md`,
 remaining stages and the handoff in `docs/plans/file-browser-plan.md`.
 `CollectionStore` is deliberately *not* in `AppStores.allObjectWillChangePublishers`
 (collections never appear in the menu bar). The favorites feature is hidden behind

@@ -228,6 +228,7 @@ struct ResetDataSettingsView: View {
         // キャッシュはその場でも捨てる(終了時にもう一度消える)。完了は待たない(このあと
         // ユーザーが「Quit Now」を押すまでの間に終わればよい)。
         Task { await ThumbnailDiskCache.shared.removeAll() }
+        Task { await FileBrowserThumbnailDiskCache.shared.removeAll() }
         Task { await BookPageListCache.shared.removeAll() }
         // コレクションのカバー画像も同じ扱い(こちらはキャッシュではなくApplication Support配下
         // だが、「このアプリが保存したすべて」に含まれる。CollectionCoverStoreの型コメント参照)。

@@ -32,6 +32,9 @@ struct CacheSettingsView: View {
     /// ページ一覧のキャッシュ(BookPageListCache)の使用量と削除中フラグ(サムネイルと同じ扱い)。
     @State private var pageListBytes: Int?
     @State private var isDeletingPageLists = false
+    /// ファイルブラウザの絵のキャッシュ(FileBrowserThumbnailDiskCache。改善要望7 段階 7a)の使用量と削除中フラグ。
+    @State private var fileBrowserThumbnailBytes: Int?
+    @State private var isDeletingFileBrowserThumbnails = false
     /// 使用量を測り直させるための合図。削除の直後など、値が変わったはずのタイミングで
     /// 進めると`.task(id:)`が走り直す。
     @State private var usageRefreshToken = 0
@@ -114,6 +117,28 @@ struct CacheSettingsView: View {
                 Text("Page Thumbnails")
             }
 
+            // ファイルブラウザのアイコン表示の絵(改善要望7 段階 7a)。ページサムネイルと違って既定はON
+            // (FileBrowserThumbnailDiskCacheの型コメント。ユーザーの判断 2026-09-14)。
+            Section {
+                SettingsToggle(
+                    "Cache File Browser Thumbnails on Disk",
+                    isOn: $preferences.fileBrowserThumbnailCacheEnabled,
+                    help: "The pictures of books, images and folders in the file browser's icon view are kept on your startup disk, so a folder you have already viewed shows them right away instead of reading every book again. Turning this off deletes them right away."
+                )
+                SettingsSlider(
+                    "Maximum Size",
+                    value: $preferences.fileBrowserThumbnailCacheLimitMB,
+                    in: AppPreferences.fileBrowserThumbnailCacheLimitRangeMB,
+                    step: 50,
+                    help: "When the cache would grow past this size, the pictures you looked at longest ago are deleted first."
+                ) { value in
+                    "\(Int(value)) MB"
+                }
+                .disabled(!preferences.fileBrowserThumbnailCacheEnabled)
+            } header: {
+                Text("File Browser Thumbnails")
+            }
+
             Section {
                 // この画面を作った理由そのものが「気づかないうちに数百MB」だったので、
                 // 現在の使用量は設定項目より前に置きたいくらい重要な情報。実際の数字を出す。
@@ -152,6 +177,19 @@ struct CacheSettingsView: View {
                         .disabled(isDeletingPageLists || (pageListBytes ?? 0) == 0)
                     }
                 }
+                SettingRow(
+                    "File browser thumbnail cache",
+                    help: "Pictures shown in the file browser's icon view, against the maximum size above. Deleting them does not change any file; the pictures are simply made again the next time a folder is shown."
+                ) {
+                    HStack(spacing: 8) {
+                        Text(Self.sizeDescription(fileBrowserThumbnailBytes, locale: preferences.effectiveLocale))
+                            .monospacedDigit()
+                        Button("Delete", role: .destructive) {
+                            deleteFileBrowserThumbnailsNow()
+                        }
+                        .disabled(isDeletingFileBrowserThumbnails || (fileBrowserThumbnailBytes ?? 0) == 0)
+                    }
+                }
             } header: {
                 Text("Disk Usage")
             }
@@ -177,6 +215,7 @@ struct CacheSettingsView: View {
     /// controlActiveStateの変化として届く。
     private var usageTaskID: String {
         let settings = "\(preferences.thumbnailDiskCacheEnabled)|\(Int(preferences.thumbnailDiskCacheLimitMB))"
+            + "|\(preferences.fileBrowserThumbnailCacheEnabled)|\(Int(preferences.fileBrowserThumbnailCacheLimitMB))"
         return "\(settings)|\(controlActiveState)|\(usageRefreshToken)"
     }
 
@@ -190,6 +229,11 @@ struct CacheSettingsView: View {
         )
     }
 
+    private static func sizeDescription(_ bytes: Int?, locale: Locale) -> String {
+        guard let bytes else { return "—" }
+        return Int64(bytes).formatted(.byteCount(style: .file).locale(locale))
+    }
+
     private var pageListBytesDescription: String {
         guard let pageListBytes else { return "—" }
         return Int64(pageListBytes).formatted(
@@ -200,6 +244,7 @@ struct CacheSettingsView: View {
     private func refreshUsage() async {
         pageListBytes = await BookPageListCache.shared.totalBytes()
         usedBytes = await ThumbnailDiskCache.shared.totalBytes()
+        fileBrowserThumbnailBytes = await FileBrowserThumbnailDiskCache.shared.totalBytes()
         // トグルや上限の変更による削除・刈り込みは、環境設定とは別のタスクで進んでいる
         // (AppPreferences.applyThumbnailDiskCacheSettings → ThumbnailDiskCache.configure)。
         // どちらが先に終わるかは決まっていないので、一拍おいてもう一度だけ読み直し、
@@ -207,6 +252,17 @@ struct CacheSettingsView: View {
         try? await Task.sleep(for: .milliseconds(500))
         guard !Task.isCancelled else { return }
         usedBytes = await ThumbnailDiskCache.shared.totalBytes()
+        fileBrowserThumbnailBytes = await FileBrowserThumbnailDiskCache.shared.totalBytes()
+    }
+
+    private func deleteFileBrowserThumbnailsNow() {
+        isDeletingFileBrowserThumbnails = true
+        Task {
+            // メモリに残っている絵はそのまま(ファイルを変えるわけではないので、見えている絵を消す理由が無い)。
+            await FileBrowserThumbnailDiskCache.shared.removeAll()
+            isDeletingFileBrowserThumbnails = false
+            usageRefreshToken += 1
+        }
     }
 
     private func deletePageListsNow() {

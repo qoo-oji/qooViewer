@@ -50,6 +50,14 @@ nonisolated enum ImageDecoder {
         return decodeThumbnail(from: source, maxPixelSize: maxPixelSize)
     }
 
+    /// ディスク上の画像ファイルを縮小して読む(ファイルブラウザの絵、BookThumbnailer)。`Data` に読み込まないので、
+    /// JPEG なら ImageIO が縮小に要る部分だけを読む。画素数の上限は `decode(_:maxPixelSize:)` と同じ。
+    static func decode(fileAt url: URL, maxPixelSize: CGFloat) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else { return nil }
+        guard hasAcceptablePixelCount(source) else { return nil }
+        return decodeThumbnail(from: source, maxPixelSize: maxPixelSize)
+    }
+
     private static func decodeThumbnail(from source: CGImageSource, maxPixelSize: CGFloat) -> CGImage? {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,

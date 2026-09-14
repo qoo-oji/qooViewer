@@ -79,6 +79,9 @@ final class AppStores: ObservableObject {
     /// ファイルブラウザの「よく使う項目」(改善要望7 段階3)。メニューバーに現れないので
     /// allObjectWillChangePublishersには足さない(CollectionStoreと同じ理由)。
     let favoriteLocations: FavoriteLocationStore
+    /// ファイルブラウザのアイコン表示の絵(改善要望7 段階 7a)。メモリの絵と作る仕事の待ち行列をウインドウをまたいで
+    /// 1 つにする。メニューバーに現れないので allObjectWillChangePublishers には足さない。
+    let fileBrowserThumbnails: FileBrowserThumbnailProvider
 
     init() {
         // 予約された「すべてのデータを削除」の残り(終了前に落ちた場合)は、**どのストアよりも
@@ -115,6 +118,9 @@ final class AppStores: ObservableObject {
         collectionCoverExtractor = CollectionCoverExtractor(
             collectionStore: collectionStore, coverStore: collectionCoverStore,
             layoutStore: layoutStore
+        )
+        fileBrowserThumbnails = FileBrowserThumbnailProvider(
+            collectionStore: collectionStore, coverStore: collectionCoverStore
         )
         collectionAutoFolderScanner = CollectionAutoFolderScanner(
             collectionStore: collectionStore, coverExtractor: collectionCoverExtractor,

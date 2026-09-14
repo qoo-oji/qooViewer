@@ -32,14 +32,21 @@ import UniformTypeIdentifiers
 /// 反応している間はアイコンの地をアクセント色にする。それ以外(ファイルのセル・余白)へ落とすと、
 /// 右ペイン全体の受け口(FileBrowserPane)が表示中のフォルダへ落とす。
 ///
+/// ■ 絵(段階 7a、2026-09-14)
+/// 本・画像・画像を直接持つフォルダは、種類のアイコンの代わりに中の絵を出す(`FileBrowserIconImage`。作るのは
+/// FileBrowserThumbnailProvider)。絵ができるまでは種類のアイコン。セルが抱えた絵は`LazyCellImageBudget`で数え、
+/// 予算を超えたらグリッドを作り直して画面外のセルの絵を手放す(LazyVGrid はそれ以外の方法では手放さない)。
+/// **名前を編集している間は作り直さない**(欄が作り直されて焦点が外れ、編集が確定してしまう)。
+///
 /// ■ 輪郭(すりガラス面の決まりごと)
 /// - 名前 → 未選択は`.panelOutlinedContent()`、選択中はアクセント地なので`.panelOutlinedAccent(in:)`
-/// - アイコン → 種類のアイコン(色付きの絵)なので掛けない。選択中の地(薄い灰)は
+/// - アイコン → 種類のアイコン(色付きの絵)・本の絵なので掛けない。選択中の地(薄い灰)は
 ///   `.panelOutlinedFrame(in:)`で縁取る(薄い地だけでは面の色に溶ける)
 /// - ドロップの受け口になっているフォルダの地(アクセント色)→ `.panelOutlinedAccent(in:)`
 struct FileBrowserIconView: View {
     @ObservedObject var state: FileBrowserState
     let actions: FileBrowserActions
+    @EnvironmentObject private var thumbnails: FileBrowserThumbnailProvider
 
     @State private var marquee = MarqueeSelection()
     @State private var dragHandle = FileBrowserIconDragHandle()
@@ -56,9 +63,14 @@ struct FileBrowserIconView: View {
     /// 最後に拾った名前の編集の依頼(同じ依頼で2回始めない)。
     @State private var appliedRenameSerial: Int?
     @FocusState private var isFocused: Bool
+    /// セルが抱えた絵の帳簿と、グリッドの`.id`に使う世代(型コメント「絵」)。
+    @State private var imageBudget = LazyCellImageBudget(byteBudget: Self.imageByteBudget)
+    @State private var gridEpoch = 0
+    @State private var gridSize: CGSize = .zero
 
     private static let spacing: CGFloat = 12
     private static let padding: CGFloat = 16
+    private static let imageByteBudget = 64 * 1024 * 1024
 
     var body: some View {
         GeometryReader { geometry in
@@ -66,11 +78,13 @@ struct FileBrowserIconView: View {
                 availableWidth: geometry.size.width, itemWidth: cellWidth,
                 spacing: Self.spacing, padding: Self.padding
             )
+            // 絵の出せる種類かどうかの判定に使う(フォルダはネットワーク越しなら中を読まない)。ファイルシステムには触れない。
+            let mountTable = MountTable.current()
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVGrid(columns: columns.gridItems(alignment: .top), spacing: Self.spacing) {
                         ForEach(state.entries) { entry in
-                            cell(for: entry)
+                            cell(for: entry, mountTable: mountTable)
                                 .id(entry.id)
                                 .marqueeCell(entry.id, in: marquee)
                         }
@@ -85,6 +99,7 @@ struct FileBrowserIconView: View {
                             isFocused = true
                         }
                     )
+                    .id(gridEpoch)
                 }
                 .background(FileBrowserIconDragSource(handle: dragHandle))
                 .focusable()
@@ -146,6 +161,15 @@ struct FileBrowserIconView: View {
             // 並ぶものが総入れ替えになったので、前のフォルダのセルの矩形を捨てる(MarqueeSelection.forgetFrames)。
             marquee.forgetFrames()
         }
+        .onGeometryChange(for: CGSize.self) { proxy in proxy.size } action: { gridSize = $0 }
+        // 帳簿が作り直しを決めたら、名前を編集していなければすぐ、編集中なら終わってから作り直す(型コメント「絵」)。
+        .onChange(of: imageBudget.epoch) { _, epoch in
+            if editingID == nil { gridEpoch = epoch }
+        }
+        .onChange(of: editingID) { _, id in
+            if id == nil, gridEpoch != imageBudget.epoch { gridEpoch = imageBudget.epoch }
+        }
+        .onChange(of: gridEpoch) { _, _ in marquee.forgetFrames() }
         .onAppear {
             // リスト表示で頼まれて済んだ依頼を、表示形式を切り替えた直後に拾い直さない。
             appliedRenameSerial = state.renameRequest?.serial
@@ -239,7 +263,15 @@ struct FileBrowserIconView: View {
         max(state.iconSize + 24, 84)
     }
 
-    private func cell(for entry: FileBrowserEntry) -> some View {
+    /// 帳簿の下限セル数(画面数枚ぶんを数えてから作り直す。LazyCellImageBudget の「予算の決め方」)。
+    private var minimumCellCount: Int {
+        LazyCellImageBudget.minimumCellCount(
+            visibleSize: gridSize, cellWidth: cellWidth, cellHeight: state.iconSize + 48,
+            spacing: Self.spacing, padding: Self.padding
+        )
+    }
+
+    private func cell(for entry: FileBrowserEntry, mountTable: MountTable) -> some View {
         let isSelected = state.selection.contains(entry.id)
         let isEditing = editingID == entry.id
         // 編集中はこのセルのジェスチャーを外し、欄(子の NSView)だけがクリックを受ける。
@@ -250,10 +282,18 @@ struct FileBrowserIconView: View {
         let iconShape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         let nameShape = RoundedRectangle(cornerRadius: 4, style: .continuous)
         return VStack(spacing: 4) {
-            Image(nsImage: FileBrowserIconProvider.icon(for: entry))
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
+            FileBrowserIconImage(
+                entry: entry,
+                kind: FileBrowserThumbnailProvider.kind(
+                    for: entry, currentFolder: state.currentFolder, mountTable: mountTable
+                ),
+                iconSize: state.iconSize,
+                provider: thumbnails,
+                revision: thumbnails.revision,
+                onImageRetained: { bytes in
+                    imageBudget.note(retainedBytes: bytes, minimumCellCount: minimumCellCount)
+                }
+            )
                 .frame(width: state.iconSize, height: state.iconSize)
                 .padding(4)
                 .background(iconShape.fill(

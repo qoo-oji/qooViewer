@@ -14,7 +14,8 @@
 | 4 | 書く操作の UI | **4a 済・4b 実装中**(4a: コピー/カット/ペースト・ゴミ箱・新規フォルダ・名前の変更・取り消し・進捗の帯。4b: D&D・アイコン表示の名前の変更と type-select・置き換えと退避の復旧・ロックされた項目の確認・ツリーの自動展開・取り消せない移動の確認・2026-09-14 までに見つかった問題 11 件の修正 済、残りは計画 §4) |
 | 5 | 一括リネーム | **済(2026-09-14)** |
 | 6 | 圧縮・展開 | **実装済み・自動テスト済み(2026-09-14)**。実機の確認が残り(計画 §6.1) |
-| 7〜9 | サムネイル・既存機能との接続・文書 | 未着手 |
+| 7 | サムネイル | **7a(本・画像・画像フォルダの絵とキャッシュ)実装済み・自動テスト済み(2026-09-14)**。7b(動画・よく使う項目の配下の事前生成)は未着手 |
+| 8〜9 | 既存機能との接続・文書 | 未着手 |
 
 ## 構成
 
@@ -155,7 +156,7 @@ WelcomeView(PanelSurface.welcome)
 | 開閉の三角 | `FileBrowserOutlineView` がボタンの絵を輪郭入りに焼き直す(**無いと、ダーク+白100%で三角が消えた**。実測) |
 | 「＋」 | `FileBrowserOutlinedIconButton` |
 | 列の見出し | `FileBrowserTableHeaderView` が不透明な地を敷く(**既定の見出しは半透明で、ダーク+白100%で文字ごと消えた**。実測) |
-| アイコン | 種類のアイコン(色付きの絵)なので掛けない |
+| アイコン | 種類のアイコン(色付きの絵)・本の絵なので掛けない |
 | 「アクセスを許可…」 | `.borderedProminent`(不透明なアクセント色)。`.panelControlWell()` ではライト+黒100%で文字が読めなかった(実測) |
 | パスバー | `controlBackgroundColor` の帯(不透明) |
 
@@ -163,7 +164,7 @@ WelcomeView(PanelSurface.welcome)
 名前は未選択なら `.panelOutlinedContent()`、選択中はアクセント地 + `.panelOutlinedAccent(in:)`、選択中のアイコンの薄い地は `.panelOutlinedFrame(in:)`。
 
 **アイコンは種類だけで引く**(`FileBrowserIconProvider`)。`NSWorkspace.icon(forFile:)` は到達できない共有で 30 秒ブロックし、
-フォルダのカスタムアイコンを読みにデスクトップ・書類へ触れると TCC のダイアログが出る。本と画像の絵は段階 7 のサムネイルで出す。
+フォルダのカスタムアイコンを読みにデスクトップ・書類へ触れると TCC のダイアログが出る。本と画像の絵はアイコン表示だけに出す(→「サムネイル」)。
 
 `NSPathControl.url` は設定しない(メインスレッドで各成分の `realpath` とアイコン取得が走る。FB22294400)。`NSPathControlItem` を自分で組む。
 
@@ -379,6 +380,47 @@ FileOperationService+Archives}.swift`、コマンドは `CompressFilesCommand` /
 - **既知の制限**: rar・7z の記号リンクは
   中身の短いファイルとして展開される。進捗の件数はファイルの数(書庫が複数でも通しで数える)。
 
+## サムネイル(段階 7a、2026-09-14)
+
+アイコン表示のセルに、本・画像・画像を直接持つフォルダの**中の絵**を出す(リストとツリーは種類のアイコンのまま。ユーザーの判断)。
+コードは `Services/FileBrowserThumbnails/{BookThumbnailer, FileBrowserThumbnailDiskCache, FileBrowserThumbnailProvider}.swift` と
+`Views/FileBrowser/FileBrowserIconImage.swift`。動画(QuickLook)と、よく使う項目の配下の事前生成は 7b。
+
+- **どこから持ってくるか**(決定事項 Q5): コレクションに登録済みで表紙ができている本は**その表紙**(`CollectionCoverStore` の JPEG。本は読まない)。
+  無ければディスクキャッシュ、それも無ければ作ってキャッシュへ。表紙の有無は `CollectionStore.items(forBookID: entry.id)`(bookID = パス)で引き、
+  `CollectionStore.revision` が進んだら提供役の `revision` を進めてセルに頼み直させる(メモリにあれば即座に返る)。
+- **作り方**(`BookThumbnailer`。本を丸ごと開かない ―― `BookLoader.load` はアイコン表示には重すぎる):
+
+  | 種類 | 読むもの |
+  |---|---|
+  | 画像 | そのファイルを ImageIO で縮小(`ImageDecoder.decode(fileAt:)`。画素数の上限は本と同じ) |
+  | zip / cbz / rar / cbr / 7z / cb7 | 索引(`listFilePaths`)から `isExcludedArchiveEntry` を外した画像のうち**正準順の先頭** 1 件。宣言サイズ 64MB まで |
+  | EPUB | `EpubStructureResolver` の spine の先頭 |
+  | PDF | 1 ページ目を白地に描く(/Rotate を反映) |
+  | フォルダ | **直下の**画像のうち正準順の先頭(`readdir`。`.` で始まる名前・`UF_HIDDEN`・記号リンクは数えない) |
+
+  並べ方と除外が本を開くときと同じなので、並べ替えていない本なら 1 ページ目と同じ絵になる(`FileBrowserThumbnailTests` が台帳の全書庫で
+  確かめる)。**違いうるのは**、書庫の中の書庫・PDF・EPUB が先頭に来る本(入れ子は開かない。直下に画像が無ければ絵を出さない)と、
+  サブフォルダの中の画像が先に並ぶ・サブフォルダにだけ画像を持つフォルダの本。パッケージ・記号リンク・ボリュームは作らない。
+- **フォルダの中を読まない場所**: ネットワーク越しのボリューム(セルの数だけ往復する)と TCC の保護下の場所(`DirectoryProbe.protectedPrefixes`。
+  ホームを開いただけで「デスクトップ」の中を読むと確認が出る)。ただしデスクトップ・書類・ダウンロードの**中を見ている**ときの、同じ場所の中の
+  フォルダは読む(許可は場所ごとに済んでいる。`categoryProtectedPrefixes`)。`~/Library` の他のアプリのデータは中を見ていても読まない。
+  ファイル(本・画像)はいま読めているフォルダの直下なので、場所を問わず作る。
+- **見せ方**: 本・画像は枠(アイコンの大きさの正方形)に収め、薄い影を付ける(白いページが明るい面に溶けないように。絵なので輪郭は掛けない)。
+  フォルダは**フォルダのアイコンの上に絵を小さく重ねる**(絵だけだと画像ファイルと見分けがつかない)。絵ができるまでは種類のアイコン。
+  持っている絵は新しい絵が届くまで手放さない(大きさを変えて点滅しない)。
+- **ディスクキャッシュ**(`FileBrowserThumbnailDiskCache`): `Caches/<bundle id>/FileBrowserThumbnails/`、長辺 512px の JPEG(品質 0.8、
+  透明な地は白で塗る)。鍵は **ボリューム(`MountTable.volumeIdentifier`)+ inode + 更新日時(ns)+ サイズ + 作り方の世代**の SHA-256
+  (名前を変えた・移した項目は作り直さない。差し替えた・inode が使い回された項目に古い絵を出さない)。**既定 ON、上限 200MB**
+  (ページサムネイルと既定が逆なのはユーザーの判断。代わりに環境設定「キャッシュ」に ON/OFF・上限・使用量・削除を並べ、リソースモニタの
+  「ディスク」にも出す)。刈り込みと OFF での削除は `ThumbnailDiskCache` と同じ規則・同じ関数。「すべてのデータを削除」でも消える。
+- **メモリ**(`FileBrowserThumbnailProvider`、アプリで 1 つ): 復号した絵は `PagePixelCache`(96MB)に**大きさの段ごと**(長辺 128 / 256 / 512px。
+  表示の大きさの 2 倍を超えるいちばん小さい段)。セルは使い捨ての CGImage を持ち、`LazyCellImageBudget`(64MB)で数えてグリッドを作り直す
+  (**名前を編集している間は作り直さない** ―― 欄が作り直されると焦点が外れて確定してしまう。終わってから作り直す)。
+- **並べ方**: 作る仕事は同時 4 件、待っている仕事は**後から頼まれたものから**(スクロールで画面に入ったセルが先)。同じ絵は 1 件にまとめ、
+  頼んだセルが全部いなくなった仕事は始まる前なら捨てる。読み取りは `FileIO` の上(応答しない共有で協調プールを塞がない)。
+  作れなかった絵(画像の無い書庫・壊れたファイル)はこの起動の間は覚えて作り直さない(鍵に更新日時とサイズを含むので、中身が変われば試し直す)。
+
 ## ドラッグ&ドロップ(段階4b)
 
 コードは `Views/FileBrowser/FileBrowserDragAndDrop.swift`(判定・受け口・アイコン表示の出し口)と `Models/FileDropPlan.swift`(純粋な判定)。
@@ -430,9 +472,10 @@ FileOperationService+Archives}.swift`、コマンドは `CompressFilesCommand` /
 | よく使う項目 | `qooViewer.fileBrowser.favoriteLocations`(JSON) | パスだけ。「＋」は `NSOpenPanel` → `FolderAccessStore.add` → 登録。シークレットウインドウでは登録・削除させない |
 | リストの列幅・並び | `NSTableView Columns v3 qooViewer.fileBrowser.list` など | `autosaveName` |
 | 起動時のフォルダ・フォルダを上に・現在のフォルダまでツリーを展開・他のアプリからドロップしたとき・圧縮したファイルの形式 | `qooViewer.pref.fileBrowser.*` | 環境設定「ファイルブラウザ」(`SettingsPane.fileBrowser`) |
+| 絵のディスクキャッシュの ON/OFF・上限 | `qooViewer.pref.fileBrowserThumbnailCacheEnabled` / `…LimitMB` | 環境設定「キャッシュ」(ページサムネイルの設定と並べる。ユーザーの判断 2026-09-14) |
 
 環境設定「ファイルブラウザ」には**いま効く行だけ**を置いた(起動時のフォルダ・フォルダを上に・現在のフォルダまでツリーを展開・他のアプリからドロップしたとき・圧縮したファイルの形式)。計画にある残りの行
-(「ファイルブラウザで開く」の行き先・動画のサムネイル・キャッシュ)は、それを使う段階で足す。
+(「ファイルブラウザで開く」の行き先・動画のサムネイル)は、それを使う段階で足す。絵のキャッシュの行は環境設定「キャッシュ」に置いた。
 
 ## リーク
 
@@ -456,6 +499,7 @@ FileOperationService+Archives}.swift`、コマンドは `CompressFilesCommand` /
 | `ReplaceBackupJournalTests`(FileOperations) | 起動時の復旧(戻す・上書きしない・再試行・片付いていた・壊れた記録)、置き換えの最中は記録があり成功・中止で消えること、ロックされた宛先を置き換えないこと、知らせる内容 |
 | `FileCommandSoundTests`(FileOperations) | 音源の実在と登録、音の割り当て、成功とやり直しだけで鳴ること |
 | `FileBrowserTreePathTests` | ツリーを現在のフォルダまで開く道筋(いちばん深い根、`/` の直下、根そのもの、名前の途中までの一致を祖先にしない、同じ深さの根、1 段の探し方)。同じファイルの `FileBrowserTreeAndIconHitTests` は FSEvents のパスの頭の揃え方とアイコン表示の名前のクリックの範囲 |
+| `FileBrowserThumbnailTests` | 絵の種類の判定(パッケージ・記号リンク・保護下の場所・ネットワーク越しのフォルダ)、台帳の全書庫で選ぶエントリが 1 ページ目と一致、zip の除外と正準順、画像の無い・壊れた書庫、フォルダの直下だけ・隠しファイル、EPUB の spine の先頭と PDF の 1 ページ目、画像の縮小、透明な地の白、鍵(名前を変えても同じ・中身が変われば別)、ディスクキャッシュの往復と OFF で消えること、提供役のメモリ・ディスクの当たり・作れなかった絵を覚える・同時の要求をまとめる・取り消し、段 |
 | `FileBrowserModelTests` | `GridKeyboardNavigation`、`WindowContentRequest` の往復と `nonce`、`FavoriteLocationStore`、`WelcomeLibraryState.mode` |
 
 画面そのものは実機で確認する(→ [12](12-verification-and-debugging.md#ファイルブラウザ))。

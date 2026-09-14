@@ -83,6 +83,8 @@ struct SidePanelResourcesSectionView: View {
                         isScanning: isScanningStorage,
                         isDiskCacheEnabled: preferences.thumbnailDiskCacheEnabled,
                         diskCacheLimitBytes: Int(preferences.thumbnailDiskCacheLimitMB) * 1024 * 1024,
+                        isFileBrowserThumbnailCacheEnabled: preferences.fileBrowserThumbnailCacheEnabled,
+                        fileBrowserThumbnailCacheLimitBytes: Int(preferences.fileBrowserThumbnailCacheLimitMB) * 1024 * 1024,
                         locale: preferences.effectiveLocale,
                         onRescan: { storageScanRequest &+= 1 }
                     )
@@ -159,6 +161,7 @@ struct SidePanelResourcesSectionView: View {
             collectionCoverDirectory: CollectionCoverStore.defaultDirectory(),
             collectionCoverSourceDirectory: CollectionCoverSourceStore.defaultDirectory(),
             collectionTileDirectory: CollectionTileImageStore.defaultDirectory(),
+            fileBrowserThumbnailCacheDirectory: FileBrowserThumbnailDiskCache.shared.directory,
             databaseStoreURL: QooViewerApp.modelConfiguration.url
         )
         // Task.detachedはキャンセルを継承しないので、この`.task`が取り消されたら走査側の
@@ -662,13 +665,18 @@ private struct StorageSection: View, Equatable {
     var isScanning: Bool
     var isDiskCacheEnabled: Bool
     var diskCacheLimitBytes: Int
+    var isFileBrowserThumbnailCacheEnabled: Bool
+    var fileBrowserThumbnailCacheLimitBytes: Int
     var locale: Locale
     var onRescan: () -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.storage == rhs.storage && lhs.isScanning == rhs.isScanning
             && lhs.isDiskCacheEnabled == rhs.isDiskCacheEnabled
-            && lhs.diskCacheLimitBytes == rhs.diskCacheLimitBytes && lhs.locale == rhs.locale
+            && lhs.diskCacheLimitBytes == rhs.diskCacheLimitBytes
+            && lhs.isFileBrowserThumbnailCacheEnabled == rhs.isFileBrowserThumbnailCacheEnabled
+            && lhs.fileBrowserThumbnailCacheLimitBytes == rhs.fileBrowserThumbnailCacheLimitBytes
+            && lhs.locale == rhs.locale
     }
 
     var body: some View {
@@ -735,6 +743,22 @@ private struct StorageSection: View, Equatable {
                 }
                 .lineLimit(1)
                 .help("One JPEG per collection holding the covers shown on its tile, so the welcome screen draws each tile from a single image instead of reading every cover separately. Rebuilt from the collection covers whenever it is missing, and kept under the limit shown, oldest first.")
+                // ファイルブラウザの絵(改善要望7 段階 7a)。ページサムネイルと同じくON/OFFと上限を持つキャッシュ。
+                HStack(spacing: 0) {
+                    DetailRow("File browser thumbnails", optionalSizeText(storage.fileBrowserThumbnailCacheBytes))
+                    Group {
+                        if isFileBrowserThumbnailCacheEnabled {
+                            Text(" / \(fileSizeText(fileBrowserThumbnailCacheLimitBytes))")
+                        } else {
+                            Text(" (off)")
+                        }
+                    }
+                    .font(.callout)
+                    .monospacedDigit()
+                    .panelOutlinedContent()
+                }
+                .lineLimit(1)
+                .help("Pictures of books, images and folders shown in the file browser's icon view, so a folder you have viewed before shows them without reading the books again. Kept under the limit shown, oldest first; you can turn it off or delete it in Settings ▸ Cache.")
                 DetailRow("Database", optionalSizeText(storage.databaseBytes))
                     .help("Favorites, bookmarks, reading positions, page layouts, and metadata (the SwiftData store and its write-ahead log).")
                 DetailRow("Other", optionalSizeText(storage.otherBytes))

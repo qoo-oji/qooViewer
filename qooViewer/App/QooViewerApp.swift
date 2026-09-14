@@ -33,6 +33,7 @@ struct QooViewerApp: App {
     private var recentFiles: RecentFilesStore { stores.recentFiles }
     private var folderAccess: FolderAccessStore { stores.folderAccess }
     private var favoriteLocations: FavoriteLocationStore { stores.favoriteLocations }
+    private var fileBrowserThumbnails: FileBrowserThumbnailProvider { stores.fileBrowserThumbnails }
     private var resourceSampler: ProcessResourceSampler { stores.resourceSampler }
     private var favoritesStore: FavoritesStore { stores.favoritesStore }
     private var bookmarkStore: BookmarkStore { stores.bookmarkStore }
@@ -409,7 +410,7 @@ struct QooViewerApp: App {
         // (元画像は参照を失って隔離されるだけで、30日間ディスクに残る)。
         let directories = cacheDirectories
             ?? ([ThumbnailDiskCache.shared.directory, BookPageListCache.shared.directoryURL,
-                 CollectionTileImageStore.defaultDirectory()]
+                 CollectionTileImageStore.defaultDirectory(), FileBrowserThumbnailDiskCache.shared.directory]
                 .compactMap { $0 }
                 + [CollectionCoverStore.defaultDirectory(), CollectionCoverSourceStore.defaultDirectory()])
         for directory in directories {
@@ -525,6 +526,7 @@ struct QooViewerApp: App {
             .environmentObject(collectionStore)
             .environmentObject(collectionCoverExtractor)
             .environmentObject(collectionAutoFolderScanner)
+            .environmentObject(fileBrowserThumbnails)
             // メタデータ編集シート(BookMetadataSheet)がファイル名からの推測に使う。
             .environmentObject(metadataFormatStore)
             .environmentObject(launchCoordinator)

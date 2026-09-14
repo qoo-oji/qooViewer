@@ -33,6 +33,8 @@ nonisolated struct StorageUsage: Equatable, Sendable {
     /// **こちらはキャッシュ。** カバー画像から数msで作り直せるので Caches に置いてあり、
     /// 上限(CollectionTileImageStore.maxTotalBytes)を超えたら古いものから捨てる。
     var collectionTileBytes: Int?
+    /// ファイルブラウザの絵のディスクキャッシュ(FileBrowserThumbnailDiskCache。改善要望7 段階 7a)。
+    var fileBrowserThumbnailCacheBytes: Int? = nil
     /// SwiftDataのストア(`default.store` + `-wal` + `-shm`)。
     var databaseBytes: Int?
     var scannedAt: Date
@@ -42,7 +44,7 @@ nonisolated struct StorageUsage: Equatable, Sendable {
         guard let containerBytes else { return nil }
         let known = sessionTemporaryBytes + staleTemporaryBytes + (thumbnailCacheBytes ?? 0)
             + (pageListCacheBytes ?? 0) + (collectionCoverBytes ?? 0) + (collectionTileBytes ?? 0)
-            + (databaseBytes ?? 0)
+            + (fileBrowserThumbnailCacheBytes ?? 0) + (databaseBytes ?? 0)
         return max(containerBytes - known, 0)
     }
 }
@@ -73,6 +75,7 @@ nonisolated enum StorageUsageScanner {
         /// コレクション表紙の元画像(CollectionCoverSourceStore)。上と足して1つの数にする。
         var collectionCoverSourceDirectory: URL?
         var collectionTileDirectory: URL?
+        var fileBrowserThumbnailCacheDirectory: URL? = nil
         var databaseStoreURL: URL
     }
 
@@ -101,6 +104,9 @@ nonisolated enum StorageUsageScanner {
             pageListCacheBytes: locations.pageListCacheDirectory.flatMap { directorySize(at: $0)?.bytes },
             collectionCoverBytes: coverBytes(locations),
             collectionTileBytes: locations.collectionTileDirectory.flatMap { directorySize(at: $0)?.bytes },
+            fileBrowserThumbnailCacheBytes: locations.fileBrowserThumbnailCacheDirectory.flatMap {
+                directorySize(at: $0)?.bytes
+            },
             databaseBytes: databaseSize(storeURL: locations.databaseStoreURL),
             scannedAt: Date()
         )

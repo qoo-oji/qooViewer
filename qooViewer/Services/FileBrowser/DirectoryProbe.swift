@@ -66,6 +66,21 @@ nonisolated enum DirectoryProbe {
         return prefixes.contains { path == $0 || path.hasPrefix($0 + "/") }
     }
 
+    /// `url` を含む保護下の場所(いちばん長く一致するもの)。保護下でなければ nil。ファイルシステムには触れない。
+    /// ファイルブラウザの絵が「いま見ているフォルダと同じ保護下の場所か」を比べるのに使う(段階 7a)。
+    static func protectedPrefix(containing url: URL, prefixes: [String] = protectedPrefixes) -> String? {
+        let path = MountTable.normalized(url.path)
+        return prefixes.filter { path == $0 || path.hasPrefix($0 + "/") }.max { $0.count < $1.count }
+    }
+
+    /// 保護下の場所のうち、**許可が場所ごと 1 回で済む**もの(デスクトップ・書類・ダウンロード)。中へ入って許可を済ませれば、
+    /// その中のどのフォルダを読んでも新しい確認は出ない。`~/Library` の中の他のアプリのデータは、アプリごとに確認が出うるので
+    /// ここには入れない(ファイルブラウザの絵が、いま見ているフォルダと同じ場所なら中を読んでよい、と判断するのに使う。段階 7a)。
+    static let categoryProtectedPrefixes: Set<String> = {
+        let home = MountTable.normalized(FileBrowserListing.realHomeDirectory().path)
+        return [home + "/Desktop", home + "/Documents", home + "/Downloads"]
+    }()
+
     /// 保護下の場所。実際のホームから組み立てる(サンドボックスの `homeDirectoryForCurrentUser` はコンテナ)。
     ///
     /// qooLibrary の一覧(`~/Library` の中の他アプリのデータ・File Provider の置き場など。`~/Library` を開いただけで

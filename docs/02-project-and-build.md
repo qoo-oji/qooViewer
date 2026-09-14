@@ -274,7 +274,7 @@ attach の最初に外します)。テストは `qooViewerTests/Support/Disposab
 **テストは共有の保存先に触れません。** TEST_HOST は実物のアプリなので、手元では自分の履歴・
 キャッシュ・SwiftData と同じコンテナで走ります。本を開くときは `FixtureBook.load`
 (`BookLoader.load(cachesPageList: false)` を固定)を通し、`UserDefaults.standard`・
-`BookPageListCache.shared`・`ThumbnailDiskCache.shared`・`modelContainer.mainContext` は読みも
+`BookPageListCache.shared`・`ThumbnailDiskCache.shared`・`FileBrowserThumbnailDiskCache.shared`・`modelContainer.mainContext` は読みも
 書きもしません(並び順の設定は 2026-09-13 に撤去したので、`EffectivePageOrder` は環境設定を読みません)。
 保存データの取り込みも同じで、`LibraryImportExportService.apply` /
 `buildExportFile` の `cachesPageList:`(取り込みは本を読み直すため)を `false` にし、
