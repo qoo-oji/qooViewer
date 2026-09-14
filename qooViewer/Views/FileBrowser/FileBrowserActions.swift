@@ -458,7 +458,7 @@ enum FileBrowserMenuCommand {
              [.newFolder, .paste],
              [.addToFavoriteLocations, .showInFinder]]
         case .background:
-            // 「表示」「表示順序」のサブメニューは組む側が足す(FileBrowserMenuBuilder / FileBrowserBackgroundMenuItems)。
+            // 「表示」「表示順序」のサブメニューは組む側が足す(FileBrowserMenuBuilder)。
             [[.paste, .newFolder]]
         }
     }
@@ -734,59 +734,6 @@ final class FileBrowserMenuBuilder: NSObject {
     }
 }
 
-/// SwiftUIの一覧(アイコン表示)の右クリックメニュー。AppKitの側と同じ項目・同じ並び。
-///
-/// **淡色のサブメニューは `Menu` ではなく押せない `Button` で描く**(`FileBrowserDisabledSubmenu`)。`.contextMenu` の中の `Menu` には
-/// `.disabled` が効かない(2026-09-14、macOS 26.6 で実測。`.disabled` を `Menu` / `Group` / `Section` に付ける・`\.isEnabled` を入れる・
-/// `menuStyle` を変える・`primaryAction` 付き、のどれも親項目は押せる見た目のままで、中の項目だけが淡色になった)。
-/// 押せない `Button` は矢印が出ないが、項目の数は変わらない。
-struct FileBrowserContextMenuItems: View {
-    @Environment(\.locale) private var locale
-    let context: FileBrowserMenuContext
-    let actions: FileBrowserActions
-
-    var body: some View {
-        let groups = FileBrowserMenuCommand.groups(for: context.kind)
-        ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
-            if index > 0 { Divider() }
-            ForEach(Array(group.enumerated()), id: \.offset) { _, command in
-                item(for: command)
-            }
-        }
-        if context.kind == .background, let state = actions.state {
-            Divider()
-            FileBrowserBackgroundMenuItems(state: state)
-        }
-    }
-
-    @ViewBuilder
-    private func item(for command: FileBrowserMenuCommand) -> some View {
-        let nodes = command.dynamicChildren(in: context, actions: actions, locale: locale)
-        if nodes != nil || command.submenu != nil, !command.isEnabled(in: context, actions: actions) {
-            FileBrowserDisabledSubmenu(title: command.title(in: context, locale: locale))
-        } else if let nodes {
-            Menu(command.title(in: context, locale: locale)) {
-                FileBrowserMenuNodeItems(nodes: nodes)
-            }
-        } else if let children = command.submenu {
-            Menu(command.title(in: context, locale: locale)) {
-                ForEach(Array(children.enumerated()), id: \.offset) { _, child in
-                    button(for: child)
-                }
-            }
-        } else {
-            button(for: command)
-        }
-    }
-
-    private func button(for command: FileBrowserMenuCommand) -> some View {
-        Button(command.title(in: context, locale: locale)) {
-            command.perform(in: context, actions: actions)
-        }
-        .disabled(!command.isEnabled(in: context, actions: actions))
-    }
-}
-
 /// 場面で変わるサブメニューの中身(SwiftUI 版)。
 struct FileBrowserMenuNodeItems: View {
     let nodes: [FileBrowserMenuNode]
@@ -822,7 +769,10 @@ struct FileBrowserMenuNodeItems: View {
     }
 }
 
-/// 淡色のサブメニューの代わり(FileBrowserContextMenuItems の型コメント。`.contextMenu` の中の `Menu` は `.disabled` が効かない)。
+/// 淡色のサブメニューの代わり。**SwiftUI の `.contextMenu` の中の `Menu` には `.disabled` が効かない**(2026-09-14、macOS 26.6 で実測。
+/// `.disabled` を `Menu` / `Group` / `Section` に付ける・`\.isEnabled` を入れる・`menuStyle` を変える・`primaryAction` 付き、のどれも親項目は
+/// 押せる見た目のままで、中の項目だけが淡色になった)。押せない `Button` は矢印が出ないが、項目の数は変わらない。
+/// ファイルブラウザのアイコン表示は 2026-09-15 に AppKit のメニューへ移ったので、使うのはコレクションの中の右クリック。
 struct FileBrowserDisabledSubmenu: View {
     let title: String
 
@@ -832,54 +782,3 @@ struct FileBrowserDisabledSubmenu: View {
     }
 }
 
-/// 空きスペースの「表示」「表示順序」。
-///
-/// **`FileBrowserState` を強く掴まない**(2026-09-14 の監査 10)。`.contextMenu` の中身は AppKit のメニュー項目へ渡り、ウインドウより
-/// 長生きしうる(CLAUDE.md の ViewerActionRelay の件)。以前は `@ObservedObject var state` の `$state.viewMode` を渡していて、
-/// 閉じたウインドウの `FileBrowserState`(一覧の `entries`・取り消し履歴)を残しえた。Binding は state を weak で捕まえる閉包で作る。
-/// メニューは開くたびに作り直されるので、観測しなくてもチェックは開いた時点の値で正しい。
-private struct FileBrowserBackgroundMenuItems: View {
-    @Environment(\.locale) private var locale
-    private let viewMode: Binding<FileBrowserViewMode>
-    private let sortKey: Binding<FolderBrowserSortKey>
-    private let sortDirection: Binding<FolderBrowserSortDirection>
-
-    init(state: FileBrowserState) {
-        let currentMode = state.viewMode
-        let currentKey = state.sortKey
-        let currentDirection = state.sortDirection
-        viewMode = Binding(get: { [weak state] in state?.viewMode ?? currentMode }, set: { [weak state] in state?.viewMode = $0 })
-        sortKey = Binding(get: { [weak state] in state?.sortKey ?? currentKey }, set: { [weak state] in state?.sortKey = $0 })
-        sortDirection = Binding(
-            get: { [weak state] in state?.sortDirection ?? currentDirection }, set: { [weak state] in state?.sortDirection = $0 }
-        )
-    }
-
-    var body: some View {
-        Picker("View", selection: viewMode) {
-            ForEach(FileBrowserViewMode.allCases, id: \.self) { mode in
-                Text(String(localized: mode.menuTitle, language: locale)).tag(mode)
-            }
-        }
-        .pickerStyle(.menu)
-        Menu("Sort By") {
-            Picker(selection: sortKey) {
-                ForEach(FolderBrowserSortKey.allCases) { key in
-                    Text(key.titleKey).tag(key)
-                }
-            } label: {
-                EmptyView()
-            }
-            .pickerStyle(.inline)
-            Divider()
-            Picker(selection: sortDirection) {
-                ForEach(FolderBrowserSortDirection.allCases) { direction in
-                    Text(direction.titleKey).tag(direction)
-                }
-            } label: {
-                EmptyView()
-            }
-            .pickerStyle(.inline)
-        }
-    }
-}

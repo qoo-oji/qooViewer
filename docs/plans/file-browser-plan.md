@@ -1937,6 +1937,44 @@ Debug の全テスト 1317 件・124 suite が通った。CHANGELOG・MANUAL・d
 **次にやること**: 2 回目の監査の列はここまで。実機での確認(§9.1 の手順に、この監査で変えた画面の挙動 ―― 取り消しの帯と中止、閉じたウインドウの報告、
 「移動」メニュー、ツリーの行が閉じないこと、SwiftUI の受け口のコピー ―― を足して)はユーザーの操作が無いときに。
 
+
+### 9.6 引き継ぎ(アイコン表示を NSCollectionView へ置き換え、2026-09-15)
+
+**ユーザーの指示(2026-09-15)**: 「アイコン表示とリスト表示で挙動異なるのは避けたい。アイコン表示を appkit に置き換えられる?」→ 選択肢(全面置き換え /
+受け口だけ)を示し、「全面書き換えで」。**コミットの指示はまだ無い**(作業ツリーに置いたまま)。
+
+**やったこと**(設計の説明は docs/15「アイコン表示を AppKit にした理由」):
+- `Views/FileBrowser/FileBrowserIconView.swift` を書き直した: `FileBrowserIconView`(`NSViewRepresentable`)・`FileBrowserCollectionView`
+  (`NSCollectionView` の子。キー・クリック・右クリック・受け口・ピンチ)・`FileBrowserIconLayout`(左詰めの流し込み)・`FileBrowserIconItem`
+  (絵を頼む)・`FileBrowserIconCellView`(地・絵・名前の欄を描く)。
+- 消した: `FileBrowserIconImage.swift`、`FileBrowserIconNameEditor.swift`、`FileBrowserIconDragSource` / `FileBrowserIconDragHandle`、
+  `FileBrowserKeyMonitor`、`FileBrowserFolderDropTarget`、`FileBrowserContextMenuItems` / `FileBrowserBackgroundMenuItems`(コレクションが使う
+  `FileBrowserMenuNodeItems` / `FileBrowserDisabledSubmenu` は残した)、`FileBrowserNameField.focusesWhenAttached`、`FileBrowserState.click` /
+  `ClickModifier` / `moveSelection`、`Models/GridKeyboardNavigation.swift` とそのテスト 5 件。
+- `FileBrowserPane` は提供役を `@EnvironmentObject` で持ち、`revision` / `includesVideo` を値で渡す。全体の受け口の枠はリストと同じ `isListDropTargeted`。
+- docs/15・docs/02・CLAUDE.md を更新。続けて「ドキュメントを更新して」の指示で、CHANGELOG `[Unreleased]`(「Finder 以外からアイコン表示へドラッグした項目は
+  コピー」の行を、リスト表示と同じ動きになった旨とドラッグ元のマスクの規則へ書き直し)・MANUAL(ドラッグ&ドロップの同じ行)・docs/12(リークの確かめ方に
+  `FileBrowserCollectionView` / `FileBrowserIconItem`、キーの確かめ方)・docs/13(経緯の表)を更新。README は変える記述が無かった(ピンチ・範囲選択・矢印キー・
+  頭文字での選択はそのまま使える)。コミットはまだ(指示が無い)。
+- Debug のビルドは警告なし、全テスト 1330 件が通った。
+
+**実機の確認(2026-09-15、ユーザー指示「ディスプレイのスリープを解除したので実機検証して」)**: 済んだ。直したもの・確かめた範囲は docs/15
+「アイコン表示を AppKit にした理由」の「実機の検証で見つけて直したもの」。直した後の Debug の全テスト 1334 件が通った(矢印キーのテストを戻した)。
+Debug の設定は `defaults export` の控えへ戻して一致を確認、ボリュームは外し、一時ログのコードとコンテナの `Logs/` は消した。
+「ドキュメントを更新してコミット・プッシュして」の指示で、MANUAL(アイコン表示の ⇧ クリックは追加)・CHANGELOG と一緒にコミット・プッシュ(この節と同じコミット)。
+確かめていないもの: 1 回目の起動が画面のロックで止まったときに `iconSize` が `defaults write -float` で 94.29265 に丸まったのは、2 回目の `export` を
+取る前だったので控えに入っている(元は 94.29264705882353)。コピーしか許さないアプリからのドロップ(作れない)、スクロールで出入りするセルの絵、
+動画のサムネイルの ON / OFF、ピンチ(合成できない)、ライト + 黒 100% の面。以下は当初の確認項目:
+1. 見た目: セルの大きさ・名前の 2 行と中略・選択の地と名前のアクセント地・カットの淡色・ツールチップ・すりガラス 2 条件(ライト+黒 100% / ダーク+白 100%)の縁。
+2. クリック: 単発・⌘・⇧・余白のクリックで外す・余白からの帯・ダブルクリックで開く・右クリックの対象(選択の中 / 外 / 余白)とメニューの淡色。
+3. キー: 矢印・Return・⌘↓・⌘↑・⌘⌫・⌥⌘V・⌘[ / ⌘]・⌘C / ⌘X / ⌘V・⌘A・type-select(1 文字の連打、2 文字)。
+4. 名前の変更: 名前の文字の上の 2 回目のクリック(アイコン・名前の横では始まらない)、新規フォルダの直後、右クリックの「名前を変更」、Return / Esc / ほかをクリック、
+   打つと下へ伸びること、編集中にスクロールして画面外へ出したとき、読み取り専用モードで始まらないこと。
+5. ドラッグ&ドロップ: セルから Finder・リスト・ツリーへ、Finder からフォルダのセル・余白へ(強調とペインの枠)、端へ寄せたスクロール、⌥ / ⌘、
+   コピーしか許さないアプリからのドロップ、読み取り専用モード。
+6. 絵: スクロールで出入りするセルの絵、ピンチとスライダーでの大きさの変更(点滅しない)、動画のサムネイルの ON / OFF、コレクション表紙の変更での頼み直し。
+7. `heap`: ウインドウを閉じて `FileBrowserCollectionView` / `FileBrowserIconItem` / `Coordinator` が残らないこと(docs/12)。
+
 ---
 
 ## 触るファイル(見積り)

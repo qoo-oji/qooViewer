@@ -592,7 +592,7 @@ struct CollectionDetailView: View {
     /// BookOpenContextMenuItems の型コメント)。本は書庫・PDF・EPUB のファイルか、画像のフォルダのどちらかなので、
     /// 記録してあるパスの拡張子で見分ける。ブックマークの解決は選ばれてから。
     /// 複数選んでいる間は押せない(ほかの 1 冊向けの項目と同じ)。`.contextMenu` の中の `Menu` には `.disabled` が
-    /// 効かないので、押せない `Button` で描く(FileBrowserContextMenuItems の型コメント)。
+    /// 効かないので、押せない `Button` で描く(FileBrowserDisabledSubmenu の型コメント)。
     @ViewBuilder
     private func openWithMenu(for item: CollectionItem, isEnabled: Bool) -> some View {
         let title = String(localized: "Open With", language: locale)

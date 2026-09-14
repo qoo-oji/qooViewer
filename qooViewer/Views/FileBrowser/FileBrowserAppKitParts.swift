@@ -1,7 +1,7 @@
 import AppKit
 import UniformTypeIdentifiers
 
-// ファイルブラウザのAppKit部品(リスト = NSTableView、ツリー = NSOutlineView)が共有する小物
+// ファイルブラウザのAppKit部品(リスト = NSTableView、ツリー = NSOutlineView、アイコン = NSCollectionView)が共有する小物
 // (改善要望7 段階3、2026-09-13)。
 //
 // ■ すりガラス面の決まりごと(CLAUDE.md)をAppKitで守る
@@ -370,22 +370,6 @@ final class FileBrowserNameField: NSTextField {
 
     /// フォルダなら名前全体を選ぶ(`.` 以降も名前の一部)。
     var selectsWholeName = false
-
-    /// ウインドウに入ったら焦点を取る(アイコン表示の編集欄。FileBrowserIconNameEditor)。
-    /// `makeNSView`の次のランループではまだウインドウに入っていないことがあり(実機 2026-09-14。
-    /// 名前のクリックから始めたとき)、焦点が置かれずに打った文字が一覧へ流れた。1回だけ効く。
-    var focusesWhenAttached = false
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        guard focusesWhenAttached, window != nil else { return }
-        focusesWhenAttached = false
-        // SwiftUI が階層を組み終えてから(組み立ての最中にファーストレスポンダを動かさない)。
-        DispatchQueue.main.async { [weak self] in
-            guard let self, let window = self.window else { return }
-            window.makeFirstResponder(self)
-        }
-    }
 
     override func becomeFirstResponder() -> Bool {
         if let editingName, isEditable { stringValue = editingName }

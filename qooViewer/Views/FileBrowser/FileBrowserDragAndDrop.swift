@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 //
 // ■ 受け口と出し口
 // - 出し口: リスト(NSTableView)・ツリーのフォルダの行(NSOutlineView)・アイコン表示のセル
-//   (FileBrowserIconDragSource)。ペーストボードには**実際のファイルの URL**(`NSURL`)を書く
+//   (NSCollectionView)。ペーストボードには**実際のファイルの URL**(`NSURL`)を書く
 //   (`NSFilePromiseProvider` は使わない。検討メモ §9)。**アプリの外へも移動を許す**(copy / move / generic)。
 //   Finder へ落とすと、Finder 自身が Finder の規則で移動・コピーする(同じボリュームは移動、別はコピー、⌥ でコピー、
 //   ⌘ で移動。実機 2026-09-14。移動は Finder が行うのでサンドボックスに掛からない)。こちらは元を消さない
@@ -17,8 +17,8 @@ import UniformTypeIdentifiers
 //   ゴミ箱が受け付けず、確かめられなかったため。
 //   **読み取り専用モードの間はコピーだけを許す**(段階 8.5、`fileBrowserDragSourceMask`)。移動を許すと、Finder へ
 //   落としたときに Finder が元を動かす ―― 動かすのが Finder でも、ファイルブラウザから元の場所が変わる。
-// - 受け口: リストの行と空きスペース・ツリーの行・パスバーの項目(いずれも AppKit の delegate)、
-//   アイコン表示のフォルダのセルと右ペインの残り全部(FileBrowserDropDelegate)。
+// - 受け口: リストの行と空きスペース・アイコン表示のセルと余白・ツリーの行・パスバーの項目(いずれも AppKit)、
+//   右ペインの残り全部(操作列など。FileBrowserDropDelegate)。
 //   **何をするかの判定は `FileBrowserDropDecision` の 1 か所**で、実行は `FileBrowserOperations`。
 //
 // ■ ウインドウ全体のドロップ先との関係
@@ -214,7 +214,8 @@ func configureFileBrowserDragSource(_ table: NSTableView) {
 
 // MARK: - SwiftUI の受け口
 
-/// アイコン表示と右ペインの受け口。フォルダのセル 1 つずつと、右ペインの残り全部(今のフォルダ)に付ける。
+/// 右ペインの残り全部(操作列・トースト。今のフォルダ)の受け口。一覧(リスト・アイコン表示)とパスバーは AppKit の受け口が先に受ける
+/// (2026-09-15 にアイコン表示を AppKit にしたので、ここで受けるのは一覧の外だけ)。
 ///
 /// **断るときも `validateDrop` は true を返す**(ファイル全体の型コメント「ウインドウ全体のドロップ先との関係」)。
 /// 断るのは `dropUpdated` の `.forbidden` と `performDrop` の false で行う。
@@ -304,77 +305,4 @@ struct FileBrowserDropDelegate: DropDelegate {
 
 extension FileBrowserDropDecision {
     var isAccepted: Bool { self != .refuse }
-}
-
-// MARK: - アイコン表示の出し口
-
-/// アイコン表示のセルからのドラッグを、AppKit のドラッグセッションで始める。
-///
-/// ■ なぜ SwiftUI の `.onDrag` / `.draggable` ではないのか
-/// どちらも 1 回のドラッグで運べるのが 1 件だけ(複数を掴む `dragContainer` は macOS 26 から)。
-/// Finder へ複数のファイルを運ぶには `NSDraggingItem` を並べたセッションが要る。セルの
-/// `DragGesture` が動き始めた瞬間の `NSApp.currentEvent`(マウスのドラッグ)で、このビューから始める。
-///
-/// 閉包・対象は `dismantleNSView` で切る(CLAUDE.md のリークの件)。
-struct FileBrowserIconDragSource: NSViewRepresentable {
-    let handle: FileBrowserIconDragHandle
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        handle.view = view
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        handle.view = nsView
-    }
-
-    static func dismantleNSView(_ nsView: NSView, coordinator: ()) {}
-}
-
-/// アイコン表示がドラッグを始めるための取っ手(ビューの `@State` が持つ。ビューを捕まえない)。
-@MainActor
-final class FileBrowserIconDragHandle: NSObject, NSDraggingSource {
-    weak var view: NSView?
-    /// いま始めているドラッグのジェスチャの起点(同じジェスチャで 2 回始めないため)。
-    private var startedGesture: CGPoint?
-
-    /// このドラッグで許す操作(`fileBrowserDragSourceMask`)。始めるときに決める。
-    private var sourceMask = fileBrowserDragSourceMask(allowsFileChanges: true)
-
-    /// セルの `DragGesture.onChanged` から呼ぶ。`gestureStart` が前回と同じなら何もしない。
-    func beginIfNeeded(gestureStart: CGPoint, entries: [FileBrowserEntry], iconSize: CGFloat, allowsFileChanges: Bool) {
-        guard startedGesture != gestureStart else { return }
-        let items = entries.filter { !$0.isVolume }
-        guard let view, let event = NSApp.currentEvent, event.type == .leftMouseDragged, !items.isEmpty else { return }
-        startedGesture = gestureStart
-        sourceMask = fileBrowserDragSourceMask(allowsFileChanges: allowsFileChanges)
-        let location = view.convert(event.locationInWindow, from: nil)
-        let side = min(max(iconSize, 32), 96)
-        let draggingItems = items.enumerated().map { index, entry in
-            let item = NSDraggingItem(pasteboardWriter: entry.url as NSURL)
-            // 複数なら少しずつずらして重ねる(Finder と同じ見え方)。ずらすのは先頭の数件だけ。
-            let offset = CGFloat(min(index, 5)) * 6
-            let frame = NSRect(x: location.x - side / 2 + offset, y: location.y - side / 2 - offset, width: side, height: side)
-            // 絵は種類ごとに作り置き(FileBrowserIconProvider)なので、件数が多くても作り直さない。
-            item.setDraggingFrame(frame, contents: FileBrowserIconProvider.icon(for: entry))
-            return item
-        }
-        FileBrowserDragTracker.begin(items.map(\.url))
-        let session = view.beginDraggingSession(with: draggingItems, event: event, source: self)
-        session.animatesToStartingPositionsOnCancelOrFail = true
-        session.draggingFormation = .pile
-    }
-
-    func draggingSession(
-        _ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext
-    ) -> NSDragOperation {
-        // アプリの外へも移動を許す(読み取り専用モードではコピーだけ。ファイル冒頭のコメント)。
-        sourceMask
-    }
-
-    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        startedGesture = nil
-        FileBrowserDragTracker.end()
-    }
 }

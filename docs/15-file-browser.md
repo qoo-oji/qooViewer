@@ -30,7 +30,7 @@ WelcomeView(PanelSurface.welcome)
         ├─ FileBrowserTreeView(NSOutlineView): ボリューム / ホーム / よく使う項目 ＋
         ├─ WelcomeSeparator(縦。幅のドラッグ)
         └─ 右: 操作列 [‹ › ↑] [フォルダ名] [大きさ(アイコン表示のみ)][リスト][アイコン][並べ替え][検索]
-               FileBrowserListView(NSTableView) / FileBrowserIconView(LazyVGrid)
+               FileBrowserListView(NSTableView) / FileBrowserIconView(NSCollectionView)
                FileBrowserPathBar(NSPathControl)
 ```
 
@@ -212,8 +212,9 @@ FileBrowserOperations(ウインドウごと。1 本ずつ直列・確認の受�
 | 「アクセスを許可…」 | `.borderedProminent`(不透明なアクセント色)。`.panelControlWell()` ではライト+黒100%で文字が読めなかった(実測) |
 | パスバー | `controlBackgroundColor` の帯(不透明) |
 
-アイコン表示は SwiftUI(`WelcomeGridColumns` の固定幅の列・`welcomeGridPinch`・`MarqueeSelection` を `.replacing` で)。
-名前は未選択なら `.panelOutlinedContent()`、選択中はアクセント地 + `.panelOutlinedAccent(in:)`、選択中のアイコンの薄い地は `.panelOutlinedFrame(in:)`。
+アイコン表示は `NSCollectionView`(2026-09-15 に SwiftUI の `LazyVGrid` から置き換えた。下の「アイコン表示を AppKit にした理由」)。セルの
+`FileBrowserIconCellView` が同じ輪郭を描く: 名前は未選択なら `FileBrowserOutlinedTextFieldCell`、選択中はアクセント地 + 反対色の縁、選択中の
+アイコンの薄い地とドロップの受け口のアクセント地は反対色の縁で囲む(SwiftUI の `.panelOutlinedFrame(in:)` / `.panelOutlinedAccent(in:)` 相当)。
 
 **アイコンは種類だけで引く**(`FileBrowserIconProvider`)。`NSWorkspace.icon(forFile:)` は到達できない共有で 30 秒ブロックし、
 フォルダのカスタムアイコンを読みにデスクトップ・書類へ触れると TCC のダイアログが出る。本と画像の絵はアイコン表示だけに出す(→「サムネイル」)。
@@ -274,11 +275,52 @@ ON なら、ツリーで開いた行の子を右ペインと同じ `FileBrowserS
 - 並べるのは読み込みの結果を受け取った時点の並び(読んでいる間に基準が変わっても古い順では入らない)。`FileBrowserTreePath` はパスで子を探すので、
   「現在のフォルダまで開く」は並びに関係なく動く。
 
-## クリックとキー(アイコン表示)
+## アイコン表示を AppKit にした理由(2026-09-15、ユーザー判断)
 
-`FileBrowserState.click(_:modifier:)`(1 件 / ⌘ 反転 / ⇧ 起点からの範囲)と `moveSelection(_:columns:)`(`GridKeyboardNavigation`)。
-単発のクリックは `simultaneousGesture` で即時に効かせる。余白のクリックは選択を外し、余白からのドラッグは帯で選ぶ(修飾キーなしなら置き換え)。
-リスト表示は `NSTableView` の標準のまま(⌘/⇧ クリック・矢印・type-select)。
+アイコン表示だけが SwiftUI(`LazyVGrid`)で、リスト・ツリー(AppKit)と同じ機能を別の仕組みで作り直していたので挙動がずれた。ドロップでは
+`DropInfo` にドラッグ元が許す操作が無く、他のアプリからの移動を「Finder が最前面のときだけ」と推し量っていた。右クリックは SwiftUI の
+`.contextMenu` と AppKit の `NSMenu` の 2 系統で、淡色のサブメニューを押せないボタンで描く回避策が SwiftUI 側だけにあった。選択・帯で選ぶ・
+矢印キー・名前の編集・ドラッグの開始が自前で、`LazyVGrid` が画面外のセルの絵を手放さないので帳簿(`LazyCellImageBudget`)で数えて作り直していた。
+
+`NSCollectionView` にしてリストと同じ口に揃えた:
+
+| 役目 | アイコン表示 | リストと共有するもの |
+|---|---|---|
+| 選択・⌘ / ⇧ クリック・余白からの帯 | `NSCollectionView` の標準(⇧ クリックは範囲ではなく追加。Finder のアイコン表示と同じ) | ―(リストは `NSTableView` の標準) |
+| 矢印キー | `FileBrowserState.moveSelection`(`GridKeyboardNavigation`)。起点はクリックで選んだ項目(`setSelectionAnchor`) | ―(標準の矢印キーは独自のレイアウトで右矢印が真下へ移り、下矢印で動かなかった。実機 2026-09-15) |
+| type-select | `FileBrowserCollectionView.keyDown` → `FileBrowserState.typeSelect`(`NSCollectionView` には無い) | ― |
+| Return / ⌘↓ で開く、⌘⌫ / ⌥⌘V / ⌘[ / ⌘] / ⌘↑、コピー・カット・ペースト | `FileBrowserCollectionView.keyDown` / `copy:` など | `FileBrowserEditCommand.forKey`、`FileBrowserEditResponding` |
+| 右クリック | `menu(for:)` で押したセルを控え、`menuNeedsUpdate` で組む | `FileBrowserMenuBuilder`(対象の規則も同じ) |
+| 出し口 | `pasteboardWriterForItemAt`、読み取り専用ならコピーだけ | `FileBrowserActions.pasteboardWriter`、`fileBrowserDragSourceMask` |
+| 受け口 | `draggingEntered` などを自前で(フォルダのセルならそのフォルダ、ほかは表示中のフォルダ。全体のときはペインの枠) | `FileBrowserActions.dropDecision(for:into:)`(ドラッグ元のマスクを見る) |
+| 名前の編集 | セルの名前の欄をそのまま編集できる形に切り替える | `FileBrowserNameField`(実名に差し替えて拡張子の前を選ぶ) |
+| 当たり先 | **セル**(`FileBrowserIconCellView.hitTest`)が中の部品を当たり先にしない(編集中の欄だけ通す)。一覧の `hitTest` は上書きしない | `FileBrowserTableView.hitTest` と同じ考え |
+
+- 標準の受け口(`validateDrop` / `acceptDrop`)は使わない。「セルの間へ差し込む」表示を前提にしていて、表示中のフォルダ全体を受け口にする形が無い。
+  `draggingEnded` / `concludeDragOperation` は上書きしない(ドラッグ元の終わりの通知が止まる。ツリーの件)。ドラッグ中の端のスクロールも自分で行う。
+- 並べ方は `FileBrowserIconLayout`(`NSCollectionViewLayout` の子。同じ大きさのセルを間隔を固定して左上から詰める。本棚の `WelcomeGridColumns` と同じ見え方)。
+  中身が少なくても見えている範囲いっぱいまで一覧にする(余白のどこからでも帯・右クリック・ドロップが一覧に届く)。
+- 名前は 2 行まで、長い名前は中ほどを「…」で詰める(`FileBrowserIconView.twoLineName`。Finder と同じく両端を残す)。名前は**セルの `draw` で描く**
+  (編集欄は編集のときだけ出す)。本文・後ろに敷く反対色の輪郭・2 行に詰める計算がすべて同じ `NSString` の描画と属性なので食い違わない。
+- 名前のクリックからの編集は、`mouseDown` で「押す前にその 1 件だけが選ばれていた」「名前の文字の上」「修飾キーなし」「ドラッグが始まらなかった」を
+  見て、ダブルクリックの間隔だけ待ってから始める(その間の次のクリック・キー・ドラッグで取りやめ)。
+- 絵はセル(`FileBrowserIconItem`)が頼み、使い回されるときに取り消して捨てる。ピンチは `magnify(with:)`。
+- ドラッグ中、`NSCollectionView` は運んでいるセルを隠すので、始まった直後に戻す(Finder・リストと同じく元の場所に残す)。
+- **実機の検証で見つけて直したもの**(2026-09-15。使い捨てボリュームの合成名の項目で、クリック・⌘ / ⇧ クリック・余白のクリックと帯・矢印キー・
+  type-select・右クリック(セル / 余白)・名前のクリックからの変更と Return / Esc / ⌘Z・ダブルクリックでの移動と ⌘[・一覧の中のドラッグ・
+  Finder との往復のドラッグ・大きさの変更・読み取り専用モード・ウインドウの開閉 3 回 × 2 巡の `heap`・ダーク + 白 100% の面を確認):
+  1. **一覧の `hitTest` で一覧自身を返すと、セルをクリックしても選択されない。** `NSCollectionView` は当たり先のビューからセルを見分ける
+     (`indexPathForItem(at:)` が nil を返した)。部品を当たり先にしない処理はセルの側へ移した。
+  2. **流し込み(`NSCollectionViewFlowLayout`)の結果の x だけを書き換えると、見えている位置と当たり判定が食い違う**(当たり判定は書き換える前の
+     位置で引かれた)。位置を最初から決める独自のレイアウトにした。
+  3. **独自のレイアウトでは標準の矢印キーが崩れる**(右矢印で真下へ、下矢印で動かない)。矢印キーは `FileBrowserState.moveSelection`
+     (`GridKeyboardNavigation`。一度消したが戻した)で自分で動かし、クリックで選んだ項目を起点にする(`setSelectionAnchor`)。
+  4. 名前を `NSTextField` に描かせると、測った 2 行と欄の折り返しが食い違って 3 行目が欠け、輪郭と本文の折り返しもずれて白 100% の面で文字が潰れた →
+     セルの `draw` で描く。中略は二分探索だと単語の折り返しのせいで短く詰めすぎたので、長い方から 1 文字ずつ試す(結果は名前と幅ごとに覚える)。
+  5. ドラッグ中に元のセルが消えた → 戻す(上)。
+  ⇧ クリックは範囲ではなく追加(`NSCollectionView` の標準。Finder のアイコン表示と同じ。SwiftUI 版は範囲だった)。
+- ペイン全体の SwiftUI の受け口(`FileBrowserDropDelegate`)は、一覧の外(操作列・トースト)を覆うためだけに残した(覆わないと、断ったドロップを
+  ウインドウ全体の「本を開く」受け口が拾う)。
 
 ## リストの列(2026-09-14、ユーザー要望)
 
@@ -465,6 +507,7 @@ ON なら、ツリーで開いた行の子を右ペインと同じ `FileBrowserS
   一致するときだけ戻す(ゴミ箱を空にした後で同じ名前を捨てると別の項目が戻った)。取り消せない操作でも効果があればやり直し先を捨てる。
   同じボリュームかはリンクを解いてから決める(`FileOperationService.isOnSameVolume`。別のボリュームを指すリンクの下で空き容量とロックの確認を飛ばした)。
   SwiftUI の受け口は、他のアプリからのドラッグは Finder のときだけ移動を許す(`DropInfo` に元の操作のマスクが無い。最前面のアプリで見分ける)。
+  2026-09-15 にアイコン表示を AppKit にしたので、この判定が効くのは一覧の外(操作列など)へ落としたときだけ。
 - **ボリュームそのものは移動しない**(2 回目の監査 9): Finder でボリュームを ⌘C して ⌥⌘V、⌘ を押してドロップすると、全部写してから元を空にしていた
   (マウントポイントの `removeItem` は中身を全部消してから EBUSY)。画面の側はボリュームの行を外しているが、ペーストボードや他のアプリからのドロップは
   外せないので、移動の事前検査でマウント表(`MountTable.isMounted`)に載っている項目を「ボリュームなので移動できません」で断る。コピーは今までどおりできる。
@@ -495,22 +538,16 @@ ON なら、ツリーで開いた行の子を右ペインと同じ `FileBrowserS
   待たせるのは描き直しだけでなく**一覧・選択・スクロールの取り込みごと**(2026-09-14 の監査。以前は `entries` だけ差し替えていたので、
   編集中に一覧が変わると確定が古い行番号で新しい一覧を引き、別のファイルの名前を変えた。`FileBrowserListEditingTests`)。後始末の最中に
   届く 2 度目の「編集が終わった」は無視する。
-- 名前の変更(アイコン、段階 4b): 名前の位置に `FileBrowserIconNameEditor`(`FileBrowserNameField` を折り返す欄にしたもの。打つと下へ伸びる。
-  地は不透明なので輪郭なし)を出す。始まり方は 3 つ ―― **選ばれた 1 件の名前の文字の上をもう一度クリックしてダブルクリックの間隔だけ待つ**
-  (範囲は `FileBrowserIconView.nameRect` が Text と同じ条件で測る。以前は「アイコンより下」全部で、名前の横の余白でも始まった)
-  (途中の次のクリック・ダブルクリックの 2 回目では始めない)、新規フォルダの直後、右クリックの「名前を変更」。Return で確定、Esc で取りやめ、
-  ほかをクリックして焦点が外れても・表示形式を切り替えても確定。編集中はそのセルのタップ・ダブルタップ・ドラッグを `GestureMask.subviews` で外す。
+- 名前の変更(アイコン): セルの名前の `FileBrowserNameField` を、不透明な地の折り返す欄に切り替えて編集する(打つと下へ伸びる。輪郭なし)。
+  始まり方は 3 つ ―― **選ばれた 1 件の名前の文字の上をもう一度クリックしてダブルクリックの間隔だけ待つ**(範囲は `FileBrowserIconView.nameRect`。
+  以前は「アイコンより下」全部で、名前の横の余白でも始まった)、新規フォルダの直後、右クリックの「名前を変更」。Return で確定、Esc で取りやめ、
+  ほかをクリックして焦点が外れても・表示形式を切り替えても・編集中のセルが画面から外れて使い回されても確定。**編集中は一覧の取り込みを待たせる**(リストと同じ)。
   名前の変更が済んだあとに変えた項目を選び直すのは、**その項目がまだ選ばれているときだけ**(余白をクリックして確定したら選択は外れたまま)。
-  - 欄の焦点は**ウインドウに入った時点**(`FileBrowserNameField.focusesWhenAttached` → `viewDidMoveToWindow`)で置く。`makeNSView` の次の
-    ランループではまだウインドウに入っていないことがあった。
-  - ダブルクリックの 2 回目の判定は、直前のタップの項目と時刻で行う。ジェスチャーの閉包の中の `NSApp.currentEvent` はマウスのイベントではなく、
-    `clickCount` が読めなかった。
 - 名前の編集の依頼(`renameRequest`)は、一覧が編集を始めたら `finishRenameRequest` で下ろし、フォルダを移ったら捨てる。
   残しておくと、表示形式を切り替えて作り直された一覧が古い依頼を拾い直して、頼んでいない編集を始める。
 - キー: リストは `FileBrowserTableView` が `copy:`/`cut:`/`paste:` を受け(標準の編集メニューが効く)、⌘⌫ / ⌥⌘V / ⌘[ / ⌘] / ⌘↑ を
-  `FileBrowserEditCommand` へ。アイコン表示はコピー・カット・ペーストを `.onCommand`、⌘↑ を矢印キーの `.onKeyPress`、
-  ⌘⌫ / ⌥⌘V / ⌘[ / ⌘] を **表示中だけのキー監視 `FileBrowserKeyMonitor`** で受ける(`.onKeyPress` では届かなかった。実測)。
-  監視はテキストを編集中は受けない(検索欄の ⌘⌫ は文字を消す)。
+  `FileBrowserEditCommand` へ。アイコン表示の `FileBrowserCollectionView` も同じ形で受ける(2026-09-15 まではコピー・カット・ペーストを `.onCommand`、
+  ⌘⌫ / ⌥⌘V / ⌘[ / ⌘] を表示中だけのキー監視で受けていた ―― SwiftUI の `.onKeyPress` では届かなかったため)。
 - 空のフォルダでも一覧は置き、「このフォルダは空です」はその上に重ねる(案内だけにすると ⌘V と空きスペースの右クリックが効かない)。
 - AppKit の右クリックメニューは `autoenablesItems = false`(既定のままだと淡色の指定が無視される)。
 - 報告の題に操作の名前(`displayName`。「「x」の移動」「3 項目のコピー」)を入れるときは、題の側でかぎ括弧を付けない(名前が自分で括弧を持つので重なる。2026-09-14)。
@@ -640,7 +677,7 @@ FileOperationService+Archives}.swift`、コマンドは `CompressFilesCommand` /
 アイコン表示のセルに、本・画像・画像を直接持つフォルダ・動画の**中の絵**を出す(リストとツリーは種類のアイコンのまま。ユーザーの判断。
 アプリケーションのアイコンだけはリストにも出す ―― 下の「アプリケーションのアイコン」)。
 コードは `Services/FileBrowserThumbnails/{BookThumbnailer, FileBrowserThumbnailDiskCache, FileBrowserThumbnailProvider}.swift` と
-`Views/FileBrowser/FileBrowserIconImage.swift`。動画(7b)は同じフォルダの `VideoThumbnailer` / `RetaggedHEVCThumbnailLoader` /
+`Views/FileBrowser/FileBrowserIconView.swift` の `FileBrowserIconItem` / `FileBrowserIconCellView`。動画(7b)は同じフォルダの `VideoThumbnailer` / `RetaggedHEVCThumbnailLoader` /
 `MediaContainerSniffer` / `MatroskaDimensionReader` / `FileBrowserVideoThumbnailWarmer`(下の「動画」)。
 
 - **どこから持ってくるか**(決定事項 Q5): コレクションに登録済みで表紙ができている本は**その表紙**(`CollectionCoverStore` の JPEG。本は読まない)。
@@ -765,14 +802,14 @@ qooLibrary の実装(`VideoThumbnailLoading` ほか)を写した。実測の経�
   行うのでサンドボックスに掛からず、取り消しは Finder 側)。当初はコピーだけにしていたが、Finder のウインドウ同士と挙動が違うのは
   期待に反する(ユーザー指摘)。こちらは元を消さないので、移動を受けても自分で元を消さない相手ではコピーで済む。
   Dock のゴミ箱(`.delete`)は許していない(合成したドラッグでは Finder からでもゴミ箱が受け付けず、確かめられなかった)。
-  ウインドウをまたいだドラッグはアプリの中として扱い、同じボリュームなら移動(実機で確認)。取り消しは落とした側のウインドウの履歴に積まれる。アイコン表示は SwiftUI の `.onDrag` では 1 件しか運べないので、
-  セルの `DragGesture` の動き始めの `NSApp.currentEvent` で AppKit のドラッグセッションを始める(`FileBrowserIconDragHandle`。選ばれていない
-  セルを掴んだらその 1 件を選び直す)。
+  ウインドウをまたいだドラッグはアプリの中として扱い、同じボリュームなら移動(実機で確認)。取り消しは落とした側のウインドウの履歴に積まれる。アイコン表示の出し口は `NSCollectionView` の標準
+  (2026-09-15 まで SwiftUI だったときは、`.onDrag` が 1 件しか運べないので自前でドラッグセッションを始めていた)。
 - 受け口: リストはフォルダの行の上ならそのフォルダ、それ以外は表全体(表示中のフォルダ)。表全体のときは、アイコン表示の余白と同じ
   **右ペインのアクセント色の枠**を出す(`FileBrowserTableView.isWholeTableDropTarget` → ペイン。AppKit 標準の表全体の強調は細い線で、
   すりガラス 2 条件では薄かった。2026-09-14、実機でフォルダの行の上では出ないこと・落とした後に消えることを確認)。ツリーはどの行の上でも(行の間はその親の行)。
   パスバーは成分ごと(`FileBrowserPathControl`。`NSPathCell` で成分の矩形を引き、アクセント色の枠で囲む。「コンピュータ」は断る)。
-  アイコン表示はフォルダのセル、**右ペインの残り全部は `FileBrowserPane` の受け口**が表示中のフォルダへ。
+  アイコン表示はフォルダのセルならそのフォルダ、それ以外(ファイルのセル・余白)は表示中のフォルダで、全体のときはリストと同じペインの枠
+  (`FileBrowserCollectionView` の受け口。2026-09-15)。**一覧の外(操作列など)は `FileBrowserPane` の受け口**が表示中のフォルダへ。
 - **右ペインを全部受け口で覆い、断るときも受け口として断る**: SwiftUI の内側の受け口が断ると、ウインドウ全体の「本を開く」受け口
   (`ContentView.applyFileDropTarget`)が拾う(フォルダを自分の上に落とすと本として開く、になる)。
 - SwiftUI の受け口は **`performDrop` の直後にもう 1 回 `dropUpdated` が届き**、消した強調が付き直って残った(ログで確認)。
@@ -893,7 +930,7 @@ qooLibrary の実装(`VideoThumbnailLoading` ほか)を写した。実測の経�
   (Finder の「ユーザ」のような表示名にしない)。「種類」列は OS の言語。
 - 検索は現フォルダの絞り込みだけ(再帰検索は無い。決定事項 Q9)。
 - スプリングローデッドフォルダ(ドラッグで静止して開く)は無い(ツリーの行もドラッグ中は開かない)。Dock のゴミ箱へのドラッグは受け付けない。
-- アイコン表示の淡色のサブメニューには矢印が出ない(SwiftUI の `.contextMenu` の中で淡色の `Menu` を描けないため、押せない `Button` で描く)。
+- ~~アイコン表示の淡色のサブメニューには矢印が出ない~~(2026-09-15、アイコン表示を AppKit のメニューにした)。コレクションの中の右クリックは SwiftUI のままなので残る。
 - ネットワーク上の共有では FSEvents が飛ばないので、外での変更はアプリがアクティブになるまで一覧・ツリーに出ない。
 - ~~ツリーは開いた時点の子を覚えたまま~~(2026-09-14、FSEvents で見張るようにした。「ツリーの三角」)。
 
@@ -901,8 +938,8 @@ qooLibrary の実装(`VideoThumbnailLoading` ほか)を写した。実測の経�
 - 取り消しの受領書はパスで持つ。外で名前を変えられた・移された項目の取り消しは「見つかりません」になる(別の項目に触らないことだけは `FileIdentity` で守る)。
 - 許可の無い場所から来た項目(他のアプリでコピーしたもの)の移動は取り消せない(確認で「移動」を選んだ場合)。
 - 別ボリュームへの移動は、事前の総量・ロック・コピー・確認の各段で木を最大 6 回歩く(2026-09-14 の監査で残した)。
-- SwiftUI の受け口(アイコン表示・右ペイン)では、他のアプリからのドラッグを「アプリの中のドラッグ」と取り違えうる古い記録を捨てられない
-  (`DropInfo` にドラッグ元が無い。AppKit の受け口を一度通れば捨てる)。
+- SwiftUI の受け口(右ペインの一覧の外 ―― 操作列など)では、他のアプリからのドラッグを「アプリの中のドラッグ」と取り違えうる古い記録を捨てられない
+  (`DropInfo` にドラッグ元が無い。AppKit の受け口を一度通れば捨てる)。アイコン表示は 2026-09-15 から AppKit の受け口。
 - 「すべてに適用」で「置き換える」を選んだあとの衝突の相手がロックされていると、尋ねずに「ロックされています」で止まる。
 - 展開: rar・7z の記号リンクは中身の短いファイルになる、実行権などの属性は写さない、zip・7z の暗号化は見分けられず「読めませんでした」、
   途中でアプリが落ちると `.qooViewer-extract-<UUID>/` が残る(記録を持たない。元の項目は入っていない)。圧縮の `.qooViewer-compress-<UUID>.zip`、

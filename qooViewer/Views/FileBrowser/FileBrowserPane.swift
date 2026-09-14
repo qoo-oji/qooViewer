@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 ///
 /// ```
 /// [ツリー] | [‹ › ↑]      [検索欄]      [リスト/アイコン][並べ替え][大きさ]
-///          | リスト(NSTableView) または アイコン(LazyVGrid)
+///          | リスト(NSTableView) または アイコン(NSCollectionView)
 ///          | パスバー(NSPathControl)
 /// ```
 ///
@@ -30,6 +30,8 @@ struct FileBrowserPane: View {
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var metadataStore: BookMetadataStore
+    /// アイコン表示の絵(`revision` と `includesVideo` を値でアイコン表示へ渡す。FileBrowserIconView のコメント)。
+    @EnvironmentObject private var thumbnails: FileBrowserThumbnailProvider
     @Environment(\.openWindow) private var openWindow
     @Environment(\.locale) private var locale
     @Environment(\.panelContentOutlineWidth) private var outlineWidth
@@ -45,7 +47,8 @@ struct FileBrowserPane: View {
     @State private var isSearchExpanded = false
     /// 右ペインがドロップの受け口として反応しているか(表示中のフォルダへ落とす。段階4b)。
     @State private var isDropTargeted = false
-    /// リストの表全体が受け口になっている(FileBrowserListView.onWholeListDropTargetChange)。
+    /// リスト・アイコン表示の全体が受け口になっている(FileBrowserListView.onWholeListDropTargetChange /
+    /// FileBrowserIconView.onWholeViewDropTargetChange)。
     @State private var isListDropTargeted = false
     @FocusState private var isSearchFocused: Bool
 
@@ -99,8 +102,8 @@ struct FileBrowserPane: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color(nsColor: .controlBackgroundColor))
             }
-            // 右ペインの残り全部を受け口で覆う(操作列・案内・アイコン表示の余白やファイルのセル)。
-            // リスト・パスバー・フォルダのセルは自分の受け口が先に受ける。覆っておかないと、断ったドロップを
+            // 右ペインの残り全部を受け口で覆う(操作列・トーストなど)。リスト・アイコン表示・パスバーは自分の受け口
+            // (AppKit)が先に受ける。覆っておかないと、断ったドロップを
             // ウインドウ全体の「本を開く」受け口が拾う(FileBrowserDragAndDrop.swift の冒頭のコメント)。
             .onDrop(
                 of: [.fileURL],
@@ -281,7 +284,12 @@ struct FileBrowserPane: View {
                         onWholeListDropTargetChange: { isListDropTargeted = $0 }
                     )
                 case .icons:
-                    FileBrowserIconView(state: state, actions: actions, isReadOnly: preferences.fileBrowserReadOnly)
+                    FileBrowserIconView(
+                        state: state, actions: actions, thumbnails: thumbnails,
+                        thumbnailRevision: thumbnails.revision, includesVideo: thumbnails.includesVideo,
+                        outlineWidth: outlineWidth, locale: locale,
+                        onWholeViewDropTargetChange: { isListDropTargeted = $0 }
+                    )
                 }
                 if state.entries.isEmpty, !state.isLoading {
                     Group {

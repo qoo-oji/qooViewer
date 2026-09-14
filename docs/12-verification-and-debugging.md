@@ -182,9 +182,10 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
   `qooViewer.pref.appAppearance` を書いて起動し直す。AppKit の部品(三角・列の見出し・標準のボタン)が消えるのは
   ここでしか見つからなかった。
 - リークは File ›「新規ノーマルウインドウ」→ ⌘W を繰り返し、`heap <pid>` で `FileBrowserState` / `FileBrowserOperations` / `AppState` /
-  `FileBrowserTableView` / `FileBrowserOutlineView` の数が増えないことを見る(閉じた直後の 1 つぶんは SwiftUI が遅れて手放すので、回数を増やして比べる)。
-  **閉じる前にアイコン表示で空きスペースと項目を右クリックしておく**(`.contextMenu` の Binding と `FileBrowserActions` の閉包が AppKit へ渡る経路。
-  2026-09-14 の監査で直したが `heap` ではまだ見ていない)。リスト・ツリーの右クリック、名前の編集、ドラッグも 1 回ずつ通してから閉じる。
+  `FileBrowserTableView` / `FileBrowserOutlineView` / `FileBrowserCollectionView` / `FileBrowserIconItem` の数が増えないことを見る(閉じた直後の 1 つぶんは
+  SwiftUI が遅れて手放すので、回数を増やして比べる)。**閉じる前に、リスト・アイコン表示・ツリーで空きスペースと項目を右クリックし、名前の編集と
+  ドラッグも 1 回ずつ通しておく**(メニューの delegate・名前の欄の delegate・一覧の `handler` が `dismantleNSView` で切れているかを見るため。
+  2026-09-15 にアイコン表示を `NSCollectionView` にした後は `heap` でまだ見ていない)。
 - 終わったら `NSTableView … qooViewer.fileBrowser.list` など**検証で増えたキーを消してから** `defaults import`。
 - ファイル選択ダイアログ(「アクセスを許可…」・よく使う項目の「＋」)とホームの初回の許可・TCC のダイアログは自動操作しない。
 - 書く操作(段階 4、2026-09-13): 別ボリュームへのコピーと衝突は、使い捨ての APFS ボリュームを 2 本付けて行う。
@@ -192,6 +193,14 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
   取り消しでゴミ箱へ行ったものは、そのボリュームの `.Trashes/<uid>` に入る(ボリュームを外せば消える)。
 - AppKit の右クリックメニューの淡色は、縮小した画像では見分けられない。メニューを上下 2 つの範囲に分けて等倍で撮る。
 - アイコン表示のキーは、項目を選んだあとの ⌘⌫・⌘[ と、**検索欄に文字を入れた状態の ⌘⌫(文字だけが消え、項目は残る)**を両方見る。
+  2026-09-15 からアイコン表示はリストと同じく一覧の `keyDown` で受ける(焦点が一覧にあるときだけ届く)。**type-select は一覧に焦点があるときだけ**なので、
+  打つ前に一覧の余白を 1 回クリックする。
+- **名前の変更で打つ文字に空白を入れない**(2026-09-15)。System Events の `keystroke` で空白を送ると日本語入力に切り替わり、続く文字が全角になり、
+  Return は変換の確定に使われてアプリへ届かない(「Return で確定しない」とアプリの不具合に見えた)。空白の無い名前にし、Return の前にもう一度
+  `key code 102`(英数)を送る。
+- **コンテナの `Library/Logs/` は最初は無い**(2026-09-15)。`#if DEBUG` の一時ログを `Data.write(to:)` で書くと黙って失敗するので、先に `mkdir -p` する。
+- **アイコン表示の確認で撮るのは一覧の内側だけ**(帯のライブラリの名前・ツリーのよく使う項目の名前を写さない)。右ペインの左上から撮る範囲を
+  固定した小さなスクリプトを作っておくと、座標の逆算(画像の px ÷ 縮小率 + 撮った範囲の左上)も毎回同じになる。
 - ドラッグ&ドロップ(段階 4b): ドラッグは CGEvent(`leftMouseDown` → `leftMouseDragged` を 20ms 刻みで 30 回 → `leftMouseUp`)を
   `cghidEventTap` へ送る小さな Swift のプログラムで合成できる(qooViewer から他のアプリへのドラッグも Finder からのドラッグも同じ)。
   **修飾キーはマウスのイベントの flags に載せ、⌥ / ⌘ のキーの押し下げも送る**。キーを離すイベントがボタンを離すイベントより先に処理されると
@@ -255,7 +264,7 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
   メニューが出ていないのか撮る時機がずれたのかをこれで切り分けられる。System Events の `focused of windows` はキーのウインドウでも false を返すので、
   キーかどうかの判定には使えない(一度これで「キーでない」と誤診した)。
 - **クリックがどこに届いたかは、`NSEvent.addLocalMonitorForEvents` の中で `event.window?.contentView?.hitTest(event.locationInWindow)` をログに出す**
-  (2026-09-14、段階 8.5)。アイコン表示の SwiftUI の右クリックでサブメニューを開いて閉じたあと、リストの右クリックが開かなくなった件は、これで
+  (2026-09-14、段階 8.5。アイコン表示はこのとき SwiftUI だった)。アイコン表示の SwiftUI の右クリックでサブメニューを開いて閉じたあと、リストの右クリックが開かなくなった件は、これで
   「当たり先が表ではなく名前の欄になっていて、表の `rightMouseDown` / `menu(for:)` が呼ばれていない」と 1 回で分かった(docs/15「実機で見つけて直したもの」)。
   ログは `#if DEBUG` でコンテナの `Library/Logs/` へ書き、原因が分かったらコードもファイルも `Logs/` フォルダも消す。
 - **利用者が Mac を使っている最中は、カーソルを動かす・画面を撮る検証をしない**(2026-09-14)。Debug を Xcode から動かしている最中に、

@@ -281,27 +281,7 @@ struct FileBrowserStateTests {
         #expect(state.selection == [fixture.id(fixture.aFolder)])
     }
 
-    // MARK: - クリック
-
-    @Test("クリックは1件、⌘は反転、⇧は起点からの範囲(表示順)")
-    func clickRules() async throws {
-        let fixture = try Fixture("fb-click")
-        let state = fixture.state
-        state.navigate(to: fixture.root)
-        await state.settle()
-        let ids = state.entries.map(\.id)
-
-        state.click(ids[1], modifier: .none)
-        #expect(state.selection == [ids[1]])
-        state.click(ids[3], modifier: .range)
-        #expect(state.selection == Set(ids[1...3]))
-        state.click(ids[2], modifier: .toggle)
-        #expect(state.selection == [ids[1], ids[3]])
-        state.click(ids[0], modifier: .none)
-        #expect(state.selection == [ids[0]])
-    }
-
-    @Test("矢印キーは列数に沿って1件を選び直す")
+    @Test("矢印キーは列数に沿って1件を選び直す。起点は置いた項目")
     func arrowKeysMoveTheSelection() async throws {
         let fixture = try Fixture("fb-arrows")
         let state = fixture.state
@@ -318,6 +298,12 @@ struct FileBrowserStateTests {
         state.moveSelection(.up, columns: 2)
         #expect(state.selection == [ids[1]])
         #expect(state.scrollRequest?.id == ids[1])
+
+        // クリックで選んだ項目(アイコン表示が起点を置く)から動く。
+        state.selection = [ids[0], ids[3]]
+        state.setSelectionAnchor(ids[3])
+        state.moveSelection(.left, columns: 2)
+        #expect(state.selection == [ids[2]])
     }
 
     @Test("名前の編集の依頼は、一覧が済ませたら下ろす(別の依頼は残す)。フォルダを移ると捨てる")

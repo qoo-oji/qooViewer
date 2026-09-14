@@ -211,7 +211,7 @@ final class FileBrowserState: ObservableObject {
     private var renameSerial = 0
     private var sessionBulkRenameSettings: BulkRenameSettings?
     private var stackObservation: AnyCancellable?
-    /// ⇧クリックと矢印キーの起点。
+    /// 矢印キーと type-select の起点(最後にクリック・矢印・type-select で選んだ項目)。
     private var selectionAnchor: String?
     /// type-select で溜めている文字と、最後に打った時刻。
     private var typeSelectBuffer = ""
@@ -479,39 +479,11 @@ final class FileBrowserState: ObservableObject {
 
     // MARK: - 選択
 
-    /// クリックの修飾(アイコン表示で使う。リスト表示は`NSTableView`が自前で同じことをする)。
-    enum ClickModifier {
-        /// その1件だけを選ぶ。
-        case none
-        /// ⌘: その1件の選択を反転する。
-        case toggle
-        /// ⇧: 起点からその1件までを選ぶ。
-        case range
-    }
-
-    /// 項目をクリックした(Finderのアイコン表示と同じ規則)。
-    func click(_ id: String, modifier: ClickModifier) {
-        switch modifier {
-        case .none:
-            selection = [id]
-            selectionAnchor = id
-        case .toggle:
-            if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
-            selectionAnchor = id
-        case .range:
-            guard let anchor = selectionAnchor, let from = entries.firstIndex(where: { $0.id == anchor }),
-                  let to = entries.firstIndex(where: { $0.id == id })
-            else {
-                selection = [id]
-                selectionAnchor = id
-                return
-            }
-            selection = Set(entries[min(from, to)...max(from, to)].map(\.id))
-        }
-    }
-
     /// 矢印キー(アイコン表示)。起点は最後にクリック・移動した項目、無ければ選択の先頭。
     /// 移動先を1件だけ選んで、見える位置へスクロールする。
+    ///
+    /// `NSCollectionView` の標準の矢印キーを使わないのは、独自のレイアウト(`FileBrowserIconLayout`)では右矢印で真下へ移り、
+    /// 下矢印で動かなかったため(2026-09-15 の実機検証)。
     func moveSelection(_ direction: GridKeyboardNavigation.Direction, columns: Int) {
         let current = selectionAnchor.flatMap { anchor in
             selection.contains(anchor) ? entries.firstIndex(where: { $0.id == anchor }) : nil
@@ -524,6 +496,11 @@ final class FileBrowserState: ObservableObject {
         selectionAnchor = id
         scrollSerial += 1
         scrollRequest = ScrollRequest(id: id, serial: scrollSerial)
+    }
+
+    /// 矢印キーと type-select の起点を置く(アイコン表示でクリックして選んだ項目)。
+    func setSelectionAnchor(_ id: String?) {
+        selectionAnchor = id
     }
 
     /// type-select(アイコン表示。リスト表示は`NSTableView`の標準)。打った文字を名前の先頭に持つ項目を1件だけ選んで、
