@@ -699,6 +699,8 @@ final class AppState: ObservableObject {
     /// このウインドウのファイルブラウザ(改善要望7 段階4)。編集メニューの「取り消す」「やり直す」が
     /// ここから操作の積み場所へ届く。持ち主はContentView(`@StateObject`)なので weak。
     weak var fileBrowser: FileBrowserState?
+    /// このウインドウのウェルカム画面の状態(段階 8)。「ファイルブラウザで開く」がモードを切り替える。持ち主はContentView。
+    weak var welcomeLibrary: WelcomeLibraryState?
 
     /// このウインドウの位置・サイズが決まって、最初の描画を1回通したか
     /// (ContentViewのWindowAccessorが立てる)。

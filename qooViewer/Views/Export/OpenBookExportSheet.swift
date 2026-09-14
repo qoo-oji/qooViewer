@@ -28,8 +28,8 @@ struct OpenBookExportSheet: View {
     /// (`BookExportViewModel.exportOpenBook(_:displayState:to:)`参照)。
     let book: MangaBook
     /// 画面での表示状態(読み方向・見開き/単ページ)。DBに保存が無い項目をこれで補う
-    /// (`BookExportViewModel.OpenBookDisplayState`参照)。
-    let displayState: BookExportViewModel.OpenBookDisplayState
+    /// (`BookExportViewModel.OpenBookDisplayState`参照)。本を開かずに書き出す経路(ファイルブラウザ)では nil。
+    let displayState: BookExportViewModel.OpenBookDisplayState?
     /// 書き出し先。シートが開く前に必ず決まっている(上のコメント参照)。
     let initialDestination: Destination
     /// falseなら、このシートは何も尋ねずに開いた瞬間から書き出しを始める

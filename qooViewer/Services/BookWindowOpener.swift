@@ -80,8 +80,11 @@ enum BookWindowOpener {
     /// 本と違って**重複の判定をしない**(同じフォルダを2枚で見るのは普通のこと。
     /// WindowContentRequestの型コメント)。セキュリティスコープの受け渡しは本と同じ10秒
     /// (SecurityScopedHandoff)。受け取った側がFolderAccessStoreの許可で読み直すまでの橋渡し。
+    ///
+    /// - Parameter item: 開いたフォルダの中で選ぶ項目(「ファイルブラウザで開く」でファイルを示すとき。段階 8)。
     static func openFolder(
         _ folder: URL,
+        selecting item: URL? = nil,
         to destination: BookOpenDestination,
         from source: AppState?,
         openWindow: OpenWindowAction
@@ -89,7 +92,7 @@ enum BookWindowOpener {
         SecurityScopedHandoff.begin(folder)
         presentNewWindow(
             groupID: BookWindowGroup.id(forBrowsing: destination, inheritingFrom: source),
-            value: .browse(folder), destination: destination, source: source,
+            value: .browse(folder, selecting: item), destination: destination, source: source,
             openWindow: openWindow, onOpened: nil
         )
     }

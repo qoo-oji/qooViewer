@@ -4,10 +4,9 @@ import SwiftUI
 ///
 /// 段階3で並べるのは**いま効くものだけ**(起動時のフォルダ・フォルダを上に。段階4bで「外からドロップしたとき」、
 /// 2026-09-14 に「現在のフォルダまでツリーを自動で展開する」、段階 6 で「圧縮したファイルの形式」、段階 7b で
-/// 「動画のサムネイルを作る」)。計画
+/// 「動画のサムネイルを作る」、段階 8 で「ファイルブラウザで開く」の行き先)。計画
 /// (docs/plans/file-browser-plan.md §3.6)に挙げた残りの行 ――
-/// 「ファイルブラウザで開く」の行き先・動画のサムネイル・サムネイルのキャッシュ ―― は、それを使う
-/// 機能が入る段階で足す。押しても何も変わらない設定を先に並べると、効かない理由が画面から読めない。
+/// サムネイルのキャッシュ ―― は環境設定「キャッシュ」に置いた。押しても何も変わらない設定を先に並べると、効かない理由が画面から読めない。
 struct FileBrowserSettingsView: View {
     @EnvironmentObject private var preferences: AppPreferences
     @EnvironmentObject private var favoriteLocations: FavoriteLocationStore
@@ -25,6 +24,16 @@ struct FileBrowserSettingsView: View {
                 }
             } header: {
                 Text("When the File Browser Opens")
+            }
+
+            Section {
+                SettingsPicker(
+                    "While a Book Is Open",
+                    selection: $preferences.fileBrowserRevealDestination,
+                    help: "Where Show in File Browser opens the file browser when the window is showing a book. In a window that isn't showing a book, the file browser opens in that window."
+                )
+            } header: {
+                Text("Show in File Browser")
             }
 
             Section {

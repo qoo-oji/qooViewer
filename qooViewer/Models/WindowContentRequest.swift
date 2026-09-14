@@ -18,12 +18,13 @@ import Foundation
 nonisolated enum WindowContentRequest: Codable, Hashable, Sendable {
     /// この本を開く。
     case book(BookOpenRequest)
-    /// ウェルカム画面をファイルブラウザにして、このフォルダを表示する。
-    case browse(folder: URL, nonce: UUID)
+    /// ウェルカム画面をファイルブラウザにして、このフォルダを表示する。`selecting`があれば、その項目を選んで
+    /// 見える位置へスクロールする(「ファイルブラウザで開く」でファイルを示すとき。段階 8)。
+    case browse(folder: URL, selecting: URL?, nonce: UUID)
 
     /// フォルダを表示する要求を作る(`nonce`を毎回新しくする)。
-    static func browse(_ folder: URL) -> WindowContentRequest {
-        .browse(folder: folder, nonce: UUID())
+    static func browse(_ folder: URL, selecting item: URL? = nil) -> WindowContentRequest {
+        .browse(folder: folder, selecting: item, nonce: UUID())
     }
 
     /// 本の要求なら、その中身。
@@ -34,7 +35,13 @@ nonisolated enum WindowContentRequest: Codable, Hashable, Sendable {
 
     /// フォルダを表示する要求なら、そのフォルダ。
     var browsedFolder: URL? {
-        guard case .browse(let folder, _) = self else { return nil }
+        guard case .browse(let folder, _, _) = self else { return nil }
         return folder
+    }
+
+    /// フォルダを表示する要求で選ぶ項目。
+    var browsedSelection: URL? {
+        guard case .browse(_, let item, _) = self else { return nil }
+        return item
     }
 }

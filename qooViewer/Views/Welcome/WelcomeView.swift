@@ -285,9 +285,15 @@ enum WelcomeDropHandling {
 
     /// 一覧へのドロップ。ばらの本はまとめて1つのコレクションに、棚(本が並んだフォルダ)は
     /// フォルダ名を既定の名前にしたコレクションに、それぞれ1件ずつ名前の入力待ちへ積む。
-    private static func queueCreations(
+    ///
+    /// ファイルブラウザの右クリック「コレクションを作成」も同じ振り分けで積む(改善要望7 段階 8。
+    /// 名前を訊くシートはこの画面が持つので、ファイルブラウザを出したままでも出る)。
+    ///
+    /// - Returns: 1件でも積んだか(何も本にならなかったら false)。
+    @discardableResult
+    static func queueCreations(
         from classified: [CollectionDropClassifier.Item], into state: WelcomeLibraryState
-    ) {
+    ) -> Bool {
         var queued: [WelcomeLibraryState.PendingCollectionCreation] = []
         let looseBooks = classified.compactMap { item -> URL? in
             if case .book(let url) = item { return url }
@@ -310,8 +316,9 @@ enum WelcomeDropHandling {
                 )
             )
         }
-        guard !queued.isEmpty else { return }
+        guard !queued.isEmpty else { return false }
         state.pendingCreations.append(contentsOf: queued)
+        return true
     }
 
     /// 落とされた本が全部同じフォルダに入っていたなら、そのフォルダ。

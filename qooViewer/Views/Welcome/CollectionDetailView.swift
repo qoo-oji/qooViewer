@@ -32,6 +32,9 @@ struct CollectionDetailView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
     @Environment(\.openWindow) private var openWindow
+    /// 右クリックの「ファイルブラウザで開く」(改善要望7 段階 8)。本を開いていないウインドウなので、このウインドウの
+    /// ウェルカム画面がファイルブラウザに切り替わる(FileBrowserReveal)。
+    @Environment(\.revealInFileBrowser) private var revealInFileBrowser
     @Environment(\.locale) private var locale
     @ObservedObject var state: WelcomeLibraryState
     let collection: BookCollection
@@ -532,6 +535,17 @@ struct CollectionDetailView: View {
                     return
                 }
                 FinderReveal.reveal(url)
+            }
+            .disabled(!isSingle)
+            Button("Show in File Browser") {
+                guard let url = collectionStore.resolvedExistingURL(for: item) else {
+                    missingBook = MissingBook(
+                        id: item.id, title: item.title,
+                        reason: collectionStore.location(for: item)
+                    )
+                    return
+                }
+                revealInFileBrowser(url)
             }
             .disabled(!isSingle)
 

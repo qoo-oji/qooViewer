@@ -24,6 +24,12 @@ struct FileBrowserPane: View {
     @EnvironmentObject private var folderAccess: FolderAccessStore
     @EnvironmentObject private var favoriteLocations: FavoriteLocationStore
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
+    // 既存機能との接続(段階 8。FileBrowserLibraryActions.swift)。
+    @EnvironmentObject private var collectionStore: CollectionStore
+    @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
+    @EnvironmentObject private var bookmarkStore: BookmarkStore
+    @EnvironmentObject private var layoutStore: LayoutStore
+    @EnvironmentObject private var metadataStore: BookMetadataStore
     @Environment(\.openWindow) private var openWindow
     @Environment(\.locale) private var locale
     @Environment(\.panelContentOutlineWidth) private var outlineWidth
@@ -114,6 +120,32 @@ struct FileBrowserPane: View {
         .sheet(isPresented: $state.isShowingGoToFolder) {
             FileBrowserGoToFolderSheet(state: state)
         }
+        // 右クリックの「メタデータの編集…」「本の書き出し」(段階 8)。
+        .sheet(item: $state.bookSheet) { sheet in
+            bookSheet(sheet)
+        }
+    }
+
+    @ViewBuilder
+    private func bookSheet(_ sheet: FileBrowserBookSheet) -> some View {
+        switch sheet.kind {
+        case .metadata(let url):
+            BookMetadataSheet(sourceURL: url)
+        case .export(let export):
+            OpenBookExportSheet(
+                viewModel: export.viewModel,
+                format: export.format,
+                book: export.book,
+                // 画面の状態が無い(本を開いていない)。DBに無い項目は3つの書き出しウインドウと同じく既定値。
+                displayState: nil,
+                initialDestination: export.destination,
+                asksBeforeExporting: export.asksBeforeExporting,
+                // カバーの指定はDBに残るので、シークレットウインドウでは選ばせない(ビューアの右クリックと同じ)。
+                allowsCoverSelection: !appState.isPrivateWindow
+            ) { [weak state] _ in
+                state?.bookSheet = nil
+            }
+        }
     }
 
     private func connectActions() {
@@ -124,6 +156,11 @@ struct FileBrowserPane: View {
         actions.favoriteLocations = favoriteLocations
         actions.preferences = preferences
         actions.openWindow = openWindow
+        actions.collectionStore = collectionStore
+        actions.coverExtractor = coverExtractor
+        actions.bookmarkStore = bookmarkStore
+        actions.layoutStore = layoutStore
+        actions.metadataStore = metadataStore
         if state.operations.presenter == nil {
             state.operations.presenter = FileBrowserSheetPresenter(appState: appState)
         }

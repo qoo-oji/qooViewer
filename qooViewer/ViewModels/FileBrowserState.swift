@@ -119,6 +119,8 @@ final class FileBrowserState: ObservableObject {
     @Published private(set) var renameRequest: ScrollRequest?
     /// 「移動」メニューの「フォルダへ移動…」のシートを出しているか。
     @Published var isShowingGoToFolder = false
+    /// 右クリックの「メタデータの編集…」「本の書き出し」のシート(段階 8)。nil なら出していない。
+    @Published var bookSheet: FileBrowserBookSheet?
     /// 自分の操作でファイルが変わったフォルダ(ツリーが開いている行を読み直す)。
     @Published private(set) var fileSystemChange: FileSystemChange?
 
@@ -164,7 +166,8 @@ final class FileBrowserState: ObservableObject {
     private var forwardStack: [URL?] = []
     private var generation = 0
     private var hasStarted = false
-    private var pendingFolder: URL?
+    /// 次に画面に出たときの行き先(prepare / show)。
+    private var pendingDestination: Destination?
     private var isVisible = false
     /// 読み込みが終わったら選んでスクロールする項目(上へ・戻る・reveal)。
     private var pendingReveal: String?
@@ -214,10 +217,14 @@ final class FileBrowserState: ObservableObject {
     /// - Parameter folder: 「新規タブで開く」などで渡されたフォルダ。あれば起動時のフォルダより優先。
     func activate(showing folder: URL? = nil) {
         isVisible = true
-        if let folder = folder ?? pendingFolder {
-            pendingFolder = nil
+        if let folder {
+            pendingDestination = nil
             hasStarted = true
             navigate(to: folder)
+        } else if let pending = pendingDestination {
+            pendingDestination = nil
+            hasStarted = true
+            go(to: pending)
         } else if !hasStarted {
             hasStarted = true
             move(to: startupFolder(), selecting: nil)
@@ -229,8 +236,38 @@ final class FileBrowserState: ObservableObject {
 
     /// 次に画面に出たときに表示するフォルダを予約する(新しいタブ/ウインドウで開いたフォルダ。
     /// ウインドウの中身がまだ出ていない時点で受け取るので、その場では読み込まない)。
-    func prepare(showing folder: URL) {
-        pendingFolder = folder
+    ///
+    /// - Parameter item: そのフォルダの中で選ぶ項目(「ファイルブラウザで開く」でファイルを示すとき)。
+    func prepare(showing folder: URL, selecting item: URL? = nil) {
+        pendingDestination = item.map(Destination.item) ?? .folder(folder)
+    }
+
+    /// 「ファイルブラウザで開く」(段階 8)。フォルダはその中を、ファイルは入っているフォルダでその項目を選んで見せる
+    /// (「Finder で開く」と同じ規則。FinderReveal)。**画面に出ていれば今すぐ、出ていなければ次に出たときに**
+    /// (本棚から切り替えた直後は、ペインの onAppear が activate を呼ぶまで見えていない)。
+    func show(_ url: URL, isDirectory: Bool) {
+        let destination: Destination = isDirectory ? .folder(url) : .item(url)
+        guard isVisible else {
+            pendingDestination = destination
+            return
+        }
+        hasStarted = true
+        go(to: destination)
+    }
+
+    /// 予約・「ファイルブラウザで開く」の行き先。
+    enum Destination: Equatable {
+        /// このフォルダの中を見せる。
+        case folder(URL)
+        /// この項目の入っているフォルダで、この項目を選ぶ。
+        case item(URL)
+    }
+
+    private func go(to destination: Destination) {
+        switch destination {
+        case .folder(let folder): navigate(to: folder)
+        case .item(let item): reveal(item)
+        }
     }
 
     /// ファイルブラウザが画面から消えたとき(本を開いた・本棚へ切り替えた)。監視を止める。
@@ -250,6 +287,10 @@ final class FileBrowserState: ObservableObject {
         preferenceObservation = nil
         stackObservation = nil
         operations.presenter = nil
+        // 書き出しの同名確認を待ったままウインドウが閉じると、書き出しの Task が答えを待ち続ける
+        // (ViewerView.cancelOpenBookExportIfNeeded と同じ)。
+        bookSheet?.cancelExport()
+        bookSheet = nil
     }
 
     // MARK: - 移動
@@ -685,5 +726,33 @@ final class FileBrowserState: ObservableObject {
 
     private static func clamp(_ value: CGFloat, to range: ClosedRange<CGFloat>) -> CGFloat {
         min(range.upperBound, max(range.lowerBound, value))
+    }
+}
+
+/// ファイルブラウザの右クリックから出す本のシート(改善要望7 段階 8、2026-09-14)。
+struct FileBrowserBookSheet: Identifiable {
+    enum Kind {
+        /// 「メタデータの編集…」。コレクションの外の本でも編集できる版(BookMetadataSheet.init(sourceURL:))。
+        case metadata(URL)
+        /// 「本の書き出し」。ビューアの右クリックと同じシート(OpenBookExportSheet)を、本を開かずに出す。
+        case export(Export)
+    }
+
+    /// 書き出しの材料(ViewerView.OpenBookExportRequest と同じもの)。
+    struct Export {
+        let format: BookExportFormat
+        let viewModel: BookExportViewModel
+        /// 書き出す本。**ページは読まない**(`pages` は空): シートが使うのは id と場所だけで、書き出しは
+        /// `BookLoader.load` で読み直す(BookExportViewModel.exportOne)。先に読むと大きな書庫を 2 回読むことになる。
+        let book: MangaBook
+        let destination: OpenBookExportSheet.Destination
+        let asksBeforeExporting: Bool
+    }
+
+    let id = UUID()
+    let kind: Kind
+
+    func cancelExport() {
+        if case .export(let export) = kind { export.viewModel.cancel() }
     }
 }

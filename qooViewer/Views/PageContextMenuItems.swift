@@ -34,6 +34,9 @@ struct PageContextMenuItems: View {
     /// だけを対象にする(見開きの相方ページには触れない)。
     var onToggleBookmark: (() -> Void)?
 
+    /// 「ファイルブラウザで開く」(改善要望7 段階 8)。示す相手は「Finder で開く」と同じ(書庫の中の画像なら書庫)。
+    @Environment(\.revealInFileBrowser) private var revealInFileBrowser
+
     var body: some View {
         // ページそのものへの操作なので、ファイル側の操作(Finder・書き出し)より前に置き、
         // 区切り線で分ける。
@@ -46,6 +49,9 @@ struct PageContextMenuItems: View {
         }
         Button("Show in Finder") {
             FinderReveal.reveal(PageFileAccess.revealTargetURL(for: page, bookSourceURL: bookSourceURL))
+        }
+        Button("Show in File Browser") {
+            revealInFileBrowser(PageFileAccess.revealTargetURL(for: page, bookSourceURL: bookSourceURL))
         }
         // 書庫やPDFの中の画像は、Finderで示せるのが入れ物のファイルだけなので、
         // 代わりに1枚を取り出す導線を置く(逆に、フォルダの本の画像はFinderで実物を

@@ -70,6 +70,38 @@ enum FileBrowserCompressionFormat: String, CaseIterable, Identifiable, Hashable 
     var fileExtension: String { rawValue }
 }
 
+/// 本を表示しているウインドウで「ファイルブラウザで開く」を選んだときの行き先(環境設定「ファイルブラウザ」。
+/// 決定事項 Q6、段階 8、2026-09-14)。本を開いていないウインドウでは、この設定に関わらずそのウインドウの
+/// ウェルカム画面がファイルブラウザに切り替わる(FileBrowserReveal.placement)。
+///
+/// **既定は新規タブ**: 「Finder で開く」と同じく、いま読んでいる本の画面を壊さない(検討メモ §11 Q6 の推奨)。
+enum FileBrowserRevealDestination: String, CaseIterable, Identifiable, Hashable {
+    case newTab
+    case newNormalWindow
+    case newPrivateWindow
+
+    var id: String { rawValue }
+
+    /// 新しいタブ/ウインドウの開き方(BookWindowOpener の行き先)。
+    var bookOpenDestination: BookOpenDestination {
+        switch self {
+        case .newTab: .newTab
+        case .newNormalWindow: .newNormalWindow
+        case .newPrivateWindow: .newPrivateWindow
+        }
+    }
+}
+
+extension FileBrowserRevealDestination: SettingsOption {
+    var shortTitleKey: LocalizedStringKey {
+        switch self {
+        case .newTab: "New Tab"
+        case .newNormalWindow: "New Normal Window"
+        case .newPrivateWindow: "New Private Window"
+        }
+    }
+}
+
 extension FileBrowserCompressionFormat: SettingsOption {
     var shortTitleKey: LocalizedStringKey {
         switch self {

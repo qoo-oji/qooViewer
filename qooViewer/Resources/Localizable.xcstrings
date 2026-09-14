@@ -20314,6 +20314,182 @@
           }
         }
       }
+    },
+    "Show in File Browser" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show in File Browser"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルブラウザで開く"
+          }
+        }
+      }
+    },
+    "While a Book Is Open" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "While a Book Is Open"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を表示しているとき"
+          }
+        }
+      }
+    },
+    "Where Show in File Browser opens the file browser when the window is showing a book. In a window that isn't showing a book, the file browser opens in that window." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Where Show in File Browser opens the file browser when the window is showing a book. In a window that isn't showing a book, the file browser opens in that window."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を表示しているウインドウで「ファイルブラウザで開く」を選んだときに、ファイルブラウザを開く場所です。本を表示していないウインドウでは、そのウインドウがファイルブラウザに切り替わります。"
+          }
+        }
+      }
+    },
+    "Other…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Other…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "その他…"
+          }
+        }
+      }
+    },
+    "No Collections" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Collections"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションがありません"
+          }
+        }
+      }
+    },
+    "%@ (default)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ (default)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@(既定)"
+          }
+        }
+      }
+    },
+    "Choose an application to open the selected items." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose an application to open the selected items."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択した項目を開くアプリケーションを選択してください。"
+          }
+        }
+      }
+    },
+    "“%@” isn’t a book." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” isn’t a book."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」は本ではありません。"
+          }
+        }
+      }
+    },
+    "The selected items aren’t books." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The selected items aren’t books."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択した項目は本ではありません。"
+          }
+        }
+      }
+    },
+    "Archives, PDF and EPUB files, and folders of images can be used as books. A folder of books adds the books in it." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archives, PDF and EPUB files, and folders of images can be used as books. A folder of books adds the books in it."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書庫・PDF・EPUB のファイルと、画像の入ったフォルダが本になります。本が並んだフォルダを選ぶと、その中の本が入ります。"
+          }
+        }
+      }
+    },
+    "The items couldn’t be opened with “%@”." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The items couldn’t be opened with “%@”."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」で開けませんでした。"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

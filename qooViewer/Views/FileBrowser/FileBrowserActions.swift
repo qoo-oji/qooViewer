@@ -18,6 +18,14 @@ final class FileBrowserActions {
     weak var favoriteLocations: FavoriteLocationStore?
     weak var preferences: AppPreferences?
     var openWindow: OpenWindowAction?
+    /// 既存機能との接続(段階 8。FileBrowserLibraryActions.swift)。
+    weak var collectionStore: CollectionStore?
+    weak var coverExtractor: CollectionCoverExtractor?
+    weak var bookmarkStore: BookmarkStore?
+    weak var layoutStore: LayoutStore?
+    weak var metadataStore: BookMetadataStore?
+    /// 「コレクションに登録」のサブメニューの中身(FileBrowserActions.collectionMenuLibraries)。
+    var collectionMenuCache: CollectionMenuCache?
 
     /// シークレットウインドウでは保存を伴う操作(よく使う項目の登録・削除)を塞ぐ(決定事項 Q8)。
     var allowsSaving: Bool { !(appState?.isPrivateWindow ?? true) }
@@ -460,9 +468,15 @@ enum FileBrowserMenuCommand {
             return !entries.isEmpty && entries.allSatisfy { $0.isNavigableFolder || $0.opensAsBook }
         case .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow:
             return actions.canOpenInNewWindow(entries)
-        case .createCollection, .addToCollection, .openWith, .editMetadata, .exportBook:
-            // 段階8で既存機能とつなぐ。それまでは淡色で置く(項目の数を変えない)。
-            return false
+        case .createCollection, .addToCollection:
+            // 保存データへの書き込みなので、シークレットウインドウでは淡色(決定事項 Q8)。
+            return actions.allowsSaving && actions.canUseAsBooks(entries)
+        case .openWith:
+            return !entries.isEmpty && !entries.contains(where: \.isVolume)
+        case .editMetadata:
+            return actions.allowsSaving && actions.canUseAsSingleBook(entries)
+        case .exportBook:
+            return actions.canUseAsSingleBook(entries) && actions.state?.bookSheet == nil
         case .compress, .compressHere, .compressTo:
             return actions.canCompress(entries)
         case .extract, .extractHere, .extractToFolder, .extractTo:
@@ -488,7 +502,10 @@ enum FileBrowserMenuCommand {
         case .openInNewTab: entries.first.map { actions.open($0, in: .newTab) }
         case .openInNewNormalWindow: entries.first.map { actions.open($0, in: .newNormalWindow) }
         case .openInNewPrivateWindow: entries.first.map { actions.open($0, in: .newPrivateWindow) }
-        case .createCollection, .addToCollection, .openWith, .compress, .extract, .editMetadata, .exportBook: break
+        case .createCollection: actions.createCollection(from: entries)
+        case .editMetadata: actions.editMetadata(entries)
+        // サブメニューを持つ項目(中身は submenu / dynamicChildren)。
+        case .addToCollection, .openWith, .compress, .extract, .exportBook: break
         case .compressHere: actions.compress(entries, choosingDestination: false)
         case .compressTo: actions.compress(entries, choosingDestination: true)
         case .extractHere: actions.extract(entries, placement: .contents, choosingDestination: false)
@@ -524,7 +541,10 @@ final class FileBrowserMenuBuilder: NSObject {
             if !menu.items.isEmpty { menu.addItem(.separator()) }
             for command in group {
                 let item = menuItem(for: command, locale: locale, actions: actions)
-                if let children = command.submenu {
+                if let nodes = command.dynamicChildren(in: context, actions: actions, locale: locale) {
+                    item.action = nil
+                    item.submenu = Self.menu(from: nodes)
+                } else if let children = command.submenu {
                     item.action = nil
                     let submenu = NSMenu()
                     submenu.autoenablesItems = false
@@ -585,6 +605,40 @@ final class FileBrowserMenuBuilder: NSObject {
         return item
     }
 
+    /// 場面で変わるサブメニュー(FileBrowserMenuNode)を NSMenu に。
+    private static func menu(from nodes: [FileBrowserMenuNode]) -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        for node in nodes {
+            switch node {
+            case .separator:
+                menu.addItem(.separator())
+            case .item(let title, let image, let isEnabled, let action):
+                let item = NSMenuItem(title: title, action: #selector(MenuNodeBox.perform(_:)), keyEquivalent: "")
+                let box = MenuNodeBox(action)
+                item.target = box
+                // target は weak なので、箱は項目の representedObject に持たせて生かす。
+                item.representedObject = box
+                item.image = image
+                item.isEnabled = isEnabled
+                menu.addItem(item)
+            case .submenu(let title, let isEnabled, let children):
+                let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+                item.submenu = Self.menu(from: children)
+                item.isEnabled = isEnabled
+                menu.addItem(item)
+            }
+        }
+        return menu
+    }
+
+    /// 場面で変わる項目の閉包を NSMenuItem の target にするための箱。
+    private final class MenuNodeBox: NSObject {
+        let action: @MainActor () -> Void
+        init(_ action: @escaping @MainActor () -> Void) { self.action = action }
+        @objc func perform(_ sender: NSMenuItem) { action() }
+    }
+
     @objc private func performCommand(_ sender: NSMenuItem) {
         guard let box = sender.representedObject as? CommandBox, let actions else { return }
         box.command.perform(in: context, actions: actions)
@@ -624,7 +678,12 @@ struct FileBrowserContextMenuItems: View {
         ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
             if index > 0 { Divider() }
             ForEach(Array(group.enumerated()), id: \.offset) { _, command in
-                if let children = command.submenu {
+                if let nodes = command.dynamicChildren(in: context, actions: actions, locale: locale) {
+                    Menu(command.title(in: context, locale: locale)) {
+                        FileBrowserMenuNodeItems(nodes: nodes)
+                    }
+                    .disabled(!command.isEnabled(in: context, actions: actions))
+                } else if let children = command.submenu {
                     Menu(command.title(in: context, locale: locale)) {
                         ForEach(Array(children.enumerated()), id: \.offset) { _, child in
                             button(for: child)
@@ -647,6 +706,38 @@ struct FileBrowserContextMenuItems: View {
             command.perform(in: context, actions: actions)
         }
         .disabled(!command.isEnabled(in: context, actions: actions))
+    }
+}
+
+/// 場面で変わるサブメニューの中身(SwiftUI 版)。
+private struct FileBrowserMenuNodeItems: View {
+    let nodes: [FileBrowserMenuNode]
+
+    var body: some View {
+        ForEach(Array(nodes.enumerated()), id: \.offset) { _, node in
+            switch node {
+            case .separator:
+                Divider()
+            case .item(let title, let image, let isEnabled, let action):
+                Button {
+                    action()
+                } label: {
+                    if let image {
+                        Label { Text(verbatim: title) } icon: { Image(nsImage: image) }
+                    } else {
+                        Text(verbatim: title)
+                    }
+                }
+                .disabled(!isEnabled)
+            case .submenu(let title, let isEnabled, let children):
+                Menu {
+                    FileBrowserMenuNodeItems(nodes: children)
+                } label: {
+                    Text(verbatim: title)
+                }
+                .disabled(!isEnabled)
+            }
+        }
     }
 }
 

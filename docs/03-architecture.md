@@ -115,7 +115,7 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 | `WindowGroup(for: WindowContentRequest.self)` | `private` | 常にシークレットウインドウ |
 | `WindowGroup(for: WindowContentRequest.self)` | `normal` | File ›「新規ノーマルウインドウ」(値なし、ウェルカム画面から)と、フォルダをファイルブラウザで開く通常ウインドウ。`.automatic` |
 
-提示値は `WindowContentRequest`(`.book(BookOpenRequest)` / `.browse(folder:nonce:)`)。2026-09-13 までは
+提示値は `WindowContentRequest`(`.book(BookOpenRequest)` / `.browse(folder:selecting:nonce:)`)。2026-09-13 までは
 `BookOpenRequest` で、フォルダを新しいタブ/ウインドウのファイルブラウザで開けなかった(改善要望7 段階 3)。
 `browse` だけが開くたびに変わる `nonce` を持つ(同じフォルダを 2 枚で見るため。→ [15](15-file-browser.md))。
 | `Settings` | ― | 環境設定 |

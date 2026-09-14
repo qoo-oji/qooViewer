@@ -367,6 +367,8 @@ struct ContentView: View {
         // 子ビュー(WelcomeView・ViewerViewなど)は、このウインドウ専用のappStateを
         // @EnvironmentObjectとして参照する。
         .environmentObject(appState)
+        // 右クリックの「ファイルブラウザで開く」(段階 8。RevealInFileBrowserActionの型コメント)。
+        .environment(\.revealInFileBrowser, RevealInFileBrowserAction(appState: appState, openWindow: openWindow))
         // メニューバー(アプリ全体で1つ)から「今アクティブなウインドウ」のAppStateを
         // 参照できるようにする(詳細はAppState.swiftのFocusedValues拡張のコメント参照)。
         .focusedSceneValue(\.qooViewerAppState, appState)
@@ -630,6 +632,7 @@ struct ContentView: View {
             fileBrowser.favoriteLocations = favoriteLocations
             fileBrowser.isPrivate = isPrivateWindow
             appState.fileBrowser = fileBrowser
+            appState.welcomeLibrary = welcomeLibrary
             // 「ツールバーを隠す」「プログレスバーを隠す」「サイドパネルを隠す」は、前回終了時
             // (またはこのセッション中に他のウインドウで変更された時点)の値をpreferencesから
             // 引き継ぐ。これにより、新しいウインドウ/タブや次回起動時にも同じ表示状態で始まる。
@@ -655,7 +658,7 @@ struct ContentView: View {
                 // 起動時の動作(前回の本を開く)はしない ―― このウインドウはこのフォルダを
                 // 見るために作られた。表示はWelcomeView(ファイルブラウザ)が出た時点で始まる。
                 welcomeLibrary.mode = .browser
-                fileBrowser.prepare(showing: folder)
+                fileBrowser.prepare(showing: folder, selecting: initialRequest?.browsedSelection)
             } else if let initialRequest = initialRequest?.bookRequest {
                 // このウインドウはこの本のために作られたので、既に同じ本を開いている
                 // ウインドウがあっても譲らない(譲ると中身の無いウインドウだけが残る。

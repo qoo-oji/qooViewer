@@ -41,6 +41,8 @@ struct SidePanelView: View {
     @EnvironmentObject private var favoritesStore: FavoritesStore
     /// 履歴モードの表示元(favoritesStoreと同じくアプリ全体で1つ)。
     @EnvironmentObject private var recentFiles: RecentFilesStore
+    /// 右クリックの「ファイルブラウザで開く」(改善要望7 段階 8。RevealInFileBrowserActionの型コメント)。
+    @Environment(\.revealInFileBrowser) private var revealInFileBrowser
     @ObservedObject var folderState: SidePanelBrowserState
     var bookContentsState: BookContentsBrowserState?
     /// パネル最上部のスイッチで切り替える表示モード。実体はAppPreferences.sidePanelMode
@@ -761,6 +763,10 @@ struct SidePanelView: View {
             Button("Show in Finder") {
                 FinderReveal.reveal(entry.url)
             }
+            // 一覧を読んだ時点でフォルダかどうかは分かっている(ここでディスクを触らない。上のコメント)。
+            Button("Show in File Browser") {
+                revealInFileBrowser(entry.url, isDirectory: entry.isDirectory)
+            }
         }
     }
 
@@ -883,6 +889,7 @@ func sidePanelFileIconName(fileName: String?) -> String {
 /// 出し分け、非nilのときだけこの専用のView(stateを非Optionalで受け取る)を使う構成にしている。
 private struct BookContentsSectionView: View {
     @EnvironmentObject private var preferences: AppPreferences
+    @Environment(\.revealInFileBrowser) private var revealInFileBrowser
     @ObservedObject var state: BookContentsBrowserState
     var bookPages: [PageRef]
     var bookSourceURL: URL?
@@ -1087,6 +1094,9 @@ private struct BookContentsSectionView: View {
         } else if let url = revealTargetURL(for: entry) {
             Button("Show in Finder") {
                 FinderReveal.reveal(url)
+            }
+            Button("Show in File Browser") {
+                revealInFileBrowser(url)
             }
         }
     }
@@ -1328,6 +1338,7 @@ private struct SidePanelFavoriteRow: View {
     let onDelete: (FavoriteListEntry) -> Void
 
     @EnvironmentObject private var preferences: AppPreferences
+    @Environment(\.revealInFileBrowser) private var revealInFileBrowser
 
     var body: some View {
         switch entry {
@@ -1443,6 +1454,10 @@ private struct SidePanelFavoriteRow: View {
             Button("Show in Finder") {
                 guard let url = favoritesStore.resolvedExistingURL(for: book) else { return }
                 FinderReveal.reveal(url)
+            }
+            Button("Show in File Browser") {
+                guard let url = favoritesStore.resolvedExistingURL(for: book) else { return }
+                revealInFileBrowser(url)
             }
             Divider()
             // 編集系は最後にまとめ、取り消しの効かない削除をいちばん下に置く(macOSの作法)。
@@ -1582,6 +1597,7 @@ private struct SidePanelBookmarksSectionView: View {
 /// 「履歴の保存件数」で変更できる(既定30件)。
 private struct SidePanelHistorySectionView: View {
     @EnvironmentObject private var preferences: AppPreferences
+    @Environment(\.revealInFileBrowser) private var revealInFileBrowser
     @ObservedObject var recentFiles: RecentFilesStore
     var currentBookPath: String?
     var onOpen: (URL) -> Void
@@ -1722,6 +1738,11 @@ private struct SidePanelHistorySectionView: View {
             // Finderへ場所を見せるよう頼むこと自体には、このアプリのアクセス権は要らない。
             Button("Show in Finder") {
                 FinderReveal.reveal(entry.displayURL, isDirectory: entry.isDirectory)
+            }
+            // 同じ理由でフォルダかどうかはキャッシュ済みの値を渡す。一覧を読むのはファイルブラウザ側で、
+            // そのフォルダに許可が無ければ「アクセスを許可…」が出る。
+            Button("Show in File Browser") {
+                revealInFileBrowser(entry.displayURL, isDirectory: entry.isDirectory)
             }
 
             Divider()

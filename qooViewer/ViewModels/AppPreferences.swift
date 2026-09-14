@@ -71,6 +71,7 @@ final class AppPreferences: ObservableObject {
         static let fileBrowserExpandsTreeToCurrentFolder = "qooViewer.pref.fileBrowser.expandsTreeToCurrentFolder"
         static let fileBrowserCompressionFormat = "qooViewer.pref.fileBrowser.compressionFormat"
         static let fileBrowserVideoThumbnailsEnabled = "qooViewer.pref.fileBrowser.videoThumbnailsEnabled"
+        static let fileBrowserRevealDestination = "qooViewer.pref.fileBrowser.revealDestination"
         static let sidePanelPosition = "qooViewer.pref.sidePanelPosition"
         static let sidePanelMode = "qooViewer.pref.sidePanelMode"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
@@ -642,6 +643,10 @@ final class AppPreferences: ObservableObject {
     /// 「圧縮」で作る書庫の拡張子(既定 zip。段階 6)。
     @Published var fileBrowserCompressionFormat: FileBrowserCompressionFormat {
         didSet { defaults.set(fileBrowserCompressionFormat.rawValue, forKey: Keys.fileBrowserCompressionFormat) }
+    }
+    /// 本を表示しているウインドウで「ファイルブラウザで開く」を選んだときの行き先(既定: 新規タブ。決定事項 Q6、段階 8)。
+    @Published var fileBrowserRevealDestination: FileBrowserRevealDestination {
+        didSet { defaults.set(fileBrowserRevealDestination.rawValue, forKey: Keys.fileBrowserRevealDestination) }
     }
     /// アイコン表示で動画の絵を作るか(QuickLook。既定ON、段階 7b)。**よく使う項目の中の動画を裏で先に作っておくのも、
     /// この 1 つで切り替える**(ユーザーの判断 2026-09-14。行を分けない)。OFF にすると動画は種類のアイコンに戻り、
@@ -1643,6 +1648,9 @@ final class AppPreferences: ObservableObject {
         self.fileBrowserCompressionFormat = FileBrowserCompressionFormat(
             rawValue: defaults.string(forKey: Keys.fileBrowserCompressionFormat) ?? ""
         ) ?? .zip
+        self.fileBrowserRevealDestination = FileBrowserRevealDestination(
+            rawValue: defaults.string(forKey: Keys.fileBrowserRevealDestination) ?? ""
+        ) ?? .newTab
         self.sidePanelPosition =
             SidePanelPosition(rawValue: defaults.string(forKey: Keys.sidePanelPosition) ?? "") ?? .left
         self.sidePanelMode =
@@ -2010,6 +2018,7 @@ extension AppPreferences {
                 Keys.fileBrowserExpandsTreeToCurrentFolder,
                 Keys.fileBrowserCompressionFormat,
                 Keys.fileBrowserVideoThumbnailsEnabled,
+                Keys.fileBrowserRevealDestination,
             ]
         // 「読み込みと書き出し」はウインドウを開くボタンだけで、戻せる設定を持たない。
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
@@ -2123,6 +2132,7 @@ extension AppPreferences {
             fileBrowserExpandsTreeToCurrentFolder = source.fileBrowserExpandsTreeToCurrentFolder
             fileBrowserCompressionFormat = source.fileBrowserCompressionFormat
             fileBrowserVideoThumbnailsEnabled = source.fileBrowserVideoThumbnailsEnabled
+            fileBrowserRevealDestination = source.fileBrowserRevealDestination
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
             break
         }

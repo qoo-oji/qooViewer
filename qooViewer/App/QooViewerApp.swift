@@ -757,6 +757,12 @@ struct QooViewerApp: App {
                     focusedAppState?.revealCurrentBookInFinder()
                 }
                 .disabled(focusedAppState?.currentBook == nil)
+                // 「ファイルブラウザで開く」(改善要望7 段階 8)。本を開いているウインドウからだけなので、行き先は常に
+                // 環境設定「ファイルブラウザ」の新規タブ/ウインドウ(FileBrowserReveal)。
+                Button("Show in File Browser") {
+                    focusedAppState?.revealCurrentBookInFileBrowser(openWindow: openWindow)
+                }
+                .disabled(focusedAppState?.currentBook == nil)
 
                 Divider()
 

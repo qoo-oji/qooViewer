@@ -17,6 +17,11 @@ import UniformTypeIdentifiers
 /// その場でコレクションのタイルへ反映されるものなので、シートを閉じるまで確定しない作りに
 /// すると「変わったのに戻った」と見えてしまう。
 ///
+/// ■ URL だけで開く版(改善要望7 段階 8、2026-09-14)
+/// ファイルブラウザの右クリックからは、コレクションに入っていない本も編集できる(`init(sourceURL:)`)。
+/// そのときは**カバーの面を出さない** ―― カバーの指定はコレクションの行(ライブラリの縦横比・抽出済みの表紙)を
+/// 前提にしているため。4欄の初期値と登録先は同じ(DBの行はパスで引く)。
+///
 /// シートの中身はmacOSが不透明に描くので、すりガラス面の輪郭は要らない(CLAUDE.md参照)。
 struct BookMetadataSheet: View {
     /// 対象の本(コレクションの行)のid。カバーの状態(抽出済みか・横長を切ったか)も行から読む。
@@ -25,13 +30,28 @@ struct BookMetadataSheet: View {
     /// 別のウインドウがその本をコレクションから外してsaveすると、`CollectionItem`本体を
     /// 持ったままでは次の描き直しで消えた行の属性を読んで落ちる(SwiftDataの
     /// "model instance was invalidated")。毎回ストアから引き直し、無くなっていたら閉じる。
-    let itemID: UUID
+    ///
+    /// nil は URL だけで開いた版(型コメント)。
+    let itemID: UUID?
     /// 本の実体。呼び出し側が`CollectionStore.resolvedExistingURL`で解決してから渡す
     /// (解決できない本ではシートを出さず「本が見つかりません」のアラートにする)。
     let sourceURL: URL
     /// この本が入っているライブラリ。カバーのプレビューをそのライブラリの縦横比で描き、
-    /// 「残す位置」の既定(=ライブラリの設定)を示すために要る。
-    let library: BookLibrary
+    /// 「残す位置」の既定(=ライブラリの設定)を示すために要る。URL だけで開いた版では nil。
+    let library: BookLibrary?
+
+    init(itemID: UUID, sourceURL: URL, library: BookLibrary) {
+        self.itemID = itemID
+        self.sourceURL = sourceURL
+        self.library = library
+    }
+
+    /// コレクションの外の本(ファイルブラウザの右クリック)。カバーの面は出さない(型コメント)。
+    init(sourceURL: URL) {
+        itemID = nil
+        self.sourceURL = sourceURL
+        library = nil
+    }
 
     @EnvironmentObject private var metadataStore: BookMetadataStore
     @EnvironmentObject private var formatStore: MetadataFormatStore
@@ -55,13 +75,13 @@ struct BookMetadataSheet: View {
 
     /// 対象の行。別のウインドウが外していればnil(itemIDのコメント参照)。
     private var item: CollectionItem? {
-        collectionStore.item(withID: itemID)
+        itemID.flatMap { collectionStore.item(withID: $0) }
     }
 
     /// 「残す位置」の指定が効くか。カバーの比が枠の比と違って**実際に切ることになる**ときだけ
     /// ―― ぴったり合っているカバーに位置を指定させても何も起きない。まだ抽出できていない
     /// (比が分からない)本では、選ばせておいて後から効かせる。
-    private func isCropAnchorEffective(for item: CollectionItem) -> Bool {
+    private func isCropAnchorEffective(for item: CollectionItem, in library: BookLibrary) -> Bool {
         guard item.coverState == .ready, item.coverAspect > 0 else { return true }
         return CoverImageResolver.cropsAnyEdge(
             imageAspect: CGFloat(item.coverAspect),
@@ -70,8 +90,11 @@ struct BookMetadataSheet: View {
     }
 
     var body: some View {
-        if let item {
-            content(for: item)
+        if itemID == nil {
+            // URL だけで開いた版。DBの行はパス(= BookLoader が付ける本の id)で引く。
+            content(bookID: sourceURL.path, title: MetadataEditorViewModel.baseName(forBookID: sourceURL.path), item: nil)
+        } else if let item {
+            content(bookID: item.bookID, title: item.title, item: item)
         } else {
             // 出している間に外された(itemIDのコメント参照)。何も描かずに閉じる。
             Color.clear
@@ -80,7 +103,8 @@ struct BookMetadataSheet: View {
         }
     }
 
-    private func content(for item: CollectionItem) -> some View {
+    /// - Parameter item: コレクションの行。nil ならカバーの面を出さない(URL だけで開いた版)。
+    private func content(bookID: String, title: String, item: CollectionItem?) -> some View {
         // **幅はボタンではなくラベルに与える。** `Button(...).frame(width:)`では、与えた幅は
         // レイアウト上の枠にしか効かず、実際に描かれるベゼルは文字列の長さのまま枠の中央に
         // 置かれる(実測。WelcomeTopBarの同じコメント参照)。ラベル側を同じ幅にすれば、
@@ -100,26 +124,30 @@ struct BookMetadataSheet: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Edit Metadata")
                     .font(.headline)
-                Text(item.title)
+                Text(title)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                    .help(item.title)
+                    .help(title)
             }
 
             Divider()
 
-            HStack(alignment: .top, spacing: 16) {
-                cover(for: item)
-                VStack(alignment: .leading, spacing: 10) {
-                    fields
-                    Text("Drop an image file on the cover, or right-click it to choose a page.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+            if let item, let library {
+                HStack(alignment: .top, spacing: 16) {
+                    cover(for: item, in: library)
+                    VStack(alignment: .leading, spacing: 10) {
+                        fields
+                        Text("Drop an image file on the cover, or right-click it to choose a page.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                fields
             }
 
             HStack(spacing: 12) {
@@ -128,7 +156,7 @@ struct BookMetadataSheet: View {
                     Text("Cancel").frame(width: labelWidth)
                 }
                 .keyboardShortcut(.cancelAction)
-                Button { register(bookID: item.bookID) } label: {
+                Button { register(bookID: bookID) } label: {
                     Text("Register").frame(width: labelWidth)
                 }
                 .keyboardShortcut(.defaultAction)
@@ -144,11 +172,12 @@ struct BookMetadataSheet: View {
         }
         .onAppear {
             draft = MetadataEditorViewModel.initialDraft(
-                forBookID: item.bookID,
-                baseName: MetadataEditorViewModel.baseName(forBookID: item.bookID),
+                forBookID: bookID,
+                baseName: MetadataEditorViewModel.baseName(forBookID: bookID),
                 metadataStore: metadataStore, formatStore: formatStore
             )
-            guard coverController == nil else { return }
+            // カバーの面を出さない版では、カバーの指定の口も作らない。
+            guard item != nil, coverController == nil else { return }
             coverController = CoverOverrideController(
                 target: .collectionCover, layoutStore: layoutStore, preferences: preferences,
                 // この画面は対象の本を1冊しか扱わないので、URLの解決は済んだものを返すだけ。
@@ -196,11 +225,11 @@ struct BookMetadataSheet: View {
     /// コントローラにあるため、無い状態で描いても「未指定」としか出せず、しかもその状態で
     /// 組まれたメニューがそのまま残ることがある(下のCoverAreaのコメント参照)。
     @ViewBuilder
-    private func cover(for item: CollectionItem) -> some View {
+    private func cover(for item: CollectionItem, in library: BookLibrary) -> some View {
         if let coverController {
             CoverArea(
                 controller: coverController, item: item, library: library,
-                width: Self.coverWidth, isCropAnchorEnabled: isCropAnchorEffective(for: item),
+                width: Self.coverWidth, isCropAnchorEnabled: isCropAnchorEffective(for: item, in: library),
                 coverStore: collectionStore.coverStore, locale: locale
             )
         } else {

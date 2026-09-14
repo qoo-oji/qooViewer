@@ -685,8 +685,10 @@ class BookExportViewModel: ObservableObject {
         return row
     }
 
+    /// - Parameter displayState: nil は画面の状態が無い経路(ファイルブラウザの右クリック。改善要望7 段階 8)。
+    ///   3つの書き出しウインドウと同じく、DBに無い項目は環境設定の既定値になる。
     final func exportOpenBook(
-        _ book: MangaBook, displayState: OpenBookDisplayState, to destinationFolder: URL
+        _ book: MangaBook, displayState: OpenBookDisplayState?, to destinationFolder: URL
     ) async -> String? {
         openBookDisplayState = displayState
         // シートが既に呼んでいるのが普通だが、固定の保存先で何も尋ねずに書き出す経路も

@@ -28,6 +28,7 @@ struct SidePanelLibraryTreeSection: View {
     @EnvironmentObject private var preferences: AppPreferences
     @EnvironmentObject private var collectionStore: CollectionStore
     @Environment(\.locale) private var locale
+    @Environment(\.revealInFileBrowser) private var revealInFileBrowser
 
     @Binding var expandedLibraryIDs: Set<UUID>
     @Binding var expandedCollectionIDs: Set<UUID>
@@ -210,6 +211,10 @@ struct SidePanelLibraryTreeSection: View {
             Button("Show in Finder") {
                 guard let url = resolvedURL(item) else { return }
                 FinderReveal.reveal(url)
+            }
+            Button("Show in File Browser") {
+                guard let url = resolvedURL(item) else { return }
+                revealInFileBrowser(url)
             }
         }
     }

@@ -129,7 +129,12 @@ new folder, rename, bulk rename, undo/redo) goes through `FileBrowserOperations`
 `FileBrowserOperationPresenting`); tests inject a pseudo trash, a uniquely named pasteboard and a scripted presenter. "Replace" moves the existing item into a hidden
 `.qooViewer-replace-<UUID>/` folder only after recording it in `ReplaceBackupJournal`, and `ReplaceBackupRecovery` puts it back at launch
 (skipped under tests) — keep that record-before-backup order. Bulk rename copies
-Finder's measured rules (`Models/BulkRename.swift`; registered extensions, collisions avoided rather than refused, so no two-pass rename) — change them only against the real Finder. Drag and drop
+Finder's measured rules (`Models/BulkRename.swift`; registered extensions, collisions avoided rather than refused, so no two-pass rename) — change them only against the real Finder. The context menu's links to existing features (create/add
+to collection, Edit Metadata on a book outside any collection, Export Book without loading it first, Open With) are in
+`FileBrowserLibraryActions.swift`; submenus whose contents vary are a `FileBrowserMenuNode` tree drawn by both the AppKit and
+SwiftUI menus. "Show in File Browser" (next to every "Show in Finder") goes through `AppState.revealInFileBrowser` and, from
+views, the `\.revealInFileBrowser` environment value, which holds `AppState` weakly; `OpenWindowAction` is passed per call and
+never stored on `AppState`. Drag and drop
 decides move/copy in one place (`FileDropPlan` + `FileBrowserDropDecision`); the right pane is covered by a drop target that refuses
 *as a target*, because a refused inner SwiftUI drop falls through to the window-wide "open book" drop target. The icon view shows
 book/image thumbnails via `FileBrowserThumbnailProvider` (one app-wide, in `AppStores`; `BookThumbnailer` reads only the first image,
