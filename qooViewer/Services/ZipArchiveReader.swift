@@ -15,6 +15,8 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
     private let archive: Archive
     /// 補正後のパス -> 実際のZIPFoundationのEntry
     private var entryByCorrectedPath: [String: Entry] = [:]
+    /// 全項目(フォルダ・リンクを含む)を書庫の中の順番で(展開用。entriesInArchiveOrder)。
+    private var descriptors: [ArchiveEntryDescriptor] = []
 
     init(url: URL) throws {
         self.archive = try Archive(url: url, accessMode: .read)
@@ -39,10 +41,35 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
     private func indexEntries() {
         // 判定はエントリ単位ではなく書庫単位で行うため、先に全エントリを集めてから
         // まとめてデコーダを作る(EntryNameDecoderのコメント参照)。
-        let entries = archive.filter { $0.type == .file }
+        let all = Array(archive)
+        let entries = all.filter { $0.type == .file }
+        // 判定の標本はファイルだけ(以前から。フォルダの名前を足すと判定が変わりうる)。フォルダ・リンクの名前も同じデコーダで直す。
         let decoder = EntryNameDecoder(mangledPaths: entries.map(\.path))
         for entry in entries {
             entryByCorrectedPath[decoder.correctedPath(for: entry.path)] = entry
+        }
+        descriptors = all.map { entry in
+            let kind: ArchiveEntryDescriptor.Kind = switch entry.type {
+            case .file: .file
+            case .directory: .directory
+            case .symlink: .symbolicLink
+            }
+            return ArchiveEntryDescriptor(
+                path: decoder.correctedPath(for: entry.path), kind: kind, uncompressedSize: entry.uncompressedSize,
+                modified: entry.fileAttributes[.modificationDate] as? Date
+            )
+        }
+    }
+
+    func entriesInArchiveOrder() throws -> [ArchiveEntryDescriptor] {
+        descriptors
+    }
+
+    /// CRC はライブラリの既定どおり検証する(壊れた書庫の中身を黙って書き出さない)。
+    func readEntry(at path: String, _ body: (Data) throws -> Void) throws {
+        guard let entry = entryByCorrectedPath[path] else { throw ArchiveReaderError.entryNotFound }
+        _ = try archive.extract(entry, bufferSize: 1 << 18) { chunk in
+            try body(chunk)
         }
     }
 

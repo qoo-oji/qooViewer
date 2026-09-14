@@ -74,6 +74,7 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.fileBrowserFoldersFirst.toggle()
     p.fileBrowserExternalDropAction = otherCase(p.fileBrowserExternalDropAction)
     p.fileBrowserExpandsTreeToCurrentFolder.toggle()
+    p.fileBrowserCompressionFormat = otherCase(p.fileBrowserCompressionFormat)
 
     // MARK: 外観
     p.appAppearance = otherCase(p.appAppearance)

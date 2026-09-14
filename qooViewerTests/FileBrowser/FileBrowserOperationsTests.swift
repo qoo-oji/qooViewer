@@ -57,6 +57,15 @@ struct FileBrowserOperationsTests {
             return bulkRenameAnswer
         }
 
+        /// 「保存先を選んで圧縮…」「展開先を選んで展開…」の答え(nil は「キャンセル」)。
+        var chosenFolder: URL?
+        private(set) var folderChoices: [ArchiveDestinationPurpose] = []
+
+        func chooseDestinationFolder(for purpose: ArchiveDestinationPurpose, startingAt folder: URL) async -> URL? {
+            folderChoices.append(purpose)
+            return chosenFolder
+        }
+
         func showProblem(_ problem: FileBrowserProblem) {
             problems.append(problem)
         }
@@ -834,6 +843,114 @@ struct FileBrowserOperationsTests {
         let undoChange = try #require(fixture.state.fileSystemChange)
         #expect(undoChange.isUnknownScope)
         #expect(undoChange.serial > change.serial)
+    }
+
+    // MARK: - 圧縮・展開(段階 6)
+
+    @Test("ここに圧縮: 環境設定の拡張子で同じフォルダに作り、選ぶ。取り消すと zip だけがゴミ箱へ")
+    func compressHereAndUndo() async throws {
+        let fixture = try Fixture("fbops-compress")
+        fixture.preferences.fileBrowserCompressionFormat = .cbz
+        await fixture.showRoot()
+        let sub = fixture.sub
+        try Data("page".utf8).write(to: sub.appendingPathComponent("001.jpg"))
+
+        fixture.state.operations.compress([fixture.entry(sub)])
+        await fixture.finish()
+        let zip = fixture.root.appendingPathComponent("sub.cbz")
+        #expect(fixture.exists(zip))
+        #expect(fixture.state.selection == [FileBrowserState.id(for: zip)])
+        #expect(fixture.state.commandStack.undoTitle?.contains("sub") == true)
+        #expect(fixture.presenter.problems.isEmpty)
+
+        fixture.state.operations.undo()
+        await fixture.finish()
+        #expect(!fixture.exists(zip))
+        #expect(fixture.names(in: fixture.trash) == ["sub.cbz"])
+        #expect(fixture.exists(sub.appendingPathComponent("001.jpg")))
+    }
+
+    @Test("〈名前〉に展開: 書庫の名前のフォルダを作り、取り消すとそのフォルダがゴミ箱へ。書庫でない項目は外す")
+    func extractToOwnFolderAndUndo() async throws {
+        let fixture = try Fixture("fbops-extract")
+        await fixture.showRoot()
+        var builder = ZipFixtureBuilder()
+        builder.add("001.png", text: "1")
+        builder.add("002.png", text: "2")
+        let archive = fixture.root.appendingPathComponent("book.cbz")
+        try builder.write(to: archive)
+
+        fixture.state.operations.extract(
+            [fixture.entry(archive), fixture.entry(fixture.root.appendingPathComponent("a.txt"))], placement: .ownFolder
+        )
+        await fixture.finish()
+        let folder = fixture.root.appendingPathComponent("book")
+        #expect(fixture.names(in: folder) == ["001.png", "002.png"])
+        #expect(fixture.state.selection == [FileBrowserState.id(for: folder)])
+        #expect(fixture.presenter.problems.isEmpty)
+
+        fixture.state.operations.undo()
+        await fixture.finish()
+        #expect(!fixture.exists(folder))
+        #expect(fixture.names(in: fixture.trash) == ["book"])
+        #expect(fixture.exists(archive))
+    }
+
+    @Test("展開先を選んで展開…: 選んだフォルダへ中身を並べる。キャンセルなら何もしない")
+    func extractToChosenFolder() async throws {
+        let fixture = try Fixture("fbops-extract-to")
+        var builder = ZipFixtureBuilder()
+        builder.add("x/1.txt", text: "1")
+        let archive = fixture.root.appendingPathComponent("pack.zip")
+        try builder.write(to: archive)
+
+        fixture.presenter.chosenFolder = nil
+        fixture.state.operations.extract([fixture.entry(archive)], placement: .contents, choosingDestination: true)
+        await fixture.finish()
+        #expect(fixture.presenter.folderChoices == [.extract(count: 1)])
+        #expect(fixture.names(in: fixture.other).isEmpty)
+        #expect(!fixture.state.commandStack.canUndo)
+
+        fixture.presenter.chosenFolder = fixture.other
+        fixture.state.operations.extract([fixture.entry(archive)], placement: .contents, choosingDestination: true)
+        await fixture.finish()
+        #expect(fixture.names(in: fixture.other) == ["x"])
+        #expect(fixture.state.commandStack.canUndo)
+    }
+
+    @Test("危険なエントリを捨てた展開は、済んだうえで捨てたものを報告に並べる")
+    func extractReportsRejectedEntries() async throws {
+        let fixture = try Fixture("fbops-extract-slip")
+        var builder = ZipFixtureBuilder()
+        builder.add("ok.txt", text: "ok")
+        builder.add("../evil.txt", text: "evil")
+        let archive = fixture.root.appendingPathComponent("slip.zip")
+        try builder.write(to: archive)
+
+        fixture.state.operations.extract([fixture.entry(archive)], placement: .contents)
+        await fixture.finish()
+        #expect(fixture.exists(fixture.root.appendingPathComponent("ok.txt")))
+        #expect(!fixture.exists(fixture.temporary.url.appendingPathComponent("evil.txt")))
+        #expect(fixture.presenter.problems.count == 1)
+        #expect(fixture.presenter.problems.first?.message.contains("../evil.txt") == true)
+        #expect(fixture.state.commandStack.canUndo)
+    }
+
+    @Test("メニューの判定: 圧縮は同じフォルダの項目、展開は全部が書庫のときだけ")
+    func archiveMenuAvailability() throws {
+        let fixture = try Fixture("fbops-archive-menu")
+        let actions = FileBrowserActions()
+        actions.state = fixture.state
+        let archive = fixture.entry(fixture.root.appendingPathComponent("book.cbz"))
+        let text = fixture.entry(fixture.root.appendingPathComponent("a.txt"))
+        let elsewhere = fixture.entry(fixture.other)
+        #expect(actions.canCompress([archive, text]))
+        #expect(!actions.canCompress([text, elsewhere]))
+        #expect(actions.canExtract([archive]))
+        #expect(!actions.canExtract([archive, text]))
+        let context = FileBrowserMenuContext(kind: .file, entries: [archive], folder: fixture.root)
+        #expect(FileBrowserMenuCommand.extract.submenu == [.extractHere, .extractToFolder, .extractTo])
+        #expect(FileBrowserMenuCommand.extractToFolder.title(in: context, locale: Locale(identifier: "en")) == "Extract to “book”")
     }
 
     // MARK: - 進捗・報告

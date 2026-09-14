@@ -106,6 +106,54 @@ nonisolated final class RarArchiveReader: ArchiveReading {
         }
     }
 
+    /// 分割された書庫は扱わない(サンドボックスでは隣のボリュームを読めず、途中で「開けない」になる)。
+    /// 暗号化は項目ごとの印で伝え、断るのは展開の側(ArchiveExtractor)。
+    func entriesInArchiveOrder() throws -> [ArchiveEntryDescriptor] {
+        guard !archive.isVolume else { throw ArchiveReaderError.multiVolume }
+        return entries.map { entry in
+            ArchiveEntryDescriptor(
+                path: entry.fileName, kind: entry.directory ? .directory : .file,
+                uncompressedSize: entry.uncompressedSize, modified: entry.modified, isEncrypted: entry.encrypted
+            )
+        }
+    }
+
+    /// コールバックは投げられないので、`extract(at:to:maxByteCount:)` と同じく失敗を控えて `progress.cancel()` で止める。
+    ///
+    /// - Note: unrar の公開 API は 1 項目ごとに書庫を開き直して先頭から見出しを辿る。**ソリッドの rar では、読み飛ばす
+    ///   項目も伸長される**ので、全項目をこれで順に取り出すと書庫の大きさの 2 乗に比例する(ページの表示と同じ経路)。
+    ///   全項目を読むなら readEntriesInArchiveOrder。
+    func readEntry(at path: String, _ body: (Data) throws -> Void) throws {
+        guard let entry = entryByFileName[path] else { throw ArchiveReaderError.entryNotFound }
+        var bodyError: (any Error)?
+        // ライブラリの閉包は @escaping だが、呼ばれるのは extract の中だけ(同期)。
+        try withoutActuallyEscaping(body) { body in
+            do {
+                try archive.extract(entry) { chunk, progress in
+                    guard bodyError == nil else { return }
+                    do {
+                        try body(chunk)
+                    } catch {
+                        bodyError = error
+                        progress.cancel()
+                    }
+                }
+            } catch {
+                throw bodyError ?? error
+            }
+        }
+        if let bodyError { throw bodyError }
+    }
+
+    /// 書庫を 1 回だけ開いて見出しの順に読み通す(フォークの `forEachEntry`。2026-09-14 に足した)。ソリッドでも伸長は 1 回で済む。
+    /// 同じ名前のエントリが 2 つあれば `visit` も 2 回呼ばれる(ArchiveExtractor は 2 つ目を読み飛ばす)。
+    func readEntriesInArchiveOrder(_ visit: (String) throws -> ((Data) throws -> Void)?) throws {
+        guard !archive.isVolume else { throw ArchiveReaderError.multiVolume }
+        try archive.forEachEntry { entry in
+            entry.directory ? nil : try visit(entry.fileName)
+        }
+    }
+
     /// ヘッダーが持つ非圧縮サイズをそのまま返す(展開は伴わない)。
     func entryUncompressedSize(at path: String) -> Int64? {
         guard let entry = entryByFileName[path] else { return nil }

@@ -6,6 +6,40 @@ enum ArchiveReaderError: Error {
     /// `extract(at:to:maxByteCount:)`で、書き出したバイト数が上限を超えた(索引の申告より
     /// 実際の展開結果が大きい、細工された・壊れた書庫)。
     case entryTooLarge
+    /// 分割された書庫(rar の複数ボリューム)。ファイルブラウザの展開は扱わない(段階 6)。
+    case multiVolume
+}
+
+/// 書庫の中の 1 項目(ファイルブラウザの展開で使う。改善要望7 段階 6、2026-09-14)。
+///
+/// `listFilePaths()` はページを数えるための「ファイルのパスの集合」で、並びも種類も持たない(zip は辞書の鍵)。
+/// 展開には**書庫の中の順番**(7z はソリッドなので書庫順に読まないとブロックの伸長をやり直す ―― SevenZipArchiveReader の
+/// 型コメント)、フォルダ・記号リンクの区別、宣言サイズが要るので、別に持つ。
+nonisolated struct ArchiveEntryDescriptor: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case file
+        case directory
+        /// 記号リンク。**展開では作らない**(展開先の外を指すリンクを経由した書き込みの穴になる)。
+        /// 見分けられるのは zip だけ(rar・7z の reader は属性を公開していないので、リンクは中身の短いファイルとして並ぶ)。
+        case symbolicLink
+    }
+
+    /// ファイルなら `readEntry(at:)` に渡す鍵(= `listFilePaths()` の値)。フォルダ・リンクでは補正後のパス。
+    let path: String
+    let kind: Kind
+    /// 索引の自己申告(細工された書庫では嘘をつく。展開は書いた量を自分で数える)。
+    let uncompressedSize: UInt64
+    let modified: Date?
+    /// 暗号化されている(rar だけが見分けられる)。
+    let isEncrypted: Bool
+
+    init(path: String, kind: Kind, uncompressedSize: UInt64, modified: Date?, isEncrypted: Bool = false) {
+        self.path = path
+        self.kind = kind
+        self.uncompressedSize = uncompressedSize
+        self.modified = modified
+        self.isEncrypted = isEncrypted
+    }
 }
 
 /// zip / 7z / rar など、圧縮ファイルの中身を読み出すための共通インターフェース。
@@ -77,6 +111,21 @@ protocol ArchiveReading {
     /// 決まる。通常16〜64MB)+数百KBのバッファが常駐する(SevenZipArchiveReader参照)。
     /// 2026-09まではソリッドブロック全体が常駐していて上限見積りしか出せなかったが、いまは実値。
     nonisolated var residentDecompressionBufferBytes: Int { get }
+
+    /// 書庫の中の全項目(フォルダ・リンクを含む)を**書庫の中の順番で**返す(ファイルブラウザの展開。段階 6)。
+    nonisolated func entriesInArchiveOrder() throws -> [ArchiveEntryDescriptor]
+
+    /// ファイルの中身を、メモリへ丸ごと載せずにチャンクごとに `body` へ渡す(展開の書き込み)。
+    /// `body` が投げたら伸長を打ち切ってその失敗を投げ直す(中止・書き込みの失敗・上限)。
+    nonisolated func readEntry(at path: String, _ body: (Data) throws -> Void) throws
+
+    /// ファイルを**書庫の中の順番で 1 回だけ**読み通す(展開)。ファイルごとに `visit(パス)` を呼び、nil なら読み飛ばし、
+    /// 閉包を返せばそのファイルの中身をチャンクで渡す。閉包が投げたら止めて投げ直す。
+    ///
+    /// 既定は `entriesInArchiveOrder()` の順に `readEntry(at:)` を呼ぶ(zip は索引から直接引け、7z はフォークが前方へ読み進めるので、
+    /// 1 件ずつ読んでも線形)。**rar は上書きする**: unrar の 1 件ずつの取り出しは毎回書庫を先頭から辿り、ソリッドでは読み飛ばす項目も
+    /// 伸長するので、全件で書庫の大きさの 2 乗になった(180MB・60 ファイルのソリッドで 62 秒。2026-09-14 実測)。
+    nonisolated func readEntriesInArchiveOrder(_ visit: (String) throws -> ((Data) throws -> Void)?) throws
 }
 
 extension ArchiveReading {
@@ -99,6 +148,14 @@ extension ArchiveReading {
         let data = try data(at: path)
         guard data.count <= maxByteCount else { throw ArchiveReaderError.entryTooLarge }
         try data.write(to: url)
+    }
+
+    /// readEntriesInArchiveOrder の既定実装(プロトコル側のコメント参照)。
+    nonisolated func readEntriesInArchiveOrder(_ visit: (String) throws -> ((Data) throws -> Void)?) throws {
+        for entry in try entriesInArchiveOrder() where entry.kind == .file {
+            guard let consumer = try visit(entry.path) else { continue }
+            try readEntry(at: entry.path, consumer)
+        }
     }
 
     /// residentDecompressionBufferBytesの既定実装。バッファを抱えない形式は0。

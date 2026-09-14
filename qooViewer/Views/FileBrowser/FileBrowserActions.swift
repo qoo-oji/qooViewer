@@ -138,6 +138,28 @@ final class FileBrowserActions {
         state?.operations.newFolder(in: folder)
     }
 
+    /// 圧縮できるか(段階 6)。同じフォルダの項目だけ(1 つの zip の置き場所が決まらない)。
+    func canCompress(_ entries: [FileBrowserEntry]) -> Bool {
+        guard canModify(entries), let parent = entries.first?.url.deletingLastPathComponent() else { return false }
+        let parentID = FileBrowserState.id(for: parent)
+        return entries.allSatisfy { FileBrowserState.id(for: $0.url.deletingLastPathComponent()) == parentID }
+    }
+
+    /// 展開できるか(段階 6)。**選んだ全部が書庫のときだけ**(書庫でない項目が混ざったら淡色。何が展開されるのか曖昧にしない)。
+    func canExtract(_ entries: [FileBrowserEntry]) -> Bool {
+        canCompress(entries) && entries.allSatisfy(\.isExtractableArchive)
+    }
+
+    func compress(_ entries: [FileBrowserEntry], choosingDestination: Bool) {
+        guard canCompress(entries) else { return }
+        state?.operations.compress(entries, choosingDestination: choosingDestination)
+    }
+
+    func extract(_ entries: [FileBrowserEntry], placement: ArchiveExtractor.Placement, choosingDestination: Bool) {
+        guard canExtract(entries) else { return }
+        state?.operations.extract(entries, placement: placement, choosingDestination: choosingDestination)
+    }
+
     /// 右クリックの「名前を変更」。1 件なら一覧に名前の編集を始めてもらい、複数なら一括リネームのシートを出す(段階 5。Finder と同じ)。
     func beginRename(_ entries: [FileBrowserEntry]) {
         guard canModify(entries) else { return }
@@ -329,8 +351,15 @@ enum FileBrowserMenuCommand {
     case paste
     case newFolder
     case moveToTrash
+    /// サブメニュー「圧縮」(ここに圧縮 / 保存先を選んで圧縮…)。
     case compress
+    /// サブメニュー「展開」(ここに展開 / 「〈名前〉」に展開 / 展開先を選んで展開…)。
     case extract
+    case compressHere
+    case compressTo
+    case extractHere
+    case extractToFolder
+    case extractTo
     case editMetadata
     case exportBook
     case showInFinder
@@ -384,6 +413,11 @@ enum FileBrowserMenuCommand {
         case .moveToTrash: "Move to Trash"
         case .compress: "Compress"
         case .extract: "Extract"
+        case .compressHere: "Compress Here"
+        case .compressTo: "Compress To…"
+        case .extractHere: "Extract Here"
+        case .extractToFolder: "Extract to Folder"
+        case .extractTo: "Extract To…"
         case .editMetadata: "Edit Metadata…"
         case .exportBook: "Export Book"
         case .showInFinder: "Show in Finder"
@@ -396,7 +430,25 @@ enum FileBrowserMenuCommand {
         if self == .rename, context.entries.count > 1 {
             return String(format: String(localized: "Rename %lld Items…", language: locale), context.entries.count)
         }
+        // 「〈名前〉に展開」は作るフォルダの名前を出す(Finder の「アーカイブユーティリティ」は名前を見せずに作るので、何ができるか分からない)。
+        if self == .extractToFolder {
+            if context.entries.count == 1, let entry = context.entries.first {
+                return String(
+                    format: String(localized: "Extract to “%@”", language: locale), ArchiveExtractor.folderName(for: entry.url)
+                )
+            }
+            return String(localized: "Extract Each to Its Own Folder", language: locale)
+        }
         return String(localized: title, language: locale)
+    }
+
+    /// サブメニューの中身(サブメニューを持たない項目は nil)。
+    var submenu: [FileBrowserMenuCommand]? {
+        switch self {
+        case .compress: [.compressHere, .compressTo]
+        case .extract: [.extractHere, .extractToFolder, .extractTo]
+        default: nil
+        }
     }
 
     @MainActor
@@ -411,9 +463,10 @@ enum FileBrowserMenuCommand {
         case .createCollection, .addToCollection, .openWith, .editMetadata, .exportBook:
             // 段階8で既存機能とつなぐ。それまでは淡色で置く(項目の数を変えない)。
             return false
-        case .compress, .extract:
-            // 段階6。
-            return false
+        case .compress, .compressHere, .compressTo:
+            return actions.canCompress(entries)
+        case .extract, .extractHere, .extractToFolder, .extractTo:
+            return actions.canExtract(entries)
         case .rename:
             return actions.canModify(entries)
         case .copy, .cut, .moveToTrash:
@@ -436,6 +489,11 @@ enum FileBrowserMenuCommand {
         case .openInNewNormalWindow: entries.first.map { actions.open($0, in: .newNormalWindow) }
         case .openInNewPrivateWindow: entries.first.map { actions.open($0, in: .newPrivateWindow) }
         case .createCollection, .addToCollection, .openWith, .compress, .extract, .editMetadata, .exportBook: break
+        case .compressHere: actions.compress(entries, choosingDestination: false)
+        case .compressTo: actions.compress(entries, choosingDestination: true)
+        case .extractHere: actions.extract(entries, placement: .contents, choosingDestination: false)
+        case .extractToFolder: actions.extract(entries, placement: .ownFolder, choosingDestination: false)
+        case .extractTo: actions.extract(entries, placement: .contents, choosingDestination: true)
         case .rename: actions.beginRename(entries)
         case .copy: actions.copy(entries)
         case .cut: actions.cut(entries)
@@ -465,13 +523,16 @@ final class FileBrowserMenuBuilder: NSObject {
         for group in FileBrowserMenuCommand.groups(for: context.kind) {
             if !menu.items.isEmpty { menu.addItem(.separator()) }
             for command in group {
-                let item = NSMenuItem(
-                    title: command.title(in: context, locale: locale),
-                    action: #selector(performCommand(_:)), keyEquivalent: ""
-                )
-                item.target = self
-                item.representedObject = CommandBox(command)
-                item.isEnabled = command.isEnabled(in: context, actions: actions)
+                let item = menuItem(for: command, locale: locale, actions: actions)
+                if let children = command.submenu {
+                    item.action = nil
+                    let submenu = NSMenu()
+                    submenu.autoenablesItems = false
+                    for child in children {
+                        submenu.addItem(menuItem(for: child, locale: locale, actions: actions))
+                    }
+                    item.submenu = submenu
+                }
                 menu.addItem(item)
             }
         }
@@ -513,6 +574,17 @@ final class FileBrowserMenuBuilder: NSObject {
         menu.addItem(sortItem)
     }
 
+    private func menuItem(for command: FileBrowserMenuCommand, locale: Locale, actions: FileBrowserActions) -> NSMenuItem {
+        let item = NSMenuItem(
+            title: command.title(in: context, locale: locale),
+            action: #selector(performCommand(_:)), keyEquivalent: ""
+        )
+        item.target = self
+        item.representedObject = CommandBox(command)
+        item.isEnabled = command.isEnabled(in: context, actions: actions)
+        return item
+    }
+
     @objc private func performCommand(_ sender: NSMenuItem) {
         guard let box = sender.representedObject as? CommandBox, let actions else { return }
         box.command.perform(in: context, actions: actions)
@@ -552,16 +624,29 @@ struct FileBrowserContextMenuItems: View {
         ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
             if index > 0 { Divider() }
             ForEach(Array(group.enumerated()), id: \.offset) { _, command in
-                Button(command.title(in: context, locale: locale)) {
-                    command.perform(in: context, actions: actions)
+                if let children = command.submenu {
+                    Menu(command.title(in: context, locale: locale)) {
+                        ForEach(Array(children.enumerated()), id: \.offset) { _, child in
+                            button(for: child)
+                        }
+                    }
+                    .disabled(!command.isEnabled(in: context, actions: actions))
+                } else {
+                    button(for: command)
                 }
-                .disabled(!command.isEnabled(in: context, actions: actions))
             }
         }
         if context.kind == .background, let state = actions.state {
             Divider()
             FileBrowserBackgroundMenuItems(state: state)
         }
+    }
+
+    private func button(for command: FileBrowserMenuCommand) -> some View {
+        Button(command.title(in: context, locale: locale)) {
+            command.perform(in: context, actions: actions)
+        }
+        .disabled(!command.isEnabled(in: context, actions: actions))
     }
 }
 

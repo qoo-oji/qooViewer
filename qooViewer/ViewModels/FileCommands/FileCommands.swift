@@ -3,7 +3,7 @@ import Foundation
 // ファイルブラウザの個々の操作(改善要望7 段階 2、2026-09-13。qooLibrary の FileCommands.swift を写したもの)。
 // どの操作も、取り消しは**実行時に受け取った受領書だけ**を頼りに組み立てる(実行後に画面や名前から推測しない)。
 //
-// 圧縮・展開(段階 6)のコマンドはその段階で足す。
+// 圧縮・展開(段階 6)は CompressFilesCommand / ExtractArchivesCommand。
 
 extension FileOperationService {
     /// ファイルブラウザのコマンドが既定で使うインスタンス。状態を持たないので 1 つで足りる。
@@ -121,9 +121,140 @@ final class CopyFilesCommand: FileCommand {
     }
 }
 
+/// 圧縮(段階 6)。取り消しは**作った zip をゴミ箱へ**(コピーの取り消しと同じ考え。元の項目には触っていない)。
+@MainActor
+final class CompressFilesCommand: FileCommand {
+    private let items: [URL]
+    private let destination: URL
+    private let baseName: String
+    private let fileExtension: String
+    private let progress: ProgressSink?
+    private let cancellation: Cancellation
+    private let fileOps: FileOperationService
+    private(set) var receipt: TransferReceipt?
+
+    init(
+        items: [URL], destination: URL, baseName: String, fileExtension: String, progress: ProgressSink? = nil,
+        cancellation: Cancellation = Cancellation(), fileOps: FileOperationService = .shared
+    ) {
+        self.items = items
+        self.destination = destination
+        self.baseName = baseName
+        self.fileExtension = fileExtension
+        self.progress = progress
+        self.cancellation = cancellation
+        self.fileOps = fileOps
+    }
+
+    var displayName: String {
+        let locale = AppLanguage.currentLocale
+        return items.count == 1
+            ? String(format: String(localized: "Compression of “%@”", language: locale), items[0].lastPathComponent)
+            : String(format: String(localized: "Compression of %lld Items", language: locale), items.count)
+    }
+
+    let isUndoable = true
+    let completionSound: SystemSoundEffect? = .operationComplete
+
+    func execute() async throws -> FileCommandResult {
+        receipt = try await fileOps.compress(
+            items, into: destination, baseName: baseName, fileExtension: fileExtension,
+            progress: progress, cancellation: cancellation
+        )
+        guard receipt != nil else { throw CancellationError() }
+        return .success
+    }
+
+    func undo() async throws -> FileUndoResult {
+        guard let receipt else { return .impossible(reason: TransferUndo.nothingToRestore) }
+        return await TransferUndo.trashCreated([receipt], fileOps: fileOps)
+    }
+}
+
+/// 展開(段階 6)。取り消しは**置いた項目をゴミ箱へ**(「ここに展開」は展開先の既存の項目と混ざるので、フォルダ丸ごとではなく
+/// 置いたものだけ。「〈名前〉に展開」は作ったフォルダ 1 つ)。書庫そのものには触っていない。
+///
+/// 使えないエントリ(危険なパス・記号リンク)を捨てたときは、展開が済んでいても一部だけ済んだとして報告に並べる。
+@MainActor
+final class ExtractArchivesCommand: FileCommand {
+    private let archives: [URL]
+    private let destination: URL
+    private let placement: ArchiveExtractor.Placement
+    private let limits: ArchiveExtractionLimits
+    private let progress: ProgressSink?
+    private let cancellation: Cancellation
+    private let fileOps: FileOperationService
+    private(set) var receipts: [TransferReceipt] = []
+
+    init(
+        archives: [URL], destination: URL, placement: ArchiveExtractor.Placement, limits: ArchiveExtractionLimits = .standard,
+        progress: ProgressSink? = nil, cancellation: Cancellation = Cancellation(), fileOps: FileOperationService = .shared
+    ) {
+        self.archives = archives
+        self.destination = destination
+        self.placement = placement
+        self.limits = limits
+        self.progress = progress
+        self.cancellation = cancellation
+        self.fileOps = fileOps
+    }
+
+    var displayName: String {
+        let locale = AppLanguage.currentLocale
+        return archives.count == 1
+            ? String(format: String(localized: "Extraction of “%@”", language: locale), archives[0].lastPathComponent)
+            : String(format: String(localized: "Extraction of %lld Archives", language: locale), archives.count)
+    }
+
+    let isUndoable = true
+    let completionSound: SystemSoundEffect? = .operationComplete
+
+    func execute() async throws -> FileCommandResult {
+        let outcome = try await fileOps.extract(
+            archives, into: destination, placement: placement, limits: limits, progress: progress, cancellation: cancellation
+        )
+        receipts = outcome.receipts
+        if outcome.wasCancelled, receipts.isEmpty { throw CancellationError() }
+        let rejected = outcome.rejections.map { item in
+            FailedItem(
+                name: "\(item.archive.lastPathComponent): \(item.rejection.path)", reason: item.rejection.reason.message
+            )
+        }
+        let failures = outcome.failures + rejected
+        guard !failures.isEmpty || outcome.wasCancelled else { return .success }
+        return .partial(succeeded: receipts.count, failures: failures, wasCancelled: outcome.wasCancelled)
+    }
+
+    func undo() async throws -> FileUndoResult {
+        await TransferUndo.trashCreated(receipts, fileOps: fileOps)
+    }
+}
+
 /// 移動・コピーの取り消しの共通部分。
 @MainActor
 private enum TransferUndo {
+    /// 操作で**作った**項目をゴミ箱へ送る(圧縮・展開の取り消し)。作ったそのものでなくなった項目には触らない。
+    /// 何も送れず、作ったものがまだそのまま残っているなら試し直せる。
+    static func trashCreated(_ receipts: [TransferReceipt], fileOps: FileOperationService) async -> FileUndoResult {
+        guard !receipts.isEmpty else { return .impossible(reason: nothingToRestore) }
+        let (ours, changed) = await FileIO.perform { partitionByIdentity(receipts) }
+        let changedFailures = changed.map { FailedItem(url: $0.destination, reason: changedReason(for: $0.destination)) }
+        guard !ours.isEmpty else { return .impossible(reason: changedFailures[0].reason) }
+        let trashed: TrashOutcome
+        do {
+            // 展開したものの中にロックされた項目は作らない(書庫のフラグは写さない)が、作った後で利用者がロックしたなら、
+            // 自分が作ったものなので尋ねずに外して送る(コピーの取り消しと同じ)。
+            trashed = try await fileOps.trash(ours.map(\.destination), unlockingLocked: true)
+        } catch {
+            return .impossible(reason: error.localizedDescription, canRetry: changed.isEmpty)
+        }
+        let failures = changedFailures + trashed.failures
+        if failures.isEmpty { return .complete }
+        return trashed.receipts.isEmpty
+            ? .impossible(reason: failures[0].reason, canRetry: changed.isEmpty)
+            : .partial(succeeded: trashed.receipts.count, failures: failures)
+    }
+
     static var nothingToRestore: String {
         String(localized: "There’s nothing to undo.", language: AppLanguage.currentLocale)
     }

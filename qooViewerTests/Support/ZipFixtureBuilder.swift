@@ -13,6 +13,8 @@ nonisolated struct ZipFixtureBuilder {
         let isDirectory: Bool
         /// 無圧縮で入れる(EPUB の mimetype はこれが必須)。
         let stored: Bool
+        /// 記号リンク(`data` はリンク先のパス)。展開の安全策のテスト用。
+        var isSymbolicLink = false
     }
 
     private(set) var entries: [Entry] = []
@@ -25,6 +27,13 @@ nonisolated struct ZipFixtureBuilder {
 
     mutating func add(_ path: String, text: String, stored: Bool = false) {
         add(path, Data(text.utf8), stored: stored)
+    }
+
+    /// 記号リンクのエントリ(展開が作らないことを確かめる)。
+    mutating func addSymbolicLink(_ path: String, target: String) {
+        var entry = Entry(path: path, data: Data(target.utf8), isDirectory: false, stored: true)
+        entry.isSymbolicLink = true
+        entries.append(entry)
     }
 
     mutating func addDirectory(_ path: String) {
@@ -49,7 +58,7 @@ nonisolated struct ZipFixtureBuilder {
             }
             let data = entry.data
             try archive.addEntry(
-                with: entry.path, type: .file, uncompressedSize: Int64(data.count),
+                with: entry.path, type: entry.isSymbolicLink ? .symlink : .file, uncompressedSize: Int64(data.count),
                 compressionMethod: entry.stored ? .none : .deflate,
                 provider: { position, size in
                     let start = Int(position)

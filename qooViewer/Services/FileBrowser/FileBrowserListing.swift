@@ -49,6 +49,12 @@ nonisolated struct FileBrowserEntry: Identifiable, Hashable, Sendable, FolderBro
         let name = url.lastPathComponent
         return isArchiveFile(name) || isPDFFile(name) || isEpubFile(name) || isImageFile(name)
     }
+
+    /// ファイルブラウザで展開できる書庫(zip / cbz / epub / rar / cbr / 7z / cb7。段階 6)。判定は拡張子だけ
+    /// (中身が違えば展開するときに「読めません」と伝える)。
+    var isExtractableArchive: Bool {
+        !isDirectory && archiveKind(forFileName: url.lastPathComponent) != nil
+    }
 }
 
 /// 一覧の読み込みに失敗した理由。右ペインの中央の案内を出し分ける。

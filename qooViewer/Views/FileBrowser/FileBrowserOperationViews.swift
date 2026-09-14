@@ -169,6 +169,37 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
         await BulkRenamePanel.run(request, on: appState?.hostWindow, locale: locale)
     }
 
+    /// 「保存先を選んで圧縮…」「展開先を選んで展開…」。**NSOpenPanel で選ばせる**(NSSavePanel ではない): 保存パネルで選んだ場所には
+    /// そのファイル 1 つぶんの許可しか付かず、同じフォルダに一時ファイルを書いてから置く形(ZipCompressor)が取れない。
+    /// フォルダを選べばその中へ書く許可が付き、名前は「ここに圧縮」と同じ規則で決まる(塞がっていれば `name 2`)。
+    func chooseDestinationFolder(for purpose: ArchiveDestinationPurpose, startingAt folder: URL) async -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = folder
+        switch purpose {
+        case let .compress(count):
+            panel.prompt = String(localized: "Compress", language: locale)
+            panel.message = count == 1
+                ? String(localized: "Choose where to save the compressed item.", language: locale)
+                : String(format: String(localized: "Choose where to save the %lld compressed items.", language: locale), count)
+        case let .extract(count):
+            panel.prompt = String(localized: "Extract", language: locale)
+            panel.message = count == 1
+                ? String(localized: "Choose where to extract the archive.", language: locale)
+                : String(format: String(localized: "Choose where to extract the %lld archives.", language: locale), count)
+        }
+        let response: NSApplication.ModalResponse
+        if let window = appState?.hostWindow, window.attachedSheet == nil, window.isVisible {
+            response = await panel.beginSheetModal(for: window)
+        } else {
+            response = panel.runModal()
+        }
+        return response == .OK ? panel.url : nil
+    }
+
     func showProblem(_ problem: FileBrowserProblem) {
         let alert = NSAlert()
         alert.alertStyle = .warning

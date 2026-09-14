@@ -54,7 +54,27 @@ nonisolated final class ProgressTracker: @unchecked Sendable {
         progress = FileOperationProgress(totalBytes: requiredBytes ?? 0, totalItems: items.count)
     }
 
+    /// 総量を呼び出し側が知っている操作(圧縮・展開。段階 6)。走査も事前検査の値も持たない。
+    init(sink: ProgressSink?, totalBytes: Int64, totalItems: Int) {
+        self.sink = sink
+        requiredBytes = nil
+        deepestRelativePath = nil
+        largestFile = nil
+        longestName = nil
+        progress = FileOperationProgress(totalBytes: totalBytes, totalItems: totalItems)
+    }
+
     func begin() { mutate(force: true, beginsItem: true) { _ in } }
+
+    /// 展開・圧縮の 1 エントリの始まりと終わり。**間引く**(小さなファイルが数万件ある書庫で、1 件ごとに
+    /// メインアクターへ報告を投げない)。項目をまたいでも最初のバイトの例外は使わない。
+    func startEntry(named name: String) {
+        mutate(force: false, countsAsBytes: false) { $0.currentItemName = name }
+    }
+
+    func finishEntry() {
+        mutate(force: false, countsAsBytes: false) { $0.completedItems += 1 }
+    }
 
     func startItem(_ item: URL) {
         mutate(force: true, beginsItem: true) { $0.currentItemName = item.lastPathComponent }
@@ -70,13 +90,19 @@ nonisolated final class ProgressTracker: @unchecked Sendable {
     }
 
     /// 更新と報告の判定を 1 つの鍵の下で行い、**報告そのものは鍵の外で**呼ぶ(受け手が何をするか分からない)。
-    private func mutate(force: Bool, beginsItem: Bool = false, _ change: (inout FileOperationProgress) -> Void) {
+    /// - Parameter countsAsBytes: false なら「最初のバイトは間引かない」の例外を使わず、消費もしない(展開・圧縮のエントリの区切り。
+    ///   消費させると、エントリの名前の報告が例外を使い切り、書き始めたバイトの報告が 100ms 待たされる)。
+    private func mutate(
+        force: Bool, beginsItem: Bool = false, countsAsBytes: Bool = true, _ change: (inout FileOperationProgress) -> Void
+    ) {
         lock.lock()
         change(&progress)
         if beginsItem { sentFirstBytesOfItem = false }
         let now = ContinuousClock.now
         let shouldReport: Bool
-        if force || !sentFirstBytesOfItem {
+        if !countsAsBytes {
+            shouldReport = lastReportedAt.map { now - $0 >= Self.updateInterval } ?? true
+        } else if force || !sentFirstBytesOfItem {
             shouldReport = true
         } else if let last = lastReportedAt, now - last < Self.updateInterval {
             shouldReport = false
@@ -85,7 +111,7 @@ nonisolated final class ProgressTracker: @unchecked Sendable {
         }
         if shouldReport {
             lastReportedAt = now
-            if !force { sentFirstBytesOfItem = true }
+            if !force, countsAsBytes { sentFirstBytesOfItem = true }
         }
         let snapshot = progress
         lock.unlock()

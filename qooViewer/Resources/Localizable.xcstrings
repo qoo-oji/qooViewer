@@ -19578,6 +19578,566 @@
           }
         }
       }
+    },
+    "Archive" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archive"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アーカイブ"
+          }
+        }
+      }
+    },
+    "Choose where to extract the %lld archives." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose where to extract the %lld archives."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 個の書庫を展開する場所を選んでください。"
+          }
+        }
+      }
+    },
+    "Choose where to extract the archive." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose where to extract the archive."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書庫を展開する場所を選んでください。"
+          }
+        }
+      }
+    },
+    "Choose where to save the %lld compressed items." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose where to save the %lld compressed items."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 項目を圧縮したファイルの保存先を選んでください。"
+          }
+        }
+      }
+    },
+    "Choose where to save the compressed item." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose where to save the compressed item."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "圧縮したファイルの保存先を選んでください。"
+          }
+        }
+      }
+    },
+    "Comic Book ZIP (.cbz)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comic Book ZIP (.cbz)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コミックブック ZIP(.cbz)"
+          }
+        }
+      }
+    },
+    "Compress Here" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compress Here"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ここに圧縮"
+          }
+        }
+      }
+    },
+    "Compress To…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compress To…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存先を選んで圧縮…"
+          }
+        }
+      }
+    },
+    "Compressing %lld items…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compressing %lld items…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 項目を圧縮しています…"
+          }
+        }
+      }
+    },
+    "Compressing “%@”…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compressing “%@”…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」を圧縮しています…"
+          }
+        }
+      }
+    },
+    "Compression" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compression"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "圧縮"
+          }
+        }
+      }
+    },
+    "Compression of %lld Items" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compression of %lld Items"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 項目の圧縮"
+          }
+        }
+      }
+    },
+    "Compression of “%@”" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compression of “%@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」の圧縮"
+          }
+        }
+      }
+    },
+    "Extract Each to Its Own Folder" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extract Each to Its Own Folder"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "それぞれの名前のフォルダに展開"
+          }
+        }
+      }
+    },
+    "Extract Here" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extract Here"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ここに展開"
+          }
+        }
+      }
+    },
+    "Extract To…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extract To…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "展開先を選んで展開…"
+          }
+        }
+      }
+    },
+    "Extract to Folder" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extract to Folder"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダに展開"
+          }
+        }
+      }
+    },
+    "Extract to “%@”" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extract to “%@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」に展開"
+          }
+        }
+      }
+    },
+    "Extracting %lld archives…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extracting %lld archives…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 個の書庫を展開しています…"
+          }
+        }
+      }
+    },
+    "Extracting “%@”…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extracting “%@”…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」を展開しています…"
+          }
+        }
+      }
+    },
+    "Extraction of %lld Archives" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extraction of %lld Archives"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 個の書庫の展開"
+          }
+        }
+      }
+    },
+    "Extraction of “%@”" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extraction of “%@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」の展開"
+          }
+        }
+      }
+    },
+    "Format of Compressed Files" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Format of Compressed Files"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "圧縮したファイルの形式"
+          }
+        }
+      }
+    },
+    "It was skipped because its name contains control characters." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "It was skipped because its name contains control characters."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前に制御文字が含まれているため、展開しませんでした。"
+          }
+        }
+      }
+    },
+    "It was skipped because its name is too long." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "It was skipped because its name is too long."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前が長すぎるため、展開しませんでした。"
+          }
+        }
+      }
+    },
+    "It was skipped because its path points outside the destination folder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "It was skipped because its path points outside the destination folder."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "展開先のフォルダの外を指すパスのため、展開しませんでした。"
+          }
+        }
+      }
+    },
+    "Symbolic links aren’t extracted." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Symbolic links aren’t extracted."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シンボリックリンクは展開しません。"
+          }
+        }
+      }
+    },
+    "The file extension given to archives made with Compress. Both are ordinary ZIP archives; .cbz is recognized as a comic book by qooViewer and other comic readers." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The file extension given to archives made with Compress. Both are ordinary ZIP archives; .cbz is recognized as a comic book by qooViewer and other comic readers."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「圧縮」で作るファイルに付ける拡張子です。どちらも中身は普通の ZIP です。.cbz にすると、qooViewer やほかの漫画ビューアが本として扱います。"
+          }
+        }
+      }
+    },
+    "ZIP (.zip)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ZIP (.zip)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ZIP(.zip)"
+          }
+        }
+      }
+    },
+    "“%1$@” contains %2$lld files, more than qooViewer extracts at once (%3$lld)." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%1$@” contains %2$lld files, more than qooViewer extracts at once (%3$lld)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%1$@」には %2$lld 個のファイルが入っていて、qooViewer が一度に展開できる数(%3$lld)を超えています。"
+          }
+        }
+      }
+    },
+    "“%1$@” would expand to more than %2$@, so it wasn’t extracted." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%1$@” would expand to more than %2$@, so it wasn’t extracted."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%1$@」は展開すると %2$@ を超えるため、展開しませんでした。"
+          }
+        }
+      }
+    },
+    "“%@” couldn’t be read. It may be damaged, encrypted, or compressed with a method qooViewer doesn’t support." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” couldn’t be read. It may be damaged, encrypted, or compressed with a method qooViewer doesn’t support."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」を読めませんでした。壊れているか、暗号化されているか、qooViewer が対応していない方式で圧縮されている可能性があります。"
+          }
+        }
+      }
+    },
+    "“%@” expands to far more than its size, which is typical of a damaged or malicious archive, so it wasn’t extracted." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” expands to far more than its size, which is typical of a damaged or malicious archive, so it wasn’t extracted."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」は展開すると元の大きさをはるかに超えます。壊れた書庫や悪意のある書庫に見られる特徴のため、展開しませんでした。"
+          }
+        }
+      }
+    },
+    "“%@” is protected with a password. qooViewer can’t extract encrypted archives." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is protected with a password. qooViewer can’t extract encrypted archives."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はパスワードで保護されています。qooViewer は暗号化された書庫を展開できません。"
+          }
+        }
+      }
+    },
+    "“%@” is split into several files. qooViewer can’t extract split archives." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is split into several files. qooViewer can’t extract split archives."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」は複数のファイルに分割されています。qooViewer は分割された書庫を展開できません。"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

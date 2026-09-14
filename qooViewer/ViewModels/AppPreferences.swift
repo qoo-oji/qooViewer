@@ -69,6 +69,7 @@ final class AppPreferences: ObservableObject {
         static let fileBrowserFoldersFirst = "qooViewer.pref.fileBrowser.foldersFirst"
         static let fileBrowserExternalDropAction = "qooViewer.pref.fileBrowser.externalDropAction"
         static let fileBrowserExpandsTreeToCurrentFolder = "qooViewer.pref.fileBrowser.expandsTreeToCurrentFolder"
+        static let fileBrowserCompressionFormat = "qooViewer.pref.fileBrowser.compressionFormat"
         static let sidePanelPosition = "qooViewer.pref.sidePanelPosition"
         static let sidePanelMode = "qooViewer.pref.sidePanelMode"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
@@ -634,6 +635,10 @@ final class AppPreferences: ObservableObject {
         didSet {
             defaults.set(fileBrowserExpandsTreeToCurrentFolder, forKey: Keys.fileBrowserExpandsTreeToCurrentFolder)
         }
+    }
+    /// 「圧縮」で作る書庫の拡張子(既定 zip。段階 6)。
+    @Published var fileBrowserCompressionFormat: FileBrowserCompressionFormat {
+        didSet { defaults.set(fileBrowserCompressionFormat.rawValue, forKey: Keys.fileBrowserCompressionFormat) }
     }
 
     /// 上段フォルダブラウザの並べ替えに必要な設定をまとめた値。DirectoryBrowser
@@ -1588,6 +1593,9 @@ final class AppPreferences: ObservableObject {
         ) ?? .openInViewer
         self.fileBrowserExpandsTreeToCurrentFolder =
             defaults.object(forKey: Keys.fileBrowserExpandsTreeToCurrentFolder) as? Bool ?? false
+        self.fileBrowserCompressionFormat = FileBrowserCompressionFormat(
+            rawValue: defaults.string(forKey: Keys.fileBrowserCompressionFormat) ?? ""
+        ) ?? .zip
         self.sidePanelPosition =
             SidePanelPosition(rawValue: defaults.string(forKey: Keys.sidePanelPosition) ?? "") ?? .left
         self.sidePanelMode =
@@ -1945,6 +1953,7 @@ extension AppPreferences {
                 Keys.fileBrowserFoldersFirst,
                 Keys.fileBrowserExternalDropAction,
                 Keys.fileBrowserExpandsTreeToCurrentFolder,
+                Keys.fileBrowserCompressionFormat,
             ]
         // 「読み込みと書き出し」はウインドウを開くボタンだけで、戻せる設定を持たない。
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
@@ -2054,6 +2063,7 @@ extension AppPreferences {
             fileBrowserFoldersFirst = source.fileBrowserFoldersFirst
             fileBrowserExternalDropAction = source.fileBrowserExternalDropAction
             fileBrowserExpandsTreeToCurrentFolder = source.fileBrowserExpandsTreeToCurrentFolder
+            fileBrowserCompressionFormat = source.fileBrowserCompressionFormat
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
             break
         }

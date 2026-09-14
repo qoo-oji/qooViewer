@@ -3,8 +3,8 @@ import SwiftUI
 /// 環境設定ウインドウの「ファイルブラウザ」画面(改善要望7 段階3、2026-09-13)。
 ///
 /// 段階3で並べるのは**いま効くものだけ**(起動時のフォルダ・フォルダを上に。段階4bで「外からドロップしたとき」、
-/// 2026-09-14 に「現在のフォルダまでツリーを自動で展開する」)。計画
-/// (docs/plans/file-browser-plan.md §3.6)に挙げた残りの行 ―― 圧縮の拡張子・
+/// 2026-09-14 に「現在のフォルダまでツリーを自動で展開する」、段階 6 で「圧縮したファイルの形式」)。計画
+/// (docs/plans/file-browser-plan.md §3.6)に挙げた残りの行 ――
 /// 「ファイルブラウザで開く」の行き先・動画のサムネイル・サムネイルのキャッシュ ―― は、それを使う
 /// 機能が入る段階で足す。押しても何も変わらない設定を先に並べると、効かない理由が画面から読めない。
 struct FileBrowserSettingsView: View {
@@ -54,6 +54,16 @@ struct FileBrowserSettingsView: View {
                 )
             } header: {
                 Text("Drag and Drop")
+            }
+
+            Section {
+                SettingsPicker(
+                    "Format of Compressed Files",
+                    selection: $preferences.fileBrowserCompressionFormat,
+                    help: "The file extension given to archives made with Compress. Both are ordinary ZIP archives; .cbz is recognized as a comic book by qooViewer and other comic readers."
+                )
+            } header: {
+                Text("Compression")
             }
 
             SettingsResetSection(

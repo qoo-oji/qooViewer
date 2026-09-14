@@ -60,6 +60,25 @@ enum FileBrowserExternalDropAction: String, CaseIterable, Identifiable, Hashable
     var id: String { rawValue }
 }
 
+/// ファイルブラウザの「圧縮」で作る書庫の拡張子(環境設定「ファイルブラウザ」。段階 6、2026-09-14)。
+/// 中身はどちらも同じ zip。cbz にしておくと、qooViewer やほかの漫画ビューアが本として扱う。
+enum FileBrowserCompressionFormat: String, CaseIterable, Identifiable, Hashable {
+    case zip
+    case cbz
+
+    var id: String { rawValue }
+    var fileExtension: String { rawValue }
+}
+
+extension FileBrowserCompressionFormat: SettingsOption {
+    var shortTitleKey: LocalizedStringKey {
+        switch self {
+        case .zip: "ZIP (.zip)"
+        case .cbz: "Comic Book ZIP (.cbz)"
+        }
+    }
+}
+
 extension FileBrowserExternalDropAction: SettingsOption {
     var shortTitleKey: LocalizedStringKey {
         switch self {

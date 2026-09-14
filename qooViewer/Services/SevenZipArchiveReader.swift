@@ -104,6 +104,24 @@ nonisolated final class SevenZipArchiveReader: ArchiveReading {
         return (nil, entry.modified)
     }
 
+    /// `archive.entries` は書庫の中の順番。展開はこの順に読む(型コメントの「後方読みを出さない」)。
+    func entriesInArchiveOrder() throws -> [ArchiveEntryDescriptor] {
+        entries.map { entry in
+            ArchiveEntryDescriptor(
+                path: entry.path, kind: entry.directory ? .directory : .file,
+                uncompressedSize: entry.uncompressedSize, modified: entry.modified
+            )
+        }
+    }
+
+    func readEntry(at path: String, _ body: (Data) throws -> Void) throws {
+        guard let entry = entryByPath[path] else { throw ArchiveReaderError.entryNotFound }
+        try archive.read(entry: entry, chunkSize: 1 << 18) { chunk in
+            try body(Data(chunk))
+            return true
+        }
+    }
+
     /// 索引が持つ非圧縮サイズをそのまま返す(展開は伴わない)。
     func entryUncompressedSize(at path: String) -> Int64? {
         guard let entry = entryByPath[path] else { return nil }

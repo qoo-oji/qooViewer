@@ -378,6 +378,81 @@ final class FileBrowserOperations: ObservableObject {
         }
     }
 
+    // MARK: - 圧縮・展開(段階 6)
+
+    /// 限度(伸長爆弾よけ)。**テストで小さくする口。**
+    var extractionLimits = ArchiveExtractionLimits.standard
+
+    /// 「ここに圧縮」(`choosingDestination` なら「保存先を選んで圧縮…」)。同じフォルダの項目を 1 つの zip に固める。
+    /// 拡張子は環境設定(zip / cbz)。名前は 1 件ならその名前、複数ならフォルダの名前(ZipCompressor.archiveBaseName)。
+    @discardableResult
+    func compress(_ entries: [FileBrowserEntry], choosingDestination: Bool = false) -> Task<Void, Never> {
+        let urls = entries.filter { !$0.isVolume }.map(\.url)
+        let fileExtension = state?.preferences?.fileBrowserCompressionFormat.fileExtension ?? "zip"
+        return enqueue { [weak self] in
+            guard let self, let first = urls.first else { return }
+            let parent = first.deletingLastPathComponent()
+            let parentID = FileBrowserState.id(for: parent)
+            guard urls.allSatisfy({ FileBrowserState.id(for: $0.deletingLastPathComponent()) == parentID }) else { return }
+            var destination = parent
+            if choosingDestination {
+                guard let chosen = await self.presenter?.chooseDestinationFolder(for: .compress(count: urls.count), startingAt: parent)
+                else { return }
+                destination = chosen
+            }
+            let cancellation = Cancellation()
+            let command = CompressFilesCommand(
+                items: urls, destination: destination, baseName: ZipCompressor.archiveBaseName(for: urls),
+                fileExtension: fileExtension, progress: self.progressSink(), cancellation: cancellation, fileOps: self.fileOps
+            )
+            let locale = AppLanguage.currentLocale
+            let title = urls.count == 1
+                ? String(format: String(localized: "Compressing “%@”…", language: locale), first.lastPathComponent)
+                : String(format: String(localized: "Compressing %lld items…", language: locale), urls.count)
+            await self.run(command, title: title, cancellation: cancellation, affected: [destination]) { _ in
+                command.receipt.map { [$0.destination] } ?? []
+            }
+        }
+    }
+
+    /// 「ここに展開」「〈名前〉に展開」(`choosingDestination` なら「展開先を選んで展開…」。置き方は `placement`)。
+    /// 書庫でない項目は外す。1 冊ずつ順に展開し、全体で 1 回の取り消し。
+    @discardableResult
+    func extract(
+        _ entries: [FileBrowserEntry], placement: ArchiveExtractor.Placement, choosingDestination: Bool = false
+    ) -> Task<Void, Never> {
+        let archives = entries.filter(\.isExtractableArchive).map(\.url)
+        let limits = extractionLimits
+        return enqueue { [weak self] in
+            guard let self, let first = archives.first else { return }
+            var destination = first.deletingLastPathComponent()
+            if choosingDestination {
+                guard let chosen = await self.presenter?.chooseDestinationFolder(
+                    for: .extract(count: archives.count), startingAt: destination
+                ) else { return }
+                destination = chosen
+            }
+            let cancellation = Cancellation()
+            let command = ExtractArchivesCommand(
+                archives: archives, destination: destination, placement: placement, limits: limits,
+                progress: self.progressSink(), cancellation: cancellation, fileOps: self.fileOps
+            )
+            let locale = AppLanguage.currentLocale
+            let title = archives.count == 1
+                ? String(format: String(localized: "Extracting “%@”…", language: locale), first.lastPathComponent)
+                : String(format: String(localized: "Extracting %lld archives…", language: locale), archives.count)
+            await self.run(command, title: title, cancellation: cancellation, affected: [destination]) { _ in
+                command.receipts.map(\.destination)
+            }
+        }
+    }
+
+    private func progressSink() -> ProgressSink {
+        ProgressSink { [weak self] progress in
+            Task { @MainActor [weak self] in self?.report(progress) }
+        }
+    }
+
     /// フォルダの中の名前全部(隠しファイルを含む)。読めなければ nil。
     private nonisolated static func names(in folder: URL) async -> Set<String>? {
         await FileIO.perform {
@@ -744,7 +819,16 @@ protocol FileBrowserOperationPresenting: AnyObject {
     func resolveConflict(_ conflict: FileConflict, replacingDeletesImmediately: Bool, cancellation: Cancellation) async -> ConflictDecision
     /// 一括リネームのシート。「名称変更」なら入力を、「キャンセル」なら nil を返す。
     func requestBulkRename(_ request: BulkRenameRequest) async -> BulkRenameSettings?
+    /// 「保存先を選んで圧縮…」「展開先を選んで展開…」のフォルダ選択。キャンセルなら nil。
+    /// 選んだフォルダにはその場で読み書きの許可が付く(サンドボックス。NSOpenPanel)。
+    func chooseDestinationFolder(for purpose: ArchiveDestinationPurpose, startingAt folder: URL) async -> URL?
     func showProblem(_ problem: FileBrowserProblem)
+}
+
+/// フォルダを選ぶ理由(パネルの文言が変わる)。
+enum ArchiveDestinationPurpose: Equatable {
+    case compress(count: Int)
+    case extract(count: Int)
 }
 
 /// 一括リネームのシートに渡すもの(例の行と、使えない名前の判定に使う)。

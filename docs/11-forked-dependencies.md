@@ -7,7 +7,7 @@ qooViewer は3つの Swift パッケージに依存します。うち2つは開�
 |---|---|---|---|
 | ZIPFoundation | `weichsel/ZIPFoundation` | バージョン 0.9.20 | zip / cbz / EPUB(zip コンテナ)の読み取り、CBZ / EPUB の書き出し |
 | SevenZip.swift | **`qoo-oji/SevenZip.swift`** ブランチ `streaming-extract` | revision `35800eb` | 7z / cb7 の読み取り |
-| Unrar.swift | **`qoo-oji/Unrar.swift`** ブランチ `memory-archive` | revision `2fb14dc` | rar / cbr の読み取り |
+| Unrar.swift | **`qoo-oji/Unrar.swift`** ブランチ `memory-archive` | revision `2d2982e` | rar / cbr の読み取り |
 
 フォークの作業ツリーは、開発機ではリポジトリの隣(`../SevenZip.swift`、`../Unrar.swift`)にあり、
 どちらも `origin` = qoo-oji、`upstream` = mtgto(本家)という remote 構成です。各フォークには
@@ -191,7 +191,14 @@ unrar の公開 API(`RAROpenArchiveEx`)は書庫を**ファイルパスでしか
 
 ### 何を加えたか
 
-コミット `2fb14dc` "Add reading archives held in memory" の1つ。
+| コミット | 内容 |
+|---|---|
+| `2fb14dc` Add reading archives held in memory | メモリ上の書庫を読む(下の箇条) |
+| `376bd1a` / `8beb4e5` | Swift のワークフローをフォークのブランチで・手動でも走らせる |
+| `2fa1c08` Include <climits> for INT_MAX in the in-memory read path | Linux のビルドの修正 |
+| `2d2982e` Add reading every entry of an archive in one pass | `Archive.forEachEntry(_:)`(下の「全エントリを 1 回で読む」)。2026-09-14 |
+
+メモリ上の書庫(`2fb14dc`):
 
 - 同梱の unrar ソース(C++)の `File` クラスにメモリモード(`MemData` / `MemSize` / `MemPos`、
   `OpenMemory()` / `IsMemory()`)を足し、実際の I/O が集約されている `DirectRead` / `RawSeek` と
@@ -213,11 +220,21 @@ unrar の公開 API(`RAROpenArchiveEx`)は書庫を**ファイルパスでしか
 - `fileURL` は保持プロパティから計算プロパティになった(メモリから開いた場合は `memory:` という
   プレースホルダ URL。判別は `source` を見る)。
 
+全エントリを 1 回で読む(`2d2982e`、2026-09-14。フォークの `docs/SequentialRead.md`):
+
+- 本家の `extract(_:)` は呼ぶたびに書庫を開き直して見出しを先頭から辿る。**ソリッドの RAR では読み飛ばすエントリも伸長する**ので、
+  全エントリを 1 つずつ取り出すと書庫の大きさの 2 乗に比例する。ファイルブラウザの展開(段階 6)で、180MB・60 ファイルのソリッド RAR が
+  62 秒かかった(同じ中身の非ソリッドは 1.4 秒)。
+- `forEachEntry { entry in … }` は 1 回開いて見出しの順に進み、エントリごとに「読み飛ばす(nil)/ 中身をチャンクで受け取る閉包」を返させる。
+  中身は `RAR_TEST` のコールバックで渡すので CRC も検証される。閉包が投げたらその場で止めて投げ直す。同じ書庫で 2.2 秒。
+- ページの表示(1 枚ずつの `extract`)は変えていない。ソリッドの RAR で後ろのページほど遅いのは本家から同じ。
+
 ### qooViewer 側の使い方
 
 `Services/RarArchiveReader.swift` がこのフォークの利用者で、`ArchiveReading` に
 `init(data:)` 相当の入口があります。入れ子の rar も 7z と同じく、予算内ならメモリから、
-超えれば一時ファイルから開きます(`NestedArchiveResolver`)。
+超えれば一時ファイルから開きます(`NestedArchiveResolver`)。展開(`ArchiveReading.readEntriesInArchiveOrder`)は
+`forEachEntry` を使います。
 
 ### 既知の制限
 

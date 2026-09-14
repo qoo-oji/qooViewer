@@ -132,6 +132,30 @@ struct FileOperationVolumeTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: volume.url.path).isEmpty)
     }
 
+    @Test("展開の途中でディスクがいっぱいになっても落ちず(SIGABRT にならず)、空きが無いと伝えて一時フォルダを残さない")
+    func extractionFailsCleanlyWhenTheDiskFills() async throws {
+        guard let volume = DisposableVolume.make(.tiny, "extract-full") else { return }
+        var builder = ZipFixtureBuilder()
+        // 無圧縮で入れる(書庫は起動ボリュームの一時フォルダに置く)。圧縮しても縮まない中身。
+        var content = Data(count: 30 * 1024 * 1024)
+        content.withUnsafeMutableBytes { arc4random_buf($0.baseAddress, $0.count) }
+        builder.add("big.bin", content, stored: true)
+        let archive = temporary.file("big.zip")
+        try builder.write(to: archive)
+        var limits = ArchiveExtractionLimits.standard
+        limits.checksFreeSpace = false
+
+        await #expect {
+            _ = try await service.extract(
+                [archive], into: volume.url, placement: .contents, limits: limits, progress: nil, cancellation: Cancellation()
+            )
+        } throws: { error in
+            guard case let .posixFailure(_, code) = error as? FileOperationError else { return false }
+            return code == ENOSPC
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: volume.url.path).isEmpty)
+    }
+
     @Test("作ったばかりのローカルのボリュームにもゴミ箱がある(.Trashes がまだ無くても)")
     func freshLocalVolumeHasATrash() async throws {
         guard let volume = DisposableVolume.make(.fat32, "fresh-trash") else { return }
