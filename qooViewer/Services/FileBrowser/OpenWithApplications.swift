@@ -13,6 +13,13 @@ import UniformTypeIdentifiers
 /// 一部として**組み立てられる(SidePanelView の folderRow のコメント)。そこで毎回 LaunchServices とアプリの
 /// Info.plist を引くと、スクロールや選択のたびに見えているセルの数だけ走る。拡張子(とフォルダかどうか)ごとに覚え、
 /// アプリが入れ替わりうる契機(qooViewer が前面に戻ったとき)に捨てる。
+///
+/// ■ ファイルに触らずに引く(2026-09-14 の監査 11)
+/// これはメインアクターの上で走る。以前は `urlsForApplications(toOpen: URL)` にファイルの URL を渡していて、LaunchServices が
+/// その項目を調べに行くので、応答しない共有の上の項目ではメインが待たされえた(拡張子の無いファイルはパスごとに引くので、
+/// セルの数だけ)。いまは**種類(`UTType`)で引く** ―― 拡張子から決め、フォルダは `.folder`、拡張子の無いファイルは `.data`。
+/// 失うもの: 1 つのファイルだけに付けた「このアプリケーションで開く」の既定(Finder の「情報を見る」で 1 件だけ変えたもの)が
+/// 「(既定)」に反映されないことと、拡張子の無い実行ファイル・テキストを中身で見分けないこと。候補から開くこと自体は変わらない。
 @MainActor
 final class OpenWithApplications {
     static let shared = OpenWithApplications()
@@ -38,12 +45,13 @@ final class OpenWithApplications {
     }
 
     /// `url`を開けるアプリ。既定のアプリが先頭、残りは名前順。qooViewer 自身は入れない(「開く」がそれにあたる)。
-    func applications(for url: URL, isDirectory: Bool) -> [Application] {
-        let key = Self.cacheKey(for: url, isDirectory: isDirectory)
+    func applications(for url: URL, isDirectory: Bool, isPackage: Bool) -> [Application] {
+        let key = Self.cacheKey(for: url, isDirectory: isDirectory, isPackage: isPackage)
         if let cached = cache[key] { return cached }
         let workspace = NSWorkspace.shared
-        let all = workspace.urlsForApplications(toOpen: url)
-        let defaultApp = workspace.urlForApplication(toOpen: url)
+        let type = Self.contentType(for: url, isDirectory: isDirectory, isPackage: isPackage)
+        let all = workspace.urlsForApplications(toOpen: type)
+        let defaultApp = workspace.urlForApplication(toOpen: type)
         let candidates = all.map { appURL in
             Candidate(
                 url: appURL,
@@ -116,10 +124,20 @@ final class OpenWithApplications {
         return result
     }
 
-    /// 拡張子のあるファイルは拡張子で、無いものはパスで覚える(拡張子の無いファイルは中身で種類が決まりうる)。
-    nonisolated static func cacheKey(for url: URL, isDirectory: Bool) -> String {
-        let ext = url.pathExtension.lowercased()
-        if isDirectory { return "d:" + ext }
-        return ext.isEmpty ? "p:" + url.path : "f:" + ext
+    /// 引く種類が決まる単位で覚える(`contentType(for:isDirectory:isPackage:)` と同じ分け方)。
+    nonisolated static func cacheKey(for url: URL, isDirectory: Bool, isPackage: Bool) -> String {
+        if isDirectory, !isPackage { return "d:" }
+        return (isDirectory ? "p:" : "f:") + url.pathExtension.lowercased()
+    }
+
+    /// 引く種類。**名前だけで決める**(ファイルに触らない。型コメント)。中へ入れるフォルダは名前に `.` があっても `.folder`、
+    /// パッケージ(`.app` など)とファイルは拡張子の種類、拡張子の無いファイルは `.data`。
+    nonisolated static func contentType(for url: URL, isDirectory: Bool, isPackage: Bool) -> UTType {
+        if isDirectory, !isPackage { return .folder }
+        let ext = url.pathExtension
+        guard !ext.isEmpty,
+              let type = UTType(filenameExtension: ext, conformingTo: isDirectory ? .package : .data)
+        else { return isDirectory ? .package : .data }
+        return type
     }
 }

@@ -649,7 +649,8 @@ actor PageLoader {
                 return nil
             }
             let box = pdfPage.getBoxRect(.mediaBox)
-            guard box.width > 0, box.height > 0 else { return nil }
+            // 壊れた PDF の巨大な箱で `Int(_:)` がトラップしないように(CGRect.hasUsablePDFPageSize)。
+            guard box.hasUsablePDFPageSize else { return nil }
             let size = (width: Int(box.width.rounded()), height: Int(box.height.rounded()))
             pageSizeCache[page.id] = size
             return size
@@ -883,7 +884,8 @@ actor PageLoader {
                 return nil
             }
             let box = pdfPage.getBoxRect(.mediaBox)
-            guard box.width > 0, box.height > 0 else { return nil }
+            // 壊れた PDF の巨大な箱で `Int(_:)` がトラップしないように(CGRect.hasUsablePDFPageSize)。
+            guard box.hasUsablePDFPageSize else { return nil }
             let dates = Self.fileSystemDates(for: container.revealURL)
             return PageImageInfo(
                 fileName: page.displayName,
@@ -1556,7 +1558,7 @@ actor PageLoader {
     /// renderPDFPixelsと、highResolutionImage(at:)の「表示用と同じ倍率になるか」の判定が共用する。
     private func pdfRenderScale(for page: CGPDFPage, maxPixelSize: CGFloat) -> CGFloat? {
         let mediaBox = page.getBoxRect(.mediaBox)
-        guard mediaBox.width > 0, mediaBox.height > 0 else { return nil }
+        guard mediaBox.hasUsablePDFPageSize else { return nil }
 
         // PDFのページ寸法はpt(72dpi基準)でしか分からないため、要求された最大ピクセル数まで
         // 無条件に引き伸ばすと、中身より高い解像度で描くことになる。画像ファイルの側は

@@ -143,6 +143,8 @@ final class FileBrowserVideoThumbnailWarmer {
             let videos = await FileIO.perform(qos: .utility) {
                 videoFiles(under: root, protectedPrefixes: prefixes, isRemote: isRemote)
             }
+            // マウント表は場所ごとに 1 回だけ読む(2026-09-14 の監査。以前は動画 1 本ごとに `getmntinfo_r_np` で写し直していた)。
+            let mountTable = MountTable.current()
             for video in videos {
                 if Task.isCancelled { return report }
                 guard seen.insert(video.path).inserted else { continue }
@@ -150,7 +152,7 @@ final class FileBrowserVideoThumbnailWarmer {
                 if report.skippedExtensions.contains(ext) { continue }
                 let isDataless = dependencies.isDataless
                 let (key, dataless) = await FileIO.perform(qos: .utility) {
-                    (FileBrowserThumbnailKey.of(video, mountTable: MountTable.current()), isDataless(video))
+                    (FileBrowserThumbnailKey.of(video, mountTable: mountTable), isDataless(video))
                 }
                 // 追い出されたファイルは、失敗としても数えない(数えると形式ごとの諦めを誤って引き起こす)。
                 guard !dataless, let key else { continue }

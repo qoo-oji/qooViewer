@@ -286,11 +286,94 @@ struct FileBrowserThumbnailTests {
         #expect(provider.generatedCount < entries.count)
     }
 
+    // MARK: - 監査の手当て(2026-09-14)
+
+    @Test("書庫のエントリは伸長しながら上限を数え、超えた時点で読むのをやめる(宣言サイズを偽った伸長爆弾)")
+    func entryLimitIsCountedWhileInflating() throws {
+        // 宣言サイズを答えない(= 偽る)reader。1KB ずつ 100 回渡そうとする。
+        let liar = StreamingReader(chunk: Data(count: 1024), chunkCount: 100)
+        #expect(BookThumbnailer.boundedEntryData("a.png", in: liar, maxByteCount: 4096) == nil)
+        #expect(liar.deliveredChunks == 5, "上限を超えた 5 回目で止まり、残りを伸長しない")
+        let honest = StreamingReader(chunk: Data(count: 1024), chunkCount: 4)
+        #expect(BookThumbnailer.boundedEntryData("a.png", in: honest, maxByteCount: 4096)?.count == 4096)
+
+        // 本物の zip でも、上限は宣言と実際の両方で効く。
+        let temporary = try TemporaryDirectory("thumb-bounded")
+        var zip = ZipFixtureBuilder()
+        zip.add("1.png", PageImageFactory.png(number: 1))
+        let url = temporary.file("book.cbz")
+        try zip.write(to: url)
+        let reader = try ZipArchiveReader(url: url)
+        let size = PageImageFactory.png(number: 1).count
+        #expect(BookThumbnailer.boundedEntryData("1.png", in: reader, maxByteCount: Int64(size))?.count == size)
+        #expect(BookThumbnailer.boundedEntryData("1.png", in: reader, maxByteCount: Int64(size - 1)) == nil)
+    }
+
+    @Test("追い出されたファイルを落としてこない方針は、読み取りの間だけこのスレッドに掛かり、終わると元へ戻る")
+    func datalessPolicyIsScopedToTheRead() async {
+        let observed = await FileIO.perform { () -> (before: Int32, inside: Int32, after: Int32) in
+            let before = getiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD)
+            let inside = DatalessFiles.withoutDownloading {
+                getiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD)
+            }
+            let after = getiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD)
+            return (before, inside, after)
+        }
+        // サンドボックスの中(テストホスト)でも掛けられる。
+        #expect(observed.inside == IOPOL_MATERIALIZE_DATALESS_FILES_OFF)
+        #expect(observed.after == observed.before)
+        // 手元にある普通のファイルは「追い出された」ではない。
+        #expect(!DatalessFiles.isDataless(Fixtures.url("zip/zip-no-images.cbz")))
+    }
+
+    @Test("PDF の箱: 無限・NaN・巨大・0 の箱は描く大きさの計算に使わない(Int への換算でトラップしない)")
+    func unusablePDFBoxes() {
+        #expect(CGRect(x: 0, y: 0, width: 595, height: 842).hasUsablePDFPageSize)
+        #expect(!CGRect(x: 0, y: 0, width: CGFloat.infinity, height: 842).hasUsablePDFPageSize)
+        #expect(!CGRect(x: 0, y: 0, width: CGFloat.nan, height: 842).hasUsablePDFPageSize)
+        #expect(!CGRect(x: 0, y: 0, width: 1e30, height: 842).hasUsablePDFPageSize)
+        #expect(!CGRect(x: CGFloat.infinity, y: 0, width: 595, height: 842).hasUsablePDFPageSize)
+        #expect(!CGRect(x: 0, y: 0, width: 0, height: 842).hasUsablePDFPageSize)
+    }
+
+    @Test("EPUB の絵は spine の先頭 1 ページで止める(残りの XHTML を読まない)")
+    func epubStopsAtTheFirstPage() throws {
+        let temporary = try TemporaryDirectory("thumb-epub-first")
+        let url = temporary.file("book.epub")
+        try EpubFixtureBuilder.pages(5).write(to: url)
+        let reader = try ZipArchiveReader(url: url)
+        #expect(try EpubStructureResolver.resolve(reader: reader, maxPages: 1).pages.count == 1)
+        #expect(try EpubStructureResolver.resolve(reader: reader).pages.count == 5)
+    }
+
     @Test("段: 表示の大きさの 2 倍を超えるいちばん小さい段")
     func pixelTiers() {
         #expect(FileBrowserThumbnailProvider.pixelTier(forDisplaySize: 48) == 128)
         #expect(FileBrowserThumbnailProvider.pixelTier(forDisplaySize: 64) == 128)
         #expect(FileBrowserThumbnailProvider.pixelTier(forDisplaySize: 96) == 256)
         #expect(FileBrowserThumbnailProvider.pixelTier(forDisplaySize: 256) == 512)
+    }
+}
+
+/// 宣言サイズを答えず、決まった数のチャンクを渡す reader(伸長しながら数える上限のテスト)。
+private nonisolated final class StreamingReader: ArchiveReading, @unchecked Sendable {
+    let chunk: Data
+    let chunkCount: Int
+    private(set) var deliveredChunks = 0
+
+    init(chunk: Data, chunkCount: Int) {
+        self.chunk = chunk
+        self.chunkCount = chunkCount
+    }
+
+    func listFilePaths() throws -> [String] { ["a.png"] }
+    func data(at path: String) throws -> Data { Data(repeating: 0, count: chunk.count * chunkCount) }
+    func entryDates(at path: String) -> (created: Date?, modified: Date?) { (nil, nil) }
+    func entriesInArchiveOrder() throws -> [ArchiveEntryDescriptor] { [] }
+    func readEntry(at path: String, _ body: (Data) throws -> Void) throws {
+        for _ in 0..<chunkCount {
+            deliveredChunks += 1
+            try body(chunk)
+        }
     }
 }

@@ -90,10 +90,10 @@ actor FileOperationService {
     private nonisolated static func withLocksLifted(
         from source: URL, to target: URL, allowed: Bool, _ body: () throws -> FileCopyEngine.Outcome
     ) throws -> FileCopyEngine.Outcome {
-        let locked = lockedItems(atOrUnder: source)
-        guard !locked.isEmpty else { return try body() }
+        // 同じボリュームなら邪魔をするのは項目自身のロックだけなので、**木を歩かない**(2026-09-14 の監査。以前は同じボリュームの
+        // 移動でも中を全部列挙してから、項目自身以外を捨てていた)。
         let sameVolume = MountTable.current().areOnSameVolume(source, target.deletingLastPathComponent())
-        let blocking = sameVolume ? locked.filter { $0 == source } : locked
+        let blocking = sameVolume ? (isLocked(source) ? [source] : []) : lockedItems(atOrUnder: source)
         guard !blocking.isEmpty else { return try body() }
         guard allowed else { throw FileOperationError.itemLocked(source) }
         // 外すのは邪魔をするものだけ(同じボリュームなら中のロックはそのまま一緒に動く)。
@@ -150,7 +150,7 @@ actor FileOperationService {
                 guard unlockingLocked, Self.setLocked(item, false) else { throw FileOperationError.itemLocked(item) }
             }
             let code: Int32
-            if Self.refersToSameEntry(item, target) {
+            if Self.refersToSameEntry(item, target), Self.namesDifferOnlyInCaseOrNormalization(item.lastPathComponent, validName) {
                 // **書き換え先がその項目自身なら衝突ではない。** 大文字小文字を区別しないボリューム
                 // (APFS の既定)で `comic.cbz` → `Comic.cbz`、どの形式でも NFD → NFC だけの改名は、
                 // 宛先の存在確認が「自分自身」を見つける。ここで衝突と判定すると Finder でできる改名が
@@ -160,7 +160,7 @@ actor FileOperationService {
                 code = Self.exclusiveRename(from: item, to: target)
             }
             if wasLocked { Self.setLocked(code == 0 ? target : item, true) }
-            if code == EEXIST, !Self.refersToSameEntry(item, target) { throw FileOperationError.alreadyExists(target) }
+            if code == EEXIST { throw FileOperationError.alreadyExists(target) }
             guard code == 0 else { throw FileOperationError.posixFailure(item: item, errnoCode: code) }
             return RenameReceipt(original: item, renamed: target, identity: FileIdentity.of(target))
         }
@@ -367,10 +367,11 @@ actor FileOperationService {
                 }
                 outcome.receipts.append(carried.receipt)
                 tracker.finishItem()
-                if let sourceRemains = carried.sourceRemains {
-                    // 写しは宛先に揃っている(受領書は返した)が、元を消せなかった。失敗として止める ―― 利用者は
-                    // 「移動した」つもりで、元に同じ名前が(一部だけ)残っていることを知らないと、後で混乱する。
-                    outcome.failures.append(FailedItem(url: item, reason: sourceRemains))
+                if let problem = carried.problem {
+                    // 写しは宛先に揃っている(受領書は返した)が、元を消せなかった・置き換えた元をゴミ箱へ送れなかった。
+                    // 失敗として止める ―― 利用者は「移動した」「置き換えた」つもりで、元に同じ名前が(一部だけ)残っている・
+                    // 隠れた退避が残っていることを知らないと、後で混乱する。
+                    outcome.failures.append(FailedItem(url: item, reason: problem))
                     outcome.unprocessed = Array(items[(index + 1)...])
                     break
                 }
@@ -587,8 +588,9 @@ actor FileOperationService {
     /// 1 項目を運んだ結果。
     private nonisolated struct Carried: Sendable {
         let receipt: TransferReceipt
-        /// 別ボリュームへの移動で写し終えたが元を消せなかった(表示言語の理由)。
-        let sourceRemains: String?
+        /// 運べたが、片付けの一部ができなかった(表示言語の理由)。別ボリュームへの移動で元を消せなかった、
+        /// 「置き換える」で置き換えられた元をゴミ箱へ送れなかった(隠れた退避として残した)。
+        let problem: String?
     }
 
     /// 1 項目を運ぶ。中止されたら nil(書きかけは片付け、`.replace` の退避は戻してある)。
@@ -625,17 +627,27 @@ actor FileOperationService {
         }
 
         var replacedInTrash: URL?
+        var replacedItemKept: String?
         if let backup = resolved.backupOfReplaced {
             // 退避は**消さずにゴミ箱へ**(「置き換える」の直後の Undo で、置き換えられた元を手で戻せる)。
             // ゴミ箱へ送れない場所(SMB)では消すしかない ―― そこで「置き換える」を選ぶ前の確認は段階 4 の UI の仕事。
-            if environment.hasTrash(backup.deletingLastPathComponent()) {
+            let hasTrash = environment.hasTrash(backup.deletingLastPathComponent())
+            if hasTrash {
                 replacedInTrash = environment.trashItemSynchronously(backup)
             }
             if let replacedInTrash, resolved.unlockedReplaced {
                 // ゴミ箱の中でロックを掛け直す(trash の unlockingLocked と同じ。戻したときにロックも戻る)。
                 setLocked(replacedInTrash, true)
             }
-            if replacedInTrash == nil {
+            if hasTrash, replacedInTrash == nil {
+                // **ゴミ箱のある場所で送れなかったら、消さずに残す**(2026-09-14 の監査 8)。以前はここから完全削除へ落ちていて、
+                // 利用者は「ゴミ箱に入る」と確認したつもりの元の項目を、確認なしに失っていた。退避と記録はそのまま残し
+                // (次の起動の復旧が「隠れた項目が残っている」と知らせる)、いまも失敗として伝える。
+                // 実測では新品の exFAT / FAT32 / APFS でも `trashItem` は通り、項目自身が `uchg` のとき(-5000)くらいしか失敗しない。
+                replacedItemKept = FileOperationError.replacedItemKept(
+                    backup: backup.deletingLastPathComponent(), target: resolved.target
+                ).localizedDescription
+            } else if replacedInTrash == nil {
                 // 消す。**中にロックされた項目があれば、許しがあるときだけ外してから**(無ければ消し始めない ――
                 // 途中で止まって半分だけ消えた木を残すより、記録ごと残して次の起動で知らせるほうがよい)。
                 let locked = lockedItems(atOrUnder: backup)
@@ -653,9 +665,9 @@ actor FileOperationService {
             source: item, destination: resolved.target, replacedItemInTrash: replacedInTrash, identity: FileIdentity.of(resolved.target)
         )
         if case let .copiedButSourceRemains(_, reason) = outcome {
-            return Carried(receipt: receipt, sourceRemains: reason)
+            return Carried(receipt: receipt, problem: [reason, replacedItemKept].compactMap(\.self).joined(separator: " "))
         }
-        return Carried(receipt: receipt, sourceRemains: nil)
+        return Carried(receipt: receipt, problem: replacedItemKept)
     }
 
     /// 書き終えなかったときに、退避した元の項目を戻す。戻せなければ `replaceBackupOrphaned` を投げる
@@ -812,6 +824,16 @@ actor FileOperationService {
     nonisolated static func itemExists(at url: URL) -> Bool {
         var info = stat()
         return lstat(url.path, &info) == 0
+    }
+
+    /// 名前の違いが大文字小文字と Unicode の正規化(NFC / NFD)だけか(改名の「自分自身」の判定)。
+    ///
+    /// **同じ実体を指すだけでは足りない**(2026-09-14 の監査)。同じフォルダの中のハードリンクの兄弟も同じ inode なので、
+    /// 以前は `a.txt` → `b.txt`(b が a のハードリンク)を「自分自身」として素の rename(2) に回し、rename(2) は同じ実体への
+    /// 改名を**何もせずに成功**として返す(POSIX)ので、名前は変わらないまま「変えた」と報告し、取り消しの記録も積んでいた。
+    /// Swift の `==` は正規化の違いを同じと見るので、大文字小文字をそろえて比べれば足りる。
+    nonisolated static func namesDifferOnlyInCaseOrNormalization(_ a: String, _ b: String) -> Bool {
+        a.lowercased() == b.lowercased()
     }
 
     /// 2 つのパスが同じ実体か(大文字小文字・正規化違いの改名の判定)。どちらかが無ければ別。

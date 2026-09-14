@@ -72,6 +72,22 @@
         }
       }
     },
+    "“%1$@” was replaced, but the original couldn’t be moved to the Trash. It was kept as the hidden item “%2$@” in the same folder." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%1$@” was replaced, but the original couldn’t be moved to the Trash. It was kept as the hidden item “%2$@” in the same folder."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%1$@」を置き換えましたが、元の項目をゴミ箱に入れられませんでした。同じフォルダの中に、隠し項目「%2$@」として残っています。"
+          }
+        }
+      }
+    },
     "…and %lld more." : {
       "localizations" : {
         "en" : {

@@ -23,7 +23,9 @@ nonisolated struct FileBrowserThumbnailKey: Hashable, Sendable {
         guard lstat(url.path, &info) == 0, let volume = mountTable.volumeIdentifier(url) else { return nil }
         return FileBrowserThumbnailKey(
             volume: volume, inode: info.st_ino,
-            modified: Int64(info.st_mtimespec.tv_sec) * 1_000_000_000 + Int64(info.st_mtimespec.tv_nsec),
+            // **桁あふれで落とさない**(2026-09-14 の監査 12)。APFS は mtime をクランプするが、SMB / NFS / 他社ドライバの壊れた日時では
+            // `tv_sec * 10^9` が Int64 を超えてトラップした。鍵は同じ日時に同じ値が出れば足りるので、折り返す演算で作る。
+            modified: Int64(info.st_mtimespec.tv_sec) &* 1_000_000_000 &+ Int64(info.st_mtimespec.tv_nsec),
             size: Int64(info.st_size)
         )
     }

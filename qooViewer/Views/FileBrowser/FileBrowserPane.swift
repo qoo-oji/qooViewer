@@ -127,6 +127,8 @@ struct FileBrowserPane: View {
         }
         .onDisappear {
             state.deactivate()
+            // 値で持っている口を外す(FileBrowserActions.openWindow のコメント)。現れ直したら connectActions が付け直す。
+            actions.openWindow = nil
         }
         .sheet(isPresented: $state.isShowingGoToFolder) {
             FileBrowserGoToFolderSheet(state: state)

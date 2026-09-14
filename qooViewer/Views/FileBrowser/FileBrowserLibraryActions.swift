@@ -137,7 +137,7 @@ extension FileBrowserActions {
     /// 右クリックした項目を開けるアプリ(複数選択では先頭の項目の種類で引く)。
     func openWithApplications(for entries: [FileBrowserEntry]) -> [OpenWithApplications.Application] {
         guard let first = entries.first, !first.isVolume else { return [] }
-        return OpenWithApplications.shared.applications(for: first.url, isDirectory: first.isDirectory)
+        return OpenWithApplications.shared.applications(for: first.url, isDirectory: first.isDirectory, isPackage: first.isPackage)
     }
 
     func open(_ entries: [FileBrowserEntry], withApplicationAt application: URL) {

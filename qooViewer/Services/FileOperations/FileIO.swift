@@ -98,30 +98,62 @@ nonisolated enum FileIO {
     ///   (qooLibrary 実測)。
     /// - Note: **構造化並行性で書かない。** TaskGroup で本体とスリープを競争させると、
     ///   抜けるときにグループが全子タスクの完了を暗黙に待つので期限が効かない。
+    /// - Note: **呼び出し側の取り消しは `operation` へ伝える**(2026-09-14 の監査)。`operation` は構造化されていない `Task` で
+    ///   走るので、以前は呼び出し側(一覧の絵を頼んだセル)が取り消されても期限まで走り続けた。待つのは `perform` と同じく
+    ///   やめない(区切りを持つ処理はすぐ降りてくる)。
     static func withDeadline<T: Sendable>(
         _ limit: Duration,
         _ operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         let box = SingleResume<T>()
+        let relay = TaskCancellationRelay()
         let timer = DispatchSource.makeTimerSource(queue: timerQueue)
-        return try await withCheckedThrowingContinuation { continuation in
-            box.arm(continuation)
-            let work = Task {
-                // 先に終わったならタイマーは用済み。cancel() がハンドラ(タイマー自身を捕まえている)を
-                // 解放して循環も切れる。
-                defer { timer.cancel() }
-                do { box.resume(.success(try await operation())) } catch { box.resume(.failure(error)) }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                box.arm(continuation)
+                let work = Task {
+                    // 先に終わったならタイマーは用済み。cancel() がハンドラ(タイマー自身を捕まえている)を
+                    // 解放して循環も切れる。
+                    defer { timer.cancel() }
+                    do { box.resume(.success(try await operation())) } catch { box.resume(.failure(error)) }
+                }
+                relay.attach(work)
+                timer.schedule(deadline: .now() + limit.fileIOSeconds)
+                timer.setEventHandler {
+                    timer.cancel()
+                    guard box.resume(.failure(FileOperationError.timedOut(seconds: limit.fileIOSeconds))) else { return }
+                    // 待つのはやめたが、区切りを持つ処理には中止を伝える。
+                    work.cancel()
+                }
+                // **resume() へ必ず到達すること(早期 return を挟まない)。** 一度も resume されないまま
+                // 解放された DispatchSource は SIGTRAP で落ちる(qooLibrary 実測)。
+                timer.resume()
             }
-            timer.schedule(deadline: .now() + limit.fileIOSeconds)
-            timer.setEventHandler {
-                timer.cancel()
-                guard box.resume(.failure(FileOperationError.timedOut(seconds: limit.fileIOSeconds))) else { return }
-                // 待つのはやめたが、区切りを持つ処理には中止を伝える。
-                work.cancel()
-            }
-            // **resume() へ必ず到達すること(早期 return を挟まない)。** 一度も resume されないまま
-            // 解放された DispatchSource は SIGTRAP で落ちる(qooLibrary 実測)。
-            timer.resume()
+        } onCancel: {
+            relay.cancel()
+        }
+    }
+
+    /// 取り消しを、あとから作られる `Task` へ渡す箱(取り消しが先に届いたら、付けた瞬間に取り消す)。
+    private final class TaskCancellationRelay: @unchecked Sendable {
+        private let lock = NSLock()
+        private var task: Task<Void, Never>?
+        private var isCancelled = false
+
+        func attach(_ task: Task<Void, Never>) {
+            lock.lock()
+            self.task = task
+            let cancelNow = isCancelled
+            lock.unlock()
+            if cancelNow { task.cancel() }
+        }
+
+        func cancel() {
+            lock.lock()
+            isCancelled = true
+            let current = task
+            lock.unlock()
+            current?.cancel()
         }
     }
 

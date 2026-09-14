@@ -28,10 +28,9 @@ nonisolated enum VideoThumbnailer {
     ///
     /// 動画の絵は QuickLook がファイルを読むので、追い出されたファイルに頼むと**頼まれていないダウンロードが始まる**
     /// (qooLibrary 実測: 1 件ずつ実際に落としてきた)。Finder も追い出されたファイルの絵は作らない。
+    /// 本・画像・フォルダの絵も同じ判定を使う(`DatalessFiles`。2026-09-14 の監査 6 まで動画だけが見ていた)。
     static func isDataless(_ url: URL) -> Bool {
-        var info = stat()
-        guard lstat(url.path, &info) == 0 else { return false }
-        return info.st_flags & UInt32(SF_DATALESS) != 0
+        DatalessFiles.isDataless(url)
     }
 }
 

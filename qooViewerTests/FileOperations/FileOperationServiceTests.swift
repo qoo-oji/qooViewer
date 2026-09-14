@@ -79,6 +79,18 @@ struct FileOperationServiceTests {
         #expect(try read(a) == "a")
     }
 
+    @Test("ハードリンクの兄弟の名前へは変更しない(同じ実体でも自分自身ではない。rename(2) の何もしない成功を「変えた」と報告しない)")
+    func renameRefusesTheNameOfAHardLinkSibling() async throws {
+        let a = try write("same", to: "rename-hardlink/a.txt")
+        let b = temporary.file("rename-hardlink/b.txt")
+        #expect(link(a.path, b.path) == 0)
+        await #expect(throws: FileOperationError.alreadyExists(b)) { _ = try await service.rename(a, to: "b.txt") }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: a.deletingLastPathComponent().path).sorted() == ["a.txt", "b.txt"])
+        #expect(FileOperationService.namesDifferOnlyInCaseOrNormalization("comic.cbz", "Comic.CBZ"))
+        #expect(FileOperationService.namesDifferOnlyInCaseOrNormalization("\u{304B}\u{3099}.txt", "\u{304C}.txt"), "NFD と NFC")
+        #expect(!FileOperationService.namesDifferOnlyInCaseOrNormalization("a.txt", "b.txt"))
+    }
+
     // MARK: - 移動・コピー
 
     @Test("同じボリュームの移動はバイトを運ばない(iノードが変わらない)")
@@ -247,6 +259,32 @@ struct FileOperationServiceTests {
         #expect(try read(replaced) == "old")
         // 退避用の隠しフォルダは残らない。
         #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path) == ["a.txt"])
+    }
+
+    @Test("置き換えるで、置き換えた元をゴミ箱へ送れなければ消さずに隠れた退避として残し、記録も残して失敗として伝える")
+    func replaceKeepsTheReplacedItemWhenTheTrashFails() async throws {
+        let source = try write("new", to: "replace-trash-fails/src/a.txt")
+        _ = try write("old", to: "replace-trash-fails/dst/a.txt")
+        let destination = temporary.file("replace-trash-fails/dst")
+        var environment = FileOperationEnvironment.pseudoTrash(at: trash)
+        environment.trashItemSynchronously = { _ in nil }
+        let failingTrash = FileOperationService(environment: environment)
+
+        let outcome = try await failingTrash.copy([source], to: destination, options: .init(conflictPolicy: .replace))
+
+        #expect(try read(destination.appendingPathComponent("a.txt")) == "new")
+        let receipt = try #require(outcome.receipts.first)
+        #expect(receipt.replacedItemInTrash == nil)
+        #expect(outcome.failures.compactMap(\.url) == [source], "書けたが片付けられなかったことを伝える")
+        // 元の項目は同じフォルダの隠しフォルダの中に、元の名前のまま残っている。
+        let holders = try FileManager.default.contentsOfDirectory(atPath: destination.path)
+            .filter { $0.hasPrefix(FileOperationService.replaceHolderPrefix) }
+        let holder = try #require(holders.first)
+        #expect(holders.count == 1)
+        #expect(try read(destination.appendingPathComponent(holder).appendingPathComponent("a.txt")) == "old")
+        #expect(outcome.failures.first?.reason.contains(holder) == true)
+        // 記録も残す(次の起動の復旧が知らせる)。
+        #expect(environment.replaceJournal.pendingBackupCount() == 1)
     }
 
     @Test("尋ねた答えを「以降すべてに適用」すれば、もう尋ねない")

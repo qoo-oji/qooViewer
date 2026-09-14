@@ -907,9 +907,18 @@ final class AppPreferences: ObservableObject {
     /// 設定と実体が常に1段ずれる(監査で指摘: 300→200と動かすと300が、次に200→100と動かすと
     /// 200がPageLoaderへ渡っていた)。
     static func pageImageCacheLimitBytes(forMB megabytes: Double) -> Int {
-        let range = pageImageCacheLimitRangeMB
-        let clamped = min(max(megabytes, range.lowerBound), range.upperBound)
-        return Int(clamped) * 1024 * 1024
+        Int(clampedMegabytes(megabytes, default: defaultPageImageCacheLimitMB, range: pageImageCacheLimitRangeMB)) * 1024 * 1024
+    }
+
+    /// 保存されていた MB の値。数でなければ・有限でなければ既定値、範囲の外なら端へ寄せる。
+    static func storedMegabytes(_ stored: Any?, default defaultValue: Double, range: ClosedRange<Double>) -> Double {
+        clampedMegabytes((stored as? Double) ?? defaultValue, default: defaultValue, range: range)
+    }
+
+    /// NaN は `min` / `max` を素通りする(比較が常に偽)ので、先に有限かを見る。
+    static func clampedMegabytes(_ megabytes: Double, default defaultValue: Double, range: ClosedRange<Double>) -> Double {
+        guard megabytes.isFinite else { return defaultValue }
+        return min(max(megabytes, range.lowerBound), range.upperBound)
     }
 
     /// 入れ子になった書庫(書庫の中の書庫)を、メモリ上に置いておく合計の上限(MB、既定256)。
@@ -943,8 +952,7 @@ final class AppPreferences: ObservableObject {
     }
     /// 値を引数で受ける版(pageImageCacheLimitBytes(forMB:)と同じ理由・同じ使い方)。
     static func nestedArchiveMemoryLimitBytes(forMB megabytes: Double) -> Int {
-        let range = nestedArchiveMemoryLimitRangeMB
-        let clamped = min(max(megabytes, range.lowerBound), range.upperBound)
+        let clamped = clampedMegabytes(megabytes, default: defaultNestedArchiveMemoryLimitMB, range: nestedArchiveMemoryLimitRangeMB)
         return Int(clamped) * 1024 * 1024
     }
 
@@ -960,7 +968,9 @@ final class AppPreferences: ObservableObject {
         // 触らない。ここは設定OFFのときに溜まっているサムネイルを削除する入口でもあるため。
         guard sharesGlobalState else { return }
         let isEnabled = thumbnailDiskCacheEnabled
-        let maxTotalBytes = Int(thumbnailDiskCacheLimitMB) * 1024 * 1024
+        let maxTotalBytes = Int(Self.clampedMegabytes(
+            thumbnailDiskCacheLimitMB, default: Self.defaultThumbnailDiskCacheLimitMB, range: Self.thumbnailDiskCacheLimitRangeMB
+        )) * 1024 * 1024
         thumbnailDiskCacheConfigurationGeneration &+= 1
         let generation = thumbnailDiskCacheConfigurationGeneration
         Task {
@@ -997,7 +1007,10 @@ final class AppPreferences: ObservableObject {
     private func applyFileBrowserThumbnailCacheSettings() {
         guard sharesGlobalState else { return }
         let isEnabled = fileBrowserThumbnailCacheEnabled
-        let maxTotalBytes = Int(fileBrowserThumbnailCacheLimitMB) * 1024 * 1024
+        let maxTotalBytes = Int(Self.clampedMegabytes(
+            fileBrowserThumbnailCacheLimitMB, default: Self.defaultFileBrowserThumbnailCacheLimitMB,
+            range: Self.fileBrowserThumbnailCacheLimitRangeMB
+        )) * 1024 * 1024
         fileBrowserThumbnailCacheConfigurationGeneration &+= 1
         let generation = fileBrowserThumbnailCacheConfigurationGeneration
         Task {
@@ -1750,20 +1763,26 @@ final class AppPreferences: ObservableObject {
         self.launchInPrivateMode = defaults.object(forKey: Keys.launchInPrivateMode) as? Bool ?? false
         self.thumbnailDiskCacheEnabled =
             defaults.object(forKey: Keys.thumbnailDiskCacheEnabled) as? Bool ?? false
-        self.thumbnailDiskCacheLimitMB =
-            defaults.object(forKey: Keys.thumbnailDiskCacheLimitMB) as? Double
-            ?? Self.defaultThumbnailDiskCacheLimitMB
+        // MB の値は**範囲へ収めて読む**(2026-09-14 の監査)。どれもバイト数へ `Int(_:)` で換算するので、手で書き換えた・壊れた
+        // plist の NaN や巨大な値が起動時のトラップになっていた(`Int(Double)` は非有限・範囲外で落ちる)。
+        self.thumbnailDiskCacheLimitMB = Self.storedMegabytes(
+            defaults.object(forKey: Keys.thumbnailDiskCacheLimitMB),
+            default: Self.defaultThumbnailDiskCacheLimitMB, range: Self.thumbnailDiskCacheLimitRangeMB
+        )
         self.fileBrowserThumbnailCacheEnabled =
             defaults.object(forKey: Keys.fileBrowserThumbnailCacheEnabled) as? Bool ?? true
-        self.fileBrowserThumbnailCacheLimitMB =
-            defaults.object(forKey: Keys.fileBrowserThumbnailCacheLimitMB) as? Double
-            ?? Self.defaultFileBrowserThumbnailCacheLimitMB
-        self.pageImageCacheLimitMB =
-            defaults.object(forKey: Keys.pageImageCacheLimitMB) as? Double
-            ?? Self.defaultPageImageCacheLimitMB
-        self.nestedArchiveMemoryLimitMB =
-            defaults.object(forKey: Keys.nestedArchiveMemoryLimitMB) as? Double
-            ?? Self.defaultNestedArchiveMemoryLimitMB
+        self.fileBrowserThumbnailCacheLimitMB = Self.storedMegabytes(
+            defaults.object(forKey: Keys.fileBrowserThumbnailCacheLimitMB),
+            default: Self.defaultFileBrowserThumbnailCacheLimitMB, range: Self.fileBrowserThumbnailCacheLimitRangeMB
+        )
+        self.pageImageCacheLimitMB = Self.storedMegabytes(
+            defaults.object(forKey: Keys.pageImageCacheLimitMB),
+            default: Self.defaultPageImageCacheLimitMB, range: Self.pageImageCacheLimitRangeMB
+        )
+        self.nestedArchiveMemoryLimitMB = Self.storedMegabytes(
+            defaults.object(forKey: Keys.nestedArchiveMemoryLimitMB),
+            default: Self.defaultNestedArchiveMemoryLimitMB, range: Self.nestedArchiveMemoryLimitRangeMB
+        )
 
         if let storedRaw = defaults.string(forKey: Keys.defaultReadingDirection),
            let stored = ReadingDirection(rawValue: storedRaw) {

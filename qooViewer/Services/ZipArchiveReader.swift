@@ -15,8 +15,12 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
     private let archive: Archive
     /// 補正後のパス -> 実際のZIPFoundationのEntry
     private var entryByCorrectedPath: [String: Entry] = [:]
-    /// 全項目(フォルダ・リンクを含む)を書庫の中の順番で(展開用。entriesInArchiveOrder)。
-    private var descriptors: [ArchiveEntryDescriptor] = []
+    /// 全項目(フォルダ・リンクを含む)を書庫の中の順番で(展開用。entriesInArchiveOrder)。**初めて頼まれたときに作る**
+    /// (2026-09-14 の監査。以前は開くたびに全項目ぶん作っていて、ページを読むだけの reader ―― PageLoader・一覧の絵 ―― では
+    /// 使わない日時の変換を全項目で払っていた)。
+    private var descriptors: [ArchiveEntryDescriptor]?
+    private var allEntries: [Entry] = []
+    private var nameDecoder: EntryNameDecoder?
 
     init(url: URL) throws {
         self.archive = try Archive(url: url, accessMode: .read)
@@ -45,10 +49,21 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
         let entries = all.filter { $0.type == .file }
         // 判定の標本はファイルだけ(以前から。フォルダの名前を足すと判定が変わりうる)。フォルダ・リンクの名前も同じデコーダで直す。
         let decoder = EntryNameDecoder(mangledPaths: entries.map(\.path))
+        // 補正後に同じパスになるエントリが複数あれば、**先のものを採る**(rar / 7z と同じ。2026-09-14 の監査)。以前は後のもので
+        // 上書きしていて、書庫の順に読み通す展開(`ArchiveExtractor` は同じパスの 2 つ目を読み飛ばす)で、1 つ目の名前に
+        // 2 つ目の中身が書かれていた。
         for entry in entries {
-            entryByCorrectedPath[decoder.correctedPath(for: entry.path)] = entry
+            let path = decoder.correctedPath(for: entry.path)
+            if entryByCorrectedPath[path] == nil { entryByCorrectedPath[path] = entry }
         }
-        descriptors = all.map { entry in
+        allEntries = all
+        nameDecoder = decoder
+    }
+
+    func entriesInArchiveOrder() throws -> [ArchiveEntryDescriptor] {
+        if let descriptors { return descriptors }
+        let decoder = nameDecoder ?? EntryNameDecoder(mangledPaths: [])
+        let made = allEntries.map { entry in
             let kind: ArchiveEntryDescriptor.Kind = switch entry.type {
             case .file: .file
             case .directory: .directory
@@ -59,10 +74,8 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
                 modified: ZipDOSTime.localDate(fromZIPFoundation: entry.fileAttributes[.modificationDate] as? Date)
             )
         }
-    }
-
-    func entriesInArchiveOrder() throws -> [ArchiveEntryDescriptor] {
-        descriptors
+        descriptors = made
+        return made
     }
 
     /// CRC はライブラリの既定どおり検証する(壊れた書庫の中身を黙って書き出さない)。

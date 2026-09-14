@@ -50,6 +50,24 @@ struct AppPreferencesTests {
         #expect(p.collectionTileBackgroundColor == nil)
     }
 
+    @Test("保存された MB の値が NaN・巨大・範囲外・数でなくても、起動で落ちずに範囲へ収まる")
+    func corruptMegabyteValuesAreClampedOnLoad() {
+        let suite = PreferencesSuite()
+        suite.defaults.set(Double.nan, forKey: "qooViewer.pref.pageImageCacheLimitMB")
+        suite.defaults.set(1e300, forKey: "qooViewer.pref.thumbnailDiskCacheLimitMB")
+        suite.defaults.set(-5.0, forKey: "qooViewer.pref.fileBrowserThumbnailCacheLimitMB")
+        suite.defaults.set("large", forKey: "qooViewer.pref.nestedArchiveMemoryLimitMB")
+        let p = suite.makePreferences()
+
+        #expect(p.pageImageCacheLimitMB == AppPreferences.defaultPageImageCacheLimitMB)
+        #expect(p.thumbnailDiskCacheLimitMB == AppPreferences.thumbnailDiskCacheLimitRangeMB.upperBound)
+        #expect(p.fileBrowserThumbnailCacheLimitMB == AppPreferences.fileBrowserThumbnailCacheLimitRangeMB.lowerBound)
+        #expect(p.nestedArchiveMemoryLimitMB == AppPreferences.defaultNestedArchiveMemoryLimitMB)
+        #expect(AppPreferences.pageImageCacheLimitBytes(forMB: .nan) == Int(AppPreferences.defaultPageImageCacheLimitMB) * 1024 * 1024)
+        #expect(AppPreferences.nestedArchiveMemoryLimitBytes(forMB: .infinity) == AppPreferences.defaultNestedArchiveMemoryLimitBytes)
+        #expect(AppPreferences.nestedArchiveMemoryLimitBytes(forMB: 1e300) == 1024 * 1024 * 1024)
+    }
+
     @Test("書き出しの既定値は形式ごとに違う(画像の連番付け直しは CBZ だけ ON)")
     func exportDefaultsDifferPerFormat() {
         let suite = PreferencesSuite()

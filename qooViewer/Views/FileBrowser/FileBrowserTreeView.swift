@@ -473,6 +473,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
         /// - Parameter folderIDs: nil はどこが変わったか分からない(取り消し・やり直し)。見えている行を全部見直す。
         private func reloadExpandedRows(in folderIDs: Set<String>?) {
             guard let outline else { return }
+            var collapsed: [Node] = []
             for row in 0..<outline.numberOfRows {
                 guard let node = outline.item(atRow: row) as? Node, node.loadsChildren,
                       let url = node.url, folderIDs?.contains(FileBrowserState.id(for: url)) ?? true
@@ -481,22 +482,35 @@ struct FileBrowserTreeView: NSViewRepresentable {
                     if node.children != nil { loadChildren(of: node) }
                 } else if node.hasSubfolders != nil {
                     // 閉じている行も、中でフォルダを作った・運び込んだ・運び出したなら三角の有無が変わる。
-                    reprobe(node)
+                    collapsed.append(node)
+                }
+            }
+            reprobe(collapsed)
+        }
+
+        /// 閉じている行の「サブフォルダがあるか」を調べ直し、変わっていれば行を描き直す。
+        ///
+        /// **まとめて 1 本の FileIO で順に調べる**(2026-09-14 の監査)。FileIO は投げるたびに新しいスレッドを起こすので、
+        /// 1 行ずつ投げると、取り消し・やり直し(どこが変わったか分からないので見えている行を全部見直す)のたびに閉じた行の数だけ
+        /// スレッドが同時に立った。
+        private func reprobe(_ nodes: [Node]) {
+            let targets = nodes.compactMap { node in node.url.map { (WeakNode(node: node), $0) } }
+            guard !targets.isEmpty else { return }
+            let weakNodes = targets.map(\.0)
+            let urls = targets.map(\.1)
+            Task { [weak self] in
+                let results = await FileIO.perform { urls.map { DirectoryProbe.hasSubdirectory(at: $0) } }
+                guard let self, let outline = self.outline else { return }
+                for (weakNode, result) in zip(weakNodes, results) {
+                    guard let node = weakNode.node, node.hasSubfolders != result, !outline.isItemExpanded(node) else { continue }
+                    node.hasSubfolders = result
+                    outline.reloadItem(node, reloadChildren: false)
                 }
             }
         }
 
-        /// 閉じている行の「サブフォルダがあるか」を調べ直し、変わっていれば行を描き直す。
-        private func reprobe(_ node: Node) {
-            guard let url = node.url else { return }
-            Task { [weak self, weak node] in
-                let result = await FileIO.perform { DirectoryProbe.hasSubdirectory(at: url) }
-                guard let self, let node, let outline = self.outline, node.hasSubfolders != result,
-                      !outline.isItemExpanded(node)
-                else { return }
-                node.hasSubfolders = result
-                outline.reloadItem(node, reloadChildren: false)
-            }
+        private struct WeakNode {
+            weak var node: Node?
         }
 
         private func loadChildren(of node: Node) {

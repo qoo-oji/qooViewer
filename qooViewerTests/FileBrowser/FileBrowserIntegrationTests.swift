@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+import UniformTypeIdentifiers
 
 @testable import qooViewer
 
@@ -514,14 +515,24 @@ struct FileBrowserIntegrationTests {
         #expect(withoutDefault.allSatisfy { !$0.isDefault })
     }
 
-    @Test("候補は拡張子ごとに覚える(拡張子の無いファイルはパスごと)")
+    @Test("候補は種類の決まる単位で覚え、種類は名前だけで決める(ファイルに触らない。監査 11)")
     func openWithCacheKeys() {
-        let a = OpenWithApplications.cacheKey(for: URL(fileURLWithPath: "/x/a.CBZ"), isDirectory: false)
-        let b = OpenWithApplications.cacheKey(for: URL(fileURLWithPath: "/y/b.cbz"), isDirectory: false)
-        #expect(a == b)
-        #expect(OpenWithApplications.cacheKey(for: URL(fileURLWithPath: "/x/README"), isDirectory: false)
-                != OpenWithApplications.cacheKey(for: URL(fileURLWithPath: "/y/README"), isDirectory: false))
-        #expect(OpenWithApplications.cacheKey(for: URL(fileURLWithPath: "/x/folder"), isDirectory: true)
-                != OpenWithApplications.cacheKey(for: URL(fileURLWithPath: "/x/folder"), isDirectory: false))
+        func key(_ path: String, directory: Bool = false, package: Bool = false) -> String {
+            OpenWithApplications.cacheKey(for: URL(fileURLWithPath: path), isDirectory: directory, isPackage: package)
+        }
+        func type(_ path: String, directory: Bool = false, package: Bool = false) -> UTType {
+            OpenWithApplications.contentType(for: URL(fileURLWithPath: path), isDirectory: directory, isPackage: package)
+        }
+        #expect(key("/x/a.CBZ") == key("/y/b.cbz"))
+        // 拡張子の無いファイルはどれも同じ種類(.data)で引くので、パスごとには覚えない。
+        #expect(key("/x/README") == key("/y/README"))
+        #expect(type("/x/README") == .data)
+        #expect(key("/x/folder", directory: true) != key("/x/folder"))
+        // 中へ入れるフォルダは名前に . があってもフォルダ。パッケージは拡張子の種類。
+        #expect(key("/x/vol.1", directory: true) == key("/x/folder", directory: true))
+        #expect(type("/x/vol.1", directory: true) == .folder)
+        #expect(type("/Applications/Safari.app", directory: true, package: true).conforms(to: .application))
+        // どれも存在しないパス。種類を決めるのにファイルは要らない。
+        #expect(type("/x/a.pdf") == .pdf)
     }
 }

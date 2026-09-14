@@ -69,4 +69,23 @@ struct ZipEntryNameTests {
         let reader = try ZipArchiveReader(url: Fixtures.url("zip/zip-cp932-short-names.zip"))
         #expect(try reader.listFilePaths().sorted() == ["あ.png", "い.png", "う.png"])
     }
+
+    @Test("同じパスのエントリが 2 つあれば先のものを読む(rar / 7z と同じ。展開で 1 つ目の名前に 2 つ目の中身を書かない)")
+    func duplicatePathsReadTheFirstEntry() async throws {
+        let temporary = try TemporaryDirectory("zip-duplicates")
+        var builder = ZipFixtureBuilder()
+        builder.add("a.txt", text: "first")
+        builder.add("a.txt", text: "second")
+        let url = temporary.file("dup.zip")
+        try builder.write(to: url)
+        let reader = try ZipArchiveReader(url: url)
+        #expect(try reader.listFilePaths() == ["a.txt"])
+        #expect(String(decoding: try reader.data(at: "a.txt"), as: UTF8.self) == "first")
+        #expect(try reader.entriesInArchiveOrder().map(\.path) == ["a.txt", "a.txt"])
+
+        let service = FileOperationService(environment: .pseudoTrash(at: try temporary.directory("PseudoTrash")))
+        let destination = try temporary.directory("out")
+        _ = try await service.extract([url], into: destination, placement: .contents, limits: .standard, progress: nil, cancellation: Cancellation())
+        #expect(String(decoding: try Data(contentsOf: destination.appendingPathComponent("a.txt")), as: UTF8.self) == "first")
+    }
 }

@@ -40,7 +40,7 @@ WelcomeView(PanelSurface.welcome)
 | `FileBrowserState` | ViewModels | ウインドウごと(`ContentView` の `@StateObject`)。現在のフォルダ・一覧・選択・戻る/進む・表示形式・並べ替え・`FileCommandStack` |
 | `FavoriteLocationStore` | ViewModels | アプリ全体(`AppStores`)。よく使う項目(パスだけ) |
 | `FileBrowserListing` / `FileBrowserEntry` / `FileBrowserLoadError` | Services/FileBrowser | 一覧の読み取り(nonisolated、`FileIO` の上で呼ぶ) |
-| `FileBrowserActions` | Views/FileBrowser | ペインの `@State`。3 つの一覧が共有する「開く」などの口(相手は全部 weak) |
+| `FileBrowserActions` | Views/FileBrowser | ペインの `@State`。3 つの一覧が共有する「開く」などの口(相手は全部 weak。値の `OpenWindowAction` だけはペインが消えたら外す) |
 | `WindowContentRequest` | Models | 本のウインドウの提示値(`book` / `browse`) |
 
 ## 帯と操作列の見た目(2026-09-13、ユーザー指示)
@@ -194,7 +194,8 @@ WelcomeView(PanelSurface.welcome)
   (誤って消すと行き止まり、誤って出しても開いたら空、の非対称)。
 - 自分の操作のあと(`fileSystemChange`)は、開いている行を読み直し、閉じている行の三角を調べ直す。**取り消し・やり直しは
   どのフォルダが変わったか分からない**ので `isUnknownScope` で全体を見直す(以前は何も知らせず、取り消しで戻ったフォルダがツリーに
-  出てこなかった)。
+  出てこなかった)。閉じている行の調べ直しは**まとめて 1 本の `FileIO` で順に**行う(1 行ずつ投げると、取り消しのたびに閉じた行の数だけ
+  スレッドが同時に立った。2026-09-14 の監査)。
 - **Finder など外での変更**(2026-09-14): 開いている行のうちいちばん上のものを FSEvents で見張り(`FolderChangeWatcher(onChangedPaths:)`。
   ファイル単位のイベントのパスを受け取る版)、**変わった項目の親の行とその項目の行だけ**を上と同じ手当てで読み直す。見張る顔ぶれは
   開閉・ボリュームの着脱・よく使う項目の変更・子の読み直しのたびに次のランループでまとめて入れ替える。`/` を見張ると FSEvents が
@@ -266,7 +267,7 @@ ON なら右ペインで移動するたびに、現在のフォルダを含む�
 |---|---|---|
 | コレクションを作成 | 書庫・PDF・EPUB のファイルかフォルダだけ(画像ファイル・ボリュームが混ざると淡色)。シークレットウインドウでは淡色 | ウェルカム画面(編集モード)へのドロップと同じ振り分け(`CollectionDropClassifier` → `WelcomeDropHandling.queueCreations`): ばらの本はまとめて 1 つ、棚はフォルダ名で 1 つずつ、名前を訊くシートを積む。作る先は本棚で選んでいるライブラリ。シートは `WelcomeView` が持つのでファイルブラウザのまま出る。`fromDrop` なので「本を追加」パネルは出ない |
 | コレクションに登録 ▸ | 同上 | サブメニューにライブラリ(1 つなら省く)→ コレクション(本棚の並び順)。棚は中の本へ展開して足す(`booksToAdd`)。同じ本は `CollectionStore.add` が弾く。足し終えたら右ペインの下に 2 秒の知らせ(`FileBrowserState.showToast` → `OverlayToast`。1 冊なら名前・複数なら冊数・入っていた本があればその旨。本棚ではないので画面に変化が無いため、2026-09-14 ユーザー要望) |
-| このアプリケーションで開く ▸ | ボリューム以外 | `OpenWithApplications`: `urlsForApplications(toOpen:)` の候補を bundle id で畳み、既定のアプリを先頭(「(既定)」)、残りは名前順、qooViewer 自身は除く。末尾に「その他…」(`/Applications` の `NSOpenPanel`)。失敗は `showProblem` で報告 |
+| このアプリケーションで開く ▸ | ボリューム以外 | `OpenWithApplications`: `urlsForApplications(toOpen:)`(**種類 `UTType` で引く**。ファイルに触らない)の候補を bundle id で畳み、既定のアプリを先頭(「(既定)」)、残りは名前順、qooViewer 自身は除く。末尾に「その他…」(`/Applications` の `NSOpenPanel`)。失敗は `showProblem` で報告 |
 | メタデータの編集… | 1 件・上と同じ種類。シークレットウインドウでは淡色 | `BookMetadataSheet(sourceURL:)`(コレクションの外の本の版。**カバーの面は出さない**。DB の行はパスで引く) |
 | 本の書き出し ▸ EPUB/PDF/CBZ | 1 件・上と同じ種類。書き出しのシートを出している間は淡色 | ビューアの右クリックと同じ `OpenBookExportSheet`。保存先の決め方も同じ(環境設定で固定なら尋ねない)。**本は読まずに渡す**(`MangaBook` の `pages` は空。書き出しは `BookLoader.load` で読み直すので、先に読むと大きな書庫を 2 回読む)。画面の状態(読み方向・見開き)は無いので `displayState: nil` = 書き出しウインドウと同じく DB > 既定値。「書き出したあとの動作」「保存データ・履歴の削除」はしない(読んでいる本の続きを決める設定なので)。シークレットウインドウではカバーを選ばせない |
 
@@ -279,8 +280,11 @@ ON なら右ペインで移動するたびに、現在のフォルダを含む�
   NSObject の `performSelector:` と名前がぶつかって `#selector` がそちらを指し、押しても何も起きなかった(実機で発見。テストはメニューを通らず通っていた。
   いまは `FileBrowserIntegrationTests` がメニューを組んで action が NSObject のメソッドでないことを確かめる)。
 - 「「…」は本ではありません。」の説明は、コレクションの操作だけ「本が並んだフォルダを選ぶと、その中の本が入ります。」を添える(メタデータ・書き出しに出すと、棚のフォルダでも編集できるように読める)。
-- **アイコン表示の `.contextMenu` はセルの本体評価のたびに組み立てられる**ので、アプリの候補は拡張子ごと(拡張子の無いファイルはパスごと)に覚え
-  (qooViewer が前面に戻ったら捨てる)、コレクションの一覧は `CollectionStore.revision` と並び順が変わるまで覚える。
+- **アイコン表示の `.contextMenu` はセルの本体評価のたびに組み立てられる**ので、アプリの候補は種類の決まる単位(拡張子とフォルダ/パッケージ/ファイルの別)
+  ごとに覚え(qooViewer が前面に戻ったら捨てる)、コレクションの一覧は `CollectionStore.revision` と並び順が変わるまで覚える。
+- **アプリの候補はファイルの URL ではなく種類で引く**(2026-09-14 の監査): これはメインアクターの上で走り、URL を渡すと LaunchServices が項目を調べに行くので、
+  応答しない共有の上ではメインが待たされえた。種類は名前だけで決める(中へ入れるフォルダは `.folder`、パッケージとファイルは拡張子の種類、拡張子の無い
+  ファイルは `.data`)。失うのは、1 つのファイルだけに付けた既定のアプリが「(既定)」に出ないことと、拡張子の無いファイルを中身で見分けないこと。
 - 非同期の操作(作成・登録・メタデータ)は Task を返す(テストの待ち合わせ口)。
 
 ### 「ファイルブラウザで開く」(`FileBrowserReveal.swift`)
@@ -356,6 +360,9 @@ ON なら右ペインで移動するたびに、現在のフォルダを含む�
   尋ね、続けるならロックを外して退避し、ゴミ箱の中で掛け直す。中止ならその操作を止める。確認を経ずに(「すべてに適用」の後など)ロックに当たったら、
   触る前に「ロックされています」で断る。ゴミ箱へ送れず消すことになった退避の中にロックされた項目があり許しが無ければ、消し始めずに記録ごと残す
   (途中まで消えた木を残さない。以前はここで止まり、次の起動で警告が出た)。
+  **ゴミ箱のある場所で退避をゴミ箱へ送れなかったら、消さずに残す**(2026-09-14 の監査。以前は確認なしに完全削除へ落ちていた): 退避と記録を残し、
+  「置き換えましたが、元の項目をゴミ箱に入れられませんでした。隠し項目「…」として残っています」の失敗として止める(`FileOperationError.replacedItemKept`)。
+  次の起動の復旧も、元の場所が埋まっているので隠し項目が残っていると知らせる。完全削除するのはゴミ箱の無い場所(確認で「すぐに削除されます」と伝えた場合)だけ。
 - **途中で失敗したとき**(2026-09-14 の監査で直した): 別ボリュームへの移動は「写す → 元を確かめる → 元を消す」で、**元を消し始めたあとは写しを消さない**。
   `FileManager.removeItem` は木の削除が途中で失敗しても消した分を戻さないので、以前の「元を消せなければ写しを片付ける」は元と写しの両方から
   兄弟を消した(`uappnd` の子を含むフォルダで 6 ファイル消失を実測)。写しを残して受領書を返し、「コピーしましたが元の項目を削除できなかったため、
@@ -363,6 +370,9 @@ ON なら右ペインで移動するたびに、現在のフォルダを含む�
   **自分が作った書きかけの木を消してから**投げる(頂点の名前が EEXIST で断られたときだけは他人の項目なので触らない)。中身のある 0555 の
   サブフォルダを含む木は `COPYFILE_CLONE | COPYFILE_RECURSIVE` が EACCES で必ず失敗する(同じボリュームでも別のボリュームでも。CLONE 無しなら
   権限ごと写る)ので、その形の木に限って CLONE 無しでやり直す。
+  同じボリュームの移動のロックの確認は項目自身だけを見る(中を歩かない。邪魔をするのは rename(2) が断る項目自身のロックだけ)。
+  名前の変更で宛先が「自分自身」(同じ inode)とみなすのは、名前の違いが大文字小文字と正規化だけのとき(`namesDifferOnlyInCaseOrNormalization`)。
+  同じフォルダのハードリンクの兄弟への変更は rename(2) が何もせずに成功を返すので、以前は「変えた」と報告して取り消しも積んでいた。
   置き換えの記録の復旧は、退避が「確かに無い」(載っているボリュームが繋がっていて ENOENT)ときだけ記録を捨て、ボリュームが外れている・読めない
   ときは黙って記録を残す(`ReplaceBackupJournal.Outcome.unreachable`。以前は外付けを繋がずに起動しただけで記録が消え、隠れた元の項目が二度と
   知らされなかった)。
@@ -508,7 +518,8 @@ FileOperationService+Archives}.swift`、コマンドは `CompressFilesCommand` /
   `__MACOSX/` と `._*` は黙って外す。暗号化された rar は「パスワードで保護されています」、分割された rar は「分割されています」で断る
   (zip・7z の暗号化は見分けられず、「読めませんでした」になる)。
 - **書庫の中の名前の衝突**: ファイルどうし・ファイルとフォルダは後のほうを `name 2`、大文字小文字だけ違うフォルダはまとめる、まったく同じパス
-  (Swift の文字列として等しい = 正規化違いも含む)の 2 つ目は捨てる。**展開先の既存の項目との衝突は尋ねずに `name 2`**(Finder と同じ)。
+  (Swift の文字列として等しい = 正規化違いも含む)の 2 つ目は捨てる。reader も同じパスでは先のエントリを読む(zip だけ後のもので上書きしていて、
+  1 つ目の名前に 2 つ目の中身が書かれていた。2026-09-14 の監査)。**展開先の既存の項目との衝突は尋ねずに `name 2`**(Finder と同じ)。
 - **限度**(伸長爆弾よけ、`ArchiveExtractionLimits`): ファイル 10 万個・合計 20GB・圧縮比 1,000 倍(合計 100MB 以下なら問わない)。
   始める前に索引の宣言で、書いている最中に実際に書いた量で見る。宣言サイズの合計は飽和加算。
 - **取り消し**: 作った zip / 置いた項目(「〈名前〉に展開」は作ったフォルダ 1 つ)をゴミ箱へ。`FileIdentity` が変わっていたら触らない。
@@ -533,8 +544,8 @@ FileOperationService+Archives}.swift`、コマンドは `CompressFilesCommand` /
   | 種類 | 読むもの |
   |---|---|
   | 画像 | そのファイルを ImageIO で縮小(`ImageDecoder.decode(fileAt:)`。画素数の上限は本と同じ) |
-  | zip / cbz / rar / cbr / 7z / cb7 | 索引(`listFilePaths`)から `isExcludedArchiveEntry` を外した画像のうち**正準順の先頭** 1 件。宣言サイズ 64MB まで |
-  | EPUB | `EpubStructureResolver` の spine の先頭 |
+  | zip / cbz / rar / cbr / 7z / cb7 | 索引(`listFilePaths`)から `isExcludedArchiveEntry` を外した画像のうち**正準順の先頭** 1 件。64MB まで(宣言サイズと、`readEntry` で伸長しながら数えた量の両方) |
+  | EPUB | `EpubStructureResolver` の spine の先頭(`maxPages: 1` で残りの XHTML を読まない) |
   | PDF | 1 ページ目を白地に描く(/Rotate を反映) |
   | フォルダ | **直下の**画像のうち正準順の先頭(`readdir`。`.` で始まる名前・`UF_HIDDEN`・記号リンクは数えない) |
 
@@ -545,6 +556,12 @@ FileOperationService+Archives}.swift`、コマンドは `CompressFilesCommand` /
   ホームを開いただけで「デスクトップ」の中を読むと確認が出る)。ただしデスクトップ・書類・ダウンロードの**中を見ている**ときの、同じ場所の中の
   フォルダは読む(許可は場所ごとに済んでいる。`categoryProtectedPrefixes`)。`~/Library` の他のアプリのデータは中を見ていても読まない。
   ファイル(本・画像)はいま読めているフォルダの直下なので、場所を問わず作る。
+- **実体が手元に無いファイルは作らない**(2026-09-14 の監査。以前は動画だけが見ていた): 項目そのもの・フォルダの中の先頭の画像が `SF_DATALESS` なら
+  作らず、「作れなかった」とも覚えない(`BookThumbnailer.Outcome.notDownloaded`)。さらに読み取り全体を
+  `DatalessFiles.withoutDownloading`(`setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD, …_OFF)`、終われば元の方針へ戻す)で包むので、
+  確かめた後に追い出された・EPUB の中から辿った、などの取りこぼしも読み取りの失敗になるだけでダウンロードは起きない。
+  **本物の追い出されたファイルでは確かめていない**(テストで作れない。方針がサンドボックスの中で掛かり、戻ることだけをテストで見ている)。
+- **PDF の箱**は `CGRect.hasUsablePDFPageSize`(有限・正・1 辺 1,000 万 pt 未満)を通ったものだけ使う(巨大な箱で `Int(_:)` がトラップした。本の表示の `PageLoader` も同じ)。
 - **見せ方**: 本・画像は枠(アイコンの大きさの正方形)に収め、薄い影を付ける(白いページが明るい面に溶けないように。絵なので輪郭は掛けない)。
   フォルダは**フォルダのアイコンの上に絵を小さく重ねる**(絵だけだと画像ファイルと見分けがつかない)。絵ができるまでは種類のアイコン。
   持っている絵は新しい絵が届くまで手放さない(大きさを変えて点滅しない)。
@@ -631,7 +648,8 @@ qooLibrary の実装(`VideoThumbnailLoading` ほか)を写した。実測の経�
   「ドラッグを受けているか」は `FileBrowserOutlineView` が `draggingEntered` / `draggingExited` と受け取りで持つ。**`draggingEnded` /
   `concludeDragOperation` を上書きしてはいけない** ―― 上書きすると、そこへ落としたときにドラッグ元のリストの
   `draggingSession(_:endedAt:operation:)` が呼ばれず、`FileBrowserDragTracker` が残って次の他のアプリからのドラッグを
-  アプリの中のものと取り違える。
+  アプリの中のものと取り違える。念のため AppKit の受け口(リスト・ツリー・パスバー)は、ドラッグ元が見えない(= 他のアプリからの)ドラッグなら
+  残っている記録を捨てる(`dropDecision(for:into:)`。SwiftUI の `DropInfo` には元が無いので、そちらはこの受け口を一度通るまで古いまま)。
 - 他のアプリからのドロップの中身は SwiftUI では `NSItemProvider` から読む(サンドボックスの読み取りの許可が付く経路)。カーソルの判定だけは
   ドラッグのペーストボード(`NSPasteboard(name: .drag)`)から読む。
 
@@ -654,7 +672,9 @@ qooLibrary の実装(`VideoThumbnailLoading` ほか)を写した。実測の経�
 
 ## リーク
 
-`NSViewRepresentable` の delegate・メニュー・対象は `dismantleNSView` で切る。`FileBrowserActions` は相手を weak で持つ。
+`NSViewRepresentable` の delegate・メニュー・対象は `dismantleNSView` で切る。`FileBrowserActions` は相手を weak で持つ(`OpenWindowAction` は値なので
+ペインの `onDisappear` で外す)。アイコン表示の空きスペースの右クリックの「表示」「表示順序」は `FileBrowserState` を weak で捕まえる Binding で作る
+(`$state.viewMode` を渡すと `.contextMenu` を通じて閉じたウインドウの状態を残しえた。2026-09-14 の監査。`heap` ではまだ確かめていない)。
 ウインドウを閉じるときは `FileBrowserState.releaseResources()`(FSEvents と購読)を `willClose` から呼ぶ。
 2026-09-13 に新規ウインドウの開閉を 6 回繰り返し、`FileBrowserState` / `AppState` / `FileBrowserTableView` の生存数が増えないことを `heap` で確認した。
 

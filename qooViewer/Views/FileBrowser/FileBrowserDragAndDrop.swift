@@ -154,6 +154,11 @@ extension FileBrowserActions {
 
     /// AppKit の受け口の共通部分: ペーストボードの URL を読んで判定する。
     func dropDecision(for info: NSDraggingInfo, into destination: URL?) -> (FileBrowserDropDecision, [URL]) {
+        // **ほかのアプリからのドラッグ(ドラッグ元が見えない)なら、残っている記録は古い**(2026-09-14 の監査)。記録を下ろすのは
+        // 出し口の `draggingSession(_:endedAt:operation:)` だけで、それが届かない終わり方をすると、次の外からのドラッグが
+        // 「アプリの中から、前に運んだ項目を」と取り違えられた。AppKit の受け口はドラッグ元を確かめられるので、ここで捨てる
+        // (SwiftUI の `DropInfo` には元が無いので、この受け口を一度通るまでは古い記録のまま)。
+        if info.draggingSource == nil { FileBrowserDragTracker.end() }
         let urls = FileBrowserDragTracker.items ?? Self.fileURLs(in: info.draggingPasteboard)
         let decision = dropDecision(
             urls: urls, into: destination, allowsMove: info.draggingSourceOperationMask.allowsFileMove

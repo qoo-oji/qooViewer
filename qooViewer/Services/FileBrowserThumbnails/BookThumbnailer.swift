@@ -57,37 +57,71 @@ nonisolated enum BookThumbnailer {
         return nil
     }
 
-    /// 取り出してよい画像エントリの大きさの上限(宣言サイズ)。ページ画像がこれを超えることはまず無く、
-    /// 細工された書庫の伸長爆弾で一覧を読むたびにメモリを食わないための歯止め。
+    /// 取り出してよい画像エントリの大きさの上限。ページ画像がこれを超えることはまず無く、
+    /// 細工された書庫の伸長爆弾で一覧を読むたびにメモリを食わないための歯止め。**宣言サイズだけでなく、伸長しながら数える**
+    /// (`decodeEntry`)。
     static let maxEntryBytes: Int64 = 64 * 1024 * 1024
 
-    /// 絵を作る。作れなければ nil(画像が無い・読めない・壊れている)。
+    /// 絵を作った結果。
+    enum Outcome {
+        case image(CGImage)
+        /// 作れなかった(画像が無い・読めない・壊れている)。
+        case unavailable
+        /// 使う絵の実体が手元に無い(iCloud などに追い出されている)ので作らなかった。落としてくれば作れる
+        /// (呼び出し側は「作れなかった」とは覚えない)。
+        case notDownloaded
+    }
+
+    /// 絵を作る。作れなければ nil(画像が無い・読めない・壊れている・実体が手元に無い)。
     ///
     /// - Parameter maxPixelSize: 長辺の上限(画素)。これより小さい画像は拡大しない。
     static func thumbnail(of url: URL, kind: Kind, maxPixelSize: CGFloat) -> CGImage? {
-        switch kind {
-        case .image:
-            return ImageDecoder.decode(fileAt: url, maxPixelSize: maxPixelSize)
-        case .folder:
-            guard let first = firstImageFile(inFolder: url) else { return nil }
-            return ImageDecoder.decode(fileAt: first, maxPixelSize: maxPixelSize)
-        case .archive:
-            guard let reader = try? makeArchiveReader(for: url),
-                  let path = try? firstImageEntryPath(in: reader)
-            else { return nil }
-            return decodeEntry(path, in: reader, maxPixelSize: maxPixelSize)
-        case .epub:
-            guard let reader = try? ZipArchiveReader(url: url),
-                  let structure = try? EpubStructureResolver.resolve(reader: reader),
-                  let path = structure.pages.first?.entryPath
-            else { return nil }
-            return decodeEntry(path, in: reader, maxPixelSize: maxPixelSize)
-        case .pdf:
-            guard let document = CGPDFDocument(url as CFURL), let page = document.page(at: 1) else { return nil }
-            return render(page, maxPixelSize: maxPixelSize)
-        case .video:
-            return nil
+        if case .image(let image) = make(of: url, kind: kind, maxPixelSize: maxPixelSize) { return image }
+        return nil
+    }
+
+    /// 絵を作る(`thumbnail(of:kind:maxPixelSize:)` の、作らなかった理由を返す版)。
+    ///
+    /// ■ 追い出されたファイルをダウンロードさせない(2026-09-14 の監査 6)
+    /// 一覧の絵のために、iCloud などに追い出されたファイルを落としてこない(Finder も作らない。動画は以前から
+    /// `VideoThumbnailer.isDataless` で避けていた)。「ストレージを最適化」したデスクトップをアイコン表示で開くと、
+    /// 並んだ書庫が 4 本ずつ落ちてきていた。項目そのもの・フォルダの中の先頭の画像は `SF_DATALESS` を見て作らず、
+    /// さらに**読み取り全体をこのスレッドだけ「実体化しない」方針で包む**(`DatalessFiles.withoutDownloading`)ので、
+    /// 確かめた後に追い出された・EPUB の中から辿った、などの取りこぼしも読み取りの失敗になるだけでダウンロードは起きない。
+    static func make(of url: URL, kind: Kind, maxPixelSize: CGFloat) -> Outcome {
+        guard kind != .video else { return .unavailable }
+        if DatalessFiles.isDataless(url) { return .notDownloaded }
+        return DatalessFiles.withoutDownloading { () -> Outcome in
+            switch kind {
+            case .image:
+                return outcome(ImageDecoder.decode(fileAt: url, maxPixelSize: maxPixelSize))
+            case .folder:
+                guard let first = firstImageFile(inFolder: url) else { return .unavailable }
+                if DatalessFiles.isDataless(first) { return .notDownloaded }
+                return outcome(ImageDecoder.decode(fileAt: first, maxPixelSize: maxPixelSize))
+            case .archive:
+                guard let reader = try? makeArchiveReader(for: url),
+                      let path = try? firstImageEntryPath(in: reader)
+                else { return .unavailable }
+                return outcome(decodeEntry(path, in: reader, maxPixelSize: maxPixelSize))
+            case .epub:
+                // 絵に要るのは先頭の 1 ページだけ。spine の残りの XHTML は読まない。
+                guard let reader = try? ZipArchiveReader(url: url),
+                      let structure = try? EpubStructureResolver.resolve(reader: reader, maxPages: 1),
+                      let path = structure.pages.first?.entryPath
+                else { return .unavailable }
+                return outcome(decodeEntry(path, in: reader, maxPixelSize: maxPixelSize))
+            case .pdf:
+                guard let document = CGPDFDocument(url as CFURL), let page = document.page(at: 1) else { return .unavailable }
+                return outcome(render(page, maxPixelSize: maxPixelSize))
+            case .video:
+                return .unavailable
+            }
         }
+    }
+
+    private static func outcome(_ image: CGImage?) -> Outcome {
+        image.map { .image($0) } ?? .unavailable
     }
 
     // MARK: - 先頭の絵の選び方
@@ -130,10 +164,28 @@ nonisolated enum BookThumbnailer {
 
     // MARK: - 復号
 
-    private static func decodeEntry(_ path: String, in reader: ArchiveReading, maxPixelSize: CGFloat) -> CGImage? {
-        if let declared = reader.entryUncompressedSize(at: path), declared > maxEntryBytes { return nil }
-        guard let data = try? reader.data(at: path), Int64(data.count) <= maxEntryBytes else { return nil }
+    /// エントリを取り出して縮小する。**上限は伸長しながら数えて、超えた時点で打ち切る**(2026-09-14 の監査 7)。
+    /// 以前は宣言サイズを見てから `data(at:)` で全部伸長し、後から大きさを見ていた ―― 宣言を小さく偽った伸長爆弾は
+    /// フォルダを表示しただけで数 GB を確保させられた。`dataPrefix` は rar が全体読みに落ちるので使わず、3 形式とも
+    /// チャンクで渡す `readEntry` で数える。
+    static func decodeEntry(_ path: String, in reader: ArchiveReading, maxPixelSize: CGFloat) -> CGImage? {
+        guard let data = boundedEntryData(path, in: reader, maxByteCount: maxEntryBytes) else { return nil }
         return ImageDecoder.decode(data, maxPixelSize: maxPixelSize)
+    }
+
+    /// エントリの中身。宣言か実際の伸長が `maxByteCount` を超えたら nil(テストのための口)。
+    static func boundedEntryData(_ path: String, in reader: ArchiveReading, maxByteCount: Int64) -> Data? {
+        if let declared = reader.entryUncompressedSize(at: path), declared > maxByteCount { return nil }
+        var data = Data()
+        do {
+            try reader.readEntry(at: path) { chunk in
+                guard Int64(data.count) + Int64(chunk.count) <= maxByteCount else { throw ArchiveReaderError.entryTooLarge }
+                data.append(chunk)
+            }
+        } catch {
+            return nil
+        }
+        return data
     }
 
     /// PDF のページを長辺 `maxPixelSize` で描く(白地。透明な PDF が一覧の地の色に溶けないように)。
@@ -141,7 +193,7 @@ nonisolated enum BookThumbnailer {
     /// 要求どおりの大きさで描けば足りる。
     static func render(_ page: CGPDFPage, maxPixelSize: CGFloat) -> CGImage? {
         let box = page.getBoxRect(.cropBox)
-        guard box.width > 0, box.height > 0 else { return nil }
+        guard box.hasUsablePDFPageSize else { return nil }
         let rotation = ((page.rotationAngle % 360) + 360) % 360
         let isSideways = rotation == 90 || rotation == 270
         let width = isSideways ? box.height : box.width
@@ -176,5 +228,42 @@ nonisolated enum BookThumbnailer {
         context.clip(to: box)
         context.drawPDFPage(page)
         return context.makeImage()
+    }
+}
+
+/// iCloud などに追い出された(実体が手元に無い)ファイルの扱い(2026-09-14 の監査 6)。
+nonisolated enum DatalessFiles {
+    /// 実体が手元に無い(`SF_DATALESS`)か。判定できなければ false。lstat は実体を落としてこない。
+    static func isDataless(_ url: URL) -> Bool {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { return false }
+        return info.st_flags & UInt32(SF_DATALESS) != 0
+    }
+
+    /// `body` の間だけ、**このスレッドの**読み取りが追い出されたファイルを落としてこないようにする
+    /// (`setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD, …_OFF)`)。そういうファイルの読み取りは
+    /// 失敗する。FileIO の借りたスレッドは使い回されうるので、終わったら元の方針へ戻す。
+    /// ImageIO・CGPDFDocument の読み取りも `body` の中で同じスレッドの上で起きるので効く。
+    static func withoutDownloading<T>(_ body: () throws -> T) rethrows -> T {
+        let previous = getiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD)
+        let changed = setiopolicy_np(
+            IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD, IOPOL_MATERIALIZE_DATALESS_FILES_OFF
+        ) == 0
+        defer {
+            if changed, previous >= 0 {
+                setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD, previous)
+            }
+        }
+        return try body()
+    }
+}
+
+nonisolated extension CGRect {
+    /// PDF のページの箱として、描く大きさの計算に使えるか。**有限で、正で、桁が常識の範囲**(1 辺 1,000 万 pt 未満)。
+    /// 壊れた・細工された PDF の箱は巨大な実数になりうり、`Int(_:)` へ渡すと `Int.max` を超えてトラップする
+    /// (2026-09-14 の監査。`width > 0` だけでは無限大も通る)。
+    var hasUsablePDFPageSize: Bool {
+        width.isFinite && height.isFinite && minX.isFinite && minY.isFinite
+            && width > 0 && height > 0 && width < 10_000_000 && height < 10_000_000
     }
 }

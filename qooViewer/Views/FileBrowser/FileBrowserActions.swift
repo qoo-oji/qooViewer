@@ -17,6 +17,8 @@ final class FileBrowserActions {
     weak var folderAccess: FolderAccessStore?
     weak var favoriteLocations: FavoriteLocationStore?
     weak var preferences: AppPreferences?
+    /// 新しいタブ/ウインドウを開く口。値なので weak にできない。**ペインが消えたら外す**(`FileBrowserPane` の `onDisappear`。
+    /// この箱は `.contextMenu` を通じてウインドウより長生きしうるので、閉じたウインドウの SwiftUI の中身を抱えさせない。監査 10)。
     var openWindow: OpenWindowAction?
     /// 既存機能との接続(段階 8。FileBrowserLibraryActions.swift)。
     weak var collectionStore: CollectionStore?
@@ -810,19 +812,37 @@ private struct FileBrowserDisabledSubmenu: View {
 }
 
 /// 空きスペースの「表示」「表示順序」。
+///
+/// **`FileBrowserState` を強く掴まない**(2026-09-14 の監査 10)。`.contextMenu` の中身は AppKit のメニュー項目へ渡り、ウインドウより
+/// 長生きしうる(CLAUDE.md の ViewerActionRelay の件)。以前は `@ObservedObject var state` の `$state.viewMode` を渡していて、
+/// 閉じたウインドウの `FileBrowserState`(一覧の `entries`・取り消し履歴)を残しえた。Binding は state を weak で捕まえる閉包で作る。
+/// メニューは開くたびに作り直されるので、観測しなくてもチェックは開いた時点の値で正しい。
 private struct FileBrowserBackgroundMenuItems: View {
     @Environment(\.locale) private var locale
-    @ObservedObject var state: FileBrowserState
+    private let viewMode: Binding<FileBrowserViewMode>
+    private let sortKey: Binding<FolderBrowserSortKey>
+    private let sortDirection: Binding<FolderBrowserSortDirection>
+
+    init(state: FileBrowserState) {
+        let currentMode = state.viewMode
+        let currentKey = state.sortKey
+        let currentDirection = state.sortDirection
+        viewMode = Binding(get: { [weak state] in state?.viewMode ?? currentMode }, set: { [weak state] in state?.viewMode = $0 })
+        sortKey = Binding(get: { [weak state] in state?.sortKey ?? currentKey }, set: { [weak state] in state?.sortKey = $0 })
+        sortDirection = Binding(
+            get: { [weak state] in state?.sortDirection ?? currentDirection }, set: { [weak state] in state?.sortDirection = $0 }
+        )
+    }
 
     var body: some View {
-        Picker("View", selection: $state.viewMode) {
+        Picker("View", selection: viewMode) {
             ForEach(FileBrowserViewMode.allCases, id: \.self) { mode in
                 Text(String(localized: mode.menuTitle, language: locale)).tag(mode)
             }
         }
         .pickerStyle(.menu)
         Menu("Sort By") {
-            Picker(selection: $state.sortKey) {
+            Picker(selection: sortKey) {
                 ForEach(FolderBrowserSortKey.allCases) { key in
                     Text(key.titleKey).tag(key)
                 }
@@ -831,7 +851,7 @@ private struct FileBrowserBackgroundMenuItems: View {
             }
             .pickerStyle(.inline)
             Divider()
-            Picker(selection: $state.sortDirection) {
+            Picker(selection: sortDirection) {
                 ForEach(FolderBrowserSortDirection.allCases) { direction in
                     Text(direction.titleKey).tag(direction)
                 }

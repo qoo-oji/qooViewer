@@ -31,7 +31,8 @@ import UniformTypeIdentifiers
 /// ■ 動画(段階 7b、2026-09-14)
 /// `VideoThumbnailLoading`(既定は QuickLook → `hev1` の再タグ付け)で作り、本と同じディスクキャッシュ・同じ枠(4 件)に載せる。
 /// 実体が手元に無いファイル(iCloud などに追い出されたもの)は作らない ―― 頼まれていないダウンロードを起こすので。
-/// こちらは「作れなかった」とは覚えない(落としてくれば作れる)。よく使う項目の中の動画を先に作っておくのは
+/// こちらは「作れなかった」とは覚えない(落としてくれば作れる)。本・画像・フォルダも同じ(`BookThumbnailer.make` が
+/// `.notDownloaded` を返す。2026-09-14 の監査 6)。よく使う項目の中の動画を先に作っておくのは
 /// `FileBrowserVideoThumbnailWarmer`(作ったものは同じディスクキャッシュに入り、ここはそれを読むだけ)。
 @MainActor
 final class FileBrowserThumbnailProvider: ObservableObject {
@@ -291,21 +292,38 @@ final class FileBrowserThumbnailProvider: ObservableObject {
                 if let pixels = await Self.decode(data, maxPixelSize: pixelSize) { return pixels }
             }
             generatedCount += 1
-            let made = await FileIO.perform { () -> (jpeg: Data, pixels: PagePixelBuffer)? in
-                guard let image = BookThumbnailer.thumbnail(
-                    of: url, kind: kind, maxPixelSize: FileBrowserThumbnailDiskCache.maxPixelSize
-                ), let jpeg = Self.jpegData(from: image),
-                    let pixels = ImageDecoder.decodePixels(jpeg, maxPixelSize: pixelSize)
-                else { return nil }
-                return (jpeg, pixels)
+            let made = await FileIO.perform { () -> MadeThumbnail in
+                switch BookThumbnailer.make(of: url, kind: kind, maxPixelSize: FileBrowserThumbnailDiskCache.maxPixelSize) {
+                case .image(let image):
+                    guard let jpeg = Self.jpegData(from: image),
+                          let pixels = ImageDecoder.decodePixels(jpeg, maxPixelSize: pixelSize)
+                    else { return .failed }
+                    return .made(jpeg: jpeg, pixels: pixels)
+                case .unavailable:
+                    return .failed
+                case .notDownloaded:
+                    return .notDownloaded
+                }
             }
-            guard let made else {
+            switch made {
+            case let .made(jpeg, pixels):
+                if let key { await diskCache.store(jpeg, for: key) }
+                return pixels
+            case .failed:
                 remember(failure: baseKey)
                 return nil
+            case .notDownloaded:
+                // 追い出されたファイル(型コメント「動画」と同じ)。「作れなかった」とは覚えない。
+                return nil
             }
-            if let key { await diskCache.store(made.jpeg, for: key) }
-            return made.pixels
         }
+    }
+
+    /// 本・画像・フォルダの絵を作った結果(FileIO の上から持ち帰る)。
+    private nonisolated enum MadeThumbnail: Sendable {
+        case made(jpeg: Data, pixels: PagePixelBuffer)
+        case failed
+        case notDownloaded
     }
 
     /// 動画の絵を作ってディスクキャッシュに書く形(JPEG)にする。先に作っておく役(FileBrowserVideoThumbnailWarmer)も使う。

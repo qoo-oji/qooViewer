@@ -1457,7 +1457,7 @@ CI はこのブランチでは手動起動(`workflow_dispatch`)の 2026-09-13 �
 および `swift` で直接走らせる小さなスクリプト(`copyfile`・`removeItem`・`trashItem`・`recycle` の素の挙動)。監査で実測したプラットフォームの事実は
 その場で確かめたものなので、直すときはもう一度同じ手で確かめる。
 
-**見つかったもの(重い順。1〜5 は 2026-09-14 に直した ―― 下の「1〜3 の修正」「4・5 の修正」。6 以降はまだ)**:
+**見つかったもの(重い順。すべて 2026-09-14 に直した ―― 下の「1〜3 の修正」「4・5 の修正」「6 以降の修正」。10 の `heap` による確認だけが残っている)**:
 
 1. **【最重要・実測で消失】別ボリュームへの移動で、元の削除が途中で失敗すると宛先の完全なコピーまで消す**
    (`FileOperationService.moveItem`、`removeAbsorbingTransientFailure(at: source)` の catch で `removePartialWrite(at: target)`)。
@@ -1557,29 +1557,60 @@ CI はこのブランチでは手動起動(`workflow_dispatch`)の 2026-09-13 �
 - 回帰テスト: `FileBrowserListEditingTests`(**修正前のコードで b.txt の名前を変えて失敗し、修正後に通ることを確認**)、`FileBrowserStateTests` に 2 件
   (読み直す範囲、`/private` の書き方)。全体 1290 件成功、`check-all.sh` 成功。
 
-**引き継ぎ(2026-09-14 時点。1〜5 と 9 を直し終えたところ)**:
-- ブランチの状態: `feature/file-browser` にコミット・プッシュ済み。1〜3 が `b5b24b1`、4・5(と 9)が文書の更新と一緒の次のコミット。
-  CHANGELOG `[Unreleased]` の「追加」(ファイルブラウザの項)と MANUAL に、利用者から見える振る舞いとして 3 点を足した:
-  別ボリュームへの移動で元を消せなかったときはコピーを残して知らせること、外付けを繋がずに起動したときの置き換えの復旧、
-  「コレクションに登録」の知らせ(§8.5.4 冒頭で持ち越していたもの)。いずれも未リリースの機能の中の話なので「修正」には書いていない。
-  README・CLAUDE.md は変える記述が無かった(アーキテクチャの段落に載せる粒度ではない)。
-- 残っている監査の指摘: 中程度の 6〜8・10〜12(9 は塞いだ)と「軽微」の列。**6(iCloud の追い出されたファイルを書庫・画像・PDF・EPUB・フォルダの
-  サムネイルがダウンロードさせる)と 7(zip の伸長爆弾を、フォルダを表示しただけで踏む)が次に重い**。8(退避のゴミ箱送りが失敗したら完全削除)は
-  エンジンだけで直せる。
-- 確かめていないもの: 4 の実機(ホームを表示したまま `~/Library` の下やダウンロードで書き込みが続くときに一覧が出続けるか、ネットワーク上のフォルダで
-  見張らなくなったこと、フォルダを移ったときに古い履歴が届かないこと)。9 の「2 度目の `controlTextDidEndEditing` が本当に来るか」はログで見ていない
-  (来なくても害の無い塞ぎ方)。1 の取り消し(元に同じ名前が残っていて `name 2` へ戻る)の報告の見え方も実機では見ていない。
-- 測り方で分かったこと: リストの Coordinator は `NSHostingView` に載せずにテストできる(表を自分で組み、画面に出さないウインドウに入れればフィールドエディタも
+**6 以降の修正(2026-09-14、ユーザー指示「監査指摘事項 6 以降を修正」)**: コミット・プッシュ済み(この節と同じコミット)。
+- 6: `BookThumbnailer.make(of:kind:maxPixelSize:)` が `Outcome`(`.image` / `.unavailable` / `.notDownloaded`)を返す。項目そのもの・フォルダの中の先頭の
+  画像が `SF_DATALESS` なら `.notDownloaded`(提供役は「作れなかった」と覚えない)。読み取り全体を `DatalessFiles.withoutDownloading`
+  (`setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD, OFF)`、終われば元へ)で包み、取りこぼしもダウンロードにしない。
+  `VideoThumbnailer.isDataless` は `DatalessFiles.isDataless` へ寄せた。**本物の追い出されたファイルでは確かめていない**(テストで作れない)。
+- 7: `BookThumbnailer.decodeEntry` は `boundedEntryData` で、宣言サイズに加えて `readEntry` のチャンクを数え、64MB を超えた時点で打ち切る
+  (`dataPrefix` は rar が全体読みに落ちるので使わない)。ついでに EPUB の絵は `EpubStructureResolver.resolve(reader:maxPages: 1)` で先頭 1 ページで止める(軽微の列)。
+- 8: `carry` は、ゴミ箱のある場所で退避をゴミ箱へ送れなければ消さずに退避と記録を残し、`FileOperationError.replacedItemKept` の文を失敗に積んで止まる
+  (`Carried.sourceRemains` を `problem` に改めて両方を運ぶ)。完全削除へ落ちるのはゴミ箱の無い場所だけ。
+- 10: 空きスペースの右クリックの「表示」「表示順序」の Binding を `FileBrowserState` を weak で捕まえる閉包で作る。`FileBrowserActions.openWindow`
+  はペインの `onDisappear` で外す(`onAppear` の `connectActions` が付け直す)。**`heap` での確認はしていない**(実物のアプリでウインドウを開閉する必要がある)。
+  `.contextMenu` の中の `FileBrowserContextMenuItems` が `FileBrowserActions` を強く持つのは残した(相手は全部 weak、残る値は `collectionMenuCache` だけ)。
+- 11: `OpenWithApplications` は `urlsForApplications(toOpen: UTType)` で引く(ファイルに触らない)。種類は名前だけで決める(`contentType(for:isDirectory:isPackage:)`:
+  中へ入れるフォルダは `.folder`、パッケージ・ファイルは拡張子の種類、拡張子の無いファイルは `.data`)。覚える鍵もパスごとをやめた。
+  失うもの: 1 ファイルだけに付けた既定のアプリの「(既定)」表示と、拡張子の無いファイルの中身での見分け。
+- 12: `FileBrowserThumbnailKey.of` の更新日時を `&*` / `&+` で作る。
+- 軽微の列:
+  - 環境設定の MB 値は読むときに `storedMegabytes`(数でない・非有限なら既定値、範囲外は端)で収め、バイトへの換算も `clampedMegabytes` を通す(NaN は `min`/`max` を素通りする)。
+  - ツリーの閉じた行の調べ直しを 1 本の `FileIO` にまとめた(`reprobe(_ nodes:)`)。
+  - AppKit の受け口は `info.draggingSource == nil`(他のアプリから)なら `FileBrowserDragTracker.end()`。SwiftUI の側は手当てできていない。
+  - `ZipArchiveReader`: 同じ補正後パスは先のエントリを採る(rar / 7z と同じ)。`entriesInArchiveOrder` の descriptor は初めて頼まれたときに作る。
+  - `withLocksLifted`: 同じボリュームなら項目自身のロックだけを見る(木を歩かない)。別ボリュームの「木を最大 6 回歩く」は手を付けていない。
+  - 名前の変更: 同じ inode でも、名前の違いが大文字小文字・正規化だけでなければ「自分自身」とみなさない(ハードリンクの兄弟への no-op の成功を止めた)。
+  - PDF の箱: `CGRect.hasUsablePDFPageSize`(有限・正・1 辺 1,000 万 pt 未満)を `BookThumbnailer.render` と `PageLoader` の 3 箇所で使う。
+  - `FileIO.withDeadline` が呼び出し元の取り消しを `operation` の Task へ渡す(`TaskCancellationRelay`)。`RetaggedHEVCThumbnailLoader` はこれで取り消しを見る。
+  - 先読み役(`FileBrowserVideoThumbnailWarmer`)のマウント表は場所ごとに 1 回。
+- 回帰テスト: `FileBrowserThumbnailTests` に 4 件(伸長しながら数える上限 / 実体化の方針が掛かって戻る / PDF の箱 / EPUB の先頭 1 ページ)、
+  `FileOperationServiceTests` に 2 件(置き換えでゴミ箱へ送れないときに残す / ハードリンクの兄弟への改名)、`ZipEntryNameTests` に 1 件(同じパスは先のもの、展開も)、
+  `AppPreferencesTests` に 1 件(壊れた MB 値)、`FileIOTests` に 1 件(期限付きの待ちへの取り消し)、`FileBrowserIntegrationTests` の「このアプリケーションで開く」の鍵を
+  種類で引く形に書き換え。**修正前のコードでの失敗は確かめていない**(新しい口を使うテストが多く、修正前ではビルドできない)。全体 1299 件成功、`check-all.sh` 成功。
+  1 回目の全体実行で既存の `FileIOTests`「呼び出し元タスクの取り消しは、借りたスレッドの上で Cancellation として見える」が 1 度落ち、2 回目は通った
+  (この修正で触っていない `perform` のテスト。並行実行で協調プールが混んだときの揺らぎと見ている)。
+
+**引き継ぎ(2026-09-14 時点。監査の 1〜12 と軽微の列を直し終えたところ)**:
+- ブランチの状態: 1〜3 が `b5b24b1`、4・5(と 9)が `4ae1615`、6 以降が次のコミット(「ドキュメントを更新」の指示とともにコミット・プッシュ)。
+  CHANGELOG `[Unreleased]` の「追加」(ファイルブラウザの項)に 8(置き換えた元をゴミ箱に入れられなければ隠し項目として残す)と 6(ダウンロードされていない
+  本・画像の絵を作らない)、「修正」に既存機能へ効くもの 3 件(壊れた PDF の箱で終了・壊れた MB 値で起動時に終了・zip の同じ名前の画像は前のもの)を足した。
+  MANUAL はアイコン表示・置き換え・「このアプリケーションで開く」の段落を更新。README・CLAUDE.md は変える記述が無かった。
+- 確かめていないもの: 10 の `heap`(ウインドウを開閉して `FileBrowserState` が残らないこと)、6 の本物の追い出されたファイル、11 の「このアプリケーションで開く」の
+  候補が実機で以前と同じ顔ぶれか(特に拡張子の無いファイル・パッケージ)、軽微の列のドラッグの記録の手当て(他のアプリからのドラッグ)。
+  前回から持ち越し: 4 の実機、9 の 2 度目の `controlTextDidEndEditing`、1 の取り消しの報告の見え方。
+- 測り方で分かったこと(前回から): リストの Coordinator は `NSHostingView` に載せずにテストできる(表を自分で組み、画面に出さないウインドウに入れればフィールドエディタも
   動く。`makeNSView` は `autosaveName` で `UserDefaults.standard` に列の幅を書くので載せない ―― `FileBrowserListEditingTests`)。テストに
-  `/Users/<名前>/` の合成パスを書くと `check-private-terms.sh` が止める(`/Users/nobody` だけが許される)。
+  `/Users/<名前>/` の合成パスを書くと `check-private-terms.sh` が止める(`/Users/nobody` だけが許される)。今回: `setiopolicy_np` のスレッド単位の
+  実体化の方針はサンドボックスのテストホストの中でも掛けられる。
+- 監査の列で残したもの: 別ボリュームの移動で木を最大 6 回歩く(`preflight` の総量・ロック・コピー・確認の各段)、SwiftUI の受け口でのドラッグの記録の古さ。
 
 **次に着手する候補(順番はユーザーに選んでもらう)**:
-1. 6・7(サムネイルが勝手にダウンロードする・伸長爆弾。どちらもフォルダを表示しただけで起きる)
-2. 8・10〜12(退避のゴミ箱送りの失敗、`.contextMenu` の Binding と `OpenWindowAction` の保持の `heap` 確認、メインアクター上の LaunchServices、サムネイルの鍵の桁あふれ)と「軽微」の列
-3. 段階 9(検証と文書)。上の「確かめていないもの」を含む
+1. 10 の `heap` の確認
+2. 段階 9(検証と文書)。上の「確かめていないもの」を含む
 
 **ユーザーに頼むこと**: ふだんのホームをファイルブラウザで表示したまま、しばらく他のアプリでダウンロードやコピーを続け、一覧が出続けること・
-名前の編集が途中で消えないことを実際のマウスで見てもらう。
+名前の編集が途中で消えないことを実際のマウスで見てもらう。「ストレージを最適化」で追い出されたファイルのあるフォルダ(デスクトップ・書類など)を
+アイコン表示で開き、ダウンロードが始まらないこと(Finder の雲のアイコンが残ること)を見てもらう。
 
 ## 段階 9. 検証と文書
 

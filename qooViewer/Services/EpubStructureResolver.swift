@@ -95,7 +95,9 @@ nonisolated enum EpubStructureResolver {
         try reader.dataPrefix(at: path, maxByteCount: maxMarkupByteCount)
     }
 
-    static func resolve(reader: ArchiveReading) throws -> EpubStructure {
+    /// - Parameter maxPages: 見つけたページがこの数に達したら、spine の残りを見ない(ファイルブラウザの絵は先頭の 1 ページだけが要る。
+    ///   ページごとに XHTML を読むので、数百ページの EPUB で全部を読むと一覧の絵 1 枚に数百回の伸長が要った ―― 2026-09-14 の監査)。
+    static func resolve(reader: ArchiveReading, maxPages: Int? = nil) throws -> EpubStructure {
         let opfPath = try resolveOPFPath(reader: reader)
         let opfData = try markupData(reader: reader, at: opfPath)
         let packageDocument = try parsePackageDocument(data: opfData)
@@ -105,6 +107,7 @@ nonisolated enum EpubStructureResolver {
 
         var pages: [EpubPageEntry] = []
         for itemRef in packageDocument.spineItemRefs {
+            if let maxPages, pages.count >= maxPages { break }
             guard let manifestItem = packageDocument.manifestItems[itemRef.idref] else { continue }
             guard let entryPath = resolveImagePath(
                 for: manifestItem,

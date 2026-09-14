@@ -66,6 +66,26 @@ struct FileIOTests {
         release.signal()
     }
 
+    @Test("期限付きで待っている間に呼び出し元が取り消されたら、本体にも取り消しが届く", .timeLimit(.minutes(1)))
+    func deadlineForwardsCallerCancellation() async throws {
+        let entered = DispatchSemaphore(value: 0)
+        let task = Task {
+            try await FileIO.withDeadline(.seconds(30)) {
+                await FileIO.perform { () -> Bool in
+                    entered.signal()
+                    let start = Date()
+                    while !Cancellation.isRequestedInCurrentScope, Date().timeIntervalSince(start) < 20 {
+                        Thread.sleep(forTimeInterval: 0.01)
+                    }
+                    return Cancellation.isRequestedInCurrentScope
+                }
+            }
+        }
+        await FileIO.perform { _ = entered.wait(timeout: .now() + 20) }
+        task.cancel()
+        #expect(try await task.value == true, "期限(30 秒)を待たずに、取り消しを見て降りてくる")
+    }
+
     @Test("期限より先に終われば結果が返る")
     func deadlineReturnsTheResultWhenFastEnough() async throws {
         let value = try await FileIO.withDeadline(.seconds(5)) { await FileIO.perform { 42 } }
