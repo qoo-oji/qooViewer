@@ -56,7 +56,7 @@ final class FolderChangeWatcher {
     /// `deinit`(nonisolated)から破棄するため`nonisolated(unsafe)`。書き換えはメインアクター上の
     /// メソッドからだけで、`deinit`の時点では他に参照が無いため競合しない。
     private nonisolated(unsafe) var stream: FSEventStreamRef?
-    /// 直前のストリームが最後に処理したイベントID。パスを差し替えるときに`sinceWhen`として
+    /// 直前のストリームを止めた時点のイベントID。パスを差し替えるときに`sinceWhen`として
     /// 渡し、止めてから始めるまでの空白を埋める(その間の変更を取りこぼさない)。
     private var lastEventID = FSEventStreamEventId(kFSEventStreamEventIdSinceNow)
     /// 生成を待っている間にパスが変わったかを見分けるための世代番号。
@@ -136,9 +136,12 @@ final class FolderChangeWatcher {
 
     private func stopStream() {
         guard let stream else { return }
-        // **止める前に**読む(無効化したあとは取れない)。構造体のフィールドを読むだけなので
-        // ブロックしない。
-        lastEventID = FSEventStreamGetLatestEventId(stream)
+        // **止める前に**、システム全体のいまのイベントIDを読む。以前はこのストリームが最後に受け取ったID
+        // (`FSEventStreamGetLatestEventId`)を使っていたが、それは静かなフォルダを見ていれば何時間も前の値のままで、
+        // `FullHistory` を付けているため、**新しく見張るパスの過去の履歴がその時点から丸ごと再生された**
+        // (ファイルブラウザでフォルダを移るたびに、移った先の古い変更が届いた。2026-09-14 の監査の 4)。
+        // いまのIDなら、残るパスの空白は埋まり、新しいパスで再生されるのは止めてから始めるまでの間だけ。
+        lastEventID = FSEventsGetCurrentEventId()
         self.stream = nil
         Self.tearDownWithoutWaiting(stream)
     }

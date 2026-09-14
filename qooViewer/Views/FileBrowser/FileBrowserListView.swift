@@ -198,10 +198,13 @@ struct FileBrowserListView: NSViewRepresentable {
         private var appliedScroll: FileBrowserState.ScrollRequest?
         private var appliedRename: FileBrowserState.ScrollRequest?
         private var appliedCutPaths: Set<String> = []
-        /// 名前の編集中に一覧が変わった(編集が終わったら読み直す)。
+        /// 名前の編集中に表の描き直しを待たせた(編集が終わったら取り込んで描き直す)。
         private var needsReloadAfterEditing = false
         /// Esc で編集を取りやめた(確定の通知を名前の変更として扱わない)。
         private var isCancellingEdit = false
+        /// 編集の後始末の最中(`finishEditing` が欄を表示名へ戻してから焦点を表へ返すので、そこで届く 2 度目の
+        /// 「編集が終わった」を名前の変更として扱わない ―― 表示名と実名の違う項目を表示名へ改名しうる。監査の 9)。
+        private var isFinishingEdit = false
         /// 状態から表へ選択を写している最中(その通知を状態へ書き戻さない)。
         private var isApplyingSelection = false
         private var isApplyingSort = false
@@ -232,37 +235,50 @@ struct FileBrowserListView: NSViewRepresentable {
                 outlineWidth = view.outlineWidth
                 needsReload = true
             }
-            if view.state.cutPaths != appliedCutPaths {
-                appliedCutPaths = view.state.cutPaths
+            applySortDescriptors(from: view.state)
+            applyHiddenColumns(from: view.state)
+            // **名前の編集中は一覧を取り込まない**(2026-09-14 の監査の 5)。以前は描き直しだけを待たせて `entries` は
+            // 差し替えていたので、編集中に一覧が読み直される(FSEvents・アプリの再アクティブ化・ボリュームの着脱・他の
+            // ウインドウの操作)と、確定の `table.row(for:)`(表に出ている古い行番号)で新しい `entries` を引き、**別の
+            // ファイルの名前を変えた**。選択・スクロールの反映も同じ添字ずれを起こすので、まとめて `finishEditing` まで待たせる。
+            if isEditingName {
+                if needsReload || view.state.entriesRevision != revision || view.state.cutPaths != appliedCutPaths {
+                    needsReloadAfterEditing = true
+                }
+                return
+            }
+            syncWithState(view.state, forcingReload: needsReload)
+        }
+
+        /// 状態の一覧・カット・選択・スクロール・名前の編集の依頼を表へ写す(編集中でないときだけ呼ぶ)。
+        private func syncWithState(_ state: FileBrowserState, forcingReload: Bool) {
+            guard let table else { return }
+            var needsReload = forcingReload
+            if state.cutPaths != appliedCutPaths {
+                appliedCutPaths = state.cutPaths
                 needsReload = true
             }
-            if view.state.entriesRevision != revision {
-                revision = view.state.entriesRevision
-                entries = view.state.entries
+            if state.entriesRevision != revision {
+                revision = state.entriesRevision
+                entries = state.entries
                 needsReload = true
             }
             if needsReload {
-                if isEditingName {
-                    needsReloadAfterEditing = true
-                } else {
-                    isApplyingSelection = true
-                    table.reloadData()
-                    isApplyingSelection = false
-                }
+                isApplyingSelection = true
+                table.reloadData()
+                isApplyingSelection = false
             }
-            applySortDescriptors(from: view.state)
-            applyHiddenColumns(from: view.state)
-            applySelection(from: view.state)
-            if let request = view.state.scrollRequest, request != appliedScroll {
+            applySelection(from: state)
+            if let request = state.scrollRequest, request != appliedScroll {
                 appliedScroll = request
                 if let row = entries.firstIndex(where: { $0.id == request.id }) {
                     table.scrollRowToVisible(row)
                 }
             }
-            if let request = view.state.renameRequest, request != appliedRename,
+            if let request = state.renameRequest, request != appliedRename,
                let row = entries.firstIndex(where: { $0.id == request.id }) {
                 appliedRename = request
-                view.state.finishRenameRequest(request)
+                state.finishRenameRequest(request)
                 beginEditingName(row: row)
             }
         }
@@ -299,10 +315,12 @@ struct FileBrowserListView: NSViewRepresentable {
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {
-            guard !isCancellingEdit, let table, let field = notification.object as? FileBrowserNameField else { return }
+            guard !isCancellingEdit, !isFinishingEdit, let table, let field = notification.object as? FileBrowserNameField else { return }
             let row = table.row(for: field)
             let newName = field.stringValue
-            if entries.indices.contains(row), let state {
+            // 編集中は `entries` を差し替えないので、表の行番号と `entries` は揃っている。念のため欄が覚えている実名とも突き合わせる
+            // (揃っていなければ、どの項目の名前を変えるつもりだったのか分からないので何もしない)。
+            if entries.indices.contains(row), let state, field.editingName == entries[row].url.lastPathComponent {
                 let entry = entries[row]
                 if newName != entry.url.lastPathComponent {
                     state.operations.rename(entry, to: newName)
@@ -314,16 +332,16 @@ struct FileBrowserListView: NSViewRepresentable {
         /// 編集の後始末: 欄の文字を表示名へ戻し(変更が済めば読み直しで新しい名前になる)、表へ焦点を返し、
         /// 待たせていた読み直しを行う。
         private func finishEditing(restoring field: NSTextField) {
-            guard let table else { return }
+            guard let table, !isFinishingEdit else { return }
+            isFinishingEdit = true
+            defer { isFinishingEdit = false }
             let row = table.row(for: field)
             if entries.indices.contains(row) { field.stringValue = entries[row].displayName }
             table.window?.makeFirstResponder(table)
             if needsReloadAfterEditing {
                 needsReloadAfterEditing = false
-                isApplyingSelection = true
-                table.reloadData()
-                isApplyingSelection = false
-                if let state { applySelection(from: state) }
+                // 待たせていた一覧・選択・スクロールをまとめて取り込む(update のコメント)。
+                if let state { syncWithState(state, forcingReload: true) }
             }
         }
 

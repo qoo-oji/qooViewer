@@ -68,12 +68,13 @@ struct FileBrowserTreePathTests {
 struct FileBrowserTreeAndIconHitTests {
     @Test("FSEvents が付ける起動ボリュームのデータ領域の頭を外す。ほかのパスはそのまま")
     func dataVolumePrefixIsStripped() {
-        typealias Coordinator = FileBrowserTreeView.Coordinator
+        // ツリーと表示中のフォルダの見張りで共有する(2026-09-14 に FileBrowserState へ移した)。
+        typealias Paths = FileBrowserState
         // 頭は定数から組む(`/Volumes/<名前>/<名前>` の形を書くと禁止語の検査が合成名でも止める)。
-        let prefix = Coordinator.dataVolumePrefix
-        #expect(Coordinator.pathOutsideDataVolume(prefix + "/Users/nobody/XA") == "/Users/nobody/XA")
-        #expect(Coordinator.pathOutsideDataVolume("/Volumes/XOther/XA") == "/Volumes/XOther/XA")
-        #expect(Coordinator.pathOutsideDataVolume(prefix + "X/XA") == prefix + "X/XA")
+        let prefix = Paths.dataVolumePrefix
+        #expect(Paths.pathOutsideDataVolume(prefix + "/Users/nobody/XA") == "/Users/nobody/XA")
+        #expect(Paths.pathOutsideDataVolume("/Volumes/XOther/XA") == "/Volumes/XOther/XA")
+        #expect(Paths.pathOutsideDataVolume(prefix + "X/XA") == prefix + "X/XA")
     }
 
     @Test("名前のクリックは文字の上だけ。短い名前の横の余白は含まない")

@@ -218,6 +218,10 @@ final class FileBrowserState: ObservableObject {
     private var typeSelectLastInput: Date?
     private var scrollSerial = 0
     private var watcher: FolderChangeWatcher?
+    /// 見張っているフォルダを FSEvents が知らせてくる書き方で(`watchedFolderSpellings`)。
+    private var watchedFolderIDs: Set<String> = []
+    /// 読み込みの最中に FSEvents が変更を知らせた。読み終えたらもう一度読む(`handleChangedPaths` のコメント)。
+    private var needsReloadAfterLoad = false
     private var preferenceObservation: AnyCancellable?
     private var systemObservations: [AnyCancellable] = []
     private var toastDismissTask: Task<Void, Never>?
@@ -235,10 +239,10 @@ final class FileBrowserState: ObservableObject {
             .map { Self.clamp(CGFloat($0), to: Self.iconSizeRange) } ?? Self.defaultIconSize
         treeWidth = (defaults.object(forKey: Keys.treeWidth) as? Double)
             .map { Self.clamp(CGFloat($0), to: Self.treeWidthRange) } ?? Self.defaultTreeWidth
-        watcher = FolderChangeWatcher { [weak self] in
+        watcher = FolderChangeWatcher(onChangedPaths: { [weak self] paths in
             // FSEvents 自身のキューから呼ばれる(FolderChangeWatcher.init のコメント)。
-            Task { @MainActor [weak self] in self?.handleFolderChanged() }
-        }
+            Task { @MainActor [weak self] in self?.handleChangedPaths(paths) }
+        })
         observeSystem()
         operations.state = self
         // 取り消しの題が変わったら、メニューバーの値(ContentViewのMenuCheckmarkState)を作り直してもらう。
@@ -408,7 +412,16 @@ final class FileBrowserState: ObservableObject {
         loadTask?.cancel()
         let folder = currentFolder
         isLoading = true
+        needsReloadAfterLoad = false
         loadTask = Task { [weak self] in
+            defer {
+                // 読んでいる間に届いた変更を、読み終えてから 1 回だけ拾う(同じ世代のままなら ―― 別の読み込みが
+                // 始まっていれば、そちらが最新を読む)。
+                if let self, self.generation == mine, self.needsReloadAfterLoad {
+                    self.needsReloadAfterLoad = false
+                    self.reload()
+                }
+            }
             let outcome: Result<[FileBrowserEntry], FileBrowserLoadError>
             if let folder {
                 do {
@@ -721,10 +734,69 @@ final class FileBrowserState: ObservableObject {
         reload()
     }
 
+    /// FSEvents が知らせたパス(ファイル単位)。**表示中のフォルダ自身か、その直下の項目が変わったときだけ**読み直す
+    /// (2026-09-14 の監査の 4)。
+    ///
+    /// FSEvents は渡したパスの**階層全体**のイベントを返す。以前はパスを見ずに読み直していたので、ホーム(既定の起動フォルダ)や
+    /// `/` を表示している間は `~/Library` の下の書き込みで 0.3 秒ごとに再列挙が走り続けた。しかも `reload()` は前の列挙を
+    /// 取り消すので、列挙に 0.3 秒以上かかるフォルダの配下でダウンロードやコピーが続く間は**一覧が永遠に出なかった**。
+    /// そこで (1) 直下だけを見る(ツリーの `handleExternalChange` と同じ形)、(2) 読み込み中に届いたら取り消さずに
+    /// 読み終えてからもう 1 回だけ読む。
+    private func handleChangedPaths(_ paths: [String]) {
+        guard isVisible, Self.changedPaths(paths, touchFolderSpelledAs: watchedFolderIDs) else { return }
+        if loadTask != nil, isLoading {
+            needsReloadAfterLoad = true
+        } else {
+            reload()
+        }
+    }
+
+    /// FSEvents が知らせたパスのどれかが、そのフォルダ自身か直下の項目か(`spellings` は `watchedFolderSpellings`)。
+    nonisolated static func changedPaths(_ paths: [String], touchFolderSpelledAs spellings: Set<String>) -> Bool {
+        guard !spellings.isEmpty else { return false }
+        return paths.contains { raw in
+            let path = MountTable.normalized(pathOutsideDataVolume(raw))
+            return spellings.contains(path) || spellings.contains((path as NSString).deletingLastPathComponent)
+        }
+    }
+
+    /// 起動ボリュームの利用者のデータは `/System/Volumes/Data` の上にあり、FSEvents がその頭を付けて知らせることがある
+    /// (`/` を見張ったとき)。一覧・ツリーの行は頭の無いパスなので揃える。
+    nonisolated static let dataVolumePrefix = "/System/Volumes/Data"
+
+    nonisolated static func pathOutsideDataVolume(_ path: String) -> String {
+        guard path.hasPrefix(dataVolumePrefix + "/") else { return path }
+        return String(path.dropFirst(dataVolumePrefix.count))
+    }
+
+    /// FSEvents はリンクを解いた実際のパスで知らせる(`/var/…` は `/private/var/…`)。表示中のフォルダを両方の書き方で持つ。
+    /// ブロッキングしうる問い合わせ(リンクの解決)をするので、ネットワーク上のフォルダには使わない(そもそも見張らない)。
+    nonisolated static func watchedFolderSpellings(of folder: URL) -> Set<String> {
+        let path = MountTable.normalized(folder.path)
+        var spellings: Set<String> = [path]
+        let resolved = MountTable.normalized(folder.resolvingSymlinksInPath().path)
+        spellings.insert(resolved)
+        // resolvingSymlinksInPath は頭の /private を外す(MountTable.normalized のコメント)ので、付けた形も足す。
+        for candidate in [path, resolved] {
+            let isUnderPrivateLink = ["/var", "/tmp", "/etc"].contains { MountTable.path(candidate, isAtOrUnder: $0) }
+            if isUnderPrivateLink { spellings.insert("/private" + candidate) }
+        }
+        return spellings
+    }
+
     /// FSEvents で今のフォルダを見張る。**見えている間だけ**(本を読んでいる間に見張っても、
     /// 戻ってきたときに読み直すので要らない)。
+    ///
+    /// **ネットワーク上のフォルダは見張らない**(FSEvents はそこでは飛ばず、応答しない共有では `FSEventStreamCreate` が
+    /// 30 秒塞ぐ ―― FolderChangeWatcher の型コメント)。その代わりはアクティブ化とボリュームの着脱での読み直し。
     private func updateWatcher() {
-        let paths: Set<String> = if isVisible, let currentFolder { [currentFolder.path] } else { [] }
+        var paths: Set<String> = []
+        if isVisible, let currentFolder, !MountTable.current().isRemote(currentFolder) {
+            paths = [currentFolder.path]
+            watchedFolderIDs = Self.watchedFolderSpellings(of: currentFolder)
+        } else {
+            watchedFolderIDs = []
+        }
         guard let watcher else { return }
         Task { await watcher.watch(paths) }
     }

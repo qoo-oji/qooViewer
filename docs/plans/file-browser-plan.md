@@ -1446,8 +1446,8 @@ CI はこのブランチでは手動起動(`workflow_dispatch`)の 2026-09-13 �
 
 **ブランチの状態**: `feature/file-browser` にコミット・プッシュ(2026-09-14、ユーザー指示)。この節と一緒に、右クリックの「コレクションに登録」の
 知らせ(`FileBrowserState.showToast` → `Views/OverlayToast.swift`。ビューアのお気に入り/ブックマークのトーストと同じ見た目に共通化、
-`FileBrowserLibraryActions.addedToCollectionMessage` に文の出し分け、`FileBrowserIntegrationTests` に文の判定)を入れた。CHANGELOG には足していない
-(指示が無かったので。`[Unreleased]` の「追加」のコレクション登録の行に 1 文足すのが妥当)。docs/15「右クリック」と §8.1 の「確かめていないもの」は更新済み。
+`FileBrowserLibraryActions.addedToCollectionMessage` に文の出し分け、`FileBrowserIntegrationTests` に文の判定)を入れた。CHANGELOG には足していなかった
+(2026-09-14 の 4・5 の修正のコミットで、「ドキュメントを更新」の指示により CHANGELOG・MANUAL の登録の行に足した)。docs/15「右クリック」と §8.1 の「確かめていないもの」は更新済み。
 
 **コード監査(2026-09-14、ユーザー指示)**: ブランチで足した/変えたコード全体を、資源リーク・クラッシュ・ハング・ファイルの破損と消失・
 メモリとディスクの過大な消費に絞って監査した。方法は、ファイル操作エンジンの精読 + 独立した 5 系統の読み合わせ(エンジンの二重監査・UI 層・
@@ -1457,7 +1457,7 @@ CI はこのブランチでは手動起動(`workflow_dispatch`)の 2026-09-13 �
 および `swift` で直接走らせる小さなスクリプト(`copyfile`・`removeItem`・`trashItem`・`recycle` の素の挙動)。監査で実測したプラットフォームの事実は
 その場で確かめたものなので、直すときはもう一度同じ手で確かめる。
 
-**見つかったもの(重い順。1〜3 は 2026-09-14 に直した ―― 下の「1〜3 の修正」。4 以降はまだ)**:
+**見つかったもの(重い順。1〜5 は 2026-09-14 に直した ―― 下の「1〜3 の修正」「4・5 の修正」。6 以降はまだ)**:
 
 1. **【最重要・実測で消失】別ボリュームへの移動で、元の削除が途中で失敗すると宛先の完全なコピーまで消す**
    (`FileOperationService.moveItem`、`removeAbsorbingTransientFailure(at: source)` の catch で `removePartialWrite(at: target)`)。
@@ -1530,7 +1530,7 @@ CI はこのブランチでは手動起動(`workflow_dispatch`)の 2026-09-13 �
 監視の寿命(`releaseResources` / `dismantleNSView` / weak 参照)、サムネイル提供役の並行制御、Matroska / EBML パーサの境界、QuickLook / 再タグ付けの
 資源解放、ディスクキャッシュ、zip の日時補正の往復、`@Model` の変更が無いこと。
 
-**1〜3 の修正(2026-09-14、ユーザー指示「致命的な不具合をまず修正」)**: 未コミット。
+**1〜3 の修正(2026-09-14、ユーザー指示「致命的な不具合をまず修正」)**: コミット・プッシュ済み(`b5b24b1`)。
 - 1: `moveItem` は元の削除に失敗しても宛先を消さず、`FileCopyEngine.Outcome.copiedButSourceRemains` を返す。`carry` は受領書を返し、
   `transfer` は `FileOperationError.sourceRemainsAfterMove` の文を失敗に積んで止まる(残りは unprocessed)。`withLocksLifted` はこのとき
   宛先と元の両方で掛け直す。取り消しは元に同じ名前が残っているので「両方残す」で `name 2` へ戻り、部分的な取り消しとして報告される(消失はしない)。
@@ -1544,11 +1544,42 @@ CI はこのブランチでは手動起動(`workflow_dispatch`)の 2026-09-13 �
   コピー / 読めないファイルを含むフォルダのコピーと移動で書きかけが残らない)、`ReplaceBackupJournalTests` に 1 件(外れたボリューム上の記録)。
   **修正前のコードで 3 件とも失敗し、修正後に通ることを確認した**。全体 1287 件成功、`check-all.sh` 成功。
 
+**4・5 の修正(2026-09-14、ユーザー指示)**: コミット・プッシュ済み(この節と同じコミット)。
+- 4: `FileBrowserState` の見張りを `FolderChangeWatcher(onChangedPaths:)` にし、`changedPaths(_:touchFolderSpelledAs:)` でフォルダ自身か直下の
+  項目のときだけ読み直す(`/System/Volumes/Data` の頭は外し、`watchedFolderSpellings` で `/private` 付きの書き方も持つ。`pathOutsideDataVolume` は
+  ツリーから `FileBrowserState` へ移した)。読み込み中に届いたら `needsReloadAfterLoad` を立て、同じ世代の読み込みが終わったら 1 回だけ読み直す
+  (取り消さない = livelock しない)。ネットワーク上のフォルダは `watch([])`、ツリーの `watchedRoots` もネットワーク上の行を外す。
+  `FolderChangeWatcher.stopStream` の `lastEventID` は `FSEventsGetCurrentEventId()`(プランの「SinceNow へ戻す」ではなく、止めた時点の ID ―― 残るパスの
+  空白を埋めたまま、新しいパスの再生を止めてから始めるまでに限る)。**実機では確かめていない**(ホームを表示してダウンロードを続ける、など)。
+- 5: `FileBrowserListView.Coordinator.update` は編集中なら一覧・カット・選択・スクロール・名前の依頼の取り込みをすべて待たせ(`needsReloadAfterEditing`)、
+  `finishEditing` で `syncWithState` にまとめて取り込む。確定では欄の `editingName` と `entries[row]` の実名を突き合わせる。9(2 度目の
+  `controlTextDidEndEditing`)も `isFinishingEdit` で塞いだ(2 度目が実際に来るかはログで確かめていない)。
+- 回帰テスト: `FileBrowserListEditingTests`(**修正前のコードで b.txt の名前を変えて失敗し、修正後に通ることを確認**)、`FileBrowserStateTests` に 2 件
+  (読み直す範囲、`/private` の書き方)。全体 1290 件成功、`check-all.sh` 成功。
+
+**引き継ぎ(2026-09-14 時点。1〜5 と 9 を直し終えたところ)**:
+- ブランチの状態: `feature/file-browser` にコミット・プッシュ済み。1〜3 が `b5b24b1`、4・5(と 9)が文書の更新と一緒の次のコミット。
+  CHANGELOG `[Unreleased]` の「追加」(ファイルブラウザの項)と MANUAL に、利用者から見える振る舞いとして 3 点を足した:
+  別ボリュームへの移動で元を消せなかったときはコピーを残して知らせること、外付けを繋がずに起動したときの置き換えの復旧、
+  「コレクションに登録」の知らせ(§8.5.4 冒頭で持ち越していたもの)。いずれも未リリースの機能の中の話なので「修正」には書いていない。
+  README・CLAUDE.md は変える記述が無かった(アーキテクチャの段落に載せる粒度ではない)。
+- 残っている監査の指摘: 中程度の 6〜8・10〜12(9 は塞いだ)と「軽微」の列。**6(iCloud の追い出されたファイルを書庫・画像・PDF・EPUB・フォルダの
+  サムネイルがダウンロードさせる)と 7(zip の伸長爆弾を、フォルダを表示しただけで踏む)が次に重い**。8(退避のゴミ箱送りが失敗したら完全削除)は
+  エンジンだけで直せる。
+- 確かめていないもの: 4 の実機(ホームを表示したまま `~/Library` の下やダウンロードで書き込みが続くときに一覧が出続けるか、ネットワーク上のフォルダで
+  見張らなくなったこと、フォルダを移ったときに古い履歴が届かないこと)。9 の「2 度目の `controlTextDidEndEditing` が本当に来るか」はログで見ていない
+  (来なくても害の無い塞ぎ方)。1 の取り消し(元に同じ名前が残っていて `name 2` へ戻る)の報告の見え方も実機では見ていない。
+- 測り方で分かったこと: リストの Coordinator は `NSHostingView` に載せずにテストできる(表を自分で組み、画面に出さないウインドウに入れればフィールドエディタも
+  動く。`makeNSView` は `autosaveName` で `UserDefaults.standard` に列の幅を書くので載せない ―― `FileBrowserListEditingTests`)。テストに
+  `/Users/<名前>/` の合成パスを書くと `check-private-terms.sh` が止める(`/Users/nobody` だけが許される)。
+
 **次に着手する候補(順番はユーザーに選んでもらう)**:
-1. 上の 1〜3(ファイルの消失・取り残し。エンジンだけで直せ、`FileOperationVolumeTests` に上の実測をそのまま回帰テストとして足せる:
-   `uappnd` のファイルを含むフォルダの別ボリューム移動、0555 のサブフォルダを含む木のコピー、未マウントの退避先の記録)
-2. 4 と 5(一覧の読み直しと名前の編集。状態と UI)
-3. 6〜12、そのあと段階 9(検証と文書)
+1. 6・7(サムネイルが勝手にダウンロードする・伸長爆弾。どちらもフォルダを表示しただけで起きる)
+2. 8・10〜12(退避のゴミ箱送りの失敗、`.contextMenu` の Binding と `OpenWindowAction` の保持の `heap` 確認、メインアクター上の LaunchServices、サムネイルの鍵の桁あふれ)と「軽微」の列
+3. 段階 9(検証と文書)。上の「確かめていないもの」を含む
+
+**ユーザーに頼むこと**: ふだんのホームをファイルブラウザで表示したまま、しばらく他のアプリでダウンロードやコピーを続け、一覧が出続けること・
+名前の編集が途中で消えないことを実際のマウスで見てもらう。
 
 ## 段階 9. 検証と文書
 

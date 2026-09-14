@@ -267,12 +267,15 @@ struct FileBrowserTreeView: NSViewRepresentable {
         }
 
         /// 開いている(子を読む)行のパスのうち、ほかの開いている行の配下に無いもの。
+        /// **ネットワーク上の行は含めない**(FSEvents はそこでは飛ばず、応答しない共有では生成が 30 秒塞ぐ。
+        /// そちらはアクティブ化の `reloadRemoteExpandedRows` が追いつかせる。2026-09-14 の監査の 4)。
         private func watchedRoots() -> Set<String> {
             guard let outline else { return [] }
+            let mounts = MountTable.current()
             var paths: [String] = []
             for row in 0..<outline.numberOfRows {
                 guard let node = outline.item(atRow: row) as? Node, node.loadsChildren, let url = node.url,
-                      outline.isItemExpanded(node)
+                      outline.isItemExpanded(node), !mounts.isRemote(url)
                 else { continue }
                 paths.append(FileBrowserState.id(for: url))
             }
@@ -288,20 +291,11 @@ struct FileBrowserTreeView: NSViewRepresentable {
             guard !paths.isEmpty else { return }
             var ids = Set<String>()
             for raw in paths {
-                let url = URL(fileURLWithPath: Self.pathOutsideDataVolume(raw))
+                let url = URL(fileURLWithPath: FileBrowserState.pathOutsideDataVolume(raw))
                 ids.insert(FileBrowserState.id(for: url))
                 ids.insert(FileBrowserState.id(for: url.deletingLastPathComponent()))
             }
             reloadExpandedRows(in: ids)
-        }
-
-        /// 起動ボリュームの利用者のデータは `/System/Volumes/Data` の上にあり、FSEvents がその頭を付けて知らせることがある
-        /// (`/` を見張ったとき)。ツリーの行は頭の無いパスなので揃える。
-        nonisolated static let dataVolumePrefix = "/System/Volumes/Data"
-
-        nonisolated static func pathOutsideDataVolume(_ path: String) -> String {
-            guard path.hasPrefix(dataVolumePrefix + "/") else { return path }
-            return String(path.dropFirst(dataVolumePrefix.count))
         }
 
         /// 共有の上の開いている行を読み直す(FSEvents が当てにならない。型コメント「外での変更」)。

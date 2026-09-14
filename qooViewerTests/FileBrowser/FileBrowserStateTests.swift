@@ -229,6 +229,28 @@ struct FileBrowserStateTests {
         #expect(fixture.names() == ["b-folder", "B.cbz", "c.txt"])
     }
 
+    @Test("外での変更で読み直すのは、表示中のフォルダ自身か直下の項目が変わったときだけ(配下の奥の書き込みでは読み直さない)")
+    func externalChangesReloadOnlyForTheFolderAndItsDirectChildren() {
+        // 2026-09-14 の監査の 4: 以前はパスを見ずに読み直し、ホームを表示している間は ~/Library の下の書き込みで読み直し続けた。
+        let spellings = FileBrowserState.watchedFolderSpellings(of: URL(fileURLWithPath: "/Users/nobody", isDirectory: true))
+        func touches(_ paths: [String]) -> Bool { FileBrowserState.changedPaths(paths, touchFolderSpelledAs: spellings) }
+        #expect(touches(["/Users/nobody/new.cbz"]))
+        #expect(touches(["/Users/nobody"]), "フォルダ自身(消えた・名前が変わった)")
+        // 頭は定数から組む(`/Volumes/<名前>/<名前>` の形を書くと禁止語の検査が合成名でも止める)。
+        #expect(touches([FileBrowserState.dataVolumePrefix + "/Users/nobody/new.cbz"]), "起動ボリュームのデータの頭が付いていても同じ")
+        #expect(!touches(["/Users/nobody/Library/Caches/x/cache.db", "/Users/nobody/Library/Preferences/x.plist"]))
+        #expect(!touches(["/Users/nobody-other.cbz", "/Users"]), "名前の頭が同じだけの隣")
+        #expect(!FileBrowserState.changedPaths(["/Users/nobody/new.cbz"], touchFolderSpelledAs: []), "見張っていなければ読み直さない")
+    }
+
+    @Test("FSEvents はリンクを解いたパスで知らせるので、/var の下のフォルダは /private/var の書き方でも一致する")
+    func watchedFolderSpellingsIncludeThePrivatePrefix() {
+        let spellings = FileBrowserState.watchedFolderSpellings(of: URL(fileURLWithPath: "/var/qooViewer-nonexistent", isDirectory: true))
+        #expect(spellings.contains("/var/qooViewer-nonexistent"))
+        #expect(spellings.contains("/private/var/qooViewer-nonexistent"))
+        #expect(!FileBrowserState.watchedFolderSpellings(of: URL(fileURLWithPath: "/Users/nobody")).contains { $0.hasPrefix("/private") })
+    }
+
     @Test("reveal は入っているフォルダへ移り、その項目を選んでスクロールを頼む")
     func revealSelectsTheItem() async throws {
         let fixture = try Fixture("fb-reveal")
