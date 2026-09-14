@@ -1649,8 +1649,9 @@ CI はこのブランチでは手動起動(`workflow_dispatch`)の 2026-09-13 �
   テスト `FileBrowserThumbnailTests.providerDoesNotWriteToDiskForPrivateWindows`。
 - **「すべてのデータを削除」で「置き換える」の記録を消す**(ユーザー「消す」)。`QooViewerApp.performPendingStoreResetIfNeeded(replaceBackupJournalURL:)` で終了時・
   次の起動の最初に消す(予約の時点では消さない)。`StoreRecoveryTests.aFullResetKeepsOnlyTheGrantedFolders` に足した。MANUAL・CHANGELOG も更新。
-- **テストは手元で流していない**(Xcode から Debug を実行中だったため。テストホストが同じ bundle id で起動する)。scratchpad の DerivedData で
-  Debug の `build-for-testing` と CI と同じ Release のビルドが通ることだけ確かめた。なお `QOO_CI_WARNINGS_AS_ERRORS=YES` をコマンドラインで付けた
+- **テスト**: コミットの時点では Xcode から Debug を実行中で流せず(テストホストが同じ bundle id で起動する)、scratchpad の DerivedData で
+  Debug の `build-for-testing` と CI と同じ Release のビルドが通ることだけ確かめた。Debug を止めてから手元で Debug の全テストを流し、
+  **1300 件・124 suite が通った**(失敗・スキップ無し、2026-09-14。使い捨てボリュームはスキームの後処理で外れた)。なお `QOO_CI_WARNINGS_AS_ERRORS=YES` をコマンドラインで付けた
   `build-for-testing` は、変更前の HEAD でも `BulkRenameTests`(`isRegistered` のメインアクター)と `FileBrowserVideoThumbnailTests`(冗長な `#require`)で
   エラーになる(コマンドラインの設定がテストのターゲットにも届くため。docs/02 の「push する前に CI と同じ形で」の手順とは合っていない。未対応)。
 
@@ -1667,7 +1668,6 @@ CI はこのブランチでは手動起動(`workflow_dispatch`)の 2026-09-13 �
 
 **次に着手する候補(順番はユーザーに選んでもらう)**:
 1. 上の「確かめていないもの」の実機検証(1〜3 は手元で、4 は利用者の手元で)
-2. 上の 2 件の修正を含めた全テスト(Xcode の Debug を止めてから)
 
 ---
 
