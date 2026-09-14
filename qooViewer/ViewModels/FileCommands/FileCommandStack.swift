@@ -46,10 +46,18 @@ final class FileCommandStack: ObservableObject {
         return result
     }
 
-    func undo() async -> FileUndoOutcome {
+    /// 次に取り消す操作・やり直す操作(⌘Z を押した時点のものを控える。`undo(in:expecting:)`)。
+    var nextUndo: (any FileCommand)? { undoStack.last }
+    var nextRedo: (any FileCommand)? { redoStack.last }
+
+    /// - Parameter expected: **押した時点の一番上**。一番上がそれでなくなっていたら何もしない(2026-09-14 の 2 回目の監査 11)。
+    ///   走っている操作の最中に押した ⌘Z は列の後ろに並ぶので、以前は操作が終わった直後に**その操作を**戻していた
+    ///   (利用者が戻したかったのは、押したときにメニューに出ていた前の操作)。nil なら控えずに一番上を戻す。
+    func undo(in context: FileCommandContext = FileCommandContext(), expecting expected: (any FileCommand)? = nil) async -> FileUndoOutcome {
+        if let expected, nextUndo !== expected { return .nothingToDo }
         guard let command = undoStack.popLast() else { return .nothingToDo }
         do {
-            switch try await command.undo() {
+            switch try await command.undo(in: context) {
             case .complete:
                 redoStack.append(command)
                 return .complete(operationName: command.displayName)
@@ -72,10 +80,11 @@ final class FileCommandStack: ObservableObject {
         }
     }
 
-    func redo() async -> FileUndoOutcome {
+    func redo(in context: FileCommandContext = FileCommandContext(), expecting expected: (any FileCommand)? = nil) async -> FileUndoOutcome {
+        if let expected, nextRedo !== expected { return .nothingToDo }
         guard let command = redoStack.popLast() else { return .nothingToDo }
         do {
-            let result = try await command.redo()
+            let result = try await command.redo(in: context)
             await playCompletionSound(for: command, result: result)
             undoStack.append(command)
             switch result {

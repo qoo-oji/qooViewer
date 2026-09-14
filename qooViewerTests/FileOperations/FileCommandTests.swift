@@ -109,6 +109,8 @@ struct FileCommandStackTests {
         first.undoResult = .impossible(reason: "x", canRetry: true)
         second.undoResult = .impossible(reason: "y", canRetry: true)
         let composite = CompositeFileCommand(displayName: "both", children: [first, second])
+        // 取り消すのは実行して効果のあった子だけ。
+        _ = try await composite.execute()
         guard case .impossible(_, true) = try await composite.undo() else {
             Issue.record("試し直せるにならなかった")
             return
@@ -162,14 +164,50 @@ struct FileCommandStackTests {
         #expect(second.undos == 1)
     }
 
-    @Test("まとめた操作は、失敗(中止ではない)では巻き戻さない")
+    @Test("まとめた操作は、失敗(中止ではない)では巻き戻さず、済んだ子があれば「一部だけ済んだ」で返して積む。取り消しは済んだ子だけ")
     func compositeDoesNotRollBackOnFailure() async throws {
+        // 2 回目の監査 10: 以前は投げたので積まれず、済んだ子(移動など)を ⌘Z で戻せず報告にも出なかった。
+        let stack = FileCommandStack()
         let first = ScriptedCommand("create")
         let second = ScriptedCommand("extract")
+        let third = ScriptedCommand("later")
         second.executeError = CocoaError(.fileWriteOutOfSpace)
-        let composite = CompositeFileCommand(displayName: "both", children: [first, second])
-        await #expect(throws: CocoaError.self) { _ = try await composite.execute() }
-        #expect(first.undos == 0)
+        let composite = CompositeFileCommand(displayName: "all", children: [first, second, third])
+        guard case let .partial(succeeded, failures, wasCancelled) = try await stack.run(composite) else {
+            Issue.record("一部だけ済んだにならなかった")
+            return
+        }
+        #expect(succeeded == 1 && !wasCancelled)
+        #expect(failures.map(\.name) == ["extract", "later"])
+        #expect(first.undos == 0 && third.executions == 0)
+        #expect(stack.undoTitle == "all")
+
+        #expect(await stack.undo() == .complete(operationName: "all"))
+        #expect(first.undos == 1 && second.undos == 0 && third.undos == 0, "動かなかった子の「戻すものがありません」を並べない")
+
+        // 最初の子が投げたなら、戻すものが無いので今までどおり投げる。
+        let failing = ScriptedCommand("failing")
+        failing.executeError = CocoaError(.fileWriteOutOfSpace)
+        await #expect(throws: CocoaError.self) {
+            _ = try await CompositeFileCommand(displayName: "none", children: [failing, ScriptedCommand("x")]).execute()
+        }
+    }
+
+    @Test("押した時点の一番上でなくなっていたら、取り消し・やり直しは何もしない")
+    func undoAndRedoOnlyActOnTheExpectedCommand() async throws {
+        let stack = FileCommandStack()
+        let first = ScriptedCommand("first")
+        let second = ScriptedCommand("second")
+        try await stack.run(first)
+        let expected = try #require(stack.nextUndo)
+        try await stack.run(second)
+        #expect(await stack.undo(expecting: expected) == .nothingToDo)
+        #expect(first.undos == 0 && second.undos == 0)
+
+        #expect(await stack.undo(expecting: second) == .complete(operationName: "second"))
+        let redoExpected = try #require(stack.nextRedo)
+        try await stack.run(ScriptedCommand("third"))
+        #expect(await stack.redo(expecting: redoExpected) == .nothingToDo)
     }
 }
 
@@ -342,6 +380,71 @@ struct FileCommandsTests {
             return
         }
         #expect(FileManager.default.fileExists(atPath: renamed.path))
+    }
+
+    @Test("ゴミ箱の無い場所への操作の取り消しは、試し直せる扱いにしない(履歴の一番上に居座らない)")
+    func undoWhereThereIsNoTrashIsNotRetryable() async throws {
+        // 2 回目の監査 13: 以前は trashUnavailable でも canRetry のまま履歴に残り、その下の操作へ ⌘Z が届かなかった。
+        let noTrash = FileOperationService(environment: .pseudoTrash(at: try temporary.directory("NoTrash"), hasTrash: { _ in false }))
+        let file = try write("x", to: "no-trash-undo/a.txt")
+        let destination = try temporary.directory("no-trash-undo/dst")
+        let stack = FileCommandStack()
+        try await stack.run(olderFolder(url: temporary.file("no-trash-undo/older"), fileOps: noTrash))
+        let copy = CopyFilesCommand(items: [file], destination: destination, options: .init(conflictPolicy: .ask), fileOps: noTrash)
+        try await stack.run(copy)
+
+        guard case .failed(_, _, false) = await stack.undo() else {
+            Issue.record("試し直せる扱いになった")
+            return
+        }
+        #expect(stack.undoTitle == String(localized: "New Folder", language: AppLanguage.currentLocale), "下の操作が一番上に出る")
+        #expect(FileManager.default.fileExists(atPath: destination.appendingPathComponent("a.txt").path), "黙って完全に削除しない")
+    }
+
+    @Test("移動の取り消しは中止でき、何も戻っていなければ試し直せる。やり直しは実行時の中止の旗を使い回さない")
+    func moveUndoCanBeCancelledAndRedoUsesAFreshCancellation() async throws {
+        let file = try write("x", to: "undo-cancel/src/a.txt")
+        let destination = try temporary.directory("undo-cancel/dst")
+        let original = Cancellation()
+        let command = MoveFilesCommand(
+            items: [file], destination: destination, options: .init(conflictPolicy: .ask, cancellation: original), fileOps: fileOps
+        )
+        _ = try await command.execute()
+
+        let stopped = Cancellation()
+        stopped.request()
+        guard case .impossible(_, true) = try await command.undo(in: FileCommandContext(cancellation: stopped)) else {
+            Issue.record("中止した取り消しが試し直せるにならなかった")
+            return
+        }
+        #expect(FileManager.default.fileExists(atPath: destination.appendingPathComponent("a.txt").path))
+
+        #expect(try await command.undo() == .complete)
+        #expect(FileManager.default.fileExists(atPath: file.path))
+        // 実行時の操作が後から中止された(帯の中止ボタン)ことにする。やり直しはこのときの旗を使う。
+        original.request()
+        #expect(try await command.redo(in: FileCommandContext()) == .success)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+
+    @Test("新規フォルダの取り消しは、読めないフォルダを空とみなさない")
+    func createFolderUndoDoesNotTreatAnUnreadableFolderAsEmpty() async throws {
+        let folder = temporary.file("unreadable-new")
+        let command = CreateFolderCommand(url: folder, fileOps: fileOps)
+        _ = try await command.execute()
+        try Data("x".utf8).write(to: folder.appendingPathComponent("inner.txt"))
+        #expect(chmod(folder.path, 0o000) == 0)
+        defer { chmod(folder.path, 0o755) }
+        guard case .impossible = try await command.undo() else {
+            Issue.record("読めないフォルダを取り消してしまった")
+            return
+        }
+        #expect(FileManager.default.fileExists(atPath: folder.path))
+    }
+
+    /// 取り消しの下に積む、ゴミ箱を使う別の操作(新規フォルダ)。
+    private func olderFolder(url: URL, fileOps: FileOperationService) -> CreateFolderCommand {
+        CreateFolderCommand(url: url, fileOps: fileOps)
     }
 
     @Test("新規フォルダの取り消しは、空のときだけゴミ箱へ送る")

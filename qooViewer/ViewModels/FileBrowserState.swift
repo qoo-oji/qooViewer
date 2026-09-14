@@ -326,7 +326,8 @@ final class FileBrowserState: ObservableObject {
         systemObservations.removeAll()
         preferenceObservation = nil
         stackObservation = nil
-        operations.presenter = nil
+        // 走っている操作の報告は捨てない(確認は断る側で答える。FileBrowserOperations.detachFromWindow)。
+        operations.detachFromWindow()
         // 書き出しの同名確認を待ったままウインドウが閉じると、書き出しの Task が答えを待ち続ける
         // (ViewerView.cancelOpenBookExportIfNeeded と同じ)。
         bookSheet?.cancelExport()

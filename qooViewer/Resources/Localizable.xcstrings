@@ -14858,6 +14858,22 @@
         }
       }
     },
+    "Redoing %@…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Redoing %@…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@をやり直しています…"
+          }
+        }
+      }
+    },
     "Redo %@" : {
       "localizations" : {
         "en" : {
@@ -19942,6 +19958,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "取り消す"
+          }
+        }
+      }
+    },
+    "Undoing %@…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Undoing %@…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@を取り消しています…"
           }
         }
       }

@@ -53,6 +53,15 @@ final class FileBrowserOperations: ObservableObject {
 
     init() {}
 
+    /// ウインドウを閉じるとき(FileBrowserState.releaseResources)。**走っている・並んでいる操作は止めずに**、確認は
+    /// 「中止」で答え、報告だけは見せる相手へ差し替える(2026-09-14 の 2 回目の監査 12)。以前は `presenter` を nil にしていたので、
+    /// 閉じた後に終わった操作の失敗の報告(「元の項目を削除できなかった」「隠し項目として残した」を含む)が捨てられ、
+    /// 残りの衝突は黙ってスキップされた。
+    func detachFromWindow() {
+        guard let presenter, !(presenter is DetachedFileBrowserOperationPresenter) else { return }
+        self.presenter = DetachedFileBrowserOperationPresenter(reportingTo: presenter)
+    }
+
     // MARK: - 読み取り専用モード
 
     /// ファイルを変える操作を断るか(環境設定「読み取り専用」)。環境設定が届いていなければ断る側に倒す。
@@ -64,26 +73,50 @@ final class FileBrowserOperations: ObservableObject {
 
     var commandStack: FileCommandStack? { state?.commandStack }
 
+    /// ⌘Z。**押した時点の一番上の操作だけを戻す**(走っている操作の後ろに並んでいる間に一番上が変わったら何もしない ――
+    /// FileCommandStack.undo の `expecting`)。進捗の帯と中止ボタンを出す(取り消しでも別ボリュームの移動は全量を写し直す)。
     @discardableResult
     func undo() -> Task<Void, Never> {
-        guard !isReadOnly else { return Task {} }
+        guard !isReadOnly, let expected = commandStack?.nextUndo else { return Task {} }
         return enqueue { [weak self] in
             guard let self, let stack = self.commandStack else { return }
-            let outcome = await stack.undo()
-            self.didChangeFileSystem(inUnknownScope: true)
-            self.presentIfNeeded(outcome, isRedo: false)
+            await self.runUndoOrRedo(expected, isRedo: false) { context in
+                await stack.undo(in: context, expecting: expected)
+            }
         }
     }
 
     @discardableResult
     func redo() -> Task<Void, Never> {
-        guard !isReadOnly else { return Task {} }
+        guard !isReadOnly, let expected = commandStack?.nextRedo else { return Task {} }
         return enqueue { [weak self] in
             guard let self, let stack = self.commandStack else { return }
-            let outcome = await stack.redo()
-            self.didChangeFileSystem(inUnknownScope: true)
-            self.presentIfNeeded(outcome, isRedo: true)
+            await self.runUndoOrRedo(expected, isRedo: true) { context in
+                await stack.redo(in: context, expecting: expected)
+            }
         }
+    }
+
+    private func runUndoOrRedo(
+        _ command: any FileCommand, isRedo: Bool, _ body: (FileCommandContext) async -> FileUndoOutcome
+    ) async {
+        let cancellation = Cancellation()
+        let locale = AppLanguage.currentLocale
+        let title = String(
+            format: isRedo ? String(localized: "Redoing %@…", language: locale) : String(localized: "Undoing %@…", language: locale),
+            command.displayName
+        )
+        let token = beginActivity(title: title, cancellation: cancellation)
+        // やり直しの衝突は、このときの中止の旗に繋いだ口で尋ねる(実行時の口は実行時の旗を立てる)。
+        let options = transferOptions(policy: .ask, cancellation: cancellation)
+        let outcome = await body(FileCommandContext(
+            progress: options.progress, cancellation: cancellation, conflictResolver: options.conflictResolver
+        ))
+        endActivity(token)
+        didChangeFileSystem(inUnknownScope: true)
+        // 中止ボタン(やり直しの衝突の「中止」を含む)で止めて何も変わらなかったなら、失敗として見せない。
+        if cancellation.isRequested, case .failed = outcome { return }
+        presentIfNeeded(outcome, isRedo: isRedo)
     }
 
     // MARK: - コピー・カット・ペースト
@@ -592,7 +625,11 @@ final class FileBrowserOperations: ObservableObject {
         return FileOperationOptions(
             conflictPolicy: policy,
             conflictResolver: { [weak self] conflict in
-                guard let self, let presenter = self.presenter else { return ConflictDecision(.skip) }
+                // 尋ねる相手がいない(ウインドウを閉じた後)なら、黙ってスキップせずに残りを止める(2026-09-14 の 2 回目の監査 12)。
+                guard let self, let presenter = self.presenter else {
+                    cancellation.request()
+                    return ConflictDecision(.skip)
+                }
                 let hasTrash = self.hasTrash
                 let folder = conflict.destination.deletingLastPathComponent()
                 let deletesImmediately = await FileIO.perform { !hasTrash(folder) }
@@ -849,6 +886,34 @@ protocol FileBrowserOperationPresenting: AnyObject {
     /// 選んだフォルダにはその場で読み書きの許可が付く(サンドボックス。NSOpenPanel)。
     func chooseDestinationFolder(for purpose: ArchiveDestinationPurpose, startingAt folder: URL) async -> URL?
     func showProblem(_ problem: FileBrowserProblem)
+}
+
+/// ウインドウを閉じた後の操作の相手(`FileBrowserOperations.detachFromWindow`)。**利用者の見ていないところで新しく何かを
+/// 決めない**: 確認はすべて断る側(中止・キャンセル)で答え、衝突は残りを止める。問題の報告だけは元の相手へ渡す
+/// (本番の `FileBrowserSheetPresenter` は、シートを出すウインドウが無ければアプリのモーダルで出す)。
+@MainActor
+final class DetachedFileBrowserOperationPresenter: FileBrowserOperationPresenting {
+    private let reporter: any FileBrowserOperationPresenting
+
+    init(reportingTo reporter: any FileBrowserOperationPresenting) {
+        self.reporter = reporter
+    }
+
+    func confirmImmediateDeletion(of urls: [URL]) async -> Bool { false }
+    func confirmLockedItems(_ urls: [URL], totalCount: Int, action: LockedItemAction) async -> LockedItemsDecision { .stop }
+    func confirmIrreversibleMove(of urls: [URL], totalCount: Int) async -> IrreversibleMoveDecision { .stop }
+
+    func resolveConflict(_ conflict: FileConflict, replacingDeletesImmediately: Bool, cancellation: Cancellation) async -> ConflictDecision {
+        cancellation.request()
+        return ConflictDecision(.skip)
+    }
+
+    func requestBulkRename(_ request: BulkRenameRequest) async -> BulkRenameSettings? { nil }
+    func chooseDestinationFolder(for purpose: ArchiveDestinationPurpose, startingAt folder: URL) async -> URL? { nil }
+
+    func showProblem(_ problem: FileBrowserProblem) {
+        reporter.showProblem(problem)
+    }
 }
 
 /// フォルダを選ぶ理由(パネルの文言が変わる)。

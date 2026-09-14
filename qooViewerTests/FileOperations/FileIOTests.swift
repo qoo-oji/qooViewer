@@ -98,7 +98,9 @@ struct FileIOTests {
         let task = Task {
             await FileIO.perform { () -> (sawTaskCancelled: Bool, sawFlag: Bool) in
                 entered.signal()
-                let deadline = Date().addingTimeInterval(10)
+                // 全テストを並べて走らせると FileIO のスレッドが埋まり、取り消しが届くまで 10 秒を超えることがあった(2026-09-15)。
+                // 上限は Test の timeLimit(1 分)に任せ、ここは十分長く待つ。
+                let deadline = Date().addingTimeInterval(45)
                 while !Cancellation.isRequestedInCurrentScope, Date() < deadline {
                     Thread.sleep(forTimeInterval: 0.01)
                 }
@@ -106,7 +108,13 @@ struct FileIOTests {
                 return (Task.isCancelled, Cancellation.isRequestedInCurrentScope)
             }
         }
-        await FileIO.perform { entered.wait() }
+        // 待つのに FileIO のスレッドを借りない(埋まっていると、入ったことを知るまでに時間が掛かる)。
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global().async {
+                entered.wait()
+                continuation.resume()
+            }
+        }
         task.cancel()
         let result = await task.value
         #expect(result.sawFlag)

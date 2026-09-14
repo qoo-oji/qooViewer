@@ -371,6 +371,26 @@ struct ContentView: View {
         appState.currentBook == nil && welcomeLibrary.mode == .browser
     }
 
+    /// ファイルブラウザがメニューバーへ出す値。**AppState の保留付きの値を通して渡す**(2026-09-14 の 2 回目の監査 14)。
+    /// 以前はここから MenuCheckmarkState へ直に詰めていたので、メニューを開いている間に操作が終わる・ファイルブラウザと本棚が
+    /// 切り替わると、取り消しの題や「移動」メニューの中身(ファイルブラウザ用 ↔ 通常。項目の数が変わる)がその場で変わり、
+    /// macOS 26 のメニューの再構築のクラッシュ条件に当たりえた(MenuBarMenuGate の型コメント)。
+    /// 読み取り専用モードの間は取り消し/やり直し・新規フォルダを淡色にする(履歴は残す。段階 8.5)。
+    private var fileBrowserMenuSnapshot: FileBrowserMenuSnapshot {
+        let shown = isFileBrowserShown
+        let writable = shown && !preferences.fileBrowserReadOnly
+        return FileBrowserMenuSnapshot(
+            undoTitle: writable ? fileBrowser.commandStack.undoTitle : nil,
+            redoTitle: writable ? fileBrowser.commandStack.redoTitle : nil,
+            canCreateFolder: writable && fileBrowser.currentFolder != nil,
+            navigation: shown
+                ? FileBrowserMenuNavigation(
+                    canGoBack: fileBrowser.canGoBack, canGoForward: fileBrowser.canGoForward, canGoUp: fileBrowser.canGoUp
+                )
+                : nil
+        )
+    }
+
     var body: some View {
         applyPreferenceChangeHandlers(to: applyFileDropTarget(to: windowContent))
         .animation(.easeInOut(duration: 0.15), value: appState.isSidePanelRevealed)
@@ -427,21 +447,16 @@ struct ContentView: View {
                 hasPartnerPageDisplayed: appState.hasPartnerPageDisplayed,
                 hasCurrentPageLayoutOverride: appState.hasCurrentPageLayoutOverride,
                 hasPartnerPageLayoutOverride: appState.hasPartnerPageLayoutOverride,
-                // 読み取り専用モードの間は取り消し/やり直し・新規フォルダを淡色にする(履歴は残す。段階 8.5)。
-                fileBrowserUndoTitle: isFileBrowserShown && !preferences.fileBrowserReadOnly
-                    ? fileBrowser.commandStack.undoTitle : nil,
-                fileBrowserRedoTitle: isFileBrowserShown && !preferences.fileBrowserReadOnly
-                    ? fileBrowser.commandStack.redoTitle : nil,
-                canCreateFolderInFileBrowser: isFileBrowserShown && !preferences.fileBrowserReadOnly
-                    && fileBrowser.currentFolder != nil,
-                fileBrowserNavigation: isFileBrowserShown
-                    ? FileBrowserMenuNavigation(
-                        canGoBack: fileBrowser.canGoBack, canGoForward: fileBrowser.canGoForward,
-                        canGoUp: fileBrowser.canGoUp
-                    )
-                    : nil
+                // ファイルブラウザの値は AppState の保留付きの値を読む(fileBrowserMenuSnapshot のコメント)。
+                fileBrowserUndoTitle: appState.fileBrowserMenu.undoTitle,
+                fileBrowserRedoTitle: appState.fileBrowserMenu.redoTitle,
+                canCreateFolderInFileBrowser: appState.fileBrowserMenu.canCreateFolder,
+                fileBrowserNavigation: appState.fileBrowserMenu.navigation
             )
         )
+        .onChange(of: fileBrowserMenuSnapshot, initial: true) { _, snapshot in
+            appState.setFileBrowserMenu(snapshot)
+        }
         .frame(minWidth: 900, minHeight: 640)
         // ウインドウ/タブのタイトルバーおよびタブバーに表示される文字列。本を開いている間は
         // その本のタイトル(ファイル/フォルダ名)を表示し、どのタブが何の本を開いているか

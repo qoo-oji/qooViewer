@@ -322,6 +322,50 @@ struct FileBrowserOperationsTests {
         #expect(fixture.state.selection == [FileBrowserState.id(for: fixture.root.appendingPathComponent("a 2.txt"))])
     }
 
+    @Test("走っている操作の後ろで押した ⌘Z は、押した時点の一番上でなくなっていたら何もしない(走っていた操作を戻さない)")
+    func undoPressedDuringAnOperationDoesNotUndoThatOperation() async throws {
+        // 2 回目の監査 11: 以前は列の後ろに並んだ ⌘Z が、走っていた操作が終わった直後にその操作を戻していた。
+        let fixture = try Fixture("fbops-undo-queued")
+        await fixture.showRoot()
+        let file = fixture.root.appendingPathComponent("a.txt")
+        await fixture.state.operations.newFolder(in: fixture.other).value
+        await fixture.finish()
+        #expect(fixture.state.commandStack.canUndo)
+
+        fixture.state.operations.copy([fixture.entry(file)])
+        fixture.state.operations.paste(into: fixture.other)
+        // ペーストはまだ列の中(始まっていない)。この時点の一番上は「新規フォルダ」。
+        fixture.state.operations.undo()
+        await fixture.finish()
+
+        #expect(fixture.names(in: fixture.other).contains("a.txt"), "走っていたコピーは戻さない")
+        #expect(fixture.names(in: fixture.other).count == 2, "押した時点の一番上(新規フォルダ)も、もう一番上ではないので戻さない")
+        #expect(fixture.state.commandStack.canUndo)
+    }
+
+    @Test("ウインドウを閉じた後の操作は、確認を断る側で答え(衝突は残りを止める)、問題の報告は捨てない")
+    func detachedOperationsDeclineConfirmationsButStillReport() async throws {
+        // 2 回目の監査 12: 以前は presenter を nil にしていたので、報告が捨てられ、衝突は黙ってスキップされた。
+        let fixture = try Fixture("fbops-detached", hasTrash: false)
+        let file = fixture.root.appendingPathComponent("a.txt")
+        let second = fixture.root.appendingPathComponent("b.txt")
+        try Data("b".utf8).write(to: second)
+        try Data("other".utf8).write(to: fixture.other.appendingPathComponent("a.txt"))
+        fixture.state.releaseResources()
+
+        fixture.state.operations.moveToTrash([fixture.entry(file)])
+        fixture.state.operations.copy([fixture.entry(file), fixture.entry(second)])
+        fixture.state.operations.paste(into: fixture.other)
+        fixture.state.operations.rename(fixture.entry(file), to: "bad/name")
+        await fixture.finish()
+
+        #expect(fixture.exists(file), "すぐに削除する確認は断る")
+        #expect(fixture.presenter.deletionPrompts.isEmpty && fixture.presenter.conflicts.isEmpty, "閉じたウインドウでは尋ねない")
+        #expect(fixture.names(in: fixture.other) == ["a.txt"], "衝突で残りも止める(b.txt を黙って運ばない)")
+        #expect(try String(contentsOf: fixture.other.appendingPathComponent("a.txt"), encoding: .utf8) == "other")
+        #expect(fixture.presenter.problems.count == 1, "名前の変更の失敗は元の相手へ届く")
+    }
+
     @Test("別のフォルダで名前がぶつかったら尋ね、「スキップ」なら何も起きず、積まれない")
     func conflictAsksAndSkips() async throws {
         let fixture = try Fixture("fbops-conflict")

@@ -23,11 +23,51 @@ protocol FileCommand: AnyObject {
     /// 既定は `execute()` のやり直し(undo が完全に元へ戻したことが前提 ―― 部分的な取り消しは
     /// FileCommandStack が redo へ積まない)。
     func redo() async throws -> FileCommandResult
+    /// 進捗の帯と中止ボタンを付けた取り消し(2026-09-14 の 2 回目の監査 12。以前の取り消し・やり直しは帯も中止も無く、
+    /// 別ボリュームへの移動の取り消しは全量を黙って写し直した)。既定は `undo()`(一瞬で終わる操作)。
+    func undo(in context: FileCommandContext) async throws -> FileUndoResult
+    /// 同じくやり直し。**実行時の中止の旗を使い回さない**(中止した操作をやり直すと、立ったままの旗で何もせずに終わっていた)。
+    /// 既定は `redo()`。
+    func redo(in context: FileCommandContext) async throws -> FileCommandResult
+}
+
+/// 取り消し・やり直しのときに、そのとき出している進捗の帯へ繋ぐもの。
+nonisolated struct FileCommandContext: Sendable {
+    var progress: ProgressSink?
+    var cancellation: Cancellation
+    /// やり直しの衝突を尋ねる口(nil なら実行時のものを使う)。
+    var conflictResolver: (@MainActor @Sendable (FileConflict) async -> ConflictDecision)?
+
+    init(
+        progress: ProgressSink? = nil, cancellation: Cancellation = Cancellation(),
+        conflictResolver: (@MainActor @Sendable (FileConflict) async -> ConflictDecision)? = nil
+    ) {
+        self.progress = progress
+        self.cancellation = cancellation
+        self.conflictResolver = conflictResolver
+    }
+
+    /// 実行時の Options の進捗・中止・尋ねる口をこのときのものへ差し替える。
+    func applied(to options: FileOperationOptions) -> FileOperationOptions {
+        var options = options
+        options.progress = progress
+        options.cancellation = cancellation
+        if let conflictResolver { options.conflictResolver = conflictResolver }
+        return options
+    }
 }
 
 extension FileCommand {
     func redo() async throws -> FileCommandResult {
         try await execute()
+    }
+
+    func undo(in context: FileCommandContext) async throws -> FileUndoResult {
+        try await undo()
+    }
+
+    func redo(in context: FileCommandContext) async throws -> FileCommandResult {
+        try await redo()
     }
 
     /// 既定は無音(名前の変更・新規フォルダは一瞬で終わり、結果がすぐ画面で分かる)。
@@ -105,20 +145,41 @@ final class CompositeFileCommand: FileCommand {
     /// 子のうち最初に音を持つものを 1 つだけ(コピーと移動が混ざっても鳴るのは 1 回)。
     var completionSound: SystemSoundEffect? { children.lazy.compactMap(\.completionSound).first }
 
+    /// 実行した(投げずに返った)子と、その子に取り消す対象があるか。取り消し・やり直しはこれだけを相手にする。
+    private var executed: [(command: any FileCommand, hasEffect: Bool)] = []
+
     func execute() async throws -> FileCommandResult {
-        var executed: [(command: any FileCommand, hasEffect: Bool)] = []
+        try await runChildren { try await $0.execute() }
+    }
+
+    func redo(in context: FileCommandContext) async throws -> FileCommandResult {
+        try await runChildren { try await $0.redo(in: context) }
+    }
+
+    private func runChildren(_ perform: (any FileCommand) async throws -> FileCommandResult) async throws -> FileCommandResult {
+        executed = []
         var succeeded = 0
         var failures: [FailedItem] = []
-        for child in children {
+        for (index, child) in children.enumerated() {
             let result: FileCommandResult
             do {
-                result = try await child.execute()
+                result = try await perform(child)
             } catch {
                 // **中止のときだけ、実行済みの子を巻き戻す**(「〈名前〉に展開」を止めたのに空のフォルダだけが
                 // 残り、しかも投げたので Undo にも積まれず片付ける手立てが無かった。qooLibrary 実機検証)。
                 // 失敗(容量不足など)では巻き戻さない ―― 5 個中 3 個目の失敗で、済んだ 2 個まで消えるのは驚きが大きい。
-                if FileCommandStack.isCancellation(error) { try await rollBack(executed) }
-                throw error
+                if FileCommandStack.isCancellation(error) {
+                    try await rollBack(executed)
+                    throw error
+                }
+                // **済んだ子に効果があれば、投げずに「一部だけ済んだ」で返す**(2026-09-14 の 2 回目の監査 10)。以前はそのまま投げたので
+                // FileCommandStack が積まず、済んだ移動を ⌘Z で戻せず、報告にも出なかった(投げた子は 1 件も動かしていない ――
+                // 移動・コピーは 1 件も動かなかったときだけ投げる)。
+                guard executed.contains(where: \.hasEffect) else { throw error }
+                let notProcessed = String(localized: "Not processed.", language: AppLanguage.currentLocale)
+                failures.append(FailedItem(name: child.displayName, reason: error.localizedDescription))
+                failures += children[(index + 1)...].map { FailedItem(name: $0.displayName, reason: notProcessed) }
+                return .partial(succeeded: succeeded, failures: failures, wasCancelled: false)
             }
             executed.append((child, result.hasEffect))
             switch result {
@@ -139,14 +200,20 @@ final class CompositeFileCommand: FileCommand {
     /// 子を逆順に取り消す。戻せなかった子は失敗として集める。
     /// **どの子も何も戻さず、どれも試し直せる**ときだけ「試し直せる取り消せなかった」を返す(1 つでも戻った子があれば
     /// 状態が割れているので、もう一度全体を取り消すと戻った子を二重に戻そうとする)。
+    /// 取り消すのは**実行した子のうち効果のあったもの**だけ(途中で失敗して返したとき、動かなかった子の「戻すものがありません」を
+    /// 失敗として並べない)。
     func undo() async throws -> FileUndoResult {
+        try await undo(in: FileCommandContext())
+    }
+
+    func undo(in context: FileCommandContext) async throws -> FileUndoResult {
         var succeeded = 0
         var failures: [FailedItem] = []
         var changedAnything = false
         var allRetryable = true
-        for child in children.reversed() {
+        for child in executed.reversed().filter(\.hasEffect).map(\.command) {
             do {
-                switch try await child.undo() {
+                switch try await child.undo(in: context) {
                 case .complete:
                     succeeded += 1
                     changedAnything = true

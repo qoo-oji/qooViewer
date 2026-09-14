@@ -412,6 +412,17 @@ final class AppState: ObservableObject {
     /// (詳細はMenuBarMenuGateの型コメント参照)。
     @Published private(set) var isCurrentPageBookmarked = false
 
+    /// ファイルブラウザがメニューバーへ出す値(取り消しの題・新規フォルダ・「移動」メニュー)。ContentView が詰め、
+    /// **メニューバーのメニューが開いている間は反映を保留する**(ContentView.fileBrowserMenuSnapshot のコメント)。
+    @Published private(set) var fileBrowserMenu = FileBrowserMenuSnapshot()
+
+    func setFileBrowserMenu(_ snapshot: FileBrowserMenuSnapshot) {
+        MenuBarMenuGate.shared.run(menuGateKey("fileBrowserMenu")) { [weak self] in
+            guard let self, self.fileBrowserMenu != snapshot else { return }
+            self.fileBrowserMenu = snapshot
+        }
+    }
+
     private func refreshIsCurrentPageBookmarked() {
         let flag = liveCurrentBookmarks.contains { $0.pageIndex == currentPageIndex }
         MenuBarMenuGate.shared.run(menuGateKey("isCurrentPageBookmarked")) { [weak self] in
@@ -1406,6 +1417,14 @@ struct MenuCheckmarkState: Equatable {
     /// ファイルブラウザが出ているなら、その戻る/進む/上へ の可否。**nil でない間、「移動」メニューの中身が
     /// Finder の「移動」メニューと同じ項目に入れ替わる**(FileBrowserGoMenuItems)。
     var fileBrowserNavigation: FileBrowserMenuNavigation?
+}
+
+/// ファイルブラウザがメニューバーへ出す値のひとまとまり(AppState.fileBrowserMenu)。
+struct FileBrowserMenuSnapshot: Equatable {
+    var undoTitle: String?
+    var redoTitle: String?
+    var canCreateFolder = false
+    var navigation: FileBrowserMenuNavigation?
 }
 
 /// メニューバーのLayoutメニュー(8.2節)で、見開き表示中に左右どちらのページを対象にする

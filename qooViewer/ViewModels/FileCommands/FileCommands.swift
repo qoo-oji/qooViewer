@@ -48,13 +48,25 @@ final class MoveFilesCommand: FileCommand {
         return .from(outcome)
     }
 
+    func redo(in context: FileCommandContext) async throws -> FileCommandResult {
+        outcome = try await fileOps.move(items, to: destination, options: context.applied(to: options))
+        return .from(outcome)
+    }
+
     func undo() async throws -> FileUndoResult {
-        try await TransferUndo.undo(outcome.receipts, fileOps: fileOps) { receipt in
+        try await undo(in: FileCommandContext())
+    }
+
+    func undo(in context: FileCommandContext) async throws -> FileUndoResult {
+        try await TransferUndo.undo(outcome.receipts, fileOps: fileOps, cancellation: context.cancellation) { receipt in
             // 自分が運んだものなので、ロックされていても尋ねずに外して戻す(戻した先で掛け直す)。
-            try await self.fileOps.move(
+            let putBack = try await self.fileOps.move(
                 [receipt.destination], to: receipt.source.deletingLastPathComponent(),
-                options: FileOperationOptions(conflictPolicy: .keepBoth, unlockingLocked: true)
-            ).receipts.first?.destination
+                options: FileOperationOptions(
+                    conflictPolicy: .keepBoth, progress: context.progress, cancellation: context.cancellation, unlockingLocked: true
+                )
+            )
+            return putBack.wasCancelled ? .cancelled : putBack.receipts.first.map { .restored($0.destination) } ?? .missing
         }
     }
 }
@@ -90,6 +102,11 @@ final class CopyFilesCommand: FileCommand {
         return .from(outcome)
     }
 
+    func redo(in context: FileCommandContext) async throws -> FileCommandResult {
+        outcome = try await fileOps.copy(items, to: destination, options: context.applied(to: options))
+        return .from(outcome)
+    }
+
     func undo() async throws -> FileUndoResult {
         guard !outcome.receipts.isEmpty else { return .impossible(reason: TransferUndo.nothingToRestore) }
         // **作ったそのものだけを**ゴミ箱へ(FileIdentity の型コメント。同じ名前の別の項目に変わっていたら触らない)。
@@ -105,7 +122,7 @@ final class CopyFilesCommand: FileCommand {
             trashed = try await fileOps.trash(ours.map(\.destination), unlockingLocked: true)
         } catch {
             // 何も送れていない。作ったものは残っているので、原因が片付けば試し直せる(別の項目に変わったものが無ければ)。
-            return .impossible(reason: error.localizedDescription, canRetry: changed.isEmpty)
+            return .impossible(reason: error.localizedDescription, canRetry: changed.isEmpty && TransferUndo.canRetryTrashing(after: error))
         }
         var failures = changedFailures + trashed.failures
         // 「置き換える」で退避した元の項目があれば、空いた場所へ戻す(送れた項目の分だけ)。
@@ -128,8 +145,8 @@ final class CompressFilesCommand: FileCommand {
     private let destination: URL
     private let baseName: String
     private let fileExtension: String
-    private let progress: ProgressSink?
-    private let cancellation: Cancellation
+    private var progress: ProgressSink?
+    private var cancellation: Cancellation
     private let fileOps: FileOperationService
     private(set) var receipt: TransferReceipt?
 
@@ -165,6 +182,12 @@ final class CompressFilesCommand: FileCommand {
         return .success
     }
 
+    func redo(in context: FileCommandContext) async throws -> FileCommandResult {
+        progress = context.progress
+        cancellation = context.cancellation
+        return try await execute()
+    }
+
     func undo() async throws -> FileUndoResult {
         guard let receipt else { return .impossible(reason: TransferUndo.nothingToRestore) }
         return await TransferUndo.trashCreated([receipt], fileOps: fileOps)
@@ -181,8 +204,8 @@ final class ExtractArchivesCommand: FileCommand {
     private let destination: URL
     private let placement: ArchiveExtractor.Placement
     private let limits: ArchiveExtractionLimits
-    private let progress: ProgressSink?
-    private let cancellation: Cancellation
+    private var progress: ProgressSink?
+    private var cancellation: Cancellation
     private let fileOps: FileOperationService
     private(set) var receipts: [TransferReceipt] = []
 
@@ -225,6 +248,12 @@ final class ExtractArchivesCommand: FileCommand {
         return .partial(succeeded: receipts.count, failures: failures, wasCancelled: outcome.wasCancelled)
     }
 
+    func redo(in context: FileCommandContext) async throws -> FileCommandResult {
+        progress = context.progress
+        cancellation = context.cancellation
+        return try await execute()
+    }
+
     func undo() async throws -> FileUndoResult {
         await TransferUndo.trashCreated(receipts, fileOps: fileOps)
     }
@@ -246,13 +275,21 @@ private enum TransferUndo {
             // 自分が作ったものなので尋ねずに外して送る(コピーの取り消しと同じ)。
             trashed = try await fileOps.trash(ours.map(\.destination), unlockingLocked: true)
         } catch {
-            return .impossible(reason: error.localizedDescription, canRetry: changed.isEmpty)
+            return .impossible(reason: error.localizedDescription, canRetry: changed.isEmpty && canRetryTrashing(after: error))
         }
         let failures = changedFailures + trashed.failures
         if failures.isEmpty { return .complete }
         return trashed.receipts.isEmpty
             ? .impossible(reason: failures[0].reason, canRetry: changed.isEmpty)
             : .partial(succeeded: trashed.receipts.count, failures: failures)
+    }
+
+    /// ゴミ箱へ送れなかった取り消しを、履歴に残して試し直させてよいか。**ゴミ箱の無い場所(`trashUnavailable`)は何度試しても
+    /// 送れない**ので残さない(2026-09-14 の 2 回目の監査 13。以前は「もう一度取り消せます」のまま履歴の一番上に居座り、
+    /// その下の操作へ ⌘Z が届かなかった)。黙って完全に削除する代わりにはしない(取り消しが新しいデータ喪失を持ち込まない)。
+    nonisolated static func canRetryTrashing(after error: any Error) -> Bool {
+        if case .trashUnavailable? = error as? FileOperationError { return false }
+        return true
     }
 
     static var nothingToRestore: String {
@@ -280,12 +317,23 @@ private enum TransferUndo {
         return (ours, changed)
     }
 
+    /// 1 件を戻した結果。
+    enum PutBack {
+        case restored(URL)
+        /// 戻す相手が無かった。
+        case missing
+        /// 中止ボタンで止めた(項目は運んだ先にそのまま)。
+        case cancelled
+    }
+
     /// 受領書ごとに `putBack` で戻す。戻った場所の名前が元と違えば、その項目は「部分的に戻した」。
     /// 置き換えた元の項目がゴミ箱にあれば、戻したあとで空いた場所へ戻す。
+    /// 中止されたら残りには手を付けない(何も戻っていなければ履歴に残し、戻った分があれば「部分的に戻した」)。
     static func undo(
         _ receipts: [TransferReceipt],
         fileOps: FileOperationService,
-        putBack: (TransferReceipt) async throws -> URL?
+        cancellation: Cancellation = Cancellation(),
+        putBack: (TransferReceipt) async throws -> PutBack
     ) async throws -> FileUndoResult {
         guard !receipts.isEmpty else { return .impossible(reason: nothingToRestore) }
         let locale = AppLanguage.currentLocale
@@ -294,8 +342,14 @@ private enum TransferUndo {
         var failures: [FailedItem] = []
         /// 試し直しても戻らない失敗があったか(相手が無い・別の項目に変わった)。
         var hasPermanentFailure = false
+        let notProcessed = String(localized: "Not processed.", language: locale)
         // 後に動かしたものから戻す(同じ名前の項目を続けて運んだとき、前のものの場所を先に空けない)。
-        for receipt in receipts.reversed() {
+        let ordered = Array(receipts.reversed())
+        receiptLoop: for (index, receipt) in ordered.enumerated() {
+            if cancellation.isRequested {
+                failures += ordered[index...].map { FailedItem(url: $0.destination, reason: notProcessed) }
+                break
+            }
             // **運んだそのものだけを戻す**(FileIdentity の型コメント)。確かめるのは戻す直前(前の項目を戻したことで
             // 変わることは無いが、確かめてから動かすまでの間を短くする)。
             let isOurs = await FileIO.perform { FileIdentity.matches(receipt.destination, receipt.identity) }
@@ -306,10 +360,17 @@ private enum TransferUndo {
                 continue
             }
             do {
-                guard let restoredAt = try await putBack(receipt) else {
+                let restoredAt: URL
+                switch try await putBack(receipt) {
+                case .restored(let url):
+                    restoredAt = url
+                case .missing:
                     failures.append(FailedItem(url: receipt.destination, reason: nothingToRestore))
                     hasPermanentFailure = true
                     continue
+                case .cancelled:
+                    failures += ordered[index...].map { FailedItem(url: $0.destination, reason: notProcessed) }
+                    break receiptLoop
                 }
                 moved += 1
                 if restoredAt.lastPathComponent != receipt.source.lastPathComponent {
@@ -396,8 +457,8 @@ final class RenameFileCommand: FileCommand {
 final class BulkRenameFileCommand: FileCommand {
     private let renames: [(item: URL, newName: String)]
     private let unlockingLocked: Bool
-    private let progress: ProgressSink?
-    private let cancellation: Cancellation
+    private var progress: ProgressSink?
+    private var cancellation: Cancellation
     private let fileOps: FileOperationService
     private(set) var receipts: [RenameReceipt] = []
 
@@ -443,6 +504,12 @@ final class BulkRenameFileCommand: FileCommand {
             }
         }
         return failures.isEmpty ? .success : .partial(succeeded: receipts.count, failures: failures, wasCancelled: false)
+    }
+
+    func redo(in context: FileCommandContext) async throws -> FileCommandResult {
+        progress = context.progress
+        cancellation = context.cancellation
+        return try await execute()
     }
 
     /// 後に変えたものから元の名前へ戻す。変えたそのものでなくなった項目(FileIdentity の型コメント)には触らない。
@@ -601,8 +668,14 @@ final class CreateFolderCommand: FileCommand {
             return .impossible(reason: await FileIO.perform { TransferUndo.changedReason(for: target) })
         }
         // **メインアクターで一覧を読まない**(応答しない共有で ⌘Z がメインスレッドを止める)。
-        let isEmpty = await FileIO.perform {
-            ((try? FileManager.default.contentsOfDirectory(atPath: target.path)) ?? []).isEmpty
+        // 読めなければ空とみなさない(2026-09-14 の 2 回目の監査。以前は読めないフォルダを空として、中身ごとゴミ箱へ送りえた)。
+        let listing: Result<Bool, any Error> = await FileIO.perform {
+            Result { try FileManager.default.contentsOfDirectory(atPath: target.path).isEmpty }
+        }
+        let isEmpty: Bool
+        switch listing {
+        case .success(let empty): isEmpty = empty
+        case .failure(let error): return .impossible(reason: error.localizedDescription, canRetry: true)
         }
         guard isEmpty else {
             return .impossible(reason: String(
@@ -613,7 +686,7 @@ final class CreateFolderCommand: FileCommand {
             _ = try await fileOps.trash([url])
             return .complete
         } catch {
-            return .impossible(reason: error.localizedDescription, canRetry: true)
+            return .impossible(reason: error.localizedDescription, canRetry: TransferUndo.canRetryTrashing(after: error))
         }
     }
 }

@@ -1872,7 +1872,26 @@ Debug の全テスト 1317 件・124 suite が通った。CHANGELOG・MANUAL・d
   `MoveVerificationTests` にローカルの日時、`FileOperationVolumeTests.refusesToMoveAVolume`。競合はテストの進捗の callback の中で起こす
   (ProgressTracker は項目の最初のバイトを間引かず、copyfile のスレッドの上で同期に呼ぶ)。
 
-**次にやること**: B(10〜14)→ C(15〜19)→ D(20〜24)→ 低、の順に続ける(同じ指示の範囲)。
+**10〜14 の修正(2026-09-15、同じ指示)**: Debug の全テスト 1323 件が通った。CHANGELOG・MANUAL・docs/13・docs/15 と一緒にコミット・プッシュ(この節と同じコミット)。
+- 10: `CompositeFileCommand.runChildren` ―― 中止以外で子が投げたら、`executed` に効果のある子があれば `.partial`(投げた子 + 残りを「処理されませんでした」)。
+  `undo(in:)` は `executed` の効果のある子だけ。テスト `compositeDoesNotRollBackOnFailure` を書き換え、`compositeUndoRetryability` は実行してから取り消す形に。
+- 11: `FileCommandStack.nextUndo` / `nextRedo` と `undo(in:expecting:)` / `redo(in:expecting:)`(`!==` で比べる。控えは強参照なのでアドレスの再利用で取り違えない)。
+  `FileBrowserOperations.undo()` / `redo()` が押した時点で控える。
+- 12: `FileCommand.undo(in:)` / `redo(in:)` + `FileCommandContext`(既定の実装は素の `undo()` / `redo()`)。`MoveFilesCommand` / `CopyFilesCommand` / 
+  `CompressFilesCommand` / `ExtractArchivesCommand` / `BulkRenameFileCommand` / Composite が実装。`TransferUndo.undo` は `PutBack`(restored / missing / cancelled)。
+  `FileBrowserOperations.runUndoOrRedo` が帯を出し、`transferOptions` から進捗と尋ねる口を作って渡す。ウインドウを閉じたら `detachFromWindow()`
+  (`DetachedFileBrowserOperationPresenter`)。`transferOptions` の尋ねる口は相手がいなければ中止を立てる。
+- 13: `TransferUndo.canRetryTrashing(after:)`。ついでに「低」の「新規フォルダの取り消しが読めないフォルダを空とみなす」を直した。
+- 14: `AppState.fileBrowserMenu`(`FileBrowserMenuSnapshot`)+ `setFileBrowserMenu`(`MenuBarMenuGate` のキー `fileBrowserMenu`)。`ContentView.fileBrowserMenuSnapshot`
+  を `.onChange(initial: true)` で渡す。実機でのメニューの見た目の確認はしていない(ユーザーが Xcode で動かしているので画面は触らない)。
+- テスト: `FileCommandStackTests.undoAndRedoOnlyActOnTheExpectedCommand`、`FileCommandsTests.undoWhereThereIsNoTrashIsNotRetryable` /
+  `moveUndoCanBeCancelledAndRedoUsesAFreshCancellation` / `createFolderUndoDoesNotTreatAnUnreadableFolderAsEmpty`、
+  `FileBrowserOperationsTests.undoPressedDuringAnOperationDoesNotUndoThatOperation` / `detachedOperationsDeclineConfirmationsButStillReport`。
+- 「低」の列のうち直したもの: 中止済みの `Cancellation` を使い回すやり直し(12)、読めないフォルダの新規フォルダの取り消し(13)。
+- 全テストを並べて走らせたときに `FileIOTests.taskCancellationIsVisibleOnTheBorrowedThread` が 1 度落ちた(FileIO のスレッドが埋まり、中の 10 秒の期限が
+  先に来た。単独では通る)。待ち合わせに FileIO のスレッドを借りないようにし、期限を 45 秒(Test の上限は 1 分)にした。
+
+**次にやること**: C(15〜19)→ D(20〜24)→ 低、の順に続ける(同じ指示の範囲)。
 
 ---
 
