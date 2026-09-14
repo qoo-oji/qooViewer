@@ -16,9 +16,10 @@ extension FileOperationService {
             try FileOperationPreflight.checkWritable(folder)
             let sources = try ZipCompressor.collect(items)
             let total = sources.reduce(Int64(0)) { $0 + $1.size }
-            if let available = FileOperationPreflight.availableCapacity(at: folder),
-               available < total + FileOperationPreflight.freeSpaceMargin(at: folder) {
-                throw FileOperationError.insufficientFreeSpace(required: total, available: available, destination: folder)
+            // 見せる「必要な量」は余裕を足した値(FileOperationService.preflight のコメント)。
+            let needed = total + FileOperationPreflight.freeSpaceMargin(at: folder)
+            if let available = FileOperationPreflight.availableCapacity(at: folder), available < needed {
+                throw FileOperationError.insufficientFreeSpace(required: needed, available: available, destination: folder)
             }
             let tracker = ProgressTracker(
                 sink: progress, totalBytes: total, totalItems: sources.filter { $0.kind == .file }.count
@@ -55,10 +56,11 @@ extension FileOperationService {
                 let (added, overflow) = sum.addingReportingOverflow(item.plan.declaredTotalBytes)
                 return overflow ? .max : added
             }
+            let needed = total &+ UInt64(FileOperationPreflight.freeSpaceMargin(at: folder))
             if limits.checksFreeSpace, let available = FileOperationPreflight.availableCapacity(at: folder),
-               UInt64(max(available, 0)) < total &+ UInt64(FileOperationPreflight.freeSpaceMargin(at: folder)) {
+               UInt64(max(available, 0)) < needed {
                 throw FileOperationError.insufficientFreeSpace(
-                    required: Int64(clamping: total), available: available, destination: folder
+                    required: Int64(clamping: needed), available: available, destination: folder
                 )
             }
             return results

@@ -411,9 +411,13 @@ actor FileOperationService {
             throw FileOperationError.nameTooLongForDestination(name: longest.name, lengthBytes: longest.name.utf8.count, limitBytes: limit)
         }
         // 足りないと分かっているなら書かずに断る(4GB を空き 2.8GB へ運んで 2.91GB 書いてから失敗していた。qooLibrary)。
-        if let required = tracker.requiredBytes, let available = FileOperationPreflight.availableCapacity(at: destination),
-           available < required + FileOperationPreflight.freeSpaceMargin(at: destination) {
-            throw FileOperationError.insufficientFreeSpace(required: required, available: available, destination: destination)
+        // 見せる「必要な量」は余裕を足した値(比べた値と同じ)。足さずに見せると「1.5 GB 必要ですが、空きは 1.5 GB です」と
+        // 足りているように読めた(2026-09-14、圧縮の実機検証)。
+        if let required = tracker.requiredBytes, let available = FileOperationPreflight.availableCapacity(at: destination) {
+            let needed = required + FileOperationPreflight.freeSpaceMargin(at: destination)
+            if available < needed {
+                throw FileOperationError.insufficientFreeSpace(required: needed, available: available, destination: destination)
+            }
         }
         return tracker
     }

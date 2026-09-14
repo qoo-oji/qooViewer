@@ -214,7 +214,7 @@ nonisolated struct CompositeRollbackError: Error, Equatable, LocalizedError {
 
     var errorDescription: String? {
         String(
-            format: String(localized: "“%@” was stopped, but some items couldn’t be put back.", language: AppLanguage.currentLocale),
+            format: String(localized: "%@ was stopped, but some items couldn’t be put back.", language: AppLanguage.currentLocale),
             operationName
         )
     }

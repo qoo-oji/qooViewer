@@ -56,6 +56,12 @@ nonisolated enum ZipCompressor {
             guard let enumerator = FileManager.default.enumerator(atPath: item.path) else {
                 throw FileOperationError.posixFailure(item: item, errnoCode: EACCES)
             }
+            // 列挙はディスク上の順(名前順ではない)。書庫の中の並びを毎回同じにするため、要素ごとの名前順に並べ替える
+            // (親フォルダは子より前に来る)。
+            var children: [Source] = []
+            defer {
+                sources += children.sorted { $0.entryPath.split(separator: "/").lexicographicallyPrecedes($1.entryPath.split(separator: "/")) }
+            }
             while let relative = enumerator.nextObject() as? String {
                 if Cancellation.isRequestedInCurrentScope { throw CancellationError() }
                 let name = (relative as NSString).lastPathComponent
@@ -66,7 +72,7 @@ nonisolated enum ZipCompressor {
                     continue
                 }
                 guard let kind = info.kind else { continue }
-                sources.append(Source(
+                children.append(Source(
                     url: child, entryPath: nfcNormalizedForExport(topName + "/" + relative), kind: kind, size: info.size
                 ))
             }
@@ -129,7 +135,8 @@ nonisolated enum ZipCompressor {
 
     private static func add(_ source: Source, to archive: Archive, tracker: ProgressTracker) throws {
         let attributes = try? FileManager.default.attributesOfItem(atPath: source.url.path)
-        let modified = attributes?[.modificationDate] as? Date ?? Date()
+        // ZIPFoundation は日時を UTC として書くので、現地時刻になるようにずらして渡す(ZipDOSTime)。
+        let modified = ZipDOSTime.zipFoundationDate(forLocal: attributes?[.modificationDate] as? Date ?? Date())
         let permissions = (attributes?[.posixPermissions] as? NSNumber)?.uint16Value
         switch source.kind {
         case .directory:
@@ -138,7 +145,11 @@ nonisolated enum ZipCompressor {
                 permissions: permissions, provider: { _, _ in Data() }
             )
         case .symbolicLink:
-            try archive.addEntry(with: source.entryPath, fileURL: source.url)
+            let target = Data(try FileManager.default.destinationOfSymbolicLink(atPath: source.url.path).utf8)
+            try archive.addEntry(
+                with: source.entryPath, type: .symlink, uncompressedSize: Int64(target.count), modificationDate: modified,
+                permissions: permissions, provider: { _, _ in target }
+            )
         case .file:
             let before = MoveVerification.stamp(of: source.url)
             let descriptor = open(source.url.path, O_RDONLY | O_NOFOLLOW)

@@ -243,7 +243,7 @@ nonisolated enum FileOperationError: Error, Sendable, Equatable {
     case itemMissing(URL)
     /// POSIX の失敗で止まった。errno を畳まずに持つ(容量不足か権限かを言い分けるため)。
     case posixFailure(item: URL, errnoCode: Int32)
-    /// 始める前に空きが足りないと分かった。
+    /// 始める前に空きが足りないと分かった。`required` は書く量に余裕(FileOperationPreflight.freeSpaceMargin)を足した値。
     case insufficientFreeSpace(required: Int64, available: Int64, destination: URL)
     /// フォルダをそれ自身かその配下へ運ぼうとした。copyfile は 332 階層まで自己増殖してから
     /// ENAMETOOLONG で止まり、ゴミの木を残した(qooLibrary 実測)。

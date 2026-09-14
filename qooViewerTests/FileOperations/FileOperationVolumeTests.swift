@@ -126,8 +126,9 @@ struct FileOperationVolumeTests {
         await #expect {
             _ = try await service.copy([source], to: volume.url, options: .init(conflictPolicy: .keepBoth))
         } throws: { error in
-            guard case .insufficientFreeSpace = error as? FileOperationError else { return false }
-            return true
+            // 見せる必要量は比べた値(余裕込み)なので、空きより必ず大きい(「1.5 GB 必要、空き 1.5 GB」と読めない)。
+            guard case let .insufficientFreeSpace(required, available, _) = error as? FileOperationError else { return false }
+            return required > available
         }
         #expect(try FileManager.default.contentsOfDirectory(atPath: volume.url.path).isEmpty)
     }

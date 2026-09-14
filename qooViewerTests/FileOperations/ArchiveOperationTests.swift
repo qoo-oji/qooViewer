@@ -326,6 +326,33 @@ struct ZipCompressorTests {
         #expect(flags & (1 << 11) != 0)
     }
 
+    @Test("日時は現地時刻の MS-DOS 形式で書き、読むときも現地時刻に戻す(ZIPFoundation は UTC として扱う)。中の並びは名前順")
+    func timestampsAreLocalAndOrderIsStable() async throws {
+        let root = try temporary.directory("root")
+        let book = try temporary.directory("root/Book")
+        for name in ["c.txt", "a.txt", "b.txt"] {
+            try Data(name.utf8).write(to: book.appendingPathComponent(name))
+        }
+        var components = DateComponents(year: 2026, month: 1, day: 2, hour: 3, minute: 4, second: 6)
+        components.timeZone = .current
+        let local = try #require(Calendar(identifier: .gregorian).date(from: components))
+        try FileManager.default.setAttributes([.modificationDate: local], ofItemAtPath: book.appendingPathComponent("a.txt").path)
+
+        let zip = try #require(try await compress([book], into: root))
+
+        let archive = try Archive(url: zip, accessMode: .read)
+        #expect(archive.map(\.path) == ["Book/", "Book/a.txt", "Book/b.txt", "Book/c.txt"])
+        let entry = try #require(archive["Book/a.txt"])
+        let reader = try ZipArchiveReader(url: zip)
+        #expect(reader.entryDates(at: "Book/a.txt").modified == local)
+        #expect(ZipDOSTime.localDate(fromZIPFoundation: entry.fileAttributes[.modificationDate] as? Date) == local)
+        // 他のツールと同じ解釈: 書庫に入っている年月日時分秒が現地時刻のものと一致する。
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let raw = try #require(entry.fileAttributes[.modificationDate] as? Date)
+        #expect(utc.dateComponents([.hour, .minute], from: raw) == DateComponents(hour: 3, minute: 4))
+    }
+
     @Test("名前: 1 件ならその名前(拡張子ごと)、複数ならフォルダの名前、塞がっていれば name 2")
     func outputNames() async throws {
         let root = try temporary.directory("Shelf")

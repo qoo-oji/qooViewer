@@ -967,6 +967,21 @@ struct FileBrowserOperationsTests {
         #expect(activity.estimatedSecondsRemaining(now: start.addingTimeInterval(2)) == nil)
     }
 
+    @Test("操作の名前を入れる題はかぎ括弧で囲まない(名前の側が「…」の展開 のように括弧を持つので、重なって「「…」の展開」になった)")
+    func operationNameTitlesDoNotNestQuotes() {
+        let ja = Locale(identifier: "ja")
+        let name = String(format: String(localized: "Extraction of “%@”", language: ja), "slip.zip")
+        let titles: [String.LocalizationValue] = [
+            "%@: Some items couldn’t be processed.", "%@ couldn’t be completed.", "%@ was stopped, but some items couldn’t be put back.",
+            "%@ could only be partly undone.", "%@ could only be partly redone.", "%@ couldn’t be undone.", "%@ couldn’t be redone.",
+        ]
+        for title in titles {
+            let text = String(format: String(localized: title, language: ja), name)
+            #expect(text.hasPrefix("「slip.zip」の展開"), "\(text)")
+            #expect(!text.contains("「「"), "\(text)")
+        }
+    }
+
     @Test("失敗の一覧は上限で打ち切り、残りは件数で書く")
     func problemListingIsCapped() {
         let failures = (0..<13).map { FailedItem(name: "item\($0)", reason: "r") }

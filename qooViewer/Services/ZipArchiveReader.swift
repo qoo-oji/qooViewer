@@ -56,7 +56,7 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
             }
             return ArchiveEntryDescriptor(
                 path: decoder.correctedPath(for: entry.path), kind: kind, uncompressedSize: entry.uncompressedSize,
-                modified: entry.fileAttributes[.modificationDate] as? Date
+                modified: ZipDOSTime.localDate(fromZIPFoundation: entry.fileAttributes[.modificationDate] as? Date)
             )
         }
     }
@@ -135,7 +135,7 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
     /// ため、createdは常にnil(ArchiveReading.entryDates(at:)のコメント参照)。
     func entryDates(at path: String) -> (created: Date?, modified: Date?) {
         guard let entry = entryByCorrectedPath[path] else { return (nil, nil) }
-        return (nil, entry.fileAttributes[.modificationDate] as? Date)
+        return (nil, ZipDOSTime.localDate(fromZIPFoundation: entry.fileAttributes[.modificationDate] as? Date))
     }
 
     /// ArchiveReading.extract(at:to:maxByteCount:)のzip実装(プロトコル側のコメント参照)。
@@ -172,6 +172,29 @@ nonisolated final class ZipArchiveReader: ArchiveReading {
         guard let entry = entryByCorrectedPath[path] else { return nil }
         // clampingで変換する理由はSevenZipArchiveReaderの同名メソッド参照。
         return Int64(clamping: entry.uncompressedSize)
+    }
+}
+
+/// zip の更新日時(MS-DOS 形式)と ZIPFoundation の Date の橋渡し(2026-09-14、ファイルブラウザの展開の実機検証で発見)。
+///
+/// MS-DOS 形式の日時は**タイムゾーンを持たない現地時刻**で、Finder(ditto)も Info-ZIP も現地時刻で書く。ZIPFoundation
+/// 0.9.20 は読むときも書くときも `gmtime` / `timegm` で**UTC として**扱う(Date+ZIP.swift)。そのまま使うと、日本では
+/// 展開したファイルの更新日時が 9 時間未来になり、qooViewer が作った zip は他のツールで 9 時間前に見えた。
+/// ここで「UTC として読まれた年月日時分秒」を現地時刻として組み直す(夏時間もその日の差で扱う)。
+nonisolated enum ZipDOSTime {
+    /// ZIPFoundation が返した日時を、書庫に書かれていた現地時刻の日時へ。
+    static func localDate(fromZIPFoundation date: Date?) -> Date? {
+        guard let date else { return nil }
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        var components = utc.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+        components.timeZone = .current
+        return Calendar(identifier: .gregorian).date(from: components) ?? date
+    }
+
+    /// 書く日時を、ZIPFoundation が UTC として分解したときに現地時刻の年月日時分秒になる Date へ。
+    static func zipFoundationDate(forLocal date: Date) -> Date {
+        date.addingTimeInterval(TimeInterval(TimeZone.current.secondsFromGMT(for: date)))
     }
 }
 

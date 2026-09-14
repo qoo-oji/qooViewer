@@ -511,7 +511,7 @@ final class FileBrowserOperations: ObservableObject {
             if !FileCommandStack.isCancellation(error) {
                 problem = FileBrowserProblem(
                     title: String(
-                        format: String(localized: "The operation “%@” couldn’t be completed.", language: AppLanguage.currentLocale),
+                        format: String(localized: "%@ couldn’t be completed.", language: AppLanguage.currentLocale),
                         command.displayName
                     ),
                     message: error.localizedDescription
@@ -721,7 +721,7 @@ struct FileBrowserProblem: Equatable {
         let locale = AppLanguage.currentLocale
         return FileBrowserProblem(
             title: String(
-                format: String(localized: "Some items couldn’t be processed during “%@”.", language: locale),
+                format: String(localized: "%@: Some items couldn’t be processed.", language: locale),
                 operationName
             ),
             message: listing(failures, locale: locale)
@@ -737,8 +737,8 @@ struct FileBrowserProblem: Equatable {
             return FileBrowserProblem(
                 title: String(
                     format: isRedo
-                        ? String(localized: "“%@” could only be partly redone.", language: locale)
-                        : String(localized: "“%@” could only be partly undone.", language: locale),
+                        ? String(localized: "%@ could only be partly redone.", language: locale)
+                        : String(localized: "%@ could only be partly undone.", language: locale),
                     name
                 ),
                 message: listing(failures, locale: locale)
@@ -753,8 +753,8 @@ struct FileBrowserProblem: Equatable {
             return FileBrowserProblem(
                 title: String(
                     format: isRedo
-                        ? String(localized: "“%@” couldn’t be redone.", language: locale)
-                        : String(localized: "“%@” couldn’t be undone.", language: locale),
+                        ? String(localized: "%@ couldn’t be redone.", language: locale)
+                        : String(localized: "%@ couldn’t be undone.", language: locale),
                     name
                 ),
                 message: message

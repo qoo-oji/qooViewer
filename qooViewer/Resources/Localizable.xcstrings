@@ -18059,18 +18059,18 @@
         }
       }
     },
-    "The operation “%@” couldn’t be completed." : {
+    "%@ couldn’t be completed." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The operation “%@” couldn’t be completed."
+            "value" : "%@ couldn’t be completed."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」を完了できませんでした。"
+            "value" : "%@を完了できませんでした。"
           }
         }
       }
@@ -18107,82 +18107,82 @@
         }
       }
     },
-    "Some items couldn’t be processed during “%@”." : {
+    "%@: Some items couldn’t be processed." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Some items couldn’t be processed during “%@”."
+            "value" : "%@: Some items couldn’t be processed."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」で処理できなかった項目があります。"
+            "value" : "%@で処理できなかった項目があります。"
           }
         }
       }
     },
-    "“%@” could only be partly redone." : {
+    "%@ could only be partly redone." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "“%@” could only be partly redone."
+            "value" : "%@ could only be partly redone."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」は一部しかやり直せませんでした。"
+            "value" : "%@は一部しかやり直せませんでした。"
           }
         }
       }
     },
-    "“%@” could only be partly undone." : {
+    "%@ could only be partly undone." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "“%@” could only be partly undone."
+            "value" : "%@ could only be partly undone."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」は一部しか取り消せませんでした。"
+            "value" : "%@は一部しか取り消せませんでした。"
           }
         }
       }
     },
-    "“%@” couldn’t be redone." : {
+    "%@ couldn’t be redone." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "“%@” couldn’t be redone."
+            "value" : "%@ couldn’t be redone."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」をやり直せませんでした。"
+            "value" : "%@をやり直せませんでした。"
           }
         }
       }
     },
-    "“%@” couldn’t be undone." : {
+    "%@ couldn’t be undone." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "“%@” couldn’t be undone."
+            "value" : "%@ couldn’t be undone."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」を取り消せませんでした。"
+            "value" : "%@を取り消せませんでした。"
           }
         }
       }
@@ -19003,18 +19003,18 @@
         }
       }
     },
-    "“%@” was stopped, but some items couldn’t be put back." : {
+    "%@ was stopped, but some items couldn’t be put back." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "“%@” was stopped, but some items couldn’t be put back."
+            "value" : "%@ was stopped, but some items couldn’t be put back."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「%@」を中止しましたが、元に戻せなかった項目があります。"
+            "value" : "%@を中止しましたが、元に戻せなかった項目があります。"
           }
         }
       }
