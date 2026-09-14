@@ -70,22 +70,58 @@ struct FileBrowserStateTests {
         #expect(fixture.names() == ["c.txt", "B.cbz", "b-folder", "a-folder"])
     }
 
-    @Test("並べ替えの基準・向き・表示形式・アイコンの大きさは保存され、次に作った状態へ引き継がれる")
+    @Test("表示形式・アイコンの大きさ・左の幅・隠した列は保存され、次に作った状態へ引き継がれる")
     func viewSettingsPersist() throws {
         let suite = PreferencesSuite(label: "fb-persist")
         let state = FileBrowserState(defaults: suite.defaults)
-        state.sortKey = .modificationDate
-        state.sortDirection = .descending
+        // 既定では作成日の列だけを隠す。
+        #expect(state.hiddenListColumns == ["created"])
+        #expect(FileBrowserListView.Column.allCases.map(\.rawValue).contains("created"))
         state.viewMode = .icons
         state.iconSize = 150
         state.treeWidth = 300
+        state.hiddenListColumns = ["kind", "created"]
 
         let reopened = FileBrowserState(defaults: suite.defaults)
-        #expect(reopened.sortKey == .modificationDate)
-        #expect(reopened.sortDirection == .descending)
         #expect(reopened.viewMode == .icons)
         #expect(reopened.iconSize == 150)
         #expect(reopened.treeWidth == 300)
+        #expect(reopened.hiddenListColumns == ["kind", "created"])
+        // 全部出したことも覚える(空を「保存なし」と取り違えて作成日を隠し直さない)。
+        reopened.hiddenListColumns = []
+        #expect(FileBrowserState(defaults: suite.defaults).hiddenListColumns.isEmpty)
+    }
+
+    @Test("並べ替えの基準と向きはサイドパネルのフォルダブラウザと同じ設定。どちらで変えても両方に効き、他のウインドウも並べ替わる")
+    func sortIsSharedWithSidePanel() async throws {
+        let fixture = try Fixture("fb-sort-shared")
+        fixture.state.navigate(to: fixture.root)
+        await fixture.state.settle()
+
+        // ファイルブラウザで変えると、サイドパネルが読む設定が変わる(保存もそちら)。
+        fixture.state.sortKey = .size
+        fixture.state.sortDirection = .descending
+        #expect(fixture.preferences.folderBrowserSortKey == .size)
+        #expect(fixture.preferences.folderBrowserSortDirection == .descending)
+        #expect(fixture.preferences.folderBrowserSort.key == .size)
+
+        // サイドパネル(や別のウインドウ)で変えると、この一覧も並べ替わる(次のランループ)。
+        fixture.preferences.folderBrowserSortKey = .name
+        fixture.preferences.folderBrowserSortDirection = .ascending
+        #expect(fixture.state.sortKey == .name)
+        #expect(fixture.state.sortDirection == .ascending)
+        for _ in 0..<20 where fixture.names() != ["a-folder", "b-folder", "B.cbz", "c.txt"] { await Task.yield() }
+        #expect(fixture.names() == ["a-folder", "b-folder", "B.cbz", "c.txt"])
+
+        // 同じ設定を見ている 2 つ目のウインドウ。
+        let other = FileBrowserState(defaults: fixture.suite.defaults)
+        other.preferences = fixture.preferences
+        #expect(other.sortKey == .name)
+        other.sortDirection = .descending
+        #expect(fixture.state.sortDirection == .descending)
+        for _ in 0..<20 where fixture.names().first != "b-folder" { await Task.yield() }
+        #expect(fixture.names() == ["b-folder", "a-folder", "c.txt", "B.cbz"])
+        other.releaseResources()
     }
 
     @Test("絞り込みは表示だけを絞り、見えなくなった項目を選択から外す。フォルダを移ると空になる")

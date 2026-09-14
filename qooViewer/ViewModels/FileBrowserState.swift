@@ -26,14 +26,15 @@ import Foundation
 final class FileBrowserState: ObservableObject {
     private enum Keys {
         static let viewMode = "qooViewer.fileBrowser.viewMode"
-        static let sortKey = "qooViewer.fileBrowser.sortKey"
-        static let sortDirection = "qooViewer.fileBrowser.sortDirection"
+        static let hiddenListColumns = "qooViewer.fileBrowser.hiddenListColumns"
         static let iconSize = "qooViewer.fileBrowser.iconSize"
         static let treeWidth = "qooViewer.fileBrowser.treeWidth"
         static let lastFolderPath = "qooViewer.fileBrowser.lastFolderPath"
         static let bulkRename = "qooViewer.fileBrowser.bulkRename"
     }
 
+    /// 保存が無いときに隠す列。作成日は既定で出さない(2026-09-14、ユーザーの判断)。
+    static let defaultHiddenListColumns: Set<String> = ["created"]
     static let iconSizeRange: ClosedRange<CGFloat> = 48...256
     static let defaultIconSize: CGFloat = 96
     static let treeWidthRange: ClosedRange<CGFloat> = 160...480
@@ -68,19 +69,50 @@ final class FileBrowserState: ObservableObject {
         }
     }
 
-    @Published var sortKey: FolderBrowserSortKey {
-        didSet {
-            guard sortKey != oldValue else { return }
-            defaults.set(sortKey.rawValue, forKey: Keys.sortKey)
+    /// 並べ替えの基準。**サイドパネルのフォルダブラウザと同じ 1 つの設定**(`AppPreferences.folderBrowserSortKey`)を
+    /// 読み書きする(2026-09-14、ユーザー要望)。以前は`qooViewer.fileBrowser.sortKey`に別に持っていて、片方で変えても
+    /// もう片方は変わらなかった。すべてのウインドウのファイルブラウザとサイドパネルが同じ値を見るので、どこで変えても
+    /// 全部が並べ替わる(`observePreferences`)。「フォルダを上に」は別の設定のまま(`fileBrowserFoldersFirst`のコメント)。
+    ///
+    /// `preferences` が無い間(つながる前・テスト)は手元の値を使う。
+    var sortKey: FolderBrowserSortKey {
+        get { preferences?.folderBrowserSortKey ?? localSortKey }
+        set {
+            guard newValue != sortKey else { return }
+            objectWillChange.send()
+            if let preferences {
+                preferences.folderBrowserSortKey = newValue
+            } else {
+                localSortKey = newValue
+            }
             resort()
         }
     }
 
-    @Published var sortDirection: FolderBrowserSortDirection {
-        didSet {
-            guard sortDirection != oldValue else { return }
-            defaults.set(sortDirection.rawValue, forKey: Keys.sortDirection)
+    /// 並べ替えの向き。`sortKey`と同じく`AppPreferences.folderBrowserSortDirection`を読み書きする。
+    var sortDirection: FolderBrowserSortDirection {
+        get { preferences?.folderBrowserSortDirection ?? localSortDirection }
+        set {
+            guard newValue != sortDirection else { return }
+            objectWillChange.send()
+            if let preferences {
+                preferences.folderBrowserSortDirection = newValue
+            } else {
+                localSortDirection = newValue
+            }
             resort()
+        }
+    }
+
+    private var localSortKey: FolderBrowserSortKey = FolderBrowserSort.default.key
+    private var localSortDirection: FolderBrowserSortDirection = FolderBrowserSort.default.direction
+
+    /// リスト表示で隠している列(`FileBrowserListView.Column.rawValue`。2026-09-14、ユーザー要望)。見出しの右クリックで切り替える。
+    /// 名前の列は隠せない(Finder と同じ)。列の並びと幅は`NSTableView`の`autosaveName`が保存する。
+    @Published var hiddenListColumns: Set<String> {
+        didSet {
+            guard hiddenListColumns != oldValue else { return }
+            defaults.set(hiddenListColumns.sorted(), forKey: Keys.hiddenListColumns)
         }
     }
 
@@ -191,10 +223,8 @@ final class FileBrowserState: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         viewMode = FileBrowserViewMode(rawValue: defaults.string(forKey: Keys.viewMode) ?? "") ?? .list
-        sortKey = FolderBrowserSortKey(rawValue: defaults.string(forKey: Keys.sortKey) ?? "") ?? .name
-        sortDirection = FolderBrowserSortDirection(
-            rawValue: defaults.string(forKey: Keys.sortDirection) ?? ""
-        ) ?? .ascending
+        hiddenListColumns = defaults.stringArray(forKey: Keys.hiddenListColumns).map(Set.init)
+            ?? Self.defaultHiddenListColumns
         iconSize = (defaults.object(forKey: Keys.iconSize) as? Double)
             .map { Self.clamp(CGFloat($0), to: Self.iconSizeRange) } ?? Self.defaultIconSize
         treeWidth = (defaults.object(forKey: Keys.treeWidth) as? Double)
@@ -574,9 +604,12 @@ final class FileBrowserState: ObservableObject {
         fileSystemChange = FileSystemChange(serial: changeSerial, folderIDs: Set(folders.map { Self.id(for: $0) }))
     }
 
+    /// 並べ直す。**並びが変わらなければ一覧を差し替えない**(同じ変更を、自分で書いたときと購読の両方から受けるため)。
     private func resort() {
         guard !allEntries.isEmpty else { return }
-        allEntries = sort.sorted(allEntries)
+        let sorted = sort.sorted(allEntries)
+        guard sorted.map(\.id) != allEntries.map(\.id) else { return }
+        allEntries = sorted
         applyFilter()
     }
 
@@ -690,13 +723,26 @@ final class FileBrowserState: ObservableObject {
         systemObservations = [appActive, volumes]
     }
 
+    /// 「フォルダを上に」と、並べ替えの基準・向き(サイドパネルや他のウインドウで変わる。`sortKey`のコメント)を購読する。
     private func observePreferences() {
-        preferenceObservation = preferences?.$fileBrowserFoldersFirst
-            .dropFirst()
-            .removeDuplicates()
-            // @Published は値が入る前に流れるので、1回待ってから読む(sort が新しい値を見るように)。
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.resort() }
+        guard let preferences else {
+            preferenceObservation = nil
+            return
+        }
+        preferenceObservation = Publishers.Merge3(
+            preferences.$fileBrowserFoldersFirst.dropFirst().removeDuplicates().map { _ in () },
+            preferences.$folderBrowserSortKey.dropFirst().removeDuplicates().map { _ in () },
+            preferences.$folderBrowserSortDirection.dropFirst().removeDuplicates().map { _ in () }
+        )
+        // @Published は値が入る前に流れるので、1回待ってから読む(sort が新しい値を見るように)。
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in
+            // メニューのチェックと列の見出しの矢印を描き直してもらう(並べ替わる項目が無くても)。
+            self?.objectWillChange.send()
+            self?.resort()
+        }
+        // つながった時点の設定で並べ直す(つながる前に読み込んだ一覧があれば)。
+        resort()
     }
 
     // MARK: - パスの扱い

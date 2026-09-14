@@ -46,12 +46,22 @@ final class FavoriteLocationStore: ObservableObject {
     /// - Returns: 登録された(または既にあった)項目。
     @discardableResult
     func add(_ folder: URL) -> Item {
-        let path = MountTable.normalized(folder.standardizedFileURL.path)
+        let path = Self.path(for: folder)
         if let existing = items.first(where: { $0.path == path }) { return existing }
         let item = Item(id: UUID(), path: path)
         items.append(item)
         save()
         return item
+    }
+
+    /// そのフォルダが登録済みか(`add`と同じ規則でパスをそろえて比べる)。
+    func contains(_ folder: URL) -> Bool {
+        let path = Self.path(for: folder)
+        return items.contains { $0.path == path }
+    }
+
+    private static func path(for folder: URL) -> String {
+        MountTable.normalized(folder.standardizedFileURL.path)
     }
 
     func remove(id: UUID) {

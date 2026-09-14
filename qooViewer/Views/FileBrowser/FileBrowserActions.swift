@@ -236,6 +236,22 @@ final class FileBrowserActions {
         state?.navigate(to: granted)
     }
 
+    /// 右クリックの「よく使う項目に登録」(2026-09-14、ユーザー要望)。まだ登録していないフォルダがあるときだけ押せる
+    /// (全部登録済みなら淡色)。フォルダだけ(ファイルが混ざったら淡色)。
+    func canAddToFavoriteLocations(_ entries: [FileBrowserEntry]) -> Bool {
+        guard allowsSaving, let favoriteLocations, !entries.isEmpty,
+              entries.allSatisfy(\.isNavigableFolder)
+        else { return false }
+        return entries.contains { !favoriteLocations.contains($0.url) }
+    }
+
+    /// 登録するのはパスだけ。**ここではアクセス権を足さない**: 一覧に見えている時点で読めているフォルダで、読めなくなれば
+    /// 行は残って「アクセスを許可…」の案内に落ちる(FavoriteLocationStore の型コメント。「＋」とはここが違う)。
+    func addToFavoriteLocations(_ entries: [FileBrowserEntry]) {
+        guard canAddToFavoriteLocations(entries) else { return }
+        for entry in entries { favoriteLocations?.add(entry.url) }
+    }
+
     func removeFavoriteLocation(id: UUID) {
         guard allowsSaving else { return }
         favoriteLocations?.remove(id: id)
@@ -389,6 +405,7 @@ enum FileBrowserMenuCommand {
     case extractTo
     case editMetadata
     case exportBook
+    case addToFavoriteLocations
     case showInFinder
 
     /// 種類ごとの並び。内側の配列が区切り線で分かれる 1 群。
@@ -402,7 +419,7 @@ enum FileBrowserMenuCommand {
              [.moveToTrash],
              [.compress],
              [.editMetadata, .exportBook],
-             [.showInFinder]]
+             [.addToFavoriteLocations, .showInFinder]]
         case .file:
             [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow],
              [.createCollection, .addToCollection],
@@ -416,7 +433,7 @@ enum FileBrowserMenuCommand {
             [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow],
              [.openWith],
              [.newFolder, .paste],
-             [.showInFinder]]
+             [.addToFavoriteLocations, .showInFinder]]
         case .background:
             // 「表示」「表示順序」のサブメニューは組む側が足す(FileBrowserMenuBuilder / FileBrowserBackgroundMenuItems)。
             [[.paste, .newFolder]]
@@ -447,6 +464,7 @@ enum FileBrowserMenuCommand {
         case .extractTo: "Extract To…"
         case .editMetadata: "Edit Metadata…"
         case .exportBook: "Export Book"
+        case .addToFavoriteLocations: "Add to Favorite Locations"
         case .showInFinder: "Show in Finder"
         }
     }
@@ -509,6 +527,8 @@ enum FileBrowserMenuCommand {
             return actions.canPaste(into: context.folder)
         case .newFolder:
             return actions.canCreateFolder(in: context.folder)
+        case .addToFavoriteLocations:
+            return actions.canAddToFavoriteLocations(entries)
         case .showInFinder:
             return !entries.isEmpty
         }
@@ -537,6 +557,7 @@ enum FileBrowserMenuCommand {
         case .paste: actions.paste(into: context.folder)
         case .newFolder: actions.newFolder(in: context.folder)
         case .moveToTrash: actions.moveToTrash(entries)
+        case .addToFavoriteLocations: actions.addToFavoriteLocations(entries)
         case .showInFinder: actions.showInFinder(entries)
         }
     }

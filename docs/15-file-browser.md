@@ -108,6 +108,11 @@ WelcomeView(PanelSurface.welcome)
 - パッケージ(`.app` など)は 1 項目。「フォルダを上に」ではファイルの側に並ぶ(Finder と同じ)。
 - 並べ替えの比較はサイドパネルと**同じ実装**(`FolderBrowserSort.sorted`、`FolderBrowserSortable`)。
   「フォルダを上に」だけは環境設定「ファイルブラウザ」の独立した設定(サイドパネルの「並び順」とは別)。
+- **並べ替えの基準と向きはサイドパネルのフォルダブラウザと同じ 1 つの設定**(`AppPreferences.folderBrowserSortKey` / `folderBrowserSortDirection`。
+  2026-09-14、ユーザー要望)。`FileBrowserState.sortKey` / `sortDirection` はそれを読み書きする計算プロパティで、`observePreferences` が
+  変更を購読して並べ直す(サイドパネル・他のウインドウで変えたとき)。`resort` は並びが変わらなければ一覧を差し替えない(自分で書いた変更を
+  購読からもう一度受けるため)。以前の `qooViewer.fileBrowser.sortKey` / `sortDirection` は読まない(サイドパネルの値にそろう)。
+  「本の移動をブラウザの並び順に合わせる」が ON なら、ファイルブラウザで変えた並べ替えも前後の本の順に効く。
 - 絞り込み(検索欄)は現フォルダの中だけ。照合はウェルカム画面の検索と同じ `LibrarySearchQuery`。
   変わったら見えなくなった項目を選択から外す。フォルダを移ったら空にする。
 - **世代番号で古い結果を捨てる**(速く移動したとき)。選択は残っている項目のぶんだけ保つ。
@@ -216,6 +221,18 @@ ON なら右ペインで移動するたびに、現在のフォルダを含む�
 単発のクリックは `simultaneousGesture` で即時に効かせる。余白のクリックは選択を外し、余白からのドラッグは帯で選ぶ(修飾キーなしなら置き換え)。
 リスト表示は `NSTableView` の標準のまま(⌘/⇧ クリック・矢印・type-select)。
 
+## リストの列(2026-09-14、ユーザー要望)
+
+- **見出しの右クリックで列を出す・隠す**(Finder と同じ)。見出し(`NSTableHeaderView.menu`)に行とは別の `NSMenu` を付け、
+  `menuNeedsUpdate` で行のメニューと見分ける。列は今の並び順に、表示中はチェック付き。**名前の列は淡色で隠せない**。
+  隠している列は `FileBrowserState.hiddenListColumns`(`Column.rawValue` の集合)。**保存が無いときは作成日だけを隠す**
+  (`defaultHiddenListColumns`、ユーザーの判断)。空の配列も保存するので「全部出した」を「保存なし」と取り違えない。
+  `autosaveName` も Hidden を保存するが、表示は状態の側に合わせる(`applyHiddenColumns`)。
+- **見出しのドラッグで列を入れ替える**のは `allowsColumnReordering` の標準のまま(段階 3 から効いていた。実機で確認)。
+  **名前の列は先頭から動かさず、ほかの列も名前の前へは入れない**(`tableView(_:shouldReorderColumn:toColumn:)`。Finder と同じ)。
+  以前の保存で名前の列が先頭でなければ、作るときに先頭へ戻す。
+- 見出しの右クリックのメニューには、AX で見ると題の無い淡色の項目が 1 つ末尾に付く(画面には出ない。システムが足すもの)。
+
 - type-select(段階 4b、2026-09-14): `FileBrowserState.typeSelect(_:now:)`。文字のキーで表示名の先頭が一致する項目を 1 件選んでスクロールする。
   1 秒空くと打ち直し、**1 文字(同じ文字の連打を含む)は選択の次から一巡、2 文字以上は先頭から**。大小文字・濁点・全角半角は区別しない。
   ⌘ / ⌃ / ⌥ 付きと制御文字・機能キー(U+F700〜)は受けない。
@@ -230,6 +247,10 @@ ON なら右ペインで移動するたびに、現在のフォルダを含む�
 コレクション・このアプリケーションで開く・メタデータ・書き出しの項目は段階 8 でつないだ(→「既存機能との接続」)。
 「圧縮」「展開」はサブメニュー(→「圧縮・展開」)。サブメニューの親も子と同じ条件で淡色にする(項目の数は変えない)。
 空きスペースには「表示」「並べ替え」のサブメニューが付く。ツリーのよく使う項目の行だけ「よく使う項目から削除」が付く。
+フォルダ(一覧)とツリーの行には「よく使う項目に登録」(`addToFavoriteLocations`、2026-09-14、ユーザー要望)。選んだものが全部フォルダで、
+まだ登録していないものがあるときだけ押せる(全部登録済みなら淡色。シークレットウインドウでも淡色。読み取り専用モードでは押せる)。
+**登録するのはパスだけで、アクセス権は足さない**(一覧に見えている時点で読めている。読めなくなれば行は残って「アクセスを許可…」に落ちる)。
+登録済みかは `FavoriteLocationStore.contains`(`add` と同じ規則でパスをそろえる)。
 
 ## 既存機能との接続(段階 8、2026-09-14)
 
@@ -600,10 +621,11 @@ qooLibrary の実装(`VideoThumbnailLoading` ほか)を写した。実測の経�
 | 値 | キー | 備考 |
 |---|---|---|
 | モード | `qooViewer.welcome.mode` | |
-| 表示形式・並べ替えの基準と向き・アイコンの大きさ・左の幅 | `qooViewer.fileBrowser.*` | 環境設定の画面に並ばないので `qooViewer.pref.*` にしない(「初期設定に戻す」の対象外) |
+| 表示形式・アイコンの大きさ・左の幅・隠したリストの列 | `qooViewer.fileBrowser.*` | 環境設定の画面に並ばないので `qooViewer.pref.*` にしない(「初期設定に戻す」の対象外) |
 | 最後に表示したフォルダ | `qooViewer.fileBrowser.lastFolderPath` | **パスだけ**(空文字はコンピュータ)。読む権限は `FolderAccessStore` だけが持つ。**シークレットウインドウでは書かない** |
 | 一括リネームの前回の入力 | `qooViewer.fileBrowser.bulkRename`(JSON) | 方式ごとの欄を別々に覚える(Finder の `BulkRename*` と同じ)。**シークレットウインドウでは書かない**(そのウインドウの間は覚える) |
-| よく使う項目 | `qooViewer.fileBrowser.favoriteLocations`(JSON) | パスだけ。「＋」は `NSOpenPanel` → `FolderAccessStore.add` → 登録。シークレットウインドウでは登録・削除させない |
+| よく使う項目 | `qooViewer.fileBrowser.favoriteLocations`(JSON) | パスだけ。「＋」は `NSOpenPanel` → `FolderAccessStore.add` → 登録。右クリックの「よく使う項目に登録」は権限を足さない。シークレットウインドウでは登録・削除させない |
+| 並べ替えの基準と向き | `qooViewer.pref.folderBrowserSortKey` / `…Direction` | サイドパネルのフォルダブラウザと共通(`AppPreferences`) |
 | リストの列幅・並び | `NSTableView Columns v3 qooViewer.fileBrowser.list` など | `autosaveName` |
 | 読み取り専用・起動時のフォルダ・フォルダを上に・現在のフォルダまでツリーを展開・動画のサムネイルを作る・他のアプリからドロップしたとき・圧縮したファイルの形式・「ファイルブラウザで開く」の行き先 | `qooViewer.pref.fileBrowser.*` | 環境設定「ファイルブラウザ」(`SettingsPane.fileBrowser`) |
 | 絵のディスクキャッシュの ON/OFF・上限 | `qooViewer.pref.fileBrowserThumbnailCacheEnabled` / `…LimitMB` | 環境設定「キャッシュ」(ページサムネイルの設定と並べる。ユーザーの判断 2026-09-14) |

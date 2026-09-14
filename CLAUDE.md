@@ -122,7 +122,7 @@ build of the app (including a test host built from an old tag) against real data
 time. The auto-add folder holds a *path only* — folder permission stays with `FolderAccessStore`. Edit
 mode only decides what a click/drop means and whether the trash shows; creating/adding/renaming are not
 gated on it. The welcome screen has a second mode, the **file browser** (`WelcomeLibraryState.mode`, `Views/FileBrowser/`,
-`FileBrowserState` one-per-window, `FavoriteLocationStore`): list and tree are AppKit (`NSTableView`/`NSOutlineView`),
+`FileBrowserState` one-per-window — its sort key/direction are the side panel's `AppPreferences.folderBrowserSortKey`/`…Direction`, shared on purpose, while "folders first" stays separate — `FavoriteLocationStore`): list and tree are AppKit (`NSTableView`/`NSOutlineView`),
 icons are SwiftUI, listing runs on `FileIO` (never `Task.detached`), and new tabs/windows receive a folder through
 `WindowContentRequest.browse` (the value type of the book `WindowGroup`s). Every write operation (copy/cut/paste, trash, compress/extract,
 new folder, rename, bulk rename, undo/redo) goes through `FileBrowserOperations` (one per `FileBrowserState`, serial, confirmations via

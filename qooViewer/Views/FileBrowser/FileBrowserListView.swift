@@ -23,6 +23,11 @@ import SwiftUI
 /// それ以外(ファイルの行・行の間・空きスペース)なら表示中のフォルダへ落とす(Finder と同じ)。
 /// 何をするかは`FileBrowserDropDecision`(FileBrowserDragAndDrop.swift)が決める。
 ///
+/// ■ 列(2026-09-14、ユーザー要望)
+/// 見出しの右クリックで、名前以外の列を出す・隠す(Finder と同じ。隠している列は`FileBrowserState.hiddenListColumns`)。
+/// 見出しのドラッグで列を並べ替えられるが、**名前の列は先頭から動かさない**(Finder と同じ。`shouldReorderColumn`)。
+/// 並びと幅は`autosaveName`が保存する。
+///
 /// ■ リーク
 /// 閉包・delegate・メニューの対象は`dismantleNSView`で切る(CLAUDE.md)。`NSTrackingArea`は使わない。
 struct FileBrowserListView: NSViewRepresentable {
@@ -83,6 +88,14 @@ struct FileBrowserListView: NSViewRepresentable {
         let menu = NSMenu()
         menu.delegate = coordinator
         table.menu = menu
+        // 見出しの右クリック: 列の表示/非表示。行のメニューとは別の NSMenu(delegate で見分ける)。
+        let headerMenu = NSMenu()
+        headerMenu.delegate = coordinator
+        table.headerView?.menu = headerMenu
+        coordinator.headerMenu = headerMenu
+        // 保存された並びで名前の列が先頭でなくなっていたら戻す(以前は名前の列も動かせた)。
+        let nameIndex = table.column(withIdentifier: Column.name.identifier)
+        if nameIndex > 0 { table.moveColumn(nameIndex, toColumn: 0) }
 
         let scroll = NSScrollView()
         scroll.documentView = table
@@ -116,7 +129,10 @@ struct FileBrowserListView: NSViewRepresentable {
             table.unregisterDraggedTypes()
             table.menu?.delegate = nil
             table.menu = nil
+            table.headerView?.menu?.delegate = nil
+            table.headerView?.menu = nil
         }
+        coordinator.headerMenu = nil
         coordinator.table = nil
         coordinator.state = nil
         coordinator.actions = nil
@@ -158,6 +174,9 @@ struct FileBrowserListView: NSViewRepresentable {
             }
         }
 
+        /// 見出しの右クリックで隠せるか(名前の列だけは隠せない)。
+        var isHideable: Bool { self != .name }
+
         var minWidth: CGFloat {
             self == .name ? 120 : 50
         }
@@ -168,6 +187,8 @@ struct FileBrowserListView: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate, NSTextFieldDelegate {
         weak var table: FileBrowserTableView?
+        /// 見出しの右クリックのメニュー(`menuNeedsUpdate`で行のメニューと見分ける)。
+        weak var headerMenu: NSMenu?
         var state: FileBrowserState?
         var actions: FileBrowserActions?
         private var entries: [FileBrowserEntry] = []
@@ -230,6 +251,7 @@ struct FileBrowserListView: NSViewRepresentable {
                 }
             }
             applySortDescriptors(from: view.state)
+            applyHiddenColumns(from: view.state)
             applySelection(from: view.state)
             if let request = view.state.scrollRequest, request != appliedScroll {
                 appliedScroll = request
@@ -335,6 +357,15 @@ struct FileBrowserListView: NSViewRepresentable {
             isApplyingSort = true
             table.sortDescriptors = wanted
             isApplyingSort = false
+        }
+
+        private func applyHiddenColumns(from state: FileBrowserState) {
+            guard let table else { return }
+            for column in Column.allCases where column.isHideable {
+                guard let tableColumn = table.tableColumn(withIdentifier: column.identifier) else { continue }
+                let hidden = state.hiddenListColumns.contains(column.rawValue)
+                if tableColumn.isHidden != hidden { tableColumn.isHidden = hidden }
+            }
         }
 
         // MARK: データ
@@ -461,6 +492,13 @@ struct FileBrowserListView: NSViewRepresentable {
             if ids != state.selection { state.selection = ids }
         }
 
+        /// 名前の列は先頭から動かさず、ほかの列も名前の列より前へは入れない(Finder と同じ)。
+        func tableView(_ tableView: NSTableView, shouldReorderColumn columnIndex: Int, toColumn newColumnIndex: Int) -> Bool {
+            guard tableView.tableColumns.indices.contains(columnIndex) else { return false }
+            if tableView.tableColumns[columnIndex].identifier == Column.name.identifier { return false }
+            return newColumnIndex != 0
+        }
+
         func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
             guard !isApplyingSort, let state, let descriptor = tableView.sortDescriptors.first,
                   let key = descriptor.key.flatMap(FolderBrowserSortKey.init(rawValue:))
@@ -485,6 +523,10 @@ struct FileBrowserListView: NSViewRepresentable {
         /// 行の外(空きスペース)ならペースト・新規フォルダ・表示・表示順序。
         func menuNeedsUpdate(_ menu: NSMenu) {
             guard let table else { return }
+            if menu === headerMenu {
+                rebuildHeaderMenu(menu)
+                return
+            }
             let clicked = table.clickedRow
             let folder = state?.currentFolder
             guard clicked >= 0, entries.indices.contains(clicked) else {
@@ -504,6 +546,37 @@ struct FileBrowserListView: NSViewRepresentable {
                 menu, for: FileBrowserMenuContext(kind: .of(entries[clicked]), entries: targets, folder: folder),
                 actions: actions, locale: locale
             )
+        }
+
+        /// 見出しの右クリック: 列を並んでいる順に、表示中はチェック付きで。名前の列は淡色(隠せない)。
+        private func rebuildHeaderMenu(_ menu: NSMenu) {
+            guard let table else { return }
+            menu.removeAllItems()
+            menu.autoenablesItems = false
+            for tableColumn in table.tableColumns {
+                guard let column = Column(rawValue: tableColumn.identifier.rawValue) else { continue }
+                let item = NSMenuItem(
+                    title: String(localized: column.title, language: locale),
+                    action: #selector(toggleColumn(_:)), keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = column.rawValue
+                item.state = tableColumn.isHidden ? .off : .on
+                item.isEnabled = column.isHideable
+                menu.addItem(item)
+            }
+        }
+
+        @objc private func toggleColumn(_ sender: NSMenuItem) {
+            guard let state, let raw = sender.representedObject as? String,
+                  let column = Column(rawValue: raw), column.isHideable
+            else { return }
+            if state.hiddenListColumns.contains(raw) {
+                state.hiddenListColumns.remove(raw)
+            } else {
+                state.hiddenListColumns.insert(raw)
+            }
+            applyHiddenColumns(from: state)
         }
     }
 }

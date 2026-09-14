@@ -253,6 +253,56 @@ struct FileBrowserIntegrationTests {
         #expect(!fixture.actions.canPerform(.moveToTrash))
     }
 
+    @Test("「よく使う項目に登録」はフォルダだけ。登録済みなら淡色、シークレットウインドウでも淡色。読み取り専用モードでは押せる")
+    func addToFavoriteLocations() throws {
+        let fixture = try Fixture("fb-menu-favorite")
+        defer { fixture.close() }
+        let favorites = FavoriteLocationStore(defaults: fixture.suite.defaults)
+        fixture.actions.favoriteLocations = favorites
+        let folder = fixture.entry(try fixture.temporary.directory("shelf"))
+        let other = fixture.entry(try fixture.temporary.directory("other"))
+        let book = fixture.entry(try fixture.archive("book.cbz"))
+
+        func enabled(_ entries: [FileBrowserEntry], kind: FileBrowserMenuKind = .folder) -> Bool {
+            FileBrowserMenuCommand.addToFavoriteLocations.isEnabled(
+                in: FileBrowserMenuContext(kind: kind, entries: entries, folder: nil), actions: fixture.actions
+            )
+        }
+
+        #expect(FileBrowserMenuCommand.groups(for: .folder).flatMap { $0 }.contains(.addToFavoriteLocations))
+        #expect(FileBrowserMenuCommand.groups(for: .tree).flatMap { $0 }.contains(.addToFavoriteLocations))
+        #expect(!FileBrowserMenuCommand.groups(for: .file).flatMap { $0 }.contains(.addToFavoriteLocations))
+
+        fixture.preferences.fileBrowserReadOnly = true
+        #expect(enabled([folder]))
+        #expect(enabled([folder], kind: .tree))
+        #expect(!enabled([folder, book]))
+
+        FileBrowserMenuCommand.addToFavoriteLocations.perform(
+            in: FileBrowserMenuContext(kind: .folder, entries: [folder], folder: nil), actions: fixture.actions
+        )
+        #expect(favorites.contains(folder.url))
+        #expect(favorites.items.count == 1)
+        // 登録済みなら淡色。まだのものが混ざっていれば押せて、足すのはそのぶんだけ。
+        #expect(!enabled([folder]))
+        #expect(enabled([folder, other]))
+        fixture.actions.addToFavoriteLocations([folder, other])
+        #expect(favorites.items.count == 2)
+        #expect(!enabled([folder, other]))
+    }
+
+    @Test("シークレットウインドウでは「よく使う項目に登録」は淡色")
+    func addToFavoriteLocationsInPrivateWindow() throws {
+        let fixture = try Fixture("fb-menu-favorite-private", isPrivate: true)
+        defer { fixture.close() }
+        let favorites = FavoriteLocationStore(defaults: fixture.suite.defaults)
+        fixture.actions.favoriteLocations = favorites
+        let folder = fixture.entry(try fixture.temporary.directory("shelf"))
+        #expect(!fixture.actions.canAddToFavoriteLocations([folder]))
+        fixture.actions.addToFavoriteLocations([folder])
+        #expect(favorites.items.isEmpty)
+    }
+
     @Test("「コレクションに登録」はライブラリが1つなら1段、「本の書き出し」は3形式。コレクションが増えると並びも変わる")
     func dynamicSubmenus() throws {
         let fixture = try Fixture("fb-menu-dynamic")

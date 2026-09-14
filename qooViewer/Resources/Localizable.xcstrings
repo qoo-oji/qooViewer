@@ -1780,6 +1780,22 @@
         }
       }
     },
+    "Add to Favorite Locations" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add to Favorite Locations"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "よく使う項目に登録"
+          }
+        }
+      }
+    },
     "Add to Favorites" : {
       "localizations" : {
         "en" : {
