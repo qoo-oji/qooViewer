@@ -58,7 +58,7 @@ final class FolderChangeWatcher {
     private nonisolated(unsafe) var stream: FSEventStreamRef?
     /// 直前のストリームを止めた時点のイベントID。パスを差し替えるときに`sinceWhen`として
     /// 渡し、止めてから始めるまでの空白を埋める(その間の変更を取りこぼさない)。
-    private var lastEventID = FSEventStreamEventId(kFSEventStreamEventIdSinceNow)
+    private(set) var lastEventID = FSEventStreamEventId(kFSEventStreamEventIdSinceNow)
     /// 生成を待っている間にパスが変わったかを見分けるための世代番号。
     private var generation = 0
 
@@ -93,7 +93,10 @@ final class FolderChangeWatcher {
         // 空でも世代は必ず進める ―― 進めないと、待っている最中の生成が「まだ最新」と判定され、
         // 監視する相手が1つも無いのに古いパスを見張るストリームが据え付けられる。
         generation &+= 1
-        guard !paths.isEmpty else { return }
+        guard !paths.isEmpty else {
+            forgetLastEventID()
+            return
+        }
 
         let mine = generation
         let requested = Array(paths)
@@ -132,6 +135,14 @@ final class FolderChangeWatcher {
         stopStream()
         watchedPaths = []
         generation &+= 1
+        forgetLastEventID()
+    }
+
+    /// **見張るものが無くなったら、止めた時点からの続きを覚えておかない**(2026-09-14 の 2 回目の監査 19)。以前は空の組で止めた後も
+    /// `lastEventID` を持ち越したので、本を読んで数時間後にファイルブラウザへ戻ると、次に張ったストリームへその間の履歴がまとめて届いた
+    /// (ホームで 180 秒に 2,587 件を実測)。空白を埋めるのは「パスを入れ替える」間だけでよい ―― 戻ってきた画面は自分で読み直す。
+    private func forgetLastEventID() {
+        lastEventID = FSEventStreamEventId(kFSEventStreamEventIdSinceNow)
     }
 
     private func stopStream() {

@@ -88,6 +88,22 @@ struct ArchiveExtractionPlanTests {
         #expect(plan.items.map(\.relativePath) == [deepest, String(repeating: "a/", count: depth - 1) + "a"])
     }
 
+    @Test("大文字小文字だけ違う名前が大量に並んでも、番号の続きから探すので 2 乗にならず、結果も 2 から数え直したときと同じ(2 回目の監査)")
+    func manyCaseCollisionsStayLinear() {
+        // 以前は 1 件ごとに 2 から数え直し、4000 件で 2.9 秒(件数の上限を確かめる前)。
+        let letters = Array("abcdefghijklmno")
+        let entries = (0..<20_000).map { index in
+            file(String(letters.enumerated().map { offset, letter in index & (1 << offset) != 0 ? Character(letter.uppercased()) : letter }) + ".txt")
+        }
+        let started = ContinuousClock.now
+        let plan = ArchiveExtractionPlan(entries: entries)
+        #expect(ContinuousClock.now - started < .seconds(10))
+        #expect(Set(plan.items.map { FileNameValidation.foldedForComparison($0.relativePath) }).count == entries.count)
+
+        let small = ArchiveExtractionPlan(entries: [file("a.txt"), file("A.txt"), file("a 2.txt"), file("A.TXT")])
+        #expect(small.items.map(\.relativePath) == ["a.txt", "A 2.txt", "a 2 2.txt", "A 3.TXT"])
+    }
+
     @Test("宣言サイズの合計は飽和加算(細工された索引でトラップしない)")
     func declaredTotalSaturates() {
         let plan = ArchiveExtractionPlan(entries: [file("a", size: .max - 1), file("b", size: 10), file("c", size: .max)])

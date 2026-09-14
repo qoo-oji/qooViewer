@@ -27,6 +27,24 @@ struct FolderChangeWatcherTests {
         watcher.tearDown()
     }
 
+    @Test("見張るものが無くなったら、次に張るストリームは止めた時点からの続きを再生しない(2 回目の監査 19)")
+    func stoppingForgetsWhereItLeftOff() async throws {
+        // 以前は空の組で止めた後も続きの位置を持ち越し、数時間後に戻るとその間の履歴がまとめて届いた。
+        let temporary = try TemporaryDirectory("folder-watch-forget")
+        let first = try temporary.directory("first")
+        let second = try temporary.directory("second")
+        let watcher = FolderChangeWatcher {}
+        let sinceNow = FSEventStreamEventId(kFSEventStreamEventIdSinceNow)
+        await watcher.watch([first.path])
+        await watcher.watch([second.path])
+        #expect(watcher.lastEventID != sinceNow, "入れ替える間の空白は埋める")
+        await watcher.watch([])
+        #expect(watcher.lastEventID == sinceNow)
+        await watcher.watch([first.path])
+        watcher.tearDown()
+        #expect(watcher.lastEventID == sinceNow)
+    }
+
     /// 見張るフォルダの数だけファイル記述子が増えてはいけない。`WatchRoot` を付けていたときは
     /// ルートごとに祖先ディレクトリを1階層ずつ握り(深さ5なら5個)、自動登録フォルダ49個で
     /// GUI アプリの上限256を起動直後に使い切っていた(実機で発覚 2026-09-09。カバーが全部空になり、

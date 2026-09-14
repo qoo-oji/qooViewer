@@ -1891,7 +1891,23 @@ Debug の全テスト 1317 件・124 suite が通った。CHANGELOG・MANUAL・d
 - 全テストを並べて走らせたときに `FileIOTests.taskCancellationIsVisibleOnTheBorrowedThread` が 1 度落ちた(FileIO のスレッドが埋まり、中の 10 秒の期限が
   先に来た。単独では通る)。待ち合わせに FileIO のスレッドを借りないようにし、期限を 45 秒(Test の上限は 1 分)にした。
 
-**次にやること**: C(15〜19)→ D(20〜24)→ 低、の順に続ける(同じ指示の範囲)。
+**15〜19 の修正(2026-09-15、同じ指示)**: Debug の全テスト 1328 件が通った。CHANGELOG・MANUAL・docs/13・docs/15 と一緒にコミット・プッシュ(この節と同じコミット)。
+- 15: `ShelfFolderResolver.isSingleBookFolder(_:protectedPrefixes:)`(直下の名前 → 画像があれば 1 冊、本のファイルがあれば棚、無ければ子フォルダの
+  直下に画像があるか。`DirectoryProbe.mayReadChild` で保護下の子を外す)。`FileBrowserActions.isImageFolder` と `FileBrowserLibraryActions.resolveBook`
+  がこれを使う。`DirectoryBrowser.makeEntry` も `mayReadChild` で保護下の子の `directContents` を読まない(コレクションの作成・本棚へのドロップ・
+  サイドパネルの一覧。ホームの一覧で「書類」などの `containsImageFile` は false になる ―― 本棚にホームを落としても「書類」を本と数えない)。
+  D-23 の前半(`/System/Volumes/Data` の書き方の素通し)もここで `DirectoryProbe.comparablePath` に。
+- 16: `BulkRename.avoiding` と展開の `Namer.availableName` が番号の続きを覚える(`nextNumbers`)。一括リネームは「自分の元の名前」の例外だけ先に
+  確かめる(`numberSuffix`)。`FileNameValidation.numberedName` を切り出した。ペースト後の選択は `Set` で引く。
+- 17: ツリーの `loadChildren` は `isLoadingChildren` / `needsReloadAfterLoad` で重ねない(世代はたたんだときだけ進む)。`handleExternalChange` は文字列で親を求める。
+- 18: `FileBrowserState.reload` は同じフォルダを読んでいる最中(`inFlightFolderID`)なら `needsReloadAfterLoad` だけ立てる。その間の `apply` は選ぶ・見せる
+  依頼を次の読み直しまで取っておく。絵は `Job.isRemote` で別の枠(`maxConcurrentRemoteJobs` = 2)。
+- 19: `FolderChangeWatcher` は空の組・`tearDown` で `lastEventID` を `SinceNow` に戻す(テストのために `private(set)`)。
+- テスト: `ShelfFolderResolverTests.singleBookFolderCheckMatchesTheRulesWithoutEnteringProtectedChildren`、`DirectoryProbeTests.mayReadChildOnlyInsideTheSameProtectedPlace`、
+  `BulkRenameTests.manyCollisionsStayLinear`、`ArchiveExtractionPlanTests.manyCaseCollisionsStayLinear`、`FolderChangeWatcherTests.stoppingForgetsWhereItLeftOff`。
+  ツリー・一覧の重ならない読み込みと絵の別枠は自動テストを足していない(応答しない共有を作れない)。実機の確認も未(ユーザーが Xcode で動かしているので画面は触らない)。
+
+**次にやること**: D(20〜24。20 はフォークの SevenZip.swift の変更が要る)→ 低、の順に続ける(同じ指示の範囲)。
 
 ---
 

@@ -124,7 +124,7 @@ nonisolated enum DirectoryBrowser {
             options: [.skipsHiddenFiles]
         )
         var kindCache: [String: String] = [:]
-        let entries = children.compactMap { makeEntry(for: $0, kindCache: &kindCache) }
+        let entries = children.compactMap { makeEntry(for: $0, in: directory, kindCache: &kindCache) }
         let containsImageFile = children.contains { isImageFile($0.lastPathComponent) }
         return Listing(entries: sortedEntries(entries, sort: sort), containsImageFile: containsImageFile)
     }
@@ -137,13 +137,17 @@ nonisolated enum DirectoryBrowser {
 
     /// 1件ぶんのEntryを組み立てる。開けない形式のファイルはここでnilを返して一覧から落とす
     /// (フォルダは中身に関わらず常に残す。この型の冒頭のコメント参照)。
-    private static func makeEntry(for url: URL, kindCache: inout [String: String]) -> Entry? {
+    private static func makeEntry(for url: URL, in directory: URL, kindCache: inout [String: String]) -> Entry? {
         let values = try? url.resourceValues(forKeys: entryResourceKeys)
         let isDirectory = values?.isDirectory ?? false
         // ファイルは中身を持たないので調べない。フォルダは1件につき1回の列挙が増える
         // (directContentsのコメント参照)。この関数はもともとlistingAsync/entriesAsync/
         // mountedVolumeEntriesAsync経由でメインスレッド外から呼ばれる。
-        let directContents = isDirectory ? directContents(of: url) : (hasImageFile: false, hasSubdirectory: false)
+        // **TCC の保護下のフォルダは、一覧しているフォルダが同じ保護下の場所でなければ中を読まない**(2026-09-14 の 2 回目の監査 15。
+        // ホームの一覧を作るだけで「書類」「デスクトップ」などの中を読み、許可のダイアログが次々に出た ―― ファイルブラウザの右クリックの
+        // 「コレクションを作成」、本棚へホームをドロップ、など)。読まなかったフォルダは「画像もサブフォルダも無い」扱い。
+        let readsContents = isDirectory && DirectoryProbe.mayReadChild(url, of: directory)
+        let directContents = readsContents ? directContents(of: url) : (hasImageFile: false, hasSubdirectory: false)
         if !isDirectory {
             let name = url.lastPathComponent
             guard isArchiveFile(name) || isPDFFile(name) || isEpubFile(name) else { return nil }
@@ -274,7 +278,7 @@ nonisolated enum DirectoryBrowser {
     /// たいていは名前順(向きだけが効く)になる。
     static func mountedVolumeEntries(sort: FolderBrowserSort) -> [Entry] {
         var kindCache: [String: String] = [:]
-        let entries = mountedVolumeURLs().compactMap { makeEntry(for: $0, kindCache: &kindCache) }
+        let entries = mountedVolumeURLs().compactMap { makeEntry(for: $0, in: URL(fileURLWithPath: "/", isDirectory: true), kindCache: &kindCache) }
         return sortedEntries(entries, sort: sort)
     }
 

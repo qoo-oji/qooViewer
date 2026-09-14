@@ -205,8 +205,7 @@ nonisolated private struct Namer {
                 actualName = existingName(in: parent, folded: folded) ?? name
             case false?:
                 // 同じ名前のファイルが先にある。
-                let folder = parent
-                actualName = FileNameValidation.nextAvailableName(for: name, isDirectory: true) { taken[folder]?[FileNameValidation.foldedForComparison($0)] != nil }
+                actualName = availableName(for: name, in: parent, isDirectory: true)
                 taken[parent, default: [:]][FileNameValidation.foldedForComparison(actualName)] = true
                 names[parent + "/" + FileNameValidation.foldedForComparison(actualName)] = actualName
             case nil:
@@ -224,13 +223,33 @@ nonisolated private struct Namer {
     mutating func file(for components: [String]) -> String {
         let parent = directory(for: components.dropLast())
         let name = components[components.count - 1]
-        let actualName = FileNameValidation.nextAvailableName(for: name) { taken[parent]?[FileNameValidation.foldedForComparison($0)] != nil }
+        let actualName = availableName(for: name, in: parent, isDirectory: false)
         taken[parent, default: [:]][FileNameValidation.foldedForComparison(actualName)] = false
         return parent.isEmpty ? actualName : parent + "/" + actualName
     }
 
     /// 畳んだ名前 → 最初に使った実際の名前(フォルダをまとめるとき、先に来た綴りに揃える)。
     private var names: [String: String] = [:]
+
+    /// 番号を付けて避けるときに、次に試す番号(フォルダ + 種類 + 畳んだ名前ごと)。
+    private var nextNumbers: [String: Int] = [:]
+
+    /// `parent` の中で空いている名前(`name 2` …)。**前に同じ名前を避けたときの番号の続きから探す**(2026-09-14 の 2 回目の監査 16。
+    /// 以前は毎回 2 から数え直したので、同じ名前が大文字小文字違いで 4000 件並ぶ書庫で 2.9 秒、件数の上限を確かめる前に掛かった)。
+    /// `taken` は増える一方なので、前に塞がっていた番号は今も塞がっている ―― 続きから探しても結果は変わらない。
+    private mutating func availableName(for name: String, in parent: String, isDirectory: Bool) -> String {
+        func isTaken(_ candidate: String) -> Bool { taken[parent]?[FileNameValidation.foldedForComparison(candidate)] != nil }
+        guard isTaken(name) else { return name }
+        let memo = parent + "\u{0}" + (isDirectory ? "d" : "f") + FileNameValidation.foldedForComparison(name)
+        var number = nextNumbers[memo] ?? 2
+        var candidate = FileNameValidation.numberedName(name, number: number, isDirectory: isDirectory)
+        while isTaken(candidate) {
+            number += 1
+            candidate = FileNameValidation.numberedName(name, number: number, isDirectory: isDirectory)
+        }
+        nextNumbers[memo] = number + 1
+        return candidate
+    }
 
     private func existingName(in parent: String, folded: String) -> String? {
         names[parent + "/" + folded]

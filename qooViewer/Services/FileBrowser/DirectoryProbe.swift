@@ -62,15 +62,29 @@ nonisolated enum DirectoryProbe {
 
     /// TCC の許可を要する場所(またはその中)か。**ファイルシステムに一切問い合わせない**(パスの文字列だけ)。
     static func isPrivacyProtected(_ url: URL, prefixes: [String] = protectedPrefixes) -> Bool {
-        let path = MountTable.normalized(url.path)
+        let path = comparablePath(url)
         return prefixes.contains { path == $0 || path.hasPrefix($0 + "/") }
     }
 
     /// `url` を含む保護下の場所(いちばん長く一致するもの)。保護下でなければ nil。ファイルシステムには触れない。
     /// ファイルブラウザの絵が「いま見ているフォルダと同じ保護下の場所か」を比べるのに使う(段階 7a)。
     static func protectedPrefix(containing url: URL, prefixes: [String] = protectedPrefixes) -> String? {
-        let path = MountTable.normalized(url.path)
+        let path = comparablePath(url)
         return prefixes.filter { path == $0 || path.hasPrefix($0 + "/") }.max { $0.count < $1.count }
+    }
+
+    /// 自分から(利用者が入っていないのに)`child` の中を読んでよいか。`child` が保護下の場所なら、`parent` も同じ保護下の場所にあるとき
+    /// だけ(利用者がそこへ入っている = 許可は済んでいる)。ファイルシステムには触れない。
+    static func mayReadChild(_ child: URL, of parent: URL, prefixes: [String] = protectedPrefixes) -> Bool {
+        guard let prefix = protectedPrefix(containing: child, prefixes: prefixes) else { return true }
+        return protectedPrefix(containing: parent, prefixes: prefixes) == prefix
+    }
+
+    /// 比べる形のパス。**起動ボリュームのデータ側の書き方(`FileBrowserState.dataVolumePrefix` を頭に付けたホーム)も頭を外して揃える**
+    /// (2026-09-14 の 2 回目の監査 23。以前はその書き方のホームが保護下の一覧を素通りし、`/` をよく使う項目に登録すると
+    /// 動画の先読み役が保護下へ入った)。
+    private static func comparablePath(_ url: URL) -> String {
+        MountTable.normalized(FileBrowserState.pathOutsideDataVolume(url.path))
     }
 
     /// 保護下の場所のうち、**許可が場所ごと 1 回で済む**もの(デスクトップ・書類・ダウンロード)。中へ入って許可を済ませれば、

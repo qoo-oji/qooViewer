@@ -792,10 +792,12 @@ qooLibrary の実装(`VideoThumbnailLoading` ほか)を写した。実測の経�
 | **開く前に触って確かめない**(触ること自体が確認の引き金) | 「移動」メニューの標準の場所・「フォルダへ移動…」(`FileBrowserStandardLocation` / `FileBrowserGoToFolderSheet`) |
 | 一覧は子フォルダの中を見ない。パッケージの中へは降りない(写真ライブラリの確認も出ない) | `FileBrowserListing`(→「一覧の読み込み」) |
 | 自分から中を読む部品は、TCC の保護下の場所を**パスの文字列だけで**除外し、ネットワーク越しの場所を**マウント表で**除外する | 三角 `DirectoryProbe.protectedPrefixes`、絵 `FileBrowserThumbnailProvider`(同じ保護下の場所の中を見ているときだけ `categoryProtectedPrefixes` を読む)、動画の先回り `FileBrowserVideoThumbnailWarmer`(よく使う項目そのものがその中にあるときだけ辿る) |
+| 画像フォルダかどうか(右クリックの「開く」・新しいタブで開く・メタデータの編集・ダブルクリックで開く)は、直下と子フォルダの直下の名前だけを見て、保護下の子フォルダは同じ保護下の場所の中から見ているときだけ読む。`DirectoryBrowser` の一覧(コレクションの作成・本棚へのドロップ・サイドパネル)も同じ規則で子フォルダの中を読む。比べるパスは `/System/Volumes/Data` の頭を外して揃える(2 回目の監査 15・23。以前は `ShelfFolderResolver.role` がホームで「書類」などの中まで読んだ) | `ShelfFolderResolver.isSingleBookFolder` / `DirectoryProbe.mayReadChild` |
 | アイコンは種類だけで引く。`NSWorkspace.icon(forFile:)` と `NSPathControl.url` を使わない | `FileBrowserIconProvider` / `FileBrowserPathBar`(→「AppKit とすりガラス面」) |
 | 追い出されたファイル(`SF_DATALESS`)は絵を作らず、読み取りはスレッド単位で実体化を切る | `DatalessFiles.withoutDownloading`(→「サムネイル」) |
 | 「このアプリケーションで開く」の候補はファイルに触らず種類(`UTType`)で引く | `OpenWithApplications` |
 | FSEvents は許可なしで届くが、ネットワーク上の場所は見張らない | `FileBrowserState` / `FileBrowserTreeView`(→「一覧の読み込み」「ツリーの三角」) |
+| 塞がる読み込みを積まない: 一覧は同じフォルダを読んでいる最中の読み直しを重ねず読み終えてから 1 回、ツリーの行も同じ、FSEvents のパスは URL を作らず文字列で親を求める(stat しない)、ネットワークの項目の絵は別の枠(2 件)、見張るものが無くなったら FSEvents の続きの位置を忘れる(2 回目の監査 17〜19) | `FileBrowserState.reload`(`inFlightFolderID`)/ `FileBrowserTreeView.loadChildren`(`isLoadingChildren`)/ `FileBrowserThumbnailProvider.maxConcurrentRemoteJobs` / `FolderChangeWatcher.forgetLastEventID` |
 
 書く操作に関わるサンドボックスの事実(どれも 2026-09-14 に実測。詳細は「書く操作」「ドラッグ&ドロップ」):
 

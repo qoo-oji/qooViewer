@@ -204,4 +204,25 @@ struct BulkRenameTests {
         #expect(!BulkRename.isRegisteredExtension("q"))
         #expect(!BulkRename.isRegisteredExtension("x y"))
     }
+
+    // MARK: - 件数が多いとき(2 回目の監査 16)
+
+    @Test("同じ候補が大量に並んでも、番号の続きから探すので 2 乗にならない。自分の元の名前が前の番号に当たるときはそれを使う")
+    func manyCollisionsStayLinear() throws {
+        // 以前は項目ごとに 2 から数え直し、5000 件で 4.6 秒メインを止めた(2 万件なら 1 分を超える)。
+        let date = try Self.localDate(hour: 9, minute: 5, second: 7)
+        let mode = BulkRename.Mode.format(style: .nameAndDate, customFormat: "b ", placement: .afterName, startNumber: 1)
+        let names = (0..<20_000).map { "f\($0).txt" }
+        let started = ContinuousClock.now
+        let renamed = newNames(names, mode, date: date)
+        #expect(ContinuousClock.now - started < .seconds(10))
+        #expect(Set(renamed.map(FileNameValidation.foldedForComparison)).count == names.count)
+
+        // 自分の元の名前の例外: 2 件目の元の名前「b D 2.txt」は、1 件目が 3 まで進めた後でも 2 件目自身には空いている。
+        let text = BulkRename.dateString(date, locale: Self.japanese)
+        let base = "b \(text)"
+        #expect(newNames(["p.txt", "\(base) 2.txt", "q.txt"], existing: ["\(base).txt"], mode, date: date) == [
+            "\(base) 3.txt", "\(base) 2.txt", "\(base) 4.txt",
+        ])
+    }
 }

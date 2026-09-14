@@ -231,12 +231,9 @@ extension FileBrowserActions {
             return nil
         }
         let url = entry.url
-        let order = preferences?.siblingBookOrder ?? .byName
         return Task { [weak self] in
-            let isBook = await FileIO.perform { () -> Bool in
-                if case .book = ShelfFolderResolver.role(of: url, order: order) { return true }
-                return false
-            }
+            // 子フォルダの中を全部読まず、保護下の場所にも入らない判定(ShelfFolderResolver.isSingleBookFolder。2 回目の監査 15)。
+            let isBook = await FileIO.perform { ShelfFolderResolver.isSingleBookFolder(url) }
             if isBook {
                 perform(url)
             } else {

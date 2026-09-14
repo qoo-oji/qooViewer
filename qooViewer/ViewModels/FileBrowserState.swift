@@ -406,16 +406,29 @@ final class FileBrowserState: ObservableObject {
         reload()
     }
 
+    /// 読み込み中のフォルダの id(`.some(nil)` はコンピュータ)。読んでいなければ nil。
+    private var inFlightFolderID: String??
+
     /// 今のフォルダを読み直す(選択は、残っている項目のぶんだけ保つ)。
+    ///
+    /// **同じフォルダを読んでいる最中なら重ねない**(読み終えてから 1 回だけ読み直す。2026-09-14 の 2 回目の監査 18)。
+    /// `loadTask?.cancel()` は FileIO の上の列挙を止められないので、以前はアクティブ化・ボリュームの着脱のたびに、応答しない共有の
+    /// 列挙で塞がったスレッドが 1 本ずつ積もった。
     func reload() {
+        if let inFlight = inFlightFolderID, inFlight == Self.id(of: currentFolder) {
+            needsReloadAfterLoad = true
+            return
+        }
         generation &+= 1
         let mine = generation
         loadTask?.cancel()
         let folder = currentFolder
         isLoading = true
         needsReloadAfterLoad = false
+        inFlightFolderID = .some(Self.id(of: folder))
         loadTask = Task { [weak self] in
             defer {
+                if let self, self.generation == mine { self.inFlightFolderID = nil }
                 // 読んでいる間に届いた変更を、読み終えてから 1 回だけ拾う(同じ世代のままなら ―― 別の読み込みが
                 // 始まっていれば、そちらが最新を読む)。
                 if let self, self.generation == mine, self.needsReloadAfterLoad {
@@ -572,6 +585,12 @@ final class FileBrowserState: ObservableObject {
         isLoading = false
         loadError = nil
         allEntries = sort.sorted(list)
+        // 読んでいる最中に読み直しを頼まれていたら(`reload` のコメント)、この一覧は頼まれる前の姿かもしれない。選ぶ・見せる項目の依頼は
+        // 次の読み直しまで取っておく(操作で作った項目がまだ無い一覧で依頼を使い切らない)。
+        if needsReloadAfterLoad, pendingReveal != nil || pendingSelection != nil {
+            applyFilter()
+            return
+        }
         if let reveal = pendingReveal {
             pendingReveal = nil
             // 絞り込みで隠れていたら出す(選んだのに見えない、を作らない)。移動の直後は空なので、
@@ -585,7 +604,10 @@ final class FileBrowserState: ObservableObject {
             scrollRequest = ScrollRequest(id: reveal, serial: scrollSerial)
         } else if let wanted = pendingSelection {
             pendingSelection = nil
-            let present = wanted.filter { id in allEntries.contains { $0.id == id } }
+            // 集合で引く(2026-09-14 の 2 回目の監査 16。以前は選ぶ項目ごとに一覧を端から探し、2 万件のフォルダへ 1000 件を
+            // 貼ると 3.4 秒メインを止めた)。
+            let presentIDs = Set(allEntries.map(\.id))
+            let present = wanted.filter(presentIDs.contains)
             applyFilter()
             let visible = entries.filter { present.contains($0.id) }
             if !visible.isEmpty {

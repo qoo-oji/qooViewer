@@ -132,4 +132,32 @@ struct ShelfFolderResolverTests {
         let missing = temporary.file("missing")
         #expect(ShelfFolderResolver.resolvedBookURL(for: missing, order: .byName) == missing)
     }
+
+    @Test("それ自体で1冊か(ファイルブラウザの「開く」): role と同じ規則を、子の中を全部読まず、保護下の子フォルダには入らずに決める(2 回目の監査 15)")
+    func singleBookFolderCheckMatchesTheRulesWithoutEnteringProtectedChildren() throws {
+        let temporary = try TemporaryDirectory("single-book-check")
+        let images = try temporary.directory("images")
+        try PageImageFactory.png(number: 1).write(to: images.appendingPathComponent("001.png"))
+        let chapters = try temporary.directory("chapters")
+        let chapter = try temporary.directory("chapters/ch1")
+        try PageImageFactory.png(number: 1).write(to: chapter.appendingPathComponent("001.png"))
+        let shelf = try temporary.directory("shelf")
+        _ = try temporary.directory("shelf/ch1")
+        try PageImageFactory.png(number: 1).write(to: shelf.appendingPathComponent("ch1/001.png"))
+        try Data("zip".utf8).write(to: shelf.appendingPathComponent("01.cbz"))
+        let empty = try temporary.directory("empty")
+
+        for url in [images, chapters, shelf, empty] {
+            let viaRole: Bool
+            if case .book = ShelfFolderResolver.role(of: url, order: .byName) { viaRole = true } else { viaRole = false }
+            #expect(ShelfFolderResolver.isSingleBookFolder(url, protectedPrefixes: []) == viaRole, "\(url.lastPathComponent)")
+        }
+        #expect(ShelfFolderResolver.isSingleBookFolder(images, protectedPrefixes: []))
+        #expect(ShelfFolderResolver.isSingleBookFolder(chapters, protectedPrefixes: []))
+        #expect(!ShelfFolderResolver.isSingleBookFolder(shelf, protectedPrefixes: []))
+
+        // 章のフォルダが保護下の場所なら、中を読まない(=規則2 に数えない)。同じ保護下の場所の中から見るなら読む。
+        #expect(!ShelfFolderResolver.isSingleBookFolder(chapters, protectedPrefixes: [chapter.path]))
+        #expect(ShelfFolderResolver.isSingleBookFolder(chapters, protectedPrefixes: [chapters.path]))
+    }
 }

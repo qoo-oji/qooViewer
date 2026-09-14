@@ -99,6 +99,36 @@ nonisolated enum ShelfFolderResolver {
         return .shelf(books: books)
     }
 
+    /// `url` がそれ自体で1冊か(規則1・2)を、**一覧を組み立てずに**確かめる(ファイルブラウザの「開く」・新しいタブで開く・
+    /// メタデータの編集・ダブルクリックで開く。2026-09-14 の 2 回目の監査 15)。
+    ///
+    /// `role(of:order:)` と結論は同じだが、読むのは `url` の直下の名前と、規則2のための子フォルダの直下の名前だけで、
+    /// 画像が 1 つ見つかった時点で打ち切る(以前は `role` が一覧の全行の種類・日付まで引いた)。**子フォルダのうち TCC の保護下の
+    /// 場所は、`url` と同じ保護下の場所でなければ読まない**(ホームで右クリックの「開く」を選んだだけで、「書類」「デスクトップ」などの
+    /// 許可のダイアログが次々に出た。`DirectoryProbe.mayReadChild`)。
+    static func isSingleBookFolder(_ url: URL, protectedPrefixes: [String] = DirectoryProbe.protectedPrefixes) -> Bool {
+        guard let enumerator = FileManager.default.enumerator(
+            at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
+        ) else { return false }
+        var subfolders: [URL] = []
+        var holdsBookFiles = false
+        while let child = enumerator.nextObject() as? URL {
+            // 列挙器はフォルダを末尾の / 付きで返す(1 件ごとの stat が要らない。DirectoryBrowser.directContents と同じ)。
+            if child.hasDirectoryPath {
+                subfolders.append(child)
+                continue
+            }
+            let name = child.lastPathComponent
+            if isImageFile(name) { return true }
+            if isArchiveFile(name) || isPDFFile(name) || isEpubFile(name) { holdsBookFiles = true }
+        }
+        guard !holdsBookFiles else { return false }
+        return subfolders.contains { subfolder in
+            DirectoryProbe.mayReadChild(subfolder, of: url, prefixes: protectedPrefixes)
+                && DirectoryBrowser.directlyContainsImageFile(subfolder)
+        }
+    }
+
     /// `folder`が棚なら、その直下に並んでいる本。棚でなければnil。
     static func directBooks(in folder: URL, order: SiblingBookOrder) -> [URL]? {
         guard case .shelf(let books) = role(of: folder, order: order) else { return nil }

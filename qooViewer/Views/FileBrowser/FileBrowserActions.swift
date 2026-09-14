@@ -82,10 +82,9 @@ final class FileBrowserActions {
             state.navigate(to: entry.url)
             return nil
         }
-        let order = preferences?.siblingBookOrder ?? .byName
         let startFolder = state.currentFolder
         return Task { [weak self] in
-            let isBook = await Self.isImageFolder(entry.url, order: order)
+            let isBook = await Self.isImageFolder(entry.url)
             guard let self, let state = self.state else { return }
             if isBook {
                 self.appState?.open(url: entry.url)
@@ -102,9 +101,8 @@ final class FileBrowserActions {
         guard let openWindow, let launchCoordinator else { return }
         let source = appState
         if entry.isNavigableFolder {
-            let order = preferences?.siblingBookOrder ?? .byName
             Task {
-                if await Self.isImageFolder(entry.url, order: order) {
+                if await Self.isImageFolder(entry.url) {
                     BookWindowOpener.open(
                         BookOpenRequest(entry.url), to: destination, from: source,
                         launchCoordinator: launchCoordinator, openWindow: openWindow
@@ -308,13 +306,11 @@ final class FileBrowserActions {
         }
     }
 
-    /// 画像フォルダ(それ自体が1冊の本)か。棚への登録と同じ判定(ShelfFolderResolver.role)を
-    /// FileIOの上で。
-    private nonisolated static func isImageFolder(_ url: URL, order: SiblingBookOrder) async -> Bool {
-        await FileIO.perform {
-            if case .book = ShelfFolderResolver.role(of: url, order: order) { return true }
-            return false
-        }
+    /// 画像フォルダ(それ自体が1冊の本)か。棚への登録と同じ規則を、子フォルダの中を全部読まず、保護下の場所にも入らずに
+    /// FileIOの上で(ShelfFolderResolver.isSingleBookFolder。2026-09-14 の 2 回目の監査 15 ―― 以前は `role` がホームで
+    /// 「書類」などの中まで読み、ダブルクリックや右クリックの「開く」だけで許可のダイアログが出た)。
+    private nonisolated static func isImageFolder(_ url: URL) async -> Bool {
+        await FileIO.perform { ShelfFolderResolver.isSingleBookFolder(url) }
     }
 }
 

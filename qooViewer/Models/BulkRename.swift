@@ -102,6 +102,9 @@ nonisolated enum BulkRename {
         if case let .format(_, _, _, startNumber) = mode { counter = startNumber } else { counter = 0 }
         let dateText = dateString(date, locale: locale)
 
+        /// 番号を付けて避けたときの、次に試す番号(基部 + 拡張子ごと。`avoiding` のコメント)。
+        var nextNumbers: [String: Int] = [:]
+
         var renames: [Rename] = []
         for name in names.prefix(limit ?? names.count) {
             let own = FileNameValidation.foldedForComparison(name)
@@ -115,10 +118,10 @@ nonisolated enum BulkRename {
             case let .replaceText(find, replaceWith):
                 let replaced = find.isEmpty ? name : name.replacingOccurrences(of: find, with: replaceWith, options: .caseInsensitive)
                 let candidate = keepingRegisteredExtension(of: name, in: replaced, isRegistered: isRegistered)
-                newName = avoiding(candidate, isTaken: isTaken, isRegistered: isRegistered)
+                newName = avoiding(candidate, isTaken: isTaken, isRegistered: isRegistered, own: own, nextNumbers: &nextNumbers)
             case let .addText(text, placement):
                 let candidate = placement == .beforeName ? text + name : joined(stem + text, ext)
-                newName = avoiding(candidate, isTaken: isTaken, isRegistered: isRegistered)
+                newName = avoiding(candidate, isTaken: isTaken, isRegistered: isRegistered, own: own, nextNumbers: &nextNumbers)
             case let .format(style, customFormat, placement, _):
                 let base = customFormat.isEmpty ? stem : customFormat
                 let separator = customFormat.isEmpty ? " " : ""
@@ -137,7 +140,7 @@ nonisolated enum BulkRename {
                     counter = number + 1
                     newName = candidate
                 case .nameAndDate:
-                    newName = avoiding(compose(dateText), isTaken: isTaken, isRegistered: isRegistered)
+                    newName = avoiding(compose(dateText), isTaken: isTaken, isRegistered: isRegistered, own: own, nextNumbers: &nextNumbers)
                 }
             }
             assigned.insert(FileNameValidation.foldedForComparison(newName))
@@ -185,15 +188,42 @@ nonisolated enum BulkRename {
     }
 
     /// 塞がっていれば `name 2.ext` …(拡張子は登録済みの規則で分ける ―― `c 2.zip.cbz`)。
-    private static func avoiding(_ candidate: String, isTaken: (String) -> Bool, isRegistered: (String) -> Bool) -> String {
+    ///
+    /// **前に同じ基部で避けたときの番号の続きから探す**(2026-09-14 の 2 回目の監査 16。以前は項目ごとに 2 から数え直したので、
+    /// 「名前と日付」のように全部が同じ候補になる方式では 5000 件で 4.6 秒、シートの例の行では打鍵ごとにメインを止めた)。
+    /// 続きから探しても結果は変わらない: 前に通り過ぎた番号は、そのとき「割り当て済み」か「その項目以外の既存の名前」で塞がっていて、
+    /// 割り当ては増える一方、既存の名前は変わらない。例外は**この項目自身の元の名前**(自分の名前は塞がっていない扱い)だけなので、
+    /// それが続きより前の番号に当たるときだけ先に確かめる。
+    private static func avoiding(
+        _ candidate: String, isTaken: (String) -> Bool, isRegistered: (String) -> Bool, own: String, nextNumbers: inout [String: Int]
+    ) -> String {
         guard isTaken(candidate) else { return candidate }
         let (stem, ext) = splitExtension(candidate, isRegistered: isRegistered)
-        var number = 2
+        let memo = FileNameValidation.foldedForComparison(stem) + "\u{0}" + FileNameValidation.foldedForComparison(ext)
+        var number = nextNumbers[memo] ?? 2
+        if number > 2, let ownNumber = numberSuffix(of: own, stem: stem, ext: ext), ownNumber >= 2, ownNumber < number {
+            let ownCandidate = joined("\(stem) \(ownNumber)", ext)
+            if !isTaken(ownCandidate) { return ownCandidate }
+        }
         while true {
             let next = joined("\(stem) \(number)", ext)
-            if !isTaken(next) { return next }
+            if !isTaken(next) {
+                nextNumbers[memo] = number + 1
+                return next
+            }
             number += 1
         }
+    }
+
+    /// 畳んだ名前 `foldedName` が `stem N.ext`(N は 0 で始まらない数字)の形ならその N。
+    private static func numberSuffix(of foldedName: String, stem: String, ext: String) -> Int? {
+        let prefix = FileNameValidation.foldedForComparison(stem + " ")
+        let suffix = ext.isEmpty ? "" : FileNameValidation.foldedForComparison("." + ext)
+        guard foldedName.hasPrefix(prefix), foldedName.hasSuffix(suffix), foldedName.count > prefix.count + suffix.count else { return nil }
+        let digits = foldedName.dropFirst(prefix.count).dropLast(suffix.count)
+        guard digits.first != "0", digits.allSatisfy({ $0.isASCII && $0.isNumber }), let number = Int(digits) else { return nil }
+        // 畳み方の違いで形だけ合って別の名前になっていないか、組み立て直して確かめる。
+        return FileNameValidation.foldedForComparison(joined("\(stem) \(number)", ext)) == foldedName ? number : nil
     }
 
     private static func numberString(_ number: Int, style: FormatStyle) -> String {

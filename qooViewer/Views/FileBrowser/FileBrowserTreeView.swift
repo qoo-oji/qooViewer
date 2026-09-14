@@ -170,6 +170,10 @@ struct FileBrowserTreeView: NSViewRepresentable {
         var hasSubfolders: Bool?
         /// いちばん新しい子の読み込み。「現在のフォルダまで開く」が読み終わりを待つ。
         var childrenTask: Task<Void, Never>?
+        /// 子を読んでいる最中か(`loadChildren` のコメント)。
+        var isLoadingChildren = false
+        /// 読んでいる最中に読み直しを頼まれた(読み終えたら 1 回だけ読み直す)。
+        var needsReloadAfterLoad = false
         /// 読み込んだときの一覧の行(フォルダの行だけ)。子の並べ替えに使う(型コメント「子の並び」)。
         var listing: FileBrowserEntry?
 
@@ -318,9 +322,12 @@ struct FileBrowserTreeView: NSViewRepresentable {
             guard !paths.isEmpty else { return }
             var ids = Set<String>()
             for raw in paths {
-                let url = URL(fileURLWithPath: FileBrowserState.pathOutsideDataVolume(raw))
-                ids.insert(FileBrowserState.id(for: url))
-                ids.insert(FileBrowserState.id(for: url.deletingLastPathComponent()))
+                // **URL を作らずに文字列で親を求める**(2026-09-14 の 2 回目の監査 17)。`URL(fileURLWithPath:)` は `isDirectory:` を
+                // 渡さないとパスを stat するので、ダウンロードが続くフォルダでは FSEvents のパスごとにメインの上で stat が走っていた。
+                // 行の id は末尾の / を持たないパス(FileBrowserState.id(for:))なので、揃えて比べられる。
+                let path = MountTable.normalized(FileBrowserState.pathOutsideDataVolume(raw))
+                ids.insert(path)
+                ids.insert((path as NSString).deletingLastPathComponent)
             }
             reloadExpandedRows(in: ids)
         }
@@ -578,9 +585,25 @@ struct FileBrowserTreeView: NSViewRepresentable {
             weak var node: Node?
         }
 
+        /// 行の子を読む。**読んでいる最中なら重ねずに、読み終えてから 1 回だけ読み直す**(2026-09-14 の 2 回目の監査 17)。
+        /// 以前は前の読み込みを残したまま新しい読み込みを始めたので、開いたダウンロードフォルダの中でダウンロードが続くと
+        /// 0.3 秒ごとに FileIO のスレッドが 1 本ずつ立ち(応答しない共有なら戻らないまま積もる)、いちばん新しい読み込みが
+        /// 次々に差し替わるので「現在のフォルダまで開く」の待ちも終わらなかった。
         private func loadChildren(of node: Node) {
+            guard node.url != nil else { return }
+            if node.isLoadingChildren {
+                node.needsReloadAfterLoad = true
+                return
+            }
+            startLoadingChildren(of: node)
+        }
+
+        private func startLoadingChildren(of node: Node) {
             guard let url = node.url else { return }
-            node.loadGeneration += 1
+            node.isLoadingChildren = true
+            node.needsReloadAfterLoad = false
+            // 世代は、たたんだ(`outlineViewItemDidCollapse`)ときにだけ進む。読み直しの頼みでは進めない(進めると、読み直しが
+            // 続く間ずっと結果を捨て続ける)。
             let mine = node.loadGeneration
             node.childrenTask = Task { [weak self, weak node] in
                 let folders: [(FileBrowserEntry, Bool?)]
@@ -596,9 +619,15 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 } catch {
                     folders = []
                 }
-                guard let self, let node, let outline = self.outline, node.loadGeneration == mine,
-                      outline.isItemExpanded(node)
-                else { return }
+                guard let self, let node else { return }
+                node.isLoadingChildren = false
+                defer {
+                    // 読んでいる間に頼まれた読み直し(またはたたんで開き直した行)を、ここで 1 回だけ。
+                    if node.needsReloadAfterLoad, let outline = self.outline, outline.isItemExpanded(node) {
+                        self.startLoadingChildren(of: node)
+                    }
+                }
+                guard let outline = self.outline, node.loadGeneration == mine, outline.isItemExpanded(node) else { return }
                 // 読み直し(reloadExpandedRows)で開いている孫の行が閉じないよう、同じパスの行は同じ Node を使い回す
                 // (NSOutlineView は開閉を項目の同一性で覚えている)。
                 let previous = Dictionary(

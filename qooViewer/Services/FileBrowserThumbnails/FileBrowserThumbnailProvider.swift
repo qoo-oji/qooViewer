@@ -25,7 +25,9 @@ import UniformTypeIdentifiers
 /// `LazyCellImageBudget` で数える(LazyVGrid は画面外のセルの @State を手放さない)。
 ///
 /// ■ 並べ方
-/// 作る仕事は同時に `maxConcurrentJobs`(4)件まで。待っている仕事は**後から頼まれたものから**始める(スクロールすると
+/// 作る仕事は同時に `maxConcurrentJobs`(4)件まで。**ネットワーク越しの項目はそれとは別に `maxConcurrentRemoteJobs`(2)件まで**
+/// (2026-09-14 の 2 回目の監査 18。枠が 1 つだったので、応答しない共有の 4 件で全ウインドウの絵が止まった ―― FileIO の上の読み取りは
+/// 期限を付けても止められないので、塞がる枠を分けるしかない)。待っている仕事は**後から頼まれたものから**始める(スクロールすると
 /// 画面に入ったばかりのセルが先に埋まる)。同じ絵を頼むセルが複数あれば 1 件にまとめる。頼んだセルが全部いなくなった
 /// (`.task` が取り消された)仕事は、始まる前なら捨てる。始まった仕事は止めない(FileIO の上の読み取りは中断できない)
 /// ―― 結果はキャッシュに入るので無駄にはならない。
@@ -63,6 +65,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     private var preferencesSubscription: AnyCancellable?
 
     static let maxConcurrentJobs = 4
+    static let maxConcurrentRemoteJobs = 2
     nonisolated static let memoryLimitBytes = 96 * 1024 * 1024
 
     /// 復号の大きさの段(長辺の画素)。
@@ -103,17 +106,20 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         let memoryKey: String
         let source: Source
         let pixelSize: CGFloat
+        /// ネットワーク越しの項目(別の枠で走らせる)。
+        let isRemote: Bool
         var waiters: [UUID: CheckedContinuation<PagePixelBuffer?, Never>] = [:]
         var isStarted = false
         /// 作った絵をディスクキャッシュへ書くか。待つセルのどれか 1 つでも通常ウインドウなら書く(型コメント「シークレットウインドウ」)。
         /// 書く直前に読むので、作っている最中に加わったセルの分も効く。
         var savesToDisk = false
 
-        init(baseKey: String, memoryKey: String, source: Source, pixelSize: CGFloat) {
+        init(baseKey: String, memoryKey: String, source: Source, pixelSize: CGFloat, isRemote: Bool) {
             self.baseKey = baseKey
             self.memoryKey = memoryKey
             self.source = source
             self.pixelSize = pixelSize
+            self.isRemote = isRemote
         }
     }
 
@@ -130,6 +136,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     /// 始まっていない仕事(末尾が新しい)。
     private var queue: [Job] = []
     private var runningCount = 0
+    private var runningRemoteCount = 0
 
     /// 実際に絵を作った回数(**テストのための口**。キャッシュに当たったら数えない)。
     private(set) var generatedCount = 0
@@ -248,7 +255,13 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         if let existing = jobs[memoryKey] {
             job = existing
         } else {
-            job = Job(baseKey: baseKey, memoryKey: memoryKey, source: source, pixelSize: pixelSize)
+            // 表紙(アプリの中の保管庫)はネットワークに無い。項目そのもの・指定したページは項目の場所で決める(マウント表はファイルシステムに触れない)。
+            let isRemote: Bool
+            switch source {
+            case .cover: isRemote = false
+            case .shelfPage, .item: isRemote = MountTable.current().isRemote(entry.url)
+            }
+            job = Job(baseKey: baseKey, memoryKey: memoryKey, source: source, pixelSize: pixelSize, isRemote: isRemote)
             jobs[memoryKey] = job
             queue.append(job)
         }
@@ -310,9 +323,13 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     }
 
     private func pump() {
-        while runningCount < Self.maxConcurrentJobs, let job = queue.popLast() {
+        // 空いている枠の仕事のうち、いちばん新しく頼まれたものから。
+        while let index = queue.lastIndex(where: {
+            $0.isRemote ? runningRemoteCount < Self.maxConcurrentRemoteJobs : runningCount < Self.maxConcurrentJobs
+        }) {
+            let job = queue.remove(at: index)
             job.isStarted = true
-            runningCount += 1
+            if job.isRemote { runningRemoteCount += 1 } else { runningCount += 1 }
             Task { [weak self] in
                 guard let self else { return }
                 let result = await self.run(job)
@@ -322,7 +339,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     }
 
     private func finish(_ job: Job, result: PagePixelBuffer?) {
-        runningCount -= 1
+        if job.isRemote { runningRemoteCount -= 1 } else { runningCount -= 1 }
         jobs[job.memoryKey] = nil
         if let result {
             memory.store(result, forKey: job.memoryKey as NSString)

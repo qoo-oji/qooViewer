@@ -68,13 +68,18 @@ nonisolated enum FileNameValidation {
     /// 拡張子の扱いは Finder に合わせる: 先頭のドットだけの名前(`.hidden`)とフォルダは全体を基部にする。
     static func nextAvailableName(for name: String, isDirectory: Bool = false, isTaken: (String) -> Bool) -> String {
         guard isTaken(name) else { return name }
-        let (base, ext) = split(name, isDirectory: isDirectory)
         var number = 2
         while true {
-            let candidate = ext.isEmpty ? "\(base) \(number)" : "\(base) \(number).\(ext)"
+            let candidate = numberedName(name, number: number, isDirectory: isDirectory)
             if !isTaken(candidate) { return candidate }
             number += 1
         }
+    }
+
+    /// `name` に番号を付けた名前(`name 2.ext`)。`nextAvailableName` と同じ分け方。
+    static func numberedName(_ name: String, number: Int, isDirectory: Bool = false) -> String {
+        let (base, ext) = split(name, isDirectory: isDirectory)
+        return ext.isEmpty ? "\(base) \(number)" : "\(base) \(number).\(ext)"
     }
 
     /// 既にある名前の集合から選ぶ版(純粋関数。テストと一括リネームの計画用)。
