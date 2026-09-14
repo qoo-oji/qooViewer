@@ -46,6 +46,9 @@ import UniformTypeIdentifiers
 struct FileBrowserIconView: View {
     @ObservedObject var state: FileBrowserState
     let actions: FileBrowserActions
+    /// 読み取り専用モードか(段階 8.5)。判定は `actions` から読むが、**値として受け取っておかないと、環境設定で切り替えても
+    /// 本体が評価し直されず、右クリックの淡色が古いまま残る**(`state` と `actions` の参照は変わらないため)。
+    let isReadOnly: Bool
     @EnvironmentObject private var thumbnails: FileBrowserThumbnailProvider
 
     @State private var marquee = MarqueeSelection()
@@ -195,7 +198,8 @@ struct FileBrowserIconView: View {
     }
 
     private func beginEditing(_ entry: FileBrowserEntry) {
-        guard !entry.isVolume else { return }
+        // 読み取り専用モードの間は、名前のクリックからも始めない(段階 8.5)。
+        guard !entry.isVolume, !isReadOnly, actions.allowsFileChanges else { return }
         clickSerial += 1
         editingText = entry.url.lastPathComponent
         editingID = entry.id
@@ -353,7 +357,8 @@ struct FileBrowserIconView: View {
             if !state.selection.contains(entry.id) { state.click(entry.id, modifier: .none) }
             clickSerial += 1
             dragHandle.beginIfNeeded(
-                gestureStart: value.startLocation, entries: state.selectedEntries, iconSize: state.iconSize
+                gestureStart: value.startLocation, entries: state.selectedEntries, iconSize: state.iconSize,
+                allowsFileChanges: actions.allowsFileChanges
             )
         }, including: gestureMask)
         .modifier(FileBrowserFolderDropTarget(

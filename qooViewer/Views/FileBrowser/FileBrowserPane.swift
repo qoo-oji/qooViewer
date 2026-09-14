@@ -264,7 +264,7 @@ struct FileBrowserPane: View {
                         onWholeListDropTargetChange: { isListDropTargeted = $0 }
                     )
                 case .icons:
-                    FileBrowserIconView(state: state, actions: actions)
+                    FileBrowserIconView(state: state, actions: actions, isReadOnly: preferences.fileBrowserReadOnly)
                 }
                 if state.entries.isEmpty, !state.isLoading {
                     Group {

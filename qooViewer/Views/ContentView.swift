@@ -427,9 +427,13 @@ struct ContentView: View {
                 hasPartnerPageDisplayed: appState.hasPartnerPageDisplayed,
                 hasCurrentPageLayoutOverride: appState.hasCurrentPageLayoutOverride,
                 hasPartnerPageLayoutOverride: appState.hasPartnerPageLayoutOverride,
-                fileBrowserUndoTitle: isFileBrowserShown ? fileBrowser.commandStack.undoTitle : nil,
-                fileBrowserRedoTitle: isFileBrowserShown ? fileBrowser.commandStack.redoTitle : nil,
-                canCreateFolderInFileBrowser: isFileBrowserShown && fileBrowser.currentFolder != nil,
+                // 読み取り専用モードの間は取り消し/やり直し・新規フォルダを淡色にする(履歴は残す。段階 8.5)。
+                fileBrowserUndoTitle: isFileBrowserShown && !preferences.fileBrowserReadOnly
+                    ? fileBrowser.commandStack.undoTitle : nil,
+                fileBrowserRedoTitle: isFileBrowserShown && !preferences.fileBrowserReadOnly
+                    ? fileBrowser.commandStack.redoTitle : nil,
+                canCreateFolderInFileBrowser: isFileBrowserShown && !preferences.fileBrowserReadOnly
+                    && fileBrowser.currentFolder != nil,
                 fileBrowserNavigation: isFileBrowserShown
                     ? FileBrowserMenuNavigation(
                         canGoBack: fileBrowser.canGoBack, canGoForward: fileBrowser.canGoForward,

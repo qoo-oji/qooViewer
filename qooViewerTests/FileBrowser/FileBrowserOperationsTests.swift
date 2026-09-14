@@ -88,6 +88,8 @@ struct FileBrowserOperationsTests {
             temporary = try TemporaryDirectory(label)
             suite = PreferencesSuite(label: label)
             preferences = suite.makePreferences()
+            // 書く操作を確かめるので読み取り専用モードは切る(既定は ON。ON のときは readOnly* のテスト)。
+            preferences.fileBrowserReadOnly = false
             state = FileBrowserState(defaults: suite.defaults)
             state.preferences = preferences
             root = try temporary.directory("root")
@@ -843,6 +845,103 @@ struct FileBrowserOperationsTests {
         let undoChange = try #require(fixture.state.fileSystemChange)
         #expect(undoChange.isUnknownScope)
         #expect(undoChange.serial > change.serial)
+    }
+
+    // MARK: - 読み取り専用モード(段階 8.5)
+
+    @Test("読み取り専用モードの既定は ON。環境設定が届いていない窓口も断る側に倒す")
+    func readOnlyIsOnByDefault() throws {
+        let suite = PreferencesSuite(label: "fbops-readonly-default")
+        #expect(suite.makePreferences().fileBrowserReadOnly)
+        #expect(FileBrowserOperations().isReadOnly)
+    }
+
+    @Test("読み取り専用モードでは、ペースト・カット・ドロップ・ゴミ箱・新規フォルダ・名前の変更・一括リネーム・圧縮・展開が何もしない")
+    func readOnlyRefusesEveryFileChange() async throws {
+        let fixture = try Fixture("fbops-readonly")
+        await fixture.showRoot()
+        let file = fixture.root.appendingPathComponent("a.txt")
+        try Data("b".utf8).write(to: fixture.root.appendingPathComponent("b.txt"))
+        var builder = ZipFixtureBuilder()
+        builder.add("001.png", text: "1")
+        let archive = fixture.root.appendingPathComponent("book.cbz")
+        try builder.write(to: archive)
+        fixture.presenter.bulkRenameAnswer = BulkRenameSettings()
+        fixture.presenter.confirmsDeletion = true
+        let before = (root: fixture.names(in: fixture.root), sub: fixture.names(in: fixture.sub), other: fixture.names(in: fixture.other))
+        fixture.preferences.fileBrowserReadOnly = true
+
+        // ⌘C は断らない(ペーストボードへ載せるだけ)。載せたものを貼ろうとしても貼られない。
+        fixture.state.operations.copy([fixture.entry(file)])
+        #expect(fixture.state.operations.canPaste)
+        fixture.state.operations.paste(into: fixture.other)
+        fixture.state.operations.paste(into: fixture.other, forceMove: true)
+        // カットは記憶しない。
+        fixture.state.operations.cut([fixture.entry(file)])
+        #expect(fixture.state.cutPaths.isEmpty)
+        fixture.state.operations.transfer([file], to: fixture.other, isMove: true)
+        fixture.state.operations.drop(FileDropPlan(moves: [file], copies: []), into: fixture.sub)
+        fixture.state.operations.moveToTrash([fixture.entry(file)])
+        fixture.state.operations.newFolder(in: fixture.root)
+        fixture.state.operations.rename(fixture.entry(file), to: "renamed.txt")
+        fixture.state.operations.bulkRename(["a.txt", "b.txt"].map { fixture.entry(fixture.root.appendingPathComponent($0)) })
+        fixture.state.operations.compress([fixture.entry(fixture.sub)])
+        fixture.state.operations.extract([fixture.entry(archive)], placement: .ownFolder)
+        await fixture.finish()
+
+        #expect(fixture.names(in: fixture.root) == before.root)
+        #expect(fixture.names(in: fixture.sub) == before.sub)
+        #expect(fixture.names(in: fixture.other) == before.other)
+        #expect(fixture.names(in: fixture.trash).isEmpty)
+        #expect(!fixture.state.commandStack.canUndo)
+        // 尋ねもしない(シート・確認を出さない)。
+        #expect(fixture.presenter.bulkRenameRequests.isEmpty)
+        #expect(fixture.presenter.deletionPrompts.isEmpty)
+        #expect(fixture.presenter.conflicts.isEmpty)
+        #expect(fixture.presenter.problems.isEmpty)
+    }
+
+    @Test("読み取り専用モードの間は取り消し/やり直しを断るが、履歴は残り、OFF に戻すと使える")
+    func readOnlyKeepsUndoHistory() async throws {
+        let fixture = try Fixture("fbops-readonly-undo")
+        await fixture.showRoot()
+        let file = fixture.root.appendingPathComponent("a.txt")
+        let renamed = fixture.root.appendingPathComponent("renamed.txt")
+        fixture.state.operations.rename(fixture.entry(file), to: "renamed.txt")
+        await fixture.finish()
+        #expect(fixture.exists(renamed))
+
+        fixture.preferences.fileBrowserReadOnly = true
+        fixture.state.operations.undo()
+        await fixture.finish()
+        #expect(fixture.exists(renamed))
+        #expect(fixture.state.commandStack.canUndo)
+
+        fixture.preferences.fileBrowserReadOnly = false
+        fixture.state.operations.undo()
+        await fixture.finish()
+        #expect(fixture.exists(file))
+        #expect(fixture.state.commandStack.canRedo)
+
+        fixture.preferences.fileBrowserReadOnly = true
+        fixture.state.operations.redo()
+        await fixture.finish()
+        #expect(fixture.exists(file))
+        #expect(!fixture.exists(renamed))
+    }
+
+    @Test("読み取り専用モードは走っている操作を止めず、次の操作から効く")
+    func readOnlyAppliesFromTheNextOperation() async throws {
+        let fixture = try Fixture("fbops-readonly-running")
+        await fixture.showRoot()
+        let file = fixture.root.appendingPathComponent("a.txt")
+        fixture.state.operations.copy([fixture.entry(file)])
+        fixture.state.operations.paste(into: fixture.other)
+        fixture.preferences.fileBrowserReadOnly = true
+        fixture.state.operations.paste(into: fixture.sub)
+        await fixture.finish()
+        #expect(fixture.names(in: fixture.other) == ["a.txt"])
+        #expect(fixture.names(in: fixture.sub).isEmpty)
     }
 
     // MARK: - 圧縮・展開(段階 6)

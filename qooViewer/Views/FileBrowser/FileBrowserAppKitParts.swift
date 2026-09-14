@@ -256,6 +256,15 @@ final class FileBrowserTableHeaderView: NSTableHeaderView {
 /// ボタンの絵を、反対色の輪郭を焼き込んだ絵に差し替える。
 final class FileBrowserOutlineView: NSOutlineView {
     var outlineWidth: CGFloat = 0
+    /// 出し口が移動を許すかを尋ねる相手(読み取り専用モード。`fileBrowserDragSourceMask`)。
+    weak var editResponder: (any FileBrowserEditResponding)?
+
+    override func draggingSession(
+        _ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext
+    ) -> NSDragOperation {
+        fileBrowserDragSourceMask(allowsFileChanges: editResponder?.allowsFileChanges ?? false)
+    }
+
     /// いまこの一覧の上でドラッグを受けているか(ドラッグ中に行を開かないため。TreeView の shouldExpandItem)。
     /// 入ったら立て、出たら・落とされたら(`noteDropAccepted`)下ろす。**`draggingEnded` / `concludeDragOperation` は
     /// 上書きしない** ―― 上書きすると、この一覧へ落としたときにドラッグ元(リスト)の
@@ -266,6 +275,17 @@ final class FileBrowserOutlineView: NSOutlineView {
 
     var isReceivingDrag: Bool {
         dragInside && NSEvent.pressedMouseButtons & 1 != 0
+    }
+
+    /// 行の名前の欄(編集しないラベル)を当たり先にしない。リストの `FileBrowserTableView.hitTest` と同じ理由
+    /// (2026-09-14。アイコン表示の右クリックでサブメニューを開いて閉じたあと、ツリーの右クリックのメニューが開かなくなった)。
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        resolvedHit(super.hitTest(point))
+    }
+
+    /// `hitTest` の結果を確かめ直す(テストはここを直に呼ぶ)。
+    func resolvedHit(_ hit: NSView?) -> NSView? {
+        hit is NSTextField ? self : hit
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {

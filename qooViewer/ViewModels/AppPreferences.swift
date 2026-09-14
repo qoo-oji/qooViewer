@@ -72,6 +72,7 @@ final class AppPreferences: ObservableObject {
         static let fileBrowserCompressionFormat = "qooViewer.pref.fileBrowser.compressionFormat"
         static let fileBrowserVideoThumbnailsEnabled = "qooViewer.pref.fileBrowser.videoThumbnailsEnabled"
         static let fileBrowserRevealDestination = "qooViewer.pref.fileBrowser.revealDestination"
+        static let fileBrowserReadOnly = "qooViewer.pref.fileBrowser.readOnly"
         static let sidePanelPosition = "qooViewer.pref.sidePanelPosition"
         static let sidePanelMode = "qooViewer.pref.sidePanelMode"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
@@ -647,6 +648,13 @@ final class AppPreferences: ObservableObject {
     /// 本を表示しているウインドウで「ファイルブラウザで開く」を選んだときの行き先(既定: 新規タブ。決定事項 Q6、段階 8)。
     @Published var fileBrowserRevealDestination: FileBrowserRevealDestination {
         didSet { defaults.set(fileBrowserRevealDestination.rawValue, forKey: Keys.fileBrowserRevealDestination) }
+    }
+    /// 読み取り専用モード(決定事項 Q12、段階 8.5)。**既定 ON**(段階 4 から書く操作を使っていた人も、初回は ON で始まる)。
+    /// ON の間はファイルそのものを変える操作(ペースト・カット・ゴミ箱・名前の変更・新規フォルダ・一括リネーム・圧縮・展開・
+    /// ファイルを動かす D&D・ファイル操作の取り消し/やり直し)をできなくする。判定の窓口は `FileBrowserOperations.isReadOnly`。
+    /// 途中で ON にしても走っている操作は止めない(次の操作から効く)。
+    @Published var fileBrowserReadOnly: Bool {
+        didSet { defaults.set(fileBrowserReadOnly, forKey: Keys.fileBrowserReadOnly) }
     }
     /// アイコン表示で動画の絵を作るか(QuickLook。既定ON、段階 7b)。**よく使う項目の中の動画を裏で先に作っておくのも、
     /// この 1 つで切り替える**(ユーザーの判断 2026-09-14。行を分けない)。OFF にすると動画は種類のアイコンに戻り、
@@ -1648,6 +1656,7 @@ final class AppPreferences: ObservableObject {
         self.fileBrowserCompressionFormat = FileBrowserCompressionFormat(
             rawValue: defaults.string(forKey: Keys.fileBrowserCompressionFormat) ?? ""
         ) ?? .zip
+        self.fileBrowserReadOnly = defaults.object(forKey: Keys.fileBrowserReadOnly) as? Bool ?? true
         self.fileBrowserRevealDestination = FileBrowserRevealDestination(
             rawValue: defaults.string(forKey: Keys.fileBrowserRevealDestination) ?? ""
         ) ?? .newTab
@@ -2019,6 +2028,7 @@ extension AppPreferences {
                 Keys.fileBrowserCompressionFormat,
                 Keys.fileBrowserVideoThumbnailsEnabled,
                 Keys.fileBrowserRevealDestination,
+                Keys.fileBrowserReadOnly,
             ]
         // 「読み込みと書き出し」はウインドウを開くボタンだけで、戻せる設定を持たない。
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
@@ -2133,6 +2143,7 @@ extension AppPreferences {
             fileBrowserCompressionFormat = source.fileBrowserCompressionFormat
             fileBrowserVideoThumbnailsEnabled = source.fileBrowserVideoThumbnailsEnabled
             fileBrowserRevealDestination = source.fileBrowserRevealDestination
+            fileBrowserReadOnly = source.fileBrowserReadOnly
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
             break
         }

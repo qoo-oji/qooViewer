@@ -15,6 +15,8 @@ import UniformTypeIdentifiers
 //   Finder のウインドウ同士と挙動が違うのは期待に反する(ユーザー指摘 2026-09-13)。
 //   Dock のゴミ箱へのドロップ(`.delete`)は許していない ―― 足しても合成したドラッグでは Finder からでさえ
 //   ゴミ箱が受け付けず、確かめられなかったため。
+//   **読み取り専用モードの間はコピーだけを許す**(段階 8.5、`fileBrowserDragSourceMask`)。移動を許すと、Finder へ
+//   落としたときに Finder が元を動かす ―― 動かすのが Finder でも、ファイルブラウザから元の場所が変わる。
 // - 受け口: リストの行と空きスペース・ツリーの行・パスバーの項目(いずれも AppKit の delegate)、
 //   アイコン表示のフォルダのセルと右ペインの残り全部(FileBrowserDropDelegate)。
 //   **何をするかの判定は `FileBrowserDropDecision` の 1 か所**で、実行は `FileBrowserOperations`。
@@ -56,12 +58,13 @@ enum FileBrowserDropDecision: Equatable {
     ///   - destination: 落とす先のフォルダ。nil はコンピュータ(ボリュームの一覧)。
     ///   - isInternal: アプリの中から始まったドラッグか(FileBrowserDragTracker)。
     ///   - allowsMove: ドラッグ元が移動を許しているか。
+    ///   - allowsFileChanges: 読み取り専用モードでないか。false なら運ばない(「ビューアで開く」はそのまま。段階 8.5)。
     static func make(
         urls: [URL], destination: URL?, isInternal: Bool, allowsMove: Bool, modifiers: FileDropPlan.Modifiers,
-        externalAction: FileBrowserExternalDropAction, isOnSameVolume: (URL, URL) -> Bool
+        externalAction: FileBrowserExternalDropAction, allowsFileChanges: Bool, isOnSameVolume: (URL, URL) -> Bool
     ) -> FileBrowserDropDecision {
         if !isInternal, externalAction == .openInViewer { return .openInViewer }
-        guard let destination, !urls.isEmpty,
+        guard allowsFileChanges, let destination, !urls.isEmpty,
               let plan = FileDropPlan.make(
                 items: urls, destination: destination, modifiers: modifiers, allowsMove: allowsMove,
                 isOnSameVolume: isOnSameVolume
@@ -131,6 +134,7 @@ extension FileBrowserActions {
             urls: internalItems ?? urls, destination: destination, isInternal: internalItems != nil,
             allowsMove: allowsMove, modifiers: modifiers ?? .current,
             externalAction: preferences?.fileBrowserExternalDropAction ?? .openInViewer,
+            allowsFileChanges: allowsFileChanges,
             isOnSameVolume: mountTable.areOnSameVolume
         )
     }
@@ -165,6 +169,13 @@ extension FileBrowserActions {
     static func pasteboardWriter(for entry: FileBrowserEntry) -> NSPasteboardWriting? {
         entry.isVolume ? nil : entry.url as NSURL
     }
+}
+
+/// 出し口が許す操作。アプリの外へも移動を許すが、読み取り専用モードの間はコピーだけ(ファイル冒頭のコメント)。
+/// AppKit の一覧は `draggingSession(_:sourceOperationMaskFor:)` を上書きしてドラッグのたびにこれを引く
+/// (`setDraggingSourceOperationMask` は作ったときの 1 回なので、あとから切り替えた設定が効かない)。
+func fileBrowserDragSourceMask(allowsFileChanges: Bool) -> NSDragOperation {
+    allowsFileChanges ? [.copy, .move, .generic] : .copy
 }
 
 /// AppKit の出し口が共有する設定。アプリの外へも移動を許す(ファイル冒頭のコメント)。
@@ -300,12 +311,16 @@ final class FileBrowserIconDragHandle: NSObject, NSDraggingSource {
     /// いま始めているドラッグのジェスチャの起点(同じジェスチャで 2 回始めないため)。
     private var startedGesture: CGPoint?
 
+    /// このドラッグで許す操作(`fileBrowserDragSourceMask`)。始めるときに決める。
+    private var sourceMask = fileBrowserDragSourceMask(allowsFileChanges: true)
+
     /// セルの `DragGesture.onChanged` から呼ぶ。`gestureStart` が前回と同じなら何もしない。
-    func beginIfNeeded(gestureStart: CGPoint, entries: [FileBrowserEntry], iconSize: CGFloat) {
+    func beginIfNeeded(gestureStart: CGPoint, entries: [FileBrowserEntry], iconSize: CGFloat, allowsFileChanges: Bool) {
         guard startedGesture != gestureStart else { return }
         let items = entries.filter { !$0.isVolume }
         guard let view, let event = NSApp.currentEvent, event.type == .leftMouseDragged, !items.isEmpty else { return }
         startedGesture = gestureStart
+        sourceMask = fileBrowserDragSourceMask(allowsFileChanges: allowsFileChanges)
         let location = view.convert(event.locationInWindow, from: nil)
         let side = min(max(iconSize, 32), 96)
         let draggingItems = items.enumerated().map { index, entry in
@@ -326,8 +341,8 @@ final class FileBrowserIconDragHandle: NSObject, NSDraggingSource {
     func draggingSession(
         _ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext
     ) -> NSDragOperation {
-        // アプリの外へも移動を許す(ファイル冒頭のコメント)。
-        [.copy, .move, .generic]
+        // アプリの外へも移動を許す(読み取り専用モードではコピーだけ。ファイル冒頭のコメント)。
+        sourceMask
     }
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {

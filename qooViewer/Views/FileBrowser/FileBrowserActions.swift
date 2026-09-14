@@ -114,9 +114,20 @@ final class FileBrowserActions {
 
     // MARK: - 書く操作(段階4。実体は FileBrowserOperations)
 
-    /// 書く操作ができる項目か(ボリュームそのもの・コンピュータの行は動かさない)。
+    /// ファイルを変える操作ができるか(読み取り専用モードでない。段階 8.5)。項目を淡色にするための読み出しで、
+    /// 断るのは `FileBrowserOperations` の入り口(ここで淡色にし忘れても、そこで止まる)。
+    var allowsFileChanges: Bool {
+        !(state?.operations.isReadOnly ?? true)
+    }
+
+    /// 選んだ項目がペーストボードへ載せられるか(ボリュームそのもの・コンピュータの行は運ばない)。⌘C はこれだけで決まる。
     func canModify(_ entries: [FileBrowserEntry]) -> Bool {
         !entries.isEmpty && !entries.contains(where: \.isVolume)
+    }
+
+    /// 選んだ項目のファイルそのものを変えられるか(カット・ゴミ箱・名前の変更)。
+    func canChange(_ entries: [FileBrowserEntry]) -> Bool {
+        allowsFileChanges && canModify(entries)
     }
 
     func copy(_ entries: [FileBrowserEntry]) {
@@ -128,7 +139,12 @@ final class FileBrowserActions {
     }
 
     func canPaste(into folder: URL?) -> Bool {
-        folder != nil && (state?.operations.canPaste ?? false)
+        allowsFileChanges && folder != nil && (state?.operations.canPaste ?? false)
+    }
+
+    /// 新規フォルダを作れるか。
+    func canCreateFolder(in folder: URL?) -> Bool {
+        allowsFileChanges && folder != nil
     }
 
     func paste(into folder: URL?, forceMove: Bool = false) {
@@ -137,18 +153,18 @@ final class FileBrowserActions {
     }
 
     func moveToTrash(_ entries: [FileBrowserEntry]) {
-        guard canModify(entries) else { return }
+        guard canChange(entries) else { return }
         state?.operations.moveToTrash(entries)
     }
 
     func newFolder(in folder: URL?) {
-        guard let folder else { return }
+        guard canCreateFolder(in: folder), let folder else { return }
         state?.operations.newFolder(in: folder)
     }
 
     /// 圧縮できるか(段階 6)。同じフォルダの項目だけ(1 つの zip の置き場所が決まらない)。
     func canCompress(_ entries: [FileBrowserEntry]) -> Bool {
-        guard canModify(entries), let parent = entries.first?.url.deletingLastPathComponent() else { return false }
+        guard canChange(entries), let parent = entries.first?.url.deletingLastPathComponent() else { return false }
         let parentID = FileBrowserState.id(for: parent)
         return entries.allSatisfy { FileBrowserState.id(for: $0.url.deletingLastPathComponent()) == parentID }
     }
@@ -170,7 +186,7 @@ final class FileBrowserActions {
 
     /// 右クリックの「名前を変更」。1 件なら一覧に名前の編集を始めてもらい、複数なら一括リネームのシートを出す(段階 5。Finder と同じ)。
     func beginRename(_ entries: [FileBrowserEntry]) {
-        guard canModify(entries) else { return }
+        guard canChange(entries) else { return }
         if entries.count == 1, let entry = entries.first {
             state?.requestRename(entry.id)
         } else {
@@ -288,6 +304,8 @@ enum FileBrowserEditCommand {
 
 @MainActor
 protocol FileBrowserEditResponding: AnyObject {
+    /// 名前の欄の編集を始めてよいか(読み取り専用モードの間は、クリックからも始めない。段階 8.5)。
+    var allowsFileChanges: Bool { get }
     func canPerform(_ command: FileBrowserEditCommand) -> Bool
     func perform(_ command: FileBrowserEditCommand)
 }
@@ -297,7 +315,8 @@ extension FileBrowserActions: FileBrowserEditResponding {
     func canPerform(_ command: FileBrowserEditCommand) -> Bool {
         guard let state else { return false }
         switch command {
-        case .copy, .cut, .moveToTrash: return canModify(state.selectedEntries)
+        case .copy: return canModify(state.selectedEntries)
+        case .cut, .moveToTrash: return canChange(state.selectedEntries)
         case .paste, .moveItemHere: return canPaste(into: state.currentFolder)
         case .goBack: return state.canGoBack
         case .goForward: return state.canGoForward
@@ -481,14 +500,15 @@ enum FileBrowserMenuCommand {
             return actions.canCompress(entries)
         case .extract, .extractHere, .extractToFolder, .extractTo:
             return actions.canExtract(entries)
-        case .rename:
-            return actions.canModify(entries)
-        case .copy, .cut, .moveToTrash:
+        // 読み取り専用モードの間は、ファイルを変える項目を淡色にする(消さない ―― 項目の数を変えない。段階 8.5)。
+        case .rename, .cut, .moveToTrash:
+            return actions.canChange(entries)
+        case .copy:
             return actions.canModify(entries)
         case .paste:
             return actions.canPaste(into: context.folder)
         case .newFolder:
-            return context.folder != nil
+            return actions.canCreateFolder(in: context.folder)
         case .showInFinder:
             return !entries.isEmpty
         }
@@ -671,6 +691,11 @@ final class FileBrowserMenuBuilder: NSObject {
 }
 
 /// SwiftUIの一覧(アイコン表示)の右クリックメニュー。AppKitの側と同じ項目・同じ並び。
+///
+/// **淡色のサブメニューは `Menu` ではなく押せない `Button` で描く**(`FileBrowserDisabledSubmenu`)。`.contextMenu` の中の `Menu` には
+/// `.disabled` が効かない(2026-09-14、macOS 26.6 で実測。`.disabled` を `Menu` / `Group` / `Section` に付ける・`\.isEnabled` を入れる・
+/// `menuStyle` を変える・`primaryAction` 付き、のどれも親項目は押せる見た目のままで、中の項目だけが淡色になった)。
+/// 押せない `Button` は矢印が出ないが、項目の数は変わらない。
 struct FileBrowserContextMenuItems: View {
     @Environment(\.locale) private var locale
     let context: FileBrowserMenuContext
@@ -681,26 +706,32 @@ struct FileBrowserContextMenuItems: View {
         ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
             if index > 0 { Divider() }
             ForEach(Array(group.enumerated()), id: \.offset) { _, command in
-                if let nodes = command.dynamicChildren(in: context, actions: actions, locale: locale) {
-                    Menu(command.title(in: context, locale: locale)) {
-                        FileBrowserMenuNodeItems(nodes: nodes)
-                    }
-                    .disabled(!command.isEnabled(in: context, actions: actions))
-                } else if let children = command.submenu {
-                    Menu(command.title(in: context, locale: locale)) {
-                        ForEach(Array(children.enumerated()), id: \.offset) { _, child in
-                            button(for: child)
-                        }
-                    }
-                    .disabled(!command.isEnabled(in: context, actions: actions))
-                } else {
-                    button(for: command)
-                }
+                item(for: command)
             }
         }
         if context.kind == .background, let state = actions.state {
             Divider()
             FileBrowserBackgroundMenuItems(state: state)
+        }
+    }
+
+    @ViewBuilder
+    private func item(for command: FileBrowserMenuCommand) -> some View {
+        let nodes = command.dynamicChildren(in: context, actions: actions, locale: locale)
+        if nodes != nil || command.submenu != nil, !command.isEnabled(in: context, actions: actions) {
+            FileBrowserDisabledSubmenu(title: command.title(in: context, locale: locale))
+        } else if let nodes {
+            Menu(command.title(in: context, locale: locale)) {
+                FileBrowserMenuNodeItems(nodes: nodes)
+            }
+        } else if let children = command.submenu {
+            Menu(command.title(in: context, locale: locale)) {
+                ForEach(Array(children.enumerated()), id: \.offset) { _, child in
+                    button(for: child)
+                }
+            }
+        } else {
+            button(for: command)
         }
     }
 
@@ -733,14 +764,27 @@ private struct FileBrowserMenuNodeItems: View {
                 }
                 .disabled(!isEnabled)
             case .submenu(let title, let isEnabled, let children):
-                Menu {
-                    FileBrowserMenuNodeItems(nodes: children)
-                } label: {
-                    Text(verbatim: title)
+                if isEnabled {
+                    Menu {
+                        FileBrowserMenuNodeItems(nodes: children)
+                    } label: {
+                        Text(verbatim: title)
+                    }
+                } else {
+                    FileBrowserDisabledSubmenu(title: title)
                 }
-                .disabled(!isEnabled)
             }
         }
+    }
+}
+
+/// 淡色のサブメニューの代わり(FileBrowserContextMenuItems の型コメント。`.contextMenu` の中の `Menu` は `.disabled` が効かない)。
+private struct FileBrowserDisabledSubmenu: View {
+    let title: String
+
+    var body: some View {
+        Button {} label: { Text(verbatim: title) }
+            .disabled(true)
     }
 }
 

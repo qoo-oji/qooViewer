@@ -77,11 +77,12 @@ struct FileDropPlanTests {
     // MARK: - FileBrowserDropDecision
 
     private func decision(
-        _ urls: [URL], to destination: URL?, isInternal: Bool, action: FileBrowserExternalDropAction
+        _ urls: [URL], to destination: URL?, isInternal: Bool, action: FileBrowserExternalDropAction,
+        allowsFileChanges: Bool = true
     ) -> FileBrowserDropDecision {
         FileBrowserDropDecision.make(
             urls: urls, destination: destination, isInternal: isInternal, allowsMove: true, modifiers: [],
-            externalAction: action, isOnSameVolume: Self.sameVolume
+            externalAction: action, allowsFileChanges: allowsFileChanges, isOnSameVolume: Self.sameVolume
         )
     }
 
@@ -96,6 +97,20 @@ struct FileDropPlanTests {
         let expected = FileBrowserDropDecision.transfer(FileDropPlan(moves: [file], copies: []), into: folder)
         #expect(decision([file], to: folder, isInternal: false, action: .copyOrMove) == expected)
         #expect(decision([file], to: folder, isInternal: true, action: .openInViewer) == expected)
+    }
+
+    @Test("読み取り専用モードでは、アプリの中からも外からも運ばない。他のアプリからの「ビューアで開く」はそのまま")
+    func readOnlyRefusesTransfers() {
+        #expect(decision([file], to: folder, isInternal: true, action: .copyOrMove, allowsFileChanges: false) == .refuse)
+        #expect(decision([file], to: folder, isInternal: false, action: .copyOrMove, allowsFileChanges: false) == .refuse)
+        #expect(decision([file], to: folder, isInternal: false, action: .openInViewer, allowsFileChanges: false) == .openInViewer)
+    }
+
+    @Test("出し口は読み取り専用モードではコピーだけを許す(Finder へ落としても元が動かない)")
+    func dragSourceMaskFollowsReadOnly() {
+        #expect(fileBrowserDragSourceMask(allowsFileChanges: true) == [.copy, .move, .generic])
+        #expect(fileBrowserDragSourceMask(allowsFileChanges: false) == .copy)
+        #expect(!fileBrowserDragSourceMask(allowsFileChanges: false).allowsFileMove)
     }
 
     @Test("コンピュータ(行き先なし)へは運ばない")

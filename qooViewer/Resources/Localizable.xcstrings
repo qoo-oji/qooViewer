@@ -17851,6 +17851,54 @@
         }
       }
     },
+    "Read-Only" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read-Only"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み取り専用"
+          }
+        }
+      }
+    },
+    "File Operations" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File Operations"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイル操作"
+          }
+        }
+      }
+    },
+    "Items can't be pasted, cut, moved to the Trash, renamed, compressed or extracted, no new folders can be made, dragging doesn't move items, and file changes can't be undone or redone. You can still browse, open books, copy items, add favorite locations, create and add to collections, edit metadata and export books. Turn this off to change files in the file browser." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Items can't be pasted, cut, moved to the Trash, renamed, compressed or extracted, no new folders can be made, dragging doesn't move items, and file changes can't be undone or redone. You can still browse, open books, copy items, add favorite locations, create and add to collections, edit metadata and export books. Turn this off to change files in the file browser."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ペースト・カット・ゴミ箱に入れる・名前の変更・圧縮・展開・新規フォルダの作成ができず、ドラッグしても項目は移動せず、ファイル操作の取り消し/やり直しもできません。閲覧・本を開く・コピー・よく使う項目の登録・コレクションの作成と登録・メタデータの編集・本の書き出しはそのまま使えます。ファイルブラウザでファイルを変えるときはオフにしてください。"
+          }
+        }
+      }
+    },
     "Keep Folders on Top" : {
       "localizations" : {
         "en" : {

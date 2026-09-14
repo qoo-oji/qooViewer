@@ -126,7 +126,9 @@ gated on it. The welcome screen has a second mode, the **file browser** (`Welcom
 icons are SwiftUI, listing runs on `FileIO` (never `Task.detached`), and new tabs/windows receive a folder through
 `WindowContentRequest.browse` (the value type of the book `WindowGroup`s). Every write operation (copy/cut/paste, trash, compress/extract,
 new folder, rename, bulk rename, undo/redo) goes through `FileBrowserOperations` (one per `FileBrowserState`, serial, confirmations via
-`FileBrowserOperationPresenting`); tests inject a pseudo trash, a uniquely named pasteboard and a scripted presenter. "Replace" moves the existing item into a hidden
+`FileBrowserOperationPresenting`), which is also the one place that refuses them while read-only mode is on
+(`AppPreferences.fileBrowserReadOnly`, **default ON**; the UI only dims items via `FileBrowserActions.allowsFileChanges`, and drags out
+become copy-only); tests inject a pseudo trash, a uniquely named pasteboard and a scripted presenter. "Replace" moves the existing item into a hidden
 `.qooViewer-replace-<UUID>/` folder only after recording it in `ReplaceBackupJournal`, and `ReplaceBackupRecovery` puts it back at launch
 (skipped under tests) — keep that record-before-backup order. Bulk rename copies
 Finder's measured rules (`Models/BulkRename.swift`; registered extensions, collisions avoided rather than refused, so no two-pass rename) — change them only against the real Finder. The context menu's links to existing features (create/add
@@ -138,7 +140,10 @@ never stored on `AppState`; its AppKit menu items carry closures in a box whose 
 `perform(_:)` (it silently resolved to NSObject's `performSelector:`). Windows and tabs without a book are titled by
 what they show (`WindowTitle`: current folder / library / collection). Drag and drop
 decides move/copy in one place (`FileDropPlan` + `FileBrowserDropDecision`); the right pane is covered by a drop target that refuses
-*as a target*, because a refused inner SwiftUI drop falls through to the window-wide "open book" drop target. The icon view shows
+*as a target*, because a refused inner SwiftUI drop falls through to the window-wide "open book" drop target. Inside SwiftUI
+`.contextMenu`, `.disabled` has no effect on a `Menu` (submenu), so a disabled submenu is drawn as a disabled `Button`; and the list/tree
+override `hitTest` so a name field the table would refuse never becomes the hit view (AppKit skipped that check after a SwiftUI
+context submenu closed). The icon view shows
 book/image thumbnails via `FileBrowserThumbnailProvider` (one app-wide, in `AppStores`; `BookThumbnailer` reads only the first image,
 never `BookLoader.load`; disk cache `FileBrowserThumbnailDiskCache`, on by default) and video thumbnails through QuickLook
 (`VideoThumbnailLoading`, with a `hev1` retagging fallback; `FileBrowserVideoThumbnailWarmer` pre-makes the ones under favorite

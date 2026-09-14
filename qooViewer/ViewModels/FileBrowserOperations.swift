@@ -23,6 +23,12 @@ import Foundation
 /// checkConflictのコメント)。退避は作る前に `ReplaceBackupJournal` へ記録し、次の起動で戻す
 /// (`ReplaceBackupRecovery`)。それが入るまで(2026-09-13〜14)衝突の確認は「両方残す / スキップ / 中止」だけだった。
 /// ゴミ箱の無い場所では置き換えた元をすぐに消すしかないので、確認の文でそう伝える(`replacingDeletesImmediately`)。
+///
+/// ■ 読み取り専用モード(決定事項 Q12、段階 8.5)
+/// ON の間、ファイルを変える操作は**ここの入り口で断る**(`isReadOnly`)。メニュー・キー・D&D の経路ごとに判定を散らさない
+/// ―― 画面の側は項目を淡色にするために同じ値を読むだけで、淡色にし忘れた経路があってもここで止まる。
+/// 判定は**呼ばれた時点**で行う。走っている操作・すでに順番を待っている操作は止めない(次の操作から効く)。
+/// 取り消しの履歴は消さず、ON の間は取り消し/やり直しを断るだけ。⌘C(ペーストボードへ載せるだけ)は断らない。
 @MainActor
 final class FileBrowserOperations: ObservableObject {
     /// いま走っている操作(進捗の帯)。nil なら帯を出さない。
@@ -47,13 +53,21 @@ final class FileBrowserOperations: ObservableObject {
 
     init() {}
 
+    // MARK: - 読み取り専用モード
+
+    /// ファイルを変える操作を断るか(環境設定「読み取り専用」)。環境設定が届いていなければ断る側に倒す。
+    var isReadOnly: Bool {
+        state?.preferences?.fileBrowserReadOnly ?? true
+    }
+
     // MARK: - 取り消し・やり直し
 
     var commandStack: FileCommandStack? { state?.commandStack }
 
     @discardableResult
     func undo() -> Task<Void, Never> {
-        enqueue { [weak self] in
+        guard !isReadOnly else { return Task {} }
+        return enqueue { [weak self] in
             guard let self, let stack = self.commandStack else { return }
             let outcome = await stack.undo()
             self.didChangeFileSystem(inUnknownScope: true)
@@ -63,7 +77,8 @@ final class FileBrowserOperations: ObservableObject {
 
     @discardableResult
     func redo() -> Task<Void, Never> {
-        enqueue { [weak self] in
+        guard !isReadOnly else { return Task {} }
+        return enqueue { [weak self] in
             guard let self, let stack = self.commandStack else { return }
             let outcome = await stack.redo()
             self.didChangeFileSystem(inUnknownScope: true)
@@ -81,6 +96,8 @@ final class FileBrowserOperations: ObservableObject {
     /// ⌘X。書く内容は⌘Cと同じで、**アプリの中で覚えておく**(ペーストしたときに一致すれば移動)。
     /// Finder のカットの判定は非公開の API なので、Finder へ貼るとコピーになる(検討メモ §3.2)。
     func cut(_ entries: [FileBrowserEntry]) {
+        // カットは移動の前段なので、読み取り専用の間は断る(ペーストボードにも書かない)。
+        guard !isReadOnly else { return }
         write(entries, cut: true)
     }
 
@@ -103,6 +120,7 @@ final class FileBrowserOperations: ObservableObject {
     /// なので移動の前に確かめ、戻せない項目があれば「取り消せません」と尋ねる(`transfer` の中。2026-09-14)。
     @discardableResult
     func paste(into folder: URL, forceMove: Bool = false) -> Task<Void, Never> {
+        guard !isReadOnly else { return Task {} }
         let urls = readPasteboardURLs()
         guard !urls.isEmpty else { return Task {} }
         let isMove = forceMove || (!(state?.cutPaths.isEmpty ?? true) && Self.paths(of: urls) == state?.cutPaths)
@@ -113,14 +131,16 @@ final class FileBrowserOperations: ObservableObject {
     /// 移動またはコピー(ペースト)。
     @discardableResult
     func transfer(_ urls: [URL], to folder: URL, isMove: Bool) -> Task<Void, Never> {
-        transfer(moving: isMove ? urls : [], copying: isMove ? [] : urls, to: folder)
+        guard !isReadOnly else { return Task {} }
+        return transfer(moving: isMove ? urls : [], copying: isMove ? [] : urls, to: folder)
     }
 
     /// ドラッグ&ドロップ(段階4b)。移動とコピーが混ざった 1 回のドロップは**1 回の取り消しで戻る**
     /// (`CompositeFileCommand`。検討メモ §9)。
     @discardableResult
     func drop(_ plan: FileDropPlan, into folder: URL) -> Task<Void, Never> {
-        transfer(moving: plan.moves, copying: plan.copies, to: folder)
+        guard !isReadOnly else { return Task {} }
+        return transfer(moving: plan.moves, copying: plan.copies, to: folder)
     }
 
     private func transfer(moving moves: [URL], copying copies: [URL], to folder: URL) -> Task<Void, Never> {
@@ -220,6 +240,7 @@ final class FileBrowserOperations: ObservableObject {
     /// 完全に削除する(決定事項 Q4。取り消せない)。
     @discardableResult
     func moveToTrash(_ entries: [FileBrowserEntry]) -> Task<Void, Never> {
+        guard !isReadOnly else { return Task {} }
         let selected = entries.filter { !$0.isVolume }.map(\.url)
         return enqueue { [weak self] in
             guard let self, !selected.isEmpty else { return }
@@ -265,7 +286,8 @@ final class FileBrowserOperations: ObservableObject {
     /// 新規フォルダ。作ったら選んで、名前の編集を始めてもらう(`state.requestRename`)。
     @discardableResult
     func newFolder(in folder: URL) -> Task<Void, Never> {
-        enqueue { [weak self] in
+        guard !isReadOnly else { return Task {} }
+        return enqueue { [weak self] in
             guard let self else { return }
             let existing = await FileIO.perform {
                 Set((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
@@ -284,6 +306,7 @@ final class FileBrowserOperations: ObservableObject {
     /// 名前の変更(インラインの編集が確定したとき)。同じ名前なら何もしない。
     @discardableResult
     func rename(_ entry: FileBrowserEntry, to newName: String) -> Task<Void, Never> {
+        guard !isReadOnly else { return Task {} }
         let url = entry.url
         return enqueue { [weak self] in
             guard let self else { return }
@@ -315,6 +338,7 @@ final class FileBrowserOperations: ObservableObject {
     /// 付くのは押した瞬間の結果)。
     @discardableResult
     func bulkRename(_ entries: [FileBrowserEntry]) -> Task<Void, Never> {
+        guard !isReadOnly else { return Task {} }
         let order = Dictionary((state?.entries ?? []).enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
         let targets = entries.filter { !$0.isVolume }
             .enumerated()
@@ -387,6 +411,7 @@ final class FileBrowserOperations: ObservableObject {
     /// 拡張子は環境設定(zip / cbz)。名前は 1 件ならその名前、複数ならフォルダの名前(ZipCompressor.archiveBaseName)。
     @discardableResult
     func compress(_ entries: [FileBrowserEntry], choosingDestination: Bool = false) -> Task<Void, Never> {
+        guard !isReadOnly else { return Task {} }
         let urls = entries.filter { !$0.isVolume }.map(\.url)
         let fileExtension = state?.preferences?.fileBrowserCompressionFormat.fileExtension ?? "zip"
         return enqueue { [weak self] in
@@ -421,6 +446,7 @@ final class FileBrowserOperations: ObservableObject {
     func extract(
         _ entries: [FileBrowserEntry], placement: ArchiveExtractor.Placement, choosingDestination: Bool = false
     ) -> Task<Void, Never> {
+        guard !isReadOnly else { return Task {} }
         let archives = entries.filter(\.isExtractableArchive).map(\.url)
         let limits = extractionLimits
         return enqueue { [weak self] in

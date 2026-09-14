@@ -4,7 +4,7 @@ import SwiftUI
 ///
 /// 段階3で並べるのは**いま効くものだけ**(起動時のフォルダ・フォルダを上に。段階4bで「外からドロップしたとき」、
 /// 2026-09-14 に「現在のフォルダまでツリーを自動で展開する」、段階 6 で「圧縮したファイルの形式」、段階 7b で
-/// 「動画のサムネイルを作る」、段階 8 で「ファイルブラウザで開く」の行き先)。計画
+/// 「動画のサムネイルを作る」、段階 8 で「ファイルブラウザで開く」の行き先、段階 8.5 で「読み取り専用」)。計画
 /// (docs/plans/file-browser-plan.md §3.6)に挙げた残りの行 ――
 /// サムネイルのキャッシュ ―― は環境設定「キャッシュ」に置いた。押しても何も変わらない設定を先に並べると、効かない理由が画面から読めない。
 struct FileBrowserSettingsView: View {
@@ -13,6 +13,17 @@ struct FileBrowserSettingsView: View {
 
     var body: some View {
         SettingsPaneContainer {
+            // 読み取り専用モード(決定事項 Q12、段階 8.5)。既定 ON なので、ファイルを変えたい人が最初に探す場所として先頭に置く。
+            Section {
+                SettingsToggle(
+                    "Read-Only",
+                    isOn: $preferences.fileBrowserReadOnly,
+                    help: "Items can't be pasted, cut, moved to the Trash, renamed, compressed or extracted, no new folders can be made, dragging doesn't move items, and file changes can't be undone or redone. You can still browse, open books, copy items, add favorite locations, create and add to collections, edit metadata and export books. Turn this off to change files in the file browser."
+                )
+            } header: {
+                Text("File Operations")
+            }
+
             Section {
                 SettingsPicker(
                     "Folder to Show First",

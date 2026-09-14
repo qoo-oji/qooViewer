@@ -543,11 +543,39 @@ final class FileBrowserTableView: NSTableView, NSMenuItemValidation {
         super.keyDown(with: event)
     }
 
+    /// 名前の欄を当たり先にするのは、`validateProposedFirstResponder` が許すときだけ(2026-09-14、段階 8.5 の実機)。
+    ///
+    /// 通常は NSTableView の `hitTest` 自身がこの判定を尋ね、断られた欄の代わりに表を返すので、クリックは表の `mouseDown`
+    /// (選択)・右クリックは `menu(for:)` へ届く。ところが**アイコン表示の右クリックでサブメニューを開いて Esc で閉じたあと、
+    /// その尋ね方が飛ばされる状態になった**(ログで実測: `hitTest` が判定を呼ばずに名前の欄を返し、ウインドウが欄をそのまま
+    /// ファーストレスポンダにしてから判定が呼ばれた。ウインドウはキーのまま、アプリも前面のまま)。その間、右クリックのメニューが
+    /// 開かず、選ばれていない行のクリックで(読み取り専用モードでも)名前の編集が始まった。タイトルバーを 1 回クリックすると戻る。
+    /// AppKit の内側の状態は見えないので、当たり先の側で同じ判定を確かめ直す。
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        resolvedHit(super.hitTest(point), event: NSApp.currentEvent)
+    }
+
+    /// `hitTest` の結果を確かめ直す(テストはここを直に呼ぶ ―― AppKit が判定を飛ばす状態はテストでは作れない)。
+    func resolvedHit(_ hit: NSView?, event: NSEvent?) -> NSView? {
+        if let field = hit as? FileBrowserNameField, field.currentEditor() == nil,
+           !validateProposedFirstResponder(field, for: event) {
+            return self
+        }
+        return hit
+    }
+
     /// 選ばれている行をもう一度クリックして名前の編集を始めるのは、**1行だけを選んでいるときだけ**
-    /// (複数選択中のクリックは選択を1件に絞る操作。Finder と同じ)。
+    /// (複数選択中のクリックは選択を1件に絞る操作。Finder と同じ)。読み取り専用モードの間は始めない(段階 8.5)。
     override func validateProposedFirstResponder(_ responder: NSResponder, for event: NSEvent?) -> Bool {
-        if responder is FileBrowserNameField, selectedRowIndexes.count != 1 { return false }
+        if responder is FileBrowserNameField,
+           selectedRowIndexes.count != 1 || !(editResponder?.allowsFileChanges ?? false) { return false }
         return super.validateProposedFirstResponder(responder, for: event)
+    }
+
+    override func draggingSession(
+        _ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext
+    ) -> NSDragOperation {
+        fileBrowserDragSourceMask(allowsFileChanges: editResponder?.allowsFileChanges ?? false)
     }
 
     @objc func copy(_ sender: Any?) { editResponder?.perform(.copy) }

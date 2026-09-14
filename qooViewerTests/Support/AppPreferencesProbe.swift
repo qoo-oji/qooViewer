@@ -77,6 +77,7 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.fileBrowserCompressionFormat = otherCase(p.fileBrowserCompressionFormat)
     p.fileBrowserRevealDestination = otherCase(p.fileBrowserRevealDestination)
     p.fileBrowserVideoThumbnailsEnabled.toggle()
+    p.fileBrowserReadOnly.toggle()
 
     // MARK: 外観
     p.appAppearance = otherCase(p.appAppearance)

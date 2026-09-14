@@ -77,6 +77,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
         outline.dataSource = coordinator
         outline.delegate = coordinator
         configureFileBrowserDragSource(outline)
+        outline.editResponder = actions
         let menu = NSMenu()
         menu.delegate = coordinator
         outline.menu = menu
@@ -104,6 +105,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
             outline.dataSource = nil
             outline.delegate = nil
             outline.unregisterDraggedTypes()
+            outline.editResponder = nil
             outline.menu?.delegate = nil
             outline.menu = nil
         }

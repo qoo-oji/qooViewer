@@ -29,6 +29,8 @@ struct FileBrowserIntegrationTests {
             temporary = try TemporaryDirectory(label)
             suite = PreferencesSuite(label: label)
             preferences = suite.makePreferences()
+            // 読み取り専用モードは切っておく(既定は ON。ON のときは readOnlyMenuAvailability)。
+            preferences.fileBrowserReadOnly = false
             library = try InMemoryLibrary(label: label)
             welcome = WelcomeLibraryState(defaults: suite.defaults, restoresMode: false)
             state = FileBrowserState(defaults: suite.defaults)
@@ -205,6 +207,50 @@ struct FileBrowserIntegrationTests {
         #expect(!enabled(.addToCollection, [book], in: secret))
         #expect(!enabled(.editMetadata, [book], in: secret))
         #expect(enabled(.exportBook, [book], in: secret))
+    }
+
+    @Test("読み取り専用モードでは、ファイルを変える右クリックの項目とキーの操作が淡色。開く・コピー・コレクション・メタデータ・書き出しは使える")
+    func readOnlyMenuAvailability() throws {
+        let fixture = try Fixture("fb-menu-readonly")
+        defer { fixture.close() }
+        let book = fixture.entry(try fixture.archive("book.cbz"))
+        let folder = try fixture.temporary.directory("dest")
+        let pasteboard = NSPasteboard.withUniqueName()
+        fixture.state.operations.pasteboard = pasteboard
+        pasteboard.clearContents()
+        pasteboard.writeObjects([book.url as NSURL])
+
+        func enabled(_ command: FileBrowserMenuCommand, kind: FileBrowserMenuKind = .file) -> Bool {
+            command.isEnabled(
+                in: FileBrowserMenuContext(kind: kind, entries: kind == .background ? [] : [book], folder: folder),
+                actions: fixture.actions
+            )
+        }
+        let changing: [FileBrowserMenuCommand] = [
+            .rename, .cut, .paste, .moveToTrash, .compress, .compressHere, .compressTo,
+            .extract, .extractHere, .extractToFolder, .extractTo,
+        ]
+        let keeping: [FileBrowserMenuCommand] = [
+            .open, .openInNewTab, .createCollection, .addToCollection, .openWith, .copy, .editMetadata, .exportBook, .showInFinder,
+        ]
+        for command in changing + keeping { #expect(enabled(command), "OFF: \(command)") }
+        #expect(enabled(.newFolder, kind: .background))
+        #expect(fixture.actions.allowsFileChanges)
+
+        fixture.preferences.fileBrowserReadOnly = true
+        for command in changing { #expect(!enabled(command), "ON: \(command)") }
+        for command in keeping { #expect(enabled(command), "ON: \(command)") }
+        #expect(!enabled(.newFolder, kind: .background))
+        #expect(!enabled(.paste, kind: .background))
+        #expect(!fixture.actions.allowsFileChanges)
+        // 項目の数は変えない(淡色にするだけ)。
+        #expect(FileBrowserMenuCommand.groups(for: .file).flatMap { $0 }.contains(.moveToTrash))
+
+        // キー・編集メニューの口(選択・表示中のフォルダによらず、読み取り専用なら断る)。
+        #expect(!fixture.actions.canPerform(.cut))
+        #expect(!fixture.actions.canPerform(.paste))
+        #expect(!fixture.actions.canPerform(.moveItemHere))
+        #expect(!fixture.actions.canPerform(.moveToTrash))
     }
 
     @Test("「コレクションに登録」はライブラリが1つなら1段、「本の書き出し」は3形式。コレクションが増えると並びも変わる")

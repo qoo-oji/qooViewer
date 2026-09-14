@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -85,5 +86,29 @@ struct FileBrowserTreeAndIconHitTests {
         let long = FileBrowserIconView.nameRect(of: String(repeating: "long name ", count: 20), cellWidth: cellWidth, top: 100)
         #expect(long.width >= cellWidth * 0.8, "折り返す長い名前はセルの幅いっぱいに近い")
         #expect(long.height < 50, "2 行を超えて伸びた")
+    }
+
+    /// AppKit の `hitTest` が判定を飛ばして名前の欄を返す状態(アイコン表示のサブメニューのあと。FileBrowserTableView.hitTest の
+    /// コメント)はテストでは作れないので、欄が当たったことにして確かめ直しの判定だけを見る。
+    @Test("リストは、編集を始めてはいけない名前の欄が当たっても表を返す。ほかの部品はそのまま")
+    func listResolvesRefusedNameFieldToTable() {
+        let table = FileBrowserTableView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let field = FileBrowserNameField(frame: NSRect(x: 10, y: 10, width: 100, height: 20))
+        field.editingName = "a.txt"
+        table.addSubview(field)
+        // 行を選んでいない(1 行だけを選んでいるときしか編集を始めない)→ 表。
+        #expect(table.resolvedHit(field, event: nil) === table)
+        let icon = NSImageView(frame: .zero)
+        #expect(table.resolvedHit(icon, event: nil) === icon)
+        #expect(table.resolvedHit(nil, event: nil) == nil)
+    }
+
+    @Test("ツリーは行の文字の欄が当たっても一覧を返す(行の選択と右クリックのメニューは一覧が受ける)。ほかの部品はそのまま")
+    func treeResolvesRowLabelsToOutline() {
+        let outline = FileBrowserOutlineView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let label = NSTextField(labelWithString: "Notes")
+        let button = NSButton(frame: .zero)
+        #expect(outline.resolvedHit(label) === outline)
+        #expect(outline.resolvedHit(button) === button)
     }
 }
