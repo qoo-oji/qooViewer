@@ -89,9 +89,63 @@ struct FileOperationServiceTests {
         let outcome = try await service.move([file], to: destination, options: .init(conflictPolicy: .ask))
         let moved = destination.appendingPathComponent("book.cbz")
         #expect(outcome.isCompleteSuccess)
-        #expect(outcome.receipts == [TransferReceipt(source: file, destination: moved, replacedItemInTrash: nil)])
+        #expect(outcome.receipts == [
+            TransferReceipt(source: file, destination: moved, replacedItemInTrash: nil, identity: FileIdentity.of(moved))
+        ])
+        #expect(outcome.receipts.first?.identity?.inode == before)
         #expect(inode(moved) == before)
         #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+
+    @Test("ロックされた項目の移動は、許しが無ければ触らずに「ロックされています」。許せば運んだ先でもロックされている")
+    func movingLockedItems() async throws {
+        let file = try write("x", to: "locked-move/a.txt")
+        let destination = try temporary.directory("locked-move-dst")
+        FileOperationService.setLocked(file, true)
+        await #expect(throws: FileOperationError.itemLocked(file)) {
+            _ = try await service.move([file], to: destination, options: .init(conflictPolicy: .ask))
+        }
+        #expect(FileOperationService.isLocked(file))
+
+        let outcome = try await service.move([file], to: destination, options: .init(conflictPolicy: .ask, unlockingLocked: true))
+        let moved = destination.appendingPathComponent("a.txt")
+        #expect(outcome.isCompleteSuccess)
+        #expect(FileOperationService.isLocked(moved))
+    }
+
+    @Test("同じボリュームの移動では、フォルダの中のロックは邪魔をしない(尋ねない)")
+    func lockedChildrenDoNotBlockSameVolumeMoves() async throws {
+        let folder = try temporary.directory("locked-inside")
+        let inner = folder.appendingPathComponent("inner.txt")
+        try Data("x".utf8).write(to: inner)
+        FileOperationService.setLocked(inner, true)
+        let destination = try temporary.directory("locked-inside-dst")
+        #expect(!FileOperationService.movingIsBlockedByLock(folder, to: destination, mounts: .current()))
+        let outcome = try await service.move([folder], to: destination, options: .init(conflictPolicy: .ask))
+        #expect(outcome.isCompleteSuccess)
+        #expect(FileOperationService.isLocked(destination.appendingPathComponent("locked-inside/inner.txt")))
+    }
+
+    @Test("ロックされた項目の名前の変更は、許しが無ければ「ロックされています」。許せば新しい名前でもロックされている")
+    func renamingLockedItems() async throws {
+        let file = try write("x", to: "locked-rename/a.txt")
+        FileOperationService.setLocked(file, true)
+        await #expect(throws: FileOperationError.itemLocked(file)) { _ = try await service.rename(file, to: "b.txt") }
+        let receipt = try await service.rename(file, to: "b.txt", unlockingLocked: true)
+        #expect(FileOperationService.isLocked(receipt.renamed))
+        #expect(receipt.identity == FileIdentity.of(receipt.renamed))
+    }
+
+    @Test("POSIX の権限で書けない元のフォルダは「戻せる」扱い(尋ねても移動そのものが断られる)")
+    func posixUnwritableFolderIsNotAskedAbout() throws {
+        let folder = try temporary.directory("posix-readonly")
+        let file = folder.appendingPathComponent("a.txt")
+        try Data("x".utf8).write(to: file)
+        chmod(folder.path, 0o555)
+        defer { chmod(folder.path, 0o755) }
+        #expect(!FileBrowserOperations.posixModeAllowsWrite(folder))
+        #expect(FileBrowserOperations.canPutBack(file))
+        #expect(FileBrowserOperations.posixModeAllowsWrite(temporary.url))
     }
 
     @Test("同じ APFS ボリュームのコピーはクローンで、1 バイトも書かない")

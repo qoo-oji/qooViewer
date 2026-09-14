@@ -67,10 +67,54 @@ actor FileOperationService {
         }
     }
 
+    /// ロックされた項目は `options.unlockingLocked` のときだけ運ぶ(`movingIsBlockedByLock`)。
     func move(_ items: [URL], to folder: URL, options: FileOperationOptions = .init()) async throws -> TransferOutcome {
         let allowsCloning = allowsCloning
+        let unlocking = options.unlockingLocked
         return try await transfer(items, to: folder, options: options, isMove: true) { source, target, onBytes in
-            try Self.moveItem(from: source, to: target, allowsCloning: allowsCloning, onBytesCopied: onBytes)
+            try Self.withLocksLifted(from: source, to: target, allowed: unlocking) {
+                try Self.moveItem(from: source, to: target, allowsCloning: allowsCloning, onBytesCopied: onBytes)
+            }
+        }
+    }
+
+    /// 移動でロックが邪魔をするか(2026-09-14)。同じボリュームなら rename(2) なので項目自身のロックだけが断り(EPERM)、
+    /// 別のボリュームはコピーしてから元を消すので、中のロックされた子で元の削除が止まる。
+    nonisolated static func movingIsBlockedByLock(_ item: URL, to folder: URL, mounts: MountTable) -> Bool {
+        mounts.areOnSameVolume(item, folder) ? isLocked(item) : containsLockedItem(item)
+    }
+
+    /// ロックを外して `body` を走らせ、運べたら運んだ先の同じ場所で、運べなかったら元の場所で掛け直す。
+    /// `allowed` が false でロックが邪魔をするなら、触る前に「ロックされています」で断る(以前は OS の EPERM が
+    /// 「権限がありません」と出るだけで、何が邪魔なのか分からなかった ―― 計画 §4.11)。
+    private nonisolated static func withLocksLifted(
+        from source: URL, to target: URL, allowed: Bool, _ body: () throws -> FileCopyEngine.Outcome
+    ) throws -> FileCopyEngine.Outcome {
+        let locked = lockedItems(atOrUnder: source)
+        guard !locked.isEmpty else { return try body() }
+        let sameVolume = MountTable.current().areOnSameVolume(source, target.deletingLastPathComponent())
+        let blocking = sameVolume ? locked.filter { $0 == source } : locked
+        guard !blocking.isEmpty else { return try body() }
+        guard allowed else { throw FileOperationError.itemLocked(source) }
+        // 外すのは邪魔をするものだけ(同じボリュームなら中のロックはそのまま一緒に動く)。
+        // 相対パスは、リンクを解いた親の後ろに名前を付けて比べる(列挙が返す子の URL は /var と /private/var のように
+        // 頭の書き方が元の URL と揃うとは限らない。項目そのものはリンクでもリンク先へ行かないよう、名前は解かない)。
+        func resolved(_ url: URL) -> String {
+            url.deletingLastPathComponent().resolvingSymlinksInPath().appendingPathComponent(url.lastPathComponent).path
+        }
+        let base = resolved(source)
+        let relative = blocking.map { String(resolved($0).dropFirst(base.count)) }
+        let lifted = zip(blocking, relative).filter { setLocked($0.0, false) }.map(\.1)
+        func relock(under root: URL) {
+            for path in lifted { setLocked(URL(fileURLWithPath: root.path + path), true) }
+        }
+        do {
+            let outcome = try body()
+            if case .completed = outcome { relock(under: target) } else { relock(under: source) }
+            return outcome
+        } catch {
+            relock(under: itemExists(at: source) ? source : target)
+            throw error
         }
     }
 
@@ -78,7 +122,9 @@ actor FileOperationService {
 
     /// - Parameter name: **`appendingPathComponent` に渡す前に検証する**(`/` を含むとパス区切りと解釈され、
     ///   名前の変更のつもりが別フォルダへの移動になる)。
-    func rename(_ item: URL, to name: String) async throws -> RenameReceipt {
+    /// - Parameter unlockingLocked: ロックされた項目は rename(2) が EPERM で断る。true(利用者が確認で「続ける」と答えた、
+    ///   または取り消しで自分が名前を変えたものを戻す)ならロックを外して変え、変えた先で掛け直す。false なら「ロックされています」。
+    func rename(_ item: URL, to name: String, unlockingLocked: Bool = false) async throws -> RenameReceipt {
         let validName: String
         do {
             validName = try FileNameValidation.validated(name)
@@ -93,6 +139,10 @@ actor FileOperationService {
             if let limit = FileOperationPreflight.nameByteLimit(at: parent, mounts: .current()), validName.utf8.count > limit {
                 throw FileOperationError.nameTooLongForDestination(name: validName, lengthBytes: validName.utf8.count, limitBytes: limit)
             }
+            let wasLocked = Self.isLocked(item)
+            if wasLocked {
+                guard unlockingLocked, Self.setLocked(item, false) else { throw FileOperationError.itemLocked(item) }
+            }
             let code: Int32
             if Self.refersToSameEntry(item, target) {
                 // **書き換え先がその項目自身なら衝突ではない。** 大文字小文字を区別しないボリューム
@@ -102,10 +152,11 @@ actor FileOperationService {
                 code = Darwin.rename(item.path, target.path) == 0 ? 0 : errno
             } else {
                 code = Self.exclusiveRename(from: item, to: target)
-                if code == EEXIST { throw FileOperationError.alreadyExists(target) }
             }
+            if wasLocked { Self.setLocked(code == 0 ? target : item, true) }
+            if code == EEXIST, !Self.refersToSameEntry(item, target) { throw FileOperationError.alreadyExists(target) }
             guard code == 0 else { throw FileOperationError.posixFailure(item: item, errnoCode: code) }
-            return RenameReceipt(original: item, renamed: target)
+            return RenameReceipt(original: item, renamed: target, identity: FileIdentity.of(target))
         }
     }
 
@@ -276,11 +327,10 @@ actor FileOperationService {
         tracker.begin()
 
         let environment = environment
-        let journal = environment.replaceJournal
         var outcome = TransferOutcome()
         var firstError: (any Error)?
         /// 「以降すべてに適用」で決まった答え。この 1 回の操作の中だけで覚える。
-        var blanketPolicy: ConflictPolicy?
+        var blanketDecision: ConflictDecision?
 
         for (index, item) in items.enumerated() {
             if options.cancellation.isRequested || Task.isCancelled {
@@ -292,9 +342,10 @@ actor FileOperationService {
             let target = folder.appendingPathComponent(item.lastPathComponent)
             do {
                 let resolution = try await resolveDestination(
-                    item, target, policy: blanketPolicy ?? options.conflictPolicy, options: options, isMove: isMove, journal: journal
+                    item, target, decision: blanketDecision ?? ConflictDecision(options.conflictPolicy), options: options,
+                    isMove: isMove, environment: environment
                 )
-                if let remembered = resolution.rememberedPolicy { blanketPolicy = remembered }
+                if let remembered = resolution.rememberedDecision { blanketDecision = remembered }
                 guard let resolved = resolution.destination else {
                     outcome.skipped.append(item)
                     tracker.finishItem()
@@ -317,6 +368,9 @@ actor FileOperationService {
                 break
             }
         }
+        // 最後の項目の衝突で「中止」を選ぶと、次の区切りが来ないまま終わる。そのままだと「スキップ」と同じ結果になり、
+        // まとめた操作(CompositeFileCommand)が済んだ子を巻き戻さなかったので、中止として返す(2026-09-14)。
+        if !outcome.wasCancelled, options.cancellation.isRequested { outcome.wasCancelled = true }
         // 1 件も動かずに失敗したなら、受け取るべき受領書が無いので素の失敗として投げる
         // (呼び出し側は理由をそのまま見せればよい)。
         if outcome.receipts.isEmpty, outcome.skipped.isEmpty, let firstError { throw firstError }
@@ -375,13 +429,17 @@ actor FileOperationService {
     private nonisolated struct ResolvedDestination: Sendable {
         let target: URL
         let backupOfReplaced: URL?
+        /// 置き換える項目のロックを外して退避した(片付けでゴミ箱の中・戻した先で掛け直す)。
+        var unlockedReplaced = false
+        /// 退避を消すことになったら、中のロックも外してよい(利用者が確認で「続ける」と答えた)。
+        var mayUnlockInsideReplaced = false
     }
 
     private nonisolated struct Resolution: Sendable {
         /// nil = スキップ。
         let destination: ResolvedDestination?
-        /// 「以降すべてに適用」で答えが決まったなら、その方針。
-        let rememberedPolicy: ConflictPolicy?
+        /// 「以降すべてに適用」で答えが決まったなら、その答え。
+        let rememberedDecision: ConflictDecision?
     }
 
     private nonisolated enum ConflictCheck: Sendable {
@@ -394,32 +452,46 @@ actor FileOperationService {
     /// FileIO の上、後者(conflictResolver の await)はこの actor の上。尋ねたあとにもう一度調べるのは、
     /// 考えている間に宛先が変わっているかもしれないため。
     private func resolveDestination(
-        _ source: URL, _ target: URL, policy: ConflictPolicy, options: FileOperationOptions, isMove: Bool, journal: ReplaceBackupJournal
+        _ source: URL, _ target: URL, decision: ConflictDecision, options: FileOperationOptions, isMove: Bool,
+        environment: FileOperationEnvironment
     ) async throws -> Resolution {
-        var check = try await FileIO.perform { try Self.checkConflict(source, target, policy: policy, isMove: isMove, journal: journal) }
-        var remembered: ConflictPolicy?
+        var check = try await FileIO.perform {
+            try Self.checkConflict(source, target, decision: decision, isMove: isMove, environment: environment)
+        }
+        var remembered: ConflictDecision?
         if case .needsUserDecision = check {
             guard let resolver = options.conflictResolver else {
                 throw FileOperationError.conflictResolutionRequired(destination: target)
             }
-            let decision = await resolver(FileConflict(source: source, destination: target))
-            guard decision.policy != .ask else { throw FileOperationError.conflictResolutionRequired(destination: target) }
-            if decision.applyToRemaining { remembered = decision.policy }
-            check = try await FileIO.perform { try Self.checkConflict(source, target, policy: decision.policy, isMove: isMove, journal: journal) }
+            let answer = await resolver(FileConflict(source: source, destination: target))
+            guard answer.policy != .ask else { throw FileOperationError.conflictResolutionRequired(destination: target) }
+            if answer.applyToRemaining { remembered = answer }
+            check = try await FileIO.perform {
+                try Self.checkConflict(source, target, decision: answer, isMove: isMove, environment: environment)
+            }
         }
         switch check {
-        case .decided(let resolved): return Resolution(destination: resolved, rememberedPolicy: remembered)
-        case .skip: return Resolution(destination: nil, rememberedPolicy: remembered)
+        case .decided(let resolved): return Resolution(destination: resolved, rememberedDecision: remembered)
+        case .skip: return Resolution(destination: nil, rememberedDecision: remembered)
         case .needsUserDecision: throw FileOperationError.conflictResolutionRequired(destination: target)
         }
+    }
+
+    /// 「置き換える」で既存の項目のロックが邪魔をするか。**触る前に**確かめる(FileBrowserOperations が確認に使う)。
+    /// 退避(rename)は項目自身のロックだけが断る。ゴミ箱の無い場所では退避を消すので、中のロックも途中で止める
+    /// (`removeItem` はロックされた子で止まり、そこまでの子だけが消えた木を残す)。
+    nonisolated static func replacingIsBlockedByLock(_ target: URL, deletesImmediately: Bool) -> Bool {
+        deletesImmediately ? containsLockedItem(target) : isLocked(target)
     }
 
     /// 「置き換える」の退避用の隠しフォルダの名前の頭。
     nonisolated static let replaceHolderPrefix = ".qooViewer-replace-"
 
     private nonisolated static func checkConflict(
-        _ source: URL, _ target: URL, policy: ConflictPolicy, isMove: Bool, journal: ReplaceBackupJournal
+        _ source: URL, _ target: URL, decision: ConflictDecision, isMove: Bool, environment: FileOperationEnvironment
     ) throws -> ConflictCheck {
+        let policy = decision.policy
+        let journal = environment.replaceJournal
         // 存在は**リンクを辿らずに**見る。fileExists はリンクを辿るので、リンク切れのシンボリックリンクが
         // 名前を占めていると「空いている」と誤判定し、直後の EXCL が EEXIST で失敗する。
         guard itemExists(at: target) else { return .decided(ResolvedDestination(target: target, backupOfReplaced: nil)) }
@@ -458,13 +530,25 @@ actor FileOperationService {
             // 何を置き換えたのか分からない。
             //
             // ロックされた項目は rename できない(EPERM)。「権限がありません」ではなく「ロックされています」と伝える。
-            if isLocked(target) { throw FileOperationError.itemLocked(target) }
+            // ゴミ箱の無い場所では退避をすぐに消すので、中のロックも**退避する前に**見る(2026-09-14。以前は退避を消す
+            // 途中でロックされた子に当たって止まり、記録が残って次の起動で警告された ―― 計画 §4.11)。
+            // 利用者が確認で「続ける」と答えていれば(unlockingLocked)、項目自身のロックを外して退避する。
+            let deletesImmediately = !environment.hasTrash(target.deletingLastPathComponent())
+            var unlockedReplaced = false
+            if replacingIsBlockedByLock(target, deletesImmediately: deletesImmediately) {
+                guard decision.unlockingLocked else { throw FileOperationError.itemLocked(target) }
+                if isLocked(target) {
+                    guard setLocked(target, false) else { throw FileOperationError.itemLocked(target) }
+                    unlockedReplaced = true
+                }
+            }
             let holder = target.deletingLastPathComponent().appendingPathComponent("\(replaceHolderPrefix)\(UUID().uuidString)", isDirectory: true)
             let backup = holder.appendingPathComponent(target.lastPathComponent)
             journal.record(backup: backup, target: target)
             guard mkdir(holder.path, 0o700) == 0 else {
                 let code = errno
                 journal.forget(backup: backup)
+                if unlockedReplaced { setLocked(target, true) }
                 throw FileOperationError.posixFailure(item: target, errnoCode: code)
             }
             let code = exclusiveRename(from: target, to: backup)
@@ -472,9 +556,12 @@ actor FileOperationService {
                 rmdir(holder.path)
                 // 退避を作れなかったのだから記録も要らない(残すと、無い退避を次の起動で探す)。
                 journal.forget(backup: backup)
+                if unlockedReplaced { setLocked(target, true) }
                 throw FileOperationError.posixFailure(item: target, errnoCode: code)
             }
-            return .decided(ResolvedDestination(target: target, backupOfReplaced: backup))
+            return .decided(ResolvedDestination(
+                target: target, backupOfReplaced: backup, unlockedReplaced: unlockedReplaced, mayUnlockInsideReplaced: decision.unlockingLocked
+            ))
         }
     }
 
@@ -517,14 +604,30 @@ actor FileOperationService {
         if let backup = resolved.backupOfReplaced {
             // 退避は**消さずにゴミ箱へ**(「置き換える」の直後の Undo で、置き換えられた元を手で戻せる)。
             // ゴミ箱へ送れない場所(SMB)では消すしかない ―― そこで「置き換える」を選ぶ前の確認は段階 4 の UI の仕事。
-            replacedInTrash = environment.trashItemSynchronously(backup)
-            if replacedInTrash == nil { try? removeAbsorbingTransientFailure(at: backup) }
+            if environment.hasTrash(backup.deletingLastPathComponent()) {
+                replacedInTrash = environment.trashItemSynchronously(backup)
+            }
+            if let replacedInTrash, resolved.unlockedReplaced {
+                // ゴミ箱の中でロックを掛け直す(trash の unlockingLocked と同じ。戻したときにロックも戻る)。
+                setLocked(replacedInTrash, true)
+            }
+            if replacedInTrash == nil {
+                // 消す。**中にロックされた項目があれば、許しがあるときだけ外してから**(無ければ消し始めない ――
+                // 途中で止まって半分だけ消えた木を残すより、記録ごと残して次の起動で知らせるほうがよい)。
+                let locked = lockedItems(atOrUnder: backup)
+                if locked.isEmpty || resolved.mayUnlockInsideReplaced {
+                    for url in locked { setLocked(url, false) }
+                    try? removeAbsorbingTransientFailure(at: backup)
+                }
+            }
             // 片付いたときだけ記録を落とす。**消せなければ残す**(次の起動の復旧が、元の場所が埋まっているので
             // 「隠れた項目が残っている」と知らせる)。
             if !itemExists(at: backup) { environment.replaceJournal.forget(backup: backup) }
             rmdir(backup.deletingLastPathComponent().path)
         }
-        return TransferReceipt(source: item, destination: resolved.target, replacedItemInTrash: replacedInTrash)
+        return TransferReceipt(
+            source: item, destination: resolved.target, replacedItemInTrash: replacedInTrash, identity: FileIdentity.of(resolved.target)
+        )
     }
 
     /// 書き終えなかったときに、退避した元の項目を戻す。戻せなければ `replaceBackupOrphaned` を投げる
@@ -536,6 +639,7 @@ actor FileOperationService {
         if exclusiveRename(from: backup, to: resolved.target) != 0 {
             throw FileOperationError.replaceBackupOrphaned(backup: backup.deletingLastPathComponent(), target: resolved.target)
         }
+        if resolved.unlockedReplaced { setLocked(resolved.target, true) }
         journal.forget(backup: backup)
         rmdir(backup.deletingLastPathComponent().path)
     }

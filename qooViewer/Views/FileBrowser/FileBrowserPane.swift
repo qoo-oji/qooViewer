@@ -39,6 +39,8 @@ struct FileBrowserPane: View {
     @State private var isSearchExpanded = false
     /// 右ペインがドロップの受け口として反応しているか(表示中のフォルダへ落とす。段階4b)。
     @State private var isDropTargeted = false
+    /// リストの表全体が受け口になっている(FileBrowserListView.onWholeListDropTargetChange)。
+    @State private var isListDropTargeted = false
     @FocusState private var isSearchFocused: Bool
 
     private static let coordinateSpace = "fileBrowser.pane"
@@ -92,7 +94,7 @@ struct FileBrowserPane: View {
             // 受け口の強調はアクセント色の枠(ContentView のウインドウ全体の受け口と同じ描き方)。
             // すりガラス面の上のアクセント色なので輪郭を付ける。
             .overlay {
-                if isDropTargeted {
+                if isDropTargeted || isListDropTargeted {
                     let shape = RoundedRectangle(cornerRadius: 6)
                     shape
                         .strokeBorder(Color.accentColor, lineWidth: 3)
@@ -225,7 +227,10 @@ struct FileBrowserPane: View {
             ZStack {
                 switch state.viewMode {
                 case .list:
-                    FileBrowserListView(state: state, actions: actions, outlineWidth: outlineWidth, locale: locale)
+                    FileBrowserListView(
+                        state: state, actions: actions, outlineWidth: outlineWidth, locale: locale,
+                        onWholeListDropTargetChange: { isListDropTargeted = $0 }
+                    )
                 case .icons:
                     FileBrowserIconView(state: state, actions: actions)
                 }

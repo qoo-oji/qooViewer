@@ -18988,6 +18988,182 @@
           }
         }
       }
+    },
+    "This part can’t be undone, so it was left as it is." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This part can’t be undone, so it was left as it is."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この部分は取り消せないため、そのままにしました。"
+          }
+        }
+      }
+    },
+    "“%@” was stopped, but some items couldn’t be put back." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” was stopped, but some items couldn’t be put back."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」を中止しましたが、元に戻せなかった項目があります。"
+          }
+        }
+      }
+    },
+    "It’s still in the Undo history, so you can try again after fixing the problem." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "It’s still in the Undo history, so you can try again after fixing the problem."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取り消しの履歴に残してあるので、原因を取り除いてからもう一度取り消せます。"
+          }
+        }
+      }
+    },
+    "The item at this location was replaced after the operation, so it was left as it is." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The item at this location was replaced after the operation, so it was left as it is."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "操作のあとでこの場所の項目が別のものに置き換わっていたため、そのままにしました。"
+          }
+        }
+      }
+    },
+    "“%@” is locked. Do you want to move it anyway?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is locked. Do you want to move it anyway?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はロックされています。移動してもよろしいですか?"
+          }
+        }
+      }
+    },
+    "%lld items are locked. Do you want to move them anyway?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld items are locked. Do you want to move them anyway?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 項目がロックされています。移動してもよろしいですか?"
+          }
+        }
+      }
+    },
+    "Locked items are unlocked while they’re moved and locked again at the new location." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Locked items are unlocked while they’re moved and locked again at the new location."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移動するあいだだけロックを外し、移動先でロックし直します。"
+          }
+        }
+      }
+    },
+    "“%@” is locked. Do you want to rename it anyway?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is locked. Do you want to rename it anyway?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はロックされています。名前を変更してもよろしいですか?"
+          }
+        }
+      }
+    },
+    "The item is unlocked while it’s renamed and locked again afterward." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The item is unlocked while it’s renamed and locked again afterward."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前を変更するあいだだけロックを外し、変更後にロックし直します。"
+          }
+        }
+      }
+    },
+    "“%@” is locked. Do you want to replace it anyway?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is locked. Do you want to replace it anyway?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はロックされています。置き換えてもよろしいですか?"
+          }
+        }
+      }
+    },
+    "Skip Locked Items" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skip Locked Items"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ロックされた項目をスキップ"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

@@ -50,9 +50,10 @@ final class MoveFilesCommand: FileCommand {
 
     func undo() async throws -> FileUndoResult {
         try await TransferUndo.undo(outcome.receipts, fileOps: fileOps) { receipt in
+            // 自分が運んだものなので、ロックされていても尋ねずに外して戻す(戻した先で掛け直す)。
             try await self.fileOps.move(
                 [receipt.destination], to: receipt.source.deletingLastPathComponent(),
-                options: FileOperationOptions(conflictPolicy: .keepBoth)
+                options: FileOperationOptions(conflictPolicy: .keepBoth, unlockingLocked: true)
             ).receipts.first?.destination
         }
     }
@@ -91,23 +92,31 @@ final class CopyFilesCommand: FileCommand {
 
     func undo() async throws -> FileUndoResult {
         guard !outcome.receipts.isEmpty else { return .impossible(reason: TransferUndo.nothingToRestore) }
+        // **作ったそのものだけを**ゴミ箱へ(FileIdentity の型コメント。同じ名前の別の項目に変わっていたら触らない)。
+        let receipts = outcome.receipts
+        let (ours, changed) = await FileIO.perform { TransferUndo.partitionByIdentity(receipts) }
+        let changedFailures = changed.map { FailedItem(url: $0.destination, reason: TransferUndo.changedReason(for: $0.destination)) }
+        guard !ours.isEmpty else { return .impossible(reason: changedFailures[0].reason) }
         // コピーの取り消しは受領書をまとめて 1 回でゴミ箱へ(ゴミ箱の無い場所では取り消せない ――
         // 黙って完全削除しない)。ロックされた元をコピーするとロックも写るので、**自分が作ったものに限って**
         // 尋ねずにロックを外して送る(ゴミ箱の中でロックは掛け直される)。
         let trashed: TrashOutcome
         do {
-            trashed = try await fileOps.trash(outcome.receipts.map(\.destination), unlockingLocked: true)
+            trashed = try await fileOps.trash(ours.map(\.destination), unlockingLocked: true)
         } catch {
-            return .impossible(reason: error.localizedDescription)
+            // 何も送れていない。作ったものは残っているので、原因が片付けば試し直せる(別の項目に変わったものが無ければ)。
+            return .impossible(reason: error.localizedDescription, canRetry: changed.isEmpty)
         }
-        var failures = trashed.failures
-        // 「置き換える」で退避した元の項目があれば、空いた場所へ戻す。
-        let replaced = outcome.receipts.compactMap { receipt in
+        var failures = changedFailures + trashed.failures
+        // 「置き換える」で退避した元の項目があれば、空いた場所へ戻す(送れた項目の分だけ)。
+        let sent = Set(trashed.receipts.map(\.originalURL))
+        let replaced = ours.filter { sent.contains($0.destination) }.compactMap { receipt in
             receipt.replacedItemInTrash.map { TrashReceipt(originalURL: receipt.destination, trashURL: $0) }
         }
         failures += await fileOps.restoreFromTrash(replaced).failures
-        return failures.isEmpty
-            ? .complete
+        if failures.isEmpty { return .complete }
+        return trashed.receipts.isEmpty
+            ? .impossible(reason: failures[0].reason, canRetry: changed.isEmpty)
             : .partial(succeeded: trashed.receipts.count, failures: failures)
     }
 }
@@ -117,6 +126,27 @@ final class CopyFilesCommand: FileCommand {
 private enum TransferUndo {
     static var nothingToRestore: String {
         String(localized: "There’s nothing to undo.", language: AppLanguage.currentLocale)
+    }
+
+    /// 操作のあとで、同じ場所の項目が別のものに変わっていた・無くなっていた。
+    nonisolated static func changedReason(for url: URL) -> String {
+        FileOperationService.itemExists(at: url)
+            ? String(localized: "The item at this location was replaced after the operation, so it was left as it is.", language: AppLanguage.currentLocale)
+            : String(localized: "The item could not be found.", language: AppLanguage.currentLocale)
+    }
+
+    /// 受領書を「置いたそのものがまだある」と「変わった・無い」に分ける。ブロッキングするので FileIO の上で呼ぶ。
+    nonisolated static func partitionByIdentity(_ receipts: [TransferReceipt]) -> (ours: [TransferReceipt], changed: [TransferReceipt]) {
+        var ours: [TransferReceipt] = []
+        var changed: [TransferReceipt] = []
+        for receipt in receipts {
+            if FileIdentity.matches(receipt.destination, receipt.identity) {
+                ours.append(receipt)
+            } else {
+                changed.append(receipt)
+            }
+        }
+        return (ours, changed)
     }
 
     /// 受領書ごとに `putBack` で戻す。戻った場所の名前が元と違えば、その項目は「部分的に戻した」。
@@ -131,11 +161,23 @@ private enum TransferUndo {
         var succeeded = 0
         var moved = 0
         var failures: [FailedItem] = []
+        /// 試し直しても戻らない失敗があったか(相手が無い・別の項目に変わった)。
+        var hasPermanentFailure = false
         // 後に動かしたものから戻す(同じ名前の項目を続けて運んだとき、前のものの場所を先に空けない)。
         for receipt in receipts.reversed() {
+            // **運んだそのものだけを戻す**(FileIdentity の型コメント)。確かめるのは戻す直前(前の項目を戻したことで
+            // 変わることは無いが、確かめてから動かすまでの間を短くする)。
+            let isOurs = await FileIO.perform { FileIdentity.matches(receipt.destination, receipt.identity) }
+            guard isOurs else {
+                let reason = await FileIO.perform { changedReason(for: receipt.destination) }
+                failures.append(FailedItem(url: receipt.destination, reason: reason))
+                hasPermanentFailure = true
+                continue
+            }
             do {
                 guard let restoredAt = try await putBack(receipt) else {
                     failures.append(FailedItem(url: receipt.destination, reason: nothingToRestore))
+                    hasPermanentFailure = true
                     continue
                 }
                 moved += 1
@@ -160,8 +202,9 @@ private enum TransferUndo {
         }
         if failures.isEmpty { return .complete }
         // 1 件も動かせなかったなら「取り消せなかった」。名前を変えて戻せた項目があれば「部分的に戻した」。
+        // 動かせなかった理由が全部「動かそうとして断られた」(権限など。項目は運んだ先にそのまま)なら試し直せる。
         return moved == 0
-            ? .impossible(reason: failures[0].reason)
+            ? .impossible(reason: failures[0].reason, canRetry: !hasPermanentFailure)
             : .partial(succeeded: succeeded, failures: failures)
     }
 }
@@ -171,12 +214,15 @@ private enum TransferUndo {
 final class RenameFileCommand: FileCommand {
     private let item: URL
     private let newName: String
+    /// ロックされた項目もロックを外して変える(利用者が確認で「続ける」と答えた)。
+    private let unlockingLocked: Bool
     private let fileOps: FileOperationService
     private(set) var receipt: RenameReceipt?
 
-    init(item: URL, newName: String, fileOps: FileOperationService = .shared) {
+    init(item: URL, newName: String, unlockingLocked: Bool = false, fileOps: FileOperationService = .shared) {
         self.item = item
         self.newName = newName
+        self.unlockingLocked = unlockingLocked
         self.fileOps = fileOps
     }
 
@@ -187,17 +233,23 @@ final class RenameFileCommand: FileCommand {
     let isUndoable = true
 
     func execute() async throws -> FileCommandResult {
-        receipt = try await fileOps.rename(item, to: newName)
+        receipt = try await fileOps.rename(item, to: newName, unlockingLocked: unlockingLocked)
         return .success
     }
 
     func undo() async throws -> FileUndoResult {
         guard let receipt else { return .impossible(reason: TransferUndo.nothingToRestore) }
+        // 名前を変えたそのものか(FileIdentity の型コメント)。
+        let isOurs = await FileIO.perform { FileIdentity.matches(receipt.renamed, receipt.identity) }
+        guard isOurs else {
+            return .impossible(reason: await FileIO.perform { TransferUndo.changedReason(for: receipt.renamed) })
+        }
         do {
-            _ = try await fileOps.rename(receipt.renamed, to: receipt.original.lastPathComponent)
+            _ = try await fileOps.rename(receipt.renamed, to: receipt.original.lastPathComponent, unlockingLocked: true)
             return .complete
         } catch {
-            return .impossible(reason: error.localizedDescription)
+            // 名前は変わっていない。元の名前が埋まっている・権限なら、片付けてから試し直せる。
+            return .impossible(reason: error.localizedDescription, canRetry: true)
         }
     }
 }
@@ -238,9 +290,20 @@ final class TrashFilesCommand: FileCommand {
         guard !outcome.receipts.isEmpty else { return .impossible(reason: TransferUndo.nothingToRestore) }
         let restored = await fileOps.restoreFromTrash(outcome.receipts)
         if restored.failures.isEmpty { return .complete }
-        return restored.restored.isEmpty
-            ? .impossible(reason: restored.failures[0].reason)
-            : .partial(succeeded: restored.restored.count, failures: restored.failures)
+        guard restored.restored.isEmpty else {
+            return .partial(succeeded: restored.restored.count, failures: restored.failures)
+        }
+        // 1 件も戻らなかった。どれもゴミ箱の中に残り、元のフォルダもあるなら、元の場所を埋めている項目を
+        // どければ試し直せる(ゴミ箱が空にされた・元のフォルダが消えたなら直らない)。
+        let receipts = outcome.receipts
+        let canRetry = await FileIO.perform {
+            receipts.allSatisfy { receipt in
+                guard let trashURL = receipt.trashURL else { return false }
+                return FileOperationService.itemExists(at: trashURL)
+                    && FileOperationService.itemExists(at: receipt.originalURL.deletingLastPathComponent())
+            }
+        }
+        return .impossible(reason: restored.failures[0].reason, canRetry: canRetry)
     }
 }
 
@@ -286,6 +349,8 @@ final class DeleteFilesImmediatelyCommand: FileCommand {
 final class CreateFolderCommand: FileCommand {
     let url: URL
     private let fileOps: FileOperationService
+    /// 作った直後のフォルダの実体(FileIdentity の型コメント)。
+    private var identity: FileIdentity?
 
     init(url: URL, fileOps: FileOperationService = .shared) {
         self.url = url
@@ -300,11 +365,19 @@ final class CreateFolderCommand: FileCommand {
 
     func execute() async throws -> FileCommandResult {
         try await fileOps.createDirectory(at: url)
+        let target = url
+        identity = await FileIO.perform { FileIdentity.of(target) }
         return .success
     }
 
     func undo() async throws -> FileUndoResult {
         let target = url
+        let identity = identity
+        // 作ったそのフォルダか(同じ名前の別のフォルダを、空だからといってゴミ箱へ送らない)。
+        let isOurs = await FileIO.perform { FileIdentity.matches(target, identity) }
+        guard isOurs else {
+            return .impossible(reason: await FileIO.perform { TransferUndo.changedReason(for: target) })
+        }
         // **メインアクターで一覧を読まない**(応答しない共有で ⌘Z がメインスレッドを止める)。
         let isEmpty = await FileIO.perform {
             ((try? FileManager.default.contentsOfDirectory(atPath: target.path)) ?? []).isEmpty
@@ -318,7 +391,7 @@ final class CreateFolderCommand: FileCommand {
             _ = try await fileOps.trash([url])
             return .complete
         } catch {
-            return .impossible(reason: error.localizedDescription)
+            return .impossible(reason: error.localizedDescription, canRetry: true)
         }
     }
 }

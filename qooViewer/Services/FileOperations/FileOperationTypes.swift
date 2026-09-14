@@ -31,10 +31,14 @@ nonisolated struct ConflictDecision: Sendable, Equatable {
     /// `.ask` は受け付けない(もう一度尋ねる無限ループになるので、エンジンは失敗として扱う)。
     var policy: ConflictPolicy
     var applyToRemaining: Bool
+    /// `.replace` で、置き換えられる既存の項目(自身か、すぐに消すときは中の項目)がロックされていても外して置き換える
+    /// (利用者が確認で「続ける」と答えた)。false ならロックされた既存の項目は触る前に「ロックされています」で断る。
+    var unlockingLocked: Bool
 
-    init(_ policy: ConflictPolicy, applyToRemaining: Bool = false) {
+    init(_ policy: ConflictPolicy, applyToRemaining: Bool = false, unlockingLocked: Bool = false) {
         self.policy = policy
         self.applyToRemaining = applyToRemaining
+        self.unlockingLocked = unlockingLocked
     }
 }
 
@@ -79,21 +83,63 @@ nonisolated struct FileOperationOptions: Sendable {
     /// 中止ボタンの旗。立てると次の区切り(項目の境目・copyfile の callback)で止まり、
     /// そこまでに運び終えた分の受領書を返す。
     var cancellation: Cancellation
+    /// 移動で、ロックされた項目(同じボリュームなら項目自身、別のボリュームなら中の項目も)のロックを外して運び、
+    /// 運んだ先で掛け直す(利用者が確認で「続ける」と答えた、または取り消しで自分が運んだものを戻す)。
+    /// false ならロックされた項目は「ロックされています」で断る。コピーには関係しない(ロックごと写る)。
+    var unlockingLocked: Bool
 
     init(
         conflictPolicy: ConflictPolicy = .ask,
         conflictResolver: (@MainActor @Sendable (FileConflict) async -> ConflictDecision)? = nil,
         progress: ProgressSink? = nil,
-        cancellation: Cancellation = Cancellation()
+        cancellation: Cancellation = Cancellation(),
+        unlockingLocked: Bool = false
     ) {
         self.conflictPolicy = conflictPolicy
         self.conflictResolver = conflictResolver
         self.progress = progress
         self.cancellation = cancellation
+        self.unlockingLocked = unlockingLocked
     }
 }
 
 // MARK: - 結果
+
+/// 項目の実体の見分け(取り消しの前に「操作で作った・運んだそのもの」かを確かめる。2026-09-14)。
+///
+/// ■ なぜ要るか
+/// 受領書はパスで持つので、操作のあとで同じパスに**別の項目**が来ると、取り消しがそれを自分のものと取り違える
+/// (取り消せない移動は履歴に積まないので、前の操作が作った場所へ同じ名前の項目を移動してくると、⌘Z が
+/// **移動してきた項目を**ゴミ箱へ送った ―― 計画 §4.14。Finder など外での置き換えでも同じ)。
+///
+/// ■ 何で見分けるか
+/// デバイス番号 + inode + 作成日時。**履歴はメモリの中だけ**(アプリを閉じれば消える)なので、同じセッションの中で
+/// 比べられればよい。デバイス番号はマウントし直すと変わる(メモ st-dev-changes-with-mount-order)が、そのときは
+/// 「別の項目」と見なして断る側に倒れるだけ。inode だけにしないのは、exFAT/FAT の inode が場所から作られ、
+/// 同じ場所に置き直した別のファイルが同じ番号になるため。
+nonisolated struct FileIdentity: Sendable, Equatable {
+    let device: Int32
+    let inode: UInt64
+    let birthSeconds: Int
+    let birthNanoseconds: Int
+
+    /// **リンクを辿らない**(lstat)。無ければ nil。ブロッキングするので FileIO の上で呼ぶ。
+    static func of(_ url: URL) -> FileIdentity? {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { return nil }
+        return FileIdentity(
+            device: info.st_dev, inode: info.st_ino,
+            birthSeconds: info.st_birthtimespec.tv_sec, birthNanoseconds: info.st_birthtimespec.tv_nsec
+        )
+    }
+
+    /// `url` にあるのが `expected` の項目か。`expected` が nil(記録できなかった)なら、あるかどうかだけで判断する
+    /// (記録できないのは作った直後に lstat が失敗したときだけで、以前の動作に戻るだけ)。
+    static func matches(_ url: URL, _ expected: FileIdentity?) -> Bool {
+        guard let current = of(url) else { return false }
+        return expected.map { $0 == current } ?? true
+    }
+}
 
 /// 1 件の移動・コピーで実際に起きたこと。**Undo はこれだけを頼りに組み立てる。**
 nonisolated struct TransferReceipt: Sendable, Equatable {
@@ -102,6 +148,15 @@ nonisolated struct TransferReceipt: Sendable, Equatable {
     let destination: URL
     /// `.replace` で置き換えた既存の項目を送ったゴミ箱の中の場所(送れなかった・置き換えていないなら nil)。
     let replacedItemInTrash: URL?
+    /// 置いた直後の `destination` の実体(FileIdentity)。取り消しはこれと一致するときだけ手を付ける。
+    var identity: FileIdentity?
+
+    init(source: URL, destination: URL, replacedItemInTrash: URL?, identity: FileIdentity? = nil) {
+        self.source = source
+        self.destination = destination
+        self.replacedItemInTrash = replacedItemInTrash
+        self.identity = identity
+    }
 }
 
 /// 失敗した 1 件と、その理由(表示言語の文)。
@@ -143,6 +198,14 @@ nonisolated struct TransferOutcome: Sendable, Equatable {
 nonisolated struct RenameReceipt: Sendable, Equatable {
     let original: URL
     let renamed: URL
+    /// 名前を変えた直後の実体(TransferReceipt.identity と同じ役目)。
+    var identity: FileIdentity?
+
+    init(original: URL, renamed: URL, identity: FileIdentity? = nil) {
+        self.original = original
+        self.renamed = renamed
+        self.identity = identity
+    }
 }
 
 nonisolated struct TrashReceipt: Sendable, Equatable {

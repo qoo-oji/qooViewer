@@ -87,6 +87,51 @@ struct FileCommandStackTests {
         #expect(!stack.canUndo && !stack.canRedo)
     }
 
+    @Test("試し直せる「取り消せなかった」は履歴に残し、もう一度取り消せる")
+    func retryableImpossibleUndoStays() async throws {
+        let stack = FileCommandStack()
+        let command = ScriptedCommand("retry")
+        command.undoResult = .impossible(reason: "denied", canRetry: true)
+        try await stack.run(command)
+        #expect(await stack.undo() == .failed(operationName: "retry", reason: "denied", canRetry: true))
+        #expect(stack.canUndo && !stack.canRedo)
+        #expect(stack.undoTitle == "retry")
+
+        command.undoResult = .complete
+        #expect(await stack.undo() == .complete(operationName: "retry"))
+        #expect(!stack.canUndo && stack.canRedo)
+    }
+
+    @Test("まとめた操作の取り消しで、どの子も戻らずどれも試し直せるなら、全体も試し直せる")
+    func compositeUndoRetryability() async throws {
+        let first = ScriptedCommand("a")
+        let second = ScriptedCommand("b")
+        first.undoResult = .impossible(reason: "x", canRetry: true)
+        second.undoResult = .impossible(reason: "y", canRetry: true)
+        let composite = CompositeFileCommand(displayName: "both", children: [first, second])
+        guard case .impossible(_, true) = try await composite.undo() else {
+            Issue.record("試し直せるにならなかった")
+            return
+        }
+        second.undoResult = .complete
+        guard case .partial = try await composite.undo() else {
+            Issue.record("一部戻ったのに部分的にならなかった")
+            return
+        }
+    }
+
+    @Test("まとめた操作の中止で、取り消せない子は戻そうとせず、戻せなかったと投げる")
+    func compositeRollbackReportsIrreversibleChildren() async throws {
+        let first = ScriptedCommand("move")
+        first.isUndoable = false
+        let second = ScriptedCommand("copy")
+        second.executeResult = .partial(succeeded: 0, failures: [], wasCancelled: true)
+        let composite = CompositeFileCommand(displayName: "both", children: [first, second])
+        await #expect(throws: CompositeRollbackError.self) { _ = try await composite.execute() }
+        #expect(first.undos == 0)
+        #expect(second.undos == 1)
+    }
+
     @Test("投げた実行・何も起きなかった実行・取り消せない操作は積まない")
     func unrecordableRunsAreNotStacked() async throws {
         let stack = FileCommandStack()
@@ -216,6 +261,36 @@ struct FileCommandsTests {
         #expect(!FileManager.default.fileExists(atPath: file.path))
         #expect(try await trash.undo() == .complete)
         #expect(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    @Test("コピーの取り消しは、作ったものが同じ名前の別の項目に変わっていたら触らない")
+    func copyUndoLeavesReplacedItems() async throws {
+        let file = try write("x", to: "identity-src/a.txt")
+        let destination = try temporary.directory("identity-dst")
+        let command = CopyFilesCommand(items: [file], destination: destination, options: .init(conflictPolicy: .ask), fileOps: fileOps)
+        _ = try await command.execute()
+        let copy = destination.appendingPathComponent("a.txt")
+        try FileManager.default.removeItem(at: copy)
+        try Data("stranger".utf8).write(to: copy)
+        guard case .impossible(_, false) = try await command.undo() else {
+            Issue.record("別の項目に変わったのに取り消そうとした")
+            return
+        }
+        #expect(String(decoding: try Data(contentsOf: copy), as: UTF8.self) == "stranger")
+    }
+
+    @Test("名前の変更の取り消しは、元の名前が埋まっていれば試し直せる")
+    func renameUndoIsRetryableWhenTheNameIsTaken() async throws {
+        let file = try write("x", to: "rename-retry/a.txt")
+        let rename = RenameFileCommand(item: file, newName: "b.txt", fileOps: fileOps)
+        _ = try await rename.execute()
+        try Data("newcomer".utf8).write(to: file)
+        guard case .impossible(_, true) = try await rename.undo() else {
+            Issue.record("試し直せるにならなかった")
+            return
+        }
+        try FileManager.default.removeItem(at: file)
+        #expect(try await rename.undo() == .complete)
     }
 
     @Test("新規フォルダの取り消しは、空のときだけゴミ箱へ送る")

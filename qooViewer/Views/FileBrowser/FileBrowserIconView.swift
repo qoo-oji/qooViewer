@@ -217,6 +217,23 @@ struct FileBrowserIconView: View {
         return characters
     }
 
+    /// 名前の文字が描かれている矩形(セルの座標)。**文字の上のクリックだけを「名前のクリック」とみなす**(Finder と同じ。
+    /// 2026-09-14。以前は「アイコンの枠より下」全部で、名前の横の余白をクリックしても編集が始まった ―― 計画 §4.10)。
+    /// Text と同じ条件(12pt・2 行まで・左右の余白 4)で測り、つまむ余裕として周りに 2pt 足す。
+    static func nameRect(of name: String, cellWidth: CGFloat, top: CGFloat) -> CGRect {
+        let font = NSFont.systemFont(ofSize: 12)
+        let available = cellWidth - 8
+        let bounds = (name as NSString).boundingRect(
+            with: CGSize(width: available, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font]
+        )
+        let lineHeight = ceil(font.ascender - font.descender + font.leading)
+        let width = min(available, ceil(bounds.width)) + 8
+        let height = min(ceil(bounds.height), lineHeight * 2) + 2
+        return CGRect(x: (cellWidth - width) / 2, y: top, width: width, height: height).insetBy(dx: -2, dy: -2)
+    }
+
     /// セルの幅。アイコンの大きさに、名前の2行ぶんの横の余裕を足す。
     private var cellWidth: CGFloat {
         max(state.iconSize + 24, 84)
@@ -227,7 +244,7 @@ struct FileBrowserIconView: View {
         let isEditing = editingID == entry.id
         // 編集中はこのセルのジェスチャーを外し、欄(子の NSView)だけがクリックを受ける。
         let gestureMask: GestureMask = isEditing ? .subviews : .all
-        // 名前の上端(アイコンの枠 + 余白 4 + 間隔 4)。これより下のクリックを「名前のクリック」とみなす。
+        // 名前の上端(アイコンの枠 + 余白 4 + 間隔 4)。
         let nameTop = state.iconSize + 8 + 4
         let isDropTarget = dropTargetID == entry.id
         let iconShape = RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -285,8 +302,8 @@ struct FileBrowserIconView: View {
             clickSerial += 1
             state.click(entry.id, modifier: modifier)
             // ダブルクリックの2回目では始めない。
-            if modifier == .none, wasOnlySelection, !isSecondClick,
-               value.location.y >= nameTop, !entry.isVolume {
+            if modifier == .none, wasOnlySelection, !isSecondClick, !entry.isVolume,
+               Self.nameRect(of: entry.displayName, cellWidth: cellWidth, top: nameTop).contains(value.location) {
                 scheduleRenameFromClick(entry)
             }
         }, including: gestureMask)

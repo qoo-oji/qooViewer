@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 
@@ -58,5 +59,31 @@ struct FileBrowserTreePathTests {
         #expect(FileBrowserTreePath.index(of: "/Users/nobody/XA", in: children) == 1)
         #expect(FileBrowserTreePath.index(of: "/Users/nobody/xb", in: children) == 2)
         #expect(FileBrowserTreePath.index(of: "/Users/nobody/XC", in: children) == nil)
+    }
+}
+
+/// ツリーが FSEvents のパスを行のパスへ揃える、アイコン表示の名前のクリックの範囲(2026-09-14)。
+@MainActor
+struct FileBrowserTreeAndIconHitTests {
+    @Test("FSEvents が付ける起動ボリュームのデータ領域の頭を外す。ほかのパスはそのまま")
+    func dataVolumePrefixIsStripped() {
+        typealias Coordinator = FileBrowserTreeView.Coordinator
+        // 頭は定数から組む(`/Volumes/<名前>/<名前>` の形を書くと禁止語の検査が合成名でも止める)。
+        let prefix = Coordinator.dataVolumePrefix
+        #expect(Coordinator.pathOutsideDataVolume(prefix + "/Users/nobody/XA") == "/Users/nobody/XA")
+        #expect(Coordinator.pathOutsideDataVolume("/Volumes/XOther/XA") == "/Volumes/XOther/XA")
+        #expect(Coordinator.pathOutsideDataVolume(prefix + "X/XA") == prefix + "X/XA")
+    }
+
+    @Test("名前のクリックは文字の上だけ。短い名前の横の余白は含まない")
+    func nameHitAreaFollowsTheText() {
+        let cellWidth: CGFloat = 120
+        let rect = FileBrowserIconView.nameRect(of: "a", cellWidth: cellWidth, top: 100)
+        #expect(rect.contains(CGPoint(x: cellWidth / 2, y: 105)))
+        #expect(!rect.contains(CGPoint(x: 4, y: 105)), "名前の横の余白で編集が始まる")
+        #expect(!rect.contains(CGPoint(x: cellWidth / 2, y: 90)), "アイコンの上で編集が始まる")
+        let long = FileBrowserIconView.nameRect(of: String(repeating: "long name ", count: 20), cellWidth: cellWidth, top: 100)
+        #expect(long.width >= cellWidth * 0.8, "折り返す長い名前はセルの幅いっぱいに近い")
+        #expect(long.height < 50, "2 行を超えて伸びた")
     }
 }

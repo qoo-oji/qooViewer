@@ -37,32 +37,54 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
 
     /// Finder の「“名前”はロックされています。ゴミ箱に入れますか?」に当たる確認。既定のボタンは「中止」
     /// (ロックは「うっかり消さない」ための印なので、Return で越えさせない)。
-    func confirmLockedItems(_ urls: [URL], deletesImmediately: Bool) async -> Bool {
+    /// 一部だけがロックされているときは「ロックされた項目をスキップ」も出す(2026-09-14。以前は「続ける / 中止」の 2 択で、
+    /// ロックされていない項目だけを送る手が無かった ―― 計画 §4.11)。
+    func confirmLockedItems(_ urls: [URL], totalCount: Int, action: LockedItemAction) async -> LockedItemsDecision {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        if urls.count == 1 {
-            alert.messageText = String(
-                format: deletesImmediately
-                    ? String(localized: "“%@” is locked. Do you want to delete it anyway?", language: locale)
-                    : String(localized: "“%@” is locked. Do you want to move it to the Trash anyway?", language: locale),
-                urls[0].lastPathComponent
-            )
-        } else {
-            alert.messageText = String(
-                format: deletesImmediately
-                    ? String(localized: "%lld items are locked. Do you want to delete them anyway?", language: locale)
-                    : String(localized: "%lld items are locked. Do you want to move them to the Trash anyway?", language: locale),
-                urls.count
-            )
+        let single = urls.count == 1
+        let name = urls.first?.lastPathComponent ?? ""
+        let information: String
+        // 文言は 1 つずつ String(localized:) に書く(String Catalog が文字列リテラルから拾えるように)。
+        switch action {
+        case .trash:
+            alert.messageText = single
+                ? String(format: String(localized: "“%@” is locked. Do you want to move it to the Trash anyway?", language: locale), name)
+                : String(format: String(localized: "%lld items are locked. Do you want to move them to the Trash anyway?", language: locale), urls.count)
+            information = String(localized: "Locked items stay locked in the Trash.", language: locale)
+        case .deleteImmediately:
+            alert.messageText = single
+                ? String(format: String(localized: "“%@” is locked. Do you want to delete it anyway?", language: locale), name)
+                : String(format: String(localized: "%lld items are locked. Do you want to delete them anyway?", language: locale), urls.count)
+            information = String(localized: "Locked items, or folders that contain locked items, are unlocked and then deleted.", language: locale)
+        case .move:
+            alert.messageText = single
+                ? String(format: String(localized: "“%@” is locked. Do you want to move it anyway?", language: locale), name)
+                : String(format: String(localized: "%lld items are locked. Do you want to move them anyway?", language: locale), urls.count)
+            information = String(localized: "Locked items are unlocked while they’re moved and locked again at the new location.", language: locale)
+        case .rename:
+            alert.messageText = String(format: String(localized: "“%@” is locked. Do you want to rename it anyway?", language: locale), name)
+            information = String(localized: "The item is unlocked while it’s renamed and locked again afterward.", language: locale)
+        case let .replace(deletesImmediately):
+            alert.messageText = String(format: String(localized: "“%@” is locked. Do you want to replace it anyway?", language: locale), name)
+            information = deletesImmediately
+                ? String(localized: "Locked items, or folders that contain locked items, are unlocked and then deleted.", language: locale)
+                : String(localized: "Locked items stay locked in the Trash.", language: locale)
         }
-        alert.informativeText = deletesImmediately
-            ? String(localized: "Locked items, or folders that contain locked items, are unlocked and then deleted.", language: locale)
-            : String(localized: "Locked items stay locked in the Trash.", language: locale)
+        alert.informativeText = information
         let proceed = alert.addButton(withTitle: String(localized: "Continue", language: locale))
-        alert.addButton(withTitle: String(localized: "Stop", language: locale))
+        let offersSkip = urls.count < totalCount
+        if offersSkip {
+            alert.addButton(withTitle: String(localized: "Skip Locked Items", language: locale))
+        }
+        let stop = alert.addButton(withTitle: String(localized: "Stop", language: locale))
         proceed.keyEquivalent = ""
-        alert.buttons[1].keyEquivalent = "\r"
-        return await run(alert) == .alertFirstButtonReturn
+        stop.keyEquivalent = "\r"
+        switch await run(alert) {
+        case .alertFirstButtonReturn: return .proceed
+        case .alertSecondButtonReturn where offersSkip: return .skipLocked
+        default: return .stop
+        }
     }
 
     /// 元のフォルダへ書けない項目の移動(Finder などでコピーした項目の ⌥⌘V、外からのドロップ)。

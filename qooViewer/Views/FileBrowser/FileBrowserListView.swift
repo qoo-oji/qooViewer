@@ -31,6 +31,9 @@ struct FileBrowserListView: NSViewRepresentable {
     /// 文字の輪郭の太さ(すりガラス面の決まりごと。ペインが環境値から渡す)。
     let outlineWidth: CGFloat
     let locale: Locale
+    /// 表全体(表示中のフォルダ)がドロップの受け口になった・外れた。ペインがアイコン表示の余白と同じ枠を出す
+    /// (2026-09-14。AppKit 標準の表全体の強調は細い線で、すりガラス 2 条件では薄かった ―― 計画 §4.9)。
+    let onWholeListDropTargetChange: (Bool) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -74,6 +77,7 @@ struct FileBrowserListView: NSViewRepresentable {
         table.doubleAction = #selector(Coordinator.handleDoubleClick(_:))
         table.onReturn = { [weak coordinator] in coordinator?.openSelection() }
         table.editResponder = actions
+        table.onWholeTableDropTargetChange = onWholeListDropTargetChange
         configureFileBrowserDragSource(table)
 
         let menu = NSMenu()
@@ -94,6 +98,7 @@ struct FileBrowserListView: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
+        context.coordinator.table?.onWholeTableDropTargetChange = onWholeListDropTargetChange
         context.coordinator.update(from: self)
     }
 
@@ -105,6 +110,9 @@ struct FileBrowserListView: NSViewRepresentable {
             table.doubleAction = nil
             table.onReturn = nil
             table.editResponder = nil
+            // 閉包を先に切る(SwiftUI の更新の最中に @State を書かない)。
+            table.onWholeTableDropTargetChange = nil
+            table.isWholeTableDropTarget = false
             table.unregisterDraggedTypes()
             table.menu?.delegate = nil
             table.menu = nil
@@ -422,13 +430,16 @@ struct FileBrowserListView: NSViewRepresentable {
                 tableView.setDropRow(-1, dropOperation: .on)
             }
             let (decision, _) = actions.dropDecision(for: info, into: folder ?? state?.currentFolder)
-            return decision.dragOperation(sourceMask: info.draggingSourceOperationMask)
+            let operation = decision.dragOperation(sourceMask: info.draggingSourceOperationMask)
+            (tableView as? FileBrowserTableView)?.isWholeTableDropTarget = folder == nil && !operation.isEmpty
+            return operation
         }
 
         func tableView(
             _ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int,
             dropOperation: NSTableView.DropOperation
         ) -> Bool {
+            (tableView as? FileBrowserTableView)?.isWholeTableDropTarget = false
             guard let actions else { return false }
             let destination = dropFolder(row: row, operation: dropOperation) ?? state?.currentFolder
             let (decision, urls) = actions.dropDecision(for: info, into: destination)
@@ -502,6 +513,20 @@ struct FileBrowserListView: NSViewRepresentable {
 final class FileBrowserTableView: NSTableView, NSMenuItemValidation {
     var onReturn: (() -> Void)?
     weak var editResponder: (any FileBrowserEditResponding)?
+    var onWholeTableDropTargetChange: ((Bool) -> Void)?
+    /// 表全体が受け口になっているか(FileBrowserListView.onWholeListDropTargetChange)。出たとき・落とされたときに下ろす。
+    /// **`draggingEnded` / `concludeDragOperation` は上書きしない**(FileBrowserOutlineView のコメント: ドラッグ元の終わりの通知が止まる)。
+    var isWholeTableDropTarget = false {
+        didSet {
+            guard isWholeTableDropTarget != oldValue else { return }
+            onWholeTableDropTargetChange?(isWholeTableDropTarget)
+        }
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) {
+        isWholeTableDropTarget = false
+        super.draggingExited(sender)
+    }
 
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)

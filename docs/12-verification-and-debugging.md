@@ -142,6 +142,10 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
 2026-09-13 の段階 3 の実機検証の手順(→ [15](15-file-browser.md))。上の「実物のアプリを外から操作する」の手順
 (Debug のストア・表紙・defaults を控えて退避し、空の本棚で起動)に次を足した。
 
+- **ストアだけを退避して表紙の保管庫を残したまま起動しない**(2026-09-14)。起動時の掃除が、参照の無くなった表紙の元画像を
+  保管庫の中の `.orphaned/` へ隔離する(docs/14。30 日は消えないが、戻すまで保管庫の中身が控えと食い違う)。退避するなら
+  `Application Support/com.qooProject.qooViewer.debug/` ごと。やってしまったら、そのフォルダを控えから丸ごと戻して `diff -r` で確かめる。
+
 - 使い捨てボリュームは **`-nobrowse` を付けずに**付ける(付けると「コンピュータ」とツリーに出ない ―― Finder と同じ規則)。
   中は合成名のフォルダ・画像フォルダ・zip で作った cbz・テキスト。起動時のフォルダは defaults で
   `qooViewer.welcome.mode = browser`、`qooViewer.pref.fileBrowser.startupLocation = lastFolder`、

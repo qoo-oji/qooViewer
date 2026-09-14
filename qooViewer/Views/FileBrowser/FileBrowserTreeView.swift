@@ -27,7 +27,15 @@ import SwiftUI
 /// - 子は開いたときに `FileIO` で読む非同期なので、**1 段ずつ読み終わるのを待って**次を開く。途中で別のフォルダへ
 ///   移った・ツリーの行をクリックした・設定を OFF にしたら、世代番号で残りをやめる。
 /// - ツリーの行をクリックして移動したときは何もしない(その行はもう見えている)。開いたほかの行はたたまない。
-/// - 隠しフォルダ・パッケージ・リンクの先など、ツリーに出ない階層で道筋が切れたら、そこまで開いて止める。
+/// - 隠しフォルダ・パッケージ・リンクの先など、ツリーに出ない階層で道筋が切れたら、**その展開で開いた行をたたみ直す**
+///   (2026-09-14。以前はそこまで開いたまま残り、現在のフォルダが見えないのに途中の行だけが開いていた ―― 計画 §4.13)。
+///   前から開いていた行はたたまない。
+///
+/// ■ 外での変更(2026-09-14)
+/// Finder など外でフォルダを作った・消した・名前を変えたときも、**開いている行を FSEvents で見張って**読み直す
+/// (それまでは親をたたんで開き直すまで反映されなかった ―― 計画 §4.9)。見張るのは開いている行のうちいちばん上のものだけ
+/// (FSEvents は配下も知らせる)。変わった項目の**親の行**だけを読み直し、閉じている行は三角の有無だけ調べ直す。
+/// FSEvents はネットワークの共有では当てにならないので、アプリがアクティブになったときに共有の上の開いている行も読み直す。
 ///
 /// ■ ドラッグ&ドロップ(段階4b)
 /// どの行(ボリューム・ホーム・よく使う項目・フォルダ)の上にも落とせる。行の間へ落とそうとしたら、
@@ -192,6 +200,10 @@ struct FileBrowserTreeView: NSViewRepresentable {
         private var pendingRevealFolderID: String?
         /// 「現在のフォルダまで開く」の世代(型コメントの「途中でやめる」)。
         private var revealGeneration = 0
+        /// 開いている行の見張り(型コメント「外での変更」)。
+        private var watcher: FolderChangeWatcher?
+        private var watchUpdateScheduled = false
+        private var activationObserver: NSObjectProtocol?
 
         private let volumesGroup = Node(kind: .group(.volumes), url: nil, name: "", children: [])
         private let homeGroup: Node = {
@@ -210,6 +222,15 @@ struct FileBrowserTreeView: NSViewRepresentable {
             // グループの見出しは開いた状態で始める(中の行は閉じている ―― 型コメント)。
             for group in groups { outline.expandItem(group) }
             reloadVolumes()
+            watcher = FolderChangeWatcher(onChangedPaths: { [weak self] paths in
+                // FSEvents 自身のキューから呼ばれる(FolderChangeWatcher.init のコメント)。
+                Task { @MainActor [weak self] in self?.handleExternalChange(paths) }
+            })
+            activationObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.reloadRemoteExpandedRows() }
+            }
             let center = NSWorkspace.shared.notificationCenter
             for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification,
                          NSWorkspace.didRenameVolumeNotification] {
@@ -223,6 +244,76 @@ struct FileBrowserTreeView: NSViewRepresentable {
             let center = NSWorkspace.shared.notificationCenter
             volumeObservers.forEach(center.removeObserver)
             volumeObservers.removeAll()
+            if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
+            activationObserver = nil
+            watcher?.tearDown()
+            watcher = nil
+        }
+
+        // MARK: 外での変更
+
+        /// 開いている行が変わったら、見張るフォルダを入れ替える。開閉が続いても 1 回にまとめる(次のランループで)。
+        private func scheduleWatchUpdate() {
+            guard !watchUpdateScheduled else { return }
+            watchUpdateScheduled = true
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.watchUpdateScheduled = false
+                guard let watcher = self.watcher else { return }
+                await watcher.watch(self.watchedRoots())
+            }
+        }
+
+        /// 開いている(子を読む)行のパスのうち、ほかの開いている行の配下に無いもの。
+        private func watchedRoots() -> Set<String> {
+            guard let outline else { return [] }
+            var paths: [String] = []
+            for row in 0..<outline.numberOfRows {
+                guard let node = outline.item(atRow: row) as? Node, node.loadsChildren, let url = node.url,
+                      outline.isItemExpanded(node)
+                else { continue }
+                paths.append(FileBrowserState.id(for: url))
+            }
+            var roots: [String] = []
+            for path in paths.sorted() where !roots.contains(where: { MountTable.path(path, isAtOrUnder: $0) }) {
+                roots.append(path)
+            }
+            return Set(roots)
+        }
+
+        /// FSEvents が知らせたパス(ファイル単位)の親と、そのもの(フォルダ自身の中身の変化)の行を読み直す。
+        private func handleExternalChange(_ paths: [String]) {
+            guard !paths.isEmpty else { return }
+            var ids = Set<String>()
+            for raw in paths {
+                let url = URL(fileURLWithPath: Self.pathOutsideDataVolume(raw))
+                ids.insert(FileBrowserState.id(for: url))
+                ids.insert(FileBrowserState.id(for: url.deletingLastPathComponent()))
+            }
+            reloadExpandedRows(in: ids)
+        }
+
+        /// 起動ボリュームの利用者のデータは `/System/Volumes/Data` の上にあり、FSEvents がその頭を付けて知らせることがある
+        /// (`/` を見張ったとき)。ツリーの行は頭の無いパスなので揃える。
+        nonisolated static let dataVolumePrefix = "/System/Volumes/Data"
+
+        nonisolated static func pathOutsideDataVolume(_ path: String) -> String {
+            guard path.hasPrefix(dataVolumePrefix + "/") else { return path }
+            return String(path.dropFirst(dataVolumePrefix.count))
+        }
+
+        /// 共有の上の開いている行を読み直す(FSEvents が当てにならない。型コメント「外での変更」)。
+        private func reloadRemoteExpandedRows() {
+            guard let outline else { return }
+            let mounts = MountTable.current()
+            var ids = Set<String>()
+            for row in 0..<outline.numberOfRows {
+                guard let node = outline.item(atRow: row) as? Node, node.loadsChildren, let url = node.url,
+                      outline.isItemExpanded(node), mounts.isRemote(url)
+                else { continue }
+                ids.insert(FileBrowserState.id(for: url))
+            }
+            if !ids.isEmpty { reloadExpandedRows(in: ids) }
         }
 
         func update(from view: FileBrowserTreeView) {
@@ -246,6 +337,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 }
                 outline.reloadItem(favoritesGroup, reloadChildren: true)
                 outline.expandItem(favoritesGroup)
+                scheduleWatchUpdate()
             }
             if needsRedraw {
                 outline.reloadData()
@@ -294,15 +386,23 @@ struct FileBrowserTreeView: NSViewRepresentable {
             guard let plan = FileBrowserTreePath.plan(to: target, roots: roots.map(\.1)) else { return }
             var node = roots[plan.rootIndex].0
             var reachedTarget = plan.steps.isEmpty
+            /// この展開で開いた行(道筋が切れたらたたみ直す)。
+            var opened: [Node] = []
             for (offset, step) in plan.steps.enumerated() {
-                guard let children = await expandedChildren(of: node, generation: generation),
-                      let index = FileBrowserTreePath.index(of: step, in: children.map { $0.url?.path ?? "" })
-                else { break }
+                let wasExpanded = outline?.isItemExpanded(node) ?? true
+                guard let children = await expandedChildren(of: node, generation: generation) else { break }
+                if !wasExpanded { opened.append(node) }
+                guard let index = FileBrowserTreePath.index(of: step, in: children.map { $0.url?.path ?? "" }) else { break }
                 node = children[index]
                 reachedTarget = offset == plan.steps.count - 1
             }
             guard revealGeneration == generation, let outline else { return }
-            if reachedTarget { applySelection(folderID: appliedFolderID ?? nil) }
+            if !reachedTarget {
+                for item in opened.reversed() { outline.collapseItem(item) }
+                applySelection(folderID: appliedFolderID ?? nil)
+                return
+            }
+            applySelection(folderID: appliedFolderID ?? nil)
             let row = outline.row(forItem: node)
             if row >= 0 { outline.scrollRowToVisible(row) }
         }
@@ -365,6 +465,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 self.volumesGroup.children = sorted.map { Node(kind: .volume, url: $0.url, name: $0.displayName) }
                 outline.reloadItem(self.volumesGroup, reloadChildren: true)
                 outline.expandItem(self.volumesGroup)
+                self.scheduleWatchUpdate()
                 self.applySelection(folderID: self.appliedFolderID ?? nil)
                 self.hasLoadedVolumes = true
                 self.startPendingRevealIfReady()
@@ -438,6 +539,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 }
                 outline.reloadItem(node, reloadChildren: true)
                 self.applySelection(folderID: self.appliedFolderID ?? nil)
+                // 開いていた子が消えた(外で消された)なら、見張るフォルダも変わる。
+                self.scheduleWatchUpdate()
             }
         }
 
@@ -487,12 +590,17 @@ struct FileBrowserTreeView: NSViewRepresentable {
             loadChildren(of: node)
         }
 
+        func outlineViewItemDidExpand(_ notification: Notification) {
+            scheduleWatchUpdate()
+        }
+
         func outlineViewItemDidCollapse(_ notification: Notification) {
             guard let node = notification.userInfo?["NSObject"] as? Node, node.loadsChildren else { return }
             // たたんだら子を捨てる(型コメント)。次に開いたときに読み直す。
             node.children = nil
             node.loadGeneration += 1
             outline?.reloadItem(node, reloadChildren: true)
+            scheduleWatchUpdate()
         }
 
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {

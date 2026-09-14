@@ -49,6 +49,30 @@ struct FileOperationVolumeTests {
         #expect(FileManager.default.fileExists(atPath: volume.file("Series/extra/02.cbz").path))
     }
 
+    @Test("別ボリュームへの移動では中のロックも邪魔をする。許せば外して運び、運んだ先の同じ場所で掛け直す")
+    func crossVolumeMoveOfFolderWithLockedItems() async throws {
+        guard let volume = DisposableVolume.make(.apfs, "cross-locked") else { return }
+        let folder = try temporary.directory("LockedSeries")
+        let inner = folder.appendingPathComponent("extra/02.cbz")
+        try FileManager.default.createDirectory(at: inner.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("2".utf8).write(to: inner)
+        FileOperationService.setLocked(inner, true)
+        #expect(FileOperationService.movingIsBlockedByLock(folder, to: volume.url, mounts: .current()))
+
+        await #expect(throws: FileOperationError.itemLocked(folder)) {
+            _ = try await service.move([folder], to: volume.url, options: .init(conflictPolicy: .ask))
+        }
+        #expect(FileOperationService.isLocked(inner))
+        #expect(!FileManager.default.fileExists(atPath: volume.file("LockedSeries").path))
+
+        let outcome = try await service.move([folder], to: volume.url, options: .init(conflictPolicy: .ask, unlockingLocked: true))
+        #expect(outcome.isCompleteSuccess)
+        #expect(!FileManager.default.fileExists(atPath: folder.path))
+        let moved = volume.file("LockedSeries/extra/02.cbz")
+        #expect(FileOperationService.isLocked(moved))
+        FileOperationService.setLocked(moved, false)
+    }
+
     @Test("exFAT では RENAME_EXCL が ENOTSUP を返すので、縮退経路で同じボリューム内を移動できる")
     func exFATMoveUsesTheDegradedRename() async throws {
         guard let volume = DisposableVolume.make(.exfat, "exfat-move") else { return }

@@ -132,6 +132,27 @@ final class FileBrowserOperations: ObservableObject {
             var movers = moves.filter { !isInDestination($0) }
             let duplicates = copies.filter(isInDestination)
             var copiers = copies.filter { !isInDestination($0) }
+            // **ロックされた項目の移動は先に尋ねる**(2026-09-14。以前は OS が断って「権限がありません」と出るだけだった)。
+            // 「続ける」ならロックを外して運び、運んだ先で掛け直す。「ロックされた項目をスキップ」なら外す。
+            var unlocksMovers = false
+            if !movers.isEmpty {
+                let candidates = movers
+                let locked = await FileIO.perform {
+                    let mounts = MountTable.current()
+                    return candidates.filter { FileOperationService.movingIsBlockedByLock($0, to: folder, mounts: mounts) }
+                }
+                if !locked.isEmpty {
+                    switch await self.presenter?.confirmLockedItems(locked, totalCount: movers.count + copies.count, action: .move) ?? .stop {
+                    case .proceed:
+                        unlocksMovers = true
+                    case .skipLocked:
+                        let lockedSet = Set(locked)
+                        movers.removeAll { lockedSet.contains($0) }
+                    case .stop:
+                        return
+                    }
+                }
+            }
             // **取り消しで戻せない移動は、先に尋ねる**(2026-09-14、ユーザー決定)。Finder などでコピーした許可の無い場所の
             // 項目は、項目自身の許可で移動できてしまうが、元のフォルダへは書けないので ⌘Z が「アクセス権がありません」で
             // 失敗する(paste のコメント)。「移動」なら取り消しに積まない(積むと ⌘Z が失敗の報告になるだけ)、
@@ -158,8 +179,10 @@ final class FileBrowserOperations: ObservableObject {
             let options = self.transferOptions(policy: .ask, cancellation: cancellation)
             var commands: [any FileCommand] = []
             if !movers.isEmpty {
+                var moveOptions = options
+                moveOptions.unlockingLocked = unlocksMovers
                 commands.append(MoveFilesCommand(
-                    items: movers, destination: folder, options: options, isUndoable: movesAreUndoable, fileOps: self.fileOps
+                    items: movers, destination: folder, options: moveOptions, isUndoable: movesAreUndoable, fileOps: self.fileOps
                 ))
             }
             if !duplicates.isEmpty {
@@ -172,10 +195,10 @@ final class FileBrowserOperations: ObservableObject {
                 commands.append(CopyFilesCommand(items: copiers, destination: folder, options: options, fileOps: self.fileOps))
             }
             guard !commands.isEmpty else { return }
-            let count = moves.count + copies.count
+            let urls = movers + duplicates + copiers
+            let count = urls.count
             // 「コピー」を選んで移動がコピーに変わったものがあれば、題は「コピー」。
             let isMove = duplicates.isEmpty && copiers.isEmpty
-            let urls = moves + copies
             let command: any FileCommand = commands.count == 1
                 ? commands[0]
                 : CompositeFileCommand(displayName: Self.transferName(count: count, isMove: isMove), children: commands)
@@ -197,23 +220,34 @@ final class FileBrowserOperations: ObservableObject {
     /// 完全に削除する(決定事項 Q4。取り消せない)。
     @discardableResult
     func moveToTrash(_ entries: [FileBrowserEntry]) -> Task<Void, Never> {
-        let urls = entries.filter { !$0.isVolume }.map(\.url)
+        let selected = entries.filter { !$0.isVolume }.map(\.url)
         return enqueue { [weak self] in
-            guard let self, !urls.isEmpty else { return }
+            guard let self, !selected.isEmpty else { return }
+            var urls = selected
             let hasTrash = self.hasTrash
-            let canTrash = await FileIO.perform { TrashAvailability.hasTrash(forAll: urls, using: hasTrash) }
+            let canTrash = await FileIO.perform { TrashAvailability.hasTrash(forAll: selected, using: hasTrash) }
             if !canTrash {
                 guard await self.presenter?.confirmImmediateDeletion(of: urls) == true else { return }
             }
             // ロックされた項目は確認してから(Finder と同じ「続ける / 中止」)。ゴミ箱へ送るなら項目自身のロックだけが
             // 邪魔をする(中にロックされた項目があるフォルダは送れる。実測)が、完全に削除するなら中の項目も見る。
+            let candidates = urls
             let locked = await FileIO.perform {
-                urls.filter { canTrash ? FileOperationService.isLocked($0) : FileOperationService.containsLockedItem($0) }
+                candidates.filter { canTrash ? FileOperationService.isLocked($0) : FileOperationService.containsLockedItem($0) }
             }
             var unlocking = false
             if !locked.isEmpty {
-                guard await self.presenter?.confirmLockedItems(locked, deletesImmediately: !canTrash) == true else { return }
-                unlocking = true
+                let action: LockedItemAction = canTrash ? .trash : .deleteImmediately
+                switch await self.presenter?.confirmLockedItems(locked, totalCount: urls.count, action: action) ?? .stop {
+                case .proceed:
+                    unlocking = true
+                case .skipLocked:
+                    let lockedSet = Set(locked)
+                    urls.removeAll { lockedSet.contains($0) }
+                    guard !urls.isEmpty else { return }
+                case .stop:
+                    return
+                }
             }
             let command: any FileCommand = canTrash
                 ? TrashFilesCommand(items: urls, unlockingLocked: unlocking, fileOps: self.fileOps)
@@ -255,9 +289,19 @@ final class FileBrowserOperations: ObservableObject {
             guard let self else { return }
             let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
             guard trimmed != url.lastPathComponent else { return }
-            let command = RenameFileCommand(item: url, newName: newName, fileOps: self.fileOps)
-            await self.run(command, title: nil, cancellation: nil, affected: [url.deletingLastPathComponent()]) { _ in
-                command.receipt.map { [$0.renamed] } ?? []
+            // ロックされた項目は尋ねてから(移動と同じ。2026-09-14)。
+            var unlocking = false
+            if await FileIO.perform({ FileOperationService.isLocked(url) }) {
+                guard await self.presenter?.confirmLockedItems([url], totalCount: 1, action: .rename) == .proceed else { return }
+                unlocking = true
+            }
+            let command = RenameFileCommand(item: url, newName: newName, unlockingLocked: unlocking, fileOps: self.fileOps)
+            await self.run(command, title: nil, cancellation: nil, affected: [url.deletingLastPathComponent()]) { [weak self] _ in
+                // **名前を変えた項目がまだ選ばれているときだけ**選び直す(2026-09-14)。アイコン表示で編集中に余白をクリックすると、
+                // 焦点が外れて確定する間に余白のクリックが選択を外すが、確定した名前の変更が済んでから選び直していたので、
+                // 選択が外れなかった(計画 §4.10)。Return で確定したときは選ばれたままなので、今までどおり選ぶ。
+                guard self?.state?.selection.contains(FileBrowserState.id(for: url)) == true else { return [] }
+                return command.receipt.map { [$0.renamed] } ?? []
             }
         }
     }
@@ -307,6 +351,8 @@ final class FileBrowserOperations: ObservableObject {
             if case let .partial(_, failures, wasCancelled)? = result, !failures.isEmpty, !wasCancelled {
                 problem = FileBrowserProblem.partialFailure(operationName: command.displayName, failures: failures)
             }
+        } catch let rollback as CompositeRollbackError {
+            problem = FileBrowserProblem(title: rollback.localizedDescription, message: FileBrowserProblem.listing(rollback.failures))
         } catch {
             if !FileCommandStack.isCancellation(error) {
                 problem = FileBrowserProblem(
@@ -370,7 +416,24 @@ final class FileBrowserOperations: ObservableObject {
                 let hasTrash = self.hasTrash
                 let folder = conflict.destination.deletingLastPathComponent()
                 let deletesImmediately = await FileIO.perform { !hasTrash(folder) }
-                return await presenter.resolveConflict(conflict, replacingDeletesImmediately: deletesImmediately, cancellation: cancellation)
+                var answer = await presenter.resolveConflict(conflict, replacingDeletesImmediately: deletesImmediately, cancellation: cancellation)
+                // 置き換えられる項目がロックされていたら、置き換える前に尋ねる(2026-09-14。以前はゴミ箱の無い場所で
+                // 中のロックに当たって退避を消しきれず、次の起動で警告が出た ―― 計画 §4.11)。
+                guard answer.policy == .replace else { return answer }
+                let target = conflict.destination
+                let blocked = await FileIO.perform {
+                    FileOperationService.replacingIsBlockedByLock(target, deletesImmediately: deletesImmediately)
+                }
+                guard blocked else { return answer }
+                switch await presenter.confirmLockedItems([target], totalCount: 1, action: .replace(deletesImmediately: deletesImmediately)) {
+                case .proceed:
+                    answer.unlockingLocked = true
+                    return answer
+                case .skipLocked, .stop:
+                    // 衝突の確認の「中止」と同じ: 残りを止め、この項目はスキップ。
+                    cancellation.request()
+                    return ConflictDecision(.skip)
+                }
             },
             progress: sink,
             cancellation: cancellation
@@ -417,10 +480,30 @@ final class FileBrowserOperations: ObservableObject {
     /// `access(W_OK)` はサンドボックスの判定も返す(2026-09-14 実測。Finder でコピーした項目の親フォルダは拒否、
     /// 許可のあるフォルダは通る、で許可の有無と一致した)。**読み取り専用のボリュームは戻せる扱い**にする ――
     /// そもそも移動が断られるので、尋ねてから失敗を報告する二度手間になる。
+    ///
+    /// **POSIX の権限で書けないフォルダも戻せる扱い**(2026-09-14、計画 §4.14)。そこから項目を出すにはそのフォルダへの
+    /// 書き込みが要るので移動そのものが「権限がありません」で断られ、尋ねると「移動」を選んだ直後に失敗を見せる二度手間になる。
+    /// 尋ねるのは「POSIX では書けるのに `access` が断る」= サンドボックスの許可が無いときだけ。
     nonisolated static func canPutBack(_ item: URL) -> Bool {
         let parent = item.deletingLastPathComponent()
         if (try? parent.resourceValues(forKeys: [.volumeIsReadOnlyKey]))?.volumeIsReadOnly == true { return true }
-        return access(parent.path, W_OK) == 0
+        if access(parent.path, W_OK) == 0 { return true }
+        return !posixModeAllowsWrite(parent)
+    }
+
+    /// モードビットだけで見た、このプロセスがそのフォルダへ書けるか(ACL は見ない ―― ACL が許すフォルダでは
+    /// 尋ねずに移動し、取り消しが失敗しうるが、以前の動作に戻るだけ)。stat できなければ書ける扱い(尋ねる側に倒す)。
+    nonisolated static func posixModeAllowsWrite(_ folder: URL) -> Bool {
+        var info = stat()
+        guard stat(folder.path, &info) == 0 else { return true }
+        let uid = geteuid()
+        if uid == 0 { return true }
+        if info.st_uid == uid { return info.st_mode & S_IWUSR != 0 }
+        var groups = [gid_t](repeating: 0, count: Int(NGROUPS_MAX))
+        let count = getgroups(Int32(groups.count), &groups)
+        let isMember = info.st_gid == getegid() || (count > 0 && groups.prefix(Int(count)).contains(info.st_gid))
+        if isMember { return info.st_mode & S_IWGRP != 0 }
+        return info.st_mode & S_IWOTH != 0
     }
 
     /// カットの判定に使うパスの集合。**読み戻した URL は末尾の `/` などで `==` が外れる**(qooLibrary 実測)ので、
@@ -506,7 +589,13 @@ struct FileBrowserProblem: Equatable {
                 ),
                 message: listing(failures, locale: locale)
             )
-        case let .failed(name, reason):
+        case let .failed(name, reason, canRetry):
+            var message = reason
+            if canRetry {
+                message += "\n\n" + String(
+                    localized: "It’s still in the Undo history, so you can try again after fixing the problem.", language: locale
+                )
+            }
             return FileBrowserProblem(
                 title: String(
                     format: isRedo
@@ -514,12 +603,12 @@ struct FileBrowserProblem: Equatable {
                         : String(localized: "“%@” couldn’t be undone.", language: locale),
                     name
                 ),
-                message: reason
+                message: message
             )
         }
     }
 
-    private static func listing(_ failures: [FailedItem], locale: Locale) -> String {
+    static func listing(_ failures: [FailedItem], locale: Locale = AppLanguage.currentLocale) -> String {
         var lines = failures.prefix(listedFailureLimit).map { "\($0.name): \($0.reason)" }
         if failures.count > listedFailureLimit {
             lines.append(String(
@@ -529,6 +618,25 @@ struct FileBrowserProblem: Equatable {
         }
         return lines.joined(separator: "\n")
     }
+}
+
+/// ロックされた項目の確認で、何をしようとしているか(文面が変わる)。
+enum LockedItemAction: Equatable {
+    case trash
+    case deleteImmediately
+    case move
+    case rename
+    /// 衝突の「置き換える」。置き換えられる既存の項目がロックされている。
+    case replace(deletesImmediately: Bool)
+}
+
+/// ロックされた項目の確認への答え。
+enum LockedItemsDecision: Equatable {
+    /// ロックを外して続ける。
+    case proceed
+    /// ロックされた項目だけを外して、残りで続ける(一部だけがロックされているときに出す)。
+    case skipLocked
+    case stop
 }
 
 /// 取り消せない移動の確認への答え。
@@ -546,8 +654,9 @@ enum IrreversibleMoveDecision: Equatable {
 protocol FileBrowserOperationPresenting: AnyObject {
     /// 「すぐに削除されます。取り消せません」。削除してよければ true。
     func confirmImmediateDeletion(of urls: [URL]) async -> Bool
-    /// ロックされた項目をゴミ箱へ送る(`deletesImmediately` なら完全に削除する)か。続けてよければ true。
-    func confirmLockedItems(_ urls: [URL], deletesImmediately: Bool) async -> Bool
+    /// `urls` はロックされている。ロックを外して `action` を続けるか。
+    /// - Parameter totalCount: 1 回の操作の項目の総数。`urls` がその一部なら「ロックされた項目をスキップ」も選べる。
+    func confirmLockedItems(_ urls: [URL], totalCount: Int, action: LockedItemAction) async -> LockedItemsDecision
     /// 移動しようとした項目のうち `urls` は、元のフォルダへ書けないので取り消しで戻せない。
     /// - Parameter totalCount: 1 回の操作で運ぶ項目の総数(題に使う。`urls` はその一部のことがある)。
     func confirmIrreversibleMove(of urls: [URL], totalCount: Int) async -> IrreversibleMoveDecision

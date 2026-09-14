@@ -58,9 +58,14 @@ final class FileCommandStack: ObservableObject {
                 // 「移動元がありません」になる(qooLibrary で監査により発見)。取り消しもやり直しも正しく
                 // 再現できないので、スタックから外す。
                 return .partial(operationName: command.displayName, succeeded: succeeded, failures: failures)
-            case let .impossible(reason):
-                // 戻さない(同じ取り消しを試し直しても直らない)。
-                return .failed(operationName: command.displayName, reason: reason)
+            case let .impossible(reason, canRetry):
+                // **試し直せるなら履歴へ戻す**(2026-09-14、計画 §4.12 の「取り消しに失敗した操作は履歴から消える」)。
+                // 権限や応答しない共有のように、原因を取り除けば戻せるのに、以前は 1 回の失敗で戻す手段が無くなった。
+                // 何も戻っていない(impossible の約束)ので、同じ取り消しをもう一度走らせても二重には戻らない。
+                // 試し直しても直らないもの(相手が消えた・別の項目に変わった)は外す ―― 残すと、その下の古い操作まで
+                // ⌘Z で届かなくなる。
+                if canRetry { undoStack.append(command) }
+                return .failed(operationName: command.displayName, reason: reason, canRetry: canRetry)
             }
         } catch {
             return .failed(operationName: command.displayName, reason: error.localizedDescription)

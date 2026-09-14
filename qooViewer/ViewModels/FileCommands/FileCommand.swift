@@ -63,7 +63,11 @@ nonisolated enum FileCommandResult: Sendable, Equatable {
 nonisolated enum FileUndoResult: Sendable, Equatable {
     case complete
     case partial(succeeded: Int, failures: [FailedItem])
-    case impossible(reason: String)
+    /// 何も戻らなかった(ファイルは取り消しを試す前のまま)。
+    /// - Parameter canRetry: 戻す相手はそのまま残っていて、原因(権限・応答しない共有・元の場所にできた同じ名前の項目)
+    ///   を取り除けばもう一度試せる。FileCommandStack は履歴に残す。false は相手がもう無い・別の項目に変わった
+    ///   など、試し直しても戻らないもの(履歴から外す ―― 残すと、その下の古い操作まで ⌘Z で届かなくなる)。
+    case impossible(reason: String, canRetry: Bool = false)
 }
 
 /// 取り消し・やり直しの結果。**見せるのは呼び出し側(段階 4 の帯とアラート)**。
@@ -73,7 +77,8 @@ nonisolated enum FileUndoOutcome: Sendable, Equatable {
     case nothingToDo
     case complete(operationName: String)
     case partial(operationName: String, succeeded: Int, failures: [FailedItem])
-    case failed(operationName: String, reason: String)
+    /// - Parameter canRetry: 履歴に残したので、もう一度 ⌘Z(やり直しなら ⇧⌘Z)で試せる。
+    case failed(operationName: String, reason: String, canRetry: Bool = false)
 
     /// 利用者に知らせる必要があるか(成功と空振りは黙っていてよい)。**「戻せなかった」は必ず見せる。**
     var needsAttention: Bool {
@@ -101,7 +106,7 @@ final class CompositeFileCommand: FileCommand {
     var completionSound: SystemSoundEffect? { children.lazy.compactMap(\.completionSound).first }
 
     func execute() async throws -> FileCommandResult {
-        var executed: [any FileCommand] = []
+        var executed: [(command: any FileCommand, hasEffect: Bool)] = []
         var succeeded = 0
         var failures: [FailedItem] = []
         for child in children {
@@ -112,16 +117,16 @@ final class CompositeFileCommand: FileCommand {
                 // **中止のときだけ、実行済みの子を巻き戻す**(「〈名前〉に展開」を止めたのに空のフォルダだけが
                 // 残り、しかも投げたので Undo にも積まれず片付ける手立てが無かった。qooLibrary 実機検証)。
                 // 失敗(容量不足など)では巻き戻さない ―― 5 個中 3 個目の失敗で、済んだ 2 個まで消えるのは驚きが大きい。
-                if FileCommandStack.isCancellation(error) { await rollBack(executed) }
+                if FileCommandStack.isCancellation(error) { try await rollBack(executed) }
                 throw error
             }
-            executed.append(child)
+            executed.append((child, result.hasEffect))
             switch result {
             case .success:
                 succeeded += 1
             case let .partial(childSucceeded, childFailures, wasCancelled):
                 if wasCancelled {
-                    await rollBack(executed)
+                    try await rollBack(executed)
                     throw CancellationError()
                 }
                 succeeded += childSucceeded > 0 ? 1 : 0
@@ -132,30 +137,85 @@ final class CompositeFileCommand: FileCommand {
     }
 
     /// 子を逆順に取り消す。戻せなかった子は失敗として集める。
+    /// **どの子も何も戻さず、どれも試し直せる**ときだけ「試し直せる取り消せなかった」を返す(1 つでも戻った子があれば
+    /// 状態が割れているので、もう一度全体を取り消すと戻った子を二重に戻そうとする)。
     func undo() async throws -> FileUndoResult {
         var succeeded = 0
         var failures: [FailedItem] = []
+        var changedAnything = false
+        var allRetryable = true
         for child in children.reversed() {
             do {
                 switch try await child.undo() {
                 case .complete:
                     succeeded += 1
+                    changedAnything = true
                 case let .partial(childSucceeded, childFailures):
                     succeeded += childSucceeded
                     failures += childFailures
-                case let .impossible(reason):
+                    changedAnything = true
+                case let .impossible(reason, canRetry):
                     failures.append(FailedItem(name: child.displayName, reason: reason))
+                    allRetryable = allRetryable && canRetry
                 }
             } catch {
                 failures.append(FailedItem(name: child.displayName, reason: error.localizedDescription))
+                allRetryable = false
             }
         }
-        return failures.isEmpty ? .complete : .partial(succeeded: succeeded, failures: failures)
+        if failures.isEmpty { return .complete }
+        if !changedAnything { return .impossible(reason: failures[0].reason, canRetry: allRetryable) }
+        return .partial(succeeded: succeeded, failures: failures)
     }
 
-    private func rollBack(_ executed: [any FileCommand]) async {
+    /// 中止のときの巻き戻し。**取り消せない子(元のフォルダへ書けない移動)は戻そうとしない** ―― 以前は `try?` で
+    /// 試して黙って失敗し、運んだ項目が宛先に残ったのに何も言わなかった(計画 §4.14)。戻せなかったものは
+    /// `CompositeRollbackError` で伝える(中止ではなく問題として見せる)。
+    private func rollBack(_ executed: [(command: any FileCommand, hasEffect: Bool)]) async throws {
+        let locale = AppLanguage.currentLocale
+        var failures: [FailedItem] = []
         for done in executed.reversed() {
-            _ = try? await done.undo()
+            guard done.command.isUndoable else {
+                if done.hasEffect {
+                    failures.append(FailedItem(
+                        name: done.command.displayName,
+                        reason: String(localized: "This part can’t be undone, so it was left as it is.", language: locale)
+                    ))
+                }
+                continue
+            }
+            // 何も済まなかった子も取り消しを呼ぶ(0 件と数えても、途中まで作ったものを片付ける子がありうる ――
+            // 段階 6 の展開)。ただし戻すものが無いのは当然なので、その子の「戻せなかった」は数えない。
+            let result: FileUndoResult
+            do {
+                result = try await done.command.undo()
+            } catch {
+                if done.hasEffect { failures.append(FailedItem(name: done.command.displayName, reason: error.localizedDescription)) }
+                continue
+            }
+            guard done.hasEffect else { continue }
+            switch result {
+            case .complete:
+                break
+            case let .partial(_, childFailures):
+                failures += childFailures
+            case let .impossible(reason, _):
+                failures.append(FailedItem(name: done.command.displayName, reason: reason))
+            }
         }
+        if !failures.isEmpty { throw CompositeRollbackError(operationName: displayName, failures: failures) }
+    }
+}
+
+/// まとめた操作を中止したが、済んだ子を戻しきれなかった。**中止ではなく問題として見せる**(運んだ項目が宛先に残っている)。
+nonisolated struct CompositeRollbackError: Error, Equatable, LocalizedError {
+    let operationName: String
+    let failures: [FailedItem]
+
+    var errorDescription: String? {
+        String(
+            format: String(localized: "“%@” was stopped, but some items couldn’t be put back.", language: AppLanguage.currentLocale),
+            operationName
+        )
     }
 }

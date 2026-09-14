@@ -46,7 +46,9 @@ final class FolderChangeWatcher {
     /// 何度も走査が走る。0.3 秒あれば人の感覚では即時で、連続する書き込みはひとまとめになる。
     private static let latency: CFTimeInterval = 0.3
 
-    private let onChange: @Sendable () -> Void
+    private let onChange: @Sendable ([String]) -> Void
+    /// 変わったパスを集めて渡すか(`init(onChangedPaths:)`)。false なら中身を捨てる(型コメント「何が変わったかは見ない」)。
+    private let reportsPaths: Bool
     /// FSEvents の配送先。**メインキューにはしない**(型コメント参照)。
     private let deliveryQueue = DispatchQueue(label: "jp.qooViewer.folderChangeWatcher", qos: .utility)
     /// いま監視しているパス(同じ顔ぶれなら張り直さないための照合用)。
@@ -63,7 +65,16 @@ final class FolderChangeWatcher {
     /// - Parameter onChange: 変更を検知したときに呼ぶ。**任意のキューから呼ばれる**ので、
     ///   受け取る側がメインアクターへ渡し直すこと。
     init(onChange: @escaping @Sendable () -> Void) {
-        self.onChange = onChange
+        self.onChange = { _ in onChange() }
+        reportsPaths = false
+    }
+
+    /// 変わったパス(ファイル単位。作られた・消えた・名前が変わった項目そのもの)を受け取る版(2026-09-14、
+    /// ファイルブラウザのツリー用)。ツリーは開いている行が多く、「何か変わった」だけでは全部の行を読み直すことになるので、
+    /// 変わった項目の親の行だけを読み直す。**任意のキューから呼ばれる**。
+    init(onChangedPaths: @escaping @Sendable ([String]) -> Void) {
+        onChange = onChangedPaths
+        reportsPaths = true
     }
 
     deinit {
@@ -88,6 +99,7 @@ final class FolderChangeWatcher {
         let requested = Array(paths)
         let sinceWhen = lastEventID
         let handle = onChange
+        let reportsPaths = reportsPaths
         let queue = deliveryQueue
         // メインアクターにいるうちに読み取っておく(下は外で走る)。
         let latency = Self.latency
@@ -95,7 +107,7 @@ final class FolderChangeWatcher {
         let created = await Task.detached(priority: .utility) {
             makeFolderChangeStream(
                 roots: requested, sinceWhen: sinceWhen, latency: latency,
-                queue: queue, onChange: handle
+                queue: queue, reportsPaths: reportsPaths, onChange: handle
             )
         }.value
 
@@ -159,8 +171,12 @@ private nonisolated struct FolderChangeStreamBox: @unchecked Sendable {
 /// FSEvents の`context.info`に載せるためだけの箱。C の`void *`を跨ぐために要る。
 /// 保持しているのは書き換えられない1本のクロージャだけ。
 private nonisolated final class FolderChangeCallbackBox: Sendable {
-    let handle: @Sendable () -> Void
-    init(_ handle: @escaping @Sendable () -> Void) { self.handle = handle }
+    let handle: @Sendable ([String]) -> Void
+    let reportsPaths: Bool
+    init(_ handle: @escaping @Sendable ([String]) -> Void, reportsPaths: Bool) {
+        self.handle = handle
+        self.reportsPaths = reportsPaths
+    }
 }
 
 private nonisolated let folderChangeRetain: CFAllocatorRetainCallBack = { info in
@@ -173,10 +189,17 @@ private nonisolated let folderChangeRelease: CFAllocatorReleaseCallBack = { info
     Unmanaged<FolderChangeCallbackBox>.fromOpaque(info).release()
 }
 
-private nonisolated let folderChangeCallback: FSEventStreamCallback = { _, info, _, _, _, _ in
+private nonisolated let folderChangeCallback: FSEventStreamCallback = { _, info, count, eventPaths, _, _ in
     guard let info else { return }
-    // イベントの中身は見ない(型コメント参照)。「何か変わった」だけを伝える。
-    Unmanaged<FolderChangeCallbackBox>.fromOpaque(info).takeUnretainedValue().handle()
+    let box = Unmanaged<FolderChangeCallbackBox>.fromOpaque(info).takeUnretainedValue()
+    // パスを求められていなければ中身は見ない(型コメント参照)。「何か変わった」だけを伝える。
+    guard box.reportsPaths else {
+        box.handle([])
+        return
+    }
+    // UseCFTypes を付けていないので、eventPaths は C 文字列の配列。
+    let pointers = eventPaths.assumingMemoryBound(to: UnsafePointer<CChar>.self)
+    box.handle((0..<count).map { String(cString: pointers[$0]) })
 }
 
 /// ストリームを1本作って開始する。**メインアクターの外で走る**(生成はブロックしうる)。
@@ -186,9 +209,10 @@ private nonisolated func makeFolderChangeStream(
     sinceWhen: FSEventStreamEventId,
     latency: CFTimeInterval,
     queue: DispatchQueue,
-    onChange: @escaping @Sendable () -> Void
+    reportsPaths: Bool,
+    onChange: @escaping @Sendable ([String]) -> Void
 ) -> FolderChangeStreamBox? {
-    let box = FolderChangeCallbackBox(onChange)
+    let box = FolderChangeCallbackBox(onChange, reportsPaths: reportsPaths)
     var context = FSEventStreamContext(
         version: 0,
         // **passUnretained で渡す。** retain を指定した context は CF が自分で+1するので、
