@@ -175,6 +175,9 @@ struct ContentView: View {
 
     /// ウインドウ/タブのタイトル(bodyの.navigationTitle参照)。シークレットウインドウは、
     /// 通常ウインドウと見分けがつくよう先頭に「(シークレット)」を付ける。
+    ///
+    /// 本を開いていなければ、ファイルブラウザはいまのフォルダ、本棚はライブラリ/コレクションの名前
+    /// (2026-09-14、ユーザー要望。一律「qooViewer」だとタブを見分けられなかった。WindowTitleの型コメント)。
     private var windowTitle: String {
         let base = appState.currentBook.map {
             // displayNameは、複数枚の画像をまとめた本にだけ枚数を添える
@@ -182,9 +185,25 @@ struct ContentView: View {
             FormatBadgeView.plainTextTitle(
                 baseName: $0.displayName(locale: preferences.effectiveLocale), bookID: $0.id
             )
-        } ?? "qooViewer"
+        } ?? welcomeTitle
         guard isPrivateWindow else { return base }
         return String(localized: "(Private) \(base)", language: preferences.effectiveLocale)
+    }
+
+    /// 本を開いていないときのタイトル。`collectionStore` は環境オブジェクトなので、名前の変更でも作り直される。
+    private var welcomeTitle: String {
+        let library = WelcomeDropHandling.resolvedLibrary(state: welcomeLibrary, collectionStore: collectionStore)
+        // 開いていたコレクションが別のウインドウで消されていれば、ライブラリの名前へ戻す(引けなければ nil)。
+        let collection = welcomeLibrary.openedCollectionID.flatMap { collectionStore.collection(withID: $0) }
+        return WindowTitle.welcome(
+            mode: welcomeLibrary.mode,
+            folderName: WindowTitle.folderName(
+                fileBrowser.currentFolder,
+                computerTitle: String(localized: "Computer", language: preferences.effectiveLocale)
+            ),
+            libraryName: library?.name,
+            collectionName: collection?.name
+        )
     }
 
     /// ウインドウの中身そのもの(サイドパネル + ビューア/ウェルカム画面)。

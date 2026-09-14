@@ -614,7 +614,7 @@ final class FileBrowserMenuBuilder: NSObject {
             case .separator:
                 menu.addItem(.separator())
             case .item(let title, let image, let isEnabled, let action):
-                let item = NSMenuItem(title: title, action: #selector(MenuNodeBox.perform(_:)), keyEquivalent: "")
+                let item = NSMenuItem(title: title, action: #selector(MenuNodeBox.invokeAction(_:)), keyEquivalent: "")
                 let box = MenuNodeBox(action)
                 item.target = box
                 // target は weak なので、箱は項目の representedObject に持たせて生かす。
@@ -633,10 +633,13 @@ final class FileBrowserMenuBuilder: NSObject {
     }
 
     /// 場面で変わる項目の閉包を NSMenuItem の target にするための箱。
+    ///
+    /// **action を `perform(_:)` と名付けない**(段階 8 の実機検証 2026-09-14)。NSObject の `perform(_:)`(`performSelector:`)と
+    /// 名前がぶつかり、`#selector` がそちらを指して、項目を押しても何も起きなかった(テストはメニューを通らないので通っていた)。
     private final class MenuNodeBox: NSObject {
         let action: @MainActor () -> Void
         init(_ action: @escaping @MainActor () -> Void) { self.action = action }
-        @objc func perform(_ sender: NSMenuItem) { action() }
+        @objc func invokeAction(_ sender: NSMenuItem) { action() }
     }
 
     @objc private func performCommand(_ sender: NSMenuItem) {

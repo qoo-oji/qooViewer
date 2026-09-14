@@ -20490,6 +20490,22 @@
           }
         }
       }
+    },
+    "Archives, PDF and EPUB files, and folders of images can be used as books." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Archives, PDF and EPUB files, and folders of images can be used as books."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "書庫・PDF・EPUB のファイルと、画像の入ったフォルダが本になります。"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

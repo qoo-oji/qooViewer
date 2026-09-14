@@ -43,7 +43,7 @@ extension FileBrowserActions {
             let classified = await FileIO.perform { CollectionDropClassifier.classify(urls, order: order) }
             guard let self, let welcomeLibrary = self.appState?.welcomeLibrary else { return }
             if !WelcomeDropHandling.queueCreations(from: classified, into: welcomeLibrary) {
-                self.reportNoBooks(in: entries)
+                self.reportNoBooks(in: entries, forCollection: true)
             }
         }
     }
@@ -81,7 +81,7 @@ extension FileBrowserActions {
             let classified = await FileIO.perform { CollectionDropClassifier.classify(urls, order: order) }
             let books = CollectionDropClassifier.booksToAdd(from: classified)
             guard !books.isEmpty else {
-                self?.reportNoBooks(in: entries)
+                self?.reportNoBooks(in: entries, forCollection: true)
                 return
             }
             // ブックマークの生成はメインアクターの外で(CollectionStore.makePendingItemsのコメント)。
@@ -213,23 +213,31 @@ extension FileBrowserActions {
             if isBook {
                 perform(url)
             } else {
-                self?.reportNoBooks(in: [entry])
+                self?.reportNoBooks(in: [entry], forCollection: false)
             }
         }
     }
 
-    private func reportNoBooks(in entries: [FileBrowserEntry]) {
-        let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
-        let title = entries.count == 1
-            ? String(format: String(localized: "“%@” isn’t a book.", language: locale), entries[0].displayName)
+    /// - Parameter forCollection: コレクションの操作か。本が並んだフォルダを選べば中の本が入る、の一文はコレクションにだけ当てはまる
+    ///   (メタデータ・書き出しで出すと、棚のフォルダでも編集できるように読める。2026-09-14 の実機検証)。
+    private func reportNoBooks(in entries: [FileBrowserEntry], forCollection: Bool) {
+        state?.operations.presenter?.showProblem(
+            Self.noBooksProblem(names: entries.map(\.displayName), forCollection: forCollection,
+                                locale: preferences?.effectiveLocale ?? .autoupdatingCurrent)
+        )
+    }
+
+    static func noBooksProblem(names: [String], forCollection: Bool, locale: Locale) -> FileBrowserProblem {
+        let title = names.count == 1
+            ? String(format: String(localized: "“%@” isn’t a book.", language: locale), names[0])
             : String(localized: "The selected items aren’t books.", language: locale)
-        state?.operations.presenter?.showProblem(FileBrowserProblem(
-            title: title,
-            message: String(
+        let message = forCollection
+            ? String(
                 localized: "Archives, PDF and EPUB files, and folders of images can be used as books. A folder of books adds the books in it.",
                 language: locale
             )
-        ))
+            : String(localized: "Archives, PDF and EPUB files, and folders of images can be used as books.", language: locale)
+        return FileBrowserProblem(title: title, message: message)
     }
 
     private static func openWithFailure(message: String, application: URL, locale: Locale) -> FileBrowserProblem {

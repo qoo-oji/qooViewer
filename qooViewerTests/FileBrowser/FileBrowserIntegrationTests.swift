@@ -235,6 +235,56 @@ struct FileBrowserIntegrationTests {
         #expect(titles(.openWith).last == "Other…")
     }
 
+    @Test("AppKit のメニューに組んだ場面で変わる項目は、押すと自分の閉包へ届く(NSObject のメソッドを指さない)")
+    func appKitDynamicMenuItemsReachTheirActions() throws {
+        // 2026-09-14 の実機検証: 項目の action を `perform(_:)` と名付けていたため NSObject の `performSelector:` と
+        // ぶつかり、押しても何も起きなかった。
+        let fixture = try Fixture("fb-menu-appkit-selector")
+        defer { fixture.close() }
+        let book = try fixture.archive("book.cbz")
+        let context = FileBrowserMenuContext(kind: .file, entries: [fixture.entry(book)], folder: nil)
+        let menu = NSMenu()
+        let builder = FileBrowserMenuBuilder()
+        builder.rebuild(menu, for: context, actions: fixture.actions, locale: Locale(identifier: "en"))
+
+        let exportItem = try #require(menu.items.first { $0.title == "Export Book" })
+        let formats = try #require(exportItem.submenu?.items)
+        #expect(formats.count == 3)
+        for item in formats {
+            let action = try #require(item.action)
+            let target = try #require(item.target as? NSObject)
+            #expect(!NSObject.instancesRespond(to: action), "\(NSStringFromSelector(action))")
+            #expect(target.responds(to: action))
+        }
+    }
+
+    @Test("「本ではありません」の説明は、コレクションのときだけ棚のフォルダの一文を添える")
+    func noBooksMessageDependsOnTheOperation() {
+        let english = Locale(identifier: "en")
+        let collection = FileBrowserActions.noBooksProblem(names: ["Folder"], forCollection: true, locale: english)
+        let single = FileBrowserActions.noBooksProblem(names: ["Folder"], forCollection: false, locale: english)
+        #expect(collection.title == "“Folder” isn’t a book.")
+        #expect(collection.message.contains("A folder of books"))
+        #expect(!single.message.contains("A folder of books"))
+        #expect(FileBrowserActions.noBooksProblem(names: ["a", "b"], forCollection: false, locale: english).title
+                == "The selected items aren’t books.")
+    }
+
+    // MARK: - ウインドウのタイトル
+
+    @Test("本を開いていないウインドウのタイトルは、ファイルブラウザならフォルダ、本棚ならコレクションかライブラリの名前")
+    func welcomeWindowTitles() {
+        let folder = URL(fileURLWithPath: "/tmp/qoo-title/Sample Shelf", isDirectory: true)
+        let name = WindowTitle.folderName(folder, computerTitle: "Computer", startupVolumeName: "Startup")
+        #expect(name == "Sample Shelf")
+        #expect(WindowTitle.folderName(nil, computerTitle: "Computer") == "Computer")
+        #expect(WindowTitle.folderName(URL(fileURLWithPath: "/"), computerTitle: "Computer", startupVolumeName: "Startup") == "Startup")
+        #expect(WindowTitle.welcome(mode: .browser, folderName: name, libraryName: "Library", collectionName: "Shelf") == name)
+        #expect(WindowTitle.welcome(mode: .shelf, folderName: name, libraryName: "Library", collectionName: "Shelf") == "Shelf")
+        #expect(WindowTitle.welcome(mode: .shelf, folderName: name, libraryName: "Library", collectionName: nil) == "Library")
+        #expect(WindowTitle.welcome(mode: .shelf, folderName: name, libraryName: nil, collectionName: nil) == "qooViewer")
+    }
+
     // MARK: - 選んだとき
 
     @Test("「コレクションを作成」はドロップと同じ振り分けで名前の入力待ちを積む。本にならないものだけなら伝える")

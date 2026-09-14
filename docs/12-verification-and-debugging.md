@@ -216,6 +216,12 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
   EBML(Info・Tracks(`V_MPEG4/ISO/AVC` + `avcC`)・Cluster の SimpleBlock)を手で組めば QLMedia が読む。qlmanage は応答しないことがあるので使わない。
   よく使う項目は defaults の `qooViewer.fileBrowser.favoriteLocations` に JSON(`[{"id","path"}]`)を `-data` で書けば、使い捨てボリュームのフォルダを
   「＋」のダイアログ無しで登録できる(読めるかは Debug に残っている許可しだい)。事前生成の進みは Caches の `FileBrowserThumbnails/` の枚数で見る。
+- **場面で変わるメニュー項目(閉包を載せた NSMenuItem)は、実機で 1 回は押す**(2026-09-14、段階 8)。組み立てと淡色の判定はテストで見られるが、
+  押したときに閉包へ届くかはメニューを通らないと分からない。今回は action の名前が NSObject の `perform(_:)` とぶつかり、全部が無反応だった。
+  **押した結果が画面に出ない操作(コレクションへの登録など)は、ストアを `sqlite3 -readonly` で読んで確かめる**(`ZCOLLECTIONITEM` の `ZBOOKID`、`ZBOOKMETADATA`)。
+  同じ仕組みの別の項目(「このアプリケーションで開く ▸ その他…」でパネルが出るか)と比べると、配線の問題か処理の問題かを 1 回で切り分けられる。
+- **保存先を尋ねるパネル(NSOpenPanel)は、出たことだけ確かめて Esc で閉じる**。撮った画像にはパネルに実在のフォルダ名が写りうるので、見ずに消す。
+- **ウインドウのタイトルは AX の `name of windows` で読める**(タブのうち前面のもの)。タブ全部の名前はタブバーを撮る。
 - **使い捨てボリュームが外れないときは `lsof +D` で持ち主を見る**。ほかのアプリのサムネイルの拡張(書庫を読みに来る)が書庫を開いたままで、
   `hdiutil detach` が「リソースが使用中」になった。`-force` で外した。
 

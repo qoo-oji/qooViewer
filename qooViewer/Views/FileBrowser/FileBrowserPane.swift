@@ -50,9 +50,6 @@ struct FileBrowserPane: View {
     @FocusState private var isSearchFocused: Bool
 
     private static let coordinateSpace = "fileBrowser.pane"
-    /// 起動ディスクの名前(ローカルなので一度だけ引いて覚える)。
-    private static let startupVolumeName: String =
-        (try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeLocalizedNameKey]))?.volumeLocalizedName ?? "/"
 
     var body: some View {
         let treeWidth = liveTreeWidth ?? state.treeWidth
@@ -209,10 +206,8 @@ struct FileBrowserPane: View {
 
     /// いまのフォルダの名前(コンピュータなら「コンピュータ」)。すりガラス面に直に置く文字なので輪郭を掛ける。
     private var folderTitle: some View {
-        // 名前はパスの綴りのまま(パスバーと同じ)。`FileManager.displayName(atPath:)` はファイルシステムに
-        // 問い合わせる(ネットワークで止まりうる)ので body では呼ばない。起動ディスクの `/` だけはボリューム名。
-        Text(state.currentFolder.map { $0.path == "/" ? Self.startupVolumeName : $0.lastPathComponent }
-             ?? String(localized: "Computer", language: locale))
+        // 名前の決め方はウインドウのタイトルと共有する(WindowTitle.folderName)。
+        Text(WindowTitle.folderName(state.currentFolder, computerTitle: String(localized: "Computer", language: locale)))
             .font(.system(size: 13, weight: .semibold))
             .lineLimit(1)
             .truncationMode(.middle)

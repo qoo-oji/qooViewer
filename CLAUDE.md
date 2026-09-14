@@ -134,7 +134,9 @@ to collection, Edit Metadata on a book outside any collection, Export Book witho
 `FileBrowserLibraryActions.swift`; submenus whose contents vary are a `FileBrowserMenuNode` tree drawn by both the AppKit and
 SwiftUI menus. "Show in File Browser" (next to every "Show in Finder") goes through `AppState.revealInFileBrowser` and, from
 views, the `\.revealInFileBrowser` environment value, which holds `AppState` weakly; `OpenWindowAction` is passed per call and
-never stored on `AppState`. Drag and drop
+never stored on `AppState`; its AppKit menu items carry closures in a box whose action must not be named
+`perform(_:)` (it silently resolved to NSObject's `performSelector:`). Windows and tabs without a book are titled by
+what they show (`WindowTitle`: current folder / library / collection). Drag and drop
 decides move/copy in one place (`FileDropPlan` + `FileBrowserDropDecision`); the right pane is covered by a drop target that refuses
 *as a target*, because a refused inner SwiftUI drop falls through to the window-wide "open book" drop target. The icon view shows
 book/image thumbnails via `FileBrowserThumbnailProvider` (one app-wide, in `AppStores`; `BookThumbnailer` reads only the first image,
