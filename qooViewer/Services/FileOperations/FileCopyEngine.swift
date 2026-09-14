@@ -16,7 +16,14 @@ import Foundation
 /// | 同一ボリューム・フォルダ(`RECURSIVE`)| クローン。2ms |
 /// | 別ボリューム・ファイル | 実コピーへ自動で落ち、コールバックが届く(500MB で 477 回) |
 /// | 別ボリューム・フォルダ | ファイルごとに届く(`srcPath` で見分けられる) |
-/// | `COPYFILE_QUIT` を返す | 中断。**1 ファイルなら書きかけは copyfile が消す**(フォルダは残す ―― 呼び出し側が消す) |
+/// | `COPYFILE_QUIT` を返す | 中断。**1 ファイルなら書きかけは copyfile が消す**(フォルダは残す ―― ここで消す) |
+///
+/// ■ 一時名へ写してから置く(2026-09-14 の 2 回目の監査 8)
+/// `COPYFILE_EXCL | COPYFILE_RECURSIVE` は、宛先に**同名のフォルダがあると失敗せず、その中へ合流して書く**(実測)。
+/// 衝突を確かめてから写し始めるまでの間に誰かが同じ名前のフォルダを作ると、写しはその中へ混ざり、後の片付け(元の変化・失敗)が
+/// **他人のフォルダごと**消していた。いまは同じフォルダの隠れた一時名(`stagingPrefix`)へ写し、写し終えて元の変化も確かめてから
+/// `RENAME_EXCL` で宛先の名前へ置く。**宛先の名前には、完成した自分の写しか、他人の項目のどちらかしか現れない**ので、
+/// 失敗・中止の片付けは一時名だけを消せばよく、宛先の名前にあるものには決して触らない。
 ///
 /// nonisolated: FileIO のスレッドの上で同期に走る。
 nonisolated enum FileCopyEngine {
@@ -39,19 +46,72 @@ nonisolated enum FileCopyEngine {
         }
     }
 
+    /// 一時名の頭。クラッシュで残ったときに、利用者がアプリの残したものだと分かる名前にする。
+    static let stagingPrefix = ".qooViewer-copy-"
+    /// 一時名が宛先の名前より長くなりうるバイト数(パス長の事前検査で足す)。
+    static let stagingNameBytes = stagingPrefix.utf8.count + 12
+
     /// `source` を `destination` へ複製する。`destination` は無い前提(衝突は呼び出し側が解決済み)。
+    /// 一時名へ写してから置く(型コメント)。宛先の名前が埋まっていたら一時名を消して `alreadyExists` を投げる。
+    ///
+    /// **写し終えたら、置く前に元が運ぶ間に変わっていないかを確かめる**(`MoveVerification`。変わっていたら一時名を消して
+    /// `sourceChangedDuringOperation`)。以前は呼び出し側が宛先の名前に置いてから確かめて消していたので、その名前にあるものを
+    /// 自分の写しと決めつけていた。
     ///
     /// - Parameter allowsCloning: false で必ず実コピーにする。**テストのための逃げ道**
     ///   (進捗と中断が働くのはクローンできない経路だけなので)。本番は指定しない。
     /// - Parameter onBytesCopied: 実コピーのときだけ、増分のバイト数で呼ばれる。
     ///
-    /// **失敗したら、自分が作った書きかけの木を消してから投げる**(2026-09-14 の監査で実測: フォルダの再帰コピーが途中で
+    /// **失敗・中止したら、自分が作った書きかけ(一時名)を消してから返る**(2026-09-14 の監査で実測: フォルダの再帰コピーが途中で
     /// 失敗すると、copyfile は作りかけの木をその名前のまま残していた。受領書が無いので Undo でも誰も片付けない)。
-    /// 例外は宛先の名前自体が EEXIST で断られたとき ―― そこにあるのは他人の項目で、1 バイトも書いていない。
     static func copy(
         from source: URL,
         to destination: URL,
         allowsCloning: Bool = true,
+        onBytesCopied: @escaping (Int64) -> Void
+    ) throws -> Outcome {
+        let staging = destination.deletingLastPathComponent()
+            .appendingPathComponent(stagingPrefix + UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(12).lowercased())
+        let before = MoveVerification.stamp(of: source)
+        let outcome = try copyRetryingWithoutCloning(
+            from: source, to: staging, allowsCloning: allowsCloning, onBytesCopied: onBytesCopied
+        )
+        guard case .completed = outcome else {
+            FileOperationService.removePartialWrite(at: staging)
+            return outcome
+        }
+        let trustsModificationDate = MountTable.current().isLocal(source)
+        if MoveVerification.sourceWasModified(
+            before: before, source: source, destination: staging, trustsModificationDate: trustsModificationDate
+        ) {
+            FileOperationService.removePartialWrite(at: staging)
+            throw FileOperationError.sourceChangedDuringOperation(source)
+        }
+        let code = renameLiftingProtection(from: staging, to: destination)
+        guard code == 0 else {
+            FileOperationService.removePartialWrite(at: staging)
+            if code == EEXIST { throw FileOperationError.alreadyExists(destination) }
+            throw FileOperationError.posixFailure(item: source, errnoCode: code)
+        }
+        return outcome
+    }
+
+    /// 一時名から宛先の名前へ `RENAME_EXCL` で置く。**写ったロック・追記のみのフラグは rename(2) を EPERM で断る**ので、
+    /// 外して置き、置いた先(失敗なら一時名)で掛け直す。リンクは辿らない。
+    private static func renameLiftingProtection(from staging: URL, to destination: URL) -> Int32 {
+        let blocking = UInt32(UF_IMMUTABLE | UF_APPEND)
+        var info = stat()
+        let flags = lstat(staging.path, &info) == 0 ? info.st_flags : 0
+        let lifted = flags & blocking != 0 && lchflags(staging.path, flags & ~blocking) == 0
+        let code = FileOperationService.exclusiveRename(from: staging, to: destination)
+        if lifted { lchflags((code == 0 ? destination : staging).path, flags) }
+        return code
+    }
+
+    private static func copyRetryingWithoutCloning(
+        from source: URL,
+        to destination: URL,
+        allowsCloning: Bool,
         onBytesCopied: @escaping (Int64) -> Void
     ) throws -> Outcome {
         do {
@@ -96,7 +156,8 @@ nonisolated enum FileCopyEngine {
         if result == 0 { return .completed(bytes: context.totalCopied) }
         if context.didCancel { return .cancelled }
         // EEXIST でも、中の項目まで進んでいたなら頂点は自分が作ったもの(大文字小文字だけが違う 2 つの名前を、区別しない
-        // ボリュームへ写したときなど)。頂点で断られたときだけ、そこにあるのは他人の項目なので触らない。
+        // ボリュームへ写したときなど)。頂点で断られたときだけ、そこにあるのは他人の項目なので触らない
+        // (いまの頂点は一意な一時名なので、ほぼ起きない)。
         if failure != EEXIST || context.reachedChild {
             FileOperationService.removePartialWrite(at: destination)
         }

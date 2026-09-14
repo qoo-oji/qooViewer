@@ -268,6 +268,10 @@ nonisolated enum FileOperationPreflight {
 ///   ファイルを続けて移動すると日時だけが変わり、誤って断る。
 /// - FAT は日時が 2 秒精度で、同じ大きさの書き換えを見分けられない。
 /// だから「大きさか実体が変わった」は変わった、それ以外は**中身の抜き取り(先頭・中央・末尾の 64KB)**で決める。
+///
+/// **ローカルのボリュームでは更新日時(ns)の違いも「変わった」に数える**(2026-09-14 の 2 回目の監査 7)。抜き取りだけだと、
+/// 領域を先に確保してから書き続けるもの(ダウンロード・ディスクイメージ・仮想マシンのディスク)の窓の外の書き込みを見逃し、
+/// 移動では元を消して書き込みを失った。日時を差し替えるのは SMB のサーバの都合なので、ネットワークの元だけ抜き取りに任せる。
 nonisolated enum MoveVerification {
     struct Stamp: Equatable {
         let inode: UInt64
@@ -287,10 +291,15 @@ nonisolated enum MoveVerification {
     }
 
     /// 運ぶ前の姿 `before` と比べて、元が書き換えられたとみなすか。
-    static func sourceWasModified(before: Stamp?, source: URL, destination: URL) -> Bool {
+    /// - Parameter trustsModificationDate: 元がローカルのボリュームにある(型コメント)。
+    static func sourceWasModified(before: Stamp?, source: URL, destination: URL, trustsModificationDate: Bool) -> Bool {
         // 元が既に無い、または前の姿を取れていないなら比べようがない。断らない側に倒す。
         guard let before, let after = stamp(of: source) else { return false }
         if before.size != after.size || before.inode != after.inode || before.device != after.device { return true }
+        if trustsModificationDate,
+           before.modifiedSeconds != after.modifiedSeconds || before.modifiedNanoseconds != after.modifiedNanoseconds {
+            return true
+        }
         return !looksIdentical(source: source, destination: destination)
     }
 

@@ -275,6 +275,8 @@ nonisolated enum FileOperationError: Error, Sendable, Equatable {
     /// 「置き換える」で書き終えたが、置き換えられた元の項目をゴミ箱へ送れなかった。**消さずに `backup`(先頭がドットの隠しフォルダ)に
     /// 残してある**。投げずに `TransferOutcome.failures` の理由の文として使う。
     case replacedItemKept(backup: URL, target: URL)
+    /// ボリュームそのもの(マウントポイント)を移動しようとした。
+    case volumeCannotBeMoved(URL)
 }
 
 extension FileOperationError: LocalizedError {
@@ -333,6 +335,8 @@ extension FileOperationError: LocalizedError {
             )
         case let .itemLocked(url):
             return String(format: String(localized: "“%@” is locked.", language: locale), url.lastPathComponent)
+        case let .volumeCannotBeMoved(url):
+            return String(format: String(localized: "“%@” is a volume, so it can’t be moved.", language: locale), url.lastPathComponent)
         case let .replacedItemKept(backup, target):
             return String(
                 format: String(localized: "“%1$@” was replaced, but the original couldn’t be moved to the Trash. It was kept as the hidden item “%2$@” in the same folder.", language: locale),

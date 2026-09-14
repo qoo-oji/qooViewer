@@ -168,6 +168,19 @@ struct FileOperationVolumeTests {
         #expect(hidden.isEmpty)
     }
 
+    @Test("ボリュームそのものは移動しない(1 バイトも書かず、ボリュームの中身にも触らない)")
+    func refusesToMoveAVolume() async throws {
+        guard let volume = DisposableVolume.make(.apfs, "volume-root") else { return }
+        // 2 回目の監査 9: Finder でボリュームを ⌘C して ⌥⌘V すると、全部写してから元を空にしていた。
+        try Data("keep".utf8).write(to: volume.file("keep.txt"))
+        let destination = try temporary.directory("VolumeMoveDestination")
+        await #expect(throws: FileOperationError.volumeCannotBeMoved(volume.mountPoint)) {
+            _ = try await service.move([volume.mountPoint], to: destination, options: .init(conflictPolicy: .ask))
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path).isEmpty)
+        #expect(try Data(contentsOf: volume.file("keep.txt")) == Data("keep".utf8))
+    }
+
     @Test("フォルダのコピー・別ボリュームへの移動が途中で失敗したら、宛先に書きかけの木を残さない")
     func failedFolderTransferLeavesNoPartialTree() async throws {
         guard let volume = DisposableVolume.make(.apfs, "partial-tree") else { return }

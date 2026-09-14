@@ -424,6 +424,22 @@
         }
       }
     },
+    "“%@” is a volume, so it can’t be moved." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is a volume, so it can’t be moved."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はボリュームなので移動できません。"
+          }
+        }
+      }
+    },
     "“%@” is locked." : {
       "localizations" : {
         "en" : {

@@ -404,8 +404,16 @@ actor FileOperationService {
         let mounts = MountTable.current()
         for item in items {
             guard itemExists(at: item) else { throw FileOperationError.itemMissing(item) }
+            // **ボリュームそのもの(マウントポイント)は移動しない**(2026-09-14 の 2 回目の監査 9)。Finder でボリュームを ⌘C して ⌥⌘V、
+            // ⌘ を押してドロップすると、全部写してから元を空にしていた(マウントポイントの removeItem は中身を全部消してから EBUSY)。
+            // 画面の側でもボリュームの行は外しているが、ペーストボードや他のアプリからのドロップはここでしか止まらない。
+            if isMove, mounts.isMounted(MountTable.normalized(item.standardizedFileURL.path)) {
+                throw FileOperationError.volumeCannotBeMoved(item)
+            }
             try FileOperationPreflight.checkNotInsideSource(item, destination: destination)
-            try checkPathFits(destination: destination, relativePath: item.lastPathComponent, item: item, limit: pathLimit)
+            // 書くときは一時名(FileCopyEngine.stagingPrefix)で書くので、その名前でも入るか。1 バイトも書かない同じボリュームの移動は除く。
+            let writes = !(isMove && mounts.areOnSameVolume(item, destination))
+            try checkPathFits(destination: destination, relativePath: item.lastPathComponent, item: item, limit: pathLimit, staged: writes)
         }
         // **同一ボリューム内の移動は 1 バイトも書かない**(rename)ので、走査も空き容量の検査もしない。
         // 判定はマウント表で(volumeUUID は SMB で nil になり、クローン非対応の exFAT では「一瞬で終わる」判定が
@@ -415,7 +423,7 @@ actor FileOperationService {
             sink: sink, items: items, destination: destination, writesNoBytes: writesNoBytes, mayClone: allowsCloning
         )
         if let deepest = tracker.deepestRelativePath {
-            try checkPathFits(destination: destination, relativePath: deepest.path, item: deepest.item, limit: pathLimit)
+            try checkPathFits(destination: destination, relativePath: deepest.path, item: deepest.item, limit: pathLimit, staged: true)
         }
         if let largest = tracker.largestFile, let limit = FileOperationPreflight.maximumFileSize(at: destination), largest.size > limit {
             throw FileOperationError.fileTooLargeForDestination(item: largest.item, size: largest.size, limit: limit)
@@ -436,10 +444,14 @@ actor FileOperationService {
         return tracker
     }
 
-    private nonisolated static func checkPathFits(destination: URL, relativePath: String, item: URL, limit: Int) throws {
+    /// - Parameter staged: 一時名で書く(先頭の要素が一時名に置き換わっても入るか)。見せる上限は一時名のぶんを引いた値
+    ///   (「1020 バイト、上限は 1023」のように、入りそうに読める数字を見せない)。
+    private nonisolated static func checkPathFits(destination: URL, relativePath: String, item: URL, limit: Int, staged: Bool = false) throws {
         let resulting = FileOperationPreflight.resultingPathBytes(destination: destination, relativePath: relativePath)
-        guard resulting > limit else { return }
-        throw FileOperationError.pathTooLong(item: item, resultingBytes: resulting, limitBytes: limit)
+        let topNameBytes = relativePath.prefix { $0 != "/" }.utf8.count
+        let extra = staged ? max(0, FileCopyEngine.stagingNameBytes - topNameBytes) : 0
+        guard resulting + extra > limit else { return }
+        throw FileOperationError.pathTooLong(item: item, resultingBytes: resulting, limitBytes: limit - extra)
     }
 
     // MARK: - 衝突
@@ -613,27 +625,18 @@ actor FileOperationService {
         tracker: ProgressTracker,
         environment: FileOperationEnvironment
     ) throws -> Carried? {
-        let stampBefore = MoveVerification.stamp(of: item)
         let outcome: FileCopyEngine.Outcome
         do {
+            // **元が変わっていないかの検証は、退避を片付ける前に済んでいる**(FileCopyEngine.copy が置く前に確かめる)。
+            // 片付けたあとで失敗させると、置き換えられた元と新しいコピーの両方を失う(qooLibrary で監査により発見)。
             outcome = try perform(item, resolved.target) { tracker.addBytes($0) }
-            // **元が変わっていないかの検証は、退避を片付ける前(ここ)で行う。** 片付けたあとで失敗させると、
-            // 置き換えられた元と新しいコピーの両方を失う(qooLibrary で監査により発見)。
-            // 移動は moveItem の中で同じことを確かめてから元を消すので、ここで効くのは主にコピー。
-            if case .completed = outcome,
-               MoveVerification.sourceWasModified(before: stampBefore, source: item, destination: resolved.target) {
-                removePartialWrite(at: resolved.target)
-                throw FileOperationError.sourceChangedDuringOperation(item)
-            }
         } catch {
             try restoreReplacedItem(resolved, journal: environment.replaceJournal)
             throw error
         }
 
         guard outcome.hasCompleteCopy else {
-            // 中止。**フォルダの再帰コピーを止めると copyfile は途中まで作った木を残す**(1 ファイルなら
-            // 自分で消す)。受領書を返さない = Undo にも残らないので、ここで消さないと誰も片付けられない。
-            removePartialWrite(at: resolved.target)
+            // 中止。書きかけは FileCopyEngine が一時名ごと消してある(宛先の名前には何も置いていない)。
             try restoreReplacedItem(resolved, journal: environment.replaceJournal)
             return nil
         }
@@ -685,9 +688,12 @@ actor FileOperationService {
     /// 書き終えなかったときに、退避した元の項目を戻す。戻せなければ `replaceBackupOrphaned` を投げる
     /// (元の失敗より「元の項目が見えない名前で残っている」ほうが伝えるべき事実)。
     /// 戻せなかったときは記録を残す(次の起動の復旧がもう一度試す。相手がネットワークなら、次は繋がっているかもしれない)。
+    ///
+    /// **宛先の名前にあるものは消さない**(2026-09-14 の 2 回目の監査 8)。以前はそこにあるものを書きかけとみなして消してから戻していたが、
+    /// 書きかけは FileCopyEngine が一時名で片付けるので、ここに何かあるならそれは他人が置いた項目。消さずに退避を残し、
+    /// `replaceBackupOrphaned` で伝える。
     private nonisolated static func restoreReplacedItem(_ resolved: ResolvedDestination, journal: ReplaceBackupJournal) throws {
         guard let backup = resolved.backupOfReplaced else { return }
-        removePartialWrite(at: resolved.target)
         if exclusiveRename(from: backup, to: resolved.target) != 0 {
             throw FileOperationError.replaceBackupOrphaned(backup: backup.deletingLastPathComponent(), target: resolved.target)
         }
@@ -705,18 +711,13 @@ actor FileOperationService {
         if renameCode == 0 { return .completed(bytes: 0) }
         guard renameCode == EXDEV else { throw FileOperationError.posixFailure(item: source, errnoCode: renameCode) }
 
-        let before = MoveVerification.stamp(of: source)
-        let outcome = try FileCopyEngine.copy(from: source, to: target, allowsCloning: allowsCloning, onBytesCopied: onBytesCopied)
-        guard case .completed = outcome else { return outcome }
-        // **運ぶ前後で元が変わっていないことを確かめてから消す。** 書き込み中のファイル(ダウンロード中など)を
+        // **運ぶ前後で元が変わっていないことは FileCopyEngine.copy が置く前に確かめる。** 書き込み中のファイル(ダウンロード中など)を
         // 運ぶと copyfile はその時点の姿を写して成功を返し、元を消すと書き足された分が永久に失われる
         // (72.3MB を写したあと元は 84.9MB まで伸びた。qooLibrary 実測)。
-        guard !MoveVerification.sourceWasModified(before: before, source: source, destination: target) else {
-            removePartialWrite(at: target)
-            throw FileOperationError.sourceChangedDuringOperation(source)
-        }
+        let outcome = try FileCopyEngine.copy(from: source, to: target, allowsCloning: allowsCloning, onBytesCopied: onBytesCopied)
+        guard case .completed = outcome else { return outcome }
         do {
-            try removeAbsorbingTransientFailure(at: source)
+            try removeTransferredSource(source, copiedTo: target)
         } catch {
             // **元を消し始めたあとは、写した側を絶対に消さない。** `removeItem` は木の削除が途中で失敗しても消した分を
             // 戻さないので、ここで宛先を片付けると元からも宛先からも兄弟が消える(2026-09-14 の監査で実測: `uappnd` の
@@ -770,6 +771,53 @@ actor FileOperationService {
                 guard attempt <= 3, isTransientRemovalFailure(error), !Cancellation.isRequestedInCurrentScope else { throw error }
                 Thread.sleep(forTimeInterval: 0.1)
             }
+        }
+    }
+
+    /// 別ボリュームへ写し終えた元を消す。**フォルダは、写した先にもある項目だけを下から 1 つずつ消す**(2026-09-14 の 2 回目の監査 7)。
+    ///
+    /// 以前は `removeItem` で木ごと消していたので、写し終えてから消し終えるまでの間に元のフォルダへ作られた項目(ダウンロードの続き、
+    /// 他のアプリの書き出し)も消え、どこにも残らなかった。写した先に無い項目が残れば、その親の rmdir が ENOTEMPTY で断るので、元は残り
+    /// 「元を消せなかった」として伝わる(両方に残る側に倒れる)。種類が入れ替わった項目にも触らない。**リンクは辿らない**(lstat・unlink)。
+    /// 最初の失敗で止める(`removeItem` と同じ。消した分は写した先にある)。
+    nonisolated static func removeTransferredSource(_ source: URL, copiedTo copy: URL) throws {
+        var info = stat()
+        guard lstat(source.path, &info) == 0 else { return }
+        guard info.st_mode & S_IFMT == S_IFDIR else {
+            try removeAbsorbingTransientFailure(at: source)
+            return
+        }
+        // (相対パス, 子を積み終えたか)。子を積んだフォルダは帰りがけにもう一度出てきて、そこで消す。
+        var pending: [(relative: String, expanded: Bool)] = [("", false)]
+        while let (relative, expanded) = pending.popLast() {
+            let sourcePath = relative.isEmpty ? source.path : source.path + "/" + relative
+            let copyPath = relative.isEmpty ? copy.path : copy.path + "/" + relative
+            var copied = stat()
+            var original = stat()
+            guard lstat(copyPath, &copied) == 0, lstat(sourcePath, &original) == 0 else { continue }
+            let isDirectory = original.st_mode & S_IFMT == S_IFDIR
+            guard isDirectory == (copied.st_mode & S_IFMT == S_IFDIR) else { continue }
+            if isDirectory, !expanded {
+                pending.append((relative, true))
+                let names = try FileManager.default.contentsOfDirectory(atPath: copyPath)
+                pending.append(contentsOf: names.map { (relative.isEmpty ? $0 : relative + "/" + $0, false) })
+                continue
+            }
+            try removeEntryAbsorbingTransientFailure(sourcePath, isDirectory: isDirectory)
+        }
+    }
+
+    /// 1 項目だけを消す(フォルダは空のときだけ)。一過性の失敗の扱いは `removeAbsorbingTransientFailure` と同じ。
+    private nonisolated static func removeEntryAbsorbingTransientFailure(_ path: String, isDirectory: Bool) throws {
+        var attempt = 0
+        while (isDirectory ? rmdir(path) : unlink(path)) != 0 {
+            let code = errno
+            if code == ENOENT { return }
+            attempt += 1
+            guard attempt <= 3, code == EPERM || code == EBUSY, !Cancellation.isRequestedInCurrentScope else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(code), userInfo: [NSFilePathErrorKey: path])
+            }
+            Thread.sleep(forTimeInterval: 0.1)
         }
     }
 

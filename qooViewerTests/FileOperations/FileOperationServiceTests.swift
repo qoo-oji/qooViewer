@@ -430,6 +430,136 @@ struct FileOperationServiceTests {
         #expect(FileManager.default.fileExists(atPath: source.path))
     }
 
+    @Test("写している間に、抜き取りの窓の外だけが同じ大きさのまま書き換わっても、元の変化として断り、宛先に何も残さない")
+    func changeOutsideTheSampledWindowsIsDetected() async throws {
+        // 2 回目の監査 7: 以前は大きさと inode が同じなら先頭・中央・末尾の 64KB × 3 窓だけを比べ、窓の外の書き込みを見逃した。
+        let copying = FileOperationService(environment: .pseudoTrash(at: trash), allowsCloning: false)
+        let source = temporary.file("window/src/image.dmg")
+        try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(count: 16 * 1024 * 1024).write(to: source)
+        let destination = try temporary.directory("window/dst")
+        let wrote = AskCounter()
+        let options = FileOperationOptions(conflictPolicy: .ask, progress: ProgressSink { progress in
+            guard progress.completedBytes > 0, wrote.count == 0 else { return }
+            wrote.count = 1
+            // 先頭から 3MB の位置(どの窓にも入らない)を書き換える。大きさは変わらない。
+            if let handle = try? FileHandle(forWritingTo: source) {
+                try? handle.seek(toOffset: 3 * 1024 * 1024)
+                try? handle.write(contentsOf: Data([0xAB]))
+                try? handle.close()
+            }
+        })
+
+        await #expect(throws: FileOperationError.sourceChangedDuringOperation(source)) {
+            _ = try await copying.copy([source], to: destination, options: options)
+        }
+        #expect(wrote.count == 1)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path).isEmpty, "一時名も残さない")
+    }
+
+    @Test("衝突を確かめてから写し終えるまでに宛先に同じ名前のフォルダが現れても、その中へ混ぜず、そのフォルダを消さない")
+    func folderAppearingAtTheDestinationDuringACopyIsNeverMergedOrRemoved() async throws {
+        // 2 回目の監査 8(a): copyfile の EXCL は既存のフォルダの中へ合流して書くので、以前は他人のフォルダに写しが混ざり、
+        // 後の片付けがそのフォルダごと消していた。
+        let copying = FileOperationService(environment: .pseudoTrash(at: trash), allowsCloning: false)
+        let folder = try temporary.directory("race/src/Book")
+        try Data(count: 4 * 1024 * 1024).write(to: folder.appendingPathComponent("01.jpg"))
+        let destination = try temporary.directory("race/dst")
+        let theirs = destination.appendingPathComponent("Book")
+        let options = FileOperationOptions(conflictPolicy: .ask, progress: ProgressSink { progress in
+            guard progress.completedBytes > 0, !FileOperationService.itemExists(at: theirs) else { return }
+            try? FileManager.default.createDirectory(at: theirs, withIntermediateDirectories: false)
+            try? Data("theirs".utf8).write(to: theirs.appendingPathComponent("theirs.txt"))
+        })
+
+        await #expect(throws: FileOperationError.alreadyExists(theirs)) {
+            _ = try await copying.copy([folder], to: destination, options: options)
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: theirs.path) == ["theirs.txt"])
+        #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path) == ["Book"], "一時名も残さない")
+    }
+
+    @Test("置き換えの途中で宛先の名前に他人の項目が現れたら、それを消さずに、置き換えられるはずだった元を隠れた退避として残す")
+    func replaceNeverRemovesAnItemThatAppearedAtTheTarget() async throws {
+        // 2 回目の監査 8(b): 以前は元を戻す前に宛先の名前にあるものを書きかけとみなして消していた。
+        let environment = FileOperationEnvironment.pseudoTrash(at: trash)
+        let copying = FileOperationService(environment: environment, allowsCloning: false)
+        let source = temporary.file("race-replace/src/Book.cbz")
+        try FileManager.default.createDirectory(at: source.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(count: 4 * 1024 * 1024).write(to: source)
+        let target = try write("old", to: "race-replace/dst/Book.cbz")
+        let options = FileOperationOptions(conflictPolicy: .replace, progress: ProgressSink { progress in
+            guard progress.completedBytes > 0, !FileOperationService.itemExists(at: target) else { return }
+            try? Data("theirs".utf8).write(to: target)
+        })
+
+        await #expect(throws: FileOperationError.self) {
+            _ = try await copying.copy([source], to: target.deletingLastPathComponent(), options: options)
+        }
+        #expect(try read(target) == "theirs")
+        let holders = try FileManager.default.contentsOfDirectory(atPath: target.deletingLastPathComponent().path)
+            .filter { $0.hasPrefix(FileOperationService.replaceHolderPrefix) }
+        let holder = try #require(holders.first)
+        #expect(try read(target.deletingLastPathComponent().appendingPathComponent("\(holder)/Book.cbz")) == "old")
+        #expect(environment.replaceJournal.pendingBackupCount() == 1, "記録も残して次の起動で知らせる")
+        try FileManager.default.removeItem(at: target.deletingLastPathComponent().appendingPathComponent(holder))
+    }
+
+    @Test("ロック・追記のみのフラグが付いた項目そのものもコピーでき、写しにもフラグが残る(一時名から置く rename が断られない)")
+    func copiesItemsWhoseOwnFlagsBlockRename() async throws {
+        let lockedFile = try write("locked", to: "flags/src/locked.txt")
+        let lockedFolder = try temporary.directory("flags/src/LockedFolder")
+        _ = try write("x", to: "flags/src/LockedFolder/x.txt")
+        let appendOnly = try write("append", to: "flags/src/append.txt")
+        #expect(FileOperationService.setLocked(lockedFile, true))
+        #expect(FileOperationService.setLocked(lockedFolder, true))
+        #expect(chflags(appendOnly.path, UInt32(UF_APPEND)) == 0)
+        let copying = FileOperationService(environment: .pseudoTrash(at: trash), allowsCloning: false)
+        var created: [URL] = []
+        defer {
+            for url in [lockedFile, lockedFolder, appendOnly] + created { _ = lchflags(url.path, 0) }
+        }
+
+        for (label, engine) in [("clone", service), ("copy", copying)] {
+            let destination = try temporary.directory("flags/\(label)")
+            let outcome = try await engine.copy([lockedFile, lockedFolder, appendOnly], to: destination, options: .init(conflictPolicy: .ask))
+            created += outcome.receipts.map(\.destination)
+            #expect(outcome.isCompleteSuccess, "\(label)")
+            #expect(FileOperationService.isLocked(destination.appendingPathComponent("locked.txt")))
+            #expect(FileOperationService.isLocked(destination.appendingPathComponent("LockedFolder")))
+            var info = stat()
+            #expect(lstat(destination.appendingPathComponent("append.txt").path, &info) == 0 && info.st_flags & UInt32(UF_APPEND) != 0)
+            #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path).sorted() == ["LockedFolder", "append.txt", "locked.txt"])
+        }
+    }
+
+    @Test("別ボリュームへ写した元のフォルダは、写した先にもある項目だけを消す(写した後に元へ現れた項目とその親は残し、失敗として伝える)")
+    func removingATransferredSourceKeepsItemsThatWereNotCopied() throws {
+        // 2 回目の監査 7: 以前は removeItem で木ごと消したので、写し終えてから消し終えるまでに元へ作られた項目も消えた。
+        let source = try temporary.directory("transferred/src/Series")
+        _ = try write("1", to: "transferred/src/Series/01.cbz")
+        _ = try write("2", to: "transferred/src/Series/extra/02.cbz")
+        _ = try write("3", to: "transferred/src/Series/done/03.cbz")
+        let copy = try temporary.directory("transferred/dst/Series")
+        _ = try write("1", to: "transferred/dst/Series/01.cbz")
+        _ = try write("2", to: "transferred/dst/Series/extra/02.cbz")
+        _ = try write("3", to: "transferred/dst/Series/done/03.cbz")
+        // 写した後に元へ現れた項目。
+        let arrived = try write("new", to: "transferred/src/Series/extra/arrived.part")
+
+        #expect(throws: (any Error).self) { try FileOperationService.removeTransferredSource(source, copiedTo: copy) }
+
+        // どこまで消してから止まるかは列挙の順しだい。確かめるのは「現れた項目と、それを含むフォルダが残る」こと。
+        #expect(try read(arrived) == "new")
+        #expect(!FileOperationService.itemExists(at: source.appendingPathComponent("extra/02.cbz")), "同じフォルダの写した項目は消えている")
+        #expect(FileManager.default.fileExists(atPath: copy.appendingPathComponent("extra/02.cbz").path), "写した側には触らない")
+
+        // 余計なものが無ければ全部消える。
+        try FileManager.default.removeItem(at: arrived)
+        try FileOperationService.removeTransferredSource(source, copiedTo: copy)
+        #expect(!FileOperationService.itemExists(at: source))
+    }
+
     // MARK: - ゴミ箱・完全削除
 
     @Test("ゴミ箱へ送って戻す")
@@ -560,21 +690,23 @@ struct MoveVerificationTests {
         let before = MoveVerification.stamp(of: source)
 
         // 何も変わらない。
-        #expect(!MoveVerification.sourceWasModified(before: before, source: source, destination: destination))
+        #expect(!MoveVerification.sourceWasModified(before: before, source: source, destination: destination, trustsModificationDate: true))
 
-        // 日時だけ変わった(SMB が書き込み直後に差し替えるのと同じ形)。中身は同じなので変わっていない。
+        // 日時だけ変わった(SMB が書き込み直後に差し替えるのと同じ形)。ネットワークの元なら中身で決めるので変わっていない。
+        // ローカルの元なら日時の違いを信じる(窓の外だけが書き換わったのと見分けられないため。2 回目の監査 7)。
         try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-3600)], ofItemAtPath: source.path)
-        #expect(!MoveVerification.sourceWasModified(before: before, source: source, destination: destination))
+        #expect(!MoveVerification.sourceWasModified(before: before, source: source, destination: destination, trustsModificationDate: false))
+        #expect(MoveVerification.sourceWasModified(before: before, source: source, destination: destination, trustsModificationDate: true))
 
         // 同じ大きさで中身が入れ替わった。
         var changed = content
         changed[100_000] ^= 0xFF
         try changed.write(to: source)
-        #expect(MoveVerification.sourceWasModified(before: before, source: source, destination: destination))
+        #expect(MoveVerification.sourceWasModified(before: before, source: source, destination: destination, trustsModificationDate: false))
 
         // 書き足された。
         try (content + Data([1, 2, 3])).write(to: source)
-        #expect(MoveVerification.sourceWasModified(before: before, source: source, destination: destination))
+        #expect(MoveVerification.sourceWasModified(before: before, source: source, destination: destination, trustsModificationDate: false))
     }
 }
 

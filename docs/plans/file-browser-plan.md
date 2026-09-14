@@ -1857,7 +1857,22 @@ D. メモリ・CPU・ディスク
   本物のディスクフルでの末尾の欠けは tiny ボリュームでは作っていない)。**2・3・4 のテストは修正前のエンジン(`FileCopyEngine` / `FileOperationService` を HEAD に戻す)で
   失敗し、修正後に通ることを確認した**。1・5・6 は新しい口を使うので修正前ではビルドできない(監査の実測で再現済み)。
 
-**次にやること**: 残り(A の 7〜9、B 以降)は改めてユーザーに選んでもらう(提案は A の 7〜9、B の 10・11)。
+**7〜9 の修正(2026-09-15、ユーザー指示「監査で検出した残りの不具合を修正。切りの良いところで都度ドキュメントを更新し、コミット・プッシュしてよい」)**:
+Debug の全テスト 1317 件・124 suite が通った。CHANGELOG・MANUAL・docs/13・docs/15 と一緒にコミット・プッシュ(この節と同じコミット)。
+- 8(a)(b): `FileCopyEngine.copy` はファイルもフォルダも同じフォルダの `.qooViewer-copy-<12 桁>`(`stagingPrefix`)へ写し、写し終えたら置く前に
+  `MoveVerification` で元の変化を見て、`RENAME_EXCL` で宛先の名前へ置く(`renameLiftingProtection`: 写った `uchg` / `uappnd` を外して置き、掛け直す)。
+  失敗・中止・元の変化・宛先が埋まっていた(`alreadyExists`)ときは一時名だけを消す。これで `carry` の「置いた後の検証と `removePartialWrite(at: target)`」と
+  `restoreReplacedItem` の宛先の削除を外した(宛先の名前にあるものは他人の項目)。`moveItem` の検証もエンジンへ。事前検査のパス長は一時名のぶんを足す
+  (`checkPathFits(staged:)`)。クラッシュで一時名が残るのは既知の限界(圧縮の一時ファイルと同じ「低」の列)。
+- 7: `MoveVerification.sourceWasModified(trustsModificationDate:)` ―― エンジンが `MountTable.current().isLocal(source)` を渡す。フォルダの元の削除は
+  `FileOperationService.removeTransferredSource(_:copiedTo:)`(写した先を列挙して帰りがけに unlink / rmdir。最初の失敗で止め、`copiedButSourceRemains` に)。
+- 9: `preflight` が移動のとき `MountTable.isMounted` の項目を `FileOperationError.volumeCannotBeMoved` で断る(文言は ja も xcstrings へ)。
+- テスト: `FileOperationServiceTests.changeOutsideTheSampledWindowsIsDetected` / `folderAppearingAtTheDestinationDuringACopyIsNeverMergedOrRemoved` /
+  `replaceNeverRemovesAnItemThatAppearedAtTheTarget` / `copiesItemsWhoseOwnFlagsBlockRename` / `removingATransferredSourceKeepsItemsThatWereNotCopied`、
+  `MoveVerificationTests` にローカルの日時、`FileOperationVolumeTests.refusesToMoveAVolume`。競合はテストの進捗の callback の中で起こす
+  (ProgressTracker は項目の最初のバイトを間引かず、copyfile のスレッドの上で同期に呼ぶ)。
+
+**次にやること**: B(10〜14)→ C(15〜19)→ D(20〜24)→ 低、の順に続ける(同じ指示の範囲)。
 
 ---
 
