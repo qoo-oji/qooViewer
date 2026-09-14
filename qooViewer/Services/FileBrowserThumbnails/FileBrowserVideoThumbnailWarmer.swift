@@ -28,7 +28,11 @@ import Foundation
 /// - TCC の保護下の場所(ホームを登録していても「デスクトップ」「書類」の中は読まない ―― 利用者が入ってもいないのに
 ///   許可のダイアログが出る)。**よく使う項目そのものが保護下の場所の中にあれば、同じ場所の中は辿る**(許可は済んでいる)
 /// - 隠しファイル・隠しフォルダ(`~/Library` を含む)・パッケージの中・記号リンクの先
-/// - 実体が手元に無いファイル(頼まれていないダウンロードを起こさない。失敗としても数えない)
+/// - 実体が手元に無いファイル・フォルダ(頼まれていないダウンロードを起こさない。失敗としても数えない)
+///
+/// ■ ディスクキャッシュの取り分
+/// 1 回の掃引で書くのは、上限の半分から使用量を引いた残りまで(`FileBrowserThumbnailDiskCache.bytesAvailableForWarming`。2026-09-14 の
+/// 2 回目の監査 22)。上限を超える量の動画があっても、刈り込みと作り直しを起動のたびに繰り返さない。
 @MainActor
 final class FileBrowserVideoThumbnailWarmer {
     /// 同じ拡張子で、1 度も成功しないまま何回失敗したら諦めるか。
@@ -45,14 +49,34 @@ final class FileBrowserVideoThumbnailWarmer {
         let formatFailureThreshold: Int
 
         static func live(diskCache: FileBrowserThumbnailDiskCache = .shared) -> Dependencies {
-            Dependencies(
+            let mounts = RecentMountTable()
+            return Dependencies(
                 diskCache: diskCache,
                 loader: CompositeVideoThumbnailLoader(),
-                isRemote: { MountTable.current().isRemote($0) },
+                // フォルダごとに呼ばれるので、マウント表は 1 秒に 1 回だけ写し直す(2026-09-14 の 2 回目の監査 23。以前はフォルダごとに
+                // `getmntinfo_r_np` で写し直していた)。
+                isRemote: { mounts.current().isRemote($0) },
                 isDataless: { VideoThumbnailer.isDataless($0) },
                 protectedPrefixes: DirectoryProbe.protectedPrefixes,
                 formatFailureThreshold: FileBrowserVideoThumbnailWarmer.formatFailureThreshold
             )
+        }
+    }
+
+    /// 少し前に写したマウント表(`live` の `isRemote`)。
+    nonisolated final class RecentMountTable: @unchecked Sendable {
+        private let lock = NSLock()
+        private var table: MountTable?
+        private var takenAt = ContinuousClock.now
+
+        func current() -> MountTable {
+            lock.lock()
+            defer { lock.unlock() }
+            if let table, ContinuousClock.now - takenAt < .seconds(1) { return table }
+            let fresh = MountTable.current()
+            table = fresh
+            takenAt = .now
+            return fresh
         }
     }
 
@@ -61,6 +85,8 @@ final class FileBrowserVideoThumbnailWarmer {
         var generated: [URL] = []
         var failed: [URL] = []
         var skippedExtensions: Set<String> = []
+        /// ディスクキャッシュの先読み役の取り分(`FileBrowserThumbnailDiskCache.bytesAvailableForWarming`)を使い切って止めた。
+        var stoppedForCacheBudget = false
     }
 
     private let dependencies: Dependencies
@@ -134,6 +160,8 @@ final class FileBrowserVideoThumbnailWarmer {
         var succeededExtensions: Set<String> = []
         // よく使う項目が入れ子になっていても 1 本を 2 回見ない。
         var seen: Set<String> = []
+        // この掃引で書いてよい量(上限の半分まで。刈り込みとの追いかけっこをしない)。
+        var budget = await dependencies.diskCache.bytesAvailableForWarming()
 
         for root in roots {
             if Task.isCancelled { return report }
@@ -159,9 +187,14 @@ final class FileBrowserVideoThumbnailWarmer {
                 if await dependencies.diskCache.contains(key) { continue }
                 // 途中でディスクキャッシュが OFF になったら、作っても捨てるだけなのでやめる。
                 guard await dependencies.diskCache.isEnabled else { return report }
+                guard budget > 0 else {
+                    report.stoppedForCacheBudget = true
+                    return report
+                }
 
                 if let jpeg = await FileBrowserThumbnailProvider.videoThumbnailJPEG(of: video, loader: dependencies.loader) {
                     await dependencies.diskCache.store(jpeg, for: key)
+                    budget -= jpeg.count
                     report.generated.append(video)
                     succeededExtensions.insert(ext)
                 } else {
@@ -195,7 +228,9 @@ final class FileBrowserVideoThumbnailWarmer {
             guard let values = try? url.resourceValues(forKeys: Set(keys)) else { continue }
             if values.isDirectory == true {
                 let prefix = DirectoryProbe.protectedPrefix(containing: url, prefixes: protectedPrefixes)
-                if (prefix != nil && prefix != rootPrefix) || isRemote(url) {
+                // 実体が手元に無いフォルダ(iCloud などに追い出された)にも入らない ―― 中を列挙すると一覧を落としてくる
+                // (2026-09-14 の 2 回目の監査 23)。
+                if (prefix != nil && prefix != rootPrefix) || DatalessFiles.isDataless(url) || isRemote(url) {
                     enumerator.skipDescendants()
                 }
                 continue

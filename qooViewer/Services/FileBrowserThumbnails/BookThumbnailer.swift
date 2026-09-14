@@ -69,6 +69,17 @@ nonisolated enum BookThumbnailer {
     /// (`decodeEntry`)。
     static let maxEntryBytes: Int64 = 64 * 1024 * 1024
 
+    /// 間引いて読めない形式(無圧縮の BMP など)の画像の画素数の上限(2026-09-14 の 2 回目の監査 24)。縮小でも元の大きさぶん展開するので、
+    /// 16000² の BMP 1 枚で約 2GB を確保した。一覧は 4 件ずつ同時に作る。3200 万画素(8000×4000)なら 1 枚あたり数百 MB で済み、
+    /// スキャンしたページ画像(数百万〜1000 万画素)は通る。JPEG・PNG・TIFF・HEIC は間引いて読むので掛けない(`ImageDecoder.subsamplingTypeIdentifiers`)。
+    static let maxFullDecodePixelCount = 32_000_000
+
+    /// 書庫の中で、先頭の画像より**前にある**エントリの宣言サイズの合計の上限(2026-09-14 の 2 回目の監査 21)。ソリッドの 7z / rar は
+    /// 先頭の画像を読むために前のエントリを全部伸長する(64MB の上限は画像自身にしか掛かっていなかった)。書庫の順は、ほぼ名前順に
+    /// 並ぶのでページの本では 0 に近い。ソリッドかどうかは見分けない(非ソリッドの書庫では読み飛ばしは安いが、この形は稀なので
+    /// 絵が出ない側に倒す)。
+    static let maxBytesBeforeFirstImage: Int64 = 256 * 1024 * 1024
+
     /// 絵を作った結果。
     enum Outcome {
         case image(CGImage)
@@ -101,15 +112,19 @@ nonisolated enum BookThumbnailer {
         return DatalessFiles.withoutDownloading { () -> Outcome in
             switch kind {
             case .image:
-                return outcome(ImageDecoder.decode(fileAt: url, maxPixelSize: maxPixelSize))
+                return outcome(ImageDecoder.decode(fileAt: url, maxPixelSize: maxPixelSize, maxFullDecodePixelCount: maxFullDecodePixelCount))
             case .folder:
                 guard let first = firstImageFile(inFolder: url) else { return .unavailable }
                 if DatalessFiles.isDataless(first) { return .notDownloaded }
-                return outcome(ImageDecoder.decode(fileAt: first, maxPixelSize: maxPixelSize))
+                return outcome(ImageDecoder.decode(fileAt: first, maxPixelSize: maxPixelSize, maxFullDecodePixelCount: maxFullDecodePixelCount))
             case .archive:
                 guard let reader = try? makeArchiveReader(for: url),
-                      let path = try? firstImageEntryPath(in: reader)
+                      let path = try? firstImageEntryPath(in: reader),
+                      !readsTooMuchBefore(path, in: reader)
                 else { return .unavailable }
+                // BCJ2 などストリーミングできない 7z のブロックは丸ごと伸長される。画像自身の上限を超える大きさのブロックは読まない
+                // (2026-09-14 の 2 回目の監査 20。800MB のブロックを持つ 143KB の cb7 で 845MB を確保した。フォークの `maxWholeBlockBytes`)。
+                (reader as? SevenZipArchiveReader)?.maxWholeBlockBytes = UInt64(maxEntryBytes)
                 return outcome(decodeEntry(path, in: reader, maxPixelSize: maxPixelSize))
             case .epub:
                 // 絵に要るのは先頭の 1 ページだけ。spine の残りの XHTML は読まない。
@@ -177,7 +192,21 @@ nonisolated enum BookThumbnailer {
     /// チャンクで渡す `readEntry` で数える。
     static func decodeEntry(_ path: String, in reader: ArchiveReading, maxPixelSize: CGFloat) -> CGImage? {
         guard let data = boundedEntryData(path, in: reader, maxByteCount: maxEntryBytes) else { return nil }
-        return ImageDecoder.decode(data, maxPixelSize: maxPixelSize)
+        return ImageDecoder.decode(data, maxPixelSize: maxPixelSize, maxFullDecodePixelCount: maxFullDecodePixelCount)
+    }
+
+    /// 書庫の順で `path` より前にあるファイルの宣言サイズの合計が `limit` を超えるか(`maxBytesBeforeFirstImage`)。zip は
+    /// エントリごとに直接読めるので見ない。一覧が引けなければ超えない扱い(読んでみて失敗するだけ)。
+    static func readsTooMuchBefore(_ path: String, in reader: ArchiveReading, limit: Int64 = maxBytesBeforeFirstImage) -> Bool {
+        guard !(reader is ZipArchiveReader), let entries = try? reader.entriesInArchiveOrder() else { return false }
+        var total: Int64 = 0
+        for entry in entries where entry.kind == .file {
+            if entry.path == path { return false }
+            let (sum, overflow) = total.addingReportingOverflow(Int64(clamping: entry.uncompressedSize))
+            total = overflow ? .max : sum
+            if total > limit { return true }
+        }
+        return false
     }
 
     /// エントリの中身。宣言か実際の伸長が `maxByteCount` を超えたら nil(テストのための口)。

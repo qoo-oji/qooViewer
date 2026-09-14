@@ -74,6 +74,14 @@ nonisolated final class SevenZipArchiveReader: ArchiveReading {
         }
     }
 
+    /// ストリーミングできないブロック(BCJ2 など)を丸ごと伸長してよい上限(フォークの `Archive.maxWholeBlockBytes`)。nil は上限なし(本として
+    /// 開くとき。利用者が開いた本は読む)。頼まれていないエントリを読む一覧の絵が付ける(BookThumbnailer)。超えた読み取りは
+    /// `LZMAError.blockTooLarge` で失敗する。
+    var maxWholeBlockBytes: UInt64? {
+        get { archive.maxWholeBlockBytes }
+        set { archive.maxWholeBlockBytes = newValue }
+    }
+
     func listFilePaths() throws -> [String] {
         entries.filter { !$0.directory }.map { $0.path }
     }

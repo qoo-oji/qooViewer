@@ -422,6 +422,57 @@ struct FileBrowserThumbnailTests {
         #expect(BookThumbnailer.boundedEntryData("1.png", in: reader, maxByteCount: Int64(size - 1)) == nil)
     }
 
+    @Test("書庫の順で先頭の画像より前にある量が上限を超えたら読まない。zip は見ない(2 回目の監査 21)")
+    func entriesBeforeTheFirstImageAreBounded() throws {
+        // ソリッドの 7z / rar は、先頭の画像を読むために前のエントリを全部伸長する。
+        let reader = OrderedReader(entries: [("big.bin", 300), ("notes/", 0), ("001.png", 10), ("002.png", 10)])
+        #expect(BookThumbnailer.readsTooMuchBefore("001.png", in: reader, limit: 299))
+        #expect(!BookThumbnailer.readsTooMuchBefore("001.png", in: reader, limit: 300))
+        #expect(!BookThumbnailer.readsTooMuchBefore("big.bin", in: reader, limit: 0), "先頭なら 0")
+
+        let temporary = try TemporaryDirectory("thumb-before")
+        var zip = ZipFixtureBuilder()
+        zip.add("a.bin", Data(count: 4096))
+        zip.add("1.png", PageImageFactory.png(number: 1))
+        let url = temporary.file("book.cbz")
+        try zip.write(to: url)
+        #expect(!BookThumbnailer.readsTooMuchBefore("1.png", in: try ZipArchiveReader(url: url), limit: 0))
+    }
+
+    @Test("間引いて読めない形式の巨大な画像は一覧の絵にしない。JPEG・PNG は同じ大きさでも作る(2 回目の監査 24)")
+    func hugeImagesThatCannotBeSubsampledAreSkipped() throws {
+        // 16000² の無圧縮 BMP の縮小は約 2GB を確保した(PNG / TIFF / HEIC は数十 MB)。ヘッダーの寸法だけで決めるので、中身は小さくてよい。
+        let bmp = Self.bmpHeader(width: 8000, height: 8000)
+        #expect(ImageDecoder.decode(bmp, maxPixelSize: 128, maxFullDecodePixelCount: BookThumbnailer.maxFullDecodePixelCount) == nil)
+        let small = Self.bmpHeader(width: 2, height: 2) + Data(count: 16)
+        #expect(ImageDecoder.decode(small, maxPixelSize: 128, maxFullDecodePixelCount: BookThumbnailer.maxFullDecodePixelCount) != nil)
+        let png = PageImageFactory.png(number: 1)
+        #expect(ImageDecoder.decode(png, maxPixelSize: 128, maxFullDecodePixelCount: 1) != nil, "PNG は間引いて読むので上限を掛けない")
+    }
+
+    /// 32bpp・無圧縮の BMP の見出し(画素の中身は付けない)。
+    private static func bmpHeader(width: Int32, height: Int32) -> Data {
+        var data = Data()
+        func append<T>(_ value: T) { withUnsafeBytes(of: value) { data.append(contentsOf: $0) } }
+        let pixelBytes = UInt32(clamping: Int64(width) * Int64(height) * 4)
+        data.append(contentsOf: [0x42, 0x4D])
+        append(UInt32(54).addingReportingOverflow(pixelBytes).partialValue.littleEndian)
+        append(UInt32(0))
+        append(UInt32(54).littleEndian)
+        append(UInt32(40).littleEndian)
+        append(width.littleEndian)
+        append(height.littleEndian)
+        append(UInt16(1).littleEndian)
+        append(UInt16(32).littleEndian)
+        append(UInt32(0))
+        append(pixelBytes.littleEndian)
+        append(Int32(2835).littleEndian)
+        append(Int32(2835).littleEndian)
+        append(UInt32(0))
+        append(UInt32(0))
+        return data
+    }
+
     @Test("追い出されたファイルを落としてこない方針は、読み取りの間だけこのスレッドに掛かり、終わると元へ戻る")
     func datalessPolicyIsScopedToTheRead() async {
         let observed = await FileIO.perform { () -> (before: Int32, inside: Int32, after: Int32) in
@@ -489,4 +540,21 @@ private nonisolated final class StreamingReader: ArchiveReading, @unchecked Send
             try body(chunk)
         }
     }
+}
+
+/// 書庫の順とエントリの大きさだけを答える reader(先頭の画像より前の量の判定)。
+private nonisolated final class OrderedReader: ArchiveReading, @unchecked Sendable {
+    let entries: [(path: String, size: UInt64)]
+
+    init(entries: [(path: String, size: UInt64)]) {
+        self.entries = entries
+    }
+
+    func listFilePaths() throws -> [String] { entries.filter { !$0.path.hasSuffix("/") }.map(\.path) }
+    func data(at path: String) throws -> Data { Data() }
+    func entryDates(at path: String) -> (created: Date?, modified: Date?) { (nil, nil) }
+    func entriesInArchiveOrder() throws -> [ArchiveEntryDescriptor] {
+        entries.map { ArchiveEntryDescriptor(path: $0.path, kind: $0.path.hasSuffix("/") ? .directory : .file, uncompressedSize: $0.size, modified: nil) }
+    }
+    func readEntry(at path: String, _ body: (Data) throws -> Void) throws {}
 }

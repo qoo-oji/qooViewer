@@ -104,6 +104,24 @@ struct ArchiveExtractionPlanTests {
         #expect(small.items.map(\.relativePath) == ["a.txt", "A 2.txt", "a 2 2.txt", "A 3.TXT"])
     }
 
+    @Test("書き出さないが読み飛ばすエントリ(__MACOSX・捨てたもの・同じパスの 2 つ目)の宣言サイズも限度に数える(2 回目の監査 21)")
+    func skippedEntriesCountTowardLimits() {
+        // ソリッドの 7z / rar では、読み飛ばすエントリも伸長される。以前は限度に数えなかったので、捨てられるエントリに伸長爆弾を隠せた。
+        let plan = ArchiveExtractionPlan(entries: [
+            file("page.jpg", size: 10), file("__MACOSX/._page.jpg", size: 600), file("../evil", size: 300),
+            ArchiveEntryDescriptor(path: "link", kind: .symbolicLink, uncompressedSize: 50, modified: nil), file("page.jpg", size: 40),
+        ])
+        #expect(plan.declaredTotalBytes == 10)
+        #expect(plan.skippedDeclaredBytes == 990)
+        var limits = ArchiveExtractionLimits()
+        limits.maxTotalBytes = 500
+        #expect(throws: ArchiveOperationError.self) {
+            try plan.checkLimits(limits, archiveSize: 1_000, archive: URL(fileURLWithPath: "/tmp/x.7z"))
+        }
+        limits.maxTotalBytes = 1_000
+        #expect(throws: Never.self) { try plan.checkLimits(limits, archiveSize: 1_000, archive: URL(fileURLWithPath: "/tmp/x.7z")) }
+    }
+
     @Test("宣言サイズの合計は飽和加算(細工された索引でトラップしない)")
     func declaredTotalSaturates() {
         let plan = ArchiveExtractionPlan(entries: [file("a", size: .max - 1), file("b", size: 10), file("c", size: .max)])

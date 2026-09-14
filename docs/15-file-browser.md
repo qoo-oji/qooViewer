@@ -651,8 +651,8 @@ FileOperationService+Archives}.swift`、コマンドは `CompressFilesCommand` /
 
   | 種類 | 読むもの |
   |---|---|
-  | 画像 | そのファイルを ImageIO で縮小(`ImageDecoder.decode(fileAt:)`。画素数の上限は本と同じ) |
-  | zip / cbz / rar / cbr / 7z / cb7 | 索引(`listFilePaths`)から `isExcludedArchiveEntry` を外した画像のうち**正準順の先頭** 1 件。64MB まで(宣言サイズと、`readEntry` で伸長しながら数えた量の両方) |
+  | 画像 | そのファイルを ImageIO で縮小(`ImageDecoder.decode(fileAt:)`。画素数の上限は本と同じ。**間引いて読めない形式**(`subsamplingTypeIdentifiers` = JPEG・PNG・TIFF・HEIC・HEIF 以外。無圧縮の BMP など)は 3200 万画素まで ―― 16000² の BMP の縮小は約 2GB を確保した。2 回目の監査 24) |
+  | zip / cbz / rar / cbr / 7z / cb7 | 索引(`listFilePaths`)から `isExcludedArchiveEntry` を外した画像のうち**正準順の先頭** 1 件。64MB まで(宣言サイズと、`readEntry` で伸長しながら数えた量の両方)。rar / 7z は**書庫の順でその前にあるファイルの宣言サイズの合計が 256MB を超えたら作らない**(ソリッドでは前を全部伸長する。`readsTooMuchBefore`。非ソリッドかは見分けない)。7z は**ストリーミングできないブロック(BCJ2 など)を丸ごと伸長してよい上限を 64MB に**する(フォークの `Archive.maxWholeBlockBytes`。800MB のブロックを持つ 143KB の cb7 で 845MB を確保した。2 回目の監査 20・21) |
   | EPUB | `EpubStructureResolver` の spine の先頭(`maxPages: 1` で残りの XHTML を読まない) |
   | PDF | 1 ページ目を白地に描く(/Rotate を反映) |
   | フォルダ | **直下の**画像のうち正準順の先頭(`readdir`。`.` で始まる名前・`UF_HIDDEN`・記号リンクは数えない) |
@@ -728,7 +728,9 @@ qooLibrary の実装(`VideoThumbnailLoading` ほか)を写した。実測の経�
   **同じ拡張子が 1 度も成功しないまま 3 回失敗したら、その掃引ではその拡張子を諦める**(覚えない ―― 次の起動でまた試すので、拡張を入れたら出る)。
   辿らないところ: ネットワーク越し(よく使う項目そのもの・途中のマウント)、TCC の保護下の場所(**よく使う項目そのものが同じ保護下の場所の
   中にあるときだけ辿る** ―― ホームを登録していても「デスクトップ」の中は読まない)、隠しファイル・隠しフォルダ(`~/Library` を含む)・
-  パッケージの中・記号リンクの先、実体が手元に無いファイル(失敗とも数えない)。入れ子のよく使う項目でも 1 本は 1 回。
+  パッケージの中・記号リンクの先、実体が手元に無いファイル・フォルダ(失敗とも数えない。フォルダは中を列挙すると一覧を落としてくる)。入れ子のよく使う項目でも 1 本は 1 回。
+  **1 回の掃引で書くのはディスクキャッシュの上限の半分から使用量を引いた残りまで**(`bytesAvailableForWarming`。2 回目の監査 22。以前は上限を知らずに
+  書き続け、上限を超える量の動画があると刈り込みと作り直しを起動のたびに繰り返した)。マウント表は 1 秒に 1 回だけ写し直す(`RecentMountTable`)。
   **テストの中の実物のアプリでは繋がない**(`AppStores` が `RuntimeEnvironment.isRunningTests` で外す)。回っている間に増えた動画は、
   次に回るまで(またはアイコン表示に出るまで)作らない。
 

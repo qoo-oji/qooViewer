@@ -1907,7 +1907,20 @@ Debug の全テスト 1317 件・124 suite が通った。CHANGELOG・MANUAL・d
   `BulkRenameTests.manyCollisionsStayLinear`、`ArchiveExtractionPlanTests.manyCaseCollisionsStayLinear`、`FolderChangeWatcherTests.stoppingForgetsWhereItLeftOff`。
   ツリー・一覧の重ならない読み込みと絵の別枠は自動テストを足していない(応答しない共有を作れない)。実機の確認も未(ユーザーが Xcode で動かしているので画面は触らない)。
 
-**次にやること**: D(20〜24。20 はフォークの SevenZip.swift の変更が要る)→ 低、の順に続ける(同じ指示の範囲)。
+**20〜24 の修正(2026-09-15、同じ指示)**: Debug の全テスト 1332 件が通った。CHANGELOG・MANUAL・docs/11・docs/13・docs/15 と一緒にコミット・プッシュ(この節と同じコミット)。
+- 20: **フォーク `qoo-oji/SevenZip.swift` の `streaming-extract` に `0b4c1b9`**(`Archive.maxWholeBlockBytes` と `LZMAError.blockTooLarge`、BCJ2 のフィクスチャで
+  テスト、`docs/StreamingExtraction.md`)をコミットしてプッシュし、`Package.resolved` の revision を手で書き換えて `-resolvePackageDependencies`。
+  アプリは `SevenZipArchiveReader.maxWholeBlockBytes` で素通しし、`BookThumbnailer.make` の書庫だけが `maxEntryBytes`(64MB)を付ける。
+- 21: `BookThumbnailer.readsTooMuchBefore`(zip 以外。書庫の順で前のファイルの宣言サイズ > 256MB で作らない)。展開は `ArchiveExtractionPlan.skippedDeclaredBytes`
+  (`__MACOSX`・捨てた・同じパスの 2 つ目)を `checkLimits` の合計と倍率に足す。読み飛ばしの中の中止は相変わらず届かない(7z は C の中、rar はライブラリの中)。
+- 22: `FileBrowserThumbnailDiskCache.bytesAvailableForWarming`(上限の半分 − 使用量)を掃引の始めに 1 回、書いたぶんを引いて尽きたら止める(`SweepReport.stoppedForCacheBudget`)。
+- 23: 後半。先読み役の `live` の `isRemote` は `RecentMountTable`(1 秒に 1 回)、`videoFiles` は `SF_DATALESS` のフォルダに入らない。前半(データ側の書き方)は C で済み。
+- 24: `ImageDecoder.decode(… maxFullDecodePixelCount:)` と `subsamplingTypeIdentifiers`。`BookThumbnailer.maxFullDecodePixelCount` = 3200 万画素を画像・フォルダ・書庫の絵に。
+- テスト: `FileBrowserThumbnailTests.entriesBeforeTheFirstImageAreBounded` / `hugeImagesThatCannotBeSubsampledAreSkipped`(BMP の見出しだけを組む)、
+  `FileBrowserVideoThumbnailTests.warmerStaysWithinHalfOfTheCacheLimit`、`ArchiveExtractionPlanTests.skippedEntriesCountTowardLimits`。フォーク側は
+  `StreamingTests.testWholeBlockLimitRefusesLargeFallbackBlocks`(`swift test` 35 件)。
+
+**次にやること**: 「低」の列の残り(同じ指示の範囲。済んだもの: 中止済みの旗のやり直し・読めないフォルダの新規フォルダの取り消し)。
 
 ---
 

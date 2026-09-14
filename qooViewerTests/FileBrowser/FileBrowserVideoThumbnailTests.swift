@@ -258,6 +258,39 @@ struct FileBrowserVideoThumbnailTests {
         #expect(fixture.loader.calls.count == 2)
     }
 
+    @Test("先に作る役: ディスクキャッシュの上限の半分までしか書かない。使用量が半分を超えていれば作らない(2 回目の監査 22)")
+    func warmerStaysWithinHalfOfTheCacheLimit() async throws {
+        // 以前は上限を知らずに書き続け、刈り込みと作り直しを起動のたびに繰り返した。
+        let fixture = try warmerFixture("warm-budget")
+        for name in ["a.mp4", "b.mp4", "c.mp4"] { try fixture.video(name) }
+        let limit = 10 * 1024 * 1024
+
+        func sweepWithUsage(_ usage: Int, label: String) async throws -> FileBrowserVideoThumbnailWarmer.SweepReport {
+            let directory = fixture.temporary.file("cache-\(label)")
+            // いまの使用量のぶんの、ほかの絵(刈り込みの上限は超えない)。
+            let filler = directory.appendingPathComponent("zz/filler.jpg")
+            try FileManager.default.createDirectory(at: filler.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data(count: usage).write(to: filler)
+            let cache = FileBrowserThumbnailDiskCache(directory: directory, configuration: .init(isEnabled: true, maxTotalBytes: limit))
+            let warmer = FileBrowserVideoThumbnailWarmer(
+                dependencies: .init(
+                    diskCache: cache, loader: fixture.loader, isRemote: { _ in false }, isDataless: { _ in false },
+                    protectedPrefixes: [], formatFailureThreshold: 3
+                ),
+                debounce: .zero
+            )
+            return try #require(await sweep(warmer, roots: [fixture.root]))
+        }
+
+        let full = try await sweepWithUsage(limit / 2, label: "full")
+        #expect(full.generated.isEmpty && full.stoppedForCacheBudget, "使用量が上限の半分に届いていれば作らない")
+        #expect(fixture.loader.calls.isEmpty)
+
+        let almost = try await sweepWithUsage(limit / 2 - 1, label: "almost")
+        #expect(almost.generated.map(\.lastPathComponent) == ["a.mp4"], "取り分(1 バイト)を 1 本で使い切ったら止める")
+        #expect(almost.stoppedForCacheBudget)
+    }
+
     @Test("先に作る役: 1 度も成功しない拡張子は 3 回失敗したらこの掃引では諦める。1 度でも成功した拡張子は諦めない")
     func warmerSkipsFailingFormats() async throws {
         let failing = try warmerFixture("warm-fail") { _ in nil }

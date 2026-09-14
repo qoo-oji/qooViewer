@@ -127,6 +127,16 @@ actor FileBrowserThumbnailDiskCache {
 
     var isEnabled: Bool { configuration.isEnabled }
 
+    /// 先に作っておく役(FileBrowserVideoThumbnailWarmer)が、1 回の掃引で書いてよいバイト数。**上限の半分から、いまの使用量を引いた残り**
+    /// (2026-09-14 の 2 回目の監査 22)。以前の先読み役は上限を知らずに書き続け、上限を超える量の動画がよく使う項目にあると、刈り込みが
+    /// 作ったばかりの絵やアイコン表示の絵を追い出し、次の起動でまた作り直す、を繰り返した。残りの半分はアイコン表示が見たものに空けておく。
+    /// 使用量はディスクを数える(掃引の始めに 1 回だけ呼ぶ)。
+    @concurrent nonisolated func bytesAvailableForWarming() async -> Int {
+        guard let directory else { return 0 }
+        let limit = await configuration.maxTotalBytes
+        return max(0, limit / 2 - Self.totalBytes(in: directory))
+    }
+
     // MARK: - 設定(AppPreferences が押し込む)
 
     /// OFF になったらその場で消し、有効化・上限を下げたときは書き込みを待たずに刈り込む。起動後の最初の 1 回は

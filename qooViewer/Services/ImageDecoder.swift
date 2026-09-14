@@ -44,19 +44,25 @@ nonisolated enum ImageDecoder {
     /// ページ画像がこれに達することはなく、拒否によって読めなくなる本は無い。
     static let maxSourcePixelCount = Int(exportMaxPixelSize) * Int(exportMaxPixelSize)
 
-    static func decode(_ data: Data, maxPixelSize: CGFloat) -> CGImage? {
+    static func decode(_ data: Data, maxPixelSize: CGFloat, maxFullDecodePixelCount: Int? = nil) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else { return nil }
-        guard hasAcceptablePixelCount(source) else { return nil }
+        guard hasAcceptablePixelCount(source, maxFullDecodePixelCount: maxFullDecodePixelCount) else { return nil }
         return decodeThumbnail(from: source, maxPixelSize: maxPixelSize)
     }
 
     /// ディスク上の画像ファイルを縮小して読む(ファイルブラウザの絵、BookThumbnailer)。`Data` に読み込まないので、
     /// JPEG なら ImageIO が縮小に要る部分だけを読む。画素数の上限は `decode(_:maxPixelSize:)` と同じ。
-    static func decode(fileAt url: URL, maxPixelSize: CGFloat) -> CGImage? {
+    static func decode(fileAt url: URL, maxPixelSize: CGFloat, maxFullDecodePixelCount: Int? = nil) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else { return nil }
-        guard hasAcceptablePixelCount(source) else { return nil }
+        guard hasAcceptablePixelCount(source, maxFullDecodePixelCount: maxFullDecodePixelCount) else { return nil }
         return decodeThumbnail(from: source, maxPixelSize: maxPixelSize)
     }
+
+    /// 縮小を**間引いて読める**形式(2026-09-14 の 2 回目の監査で実測: 16000² の画像の `CGImageSourceCreateThumbnailAtIndex` は
+    /// PNG / TIFF / HEIC で数十 MB、無圧縮の BMP は約 2GB)。ここに無い形式は元の大きさぶん展開してから縮小するものとして扱う。
+    static let subsamplingTypeIdentifiers: Set<String> = [
+        UTType.jpeg.identifier, UTType.png.identifier, UTType.tiff.identifier, UTType.heic.identifier, UTType.heif.identifier,
+    ]
 
     private static func decodeThumbnail(from source: CGImageSource, maxPixelSize: CGFloat) -> CGImage? {
         let options: [CFString: Any] = [
@@ -156,7 +162,9 @@ nonisolated enum ImageDecoder {
     /// なので、デコード本体に比べれば無視できる(かつ、この直後のデコードがImage I/Oの
     /// 内部で同じヘッダーを読む)。寸法が取れないファイルはImage I/Oの判断に任せる
     /// (=従来どおり通す。形式によってプロパティが欠けても読めなくならないように)。
-    private static func hasAcceptablePixelCount(_ source: CGImageSource) -> Bool {
+    /// - Parameter maxFullDecodePixelCount: 間引いて読めない形式(`subsamplingTypeIdentifiers` に無い)だけに掛ける、より小さな画素数の上限。
+    ///   一覧の絵のように、頼まれていない画像を並べて同時に作る呼び出し側が渡す(nil なら `maxSourcePixelCount` だけ)。
+    private static func hasAcceptablePixelCount(_ source: CGImageSource, maxFullDecodePixelCount: Int? = nil) -> Bool {
         guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? Int,
               let height = properties[kCGImagePropertyPixelHeight] as? Int
@@ -165,7 +173,12 @@ nonisolated enum ImageDecoder {
         // 溢れよけ: 一辺だけで既に上限を超える寸法は掛けずに弾く。
         let limit = Int(exportMaxPixelSize)
         if width > limit * limit || height > limit * limit { return false }
-        return width * height <= maxSourcePixelCount
+        guard width * height <= maxSourcePixelCount else { return false }
+        if let maxFullDecodePixelCount, width * height > maxFullDecodePixelCount,
+           !subsamplingTypeIdentifiers.contains((CGImageSourceGetType(source) as String?) ?? "") {
+            return false
+        }
+        return true
     }
 
     /// 画像全体をデコードせず、ヘッダー部分だけから読み取れる情報(ピクセルサイズ・色空間・

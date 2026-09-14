@@ -38,6 +38,10 @@ nonisolated struct ArchiveExtractionPlan: Sendable, Equatable {
     private(set) var rejections: [Rejection] = []
     /// ファイルの宣言サイズの合計。**飽和加算**(細工された索引の UInt64 の近くの値で `+` がトラップした ―― qooLibrary)。
     private(set) var declaredTotalBytes: UInt64 = 0
+    /// **書き出さないが、ソリッドの書庫では読み飛ばすために伸長される**ファイル(`__MACOSX`・捨てたエントリ・同じパスの 2 つ目)の
+    /// 宣言サイズの合計(飽和加算。2026-09-14 の 2 回目の監査 21)。以前は限度に数えなかったので、捨てられるエントリに伸長爆弾を
+    /// 隠した 7z / rar は、限度の検査も書いた量の数えも通り抜けて伸長し続けた(中止も読み飛ばしの中までは届かない)。
+    private(set) var skippedDeclaredBytes: UInt64 = 0
     private(set) var fileCount = 0
     /// 暗号化されたエントリがある(展開しない)。
     private(set) var hasEncryptedEntries = false
@@ -45,20 +49,30 @@ nonisolated struct ArchiveExtractionPlan: Sendable, Equatable {
     init(entries: [ArchiveEntryDescriptor]) {
         var namer = Namer()
         var seenSourcePaths: Set<String> = []
+        func skip(_ entry: ArchiveEntryDescriptor) {
+            guard entry.kind != .directory else { return }
+            let (sum, overflow) = skippedDeclaredBytes.addingReportingOverflow(entry.uncompressedSize)
+            skippedDeclaredBytes = overflow ? .max : sum
+        }
         for entry in entries {
             if entry.isEncrypted { hasEncryptedEntries = true }
-            if isAppleDoubleEntry(entry.path) { continue }
+            if isAppleDoubleEntry(entry.path) {
+                skip(entry)
+                continue
+            }
             let components: [String]
             switch Self.components(of: entry.path) {
             case let .success(value):
                 components = value
             case let .failure(reason):
                 rejections.append(Rejection(path: entry.path, reason: reason))
+                skip(entry)
                 continue
             }
             switch entry.kind {
             case .symbolicLink:
                 rejections.append(Rejection(path: entry.path, reason: .symbolicLink))
+                skip(entry)
             case .directory:
                 let relative = namer.directory(for: components[...])
                 guard seenSourcePaths.insert("d:" + relative).inserted else { continue }
@@ -66,7 +80,10 @@ nonisolated struct ArchiveExtractionPlan: Sendable, Equatable {
                     sourcePath: entry.path, relativePath: relative, isDirectory: true, uncompressedSize: 0, modified: entry.modified
                 ))
             case .file:
-                guard seenSourcePaths.insert(entry.path).inserted else { continue }
+                guard seenSourcePaths.insert(entry.path).inserted else {
+                    skip(entry)
+                    continue
+                }
                 let relative = namer.file(for: components)
                 items.append(Item(
                     sourcePath: entry.path, relativePath: relative, isDirectory: false,
@@ -122,10 +139,13 @@ nonisolated struct ArchiveExtractionPlan: Sendable, Equatable {
         guard fileCount <= limits.maxEntries else {
             throw ArchiveOperationError.tooManyEntries(archive: archive, count: fileCount, limit: limits.maxEntries)
         }
-        guard declaredTotalBytes <= limits.maxTotalBytes else {
+        // 伸長する量は、書き出すぶんと読み飛ばすぶんの合計(`skippedDeclaredBytes` のコメント)。
+        let (sum, overflow) = declaredTotalBytes.addingReportingOverflow(skippedDeclaredBytes)
+        let decodedBytes = overflow ? UInt64.max : sum
+        guard decodedBytes <= limits.maxTotalBytes else {
             throw ArchiveOperationError.tooLarge(archive: archive, limit: limits.maxTotalBytes)
         }
-        guard !limits.exceedsCompressionRatio(expandedBytes: declaredTotalBytes, archiveSize: archiveSize) else {
+        guard !limits.exceedsCompressionRatio(expandedBytes: decodedBytes, archiveSize: archiveSize) else {
             throw ArchiveOperationError.suspiciousCompressionRatio(archive: archive)
         }
     }

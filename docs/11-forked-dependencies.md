@@ -6,7 +6,7 @@ qooViewer は3つの Swift パッケージに依存します。うち2つは開�
 | パッケージ | 参照先 | 固定方法 | 用途 |
 |---|---|---|---|
 | ZIPFoundation | `weichsel/ZIPFoundation` | バージョン 0.9.20 | zip / cbz / EPUB(zip コンテナ)の読み取り、CBZ / EPUB の書き出し |
-| SevenZip.swift | **`qoo-oji/SevenZip.swift`** ブランチ `streaming-extract` | revision `35800eb` | 7z / cb7 の読み取り |
+| SevenZip.swift | **`qoo-oji/SevenZip.swift`** ブランチ `streaming-extract` | revision `0b4c1b9` | 7z / cb7 の読み取り |
 | Unrar.swift | **`qoo-oji/Unrar.swift`** ブランチ `memory-archive` | revision `2d2982e` | rar / cbr の読み取り |
 
 フォークの作業ツリーは、開発機ではリポジトリの隣(`../SevenZip.swift`、`../Unrar.swift`)にあり、
@@ -48,6 +48,7 @@ qooViewer はメモリ使用量を実測で詰めていく方針なので(→ [0
 | `a3d93ae` Fix Entry.modified and publish the restart counter | 本家由来の日時の不具合(下記)と、`folderStreamRestartCount` の public 化 |
 | `dd39320` Release the Archive when its last reference goes | 本家由来の参照循環(下記)。`Archive` が一度も解放されていなかった |
 | `35800eb` Merge upstream v0.4.0 | 上の4件が upstream に入ったので取り込み。参照循環の直し方は upstream の案(`Entry.archive` 削除)に寄せ、フォーク側の回避策は捨てた(下記) |
+| `0b4c1b9` Add a limit on whole-block decoding in the BCJ2 fallback | `Archive.maxWholeBlockBytes`。フォールバック(`extract`)の前にブロックの宣言の伸長後の大きさ(`SzAr_GetFolderUnpackSize`)と比べ、超えたら何も確保せずに `LZMAError.blockTooLarge` を投げる。既定は nil(従来どおり)。qooViewer はファイルブラウザの一覧の絵(BookThumbnailer)だけが 64MB を付ける(2026-09-14 の 2 回目の監査 20) |
 
 追加・変更したファイルの一覧と API の詳細は `docs/StreamingExtraction.md` にあります。要点:
 
@@ -117,7 +118,9 @@ let bytes = archive.residentDecoderBytes
 
 ### 既知の制限
 
-- BCJ2 はストリーミングせず `extract` に任せる(x86 実行ファイル向けの構成で、画像用途では出ない)。
+- BCJ2 はストリーミングせず `extract` に任せる(x86 実行ファイル向けの構成で、画像用途では出ない)。ブロック丸ごとを最初に確保するので、
+  細工された書庫では小さなファイル 1 つを読むだけで数百 MB を確保させられる。頼まれていないエントリを読む一覧の絵は `maxWholeBlockBytes` で
+  上限を付ける(本として開いたときは付けない ―― 利用者が開いた本は読む)。
 - BZip2 / Deflate / 7zAES は 7zDec.c 側にも実装が無く、どちらの経路でも読めない。
 - `Archive` はスレッドセーフではない(本家と同じ)。qooViewer では `PageLoader`(actor)の中で
   しか触らない。
