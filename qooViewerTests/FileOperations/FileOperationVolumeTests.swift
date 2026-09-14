@@ -168,6 +168,21 @@ struct FileOperationVolumeTests {
         #expect(hidden.isEmpty)
     }
 
+    @Test("同じボリュームかは、別のボリュームを指すフォルダのリンクを解いてから決める(2 回目の監査)")
+    func sameVolumeCheckResolvesLinks() throws {
+        guard let volume = DisposableVolume.make(.apfs, "link-volume") else { return }
+        let external = try volume.directory("Books")
+        try Data("x".utf8).write(to: external.appendingPathComponent("a.cbz"))
+        let link = temporary.file("LinkToVolume")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: external)
+        let local = try temporary.directory("Local")
+        let mounts = MountTable.current()
+        let throughLink = link.appendingPathComponent("a.cbz")
+        #expect(mounts.areOnSameVolume(throughLink, local), "文字列だけなら同じボリュームに見える")
+        #expect(!FileOperationService.isOnSameVolume(throughLink, local, mounts: mounts))
+        #expect(FileOperationService.isOnSameVolume(link, local, mounts: mounts), "リンクそのものはリンクとして運ぶので、置き場所で決める")
+    }
+
     @Test("ボリュームそのものは移動しない(1 バイトも書かず、ボリュームの中身にも触らない)")
     func refusesToMoveAVolume() async throws {
         guard let volume = DisposableVolume.make(.apfs, "volume-root") else { return }

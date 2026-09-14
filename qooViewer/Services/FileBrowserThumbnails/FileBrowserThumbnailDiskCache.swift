@@ -121,6 +121,12 @@ actor FileBrowserThumbnailDiskCache {
         } catch {
             return
         }
+        // 書いている間に OFF になった(その場で消した後に書いた)なら、書いたものも消す(2026-09-14 の 2 回目の監査。以前は OFF にした
+        // 瞬間に走っていた書き込みが、空にしたはずのキャッシュに残った)。
+        guard await isEnabled else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
         guard let limit = await claimTrim(afterWriting: data.count), let directory else { return }
         ThumbnailDiskCache.trimIfNeeded(in: directory, maxTotalBytes: limit)
     }

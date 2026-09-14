@@ -58,6 +58,11 @@ final class FileBrowserListApplicationIcons {
     /// 読めなかった(アイコンが取れなかった)もの。この起動の間は試し直さない。
     private var failed: Set<String> = []
     private var loading: Set<String> = []
+    /// 同時に読むのは `maxConcurrentLoads` 件まで(2026-09-14 の 2 回目の監査。以前は上限が無く、アプリケーションフォルダをリストで
+    /// スクロールすると行の数だけ FileIO のスレッドが同時に立った)。待っているものは**後から頼まれたものから**始める(画面に入ったばかりの行)。
+    private static let maxConcurrentLoads = 4
+    private var runningCount = 0
+    private var waiting: [(key: String, url: URL, completion: @MainActor (NSImage) -> Void)] = []
 
     private init() {}
 
@@ -78,21 +83,31 @@ final class FileBrowserListApplicationIcons {
         }
         guard !loading.contains(key), !failed.contains(key) else { return }
         loading.insert(key)
-        let url = entry.url
-        // 画素数は先に値で取り出す。`Self.pixelSize` はメインアクターの型の静的プロパティなので、FileIO へ渡す閉包の中では読めない。
-        let pixelSize = Self.pixelSize
-        Task { [weak self] in
-            let pixels = await FileIO.perform { FileBrowserApplicationIcon.render(at: url, pixelSize: pixelSize) }
-            guard let self else { return }
-            self.loading.remove(key)
-            guard let pixels, let image = pixels.makeImage() else {
-                self.failed.insert(key)
-                return
+        waiting.append((key, entry.url, completion))
+        startWaitingLoads()
+    }
+
+    private func startWaitingLoads() {
+        while runningCount < Self.maxConcurrentLoads, let next = waiting.popLast() {
+            runningCount += 1
+            let (key, url, completion) = next
+            // 画素数は先に値で取り出す。`Self.pixelSize` はメインアクターの型の静的プロパティなので、FileIO へ渡す閉包の中では読めない。
+            let pixelSize = Self.pixelSize
+            Task { [weak self] in
+                let pixels = await FileIO.perform { FileBrowserApplicationIcon.render(at: url, pixelSize: pixelSize) }
+                guard let self else { return }
+                self.runningCount -= 1
+                self.loading.remove(key)
+                defer { self.startWaitingLoads() }
+                guard let pixels, let image = pixels.makeImage() else {
+                    self.failed.insert(key)
+                    return
+                }
+                if self.cache.count >= Self.countLimit { self.cache.removeAll() }
+                let icon = NSImage(cgImage: image, size: NSSize(width: Self.pointSize, height: Self.pointSize))
+                self.cache[key] = icon
+                completion(icon)
             }
-            if self.cache.count >= Self.countLimit { self.cache.removeAll() }
-            let icon = NSImage(cgImage: image, size: NSSize(width: Self.pointSize, height: Self.pointSize))
-            self.cache[key] = icon
-            completion(icon)
         }
     }
 }

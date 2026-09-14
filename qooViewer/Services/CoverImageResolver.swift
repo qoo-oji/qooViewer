@@ -160,9 +160,12 @@ nonisolated enum CoverImageResolver {
     /// 本体を開く経路はBookLoader/PageLoaderが自分で外へ逃げるので影響が無いが、外部カバー
     /// ファイルの経路(`Data(contentsOf:)`と復号)はここで直に走るため、付けないと未接続の
     /// ボリューム上の外部カバー1枚でメインが止まる。
+    /// - Parameter skipsNotDownloadedPages: 表紙にするページの実体(フォルダの本の画像・中の書庫・中の PDF)が手元に無い
+    ///   (iCloud などに追い出された)なら作らずに nil(ファイルブラウザの一覧の絵。2026-09-14 の 2 回目の監査 ―― 以前は頼まれていない
+    ///   ダウンロードを起こした)。棚の表紙の抽出は既定の false(利用者がコレクションに入れた本)。
     @concurrent nonisolated static func coverImage(
         bookAt url: URL?, snapshot: OverrideSnapshot, maxPixelSize: CGFloat,
-        cachesPageList: Bool = true
+        cachesPageList: Bool = true, skipsNotDownloadedPages: Bool = false
     ) async -> CGImage? {
         // 1. 利用者が用意した画像が指定されていれば、本体を開かずにそれを読む。
         //    保管庫はこのアプリ自身の領域なので、セキュリティスコープの開始は要らない。
@@ -179,6 +182,15 @@ nonisolated enum CoverImageResolver {
         guard let target = targetPage(in: book, snapshot: snapshot),
               let index = book.pages.firstIndex(where: { $0.sortKey == target.sortKey })
         else { return nil }
+        if skipsNotDownloadedPages {
+            let pageFile: URL = switch target.source {
+            case .file(let file): file
+            case .archive(let locator, _): locator.rootURL
+            case .pdf(.file(let file), _): file
+            case .pdf(.entry(let locator, _), _): locator.rootURL
+            }
+            if DatalessFiles.isDataless(pageFile) { return nil }
+        }
 
         // 3. 復号。カバーは1000px弱の小さな画像なので、grid用の経路をそのまま借りる。
         //    ディスクキャッシュ(ThumbnailDiskCache)は使わない ―― カバーはこの後

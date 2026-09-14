@@ -1920,7 +1920,22 @@ Debug の全テスト 1317 件・124 suite が通った。CHANGELOG・MANUAL・d
   `FileBrowserVideoThumbnailTests.warmerStaysWithinHalfOfTheCacheLimit`、`ArchiveExtractionPlanTests.skippedEntriesCountTowardLimits`。フォーク側は
   `StreamingTests.testWholeBlockLimitRefusesLargeFallbackBlocks`(`swift test` 35 件)。
 
-**次にやること**: 「低」の列の残り(同じ指示の範囲。済んだもの: 中止済みの旗のやり直し・読めないフォルダの新規フォルダの取り消し)。
+**「低」の列の修正(2026-09-15、同じ指示)**: Debug の全テスト 1335 件が通った。CHANGELOG・MANUAL・docs/13・docs/15 と一緒にコミット・プッシュ(この節と同じコミット)。
+- 直した: ゴミ箱から戻すときの実体の確認(`TrashReceipt.identity` / `TransferReceipt.replacedItemIdentity`)、取り消せない操作でやり直し先を捨てる、
+  キャッシュを OFF にした瞬間の書き込み(書いた後で見て消す)、表紙を指定した未登録の本の追い出されたページ(`CoverImageResolver.coverImage(skipsNotDownloadedPages:)`)、
+  リストのアプリのアイコンの同時読み込み(4 件)、ボリュームの着脱・よく使う項目の並べ替えでツリーの行が閉じる(Node を使い回す)、
+  `areOnSameVolume` のリンク越し(`FileOperationService.isOnSameVolume` が親のリンクを解く。ドラッグの判定は画面の側なので文字列のまま)、
+  QuickLook が取り消しに応えないと枠が塞がる(`QuickLookVideoThumbnailLoader` をタスクグループから「最初の 1 つで戻る箱」へ)、
+  SwiftUI の受け口が他のアプリのドラッグ元の移動禁止を見ない(Finder が最前面のときだけ移動を許す ―― 公開 API で元のマスクを取る手段が無い)。
+  前の区切りで済んだ: 中止済みの旗のやり直し、読めないフォルダの新規フォルダの取り消し。
+- 残した(docs/15 の既知の制限へ): シートの途中でウインドウが閉じたときの continuation(未実測。画面を触れないので確かめていない)、
+  一時名・一時ファイル・一時フォルダがクラッシュ後に残る(置き場所の記録が要る)、NFC / NFD の同名項目が 1 つになる(id の型を変える大きな変更)、
+  `ReplaceBackupJournal` がパスだけで持つ。
+- テスト: `FileOperationServiceTests.restoreChecksTheIdentityInTheTrash`、`FileCommandStackTests.irreversibleOperationsClearRedo`、
+  `FileOperationVolumeTests.sameVolumeCheckResolvesLinks`。ツリーの行・アプリのアイコン・QuickLook・SwiftUI のドロップ・追い出されたページは自動テストを足していない。
+
+**次にやること**: 2 回目の監査の列はここまで。実機での確認(§9.1 の手順に、この監査で変えた画面の挙動 ―― 取り消しの帯と中止、閉じたウインドウの報告、
+「移動」メニュー、ツリーの行が閉じないこと、SwiftUI の受け口のコピー ―― を足して)はユーザーの操作が無いときに。
 
 ---
 

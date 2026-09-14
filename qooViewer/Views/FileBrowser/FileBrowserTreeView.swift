@@ -366,8 +366,12 @@ struct FileBrowserTreeView: NSViewRepresentable {
             }
             if view.favoriteLocations.items != appliedFavorites {
                 appliedFavorites = view.favoriteLocations.items
-                favoritesGroup.children = appliedFavorites.map {
-                    Node(kind: .favorite($0.id), url: $0.url, name: $0.url.lastPathComponent)
+                // 同じ項目(id と場所が同じ)の行は同じ Node を使い回す(2026-09-14 の 2 回目の監査。以前は並べ替えるたびに作り直したので、
+                // NSOutlineView が開閉を項目の同一性で覚えている都合で、開いていた行が閉じた)。
+                let previousFavorites = favoritesGroup.children ?? []
+                favoritesGroup.children = appliedFavorites.map { item in
+                    previousFavorites.first { $0.kind == .favorite(item.id) && $0.url == item.url }
+                        ?? Node(kind: .favorite(item.id), url: item.url, name: item.url.lastPathComponent)
                 }
                 outline.reloadItem(favoritesGroup, reloadChildren: true)
                 outline.expandItem(favoritesGroup)
@@ -530,7 +534,13 @@ struct FileBrowserTreeView: NSViewRepresentable {
                     if (lhs.url.path == "/") != (rhs.url.path == "/") { return lhs.url.path == "/" }
                     return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
                 }
-                self.volumesGroup.children = sorted.map { Node(kind: .volume, url: $0.url, name: $0.displayName) }
+                // 残っているボリュームの行は同じ Node を使い回す(着脱のたびに作り直すと、ほかのボリュームの開いていた行が閉じた。
+                // 2026-09-14 の 2 回目の監査)。名前が変わったら作り直す(行の名前は Node が持つ)。
+                let previousVolumes = self.volumesGroup.children ?? []
+                self.volumesGroup.children = sorted.map { volume in
+                    previousVolumes.first { $0.url == volume.url && $0.name == volume.displayName }
+                        ?? Node(kind: .volume, url: volume.url, name: volume.displayName)
+                }
                 outline.reloadItem(self.volumesGroup, reloadChildren: true)
                 outline.expandItem(self.volumesGroup)
                 self.scheduleWatchUpdate()

@@ -81,7 +81,16 @@ actor FileOperationService {
     /// 移動でロックが邪魔をするか(2026-09-14)。同じボリュームなら rename(2) なので項目自身のロックだけが断り(EPERM)、
     /// 別のボリュームはコピーしてから元を消すので、中のロックされた子で元の削除が止まる。
     nonisolated static func movingIsBlockedByLock(_ item: URL, to folder: URL, mounts: MountTable) -> Bool {
-        mounts.areOnSameVolume(item, folder) ? isLocked(item) : containsLockedItem(item)
+        isOnSameVolume(item, folder, mounts: mounts) ? isLocked(item) : containsLockedItem(item)
+    }
+
+    /// 項目と宛先のフォルダが同じボリュームの上か。**リンクを解いてから**マウント表で比べる(2026-09-14 の 2 回目の監査。
+    /// `MountTable.areOnSameVolume` はパスの文字列で比べるので、別のボリュームを指すフォルダのリンクの下の項目を「同じボリューム」と
+    /// 見て、空き容量と中のロックの確認を飛ばしていた)。項目自身がリンクならリンクとして運ぶので、解くのは親だけ。
+    /// ブロッキングする(リンクの解決)ので FileIO の上で呼ぶ。
+    nonisolated static func isOnSameVolume(_ item: URL, _ folder: URL, mounts: MountTable) -> Bool {
+        let resolvedItem = item.deletingLastPathComponent().resolvingSymlinksInPath().appendingPathComponent(item.lastPathComponent)
+        return mounts.areOnSameVolume(resolvedItem, folder.resolvingSymlinksInPath())
     }
 
     /// ロックを外して `body` を走らせ、運べたら運んだ先の同じ場所で、運べなかったら元の場所で掛け直す。
@@ -92,7 +101,7 @@ actor FileOperationService {
     ) throws -> FileCopyEngine.Outcome {
         // 同じボリュームなら邪魔をするのは項目自身のロックだけなので、**木を歩かない**(2026-09-14 の監査。以前は同じボリュームの
         // 移動でも中を全部列挙してから、項目自身以外を捨てていた)。
-        let sameVolume = MountTable.current().areOnSameVolume(source, target.deletingLastPathComponent())
+        let sameVolume = isOnSameVolume(source, target.deletingLastPathComponent(), mounts: .current())
         let blocking = sameVolume ? (isLocked(source) ? [source] : []) : lockedItems(atOrUnder: source)
         guard !blocking.isEmpty else { return try body() }
         guard allowed else { throw FileOperationError.itemLocked(source) }
@@ -216,9 +225,11 @@ actor FileOperationService {
                 }
             }
         }
+        let mapping = result.mapping
+        let identities = await FileIO.perform { mapping.compactMapValues { FileIdentity.of($0) } }
         for item in sending {
             if let trashed = result.mapping[item] {
-                outcome.receipts.append(TrashReceipt(originalURL: item, trashURL: trashed))
+                outcome.receipts.append(TrashReceipt(originalURL: item, trashURL: trashed, identity: identities[item]))
             } else if let error = result.error {
                 outcome.failures.append(FailedItem(url: item, reason: error.localizedDescription))
             } else {
@@ -283,7 +294,8 @@ actor FileOperationService {
                 continue
             }
             let failure: String? = await FileIO.perform {
-                guard Self.itemExists(at: trashURL) else {
+                // 送ったそのものがまだゴミ箱にあるか(TrashReceipt.identity)。
+                guard FileIdentity.matches(trashURL, receipt.identity) else {
                     return String(localized: "The item is no longer in the Trash.", language: AppLanguage.currentLocale)
                 }
                 guard Self.itemExists(at: receipt.originalURL.deletingLastPathComponent()) else {
@@ -412,13 +424,13 @@ actor FileOperationService {
             }
             try FileOperationPreflight.checkNotInsideSource(item, destination: destination)
             // 書くときは一時名(FileCopyEngine.stagingPrefix)で書くので、その名前でも入るか。1 バイトも書かない同じボリュームの移動は除く。
-            let writes = !(isMove && mounts.areOnSameVolume(item, destination))
+            let writes = !(isMove && isOnSameVolume(item, destination, mounts: mounts))
             try checkPathFits(destination: destination, relativePath: item.lastPathComponent, item: item, limit: pathLimit, staged: writes)
         }
         // **同一ボリューム内の移動は 1 バイトも書かない**(rename)ので、走査も空き容量の検査もしない。
         // 判定はマウント表で(volumeUUID は SMB で nil になり、クローン非対応の exFAT では「一瞬で終わる」判定が
         // 偽になる ―― それで空きの少ないボリューム内の正当な移動を「空き容量不足」で断っていた。qooLibrary で発見)。
-        let writesNoBytes = isMove && items.allSatisfy { mounts.areOnSameVolume($0, destination) }
+        let writesNoBytes = isMove && items.allSatisfy { isOnSameVolume($0, destination, mounts: mounts) }
         let tracker = ProgressTracker(
             sink: sink, items: items, destination: destination, writesNoBytes: writesNoBytes, mayClone: allowsCloning
         )
@@ -677,7 +689,8 @@ actor FileOperationService {
             rmdir(backup.deletingLastPathComponent().path)
         }
         let receipt = TransferReceipt(
-            source: item, destination: resolved.target, replacedItemInTrash: replacedInTrash, identity: FileIdentity.of(resolved.target)
+            source: item, destination: resolved.target, replacedItemInTrash: replacedInTrash, identity: FileIdentity.of(resolved.target),
+            replacedItemIdentity: replacedInTrash.flatMap(FileIdentity.of)
         )
         if case let .copiedButSourceRemains(_, reason) = outcome {
             return Carried(receipt: receipt, problem: [reason, replacedItemKept].compactMap(\.self).joined(separator: " "))

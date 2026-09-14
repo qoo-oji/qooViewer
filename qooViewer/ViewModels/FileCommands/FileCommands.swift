@@ -128,7 +128,9 @@ final class CopyFilesCommand: FileCommand {
         // 「置き換える」で退避した元の項目があれば、空いた場所へ戻す(送れた項目の分だけ)。
         let sent = Set(trashed.receipts.map(\.originalURL))
         let replaced = ours.filter { sent.contains($0.destination) }.compactMap { receipt in
-            receipt.replacedItemInTrash.map { TrashReceipt(originalURL: receipt.destination, trashURL: $0) }
+            receipt.replacedItemInTrash.map {
+                TrashReceipt(originalURL: receipt.destination, trashURL: $0, identity: receipt.replacedItemIdentity)
+            }
         }
         failures += await fileOps.restoreFromTrash(replaced).failures
         if failures.isEmpty { return .complete }
@@ -385,7 +387,9 @@ private enum TransferUndo {
                     succeeded += 1
                 }
                 if let replaced = receipt.replacedItemInTrash {
-                    let restored = await fileOps.restoreFromTrash([TrashReceipt(originalURL: receipt.destination, trashURL: replaced)])
+                    let restored = await fileOps.restoreFromTrash([
+                        TrashReceipt(originalURL: receipt.destination, trashURL: replaced, identity: receipt.replacedItemIdentity)
+                    ])
                     failures += restored.failures
                 }
             } catch {

@@ -383,7 +383,9 @@ final class FileBrowserThumbnailProvider: ObservableObject {
             guard let image = await CoverImageResolver.coverImage(
                 bookAt: url, snapshot: snapshot, maxPixelSize: FileBrowserThumbnailDiskCache.maxPixelSize,
                 // 読んだ本のページ一覧もディスクに残るので、シークレットウインドウだけの頼みでは書かない。
-                cachesPageList: job.savesToDisk
+                cachesPageList: job.savesToDisk,
+                // 表紙のページが追い出されていたら落としてこない。見分けが付かないので「作れなかった」として覚える(落としてきた後は次の起動で出る)。
+                skipsNotDownloadedPages: true
             ) else {
                 remember(failure: baseKey)
                 return nil

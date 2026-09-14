@@ -150,12 +150,18 @@ nonisolated struct TransferReceipt: Sendable, Equatable {
     let replacedItemInTrash: URL?
     /// 置いた直後の `destination` の実体(FileIdentity)。取り消しはこれと一致するときだけ手を付ける。
     var identity: FileIdentity?
+    /// ゴミ箱へ送った直後の、置き換えた項目の実体(`TrashReceipt.identity` と同じ役目)。
+    var replacedItemIdentity: FileIdentity?
 
-    init(source: URL, destination: URL, replacedItemInTrash: URL?, identity: FileIdentity? = nil) {
+    init(
+        source: URL, destination: URL, replacedItemInTrash: URL?, identity: FileIdentity? = nil,
+        replacedItemIdentity: FileIdentity? = nil
+    ) {
         self.source = source
         self.destination = destination
         self.replacedItemInTrash = replacedItemInTrash
         self.identity = identity
+        self.replacedItemIdentity = replacedItemIdentity
     }
 }
 
@@ -213,6 +219,15 @@ nonisolated struct TrashReceipt: Sendable, Equatable {
     /// `NSWorkspace.recycle` が返したゴミ箱の中の場所。返らなかった(送れたのに場所が分からない)なら nil ――
     /// その項目は Undo で戻せない。
     let trashURL: URL?
+    /// 送った直後のゴミ箱の中の実体。**戻すのはこれと一致するときだけ**(2026-09-14 の 2 回目の監査。ゴミ箱を空にした後で同じ名前の
+    /// 項目を捨てると、以前は ⌘Z がその別の項目を元の場所へ戻した)。nil なら場所だけで判断する(以前の動作)。
+    var identity: FileIdentity?
+
+    init(originalURL: URL, trashURL: URL?, identity: FileIdentity? = nil) {
+        self.originalURL = originalURL
+        self.trashURL = trashURL
+        self.identity = identity
+    }
 }
 
 nonisolated struct TrashOutcome: Sendable, Equatable {

@@ -122,6 +122,19 @@ extension NSDragOperation {
     }
 }
 
+extension FileDropPlan {
+    /// SwiftUI の受け口に、ほかのアプリから落とされた項目を**移動してよいか**(2026-09-14 の 2 回目の監査)。
+    ///
+    /// SwiftUI の `DropInfo` にはドラッグ元が許す操作(`draggingSourceOperationMask`)が無いので、以前は常に「許す」とみなし、
+    /// コピーしか許さないアプリ(メールの添付・書類のプロキシアイコンなど)から同じボリュームへ落とした項目を、元のアプリの知らないうちに
+    /// 移動していた(AppKit の受け口はマスクを見ている)。ドラッグの間はドラッグ元のアプリが最前面のままなので、**Finder からのときだけ**
+    /// 移動を許す(Finder は移動を許す出し口。ファイルを移動で運ぶ期待があるのも Finder のウインドウからだけ)。ほかはコピーになる。
+    @MainActor
+    static var externalSourceAllowsMoveForSwiftUIDrop: Bool {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.finder"
+    }
+}
+
 extension FileBrowserActions {
     /// 判定(`FileBrowserDropDecision.make`)に、環境設定・マウント表・アプリの中からのドラッグかを足す。
     func dropDecision(
@@ -235,6 +248,7 @@ struct FileBrowserDropDelegate: DropDelegate {
         // フォルダのセル。performDrop の直後に届くのをログで確かめた 2026-09-13)。しばらくは付け直さない。
         Self.droppedAt = Date()
         let modifiers = FileDropPlan.Modifiers.current
+        let allowsMove = FileDropPlan.externalSourceAllowsMoveForSwiftUIDrop
         if FileBrowserDragTracker.items != nil {
             let decision = actions.dropDecision(urls: [], into: destination, modifiers: modifiers)
             actions.performDrop(decision, urls: [])
@@ -251,7 +265,7 @@ struct FileBrowserDropDelegate: DropDelegate {
             for provider in providers {
                 if let url = await Self.loadFileURL(from: provider) { urls.append(url) }
             }
-            let decision = actions.dropDecision(urls: urls, into: destination, modifiers: modifiers)
+            let decision = actions.dropDecision(urls: urls, into: destination, allowsMove: allowsMove, modifiers: modifiers)
             actions.performDrop(decision, urls: urls)
         }
         return true
@@ -269,7 +283,9 @@ struct FileBrowserDropDelegate: DropDelegate {
     private func currentProposal() -> (proposal: DropProposal, isAccepted: Bool) {
         let isExternal = FileBrowserDragTracker.items == nil
         let urls = isExternal ? FileBrowserActions.fileURLs(in: NSPasteboard(name: .drag)) : []
-        let decision = actions.dropDecision(urls: urls, into: destination)
+        let decision = actions.dropDecision(
+            urls: urls, into: destination, allowsMove: !isExternal || FileDropPlan.externalSourceAllowsMoveForSwiftUIDrop
+        )
         // 中身が読めなかった他のアプリからのドラッグは、断らずに「+」で受ける(決め直しはドロップの瞬間)。
         if decision == .refuse, isExternal, urls.isEmpty, destination != nil {
             return (DropProposal(operation: .copy), true)

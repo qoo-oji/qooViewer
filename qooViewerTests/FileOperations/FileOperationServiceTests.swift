@@ -585,6 +585,20 @@ struct FileOperationServiceTests {
         #expect(try read(file) == "newer")
     }
 
+    @Test("ゴミ箱の中の同じ場所が別の項目に変わっていたら戻さない(ゴミ箱を空にした後で同じ名前を捨てた、2 回目の監査)")
+    func restoreChecksTheIdentityInTheTrash() async throws {
+        let file = try write("sent", to: "restore-identity/a.txt")
+        let outcome = try await service.trash([file])
+        let trashURL = try #require(outcome.receipts.first?.trashURL)
+        try FileManager.default.removeItem(at: trashURL)
+        try Data("stranger".utf8).write(to: trashURL)
+
+        let restored = await service.restoreFromTrash(outcome.receipts)
+        #expect(restored.restored.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        #expect(try read(trashURL) == "stranger", "別の項目はゴミ箱に残す")
+    }
+
     @Test("ゴミ箱の無い場所では送らずに断る")
     func trashRefusesWhereThereIsNoTrash() async throws {
         let noTrash = FileOperationService(environment: .pseudoTrash(at: trash, hasTrash: { _ in false }))

@@ -38,10 +38,14 @@ final class FileCommandStack: ObservableObject {
     func run(_ command: any FileCommand) async throws -> FileCommandResult {
         let result = try await command.execute()
         await playCompletionSound(for: command, result: result)
-        if command.isUndoable, result.hasEffect {
-            undoStack.append(command)
-            if undoStack.count > Self.depth { undoStack.removeFirst() }
+        if result.hasEffect {
+            // **取り消せない操作でも、効果があればやり直し先は捨てる**(2026-09-14 の 2 回目の監査。以前は積まない操作では残したので、
+            // すぐに削除・取り消せない移動の後の ⇧⌘Z が、変わった後のファイルに古い操作をもう一度走らせた)。
             redoStack.removeAll()
+            if command.isUndoable {
+                undoStack.append(command)
+                if undoStack.count > Self.depth { undoStack.removeFirst() }
+            }
         }
         return result
     }

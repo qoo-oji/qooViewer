@@ -92,34 +92,75 @@ nonisolated struct QuickLookVideoThumbnailLoader: VideoThumbnailLoading {
             request.contentType = contentType
         }
         let box = RequestBox(request: request)
+        let waiter = FirstResult()
+        let timeoutSeconds = timeoutSeconds
 
-        enum Outcome: Sendable { case generated(CGImage?), timedOut }
-
-        return await withTaskGroup(of: Outcome.self) { group in
-            group.addTask {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Outcome, Never>) in
-                    QLThumbnailGenerator.shared.generateBestRepresentation(for: box.request) { thumbnail, _ in
-                        continuation.resume(returning: .generated(thumbnail?.cgImage))
-                    }
+        // **期限が来たら、QuickLook の完了を待たずに戻る**(2026-09-14 の 2 回目の監査)。以前はタスクグループで、期限の後に `cancel(_:)` を
+        // 呼んでから子の終わりを待っていたので、QuickLook が取り消しに応えない(完了ハンドラを呼ばない)と、そこから抜けられず提供役の枠が
+        // 塞がったままになった。いまは完了・期限・呼び出し元の取り消しのうち最初の 1 つで戻り、残りは捨てる。
+        // 成功したら期限の側を止める(眠ったままでも枠は塞がないが、8 秒ぶんの Task を残さない ―― qooLibrary の監査の件)。
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<CGImage?, Never>) in
+                waiter.install(continuation)
+                QLThumbnailGenerator.shared.generateBestRepresentation(for: box.request) { thumbnail, _ in
+                    waiter.resume(with: thumbnail?.cgImage)
                 }
+                waiter.setTimer(Task {
+                    try? await Task.sleep(for: .seconds(timeoutSeconds))
+                    guard !Task.isCancelled, waiter.resume(with: nil) else { return }
+                    QLThumbnailGenerator.shared.cancel(box.request)
+                })
             }
-            group.addTask { [timeoutSeconds] in
-                try? await Task.sleep(for: .seconds(timeoutSeconds))
-                return .timedOut
+        } onCancel: {
+            if waiter.resume(with: nil) { QLThumbnailGenerator.shared.cancel(box.request) }
+        }
+    }
+
+    /// 完了・期限・取り消しのうち、最初に来たものだけで戻す箱。
+    private final class FirstResult: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<CGImage?, Never>?
+        private var pending: CGImage??
+        private var timer: Task<Void, Never>?
+        private var isFinished = false
+
+        func install(_ continuation: CheckedContinuation<CGImage?, Never>) {
+            lock.lock()
+            if let pending {
+                lock.unlock()
+                continuation.resume(returning: pending)
+                return
             }
-            let first = await group.next()
-            if case .timedOut = first {
-                // **走っている要求を明示的に取り消す。** 呼ばないと完了ハンドラが来ず、グループが子の終わりを待って
-                // このスコープから抜けられない(qooLibrary 実測)。
-                QLThumbnailGenerator.shared.cancel(box.request)
-            } else {
-                // **作り終えたら眠っているタイムアウト側を起こす。** 起こさないと下の待ち合わせが 8 秒の満了まで続き、
-                // 成功した動画 1 本ごとに同時実行の枠を 8 秒ふさいでいた(qooLibrary の監査で発見)。
-                group.cancelAll()
+            self.continuation = continuation
+            lock.unlock()
+        }
+
+        func setTimer(_ task: Task<Void, Never>) {
+            lock.lock()
+            let finished = isFinished
+            if !finished { timer = task }
+            lock.unlock()
+            if finished { task.cancel() }
+        }
+
+        /// 最初の 1 回だけ戻す。戻したら true。
+        @discardableResult
+        func resume(with image: CGImage?) -> Bool {
+            lock.lock()
+            guard !isFinished else {
+                lock.unlock()
+                return false
             }
-            for await _ in group {}
-            if case .generated(let image) = first { return image }
-            return nil
+            isFinished = true
+            let continuation = self.continuation
+            self.continuation = nil
+            if continuation == nil { pending = .some(image) }
+            let timer = self.timer
+            self.timer = nil
+            lock.unlock()
+            continuation?.resume(returning: image)
+            timer?.cancel()
+            return true
         }
     }
 }

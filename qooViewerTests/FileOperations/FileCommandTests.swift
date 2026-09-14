@@ -134,6 +134,23 @@ struct FileCommandStackTests {
         #expect(second.undos == 1)
     }
 
+    @Test("取り消せない操作でも、効果があればやり直し先は捨てる(2 回目の監査)")
+    func irreversibleOperationsClearRedo() async throws {
+        let stack = FileCommandStack()
+        try await stack.run(ScriptedCommand("first"))
+        _ = await stack.undo()
+        #expect(stack.canRedo)
+        let nothing = ScriptedCommand("nothing")
+        nothing.isUndoable = false
+        nothing.executeResult = .partial(succeeded: 0, failures: [], wasCancelled: true)
+        try await stack.run(nothing)
+        #expect(stack.canRedo, "何も起きなかった操作では残す")
+        let permanent = ScriptedCommand("permanent")
+        permanent.isUndoable = false
+        try await stack.run(permanent)
+        #expect(!stack.canRedo && !stack.canUndo)
+    }
+
     @Test("投げた実行・何も起きなかった実行・取り消せない操作は積まない")
     func unrecordableRunsAreNotStacked() async throws {
         let stack = FileCommandStack()
