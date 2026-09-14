@@ -1740,6 +1740,125 @@ CI はこのブランチでは手動起動(`workflow_dispatch`)の 2026-09-13 �
 シェルで作ったフォルダは FSEvents の読み直しで正しい位置に入る。OFF に戻すと名前の昇順。ボリュームの並びは変わらない。環境設定の行とヘルプの表示も確認。
 終わって戻し、控えと一致を確認。
 
+### 9.5 引き継ぎ(ブランチ全体の 2 回目のコード監査、2026-09-14)
+
+**ユーザーの指示(2026-09-14)**: 「もう一度、本ブランチで実装した内容についてコード監査」。重点は §8.5.4 と同じ(資源リーク・クラッシュ・ハング・ファイルの破損と消失・
+メモリとディスクの過大な消費)。前回の修正そのものと、その後に入った §9.2〜9.4 も対象。続けて「まず引き継ぎ資料を記載、その後 1〜6 から修正」。
+
+**方法**: 独立した 6 系統の読み合わせ(操作エンジン / 圧縮・展開と書庫の reader / 取り消し・D&D / 画面と状態 / サムネイル / 既存コードの差分)。
+重いものはコードを端から辿って確かめ、プラットフォームの挙動は scratchpad の `swift` スクリプト・使い捨ての `hdiutil` イメージで実測した(後始末済み)。
+下の「実測」は再現を確かめたもの、「コード」は経路を辿ったもの、「推定」は条件次第のもの。
+
+**監査で実測したプラットフォームの事実**(直すときはもう一度同じ手で確かめる):
+- `copyfile(COPYFILE_CLONE | COPYFILE_RECURSIVE)` は、**中身のあるロックされた(`uchg`)サブフォルダ**を含む木で EPERM で失敗する(CLONE 無しなら写る)。
+  書きかけにはロックされた空のフォルダが写っていて、`removeItem` は EPERM で消せない。
+- `copyfile(… COPYFILE_EXCL | COPYFILE_RECURSIVE)` は、宛先に**同名のフォルダがあると失敗せず、その中へ `宛先/名前/…` を書いて 0 を返す**(CLONE の有無によらない)。
+  EEXIST になるのは宛先がファイルのときと、`宛先/名前` まで既にあるときだけ。型コメントの「EXCL で既存の宛先は失敗」はフォルダには当てはまらない。
+- CLONE 無しの再帰コピーは、フォルダを写し終えた時点でそのフォルダの権限(0555 など)を掛け、ファイルの `uchg` も写す。途中で止めた書きかけは `removeItem` で消せない(EACCES / EPERM)。
+- マウントしたボリュームのルートは `renamex_np` が EXDEV、`removeItem` は**中身を全部消してから** EBUSY で失敗する。
+- ZIPFoundation 0.9.20 は `addEntry` の `defer { fflush }` と `deinit` の `fclose` の結果を捨てる。末尾(セントラルディレクトリ / EOCD)で ENOSPC になると
+  `addEntry` は投げずに終わり、開き直すと `missingEndOfCentralDirectoryRecord`。
+- `FileManager.enumerator(atPath:)` は読めない(0000)サブフォルダを黙って飛ばして正常に終わる。
+- フォークの SevenZip.swift は BCJ2 などストリーミング非対応の coder の組で `SzArEx_Extract` へ落ち、ソリッドブロック全体を確保する
+  (800MB のゼロ + 20KB の jpg を `-mf=BCJ2` で固めた 143KB の cb7 で RSS 845MB。LZMA2 なら 40MB)。
+- 巨大な無圧縮 BMP(16000²)の `CGImageSourceCreateThumbnailAtIndex` は最大 2GB(PNG / TIFF / HEIC / PDF は間引いて読むので数十 MB)。
+- APFS(大文字小文字を区別しない)は `ς`/`σ`・`ß`/`ss`・`ﬁ`/`fi` を同じ名前とみなすが、`FileNameValidation.foldedForComparison` は畳まない。
+- `URL(fileURLWithPath:)`(`isDirectory:` 無し)は実在を stat して `hasDirectoryPath` を決める。
+
+**見つかったもの(重い順)**:
+
+A. 消失・終了・壊れたファイル
+1. **【実測・終了】深い入れ子のパスを持つ書庫の展開でスタックが溢れる**(`ArchiveExtractionPlan.swift` の `Namer.directory(for:)` がパスの要素ごとに再帰。段数・全体長に上限なし、
+   段ごとに畳んだキーを作り直すので 2 乗)。3000 段のエントリ 1 つの 12KB の zip で、FileIO のスレッド(512KB スタック)が SIGBUS。7z も名前長に上限なし。
+   **直し方**: `components(of:)` で深さ・全体のバイト数に上限を設けて `.unsafePath` として捨て、`Namer` はループで組み立てる。
+2. **【コード・消失】1 回の転送に同じ名前の項目があると、後の項目が先に運んだ項目を「置き換え」る**(`FileOperationService.checkConflict`)。別々のフォルダの `x.txt` 2 つ
+   (大文字小文字を区別するボリュームの `a`/`A` も)を移動し、2 件目の確認で「置き換える」か、先の衝突で「すべてに適用」を選んでいると、1 件目はゴミ箱へ、
+   ゴミ箱の無い宛先(SMB)では確認なしに完全削除。**直し方**: この転送で置いた項目(受領書の宛先)に当たったら置き換えずに「両方残す」にする。
+3. **【実測】ロックされたサブフォルダを含むフォルダのコピーが必ず失敗し、消せない書きかけが残る**(`FileCopyEngine.copyOnce` の CLONE 無しのやり直しは EACCES のときだけ。
+   片付けの `removePartialWrite` は `try?`)。「置き換える」なら `restoreReplacedItem` が宛先を空けられず、元の項目が隠しフォルダに残り起動のたびに警告。
+   **直し方**: EPERM で木にロックがあれば CLONE 無しでやり直す。書きかけの片付けは自分が書いた木のロックと書き込み禁止を外してから消す。
+4. **【実測】書きかけの片付けが、写し終えた 0555 のフォルダやロック付きファイルで失敗する**(中止・ENOSPC・読めないファイル・元の変化)。3 と同じ片付けで直す。
+5. **【実測・欠けた zip】圧縮で読めないサブフォルダの中身を黙って抜かした zip を成功として作る**(`ZipCompressor` の `enumerator(atPath:)` と、`lstat` 失敗の `continue`)。
+   **直し方**: `errorHandler` 付きの列挙で投げる。`lstat` の失敗は ENOENT(途中で消えた)だけ飛ばす。
+6. **【実測・壊れた zip】ディスクが末尾で溢れると壊れた zip を成功として最終名に置く**(上の ZIPFoundation の事実)。**直し方**: `Archive` を閉じた後に一時ファイルを
+   読み取りで開き直し、エントリ数を確かめてから rename。`CbzExporter` / `EpubExporter` / コレクション表紙の zip も同じ形(ブランチ以前から)。
+7. 【コード】別ボリュームへの移動の「元が変わっていないか」が、大きさと inode が同じなら先頭・中央・末尾の 64KB × 3 窓だけ(`MoveVerification`)。領域を先に確保して
+   書き続けるダウンロード・ディスクイメージで、窓の外の書き込みが失われる。元のフォルダを消している間に作られたファイルも消える。
+   **直し方**: ローカルのボリュームでは更新日時(ns)も比べる。フォルダは列挙して写したものだけを下から消す。
+8. 【挙動は実測・発生は競合】他人のフォルダを完全削除する経路 2 つ: (a) `checkConflict` とコピーの間に宛先に同名のフォルダが現れると、copyfile が中へ合流し、
+   後の片付け(元の変化・失敗)でフォルダごと消す。(b) `restoreReplacedItem` が宛先にあるものを自分が作ったか確かめずに消す。
+   **直し方**: フォルダは一時名へ写してから `RENAME_EXCL` で置く、片付けは作ったものの `FileIdentity` と一致するときだけ。
+9. 【エンジンの挙動は実測・引き金は推定】ボリュームのルートの移動(Finder でボリュームを ⌘C → ⌥⌘V、⌘ ドロップ)。全部写してから元を空にする。`paste` だけが
+   `isVolume` を外していない。**直し方**: 転送の入口でマウントポイントの移動を断る(エンジンでも)。
+
+B. 取り消しと操作の流れ
+10. 【コード】`CompositeFileCommand` で後の子が投げると(中止以外)、済んだ子を巻き戻さずに投げ、`FileCommandStack.run` は積まない → 済んだ移動が取り消せず報告にも出ない。
+    **直し方**: 済んだ子に効果があれば `.partial` で返す。
+11. 【コード】実行中に押した ⌘Z は列の後ろに並び、実行時の積み場所の一番上を戻す(走っている操作が終わった直後にそれを戻す)。**直し方**: 押した時点の一番上を控えて一致するときだけ、
+    または操作中は取り消し/やり直しを淡色に。
+12. 【コード】取り消し/やり直しは `run` を通らず進捗・中止が無い(別ボリュームの移動の取り消しは全量を写し直す)。ウインドウを閉じても操作は続き、`presenter` が nil で
+    失敗の報告(`sourceRemainsAfterMove` / `replacedItemKept` を含む)が捨てられ、残りの衝突は黙ってスキップ。
+13. 【コード】ゴミ箱の無い場所への操作の取り消しが `trashUnavailable` で `canRetry: true` のまま履歴に居座り、下の操作へ届かない。
+14. 【推定・終了】取り消しの題・「移動」メニューの可否・モードを `MenuBarMenuGate` を通さずに `MenuCheckmarkState` へ渡している(`ContentView`)。メニューを開いている間に
+    操作が終わると macOS 26 の `setItemArray:` のクラッシュ条件に当たりうる。**直し方**: AppState に保留付きの `@Published` で持つ(`isCurrentPageBookmarked` と同じ形)。
+- 低: 途中で中止した操作のやり直しが中止済みの `Cancellation` を使い回して何もしない。ゴミ箱から戻すとき(`restoreFromTrash`・置き換えた元)に実体を見ない
+  (空にした後に同名を捨てると別の項目が戻る)。新規フォルダの取り消しが読めないフォルダを空とみなす。取り消せない操作で redo が消えない。
+  シートの途中でウインドウが閉じたときの continuation(未実測)。SwiftUI の受け口が他のアプリのドラッグ元の移動禁止を見ない。
+
+C. ハング・TCC
+15. 【コード】右クリックの「開く」・新規タブ/ウインドウで開く・メタデータの編集・コレクションの作成が `ShelfFolderResolver.role` → `DirectoryBrowser.listing` で
+    **子フォルダの中を全部読む**(保護下の除外なし)。ホームや `~/Library` で TCC の確認が次々に出る。§9.3 の「ビューアで開く」ならダブルクリックだけで。
+    **直し方**: 画像フォルダの判定は直下だけを見る版にする。
+16. 【実測】メインの 2 乗: 一括リネームの名前決め(`BulkRename.avoiding`、5000 件 4.6 秒、シートでは 2000 件まで打鍵ごと)、ペースト後の選択の突き合わせ
+    (`FileBrowserState` の `wanted.filter { allEntries.contains }`、1000×2 万で 3.4 秒)。FileIO の上だが中止の効かない 2 乗: 展開計画の大文字小文字の衝突
+    (`nextAvailableName` の線形探索、4000 件 2.9 秒。件数の上限は計画を作った後)。
+17. 【コード】ツリーの `loadChildren` は前の読み込みを取り消さずに重ねる(開いたダウンロードの中でダウンロードが続くと 0.3 秒ごとに FileIO が 1 本)、
+    「現在のフォルダまで開く」が終わらない。`handleExternalChange` が FSEvents のパスごとに `URL(fileURLWithPath:)` でメイン上の stat。
+18. 【推定】応答しない共有: 一覧の `reload()`(アクティブ化・着脱のたび)とツリーの共有の行の読み直しが、走っている読み込みを待たずに FileIO のスレッドを積む。
+    サムネイルの同時 4 枠がアプリで 1 つで、ネットワークの項目に期限が無い(共有の 4 件で全ウインドウの絵が止まる)。
+19. 【実測】`FolderChangeWatcher` の `watch([])` の後も `lastEventID` を持ち越すので、本を読んで数時間後にファイルブラウザへ戻るとその間の履歴がまとめて届く
+    (ホームで 180 秒に 2,587 件)。**直し方**: 空の組で止めたら `SinceNow` に戻す。
+
+D. メモリ・CPU・ディスク
+20. 【実測】BCJ2 の 7z でブロック全体を確保(上の事実)。フォルダをアイコン表示で開くだけで、セルごと・同時 4 件。フォークに宣言サイズで断る口が要る。
+21. 【コード】ソリッドの rar / 7z の絵は、先頭の画像より前を全部伸長する(64MB の上限は画像自身だけ、中止も見ない)。展開で捨てたエントリの伸長も上限・中止に数えない。
+22. 【コード】動画の先読み役(`FileBrowserVideoThumbnailWarmer`)とアイコン表示が 200MB のディスクキャッシュを取り合う(`contains` がアクセス日時を触らず、先読み役は上限を知らない)。
+    上限を超える量の動画があると起動ごとに作り直しと追い出しが続く。
+23. 【推定】`DirectoryProbe.protectedPrefixes` の比較が Data ボリュームの頭(`/System/Volumes/Data`)を付けたホームの書き方を素通しする。`/` をよく使う項目に登録すると先読み役が保護下へ入り、全体を二重に辿る。
+    先読み役はフォルダごとに `MountTable.current()`(走査の中の分が残っている)、SF_DATALESS のフォルダも辿る。
+24. 【実測】巨大な無圧縮 BMP の絵で約 2GB。
+- 低: キャッシュを OFF にした瞬間の書き込みが残る。表紙を指定した未登録の本の絵が `CoverImageResolver` 経由で追い出されたページを落とす。圧縮の一時ファイル
+  (`.qooViewer-compress-<UUID>.zip`)がクラッシュ後に残る。リストのアプリのアイコンの同時読み込みに上限が無い。ボリュームの着脱・よく使う項目の並べ替えでツリーの開いた行が閉じる。
+  id が `String` の正準等価で NFC / NFD の同名項目が 1 つになる(NFS など)。`ReplaceBackupJournal` がパスだけで持つ(改名後・同名の別ディスクで記録を捨てる)。
+  `MountTable.areOnSameVolume` がパスの文字列で比べる(リンク越し)。QuickLook が取り消しに応えないと枠が塞がる(推定)。
+
+**監査で問題なしと確認した範囲**: 前回の修正(`copiedButSourceRemains` と両側での掛け直し、書きかけの EEXIST / `reachedChild` の規則とやり直しのバイト数、`presence`、
+`replacedItemKept`、同一ボリュームのロックの近道、ハードリンクの兄弟、`withDeadline` の取り消しの橋渡し、`DatalessFiles.withoutDownloading` の出口、`boundedEntryData`、
+シークレットウインドウの `savesToDisk`)。FSEvents のコールバックの寿命、NSOutlineView の項目の解放(NSZombie で確認)、リストの編集中の取り込み、読み取り専用モードの抜け道
+(全経路で入口が断る)、Zip Slip 対策、Matroska / EBML パーサ(乱数 300 万件)、`@Model` の変更が無いこと、全データ削除の順序、撤去した設定とページの鍵の対応、
+`WindowContentRequest` の復元。
+
+**1〜6 の修正(2026-09-14、ユーザー指示「1〜6 から修正」)**: 「ドキュメントを更新してコミット・プッシュ」の指示で、CHANGELOG `[Unreleased]`(ファイルブラウザの項)・MANUAL(ファイルの操作・圧縮・展開)・docs/15・docs/13 の経緯の表と一緒にコミット・プッシュ(この節と同じコミット)。README・CLAUDE.md は変える記述が無かった。Debug の全テスト 1311 件・124 suite が通り、`check-all.sh` も通った。
+- 1: `ArchiveExtractionPlan.components(of:)` がパス全体で `PATH_MAX`(`maxPathBytes`)を超えるものを `.nameTooLong` で捨てる(= 段数の上限)。
+  `Namer.directory(for:)` は親から順のループに(畳んだキーは 1 段ずつ伸ばす)。
+- 2: `FileOperationService.transfer` がこの操作の受領書の `FileIdentity` を `checkConflict` へ渡し、衝突の相手がそれなら方針・答えによらず尋ねずに
+  「両方残す」。`FileIdentity` を `Hashable` に。
+- 3: `FileCopyEngine.copyOnce` のやり直しは errno で絞らず、「書きかけが消えた」かつ「木に CLONE を断るフォルダ(持ち主の書き込み権が無い / `uchg`)がある」とき
+  (`containsDirectoryBlockingClone`)。実測: ロックされたフォルダは空でも CLONE で EPERM、CLONE 無しなら写る。ロックされたファイル・`uappnd` のフォルダは CLONE でも写る。
+- 4: `removePartialWrite` は素の削除で残ったら `liftWriteProtection(under:)`(`uchg`/`uappnd` を lchflags で外し、フォルダに u+rwx、リンクは辿らない、
+  自分のスタックで歩く)してから消し直す。呼ぶのは自分が書いた木だけ(`restoreReplacedItem` の宛先も含む ―― 競合で他人の項目がそこに来る 8(b) は未対応)。
+- 5: `ZipCompressor.collect` は `contentsOfDirectory` + `lstat` で自分で歩き、読めないフォルダ・`lstat` の失敗(ENOENT 以外)を `posixFailure` で投げる。
+- 6: `ZipCompressor.verifyWrittenArchive`: 一時ファイルを `fsync`(EINVAL / ENOTSUP は無視)し、読み取りで開き直してエントリ数が `sources.count` と合うかを見る。
+  合わなければ一時ファイルを消し、空きが余裕を割っていれば ENOSPC、それ以外は EIO で、出すはずだった名前を添えて失敗。**CbzExporter / EpubExporter /
+  コレクション表紙の zip は同じ形のまま(未対応)**。
+- テスト: `ArchiveExtractionPlanTests.deepNestingIsBoundedAndIterative`、`FileOperationServiceTests.sameNamedItemsInOneTransferNeverReplaceEachOther` /
+  `partialWriteCleanupLiftsCopiedProtection`、`FileOperationVolumeTests.copiesTreesWithLockedSubfolders`(同じボリューム + 別ボリュームへの置き換え)、
+  `ZipCompressorTests.unreadableSubfolderFailsInsteadOfSkipping` / `verificationRejectsATruncatedArchive`(末尾を切った zip で検証を直接確かめる。
+  本物のディスクフルでの末尾の欠けは tiny ボリュームでは作っていない)。**2・3・4 のテストは修正前のエンジン(`FileCopyEngine` / `FileOperationService` を HEAD に戻す)で
+  失敗し、修正後に通ることを確認した**。1・5・6 は新しい口を使うので修正前ではビルドできない(監査の実測で再現済み)。
+
+**次にやること**: 残り(A の 7〜9、B 以降)は改めてユーザーに選んでもらう(提案は A の 7〜9、B の 10・11)。
+
 ---
 
 ## 触るファイル(見積り)

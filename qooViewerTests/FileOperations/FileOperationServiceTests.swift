@@ -287,6 +287,59 @@ struct FileOperationServiceTests {
         #expect(environment.replaceJournal.pendingBackupCount() == 1)
     }
 
+    @Test("書きかけの片付けは、写った保護(0555・0000 のフォルダ、ロック、追記のみ)を外して木ごと消す。リンクの先には触らない")
+    func partialWriteCleanupLiftsCopiedProtection() throws {
+        // 2 回目の監査の実測: copyfile が写し終えたフォルダに権限を掛け、ロックも写すので、以前の片付け(素の removeItem)は
+        // EACCES / EPERM で途中までしか消せず、宛先の名前のまま書きかけが残った。
+        let root = try temporary.directory("partial-protected/Book")
+        let readOnly = try temporary.directory("partial-protected/Book/ro")
+        let closed = try temporary.directory("partial-protected/Book/closed")
+        let lockedFolder = try temporary.directory("partial-protected/Book/locked")
+        let lockedFile = try write("x", to: "partial-protected/Book/ro/locked.jpg")
+        let appendOnly = try write("y", to: "partial-protected/Book/closed/log.txt")
+        _ = try write("z", to: "partial-protected/Book/locked/z.jpg")
+        let outside = try write("keep", to: "partial-protected/outside.txt")
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("link"), withDestinationURL: outside)
+        #expect(FileOperationService.setLocked(outside, true))
+        defer { FileOperationService.setLocked(outside, false) }
+        #expect(FileOperationService.setLocked(lockedFile, true))
+        #expect(chflags(appendOnly.path, UInt32(UF_APPEND)) == 0)
+        #expect(FileOperationService.setLocked(lockedFolder, true))
+        #expect(chmod(readOnly.path, 0o555) == 0)
+        #expect(chmod(closed.path, 0o000) == 0)
+
+        FileOperationService.removePartialWrite(at: root)
+
+        #expect(!FileOperationService.itemExists(at: root))
+        #expect(FileOperationService.isLocked(outside), "リンクの先のロックは外さない")
+        #expect(try read(outside) == "keep")
+    }
+
+    @Test("1 回の移動に同じ名前の項目が 2 つあると、2 つ目は先に置いた 1 つ目を置き換えずに name 2 で置く(尋ねもしない)")
+    func sameNamedItemsInOneTransferNeverReplaceEachOther() async throws {
+        // 2 回目の監査: 以前は 2 件目の衝突の相手(この操作で置いたばかりの 1 件目)を「置き換える」で退避し、ゴミ箱の無い宛先では
+        // 移動してきた唯一の実体を消していた。「すべてに適用」の置き換えでも、衝突の確認の答えでも同じ。
+        let first = try write("first", to: "same-name/one/a.txt")
+        let second = try write("second", to: "same-name/two/a.txt")
+        let other = try write("new", to: "same-name/src/b.txt")
+        _ = try write("old", to: "same-name/dst/b.txt")
+        let destination = temporary.file("same-name/dst")
+        let asked = AskCounter()
+        let options = FileOperationOptions(conflictPolicy: .ask, conflictResolver: { _ in
+            asked.count += 1
+            return ConflictDecision(.replace, applyToRemaining: true)
+        })
+
+        let outcome = try await service.move([other, first, second], to: destination, options: options)
+
+        #expect(asked.count == 1, "本物の衝突(b.txt)でだけ尋ねる")
+        #expect(outcome.isCompleteSuccess)
+        #expect(outcome.receipts.map(\.destination.lastPathComponent) == ["b.txt", "a.txt", "a 2.txt"])
+        #expect(try read(destination.appendingPathComponent("a.txt")) == "first")
+        #expect(try read(destination.appendingPathComponent("a 2.txt")) == "second")
+        #expect(outcome.receipts.compactMap(\.replacedItemInTrash).count == 1, "ゴミ箱へ行ったのは元からあった b.txt だけ")
+    }
+
     @Test("尋ねた答えを「以降すべてに適用」すれば、もう尋ねない")
     func applyToRemainingAsksOnce() async throws {
         let names = ["a.txt", "b.txt", "c.txt"]

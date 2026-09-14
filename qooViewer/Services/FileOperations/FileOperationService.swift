@@ -347,9 +347,10 @@ actor FileOperationService {
             tracker.startItem(item)
             let target = folder.appendingPathComponent(item.lastPathComponent)
             do {
+                let placed = Set(outcome.receipts.compactMap(\.identity))
                 let resolution = try await resolveDestination(
                     item, target, decision: blanketDecision ?? ConflictDecision(options.conflictPolicy), options: options,
-                    isMove: isMove, environment: environment
+                    isMove: isMove, placedByThisOperation: placed, environment: environment
                 )
                 if let remembered = resolution.rememberedDecision { blanketDecision = remembered }
                 guard let resolved = resolution.destination else {
@@ -471,10 +472,10 @@ actor FileOperationService {
     /// 考えている間に宛先が変わっているかもしれないため。
     private func resolveDestination(
         _ source: URL, _ target: URL, decision: ConflictDecision, options: FileOperationOptions, isMove: Bool,
-        environment: FileOperationEnvironment
+        placedByThisOperation placed: Set<FileIdentity>, environment: FileOperationEnvironment
     ) async throws -> Resolution {
         var check = try await FileIO.perform {
-            try Self.checkConflict(source, target, decision: decision, isMove: isMove, environment: environment)
+            try Self.checkConflict(source, target, decision: decision, isMove: isMove, placed: placed, environment: environment)
         }
         var remembered: ConflictDecision?
         if case .needsUserDecision = check {
@@ -485,7 +486,7 @@ actor FileOperationService {
             guard answer.policy != .ask else { throw FileOperationError.conflictResolutionRequired(destination: target) }
             if answer.applyToRemaining { remembered = answer }
             check = try await FileIO.perform {
-                try Self.checkConflict(source, target, decision: answer, isMove: isMove, environment: environment)
+                try Self.checkConflict(source, target, decision: answer, isMove: isMove, placed: placed, environment: environment)
             }
         }
         switch check {
@@ -506,7 +507,8 @@ actor FileOperationService {
     nonisolated static let replaceHolderPrefix = ".qooViewer-replace-"
 
     private nonisolated static func checkConflict(
-        _ source: URL, _ target: URL, decision: ConflictDecision, isMove: Bool, environment: FileOperationEnvironment
+        _ source: URL, _ target: URL, decision: ConflictDecision, isMove: Bool, placed: Set<FileIdentity>,
+        environment: FileOperationEnvironment
     ) throws -> ConflictCheck {
         let policy = decision.policy
         let journal = environment.replaceJournal
@@ -517,18 +519,28 @@ actor FileOperationService {
         // (「両方残す」で `name 2` へ改名してしまわない)。コピーは「両方残す」なら複製、それ以外は何もしない
         // (「置き換える」で自分自身を退避すると、運ぶ元ごと消える)。
         if source.standardizedFileURL.path == target.standardizedFileURL.path, isMove || policy != .keepBoth { return .skip }
-        switch policy {
-        case .ask:
-            return .needsUserDecision
-        case .skip:
-            return .skip
-        case .keepBoth:
+        func keepingBoth() -> ConflictCheck {
             let folder = target.deletingLastPathComponent()
             let isDirectory = (try? source.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
             let name = FileNameValidation.nextAvailableName(for: target.lastPathComponent, isDirectory: isDirectory) {
                 itemExists(at: folder.appendingPathComponent($0))
             }
             return .decided(ResolvedDestination(target: folder.appendingPathComponent(name), backupOfReplaced: nil))
+        }
+        // **この操作で置いたばかりの項目とぶつかったら、尋ねずに両方残す**(2026-09-14 の 2 回目の監査)。別々のフォルダの同じ名前の
+        // 項目(大文字小文字を区別するボリュームの `a` と `A` も)を 1 回で運ぶと、2 件目の衝突の相手は 1 件目そのもので、以前は
+        // 「置き換える」(確認の答えでも、先の本物の衝突で選んだ「すべてに適用」でも)で 1 件目を退避し、ゴミ箱の無い宛先では
+        // 移動してきた唯一の実体を確認なしに消していた。比べるのは実体なので、ファイルシステムの名前の畳み方(`ß`/`ss` など)に左右されない。
+        if !placed.isEmpty, let existing = FileIdentity.of(target), placed.contains(existing) {
+            return keepingBoth()
+        }
+        switch policy {
+        case .ask:
+            return .needsUserDecision
+        case .skip:
+            return .skip
+        case .keepBoth:
+            return keepingBoth()
         case .replace:
             // 置き換える相手が、運ぶ項目を中に含んでいる(`a/b/b` を `a` へ置き換えで運ぶ)。退避すると
             // 運ぶ項目ごと退避されてしまうので断る。
@@ -778,8 +790,38 @@ actor FileOperationService {
 
     /// 書きかけを片付ける。失敗しても投げない(呼び出し側は既に別の失敗・中止を伝えている)。
     /// **自分が書いたものにだけ使う**(FileCopyEngine の失敗時の片付けもここを通る)。
+    ///
+    /// **書きかけに写った保護を外してから消し直す**(2026-09-14 の 2 回目の監査で実測)。copyfile はフォルダを写し終えるたびに
+    /// そのフォルダの権限(0555 など)を掛け、ロック(`uchg`)も写すので、途中で止めた木は `removeItem` が EACCES / EPERM で
+    /// 途中までしか消せず、宛先の名前のまま中途半端な木が残っていた(受領書が無いので取り消しでも誰も片付けない。
+    /// 「置き換える」なら宛先を空けられず、元の項目が隠しフォルダに残ったままになった)。
+    /// 保護を外すのは自分が書いた木だからできること ―― 他人の項目には使わない。
     nonisolated static func removePartialWrite(at url: URL) {
         try? removeAbsorbingTransientFailure(at: url)
+        guard itemExists(at: url) else { return }
+        liftWriteProtection(under: url)
+        try? removeAbsorbingTransientFailure(at: url)
+    }
+
+    /// `root` と中の項目から、削除を断るもの(ロック・追記のみのフラグ、持ち主の書き込み・読み取り・実行権の無いフォルダ)を外す。
+    /// **リンクを辿らない**(lstat / lchflags、chmod はフォルダにだけ)。フォルダは外してから中を読む(0000 のフォルダも開ける)。
+    /// 再帰せずに自分のスタックで歩く(深い木でスレッドのスタックを使い切らない)。
+    nonisolated static func liftWriteProtection(under root: URL) {
+        let blockingFlags = UInt32(UF_IMMUTABLE | UF_APPEND)
+        var pending = [root.path]
+        while let path = pending.popLast() {
+            var info = stat()
+            guard lstat(path, &info) == 0 else { continue }
+            if info.st_flags & blockingFlags != 0 {
+                lchflags(path, info.st_flags & ~blockingFlags)
+            }
+            guard info.st_mode & S_IFMT == S_IFDIR else { continue }
+            if info.st_mode & S_IRWXU != S_IRWXU {
+                chmod(path, (info.st_mode & 0o7777) | S_IRWXU)
+            }
+            guard let children = try? FileManager.default.contentsOfDirectory(atPath: path) else { continue }
+            pending.append(contentsOf: children.map { (path as NSString).appendingPathComponent($0) })
+        }
     }
 
     // MARK: - ロック(ブロッキング側)

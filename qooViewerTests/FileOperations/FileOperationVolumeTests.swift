@@ -127,6 +127,47 @@ struct FileOperationVolumeTests {
         }
     }
 
+    @Test("ロックされたサブフォルダ(空でも)を含むフォルダも、同じボリュームにも別のボリュームにもロックごとコピーでき、置き換えでも元が隠れたまま残らない")
+    func copiesTreesWithLockedSubfolders() async throws {
+        guard let volume = DisposableVolume.make(.apfs, "locked-subfolder") else { return }
+        // 2 回目の監査の実測: 以前は CLONE 付きの再帰コピーが EPERM で失敗し、ロックが写った消せない書きかけを宛先に残した。
+        // 置き換えなら宛先を空けられず、置き換えられるはずの元の項目が `.qooViewer-replace-…` に隠れたまま残った。
+        let folder = try temporary.directory("LockedInside")
+        let locked = folder.appendingPathComponent("locked", isDirectory: true)
+        let lockedEmpty = folder.appendingPathComponent("empty", isDirectory: true)
+        try FileManager.default.createDirectory(at: locked, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: lockedEmpty, withIntermediateDirectories: true)
+        try Data("a".utf8).write(to: locked.appendingPathComponent("a.cbz"))
+        try Data("b".utf8).write(to: folder.appendingPathComponent("b.cbz"))
+        #expect(FileOperationService.setLocked(locked, true))
+        #expect(FileOperationService.setLocked(lockedEmpty, true))
+        let sameVolume = try temporary.directory("LockedCopies")
+        try Data("old".utf8).write(to: volume.file("LockedInside"))
+        let copies = [sameVolume.appendingPathComponent("LockedInside"), volume.file("LockedInside")]
+        defer {
+            for root in [folder] + copies {
+                FileOperationService.setLocked(root.appendingPathComponent("locked"), false)
+                FileOperationService.setLocked(root.appendingPathComponent("empty"), false)
+            }
+        }
+
+        let copied = try await service.copy([folder], to: sameVolume, options: .init(conflictPolicy: .ask))
+        #expect(copied.isCompleteSuccess)
+        // 別のボリュームには同じ名前のファイルがあるので「置き換える」で。
+        let replaced = try await service.copy([folder], to: volume.url, options: .init(conflictPolicy: .replace))
+        #expect(replaced.isCompleteSuccess)
+        #expect(replaced.receipts.first?.replacedItemInTrash != nil)
+        for copy in copies {
+            #expect(try Data(contentsOf: copy.appendingPathComponent("locked/a.cbz")) == Data("a".utf8))
+            #expect(FileManager.default.fileExists(atPath: copy.appendingPathComponent("b.cbz").path))
+            #expect(FileOperationService.isLocked(copy.appendingPathComponent("locked")), "ロックごと写る")
+            #expect(FileOperationService.isLocked(copy.appendingPathComponent("empty")))
+        }
+        let hidden = try FileManager.default.contentsOfDirectory(atPath: volume.url.path)
+            .filter { $0.hasPrefix(FileOperationService.replaceHolderPrefix) }
+        #expect(hidden.isEmpty)
+    }
+
     @Test("フォルダのコピー・別ボリュームへの移動が途中で失敗したら、宛先に書きかけの木を残さない")
     func failedFolderTransferLeavesNoPartialTree() async throws {
         guard let volume = DisposableVolume.make(.apfs, "partial-tree") else { return }

@@ -59,7 +59,9 @@ nonisolated enum FileCopyEngine {
         } catch let retry as RetryWithoutCloning {
             // **中身のある 0555 のサブフォルダを含む木は、CLONE 付きの再帰コピーが EACCES で必ず失敗する**(同じボリュームでも
             // 別のボリュームでも。CLONE 無しなら同じ木が 0555 ごと写る。2026-09-14 実測)。読み取り専用のメディアから
-            // 戻したフォルダで普通に起きる。書きかけは消してあるので、CLONE 無しで最初からやり直す。
+            // 戻したフォルダで普通に起きる。**ロックされたフォルダ(`uchg`。空でも)を含む木も、CLONE 付きは EPERM で必ず失敗する**
+            // (CLONE 無しならロックごと写る。ロックされたファイル・`uappnd` のフォルダは CLONE でも写る。2026-09-14 の 2 回目の監査で実測)。
+            // 書きかけは消してあるので、CLONE 無しで最初からやり直す。
             // 1 回目で報告したバイト数は 2 回目で報告し直さない(進捗が 100% を超えて張り付く)。
             var remainingToSkip = retry.bytesAlreadyReported
             return try copyOnce(from: source, to: destination, allowsCloning: false) { delta in
@@ -98,7 +100,11 @@ nonisolated enum FileCopyEngine {
         if failure != EEXIST || context.reachedChild {
             FileOperationService.removePartialWrite(at: destination)
         }
-        if failure == EACCES, allowsCloning, containsReadOnlyDirectory(source) {
+        // やり直すのは**書きかけが本当に消えたときだけ**。残っていると、copyfile は宛先の既存のフォルダの中へ合流して書く
+        // (`宛先/名前/…`。2026-09-14 の 2 回目の監査で実測)ので、2 回目が「成功」しても中身の違う木ができる。
+        // errno で絞らない(EACCES・EPERM のほか、状態 callback を挟んで別の値が残ることがあった)。木を歩くのは失敗したときだけ。
+        if allowsCloning, failure != EEXIST, !FileOperationService.itemExists(at: destination),
+           containsDirectoryBlockingClone(source) {
             throw RetryWithoutCloning(bytesAlreadyReported: context.totalCopied)
         }
         throw FileOperationError.posixFailure(item: source, errnoCode: failure)
@@ -108,17 +114,20 @@ nonisolated enum FileCopyEngine {
         let bytesAlreadyReported: Int64
     }
 
-    /// 木の中に、持ち主に書き込み権の無いフォルダがあるか(CLONE で EACCES になる形)。**リンクの先へは入らない。**
-    /// 失敗したあとにだけ歩くので、成功する普通のコピーには費用が掛からない。
-    private static func containsReadOnlyDirectory(_ root: URL) -> Bool {
+    /// 木の中に、CLONE 付きの再帰コピーを必ず失敗させるフォルダ(持ち主に書き込み権が無い / ロックされている)があるか。
+    /// **リンクの先へは入らない。** 失敗したあとにだけ歩くので、成功する普通のコピーには費用が掛からない。
+    private static func containsDirectoryBlockingClone(_ root: URL) -> Bool {
+        func blocks(_ info: stat) -> Bool {
+            info.st_mode & S_IWUSR == 0 || info.st_flags & UInt32(UF_IMMUTABLE) != 0
+        }
         var info = stat()
         guard lstat(root.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { return false }
-        if info.st_mode & S_IWUSR == 0 { return true }
+        if blocks(info) { return true }
         guard let enumerator = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil, options: []) else { return false }
         for case let child as URL in enumerator {
             if Cancellation.isRequestedInCurrentScope { return false }
             guard lstat(child.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else { continue }
-            if info.st_mode & S_IWUSR == 0 { return true }
+            if blocks(info) { return true }
         }
         return false
     }

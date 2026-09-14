@@ -7,7 +7,7 @@ import Foundation
 /// - 絶対パス(`/…`、`\…`、`C:\…`)と、要素に `..` を含むもの。**区切りは `/` と `\` の両方で見る**
 ///   (Windows で作られた書庫の `..\..\x` を、macOS の名前としては `\` を含む 1 要素と読んで通すと、
 ///   それを解釈するほかのツールへ渡ったときに外へ出る)。
-/// - NUL・制御文字を含むもの、1 要素が 255 バイトを超えるもの(書こうとしても失敗する)。
+/// - NUL・制御文字を含むもの、1 要素が 255 バイト・全体が PATH_MAX を超えるもの(書こうとしても失敗する)。
 /// - 記号リンク(展開先の外を指すリンクを経由した書き込み ―― いわゆる Zip Slip の変形 ―― の入口になる)。
 /// - `__MACOSX/` と `._*`(`isAppleDoubleEntry`。**qooLibrary には無かった穴**。Finder で圧縮した書庫には必ず入り、
 ///   展開すると中身の無い `._001.jpg` が並ぶ)。これは危険ではないので、利用者への報告には並べない。
@@ -89,6 +89,10 @@ nonisolated struct ArchiveExtractionPlan: Sendable, Equatable {
         if path.hasPrefix("/") || path.hasPrefix("\\") || Self.hasDrivePrefix(path) {
             return .failure(.unsafePath)
         }
+        // 全体の長さ(= 入れ子の段数)にも上限を置く(2026-09-14 の 2 回目の監査)。展開先の中の相対パスだけで PATH_MAX を超える
+        // エントリは、書こうとしても必ず失敗する。上限が無いと、名前長に上限の無い zip / 7z の細工された索引で計画作りの費用が
+        // 段数の 2 乗に伸びる(スタック溢れの件は Namer のコメント)。
+        guard path.utf8.count <= maxPathBytes else { return .failure(.nameTooLong) }
         var components: [String] = []
         for component in path.split(separator: "/", omittingEmptySubsequences: true) {
             if component.split(separator: "\\", omittingEmptySubsequences: false).contains("..") {
@@ -100,6 +104,9 @@ nonisolated struct ArchiveExtractionPlan: Sendable, Equatable {
         }
         return components.isEmpty ? .failure(.unsafePath) : .success(components)
     }
+
+    /// エントリのパス全体の上限(バイト)。macOS の PATH_MAX と同じ。
+    static let maxPathBytes = Int(PATH_MAX)
 
     /// `C:` `C:\` `C:/` で始まる(Windows の絶対パス)。
     private static func hasDrivePrefix(_ path: String) -> Bool {
@@ -130,7 +137,7 @@ nonisolated enum ArchiveEntryRejection: Error, Sendable, Equatable {
     case unsafePath
     /// NUL・制御文字。
     case invalidCharacters
-    /// 1 要素が 255 バイトを超える。
+    /// 1 要素が 255 バイトを超える、またはパス全体が PATH_MAX を超える。
     case nameTooLong
     case symbolicLink
 
@@ -178,30 +185,40 @@ nonisolated private struct Namer {
     /// 展開先の相対パスのフォルダ → その中で使った名前(畳んだもの)とフォルダか。
     private var taken: [String: [String: Bool]] = [:]
 
+    /// **親から順にループで組み立てる**(2026-09-14 の 2 回目の監査)。以前は要素ごとに自分を再帰で呼び、段ごとに畳んだキーを
+    /// 全要素から作り直していたので、3000 段の入れ子のエントリ 1 つだけの 12KB の zip で FileIO のスレッドのスタックが溢れて
+    /// アプリごと落ちた(抜き出したコードで実測)。段数そのものは `components(of:)` の全体長の上限で抑える。
     mutating func directory(for components: ArraySlice<String>) -> String {
-        guard let name = components.last else { return "" }
-        let key = components.map(FileNameValidation.foldedForComparison).joined(separator: "/")
-        if let known = directories[key] { return known }
-        let parent = directory(for: components.dropLast())
-        let folded = FileNameValidation.foldedForComparison(name)
-        let actualName: String
-        switch taken[parent]?[folded] {
-        case true?:
-            // 大文字小文字だけ違うフォルダ(`A/` と `a/`)はまとめる。
-            actualName = existingName(in: parent, folded: folded) ?? name
-        case false?:
-            // 同じ名前のファイルが先にある。
-            actualName = FileNameValidation.nextAvailableName(for: name, isDirectory: true) { taken[parent]?[FileNameValidation.foldedForComparison($0)] != nil }
-            taken[parent, default: [:]][FileNameValidation.foldedForComparison(actualName)] = true
-            names[parent + "/" + FileNameValidation.foldedForComparison(actualName)] = actualName
-        case nil:
-            actualName = name
-            taken[parent, default: [:]][folded] = true
-            names[parent + "/" + folded] = name
+        var parent = ""
+        var key = ""
+        for name in components {
+            let folded = FileNameValidation.foldedForComparison(name)
+            key = key.isEmpty ? folded : key + "/" + folded
+            if let known = directories[key] {
+                parent = known
+                continue
+            }
+            let actualName: String
+            switch taken[parent]?[folded] {
+            case true?:
+                // 大文字小文字だけ違うフォルダ(`A/` と `a/`)はまとめる。
+                actualName = existingName(in: parent, folded: folded) ?? name
+            case false?:
+                // 同じ名前のファイルが先にある。
+                let folder = parent
+                actualName = FileNameValidation.nextAvailableName(for: name, isDirectory: true) { taken[folder]?[FileNameValidation.foldedForComparison($0)] != nil }
+                taken[parent, default: [:]][FileNameValidation.foldedForComparison(actualName)] = true
+                names[parent + "/" + FileNameValidation.foldedForComparison(actualName)] = actualName
+            case nil:
+                actualName = name
+                taken[parent, default: [:]][folded] = true
+                names[parent + "/" + folded] = name
+            }
+            let relative = parent.isEmpty ? actualName : parent + "/" + actualName
+            directories[key] = relative
+            parent = relative
         }
-        let relative = parent.isEmpty ? actualName : parent + "/" + actualName
-        directories[key] = relative
-        return relative
+        return parent
     }
 
     mutating func file(for components: [String]) -> String {

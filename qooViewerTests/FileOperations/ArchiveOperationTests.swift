@@ -68,6 +68,26 @@ struct ArchiveExtractionPlanTests {
         #expect(plan.fileCount == 7, "まったく同じパスの 2 つ目は数えない")
     }
 
+    @Test("深い入れ子: PATH_MAX を超えるパスは捨て、上限いっぱいの段数でもスタックを使わずに組み立てる(2 回目の監査)")
+    func deepNestingIsBoundedAndIterative() async {
+        // 修正前は 3000 段のエントリ 1 つで、Namer の再帰が FileIO のスレッドのスタックを溢れさせてアプリごと落ちた。
+        let tooDeep = String(repeating: "a/", count: 3000) + "x.txt"
+        #expect(ArchiveExtractionPlan.components(of: tooDeep) == .failure(.nameTooLong))
+        // 上限ちょうど(510 段)。FileIO と同じ、スタックの小さい GCD のスレッドの上で組み立てる。
+        let depth = (ArchiveExtractionPlan.maxPathBytes - "x.txt".utf8.count) / 2
+        let deepest = String(repeating: "a/", count: depth) + "x.txt"
+        #expect(deepest.utf8.count <= ArchiveExtractionPlan.maxPathBytes)
+        let plan = await FileIO.perform {
+            ArchiveExtractionPlan(entries: [
+                ArchiveEntryDescriptor(path: tooDeep, kind: .file, uncompressedSize: 1, modified: nil),
+                ArchiveEntryDescriptor(path: deepest, kind: .file, uncompressedSize: 1, modified: nil),
+                ArchiveEntryDescriptor(path: String(repeating: "A/", count: depth), kind: .directory, uncompressedSize: 0, modified: nil),
+            ])
+        }
+        #expect(plan.rejections.map(\.reason) == [.nameTooLong])
+        #expect(plan.items.map(\.relativePath) == [deepest, String(repeating: "a/", count: depth - 1) + "a"])
+    }
+
     @Test("宣言サイズの合計は飽和加算(細工された索引でトラップしない)")
     func declaredTotalSaturates() {
         let plan = ArchiveExtractionPlan(entries: [file("a", size: .max - 1), file("b", size: 10), file("c", size: .max)])
@@ -364,6 +384,45 @@ struct ZipCompressorTests {
         #expect(try await compress([a], into: root)?.lastPathComponent == "a.txt.zip")
         #expect(try await compress([a, b], into: root)?.lastPathComponent == "Shelf.zip")
         #expect(try await compress([a, b], into: root)?.lastPathComponent == "Shelf 2.zip")
+    }
+
+    @Test("中の読めないサブフォルダは黙って飛ばさず、失敗させて一時ファイルも残さない(2 回目の監査)")
+    func unreadableSubfolderFailsInsteadOfSkipping() async throws {
+        // 以前は FileManager.enumerator(atPath:) が読めないサブフォルダを黙って飛ばし、中身の欠けた zip を成功として作った。
+        let root = try temporary.directory("root")
+        let book = try temporary.directory("root/Book")
+        let closed = try temporary.directory("root/Book/closed")
+        try Data("a".utf8).write(to: book.appendingPathComponent("001.jpg"))
+        try Data("b".utf8).write(to: closed.appendingPathComponent("002.jpg"))
+        #expect(chmod(closed.path, 0o000) == 0)
+        defer { chmod(closed.path, 0o755) }
+
+        await #expect {
+            _ = try await compress([book], into: root)
+        } throws: { error in
+            guard case let .posixFailure(item, code) = error as? FileOperationError else { return false }
+            return item.lastPathComponent == "closed" && code == EACCES
+        }
+        #expect((try FileManager.default.contentsOfDirectory(atPath: root.path)) == ["Book"])
+    }
+
+    @Test("書き終えた zip の末尾が欠けていたら(ZIPFoundation が握り潰すディスクフル)置く前に失敗にする")
+    func verificationRejectsATruncatedArchive() async throws {
+        let root = try temporary.directory("root")
+        let book = try temporary.directory("root/Book")
+        try Data(String(repeating: "qooViewer ", count: 200).utf8).write(to: book.appendingPathComponent("note.txt"))
+        let zip = try #require(try await compress([book], into: root))
+        let reported = root.appendingPathComponent("Book.zip")
+        try ZipCompressor.verifyWrittenArchive(at: zip, expectedEntryCount: 2, reportingAs: reported)
+        #expect(throws: FileOperationError.posixFailure(item: reported, errnoCode: EIO)) {
+            try ZipCompressor.verifyWrittenArchive(at: zip, expectedEntryCount: 3, reportingAs: reported)
+        }
+        // 最後のセントラルディレクトリと EOCD が書けなかった形(8MB のボリュームで実測した壊れ方)。
+        let bytes = try Data(contentsOf: zip)
+        try bytes.prefix(bytes.count - 30).write(to: zip)
+        #expect(throws: FileOperationError.posixFailure(item: reported, errnoCode: EIO)) {
+            try ZipCompressor.verifyWrittenArchive(at: zip, expectedEntryCount: 2, reportingAs: reported)
+        }
     }
 
     @Test("中止すると一時ファイルは残らない")
