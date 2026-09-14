@@ -34,20 +34,23 @@ final class FileBrowserActions {
 
     // MARK: - 開く
 
-    /// ダブルクリック / Return。**フォルダは(画像フォルダでも)常に中へ移動する**(要望)。
+    /// ダブルクリック / Return。フォルダは中へ移動する ―― 画像フォルダだけは環境設定
+    /// (`fileBrowserImageFolderOpenAction`。既定はほかのフォルダと同じく中へ移動、2026-09-14 から選べる)に従う。
     /// 本と画像は qooViewer で開き、それ以外は既定のアプリで開く。
     ///
     /// 複数を選んでいるとき、フォルダは開かない(移動先は1つしか選べない)。本は
     /// `BookOpenRequest`の規則でまとめる(全部画像なら1冊、それ以外は先頭の1冊)。
-    func open(_ entries: [FileBrowserEntry]) {
-        guard let state else { return }
+    ///
+    /// 返す Task は画像フォルダかどうかを調べて開くまで(テストの待ち合わせ用。調べないときは nil)。
+    @discardableResult
+    func open(_ entries: [FileBrowserEntry]) -> Task<Void, Never>? {
+        guard state != nil else { return nil }
         if entries.count == 1, let entry = entries.first, entry.isNavigableFolder {
-            state.navigate(to: entry.url)
-            return
+            return openFolder(entry, fromMenu: false)
         }
         if entries.count == 1, let entry = entries.first, entry.isSymbolicLink {
             openSymbolicLink(entry)
-            return
+            return nil
         }
         let books = entries.filter(\.opensAsBook).map(\.url)
         if !books.isEmpty {
@@ -56,24 +59,39 @@ final class FileBrowserActions {
         for entry in entries where !entry.opensAsBook && !entry.isNavigableFolder {
             NSWorkspace.shared.open(entry.url)
         }
+        return nil
     }
 
-    /// 右クリックの「開く」。ダブルクリックと違い、**画像フォルダは本として開く**
-    /// (中へ移動したければダブルクリック)。画像フォルダかどうかはここで1回だけ調べる
-    /// (一覧の読み込みでは子フォルダの中を見ない。FileBrowserEntryの型コメント)。
-    func openFromMenu(_ entries: [FileBrowserEntry]) {
+    /// 右クリックの「開く」。画像フォルダでは**ダブルクリックと反対のことをする**(既定の設定なら本として開き、
+    /// 「ビューアで開く」にしてあれば中へ移動する)。どちらの設定でも、もう片方の開き方がここに残る。
+    @discardableResult
+    func openFromMenu(_ entries: [FileBrowserEntry]) -> Task<Void, Never>? {
         guard entries.count == 1, let entry = entries.first, entry.isNavigableFolder else {
-            open(entries)
-            return
+            return open(entries)
+        }
+        return openFolder(entry, fromMenu: true)
+    }
+
+    /// フォルダを開く。画像フォルダを本として開く側のときだけ、画像フォルダかどうかをここで1回だけ調べる
+    /// (一覧の読み込みでは子フォルダの中を見ない。FileBrowserEntryの型コメント)。中へ移動する側なら調べずにすぐ移動する
+    /// (既定のダブルクリックに待ちを足さない)。
+    private func openFolder(_ entry: FileBrowserEntry, fromMenu: Bool) -> Task<Void, Never>? {
+        guard let state else { return nil }
+        let action = preferences?.fileBrowserImageFolderOpenAction ?? .openFolder
+        guard action.opensAsBook(fromMenu: fromMenu) else {
+            state.navigate(to: entry.url)
+            return nil
         }
         let order = preferences?.siblingBookOrder ?? .byName
-        Task { [weak self] in
+        let startFolder = state.currentFolder
+        return Task { [weak self] in
             let isBook = await Self.isImageFolder(entry.url, order: order)
-            guard let self else { return }
+            guard let self, let state = self.state else { return }
             if isBook {
                 self.appState?.open(url: entry.url)
-            } else {
-                self.state?.navigate(to: entry.url)
+            } else if state.currentFolder == startFolder {
+                // 調べている間に別のフォルダへ移っていたら、後から引き戻さない。
+                state.navigate(to: entry.url)
             }
         }
     }
@@ -510,7 +528,7 @@ enum FileBrowserMenuCommand {
         let entries = context.entries
         switch self {
         case .open:
-            // ファイルは本と画像だけ(要望)。フォルダは中へ(画像フォルダなら本として)。
+            // ファイルは本と画像だけ(要望)。フォルダは中へ(画像フォルダはダブルクリックの反対。openFromMenu)。
             return !entries.isEmpty && entries.allSatisfy { $0.isNavigableFolder || $0.opensAsBook }
         case .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow:
             return actions.canOpenInNewWindow(entries)

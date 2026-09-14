@@ -293,6 +293,7 @@ struct AppPreferencesTests {
             "fileBrowserStartupLocation", "fileBrowserStartupFavoriteID", "fileBrowserFoldersFirst",
             "fileBrowserExternalDropAction", "fileBrowserExpandsTreeToCurrentFolder", "fileBrowserCompressionFormat",
             "fileBrowserVideoThumbnailsEnabled", "fileBrowserRevealDestination", "fileBrowserReadOnly",
+            "fileBrowserImageFolderOpenAction",
         ],
         // キー・マウスの割り当ては KeyBindingStore が持つ(各画面が自分で store 側を呼ぶ)。
         // 「フォルダのアクセス権」「リセット」には戻すべき設定が無い。

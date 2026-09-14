@@ -60,6 +60,27 @@ enum FileBrowserExternalDropAction: String, CaseIterable, Identifiable, Hashable
     var id: String { rawValue }
 }
 
+/// ファイルブラウザの右ペイン(リスト・アイコン)で、画像フォルダ(それ自体が1冊の本。`ShelfFolderResolver.role` が
+/// `.book` と答えるフォルダ)をダブルクリック / Return(⌘↓ も)で開いたときにすること(環境設定「ファイルブラウザ」。
+/// 2026-09-14、ユーザー要望)。本でないフォルダはこの設定に関わらず中へ移動し、左のツリーにも効かない。
+///
+/// **既定は「フォルダを開く」**: 段階 3 からの決まり(Finder の代わりに使うとき、フォルダの中を見られないと困る)を変えない。
+/// **右クリックの「開く」は常にこの反対をする** ―― どちらを選んでも、もう片方の開き方が右ペインから手の届く所に残る
+/// (`opensAsBook(fromMenu:)`)。
+enum FileBrowserImageFolderOpenAction: String, CaseIterable, Identifiable, Hashable {
+    /// 中へ移動する(ほかのフォルダと同じ)。
+    case openFolder
+    /// 本としてビューアで開く。
+    case openInViewer
+
+    var id: String { rawValue }
+
+    /// 画像フォルダを本として開くか。`fromMenu` は右クリックの「開く」(ダブルクリックと反対になる)。
+    func opensAsBook(fromMenu: Bool) -> Bool {
+        (self == .openInViewer) != fromMenu
+    }
+}
+
 /// ファイルブラウザの「圧縮」で作る書庫の拡張子(環境設定「ファイルブラウザ」。段階 6、2026-09-14)。
 /// 中身はどちらも同じ zip。cbz にしておくと、qooViewer やほかの漫画ビューアが本として扱う。
 enum FileBrowserCompressionFormat: String, CaseIterable, Identifiable, Hashable {
@@ -116,6 +137,15 @@ extension FileBrowserExternalDropAction: SettingsOption {
         switch self {
         case .openInViewer: "Open in Viewer"
         case .copyOrMove: "Copy or Move"
+        }
+    }
+}
+
+extension FileBrowserImageFolderOpenAction: SettingsOption {
+    var shortTitleKey: LocalizedStringKey {
+        switch self {
+        case .openFolder: "Open Folder"
+        case .openInViewer: "Open in Viewer"
         }
     }
 }

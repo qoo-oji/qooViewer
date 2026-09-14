@@ -73,6 +73,7 @@ final class AppPreferences: ObservableObject {
         static let fileBrowserVideoThumbnailsEnabled = "qooViewer.pref.fileBrowser.videoThumbnailsEnabled"
         static let fileBrowserRevealDestination = "qooViewer.pref.fileBrowser.revealDestination"
         static let fileBrowserReadOnly = "qooViewer.pref.fileBrowser.readOnly"
+        static let fileBrowserImageFolderOpenAction = "qooViewer.pref.fileBrowser.imageFolderOpenAction"
         static let sidePanelPosition = "qooViewer.pref.sidePanelPosition"
         static let sidePanelMode = "qooViewer.pref.sidePanelMode"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
@@ -655,6 +656,13 @@ final class AppPreferences: ObservableObject {
     /// 途中で ON にしても走っている操作は止めない(次の操作から効く)。
     @Published var fileBrowserReadOnly: Bool {
         didSet { defaults.set(fileBrowserReadOnly, forKey: Keys.fileBrowserReadOnly) }
+    }
+    /// 右ペインで画像フォルダをダブルクリック / Return で開いたときにすること(既定: フォルダを開く。2026-09-14、ユーザー要望)。
+    /// 右クリックの「開く」はこの反対をする(FileBrowserImageFolderOpenAction の型コメント)。
+    @Published var fileBrowserImageFolderOpenAction: FileBrowserImageFolderOpenAction {
+        didSet {
+            defaults.set(fileBrowserImageFolderOpenAction.rawValue, forKey: Keys.fileBrowserImageFolderOpenAction)
+        }
     }
     /// アイコン表示で動画の絵を作るか(QuickLook。既定ON、段階 7b)。**よく使う項目の中の動画を裏で先に作っておくのも、
     /// この 1 つで切り替える**(ユーザーの判断 2026-09-14。行を分けない)。OFF にすると動画は種類のアイコンに戻り、
@@ -1673,6 +1681,9 @@ final class AppPreferences: ObservableObject {
         self.fileBrowserRevealDestination = FileBrowserRevealDestination(
             rawValue: defaults.string(forKey: Keys.fileBrowserRevealDestination) ?? ""
         ) ?? .newTab
+        self.fileBrowserImageFolderOpenAction = FileBrowserImageFolderOpenAction(
+            rawValue: defaults.string(forKey: Keys.fileBrowserImageFolderOpenAction) ?? ""
+        ) ?? .openFolder
         self.sidePanelPosition =
             SidePanelPosition(rawValue: defaults.string(forKey: Keys.sidePanelPosition) ?? "") ?? .left
         self.sidePanelMode =
@@ -2048,6 +2059,7 @@ extension AppPreferences {
                 Keys.fileBrowserVideoThumbnailsEnabled,
                 Keys.fileBrowserRevealDestination,
                 Keys.fileBrowserReadOnly,
+                Keys.fileBrowserImageFolderOpenAction,
             ]
         // 「読み込みと書き出し」はウインドウを開くボタンだけで、戻せる設定を持たない。
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
@@ -2163,6 +2175,7 @@ extension AppPreferences {
             fileBrowserVideoThumbnailsEnabled = source.fileBrowserVideoThumbnailsEnabled
             fileBrowserRevealDestination = source.fileBrowserRevealDestination
             fileBrowserReadOnly = source.fileBrowserReadOnly
+            fileBrowserImageFolderOpenAction = source.fileBrowserImageFolderOpenAction
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
             break
         }

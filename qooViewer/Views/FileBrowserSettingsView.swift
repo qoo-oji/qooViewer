@@ -4,7 +4,7 @@ import SwiftUI
 ///
 /// 段階3で並べるのは**いま効くものだけ**(起動時のフォルダ・フォルダを上に。段階4bで「外からドロップしたとき」、
 /// 2026-09-14 に「現在のフォルダまでツリーを自動で展開」、段階 6 で「圧縮ファイルの形式」、段階 7b で
-/// 「動画のサムネイルを生成」、段階 8 で「ファイルブラウザで開く」の行き先、段階 8.5 で「読み取り専用」)。計画
+/// 「動画のサムネイルを生成」、段階 8 で「ファイルブラウザで開く」の行き先、段階 8.5 で「読み取り専用」、2026-09-14 に「画像フォルダを開くとき」)。計画
 /// (docs/plans/file-browser-plan.md §3.6)に挙げた残りの行 ――
 /// サムネイルのキャッシュ ―― は環境設定「キャッシュ」に置いた。押しても何も変わらない設定を先に並べると、効かない理由が画面から読めない。
 struct FileBrowserSettingsView: View {
@@ -45,6 +45,17 @@ struct FileBrowserSettingsView: View {
                 )
             } header: {
                 Text("Show in File Browser")
+            }
+
+            // 2026-09-14、ユーザー要望。右クリックの「開く」は常にこの反対(FileBrowserImageFolderOpenAction)。
+            Section {
+                SettingsPicker(
+                    "Double-Click or Return",
+                    selection: $preferences.fileBrowserImageFolderOpenAction,
+                    help: "What happens when you double-click an image folder, or select it and press Return, in list or icon view. Open in the right-click menu does the other one, so both stay within reach. Folders that aren't books always open as folders, and the tree on the left isn't affected."
+                )
+            } header: {
+                Text("Opening Image Folders")
             }
 
             Section {

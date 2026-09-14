@@ -94,6 +94,50 @@ struct FileBrowserIntegrationTests {
         #expect(suite.makePreferences().fileBrowserRevealDestination == .newTab)
     }
 
+    // MARK: - 画像フォルダをダブルクリックで開く
+
+    @Test("画像フォルダを本として開くのは、ダブルクリックなら「ビューアで開く」のとき、右クリックの「開く」ならその反対。既定はフォルダを開く")
+    func imageFolderOpenActionDecidesDoubleClickAndMenu() {
+        #expect(!FileBrowserImageFolderOpenAction.openFolder.opensAsBook(fromMenu: false))
+        #expect(FileBrowserImageFolderOpenAction.openFolder.opensAsBook(fromMenu: true))
+        #expect(FileBrowserImageFolderOpenAction.openInViewer.opensAsBook(fromMenu: false))
+        #expect(!FileBrowserImageFolderOpenAction.openInViewer.opensAsBook(fromMenu: true))
+        let suite = PreferencesSuite(label: "fb-image-folder-open-default")
+        #expect(suite.makePreferences().fileBrowserImageFolderOpenAction == .openFolder)
+    }
+
+    /// 本として開く側(`appState.open`)はテストでは通さない(本を読み込むと共有の履歴に触れうる)。ここで確かめるのは
+    /// 「中へ移動する側は調べずにすぐ移動する」「本として開く側でも、本でないフォルダは中へ移動する」の 2 つ。
+    @Test("中へ移動する側は画像フォルダでもすぐ移動し、本として開く側でも本でないフォルダは調べた後に中へ移動する")
+    func openingFoldersFollowsImageFolderOpenAction() async throws {
+        let fixture = try Fixture("fb-image-folder-open")
+        defer { fixture.close() }
+        let imageFolder = try fixture.imageFolder("root/Pictures")
+        let shelf = fixture.temporary.file("root/Shelf")
+        _ = try fixture.archive("root/Shelf/book.cbz")
+
+        // 既定(フォルダを開く): ダブルクリックは画像フォルダでも調べずに移動する。
+        #expect(fixture.actions.open([fixture.entry(imageFolder)]) == nil)
+        #expect(FileBrowserState.id(of: fixture.state.currentFolder) == FileBrowserState.id(for: imageFolder))
+
+        // 既定: 右クリックの「開く」は調べる側。本でないフォルダ(棚)なら中へ移動する。
+        let menuTask = fixture.actions.openFromMenu([fixture.entry(shelf)])
+        #expect(menuTask != nil)
+        await menuTask?.value
+        #expect(FileBrowserState.id(of: fixture.state.currentFolder) == FileBrowserState.id(for: shelf))
+
+        // ビューアで開く: 右クリックの「開く」は画像フォルダでも調べずに移動する。
+        fixture.preferences.fileBrowserImageFolderOpenAction = .openInViewer
+        #expect(fixture.actions.openFromMenu([fixture.entry(imageFolder)]) == nil)
+        #expect(FileBrowserState.id(of: fixture.state.currentFolder) == FileBrowserState.id(for: imageFolder))
+
+        // ビューアで開く: ダブルクリックは調べる側。本でないフォルダなら中へ移動する。
+        let doubleClickTask = fixture.actions.open([fixture.entry(shelf)])
+        #expect(doubleClickTask != nil)
+        await doubleClickTask?.value
+        #expect(FileBrowserState.id(of: fixture.state.currentFolder) == FileBrowserState.id(for: shelf))
+    }
+
     @Test("フォルダはその中を、ファイルは入っているフォルダでその項目を選ぶ(Finder で開くと同じ)")
     func revealTargetMatchesFinderReveal() {
         let folder = URL(fileURLWithPath: "/tmp/qoo-reveal/shelf", isDirectory: true)

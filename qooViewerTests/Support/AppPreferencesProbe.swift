@@ -78,6 +78,7 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.fileBrowserRevealDestination = otherCase(p.fileBrowserRevealDestination)
     p.fileBrowserVideoThumbnailsEnabled.toggle()
     p.fileBrowserReadOnly.toggle()
+    p.fileBrowserImageFolderOpenAction = otherCase(p.fileBrowserImageFolderOpenAction)
 
     // MARK: 外観
     p.appAppearance = otherCase(p.appAppearance)
