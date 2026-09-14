@@ -248,6 +248,17 @@ struct CbzExportTests {
         #expect(info.series.unicodeScalars.count == 1)
     }
 
+    // MARK: - 日時
+
+    @Test("zip の日時は書き出した時刻を現地時刻で入れる(ZIPFoundation は UTC として扱う)")
+    func entryDatesAreLocalExportTime() async throws {
+        let source = try await ExportSource.folder(pages: 2, label: "cbz-dates")
+        let destination = source.destination("dates.cbz")
+        let before = Date()
+        try await CbzExporter.export(ExportInputs.cbz(source), options: ExportInputs.cbzOptions, to: destination)
+        try ExportedZipTimestamps.expectWrittenInLocalTime(destination, between: before, and: Date())
+    }
+
     // MARK: - カバー
 
     @Test("本に含まれない専用ファイルをカバーにすると、先頭に 1 ページ増える")

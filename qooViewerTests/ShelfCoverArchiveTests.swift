@@ -120,6 +120,24 @@ struct ShelfCoverArchiveTests {
         #expect(entries.first(where: { $0.bookID == "/A/第1巻.cbz" })?.fileName == "第1巻.jpg")
     }
 
+    @Test("zipの日時は書き出した時刻を現地時刻で入れる(ZIPFoundationはUTCとして扱う)")
+    func entryDatesAreLocalExportTime() async throws {
+        let library = try InMemoryLibrary(label: "cover-zip-dates")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("cover-zip-dates")
+        let image = try makeImage(temporary, "a.png", number: 1)
+        try await library.layouts.setShelfCoverImage(
+            forBookID: "/books/本.cbz", sourceURL: nil, fileURL: image
+        )
+
+        let zipURL = temporary.file("covers.zip")
+        let before = Date()
+        _ = try ShelfCoverArchive.write(
+            entries: library.layouts.shelfCoverArchiveEntries(), to: zipURL
+        )
+        try ExportedZipTimestamps.expectWrittenInLocalTime(zipURL, between: before, and: Date())
+    }
+
     @Test("manifestに、どのファイルがどの本かが入る")
     func theManifestMapsFilesToBooks() async throws {
         let library = try InMemoryLibrary(label: "cover-zip-manifest")

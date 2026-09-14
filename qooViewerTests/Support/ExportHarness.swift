@@ -167,3 +167,24 @@ nonisolated enum ExportArtifacts {
         Attachment.record(data, named: name)
     }
 }
+
+/// 書き出した zip の更新日時が**現地時刻の MS-DOS 形式**で入っているかを見る(ZipDOSTime)。
+///
+/// ZIPFoundation は日時を UTC として書くので、渡し忘れると既定の「いま」が UTC のまま入り、
+/// 読み戻した現地時刻が時差のぶん(日本なら 9 時間)ずれる。**時差が 0 の環境(CI のランナー)では
+/// ずれが出ないので通ってしまう** ―― 手元の現地時刻で落ちることを確かめてある。
+nonisolated enum ExportedZipTimestamps {
+    /// すべてのファイルの日時が `before`〜`after` の間にあること。MS-DOS 形式は 2 秒単位で切り捨てるので、前へ 2 秒の余裕を取る。
+    static func expectWrittenInLocalTime(
+        _ url: URL, between before: Date, and after: Date, sourceLocation: SourceLocation = #_sourceLocation
+    ) throws {
+        let reader = try ZipArchiveReader(url: url)
+        let paths = try reader.listFilePaths()
+        #expect(!paths.isEmpty, sourceLocation: sourceLocation)
+        let earliest = before.addingTimeInterval(-2)
+        for path in paths {
+            let modified = try #require(reader.entryDates(at: path).modified, sourceLocation: sourceLocation)
+            #expect(modified >= earliest && modified <= after, "\(path): \(modified)", sourceLocation: sourceLocation)
+        }
+    }
+}

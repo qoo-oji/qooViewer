@@ -35,6 +35,9 @@
    タイトル・著者、メタデータ。
 8. 出力する言語タグは表示言語から(`exportLanguageCode`。EPUB の `und` を Kindle Previewer が
    弾いたため)。
+9. **zip の日時は現地時刻で書く**(EPUB / CBZ、コレクション表紙の zip も。2026-09-14): ZIPFoundation 0.9.20 は MS-DOS 形式の日時を
+   UTC として書くので、書き出す時刻を `ZipDOSTime.zipFoundationDate(forLocal:)` でずらして渡す(→ [15](15-file-browser.md)「圧縮・展開」)。
+   以前は既定の「いま」が UTC のまま入り、日本では展開したファイルが 9 時間前の日時になっていた。
 
 ### いま開いている本を書き出す(右クリック)
 

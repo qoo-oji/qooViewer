@@ -121,6 +121,14 @@ struct EpubExportTests {
         #expect(try exported.text(at: "mimetype") == "application/epub+zip")
     }
 
+    @Test("zip の日時は書き出した時刻を現地時刻で入れる(ZIPFoundation は UTC として扱う)")
+    func entryDatesAreLocalExportTime() async throws {
+        let source = try await ExportSource.folder(pages: 2, label: "epub-dates")
+        let before = Date()
+        let exported = try await export(source, ExportInputs.epub(source), name: "dates")
+        try ExportedZipTimestamps.expectWrittenInLocalTime(exported.url, between: before, and: Date())
+    }
+
     @Test("container.xml は OPF を指し、OPF が示す画像がすべて実在する")
     func containerAndManifestAreConsistent() async throws {
         let source = try await ExportSource.folder(pages: 3, label: "epub-container")

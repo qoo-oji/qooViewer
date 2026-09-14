@@ -481,6 +481,9 @@ nonisolated enum CbzExporter {
             with: path,
             type: .file,
             uncompressedSize: Int64(data.count),
+            // ZIPFoundation は日時を UTC として書くので、書き出す時刻が現地時刻で入るようにずらして渡す(ZipDOSTime)。
+            // 省くと既定の「いま」が UTC のまま入り、日本では展開したファイルが 9 時間前の日時になる。
+            modificationDate: ZipDOSTime.zipFoundationDate(forLocal: Date()),
             compressionMethod: compressed ? .deflate : .none
         ) { position, size in
             data.subdata(in: Int(position)..<(Int(position) + size))
