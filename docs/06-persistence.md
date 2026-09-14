@@ -14,8 +14,9 @@
 | コレクション表紙(表示用) | `~/Library/Application Support/<bundle id>/CollectionCovers/<itemID>.jpg` | `CollectionCoverStore` | **キャッシュではない**(消えると登録した本を全冊読み直す)。長辺768px。上限も自動削除も無し。行と一緒に消す。起動時に孤児を掃除 |
 | コレクション表紙(元画像) | `~/Library/Application Support/<bundle id>/CollectionCoverSources/<uuid>.jpg` | `CollectionCoverSourceStore` | 利用者が「ファイルを選ぶ…」で指定した画像の複製(長辺1536px)。**作り直せない**(元ファイルは捨てられているかもしれない)。`BookLayoutSettings.shelfCoverImageFileName` から参照し、起動時に孤児を掃除 |
 | ウェルカム画面の表示の状態 | UserDefaults(`qooViewer.welcome.*`) | `WelcomeLibraryState` | 選択中のライブラリ・並び順2つ・大きさ2つ・本棚/ファイルブラウザのモード。`qooViewer.pref.*` ではないので「初期設定に戻す」の対象外、全削除では消える |
-| ファイルブラウザの表示の状態 | UserDefaults(`qooViewer.fileBrowser.*`、リストの列は `NSTableView … qooViewer.fileBrowser.list`) | `FileBrowserState` | 表示形式・並べ替え・アイコンの大きさ・左の幅・最後に表示したフォルダ(パスだけ。シークレットウインドウでは書かない)。「初期設定に戻す」の対象外。→ [15](15-file-browser.md) |
+| ファイルブラウザの表示の状態 | UserDefaults(`qooViewer.fileBrowser.*`、リストの列の幅と並びは `NSTableView … qooViewer.fileBrowser.list`) | `FileBrowserState` | 表示形式・アイコンの大きさ・左の幅・隠したリストの列・最後に表示したフォルダ(パスだけ)・一括リネームの前回の入力(JSON)。後ろの 2 つはシークレットウインドウでは書かない。「初期設定に戻す」の対象外。並べ替えの基準と向きはサイドパネルのフォルダブラウザと共通の `qooViewer.pref.folderBrowserSortKey` / `…Direction`。→ [15](15-file-browser.md#保存するもの) |
 | よく使う項目 | UserDefaults(`qooViewer.fileBrowser.favoriteLocations`、JSON) | `FavoriteLocationStore` | パスだけ(読む権限は `FolderAccessStore`)。上限なし |
+| 「置き換える」の退避の記録 | コンテナの `Application Support/FileOperations/replace-backups.json` | `ReplaceBackupJournal` | 置き換えの最中だけ 1 件ずつあり、片付けたら消す(空ならファイルごと)。落ちて残ったものは次の起動で `ReplaceBackupRecovery` が戻す。**「すべてのデータを削除」でも消えない**(→ [15](15-file-browser.md#保存するもの)) |
 | 環境設定 | UserDefaults(`qooViewer.pref.*`) | `AppPreferences` | ― |
 | 履歴 | UserDefaults(`recentBookEntries` + 旧 `recentBookBookmarks`) | `RecentFilesStore` | 環境設定「履歴の保存件数」(既定 30) |
 | フォルダのアクセス権 | UserDefaults(`qooViewer.grantedFolderBookmarks`) | `FolderAccessStore` | 全削除でも残す |
@@ -26,7 +27,7 @@
 | 環境設定で最後に開いていた画面 | UserDefaults | `SettingsNavigator.selectedPaneDefaultsKey` | ― |
 | コレクションのタイル | `~/Library/Caches/<bundle id>/CollectionTiles/<collectionID>-<署名>.jpg` | `CollectionTileImageStore` | **カバーから作り直せるキャッシュ**。上限 128MB、超えたら古いものから。1コレクションにつき新しい2枚まで。起動時に孤児を掃除 |
 | サムネイル | `~/Library/Caches/...` | `ThumbnailDiskCache` | 既定 OFF、上限 200MB |
-| ファイルブラウザの絵 | `~/Library/Caches/<bundle id>/FileBrowserThumbnails/<2 文字>/<鍵のハッシュ>.jpg` | `FileBrowserThumbnailDiskCache` | **既定 ON**、上限 200MB(環境設定「キャッシュ」)。鍵はボリューム + inode + 更新日時 + サイズ(→ [15](15-file-browser.md#サムネイル段階-7a2026-09-14)) |
+| ファイルブラウザの絵 | `~/Library/Caches/<bundle id>/FileBrowserThumbnails/<2 文字>/<鍵のハッシュ>.jpg` | `FileBrowserThumbnailDiskCache` | **既定 ON**、上限 200MB(環境設定「キャッシュ」)。鍵はボリューム + inode + 更新日時 + サイズ(→ [15](15-file-browser.md#サムネイル段階-7a7b2026-09-14)) |
 | 本の構造とページ寸法 | `~/Library/Caches/...` | `BookPageListCache` | 環境設定「キャッシュ」で削除 |
 | 入れ子書庫の一時ファイル | コンテナの `tmp/<pid>/` | `TemporaryFileStore` | 本を閉じる/起動時の掃除で消える |
 
@@ -263,6 +264,9 @@ JSON 読み込みの重複判定も同じ識別子を使います。
   `ephemeralBookmarks` / `ephemeralMetadata`(メモリ上)に置いて合成する。`resolveKeys` は
   `persists: false` で「あるべき番号」を返すだけにし、表示用の独立コピーへ反映する
   (共有コンテキストのマネージドオブジェクトは save せずに書き換えても自動保存される)。
+- ファイルブラウザ(改善要望7)は、ファイル操作そのものは許し、よく使う項目・最後に表示したフォルダ・一括リネームの前回の入力を書かない
+  (決定事項 Q8)。**絵のディスクキャッシュ(`FileBrowserThumbnailDiskCache`)はシークレットウインドウでも書いていて、`isPrivateWindow` の
+  コメントの一覧にも載っていない**(2026-09-14 の文書化で気づいた。未決定。→ [15](15-file-browser.md#シークレットウインドウ))。
 - 新しい永続化経路を足すときは、`isPrivateWindow` のコメントに列挙したうえで同じガードを入れる
   (`grep -rn "skipsPersistence\|isPrivateWindow"`)。
 

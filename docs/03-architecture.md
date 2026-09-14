@@ -59,6 +59,8 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 | `MenuBarMenuGate` / `MenuBarTracking` | メモリ | メニューが開いている間の更新の保留 |
 | `ThumbnailDiskCache` / `BookPageListCache` / `TemporaryFileStore` / `FileBrowserThumbnailDiskCache` | ディスク | actor / enum のシングルトン |
 | `FileBrowserThumbnailProvider` | メモリ(`PagePixelCache`) | ファイルブラウザのアイコン表示の絵の待ち行列とメモリの絵(改善要望7 段階 7a。`AppStores` が 1 つ持つ。→ [15](15-file-browser.md)) |
+| `FileBrowserVideoThumbnailWarmer` | なし(作った絵は `FileBrowserThumbnailDiskCache` へ) | よく使う項目の中の動画の絵を、起動している間に裏で 1 本ずつ作る(段階 7b。**テスト中は繋がない**) |
+| `ReplaceBackupJournal.shared` / `ReplaceBackupRecovery` | ディスク(Application Support の JSON) | 「置き換える」の退避の記録と、起動時の 1 回の復旧(段階 4b。`FolderAccessStore` が許可を開いた後に走る。テスト中は動かさない) |
 | `SettingsNavigator` / `AppAppearanceApplier` | メモリ | 環境設定の行き先、外観の適用 |
 | `FileOperationService.shared` | なし(状態を持たない actor) | ファイルブラウザのコピー・移動・名前の変更・ゴミ箱・完全削除(改善要望7 段階 2。画面からは段階 4 の `FileBrowserOperations` が呼ぶ。ペースト・ドラッグ&ドロップも同じ窓口)。取り消し・やり直しの `FileCommandStack` は**ウインドウごと**(`FileBrowserState` が持つ) |
 | `FavoriteLocationStore` | UserDefaults | ファイルブラウザの「よく使う項目」(パスだけ。改善要望7 段階 3)。メニューバーに出ないので `allObjectWillChangePublishers` には足さない(→ [15](15-file-browser.md)) |

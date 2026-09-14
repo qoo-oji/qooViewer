@@ -147,7 +147,10 @@ context submenu closed). The icon view shows
 book/image thumbnails via `FileBrowserThumbnailProvider` (one app-wide, in `AppStores`; `BookThumbnailer` reads only the first image,
 never `BookLoader.load`; disk cache `FileBrowserThumbnailDiskCache`, on by default) and video thumbnails through QuickLook
 (`VideoThumbnailLoading`, with a `hev1` retagging fallback; `FileBrowserVideoThumbnailWarmer` pre-makes the ones under favorite
-locations, and is not connected under tests). Design in `docs/15-file-browser.md`,
+locations, and is not connected under tests). Anything in the file browser that reads a folder the user has not entered
+(tree triangles, thumbnails, the video warmer) must skip TCC-protected locations by path string alone
+(`DirectoryProbe.protectedPrefixes`) and network volumes by `MountTable` — checking by touching them is itself what
+raises the TCC dialog or blocks for 30 s (docs/15 「サンドボックスと TCC の約束」). Design in `docs/15-file-browser.md`,
 remaining stages and the handoff in `docs/plans/file-browser-plan.md`.
 `CollectionStore` is deliberately *not* in `AppStores.allObjectWillChangePublishers`
 (collections never appear in the menu bar). The favorites feature is hidden behind

@@ -139,8 +139,31 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
 
 ## ファイルブラウザ
 
-2026-09-13 の段階 3 の実機検証の手順(→ [15](15-file-browser.md))。上の「実物のアプリを外から操作する」の手順
+2026-09-13 の段階 3 から段階 8.5 までの実機検証で積み上げた手順(→ [15](15-file-browser.md))。上の「実物のアプリを外から操作する」の手順
 (Debug のストア・表紙・defaults を控えて退避し、空の本棚で起動)に次を足した。
+
+**まず守ること**(どの検証でも):
+
+- **実蔵書を画面に出さない・撮らない。** 検証は使い捨てボリューム(`hdiutil`)に合成名のフォルダ・本を置いて行い、起動時のフォルダもそこへ向ける。
+  ホーム・蔵書のボリューム・Debug に残った実ストアのライブラリ名・「フォルダのアクセス権」の一覧・ファイル選択パネルは、どれも実名が写る。
+  撮ってしまったらすぐ消し、名前を会話・コミット・docs に書かない(CLAUDE.md「個人情報の流出防止」)。
+- **利用者が Mac を使っている最中(Xcode から Debug を動かしている最中を含む)は、カーソルを動かす・撮る検証をしない**(下に経緯)。
+- ファイル選択パネル・TCC の確認ダイアログは自動操作しない。押すのは利用者に頼む。
+- 始める前に defaults・ストア・表紙の保管庫・ウインドウの位置を控え、終わったら戻して突き合わせる。
+
+**TCC の確認の出方を確かめる**(段階 9 で手順として書いた。**この手順のまま通したことはまだ無い**。約束は [15「サンドボックスと TCC の約束」](15-file-browser.md#サンドボックスと-tcc-の約束)):
+
+- 見るもの: ① ホーム(許可済み)を表示しただけでは確認が出ない ―― リストでもアイコン表示でも、ツリーでホームを開いても、よく使う項目にホームを
+  登録して動画の先回りが回っても。② 「デスクトップ」に入ったときに 1 回だけ出る。③ 断ったら右ペインが「アクセスを許可…」になる。
+  ④ 許可したあとは、デスクトップの中のフォルダの絵が出る(同じ保護下の場所の中を見ているとき)。書類・ダウンロードも同じ。
+- 初めての状態に戻すのは **Debug の bundle id に限って** `tccutil reset SystemPolicyDesktopFolder com.qooProject.qooViewer.debug`
+  (書類は `SystemPolicyDocumentsFolder`、ダウンロードは `SystemPolicyDownloadsFolder`、外付けは `SystemPolicyRemovableVolumes`、
+  ネットワークは `SystemPolicyNetworkVolumes`)。**bundle id を省かない**(省くとすべてのアプリの許可が消える)、**Release の id に使わない**
+  (ふだん使いの qooViewer の許可が消える)。アプリを終えてから実行する。
+- ホームを読む許可は Debug の `qooViewer.grantedFolderBookmarks` 次第(下の「Debug に残っている許可を先に疑う」)。控えてから入れ替え、終わったら戻す。
+- デスクトップ・書類の中身は実名なので、この検証は**撮らない**。確認が出たか・右ペインが何を出したかは、AX のウインドウの数と題、または利用者の目で見る。
+- 確認が「入っていないのに出た」ら、どの部品が読んだかを `DirectoryProbe` / 絵の提供役 / 先回りの役に一時的なログ(コンテナの `Library/Logs/`)を仕込んで見る。
+  保護下の場所の一覧(`DirectoryProbe.protectedPrefixes`)に足りない場所がある、が最初の疑い。
 
 - **ストアだけを退避して表紙の保管庫を残したまま起動しない**(2026-09-14)。起動時の掃除が、参照の無くなった表紙の元画像を
   保管庫の中の `.orphaned/` へ隔離する(docs/14。30 日は消えないが、戻すまで保管庫の中身が控えと食い違う)。退避するなら
@@ -158,8 +181,10 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
 - すりガラス 2 条件は defaults で `qooViewer.pref.surface.welcome.{tintColor,tintOpacity,contentShadowLevel}` と
   `qooViewer.pref.appAppearance` を書いて起動し直す。AppKit の部品(三角・列の見出し・標準のボタン)が消えるのは
   ここでしか見つからなかった。
-- リークは File ›「新規ノーマルウインドウ」→ ⌘W を繰り返し、`heap <pid>` で `FileBrowserState` / `AppState` /
-  `FileBrowserTableView` の数が増えないことを見る(閉じた直後の 1 つぶんは SwiftUI が遅れて手放すので、回数を増やして比べる)。
+- リークは File ›「新規ノーマルウインドウ」→ ⌘W を繰り返し、`heap <pid>` で `FileBrowserState` / `FileBrowserOperations` / `AppState` /
+  `FileBrowserTableView` / `FileBrowserOutlineView` の数が増えないことを見る(閉じた直後の 1 つぶんは SwiftUI が遅れて手放すので、回数を増やして比べる)。
+  **閉じる前にアイコン表示で空きスペースと項目を右クリックしておく**(`.contextMenu` の Binding と `FileBrowserActions` の閉包が AppKit へ渡る経路。
+  2026-09-14 の監査で直したが `heap` ではまだ見ていない)。リスト・ツリーの右クリック、名前の編集、ドラッグも 1 回ずつ通してから閉じる。
 - 終わったら `NSTableView … qooViewer.fileBrowser.list` など**検証で増えたキーを消してから** `defaults import`。
 - ファイル選択ダイアログ(「アクセスを許可…」・よく使う項目の「＋」)とホームの初回の許可・TCC のダイアログは自動操作しない。
 - 書く操作(段階 4、2026-09-13): 別ボリュームへのコピーと衝突は、使い捨ての APFS ボリュームを 2 本付けて行う。
