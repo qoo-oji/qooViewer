@@ -571,8 +571,12 @@ struct FileBrowserTreeView: NSViewRepresentable {
             !((item as? Node)?.isGroup ?? true)
         }
 
+        /// グループの見出し(ボリューム・ホーム・よく使う項目)には開閉の印を出さない(2026-09-14、ユーザー報告)。
+        /// `.sourceList` のグループ行は、カーソルを乗せると右端に開閉の印(下向きの矢印)を出し、そのぶんセルが縮む。
+        /// よく使う項目の見出しでは、右端の「＋」に合わせようとすると矢印が出て「＋」が左へずれ、押しにくかった。
+        /// グループは常に開いておく(`expandItem(group)`)ので、たたむ手段は要らない。
         func outlineView(_ outlineView: NSOutlineView, shouldShowOutlineCellForItem item: Any) -> Bool {
-            true
+            !((item as? Node)?.isGroup ?? false)
         }
 
         /// **ドラッグ中は行を開かない**(スプリングローデッドを止める)。`NSOutlineView` はドラッグで静止した行を

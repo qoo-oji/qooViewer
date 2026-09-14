@@ -37,13 +37,13 @@
                scriptText = "&quot;${PROJECT_DIR}/scripts/test/test-volumes.sh&quot; attach&#10;"
                shellToInvoke = "/bin/sh">
                <EnvironmentBuildable>
-               <BuildableReference
-                  BuildableIdentifier = "primary"
-                  BlueprintIdentifier = "0AD11FDF3014A38C00C0C526"
-                  BuildableName = "qooViewer.app"
-                  BlueprintName = "qooViewer"
-                  ReferencedContainer = "container:qooViewer.xcodeproj">
-               </BuildableReference>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "0AD11FDF3014A38C00C0C526"
+                     BuildableName = "qooViewer.app"
+                     BlueprintName = "qooViewer"
+                     ReferencedContainer = "container:qooViewer.xcodeproj">
+                  </BuildableReference>
                </EnvironmentBuildable>
             </ActionContent>
          </ExecutionAction>
@@ -56,13 +56,13 @@
                scriptText = "&quot;${PROJECT_DIR}/scripts/test/test-volumes.sh&quot; detach&#10;"
                shellToInvoke = "/bin/sh">
                <EnvironmentBuildable>
-               <BuildableReference
-                  BuildableIdentifier = "primary"
-                  BlueprintIdentifier = "0AD11FDF3014A38C00C0C526"
-                  BuildableName = "qooViewer.app"
-                  BlueprintName = "qooViewer"
-                  ReferencedContainer = "container:qooViewer.xcodeproj">
-               </BuildableReference>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "0AD11FDF3014A38C00C0C526"
+                     BuildableName = "qooViewer.app"
+                     BlueprintName = "qooViewer"
+                     ReferencedContainer = "container:qooViewer.xcodeproj">
+                  </BuildableReference>
                </EnvironmentBuildable>
             </ActionContent>
          </ExecutionAction>
