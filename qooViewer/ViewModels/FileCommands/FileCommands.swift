@@ -58,7 +58,8 @@ final class MoveFilesCommand: FileCommand {
     }
 
     func undo(in context: FileCommandContext) async throws -> FileUndoResult {
-        try await TransferUndo.undo(outcome.receipts, fileOps: fileOps, cancellation: context.cancellation) { receipt in
+        let receipts = outcome.receipts
+        let undone = try await TransferUndo.undo(receipts, fileOps: fileOps, cancellation: context.cancellation) { receipt in
             // 自分が運んだものなので、ロックされていても尋ねずに外して戻す(戻した先で掛け直す)。
             let putBack = try await self.fileOps.move(
                 [receipt.destination], to: receipt.source.deletingLastPathComponent(),
@@ -66,8 +67,16 @@ final class MoveFilesCommand: FileCommand {
                     conflictPolicy: .keepBoth, progress: context.progress, cancellation: context.cancellation, unlockingLocked: true
                 )
             )
-            return putBack.wasCancelled ? .cancelled : putBack.receipts.first.map { .restored($0.destination) } ?? .missing
+            // **戻せたかを先に見る**(2026-09-15 の 3 回目の監査)。エンジンは最後の項目を運び終えた直後に中止が立っても `wasCancelled` を
+            // 立てるので、以前は戻し終えた項目を「中止」と数え、置き換えた元をゴミ箱に残したまま、先頭なら黙って履歴へ戻していた。
+            if let restored = putBack.receipts.first { return .restored(restored.destination) }
+            return putBack.wasCancelled ? .cancelled : .missing
         }
+        // 途中で止めたなら、片付いた受領書を外して残りだけを持つ(もう一度 ⌘Z で続きを戻す)。
+        if case .stopped = undone.result {
+            outcome.receipts = receipts.enumerated().filter { !undone.resolvedIndices.contains($0.offset) }.map(\.element)
+        }
+        return undone.result
     }
 }
 
@@ -328,28 +337,36 @@ private enum TransferUndo {
         case cancelled
     }
 
+    /// `undo` の結果と、片付いた(戻した・試し直しても戻らない)受領書の添字(`receipts` の中の位置)。
+    struct Undone {
+        var result: FileUndoResult
+        var resolvedIndices: Set<Int> = []
+    }
+
     /// 受領書ごとに `putBack` で戻す。戻った場所の名前が元と違えば、その項目は「部分的に戻した」。
     /// 置き換えた元の項目がゴミ箱にあれば、戻したあとで空いた場所へ戻す。
-    /// 中止されたら残りには手を付けない(何も戻っていなければ履歴に残し、戻った分があれば「部分的に戻した」)。
+    /// 中止されたら残りには手を付けず `.stopped`(呼び出し側は `resolvedIndices` を外して、残りをもう一度取り消せるようにする)。
     static func undo(
         _ receipts: [TransferReceipt],
         fileOps: FileOperationService,
         cancellation: Cancellation = Cancellation(),
         putBack: (TransferReceipt) async throws -> PutBack
-    ) async throws -> FileUndoResult {
-        guard !receipts.isEmpty else { return .impossible(reason: nothingToRestore) }
+    ) async throws -> Undone {
+        guard !receipts.isEmpty else { return Undone(result: .impossible(reason: nothingToRestore)) }
         let locale = AppLanguage.currentLocale
         var succeeded = 0
         var moved = 0
         var failures: [FailedItem] = []
         /// 試し直しても戻らない失敗があったか(相手が無い・別の項目に変わった)。
         var hasPermanentFailure = false
-        let notProcessed = String(localized: "Not processed.", language: locale)
+        var resolved: Set<Int> = []
+        var stopped = false
         // 後に動かしたものから戻す(同じ名前の項目を続けて運んだとき、前のものの場所を先に空けない)。
         let ordered = Array(receipts.reversed())
         receiptLoop: for (index, receipt) in ordered.enumerated() {
+            let originalIndex = receipts.count - 1 - index
             if cancellation.isRequested {
-                failures += ordered[index...].map { FailedItem(url: $0.destination, reason: notProcessed) }
+                stopped = true
                 break
             }
             // **運んだそのものだけを戻す**(FileIdentity の型コメント)。確かめるのは戻す直前(前の項目を戻したことで
@@ -359,6 +376,7 @@ private enum TransferUndo {
                 let reason = await FileIO.perform { changedReason(for: receipt.destination) }
                 failures.append(FailedItem(url: receipt.destination, reason: reason))
                 hasPermanentFailure = true
+                resolved.insert(originalIndex)
                 continue
             }
             do {
@@ -369,12 +387,14 @@ private enum TransferUndo {
                 case .missing:
                     failures.append(FailedItem(url: receipt.destination, reason: nothingToRestore))
                     hasPermanentFailure = true
+                    resolved.insert(originalIndex)
                     continue
                 case .cancelled:
-                    failures += ordered[index...].map { FailedItem(url: $0.destination, reason: notProcessed) }
+                    stopped = true
                     break receiptLoop
                 }
                 moved += 1
+                resolved.insert(originalIndex)
                 if restoredAt.lastPathComponent != receipt.source.lastPathComponent {
                     failures.append(FailedItem(
                         url: receipt.source,
@@ -393,15 +413,24 @@ private enum TransferUndo {
                     failures += restored.failures
                 }
             } catch {
+                // 運ぶ前の中止(事前検査の中など)はエンジンが投げる。失敗ではなく中止として止める。
+                if FileCommandStack.isCancellation(error) {
+                    stopped = true
+                    break
+                }
                 failures.append(FailedItem(url: receipt.destination, reason: error.localizedDescription))
             }
         }
-        if failures.isEmpty { return .complete }
+        if stopped { return Undone(result: .stopped(succeeded: succeeded, failures: failures), resolvedIndices: resolved) }
+        if failures.isEmpty { return Undone(result: .complete, resolvedIndices: resolved) }
         // 1 件も動かせなかったなら「取り消せなかった」。名前を変えて戻せた項目があれば「部分的に戻した」。
         // 動かせなかった理由が全部「動かそうとして断られた」(権限など。項目は運んだ先にそのまま)なら試し直せる。
-        return moved == 0
-            ? .impossible(reason: failures[0].reason, canRetry: !hasPermanentFailure)
-            : .partial(succeeded: succeeded, failures: failures)
+        return Undone(
+            result: moved == 0
+                ? .impossible(reason: failures[0].reason, canRetry: !hasPermanentFailure)
+                : .partial(succeeded: succeeded, failures: failures),
+            resolvedIndices: resolved
+        )
     }
 }
 

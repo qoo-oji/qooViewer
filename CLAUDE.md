@@ -129,7 +129,10 @@ new folder, rename, bulk rename, undo/redo) goes through `FileBrowserOperations`
 (`AppPreferences.fileBrowserReadOnly`, **default ON**; the UI only dims items via `FileBrowserActions.allowsFileChanges`, and drags out
 become copy-only); tests inject a pseudo trash, a uniquely named pasteboard and a scripted presenter. "Replace" moves the existing item into a hidden
 `.qooViewer-replace-<UUID>/` folder only after recording it in `ReplaceBackupJournal`, and `ReplaceBackupRecovery` puts it back at launch
-(skipped under tests) — keep that record-before-backup order. Bulk rename copies
+(skipped under tests) — keep that record-before-backup order. Anything that deletes a tree item by item lists names with `readdir`
+(`FileOperationService.directoryEntryNames`): `FileManager.contentsOfDirectory` silently omits `._*` names even on APFS, and a
+`rmdir` on an exFAT folder left with only `._` files hung the kernel (and Finder) during the 2026-09-15 audit — do not run such
+experiments on FAT/exFAT disk images from parallel agents. Bulk rename copies
 Finder's measured rules (`Models/BulkRename.swift`; registered extensions, collisions avoided rather than refused, so no two-pass rename) — change them only against the real Finder. The context menu's links to existing features (create/add
 to collection, Edit Metadata on a book outside any collection, Export Book without loading it first, Open With) are in
 `FileBrowserLibraryActions.swift`; submenus whose contents vary are a `FileBrowserMenuNode` tree drawn by both the AppKit and

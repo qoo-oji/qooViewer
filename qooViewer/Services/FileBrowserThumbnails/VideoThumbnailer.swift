@@ -102,9 +102,13 @@ nonisolated struct QuickLookVideoThumbnailLoader: VideoThumbnailLoading {
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<CGImage?, Never>) in
                 waiter.install(continuation)
+                // 取り消しが先に来て戻し終えていたら、要求を出さない(2026-09-15 の 3 回目の監査。以前は出した要求を誰も取り消さなかった)。
+                guard !waiter.hasFinished else { return }
                 QLThumbnailGenerator.shared.generateBestRepresentation(for: box.request) { thumbnail, _ in
                     waiter.resume(with: thumbnail?.cgImage)
                 }
+                // 確かめてから出すまでの間に取り消しが来ていたら(その取り消しは出す前の要求へ向いていた)、出した要求をここで取り消す。
+                if waiter.hasFinished { QLThumbnailGenerator.shared.cancel(box.request) }
                 waiter.setTimer(Task {
                     try? await Task.sleep(for: .seconds(timeoutSeconds))
                     guard !Task.isCancelled, waiter.resume(with: nil) else { return }
@@ -133,6 +137,13 @@ nonisolated struct QuickLookVideoThumbnailLoader: VideoThumbnailLoading {
             }
             self.continuation = continuation
             lock.unlock()
+        }
+
+        /// もう戻したか。
+        var hasFinished: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return isFinished
         }
 
         func setTimer(_ task: Task<Void, Never>) {

@@ -207,6 +207,9 @@ final class FileBrowserState: ObservableObject {
     private var pendingReveal: String?
     /// 読み込みが終わったら選ぶ項目(ペーストで運んだもの)。
     private var pendingSelection: Set<String>?
+    /// 上の 2 つの依頼を、読み直しを待つために 1 度持ち越したか。**持ち越すのは 1 度だけ**(2026-09-15 の 3 回目の監査。書き込みの続くフォルダでは
+    /// 読み込むたびに読み直しの旗が立つので、以前は依頼をいつまでも持ち越し、静かになった後で利用者が選び直した選択を上書きした)。
+    private var didDeferPendingRequests = false
     private var changeSerial = 0
     private var renameSerial = 0
     private var sessionBulkRenameSettings: BulkRenameSettings?
@@ -402,7 +405,10 @@ final class FileBrowserState: ObservableObject {
 
     /// 今のフォルダを読み直し、読み終わったら `ids` を選んで最初の1件を見える位置へ(自分の操作で作ったもの)。
     func reload(selecting ids: Set<String>?) {
-        if let ids { pendingSelection = ids }
+        if let ids {
+            pendingSelection = ids
+            didDeferPendingRequests = false
+        }
         reload()
     }
 
@@ -564,10 +570,12 @@ final class FileBrowserState: ObservableObject {
         allEntries = sort.sorted(list)
         // 読んでいる最中に読み直しを頼まれていたら(`reload` のコメント)、この一覧は頼まれる前の姿かもしれない。選ぶ・見せる項目の依頼は
         // 次の読み直しまで取っておく(操作で作った項目がまだ無い一覧で依頼を使い切らない)。
-        if needsReloadAfterLoad, pendingReveal != nil || pendingSelection != nil {
+        if needsReloadAfterLoad, !didDeferPendingRequests, pendingReveal != nil || pendingSelection != nil {
+            didDeferPendingRequests = true
             applyFilter()
             return
         }
+        didDeferPendingRequests = false
         if let reveal = pendingReveal {
             pendingReveal = nil
             // 絞り込みで隠れていたら出す(選んだのに見えない、を作らない)。移動の直後は空なので、
@@ -670,9 +678,12 @@ final class FileBrowserState: ObservableObject {
             loadError = nil
             // 前のフォルダの項目への名前の編集の依頼は、もう叶わない(finishRenameRequest のコメント)。
             renameRequest = nil
+            // 前のフォルダでペーストした項目を選ぶ依頼も捨てる(2026-09-15 の 3 回目の監査。戻ってきたときに勝手に選ばない)。
+            pendingSelection = nil
         }
         selection = reveal.map { [$0] } ?? []
         pendingReveal = reveal
+        didDeferPendingRequests = false
         rememberLastFolder()
         reload()
         updateWatcher()

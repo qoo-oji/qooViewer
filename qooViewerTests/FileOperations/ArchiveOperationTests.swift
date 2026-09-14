@@ -448,15 +448,24 @@ struct ZipCompressorTests {
         let zip = try #require(try await compress([book], into: root))
         let reported = root.appendingPathComponent("Book.zip")
         try ZipCompressor.verifyWrittenArchive(at: zip, expectedEntryCount: 2, reportingAs: reported)
+        #expect(hasEndRecord(zip))
         #expect(throws: FileOperationError.posixFailure(item: reported, errnoCode: EIO)) {
             try ZipCompressor.verifyWrittenArchive(at: zip, expectedEntryCount: 3, reportingAs: reported)
         }
         // 最後のセントラルディレクトリと EOCD が書けなかった形(8MB のボリュームで実測した壊れ方)。
         let bytes = try Data(contentsOf: zip)
         try bytes.prefix(bytes.count - 30).write(to: zip)
+        // 3 回目の監査: EOCD が無ければ ZIPFoundation に遡らせずに断る(末尾の窓だけを見る)。
+        #expect(!hasEndRecord(zip))
         #expect(throws: FileOperationError.posixFailure(item: reported, errnoCode: EIO)) {
             try ZipCompressor.verifyWrittenArchive(at: zip, expectedEntryCount: 2, reportingAs: reported)
         }
+    }
+
+    private func hasEndRecord(_ url: URL) -> Bool {
+        let descriptor = open(url.path, O_RDONLY)
+        defer { close(descriptor) }
+        return descriptor >= 0 && ZipCompressor.endOfCentralDirectoryIsPresent(descriptor: descriptor)
     }
 
     @Test("中止すると一時ファイルは残らない")

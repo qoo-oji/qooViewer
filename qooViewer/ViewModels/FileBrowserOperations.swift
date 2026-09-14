@@ -75,9 +75,12 @@ final class FileBrowserOperations: ObservableObject {
 
     /// ⌘Z。**押した時点の一番上の操作だけを戻す**(走っている操作の後ろに並んでいる間に一番上が変わったら何もしない ――
     /// FileCommandStack.undo の `expecting`)。進捗の帯と中止ボタンを出す(取り消しでも別ボリュームの移動は全量を写し直す)。
+    /// - Parameter shownTitle: メニューに出ていた操作の名前。**一番上の操作と名前が違えば何もしない**(2026-09-15 の 3 回目の監査。メニューを開いている間は
+    ///   表示の更新が保留される(MenuBarMenuGate)ので、その間に操作が終わると、表示と違う操作を戻していた)。nil なら確かめない。
     @discardableResult
-    func undo() -> Task<Void, Never> {
+    func undo(shownTitle: String? = nil) -> Task<Void, Never> {
         guard !isReadOnly, let expected = commandStack?.nextUndo else { return Task {} }
+        if let shownTitle, expected.displayName != shownTitle { return Task {} }
         return enqueue { [weak self] in
             guard let self, let stack = self.commandStack else { return }
             await self.runUndoOrRedo(expected, isRedo: false) { context in
@@ -87,8 +90,9 @@ final class FileBrowserOperations: ObservableObject {
     }
 
     @discardableResult
-    func redo() -> Task<Void, Never> {
+    func redo(shownTitle: String? = nil) -> Task<Void, Never> {
         guard !isReadOnly, let expected = commandStack?.nextRedo else { return Task {} }
+        if let shownTitle, expected.displayName != shownTitle { return Task {} }
         return enqueue { [weak self] in
             guard let self, let stack = self.commandStack else { return }
             await self.runUndoOrRedo(expected, isRedo: true) { context in
@@ -114,8 +118,8 @@ final class FileBrowserOperations: ObservableObject {
         ))
         endActivity(token)
         didChangeFileSystem(inUnknownScope: true)
-        // 中止ボタン(やり直しの衝突の「中止」を含む)で止めて何も変わらなかったなら、失敗として見せない。
-        if cancellation.isRequested, case .failed = outcome { return }
+        // 中止は FileCommandStack が `.cancelled` にして返す(知らせることが無ければ黙る)。**中止ボタンを押していても `.failed` は見せる**
+        // (2026-09-15 の 3 回目の監査。以前はここで黙ったので、中止を見ないコマンドの本当の失敗や、まとめた操作の巻き戻しの失敗が消えた)。
         presentIfNeeded(outcome, isRedo: isRedo)
     }
 
@@ -540,9 +544,14 @@ final class FileBrowserOperations: ObservableObject {
     @discardableResult
     private func enqueue(_ work: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
         let previous = queueTail
-        let task = Task { @MainActor in
+        // **並んでいる間も自分と状態を持っておく**(2026-09-15 の 3 回目の監査)。仕事の閉包は `[weak self]` で、状態は弱く持つので、以前は
+        // 走っている操作の途中でウインドウを閉じると、後ろに並んでいた操作(ペースト・取り消し)が確認も報告も無く捨てられていた
+        // (`detachFromWindow` の「並んでいる操作は止めない」と食い違う)。持つのは並んだ仕事が終わるまでだけ。
+        let state = state
+        let task = Task { @MainActor [self] in
             await previous?.value
             await work()
+            _ = (self, state)
         }
         queueTail = task
         return task
@@ -796,7 +805,9 @@ struct FileBrowserProblem: Equatable {
         switch outcome {
         case .nothingToDo, .complete:
             return nil
-        case let .partial(name, _, failures):
+        case let .cancelled(_, failures) where failures.isEmpty:
+            return nil
+        case let .partial(name, _, failures), let .cancelled(name, failures):
             return FileBrowserProblem(
                 title: String(
                     format: isRedo

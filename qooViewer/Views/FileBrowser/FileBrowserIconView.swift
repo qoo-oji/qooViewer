@@ -103,8 +103,12 @@ struct FileBrowserIconView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
-        coordinator.finishEditing(commit: true)
+        // 捨てる直前に一覧を取り込み直さない(取り込むと、捨てるビューが絵を頼み直す)。
+        coordinator.finishEditing(commit: true, syncsAfterward: false)
         if let collection = coordinator.collection {
+            // **見えているセルの絵の依頼を取り消す**(2026-09-15 の 3 回目の監査)。表示の切り替え・ウインドウを閉じるときのアイテムは
+            // `prepareForReuse` を通らずに捨てられ、Task は取り消されないので、提供役に待ちが残って本の展開・QuickLook を走らせ続けた。
+            for case let item as FileBrowserIconItem in collection.visibleItems() { item.cancelThumbnailRequest() }
             collection.dataSource = nil
             collection.delegate = nil
             collection.handler = nil
@@ -177,10 +181,23 @@ struct FileBrowserIconView: NSViewRepresentable {
         var result = name
         if !fits(name) {
             let characters = Array(name)
+            // **明らかに入らない長さは測らない**(2026-09-15 の 3 回目の監査。以前は全部を `boundingRect` で測り、120 字で約 100 回・8ms、
+            // 長い名前が並ぶフォルダを開くたび・ピンチのたびに見えているセルの数だけメインを止めた)。2 行に入るなら、残す文字の幅の合計は
+            // 2 行ぶんの幅を超えない(行末で折り返した空白の分と字詰めの差だけ余裕を見る)。字の幅は 1 字ずつ覚える。
+            // 残す文字を長い方から 1 文字ずつ試す規則(上のコメント)は変えない ―― 飛ばすのは、この条件で入り得ない長さだけ。
+            var prefixWidths = [CGFloat](repeating: 0, count: characters.count + 1)
+            for (index, character) in characters.enumerated() {
+                prefixWidths[index + 1] = prefixWidths[index] + characterWidth(character)
+            }
+            let budget = width * 2 * 1.05 + characterWidth(" ") * 2 + 4
+            let ellipsis = characterWidth("…")
             result = "…"
             for count in stride(from: characters.count - 1, through: 1, by: -1) {
                 let head = (count + 1) / 2
-                let candidate = String(characters.prefix(head)) + "…" + String(characters.suffix(count - head))
+                let tail = count - head
+                let estimated = prefixWidths[head] + ellipsis + (prefixWidths[characters.count] - prefixWidths[characters.count - tail])
+                guard estimated <= budget else { continue }
+                let candidate = String(characters.prefix(head)) + "…" + String(characters.suffix(tail))
                 if fits(candidate) {
                     result = candidate
                     break
@@ -193,6 +210,17 @@ struct FileBrowserIconView: NSViewRepresentable {
     }
 
     private static var twoLineNameCache: [String: String] = [:]
+
+    /// 1 字を 1 行で描いたときの幅(`twoLineName` の見積り)。字の種類は限られるので覚えておく。
+    private static func characterWidth(_ character: Character) -> CGFloat {
+        if let known = characterWidthCache[character] { return known }
+        let measured = (String(character) as NSString).size(withAttributes: [.font: nameFont]).width
+        if characterWidthCache.count >= 20000 { characterWidthCache.removeAll() }
+        characterWidthCache[character] = measured
+        return measured
+    }
+
+    private static var characterWidthCache: [Character: CGFloat] = [:]
 
     /// 名前を描く・測るときの属性(中央揃え・単語で折り返す)。
     static func nameAttributes(color: NSColor) -> [NSAttributedString.Key: Any] {
@@ -229,7 +257,11 @@ struct FileBrowserIconView: NSViewRepresentable {
         private var isApplyingSelection = false
         private let menuBuilder = FileBrowserMenuBuilder()
         /// 名前を編集している項目とそのセル。
-        private var editing: (id: String, cell: FileBrowserIconCellView)?
+        /// 編集中の項目(始めた時点の姿)と、そのセル。
+        private var editing: (entry: FileBrowserEntry, cell: FileBrowserIconCellView)?
+        /// いま画面に出している一覧のフォルダ(最後に一覧を取り込んだ時点の `state.currentFolder`)。**余白へのドロップ・背景のメニューはこれを使う**
+        /// (2026-09-15 の 3 回目の監査。名前の編集中は取り込みを止めるので、`state.currentFolder` は画面と違うフォルダを指しうる)。
+        private var displayedFolder: URL?
         /// 名前の編集中に取り込みを待たせた(終わったら取り込む)。
         private var needsSyncAfterEditing = false
         /// クリック・キーのたびに進む番号(名前のクリックから編集を始めるまでに次の操作があれば取りやめる)。
@@ -264,9 +296,19 @@ struct FileBrowserIconView: NSViewRepresentable {
                 needsReconfigure = true
             }
             // **名前の編集中は一覧を取り込まない**(型コメント)。
-            if editing != nil {
-                if needsReconfigure || view.state.entriesRevision != revision || view.state.cutPaths != appliedCutPaths {
+            if let editing {
+                let folderChanged = view.state.currentFolder != displayedFolder
+                if needsReconfigure || folderChanged || view.state.entriesRevision != revision || view.state.cutPaths != appliedCutPaths {
                     needsSyncAfterEditing = true
+                }
+                // 編集中に表示するフォルダが変わった(⌘[・戻るボタンは編集欄に焦点があっても効く)なら、打った名前で確定して取り込む
+                // (2026-09-15 の 3 回目の監査。画面を古いフォルダのままにしない)。確定は状態を変えるので、SwiftUI の更新の外で。
+                if folderChanged {
+                    let cell = editing.cell
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, self.editing?.cell === cell else { return }
+                        self.finishEditing(commit: true)
+                    }
                 }
                 return
             }
@@ -276,9 +318,10 @@ struct FileBrowserIconView: NSViewRepresentable {
         private func syncWithState(_ state: FileBrowserState, reconfiguringVisibleItems: Bool) {
             guard let collection else { return }
             var needsReload = false
-            if state.entriesRevision != revision {
+            if state.entriesRevision != revision || state.currentFolder != displayedFolder {
                 revision = state.entriesRevision
                 entries = state.entries
+                displayedFolder = state.currentFolder
                 mountTable = .current()
                 needsReload = true
             }
@@ -350,7 +393,7 @@ struct FileBrowserIconView: NSViewRepresentable {
             guard entries.indices.contains(index), let state else { return }
             let entry = entries[index]
             let kind = FileBrowserThumbnailProvider.kind(
-                for: entry, currentFolder: state.currentFolder, mountTable: mountTable, includesVideo: includesVideo
+                for: entry, currentFolder: displayedFolder, mountTable: mountTable, includesVideo: includesVideo
             )
             item.cell.configure(
                 entry: entry, kind: kind, iconSize: iconSize, outlineWidth: outlineWidth,
@@ -368,8 +411,17 @@ struct FileBrowserIconView: NSViewRepresentable {
             _ collectionView: NSCollectionView, didEndDisplaying item: NSCollectionViewItem,
             forRepresentedObjectAt indexPath: IndexPath
         ) {
-            // 編集中のセルが画面から外れて使い回されるなら、打った名前で確定する(型コメント)。
-            if let editing, (item as? FileBrowserIconItem)?.cell === editing.cell { finishEditing(commit: true) }
+            (item as? FileBrowserIconItem)?.cancelThumbnailRequest()
+            // 編集中のセルが画面から外れて使い回されるなら、打った名前で確定する(型コメント)。**この呼び出しの外で**(2026-09-15 の
+            // 3 回目の監査。確定は待たせていた `reloadData` を走らせることがあり、NSCollectionView の更新の最中にやり直すと、戻った後に
+            // 古い件数のまま範囲外の位置を頼んできた ―― 合成の一覧で実測)。
+            if let editing, (item as? FileBrowserIconItem)?.cell === editing.cell {
+                let cell = editing.cell
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.editing?.cell === cell else { return }
+                    self.finishEditing(commit: true)
+                }
+            }
         }
 
         // MARK: 選択
@@ -437,7 +489,7 @@ struct FileBrowserIconView: NSViewRepresentable {
         func dragOperation(for info: NSDraggingInfo, at point: NSPoint) -> NSDragOperation {
             guard let actions else { return [] }
             let folderIndex = folderIndex(at: point)
-            let destination = folderIndex.map { entries[$0].url } ?? state?.currentFolder
+            let destination = folderIndex.map { entries[$0].url } ?? displayedFolder
             let (decision, _) = actions.dropDecision(for: info, into: destination)
             let operation = decision.dragOperation(sourceMask: info.draggingSourceOperationMask)
             setDropTarget(id: operation.isEmpty ? nil : folderIndex.map { entries[$0].id })
@@ -449,7 +501,7 @@ struct FileBrowserIconView: NSViewRepresentable {
             let folderIndex = folderIndex(at: point)
             clearDropTarget()
             guard let actions else { return false }
-            let destination = folderIndex.map { entries[$0].url } ?? state?.currentFolder
+            let destination = folderIndex.map { entries[$0].url } ?? displayedFolder
             let (decision, urls) = actions.dropDecision(for: info, into: destination)
             actions.performDrop(decision, urls: urls)
             return decision.isAccepted
@@ -557,13 +609,19 @@ struct FileBrowserIconView: NSViewRepresentable {
                 return
             }
             interactionSerial += 1
-            editing = (entry.id, item.cell)
+            editing = (entry, item.cell)
             if let state {
                 state.selection = [entry.id]
                 applySelection(from: state)
             }
             collection.editingField = item.cell.nameField
-            item.cell.beginEditing(name: entry.url.lastPathComponent, selectsWholeName: entry.isNavigableFolder, delegate: self)
+            // 始められなかった(ウインドウが無い・焦点を移せない)なら、編集中の印を残さない(残ると一覧の取り込みが止まったままになる)。
+            guard item.cell.beginEditing(name: entry.url.lastPathComponent, selectsWholeName: entry.isNavigableFolder, delegate: self) else {
+                editing = nil
+                collection.editingField = nil
+                item.cell.endEditing()
+                return
+            }
         }
 
         func controlTextDidChange(_ notification: Notification) {
@@ -588,7 +646,8 @@ struct FileBrowserIconView: NSViewRepresentable {
         }
 
         /// 編集を終える(確定なら打った名前で変える)。2 回目以降は何もしない(焦点を戻すと「編集が終わった」がもう一度届く)。
-        func finishEditing(commit: Bool) {
+        /// - Parameter syncsAfterward: false なら、待たせていた一覧の取り込みをしない(呼び出し側がすぐ取り込む・ビューを捨てる)。
+        func finishEditing(commit: Bool, syncsAfterward: Bool = true) {
             guard let current = editing else { return }
             editing = nil
             let name = current.cell.nameField.currentEditor()?.string ?? current.cell.nameField.stringValue
@@ -597,10 +656,12 @@ struct FileBrowserIconView: NSViewRepresentable {
             if let collection, collection.window?.firstResponder !== collection {
                 collection.window?.makeFirstResponder(collection)
             }
-            if commit, let state, let entry = state.entry(withID: current.id), name != entry.url.lastPathComponent {
+            // 今の一覧に無ければ(表示するフォルダが変わった)、始めた時点の姿で変える(黙って捨てない)。
+            let entry = state?.entry(withID: current.entry.id) ?? current.entry
+            if commit, let state, name != entry.url.lastPathComponent {
                 state.operations.rename(entry, to: name)
             }
-            if needsSyncAfterEditing, let state {
+            if syncsAfterward, needsSyncAfterEditing, let state {
                 needsSyncAfterEditing = false
                 syncWithState(state, reconfiguringVisibleItems: true)
             }
@@ -612,7 +673,7 @@ struct FileBrowserIconView: NSViewRepresentable {
         /// セルの外(余白)ならペースト・新規フォルダ・表示・表示順序。
         func menuNeedsUpdate(_ menu: NSMenu) {
             guard let collection else { return }
-            let folder = state?.currentFolder
+            let folder = displayedFolder
             guard let clicked = collection.clickedIndexPath?.item, entries.indices.contains(clicked) else {
                 menuBuilder.rebuild(
                     menu, for: FileBrowserMenuContext(kind: .background, entries: [], folder: folder),
@@ -916,6 +977,13 @@ final class FileBrowserIconItem: NSCollectionViewItem {
         }
     }
 
+    /// 絵の依頼だけを取り消す(持っている絵は残す。画面に戻ったら `requestThumbnail` が頼み直す)。
+    func cancelThumbnailRequest() {
+        thumbnailTask?.cancel()
+        thumbnailTask = nil
+        requestedKey = ""
+    }
+
     override func prepareForReuse() {
         super.prepareForReuse()
         thumbnailTask?.cancel()
@@ -1069,8 +1137,10 @@ final class FileBrowserIconCellView: NSView {
 
     // MARK: 名前の編集
 
-    func beginEditing(name: String, selectsWholeName: Bool, delegate: NSTextFieldDelegate) {
-        guard let window else { return }
+    /// 焦点を名前の欄へ移せたら true。
+    @discardableResult
+    func beginEditing(name: String, selectsWholeName: Bool, delegate: NSTextFieldDelegate) -> Bool {
+        guard let window else { return false }
         isEditingName = true
         layer?.zPosition = 10
         needsDisplay = true
@@ -1081,7 +1151,7 @@ final class FileBrowserIconCellView: NSView {
         nameField.isHidden = false
         fitEditingHeight()
         // 焦点が入った時点で FileBrowserNameField が実名へ差し替えて、拡張子の前までを選ぶ。
-        window.makeFirstResponder(nameField)
+        return window.makeFirstResponder(nameField)
     }
 
     /// 打った文字に合わせて欄を下へ伸ばす(Finder と同じ)。

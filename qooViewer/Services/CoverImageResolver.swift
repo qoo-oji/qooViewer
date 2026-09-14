@@ -176,6 +176,13 @@ nonisolated enum CoverImageResolver {
 
         // 2. 本を読み込んで、対象のページを決める。
         guard let url else { return nil }
+        // **フォルダの本は、読み込む前に中の追い出された項目を見る**(2026-09-15 の 3 回目の監査)。`BookLoader.load` はフォルダの中の書庫・PDF を
+        // 開いてページを並べるので、下の「対象のページが手元に無いか」の確認より先にダウンロードが起きていた。`withoutDownloading` は
+        // スレッド単位で、`BookLoader` は別のタスクで走るので効かない。書庫・PDF の本そのものは呼び出し側が先に見ている。
+        if skipsNotDownloadedPages, (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true,
+           DatalessFiles.treeContainsDataless(url) {
+            return nil
+        }
         guard let book = try? await BookLoader.load(from: url, cachesPageList: cachesPageList),
               !book.pages.isEmpty
         else { return nil }

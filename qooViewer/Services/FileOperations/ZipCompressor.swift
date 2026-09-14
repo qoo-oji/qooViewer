@@ -184,17 +184,25 @@ nonisolated enum ZipCompressor {
         let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW)
         guard descriptor >= 0 else { throw FileOperationError.posixFailure(item: reportedItem, errnoCode: errno) }
         let syncFailure = fsync(descriptor) == 0 ? 0 : errno
-        close(descriptor)
         // EINVAL / ENOTSUP は fsync を持たないファイルシステム(失敗ではない)。
         if syncFailure != 0, syncFailure != EINVAL, syncFailure != ENOTSUP {
+            close(descriptor)
             throw FileOperationError.posixFailure(item: reportedItem, errnoCode: syncFailure)
         }
-        var count = 0
-        do {
-            let archive = try Archive(url: url, accessMode: .read)
-            for _ in archive { count += 1 }
-        } catch {
-            count = -1
+        // **末尾に EOCD があるかを先に確かめる**(2026-09-15 の 3 回目の監査)。ZIPFoundation は EOCD が無いとファイルの末尾から
+        // 1 バイトずつ遡って探す(500MB で 19.8 秒、中止も効かない ―― 実測)。この検証が拾いたいのはまさに末尾の欠けた書庫なので、
+        // EOCD が置けるはずの末尾の窓(22 バイト + コメント最大 65535 バイト)だけを読んで、無ければ開かずに失敗にする。
+        let hasEndRecord = endOfCentralDirectoryIsPresent(descriptor: descriptor)
+        close(descriptor)
+        var count = -1
+        if hasEndRecord {
+            do {
+                let archive = try Archive(url: url, accessMode: .read)
+                count = 0
+                for _ in archive { count += 1 }
+            } catch {
+                count = -1
+            }
         }
         guard count == expectedEntryCount else {
             // 理由は分からない(書き込みは成功を返していた)ので、空きが余裕を割っていればディスクの不足、それ以外は入出力エラーとして伝える。
@@ -202,6 +210,29 @@ nonisolated enum ZipCompressor {
             let isFull = FileOperationPreflight.availableCapacity(at: folder).map { $0 < FileOperationPreflight.freeSpaceMargin(at: folder) } ?? false
             throw FileOperationError.posixFailure(item: reportedItem, errnoCode: isFull ? ENOSPC : EIO)
         }
+    }
+
+    /// ファイルの末尾に、コメント長まで辻褄の合う EOCD(`PK\u{5}\u{6}`)があるか。読むのは末尾の最大 65557 バイトだけ。
+    static func endOfCentralDirectoryIsPresent(descriptor: Int32) -> Bool {
+        var info = stat()
+        guard fstat(descriptor, &info) == 0 else { return false }
+        let size = Int64(info.st_size)
+        let recordSize: Int64 = 22
+        guard size >= recordSize else { return false }
+        let windowSize = Int(min(size, recordSize + 65535))
+        var window = [UInt8](repeating: 0, count: windowSize)
+        let offset = size - Int64(windowSize)
+        let read = window.withUnsafeMutableBytes { pread(descriptor, $0.baseAddress, windowSize, off_t(offset)) }
+        guard read == windowSize else { return false }
+        var start = windowSize - Int(recordSize)
+        while start >= 0 {
+            if window[start] == 0x50, window[start + 1] == 0x4B, window[start + 2] == 0x05, window[start + 3] == 0x06 {
+                let commentLength = Int(window[start + 20]) | Int(window[start + 21]) << 8
+                if start + Int(recordSize) + commentLength == windowSize { return true }
+            }
+            start -= 1
+        }
+        return false
     }
 
     private static func add(_ source: Source, to archive: Archive, tracker: ProgressTracker) throws {

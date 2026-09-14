@@ -54,6 +54,28 @@ struct FileCommandStackTests {
         #expect(stack.undoTitle == "second")
     }
 
+    @Test("途中で止めた取り消しは履歴に残り、続きを取り消せる。やり直しの中止は、何も起きなければやり直しの履歴へ戻る")
+    func stoppedUndoAndCancelledRedoStayInHistory() async throws {
+        // 3 回目の監査 3・4。
+        let stack = FileCommandStack()
+        let command = ScriptedCommand("stopped")
+        command.undoResult = .stopped(succeeded: 1, failures: [])
+        try await stack.run(command)
+        #expect(await stack.undo() == .cancelled(operationName: "stopped", failures: []))
+        #expect(stack.canUndo && !stack.canRedo)
+        #expect(!FileUndoOutcome.cancelled(operationName: "stopped", failures: []).needsAttention)
+
+        command.undoResult = .complete
+        #expect(await stack.undo() == .complete(operationName: "stopped"))
+        command.executeResult = .partial(succeeded: 0, failures: [], wasCancelled: true)
+        #expect(await stack.redo() == .cancelled(operationName: "stopped", failures: []))
+        #expect(!stack.canUndo, "何も起きなかったやり直しは取り消しの履歴へ積まない")
+        #expect(stack.canRedo)
+        command.executeError = CancellationError()
+        #expect(await stack.redo() == .cancelled(operationName: "stopped", failures: []))
+        #expect(stack.canRedo)
+    }
+
     @Test("深さは 50。超えたら古いものから捨てる")
     func depthIsLimited() async throws {
         let stack = FileCommandStack()
@@ -430,8 +452,8 @@ struct FileCommandsTests {
 
         let stopped = Cancellation()
         stopped.request()
-        guard case .impossible(_, true) = try await command.undo(in: FileCommandContext(cancellation: stopped)) else {
-            Issue.record("中止した取り消しが試し直せるにならなかった")
+        guard case .stopped(0, []) = try await command.undo(in: FileCommandContext(cancellation: stopped)) else {
+            Issue.record("中止した取り消しが「止めた」にならなかった")
             return
         }
         #expect(FileManager.default.fileExists(atPath: destination.appendingPathComponent("a.txt").path))
@@ -442,6 +464,29 @@ struct FileCommandsTests {
         original.request()
         #expect(try await command.redo(in: FileCommandContext()) == .success)
         #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+
+    @Test("移動の取り消しを途中で止めると、戻した分を外し、続きを取り消せる(最後に戻した項目を「中止」と数えない)")
+    func stoppedMoveUndoKeepsTheRestUndoable() async throws {
+        // 3 回目の監査 2・3: 1 件を戻し終えた直後に中止ボタンが押された形(進捗の「1 件済んだ」で旗を立てる)。
+        let a = try write("a", to: "undo-stop/src/a.txt")
+        let b = try write("b", to: "undo-stop/src/b.txt")
+        let c = try write("c", to: "undo-stop/src/c.txt")
+        let destination = try temporary.directory("undo-stop/dst")
+        let command = MoveFilesCommand(items: [a, b, c], destination: destination, options: .init(conflictPolicy: .ask), fileOps: fileOps)
+        _ = try await command.execute()
+
+        let cancellation = Cancellation()
+        let sink = ProgressSink { progress in
+            if progress.completedItems >= 1 { cancellation.request() }
+        }
+        let result = try await command.undo(in: FileCommandContext(progress: sink, cancellation: cancellation))
+        #expect(result == .stopped(succeeded: 1, failures: []))
+        #expect(FileManager.default.fileExists(atPath: c.path), "後に運んだものから戻す")
+        #expect(command.outcome.receipts.map(\.source) == [a, b])
+
+        #expect(try await command.undo() == .complete)
+        #expect(FileManager.default.fileExists(atPath: a.path) && FileManager.default.fileExists(atPath: b.path))
     }
 
     @Test("新規フォルダの取り消しは、読めないフォルダを空とみなさない")

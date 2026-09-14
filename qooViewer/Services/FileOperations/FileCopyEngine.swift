@@ -168,6 +168,9 @@ nonisolated enum FileCopyEngine {
            containsDirectoryBlockingClone(source) {
             throw RetryWithoutCloning(bytesAlreadyReported: context.totalCopied)
         }
+        // 木を歩いている間に中止された(`containsDirectoryBlockingClone` は中止で false を返す)なら、失敗ではなく中止として返す
+        // (2026-09-15 の 3 回目の監査。以前は利用者の中止が「権限がありません」などの失敗として出た)。書きかけは上で消してある。
+        if Cancellation.isRequestedInCurrentScope { return .cancelled }
         throw FileOperationError.posixFailure(item: source, errnoCode: failure)
     }
 

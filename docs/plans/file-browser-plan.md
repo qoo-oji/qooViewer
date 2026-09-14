@@ -1975,6 +1975,88 @@ Debug の設定は `defaults export` の控えへ戻して一致を確認、ボ�
 6. 絵: スクロールで出入りするセルの絵、ピンチとスライダーでの大きさの変更(点滅しない)、動画のサムネイルの ON / OFF、コレクション表紙の変更での頼み直し。
 7. `heap`: ウインドウを閉じて `FileBrowserCollectionView` / `FileBrowserIconItem` / `Coordinator` が残らないこと(docs/12)。
 
+### 9.7 引き継ぎ(3 回目のコード監査、2026-09-15)
+
+**ユーザーの指示(2026-09-15)**: 「前回監査以降に行った修正についてコード監査」(重点は §8.5.4・§9.5 と同じ)。範囲は `git diff b4540d0 HEAD`
+(2 回目の監査の修正 546c750〜6256d34 と、アイコン表示の置き換え 4aaad45)。続けて「進めて」(記録してから修正)。
+
+**方法**: 6 系統の読み合わせ(コピー・移動エンジン / 圧縮・展開とフォーク / 取り消しと直列化 / アイコン表示 / サムネイル / 状態と監視)+ エンジンの自分での精読。
+中以上はコードを辿り直して確かめた。
+
+**事故(2026-09-15 07:17)**: エンジンの系統が exFAT の使い捨て `hdiutil` イメージで「`._` だけが残るフォルダの `rmdir`」を試したところ、`rmdir` が U 状態のまま戻らず、
+fseventsd・mds・diskarbitrationd・Finder・SystemUIServer・Defender まで固まった(`detach -force` も効かない。**再起動が要る**)。同じ時刻に別のイメージで
+同じ形を 2 回試したときは成功しており、原因(FSKit の exFAT / Defender の監視 / 並列の hdiutil)は未確定。**再起動するまでテスト(Pre-action が exFAT を付ける)は走らせない。**
+FAT / exFAT の実測は並列エージェントに任せない。
+
+**監査で実測したプラットフォームの事実**:
+- `FileManager.contentsOfDirectory(atPath:)` と列挙器は、APFS の上でも `._*` の名前を返さない(`ls -a` には出る)。
+- exFAT でも APFS でも、本体を `unlink` すると対の `._本体` も消える。中身が `._` だけのフォルダの `rmdir` は(成功したときは)`._` ごと消した。
+- copyfile の再帰は `._` ファイルを普通のファイルとして写す(exFAT → APFS、APFS → APFS)。
+- ZIPFoundation の `Archive(url:, .read)` は EOCD が無いとファイル末尾から 1 バイトずつ遡る(500MB で 19.8 秒、20MB で 0.8 秒)。
+- `NSString.boundingRect` での 2 行詰めは、60 字で 45 回 2.9ms、120 字で約 105 回 8.4ms(アイコン表示の `twoLineName` と同じ計算)。
+
+**見つかったもの(重い順)**:
+1. **【要再確認・ハング】別ボリュームへの移動の元の削除が `._` を見ない**(`removeTransferredSource`)。名前を `contentsOfDirectory` で取るので `._` が消す対象に入らず、
+   孤立した `._` だけが残ったフォルダへ `rmdir` を呼ぶ。上の事故がこれで起きたなら修正 7 の退行。直し方: `readdir` で名前を取り `._` も含める。`rmdir` の前に空を確かめる。
+2. 【中】取り消しの中止: 最後の項目を戻し終えた直後に中止が立つと `putBack` が `.cancelled` を返し(`MoveFilesCommand.undo`、エンジンは受領書があっても `wasCancelled`)、
+   戻した項目が「処理されませんでした」、置き換えた元はゴミ箱に残ったまま、先頭なら `.impossible(canRetry: true)` で黙って履歴へ戻る。
+3. 【中】取り消しを途中で止めた `.partial` は履歴から外れ、残りを ⌘Z で戻せない(中止ボタンで新しく通る経路)。
+4. 【中】やり直しは効果を見ずに取り消しの履歴へ積む(中止で 0 件でも)。中止の `.partial` を「一部だけやり直した」と見せる。中止を見ないコマンドにも中止ボタンが出て、
+   本当の `.failed(canRetry: false)` が `cancellation.isRequested` の分岐で黙って消える。
+5. 【中】別ボリュームへの移動: 元を消す直前に項目ごとの変化を見ない(検証は置く前の 1 回。その後の保存・ダウンロードの完了を消す)。
+6. 【中】転送のループが項目ごとに受領書全部から `Set<FileIdentity>` を作り直す(項目数の 2 乗)。
+7. 【中】`ZipCompressor.verifyWrittenArchive` が末尾の欠けた大きな zip で全体を遡り、中止も効かない。
+8. 【中】アイコン表示の `twoLineName` が 1 文字ずつ測り、ピンチ中は幅が連続値なので毎イベント全セルを測り直す(`iconSize` の `UserDefaults` への書き込みも毎イベント)。
+9. 【中】`FileBrowserState.apply` が保留した「選ぶ・見せる」依頼を、書き込みの続くフォルダでいつまでも持ち越し、後で利用者の選択を上書きする。
+10. 【中】`CoverImageResolver.coverImage(skipsNotDownloadedPages:)` の確認が `BookLoader.load` の後(フォルダの本の中の追い出された書庫・PDF を落とす)。
+11. 【中】アイコン表示のセルの絵の依頼が `prepareForReuse` でしか取り消されない(表示の切り替え・ウインドウを閉じたときに残る。SwiftUI 版からの退行)。
+12. 【中】名前の変更中にフォルダが変わると、画面は古いまま余白へのドロップ・背景メニューは新しいフォルダへ行き、確定は `entry(withID:)` が nil で黙って捨てる。
+13. 【中・コードのみ】メニューを開いている間に操作が終わると、`MenuBarMenuGate` の保留で表示と ⌘Z の相手がずれる。
+- 低: 画面外の編集セルの確定が `didEndDisplaying` の中で `reloadData`、`pendingSelection` が移動で消えない、FSEvents の `SinceNow` での取りこぼし、
+  ツリーのボリュームの Node の使い回し、QuickLook の発行前の取り消し・期限切れの積もり・期限が `Task.sleep`、`mayReadChild` が `~/Library/Containers` などを読む、
+  置き換えで外したロックが退避の残る経路で戻らない、写した後の検証と元の削除が中止を見ない、読み飛ばすエントリの実際の伸長に上限が無い、
+  中止した取り消しの巻き戻し失敗でやり直し先が残る、閉じたウインドウの並んでいた操作が黙って捨てられる。
+
+**監査で問題なしと確認した範囲**: 一時名へ写して `RENAME_EXCL` で置く流れ(宛先の名前に触らない)、置き換えの記録・退避の順序、ゴミ箱から戻すときの実体の確認、
+`FirstResult`(2 万回の競争で二重・漏れ無し)、フォーク 0b4c1b9 の確保前の判定、圧縮の一時ファイルの後始末とエントリ数の照合、`ImageDecoder` の既定値(ビューアに影響なし)、
+アイコン表示の閉包の保持(リーク無し)と id での改名、一括リネーム・展開の番号の続き、`reload` の世代と `inFlightFolderID`、`FileIO.perform` の継続。
+
+**修正(2026-09-15、ユーザー指示「進めて」)**: 1〜13 と「低」の一部を直した。続けて「ドキュメントを更新し、コミット・プッシュしてから再現テストして」の指示で、
+CHANGELOG `[Unreleased]`・MANUAL・CLAUDE.md(`readdir` と FAT / exFAT の実測の注意)・docs/13・docs/15 と一緒にコミット・プッシュ(この節と同じコミット)。README は変える記述が無かった。事故のシステムの状態が戻っていない(再起動前)ので、テストは**スキームを通さず**
+`xcodebuild test-without-building -xctestrun … -skip-testing:qooViewerTests/FileOperationVolumeTests -skip-testing:qooViewerTests/MountTableTests`
+で回した(スキームの Pre-action は exFAT のイメージを付けに行き、固まった diskarbitrationd で止まる)。**1319 件が通った。使い捨てボリュームのテスト 2 suite は未実行**。
+- 1・5: `removeTransferredSource(_:copiedTo:unchangedSince:)` ―― 名前は `directoryEntryNames(atPath:)`(`readdir`、`._*` も含む。`._` は同じフォルダで最後に消す)、
+  フォルダは空と確かめてから rmdir(空でなければ呼ばずに ENOTEMPTY)、`moveItem` が写し始める直前の `currentRealTime()` を渡し、それより後に ctime が変わった
+  ファイル・リンクは `sourceChangedDuringOperation` で止める(元がローカルのときだけ)。`liftWriteProtection` も `readdir`。
+  **1 のハングの再現確認は再起動の後**(固まっても影響の出ない形で 1 回だけ。exFAT のイメージは並列エージェントに任せない)。
+- 2・3・4: `FileUndoResult.stopped(succeeded:failures:)` / `FileUndoOutcome.cancelled(operationName:failures:)`。`TransferUndo.undo` は `Undone`(結果 + 片付いた受領書の添字)を返し、
+  `MoveFilesCommand` は止めたとき片付いた受領書を外す。`putBack` は受領書を先に見る。Composite は戻し終えた子の `hasEffect` を落とし、子の `.stopped`・中止の例外で止める。
+  `FileCommandStack.undo` は `.stopped` を履歴へ戻す。`redo` は効果があるときだけ取り消しの履歴へ、効果の無い中止(`.partial(_, _, true)`・投げた中止)はやり直しの履歴へ戻す。
+  `run` は `CompositeRollbackError` でやり直し先を捨てる(低)。`runUndoOrRedo` の「中止なら `.failed` を黙る」を外した(中止を見ないコマンドの中止ボタンはそのまま出る)。
+- 6: 転送のループで `placed` を足していく。7: `ZipCompressor.endOfCentralDirectoryIsPresent(descriptor:)`(末尾 65557 バイトの窓)を開き直しの前に。
+- 8: `twoLineName` は字の幅の合計(`characterWidth`、1 字ずつ覚える)が `width * 2 * 1.05 + 空白 2 つ + 4` を超える長さを測らない。scratchpad の再現で
+  400 通り(ラテン・かな漢字・幅の違う字、幅 60〜272)で結果が一致、`boundingRect` の回数は 30445 → 2342。ピンチ中の `iconSize` の `UserDefaults` 書き込みはそのまま。
+- 9: `FileBrowserState.didDeferPendingRequests`(持ち越しは 1 回)。フォルダが変わったら `pendingSelection` を捨てる(低)。自動テストは足していない(読み込み中の旗を作れない)。
+- 10: `DatalessFiles.treeContainsDataless`(`lstat` + `readdir`)をフォルダの本の `BookLoader.load` の前に。
+- 11・12: アイコン表示の `displayedFolder`(ドロップ・背景メニュー・絵の種類の判定)、編集中にフォルダが変わったら非同期で確定、確定は今の一覧に無ければ始めた時点の
+  `FileBrowserEntry` で。`FileBrowserIconItem.cancelThumbnailRequest()` を `didEndDisplaying` と `dismantleNSView`(見えているアイテム)で。`didEndDisplaying` の確定は非同期(低)。
+  `beginEditing` が焦点を移せなければ編集中の印を戻す(低)。リスト(`FileBrowserListView`)も `displayedFolder` と、フォルダが変わったら表へ焦点を戻して確定。
+- 13: `FileBrowserOperations.undo(shownTitle:)` / `redo(shownTitle:)`、メニューのボタンが表示中の題を渡す(名前が同じ別の操作は見分けない)。
+- 低で直したもの: QuickLook の要求を戻し終えていたら出さない・出した直後に戻し終えていたら取り消す(`FirstResult.hasFinished`)、置き換えで外したロックを残す退避で掛け直す、
+  `copyOnce` が木を歩く途中の中止を失敗でなく中止で返す、並んでいる操作が終わるまで `FileBrowserOperations` と `FileBrowserState` を持つ(`enqueue`)。
+- テスト: `FileOperationServiceTests.removingATransferredSourceIncludesAppleDoubleNames` / `removingATransferredSourceKeepsFilesChangedAfterTheCopyStarted`、
+  `FileCommandStackTests.stoppedUndoAndCancelledRedoStayInHistory`、`FileCommandsTests.stoppedMoveUndoKeepsTheRestUndoable`(進捗の「1 件済んだ」で中止を立てる)、
+  `moveUndoCanBeCancelledAndRedoUsesAFreshCancellation` を `.stopped` に、`ZipCompressorTests.verificationRejectsATruncatedArchive` に EOCD の窓。
+- **残した「低」**: FSEvents の `SinceNow` での取りこぼし、ツリーのボリュームの Node の使い回し、`mayReadChild` が `~/Library/Containers` などを読む(推定)、
+  QuickLook の期限切れの要求の積もりと期限の `Task.sleep`、キャッシュの「削除」の最中の書き込み、アプリのアイコンの待ちが取り消されない、`mouseDown` の添字を `super` の前に取る、
+  読み飛ばすエントリの実際の伸長に上限が無い(フォークに口が要る)、写した後の `treeSummary` が中止を見ない、同じ宛先への「両方残す」の同時実行、
+  `isLocal` がパスの書き方に依る、中にマウントポイントを含むフォルダの別ボリュームへの移動、`isSingleBookFolder` がネットワークでも子を全部読む、
+  中止を見ないコマンドの取り消しにも中止ボタンが出る。
+- **再起動の後(2026-09-15)**: スキームを通した Debug の全テスト **1338 件・124 suite が通った**(使い捨てボリュームの 2 suite を含む。ボリュームは外れ、U 状態のプロセスも無し)。
+- **次にやること**: (1) 1 のハングの再現確認(ユーザー指示でコミットの後に行う。結果はこの節の下に足す)、(3) 実機: 取り消しの中止と続き、
+  名前の編集中の ⌘[、長い名前のフォルダでのピンチ、`heap` でウインドウを閉じた後に `FileBrowserOperations` / `FileBrowserState` が(並んだ操作の後で)残らないこと。
+  `scripts/ci/check-all.sh` は通った(2026-09-15)。
+
 ---
 
 ## 触るファイル(見積り)

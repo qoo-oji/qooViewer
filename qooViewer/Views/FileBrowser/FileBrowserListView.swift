@@ -200,6 +200,9 @@ struct FileBrowserListView: NSViewRepresentable {
         private var appliedCutPaths: Set<String> = []
         /// 名前の編集中に表の描き直しを待たせた(編集が終わったら取り込んで描き直す)。
         private var needsReloadAfterEditing = false
+        /// いま表に出している一覧のフォルダ(最後に一覧を取り込んだ時点の `state.currentFolder`)。**表全体へのドロップ・背景のメニューはこれを使う**
+        /// (2026-09-15 の 3 回目の監査。名前の編集中は取り込みを止めるので、`state.currentFolder` は画面と違うフォルダを指しうる)。
+        private var displayedFolder: URL?
         /// Esc で編集を取りやめた(確定の通知を名前の変更として扱わない)。
         private var isCancellingEdit = false
         /// 編集の後始末の最中(`finishEditing` が欄を表示名へ戻してから焦点を表へ返すので、そこで届く 2 度目の
@@ -242,8 +245,17 @@ struct FileBrowserListView: NSViewRepresentable {
             // ウインドウの操作)と、確定の `table.row(for:)`(表に出ている古い行番号)で新しい `entries` を引き、**別の
             // ファイルの名前を変えた**。選択・スクロールの反映も同じ添字ずれを起こすので、まとめて `finishEditing` まで待たせる。
             if isEditingName {
-                if needsReload || view.state.entriesRevision != revision || view.state.cutPaths != appliedCutPaths {
+                let folderChanged = view.state.currentFolder != displayedFolder
+                if needsReload || folderChanged || view.state.entriesRevision != revision || view.state.cutPaths != appliedCutPaths {
                     needsReloadAfterEditing = true
+                }
+                // 編集中に表示するフォルダが変わった(⌘[・戻るボタン)なら、表へ焦点を戻して確定させる(`controlTextDidEndEditing` が打った名前で
+                // 変え、待たせていた取り込みをする。2026-09-15 の 3 回目の監査)。状態を変えるので SwiftUI の更新の外で。
+                if folderChanged {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, let table = self.table, self.isEditingName else { return }
+                        table.window?.makeFirstResponder(table)
+                    }
                 }
                 return
             }
@@ -258,9 +270,10 @@ struct FileBrowserListView: NSViewRepresentable {
                 appliedCutPaths = state.cutPaths
                 needsReload = true
             }
-            if state.entriesRevision != revision {
+            if state.entriesRevision != revision || state.currentFolder != displayedFolder {
                 revision = state.entriesRevision
                 entries = state.entries
+                displayedFolder = state.currentFolder
                 needsReload = true
             }
             if needsReload {
@@ -436,7 +449,7 @@ struct FileBrowserListView: NSViewRepresentable {
             let icons = FileBrowserListApplicationIcons.shared
             if let cached = icons.cachedIcon(for: entry) { return cached }
             guard FileBrowserThumbnailProvider.kind(
-                for: entry, currentFolder: state?.currentFolder, mountTable: .current()
+                for: entry, currentFolder: displayedFolder, mountTable: .current()
             ) == .application else { return typeIcon }
             let id = entry.id
             icons.load(entry) { [weak self] image in
@@ -503,7 +516,7 @@ struct FileBrowserListView: NSViewRepresentable {
                 // フォルダの行の上でなければ、表全体(表示中のフォルダ)を受け口として強調する。
                 tableView.setDropRow(-1, dropOperation: .on)
             }
-            let (decision, _) = actions.dropDecision(for: info, into: folder ?? state?.currentFolder)
+            let (decision, _) = actions.dropDecision(for: info, into: folder ?? displayedFolder)
             let operation = decision.dragOperation(sourceMask: info.draggingSourceOperationMask)
             (tableView as? FileBrowserTableView)?.isWholeTableDropTarget = folder == nil && !operation.isEmpty
             return operation
@@ -515,7 +528,7 @@ struct FileBrowserListView: NSViewRepresentable {
         ) -> Bool {
             (tableView as? FileBrowserTableView)?.isWholeTableDropTarget = false
             guard let actions else { return false }
-            let destination = dropFolder(row: row, operation: dropOperation) ?? state?.currentFolder
+            let destination = dropFolder(row: row, operation: dropOperation) ?? displayedFolder
             let (decision, urls) = actions.dropDecision(for: info, into: destination)
             actions.performDrop(decision, urls: urls)
             return decision.isAccepted
@@ -571,7 +584,7 @@ struct FileBrowserListView: NSViewRepresentable {
                 return
             }
             let clicked = table.clickedRow
-            let folder = state?.currentFolder
+            let folder = displayedFolder
             guard clicked >= 0, entries.indices.contains(clicked) else {
                 menuBuilder.rebuild(
                     menu, for: FileBrowserMenuContext(kind: .background, entries: [], folder: folder),

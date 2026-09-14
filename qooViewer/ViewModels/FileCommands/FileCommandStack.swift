@@ -36,7 +36,14 @@ final class FileCommandStack: ObservableObject {
     /// (捨てると、動いたファイルを戻す手段が無くなる)。
     @discardableResult
     func run(_ command: any FileCommand) async throws -> FileCommandResult {
-        let result = try await command.execute()
+        let result: FileCommandResult
+        do {
+            result = try await command.execute()
+        } catch let error as CompositeRollbackError {
+            // 中止したが済んだ子を戻しきれなかった ―― ファイルは変わっているので、古いやり直し先は捨てる(2026-09-15 の 3 回目の監査)。
+            redoStack.removeAll()
+            throw error
+        }
         await playCompletionSound(for: command, result: result)
         if result.hasEffect {
             // **取り消せない操作でも、効果があればやり直し先は捨てる**(2026-09-14 の 2 回目の監査。以前は積まない操作では残したので、
@@ -78,6 +85,10 @@ final class FileCommandStack: ObservableObject {
                 // ⌘Z で届かなくなる。
                 if canRetry { undoStack.append(command) }
                 return .failed(operationName: command.displayName, reason: reason, canRetry: canRetry)
+            case let .stopped(_, failures):
+                // 中止で止めた。コマンドは戻した分を外してあるので、残りを取り消せるよう履歴へ戻す(2026-09-15 の 3 回目の監査)。
+                undoStack.append(command)
+                return .cancelled(operationName: command.displayName, failures: failures)
             }
         } catch {
             return .failed(operationName: command.displayName, reason: error.localizedDescription)
@@ -90,20 +101,39 @@ final class FileCommandStack: ObservableObject {
         do {
             let result = try await command.redo(in: context)
             await playCompletionSound(for: command, result: result)
-            undoStack.append(command)
+            // **効果があったときだけ取り消しの履歴へ**(2026-09-15 の 3 回目の監査。以前は中止で 0 件でも積み、⌘Z が「取り消すものが
+            // ありません」になった)。何も起きずに中止したなら、もう一度やり直せるようやり直しの履歴へ戻す。
+            if result.hasEffect {
+                undoStack.append(command)
+            } else if case .partial(_, _, true) = result {
+                redoStack.append(command)
+            }
             switch result {
             case .success:
                 return .complete(operationName: command.displayName)
-            case let .partial(succeeded, failures, _):
+            case let .partial(_, failures, true):
+                // 利用者の中止は「一部だけやり直した」として見せない(手を付けなかった項目は並べない)。
+                return .cancelled(operationName: command.displayName, failures: failures.filter { $0.reason != Self.notProcessedReason })
+            case let .partial(succeeded, failures, false):
                 return .partial(operationName: command.displayName, succeeded: succeeded, failures: failures)
             }
         } catch {
+            if Self.isCancellation(error) {
+                // 投げた中止は何も残していない(まとめた操作は巻き戻してから投げる)。もう一度やり直せる。
+                redoStack.append(command)
+                return .cancelled(operationName: command.displayName, failures: [])
+            }
             return .failed(operationName: command.displayName, reason: error.localizedDescription)
         }
     }
 
     /// 利用者自身の中止か(失敗として見せない)。ゴミ箱の無い場所で `NSWorkspace.recycle` が出す OS の確認を
     /// キャンセルすると `NSUserCancelledError` が返る(qooLibrary 実測)ので、それも含める。
+    /// `FileCommandResult.from` が手を付けなかった項目に付ける理由。
+    nonisolated static var notProcessedReason: String {
+        String(localized: "Not processed.", language: AppLanguage.currentLocale)
+    }
+
     nonisolated static func isCancellation(_ error: any Error) -> Bool {
         if error is CancellationError { return true }
         let nsError = error as NSError

@@ -276,6 +276,26 @@ nonisolated enum DatalessFiles {
         return info.st_flags & UInt32(SF_DATALESS) != 0
     }
 
+    /// `root` 自身か、その中(リンクの先へは入らない)に実体が手元に無い項目があるか。**`lstat` と `readdir` だけで歩く**(実体を落としてこない)。
+    /// 読めないフォルダは飛ばす。
+    static func treeContainsDataless(_ root: URL) -> Bool {
+        var pending = [root.path]
+        while let path = pending.popLast() {
+            var info = stat()
+            guard lstat(path, &info) == 0 else { continue }
+            if info.st_flags & UInt32(SF_DATALESS) != 0 { return true }
+            guard info.st_mode & S_IFMT == S_IFDIR, let directory = opendir(path) else { continue }
+            defer { closedir(directory) }
+            while let entry = readdir(directory) {
+                let name = withUnsafeBytes(of: entry.pointee.d_name) { raw in
+                    String(decoding: raw.prefix(Int(entry.pointee.d_namlen)), as: UTF8.self)
+                }
+                if name != ".", name != ".." { pending.append(path + "/" + name) }
+            }
+        }
+        return false
+    }
+
     /// `body` の間だけ、**このスレッドの**読み取りが追い出されたファイルを落としてこないようにする
     /// (`setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD, …_OFF)`)。そういうファイルの読み取りは
     /// 失敗する。FileIO の借りたスレッドは使い回されうるので、終わったら元の方針へ戻す。

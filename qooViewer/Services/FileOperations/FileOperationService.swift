@@ -349,6 +349,9 @@ actor FileOperationService {
         var firstError: (any Error)?
         /// 「以降すべてに適用」で決まった答え。この 1 回の操作の中だけで覚える。
         var blanketDecision: ConflictDecision?
+        /// この操作で置いた項目の実体(衝突の判定に使う)。**足していく**(2026-09-15 の 3 回目の監査。以前は項目ごとに受領書全部から
+        /// 作り直していたので、項目数の 2 乗 ―― 数万件の移動で数十秒を集合作りに使った)。
+        var placed = Set<FileIdentity>()
 
         for (index, item) in items.enumerated() {
             if options.cancellation.isRequested || Task.isCancelled {
@@ -359,7 +362,6 @@ actor FileOperationService {
             tracker.startItem(item)
             let target = folder.appendingPathComponent(item.lastPathComponent)
             do {
-                let placed = Set(outcome.receipts.compactMap(\.identity))
                 let resolution = try await resolveDestination(
                     item, target, decision: blanketDecision ?? ConflictDecision(options.conflictPolicy), options: options,
                     isMove: isMove, placedByThisOperation: placed, environment: environment
@@ -379,6 +381,7 @@ actor FileOperationService {
                     break
                 }
                 outcome.receipts.append(carried.receipt)
+                if let identity = carried.receipt.identity { placed.insert(identity) }
                 tracker.finishItem()
                 if let problem = carried.problem {
                     // 写しは宛先に揃っている(受領書は返した)が、元を消せなかった・置き換えた元をゴミ箱へ送れなかった。
@@ -674,6 +677,8 @@ actor FileOperationService {
                 replacedItemKept = FileOperationError.replacedItemKept(
                     backup: backup.deletingLastPathComponent(), target: resolved.target
                 ).localizedDescription
+                // 外したロックは残す退避の上で掛け直す(2026-09-15 の 3 回目の監査。起動時の復旧はロックを知らない)。
+                if resolved.unlockedReplaced { setLocked(backup, true) }
             } else if replacedInTrash == nil {
                 // 消す。**中にロックされた項目があれば、許しがあるときだけ外してから**(無ければ消し始めない ――
                 // 途中で止まって半分だけ消えた木を残すより、記録ごと残して次の起動で知らせるほうがよい)。
@@ -708,6 +713,8 @@ actor FileOperationService {
     private nonisolated static func restoreReplacedItem(_ resolved: ResolvedDestination, journal: ReplaceBackupJournal) throws {
         guard let backup = resolved.backupOfReplaced else { return }
         if exclusiveRename(from: backup, to: resolved.target) != 0 {
+            // 戻せずに退避を残すなら、外したロックはそこで掛け直す(3 回目の監査)。
+            if resolved.unlockedReplaced { setLocked(backup, true) }
             throw FileOperationError.replaceBackupOrphaned(backup: backup.deletingLastPathComponent(), target: resolved.target)
         }
         if resolved.unlockedReplaced { setLocked(resolved.target, true) }
@@ -727,10 +734,12 @@ actor FileOperationService {
         // **運ぶ前後で元が変わっていないことは FileCopyEngine.copy が置く前に確かめる。** 書き込み中のファイル(ダウンロード中など)を
         // 運ぶと copyfile はその時点の姿を写して成功を返し、元を消すと書き足された分が永久に失われる
         // (72.3MB を写したあと元は 84.9MB まで伸びた。qooLibrary 実測)。
+        // 写し始める時刻。元の削除は、これより後に変わった元の項目を消さない(`removeTransferredSource`。ネットワークの元はサーバの時計なので見ない)。
+        let copyStarted = MountTable.current().isLocal(source) ? currentRealTime() : nil
         let outcome = try FileCopyEngine.copy(from: source, to: target, allowsCloning: allowsCloning, onBytesCopied: onBytesCopied)
         guard case .completed = outcome else { return outcome }
         do {
-            try removeTransferredSource(source, copiedTo: target)
+            try removeTransferredSource(source, copiedTo: target, unchangedSince: copyStarted)
         } catch {
             // **元を消し始めたあとは、写した側を絶対に消さない。** `removeItem` は木の削除が途中で失敗しても消した分を
             // 戻さないので、ここで宛先を片付けると元からも宛先からも兄弟が消える(2026-09-14 の監査で実測: `uappnd` の
@@ -793,10 +802,25 @@ actor FileOperationService {
     /// 他のアプリの書き出し)も消え、どこにも残らなかった。写した先に無い項目が残れば、その親の rmdir が ENOTEMPTY で断るので、元は残り
     /// 「元を消せなかった」として伝わる(両方に残る側に倒れる)。種類が入れ替わった項目にも触らない。**リンクは辿らない**(lstat・unlink)。
     /// 最初の失敗で止める(`removeItem` と同じ。消した分は写した先にある)。
-    nonisolated static func removeTransferredSource(_ source: URL, copiedTo copy: URL) throws {
+    ///
+    /// **名前は `readdir` で取る**(2026-09-15 の 3 回目の監査)。`FileManager.contentsOfDirectory` は APFS の上でも `._*` を返さない(実測)ので、
+    /// 以前は元の `._` ファイルが消す対象に入らず、`._` だけが残ったフォルダへ `rmdir` を呼んでいた(カーネルが孤立した AppleDouble を
+    /// 片付ける経路。exFAT の使い捨てボリュームでその `rmdir` が戻らなくなり、Finder ごと固まった ―― 原因は未確定)。
+    /// **フォルダは中が空だと確かめてから `rmdir` する**(空でなければ呼ばずに ENOTEMPTY で止める)。`._` は同じフォルダの中で最後に消す
+    /// (本体を消すと対の `._` もカーネルが消すので、先に `._` だけを消して本体の拡張属性を失う形を作らない)。
+    ///
+    /// - Parameter unchangedSince: 写し始めた時刻。**これより後に状態が変わった(ctime)元のファイル・リンクは消さずに止める**
+    ///   (3 回目の監査。`MoveVerification` は置く前に 1 回見るだけなので、その後の保存・ダウンロードの完了を消していた。
+    ///   写している最中に変わったものも、写しが新しい姿か分からないので残す側に倒す)。フォルダの ctime は自分が中を消すと変わるので見ない。
+    ///   nil なら見ない(元がネットワークにあり、時計がサーバのもの)。同じ木の中のハードリンクの兄弟は、片方を消すと残りの ctime も変わるので
+    ///   失敗として残る(残す側に倒れるだけ)。
+    nonisolated static func removeTransferredSource(_ source: URL, copiedTo copy: URL, unchangedSince: timespec? = nil) throws {
         var info = stat()
         guard lstat(source.path, &info) == 0 else { return }
         guard info.st_mode & S_IFMT == S_IFDIR else {
+            if let unchangedSince, isLater(info.st_ctimespec, than: unchangedSince) {
+                throw FileOperationError.sourceChangedDuringOperation(source)
+            }
             try removeAbsorbingTransientFailure(at: source)
             return
         }
@@ -812,12 +836,47 @@ actor FileOperationService {
             guard isDirectory == (copied.st_mode & S_IFMT == S_IFDIR) else { continue }
             if isDirectory, !expanded {
                 pending.append((relative, true))
-                let names = try FileManager.default.contentsOfDirectory(atPath: copyPath)
+                // 積む順の逆に取り出されるので、`._` を先に積んで後に消す。
+                let names = try directoryEntryNames(atPath: copyPath).sorted { $0.hasPrefix("._") && !$1.hasPrefix("._") }
                 pending.append(contentsOf: names.map { (relative.isEmpty ? $0 : relative + "/" + $0, false) })
                 continue
             }
+            if isDirectory {
+                guard try directoryEntryNames(atPath: sourcePath).isEmpty else {
+                    throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENOTEMPTY), userInfo: [NSFilePathErrorKey: sourcePath])
+                }
+            } else if let unchangedSince, isLater(original.st_ctimespec, than: unchangedSince) {
+                throw FileOperationError.sourceChangedDuringOperation(URL(fileURLWithPath: sourcePath))
+            }
             try removeEntryAbsorbingTransientFailure(sourcePath, isDirectory: isDirectory)
         }
+    }
+
+    /// フォルダの中の名前を `readdir` で(`.` と `..` を除き、**`._*` も含めて**)。開けなければ errno で投げる。
+    nonisolated static func directoryEntryNames(atPath path: String) throws -> [String] {
+        guard let directory = opendir(path) else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno), userInfo: [NSFilePathErrorKey: path])
+        }
+        defer { closedir(directory) }
+        var names: [String] = []
+        while let entry = readdir(directory) {
+            let name = withUnsafeBytes(of: entry.pointee.d_name) { raw in
+                String(decoding: raw.prefix(Int(entry.pointee.d_namlen)), as: UTF8.self)
+            }
+            if name != ".", name != ".." { names.append(name) }
+        }
+        return names
+    }
+
+    /// 今の時刻(ファイルシステムの ctime と比べる)。
+    nonisolated static func currentRealTime() -> timespec {
+        var now = timespec()
+        clock_gettime(CLOCK_REALTIME, &now)
+        return now
+    }
+
+    private nonisolated static func isLater(_ time: timespec, than reference: timespec) -> Bool {
+        time.tv_sec != reference.tv_sec ? time.tv_sec > reference.tv_sec : time.tv_nsec > reference.tv_nsec
     }
 
     /// 1 項目だけを消す(フォルダは空のときだけ)。一過性の失敗の扱いは `removeAbsorbingTransientFailure` と同じ。
@@ -880,7 +939,8 @@ actor FileOperationService {
             if info.st_mode & S_IRWXU != S_IRWXU {
                 chmod(path, (info.st_mode & 0o7777) | S_IRWXU)
             }
-            guard let children = try? FileManager.default.contentsOfDirectory(atPath: path) else { continue }
+            // `._*` も拾う(`directoryEntryNames`。FileManager は返さない)。
+            guard let children = try? directoryEntryNames(atPath: path) else { continue }
             pending.append(contentsOf: children.map { (path as NSString).appendingPathComponent($0) })
         }
     }

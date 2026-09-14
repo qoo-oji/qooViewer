@@ -108,6 +108,10 @@ nonisolated enum FileUndoResult: Sendable, Equatable {
     ///   を取り除けばもう一度試せる。FileCommandStack は履歴に残す。false は相手がもう無い・別の項目に変わった
     ///   など、試し直しても戻らないもの(履歴から外す ―― 残すと、その下の古い操作まで ⌘Z で届かなくなる)。
     case impossible(reason: String, canRetry: Bool = false)
+    /// 中止ボタンで途中で止めた(2026-09-15 の 3 回目の監査)。**コマンドは戻した分を自分から外してあり**、残りをもう一度 ⌘Z で取り消せる
+    /// (FileCommandStack は取り消しの履歴へ戻す)。以前は `.partial` として履歴から外したので、100 件の移動の取り消しを 10 件で止めると
+    /// 残りの 90 件を戻す手段が無くなった。`failures` には「処理されませんでした」を含めない(名前を変えて戻した項目などだけ)。
+    case stopped(succeeded: Int, failures: [FailedItem])
 }
 
 /// 取り消し・やり直しの結果。**見せるのは呼び出し側(段階 4 の帯とアラート)**。
@@ -119,12 +123,15 @@ nonisolated enum FileUndoOutcome: Sendable, Equatable {
     case partial(operationName: String, succeeded: Int, failures: [FailedItem])
     /// - Parameter canRetry: 履歴に残したので、もう一度 ⌘Z(やり直しなら ⇧⌘Z)で試せる。
     case failed(operationName: String, reason: String, canRetry: Bool = false)
+    /// 利用者が中止した(履歴には残してある)。`failures` は止めるまでに起きた知らせるべきこと(名前を変えて戻した等)。
+    case cancelled(operationName: String, failures: [FailedItem])
 
     /// 利用者に知らせる必要があるか(成功と空振りは黙っていてよい)。**「戻せなかった」は必ず見せる。**
     var needsAttention: Bool {
         switch self {
         case .nothingToDo, .complete: false
         case .partial, .failed: true
+        case let .cancelled(_, failures): !failures.isEmpty
         }
     }
 }
@@ -211,12 +218,19 @@ final class CompositeFileCommand: FileCommand {
         var failures: [FailedItem] = []
         var changedAnything = false
         var allRetryable = true
-        for child in executed.reversed().filter(\.hasEffect).map(\.command) {
+        // **中止で止めたら、戻し終えた子を外して残りを取り消せるようにする**(`FileUndoResult.stopped`。2026-09-15 の 3 回目の監査)。
+        // 戻し終えた子は `hasEffect` を落とす(もう一度取り消しても二重に戻さない)。止まった子は自分の残りを持っている。
+        for index in executed.indices.reversed() where executed[index].hasEffect {
+            let child = executed[index].command
+            if context.cancellation.isRequested {
+                return .stopped(succeeded: succeeded, failures: failures)
+            }
             do {
                 switch try await child.undo(in: context) {
                 case .complete:
                     succeeded += 1
                     changedAnything = true
+                    executed[index].hasEffect = false
                 case let .partial(childSucceeded, childFailures):
                     succeeded += childSucceeded
                     failures += childFailures
@@ -224,8 +238,11 @@ final class CompositeFileCommand: FileCommand {
                 case let .impossible(reason, canRetry):
                     failures.append(FailedItem(name: child.displayName, reason: reason))
                     allRetryable = allRetryable && canRetry
+                case let .stopped(childSucceeded, childFailures):
+                    return .stopped(succeeded: succeeded + childSucceeded, failures: failures + childFailures)
                 }
             } catch {
+                if FileCommandStack.isCancellation(error) { return .stopped(succeeded: succeeded, failures: failures) }
                 failures.append(FailedItem(name: child.displayName, reason: error.localizedDescription))
                 allRetryable = false
             }
@@ -268,6 +285,9 @@ final class CompositeFileCommand: FileCommand {
                 failures += childFailures
             case let .impossible(reason, _):
                 failures.append(FailedItem(name: done.command.displayName, reason: reason))
+            case let .stopped(_, childFailures):
+                // 巻き戻しは中止の旗を持たない(`undo()`)ので来ないが、来たら戻しきれていない。
+                failures += childFailures
             }
         }
         if !failures.isEmpty { throw CompositeRollbackError(operationName: displayName, failures: failures) }

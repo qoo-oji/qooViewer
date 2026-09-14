@@ -1092,7 +1092,7 @@ struct QooViewerApp: App {
                     if Self.isEditingText {
                         NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
                     } else {
-                        focusedAppState?.fileBrowser?.operations.undo()
+                        focusedAppState?.fileBrowser?.operations.undo(shownTitle: undoTitle)
                     }
                 }
                 .keyboardShortcut("z", modifiers: .command)
@@ -1102,7 +1102,7 @@ struct QooViewerApp: App {
                     if Self.isEditingText {
                         NSApp.sendAction(Selector(("redo:")), to: nil, from: nil)
                     } else {
-                        focusedAppState?.fileBrowser?.operations.redo()
+                        focusedAppState?.fileBrowser?.operations.redo(shownTitle: redoTitle)
                     }
                 }
                 .keyboardShortcut("z", modifiers: [.command, .shift])

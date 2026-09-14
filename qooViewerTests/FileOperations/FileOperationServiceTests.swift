@@ -560,6 +560,60 @@ struct FileOperationServiceTests {
         #expect(!FileOperationService.itemExists(at: source))
     }
 
+    @Test("別ボリュームへ写した元の `._` ファイルも消し、空でないフォルダには rmdir を呼ばない")
+    func removingATransferredSourceIncludesAppleDoubleNames() throws {
+        // 3 回目の監査 1: FileManager.contentsOfDirectory は `._*` を返さないので、以前は `._` だけが残ったフォルダへ rmdir を呼んでいた。
+        let source = try temporary.directory("appledouble/src/Series")
+        _ = try write("1", to: "appledouble/src/Series/01.jpg")
+        _ = try write("meta", to: "appledouble/src/Series/._orphan")
+        _ = try write("meta", to: "appledouble/src/Series/inner/._only")
+        let copy = try temporary.directory("appledouble/dst/Series")
+        _ = try write("1", to: "appledouble/dst/Series/01.jpg")
+        _ = try write("meta", to: "appledouble/dst/Series/._orphan")
+        _ = try write("meta", to: "appledouble/dst/Series/inner/._only")
+        #expect(try FileOperationService.directoryEntryNames(atPath: source.path).sorted() == ["._orphan", "01.jpg", "inner"])
+
+        try FileOperationService.removeTransferredSource(source, copiedTo: copy)
+        #expect(!FileOperationService.itemExists(at: source))
+
+        // 写した先に無い `._` が残っていれば、rmdir の前に ENOTEMPTY で止まる。
+        let second = try temporary.directory("appledouble/src2/Series")
+        _ = try write("meta", to: "appledouble/src2/Series/._arrived")
+        let secondCopy = try temporary.directory("appledouble/dst2/Series")
+        #expect(throws: (any Error).self) { try FileOperationService.removeTransferredSource(second, copiedTo: secondCopy) }
+        #expect(FileOperationService.itemExists(at: second.appendingPathComponent("._arrived")))
+    }
+
+    @Test("別ボリュームへ写し始めた後に変わった元のファイルは、元の削除で消さない")
+    func removingATransferredSourceKeepsFilesChangedAfterTheCopyStarted() throws {
+        // 3 回目の監査 5: 置く前の検証の後に保存・ダウンロードの完了で書き換わった元を消していた。
+        let source = try temporary.directory("changed/src/Series")
+        _ = try write("1", to: "changed/src/Series/01.cbz")
+        let saved = try write("old", to: "changed/src/Series/02.cbz")
+        let copy = try temporary.directory("changed/dst/Series")
+        _ = try write("1", to: "changed/dst/Series/01.cbz")
+        _ = try write("old", to: "changed/dst/Series/02.cbz")
+        let started = FileOperationService.currentRealTime()
+        Thread.sleep(forTimeInterval: 0.01)
+        try Data("new version".utf8).write(to: saved)
+
+        #expect(throws: (any Error).self) {
+            try FileOperationService.removeTransferredSource(source, copiedTo: copy, unchangedSince: started)
+        }
+        #expect(try read(saved) == "new version")
+
+        // 1 ファイルだけを運んだときも同じ。
+        let single = try write("x", to: "changed/single.cbz")
+        let singleCopy = try write("x", to: "changed/dst/single.cbz")
+        let before = FileOperationService.currentRealTime()
+        Thread.sleep(forTimeInterval: 0.01)
+        try Data("y".utf8).write(to: single)
+        #expect(throws: (any Error).self) {
+            try FileOperationService.removeTransferredSource(single, copiedTo: singleCopy, unchangedSince: before)
+        }
+        #expect(FileOperationService.itemExists(at: single))
+    }
+
     // MARK: - ゴミ箱・完全削除
 
     @Test("ゴミ箱へ送って戻す")
