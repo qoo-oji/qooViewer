@@ -16,7 +16,7 @@
 | ウェルカム画面の表示の状態 | UserDefaults(`qooViewer.welcome.*`) | `WelcomeLibraryState` | 選択中のライブラリ・並び順2つ・大きさ2つ・本棚/ファイルブラウザのモード。`qooViewer.pref.*` ではないので「初期設定に戻す」の対象外、全削除では消える |
 | ファイルブラウザの表示の状態 | UserDefaults(`qooViewer.fileBrowser.*`、リストの列の幅と並びは `NSTableView … qooViewer.fileBrowser.list`) | `FileBrowserState` | 表示形式・アイコンの大きさ・左の幅・隠したリストの列・最後に表示したフォルダ(パスだけ)・一括リネームの前回の入力(JSON)。後ろの 2 つはシークレットウインドウでは書かない。「初期設定に戻す」の対象外。並べ替えの基準と向きはサイドパネルのフォルダブラウザと共通の `qooViewer.pref.folderBrowserSortKey` / `…Direction`。→ [15](15-file-browser.md#保存するもの) |
 | よく使う項目 | UserDefaults(`qooViewer.fileBrowser.favoriteLocations`、JSON) | `FavoriteLocationStore` | パスだけ(読む権限は `FolderAccessStore`)。上限なし |
-| 「置き換える」の退避の記録 | コンテナの `Application Support/FileOperations/replace-backups.json` | `ReplaceBackupJournal` | 置き換えの最中だけ 1 件ずつあり、片付けたら消す(空ならファイルごと)。落ちて残ったものは次の起動で `ReplaceBackupRecovery` が戻す。**「すべてのデータを削除」でも消えない**(→ [15](15-file-browser.md#保存するもの)) |
+| 「置き換える」の退避の記録 | コンテナの `Application Support/FileOperations/replace-backups.json` | `ReplaceBackupJournal` | 置き換えの最中だけ 1 件ずつあり、片付けたら消す(空ならファイルごと)。落ちて残ったものは次の起動で `ReplaceBackupRecovery` が戻す。「すべてのデータを削除」で消える(終了時。→ [15](15-file-browser.md#保存するもの)) |
 | 環境設定 | UserDefaults(`qooViewer.pref.*`) | `AppPreferences` | ― |
 | 履歴 | UserDefaults(`recentBookEntries` + 旧 `recentBookBookmarks`) | `RecentFilesStore` | 環境設定「履歴の保存件数」(既定 30) |
 | フォルダのアクセス権 | UserDefaults(`qooViewer.grantedFolderBookmarks`) | `FolderAccessStore` | 全削除でも残す |
@@ -265,8 +265,8 @@ JSON 読み込みの重複判定も同じ識別子を使います。
   `persists: false` で「あるべき番号」を返すだけにし、表示用の独立コピーへ反映する
   (共有コンテキストのマネージドオブジェクトは save せずに書き換えても自動保存される)。
 - ファイルブラウザ(改善要望7)は、ファイル操作そのものは許し、よく使う項目・最後に表示したフォルダ・一括リネームの前回の入力を書かない
-  (決定事項 Q8)。**絵のディスクキャッシュ(`FileBrowserThumbnailDiskCache`)はシークレットウインドウでも書いていて、`isPrivateWindow` の
-  コメントの一覧にも載っていない**(2026-09-14 の文書化で気づいた。未決定。→ [15](15-file-browser.md#シークレットウインドウ))。
+  (決定事項 Q8)。絵のディスクキャッシュ(`FileBrowserThumbnailDiskCache`)も書かない(読むのは許す。2026-09-14 まではシークレット
+  ウインドウでも書いていた。→ [15](15-file-browser.md#シークレットウインドウ))。
 - 新しい永続化経路を足すときは、`isPrivateWindow` のコメントに列挙したうえで同じガードを入れる
   (`grep -rn "skipsPersistence\|isPrivateWindow"`)。
 
@@ -277,5 +277,5 @@ JSON 読み込みの重複判定も同じ識別子を使います。
 | 本ごとの保存データの削除 | 環境設定「リセット」→「保存データの削除」ウインドウ | 選んだ本の読書位置・ブックマーク・レイアウト・メタデータ・お気に入り・コレクションの登録(コレクション表紙も)。実在判定は3値(exists/missing/unknown)で、アクセス権が無くて確認できない本を「消えた」と誤解させない |
 | 履歴の削除 | 同「履歴の削除」ウインドウ | 選んだ履歴。ブックマークは解決しない |
 | ブックマークの全削除など | 各編集ウインドウ | ― |
-| すべてのデータを削除 | 環境設定「リセット」 | **フォルダのアクセス権を除く、このアプリがディスクに保存したすべて**(ストアの実ファイル・2つのキャッシュ・コレクション表紙の2つの保管庫・UserDefaults)。予約(`pendingFullResetDefaultsKey`)して**終了時**に実行し、次回起動時にも再確認する(開いたまま消すと didSet やウインドウ位置の保存が書き戻す)。起動時の再確認は**どのストアよりも先**(`AppStores.init` の先頭。以前は環境設定などが読み終えた後の `modelContainer` の中だけで、書き戻されて環境設定が残っていた)、対象も予約時と同じ範囲(表紙の元画像・札のキャッシュを含む)。実行前の確認と、実行後の終了は必須 |
+| すべてのデータを削除 | 環境設定「リセット」 | **フォルダのアクセス権を除く、このアプリがディスクに保存したすべて**(ストアの実ファイル・キャッシュ・コレクション表紙の2つの保管庫・ファイルブラウザの「置き換える」の退避の記録・UserDefaults)。予約(`pendingFullResetDefaultsKey`)して**終了時**に実行し、次回起動時にも再確認する(開いたまま消すと didSet やウインドウ位置の保存が書き戻す)。起動時の再確認は**どのストアよりも先**(`AppStores.init` の先頭。以前は環境設定などが読み終えた後の `modelContainer` の中だけで、書き戻されて環境設定が残っていた)、対象も予約時と同じ範囲(表紙の元画像・札のキャッシュを含む)。実行前の確認と、実行後の終了は必須 |
 | 書き出し後の後始末 | 環境設定「レイアウト」形式ごとの「保存データ/履歴: 削除」 | 書き出した本のぶんだけ |

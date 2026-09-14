@@ -34,6 +34,12 @@ import UniformTypeIdentifiers
 /// こちらは「作れなかった」とは覚えない(落としてくれば作れる)。本・画像・フォルダも同じ(`BookThumbnailer.make` が
 /// `.notDownloaded` を返す。2026-09-14 の監査 6)。よく使う項目の中の動画を先に作っておくのは
 /// `FileBrowserVideoThumbnailWarmer`(作ったものは同じディスクキャッシュに入り、ここはそれを読むだけ)。
+///
+/// ■ シークレットウインドウ(2026-09-14、ユーザー判断)
+/// シークレットウインドウのセルは `savesToDisk: false` で頼み、**作った絵をディスクキャッシュへ書かない**(本のページの
+/// サムネイルを書かないのと揃える。絵そのものが痕跡になる)。読むのは許す(何も残らない)。メモリの絵はアプリで共有する
+/// (ディスクに残らない)ので、シークレットウインドウで作った絵を通常ウインドウがメモリから受け取ったときも書かない ――
+/// 次の起動で作り直すだけ。同じ仕事を通常ウインドウのセルも待っていれば書く(`Job.savesToDisk` は待つセルの OR)。
 @MainActor
 final class FileBrowserThumbnailProvider: ObservableObject {
     /// 絵の出どころが変わった合図(コレクションの表紙ができた・変わった、キャッシュを消した)。セルの `.task(id:)` に
@@ -77,6 +83,9 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         let pixelSize: CGFloat
         var waiters: [UUID: CheckedContinuation<PagePixelBuffer?, Never>] = [:]
         var isStarted = false
+        /// 作った絵をディスクキャッシュへ書くか。待つセルのどれか 1 つでも通常ウインドウなら書く(型コメント「シークレットウインドウ」)。
+        /// 書く直前に読むので、作っている最中に加わったセルの分も効く。
+        var savesToDisk = false
 
         init(baseKey: String, memoryKey: String, source: Source, pixelSize: CGFloat) {
             self.baseKey = baseKey
@@ -170,8 +179,12 @@ final class FileBrowserThumbnailProvider: ObservableObject {
 
     /// 絵を返す。作れなければ nil。呼び出し側(セルの `.task`)が取り消されたら nil で戻る。
     ///
-    /// - Parameter pixelSize: `pixelTier(forDisplaySize:)` の段。
-    func thumbnail(for entry: FileBrowserEntry, kind: BookThumbnailer.Kind, pixelSize: CGFloat) async -> PagePixelBuffer? {
+    /// - Parameters:
+    ///   - pixelSize: `pixelTier(forDisplaySize:)` の段。
+    ///   - savesToDisk: 作った絵をディスクキャッシュへ書くか。**シークレットウインドウは false**(型コメント)。
+    func thumbnail(
+        for entry: FileBrowserEntry, kind: BookThumbnailer.Kind, pixelSize: CGFloat, savesToDisk: Bool = true
+    ) async -> PagePixelBuffer? {
         let (baseKey, source) = resolveSource(for: entry, kind: kind)
         guard !failedKeys.contains(baseKey) else { return nil }
         let memoryKey = "\(baseKey)|\(Int(pixelSize))"
@@ -185,6 +198,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
             jobs[memoryKey] = job
             queue.append(job)
         }
+        if savesToDisk { job.savesToDisk = true }
         let waiterID = UUID()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<PagePixelBuffer?, Never>) in
@@ -282,7 +296,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
                 remember(failure: baseKey)
                 return nil
             }
-            if let key { await diskCache.store(jpeg, for: key) }
+            if let key, job.savesToDisk { await diskCache.store(jpeg, for: key) }
             return pixels
 
         case .item(let url, let kind):
@@ -307,7 +321,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
             }
             switch made {
             case let .made(jpeg, pixels):
-                if let key { await diskCache.store(jpeg, for: key) }
+                if let key, job.savesToDisk { await diskCache.store(jpeg, for: key) }
                 return pixels
             case .failed:
                 remember(failure: baseKey)

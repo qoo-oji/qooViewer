@@ -233,6 +233,34 @@ struct FileBrowserThumbnailTests {
         #expect(abs((PageColorReader.number(in: try #require(fromDisk.makeImage())) ?? 0) - 1) <= 2)
     }
 
+    @Test("提供役: シークレットウインドウの頼み(savesToDisk: false)で作った絵はディスクへ書かない。ディスクの絵は読む")
+    func providerDoesNotWriteToDiskForPrivateWindows() async throws {
+        let temporary = try TemporaryDirectory("thumb-private")
+        let folder = try temporary.directory("shelf")
+        var zip = ZipFixtureBuilder()
+        zip.add("001.png", PageImageFactory.png(number: 1))
+        let url = folder.appendingPathComponent("book.cbz")
+        try zip.write(to: url)
+        let bookEntry = try entry(url, in: folder)
+        let disk = FileBrowserThumbnailDiskCache(directory: temporary.file("cache"))
+        let key = try #require(FileBrowserThumbnailKey.of(url, mountTable: MountTable.current()))
+
+        let privateProvider = FileBrowserThumbnailProvider(diskCache: disk)
+        #expect(await privateProvider.thumbnail(for: bookEntry, kind: .archive, pixelSize: 128, savesToDisk: false) != nil)
+        #expect(privateProvider.generatedCount == 1)
+        #expect(await disk.contains(key) == false)
+
+        // 通常ウインドウの頼みは書く。
+        let normalProvider = FileBrowserThumbnailProvider(diskCache: disk)
+        #expect(await normalProvider.thumbnail(for: bookEntry, kind: .archive, pixelSize: 128) != nil)
+        #expect(await disk.contains(key))
+
+        // シークレットウインドウでも、ディスクにある絵は読む(作り直さない)。
+        let anotherPrivate = FileBrowserThumbnailProvider(diskCache: disk)
+        #expect(await anotherPrivate.thumbnail(for: bookEntry, kind: .archive, pixelSize: 256, savesToDisk: false) != nil)
+        #expect(anotherPrivate.generatedCount == 0)
+    }
+
     @Test("提供役: 作れなかった絵は覚えて作り直さない。中身が変われば試し直す")
     func providerRemembersFailures() async throws {
         let temporary = try TemporaryDirectory("thumb-failure")

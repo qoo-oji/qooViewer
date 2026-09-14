@@ -389,13 +389,15 @@ struct QooViewerApp: App {
     ///   - storeURL: ストア本体のURL。nilなら実際のアプリのストア。
     ///   - domainName: 全削除で丸ごと消す`UserDefaults`のドメイン名。nilならこのアプリのもの。
     ///   - cacheDirectories: 全削除で消すディスクキャッシュとカバー画像。nilなら実際のアプリの3つ。
+    ///   - replaceBackupJournalURL: 全削除で消す「置き換える」の退避の記録。nilなら実際のアプリのもの
+    ///     (ReplaceBackupJournal.defaultStorageURL。テスト中はプロセスごとの一時フォルダを指す)。
     ///
-    ///   4つとも**テストのための口**で、既定はこれまでどおり実際のアプリのものを見る
+    ///   5つとも**テストのための口**で、既定はこれまでどおり実際のアプリのものを見る
     ///   (通常経路の差分ゼロ)。テストがこれを既定のまま呼ぶと、実物のストアとキャッシュと
     ///   環境設定を消してしまう。
     static func performPendingStoreResetIfNeeded(
         defaults: UserDefaults = .standard, storeURL: URL? = nil, domainName: String? = nil,
-        cacheDirectories: [URL]? = nil
+        cacheDirectories: [URL]? = nil, replaceBackupJournalURL: URL? = nil
     ) {
         guard defaults.bool(forKey: pendingStoreResetDefaultsKey) else { return }
         deleteStoreFiles(at: storeURL ?? modelConfiguration.url)
@@ -416,6 +418,11 @@ struct QooViewerApp: App {
         for directory in directories {
             try? FileManager.default.removeItem(at: directory)
         }
+        // 「置き換える」の退避の記録(ReplaceBackupJournal)も消す(2026-09-14、ユーザー判断)。記録が消えると、途中で落ちて
+        // 隠しフォルダ(.qooViewer-replace-<UUID>/)に残った元の項目は次の起動で戻されず、知らされもしない。それでも
+        // 「このアプリが保存したすべて」に含める。予約時(ResetDataSettingsView.performReset)には消さない ――
+        // 終了までの間に走る置き換えが記録を必要とするため。AppStores.init でこれを済ませてから ReplaceBackupRecovery が走る。
+        try? FileManager.default.removeItem(at: replaceBackupJournalURL ?? ReplaceBackupJournal.defaultStorageURL())
         // UserDefaultsのドメインを丸ごと消す(環境設定・割り当て・履歴・ウインドウの位置・
         // 表示言語のAppleLanguages上書きなど)。フォルダのアクセス権だけは控えて書き戻す。
         // 予約のキー自身もドメインごと消えるので、取り下げは要らない。

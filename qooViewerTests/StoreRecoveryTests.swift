@@ -94,6 +94,8 @@ struct StoreRecoveryTests {
         try Data("x".utf8).write(to: store)
         let cache = try temporary.directory("cache")
         try Data("x".utf8).write(to: cache.appendingPathComponent("thumbnail"))
+        let journal = temporary.file("replace-backups.json")
+        try Data("[]".utf8).write(to: journal)
 
         suite.defaults.set("gone", forKey: "qooViewer.pref.appAppearance")
         suite.defaults.set([Data([0x01])], forKey: FolderAccessStore.defaultsKey)
@@ -102,11 +104,13 @@ struct StoreRecoveryTests {
 
         QooViewerApp.performPendingStoreResetIfNeeded(
             defaults: suite.defaults, storeURL: store, domainName: suite.name,
-            cacheDirectories: [cache]
+            cacheDirectories: [cache], replaceBackupJournalURL: journal
         )
 
         #expect(FileManager.default.fileExists(atPath: store.path) == false)
         #expect(FileManager.default.fileExists(atPath: cache.path) == false)
+        // 「置き換える」の退避の記録も消える(2026-09-14、ユーザー判断)。
+        #expect(FileManager.default.fileExists(atPath: journal.path) == false)
         // ドメインごと消える(環境設定・割り当て・履歴・ウインドウの位置・予約のキー自身も)。
         #expect(suite.storedDomain["qooViewer.pref.appAppearance"] == nil)
         #expect(suite.defaults.bool(forKey: QooViewerApp.pendingFullResetDefaultsKey) == false)

@@ -295,6 +295,7 @@ struct FileBrowserIconView: View {
                 iconSize: state.iconSize,
                 provider: thumbnails,
                 revision: thumbnails.revision,
+                savesToDisk: !state.isPrivate,
                 onImageRetained: { bytes in
                     imageBudget.note(retainedBytes: bytes, minimumCellCount: minimumCellCount)
                 }

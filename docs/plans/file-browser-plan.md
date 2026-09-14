@@ -1643,11 +1643,16 @@ CI はこのブランチでは手動起動(`workflow_dispatch`)の 2026-09-13 �
 - MANUAL: 「いまの制限」に 4 項目、§26 にファイルブラウザ、§28 に Q&A 2 件、「まとめて名前を変更」の前の空行(前の箇条書きに続いてしまっていた)。
 - README: サンドボックスの節にファイルブラウザ。CHANGELOG は変えていない(利用者に見える変更が無い)。
 
-**文書化で気づいたこと(未決定。ユーザーに判断を頼む)**:
-- **ファイルブラウザの絵のディスクキャッシュは、シークレットウインドウでも書く**(`FileBrowserThumbnailProvider` はウインドウを知らない)。
-  本のページのサムネイルはシークレットウインドウで書かないので揃っていない。`AppState.isPrivateWindow` のコメントの一覧にも無い。直すなら、提供役へ
-  「ディスクへ書かない」要求を渡す(読むのは許すか・メモリの絵を通常ウインドウと共有するかも決める)。
-- 「置き換える」の記録(`replace-backups.json`)は「すべてのデータを削除」の対象外。意図の記録は無い。入れないままのほうが安全と docs に書いた。
+**文書化で気づいたこと 2 件 → ユーザーの判断で直した(2026-09-14、この節の次のコミット。「ドキュメントを更新」の指示とともにコミット・プッシュ)**:
+- **シークレットウインドウでは絵をディスクキャッシュへ書かない**(ユーザー「保存しないことが期待」)。`FileBrowserThumbnailProvider.thumbnail(…, savesToDisk:)`、
+  セルは `!state.isPrivate`。同じ仕事を待つセルの OR で書く。読むのは許し、メモリの絵は共有する(こちらで決めた)。`AppState.isPrivateWindow` のコメントに足した。
+  テスト `FileBrowserThumbnailTests.providerDoesNotWriteToDiskForPrivateWindows`。
+- **「すべてのデータを削除」で「置き換える」の記録を消す**(ユーザー「消す」)。`QooViewerApp.performPendingStoreResetIfNeeded(replaceBackupJournalURL:)` で終了時・
+  次の起動の最初に消す(予約の時点では消さない)。`StoreRecoveryTests.aFullResetKeepsOnlyTheGrantedFolders` に足した。MANUAL・CHANGELOG も更新。
+- **テストは手元で流していない**(Xcode から Debug を実行中だったため。テストホストが同じ bundle id で起動する)。scratchpad の DerivedData で
+  Debug の `build-for-testing` と CI と同じ Release のビルドが通ることだけ確かめた。なお `QOO_CI_WARNINGS_AS_ERRORS=YES` をコマンドラインで付けた
+  `build-for-testing` は、変更前の HEAD でも `BulkRenameTests`(`isRegistered` のメインアクター)と `FileBrowserVideoThumbnailTests`(冗長な `#require`)で
+  エラーになる(コマンドラインの設定がテストのターゲットにも届くため。docs/02 の「push する前に CI と同じ形で」の手順とは合っていない。未対応)。
 
 **確かめていないもの(段階 9 の検証で見る。§8.5.4 までの「確かめていないもの」を集めた)**:
 1. `heap`: ウインドウの開閉で `FileBrowserState` / `FileBrowserOperations` / `FileBrowserTableView` / `FileBrowserOutlineView` が残らない(監査 10 の修正後。
@@ -1662,7 +1667,7 @@ CI はこのブランチでは手動起動(`workflow_dispatch`)の 2026-09-13 �
 
 **次に着手する候補(順番はユーザーに選んでもらう)**:
 1. 上の「確かめていないもの」の実機検証(1〜3 は手元で、4 は利用者の手元で)
-2. シークレットウインドウの絵のディスクキャッシュをどうするか
+2. 上の 2 件の修正を含めた全テスト(Xcode の Debug を止めてから)
 
 ---
 

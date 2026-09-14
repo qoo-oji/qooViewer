@@ -34,6 +34,8 @@ final class AppState: ObservableObject {
     ///   下調べが作る進捗バー用サムネイル(PageLoader.scanPage)も同じガード)
     /// - 本の移動・リネーム追従によるbookIDの書き換え(reconcileBookIDIfMoved)や識別子の補完
     ///   (backfillIdentifiers)。これらも既存行への書き込みなので行わない
+    /// - ファイルブラウザのよく使う項目の登録・削除、最後に表示したフォルダ、一括リネームの前回の入力(FileBrowserState.isPrivate)、
+    ///   アイコン表示の絵のディスクキャッシュ(FileBrowserThumbnailProvider の savesToDisk。読むのは許す)。ファイル操作そのものは許す
     /// 既存データの**読み取り**(登録済みブックマークへのジャンプ、保存済みレイアウトでの表示、
     /// 環境設定)は通常どおり行う。書き込みを伴う操作のUI(メニュー・ツールバー・コンテキスト
     /// メニュー・サイドパネルの＋/鉛筆ボタン)は、このウインドウがフォーカス中はグレーアウトする。

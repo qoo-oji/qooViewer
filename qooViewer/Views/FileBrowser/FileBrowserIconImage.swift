@@ -22,6 +22,8 @@ struct FileBrowserIconImage: View {
     let iconSize: CGFloat
     let provider: FileBrowserThumbnailProvider
     let revision: UInt64
+    /// 作った絵をディスクキャッシュへ書くか。シークレットウインドウでは false(FileBrowserThumbnailProvider の型コメント)。
+    let savesToDisk: Bool
     /// 抱えた絵のバイト数を呼び出し側の帳簿(LazyCellImageBudget)へ伝える。
     let onImageRetained: (Int) -> Void
 
@@ -83,7 +85,7 @@ struct FileBrowserIconImage: View {
         let tier = self.tier
         let key = contentKey
         if image != nil, loadedContentKey == key, tier <= loadedTier { return }
-        let buffer = await provider.thumbnail(for: entry, kind: kind, pixelSize: tier)
+        let buffer = await provider.thumbnail(for: entry, kind: kind, pixelSize: tier, savesToDisk: savesToDisk)
         guard !Task.isCancelled else { return }
         guard let buffer, let made = buffer.makeImage() else {
             // 中身が変わって作れなくなった(画像を消した等)ときだけ種類のアイコンへ戻す。
