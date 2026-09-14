@@ -19,11 +19,17 @@ final class MoveFilesCommand: FileCommand {
     private let options: FileOperationOptions
     private let fileOps: FileOperationService
     private(set) var outcome = TransferOutcome()
+    /// false: 元のフォルダへ書けず戻せないと分かっていて、利用者が承知で移動した(FileBrowserOperations の transfer)。
+    let isUndoable: Bool
 
-    init(items: [URL], destination: URL, options: FileOperationOptions, fileOps: FileOperationService = .shared) {
+    init(
+        items: [URL], destination: URL, options: FileOperationOptions, isUndoable: Bool = true,
+        fileOps: FileOperationService = .shared
+    ) {
         self.items = items
         self.destination = destination
         self.options = options
+        self.isUndoable = isUndoable
         self.fileOps = fileOps
     }
 
@@ -34,7 +40,6 @@ final class MoveFilesCommand: FileCommand {
             : String(format: String(localized: "Move of %lld Items", language: locale), items.count)
     }
 
-    let isUndoable = true
     /// ペースト・D&D の完了音(Finder もペーストで鳴らす)。
     let completionSound: SystemSoundEffect? = .operationComplete
 

@@ -65,6 +65,37 @@ final class FileBrowserSheetPresenter: FileBrowserOperationPresenting {
         return await run(alert) == .alertFirstButtonReturn
     }
 
+    /// 元のフォルダへ書けない項目の移動(Finder などでコピーした項目の ⌥⌘V、外からのドロップ)。
+    /// 並びは「移動(既定)/ コピー / 中止」。既定を「移動」にしたのは、利用者が明示的に移動を選んだうえ、
+    /// 移動は何も失わない(戻せないのは qooViewer の ⌘Z だけで、Finder でなら戻せる)から。
+    func confirmIrreversibleMove(of urls: [URL], totalCount: Int) async -> IrreversibleMoveDecision {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = totalCount == 1
+            ? String(format: String(localized: "Moving “%@” can’t be undone.", language: locale), urls[0].lastPathComponent)
+            : String(format: String(localized: "Moving these %lld items can’t be undone.", language: locale), totalCount)
+        alert.informativeText = urls.count == totalCount
+            ? String(
+                localized: "qooViewer doesn’t have permission to write to the original folder, so the items can’t be put back. If you copy them instead, the originals stay where they are.",
+                language: locale
+            )
+            : String(
+                format: String(
+                    localized: "qooViewer doesn’t have permission to write to the original folder of %lld of these items, so they can’t be put back. If you choose Copy, only those items are copied and the rest are moved.",
+                    language: locale
+                ),
+                urls.count
+            )
+        alert.addButton(withTitle: String(localized: "Move", language: locale))
+        alert.addButton(withTitle: String(localized: "Copy", language: locale))
+        alert.addButton(withTitle: String(localized: "Stop", language: locale))
+        switch await run(alert) {
+        case .alertFirstButtonReturn: return .move
+        case .alertSecondButtonReturn: return .copy
+        default: return .stop
+        }
+    }
+
     /// 並びは「両方を残す(既定)/ 置き換える / スキップ / 中止」。Finder の既定は「置き換える」だが、
     /// Return 1 回で既存の項目がゴミ箱へ行かないよう、それまでと同じ「両方を残す」を既定のままにした。
     func resolveConflict(_ conflict: FileConflict, replacingDeletesImmediately: Bool, cancellation: Cancellation) async -> ConflictDecision {

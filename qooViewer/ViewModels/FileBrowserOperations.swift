@@ -37,6 +37,8 @@ final class FileBrowserOperations: ObservableObject {
     var pasteboard: NSPasteboard = .general
     /// ゴミ箱の有無の判定。FileIO の上で呼ばれる。
     var hasTrash: @Sendable (URL) -> Bool = { TrashAvailability.hasTrash(for: $0) }
+    /// 移動する項目を、取り消しで元のフォルダへ戻せるか。FileIO の上で呼ばれる。
+    var canPutBack: @Sendable (URL) -> Bool = { FileBrowserOperations.canPutBack($0) }
     /// 帯を出すまでの猶予(一瞬で終わる操作で帯がちらつかないように)。
     var activityRevealDelay: Duration = .milliseconds(400)
 
@@ -98,6 +100,7 @@ final class FileBrowserOperations: ObservableObject {
     /// 拡張を添えずに型のバイト列だけを置いた URL でも同じだったので、付けているのは書き手ではなくペーストボードの側。
     /// 親フォルダへの許可は付かないが、⌥⌘V の移動は通る(元の削除は項目自身の許可で足りる)。
     /// ただし**その移動の取り消しは、元のフォルダへ書けず「アクセス権がありません」で失敗する**(運んだものは宛先に残る)。
+    /// なので移動の前に確かめ、戻せない項目があれば「取り消せません」と尋ねる(`transfer` の中。2026-09-14)。
     @discardableResult
     func paste(into folder: URL, forceMove: Bool = false) -> Task<Void, Never> {
         let urls = readPasteboardURLs()
@@ -126,14 +129,38 @@ final class FileBrowserOperations: ObservableObject {
             let destinationPath = FileBrowserState.id(for: folder)
             let isInDestination = { (url: URL) in FileBrowserState.id(for: url.deletingLastPathComponent()) == destinationPath }
             // 自分のフォルダへの移動は何もしない(エンジンの決まり)ので、同じフォルダの項目は外す。
-            let movers = moves.filter { !isInDestination($0) }
+            var movers = moves.filter { !isInDestination($0) }
             let duplicates = copies.filter(isInDestination)
-            let copiers = copies.filter { !isInDestination($0) }
+            var copiers = copies.filter { !isInDestination($0) }
+            // **取り消しで戻せない移動は、先に尋ねる**(2026-09-14、ユーザー決定)。Finder などでコピーした許可の無い場所の
+            // 項目は、項目自身の許可で移動できてしまうが、元のフォルダへは書けないので ⌘Z が「アクセス権がありません」で
+            // 失敗する(paste のコメント)。「移動」なら取り消しに積まない(積むと ⌘Z が失敗の報告になるだけ)、
+            // 「コピー」なら戻せない項目だけをコピーに変える(戻せる項目は移動のまま、全体を 1 回で取り消せる)。
+            var movesAreUndoable = true
+            if !movers.isEmpty {
+                let canPutBack = self.canPutBack
+                let candidates = movers
+                let stranded = await FileIO.perform { candidates.filter { !canPutBack($0) } }
+                if !stranded.isEmpty {
+                    switch await self.presenter?.confirmIrreversibleMove(of: stranded, totalCount: movers.count + copies.count) ?? .stop {
+                    case .move:
+                        movesAreUndoable = false
+                    case .copy:
+                        let strandedSet = Set(stranded)
+                        movers.removeAll { strandedSet.contains($0) }
+                        copiers += stranded
+                    case .stop:
+                        return
+                    }
+                }
+            }
             let cancellation = Cancellation()
             let options = self.transferOptions(policy: .ask, cancellation: cancellation)
             var commands: [any FileCommand] = []
             if !movers.isEmpty {
-                commands.append(MoveFilesCommand(items: movers, destination: folder, options: options, fileOps: self.fileOps))
+                commands.append(MoveFilesCommand(
+                    items: movers, destination: folder, options: options, isUndoable: movesAreUndoable, fileOps: self.fileOps
+                ))
             }
             if !duplicates.isEmpty {
                 // 同じフォルダへのコピーは複製(「両方残す」。Finder の「のコピー」に当たる)。
@@ -146,7 +173,8 @@ final class FileBrowserOperations: ObservableObject {
             }
             guard !commands.isEmpty else { return }
             let count = moves.count + copies.count
-            let isMove = copies.isEmpty
+            // 「コピー」を選んで移動がコピーに変わったものがあれば、題は「コピー」。
+            let isMove = duplicates.isEmpty && copiers.isEmpty
             let urls = moves + copies
             let command: any FileCommand = commands.count == 1
                 ? commands[0]
@@ -384,6 +412,17 @@ final class FileBrowserOperations: ObservableObject {
 
     private static let fileURLOptions: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
 
+    /// `item` を移動したあと、取り消しで元のフォルダへ戻せるか = 元のフォルダへ書けるか。
+    ///
+    /// `access(W_OK)` はサンドボックスの判定も返す(2026-09-14 実測。Finder でコピーした項目の親フォルダは拒否、
+    /// 許可のあるフォルダは通る、で許可の有無と一致した)。**読み取り専用のボリュームは戻せる扱い**にする ――
+    /// そもそも移動が断られるので、尋ねてから失敗を報告する二度手間になる。
+    nonisolated static func canPutBack(_ item: URL) -> Bool {
+        let parent = item.deletingLastPathComponent()
+        if (try? parent.resourceValues(forKeys: [.volumeIsReadOnlyKey]))?.volumeIsReadOnly == true { return true }
+        return access(parent.path, W_OK) == 0
+    }
+
     /// カットの判定に使うパスの集合。**読み戻した URL は末尾の `/` などで `==` が外れる**(qooLibrary 実測)ので、
     /// 標準化したパスで比べる。
     nonisolated static func paths(of urls: [URL]) -> Set<String> {
@@ -492,6 +531,16 @@ struct FileBrowserProblem: Equatable {
     }
 }
 
+/// 取り消せない移動の確認への答え。
+enum IrreversibleMoveDecision: Equatable {
+    /// 移動する(取り消しには積まない)。
+    case move
+    /// 戻せない項目だけコピーに変える(元はそのまま残る)。
+    case copy
+    /// 何もしない。
+    case stop
+}
+
 /// 確認と報告を見せる相手(本番はシート、テストは偽物)。
 @MainActor
 protocol FileBrowserOperationPresenting: AnyObject {
@@ -499,6 +548,9 @@ protocol FileBrowserOperationPresenting: AnyObject {
     func confirmImmediateDeletion(of urls: [URL]) async -> Bool
     /// ロックされた項目をゴミ箱へ送る(`deletesImmediately` なら完全に削除する)か。続けてよければ true。
     func confirmLockedItems(_ urls: [URL], deletesImmediately: Bool) async -> Bool
+    /// 移動しようとした項目のうち `urls` は、元のフォルダへ書けないので取り消しで戻せない。
+    /// - Parameter totalCount: 1 回の操作で運ぶ項目の総数(題に使う。`urls` はその一部のことがある)。
+    func confirmIrreversibleMove(of urls: [URL], totalCount: Int) async -> IrreversibleMoveDecision
     /// 同じ名前の項目があった。「中止」は `cancellation.request()` してスキップを返す。
     /// - Parameter replacingDeletesImmediately: 宛先にゴミ箱が無く、「置き換える」と元の項目がすぐに消える。
     func resolveConflict(_ conflict: FileConflict, replacingDeletesImmediately: Bool, cancellation: Cancellation) async -> ConflictDecision

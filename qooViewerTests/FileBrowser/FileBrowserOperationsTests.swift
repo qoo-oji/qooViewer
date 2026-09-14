@@ -15,6 +15,8 @@ struct FileBrowserOperationsTests {
         var confirmsDeletion = false
         var confirmsLockedItems = false
         var conflictAnswer = ConflictDecision(.skip)
+        var irreversibleMoveAnswer = IrreversibleMoveDecision.stop
+        private(set) var irreversibleMovePrompts: [(urls: [URL], totalCount: Int)] = []
         private(set) var deletionPrompts: [[URL]] = []
         private(set) var lockedPrompts: [(urls: [URL], deletesImmediately: Bool)] = []
         private(set) var conflicts: [FileConflict] = []
@@ -30,6 +32,11 @@ struct FileBrowserOperationsTests {
         func confirmLockedItems(_ urls: [URL], deletesImmediately: Bool) async -> Bool {
             lockedPrompts.append((urls, deletesImmediately))
             return confirmsLockedItems
+        }
+
+        func confirmIrreversibleMove(of urls: [URL], totalCount: Int) async -> IrreversibleMoveDecision {
+            irreversibleMovePrompts.append((urls, totalCount))
+            return irreversibleMoveAnswer
         }
 
         func resolveConflict(_ conflict: FileConflict, replacingDeletesImmediately: Bool, cancellation: Cancellation) async -> ConflictDecision {
@@ -171,6 +178,79 @@ struct FileBrowserOperationsTests {
         await fixture.finish()
         #expect(!fixture.exists(file))
         #expect(fixture.names(in: fixture.other) == ["a.txt"])
+    }
+
+    // MARK: - 取り消せない移動
+
+    @Test("書けるフォルダの項目の移動は、戻せるので尋ねない")
+    func movableItemsDoNotAsk() async throws {
+        let fixture = try Fixture("fbops-putback-writable")
+        let file = fixture.root.appendingPathComponent("a.txt")
+        #expect(FileBrowserOperations.canPutBack(file))
+        fixture.state.operations.copy([fixture.entry(file)])
+        fixture.state.operations.paste(into: fixture.other, forceMove: true)
+        await fixture.finish()
+        #expect(fixture.presenter.irreversibleMovePrompts.isEmpty)
+        #expect(fixture.state.commandStack.canUndo)
+    }
+
+    @Test("元のフォルダへ書けない項目の ⌥⌘V は尋ね、「中止」なら何もしない")
+    func irreversibleMoveAsksAndStops() async throws {
+        let fixture = try Fixture("fbops-putback-stop")
+        let file = fixture.root.appendingPathComponent("a.txt")
+        fixture.state.operations.canPutBack = { _ in false }
+        fixture.presenter.irreversibleMoveAnswer = .stop
+        fixture.state.operations.copy([fixture.entry(file)])
+        fixture.state.operations.paste(into: fixture.other, forceMove: true)
+        await fixture.finish()
+        #expect(fixture.presenter.irreversibleMovePrompts.map(\.urls) == [[file]])
+        #expect(fixture.presenter.irreversibleMovePrompts.map(\.totalCount) == [1])
+        #expect(fixture.exists(file))
+        #expect(fixture.names(in: fixture.other).isEmpty)
+        #expect(!fixture.state.commandStack.canUndo)
+    }
+
+    @Test("「移動」なら移動し、取り消しには積まない(前の操作が ⌘Z の対象のまま)")
+    func irreversibleMoveIsNotStacked() async throws {
+        let fixture = try Fixture("fbops-putback-move")
+        let file = fixture.root.appendingPathComponent("a.txt")
+        fixture.state.operations.newFolder(in: fixture.sub)
+        await fixture.finish()
+        let previousTitle = fixture.state.commandStack.undoTitle
+
+        fixture.state.operations.canPutBack = { _ in false }
+        fixture.presenter.irreversibleMoveAnswer = .move
+        fixture.state.operations.drop(FileDropPlan(moves: [file], copies: []), into: fixture.other)
+        await fixture.finish()
+        #expect(fixture.presenter.irreversibleMovePrompts.count == 1)
+        #expect(!fixture.exists(file))
+        #expect(fixture.names(in: fixture.other) == ["a.txt"])
+        #expect(fixture.state.commandStack.undoTitle == previousTitle)
+        #expect(fixture.presenter.problems.isEmpty)
+    }
+
+    @Test("「コピー」なら戻せない項目だけコピーし、戻せる項目は移動のまま。1 回の取り消しで両方戻る")
+    func irreversibleMoveFallsBackToCopy() async throws {
+        let fixture = try Fixture("fbops-putback-copy")
+        let stranded = fixture.root.appendingPathComponent("a.txt")
+        let movable = fixture.sub.appendingPathComponent("b.txt")
+        try Data("b".utf8).write(to: movable)
+        fixture.state.operations.canPutBack = { $0 != stranded }
+        fixture.presenter.irreversibleMoveAnswer = .copy
+        fixture.state.operations.copy([fixture.entry(stranded), fixture.entry(movable)])
+        fixture.state.operations.paste(into: fixture.other, forceMove: true)
+        await fixture.finish()
+        #expect(fixture.presenter.irreversibleMovePrompts.map(\.urls) == [[stranded]])
+        #expect(fixture.presenter.irreversibleMovePrompts.map(\.totalCount) == [2])
+        #expect(fixture.exists(stranded), "戻せない項目の元が消えた")
+        #expect(!fixture.exists(movable))
+        #expect(fixture.names(in: fixture.other) == ["a.txt", "b.txt"])
+
+        fixture.state.operations.undo()
+        await fixture.finish()
+        #expect(fixture.exists(movable))
+        #expect(fixture.names(in: fixture.other).isEmpty)
+        #expect(fixture.presenter.problems.isEmpty)
     }
 
     @Test("同じフォルダへのペーストは尋ねずに複製する(name 2)")

@@ -308,6 +308,38 @@
         }
       }
     },
+    "Moving these %lld items can’t be undone." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moving these %lld items can’t be undone."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この %lld 項目の移動は取り消せません。"
+          }
+        }
+      }
+    },
+    "Moving “%@” can’t be undone." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Moving “%@” can’t be undone."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」の移動は取り消せません。"
+          }
+        }
+      }
+    },
     "Not processed." : {
       "localizations" : {
         "en" : {
@@ -704,6 +736,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "他のアプリからドロップしたとき"
+          }
+        }
+      }
+    },
+    "qooViewer doesn’t have permission to write to the original folder of %lld of these items, so they can’t be put back. If you choose Copy, only those items are copied and the rest are moved." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer doesn’t have permission to write to the original folder of %lld of these items, so they can’t be put back. If you choose Copy, only those items are copied and the rest are moved."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このうち %lld 項目は、元のフォルダへ書き込むアクセス権が qooViewer に無いため、元の場所へ戻せません。「コピー」を選ぶと、それらの項目だけをコピーし、残りは移動します。"
+          }
+        }
+      }
+    },
+    "qooViewer doesn’t have permission to write to the original folder, so the items can’t be put back. If you copy them instead, the originals stay where they are." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooViewer doesn’t have permission to write to the original folder, so the items can’t be put back. If you copy them instead, the originals stay where they are."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "元のフォルダへ書き込むアクセス権が qooViewer に無いため、移動した項目を元の場所へ戻せません。代わりにコピーすると、元の項目はそのまま残ります。"
           }
         }
       }
