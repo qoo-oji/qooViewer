@@ -290,6 +290,22 @@
         }
       }
     },
+    "Icon View" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Icon View"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アイコン表示"
+          }
+        }
+      }
+    },
     "Items deleted immediately can’t be restored." : {
       "localizations" : {
         "en" : {
@@ -302,6 +318,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この操作は取り消せません。"
+          }
+        }
+      }
+    },
+    "Make Thumbnails for Videos" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Make Thumbnails for Videos"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "動画のサムネイルを作る"
           }
         }
       }
@@ -450,18 +482,18 @@
         }
       }
     },
-    "Pictures of books, images and folders shown in the file browser's icon view, so a folder you have viewed before shows them without reading the books again. Kept under the limit shown, oldest first; you can turn it off or delete it in Settings ▸ Cache." : {
+    "Pictures of books, images, videos and folders shown in the file browser's icon view, so a folder you have viewed before shows them without reading the books again. Kept under the limit shown, oldest first; you can turn it off or delete it in Settings ▸ Cache." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Pictures of books, images and folders shown in the file browser's icon view, so a folder you have viewed before shows them without reading the books again. Kept under the limit shown, oldest first; you can turn it off or delete it in Settings ▸ Cache."
+            "value" : "Pictures of books, images, videos and folders shown in the file browser's icon view, so a folder you have viewed before shows them without reading the books again. Kept under the limit shown, oldest first; you can turn it off or delete it in Settings ▸ Cache."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ファイルブラウザのアイコン表示に出す本・画像・フォルダの絵。一度表示したフォルダでは本を読み直さずに出せます。表示している上限の中に収まるよう、古いものから削除されます。環境設定 ▸ キャッシュでオフにしたり削除したりできます。"
+            "value" : "ファイルブラウザのアイコン表示に出す本・画像・動画・フォルダの絵。一度表示したフォルダでは本を読み直さずに出せます。表示している上限の中に収まるよう、古いものから削除されます。環境設定 ▸ キャッシュでオフにしたり削除したりできます。"
           }
         }
       }
@@ -494,6 +526,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%@」の名前の変更"
+          }
+        }
+      }
+    },
+    "Shows a frame from each video in icon view, made by Quick Look. While qooViewer is open, thumbnails for the videos in your favorite locations and their subfolders are also made in the background, so they appear right away. Some formats, such as MKV, need a Quick Look extension from another app." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows a frame from each video in icon view, made by Quick Look. While qooViewer is open, thumbnails for the videos in your favorite locations and their subfolders are also made in the background, so they appear right away. Some formats, such as MKV, need a Quick Look extension from another app."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アイコン表示で、動画の中の 1 コマを Quick Look で作って表示します。qooViewer を開いている間は、よく使う項目とそのサブフォルダにある動画のサムネイルも裏で作っておくので、すぐに表示されます。MKV など一部の形式は、ほかのアプリの Quick Look 機能拡張が必要です。"
           }
         }
       }
@@ -722,18 +770,18 @@
         }
       }
     },
-    "The pictures of books, images and folders in the file browser's icon view are kept on your startup disk, so a folder you have already viewed shows them right away instead of reading every book again. Turning this off deletes them right away." : {
+    "The pictures of books, images, videos and folders in the file browser's icon view are kept on your startup disk, so a folder you have already viewed shows them right away instead of reading every book again. Turning this off deletes them right away." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The pictures of books, images and folders in the file browser's icon view are kept on your startup disk, so a folder you have already viewed shows them right away instead of reading every book again. Turning this off deletes them right away."
+            "value" : "The pictures of books, images, videos and folders in the file browser's icon view are kept on your startup disk, so a folder you have already viewed shows them right away instead of reading every book again. Turning this off deletes them right away."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ファイルブラウザのアイコン表示に出す本・画像・フォルダの絵を起動ディスクに保存しておき、一度表示したフォルダでは本を読み直さずにすぐ出します。オフにすると、保存してある絵はすぐに削除されます。"
+            "value" : "ファイルブラウザのアイコン表示に出す本・画像・動画・フォルダの絵を起動ディスクに保存しておき、一度表示したフォルダでは本を読み直さずにすぐ出します。オフにすると、保存してある絵はすぐに削除されます。"
           }
         }
       }

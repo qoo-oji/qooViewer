@@ -207,6 +207,15 @@ AppKit のブートストラップ(`NSApplication` + `NSHostingView`)で SwiftUI
   ファイルブラウザの絵のキャッシュ(`FileBrowserThumbnails/`)は検証で作られるので、終わったら消す。
 - 環境設定の右ペインを下まで送るには、AX で `scroll bar 1 of scroll area 1 of group 2 of splitter group 1 of group 1 of window "<画面名>"` の
   `value` を 1 にする。SwiftUI のボタンは AX の名前を持たないので、撮った画像から座標を出して `cliclick` で押す。
+- **動画の絵(段階 7b、2026-09-14)は、実物のソースを CLI と一緒にコンパイルして先に測る**。`Services/FileBrowserThumbnails/` の
+  `VideoThumbnailer.swift`・`RetaggedHEVCThumbnailLoader.swift`・`MediaContainerSniffer.swift`・`MatroskaDimensionReader.swift` と
+  `Services/FileOperations/FileIO.swift` を、`FileOperationError` だけを作り物にした `@main` のファイルと `swiftc -swift-version 6
+  -enable-upcoming-feature NonisolatedNonsendingByDefault -parse-as-library` でまとめると、QuickLook と再タグ付けの経路ごとの結果と時間が出る。
+  合成の動画は `AVAssetWriter`(H.264 / HEVC、斜めの縞にすると縦横比の潰れと上下の反転が見える)。**`hev1` は HEVC の mp4 の `hvc1` の 4 バイトを
+  書き換えるだけで再現する**。Matroska は ffmpeg が無くても、mp4 のサンプルを `AVAssetReaderTrackOutput(outputSettings: nil)` で読んで
+  EBML(Info・Tracks(`V_MPEG4/ISO/AVC` + `avcC`)・Cluster の SimpleBlock)を手で組めば QLMedia が読む。qlmanage は応答しないことがあるので使わない。
+  よく使う項目は defaults の `qooViewer.fileBrowser.favoriteLocations` に JSON(`[{"id","path"}]`)を `-data` で書けば、使い捨てボリュームのフォルダを
+  「＋」のダイアログ無しで登録できる(読めるかは Debug に残っている許可しだい)。事前生成の進みは Caches の `FileBrowserThumbnails/` の枚数で見る。
 - **使い捨てボリュームが外れないときは `lsof +D` で持ち主を見る**。ほかのアプリのサムネイルの拡張(書庫を読みに来る)が書庫を開いたままで、
   `hdiutil detach` が「リソースが使用中」になった。`-force` で外した。
 

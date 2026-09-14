@@ -82,6 +82,8 @@ final class AppStores: ObservableObject {
     /// ファイルブラウザのアイコン表示の絵(改善要望7 段階 7a)。メモリの絵と作る仕事の待ち行列をウインドウをまたいで
     /// 1 つにする。メニューバーに現れないので allObjectWillChangePublishers には足さない。
     let fileBrowserThumbnails: FileBrowserThumbnailProvider
+    /// よく使う項目の中の動画の絵を裏で先に作る役(段階 7b)。ウインドウに配らない(誰も直接は読まない)。
+    let fileBrowserVideoThumbnailWarmer: FileBrowserVideoThumbnailWarmer
 
     init() {
         // 予約された「すべてのデータを削除」の残り(終了前に落ちた場合)は、**どのストアよりも
@@ -122,6 +124,12 @@ final class AppStores: ObservableObject {
         fileBrowserThumbnails = FileBrowserThumbnailProvider(
             collectionStore: collectionStore, coverStore: collectionCoverStore
         )
+        fileBrowserThumbnails.connect(preferences: preferences)
+        fileBrowserVideoThumbnailWarmer = FileBrowserVideoThumbnailWarmer(dependencies: .live())
+        // テストの中で走る実物のアプリでは動かさない(開発機の本物のよく使う項目を読み、本物のキャッシュに書くため)。
+        if !RuntimeEnvironment.isRunningTests {
+            fileBrowserVideoThumbnailWarmer.connect(favorites: favoriteLocations, preferences: preferences)
+        }
         collectionAutoFolderScanner = CollectionAutoFolderScanner(
             collectionStore: collectionStore, coverExtractor: collectionCoverExtractor,
             folderAccess: folderAccess, preferences: preferences

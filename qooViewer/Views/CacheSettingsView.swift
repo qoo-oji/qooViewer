@@ -123,7 +123,7 @@ struct CacheSettingsView: View {
                 SettingsToggle(
                     "Cache File Browser Thumbnails on Disk",
                     isOn: $preferences.fileBrowserThumbnailCacheEnabled,
-                    help: "The pictures of books, images and folders in the file browser's icon view are kept on your startup disk, so a folder you have already viewed shows them right away instead of reading every book again. Turning this off deletes them right away."
+                    help: "The pictures of books, images, videos and folders in the file browser's icon view are kept on your startup disk, so a folder you have already viewed shows them right away instead of reading every book again. Turning this off deletes them right away."
                 )
                 SettingsSlider(
                     "Maximum Size",

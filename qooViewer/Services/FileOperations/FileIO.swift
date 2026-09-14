@@ -65,10 +65,23 @@ nonisolated enum FileIO {
         cancellation: Cancellation? = nil,
         _ body: @escaping @Sendable () -> T
     ) async -> T {
+        await perform(cancellation: cancellation, qos: .userInitiated, body)
+    }
+
+    /// 失敗しない処理を、借りるスレッドの優先度を指定して。誰にも頼まれていない裏の仕事(よく使う項目の中の動画の絵を
+    /// 先に作る。段階 7b)は `.utility` を渡す。
+    ///
+    /// - Note: 上の版に `qos` の既定値を足す形にはしない。既定値付きの引数が増えた版は、呼び出しの候補として throws の版
+    ///   より弱く数えられ、`try` の無い既存の呼び出しがすべて throws の版に解決されて通らなくなった(2026-09-14)。
+    static func perform<T: Sendable>(
+        cancellation: Cancellation? = nil,
+        qos: DispatchQoS,
+        _ body: @escaping @Sendable () -> T
+    ) async -> T {
         let scope = Cancellation(parent: cancellation)
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                submit {
+                submit(qos: qos) {
                     continuation.resume(returning: Cancellation.withScope(scope) { body() })
                 }
             }
@@ -117,8 +130,8 @@ nonisolated enum FileIO {
     ///
     /// 実行先は直列(overcommit を得る)で、使い回さない(待ち合いを作らない)。
     /// `.userInitiated`: 一覧を出す・ファイルを運ぶ、というユーザーの操作に直結する仕事なので。
-    static func submit(_ work: @escaping @Sendable () -> Void) {
-        DispatchQueue(label: "jp.qooViewer.fileIO", qos: .userInitiated).async(execute: work)
+    static func submit(qos: DispatchQoS = .userInitiated, _ work: @escaping @Sendable () -> Void) {
+        DispatchQueue(label: "jp.qooViewer.fileIO", qos: qos).async(execute: work)
     }
 
     /// 期限の発火専用。**I/O と混ぜない**(見張り役が見張りたい相手に待たされる)。

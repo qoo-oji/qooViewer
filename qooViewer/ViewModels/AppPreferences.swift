@@ -70,6 +70,7 @@ final class AppPreferences: ObservableObject {
         static let fileBrowserExternalDropAction = "qooViewer.pref.fileBrowser.externalDropAction"
         static let fileBrowserExpandsTreeToCurrentFolder = "qooViewer.pref.fileBrowser.expandsTreeToCurrentFolder"
         static let fileBrowserCompressionFormat = "qooViewer.pref.fileBrowser.compressionFormat"
+        static let fileBrowserVideoThumbnailsEnabled = "qooViewer.pref.fileBrowser.videoThumbnailsEnabled"
         static let sidePanelPosition = "qooViewer.pref.sidePanelPosition"
         static let sidePanelMode = "qooViewer.pref.sidePanelMode"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
@@ -641,6 +642,12 @@ final class AppPreferences: ObservableObject {
     /// 「圧縮」で作る書庫の拡張子(既定 zip。段階 6)。
     @Published var fileBrowserCompressionFormat: FileBrowserCompressionFormat {
         didSet { defaults.set(fileBrowserCompressionFormat.rawValue, forKey: Keys.fileBrowserCompressionFormat) }
+    }
+    /// アイコン表示で動画の絵を作るか(QuickLook。既定ON、段階 7b)。**よく使う項目の中の動画を裏で先に作っておくのも、
+    /// この 1 つで切り替える**(ユーザーの判断 2026-09-14。行を分けない)。OFF にすると動画は種類のアイコンに戻り、
+    /// 先に作る掃引も止まる(作り済みの絵はディスクキャッシュに残り、刈り込み・削除は本の絵と同じ)。
+    @Published var fileBrowserVideoThumbnailsEnabled: Bool {
+        didSet { defaults.set(fileBrowserVideoThumbnailsEnabled, forKey: Keys.fileBrowserVideoThumbnailsEnabled) }
     }
 
     /// 上段フォルダブラウザの並べ替えに必要な設定をまとめた値。DirectoryBrowser
@@ -1631,6 +1638,8 @@ final class AppPreferences: ObservableObject {
         ) ?? .openInViewer
         self.fileBrowserExpandsTreeToCurrentFolder =
             defaults.object(forKey: Keys.fileBrowserExpandsTreeToCurrentFolder) as? Bool ?? false
+        self.fileBrowserVideoThumbnailsEnabled =
+            defaults.object(forKey: Keys.fileBrowserVideoThumbnailsEnabled) as? Bool ?? true
         self.fileBrowserCompressionFormat = FileBrowserCompressionFormat(
             rawValue: defaults.string(forKey: Keys.fileBrowserCompressionFormat) ?? ""
         ) ?? .zip
@@ -2000,6 +2009,7 @@ extension AppPreferences {
                 Keys.fileBrowserExternalDropAction,
                 Keys.fileBrowserExpandsTreeToCurrentFolder,
                 Keys.fileBrowserCompressionFormat,
+                Keys.fileBrowserVideoThumbnailsEnabled,
             ]
         // 「読み込みと書き出し」はウインドウを開くボタンだけで、戻せる設定を持たない。
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
@@ -2112,6 +2122,7 @@ extension AppPreferences {
             fileBrowserExternalDropAction = source.fileBrowserExternalDropAction
             fileBrowserExpandsTreeToCurrentFolder = source.fileBrowserExpandsTreeToCurrentFolder
             fileBrowserCompressionFormat = source.fileBrowserCompressionFormat
+            fileBrowserVideoThumbnailsEnabled = source.fileBrowserVideoThumbnailsEnabled
         case .keyboard, .mouse, .modeInput, .access, .dataTransfer, .reset:
             break
         }

@@ -35,17 +35,25 @@ nonisolated enum BookThumbnailer {
         case epub
         /// 直下に画像を持つかもしれないフォルダ(持っていなければ絵は無い)。
         case folder
+        /// 動画(段階 7b)。QuickLook で作るので**ここでは作らない**(`thumbnail(of:kind:)` は nil)。
+        /// 作るのは `FileBrowserThumbnailProvider` が `VideoThumbnailLoading` で。
+        case video
     }
 
     /// 絵を作る対象か。ボリューム・パッケージ・記号リンクは作らない(リンクの先は別の場所で、
     /// その場所の読み取りの許可を持っているとは限らない)。
-    static func kind(forName name: String, isNavigableFolder: Bool, isPackage: Bool, isSymbolicLink: Bool) -> Kind? {
+    ///
+    /// - Parameter includesVideo: 動画も対象にするか(環境設定「動画のサムネイルを作る」)。
+    static func kind(
+        forName name: String, isNavigableFolder: Bool, isPackage: Bool, isSymbolicLink: Bool, includesVideo: Bool = true
+    ) -> Kind? {
         guard !isPackage, !isSymbolicLink else { return nil }
         if isNavigableFolder { return .folder }
         if isImageFile(name) { return .image }
         if isArchiveFile(name) { return .archive }
         if isEpubFile(name) { return .epub }
         if isPDFFile(name) { return .pdf }
+        if includesVideo, VideoThumbnailer.isVideoFile(name) { return .video }
         return nil
     }
 
@@ -77,6 +85,8 @@ nonisolated enum BookThumbnailer {
         case .pdf:
             guard let document = CGPDFDocument(url as CFURL), let page = document.page(at: 1) else { return nil }
             return render(page, maxPixelSize: maxPixelSize)
+        case .video:
+            return nil
         }
     }
 

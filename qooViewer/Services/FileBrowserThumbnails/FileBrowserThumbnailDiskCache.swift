@@ -99,6 +99,13 @@ actor FileBrowserThumbnailDiskCache {
         return data
     }
 
+    /// 保存してあるか(読まず、最終アクセスも触らない)。先に作っておく役(FileBrowserVideoThumbnailWarmer)が、作り済みの
+    /// 動画を飛ばすのに使う ―― 数千本を見て回るたびに JPEG を読んだり刈り込みの順番を動かしたりしない。
+    @concurrent nonisolated func contains(_ key: FileBrowserThumbnailKey) async -> Bool {
+        guard await isEnabled, let url = fileURL(for: key) else { return false }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
     @concurrent nonisolated func store(_ data: Data, for key: FileBrowserThumbnailKey) async {
         guard await isEnabled, let url = fileURL(for: key) else { return }
         do {

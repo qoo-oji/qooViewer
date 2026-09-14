@@ -133,7 +133,9 @@ Finder's measured rules (`Models/BulkRename.swift`; registered extensions, colli
 decides move/copy in one place (`FileDropPlan` + `FileBrowserDropDecision`); the right pane is covered by a drop target that refuses
 *as a target*, because a refused inner SwiftUI drop falls through to the window-wide "open book" drop target. The icon view shows
 book/image thumbnails via `FileBrowserThumbnailProvider` (one app-wide, in `AppStores`; `BookThumbnailer` reads only the first image,
-never `BookLoader.load`; disk cache `FileBrowserThumbnailDiskCache`, on by default). Design in `docs/15-file-browser.md`,
+never `BookLoader.load`; disk cache `FileBrowserThumbnailDiskCache`, on by default) and video thumbnails through QuickLook
+(`VideoThumbnailLoading`, with a `hev1` retagging fallback; `FileBrowserVideoThumbnailWarmer` pre-makes the ones under favorite
+locations, and is not connected under tests). Design in `docs/15-file-browser.md`,
 remaining stages and the handoff in `docs/plans/file-browser-plan.md`.
 `CollectionStore` is deliberately *not* in `AppStores.allObjectWillChangePublishers`
 (collections never appear in the menu bar). The favorites feature is hidden behind

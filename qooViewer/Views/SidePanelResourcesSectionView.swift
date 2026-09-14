@@ -758,7 +758,7 @@ private struct StorageSection: View, Equatable {
                     .panelOutlinedContent()
                 }
                 .lineLimit(1)
-                .help("Pictures of books, images and folders shown in the file browser's icon view, so a folder you have viewed before shows them without reading the books again. Kept under the limit shown, oldest first; you can turn it off or delete it in Settings ▸ Cache.")
+                .help("Pictures of books, images, videos and folders shown in the file browser's icon view, so a folder you have viewed before shows them without reading the books again. Kept under the limit shown, oldest first; you can turn it off or delete it in Settings ▸ Cache.")
                 DetailRow("Database", optionalSizeText(storage.databaseBytes))
                     .help("Favorites, bookmarks, reading positions, page layouts, and metadata (the SwiftData store and its write-ahead log).")
                 DetailRow("Other", optionalSizeText(storage.otherBytes))

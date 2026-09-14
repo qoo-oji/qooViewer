@@ -13,6 +13,8 @@ import SwiftUI
 /// 大きさの段(FileBrowserThumbnailProvider.pixelTier)が上がったときと、項目の中身(更新日時・サイズ)・絵の出どころ
 /// (`revision`)が変わったときに頼み直す。**持っている絵は新しい絵が届くまで手放さない**(大きさを変えるたびに種類の
 /// アイコンへ戻って点滅しないように。CollectionCoverThumbnail と同じ)。小さくする方向では読み直さない。
+/// 種類(`kind`)が変わったときも頼み直す ―― 環境設定「動画のサムネイルを作る」を OFF にすると動画の `kind` が nil になるが、
+/// 鍵に種類を入れていなかった間は `.task` が走らず、持っている絵がそのまま残った(段階 7b の実機検証で発見、2026-09-14)。
 struct FileBrowserIconImage: View {
     let entry: FileBrowserEntry
     /// 絵を作れる種類(nil なら種類のアイコンだけ)。
@@ -32,7 +34,7 @@ struct FileBrowserIconImage: View {
 
     var body: some View {
         ZStack {
-            if let image, kind != .folder {
+            if let image, let kind, kind != .folder {
                 thumbnail(image)
             } else {
                 Image(nsImage: FileBrowserIconProvider.icon(for: entry))
@@ -48,7 +50,7 @@ struct FileBrowserIconImage: View {
             }
         }
         .frame(width: iconSize, height: iconSize)
-        .task(id: "\(contentKey)|\(tier)") {
+        .task(id: "\(contentKey)|\(tier)|\(kind.map { "\($0)" } ?? "none")") {
             await load()
         }
     }

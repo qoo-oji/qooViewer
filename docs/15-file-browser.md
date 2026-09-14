@@ -14,7 +14,7 @@
 | 4 | 書く操作の UI | **4a 済・4b 実装中**(4a: コピー/カット/ペースト・ゴミ箱・新規フォルダ・名前の変更・取り消し・進捗の帯。4b: D&D・アイコン表示の名前の変更と type-select・置き換えと退避の復旧・ロックされた項目の確認・ツリーの自動展開・取り消せない移動の確認・2026-09-14 までに見つかった問題 11 件の修正 済、残りは計画 §4) |
 | 5 | 一括リネーム | **済(2026-09-14)** |
 | 6 | 圧縮・展開 | **実装済み・自動テスト済み(2026-09-14)**。実機の確認が残り(計画 §6.1) |
-| 7 | サムネイル | **7a(本・画像・画像フォルダの絵とキャッシュ)実装済み・自動テスト済み(2026-09-14)**。7b(動画・よく使う項目の配下の事前生成)は未着手 |
+| 7 | サムネイル | **7a(本・画像・画像フォルダの絵とキャッシュ)実装済み・自動テスト済み(2026-09-14)**。**7b(動画・よく使う項目の配下の事前生成)実装済み・自動テスト済み(2026-09-14)** |
 | 8〜9 | 既存機能との接続・文書 | 未着手 |
 
 ## 構成
@@ -380,11 +380,12 @@ FileOperationService+Archives}.swift`、コマンドは `CompressFilesCommand` /
 - **既知の制限**: rar・7z の記号リンクは
   中身の短いファイルとして展開される。進捗の件数はファイルの数(書庫が複数でも通しで数える)。
 
-## サムネイル(段階 7a、2026-09-14)
+## サムネイル(段階 7a・7b、2026-09-14)
 
-アイコン表示のセルに、本・画像・画像を直接持つフォルダの**中の絵**を出す(リストとツリーは種類のアイコンのまま。ユーザーの判断)。
+アイコン表示のセルに、本・画像・画像を直接持つフォルダ・動画の**中の絵**を出す(リストとツリーは種類のアイコンのまま。ユーザーの判断)。
 コードは `Services/FileBrowserThumbnails/{BookThumbnailer, FileBrowserThumbnailDiskCache, FileBrowserThumbnailProvider}.swift` と
-`Views/FileBrowser/FileBrowserIconImage.swift`。動画(QuickLook)と、よく使う項目の配下の事前生成は 7b。
+`Views/FileBrowser/FileBrowserIconImage.swift`。動画(7b)は同じフォルダの `VideoThumbnailer` / `RetaggedHEVCThumbnailLoader` /
+`MediaContainerSniffer` / `MatroskaDimensionReader` / `FileBrowserVideoThumbnailWarmer`(下の「動画」)。
 
 - **どこから持ってくるか**(決定事項 Q5): コレクションに登録済みで表紙ができている本は**その表紙**(`CollectionCoverStore` の JPEG。本は読まない)。
   無ければディスクキャッシュ、それも無ければ作ってキャッシュへ。表紙の有無は `CollectionStore.items(forBookID: entry.id)`(bookID = パス)で引き、
@@ -420,6 +421,41 @@ FileOperationService+Archives}.swift`、コマンドは `CompressFilesCommand` /
 - **並べ方**: 作る仕事は同時 4 件、待っている仕事は**後から頼まれたものから**(スクロールで画面に入ったセルが先)。同じ絵は 1 件にまとめ、
   頼んだセルが全部いなくなった仕事は始まる前なら捨てる。読み取りは `FileIO` の上(応答しない共有で協調プールを塞がない)。
   作れなかった絵(画像の無い書庫・壊れたファイル)はこの起動の間は覚えて作り直さない(鍵に更新日時とサイズを含むので、中身が変われば試し直す)。
+
+### 動画(段階 7b、2026-09-14)
+
+qooLibrary の実装(`VideoThumbnailLoading` ほか)を写した。実測の経緯はそちらと検討メモ §6.2。
+
+- **対象**: 名前の型が `UTType.movie` に準拠するファイル(`VideoThumbnailer.isVideoFile`)。**入っているアプリに左右される**(mkv は
+  mkv を扱うアプリがあるときだけ動画になる ―― 無ければどのみち絵は作れない)。環境設定「ファイルブラウザ」の**「動画のサムネイルを作る」**
+  (`fileBrowserVideoThumbnailsEnabled`、既定 ON)で、アイコン表示の絵と下の先に作る役の**両方**を切り替える(1 行にまとめたのはユーザーの判断)。
+  提供役がこの値を `includesVideo` として写して配る ―― アイコン表示に `AppPreferences` を観測させると、どの設定が変わってもグリッド全体の
+  body が作り直されるため。
+- **作り方**(`CompositeVideoThumbnailLoader`、上から順に、できたところで止まる):
+  1. `QuickLookVideoThumbnailLoader`: `QLThumbnailGenerator`(`.thumbnail`、長辺 512)。**8 秒で `cancel(request)`**(呼ばないと完了が来ず
+     グループから抜けられない)、先にできたら眠っているタイムアウト側を起こす(起こさないと成功 1 本ごとに枠を 8 秒ふさぐ)。
+     先頭 16 バイトで実体を見て(`MediaContainerSniffer`)、**拡張子と食い違うときだけ** `Request.contentType` にシステムの具体的な型を渡す
+     (`.mp4` を名乗る mkv、`.mkv` を名乗る mp4。`UTType(filenameExtension:)` は未知の拡張子にも `dyn.` の型を返すので `.movie` 準拠で弾く)。
+     実体が Matroska なら `MatroskaDimensionReader`(先頭 8MB の EBML)で縦横比を読み、要求の大きさを合わせる(QLMedia は要求の大きさへ
+     引き伸ばす)。
+  2. `RetaggedHEVCThumbnailLoader`: **`hev1` の HEVC**(AVFoundation が入口で断り、QuickLook も Finder も作れない。ffmpeg の libx265 の
+     既定)。素通しの `AVAssetReaderTrackOutput` でキーフレームを取り出し、format description の subtype だけ `hvc1` にして
+     `VTDecompressionSession` で復号する。対象外のファイルはトラックの情報を読むだけで nil。これも 8 秒の期限(`FileIO.withDeadline`)。
+- **mkv**: OS の標準では作れず、**動く QuickLook 拡張があれば出る**(qooLibrary の比較で採用できたのは QLMedia。QLVideo 3.x は拡張点が無く、
+  QLCodec-mkv は同時に頼むと絵が入れ替わり上下も逆)。拡張が無ければ種類のアイコンのまま。
+- **提供役での扱い**: 本と同じディスクキャッシュ・同じ鍵・同じ同時 4 件。コレクションの表紙は探さない。**実体が手元に無いファイル**
+  (`SF_DATALESS`。iCloud などに追い出されたもの)は作らない ―― QuickLook が読むと頼まれていないダウンロードが始まる。こちらは
+  「作れなかった」とは覚えない。作れなかった動画(拡張が無い・壊れている・8 秒を超えた)は本と同じくこの起動の間は覚える。
+- **よく使う項目の中を先に作る**(`FileBrowserVideoThumbnailWarmer`、アプリで 1 つ): よく使う項目の中(**サブフォルダも全部**。ユーザーの判断)
+  の動画を、起動している間に裏で 1 本ずつ作ってディスクキャッシュへ入れる。起動時・よく使う項目が変わったとき・「動画のサムネイルを作る」
+  かディスクキャッシュを ON にしたときに、2 秒待ってから回る(どちらかが OFF なら止まり、回らない)。`.background` の Task、借りるスレッドは
+  `.utility`(`FileIO.perform(qos:)`)、アイコン表示の 4 件とは別に最大 1 本。作り済みは JPEG を読まずに飛ばす(`diskCache.contains`)。
+  **同じ拡張子が 1 度も成功しないまま 3 回失敗したら、その掃引ではその拡張子を諦める**(覚えない ―― 次の起動でまた試すので、拡張を入れたら出る)。
+  辿らないところ: ネットワーク越し(よく使う項目そのもの・途中のマウント)、TCC の保護下の場所(**よく使う項目そのものが同じ保護下の場所の
+  中にあるときだけ辿る** ―― ホームを登録していても「デスクトップ」の中は読まない)、隠しファイル・隠しフォルダ(`~/Library` を含む)・
+  パッケージの中・記号リンクの先、実体が手元に無いファイル(失敗とも数えない)。入れ子のよく使う項目でも 1 本は 1 回。
+  **テストの中の実物のアプリでは繋がない**(`AppStores` が `RuntimeEnvironment.isRunningTests` で外す)。回っている間に増えた動画は、
+  次に回るまで(またはアイコン表示に出るまで)作らない。
 
 ## ドラッグ&ドロップ(段階4b)
 
@@ -471,11 +507,11 @@ FileOperationService+Archives}.swift`、コマンドは `CompressFilesCommand` /
 | 一括リネームの前回の入力 | `qooViewer.fileBrowser.bulkRename`(JSON) | 方式ごとの欄を別々に覚える(Finder の `BulkRename*` と同じ)。**シークレットウインドウでは書かない**(そのウインドウの間は覚える) |
 | よく使う項目 | `qooViewer.fileBrowser.favoriteLocations`(JSON) | パスだけ。「＋」は `NSOpenPanel` → `FolderAccessStore.add` → 登録。シークレットウインドウでは登録・削除させない |
 | リストの列幅・並び | `NSTableView Columns v3 qooViewer.fileBrowser.list` など | `autosaveName` |
-| 起動時のフォルダ・フォルダを上に・現在のフォルダまでツリーを展開・他のアプリからドロップしたとき・圧縮したファイルの形式 | `qooViewer.pref.fileBrowser.*` | 環境設定「ファイルブラウザ」(`SettingsPane.fileBrowser`) |
+| 起動時のフォルダ・フォルダを上に・現在のフォルダまでツリーを展開・動画のサムネイルを作る・他のアプリからドロップしたとき・圧縮したファイルの形式 | `qooViewer.pref.fileBrowser.*` | 環境設定「ファイルブラウザ」(`SettingsPane.fileBrowser`) |
 | 絵のディスクキャッシュの ON/OFF・上限 | `qooViewer.pref.fileBrowserThumbnailCacheEnabled` / `…LimitMB` | 環境設定「キャッシュ」(ページサムネイルの設定と並べる。ユーザーの判断 2026-09-14) |
 
-環境設定「ファイルブラウザ」には**いま効く行だけ**を置いた(起動時のフォルダ・フォルダを上に・現在のフォルダまでツリーを展開・他のアプリからドロップしたとき・圧縮したファイルの形式)。計画にある残りの行
-(「ファイルブラウザで開く」の行き先・動画のサムネイル)は、それを使う段階で足す。絵のキャッシュの行は環境設定「キャッシュ」に置いた。
+環境設定「ファイルブラウザ」には**いま効く行だけ**を置いた(起動時のフォルダ・フォルダを上に・現在のフォルダまでツリーを展開・動画のサムネイルを作る・他のアプリからドロップしたとき・圧縮したファイルの形式)。計画にある残りの行
+(「ファイルブラウザで開く」の行き先)は、それを使う段階で足す。絵のキャッシュの行は環境設定「キャッシュ」に置いた。
 
 ## リーク
 
@@ -500,6 +536,7 @@ FileOperationService+Archives}.swift`、コマンドは `CompressFilesCommand` /
 | `FileCommandSoundTests`(FileOperations) | 音源の実在と登録、音の割り当て、成功とやり直しだけで鳴ること |
 | `FileBrowserTreePathTests` | ツリーを現在のフォルダまで開く道筋(いちばん深い根、`/` の直下、根そのもの、名前の途中までの一致を祖先にしない、同じ深さの根、1 段の探し方)。同じファイルの `FileBrowserTreeAndIconHitTests` は FSEvents のパスの頭の揃え方とアイコン表示の名前のクリックの範囲 |
 | `FileBrowserThumbnailTests` | 絵の種類の判定(パッケージ・記号リンク・保護下の場所・ネットワーク越しのフォルダ)、台帳の全書庫で選ぶエントリが 1 ページ目と一致、zip の除外と正準順、画像の無い・壊れた書庫、フォルダの直下だけ・隠しファイル、EPUB の spine の先頭と PDF の 1 ページ目、画像の縮小、透明な地の白、鍵(名前を変えても同じ・中身が変われば別)、ディスクキャッシュの往復と OFF で消えること、提供役のメモリ・ディスクの当たり・作れなかった絵を覚える・同時の要求をまとめる・取り消し、段 |
+| `FileBrowserVideoThumbnailTests` | 動画(段階 7b): コンテナの見分け方(qooLibrary の実機の先頭バイト列)・宣言し直す型と `dyn.` の型を弾くこと、Matroska の寸法と壊れた・巨大な大きさの細工で落ちないこと、作り方の並び(QuickLook → 再タグ付け)、動画の種類と環境設定、提供役(作ってディスクへ・別の提供役はディスクから・作れなければ覚える・環境設定を写す)、先に作る役(サブフォルダまで・作り済みを飛ばす・3 回失敗した拡張子を諦める/1 度でも成功したら諦めない・ネットワーク越しと途中のマウント・実体の無いファイル・隠しフォルダ・保護下の場所・入れ子の重複・OFF・止めたら残りへ進まない)。QuickLook と VideoToolbox の実物は使わない(入っている拡張と実物の動画しだい) |
 | `FileBrowserModelTests` | `GridKeyboardNavigation`、`WindowContentRequest` の往復と `nonce`、`FavoriteLocationStore`、`WelcomeLibraryState.mode` |
 
 画面そのものは実機で確認する(→ [12](12-verification-and-debugging.md#ファイルブラウザ))。

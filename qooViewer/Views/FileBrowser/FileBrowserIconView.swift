@@ -285,7 +285,8 @@ struct FileBrowserIconView: View {
             FileBrowserIconImage(
                 entry: entry,
                 kind: FileBrowserThumbnailProvider.kind(
-                    for: entry, currentFolder: state.currentFolder, mountTable: mountTable
+                    for: entry, currentFolder: state.currentFolder, mountTable: mountTable,
+                    includesVideo: thumbnails.includesVideo
                 ),
                 iconSize: state.iconSize,
                 provider: thumbnails,

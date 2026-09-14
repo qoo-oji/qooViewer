@@ -26,11 +26,23 @@ import UniformTypeIdentifiers
 /// ■ 作れなかった絵
 /// 画像の無い書庫・壊れたファイル・読めない場所は、この起動の間は覚えて作り直さない(`failedKeys`。鍵に更新日時と
 /// サイズを含むので、中身が変われば試し直す)。永続化しない ―― 外付けを抜いていただけ、は次の起動で直る。
+/// 動画で絵を作れる QuickLook 拡張が無かった(mkv など)も同じで、拡張を入れたら次の起動から出る。
+///
+/// ■ 動画(段階 7b、2026-09-14)
+/// `VideoThumbnailLoading`(既定は QuickLook → `hev1` の再タグ付け)で作り、本と同じディスクキャッシュ・同じ枠(4 件)に載せる。
+/// 実体が手元に無いファイル(iCloud などに追い出されたもの)は作らない ―― 頼まれていないダウンロードを起こすので。
+/// こちらは「作れなかった」とは覚えない(落としてくれば作れる)。よく使う項目の中の動画を先に作っておくのは
+/// `FileBrowserVideoThumbnailWarmer`(作ったものは同じディスクキャッシュに入り、ここはそれを読むだけ)。
 @MainActor
 final class FileBrowserThumbnailProvider: ObservableObject {
     /// 絵の出どころが変わった合図(コレクションの表紙ができた・変わった、キャッシュを消した)。セルの `.task(id:)` に
     /// 入れて、変わったら頼み直させる。メモリに残っていれば頼み直しは即座に返る。
     @Published private(set) var revision: UInt64 = 0
+    /// 動画の絵を作るか(環境設定「動画のサムネイルを作る」の写し)。セルの種類の判定(`kind(for:...)`)に渡す。
+    /// **アイコン表示に AppPreferences を観測させない**ために、ここに写して配る ―― AppPreferences はどの設定が変わっても
+    /// 発火するので、観測するとグリッド全体の body がそのたびに作り直される。
+    @Published private(set) var includesVideo = true
+    private var preferencesSubscription: AnyCancellable?
 
     static let maxConcurrentJobs = 4
     nonisolated static let memoryLimitBytes = 96 * 1024 * 1024
@@ -46,6 +58,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
 
     private let memory: PagePixelCache
     private let diskCache: FileBrowserThumbnailDiskCache
+    private let videoLoader: any VideoThumbnailLoading
     private weak var collectionStore: CollectionStore?
     private let coverStore: CollectionCoverStore?
     private var collectionSubscription: AnyCancellable?
@@ -90,13 +103,16 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     /// - Parameters:
     ///   - diskCache: 既定は実物のキャッシュ。**テストは一時フォルダのものを渡す。**
     ///   - collectionStore / coverStore: 表紙を探す相手。nil なら表紙を見ない(テスト)。
+    ///   - videoLoader: 動画の絵の作り方。**テストは作り物を渡す**(実物は入っている QuickLook 拡張しだい)。
     init(
         diskCache: FileBrowserThumbnailDiskCache = .shared,
         collectionStore: CollectionStore? = nil,
         coverStore: CollectionCoverStore? = nil,
+        videoLoader: any VideoThumbnailLoading = CompositeVideoThumbnailLoader(),
         memoryLimitBytes: Int = FileBrowserThumbnailProvider.memoryLimitBytes
     ) {
         self.diskCache = diskCache
+        self.videoLoader = videoLoader
         self.collectionStore = collectionStore
         self.coverStore = coverStore
         memory = PagePixelCache(countLimit: 4000, totalCostLimit: memoryLimitBytes)
@@ -110,6 +126,15 @@ final class FileBrowserThumbnailProvider: ObservableObject {
             }
     }
 
+    /// 環境設定の「動画のサムネイルを作る」を写し始める(AppStores が 1 度だけ呼ぶ)。
+    func connect(preferences: AppPreferences) {
+        preferencesSubscription = preferences.$fileBrowserVideoThumbnailsEnabled
+            .removeDuplicates()
+            .sink { [weak self] isEnabled in
+                MainActor.assumeIsolated { self?.includesVideo = isEnabled }
+            }
+    }
+
     // MARK: - 頼む
 
     /// この項目の絵を作る必要があるか(作れる種類か)。無ければセルは種類のアイコンのまま。
@@ -119,15 +144,17 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     /// - TCC の保護下の場所(ホームを開いただけで「デスクトップ」の中を読むと許可のダイアログが出る)。ただし
     ///   デスクトップ・書類・ダウンロードの**中を見ている**ときの、同じ場所の中のフォルダは読む(許可は場所ごとに済んでいる。
     ///   `DirectoryProbe.categoryProtectedPrefixes`)
+    ///
+    /// - Parameter includesVideo: 環境設定「動画のサムネイルを作る」。OFF なら動画は種類のアイコンのまま。
     static func kind(
-        for entry: FileBrowserEntry, currentFolder: URL?, mountTable: MountTable,
+        for entry: FileBrowserEntry, currentFolder: URL?, mountTable: MountTable, includesVideo: Bool = true,
         protectedPrefixes: [String] = DirectoryProbe.protectedPrefixes,
         categoryPrefixes: Set<String> = DirectoryProbe.categoryProtectedPrefixes
     ) -> BookThumbnailer.Kind? {
         guard !entry.isVolume,
               let kind = BookThumbnailer.kind(
                 forName: entry.url.lastPathComponent, isNavigableFolder: entry.isNavigableFolder,
-                isPackage: entry.isPackage, isSymbolicLink: entry.isSymbolicLink
+                isPackage: entry.isPackage, isSymbolicLink: entry.isSymbolicLink, includesVideo: includesVideo
               )
         else { return nil }
         if kind == .folder {
@@ -175,7 +202,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
 
     /// 出どころと、段を含まない鍵。表紙は項目の更新日時と無関係に、表紙の差し替え回数で鍵を変える。
     private func resolveSource(for entry: FileBrowserEntry, kind: BookThumbnailer.Kind) -> (String, Source) {
-        if kind != .image, let collectionStore, let coverStore,
+        if kind != .image, kind != .video, let collectionStore, let coverStore,
            let item = collectionStore.items(forBookID: entry.id).first(where: { $0.coverState == .ready }) {
             let revision = collectionStore.coverRevision(for: item)
             return ("cover|\(item.id.uuidString)|\(revision)", .cover(coverStore.url(for: item.id)))
@@ -237,6 +264,26 @@ final class FileBrowserThumbnailProvider: ObservableObject {
             if pixels == nil { remember(failure: baseKey) }
             return pixels
 
+        case .item(let url, .video):
+            let mountTable = MountTable.current()
+            let (key, isDataless) = await FileIO.perform {
+                (FileBrowserThumbnailKey.of(url, mountTable: mountTable), VideoThumbnailer.isDataless(url))
+            }
+            if let key, let data = await diskCache.data(for: key) {
+                if let pixels = await Self.decode(data, maxPixelSize: pixelSize) { return pixels }
+            }
+            // 追い出されたファイルは作らない(型コメント)。「作れなかった」とも覚えない。
+            guard !isDataless else { return nil }
+            generatedCount += 1
+            guard let jpeg = await Self.videoThumbnailJPEG(of: url, loader: videoLoader),
+                  let pixels = await Self.decode(jpeg, maxPixelSize: pixelSize)
+            else {
+                remember(failure: baseKey)
+                return nil
+            }
+            if let key { await diskCache.store(jpeg, for: key) }
+            return pixels
+
         case .item(let url, let kind):
             let mountTable = MountTable.current()
             let key = await FileIO.perform { FileBrowserThumbnailKey.of(url, mountTable: mountTable) }
@@ -259,6 +306,20 @@ final class FileBrowserThumbnailProvider: ObservableObject {
             if let key { await diskCache.store(made.jpeg, for: key) }
             return made.pixels
         }
+    }
+
+    /// 動画の絵を作ってディスクキャッシュに書く形(JPEG)にする。先に作っておく役(FileBrowserVideoThumbnailWarmer)も使う。
+    @concurrent nonisolated static func videoThumbnailJPEG(of url: URL, loader: any VideoThumbnailLoading) async -> Data? {
+        guard let image = await loader.makeThumbnail(
+            for: url, maxPixelSize: Int(FileBrowserThumbnailDiskCache.maxPixelSize)
+        ) else { return nil }
+        let box = ImageBox(image: image)
+        return await FileIO.perform { jpegData(from: box.image) }
+    }
+
+    /// CGImage を借りたスレッドへ渡す箱(作ったあとは誰も書き換えない)。
+    private struct ImageBox: @unchecked Sendable {
+        let image: CGImage
     }
 
     @concurrent private nonisolated static func decode(_ data: Data, maxPixelSize: CGFloat) async -> PagePixelBuffer? {
