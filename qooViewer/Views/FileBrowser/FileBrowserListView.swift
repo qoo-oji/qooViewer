@@ -404,7 +404,7 @@ struct FileBrowserListView: NSViewRepresentable {
             cell.alphaValue = state?.isCut(entry) == true ? 0.5 : 1
             switch column {
             case .name:
-                cell.icon?.image = FileBrowserIconProvider.icon(for: entry)
+                cell.icon?.image = icon(for: entry)
                 cell.configure(text: entry.displayName, outlineWidth: outlineWidth)
                 cell.nameField.editingName = entry.isVolume ? nil : entry.url.lastPathComponent
                 cell.nameField.selectsWholeName = entry.isDirectory && !entry.isPackage
@@ -424,6 +424,31 @@ struct FileBrowserListView: NSViewRepresentable {
                                outlineWidth: outlineWidth)
             }
             return cell
+        }
+
+        /// 名前の列のアイコン。アプリケーションは、読めていればそのアプリのアイコン、まだなら種類のアイコンを出して
+        /// 読み終わったら差し替える(FileBrowserApplicationIcon。2026-09-14、ユーザー要望)。読む場所の判断はアイコン表示と同じ。
+        private func icon(for entry: FileBrowserEntry) -> NSImage {
+            let typeIcon = FileBrowserIconProvider.icon(for: entry)
+            guard FileBrowserApplicationIcon.isApplication(
+                name: entry.url.lastPathComponent, isPackage: entry.isPackage, isSymbolicLink: entry.isSymbolicLink
+            ) else { return typeIcon }
+            let icons = FileBrowserListApplicationIcons.shared
+            if let cached = icons.cachedIcon(for: entry) { return cached }
+            guard FileBrowserThumbnailProvider.kind(
+                for: entry, currentFolder: state?.currentFolder, mountTable: .current()
+            ) == .application else { return typeIcon }
+            let id = entry.id
+            icons.load(entry) { [weak self] image in
+                // 読んでいる間に一覧が変わっていてもよいように、行はパスで引き直す。見えていない行は作らない。
+                guard let self, let table = self.table, let row = self.entries.firstIndex(where: { $0.id == id }) else { return }
+                let column = table.column(withIdentifier: Column.name.identifier)
+                guard column >= 0,
+                      let cell = table.view(atColumn: column, row: row, makeIfNecessary: false) as? FileBrowserCellView
+                else { return }
+                cell.icon?.image = image
+            }
+            return typeIcon
         }
 
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {

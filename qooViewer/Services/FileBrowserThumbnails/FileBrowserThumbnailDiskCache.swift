@@ -13,6 +13,9 @@ nonisolated struct FileBrowserThumbnailKey: Hashable, Sendable {
     /// 更新日時(ナノ秒)。
     let modified: Int64
     let size: Int64
+    /// 同じ項目から作る別の絵(コレクション表紙に指定した本の中のページ。`"shelfPage:<ページのキー>"`)。
+    /// nil は項目の先頭の絵(従来の鍵。**nil のときはファイル名の計算に入れない**ので、既存のキャッシュはそのまま当たる)。
+    var variant: String? = nil
 
     /// 絵の作り方の世代。**選び方や大きさを変えたら上げる**(古い絵は鍵が合わなくなり、刈り込みで消える)。
     static let generation = 1
@@ -32,7 +35,8 @@ nonisolated struct FileBrowserThumbnailKey: Hashable, Sendable {
 
     /// ディスクの上のファイル名。ボリュームの識別子には `/` や `:` が入りうるので、ハッシュにする。
     var fileName: String {
-        let text = "\(Self.generation)|\(volume)|\(inode)|\(modified)|\(size)"
+        var text = "\(Self.generation)|\(volume)|\(inode)|\(modified)|\(size)"
+        if let variant { text += "|\(variant)" }
         let digest = SHA256.hash(data: Data(text.utf8))
         return digest.map { String(format: "%02x", $0) }.joined() + ".jpg"
     }

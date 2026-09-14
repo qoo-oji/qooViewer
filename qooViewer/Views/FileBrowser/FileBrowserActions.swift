@@ -259,6 +259,13 @@ final class FileBrowserActions {
         favoriteLocations?.remove(id: id)
     }
 
+    /// ツリーのドラッグでよく使う項目を並べ替える(2026-09-14、ユーザー要望)。登録・削除と同じく、並びも保存されるので
+    /// シークレットウインドウでは断る。読み取り専用モードとは関係しない(ファイルは変わらない)。
+    func moveFavoriteLocation(id: UUID, to destination: Int) {
+        guard allowsSaving else { return }
+        favoriteLocations?.move(id: id, to: destination)
+    }
+
     // MARK: - 下請け
 
     /// 記号リンク: 実体がフォルダなら中へ、ファイルなら実体を開く。
@@ -767,7 +774,7 @@ struct FileBrowserContextMenuItems: View {
 }
 
 /// 場面で変わるサブメニューの中身(SwiftUI 版)。
-private struct FileBrowserMenuNodeItems: View {
+struct FileBrowserMenuNodeItems: View {
     let nodes: [FileBrowserMenuNode]
 
     var body: some View {
@@ -802,7 +809,7 @@ private struct FileBrowserMenuNodeItems: View {
 }
 
 /// 淡色のサブメニューの代わり(FileBrowserContextMenuItems の型コメント。`.contextMenu` の中の `Menu` は `.disabled` が効かない)。
-private struct FileBrowserDisabledSubmenu: View {
+struct FileBrowserDisabledSubmenu: View {
     let title: String
 
     var body: some View {

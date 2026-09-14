@@ -260,7 +260,9 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
   and they are unaffected. Forgetting the call only means no outline appears (it never leaks onto the
   wrong part), so the failure is quiet: check it against a panel filled 100% with the text colour
   (light appearance + black, dark appearance + white) before calling the change done.
-- **git commit messages**: written in English, concise, as a bullet-point list inside a code block.
+- **git commit messages**: written in English and concise. **The first line is a one-line summary**, then a blank
+  line, then a bullet-point list of the changes — never a message that starts directly with the bullets (several
+  commits in 2026-09 did, and the user pointed it out). When proposing a message in chat, show it inside a code block.
 - The app version lives in `MARKETING_VERSION` in `qooViewer.xcodeproj/project.pbxproj` (both Debug and
   Release configurations) and is versioned independently from `CHANGELOG.md`'s `[Unreleased]` heading —
   don't assume they're always in sync when reading history. Git release tags follow `vX.YY` (e.g. `v1.02`),

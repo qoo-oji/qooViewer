@@ -42,6 +42,12 @@ import SwiftUI
 /// その行の親のフォルダの上へ落とす形に直す(グループの見出しの中なら断る)。掴んで運べるのは
 /// **ふつうのフォルダの行だけ** ―― ボリューム・ホーム・よく使う項目の行を動かすと、ツリーの根そのものが
 /// 消える(よく使う項目は登録したパスを失う)。
+///
+/// ■ よく使う項目の並べ替え(2026-09-14、ユーザー要望)
+/// よく使う項目の行は**並べ替えのためだけに**掴める。運ぶのは項目の id だけ(`fileBrowserFavoriteLocationPasteboardType`。
+/// ファイルの URL は書かないので、フォルダの行・リスト・Finder へ落としても何も起きない)。落とせるのはよく使う項目の
+/// 行の間だけで、行の上へ落とそうとしたら、その行の上半分なら前・下半分なら後ろへ入れる形に直す。
+/// 並びは保存されるので、シークレットウインドウでは掴めない(「＋」「削除」と同じ)。
 struct FileBrowserTreeView: NSViewRepresentable {
     @ObservedObject var state: FileBrowserState
     @ObservedObject var favoriteLocations: FavoriteLocationStore
@@ -77,6 +83,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
         outline.dataSource = coordinator
         outline.delegate = coordinator
         configureFileBrowserDragSource(outline)
+        outline.registerForDraggedTypes([.fileURL, fileBrowserFavoriteLocationPasteboardType])
         outline.editResponder = actions
         let menu = NSMenu()
         menu.delegate = coordinator
@@ -334,6 +341,9 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 outline.reloadItem(favoritesGroup, reloadChildren: true)
                 outline.expandItem(favoritesGroup)
                 scheduleWatchUpdate()
+                // 行を作り直すと選択が外れる。いまのフォルダの行を選び直す(2026-09-14 の実機検証で発見。並べ替えで、表示中の
+                // よく使う項目の行の選択が消えた)。下の `folderID != appliedFolderID` はフォルダが変わらないと通らない。
+                applySelection(folderID: appliedFolderID ?? nil)
             }
             if needsRedraw {
                 outline.reloadData()
@@ -666,7 +676,15 @@ struct FileBrowserTreeView: NSViewRepresentable {
         // MARK: ドラッグ&ドロップ
 
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
-            guard let node = item as? Node, node.kind == .folder, let url = node.url else { return nil }
+            guard let node = item as? Node else { return nil }
+            if case .favorite(let id) = node.kind {
+                // 並べ替えだけ(型コメント)。並べる相手が無い・保存できないウインドウでは掴ませない。
+                guard allowsEditingFavorites, (favoritesGroup.children?.count ?? 0) > 1 else { return nil }
+                let pasteboardItem = NSPasteboardItem()
+                pasteboardItem.setString(id.uuidString, forType: fileBrowserFavoriteLocationPasteboardType)
+                return pasteboardItem
+            }
+            guard node.kind == .folder, let url = node.url else { return nil }
             return url as NSURL
         }
 
@@ -674,7 +692,10 @@ struct FileBrowserTreeView: NSViewRepresentable {
             _ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint,
             forItems draggedItems: [Any]
         ) {
-            FileBrowserDragTracker.begin(draggedItems.compactMap { ($0 as? Node)?.url })
+            // よく使う項目の並べ替えはファイルのドラッグではない(アプリの中のファイルのドラッグとして数えない)。
+            let folders = draggedItems.compactMap { $0 as? Node }.filter { $0.kind == .folder }
+            guard !folders.isEmpty else { return }
+            FileBrowserDragTracker.begin(folders.compactMap(\.url))
         }
 
         func outlineView(
@@ -688,6 +709,13 @@ struct FileBrowserTreeView: NSViewRepresentable {
             _ outlineView: NSOutlineView, validateDrop info: NSDraggingInfo, proposedItem item: Any?,
             proposedChildIndex index: Int
         ) -> NSDragOperation {
+            if draggedFavoriteID(info) != nil {
+                guard let destination = favoriteDropIndex(for: info, proposedItem: item, proposedChildIndex: index)
+                else { return [] }
+                // 動かない位置(自分の前後)でも線は出す。落としても何も変わらないだけ。
+                outlineView.setDropItem(favoritesGroup, dropChildIndex: destination)
+                return .move
+            }
             guard let actions, let node = item as? Node, !node.isGroup, let url = node.url else { return [] }
             if index != NSOutlineViewDropOnItemIndex {
                 // 行の間 → その親の行の上へ(型コメント)。
@@ -701,10 +729,41 @@ struct FileBrowserTreeView: NSViewRepresentable {
             _ outlineView: NSOutlineView, acceptDrop info: NSDraggingInfo, item: Any?, childIndex index: Int
         ) -> Bool {
             (outlineView as? FileBrowserOutlineView)?.noteDropAccepted()
+            if let id = draggedFavoriteID(info) {
+                guard (item as? Node) === favoritesGroup, index != NSOutlineViewDropOnItemIndex else { return false }
+                actions?.moveFavoriteLocation(id: id, to: index)
+                return true
+            }
             guard let actions, let node = item as? Node, !node.isGroup, let url = node.url else { return false }
             let (decision, urls) = actions.dropDecision(for: info, into: url)
             actions.performDrop(decision, urls: urls)
             return decision.isAccepted
+        }
+
+        /// このツリーから始まった、よく使う項目の並べ替えのドラッグなら、その項目の id(型コメント)。
+        /// ほかのウインドウのツリーから来たものも受ける(並びはアプリで 1 つ)。
+        private func draggedFavoriteID(_ info: NSDraggingInfo) -> UUID? {
+            guard info.draggingSource is FileBrowserOutlineView,
+                  let string = info.draggingPasteboard.string(forType: fileBrowserFavoriteLocationPasteboardType)
+            else { return nil }
+            return UUID(uuidString: string)
+        }
+
+        /// よく使う項目を落とす位置(よく使う項目の中の子の添字)。落とせない場所なら nil。
+        /// 行の上 → カーソルが行の上半分なら前、下半分なら後ろ。グループの見出しの上 → 先頭。
+        private func favoriteDropIndex(for info: NSDraggingInfo, proposedItem item: Any?, proposedChildIndex index: Int) -> Int? {
+            guard allowsEditingFavorites, let outline, let node = item as? Node else { return nil }
+            let children = favoritesGroup.children ?? []
+            if node === favoritesGroup {
+                return index == NSOutlineViewDropOnItemIndex ? 0 : index
+            }
+            guard case .favorite = node.kind, let position = children.firstIndex(where: { $0 === node }) else { return nil }
+            let row = outline.row(forItem: node)
+            guard row >= 0 else { return nil }
+            let point = outline.convert(info.draggingLocation, from: nil)
+            let rect = outline.rect(ofRow: row)
+            // NSOutlineView は上から下へ座標が増える(isFlipped)。
+            return point.y < rect.midY ? position : position + 1
         }
 
         @objc private func addFavorite(_ sender: Any?) {

@@ -83,6 +83,54 @@ final class OpenWithApplications {
         return sized
     }
 
+    // MARK: - メニューと開く処理(ファイルブラウザとコレクションの右クリックで共有)
+
+    /// 「このアプリケーションで開く」のサブメニューの中身。既定のアプリ・区切り・残り・区切り・「その他…」。
+    /// **閉包は呼び出し側が weak で包んだものを渡す**(FileBrowserMenuNode の型コメント)。
+    func menuNodes(
+        for applications: [Application], locale: Locale,
+        open: @escaping @MainActor (URL) -> Void, chooseOther: @escaping @MainActor () -> Void
+    ) -> [FileBrowserMenuNode] {
+        var nodes: [FileBrowserMenuNode] = applications.map { application in
+            let title = application.isDefault
+                ? String(format: String(localized: "%@ (default)", language: locale), application.name)
+                : application.name
+            let url = application.url
+            return .item(title: title, image: icon(for: application), isEnabled: true, action: { open(url) })
+        }
+        if let first = applications.first, first.isDefault, applications.count > 1 {
+            nodes.insert(.separator, at: 1)
+        }
+        if !nodes.isEmpty { nodes.append(.separator) }
+        nodes.append(.item(
+            title: String(localized: "Other…", language: locale), image: nil, isEnabled: true, action: { chooseOther() }
+        ))
+        return nodes
+    }
+
+    /// 「その他…」。アプリケーションフォルダでアプリを選んでもらう。LaunchServices の候補に無いアプリは
+    /// サンドボックスから開けないことがある(型コメント)。
+    static func chooseApplication(locale: Locale) -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.prompt = String(localized: "Open", language: locale)
+        panel.message = String(localized: "Choose an application to open the selected items.", language: locale)
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
+    }
+
+    /// 失敗を知らせる題(「“%@”で開けませんでした」)。
+    static func failureTitle(application: URL, locale: Locale) -> String {
+        String(
+            format: String(localized: "The items couldn’t be opened with “%@”.", language: locale),
+            FileManager.default.displayName(atPath: application.path)
+        )
+    }
+
     /// 並べ方の本体(テストのための口)。
     struct Candidate: Equatable {
         let url: URL

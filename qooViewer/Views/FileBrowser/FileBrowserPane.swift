@@ -142,8 +142,8 @@ struct FileBrowserPane: View {
     @ViewBuilder
     private func bookSheet(_ sheet: FileBrowserBookSheet) -> some View {
         switch sheet.kind {
-        case .metadata(let url):
-            BookMetadataSheet(sourceURL: url)
+        case .metadata(let entry):
+            BookMetadataSheet(fileBrowserEntry: entry)
         case .export(let export):
             OpenBookExportSheet(
                 viewModel: export.viewModel,

@@ -323,12 +323,18 @@ private struct SettingsPopUp<Options: View, Label: View>: View {
 }
 
 /// 固定幅が指定されていればその幅、なければ内容幅(`fixedSize`)にする。
+///
+/// ■ 固定幅は**右寄せ**で置く(2026-09-14、ユーザー報告)
+/// macOS 26 の `.menuStyle(.button)` は、枠を広げてもボタン自体は内容の幅のままで、既定の `alignment`(中央)だと
+/// 220pt の枠の真ん中に置かれた ―― 環境設定「ファイルブラウザ」の「よく使う項目」だけが、上の行(内容幅で右端に付く)
+/// より左へずれて見えた(検証アプリで実測)。右寄せにすると右端がほかの行と揃い、長い名前は枠の幅で切れる。
+/// macOS 15 の自前の描画はラベルが枠いっぱいに広がるので、寄せ方は見た目に影響しない。
 private struct PopUpWidth: ViewModifier {
     let width: CGFloat?
 
     func body(content: Content) -> some View {
         if let width {
-            content.frame(width: width)
+            content.frame(width: width, alignment: .trailing)
         } else {
             content.fixedSize()
         }

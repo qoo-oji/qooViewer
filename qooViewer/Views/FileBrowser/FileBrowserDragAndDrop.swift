@@ -179,6 +179,13 @@ extension FileBrowserActions {
 /// 出し口が許す操作。アプリの外へも移動を許すが、読み取り専用モードの間はコピーだけ(ファイル冒頭のコメント)。
 /// AppKit の一覧は `draggingSession(_:sourceOperationMaskFor:)` を上書きしてドラッグのたびにこれを引く
 /// (`setDraggingSourceOperationMask` は作ったときの 1 回なので、あとから切り替えた設定が効かない)。
+/// よく使う項目の行の並べ替えのドラッグが運ぶ型(2026-09-14、ユーザー要望)。中身は項目の id。
+///
+/// **ファイルの URL は書かない** ―― 書くとリストやフォルダの行・Finder へ落としたときに、登録したフォルダそのものが
+/// 移動・コピーされてしまう(ツリーの根を掴んで運べないようにしている理由と同じ。FileBrowserTreeView の型コメント)。
+/// アプリの独自の型だけなら、ほかの受け口(ファイルの URL を待つもの)はどれも反応しない。
+let fileBrowserFavoriteLocationPasteboardType = NSPasteboard.PasteboardType("com.qooProject.qooViewer.favoriteLocation")
+
 func fileBrowserDragSourceMask(allowsFileChanges: Bool) -> NSDragOperation {
     allowsFileChanges ? [.copy, .move, .generic] : .copy
 }

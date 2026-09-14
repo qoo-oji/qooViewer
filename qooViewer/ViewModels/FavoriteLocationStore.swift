@@ -70,6 +70,23 @@ final class FavoriteLocationStore: ObservableObject {
         save()
     }
 
+    /// 並べ替える(ツリーのドラッグ。2026-09-14、ユーザー要望)。`destination` は**動かす前の**並びでの挿入位置
+    /// (`NSOutlineView` の行の間のドロップの子の添字そのまま。0 = 先頭、`items.count` = 末尾)。
+    /// - Returns: 並びが変わったか。
+    @discardableResult
+    func move(id: UUID, to destination: Int) -> Bool {
+        guard let source = items.firstIndex(where: { $0.id == id }) else { return false }
+        let clamped = min(max(destination, 0), items.count)
+        // 自分の直前・直後への挿入は動かない。
+        guard clamped != source, clamped != source + 1 else { return false }
+        var reordered = items
+        let item = reordered.remove(at: source)
+        reordered.insert(item, at: clamped > source ? clamped - 1 : clamped)
+        items = reordered
+        save()
+        return true
+    }
+
     func item(withID id: UUID) -> Item? {
         items.first { $0.id == id }
     }

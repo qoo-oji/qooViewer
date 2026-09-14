@@ -466,20 +466,20 @@ struct FileBrowserIntegrationTests {
         defer { fixture.close() }
         let book = try fixture.archive("book.cbz")
         #expect(fixture.actions.editMetadata([fixture.entry(book)]) == nil)
-        guard case .metadata(let url)? = fixture.state.bookSheet?.kind else {
+        guard case .metadata(let bookEntry)? = fixture.state.bookSheet?.kind else {
             Issue.record("メタデータのシートが出ていない")
             return
         }
-        #expect(url == book)
+        #expect(bookEntry.url == book)
 
         fixture.state.bookSheet = nil
         let folder = try fixture.imageFolder("pictures")
         await fixture.actions.editMetadata([fixture.entry(folder)])?.value
-        guard case .metadata(let folderURL)? = fixture.state.bookSheet?.kind else {
+        guard case .metadata(let folderEntry)? = fixture.state.bookSheet?.kind else {
             Issue.record("画像フォルダでシートが出ていない")
             return
         }
-        #expect(folderURL.path == folder.path)
+        #expect(folderEntry.url.path == folder.path)
 
         fixture.state.bookSheet = nil
         let shelf = try fixture.archive("Shelf/01.cbz").deletingLastPathComponent()

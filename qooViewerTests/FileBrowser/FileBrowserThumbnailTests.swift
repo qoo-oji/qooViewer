@@ -12,7 +12,7 @@ import Testing
 struct FileBrowserThumbnailTests {
     // MARK: - 種類
 
-    @Test("名前で種類を決める。パッケージ・記号リンクは作らない")
+    @Test("名前で種類を決める。パッケージ・記号リンクは作らない(アプリケーションだけはアイコンを描く)")
     func kindByName() {
         func kind(_ name: String, folder: Bool = false, package: Bool = false, link: Bool = false) -> BookThumbnailer.Kind? {
             BookThumbnailer.kind(forName: name, isNavigableFolder: folder, isPackage: package, isSymbolicLink: link)
@@ -25,7 +25,12 @@ struct FileBrowserThumbnailTests {
         #expect(kind("a.pdf") == .pdf)
         #expect(kind("chapter", folder: true) == .folder)
         #expect(kind("a.txt") == nil)
-        #expect(kind("Some.app", package: true) == nil)
+        #expect(kind("Some.app", package: true) == .application)
+        #expect(kind("Some.APP", package: true) == .application)
+        #expect(kind("Some.app", package: true, link: true) == nil)
+        #expect(kind("Some.bundle", package: true) == nil)
+        // パッケージでない「.app」という名前のフォルダは、ふつうのフォルダ。
+        #expect(kind("Some.app", folder: true) == .folder)
         #expect(kind("a.jpg", link: true) == nil)
     }
 
@@ -63,6 +68,34 @@ struct FileBrowserThumbnailTests {
         ])
         // (パスの検査が `/Volumes/<名前>/<名前>` を蔵書の置き場として止めるので、共有の根そのものを見る。)
         #expect(kind(folder("/Volumes/Share"), in: "/Volumes", mountTable: remote) == nil)
+    }
+
+    @Test("アプリケーションのアイコンは頼んだ画素数の正方形に描き、フォルダと同じくネットワーク越しでは読まない")
+    func applicationIcon() async throws {
+        // 実在するアプリ(システムに必ずある Finder)。**描くだけで、何も書かない。**
+        let finder = URL(fileURLWithPath: "/System/Library/CoreServices/Finder.app", isDirectory: true)
+        let pixels = try #require(await FileIO.perform { FileBrowserApplicationIcon.render(at: finder, pixelSize: 64) })
+        #expect(pixels.width == 64 && pixels.height == 64)
+        let appEntry = FileBrowserEntry(
+            url: finder, displayName: "Finder", isDirectory: true, isPackage: true, isSymbolicLink: false, isVolume: false,
+            fileSize: nil, typeDescription: nil, creationDate: nil, modificationDate: nil
+        )
+        let temporary = try TemporaryDirectory("thumb-app")
+        let provider = FileBrowserThumbnailProvider(diskCache: FileBrowserThumbnailDiskCache(directory: temporary.file("cache")))
+        let viaProvider = try #require(await provider.thumbnail(for: appEntry, kind: .application, pixelSize: 128))
+        #expect(viaProvider.width == 128)
+
+        let remote = MountTable(entries: [
+            .init(mountPoint: "/", mountedFrom: "disk", fileSystemType: "apfs", isLocal: true, isHiddenFromBrowsing: false),
+            .init(mountPoint: "/net/share", mountedFrom: "//server/share", fileSystemType: "smbfs", isLocal: false, isHiddenFromBrowsing: false),
+        ])
+        let remoteApp = FileBrowserEntry(
+            url: URL(fileURLWithPath: "/net/share/Tool.app", isDirectory: true), displayName: "Tool", isDirectory: true,
+            isPackage: true, isSymbolicLink: false, isVolume: false, fileSize: nil, typeDescription: nil, creationDate: nil,
+            modificationDate: nil
+        )
+        #expect(FileBrowserThumbnailProvider.kind(for: remoteApp, currentFolder: nil, mountTable: remote) == nil)
+        #expect(FileBrowserThumbnailProvider.kind(for: appEntry, currentFolder: nil, mountTable: remote) == .application)
     }
 
     // MARK: - 先頭の絵の選び方
@@ -231,6 +264,58 @@ struct FileBrowserThumbnailTests {
         let fromDisk = try #require(await another.thumbnail(for: bookEntry, kind: .archive, pixelSize: 256))
         #expect(another.generatedCount == 0)
         #expect(abs((PageColorReader.number(in: try #require(fromDisk.makeImage())) ?? 0) - 1) <= 2)
+    }
+
+    @Test("提供役: コレクションに入っていない本でも、コレクション表紙の指定(ページ・画像)を絵に使い、指定を変えたら頼み直させる")
+    func providerUsesShelfCoverOverrideForUnregisteredBooks() async throws {
+        let library = try InMemoryLibrary(label: "thumb-shelf-cover")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("thumb-shelf-cover")
+        let shelf = try temporary.directory("shelf")
+        let book = try temporary.directory("shelf/book")
+        // 番号を離しておく(JPEG を通った絵の番号は少しずれうるので、隣り合う番号だと見分けられない)。
+        for (index, number) in [UInt8(10), 40, 80].enumerated() {
+            try PageImageFactory.png(number: number).write(to: book.appendingPathComponent(String(format: "%03d.png", index + 1)))
+        }
+        let bookEntry = try entry(book, in: shelf)
+        let provider = FileBrowserThumbnailProvider(
+            diskCache: FileBrowserThumbnailDiskCache(directory: temporary.file("cache")), layoutStore: library.layouts
+        )
+        // 共有のページ一覧キャッシュへ書かないよう、シークレットウインドウの頼みで取る(テストは共有の状態に触らない)。
+        func number(pixelSize: CGFloat = 128) async throws -> Int? {
+            let buffer = try #require(await provider.thumbnail(
+                for: bookEntry, kind: .folder, pixelSize: pixelSize, savesToDisk: false
+            ))
+            return PageColorReader.number(in: try #require(buffer.makeImage()))
+        }
+
+        // 指定が無ければ先頭の絵。
+        #expect(try await number() == 10)
+
+        // ページを指定。キーはメタデータの編集のページ選びと同じく、読み込んだ本のページから取る。
+        let loaded = try await FixtureBook.load(bookEntry.url)
+        let third = try #require(loaded.pages.count == 3 ? loaded.pages[2] : nil)
+        let revisionBefore = provider.revision
+        library.layouts.setShelfCoverPageKey(
+            forBookID: bookEntry.id, sourceURL: bookEntry.url, pageKey: third.sortKey, displayName: "003.png"
+        )
+        #expect(provider.revision != revisionBefore)
+        // 作った絵は JPEG を通るので、色の番号は少しずれうる(ディスクキャッシュのテストと同じ許容)。
+        let shelfPage = try await number()
+        #expect(abs((shelfPage ?? 0) - 80) <= 2, "表紙に指定したページの絵になっていない: \(String(describing: shelfPage))")
+
+        // 画像を指定 → 保管庫の画像。本は読まない(作った回数が増えない)。
+        let image = temporary.file("cover.png")
+        try PageImageFactory.png(number: 9).write(to: image)
+        let generated = provider.generatedCount
+        try await library.layouts.setShelfCoverImage(forBookID: bookEntry.id, sourceURL: bookEntry.url, fileURL: image)
+        #expect(try await number(pixelSize: 256) == 9)
+        #expect(provider.generatedCount == generated)
+
+        // 既定へ戻すと先頭の絵(メモリに残っているので作り直さない)。
+        library.layouts.clearShelfCover(forBookID: bookEntry.id)
+        #expect(try await number() == 10)
+        #expect(provider.generatedCount == generated)
     }
 
     @Test("提供役: シークレットウインドウの頼み(savesToDisk: false)で作った絵はディスクへ書かない。ディスクの絵は読む")

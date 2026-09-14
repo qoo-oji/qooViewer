@@ -6,10 +6,17 @@ import UniformTypeIdentifiers
 
 /// ファイルブラウザのアイコン表示の絵を配る窓口(改善要望7 段階 7a、2026-09-14)。アプリで 1 つ(AppStores)。
 ///
-/// ■ どこから絵を持ってくるか(決定事項 Q5 の 2 段構え)
+/// ■ どこから絵を持ってくるか(決定事項 Q5 の 2 段構え + コレクション表紙の指定)
 /// 1. その本がコレクションに登録済みで表紙ができていれば、**その表紙**(CollectionCoverStore の JPEG)。棚と同じ絵で、
 ///    本は 1 バイトも読まない。ディスクキャッシュには入れない(表紙そのものがディスクにある)
-/// 2. 無ければディスクキャッシュ(FileBrowserThumbnailDiskCache)、それも無ければ `BookThumbnailer` で作ってキャッシュへ
+/// 2. コレクション表紙を指定してある本(メタデータの編集で。**登録していない本でも**指定できる。2026-09-14、ユーザー要望 ――
+///    同じ本の表紙の絵がアプリの中に 2 種類あるのを避ける):
+///    - 画像を指定 → 保管庫(CollectionCoverSourceStore)の画像をそのまま。本は読まない。ディスクキャッシュにも入れない
+///    - 本の中のページを指定 → そのページを `CoverImageResolver` で作り、ページのキーを鍵に足してディスクキャッシュへ。
+///      **登録済みの本では作らない**(抽出役がすぐ同じ絵を作るので、それまでは 3 の絵で待つ)
+/// 3. 無ければディスクキャッシュ(FileBrowserThumbnailDiskCache)、それも無ければ `BookThumbnailer` で作ってキャッシュへ
+///
+/// 指定を変えたら(`.layoutDataDidChange`)、その本を絵にしたことがあれば頼み直させる(`shelfSignatures`)。
 ///
 /// ■ メモリ
 /// 復号した絵は `PagePixelCache`(厳密な LRU、96MB)に**表示の大きさの段ごと**に持つ。段は長辺 128 / 256 / 512px
@@ -35,6 +42,10 @@ import UniformTypeIdentifiers
 /// `.notDownloaded` を返す。2026-09-14 の監査 6)。よく使う項目の中の動画を先に作っておくのは
 /// `FileBrowserVideoThumbnailWarmer`(作ったものは同じディスクキャッシュに入り、ここはそれを読むだけ)。
 ///
+/// ■ アプリケーション(2026-09-14、ユーザー要望)
+/// `.app` は中の絵ではなく**アプリのアイコン**を `FileBrowserApplicationIcon` で段の大きさに描く。ディスクキャッシュには入れない。
+/// 読む場所の判断(ネットワーク・TCC)はフォルダと同じ。
+///
 /// ■ シークレットウインドウ(2026-09-14、ユーザー判断)
 /// シークレットウインドウのセルは `savesToDisk: false` で頼み、**作った絵をディスクキャッシュへ書かない**(本のページの
 /// サムネイルを書かないのと揃える。絵そのものが痕跡になる)。読むのは許す(何も残らない)。メモリの絵はアプリで共有する
@@ -45,7 +56,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     /// 絵の出どころが変わった合図(コレクションの表紙ができた・変わった、キャッシュを消した)。セルの `.task(id:)` に
     /// 入れて、変わったら頼み直させる。メモリに残っていれば頼み直しは即座に返る。
     @Published private(set) var revision: UInt64 = 0
-    /// 動画の絵を作るか(環境設定「動画のサムネイルを作る」の写し)。セルの種類の判定(`kind(for:...)`)に渡す。
+    /// 動画の絵を作るか(環境設定「動画のサムネイルを生成」の写し)。セルの種類の判定(`kind(for:...)`)に渡す。
     /// **アイコン表示に AppPreferences を観測させない**ために、ここに写して配る ―― AppPreferences はどの設定が変わっても
     /// 発火するので、観測するとグリッド全体の body がそのたびに作り直される。
     @Published private(set) var includesVideo = true
@@ -68,7 +79,18 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     private let videoLoader: any VideoThumbnailLoading
     private weak var collectionStore: CollectionStore?
     private let coverStore: CollectionCoverStore?
+    private weak var layoutStore: LayoutStore?
     private var collectionSubscription: AnyCancellable?
+    private var layoutObserver: NSObjectProtocol?
+
+    /// コレクション表紙の指定の控え(本の id → 絵にしたときの指定)。`.layoutDataDidChange` で比べ、変わっていたら頼み直させる
+    /// (レイアウトの通知はページの見開き指定など表紙と無関係な変更でも飛ぶ)。上限を超えたら丸ごと忘れる。
+    private struct ShelfSignature: Equatable {
+        var pageKey: String?
+        var imageFileName: String?
+    }
+    private var shelfSignatures: [String: ShelfSignature] = [:]
+    private static let shelfSignaturesLimit = 5000
 
     /// 作れなかった絵(型コメント)。上限を超えたら丸ごと忘れる(試し直すだけで害は無い)。
     private var failedKeys: Set<String> = []
@@ -96,8 +118,10 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     }
 
     private enum Source {
-        /// コレクションの表紙の JPEG。
+        /// コレクションの表紙の JPEG・表紙に指定した画像(保管庫の中)。
         case cover(URL)
+        /// 表紙に指定した本の中のページ(型コメント「どこから」の 2)。
+        case shelfPage(URL, CoverImageResolver.OverrideSnapshot)
         /// 項目そのものから作る。
         case item(URL, BookThumbnailer.Kind)
     }
@@ -113,11 +137,13 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     /// - Parameters:
     ///   - diskCache: 既定は実物のキャッシュ。**テストは一時フォルダのものを渡す。**
     ///   - collectionStore / coverStore: 表紙を探す相手。nil なら表紙を見ない(テスト)。
+    ///   - layoutStore: コレクション表紙の指定を探す相手。nil なら指定を見ない(テスト)。
     ///   - videoLoader: 動画の絵の作り方。**テストは作り物を渡す**(実物は入っている QuickLook 拡張しだい)。
     init(
         diskCache: FileBrowserThumbnailDiskCache = .shared,
         collectionStore: CollectionStore? = nil,
         coverStore: CollectionCoverStore? = nil,
+        layoutStore: LayoutStore? = nil,
         videoLoader: any VideoThumbnailLoading = CompositeVideoThumbnailLoader(),
         memoryLimitBytes: Int = FileBrowserThumbnailProvider.memoryLimitBytes
     ) {
@@ -125,6 +151,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         self.videoLoader = videoLoader
         self.collectionStore = collectionStore
         self.coverStore = coverStore
+        self.layoutStore = layoutStore
         memory = PagePixelCache(countLimit: 4000, totalCostLimit: memoryLimitBytes)
         // 表紙ができた・変わったら頼み直させる。`revision` はコレクションの変更のたびに進むので、ここでも間引かずに
         // 進める(メモリに残っている絵は即座に返るので、頼み直しは安い)。
@@ -134,9 +161,35 @@ final class FileBrowserThumbnailProvider: ObservableObject {
             .sink { [weak self] _ in
                 MainActor.assumeIsolated { self?.revision &+= 1 }
             }
+        if layoutStore != nil {
+            layoutObserver = NotificationCenter.default.addObserver(
+                forName: .layoutDataDidChange, object: nil, queue: .main
+            ) { [weak self] notification in
+                let bookID = notification.userInfo?["bookID"] as? String
+                MainActor.assumeIsolated { self?.handleLayoutChange(bookID: bookID) }
+            }
+        }
     }
 
-    /// 環境設定の「動画のサムネイルを作る」を写し始める(AppStores が 1 度だけ呼ぶ)。
+    deinit {
+        if let layoutObserver { NotificationCenter.default.removeObserver(layoutObserver) }
+    }
+
+    /// 絵にしたことのある本の表紙の指定が変わったら頼み直させる(`shelfSignatures`)。
+    private func handleLayoutChange(bookID: String?) {
+        guard let bookID, let previous = shelfSignatures[bookID] else { return }
+        let current = shelfSignature(forBookID: bookID)
+        guard current != previous else { return }
+        shelfSignatures[bookID] = current
+        revision &+= 1
+    }
+
+    private func shelfSignature(forBookID bookID: String) -> ShelfSignature {
+        let settings = layoutStore?.bookLayoutSettings(forBookID: bookID)
+        return ShelfSignature(pageKey: settings?.shelfCoverPageKey, imageFileName: settings?.shelfCoverImageFileName)
+    }
+
+    /// 環境設定の「動画のサムネイルを生成」を写し始める(AppStores が 1 度だけ呼ぶ)。
     func connect(preferences: AppPreferences) {
         preferencesSubscription = preferences.$fileBrowserVideoThumbnailsEnabled
             .removeDuplicates()
@@ -155,7 +208,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     ///   デスクトップ・書類・ダウンロードの**中を見ている**ときの、同じ場所の中のフォルダは読む(許可は場所ごとに済んでいる。
     ///   `DirectoryProbe.categoryProtectedPrefixes`)
     ///
-    /// - Parameter includesVideo: 環境設定「動画のサムネイルを作る」。OFF なら動画は種類のアイコンのまま。
+    /// - Parameter includesVideo: 環境設定「動画のサムネイルを生成」。OFF なら動画は種類のアイコンのまま。
     static func kind(
         for entry: FileBrowserEntry, currentFolder: URL?, mountTable: MountTable, includesVideo: Bool = true,
         protectedPrefixes: [String] = DirectoryProbe.protectedPrefixes,
@@ -167,7 +220,8 @@ final class FileBrowserThumbnailProvider: ObservableObject {
                 isPackage: entry.isPackage, isSymbolicLink: entry.isSymbolicLink, includesVideo: includesVideo
               )
         else { return nil }
-        if kind == .folder {
+        // フォルダは中を、アプリケーションはバンドルの中(アイコン)を読むので、同じ場所の判断をする。
+        if kind == .folder || kind == .application {
             if mountTable.isRemote(entry.url) { return nil }
             if let prefix = DirectoryProbe.protectedPrefix(containing: entry.url, prefixes: protectedPrefixes) {
                 let current = currentFolder.flatMap { DirectoryProbe.protectedPrefix(containing: $0, prefixes: protectedPrefixes) }
@@ -215,15 +269,31 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         }
     }
 
-    /// 出どころと、段を含まない鍵。表紙は項目の更新日時と無関係に、表紙の差し替え回数で鍵を変える。
+    /// 出どころと、段を含まない鍵(型コメント「どこから」)。表紙は項目の更新日時と無関係に、表紙の差し替え回数で鍵を変える。
     private func resolveSource(for entry: FileBrowserEntry, kind: BookThumbnailer.Kind) -> (String, Source) {
-        if kind != .image, kind != .video, let collectionStore, let coverStore,
-           let item = collectionStore.items(forBookID: entry.id).first(where: { $0.coverState == .ready }) {
+        let modified = entry.modificationDate?.timeIntervalSinceReferenceDate ?? 0
+        let itemKey = "item|\(entry.id)|\(modified)|\(entry.fileSize ?? -1)"
+        guard kind != .image, kind != .video, kind != .application else { return (itemKey, .item(entry.url, kind)) }
+        let items = collectionStore?.items(forBookID: entry.id) ?? []
+        if let collectionStore, let coverStore, let item = items.first(where: { $0.coverState == .ready }) {
             let revision = collectionStore.coverRevision(for: item)
             return ("cover|\(item.id.uuidString)|\(revision)", .cover(coverStore.url(for: item.id)))
         }
-        let modified = entry.modificationDate?.timeIntervalSinceReferenceDate ?? 0
-        return ("item|\(entry.id)|\(modified)|\(entry.fileSize ?? -1)", .item(entry.url, kind))
+        if let layoutStore {
+            let signature = shelfSignature(forBookID: entry.id)
+            if shelfSignatures.count >= Self.shelfSignaturesLimit { shelfSignatures.removeAll() }
+            shelfSignatures[entry.id] = signature
+            if let fileName = signature.imageFileName, let url = layoutStore.coverSourceStore.url(forFileName: fileName) {
+                return ("shelfImage|\(fileName)", .cover(url))
+            }
+            if let pageKey = signature.pageKey, items.isEmpty {
+                return (
+                    "shelfPage|\(entry.id)|\(modified)|\(entry.fileSize ?? -1)|\(pageKey)",
+                    .shelfPage(entry.url, layoutStore.shelfCoverSnapshot(forBookID: entry.id))
+                )
+            }
+        }
+        return (itemKey, .item(entry.url, kind))
     }
 
     private func cancelWaiter(_ waiterID: UUID, of memoryKey: String) {
@@ -276,6 +346,51 @@ final class FileBrowserThumbnailProvider: ObservableObject {
                 guard let data = try? Data(contentsOf: url) else { return nil }
                 return ImageDecoder.decodePixels(data, maxPixelSize: pixelSize)
             }
+            if pixels == nil { remember(failure: baseKey) }
+            return pixels
+
+        case .shelfPage(let url, let snapshot):
+            // 表紙に指定したページ(型コメント「どこから」の 2)。本を丸ごと読むので重いが、指定した本だけ。
+            guard let pageKey = snapshot.coverPageKey else { return nil }
+            let mountTable = MountTable.current()
+            let (fileKey, isDataless) = await FileIO.perform {
+                (FileBrowserThumbnailKey.of(url, mountTable: mountTable), DatalessFiles.isDataless(url))
+            }
+            var key = fileKey
+            key?.variant = "shelfPage:\(pageKey)"
+            if let key, let data = await diskCache.data(for: key) {
+                if let pixels = await Self.decode(data, maxPixelSize: pixelSize) { return pixels }
+            }
+            guard !isDataless else { return nil }
+            generatedCount += 1
+            guard let image = await CoverImageResolver.coverImage(
+                bookAt: url, snapshot: snapshot, maxPixelSize: FileBrowserThumbnailDiskCache.maxPixelSize,
+                // 読んだ本のページ一覧もディスクに残るので、シークレットウインドウだけの頼みでは書かない。
+                cachesPageList: job.savesToDisk
+            ) else {
+                remember(failure: baseKey)
+                return nil
+            }
+            let box = ImageBox(image: image)
+            let made = await FileIO.perform { () -> (Data, PagePixelBuffer)? in
+                guard let jpeg = Self.jpegData(from: box.image),
+                      let pixels = ImageDecoder.decodePixels(jpeg, maxPixelSize: pixelSize)
+                else { return nil }
+                return (jpeg, pixels)
+            }
+            guard let made else {
+                remember(failure: baseKey)
+                return nil
+            }
+            if let key, job.savesToDisk { await diskCache.store(made.0, for: key) }
+            return made.1
+
+        case .item(let url, .application):
+            // アプリのアイコン(FileBrowserApplicationIcon)。LaunchServices がアイコンを覚えているので速く、
+            // ディスクキャッシュには入れない(アプリを入れ替えたときに古い絵が残らないように)。
+            generatedCount += 1
+            let size = Int(pixelSize)
+            let pixels = await FileIO.perform { FileBrowserApplicationIcon.render(at: url, pixelSize: size) }
             if pixels == nil { remember(failure: baseKey) }
             return pixels
 

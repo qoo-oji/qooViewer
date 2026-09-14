@@ -518,6 +518,7 @@ struct CollectionDetailView: View {
                 }
             )
             .disabled(!isSingle)
+            openWithMenu(for: item, isEnabled: isSingle)
             Divider()
             // 「Finderで開く」(ユーザー要望 2026-09-09)。**編集モードを条件にしない** ――
             // 棚をいじる操作ではなく、その本がどこにあるかを見るだけの操作なので。
@@ -578,6 +579,72 @@ struct CollectionDetailView: View {
                     // 1冊でも確認は出す(ゴミ箱と同じ扱い。取り消せない書き込みなので、
                     // 入り口によって確認の有無が変わらないようにする)。
                     removingItemIDs = targets.map(\.id)
+                }
+            }
+        }
+    }
+
+    // MARK: - このアプリケーションで開く
+
+    /// 「このアプリケーションで開く」(2026-09-14、ユーザー要望。ファイルブラウザの右クリックと同じ中身)。
+    ///
+    /// **候補は名前だけで引く**(`.contextMenu` の中身はセルの本体評価の一部として組まれるので、ここでディスクに触らない。
+    /// BookOpenContextMenuItems の型コメント)。本は書庫・PDF・EPUB のファイルか、画像のフォルダのどちらかなので、
+    /// 記録してあるパスの拡張子で見分ける。ブックマークの解決は選ばれてから。
+    /// 複数選んでいる間は押せない(ほかの 1 冊向けの項目と同じ)。`.contextMenu` の中の `Menu` には `.disabled` が
+    /// 効かないので、押せない `Button` で描く(FileBrowserContextMenuItems の型コメント)。
+    @ViewBuilder
+    private func openWithMenu(for item: CollectionItem, isEnabled: Bool) -> some View {
+        let title = String(localized: "Open With", language: locale)
+        if isEnabled {
+            let path = item.bookID
+            let name = (path as NSString).lastPathComponent
+            let isFile = isArchiveFile(name) || isPDFFile(name) || isEpubFile(name)
+            let applications = OpenWithApplications.shared.applications(
+                for: URL(fileURLWithPath: path), isDirectory: !isFile, isPackage: false
+            )
+            let itemID = item.id
+            Menu(title) {
+                FileBrowserMenuNodeItems(nodes: OpenWithApplications.shared.menuNodes(
+                    for: applications, locale: locale,
+                    open: { application in openItem(itemID, withApplicationAt: application) },
+                    chooseOther: {
+                        guard let application = OpenWithApplications.chooseApplication(locale: locale) else { return }
+                        openItem(itemID, withApplicationAt: application)
+                    }
+                ))
+            }
+        } else {
+            FileBrowserDisabledSubmenu(title: title)
+        }
+    }
+
+    /// 選んだアプリで本を開く。コレクションが持つのはセキュリティスコープ付きのブックマークなので、スコープを開けたまま
+    /// 渡し、アプリが受け取り終えてから閉じる(開けていないと、サンドボックスが相手のアプリへ読み取りの許可を渡せない)。
+    /// 失敗はアラートで知らせる(アプリの起動を待つ間にこの画面が消えていてもよいように、ビューの状態は使わない)。
+    private func openItem(_ itemID: UUID, withApplicationAt application: URL) {
+        guard let item = collectionStore.item(withID: itemID) else { return }
+        guard let url = collectionStore.resolvedExistingURL(for: item) else {
+            missingBook = MissingBook(id: item.id, title: item.title, reason: collectionStore.location(for: item))
+            return
+        }
+        let locale = self.locale
+        let didStartAccessing = url.startAccessingSecurityScopedResource()
+        Task { @MainActor in
+            defer { if didStartAccessing { url.stopAccessingSecurityScopedResource() } }
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = true
+            do {
+                _ = try await NSWorkspace.shared.open([url], withApplicationAt: application, configuration: configuration)
+            } catch {
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = OpenWithApplications.failureTitle(application: application, locale: locale)
+                alert.informativeText = error.localizedDescription
+                if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+                    alert.beginSheetModal(for: window) { _ in }
+                } else {
+                    alert.runModal()
                 }
             }
         }

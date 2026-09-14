@@ -17,10 +17,17 @@ import UniformTypeIdentifiers
 /// その場でコレクションのタイルへ反映されるものなので、シートを閉じるまで確定しない作りに
 /// すると「変わったのに戻った」と見えてしまう。
 ///
-/// ■ URL だけで開く版(改善要望7 段階 8、2026-09-14)
-/// ファイルブラウザの右クリックからは、コレクションに入っていない本も編集できる(`init(sourceURL:)`)。
-/// そのときは**カバーの面を出さない** ―― カバーの指定はコレクションの行(ライブラリの縦横比・抽出済みの表紙)を
-/// 前提にしているため。4欄の初期値と登録先は同じ(DBの行はパスで引く)。
+/// ■ ファイルブラウザから開く版(改善要望7 段階 8、2026-09-14)
+/// ファイルブラウザの右クリックからは、コレクションに入っていない本も編集できる(`init(fileBrowserEntry:)`)。
+/// 4欄の初期値と登録先は同じ(DBの行はパスで引く)。
+///
+/// カバーの面も出す(2026-09-14、ユーザー要望。段階 8 では出していなかった):
+/// - その本がどこかのコレクションに入っていれば、その行とライブラリで**コレクションから開いたときと同じ面**
+/// - 入っていなければ、ライブラリの比が無いので**切らずに**出す(`FileBrowserCoverArea`)。絵はアイコン表示と同じ提供役
+///   (FileBrowserThumbnailProvider)から引く ―― 指定したコレクション表紙がアイコン表示にもそのまま出る。
+///   「切り取るときに残す位置」は枠の比が決まらないので出さない
+/// 指定の保存先はどちらも同じ(BookLayoutSettings の shelfCover* の列。本ごと)なので、後からコレクションに入れると
+/// 指定した表紙で抽出される。
 ///
 /// シートの中身はmacOSが不透明に描くので、すりガラス面の輪郭は要らない(CLAUDE.md参照)。
 struct BookMetadataSheet: View {
@@ -37,20 +44,24 @@ struct BookMetadataSheet: View {
     /// (解決できない本ではシートを出さず「本が見つかりません」のアラートにする)。
     let sourceURL: URL
     /// この本が入っているライブラリ。カバーのプレビューをそのライブラリの縦横比で描き、
-    /// 「残す位置」の既定(=ライブラリの設定)を示すために要る。URL だけで開いた版では nil。
+    /// 「残す位置」の既定(=ライブラリの設定)を示すために要る。ファイルブラウザから開いた版では nil。
     let library: BookLibrary?
+    /// ファイルブラウザから開いた版の項目(型コメント)。コレクションから開いた版では nil。
+    let fileBrowserEntry: FileBrowserEntry?
 
     init(itemID: UUID, sourceURL: URL, library: BookLibrary) {
         self.itemID = itemID
         self.sourceURL = sourceURL
         self.library = library
+        fileBrowserEntry = nil
     }
 
-    /// コレクションの外の本(ファイルブラウザの右クリック)。カバーの面は出さない(型コメント)。
-    init(sourceURL: URL) {
+    /// ファイルブラウザの右クリック。コレクションの外の本でも開ける(型コメント)。
+    init(fileBrowserEntry entry: FileBrowserEntry) {
         itemID = nil
-        self.sourceURL = sourceURL
+        sourceURL = entry.url
         library = nil
+        fileBrowserEntry = entry
     }
 
     @EnvironmentObject private var metadataStore: BookMetadataStore
@@ -91,10 +102,18 @@ struct BookMetadataSheet: View {
 
     var body: some View {
         if itemID == nil {
-            // URL だけで開いた版。DBの行はパス(= BookLoader が付ける本の id)で引く。
-            content(bookID: sourceURL.path, title: MetadataEditorViewModel.baseName(forBookID: sourceURL.path), item: nil)
+            // ファイルブラウザから開いた版。DBの行はパス(= BookLoader が付ける本の id)で引く。コレクションに入っている本なら、
+            // その行とライブラリでカバーの面を出す(型コメント)。
+            let bookID = sourceURL.path
+            let registered = collectionStore.items(forBookID: bookID).lazy
+                .compactMap { item in item.collection?.library.map { (item, $0) } }
+                .first
+            content(
+                bookID: bookID, title: MetadataEditorViewModel.baseName(forBookID: bookID),
+                item: registered?.0, library: registered?.1
+            )
         } else if let item {
-            content(bookID: item.bookID, title: item.title, item: item)
+            content(bookID: item.bookID, title: item.title, item: item, library: library)
         } else {
             // 出している間に外された(itemIDのコメント参照)。何も描かずに閉じる。
             Color.clear
@@ -103,8 +122,9 @@ struct BookMetadataSheet: View {
         }
     }
 
-    /// - Parameter item: コレクションの行。nil ならカバーの面を出さない(URL だけで開いた版)。
-    private func content(bookID: String, title: String, item: CollectionItem?) -> some View {
+    /// - Parameters:
+    ///   - item / library: コレクションの行とそのライブラリ。nil なら、ファイルブラウザから開いた版は切らないカバーの面を出す。
+    private func content(bookID: String, title: String, item: CollectionItem?, library: BookLibrary?) -> some View {
         // **幅はボタンではなくラベルに与える。** `Button(...).frame(width:)`では、与えた幅は
         // レイアウト上の枠にしか効かず、実際に描かれるベゼルは文字列の長さのまま枠の中央に
         // 置かれる(実測。WelcomeTopBarの同じコメント参照)。ラベル側を同じ幅にすれば、
@@ -146,6 +166,25 @@ struct BookMetadataSheet: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+            } else if let fileBrowserEntry {
+                HStack(alignment: .top, spacing: 16) {
+                    if let coverController {
+                        FileBrowserCoverArea(
+                            controller: coverController, entry: fileBrowserEntry, bookID: bookID,
+                            width: Self.coverWidth, locale: locale
+                        )
+                    } else {
+                        Color.clear.frame(width: Self.coverWidth, height: Self.coverWidth * FileBrowserCoverArea.heightRatio)
+                    }
+                    VStack(alignment: .leading, spacing: 10) {
+                        fields
+                        Text("Drop an image file on the cover, or right-click it to choose a page.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             } else {
                 fields
             }
@@ -177,7 +216,7 @@ struct BookMetadataSheet: View {
                 metadataStore: metadataStore, formatStore: formatStore
             )
             // カバーの面を出さない版では、カバーの指定の口も作らない。
-            guard item != nil, coverController == nil else { return }
+            guard item != nil || fileBrowserEntry != nil, coverController == nil else { return }
             coverController = CoverOverrideController(
                 target: .collectionCover, layoutStore: layoutStore, preferences: preferences,
                 // この画面は対象の本を1冊しか扱わないので、URLの解決は済んだものを返すだけ。
@@ -379,5 +418,99 @@ private struct CoverArea: View {
         )
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task { await controller.setCoverFile(forBookID: item.bookID, fileURL: url) }
+    }
+}
+
+/// ファイルブラウザから開いた、コレクションに入っていない本のカバーの面(BookMetadataSheet の型コメント)。
+///
+/// 絵は**アイコン表示と同じ提供役**(FileBrowserThumbnailProvider)から引く。指定を変えると、提供役がその本の指定の変化を
+/// 見て `revision` を進め、アイコン表示のセルとこの面が同じ絵に描き直される。コントローラの `revision` も鍵に入れる
+/// (指定の書き込みと同じ流れで進むので、通知の順番に頼らない)。ライブラリの比が無いので**切らずに**枠へ収める。
+private struct FileBrowserCoverArea: View {
+    @ObservedObject var controller: CoverOverrideController
+    let entry: FileBrowserEntry
+    let bookID: String
+    let width: CGFloat
+    let locale: Locale
+
+    @EnvironmentObject private var thumbnails: FileBrowserThumbnailProvider
+    @State private var image: CGImage?
+    /// 絵を作れなかった(読めない本・画像の無い本)。読み込み中の印を出し続けないため。
+    @State private var didFail = false
+    @State private var isPickingPage = false
+    @State private var isCoverDropTargeted = false
+
+    /// 枠の高さ(幅に対する比)。既定のライブラリと同じ 2:3。
+    static let heightRatio: CGFloat = 1.5
+
+    private var kind: BookThumbnailer.Kind? {
+        BookThumbnailer.kind(
+            forName: entry.url.lastPathComponent, isNavigableFolder: entry.isNavigableFolder,
+            isPackage: entry.isPackage, isSymbolicLink: entry.isSymbolicLink
+        )
+    }
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        ZStack {
+            if let image {
+                Image(decorative: image, scale: 1)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
+            } else {
+                shape.fill(Color.secondary.opacity(0.15))
+                if !didFail { ProgressView().controlSize(.small) }
+            }
+        }
+        .frame(width: width, height: width * Self.heightRatio)
+        .overlay {
+            if isCoverDropTargeted {
+                shape.strokeBorder(Color.accentColor, lineWidth: 3)
+            }
+        }
+        .contentShape(shape)
+        .task(id: "\(thumbnails.revision)|\(controller.revision)") { await load() }
+        // CoverArea と同じく、シートは別の NSWindow なので自前で受ける。画像 1 枚だけ。
+        .fileURLDropTarget(isTargeted: $isCoverDropTargeted) { urls in
+            guard let imageURL = urls.first(where: { isImageFile($0.lastPathComponent) }) else { return }
+            Task { await controller.setCoverFile(forBookID: bookID, fileURL: imageURL) }
+        }
+        .contextMenu {
+            Button("Choose Page in This Book…") { isPickingPage = true }
+            Button("Choose File…") { chooseExternalFile() }
+            Button("Reset to Default (First Page)") { controller.resetCover(forBookID: bookID) }
+        }
+        .popover(isPresented: $isPickingPage) {
+            ExportCoverPickerContent(bookID: bookID, controller: controller)
+        }
+        .accessibilityLabel(Text("Collection Cover"))
+    }
+
+    private func load() async {
+        guard let kind else {
+            didFail = true
+            return
+        }
+        let buffer = await thumbnails.thumbnail(for: entry, kind: kind, pixelSize: 512)
+        guard !Task.isCancelled else { return }
+        guard let made = buffer?.makeImage() else {
+            didFail = image == nil
+            return
+        }
+        didFail = false
+        image = made
+    }
+
+    private func chooseExternalFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.image]
+        panel.message = String(localized: "Choose an image file to use as the cover.", language: locale)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task { await controller.setCoverFile(forBookID: bookID, fileURL: url) }
     }
 }

@@ -75,6 +75,27 @@ struct FileBrowserModelTests {
         #expect(FavoriteLocationStore(defaults: suite.defaults).items.map(\.path) == ["/tmp/two"])
     }
 
+    @Test("よく使う項目の並べ替えは、動かす前の並びでの挿入位置で動き、保存される")
+    func favoriteLocationsMove() {
+        let suite = PreferencesSuite(label: "favorite-locations-move")
+        let store = FavoriteLocationStore(defaults: suite.defaults)
+        let a = store.add(URL(fileURLWithPath: "/tmp/a", isDirectory: true))
+        store.add(URL(fileURLWithPath: "/tmp/b", isDirectory: true))
+        let c = store.add(URL(fileURLWithPath: "/tmp/c", isDirectory: true))
+
+        // 自分の直前・直後は動かない。
+        #expect(!store.move(id: a.id, to: 0))
+        #expect(!store.move(id: a.id, to: 1))
+        // 下へ(末尾)。
+        #expect(store.move(id: a.id, to: 3))
+        #expect(store.items.map(\.path) == ["/tmp/b", "/tmp/c", "/tmp/a"])
+        // 上へ(先頭)。範囲外の添字は端に丸める。
+        #expect(store.move(id: c.id, to: -5))
+        #expect(store.items.map(\.path) == ["/tmp/c", "/tmp/b", "/tmp/a"])
+        #expect(!store.move(id: UUID(), to: 0))
+        #expect(FavoriteLocationStore(defaults: suite.defaults).items.map(\.path) == ["/tmp/c", "/tmp/b", "/tmp/a"])
+    }
+
     // MARK: - WelcomeLibraryState.mode
 
     @Test("ウェルカム画面のモードは保存され、本棚へ戻ると編集モードから出る")

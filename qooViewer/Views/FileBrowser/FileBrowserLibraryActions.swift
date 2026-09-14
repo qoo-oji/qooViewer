@@ -161,17 +161,9 @@ extension FileBrowserActions {
     /// 「その他…」。アプリケーションフォルダでアプリを選んでもらって開く。LaunchServices の候補に無いアプリは
     /// サンドボックスから開けないことがある(OpenWithApplications の型コメント)。失敗は報告する。
     func chooseApplicationAndOpen(_ entries: [FileBrowserEntry]) {
-        guard !entries.isEmpty else { return }
-        let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.applicationBundle]
-        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
-        panel.prompt = String(localized: "Open", language: locale)
-        panel.message = String(localized: "Choose an application to open the selected items.", language: locale)
-        guard panel.runModal() == .OK, let application = panel.url else { return }
+        guard !entries.isEmpty,
+              let application = OpenWithApplications.chooseApplication(locale: preferences?.effectiveLocale ?? .autoupdatingCurrent)
+        else { return }
         open(entries, withApplicationAt: application)
     }
 
@@ -183,8 +175,8 @@ extension FileBrowserActions {
     @discardableResult
     func editMetadata(_ entries: [FileBrowserEntry]) -> Task<Void, Never>? {
         guard allowsSaving, canUseAsSingleBook(entries), let entry = entries.first else { return nil }
-        return resolveBook(entry) { [weak self] url in
-            self?.state?.bookSheet = FileBrowserBookSheet(kind: .metadata(url))
+        return resolveBook(entry) { [weak self] _ in
+            self?.state?.bookSheet = FileBrowserBookSheet(kind: .metadata(entry))
         }
     }
 
@@ -276,13 +268,7 @@ extension FileBrowserActions {
     }
 
     private static func openWithFailure(message: String, application: URL, locale: Locale) -> FileBrowserProblem {
-        FileBrowserProblem(
-            title: String(
-                format: String(localized: "The items couldn’t be opened with “%@”.", language: locale),
-                FileManager.default.displayName(atPath: application.path)
-            ),
-            message: message
-        )
+        FileBrowserProblem(title: OpenWithApplications.failureTitle(application: application, locale: locale), message: message)
     }
 }
 
@@ -332,25 +318,11 @@ extension FileBrowserMenuCommand {
         let entries = context.entries
         switch self {
         case .openWith:
-            let applications = actions.openWithApplications(for: entries)
-            var nodes: [FileBrowserMenuNode] = applications.map { application in
-                let title = application.isDefault
-                    ? String(format: String(localized: "%@ (default)", language: locale), application.name)
-                    : application.name
-                return .item(
-                    title: title, image: OpenWithApplications.shared.icon(for: application), isEnabled: true,
-                    action: { [weak actions] in actions?.open(entries, withApplicationAt: application.url) }
-                )
-            }
-            if let first = applications.first, first.isDefault, applications.count > 1 {
-                nodes.insert(.separator, at: 1)
-            }
-            if !nodes.isEmpty { nodes.append(.separator) }
-            nodes.append(.item(
-                title: String(localized: "Other…", language: locale), image: nil, isEnabled: true,
-                action: { [weak actions] in actions?.chooseApplicationAndOpen(entries) }
-            ))
-            return nodes
+            return OpenWithApplications.shared.menuNodes(
+                for: actions.openWithApplications(for: entries), locale: locale,
+                open: { [weak actions] application in actions?.open(entries, withApplicationAt: application) },
+                chooseOther: { [weak actions] in actions?.chooseApplicationAndOpen(entries) }
+            )
         case .addToCollection:
             let libraries = actions.collectionMenuLibraries()
             func collectionItems(_ library: CollectionMenuLibrary) -> [FileBrowserMenuNode] {

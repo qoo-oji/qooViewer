@@ -262,7 +262,11 @@ final class FileBrowserOutlineView: NSOutlineView {
     override func draggingSession(
         _ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext
     ) -> NSDragOperation {
-        fileBrowserDragSourceMask(allowsFileChanges: editResponder?.allowsFileChanges ?? false)
+        // よく使う項目の並べ替えは、この一覧の中だけで動かす(ファイルではないので読み取り専用モードとは関係しない)。
+        if session.draggingPasteboard.types?.contains(fileBrowserFavoriteLocationPasteboardType) == true {
+            return context == .withinApplication ? .move : []
+        }
+        return fileBrowserDragSourceMask(allowsFileChanges: editResponder?.allowsFileChanges ?? false)
     }
 
     /// いまこの一覧の上でドラッグを受けているか(ドラッグ中に行を開かないため。TreeView の shouldExpandItem)。

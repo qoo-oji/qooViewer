@@ -38,15 +38,22 @@ nonisolated enum BookThumbnailer {
         /// 動画(段階 7b)。QuickLook で作るので**ここでは作らない**(`thumbnail(of:kind:)` は nil)。
         /// 作るのは `FileBrowserThumbnailProvider` が `VideoThumbnailLoading` で。
         case video
+        /// アプリケーション(.app。2026-09-14)。中の絵ではなく**アプリのアイコン**を `FileBrowserApplicationIcon` で描く
+        /// (ここでは作らない。`make` は `.unavailable`)。
+        case application
     }
 
     /// 絵を作る対象か。ボリューム・パッケージ・記号リンクは作らない(リンクの先は別の場所で、
-    /// その場所の読み取りの許可を持っているとは限らない)。
+    /// その場所の読み取りの許可を持っているとは限らない)。パッケージのうちアプリケーション(記号リンクでないもの)だけは
+    /// `.application`(アイコンを描く)。
     ///
-    /// - Parameter includesVideo: 動画も対象にするか(環境設定「動画のサムネイルを作る」)。
+    /// - Parameter includesVideo: 動画も対象にするか(環境設定「動画のサムネイルを生成」)。
     static func kind(
         forName name: String, isNavigableFolder: Bool, isPackage: Bool, isSymbolicLink: Bool, includesVideo: Bool = true
     ) -> Kind? {
+        if FileBrowserApplicationIcon.isApplication(name: name, isPackage: isPackage, isSymbolicLink: isSymbolicLink) {
+            return .application
+        }
         guard !isPackage, !isSymbolicLink else { return nil }
         if isNavigableFolder { return .folder }
         if isImageFile(name) { return .image }
@@ -89,7 +96,7 @@ nonisolated enum BookThumbnailer {
     /// さらに**読み取り全体をこのスレッドだけ「実体化しない」方針で包む**(`DatalessFiles.withoutDownloading`)ので、
     /// 確かめた後に追い出された・EPUB の中から辿った、などの取りこぼしも読み取りの失敗になるだけでダウンロードは起きない。
     static func make(of url: URL, kind: Kind, maxPixelSize: CGFloat) -> Outcome {
-        guard kind != .video else { return .unavailable }
+        guard kind != .video, kind != .application else { return .unavailable }
         if DatalessFiles.isDataless(url) { return .notDownloaded }
         return DatalessFiles.withoutDownloading { () -> Outcome in
             switch kind {
@@ -114,7 +121,7 @@ nonisolated enum BookThumbnailer {
             case .pdf:
                 guard let document = CGPDFDocument(url as CFURL), let page = document.page(at: 1) else { return .unavailable }
                 return outcome(render(page, maxPixelSize: maxPixelSize))
-            case .video:
+            case .video, .application:
                 return .unavailable
             }
         }

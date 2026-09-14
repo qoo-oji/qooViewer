@@ -179,7 +179,7 @@ struct FileBrowserVideoThumbnailTests {
         #expect(loader.calls.count == 2)
     }
 
-    @Test("提供役: 環境設定の「動画のサムネイルを作る」を写す")
+    @Test("提供役: 環境設定の「動画のサムネイルを生成」を写す")
     func providerFollowsPreference() throws {
         let suite = PreferencesSuite()
         let preferences = suite.makePreferences()

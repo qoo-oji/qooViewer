@@ -122,7 +122,7 @@ final class AppStores: ObservableObject {
             layoutStore: layoutStore
         )
         fileBrowserThumbnails = FileBrowserThumbnailProvider(
-            collectionStore: collectionStore, coverStore: collectionCoverStore
+            collectionStore: collectionStore, coverStore: collectionCoverStore, layoutStore: layoutStore
         )
         fileBrowserThumbnails.connect(preferences: preferences)
         fileBrowserVideoThumbnailWarmer = FileBrowserVideoThumbnailWarmer(dependencies: .live())

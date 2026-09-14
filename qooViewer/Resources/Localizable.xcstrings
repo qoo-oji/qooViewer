@@ -7252,7 +7252,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "現在のフォルダまでツリーを自動で展開する"
+            "value" : "現在のフォルダまでツリーを自動で展開"
           }
         }
       }
@@ -8691,7 +8691,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "圧縮したファイルの形式"
+            "value" : "圧縮ファイルの形式"
           }
         }
       }
@@ -10858,7 +10858,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "動画のサムネイルを作る"
+            "value" : "動画のサムネイルを生成"
           }
         }
       }
