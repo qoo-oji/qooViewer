@@ -484,9 +484,86 @@ struct FileCommandsTests {
         #expect(result == .stopped(succeeded: 1, failures: []))
         #expect(FileManager.default.fileExists(atPath: c.path), "後に運んだものから戻す")
         #expect(command.outcome.receipts.map(\.source) == [a, b])
+        // 題は残りの件数で名乗る(実機検証: 「4000 項目の移動を取り消す」のままだった)。
+        let locale = AppLanguage.currentLocale
+        #expect(command.displayName == String(format: String(localized: "Move of %lld Items", language: locale), 2))
 
         #expect(try await command.undo() == .complete)
+        #expect(command.displayName == String(format: String(localized: "Move of %lld Items", language: locale), 3), "戻し終えたら、やり直す全部の件数へ戻る")
         #expect(FileManager.default.fileExists(atPath: a.path) && FileManager.default.fileExists(atPath: b.path))
+    }
+
+    @Test("移動の取り消しは元のフォルダごとにまとめて戻し、進み具合は全体の件数で出す。消えた項目・同じ名前ができた項目があっても残りは戻る")
+    func moveUndoPutsBackPerFolderInOneBatch() async throws {
+        // 3 回目の監査の実機検証: 以前は 1 件ずつ移動を呼び、帯が「全 1 件」を 1 件ごとに出し直した。
+        let first = try (0..<5).map { try write("a\($0)", to: "undo-batch/one/a\($0).txt") }
+        let second = try (0..<3).map { try write("b\($0)", to: "undo-batch/two/b\($0).txt") }
+        let destination = try temporary.directory("undo-batch/dst")
+        let command = MoveFilesCommand(
+            items: first + second, destination: destination, options: .init(conflictPolicy: .ask), fileOps: fileOps
+        )
+        #expect(try await command.execute() == .success)
+        // 1 件は運んだ先で消え、1 件は元の場所に同じ名前ができた。
+        try FileManager.default.removeItem(at: destination.appendingPathComponent("a1.txt"))
+        _ = try write("other", to: "undo-batch/two/b2.txt")
+
+        let reports = ReportLog()
+        let sink = ProgressSink { reports.append($0) }
+        guard case let .partial(succeeded, failures) = try await command.undo(in: FileCommandContext(progress: sink)) else {
+            Issue.record("一部だけ戻したにならなかった")
+            return
+        }
+        #expect(succeeded == 6)
+        #expect(failures.count == 2)
+        for (index, url) in first.enumerated() where index != 1 {
+            #expect(FileManager.default.fileExists(atPath: url.path))
+        }
+        #expect(FileManager.default.fileExists(atPath: second[0].path) && FileManager.default.fileExists(atPath: second[1].path))
+        #expect(String(decoding: try Data(contentsOf: second[2]), as: UTF8.self) == "other")
+        #expect(FileManager.default.fileExists(atPath: second[2].deletingLastPathComponent().appendingPathComponent("b2 2.txt").path))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: destination.path).isEmpty)
+        // 組が 2 つなので、件数は全体(戻す 7 件)で数える。
+        #expect(reports.values.allSatisfy { $0.totalItems == 7 })
+        #expect(reports.values.map(\.completedItems).max() == 7)
+    }
+
+    /// 進捗の受け口はどのスレッドから呼ばれるか分からない。
+    private final class ReportLog: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: [FileOperationProgress] = []
+        func append(_ value: FileOperationProgress) {
+            lock.lock()
+            stored.append(value)
+            lock.unlock()
+        }
+        var values: [FileOperationProgress] {
+            lock.lock()
+            defer { lock.unlock() }
+            return stored
+        }
+    }
+
+    @Test("進捗の中継は最新の値だけを、新しい順にメインアクターへ渡す")
+    func progressRelayDeliversOnlyTheLatestInOrder() async throws {
+        // 実機検証: 報告ごとに Task を作っていたので、メインが追いつかず帯のバーが遅れ、順番も保証されなかった。
+        let relay = ProgressRelay()
+        let delivered = DeliveredLog()
+        DispatchQueue.concurrentPerform(iterations: 1) { _ in
+            for index in 1...5000 {
+                relay.push(FileOperationProgress(completedItems: index, totalItems: 5000)) { delivered.values.append($0.completedItems) }
+            }
+        }
+        for _ in 0..<100 where delivered.values.last != 5000 {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(delivered.values.last == 5000)
+        #expect(delivered.values == delivered.values.sorted())
+        #expect(delivered.values.count < 100, "報告の数だけ渡さない")
+    }
+
+    @MainActor
+    private final class DeliveredLog {
+        var values: [Int] = []
     }
 
     @Test("新規フォルダの取り消しは、読めないフォルダを空とみなさない")

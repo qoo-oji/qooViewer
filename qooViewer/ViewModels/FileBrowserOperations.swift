@@ -426,9 +426,7 @@ final class FileBrowserOperations: ObservableObject {
                 }
             }
             let cancellation = Cancellation()
-            let sink = ProgressSink { [weak self] progress in
-                Task { @MainActor [weak self] in self?.report(progress) }
-            }
+            let sink = progressSink()
             let command = BulkRenameFileCommand(
                 renames: renames, unlockingLocked: unlocking, progress: sink, cancellation: cancellation, fileOps: self.fileOps
             )
@@ -510,9 +508,14 @@ final class FileBrowserOperations: ObservableObject {
         }
     }
 
+    /// 帯へ繋ぐ進捗の受け口。**最新の 1 件だけを、間を空けてメインアクターへ渡す**(`ProgressRelay`。2026-09-15 の実機検証)。
+    /// 以前は報告ごとに `Task { @MainActor }` を作っていたので、小さなファイルが多い移動(項目ごとに始まり・最初のバイト・終わりを間引かずに
+    /// 報告する ―― 4000 件で約 1 万回)でメインが報告の列に追いつかず、帯のバーが実際より大きく遅れた(件数 20% のときバー 7%)。
+    /// 作った Task どうしの順番も保証されないので、古い値が新しい値を上書きしうる。
     private func progressSink() -> ProgressSink {
-        ProgressSink { [weak self] progress in
-            Task { @MainActor [weak self] in self?.report(progress) }
+        let relay = ProgressRelay()
+        return ProgressSink { [weak self] progress in
+            relay.push(progress) { [weak self] latest in self?.report(latest) }
         }
     }
 
@@ -628,9 +631,7 @@ final class FileBrowserOperations: ObservableObject {
     }
 
     private func transferOptions(policy: ConflictPolicy, cancellation: Cancellation) -> FileOperationOptions {
-        let sink = ProgressSink { [weak self] progress in
-            Task { @MainActor [weak self] in self?.report(progress) }
-        }
+        let sink = progressSink()
         return FileOperationOptions(
             conflictPolicy: policy,
             conflictResolver: { [weak self] conflict in
@@ -754,6 +755,39 @@ final class FileBrowserOperations: ObservableObject {
 }
 
 /// 進捗の帯に出す 1 本の操作。
+/// 進捗の受け口(どのスレッドからでも呼ばれる)から、メインアクターへ**最新の 1 件だけ**を渡す箱。
+/// 渡しに行く Task は同時に 1 つだけなので、値は必ず新しい順に届き、メインの仕事は報告の数ではなく間隔で決まる。
+nonisolated final class ProgressRelay: @unchecked Sendable {
+    /// 渡す間隔。帯の更新はこれで足りる(ProgressTracker の間引きと同じ桁)。
+    static let interval: Duration = .milliseconds(50)
+
+    private let lock = NSLock()
+    private var latest: FileOperationProgress?
+    private var isScheduled = false
+
+    func push(_ progress: FileOperationProgress, deliver: @escaping @MainActor @Sendable (FileOperationProgress) -> Void) {
+        lock.lock()
+        latest = progress
+        let schedules = !isScheduled
+        isScheduled = true
+        lock.unlock()
+        guard schedules else { return }
+        Task { @MainActor in
+            try? await Task.sleep(for: Self.interval)
+            if let value = self.take() { deliver(value) }
+        }
+    }
+
+    private func take() -> FileOperationProgress? {
+        lock.lock()
+        defer { lock.unlock() }
+        isScheduled = false
+        let value = latest
+        latest = nil
+        return value
+    }
+}
+
 struct FileBrowserActivity: Equatable, Identifiable {
     let id: UUID
     let title: String

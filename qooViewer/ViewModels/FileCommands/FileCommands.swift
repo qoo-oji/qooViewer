@@ -33,22 +33,30 @@ final class MoveFilesCommand: FileCommand {
         self.fileOps = fileOps
     }
 
+    /// 取り消しを途中で止めて、まだ戻していない項目(元の場所の URL)。止めていなければ nil。
+    private var remainingToUndo: [URL]?
+
+    /// **取り消しを途中で止めた後は、残りの件数で名乗る**(2026-09-15 の実機検証。以前は「4000 項目の移動を取り消す」のままで、
+    /// 1347 件しか残っていないのに全部を戻すように読めた)。やり直しは全部を運び直すので、全部を戻し終えたら元の名前へ戻る。
     var displayName: String {
         let locale = AppLanguage.currentLocale
-        return items.count == 1
-            ? String(format: String(localized: "Move of “%@”", language: locale), items[0].lastPathComponent)
-            : String(format: String(localized: "Move of %lld Items", language: locale), items.count)
+        let named = remainingToUndo ?? items
+        return named.count == 1
+            ? String(format: String(localized: "Move of “%@”", language: locale), named[0].lastPathComponent)
+            : String(format: String(localized: "Move of %lld Items", language: locale), named.count)
     }
 
     /// ペースト・D&D の完了音(Finder もペーストで鳴らす)。
     let completionSound: SystemSoundEffect? = .operationComplete
 
     func execute() async throws -> FileCommandResult {
+        remainingToUndo = nil
         outcome = try await fileOps.move(items, to: destination, options: options)
         return .from(outcome)
     }
 
     func redo(in context: FileCommandContext) async throws -> FileCommandResult {
+        remainingToUndo = nil
         outcome = try await fileOps.move(items, to: destination, options: context.applied(to: options))
         return .from(outcome)
     }
@@ -59,22 +67,26 @@ final class MoveFilesCommand: FileCommand {
 
     func undo(in context: FileCommandContext) async throws -> FileUndoResult {
         let receipts = outcome.receipts
-        let undone = try await TransferUndo.undo(receipts, fileOps: fileOps, cancellation: context.cancellation) { receipt in
+        let undone = try await TransferUndo.undo(
+            receipts, fileOps: fileOps, cancellation: context.cancellation, progress: context.progress
+        ) { items, folder, progress in
             // 自分が運んだものなので、ロックされていても尋ねずに外して戻す(戻した先で掛け直す)。
-            let putBack = try await self.fileOps.move(
-                [receipt.destination], to: receipt.source.deletingLastPathComponent(),
+            // 戻せたかは受領書で見る(エンジンは最後の項目を運び終えた直後に中止が立っても `wasCancelled` を立てる。3 回目の監査)。
+            try await self.fileOps.move(
+                items, to: folder,
                 options: FileOperationOptions(
-                    conflictPolicy: .keepBoth, progress: context.progress, cancellation: context.cancellation, unlockingLocked: true
+                    conflictPolicy: .keepBoth, progress: progress, cancellation: context.cancellation, unlockingLocked: true
                 )
             )
-            // **戻せたかを先に見る**(2026-09-15 の 3 回目の監査)。エンジンは最後の項目を運び終えた直後に中止が立っても `wasCancelled` を
-            // 立てるので、以前は戻し終えた項目を「中止」と数え、置き換えた元をゴミ箱に残したまま、先頭なら黙って履歴へ戻していた。
-            if let restored = putBack.receipts.first { return .restored(restored.destination) }
-            return putBack.wasCancelled ? .cancelled : .missing
         }
         // 途中で止めたなら、片付いた受領書を外して残りだけを持つ(もう一度 ⌘Z で続きを戻す)。
         if case .stopped = undone.result {
             outcome.receipts = receipts.enumerated().filter { !undone.resolvedIndices.contains($0.offset) }.map(\.element)
+            remainingToUndo = outcome.receipts.map(\.source)
+        } else if case .impossible = undone.result {
+            // 何も戻っていない(残りはそのまま)。名乗りも変えない。
+        } else {
+            remainingToUndo = nil
         }
         return undone.result
     }
@@ -328,29 +340,27 @@ private enum TransferUndo {
         return (ours, changed)
     }
 
-    /// 1 件を戻した結果。
-    enum PutBack {
-        case restored(URL)
-        /// 戻す相手が無かった。
-        case missing
-        /// 中止ボタンで止めた(項目は運んだ先にそのまま)。
-        case cancelled
-    }
-
     /// `undo` の結果と、片付いた(戻した・試し直しても戻らない)受領書の添字(`receipts` の中の位置)。
     struct Undone {
         var result: FileUndoResult
         var resolvedIndices: Set<Int> = []
     }
 
-    /// 受領書ごとに `putBack` で戻す。戻った場所の名前が元と違えば、その項目は「部分的に戻した」。
+    /// 受領書を元の場所へ戻す。戻った場所の名前が元と違えば、その項目は「部分的に戻した」。
     /// 置き換えた元の項目がゴミ箱にあれば、戻したあとで空いた場所へ戻す。
     /// 中止されたら残りには手を付けず `.stopped`(呼び出し側は `resolvedIndices` を外して、残りをもう一度取り消せるようにする)。
+    ///
+    /// **元のフォルダごとにまとめて 1 回で運ぶ**(`putBack` に項目の列と戻す先を渡す。2026-09-15 の 3 回目の監査の実機検証)。以前は受領書 1 件ごとに
+    /// 移動を呼んでいたので、4000 件の別ボリュームの移動の取り消しが、移動の 24 秒に対して 89 秒掛かり(1 件ごとに事前検査とボリュームの判定をやり直す)、
+    /// 帯の進み具合も「全 1 件の何バイト」を 1 件ごとに 0 から出し直して、全体のどこまで戻ったかが見えなかった。
+    /// エンジンは最初の失敗で止まる(残りは `unprocessed`)ので、失敗した項目を外して残りを続けて運ぶ。まとめた呼び出しが 1 件も動かずに投げたときは、
+    /// どの項目の失敗か分からないので、その組だけ 1 件ずつに戻して確かめる。
     static func undo(
         _ receipts: [TransferReceipt],
         fileOps: FileOperationService,
         cancellation: Cancellation = Cancellation(),
-        putBack: (TransferReceipt) async throws -> PutBack
+        progress: ProgressSink? = nil,
+        putBack: ([URL], URL, ProgressSink?) async throws -> TransferOutcome
     ) async throws -> Undone {
         guard !receipts.isEmpty else { return Undone(result: .impossible(reason: nothingToRestore)) }
         let locale = AppLanguage.currentLocale
@@ -360,66 +370,145 @@ private enum TransferUndo {
         /// 試し直しても戻らない失敗があったか(相手が無い・別の項目に変わった)。
         var hasPermanentFailure = false
         var resolved: Set<Int> = []
-        var stopped = false
+
+        // **運んだそのものだけを戻す**(FileIdentity の型コメント)。
+        let identities = await FileIO.perform { receipts.map { FileIdentity.matches($0.destination, $0.identity) } }
+        var ours: [Int] = []
         // 後に動かしたものから戻す(同じ名前の項目を続けて運んだとき、前のものの場所を先に空けない)。
-        let ordered = Array(receipts.reversed())
-        receiptLoop: for (index, receipt) in ordered.enumerated() {
-            let originalIndex = receipts.count - 1 - index
-            if cancellation.isRequested {
-                stopped = true
-                break
-            }
-            // **運んだそのものだけを戻す**(FileIdentity の型コメント)。確かめるのは戻す直前(前の項目を戻したことで
-            // 変わることは無いが、確かめてから動かすまでの間を短くする)。
-            let isOurs = await FileIO.perform { FileIdentity.matches(receipt.destination, receipt.identity) }
-            guard isOurs else {
-                let reason = await FileIO.perform { changedReason(for: receipt.destination) }
-                failures.append(FailedItem(url: receipt.destination, reason: reason))
+        for index in receipts.indices.reversed() {
+            if identities[index] {
+                ours.append(index)
+            } else {
+                let destination = receipts[index].destination
+                let reason = await FileIO.perform { changedReason(for: destination) }
+                failures.append(FailedItem(url: destination, reason: reason))
                 hasPermanentFailure = true
-                resolved.insert(originalIndex)
-                continue
+                resolved.insert(index)
             }
-            do {
-                let restoredAt: URL
-                switch try await putBack(receipt) {
-                case .restored(let url):
-                    restoredAt = url
-                case .missing:
-                    failures.append(FailedItem(url: receipt.destination, reason: nothingToRestore))
-                    hasPermanentFailure = true
-                    resolved.insert(originalIndex)
+        }
+        // 戻す先(元のフォルダ)ごとの組。組の並びは、その組の最後に運んだ項目の順。
+        var groups: [(folder: URL, indices: [Int])] = []
+        for index in ours {
+            let folder = receipts[index].source.deletingLastPathComponent()
+            if let position = groups.firstIndex(where: { $0.folder == folder }) {
+                groups[position].indices.append(index)
+            } else {
+                groups.append((folder, [index]))
+            }
+        }
+
+        /// 1 件戻せた後始末。
+        func didRestore(_ index: Int, at restoredAt: URL, problem: String?) async {
+            let receipt = receipts[index]
+            moved += 1
+            resolved.insert(index)
+            if restoredAt.lastPathComponent != receipt.source.lastPathComponent {
+                failures.append(FailedItem(
+                    url: receipt.source,
+                    reason: String(
+                        format: String(localized: "An item with the same name was already there, so it was put back as “%@”.", language: locale),
+                        restoredAt.lastPathComponent
+                    )
+                ))
+            } else if problem == nil {
+                succeeded += 1
+            }
+            if let problem { failures.append(FailedItem(url: receipt.destination, reason: problem)) }
+            if let replaced = receipt.replacedItemInTrash {
+                let restored = await fileOps.restoreFromTrash([
+                    TrashReceipt(originalURL: receipt.destination, trashURL: replaced, identity: receipt.replacedItemIdentity)
+                ])
+                failures += restored.failures
+            }
+        }
+
+        // 組が複数あると、エンジンの進み具合は組ごとに数え直すので、件数だけを全体へ足し直して見せる(容量は総量が分からないので出さない)。
+        let totalItems = ours.count
+        var itemsBefore = 0
+        let aggregated: (Int) -> ProgressSink? = { base in
+            guard let progress else { return nil }
+            guard groups.count > 1 else { return progress }
+            return ProgressSink { value in
+                var combined = value
+                combined.completedItems = base + value.completedItems
+                combined.totalItems = totalItems
+                combined.completedBytes = 0
+                combined.totalBytes = 0
+                progress.report(combined)
+            }
+        }
+
+        var stopped = false
+        groupLoop: for group in groups {
+            var remaining = group.indices
+            /// 次の 1 回は先頭の 1 件だけを運ぶ(まとめた呼び出しが投げた・進まなかった)。
+            var isolatesFirst = false
+            while !remaining.isEmpty {
+                if cancellation.isRequested {
+                    stopped = true
+                    break groupLoop
+                }
+                let batch = isolatesFirst ? [remaining[0]] : remaining
+                let urls = batch.map { receipts[$0].destination }
+                let outcome: TransferOutcome
+                do {
+                    outcome = try await putBack(urls, group.folder, aggregated(itemsBefore + group.indices.count - remaining.count))
+                } catch {
+                    // 運ぶ前の中止(事前検査の中など)はエンジンが投げる。失敗ではなく中止として止める。
+                    if FileCommandStack.isCancellation(error) {
+                        stopped = true
+                        break groupLoop
+                    }
+                    // エンジンは 1 件も動かせずに先頭で失敗したときだけ投げる。先頭だけを確かめ直してから、残りをまとめて続ける。
+                    if batch.count > 1 {
+                        isolatesFirst = true
+                        continue
+                    }
+                    failures.append(FailedItem(url: urls[0], reason: error.localizedDescription))
+                    remaining.removeFirst()
+                    isolatesFirst = false
                     continue
-                case .cancelled:
+                }
+                let placed = Dictionary(outcome.receipts.map { ($0.source, $0.destination) }, uniquingKeysWith: { first, _ in first })
+                let problems = Dictionary(outcome.failures.compactMap { item in item.url.map { ($0, item.reason) } }, uniquingKeysWith: { first, _ in first })
+                let unprocessed = Set(outcome.unprocessed)
+                var next: [Int] = []
+                for index in batch {
+                    let url = receipts[index].destination
+                    if let restoredAt = placed[url] {
+                        await didRestore(index, at: restoredAt, problem: problems[url])
+                    } else if let reason = problems[url] {
+                        failures.append(FailedItem(url: url, reason: reason))
+                    } else if unprocessed.contains(url) {
+                        next.append(index)
+                    } else {
+                        // 運ぶ先に自分がいた(スキップ)・消えていた。
+                        failures.append(FailedItem(url: url, reason: nothingToRestore))
+                        hasPermanentFailure = true
+                        resolved.insert(index)
+                    }
+                }
+                if isolatesFirst {
+                    next += remaining.dropFirst()
+                    isolatesFirst = false
+                }
+                // 中止で残した項目があれば止める(最後の項目を運び終えた直後の中止は、残りが無いので止めない)。
+                if outcome.wasCancelled, !next.isEmpty {
                     stopped = true
-                    break receiptLoop
+                    break groupLoop
                 }
-                moved += 1
-                resolved.insert(originalIndex)
-                if restoredAt.lastPathComponent != receipt.source.lastPathComponent {
-                    failures.append(FailedItem(
-                        url: receipt.source,
-                        reason: String(
-                            format: String(localized: "An item with the same name was already there, so it was put back as “%@”.", language: locale),
-                            restoredAt.lastPathComponent
-                        )
-                    ))
-                } else {
-                    succeeded += 1
+                // 1 件も片付かなかったのに中止でもない(エンジンの約束では起きない)なら、先頭を 1 件ずつ確かめて必ず進める。
+                if next.count == remaining.count, batch.count > 1 {
+                    isolatesFirst = true
+                    continue
                 }
-                if let replaced = receipt.replacedItemInTrash {
-                    let restored = await fileOps.restoreFromTrash([
-                        TrashReceipt(originalURL: receipt.destination, trashURL: replaced, identity: receipt.replacedItemIdentity)
-                    ])
-                    failures += restored.failures
+                if next.count == remaining.count, let first = next.first {
+                    failures.append(FailedItem(url: receipts[first].destination, reason: nothingToRestore))
+                    next.removeFirst()
                 }
-            } catch {
-                // 運ぶ前の中止(事前検査の中など)はエンジンが投げる。失敗ではなく中止として止める。
-                if FileCommandStack.isCancellation(error) {
-                    stopped = true
-                    break
-                }
-                failures.append(FailedItem(url: receipt.destination, reason: error.localizedDescription))
+                remaining = next
             }
+            itemsBefore += group.indices.count
         }
         if stopped { return Undone(result: .stopped(succeeded: succeeded, failures: failures), resolvedIndices: resolved) }
         if failures.isEmpty { return Undone(result: .complete, resolvedIndices: resolved) }
