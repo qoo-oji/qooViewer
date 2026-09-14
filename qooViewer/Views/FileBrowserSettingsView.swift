@@ -3,7 +3,7 @@ import SwiftUI
 /// 環境設定ウインドウの「ファイルブラウザ」画面(改善要望7 段階3、2026-09-13)。
 ///
 /// 段階3で並べるのは**いま効くものだけ**(起動時のフォルダ・フォルダを上に。段階4bで「外からドロップしたとき」、
-/// 2026-09-14 に「現在のフォルダまでツリーを自動で展開」、段階 6 で「圧縮ファイルの形式」、段階 7b で
+/// 2026-09-14 に「現在のフォルダまでツリーを自動で展開」と「サブフォルダを右と同じ順に並べる」、段階 6 で「圧縮ファイルの形式」、段階 7b で
 /// 「動画のサムネイルを生成」、段階 8 で「ファイルブラウザで開く」の行き先、段階 8.5 で「読み取り専用」、2026-09-14 に「画像フォルダを開くとき」)。計画
 /// (docs/plans/file-browser-plan.md §3.6)に挙げた残りの行 ――
 /// サムネイルのキャッシュ ―― は環境設定「キャッシュ」に置いた。押しても何も変わらない設定を先に並べると、効かない理由が画面から読めない。
@@ -73,6 +73,11 @@ struct FileBrowserSettingsView: View {
                     "Expand the Tree to the Current Folder",
                     isOn: $preferences.fileBrowserExpandsTreeToCurrentFolder,
                     help: "Each time you move to another folder, the tree on the left opens down to that folder and selects it. Folders you opened before stay open."
+                )
+                SettingsToggle(
+                    "Sort Subfolders Like the List",
+                    isOn: $preferences.fileBrowserTreeFollowsListSort,
+                    help: "Subfolders in the tree on the left are sorted by the same column and direction as the items on the right. Volumes, Home and your favorite locations keep their order. When this is off, subfolders are sorted by name."
                 )
             } header: {
                 Text("Tree")

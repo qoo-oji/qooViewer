@@ -69,6 +69,7 @@ final class AppPreferences: ObservableObject {
         static let fileBrowserFoldersFirst = "qooViewer.pref.fileBrowser.foldersFirst"
         static let fileBrowserExternalDropAction = "qooViewer.pref.fileBrowser.externalDropAction"
         static let fileBrowserExpandsTreeToCurrentFolder = "qooViewer.pref.fileBrowser.expandsTreeToCurrentFolder"
+        static let fileBrowserTreeFollowsListSort = "qooViewer.pref.fileBrowser.treeFollowsListSort"
         static let fileBrowserCompressionFormat = "qooViewer.pref.fileBrowser.compressionFormat"
         static let fileBrowserVideoThumbnailsEnabled = "qooViewer.pref.fileBrowser.videoThumbnailsEnabled"
         static let fileBrowserRevealDestination = "qooViewer.pref.fileBrowser.revealDestination"
@@ -641,6 +642,12 @@ final class AppPreferences: ObservableObject {
         didSet {
             defaults.set(fileBrowserExpandsTreeToCurrentFolder, forKey: Keys.fileBrowserExpandsTreeToCurrentFolder)
         }
+    }
+    /// 左のツリーで開いた行の子(サブフォルダ)を、右ペインと同じ並べ替えの基準・向きで並べるか(既定OFF = 名前の昇順。
+    /// 2026-09-14、ユーザー要望)。根(ボリューム・ホーム・よく使う項目)の並びは変えない。並べ方は FileBrowserTreeView の
+    /// 型コメント「子の並び」。
+    @Published var fileBrowserTreeFollowsListSort: Bool {
+        didSet { defaults.set(fileBrowserTreeFollowsListSort, forKey: Keys.fileBrowserTreeFollowsListSort) }
     }
     /// 「圧縮」で作る書庫の拡張子(既定 zip。段階 6)。
     @Published var fileBrowserCompressionFormat: FileBrowserCompressionFormat {
@@ -1672,6 +1679,8 @@ final class AppPreferences: ObservableObject {
         ) ?? .openInViewer
         self.fileBrowserExpandsTreeToCurrentFolder =
             defaults.object(forKey: Keys.fileBrowserExpandsTreeToCurrentFolder) as? Bool ?? false
+        self.fileBrowserTreeFollowsListSort =
+            defaults.object(forKey: Keys.fileBrowserTreeFollowsListSort) as? Bool ?? false
         self.fileBrowserVideoThumbnailsEnabled =
             defaults.object(forKey: Keys.fileBrowserVideoThumbnailsEnabled) as? Bool ?? true
         self.fileBrowserCompressionFormat = FileBrowserCompressionFormat(
@@ -2055,6 +2064,7 @@ extension AppPreferences {
                 Keys.fileBrowserFoldersFirst,
                 Keys.fileBrowserExternalDropAction,
                 Keys.fileBrowserExpandsTreeToCurrentFolder,
+                Keys.fileBrowserTreeFollowsListSort,
                 Keys.fileBrowserCompressionFormat,
                 Keys.fileBrowserVideoThumbnailsEnabled,
                 Keys.fileBrowserRevealDestination,
@@ -2171,6 +2181,7 @@ extension AppPreferences {
             fileBrowserFoldersFirst = source.fileBrowserFoldersFirst
             fileBrowserExternalDropAction = source.fileBrowserExternalDropAction
             fileBrowserExpandsTreeToCurrentFolder = source.fileBrowserExpandsTreeToCurrentFolder
+            fileBrowserTreeFollowsListSort = source.fileBrowserTreeFollowsListSort
             fileBrowserCompressionFormat = source.fileBrowserCompressionFormat
             fileBrowserVideoThumbnailsEnabled = source.fileBrowserVideoThumbnailsEnabled
             fileBrowserRevealDestination = source.fileBrowserRevealDestination

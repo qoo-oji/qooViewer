@@ -37,6 +37,14 @@ import SwiftUI
 /// (FSEvents は配下も知らせる)。変わった項目の**親の行**だけを読み直し、閉じている行は三角の有無だけ調べ直す。
 /// FSEvents はネットワークの共有では当てにならないので、アプリがアクティブになったときに共有の上の開いている行も読み直す。
 ///
+/// ■ 子の並び(環境設定、既定OFF。2026-09-14、ユーザー要望)
+/// 開いた行の子(サブフォルダ)は、既定では名前の昇順。「サブフォルダを右と同じ順に並べる」が ON なら、右ペインと同じ
+/// 並べ替えの基準・向き(`FileBrowserState.sort`。比較は `FolderBrowserSort.sorted` を共有するので、右ペインに並ぶフォルダ
+/// 同士の前後とツリーの並びは必ず一致する。子はフォルダだけなので「フォルダを上に」は効かない)。
+/// **根(ボリューム・ホーム・よく使う項目)の並びは変えない**(ボリュームは起動ボリュームが先頭、よく使う項目は並べ替えた順)。
+/// 並べ替えに要る値(サイズ・種類・日付)は子を読むときの `FileBrowserEntry` を行に持たせておき、基準が変わったら
+/// **読み直さずに**読み込み済みの子を並べ直す(同じ Node を使い回すので、開いている孫の行は閉じない)。
+///
 /// ■ ドラッグ&ドロップ(段階4b)
 /// どの行(ボリューム・ホーム・よく使う項目・フォルダ)の上にも落とせる。行の間へ落とそうとしたら、
 /// その行の親のフォルダの上へ落とす形に直す(グループの見出しの中なら断る)。掴んで運べるのは
@@ -58,6 +66,11 @@ struct FileBrowserTreeView: NSViewRepresentable {
     let allowsEditingFavorites: Bool
     /// 右ペインで移動するたびに現在のフォルダまで開くか(型コメント「現在のフォルダまで開く」)。
     let expandsToCurrentFolder: Bool
+    /// 開いた行の子を並べる順(型コメント「子の並び」)。
+    let childSort: FolderBrowserSort
+
+    /// 「右と同じ順」が OFF のときの子の並び(従来の名前の昇順と同じ)。
+    static let nameSort = FolderBrowserSort(grouping: .mixedByName, key: .name, direction: .ascending)
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -157,13 +170,19 @@ struct FileBrowserTreeView: NSViewRepresentable {
         var hasSubfolders: Bool?
         /// いちばん新しい子の読み込み。「現在のフォルダまで開く」が読み終わりを待つ。
         var childrenTask: Task<Void, Never>?
+        /// 読み込んだときの一覧の行(フォルダの行だけ)。子の並べ替えに使う(型コメント「子の並び」)。
+        var listing: FileBrowserEntry?
 
-        init(kind: Kind, url: URL?, name: String, children: [Node]? = nil, hasSubfolders: Bool? = nil) {
+        init(
+            kind: Kind, url: URL?, name: String, children: [Node]? = nil, hasSubfolders: Bool? = nil,
+            listing: FileBrowserEntry? = nil
+        ) {
             self.kind = kind
             self.url = url
             self.name = name
             self.children = children
             self.hasSubfolders = hasSubfolders
+            self.listing = listing
         }
 
         var isGroup: Bool {
@@ -205,6 +224,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
         /// ボリュームの一覧を 1 度読み終えたか(それまではボリュームの配下へ開けない)。
         private var hasLoadedVolumes = false
         private var expandsToCurrentFolder = false
+        private var childSort = FileBrowserTreeView.nameSort
         /// 右ペインが読み終わったら開く、現在のフォルダの id。
         private var pendingRevealFolderID: String?
         /// 「現在のフォルダまで開く」の世代(型コメントの「途中でやめる」)。
@@ -333,6 +353,10 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 outline.outlineWidth = outlineWidth
                 needsRedraw = true
             }
+            if view.childSort != childSort {
+                childSort = view.childSort
+                resortLoadedChildren()
+            }
             if view.favoriteLocations.items != appliedFavorites {
                 appliedFavorites = view.favoriteLocations.items
                 favoritesGroup.children = appliedFavorites.map {
@@ -369,6 +393,37 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 applySelection(folderID: folderID)
             }
             startPendingRevealIfReady()
+        }
+
+        // MARK: 子の並び
+
+        /// 行の子を今の並びで並べる。読み込んだ値を持たない行が混じっていたら(来ないはず)名前順にする。
+        private func sortedChildren(_ nodes: [Node]) -> [Node] {
+            let pairs = nodes.compactMap { node in node.listing.map { ($0, node) } }
+            guard pairs.count == nodes.count else {
+                return nodes.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            }
+            let byID = Dictionary(pairs.map { ($0.0.id, $0.1) }, uniquingKeysWith: { first, _ in first })
+            return childSort.sorted(pairs.map(\.0)).compactMap { byID[$0.id] }
+        }
+
+        /// 並べ替えの基準が変わったら、読み込み済みの子を読み直さずに並べ直す(型コメント「子の並び」)。
+        /// 上の行から順に見て、並びが変わった行だけ描き直す(同じ Node を使うので開閉はそのまま残る)。
+        private func resortLoadedChildren() {
+            guard let outline else { return }
+            var stack = groups.flatMap { $0.children ?? [] }
+            var changed = false
+            while let node = stack.popLast() {
+                guard let children = node.children, !children.isEmpty else { continue }
+                let sorted = sortedChildren(children)
+                if !zip(sorted, children).allSatisfy({ $0 === $1 }) {
+                    node.children = sorted
+                    outline.reloadItem(node, reloadChildren: true)
+                    changed = true
+                }
+                stack.append(contentsOf: sorted)
+            }
+            if changed { applySelection(folderID: appliedFolderID ?? nil) }
         }
 
         // MARK: 現在のフォルダまで開く
@@ -528,7 +583,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
             node.loadGeneration += 1
             let mine = node.loadGeneration
             node.childrenTask = Task { [weak self, weak node] in
-                let folders: [(URL, String, Bool?)]
+                let folders: [(FileBrowserEntry, Bool?)]
                 do {
                     folders = try await FileIO.perform {
                         // 三角のための問い合わせは、子を読むこの 1 回にまとめる(行を描くたびに調べない)。
@@ -536,8 +591,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
                         let probes = !MountTable.current().isRemote(url)
                         return try FileBrowserListing.entries(in: url)
                             .filter(\.isNavigableFolder)
-                            .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
-                            .map { ($0.url, $0.displayName, probes ? DirectoryProbe.hasSubdirectory(at: $0.url) : nil) }
+                            .map { ($0, probes ? DirectoryProbe.hasSubdirectory(at: $0.url) : nil) }
                     }
                 } catch {
                     folders = []
@@ -551,12 +605,17 @@ struct FileBrowserTreeView: NSViewRepresentable {
                     (node.children ?? []).compactMap { child in child.url.map { (FileBrowserState.id(for: $0), child) } },
                     uniquingKeysWith: { first, _ in first }
                 )
-                node.children = folders.map { url, name, hasSubfolders in
-                    let child = previous[FileBrowserState.id(for: url)] ?? Node(kind: .folder, url: url, name: name)
+                let children = folders.map { entry, hasSubfolders in
+                    let child = previous[FileBrowserState.id(for: entry.url)]
+                        ?? Node(kind: .folder, url: entry.url, name: entry.displayName)
+                    // 並べ替えの値(日付など)は読み直すたびに新しくする。
+                    child.listing = entry
                     // 開いている孫の行は、読み直しの一瞬の判定で三角を消さない(開いたまま展開できない行になる)。
                     if !(outline.isItemExpanded(child) && hasSubfolders == false) { child.hasSubfolders = hasSubfolders }
                     return child
                 }
+                // 並べるのは結果を受け取ったこの時点の並び(読んでいる間に基準が変わっても古い順で入らない)。
+                node.children = self.sortedChildren(children)
                 outline.reloadItem(node, reloadChildren: true)
                 self.applySelection(folderID: self.appliedFolderID ?? nil)
                 // 開いていた子が消えた(外で消された)なら、見張るフォルダも変わる。

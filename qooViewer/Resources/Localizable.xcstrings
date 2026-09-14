@@ -100,6 +100,38 @@
         }
       }
     },
+    "Sort Subfolders Like the List" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sort Subfolders Like the List"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サブフォルダを右と同じ順に並べる"
+          }
+        }
+      }
+    },
+    "Subfolders in the tree on the left are sorted by the same column and direction as the items on the right. Volumes, Home and your favorite locations keep their order. When this is off, subfolders are sorted by name." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Subfolders in the tree on the left are sorted by the same column and direction as the items on the right. Volumes, Home and your favorite locations keep their order. When this is off, subfolders are sorted by name."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左のツリーのサブフォルダを、右の一覧と同じ基準・向きで並べます。ボリューム・ホーム・よく使う項目の並びは変わりません。オフのときは、サブフォルダを名前順に並べます。"
+          }
+        }
+      }
+    },
     "What happens when you double-click an image folder, or select it and press Return, in list or icon view. Open in the right-click menu does the other one, so both stay within reach. Folders that aren't books always open as folders, and the tree on the left isn't affected." : {
       "localizations" : {
         "en" : {

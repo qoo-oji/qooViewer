@@ -58,7 +58,8 @@ struct FileBrowserPane: View {
                 state: state, favoriteLocations: favoriteLocations, actions: actions,
                 outlineWidth: outlineWidth, locale: locale,
                 allowsEditingFavorites: !appState.isPrivateWindow,
-                expandsToCurrentFolder: preferences.fileBrowserExpandsTreeToCurrentFolder
+                expandsToCurrentFolder: preferences.fileBrowserExpandsTreeToCurrentFolder,
+                childSort: preferences.fileBrowserTreeFollowsListSort ? state.sort : FileBrowserTreeView.nameSort
             )
             .frame(width: treeWidth)
 
