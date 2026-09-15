@@ -116,8 +116,7 @@ nonisolated enum BulkRename {
             let newName: String
             switch mode {
             case let .replaceText(find, replaceWith):
-                let replaced = find.isEmpty ? name : name.replacingOccurrences(of: find, with: replaceWith, options: .caseInsensitive)
-                let candidate = keepingRegisteredExtension(of: name, in: replaced, isRegistered: isRegistered)
+                let candidate = replacingText(in: name, find: find, with: replaceWith, caseSensitive: false, isRegistered: isRegistered)
                 newName = avoiding(candidate, isTaken: isTaken, isRegistered: isRegistered, own: own, nextNumbers: &nextNumbers)
             case let .addText(text, placement):
                 let candidate = placement == .beforeName ? text + name : joined(stem + text, ext)
@@ -152,6 +151,42 @@ nonisolated enum BulkRename {
     /// 最初の使えない名前(無ければ nil)。
     static func firstProblem(in renames: [Rename]) -> Rename? {
         renames.first { $0.problem != nil }
+    }
+
+    // MARK: - 自動リネームと共有する部品(2026-09-15)
+
+    /// 「テキストを置き換える」の芯: 全部の出現を、拡張子を含む名前全体で置き換え、最後の拡張子が登録済みでなくなったら
+    /// 元の最後の拡張子を付け直す(型コメント)。一括リネームは常に大文字小文字を区別しない(Finder)。自動リネームは規則ごとに選ぶ
+    /// (AutoRenameRule.isCaseSensitive)ので、区別の有無だけを引数にしてある。検索文字列が空なら何もしない。
+    static func replacingText(
+        in name: String, find: String, with replaceWith: String, caseSensitive: Bool, isRegistered: (String) -> Bool
+    ) -> String {
+        guard !find.isEmpty else { return name }
+        let replaced = name.replacingOccurrences(of: find, with: replaceWith, options: caseSensitive ? [] : .caseInsensitive)
+        return keepingRegisteredExtension(of: name, in: replaced, isRegistered: isRegistered)
+    }
+
+    /// `candidate` がフォルダの名前(`existingNames`。自分の元の名前 `ownName` は塞がっていない扱い)と重なれば、一括リネームと同じ
+    /// `name 2.ext` の形で避けた名前(自動リネーム。1 件ずつ決めるので、番号の続きを覚える必要が無い)。
+    static func availableName(
+        for candidate: String, ownName: String, existingNames: Set<String>, isRegistered: (String) -> Bool
+    ) -> String {
+        let own = FileNameValidation.foldedForComparison(ownName)
+        let existing = Set(existingNames.map(FileNameValidation.foldedForComparison))
+        var nextNumbers: [String: Int] = [:]
+        return avoiding(
+            candidate,
+            isTaken: { name in
+                let folded = FileNameValidation.foldedForComparison(name)
+                return folded != own && existing.contains(folded)
+            },
+            isRegistered: isRegistered, own: own, nextNumbers: &nextNumbers
+        )
+    }
+
+    /// 使えない名前の理由(使えれば nil)。一括リネームのシートと同じ判定。
+    static func problem(forNewName name: String) -> Problem? {
+        problem(with: name)
     }
 
     // MARK: - 拡張子

@@ -308,6 +308,22 @@
         }
       }
     },
+    "Untitled Rule" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Untitled Rule"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名称未設定の規則"
+          }
+        }
+      }
+    },
     "What happens when you double-click an image folder, or select it and press Return, in list or icon view. Open in the right-click menu does the other one, so both stay within reach. Folders that aren't books always open as folders, and the tree on the left isn't affected." : {
       "localizations" : {
         "en" : {
@@ -21027,6 +21043,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ZIP(.zip)"
+          }
+        }
+      }
+    },
+    "“%1$@” → “%2$@”" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%1$@” → “%2$@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%1$@」→「%2$@」"
           }
         }
       }
