@@ -46,8 +46,19 @@ final class FolderChangeWatcher {
     /// 何度も走査が走る。0.3 秒あれば人の感覚では即時で、連続する書き込みはひとまとめになる。
     private static let latency: CFTimeInterval = 0.3
 
-    private let onChange: @Sendable ([String]) -> Void
-    /// 変わったパスを集めて渡すか(`init(onChangedPaths:)`)。false なら中身を捨てる(型コメント「何が変わったかは見ない」)。
+    /// 変わったパス 1 件と、FSEvents が「この下は全部見直せ」と言ってきたか(`init(onEvents:)`)。
+    nonisolated struct Event: Sendable, Equatable {
+        let path: String
+        /// `kFSEventStreamEventFlagMustScanSubDirs`(イベントがあふれて個別に列挙できなかった)か、取りこぼし
+        /// (`UserDropped` / `KernelDropped`)。この下は全部変わったものとして扱う。
+        let mustScanSubdirectories: Bool
+        /// フォルダが作られた・名前が変わった(移ってきた)。同じボリュームの中でフォルダごと移ってきたときは中身のイベントが来ない
+        /// (docs/plans/auto-rename-study.md §9.1)ので、受けた側が配下を読む目印。フラグは積み重なって届くので、消えた側でも立ちうる。
+        var isDirectoryCreatedOrRenamed: Bool = false
+    }
+
+    private let onChange: @Sendable ([Event]) -> Void
+    /// 変わったパスを集めて渡すか(`init(onChangedPaths:)` / `init(onEvents:)`)。false なら中身を捨てる(型コメント「何が変わったかは見ない」)。
     private let reportsPaths: Bool
     /// FSEvents の配送先。**メインキューにはしない**(型コメント参照)。
     private let deliveryQueue = DispatchQueue(label: "jp.qooViewer.folderChangeWatcher", qos: .utility)
@@ -69,11 +80,18 @@ final class FolderChangeWatcher {
         reportsPaths = false
     }
 
+    /// パスとフラグを受け取る版(2026-09-15、自動リネーム用)。自動リネームは、あふれたときに届く `MustScanSubDirs` を受けて
+    /// 配下を走査し直す必要がある(docs/plans/auto-rename-study.md §7)。**任意のキューから呼ばれる**。
+    init(onEvents: @escaping @Sendable ([Event]) -> Void) {
+        onChange = onEvents
+        reportsPaths = true
+    }
+
     /// 変わったパス(ファイル単位。作られた・消えた・名前が変わった項目そのもの)を受け取る版(2026-09-14、
     /// ファイルブラウザのツリー用)。ツリーは開いている行が多く、「何か変わった」だけでは全部の行を読み直すことになるので、
     /// 変わった項目の親の行だけを読み直す。**任意のキューから呼ばれる**。
     init(onChangedPaths: @escaping @Sendable ([String]) -> Void) {
-        onChange = onChangedPaths
+        onChange = { events in onChangedPaths(events.map(\.path)) }
         reportsPaths = true
     }
 
@@ -185,9 +203,9 @@ private nonisolated struct FolderChangeStreamBox: @unchecked Sendable {
 /// FSEvents の`context.info`に載せるためだけの箱。C の`void *`を跨ぐために要る。
 /// 保持しているのは書き換えられない1本のクロージャだけ。
 private nonisolated final class FolderChangeCallbackBox: Sendable {
-    let handle: @Sendable ([String]) -> Void
+    let handle: @Sendable ([FolderChangeWatcher.Event]) -> Void
     let reportsPaths: Bool
-    init(_ handle: @escaping @Sendable ([String]) -> Void, reportsPaths: Bool) {
+    init(_ handle: @escaping @Sendable ([FolderChangeWatcher.Event]) -> Void, reportsPaths: Bool) {
         self.handle = handle
         self.reportsPaths = reportsPaths
     }
@@ -203,7 +221,7 @@ private nonisolated let folderChangeRelease: CFAllocatorReleaseCallBack = { info
     Unmanaged<FolderChangeCallbackBox>.fromOpaque(info).release()
 }
 
-private nonisolated let folderChangeCallback: FSEventStreamCallback = { _, info, count, eventPaths, _, _ in
+private nonisolated let folderChangeCallback: FSEventStreamCallback = { _, info, count, eventPaths, eventFlags, _ in
     guard let info else { return }
     let box = Unmanaged<FolderChangeCallbackBox>.fromOpaque(info).takeUnretainedValue()
     // パスを求められていなければ中身は見ない(型コメント参照)。「何か変わった」だけを伝える。
@@ -213,7 +231,17 @@ private nonisolated let folderChangeCallback: FSEventStreamCallback = { _, info,
     }
     // UseCFTypes を付けていないので、eventPaths は C 文字列の配列。
     let pointers = eventPaths.assumingMemoryBound(to: UnsafePointer<CChar>.self)
-    box.handle((0..<count).map { String(cString: pointers[$0]) })
+    let rescanFlags = FSEventStreamEventFlags(
+        kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagUserDropped | kFSEventStreamEventFlagKernelDropped
+    )
+    let directoryFlag = FSEventStreamEventFlags(kFSEventStreamEventFlagItemIsDir)
+    let arrivalFlags = FSEventStreamEventFlags(kFSEventStreamEventFlagItemCreated | kFSEventStreamEventFlagItemRenamed)
+    box.handle((0..<count).map {
+        FolderChangeWatcher.Event(
+            path: String(cString: pointers[$0]), mustScanSubdirectories: eventFlags[$0] & rescanFlags != 0,
+            isDirectoryCreatedOrRenamed: eventFlags[$0] & directoryFlag != 0 && eventFlags[$0] & arrivalFlags != 0
+        )
+    })
 }
 
 /// ストリームを1本作って開始する。**メインアクターの外で走る**(生成はブロックしうる)。
@@ -224,7 +252,7 @@ private nonisolated func makeFolderChangeStream(
     latency: CFTimeInterval,
     queue: DispatchQueue,
     reportsPaths: Bool,
-    onChange: @escaping @Sendable ([String]) -> Void
+    onChange: @escaping @Sendable ([FolderChangeWatcher.Event]) -> Void
 ) -> FolderChangeStreamBox? {
     let box = FolderChangeCallbackBox(onChange, reportsPaths: reportsPaths)
     var context = FSEventStreamContext(

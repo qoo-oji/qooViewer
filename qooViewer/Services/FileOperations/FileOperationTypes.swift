@@ -123,7 +123,7 @@ nonisolated struct FileOperationOptions: Sendable {
 /// 比べられればよい。デバイス番号はマウントし直すと変わる(メモ st-dev-changes-with-mount-order)が、そのときは
 /// 「別の項目」と見なして断る側に倒れるだけ。inode だけにしないのは、exFAT/FAT の inode が場所から作られ、
 /// 同じ場所に置き直した別のファイルが同じ番号になるため。
-nonisolated struct FileIdentity: Sendable, Hashable {
+nonisolated struct FileIdentity: Sendable, Hashable, Codable {
     let device: Int32
     let inode: UInt64
     let birthSeconds: Int

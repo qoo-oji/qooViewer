@@ -89,6 +89,11 @@ final class AppStores: ObservableObject {
     let fileBrowserThumbnails: FileBrowserThumbnailProvider
     /// よく使う項目の中の動画の絵を裏で先に作る役(段階 7b)。ウインドウに配らない(誰も直接は読まない)。
     let fileBrowserVideoThumbnailWarmer: FileBrowserVideoThumbnailWarmer
+    /// ファイルブラウザの自動リネーム(2026-09-15)。規則・実行ログ・実行役。メニューバーに現れないので
+    /// allObjectWillChangePublishers には足さない。
+    let autoRenameStore: AutoRenameStore
+    let autoRenameLog: AutoRenameActivityLog
+    let autoRenameService: AutoRenameService
 
     init() {
         // 予約された「すべてのデータを削除」の残り(終了前に落ちた場合)は、**どのストアよりも
@@ -135,6 +140,22 @@ final class AppStores: ObservableObject {
         // テストの中で走る実物のアプリでは動かさない(開発機の本物のよく使う項目を読み、本物のキャッシュに書くため)。
         if !RuntimeEnvironment.isRunningTests {
             fileBrowserVideoThumbnailWarmer.connect(favorites: favoriteLocations, preferences: preferences)
+        }
+        autoRenameStore = AutoRenameStore()
+        autoRenameLog = AutoRenameActivityLog()
+        let folderAccessForAutoRename = folderAccess
+        let launchCoordinatorForAutoRename = launchCoordinator
+        autoRenameService = AutoRenameService(
+            store: autoRenameStore, log: autoRenameLog, favorites: favoriteLocations, preferences: preferences,
+            hasAccess: { [weak folderAccessForAutoRename] url in folderAccessForAutoRename?.isPathCovered(url) ?? false },
+            inUsePaths: { [weak launchCoordinatorForAutoRename] in
+                launchCoordinatorForAutoRename?.allOpenAppStates.compactMap { $0.currentBook?.sourceURL.path } ?? []
+            },
+            locale: { [weak preferences] in preferences?.effectiveLocale ?? AppLanguage.currentLocale }
+        )
+        // テストの中で走る実物のアプリでは動かさない(開発機の本物のよく使う項目の中の名前を変えてしまう)。
+        if !RuntimeEnvironment.isRunningTests {
+            autoRenameService.start(folderAccessChanges: folderAccess.objectWillChange.map { _ in () }.eraseToAnyPublisher())
         }
         collectionAutoFolderScanner = CollectionAutoFolderScanner(
             collectionStore: collectionStore, coverExtractor: collectionCoverExtractor,

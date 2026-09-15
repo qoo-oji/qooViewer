@@ -52,6 +52,38 @@
         }
       }
     },
+    "An item with the new name already exists, and the rules would change the numbered name again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An item with the new name already exists, and the rules would change the numbered name again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しい名前の項目がすでにあり、番号を付けた名前にも規則がまたかかってしまいます。"
+          }
+        }
+      }
+    },
+    "Applying the rules again would change the name again, so it was left as it is." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applying the rules again would change the name again, so it was left as it is."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "規則をもう一度かけると名前がまた変わるため、変更しませんでした。"
+          }
+        }
+      }
+    },
     "Collection Settings…" : {
       "localizations" : {
         "en" : {
@@ -180,6 +212,22 @@
         }
       }
     },
+    "Name + “%@”" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Name + “%@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前 +「%@」"
+          }
+        }
+      }
+    },
     "New Collection…" : {
       "localizations" : {
         "en" : {
@@ -304,6 +352,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "左のツリーのサブフォルダを、右の一覧と同じ基準・向きで並べます。ボリューム・ホームフォルダ・よく使う項目の並びは変わりません。オフのときは、サブフォルダを名前順に並べます。"
+          }
+        }
+      }
+    },
+    "The new name would begin with a dot “.”." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The new name would begin with a dot “.”."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しい名前が「.」(ドット)で始まってしまいます。"
           }
         }
       }
@@ -21059,6 +21123,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%1$@」→「%2$@」"
+          }
+        }
+      }
+    },
+    "“%@” + Name" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” + Name"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」+ 名前"
           }
         }
       }

@@ -1,0 +1,302 @@
+import Combine
+import Foundation
+import SwiftUI
+
+/// 自動リネームの規則(2026-09-15、ユーザー要望。docs/plans/auto-rename-study.md)。アプリ全体で 1 つ(AppStores)。
+///
+/// ■ 持つのは規則だけ
+/// 対象フォルダが「いま使えるか」(よく使う項目の配下か・ボリュームが繋がっているか・権限・読み取り専用モード)は保存せず、
+/// 実行役(AutoRenameService)が毎回見る(検討メモ §4)。ここに残るのは、利用者が決めたことと、自動で OFF にした事実
+/// (`disabledMissing`)と、今ある項目に掛けることを確認した印(`confirmedSignature`)だけ。
+///
+/// ■ 確認の印が外れる場面(§8 の 2)
+/// 検索文字列・置換文字列・大文字小文字・フォルダの名前も変えるか・サブフォルダを含めるかが変わると、印の中身と合わなくなって
+/// 自然に外れる(AutoRenameTarget.isConfirmed)。規則や対象を OFF にしたときは、ここで印を消す ―― ON に戻したら確認し直す。
+///
+/// 保存は `UserDefaults` の JSON。「すべてのデータを削除」はドメインごと消すので一緒に消え、「初期設定に戻す」の対象ではない
+/// (よく使う項目と同じ。§8 の 10)。`AppStores.allObjectWillChangePublishers` には**足さない**(メニューバーに現れない)。
+@MainActor
+final class AutoRenameStore: ObservableObject {
+    static let defaultsKey = "qooViewer.fileBrowser.autoRename.rules"
+
+    @Published private(set) var rules: [AutoRenameRule]
+
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        if let data = defaults.data(forKey: Self.defaultsKey),
+           let decoded = try? JSONDecoder().decode([AutoRenameRule].self, from: data) {
+            rules = decoded
+        } else {
+            rules = []
+        }
+    }
+
+    var canAddRule: Bool { rules.count < AutoRename.maxRules }
+
+    func rule(withID id: UUID) -> AutoRenameRule? {
+        rules.first { $0.id == id }
+    }
+
+    // MARK: - 規則
+
+    /// 規則を末尾に足す。上限なら nil。
+    @discardableResult
+    func addRule(targets: [AutoRenameTarget] = []) -> AutoRenameRule? {
+        guard canAddRule else { return nil }
+        let rule = AutoRenameRule(targets: Array(targets.prefix(AutoRename.maxTargetsPerRule)))
+        rules.append(rule)
+        save()
+        return rule
+    }
+
+    func removeRule(id: UUID) {
+        guard rules.contains(where: { $0.id == id }) else { return }
+        rules.removeAll { $0.id == id }
+        save()
+    }
+
+    /// 並べ替え(一覧のドラッグ)。`List.onMove` の引数そのまま。
+    func moveRules(fromOffsets source: IndexSet, toOffset destination: Int) {
+        var reordered = rules
+        reordered.move(fromOffsets: source, toOffset: destination)
+        guard reordered != rules else { return }
+        rules = reordered
+        save()
+    }
+
+    /// 規則の中身を書き換える(名前・検索/置換・大文字小文字・フォルダ・ON/OFF)。対象の列は `update(target:inRule:)` などで変える
+    /// ―― ここで渡された `targets` は使わない(画面が古い写しを持ったまま書き戻して、裏で OFF にした対象を ON に戻さないように)。
+    func update(rule updated: AutoRenameRule) {
+        guard let index = rules.firstIndex(where: { $0.id == updated.id }) else { return }
+        var rule = updated
+        rule.targets = rules[index].targets
+        if !rule.isEnabled {
+            for targetIndex in rule.targets.indices { rule.targets[targetIndex].confirmedSignature = nil }
+        }
+        guard rule != rules[index] else { return }
+        rules[index] = rule
+        save()
+    }
+
+    // MARK: - 対象
+
+    /// 対象を足す。上限・同じパスが既にあるときは false。
+    @discardableResult
+    func add(target: AutoRenameTarget, toRule ruleID: UUID) -> Bool {
+        guard let index = rules.firstIndex(where: { $0.id == ruleID }),
+              rules[index].targets.count < AutoRename.maxTargetsPerRule,
+              !rules[index].targets.contains(where: { $0.path == target.path })
+        else { return false }
+        rules[index].targets.append(target)
+        save()
+        return true
+    }
+
+    func removeTarget(id targetID: UUID, fromRule ruleID: UUID) {
+        guard let index = rules.firstIndex(where: { $0.id == ruleID }) else { return }
+        let before = rules[index].targets.count
+        rules[index].targets.removeAll { $0.id == targetID }
+        guard rules[index].targets.count != before else { return }
+        save()
+    }
+
+    /// そのパスを対象に持つ規則から、そのパスの対象を外す(右クリックのチェックを外したとき)。
+    func removeTarget(path: String, fromRule ruleID: UUID) {
+        let path = MountTable.normalized(path)
+        guard let target = rule(withID: ruleID)?.targets.first(where: { $0.path == path }) else { return }
+        removeTarget(id: target.id, fromRule: ruleID)
+    }
+
+    /// 対象の設定(ON/OFF・サブフォルダを含める)を書き換える。OFF にしたら確認の印を消す。
+    func update(target updated: AutoRenameTarget, inRule ruleID: UUID) {
+        guard let ruleIndex = rules.firstIndex(where: { $0.id == ruleID }),
+              let targetIndex = rules[ruleIndex].targets.firstIndex(where: { $0.id == updated.id })
+        else { return }
+        var target = updated
+        if target.state != .enabled {
+            target.confirmedSignature = nil
+        }
+        if target.state != .disabledMissing {
+            target.stateBeforeMissing = nil
+        }
+        guard target != rules[ruleIndex].targets[targetIndex] else { return }
+        rules[ruleIndex].targets[targetIndex] = target
+        save()
+    }
+
+    /// ON/OFF だけを切り替える(チェックボックス)。
+    func setTarget(id targetID: UUID, inRule ruleID: UUID, enabled: Bool) {
+        guard var target = rule(withID: ruleID)?.targets.first(where: { $0.id == targetID }) else { return }
+        target.state = enabled ? .enabled : .disabledByUser
+        update(target: target, inRule: ruleID)
+    }
+
+    /// 見つからなかった対象を自動で OFF にする(§6.2)。ON のものだけ。同じパスの対象は規則をまたいでそろって OFF になる
+    /// (呼び出し側がパスで集めて渡す)。
+    func markMissing(targetIDs: Set<UUID>) {
+        var changed = false
+        for ruleIndex in rules.indices {
+            for targetIndex in rules[ruleIndex].targets.indices where targetIDs.contains(rules[ruleIndex].targets[targetIndex].id) {
+                guard rules[ruleIndex].targets[targetIndex].state != .disabledMissing else { continue }
+                rules[ruleIndex].targets[targetIndex].stateBeforeMissing = rules[ruleIndex].targets[targetIndex].state
+                rules[ruleIndex].targets[targetIndex].state = .disabledMissing
+                rules[ruleIndex].targets[targetIndex].confirmedSignature = nil
+                changed = true
+            }
+        }
+        if changed { save() }
+    }
+
+    /// 今ある項目に掛けることを確認した(§8 の 2)。いまの中身で印を付ける。
+    func confirm(targetIDs: Set<UUID>) {
+        var changed = false
+        for ruleIndex in rules.indices {
+            let rule = rules[ruleIndex]
+            for targetIndex in rule.targets.indices where targetIDs.contains(rule.targets[targetIndex].id) {
+                let signature = rule.targets[targetIndex].signature(for: rule)
+                guard rules[ruleIndex].targets[targetIndex].confirmedSignature != signature else { continue }
+                rules[ruleIndex].targets[targetIndex].confirmedSignature = signature
+                changed = true
+            }
+        }
+        if changed { save() }
+    }
+
+    /// 移動の提案で「更新」した(§6.3)。パス・ボリューム・ブックマークを新しい場所で書き直し、見つからなくなる前の ON/OFF に戻す。
+    /// 確認の印は外れる(パスが印の中身に入っている)ので、ON に戻った対象は確認し直してから掛かる。
+    func relocate(targetIDs: Set<UUID>, to path: String, volumeUUID: String?, bookmark: Data?) {
+        let normalized = MountTable.normalized(path)
+        var changed = false
+        for ruleIndex in rules.indices {
+            var targets = rules[ruleIndex].targets
+            var removing: Set<UUID> = []
+            for targetIndex in targets.indices where targetIDs.contains(targets[targetIndex].id) {
+                // 同じ規則に移動先のパスが既にあれば、重複させずに見つからない方を外す。
+                if targets.contains(where: { $0.id != targets[targetIndex].id && $0.path == normalized }) {
+                    removing.insert(targets[targetIndex].id)
+                    continue
+                }
+                targets[targetIndex].path = normalized
+                targets[targetIndex].volumeUUID = volumeUUID
+                targets[targetIndex].bookmark = bookmark
+                targets[targetIndex].state = targets[targetIndex].stateBeforeMissing ?? .enabled
+                targets[targetIndex].stateBeforeMissing = nil
+                targets[targetIndex].confirmedSignature = nil
+                targets[targetIndex].suppressesMoveSuggestion = false
+            }
+            targets.removeAll { removing.contains($0.id) }
+            if targets != rules[ruleIndex].targets {
+                rules[ruleIndex].targets = targets
+                changed = true
+            }
+        }
+        if changed { save() }
+    }
+
+    /// 「この提案を表示しない」。
+    func suppressMoveSuggestion(targetIDs: Set<UUID>) {
+        var changed = false
+        for ruleIndex in rules.indices {
+            for targetIndex in rules[ruleIndex].targets.indices where targetIDs.contains(rules[ruleIndex].targets[targetIndex].id) {
+                guard !rules[ruleIndex].targets[targetIndex].suppressesMoveSuggestion else { continue }
+                rules[ruleIndex].targets[targetIndex].suppressesMoveSuggestion = true
+                changed = true
+            }
+        }
+        if changed { save() }
+    }
+
+    /// そのパスを対象に持つか(右クリックのチェック)。
+    func ruleContains(path: String, ruleID: UUID) -> Bool {
+        let path = MountTable.normalized(path)
+        return rule(withID: ruleID)?.targets.contains { $0.path == path } ?? false
+    }
+
+    private func save() {
+        guard let data = try? JSONEncoder().encode(rules) else { return }
+        defaults.set(data, forKey: Self.defaultsKey)
+    }
+}
+
+/// 自動リネームの実行ログ(§8 の 7・9。画面の呼び名は「実行ログ」。「履歴」は本の履歴に使っているので使わない)。
+/// 新しい順に `maxEntries` 件まで `UserDefaults` に持つ。
+@MainActor
+final class AutoRenameActivityLog: ObservableObject {
+    nonisolated struct Entry: Codable, Identifiable, Equatable, Sendable {
+        nonisolated enum Outcome: Codable, Equatable, Sendable {
+            case renamed(newName: String)
+            /// 名前を変えなかった(理由の文を持つ。文は書いた時点の表示言語)。
+            case skipped(result: String, reason: String)
+            case failed(newName: String, message: String)
+            /// 実行ログから元に戻した(段階 7)。
+            case restored(toName: String)
+        }
+
+        var id: UUID
+        var date: Date
+        /// 項目があったフォルダ。
+        var folderPath: String
+        var originalName: String
+        var outcome: Outcome
+        /// かけた規則の表示名。
+        var ruleNames: [String]
+        /// 名前を変えた直後の実体(元に戻すとき、同じパスの別の項目に触らないため)。
+        var identity: FileIdentity?
+
+        init(
+            id: UUID = UUID(), date: Date = Date(), folderPath: String, originalName: String, outcome: Outcome,
+            ruleNames: [String], identity: FileIdentity? = nil
+        ) {
+            self.id = id
+            self.date = date
+            self.folderPath = folderPath
+            self.originalName = originalName
+            self.outcome = outcome
+            self.ruleNames = ruleNames
+            self.identity = identity
+        }
+    }
+
+    static let defaultsKey = "qooViewer.fileBrowser.autoRename.activityLog"
+    static let maxEntries = 500
+
+    @Published private(set) var entries: [Entry]
+
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        if let data = defaults.data(forKey: Self.defaultsKey),
+           let decoded = try? JSONDecoder().decode([Entry].self, from: data) {
+            entries = decoded
+        } else {
+            entries = []
+        }
+    }
+
+    /// まとめて足す(フォルダ 1 つぶんの結果ごと。1 件ずつ書くと 1000 件の名前の変更で 1000 回保存する)。
+    func append(_ newEntries: [Entry]) {
+        guard !newEntries.isEmpty else { return }
+        entries = Array((newEntries.reversed() + entries).prefix(Self.maxEntries))
+        save()
+    }
+
+    func removeAll() {
+        guard !entries.isEmpty else { return }
+        entries = []
+        save()
+    }
+
+    func replace(_ entry: Entry) {
+        guard let index = entries.firstIndex(where: { $0.id == entry.id }) else { return }
+        entries[index] = entry
+        save()
+    }
+
+    private func save() {
+        guard let data = try? JSONEncoder().encode(entries) else { return }
+        defaults.set(data, forKey: Self.defaultsKey)
+    }
+}

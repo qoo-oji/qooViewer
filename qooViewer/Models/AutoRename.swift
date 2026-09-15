@@ -3,60 +3,124 @@ import Foundation
 
 /// ファイルブラウザの自動リネーム(2026-09-15、ユーザー要望)の規則。設計と決定事項は docs/plans/auto-rename-study.md。
 ///
-/// ■ 1 つの規則 = 検索文字列と置換文字列の 1 組 + 対象フォルダの列(検討メモ §2 の D 案)
+/// ■ 1 つの規則 = 名前の変え方 1 つ + 対象フォルダの列(検討メモ §2 の D 案)
 /// 最初の案は「対象フォルダ 1 つ + 置換の組の列」だったが、同じ規則を複数のフォルダに掛けるとフォルダの数だけ設定を作り規則を
 /// 写すことになる。規則ごとに掛ける範囲を変えられ、ON/OFF が一覧のチェックボックス 1 段で済むこの形にした(メールの振り分けルールと同じ)。
 /// 規則は一覧の**上から順に**かける。
 ///
+/// ■ 変え方は 2 つ(段階 2 の途中でユーザー要望により追加、2026-09-15)
+/// - テキストを置き換える: 置き換える部分を「ファイル名」(拡張子を除いた部分)か「拡張子」から選ぶ(`zip` → `cbz` のため)。
+/// - テキストを追加: Finder の一括リネームの「テキストを追加」と同じく、名前の前か後(拡張子の前)に付ける。**既に付いていれば付けない**
+///   (付けないと、走査のたびにもう一度付いて名前が伸び続ける)。
+///
 /// 保存は `UserDefaults` の JSON(AutoRenameStore)。SwiftData のモデルではないので StoreSchemaGuard の世代は増えない。
 nonisolated struct AutoRenameRule: Codable, Identifiable, Equatable, Sendable {
+    enum Operation: String, Codable, CaseIterable, Sendable {
+        case replaceText
+        case addText
+    }
+
+    /// 置き換える部分。
+    enum ReplaceScope: String, Codable, CaseIterable, Sendable {
+        /// 拡張子(後ろから続く登録済みの拡張子)を除いた部分。
+        case name
+        /// 最後の拡張子。検索文字列と**丸ごと一致したときだけ**置き換える(部分一致にすると `z` → `x` で `zip` の一部が変わる)。
+        case fileExtension
+    }
+
     var id: UUID
     /// 利用者が付けた名前。空なら中身から付ける(`displayName`)。
     var name: String
     var isEnabled: Bool
+    var operation: Operation
     var find: String
     var replaceWith: String
-    /// 大文字小文字を区別するか(§8 の 3。既定は区別しない ―― Finder の一括リネームと同じ)。
+    var replaceScope: ReplaceScope
+    /// 「テキストを追加」で付ける文字列。
+    var addedText: String
+    var addPlacement: BulkRename.Placement
+    /// 大文字小文字を区別するか(§8 の 3。既定は区別しない ―― Finder の一括リネームと同じ)。「テキストを追加」では「既に付いているか」の判定に使う。
     var isCaseSensitive: Bool
     /// フォルダの名前も変えるか(§8 の 5。**既定 OFF**。コピー中のフォルダの名前を変えると Finder のコピーそのものが失敗するため ―― §9.2)。
-    /// OFF でもサブフォルダの中のファイルは変える(「サブフォルダを含める」とは別の設定)。
+    /// OFF でもサブフォルダの中のファイルは変える(「サブフォルダを含める」とは別の設定)。拡張子を置き換える規則はフォルダに掛けない。
     var includesFolders: Bool
     var targets: [AutoRenameTarget]
 
     init(
-        id: UUID = UUID(), name: String = "", isEnabled: Bool = true, find: String = "", replaceWith: String = "",
+        id: UUID = UUID(), name: String = "", isEnabled: Bool = true, operation: Operation = .replaceText,
+        find: String = "", replaceWith: String = "", replaceScope: ReplaceScope = .name,
+        addedText: String = "", addPlacement: BulkRename.Placement = .afterName,
         isCaseSensitive: Bool = false, includesFolders: Bool = false, targets: [AutoRenameTarget] = []
     ) {
         self.id = id
         self.name = name
         self.isEnabled = isEnabled
+        self.operation = operation
         self.find = find
         self.replaceWith = replaceWith
+        self.replaceScope = replaceScope
+        self.addedText = addedText
+        self.addPlacement = addPlacement
         self.isCaseSensitive = isCaseSensitive
         self.includesFolders = includesFolders
         self.targets = targets
     }
 
-    /// 一覧に出す名前。名前が空なら「“foo” → “bar”」、検索文字列も空なら「名称未設定の規則」。
+    /// 一覧に出す名前。名前が空なら中身から(「“foo” → “bar”」「“.zip” → “.cbz”」「“[tag] ” + 名前」)、中身も空なら「名称未設定の規則」。
     func displayName(locale: Locale) -> String {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { return trimmed }
-        guard !find.isEmpty else { return String(localized: "Untitled Rule", language: locale) }
-        return String(format: String(localized: "“%1$@” → “%2$@”", language: locale), find, replaceWith)
+        guard hasEffect else { return String(localized: "Untitled Rule", language: locale) }
+        switch operation {
+        case .replaceText:
+            switch replaceScope {
+            case .name:
+                return String(format: String(localized: "“%1$@” → “%2$@”", language: locale), find, replaceWith)
+            case .fileExtension:
+                return String(
+                    format: String(localized: "“%1$@” → “%2$@”", language: locale),
+                    "." + AutoRename.bareExtension(find), "." + AutoRename.bareExtension(replaceWith)
+                )
+            }
+        case .addText:
+            switch addPlacement {
+            case .beforeName: return String(format: String(localized: "“%@” + Name", language: locale), addedText)
+            case .afterName: return String(format: String(localized: "Name + “%@”", language: locale), addedText)
+            }
+        }
     }
 
-    /// 置き換えとして意味を持つか(検索文字列が空の規則は何もしない)。
-    var hasEffect: Bool { !find.isEmpty }
+    /// 名前を変えうるか(検索文字列・付ける文字列が空の規則、置換後の拡張子が空の規則は何もしない)。
+    var hasEffect: Bool {
+        switch operation {
+        case .replaceText:
+            switch replaceScope {
+            case .name: return !find.isEmpty
+            case .fileExtension: return !AutoRename.bareExtension(find).isEmpty && !AutoRename.bareExtension(replaceWith).isEmpty
+            }
+        case .addText:
+            return !addedText.isEmpty
+        }
+    }
+
+    /// フォルダに掛かりうるか(拡張子を置き換える規則はフォルダに掛けない)。
+    var canApplyToFolders: Bool {
+        !(operation == .replaceText && replaceScope == .fileExtension)
+    }
 
     /// 今ある項目に掛ける前の確認(§8 の 2)で「変わった」とみなす中身。ここが変わった規則は、確認し直すまでかけない。
     var confirmationSignature: String {
-        [find, replaceWith, isCaseSensitive ? "cs" : "ci", includesFolders ? "folders" : "files"].joined(separator: "\u{0}")
+        [
+            operation.rawValue, find, replaceWith, replaceScope.rawValue, addedText, addPlacement.rawValue,
+            isCaseSensitive ? "cs" : "ci", includesFolders ? "folders" : "files",
+        ].joined(separator: "\u{0}")
     }
 
     // MARK: - Codable(後から足した項目が無い JSON も読めるように)
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, isEnabled, find, replaceWith, isCaseSensitive, includesFolders, targets
+        case id, name, isEnabled, operation, find, replaceWith, replaceScope, addedText, addPlacement, isCaseSensitive,
+             includesFolders, targets
     }
 
     init(from decoder: Decoder) throws {
@@ -64,8 +128,12 @@ nonisolated struct AutoRenameRule: Codable, Identifiable, Equatable, Sendable {
         id = try container.decode(UUID.self, forKey: .id)
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
         isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        operation = (try? container.decodeIfPresent(Operation.self, forKey: .operation)) ?? .replaceText
         find = try container.decodeIfPresent(String.self, forKey: .find) ?? ""
         replaceWith = try container.decodeIfPresent(String.self, forKey: .replaceWith) ?? ""
+        replaceScope = (try? container.decodeIfPresent(ReplaceScope.self, forKey: .replaceScope)) ?? .name
+        addedText = try container.decodeIfPresent(String.self, forKey: .addedText) ?? ""
+        addPlacement = (try? container.decodeIfPresent(BulkRename.Placement.self, forKey: .addPlacement)) ?? .afterName
         isCaseSensitive = try container.decodeIfPresent(Bool.self, forKey: .isCaseSensitive) ?? false
         includesFolders = try container.decodeIfPresent(Bool.self, forKey: .includesFolders) ?? false
         targets = try container.decodeIfPresent([AutoRenameTarget].self, forKey: .targets) ?? []
@@ -145,24 +213,47 @@ nonisolated enum AutoRename {
 
     /// 名前を決めるときに見る、規則の中身だけ。
     struct RuleText: Equatable, Sendable {
-        var find: String
-        var replaceWith: String
+        enum Operation: Equatable, Sendable {
+            case replace(find: String, with: String, scope: AutoRenameRule.ReplaceScope)
+            case add(text: String, placement: BulkRename.Placement)
+        }
+
+        var operation: Operation
         var isCaseSensitive: Bool
         var includesFolders: Bool
 
-        init(find: String, replaceWith: String, isCaseSensitive: Bool = false, includesFolders: Bool = false) {
-            self.find = find
-            self.replaceWith = replaceWith
+        init(operation: Operation, isCaseSensitive: Bool = false, includesFolders: Bool = false) {
+            self.operation = operation
             self.isCaseSensitive = isCaseSensitive
             self.includesFolders = includesFolders
         }
 
-        init(_ rule: AutoRenameRule) {
-            self.init(
-                find: rule.find, replaceWith: rule.replaceWith, isCaseSensitive: rule.isCaseSensitive,
-                includesFolders: rule.includesFolders
-            )
+        /// ファイル名の置き換え。
+        init(find: String, replaceWith: String, isCaseSensitive: Bool = false, includesFolders: Bool = false) {
+            self.init(operation: .replace(find: find, with: replaceWith, scope: .name), isCaseSensitive: isCaseSensitive,
+                      includesFolders: includesFolders)
         }
+
+        init(_ rule: AutoRenameRule) {
+            let operation: Operation = switch rule.operation {
+            case .replaceText: .replace(find: rule.find, with: rule.replaceWith, scope: rule.replaceScope)
+            case .addText: .add(text: rule.addedText, placement: rule.addPlacement)
+            }
+            self.init(operation: operation, isCaseSensitive: rule.isCaseSensitive, includesFolders: rule.includesFolders)
+        }
+
+        var appliesToFolders: Bool {
+            guard includesFolders else { return false }
+            if case .replace(_, _, .fileExtension) = operation { return false }
+            return true
+        }
+    }
+
+    /// 拡張子の欄の入力から先頭のドットと前後の空白を落とす(`.zip` と `zip` を同じに扱う)。
+    static func bareExtension(_ text: String) -> String {
+        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        while trimmed.hasPrefix(".") { trimmed.removeFirst() }
+        return trimmed
     }
 
     /// 項目 1 つについての結論。
@@ -184,17 +275,43 @@ nonisolated enum AutoRename {
 
     /// `name` に `rules` を上から順にかけた結果。フォルダには「フォルダの名前も変える」規則だけをかける。
     ///
-    /// **拡張子(後ろから続く登録済みの拡張子。一括リネームと同じ分け方)には掛けない。** 一括リネームは Finder と同じく拡張子を含む
-    /// 名前全体で置き換えるが、無人で繰り返し掛かる自動リネームでそうすると、検索文字列が拡張子の中にも現れる規則が拡張子を壊し続ける
-    /// (`x → yx` で `x.txt` が `yx.tyxt.txt` になり、次の回にさらに伸びる。段階 1 のテストで判明、2026-09-15)。
+    /// **ファイル名の置き換えは、拡張子(後ろから続く登録済みの拡張子。一括リネームと同じ分け方)には掛けない。** 一括リネームは Finder と
+    /// 同じく拡張子を含む名前全体で置き換えるが、無人で繰り返し掛かる自動リネームでそうすると、検索文字列が拡張子の中にも現れる規則が
+    /// 拡張子を壊し続ける(`x → yx` で `x.txt` が `yx.tyxt.txt` になり、次の回にさらに伸びる。段階 1 のテストで判明、2026-09-15)。
+    /// 拡張子を変えたいときは「拡張子」を選んだ規則で、最後の拡張子を丸ごと置き換える。
     static func applying(_ rules: [RuleText], to name: String, isDirectory: Bool, isRegistered: (String) -> Bool) -> String {
         rules.reduce(name) { current, rule in
-            guard (!isDirectory || rule.includesFolders), !rule.find.isEmpty else { return current }
-            let (stem, ext) = BulkRename.splitExtension(current, isRegistered: isRegistered)
-            let replaced = stem.replacingOccurrences(
-                of: rule.find, with: rule.replaceWith, options: rule.isCaseSensitive ? [] : .caseInsensitive
-            )
-            return ext.isEmpty ? replaced : replaced + "." + ext
+            guard !isDirectory || rule.appliesToFolders else { return current }
+            let options: String.CompareOptions = rule.isCaseSensitive ? [] : .caseInsensitive
+            switch rule.operation {
+            case let .replace(find, replaceWith, .name):
+                guard !find.isEmpty else { return current }
+                let (stem, ext) = BulkRename.splitExtension(current, isRegistered: isRegistered)
+                let replaced = stem.replacingOccurrences(of: find, with: replaceWith, options: options)
+                return ext.isEmpty ? replaced : replaced + "." + ext
+            case let .replace(find, replaceWith, .fileExtension):
+                let from = bareExtension(find)
+                let to = bareExtension(replaceWith)
+                let ext = (current as NSString).pathExtension
+                let stem = (current as NSString).deletingPathExtension
+                guard !from.isEmpty, !to.isEmpty, !ext.isEmpty, !stem.isEmpty,
+                      ext.compare(from, options: options) == .orderedSame
+                else { return current }
+                return stem + "." + to
+            case let .add(text, placement):
+                guard !text.isEmpty else { return current }
+                let (stem, ext) = BulkRename.splitExtension(current, isRegistered: isRegistered)
+                let added: String
+                switch placement {
+                case .beforeName:
+                    guard stem.range(of: text, options: options.union(.anchored)) == nil else { return current }
+                    added = text + stem
+                case .afterName:
+                    guard stem.range(of: text, options: options.union([.anchored, .backwards])) == nil else { return current }
+                    added = stem + text
+                }
+                return ext.isEmpty ? added : added + "." + ext
+            }
         }
     }
 

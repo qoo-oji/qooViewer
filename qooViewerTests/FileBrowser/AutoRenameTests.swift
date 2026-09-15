@@ -44,6 +44,59 @@ struct AutoRenameTests {
         #expect(decide("a.b.q", [rule(".q", "")]) == .rename(to: "a.b"))
     }
 
+    private func extensionRule(_ find: String, _ replace: String, caseSensitive: Bool = false) -> AutoRename.RuleText {
+        .init(operation: .replace(find: find, with: replace, scope: .fileExtension), isCaseSensitive: caseSensitive, includesFolders: true)
+    }
+
+    private func addRule(_ text: String, _ placement: BulkRename.Placement, caseSensitive: Bool = false, folders: Bool = false)
+        -> AutoRename.RuleText {
+        .init(operation: .add(text: text, placement: placement), isCaseSensitive: caseSensitive, includesFolders: folders)
+    }
+
+    @Test("拡張子の置き換えは最後の拡張子が丸ごと一致したときだけ。ドットの有無は問わず、フォルダには掛けない")
+    func extensionReplacement() {
+        #expect(decide("book.zip", [extensionRule("zip", "cbz")]) == .rename(to: "book.cbz"))
+        #expect(decide("book.ZIP", [extensionRule(".zip", ".cbz")]) == .rename(to: "book.cbz"))
+        #expect(decide("book.ZIP", [extensionRule("zip", "cbz", caseSensitive: true)]) == .unchanged)
+        #expect(decide("book.cbz", [extensionRule("zip", "cbz")]) == .unchanged)
+        #expect(decide("zipped.zipx", [extensionRule("zip", "cbz")]) == .unchanged, "部分一致にしない")
+        #expect(decide("pack.tar.zip", [extensionRule("zip", "cbz")]) == .rename(to: "pack.tar.cbz"))
+        #expect(decide("folder.zip", isDirectory: true, [extensionRule("zip", "cbz")]) == .unchanged)
+        #expect(decide("zip", [extensionRule("zip", "cbz")]) == .unchanged, "拡張子の無い名前")
+        #expect(decide("book.zip", [extensionRule("zip", "")]) == .unchanged, "拡張子を消す規則は何もしない")
+        #expect(decide("book.zip", [extensionRule("zip", "cbz")], existing: ["book.cbz"]) == .rename(to: "book 2.cbz"))
+    }
+
+    @Test("テキストの追加は名前の前か拡張子の前。既に付いていれば付けない")
+    func addingText() {
+        #expect(decide("book.zip", [addRule("[x] ", .beforeName)]) == .rename(to: "[x] book.zip"))
+        #expect(decide("[x] book.zip", [addRule("[x] ", .beforeName)]) == .unchanged)
+        #expect(decide("[X] book.zip", [addRule("[x] ", .beforeName)]) == .unchanged, "既定は大文字小文字を区別しない")
+        #expect(decide("[X] book.zip", [addRule("[x] ", .beforeName, caseSensitive: true)]) == .rename(to: "[x] [X] book.zip"))
+        #expect(decide("book.zip", [addRule(" (done)", .afterName)]) == .rename(to: "book (done).zip"))
+        #expect(decide("book (done).zip", [addRule(" (done)", .afterName)]) == .unchanged)
+        #expect(decide("dir", isDirectory: true, [addRule("x", .afterName)]) == .unchanged)
+        #expect(decide("dir", isDirectory: true, [addRule("x", .afterName, folders: true)]) == .rename(to: "dirx"))
+    }
+
+    @Test("置き換えと追加を順にかけても落ち着く")
+    func mixedRulesSettle() {
+        let rules = [rule("_", " "), extensionRule("zip", "cbz"), addRule("[x] ", .beforeName)]
+        #expect(decide("a_b.zip", rules) == .rename(to: "[x] a b.cbz"))
+        #expect(decide("[x] a b.cbz", rules) == .unchanged)
+    }
+
+    @Test("規則の表示名と効きの有無")
+    func ruleDescriptions() {
+        let en = Locale(identifier: "en")
+        #expect(AutoRenameRule(find: "zip", replaceWith: ".cbz", replaceScope: .fileExtension).displayName(locale: en) == "“.zip” → “.cbz”")
+        #expect(AutoRenameRule(operation: .addText, addedText: "[x] ", addPlacement: .beforeName).displayName(locale: en) == "“[x] ” + Name")
+        #expect(AutoRenameRule(operation: .addText, addedText: "!", addPlacement: .afterName).displayName(locale: en) == "Name + “!”")
+        #expect(!AutoRenameRule(find: "zip", replaceWith: "", replaceScope: .fileExtension).hasEffect)
+        #expect(!AutoRenameRule(operation: .addText).hasEffect)
+        #expect(!AutoRenameRule(replaceScope: .fileExtension).canApplyToFolders)
+    }
+
     @Test("規則は上から順にかける")
     func rulesApplyInOrder() {
         // 「_ を空白に」の後に「空白 2 つを 1 つに」。逆順だと空白 2 つが残る。
@@ -147,8 +200,11 @@ struct AutoRenameTests {
         #expect(decoded.first?.isEnabled == true)
         #expect(decoded.first?.includesFolders == false)
         #expect(decoded.first?.isCaseSensitive == false)
+        #expect(decoded.first?.operation == .replaceText)
+        #expect(decoded.first?.replaceScope == .name)
         let rule = AutoRenameRule(
-            name: "n", find: "a", replaceWith: "b", isCaseSensitive: true, includesFolders: true,
+            name: "n", operation: .addText, find: "a", replaceWith: "b", replaceScope: .fileExtension, addedText: "t",
+            addPlacement: .beforeName, isCaseSensitive: true, includesFolders: true,
             targets: [AutoRenameTarget(path: "/Volumes/X/A", volumeUUID: "U", bookmark: Data([1, 2]), includesSubfolders: false,
                                        state: .disabledMissing, stateBeforeMissing: .enabled, suppressesMoveSuggestion: true,
                                        confirmedSignature: "s")]
