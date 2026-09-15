@@ -414,7 +414,9 @@ struct FileBrowserStateTests {
         #expect(state.startupFolder()?.path == home.path)
         let item = favorites.add(fixture.bFolder)
         fixture.preferences.fileBrowserStartupFavoriteID = item.id.uuidString
-        #expect(state.startupFolder()?.path == fixture.bFolder.path)
+        // よく使う項目は登録時に standardizedFileURL でパスをそろえる。サンドボックスの外(CI の署名なしホスト)では
+        // 一時フォルダが /private/var/folders にあり、実在するので /private が外れて /var/… になる。期待値も同じ規則でそろえる。
+        #expect(state.startupFolder()?.path == fixture.bFolder.standardizedFileURL.path)
         favorites.remove(id: item.id)
         #expect(state.startupFolder()?.path == home.path)
 
