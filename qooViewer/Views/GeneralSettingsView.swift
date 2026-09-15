@@ -111,7 +111,7 @@ struct GeneralSettingsView: View {
                     SettingsToggle("Show Recent Favorites", isOn: $preferences.showRecentFavoritesOnWelcome)
                 }
             } header: {
-                Text("Welcome Screen")
+                Text("Home")
             }
 
             Section {

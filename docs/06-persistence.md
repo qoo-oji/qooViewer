@@ -13,7 +13,7 @@
 | ライブラリ / コレクション / その中の本 | SwiftData `BookLibrary` / `BookCollection` / `CollectionItem` | `CollectionStore` | 無制限。ライブラリは必ず1つ以上(既定のライブラリは名前を持たず表示言語で組み立てる)。→ [14](14-library-collections.md) |
 | コレクション表紙(表示用) | `~/Library/Application Support/<bundle id>/CollectionCovers/<itemID>.jpg` | `CollectionCoverStore` | **キャッシュではない**(消えると登録した本を全冊読み直す)。長辺768px。上限も自動削除も無し。行と一緒に消す。起動時に孤児を掃除 |
 | コレクション表紙(元画像) | `~/Library/Application Support/<bundle id>/CollectionCoverSources/<uuid>.jpg` | `CollectionCoverSourceStore` | 利用者が「ファイルを選ぶ…」で指定した画像の複製(長辺1536px)。**作り直せない**(元ファイルは捨てられているかもしれない)。`BookLayoutSettings.shelfCoverImageFileName` から参照し、起動時に孤児を掃除 |
-| ウェルカム画面の表示の状態 | UserDefaults(`qooViewer.welcome.*`) | `WelcomeLibraryState` | 選択中のライブラリ・並び順2つ・大きさ2つ・本棚/ファイルブラウザのモード。`qooViewer.pref.*` ではないので「初期設定に戻す」の対象外、全削除では消える |
+| ホームの表示の状態 | UserDefaults(`qooViewer.welcome.*`) | `WelcomeLibraryState` | 選択中のライブラリ・並び順2つ・大きさ2つ・本棚/ファイルブラウザのモード。`qooViewer.pref.*` ではないので「初期設定に戻す」の対象外、全削除では消える |
 | ファイルブラウザの表示の状態 | UserDefaults(`qooViewer.fileBrowser.*`、リストの列の幅と並びは `NSTableView … qooViewer.fileBrowser.list`) | `FileBrowserState` | 表示形式・アイコンの大きさ・左の幅・隠したリストの列・最後に表示したフォルダ(パスだけ)・一括リネームの前回の入力(JSON)。後ろの 2 つはシークレットウインドウでは書かない。「初期設定に戻す」の対象外。並べ替えの基準と向きはサイドパネルのフォルダブラウザと共通の `qooViewer.pref.folderBrowserSortKey` / `…Direction`。→ [15](15-file-browser.md#保存するもの) |
 | よく使う項目 | UserDefaults(`qooViewer.fileBrowser.favoriteLocations`、JSON) | `FavoriteLocationStore` | パスだけ(読む権限は `FolderAccessStore`)。上限なし |
 | 「置き換える」の退避の記録 | コンテナの `Application Support/FileOperations/replace-backups.json` | `ReplaceBackupJournal` | 置き換えの最中だけ 1 件ずつあり、片付けたら消す(空ならファイルごと)。落ちて残ったものは次の起動で `ReplaceBackupRecovery` が戻す。「すべてのデータを削除」で消える(終了時。→ [15](15-file-browser.md#保存するもの)) |
@@ -247,7 +247,7 @@ JSON 読み込みの重複判定も同じ識別子を使います。
 
 - **ウインドウ単位の `let`**(Chrome のシークレットウインドウに倣った)。通常ウインドウと並行して使える。
 - true のとき書かないもの: 履歴・最後に開いていた本・読書状態・ブックマーク/お気に入り/
-  レイアウト/メタデータの登録と編集・コレクションへの登録と編集(ウェルカム画面の編集モードに
+  レイアウト/メタデータの登録と編集・コレクションへの登録と編集(ホームの編集モードに
   入れない。カバーの指定も変えられない)・EPUB/PDF/ComicInfo からの自動取り込み・サムネイルの
   ディスクキャッシュ・**構造キャッシュ(読みもしない**。同じ本でも開き方で挙動が変わるのを
   避けるため)・bookID の追従と識別子の補完。

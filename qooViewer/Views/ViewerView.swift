@@ -1869,7 +1869,7 @@ struct ViewerView: View {
                     .panelIconButtonLabel()
             }
             .buttonStyle(.borderless)
-            .help("Return to Welcome Screen")
+            .help("Return to Home")
 
             Spacer()
                 .frame(width: 8)

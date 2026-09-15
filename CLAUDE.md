@@ -115,7 +115,7 @@ silently drops it (this is how collection covers were lost on overwrite imports 
 build of the app (including a test host built from an old tag) against real data. Details in
 `docs/06-persistence.md`.
 
-**Welcome screen = the bookshelf (libraries / collections)**: `Views/Welcome/` plus `CollectionStore`,
+**Welcome screen (UI name: 「ホーム」 / "Home" since 2026-09-15; code keeps `Welcome*`, and the file browser's home directory is "Home Folder" / 「ホームフォルダ」) = the bookshelf (libraries / collections)**: `Views/Welcome/` plus `CollectionStore`,
 `CollectionCoverStore` (covers on disk under Application Support — not a cache, never evicted),
 `CollectionCoverExtractor` (one app-wide queue) and `CollectionAutoFolderScanner` + `FolderChangeWatcher`
 (FSEvents). Covers are stored uncropped; aspect ratio / crop anchor are per-library and applied at draw

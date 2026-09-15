@@ -52,7 +52,7 @@ enum PanelSurface: String, CaseIterable, Identifiable, Hashable {
         case .toolbar: "Toolbar"
         case .progressBar: "Progress Bar"
         case .sidePanel: "Side Panel"
-        case .welcome: "Welcome Screen"
+        case .welcome: "Home"
         case .overlays: "Other Panels"
         }
     }
@@ -68,7 +68,7 @@ enum PanelSurface: String, CaseIterable, Identifiable, Hashable {
         case .toolbar: "Toolbar"
         case .progressBar: "Progress Bar"
         case .sidePanel: "Side Panel"
-        case .welcome: "Welcome Screen"
+        case .welcome: "Home"
         case .overlays: "Other Panels"
         }
     }

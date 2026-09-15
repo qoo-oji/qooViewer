@@ -77,7 +77,7 @@ struct FileBrowserSettingsView: View {
                 SettingsToggle(
                     "Sort Subfolders Like the List",
                     isOn: $preferences.fileBrowserTreeFollowsListSort,
-                    help: "Subfolders in the tree on the left are sorted by the same column and direction as the items on the right. Volumes, Home and your favorite locations keep their order. When this is off, subfolders are sorted by name."
+                    help: "Subfolders in the tree on the left are sorted by the same column and direction as the items on the right. Volumes, Home Folder and your favorite locations keep their order. When this is off, subfolders are sorted by name."
                 )
             } header: {
                 Text("Tree")

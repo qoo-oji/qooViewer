@@ -115,7 +115,7 @@ struct LayoutSettingsView: View {
             SettingsPicker(
                 "Afterwards",
                 selection: $preferences.bookExportCompletionBehavior,
-                help: "“Close Book” closes this tab (the window too, if it is the only tab). “Return to Welcome Screen” keeps the window open."
+                help: "“Close Book” closes this tab (the window too, if it is the only tab). “Return to Home” keeps the window open."
             )
         } header: {
             Text("Exporting the Book You Are Reading")

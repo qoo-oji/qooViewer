@@ -83,7 +83,7 @@ enum LastPageBehavior: String, CaseIterable, Identifiable, Codable, Hashable, Pa
         case .nextBookFirstPage: return "Go to Next Book's First Page"
         case .nextBook: return "Next Book"
         case .closeBook: return "Close Book"
-        case .returnToWelcome: return "Return to Welcome Screen"
+        case .returnToWelcome: return "Return to Home"
         case .none: return "Do Nothing"
         case .ask: return "Ask Each Time"
         }

@@ -1192,7 +1192,7 @@ private struct SidePanelModeSwitcher: View {
             }
             .buttonStyle(.plain)
             .disabled(onReturnToWelcome == nil)
-            .help("Return to Welcome Screen")
+            .help("Return to Home")
 
             Divider()
                 .frame(height: Self.buttonHeight)

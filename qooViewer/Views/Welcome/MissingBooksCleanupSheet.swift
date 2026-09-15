@@ -52,7 +52,7 @@ struct MissingBooksCleanupSheet: View {
                 }
             }
 
-            Text("You can turn this off in Settings ▸ General ▸ Welcome Screen.")
+            Text("You can turn this off in Settings ▸ General ▸ Home.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

@@ -38,7 +38,7 @@ struct FileBrowserGoMenuItems: View {
         item("Documents", .documents, key: "o", modifiers: [.command, .shift])
         item("Desktop", .desktop, key: "d", modifiers: [.command, .shift])
         item("Downloads", .downloads, key: "l", modifiers: [.command, .option])
-        item("Home", .home, key: "h", modifiers: [.command, .shift])
+        item("Home Folder", .home, key: "h", modifiers: [.command, .shift])
             .modifierKeyAlternate(.option) {
                 Button("Library Folder") { open(.library) }
             }

@@ -742,7 +742,7 @@ private struct StorageSection: View, Equatable {
                         .panelOutlinedContent()
                 }
                 .lineLimit(1)
-                .help("One JPEG per collection holding the covers shown on its tile, so the welcome screen draws each tile from a single image instead of reading every cover separately. Rebuilt from the collection covers whenever it is missing, and kept under the limit shown, oldest first.")
+                .help("One JPEG per collection holding the covers shown on its tile, so Home draws each tile from a single image instead of reading every cover separately. Rebuilt from the collection covers whenever it is missing, and kept under the limit shown, oldest first.")
                 // ファイルブラウザの絵(改善要望7 段階 7a)。ページサムネイルと同じくON/OFFと上限を持つキャッシュ。
                 HStack(spacing: 0) {
                     DetailRow("File browser thumbnails", optionalSizeText(storage.fileBrowserThumbnailCacheBytes))

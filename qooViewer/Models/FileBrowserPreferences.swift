@@ -153,7 +153,7 @@ extension FileBrowserImageFolderOpenAction: SettingsOption {
 extension FileBrowserStartupLocation: SettingsOption {
     var shortTitleKey: LocalizedStringKey {
         switch self {
-        case .home: "Home"
+        case .home: "Home Folder"
         case .favorite: "Favorite Location"
         case .lastFolder: "Last Viewed Folder"
         }

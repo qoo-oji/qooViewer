@@ -139,7 +139,7 @@ struct PanelSurfaceSettingsView: View {
                     "Show What’s Behind the Window",
                     isOn: glassEnabled,
                     help: surface == .welcome
-                        ? "Other windows and the desktop show through the welcome screen faintly, following the settings above. When off, the welcome screen stays plain, as before."
+                        ? "Other windows and the desktop show through Home faintly, following the settings above. When off, Home stays plain, as before."
                         : "Other windows and the desktop show through faintly while this part is set to always show, following the settings above. When off, the always-visible look stays as before. The floating version shown while hidden is unaffected."
                 )
             }

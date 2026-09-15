@@ -258,7 +258,7 @@ enum ViewerAction: String, CaseIterable, Identifiable, Codable, Hashable {
         case .autoLayoutFromCurrentView: return "Auto-Layout Based on Current View"
         case .previousBook: return "Previous Book"
         case .nextBook: return "Next Book"
-        case .returnToWelcome: return "Return to Welcome Screen"
+        case .returnToWelcome: return "Return to Home"
         case .toggleBookmark: return "Toggle Bookmark"
         case .nextBookmark: return "Go to Next Bookmark"
         case .previousBookmark: return "Go to Previous Bookmark"

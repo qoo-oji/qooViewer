@@ -15,7 +15,7 @@ ContentView(ウインドウ/タブごと)
  ├─ AppState(このウインドウの状態。本を開く/閉じる、橋渡しクロージャ、メニュー用の値)
  ├─ SidePanelBrowserState(フォルダブラウザ。本の切替をまたいで生きる)
  ├─ BookContentsBrowserState(本の中身ブラウザ。本ごとに作り直す)
- ├─ WelcomeLibraryState(ウェルカム画面の表示の状態。選択中のライブラリ・編集モード・並び順)
+ ├─ WelcomeLibraryState(ホームの表示の状態。選択中のライブラリ・編集モード・並び順)
  ├─ SidePanelView
  └─ ViewerView(本ごとに `.id(book.id)` で作り直す) / WelcomeView(Views/Welcome/ → [14](14-library-collections.md))
       └─ ViewerViewModel(表示状態・ページ送り・レイアウト・ブックマーク)
@@ -115,7 +115,7 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 | `WindowGroup` | `main` | 起動時に SwiftUI が自動で作る。環境設定「シークレットモードで起動」に従う。`.handlesExternalEvents(matching:)` は最初のウインドウが現れるまで `"*"`、以後は `[]` |
 | `WindowGroup(for: WindowContentRequest.self)` | `book` | 常に通常ウインドウ。本を指定して開く。`.windowResizability(.contentSize)` |
 | `WindowGroup(for: WindowContentRequest.self)` | `private` | 常にシークレットウインドウ |
-| `WindowGroup(for: WindowContentRequest.self)` | `normal` | File ›「新規ノーマルウインドウ」(値なし、ウェルカム画面から)と、フォルダをファイルブラウザで開く通常ウインドウ。`.automatic` |
+| `WindowGroup(for: WindowContentRequest.self)` | `normal` | File ›「新規ノーマルウインドウ」(値なし、ホームから)と、フォルダをファイルブラウザで開く通常ウインドウ。`.automatic` |
 
 提示値は `WindowContentRequest`(`.book(BookOpenRequest)` / `.browse(folder:selecting:nonce:)`)。2026-09-13 までは
 `BookOpenRequest` で、フォルダを新しいタブ/ウインドウのファイルブラウザで開けなかった(改善要望7 段階 3)。
@@ -131,14 +131,14 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 (`"main"` だけ。ユーザー報告 2026-09-09)。実際の復元は
 `ContentView.restoreMainWindowFrameIfNeeded` が行いますが、あれが走るのはウインドウが
 **表示された後**なので、既定の 900x640 で一度出てから前回の大きさへ広がるのが見えていました。
-しかも SwiftUI の中身は 900pt 幅で一度組まれてから広い幅で組み直されるため、ウェルカム画面の
+しかも SwiftUI の中身は 900pt 幅で一度組まれてから広い幅で組み直されるため、ホームの
 一覧の列数が変わって**中身のレイアウトまでガクッと入れ替わって**見えます(1930x1409 で終了して
 いれば 6 列 → 14 列)。`.defaultPosition` は `UnitPoint` しか受けませんが、位置の決まり方は実測で
 **原点 = `visibleFrame.origin` + (`visibleFrame.size` - ウインドウの大きさ) × UnitPoint**
 (y は上下反転)と分かったので、そこから逆算した `UnitPoint` を渡します。見積もりが外れても
 最終的な位置は復元側が合わせるので、外れたぶんだけ滑って見える従来の挙動に戻るだけです。
 
-その上で、**ウェルカム画面の札は最初のフレームには載せません**。`AppState.hasSettledWindowFrame`
+その上で、**ホームの札は最初のフレームには載せません**。`AppState.hasSettledWindowFrame`
 (位置・サイズが決まって1ランループ置いたら立つ)を `CollectionGridView` が見て、それまでは
 一覧の場所を空けておきます。札が100枚載る棚では最初のフレームの費用がそのまま起動の待ちに
 乗るためで、札が数フレーム遅れて現れるほうが穏当だという利用者の判断です
@@ -200,7 +200,7 @@ SwiftData のモデルの変更は SwiftUI の再描画を自動では起こし�
 | `bookMetadataDidChange` | `BookMetadataStore` | `bookID` | `ViewerViewModel`(ツールバーの表示名)、各 VM |
 | `bookReadingStatesDidDelete` | `LibraryCleanupViewModel` | `bookIDs`(Set) | `ViewerViewModel`(以後その行へ書かない) |
 | `recentFilesLimitDidChange` | `AppPreferences.recentFilesLimit` の didSet | ― | `RecentFilesStore` |
-| `collectionsDidChange` | `CollectionStore`(`saveAndNotify`) | 本に関わる変更のときだけ `bookID`(複数の本にまたがる一括削除では無し) | ウェルカム画面の各ビュー、`CollectionCoverExtractor`、書き出し・メタデータ編集・掃除の VM |
+| `collectionsDidChange` | `CollectionStore`(`saveAndNotify`) | 本に関わる変更のときだけ `bookID`(複数の本にまたがる一括削除では無し) | ホームの各ビュー、`CollectionCoverExtractor`、書き出し・メタデータ編集・掃除の VM |
 
 約束事:
 
@@ -240,7 +240,7 @@ SwiftData のモデルの変更は SwiftUI の再描画を自動では起こし�
 
 ## データの流れ(本を1冊開くとき)
 
-1. 入口(ウェルカム画面のコレクション・ドロップ・Finder・履歴・サイドパネル・隣の本)が
+1. 入口(ホームのコレクション・ドロップ・Finder・履歴・サイドパネル・隣の本)が
    `BookOpenRequest` を作る。複数の画像なら1冊のその場限りの本、それ以外は先頭1件だけ。
 2. `AppState.open(request:)` が前の本のセキュリティスコープを閉じ、新しい URL を開き、
    `BookLoader.load(from:progress:)` を `Task.detached` で走らせる(→ [04](04-book-loading.md))。

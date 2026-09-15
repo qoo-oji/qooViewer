@@ -152,7 +152,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
             var title: String.LocalizationValue {
                 switch self {
                 case .volumes: "Volumes"
-                case .home: "Home"
+                case .home: "Home Folder"
                 case .favorites: "Favorite Locations"
                 }
             }

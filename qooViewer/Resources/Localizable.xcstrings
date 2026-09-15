@@ -116,18 +116,18 @@
         }
       }
     },
-    "Subfolders in the tree on the left are sorted by the same column and direction as the items on the right. Volumes, Home and your favorite locations keep their order. When this is off, subfolders are sorted by name." : {
+    "Subfolders in the tree on the left are sorted by the same column and direction as the items on the right. Volumes, Home Folder and your favorite locations keep their order. When this is off, subfolders are sorted by name." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Subfolders in the tree on the left are sorted by the same column and direction as the items on the right. Volumes, Home and your favorite locations keep their order. When this is off, subfolders are sorted by name."
+            "value" : "Subfolders in the tree on the left are sorted by the same column and direction as the items on the right. Volumes, Home Folder and your favorite locations keep their order. When this is off, subfolders are sorted by name."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "左のツリーのサブフォルダを、右の一覧と同じ基準・向きで並べます。ボリューム・ホーム・よく使う項目の並びは変わりません。オフのときは、サブフォルダを名前順に並べます。"
+            "value" : "左のツリーのサブフォルダを、右の一覧と同じ基準・向きで並べます。ボリューム・ホームフォルダ・よく使う項目の並びは変わりません。オフのときは、サブフォルダを名前順に並べます。"
           }
         }
       }
@@ -680,19 +680,19 @@
         }
       }
     },
-    "“Close Book” closes this tab (the window too, if it is the only tab). “Return to Welcome Screen” keeps the window open." : {
+    "“Close Book” closes this tab (the window too, if it is the only tab). “Return to Home” keeps the window open." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "“Close Book” closes this tab (the window too, if it is the only tab). “Return to Welcome Screen” keeps the window open."
+            "value" : "“Close Book” closes this tab (the window too, if it is the only tab). “Return to Home” keeps the window open."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "「本を閉じる」はこのタブを閉じます(タブが1枚だけならウインドウごと閉じます)。「ウェルカム画面へ戻る」はウインドウを残します。"
+            "value" : "「本を閉じる」はこのタブを閉じます(タブが1枚だけならウインドウごと閉じます)。「ホームへ戻る」はウインドウを残します。"
           }
         }
       }
@@ -2471,19 +2471,19 @@
         }
       }
     },
-    "Applies only when qooViewer already has a book open. From the welcome screen, a book always opens in the current window." : {
+    "Applies only when qooViewer already has a book open. From Home, a book always opens in the current window." : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Applies only when qooViewer already has a book open. From the welcome screen, a book always opens in the current window."
+            "value" : "Applies only when qooViewer already has a book open. From Home, a book always opens in the current window."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "すでに本を開いているときだけ適用されます。\nウェルカム画面からは、常に現在のウインドウで開きます。"
+            "value" : "すでに本を開いているときだけ適用されます。\nホームからは、常に現在のウインドウで開きます。"
           }
         }
       }
@@ -9596,18 +9596,18 @@
         }
       }
     },
-    "Home" : {
+    "Home Folder" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Home"
+            "value" : "Home Folder"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ホーム"
+            "value" : "ホームフォルダ"
           }
         }
       }
@@ -12823,18 +12823,18 @@
         }
       }
     },
-    "One JPEG per collection holding the covers shown on its tile, so the welcome screen draws each tile from a single image instead of reading every cover separately. Rebuilt from the collection covers whenever it is missing, and kept under the limit shown, oldest first." : {
+    "One JPEG per collection holding the covers shown on its tile, so Home draws each tile from a single image instead of reading every cover separately. Rebuilt from the collection covers whenever it is missing, and kept under the limit shown, oldest first." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "One JPEG per collection holding the covers shown on its tile, so the welcome screen draws each tile from a single image instead of reading every cover separately. Rebuilt from the collection covers whenever it is missing, and kept under the limit shown, oldest first."
+            "value" : "One JPEG per collection holding the covers shown on its tile, so Home draws each tile from a single image instead of reading every cover separately. Rebuilt from the collection covers whenever it is missing, and kept under the limit shown, oldest first."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "コレクション1つにつき1枚のJPEG。そのタイルに並ぶカバーを1枚に焼いてあり、ウェルカム画面はカバーを1枚ずつ読む代わりにこれを描きます。無くなってもコレクションのカバーから作り直せるキャッシュで、上限を超えたら古いものから捨てます。"
+            "value" : "コレクション1つにつき1枚のJPEG。そのタイルに並ぶカバーを1枚に焼いてあり、ホームはカバーを1枚ずつ読む代わりにこれを描きます。無くなってもコレクションのカバーから作り直せるキャッシュで、上限を超えたら古いものから捨てます。"
           }
         }
       }
@@ -13284,18 +13284,18 @@
         }
       }
     },
-    "Other windows and the desktop show through the welcome screen faintly, following the settings above. When off, the welcome screen stays plain, as before." : {
+    "Other windows and the desktop show through Home faintly, following the settings above. When off, Home stays plain, as before." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Other windows and the desktop show through the welcome screen faintly, following the settings above. When off, the welcome screen stays plain, as before."
+            "value" : "Other windows and the desktop show through Home faintly, following the settings above. When off, Home stays plain, as before."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "背後のウインドウやデスクトップが、上の設定に従ってウェルカム画面にうっすら透けます。オフのときは従来どおり、何も敷かない画面のままです。"
+            "value" : "背後のウインドウやデスクトップが、上の設定に従ってホームにうっすら透けます。オフのときは従来どおり、何も敷かない画面のままです。"
           }
         }
       }
@@ -16014,19 +16014,19 @@
         }
       }
     },
-    "Return to Welcome Screen" : {
+    "Return to Home" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Return to Welcome Screen"
+            "value" : "Return to Home"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ウェルカム画面へ戻る"
+            "value" : "ホームへ戻る"
           }
         }
       }
@@ -16999,19 +16999,19 @@
         }
       }
     },
-    "Show on the Welcome Screen" : {
+    "Show on Home" : {
       "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Show on the Welcome Screen"
+            "value" : "Show on Home"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ウェルカム画面でも表示する"
+            "value" : "ホームでも表示する"
           }
         }
       }
@@ -20283,18 +20283,18 @@
         }
       }
     },
-    "Welcome Screen" : {
+    "Home" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Welcome Screen"
+            "value" : "Home"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ウェルカム画面"
+            "value" : "ホーム"
           }
         }
       }
@@ -20717,18 +20717,18 @@
         }
       }
     },
-    "You can turn this off in Settings ▸ General ▸ Welcome Screen." : {
+    "You can turn this off in Settings ▸ General ▸ Home." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "You can turn this off in Settings ▸ General ▸ Welcome Screen."
+            "value" : "You can turn this off in Settings ▸ General ▸ Home."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "この確認は環境設定「一般」→「ウェルカム画面」で止められます。"
+            "value" : "この確認は環境設定「一般」→「ホーム」で止められます。"
           }
         }
       }

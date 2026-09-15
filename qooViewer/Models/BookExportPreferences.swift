@@ -89,7 +89,7 @@ enum BookExportCompletionBehavior: String, CaseIterable, Identifiable, Codable, 
         case .nextBookFirstPage: "Go to Next Book's First Page"
         case .nextBook: "Next Book"
         case .closeBook: "Close Book"
-        case .returnToWelcome: "Return to Welcome Screen"
+        case .returnToWelcome: "Return to Home"
         case .ask: "Ask Each Time"
         }
     }

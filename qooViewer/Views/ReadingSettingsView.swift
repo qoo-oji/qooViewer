@@ -15,7 +15,7 @@ struct ReadingSettingsView: View {
                 SettingsPicker("At the First Page", selection: $preferences.firstPageBehavior)
                 SettingsPicker(
                     "At the Last Page", selection: $preferences.lastPageBehavior,
-                    help: "“Close Book” closes this tab (the window too, if it is the only tab). “Return to Welcome Screen” keeps the window open."
+                    help: "“Close Book” closes this tab (the window too, if it is the only tab). “Return to Home” keeps the window open."
                 )
                 SettingsToggle(
                     "Trackpad Flicks Turn Pages",

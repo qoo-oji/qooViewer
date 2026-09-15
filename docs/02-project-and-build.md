@@ -194,7 +194,7 @@ deinit に任せられないのは、解放がメインスレッド以外で始�
 | `CollectionCoverExtractorTests` | 抽出の司会役 ―― 開ける本は ready、**実体が見つからない本は failed にせず pending のまま**、開けない本だけ failed、**存在確認で「無い」本は積まない / 結果が変わったら組み直す**(`settleExistenceRefresh` で待つ)、**ページの指定で作り直し、切り出し位置では作り直さない**、保存の世代の移行は一度だけ・save 1 回 |
 | `CollectionAutoFolderScanTests` | 自動登録フォルダ ―― 拾う範囲がドロップと一致すること(直下だけ)、書き込みが止まったかの判定の境界、**走査役を端から端まで**(書き終わった本から順に入る・二重に入らない・権限の無いフォルダは見送る。`settle()` で待つ) |
 | `FolderChangeWatcherTests` | FSEvents の包み ―― 見張っているフォルダに本を置くと知らせが届くこと(知らせそのもので待つ) |
-| `CollectionDropClassifierTests` / `WelcomeDropHandlingTests` | ドロップの振り分け(本 / 棚 / 対象外)と、ウェルカム画面での扱い ―― 編集モードの外では引き受けない、ばらの本は 1 つの作成待ちに、棚はフォルダ名で、自動登録フォルダの初期値は「全部が同じフォルダ」のときだけ、コレクションの中へは本を足す(`onFinished` で待つ) |
+| `CollectionDropClassifierTests` / `WelcomeDropHandlingTests` | ドロップの振り分け(本 / 棚 / 対象外)と、ホームでの扱い ―― 編集モードの外では引き受けない、ばらの本は 1 つの作成待ちに、棚はフォルダ名で、自動登録フォルダの初期値は「全部が同じフォルダ」のときだけ、コレクションの中へは本を足す(`onFinished` で待つ) |
 | `WelcomeLibraryStateTests` / `LazyCellImageBudgetTests` | 編集モードの選択を画面をまたいで残さないこと、Lazy コンテナの帳簿の下限セル数(**画面内ぶんだけでは作り直さない** ―― 定数だった頃の回帰)と、焼いた札 1 枚を中身のカバーぶんのセル数として数えること |
 
 段階 7(2026-09-06 追加、計画に載っていなかった未カバーを洗い出したもの):
@@ -229,7 +229,7 @@ deinit に任せられないのは、解放がメインスレッド以外で始�
 | --- | --- |
 | `FileBrowserListingTests` | 一覧の読み取り ―― 全ファイルを出し隠しファイルを出さない、パッケージは 1 項目でファイルの側に並ぶ、無いフォルダ(`notFound`)と読めないフォルダ(`needsAccess`)の分類、コンピュータに出すボリュームの選び方、絞り込みの規則、消えたフォルダの退避先 |
 | `FileBrowserStateTests` | 閲覧状態 ―― 並べ替えが読み直さない、表示の設定の保存、絞り込みと選択、上へ・戻る・進む、速く移動したときの世代番号、消えたフォルダの祖先への退避、reveal、読み直しで選択が残る、クリックと矢印キーの選択、起動時のフォルダ、シークレットウインドウで最後のフォルダを書かない |
-| `FileBrowserModelTests` | 矢印キーの移動先(`GridKeyboardNavigation`)、`WindowContentRequest` の往復と「同じフォルダでも毎回別の値」、`FavoriteLocationStore`、ウェルカム画面のモードの保存 |
+| `FileBrowserModelTests` | 矢印キーの移動先(`GridKeyboardNavigation`)、`WindowContentRequest` の往復と「同じフォルダでも毎回別の値」、`FavoriteLocationStore`、ホームのモードの保存 |
 
 段階 4 以降に足したファイルブラウザの suite(書く操作・ドロップ・一括リネーム・圧縮展開・置き換えの記録・サムネイル・既存機能との接続・
 読み取り専用モードなど)と、上の suite のその後の追加分は [15「テスト」](15-file-browser.md#テスト) の表にまとめてあります。
