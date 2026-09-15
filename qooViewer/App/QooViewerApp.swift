@@ -46,6 +46,9 @@ struct QooViewerApp: App {
         stores.collectionAutoFolderScanner
     }
     private var launchCoordinator: LaunchCoordinator { stores.launchCoordinator }
+    private var autoRenameStore: AutoRenameStore { stores.autoRenameStore }
+    private var autoRenameService: AutoRenameService { stores.autoRenameService }
+    private var autoRenameLog: AutoRenameActivityLog { stores.autoRenameLog }
     /// メニューバー(アプリ全体で1つ)から、今アクティブな(キーウインドウの)AppStateを
     /// 参照するための仕組み。詳細はAppState.swiftのFocusedValues拡張のコメント参照。
     @FocusedValue(\.qooViewerAppState) private var focusedAppState
@@ -546,6 +549,9 @@ struct QooViewerApp: App {
             .environmentObject(collectionCoverExtractor)
             .environmentObject(collectionAutoFolderScanner)
             .environmentObject(fileBrowserThumbnails)
+            // ファイルブラウザの右クリックの「自動リネーム」(2026-09-15)。
+            .environmentObject(autoRenameStore)
+            .environmentObject(autoRenameService)
             // メタデータ編集シート(BookMetadataSheet)がファイル名からの推測に使う。
             .environmentObject(metadataFormatStore)
             .environmentObject(launchCoordinator)
@@ -1113,7 +1119,8 @@ struct QooViewerApp: App {
                     directory: stores.homeMenuDirectory.directory,
                     appState: focusedAppState,
                     collectionStore: collectionStore,
-                    locale: preferences.effectiveLocale
+                    locale: preferences.effectiveLocale,
+                    openAutoRenameSettings: { [openWindow] in openWindow(id: AutoRenameSettingsWindow.windowID) }
                 )
             }
 
@@ -1661,6 +1668,21 @@ struct QooViewerApp: App {
         }
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
+        .windowToolbarStyle(.unified)
+
+        // 「自動リネームの設定」ウインドウ(2026-09-15、ユーザー要望。docs/plans/auto-rename-study.md)。
+        // 開く場所: ファイルブラウザの右クリック・環境設定「ファイルブラウザ」・ホームメニュー。
+        Window(String(localized: "Auto Rename Settings", language: locale), id: AutoRenameSettingsWindow.windowID) {
+            AutoRenameSettingsWindow()
+                .environmentObject(autoRenameStore)
+                .environmentObject(autoRenameService)
+                .environmentObject(autoRenameLog)
+                .environmentObject(favoriteLocations)
+                .environmentObject(folderAccess)
+                .environmentObject(preferences)
+                .environment(\.locale, locale)
+        }
+        .handlesExternalEvents(matching: [])
         .windowToolbarStyle(.unified)
 
         // 「メタデータの編集」ウインドウ(独立ウインドウ)。「ブックマーク・レイアウトの編集」と

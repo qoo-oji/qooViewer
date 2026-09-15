@@ -52,6 +52,70 @@
         }
       }
     },
+    "Activity Log" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activity Log"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "実行ログ"
+          }
+        }
+      }
+    },
+    "Add a rule with the + button, or select one on the left." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add a rule with the + button, or select one on the left."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「+」ボタンで規則を追加するか、左で規則を選んでください。"
+          }
+        }
+      }
+    },
+    "Add Rule" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Rule"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "規則を追加"
+          }
+        }
+      }
+    },
+    "After Name" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "After Name"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前の後"
+          }
+        }
+      }
+    },
     "An item with the new name already exists, and the rules would change the numbered name again." : {
       "localizations" : {
         "en" : {
@@ -68,6 +132,22 @@
         }
       }
     },
+    "Applied from top to bottom" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applied from top to bottom"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上から順に適用"
+          }
+        }
+      }
+    },
     "Applying the rules again would change the name again, so it was left as it is." : {
       "localizations" : {
         "en" : {
@@ -80,6 +160,134 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "規則をもう一度かけると名前がまた変わるため、変更しませんでした。"
+          }
+        }
+      }
+    },
+    "Auto Rename" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto Rename"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動リネーム"
+          }
+        }
+      }
+    },
+    "Auto rename is paused while the file browser is in read-only mode." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto rename is paused while the file browser is in read-only mode."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルブラウザが読み取り専用モードのため、自動リネームは停止中です。"
+          }
+        }
+      }
+    },
+    "Auto rename renames items in Favorite Locations automatically by your rules. It doesn’t run while Read-Only is on." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto rename renames items in Favorite Locations automatically by your rules. It doesn’t run while Read-Only is on."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動リネームは、よく使う項目の中の項目の名前を規則に従って自動で変更します。読み取り専用がオンの間は動きません。"
+          }
+        }
+      }
+    },
+    "Auto Rename Settings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto Rename Settings"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動リネームの設定"
+          }
+        }
+      }
+    },
+    "Auto Rename Settings…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto Rename Settings…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動リネームの設定…"
+          }
+        }
+      }
+    },
+    "Before Name" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Before Name"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前の前"
+          }
+        }
+      }
+    },
+    "Choose a folder in Favorite Locations, or a folder inside one, to rename items in automatically." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a folder in Favorite Locations, or a folder inside one, to rename items in automatically."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前を自動で変更するフォルダを、よく使う項目またはその中のフォルダから選んでください。"
+          }
+        }
+      }
+    },
+    "Choose a folder in Favorite Locations, or a folder inside one." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose a folder in Favorite Locations, or a folder inside one."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "よく使う項目またはその中のフォルダを選んでください。"
           }
         }
       }
@@ -116,6 +324,70 @@
         }
       }
     },
+    "Couldn’t be found" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t be found"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "見つかりません"
+          }
+        }
+      }
+    },
+    "Couldn’t rename to “%1$@”: %2$@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t rename to “%1$@”: %2$@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%1$@」に変更できませんでした: %2$@"
+          }
+        }
+      }
+    },
+    "Current Name" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Current Name"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "現在の名前"
+          }
+        }
+      }
+    },
+    "Date" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Date"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "日時"
+          }
+        }
+      }
+    },
     "Delete Collection…" : {
       "localizations" : {
         "en" : {
@@ -144,6 +416,70 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ライブラリを削除…"
+          }
+        }
+      }
+    },
+    "Delete Log…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Log…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ログを削除…"
+          }
+        }
+      }
+    },
+    "Delete Rule" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Rule"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "規則を削除"
+          }
+        }
+      }
+    },
+    "Delete the activity log?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete the activity log?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "実行ログを削除しますか?"
+          }
+        }
+      }
+    },
+    "Don’t Suggest Again" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Don’t Suggest Again"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この提案を表示しない"
           }
         }
       }
@@ -180,6 +516,198 @@
         }
       }
     },
+    "Enter both extensions. This rule renames nothing until then." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter both extensions. This rule renames nothing until then."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "両方の拡張子を入力してください。入力するまで、この規則は何も変更しません。"
+          }
+        }
+      }
+    },
+    "Enter the text to add. This rule renames nothing until then." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter the text to add. This rule renames nothing until then."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "追加するテキストを入力してください。入力するまで、この規則は何も変更しません。"
+          }
+        }
+      }
+    },
+    "Enter the text to find. This rule renames nothing until then." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter the text to find. This rule renames nothing until then."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "検索するテキストを入力してください。入力するまで、この規則は何も変更しません。"
+          }
+        }
+      }
+    },
+    "Every match in the name is replaced. The extension is left as it is." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every match in the name is replaced. The extension is left as it is."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前の中で一致した部分をすべて置き換えます。拡張子は変更しません。"
+          }
+        }
+      }
+    },
+    "Extension" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Extension"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡張子"
+          }
+        }
+      }
+    },
+    "Find" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Find"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "検索"
+          }
+        }
+      }
+    },
+    "Folders on network volumes can’t be targets." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Folders on network volumes can’t be targets."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ネットワーク上のフォルダは対象にできません。"
+          }
+        }
+      }
+    },
+    "Found At" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Found At"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "見つかった場所"
+          }
+        }
+      }
+    },
+    "How to Rename" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How to Rename"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前の変え方"
+          }
+        }
+      }
+    },
+    "In the Trash" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In the Trash"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ゴミ箱の中"
+          }
+        }
+      }
+    },
+    "Include Subfolders" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Include Subfolders"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "サブフォルダを含める"
+          }
+        }
+      }
+    },
+    "Left as it is: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Left as it is: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "変更しない: %@"
+          }
+        }
+      }
+    },
     "Library Settings…" : {
       "localizations" : {
         "en" : {
@@ -192,6 +720,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ライブラリの設定…"
+          }
+        }
+      }
+    },
+    "Match Case" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Match Case"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "大文字と小文字を区別"
           }
         }
       }
@@ -260,6 +804,182 @@
         }
       }
     },
+    "New Name" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Name"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しい名前"
+          }
+        }
+      }
+    },
+    "New Rule for This Folder…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Rule for This Folder…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このフォルダの規則を作成…"
+          }
+        }
+      }
+    },
+    "No access" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No access"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アクセス権がありません"
+          }
+        }
+      }
+    },
+    "No Rule Selected" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Rule Selected"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "規則が選択されていません"
+          }
+        }
+      }
+    },
+    "No target folders yet." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No target folders yet."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "対象フォルダはまだありません。"
+          }
+        }
+      }
+    },
+    "Not found" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not found"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "見つかりません"
+          }
+        }
+      }
+    },
+    "Not in Favorite Locations" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not in Favorite Locations"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "よく使う項目の外にあります"
+          }
+        }
+      }
+    },
+    "Not Now" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not Now"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "今はしない"
+          }
+        }
+      }
+    },
+    "On" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オン"
+          }
+        }
+      }
+    },
+    "On a network volume" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On a network volume"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ネットワーク上にあります"
+          }
+        }
+      }
+    },
+    "Only folders in Favorite Locations, or folders inside them, can be targets. Folders on network volumes can’t be used." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only folders in Favorite Locations, or folders inside them, can be targets. Folders on network volumes can’t be used."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "対象にできるのは、よく使う項目とその中のフォルダだけです。ネットワーク上のフォルダは使えません。"
+          }
+        }
+      }
+    },
     "Opening Image Folders" : {
       "localizations" : {
         "en" : {
@@ -292,6 +1012,70 @@
         }
       }
     },
+    "Original Location" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Original Location"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "元の場所"
+          }
+        }
+      }
+    },
+    "Paused (read-only mode)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paused (read-only mode)"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停止中(読み取り専用モード)"
+          }
+        }
+      }
+    },
+    "Puts the selected renamed items back to their original names. The rules won’t rename them again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Puts the selected renamed items back to their original names. The rules won’t rename them again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択した項目の名前を元に戻します。戻した項目の名前は、規則で再び変更されません。"
+          }
+        }
+      }
+    },
+    "Rename By" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename By"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "変え方"
+          }
+        }
+      }
+    },
     "Rename Collection…" : {
       "localizations" : {
         "en" : {
@@ -308,6 +1092,38 @@
         }
       }
     },
+    "Rename Folders Too" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename Folders Too"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダの名前も変更"
+          }
+        }
+      }
+    },
+    "Rename Items Already in the Folders?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename Items Already in the Folders?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダにすでにある項目の名前を変更しますか?"
+          }
+        }
+      }
+    },
     "Rename Library…" : {
       "localizations" : {
         "en" : {
@@ -320,6 +1136,166 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ライブラリの名前を変更…"
+          }
+        }
+      }
+    },
+    "Replace In" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Replace In"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "置き換える部分"
+          }
+        }
+      }
+    },
+    "Replace With" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Replace With"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "置換"
+          }
+        }
+      }
+    },
+    "Restore Original Names" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restore Original Names"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "元の名前に戻す"
+          }
+        }
+      }
+    },
+    "Restored from “%@”" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restored from “%@”"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」から元に戻しました"
+          }
+        }
+      }
+    },
+    "Review Changes…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Review Changes…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "変更を確認…"
+          }
+        }
+      }
+    },
+    "Review…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Review…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "確認…"
+          }
+        }
+      }
+    },
+    "Rule" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rule"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "規則"
+          }
+        }
+      }
+    },
+    "Rules" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rules"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "規則"
+          }
+        }
+      }
+    },
+    "Some rules would rename items that are already in their folders. They won’t rename anything until you check the changes." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Some rules would rename items that are already in their folders. They won’t rename anything until you check the changes."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一部の規則は、フォルダにすでにある項目の名前を変更します。変更を確認するまで、それらの規則は何も変更しません。"
+          }
+        }
+      }
+    },
+    "Some target folders can’t be used." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Some target folders can’t be used."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使えない対象フォルダがあります。"
           }
         }
       }
@@ -356,6 +1332,86 @@
         }
       }
     },
+    "Target Folders" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Target Folders"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "対象フォルダ"
+          }
+        }
+      }
+    },
+    "Target Folders That Seem to Have Moved" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Target Folders That Seem to Have Moved"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移動したと思われる対象フォルダ"
+          }
+        }
+      }
+    },
+    "Text" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "テキスト"
+          }
+        }
+      }
+    },
+    "That folder is already a target of this rule." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "That folder is already a target of this rule."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "そのフォルダはすでにこの規則の対象です。"
+          }
+        }
+      }
+    },
+    "The last extension is replaced only when it matches the text exactly (for example zip → cbz). Folders are never changed by this rule." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The last extension is replaced only when it matches the text exactly (for example zip → cbz). Folders are never changed by this rule."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "最後の拡張子が入力と完全に一致したときだけ置き換えます(例: zip → cbz)。この規則でフォルダは変更されません。"
+          }
+        }
+      }
+    },
     "The new name would begin with a dot “.”." : {
       "localizations" : {
         "en" : {
@@ -372,6 +1428,134 @@
         }
       }
     },
+    "The text is added before the name or before the extension. Names that already start or end with the text are left as they are." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The text is added before the name or before the extension. Names that already start or end with the text are left as they are."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "テキストを名前の前、または拡張子の前に追加します。すでにそのテキストで始まる・終わる名前は変更しません。"
+          }
+        }
+      }
+    },
+    "The volume isn’t connected" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The volume isn’t connected"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボリュームが接続されていません"
+          }
+        }
+      }
+    },
+    "These rules apply to items that are already in their target folders. Items added later are renamed without asking." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "These rules apply to items that are already in their target folders. Items added later are renamed without asking."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "これらの規則は、対象フォルダにすでにある項目にも適用されます。あとから追加された項目は確認なしで変更されます。"
+          }
+        }
+      }
+    },
+    "These target folders weren’t found where they were, so they were turned off. Choose the ones to update to the new location. Rules that were on go back on after you check the changes." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "These target folders weren’t found where they were, so they were turned off. Choose the ones to update to the new location. Rules that were on go back on after you check the changes."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "これらの対象フォルダは元の場所に見つからなかったため、オフにしました。新しい場所に更新するものを選んでください。オンだった対象は、変更を確認したあとで再びオンになります。"
+          }
+        }
+      }
+    },
+    "This action can’t be undone." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This action can’t be undone."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この操作は取り消せません。"
+          }
+        }
+      }
+    },
+    "This rule already has as many target folders as it can." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This rule already has as many target folders as it can."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この規則の対象フォルダは上限に達しています。"
+          }
+        }
+      }
+    },
+    "To rename items in this folder automatically, please select and grant access to it." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "To rename items in this folder automatically, please select and grant access to it."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このフォルダの項目の名前を自動で変更するには、フォルダを選択してアクセスを許可してください。"
+          }
+        }
+      }
+    },
+    "Turn Off Read-Only" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn Off Read-Only"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み取り専用をオフにする"
+          }
+        }
+      }
+    },
     "Untitled Rule" : {
       "localizations" : {
         "en" : {
@@ -384,6 +1568,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "名称未設定の規則"
+          }
+        }
+      }
+    },
+    "Update" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新"
+          }
+        }
+      }
+    },
+    "Waiting for you to check the changes" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Waiting for you to check the changes"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "変更の確認待ち"
           }
         }
       }
@@ -21139,6 +22355,118 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%@」+ 名前"
+          }
+        }
+      }
+    },
+    "%1$lld / %2$lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld / %2$lld"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "%1$lld items will be renamed · %2$lld left as they are" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld items will be renamed · %2$lld left as they are"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld 項目の名前を変更 · %2$lld 項目は変更しない"
+          }
+        }
+      }
+    },
+    "%1$lld of %2$lld rules on" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$lld of %2$lld rules on"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%2$lld 件中 %1$lld 件の規則がオン"
+          }
+        }
+      }
+    },
+    "%lld entries" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld entries"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 件"
+          }
+        }
+      }
+    },
+    "%lld target folders" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld target folders"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "対象フォルダ %lld 件"
+          }
+        }
+      }
+    },
+    "%lld target folders seem to have moved." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld target folders seem to have moved."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "移動したと思われる対象フォルダが %lld 件あります。"
+          }
+        }
+      }
+    },
+    "“%@” couldn’t be restored because it was moved, renamed or replaced." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” couldn’t be restored because it was moved, renamed or replaced."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」は移動・名前の変更・置き換えが行われたため、元に戻せませんでした。"
           }
         }
       }

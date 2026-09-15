@@ -68,6 +68,14 @@ nonisolated struct AutoRenamePlan: Sendable, Equatable {
     /// 規則の一覧の並びどおり。
     let rules: [Rule]
     let targets: [Target]
+    /// 実行ログから元の名前に戻した項目(AutoRenameStore.excludedPaths)。名前を変えない。
+    var excludedPaths: Set<String> = []
+
+    init(rules: [Rule], targets: [Target], excludedPaths: Set<String> = []) {
+        self.rules = rules
+        self.targets = targets
+        self.excludedPaths = excludedPaths
+    }
 
     var isEmpty: Bool { targets.isEmpty }
 
@@ -182,7 +190,7 @@ nonisolated enum AutoRenameScanner {
             } else if isDirectory, recursive, plan.shouldDescend(into: path) {
                 subfolders.append(path)
             }
-            if !ruleIndices.isEmpty { items.append((name, isDirectory)) }
+            if !ruleIndices.isEmpty, !plan.excludedPaths.contains(path) { items.append((name, isDirectory)) }
         }
         if recursive {
             for subfolder in subfolders.sorted() {

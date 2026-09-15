@@ -54,6 +54,8 @@ struct HomeMenuItems: View {
     let collectionStore: CollectionStore
     /// 既定のライブラリの名前を組み立てる表示言語(BookLibrary.displayName)。
     let locale: Locale
+    /// 「自動リネームの設定…」(2026-09-15)。ウインドウを開く口は App が持つ(値の OpenWindowAction)。
+    let openAutoRenameSettings: @MainActor () -> Void
 
     var body: some View {
         Toggle("File Browser", isOn: Binding(
@@ -168,6 +170,12 @@ struct HomeMenuItems: View {
             .disabled(!home.canShowLibrarySettings)
         Button("Collection Settings…") { [weak appState] in Self.request(.showSettings, appState) }
             .disabled(!home.canShowCollectionSettings)
+
+        Divider()
+
+        // ほかの項目と同じく、本を読んでいるウインドウでは淡色(型コメント「項目の数を状態で変えない」)。
+        Button("Auto Rename Settings…") { openAutoRenameSettings() }
+            .disabled(!home.isShown)
     }
 
     private static func request(_ kind: WelcomeLibraryState.HomeMenuRequest.Kind, _ appState: AppState?) {

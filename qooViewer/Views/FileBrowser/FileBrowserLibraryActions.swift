@@ -302,6 +302,8 @@ extension FileBrowserEntry {
 /// アイコン表示(SwiftUI)が同じものを描く。**閉包は FileBrowserActions を weak で持つ**(FileBrowserActions の型コメント)。
 enum FileBrowserMenuNode {
     case item(title: String, image: NSImage?, isEnabled: Bool, action: @MainActor () -> Void)
+    /// チェックの付く項目(自動リネームの規則。2026-09-15)。押すと `action`(値の反転は受け取る側が決める)。
+    case toggle(title: String, isOn: Bool, isEnabled: Bool, action: @MainActor () -> Void)
     case submenu(title: String, isEnabled: Bool, children: [FileBrowserMenuNode])
     case separator
 }
@@ -340,6 +342,8 @@ extension FileBrowserMenuCommand {
             return libraries.map { library in
                 .submenu(title: library.name, isEnabled: true, children: collectionItems(library))
             }
+        case .autoRename:
+            return actions.autoRenameMenuNodes(for: entries, locale: locale)
         case .exportBook:
             return BookExportFormat.allCases.map { format in
                 .item(

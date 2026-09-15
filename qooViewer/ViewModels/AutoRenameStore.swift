@@ -18,8 +18,14 @@ import SwiftUI
 @MainActor
 final class AutoRenameStore: ObservableObject {
     static let defaultsKey = "qooViewer.fileBrowser.autoRename.rules"
+    static let excludedPathsKey = "qooViewer.fileBrowser.autoRename.excludedPaths"
+    /// 除外するパスの上限(古いものから捨てる)。
+    static let maxExcludedPaths = 2000
 
     @Published private(set) var rules: [AutoRenameRule]
+    /// 実行ログから元の名前に戻した項目のパス。規則はこれらの名前を変えない(戻した直後にまた変えないため)。
+    /// 利用者が後で名前を変えればパスが変わるので、自然に外れる。
+    @Published private(set) var excludedPaths: [String]
 
     private let defaults: UserDefaults
 
@@ -31,6 +37,14 @@ final class AutoRenameStore: ObservableObject {
         } else {
             rules = []
         }
+        excludedPaths = defaults.stringArray(forKey: Self.excludedPathsKey) ?? []
+    }
+
+    func exclude(path: String) {
+        let path = MountTable.normalized(path)
+        guard !excludedPaths.contains(path) else { return }
+        excludedPaths = Array((excludedPaths + [path]).suffix(Self.maxExcludedPaths))
+        defaults.set(excludedPaths, forKey: Self.excludedPathsKey)
     }
 
     var canAddRule: Bool { rules.count < AutoRename.maxRules }
@@ -230,8 +244,8 @@ final class AutoRenameActivityLog: ObservableObject {
             /// 名前を変えなかった(理由の文を持つ。文は書いた時点の表示言語)。
             case skipped(result: String, reason: String)
             case failed(newName: String, message: String)
-            /// 実行ログから元に戻した(段階 7)。
-            case restored(toName: String)
+            /// 実行ログから元の名前に戻した。`fromName` は自動で付けていた名前。
+            case restored(fromName: String)
         }
 
         var id: UUID

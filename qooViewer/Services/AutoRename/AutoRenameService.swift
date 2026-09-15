@@ -65,6 +65,8 @@ final class AutoRenameService: ObservableObject {
     @Published private(set) var isPausedForReadOnly = false
     /// 規則の変更のたびに、利用者の操作で開く確認を促す通し番号(画面は値の変化だけを見る)。
     @Published private(set) var revision: UInt64 = 0
+    /// 設定ウインドウで選んでほしい規則(右クリックから開いたとき)。ウインドウが読んだら nil に戻す。
+    @Published var requestedRuleID: UUID?
 
     private let store: AutoRenameStore
     private let log: AutoRenameActivityLog
@@ -229,6 +231,42 @@ final class AutoRenameService: ObservableObject {
         refreshAvailability()
     }
 
+    /// 実行ログの行を元の名前に戻す。戻した項目は規則の対象から外す(AutoRenameStore.excludedPaths)。
+    /// - Returns: 戻せなかった項目があれば、その説明(1 件目)。
+    func restore(entryIDs: Set<UUID>) async -> String? {
+        let currentLocale = locale()
+        var firstProblem: String?
+        for entry in log.entries where entryIDs.contains(entry.id) {
+            guard case .renamed(let newName) = entry.outcome else { continue }
+            let current = URL(fileURLWithPath: entry.folderPath + "/" + newName)
+            let originalPath = entry.folderPath + "/" + entry.originalName
+            let identity = entry.identity
+            // 名前を変えた後に同じパスへ別の項目が来ていたら触らない(ファイルブラウザの取り消しと同じ考え方)。
+            let matches = await FileIO.perform { FileIdentity.matches(current, identity) }
+            guard matches else {
+                firstProblem = firstProblem ?? String(
+                    format: String(localized: "“%@” couldn’t be restored because it was moved, renamed or replaced.", language: currentLocale),
+                    newName
+                )
+                continue
+            }
+            // 先に除外してから戻す(戻した瞬間の FSEvents でまた変えないように)。
+            store.exclude(path: originalPath)
+            recentlyRenamed[current.path] = Date()
+            recentlyRenamed[originalPath] = Date()
+            do {
+                _ = try await fileOps.rename(current, to: entry.originalName, keepsNameExactly: true)
+                var restored = entry
+                restored.outcome = .restored(fromName: newName)
+                restored.date = Date()
+                log.replace(restored)
+            } catch {
+                firstProblem = firstProblem ?? error.localizedDescription
+            }
+        }
+        return firstProblem
+    }
+
     func suppressMoveSuggestions(_ suggestions: [MoveSuggestion]) {
         store.suppressMoveSuggestion(targetIDs: Set(suggestions.flatMap(\.targetIDs)))
         moveSuggestions.removeAll { suggestion in suggestions.contains { $0.id == suggestion.id } }
@@ -241,6 +279,26 @@ final class AutoRenameService: ObservableObject {
         // セキュリティスコープの無いブックマーク(AutoRenameTarget.bookmark のコメント)。
         let bookmark = try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
         return (volume, bookmark)
+    }
+
+    enum AddTargetResult: Equatable {
+        case added
+        case alreadyAdded
+        case limitReached
+        case ineligible(AutoRenameTargetAvailability)
+    }
+
+    /// 規則に対象フォルダを足す(設定ウインドウの「フォルダを追加…」と右クリック)。よく使う項目の配下のローカルのフォルダだけ。
+    func addTarget(folder url: URL, toRule ruleID: UUID) async -> AddTargetResult {
+        let eligibility = eligibility(ofFolder: url)
+        guard eligibility == .available else { return .ineligible(eligibility) }
+        let path = MountTable.normalized(url.standardizedFileURL.path)
+        guard let rule = store.rule(withID: ruleID) else { return .limitReached }
+        if rule.targets.contains(where: { $0.path == path }) { return .alreadyAdded }
+        guard rule.targets.count < AutoRename.maxTargetsPerRule else { return .limitReached }
+        let (volume, bookmark) = await FileIO.perform { Self.volumeAndBookmark(for: path) }
+        return store.add(target: AutoRenameTarget(path: path, volumeUUID: volume, bookmark: bookmark), toRule: ruleID)
+            ? .added : .alreadyAdded
     }
 
     /// そのフォルダを対象にできるか(よく使う項目の配下のローカルのフォルダ。§6.1)。できなければ理由。
@@ -465,7 +523,7 @@ final class AutoRenameService: ObservableObject {
             rules.append(.init(id: rule.id, name: rule.displayName(locale: currentLocale), text: .init(rule)))
             targets += active.map { .init(id: $0.id, ruleIndex: index, path: $0.path, includesSubfolders: $0.includesSubfolders) }
         }
-        return AutoRenamePlan(rules: rules, targets: targets)
+        return AutoRenamePlan(rules: rules, targets: targets, excludedPaths: Set(store.excludedPaths))
     }
 
     /// 走査に使う中身が変わった対象(新しく使えるようになった・確認した・規則の並びが変わった)の配下を走査し直す。
@@ -499,9 +557,10 @@ final class AutoRenameService: ObservableObject {
         let plan = makePlan()
         let paths = isPausedForReadOnly ? [] : Set(plan.targets.map(\.path))
         if watcher == nil, !paths.isEmpty {
-            watcher = FolderChangeWatcher { [weak self] events in
-                Task { @MainActor in self?.handle(events) }
-            }
+            watcher = FolderChangeWatcher(onEvents: { [weak self] events in
+                // FSEvents 自身のキューから呼ばれる(FolderChangeWatcher.init のコメント)。
+                Task { @MainActor [weak self] in self?.handle(events) }
+            })
         }
         guard let watcher else { return }
         Task { await watcher.watch(paths) }

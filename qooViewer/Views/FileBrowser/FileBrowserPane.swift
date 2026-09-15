@@ -32,6 +32,8 @@ struct FileBrowserPane: View {
     @EnvironmentObject private var metadataStore: BookMetadataStore
     /// アイコン表示の絵(`revision` と `includesVideo` を値でアイコン表示へ渡す。FileBrowserIconView のコメント)。
     @EnvironmentObject private var thumbnails: FileBrowserThumbnailProvider
+    @EnvironmentObject private var autoRenameStore: AutoRenameStore
+    @EnvironmentObject private var autoRenameService: AutoRenameService
     @Environment(\.openWindow) private var openWindow
     @Environment(\.locale) private var locale
     @Environment(\.panelContentOutlineWidth) private var outlineWidth
@@ -184,6 +186,8 @@ struct FileBrowserPane: View {
         actions.bookmarkStore = bookmarkStore
         actions.layoutStore = layoutStore
         actions.metadataStore = metadataStore
+        actions.autoRenameStore = autoRenameStore
+        actions.autoRenameService = autoRenameService
         // メニューバーのファイルブラウザの項目(ファイル・編集・表示・ホーム)が、右クリックと同じ口を使えるように。
         appState.fileBrowserActions = actions
         if state.operations.presenter == nil {

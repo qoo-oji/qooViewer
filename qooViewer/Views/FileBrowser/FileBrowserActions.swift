@@ -28,6 +28,9 @@ final class FileBrowserActions {
     weak var metadataStore: BookMetadataStore?
     /// 「コレクションに登録」のサブメニューの中身(FileBrowserActions.collectionMenuLibraries)。
     var collectionMenuCache: CollectionMenuCache?
+    /// 自動リネーム(2026-09-15。FileBrowserAutoRenameActions.swift)。
+    weak var autoRenameStore: AutoRenameStore?
+    weak var autoRenameService: AutoRenameService?
 
     /// シークレットウインドウでは保存を伴う操作(よく使う項目の登録・削除)を塞ぐ(決定事項 Q8)。
     var allowsSaving: Bool { !(appState?.isPrivateWindow ?? true) }
@@ -446,6 +449,8 @@ enum FileBrowserMenuCommand {
     case editMetadata
     case exportBook
     case addToFavoriteLocations
+    /// サブメニュー「自動リネーム」(規則ごとのチェック・このフォルダの規則を作る・設定を開く。2026-09-15)。
+    case autoRename
     case showInFinder
 
     /// 種類ごとの並び。内側の配列が区切り線で分かれる 1 群。
@@ -459,7 +464,7 @@ enum FileBrowserMenuCommand {
              [.moveToTrash],
              [.compress],
              [.editMetadata, .exportBook],
-             [.addToFavoriteLocations, .showInFinder]]
+             [.addToFavoriteLocations, .autoRename, .showInFinder]]
         case .file:
             [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow],
              [.createCollection, .addToCollection],
@@ -473,7 +478,7 @@ enum FileBrowserMenuCommand {
             [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow],
              [.openWith],
              [.newFolder, .paste],
-             [.addToFavoriteLocations, .showInFinder]]
+             [.addToFavoriteLocations, .autoRename, .showInFinder]]
         case .background:
             // 「表示」「表示順序」のサブメニューは組む側が足す(FileBrowserMenuBuilder)。
             [[.paste, .newFolder]]
@@ -505,6 +510,7 @@ enum FileBrowserMenuCommand {
         case .editMetadata: "Edit Metadata…"
         case .exportBook: "Export Book"
         case .addToFavoriteLocations: "Add to Favorite Locations"
+        case .autoRename: "Auto Rename"
         case .showInFinder: "Show in Finder"
         }
     }
@@ -569,6 +575,8 @@ enum FileBrowserMenuCommand {
             return actions.canCreateFolder(in: context.folder)
         case .addToFavoriteLocations:
             return actions.canAddToFavoriteLocations(entries)
+        case .autoRename:
+            return actions.canConfigureAutoRename(entries)
         case .showInFinder:
             return !entries.isEmpty
         }
@@ -585,7 +593,7 @@ enum FileBrowserMenuCommand {
         case .createCollection: actions.createCollection(from: entries)
         case .editMetadata: actions.editMetadata(entries)
         // サブメニューを持つ項目(中身は submenu / dynamicChildren)。
-        case .addToCollection, .openWith, .compress, .extract, .exportBook: break
+        case .addToCollection, .openWith, .compress, .extract, .exportBook, .autoRename: break
         case .compressHere: actions.compress(entries, choosingDestination: false)
         case .compressTo: actions.compress(entries, choosingDestination: true)
         case .extractHere: actions.extract(entries, placement: .contents, choosingDestination: false)
@@ -703,6 +711,14 @@ final class FileBrowserMenuBuilder: NSObject {
                 item.image = image
                 item.isEnabled = isEnabled
                 menu.addItem(item)
+            case .toggle(let title, let isOn, let isEnabled, let action):
+                let item = NSMenuItem(title: title, action: #selector(MenuNodeBox.invokeAction(_:)), keyEquivalent: "")
+                let box = MenuNodeBox(action)
+                item.target = box
+                item.representedObject = box
+                item.state = isOn ? .on : .off
+                item.isEnabled = isEnabled
+                menu.addItem(item)
             case .submenu(let title, let isEnabled, let children):
                 let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
                 item.submenu = Self.menu(from: children)
@@ -769,6 +785,12 @@ struct FileBrowserMenuNodeItems: View {
                     } else {
                         Text(verbatim: title)
                     }
+                }
+                .disabled(!isEnabled)
+            case .toggle(let title, let isOn, let isEnabled, let action):
+                // Toggle の `set` は渡される値を使わない(HomeMenuItems の型コメント)。
+                Toggle(isOn: Binding(get: { isOn }, set: { _ in action() })) {
+                    Text(verbatim: title)
                 }
                 .disabled(!isEnabled)
             case .submenu(let title, let isEnabled, let children):

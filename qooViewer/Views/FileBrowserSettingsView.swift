@@ -10,6 +10,7 @@ import SwiftUI
 struct FileBrowserSettingsView: View {
     @EnvironmentObject private var preferences: AppPreferences
     @EnvironmentObject private var favoriteLocations: FavoriteLocationStore
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         SettingsPaneContainer {
@@ -20,8 +21,16 @@ struct FileBrowserSettingsView: View {
                     isOn: $preferences.fileBrowserReadOnly,
                     help: "Items can't be pasted, cut, moved to the Trash, renamed, compressed or extracted, no new folders can be made, dragging doesn't move items, and file changes can't be undone or redone. You can still browse, open books, copy items, add favorite locations, create and add to collections, edit metadata and export books. Turn this off to change files in the file browser."
                 )
+                // 自動リネーム(2026-09-15)。ファイルを変える機能なので、読み取り専用の隣に置く(読み取り専用の間は止まる)。
+                Button("Auto Rename Settings…") {
+                    openWindow(id: AutoRenameSettingsWindow.windowID)
+                }
             } header: {
                 Text("File Operations")
+            } footer: {
+                Text("Auto rename renames items in Favorite Locations automatically by your rules. It doesn’t run while Read-Only is on.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section {
