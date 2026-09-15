@@ -50,7 +50,20 @@ final class FileBrowserState: ObservableObject {
     /// 配列の比較なしで判断するために使う。
     @Published private(set) var entriesRevision = 0
     /// 選んでいる項目の id(`FileBrowserEntry.id`)。
-    @Published var selection: Set<String> = []
+    @Published var selection: Set<String> = [] {
+        didSet {
+            if selection != oldValue {
+                Self.selectionRevisionCounter &+= 1
+                selectionRevision = Self.selectionRevisionCounter
+            }
+        }
+    }
+    /// `selection` の中身が変わるたびに変わる番号(publish しない)。メニューバーの値と `selectedEntries` の覚え書きの鍵
+    /// (2026-09-15 の 4 回目の監査。選択の id の配列を毎回作って比べていたのをやめた)。**アプリ全体で通しの番号**にして、
+    /// 別のウインドウの選択と同じ値にならないようにする(メニューバーのサブメニューはこの値が同じなら前の中身を使い回す)。
+    /// 何も選んでいない間は 0 のことがある(そのときサブメニューは中身を作らない)。
+    private(set) var selectionRevision = 0
+    private static var selectionRevisionCounter = 0
     @Published private(set) var loadError: FileBrowserLoadError?
     @Published private(set) var isLoading = false
     /// 一覧に、この項目が見える位置までスクロールしてほしい(上へ移動・戻る・reveal のあと)。
@@ -565,10 +578,19 @@ final class FileBrowserState: ObservableObject {
     /// type-select の打ち直しまでの間隔(秒)。
     static let typeSelectResetInterval: TimeInterval = 1
 
-    /// 選んでいる項目(表示順)。
+    /// 選んでいる項目(表示順)。**選択と一覧が変わるまでは作り直さない**(2026-09-15 の 4 回目の監査)。ContentView はこの状態の
+    /// publish のたび(ピンチ・ツリーの幅のドラッグの 1 イベントごと)にメニューバーの値を作り、メニューバーも評価のたびに読むので、
+    /// 以前は 10 万件のフォルダで毎回全件を絞り込んでいた。
     var selectedEntries: [FileBrowserEntry] {
-        entries.filter { selection.contains($0.id) }
+        if let cache = selectedEntriesCache, cache.selection == selectionRevision, cache.entries == entriesRevision {
+            return cache.value
+        }
+        let value = entries.filter { selection.contains($0.id) }
+        selectedEntriesCache = (selectionRevision, entriesRevision, value)
+        return value
     }
+
+    private var selectedEntriesCache: (selection: Int, entries: Int, value: [FileBrowserEntry])?
 
     func entry(withID id: String) -> FileBrowserEntry? {
         entries.first { $0.id == id }

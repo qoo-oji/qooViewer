@@ -135,6 +135,8 @@ struct ContentView: View {
     /// ウェルカム画面のファイルブラウザの閲覧状態(改善要望7 段階3)。本を開いている間もこの
     /// ウインドウの中に残り、戻ってきたときは離れたときのフォルダのまま(FileBrowserState参照)。
     @StateObject private var fileBrowser = FileBrowserState()
+    /// メニューバーへ出す「選んだ項目で押せるか」の覚え書き(`fileBrowserMenuSelection`)。
+    @State private var fileBrowserMenuSelectionMemo = FileBrowserMenuSelectionMemo()
 
     /// - Parameter isPrivateWindow: 明示的に決まっている場合だけ渡す(そのWindowGroupが
     ///   シークレット専用か通常専用かで決まる)。**nilを渡せるのは"main" WindowGroupだけ**で、
@@ -394,8 +396,27 @@ struct ContentView: View {
 
     /// ファイルブラウザで選んでいる項目について、メニューバーの項目を押せるか(2026-09-15)。**右クリックと同じ判定**
     /// (FileBrowserMenuCommand.isEnabled)を、いまの選択に対して引く。ペインがまだ口を渡していなければ全部淡色。
+    ///
+    /// **入力が変わるまで作り直さない**(2026-09-15 の 4 回目の監査)。この本体はファイルブラウザの状態の publish のたび
+    /// (ピンチ・ツリーの幅のドラッグの 1 イベントごと)に評価され、判定は選んだ項目を何度も歩く(圧縮・展開は項目ごとに親のパスを作る)
+    /// ので、10 万件を選んだままだと 1 イベントごとに数十万回の URL 操作になった。鍵には判定が読むものを全部入れる
+    /// (選択と一覧の番号・表示中のフォルダ・読み取り専用・シークレット・シート・よく使う項目)。
     private var fileBrowserMenuSelection: FileBrowserMenuSelection {
         guard let actions = appState.fileBrowserActions else { return FileBrowserMenuSelection() }
+        let key = FileBrowserMenuSelectionMemo.Key(
+            actions: ObjectIdentifier(actions),
+            selectionRevision: fileBrowser.selectionRevision,
+            entriesRevision: fileBrowser.entriesRevision,
+            folder: fileBrowser.currentFolder,
+            allowsFileChanges: actions.allowsFileChanges,
+            allowsSaving: actions.allowsSaving,
+            hasBookSheet: fileBrowser.bookSheet != nil,
+            favoriteLocationPaths: actions.favoriteLocations?.items.map(\.path) ?? []
+        )
+        return fileBrowserMenuSelectionMemo.value(for: key) { makeFileBrowserMenuSelection(actions: actions) }
+    }
+
+    private func makeFileBrowserMenuSelection(actions: FileBrowserActions) -> FileBrowserMenuSelection {
         let entries = fileBrowser.selectedEntries
         let context = FileBrowserMenuContext(
             kind: entries.first.map { FileBrowserMenuKind.of($0) } ?? .background, entries: entries,
@@ -404,7 +425,7 @@ struct ContentView: View {
         func enabled(_ command: FileBrowserMenuCommand) -> Bool { command.isEnabled(in: context, actions: actions) }
         let canExtract = enabled(.extract)
         return FileBrowserMenuSelection(
-            selectedIDs: entries.map(\.id),
+            selectionRevision: fileBrowser.selectionRevision,
             canOpen: enabled(.open),
             canOpenWith: enabled(.openWith),
             canRename: enabled(.rename),
@@ -1821,6 +1842,31 @@ private struct SidePanelEditingDialogs: ViewModifier {
                 bookPendingDeletion = nil
             }
         }
+    }
+}
+
+/// `ContentView.fileBrowserMenuSelection` の覚え書き。鍵が同じなら前の値を返す(本体の評価の中で使うので publish しない)。
+@MainActor
+private final class FileBrowserMenuSelectionMemo {
+    struct Key: Equatable {
+        let actions: ObjectIdentifier
+        let selectionRevision: Int
+        let entriesRevision: Int
+        let folder: URL?
+        let allowsFileChanges: Bool
+        let allowsSaving: Bool
+        let hasBookSheet: Bool
+        let favoriteLocationPaths: [String]
+    }
+
+    private var key: Key?
+    private var value = FileBrowserMenuSelection()
+
+    func value(for key: Key, make: () -> FileBrowserMenuSelection) -> FileBrowserMenuSelection {
+        if key == self.key { return value }
+        value = make()
+        self.key = key
+        return value
     }
 }
 

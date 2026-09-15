@@ -2137,7 +2137,21 @@ Composite の `.stopped`、QuickLook の継続(戻らない経路が無い)、EO
 - 検証: スキームを通した Debug の全テスト **1350 件・125 suite が通った**。Release を `QOO_CI_WARNINGS_AS_ERRORS=YES` でビルドして警告無し。`scripts/ci/check-all.sh` は、
   テストに書いた `/Volumes/<名前>/<ファイル>` を private-terms の検査が拾ったので、マウント先と名前を繋ぐ形に直して通った。
 - 記録はユーザー指示「一度ドキュメント更新してコミット・プッシュしてから修正を続けてください」で、CHANGELOG・MANUAL・CLAUDE.md・docs/13・docs/15 と一緒にコミット・プッシュ
-  (この節と同じコミット)。README は変える記述が無かった。**次にやること**: 4〜6 の修正(ユーザー指示で続ける)。
+  (78c7442)。README は変える記述が無かった。
+
+**4〜6 の修正(2026-09-15、ユーザー指示「ドキュメント更新してコミット・プッシュしてから修正を続けてください」)**:
+- 4: `FileBrowserState.selectionRevision`(選択の中身が変わったときだけ、アプリ全体で通しの番号)と `selectedEntries` の覚え書き(選択と一覧の番号が鍵)。
+  `ContentView.fileBrowserMenuSelection` は `FileBrowserMenuSelectionMemo`(鍵: 口・選択と一覧の番号・表示中のフォルダ・読み取り専用・シークレット・シート・
+  よく使う項目のパス)。`FileBrowserMenuSelection.selectedIDs` を `selectionRevision` に替え、サブメニューの `.id` もそれで。
+  テスト `FileBrowserStateTests.selectedEntriesFollowSelectionAndEntries`。
+- 5: 直さなかった。docs/09 の実測(SwiftUI はサブメニューの中身を開くまで作らない)と食い違うので誤検出とみなす。残っていた `selectedEntries` の全件の絞り込みは 4 で消えた。
+- 6: `HomeMenuDirectoryStore` は並べ替える前に `Fingerprint`(ライブラリの id・名前・既定名か・常に先頭/末尾、コレクションの id と名前の集合)を前回と比べる。
+  低の「早期 return で保留中の古い値が後で当たる」も、同じ値でも保留へ渡す形で直した。テストは `HomeMenuTests.theDirectoryPublishesOnlyWhenNamesChange` に
+  `setCoverReady` を 5 回出しても `rebuildCount`(テストのための口)が増えないことを足した。
+- 4・6 のテストは新しい口(番号・回数)を使うので修正前ではビルドできず、修正前に失敗することは確かめていない。画面の実機確認はしていない。
+- 検証: スキームを通した Debug の全テスト **1351 件・125 suite が通った**。Release を `QOO_CI_WARNINGS_AS_ERRORS=YES` でビルドして警告無し。`scripts/ci/check-all.sh` 通過。
+- 記録は CHANGELOG・docs/09 と一緒にコミット・プッシュ(この節と同じコミット)。MANUAL・README・CLAUDE.md は変える記述が無かった。
+  **次にやること**: 「低」の修正(ユーザー指示で続ける)。
 
 ---
 

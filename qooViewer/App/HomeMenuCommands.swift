@@ -150,7 +150,7 @@ struct HomeMenuItems: View {
                     actions: actions, locale: locale
                 ) ?? [])
                 // 選択とコレクションの名前が変わったら中身を組み直させる(FileBrowserMenuSelection.selectedIDs のコメント)。
-                .id(HomeMenuSubmenuIdentity(selectedIDs: selection.selectedIDs, directory: directory))
+                .id(HomeMenuSubmenuIdentity(selectionRevision: selection.selectionRevision, directory: directory))
             }
         }
         .disabled(selection?.canUseAsBooks != true)
@@ -207,15 +207,15 @@ struct HomeMenuItems: View {
 
 /// 中身が場面で変わるサブメニューを組み直させる鍵。
 private struct HomeMenuSubmenuIdentity: Hashable {
-    let selectedIDs: [String]
+    let selectionRevision: Int
     let directory: HomeMenuDirectory
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.selectedIDs == rhs.selectedIDs && lhs.directory == rhs.directory
+        lhs.selectionRevision == rhs.selectionRevision && lhs.directory == rhs.directory
     }
 
     func hash(into hasher: inout Hasher) {
-        hasher.combine(selectedIDs)
+        hasher.combine(selectionRevision)
         hasher.combine(directory.libraries.count)
     }
 }
@@ -248,7 +248,7 @@ struct FileBrowserFileMenuItems: View {
                     open: { [weak actions] application in actions?.open(entries, withApplicationAt: application) },
                     chooseOther: { [weak actions] in actions?.chooseApplicationAndOpen(entries) }
                 ))
-                .id(selection.selectedIDs)
+                .id(selection.selectionRevision)
             }
         }
         .disabled(selection?.canOpenWith != true)

@@ -70,6 +70,35 @@ struct FileBrowserStateTests {
         #expect(fixture.names() == ["c.txt", "B.cbz", "b-folder", "a-folder"])
     }
 
+    @Test("選んだ項目は選択と一覧が変わるまで作り直さず、選択の番号は中身が変わったときだけ、別の状態と重ならない値で進む")
+    func selectedEntriesFollowSelectionAndEntries() async throws {
+        // 4 回目の監査: メニューバーの値を作るたびに全件を絞り込み、選んだ id の配列を作って比べていた。
+        let fixture = try Fixture("fb-selected")
+        fixture.state.navigate(to: fixture.root)
+        await fixture.state.settle()
+        let other = FileBrowserState(defaults: fixture.suite.defaults)
+
+        fixture.state.selection = [fixture.id(fixture.aFolder), fixture.id(fixture.bFolder)]
+        let revision = fixture.state.selectionRevision
+        #expect(revision != 0)
+        #expect(fixture.state.selectedEntries.map(\.url.lastPathComponent) == ["a-folder", "b-folder"])
+        // 同じ中身を入れ直しても進まない。
+        fixture.state.selection = [fixture.id(fixture.bFolder), fixture.id(fixture.aFolder)]
+        #expect(fixture.state.selectionRevision == revision)
+
+        // 一覧の並びが変われば、選んだ項目も表示順で作り直す。
+        fixture.state.sortDirection = .descending
+        #expect(fixture.state.selectedEntries.map(\.url.lastPathComponent) == ["b-folder", "a-folder"])
+
+        fixture.state.selection = [fixture.id(fixture.aFolder)]
+        #expect(fixture.state.selectionRevision != revision)
+        #expect(fixture.state.selectedEntries.map(\.url.lastPathComponent) == ["a-folder"])
+
+        // 別の状態の選択の番号は、この状態のものと同じ値にならない(メニューバーのサブメニューがウインドウをまたいで使い回されない)。
+        other.selection = ["x"]
+        #expect(other.selectionRevision != fixture.state.selectionRevision)
+    }
+
     @Test("表示形式・アイコンの大きさ・左の幅・隠した列は保存され、次に作った状態へ引き継がれる")
     func viewSettingsPersist() throws {
         let suite = PreferencesSuite(label: "fb-persist")

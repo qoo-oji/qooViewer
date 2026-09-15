@@ -168,6 +168,14 @@ struct HomeMenuTests {
         library.collections.setCoverStatus(.ready, aspect: 1.5, for: item)
         await settle()
         #expect(publishCount == countBefore)
+        // 表紙の抽出の合図(保存しない `revision` だけの変化)では、並べ替えもしない(4 回目の監査)。
+        let rebuildsBefore = store.rebuildCount
+        for _ in 0..<5 {
+            library.collections.setCoverReady(aspect: 1.5, for: item)
+            await settle()
+        }
+        #expect(store.rebuildCount == rebuildsBefore)
+        #expect(publishCount == countBefore)
 
         library.collections.rename(collection, to: "Shelf C")
         await waitUntil { store.directory.libraries.first?.collections.last?.name == "Shelf C" }

@@ -306,9 +306,16 @@ AppState を参照しない作り(参照するとページ送りのたびに本�
 - **値の渡し方**: ウインドウごとの値は `ContentView` が `HomeMenuState` / `FileBrowserMenuSelection` を組み、`AppState.setHomeMenu` /
   `setFileBrowserMenu` がメニューを開いている間は保留してから `MenuCheckmarkState` へ出す。ファイルブラウザの可否は右クリックと同じ
   `FileBrowserMenuCommand.isEnabled` を引く(口は `AppState.fileBrowserActions`。持ち主はペイン)。
+  **ファイルブラウザの可否は入力が変わるまで作り直さない**(`FileBrowserMenuSelectionMemo`。4 回目の監査)。`ContentView` の本体は
+  `FileBrowserState` の publish のたび(ピンチ・ツリーの幅のドラッグの 1 イベントごと)に評価され、判定は選んだ項目を何度も歩くので、
+  10 万件を選んだままだと 1 イベントごとに数十万回の URL 操作になった。鍵は判定が読むもの全部(選択と一覧の番号・表示中のフォルダ・
+  読み取り専用・シークレット・シート・よく使う項目)で、**判定に新しい入力を足したら鍵にも足す**。`FileBrowserState.selectedEntries` も
+  選択と一覧の番号で覚える。
 - **ライブラリとコレクションの名前**は `HomeMenuDirectoryStore`(アプリで 1 つ)の値の写しから。`CollectionStore` を
   `allObjectWillChangePublishers` へ入れると表紙の抽出のたびにメニューが作り直されるので、名前・並び・所属が変わったときだけ知らせる。
-  並びは名前の昇順(本棚の並び順はウインドウごとに違うので、メニューは誰にとっても同じにする)。
+  並びは名前の昇順(本棚の並び順はウインドウごとに違うので、メニューは誰にとっても同じにする)。`CollectionStore.revision` は表紙の抽出
+  1 枚ごとにも進むので、**並べ替える前に名前・所属・「常に先頭/末尾」だけを集めて前回と比べ**、同じなら何もしない(4 回目の監査。
+  以前は表紙 1 枚ごとに全ライブラリを `localizedStandardCompare` で並べ替えていた)。
 - **シート・確認・ポップオーバーは画面が持ったまま**: メニューは `WelcomeLibraryState.menuRequest` に依頼を置き、出している画面
   (`WelcomeTopBar` / `CollectionGridView` / `CollectionDetailView`。設定のポップオーバーは親が `LibraryPaneControls` へ Binding で渡す)が
   拾って右クリックと同じ経路で開く。受け持たない依頼は取り上げない(`takeMenuRequest(where:)`)。本を開いたら捨てる(`endEditing`)。
@@ -317,7 +324,8 @@ AppState を参照しない作り(参照するとページ送りのたびに本�
   名前が変わったときの作り直しは件数に関係なく約 3 ms、名前と無関係な値(ページ送りのチェックマーク相当)が変わってもサブメニューの
   ボタンは作り直されない。開くときだけ件数に比例し、3 つのサブメニューを全部開いた合計で 1000 件: 名前の変更直後 約 140 ms・2 回目以降
   約 20 ms、3000 件: 約 400 ms / 約 40 ms。画面への描画は含まない。数千件を並べる使い方は想定しない(ユーザー判断)。
-  サブメニューの中身は入力が変わらない限り前のものが使い回されるので、選択で中身が変わるサブメニューには選択の id を `.id` に渡してある。
+  サブメニューの中身は入力が変わらない限り前のものが使い回されるので、選択で中身が変わるサブメニューには選択の番号(`FileBrowserState.selectionRevision`。アプリ全体で通しなので、
+  別のウインドウの選択と同じ値にならない)を `.id` に渡してある(以前は選んだ id の配列で、本体の評価のたびに作って比べていた)。
 
 ### 環境設定(SettingsView)
 

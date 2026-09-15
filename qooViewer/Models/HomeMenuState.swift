@@ -146,11 +146,12 @@ struct HomeMenuState: Equatable {
 /// ファイルブラウザで選んでいる項目について、メニューバーの項目を押せるか(2026-09-15)。右クリックと同じ判定
 /// (FileBrowserMenuCommand.isEnabled)を ContentView がいまの選択で引いて詰める。
 ///
-/// `selectedIDs` は判定には使わない。「このアプリケーションで開く」「コレクションに登録」のサブメニューの中身は
+/// `selectionRevision` は判定には使わない。「このアプリケーションで開く」「コレクションに登録」のサブメニューの中身は
 /// 開いたときに組まれ、入力が変わらない限り SwiftUI が前の中身を使い回す(2026-09-15 の実測)ので、選択が変わったら
-/// 値ごと変えて作り直させる。
+/// 値ごと変えて作り直させる。以前は選んだ項目の id の配列を持っていたが、ContentView の本体の評価のたびに作って比べるので、
+/// 10 万件を選んだままのピンチで毎回その分を払った(4 回目の監査)。いまは `FileBrowserState.selectionRevision`(アプリ全体で通し)。
 struct FileBrowserMenuSelection: Equatable {
-    var selectedIDs: [String] = []
+    var selectionRevision = 0
     var canOpen = false
     var canOpenWith = false
     var canRename = false
