@@ -20,7 +20,7 @@ import UniformTypeIdentifiers
 ///
 /// ■ メモリ
 /// 復号した絵は `PagePixelCache`(厳密な LRU、96MB)に**表示の大きさの段ごと**に持つ。段は長辺 128 / 256 / 512px
-/// (アイコンの大きさ 48〜256pt の Retina ぶん)。セルへは使い捨ての CGImage(`makeImage()`)を渡す ―― CGImage を
+/// (アイコンの大きさ 48〜256pt の Retina ぶん。上限の 450pt までは 512px を引き伸ばす ―― FileBrowserState.iconSizeRange)。セルへは使い捨ての CGImage(`makeImage()`)を渡す ―― CGImage を
 /// キャッシュに抱えると、表示した絵が 3 倍のメモリを占め続ける(PagePixelBuffer の型コメント)。セルの側で残る絵は
 /// `LazyCellImageBudget` で数える(LazyVGrid は画面外のセルの @State を手放さない)。
 ///

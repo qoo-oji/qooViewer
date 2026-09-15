@@ -35,7 +35,12 @@ final class FileBrowserState: ObservableObject {
 
     /// 保存が無いときに隠す列。作成日は既定で出さない(2026-09-14、ユーザーの判断)。
     static let defaultHiddenListColumns: Set<String> = ["created"]
-    static let iconSizeRange: ClosedRange<CGFloat> = 48...256
+    /// アイコンの大きさ。上限の 450 は、コレクションの中のカバーの最大(幅 300pt、既定の 2:3 で高さ 450pt。
+    /// WelcomeLibraryState.coverSizeRange)と同じ見た目になる大きさ ―― アイコンは正方形の枠に長辺を合わせて描くので、
+    /// カバーの長辺に揃える(2026-09-16、ユーザー要望)。絵は最大でも長辺 512px(FileBrowserThumbnailProvider.pixelTiers)
+    /// なので 256pt を超えると Retina では引き伸ばしになるが、カバーの側も最大付近では保存した 768px を引き伸ばしており
+    /// (CollectionCoverStore.maxPixelSize)、アイコン表示のためだけに大きい段を足すことはしない(ユーザーの判断)。
+    static let iconSizeRange: ClosedRange<CGFloat> = 48...450
     static let defaultIconSize: CGFloat = 96
     static let treeWidthRange: ClosedRange<CGFloat> = 160...480
     static let defaultTreeWidth: CGFloat = 220
