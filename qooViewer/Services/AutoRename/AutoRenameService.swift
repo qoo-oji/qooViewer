@@ -292,7 +292,7 @@ final class AutoRenameService: ObservableObject {
     func addTarget(folder url: URL, toRule ruleID: UUID) async -> AddTargetResult {
         let eligibility = eligibility(ofFolder: url)
         guard eligibility == .available else { return .ineligible(eligibility) }
-        let path = MountTable.normalized(url.standardizedFileURL.path)
+        let path = AutoRename.canonicalPath(of: url)
         guard let rule = store.rule(withID: ruleID) else { return .limitReached }
         if rule.targets.contains(where: { $0.path == path }) { return .alreadyAdded }
         guard rule.targets.count < AutoRename.maxTargetsPerRule else { return .limitReached }
@@ -303,15 +303,15 @@ final class AutoRenameService: ObservableObject {
 
     /// そのフォルダを対象にできるか(よく使う項目の配下のローカルのフォルダ。§6.1)。できなければ理由。
     func eligibility(ofFolder url: URL) -> AutoRenameTargetAvailability {
-        let path = MountTable.normalized(url.standardizedFileURL.path)
+        let path = AutoRename.canonicalPath(of: url)
         guard isUnderFavorite(path) else { return .outsideFavorites }
         if MountTable.current().isRemote(URL(fileURLWithPath: path)) { return .networkVolume }
         return .available
     }
 
     func isUnderFavorite(_ path: String) -> Bool {
-        let path = MountTable.normalized(path)
-        return favorites.items.contains { MountTable.path(path, isAtOrUnder: $0.path) }
+        let path = AutoRename.canonicalPath(path)
+        return favorites.items.contains { MountTable.path(path, isAtOrUnder: AutoRename.canonicalPath($0.path)) }
     }
 
     // MARK: - 変化
@@ -474,7 +474,7 @@ final class AutoRenameService: ObservableObject {
                 var isStale = false
                 if let url = try? URL(resolvingBookmarkData: data, options: [.withoutUI, .withoutMounting], relativeTo: nil,
                                       bookmarkDataIsStale: &isStale) {
-                    paths[original] = MountTable.normalized(url.standardizedFileURL.path)
+                    paths[original] = AutoRename.canonicalPath(url.path)
                 }
             }
             return paths
@@ -576,7 +576,7 @@ final class AutoRenameService: ObservableObject {
         let allTargetPaths = Set(store.rules.flatMap(\.targets).map(\.path))
         var touchesTargetRoot = false
         for event in events {
-            let path = MountTable.normalized(FileBrowserState.pathOutsideDataVolume(event.path))
+            let path = AutoRename.canonicalPath(event.path)
             if allTargetPaths.contains(where: { MountTable.path($0, isAtOrUnder: path) }) {
                 // 対象そのもの(か祖先)が改名・削除された。WatchRoot が無くても対象自身のパスで届く(§9.1)。
                 touchesTargetRoot = true

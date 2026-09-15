@@ -292,7 +292,7 @@ struct AutoRenameServiceTests {
         #expect(problem != nil)
         #expect(harness.exists("shelf/one [tag].zip"))
         #expect(harness.exists("shelf/two.zip"))
-        #expect(harness.store.excludedPaths == [shelf.appendingPathComponent("one [tag].zip").path])
+        #expect(harness.store.excludedPaths == [AutoRename.canonicalPath(shelf.appendingPathComponent("one [tag].zip").path)])
         #expect(harness.log.entries.first { $0.id == one.id }?.outcome == .restored(fromName: "one.zip"))
 
         // 規則をもう一度走らせても戻した名前は変えない。
@@ -392,11 +392,11 @@ struct AutoRenameServiceTests {
         #expect(harness.store.rules[1].targets.first?.state == .enabled, "ほかの対象は変えない")
         #expect(await eventually { harness.service.moveSuggestions.first?.status == .updatable })
         let suggestion = try #require(harness.service.moveSuggestions.first)
-        #expect(suggestion.foundPath == library.appendingPathComponent("moved").path)
+        #expect(suggestion.foundPath == AutoRename.canonicalPath(library.appendingPathComponent("moved").path))
 
         await harness.service.applyMoveSuggestions([suggestion])
         let updated = try #require(harness.store.rule(withID: rule.id)?.targets.first)
-        #expect(updated.path == library.appendingPathComponent("moved").path)
+        #expect(updated.path == AutoRename.canonicalPath(library.appendingPathComponent("moved").path))
         #expect(updated.state == .enabled)
         #expect(await eventually { harness.service.moveSuggestions.isEmpty })
     }

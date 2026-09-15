@@ -20,7 +20,7 @@ extension FileBrowserActions {
         guard let store = autoRenameStore, let entry = entries.first else { return [] }
         let isEnabled = canConfigureAutoRename(entries)
         let folder = entry.url
-        let path = MountTable.normalized(folder.standardizedFileURL.path)
+        let path = AutoRename.canonicalPath(of: folder)
         var nodes: [FileBrowserMenuNode] = store.rules.map { rule in
             .toggle(
                 title: rule.displayName(locale: locale), isOn: store.ruleContains(path: path, ruleID: rule.id),
@@ -44,7 +44,7 @@ extension FileBrowserActions {
     /// 規則にこのフォルダを入れる・外す。
     func toggleAutoRename(folder: URL, ruleID: UUID) {
         guard let store = autoRenameStore, let service = autoRenameService else { return }
-        let path = MountTable.normalized(folder.standardizedFileURL.path)
+        let path = AutoRename.canonicalPath(of: folder)
         if store.ruleContains(path: path, ruleID: ruleID) {
             store.removeTarget(path: path, fromRule: ruleID)
             return

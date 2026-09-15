@@ -81,7 +81,7 @@ nonisolated struct AutoRenamePlan: Sendable, Equatable {
 
     /// `folder` の直下の項目に掛ける規則(一覧の並び)。
     func ruleIndices(forFolder folder: String) -> [Int] {
-        let folder = MountTable.normalized(folder)
+        let folder = AutoRename.canonicalPath(folder)
         let indices = Set(targets.filter {
             folder == $0.path || ($0.includesSubfolders && MountTable.path(folder, isAtOrUnder: $0.path))
         }.map(\.ruleIndex))
@@ -90,7 +90,7 @@ nonisolated struct AutoRenamePlan: Sendable, Equatable {
 
     /// `folder` の中へ降りるか(その下に掛ける規則が 1 つでもありうる)。
     func shouldDescend(into folder: String) -> Bool {
-        let folder = MountTable.normalized(folder)
+        let folder = AutoRename.canonicalPath(folder)
         return targets.contains {
             ($0.includesSubfolders && MountTable.path(folder, isAtOrUnder: $0.path))
                 || ($0.path != folder && MountTable.path($0.path, isAtOrUnder: folder))
@@ -154,7 +154,7 @@ nonisolated enum AutoRenameScanner {
         var result = Result()
         var visited = 0
         visit(
-            MountTable.normalized(folder), recursive: recursive, plan: plan, inUsePaths: inUsePaths,
+            AutoRename.canonicalPath(folder), recursive: recursive, plan: plan, inUsePaths: inUsePaths.map(AutoRename.canonicalPath),
             takesSnapshots: takesSnapshots, isRegistered: isRegistered, result: &result, visited: &visited
         )
         return result

@@ -41,7 +41,7 @@ final class AutoRenameStore: ObservableObject {
     }
 
     func exclude(path: String) {
-        let path = MountTable.normalized(path)
+        let path = AutoRename.canonicalPath(path)
         guard !excludedPaths.contains(path) else { return }
         excludedPaths = Array((excludedPaths + [path]).suffix(Self.maxExcludedPaths))
         defaults.set(excludedPaths, forKey: Self.excludedPathsKey)
@@ -118,7 +118,7 @@ final class AutoRenameStore: ObservableObject {
 
     /// そのパスを対象に持つ規則から、そのパスの対象を外す(右クリックのチェックを外したとき)。
     func removeTarget(path: String, fromRule ruleID: UUID) {
-        let path = MountTable.normalized(path)
+        let path = AutoRename.canonicalPath(path)
         guard let target = rule(withID: ruleID)?.targets.first(where: { $0.path == path }) else { return }
         removeTarget(id: target.id, fromRule: ruleID)
     }
@@ -181,7 +181,7 @@ final class AutoRenameStore: ObservableObject {
     /// 移動の提案で「更新」した(§6.3)。パス・ボリューム・ブックマークを新しい場所で書き直し、見つからなくなる前の ON/OFF に戻す。
     /// 確認の印は外れる(パスが印の中身に入っている)ので、ON に戻った対象は確認し直してから掛かる。
     func relocate(targetIDs: Set<UUID>, to path: String, volumeUUID: String?, bookmark: Data?) {
-        let normalized = MountTable.normalized(path)
+        let normalized = AutoRename.canonicalPath(path)
         var changed = false
         for ruleIndex in rules.indices {
             var targets = rules[ruleIndex].targets
@@ -224,7 +224,7 @@ final class AutoRenameStore: ObservableObject {
 
     /// そのパスを対象に持つか(右クリックのチェック)。
     func ruleContains(path: String, ruleID: UUID) -> Bool {
-        let path = MountTable.normalized(path)
+        let path = AutoRename.canonicalPath(path)
         return rule(withID: ruleID)?.targets.contains { $0.path == path } ?? false
     }
 

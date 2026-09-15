@@ -169,6 +169,17 @@ struct AutoRenameTests {
         #expect(!deep.covers(folder: "/Volumes/X/AB"))
     }
 
+    @Test("パスの書き方を揃える: /private の付いた一時フォルダ、/System/Volumes/Data、末尾の /。外すのはリンクの 3 つだけ")
+    func canonicalPaths() {
+        #expect(AutoRename.canonicalPath("/private/var/folders/x/T/a/") == "/var/folders/x/T/a")
+        #expect(AutoRename.canonicalPath("/private/tmp/a") == "/tmp/a")
+        #expect(AutoRename.canonicalPath("/private/var") == "/var")
+        #expect(AutoRename.canonicalPath(FileBrowserState.dataVolumePrefix + "/Users/nobody/a") == "/Users/nobody/a")
+        #expect(AutoRename.canonicalPath("/private/varied") == "/private/varied")
+        #expect(AutoRename.canonicalPath("/Volumes/X/A") == "/Volumes/X/A")
+        #expect(AutoRenameTarget(path: "/private/var/folders/x").covers(folder: "/var/folders/x"))
+    }
+
     @Test("確認済みの印は規則の中身と対象の設定が変わると外れる")
     func confirmationSignatureTracksContents() {
         var rule = AutoRenameRule(find: "a", replaceWith: "b")

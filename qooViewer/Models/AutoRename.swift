@@ -151,7 +151,7 @@ nonisolated struct AutoRenameTarget: Codable, Identifiable, Equatable, Sendable 
     }
 
     var id: UUID
-    /// 末尾の `/` を持たないパス(`MountTable.normalized`)。
+    /// 揃えたパス(`AutoRename.canonicalPath`)。
     var path: String
     /// 登録したときのボリュームの UUID(`MountTable.volumeIdentifier`)。**「ボリュームは繋がっているのにフォルダが無い」の判定は、
     /// パスが載っているマウントの UUID がこれと一致したときだけ行う**(同じ名前の別のディスク・起動ボリュームに残った空の
@@ -176,7 +176,7 @@ nonisolated struct AutoRenameTarget: Codable, Identifiable, Equatable, Sendable 
         confirmedSignature: String? = nil
     ) {
         self.id = id
-        self.path = MountTable.normalized(path)
+        self.path = AutoRename.canonicalPath(path)
         self.volumeUUID = volumeUUID
         self.bookmark = bookmark
         self.includesSubfolders = includesSubfolders
@@ -199,7 +199,7 @@ nonisolated struct AutoRenameTarget: Codable, Identifiable, Equatable, Sendable 
 
     /// `folder` の直下の項目がこの対象に含まれるか(対象そのもの、または「サブフォルダを含める」ときの配下のフォルダ)。
     func covers(folder: String) -> Bool {
-        let folder = MountTable.normalized(folder)
+        let folder = AutoRename.canonicalPath(folder)
         return folder == path || (includesSubfolders && MountTable.path(folder, isAtOrUnder: path))
     }
 }
@@ -208,6 +208,26 @@ nonisolated struct AutoRenameTarget: Codable, Identifiable, Equatable, Sendable 
 nonisolated enum AutoRename {
     /// 規則の数の上限(§8 の 6)。
     static let maxRules = 20
+
+    /// 自動リネームが比べるパスの書き方を 1 つに揃える(**ファイルに触らない文字列処理**)。
+    ///
+    /// 同じ場所が 3 通りに書かれて届く: よく使う項目は `standardizedFileURL` を通して `/private` を外した形(`/var/…`)、FSEvents はリンクを
+    /// 解いた実体の形(`/private/var/…`)、起動ボリュームを見張ると `/System/Volumes/Data` の付いた形。揃えずに比べると、対象が
+    /// 「よく使う項目の外」に見えて何も変わらない(サンドボックスの外で走る CI で発覚、2026-09-16。手元のテストはコンテナの中で `/private` が現れず通っていた)。
+    /// `standardizedFileURL` は `/private` を**実在するときだけ**外す(消えたパスでは外れない)ので使わず、ここで文字列として外す。
+    static func canonicalPath(_ path: String) -> String {
+        var result = MountTable.normalized(FileBrowserState.pathOutsideDataVolume(path))
+        for linked in ["/var", "/tmp", "/etc"] where MountTable.path(result, isAtOrUnder: "/private" + linked) {
+            result.removeFirst("/private".count)
+            break
+        }
+        return result
+    }
+
+    /// URL 版。`..` などの成分は `standardizedFileURL` で畳んでから揃える。
+    static func canonicalPath(of url: URL) -> String {
+        canonicalPath(url.standardizedFileURL.path)
+    }
     /// 1 つの規則の対象フォルダの数の上限。
     static let maxTargetsPerRule = 20
 

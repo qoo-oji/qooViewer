@@ -89,7 +89,7 @@ struct FileBrowserAutoRenameMenuTests {
         while fixture.store.rule(withID: rule.id)?.targets.isEmpty == true, Date() < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
-        #expect(fixture.store.rule(withID: rule.id)?.targets.first?.path == library.path)
+        #expect(fixture.store.rule(withID: rule.id)?.targets.first?.path == AutoRename.canonicalPath(library.path))
         #expect(fixture.store.rule(withID: rule.id)?.targets.first?.bookmark != nil)
         #expect(toggles().map(\.1) == [true])
 
@@ -108,7 +108,7 @@ struct FileBrowserAutoRenameMenuTests {
             try await Task.sleep(for: .milliseconds(20))
         }
         #expect(fixture.store.rules.count == 1)
-        #expect(fixture.store.rules.first?.targets.map(\.path) == [library.path])
+        #expect(fixture.store.rules.first?.targets.map(\.path) == [AutoRename.canonicalPath(library.path)])
         #expect(fixture.service.requestedRuleID == fixture.store.rules.first?.id)
     }
 
