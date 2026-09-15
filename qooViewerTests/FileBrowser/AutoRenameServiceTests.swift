@@ -270,6 +270,38 @@ struct AutoRenameServiceTests {
         }
     }
 
+    @Test("実行ログから元の名前に戻すと、その項目は規則でまた変えない。別の項目に置き換わっていたら戻さない")
+    func restoringFromTheLogExcludesTheItem() async throws {
+        let harness = try Harness("restore")
+        let shelf = try harness.folder("shelf")
+        try harness.file("shelf/one [tag].zip")
+        try harness.file("shelf/two [tag].zip")
+        harness.favorites.add(shelf)
+        harness.addRule(find: " [tag]", replace: "", target: shelf)
+        harness.service.start()
+        #expect(await eventually { harness.exists("shelf/one.zip") && harness.exists("shelf/two.zip") })
+        #expect(await eventually { harness.log.entries.filter(\.isRestorable).count == 2 })
+
+        let one = try #require(harness.log.entries.first { $0.originalName == "one [tag].zip" })
+        let two = try #require(harness.log.entries.first { $0.originalName == "two [tag].zip" })
+        // two は名前を変えた後で別の項目に置き換える。
+        try FileManager.default.removeItem(at: shelf.appendingPathComponent("two.zip"))
+        try harness.file("shelf/two.zip")
+
+        let problem = await harness.service.restore(entryIDs: [one.id, two.id])
+        #expect(problem != nil)
+        #expect(harness.exists("shelf/one [tag].zip"))
+        #expect(harness.exists("shelf/two.zip"))
+        #expect(harness.store.excludedPaths == [shelf.appendingPathComponent("one [tag].zip").path])
+        #expect(harness.log.entries.first { $0.id == one.id }?.outcome == .restored(fromName: "one.zip"))
+
+        // 規則をもう一度走らせても戻した名前は変えない。
+        harness.service.refreshAvailability(thenScanEverything: true)
+        await harness.service.waitUntilIdle()
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(harness.exists("shelf/one [tag].zip"))
+    }
+
     // MARK: - 変えない場面
 
     @Test("読み取り専用モードの間は変えず、OFF にしたら変える")

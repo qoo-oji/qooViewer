@@ -135,7 +135,12 @@ become copy-only); tests inject a pseudo trash, a uniquely named pasteboard and 
 experiments on FAT/exFAT disk images from parallel agents. On FAT/exFAT `st_ctime` is just the modification date (measured
 2026-09-15), so "has the source changed" checks there compare size and mtime with the copy (`FileOperationService.SourceChangeCheck`),
 never ctime against the clock. Bulk rename copies
-Finder's measured rules (`Models/BulkRename.swift`; registered extensions, collisions avoided rather than refused, so no two-pass rename) — change them only against the real Finder. The context menu's links to existing features (create/add
+Finder's measured rules (`Models/BulkRename.swift`; registered extensions, collisions avoided rather than refused, so no two-pass rename) — change them only against the real Finder.
+**Auto rename** (2026-09-15; `Models/AutoRename.swift`, `AutoRenameStore`, `Services/AutoRename/`, `Views/AutoRename/`; design and measurements in
+`docs/plans/auto-rename-study.md`) renames items under Favorite Locations by rules while the app runs, outside `FileBrowserOperations`: it is not
+started under tests, pauses in read-only mode, never touches a target until its current contents are confirmed, waits for writes to settle
+(Finder's `brok`/`MACS` marker; whole-tree snapshots for folders — renaming a folder mid-copy breaks Finder's copy), applies name rules to the
+name without its registered extensions, and turns off only targets whose folder is gone on a volume with the same UUID. The context menu's links to existing features (create/add
 to collection, Edit Metadata on a book outside any collection, Export Book without loading it first, Open With) are in
 `FileBrowserLibraryActions.swift`; submenus whose contents vary are a `FileBrowserMenuNode` tree drawn by both the AppKit and
 SwiftUI menus. "Show in File Browser" (next to every "Show in Finder") goes through `AppState.revealInFileBrowser` and, from
