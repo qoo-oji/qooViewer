@@ -515,7 +515,7 @@ final class FileBrowserOperations: ObservableObject {
     private func progressSink() -> ProgressSink {
         let relay = ProgressRelay()
         return ProgressSink { [weak self] progress in
-            relay.push(progress) { [weak self] latest in self?.report(latest) }
+            relay.push(progress) { [weak self] latest in self?.report(latest, from: relay) }
         }
     }
 
@@ -623,8 +623,12 @@ final class FileBrowserOperations: ObservableObject {
         activityCancellation = nil
     }
 
-    private func report(_ progress: FileOperationProgress) {
+    /// - Parameter relay: 報告を運んだ中継。**最初に届けた帯の操作に結び付け、別の操作の帯へは入れない**(2026-09-15 の 4 回目の監査)。
+    ///   中継は 50ms 空けて渡すので、終わった操作の最後の報告が、すぐ後に始まった次の操作の帯へ入り、その数字を上書きしえた。
+    private func report(_ progress: FileOperationProgress, from relay: ProgressRelay) {
         guard var pending = pendingActivity else { return }
+        if let bound = relay.activityID, bound != pending.id { return }
+        relay.activityID = pending.id
         if pending.bytesStartedAt == nil, progress.completedBytes > 0 { pending.bytesStartedAt = Date() }
         pending.progress = progress
         pendingActivity = pending
@@ -760,6 +764,9 @@ final class FileBrowserOperations: ObservableObject {
 nonisolated final class ProgressRelay: @unchecked Sendable {
     /// 渡す間隔。帯の更新はこれで足りる(ProgressTracker の間引きと同じ桁)。
     static let interval: Duration = .milliseconds(50)
+
+    /// 届け先の帯の操作(`FileBrowserOperations.report`)。メインアクターだけが読み書きする。
+    @MainActor var activityID: UUID?
 
     private let lock = NSLock()
     private var latest: FileOperationProgress?

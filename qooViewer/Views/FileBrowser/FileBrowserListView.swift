@@ -251,9 +251,11 @@ struct FileBrowserListView: NSViewRepresentable {
                 }
                 // 編集中に表示するフォルダが変わった(⌘[・戻るボタン)なら、表へ焦点を戻して確定させる(`controlTextDidEndEditing` が打った名前で
                 // 変え、待たせていた取り込みをする。2026-09-15 の 3 回目の監査)。状態を変えるので SwiftUI の更新の外で。
-                if folderChanged {
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self, let table = self.table, self.isEditingName else { return }
+                // **始めた時点で編集していた欄のときだけ**(4 回目の監査。この更新は編集中に何度も来るので、先に積んだ分で確定した後に
+                // 新しい編集が始まっていると、残りの分がその編集まで確定させた)。
+                if folderChanged, let field = editingNameField {
+                    DispatchQueue.main.async { [weak self, weak field] in
+                        guard let self, let table = self.table, let field, self.editingNameField === field else { return }
                         table.window?.makeFirstResponder(table)
                     }
                 }
@@ -300,10 +302,15 @@ struct FileBrowserListView: NSViewRepresentable {
 
         /// 名前の欄が編集中か(フィールドエディタがこの表の中の欄を編集している)。
         private var isEditingName: Bool {
+            editingNameField != nil
+        }
+
+        /// 編集中の名前の欄(この表の中の欄をフィールドエディタが編集しているとき)。
+        private var editingNameField: NSTextField? {
             guard let table, let editor = table.window?.firstResponder as? NSTextView, editor.isFieldEditor,
-                  let field = editor.delegate as? NSTextField
-            else { return false }
-            return field.isDescendant(of: table)
+                  let field = editor.delegate as? NSTextField, field.isDescendant(of: table)
+            else { return nil }
+            return field
         }
 
         private func beginEditingName(row: Int) {

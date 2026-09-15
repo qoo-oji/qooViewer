@@ -18,6 +18,8 @@ import SwiftUI
 // - 「ホーム」メニューにはショートカットを付けない(ユーザー判断。使ってみて欲しくなったら空いているキーから選ぶ)。
 //   ファイル・編集・表示に載せる項目は、既にキーで動くもの・macOS の標準のキーがあるものだけ表示する。
 // - 閉包は AppState を weak で持つ(メニュー項目は次の作り直しまで閉包を抱えるので、閉じたウインドウを残さない)。
+//   Binding の `get` も値だけを捕まえる(`[home]`)。`home` を素のまま読むと構造体ごと ―― AppState を強く持つ `appState` ごと ―― 捕まえる
+//   (2026-09-15 の 4 回目の監査)。
 
 /// ⌘⌫・⌘↓ など、テキストの欄でも意味を持つキーをメニューが受けたときの振り分け。
 ///
@@ -55,7 +57,7 @@ struct HomeMenuItems: View {
 
     var body: some View {
         Toggle("File Browser", isOn: Binding(
-            get: { home.isShown && home.mode == .browser },
+            get: { [home] in home.isShown && home.mode == .browser },
             set: { [weak appState] _ in
                 guard let welcome = appState?.welcomeLibrary else { return }
                 welcome.mode = welcome.mode == .browser ? .shelf : .browser
@@ -66,7 +68,7 @@ struct HomeMenuItems: View {
         Menu("Libraries") {
             ForEach(directory.libraries) { library in
                 Toggle(library.displayName(language: locale), isOn: Binding(
-                    get: { home.isShelfShown && home.libraryID == library.id },
+                    get: { [home] in home.isShelfShown && home.libraryID == library.id },
                     set: { [weak appState, home] _ in
                         Self.selectLibrary(library.id, appState: appState, home: home)
                     }
@@ -149,7 +151,7 @@ struct HomeMenuItems: View {
                     ),
                     actions: actions, locale: locale
                 ) ?? [])
-                // 選択とコレクションの名前が変わったら中身を組み直させる(FileBrowserMenuSelection.selectedIDs のコメント)。
+                // 選択とコレクションの名前が変わったら中身を組み直させる(FileBrowserMenuSelection.selectionRevision のコメント)。
                 .id(HomeMenuSubmenuIdentity(selectionRevision: selection.selectionRevision, directory: directory))
             }
         }
@@ -158,7 +160,7 @@ struct HomeMenuItems: View {
         Divider()
 
         Toggle("Edit Mode", isOn: Binding(
-            get: { home.isShelfShown && home.isEditing },
+            get: { [home] in home.isShelfShown && home.isEditing },
             set: { [weak appState] _ in appState?.welcomeLibrary?.isEditing.toggle() }
         ))
         .disabled(!home.canToggleEditing)
@@ -235,7 +237,13 @@ struct FileBrowserFileMenuItems: View {
             guard HomeMenuKeyRouting.shouldPerformOnSelection(
                 forwardingTextAction: #selector(NSResponder.moveToEndOfDocument(_:))
             ) else { return }
-            Self.perform(appState) { actions, entries in actions.openFromMenu(entries) }
+            // **⌘↓ はダブルクリック / Return と同じ開き方**(2026-09-15 の 4 回目の監査)。メニューのキーが一覧の keyDown より先に受けるように
+            // なって、⌘↓ が右クリックの「開く」(画像フォルダではダブルクリックと反対)になっていた。Finder の ⌘↓ も「開く」= ダブルクリック。
+            // メニューの項目を選んだときは右クリックの「開く」と同じ。
+            let fromKey = NSApp.currentEvent?.type == .keyDown
+            Self.perform(appState) { actions, entries in
+                if fromKey { actions.open(entries) } else { actions.openFromMenu(entries) }
+            }
         }
         .homeMenuShortcut(.downArrow, modifiers: .command, isActive: isShown)
         .disabled(selection?.canOpen != true)
@@ -337,7 +345,7 @@ struct HomeViewMenuItems: View {
     var body: some View {
         ForEach(FileBrowserViewMode.allCases, id: \.self) { mode in
             Toggle(String(localized: mode.menuTitle), isOn: Binding(
-                get: { isBrowser && home.browserViewMode == mode },
+                get: { [home, isBrowser] in isBrowser && home.browserViewMode == mode },
                 set: { [weak appState] _ in appState?.fileBrowser?.viewMode = mode }
             ))
             .disabled(!isBrowser)
@@ -349,14 +357,14 @@ struct HomeViewMenuItems: View {
             if isBrowser {
                 ForEach(FolderBrowserSortKey.allCases) { key in
                     Toggle(key.titleKey, isOn: Binding(
-                        get: { home.browserSortKey == key },
+                        get: { [home] in home.browserSortKey == key },
                         set: { [weak appState] _ in appState?.fileBrowser?.sortKey = key }
                     ))
                 }
                 Divider()
                 ForEach(FolderBrowserSortDirection.allCases) { direction in
                     Toggle(direction.titleKey, isOn: Binding(
-                        get: { home.browserSortDirection == direction },
+                        get: { [home] in home.browserSortDirection == direction },
                         set: { [weak appState] _ in appState?.fileBrowser?.sortDirection = direction }
                     ))
                 }
@@ -367,7 +375,7 @@ struct HomeViewMenuItems: View {
                     : [.name, .title, .dateAdded, .dateCreated, .dateModified]
                 ForEach(fields) { field in
                     Toggle(field.titleKey, isOn: Binding(
-                        get: { home.shelfSort.field == field },
+                        get: { [home] in home.shelfSort.field == field },
                         set: { [weak appState, home] _ in
                             Self.setShelfSort(field: field, ascending: nil, appState: appState, home: home)
                         }
@@ -376,7 +384,7 @@ struct HomeViewMenuItems: View {
                 Divider()
                 ForEach([true, false], id: \.self) { ascending in
                     Toggle(ascending ? LocalizedStringKey("Ascending") : LocalizedStringKey("Descending"), isOn: Binding(
-                        get: { home.shelfSort.isAscending == ascending },
+                        get: { [home] in home.shelfSort.isAscending == ascending },
                         set: { [weak appState, home] _ in
                             Self.setShelfSort(field: nil, ascending: ascending, appState: appState, home: home)
                         }
@@ -402,7 +410,7 @@ struct HomeViewMenuItems: View {
         Menu("Columns") {
             ForEach(FileBrowserListView.Column.allCases.filter(\.isHideable), id: \.self) { column in
                 Toggle(String(localized: column.title), isOn: Binding(
-                    get: { !home.hiddenListColumns.contains(column.rawValue) },
+                    get: { [home] in !home.hiddenListColumns.contains(column.rawValue) },
                     set: { [weak appState] _ in
                         guard let state = appState?.fileBrowser else { return }
                         if state.hiddenListColumns.contains(column.rawValue) {

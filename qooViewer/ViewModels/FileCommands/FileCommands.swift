@@ -67,15 +67,20 @@ final class MoveFilesCommand: FileCommand {
 
     func undo(in context: FileCommandContext) async throws -> FileUndoResult {
         let receipts = outcome.receipts
+        let identities = Dictionary(
+            receipts.compactMap { receipt in receipt.identity.map { (receipt.destination, $0) } }, uniquingKeysWith: { first, _ in first }
+        )
         let undone = try await TransferUndo.undo(
             receipts, fileOps: fileOps, cancellation: context.cancellation, progress: context.progress
         ) { items, folder, progress in
             // 自分が運んだものなので、ロックされていても尋ねずに外して戻す(戻した先で掛け直す)。
             // 戻せたかは受領書で見る(エンジンは最後の項目を運び終えた直後に中止が立っても `wasCancelled` を立てる。3 回目の監査)。
+            // 運ぶ直前にも実体を見させる(まとめて運ぶので、始める前の確認から時間が経つ。4 回目の監査)。
             try await self.fileOps.move(
                 items, to: folder,
                 options: FileOperationOptions(
-                    conflictPolicy: .keepBoth, progress: progress, cancellation: context.cancellation, unlockingLocked: true
+                    conflictPolicy: .keepBoth, progress: progress, cancellation: context.cancellation, unlockingLocked: true,
+                    expectedIdentities: identities
                 )
             )
         }

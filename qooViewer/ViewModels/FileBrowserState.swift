@@ -712,9 +712,11 @@ final class FileBrowserState: ObservableObject {
             loadError = nil
             // 前のフォルダの項目への名前の編集の依頼は、もう叶わない(finishRenameRequest のコメント)。
             renameRequest = nil
-            // 前のフォルダでペーストした項目を選ぶ依頼も捨てる(2026-09-15 の 3 回目の監査。戻ってきたときに勝手に選ばない)。
-            pendingSelection = nil
         }
+        // ペーストした項目を選ぶ依頼は、移動・reveal の依頼が上書きする(フォルダが変わったときは 3 回目の監査 ―― 戻ってきたときに勝手に選ばない。
+        // **同じフォルダの reveal でも捨てる**(4 回目の監査。reveal の依頼だけを使い、選ぶ依頼は残っていたので、後の読み直しで利用者が
+        // 選び直した項目をペーストした項目で上書きしえた)。
+        pendingSelection = nil
         selection = reveal.map { [$0] } ?? []
         pendingReveal = reveal
         didDeferPendingRequests = false

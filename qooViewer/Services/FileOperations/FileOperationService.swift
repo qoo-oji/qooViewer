@@ -372,8 +372,11 @@ actor FileOperationService {
                     tracker.finishItem()
                     continue
                 }
+                let expectedIdentity = options.expectedIdentities[item]
                 let carried = try await FileIO.perform(cancellation: options.cancellation) {
-                    try Self.carry(item, to: resolved, using: perform, tracker: tracker, environment: environment)
+                    try Self.carry(
+                        item, to: resolved, expectedIdentity: expectedIdentity, using: perform, tracker: tracker, environment: environment
+                    )
                 }
                 guard let carried else {
                     outcome.wasCancelled = true
@@ -636,12 +639,18 @@ actor FileOperationService {
     private nonisolated static func carry(
         _ item: URL,
         to resolved: ResolvedDestination,
+        expectedIdentity: FileIdentity? = nil,
         using perform: (URL, URL, @escaping (Int64) -> Void) throws -> FileCopyEngine.Outcome,
         tracker: ProgressTracker,
         environment: FileOperationEnvironment
     ) throws -> Carried? {
         let outcome: FileCopyEngine.Outcome
         do {
+            // 取り消しが戻す項目は、運ぶ直前にまだ自分が運んだそのものかを見る(`FileOperationOptions.expectedIdentities`)。
+            // 失敗は下の catch を通るので、`.replace` の退避があれば戻る。
+            if let expectedIdentity, !FileIdentity.matches(item, expectedIdentity) {
+                throw FileOperationError.itemReplacedSinceOperation(item)
+            }
             // **元が変わっていないかの検証は、退避を片付ける前に済んでいる**(FileCopyEngine.copy が置く前に確かめる)。
             // 片付けたあとで失敗させると、置き換えられた元と新しいコピーの両方を失う(qooLibrary で監査により発見)。
             outcome = try perform(item, resolved.target) { tracker.addBytes($0) }

@@ -87,19 +87,25 @@ nonisolated struct FileOperationOptions: Sendable {
     /// 運んだ先で掛け直す(利用者が確認で「続ける」と答えた、または取り消しで自分が運んだものを戻す)。
     /// false ならロックされた項目は「ロックされています」で断る。コピーには関係しない(ロックごと写る)。
     var unlockingLocked: Bool
+    /// 運ぶ直前に、項目がこの実体のままかを確かめる(`FileIdentity`。キーは渡した項目の URL)。違えば運ばずに
+    /// `itemReplacedSinceOperation` の失敗にする。取り消しが「自分が運んだそのもの」だけを戻すため(2026-09-15 の 4 回目の監査。
+    /// 取り消しは元のフォルダごとにまとめて運ぶので、始める前の 1 回の確認では、長い取り消しの間に置き換わった項目を運んでいた)。
+    var expectedIdentities: [URL: FileIdentity]
 
     init(
         conflictPolicy: ConflictPolicy = .ask,
         conflictResolver: (@MainActor @Sendable (FileConflict) async -> ConflictDecision)? = nil,
         progress: ProgressSink? = nil,
         cancellation: Cancellation = Cancellation(),
-        unlockingLocked: Bool = false
+        unlockingLocked: Bool = false,
+        expectedIdentities: [URL: FileIdentity] = [:]
     ) {
         self.conflictPolicy = conflictPolicy
         self.conflictResolver = conflictResolver
         self.progress = progress
         self.cancellation = cancellation
         self.unlockingLocked = unlockingLocked
+        self.expectedIdentities = expectedIdentities
     }
 }
 
@@ -276,6 +282,8 @@ nonisolated enum FileOperationError: Error, Sendable, Equatable {
     case pathTooLong(item: URL, resultingBytes: Int, limitBytes: Int)
     /// 運んでいる間に元が書き換えられた。移動なら元を消さず、写した側を片付けてある。
     case sourceChangedDuringOperation(URL)
+    /// 取り消しで戻そうとした項目が、操作の後で別の項目に置き換わっていた(`FileOperationOptions.expectedIdentities`)。運んでいない。
+    case itemReplacedSinceOperation(URL)
     /// 名前が宛先の上限を超える(SMB は UTF-8 で 255 バイト)。
     case nameTooLongForDestination(name: String, lengthBytes: Int, limitBytes: Int)
     /// 1 ファイルが宛先の上限を超える(FAT32 は 4GB 弱)。
@@ -330,6 +338,8 @@ extension FileOperationError: LocalizedError {
                 format: String(localized: "The path of “%1$@” would be too long at the destination (%2$lld bytes; the limit is %3$lld).", language: locale),
                 item.lastPathComponent, resultingBytes, limitBytes
             )
+        case .itemReplacedSinceOperation:
+            return String(localized: "The item at this location was replaced after the operation, so it was left as it is.", language: locale)
         case let .sourceChangedDuringOperation(url):
             return String(format: String(localized: "“%@” changed while it was being copied, so the operation was stopped.", language: locale), url.lastPathComponent)
         case let .nameTooLongForDestination(name, lengthBytes, limitBytes):

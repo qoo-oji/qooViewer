@@ -93,6 +93,29 @@ struct FileOperationServiceTests {
 
     // MARK: - 移動・コピー
 
+    @Test("運ぶ直前の実体の確認: 期待した実体でなくなった項目は運ばず、残りは続けて運ぶ")
+    func moveSkipsItemsReplacedSinceTheExpectedIdentity() async throws {
+        // 4 回目の監査: 取り消しは元のフォルダごとにまとめて運ぶので、始める前の確認の後に置き換わった項目を運んでいた。
+        let first = try write("first", to: "expected/src/a.txt")
+        let replaced = try write("original", to: "expected/src/b.txt")
+        let third = try write("third", to: "expected/src/c.txt")
+        let destination = try temporary.directory("expected/dst")
+        var expected: [URL: FileIdentity] = [:]
+        for url in [first, replaced, third] { expected[url] = FileIdentity.of(url) }
+        // 確かめた後に、同じ名前の別の項目へ置き換わった。
+        try FileManager.default.removeItem(at: replaced)
+        _ = try write("someone else's", to: "expected/src/b.txt")
+
+        let outcome = try await service.move(
+            [first, replaced, third], to: destination, options: .init(conflictPolicy: .keepBoth, expectedIdentities: expected)
+        )
+        #expect(outcome.receipts.map(\.source) == [first])
+        #expect(outcome.failures.map(\.url) == [replaced])
+        #expect(outcome.unprocessed == [third])
+        #expect(try read(replaced) == "someone else's", "置き換わった項目は元の場所に残る")
+        #expect(!FileManager.default.fileExists(atPath: destination.appendingPathComponent("b.txt").path))
+    }
+
     @Test("同じボリュームの移動はバイトを運ばない(iノードが変わらない)")
     func sameVolumeMoveKeepsTheInode() async throws {
         let file = try write("payload", to: "move-src/book.cbz")

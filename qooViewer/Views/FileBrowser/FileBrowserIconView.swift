@@ -411,7 +411,12 @@ struct FileBrowserIconView: NSViewRepresentable {
             _ collectionView: NSCollectionView, didEndDisplaying item: NSCollectionViewItem,
             forRepresentedObjectAt indexPath: IndexPath
         ) {
-            (item as? FileBrowserIconItem)?.cancelThumbnailRequest()
+            // **既に別の位置で使い回されているアイテムの依頼は取り消さない**(2026-09-15 の 4 回目の監査。`reloadData` の最中は
+            // 「新しい位置で configure」の後にこの通知が来うるので、無条件に取り消すと新しい位置の絵の依頼を消していた)。
+            if let iconItem = item as? FileBrowserIconItem {
+                let currentPath = collectionView.indexPath(for: iconItem)
+                if currentPath == nil || currentPath == indexPath { iconItem.cancelThumbnailRequest() }
+            }
             // 編集中のセルが画面から外れて使い回されるなら、打った名前で確定する(型コメント)。**この呼び出しの外で**(2026-09-15 の
             // 3 回目の監査。確定は待たせていた `reloadData` を走らせることがあり、NSCollectionView の更新の最中にやり直すと、戻った後に
             // 古い件数のまま範囲外の位置を頼んできた ―― 合成の一覧で実測)。
@@ -956,7 +961,8 @@ final class FileBrowserIconLayout: NSCollectionViewLayout {
 final class FileBrowserIconItem: NSCollectionViewItem {
     static let identifier = NSUserInterfaceItemIdentifier("fileBrowser.iconItem")
 
-    private var thumbnailTask: Task<Void, Never>?
+    /// `nonisolated(unsafe)` は `deinit` から取り消すためだけ(書くのはメインアクターだけで、`deinit` の時点で他に触る者はいない)。
+    private nonisolated(unsafe) var thumbnailTask: Task<Void, Never>?
     private var loadedEntryID: String?
     private var loadedContentKey = ""
     private var loadedTier: CGFloat = 0
@@ -982,6 +988,13 @@ final class FileBrowserIconItem: NSCollectionViewItem {
         thumbnailTask?.cancel()
         thumbnailTask = nil
         requestedKey = ""
+    }
+
+    /// **捨てられるアイテムの絵の依頼を取り消す**(2026-09-15 の 4 回目の監査)。`dismantleNSView` が取り消すのは見えているアイテムだけで、
+    /// スクロールに備えて画面の外に用意されたアイテムは `prepareForReuse` も `didEndDisplaying` も通らずに一覧ごと捨てられる。
+    /// Task は `[weak self]` なので、取り消さなければ提供役が本の展開・QuickLook を最後まで続けた。
+    deinit {
+        thumbnailTask?.cancel()
     }
 
     override func prepareForReuse() {

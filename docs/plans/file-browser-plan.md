@@ -2151,7 +2151,25 @@ Composite の `.stopped`、QuickLook の継続(戻らない経路が無い)、EO
 - 4・6 のテストは新しい口(番号・回数)を使うので修正前ではビルドできず、修正前に失敗することは確かめていない。画面の実機確認はしていない。
 - 検証: スキームを通した Debug の全テスト **1351 件・125 suite が通った**。Release を `QOO_CI_WARNINGS_AS_ERRORS=YES` でビルドして警告無し。`scripts/ci/check-all.sh` 通過。
 - 記録は CHANGELOG・docs/09 と一緒にコミット・プッシュ(この節と同じコミット)。MANUAL・README・CLAUDE.md は変える記述が無かった。
-  **次にやること**: 「低」の修正(ユーザー指示で続ける)。
+  (d60f111)。
+
+**「低」の修正(2026-09-15、ユーザー指示「ドキュメント更新してコミット・プッシュしてから修正を続けてください」)**:
+- 取り消しの間の置き換わり: `FileOperationOptions.expectedIdentities`(運ぶ直前に `carry` の中で `FileIdentity.matches`。違えば
+  `FileOperationError.itemReplacedSinceOperation` ―― 文言は既存の「置き換わっていた」、catch を通るので `.replace` の退避も戻る)。
+  `MoveFilesCommand.undo` が受領書の実体を渡す。テスト `FileOperationServiceTests.moveSkipsItemsReplacedSinceTheExpectedIdentity`。
+- `ProgressRelay.activityID`: `report(_:from:)` が最初に届けた帯の操作に結び付け、別の操作の帯へは入れない。
+- ⌘↓: `FileBrowserFileMenuItems` の「開く」は `NSApp.currentEvent?.type == .keyDown` なら `open`、クリックなら `openFromMenu`。
+- アイコン表示: `FileBrowserIconItem.deinit` で絵の依頼を取り消す(`thumbnailTask` は `deinit` から触るためだけに `nonisolated(unsafe)`)。
+  `didEndDisplaying` は `indexPath(for:)` が別の位置ならその依頼を取り消さない。
+- `FileBrowserState.move(to:selecting:)` はフォルダが同じでも `pendingSelection` を捨てる。
+- リスト: 編集中にフォルダが変わったときの確定は、積んだ時点の名前の欄(`editingNameField`)がまだ編集中のときだけ。
+- メニューの Toggle の Binding の `get` を `[home]` / `[home, isBrowser]` に。
+- **直さなかった**: 名前の確定が始めた時点のパスを相手にする件(実体まで見ると、保存のたびにファイルを置き換えるアプリの書類の改名を断る)、
+  開いているコレクションを削除するときの削除済みモデルへの参照(未確認)、「両方残す」で置いた移動の取り消しの名前(範囲外)。
+- テストは新しい口を使うので修正前ではビルドできず、修正前に失敗することは確かめていない。画面の実機確認はしていない。
+- 検証: スキームを通した Debug の全テスト **1352 件・125 suite が通った**。Release を `QOO_CI_WARNINGS_AS_ERRORS=YES` でビルドして警告無し。`scripts/ci/check-all.sh` 通過。
+- 記録は CHANGELOG・MANUAL・docs/09・docs/15 と一緒にコミット・プッシュ(この節と同じコミット)。README・CLAUDE.md は変える記述が無かった。
+  **次にやること**: 4 回目の監査で変えた画面の挙動(⌘↓ の開き方、アイコン表示の絵、名前の変更中のフォルダ移動、進捗の帯)の実機確認。
 
 ---
 
