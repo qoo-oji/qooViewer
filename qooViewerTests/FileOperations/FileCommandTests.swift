@@ -564,7 +564,8 @@ struct FileCommandsTests {
     }
 
     /// 進捗の受け口はどのスレッドから呼ばれるか分からない。
-    private final class ReportLog: @unchecked Sendable {
+    /// 進捗は `@Sendable` の閉包からメインアクターの外で届くので、既定のメインアクター隔離を外す(ロックで守る)。
+    private nonisolated final class ReportLog: @unchecked Sendable {
         private let lock = NSLock()
         private var stored: [FileOperationProgress] = []
         func append(_ value: FileOperationProgress) {

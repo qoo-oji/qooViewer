@@ -54,7 +54,7 @@ struct FileBrowserVideoThumbnailTests {
         #expect(MediaContainer.isoBMFF.contentTypeToDeclare(forFileNamed: "a.mov") == nil)
         // 実体は mp4 なのに .mkv を名乗る(mp4 の型は OS の標準なので、どの機でも引ける)。
         let declared = MediaContainer.isoBMFF.contentTypeToDeclare(forFileNamed: "video.mkv")
-        #expect(declared == (try #require(UTType(filenameExtension: "mp4"))))
+        #expect(declared == UTType(filenameExtension: "mp4"))
         #expect(MediaContainer.isoBMFF.contentTypeToDeclare(forFileNamed: "video")?.identifier == "public.mpeg-4")
     }
 

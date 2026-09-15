@@ -9,11 +9,12 @@ import Testing
 /// 登録済みの拡張子はインストールされたアプリで変わるので、固定の表(`registered`)を渡す。
 struct BulkRenameTests {
     /// 実測に出てきた拡張子のうち、この機で登録済みだったもの。
-    private static let registered: Set<String> = [
+    /// `BulkRename.plan` の引数は nonisolated な関数型なので、既定のメインアクター隔離を外す。
+    private nonisolated static let registered: Set<String> = [
         "txt", "jpg", "jpeg", "png", "pdf", "epub", "zip", "cbz", "rar", "cbr", "tar", "gz", "bz2", "tgz", "mkv", "aa", "app",
     ]
 
-    private static func isRegistered(_ ext: String) -> Bool {
+    private nonisolated static func isRegistered(_ ext: String) -> Bool {
         registered.contains(ext.lowercased())
     }
 
