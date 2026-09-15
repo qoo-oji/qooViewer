@@ -157,6 +157,18 @@ final class FileBrowserState: ObservableObject {
     @Published private(set) var fileSystemChange: FileSystemChange?
     /// 右ペインの下に短い間だけ浮かべる知らせ(OverlayToast)。nil なら出していない。`showToast(_:)` で出す。
     @Published private(set) var toastMessage: String?
+    /// 検索欄を広げて焦点を入れてほしい(メニューバーの「検索」⌘F。2026-09-15)。値は増えるだけの通し番号で、ペインが変化を拾う。
+    @Published private(set) var searchFocusRequest = 0
+
+    func requestSearchFocus() {
+        searchFocusRequest &+= 1
+    }
+
+    /// アイコンの大きさを 1 段変える(メニューバーの「拡大」「縮小」。2026-09-15)。
+    func stepIconSize(larger: Bool) {
+        let next = Self.clamp(iconSize * (larger ? 1.25 : 0.8), to: Self.iconSizeRange)
+        if next != iconSize { iconSize = next }
+    }
 
     struct FileSystemChange: Equatable {
         let serial: Int

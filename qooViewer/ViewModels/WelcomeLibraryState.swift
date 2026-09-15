@@ -194,6 +194,47 @@ final class WelcomeLibraryState: ObservableObject {
     /// 「本を追加」パネルの対象。nilなら出していない。
     @Published var addingBooks: AddBooksTarget?
 
+    /// メニューバーの「ホーム」メニューから届いた、画面の側でしかできない操作(2026-09-15)。
+    ///
+    /// 名前を訊くシート・削除の確認・設定のポップオーバー・「本が見つかりません」は、それぞれの画面が`@State`で
+    /// 持っている(右クリックから出すものと同じ)。メニューはそれを直接は開けないので、ここへ依頼を置き、出している
+    /// 画面(WelcomeTopBar / CollectionGridView / CollectionDetailView / LibraryPaneControls)が拾って
+    /// **自分の右クリックと同じ経路で**開く。拾った画面が`nil`へ戻す。
+    ///
+    /// シートやアラートを出さずに済む操作(本の追加・別のライブラリへ移動・編集モード)はメニューが直接行う。
+    @Published var menuRequest: HomeMenuRequest?
+
+    struct HomeMenuRequest: Equatable {
+        /// 同じ依頼を続けて出しても`onChange`が拾えるように、毎回別の値にする。
+        let id = UUID()
+        let kind: Kind
+
+        enum Kind: Equatable {
+            case createLibrary
+            case renameLibrary(UUID)
+            case deleteLibrary(UUID)
+            case renameCollection(UUID)
+            case deleteCollections([UUID])
+            case removeItems([UUID])
+            case showSettings
+            case focusSearch
+            case showItemInFinder(UUID)
+            case showItemInFileBrowser(UUID)
+            case editItemMetadata(UUID)
+        }
+    }
+
+    func request(_ kind: HomeMenuRequest.Kind) {
+        menuRequest = HomeMenuRequest(kind: kind)
+    }
+
+    /// 依頼を拾う。`accepts`が受け持つ種類なら`nil`へ戻して返す(受け持たない依頼は、それを出している別の画面に残す)。
+    func takeMenuRequest(where accepts: (HomeMenuRequest.Kind) -> Bool) -> HomeMenuRequest.Kind? {
+        guard let request = menuRequest, accepts(request.kind) else { return nil }
+        menuRequest = nil
+        return request.kind
+    }
+
     /// 「本を追加」パネルが相手にしているコレクション。
     ///
     /// **`collectionID`がnilの状態がある。** 空のコレクションは作らない方針(CollectionStore.
@@ -276,6 +317,7 @@ final class WelcomeLibraryState: ObservableObject {
         isEditing = false
         pendingCreations = []
         addingBooks = nil
+        menuRequest = nil
     }
 
     /// 選択を捨てる。@Publishedは同じ値の代入でも発火するので、変化したときだけ書く。

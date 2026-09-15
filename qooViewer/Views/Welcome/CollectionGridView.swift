@@ -60,6 +60,10 @@ struct CollectionGridView: View {
     /// だけで購読しない** ―― 帯はドラッグ中ずっと動くので、購読すると一覧全体のbodyが
     /// 毎フレーム走る。帯を描くのは自分を購読する小さなビューのほう。
     @State private var marquee = MarqueeSelection()
+    /// 検索欄の焦点(メニューバーの「検索」⌘Fで入れる)。
+    @FocusState private var isSearchFocused: Bool
+    /// ライブラリの設定のポップオーバー(LibraryPaneControls.isShowingSettingsのコメント)。
+    @State private var isShowingSettings = false
 
     /// 検索欄の文字列を照合できる形にしたもの。空欄ならnil(絞り込まない)。
     private var searchQuery: LibrarySearchQuery? {
@@ -76,7 +80,7 @@ struct CollectionGridView: View {
         VStack(spacing: 0) {
             WelcomePaneHeaderLayout {
                 Color.clear.frame(width: 0, height: 0)
-                WelcomeSearchField(text: $state.searchText, prompt: "Search Collections")
+                WelcomeSearchField(text: $state.searchText, prompt: "Search Collections", focus: $isSearchFocused)
                 LibraryPaneControls(
                     addHelp: "New Collection",
                     onAdd: { beginCreatingCollection() },
@@ -95,7 +99,8 @@ struct CollectionGridView: View {
                     sizeRange: WelcomeLibraryState.tileSizeRange,
                     sizeHelp: "Tile Size",
                     library: library,
-                    allowsEditing: allowsEditing
+                    allowsEditing: allowsEditing,
+                    isShowingSettings: $isShowingSettings
                 )
             }
             .padding(.horizontal, 16)
@@ -155,6 +160,27 @@ struct CollectionGridView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .layoutDataDidChange)) { _ in
             layoutRevision &+= 1
+        }
+        // メニューバーの「ホーム」メニューから(WelcomeLibraryState.menuRequestのコメント)。右クリック・ゴミ箱と同じ状態を立てる。
+        .onChange(of: state.menuRequest) { _, _ in
+            guard let kind = state.takeMenuRequest(where: {
+                switch $0 {
+                case .renameCollection, .deleteCollections, .focusSearch, .showSettings: true
+                default: false
+                }
+            }) else { return }
+            switch kind {
+            case .showSettings where allowsEditing:
+                isShowingSettings = true
+            case .renameCollection(let id) where allowsEditing:
+                renamingCollectionID = id
+            case .deleteCollections(let ids) where allowsEditing:
+                deletingCollectionIDs = ids
+            case .focusSearch:
+                isSearchFocused = true
+            default:
+                break
+            }
         }
     }
 

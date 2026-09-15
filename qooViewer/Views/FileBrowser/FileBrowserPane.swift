@@ -133,6 +133,12 @@ struct FileBrowserPane: View {
             state.deactivate()
             // 値で持っている口を外す(FileBrowserActions.openWindow のコメント)。現れ直したら connectActions が付け直す。
             actions.openWindow = nil
+            if appState.fileBrowserActions === actions { appState.fileBrowserActions = nil }
+        }
+        // メニューバーの「検索」(⌘F。2026-09-15)。ボタンを押したときと同じく、欄に広げてから焦点を入れる。
+        .onChange(of: state.searchFocusRequest) { _, _ in
+            isSearchExpanded = true
+            DispatchQueue.main.async { isSearchFocused = true }
         }
         .sheet(isPresented: $state.isShowingGoToFolder) {
             FileBrowserGoToFolderSheet(state: state)
@@ -178,6 +184,8 @@ struct FileBrowserPane: View {
         actions.bookmarkStore = bookmarkStore
         actions.layoutStore = layoutStore
         actions.metadataStore = metadataStore
+        // メニューバーのファイルブラウザの項目(ファイル・編集・表示・ホーム)が、右クリックと同じ口を使えるように。
+        appState.fileBrowserActions = actions
         if state.operations.presenter == nil {
             state.operations.presenter = FileBrowserSheetPresenter(appState: appState)
         }

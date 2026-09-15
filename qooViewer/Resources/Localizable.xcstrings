@@ -52,6 +52,70 @@
         }
       }
     },
+    "Collection Settings…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collection Settings…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションの設定…"
+          }
+        }
+      }
+    },
+    "Columns" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Columns"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示する列"
+          }
+        }
+      }
+    },
+    "Delete Collection…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Collection…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションを削除…"
+          }
+        }
+      }
+    },
+    "Delete Library…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Library…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブラリを削除…"
+          }
+        }
+      }
+    },
     "Double-Click or Return" : {
       "localizations" : {
         "en" : {
@@ -64,6 +128,86 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ダブルクリック / リターンキー"
+          }
+        }
+      }
+    },
+    "Edit Mode" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Mode"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "編集モード"
+          }
+        }
+      }
+    },
+    "Library Settings…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Library Settings…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブラリの設定…"
+          }
+        }
+      }
+    },
+    "Move Item Here" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Move Item Here"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ここに項目を移動"
+          }
+        }
+      }
+    },
+    "New Collection…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Collection…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいコレクション…"
+          }
+        }
+      }
+    },
+    "New Library…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Library…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいライブラリ…"
           }
         }
       }
@@ -96,6 +240,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "フォルダを開く"
+          }
+        }
+      }
+    },
+    "Rename Collection…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename Collection…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "コレクションの名前を変更…"
+          }
+        }
+      }
+    },
+    "Rename Library…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename Library…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブラリの名前を変更…"
           }
         }
       }
@@ -144,6 +320,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "リスト表示・アイコン表示で、画像フォルダをダブルクリックしたとき、または選んでリターンキーを押したときにすることです。右クリックの「開く」はもう一方をするので、どちらの開き方もすぐ使えます。本ではないフォルダは常にフォルダとして開き、左のツリーには影響しません。"
+          }
+        }
+      }
+    },
+    "Zoom In" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zoom In"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "拡大"
+          }
+        }
+      }
+    },
+    "Zoom Out" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zoom Out"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "縮小"
           }
         }
       }

@@ -80,6 +80,13 @@ struct CollectionDetailView: View {
     /// 余白から帯を引いてまとめて選ぶための入れ物(MarqueeSelection参照。`@State`で持つだけで
     /// 購読しない理由はCollectionGridViewの同じ宣言のコメント)。
     @State private var marquee = MarqueeSelection()
+    /// 検索欄の焦点(メニューバーの「検索」⌘Fで入れる)。
+    @FocusState private var isSearchFocused: Bool
+    /// このコレクションそのものの削除の確認を出しているか(メニューバーの「ホーム」▸「コレクションを削除…」。
+    /// 一覧の右クリックと違い、中にいるときは開いているコレクションが相手)。
+    @State private var isDeletingCollection = false
+    /// コレクションの設定のポップオーバー(LibraryPaneControls.isShowingSettingsのコメント)。
+    @State private var isShowingSettings = false
 
     /// メタデータ編集シートの対象。シートを出す時点で本のURLが解決できている必要があるため
     /// (BookMetadataSheetのコメント参照)、行のidとURLを組にして持つ。
@@ -205,6 +212,51 @@ struct CollectionDetailView: View {
         // ウェルカム画面のonAppearは一覧から中へ入るときには走らないため、ここでも呼ぶ ――
         // 開いた棚がその場で埋まるのが、この機能のいちばん見えるところなので。
         .onAppear { autoFolderScanner.scheduleScan() }
+        // メニューバーの「ホーム」メニューから(WelcomeLibraryState.menuRequestのコメント)。右クリック・ゴミ箱と同じ経路で開く。
+        .onChange(of: state.menuRequest) { _, _ in
+            handleMenuRequest()
+        }
+    }
+
+    private func handleMenuRequest() {
+        guard let kind = state.takeMenuRequest(where: {
+            switch $0 {
+            case .renameCollection(let id): id == collection.id
+            case .deleteCollections(let ids): ids == [collection.id]
+            case .removeItems, .focusSearch, .showSettings, .showItemInFinder, .showItemInFileBrowser, .editItemMetadata: true
+            default: false
+            }
+        }) else { return }
+        switch kind {
+        case .showSettings where allowsEditing:
+            isShowingSettings = true
+        case .renameCollection where allowsEditing:
+            isRenaming = true
+        case .deleteCollections where allowsEditing:
+            isDeletingCollection = true
+        case .removeItems(let ids) where allowsEditing:
+            removingItemIDs = ids
+        case .focusSearch:
+            isSearchFocused = true
+        case .showItemInFinder(let id):
+            withExistingURL(ofItemWithID: id) { FinderReveal.reveal($0) }
+        case .showItemInFileBrowser(let id):
+            withExistingURL(ofItemWithID: id) { revealInFileBrowser($0) }
+        case .editItemMetadata(let id) where allowsEditing:
+            withExistingURL(ofItemWithID: id) { metadataTarget = MetadataTarget(id: id, url: $0) }
+        default:
+            break
+        }
+    }
+
+    /// 本の実体のURLを解決して渡す。見つからなければ「本が見つかりません」を出す(右クリックの各項目と同じ)。
+    private func withExistingURL(ofItemWithID id: UUID, perform: (URL) -> Void) {
+        guard let item = collectionStore.item(withID: id) else { return }
+        guard let url = collectionStore.resolvedExistingURL(for: item) else {
+            missingBook = MissingBook(id: item.id, title: item.title, reason: collectionStore.location(for: item))
+            return
+        }
+        perform(url)
     }
 
     private var header: some View {
@@ -216,7 +268,7 @@ struct CollectionDetailView: View {
         WelcomePaneHeaderLayout(leadingInset: Self.backButtonHitSlop.width) {
             titleArea
 
-            WelcomeSearchField(text: $state.searchText, prompt: "Search Books")
+            WelcomeSearchField(text: $state.searchText, prompt: "Search Books", focus: $isSearchFocused)
 
             LibraryPaneControls(
                 addHelp: "Add Books…",
@@ -245,7 +297,8 @@ struct CollectionDetailView: View {
                 sizeHelp: "Cover Size",
                 library: library,
                 collection: collection,
-                allowsEditing: allowsEditing
+                allowsEditing: allowsEditing,
+                isShowingSettings: $isShowingSettings
             )
         }
         .padding(.trailing, 16)
@@ -311,6 +364,23 @@ struct CollectionDetailView: View {
             .panelOutlinedContent()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // 「本が見つかりません」(body)・本の削除(header)とは別の階層に付ける ―― 同じビューに`.alert`を2つ
+        // 重ねると片方しか出ないことがある。文言は一覧の右クリックの「削除…」と同じ(CollectionGridView)。
+        .alert("Delete Collection?", isPresented: $isDeletingCollection) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                // 先に一覧へ戻す(WelcomeLibraryPaneは消えたコレクションなら黙って一覧を出すが、消した行を
+                // この画面が描き直しで読まないよう、idを先に外しておく)。
+                let id = collection.id
+                state.openedCollectionID = nil
+                // 確認を出している間に別のウインドウが消していることがあるので、idから引き直す。
+                if let target = collectionStore.collection(withID: id) {
+                    collectionStore.delete([target])
+                }
+            }
+        } message: {
+            Text("The books themselves are not deleted. Only this collection and its cover images are removed.")
+        }
     }
 
     /// 一覧へ戻るボタン(ユーザー要望 2026-09-13: 見た目はそのままで、押せる範囲を広げる)。

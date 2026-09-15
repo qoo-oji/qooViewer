@@ -124,6 +124,28 @@ struct WelcomeTopBar: View {
         } message: {
             Text("Every collection in this library is removed too. The books themselves are not deleted.")
         }
+        // メニューバーの「ホーム」メニューから(WelcomeLibraryState.menuRequestのコメント)。右クリックと同じ状態を立てる。
+        .onChange(of: state.menuRequest) { _, _ in
+            guard canEditLibraries,
+                  let kind = state.takeMenuRequest(where: {
+                      switch $0 {
+                      case .createLibrary, .renameLibrary, .deleteLibrary: true
+                      default: false
+                      }
+                  })
+            else { return }
+            switch kind {
+            case .createLibrary:
+                librarySheet = .create
+            case .renameLibrary(let id):
+                librarySheet = .rename(id)
+            case .deleteLibrary(let id):
+                // 最後の1つは消させない(右クリックと同じ。メニュー側も淡色にしてある)。
+                if collectionStore.libraries.count > 1 { deletingLibraryID = id }
+            default:
+                break
+            }
+        }
     }
 
     /// 本棚 ⇄ ファイルブラウザ。

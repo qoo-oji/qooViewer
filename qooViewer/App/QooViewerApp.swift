@@ -295,8 +295,20 @@ struct QooViewerApp: App {
         .disabled(!hasBook)
     }
 
+    /// ファイルメニューの「EPUB/PDF/CBZとして書き出す…」。ファイルブラウザで本を1冊選んでいればその本を書き出し
+    /// (右クリックの「本の書き出し」と同じ)、それ以外は従来どおり書き出しのウインドウを開く(2026-09-15)。
+    private func exportFromMenu(_ format: BookExportFormat, windowID: String) {
+        if let appState = focusedAppState, appState.currentBook == nil,
+           appState.fileBrowserMenu.selection?.canExportBook == true,
+           let actions = appState.fileBrowserActions {
+            actions.exportBook(actions.state?.selectedEntries ?? [], format: format)
+        } else {
+            openWindow(id: windowID)
+        }
+    }
+
     /// キーウインドウでテキストを編集中か(編集メニューの「取り消す」をその欄へ流す。改善要望7 段階4)。
-    private static var isEditingText: Bool {
+    static var isEditingText: Bool {
         (NSApp.keyWindow?.firstResponder as? NSTextView)?.isEditable == true
     }
 
@@ -716,6 +728,16 @@ struct QooViewerApp: App {
 
                 Divider()
 
+                // ファイルブラウザで選んだ項目への操作(2026-09-15。Finder のファイルメニューと同じく、ファイルそのものへの
+                // 操作をここに置く。HomeMenuCommands.swift の冒頭のコメント)。ファイルブラウザが出ていなければ淡色。
+                FileBrowserFileMenuItems(
+                    selection: menuCheckmarkState?.fileBrowserSelection,
+                    appState: focusedAppState,
+                    locale: preferences.effectiveLocale
+                )
+
+                Divider()
+
                 // グループ3: 現在の本と関連するファイルを開く(同じフォルダ内)
                 Menu("Open File in Same Folder") {
                     if let focusedAppState, !focusedAppState.siblingBooks.isEmpty {
@@ -760,16 +782,38 @@ struct QooViewerApp: App {
                 // ユーザー要望: 現在の本(ファイルまたはフォルダ)をFinderで開く。
                 // 「同じフォルダのファイルを開く」と同じ「今の本の場所」に関するグループの
                 // 一員として、間に区切り線を挟まずすぐ下に置く。
-                Button("Show in Finder") {
-                    focusedAppState?.revealCurrentBookInFinder()
+                //
+                // 本を開いていないときは、ホーム画面で選んでいるものに効く(2026-09-15): ファイルブラウザの選択、
+                // またはコレクションの中で 1 冊だけ選んでいる本(実体の解決と「本が見つかりません」はその画面が持つ)。
+                Button("Show in Finder") { [weak focusedAppState] in
+                    guard let appState = focusedAppState else { return }
+                    let home = appState.homeMenu
+                    if appState.currentBook != nil {
+                        appState.revealCurrentBookInFinder()
+                    } else if appState.fileBrowserMenu.selection?.canShowInFinder == true,
+                              let actions = appState.fileBrowserActions {
+                        actions.showInFinder(actions.state?.selectedEntries ?? [])
+                    } else if let item = home.singleItemTarget {
+                        appState.welcomeLibrary?.request(.showItemInFinder(item))
+                    }
                 }
-                .disabled(focusedAppState?.currentBook == nil)
-                // 「ファイルブラウザで開く」(改善要望7 段階 8)。本を開いているウインドウからだけなので、行き先は常に
-                // 環境設定「ファイルブラウザ」の新規タブ/ウインドウ(FileBrowserReveal)。
-                Button("Show in File Browser") {
-                    focusedAppState?.revealCurrentBookInFileBrowser(openWindow: openWindow)
+                .disabled(
+                    focusedAppState?.currentBook == nil
+                        && menuCheckmarkState?.fileBrowserSelection?.canShowInFinder != true
+                        && menuCheckmarkState?.homeMenu.singleItemTarget == nil
+                )
+                // 「ファイルブラウザで開く」(改善要望7 段階 8)。本を開いているウインドウからは、行き先は常に
+                // 環境設定「ファイルブラウザ」の新規タブ/ウインドウ(FileBrowserReveal)。コレクションの中で選んだ本は、
+                // 右クリックと同じくこのウインドウのファイルブラウザへ。
+                Button("Show in File Browser") { [weak focusedAppState] in
+                    guard let appState = focusedAppState else { return }
+                    if appState.currentBook != nil {
+                        appState.revealCurrentBookInFileBrowser(openWindow: openWindow)
+                    } else if let item = appState.homeMenu.singleItemTarget {
+                        appState.welcomeLibrary?.request(.showItemInFileBrowser(item))
+                    }
                 }
-                .disabled(focusedAppState?.currentBook == nil)
+                .disabled(focusedAppState?.currentBook == nil && menuCheckmarkState?.homeMenu.singleItemTarget == nil)
 
                 Divider()
 
@@ -856,18 +900,21 @@ struct QooViewerApp: App {
                 Divider()
                 // 8.1節「epub出力」グループ。本を開いていなくても有効(hasBook不問、
                 // 「ブックマーク・レイアウトの編集」ウインドウと同じ考え方)。
+                //
+                // ファイルブラウザで本を 1 冊選んでいるときは、書き出しのウインドウではなくその本を書き出す(2026-09-15。
+                // 右クリックの「本の書き出し」と同じ。FileBrowserActions.exportBook)。
                 Button("Export as EPUB…") {
-                    openWindow(id: "epubExport")
+                    exportFromMenu(.epub, windowID: "epubExport")
                 }
                 // PDF出力(ユーザー要望: EPUB出力と同様、ブックマーク・タイトル・著者名を
                 // 埋め込んだPDFを書き出せるようにしたい)。EPUB出力の直下に配置する。
                 Button("Export as PDF…") {
-                    openWindow(id: "pdfExport")
+                    exportFromMenu(.pdf, windowID: "pdfExport")
                 }
                 // CBZ出力(ユーザー要望: DB上のメタデータをComicInfo.xmlとして埋め込んだ
                 // cbzを書き出せるようにしたい)。PDF出力の直下に配置する。
                 Button("Export as CBZ…") {
-                    openWindow(id: "cbzExport")
+                    exportFromMenu(.cbz, windowID: "cbzExport")
                 }
             }
 
@@ -884,159 +931,165 @@ struct QooViewerApp: App {
             // したため、ここからは削除した(QooViewerApp.swift下部のBookClosingWindowDelegate、
             // およびViewerView.swiftのsetUpWindowObserversでの委譲設定を参照)。
             CommandGroup(after: .toolbar) {
-                let hasBook = focusedAppState?.currentBook != nil
+                // ホーム画面を出している間は、ホーム画面の見せ方の項目に入れ替える(2026-09-15。HomeViewMenuItems)。
+                // 入れ替わるのは本を開く・閉じるときだけで、メニューを開いている最中には起きない(「移動」メニューと同じ)。
+                if menuCheckmarkState?.homeMenu.isShown == true {
+                    HomeViewMenuItems(home: menuCheckmarkState?.homeMenu ?? HomeMenuState(), appState: focusedAppState)
+                } else {
+                    let hasBook = focusedAppState?.currentBook != nil
 
-                // ウインドウ表示のときは、この設定のON/OFFで表示/非表示を切り替える。
-                // フルスクリーン中は、この設定に関わらず常にフルスクリーン用の自動隠し/自動表示
-                // (マウスを画面端に近づけたときだけ表示)が優先される。ONのときは、ウインドウ
-                // 表示中でもフルスクリーンと同様、マウスを上下端に近づけると一時的に表示される
-                // (ViewerView.bodyのshowToolbar/showProgressBar、
-                // updateAutoHiddenChromeVisibility参照)。
-                Toggle(
-                    "Hide Toolbar",
-                    isOn: Binding(
-                        get: { menuCheckmarkState?.hideToolbar ?? false },
-                        set: { focusedAppState?.hideToolbar = $0 }
-                    )
-                )
-                .disabled(!hasBook)
-
-                Toggle(
-                    "Hide Progress Bar",
-                    isOn: Binding(
-                        get: { menuCheckmarkState?.hideProgressBar ?? false },
-                        set: { focusedAppState?.hideProgressBar = $0 }
-                    )
-                )
-                .disabled(!hasBook)
-
-                // サイドパネルは既定で常時表示。ONにすると、ツールバー/プログレスバーの
-                // 「隠す」と同様、マウスをウインドウの端(環境設定「一般」タブで選んだ左右
-                // どちらか)に近づけたときだけ一時的に表示される
-                // (ContentView.updateSidePanelReveal参照)。ウェルカム画面
-                // (本を開いていない状態)でもボリューム一覧をたどれるようにしたい機能のため、
-                // hideToolbar/hideProgressBarと異なりhasBookによる無効化はしない。
-                //
-                // 環境設定「一般」タブの「Enable Side Panel」がOFFのときは、この項目自体を
-                // 無効化(.disabled)ではなくメニューから丸ごと省く。パネル自体が表示されない
-                // 状態でこの項目だけ残しても意味が無いため(ユーザー要望)。Commandsも
-                // ViewBuilderと同様に結果ビルダーのため、if で丸ごと省ける。
-                if preferences.sidePanelFeatureEnabled {
+                    // ウインドウ表示のときは、この設定のON/OFFで表示/非表示を切り替える。
+                    // フルスクリーン中は、この設定に関わらず常にフルスクリーン用の自動隠し/自動表示
+                    // (マウスを画面端に近づけたときだけ表示)が優先される。ONのときは、ウインドウ
+                    // 表示中でもフルスクリーンと同様、マウスを上下端に近づけると一時的に表示される
+                    // (ViewerView.bodyのshowToolbar/showProgressBar、
+                    // updateAutoHiddenChromeVisibility参照)。
                     Toggle(
-                        "Hide Side Panel",
+                        "Hide Toolbar",
                         isOn: Binding(
-                            get: { menuCheckmarkState?.hideSidePanel ?? false },
-                            set: { focusedAppState?.hideSidePanel = $0 }
+                            get: { menuCheckmarkState?.hideToolbar ?? false },
+                            set: { focusedAppState?.hideToolbar = $0 }
                         )
                     )
-                    // 本を開いていない間はどちらに倒してもパネルは出てこないため
-                    // (ContentView.isSidePanelSuppressedForWelcome)、hideToolbar/hideProgressBarと
-                    // 同じくグレーアウトする(効かない設定を触れるままにしない)。
                     .disabled(!hasBook)
-                }
 
-                Divider()
-
-                Button("Show Page Grid") {
-                    focusedAppState?.performViewerAction?(.showThumbnailGrid)
-                }
-                .disabled(!hasBook)
-
-                Divider()
-
-                // 実行中かどうかという明確なON/OFF状態があるため、Buttonではなく
-                // Toggleにして、実行中は左にチェックマークが表示されるようにしている
-                // (isOnの値自体はAppState側の状態から取るだけで、setクロージャでは
-                // クリックのたびにトグル用のアクションを呼ぶだけでよい)。
-                Toggle(
-                    "Slideshow",
-                    isOn: Binding(
-                        get: { menuCheckmarkState?.isSlideshowActive ?? false },
-                        set: { _ in focusedAppState?.performViewerAction?(.toggleSlideshow) }
+                    Toggle(
+                        "Hide Progress Bar",
+                        isOn: Binding(
+                            get: { menuCheckmarkState?.hideProgressBar ?? false },
+                            set: { focusedAppState?.hideProgressBar = $0 }
+                        )
                     )
-                )
-                .disabled(!hasBook)
+                    .disabled(!hasBook)
 
-                // ルーペ(qooViewer独自の追加機能)。スライドショーと同じ、実行中かどうかを
-                // チェックマークで表すToggle形式(ユーザー要望: スライドショーと同じ並びに配置)。
-                Toggle(
-                    "Loupe",
-                    isOn: Binding(
-                        get: { menuCheckmarkState?.isLoupeActive ?? false },
-                        set: { _ in focusedAppState?.performViewerAction?(.toggleLoupe) }
-                    )
-                )
-                .disabled(!hasBook)
-
-                Divider()
-
-                // 見開き/単ページも同様に、ON/OFFのチェックマークで表す
-                // (ONのとき見開き表示、OFFのとき単ページ表示)。
-                // 以前はEPUB/PDFのファイル側が見開きを強制している間グレーアウトしていたが、
-                // ユーザー要望によりそのロック自体を廃止したため、本を開いてさえいれば常に
-                // 操作できる(LayoutStore.importSourceLayoutIfNeeded参照)。
-                Toggle(
-                    "Spread",
-                    isOn: Binding(
-                        get: { menuCheckmarkState?.isSpreadMode ?? false },
-                        set: { _ in focusedAppState?.performViewerAction?(.toggleDisplayMode) }
-                    )
-                )
-                .disabled(!hasBook)
-
-                // 読み方向も同様に、現在右から左かどうかというON/OFF状態をチェックマークで表す
-                // (ONのとき右から左=マンガの標準的な読み方向。「移動」メニューの各項目の
-                // 左右の意味も、この値によって切り替わる)。
-                // EPUBがpage-progression-directionで読み方向を明示している間は同様にグレーアウトする。
-                Toggle(
-                    "Right-to-Left",
-                    isOn: Binding(
-                        get: { menuCheckmarkState?.isRightToLeft ?? false },
-                        set: { _ in focusedAppState?.performViewerAction?(.toggleReadingDirection) }
-                    )
-                )
-                .disabled(!hasBook)
-
-                // 古いスキャン本(紙の黄ばみ等)を、きっちりした白黒に見えるよう補正する機能
-                // (ユーザー要望)。本単位で記憶するON/OFFのため、見開き/読み方向と同じ
-                // チェックマーク付きToggle形式にする。EPUB/PDF由来のロックに相当するものが
-                // 無いため、hasBook以外の無効化条件は無い。
-                Toggle(
-                    "Contrast Correction",
-                    isOn: Binding(
-                        get: { menuCheckmarkState?.isContrastCorrectionEnabled ?? false },
-                        set: { _ in focusedAppState?.performViewerAction?(.toggleContrastCorrection) }
-                    )
-                )
-                .disabled(!hasBook)
-
-                // 表示モードの切り替えは複数から選ぶものなので、単純なON/OFFのToggleではなく
-                // 直接選べるサブメニューにし、現在選ばれているモードにチェックマークを表示する。
-                // 各モードには ⌘1〜⌘4 を割り当てている(cooViewer準拠。詳細は
-                // ScalingMode.menuShortcutKeyのコメント参照)。
-                Menu("Cycle Display Mode") {
-                    ForEach(ScalingMode.allCases) { mode in
+                    // サイドパネルは既定で常時表示。ONにすると、ツールバー/プログレスバーの
+                    // 「隠す」と同様、マウスをウインドウの端(環境設定「一般」タブで選んだ左右
+                    // どちらか)に近づけたときだけ一時的に表示される
+                    // (ContentView.updateSidePanelReveal参照)。ウェルカム画面
+                    // (本を開いていない状態)でもボリューム一覧をたどれるようにしたい機能のため、
+                    // hideToolbar/hideProgressBarと異なりhasBookによる無効化はしない。
+                    //
+                    // 環境設定「一般」タブの「Enable Side Panel」がOFFのときは、この項目自体を
+                    // 無効化(.disabled)ではなくメニューから丸ごと省く。パネル自体が表示されない
+                    // 状態でこの項目だけ残しても意味が無いため(ユーザー要望)。Commandsも
+                    // ViewBuilderと同様に結果ビルダーのため、if で丸ごと省ける。
+                    if preferences.sidePanelFeatureEnabled {
                         Toggle(
-                            mode.titleKey,
+                            "Hide Side Panel",
                             isOn: Binding(
-                                get: { menuCheckmarkState?.scalingMode == mode },
-                                set: { isOn in
-                                    guard isOn else { return }
-                                    focusedAppState?.setScalingMode?(mode)
-                                }
+                                get: { menuCheckmarkState?.hideSidePanel ?? false },
+                                set: { focusedAppState?.hideSidePanel = $0 }
                             )
                         )
-                        .keyboardShortcut(mode.menuShortcutKey, modifiers: .command)
+                        // 本を開いていない間はどちらに倒してもパネルは出てこないため
+                        // (ContentView.isSidePanelSuppressedForWelcome)、hideToolbar/hideProgressBarと
+                        // 同じくグレーアウトする(効かない設定を触れるままにしない)。
+                        .disabled(!hasBook)
                     }
-                }
-                .disabled(!hasBook)
 
-                // macOSが自動的に追加する「フルスクリーンにする」/「フルスクリーンを解除」は、
-                // 左にアイコンが付くため、区切り線を挟まず同じ並びにしてしまうと、
-                // 「見開き」「右から左へ」「表示モード切替」の文字列がアイコンの分だけ余分に
-                // 右にインデントされてしまう。区切り線を入れてフルスクリーン項目を独立した
-                // グループにすることで、この並びのインデントをそろえる。
-                Divider()
+                    Divider()
+
+                    Button("Show Page Grid") {
+                        focusedAppState?.performViewerAction?(.showThumbnailGrid)
+                    }
+                    .disabled(!hasBook)
+
+                    Divider()
+
+                    // 実行中かどうかという明確なON/OFF状態があるため、Buttonではなく
+                    // Toggleにして、実行中は左にチェックマークが表示されるようにしている
+                    // (isOnの値自体はAppState側の状態から取るだけで、setクロージャでは
+                    // クリックのたびにトグル用のアクションを呼ぶだけでよい)。
+                    Toggle(
+                        "Slideshow",
+                        isOn: Binding(
+                            get: { menuCheckmarkState?.isSlideshowActive ?? false },
+                            set: { _ in focusedAppState?.performViewerAction?(.toggleSlideshow) }
+                        )
+                    )
+                    .disabled(!hasBook)
+
+                    // ルーペ(qooViewer独自の追加機能)。スライドショーと同じ、実行中かどうかを
+                    // チェックマークで表すToggle形式(ユーザー要望: スライドショーと同じ並びに配置)。
+                    Toggle(
+                        "Loupe",
+                        isOn: Binding(
+                            get: { menuCheckmarkState?.isLoupeActive ?? false },
+                            set: { _ in focusedAppState?.performViewerAction?(.toggleLoupe) }
+                        )
+                    )
+                    .disabled(!hasBook)
+
+                    Divider()
+
+                    // 見開き/単ページも同様に、ON/OFFのチェックマークで表す
+                    // (ONのとき見開き表示、OFFのとき単ページ表示)。
+                    // 以前はEPUB/PDFのファイル側が見開きを強制している間グレーアウトしていたが、
+                    // ユーザー要望によりそのロック自体を廃止したため、本を開いてさえいれば常に
+                    // 操作できる(LayoutStore.importSourceLayoutIfNeeded参照)。
+                    Toggle(
+                        "Spread",
+                        isOn: Binding(
+                            get: { menuCheckmarkState?.isSpreadMode ?? false },
+                            set: { _ in focusedAppState?.performViewerAction?(.toggleDisplayMode) }
+                        )
+                    )
+                    .disabled(!hasBook)
+
+                    // 読み方向も同様に、現在右から左かどうかというON/OFF状態をチェックマークで表す
+                    // (ONのとき右から左=マンガの標準的な読み方向。「移動」メニューの各項目の
+                    // 左右の意味も、この値によって切り替わる)。
+                    // EPUBがpage-progression-directionで読み方向を明示している間は同様にグレーアウトする。
+                    Toggle(
+                        "Right-to-Left",
+                        isOn: Binding(
+                            get: { menuCheckmarkState?.isRightToLeft ?? false },
+                            set: { _ in focusedAppState?.performViewerAction?(.toggleReadingDirection) }
+                        )
+                    )
+                    .disabled(!hasBook)
+
+                    // 古いスキャン本(紙の黄ばみ等)を、きっちりした白黒に見えるよう補正する機能
+                    // (ユーザー要望)。本単位で記憶するON/OFFのため、見開き/読み方向と同じ
+                    // チェックマーク付きToggle形式にする。EPUB/PDF由来のロックに相当するものが
+                    // 無いため、hasBook以外の無効化条件は無い。
+                    Toggle(
+                        "Contrast Correction",
+                        isOn: Binding(
+                            get: { menuCheckmarkState?.isContrastCorrectionEnabled ?? false },
+                            set: { _ in focusedAppState?.performViewerAction?(.toggleContrastCorrection) }
+                        )
+                    )
+                    .disabled(!hasBook)
+
+                    // 表示モードの切り替えは複数から選ぶものなので、単純なON/OFFのToggleではなく
+                    // 直接選べるサブメニューにし、現在選ばれているモードにチェックマークを表示する。
+                    // 各モードには ⌘1〜⌘4 を割り当てている(cooViewer準拠。詳細は
+                    // ScalingMode.menuShortcutKeyのコメント参照)。
+                    Menu("Cycle Display Mode") {
+                        ForEach(ScalingMode.allCases) { mode in
+                            Toggle(
+                                mode.titleKey,
+                                isOn: Binding(
+                                    get: { menuCheckmarkState?.scalingMode == mode },
+                                    set: { isOn in
+                                        guard isOn else { return }
+                                        focusedAppState?.setScalingMode?(mode)
+                                    }
+                                )
+                            )
+                            .keyboardShortcut(mode.menuShortcutKey, modifiers: .command)
+                        }
+                    }
+                    .disabled(!hasBook)
+
+                    // macOSが自動的に追加する「フルスクリーンにする」/「フルスクリーンを解除」は、
+                    // 左にアイコンが付くため、区切り線を挟まず同じ並びにしてしまうと、
+                    // 「見開き」「右から左へ」「表示モード切替」の文字列がアイコンの分だけ余分に
+                    // 右にインデントされてしまう。区切り線を入れてフルスクリーン項目を独立した
+                    // グループにすることで、この並びのインデントをそろえる。
+                    Divider()
+                }
             }
 
             CommandMenu("Move") {
@@ -1049,6 +1102,19 @@ struct QooViewerApp: App {
                 } else {
                     viewerMoveMenuItems
                 }
+            }
+
+            // 「ホーム」メニュー(2026-09-15、ユーザー決定。名前は画面の名前「ホーム」から。HomeMenuCommands.swift の冒頭のコメント)。
+            // 項目は常に同じ並びで、本を読んでいるウインドウでは全部淡色。ショートカットは付けない。
+            CommandMenu("Home") {
+                HomeMenuItems(
+                    home: menuCheckmarkState?.homeMenu ?? HomeMenuState(),
+                    selection: menuCheckmarkState?.fileBrowserSelection,
+                    directory: stores.homeMenuDirectory.directory,
+                    appState: focusedAppState,
+                    collectionStore: collectionStore,
+                    locale: preferences.effectiveLocale
+                )
             }
 
             // 標準の「ウインドウ」(Window)メニューに「ウインドウを閉じる」を追加する。
@@ -1125,6 +1191,30 @@ struct QooViewerApp: App {
             // 変更した(ViewerAction.showFavoritesOrganizer、Window("Edit Favorites", ...)も
             // 同様に変更済み)。
             CommandGroup(after: .pasteboard) {
+                // ファイルブラウザの「ここに項目を移動」(⌥⌘V。Finder と同じキー。2026-09-15 までは一覧のキー操作だけだった)。
+                Button("Move Item Here") { [weak focusedAppState] in
+                    guard HomeMenuKeyRouting.shouldPerformOnSelection(forwardingTextAction: nil),
+                          let actions = focusedAppState?.fileBrowserActions
+                    else { return }
+                    actions.perform(.moveItemHere)
+                }
+                .homeMenuShortcut("v", modifiers: [.command, .option], isActive: menuCheckmarkState?.fileBrowserSelection != nil)
+                .disabled(menuCheckmarkState?.fileBrowserSelection?.canMoveItemHere != true)
+
+                Divider()
+
+                // ホーム画面の検索欄へ(⌘F。本棚はコレクション/本の検索、ファイルブラウザはフォルダの中の検索)。
+                Button("Search") { [weak focusedAppState] in
+                    guard let appState = focusedAppState, appState.currentBook == nil else { return }
+                    if appState.homeMenu.mode == .browser {
+                        appState.fileBrowser?.requestSearchFocus()
+                    } else {
+                        appState.welcomeLibrary?.request(.focusSearch)
+                    }
+                }
+                .homeMenuShortcut("f", modifiers: .command, isActive: menuCheckmarkState?.homeMenu.isShown == true)
+                .disabled(menuCheckmarkState?.homeMenu.isShown != true)
+
                 let hasBook = focusedAppState?.currentBook != nil
                 // シークレットウインドウがフォーカス中か、その場限りの本(直接渡された画像から
                 // 作った本)を表示中は、書き込みを伴う項目(お気に入り/ブックマークの
@@ -1273,7 +1363,20 @@ struct QooViewerApp: App {
                 // 有効(hasBook不問)。
                 Divider()
 
-                Button("Edit Metadata…") {
+                //
+                // ホーム画面で本を 1 冊選んでいるときは、メタデータの編集のウインドウではなくその本のシートを出す
+                // (2026-09-15。右クリックの「メタデータの編集…」と同じ)。
+                Button("Edit Metadata…") { [weak focusedAppState] in
+                    if let appState = focusedAppState, appState.currentBook == nil {
+                        if appState.fileBrowserMenu.selection?.canEditMetadata == true, let actions = appState.fileBrowserActions {
+                            actions.editMetadata(actions.state?.selectedEntries ?? [])
+                            return
+                        }
+                        if let item = appState.homeMenu.singleItemTarget {
+                            appState.welcomeLibrary?.request(.editItemMetadata(item))
+                            return
+                        }
+                    }
                     openWindow(id: "editMetadata")
                 }
                 .disabled(isPrivate)

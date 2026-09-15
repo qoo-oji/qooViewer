@@ -55,9 +55,12 @@ bookID を書き換える `reconcileBookIDIfMoved` でも捨てる)から引く 
 
 `FavoritesStore` と違うところ:
 
-- **メニューバーに出ない**ので `AppStores.allObjectWillChangePublishers` に**意図的に足していない**。
-  コレクションを作り替えてもメニューバーは作り直されない(お気に入りの publish がメニュー全体を
+- `AppStores.allObjectWillChangePublishers` に**意図的に足していない**。表紙の抽出や存在確認のたびに
+  publish するので、つなぐとメニューバーが作り直され続ける(お気に入りの publish がメニュー全体を
   作り直していた轍を踏まないため。→ [03](03-architecture.md#アプリ全体で1つのもの))。
+  2026-09-15 から「ホーム」メニューにライブラリとコレクションの名前が出るが、それは名前だけを値で写した
+  `HomeMenuDirectoryStore` が受け持ち、名前・並び・所属が変わったときだけ知らせる
+  (→ [09](09-ui-and-windows.md#メニューバーのホーム画面の項目))。
 - 並び順はストアが持たない。ウインドウごとの `WelcomeLibraryState` が持ち、
   `collections(in:sort:)` / `items(in:sort:)` へ都度渡す(同じデータを別のウインドウが別の並びで
   見られる)。**例外が「常に先頭/末尾に表示するコレクション」**(ユーザー要望 2026-09-10)で、

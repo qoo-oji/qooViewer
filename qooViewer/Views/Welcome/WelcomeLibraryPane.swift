@@ -109,8 +109,9 @@ struct LibraryPaneControls: View {
     var collection: BookCollection?
     /// 編集操作を許すか(シークレットウインドウではfalse)。
     let allowsEditing: Bool
-
-    @State private var isShowingSettings = false
+    /// 歯車のポップオーバーを出しているか。持ち主は呼び出し側 ―― メニューバーの「ホーム」▸「ライブラリの設定…」
+    /// 「コレクションの設定…」からも開くため(WelcomeLibraryState.menuRequest)。
+    @Binding var isShowingSettings: Bool
 
     var body: some View {
         HStack(spacing: 6) {

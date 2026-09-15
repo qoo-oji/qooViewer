@@ -43,7 +43,8 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 | `RecentFilesStore` | UserDefaults | 履歴(セキュリティスコープ付きブックマーク+パスのキャッシュ) |
 | `FolderAccessStore` | UserDefaults | 環境設定「フォルダのアクセス権」。起動中ずっとアクセスを開いたまま維持 |
 | `FavoritesStore` | SwiftData | お気に入り(階層フォルダ付き。無効化中) |
-| `CollectionStore` | SwiftData | ライブラリ / コレクション / その中の本。**`allObjectWillChangePublishers` に入れない**(メニューバーに出ないので、その publish でメニューを作り直さない) |
+| `CollectionStore` | SwiftData | ライブラリ / コレクション / その中の本。**`allObjectWillChangePublishers` に入れない**(表紙の抽出・存在確認のたびに publish するので、つなぐと名前が変わっていなくてもメニューが作り直される) |
+| `HomeMenuDirectoryStore` | メモリ | 「ホーム」メニューに出すライブラリとコレクションの名前の写し(2026-09-15)。`CollectionStore` の代わりに `allObjectWillChangePublishers` に入り、名前・並び・所属が変わったときだけ publish する(→ [09](09-ui-and-windows.md#メニューバーのホーム画面の項目)) |
 | `CollectionCoverStore` | ディスク(Application Support) | コレクション表紙の表示用JPEG(actor) |
 | `CollectionCoverSourceStore` | ディスク(Application Support) | コレクション表紙のうち、利用者が指定した画像の複製 |
 | `CollectionTileImageStore` | ディスク(Caches)+メモリ | 焼いた札の絵(タイル1枚 = JPEG 1枚)と、その復号済み LRU(actor) |
@@ -165,7 +166,8 @@ Finder / Dock からの「開く」は `AppDelegate.application(_:open:)` が受
 
 メニューバーは `QooViewerApp` の `.commands` に全部あります。File / Edit(お気に入り・
 ブックマーク・レイアウト・メタデータの編集もここ)/ View(`CommandGroup(after: .toolbar)` で
-標準の View メニューへ統合)/ Move(`CommandMenu`)/ Window。
+標準の View メニューへ統合)/ Move(`CommandMenu`)/ Home(`CommandMenu`、2026-09-15)/ Window。
+ホーム画面(本棚・ファイルブラウザ)向けの項目の割り振りは [09](09-ui-and-windows.md#メニューバーのホーム画面の項目)。
 
 **macOS 26 では、メニューを開いている最中にメニュー項目が作り直されるとアプリが落ちます**
 (`NSContextMenuImpl` の行高キャッシュの範囲外アクセスで `NSRangeException`)。SwiftUI の

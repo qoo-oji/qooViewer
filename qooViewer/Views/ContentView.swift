@@ -387,7 +387,63 @@ struct ContentView: View {
                 ? FileBrowserMenuNavigation(
                     canGoBack: fileBrowser.canGoBack, canGoForward: fileBrowser.canGoForward, canGoUp: fileBrowser.canGoUp
                 )
-                : nil
+                : nil,
+            selection: shown ? fileBrowserMenuSelection : nil
+        )
+    }
+
+    /// ファイルブラウザで選んでいる項目について、メニューバーの項目を押せるか(2026-09-15)。**右クリックと同じ判定**
+    /// (FileBrowserMenuCommand.isEnabled)を、いまの選択に対して引く。ペインがまだ口を渡していなければ全部淡色。
+    private var fileBrowserMenuSelection: FileBrowserMenuSelection {
+        guard let actions = appState.fileBrowserActions else { return FileBrowserMenuSelection() }
+        let entries = fileBrowser.selectedEntries
+        let context = FileBrowserMenuContext(
+            kind: entries.first.map { FileBrowserMenuKind.of($0) } ?? .background, entries: entries,
+            folder: fileBrowser.currentFolder
+        )
+        func enabled(_ command: FileBrowserMenuCommand) -> Bool { command.isEnabled(in: context, actions: actions) }
+        let canExtract = enabled(.extract)
+        return FileBrowserMenuSelection(
+            selectedIDs: entries.map(\.id),
+            canOpen: enabled(.open),
+            canOpenWith: enabled(.openWith),
+            canRename: enabled(.rename),
+            renameCount: entries.count,
+            canMoveToTrash: enabled(.moveToTrash),
+            canCompress: enabled(.compress),
+            canExtract: canExtract,
+            extractFolderName: canExtract && entries.count == 1
+                ? entries.first.map { ArchiveExtractor.folderName(for: $0.url) } : nil,
+            canAddToFavoriteLocations: enabled(.addToFavoriteLocations),
+            canShowInFinder: enabled(.showInFinder),
+            canUseAsBooks: enabled(.addToCollection),
+            canEditMetadata: enabled(.editMetadata),
+            canExportBook: enabled(.exportBook),
+            canMoveItemHere: actions.allowsFileChanges && fileBrowser.currentFolder != nil
+        )
+    }
+
+    /// ホーム画面がメニューバーへ出す値(2026-09-15。HomeMenuStateの型コメント)。fileBrowserMenuSnapshotと同じく
+    /// AppStateの保留付きの値を通して渡す。
+    private var homeMenuState: HomeMenuState {
+        let isShown = appState.currentBook == nil
+        let isShelf = isShown && welcomeLibrary.mode == .shelf
+        let opened = welcomeLibrary.openedCollectionID.flatMap { collectionStore.collection(withID: $0) }
+        return HomeMenuState(
+            isShown: isShown,
+            mode: welcomeLibrary.mode,
+            allowsEditing: !isPrivateWindow,
+            libraryID: WelcomeDropHandling.resolvedLibrary(state: welcomeLibrary, collectionStore: collectionStore)?.id,
+            openedCollectionID: opened?.id,
+            isEditing: welcomeLibrary.isEditing,
+            // 選択は並びを固定して渡す(Setを配列にしただけだと、同じ選択でも並びが揺れて値が変わったことになる)。
+            selectedCollectionIDs: isShelf && opened == nil ? welcomeLibrary.selectedCollectionIDs.sorted { $0.uuidString < $1.uuidString } : [],
+            selectedItemIDs: isShelf && opened != nil ? welcomeLibrary.selectedItemIDs.sorted { $0.uuidString < $1.uuidString } : [],
+            shelfSort: opened != nil ? welcomeLibrary.itemSort : welcomeLibrary.collectionSort,
+            browserViewMode: fileBrowser.viewMode,
+            browserSortKey: fileBrowser.sortKey,
+            browserSortDirection: fileBrowser.sortDirection,
+            hiddenListColumns: fileBrowser.hiddenListColumns.sorted()
         )
     }
 
@@ -451,11 +507,16 @@ struct ContentView: View {
                 fileBrowserUndoTitle: appState.fileBrowserMenu.undoTitle,
                 fileBrowserRedoTitle: appState.fileBrowserMenu.redoTitle,
                 canCreateFolderInFileBrowser: appState.fileBrowserMenu.canCreateFolder,
-                fileBrowserNavigation: appState.fileBrowserMenu.navigation
+                fileBrowserNavigation: appState.fileBrowserMenu.navigation,
+                fileBrowserSelection: appState.fileBrowserMenu.selection,
+                homeMenu: appState.homeMenu
             )
         )
         .onChange(of: fileBrowserMenuSnapshot, initial: true) { _, snapshot in
             appState.setFileBrowserMenu(snapshot)
+        }
+        .onChange(of: homeMenuState, initial: true) { _, state in
+            appState.setHomeMenu(state)
         }
         .frame(minWidth: 900, minHeight: 640)
         // ウインドウ/タブのタイトルバーおよびタブバーに表示される文字列。本を開いている間は

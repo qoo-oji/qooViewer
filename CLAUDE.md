@@ -154,8 +154,12 @@ locations, and is not connected under tests). Anything in the file browser that 
 (`DirectoryProbe.protectedPrefixes`) and network volumes by `MountTable` — checking by touching them is itself what
 raises the TCC dialog or blocks for 30 s (docs/15 「サンドボックスと TCC の約束」). Design in `docs/15-file-browser.md`,
 remaining stages and the handoff in `docs/plans/file-browser-plan.md`.
-`CollectionStore` is deliberately *not* in `AppStores.allObjectWillChangePublishers`
-(collections never appear in the menu bar). The favorites feature is hidden behind
+`CollectionStore` is deliberately *not* in `AppStores.allObjectWillChangePublishers` (it publishes on every
+cover extraction/existence check); the menu bar's **Home** menu (2026-09-15) reads library/collection names from
+`HomeMenuDirectoryStore`, a value copy that publishes only when names, order or membership change. Home-screen menu
+items (Home menu; file-browser items in File/Edit; View menu swapped while Home is shown) read per-window values from
+`MenuCheckmarkState.homeMenu` / `.fileBrowserSelection`, and anything that needs a sheet/alert owned by a view goes
+through `WelcomeLibraryState.menuRequest` (docs/09「メニューバーのホーム画面の項目」). The favorites feature is hidden behind
 `FavoritesFeature.isEnabled == false` — models, stores, window and JSON schema are kept so the data
 survives. Design and the reasons are in `docs/14-library-collections.md`.
 

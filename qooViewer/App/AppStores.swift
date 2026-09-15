@@ -65,10 +65,15 @@ final class AppStores: ObservableObject {
     let collectionTileImageStore: CollectionTileImageStore
     /// ライブラリ・コレクション・その中の本(改善要望5)。
     ///
-    /// **allObjectWillChangePublishersには意図的に足していない。** コレクションはメニューバーに
-    /// 一切現れないため、その変更でメニューを作り直す理由が無い(お気に入りのpublishが
-    /// メニュー全体を作り直していた轍を踏まない。型コメント参照)。
+    /// **allObjectWillChangePublishersには意図的に足していない。** 表紙の抽出や存在確認のたびに
+    /// publishするので、つなぐと名前が変わっていなくてもメニュー全体が作り直される(お気に入りの
+    /// publishがメニュー全体を作り直していた轍を踏まない。型コメント参照)。2026-09-15から
+    /// 「ホーム」メニューに名前が出るが、それは下のhomeMenuDirectoryが値の写しで受け持つ。
     let collectionStore: CollectionStore
+    /// メニューバーの「ホーム」メニューが読む、ライブラリとコレクションの名前の写し(2026-09-15)。
+    /// collectionStoreの代わりに**こちらを**allObjectWillChangePublishersへ並べる ―― 名前・並び・所属が
+    /// 変わったときだけpublishする(HomeMenuDirectoryStoreの型コメント)。
+    let homeMenuDirectory: HomeMenuDirectoryStore
     /// カバー抽出の待ち行列。ウインドウをまたいで1本にするためここが持つ(同上の理由で
     /// allObjectWillChangePublishersには足さない)。
     let collectionCoverExtractor: CollectionCoverExtractor
@@ -117,6 +122,7 @@ final class AppStores: ObservableObject {
             modelContext: context, coverStore: collectionCoverStore,
             tileStore: collectionTileImageStore, titleResolver: bookTitleResolver
         )
+        homeMenuDirectory = HomeMenuDirectoryStore(collectionStore: collectionStore)
         collectionCoverExtractor = CollectionCoverExtractor(
             collectionStore: collectionStore, coverStore: collectionCoverStore,
             layoutStore: layoutStore
@@ -158,6 +164,7 @@ final class AppStores: ObservableObject {
             bookmarkStore.objectWillChange,
             layoutStore.objectWillChange,
             metadataStore.objectWillChange,
+            homeMenuDirectory.objectWillChange,
         ]
     }
 }

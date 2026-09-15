@@ -423,6 +423,17 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// ホーム画面がメニューバーの「ホーム」メニューなどへ出す値(2026-09-15。HomeMenuStateの型コメント)。ContentView が詰め、
+    /// fileBrowserMenu と同じく**メニューバーのメニューが開いている間は反映を保留する**。
+    @Published private(set) var homeMenu = HomeMenuState()
+
+    func setHomeMenu(_ state: HomeMenuState) {
+        MenuBarMenuGate.shared.run(menuGateKey("homeMenu")) { [weak self] in
+            guard let self, self.homeMenu != state else { return }
+            self.homeMenu = state
+        }
+    }
+
     private func refreshIsCurrentPageBookmarked() {
         let flag = liveCurrentBookmarks.contains { $0.pageIndex == currentPageIndex }
         MenuBarMenuGate.shared.run(menuGateKey("isCurrentPageBookmarked")) { [weak self] in
@@ -712,6 +723,9 @@ final class AppState: ObservableObject {
     /// このウインドウのファイルブラウザ(改善要望7 段階4)。編集メニューの「取り消す」「やり直す」が
     /// ここから操作の積み場所へ届く。持ち主はContentView(`@StateObject`)なので weak。
     weak var fileBrowser: FileBrowserState?
+    /// このウインドウのファイルブラウザの「開く」などの口(右クリックと同じもの。持ち主は FileBrowserPane の `@State`)。
+    /// メニューバーのファイルブラウザの項目がここを通る(2026-09-15)。ペインが出ていない間は nil。
+    weak var fileBrowserActions: FileBrowserActions?
     /// このウインドウのウェルカム画面の状態(段階 8)。「ファイルブラウザで開く」がモードを切り替える。持ち主はContentView。
     weak var welcomeLibrary: WelcomeLibraryState?
 
@@ -1417,6 +1431,11 @@ struct MenuCheckmarkState: Equatable {
     /// ファイルブラウザが出ているなら、その戻る/進む/上へ の可否。**nil でない間、「移動」メニューの中身が
     /// Finder の「移動」メニューと同じ項目に入れ替わる**(FileBrowserGoMenuItems)。
     var fileBrowserNavigation: FileBrowserMenuNavigation?
+    /// ファイルブラウザで選んでいる項目について、ファイル・編集メニューの項目を押せるか(2026-09-15)。
+    /// ファイルブラウザが出ていなければ nil(項目はすべて淡色)。
+    var fileBrowserSelection: FileBrowserMenuSelection?
+    /// ホーム画面の値(「ホーム」メニュー・表示メニュー。2026-09-15)。
+    var homeMenu = HomeMenuState()
 }
 
 /// ファイルブラウザがメニューバーへ出す値のひとまとまり(AppState.fileBrowserMenu)。
@@ -1425,6 +1444,7 @@ struct FileBrowserMenuSnapshot: Equatable {
     var redoTitle: String?
     var canCreateFolder = false
     var navigation: FileBrowserMenuNavigation?
+    var selection: FileBrowserMenuSelection?
 }
 
 /// メニューバーのLayoutメニュー(8.2節)で、見開き表示中に左右どちらのページを対象にする
