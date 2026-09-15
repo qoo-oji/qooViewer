@@ -242,7 +242,7 @@ final class FileBrowserActions {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.directoryURL = state?.currentFolder
+        panel.directoryURL = favoriteLocationPanelStartDirectory()
         panel.prompt = String(localized: "Add", language: locale)
         panel.message = String(
             localized: "Choose a folder to add to Favorite Locations. qooViewer can then show the files in it.",
@@ -252,6 +252,23 @@ final class FileBrowserActions {
         folderAccess?.add(url: granted)
         favoriteLocations?.add(granted)
         state?.navigate(to: granted)
+        // 次の「＋」は**パネルを閉じた時点で見ていた場所**から始める(2026-09-15、ユーザー判断)。FolderB の中まで入って
+        // 何も選ばずに「追加」したなら FolderB の中から。
+        // 以前の案は「足したフォルダの親」(granted.deletingLastPathComponent())で、入ってから追加しても FolderA に
+        // 戻る。要望があればそちらへ戻すかもしれないので、戻すときはこの右辺を親に替えるだけでよい。
+        state?.lastAddedFavoriteLocation = (granted, panel.directoryURL ?? granted.deletingLastPathComponent())
+    }
+
+    /// 「＋」のパネルをどこから始めるか。基本は一覧で見ているフォルダ。ただし直前の「＋」で足したフォルダへ移動したまま
+    /// なら、そのときパネルを閉じた場所から始める ―― FolderA の中で FolderB を選んで足した後、次の「＋」が FolderB の
+    /// 中で開かないように(FileBrowserState.lastAddedFavoriteLocation)。一覧を別の場所へ動かしたら今のフォルダに戻る。
+    private func favoriteLocationPanelStartDirectory() -> URL? {
+        guard let state else { return nil }
+        if let last = state.lastAddedFavoriteLocation,
+           FileBrowserState.id(of: state.currentFolder) == FileBrowserState.id(of: FileBrowserState.folderURL(last.added)) {
+            return last.panelDirectory
+        }
+        return state.currentFolder
     }
 
     /// 右クリックの「よく使う項目に登録」(2026-09-14、ユーザー要望)。まだ登録していないフォルダがあるときだけ押せる

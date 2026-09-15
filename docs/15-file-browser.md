@@ -915,7 +915,7 @@ qooLibrary の実装(`VideoThumbnailLoading` ほか)を写した。実測の経�
 | 表示形式・アイコンの大きさ・左の幅・隠したリストの列 | `qooViewer.fileBrowser.*` | 環境設定の画面に並ばないので `qooViewer.pref.*` にしない(「初期設定に戻す」の対象外) |
 | 最後に表示したフォルダ | `qooViewer.fileBrowser.lastFolderPath` | **パスだけ**(空文字はコンピュータ)。読む権限は `FolderAccessStore` だけが持つ。**シークレットウインドウでは書かない** |
 | 一括リネームの前回の入力 | `qooViewer.fileBrowser.bulkRename`(JSON) | 方式ごとの欄を別々に覚える(Finder の `BulkRename*` と同じ)。**シークレットウインドウでは書かない**(そのウインドウの間は覚える) |
-| よく使う項目 | `qooViewer.fileBrowser.favoriteLocations`(JSON) | パスだけ。「＋」は `NSOpenPanel` → `FolderAccessStore.add` → 登録。右クリックの「よく使う項目に登録」は権限を足さない。シークレットウインドウでは登録・削除させない |
+| よく使う項目 | `qooViewer.fileBrowser.favoriteLocations`(JSON) | パスだけ。「＋」は `NSOpenPanel` → `FolderAccessStore.add` → 登録。「＋」のパネルは一覧のいまのフォルダから始めるが、**直前の「＋」で足したフォルダにいる間は、そのとき閉じたパネルの `directoryURL` から始める**(`FileBrowserState.lastAddedFavoriteLocation`、2026-09-15、ユーザー要望。足すと一覧がその中へ移動し、次のパネルが中に入った状態で開いていた)。覚えるのはウインドウの間だけ。「足したフォルダの親」から始める案もあり、要望次第で戻す可能性がある(`addFavoriteLocation` のコメント)。右クリックの「よく使う項目に登録」は権限を足さない。シークレットウインドウでは登録・削除させない |
 | 並べ替えの基準と向き | `qooViewer.pref.folderBrowserSortKey` / `…Direction` | サイドパネルのフォルダブラウザと共通(`AppPreferences`) |
 | リストの列幅・並び | `NSTableView Columns v3 qooViewer.fileBrowser.list` など | `autosaveName` |
 | 読み取り専用・起動時のフォルダ・フォルダを上に・現在のフォルダまでツリーを展開・ツリーのサブフォルダを右と同じ順に並べる・動画のサムネイルを生成・他のアプリからドロップしたとき・圧縮ファイルの形式・「ファイルブラウザで開く」の行き先・画像フォルダを開くとき | `qooViewer.pref.fileBrowser.*` | 環境設定「ファイルブラウザ」(`SettingsPane.fileBrowser`) |

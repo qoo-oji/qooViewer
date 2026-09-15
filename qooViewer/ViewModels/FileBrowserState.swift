@@ -172,6 +172,11 @@ final class FileBrowserState: ObservableObject {
     @Published private(set) var toastMessage: String?
     /// 検索欄を広げて焦点を入れてほしい(メニューバーの「検索」⌘F。2026-09-15)。値は増えるだけの通し番号で、ペインが変化を拾う。
     @Published private(set) var searchFocusRequest = 0
+    /// よく使う項目の「＋」で最後に足したフォルダと、パネルを閉じた時点で見ていた場所(`NSOpenPanel.directoryURL`)。
+    /// 足した直後は一覧がそのフォルダの中へ移動するので、次の「＋」を今のフォルダから始めると「中に入った状態」で
+    /// パネルが開いてしまう(2026-09-15、ユーザー指摘)。一覧がまだそのフォルダにいる間だけ親から始める。表示には使わないので
+    /// @Published にしない。
+    var lastAddedFavoriteLocation: (added: URL, panelDirectory: URL)?
 
     func requestSearchFocus() {
         searchFocusRequest &+= 1
