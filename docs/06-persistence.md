@@ -16,6 +16,7 @@
 | ホームの表示の状態 | UserDefaults(`qooViewer.welcome.*`) | `WelcomeLibraryState` | 選択中のライブラリ・並び順2つ・大きさ2つ・本棚/ファイルブラウザのモード。`qooViewer.pref.*` ではないので「初期設定に戻す」の対象外、全削除では消える |
 | ファイルブラウザの表示の状態 | UserDefaults(`qooViewer.fileBrowser.*`、リストの列の幅と並びは `NSTableView … qooViewer.fileBrowser.list`) | `FileBrowserState` | 表示形式・アイコンの大きさ・左の幅・隠したリストの列・最後に表示したフォルダ(パスだけ)・一括リネームの前回の入力(JSON)。後ろの 2 つはシークレットウインドウでは書かない。「初期設定に戻す」の対象外。並べ替えの基準と向きはサイドパネルのフォルダブラウザと共通の `qooViewer.pref.folderBrowserSortKey` / `…Direction`。→ [15](15-file-browser.md#保存するもの) |
 | よく使う項目 | UserDefaults(`qooViewer.fileBrowser.favoriteLocations`、JSON) | `FavoriteLocationStore` | パスだけ(読む権限は `FolderAccessStore`)。上限なし |
+| 自動リネームの規則・除外・実行ログ | UserDefaults(`qooViewer.fileBrowser.autoRename.rules` JSON / `.excludedPaths` 配列 / `.activityLog` JSON) | `AutoRenameStore` / `AutoRenameActivityLog` | 規則 20・規則ごとの対象 20・除外 2000・ログ 500。対象はパス・ボリュームの UUID・**セキュリティスコープの無い**ブックマーク(移動の提案用)を持ち、読む権限は `FolderAccessStore`。SwiftData ではないので世代は増えない。「初期設定に戻す」の対象外、全削除では消える。保存データの書き出しには含めない。→ [15](15-file-browser.md#自動リネーム2026-09-15ユーザー要望) |
 | 「置き換える」の退避の記録 | コンテナの `Application Support/FileOperations/replace-backups.json` | `ReplaceBackupJournal` | 置き換えの最中だけ 1 件ずつあり、片付けたら消す(空ならファイルごと)。落ちて残ったものは次の起動で `ReplaceBackupRecovery` が戻す。「すべてのデータを削除」で消える(終了時。→ [15](15-file-browser.md#保存するもの)) |
 | 環境設定 | UserDefaults(`qooViewer.pref.*`) | `AppPreferences` | ― |
 | 履歴 | UserDefaults(`recentBookEntries` + 旧 `recentBookBookmarks`) | `RecentFilesStore` | 環境設定「履歴の保存件数」(既定 30) |
@@ -264,7 +265,8 @@ JSON 読み込みの重複判定も同じ識別子を使います。
   `ephemeralBookmarks` / `ephemeralMetadata`(メモリ上)に置いて合成する。`resolveKeys` は
   `persists: false` で「あるべき番号」を返すだけにし、表示用の独立コピーへ反映する
   (共有コンテキストのマネージドオブジェクトは save せずに書き換えても自動保存される)。
-- ファイルブラウザ(改善要望7)は、ファイル操作そのものは許し、よく使う項目・最後に表示したフォルダ・一括リネームの前回の入力を書かない
+- ファイルブラウザ(改善要望7)は、ファイル操作そのものは許し、よく使う項目・最後に表示したフォルダ・一括リネームの前回の入力を書かない。
+  自動リネームの規則も、シークレットウインドウの右クリック・ホームメニューからは作らせない(設定ウインドウ自体はアプリに 1 つで、どのウインドウにも属さない)
   (決定事項 Q8)。絵のディスクキャッシュ(`FileBrowserThumbnailDiskCache`)も書かない(読むのは許す。2026-09-14 まではシークレット
   ウインドウでも書いていた。→ [15](15-file-browser.md#シークレットウインドウ))。
 - 新しい永続化経路を足すときは、`isPrivateWindow` のコメントに列挙したうえで同じガードを入れる
