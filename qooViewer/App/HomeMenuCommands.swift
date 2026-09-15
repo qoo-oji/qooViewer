@@ -173,9 +173,10 @@ struct HomeMenuItems: View {
 
         Divider()
 
-        // ほかの項目と同じく、本を読んでいるウインドウでは淡色(型コメント「項目の数を状態で変えない」)。
+        // ほかの項目と同じく、本を読んでいるウインドウでは淡色(型コメント「項目の数を状態で変えない」)。規則は保存を伴うので、
+        // シークレットウインドウでも淡色(右クリックの「自動リネーム」と同じ。決定事項 Q8)。
         Button("Auto Rename Settings…") { openAutoRenameSettings() }
-            .disabled(!home.isShown)
+            .disabled(!home.isShown || !home.allowsEditing)
     }
 
     private static func request(_ kind: WelcomeLibraryState.HomeMenuRequest.Kind, _ appState: AppState?) {

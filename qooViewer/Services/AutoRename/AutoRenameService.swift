@@ -553,9 +553,12 @@ final class AutoRenameService: ObservableObject {
 
     // MARK: - FSEvents
 
+    /// 見張るのは**使える ON の対象全部**(確認待ちも含む)。名前を変えるのは確認済みだけ(`handle` が計画で振り分ける)だが、
+    /// 対象そのものが消えたことはどの対象でもすぐ知りたい(§6.2)。
     private func updateWatcher() {
-        let plan = makePlan()
-        let paths = isPausedForReadOnly ? [] : Set(plan.targets.map(\.path))
+        let usable = store.rules.filter(\.isEnabled).flatMap(\.targets)
+            .filter { $0.state == .enabled && availability[$0.id] == .available }
+        let paths = isPausedForReadOnly ? [] : Set(usable.map(\.path))
         if watcher == nil, !paths.isEmpty {
             watcher = FolderChangeWatcher(onEvents: { [weak self] events in
                 // FSEvents 自身のキューから呼ばれる(FolderChangeWatcher.init のコメント)。
@@ -678,12 +681,20 @@ final class AutoRenameService: ObservableObject {
             scheduleRecheck(folder: folder, after: inUseRecheckDelay)
         }
         let now = Date()
+        /// まだ名前を変えられない項目(書き込み中・開いている本)。**それを含むフォルダの名前は、この回は変えない** ――
+        /// 先にフォルダの名前を変えると、見直しの予約が古いパスを指したまま中の項目が取り残される。
+        var heldBack: [String] = result.foldersWithItemsInUse.map { $0 }
         for candidate in result.candidates {
             guard !isPausedForReadOnly else { break }
             guard let snapshot = candidate.snapshot else { continue }
+            if candidate.isDirectory, heldBack.contains(where: { MountTable.path($0, isAtOrUnder: candidate.path) }) {
+                scheduleRecheck(folder: candidate.folder, after: recheckDelay)
+                continue
+            }
             let observation = AutoRename.Observation(snapshot: snapshot, at: now)
             guard AutoRename.isSettled(observation, previous: observations[candidate.path]) else {
                 observations[candidate.path] = observation
+                heldBack.append(candidate.path)
                 scheduleRecheck(folder: candidate.folder, after: recheckDelay)
                 continue
             }
