@@ -2089,6 +2089,56 @@ CHANGELOG `[Unreleased]`・MANUAL・CLAUDE.md(`readdir` と FAT / exFAT の実�
     `defaults` は控えから戻して差分ゼロ、イメージと画像は削除。
   `scripts/ci/check-all.sh` は通った(2026-09-15)。まとめて戻す修正・進捗の中継・題の件数とこの記録は、ユーザー指示「ドキュメントを更新してコミット・プッシュ」で CHANGELOG・MANUAL・docs/15 と一緒にコミット・プッシュ(この節と同じコミット)。README・CLAUDE.md は変える記述が無かった。
 
+### 9.8 引き継ぎ(4 回目のコード監査、2026-09-15)
+
+**ユーザーの指示(2026-09-15)**: 「前回監査以降に行った変更を対象にコード監査」(重点は §8.5.4・§9.5・§9.7 と同じ)。範囲は `git diff a74ba36 6c16ae6`
+(3 回目の監査の修正 84b231e、exFAT の記録 d384f85、取り消しのまとめ運びと進捗の中継 903bb7a、「ホーム」への改称 c96b371、ホームメニュー 6c16ae6)。
+
+**方法**: エンジン(元の削除・取り消しのまとめ運び・圧縮の検証・サムネイル)は自分で精読。ホームメニューとアイコン表示・リスト表示の修正は 2 系統の読み合わせ
+(読むだけ。ビルド・実機・イメージは使わせない)。中以上はコードを辿り直した。c96b371 は表示の文言だけで、保存キー・rawValue は変わっていない。
+
+**実測(ユーザー指示「先に実測してください」)**: scratchpad に 32MB の exFAT と 64MB の FAT32 のイメージ(合成名。どちらも FSKit でマウントされた)を 1 つずつ順に作り、
+ファイル 1 つに `touch -t` で更新日時を 1 時間前・3 時間後へ動かして `stat` した ―― **どちらも ctime は更新日時そのもので、同じだけ過去にも未来にも動く**
+(exFAT は 10ms、FAT32 は 2 秒単位の切り捨て。exFAT の chmod は ctime を変えない)。Apple の msdosfs のソースも `va_change_time = va_modify_time`。
+rmdir・`._` は使っていない。前後で U 状態のプロセス無し、イメージは外して削除。
+
+**見つかったもの(重い順)**:
+1. 【中】別ボリュームへの移動の元の削除で使う「写し始めた後に ctime が変わった」(3 回目の監査 5 の修正)が FAT・exFAT で両方向に誤る。未来の更新日時のファイル
+   (カメラの時計のずれ、ローカル時刻で書く FAT32 を持って西へ移動)は毎回「変わった」になり、エンジンは最初の問題で止まるので移動が 1 件目で止まる。
+   過去の日時を保つ上書き(Finder のコピー、`cp -p`)は見逃して、新しい中身ごと元を消す。
+2. 【中】取り消しのまとめ運び(903bb7a)が 1 件も動かずに投げると、先頭 1 件を試してから残り全体で呼び直す。空き容量の不足・最深パスなど「まとまり全体」で決まる
+   断りでは、1 件ごとに残り全部の事前検査(木の走査)をやり直して項目数の 2 乗。
+3. 【中〜低】取り消しの組分けが `groups.firstIndex(where:)`(メインアクターで項目数 × 組の数)。
+4. 【中・未実測】選択が 1 つ変わるたびに `ContentView` が `selectedEntries`(全件 filter)・`selectedIDs` を作り、AppState の publish で `@EnvironmentObject` の
+   ペインと Commands が再評価される(ContentView.swift の `setFileBrowserMenu` / `setHomeMenu` まわり)。
+5. 【中〜低・未実測】ファイルメニューの「このアプリケーションで開く」の中身が、サブメニューを開く前(Commands の評価ごと)にメインで組み立てられる
+   (LaunchServices の問い合わせ・`Bundle`・アイコン。候補のキャッシュはアプリが前面に来るたびに消える。HomeMenuCommands.swift)。
+6. 【中〜低】`HomeMenuDirectoryStore` が `CollectionStore.revision` を購読し、表紙の抽出 1 枚ごとに全ライブラリの `collections(in:sort:)` を並べ替える
+   (publish は差分があるときだけなので CPU だけ)。
+- 低: 取り消しの「運んだそのものか」の確認が最初の 1 回だけ(長い取り消しの間の差し替えを運ぶ。両方残すので上書きはしない)、`ProgressRelay` の遅れた最後の報告が
+  次の操作の帯へ入りうる(`report` が id を見ない)、⌘↓ がメニュー経由になり画像フォルダの扱いがダブルクリックと逆、アイコン表示の `dismantleNSView` が画面外に
+  用意されたアイテムの絵の依頼を取り消さないかもしれない(未確認)、名前の確定が始めた時点のパスを相手にする、同じフォルダの reveal が `pendingSelection` を残す、
+  リストのフォルダ変更時の非同期の確定が重なる、`HomeMenuDirectoryStore` の早期 return で保留中の古い値が後で当たる、メニューの Binding の get が AppState を強く持つ(未確認)。
+- 範囲外(以前から): 「両方残す」で名前を変えて置いた移動の取り消しは、`x 2` の名前のまま元のフォルダへ戻り「同じ名前があった」と報告する。
+
+**監査で問題なしと確認した範囲**: `removeTransferredSource` の `._` を後に消す順と空の確認、転送の中の中止(`carry` が nil → 未処理)、まとめ運びのループの停止性、
+Composite の `.stopped`、QuickLook の継続(戻らない経路が無い)、EOCD の窓の境界、`treeContainsDataless`(追い出されたフォルダを開かない・`@concurrent`・表紙ページを
+指定した本だけ)、`enqueue` の保持が仕事の完了で切れる、ホームメニューの確認を飛ばす削除・別の相手の削除・読み取り専用のすり抜けが無い、`menuRequest` が繰り返されない。
+
+**修正(2026-09-15、ユーザー指示「進めてください」)**: 1〜3 を直した。
+- 1: `FileOperationService.SourceChangeCheck`(`.none` / `.changedSince(時刻)` / `.matchesCopy`)。`sourceChangeCheck(for:mounts:)` がマウント表の種類で決める
+  (`msdos`・`exfat` → 写しと比べる、ほかのローカル → 写し始める前の時刻と ctime、ネットワーク → 見ない)。`.matchesCopy` は普通のファイルの大きさと、更新日時の差が
+  2 秒以内か(FAT32 の粒度。写した側が無い・種類が違えば変わったとみなす)。テスト `removingATransferredSourceFromFATComparesWithTheCopy`・
+  `sourceChangeCheckFollowsTheFileSystem`(修正前の口では書けないので、修正前に失敗することは確かめていない。FAT の ctime の性質は APFS の一時フォルダでは作れない)。
+- 2: `TransferUndo.undo` はまとまりの列を持ち、1 件も動かずに投げた・進まなかったまとまりを半分ずつに割る。途中の失敗で残った分はまとめたまま続ける。
+  テスト用に `TransferUndo` を internal に。`FileCommandsTests.moveUndoSplitsARefusedBatchInsteadOfRetryingTheWholeRest`(8 件を超えるまとまりを空き容量の不足で
+  断る偽の `putBack`、64 件)は**修正前のコードで失敗**(呼び出しに渡した件数の合計 2108)、修正後は 256。
+- 3: 組は `[URL: Int]` で引く。
+- 検証: スキームを通した Debug の全テスト **1350 件・125 suite が通った**。Release を `QOO_CI_WARNINGS_AS_ERRORS=YES` でビルドして警告無し。`scripts/ci/check-all.sh` は、
+  テストに書いた `/Volumes/<名前>/<ファイル>` を private-terms の検査が拾ったので、マウント先と名前を繋ぐ形に直して通った。
+- 記録はユーザー指示「一度ドキュメント更新してコミット・プッシュしてから修正を続けてください」で、CHANGELOG・MANUAL・CLAUDE.md・docs/13・docs/15 と一緒にコミット・プッシュ
+  (この節と同じコミット)。README は変える記述が無かった。**次にやること**: 4〜6 の修正(ユーザー指示で続ける)。
+
 ---
 
 ## 触るファイル(見積り)

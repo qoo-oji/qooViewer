@@ -132,7 +132,9 @@ become copy-only); tests inject a pseudo trash, a uniquely named pasteboard and 
 (skipped under tests) — keep that record-before-backup order. Anything that deletes a tree item by item lists names with `readdir`
 (`FileOperationService.directoryEntryNames`): `FileManager.contentsOfDirectory` silently omits `._*` names even on APFS, and a
 `rmdir` on an exFAT folder left with only `._` files hung the kernel (and Finder) during the 2026-09-15 audit — do not run such
-experiments on FAT/exFAT disk images from parallel agents. Bulk rename copies
+experiments on FAT/exFAT disk images from parallel agents. On FAT/exFAT `st_ctime` is just the modification date (measured
+2026-09-15), so "has the source changed" checks there compare size and mtime with the copy (`FileOperationService.SourceChangeCheck`),
+never ctime against the clock. Bulk rename copies
 Finder's measured rules (`Models/BulkRename.swift`; registered extensions, collisions avoided rather than refused, so no two-pass rename) — change them only against the real Finder. The context menu's links to existing features (create/add
 to collection, Edit Metadata on a book outside any collection, Export Book without loading it first, Open With) are in
 `FileBrowserLibraryActions.swift`; submenus whose contents vary are a `FileBrowserMenuNode` tree drawn by both the AppKit and

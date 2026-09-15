@@ -598,7 +598,7 @@ struct FileOperationServiceTests {
         try Data("new version".utf8).write(to: saved)
 
         #expect(throws: (any Error).self) {
-            try FileOperationService.removeTransferredSource(source, copiedTo: copy, unchangedSince: started)
+            try FileOperationService.removeTransferredSource(source, copiedTo: copy, changeCheck: .changedSince(started))
         }
         #expect(try read(saved) == "new version")
 
@@ -609,9 +609,83 @@ struct FileOperationServiceTests {
         Thread.sleep(forTimeInterval: 0.01)
         try Data("y".utf8).write(to: single)
         #expect(throws: (any Error).self) {
-            try FileOperationService.removeTransferredSource(single, copiedTo: singleCopy, unchangedSince: before)
+            try FileOperationService.removeTransferredSource(single, copiedTo: singleCopy, changeCheck: .changedSince(before))
         }
         #expect(FileOperationService.itemExists(at: single))
+    }
+
+    @Test("FAT・exFAT の元は時刻でなく写しと比べる: 未来の更新日時でも消し、日時を保つ上書きは残す")
+    func removingATransferredSourceFromFATComparesWithTheCopy() throws {
+        // 4 回目の監査 1(実測: FAT・exFAT の ctime は更新日時そのもので、touch -t で過去にも未来にも動く)。
+        let fileManager = FileManager.default
+        func setModificationDate(_ date: Date, of url: URL) throws {
+            try fileManager.setAttributes([.modificationDate: date], ofItemAtPath: url.path)
+        }
+        let future = Date().addingTimeInterval(3 * 3600)
+        let past = Date().addingTimeInterval(-3600)
+
+        // 更新日時が未来のファイル(カメラの時計のずれ)。写しと同じなら消す。宛先の粒度(FAT32 の 2 秒切り捨て)のずれも許す。
+        let source = try temporary.directory("fat/src/Card")
+        let photo = try write("photo", to: "fat/src/Card/a.jpg")
+        let truncated = try write("12345", to: "fat/src/Card/b.jpg")
+        let copy = try temporary.directory("fat/dst/Card")
+        let photoCopy = try write("photo", to: "fat/dst/Card/a.jpg")
+        let truncatedCopy = try write("12345", to: "fat/dst/Card/b.jpg")
+        try setModificationDate(future, of: photo)
+        try setModificationDate(future, of: photoCopy)
+        try setModificationDate(future.addingTimeInterval(1.5), of: truncated)
+        try setModificationDate(future, of: truncatedCopy)
+        try FileOperationService.removeTransferredSource(source, copiedTo: copy, changeCheck: .matchesCopy)
+        #expect(!FileOperationService.itemExists(at: source))
+
+        // 写した後に、更新日時を保つ書き込み(Finder のコピー・cp -p)で過去の日時の別の中身に上書きされた。
+        let second = try temporary.directory("fat/src2/Card")
+        let overwritten = try write("new!!", to: "fat/src2/Card/c.jpg")
+        let secondCopy = try temporary.directory("fat/dst2/Card")
+        let overwrittenCopy = try write("old!!", to: "fat/dst2/Card/c.jpg")
+        try setModificationDate(Date(), of: overwrittenCopy)
+        try setModificationDate(past, of: overwritten)
+        #expect(throws: (any Error).self) {
+            try FileOperationService.removeTransferredSource(second, copiedTo: secondCopy, changeCheck: .matchesCopy)
+        }
+        #expect(try read(overwritten) == "new!!")
+
+        // 大きさが変わった 1 ファイル。
+        let single = try write("longer", to: "fat/single.jpg")
+        let singleCopy = try write("short", to: "fat/dst/single.jpg")
+        try setModificationDate(past, of: single)
+        try setModificationDate(past, of: singleCopy)
+        #expect(throws: (any Error).self) {
+            try FileOperationService.removeTransferredSource(single, copiedTo: singleCopy, changeCheck: .matchesCopy)
+        }
+        #expect(FileOperationService.itemExists(at: single))
+    }
+
+    @Test("元の変化の確かめ方はボリュームで決める: FAT・exFAT は写しと比べ、ほかのローカルは時刻、ネットワークは見ない")
+    func sourceChangeCheckFollowsTheFileSystem() {
+        func entry(_ mountPoint: String, _ type: String, local: Bool = true) -> MountTable.Entry {
+            MountTable.Entry(mountPoint: mountPoint, mountedFrom: "/dev/x", fileSystemType: type, isLocal: local, isHiddenFromBrowsing: false)
+        }
+        let mounts = MountTable(entries: [
+            entry("/", "apfs"), entry("/Volumes/Card", "msdos"), entry("/Volumes/Stick", "exfat"),
+            entry("/Volumes/Share", "smbfs", local: false),
+        ])
+        // パスはマウント先と名前を繋いで作る(実在しそうな絶対パスを書かない ―― check-private-terms.sh)。
+        func check(_ mountPoint: String, _ name: String) -> FileOperationService.SourceChangeCheck {
+            FileOperationService.sourceChangeCheck(for: URL(fileURLWithPath: mountPoint).appendingPathComponent(name), mounts: mounts)
+        }
+        guard case .matchesCopy = check("/Volumes/Card", "a.jpg"), case .matchesCopy = check("/Volumes/Stick", "a.cbz") else {
+            Issue.record("FAT・exFAT が写しとの比較にならなかった")
+            return
+        }
+        guard case .changedSince = check("/", "a.cbz") else {
+            Issue.record("APFS が時刻との比較にならなかった")
+            return
+        }
+        guard case .none = check("/Volumes/Share", "a.cbz") else {
+            Issue.record("ネットワークの元を確かめようとした")
+            return
+        }
     }
 
     // MARK: - ゴミ箱・完全削除

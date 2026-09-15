@@ -527,6 +527,42 @@ struct FileCommandsTests {
         #expect(reports.values.map(\.completedItems).max() == 7)
     }
 
+    @Test("まとめた取り消しが事前検査で断られたら、半分ずつに割って運び、残り全体での呼び直しを繰り返さない")
+    @MainActor
+    func moveUndoSplitsARefusedBatchInsteadOfRetryingTheWholeRest() async throws {
+        // 4 回目の監査 2: 以前は先頭 1 件を試してから残り全体で呼び直したので、空き容量の不足のように「まとまり全体」で決まる断りでは
+        // 1 件ごとに残り全部の事前検査(木の走査)をやり直し、項目数の 2 乗になった。
+        let count = 64
+        let originals = (0..<count).map { temporary.file("undo-split/src/f\($0).txt") }
+        try FileManager.default.createDirectory(at: originals[0].deletingLastPathComponent(), withIntermediateDirectories: true)
+        let destination = try temporary.directory("undo-split/dst")
+        var receipts: [TransferReceipt] = []
+        for original in originals {
+            let placed = destination.appendingPathComponent(original.lastPathComponent)
+            try Data("x".utf8).write(to: placed)
+            receipts.append(TransferReceipt(source: original, destination: placed, replacedItemInTrash: nil, identity: FileIdentity.of(placed)))
+        }
+
+        // 8 件より大きいまとまりは、事前検査で断られる(空き容量の不足の代わり)。
+        var requestedSizes: [Int] = []
+        let fileOps = fileOps
+        let undone = try await TransferUndo.undo(receipts, fileOps: fileOps) { items, folder, progress in
+            requestedSizes.append(items.count)
+            guard items.count <= 8 else {
+                throw FileOperationError.insufficientFreeSpace(required: 2, available: 1, destination: folder)
+            }
+            return try await fileOps.move(items, to: folder, options: FileOperationOptions(conflictPolicy: .keepBoth, progress: progress))
+        }
+
+        #expect(undone.result == .complete)
+        #expect(undone.resolvedIndices == Set(receipts.indices))
+        for original in originals {
+            #expect(FileManager.default.fileExists(atPath: original.path))
+        }
+        // 64 → 32 → 16 → 8 と割るだけ(断られたまとまりの合計 64 × 3 と、運べた 8 件ずつの 64)。以前の形では 2000 件を超えた。
+        #expect(requestedSizes.reduce(0, +) <= count * 4)
+    }
+
     /// 進捗の受け口はどのスレッドから呼ばれるか分からない。
     private final class ReportLog: @unchecked Sendable {
         private let lock = NSLock()

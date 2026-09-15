@@ -734,12 +734,12 @@ actor FileOperationService {
         // **運ぶ前後で元が変わっていないことは FileCopyEngine.copy が置く前に確かめる。** 書き込み中のファイル(ダウンロード中など)を
         // 運ぶと copyfile はその時点の姿を写して成功を返し、元を消すと書き足された分が永久に失われる
         // (72.3MB を写したあと元は 84.9MB まで伸びた。qooLibrary 実測)。
-        // 写し始める時刻。元の削除は、これより後に変わった元の項目を消さない(`removeTransferredSource`。ネットワークの元はサーバの時計なので見ない)。
-        let copyStarted = MountTable.current().isLocal(source) ? currentRealTime() : nil
+        // 元の削除で、写した後に変わった元の項目を消さないための確かめ方(`SourceChangeCheck`。時刻を使うなら写し始める前に取る)。
+        let changeCheck = sourceChangeCheck(for: source, mounts: .current())
         let outcome = try FileCopyEngine.copy(from: source, to: target, allowsCloning: allowsCloning, onBytesCopied: onBytesCopied)
         guard case .completed = outcome else { return outcome }
         do {
-            try removeTransferredSource(source, copiedTo: target, unchangedSince: copyStarted)
+            try removeTransferredSource(source, copiedTo: target, changeCheck: changeCheck)
         } catch {
             // **元を消し始めたあとは、写した側を絶対に消さない。** `removeItem` は木の削除が途中で失敗しても消した分を
             // 戻さないので、ここで宛先を片付けると元からも宛先からも兄弟が消える(2026-09-14 の監査で実測: `uappnd` の
@@ -809,16 +809,17 @@ actor FileOperationService {
     /// **フォルダは中が空だと確かめてから `rmdir` する**(空でなければ呼ばずに ENOTEMPTY で止める)。`._` は同じフォルダの中で最後に消す
     /// (本体を消すと対の `._` もカーネルが消すので、先に `._` だけを消して本体の拡張属性を失う形を作らない)。
     ///
-    /// - Parameter unchangedSince: 写し始めた時刻。**これより後に状態が変わった(ctime)元のファイル・リンクは消さずに止める**
-    ///   (3 回目の監査。`MoveVerification` は置く前に 1 回見るだけなので、その後の保存・ダウンロードの完了を消していた。
-    ///   写している最中に変わったものも、写しが新しい姿か分からないので残す側に倒す)。フォルダの ctime は自分が中を消すと変わるので見ない。
-    ///   nil なら見ない(元がネットワークにあり、時計がサーバのもの)。同じ木の中のハードリンクの兄弟は、片方を消すと残りの ctime も変わるので
+    /// - Parameter changeCheck: **写した後に変わった元のファイル・リンクは消さずに止める**(3 回目の監査。`MoveVerification` は置く前に
+    ///   1 回見るだけなので、その後の保存・ダウンロードの完了を消していた)。確かめ方はボリュームで変わる(`SourceChangeCheck`)。
+    ///   フォルダは見ない(自分が中を消すと ctime が変わる)。同じ木の中のハードリンクの兄弟は、片方を消すと残りの ctime も変わるので
     ///   失敗として残る(残す側に倒れるだけ)。
-    nonisolated static func removeTransferredSource(_ source: URL, copiedTo copy: URL, unchangedSince: timespec? = nil) throws {
+    nonisolated static func removeTransferredSource(_ source: URL, copiedTo copy: URL, changeCheck: SourceChangeCheck = .none) throws {
         var info = stat()
         guard lstat(source.path, &info) == 0 else { return }
         guard info.st_mode & S_IFMT == S_IFDIR else {
-            if let unchangedSince, isLater(info.st_ctimespec, than: unchangedSince) {
+            var copied = stat()
+            let copyExists = lstat(copy.path, &copied) == 0
+            if sourceChanged(info, copied: copyExists ? copied : nil, check: changeCheck) {
                 throw FileOperationError.sourceChangedDuringOperation(source)
             }
             try removeAbsorbingTransientFailure(at: source)
@@ -845,7 +846,7 @@ actor FileOperationService {
                 guard try directoryEntryNames(atPath: sourcePath).isEmpty else {
                     throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENOTEMPTY), userInfo: [NSFilePathErrorKey: sourcePath])
                 }
-            } else if let unchangedSince, isLater(original.st_ctimespec, than: unchangedSince) {
+            } else if sourceChanged(original, copied: copied, check: changeCheck) {
                 throw FileOperationError.sourceChangedDuringOperation(URL(fileURLWithPath: sourcePath))
             }
             try removeEntryAbsorbingTransientFailure(sourcePath, isDirectory: isDirectory)
@@ -868,6 +869,51 @@ actor FileOperationService {
         return names
     }
 
+    /// 別ボリュームへ写した元を消す前に、写した後に元が変わっていないかをどう確かめるか(`removeTransferredSource`)。
+    nonisolated enum SourceChangeCheck {
+        /// 確かめない(元がネットワークにあり、日時はサーバの都合で差し替わる)。
+        case none
+        /// この時刻(写し始める前)より後に ctime が変わった元を残す。ctime を利用者やアプリが書き換えられないボリューム(APFS・HFS+ など)。
+        /// 更新日時を保つ書き込み(Finder のコピー、`cp -p`)も ctime は今になるので捕まえる。
+        case changedSince(timespec)
+        /// 大きさと更新日時を写しと比べる。**FAT・exFAT は ctime が更新日時そのもの**(2026-09-15 の 4 回目の監査で実測: `touch -t` で
+        /// 更新日時を 1 時間前・3 時間後に動かすと ctime も同じだけ動く。Apple の msdosfs も `va_change_time = va_modify_time`)なので
+        /// 時刻と比べられない。比べると、未来の日時のファイル(カメラの時計のずれ、ローカル時刻で書く FAT32 を持って西へ移動した)は
+        /// 毎回「変わった」になって移動が 1 件目で止まり、過去の日時を保つ上書きは見逃して新しい中身ごと消していた。
+        /// copyfile は更新日時を写すので、写した後に変わっていなければ一致する(宛先の粒度で切り捨てられる分は許す)。
+        case matchesCopy
+    }
+
+    /// ctime が更新日時そのもので、時刻と比べられないファイルシステム(`f_fstypename`)。
+    nonisolated static let fileSystemsWithoutChangeTime: Set<String> = ["msdos", "exfat"]
+
+    /// 写しの更新日時が元とずれてよい幅。FAT32 の粒度(2 秒、切り捨て)。exFAT は 10ms、HFS+ は 1 秒。
+    nonisolated static let modificationDateToleranceNanoseconds: Int64 = 2_000_000_000
+
+    /// `source` を別ボリュームへ運ぶときの確かめ方。**時刻を使う場合は写し始める前に呼ぶ**(その時点の時刻を控える)。
+    nonisolated static func sourceChangeCheck(for source: URL, mounts: MountTable) -> SourceChangeCheck {
+        guard let entry = mounts.entry(containing: source), entry.isLocal else { return .none }
+        if fileSystemsWithoutChangeTime.contains(entry.fileSystemType.lowercased()) { return .matchesCopy }
+        return .changedSince(currentRealTime())
+    }
+
+    /// 元の 1 項目(フォルダ以外)が、写した後に変わったとみなすか。`copied` は写した側の同じ項目(無ければ nil)。
+    nonisolated static func sourceChanged(_ original: stat, copied: stat?, check: SourceChangeCheck) -> Bool {
+        switch check {
+        case .none:
+            return false
+        case let .changedSince(reference):
+            return isLater(original.st_ctimespec, than: reference)
+        case .matchesCopy:
+            // 写した側が無い・種類が違うなら、写しと同じとは言えない(残す側に倒す)。FAT・exFAT にリンクは無いので普通のファイルだけを比べる。
+            guard let copied else { return true }
+            guard original.st_mode & S_IFMT == S_IFREG else { return false }
+            guard copied.st_mode & S_IFMT == S_IFREG, original.st_size == copied.st_size else { return true }
+            let difference = nanoseconds(original.st_mtimespec) - nanoseconds(copied.st_mtimespec)
+            return abs(difference) > modificationDateToleranceNanoseconds
+        }
+    }
+
     /// 今の時刻(ファイルシステムの ctime と比べる)。
     nonisolated static func currentRealTime() -> timespec {
         var now = timespec()
@@ -877,6 +923,10 @@ actor FileOperationService {
 
     private nonisolated static func isLater(_ time: timespec, than reference: timespec) -> Bool {
         time.tv_sec != reference.tv_sec ? time.tv_sec > reference.tv_sec : time.tv_nsec > reference.tv_nsec
+    }
+
+    private nonisolated static func nanoseconds(_ time: timespec) -> Int64 {
+        Int64(time.tv_sec) * 1_000_000_000 + Int64(time.tv_nsec)
     }
 
     /// 1 項目だけを消す(フォルダは空のときだけ)。一過性の失敗の扱いは `removeAbsorbingTransientFailure` と同じ。

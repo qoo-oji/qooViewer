@@ -282,9 +282,9 @@ final class ExtractArchivesCommand: FileCommand {
     }
 }
 
-/// 移動・コピーの取り消しの共通部分。
+/// 移動・コピーの取り消しの共通部分。`undo` のまとめ運びを直接確かめられるよう internal(テスト)。
 @MainActor
-private enum TransferUndo {
+enum TransferUndo {
     /// 操作で**作った**項目をゴミ箱へ送る(圧縮・展開の取り消し)。作ったそのものでなくなった項目には触らない。
     /// 何も送れず、作ったものがまだそのまま残っているなら試し直せる。
     static func trashCreated(_ receipts: [TransferReceipt], fileOps: FileOperationService) async -> FileUndoResult {
@@ -354,7 +354,7 @@ private enum TransferUndo {
     /// 移動を呼んでいたので、4000 件の別ボリュームの移動の取り消しが、移動の 24 秒に対して 89 秒掛かり(1 件ごとに事前検査とボリュームの判定をやり直す)、
     /// 帯の進み具合も「全 1 件の何バイト」を 1 件ごとに 0 から出し直して、全体のどこまで戻ったかが見えなかった。
     /// エンジンは最初の失敗で止まる(残りは `unprocessed`)ので、失敗した項目を外して残りを続けて運ぶ。まとめた呼び出しが 1 件も動かずに投げたときは、
-    /// どの項目の失敗か分からないので、その組だけ 1 件ずつに戻して確かめる。
+    /// どの項目の失敗か分からないので、そのまとまりを半分ずつに割って確かめる。
     static func undo(
         _ receipts: [TransferReceipt],
         fileOps: FileOperationService,
@@ -387,12 +387,16 @@ private enum TransferUndo {
             }
         }
         // 戻す先(元のフォルダ)ごとの組。組の並びは、その組の最後に運んだ項目の順。
+        // 組は辞書で引く(2026-09-15 の 4 回目の監査。以前は組の列を線形に探したので、多くのフォルダから集めた数万件の移動の取り消しが
+        // メインアクターの上で項目数 × 組の数の比較になった)。
         var groups: [(folder: URL, indices: [Int])] = []
+        var groupPositions: [URL: Int] = [:]
         for index in ours {
             let folder = receipts[index].source.deletingLastPathComponent()
-            if let position = groups.firstIndex(where: { $0.folder == folder }) {
+            if let position = groupPositions[folder] {
                 groups[position].indices.append(index)
             } else {
+                groupPositions[folder] = groups.count
                 groups.append((folder, [index]))
             }
         }
@@ -440,33 +444,37 @@ private enum TransferUndo {
 
         var stopped = false
         groupLoop: for group in groups {
-            var remaining = group.indices
-            /// 次の 1 回は先頭の 1 件だけを運ぶ(まとめた呼び出しが投げた・進まなかった)。
-            var isolatesFirst = false
-            while !remaining.isEmpty {
+            /// これから運ぶまとまりの列(先頭から順に)。
+            var batches: [[Int]] = [group.indices]
+            /// この組でまだ片付いていない件数(進み具合の足し込みに使う)。
+            var pendingCount = group.indices.count
+            while !batches.isEmpty {
+                let batch = batches.removeFirst()
                 if cancellation.isRequested {
                     stopped = true
                     break groupLoop
                 }
-                let batch = isolatesFirst ? [remaining[0]] : remaining
                 let urls = batch.map { receipts[$0].destination }
                 let outcome: TransferOutcome
                 do {
-                    outcome = try await putBack(urls, group.folder, aggregated(itemsBefore + group.indices.count - remaining.count))
+                    outcome = try await putBack(urls, group.folder, aggregated(itemsBefore + group.indices.count - pendingCount))
                 } catch {
                     // 運ぶ前の中止(事前検査の中など)はエンジンが投げる。失敗ではなく中止として止める。
                     if FileCommandStack.isCancellation(error) {
                         stopped = true
                         break groupLoop
                     }
-                    // エンジンは 1 件も動かせずに先頭で失敗したときだけ投げる。先頭だけを確かめ直してから、残りをまとめて続ける。
+                    // エンジンは 1 件も動かせなかったときだけ投げる(事前検査で断った・先頭で失敗した)。どの項目のせいか分からないので、
+                    // **半分ずつに割って確かめる**(2026-09-15 の 4 回目の監査)。以前は先頭 1 件だけを試してから残り全体で呼び直したので、
+                    // 空き容量の不足のように「まとまり全体」で決まる断りでは、1 件進むごとに残り全部の木を事前検査で歩き直し、項目数の 2 乗になった。
+                    // 割れば、断られたまとまりの大きさの合計は項目数 × 割る段数で済む。
                     if batch.count > 1 {
-                        isolatesFirst = true
+                        let half = batch.count / 2
+                        batches.insert(contentsOf: [Array(batch[..<half]), Array(batch[half...])], at: 0)
                         continue
                     }
                     failures.append(FailedItem(url: urls[0], reason: error.localizedDescription))
-                    remaining.removeFirst()
-                    isolatesFirst = false
+                    pendingCount -= 1
                     continue
                 }
                 let placed = Dictionary(outcome.receipts.map { ($0.source, $0.destination) }, uniquingKeysWith: { first, _ in first })
@@ -488,25 +496,25 @@ private enum TransferUndo {
                         resolved.insert(index)
                     }
                 }
-                if isolatesFirst {
-                    next += remaining.dropFirst()
-                    isolatesFirst = false
-                }
                 // 中止で残した項目があれば止める(最後の項目を運び終えた直後の中止は、残りが無いので止めない)。
                 if outcome.wasCancelled, !next.isEmpty {
                     stopped = true
                     break groupLoop
                 }
-                // 1 件も片付かなかったのに中止でもない(エンジンの約束では起きない)なら、先頭を 1 件ずつ確かめて必ず進める。
-                if next.count == remaining.count, batch.count > 1 {
-                    isolatesFirst = true
+                // 1 件も片付かなかったのに中止でもない(エンジンの約束では起きない)なら、割って確かめて必ず進める。
+                if next.count == batch.count {
+                    if batch.count > 1 {
+                        let half = batch.count / 2
+                        batches.insert(contentsOf: [Array(batch[..<half]), Array(batch[half...])], at: 0)
+                    } else {
+                        failures.append(FailedItem(url: urls[0], reason: nothingToRestore))
+                        pendingCount -= 1
+                    }
                     continue
                 }
-                if next.count == remaining.count, let first = next.first {
-                    failures.append(FailedItem(url: receipts[first].destination, reason: nothingToRestore))
-                    next.removeFirst()
-                }
-                remaining = next
+                pendingCount -= batch.count - next.count
+                // 途中の失敗で手を付けなかった残りは、まとめたまま次に運ぶ。
+                if !next.isEmpty { batches.insert(next, at: 0) }
             }
             itemsBefore += group.indices.count
         }
