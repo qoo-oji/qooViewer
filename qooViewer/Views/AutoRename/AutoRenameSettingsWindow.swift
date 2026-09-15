@@ -34,11 +34,12 @@ struct AutoRenameSettingsWindow: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 360)
         } detail: {
             detail
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            ListWindowStatusBar {
-                statusText
-            }
+                // ステータスバーは右ペインにだけ付ける。ウインドウ全体に付けると左の一覧の下の「+ −」の帯に重なって隠れた(2026-09-16 の実機)。
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    ListWindowStatusBar {
+                        statusText
+                    }
+                }
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -137,8 +138,7 @@ struct AutoRenameSettingsWindow: View {
 
     @ViewBuilder
     private var detail: some View {
-        VStack(spacing: 0) {
-            banners
+        Group {
             if let selection, store.rule(withID: selection) != nil {
                 AutoRenameRuleEditor(ruleID: selection)
                     .id(selection)
@@ -150,6 +150,10 @@ struct AutoRenameSettingsWindow: View {
                 }
                 .frame(maxHeight: .infinity)
             }
+        }
+        // 帯はフォームの上に差し込む(VStack で積むと、帯が 2 本出たときにウインドウの中身全体が上下にはみ出し、左の一覧まで見えなくなった。2026-09-16 の実機)。
+        .safeAreaInset(edge: .top, spacing: 0) {
+            banners
         }
     }
 
@@ -244,11 +248,13 @@ private struct AutoRenameBanner<Message: View, Action: View>: View {
         HStack(spacing: 10) {
             Image(systemName: systemImage)
                 .foregroundStyle(tint)
+            // 文の高さを自分で固定しない(`fixedSize(vertical:)` はボタンに幅を取られたときに縦へ伸び、ウインドウからはみ出した)。
             message
                 .font(.callout)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, alignment: .leading)
             action
+                .fixedSize()
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
@@ -310,10 +316,11 @@ private struct AutoRenameRuleEditor: View {
                         Text("Extension").tag(AutoRenameRule.ReplaceScope.fileExtension)
                     }
                     .pickerStyle(.segmented)
-                    TextField("Find", text: binding(\.find), prompt: Text(rule.replaceScope == .fileExtension ? "zip" : ""))
-                    TextField("Replace With", text: binding(\.replaceWith), prompt: Text(rule.replaceScope == .fileExtension ? "cbz" : ""))
+                    // 欄の枠が見えない(グループのフォームの TextField は右寄せの文字だけ)ので、どこに打つかが分かる例を出す(2026-09-16 の実機)。
+                    TextField("Find", text: binding(\.find), prompt: rule.replaceScope == .fileExtension ? Text(verbatim: "zip") : Text("Text to find"))
+                    TextField("Replace With", text: binding(\.replaceWith), prompt: rule.replaceScope == .fileExtension ? Text(verbatim: "cbz") : Text("Leave empty to remove"))
                 case .addText:
-                    TextField("Text", text: binding(\.addedText))
+                    TextField("Text", text: binding(\.addedText), prompt: Text("Text to add"))
                     Picker("Add", selection: binding(\.addPlacement)) {
                         Text("Before Name").tag(BulkRename.Placement.beforeName)
                         Text("After Name").tag(BulkRename.Placement.afterName)

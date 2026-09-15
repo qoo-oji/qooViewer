@@ -692,6 +692,22 @@
         }
       }
     },
+    "Leave empty to remove" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leave empty to remove"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "空欄なら削除"
+          }
+        }
+      }
+    },
     "Left as it is: %@" : {
       "localizations" : {
         "en" : {
@@ -1376,6 +1392,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "テキスト"
+          }
+        }
+      }
+    },
+    "Text to add" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text to add"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "追加するテキスト"
+          }
+        }
+      }
+    },
+    "Text to find" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text to find"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "検索するテキスト"
           }
         }
       }

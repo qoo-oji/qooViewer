@@ -1683,6 +1683,7 @@ struct QooViewerApp: App {
                 .environment(\.locale, locale)
         }
         .handlesExternalEvents(matching: [])
+        .defaultSize(width: 1100, height: 820)
         .windowToolbarStyle(.unified)
 
         // 「メタデータの編集」ウインドウ(独立ウインドウ)。「ブックマーク・レイアウトの編集」と
