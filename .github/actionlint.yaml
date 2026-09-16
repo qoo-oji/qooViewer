@@ -1,0 +1,11 @@
+# actionlint の設定(scripts/ci/check-workflows.sh から使われる)。
+#
+# actionlint は GitHub がホストするランナーのラベルを内蔵の一覧で照合するため、一覧に無い
+# ラベルは「不明」として弾く。`xcode-27`(macOS 27 + Xcode 27。公開プレビュー・arm64 のみ)は
+# その一覧にまだ載っていないので、ここで宣言して黙らせる ―― `self-hosted-runner` という名前だが、
+# actionlint が「知らないラベル」を許す唯一の場所がここで、自前ランナー専用の設定ではない。
+# プレビューが終わって actionlint の一覧に入ったら、この行は消してよい。
+# → docs/02-project-and-build.md「CI」
+self-hosted-runner:
+  labels:
+    - xcode-27
