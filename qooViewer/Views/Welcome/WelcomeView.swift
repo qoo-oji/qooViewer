@@ -98,7 +98,10 @@ struct WelcomeView: View {
         // ファイル/フォルダのドロップの受け口はウインドウ全体に1つだけ
         // (ContentView.applyFileDropTarget)。ウェルカム画面が出ている間だけ、その手前に
         // 割り込ませてもらう(AppState.welcomeDropHandler参照)。
-        .onAppear {
+        // 外側のonAppearでも、中で弱く捕まえる4つを**明示的に**捕まえる。Swift 6.4(Xcode 27)は
+        // 「中で`weak`なのに外側が暗黙に強く捕まえている」形を警告する(#ImplicitStrongCapture)。
+        // 捕まえ方は今までと同じで、AppStateに預ける閉包が弱いまま、という下のコメントの肝は変わらない。
+        .onAppear { [state, collectionStore, coverExtractor, preferences] in
             coverExtractor.refill()
             // 自動登録フォルダを見に行く契機のひとつ(CollectionAutoFolderScannerの型コメント
             // 参照。監視の取りこぼしを、この画面を見にきた時点で回収する)。

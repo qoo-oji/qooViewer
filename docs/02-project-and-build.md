@@ -39,6 +39,14 @@ Swift のコードは約 6 万行(2026-09 時点)。「Standard MVVM」と呼ん
 GUI アプリなので、確かめ方の中心は Xcode で `Cmd+R` して動かすことです
 (→ [12](12-verification-and-debugging.md))。単体テストは `qooViewerTests` に少しだけあります(下記)。
 
+**配布するビルドは Xcode 27(macOS 27 SDK)で作ります**(2026-09-16 に Xcode 26.6 から移行)。
+macOS 26 SDK で組んだアプリは macOS 27 で環境設定のポップアップが現在の値を出さなくなるためで、
+これはアプリ側ではなく OS の旧 SDK 互換経路の問題です(→ [09](09-ui-and-windows.md#環境設定settingsview))。
+Xcode 27 は macOS 26.6 以降・Apple シリコンで動き、最低動作 macOS 15.0 はそのまま使えます。
+移行で出た新しい警告は Swift 6.4 の `#ImplicitStrongCapture` だけで、「内側で `weak` に捕まえているのに
+外側の閉包が同じものを暗黙に強参照している」形を指します ―― 外側にも捕獲リストを明示して黙らせました
+(捕まえ方そのものは変えていない。`HomeMenuCommands` / `WelcomeView`)。
+
 ```sh
 xcodebuild -project qooViewer.xcodeproj -scheme qooViewer -configuration Debug build
 xcodebuild -project qooViewer.xcodeproj -scheme qooViewer -configuration Release build
@@ -374,6 +382,7 @@ Actions タブと GitHub のメール通知で見ます。README にバッジも
 | ワークフロー | ランナー | 内容 |
 |---|---|---|
 | `.github/workflows/build.yml` | `macos-26` + Xcode 26.6(`DEVELOPER_DIR` で固定) | Debug / Release の 2 ジョブ。依存解決後に `Package.resolved` が変わらないこと、警告ゼロでビルドできること。Debug は `qooViewerTests` を実行し、書き出した EPUB / ComicInfo.xml を検品し、ビルドした .app を 15 秒起動して生存を確認、Release は universal(arm64 + x86_64)と署名を検品して zip を artifact(14 日)に残す |
+| `.github/workflows/build.yml`(`macos27` ジョブ) | `xcode-27`(macOS 27 + Xcode 27。**公開プレビュー・arm64 のみ**) | 2026-09-16 追加。Debug を警告ゼロで組み、テストを実行し、15 秒起動して生存を確認。Release の検品と書き出しの検品は `macos-26` 側が見ているのでここではやらない |
 | `.github/workflows/check.yml` | `ubuntu-latest` | `scripts/ci/check-all.sh`。Team ID の混入、個人のパスの混入(一般形)、Info.plist の書類の型とコードの拡張子の一致、`Localizable.xcstrings` の妥当性、`MARKETING_VERSION` の整合(タグ push 時はタグと CHANGELOG の見出しも)、テストのフィクスチャと台帳の一致、フォークのピン、改行コード、`docs/` のリンク切れ、actionlint |
 
 決めごと:
@@ -389,6 +398,14 @@ Actions タブと GitHub のメール通知で見ます。README にバッジも
 - **Xcode の版はワークフローで明示**。ランナーの既定 Xcode は四半期ごとに上がるので、手元の Xcode を
   上げたら `build.yml` の `DEVELOPER_DIR` も一緒に上げます(ランナーに入っている版は
   actions/runner-images の `macos-26-arm64-Readme.md` で確認)。
+- **macOS 27 は専用のジョブで見る**(2026-09-16)。`macos-27` というランナーは存在せず、
+  `macos-26` イメージに Xcode 27 も入っていません(`xcode-select` では選べない)。macOS 27 を試せるのは
+  `xcode-27` イメージだけで、これは macOS 27 + Xcode 27(beta)単独・arm64 のみ・**公開プレビュー**です
+  (`DEVELOPER_DIR` は `/Applications/Xcode.app`)。このジョブを足したのは、macOS 27 で環境設定の
+  ポップアップが現在の値を出さなくなり、**Xcode 27(macOS 27 SDK)で組み直すと直った**ためです
+  (→ [09](09-ui-and-windows.md#環境設定settingsview))。手元の macOS が 26 のうちは 27 の実機確認が
+  他人任せになるので、「27 SDK で組めて・テストが通って・起動する」ことだけは push のたびに見ておきます。
+  プレビューのイメージなので、このジョブだけが落ちているときはまずランナー側の都合を疑ってください。
 - **Actions は SHA で固定**。`.github/dependabot.yml` が月 1 回、新しい版を PR で知らせます。
   Swift パッケージは対象外(フォークは revision を手で動かす、→ [11](11-forked-dependencies.md))。
 - **テストはビルドと分ける**。Debug ジョブは `build-for-testing` → `test-without-building` の2段で、

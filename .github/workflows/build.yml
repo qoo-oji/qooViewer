@@ -22,6 +22,17 @@
 # Xcode は DEVELOPER_DIR で明示固定する。ランナーの既定 Xcode は四半期ごとに上がるので、
 # 手元の Xcode を上げたときにここも一緒に上げる(macos-26 に入っている版の一覧:
 # https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md)。
+#
+# 3 つめのジョブ(macos27)は macOS 27 + Xcode 27 のランナーで Debug を組み、テストと起動確認まで
+# 見る(2026-09-16 追加)。macOS 27 で「環境設定のポップアップが現在の値を出さない」不具合が出て、
+# Xcode 27(macOS 27 SDK)で組み直すと直ったため ―― 手元の macOS は 26 で、27 の実機確認は
+# 他人任せになる。CI に 1 本置いておけば、少なくとも「27 SDK で組めて・テストが通って・起動する」
+# ことは push のたびに分かる。
+# 注意: `macos-27` というランナーは存在しない。`xcode-27` イメージが macOS 27 + Xcode 27(beta)
+# 単独の構成で、**公開プレビュー・arm64 のみ**(macos-26 イメージに Xcode 27 は入っていないので
+# xcode-select では選べない)。プレビューなので、このジョブだけが落ちているときは、まずランナー側の
+# 都合(イメージの入れ替え・Xcode の beta 更新)を疑う。
+# https://github.com/actions/runner-images/blob/main/images/macos/xcode-27-arm64-Readme.md
 
 name: Build
 
@@ -238,6 +249,113 @@ jobs:
           path: |
             ${{ runner.temp }}/xcodebuild-${{ matrix.configuration }}.log
             ${{ runner.temp }}/${{ matrix.configuration }}.xcresult
+            ${{ runner.temp }}/xcodebuild-test.log
+            ${{ runner.temp }}/Tests.xcresult
+            ${{ runner.temp }}/smoke.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # macOS 27 + Xcode 27(ファイル冒頭の注意書きを参照)。上のジョブと違い、
+  #   ・Xcode は 27 しか入っていないので DEVELOPER_DIR は /Applications/Xcode.app
+  #   ・Debug だけ(Release の universal / 署名の検品は macos-26 のジョブが見ている)
+  #   ・書き出したファイルの検品(EPUBCheck)はしない。OS に依らない検査なので二重に回さない
+  # 見たいのは「27 SDK で警告ゼロで組めるか」「テストが通るか」「起動するか」の 3 点。
+  macos27:
+    name: macOS 27 (preview)
+    runs-on: xcode-27
+    timeout-minutes: 40
+    env:
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Xcode
+        run: |
+          xcodebuild -version
+          sw_vers
+
+      - name: Cache Swift packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.SPM_DIR }}
+          key: spm-xcode27-${{ hashFiles(env.PACKAGE_RESOLVED) }}
+
+      - name: Resolve packages
+        run: |
+          xcodebuild -project "$PROJECT" -scheme "$SCHEME" \
+            -clonedSourcePackagesDirPath "$SPM_DIR" \
+            -resolvePackageDependencies
+
+      - name: Package.resolved is unchanged
+        run: git diff --exit-code -- "$PACKAGE_RESOLVED"
+
+      - name: Build Debug
+        run: |
+          set -o pipefail
+          xcodebuild -project "$PROJECT" -scheme "$SCHEME" \
+            -configuration Debug \
+            -destination "platform=macOS" \
+            -derivedDataPath "$DERIVED_DATA" \
+            -clonedSourcePackagesDirPath "$SPM_DIR" \
+            -resultBundlePath "$RUNNER_TEMP/Debug.xcresult" \
+            DEVELOPMENT_TEAM= CODE_SIGNING_ALLOWED=NO \
+            QOO_CI_WARNINGS_AS_ERRORS=YES \
+            build-for-testing \
+            | tee "$RUNNER_TEMP/xcodebuild-Debug.log" \
+            | xcbeautify --renderer github-actions
+
+      - name: Test
+        run: |
+          set -o pipefail
+          scripts/test/test-volumes.sh attach
+          xcodebuild -project "$PROJECT" -scheme "$SCHEME" \
+            -configuration Debug \
+            -destination "platform=macOS" \
+            -derivedDataPath "$DERIVED_DATA" \
+            -clonedSourcePackagesDirPath "$SPM_DIR" \
+            -resultBundlePath "$RUNNER_TEMP/Tests.xcresult" \
+            test-without-building \
+            | tee "$RUNNER_TEMP/xcodebuild-test.log" \
+            | xcbeautify --renderer github-actions
+
+      - name: Detach test volumes
+        if: always()
+        run: scripts/test/test-volumes.sh detach
+
+      - name: Launch smoke test
+        run: |
+          app="$DERIVED_DATA/Build/Products/Debug/qooViewer.app"
+          reports=~/Library/Logs/DiagnosticReports
+          count_reports() { find "$reports" -maxdepth 1 -name 'qooViewer*' 2>/dev/null | wc -l | tr -d ' '; }
+          before=$(count_reports)
+          "$app/Contents/MacOS/qooViewer" > "$RUNNER_TEMP/smoke.log" 2>&1 &
+          pid=$!
+          sleep 15
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "qooViewer is still running after 15 s"
+            kill "$pid"
+            wait "$pid" || true
+          else
+            wait "$pid" && rc=0 || rc=$?
+            echo "::error::qooViewer exited within 15 s (rc=$rc)"
+            cat "$RUNNER_TEMP/smoke.log"
+            exit 1
+          fi
+          after=$(count_reports)
+          if [ "$after" -gt "$before" ]; then
+            echo "::error::a crash report was written while qooViewer was running"
+            find "$reports" -maxdepth 1 -name 'qooViewer*' -exec head -c 20000 {} +
+            exit 1
+          fi
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build-log-macos27-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/xcodebuild-Debug.log
+            ${{ runner.temp }}/Debug.xcresult
             ${{ runner.temp }}/xcodebuild-test.log
             ${{ runner.temp }}/Tests.xcresult
             ${{ runner.temp }}/smoke.log

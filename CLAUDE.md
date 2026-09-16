@@ -49,11 +49,20 @@ has a separate sandbox container and never touches the everyday app's saved data
 data go through the installed Release app. There is no SwiftLint/SwiftFormat config in this project —
 do not assume one exists.
 
+**Distribution builds are made with Xcode 27 (macOS 27 SDK)** — moved from Xcode 26.6 on 2026-09-16 because an app
+linked against the macOS 26 SDK stops showing the current value on the Settings pop-ups when run on macOS 27 (an OS-side
+problem in the old-SDK path, not this app's code; details in `docs/09-ui-and-windows.md`「環境設定」). Xcode 27 runs on
+macOS 26.6+, and the macOS 15.0 deployment target is unchanged. Swift 6.4 added `#ImplicitStrongCapture`, which flags a
+`[weak x]` capture whose outer closure captures the same thing implicitly and strongly; silence it by making the outer
+capture explicit, never by dropping the inner `weak`.
+
 CI is GitHub Actions (`.github/workflows/`): `build.yml` builds Debug and Release on `macos-26` with warnings
 treated as errors (passed as `QOO_CI_WARNINGS_AS_ERRORS=YES`, routed through `Configurations/Shared.xcconfig`
 so it reaches only the app target, not the SwiftPM dependencies), runs `qooViewerTests` in the Debug job
 and validates what its export tests wrote (EPUBCheck + the ComicInfo v2.0 XSD, via
-`scripts/ci/validate-exports.sh`), and `check.yml` runs
+`scripts/ci/validate-exports.sh`); a third job builds Debug, runs the tests and smoke-launches the app on the
+`xcode-27` runner (macOS 27 + Xcode 27; public preview, arm64 only — there is no `macos-27` runner and `macos-26`
+carries no Xcode 27). `check.yml` runs
 `scripts/ci/check-all.sh` — repository consistency checks (Team ID leak, Info.plist ↔ `imageExtensions`,
 `MARKETING_VERSION` ↔ CHANGELOG ↔ tag, fork pins, line endings, docs links). **Run `scripts/ci/check-all.sh`
 before committing**; it is the same script CI runs. The CI signing is ad-hoc and for verification only —

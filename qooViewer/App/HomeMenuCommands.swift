@@ -68,7 +68,11 @@ struct HomeMenuItems: View {
         .disabled(!home.isShown)
 
         Menu("Libraries") {
-            ForEach(directory.libraries) { library in
+            // 外側の閉包でも`appState`を**明示的に**捕まえる(中の`[weak appState]`と揃えるため)。
+            // Swift 6.4(Xcode 27)は「中で弱く捕まえているのに、外側が暗黙に強く捕まえている」形を
+            // 警告する(#ImplicitStrongCapture)。捕まえ方は今までと同じ(暗黙の強参照を明示にしただけ)で、
+            // メニュー項目に残る閉包が弱いまま、という肝心の点は変わらない。
+            ForEach(directory.libraries) { [appState] library in
                 Toggle(library.displayName(language: locale), isOn: Binding(
                     get: { [home] in home.isShelfShown && home.libraryID == library.id },
                     set: { [weak appState, home] _ in
@@ -119,7 +123,7 @@ struct HomeMenuItems: View {
         }
         .disabled(!home.canDeleteCollections)
         Menu("Move to Library") {
-            ForEach(directory.libraries.filter { $0.id != home.libraryID }) { library in
+            ForEach(directory.libraries.filter { $0.id != home.libraryID }) { [appState] library in
                 let canMove = home.canMoveCollections(to: library.id, in: directory)
                 let name = library.displayName(language: locale)
                 Button { [weak appState, home, collectionStore] in
@@ -352,7 +356,9 @@ struct HomeViewMenuItems: View {
     private var isBrowser: Bool { home.isShown && home.mode == .browser }
 
     var body: some View {
-        ForEach(FileBrowserViewMode.allCases, id: \.self) { mode in
+        // 外側の閉包でも`appState`を明示的に捕まえる理由は HomeMenuItems の「ライブラリ」と同じ
+        // (Swift 6.4 の #ImplicitStrongCapture。捕まえ方そのものは変えていない)。
+        ForEach(FileBrowserViewMode.allCases, id: \.self) { [appState] mode in
             Toggle(String(localized: mode.menuTitle), isOn: Binding(
                 get: { [home, isBrowser] in isBrowser && home.browserViewMode == mode },
                 set: { [weak appState] _ in appState?.fileBrowser?.viewMode = mode }
@@ -364,14 +370,14 @@ struct HomeViewMenuItems: View {
 
         Menu("Sort By") {
             if isBrowser {
-                ForEach(FolderBrowserSortKey.allCases) { key in
+                ForEach(FolderBrowserSortKey.allCases) { [appState] key in
                     Toggle(key.titleKey, isOn: Binding(
                         get: { [home] in home.browserSortKey == key },
                         set: { [weak appState] _ in appState?.fileBrowser?.sortKey = key }
                     ))
                 }
                 Divider()
-                ForEach(FolderBrowserSortDirection.allCases) { direction in
+                ForEach(FolderBrowserSortDirection.allCases) { [appState] direction in
                     Toggle(direction.titleKey, isOn: Binding(
                         get: { [home] in home.browserSortDirection == direction },
                         set: { [weak appState] _ in appState?.fileBrowser?.sortDirection = direction }
@@ -382,7 +388,7 @@ struct HomeViewMenuItems: View {
                 let fields: [FavoritesSortOption.Field] = home.openedCollectionID == nil
                     ? FavoritesSortOption.Field.withoutTitle
                     : [.name, .title, .dateAdded, .dateCreated, .dateModified]
-                ForEach(fields) { field in
+                ForEach(fields) { [appState] field in
                     Toggle(field.titleKey, isOn: Binding(
                         get: { [home] in home.shelfSort.field == field },
                         set: { [weak appState, home] _ in
@@ -391,7 +397,7 @@ struct HomeViewMenuItems: View {
                     ))
                 }
                 Divider()
-                ForEach([true, false], id: \.self) { ascending in
+                ForEach([true, false], id: \.self) { [appState] ascending in
                     Toggle(ascending ? LocalizedStringKey("Ascending") : LocalizedStringKey("Descending"), isOn: Binding(
                         get: { [home] in home.shelfSort.isAscending == ascending },
                         set: { [weak appState, home] _ in
@@ -417,7 +423,7 @@ struct HomeViewMenuItems: View {
 
         // リストの列(見出しの右クリックと同じ。名前の列は隠せない)。
         Menu("Columns") {
-            ForEach(FileBrowserListView.Column.allCases.filter(\.isHideable), id: \.self) { column in
+            ForEach(FileBrowserListView.Column.allCases.filter(\.isHideable), id: \.self) { [appState] column in
                 Toggle(String(localized: column.title), isOn: Binding(
                     get: { [home] in !home.hiddenListColumns.contains(column.rawValue) },
                     set: { [weak appState] _ in
