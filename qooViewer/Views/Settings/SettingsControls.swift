@@ -362,6 +362,8 @@ struct SettingsPicker<Value: SettingsOption>: View {
     private let title: LocalizedStringKey
     private let help: LocalizedStringKey?
     @Binding private var selection: Value
+    /// いちばん長い選択肢の幅(`widthProbe`が測る)。選ぶたびにボタンの幅が動かないように使う。
+    @State private var widestTitleWidth: CGFloat?
 
     /// - Parameters:
     ///   - title: 項目名(例: 「開始ページ」)。
@@ -389,21 +391,60 @@ struct SettingsPicker<Value: SettingsOption>: View {
                 .pickerStyle(.inline)
                 .labelsHidden()
             } label: {
-                // 選択中の項目だけを表示すると、選ぶたびにボタンの幅が変わってしまう。
-                // すべての選択肢を重ねて置き(非表示)、いちばん長い項目の幅を確保しておくことで、
-                // どれを選んでもボタンの大きさが動かない(NSPopUpButtonと同じ振る舞い)。
-                ZStack(alignment: .leading) {
-                    ForEach(Array(Value.allCases)) { option in
-                        Text(option.shortTitleKey)
-                            .lineLimit(1)
-                            .hidden()
-                    }
-                    Text(selection.shortTitleKey)
-                        .lineLimit(1)
-                }
+                // **ラベルに置く`Text`は1つだけ**(理由はwidthProbeのコメント)。
+                // 選ぶたびにボタンの幅が動かないよう、いちばん長い選択肢の幅を下限にしておく
+                // (NSPopUpButtonと同じ振る舞い。幅を測るのはwidthProbe)。
+                Text(selection.shortTitleKey)
+                    .lineLimit(1)
+                    .frame(minWidth: widestTitleWidth, alignment: .leading)
             }
+            .background(alignment: .topLeading) { widthProbe }
             .accessibilityLabel(Text(title))
             .accessibilityValue(Text(selection.shortTitleKey))
+        }
+    }
+
+    /// いちばん長い選択肢の幅を測るだけの、見えないビュー。
+    ///
+    /// ■ なぜ`Menu`のラベルの中で幅を確保しないのか(2026-09-16、利用者からの報告)
+    /// 以前はラベルの中で全選択肢の`Text`を`ZStack`で重ね、選択中のもの以外を`.hidden()`にして
+    /// いちばん長い項目の幅を確保していた。ところが **macOS 27 で、閉じたボタンに常に「先頭の選択肢」の
+    /// 名前が出る**ようになった ―― 設定そのものは変わる(背景色なら実際の背景は変わる)ので、
+    /// **見た目だけが嘘をつく**という分かりにくい壊れ方をする。
+    ///
+    /// 原因はアプリではなくOS側で、macOS 27 のリリースノートに
+    /// "Bordered `Menu` and `Picker` buttons now support better label customization and no longer use
+    /// `NSPopUpButton` in their implementation." とある。壊れるのは
+    /// **macOS 26 SDK で組んだアプリが macOS 27 で走るときの旧経路**だけで、Xcode 27(macOS 27 SDK)で
+    /// 組み直せば直る(報告者が実測)。旧経路はラベルのビューをそのまま描かず、**先頭の`Text`を題として
+    /// 抜き出す**ため、`.hidden()`が失われて先頭の選択肢が出ていた(SwiftUIがメニューの`Text`を
+    /// 題・副題へ写す既知の平坦化規則と同じ形。`Text`が1つだけの`SettingsPickerRow`は無事だった)。
+    ///
+    /// 組むSDKで直るとはいえ、**ラベルに`Text`を2つ以上置かない**作りにしておけば、この手の
+    /// 「ラベルから文字列を抜き出す」経路に振り回されない。そこで幅の確保だけを`Menu`の**外**(背景)へ
+    /// 追い出してある ―― 背景はラベルではないので抜き出しの対象にならず、レイアウトの大きさにも
+    /// 影響しない。`.fixedSize()`で親の提案を無視させ、理想の幅(=いちばん長い選択肢の幅)を測る。
+    ///
+    /// ■ ただし macOS 26 では幅の確保そのものが効かない(2026-09-16、実測)
+    /// `Menu`は**ラベルに付けた幅指定を無視して中身の幅で描く**。最小の再現アプリで測ると、
+    /// いちばん長い選択肢が133ptあるのにボタンは80pt(`.button`)/39pt(`.borderlessButton`)だった。
+    /// 実アプリの「背景色」でも、選ぶ項目に応じて60〜120ptの間で動く ―― これは**この変更の前から
+    /// 同じ**で(旧実装と新実装で同じ値を測った)、以前のZStackによる確保も26では効いていなかった。
+    /// それでもこの測定を残してあるのは、自前で枠を描く macOS 15 の経路では効く可能性があり、
+    /// 効かないOSでも害が無いため。「幅が動く」ことを直しにいくなら、ここではなく
+    /// `SettingsPopUp`(`PopUpWidth`)側で固定幅を渡す話になる。
+    private var widthProbe: some View {
+        ZStack(alignment: .leading) {
+            ForEach(Array(Value.allCases)) { option in
+                Text(option.shortTitleKey)
+                    .lineLimit(1)
+            }
+        }
+        .fixedSize()
+        .hidden()
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+            // 表示言語を切り替えると選択肢の文字列ごと変わるので、測り直しに追従する。
+            widestTitleWidth = width
         }
     }
 }

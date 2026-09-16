@@ -52,7 +52,10 @@ do not assume one exists.
 **Distribution builds are made with Xcode 27 (macOS 27 SDK)** — moved from Xcode 26.6 on 2026-09-16 because an app
 linked against the macOS 26 SDK stops showing the current value on the Settings pop-ups when run on macOS 27 (an OS-side
 problem in the old-SDK path, not this app's code; details in `docs/09-ui-and-windows.md`「環境設定」). Xcode 27 runs on
-macOS 26.6+, and the macOS 15.0 deployment target is unchanged. Swift 6.4 added `#ImplicitStrongCapture`, which flags a
+macOS 26.6+, and the macOS 15.0 deployment target is unchanged. **A `Menu`'s `label:` must hold exactly one `Text`** —
+that old path extracts the first `Text` as the title instead of drawing the label, so the hidden `Text`s that reserved
+the widest option's width made every Settings pop-up read "the first option"; the width measurement now sits outside the
+`Menu` (`SettingsPicker.widthProbe`). Swift 6.4 added `#ImplicitStrongCapture`, which flags a
 `[weak x]` capture whose outer closure captures the same thing implicitly and strongly; silence it by making the outer
 capture explicit, never by dropping the inner `weak`.
 
