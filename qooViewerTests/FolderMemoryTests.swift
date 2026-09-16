@@ -74,7 +74,48 @@ struct FolderMemoryTests {
         // 未接続のボリュームで秒単位ブロックしうる解決を、環境設定の画面のためだけに走らせない。
         #expect(subject.lastFolderPath() == fixture.alpha.path)
         #expect(fixture.suite.storedDomain["test.withPath.path"] as? String == fixture.alpha.path)
-        #expect(subject.defaultsKeys == ["test.withPath", "test.withPath.path"])
+        #expect(subject.defaultsKeys == ["test.withPath", "test.withPath.path", "test.withPath.panelDirectory"])
+    }
+
+    // フォルダを選ぶパネルの開始位置(2026-09-17、よく使う項目の「＋」に揃えた)。選んだフォルダの中に入った状態で開かない。
+
+    @Test("前回パネルを閉じた時点で見ていた場所から始める(選んだフォルダの中ではない)")
+    func theFolderPanelStartsWhereThePanelWasClosed() throws {
+        let fixture = try Fixture("folder-memory-panel-start")
+        let subject = memory(fixture)
+        subject.remember(fixture.alpha, panelDirectory: fixture.temporary.url)
+        #expect(subject.folderPanelStartDirectory()?.path == fixture.temporary.url.path)
+        // 前回選んだものと同じ保存先を渡されたときも同じ。
+        #expect(subject.folderPanelStartDirectory(current: fixture.alpha)?.path == fixture.temporary.url.path)
+    }
+
+    @Test("選んだフォルダの中まで入って決めたなら、その中から始める")
+    func theFolderPanelStartsInsideWhenItWasClosedInside() throws {
+        let fixture = try Fixture("folder-memory-panel-inside")
+        let subject = memory(fixture)
+        subject.remember(fixture.alpha, panelDirectory: fixture.alpha)
+        #expect(subject.folderPanelStartDirectory()?.path == fixture.alpha.path)
+    }
+
+    @Test("前回このパネルで選んだものと違う保存先を渡されたら、その親から始める")
+    func aDifferentCurrentFolderStartsAtItsParent() throws {
+        let fixture = try Fixture("folder-memory-panel-other")
+        let subject = memory(fixture)
+        let inner = try fixture.temporary.directory("beta/inner")
+        subject.remember(fixture.alpha, panelDirectory: fixture.alpha)
+        #expect(subject.folderPanelStartDirectory(current: inner)?.path == fixture.beta.path)
+    }
+
+    @Test("閉じた場所を覚えていない(以前に選んだ・場所を渡さずに覚え直した)なら、選んだフォルダの親から始める")
+    func withoutAPanelDirectoryTheParentIsUsed() throws {
+        let fixture = try Fixture("folder-memory-panel-legacy")
+        let subject = memory(fixture)
+        let inner = try fixture.temporary.directory("alpha/inner")
+        subject.remember(fixture.beta, panelDirectory: fixture.beta)
+        // 場所を渡さずに覚え直すと、前の選択のときの場所は残らない。
+        subject.remember(inner)
+        #expect(subject.folderPanelStartDirectory()?.path == fixture.alpha.path)
+        #expect(memory(fixture, key: "test.nothing").folderPanelStartDirectory() == nil)
     }
 
     @Test("覚え直すと上書きされる")
@@ -87,17 +128,18 @@ struct FolderMemoryTests {
         #expect(subject.lastFolderPath() == fixture.beta.path)
     }
 
-    @Test("忘れると 2 つのキーが両方消える(「初期設定に戻す」がここまで届くように)")
+    @Test("忘れるとキーが全部消える(「初期設定に戻す」がここまで届くように)")
     func forgettingClearsBothKeys() throws {
         let fixture = try Fixture("folder-memory-forget")
         let subject = memory(fixture, key: "test.forgetting")
-        subject.remember(fixture.alpha)
+        subject.remember(fixture.alpha, panelDirectory: fixture.temporary.url)
         subject.forget()
 
         #expect(subject.lastFolder() == nil)
         #expect(subject.lastFolderPath() == nil)
         #expect(fixture.suite.storedDomain["test.forgetting"] == nil)
         #expect(fixture.suite.storedDomain["test.forgetting.path"] == nil)
+        #expect(fixture.suite.storedDomain["test.forgetting.panelDirectory"] == nil)
     }
 
     @Test("用途ごとに別のキーで、お互いに干渉しない")
@@ -119,7 +161,8 @@ struct FolderMemoryTests {
     func theShippedKeysAreFrozen() {
         #expect(LastUsedFolderMemory.libraryIO.defaultsKeys
                 == ["qooViewer.pref.lastLibraryIOFolderBookmark",
-                    "qooViewer.pref.lastLibraryIOFolderBookmark.path"])
+                    "qooViewer.pref.lastLibraryIOFolderBookmark.path",
+                    "qooViewer.pref.lastLibraryIOFolderBookmark.panelDirectory"])
         #expect(LastUsedFolderMemory.epubExport.defaultsKeys.first
                 == "qooViewer.pref.lastEpubExportFolderBookmark")
         #expect(LastUsedFolderMemory.pdfExport.defaultsKeys.first

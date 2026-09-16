@@ -44,6 +44,8 @@ struct CollectionAutoFolderRow: View {
     /// 1文字ごとに描き直されるので、落ちたネットワーク共有のパスを打つと1文字ごとに
     /// メインが止まる。確認はメインアクターの外で行い、結果だけをここへ写す。
     @State private var folderExists: Bool?
+    /// 「選択…」で最後に選んだフォルダと、パネルを閉じた時点で見ていた場所(`panelStartDirectory`)。
+    @State private var lastChoice: (chosen: URL, panelDirectory: URL)?
 
     /// この行が出す注意書き。上から順に見て、最初に当てはまったものだけを1行出す。
     private enum Advice {
@@ -182,7 +184,7 @@ struct CollectionAutoFolderRow: View {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.directoryURL = folder
+        panel.directoryURL = panelStartDirectory()
         panel.prompt = String(localized: "Choose", language: locale)
         panel.message = String(
             localized: "Choose a folder. Books added to it are added to this collection automatically.",
@@ -193,6 +195,20 @@ struct CollectionAutoFolderRow: View {
         // (自前でstartAccessing…しないこと。FolderAccessStore参照)。
         folderAccess.add(url: chosen)
         folder = chosen
+        lastChoice = (chosen, panel.directoryURL ?? chosen.deletingLastPathComponent())
+    }
+
+    /// 「選択…」のパネルをどこから始めるか。
+    ///
+    /// 以前はいまのフォルダそのものから始めていたので、隣のフォルダに替えるにも一度上がる必要があった(2026-09-17、ユーザー指摘)。
+    /// よく使う項目の「＋」(FileBrowserActions.addFavoriteLocation)に揃えて、この欄のフォルダが直前にパネルで選んだままなら
+    /// そのとき閉じた場所から、そうでなければ(打った・落とした・シートを開き直した)フォルダの親から始める。
+    private func panelStartDirectory() -> URL? {
+        guard let folder else { return nil }
+        if let lastChoice, lastChoice.chosen.standardizedFileURL.path == folder.standardizedFileURL.path {
+            return lastChoice.panelDirectory
+        }
+        return folder.deletingLastPathComponent()
     }
 
     /// 落とされたものからフォルダを1つだけ採る(ファイルは無視する ―― ここが受けるのは

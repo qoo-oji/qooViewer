@@ -548,11 +548,9 @@ struct ExportWindowContent<Options: View>: View {
         panel.allowsMultipleSelection = false
         panel.prompt = String(localized: "Choose", language: locale)
         panel.message = configuration.destinationPanelMessage(locale)
-        if let lastFolder = configuration.lastUsedFolder.lastFolder() {
-            panel.directoryURL = lastFolder
-        }
+        panel.directoryURL = configuration.lastUsedFolder.folderPanelStartDirectory()
         guard panel.runModal() == .OK, let destination = panel.url else { return }
-        configuration.lastUsedFolder.remember(destination)
+        configuration.lastUsedFolder.remember(destination, panelDirectory: panel.directoryURL)
         // パネルで今まさに選んだフォルダには既に権限が付いているので、開き直す必要は無い。
         startExport(to: destination, isSecurityScoped: false, locale: locale)
     }

@@ -262,7 +262,9 @@ struct OpenBookExportSheet: View {
 /// 初期位置として記憶する(LastUsedFolderMemory)。
 @MainActor
 enum ExportDestinationPanel {
-    /// - Parameter startingAt: パネルを開く位置。nilならこの形式で前回選んだフォルダ。
+    /// - Parameter startingAt: いま選ばれている保存先(シートの「変更…」)。前回このパネルで選んだものなら前回パネルを閉じた場所、
+    ///   違えばその親から開く(中に入った状態で開かないように。`LastUsedFolderMemory.folderPanelStartDirectory(current:)`)。
+    ///   nilならこの形式で前回パネルを閉じた場所。
     /// - Returns: 選ばれたフォルダ。キャンセルされたらnil。
     static func present(for format: BookExportFormat, startingAt: URL?, locale: Locale) -> URL? {
         let panel = NSOpenPanel()
@@ -271,11 +273,9 @@ enum ExportDestinationPanel {
         panel.allowsMultipleSelection = false
         panel.prompt = String(localized: "Choose", language: locale)
         panel.message = String(localized: "Choose a destination folder for the exported book.", language: locale)
-        if let current = startingAt ?? format.lastUsedFolder.lastFolder() {
-            panel.directoryURL = current
-        }
+        panel.directoryURL = format.lastUsedFolder.folderPanelStartDirectory(current: startingAt)
         guard panel.runModal() == .OK, let folder = panel.url else { return nil }
-        format.lastUsedFolder.remember(folder)
+        format.lastUsedFolder.remember(folder, panelDirectory: panel.directoryURL)
         return folder
     }
 }

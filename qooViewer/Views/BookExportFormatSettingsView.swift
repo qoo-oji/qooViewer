@@ -151,11 +151,11 @@ struct BookExportFormatSettingsView: View {
         panel.message = String(
             localized: "Choose the folder to always export to.", language: locale
         )
-        if let current = format.fixedFolder.lastFolder() ?? format.lastUsedFolder.lastFolder() {
-            panel.directoryURL = current
-        }
+        // 固定の保存先そのものの中からは開かない(LastUsedFolderMemory.folderPanelStartDirectory(current:))。
+        panel.directoryURL = format.fixedFolder.folderPanelStartDirectory()
+            ?? format.lastUsedFolder.folderPanelStartDirectory()
         guard panel.runModal() == .OK, let folder = panel.url else { return false }
-        format.fixedFolder.remember(folder)
+        format.fixedFolder.remember(folder, panelDirectory: panel.directoryURL)
         fixedFolderGeneration &+= 1
         return true
     }

@@ -21,6 +21,8 @@ struct LastUsedFolderMemory {
     /// 表示用のパスを保存するキー(lastFolderPath()参照)。ブックマークのキーから派生させて
     /// おくことで、用途を1つ足すたびに2つのキーを考えずに済む。
     private var pathDefaultsKey: String { defaultsKey + ".path" }
+    /// フォルダを選ぶパネルを閉じた時点で見ていた場所のパス(`folderPanelStartDirectory(current:)`)。
+    private var panelDirectoryDefaultsKey: String { defaultsKey + ".panelDirectory" }
 
     init(defaultsKey: String, defaults: UserDefaults = .standard) {
         self.defaultsKey = defaultsKey
@@ -35,13 +37,48 @@ struct LastUsedFolderMemory {
         )
     }
 
-    func remember(_ folderURL: URL) {
+    /// - Parameter panelDirectory: フォルダを選ぶパネルなら、閉じた時点で見ていた場所(`NSOpenPanel.directoryURL`)。
+    ///   次に開くときの位置になる(`folderPanelStartDirectory(current:)`)。
+    func remember(_ folderURL: URL, panelDirectory: URL? = nil) {
         guard let data = try? folderURL.bookmarkData(
             options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil
         ) else { return }
         defaults.set(data, forKey: defaultsKey)
         // 表示用のパスも一緒に控える(lastFolderPath()のコメント参照)。
         defaults.set(folderURL.path, forKey: pathDefaultsKey)
+        // 前の選択のときの場所を、新しい選択と組にして残さない。
+        if let panelDirectory {
+            defaults.set(panelDirectory.path, forKey: panelDirectoryDefaultsKey)
+        } else {
+            defaults.removeObject(forKey: panelDirectoryDefaultsKey)
+        }
+    }
+
+    /// フォルダを選ぶパネル(`remember(_:panelDirectory:)` で覚えた用途)をどこから始めるか。
+    ///
+    /// 以前は覚えたフォルダそのものから始めていたので、FolderA の中で FolderB を選ぶと、次のパネルが FolderB の**中に入った状態**で
+    /// 開いた(2026-09-17、ユーザー指摘)。よく使う項目の「＋」(FileBrowserActions.addFavoriteLocation)に揃えて、
+    /// **前回パネルを閉じた時点で見ていた場所**から始める。FolderB の中まで入って何も選ばずに決めたなら FolderB の中から。
+    ///
+    /// - Parameter current: 呼び出し側がいま選ばれているとして持っているフォルダ(書き出しシートの保存先など)。前回このパネルで
+    ///   選んだものと違えば(固定の保存先・別の経路で決まったもの)、その場所は前回のパネルと関係が無いので、その親から始める。
+    /// - Returns: 覚えた場所が無い(この仕組みより前に選んだ)なら、覚えたフォルダの親。何も無ければ nil。
+    ///
+    /// 見ていた場所は**パスで**持つ: パネルは別のプロセスで動くので、開始位置に権限は要らない。親フォルダには権限が無いので、
+    /// セキュリティスコープ付きのブックマークは作れない。
+    func folderPanelStartDirectory(current: URL? = nil) -> URL? {
+        let chosenPath = lastFolderPath()
+        if let current, chosenPath.map({ Self.samePath($0, current.path) }) != true {
+            return current.deletingLastPathComponent()
+        }
+        if let panelPath = defaults.string(forKey: panelDirectoryDefaultsKey) {
+            return URL(fileURLWithPath: panelPath, isDirectory: true)
+        }
+        return (current ?? lastFolder())?.deletingLastPathComponent()
+    }
+
+    private static func samePath(_ lhs: String, _ rhs: String) -> Bool {
+        URL(fileURLWithPath: lhs).standardizedFileURL.path == URL(fileURLWithPath: rhs).standardizedFileURL.path
     }
 
     /// 記憶しているフォルダのパス(**表示専用**)。
@@ -62,11 +99,12 @@ struct LastUsedFolderMemory {
     func forget() {
         defaults.removeObject(forKey: defaultsKey)
         defaults.removeObject(forKey: pathDefaultsKey)
+        defaults.removeObject(forKey: panelDirectoryDefaultsKey)
     }
 
     /// 「初期設定に戻す」がこの記憶ごと消せるように、使っているキーを公開する
     /// (AppPreferences.keys(for:)参照)。
-    var defaultsKeys: [String] { [defaultsKey, pathDefaultsKey] }
+    var defaultsKeys: [String] { [defaultsKey, pathDefaultsKey, panelDirectoryDefaultsKey] }
 }
 
 extension LastUsedFolderMemory {

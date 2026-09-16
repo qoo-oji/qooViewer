@@ -19,6 +19,9 @@ struct AutoRenameSettingsWindow: View {
 
     @State private var selection: UUID?
     @State private var sheet: SheetKind?
+    /// 「フォルダを追加…」で最後に足した対象(揃えたパス)と、パネルを閉じた時点で見ていた場所。規則の編集欄は規則ごとに
+    /// 作り直す(`.id(selection)`)ので、ウインドウの側で持つ(AutoRenameRuleEditor.panelStartDirectory)。
+    @State private var lastAddedTarget: AutoRenameRuleEditor.AddedTarget?
 
     enum SheetKind: String, Identifiable {
         case confirmation
@@ -140,7 +143,7 @@ struct AutoRenameSettingsWindow: View {
     private var detail: some View {
         Group {
             if let selection, store.rule(withID: selection) != nil {
-                AutoRenameRuleEditor(ruleID: selection)
+                AutoRenameRuleEditor(ruleID: selection, lastAddedTarget: $lastAddedTarget)
                     .id(selection)
             } else {
                 ContentUnavailableView {
@@ -273,8 +276,15 @@ private struct AutoRenameRuleEditor: View {
     @EnvironmentObject private var favorites: FavoriteLocationStore
     @Environment(\.locale) private var locale
     let ruleID: UUID
+    @Binding var lastAddedTarget: AddedTarget?
 
     @State private var addProblem: String?
+
+    struct AddedTarget {
+        /// 揃えたパス(`AutoRename.canonicalPath`)。
+        let path: String
+        let panelDirectory: URL
+    }
 
     private var rule: AutoRenameRule {
         store.rule(withID: ruleID) ?? AutoRenameRule(id: ruleID)
@@ -420,17 +430,38 @@ private struct AutoRenameRuleEditor: View {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.directoryURL = rule.targets.last?.url ?? favorites.items.first?.url
+        panel.directoryURL = panelStartDirectory()
         panel.prompt = String(localized: "Add", language: locale)
         panel.message = String(
             localized: "Choose a folder in Favorite Locations, or a folder inside one, to rename items in automatically.",
             language: locale
         )
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        let panelDirectory = panel.directoryURL ?? url.deletingLastPathComponent()
         Task {
             let result = await service.addTarget(folder: url, toRule: ruleID)
             addProblem = Self.message(for: result, locale: locale)
+            // 次の「フォルダを追加…」は、よく使う項目の「＋」と同じく**パネルを閉じた時点で見ていた場所**から始める
+            // (FileBrowserActions.addFavoriteLocation)。
+            if result == .added {
+                lastAddedTarget = AddedTarget(path: AutoRename.canonicalPath(of: url), panelDirectory: panelDirectory)
+            }
         }
+    }
+
+    /// 「フォルダを追加…」のパネルをどこから始めるか。
+    ///
+    /// 以前は最後の対象フォルダそのもの(`rule.targets.last?.url`)から始めていたので、FolderA の中で FolderB を選んで足すと、
+    /// 次のパネルが FolderB の**中に入った状態**で開いた(2026-09-17、ユーザー指摘。よく使う項目の「＋」で直したのと同じ症状)。
+    /// - この規則の最後の対象が、このウインドウで直前に足したものなら、そのときパネルを閉じた場所。
+    /// - そうでなければ(アプリを起動し直した・別の規則で足した・対象を消した)、最後の対象の親。対象が無ければ最初のよく使う項目。
+    ///   **ウインドウを閉じて開き直しても記憶は残る**(`Window` シーンは閉じてもビューの状態を保つ。2026-09-17 の実機で確認)。
+    private func panelStartDirectory() -> URL? {
+        guard let last = rule.targets.last else { return favorites.items.first?.url }
+        if let lastAddedTarget, lastAddedTarget.path == last.path {
+            return lastAddedTarget.panelDirectory
+        }
+        return last.url.deletingLastPathComponent()
     }
 
     static func message(for result: AutoRenameService.AddTargetResult, locale: Locale) -> String? {
