@@ -34,7 +34,8 @@ import SwiftUI
 /// ■ 外での変更(2026-09-14)
 /// Finder など外でフォルダを作った・消した・名前を変えたときも、**開いている行を FSEvents で見張って**読み直す
 /// (それまでは親をたたんで開き直すまで反映されなかった ―― 計画 §4.9)。見張るのは開いている行のうちいちばん上のものだけ
-/// (FSEvents は配下も知らせる)。変わった項目の**親の行**だけを読み直し、閉じている行は三角の有無だけ調べ直す。
+/// (FSEvents は配下も知らせる)。変わった項目の**親の行**だけを読み直し、閉じている行は三角の有無だけ調べ直す
+/// (変更日で並べているときは、さらにその親の行も読み直す ―― 中身の変わったフォルダは変更日が変わり、並びが変わる)。
 /// FSEvents はネットワークの共有では当てにならないので、アプリがアクティブになったときに共有の上の開いている行も読み直す。
 ///
 /// ■ 子の並び(環境設定、既定OFF。2026-09-14、ユーザー要望)
@@ -553,16 +554,26 @@ struct FileBrowserTreeView: NSViewRepresentable {
         /// 自分の操作で中身が変わったフォルダのうち、**開いていて子を読み終えている行だけ**を読み直す
         /// (段階3の既知の制限「たたんで開き直すまで反映されない」の手当て。閉じた行は次に開いたときに読む)。
         /// - Parameter folderIDs: nil はどこが変わったか分からない(取り消し・やり直し)。見えている行を全部見直す。
+        ///
+        /// **変更日で並べているときは、変わったフォルダの親の行も読み直す**(2026-09-17、ユーザー報告)。中身が変わったフォルダは
+        /// 自分の変更日も変わるので、親の行の子の並びが変わる。以前は変わったフォルダ自身とその中身しか読み直さなかったので、
+        /// 右ペインのフォルダから(親の違う)ツリーのサブフォルダへファイルを運んでも、運び先の親の行が並び替わらず、
+        /// たたんで開き直すまで古い順のままだった(操作の `affected` は運び先と運び元のフォルダだけ。FSEvents も
+        /// 運んだファイルのパスしか知らせない)。変わるのは変更日だけ(作成日は変わらず、フォルダはサイズを持たない)。
         private func reloadExpandedRows(in folderIDs: Set<String>?) {
             guard let outline else { return }
+            let parentIDs: Set<String> = childSort.key == .modificationDate
+                ? Set((folderIDs ?? []).map { ($0 as NSString).deletingLastPathComponent })
+                : []
             var collapsed: [Node] = []
             for row in 0..<outline.numberOfRows {
-                guard let node = outline.item(atRow: row) as? Node, node.loadsChildren,
-                      let url = node.url, folderIDs?.contains(FileBrowserState.id(for: url)) ?? true
-                else { continue }
+                guard let node = outline.item(atRow: row) as? Node, node.loadsChildren, let url = node.url else { continue }
+                let id = FileBrowserState.id(for: url)
+                let isChanged = folderIDs?.contains(id) ?? true
                 if outline.isItemExpanded(node) {
-                    if node.children != nil { loadChildren(of: node) }
-                } else if node.hasSubfolders != nil {
+                    // 親として並びだけ変わりうる行は、開いているときだけ読み直す(閉じた行の三角の有無は変わらない)。
+                    if isChanged || parentIDs.contains(id), node.children != nil { loadChildren(of: node) }
+                } else if isChanged, node.hasSubfolders != nil {
                     // 閉じている行も、中でフォルダを作った・運び込んだ・運び出したなら三角の有無が変わる。
                     collapsed.append(node)
                 }
