@@ -298,6 +298,18 @@ final class ViewerViewModel: ObservableObject {
     /// 本を開いた直後に投げるTask(最初の表示・本全体の横長判定・自動レイアウト・ファイル側の
     /// 取り込み)の控え。`settle()`が待ち合わせるためだけに持つ ―― アプリの動作には関与しない。
     private var startupTasks: [Task<Void, Never>] = []
+    /// reloadLayoutData・toggleContrastCorrectionが投げる「同じ位置の描き直し」のTask
+    /// (loadCurrentSpreadを呼ぶもの)。終わったものは自分で外れる。これもアプリの動作には関与せず、
+    /// `settle()`とreleaseResources()が手を届かせるためだけに持つ。
+    ///
+    /// 経緯(CI、2026-09-18): 以前はこの2か所のTaskを誰も持っておらず、`settle()`から見えなかった。
+    /// layoutDataChangeObserverは送信元を問わず購読しているため、並行して走る別のテストの
+    /// LayoutStoreがbookID無しの通知を投げると、開いた直後のこのビューアでもデバウンス →
+    /// reloadLayoutData → 描き直しのTaskが走る。その読み込みが最初の表示(startupTasks)より後に
+    /// 世代(loadGeneration)を進めると、最初の表示は結果を捨て、`settle()`は「世代がもう進まない」
+    /// ことだけを見て描き直しの途中で戻っていた(currentImagesが空のままページ送りし、歩幅が1になる)。
+    private var redrawTasks: [Int: Task<Void, Never>] = [:]
+    private var nextRedrawTaskID = 0
     private var pageFlipQueue: [Int] = []
     private var pageFlipTask: Task<Void, Never>?
     /// ページめくりアニメーションの世代番号。cancelPendingPageFlip()のたびに増やし、
@@ -900,13 +912,20 @@ final class ViewerViewModel: ObservableObject {
             let pending = startupTasks
             startupTasks = []
             let flip = pageFlipTask
+            // レイアウト変更通知のデバウンス(約1フレーム)は、時間で待つのではなくTaskの完了を待つ。
+            // 終わるとreloadLayoutDataが描き直しのTask(redrawTasks)を積むので、そちらより先に待つ。
+            let debounce = layoutReloadDebounceTask
             // reloadTaskは終わってもnilに戻らない(「前のを止める」ためだけのハンドル)ので、
             // 待ち終えたかどうかは表示の世代(loadGeneration)が進んだかどうかで見る。
             let generationBefore = loadGeneration
             await flip?.value
+            await debounce?.value
             await reloadTask?.value
             for task in pending { await task.value }
-            if pending.isEmpty, flip == nil, startupTasks.isEmpty, pageFlipTask == nil,
+            let redraws = Array(redrawTasks.values)
+            for task in redraws { await task.value }
+            if pending.isEmpty, flip == nil, debounce == nil, redraws.isEmpty, startupTasks.isEmpty,
+               pageFlipTask == nil, layoutReloadDebounceTask == nil, redrawTasks.isEmpty,
                loadGeneration == generationBefore {
                 return
             }
@@ -933,6 +952,8 @@ final class ViewerViewModel: ObservableObject {
         highResolutionSourceLoadTask = nil
         layoutReloadDebounceTask?.cancel()
         layoutReloadDebounceTask = nil
+        for task in redrawTasks.values { task.cancel() }
+        redrawTasks = [:]
         wideImageCache.removeAll()
         // 表示中の画像そのものもここで手放す(監査で指摘)。PageLoaderのキャッシュを空けても、
         // この3つが残っているとピクセルバッファ本体は解放されない(PagePixelBuffer.makeImage()が
@@ -1434,13 +1455,28 @@ final class ViewerViewModel: ObservableObject {
             layoutStore.setContrastCorrectionEnabled(for: book, newValue)
         }
         let loader = pageLoader
-        Task { [weak self] in
+        startRedraw { viewer in
             await loader.setContrastCorrectionEnabled(newValue)
             // reloadLayoutDataと同じ理由でignorePreviousDisplayedRange: true。ここも
             // 「同じ位置の描き直し」であってページ送りではないため、直前に表示していたページ
             // (=いま描き直そうとしている見開きそのもの)を相方から外してはいけない
             // (reloadLayoutDataの経緯のコメント参照)。
-            await self?.loadCurrentSpread(ignorePreviousDisplayedRange: true)
+            await viewer.loadCurrentSpread(ignorePreviousDisplayedRange: true)
+        }
+    }
+
+    /// 「同じ位置の描き直し」のTaskを投げ、終わるまでredrawTasksに控えておく(redrawTasksのコメント参照)。
+    /// 以前の`Task { [weak self] in guard let self else { return } ... }`と同じく、selfは弱く捕まえて
+    /// 走り出す時点で取り直す(閉じた本のビューアを描き直しのためだけに生かさない)。
+    private func startRedraw(_ body: @escaping @MainActor (ViewerViewModel) async -> Void) {
+        let id = nextRedrawTaskID
+        nextRedrawTaskID &+= 1
+        // メインアクター上で作ったTaskは、この関数が戻るまで走り出さない。
+        // 下の辞書への登録は、Task自身の後始末(登録の削除)より必ず先に済む。
+        redrawTasks[id] = Task { [weak self] in
+            guard let self else { return }
+            await body(self)
+            self.redrawTasks[id] = nil
         }
     }
 
@@ -2929,30 +2965,28 @@ final class ViewerViewModel: ObservableObject {
         // ページ一覧を作り直した場合(updatedBookがある側)は、lastDisplayedPageRangeの
         // インデックス自体が古い並びを指していて意味を失っているため、なおさら参照しない。
         if let updatedBook {
-            Task { [weak self] in
-                guard let self else { return }
+            startRedraw { viewer in
                 // コントラスト補正設定が(他ウインドウ等から)変わっていれば、表示の再計算より
                 // 前にpageLoaderへ反映しておく(setContrastCorrectionEnabledがキャッシュを
                 // 消去するため、これより後にloadCurrentSpreadを呼ばないと古い見た目のまま
                 // キャッシュから返ってしまう)。
                 if newContrastCorrectionEnabled != previousContrastCorrectionEnabled {
-                    await self.pageLoader.setContrastCorrectionEnabled(newContrastCorrectionEnabled)
+                    await viewer.pageLoader.setContrastCorrectionEnabled(newContrastCorrectionEnabled)
                 }
                 // pageLoader(actor)側のindex基準の参照も、新しいbook.pagesの並びに揃える。
                 // 表示の再計算(loadCurrentSpread)より前に必ず終えておく必要があるため、
                 // 同じTask内で順番に行う。
-                await self.pageLoader.updateBook(updatedBook)
-                await self.loadCurrentSpread(ignorePreviousDisplayedRange: true)
+                await viewer.pageLoader.updateBook(updatedBook)
+                await viewer.loadCurrentSpread(ignorePreviousDisplayedRange: true)
             }
         } else {
             // 読み方向・見開き強制(この関数の冒頭で反映済み)や、focusPageKeyによる表示移動、
             // コントラスト補正設定が変わった可能性があるため、現在の表示を再計算する。
-            Task { [weak self] in
-                guard let self else { return }
+            startRedraw { viewer in
                 if newContrastCorrectionEnabled != previousContrastCorrectionEnabled {
-                    await self.pageLoader.setContrastCorrectionEnabled(newContrastCorrectionEnabled)
+                    await viewer.pageLoader.setContrastCorrectionEnabled(newContrastCorrectionEnabled)
                 }
-                await self.loadCurrentSpread(ignorePreviousDisplayedRange: true)
+                await viewer.loadCurrentSpread(ignorePreviousDisplayedRange: true)
             }
         }
     }

@@ -56,7 +56,10 @@ macOS 26.6+, and the macOS 15.0 deployment target is unchanged. **A `Menu`'s `la
 that old path extracts the first `Text` as the title instead of drawing the label, so the hidden `Text`s that reserved
 the widest option's width made every Settings pop-up read "the first option"; the width measurement now sits outside the
 `Menu` (`SettingsPicker.widthProbe`) and is applied on macOS 15 only — built with the macOS 27 SDK and run on macOS 27,
-the label is drawn as-is, so the reserved width left short options stuck at the left of a wide button (2026-09-18). Swift 6.4 added `#ImplicitStrongCapture`, which flags a
+the label is drawn as-is, so the reserved width left short options stuck at the left of a wide button (2026-09-18). Linking against the macOS 27 SDK also hides menu item images by default
+(ordinary images too, not just SF Symbols): the Open With app icons are forced visible (`NSMenuItem.showsImageOnMacOS27()`, wrapped in
+`#if compiler(>=6.4)` because CI's Xcode 26.6 lacks the API; `.labelStyle(.titleAndIcon)` in SwiftUI), and a two-axis `ScrollView`
+now puts smaller content top-leading (the Actual Size window centers it itself). Swift 6.4 added `#ImplicitStrongCapture`, which flags a
 `[weak x]` capture whose outer closure captures the same thing implicitly and strongly; silence it by making the outer
 capture explicit, never by dropping the inner `weak`.
 

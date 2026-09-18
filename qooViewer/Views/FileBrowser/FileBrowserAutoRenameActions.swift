@@ -42,15 +42,20 @@ extension FileBrowserActions {
     }
 
     /// 規則にこのフォルダを入れる・外す。
-    func toggleAutoRename(folder: URL, ruleID: UUID) {
-        guard let store = autoRenameStore, let service = autoRenameService else { return }
+    ///
+    /// 入れるほうはブックマークを作る I/O を挟むので非同期で、その Task を返す(外すほうはその場で済むので nil)。
+    /// メニューからは捨てる。返すのはテストが完了そのものを待つため ―― 以前のテストは保存されるまで
+    /// 5 秒を期限に時間で見張っていて、CI の混んだ機では期限を過ぎて落ちた(2026-09-18。docs/13 の「時間で待たない」)。
+    @discardableResult
+    func toggleAutoRename(folder: URL, ruleID: UUID) -> Task<Void, Never>? {
+        guard let store = autoRenameStore, let service = autoRenameService else { return nil }
         let path = AutoRename.canonicalPath(of: folder)
         if store.ruleContains(path: path, ruleID: ruleID) {
             store.removeTarget(path: path, fromRule: ruleID)
-            return
+            return nil
         }
-        guard allowsSaving, service.eligibility(ofFolder: folder) == .available else { return }
-        Task { [weak self] in
+        guard allowsSaving, service.eligibility(ofFolder: folder) == .available else { return nil }
+        return Task { [weak self] in
             let result = await service.addTarget(folder: folder, toRule: ruleID)
             guard result == .added else { return }
             self?.openAutoRenameSettings(selecting: ruleID)
@@ -58,9 +63,11 @@ extension FileBrowserActions {
     }
 
     /// 「このフォルダの規則を作る…」: このフォルダを対象に入れた規則を作って、設定ウインドウでそれを選ぶ。
-    func createAutoRenameRule(for folder: URL) {
-        guard allowsSaving, let store = autoRenameStore, let service = autoRenameService, let rule = store.addRule() else { return }
-        Task { [weak self] in
+    /// 返す Task は toggleAutoRename と同じくテストが完了を待つためのもの。
+    @discardableResult
+    func createAutoRenameRule(for folder: URL) -> Task<Void, Never>? {
+        guard allowsSaving, let store = autoRenameStore, let service = autoRenameService, let rule = store.addRule() else { return nil }
+        return Task { [weak self] in
             _ = await service.addTarget(folder: folder, toRule: rule.id)
             self?.openAutoRenameSettings(selecting: rule.id)
         }

@@ -709,6 +709,7 @@ final class FileBrowserMenuBuilder: NSObject {
                 // target は weak なので、箱は項目の representedObject に持たせて生かす。
                 item.representedObject = box
                 item.image = image
+                item.showsImageOnMacOS27()
                 item.isEnabled = isEnabled
                 menu.addItem(item)
             case .toggle(let title, let isOn, let isEnabled, let action):
@@ -781,7 +782,10 @@ struct FileBrowserMenuNodeItems: View {
                     action()
                 } label: {
                     if let image {
+                        // macOS 27 SDK ではメニューの画像が既定で隠れる(NSMenuItem.showsImageOnMacOS27 のコメント)。
+                        // SwiftUI 側は`.titleAndIcon`で表示を指定する(macOS 27 のリリースノートが示す方法)。
                         Label { Text(verbatim: title) } icon: { Image(nsImage: image) }
+                            .labelStyle(.titleAndIcon)
                     } else {
                         Text(verbatim: title)
                     }
@@ -821,3 +825,23 @@ struct FileBrowserDisabledSubmenu: View {
     }
 }
 
+extension NSMenuItem {
+    /// 画像を必ず表示させる。`FileBrowserMenuNode.item`の画像(「このアプリケーションで開く」のアプリアイコン)用。
+    ///
+    /// ■ macOS 27 SDK でリンクするとメニューの画像が既定で隠れる(2026-09-18、実機で確認)
+    /// macOS 27 から、メニューバーと右クリックメニューの項目の画像は AppKit が表示するかどうかを決め、
+    /// 既定では隠す。SF Symbols は 26 SDK 以降でリンクしたアプリから、アプリアイコンのような普通の画像も
+    /// **27 SDK でリンクしたアプリから**隠れる(macOS 27 リリースノート 170477566 / 179374305)。
+    /// Finder の「このアプリケーションで開く」は 27 でもアイコン付きなので、それに揃えて表示を指定する。
+    /// SF Symbols の項目(ほかのメニュー)は OS の新しい既定に任せ、ここは通さない。
+    ///
+    /// `preferredImageVisibility`は macOS 27 SDK にしかないので、`#if compiler`で 26 SDK(CI の Xcode 26.6)の
+    /// ビルドから外す。26 SDK でリンクしたビルドは普通の画像が隠れないので、外れても見た目は変わらない。
+    func showsImageOnMacOS27() {
+        #if compiler(>=6.4)
+        if #available(macOS 27.0, *) {
+            preferredImageVisibility = .visible
+        }
+        #endif
+    }
+}

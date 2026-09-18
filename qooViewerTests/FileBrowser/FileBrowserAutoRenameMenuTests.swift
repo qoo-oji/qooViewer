@@ -84,16 +84,16 @@ struct FileBrowserAutoRenameMenuTests {
         #expect(itemTitles == ["New Rule for This Folder…", "Auto Rename Settings…"])
         #expect(toggles().map(\.1) == [false])
 
-        fixture.actions.toggleAutoRename(folder: library, ruleID: rule.id)
-        let deadline = Date().addingTimeInterval(5)
-        while fixture.store.rule(withID: rule.id)?.targets.isEmpty == true, Date() < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        // 入れるほうはブックマークを作る I/O を挟む。時間で見張らず、その Task の完了を待つ
+        // (以前は 5 秒の期限で見張っていて、CI の混んだ機では期限を過ぎて落ちた)。
+        let adding = try #require(fixture.actions.toggleAutoRename(folder: library, ruleID: rule.id))
+        await adding.value
         #expect(fixture.store.rule(withID: rule.id)?.targets.first?.path == AutoRename.canonicalPath(library.path))
         #expect(fixture.store.rule(withID: rule.id)?.targets.first?.bookmark != nil)
         #expect(toggles().map(\.1) == [true])
 
-        fixture.actions.toggleAutoRename(folder: library, ruleID: rule.id)
+        // 外すほうはその場で済む(Task は返らない)。
+        #expect(fixture.actions.toggleAutoRename(folder: library, ruleID: rule.id) == nil)
         #expect(fixture.store.rule(withID: rule.id)?.targets.isEmpty == true)
     }
 
@@ -102,11 +102,8 @@ struct FileBrowserAutoRenameMenuTests {
         let fixture = try Fixture()
         let library = try fixture.temporary.directory("library")
         fixture.favorites.add(library)
-        fixture.actions.createAutoRenameRule(for: library)
-        let deadline = Date().addingTimeInterval(5)
-        while fixture.store.rules.first?.targets.isEmpty ?? true, Date() < deadline {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        let creating = try #require(fixture.actions.createAutoRenameRule(for: library))
+        await creating.value
         #expect(fixture.store.rules.count == 1)
         #expect(fixture.store.rules.first?.targets.map(\.path) == [AutoRename.canonicalPath(library.path)])
         #expect(fixture.service.requestedRuleID == fixture.store.rules.first?.id)

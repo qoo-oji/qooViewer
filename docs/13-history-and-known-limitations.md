@@ -486,6 +486,11 @@ suite の中身は [02](02-project-and-build.md#テストターゲットqooviewe
 - **待ち合わせの終わりは「Task が無い」では判定できない。** `reloadTask` は終わっても nil に
   戻らない(「前のを止める」ためだけのハンドル)ので、`settle()` は表示の世代
   (`loadGeneration`)が進んだかどうかで見る。`Task` は構造体なので `===` で同一性を比べられない。
+- **`settle()` が知らない Task があると、並行するほかのテストの通知で穴が開く**(2026-09-18、CI の macos-26 で
+  `theStepFollowsTheDisplayMode` が時々落ちた)。レイアウト変更の通知は送り元の本を問わず購読しているので、別の suite の
+  `LayoutStore` が bookID 無しの通知を出すと、開いた直後のビューアでもデバウンス → `reloadLayoutData` → 描き直しが走る。
+  描き直しの Task を誰も持っていなかったため、最初の表示が結果を捨てたあと `settle()` が描き直しの途中で戻っていた。
+  いまは描き直し(`startRedraw` の `redrawTasks`)とデバウンスの Task も待つ。**表示を動かす Task を足したら `settle()` にも足す。**
 - `hasSavedReadingState` は private のままにした。「初めて開く本として扱われたか」は
   保存された行(`lastPageIndex` が作りたての 0)と `needsResumeConfirmation` から見えるので、
   テストのために可視性を上げる必要は無かった ―― **口は必要なものだけ開ける**。
