@@ -29,8 +29,10 @@ struct FileBrowserOpenBookGuardTests {
         state.navigate(to: fixture.root)
         await state.settle()
         let book = try #require(state.entries.first { $0.url.lastPathComponent == "a.txt" })
-        var openPaths = [book.url.path]
-        state.operations.openBookPaths = { openPaths }
+        // 開いている本の一覧は箱に入れて差し替える(閉包が捕まえた変数を後から書き換えると、CI のコンパイラは
+        // 「sendable な閉包が捕まえた後の変更」として断る)。
+        let open = OpenPaths([book.url.path])
+        state.operations.openBookPaths = { open.paths }
 
         await state.operations.rename(book, to: "b.txt").value
         await state.operations.moveToTrash([book]).value
@@ -44,14 +46,20 @@ struct FileBrowserOpenBookGuardTests {
 
         // 開いている本を含むフォルダごとも断る。
         let folder = try #require(state.entries.first { $0.url.lastPathComponent == "inner" })
-        openPaths = [fixture.leaf.appendingPathComponent("x.txt").path]
+        open.paths = [fixture.leaf.appendingPathComponent("x.txt").path]
         await state.operations.rename(folder, to: "renamed").value
         #expect(FileManager.default.fileExists(atPath: fixture.inner.path))
         #expect(presenter.problems.count == 4)
 
-        openPaths = []
+        open.paths = []
         await state.operations.rename(book, to: "b.txt").value
         #expect(FileManager.default.fileExists(atPath: fixture.root.appendingPathComponent("b.txt").path))
         #expect(presenter.problems.count == 4)
+    }
+
+    @MainActor
+    private final class OpenPaths {
+        var paths: [String]
+        init(_ paths: [String]) { self.paths = paths }
     }
 }
