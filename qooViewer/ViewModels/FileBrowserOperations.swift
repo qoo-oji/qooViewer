@@ -47,9 +47,17 @@ final class FileBrowserOperations: ObservableObject {
     var canPutBack: @Sendable (URL) -> Bool = { FileBrowserOperations.canPutBack($0) }
     /// 帯を出すまでの猶予(一瞬で終わる操作で帯がちらつかないように)。
     var activityRevealDelay: Duration = .milliseconds(400)
+    /// ビューアで開いている本のパス(`MangaBook.pathsInUse`。全ウインドウ・全タブのぶん)。ペインが繋ぐ。
+    var openBookPaths: @MainActor () -> [String] = { [] }
 
     private var queueTail: Task<Void, Never>?
     private var activityCancellation: Cancellation?
+    /// 走っている・並んでいる操作の数。
+    private var pendingWorkCount = 0
+
+    /// 操作が走っているか(並んでいるものを含む)。`FileBrowserState.handleFileSystemChange` が、自分の操作の途中の知らせで一覧を
+    /// 読み直さないために見る。
+    var isBusy: Bool { pendingWorkCount > 0 }
 
     init() {}
 
@@ -67,6 +75,33 @@ final class FileBrowserOperations: ObservableObject {
     /// ファイルを変える操作を断るか(環境設定「読み取り専用」)。環境設定が届いていなければ断る側に倒す。
     var isReadOnly: Bool {
         state?.preferences?.fileBrowserReadOnly ?? true
+    }
+
+    // MARK: - 開いている本
+
+    /// **ビューアで開いている本は、名前の変更・移動・ゴミ箱を断る**(2026-09-19 の監査の H4、ユーザー決定)。自動リネームが開いている本を
+    /// 避けるのと同じ決まり(`AutoRenameService` の `inUsePaths`)。許すと、ウインドウの題と「次の本 / 前の本」が古い名前のまま迷子になり、
+    /// フォルダの本はページを読めなくなる。断るのは項目が開いている本そのもの・その祖先(フォルダごと動かす)・その中身(フォルダの本の
+    /// 中の画像)のとき。コピー・圧縮・展開は元を変えないので断らない。取り消し・やり直しは確かめない(受領書を一律に覗く口が無い)。
+    /// - Returns: 断ったら true(問題として見せ終えている)。
+    private func refusesBecauseOpenInViewer(_ urls: [URL]) -> Bool {
+        guard let conflict = Self.openBookConflict(among: urls, openBookPaths: openBookPaths()) else { return false }
+        let locale = AppLanguage.currentLocale
+        presenter?.showProblem(FileBrowserProblem(
+            title: String(format: String(localized: "“%@” is open in qooViewer.", language: locale), conflict.lastPathComponent),
+            message: String(localized: "Close the book, then try again.", language: locale)
+        ))
+        return true
+    }
+
+    /// `urls` のうち、開いている本に当たる最初の項目(`refusesBecauseOpenInViewer` のコメント)。
+    nonisolated static func openBookConflict(among urls: [URL], openBookPaths: [String]) -> URL? {
+        guard !openBookPaths.isEmpty else { return nil }
+        let open = openBookPaths.map(MountTable.normalized)
+        return urls.first { url in
+            let path = MountTable.normalized(url.path)
+            return open.contains { MountTable.path($0, isAtOrUnder: path) || MountTable.path(path, isAtOrUnder: $0) }
+        }
     }
 
     // MARK: - 取り消し・やり直し
@@ -160,8 +195,12 @@ final class FileBrowserOperations: ObservableObject {
         guard !isReadOnly else { return Task {} }
         let urls = readPasteboardURLs()
         guard !urls.isEmpty else { return Task {} }
-        let isMove = forceMove || (!(state?.cutPaths.isEmpty ?? true) && Self.paths(of: urls) == state?.cutPaths)
-        if isMove { state?.setCutPaths([]) }
+        // カットの記憶はアプリで 1 つ(別のウインドウでカットしたものも移動になる。FileCutClipboard の型コメント)。
+        let clipboard = state?.cutClipboard
+        clipboard?.validate(against: pasteboard)
+        let cutPaths = clipboard?.paths ?? []
+        let isMove = forceMove || (!cutPaths.isEmpty && Self.paths(of: urls) == cutPaths)
+        if isMove { clipboard?.clear() }
         return transfer(urls, to: folder, isMove: isMove)
     }
 
@@ -187,6 +226,7 @@ final class FileBrowserOperations: ObservableObject {
             let isInDestination = { (url: URL) in FileBrowserState.id(for: url.deletingLastPathComponent()) == destinationPath }
             // 自分のフォルダへの移動は何もしない(エンジンの決まり)ので、同じフォルダの項目は外す。
             var movers = moves.filter { !isInDestination($0) }
+            guard !self.refusesBecauseOpenInViewer(movers) else { return }
             let duplicates = copies.filter(isInDestination)
             var copiers = copies.filter { !isInDestination($0) }
             // **ロックされた項目の移動は先に尋ねる**(2026-09-14。以前は OS が断って「権限がありません」と出るだけだった)。
@@ -280,7 +320,7 @@ final class FileBrowserOperations: ObservableObject {
         guard !isReadOnly else { return Task {} }
         let selected = entries.filter { !$0.isVolume }.map(\.url)
         return enqueue { [weak self] in
-            guard let self, !selected.isEmpty else { return }
+            guard let self, !selected.isEmpty, !self.refusesBecauseOpenInViewer(selected) else { return }
             var urls = selected
             let hasTrash = self.hasTrash
             let canTrash = await FileIO.perform { TrashAvailability.hasTrash(forAll: selected, using: hasTrash) }
@@ -348,7 +388,7 @@ final class FileBrowserOperations: ObservableObject {
         return enqueue { [weak self] in
             guard let self else { return }
             let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard trimmed != url.lastPathComponent else { return }
+            guard trimmed != url.lastPathComponent, !self.refusesBecauseOpenInViewer([url]) else { return }
             // ロックされた項目は尋ねてから(移動と同じ。2026-09-14)。
             var unlocking = false
             if await FileIO.perform({ FileOperationService.isLocked(url) }) {
@@ -383,6 +423,7 @@ final class FileBrowserOperations: ObservableObject {
             .map(\.element.url)
         return enqueue { [weak self] in
             guard let self, let state = self.state, let first = targets.first else { return }
+            guard !self.refusesBecauseOpenInViewer(targets) else { return }
             let folder = first.deletingLastPathComponent()
             let folderID = FileBrowserState.id(for: folder)
             guard targets.allSatisfy({ FileBrowserState.id(for: $0.deletingLastPathComponent()) == folderID }) else { return }
@@ -551,9 +592,11 @@ final class FileBrowserOperations: ObservableObject {
         // 走っている操作の途中でウインドウを閉じると、後ろに並んでいた操作(ペースト・取り消し)が確認も報告も無く捨てられていた
         // (`detachFromWindow` の「並んでいる操作は止めない」と食い違う)。持つのは並んだ仕事が終わるまでだけ。
         let state = state
+        pendingWorkCount += 1
         let task = Task { @MainActor [self] in
             await previous?.value
             await work()
+            pendingWorkCount -= 1
             _ = (self, state)
         }
         queueTail = task
@@ -676,6 +719,9 @@ final class FileBrowserOperations: ObservableObject {
     ///   見直してもらう(以前は何も知らせず、取り消しで戻ったフォルダがツリーに出てこなかった。実機 2026-09-13)。
     private func didChangeFileSystem(affected: [URL] = [], selecting placed: [URL] = [], inUnknownScope: Bool = false) {
         guard let state else { return }
+        // エンジンが溜めた「変えた」の知らせを、待たずに配る(ほかのウインドウ・サイドパネル・棚・保存データ。`FileSystemChange` の型コメント)。
+        // 自分の状態は操作の途中なので読み直さず(`isBusy`)、下でいつもどおり読み直す。
+        state.changeCenter.flush()
         let current = FileBrowserState.id(of: state.currentFolder)
         let selectable = Set(placed.filter { FileBrowserState.id(for: $0.deletingLastPathComponent()) == current }
             .map(FileBrowserState.id(for:)))
@@ -697,7 +743,7 @@ final class FileBrowserOperations: ObservableObject {
         guard !urls.isEmpty else { return }
         pasteboard.clearContents()
         pasteboard.writeObjects(urls.map { $0 as NSURL })
-        state?.setCutPaths(cut ? Self.paths(of: urls) : [])
+        state?.cutClipboard.set(cut ? Self.paths(of: urls) : [], on: pasteboard)
     }
 
     private func readPasteboardURLs() -> [URL] {

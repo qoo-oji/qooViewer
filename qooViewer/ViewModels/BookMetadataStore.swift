@@ -287,6 +287,41 @@ final class BookMetadataStore: ObservableObject {
         saveAndNotify(bookID: book.id)
     }
 
+    /// 行のある本の `bookID`(アプリ自身が移した本の付け替えの材料。BookRelocationPlan)。
+    var knownBookIDs: Set<String> { Set(metadataByBookID().keys) }
+
+    /// アプリ自身が移した・名前を変えた本のメタデータを新しいパスへ付け替える(BookRelocationPlan の型コメント)。
+    /// - Returns: 付け替えた本の数。
+    @discardableResult
+    func applyBookRelocation(_ plan: BookRelocationPlan) -> Int {
+        let byBookID = metadataByBookID()
+        var relocated = 0
+        for (old, new) in plan.bookIDs {
+            guard let row = byBookID[old], byBookID[new] == nil else { continue }
+            row.bookID = new
+            if let locator = plan.locators[new] {
+                row.inodeNumber = locator.identifier?.inodeNumber
+                row.volumeDeviceNumber = locator.identifier?.volumeDeviceNumber
+                row.volumeUUID = locator.identifier?.volumeUUID
+                if let data = locator.bookmarkData { row.bookmarkData = data }
+            }
+            relocated += 1
+        }
+        guard relocated > 0 else { return 0 }
+        do {
+            try modelContext.save()
+            lastSaveErrorMessage = nil
+        } catch {
+            logSaveFailure("applyBookRelocation() failed: \(error)")
+        }
+        // 鍵(bookID)を書き換えたので、辞書のキャッシュは捨てて読み直す。
+        cachedByBookID = nil
+        registeredBookIDs = Set(metadataByBookID().keys)
+        revision &+= 1
+        NotificationCenter.default.post(name: .bookMetadataDidChange, object: self, userInfo: nil)
+        return relocated
+    }
+
     /// bookIDからこの本の実URLを解決する(LayoutStore.resolvedURLと同じ考え方)。
     /// セキュリティスコープ付きブックマークが無い/解決できない場合は素のパスへフォールバックし、
     /// どちらでもファイルが見つからなければnilを返す。

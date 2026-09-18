@@ -55,6 +55,9 @@ final class FolderChangeWatcher {
         /// フォルダが作られた・名前が変わった(移ってきた)。同じボリュームの中でフォルダごと移ってきたときは中身のイベントが来ない
         /// (docs/plans/auto-rename-study.md §9.1)ので、受けた側が配下を読む目印。フラグは積み重なって届くので、消えた側でも立ちうる。
         var isDirectoryCreatedOrRenamed: Bool = false
+        /// 項目が作られた・消えた・名前が変わった(中身の書き換えだけではない)。入っているフォルダの変更日が変わる種類の変化
+        /// (ファイルブラウザの右ペインが、直下のフォルダの行の日付と並びを直すために見る。2026-09-19 の監査の L1)。
+        var isStructuralChange: Bool = false
     }
 
     private let onChange: @Sendable ([Event]) -> Void
@@ -104,7 +107,10 @@ final class FolderChangeWatcher {
     /// 呼ばれても、ストリームを張り直さないようにするため)。空を渡すと監視を止める。
     ///
     /// **`async`なのは`FSEventStreamCreate`がブロックしうるため**(型コメント参照)。
-    func watch(_ paths: Set<String>) async {
+    /// - Parameter startingAt: **初めて張る**ストリームの起点(`FSEventsGetCurrentEventId()` で控えた値)。呼び出し側が一覧を読み始める
+    ///   **前に**控えて渡すと、読み始めてからストリームが立つまでの変更を取りこぼさない(2026-09-19 の監査の L3。以前は `SinceNow` で、
+    ///   生成を待つ間 ―― 応答しない共有が混ざると長い ―― の変更が一覧に出なかった)。パスの入れ替えでは使わない(止めた時点の ID が起点)。
+    func watch(_ paths: Set<String>, startingAt: FSEventStreamEventId? = nil) async {
         guard paths != watchedPaths else { return }
         stopStream()
         watchedPaths = paths
@@ -118,7 +124,8 @@ final class FolderChangeWatcher {
 
         let mine = generation
         let requested = Array(paths)
-        let sinceWhen = lastEventID
+        let isFirstStream = lastEventID == FSEventStreamEventId(kFSEventStreamEventIdSinceNow)
+        let sinceWhen = isFirstStream ? (startingAt ?? lastEventID) : lastEventID
         let handle = onChange
         let reportsPaths = reportsPaths
         let queue = deliveryQueue
@@ -236,10 +243,12 @@ private nonisolated let folderChangeCallback: FSEventStreamCallback = { _, info,
     )
     let directoryFlag = FSEventStreamEventFlags(kFSEventStreamEventFlagItemIsDir)
     let arrivalFlags = FSEventStreamEventFlags(kFSEventStreamEventFlagItemCreated | kFSEventStreamEventFlagItemRenamed)
+    let structuralFlags = arrivalFlags | FSEventStreamEventFlags(kFSEventStreamEventFlagItemRemoved)
     box.handle((0..<count).map {
         FolderChangeWatcher.Event(
             path: String(cString: pointers[$0]), mustScanSubdirectories: eventFlags[$0] & rescanFlags != 0,
-            isDirectoryCreatedOrRenamed: eventFlags[$0] & directoryFlag != 0 && eventFlags[$0] & arrivalFlags != 0
+            isDirectoryCreatedOrRenamed: eventFlags[$0] & directoryFlag != 0 && eventFlags[$0] & arrivalFlags != 0,
+            isStructuralChange: eventFlags[$0] & structuralFlags != 0
         )
     })
 }

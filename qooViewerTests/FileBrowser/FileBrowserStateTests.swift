@@ -272,6 +272,23 @@ struct FileBrowserStateTests {
         #expect(!FileBrowserState.changedPaths(["/Users/nobody/new.cbz"], touchFolderSpelledAs: []), "見張っていなければ読み直さない")
     }
 
+    @Test("直下のフォルダの中で項目が増減したら読み直す(変更日が変わる)。中身の書き換えだけ・もっと奥では読み直さない。あふれたら上でも下でも読み直す")
+    func structuralGrandchildChangesAndOverflowsReload() {
+        // 2026-09-19 の監査の L1・L4。
+        let spellings: Set<String> = ["/v/shelf"]
+        func reloads(_ event: FolderChangeWatcher.Event) -> Bool {
+            FileBrowserState.eventsRequireReload([event], ofFolderSpelledAs: spellings)
+        }
+        typealias Event = FolderChangeWatcher.Event
+        #expect(reloads(Event(path: "/v/shelf/sub/new.zip", mustScanSubdirectories: false, isStructuralChange: true)))
+        #expect(!reloads(Event(path: "/v/shelf/sub/growing.zip", mustScanSubdirectories: false)), "書き換えだけで読み直した")
+        #expect(!reloads(Event(path: "/v/shelf/sub/deep/new.zip", mustScanSubdirectories: false, isStructuralChange: true)))
+        #expect(reloads(Event(path: "/v/shelf/a.zip", mustScanSubdirectories: false)))
+        #expect(reloads(Event(path: "/v", mustScanSubdirectories: true)), "上であふれた")
+        #expect(reloads(Event(path: "/v/shelf/sub/deep", mustScanSubdirectories: true)), "下であふれた")
+        #expect(!reloads(Event(path: "/w", mustScanSubdirectories: true)))
+    }
+
     @Test("FSEvents はリンクを解いたパスで知らせるので、/var の下のフォルダは /private/var の書き方でも一致する")
     func watchedFolderSpellingsIncludeThePrivatePrefix() {
         let spellings = FileBrowserState.watchedFolderSpellings(of: URL(fileURLWithPath: "/var/qooViewer-nonexistent", isDirectory: true))

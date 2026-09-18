@@ -163,3 +163,15 @@ extension MangaBook {
         return String(localized: "\(title) (\(pages.count) images)", language: locale)
     }
 }
+
+extension MangaBook {
+    /// この本を開いている間、名前を変える・移す・消すと困るパス(2026-09-19 の監査の H4。FileBrowserOperations.openBookConflict)。
+    /// 本そのもの(フォルダ・書庫・PDF・EPUB)。画像ファイルを直接開いた本(`.imageFiles`)は、ページの画像ファイルそれぞれ。
+    var pathsInUse: [String] {
+        guard origin == .imageFiles else { return [sourceURL.path] }
+        return pages.compactMap { page in
+            if case .file(let url) = page.source { return url.path }
+            return nil
+        }
+    }
+}

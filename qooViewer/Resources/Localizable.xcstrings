@@ -292,6 +292,22 @@
         }
       }
     },
+    "Close the book, then try again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close the book, then try again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "本を閉じてから、もう一度試してください。"
+          }
+        }
+      }
+    },
     "Collection Settings…" : {
       "localizations" : {
         "en" : {
@@ -1732,6 +1748,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%1$@」を置き換えましたが、元の項目をゴミ箱に入れられませんでした。同じフォルダの中に、隠し項目「%2$@」として残っています。"
+          }
+        }
+      }
+    },
+    "“%@” is open in qooViewer." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” is open in qooViewer."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」はqooViewerで開いています。"
           }
         }
       }

@@ -226,6 +226,50 @@ final class LayoutStore: ObservableObject {
         saveAndNotify(bookID: book.id)
     }
 
+    /// 行のある本の `bookID`(アプリ自身が移した本の付け替えの材料。BookRelocationPlan)。
+    var knownBookIDs: Set<String> { Set(settingsByBookID().keys).union(overridesByBookID().keys) }
+
+    /// アプリ自身が移した・名前を変えた本のレイアウト(本ごとの設定とページ単位の指定)を新しいパスへ付け替える
+    /// (BookRelocationPlan の型コメント)。
+    /// - Returns: 付け替えた本の数。
+    @discardableResult
+    func applyBookRelocation(_ plan: BookRelocationPlan) -> Int {
+        let settings = settingsByBookID()
+        let overrides = overridesByBookID()
+        var relocated = 0
+        for (old, new) in plan.bookIDs {
+            guard settings[old] != nil || !(overrides[old] ?? []).isEmpty else { continue }
+            guard settings[new] == nil, (overrides[new] ?? []).isEmpty else { continue }
+            if let row = settings[old] {
+                row.bookID = new
+                if let locator = plan.locators[new] {
+                    row.inodeNumber = locator.identifier?.inodeNumber
+                    row.volumeDeviceNumber = locator.identifier?.volumeDeviceNumber
+                    row.volumeUUID = locator.identifier?.volumeUUID
+                    if let data = locator.bookmarkData { row.bookmarkData = data }
+                }
+            }
+            for override in overrides[old] ?? [] {
+                override.bookID = new
+                override.compositeKey = PageLayoutOverride.makeCompositeKey(bookID: new, pageKey: override.pageKey)
+            }
+            relocated += 1
+        }
+        guard relocated > 0 else { return 0 }
+        do {
+            try modelContext.save()
+            lastSaveErrorMessage = nil
+        } catch {
+            lastSaveErrorMessage = "qooViewer: LayoutStore.applyBookRelocation() failed: \(error)"
+        }
+        // 鍵(bookID)を書き換えたので、辞書のキャッシュは捨てて読み直す。
+        cachedSettingsByBookID = nil
+        cachedOverridesByBookID = nil
+        rebuildLayoutBookIDs()
+        NotificationCenter.default.post(name: .layoutDataDidChange, object: self, userInfo: nil)
+        return relocated
+    }
+
     /// ユーザー要望: JSONインポート(LibraryImportExportService)時、ファイルパスが古くなって
     /// いても、ファイルノード識別子(iノード番号)を手がかりに、ローカルに既に保存されている
     /// セキュリティスコープ付きブックマークから現在の実際のURLを解決できるようにしたい。

@@ -41,7 +41,7 @@ struct SidePanelBrowserStateTests {
         }
 
         /// 読み込みが片付くまで待つ。
-        func settle() async { await state.reloadTask?.value }
+        func settle() async { await state.settle() }
 
         /// 画像ファイルを**直接**開いた本(`MangaBook.BookOrigin.imageFiles`)。
         /// フォルダとして開くと `.fileSystem` になり、再アンカーの分岐が変わる。
@@ -286,17 +286,84 @@ struct SidePanelBrowserStateTests {
     func anUnreadableFolderAsksForAccessInsteadOfLookingEmpty() async throws {
         let fixture = try Fixture("browser-denied")
         await fixture.settle()
-        // 実在しない場所は列挙が失敗する ―― パネルは「その場から許可する」ボタンを出す。
-        fixture.state.navigate(into: fixture.temporary.file("does-not-exist"))
+        // 読む権限の無いフォルダは列挙が失敗する ―― パネルは「その場から許可する」ボタンを出す。
+        let locked = try fixture.temporary.directory("locked")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path) }
+        fixture.state.navigate(into: locked)
         await fixture.settle()
         #expect(fixture.state.entries.isEmpty)
         #expect(fixture.state.needsFolderAccessGrant)
         #expect(!fixture.state.currentDirectoryHasImages)
+        #expect(fixture.state.currentDirectory == locked)
 
         // 読める場所へ移れば印は下りる。
         fixture.state.navigate(into: fixture.root)
         await fixture.settle()
         #expect(!fixture.state.needsFolderAccessGrant)
+    }
+
+    @Test("表示していたフォルダが消えていたら、アクセス権の要求にせず、残っているいちばん近い祖先へ移る")
+    func aVanishedFolderRetreatsToTheNearestAncestor() async throws {
+        // 2026-09-19 の監査の H3: 以前は読み込みの失敗を全部「アクセス権が無い」として「アクセスを許可…」を出した。
+        let fixture = try Fixture("browser-vanished")
+        fixture.state.navigate(into: fixture.leaf)
+        await fixture.settle()
+        try FileManager.default.removeItem(at: fixture.inner)
+        fixture.state.reload()
+        await fixture.settle()
+        #expect(fixture.state.currentDirectory?.standardizedFileURL.path == fixture.root.standardizedFileURL.path)
+        #expect(!fixture.state.needsFolderAccessGrant)
+        #expect(Set(fixture.state.entries.map(\.url.lastPathComponent)) == ["images"])
+    }
+
+    @Test("アプリ自身がファイルを動かした知らせで、表示中のフォルダに関わるときだけ読み直す。フォルダの名前が変わったら付いていく")
+    func fileSystemChangesReloadAndFollow() async throws {
+        let temporary = try TemporaryDirectory("browser-changes")
+        let root = try temporary.directory("root")
+        let shelf = try temporary.directory("root/shelf")
+        let other = try temporary.directory("other")
+        let center = FileSystemChangeCenter()
+        let state = SidePanelBrowserState(changeCenter: center, observesSystem: false)
+        state.navigate(into: shelf)
+        await state.settle()
+        #expect(state.entries.isEmpty)
+
+        // 表示中のフォルダに本ができた。
+        let book = shelf.appendingPathComponent("a.zip")
+        try Data("a".utf8).write(to: book)
+        center.report(FileSystemChange(created: [book]))
+        center.flush()
+        await state.settle()
+        #expect(state.entries.map(\.url.lastPathComponent) == ["a.zip"])
+
+        // 関係の無いフォルダの変更では読み直さない(読み直していれば b.zip が出る)。
+        try Data("b".utf8).write(to: shelf.appendingPathComponent("b.zip"))
+        center.report(FileSystemChange(created: [other.appendingPathComponent("x.zip")]))
+        center.flush()
+        await state.settle()
+        #expect(state.entries.map(\.url.lastPathComponent) == ["a.zip"])
+
+        // 表示中のフォルダの名前が変わった → 付いていく。
+        let renamed = root.appendingPathComponent("renamed", isDirectory: true)
+        try FileManager.default.moveItem(at: shelf, to: renamed)
+        center.report(FileSystemChange(relocations: [.init(from: shelf, to: renamed)]))
+        center.flush()
+        await state.settle()
+        #expect(state.currentDirectory?.path == renamed.path)
+        #expect(Set(state.entries.map(\.url.lastPathComponent)) == ["a.zip", "b.zip"])
+
+        // 戻るの履歴の中のフォルダも付け替える。
+        state.navigate(into: other)
+        await state.settle()
+        let again = root.appendingPathComponent("again", isDirectory: true)
+        try FileManager.default.moveItem(at: renamed, to: again)
+        center.report(FileSystemChange(relocations: [.init(from: renamed, to: again)]))
+        center.flush()
+        state.goBack()
+        await state.settle()
+        #expect(state.currentDirectory?.path == again.path)
+        #expect(!state.needsFolderAccessGrant)
     }
 
     @Test("並べ替え設定を変えると、ディスクを読み直さずに今の一覧を並べ替える")

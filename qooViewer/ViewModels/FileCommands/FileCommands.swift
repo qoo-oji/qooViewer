@@ -6,8 +6,9 @@ import Foundation
 // 圧縮・展開(段階 6)は CompressFilesCommand / ExtractArchivesCommand。
 
 extension FileOperationService {
-    /// ファイルブラウザのコマンドが既定で使うインスタンス。状態を持たないので 1 つで足りる。
-    nonisolated static let shared = FileOperationService()
+    /// ファイルブラウザのコマンドと自動リネームが既定で使うインスタンス。状態を持たないので 1 つで足りる。
+    /// **変えたことをアプリ全体へ知らせるのはこれだけ**(`FileSystemChange` の型コメント)。
+    nonisolated static let shared = FileOperationService(changeObserver: { FileSystemChangeCenter.shared.report($0) })
 }
 
 /// 移動。取り消しは逆向きの移動で、**戻す先に何かできていたら壊さず `name 2` で戻す**(`.keepBoth`)。

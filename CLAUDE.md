@@ -150,7 +150,18 @@ become copy-only); tests inject a pseudo trash, a uniquely named pasteboard and 
 `rmdir` on an exFAT folder left with only `._` files hung the kernel (and Finder) during the 2026-09-15 audit — do not run such
 experiments on FAT/exFAT disk images from parallel agents. On FAT/exFAT `st_ctime` is just the modification date (measured
 2026-09-15), so "has the source changed" checks there compare size and mtime with the copy (`FileOperationService.SourceChangeCheck`),
-never ctime against the clock. Inline rename (list and icon view) is started only by the app, never by AppKit: name
+never ctime against the clock. **The app mutates the file system while it stays active** (file browser operations, undo/redo,
+auto rename), so "refresh on app activation" is not enough any more: every such change is reported from one place, `FileOperationService`'s
+`changeObserver` (only `FileOperationService.shared` is wired, to `FileSystemChangeCenter.shared`; both file-browser commands and
+`AutoRenameService` use `.shared`), as a `FileSystemChange` carrying old → new paths. Consumers: every `FileBrowserState` and
+`SidePanelBrowserState` (rewrite path-held state, follow a renamed current folder, reload — the only signal on network volumes),
+`FavoriteLocationStore.relocate`, `FileCutClipboard` (the cut memory is app-wide), and `AppStores.handleFileSystemChange`
+(`BookRecordRelocator` rekeys the five stores + `BookReadingState` by path, across volumes too, then existence refreshes). New code that
+moves/renames/deletes user files must go through `FileOperationService`, and new UI that mirrors the file system must subscribe. Under tests
+each state gets a private center/clipboard and `AppStores` does not subscribe. Operations on a book open in any viewer are refused
+(`FileBrowserOperations.refusesBecauseOpenInViewer`), and a book whose bookmark resolves into the Trash counts as missing
+(`BookLocationResolver.isInTrash`). Audit and rationale: `docs/plans/fs-ui-consistency-audit.md`, docs/15「アプリ自身の変更の知らせ」.
+Inline rename (list and icon view) is started only by the app, never by AppKit: name
 fields are not editable at rest (NSTableView's own click-to-edit ran from a private delayed perform that ignored drags and
 started editing a file that had just been moved, 2026-09-19); every start goes through `FileBrowserNameEditing.canBegin`
 (item still listed and on disk), clicks wait in `FileBrowserNameClickRename`, and an edit whose item vanishes is cancelled.

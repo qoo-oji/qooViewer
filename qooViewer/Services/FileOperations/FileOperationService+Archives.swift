@@ -31,6 +31,7 @@ extension FileOperationService {
         }
         guard let placed else { return nil }
         let identity = await FileIO.perform { FileIdentity.of(placed) }
+        changeObserver?(FileSystemChange(created: [placed]))
         return TransferReceipt(source: items[0], destination: placed, replacedItemInTrash: nil, identity: identity)
     }
 
@@ -108,6 +109,7 @@ extension FileOperationService {
         if outcome.receipts.isEmpty, !outcome.wasCancelled, outcome.failures.count == archives.count, let firstError {
             throw firstError
         }
+        changeObserver?(FileSystemChange(created: outcome.receipts.map(\.destination)))
         return outcome
     }
 }

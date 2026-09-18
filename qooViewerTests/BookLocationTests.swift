@@ -59,6 +59,26 @@ struct BookLocationTests {
         #expect(BookLocationResolver.resolve(probe, mountedVolumeUUIDs: mounted) == .missing)
     }
 
+    @Test("ゴミ箱の中まで追った本は found に数えない(missing)。ゴミ箱から戻せばまた found")
+    func aTrashedFileIsNotFound() throws {
+        // 2026-09-19 の監査の H2。本物のゴミ箱には触らず、同じ綴り(.Trash)のフォルダで確かめる。
+        let workspace = try TemporaryDirectory("location-trashed")
+        let url = workspace.file("a.cbz")
+        try Data("a".utf8).write(to: url)
+        let probe = try probe(for: url)
+        let trash = try workspace.directory(".Trash")
+        let trashed = trash.appendingPathComponent("a.cbz")
+        try FileManager.default.moveItem(at: url, to: trashed)
+
+        #expect(BookLocationResolver.isInTrash(trashed))
+        #expect(BookLocationResolver.isInTrash(URL(fileURLWithPath: "/Volumes/X/.Trashes/501/a.cbz")))
+        #expect(!BookLocationResolver.isInTrash(url))
+        #expect(BookLocationResolver.resolve(probe, mountedVolumeUUIDs: mounted) == .missing)
+
+        try FileManager.default.moveItem(at: trashed, to: url)
+        #expect(BookLocationResolver.resolve(probe, mountedVolumeUUIDs: mounted).exists)
+    }
+
     @Test("ボリュームが付いていなければ volumeUnavailable(実体の有無は問わない)")
     func anAbsentVolumeIsNeverMissing() throws {
         let workspace = try TemporaryDirectory("location-volume")

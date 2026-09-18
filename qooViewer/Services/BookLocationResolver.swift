@@ -97,7 +97,10 @@ nonisolated enum BookLocationResolver {
         if let resolved {
             let didStartAccessing = resolved.startAccessingSecurityScopedResource()
             defer { if didStartAccessing { resolved.stopAccessingSecurityScopedResource() } }
-            if FileManager.default.fileExists(atPath: resolved.path) { return .found(resolved) }
+            // **ゴミ箱の中まで追ったものは「ある」に数えない**(2026-09-19 の監査の H2、ユーザー決定)。ブックマークはゴミ箱へ送った本にも
+            // 付いていく(上の実測)ので、以前は捨てた本が棚で普通の本として並び、ゴミ箱の中から開けた。ファイルブラウザで本を
+            // ゴミ箱へ送れるようになったので、捨てた本は「見つからない」として淡く出す。ゴミ箱から戻せば(取り消しでも)また見つかる。
+            if !Self.isInTrash(resolved), FileManager.default.fileExists(atPath: resolved.path) { return .found(resolved) }
         } else if !resolutionSaysNoSuchFile {
             // 場所が分からないまま終わった。このときの`fileExists`の「無い」は、権限が無いから
             // 見えないのと区別できない(ブックマークこそがその権限だった)ので、何も判断しない。
@@ -110,6 +113,12 @@ nonisolated enum BookLocationResolver {
 
         return isVolumeAvailable(probe, mountedVolumeUUIDs: mountedVolumeUUIDs)
             ? .missing : .volumeUnavailable
+    }
+
+    /// ゴミ箱の中のパスか。ホームの `~/.Trash` と、ボリュームごとの `/.Trashes/<uid>/`。**パスの綴りだけで見る**
+    /// (`FileManager.getRelationship(_:of: .trashDirectory, …)` は付けたばかりのボリュームで問い合わせに失敗する ―― 実測)。
+    static func isInTrash(_ url: URL) -> Bool {
+        url.pathComponents.contains { $0 == ".Trash" || $0 == ".Trashes" }
     }
 
     /// `.withSecurityScope`付きの解決が失敗した理由が「そのファイルはもう無い」かどうか。

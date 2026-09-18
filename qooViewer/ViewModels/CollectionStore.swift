@@ -1045,6 +1045,40 @@ final class CollectionStore: ObservableObject {
         saveAndNotify(bookID: book.id)
     }
 
+    /// 行のある本の `bookID`(アプリ自身が移した本の付け替えの材料。BookRelocationPlan)。
+    var knownBookIDs: Set<String> { Set(allItems().map(\.bookID)) }
+
+    /// アプリ自身が移した・名前を変えた本の棚の行を新しいパスへ付け替える(BookRelocationPlan の型コメント)。
+    /// **本そのものの名前が変わったときは、キャプション(`title`)も新しいファイル名にする**(`reconcileBookIDIfMoved` と同じ理由。
+    /// 付いていたのがファイル名から決まる題のときだけ ―― 取り込みなどで別の題が入っている行は触らない)。
+    /// - Returns: 付け替えた行の数。
+    @discardableResult
+    func applyBookRelocation(_ plan: BookRelocationPlan) -> Int {
+        let items = allItems()
+        let occupied = Set(items.map(\.bookID))
+        var relocated = 0
+        for item in items {
+            guard let new = plan.bookIDs[item.bookID], !occupied.contains(new) else { continue }
+            let old = item.bookID
+            item.bookID = new
+            for isDirectory in [false, true] where item.title == BookRelocationPlan.derivedTitle(forBookID: old, isDirectory: isDirectory) {
+                item.title = BookRelocationPlan.derivedTitle(forBookID: new, isDirectory: plan.directoryBookIDs.contains(new))
+                break
+            }
+            if let locator = plan.locators[new] {
+                item.inodeNumber = locator.identifier?.inodeNumber
+                item.volumeDeviceNumber = locator.identifier?.volumeDeviceNumber
+                item.volumeUUID = locator.identifier?.volumeUUID
+                if let data = locator.bookmarkData { item.bookmarkData = data }
+            }
+            relocated += 1
+        }
+        guard relocated > 0 else { return 0 }
+        cachedItemsByBookID = nil
+        saveAndNotify()
+        return relocated
+    }
+
     /// 識別子を持たない古い行に、パスから取り直した識別子を補完する
     /// (FavoritesStore.backfillFileNodeIdentifierと同じ役割)。
     func backfillFileNodeIdentifier(forBookID bookID: String, identifier: FileNodeIdentifier) {
@@ -1086,7 +1120,8 @@ final class CollectionStore: ObservableObject {
     /// 開く直前に使う。解決と存在確認の両方に成功したときだけURLを返す(見つからない場合、
     /// 呼び出し側は「本が見つかりません」のアラートを出す)。
     func resolvedExistingURL(for item: CollectionItem) -> URL? {
-        guard let url = resolvedURL(for: item) else { return nil }
+        // ゴミ箱の中まで追ったものは開かない(一覧で「見つからない」と出している本。BookLocationResolver.resolve のコメント)。
+        guard let url = resolvedURL(for: item), !BookLocationResolver.isInTrash(url) else { return nil }
         let didStartAccessing = url.startAccessingSecurityScopedResource()
         defer { if didStartAccessing { url.stopAccessingSecurityScopedResource() } }
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }

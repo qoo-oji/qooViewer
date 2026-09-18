@@ -613,8 +613,14 @@ FSEvents のコールバックが解放済みの `ModelContext` に触った ―
 ## 実体の確認 ―― 「見つからない」には理由がある
 
 一覧の本を淡く描くかどうかは `CollectionStore.locationByItemID`(`CollectionItem.id` →
-`BookLocation`)が決める。確認は起動時・アプリのアクティブ化・ボリュームの着脱で予約され、
+`BookLocation`)が決める。確認は起動時・アプリのアクティブ化・ボリュームの着脱、**アプリ自身がファイルを動かしたとき**
+(`FileSystemChange`。ファイルブラウザの操作・自動リネーム。2026-09-19 ―― それまではアプリの中で本を移しても消しても、
+アプリを離れて戻るまで表示が変わらなかった。→ [15](15-file-browser.md#アプリ自身の変更の知らせfilesystemchange2026-09-19))で予約され、
 メインアクターの外(`Task.detached`)で走る。
+
+**ゴミ箱の中まで追った本は「ある」に数えない**(`BookLocationResolver.isInTrash`。2026-09-19、ユーザー決定)。ブックマークはゴミ箱へ
+送った本にも付いていくので、以前は捨てた本が棚に普通の本として並び、ゴミ箱の中から開けた。いまは `.missing` として淡く出し、
+開かない(`resolvedExistingURL`)。ゴミ箱から戻せば(ファイルブラウザの取り消しでも)また見つかる。パスの綴り(`.Trash` / `.Trashes`)で見る。
 
 `BookLocation`(→ `Services/BookLocationResolver.swift`)は4つ:
 

@@ -5,6 +5,14 @@ import Combine
 /// サイドパネル上段(フォルダブラウザ)の閲覧状態。ContentViewが1つだけ`@StateObject`として
 /// 保持し、本の切替やウェルカム画面への出入りをまたいで使い回す(本ごとに作り直される
 /// ViewerViewとは異なるライフサイクル)。
+///
+/// ■ 一覧を読み直す契機(2026-09-19 の監査。docs/plans/fs-ui-consistency-audit.md の H3)
+/// 以前は移動・本の切り替わり・アクセス権の付与のときしか読まなかったので、表示中のフォルダに本を足しても消しても、
+/// アプリを離れて戻っても一覧は変わらなかった。いまは (1) アプリ自身がファイルを動かした知らせ(`FileSystemChange`。
+/// ファイルブラウザの操作・自動リネーム)で、表示中のフォルダに関わるときだけ、(2) アプリがアクティブになったとき・
+/// ボリュームの着脱(外での変更。棚・履歴と同じ契機)に読み直す。FSEvents では見張らない(パネルは隠れていることが多い)。
+/// 表示中のフォルダが消えていたら、残っているいちばん近い祖先へ移る(ファイルブラウザと同じ。以前は読み込みの失敗を
+/// 全部「アクセス権が無い」として「アクセスを許可…」を出していた)。
 @MainActor
 final class SidePanelBrowserState: ObservableObject {
     /// 現在表示中のフォルダ。nilのときは最上位(ボリューム一覧)を表す。
@@ -50,13 +58,52 @@ final class SidePanelBrowserState: ObservableObject {
     /// 今のentriesを並べ替えるのに使った設定。applySortSettings()が「設定が変わっていなければ
     /// 何もしない」と判断するために覚えておく。
     private var appliedSort: FolderBrowserSort?
+    private var changeObservation: AnyCancellable?
+    private var systemObservations: [AnyCancellable] = []
 
     var canGoBack: Bool { !backStack.isEmpty }
     var canGoForward: Bool { !forwardStack.isEmpty }
     var canGoUp: Bool { currentDirectory != nil }
 
-    init() {
+    /// - Parameter changeCenter: nil なら既定(アプリでは全体で 1 つ、テストの中ではこの状態だけのもの)。
+    /// - Parameter observesSystem: アクティブ化・ボリュームの着脱で読み直すか。**テストは false**(放送の通知なので、並んで走る
+    ///   ほかのテストの契機で読み直される)。
+    init(changeCenter: FileSystemChangeCenter? = nil, observesSystem: Bool = !RuntimeEnvironment.isRunningTests) {
         reload()
+        changeObservation = (changeCenter ?? .defaultForState()).changes.sink { [weak self] change in
+            MainActor.assumeIsolated { self?.handleFileSystemChange(change) }
+        }
+        guard observesSystem else { return }
+        let workspace = NSWorkspace.shared.notificationCenter
+        systemObservations = [
+            NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+                .sink { [weak self] _ in MainActor.assumeIsolated { self?.reload() } },
+            Publishers.Merge(
+                workspace.publisher(for: NSWorkspace.didMountNotification),
+                workspace.publisher(for: NSWorkspace.didUnmountNotification)
+            )
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in MainActor.assumeIsolated { self?.reload() } },
+        ]
+    }
+
+    /// アプリ自身がファイルを動かした(型コメント)。パスで覚えているもの(表示中のフォルダ・履歴・強調する行)を付け替え、
+    /// 表示中のフォルダに関わるなら読み直す。
+    func handleFileSystemChange(_ change: FileSystemChange) {
+        func relocated(_ url: URL?) -> URL? {
+            guard let url, let path = change.relocatedPath(for: url.path) else { return url }
+            return URL(fileURLWithPath: path, isDirectory: url.hasDirectoryPath)
+        }
+        backStack = backStack.map(relocated)
+        forwardStack = forwardStack.map(relocated)
+        if let highlightedURL, let moved = relocated(highlightedURL), moved != highlightedURL { self.highlightedURL = moved }
+        guard let directory = currentDirectory else { return }
+        if let moved = relocated(directory), moved != directory {
+            currentDirectory = moved
+            reload()
+        } else if change.requiresReload(ofFolderAt: directory.path) {
+            reload()
+        }
     }
 
     /// 開いている本が切り替わるたびに呼ぶ(ContentViewの.onChange(of: appState.currentBook?.id))。
@@ -155,6 +202,14 @@ final class SidePanelBrowserState: ObservableObject {
         reload()
     }
 
+    /// 読み込みが(消えたフォルダからの退避による読み直しを含めて)片付くまで待つ。**テストのための口。**
+    func settle() async {
+        while let task = reloadTask {
+            await task.value
+            if reloadTask == task { return }
+        }
+    }
+
     func reload() {
         reloadTask?.cancel()
         let directory = currentDirectory
@@ -183,6 +238,23 @@ final class SidePanelBrowserState: ObservableObject {
                 self.applySortSettings()
             } catch {
                 guard !Task.isCancelled else { return }
+                // 表示していたフォルダが消えた(移動・削除・ボリュームを外した)なら、残っている祖先へ移る(型コメント)。
+                // 「アクセスを許可…」を出すのは、読む権限が無いときだけ。
+                if let directory {
+                    switch FileBrowserLoadError.classify(error, folder: directory) {
+                    case .notFound, .volumeUnavailable:
+                        let ancestor = await Task.detached(priority: .utility) {
+                            FileBrowserListing.nearestExistingAncestor(of: directory)
+                        }.value
+                        guard !Task.isCancelled, self.currentDirectory == directory else { return }
+                        self.currentDirectory = ancestor
+                        self.highlightedURL = nil
+                        self.reload()
+                        return
+                    case .needsAccess, .other:
+                        break
+                    }
+                }
                 self.entries = []
                 self.currentDirectoryHasImages = false
                 self.appliedSort = sort

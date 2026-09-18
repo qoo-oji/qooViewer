@@ -221,7 +221,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
         private var allowsEditingFavorites = false
         private var appliedFavorites: [FavoriteLocationStore.Item] = []
         private var appliedFolderID: String??
-        private var appliedChange: FileBrowserState.FileSystemChange?
+        private var appliedChange: FileBrowserState.TreeReloadRequest?
         private var isApplyingSelection = false
         private let menuBuilder = FileBrowserMenuBuilder()
         private var volumeObservers: [NSObjectProtocol] = []

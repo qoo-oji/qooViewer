@@ -190,6 +190,10 @@ struct FileBrowserPane: View {
         actions.autoRenameService = autoRenameService
         // メニューバーのファイルブラウザの項目(ファイル・編集・表示・ホーム)が、右クリックと同じ口を使えるように。
         appState.fileBrowserActions = actions
+        // ビューアで開いている本は動かさせない(FileBrowserOperations.refusesBecauseOpenInViewer)。
+        state.operations.openBookPaths = { [weak launchCoordinator] in
+            launchCoordinator?.allOpenAppStates.flatMap { $0.currentBook?.pathsInUse ?? [] } ?? []
+        }
         if state.operations.presenter == nil {
             state.operations.presenter = FileBrowserSheetPresenter(appState: appState)
         }

@@ -122,6 +122,31 @@ struct FileBrowserNameEditingTests {
         #expect(fixture.presenter.problems.isEmpty)
     }
 
+    @Test("絞り込み中に新規フォルダを作ると、絞り込みを解いてすぐ名前の編集を始める(依頼を残して後で始めない)")
+    func newFolderUnderAFilterClearsTheFilterAndEditsNow() async throws {
+        // 2026-09-19 の監査の M3: 以前は作ったフォルダが絞り込みで見えず、依頼が残り、後で絞り込みを解いた時点で編集が始まった(実測)。
+        let fixture = try await Fixture(label: "fb-name-filter", files: ["abc.txt"])
+        let list = try ListHarness(fixture: fixture)
+        defer { list.close() }
+        fixture.state.filterText = "abc"
+        list.update()
+
+        await fixture.state.operations.newFolder(in: fixture.root).value
+        await fixture.state.settle()
+        list.update()
+        #expect(fixture.state.filterText.isEmpty)
+        let editor = try #require(list.window.firstResponder as? NSTextView, "作ったフォルダの名前の編集が始まらない")
+        #expect(fixture.names().contains(editor.string))
+    }
+
+    @Test("名前の編集の依頼は、読み終えた一覧に相手が無ければ捨てる(後で同じパスに項目ができても始めない)")
+    func aRenameRequestForAMissingItemIsDropped() async throws {
+        let fixture = try await Fixture(label: "fb-name-dropped", files: ["a.txt"])
+        fixture.state.requestRename(fixture.id("ghost.txt"))
+        await fixture.state.settle()
+        #expect(fixture.state.renameRequest == nil)
+    }
+
     // MARK: アイコン表示
 
     @Test("アイコン表示は、ディスクから消えた項目(一覧はまだ古い)の名前の編集を始めない")

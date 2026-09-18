@@ -350,7 +350,7 @@ final class RecentFilesStore: ObservableObject {
 
     /// 実体の存在確認とパスのキャッシュ更新を非同期に予約する。重い部分(revalidate)だけを
     /// メインアクターの外で走らせ、一覧への反映はメインアクターへ戻してから行う。
-    private func scheduleRefresh() {
+    func scheduleRefresh() {
         guard !isRefreshing else {
             // 走行中に来た要求は捨てずに覚えておき、完了後にもう一度走らせる。
             // 以前はここで単に捨てていたため、再検証の最中に外付けドライブをマウントすると、

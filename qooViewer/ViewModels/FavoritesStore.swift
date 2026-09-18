@@ -753,6 +753,34 @@ final class FavoritesStore: ObservableObject {
         reload()
     }
 
+    /// 行のある本の `bookID`(アプリ自身が移した本の付け替えの材料。BookRelocationPlan)。
+    var knownBookIDs: Set<String> { Set(allFavoriteBooks().map(\.bookID)) }
+
+    /// アプリ自身が移した・名前を変えた本のお気に入りを新しいパスへ付け替える(BookRelocationPlan の型コメント)。
+    /// 表示名(`title`)は利用者が付け替えられるものなので触らない(`reconcileBookIDIfMoved` と同じ)。
+    /// - Returns: 付け替えた行の数。
+    @discardableResult
+    func applyBookRelocation(_ plan: BookRelocationPlan) -> Int {
+        let books = allFavoriteBooks()
+        let occupied = Set(books.map(\.bookID))
+        var relocated = 0
+        for book in books {
+            guard let new = plan.bookIDs[book.bookID], !occupied.contains(new) else { continue }
+            book.bookID = new
+            if let locator = plan.locators[new] {
+                book.inodeNumber = locator.identifier?.inodeNumber
+                book.volumeDeviceNumber = locator.identifier?.volumeDeviceNumber
+                book.volumeUUID = locator.identifier?.volumeUUID
+                if let data = locator.bookmarkData { book.bookmarkData = data }
+            }
+            relocated += 1
+        }
+        guard relocated > 0 else { return 0 }
+        try? modelContext.save()
+        reload()
+        return relocated
+    }
+
     /// 指定したbookIDのお気に入りをすべて削除する(全フォルダ横断)。ツールバー・メニューバー・
     /// コンテキストメニュー・キーボードショートカットの「現在の本をお気に入りから削除」から呼ぶ。
     /// addFavoriteは別フォルダへの重複登録をユーザーが確認の上で許容する(.needsDuplicateConfirmation

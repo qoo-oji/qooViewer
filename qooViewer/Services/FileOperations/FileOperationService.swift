@@ -21,10 +21,18 @@ actor FileOperationService {
     /// false で必ず実コピーにする。**テストのための逃げ道**(進捗・中止・元の検証は、クローンできない
     /// 経路でしか通らない)。本番は既定のまま。
     private let allowsCloning: Bool
+    /// 変えたことの知らせ先(`FileSystemChange` の型コメント)。**操作が済むたびに、済んだ分だけ**を渡す(一部だけ済んだ操作も)。
+    /// 書き換えない値なので「状態を持たない」は変わらない。アプリの `shared` だけが `FileSystemChangeCenter.shared` へ繋ぎ、
+    /// テストの作るインスタンスは繋がない(nil)。
+    let changeObserver: (@Sendable (FileSystemChange) -> Void)?
 
-    init(environment: FileOperationEnvironment = .live, allowsCloning: Bool = true) {
+    init(
+        environment: FileOperationEnvironment = .live, allowsCloning: Bool = true,
+        changeObserver: (@Sendable (FileSystemChange) -> Void)? = nil
+    ) {
         self.environment = environment
         self.allowsCloning = allowsCloning
+        self.changeObserver = changeObserver
     }
 
     /// ゴミ箱へ送る操作の期限。UI の文脈が無いプロセスでは `NSWorkspace.recycle` の完了ハンドラが
@@ -42,7 +50,7 @@ actor FileOperationService {
         } catch let failure as FileNameValidation.Failure {
             throw FileOperationError.invalidName(url.lastPathComponent, reason: failure)
         }
-        return try await FileIO.perform {
+        let created = try await FileIO.perform {
             let parent = url.deletingLastPathComponent()
             guard Self.itemExists(at: parent) else { throw FileOperationError.itemMissing(parent) }
             try FileOperationPreflight.checkWritable(parent)
@@ -56,26 +64,32 @@ actor FileOperationService {
             }
             return url
         }
+        changeObserver?(FileSystemChange(created: [created]))
+        return created
     }
 
     // MARK: - コピー・移動
 
     func copy(_ items: [URL], to folder: URL, options: FileOperationOptions = .init()) async throws -> TransferOutcome {
         let allowsCloning = allowsCloning
-        return try await transfer(items, to: folder, options: options, isMove: false) { source, target, onBytes in
+        let outcome = try await transfer(items, to: folder, options: options, isMove: false) { source, target, onBytes in
             try FileCopyEngine.copy(from: source, to: target, allowsCloning: allowsCloning, onBytesCopied: onBytes)
         }
+        changeObserver?(FileSystemChange(created: outcome.receipts.map(\.destination)))
+        return outcome
     }
 
     /// ロックされた項目は `options.unlockingLocked` のときだけ運ぶ(`movingIsBlockedByLock`)。
     func move(_ items: [URL], to folder: URL, options: FileOperationOptions = .init()) async throws -> TransferOutcome {
         let allowsCloning = allowsCloning
         let unlocking = options.unlockingLocked
-        return try await transfer(items, to: folder, options: options, isMove: true) { source, target, onBytes in
+        let outcome = try await transfer(items, to: folder, options: options, isMove: true) { source, target, onBytes in
             try Self.withLocksLifted(from: source, to: target, allowed: unlocking) {
                 try Self.moveItem(from: source, to: target, allowsCloning: allowsCloning, onBytesCopied: onBytes)
             }
         }
+        changeObserver?(FileSystemChange(relocations: outcome.receipts.map { .init(from: $0.source, to: $0.destination) }))
+        return outcome
     }
 
     /// 移動でロックが邪魔をするか(2026-09-14)。同じボリュームなら rename(2) なので項目自身のロックだけが断り(EPERM)、
@@ -147,7 +161,7 @@ actor FileOperationService {
             throw FileOperationError.invalidName(name, reason: failure)
         }
         let target = item.deletingLastPathComponent().appendingPathComponent(validName)
-        return try await FileIO.perform {
+        let receipt = try await FileIO.perform {
             guard Self.itemExists(at: item) else { throw FileOperationError.itemMissing(item) }
             let parent = item.deletingLastPathComponent()
             try FileOperationPreflight.checkWritable(parent)
@@ -173,6 +187,8 @@ actor FileOperationService {
             guard code == 0 else { throw FileOperationError.posixFailure(item: item, errnoCode: code) }
             return RenameReceipt(original: item, renamed: target, identity: FileIdentity.of(target))
         }
+        changeObserver?(FileSystemChange(relocations: [.init(from: receipt.original, to: receipt.renamed)]))
+        return receipt
     }
 
     // MARK: - ゴミ箱
@@ -239,6 +255,7 @@ actor FileOperationService {
             }
         }
         if outcome.receipts.isEmpty, let error = result.error { throw error }
+        changeObserver?(FileSystemChange(removed: outcome.receipts.map(\.originalURL)))
         return outcome
     }
 
@@ -279,6 +296,7 @@ actor FileOperationService {
                 outcome.deleted.append(item)
             }
         }
+        changeObserver?(FileSystemChange(removed: outcome.deleted))
         return outcome
     }
 
@@ -323,6 +341,7 @@ actor FileOperationService {
                 outcome.restored.append(receipt.originalURL)
             }
         }
+        changeObserver?(FileSystemChange(created: outcome.restored))
         return outcome
     }
 

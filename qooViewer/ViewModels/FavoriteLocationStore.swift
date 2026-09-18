@@ -87,6 +87,28 @@ final class FavoriteLocationStore: ObservableObject {
         return true
     }
 
+    /// アプリ自身が名前を変えた・移したフォルダ(とその配下)の登録を、新しいパスへ付け替える(2026-09-19 の監査の M4。
+    /// `FileSystemChange` の型コメント)。以前は行が古い名前のまま残り、押すと祖先へ退避した。移った先がすでに登録済みなら、
+    /// 重なったほうを外す。ゴミ箱へ送ったフォルダの登録は残す(取り消しで戻る。行を押せば今までどおり祖先へ退避する)。
+    /// - Returns: 付け替えたか。
+    @discardableResult
+    func relocate(using change: FileSystemChange) -> Bool {
+        guard !change.relocations.isEmpty else { return false }
+        var relocated: [Item] = []
+        var seen = Set<String>()
+        var changed = false
+        for item in items {
+            let path = change.relocatedPath(for: item.path).map(MountTable.normalized) ?? item.path
+            if path != item.path { changed = true }
+            guard seen.insert(path).inserted else { continue }
+            relocated.append(path == item.path ? item : Item(id: item.id, path: path))
+        }
+        guard changed else { return false }
+        items = relocated
+        save()
+        return true
+    }
+
     func item(withID id: UUID) -> Item? {
         items.first { $0.id == id }
     }

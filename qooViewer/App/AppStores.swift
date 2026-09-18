@@ -94,6 +94,10 @@ final class AppStores: ObservableObject {
     let autoRenameStore: AutoRenameStore
     let autoRenameLog: AutoRenameActivityLog
     let autoRenameService: AutoRenameService
+    /// アプリ自身が移した本の保存データの付け替え役(BookRecordRelocator)。
+    let bookRecordRelocator: BookRecordRelocator
+    /// アプリ自身がファイルを動かした知らせの購読(`handleFileSystemChange`)。
+    private var fileSystemChangeSubscription: AnyCancellable?
 
     init() {
         // 予約された「すべてのデータを削除」の残り(終了前に落ちた場合)は、**どのストアよりも
@@ -147,6 +151,8 @@ final class AppStores: ObservableObject {
         let launchCoordinatorForAutoRename = launchCoordinator
         autoRenameService = AutoRenameService(
             store: autoRenameStore, log: autoRenameLog, favorites: favoriteLocations, preferences: preferences,
+            // 名前を変えたことをアプリ全体へ知らせるインスタンス(FileSystemChange の型コメント)。
+            fileOps: .shared,
             hasAccess: { [weak folderAccessForAutoRename] url in folderAccessForAutoRename?.isPathCovered(url) ?? false },
             inUsePaths: { [weak launchCoordinatorForAutoRename] in
                 launchCoordinatorForAutoRename?.allOpenAppStates.compactMap { $0.currentBook?.sourceURL.path } ?? []
@@ -168,6 +174,33 @@ final class AppStores: ObservableObject {
         layoutStore.sweepOrphanedShelfCoverImages()
         // 焼いた札の絵も同じく(こちらは容量の刈り込みも兼ねる)。
         collectionStore.sweepOrphanedTileImages()
+
+        bookRecordRelocator = BookRecordRelocator(
+            favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+            metadataStore: metadataStore, collectionStore: collectionStore, modelContext: context
+        )
+        // テストの中で走る実物のアプリでは繋がない(テストの操作で、開発機の本物の保存データとよく使う項目を書き換えない)。
+        if !RuntimeEnvironment.isRunningTests {
+            fileSystemChangeSubscription = FileSystemChangeCenter.shared.changes.sink { [weak self] change in
+                MainActor.assumeIsolated { self?.handleFileSystemChange(change) }
+            }
+        }
+    }
+
+    /// アプリ自身がファイルを動かした(ファイルブラウザの操作・取り消し・やり直し・自動リネーム。`FileSystemChange` の型コメント)。
+    /// ウインドウごとの一覧(ファイルブラウザ・サイドパネル)は自分で受ける。ここはアプリで 1 つのもの:
+    /// よく使う項目と保存データを新しいパスへ付け替え、それが済んでから棚・履歴・お気に入りの「実体があるか」を確かめ直す
+    /// (以前の契機は起動・アクティブ化・ボリュームの着脱だけで、アプリの中で本を移しても消しても表示が変わらなかった)。
+    private func handleFileSystemChange(_ change: FileSystemChange) {
+        favoriteLocations.relocate(using: change)
+        let relocation = bookRecordRelocator.apply(change)
+        Task { @MainActor [weak self] in
+            await relocation.value
+            guard let self else { return }
+            self.collectionStore.scheduleExistenceRefresh()
+            self.recentFiles.scheduleRefresh()
+            self.favoritesStore.scheduleExistenceRefresh()
+        }
     }
 
     /// MenuBarMenuRefresherが購読する、全ストアのobjectWillChange。

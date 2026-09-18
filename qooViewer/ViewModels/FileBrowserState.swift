@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CoreServices
 import Foundation
 
 /// ウェルカム画面のファイルブラウザの閲覧状態(改善要望7 段階3、2026-09-13)。
@@ -163,7 +164,11 @@ final class FileBrowserState: ObservableObject {
     let operations = FileBrowserOperations()
 
     /// ⌘X で覚えた項目のパス(`FileBrowserOperations.paths(of:)`の規則)。一覧で淡く描き、ペーストで一致すれば移動。
+    /// **アプリで 1 つの記憶(`cutClipboard`)の写し**(どのウインドウでカットしても、全部のウインドウで淡くなる。FileCutClipboard の型コメント)。
     @Published private(set) var cutPaths: Set<String> = []
+    /// カットの記憶。書き換えは `FileBrowserOperations` がここへ。
+    let cutClipboard: FileCutClipboard
+    private var cutObservation: AnyCancellable?
     /// 名前の編集を始めてほしい項目(新規フォルダの直後・右クリックの「名前を変更」)。
     /// 一覧はこの項目が見えるようになった時点で編集を始める。
     @Published private(set) var renameRequest: ScrollRequest?
@@ -172,7 +177,7 @@ final class FileBrowserState: ObservableObject {
     /// 右クリックの「メタデータの編集…」「本の書き出し」のシート(段階 8)。nil なら出していない。
     @Published var bookSheet: FileBrowserBookSheet?
     /// 自分の操作でファイルが変わったフォルダ(ツリーが開いている行を読み直す)。
-    @Published private(set) var fileSystemChange: FileSystemChange?
+    @Published private(set) var fileSystemChange: TreeReloadRequest?
     /// 右ペインの下に短い間だけ浮かべる知らせ(OverlayToast)。nil なら出していない。`showToast(_:)` で出す。
     @Published private(set) var toastMessage: String?
     /// 検索欄を広げて焦点を入れてほしい(メニューバーの「検索」⌘F。2026-09-15)。値は増えるだけの通し番号で、ペインが変化を拾う。
@@ -193,7 +198,7 @@ final class FileBrowserState: ObservableObject {
         if next != iconSize { iconSize = next }
     }
 
-    struct FileSystemChange: Equatable {
+    struct TreeReloadRequest: Equatable {
         let serial: Int
         /// 変わったフォルダの id(`FileBrowserState.id(for:)`)。
         let folderIDs: Set<String>
@@ -264,12 +269,20 @@ final class FileBrowserState: ObservableObject {
     private var systemObservations: [AnyCancellable] = []
     private var toastDismissTask: Task<Void, Never>?
     private let defaults: UserDefaults
+    /// アプリ自身がファイルを動かした知らせ(`FileSystemChange` の型コメント)。操作の側(`FileBrowserOperations`)も、済んだ直後に
+    /// ここへ溜まった知らせを配らせる。
+    let changeCenter: FileSystemChangeCenter
+    private var changeObservation: AnyCancellable?
 
     /// 知らせを出しておく時間(ビューアのトーストと同じ 2 秒。ViewerView.showToast)。
     static let toastDuration: Duration = .seconds(2)
 
-    init(defaults: UserDefaults = .standard) {
+    /// - Parameter changeCenter: nil なら既定(アプリでは全体で 1 つ、テストの中ではこの状態だけのもの。`FileSystemChangeCenter` の型コメント)。
+    /// - Parameter cutClipboard: nil なら既定(アプリでは全体で 1 つ、テストの中ではこの状態だけのもの)。
+    init(defaults: UserDefaults = .standard, changeCenter: FileSystemChangeCenter? = nil, cutClipboard: FileCutClipboard? = nil) {
         self.defaults = defaults
+        self.changeCenter = changeCenter ?? .defaultForState()
+        self.cutClipboard = cutClipboard ?? .defaultForState()
         viewMode = FileBrowserViewMode(rawValue: defaults.string(forKey: Keys.viewMode) ?? "") ?? .list
         hiddenListColumns = defaults.stringArray(forKey: Keys.hiddenListColumns).map(Set.init)
             ?? Self.defaultHiddenListColumns
@@ -277,11 +290,20 @@ final class FileBrowserState: ObservableObject {
             .map { Self.clamp(CGFloat($0), to: Self.iconSizeRange) } ?? Self.defaultIconSize
         treeWidth = (defaults.object(forKey: Keys.treeWidth) as? Double)
             .map { Self.clamp(CGFloat($0), to: Self.treeWidthRange) } ?? Self.defaultTreeWidth
-        watcher = FolderChangeWatcher(onChangedPaths: { [weak self] paths in
+        watcher = FolderChangeWatcher(onEvents: { [weak self] events in
             // FSEvents 自身のキューから呼ばれる(FolderChangeWatcher.init のコメント)。
-            Task { @MainActor [weak self] in self?.handleChangedPaths(paths) }
+            Task { @MainActor [weak self] in self?.handleChangedPaths(events) }
         })
         observeSystem()
+        changeObservation = self.changeCenter.changes.sink { [weak self] change in
+            MainActor.assumeIsolated { self?.handleFileSystemChange(change) }
+        }
+        cutObservation = self.cutClipboard.$paths.sink { [weak self] paths in
+            MainActor.assumeIsolated {
+                guard let self, self.cutPaths != paths else { return }
+                self.cutPaths = paths
+            }
+        }
         operations.state = self
         // 取り消しの題が変わったら、メニューバーの値(ContentViewのMenuCheckmarkState)を作り直してもらう。
         stackObservation = commandStack.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
@@ -348,6 +370,12 @@ final class FileBrowserState: ObservableObject {
         }
     }
 
+    /// 見えていることにする(FSEvents は張らない)。**テストのための口** ―― アプリ自身の変更の知らせ(`handleFileSystemChange`)だけで
+    /// 読み直すことを確かめる。
+    func makeVisibleWithoutWatching() {
+        isVisible = true
+    }
+
     /// ファイルブラウザが画面から消えたとき(本を開いた・本棚へ切り替えた)。監視を止める。
     func deactivate() {
         isVisible = false
@@ -362,6 +390,8 @@ final class FileBrowserState: ObservableObject {
         loadTask = nil
         watcher?.tearDown()
         systemObservations.removeAll()
+        changeObservation = nil
+        cutObservation = nil
         preferenceObservation = nil
         stackObservation = nil
         // 走っている操作の報告は捨てない(確認は断る側で答える。FileBrowserOperations.detachFromWindow)。
@@ -612,6 +642,7 @@ final class FileBrowserState: ObservableObject {
         isLoading = false
         loadError = nil
         allEntries = sort.sorted(list)
+        settleRenameRequest()
         // 読んでいる最中に読み直しを頼まれていたら(`reload` のコメント)、この一覧は頼まれる前の姿かもしれない。選ぶ・見せる項目の依頼は
         // 次の読み直しまで取っておく(操作で作った項目がまだ無い一覧で依頼を使い切らない)。
         if needsReloadAfterLoad, !didDeferPendingRequests, pendingReveal != nil || pendingSelection != nil {
@@ -637,6 +668,12 @@ final class FileBrowserState: ObservableObject {
             // 貼ると 3.4 秒メインを止めた)。
             let presentIDs = Set(allEntries.map(\.id))
             let present = wanted.filter(presentIDs.contains)
+            // 置いた項目が絞り込みで 1 つも見えないなら、絞り込みを解く(reveal と同じ「選んだのに見えない、を作らない」。2026-09-19 の
+            // 監査の L5: 以前は効果音だけ鳴って一覧が何も変わらなかった)。
+            if !present.isEmpty, !filterText.isEmpty,
+               !FileBrowserListing.filtered(allEntries, by: filterText).contains(where: { present.contains($0.id) }) {
+                filterText = ""
+            }
             applyFilter()
             let visible = entries.filter { present.contains($0.id) }
             if !visible.isEmpty {
@@ -650,11 +687,22 @@ final class FileBrowserState: ObservableObject {
         }
     }
 
+    /// 名前の編集の依頼に終わりを付ける(2026-09-19 の監査の M3)。読み終えた一覧に相手が無ければ依頼を捨て、絞り込みで隠れているなら
+    /// 絞り込みを解く(reveal と同じ)。以前は「その id が一覧に現れるまで」残り続けたので、絞り込み中に新規フォルダを作ると、
+    /// **後で絞り込みを解いた時点で名前の編集が始まった**(実測)。読み直しが控えている間は待つ(作った項目がまだ無い一覧かもしれない)。
+    private func settleRenameRequest() {
+        guard let request = renameRequest, !needsReloadAfterLoad else { return }
+        guard allEntries.contains(where: { $0.id == request.id }) else {
+            renameRequest = nil
+            return
+        }
+        if !filterText.isEmpty, !FileBrowserListing.filtered(allEntries, by: filterText).contains(where: { $0.id == request.id }) {
+            filterText = ""
+        }
+    }
+
     // MARK: - 書く操作の補助(段階4)
 
-    func setCutPaths(_ paths: Set<String>) {
-        if cutPaths != paths { cutPaths = paths }
-    }
 
     /// 項目がカット済みか(淡く描く)。
     func isCut(_ entry: FileBrowserEntry) -> Bool {
@@ -662,6 +710,13 @@ final class FileBrowserState: ObservableObject {
     }
 
     func requestRename(_ id: String) {
+        // 絞り込みで隠れている項目なら、絞り込みを解いてから頼む。一覧にまだ無い項目(作った直後)は、読み直して確かめる
+        // (`settleRenameRequest` が、無ければ捨てる)。
+        if allEntries.contains(where: { $0.id == id }) {
+            if !filterText.isEmpty, !entries.contains(where: { $0.id == id }) { filterText = "" }
+        } else if !isLoading {
+            reload()
+        }
         renameSerial += 1
         renameRequest = ScrollRequest(id: id, serial: renameSerial)
         selection = [id]
@@ -683,13 +738,13 @@ final class FileBrowserState: ObservableObject {
     /// どこが変わったか分からない変更(取り消し・やり直し。コマンドは何を戻したかを場所で返さない)。
     func noteFileSystemChangeInUnknownScope() {
         changeSerial += 1
-        fileSystemChange = FileSystemChange(serial: changeSerial, folderIDs: [], isUnknownScope: true)
+        fileSystemChange = TreeReloadRequest(serial: changeSerial, folderIDs: [], isUnknownScope: true)
     }
 
     func noteFileSystemChange(in folders: [URL]) {
         guard !folders.isEmpty else { return }
         changeSerial += 1
-        fileSystemChange = FileSystemChange(serial: changeSerial, folderIDs: Set(folders.map { Self.id(for: $0) }))
+        fileSystemChange = TreeReloadRequest(serial: changeSerial, folderIDs: Set(folders.map { Self.id(for: $0) }))
     }
 
     /// 並べ直す。**並びが変わらなければ一覧を差し替えない**(同じ変更を、自分で書いたときと購読の両方から受けるため)。
@@ -786,7 +841,39 @@ final class FileBrowserState: ObservableObject {
 
     // MARK: - 変更の追従
 
+    /// アプリ自身がファイルを動かした(このウインドウの操作・別のウインドウの操作・取り消し・自動リネーム)。
+    ///
+    /// 1. **パスで覚えているものを付け替える**: 表示中のフォルダ(自身か祖先の名前が変わった・移ったなら、退避せずに付いていく ――
+    ///    FSEvents は祖先の変化を知らせないので、以前はもう無いフォルダの一覧を出し続けた)、戻る/進むの履歴、選択。
+    /// 2. 表示中のフォルダの中身が変わっていたら読み直し、ツリーにも知らせる。**ネットワーク上のフォルダはこれが唯一の知らせ**。
+    ///    このウインドウの操作が走っている最中は読み直さない(操作が済んだ時点で `didChangeFileSystem` が読み直す)。
+    func handleFileSystemChange(_ change: FileSystemChange) {
+        func relocated(_ folder: URL?) -> URL? {
+            guard let folder, let path = change.relocatedPath(for: folder.path) else { return folder }
+            return Self.folderURL(URL(fileURLWithPath: path, isDirectory: true))
+        }
+        backStack = backStack.map(relocated)
+        forwardStack = forwardStack.map(relocated)
+        let relocatedSelection = Set(selection.map { change.relocatedPath(for: $0) ?? $0 })
+        if relocatedSelection != selection { selection = relocatedSelection }
+        if let request = renameRequest, change.displaces(request.id) { renameRequest = nil }
+        cutClipboard.forget(displacedBy: change)
+
+        if let folder = currentFolder, let path = change.relocatedPath(for: folder.path) {
+            let kept = selection
+            move(to: URL(fileURLWithPath: path, isDirectory: true), selecting: nil)
+            selection = kept
+        } else if let folder = currentFolder, change.requiresReload(ofFolderAt: folder.path), isVisible, !operations.isBusy {
+            reload()
+        }
+        if isVisible {
+            noteFileSystemChange(in: change.affectedFolderPaths.map { URL(fileURLWithPath: $0, isDirectory: true) })
+        }
+    }
+
     private func handleFolderChanged() {
+        // ほかのアプリでコピーしてペーストボードが替わっていたら、カットの淡色を下ろす(FileCutClipboard の型コメント)。
+        cutClipboard.validate(against: operations.pasteboard)
         guard isVisible else { return }
         reload()
     }
@@ -799,12 +886,30 @@ final class FileBrowserState: ObservableObject {
     /// 取り消すので、列挙に 0.3 秒以上かかるフォルダの配下でダウンロードやコピーが続く間は**一覧が永遠に出なかった**。
     /// そこで (1) 直下だけを見る(ツリーの `handleExternalChange` と同じ形)、(2) 読み込み中に届いたら取り消さずに
     /// 読み終えてからもう 1 回だけ読む。
-    private func handleChangedPaths(_ paths: [String]) {
-        guard isVisible, Self.changedPaths(paths, touchFolderSpelledAs: watchedFolderIDs) else { return }
+    ///
+    /// 2026-09-19 の監査で 2 つ足した(`eventsRequireReload`): **直下のフォルダの中で項目が増えた・減った・名前が変わった**ときも読み直す
+    /// (そのフォルダの変更日が変わる。以前は日付と変更日順の並びが古いままだった ―― 実測。ツリーは 2026-09-17 に同じ件を直してある)。
+    /// 中身の書き換えだけ(ダウンロードの途中など)では読み直さない。**イベントがあふれた知らせ**(`MustScanSubDirs`・取りこぼし)は、
+    /// 表示中のフォルダの上でも下でも読み直す(個別のイベントが省かれているので、直下が変わっていないとは言えない)。
+    private func handleChangedPaths(_ events: [FolderChangeWatcher.Event]) {
+        guard isVisible, Self.eventsRequireReload(events, ofFolderSpelledAs: watchedFolderIDs) else { return }
         if loadTask != nil, isLoading {
             needsReloadAfterLoad = true
         } else {
             reload()
+        }
+    }
+
+    /// FSEvents の知らせが、そのフォルダの一覧の読み直しを要るものか(`handleChangedPaths` のコメント)。
+    nonisolated static func eventsRequireReload(_ events: [FolderChangeWatcher.Event], ofFolderSpelledAs spellings: Set<String>) -> Bool {
+        guard !spellings.isEmpty else { return false }
+        return events.contains { event in
+            let path = MountTable.normalized(pathOutsideDataVolume(event.path))
+            let parent = (path as NSString).deletingLastPathComponent
+            if spellings.contains(path) || spellings.contains(parent) { return true }
+            if event.isStructuralChange, spellings.contains((parent as NSString).deletingLastPathComponent) { return true }
+            guard event.mustScanSubdirectories else { return false }
+            return spellings.contains { MountTable.path($0, isAtOrUnder: path) || MountTable.path(path, isAtOrUnder: $0) }
         }
     }
 
@@ -855,7 +960,10 @@ final class FileBrowserState: ObservableObject {
             watchedFolderIDs = []
         }
         guard let watcher else { return }
-        Task { await watcher.watch(paths) }
+        // 一覧を読み始める前のイベント ID を起点に渡す(`FolderChangeWatcher.watch` のコメント。`move` / `activate` は読み込みを頼んだ
+        // 同じ流れの中でここを呼ぶので、列挙はまだ始まっていない)。
+        let startingAt = paths.isEmpty ? nil : FSEventsGetCurrentEventId()
+        Task { await watcher.watch(paths, startingAt: startingAt) }
     }
 
     /// FSEvents はネットワークボリュームでは飛ばず、アプリが止められている間の変更も取りこぼしうる
