@@ -397,6 +397,11 @@ ON なら、ツリーで開いた行の子を右ペインと同じ `FileBrowserS
   リンクすると、AppKit・SwiftUI どちらのメニューでも項目の画像は既定で隠れ、普通の画像(アプリアイコン)まで消えていた(実機で確認)。
   Finder は 27 でもアイコンを出すので、AppKit は `NSMenuItem.showsImageOnMacOS27()`(`preferredImageVisibility = .visible`。
   26 SDK には無い API なので `#if compiler(>=6.4)` で包む)、SwiftUI は `.labelStyle(.titleAndIcon)` で揃えた。SF Symbols の項目は OS の既定に任せる。
+- **「情報を見る」(2026-09-18、ユーザー要望)** は「Finder で開く」の下。ファイル・フォルダ・ツリーの行で、1 件以上選んでいれば押せる
+  (読み取り専用モード・シークレットウインドウでも押せる)。情報ウインドウは Finder の一部で公開 API が無いので、Finder が公開している
+  サービス **`Finder/Show Info`** に URL を載せたペーストボードを渡す(`FileBrowserActions.showInfo`、`NSPerformService`)。Apple Events では
+  ないので Finder を操作する許可のダイアログもエンタイトルメントの例外も要らず、**サンドボックスの中から、読む権限の無いファイルでも開く**
+  (ファイルを読むのは Finder。同じエンタイトルメントの検証アプリと実物の Debug ビルドで実測)。複数選べば Finder の ⌘I と同じく 1 件ずつ開く。
 - 「「…」は本ではありません。」の説明は、コレクションの操作だけ「本が並んだフォルダを選ぶと、その中の本が入ります。」を添える(メタデータ・書き出しに出すと、棚のフォルダでも編集できるように読める)。
 - **アイコン表示の `.contextMenu` はセルの本体評価のたびに組み立てられる**ので、アプリの候補は種類の決まる単位(拡張子とフォルダ/パッケージ/ファイルの別)
   ごとに覚え(qooViewer が前面に戻ったら捨てる)、コレクションの一覧は `CollectionStore.revision` と並び順が変わるまで覚える。

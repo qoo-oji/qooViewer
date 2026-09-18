@@ -276,7 +276,7 @@ struct FileBrowserIntegrationTests {
             .extract, .extractHere, .extractToFolder, .extractTo,
         ]
         let keeping: [FileBrowserMenuCommand] = [
-            .open, .openInNewTab, .createCollection, .addToCollection, .openWith, .copy, .editMetadata, .exportBook, .showInFinder,
+            .open, .openInNewTab, .createCollection, .addToCollection, .openWith, .copy, .editMetadata, .exportBook, .showInFinder, .getInfo,
         ]
         for command in changing + keeping { #expect(enabled(command), "OFF: \(command)") }
         #expect(enabled(.newFolder, kind: .background))
