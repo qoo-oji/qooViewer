@@ -150,7 +150,11 @@ become copy-only); tests inject a pseudo trash, a uniquely named pasteboard and 
 `rmdir` on an exFAT folder left with only `._` files hung the kernel (and Finder) during the 2026-09-15 audit — do not run such
 experiments on FAT/exFAT disk images from parallel agents. On FAT/exFAT `st_ctime` is just the modification date (measured
 2026-09-15), so "has the source changed" checks there compare size and mtime with the copy (`FileOperationService.SourceChangeCheck`),
-never ctime against the clock. Bulk rename copies
+never ctime against the clock. Inline rename (list and icon view) is started only by the app, never by AppKit: name
+fields are not editable at rest (NSTableView's own click-to-edit ran from a private delayed perform that ignored drags and
+started editing a file that had just been moved, 2026-09-19); every start goes through `FileBrowserNameEditing.canBegin`
+(item still listed and on disk), clicks wait in `FileBrowserNameClickRename`, and an edit whose item vanishes is cancelled.
+Bulk rename copies
 Finder's measured rules (`Models/BulkRename.swift`; registered extensions, collisions avoided rather than refused, so no two-pass rename) — change them only against the real Finder.
 **Auto rename** (2026-09-15; `Models/AutoRename.swift`, `AutoRenameStore`, `Services/AutoRename/`, `Views/AutoRename/`; design and measurements in
 `docs/plans/auto-rename-study.md`) renames items under Favorite Locations by rules while the app runs, outside `FileBrowserOperations`: it is not

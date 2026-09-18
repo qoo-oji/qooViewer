@@ -13,10 +13,14 @@ import SwiftUI
 /// (配列を毎回比べない)。選択は双方向: 表での選択を`state.selection`へ書き、状態の選択が表と
 /// 違えば表へ反映する(反映中の通知は書き戻さない)。
 ///
-/// ■ 名前の変更(段階4)
-/// 名前の欄は編集できるセル。**選ばれている1行をもう一度クリックすると、ダブルクリックの間隔を待って
-/// 編集が始まる**(`NSTableView`の標準。複数選択中は始めない ―― `FileBrowserTableView`)。編集中に一覧が
-/// 読み直されると編集が消えるので、編集が終わるまで`reloadData`を待たせる。
+/// ■ 名前の変更(段階4。2026-09-19 に始め方を作り直した)
+/// **選ばれている1行の名前の文字をもう一度クリックすると、ダブルクリックの間隔を待って編集が始まる**(Finder と同じ。
+/// 複数選択中・修飾キー付き・ドラッグしたときは始めない)。以前は`NSTableView`の標準(編集できる欄のクリック)に任せていたが、
+/// AppKit の内側の遅延実行がアプリの状態を見ずに編集を始め、ドラッグで移動したファイルの名前の編集が始まった
+/// (`FileBrowserNameEditing` の型コメント)。いまは**名前の欄はふだん編集できない欄**で、`beginEditingName` が始める直前にだけ
+/// 編集できる欄にする。クリックからの予約は`FileBrowserNameClickRename`、始めてよいかは`FileBrowserNameEditing.canBegin`。
+/// 編集中に一覧が読み直されると編集が消えるので、編集が終わるまで`reloadData`を待たせる。待たせている間に編集中の項目が
+/// 消えたら(移動・削除)、編集を取りやめて取り込む。
 ///
 /// ■ ドラッグ&ドロップ(段階4b)
 /// 行は出し口(ファイルの URL を運ぶ)で、受け口でもある。フォルダの行の上ならそのフォルダへ、
@@ -81,6 +85,8 @@ struct FileBrowserListView: NSViewRepresentable {
         table.target = coordinator
         table.doubleAction = #selector(Coordinator.handleDoubleClick(_:))
         table.onReturn = { [weak coordinator] in coordinator?.openSelection() }
+        table.onInteraction = { [weak coordinator] in coordinator?.nameClickRename.cancel() }
+        table.onNameClick = { [weak coordinator] row in coordinator?.nameClicked(row: row) }
         table.editResponder = actions
         table.onWholeTableDropTargetChange = onWholeListDropTargetChange
         configureFileBrowserDragSource(table)
@@ -122,6 +128,8 @@ struct FileBrowserListView: NSViewRepresentable {
             table.target = nil
             table.doubleAction = nil
             table.onReturn = nil
+            table.onInteraction = nil
+            table.onNameClick = nil
             table.editResponder = nil
             // 閉包を先に切る(SwiftUI の更新の最中に @State を書かない)。
             table.onWholeTableDropTargetChange = nil
@@ -132,6 +140,7 @@ struct FileBrowserListView: NSViewRepresentable {
             table.headerView?.menu?.delegate = nil
             table.headerView?.menu = nil
         }
+        coordinator.nameClickRename.cancel()
         coordinator.headerMenu = nil
         coordinator.table = nil
         coordinator.state = nil
@@ -212,6 +221,8 @@ struct FileBrowserListView: NSViewRepresentable {
         private var isApplyingSelection = false
         private var isApplyingSort = false
         private let menuBuilder = FileBrowserMenuBuilder()
+        /// 名前のクリックから編集を始める予約(型コメント「名前の変更」)。
+        let nameClickRename = FileBrowserNameClickRename()
         private lazy var dateFormatter: DateFormatter = makeDateFormatter()
         private let sizeFormatter: ByteCountFormatter = {
             let formatter = ByteCountFormatter()
@@ -257,6 +268,15 @@ struct FileBrowserListView: NSViewRepresentable {
                     DispatchQueue.main.async { [weak self, weak field] in
                         guard let self, let table = self.table, let field, self.editingNameField === field else { return }
                         table.window?.makeFirstResponder(table)
+                    }
+                } else if view.state.entriesRevision != revision, let field = editingNameField,
+                          case let row = table.row(for: field), entries.indices.contains(row),
+                          FileBrowserNameEditing.editedItemVanished(id: entries[row].id, displayedFolder: displayedFolder, state: view.state) {
+                    // 編集中の項目が、同じフォルダのまま一覧から消えた(ドラッグで移した・Finder で消した・他のウインドウで名前を変えた)。
+                    // 打った名前では変えられないので取りやめ、待たせていた一覧を取り込む(`FileBrowserNameEditing` の型コメント)。
+                    DispatchQueue.main.async { [weak self, weak field] in
+                        guard let self, let field, self.editingNameField === field else { return }
+                        self.cancelEditing(field)
                     }
                 }
                 return
@@ -313,13 +333,38 @@ struct FileBrowserListView: NSViewRepresentable {
             return field
         }
 
+        /// 名前の編集を始める(依頼・名前のクリックの両方がここを通る)。**名前の欄を編集できる欄にするのはここだけ**
+        /// (ふだんは編集できない欄なので、AppKit が自分の判断で編集を始めることはない。型コメント)。
         private func beginEditingName(row: Int) {
-            guard let table, entries.indices.contains(row), !entries[row].isVolume else { return }
+            nameClickRename.cancel()
+            guard let table, let state, !isEditingName, entries.indices.contains(row) else { return }
+            let entry = entries[row]
+            guard FileBrowserNameEditing.canBegin(
+                entry, displayedFolder: displayedFolder, state: state, allowsFileChanges: actions?.allowsFileChanges ?? false
+            ) else { return }
             let column = table.column(withIdentifier: Column.name.identifier)
             guard column >= 0 else { return }
             table.scrollRowToVisible(row)
             table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            guard let cell = table.view(atColumn: column, row: row, makeIfNecessary: true) as? FileBrowserCellView else { return }
+            cell.nameField.editingName = entry.url.lastPathComponent
+            cell.nameField.selectsWholeName = entry.isNavigableFolder
             table.editColumn(column, row: row, with: nil, select: true)
+            // 始められなかった(ウインドウが無い・焦点を移せない)なら、編集できる欄のまま残さない。
+            if editingNameField !== cell.nameField { cell.nameField.editingName = nil }
+        }
+
+        /// 選ばれている 1 行の名前をクリックした(`FileBrowserTableView.mouseDown`)。ダブルクリックの間隔を待ち、その間に次の操作が無く、
+        /// まだその 1 行だけを選んでいれば編集を始める。
+        func nameClicked(row: Int) {
+            guard entries.indices.contains(row) else { return }
+            let id = entries[row].id
+            nameClickRename.schedule { [weak self] in
+                guard let self, let table = self.table, table.window?.isKeyWindow == true, !self.isEditingName,
+                      self.state?.selection == [id], let current = self.entries.firstIndex(where: { $0.id == id })
+                else { return }
+                self.beginEditingName(row: current)
+            }
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -327,11 +372,16 @@ struct FileBrowserListView: NSViewRepresentable {
                 return false
             }
             // Esc: 取りやめて元の名前に戻す。
+            cancelEditing(field)
+            return true
+        }
+
+        /// 打った名前を捨てて編集を終える(Esc・編集中の項目が一覧から消えた)。
+        private func cancelEditing(_ field: NSTextField) {
             isCancellingEdit = true
             field.abortEditing()
             isCancellingEdit = false
             finishEditing(restoring: field)
-            return true
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {
@@ -357,6 +407,8 @@ struct FileBrowserListView: NSViewRepresentable {
             defer { isFinishingEdit = false }
             let row = table.row(for: field)
             if entries.indices.contains(row) { field.stringValue = entries[row].displayName }
+            // ふだんの「編集できない欄」へ戻す(beginEditingName のコメント)。
+            (field as? FileBrowserNameField)?.editingName = nil
             table.window?.makeFirstResponder(table)
             if needsReloadAfterEditing {
                 needsReloadAfterEditing = false
@@ -426,8 +478,8 @@ struct FileBrowserListView: NSViewRepresentable {
             case .name:
                 cell.icon?.image = icon(for: entry)
                 cell.configure(text: entry.displayName, outlineWidth: outlineWidth)
-                cell.nameField.editingName = entry.isVolume ? nil : entry.url.lastPathComponent
-                cell.nameField.selectsWholeName = entry.isDirectory && !entry.isPackage
+                // ふだんは編集できない欄(型コメント「名前の変更」。編集できる欄にするのは beginEditingName だけ)。
+                cell.nameField.editingName = nil
                 cell.label.delegate = self
             case .modified:
                 cell.configure(text: entry.modificationDate.map(dateFormatter.string(from:)) ?? "--",
@@ -501,6 +553,8 @@ struct FileBrowserListView: NSViewRepresentable {
             _ tableView: NSTableView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint,
             forRowIndexes rowIndexes: IndexSet
         ) {
+            // 名前のクリックから編集を始める予約を取りやめる(押し下げの後で届くので、押し下げだけでは取りやめられない)。
+            nameClickRename.cancel()
             FileBrowserDragTracker.begin(rowIndexes.compactMap { row in
                 entries.indices.contains(row) && !entries[row].isVolume ? entries[row].url : nil
             })
@@ -648,6 +702,10 @@ struct FileBrowserListView: NSViewRepresentable {
 /// ファイルブラウザのキー(⌘⌫ / ⌥⌘V / ⌘[ / ⌘] / ⌘↑)を`editResponder`へ渡す(段階4)。
 final class FileBrowserTableView: NSTableView, NSMenuItemValidation {
     var onReturn: (() -> Void)?
+    /// 押し下げ・キー・右クリック(名前のクリックから編集を始める予約を取りやめる)。
+    var onInteraction: (() -> Void)?
+    /// 選ばれている 1 行の名前の文字を、修飾キー無しで 1 回クリックした(引数は行)。
+    var onNameClick: ((Int) -> Void)?
     weak var editResponder: (any FileBrowserEditResponding)?
     var onWholeTableDropTargetChange: ((Bool) -> Void)?
     /// 表全体が受け口になっているか(FileBrowserListView.onWholeListDropTargetChange)。出たとき・落とされたときに下ろす。
@@ -664,7 +722,37 @@ final class FileBrowserTableView: NSTableView, NSMenuItemValidation {
         super.draggingExited(sender)
     }
 
+    // MARK: クリック
+
+    /// 名前のクリック(型コメント「名前の変更」)。判定は押し下げの**前**の姿で行う(押し下げで選択が変わる)。ドラッグになったときの
+    /// 取りやめは、ドラッグが始まった通知(押し下げの処理が戻った後に届く)と `FileBrowserNameClickRename` が受け持つ。
+    override func mouseDown(with event: NSEvent) {
+        onInteraction?()
+        let point = convert(event.locationInWindow, from: nil)
+        let clickedRow = row(at: point)
+        let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        let isNameClick = event.clickCount == 1 && flags.isEmpty && clickedRow >= 0
+            && selectedRowIndexes == IndexSet(integer: clickedRow) && isNameTextHit(point, row: clickedRow)
+        super.mouseDown(with: event)
+        if isNameClick { onNameClick?(clickedRow) }
+    }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        onInteraction?()
+        return super.menu(for: event)
+    }
+
+    /// 名前の文字の上か(Finder と同じく、名前の列の余白では始めない)。
+    private func isNameTextHit(_ point: NSPoint, row: Int) -> Bool {
+        let column = column(withIdentifier: FileBrowserListView.Column.name.identifier)
+        guard column >= 0, let cell = view(atColumn: column, row: row, makeIfNecessary: false) as? FileBrowserCellView else { return false }
+        let field = cell.label
+        let textWidth = min(field.bounds.width, ceil(field.cell?.cellSize(forBounds: field.bounds).width ?? field.bounds.width))
+        return NSRect(x: 0, y: 0, width: textWidth, height: field.bounds.height).contains(field.convert(point, from: self))
+    }
+
     override func keyDown(with event: NSEvent) {
+        onInteraction?()
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         // Return / Enter、⌘↓(Finderの「開く」)。
         if (event.keyCode == 36 || event.keyCode == 76) && flags.subtracting([.numericPad, .function]).isEmpty
@@ -679,33 +767,23 @@ final class FileBrowserTableView: NSTableView, NSMenuItemValidation {
         super.keyDown(with: event)
     }
 
-    /// 名前の欄を当たり先にするのは、`validateProposedFirstResponder` が許すときだけ(2026-09-14、段階 8.5 の実機)。
+    /// **編集中でない名前の欄を当たり先にしない**(2026-09-14、段階 8.5 の実機。2026-09-19 に判定を単純にした)。
     ///
-    /// 通常は NSTableView の `hitTest` 自身がこの判定を尋ね、断られた欄の代わりに表を返すので、クリックは表の `mouseDown`
-    /// (選択)・右クリックは `menu(for:)` へ届く。ところが**アイコン表示の右クリックでサブメニューを開いて Esc で閉じたあと、
+    /// 通常は NSTableView の `hitTest` 自身が `validateProposedFirstResponder` を尋ね、断られた欄の代わりに表を返すので、クリックは表の
+    /// `mouseDown`(選択)・右クリックは `menu(for:)` へ届く。ところが**アイコン表示の右クリックでサブメニューを開いて Esc で閉じたあと、
     /// その尋ね方が飛ばされる状態になった**(ログで実測: `hitTest` が判定を呼ばずに名前の欄を返し、ウインドウが欄をそのまま
     /// ファーストレスポンダにしてから判定が呼ばれた。ウインドウはキーのまま、アプリも前面のまま)。その間、右クリックのメニューが
     /// 開かず、選ばれていない行のクリックで(読み取り専用モードでも)名前の編集が始まった。タイトルバーを 1 回クリックすると戻る。
-    /// AppKit の内側の状態は見えないので、当たり先の側で同じ判定を確かめ直す。
+    /// AppKit の内側の状態は見えないので、当たり先の側で確かめ直す。名前の編集はクリックからも `mouseDown` が始める(型コメント
+    /// 「名前の変更」)ので、編集中の欄(フィールドエディタが付いている)のほかは当たり先にする理由が無い。
     override func hitTest(_ point: NSPoint) -> NSView? {
-        resolvedHit(super.hitTest(point), event: NSApp.currentEvent)
+        resolvedHit(super.hitTest(point))
     }
 
     /// `hitTest` の結果を確かめ直す(テストはここを直に呼ぶ ―― AppKit が判定を飛ばす状態はテストでは作れない)。
-    func resolvedHit(_ hit: NSView?, event: NSEvent?) -> NSView? {
-        if let field = hit as? FileBrowserNameField, field.currentEditor() == nil,
-           !validateProposedFirstResponder(field, for: event) {
-            return self
-        }
+    func resolvedHit(_ hit: NSView?) -> NSView? {
+        if let field = hit as? FileBrowserNameField, field.currentEditor() == nil { return self }
         return hit
-    }
-
-    /// 選ばれている行をもう一度クリックして名前の編集を始めるのは、**1行だけを選んでいるときだけ**
-    /// (複数選択中のクリックは選択を1件に絞る操作。Finder と同じ)。読み取り専用モードの間は始めない(段階 8.5)。
-    override func validateProposedFirstResponder(_ responder: NSResponder, for event: NSEvent?) -> Bool {
-        if responder is FileBrowserNameField,
-           selectedRowIndexes.count != 1 || !(editResponder?.allowsFileChanges ?? false) { return false }
-        return super.validateProposedFirstResponder(responder, for: event)
     }
 
     override func draggingSession(

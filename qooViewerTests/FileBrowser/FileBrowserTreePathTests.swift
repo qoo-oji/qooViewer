@@ -91,17 +91,17 @@ struct FileBrowserTreeAndIconHitTests {
 
     /// AppKit の `hitTest` が判定を飛ばして名前の欄を返す状態(アイコン表示のサブメニューのあと。FileBrowserTableView.hitTest の
     /// コメント)はテストでは作れないので、欄が当たったことにして確かめ直しの判定だけを見る。
-    @Test("リストは、編集を始めてはいけない名前の欄が当たっても表を返す。ほかの部品はそのまま")
-    func listResolvesRefusedNameFieldToTable() {
+    @Test("リストは、編集中でない名前の欄が当たっても表を返す(編集できる欄でも)。ほかの部品はそのまま")
+    func listResolvesIdleNameFieldToTable() {
         let table = FileBrowserTableView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
         let field = FileBrowserNameField(frame: NSRect(x: 10, y: 10, width: 100, height: 20))
         field.editingName = "a.txt"
         table.addSubview(field)
-        // 行を選んでいない(1 行だけを選んでいるときしか編集を始めない)→ 表。
-        #expect(table.resolvedHit(field, event: nil) === table)
+        // 編集中でない(フィールドエディタが付いていない)→ 表。名前の編集は表の mouseDown が始める。
+        #expect(table.resolvedHit(field) === table)
         let icon = NSImageView(frame: .zero)
-        #expect(table.resolvedHit(icon, event: nil) === icon)
-        #expect(table.resolvedHit(nil, event: nil) == nil)
+        #expect(table.resolvedHit(icon) === icon)
+        #expect(table.resolvedHit(nil) == nil)
     }
 
     @Test("ツリーは行の文字の欄が当たっても一覧を返す(行の選択と右クリックのメニューは一覧が受ける)。ほかの部品はそのまま")

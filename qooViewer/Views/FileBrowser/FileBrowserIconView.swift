@@ -18,10 +18,12 @@ import SwiftUI
 ///
 /// ■ 名前の変更
 /// **選ばれている 1 件の名前の文字の上をもう一度クリックすると、ダブルクリックの間隔を待って編集が始まる**(Finder と同じ。アイコンの部分・
-/// 名前の横の余白では始めない。途中でもう一度クリック・キーを押せば取りやめ)。新規フォルダの直後・右クリックの「名前を変更」は
+/// 名前の横の余白では始めない。途中でアプリのどこかを押す・キーを押す・ドラッグを始めれば取りやめ ―― `FileBrowserNameClickRename`)。
+/// 始める直前に、その項目が今の一覧とディスクにあるかを確かめる(`FileBrowserNameEditing.canBegin`)。新規フォルダの直後・右クリックの「名前を変更」は
 /// `FileBrowserState.renameRequest`。欄はセルの名前の `FileBrowserNameField` をそのまま編集できる形に切り替え、打った文字に合わせて下へ伸ばす。
 /// Return で確定、Esc で取りやめ、焦点が外れても確定、編集中のセルが画面から外れて使い回されるときも確定。**編集中は一覧を取り込まない**
-/// (リストと同じ理由 ―― 取り込むと添字がずれて別の項目の名前を変えうる。監査の 5)。
+/// (リストと同じ理由 ―― 取り込むと添字がずれて別の項目の名前を変えうる。監査の 5)。待たせている間に編集中の項目が同じフォルダの
+/// 一覧から消えたら、取りやめて取り込む(2026-09-19。`FileBrowserNameEditing` の型コメント)。
 ///
 /// ■ ドラッグ&ドロップ
 /// 出し口は `NSCollectionView` の標準(`pasteboardWriterForItemAt`)。受け口は**自前で持つ**(`FileBrowserCollectionView` の
@@ -105,6 +107,7 @@ struct FileBrowserIconView: NSViewRepresentable {
     static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
         // 捨てる直前に一覧を取り込み直さない(取り込むと、捨てるビューが絵を頼み直す)。
         coordinator.finishEditing(commit: true, syncsAfterward: false)
+        coordinator.nameClickRename.cancel()
         if let collection = coordinator.collection {
             // **見えているセルの絵の依頼を取り消す**(2026-09-15 の 3 回目の監査)。表示の切り替え・ウインドウを閉じるときのアイテムは
             // `prepareForReuse` を通らずに捨てられ、Task は取り消されないので、提供役に待ちが残って本の展開・QuickLook を走らせ続けた。
@@ -264,8 +267,8 @@ struct FileBrowserIconView: NSViewRepresentable {
         private var displayedFolder: URL?
         /// 名前の編集中に取り込みを待たせた(終わったら取り込む)。
         private var needsSyncAfterEditing = false
-        /// クリック・キーのたびに進む番号(名前のクリックから編集を始めるまでに次の操作があれば取りやめる)。
-        private var interactionSerial = 0
+        /// 名前のクリックから編集を始める予約(型コメント「名前の変更」)。
+        let nameClickRename = FileBrowserNameClickRename()
         /// ドロップの受け口として強調しているフォルダのセル。
         private var dropTargetID: String?
         private var isWholeViewDropTarget = false {
@@ -308,6 +311,14 @@ struct FileBrowserIconView: NSViewRepresentable {
                     DispatchQueue.main.async { [weak self] in
                         guard let self, self.editing?.cell === cell else { return }
                         self.finishEditing(commit: true)
+                    }
+                } else if view.state.entriesRevision != revision,
+                          FileBrowserNameEditing.editedItemVanished(id: editing.entry.id, displayedFolder: displayedFolder, state: view.state) {
+                    // 編集中の項目が、同じフォルダのまま一覧から消えた(リストの update と同じ)。打った名前は捨てて取り込む。
+                    let cell = editing.cell
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, self.editing?.cell === cell else { return }
+                        self.finishEditing(commit: false)
                     }
                 }
                 return
@@ -540,7 +551,7 @@ struct FileBrowserIconView: NSViewRepresentable {
         // MARK: クリックとキー(FileBrowserCollectionViewHandling)
 
         func noteInteraction() {
-            interactionSerial += 1
+            nameClickRename.cancel()
         }
 
         func openItem(at index: Int) {
@@ -583,10 +594,8 @@ struct FileBrowserIconView: NSViewRepresentable {
         func nameClicked(at index: Int) {
             guard entries.indices.contains(index) else { return }
             let id = entries[index].id
-            let serial = interactionSerial
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(NSEvent.doubleClickInterval))
-                guard let self, self.interactionSerial == serial, self.editing == nil, self.state?.selection == [id],
+            nameClickRename.schedule { [weak self] in
+                guard let self, self.collection?.window?.isKeyWindow == true, self.editing == nil, self.state?.selection == [id],
                       let current = self.entries.firstIndex(where: { $0.id == id })
                 else { return }
                 self.beginEditing(index: current)
@@ -596,10 +605,13 @@ struct FileBrowserIconView: NSViewRepresentable {
         // MARK: 名前の変更
 
         private func beginEditing(index: Int) {
-            guard let collection, let actions, entries.indices.contains(index), editing == nil else { return }
+            nameClickRename.cancel()
+            guard let collection, let actions, let state, entries.indices.contains(index), editing == nil else { return }
             let entry = entries[index]
-            // 読み取り専用モードの間は、名前のクリックからも始めない(段階 8.5)。
-            guard !entry.isVolume, actions.allowsFileChanges else { return }
+            // 読み取り専用モード・今の一覧やディスクに無い項目では、依頼からも名前のクリックからも始めない(FileBrowserNameEditing)。
+            guard FileBrowserNameEditing.canBegin(
+                entry, displayedFolder: displayedFolder, state: state, allowsFileChanges: actions.allowsFileChanges
+            ) else { return }
             let indexPath = IndexPath(item: index, section: 0)
             collection.layoutSubtreeIfNeeded()
             guard let item = collection.item(at: indexPath) as? FileBrowserIconItem else {
@@ -613,12 +625,9 @@ struct FileBrowserIconView: NSViewRepresentable {
                 }
                 return
             }
-            interactionSerial += 1
             editing = (entry, item.cell)
-            if let state {
-                state.selection = [entry.id]
-                applySelection(from: state)
-            }
+            state.selection = [entry.id]
+            applySelection(from: state)
             collection.editingField = item.cell.nameField
             // 始められなかった(ウインドウが無い・焦点を移せない)なら、編集中の印を残さない(残ると一覧の取り込みが止まったままになる)。
             guard item.cell.beginEditing(name: entry.url.lastPathComponent, selectsWholeName: entry.isNavigableFolder, delegate: self) else {
