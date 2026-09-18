@@ -55,7 +55,8 @@ problem in the old-SDK path, not this app's code; details in `docs/09-ui-and-win
 macOS 26.6+, and the macOS 15.0 deployment target is unchanged. **A `Menu`'s `label:` must hold exactly one `Text`** —
 that old path extracts the first `Text` as the title instead of drawing the label, so the hidden `Text`s that reserved
 the widest option's width made every Settings pop-up read "the first option"; the width measurement now sits outside the
-`Menu` (`SettingsPicker.widthProbe`). Swift 6.4 added `#ImplicitStrongCapture`, which flags a
+`Menu` (`SettingsPicker.widthProbe`) and is applied on macOS 15 only — built with the macOS 27 SDK and run on macOS 27,
+the label is drawn as-is, so the reserved width left short options stuck at the left of a wide button (2026-09-18). Swift 6.4 added `#ImplicitStrongCapture`, which flags a
 `[weak x]` capture whose outer closure captures the same thing implicitly and strongly; silence it by making the outer
 capture explicit, never by dropping the inner `weak`.
 

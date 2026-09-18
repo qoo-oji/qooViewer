@@ -392,16 +392,32 @@ struct SettingsPicker<Value: SettingsOption>: View {
                 .labelsHidden()
             } label: {
                 // **ラベルに置く`Text`は1つだけ**(理由はwidthProbeのコメント)。
-                // 選ぶたびにボタンの幅が動かないよう、いちばん長い選択肢の幅を下限にしておく
-                // (NSPopUpButtonと同じ振る舞い。幅を測るのはwidthProbe)。
+                // macOS 15 では選ぶたびにボタンの幅が動かないよう、いちばん長い選択肢の幅を下限にしておく
+                // (NSPopUpButtonと同じ振る舞い。幅を測るのはwidthProbe)。26 以降は下限を付けない
+                // (理由は reservesWidestTitleWidth のコメント)。
                 Text(selection.shortTitleKey)
                     .lineLimit(1)
-                    .frame(minWidth: widestTitleWidth, alignment: .leading)
+                    .frame(minWidth: reservesWidestTitleWidth ? widestTitleWidth : nil, alignment: .leading)
             }
-            .background(alignment: .topLeading) { widthProbe }
+            .background(alignment: .topLeading) {
+                if reservesWidestTitleWidth { widthProbe }
+            }
             .accessibilityLabel(Text(title))
             .accessibilityValue(Text(selection.shortTitleKey))
         }
+    }
+
+    /// ボタンの幅をいちばん長い選択肢に揃えるか。macOS 15(自前で枠を描く経路)だけ揃える。
+    ///
+    /// ■ macOS 26 以降で揃えない理由(2026-09-18、利用者からの報告)
+    /// Xcode 27(macOS 27 SDK)で組んで macOS 27 で走らせると、`Menu`はラベルのビューを**そのまま**描くように
+    /// なった(widthProbeのコメントにあるリリースノートの "better label customization")。すると26では無視されて
+    /// いた`minWidth`が効き、ボタンがいちばん長い選択肢の幅になって、**短い選択肢の文字がその枠の左端へ寄る** ――
+    /// 右端に付いたシェブロンとの間が大きく空き、行の右端に揃ったほかのコントロールより文字だけ左へずれて見えた。
+    /// システム設定のポップアップは選択中の文字の幅に合わせて伸び縮みし、右端で揃う。26 では下限がそもそも
+    /// 効いていなかった(下の実測)ので、26 以降は下限を付けずに内容幅へ任せるのが、見た目も振る舞いも純正と揃う。
+    private var reservesWidestTitleWidth: Bool {
+        if #available(macOS 26.0, *) { false } else { true }
     }
 
     /// いちばん長い選択肢の幅を測るだけの、見えないビュー。
