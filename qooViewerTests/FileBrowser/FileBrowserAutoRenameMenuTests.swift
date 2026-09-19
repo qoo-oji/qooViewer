@@ -97,6 +97,43 @@ struct FileBrowserAutoRenameMenuTests {
         #expect(fixture.store.rule(withID: rule.id)?.targets.isEmpty == true)
     }
 
+    @Test("対象に入ったまま規則に足せなくなったフォルダでも、チェックを外す・設定を開くはできる。入れる側だけ淡色(2026-09-19)")
+    func ineligibleFolderCanStillBeRemoved() async throws {
+        let fixture = try Fixture()
+        let library = try fixture.temporary.directory("library")
+        let favorite = fixture.favorites.add(library)
+        var rule = try #require(fixture.store.addRule())
+        rule.find = "x"
+        fixture.store.update(rule: rule)
+        var other = try #require(fixture.store.addRule())
+        other.find = "y"
+        fixture.store.update(rule: other)
+        let adding = try #require(fixture.actions.toggleAutoRename(folder: library, ruleID: rule.id))
+        await adding.value
+        // よく使う項目から外すと、このフォルダは規則に足せなくなる。
+        fixture.favorites.remove(id: favorite.id)
+        let entry = fixture.entry(library)
+        #expect(!fixture.actions.canConfigureAutoRename([entry]))
+        let context = FileBrowserMenuContext(kind: .folder, entries: [entry], folder: nil)
+        #expect(FileBrowserMenuCommand.autoRename.isEnabled(in: context, actions: fixture.actions))
+
+        let nodes = FileBrowserMenuCommand.autoRename.dynamicChildren(in: context, actions: fixture.actions, locale: english) ?? []
+        let toggles = nodes.compactMap { node -> (Bool, Bool)? in
+            if case .toggle(_, let isOn, let isEnabled, _) = node { return (isOn, isEnabled) } else { return nil }
+        }
+        // 入っている規則は外せる、入っていない規則には入れられない。
+        #expect(toggles.map(\.0) == [true, false])
+        #expect(toggles.map(\.1) == [true, false])
+        let items = nodes.compactMap { node -> (String, Bool)? in
+            if case .item(let title, _, let isEnabled, _) = node { return (title, isEnabled) } else { return nil }
+        }
+        #expect(items.first { $0.0 == "New Rule for This Folder…" }?.1 == false)
+        #expect(items.first { $0.0 == "Auto Rename Settings…" }?.1 == true)
+
+        #expect(fixture.actions.toggleAutoRename(folder: library, ruleID: rule.id) == nil)
+        #expect(fixture.store.rule(withID: rule.id)?.targets.isEmpty == true)
+    }
+
     @Test("「このフォルダの規則を作成…」は、このフォルダを対象に入れた規則を作る")
     func createRuleForFolder() async throws {
         let fixture = try Fixture()

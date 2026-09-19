@@ -222,6 +222,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
         private var appliedFavorites: [FavoriteLocationStore.Item] = []
         private var appliedFolderID: String??
         private var appliedChange: FileBrowserState.TreeReloadRequest?
+        /// 行に反映したカットの記憶(右ペインと同じく、カットしたフォルダの行を淡くする)。
+        private var appliedCutPaths: Set<String> = []
         private var isApplyingSelection = false
         private let menuBuilder = FileBrowserMenuBuilder()
         private var volumeObservers: [NSObjectProtocol] = []
@@ -360,6 +362,10 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 allowsEditingFavorites = view.allowsEditingFavorites
                 outline.outlineWidth = outlineWidth
                 needsRedraw = true
+            }
+            if view.state.cutPaths != appliedCutPaths {
+                appliedCutPaths = view.state.cutPaths
+                if !needsRedraw { applyCutAppearance() }
             }
             if view.childSort != childSort {
                 childSort = view.childSort
@@ -757,7 +763,26 @@ struct FileBrowserTreeView: NSViewRepresentable {
                 ?? FileBrowserCellView(identifier: identifier, showsIcon: true)
             cell.icon?.image = node.kind == .volume ? FileBrowserIconProvider.volumeIcon : FileBrowserIconProvider.folderIcon
             cell.configure(text: node.name, outlineWidth: outlineWidth)
+            cell.alphaValue = isCut(node) ? 0.5 : 1
             return cell
+        }
+
+        /// カットしたフォルダの行か(リスト・アイコン表示の淡い表示と揃える。2026-09-19 の総点検 ―― それまでは右ペインで
+        /// 淡くなったフォルダが、ツリーではふつうに見えていた)。
+        private func isCut(_ node: Node) -> Bool {
+            guard !appliedCutPaths.isEmpty, !node.isGroup, let entry = node.entry, let state else { return false }
+            return state.isCut(entry)
+        }
+
+        /// 見えている行の淡さを、いまのカットの記憶に合わせ直す(読み直さない ―― 開閉を崩さない)。
+        private func applyCutAppearance() {
+            guard let outline else { return }
+            outline.enumerateAvailableRowViews { rowView, row in
+                guard let node = outline.item(atRow: row) as? Node, !node.isGroup,
+                      let cell = rowView.view(atColumn: 0) as? NSView
+                else { return }
+                cell.alphaValue = self.isCut(node) ? 0.5 : 1
+            }
         }
 
         func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {

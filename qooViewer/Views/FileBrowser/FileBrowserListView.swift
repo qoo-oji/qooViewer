@@ -340,7 +340,9 @@ struct FileBrowserListView: NSViewRepresentable {
             guard let table, let state, !isEditingName, entries.indices.contains(row) else { return }
             let entry = entries[row]
             guard FileBrowserNameEditing.canBegin(
-                entry, displayedFolder: displayedFolder, state: state, allowsFileChanges: actions?.allowsFileChanges ?? false
+                entry, displayedFolder: displayedFolder, state: state,
+                // 読み取り専用モードとビューアで開いている本(打ち終えてから断られていた。2026-09-19 の総点検)。
+                allowsFileChanges: actions?.canChange([entry]) ?? false
             ) else { return }
             let column = table.column(withIdentifier: Column.name.identifier)
             guard column >= 0 else { return }

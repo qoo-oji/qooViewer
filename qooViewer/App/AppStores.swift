@@ -96,6 +96,8 @@ final class AppStores: ObservableObject {
     let autoRenameService: AutoRenameService
     /// アプリ自身が移した本の保存データの付け替え役(BookRecordRelocator)。
     let bookRecordRelocator: BookRecordRelocator
+    /// テキストの欄を編集しているか(編集メニューの「取り消す」「やり直す」の淡色。TextEditingMenuState の型コメント)。
+    let textEditingMenuState = TextEditingMenuState()
     /// アプリ自身がファイルを動かした知らせの購読(`handleFileSystemChange`)。
     private var fileSystemChangeSubscription: AnyCancellable?
 
@@ -219,6 +221,7 @@ final class AppStores: ObservableObject {
             layoutStore.objectWillChange,
             metadataStore.objectWillChange,
             homeMenuDirectory.objectWillChange,
+            textEditingMenuState.objectWillChange,
         ]
     }
 }

@@ -167,7 +167,8 @@ struct FileBrowserMenuSelection: Equatable {
     var canUseAsBooks = false
     var canEditMetadata = false
     var canExportBook = false
-    /// 「ここに項目を移動」(⌥⌘V)。ペーストボードの中身までは見ない(変化を購読できない)ので、書き込める
-    /// フォルダを表示しているかだけで決め、押された時点で改めて確かめる。
+    /// 「ここに項目を移動」(⌥⌘V)。ペーストボードの変化は購読できないので、アプリ・ウインドウが前に来たときとこのアプリが
+    /// ファイルを書いたときに取った写し(`FileBrowserState.pasteboardHasFiles`)で決める(2026-09-19。それまでは書き込めるフォルダを
+    /// 表示しているかだけで決め、空のペーストボードでも押せて黙って何もしなかった)。写しが古いときは押した時点で確かめて鳴らす。
     var canMoveItemHere = false
 }

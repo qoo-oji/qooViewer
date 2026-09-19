@@ -298,6 +298,115 @@ struct FileBrowserIntegrationTests {
         #expect(!fixture.actions.canPerform(.moveToTrash))
     }
 
+    @Test("「開く」は開いて何かが起きるときだけ押せる: 1 件なら何でも、複数ならフォルダ・リンクを含まないときだけ(2026-09-19)")
+    func openAvailabilityMatchesOpen() throws {
+        let fixture = try Fixture("fb-menu-open")
+        defer { fixture.close() }
+        let folderA = fixture.entry(try fixture.temporary.directory("a"))
+        let folderB = fixture.entry(try fixture.temporary.directory("b"))
+        let book = fixture.entry(try fixture.archive("book.cbz"))
+        let other = fixture.entry(try fixture.archive("other.cbz", number: 2))
+        let textURL = fixture.temporary.file("notes.txt")
+        try Data("x".utf8).write(to: textURL)
+        let text = fixture.entry(textURL)
+        let link = FileBrowserEntry(
+            url: fixture.temporary.file("link"), displayName: "link", isDirectory: false, isPackage: false,
+            isSymbolicLink: true, isVolume: false, fileSize: nil, typeDescription: nil, creationDate: nil, modificationDate: nil
+        )
+
+        func enabled(_ entries: [FileBrowserEntry]) -> Bool {
+            FileBrowserMenuCommand.open.isEnabled(
+                in: FileBrowserMenuContext(kind: .file, entries: entries, folder: nil), actions: fixture.actions
+            )
+        }
+        // 1 件: フォルダ・本・ふつうのファイル(既定のアプリ)・リンク(中へ)のどれでも開ける。
+        #expect(enabled([folderA]))
+        #expect(enabled([book]))
+        #expect(enabled([text]))
+        #expect(enabled([link]))
+        // 複数: 本とファイルはまとめて開ける。フォルダ・リンクを含むと中へ入れないので淡色(以前は押せて何も起きなかった)。
+        #expect(enabled([book, other]))
+        #expect(enabled([book, text]))
+        #expect(!enabled([folderA, folderB]))
+        #expect(!enabled([folderA, book]))
+        #expect(!enabled([link, book]))
+        #expect(!enabled([]))
+        // 淡色の条件と開く側の場合分けは同じもの。
+        #expect(fixture.actions.canOpen([folderA, folderB]) == enabled([folderA, folderB]))
+    }
+
+    @Test("ビューアで開いている本(とそれを含むフォルダ)は、名前の変更・カット・ゴミ箱が淡色。コピー・圧縮は押せる(2026-09-19)")
+    func openBookDisablesChanges() throws {
+        let fixture = try Fixture("fb-menu-open-book")
+        defer { fixture.close() }
+        let shelf = try fixture.temporary.directory("shelf")
+        let bookURL = try fixture.archive("shelf/book.cbz")
+        let book = fixture.entry(bookURL)
+        let folder = fixture.entry(shelf)
+        let other = fixture.entry(try fixture.archive("other.cbz", number: 2))
+        fixture.state.operations.openBookPaths = { [bookURL.path] }
+
+        func enabled(_ command: FileBrowserMenuCommand, _ entries: [FileBrowserEntry]) -> Bool {
+            command.isEnabled(in: FileBrowserMenuContext(kind: .file, entries: entries, folder: nil), actions: fixture.actions)
+        }
+        for command in [FileBrowserMenuCommand.rename, .cut, .moveToTrash] {
+            #expect(!enabled(command, [book]), "\(command)")
+            #expect(!enabled(command, [folder]), "含むフォルダ: \(command)")
+            #expect(enabled(command, [other]), "ほかの本: \(command)")
+        }
+        #expect(enabled(.copy, [book]))
+        #expect(enabled(.compress, [book]))
+        // 名前の編集も始めない(打ち終えてから断られていた)。
+        #expect(!fixture.actions.canChange([book]))
+    }
+
+    @Test("読めないフォルダを表示している間は、ペースト・新規フォルダが淡色(2026-09-19)")
+    func unreadableFolderDisablesWrites() async throws {
+        let fixture = try Fixture("fb-menu-unreadable")
+        defer { fixture.close() }
+        let book = fixture.entry(try fixture.archive("book.cbz"))
+        let pasteboard = NSPasteboard.withUniqueName()
+        fixture.state.operations.pasteboard = pasteboard
+        pasteboard.clearContents()
+        pasteboard.writeObjects([book.url as NSURL])
+        let readable = try fixture.temporary.directory("readable")
+        fixture.state.navigate(to: readable)
+        await fixture.state.settle()
+        #expect(fixture.actions.canCreateFolder(in: readable))
+        #expect(fixture.actions.canPaste(into: readable))
+
+        // 読めないフォルダ(権限が無い)。見つからないフォルダは祖先へ移るので読み込みの失敗にならない。
+        let locked = try fixture.temporary.directory("locked")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path) }
+        fixture.state.navigate(to: locked)
+        await fixture.state.settle()
+        try #require(fixture.state.loadError != nil)
+        #expect(!fixture.actions.canCreateFolder(in: locked))
+        #expect(!fixture.actions.canPaste(into: locked))
+        #expect(!fixture.actions.canPerform(.moveItemHere))
+        // ツリーの行のフォルダ(右ペインと関係しない)には書ける。
+        #expect(fixture.actions.canCreateFolder(in: readable))
+    }
+
+    @Test("ペーストボードの写しは、このアプリがファイルを書いたときと確かめ直したときに変わる(2026-09-19)")
+    func pasteboardSnapshotFollowsWrites() throws {
+        let fixture = try Fixture("fb-pasteboard-snapshot")
+        defer { fixture.close() }
+        let pasteboard = NSPasteboard.withUniqueName()
+        fixture.state.operations.pasteboard = pasteboard
+        pasteboard.clearContents()
+        fixture.state.refreshPasteboardState()
+        #expect(!fixture.state.pasteboardHasFiles)
+        let book = fixture.entry(try fixture.archive("book.cbz"))
+        fixture.actions.copy([book])
+        #expect(fixture.state.pasteboardHasFiles)
+        pasteboard.clearContents()
+        pasteboard.setString("text", forType: .string)
+        fixture.state.refreshPasteboardState()
+        #expect(!fixture.state.pasteboardHasFiles)
+    }
+
     @Test("「よく使う項目に登録」はフォルダだけ。登録済みなら淡色、シークレットウインドウでも淡色。読み取り専用モードでは押せる")
     func addToFavoriteLocations() throws {
         let fixture = try Fixture("fb-menu-favorite")

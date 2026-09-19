@@ -267,6 +267,14 @@ final class FileBrowserState: ObservableObject {
     private var needsReloadAfterLoad = false
     private var preferenceObservation: AnyCancellable?
     private var systemObservations: [AnyCancellable] = []
+    /// ペーストボードにファイルがあるか(メニューバーの「ここに項目を移動」⌥⌘V を淡色にするための写し。2026-09-19 の総点検)。
+    ///
+    /// ペーストボードの変化は購読できないので、**アプリ・ウインドウが前に来たとき**(ほかのアプリでコピーして戻ってきた)と
+    /// **このアプリがファイルを書いたとき**(`FileBrowserOperations.write`)に`changeCount`で確かめ直す。それ以外(このアプリの
+    /// テキスト欄で文字をコピーした)で古くなることはあるが、そのときは押した時点で確かめて鳴らす(`FileBrowserActions.perform`)。
+    /// 右クリックと一覧のキー(⌥⌘V)は押す・開くたびにペーストボードを直に読むので、これを使わない。
+    @Published private(set) var pasteboardHasFiles = false
+    private var pasteboardChangeCount: Int?
     private var toastDismissTask: Task<Void, Never>?
     private let defaults: UserDefaults
     /// アプリ自身がファイルを動かした知らせ(`FileSystemChange` の型コメント)。操作の側(`FileBrowserOperations`)も、済んだ直後に
@@ -377,6 +385,15 @@ final class FileBrowserState: ObservableObject {
     }
 
     /// ファイルブラウザが画面から消えたとき(本を開いた・本棚へ切り替えた)。監視を止める。
+    /// `pasteboardHasFiles` を確かめ直す(変わっていなければ何もしない)。
+    func refreshPasteboardState() {
+        let count = operations.pasteboard.changeCount
+        guard count != pasteboardChangeCount else { return }
+        pasteboardChangeCount = count
+        let hasFiles = operations.canPaste
+        if hasFiles != pasteboardHasFiles { pasteboardHasFiles = hasFiles }
+    }
+
     func deactivate() {
         isVisible = false
         updateWatcher()
@@ -971,7 +988,15 @@ final class FileBrowserState: ObservableObject {
     private func observeSystem() {
         let appActive = NotificationCenter.default
             .publisher(for: NSApplication.didBecomeActiveNotification)
-            .sink { [weak self] _ in self?.handleFolderChanged() }
+            .sink { [weak self] _ in
+                self?.handleFolderChanged()
+                self?.refreshPasteboardState()
+            }
+        // ペーストボードの中身は購読できないので、ほかのアプリ・ほかのウインドウから戻ってきたときに確かめ直す
+        // (`pasteboardHasFiles` のコメント)。
+        let windowKey = NotificationCenter.default
+            .publisher(for: NSWindow.didBecomeKeyNotification)
+            .sink { [weak self] _ in self?.refreshPasteboardState() }
         let workspace = NSWorkspace.shared.notificationCenter
         let volumes = Publishers.MergeMany(
             workspace.publisher(for: NSWorkspace.didMountNotification),
@@ -980,7 +1005,8 @@ final class FileBrowserState: ObservableObject {
         )
         .receive(on: DispatchQueue.main)
         .sink { [weak self] _ in self?.handleFolderChanged() }
-        systemObservations = [appActive, volumes]
+        systemObservations = [appActive, windowKey, volumes]
+        refreshPasteboardState()
     }
 
     /// 「フォルダを上に」と、並べ替えの基準・向き(サイドパネルや他のウインドウで変わる。`sortKey`のコメント)を購読する。

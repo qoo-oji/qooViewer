@@ -167,6 +167,8 @@ struct LibraryPaneControls: View {
 private struct WelcomeEditToggle: View {
     @Binding var isEditing: Bool
     let isDisabled: Bool
+    /// 押している間の地の色(ウインドウが後ろなら灰色。`SelectionEmphasis`)。
+    @Environment(\.appearsActive) private var appearsActive
 
     var body: some View {
         Button {
@@ -180,7 +182,7 @@ private struct WelcomeEditToggle: View {
                 .frame(width: PanelIconButtonLabel.width, height: PanelIconButtonLabel.height)
                 .background(
                     RoundedRectangle(cornerRadius: PanelIconButtonLabel.cornerRadius, style: .continuous)
-                        .fill(isEditing ? Color.accentColor : Color.clear)
+                        .fill(isEditing ? SelectionEmphasis.fill(isActive: appearsActive) : Color.clear)
                 )
                 .panelOutlinedAccent(
                     in: RoundedRectangle(
@@ -188,7 +190,10 @@ private struct WelcomeEditToggle: View {
                     ),
                     isEnabled: isEditing
                 )
-                .foregroundStyle(isEditing ? Color.white : Color.primary)
+                // 前景色は押している間(不透明な地の上)だけ指定する。ふだんも`Color.primary`を指定していたので、
+                // 押せないとき(シークレットウインドウ)の SwiftUI の淡色表示が打ち消され、押せそうに見えていた
+                // (PanelIconButtonLabel と同じ落とし穴。2026-09-19 の総点検)。
+                .modifier(WelcomeEditToggleForeground(isEditing: isEditing, color: SelectionEmphasis.foreground(isActive: appearsActive)))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -201,6 +206,19 @@ private struct WelcomeEditToggle: View {
 
 /// 並べ替えメニュー。基準と向きを区切り線で分けた2つのPickerにするのは、サイドパネルの
 /// 並べ替え(SidePanelSortMenu)と同じ理由 ―― チェックマークの位置と字下げをSwiftUIに任せる。
+private struct WelcomeEditToggleForeground: ViewModifier {
+    let isEditing: Bool
+    let color: Color
+
+    func body(content: Content) -> some View {
+        if isEditing {
+            content.foregroundStyle(color)
+        } else {
+            content
+        }
+    }
+}
+
 private struct WelcomeSortMenu: View {
     @Binding var option: FavoritesSortOption
     let fields: [FavoritesSortOption.Field]

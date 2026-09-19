@@ -24,6 +24,8 @@ import SwiftUI
 struct WelcomeTopBar: View {
     @EnvironmentObject private var collectionStore: CollectionStore
     @Environment(\.locale) private var locale
+    /// 選択中のチップ・ファイルブラウザの切り替えの色(ウインドウが後ろなら灰色。`SelectionEmphasis`)。
+    @Environment(\.appearsActive) private var appearsActive
     @ObservedObject var state: WelcomeLibraryState
     /// 編集操作を許すか(シークレットウインドウではfalse)。
     let allowsEditing: Bool
@@ -164,13 +166,13 @@ struct WelcomeTopBar: View {
                 .labelStyle(.titleAndIcon)
                 .lineLimit(1)
                 .fixedSize()
-                // 選択中は不透明なアクセント地があるので輪郭は掛けない(チップと同じ判断)。
+                // 選択中は不透明な地(アクセント色 / 後ろでは灰色)があるので輪郭は掛けない(チップと同じ判断)。
                 .panelOutlinedContent(isEnabled: !isBrowsing)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(shape.fill(isBrowsing ? Color.accentColor : Color.primary.opacity(0.07)))
+                .background(shape.fill(isBrowsing ? SelectionEmphasis.fill(isActive: appearsActive) : Color.primary.opacity(0.07)))
                 .panelOutlinedAccent(in: shape, isEnabled: isBrowsing)
-                .foregroundStyle(isBrowsing ? Color.white : Color.primary)
+                .foregroundStyle(isBrowsing ? SelectionEmphasis.foreground(isActive: appearsActive) : Color.primary)
                 .contentShape(shape)
         }
         .buttonStyle(.plain)
@@ -273,9 +275,9 @@ struct WelcomeTopBar: View {
                 .panelOutlinedContent(isEnabled: !isSelected)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(shape.fill(isSelected ? Color.accentColor : Color.primary.opacity(0.07)))
+                .background(shape.fill(isSelected ? SelectionEmphasis.fill(isActive: appearsActive) : Color.primary.opacity(0.07)))
                 .panelOutlinedAccent(in: shape, isEnabled: isSelected)
-                .foregroundStyle(isSelected ? Color.white : Color.primary)
+                .foregroundStyle(isSelected ? SelectionEmphasis.foreground(isActive: appearsActive) : Color.primary)
                 .contentShape(shape)
         }
         .buttonStyle(.plain)

@@ -48,6 +48,11 @@ final class FileBrowserActions {
     @discardableResult
     func open(_ entries: [FileBrowserEntry]) -> Task<Void, Never>? {
         guard state != nil else { return nil }
+        // 何も起きない組み合わせ(複数のフォルダ・リンクを含む)なら鳴らす。黙っていると押しても何も起きないように見える。
+        guard canOpen(entries) else {
+            if !entries.isEmpty { NSSound.beep() }
+            return nil
+        }
         if entries.count == 1, let entry = entries.first, entry.isNavigableFolder {
             return openFolder(entry, fromMenu: false)
         }
@@ -63,6 +68,17 @@ final class FileBrowserActions {
             NSWorkspace.shared.open(entry.url)
         }
         return nil
+    }
+
+    /// 「開く」(右クリック・メニューバー・⌘↓・Return・ダブルクリック)で何かが起きるか。**`open(_:)` の場合分けと同じ**
+    /// (2026-09-19 の総点検。それまでの淡色の条件は「フォルダ・本・画像だけ」で、フォルダを 2 つ選ぶと押せるのに何も起きず、
+    /// フォルダへのリンク・ふつうのファイルは淡色なのに Return では開けた)。
+    /// - 1 件: 何でも開く(フォルダ・リンクは中へ、本と画像は qooViewer、それ以外は既定のアプリ)
+    /// - 複数: フォルダ・リンクを含まないときだけ(中へ入れるのは 1 つずつ。本はまとめて開き、それ以外は既定のアプリ)
+    func canOpen(_ entries: [FileBrowserEntry]) -> Bool {
+        guard !entries.isEmpty else { return false }
+        if entries.count == 1 { return true }
+        return !entries.contains { $0.isNavigableFolder || $0.isSymbolicLink }
     }
 
     /// 右クリックの「開く」。画像フォルダでは**ダブルクリックと反対のことをする**(既定の設定なら本として開き、
@@ -166,9 +182,23 @@ final class FileBrowserActions {
         !entries.isEmpty && !entries.contains(where: \.isVolume)
     }
 
-    /// 選んだ項目のファイルそのものを変えられるか(カット・ゴミ箱・名前の変更)。
+    /// 選んだ項目のファイルそのものを変えられるか(カット・ゴミ箱・名前の変更)。**ビューアで開いている本(と、それを含むフォルダ)は
+    /// 淡色** ―― `FileBrowserOperations` が断る(`refusesBecauseOpenInViewer`)ので、以前は名前を打ち終えてから断られた(2026-09-19 の総点検)。
     func canChange(_ entries: [FileBrowserEntry]) -> Bool {
+        canWrite(entries) && !isOpenInViewer(entries)
+    }
+
+    /// 読み取り専用モードでなく、運べる項目か(圧縮・展開の前提。元のファイルは変えないので、開いている本でもよい)。
+    private func canWrite(_ entries: [FileBrowserEntry]) -> Bool {
         allowsFileChanges && canModify(entries)
+    }
+
+    /// どれかがビューアで開いている本(またはそれを含む・その中にある)か。`FileBrowserOperations.openBookConflict` と同じ判定。
+    func isOpenInViewer(_ entries: [FileBrowserEntry]) -> Bool {
+        guard let operations = state?.operations else { return false }
+        return FileBrowserOperations.openBookConflict(
+            among: entries.map(\.url), openBookPaths: operations.openBookPaths()
+        ) != nil
     }
 
     func copy(_ entries: [FileBrowserEntry]) {
@@ -180,12 +210,21 @@ final class FileBrowserActions {
     }
 
     func canPaste(into folder: URL?) -> Bool {
-        allowsFileChanges && folder != nil && (state?.operations.canPaste ?? false)
+        canWriteInto(folder) && (state?.operations.canPaste ?? false)
     }
 
     /// 新規フォルダを作れるか。
     func canCreateFolder(in folder: URL?) -> Bool {
-        allowsFileChanges && folder != nil
+        canWriteInto(folder)
+    }
+
+    /// `folder` へ書き込む操作(ペースト・新規フォルダ)を出してよいか。**表示中のフォルダが読めていないときは淡色**
+    /// (「アクセスを許可…」の案内が出ている・見つからない。書いても失敗してダイアログが出るだけだった ―― 2026-09-19 の総点検)。
+    /// ツリーの行のフォルダは右ペインの読み込みと関係しないので、表示中のフォルダのときだけ見る。
+    func canWriteInto(_ folder: URL?) -> Bool {
+        guard allowsFileChanges, let folder else { return false }
+        if let state, state.loadError != nil, folder == state.currentFolder { return false }
+        return true
     }
 
     func paste(into folder: URL?, forceMove: Bool = false) {
@@ -205,7 +244,7 @@ final class FileBrowserActions {
 
     /// 圧縮できるか(段階 6)。同じフォルダの項目だけ(1 つの zip の置き場所が決まらない)。
     func canCompress(_ entries: [FileBrowserEntry]) -> Bool {
-        guard canChange(entries), let parent = entries.first?.url.deletingLastPathComponent() else { return false }
+        guard canWrite(entries), let parent = entries.first?.url.deletingLastPathComponent() else { return false }
         let parentID = FileBrowserState.id(for: parent)
         return entries.allSatisfy { FileBrowserState.id(for: $0.url.deletingLastPathComponent()) == parentID }
     }
@@ -570,8 +609,10 @@ enum FileBrowserMenuCommand {
         let entries = context.entries
         switch self {
         case .open:
-            // ファイルは本と画像だけ(要望)。フォルダは中へ(画像フォルダはダブルクリックの反対。openFromMenu)。
-            return !entries.isEmpty && entries.allSatisfy { $0.isNavigableFolder || $0.opensAsBook }
+            // Return・ダブルクリックと同じ判定(canOpen)。段階 4a では「ファイルは本と画像だけ」(要望)だったが、Return では
+            // ほかのファイルも既定のアプリで開けたので、2026-09-19 にユーザー判断でそちらへ揃えた。フォルダは中へ
+            // (画像フォルダはダブルクリックの反対。openFromMenu)。
+            return actions.canOpen(entries)
         case .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow:
             return actions.canOpenInNewWindow(entries)
         case .createCollection, .addToCollection:
@@ -599,7 +640,8 @@ enum FileBrowserMenuCommand {
         case .addToFavoriteLocations:
             return actions.canAddToFavoriteLocations(entries)
         case .autoRename:
-            return actions.canConfigureAutoRename(entries)
+            // 親はフォルダ 1 つ・保存できるウインドウなら開ける。中の項目は autoRenameMenuNodes が 1 つずつ決める(2026-09-19)。
+            return actions.canShowAutoRenameMenu(entries)
         case .showInFinder, .getInfo:
             return !entries.isEmpty
         }

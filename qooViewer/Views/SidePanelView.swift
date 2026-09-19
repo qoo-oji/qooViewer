@@ -720,7 +720,7 @@ struct SidePanelView: View {
             icon: iconName(fileName: entry.isDirectory ? nil : entry.url.lastPathComponent, isDirectory: entry.isDirectory),
             name: entry.displayName
         )
-        .background(isHighlighted ? Color.accentColor.opacity(0.15) : Color.clear)
+        .background { if isHighlighted { SelectionEmphasisHighlight(shape: Rectangle()) } }
         // 選択行のハイライトも、重ね色がアクセントカラーに近いと消える(同上)。
         .panelOutlinedAccent(in: Rectangle(), isEnabled: isHighlighted)
 
@@ -1047,7 +1047,7 @@ private struct BookContentsSectionView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-        .background(isHighlighted ? Color.accentColor.opacity(0.15) : Color.clear)
+        .background { if isHighlighted { SelectionEmphasisHighlight(shape: Rectangle()) } }
         // 選択行のハイライトも、重ね色がアクセントカラーに近いと消える(同上)。
         .panelOutlinedAccent(in: Rectangle(), isEnabled: isHighlighted)
 
@@ -1165,6 +1165,8 @@ private struct SidePanelModeSwitcher: View {
     @Binding var mode: SidePanelMode
     /// ウェルカム画面へ戻るボタン(左端)。nilなら無効(本を開いていない)。
     let onReturnToWelcome: (() -> Void)?
+    /// 選択中のモードの地の色(ウインドウが後ろなら灰色。`SelectionEmphasis`)。
+    @Environment(\.appearsActive) private var appearsActive
 
     private static let spacing: CGFloat = 6
     private static let buttonHeight: CGFloat = 30
@@ -1210,14 +1212,14 @@ private struct SidePanelModeSwitcher: View {
                         // 何のモードか判別しやすくする。
                         .font(.system(size: 15, weight: .medium))
                         // 未選択のボタンは地が7%しかなく、実質パネルの上に直接アイコンが
-                        // 乗っているのと同じなので輪郭を掛ける。選択中は不透明なアクセント色の
-                        // 地があるため掛けない(掛けると縁だけ浮いて見える)。
+                        // 乗っているのと同じなので輪郭を掛ける。選択中は不透明な地(アクセント色 /
+                        // 後ろでは灰色)があるため掛けない(掛けると縁だけ浮いて見える)。
                         .panelOutlinedContent(isEnabled: !isSelected)
                         .frame(maxWidth: .infinity)
                         .frame(height: Self.buttonHeight)
                         .background(
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(isSelected ? Color.accentColor : Color.primary.opacity(0.07))
+                                .fill(isSelected ? SelectionEmphasis.fill(isActive: appearsActive) : Color.primary.opacity(0.07))
                         )
                         // 重ね色をアクセントカラーに近い色にすると、選択中の地がパネルへ溶けて
                         // どれが選ばれているか分からなくなる。縁取って区別を残す
@@ -1226,7 +1228,7 @@ private struct SidePanelModeSwitcher: View {
                             in: RoundedRectangle(cornerRadius: 6, style: .continuous),
                             isEnabled: isSelected
                         )
-                        .foregroundStyle(isSelected ? Color.white : Color.primary)
+                        .foregroundStyle(isSelected ? SelectionEmphasis.foreground(isActive: appearsActive) : Color.primary)
                         .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 }
                 .buttonStyle(.plain)
@@ -1544,7 +1546,7 @@ private struct SidePanelBookmarksSectionView: View {
         return HStack(spacing: 8) {
             Image(systemName: isCurrent ? "bookmark.fill" : "bookmark")
                 .frame(width: 16)
-                .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
+                .selectionEmphasisForeground(isCurrent, otherwise: .secondary)
             Text(bookmark.name)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -1559,7 +1561,7 @@ private struct SidePanelBookmarksSectionView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-        .background(isCurrent ? Color.accentColor.opacity(0.15) : Color.clear)
+        .background { if isCurrent { SelectionEmphasisHighlight(shape: Rectangle()) } }
         .help(bookmark.name)
         // ページへのジャンプも「開く」に準じる操作のため、環境設定に従う。
         .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { onJump(bookmark) }
@@ -1697,7 +1699,7 @@ private struct SidePanelHistorySectionView: View {
                     : sidePanelFileIconName(fileName: entry.displayURL.lastPathComponent)
             )
             .frame(width: 16)
-            .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
+            .selectionEmphasisForeground(isCurrent, otherwise: .secondary)
             Text(entry.displayName)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -1707,7 +1709,7 @@ private struct SidePanelHistorySectionView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-        .background(isCurrent ? Color.accentColor.opacity(0.15) : Color.clear)
+        .background { if isCurrent { SelectionEmphasisHighlight(shape: Rectangle()) } }
         // パスまで見せることで、同名の本が複数ある場合に見分けられるようにする。
         .help(entry.path)
         // 開く直前に初めてブックマークを解決する(解決できなければ履歴から取り除かれる)。
@@ -2115,7 +2117,7 @@ private struct SidePanelPageCell: View {
             Text("\(index + 1)")
                 .font(.callout)
                 .monospacedDigit()
-                .foregroundStyle(isCurrent ? Color.accentColor : Color.primary)
+                .selectionEmphasisForeground(isCurrent, otherwise: .primary)
                 .panelOutlinedContent()
                 .lineLimit(1)
                 .frame(width: pageNumberWidth, alignment: .trailing)
@@ -2132,10 +2134,13 @@ private struct SidePanelPageCell: View {
                 }
             }
             .frame(width: Self.thumbnailHeight * 0.75, height: Self.thumbnailHeight)
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(isCurrent ? Color.accentColor : Color.clear, lineWidth: 2)
-            )
+            .overlay {
+                if isCurrent {
+                    SelectionEmphasisReader { tint in
+                        RoundedRectangle(cornerRadius: 4).stroke(tint, lineWidth: 2)
+                    }
+                }
+            }
             // サムネイルにカーソルを乗せている間、拡大プレビューとファイル名を表示する
             // (ユーザー要望)。ホバーした瞬間に即座にpopoverを出さず、一定時間
             // (hoverPreviewDelayNanoseconds)ホバーし続けた場合にだけ表示する。一覧を縦に
@@ -2172,7 +2177,7 @@ private struct SidePanelPageCell: View {
                 }
                 Text(location.fileName)
                     .font(.caption)
-                    .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
+                    .selectionEmphasisForeground(isCurrent, otherwise: .secondary)
                     // パネルは幅が狭く、ファイル名は長くなりがちなため2行まで折り返す。それでも
                     // 収まらない場合は中間を省略する(先頭も末尾も手がかりになるファイル名が多いため)。
                     .lineLimit(2)
@@ -2194,9 +2199,10 @@ private struct SidePanelPageCell: View {
         .padding(.vertical, 2)
         .contentShape(Rectangle())
         .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(isCurrent ? Color.accentColor.opacity(0.15) : Color.clear)
-                .padding(.horizontal, 4)
+            Group {
+                if isCurrent { SelectionEmphasisHighlight(shape: RoundedRectangle(cornerRadius: 6, style: .continuous)) }
+            }
+            .padding(.horizontal, 4)
         )
         // ページ送りは他のパネル操作と違って行き来が頻繁なため、「開く」ほど重い操作では
         // ない。とはいえ一覧内の操作としては同じ性質のため、他の行と同じく環境設定

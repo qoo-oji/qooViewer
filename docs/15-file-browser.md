@@ -197,6 +197,7 @@ FileBrowserOperations(ウインドウごと。1 本ずつ直列・確認の受�
 
 - ダブルクリック / Return(リストは ⌘↓ も)= フォルダなら中へ移動、本と画像は qooViewer で開く
   (`AppState.open(urls:)`。複数選択は `BookOpenRequest` の規則)、それ以外は既定のアプリ。記号リンクは実体を解いてから。
+  右クリック・メニューバーの「開く」も同じ(→「淡色の条件は『押して何かが起きるか』」)。
 - 画像フォルダ(`ShelfFolderResolver.role` が `.book`)だけは、環境設定「ファイルブラウザ」の「画像フォルダを開くとき ▸ ダブルクリック / リターンキー」
   (`fileBrowserImageFolderOpenAction`、**既定「フォルダを開く」** = 段階 3 からの決まりのまま。2026-09-14、ユーザー要望)で
   「ビューアで開く」を選ぶと本として開く。**右クリックの「開く」は常にその反対**(`FileBrowserImageFolderOpenAction.opensAsBook(fromMenu:)`)
@@ -230,7 +231,8 @@ FileBrowserOperations(ウインドウごと。1 本ずつ直列・確認の受�
 | 部品 | 扱い |
 |---|---|
 | 行の文字・グループの見出し | `FileBrowserOutlinedTextFieldCell`(反対色の文字を上下左右にずらして後ろへ。選択中は掛けない) |
-| 選択の地 | `FileBrowserRowView`(アクセント色の角丸 + 反対色の縁)。ウインドウが後ろでも白い文字 |
+| 選択の地 | `FileBrowserRowView`(角丸 + 反対色の縁)。**強調中(キーウインドウで一覧が操作先)はアクセント色に白い文字、それ以外は灰色の地にふつうの文字**(macOS 標準。`SelectionEmphasis`、下の「選択の強調」) |
+| ドロップ先の行 | `FileBrowserRowView.drawDraggingDestinationFeedback`(アクセント色の薄い地 + 反対色の縁。アイコン表示のセルと同じ。AppKit 標準の強調は縁が無く面の色に溶ける) |
 | 開閉の三角 | `FileBrowserOutlineView` がボタンの絵を輪郭入りに焼き直す(**無いと、ダーク+白100%で三角が消えた**。実測) |
 | 「＋」 | `FileBrowserOutlinedIconButton` |
 | 列の見出し | `FileBrowserTableHeaderView` が不透明な地を敷く(**既定の見出しは半透明で、ダーク+白100%で文字ごと消えた**。実測) |
@@ -239,8 +241,26 @@ FileBrowserOperations(ウインドウごと。1 本ずつ直列・確認の受�
 | パスバー | `controlBackgroundColor` の帯(不透明) |
 
 アイコン表示は `NSCollectionView`(2026-09-15 に SwiftUI の `LazyVGrid` から置き換えた。下の「アイコン表示を AppKit にした理由」)。セルの
-`FileBrowserIconCellView` が同じ輪郭を描く: 名前は未選択なら `FileBrowserOutlinedTextFieldCell`、選択中はアクセント地 + 反対色の縁、選択中の
+`FileBrowserIconCellView` が同じ輪郭を描く: 名前は未選択なら `FileBrowserOutlinedTextFieldCell`、選択中はアクセント地(強調中でなければ灰色の地)+ 反対色の縁、選択中の
 アイコンの薄い地とドロップの受け口のアクセント地は反対色の縁で囲む(SwiftUI の `.panelOutlinedFrame(in:)` / `.panelOutlinedAccent(in:)` 相当)。
+
+### 選択の強調(2026-09-19)
+
+選択・「いまここ」の強調は **macOS 標準に合わせ、ウインドウが前(キー)で、その一覧が操作先のときだけアクセント色、それ以外は灰色**
+(`Views/SelectionEmphasis.swift`)。それまでは面の色に選択が溶けるのを嫌って常にアクセント色にしていたが、左のツリーだけは `.sourceList`
+形式で AppKit が後ろのウインドウで文字を淡くするので、**左ペインの文字だけが灰色になり、右ペインと選択の色はそのまま**という食い違いが出た
+(ユーザー報告)。標準の側へ揃え、灰色の選択にもアクセント色のときと同じ反対色の縁を掛けて、面の色に溶ける件を防ぐ。
+
+- リスト・ツリーの行: `NSTableRowView.isEmphasized`(AppKit が「キーウインドウかつ表がファーストレスポンダ」で立てる)。文字の白/ふつうは
+  `interiorBackgroundStyle` の既定に任せる。**ツリーとリストの両方が選択を持つので、操作先でない側は灰色になり、キー入力の行き先が見える。**
+- アイコン表示: `NSCollectionView` には同じ仕組みが無いので、`FileBrowserCollectionView.isSelectionEmphasized` をウインドウのキーの出入りと
+  ファーストレスポンダの出入りで計り直す(名前の編集中も操作先に数える)。
+- SwiftUI(ホームの上の帯のチップ・ファイルブラウザの切り替え・編集トグル・表示切替・タイルとカバーの選択の枠と印、サイドパネルの
+  モード切り替え・現在の行): `@Environment(\.appearsActive)`。グリッドのように大きな `body` では読まず、枠・重ねだけの小さなビュー
+  (`SelectionEmphasisBorder` / `SelectionEmphasisHighlight` / `SelectionEmphasisReader` / `.selectionEmphasisForeground`)が自分で読む。
+- **変えないもの**: ドロップの受け口(ドラッグを受けるウインドウは後ろにあるのがふつうで、Finder も後ろのウインドウでアクセント色の強調を出す)、
+  状態の色(残っているページ・登録済みのメタデータ・開いている本の印など ―― 選択ではない)、ページ一覧の現在のページの枠(色を環境設定で選べる)。
+- カットしたフォルダはツリーの行も淡くする(リスト・アイコン表示と揃える)。
 
 **アイコンは種類だけで引く**(`FileBrowserIconProvider`)。`NSWorkspace.icon(forFile:)` は到達できない共有で 30 秒ブロックし、
 フォルダのカスタムアイコンを読みにデスクトップ・書類へ触れると TCC のダイアログが出る。本と画像の絵はアイコン表示だけに出す(→「サムネイル」)。
@@ -393,6 +413,27 @@ ON なら、ツリーで開いた行の子を右ペインと同じ `FileBrowserS
 まだ登録していないものがあるときだけ押せる(全部登録済みなら淡色。シークレットウインドウでも淡色。読み取り専用モードでは押せる)。
 **登録するのはパスだけで、アクセス権は足さない**(一覧に見えている時点で読めている。読めなくなれば行は残って「アクセスを許可…」に落ちる)。
 登録済みかは `FavoriteLocationStore.contains`(`add` と同じ規則でパスをそろえる)。
+
+### 淡色の条件は「押して何かが起きるか」(2026-09-19 の総点検)
+
+淡色の判定は、押したときに呼ぶ操作の場合分け・断る条件と**同じもの**を読む。右クリック・メニューバー(`FileBrowserMenuSelection`)・
+一覧のキー(`canPerform`)の 3 つの入り口で同じ判定を使う。総点検で直した食い違い:
+
+- 「開く」 = `FileBrowserActions.canOpen`(`open(_:)` と同じ場合分け)。1 件なら何でも(フォルダ・リンクは中へ、本と画像は qooViewer、
+  それ以外は既定のアプリ ―― 段階 4a の「ファイルは本と画像だけ」は、Return では開けたのでユーザー判断でやめた)。複数ならフォルダ・リンクを
+  含まないときだけ(以前はフォルダ 2 つで押せて何も起きなかった)。Return・ダブルクリックでも何も起きない組み合わせなら鳴らす。
+- 名前の変更・カット・ゴミ箱 = `canChange`。**ビューアで開いている本(とそれを含むフォルダ)は淡色**、名前の編集も始めない
+  (`FileBrowserOperations.refusesBecauseOpenInViewer` が断るので、以前は名前を打ち終えてから断られた)。圧縮・展開・コピーは元を変えないので押せる。
+  メニューバーの値の覚え書きは開いている本のパスも鍵に入れるが、ほかのウインドウで本を開いてもこのウインドウの本体が評価されるまで古いことがある
+  (押せば断ってダイアログで知らせる)。ドラッグでの移動と取り消しは従来どおり落とした・押した時点で断る。
+- ペースト・新規フォルダ・ここに項目を移動 = `canWriteInto`。**表示中のフォルダが読めていない(`loadError`)間は淡色**。
+- メニューバーの「ここに項目を移動」(⌥⌘V)は、ペーストボードの写し `FileBrowserState.pasteboardHasFiles` で淡色を決める。変化は購読できないので、
+  アプリ・ウインドウが前に来たときと、このアプリがファイルを書いたときに `changeCount` で確かめ直す。写しが古くて押せたときは鳴らす。
+- 「自動リネーム」のサブメニューの親は、フォルダ 1 つ・保存できるウインドウなら開ける(`canShowAutoRenameMenu`)。よく使う項目の外・ネットワーク上の
+  フォルダでは「入れる」側(未チェックの規則・このフォルダの規則を作成)だけ淡色にし、チェックを外す・設定を開くは残す。
+- 「移動」メニューの ⌘↑・⇧⌘↑ は、テキストの欄を編集中なら欄へ返す(`HomeMenuKeyRouting.shouldPerformNavigation`。欄の中では「先頭へ」)。
+- 編集メニューの「取り消す」「やり直す」は、テキストの欄を編集中なら淡色にしない(`TextEditingMenuState`。以前は読み取り専用モード・本の表示中・
+  補助ウインドウで欄の ⌘Z が効かなかった)。
 
 ## 既存機能との接続(段階 8、2026-09-14)
 

@@ -36,7 +36,8 @@ import SwiftUI
 /// 種類のアイコンへ戻って点滅しないように)。小さくする方向では読み直さない。使い回されるときに頼みを取り消して絵を捨てる。
 ///
 /// ■ 輪郭(すりガラス面の決まりごと)。描くのは `FileBrowserIconCellView`
-/// - 名前 → 未選択は文字の輪郭(セルが本文と同じ矩形で反対色の文字を敷く)、選択中はアクセント地 + 反対色の縁
+/// - 名前 → 未選択は文字の輪郭(セルが本文と同じ矩形で反対色の文字を敷く)、選択中はアクセント地(一覧が操作先でなければ灰色の地。
+///   `SelectionEmphasis`)+ 反対色の縁
 /// - アイコン・本の絵 → 掛けない。選択中の薄い地は反対色の縁で囲む(`.panelOutlinedFrame(in:)` 相当)
 /// - ドロップの受け口になっているフォルダの地(アクセント色)→ 反対色の縁(`.panelOutlinedAccent(in:)` 相当)
 /// - 編集中の欄 → 不透明な地なので掛けない
@@ -608,9 +609,10 @@ struct FileBrowserIconView: NSViewRepresentable {
             nameClickRename.cancel()
             guard let collection, let actions, let state, entries.indices.contains(index), editing == nil else { return }
             let entry = entries[index]
-            // 読み取り専用モード・今の一覧やディスクに無い項目では、依頼からも名前のクリックからも始めない(FileBrowserNameEditing)。
+            // 読み取り専用モード・ビューアで開いている本・今の一覧やディスクに無い項目では、依頼からも名前のクリックからも始めない
+            // (FileBrowserNameEditing。開いている本は、打ち終えてから断られていた ―― 2026-09-19 の総点検)。
             guard FileBrowserNameEditing.canBegin(
-                entry, displayedFolder: displayedFolder, state: state, allowsFileChanges: actions.allowsFileChanges
+                entry, displayedFolder: displayedFolder, state: state, allowsFileChanges: actions.canChange([entry])
             ) else { return }
             let indexPath = IndexPath(item: index, section: 0)
             collection.layoutSubtreeIfNeeded()
@@ -735,6 +737,60 @@ final class FileBrowserCollectionView: NSCollectionView, NSMenuItemValidation {
     private(set) var clickedIndexPath: IndexPath?
     /// いまのクリックからドラッグが始まった(名前のクリックとみなさない)。
     var didBeginDragInCurrentClick = false
+
+    // MARK: 選択の強調
+
+    /// 選択をアクセント色で描くか(`SelectionEmphasis`)。**キーウインドウで、この一覧(か、その中の名前の欄)が操作先のとき**だけ。
+    /// リスト・ツリーの行の `NSTableRowView.isEmphasized` と同じ条件 ―― `NSCollectionView` にはこれに当たる仕組みが無いので自分で持つ。
+    private(set) var isSelectionEmphasized = false
+    private var keyObservers: [NSObjectProtocol] = []
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        keyObservers.forEach(NotificationCenter.default.removeObserver)
+        keyObservers.removeAll()
+        guard let newWindow else { return }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            keyObservers.append(NotificationCenter.default.addObserver(forName: name, object: newWindow, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshSelectionEmphasis() }
+            })
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        refreshSelectionEmphasis()
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        refreshSelectionEmphasis()
+        return accepted
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        // 焦点が移った先はこの後で決まる(resign の時点ではまだ自分がファーストレスポンダ)。
+        DispatchQueue.main.async { [weak self] in self?.refreshSelectionEmphasis() }
+        return accepted
+    }
+
+    /// 強調の条件を計り直し、変わっていれば見えているセルを描き直す。
+    func refreshSelectionEmphasis() {
+        let emphasized: Bool = {
+            guard let window, window.isKeyWindow else { return false }
+            if window.firstResponder === self { return true }
+            // 名前の編集中(フィールドエディタが一覧の中の欄を編集している)も、この一覧が操作先。
+            if let editor = window.firstResponder as? NSTextView, editor.isFieldEditor,
+               let field = editor.delegate as? NSView, field.isDescendant(of: self) {
+                return true
+            }
+            return false
+        }()
+        guard emphasized != isSelectionEmphasized else { return }
+        isSelectionEmphasized = emphasized
+        for case let item as FileBrowserIconItem in visibleItems() { item.cell.needsDisplay = true }
+    }
 
     // MARK: クリック
 
@@ -1235,7 +1291,7 @@ final class FileBrowserIconCellView: NSView {
         guard !isEditingName else { return }
         if isSelected {
             let pill = FileBrowserIconView.nameRect(of: displayName, cellWidth: bounds.width, top: nameTop).insetBy(dx: 2, dy: 2)
-            NSColor.controlAccentColor.setFill()
+            SelectionEmphasis.selectionBackground(isEmphasized: isSelectionEmphasized).setFill()
             NSBezierPath(roundedRect: pill, xRadius: 4, yRadius: 4).fill()
             strokeOutline(around: pill, radius: 4)
         }
@@ -1243,7 +1299,7 @@ final class FileBrowserIconCellView: NSView {
     }
 
     /// 名前を描く。未選択なら反対色の文字を上下左右にずらして後ろへ敷く(`FileBrowserOutlinedTextFieldCell` と同じ輪郭)。
-    /// 選択中はアクセント地の上の白い文字なので輪郭は掛けない。
+    /// 選択中は不透明な地(アクセント色 / 灰色)の上なので輪郭は掛けない。
     private func drawName() {
         let rect = NSRect(
             x: 4, y: nameTop + 1, width: bounds.width - 8, height: FileBrowserIconView.nameLineHeight * 2 + 1
@@ -1259,7 +1315,19 @@ final class FileBrowserIconCellView: NSView {
                 )
             }
         }
-        name.draw(with: rect, options: options, attributes: FileBrowserIconView.nameAttributes(color: isSelected ? .white : .labelColor))
+        let color: NSColor = isSelected && isSelectionEmphasized ? .white : .labelColor
+        name.draw(with: rect, options: options, attributes: FileBrowserIconView.nameAttributes(color: color))
+    }
+
+    /// 選択をアクセント色で描くか。一覧(`FileBrowserCollectionView.isSelectionEmphasized`)が決める ―― ウインドウが後ろ・
+    /// 一覧が操作先でなければ、名前の地は灰色・文字はふつうの色(リストの行と同じ。`SelectionEmphasis`)。
+    private var isSelectionEmphasized: Bool {
+        var current = superview
+        while let view = current {
+            if let collection = view as? FileBrowserCollectionView { return collection.isSelectionEmphasized }
+            current = view.superview
+        }
+        return true
     }
 
     /// 面の色に溶けないよう、反対色の縁を付ける(輪郭の太さが 0 なら付けない)。

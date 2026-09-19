@@ -384,7 +384,8 @@ struct ContentView: View {
         return FileBrowserMenuSnapshot(
             undoTitle: writable ? fileBrowser.commandStack.undoTitle : nil,
             redoTitle: writable ? fileBrowser.commandStack.redoTitle : nil,
-            canCreateFolder: writable && fileBrowser.currentFolder != nil,
+            // 読めないフォルダ(「アクセスを許可…」の案内)では淡色(FileBrowserActions.canWriteInto と同じ。2026-09-19 の総点検)。
+            canCreateFolder: writable && fileBrowser.currentFolder != nil && fileBrowser.loadError == nil,
             navigation: shown
                 ? FileBrowserMenuNavigation(
                     canGoBack: fileBrowser.canGoBack, canGoForward: fileBrowser.canGoForward, canGoUp: fileBrowser.canGoUp
@@ -400,7 +401,9 @@ struct ContentView: View {
     /// **入力が変わるまで作り直さない**(2026-09-15 の 4 回目の監査)。この本体はファイルブラウザの状態の publish のたび
     /// (ピンチ・ツリーの幅のドラッグの 1 イベントごと)に評価され、判定は選んだ項目を何度も歩く(圧縮・展開は項目ごとに親のパスを作る)
     /// ので、10 万件を選んだままだと 1 イベントごとに数十万回の URL 操作になった。鍵には判定が読むものを全部入れる
-    /// (選択と一覧の番号・表示中のフォルダ・読み取り専用・シークレット・シート・よく使う項目)。
+    /// (選択と一覧の番号・表示中のフォルダ・読み取り専用・シークレット・シート・よく使う項目・開いている本・ペーストボード・読み込みの失敗)。
+    /// 開いている本はほかのウインドウで変わるので、このウインドウの本体が評価されるまで古いことがある(押せば
+    /// `FileBrowserOperations` が断ってダイアログで知らせる)。
     private var fileBrowserMenuSelection: FileBrowserMenuSelection {
         guard let actions = appState.fileBrowserActions else { return FileBrowserMenuSelection() }
         let key = FileBrowserMenuSelectionMemo.Key(
@@ -411,7 +414,12 @@ struct ContentView: View {
             allowsFileChanges: actions.allowsFileChanges,
             allowsSaving: actions.allowsSaving,
             hasBookSheet: fileBrowser.bookSheet != nil,
-            favoriteLocationPaths: actions.favoriteLocations?.items.map(\.path) ?? []
+            favoriteLocationPaths: actions.favoriteLocations?.items.map(\.path) ?? [],
+            // 名前の変更・カット・ゴミ箱は、ビューアで開いている本では淡色(FileBrowserActions.canChange)。
+            openBookPaths: fileBrowser.operations.openBookPaths(),
+            // 「ここに項目を移動」の判定が読む(makeFileBrowserMenuSelection)。
+            pasteboardHasFiles: fileBrowser.pasteboardHasFiles,
+            hasLoadError: fileBrowser.loadError != nil
         )
         return fileBrowserMenuSelectionMemo.value(for: key) { makeFileBrowserMenuSelection(actions: actions) }
     }
@@ -440,7 +448,8 @@ struct ContentView: View {
             canUseAsBooks: enabled(.addToCollection),
             canEditMetadata: enabled(.editMetadata),
             canExportBook: enabled(.exportBook),
-            canMoveItemHere: actions.allowsFileChanges && fileBrowser.currentFolder != nil
+            // ペーストボードは写し(FileBrowserState.pasteboardHasFiles)で見る。読めないフォルダでは淡色(canWriteInto)。
+            canMoveItemHere: actions.canWriteInto(fileBrowser.currentFolder) && fileBrowser.pasteboardHasFiles
         )
     }
 
@@ -1857,6 +1866,9 @@ private final class FileBrowserMenuSelectionMemo {
         let allowsSaving: Bool
         let hasBookSheet: Bool
         let favoriteLocationPaths: [String]
+        let openBookPaths: [String]
+        let pasteboardHasFiles: Bool
+        let hasLoadError: Bool
     }
 
     private var key: Key?

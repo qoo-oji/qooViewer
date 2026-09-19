@@ -5,10 +5,20 @@ import SwiftUI
 /// サブメニューに規則を並べ、チェックは「このフォルダがその規則の対象に入っているか」。入れる・外すがその場で保存される。
 /// 入れたときは設定ウインドウを開いてその規則を選ぶ ―― 今ある項目に掛ける前の確認(§8 の 2)がそこに出るため。
 ///
-/// 淡色にするのは: フォルダ 1 つでない、よく使う項目の配下でない、ネットワーク上、シークレットウインドウ(規則は保存を伴う ―― 決定事項 Q8)。
+/// サブメニューごと淡色にするのは: フォルダ 1 つでない、シークレットウインドウ(規則は保存を伴う ―― 決定事項 Q8)。
+/// **よく使う項目の配下でない・ネットワーク上のフォルダでは、中の「入れる」側だけを淡色にする**(2026-09-19 の総点検。以前はサブメニュー
+/// ごと淡色にしていたので、対象に入ったまま外れたフォルダの規則のチェックを外すことも、「自動リネームの設定…」を開くこともできなかった)。
 /// 読み取り専用モードとは関係しない(設定はファイルを変えない。止まっていることは設定ウインドウに出る)。
 extension FileBrowserActions {
-    /// 「自動リネーム」を押せるか。
+    /// 「自動リネーム」のサブメニューを開けるか(中の項目はそれぞれ `autoRenameMenuNodes` が決める)。
+    func canShowAutoRenameMenu(_ entries: [FileBrowserEntry]) -> Bool {
+        guard allowsSaving, autoRenameStore != nil, autoRenameService != nil,
+              entries.count == 1, let entry = entries.first, entry.isNavigableFolder, !entry.isVolume
+        else { return false }
+        return true
+    }
+
+    /// このフォルダを規則の対象に入れられるか(よく使う項目の配下で、ネットワーク上でない)。
     func canConfigureAutoRename(_ entries: [FileBrowserEntry]) -> Bool {
         guard allowsSaving, autoRenameStore != nil, let service = autoRenameService,
               entries.count == 1, let entry = entries.first, entry.isNavigableFolder, !entry.isVolume
@@ -18,13 +28,16 @@ extension FileBrowserActions {
 
     func autoRenameMenuNodes(for entries: [FileBrowserEntry], locale: Locale) -> [FileBrowserMenuNode] {
         guard let store = autoRenameStore, let entry = entries.first else { return [] }
+        let canShow = canShowAutoRenameMenu(entries)
         let isEnabled = canConfigureAutoRename(entries)
         let folder = entry.url
         let path = AutoRename.canonicalPath(of: folder)
         var nodes: [FileBrowserMenuNode] = store.rules.map { rule in
-            .toggle(
-                title: rule.displayName(locale: locale), isOn: store.ruleContains(path: path, ruleID: rule.id),
-                isEnabled: isEnabled && (store.ruleContains(path: path, ruleID: rule.id) || rule.targets.count < AutoRename.maxTargetsPerRule),
+            let contains = store.ruleContains(path: path, ruleID: rule.id)
+            // 外すのはいつでも(対象から外れたフォルダの後始末)。入れるのは入れられるフォルダで、規則に空きがあるときだけ。
+            return .toggle(
+                title: rule.displayName(locale: locale), isOn: contains,
+                isEnabled: canShow && (contains || (isEnabled && rule.targets.count < AutoRename.maxTargetsPerRule)),
                 action: { [weak self] in self?.toggleAutoRename(folder: folder, ruleID: rule.id) }
             )
         }
@@ -48,13 +61,14 @@ extension FileBrowserActions {
     /// 5 秒を期限に時間で見張っていて、CI の混んだ機では期限を過ぎて落ちた(2026-09-18。docs/13 の「時間で待たない」)。
     @discardableResult
     func toggleAutoRename(folder: URL, ruleID: UUID) -> Task<Void, Never>? {
-        guard let store = autoRenameStore, let service = autoRenameService else { return nil }
+        // 規則は保存を伴うので、外すのもシークレットウインドウでは断る(メニューの淡色と同じ条件)。
+        guard allowsSaving, let store = autoRenameStore, let service = autoRenameService else { return nil }
         let path = AutoRename.canonicalPath(of: folder)
         if store.ruleContains(path: path, ruleID: ruleID) {
             store.removeTarget(path: path, fromRule: ruleID)
             return nil
         }
-        guard allowsSaving, service.eligibility(ofFolder: folder) == .available else { return nil }
+        guard service.eligibility(ofFolder: folder) == .available else { return nil }
         return Task { [weak self] in
             let result = await service.addTarget(folder: folder, toRule: ruleID)
             guard result == .added else { return }

@@ -535,7 +535,7 @@ struct CollectionDetailView: View {
             // SelectionCheckmarkBadgeの型コメント参照)。**カバーにだけ掛ける** ――
             // 下の文字まで枠で囲むと、選んだ範囲がカバー1枚に見えなくなる。
             .overlay {
-                shape.strokeBorder(Color.accentColor, lineWidth: 3)
+                SelectionEmphasisBorder(shape: shape)
                     .opacity(isSelected ? 1 : 0)
             }
             .panelOutlinedAccent(in: shape, isEnabled: isSelected)

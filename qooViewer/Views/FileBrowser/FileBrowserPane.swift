@@ -397,6 +397,8 @@ struct FileBrowserMessage: View {
 private struct FileBrowserViewModeButton: View {
     let mode: FileBrowserViewMode
     @Binding var selection: FileBrowserViewMode
+    /// 選択中の地の色(ウインドウが後ろなら灰色。`SelectionEmphasis`)。
+    @Environment(\.appearsActive) private var appearsActive
 
     var body: some View {
         let isSelected = selection == mode
@@ -406,12 +408,12 @@ private struct FileBrowserViewModeButton: View {
         } label: {
             Image(systemName: mode == .list ? "list.bullet" : "square.grid.2x2")
                 .font(.system(size: 15, weight: .medium))
-                // 選ばれていないときは地がほぼ無いので輪郭を掛ける。選択中は不透明なアクセント地。
+                // 選ばれていないときは地がほぼ無いので輪郭を掛ける。選択中は不透明な地(アクセント色 / 後ろでは灰色)。
                 .panelOutlinedContent(isEnabled: !isSelected)
                 .frame(width: PanelIconButtonLabel.width, height: PanelIconButtonLabel.height)
-                .background(shape.fill(isSelected ? Color.accentColor : Color.clear))
+                .background(shape.fill(isSelected ? SelectionEmphasis.fill(isActive: appearsActive) : Color.clear))
                 .panelOutlinedAccent(in: shape, isEnabled: isSelected)
-                .foregroundStyle(isSelected ? Color.white : Color.primary)
+                .foregroundStyle(isSelected ? SelectionEmphasis.foreground(isActive: appearsActive) : Color.primary)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

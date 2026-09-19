@@ -179,7 +179,7 @@ struct SidePanelLibraryTreeSection: View {
             Color.clear.frame(width: Self.chevronWidth, height: 1)
             Image(systemName: Self.iconName(forBookID: item.bookID))
                 .frame(width: 16)
-                .foregroundStyle(isCurrent ? Color.accentColor : Color.secondary)
+                .selectionEmphasisForeground(isCurrent, otherwise: .secondary)
             Text(item.title)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -192,7 +192,7 @@ struct SidePanelLibraryTreeSection: View {
         // 実体が見つからない本は、ウェルカム画面のカバーと同じく淡く描く(開こうとすると鳴るだけ)。
         .opacity(exists ? 1 : 0.45)
         .contentShape(Rectangle())
-        .background(isCurrent ? Color.accentColor.opacity(0.15) : Color.clear)
+        .background { if isCurrent { SelectionEmphasisHighlight(shape: Rectangle()) } }
         .panelOutlinedAccent(in: Rectangle(), isEnabled: isCurrent)
         .help(item.bookID)
         .onTapGesture(count: preferences.sidePanelUsesDoubleClick ? 2 : 1) { open(item) }

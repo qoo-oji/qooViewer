@@ -883,15 +883,16 @@ private struct ExportCoverPickerPageRow: View {
                 Spacer()
                 if isSelected {
                     Image(systemName: "checkmark")
-                        .foregroundStyle(Color.accentColor)
+                        .selectionEmphasisForeground(true, otherwise: .primary)
                 }
             }
             .help(location.fullPath)
             .padding(.vertical, 2)
             .padding(.horizontal, 4)
             .background(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+                Group {
+                    if isSelected { SelectionEmphasisHighlight(shape: RoundedRectangle(cornerRadius: 4, style: .continuous)) }
+                }
             )
             .contentShape(Rectangle())
         }

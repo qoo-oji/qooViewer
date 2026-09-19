@@ -24,10 +24,19 @@ struct FileBrowserGoMenuItems: View {
         Button("Forward") { browser?.goForward() }
             .keyboardShortcut("]", modifiers: .command)
             .disabled(!navigation.canGoForward)
-        Button("Enclosing Folder") { browser?.goUp() }
+        // ⌘↑・⇧⌘↑ はテキストの欄では「先頭へ」なので、欄を編集中のキーは欄へ返す(HomeMenuKeyRouting.shouldPerformNavigation)。
+        Button("Enclosing Folder") {
+            guard HomeMenuKeyRouting.shouldPerformNavigation(
+                forwardingTextAction: #selector(NSResponder.moveToBeginningOfDocument(_:))
+            ) else { return }
+            browser?.goUp()
+        }
             .keyboardShortcut(.upArrow, modifiers: .command)
             .disabled(!navigation.canGoUp)
         Button("Select Startup Disk") {
+            guard HomeMenuKeyRouting.shouldPerformNavigation(
+                forwardingTextAction: #selector(NSResponder.moveToBeginningOfDocumentAndModifySelection(_:))
+            ) else { return }
             // コンピュータへ移って起動ディスクを選ぶ(Finder と同じ)。
             browser?.reveal(URL(fileURLWithPath: "/", isDirectory: true))
         }

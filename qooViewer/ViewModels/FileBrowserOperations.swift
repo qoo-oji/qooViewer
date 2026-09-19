@@ -744,6 +744,7 @@ final class FileBrowserOperations: ObservableObject {
         pasteboard.clearContents()
         pasteboard.writeObjects(urls.map { $0 as NSURL })
         state?.cutClipboard.set(cut ? Self.paths(of: urls) : [], on: pasteboard)
+        state?.refreshPasteboardState()
     }
 
     private func readPasteboardURLs() -> [URL] {

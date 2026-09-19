@@ -20,6 +20,8 @@ enum FileBrowserNameEditing {
     /// - Parameters:
     ///   - entry: 一覧(画面に出している写し)の項目。
     ///   - displayedFolder: 一覧が画面に出しているフォルダ(最後に取り込んだ時点の `state.currentFolder`)。
+    ///   - allowsFileChanges: この項目を変えてよいか(一覧は `FileBrowserActions.canChange([entry])` を渡す ―― 読み取り専用モードと、
+    ///     ビューアで開いている本を除く)。
     ///   - itemExists: ディスクにまだあるか(テストで差し替える)。
     static func canBegin(
         _ entry: FileBrowserEntry, displayedFolder: URL?, state: FileBrowserState, allowsFileChanges: Bool,

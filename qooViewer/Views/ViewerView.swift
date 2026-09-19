@@ -2017,6 +2017,9 @@ struct ViewerView: View {
                     .panelIconButtonLabel()
             }
             .buttonStyle(.borderless)
+            // 保存しない本(シークレットウインドウ・その場限りの本)では淡色(メニューバー・右クリックと同じ条件)。以前はここだけ
+            // 押せて、確認を出したうえで「実行」しても何も起きなかった(2026-09-19 の総点検)。
+            .disabled(viewModel.skipsPersistence)
             .help("Auto-Layout Based on Current View")
 
             // 「現在のブックマーク一覧を表示」「お気に入り一覧を表示」のボタンは廃止した。一覧の
@@ -2038,6 +2041,8 @@ struct ViewerView: View {
                 )
             }
             .buttonStyle(.borderless)
+            // 自動レイアウトと同じ(`perform(.toggleBookmark)` が保存しない本では何もしない)。
+            .disabled(viewModel.skipsPersistence)
             .help(isCurrentPageBookmarked ? "Remove This Page from Bookmarks" : "Add This Page to Bookmarks")
 
             // 改善要望5でお気に入りを無効化したため、星ボタンは出さない(FavoritesFeature参照)。
@@ -2265,30 +2270,35 @@ struct ViewerView: View {
         // 非対称性はそのため意図的なもの)。
         // isLastContextClickOnLeftHalfの検知の仕組みはcontextClickMonitor/
         // PageAreaFrameAccessorのコメント参照。
-        Menu("Layout") {
-            Button("Auto-Layout Based on Current View") {
-                relay.send { view in
-                    view.isShowingAutoLayoutConfirmation = true
+        // DBへ書かない本(シークレットウインドウ、またはその場限りの本)ではレイアウトを
+        // 保存できないので、サブメニューごと無効にする。**`.contextMenu` の中の `Menu` に `.disabled` は効かない**
+        // (親が押せる見た目のまま残る。CLAUDE.md)ので、押せない Button で描く(FileBrowserDisabledSubmenu と同じ。2026-09-19)。
+        if viewModel.skipsPersistence {
+            Button("Layout") {}
+                .disabled(true)
+        } else {
+            Menu("Layout") {
+                Button("Auto-Layout Based on Current View") {
+                    relay.send { view in
+                        view.isShowingAutoLayoutConfirmation = true
+                    }
+                }
+
+                Divider()
+
+                if let partnerPageIndex {
+                    // 読み方向によって、画面上の左右とcurrentIndex/partnerPageIndexの前後関係が
+                    // 入れ替わる(orderedCurrentImagesと同じ考え方。isRightToLeftはこの
+                    // contextMenuContent冒頭で既に定義済みのものを再利用する)。
+                    let leftPageIndex = isRightToLeft ? partnerPageIndex : viewModel.currentIndex
+                    let rightPageIndex = isRightToLeft ? viewModel.currentIndex : partnerPageIndex
+
+                    layoutStateMenuItems(forPageIndex: isLastContextClickOnLeftHalf ? leftPageIndex : rightPageIndex)
+                } else {
+                    layoutStateMenuItems(forPageIndex: viewModel.currentIndex)
                 }
             }
-
-            Divider()
-
-            if let partnerPageIndex {
-                // 読み方向によって、画面上の左右とcurrentIndex/partnerPageIndexの前後関係が
-                // 入れ替わる(orderedCurrentImagesと同じ考え方。isRightToLeftはこの
-                // contextMenuContent冒頭で既に定義済みのものを再利用する)。
-                let leftPageIndex = isRightToLeft ? partnerPageIndex : viewModel.currentIndex
-                let rightPageIndex = isRightToLeft ? viewModel.currentIndex : partnerPageIndex
-
-                layoutStateMenuItems(forPageIndex: isLastContextClickOnLeftHalf ? leftPageIndex : rightPageIndex)
-            } else {
-                layoutStateMenuItems(forPageIndex: viewModel.currentIndex)
-            }
         }
-        // DBへ書かない本(シークレットウインドウ、またはその場限りの本)ではレイアウトを
-        // 保存できないので、サブメニューごと無効にする。
-        .disabled(viewModel.skipsPersistence)
 
         Divider()
 
@@ -2335,15 +2345,6 @@ struct ViewerView: View {
         // ここはその有無に関わらず、いま開いている本をそのまま書き出す(ユーザーの明示的な指示)。
         // 保存先を環境設定「レイアウト」で固定してあれば何も尋ねずに書き出し、決めていなければ
         // 保存先とオプションだけの小さなシートを出す(OpenBookExportSheet参照)。
-        Menu("Export Book") {
-            ForEach(BookExportFormat.allCases) { format in
-                Button(format.menuTitleKey) {
-                    relay.send { view in
-                        view.startOpenBookExport(format: format)
-                    }
-                }
-            }
-        }
         // 書き出しが二重に始まらないように、進行中は閉じておく。
         //
         // 画像を直接開いた「その場限りの本」(MangaBook.BookOrigin.imageFiles)も対象外にする。
@@ -2353,7 +2354,21 @@ struct ViewerView: View {
         // グレーアウトするのは、このアプリで「その場限りの本・シークレットウインドウでは
         // 使えない操作」を示す共通の作法(AppState.isPrivateWindowのコメント参照)。
         // シークレットウインドウの普通の本は書き出せる ―― 書き出し自体は何も記録しないため。
-        .disabled(openBookExport != nil || viewModel.book.isTransient)
+        // `.contextMenu` の中の `Menu` に `.disabled` は効かないので、押せない Button で描く(上の「レイアウト」と同じ)。
+        if openBookExport != nil || viewModel.book.isTransient {
+            Button("Export Book") {}
+                .disabled(true)
+        } else {
+            Menu("Export Book") {
+                ForEach(BookExportFormat.allCases) { format in
+                    Button(format.menuTitleKey) {
+                        relay.send { view in
+                            view.startOpenBookExport(format: format)
+                        }
+                    }
+                }
+            }
+        }
 
         // ユーザー要望: 右クリックしたページの画像ファイル情報(ファイル名・フォーマット・
         // 解像度・色情報・ファイルサイズ、いずれもヘッダーから分かる範囲)を表示する。対象ページの

@@ -143,7 +143,10 @@ gated on it. The welcome screen has a second mode, the **file browser** (`Welcom
 new folder, rename, bulk rename, undo/redo) goes through `FileBrowserOperations` (one per `FileBrowserState`, serial, confirmations via
 `FileBrowserOperationPresenting`), which is also the one place that refuses them while read-only mode is on
 (`AppPreferences.fileBrowserReadOnly`, **default ON**; the UI only dims items via `FileBrowserActions.allowsFileChanges`, and drags out
-become copy-only); tests inject a pseudo trash, a uniquely named pasteboard and a scripted presenter. "Replace" moves the existing item into a hidden
+become copy-only); tests inject a pseudo trash, a uniquely named pasteboard and a scripted presenter. An item is
+greyed out by the same predicate the action uses to refuse (`FileBrowserActions.canOpen` / `canChange` — which also
+excludes books open in a viewer — / `canWriteInto`), shared by the context menu, the menu bar (`FileBrowserMenuSelection`)
+and the lists' keys (`canPerform`); never enable something that then silently does nothing (docs/15「淡色の条件」, 2026-09-19). "Replace" moves the existing item into a hidden
 `.qooViewer-replace-<UUID>/` folder only after recording it in `ReplaceBackupJournal`, and `ReplaceBackupRecovery` puts it back at launch
 (skipped under tests) — keep that record-before-backup order. Anything that deletes a tree item by item lists names with `readdir`
 (`FileOperationService.directoryEntryNames`): `FileManager.contentsOfDirectory` silently omits `._*` names even on APFS, and a
@@ -300,6 +303,9 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
   - a native control whose silhouette smears (the page list's slider) → `.panelControlWell()` instead
   - something tinted with the accent colour whose *state* would be lost against a matching panel
     colour → `.panelOutlinedAccent(in:)`
+  A selection or "current item" highlight takes its colour from `SelectionEmphasis` (accent only while the window is
+  key — and, for AppKit lists, while that list is first responder — grey otherwise, as in macOS; 2026-09-19), never
+  `Color.accentColor` directly; drop-target highlights and state colours stay accent (docs/15「選択の強調」).
   Content inside a context menu, sheet, alert or popover needs nothing — macOS draws those opaquely
   and they are unaffected. Forgetting the call only means no outline appears (it never leaks onto the
   wrong part), so the failure is quiet: check it against a panel filled 100% with the text colour

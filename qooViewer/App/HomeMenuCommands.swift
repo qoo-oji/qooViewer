@@ -39,6 +39,15 @@ enum HomeMenuKeyRouting {
         }
         return false
     }
+
+    /// 「移動」メニューの ⌘↑・⇧⌘↑ のように、**どの一覧に焦点があっても効かせる**項目。テキストの欄を編集中のキーだけは欄へ返す
+    /// (欄の中では「先頭へ」の意味。2026-09-19 の総点検 ―― 以前は名前の編集中・検索欄でも親フォルダへ移り、名前の編集は打ちかけの名前で
+    /// 確定した)。メニューをクリックしたときは欄に関係なく効く。
+    static func shouldPerformNavigation(forwardingTextAction textAction: Selector) -> Bool {
+        guard NSApp.currentEvent?.type == .keyDown, QooViewerApp.isEditingText else { return true }
+        NSApp.sendAction(textAction, to: nil, from: nil)
+        return false
+    }
 }
 
 // MARK: - 「ホーム」メニュー

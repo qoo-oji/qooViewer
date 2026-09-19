@@ -1156,11 +1156,15 @@ struct QooViewerApp: App {
             // 改善要望7 段階4(2026-09-13): ファイルブラウザのファイル操作の取り消し/やり直しをここに置く。
             // 題はフォーカス中のウインドウの MenuCheckmarkState(値型)から引く。ファイルブラウザが出ていない・
             // 積まれていないときは淡色(本の表示中に ⌘Z がファイル操作を戻すと、何が戻ったのか見えない)。
-            // テキスト欄を編集中なら、ファイル操作ではなくその欄の取り消しへ流す。
+            // テキスト欄を編集中なら、ファイル操作ではなくその欄の取り消しへ流す。**そのときは淡色にしない**
+            // (2026-09-19 の総点検。以前は淡色の条件がファイル操作の履歴だけで、読み取り専用モード・本の表示中・補助ウインドウでは
+            // 欄の ⌘Z が効かなかった ―― TextEditingMenuState の型コメント)。
             CommandGroup(replacing: .undoRedo) {
                 let undoTitle = menuCheckmarkState?.fileBrowserUndoTitle
                 let redoTitle = menuCheckmarkState?.fileBrowserRedoTitle
-                Button(undoTitle.map { String(format: String(localized: "Undo %@"), $0) }
+                let isEditingText = stores.textEditingMenuState.isEditingText
+                // 欄を編集中は欄の取り消しなので、ファイル操作の名前を題に出さない。
+                Button((isEditingText ? nil : undoTitle).map { String(format: String(localized: "Undo %@"), $0) }
                        ?? String(localized: "Undo")) {
                     if Self.isEditingText {
                         NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
@@ -1169,8 +1173,9 @@ struct QooViewerApp: App {
                     }
                 }
                 .keyboardShortcut("z", modifiers: .command)
-                .disabled(undoTitle == nil)
-                Button(redoTitle.map { String(format: String(localized: "Redo %@"), $0) }
+                .disabled(undoTitle == nil && !isEditingText)
+                // 欄を編集中は欄の取り消しなので、ファイル操作の名前を題に出さない。
+                Button((isEditingText ? nil : redoTitle).map { String(format: String(localized: "Redo %@"), $0) }
                        ?? String(localized: "Redo")) {
                     if Self.isEditingText {
                         NSApp.sendAction(Selector(("redo:")), to: nil, from: nil)
@@ -1179,7 +1184,7 @@ struct QooViewerApp: App {
                     }
                 }
                 .keyboardShortcut("z", modifiers: [.command, .shift])
-                .disabled(redoTitle == nil)
+                .disabled(redoTitle == nil && !isEditingText)
             }
 
             // 「編集」(Edit)メニューの実際の内容。以前はそれぞれ「お気に入り」「レイアウト」と
@@ -1203,6 +1208,13 @@ struct QooViewerApp: App {
                     guard HomeMenuKeyRouting.shouldPerformOnSelection(forwardingTextAction: nil),
                           let actions = focusedAppState?.fileBrowserActions
                     else { return }
+                    // 淡色の判定はペーストボードの写し(FileBrowserState.pasteboardHasFiles)なので古いことがある。押した時点で
+                    // 確かめ、貼れなければ鳴らして写しを直す(黙っていると押しても何も起きないように見える)。
+                    guard actions.canPerform(.moveItemHere) else {
+                        NSSound.beep()
+                        actions.state?.refreshPasteboardState()
+                        return
+                    }
                     actions.perform(.moveItemHere)
                 }
                 .homeMenuShortcut("v", modifiers: [.command, .option], isActive: menuCheckmarkState?.fileBrowserSelection != nil)

@@ -9,7 +9,8 @@ import UniformTypeIdentifiers
 // `.panelOutlinedContent()`はAppKitのセルには届かないので、同じ輪郭(反対色の形を上下左右へ
 // ずらして後ろに敷く。PanelContentShadow)をセルの描画で行う:
 // - 行の文字 → `FileBrowserOutlinedTextFieldCell`(選択中はアクセント地の上なので掛けない)
-// - 選択の地 → `FileBrowserRowView`がアクセント色で塗り、反対色の縁を付ける(`.panelOutlinedAccent(in:)`相当)
+// - 選択の地 → `FileBrowserRowView`が強調中はアクセント色・そうでなければ灰色で塗り(`SelectionEmphasis`)、
+//   どちらにも反対色の縁を付ける(`.panelOutlinedAccent(in:)`相当)
 // - アイコン → ファイルの種類のアイコン(色付きの絵)なので掛けない(「画像・サムネイルには掛けない」)
 // - 列の見出し → `NSTableHeaderView`のまま(不透明な地を持つ)
 
@@ -25,8 +26,10 @@ final class FileBrowserOutlinedTextFieldCell: NSTextFieldCell {
     var outlineWidth: CGFloat = 0
 
     override func drawInterior(withFrame cellFrame: NSRect, in controlView: NSView) {
-        // 選択中(アクセント地の上の白い文字)には掛けない ―― 不透明な地を持つ部品と同じ扱い。
-        if outlineWidth > 0, backgroundStyle != .emphasized, !attributedStringValue.string.isEmpty {
+        // 選択中の行(アクセント色・灰色の不透明な地の上)には掛けない ―― 不透明な地を持つ部品と同じ扱い。
+        // 灰色の地のときは文字の強調(`backgroundStyle`)が .normal なので、行が選ばれているかを見る。
+        if outlineWidth > 0, backgroundStyle != .emphasized, !isInSelectedRow(controlView),
+           !attributedStringValue.string.isEmpty {
             let outlined = NSMutableAttributedString(attributedString: attributedStringValue)
             let whole = NSRange(location: 0, length: outlined.length)
             outlined.addAttribute(.foregroundColor, value: fileBrowserOutlineColor(for: controlView), range: whole)
@@ -44,9 +47,19 @@ final class FileBrowserOutlinedTextFieldCell: NSTextFieldCell {
         }
         super.drawInterior(withFrame: cellFrame, in: controlView)
     }
+
+    private func isInSelectedRow(_ view: NSView) -> Bool {
+        var current = view.superview
+        while let candidate = current {
+            if let row = candidate as? NSTableRowView { return row.isSelected }
+            current = candidate.superview
+        }
+        return false
+    }
 }
 
-/// 行の地。選択はアクセント色の角丸で塗り、面の色に溶けないよう反対色の縁を付ける。
+/// 行の地。選択は角丸で塗り(強調中はアクセント色、ウインドウが後ろ・一覧が操作先でなければ灰色)、
+/// 面の色に溶けないよう反対色の縁を付ける。
 final class FileBrowserRowView: NSTableRowView {
     var outlineWidth: CGFloat = 0 {
         didSet { if outlineWidth != oldValue { needsDisplay = true } }
@@ -64,9 +77,20 @@ final class FileBrowserRowView: NSTableRowView {
 
     override func drawSelection(in dirtyRect: NSRect) {
         guard selectionHighlightStyle != .none else { return }
+        fillRoundedRow(with: SelectionEmphasis.selectionBackground(isEmphasized: isEmphasized))
+    }
+
+    /// 行の上へのドロップの強調(フォルダの行)。AppKit 標準の強調は縁を持たず面の色に溶けるので、アイコン表示のセル
+    /// (`FileBrowserIconCellView`)と同じ「アクセント色の薄い地 + 反対色の縁」で描く(2026-09-19 の総点検)。
+    /// 受け口はウインドウが後ろにあっても出すものなので、常にアクセント色(`SelectionEmphasis` の型コメント)。
+    override func drawDraggingDestinationFeedback(in dirtyRect: NSRect) {
+        fillRoundedRow(with: NSColor.controlAccentColor.withAlphaComponent(0.35))
+    }
+
+    private func fillRoundedRow(with color: NSColor) {
         let rect = bounds.insetBy(dx: 4, dy: 1)
         let path = NSBezierPath(roundedRect: rect, xRadius: 5, yRadius: 5)
-        NSColor.controlAccentColor.setFill()
+        color.setFill()
         path.fill()
         if outlineWidth > 0 {
             fileBrowserOutlineColor(for: self).setStroke()
@@ -79,10 +103,11 @@ final class FileBrowserRowView: NSTableRowView {
         }
     }
 
-    /// 選択中は常に「強調」(白い文字)。ウインドウが後ろにあっても地はアクセント色のままなので、
-    /// 文字もそれに合わせる(灰色の地に切り替えると、面の色によっては選択そのものが見えなくなる)。
-    override var interiorBackgroundStyle: NSView.BackgroundStyle {
-        isSelected ? .emphasized : .normal
+    // 文字の強調(`interiorBackgroundStyle`)は AppKit の既定に任せる: 選択中かつ強調中(キーウインドウで一覧が
+    // ファーストレスポンダ)なら白い文字、それ以外はふつうの文字。以前は選択中なら常に白にしていたが、地が
+    // アクセント色のまま変わらなかったからで、いまは地も`isEmphasized`で灰色になる(`SelectionEmphasis`)。
+    override var isEmphasized: Bool {
+        didSet { if isEmphasized != oldValue { needsDisplay = true } }
     }
 }
 
@@ -312,6 +337,19 @@ final class FileBrowserOutlineView: NSOutlineView {
             decorate(button)
         }
         return view
+    }
+
+    /// 外観(ライト/ダーク)が変わったら、出ている三角の絵を焼き直す。輪郭の色(反対色)は焼いた時点の外観で決まるので、
+    /// 焼き直さないと行が作り直されるまで逆の色の輪郭が残る(2026-09-19 の総点検)。
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        guard outlineWidth > 0 else { return }
+        enumerateAvailableRowViews { rowView, _ in
+            for case let button as NSButton in rowView.subviews
+            where button.identifier == NSOutlineView.disclosureButtonIdentifier {
+                self.decorate(button)
+            }
+        }
     }
 
     private var originalImages: [ObjectIdentifier: (NSImage?, NSImage?)] = [:]

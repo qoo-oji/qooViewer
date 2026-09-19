@@ -181,8 +181,7 @@ struct CollectionTile: View {
             }
             // 選択中の枠。印だけだと、札が小さいときにどれを選んだのか一目で分からない。
             .overlay {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color.accentColor, lineWidth: 3)
+                SelectionEmphasisBorder(shape: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                     .opacity(isSelected ? 1 : 0)
             }
             .panelOutlinedAccent(
