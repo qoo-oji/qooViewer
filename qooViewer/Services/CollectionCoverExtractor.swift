@@ -125,11 +125,20 @@ final class CollectionCoverExtractor: ObservableObject {
     /// 判定できないので、**レイアウトが変わった本のパスだけ**を覚えておき、ONへ戻ったときにその本の表紙を作り直す(関係ない
     /// 変更のぶんも作り直すが、やらずに古い表紙を残すよりよい)。アプリを終えても失わないよう UserDefaults に置く。
     /// 多すぎるとき(`maxBooksChangedWhileDisabled` 超)は覚えるのをやめ、ONへ戻ったときに全冊を作り直す。
+    ///
+    /// **控えから外すのは、その本の抽出が終わってから**(`redoRemainingByBookID`)。最初の版は ON へ戻した時点で控えを消してから
+    /// 待ち行列へ積んでいたので、作り直しの途中でもう一度 OFF にする(`cancelAll`が行列を捨てる)かアプリを終えると、残りの本は
+    /// `.ready`のまま古い表紙で残り、`signatures`も今の値になっているので二度と拾われなかった(2026-09-21 の監査の L1)。
+    /// 取り消されずに終わった抽出は、結果に関わらず(見つからない・書けなかったも含めて)済みと数える ―― 数えないと、届かない本の
+    /// ぶんだけ起動や切り替えのたびに作り直しが繰り返される。
     private(set) var isLibraryFeatureEnabled: Bool
     private var didPrepare = false
     static let booksChangedWhileDisabledKey = "qooViewer.collections.booksChangedWhileLibraryDisabled"
     static let changedTooManyWhileDisabledKey = "qooViewer.collections.changedTooManyWhileLibraryDisabled"
     static let maxBooksChangedWhileDisabled = 500
+    /// OFF の間に変わった本の作り直しで、まだ抽出が終わっていない登録(item → 本)と、本ごとの残りの数(`isLibraryFeatureEnabled`のコメント)。
+    private var redoBookIDByItemID: [UUID: String] = [:]
+    private var redoRemainingByBookID: [String: Int] = [:]
 
     private var observers: [NSObjectProtocol] = []
     /// 存在確認の結果が変わったら待ち行列を組み直す(型コメント「実体が見つからない本」参照)。
@@ -230,15 +239,65 @@ final class CollectionCoverExtractor: ObservableObject {
 
     /// OFFの間にレイアウトが変わった本の表紙を作り直す(`isLibraryFeatureEnabled`のコメント)。表紙は出したまま積む
     /// (refreshCoversForRetiredOrderSettingIfNeeded と同じ ―― `.pending`へ戻すと順番を待つ間ずっと下地になる)。
+    /// 抽出に失敗していた(`.failed`)登録は`.pending`へ戻して積む(`CollectionStore.markFailedCoversPending`のコメント)。
+    /// 控えはここでは消さない ―― 本ごとに抽出が終わった時点で外す(`noteRedoExtractionFinished`)。
     private func redoCoversChangedWhileDisabled() {
         let changedAll = defaults.bool(forKey: Self.changedTooManyWhileDisabledKey)
         let bookIDs = defaults.stringArray(forKey: Self.booksChangedWhileDisabledKey) ?? []
         guard changedAll || !bookIDs.isEmpty else { return }
-        defaults.removeObject(forKey: Self.booksChangedWhileDisabledKey)
-        defaults.removeObject(forKey: Self.changedTooManyWhileDisabledKey)
         let targets = changedAll ? Array(collectionStore.allRegisteredBookIDs()) : bookIDs
         for bookID in targets { signatures[bookID] = signature(forBookID: bookID) }
-        refreshCovers(forBookIDs: targets)
+        redoBookIDByItemID = [:]
+        redoRemainingByBookID = [:]
+        // 表紙を出している本を先に、まだ表紙の無い本(失敗から戻すぶんを含む)を後に積む。`.pending`の本は refill も拾うが、
+        // 控えを外すのはここで数えたぶんの抽出が終わったときなので、同じく数に入れる。
+        var ready: [CollectionItem] = []
+        var others: [CollectionItem] = []
+        for bookID in targets {
+            for item in collectionStore.items(forBookID: bookID) {
+                if item.coverState == .ready { ready.append(item) } else { others.append(item) }
+            }
+        }
+        let items = ready + others
+        for item in items where redoBookIDByItemID[item.id] == nil {
+            redoBookIDByItemID[item.id] = item.bookID
+            redoRemainingByBookID[item.bookID, default: 0] += 1
+        }
+        // 作り直す登録が 1 つも無い本(どのコレクションにも入っていない本。OFF の間はそれも覚えている)は、ここで済みにする。
+        let finished = targets.filter { redoRemainingByBookID[$0] == nil }
+        removeFromChangedWhileDisabled(finished)
+        enqueue(ready)
+        // 失敗から戻すのは積んだ後(戻した保存の通知が、その場で refill を呼んで`.pending`の本を積む)。
+        collectionStore.markFailedCoversPending(forBookIDs: targets)
+        enqueue(others)
+    }
+
+    /// 作り直しの抽出が 1 件終わった(取り消されずに)。その本の残りが無くなったら控えから外す。
+    private func noteRedoExtractionFinished(itemID: UUID) {
+        guard let bookID = redoBookIDByItemID.removeValue(forKey: itemID) else { return }
+        let remaining = (redoRemainingByBookID[bookID] ?? 1) - 1
+        guard remaining <= 0 else {
+            redoRemainingByBookID[bookID] = remaining
+            return
+        }
+        redoRemainingByBookID[bookID] = nil
+        removeFromChangedWhileDisabled([bookID])
+    }
+
+    /// 控えから本を外す。作り直しが全部済んだら「全冊を作り直す」の印も下ろす。
+    private func removeFromChangedWhileDisabled(_ bookIDs: [String]) {
+        if !bookIDs.isEmpty, var list = defaults.stringArray(forKey: Self.booksChangedWhileDisabledKey) {
+            let done = Set(bookIDs)
+            list.removeAll { done.contains($0) }
+            if list.isEmpty {
+                defaults.removeObject(forKey: Self.booksChangedWhileDisabledKey)
+            } else {
+                defaults.set(list, forKey: Self.booksChangedWhileDisabledKey)
+            }
+        }
+        if redoRemainingByBookID.isEmpty, defaults.bool(forKey: Self.changedTooManyWhileDisabledKey) {
+            defaults.removeObject(forKey: Self.changedTooManyWhileDisabledKey)
+        }
     }
 
     /// OFFの間に届いたレイアウトの変更を覚える(`isLibraryFeatureEnabled`のコメント)。
@@ -262,7 +321,17 @@ final class CollectionCoverExtractor: ObservableObject {
     /// ONへ戻したときの作り直しから漏れる(2026-09-21 の監査の D2)。Finder で移した本は、開いたときの`LayoutStore.reconcileBookIDIfMoved`が
     /// 新しいパスで通知を出すので、`rememberChangeWhileDisabled`が新しいほうも覚える。
     func relocateBooksChangedWhileDisabled(_ newBookIDByOld: [String: String]) {
-        guard !newBookIDByOld.isEmpty, let bookIDs = defaults.stringArray(forKey: Self.booksChangedWhileDisabledKey) else { return }
+        guard !newBookIDByOld.isEmpty else { return }
+        // 作り直しの最中なら、抽出の残りの数も新しいパスへ(控えと同じ鍵で外せるように)。
+        if !redoRemainingByBookID.isEmpty {
+            for (itemID, bookID) in redoBookIDByItemID {
+                if let new = newBookIDByOld[bookID] { redoBookIDByItemID[itemID] = new }
+            }
+            var remaining: [String: Int] = [:]
+            for (bookID, count) in redoRemainingByBookID { remaining[newBookIDByOld[bookID] ?? bookID, default: 0] += count }
+            redoRemainingByBookID = remaining
+        }
+        guard let bookIDs = defaults.stringArray(forKey: Self.booksChangedWhileDisabledKey) else { return }
         var seen: Set<String> = []
         let relocated = bookIDs.map { newBookIDByOld[$0] ?? $0 }.filter { seen.insert($0).inserted }
         guard relocated != bookIDs else { return }
@@ -361,6 +430,9 @@ final class CollectionCoverExtractor: ObservableObject {
         isRunning = false
         runGeneration &+= 1
         if !inFlightItemIDs.isEmpty { inFlightItemIDs = [] }
+        // 作り直しの途中なら、残りは UserDefaults の控えに残っている(外すのは抽出が終わってから)。次に ON になったとき・次の起動で拾う。
+        redoBookIDByItemID = [:]
+        redoRemainingByBookID = [:]
     }
 
     private func takeNext() -> UUID? {
@@ -379,11 +451,17 @@ final class CollectionCoverExtractor: ObservableObject {
             while !Task.isCancelled {
                 guard let extractor = self, let itemID = extractor.takeNext() else { break }
                 await extractor.extract(itemID: itemID)
+                // 取り消された(`cancelAll()`で世代が進んだ)抽出は、後始末に触らない。
+                guard extractor.runGeneration == generation else { break }
                 // 抽出中に作り直しを頼まれていたら、もう一度積む(redoAfterExtractionのコメント)。
                 if extractor.redoAfterExtraction.remove(itemID) != nil,
                    !extractor.queuedIDs.contains(itemID) {
                     extractor.queue.append(itemID)
                     extractor.queuedIDs.insert(itemID)
+                }
+                // OFF の間に変わった本の作り直しの控え(isLibraryFeatureEnabled のコメント)。積み直したぶんは、それが終わってから。
+                if !extractor.queuedIDs.contains(itemID) {
+                    extractor.noteRedoExtractionFinished(itemID: itemID)
                 }
             }
             guard let extractor = self, extractor.runGeneration == generation else { return }

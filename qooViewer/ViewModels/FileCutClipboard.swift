@@ -37,6 +37,13 @@ final class FileCutClipboard: ObservableObject {
         if !paths.isEmpty { paths = [] }
     }
 
+    /// 記憶がまだ `expected` のままなら下ろす(ペーストの移動を実際に始める時点。`FileBrowserOperations.paste` のコメント)。
+    /// 確認を待っている間に別の項目をカットし直していたら、その新しい記憶は残す。
+    func clear(ifHolding expected: Set<String>) {
+        guard !expected.isEmpty, paths == expected else { return }
+        clear()
+    }
+
     /// ペーストボードがカットの後で書き換えられていたら、記憶を下ろす(アクティブ化・ペーストの前に呼ぶ)。
     func validate(against pasteboard: NSPasteboard) {
         guard let changeCount, pasteboard.changeCount != changeCount else { return }

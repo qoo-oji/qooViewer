@@ -230,7 +230,12 @@ nonisolated struct CollectionCoverSourceStore: Sendable {
             at: directory, includingPropertiesForKeys: [.isDirectoryKey]
         ) {
             for url in urls where !fileNames.contains(url.lastPathComponent) {
-                guard (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory != true else { continue }
+                let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .contentModificationDateKey])
+                guard values?.isDirectory != true else { continue }
+                // **書いたばかりのファイルは触らない**(`recentFileGrace`のコメント)。
+                if let modified = values?.contentModificationDate, abs(now.timeIntervalSince(modified)) < Self.recentFileGrace {
+                    continue
+                }
                 try? fileManager.createDirectory(at: quarantine, withIntermediateDirectories: true)
                 let destination = quarantine.appendingPathComponent(url.lastPathComponent, isDirectory: false)
                 try? fileManager.removeItem(at: destination)
@@ -261,6 +266,14 @@ nonisolated struct CollectionCoverSourceStore: Sendable {
 
     /// 参照を失った元画像を消すまでの猶予(30日)。
     static let orphanRetention: TimeInterval = 30 * 24 * 60 * 60
+    /// これより新しいファイルは、参照が無くても隔離しない(10分)。
+    ///
+    /// 表紙の画像を指定する経路(LayoutStore.setShelfCoverImage)は、**先にここへ書き、それから行に名前を書く**(途中で失敗しても
+    /// いま出ている表紙を壊さないため)。掃除がその間に走ると、書いたばかりの画像を「参照が無い」として隔離してしまう。以前の掃除は
+    /// 起動時の、まだ誰も画像を指定できない時点でしか走らなかったが、2026-09-21 から「ライブラリ機能を OFF で起動し、後で初めて ON に
+    /// した」時点にも走る(AppStores.sweepLibraryOrphansIfNeeded)ようになり、この間に当たりうるようになった(同日の監査の L3)。
+    /// 当たっても隔離なので消えはしないが、表紙が次の掃除まで欠ける。未来の日付のファイル(時計のずれ)も同じく見送る。
+    static let recentFileGrace: TimeInterval = 10 * 60
     /// 隔離先のフォルダ名(保管庫の中)。先頭の`.`はFinderで見えなくするため。
     static let quarantineFolderName = ".orphaned"
 

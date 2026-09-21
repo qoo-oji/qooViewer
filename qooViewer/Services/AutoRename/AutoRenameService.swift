@@ -272,11 +272,17 @@ final class AutoRenameService: ObservableObject {
 
     /// 実行ログの行を元の名前に戻す。戻した項目は規則の対象から外す(AutoRenameStore.excludedPaths)。
     /// - Returns: 戻せなかった項目があれば、その説明(1 件目)。
+    ///
+    /// **読み取り専用の間は何も戻さない**(2026-09-21 の監査の L4。ボタンは淡色にしてある ―― AutoRenameActivityLogSheet)。
+    /// 戻している途中で読み取り専用へ切り替わったら、残りは戻さずにそう報告する(戻したぶんはそのまま)。
     func restore(entryIDs: Set<UUID>) async -> String? {
         let currentLocale = locale()
         var firstProblem: String?
         for entry in log.entries where entryIDs.contains(entry.id) {
             guard case .renamed(let newName) = entry.outcome else { continue }
+            guard !preferences.fileBrowserReadOnly else {
+                return String(localized: "Original names can’t be restored while the file browser is in read-only mode.", language: currentLocale)
+            }
             let current = URL(fileURLWithPath: entry.folderPath + "/" + newName)
             let originalPath = entry.folderPath + "/" + entry.originalName
             let identity = entry.identity
@@ -718,7 +724,8 @@ final class AutoRenameService: ObservableObject {
         let jobs = deep.map { ($0, true) } + shallow.sorted().map { ($0, false) }
         let inUse = inUsePaths()
         for (folder, recursive) in jobs {
-            guard isCurrent(generation), !isPausedForReadOnly else { return }
+            // 読み取り専用は設定の値も直に見る(`isPausedForReadOnly` は切り替えの 1 ランループ後に追いつく。2026-09-21 の監査の L4)。
+            guard isCurrent(generation), !isPausedForReadOnly, !preferences.fileBrowserReadOnly else { return }
             let result = await FileIO.perform {
                 AutoRenameScanner.examine(folder: folder, recursive: recursive, plan: plan, inUsePaths: inUse, takesSnapshots: true)
             }
@@ -749,7 +756,8 @@ final class AutoRenameService: ObservableObject {
         var heldBack: [String] = result.foldersWithItemsInUse.map { $0 }
         for candidate in result.candidates {
             // 止められたら残りの項目は変えない(もう変えたぶんの実行ログは下で書く)。見直しの予約も `scheduleRecheck` が断る。
-            guard isCurrent(generation), !isPausedForReadOnly else { break }
+            // 読み取り専用は設定の値も直に見る(上の runPendingWork と同じ)。
+            guard isCurrent(generation), !isPausedForReadOnly, !preferences.fileBrowserReadOnly else { break }
             guard let snapshot = candidate.snapshot else { continue }
             if candidate.isDirectory, heldBack.contains(where: { MountTable.path($0, isAtOrUnder: candidate.path) }) {
                 scheduleRecheck(folder: candidate.folder, after: recheckDelay)

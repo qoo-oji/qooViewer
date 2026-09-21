@@ -12,6 +12,11 @@ import Testing
 /// 画面の側は、ホームがファイルブラウザに固定されることと、右クリックからコレクションの項目が消えること。
 @MainActor
 struct LibraryFeatureToggleTests {
+    /// 表紙の読み込みを数える箱(`redoInterruptedByTurningOffKeepsTheRest`)。
+    private final class LoadCounter {
+        var count = 0
+    }
+
     private func makeFolderBook(_ temporary: TemporaryDirectory, named name: String) throws -> URL {
         let directory = temporary.file(name)
         try FixtureFolder.make(at: directory, pages: [.init("001.png", number: 1), .init("002.png", number: 2)])
@@ -236,6 +241,66 @@ struct LibraryFeatureToggleTests {
         // 変えていない本は作り直さない。覚えは消えている。
         #expect(second.extractionAttemptCount == 1)
         #expect(untouched.coverState == .ready)
+        #expect(suite.defaults.stringArray(forKey: CollectionCoverExtractor.booksChangedWhileDisabledKey) == nil)
+    }
+
+    /// 2026-09-21 の監査の L1(2 回目)。最初の版は ON へ戻した時点で控えを消していたので、作り直しの途中でもう一度 OFF にすると
+    /// 残りの本は古い表紙のまま二度と拾われず、抽出に失敗していた本は指定を直しても灰色のままだった。
+    @Test("OFFの間に変えた本の作り直しを途中でOFFにしても、残りの本は控えに残り、次にONへ戻したとき作り直す。失敗していた本も試し直す")
+    func redoInterruptedByTurningOffKeepsTheRest() async throws {
+        let library = try InMemoryLibrary(label: "library-toggle-redo-interrupted")
+        defer { library.close() }
+        let suite = PreferencesSuite(label: "library-toggle-redo-interrupted")
+        defer { withExtendedLifetime(suite) {} }
+        let temporary = try TemporaryDirectory("library-toggle-redo-interrupted")
+        let firstURL = try makeFolderBook(temporary, named: "book-1")
+        let secondURL = try makeFolderBook(temporary, named: "book-2")
+        let failedURL = try makeFolderBook(temporary, named: "book-3")
+        let first = try register(firstURL, in: library)
+        let second = try register(secondURL, in: library, collection: "Second")
+        let failed = try register(failedURL, in: library, collection: "Third")
+        let extractor = CollectionCoverExtractor(
+            collectionStore: library.collections, coverStore: library.collectionCovers,
+            layoutStore: library.layouts, cachesPageList: false, defaults: suite.defaults
+        )
+        defer { extractor.releaseResources() }
+        extractor.refill()
+        await extractor.waitUntilIdle()
+        #expect(first.coverState == .ready)
+        #expect(second.coverState == .ready)
+        library.collections.setCoverStatus(.failed, aspect: 0, for: failed)
+
+        extractor.setLibraryFeatureEnabled(false)
+        for url in [firstURL, secondURL, failedURL] {
+            library.layouts.setShelfCoverPageKey(
+                forBookID: url.path, sourceURL: url, pageKey: url.appendingPathComponent("002.png").path, displayName: "002.png"
+            )
+        }
+        let remembered = suite.defaults.stringArray(forKey: CollectionCoverExtractor.booksChangedWhileDisabledKey) ?? []
+        #expect([first.bookID, second.bookID, failed.bookID].allSatisfy(remembered.contains))
+
+        // ONへ戻し、2 冊目の読み込みを始める直前にもう一度 OFF にする。
+        // 数は箱に入れる(Sendable な閉包が捕まえた変数を書き換えると、CI のコンパイラが断る。docs/02)。
+        let loads = LoadCounter()
+        extractor.willLoadCoverImageForTesting = { [weak extractor, loads] in
+            loads.count += 1
+            if loads.count == 2 { extractor?.setLibraryFeatureEnabled(false) }
+        }
+        extractor.setLibraryFeatureEnabled(true)
+        await extractor.waitUntilIdle()
+        #expect(await coverNumber(of: first, in: library) == 2)
+        #expect(await coverNumber(of: second, in: library) == 1)
+        let afterInterruption = suite.defaults.stringArray(forKey: CollectionCoverExtractor.booksChangedWhileDisabledKey) ?? []
+        #expect(!afterInterruption.contains(first.bookID), "作り直しを終えた本は控えから外れる")
+        #expect(afterInterruption.contains(second.bookID))
+        #expect(afterInterruption.contains(failed.bookID))
+
+        extractor.willLoadCoverImageForTesting = nil
+        extractor.setLibraryFeatureEnabled(true)
+        await extractor.waitUntilIdle()
+        #expect(await coverNumber(of: second, in: library) == 2)
+        #expect(failed.coverState == .ready)
+        #expect(await coverNumber(of: failed, in: library) == 2)
         #expect(suite.defaults.stringArray(forKey: CollectionCoverExtractor.booksChangedWhileDisabledKey) == nil)
     }
 

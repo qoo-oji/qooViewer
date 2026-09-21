@@ -239,8 +239,14 @@ final class FileBrowserOperations: ObservableObject {
         clipboard?.validate(against: pasteboard)
         let cutPaths = clipboard?.paths ?? []
         let isMove = forceMove || (!cutPaths.isEmpty && Self.paths(of: urls) == cutPaths)
-        if isMove { clipboard?.clear() }
-        return transfer(urls, to: folder, isMove: isMove)
+        // カットの記憶を下ろすのは**移動を実際に始めるとき**(2026-09-21 の監査の L2)。以前はここで下ろしていたので、確認
+        // (ロック・取り消せない移動)で止めた・確認の最中に読み取り専用やファイルブラウザ OFF へ切り替えて捨てられた・開いている
+        // 本で断られた、どの場合も覚えだけが消え、もう一度 ⌘V するとコピーになった。
+        guard !isReadOnly else { return Task {} }
+        return transfer(
+            moving: isMove ? urls : [], copying: isMove ? [] : urls, to: folder,
+            releasingCut: isMove ? clipboard.map { ($0, cutPaths) } : nil
+        )
     }
 
     /// 移動またはコピー(ペースト)。
@@ -258,7 +264,11 @@ final class FileBrowserOperations: ObservableObject {
         return transfer(moving: plan.moves, copying: plan.copies, to: folder)
     }
 
-    private func transfer(moving moves: [URL], copying copies: [URL], to folder: URL) -> Task<Void, Never> {
+    /// - Parameter releasingCut: 移動を始めるときに下ろすカットの記憶と、ペーストの時点の中身(`paste`)。
+    private func transfer(
+        moving moves: [URL], copying copies: [URL], to folder: URL,
+        releasingCut: (clipboard: FileCutClipboard, paths: Set<String>)? = nil
+    ) -> Task<Void, Never> {
         enqueue { [weak self] in
             guard let self else { return }
             let destinationPath = FileBrowserState.id(for: folder)
@@ -339,6 +349,8 @@ final class FileBrowserOperations: ObservableObject {
                 ? commands[0]
                 : CompositeFileCommand(displayName: Self.transferName(count: count, isMove: isMove), children: commands)
             let title = Self.activityTitle(count: count, isMove: isMove)
+            // ここから先は運ぶ(途中で中止しても、運び終えたぶんはもう移っている)。
+            releasingCut?.clipboard.clear(ifHolding: releasingCut?.paths ?? [])
             await self.run(command, title: title, cancellation: cancellation, affected: [folder] + urls.map { $0.deletingLastPathComponent() }) { result in
                 // 運んだものを選ぶ(今のフォルダへ貼ったとき)。
                 let placed = commands.flatMap { child -> [URL] in

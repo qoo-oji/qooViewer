@@ -231,7 +231,10 @@ final class LayoutStore: ObservableObject {
         saveAndNotify(bookID: book.id)
     }
 
-    /// 本ごとの設定が持つページの鍵(書き出し用のカバー・コレクション表紙)を付け替える。
+    /// 本ごとの設定が持つページの鍵(書き出し用のカバー・コレクション表紙・ページの並べ替え)を付け替える。
+    ///
+    /// 並べ替え(`pageOrderOverride`)は 2026-09-21 の最初の版で漏れていた(同日の監査の M1)。鍵が合わないと EffectivePageOrder が
+    /// 黙って正準順へ戻し、ページ単位の見開きの指定(こちらは付いてくる)が別の並びに当たって組み合わせが崩れた。
     private static func relocatePageKeys(of row: BookLayoutSettings, fromBookID old: String, toBookID new: String) {
         if let key = row.coverPageKey.flatMap({ PageKeyRelocation.relocated($0, fromBookID: old, toBookID: new) }) {
             row.coverPageKey = key
@@ -239,6 +242,28 @@ final class LayoutStore: ObservableObject {
         if let key = row.shelfCoverPageKey.flatMap({ PageKeyRelocation.relocated($0, fromBookID: old, toBookID: new) }) {
             row.shelfCoverPageKey = key
         }
+        rewritePageOrder(of: row) { PageKeyRelocation.relocated($0, fromBookID: old, toBookID: new) }
+    }
+
+    /// 並べ替えの鍵を 1 つずつ書き換える(`rewrite` が nil を返した鍵はそのまま)。何も変わらなければ書かない。
+    /// 書き換えた結果が既にある鍵と重なったら、先に出てきたほうを残す(並びに同じページが 2 回出ないように)。
+    private static func rewritePageOrder(of row: BookLayoutSettings, _ rewrite: (String) -> String?) {
+        guard let order = row.pageOrderOverride else { return }
+        var changed = false
+        var seen: Set<String> = []
+        var rewritten: [String] = []
+        rewritten.reserveCapacity(order.count)
+        for key in order {
+            let new = rewrite(key) ?? key
+            if new != key { changed = true }
+            if seen.insert(new).inserted {
+                rewritten.append(new)
+            } else {
+                changed = true
+            }
+        }
+        guard changed else { return }
+        row.pageOrderOverride = rewritten
     }
 
     /// 付け替え漏れのページの鍵を直す(`PageKeyRelocation.repairs`。2026-09-21 より前に移したフォルダの本)。本を開いてページが分かった
@@ -247,6 +272,7 @@ final class LayoutStore: ObservableObject {
         let row = bookLayoutSettings(forBookID: bookID)
         let overrides = pageOverrides(forBookID: bookID)
         let keys = overrides.map(\.pageKey) + [row?.coverPageKey, row?.shelfCoverPageKey].compactMap { $0 }
+            + (row?.pageOrderOverride ?? [])
         let repairs = PageKeyRelocation.repairs(forStaleKeys: keys, bookID: bookID, currentPageKeys: currentPageKeys)
         guard !repairs.isEmpty else { return }
         // 直した先の鍵にもう行があるページは触らない(`compositeKey` が重なる)。
@@ -260,6 +286,7 @@ final class LayoutStore: ObservableObject {
         if let row {
             if let key = row.coverPageKey.flatMap({ repairs[$0] }) { row.coverPageKey = key }
             if let key = row.shelfCoverPageKey.flatMap({ repairs[$0] }) { row.shelfCoverPageKey = key }
+            Self.rewritePageOrder(of: row) { repairs[$0] }
         }
         saveAndNotify(bookID: bookID)
     }

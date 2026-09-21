@@ -140,7 +140,9 @@ bookID を書き換える `reconcileBookIDIfMoved` でも捨てる)から引く 
 | `CollectionTileImageStore`(actor) / `CollectionTileImageCache` | 焼いた札の絵(下記)。`~/Library/Caches/<bundle id>/CollectionTiles/<BookCollection.id>-<署名>.jpg` と、その復号済みメモリ LRU |
 
 **表紙の元画像(`CollectionCoverSources`)は、参照が無くてもすぐには消さない**(2026-09-13)。
-起動時の掃除は保管庫の中の `.orphaned/` へ隔離し、30日経ったものだけを消す。参照が戻れば
+起動時の掃除は保管庫の中の `.orphaned/` へ隔離し、30日経ったものだけを消す。**書いてから10分経っていないファイルは隔離しない**
+(`recentFileGrace`。表紙の画像の指定は「保管庫へ書く → 行に名前を書く」の順で、掃除は「ライブラリ機能を OFF で起動し、後で初めて ON にした」時点にも
+走るので、その間に当たりうる。2026-09-21 の監査の L3)。参照が戻れば
 (DB を戻した・修復した)隔離から戻す。2026-09-11 に**参照のほうが間違って消えた**とき
 (→ [06](06-persistence.md#古いアプリで新しいストアを開くと列が黙って消える2026-09-11-の事故と対策))、
 この掃除が作り直せない画像を131枚まとめて消した ―― DB の記録が正しいとは限らない以上、
@@ -756,6 +758,11 @@ ON へ戻せば棚は元のまま見える。お気に入りの `FavoritesFeatur
 本物の保存先へ書かない(通知はアプリ全体に飛ぶので、テストのストアの通知も届く)。控えの中身はパスなので、**OFF の間にその本が動いたら控えも
 付け替える**: アプリ自身が移した本は `BookRecordRelocator` が `relocateBooksChangedWhileDisabled` を呼び、Finder で移した本は、開いたときの
 `LayoutStore.reconcileBookIDIfMoved` が新しいパスで通知を出すので新しいほうも覚える(監査の D2)。
+**控えから外すのは、その本の抽出が終わってから**(同日の 2 回目の監査の L1)。最初の版は ON へ戻した時点で控えを消してから積んでいたので、
+作り直しの途中でもう一度 OFF にする(`cancelAll` が待ち行列を捨てる)かアプリを終えると、残りの本は `.ready` のまま古い表紙で残り、控え
+(`signatures`)も今の値になっているので二度と拾われなかった。いまは取り消されずに終わった抽出を本ごとに数え、残りが無くなった本から外す
+(見つからない・書けなかったも済みと数える ―― 数えないと届かない本のぶんだけ起動や切り替えのたびに作り直しが繰り返される)。「全冊を作り直す」の
+印は全部済んだら下ろす。抽出に**失敗していた**(`.failed`)本は `.pending` へ戻して試し直す(ON の間に指定を変えたときと同じ)。
 
 起動時の「見つからない本」の確認は起動につき 1 回なので、OFF で起動して ON にしても次の起動までは出ない。
 
@@ -812,7 +819,7 @@ ON へ戻せば棚は元のまま見える。お気に入りの `FavoritesFeatur
 
 ## テスト
 
-`LibraryFeatureToggleTests`: 「ライブラリを有効にする」が OFF の間、ホームがファイルブラウザに固定されること(保存したモードは書き換えない)、存在確認・表紙の抽出・「ホーム」メニューの写しが走らないこと、ON へ戻すと動き出すこと、OFF の間に表紙の指定を変えた本が起動し直した後でも作り直されること、右クリックの並びからコレクションの群が消えること。右クリックの実物のメニューと入り口で断ることは `FileBrowserIntegrationTests`。
+`LibraryFeatureToggleTests`: 「ライブラリを有効にする」が OFF の間、ホームがファイルブラウザに固定されること(保存したモードは書き換えない)、存在確認・表紙の抽出・「ホーム」メニューの写しが走らないこと、ON へ戻すと動き出すこと、OFF の間に表紙の指定を変えた本が起動し直した後でも作り直されること、その作り直しを途中で OFF にしても残りの本が次の ON で作り直され、失敗していた本も試し直すこと、右クリックの並びからコレクションの群が消えること。右クリックの実物のメニューと入り口で断ることは `FileBrowserIntegrationTests`。
 
 `CollectionStoreTests` / `CollectionCoverStoreTests` / `CoverImageResolverTests` /
 `CollectionCoverExtractorTests` / `CollectionAutoFolderScanTests` / `FolderChangeWatcherTests` /

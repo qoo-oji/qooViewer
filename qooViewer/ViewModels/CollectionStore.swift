@@ -962,6 +962,21 @@ final class CollectionStore: ObservableObject {
         saveAndNotify(bookID: bookID)
     }
 
+    /// これらの本のうち、抽出に**失敗した**登録だけを`.pending`へ戻す(表紙を出している`.ready`の登録は触らない)。保存と通知は1回だけ。
+    ///
+    /// ライブラリ機能が OFF の間に表紙の指定を変えた本の作り直しから呼ぶ(CollectionCoverExtractor.redoCoversChangedWhileDisabled)。
+    /// `.failed`は表紙の指定を変えるまで二度と抽出されない印なので、指定が変わった本は ON の間の経路(`markCoversPending`)と同じく
+    /// 試し直させる(2026-09-21 の監査の L1)。
+    /// - Returns: `.pending`へ戻した登録。
+    @discardableResult
+    func markFailedCoversPending(forBookIDs bookIDs: [String]) -> [CollectionItem] {
+        let targets = bookIDs.flatMap { items(forBookID: $0) }.filter { $0.coverState == .failed }
+        guard !targets.isEmpty else { return [] }
+        for item in targets { item.coverState = .pending }
+        saveAndNotify()
+        return targets
+    }
+
     /// 登録してある本すべてを、抽出のやり直し待ち(`.pending`)へ戻す。保存と通知は1回だけ。
     ///
     /// カバーの保存の仕方が変わったときの一度きりの移行(CollectionCoverExtractor.

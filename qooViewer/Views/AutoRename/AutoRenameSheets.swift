@@ -218,6 +218,8 @@ struct AutoRenameMoveSuggestionsSheet: View {
 struct AutoRenameActivityLogSheet: View {
     @EnvironmentObject private var log: AutoRenameActivityLog
     @EnvironmentObject private var service: AutoRenameService
+    /// 読み取り専用の間は「元の名前に戻す」を淡色にする(戻すのも名前の変更。AutoRenameService.restore のコメント)。
+    @EnvironmentObject private var preferences: AppPreferences
     @Environment(\.dismiss) private var dismiss
     @Environment(\.locale) private var locale
 
@@ -267,7 +269,7 @@ struct AutoRenameActivityLogSheet: View {
                 Button("Restore Original Names") {
                     Task { restoreProblem = await service.restore(entryIDs: selection) }
                 }
-                .disabled(!log.entries.contains { selection.contains($0.id) && $0.isRestorable })
+                .disabled(preferences.fileBrowserReadOnly || !log.entries.contains { selection.contains($0.id) && $0.isRestorable })
                 .help(Text("Puts the selected renamed items back to their original names. The rules won’t rename them again."))
                 Button("Delete Log…") { confirmsClear = true }
                     .disabled(log.entries.isEmpty)

@@ -1124,6 +1124,22 @@
         }
       }
     },
+    "Original names can’t be restored while the file browser is in read-only mode." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Original names can’t be restored while the file browser is in read-only mode."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルブラウザが読み取り専用モードのため、元の名前に戻せません。"
+          }
+        }
+      }
+    },
     "Paused (read-only mode)" : {
       "localizations" : {
         "en" : {

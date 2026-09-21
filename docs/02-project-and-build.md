@@ -77,7 +77,7 @@ EPUB / PDF の構造解決、書き出しのラウンドトリップ、そして
 | --- | --- |
 | `StoreSchemaGuardTests` | 古いアプリが新しいストアを開くのを止める判定、スキーマの世代の表(モデルを変えたら行を足す)、SwiftData が古いモデルで列を消すという前提 |
 | `StorePersistenceTests` | 足した列が「書く → 閉じる → 開き直す」で残ること、1.54 のストアからの移行(`SchemaSnapshot_1_54`) |
-| `CollectionCoverSourceStoreTests` | 表紙の元画像の掃除が、消さずに隔離して、参照が戻れば戻すこと |
+| `CollectionCoverSourceStoreTests` | 表紙の元画像の掃除が、消さずに隔離して、参照が戻れば戻すこと・書いたばかりのファイルは隔離しないこと |
 
 メモリ内のストア(`InMemoryLibrary`)は**開き直しも移行も通らない**。永続化する属性を足したら、
 `DisposableStore` で開き直しを1本足すこと。

@@ -163,10 +163,13 @@ JSON 読み込みの重複判定も同じ識別子を使います。
 
 **フォルダの本は、ページの鍵も付け替える**(2026-09-21。`PageKeyRelocation`、Services/BookRelocation.swift)。フォルダの本の `PageRef.sortKey` は
 **絶対パス**(中の書庫・PDF のページも、その書庫の絶対パスが頭に付く)なので、本が動くと `bookID` だけでなく鍵の頭も変わる。鍵で持っている保存データ ――
-`PageLayoutOverride.pageKey`・`BookLayoutSettings.coverPageKey` / `shelfCoverPageKey`・`Bookmark.pageKey`・`BookReadingState.lastPageKey` ―― は、
+`PageLayoutOverride.pageKey`・`BookLayoutSettings.coverPageKey` / `shelfCoverPageKey` / `pageOrderOverride`(ページの並べ替え)・`Bookmark.pageKey`・
+`BookReadingState.lastPageKey` ―― は、
 上の 2 つの経路(`reconcileBookIDIfMoved` と `applyBookRelocation`)で `bookID` と一緒に書き換える。それまでは `bookID` しか付け替えておらず、フォルダの本を
 移す・名前を変えると、ページ単位のレイアウトと「本の中のページ」で選んだ表紙が黙って外れ、ブックマークは番号へ落ちていた(鍵が合わないので、並びが
 変わると別のページを指す)。書庫・PDF・EPUB の本の鍵は本の中で閉じている(`/` で始まらない)ので無関係。
+並べ替えは最初の版で漏れていた(同日の監査の M1): 鍵が合わないと `EffectivePageOrder` が黙って正準順へ戻し、付いてきたページ単位の見開きの指定が
+別の並びに当たって組み合わせが崩れた(`pinPageOrderIfNeeded` が自動で固定した本も同じ)。並べ替えを書き換えた結果が既にある鍵と重なったら、先に出てきたほうを残す。
 - **それ以前に移した本の行は、開いたときに直す**(`PageKeyRelocation.repairs` → `LayoutStore` / `BookmarkStore` の `repairStalePageKeys`。
   `AppState.open` が追従の直後に呼ぶ)。漏れた鍵は「昔の本のパス + 相対パス」で、昔のパスは分からないので、いまの本のページの相対パスで終わる鍵から
   候補を出し、漏れた鍵の全部に共通する候補が**ちょうど 1 つ**のときだけ直す。2 通りに読めるとき(昔のフォルダ名と同じ名前のサブフォルダに同じ名前の

@@ -302,6 +302,26 @@ struct AutoRenameServiceTests {
         #expect(harness.exists("shelf/one [tag].zip"))
     }
 
+    /// 2026-09-21 の監査の L4。「元の名前に戻す」も名前の変更なのに、読み取り専用の間でも戻せていた。
+    @Test("読み取り専用モードの間は、実行ログから元の名前に戻さず、そう報告する")
+    func restoringIsRefusedInReadOnlyMode() async throws {
+        let harness = try Harness("restore-read-only")
+        let shelf = try harness.folder("shelf")
+        try harness.file("shelf/one [tag].zip")
+        harness.favorites.add(shelf)
+        harness.addRule(find: " [tag]", replace: "", target: shelf)
+        harness.service.start()
+        #expect(await eventually { harness.log.entries.contains(where: \.isRestorable) })
+        let one = try #require(harness.log.entries.first { $0.originalName == "one [tag].zip" })
+
+        harness.preferences.fileBrowserReadOnly = true
+        let problem = await harness.service.restore(entryIDs: [one.id])
+        #expect(problem != nil)
+        #expect(harness.exists("shelf/one.zip"))
+        #expect(harness.store.excludedPaths.isEmpty)
+        #expect(harness.log.entries.first { $0.id == one.id }?.isRestorable == true)
+    }
+
     // MARK: - 変えない場面
 
     @Test("読み取り専用モードの間は変えず、OFF にしたら変える")

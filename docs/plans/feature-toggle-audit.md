@@ -275,3 +275,26 @@ false のまま(立てるのは `start` だけ)なので、読み取り専用 ON
   塞がないこと、「コレクション表紙」の名前を OFF の間も変えないこと(D3)、コピー・移動の途中の衝突の確認は OFF でも答えさせること、
   ON → OFF の後も引いてあった行をメモリに残すこと、サムネイルのディスクキャッシュの起動時の刈り込み、テストホストの設定の固定。
 
+
+## 8. 2 回目の監査と修正(2026-09-21、v1.64 以降の変更全体)
+
+v1.64(`4b912b1`)から `43ffad0` までの差分を、リソースリーク・クラッシュ・ハング・ファイルの破損と消失・メモリとディスクの過大な消費に絞って
+読み直した(停止と再開の並行性・保存データとファイル操作・UI とライフサイクルの 3 つに分けて、指摘は実コードで確かめ直した)。致命的なものは無く、
+次の 5 件を直した。どれも実機ではまだ確かめていない(テストで再現してから直した)。
+
+- **M1 フォルダの本を移すと、ページの並べ替え(`pageOrderOverrideJSON`)だけが付け替わらない** ―― §7「残りの処置」のページの鍵の付け替えの漏れ。
+  鍵が合わないと表示は黙って正準順へ戻り、付いてきたページ単位の見開きの指定が別の並びに当たって崩れた(`pinPageOrderIfNeeded` が自動で固定した本も)。
+  `LayoutStore.relocatePageKeys` と `repairStalePageKeys` が並べ替えも書き換える。テストは `PageKeyRelocationTests` の 3 件に並べ替えを足した。
+- **L1 OFF の間に表紙を変えた本の控えを、作り直しが終わる前に消していた** ―― 作り直しの途中でもう一度 OFF にする・アプリを終えると、残りの本は
+  古い表紙のまま二度と拾われなかった。`.failed` の本は指定を直しても灰色のままだった。控えは本ごとに抽出が終わってから外し、`.failed` は `.pending` へ
+  戻す([14](../14-library-collections.md)「ライブラリ機能の ON/OFF」)。テストは `LibraryFeatureToggleTests.redoInterruptedByTurningOffKeepsTheRest`。
+- **L2 確認で止めたペーストで、カットの記憶だけが消える** ―― 記憶を下ろすのを、移動を実際に始める時点へ移した([15](../15-file-browser.md)
+  「コピー/カット」)。テストは `FileBrowserOperationsTests.cutSurvivesAPasteStoppedAtTheConfirmation`。
+- **L3 初めて ON にした時点の掃除が、書いたばかりの表紙の元画像を隔離しうる** ―― 掃除が起動時以外にも走るようになったため。書いてから 10 分以内の
+  ファイルは隔離しない(`CollectionCoverSourceStore.recentFileGrace`)。テストは `CollectionCoverSourceStoreTests.freshlyWrittenFilesAreLeftAlone`。
+- **L4 自動リネームの読み取り専用の穴 2 つ**(v1.64 以前からのもの) ―― 走査が各項目の前に設定の値そのものも見る。「元の名前に戻す」は読み取り専用の
+  間は淡色で、戻す側でも断る。テストは `AutoRenameServiceTests.restoringIsRefusedInReadOnlyMode`。
+
+**直していないもの**: 2 本指フリックが一覧の上で `.ended` まで届くかは実機でまだ確かめていない(届かなくても移動しないだけ。届かなければ一覧の側で
+`wantsScrollEventsForSwipeTracking(on:)` を使う)。「常にこのアプリケーションで開く」がフォルダにも出ること・開いている本を除かないことは、xattr を
+書くだけで本を壊さないので残した。

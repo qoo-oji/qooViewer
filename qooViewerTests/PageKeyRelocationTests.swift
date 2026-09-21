@@ -60,6 +60,7 @@ struct PageKeyRelocationTests {
         library.layouts.setPageLayoutState(for: book, pageKey: second, state: .single)
         library.layouts.setCoverPageKey(forBookID: book.id, sourceURL: book.sourceURL, pageKey: third, displayName: "003.png")
         library.layouts.setShelfCoverPageKey(forBookID: book.id, sourceURL: book.sourceURL, pageKey: second, displayName: "002.png")
+        library.layouts.setPageOrderOverride(for: book, [third, book.pages[0].sortKey, second])
         #expect(library.bookmarks.addBookmark(
             bookID: book.id, pageIndex: 2, pageKey: third, name: "p3", fileNodeIdentifier: FileNodeIdentifier.current(for: book.sourceURL)
         ))
@@ -73,6 +74,11 @@ struct PageKeyRelocationTests {
         let settings = try #require(library.layouts.bookLayoutSettings(forBookID: bookID), sourceLocation: sourceLocation)
         #expect(settings.coverPageKey == "\(bookID)/003.png", sourceLocation: sourceLocation)
         #expect(settings.shelfCoverPageKey == "\(bookID)/002.png", sourceLocation: sourceLocation)
+        // 並べ替え(2026-09-21 の監査の M1 ―― 最初の版では付け替わらなかった)。
+        #expect(
+            settings.pageOrderOverride == ["\(bookID)/003.png", "\(bookID)/001.png", "\(bookID)/002.png"],
+            sourceLocation: sourceLocation
+        )
         let overrides = library.layouts.pageOverrides(forBookID: bookID)
         #expect(overrides.map(\.pageKey) == ["\(bookID)/002.png"], sourceLocation: sourceLocation)
         // `compositeKey` は見ない: NUL 区切りの文字列は、保存して読み直すと NUL の手前で切れて戻ってくる(実測 2026-09-21。ストアの都合)。
@@ -138,6 +144,10 @@ struct PageKeyRelocationTests {
         library.layouts.setPageLayoutState(for: book, pageKey: "\(oldRoot)/002.png", state: .single)
         library.layouts.setCoverPageKey(forBookID: book.id, sourceURL: folder, pageKey: "\(oldRoot)/003.png", displayName: "003.png")
         library.layouts.setShelfCoverPageKey(forBookID: book.id, sourceURL: folder, pageKey: "\(oldRoot)/002.png", displayName: "002.png")
+        // 並べ替えは昔の鍵と今の鍵が混ざっていても直る(直した先が既にある鍵と重なれば、先に出てきたほうを残す)。
+        library.layouts.setPageOrderOverride(
+            for: book, ["\(oldRoot)/003.png", "\(oldRoot)/001.png", "\(book.id)/002.png", "\(oldRoot)/002.png"]
+        )
         #expect(library.bookmarks.addBookmark(bookID: book.id, pageIndex: 2, pageKey: "\(oldRoot)/003.png", name: "p3"))
 
         let keys = book.pages.map(\.sortKey)

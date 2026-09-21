@@ -178,6 +178,37 @@ struct FileBrowserOperationsTests {
         #expect(fixture.presenter.problems.isEmpty)
     }
 
+    /// 2026-09-21 の監査の L2。以前はペーストの入口でカットの記憶を下ろしていたので、確認で止めた(確認の最中に読み取り専用へ
+    /// 切り替えて捨てられた場合も)あとにもう一度 ⌘V すると、移動のつもりがコピーになった。
+    @Test("カットしてペーストした移動を確認で止めたら、カットの記憶は残り、もう一度ペーストすると移動になる")
+    func cutSurvivesAPasteStoppedAtTheConfirmation() async throws {
+        let fixture = try Fixture("fbops-cut-stopped")
+        await fixture.showRoot()
+        let file = fixture.root.appendingPathComponent("a.txt")
+        FileOperationService.setLocked(file, true)
+        defer {
+            // 一時フォルダを片付けられるように(ロックされた項目は消せない)。
+            FileOperationService.setLocked(file, false)
+            FileOperationService.setLocked(fixture.other.appendingPathComponent("a.txt"), false)
+        }
+        fixture.state.operations.cut([fixture.entry(file)])
+
+        fixture.presenter.lockedAnswer = .stop
+        fixture.state.operations.paste(into: fixture.other)
+        await fixture.finish()
+        #expect(fixture.presenter.lockedPrompts.count == 1)
+        #expect(fixture.exists(file))
+        #expect(fixture.state.isCut(fixture.entry(file)))
+
+        fixture.presenter.lockedAnswer = .proceed
+        fixture.state.operations.paste(into: fixture.other)
+        await fixture.finish()
+        #expect(!fixture.exists(file))
+        #expect(fixture.names(in: fixture.other) == ["a.txt"])
+        #expect(fixture.state.cutPaths.isEmpty)
+        #expect(fixture.presenter.problems.isEmpty)
+    }
+
     @Test("カットの後に別のものがペーストボードに載ったら、ペーストはコピーになる")
     func cutIsForgottenWhenPasteboardChanges() async throws {
         let fixture = try Fixture("fbops-cut-stale")
