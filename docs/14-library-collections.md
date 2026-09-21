@@ -729,6 +729,9 @@ init が引くのはライブラリの行だけ。
 作り直すが、古い表紙を残すよりよい。500 冊を超えたら覚えるのをやめ、ON へ戻ったときに全冊を作り直す。テストホストの実物の抽出役は
 本物の保存先へ書かない(通知はアプリ全体に飛ぶので、テストのストアの通知も届く)。
 
+**抜け漏れの監査(2026-09-21、未修正)**: 抽出中に OFF にした本の表紙が `.failed` で残る、OFF の間も `CollectionItem` を全件引く経路がある、
+などの指摘と直し方の案は [plans/feature-toggle-audit.md](plans/feature-toggle-audit.md)。
+
 ## 環境設定・JSON・削除
 
 - **環境設定「外観」→「ホーム」**(`PanelSurfaceSettingsView.welcomeSections`):

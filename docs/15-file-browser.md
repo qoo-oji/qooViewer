@@ -188,6 +188,9 @@ FileBrowserOperations(ウインドウごと。1 本ずつ直列・確認の受�
 **止めないもの**: 置き換えの退避の復旧(`ReplaceBackupRecovery`。前回の操作が途中で落ちていたら利用者のファイルを元へ戻す)、アプリ自身が
 ファイルを動かした知らせとよく使う項目の付け替え(サイドパネルのフォルダブラウザも使う)。よく使う項目・規則・ログ・サムネイルのディスクキャッシュは消さない。
 
+**抜け漏れの監査(2026-09-21、未修正)**: OFF の間も「自動リネームの設定」ウインドウへ届き、そこから自動リネームが動き出す、`stop()` の後始末が
+足りない、などの指摘と直し方の案は [plans/feature-toggle-audit.md](plans/feature-toggle-audit.md)。
+
 ## 効果音(2026-09-13、ユーザー要望。qooLibrary と同じ)
 
 `SystemSoundPlayer`(Services/FileOperations)が macOS 同梱のシステムサウンドを鳴らす。**鳴らすのは `FileCommandStack` の 1 箇所**
