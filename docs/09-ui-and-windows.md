@@ -274,7 +274,10 @@ AppState を参照しない作り(参照するとページ送りのたびに本�
   すりガラス面の輪郭をどう描いているかは [15](15-file-browser.md)。
 - 本を開いていない間はサイドパネルを出さない(`ContentView.isSidePanelSuppressedForWelcome`)。
   以前は「ウェルカム画面でも表示する」で選べたが、ファイルブラウザと同時に見せないため設定ごと撤去した。
-  「View」→「Hide Side Panel」も本を開いていない間はグレーアウト。
+  「View」→「Hide Side Panel」も本を開いていない間はグレーアウト。例外は**ライブラリとファイルブラウザを両方 OFF にしている間**
+  (`WelcomeMode.classic`)で、v1.42 までと同じく本を開いていなくても出し、ホームの「View」メニューにも「Hide Side Panel」を置く
+  (2026-09-22、ユーザー要望。ファイルブラウザと二重にならず、その画面には本を探す口が「開く…」と最近開いた本しか無い)。
+  モードが切り替わってホバー表示のパネルが浮いたまま残らないよう、`onChange(of: welcomeLibrary.mode)` で下ろす。
 - 旧 `WelcomeView.swift`(`WelcomeQuickOpen*` の列幅計算)は削除した。
 
 ### メニューバーのホーム画面の項目

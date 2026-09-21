@@ -234,6 +234,18 @@ struct QooViewerApp: App {
         }
     }()
 
+    /// 表示メニューの「サイドパネルを隠す」。本を開いている間の項目と、両方OFFのホームの項目で共用する(呼ぶ側が
+    /// 環境設定「サイドパネルを有効にする」を見て、OFFなら丸ごと省く)。
+    private var hideSidePanelToggle: some View {
+        Toggle(
+            "Hide Side Panel",
+            isOn: Binding(
+                get: { menuCheckmarkState?.hideSidePanel ?? false },
+                set: { focusedAppState?.hideSidePanel = $0 }
+            )
+        )
+    }
+
     /// 本を表示しているとき(と本棚)の「移動」メニューの中身。ファイルブラウザの間は FileBrowserGoMenuItems に入れ替わる。
     @ViewBuilder
     private var viewerMoveMenuItems: some View {
@@ -976,6 +988,11 @@ struct QooViewerApp: App {
                         isFileBrowserFeatureEnabled: preferences.fileBrowserFeatureEnabled,
                         home: menuCheckmarkState?.homeMenu ?? HomeMenuState(), appState: focusedAppState
                     )
+                    // ライブラリとファイルブラウザが両方OFFのホーム(本棚を足す前のウェルカム画面)ではサイドパネルが出る
+                    // (ContentView.isSidePanelSuppressedForWelcome)ので、v1.42 までと同じく「サイドパネルを隠す」を置く。
+                    if preferences.sidePanelFeatureEnabled && menuCheckmarkState?.homeMenu.mode == .classic {
+                        hideSidePanelToggle
+                    }
                 } else {
                     let hasBook = focusedAppState?.currentBook != nil
 
@@ -1015,17 +1032,10 @@ struct QooViewerApp: App {
                     // 状態でこの項目だけ残しても意味が無いため(ユーザー要望)。Commandsも
                     // ViewBuilderと同様に結果ビルダーのため、if で丸ごと省ける。
                     if preferences.sidePanelFeatureEnabled {
-                        Toggle(
-                            "Hide Side Panel",
-                            isOn: Binding(
-                                get: { menuCheckmarkState?.hideSidePanel ?? false },
-                                set: { focusedAppState?.hideSidePanel = $0 }
-                            )
-                        )
                         // 本を開いていない間はどちらに倒してもパネルは出てこないため
                         // (ContentView.isSidePanelSuppressedForWelcome)、hideToolbar/hideProgressBarと
                         // 同じくグレーアウトする(効かない設定を触れるままにしない)。
-                        .disabled(!hasBook)
+                        hideSidePanelToggle.disabled(!hasBook)
                     }
 
                     Divider()

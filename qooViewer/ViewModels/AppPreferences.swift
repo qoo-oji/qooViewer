@@ -562,7 +562,8 @@ final class AppPreferences: ObservableObject {
     // 撤去した設定(改善要望7、2026-09-13)。**UserDefaultsの値は消さない** ―― 古い版を起動した
     // 人の設定を壊さないため。キーの一覧はdocs/06「環境設定」。
     // - 「ウェルカム画面でも表示する」(qooViewer.pref.showSidePanelOnWelcome) … 本を開いていない
-    //   間はサイドパネルを常に出さなくなった(ContentView.isSidePanelSuppressedForWelcome)
+    //   間はサイドパネルを常に出さなくなった(ContentView.isSidePanelSuppressedForWelcome。ライブラリとファイルブラウザが
+    //   両方OFFのホームだけは例外で出す ―― 設定は戻していない)
     // - 「並び順をFinderに揃える」(PageOrder.retiredSettingKey) … 表示順は常に正準順
     //   (PageOrder.swift冒頭)
     // - 「最近開いたファイルを表示」(qooViewer.pref.showRecentFilesOnWelcome) … ウェルカム画面の

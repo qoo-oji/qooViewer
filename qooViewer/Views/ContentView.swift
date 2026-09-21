@@ -367,6 +367,14 @@ struct ContentView: View {
             .onChange(of: preferences.fileBrowserFeatureEnabled, initial: true) { _, isEnabled in
                 welcomeLibrary.isFileBrowserFeatureEnabled = isEnabled || RuntimeEnvironment.isRunningTests
             }
+            // ホームのモードが変わって、本を開いていないのにサイドパネルを出さない側へ移ったら(両方OFFの画面から、どちらかの機能を
+            // ONにした)、ホバーで浮いていたパネルを下ろす(isSidePanelSuppressedForWelcome参照。本を閉じたときの後始末と同じ理由)。
+            .onChange(of: welcomeLibrary.mode) { _, _ in
+                if isSidePanelSuppressedForWelcome {
+                    cancelPendingSidePanelReveal()
+                    appState.isSidePanelRevealed = false
+                }
+            }
             // 「同じフォルダのファイルを開く」の一覧を、並び順に関わる設定が変わったその場で
             // 並べ直す(ユーザー要望: フォルダブラウザの並べ替えに合わせる)。siblingBookOrderは
             // 関係する4つの設定を束ねた値なので、パネル上部の並べ替えメニュー・環境設定の
@@ -1219,6 +1227,11 @@ struct ContentView: View {
     /// ファイルブラウザが入るので、フォルダブラウザ(サイドパネル)と同時に見せないよう、設定ごと
     /// 撤去して常に出さないことにした。
     ///
+    /// ただし**ライブラリとファイルブラウザを両方OFFにしている間**(`WelcomeMode.classic`、本棚を足す前のウェルカム画面)は、
+    /// v1.42 までと同じく本を開いていなくても出す(2026-09-22、ユーザー要望)。その画面には本を探す口が「開く…」と
+    /// 最近開いた本しか無く、ファイルブラウザと二重になる心配も無いため。モードが切り替わったときの後始末は
+    /// onChange(of: welcomeLibrary.mode) が持つ。
+    ///
     /// 常時表示(showsDockedSidePanel)とホバーでの一時表示(bodyのオーバーレイ分岐・
     /// updateSidePanelReveal・isSidePanelRevealBandStillActive)の**両方**を止める。
     /// 片方だけにすると、「常時表示にしていれば出ないのに、隠す設定にすると端で出てくる」
@@ -1227,7 +1240,7 @@ struct ContentView: View {
     /// 本を閉じた瞬間にホバーで浮いていたパネルの後始末は、currentBookの変化を受ける側が持つ
     /// (onChange(of: appState.currentBook?.id)の中でisSidePanelRevealedを下ろしている)。
     private var isSidePanelSuppressedForWelcome: Bool {
-        appState.currentBook == nil
+        appState.currentBook == nil && welcomeLibrary.mode != .classic
     }
 
     /// カーソルの位置によって一時的に表示されているもの(ホバー表示中のサイドパネル、

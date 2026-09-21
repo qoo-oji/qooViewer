@@ -233,7 +233,7 @@ while off are remembered in UserDefaults and get their covers redone when it is 
 video thumbnail warmer stop (`AppStores.applyFileBrowserFeature`). The two flags together pick the Home layout in one
 place, `WelcomeLibraryState.constrained`: both on = as before, library only = the pre-file-browser shelf (v1.50–v1.56: the top bar gets its Open Book… / Open from History buttons back), file browser
 only = the pane with no top bar, both off = `WelcomeMode.classic`, the pre-bookshelf welcome screen restored as
-`ClassicWelcomeView` (and no Home menu). `.classic` is never a user choice and forced modes are never saved. New file
+`ClassicWelcomeView` (and no Home menu; the side panel is shown there without a book, as in v1.42 — `ContentView.isSidePanelSuppressedForWelcome`, 2026-09-22). `.classic` is never a user choice and forced modes are never saved. New file
 browser entry points must check the flag (docs/15「ファイルブラウザ機能の ON/OFF」) — including `Window` scenes, which add
 themselves to the Window menu unless `.commandsRemoved()` (the Auto Rename Settings window also closes itself when the
 flag goes off). The favorites feature is hidden behind
