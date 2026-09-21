@@ -209,6 +209,15 @@ final class FileBrowserActions {
         state?.operations.cut(entries)
     }
 
+    /// 「パス名をコピー」ができるか。ファイルに触らないので、ボリュームでも読み取り専用の間でもよい。
+    func canCopyPathnames(_ entries: [FileBrowserEntry]) -> Bool {
+        !entries.isEmpty
+    }
+
+    func copyPathnames(_ entries: [FileBrowserEntry]) {
+        state?.operations.copyPathnames(entries)
+    }
+
     func canPaste(into folder: URL?) -> Bool {
         canWriteInto(folder) && (state?.operations.canPaste ?? false)
     }
@@ -396,6 +405,8 @@ final class FileBrowserActions {
 /// キーと編集メニューから届く操作(段階4)。リスト(`FileBrowserTableView`)とアイコン表示が同じ口へ渡す。
 enum FileBrowserEditCommand {
     case copy, cut, paste
+    /// ⌥⌘C「パス名をコピー」(Finder と同じキー。2026-09-21)。
+    case copyPathname
     /// ⌥⌘V「ここに項目を移動」。
     case moveItemHere
     /// ⌘⌫。
@@ -411,6 +422,7 @@ enum FileBrowserEditCommand {
         let flags = modifierFlags.intersection([.command, .option, .shift, .control])
         switch (keyCode, flags) {
         case (51, [.command]): return .moveToTrash                // ⌘⌫
+        case (8, [.command, .option]): return .copyPathname       // ⌥⌘C
         case (9, [.command, .option]): return .moveItemHere       // ⌥⌘V
         case (33, [.command]): return .goBack                     // ⌘[
         case (30, [.command]): return .goForward                  // ⌘]
@@ -434,6 +446,7 @@ extension FileBrowserActions: FileBrowserEditResponding {
         guard let state else { return false }
         switch command {
         case .copy: return canModify(state.selectedEntries)
+        case .copyPathname: return canCopyPathnames(state.selectedEntries)
         case .cut, .moveToTrash: return canChange(state.selectedEntries)
         case .paste, .moveItemHere: return canPaste(into: state.currentFolder)
         case .goBack: return state.canGoBack
@@ -446,6 +459,7 @@ extension FileBrowserActions: FileBrowserEditResponding {
         guard let state, canPerform(command) else { return }
         switch command {
         case .copy: copy(state.selectedEntries)
+        case .copyPathname: copyPathnames(state.selectedEntries)
         case .cut: cut(state.selectedEntries)
         case .paste: paste(into: state.currentFolder)
         case .moveItemHere: paste(into: state.currentFolder, forceMove: true)
@@ -490,8 +504,12 @@ enum FileBrowserMenuCommand {
     case createCollection
     case addToCollection
     case openWith
+    /// ⌥ を押している間の「このアプリケーションで開く」(`optionAlternate`)。
+    case alwaysOpenWith
     case rename
     case copy
+    /// ⌥ を押している間の「コピー」(`optionAlternate`)。
+    case copyPathname
     case cut
     case paste
     case newFolder
@@ -546,6 +564,17 @@ enum FileBrowserMenuCommand {
         }
     }
 
+    /// 右クリックメニューを開いたまま ⌥ を押している間、この項目と入れ替わる項目(Finder と同じ。2026-09-21)。
+    /// AppKit の「代わりの項目」(`NSMenuItem.isAlternate`)で組むので、入れ替わっても**見えている項目の数は変わらない**。
+    /// `groups(for:)` には載せない ―― 元の項目のすぐ後ろに、組む側(FileBrowserMenuBuilder)が足す。
+    var optionAlternate: FileBrowserMenuCommand? {
+        switch self {
+        case .copy: .copyPathname
+        case .openWith: .alwaysOpenWith
+        default: nil
+        }
+    }
+
     var title: String.LocalizationValue {
         switch self {
         case .open: "Open"
@@ -555,8 +584,10 @@ enum FileBrowserMenuCommand {
         case .createCollection: "Create Collection"
         case .addToCollection: "Add to Collection"
         case .openWith: "Open With"
+        case .alwaysOpenWith: "Always Open With"
         case .rename: "Rename"
         case .copy: "Copy"
+        case .copyPathname: "Copy as Pathname"
         case .cut: "Cut"
         case .paste: "Paste"
         case .newFolder: "New Folder"
@@ -620,6 +651,10 @@ enum FileBrowserMenuCommand {
             return actions.allowsSaving && actions.canUseAsBooks(entries)
         case .openWith:
             return !entries.isEmpty && !entries.contains(where: \.isVolume)
+        case .alwaysOpenWith:
+            return actions.canAlwaysOpenWith(entries)
+        case .copyPathname:
+            return actions.canCopyPathnames(entries)
         case .editMetadata:
             return actions.allowsSaving && actions.canUseAsSingleBook(entries)
         case .exportBook:
@@ -658,7 +693,7 @@ enum FileBrowserMenuCommand {
         case .createCollection: actions.createCollection(from: entries)
         case .editMetadata: actions.editMetadata(entries)
         // サブメニューを持つ項目(中身は submenu / dynamicChildren)。
-        case .addToCollection, .openWith, .compress, .extract, .exportBook, .autoRename: break
+        case .addToCollection, .openWith, .alwaysOpenWith, .compress, .extract, .exportBook, .autoRename: break
         case .compressHere: actions.compress(entries, choosingDestination: false)
         case .compressTo: actions.compress(entries, choosingDestination: true)
         case .extractHere: actions.extract(entries, placement: .contents, choosingDestination: false)
@@ -666,6 +701,7 @@ enum FileBrowserMenuCommand {
         case .extractTo: actions.extract(entries, placement: .contents, choosingDestination: true)
         case .rename: actions.beginRename(entries)
         case .copy: actions.copy(entries)
+        case .copyPathname: actions.copyPathnames(entries)
         case .cut: actions.cut(entries)
         case .paste: actions.paste(into: context.folder)
         case .newFolder: actions.newFolder(in: context.folder)
@@ -695,20 +731,15 @@ final class FileBrowserMenuBuilder: NSObject {
         for group in FileBrowserMenuCommand.groups(for: context.kind) {
             if !menu.items.isEmpty { menu.addItem(.separator()) }
             for command in group {
-                let item = menuItem(for: command, locale: locale, actions: actions)
-                if let nodes = command.dynamicChildren(in: context, actions: actions, locale: locale) {
-                    item.action = nil
-                    item.submenu = Self.menu(from: nodes)
-                } else if let children = command.submenu {
-                    item.action = nil
-                    let submenu = NSMenu()
-                    submenu.autoenablesItems = false
-                    for child in children {
-                        submenu.addItem(menuItem(for: child, locale: locale, actions: actions))
-                    }
-                    item.submenu = submenu
+                menu.addItem(fullMenuItem(for: command, locale: locale, actions: actions))
+                // ⌥ を押している間だけ入れ替わる項目(Finder と同じ)。AppKit の決まり: 元の項目の**すぐ後ろ**に置き、
+                // キーは同じ(どちらも無し)で修飾キーだけ違える。メニューを開いたまま ⌥ を押す・離すと、その場で入れ替わる。
+                if let alternate = command.optionAlternate {
+                    let item = fullMenuItem(for: alternate, locale: locale, actions: actions)
+                    item.isAlternate = true
+                    item.keyEquivalentModifierMask = [.option]
+                    menu.addItem(item)
                 }
-                menu.addItem(item)
             }
         }
         guard context.kind == .background, let state = actions.state else { return }
@@ -747,6 +778,24 @@ final class FileBrowserMenuBuilder: NSObject {
         let sortItem = NSMenuItem(title: String(localized: "Sort By", language: locale), action: nil, keyEquivalent: "")
         sortItem.submenu = sort
         menu.addItem(sortItem)
+    }
+
+    /// 1 項目ぶん(サブメニューを持つものは中身ごと)。
+    private func fullMenuItem(for command: FileBrowserMenuCommand, locale: Locale, actions: FileBrowserActions) -> NSMenuItem {
+        let item = menuItem(for: command, locale: locale, actions: actions)
+        if let nodes = command.dynamicChildren(in: context, actions: actions, locale: locale) {
+            item.action = nil
+            item.submenu = Self.menu(from: nodes)
+        } else if let children = command.submenu {
+            item.action = nil
+            let submenu = NSMenu()
+            submenu.autoenablesItems = false
+            for child in children {
+                submenu.addItem(menuItem(for: child, locale: locale, actions: actions))
+            }
+            item.submenu = submenu
+        }
+        return item
     }
 
     private func menuItem(for command: FileBrowserMenuCommand, locale: Locale, actions: FileBrowserActions) -> NSMenuItem {

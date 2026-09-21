@@ -165,6 +165,24 @@ final class FileBrowserOperations: ObservableObject {
         write(entries, cut: false)
     }
 
+    /// ⌥⌘C / 右クリックで ⌥ を押している間の「パス名をコピー」(Finder と同じ。2026-09-21)。パスを文字列で載せる ――
+    /// 複数なら 1 行に 1 つ。ファイルには触らないので読み取り専用の間も使え、ボリュームのパスも載せる。ファイルの参照は
+    /// 載せない(ペーストは淡色になる)ので、前のカットの覚えも捨てる。
+    func copyPathnames(_ entries: [FileBrowserEntry]) {
+        guard !entries.isEmpty else { return }
+        pasteboard.clearContents()
+        pasteboard.setString(Self.pathnames(of: entries.map(\.url)), forType: .string)
+        state?.cutClipboard.set([], on: pasteboard)
+        state?.refreshPasteboardState()
+    }
+
+    /// 「パス名をコピー」で載せる文字列。フォルダの末尾の `/` は付けない(Finder と同じ)。
+    nonisolated static func pathnames(of urls: [URL]) -> String {
+        urls.map { $0.path(percentEncoded: false) }
+            .map { $0.count > 1 && $0.hasSuffix("/") ? String($0.dropLast()) : $0 }
+            .joined(separator: "\n")
+    }
+
     /// ⌘X。書く内容は⌘Cと同じで、**アプリの中で覚えておく**(ペーストしたときに一致すれば移動)。
     /// Finder のカットの判定は非公開の API なので、Finder へ貼るとコピーになる(検討メモ §3.2)。
     func cut(_ entries: [FileBrowserEntry]) {

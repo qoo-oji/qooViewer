@@ -273,10 +273,11 @@ struct FileBrowserIntegrationTests {
         }
         let changing: [FileBrowserMenuCommand] = [
             .rename, .cut, .paste, .moveToTrash, .compress, .compressHere, .compressTo,
-            .extract, .extractHere, .extractToFolder, .extractTo,
+            .extract, .extractHere, .extractToFolder, .extractTo, .alwaysOpenWith,
         ]
         let keeping: [FileBrowserMenuCommand] = [
-            .open, .openInNewTab, .createCollection, .addToCollection, .openWith, .copy, .editMetadata, .exportBook, .showInFinder, .getInfo,
+            .open, .openInNewTab, .createCollection, .addToCollection, .openWith, .copy, .copyPathname,
+            .editMetadata, .exportBook, .showInFinder, .getInfo,
         ]
         for command in changing + keeping { #expect(enabled(command), "OFF: \(command)") }
         #expect(enabled(.newFolder, kind: .background))
@@ -506,6 +507,108 @@ struct FileBrowserIntegrationTests {
             #expect(!NSObject.instancesRespond(to: action), "\(NSStringFromSelector(action))")
             #expect(target.responds(to: action))
         }
+    }
+
+    @Test("右クリックの「コピー」「このアプリケーションで開く」のすぐ後ろに、⌥ で入れ替わる項目が付く(見えている項目の数は変わらない)")
+    func optionAlternatesFollowTheirPrimaryItems() throws {
+        let fixture = try Fixture("fb-menu-alternates")
+        defer { fixture.close() }
+        let book = try fixture.archive("book.cbz")
+        let english = Locale(identifier: "en")
+        let builder = FileBrowserMenuBuilder()
+
+        func alternates(_ kind: FileBrowserMenuKind) -> [String: String] {
+            let menu = NSMenu()
+            let entries = kind == .background ? [] : [fixture.entry(book)]
+            builder.rebuild(
+                menu, for: FileBrowserMenuContext(kind: kind, entries: entries, folder: nil),
+                actions: fixture.actions, locale: english
+            )
+            var result: [String: String] = [:]
+            for (index, item) in menu.items.enumerated() where item.isAlternate {
+                #expect(item.keyEquivalentModifierMask == [.option])
+                #expect(item.keyEquivalent == menu.items[index - 1].keyEquivalent)
+                #expect(!menu.items[index - 1].isAlternate)
+                result[menu.items[index - 1].title] = item.title
+            }
+            // 並びの定義には載せない(⌥ を押していないときの項目の数を変えない)。
+            let listed = FileBrowserMenuCommand.groups(for: kind).flatMap { $0 }
+            #expect(!listed.contains(.copyPathname) && !listed.contains(.alwaysOpenWith))
+            return result
+        }
+        #expect(alternates(.file) == ["Copy": "Copy as Pathname", "Open With": "Always Open With"])
+        #expect(alternates(.folder) == ["Copy": "Copy as Pathname", "Open With": "Always Open With"])
+        #expect(alternates(.tree) == ["Open With": "Always Open With"])
+        #expect(alternates(.background).isEmpty)
+
+        // 入れ替わる側もサブメニューを持ち、末尾は「その他…」。
+        let menu = NSMenu()
+        builder.rebuild(
+            menu, for: FileBrowserMenuContext(kind: .file, entries: [fixture.entry(book)], folder: nil),
+            actions: fixture.actions, locale: english
+        )
+        let always = try #require(menu.items.first { $0.title == "Always Open With" })
+        #expect(always.submenu?.items.last?.title == "Other…")
+    }
+
+    @Test("「パス名をコピー」はパスを文字列で載せる(複数なら 1 行に 1 つ)。読み取り専用でも使え、ペーストは淡色になる")
+    func copyPathnames() throws {
+        let fixture = try Fixture("fb-copy-pathname")
+        defer { fixture.close() }
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        fixture.state.operations.pasteboard = pasteboard
+        let book = fixture.entry(try fixture.archive("book.cbz"))
+        let folder = fixture.entry(try fixture.temporary.directory("folder"))
+        fixture.preferences.fileBrowserReadOnly = true
+
+        fixture.actions.copy([book])
+        #expect(fixture.state.operations.canPaste)
+        fixture.actions.copyPathnames([book, folder])
+        #expect(pasteboard.string(forType: .string) == book.url.path + "\n" + folder.url.path)
+        #expect(!fixture.state.operations.canPaste)
+
+        #expect(FileBrowserOperations.pathnames(of: [URL(fileURLWithPath: "/tmp/qoo-sample/dir", isDirectory: true)])
+                == "/tmp/qoo-sample/dir")
+        #expect(FileBrowserOperations.pathnames(of: [URL(fileURLWithPath: "/", isDirectory: true)]) == "/")
+        #expect(FileBrowserEditCommand.forKey(keyCode: 8, flags: [.command, .option]) == .copyPathname)
+        #expect(FileBrowserEditCommand.forKey(keyCode: 8, flags: [.command]) == nil)
+    }
+
+    @Test("「常にこのアプリケーションで開く」は書けた項目だけ開き、書けなかったことは知らせる。読み取り専用では何もしない")
+    func alwaysOpenWith() async throws {
+        let fixture = try Fixture("fb-always-open-with")
+        defer { fixture.close() }
+        let first = fixture.entry(try fixture.archive("first.cbz"))
+        let second = fixture.entry(try fixture.archive("second.cbz"))
+        let application = URL(fileURLWithPath: "/System/Applications/Preview.app", isDirectory: true)
+        struct Refused: Error {}
+        // 閉包が書き換える値は箱に入れる(`@MainActor` の閉包は Sendable。捕まえた変数の書き換えは CI のコンパイラが断る)。
+        @MainActor final class Record {
+            var asked: [URL] = []
+            var opened: [FileBrowserEntry] = []
+        }
+        let record = Record()
+
+        let task = fixture.actions.alwaysOpen(
+            [first, second], withApplicationAt: application,
+            setDefault: { app, file in
+                #expect(app == application)
+                record.asked.append(file)
+                if file == second.url { throw Refused() }
+            },
+            thenOpen: { record.opened = $0 }
+        )
+        await task?.value
+        #expect(record.asked == [first.url, second.url])
+        #expect(record.opened.map(\.url) == [first.url])
+        #expect(fixture.presenter.problems.count == 1)
+
+        fixture.preferences.fileBrowserReadOnly = true
+        #expect(!fixture.actions.canAlwaysOpenWith([first]))
+        #expect(fixture.actions.alwaysOpen(
+            [first], withApplicationAt: application, setDefault: { _, _ in Issue.record("read-only") }, thenOpen: { _ in }
+        ) == nil)
     }
 
     @Test("「本ではありません」の説明は、コレクションのときだけ棚のフォルダの一文を添える")

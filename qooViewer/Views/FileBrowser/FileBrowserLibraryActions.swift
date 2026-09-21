@@ -167,6 +167,64 @@ extension FileBrowserActions {
         open(entries, withApplicationAt: application)
     }
 
+    /// 「常にこのアプリケーションで開く」を出してよいか(右クリックで ⌥ を押している間。2026-09-21)。ファイルに既定のアプリを
+    /// 書き込む(拡張属性)ので、読み取り専用モードの間は淡色。
+    func canAlwaysOpenWith(_ entries: [FileBrowserEntry]) -> Bool {
+        allowsFileChanges && !entries.isEmpty && !entries.contains(where: \.isVolume)
+    }
+
+    /// 「常にこのアプリケーションで開く」(Finder と同じ: **そのファイルだけ**の既定のアプリにして、そのアプリで開く。同じ種類の
+    /// ほかのファイルは変わらない)。`NSWorkspace.setDefaultApplication(at:toOpenFileAt:)` はファイルに拡張属性
+    /// `com.apple.LaunchServices.OpenWith` を書く ―― サンドボックスの中から通ることはテストホストで実測(2026-09-21)。
+    /// 書けなかった項目(読み取り専用のボリュームなど)は開かずに報告する。
+    ///
+    /// - Parameters:
+    ///   - setDefault: (アプリ, ファイル)。テストで差し替える。
+    ///   - thenOpen: 書けた項目を開く。テストで差し替える(nil なら `open(_:withApplicationAt:)`)。
+    /// - Returns: 書いて開くまでの Task(テストが待つ)。
+    @discardableResult
+    func alwaysOpen(
+        _ entries: [FileBrowserEntry], withApplicationAt application: URL,
+        setDefault: @escaping @MainActor (URL, URL) async throws -> Void = { application, file in
+            try await NSWorkspace.shared.setDefaultApplication(at: application, toOpenFileAt: file)
+        },
+        thenOpen: (@MainActor ([FileBrowserEntry]) -> Void)? = nil
+    ) -> Task<Void, Never>? {
+        guard canAlwaysOpenWith(entries) else { return nil }
+        let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
+        return Task { [weak self] in
+            var updated: [FileBrowserEntry] = []
+            var firstFailure: String?
+            for entry in entries {
+                do {
+                    try await setDefault(application, entry.url)
+                    updated.append(entry)
+                } catch {
+                    if firstFailure == nil { firstFailure = error.localizedDescription }
+                }
+            }
+            guard let self else { return }
+            if let firstFailure {
+                self.state?.operations.presenter?.showProblem(FileBrowserProblem(
+                    title: String(
+                        format: String(localized: "“%@” couldn’t be set as the application that always opens the items.", language: locale),
+                        FileManager.default.displayName(atPath: application.path)
+                    ),
+                    message: firstFailure
+                ))
+            }
+            guard !updated.isEmpty else { return }
+            if let thenOpen { thenOpen(updated) } else { self.open(updated, withApplicationAt: application) }
+        }
+    }
+
+    func chooseApplicationAndAlwaysOpen(_ entries: [FileBrowserEntry]) {
+        guard canAlwaysOpenWith(entries),
+              let application = OpenWithApplications.chooseApplication(locale: preferences?.effectiveLocale ?? .autoupdatingCurrent)
+        else { return }
+        alwaysOpen(entries, withApplicationAt: application)
+    }
+
     // MARK: - メタデータ・書き出し
 
     /// 「メタデータの編集…」。コレクションの外の本でも編集できる(カバーの面は出さない。BookMetadataSheet の型コメント)。
@@ -309,7 +367,8 @@ enum FileBrowserMenuNode {
 }
 
 extension FileBrowserMenuCommand {
-    /// 中身が場面で変わるサブメニュー(このアプリケーションで開く・コレクションに登録・本の書き出し)。それ以外は nil。
+    /// 中身が場面で変わるサブメニュー(このアプリケーションで開く・常にこのアプリケーションで開く・コレクションに登録・本の書き出し)。
+    /// それ以外は nil。
     @MainActor
     func dynamicChildren(
         in context: FileBrowserMenuContext, actions: FileBrowserActions, locale: Locale
@@ -321,6 +380,12 @@ extension FileBrowserMenuCommand {
                 for: actions.openWithApplications(for: entries), locale: locale,
                 open: { [weak actions] application in actions?.open(entries, withApplicationAt: application) },
                 chooseOther: { [weak actions] in actions?.chooseApplicationAndOpen(entries) }
+            )
+        case .alwaysOpenWith:
+            return OpenWithApplications.shared.menuNodes(
+                for: actions.openWithApplications(for: entries), locale: locale,
+                open: { [weak actions] application in actions?.alwaysOpen(entries, withApplicationAt: application) },
+                chooseOther: { [weak actions] in actions?.chooseApplicationAndAlwaysOpen(entries) }
             )
         case .addToCollection:
             let libraries = actions.collectionMenuLibraries()

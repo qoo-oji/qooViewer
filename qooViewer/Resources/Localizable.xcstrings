@@ -116,6 +116,22 @@
         }
       }
     },
+    "Always Open With" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Always Open With"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "常にこのアプリケーションで開く"
+          }
+        }
+      }
+    },
     "An item with the new name already exists, and the rules would change the numbered name again." : {
       "localizations" : {
         "en" : {
@@ -336,6 +352,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "表示する列"
+          }
+        }
+      }
+    },
+    "Copy as Pathname" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copy as Pathname"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "パス名をコピー"
           }
         }
       }
@@ -1748,6 +1780,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%1$@」を置き換えましたが、元の項目をゴミ箱に入れられませんでした。同じフォルダの中に、隠し項目「%2$@」として残っています。"
+          }
+        }
+      }
+    },
+    "“%@” couldn’t be set as the application that always opens the items." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” couldn’t be set as the application that always opens the items."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」を、常にこの項目を開くアプリケーションに設定できませんでした。"
           }
         }
       }

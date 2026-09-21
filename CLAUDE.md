@@ -146,7 +146,10 @@ new folder, rename, bulk rename, undo/redo) goes through `FileBrowserOperations`
 become copy-only); tests inject a pseudo trash, a uniquely named pasteboard and a scripted presenter. An item is
 greyed out by the same predicate the action uses to refuse (`FileBrowserActions.canOpen` / `canChange` — which also
 excludes books open in a viewer — / `canWriteInto`), shared by the context menu, the menu bar (`FileBrowserMenuSelection`)
-and the lists' keys (`canPerform`); never enable something that then silently does nothing (docs/15「淡色の条件」, 2026-09-19). "Replace" moves the existing item into a hidden
+and the lists' keys (`canPerform`); never enable something that then silently does nothing (docs/15「淡色の条件」, 2026-09-19). Holding Option while the
+context menu is open swaps Copy → Copy as Pathname and Open With → Always Open With, as in Finder (2026-09-21;
+`FileBrowserMenuCommand.optionAlternate`, built as AppKit alternate items right after their primary, never listed in
+`groups(for:)`; Always Open With writes a per-file xattr, so it is refused in read-only mode). "Replace" moves the existing item into a hidden
 `.qooViewer-replace-<UUID>/` folder only after recording it in `ReplaceBackupJournal`, and `ReplaceBackupRecovery` puts it back at launch
 (skipped under tests) — keep that record-before-backup order. Anything that deletes a tree item by item lists names with `readdir`
 (`FileOperationService.directoryEntryNames`): `FileManager.contentsOfDirectory` silently omits `._*` names even on APFS, and a
