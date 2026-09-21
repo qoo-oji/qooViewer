@@ -42,7 +42,8 @@ extension FileBrowserActions {
         let order = preferences?.siblingBookOrder ?? .byName
         return Task { [weak self] in
             let classified = await FileIO.perform { CollectionDropClassifier.classify(urls, order: order) }
-            guard let self, let welcomeLibrary = self.appState?.welcomeLibrary else { return }
+            // 分類を待っているあいだにライブラリ機能を OFF にされていたら、名前を訊くシートを積まない(2026-09-21 の監査の §4)。
+            guard let self, self.isLibraryFeatureEnabled, let welcomeLibrary = self.appState?.welcomeLibrary else { return }
             if !WelcomeDropHandling.queueCreations(from: classified, into: welcomeLibrary, libraryID: libraryID) {
                 self.reportNoBooks(in: entries, forCollection: true)
             }

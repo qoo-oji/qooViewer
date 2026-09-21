@@ -81,7 +81,12 @@ final class AutoRenameService: ObservableObject {
 
     private var subscriptions: [AnyCancellable] = []
     private var watcher: FolderChangeWatcher?
-    private var isStarted = false
+    /// 動いているか。**外から呼ばれる口と、予約・走査の入口はどれもこれを見る**(`stop()` のコメント)。
+    private(set) var isStarted = false
+    /// `stop()` のたびに進む世代。`stop()` より前に作った Task は、await から戻るたびに自分の世代と比べ、古ければ何も触らずに抜ける
+    /// (`isCurrent`)。取り消しを見るだけでは足りない ―― 取り消された Task の後始末(`self.runTask = nil` など)が、`stop()` → `start()` の
+    /// 後に作られた**新しい世代の Task の変数を消してしまう**(CollectionCoverExtractor.runGeneration と同じ形)。
+    private var generation: UInt64 = 0
 
     // 走査の待ち行列
     private var pendingFullScan = false
@@ -164,19 +169,53 @@ final class AutoRenameService: ObservableObject {
         refreshAvailability(thenScanEverything: true)
     }
 
-    /// 止める(テストと終了)。
+    /// 止める(テスト・終了と、環境設定「ファイルブラウザを有効にする」を OFF にしたとき ―― AppStores.applyFileBrowserFeature)。
+    ///
+    /// **実行中に止めて、また `start` で動かせること**(2026-09-21 の監査 docs/plans/feature-toggle-audit.md の F1・F2。それまではテストと終了時に
+    /// しか呼ばれず、どれも表に出なかった)。そのための約束が 3 つ:
+    /// - Task の変数は取り消すだけでなく **nil に戻す**。取り消された Task は自分の後始末(`self.runScheduled = nil` など)を通らずに抜けるので、
+    ///   残すと `scheduleRun` の `guard runScheduled == nil` が弾き続け、ON へ戻しても二度と走査しなかった。
+    /// - 走っている最中の Task は取り消しでは止まらない(`FileIO.perform` や名前の変更の await から戻ってくる)。戻ってきた側は `isCurrent` で
+    ///   世代を比べ、古ければ何も触らない ―― 下ろした監視を張り直したり、見直しを予約し直したりしない。
+    /// - 止まっているあいだに外から呼ばれる口(`refreshAvailability`・`handle`)は `isStarted` を見て何もしない。
+    /// 覚えている状態も捨てる: `missingSince` が残ると、再開の最初のパスで「1 秒置いて確かめ直す」を飛ばして対象を OFF にしうる。
+    /// 公開している値(`availability` など)も古いまま見せない。規則と実行ログ(AutoRenameStore / AutoRenameActivityLog)は触らない。
     func stop() {
+        generation &+= 1
+        isStarted = false
         subscriptions.removeAll()
         watcher?.tearDown()
         watcher = nil
         runTask?.cancel()
+        runTask = nil
         runScheduled?.cancel()
+        runScheduled = nil
         availabilityTask?.cancel()
+        availabilityTask = nil
         availabilityRecheck?.cancel()
+        availabilityRecheck = nil
         missingRecheckTask?.cancel()
+        missingRecheckTask = nil
         rechecks.values.forEach { $0.cancel() }
         rechecks.removeAll()
-        isStarted = false
+        needsAnotherAvailabilityPass = false
+        pendingFullScan = false
+        pendingShallowFolders.removeAll()
+        pendingDeepFolders.removeAll()
+        observations.removeAll()
+        recentlyRenamed.removeAll()
+        loggedSkips.removeAll()
+        activeTargetKeys.removeAll()
+        missingSince.removeAll()
+        if !availability.isEmpty { availability = [:] }
+        if !targetsAwaitingConfirmation.isEmpty { targetsAwaitingConfirmation = [] }
+        if !moveSuggestions.isEmpty { moveSuggestions = [] }
+        if isPausedForReadOnly { isPausedForReadOnly = false }
+    }
+
+    /// その世代の Task が、まだ状態に触ってよいか(`generation` のコメント)。
+    private func isCurrent(_ generation: UInt64) -> Bool {
+        isStarted && generation == self.generation
     }
 
     // MARK: - 画面から
@@ -322,6 +361,8 @@ final class AutoRenameService: ObservableObject {
     }
 
     private func readOnlyDidChange() {
+        // 1 ランループ遅れて届くので、そのあいだに止まっていることがある。
+        guard isStarted else { return }
         isPausedForReadOnly = preferences.fileBrowserReadOnly
         if !isPausedForReadOnly {
             // 止めていた間の変化は見ていないので、全部読み直す。
@@ -332,25 +373,32 @@ final class AutoRenameService: ObservableObject {
     }
 
     private func refreshAvailabilitySoon() {
+        guard isStarted else { return }
         availabilityRecheck?.cancel()
         let delay = coalescingDelay
+        let generation = generation
         availabilityRecheck = Task { [weak self] in
             try? await Task.sleep(for: .seconds(delay))
-            guard !Task.isCancelled else { return }
-            self?.refreshAvailability()
+            guard let self, !Task.isCancelled, self.isCurrent(generation) else { return }
+            self.refreshAvailability()
         }
     }
 
     /// 全部の対象の状態を読み直し、見つからない対象を OFF にし、確認を待つ対象と走査し直す対象を決める。
+    ///
+    /// 設定ウインドウからも直に呼ばれる(「アクセスを許可」・移動の提案の「更新」)。**止まっている間は何もしない** ―― ここに確認が無かった
+    /// ころは、ファイルブラウザ機能が OFF でもパスの末尾が監視を張り直し、走査を予約して、裏で名前を変え始めた(`stop()` のコメント)。
     func refreshAvailability(thenScanEverything: Bool = false) {
+        guard isStarted else { return }
         if thenScanEverything { pendingFullScan = true }
         guard availabilityTask == nil else {
             needsAnotherAvailabilityPass = true
             return
         }
+        let generation = generation
         availabilityTask = Task { [weak self] in
-            await self?.performAvailabilityPass()
-            guard let self else { return }
+            await self?.performAvailabilityPass(generation: generation)
+            guard let self, self.isCurrent(generation) else { return }
             self.availabilityTask = nil
             if self.needsAnotherAvailabilityPass {
                 self.needsAnotherAvailabilityPass = false
@@ -359,7 +407,7 @@ final class AutoRenameService: ObservableObject {
         }
     }
 
-    private func performAvailabilityPass() async {
+    private func performAvailabilityPass(generation: UInt64) async {
         let targets = store.rules.flatMap(\.targets)
         let inputs = targets.map { target in
             (target.id, AutoRenameTargetProbe.Input(
@@ -384,6 +432,8 @@ final class AutoRenameService: ObservableObject {
             }
             return result
         }
+        // 待っているあいだに止められていたら、ここから先(公開する値・対象の OFF・監視・走査の予約)へ進まない。以下の await の後も同じ。
+        guard isCurrent(generation) else { return }
         if availability != probed { availability = probed }
 
         // 見つからない対象: 1 回目は時刻を控えて確かめ直しを予約し、2 回目(置いた時間の後)で OFF にする(§6.2)。
@@ -410,13 +460,15 @@ final class AutoRenameService: ObservableObject {
             let delay = missingConfirmationDelay
             missingRecheckTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(delay + 0.05))
-                guard let self, !Task.isCancelled else { return }
+                guard let self, !Task.isCancelled, self.isCurrent(generation) else { return }
                 self.missingRecheckTask = nil
                 self.refreshAvailability()
             }
         }
-        await refreshMoveSuggestions()
-        await refreshConfirmations()
+        await refreshMoveSuggestions(generation: generation)
+        guard isCurrent(generation) else { return }
+        await refreshConfirmations(generation: generation)
+        guard isCurrent(generation) else { return }
         updateWatcher()
         scheduleScansForChangedTargets()
     }
@@ -424,7 +476,7 @@ final class AutoRenameService: ObservableObject {
     // MARK: - 確認(§8 の 2)
 
     /// 使える・ON・未確認の対象について、今ある項目に変わるものがあるかを見る。無ければ黙って印を付け、あれば確認を待つ。
-    private func refreshConfirmations() async {
+    private func refreshConfirmations(generation: UInt64) async {
         var awaiting: Set<UUID> = []
         var noChanges: Set<UUID> = []
         for rule in store.rules where rule.isEnabled && rule.hasEffect {
@@ -434,6 +486,7 @@ final class AutoRenameService: ObservableObject {
                     MountTable.path(item.folder, isAtOrUnder: target.path)
                         && (item.folder == target.path || target.includesSubfolders)
                 }
+                guard isCurrent(generation) else { return }
                 if items.isEmpty {
                     noChanges.insert(target.id)
                 } else {
@@ -449,7 +502,7 @@ final class AutoRenameService: ObservableObject {
 
     // MARK: - 移動の提案(§6.3)
 
-    private func refreshMoveSuggestions() async {
+    private func refreshMoveSuggestions(generation: UInt64) async {
         var groups: [String: (ids: Set<UUID>, rules: [String], bookmark: Data?)] = [:]
         let currentLocale = locale()
         for rule in store.rules {
@@ -479,6 +532,7 @@ final class AutoRenameService: ObservableObject {
             }
             return paths
         }
+        guard isCurrent(generation) else { return }
         let mounts = MountTable.current()
         var suggestions: [MoveSuggestion] = []
         for (original, group) in groups.sorted(by: { $0.key < $1.key }) {
@@ -556,6 +610,8 @@ final class AutoRenameService: ObservableObject {
     /// 見張るのは**使える ON の対象全部**(確認待ちも含む)。名前を変えるのは確認済みだけ(`handle` が計画で振り分ける)だが、
     /// 対象そのものが消えたことはどの対象でもすぐ知りたい(§6.2)。
     private func updateWatcher() {
+        // 止まっている間に監視を張り直さない(`stop()` のコメント)。
+        guard isStarted else { return }
         let usable = store.rules.filter(\.isEnabled).flatMap(\.targets)
             .filter { $0.state == .enabled && availability[$0.id] == .available }
         let paths = isPausedForReadOnly ? [] : Set(usable.map(\.path))
@@ -570,6 +626,8 @@ final class AutoRenameService: ObservableObject {
     }
 
     func handle(_ events: [FolderChangeWatcher.Event]) {
+        // 下ろした監視のイベントが、メインへ渡る途中で遅れて届くことがある。
+        guard isStarted else { return }
         let now = Date()
         recentlyRenamed = recentlyRenamed.filter { now.timeIntervalSince($0.value) < 5 }
         let plan = makePlan()
@@ -597,21 +655,23 @@ final class AutoRenameService: ObservableObject {
     // MARK: - 走査と名前の変更
 
     private func scheduleRun() {
-        guard runScheduled == nil else { return }
+        guard isStarted, runScheduled == nil else { return }
         let delay = coalescingDelay
+        let generation = generation
         runScheduled = Task { [weak self] in
             try? await Task.sleep(for: .seconds(delay))
-            guard let self, !Task.isCancelled else { return }
+            guard let self, !Task.isCancelled, self.isCurrent(generation) else { return }
             self.runScheduled = nil
             self.startRunIfNeeded()
         }
     }
 
     private func startRunIfNeeded() {
-        guard runTask == nil else { return }
+        guard isStarted, runTask == nil else { return }
+        let generation = generation
         runTask = Task { [weak self] in
-            await self?.runPendingWork()
-            guard let self else { return }
+            await self?.runPendingWork(generation: generation)
+            guard let self, self.isCurrent(generation) else { return }
             self.runTask = nil
             if !self.pendingShallowFolders.isEmpty || !self.pendingDeepFolders.isEmpty {
                 self.scheduleRun()
@@ -635,7 +695,8 @@ final class AutoRenameService: ObservableObject {
         }
     }
 
-    private func runPendingWork() async {
+    private func runPendingWork(generation: UInt64) async {
+        guard isCurrent(generation) else { return }
         guard !isPausedForReadOnly, !preferences.fileBrowserReadOnly else {
             pendingShallowFolders.removeAll()
             pendingDeepFolders.removeAll()
@@ -657,15 +718,17 @@ final class AutoRenameService: ObservableObject {
         let jobs = deep.map { ($0, true) } + shallow.sorted().map { ($0, false) }
         let inUse = inUsePaths()
         for (folder, recursive) in jobs {
-            guard !isPausedForReadOnly else { return }
+            guard isCurrent(generation), !isPausedForReadOnly else { return }
             let result = await FileIO.perform {
                 AutoRenameScanner.examine(folder: folder, recursive: recursive, plan: plan, inUsePaths: inUse, takesSnapshots: true)
             }
-            await process(result, plan: plan)
+            // 走査のあいだに止められていたら、その結果では名前を変えない。
+            guard isCurrent(generation) else { return }
+            await process(result, plan: plan, generation: generation)
         }
     }
 
-    private func process(_ result: AutoRenameScanner.Result, plan: AutoRenamePlan) async {
+    private func process(_ result: AutoRenameScanner.Result, plan: AutoRenamePlan, generation: UInt64) async {
         let currentLocale = locale()
         var entries: [AutoRenameActivityLog.Entry] = []
         for skip in result.skips {
@@ -685,7 +748,8 @@ final class AutoRenameService: ObservableObject {
         /// 先にフォルダの名前を変えると、見直しの予約が古いパスを指したまま中の項目が取り残される。
         var heldBack: [String] = result.foldersWithItemsInUse.map { $0 }
         for candidate in result.candidates {
-            guard !isPausedForReadOnly else { break }
+            // 止められたら残りの項目は変えない(もう変えたぶんの実行ログは下で書く)。見直しの予約も `scheduleRecheck` が断る。
+            guard isCurrent(generation), !isPausedForReadOnly else { break }
             guard let snapshot = candidate.snapshot else { continue }
             if candidate.isDirectory, heldBack.contains(where: { MountTable.path($0, isAtOrUnder: candidate.path) }) {
                 scheduleRecheck(folder: candidate.folder, after: recheckDelay)
@@ -725,10 +789,11 @@ final class AutoRenameService: ObservableObject {
     }
 
     private func scheduleRecheck(folder: String, after delay: TimeInterval) {
-        guard rechecks[folder] == nil else { return }
+        guard isStarted, rechecks[folder] == nil else { return }
+        let generation = generation
         rechecks[folder] = Task { [weak self] in
             try? await Task.sleep(for: .seconds(delay))
-            guard let self, !Task.isCancelled else { return }
+            guard let self, !Task.isCancelled, self.isCurrent(generation) else { return }
             self.rechecks[folder] = nil
             self.pendingShallowFolders.insert(folder)
             self.scheduleRun()

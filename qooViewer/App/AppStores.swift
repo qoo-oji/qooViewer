@@ -185,7 +185,8 @@ final class AppStores: ObservableObject {
 
         bookRecordRelocator = BookRecordRelocator(
             favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-            metadataStore: metadataStore, collectionStore: collectionStore, modelContext: context
+            metadataStore: metadataStore, collectionStore: collectionStore, modelContext: context,
+            coverExtractor: collectionCoverExtractor
         )
         // テストの中で走る実物のアプリでは繋がない(テストの操作で、開発機の本物の保存データとよく使う項目を書き換えない)。
         if !RuntimeEnvironment.isRunningTests {
@@ -219,14 +220,21 @@ final class AppStores: ObservableObject {
     /// - 自動登録フォルダの走査と FSEvents の監視(`CollectionAutoFolderScanner`)
     /// - 起動時の掃除(行の無い表紙・元画像・札の絵。`sweepLibraryOrphansIfNeeded`)
     /// - 「ホーム」メニューの名前の写し(`HomeMenuDirectoryStore`)
-    /// - 本を開いたときのコレクションの行の追従・識別子の補完(AppState.open)、ファイルブラウザのアイコンの表紙の照会
-    ///   (FileBrowserThumbnailProvider)、起動時の「見つからない本」の確認(ContentView)
-    /// どれも登録した本の全件フェッチを伴うので、OFFで起動すればその行はメモリに載らない。
+    /// - ファイルブラウザのアイコンの表紙の照会(FileBrowserThumbnailProvider)、起動時の「見つからない本」の確認(ContentView)
+    /// どれも登録した本の全件フェッチを伴う。OFFの間は、下の「止めないもの」のどれかが要るまで、その行はメモリに載らない。
     ///
     /// ■ 止めないもの(保存データを正しく保つための仕事)
     /// - アプリ自身が移した・名前を変えた本の付け替え(`BookRecordRelocator`)。別のボリュームへ移した本は、ここで付け替えないと
     ///   ONへ戻したときに「見つからない本」になる(同じボリュームの中ならブックマークが追うが、ボリュームをまたぐと追えない)
+    /// - 本を開いたときの、Finder で移した・名前を変えた本への追従と識別子の補完(AppState.open の `reconcileBookIDIfMoved` /
+    ///   `backfillFileNodeIdentifier`)。お気に入り・ブックマーク・レイアウト・メタデータと**5つ揃えて**付け替える ―― コレクションの行だけ
+    ///   古いパスに残すと、その行から`bookID`で引く表紙の指定とメタデータが外れる(いったんは止めていた。2026-09-21 の監査の D2)
     /// - 保存データの書き出し・読み込み・削除(コレクションも対象のまま)
+    /// - 「このアプリが知っている本」の一覧と、本の実体へ届くための最後の手がかり(`KnownBooks.collect`・
+    ///   `CollectionStore.allRegisteredBookIDs` / `anyBookmarkData(forBookID:)` ―― 「メタデータの編集」「本の書き出し」「保存データの
+    ///   削除」「コレクション表紙の読み込み」)。コレクションにしか無い本も編集・書き出しの対象で、権限もそこにしか無いことがある
+    /// これらは登録した本の全件フェッチを伴う(1回引けばキャッシュに残る)。**止めるのは「ライブラリのためだけの仕事」で、
+    /// 「`CollectionItem`に触るもの全部」ではない**(2026-09-21 の監査 docs/plans/feature-toggle-audit.md の D1)。
     ///
     /// ■ データは消さない
     /// ONへ戻せば棚は元のまま。止めていた仕事はその場で動き出す(存在確認 → 表紙の待ち行列の組み直し → 自動登録フォルダの走査)。
@@ -243,9 +251,12 @@ final class AppStores: ObservableObject {
     /// 環境設定「ファイルブラウザを有効にする」(AppPreferences.fileBrowserFeatureEnabled。2026-09-21、ユーザー要望)を、アプリで 1 つの仕事へ伝える。
     ///
     /// ■ OFFの間に止まるもの(ファイルブラウザのためだけの仕事)
-    /// - **自動リネーム**(`AutoRenameService`): よく使う項目の下の監視(FSEvents)・走査・名前の変更。規則を作る・止める画面
-    ///   (右クリックの「自動リネーム」・「自動リネームの設定…」)がファイルブラウザにしか無いので、画面が消えている間に裏で名前を
-    ///   変え続けない。規則とログは残り、ONへ戻すとその時点の中身を読み直して動き出す(`start` が全部を走査する)
+    /// - **自動リネーム**(`AutoRenameService`): よく使う項目の下の監視(FSEvents)・走査・名前の変更。規則を作る・止める入り口
+    ///   (右クリックの「自動リネーム」・「ホーム」メニューと環境設定「ファイルブラウザ」の「自動リネームの設定…」)は、OFFの間は
+    ///   どれも消える・押せなくなり、開いていた設定ウインドウも自分で閉じる(AutoRenameSettingsWindow。「ウインドウ」メニューの
+    ///   自動の項目は `.commandsRemoved()` で落としてある)ので、画面が無い間に裏で名前を変え続けない。止まっている間は
+    ///   実行役の口(`refreshAvailability`・`handle`)も何もしない(`AutoRenameService.stop` のコメント。2026-09-21 の監査の F1・F2)。
+    ///   規則とログは残り、ONへ戻すとその時点の中身を読み直して動き出す(`start` が全部を走査する)
     /// - よく使う項目の中の動画のサムネイルの先回り(`FileBrowserVideoThumbnailWarmer`。設定を自分で購読している)
     /// - ウインドウごとの一覧の読み込み・監視・サムネイル作り: ペインが画面に出ないので始まらない(`FileBrowserState.activate` は
     ///   ペインの onAppear、`FileBrowserThumbnailProvider` は頼まれたぶんだけ作る)。ここから伝えるものは無い

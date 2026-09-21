@@ -1062,10 +1062,12 @@ final class AppState: ObservableObject {
                         self.layoutStore?.reconcileBookIDIfMoved(book: book)
                         self.bookmarkStore?.reconcileBookIDIfMoved(book: book)
                         self.metadataStore?.reconcileBookIDIfMoved(book: book)
-                        // ライブラリ機能がOFFの間は、コレクションの行には触らない(登録した本の全件フェッチを伴う。
-                        // 同じボリュームの中の移動は、ONへ戻したときの存在確認がブックマークで追う。AppStores.applyLibraryFeature)。
-                        let tracksCollections = self.preferences?.libraryFeatureEnabled ?? true
-                        if tracksCollections { self.collectionStore?.reconcileBookIDIfMoved(book: book) }
+                        // **ライブラリ機能がOFFの間もコレクションの行を追従させる**(2026-09-21 の監査 docs/plans/feature-toggle-audit.md の D2。
+                        // 「止めないもの」の側 ―― AppStores.applyLibraryFeature)。いったんは「登録した本の全件フェッチを伴うので触らない。
+                        // ONへ戻したときの存在確認がブックマークで追う」としたが、存在確認が埋めるのは場所の辞書だけで`bookID`は直さない。
+                        // 上の4つだけを付け替えると、コレクションの行だけが古いパスに残り、その行から`bookID`で引くもの(表紙の指定・
+                        // メタデータ)が、ONへ戻してその本をもう一度開くまで外れたままになった。5つは必ず揃えて付け替える。
+                        self.collectionStore?.reconcileBookIDIfMoved(book: book)
                         // 識別子の補完(backfill)は5つのストアすべてに対して行う。
                         // 識別子を持たない古い行に足すのが元々の役目だったが、**ボリュームUUIDを
                         // 持たない行をUUIDでの照合へ昇格させる唯一の経路**でもある
@@ -1083,11 +1085,9 @@ final class AppState: ObservableObject {
                             self.bookmarkStore?.backfillFileNodeIdentifier(
                                 forBookID: book.id, identifier: identifier
                             )
-                            if tracksCollections {
-                                self.collectionStore?.backfillFileNodeIdentifier(
-                                    forBookID: book.id, identifier: identifier
-                                )
-                            }
+                            self.collectionStore?.backfillFileNodeIdentifier(
+                                forBookID: book.id, identifier: identifier
+                            )
                         }
                     }
                     // メタデータを登録した時点ではこの本を開いていない(「メタデータの編集」

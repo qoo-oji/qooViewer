@@ -2,8 +2,8 @@
 
 環境設定「一般」▸「ホーム」の 2 つの設定(`AppPreferences.libraryFeatureEnabled` / `fileBrowserFeatureEnabled`。
 [14](../14-library-collections.md)「ライブラリ機能の ON/OFF」、[15](../15-file-browser.md)「ファイルブラウザ機能の ON/OFF」)について、
-OFF の間に隠す・無効にする・止めるはずのものに抜けが無いかを調べた記録。**調べただけで、何も直していない**(対象のコミットは `839891b`)。
-この文書は修正を引き継ぐためのもの。
+OFF の間に隠す・無効にする・止めるはずのものに抜けが無いかを調べた記録。§0〜§6 は**調べた時点の記録**で、そのときは何も直していない
+(対象のコミットは `839891b`)。**同じ日に修正した ―― 何をどう直し、何を直さなかったかは §7。**
 
 ## 0. 調べ方と、根拠の強さ
 
@@ -192,3 +192,37 @@ false のまま(立てるのは `start` だけ)なので、読み取り専用 ON
 4. D1〜D3 は方針を決めてから。D1 を「止めないもの」にするなら、`AppStores.applyLibraryFeature` のコメント・docs/14 の表・CLAUDE.md の 3 箇所へ足す。
 5. 直したら docs/14・docs/15 の「止まる仕事・止めない仕事」と、この文書の該当の節に「修正済み」を書き足す(§1〜§5 は調査時点の記録として残す。
    [fs-ui-consistency-audit.md](fs-ui-consistency-audit.md) と同じ形)。
+
+## 7. 修正の記録(2026-09-21)
+
+§2〜§4 の指摘を直した。**報告**だった項目は、直す前に該当のコードを読み直して確かめてある。テストは `AutoRenameServiceTests`(3 件追加)と
+`LibraryFeatureToggleTests`(3 件追加)。**実機ではまだ確かめていない**(下の「残り」)。
+
+| 指摘 | 直し方 |
+|---|---|
+| **F1** 入り口 | 環境設定「ファイルブラウザ」の「自動リネームの設定…」は OFF の間は淡色。`Window` シーンを `autoRenameSettingsScene` に切り出して `.commandsRemoved()`。設定ウインドウは OFF になったら自分で閉じる(`onChange(of: fileBrowserFeatureEnabled, initial: true)` → `dismissWindow`。シートごと)。フッターの説明に「ファイルブラウザを無効にしている間は動かない」を足した。`AppStores.applyFileBrowserFeature` のコメントと docs/15 の「画面がファイルブラウザにしか無い」も事実に合わせた |
+| **F1** サービス | `refreshAvailability` / `refreshAvailabilitySoon` / `updateWatcher` / `handle` / `scheduleRun` / `startRunIfNeeded` / `scheduleRecheck` / `readOnlyDidChange` の入口に `guard isStarted`。設定ウインドウの「アクセスを許可」・移動の提案の「更新」・確認の `confirm` は、止まっている間は保存先を書き換えるだけで何も起こさない(`confirm` は `store.confirm` だけで、走査へ進むのは `store.$rules` の購読 ―― `stop()` が外している)。「元の名前に戻す」(`restore`)は塞いでいない: 入り口のウインドウが閉じるので届かず、届いても利用者が押した 1 件だけ |
+| **F2** | `stop()` が Task の変数を全部 nil に戻し、待ち行列・観測・`missingSince`・`activeTargetKeys`・公開している値を捨てる。`stop()` のたびに進む `generation` を Task が控え、await から戻るたびに `isCurrent(generation)` を確かめる(可用性のパスの各 await の後・`runPendingWork` の繰り返し・`process` の項目ごと・各予約の Task)。古い世代の後始末は新しい世代の変数に触らない |
+| **L1** | `extract(itemID:)` の読み込みの直後に `guard !Task.isCancelled, runGeneration == generation, isLibraryFeatureEnabled`(`.pending` のまま戻る)。`inFlightItemIDs` の後始末も世代で守る。テストは、読み込みの直前に呼ぶ口(`willLoadCoverImageForTesting`)から OFF にして、取り消された状態で本物の読み込みへ入らせる(確認を外すと `.failed` になって落ちることを確かめた)。`waitUntilIdle()` は取り消したループの終わりまで待つ(`lastCancelledTask`) |
+| **D1** | 方針: **「止めないもの」の側**。`AppStores.applyLibraryFeature` のコメント・docs/14 の「止めないもの」・CLAUDE.md へ足した。止めるのは「ライブラリのためだけの仕事」で、「`CollectionItem` に触るもの全部」ではない |
+| **D2** 行の `bookID` | 方針: 本を開いたときの `CollectionStore.reconcileBookIDIfMoved` / `backfillFileNodeIdentifier` を **OFF でも走らせる**(`AppState.open` の `tracksCollections` を撤去)。5 つのストアを必ず揃えて付け替える。全件フェッチを伴うが、D1 と同じ「保存データを正しく保つ仕事」 |
+| **D2** 控え | `CollectionCoverExtractor.relocateBooksChangedWhileDisabled` を足し、`BookRecordRelocator.apply` が呼ぶ(アプリ自身が移した本)。Finder で移した本は、開いたときの `LayoutStore.reconcileBookIDIfMoved` が新しいパスで `.layoutDataDidChange` を出すので、`rememberChangeWhileDisabled` が新しいほうも覚える(上の行の修正でコレクションの行も新しいパスになるので、ON へ戻したときの作り直しに届く) |
+| **D3** | 読み取り専用のヘルプは、ライブラリ OFF の間「コレクションの作成と登録」を外した文にする。「コレクション表紙」の名前(メタデータのシートのラベル・「メタデータの編集」ウインドウの列と右クリック・切り出し位置)は**変えない** ―― 理由は docs/14「止めないもの」の末尾 |
+| §4 `welcomeTitle` | `mode == .shelf` のときだけライブラリとコレクションの行を引く |
+| §4 進行中の存在確認 | OFF にしたら取り消し、繰り返しが取り消しを見て抜け、途中までの結果は公開しない(`abandonExistenceRefresh`。すぐ ON へ戻されていたら最初からやり直す) |
+| §4 `createCollection` | 分類の await の後で設定を確かめ直す |
+
+**直さず、文書へ書いたもの**(§4 の残り): 起動時の「見つからない本」の確認が起動につき 1 回であること、ON → OFF の後も引いてあった行がメモリに残ること
+(docs/14)。コピー・移動の最中の OFF、OFF でも残る `FileBrowserState` の購読、サムネイルのディスクキャッシュの起動時の刈り込み(docs/15)。
+テストホストで `welcomeLibrary` の 2 つの設定が ON に固定されることは、テストが自前の `AppPreferences` を使う限り害が無いのでそのまま。
+
+**調べている途中で見つけた、この監査の外の件**: フォルダの本のページの鍵(`PageRef.sortKey`)は**絶対パス**で、`LayoutStore.applyBookRelocation` /
+`reconcileBookIDIfMoved` は `bookID` だけを付け替えて鍵(`PageLayoutOverride.pageKey`・`shelfCoverPageKey`・`coverPageKey`)は書き換えない。
+フォルダの本を移す・名前を変えると、ページ単位の指定と「本の中のページ」での表紙の指定が外れるはず(書庫・PDF・EPUB の鍵は本の中で閉じているので
+無関係)。ON/OFF とは関係なく前からある挙動で、ここでは直していない。
+
+**残り ―― 実機で確かめるもの**(使い捨てのボリュームに合成名の項目を置いて):
+1. 「ウインドウ」メニューに「自動リネームの設定」が並ばないこと(ON でも OFF でも)。ON の間の 3 つの入り口から開けること。
+2. 設定ウインドウ(シートを出したまま)を開いた状態でファイルブラウザを OFF にすると閉じること。環境設定のボタンが淡色になること。
+3. 確認済みの対象がある状態で OFF → 対象のフォルダへ項目を置いても名前が変わらない → ON で変わること。
+4. 名前の編集中・シートを出したままの OFF(§4。直していない)。

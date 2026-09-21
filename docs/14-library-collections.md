@@ -701,22 +701,48 @@ ON へ戻せば棚は元のまま見える。お気に入りの `FavoritesFeatur
 
 | 止まる | どこで |
 |---|---|
-| 登録した本の実体の存在確認(起動・アクティブ化・ボリュームの着脱・アプリ自身のファイル操作のたびの、全冊のブックマーク解決と stat) | `CollectionStore.scheduleExistenceRefresh` の入り口 |
-| 表紙の抽出と、その起動時の下ごしらえ(移行・全冊の控え取り) | `CollectionCoverExtractor`(`enqueue` / `refill` / `prepareIfNeeded`)。OFF にした時点で走っている抽出もやめる |
+| 登録した本の実体の存在確認(起動・アクティブ化・ボリュームの着脱・アプリ自身のファイル操作のたびの、全冊のブックマーク解決と stat) | `CollectionStore.scheduleExistenceRefresh` の入り口。OFF にした時点で走っている確認も途中でやめ、途中までの結果は捨てる(`abandonExistenceRefresh`) |
+| 表紙の抽出と、その起動時の下ごしらえ(移行・全冊の控え取り) | `CollectionCoverExtractor`(`enqueue` / `refill` / `prepareIfNeeded`)。OFF にした時点で走っている抽出もやめる ―― その本は **`.pending` のまま**残し、ON へ戻ったときの `refill()` が拾う(下の「実行中に止める」) |
 | 自動登録フォルダの走査と FSEvents の監視 | `CollectionAutoFolderScanner.scheduleScan` の入り口。OFF にした時点で監視を下ろす |
 | 起動時の掃除(行の無い表紙・元画像・札の絵) | `AppStores.sweepLibraryOrphansIfNeeded`(最初に ON になるまで先送り) |
 | 「ホーム」メニューの名前の写し | `HomeMenuDirectoryStore`(写しは空) |
-| 本を開いたときのコレクションの行の追従・識別子の補完 | `AppState.open` |
 | ファイルブラウザのアイコンの、コレクションの表紙の照会 | `FileBrowserThumbnailProvider.resolveSource`(本に指定したコレクション表紙は LayoutStore の側なのでそのまま使う) |
 | 起動時の「見つからない本」の確認 | `ContentView.offerRemovingMissingCollectionBooksIfNeeded` |
 
-どれも `CollectionItem` の全件フェッチを伴う。OFF で起動すれば、その行(ブックマークの Data を含む)はメモリに載らない。`CollectionStore` の
-init が引くのはライブラリの行だけ。
+どれも `CollectionItem` の全件フェッチを伴う。OFF で起動すれば、下の「止めないもの」のどれかが要るまで、その行(ブックマークの Data を含む)は
+メモリに載らない。`CollectionStore` の init が引くのはライブラリの行だけ。ON → OFF の後は、引いてあった行と存在確認の結果がメモリに残る
+(捨てない ―― ON へ戻したときに棚がすぐ描ける)。
 
 **止めないもの**(保存データを正しく保つため):
 - アプリ自身が移した・名前を変えた本の付け替え(`BookRecordRelocator`)。同じボリュームの中の移動は ON へ戻したときの存在確認がブックマークで
   追えるが、**別のボリュームへ移した本は追えない** ―― ここで付け替えないと「見つからない本」になる。走るのはファイル操作のときだけ。
+- **本を開いたときの、Finder で移した・名前を変えた本への追従と識別子の補完**(`AppState.open` の `reconcileBookIDIfMoved` /
+  `backfillFileNodeIdentifier`)。お気に入り・ブックマーク・レイアウト・メタデータと **5 つ揃えて**付け替える。最初の版は「全件フェッチを伴うので
+  コレクションの行には触らない。ON へ戻したときの存在確認がブックマークで追う」としていたが、存在確認が埋めるのは場所の辞書だけで `bookID` は
+  直さない ―― コレクションの行だけが古いパスに残り、その行から `bookID` で引く表紙の指定とメタデータが、ON へ戻してその本をもう一度開くまで
+  外れた(2026-09-21 の監査の D2)。
 - 保存データの書き出し・読み込み・削除(コレクションも対象のまま)。
+- **「このアプリが知っている本」の一覧と、本の実体へ届くための最後の手がかり**(`KnownBooks.collect`、`CollectionStore.allRegisteredBookIDs` /
+  `anyBookmarkData(forBookID:)`)。「メタデータの編集」「本の書き出し」「保存データの削除」「コレクション表紙の読み込み」が使う。コレクションに
+  しか無い本も編集・書き出しの対象で、その本の権限(ブックマーク)がコレクションの行にしか無いこともある(監査の D1)。
+
+これらは `CollectionItem` の全件フェッチを伴う(1 回引けばキャッシュに残る)。**止めるのは「ライブラリのためだけの仕事」で、「`CollectionItem` に
+触るもの全部」ではない。** 新しく足す仕事がどちらなのかは、「OFF の間にやらないと、保存データが壊れる・利用者の操作が失敗するか」で決める。
+
+「メタデータの編集」ウインドウの「コレクション表紙」の列・「コレクション表紙を変更」・切り出し位置の「ライブラリの設定を使う」と、ファイルブラウザ版の
+メタデータのシートの表紙の枠のラベルは、OFF の間も**同じ名前のまま**出す(監査の D3)。表紙の指定は OFF でも変えられ(ファイルブラウザのアイコンに
+使う)、「カバー画像」(書き出し用)と取り違えない名前がほかに無い。切り出し位置だけはコレクションの表示にしか効かないが、データは残っていて ON へ
+戻せば効くので、項目を出し入れしない。環境設定「ファイルブラウザ」の読み取り専用の説明からは、OFF の間「コレクションの作成と登録」を外す。
+
+### 実行中に止める(2026-09-21 の監査の L1)
+
+`CollectionCoverExtractor.cancelAll()` は、この設定ができるまでテストと終了時にしか呼ばれなかった。走っている `extract(itemID:)` は表紙の読み込みを
+待っていて、取り消しは `BookLoader.load` の中まで伝わって読み込みを投げさせるので、`extract` へは nil が返る。以前はそれを「本を開けなかった」と
+取り違えて `.failed` にした(`.failed` は表紙の指定を変えるまで試し直されないので、灰色のままになる)。いまは読み込みの直後に
+`Task.isCancelled`・走行世代・設定を確かめ、取り消されていたら結果を見ずに `.pending` のまま戻る(読めていた場合も、OFF の間に JPEG を書かない)。
+抽出中の印(`inFlightItemIDs`)の後始末も世代で守る ―― `cancelAll()` が空にした後、次の世代が同じ本を抽出し始めていることがある。
+**「実行中に止める」口を新しく足すときは、止められる側を 3 点で読み直す**: 取り消しを受けた側が取り消しを見ているか、取り消した Task の変数を nil に
+戻しているか、止まっている間に外から呼ばれる口が「止まっている」を確かめているか([plans/feature-toggle-audit.md](plans/feature-toggle-audit.md) §1)。
 
 ### ON へ戻したとき
 
@@ -727,10 +753,13 @@ init が引くのはライブラリの行だけ。
 `.layoutDataDidChange` が表紙に関わる変更かを判定できないので、**レイアウトが変わった本のパスだけ**を UserDefaults に覚えておき
 (`booksChangedWhileDisabledKey`。アプリを終えても失わない)、ON へ戻ったときにその本の表紙を**出したまま**作り直す。関係ない変更のぶんも
 作り直すが、古い表紙を残すよりよい。500 冊を超えたら覚えるのをやめ、ON へ戻ったときに全冊を作り直す。テストホストの実物の抽出役は
-本物の保存先へ書かない(通知はアプリ全体に飛ぶので、テストのストアの通知も届く)。
+本物の保存先へ書かない(通知はアプリ全体に飛ぶので、テストのストアの通知も届く)。控えの中身はパスなので、**OFF の間にその本が動いたら控えも
+付け替える**: アプリ自身が移した本は `BookRecordRelocator` が `relocateBooksChangedWhileDisabled` を呼び、Finder で移した本は、開いたときの
+`LayoutStore.reconcileBookIDIfMoved` が新しいパスで通知を出すので新しいほうも覚える(監査の D2)。
 
-**抜け漏れの監査(2026-09-21、未修正)**: 抽出中に OFF にした本の表紙が `.failed` で残る、OFF の間も `CollectionItem` を全件引く経路がある、
-などの指摘と直し方の案は [plans/feature-toggle-audit.md](plans/feature-toggle-audit.md)。
+起動時の「見つからない本」の確認は起動につき 1 回なので、OFF で起動して ON にしても次の起動までは出ない。
+
+**抜け漏れの監査(2026-09-21、修正済み)**: 調べた範囲・指摘・直した内容は [plans/feature-toggle-audit.md](plans/feature-toggle-audit.md)(§7 が修正の記録)。
 
 ## 環境設定・JSON・削除
 

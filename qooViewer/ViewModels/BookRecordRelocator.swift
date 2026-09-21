@@ -13,13 +13,17 @@ final class BookRecordRelocator {
     private weak var layoutStore: LayoutStore?
     private weak var metadataStore: BookMetadataStore?
     private weak var collectionStore: CollectionStore?
+    /// ライブラリ機能が OFF の間に表紙の指定が変わった本の控え(中身はパス)を持っている。本が移ったら控えも付け替える(`apply`)。
+    private weak var coverExtractor: CollectionCoverExtractor?
     private let modelContext: ModelContext
     private var tail: Task<Void, Never>?
 
     init(
         favoritesStore: FavoritesStore?, bookmarkStore: BookmarkStore?, layoutStore: LayoutStore?,
-        metadataStore: BookMetadataStore?, collectionStore: CollectionStore?, modelContext: ModelContext
+        metadataStore: BookMetadataStore?, collectionStore: CollectionStore?, modelContext: ModelContext,
+        coverExtractor: CollectionCoverExtractor? = nil
     ) {
+        self.coverExtractor = coverExtractor
         self.favoritesStore = favoritesStore
         self.bookmarkStore = bookmarkStore
         self.layoutStore = layoutStore
@@ -48,6 +52,8 @@ final class BookRecordRelocator {
             self.metadataStore?.applyBookRelocation(plan)
             self.collectionStore?.applyBookRelocation(plan)
             self.relocateReadingStates(plan)
+            // 保存データではないが、パスで本を覚えているもの(2026-09-21 の監査 docs/plans/feature-toggle-audit.md の D2)。
+            self.coverExtractor?.relocateBooksChangedWhileDisabled(plan.bookIDs)
         }
         tail = task
         return task

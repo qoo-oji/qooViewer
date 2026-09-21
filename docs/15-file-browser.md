@@ -174,22 +174,48 @@ FileBrowserOperations(ウインドウごと。1 本ずつ直列・確認の受�
   「移動」メニューはファイルブラウザが出ている間しか入れ替わらないので、何もしなくても本のほうのまま。
 - **「ファイルブラウザで開く」の 9 箇所**(ビューア・ページ一覧・サイドパネルの 4 つ・ライブラリのツリー・コレクションの中): 環境値
   `RevealInFileBrowserAction.isFeatureEnabled` を見て項目ごと出さない。入り口(`AppState.showInFileBrowser`)でも断る。
-- 環境設定の「ファイルブラウザ」のタブはそのまま(設定は残っているので、OFF の間も変えられる)。
+- 環境設定の「ファイルブラウザ」のタブはそのまま(設定は残っているので、OFF の間も変えられる)。**「自動リネームの設定…」のボタンだけは淡色**
+  (自動リネームは止まっている。ここは項目を消せるメニューではなく設定の並びなので、消さずに押せなくする)。
+- **「自動リネームの設定」ウインドウ**: 「ウインドウ」メニューに自動で並ぶ項目を `.commandsRemoved()` で落とし(`Window` シーンは宣言するだけで
+  並ぶ。`SceneBuilder` は条件分岐できないので ON の間も並べない ―― 入り口は「ホーム」メニュー・右クリック・環境設定にある)、OFF にした時点で
+  開いていたウインドウは自分で閉じる(`AutoRenameSettingsWindow` の `onChange(of: fileBrowserFeatureEnabled, initial: true)` → `dismissWindow`。
+  出ているシートごと)。最初の版はこの 3 つが抜けていて、OFF の間もウインドウへ届き、そこの「アクセスを許可」や移動の提案の「更新」から
+  自動リネームが動き出した(2026-09-21 の監査の F1)。
 - 淡色ではなく消すのは、ライブラリと同じ理由 ―― 機能そのものが無く、設定は環境設定ウインドウでしか変わらない(メニューを開いている最中に項目の数は変わらない)。
 
 ### OFF の間に止まる仕事・止めない仕事(`AppStores.applyFileBrowserFeature`)
 
 | 止まる | どこで |
 |---|---|
-| **自動リネーム**(よく使う項目の下の FSEvents の監視・走査・名前の変更) | `AutoRenameService.stop()` / OFF で起動したら `start()` しない。規則を作る・止める画面がファイルブラウザにしか無いので、画面が消えている間に裏で名前を変え続けない。ON へ戻すと `start()` が全部を走査し直す |
+| **自動リネーム**(よく使う項目の下の FSEvents の監視・走査・名前の変更) | `AutoRenameService.stop()` / OFF で起動したら `start()` しない。規則を作る・止める入り口は OFF の間どれも消える・押せなくなる(上の節)ので、画面が無い間に裏で名前を変え続けない。ON へ戻すと `start()` が全部を走査し直す |
 | よく使う項目の中の動画のサムネイルの先回り | `FileBrowserVideoThumbnailWarmer.connect` が設定を購読している |
 | ウインドウごとの一覧の読み込み・FSEvents・サムネイル作り | ペインが画面に出ないので始まらない(`FileBrowserState.activate` はペインの onAppear、`FileBrowserThumbnailProvider` は頼まれたぶんだけ) |
 
 **止めないもの**: 置き換えの退避の復旧(`ReplaceBackupRecovery`。前回の操作が途中で落ちていたら利用者のファイルを元へ戻す)、アプリ自身が
 ファイルを動かした知らせとよく使う項目の付け替え(サイドパネルのフォルダブラウザも使う)。よく使う項目・規則・ログ・サムネイルのディスクキャッシュは消さない。
 
-**抜け漏れの監査(2026-09-21、未修正)**: OFF の間も「自動リネームの設定」ウインドウへ届き、そこから自動リネームが動き出す、`stop()` の後始末が
-足りない、などの指摘と直し方の案は [plans/feature-toggle-audit.md](plans/feature-toggle-audit.md)。
+**`AutoRenameService.stop()` は「実行中に止めて、また動かせる」こと**(2026-09-21 の監査の F1・F2)。この設定ができるまで `stop()` はテストと
+終了時にしか呼ばれず、次の 3 つが抜けていた:
+- **止まっている間に外から呼ばれる口が `isStarted` を見ていなかった。** `refreshAvailability()` は設定ウインドウからも直に呼ばれ、パスの末尾が
+  監視を張り直して走査を予約した。いまは `refreshAvailability` / `refreshAvailabilitySoon` / `updateWatcher` / `handle` / `scheduleRun` /
+  `startRunIfNeeded` / `scheduleRecheck` / `readOnlyDidChange` の入口がどれも `isStarted` を見る。
+- **取り消した Task の変数を nil に戻していなかった。** 取り消された Task は自分の後始末(`self.runScheduled = nil`)を通らずに抜けるので、
+  走査の予約から 0.3 秒のあいだに OFF にすると、`scheduleRun` の `guard runScheduled == nil` が弾き続け、ON へ戻してもアプリを終えるまで走査しなかった。
+- **走っている最中の Task が止まらなかった。** `FileIO.perform` や名前の変更の await から戻ってきた側が、下ろした監視を張り直し、見直しを予約し直した。
+  `stop()` のたびに進む世代番号(`generation`)を Task が作られたときに控え、await から戻るたびに `isCurrent(generation)` で確かめて、古ければ何も
+  触らずに抜ける(`CollectionCoverExtractor.runGeneration` と同じ形)。取り消しを見るだけでは足りない ―― 古い Task の後始末が、`stop()` → `start()` の
+  後に作られた新しい Task の変数を消してしまう。進行中の名前の変更 1 件は止められない(その 1 件の実行ログは書く)。
+
+`stop()` は覚えている状態も捨てる(待ち行列・書き終わりの観測・`missingSince` ―― 残すと、再開の最初のパスで「1 秒置いて確かめ直す」を飛ばして対象を
+OFF にしうる)。公開している値(`availability`・`targetsAwaitingConfirmation`・`moveSuggestions`・`isPausedForReadOnly`)も空にする。規則と実行ログには触らない。
+
+**OFF にした瞬間に進行中だったもの**(監査の §4。直していない ―― 環境設定を操作しないと踏めず、害が小さい): コピー・移動の最中に OFF にすると、
+操作は最後まで続くが進捗バーと中止ボタンはペインごと消える(`FileBrowserOperations` は `FileBrowserState` の持ち物)。ウインドウに出した確認・
+一括リネームのシートは残り、OFF の後に押しても実行される(入り口が見るのは読み取り専用だけ)。ウインドウごとの `FileBrowserState` とその購読
+(アクティブ化・キーウインドウ・ボリューム・`FileSystemChangeCenter`・カット)は OFF でも残るが、そのたびの仕事はカットの検証とペーストボードの
+`changeCount` の比較だけ。サムネイルのディスクキャッシュの起動時 1 回の刈り込みは設定に関わらず走る(キャッシュは消さない約束なので、上限も守る)。
+
+**抜け漏れの監査(2026-09-21、修正済み)**: 調べた範囲・指摘・直した内容は [plans/feature-toggle-audit.md](plans/feature-toggle-audit.md)(§7 が修正の記録)。
 
 ## 効果音(2026-09-13、ユーザー要望。qooLibrary と同じ)
 

@@ -591,6 +591,30 @@ struct QooViewerApp: App {
         .commandsRemoved()
     }
 
+    /// 「自動リネームの設定」ウインドウ(2026-09-15、ユーザー要望。docs/plans/auto-rename-study.md)。
+    /// 開く場所: ファイルブラウザの右クリック・環境設定「ファイルブラウザ」・ホームメニュー。
+    ///
+    /// `.commandsRemoved()` は、`Window` シーンが「ウインドウ」メニューへ自動で足す項目を落とす(favoritesOrganizerScene のコメント)。
+    /// 環境設定「ファイルブラウザを有効にする」が OFF の間、上の 3 つの入り口はどれも消える・淡色になるが、この自動の項目だけは設定を
+    /// 見ないので、そこから開けてしまう(2026-09-21 の監査 docs/plans/feature-toggle-audit.md の F1)。`SceneBuilder` は条件分岐できないので、
+    /// ON の間も「ウインドウ」メニューには並べない。OFF にした時点で開いていたウインドウは、自分で閉じる(AutoRenameSettingsWindow)。
+    private func autoRenameSettingsScene(locale: Locale) -> some Scene {
+        Window(String(localized: "Auto Rename Settings", language: locale), id: AutoRenameSettingsWindow.windowID) {
+            AutoRenameSettingsWindow()
+                .environmentObject(autoRenameStore)
+                .environmentObject(autoRenameService)
+                .environmentObject(autoRenameLog)
+                .environmentObject(favoriteLocations)
+                .environmentObject(folderAccess)
+                .environmentObject(preferences)
+                .environment(\.locale, locale)
+        }
+        .handlesExternalEvents(matching: [])
+        .defaultSize(width: 1100, height: 820)
+        .windowToolbarStyle(.unified)
+        .commandsRemoved()
+    }
+
     var body: some Scene {
         // 表示言語のLocaleは全Sceneで共通の値なので、bodyの評価ごとに1回だけ解決して使い回す
         // (以前は各Sceneの`.environment(\.locale, currentLocale)`が9箇所に分散しており、bodyが
@@ -1705,21 +1729,8 @@ struct QooViewerApp: App {
         .windowResizability(.contentSize)
         .windowToolbarStyle(.unified)
 
-        // 「自動リネームの設定」ウインドウ(2026-09-15、ユーザー要望。docs/plans/auto-rename-study.md)。
-        // 開く場所: ファイルブラウザの右クリック・環境設定「ファイルブラウザ」・ホームメニュー。
-        Window(String(localized: "Auto Rename Settings", language: locale), id: AutoRenameSettingsWindow.windowID) {
-            AutoRenameSettingsWindow()
-                .environmentObject(autoRenameStore)
-                .environmentObject(autoRenameService)
-                .environmentObject(autoRenameLog)
-                .environmentObject(favoriteLocations)
-                .environmentObject(folderAccess)
-                .environmentObject(preferences)
-                .environment(\.locale, locale)
-        }
-        .handlesExternalEvents(matching: [])
-        .defaultSize(width: 1100, height: 820)
-        .windowToolbarStyle(.unified)
+        // 「自動リネームの設定」ウインドウ(autoRenameSettingsScene 参照)。
+        autoRenameSettingsScene(locale: locale)
 
         // 「メタデータの編集」ウインドウ(独立ウインドウ)。「ブックマーク・レイアウトの編集」と
         // 同じく、本を今開いているかどうかに関わらずいつでも開ける。

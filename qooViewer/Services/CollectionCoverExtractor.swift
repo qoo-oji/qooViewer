@@ -71,6 +71,9 @@ final class CollectionCoverExtractor: ObservableObject {
     private var queue: [UUID] = []
     private var queuedIDs: Set<UUID> = []
     private var currentTask: Task<Void, Never>?
+    /// `cancelAll()`で取り消した直近のループ。取り消しても、走っていた抽出は読み込みの await から戻ってくるまで終わらない ――
+    /// `waitUntilIdle()`がそこまで待てるように持っておく(**テストのための口**)。
+    private var lastCancelledTask: Task<Void, Never>?
     private var isRunning = false
     /// 走行世代。cancelAll()で進める。走り終わったループが、その後に始まった新しいループの
     /// 状態を消してしまわないようにするための番号(ThumbnailDiskCacheの
@@ -96,6 +99,8 @@ final class CollectionCoverExtractor: ObservableObject {
     private var redoAfterExtraction: Set<UUID> = []
     /// 撤去した並び順の設定の後始末の判定(ページ一覧のキャッシュを読む)。
     private var pageOrderEvaluation: Task<Void, Never>?
+    /// 表紙の読み込みを始める直前に呼ぶ(**テストのための口**)。「抽出の最中にライブラリ機能を OFF にする」を、時間に頼らずに起こす。
+    var willLoadCoverImageForTesting: (@MainActor () async -> Void)?
     /// 本のページ一覧のキャッシュの読み口(**テストのための口**。既定はBookPageListCache.shared)。
     private let cachedPageList: @Sendable (String) async -> [BookPageListCache.Entry.Page]?
 
@@ -210,7 +215,8 @@ final class CollectionCoverExtractor: ObservableObject {
     }
 
     /// ライブラリ機能のON/OFF(`isLibraryFeatureEnabled`のコメント)。OFFにしたら走っている抽出も含めて全部やめる
-    /// (やめた本は`.pending`のまま残り、ONへ戻ったときの`refill()`が拾う)。
+    /// (やめた本は`.pending`のまま残り、ONへ戻ったときの`refill()`が拾う ―― 走っていた抽出を`.pending`のまま置くのは
+    /// `extract(itemID:)`の読み込みの直後の確認)。
     func setLibraryFeatureEnabled(_ isEnabled: Bool) {
         guard isEnabled != isLibraryFeatureEnabled else { return }
         isLibraryFeatureEnabled = isEnabled
@@ -250,6 +256,17 @@ final class CollectionCoverExtractor: ObservableObject {
         }
         bookIDs.append(bookID)
         defaults.set(bookIDs, forKey: Self.booksChangedWhileDisabledKey)
+    }
+
+    /// アプリ自身が移した・名前を変えた本の控えを、新しいパスへ付け替える(BookRecordRelocator)。控えの中身はパスなので、付け替えないと
+    /// ONへ戻したときの作り直しから漏れる(2026-09-21 の監査の D2)。Finder で移した本は、開いたときの`LayoutStore.reconcileBookIDIfMoved`が
+    /// 新しいパスで通知を出すので、`rememberChangeWhileDisabled`が新しいほうも覚える。
+    func relocateBooksChangedWhileDisabled(_ newBookIDByOld: [String: String]) {
+        guard !newBookIDByOld.isEmpty, let bookIDs = defaults.stringArray(forKey: Self.booksChangedWhileDisabledKey) else { return }
+        var seen: Set<String> = []
+        let relocated = bookIDs.map { newBookIDByOld[$0] ?? $0 }.filter { seen.insert($0).inserted }
+        guard relocated != bookIDs else { return }
+        defaults.set(relocated, forKey: Self.booksChangedWhileDisabledKey)
     }
 
     deinit {
@@ -325,8 +342,9 @@ final class CollectionCoverExtractor: ObservableObject {
     /// ViewerViewModel.settleと同じく、時間ではなく仕事の終わりで待つ)。
     /// 待っている間に積まれたぶんも含めて、静かになるまで繰り返す。
     func waitUntilIdle() async {
-        while let task = currentTask {
+        while let task = currentTask ?? lastCancelledTask {
             await task.value
+            if lastCancelledTask == task { lastCancelledTask = nil }
         }
     }
 
@@ -338,6 +356,7 @@ final class CollectionCoverExtractor: ObservableObject {
         pageOrderEvaluation?.cancel()
         pageOrderEvaluation = nil
         currentTask?.cancel()
+        if let currentTask { lastCancelledTask = currentTask }
         currentTask = nil
         isRunning = false
         runGeneration &+= 1
@@ -390,17 +409,26 @@ final class CollectionCoverExtractor: ObservableObject {
         // 保管庫(CollectionCoverSourceStore)にあり、本を1バイトも読まずに作れる。未接続の
         // 外付けボリューム上の本でも表紙は出せるので、ここで弾いてはいけない。
         guard url != nil || snapshot.imageFileURL != nil else { return }
+        // `cancelAll()`で世代が進んだ後は、抽出中の印に触らない(もう空にしてあり、同じ本を次の世代が抽出し始めているかもしれない)。
+        let generation = runGeneration
         inFlightItemIDs.insert(itemID)
-        defer { inFlightItemIDs.remove(itemID) }
+        defer { if runGeneration == generation { inFlightItemIDs.remove(itemID) } }
 
         signatures[bookID] = signature(forBookID: bookID)
 
+        await willLoadCoverImageForTesting?()
         let didAccess = url?.startAccessingSecurityScopedResource() ?? false
         let image = await CoverImageResolver.coverImage(
             bookAt: url, snapshot: snapshot,
             maxPixelSize: CollectionCoverStore.maxPixelSize, cachesPageList: cachesPageList
         )
         if didAccess { url?.stopAccessingSecurityScopedResource() }
+
+        // 読み込みの最中に取り消された(`cancelAll()` ―― ライブラリ機能を OFF にした)なら、結果を見ずに`.pending`のまま置いて戻る。
+        // 取り消しは`BookLoader.load`の中まで伝わって読み込みを投げさせるので、ここへは nil が返ってくる。確認が無かったころは
+        // それを「本を開けなかった」と取り違えて`.failed`にし、表紙の指定を変えるまで灰色のままになった(2026-09-21 の監査
+        // docs/plans/feature-toggle-audit.md の L1)。読めていた場合も、OFF の間に JPEG を書いて`.ready`にはしない。
+        guard !Task.isCancelled, runGeneration == generation, isLibraryFeatureEnabled else { return }
 
         // 読み込んでいる間にコレクションから外された可能性があるので、書き戻す前に引き直す。
         guard let current = collectionStore.item(withID: itemID) else { return }

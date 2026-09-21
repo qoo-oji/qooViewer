@@ -1164,10 +1164,16 @@ final class CollectionStore: ObservableObject {
     }
 
     /// ライブラリ機能のON/OFF(`isLibraryFeatureEnabled`のコメント)。ONへ戻ったら、止めていた存在確認をその場で1回走らせる。
+    /// OFFにしたら、走っている存在確認も途中でやめる(2026-09-21 の監査 docs/plans/feature-toggle-audit.md の §4 ―― 以前は残りの全冊ぶんの
+    /// ブックマーク解決と stat を最後までやった)。途中までの結果は捨てる(`abandonExistenceRefresh`)。
     func setLibraryFeatureEnabled(_ isEnabled: Bool) {
         guard isEnabled != isLibraryFeatureEnabled else { return }
         isLibraryFeatureEnabled = isEnabled
-        if isEnabled { scheduleExistenceRefresh() }
+        if isEnabled {
+            scheduleExistenceRefresh()
+        } else {
+            existenceRefreshTask?.cancel()
+        }
     }
 
     /// 全登録の実体確認を非同期に予約する(FavoritesStore.scheduleExistenceRefreshと同じ作り)。
@@ -1202,6 +1208,8 @@ final class CollectionStore: ObservableObject {
             var result: [UUID: BookLocation] = [:]
             var dates: [UUID: BookFileDates] = [:]
             for probe in probes {
+                // 取り消し = ライブラリ機能を OFF にした(setLibraryFeatureEnabled)。残りは確かめない。
+                guard !Task.isCancelled else { break }
                 let location = BookLocationResolver.resolve(probe, mountedVolumeUUIDs: mountedVolumeUUIDs)
                 result[probe.itemID] = location
                 // 実体に届いた本だけ、ついでに作成日・変更日を読む(fileDatesByItemIDのコメント)。
@@ -1213,7 +1221,22 @@ final class CollectionStore: ObservableObject {
                 }
             }
             guard let self else { return }
+            // 途中でやめた結果は一部の本しか含まないので、公開しない。
+            guard !Task.isCancelled else {
+                await self.abandonExistenceRefresh()
+                return
+            }
             await self.finishExistenceRefresh(result, fileDates: dates)
+        }
+    }
+
+    /// 途中でやめた存在確認の後始末。結果は捨て、やめている間に頼まれたぶん(すぐ ON へ戻された)があれば最初からやり直す。
+    private func abandonExistenceRefresh() {
+        isRefreshingExistence = false
+        existenceRefreshTask = nil
+        if needsAnotherExistenceRefresh {
+            needsAnotherExistenceRefresh = false
+            scheduleExistenceRefresh()
         }
     }
 

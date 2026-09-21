@@ -453,6 +453,92 @@ struct AutoRenameServiceTests {
         #expect(harness.store.rule(withID: rule.id)?.targets.first?.state == .enabled)
     }
 
+    // MARK: - 止める・また動かす(環境設定「ファイルブラウザを有効にする」。2026-09-21 の監査 docs/plans/feature-toggle-audit.md の F1・F2)
+
+    @Test("止まっている間は、外から状態の読み直しやイベントが届いても何もしない。公開している値も空にする")
+    func doesNothingWhileStopped() async throws {
+        let harness = try Harness("stopped")
+        let shelf = try harness.folder("shelf")
+        let pending = try harness.folder("pending")
+        try harness.file("pending/old [tag].zip")
+        harness.favorites.add(shelf)
+        harness.favorites.add(pending)
+        harness.addRule(find: " [tag]", replace: "", target: shelf)
+        let unconfirmed = harness.addRule(find: " [tag]", replace: "", target: pending, confirmed: false)
+        harness.service.start()
+        #expect(await eventually { harness.service.targetsAwaitingConfirmation == [unconfirmed.targets[0].id] })
+        await harness.service.waitUntilIdle()
+        #expect(!harness.service.availability.isEmpty)
+
+        harness.service.stop()
+        #expect(!harness.service.isStarted)
+        #expect(harness.service.availability.isEmpty)
+        #expect(harness.service.targetsAwaitingConfirmation.isEmpty)
+
+        // 設定ウインドウの「アクセスを許可」・移動の提案の「更新」が呼ぶ口と、遅れて届いた FSEvents。
+        try harness.file("shelf/new [tag].zip")
+        harness.service.refreshAvailability()
+        harness.service.refreshAvailability(thenScanEverything: true)
+        harness.service.handle([.init(path: shelf.appendingPathComponent("new [tag].zip").path, mustScanSubdirectories: false)])
+        harness.service.handle([.init(path: shelf.path, mustScanSubdirectories: true)])
+        await harness.service.waitUntilIdle()
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(harness.exists("shelf/new [tag].zip"), "止まっている間に名前を変えた")
+        #expect(harness.service.availability.isEmpty)
+        #expect(!harness.service.hasPendingRechecks)
+
+        // また動かすと、止まっている間に置かれた項目を拾う。
+        harness.service.start()
+        #expect(await eventually { harness.exists("shelf/new.zip") })
+    }
+
+    @Test("走査を予約した直後に止めても、また動かせば走査する(取り消した予約が残って二度と走らなくならない)")
+    func restartsAfterStoppingWithScheduledWork() async throws {
+        let harness = try Harness("restart")
+        let shelf = try harness.folder("shelf")
+        harness.favorites.add(shelf)
+        harness.addRule(find: " [tag]", replace: "", target: shelf)
+        // 予約が確実に残っているうちに止められるよう、まとめる時間を長くする。
+        harness.service.coalescingDelay = 0.5
+        harness.service.start()
+        await harness.service.waitUntilIdle()
+
+        try harness.file("shelf/one [tag].zip")
+        harness.service.handle([.init(path: shelf.appendingPathComponent("one [tag].zip").path, mustScanSubdirectories: false)])
+        harness.service.stop()
+        try await Task.sleep(for: .milliseconds(700))
+        #expect(harness.exists("shelf/one [tag].zip"), "止めた後に予約が走った")
+
+        harness.service.coalescingDelay = 0.05
+        harness.service.start()
+        #expect(await eventually { harness.exists("shelf/one.zip") })
+        // 再開した後の FSEvents でも走る(予約の変数が取り消した Task を指したままだと、ここが動かない)。
+        await harness.service.waitUntilIdle()
+        try harness.file("shelf/two [tag].zip")
+        #expect(await eventually { harness.exists("shelf/two.zip") })
+    }
+
+    @Test("状態を確かめている最中に止めると、その結果で監視や走査を始めない。すぐ動かし直しても二重にならず動く")
+    func stoppingDuringTheAvailabilityPass() async throws {
+        let harness = try Harness("mid-pass")
+        let shelf = try harness.folder("shelf")
+        try harness.file("shelf/one [tag].zip")
+        harness.favorites.add(shelf)
+        harness.addRule(find: " [tag]", replace: "", target: shelf)
+
+        // start の直後は最初のパスが FileIO の上で待っている。
+        harness.service.start()
+        harness.service.stop()
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(harness.exists("shelf/one [tag].zip"), "止めた後に名前を変えた")
+        #expect(harness.service.availability.isEmpty)
+
+        harness.service.start()
+        harness.service.stop()
+        harness.service.start()
+        #expect(await eventually { harness.exists("shelf/one.zip") })
+    }
+
     // MARK: - 保存
 
     @Test("規則を OFF にすると確認の印が消える。保存して読み直せば同じ")

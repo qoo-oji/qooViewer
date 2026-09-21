@@ -16,6 +16,7 @@ struct AutoRenameSettingsWindow: View {
     @EnvironmentObject private var service: AutoRenameService
     @EnvironmentObject private var preferences: AppPreferences
     @Environment(\.locale) private var locale
+    @Environment(\.dismissWindow) private var dismissWindow
 
     @State private var selection: UUID?
     @State private var sheet: SheetKind?
@@ -72,6 +73,12 @@ struct AutoRenameSettingsWindow: View {
             if selection == nil { selection = store.rules.first?.id }
         }
         .onChange(of: service.requestedRuleID) { _, _ in consumeRequestedRule() }
+        // 環境設定「ファイルブラウザを有効にする」が OFF の間は、このウインドウを出しておかない(2026-09-21 の監査の F1)。実行役は止まっていて
+        // (AppStores.applyFileBrowserFeature)、ここで規則を変えても何も起きず、対象の状態も分からない。入り口はどれも OFF の間は消えるので、
+        // 残るのは「OFF にした時点で開いていた」場合だけ ―― 出ているシートごと閉じる。`initial` は、何かの拍子に OFF のまま開いたときのため。
+        .onChange(of: preferences.fileBrowserFeatureEnabled, initial: true) { _, isEnabled in
+            if !isEnabled { dismissWindow(id: Self.windowID) }
+        }
         .onChange(of: store.rules.map(\.id)) { _, ids in
             if let selected = selection, !ids.contains(selected) { selection = ids.first }
         }

@@ -194,9 +194,14 @@ struct ContentView: View {
 
     /// 本を開いていないときのタイトル。`collectionStore` は環境オブジェクトなので、名前の変更でも作り直される。
     private var welcomeTitle: String {
-        let library = WelcomeDropHandling.resolvedLibrary(state: welcomeLibrary, collectionStore: collectionStore)
+        // ライブラリとコレクションの名前を使うのは本棚のときだけ。ほかのモード(ライブラリ機能が OFF の間はここに固定される)では
+        // 行を引かない(2026-09-21 の監査 docs/plans/feature-toggle-audit.md §4 ―― 以前はタイトルを評価するたびに引いて、結果は捨てていた)。
+        let showsShelf = welcomeLibrary.mode == .shelf
+        let library = showsShelf
+            ? WelcomeDropHandling.resolvedLibrary(state: welcomeLibrary, collectionStore: collectionStore) : nil
         // 開いていたコレクションが別のウインドウで消されていれば、ライブラリの名前へ戻す(引けなければ nil)。
-        let collection = welcomeLibrary.openedCollectionID.flatMap { collectionStore.collection(withID: $0) }
+        let collection = showsShelf
+            ? welcomeLibrary.openedCollectionID.flatMap { collectionStore.collection(withID: $0) } : nil
         return WindowTitle.welcome(
             mode: welcomeLibrary.mode,
             folderName: WindowTitle.folderName(

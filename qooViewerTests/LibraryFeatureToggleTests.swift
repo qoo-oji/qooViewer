@@ -161,6 +161,38 @@ struct LibraryFeatureToggleTests {
         #expect(extractor.extractionAttemptCount == 1)
     }
 
+    /// 2026-09-21 の監査(docs/plans/feature-toggle-audit.md の L1)。取り消しは本の読み込みの中まで伝わって nil を返させるので、
+    /// 以前はそれを「本を開けなかった」と取り違えて`.failed`にし、表紙の指定を変えるまで灰色のままになった。
+    @Test("抽出の最中にOFFにした本は失敗にせず待ちのまま残し、ONへ戻すと表紙を作る")
+    func extractionInterruptedByTurningOffStaysPending() async throws {
+        let library = try InMemoryLibrary(label: "library-toggle-interrupted")
+        defer { library.close() }
+        let suite = PreferencesSuite(label: "library-toggle-interrupted")
+        defer { withExtendedLifetime(suite) {} }
+        let temporary = try TemporaryDirectory("library-toggle-interrupted")
+        let item = try register(try makeFolderBook(temporary, named: "book"), in: library)
+        let extractor = CollectionCoverExtractor(
+            collectionStore: library.collections, coverStore: library.collectionCovers,
+            layoutStore: library.layouts, cachesPageList: false, defaults: suite.defaults
+        )
+        defer { extractor.releaseResources() }
+
+        // 読み込みを始める直前にOFFにする(走っているループが取り消された状態で、本の読み込みへ入る)。
+        extractor.willLoadCoverImageForTesting = { [weak extractor] in extractor?.setLibraryFeatureEnabled(false) }
+        extractor.enqueue([item])
+        await extractor.waitUntilIdle()
+        #expect(extractor.extractionAttemptCount == 1)
+        #expect(item.coverState == .pending)
+        #expect(extractor.inFlightItemIDs.isEmpty)
+        #expect(await library.collectionCovers.image(for: item.id) == nil)
+
+        extractor.willLoadCoverImageForTesting = nil
+        extractor.setLibraryFeatureEnabled(true)
+        await extractor.waitUntilIdle()
+        #expect(item.coverState == .ready)
+        #expect(await coverNumber(of: item, in: library) == 1)
+    }
+
     @Test("OFFの間に表紙の指定を変えた本は、ONへ戻したとき(アプリを起動し直した後でも)表紙を作り直す")
     func coversChangedWhileOffAreRedone() async throws {
         let library = try InMemoryLibrary(label: "library-toggle-redo")
@@ -205,6 +237,91 @@ struct LibraryFeatureToggleTests {
         #expect(second.extractionAttemptCount == 1)
         #expect(untouched.coverState == .ready)
         #expect(suite.defaults.stringArray(forKey: CollectionCoverExtractor.booksChangedWhileDisabledKey) == nil)
+    }
+
+    /// 2026-09-21 の監査の D2。控えの中身はパスなので、本が移ったら一緒に付け替えないと、ONへ戻したときの作り直しから漏れる。
+    @Test("OFFの間に表紙の指定を変えた本をアプリが移したら、控えも新しいパスへ付け替わり、ONへ戻すとその本の表紙を作り直す")
+    func rememberedChangesFollowABookTheAppMoved() async throws {
+        let library = try InMemoryLibrary(label: "library-toggle-relocate")
+        defer { library.close() }
+        let suite = PreferencesSuite(label: "library-toggle-relocate")
+        defer { withExtendedLifetime(suite) {} }
+        let temporary = try TemporaryDirectory("library-toggle-relocate")
+        // 書庫の本にする(ページの鍵が書庫の中のパスなので、本が移っても指定が生きる。フォルダの本の鍵は絶対パス)。
+        let url = temporary.file("book.zip")
+        var zip = ZipFixtureBuilder()
+        zip.add("001.png", PageImageFactory.png(number: 1))
+        zip.add("002.png", PageImageFactory.png(number: 2))
+        try zip.write(to: url)
+        let item = try register(url, in: library)
+        let extractor = CollectionCoverExtractor(
+            collectionStore: library.collections, coverStore: library.collectionCovers,
+            layoutStore: library.layouts, cachesPageList: false, defaults: suite.defaults
+        )
+        defer { extractor.releaseResources() }
+        extractor.refill()
+        await extractor.waitUntilIdle()
+        #expect(await coverNumber(of: item, in: library) == 1)
+
+        extractor.setLibraryFeatureEnabled(false)
+        library.layouts.setShelfCoverPageKey(
+            forBookID: item.bookID, sourceURL: url, pageKey: "002.png", displayName: "002.png"
+        )
+        // アプリ自身が本の名前を変えた(ファイルブラウザの操作)。保存データと一緒に控えも付け替わる。
+        let moved = temporary.file("renamed.zip")
+        try FileManager.default.moveItem(at: url, to: moved)
+        let relocator = BookRecordRelocator(
+            favoritesStore: library.favorites, bookmarkStore: library.bookmarks, layoutStore: library.layouts,
+            metadataStore: library.metadata, collectionStore: library.collections, modelContext: library.context,
+            coverExtractor: extractor
+        )
+        await relocator.apply(FileSystemChange(relocations: [.init(from: url, to: moved)])).value
+        #expect(item.bookID == moved.path)
+        let remembered = suite.defaults.stringArray(forKey: CollectionCoverExtractor.booksChangedWhileDisabledKey) ?? []
+        #expect(remembered.contains(moved.path))
+        #expect(!remembered.contains(url.path))
+
+        extractor.setLibraryFeatureEnabled(true)
+        await library.collections.settleExistenceRefresh()
+        await extractor.waitUntilIdle()
+        #expect(await coverNumber(of: item, in: library) == 2)
+    }
+
+    /// 2026-09-21 の監査の D2。以前はOFFの間コレクションの行だけ付け替えず、ほかの4つのストアと食い違った。
+    @Test("OFFの間に開いた本が移動・リネームされていたら、コレクションの行もほかの保存データと一緒に追従する")
+    func openingAMovedBookWhileOffReconcilesTheCollectionRow() async throws {
+        let library = try InMemoryLibrary(label: "library-toggle-reconcile")
+        defer { library.close() }
+        let suite = PreferencesSuite(label: "library-toggle-reconcile")
+        defer { withExtendedLifetime(suite) {} }
+        let temporary = try TemporaryDirectory("library-toggle-reconcile")
+        let original = try makeFolderBook(temporary, named: "before")
+        let item = try register(original, in: library)
+        library.metadata.upsert(
+            bookID: original.path, author: "a", title: "t", series: "", seriesIndex: "", sourceURL: original
+        )
+        let moved = temporary.file("after")
+        try FileManager.default.moveItem(at: original, to: moved)
+
+        let preferences = suite.makePreferences()
+        preferences.libraryFeatureEnabled = false
+        library.collections.setLibraryFeatureEnabled(false)
+        let state = AppState(isPrivateWindow: false, usesPageListCache: false)
+        state.preferences = preferences
+        state.favoritesStore = library.favorites
+        state.bookmarkStore = library.bookmarks
+        state.layoutStore = library.layouts
+        state.metadataStore = library.metadata
+        state.collectionStore = library.collections
+        let recentFiles = RecentFilesStore(defaults: suite.defaults)
+        state.recentFiles = recentFiles
+        state.open(request: BookOpenRequest(moved))
+        await state.openTask?.value
+
+        #expect(library.metadata.isRegistered(bookID: moved.path))
+        #expect(item.bookID == moved.path)
+        #expect(item.title == "after")
+        withExtendedLifetime(recentFiles) {}
     }
 
     @Test("OFFの間、「ホーム」メニューの名前の写しは空のまま。ONへ戻すと作られる")

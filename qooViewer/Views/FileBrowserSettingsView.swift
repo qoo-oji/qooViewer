@@ -19,16 +19,22 @@ struct FileBrowserSettingsView: View {
                 SettingsToggle(
                     "Read-Only",
                     isOn: $preferences.fileBrowserReadOnly,
-                    help: "Items can't be pasted, cut, moved to the Trash, renamed, compressed or extracted, no new folders can be made, dragging doesn't move items, and file changes can't be undone or redone. You can still browse, open books, copy items, add favorite locations, create and add to collections, edit metadata and export books. Turn this off to change files in the file browser."
+                    // 「コレクションの作成と登録」は、ライブラリ機能が OFF の間は無い機能なので文から外す(2026-09-21 の監査の D3)。
+                    help: preferences.libraryFeatureEnabled
+                        ? "Items can't be pasted, cut, moved to the Trash, renamed, compressed or extracted, no new folders can be made, dragging doesn't move items, and file changes can't be undone or redone. You can still browse, open books, copy items, add favorite locations, create and add to collections, edit metadata and export books. Turn this off to change files in the file browser."
+                        : "Items can't be pasted, cut, moved to the Trash, renamed, compressed or extracted, no new folders can be made, dragging doesn't move items, and file changes can't be undone or redone. You can still browse, open books, copy items, add favorite locations, edit metadata and export books. Turn this off to change files in the file browser."
                 )
                 // 自動リネーム(2026-09-15)。ファイルを変える機能なので、読み取り専用の隣に置く(読み取り専用の間は止まる)。
+                // ファイルブラウザ機能が OFF の間は自動リネームも止まっている(AppStores.applyFileBrowserFeature)ので、押せない。
+                // 「ホーム」メニューの同じ項目は OFF の間は消える ―― ここだけ設定を見ずに開けていた(2026-09-21 の監査の F1)。
                 Button("Auto Rename Settings…") {
                     openWindow(id: AutoRenameSettingsWindow.windowID)
                 }
+                .disabled(!preferences.fileBrowserFeatureEnabled)
             } header: {
                 Text("File Operations")
             } footer: {
-                Text("Auto rename renames items in Favorite Locations automatically by your rules. It doesn’t run while Read-Only is on.")
+                Text("Auto rename renames items in Favorite Locations automatically by your rules. It doesn’t run while Read-Only is on or while the file browser is turned off.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -211,8 +211,13 @@ switched off at run time** (Settings ▸ General ▸ "Enable Libraries", `AppPre
 items leave the Home menu, the file browser context menu and the side panel, and the library-only background work stops —
 existence refresh, cover extraction and its launch preparation, auto-folder scanning and FSEvents, launch sweeps, the Home
 menu directory, collection reconciliation on book open. What stops and what deliberately does not (`BookRecordRelocator`,
-saved-data import/export/cleanup) is listed on `AppStores.applyLibraryFeature`; **new library-only work must check the
-flag there too**, and must not fetch `CollectionItem`s while it is off. Data is never deleted; books whose layout changed
+saved-data import/export/cleanup, following a moved book on open — `reconcileBookIDIfMoved` on all five stores together —
+and the "books this app knows" lookups behind Edit Metadata / Export / cleanup) is listed on `AppStores.applyLibraryFeature`;
+**new library-only work must check the flag there too**, and must not fetch `CollectionItem`s while it is off — what stays on
+is only work that keeps saved data correct or a user action from failing. **Anything that can now be stopped at run time**
+(`AutoRenameService.stop()`, `CollectionCoverExtractor.cancelAll()`) must let itself be restarted: the stopped side checks
+cancellation *and a generation number* after every await, `stop` nils the Task variables it cancels, and every entry point
+callable from outside checks "am I stopped" (2026-09-21 audit, `docs/plans/feature-toggle-audit.md`). Data is never deleted; books whose layout changed
 while off are remembered in UserDefaults and get their covers redone when it is turned back on (docs/14
 「ライブラリ機能の ON/OFF」). **The file browser has the same kind of switch** ("Enable File Browser",
 `AppPreferences.fileBrowserFeatureEnabled`): its items leave Home, the menu bar and every context menu — including all
@@ -221,7 +226,9 @@ video thumbnail warmer stop (`AppStores.applyFileBrowserFeature`). The two flags
 place, `WelcomeLibraryState.constrained`: both on = as before, library only = the pre-file-browser shelf (v1.50–v1.56: the top bar gets its Open Book… / Open from History buttons back), file browser
 only = the pane with no top bar, both off = `WelcomeMode.classic`, the pre-bookshelf welcome screen restored as
 `ClassicWelcomeView` (and no Home menu). `.classic` is never a user choice and forced modes are never saved. New file
-browser entry points must check the flag (docs/15「ファイルブラウザ機能の ON/OFF」). The favorites feature is hidden behind
+browser entry points must check the flag (docs/15「ファイルブラウザ機能の ON/OFF」) — including `Window` scenes, which add
+themselves to the Window menu unless `.commandsRemoved()` (the Auto Rename Settings window also closes itself when the
+flag goes off). The favorites feature is hidden behind
 `FavoritesFeature.isEnabled == false` — models, stores, window and JSON schema are kept so the data
 survives. Design and the reasons are in `docs/14-library-collections.md`.
 
