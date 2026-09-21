@@ -1068,6 +1068,11 @@ final class AppState: ObservableObject {
                         // 上の4つだけを付け替えると、コレクションの行だけが古いパスに残り、その行から`bookID`で引くもの(表紙の指定・
                         // メタデータ)が、ONへ戻してその本をもう一度開くまで外れたままになった。5つは必ず揃えて付け替える。
                         self.collectionStore?.reconcileBookIDIfMoved(book: book)
+                        // 付け替え漏れのページの鍵(2026-09-21 より前に移したフォルダの本)を、ページが分かったいま直す
+                        // (PageKeyRelocation.repairs。フォルダの本でなければ何もしない)。
+                        let pageKeys = book.pages.map(\.sortKey)
+                        self.layoutStore?.repairStalePageKeys(forBookID: book.id, currentPageKeys: pageKeys)
+                        self.bookmarkStore?.repairStalePageKeys(forBookID: book.id, currentPageKeys: pageKeys)
                         // 識別子の補完(backfill)は5つのストアすべてに対して行う。
                         // 識別子を持たない古い行に足すのが元々の役目だったが、**ボリュームUUIDを
                         // 持たない行をUUIDでの照合へ昇格させる唯一の経路**でもある

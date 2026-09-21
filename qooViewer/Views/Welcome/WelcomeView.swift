@@ -68,6 +68,13 @@ struct WelcomeView: View {
             } else {
                 Spacer(minLength: 0)
             }
+            // ファイル操作の進捗の帯は、ふだんはファイルブラウザのペインの中(パスバーの上)に出る。**操作の最中にペインが消えても**
+            // (本棚へ切り替えた・環境設定でファイルブラウザを OFF にした)操作は最後まで続くので、帯と中止ボタンはここへ引き継ぐ
+            // (2026-09-21 の監査 docs/plans/feature-toggle-audit.md §4 ―― 以前は進捗も中止の手段もペインごと消えた)。動いていなければ何も描かない。
+            // 地は不透明(controlBackgroundColor)なので、すりガラス面の輪郭は掛けない(FileBrowserProgressBar の型コメント)。
+            if state.mode != .browser {
+                FileBrowserProgressBar(operations: fileBrowser.operations)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // 環境設定「外観」の「ウェルカム画面」に従う背景。「ウインドウの背後を透かす」

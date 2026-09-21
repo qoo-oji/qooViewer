@@ -208,8 +208,13 @@ final class LayoutStore: ObservableObject {
         let movedOverrides = overridesByBookID()[oldBookID] ?? []
         matched.bookID = book.id
         matched.updatedAt = Date()
+        // フォルダの本はページの鍵も付け替える(PageKeyRelocation の型コメント)。
+        Self.relocatePageKeys(of: matched, fromBookID: oldBookID, toBookID: book.id)
         for override in movedOverrides {
             override.bookID = book.id
+            if let key = PageKeyRelocation.relocated(override.pageKey, fromBookID: oldBookID, toBookID: book.id) {
+                override.pageKey = key
+            }
             override.compositeKey = PageLayoutOverride.makeCompositeKey(bookID: book.id, pageKey: override.pageKey)
         }
         // bookIDはキャッシュ辞書のキーそのものなので、書き換えたぶんを旧キーから新キーへ移す
@@ -224,6 +229,39 @@ final class LayoutStore: ObservableObject {
         // 新bookIDとは別に明示的に更新する。
         refreshLayoutBookID(oldBookID)
         saveAndNotify(bookID: book.id)
+    }
+
+    /// 本ごとの設定が持つページの鍵(書き出し用のカバー・コレクション表紙)を付け替える。
+    private static func relocatePageKeys(of row: BookLayoutSettings, fromBookID old: String, toBookID new: String) {
+        if let key = row.coverPageKey.flatMap({ PageKeyRelocation.relocated($0, fromBookID: old, toBookID: new) }) {
+            row.coverPageKey = key
+        }
+        if let key = row.shelfCoverPageKey.flatMap({ PageKeyRelocation.relocated($0, fromBookID: old, toBookID: new) }) {
+            row.shelfCoverPageKey = key
+        }
+    }
+
+    /// 付け替え漏れのページの鍵を直す(`PageKeyRelocation.repairs`。2026-09-21 より前に移したフォルダの本)。本を開いてページが分かった
+    /// 時点で呼ぶ(AppState.open)。直すものが無ければ何も書かない。
+    func repairStalePageKeys(forBookID bookID: String, currentPageKeys: [String]) {
+        let row = bookLayoutSettings(forBookID: bookID)
+        let overrides = pageOverrides(forBookID: bookID)
+        let keys = overrides.map(\.pageKey) + [row?.coverPageKey, row?.shelfCoverPageKey].compactMap { $0 }
+        let repairs = PageKeyRelocation.repairs(forStaleKeys: keys, bookID: bookID, currentPageKeys: currentPageKeys)
+        guard !repairs.isEmpty else { return }
+        // 直した先の鍵にもう行があるページは触らない(`compositeKey` が重なる)。
+        var taken = Set(overrides.map(\.pageKey))
+        for override in overrides {
+            guard let key = repairs[override.pageKey], !taken.contains(key) else { continue }
+            taken.insert(key)
+            override.pageKey = key
+            override.compositeKey = PageLayoutOverride.makeCompositeKey(bookID: bookID, pageKey: key)
+        }
+        if let row {
+            if let key = row.coverPageKey.flatMap({ repairs[$0] }) { row.coverPageKey = key }
+            if let key = row.shelfCoverPageKey.flatMap({ repairs[$0] }) { row.shelfCoverPageKey = key }
+        }
+        saveAndNotify(bookID: bookID)
     }
 
     /// 行のある本の `bookID`(アプリ自身が移した本の付け替えの材料。BookRelocationPlan)。
@@ -242,6 +280,8 @@ final class LayoutStore: ObservableObject {
             guard settings[new] == nil, (overrides[new] ?? []).isEmpty else { continue }
             if let row = settings[old] {
                 row.bookID = new
+                // フォルダの本はページの鍵も付け替える(PageKeyRelocation の型コメント)。
+                Self.relocatePageKeys(of: row, fromBookID: old, toBookID: new)
                 if let locator = plan.locators[new] {
                     row.inodeNumber = locator.identifier?.inodeNumber
                     row.volumeDeviceNumber = locator.identifier?.volumeDeviceNumber
@@ -251,6 +291,7 @@ final class LayoutStore: ObservableObject {
             }
             for override in overrides[old] ?? [] {
                 override.bookID = new
+                if let key = PageKeyRelocation.relocated(override.pageKey, fromBookID: old, toBookID: new) { override.pageKey = key }
                 override.compositeKey = PageLayoutOverride.makeCompositeKey(bookID: new, pageKey: override.pageKey)
             }
             relocated += 1

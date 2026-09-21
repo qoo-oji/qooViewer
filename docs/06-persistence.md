@@ -161,6 +161,19 @@ JSON 読み込みの重複判定も同じ識別子を使います。
 棚のキャプションは、付いていたのがファイル名から決まる題のときだけ新しい名前にする。テストの中で走るアプリでは繋がない。
 アプリの外(Finder)で動かした本は今までどおり、開いたときに上の追従で拾う。
 
+**フォルダの本は、ページの鍵も付け替える**(2026-09-21。`PageKeyRelocation`、Services/BookRelocation.swift)。フォルダの本の `PageRef.sortKey` は
+**絶対パス**(中の書庫・PDF のページも、その書庫の絶対パスが頭に付く)なので、本が動くと `bookID` だけでなく鍵の頭も変わる。鍵で持っている保存データ ――
+`PageLayoutOverride.pageKey`・`BookLayoutSettings.coverPageKey` / `shelfCoverPageKey`・`Bookmark.pageKey`・`BookReadingState.lastPageKey` ―― は、
+上の 2 つの経路(`reconcileBookIDIfMoved` と `applyBookRelocation`)で `bookID` と一緒に書き換える。それまでは `bookID` しか付け替えておらず、フォルダの本を
+移す・名前を変えると、ページ単位のレイアウトと「本の中のページ」で選んだ表紙が黙って外れ、ブックマークは番号へ落ちていた(鍵が合わないので、並びが
+変わると別のページを指す)。書庫・PDF・EPUB の本の鍵は本の中で閉じている(`/` で始まらない)ので無関係。
+- **それ以前に移した本の行は、開いたときに直す**(`PageKeyRelocation.repairs` → `LayoutStore` / `BookmarkStore` の `repairStalePageKeys`。
+  `AppState.open` が追従の直後に呼ぶ)。漏れた鍵は「昔の本のパス + 相対パス」で、昔のパスは分からないので、いまの本のページの相対パスで終わる鍵から
+  候補を出し、漏れた鍵の全部に共通する候補が**ちょうど 1 つ**のときだけ直す。2 通りに読めるとき(昔のフォルダ名と同じ名前のサブフォルダに同じ名前の
+  画像がある等)は推測せず何もしない。読書位置の鍵は直さない ―― 合わなければ番号で開き、ページを送った時点でいまの鍵に書き直される。
+- `PageLayoutOverride.compositeKey`(`bookID` + NUL + `pageKey`)は、**保存して読み直すと NUL の手前で切れて戻ってくる**(2026-09-21 の実測)。
+  もともとデバッグ表示用でどこからも読まれないので害は無いが、照合や検査に使ってはいけない。
+
 識別子は **inode + ボリューム**の組で、ボリュームの同定は `volumeUUID`
 (`.volumeUUIDStringKey`)を主、デバイス番号(`st_dev`)を控えとします。**デバイス番号は
 マウント順で変わります** ―― 他のボリュームを先に挿しただけで変わることをディスクイメージで

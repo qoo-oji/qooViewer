@@ -202,6 +202,12 @@ locations, and is not connected under tests). Anything in the file browser that 
 (`DirectoryProbe.protectedPrefixes`) and network volumes by `MountTable` — checking by touching them is itself what
 raises the TCC dialog or blocks for 30 s (docs/15 「サンドボックスと TCC の約束」). Design in `docs/15-file-browser.md`,
 remaining stages and the handoff in `docs/plans/file-browser-plan.md`.
+**A folder book's page keys (`PageRef.sortKey`) are absolute paths**, so everything that rekeys a moved book
+(`reconcileBookIDIfMoved`, `applyBookRelocation`, `BookRecordRelocator`) must also rewrite the page keys stored with it —
+`PageLayoutOverride.pageKey`, `coverPageKey` / `shelfCoverPageKey`, `Bookmark.pageKey`, `BookReadingState.lastPageKey` — through
+`PageKeyRelocation` (2026-09-21; before that only `bookID` moved and per-page layout and cover choices silently fell off). New
+page-keyed persisted data must join that list (docs/06「移動・リネームへの追従」). File-operation progress is shown by
+`FileBrowserProgressBar` in the pane, and by `WelcomeView` while the pane is not on screen (shelf mode, or the feature turned off mid-copy).
 `CollectionStore` is deliberately *not* in `AppStores.allObjectWillChangePublishers` (it publishes on every
 cover extraction/existence check); the menu bar's **Home** menu (2026-09-15) reads library/collection names from
 `HomeMenuDirectoryStore`, a value copy that publishes only when names, order or membership change. Home-screen menu

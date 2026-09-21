@@ -60,3 +60,48 @@ nonisolated struct BookRelocationPlan: Sendable {
         return isDirectory ? url.lastPathComponent : url.deletingPathExtension().lastPathComponent
     }
 }
+
+/// **フォルダの本のページの鍵は絶対パス**(`PageRef.sortKey`。BookLoader.collectPages ―― 中の書庫・PDF のページも、その書庫の絶対パスが頭に付く)。
+/// 本が移る・名前が変わると `bookID` だけでなく鍵の頭も変わるので、鍵で持っている保存データ(`PageLayoutOverride.pageKey`・
+/// `BookLayoutSettings.coverPageKey` / `shelfCoverPageKey`・`Bookmark.pageKey`・`BookReadingState.lastPageKey`)も一緒に付け替える。
+///
+/// 2026-09-21 まで付け替えていたのは `bookID` だけで、フォルダの本を移すと、ページ単位のレイアウト・「本の中のページ」で選んだ表紙が
+/// 黙って外れ、ブックマークは番号へ落ちた(鍵が合わないので、並びが変わると別のページを指す)。feature-toggle-audit.md §7 で見つけた件。
+/// 書庫・PDF・EPUB の本の鍵は本の中で閉じている(`/` で始まらない)ので、ここでは何も変わらない。
+nonisolated enum PageKeyRelocation {
+    /// `old` の本の鍵を `new` の本の鍵にする。付け替えが要らない鍵(本の中で閉じた鍵・その本の配下でない鍵)は nil。
+    static func relocated(_ pageKey: String, fromBookID old: String, toBookID new: String) -> String? {
+        guard old != new, old.hasPrefix("/"), pageKey.hasPrefix(old + "/") else { return nil }
+        return new + pageKey.dropFirst(old.count)
+    }
+
+    /// 付け替え漏れの鍵(2026-09-21 より前に移した本の行)を、いまの本のページから求め直す。
+    ///
+    /// 漏れた鍵は「昔の本のパス + 本の中の相対パス」。昔のパスは分からないので、**いまの本のページの相対パスで終わる鍵**を探し、
+    /// 残りを昔のパスの候補とする。漏れた鍵の全部(対応するページがもう無い鍵は除く)に共通する候補が**ちょうど 1 つ**のときだけ直す ――
+    /// 2 つ以上あり得るとき(昔のフォルダ名と同じ名前のサブフォルダに、同じ名前の画像があるような場合)は、推測せず何もしない。
+    /// - Parameters:
+    ///   - keys: その本の行が持っている鍵。
+    ///   - currentPageKeys: いま開いた本のページの鍵(`PageRef.sortKey`)。
+    /// - Returns: 直す鍵 → 新しい鍵。
+    static func repairs(forStaleKeys keys: [String], bookID: String, currentPageKeys: [String]) -> [String: String] {
+        guard bookID.hasPrefix("/") else { return [:] }
+        let prefix = bookID + "/"
+        let current = Set(currentPageKeys)
+        let relatives = Set(currentPageKeys.filter { $0.hasPrefix(prefix) }.map { String($0.dropFirst(bookID.count)) })
+        guard !relatives.isEmpty else { return [:] }
+        let stale = Set(keys.filter { $0.hasPrefix("/") && !$0.hasPrefix(prefix) && !current.contains($0) })
+        guard !stale.isEmpty else { return [:] }
+        var rootsByKey: [String: Set<String>] = [:]
+        for key in stale {
+            let roots = Set(relatives.filter { key.hasSuffix($0) && key.count > $0.count }.map { String(key.dropLast($0.count)) })
+            if !roots.isEmpty { rootsByKey[key] = roots }
+        }
+        guard var common = rootsByKey.values.first else { return [:] }
+        for roots in rootsByKey.values { common.formIntersection(roots) }
+        guard common.count == 1, let root = common.first else { return [:] }
+        var result: [String: String] = [:]
+        for key in rootsByKey.keys { result[key] = bookID + key.dropFirst(root.count) }
+        return result
+    }
+}

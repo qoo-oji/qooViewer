@@ -349,6 +349,10 @@ final class BookmarkStore: ObservableObject {
         // 明示的に決め打ちする。
         let oldBookID = candidatesByOldBookID.keys.sorted().first ?? candidates[0].bookID
         for bookmark in candidates {
+            // フォルダの本はページの鍵も付け替える(PageKeyRelocation の型コメント)。
+            if let key = bookmark.pageKey.flatMap({ PageKeyRelocation.relocated($0, fromBookID: bookmark.bookID, toBookID: book.id) }) {
+                bookmark.pageKey = key
+            }
             bookmark.bookID = book.id
         }
         try? modelContext.save()
@@ -365,6 +369,20 @@ final class BookmarkStore: ObservableObject {
         )
     }
 
+    /// 付け替え漏れのページの鍵を直す(`PageKeyRelocation.repairs`。LayoutStore.repairStalePageKeys と対)。
+    func repairStalePageKeys(forBookID bookID: String, currentPageKeys: [String]) {
+        let rows = bookmarksByBookID()[bookID] ?? []
+        let repairs = PageKeyRelocation.repairs(
+            forStaleKeys: rows.compactMap(\.pageKey), bookID: bookID, currentPageKeys: currentPageKeys
+        )
+        guard !repairs.isEmpty else { return }
+        for row in rows {
+            if let key = row.pageKey.flatMap({ repairs[$0] }) { row.pageKey = key }
+        }
+        // 行の増減も bookID の変化も無く、番号は本を開くときの resolveKeys が振り直すので、通知は出さない(backfill と同じ)。
+        try? modelContext.save()
+    }
+
     /// 行のある本の `bookID`(アプリ自身が移した本の付け替えの材料。BookRelocationPlan)。
     var knownBookIDs: Set<String> { Set(bookmarksByBookID().keys) }
 
@@ -378,6 +396,8 @@ final class BookmarkStore: ObservableObject {
             guard let rows = byBookID[old], !rows.isEmpty, (byBookID[new] ?? []).isEmpty else { continue }
             for row in rows {
                 row.bookID = new
+                // フォルダの本はページの鍵も付け替える(PageKeyRelocation の型コメント)。
+                if let key = row.pageKey.flatMap({ PageKeyRelocation.relocated($0, fromBookID: old, toBookID: new) }) { row.pageKey = key }
                 if let locator = plan.locators[new] {
                     row.inodeNumber = locator.identifier?.inodeNumber
                     row.volumeDeviceNumber = locator.identifier?.volumeDeviceNumber

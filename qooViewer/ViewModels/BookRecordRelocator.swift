@@ -82,6 +82,10 @@ final class BookRecordRelocator {
         var changed = false
         for state in states {
             guard let new = plan.bookIDs[state.bookID], !occupied.contains(new) else { continue }
+            // フォルダの本はページの鍵も付け替える(PageKeyRelocation の型コメント)。
+            if let key = state.lastPageKey.flatMap({ PageKeyRelocation.relocated($0, fromBookID: state.bookID, toBookID: new) }) {
+                state.lastPageKey = key
+            }
             state.bookID = new
             changed = true
         }

@@ -30,7 +30,8 @@ import SwiftData
 final class PageLayoutOverride {
     /// bookID + pageKeyを合成したキー(重複防止用のDB制約としてではなく、デバッグ・ログ表示上の
     /// 識別子として残している)。区切り文字にはパス文字列に出現しないNUL文字を使う
-    /// (makeCompositeKey参照)。
+    /// (makeCompositeKey参照)。**保存して読み直すと、NULの手前で切れた値(bookIDだけ)が戻ってくる**
+    /// (2026-09-21、PageKeyRelocationTestsで実測)。照合や検査には使わないこと ―― 引くのは必ずbookID + pageKey。
     var compositeKey: String
     var bookID: String
     var pageKey: String
