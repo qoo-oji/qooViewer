@@ -52,8 +52,12 @@ struct FileBrowserOperationsTests {
         var bulkRenameAnswer: BulkRenameSettings?
         private(set) var bulkRenameRequests: [BulkRenameRequest] = []
 
+        /// 一括リネームのシートが出ている間に起こすこと(設定の切り替えなど)。
+        var whileBulkRenameSheetIsUp: (() -> Void)?
+
         func requestBulkRename(_ request: BulkRenameRequest) async -> BulkRenameSettings? {
             bulkRenameRequests.append(request)
+            whileBulkRenameSheetIsUp?()
             return bulkRenameAnswer
         }
 
@@ -748,6 +752,27 @@ struct FileBrowserOperationsTests {
         settings.formatStyle = .nameAndCounter
         settings.customFormat = custom
         return settings
+    }
+
+    /// 2026-09-21 の実機: シートはウインドウの持ち物なので、ファイルブラウザを OFF にしてペインが消えても残り、押すと名前が変わった。
+    @Test("シートを出している間にファイルブラウザ機能が OFF・読み取り専用になったら、押しても名前を変えない", arguments: [true, false])
+    func bulkRenameIsDroppedWhenChangesBecomeRefusedWhileTheSheetIsUp(turnsFeatureOff: Bool) async throws {
+        let fixture = try Fixture("fbops-bulk-gate")
+        try Data("b".utf8).write(to: fixture.root.appendingPathComponent("b.txt"))
+        await fixture.showRoot()
+        let before = fixture.names(in: fixture.root)
+        let targets = ["a.txt", "b.txt"].map { fixture.entry(fixture.root.appendingPathComponent($0)) }
+        fixture.presenter.bulkRenameAnswer = Self.counterAnswer("F")
+        fixture.presenter.whileBulkRenameSheetIsUp = { [preferences = fixture.preferences] in
+            if turnsFeatureOff { preferences.fileBrowserFeatureEnabled = false } else { preferences.fileBrowserReadOnly = true }
+        }
+        fixture.state.operations.bulkRename(targets)
+        await fixture.finish()
+
+        #expect(fixture.presenter.bulkRenameRequests.count == 1)
+        #expect(fixture.names(in: fixture.root) == before)
+        #expect(fixture.state.commandStack.undoTitle == nil)
+        #expect(fixture.presenter.problems.isEmpty)
     }
 
     @Test("一括リネームは表示順に番号を振り、変えた項目を選ぶ。1 回の取り消しで全部戻り、入力は次に出す")

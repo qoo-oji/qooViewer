@@ -178,8 +178,9 @@ FileBrowserOperations(ウインドウごと。1 本ずつ直列・確認の受�
   (自動リネームは止まっている。ここは項目を消せるメニューではなく設定の並びなので、消さずに押せなくする)。
 - **「自動リネームの設定」ウインドウ**: 「ウインドウ」メニューに自動で並ぶ項目を `.commandsRemoved()` で落とし(`Window` シーンは宣言するだけで
   並ぶ。`SceneBuilder` は条件分岐できないので ON の間も並べない ―― 入り口は「ホーム」メニュー・右クリック・環境設定にある)、OFF にした時点で
-  開いていたウインドウは自分で閉じる(`AutoRenameSettingsWindow` の `onChange(of: fileBrowserFeatureEnabled, initial: true)` → `dismissWindow`。
-  出ているシートごと)。`.commandsRemoved()` は開いている間のメニュー下端のウインドウの一覧からも外してしまうので、ウインドウの側で
+  開いていたウインドウは自分で閉じる(`AutoRenameSettingsWindow` の `onChange(of: fileBrowserFeatureEnabled, initial: true)` →
+  `closeIfFileBrowserIsOff`)。**シートが付いている間の `dismissWindow` は何も起こさない**(`.sheet` の `onDismiss` から呼んでもまだ早い。どちらも
+  2026-09-21 の実機)ので、先にシートを下ろし、`NSWindow.attachedSheet` が nil になるのを待ってから閉じる。`.commandsRemoved()` は開いている間のメニュー下端のウインドウの一覧からも外してしまうので、ウインドウの側で
   `isExcludedFromWindowsMenu = false` に戻す(載るのは開いている間だけ。2026-09-21 の実機)。最初の版はこの 3 つが抜けていて、OFF の間もウインドウへ届き、そこの「アクセスを許可」や移動の提案の「更新」から
   自動リネームが動き出した(2026-09-21 の監査の F1)。
 - 淡色ではなく消すのは、ライブラリと同じ理由 ―― 機能そのものが無く、設定は環境設定ウインドウでしか変わらない(メニューを開いている最中に項目の数は変わらない)。
@@ -211,8 +212,11 @@ FileBrowserOperations(ウインドウごと。1 本ずつ直列・確認の受�
 OFF にしうる)。公開している値(`availability`・`targetsAwaitingConfirmation`・`moveSuggestions`・`isPausedForReadOnly`)も空にする。規則と実行ログには触らない。
 
 **OFF にした瞬間に進行中だったもの**(監査の §4。直していない ―― 環境設定を操作しないと踏めず、害が小さい): コピー・移動の最中に OFF にすると、
-操作は最後まで続くが進捗バーと中止ボタンはペインごと消える(`FileBrowserOperations` は `FileBrowserState` の持ち物)。ウインドウに出した確認・
-一括リネームのシートは残り、OFF の後に押しても実行される(入り口が見るのは読み取り専用だけ)。ウインドウごとの `FileBrowserState` とその購読
+操作は最後まで続くが進捗バーと中止ボタンはペインごと消える(`FileBrowserOperations` は `FileBrowserState` の持ち物)。名前の編集中に OFF にすると、
+編集は捨てられて名前は変わらない(実機)。**ウインドウに出した確認・一括リネームのシートは残るが、押しても実行しない**: `FileBrowserOperations.isReadOnly` は
+「ファイルブラウザ機能が OFF」も断る理由に数え、操作を始める前の確認・シートは `asking` を通して、出している間に断る状態(機能 OFF・読み取り専用)へ
+切り替わっていたら「キャンセル」扱いにする(最初の版は OFF の後に押すと実行された。実機で確認して直した)。切り替えの**前に**受け付けて並んでいた操作と、
+コピー・移動の途中の衝突の確認は、これまでどおり最後までやる(半分だけ済んだ状態で止めない)。ウインドウごとの `FileBrowserState` とその購読
 (アクティブ化・キーウインドウ・ボリューム・`FileSystemChangeCenter`・カット)は OFF でも残るが、そのたびの仕事はカットの検証とペーストボードの
 `changeCount` の比較だけ。サムネイルのディスクキャッシュの起動時 1 回の刈り込みは設定に関わらず走る(キャッシュは消さない約束なので、上限も守る)。
 

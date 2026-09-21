@@ -72,9 +72,30 @@ final class FileBrowserOperations: ObservableObject {
 
     // MARK: - 読み取り専用モード
 
-    /// ファイルを変える操作を断るか(環境設定「読み取り専用」)。環境設定が届いていなければ断る側に倒す。
+    /// ファイルを変える操作を断るか(環境設定「読み取り専用」、**または「ファイルブラウザを有効にする」が OFF**)。環境設定が届いていなければ
+    /// 断る側に倒す。
+    ///
+    /// 見るのは操作の入口(受け付けた操作は、その後で切り替わっても最後までやる ―― 走っている操作を途中で止めない)と、
+    /// **確認・シートを出している間に切り替わったとき**(`asking`)。
     var isReadOnly: Bool {
-        state?.preferences?.fileBrowserReadOnly ?? true
+        guard let preferences = state?.preferences else { return true }
+        return preferences.fileBrowserReadOnly || !preferences.fileBrowserFeatureEnabled
+    }
+
+    /// 操作を始める前の確認・シートを出し、答えを返す。**出している間に変更を断る状態へ切り替わっていたら nil**(どの呼び出し元でも
+    /// 「キャンセル」と同じ扱いになる)。
+    ///
+    /// 2026-09-21 の実機: 一括リネームのシートを出したままファイルブラウザを OFF にし、シートの「名前を変更」を押すと名前が変わった
+    /// (入口が見ていたのはシートを出す前の読み取り専用だけ。シートはウインドウの持ち物なので、ペインが消えても残る)。シートを出したまま
+    /// 読み取り専用へ切り替えた場合も同じ穴だった。利用者が設定を切り替えたのは答えるより後なので、新しいほうの意思を採る。
+    /// 出す**前から**断る状態だった操作(切り替えの前に受け付けて、並んでいた操作)は、これまでどおり最後までやる。
+    /// コピー・移動の途中の衝突の確認(`resolveConflict`)はここを通さない ―― 半分だけ済んだ状態で止めない。
+    private func asking<Answer>(_ ask: (any FileBrowserOperationPresenting) async -> Answer) async -> Answer? {
+        guard let presenter else { return nil }
+        let refusedBefore = isReadOnly
+        let answer = await ask(presenter)
+        if !refusedBefore, isReadOnly { return nil }
+        return answer
     }
 
     // MARK: - 開いている本
@@ -257,7 +278,7 @@ final class FileBrowserOperations: ObservableObject {
                     return candidates.filter { FileOperationService.movingIsBlockedByLock($0, to: folder, mounts: mounts) }
                 }
                 if !locked.isEmpty {
-                    switch await self.presenter?.confirmLockedItems(locked, totalCount: movers.count + copies.count, action: .move) ?? .stop {
+                    switch await self.asking({ await $0.confirmLockedItems(locked, totalCount: movers.count + copies.count, action: .move) }) ?? .stop {
                     case .proceed:
                         unlocksMovers = true
                     case .skipLocked:
@@ -278,7 +299,7 @@ final class FileBrowserOperations: ObservableObject {
                 let candidates = movers
                 let stranded = await FileIO.perform { candidates.filter { !canPutBack($0) } }
                 if !stranded.isEmpty {
-                    switch await self.presenter?.confirmIrreversibleMove(of: stranded, totalCount: movers.count + copies.count) ?? .stop {
+                    switch await self.asking({ await $0.confirmIrreversibleMove(of: stranded, totalCount: movers.count + copies.count) }) ?? .stop {
                     case .move:
                         movesAreUndoable = false
                     case .copy:
@@ -343,7 +364,7 @@ final class FileBrowserOperations: ObservableObject {
             let hasTrash = self.hasTrash
             let canTrash = await FileIO.perform { TrashAvailability.hasTrash(forAll: selected, using: hasTrash) }
             if !canTrash {
-                guard await self.presenter?.confirmImmediateDeletion(of: urls) == true else { return }
+                guard await self.asking({ await $0.confirmImmediateDeletion(of: urls) }) == true else { return }
             }
             // ロックされた項目は確認してから(Finder と同じ「続ける / 中止」)。ゴミ箱へ送るなら項目自身のロックだけが
             // 邪魔をする(中にロックされた項目があるフォルダは送れる。実測)が、完全に削除するなら中の項目も見る。
@@ -354,7 +375,7 @@ final class FileBrowserOperations: ObservableObject {
             var unlocking = false
             if !locked.isEmpty {
                 let action: LockedItemAction = canTrash ? .trash : .deleteImmediately
-                switch await self.presenter?.confirmLockedItems(locked, totalCount: urls.count, action: action) ?? .stop {
+                switch await self.asking({ await $0.confirmLockedItems(locked, totalCount: urls.count, action: action) }) ?? .stop {
                 case .proceed:
                     unlocking = true
                 case .skipLocked:
@@ -410,7 +431,7 @@ final class FileBrowserOperations: ObservableObject {
             // ロックされた項目は尋ねてから(移動と同じ。2026-09-14)。
             var unlocking = false
             if await FileIO.perform({ FileOperationService.isLocked(url) }) {
-                guard await self.presenter?.confirmLockedItems([url], totalCount: 1, action: .rename) == .proceed else { return }
+                guard await self.asking({ await $0.confirmLockedItems([url], totalCount: 1, action: .rename) }) == .proceed else { return }
                 unlocking = true
             }
             let command = RenameFileCommand(item: url, newName: newName, unlockingLocked: unlocking, fileOps: self.fileOps)
@@ -446,11 +467,9 @@ final class FileBrowserOperations: ObservableObject {
             let folderID = FileBrowserState.id(for: folder)
             guard targets.allSatisfy({ FileBrowserState.id(for: $0.deletingLastPathComponent()) == folderID }) else { return }
             let names = targets.map(\.lastPathComponent)
-            guard let existing = await Self.names(in: folder),
-                  let settings = await self.presenter?.requestBulkRename(
-                      BulkRenameRequest(names: names, existingNames: existing, settings: state.bulkRenameSettings)
-                  )
-            else { return }
+            guard let existing = await Self.names(in: folder) else { return }
+            let request = BulkRenameRequest(names: names, existingNames: existing, settings: state.bulkRenameSettings)
+            guard let settings = await self.asking({ await $0.requestBulkRename(request) }) ?? nil else { return }
             state.bulkRenameSettings = settings
             let locale = AppLanguage.currentLocale
             let mode = settings.mode(locale: locale)
@@ -473,7 +492,7 @@ final class FileBrowserOperations: ObservableObject {
             let locked = await FileIO.perform { candidates.filter { FileOperationService.isLocked($0) } }
             var unlocking = false
             if !locked.isEmpty {
-                switch await self.presenter?.confirmLockedItems(locked, totalCount: renames.count, action: .rename) ?? .stop {
+                switch await self.asking({ await $0.confirmLockedItems(locked, totalCount: renames.count, action: .rename) }) ?? .stop {
                 case .proceed:
                     unlocking = true
                 case .skipLocked:
@@ -515,7 +534,7 @@ final class FileBrowserOperations: ObservableObject {
             guard urls.allSatisfy({ FileBrowserState.id(for: $0.deletingLastPathComponent()) == parentID }) else { return }
             var destination = parent
             if choosingDestination {
-                guard let chosen = await self.presenter?.chooseDestinationFolder(for: .compress(count: urls.count), startingAt: parent)
+                guard let chosen = await self.asking({ await $0.chooseDestinationFolder(for: .compress(count: urls.count), startingAt: parent) }) ?? nil
                 else { return }
                 destination = chosen
             }
@@ -547,9 +566,10 @@ final class FileBrowserOperations: ObservableObject {
             guard let self, let first = archives.first else { return }
             var destination = first.deletingLastPathComponent()
             if choosingDestination {
-                guard let chosen = await self.presenter?.chooseDestinationFolder(
-                    for: .extract(count: archives.count), startingAt: destination
-                ) else { return }
+                let startingFolder = destination
+                guard let chosen = await self.asking({
+                    await $0.chooseDestinationFolder(for: .extract(count: archives.count), startingAt: startingFolder)
+                }) ?? nil else { return }
                 destination = chosen
             }
             let cancellation = Cancellation()

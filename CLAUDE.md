@@ -141,7 +141,9 @@ gated on it. The welcome screen has a second mode, the **file browser** (`Welcom
 `FileBrowserState` one-per-window — its sort key/direction are the side panel's `AppPreferences.folderBrowserSortKey`/`…Direction`, shared on purpose, while "folders first" stays separate — `FavoriteLocationStore`): list, tree and icons are AppKit (`NSTableView`/`NSOutlineView`/`NSCollectionView` — the icon view was moved off SwiftUI on 2026-09-15 so all three share the same drop, menu, key and rename paths), listing runs on `FileIO` (never `Task.detached`), and new tabs/windows receive a folder through
 `WindowContentRequest.browse` (the value type of the book `WindowGroup`s). Every write operation (copy/cut/paste, trash, compress/extract,
 new folder, rename, bulk rename, undo/redo) goes through `FileBrowserOperations` (one per `FileBrowserState`, serial, confirmations via
-`FileBrowserOperationPresenting`), which is also the one place that refuses them while read-only mode is on
+`FileBrowserOperationPresenting`), which is also the one place that refuses them while read-only mode is on — or the file browser feature is off —
+(`isReadOnly`; checked at each entrance, and again by `asking` when a confirmation or sheet returns, so a sheet left up
+across the switch does nothing; operations accepted before the switch still finish)
 (`AppPreferences.fileBrowserReadOnly`, **default ON**; the UI only dims items via `FileBrowserActions.allowsFileChanges`, and drags out
 become copy-only); tests inject a pseudo trash, a uniquely named pasteboard and a scripted presenter. An item is
 greyed out by the same predicate the action uses to refuse (`FileBrowserActions.canOpen` / `canChange` — which also

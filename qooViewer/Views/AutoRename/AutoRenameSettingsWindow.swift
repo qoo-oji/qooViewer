@@ -23,6 +23,12 @@ struct AutoRenameSettingsWindow: View {
     /// 「フォルダを追加…」で最後に足した対象(揃えたパス)と、パネルを閉じた時点で見ていた場所。規則の編集欄は規則ごとに
     /// 作り直す(`.id(selection)`)ので、ウインドウの側で持つ(AutoRenameRuleEditor.panelStartDirectory)。
     @State private var lastAddedTarget: AutoRenameRuleEditor.AddedTarget?
+    /// このウインドウ自身の NSWindow(シートが下り切ったかを見る。`closeIfFileBrowserIsOff`)。body からは読まない。
+    @State private var hostWindow = HostWindowBox()
+
+    private final class HostWindowBox {
+        weak var window: NSWindow?
+    }
 
     enum SheetKind: String, Identifiable {
         case confirmation
@@ -75,19 +81,39 @@ struct AutoRenameSettingsWindow: View {
         .onChange(of: service.requestedRuleID) { _, _ in consumeRequestedRule() }
         // 環境設定「ファイルブラウザを有効にする」が OFF の間は、このウインドウを出しておかない(2026-09-21 の監査の F1)。実行役は止まっていて
         // (AppStores.applyFileBrowserFeature)、ここで規則を変えても何も起きず、対象の状態も分からない。入り口はどれも OFF の間は消えるので、
-        // 残るのは「OFF にした時点で開いていた」場合だけ ―― 出ているシートごと閉じる。`initial` は、何かの拍子に OFF のまま開いたときのため。
-        .onChange(of: preferences.fileBrowserFeatureEnabled, initial: true) { _, isEnabled in
-            if !isEnabled { dismissWindow(id: Self.windowID) }
-        }
+        // 残るのは「OFF にした時点で開いていた」場合だけ。`initial` は、何かの拍子に OFF のまま開いたときのため。
+        .onChange(of: preferences.fileBrowserFeatureEnabled, initial: true) { _, _ in closeIfFileBrowserIsOff() }
         // シーンの `.commandsRemoved()`(QooViewerApp.autoRenameSettingsScene ―― 「ウインドウ」メニューに常に並ぶ「開く」項目を落とす)は、
         // **開いている間の、メニュー下端の「開いているウインドウの一覧」からもこのウインドウを外してしまう**(2026-09-21 の実機。シーンの
         // 項目がその一覧の行を兼ねていた)。一覧に載るかどうかは NSWindow の側の指定なので、自分の載っているウインドウへ直に戻す。
         // 載るのは開いている間だけで、閉じれば消える(実機で確認)ので、ファイルブラウザ機能が OFF の間の入り口にはならない。
         .background(WindowAccessor { window in
             window?.isExcludedFromWindowsMenu = false
+            hostWindow.window = window
         })
         .onChange(of: store.rules.map(\.id)) { _, ids in
             if let selected = selection, !ids.contains(selected) { selection = ids.first }
+        }
+    }
+
+    /// ファイルブラウザ機能が OFF なら、このウインドウを閉じる。
+    ///
+    /// **シートが付いている間の `dismissWindow` は何も起こさない**(2026-09-21 の実機: 実行ログのシートを出したまま OFF にしたら、ウインドウも
+    /// シートも残った。`.sheet` の `onDismiss` から呼んでも、その時点ではまだ付いていて閉じなかった)。先にシートを下ろし、AppKit の側で
+    /// 下り切る(`attachedSheet == nil`)のを待ってから閉じる。待つのは長くて 5 秒 ―― 下りなければ諦める(害は無い。実行役は止まっている)。
+    private func closeIfFileBrowserIsOff() {
+        guard !preferences.fileBrowserFeatureEnabled else { return }
+        sheet = nil
+        let box = hostWindow
+        Task { @MainActor in
+            var waits = 0
+            while box.window?.attachedSheet != nil, waits < 100 {
+                try? await Task.sleep(for: .milliseconds(50))
+                waits += 1
+            }
+            // 待っているあいだに ON へ戻されていたら閉じない。
+            guard !preferences.fileBrowserFeatureEnabled else { return }
+            dismissWindow(id: Self.windowID)
         }
     }
 
