@@ -181,7 +181,9 @@ SwiftUI menus. "Show in File Browser" (next to every "Show in Finder") goes thro
 views, the `\.revealInFileBrowser` environment value, which holds `AppState` weakly; `OpenWindowAction` is passed per call and
 never stored on `AppState`; its AppKit menu items carry closures in a box whose action must not be named
 `perform(_:)` (it silently resolved to NSObject's `performSelector:`). Windows and tabs without a book are titled by
-what they show (`WindowTitle`: current folder / library / collection). Drag and drop
+what they show (`WindowTitle`: current folder / library / collection). Back/forward also comes from trackpad flicks and
+mouse side buttons (2026-09-21; `FileBrowserNavigationGestureMonitor`, a window-scoped local event monitor that consumes
+nothing but the momentum of a flick that navigated; rules in `FileBrowserNavigationGesture`, docs/15). Drag and drop
 decides move/copy in one place (`FileDropPlan` + `FileBrowserDropDecision`); the right pane is covered by a drop target that refuses
 *as a target*, because a refused inner SwiftUI drop falls through to the window-wide "open book" drop target. Inside SwiftUI
 `.contextMenu`, `.disabled` has no effect on a `Menu` (submenu), so a disabled submenu is drawn as a disabled `Button`; and the list/tree

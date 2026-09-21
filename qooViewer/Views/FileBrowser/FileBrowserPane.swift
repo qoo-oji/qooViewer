@@ -127,6 +127,8 @@ struct FileBrowserPane: View {
             }
         }
         .coordinateSpace(.named(Self.coordinateSpace))
+        // トラックパッドの左右フリックとマウスのサイドボタンで戻る・進む(ユーザー要望 2026-09-21)。
+        .fileBrowserNavigationGestures(appState: appState, actions: actions)
         .onAppear {
             connectActions()
             state.activate()
