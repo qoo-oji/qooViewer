@@ -6,14 +6,17 @@ import SwiftUI
 /// 押すたびに本棚 ⇄ ファイルブラウザを切り替える(WelcomeLibraryState.mode)。ファイルブラウザの
 /// 間はどのライブラリのチップも選ばれていない見た目にし、チップを押すと本棚へ戻る。
 ///
-/// ■ 以前あった左端の2つのボタン(2026-09-13に撤去、改善要望7)
-/// 「本を開く…」と「履歴から開く」(ポップオーバー)が並んでいた。本を開くのはファイルメニューの
-/// 「開く…」(⌘O)、履歴はファイルメニューの「最近使った項目を開く」とサイドパネルの「履歴」
-/// モードに残る。
+/// ■ 左端の2つのボタン「本を開く…」「履歴から開く」(v1.50〜v1.56 の形)
+/// 2026-09-13 に撤去した(改善要望7 ―― 左端をファイルブラウザへの切り替えに譲った。本を開くのはファイルメニューの
+/// 「開く…」(⌘O)、履歴はファイルメニューの「最近使った項目を開く」とサイドパネルの「履歴」モードに残る)。
+/// 2026-09-21 から、**環境設定「ファイルブラウザを有効にする」がOFFの間だけ**戻している(ユーザー要望: ファイルブラウザを
+/// 使わないなら、ホームはファイルブラウザが入る前の形に戻る)。ONの間は今までどおり、左端は切り替えのボタン。
 ///
-/// 2つのボタンにはAppKitのベゼルが面に溶けて消える問題があり、`.panelControlWell()`で溝を
-/// 敷いていた(重ね色を文字色そのもの ―― ダーク+白100% ―― にするとベゼルも文字も跡形もなく
-/// 消えた。実測)。標準のボタンを帯へ戻すときは同じ扱いが要る。
+/// 2つのボタンにはAppKitのベゼルが面に溶けて消える問題があり、`.panelControlWell()`で溝を敷く
+/// (重ね色を文字色そのもの ―― ダーク+白100% ―― にするとベゼルも文字も跡形もなく消えた。実測)。溝だけでは**文字**が
+/// 薄いままなので、ラベルには併せて`.panelOutlinedContent()`も掛ける(溝は形を、輪郭は文字を救う)。
+/// 当時との違い: 「履歴から開く」を出すかどうかの設定(showRecentFilesOnWelcome)は同じ日に撤去したので常に出す。
+/// 「本を開く…」に ⌘O は付けない(ファイルメニューの「開く…」が持っている)。
 ///
 /// ■ 輪郭(すりガラス面の決まりごと)
 /// - 「＋」 → `.panelIconButtonLabel()`が内側で輪郭を掛けている
@@ -22,6 +25,7 @@ import SwiftUI
 /// - ライブラリ名 → 未選択は`.panelOutlinedContent()`、選択中はアクセント地なので
 ///   `.panelOutlinedAccent(in:)`(地の色と重ね色が近いと、どれを選んでいるか分からなくなる)
 struct WelcomeTopBar: View {
+    @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var collectionStore: CollectionStore
     @Environment(\.locale) private var locale
     /// 選択中のチップ・ファイルブラウザの切り替えの色(ウインドウが後ろなら灰色。`SelectionEmphasis`)。
@@ -49,8 +53,8 @@ struct WelcomeTopBar: View {
     /// ライブラリ名の幅。**名前の長さでは変えない**(ユーザー指摘 2026-09-09 ―― 幅が名前ごとに
     /// 変わるチップが並ぶのは落ち着かない)。
     ///
-    /// 見積もりの材料は、以前左に並んでいた2つのボタンのラベル。ボタンは撤去したが(型コメント)、
-    /// **チップの幅を変えないために同じ2つの文字列を測り続ける**(文字列はString Catalogに残してある)。
+    /// 見積もりの材料は、左端の2つのボタン(型コメント)のラベル。ボタンが出ていない(ファイルブラウザ機能がONの)間も
+    /// **チップの幅を変えないために同じ2つの文字列を測る**。ボタンのラベルの幅にもこの値を使う(帯の中の刻みを1つに保つ)。
     private var chipLabelWidth: CGFloat {
         MetadataButtonWidthEstimator.equalWidth(
             for: [
@@ -65,6 +69,8 @@ struct WelcomeTopBar: View {
     /// 出しているライブラリの名前入力。**2つの`.sheet`を同じビューに付けない**ため、作成と
     /// リネームを1つの状態にまとめている(SwiftUIでは同じビューに複数のシートを付けると
     /// 後から付けたほうだけが効く)。
+    /// 「履歴から開く」のポップオーバー(ファイルブラウザ機能がOFFの間の帯。型コメント)。
+    @State private var isShowingRecentBooks = false
     @State private var librarySheet: LibrarySheet?
     @State private var deletingLibraryID: UUID?
     /// いまドラッグしているチップ。落とし先の印を、掴んだチップ自身には出さないために持つ。
@@ -83,11 +89,12 @@ struct WelcomeTopBar: View {
             // (ファイルブラウザを足す前の帯の形。2026-09-21、ユーザー要望)。
             if state.isFileBrowserFeatureEnabled {
                 fileBrowserToggle
-
-                // ファイルブラウザ(モードの切り替え)とライブラリの並び(本棚の中の選択)は別の役割なので区切る
-                // (ユーザー要望 2026-09-13)。
-                WelcomeSeparator(axis: .vertical, length: 20)
+            } else {
+                openButtons
             }
+            // 左端(モードの切り替え、または本を開く2つの入り口)とライブラリの並び(本棚の中の選択)は別の役割なので区切る
+            // (ユーザー要望 2026-09-13)。
+            WelcomeSeparator(axis: .vertical, length: 20)
 
             libraryChips
 
@@ -180,6 +187,32 @@ struct WelcomeTopBar: View {
                 .contentShape(shape)
         }
         .buttonStyle(.plain)
+    }
+
+    /// 「本を開く…」「履歴から開く」(型コメント「左端の2つのボタン」)。
+    ///
+    /// **幅はボタンではなくラベルに与える。** `Button(...).frame(width:)`だと、与えた幅はレイアウト上の枠にしか効かず、
+    /// 実際に描かれるベゼルは文字列の長さのまま枠の中央に置かれる(実測: 「本を開く…」82pt / 「履歴から開く」96pt)。
+    /// ラベル側を同じ幅にすれば、ベゼルもその幅+左右のインセットで揃う(同じ役割の並びなので幅を揃える)。
+    @ViewBuilder
+    private var openButtons: some View {
+        Button {
+            appState.openWithPanel()
+        } label: {
+            Text("Open Book…").panelOutlinedContent().frame(width: chipLabelWidth)
+        }
+        .panelControlWell()
+        Button {
+            isShowingRecentBooks = true
+        } label: {
+            Text("Open from History").panelOutlinedContent().frame(width: chipLabelWidth)
+        }
+        .panelControlWell()
+        // シークレットウインドウでは履歴を一切見せない(AppState.isPrivateWindowのコメント参照)。
+        .disabled(appState.isPrivateWindow)
+        .popover(isPresented: $isShowingRecentBooks, arrowEdge: .bottom) {
+            RecentBooksPopover()
+        }
     }
 
     @ViewBuilder

@@ -218,7 +218,7 @@ while off are remembered in UserDefaults and get their covers redone when it is 
 `AppPreferences.fileBrowserFeatureEnabled`): its items leave Home, the menu bar and every context menu — including all
 "Show in File Browser" items, which read `RevealInFileBrowserAction.isFeatureEnabled` — and `AutoRenameService` and the
 video thumbnail warmer stop (`AppStores.applyFileBrowserFeature`). The two flags together pick the Home layout in one
-place, `WelcomeLibraryState.constrained`: both on = as before, library only = the pre-file-browser shelf, file browser
+place, `WelcomeLibraryState.constrained`: both on = as before, library only = the pre-file-browser shelf (v1.50–v1.56: the top bar gets its Open Book… / Open from History buttons back), file browser
 only = the pane with no top bar, both off = `WelcomeMode.classic`, the pre-bookshelf welcome screen restored as
 `ClassicWelcomeView` (and no Home menu). `.classic` is never a user choice and forced modes are never saved. New file
 browser entry points must check the flag (docs/15「ファイルブラウザ機能の ON/OFF」). The favorites feature is hidden behind
