@@ -130,7 +130,9 @@ struct WelcomeView: View {
 
     @ViewBuilder
     private var creationSheet: some View {
-        if let creation = state.pendingCreations.first, let library {
+        // 作る先: ファイルブラウザのサブメニューで選んだライブラリ(PendingCollectionCreation.libraryID)、無ければ選んでいるライブラリ。
+        if let creation = state.pendingCreations.first,
+           let library = creation.libraryID.flatMap({ collectionStore.library(withID: $0) }) ?? library {
             CollectionNameSheet(
                 kind: .newCollection,
                 initialName: creation.defaultName,
@@ -295,7 +297,7 @@ enum WelcomeDropHandling {
     /// - Returns: 1件でも積んだか(何も本にならなかったら false)。
     @discardableResult
     static func queueCreations(
-        from classified: [CollectionDropClassifier.Item], into state: WelcomeLibraryState
+        from classified: [CollectionDropClassifier.Item], into state: WelcomeLibraryState, libraryID: UUID? = nil
     ) -> Bool {
         var queued: [WelcomeLibraryState.PendingCollectionCreation] = []
         let looseBooks = classified.compactMap { item -> URL? in
@@ -306,7 +308,7 @@ enum WelcomeDropHandling {
             queued.append(
                 .init(
                     defaultName: "", books: looseBooks, fromShelf: false, fromDrop: true,
-                    autoFolder: commonParentFolder(of: looseBooks)
+                    autoFolder: commonParentFolder(of: looseBooks), libraryID: libraryID
                 )
             )
         }
@@ -315,7 +317,7 @@ enum WelcomeDropHandling {
             queued.append(
                 .init(
                     defaultName: folder.lastPathComponent, books: books, fromShelf: true,
-                    fromDrop: true, autoFolder: folder
+                    fromDrop: true, autoFolder: folder, libraryID: libraryID
                 )
             )
         }

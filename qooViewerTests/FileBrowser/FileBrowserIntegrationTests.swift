@@ -476,6 +476,8 @@ struct FileBrowserIntegrationTests {
         }
 
         #expect(titles(.addToCollection) == ["No Collections"])
+        // ライブラリが 1 つの間、「コレクションを作成」はサブメニューにしない(選ぶものが無い)。
+        #expect(FileBrowserMenuCommand.createCollection.dynamicChildren(in: context, actions: fixture.actions, locale: english) == nil)
         let pending = CollectionStore.makePendingItem(for: book).map { [$0] } ?? []
         #expect(fixture.library.collections.createCollection(name: "Shelf B", in: target, items: pending) != nil)
         #expect(fixture.library.collections.createCollection(name: "Shelf A", in: target, items: pending) != nil)
@@ -484,6 +486,16 @@ struct FileBrowserIntegrationTests {
         #expect(FileBrowserMenuCommand.copy.dynamicChildren(in: context, actions: fixture.actions, locale: english) == nil)
         // 「このアプリケーションで開く」の末尾は必ず「その他…」。
         #expect(titles(.openWith).last == "Other…")
+
+        // ライブラリが増えると、「コレクションを作成」は作る先のライブラリを選ぶサブメニューになる(名前は本棚の帯と同じ。
+        // 既定のライブラリは表示言語の訳)。「コレクションに登録」もライブラリごとの 2 段になる。
+        #expect(fixture.library.collections.createLibrary(name: "Second") != nil)
+        #expect(titles(.createCollection) == ["Library", "Second"])
+        #expect(titles(.addToCollection) == ["Library", "Second"])
+        let menu = NSMenu()
+        FileBrowserMenuBuilder().rebuild(menu, for: context, actions: fixture.actions, locale: english)
+        let createItem = try #require(menu.items.first { $0.title == "Create Collection" })
+        #expect(createItem.submenu?.items.map(\.title) == ["Library", "Second"])
     }
 
     @Test("AppKit のメニューに組んだ場面で変わる項目は、押すと自分の閉包へ届く(NSObject のメソッドを指さない)")
@@ -653,7 +665,15 @@ struct FileBrowserIntegrationTests {
         #expect(fixture.welcome.pendingCreations.first?.books == [loose])
         #expect(fixture.welcome.pendingCreations.last?.defaultName == "Shelf")
         #expect(fixture.welcome.pendingCreations.map(\.fromDrop) == [true, true])
+        // 作る先を選ばなければ、本棚で選んでいるライブラリ(nil)。
+        #expect(fixture.welcome.pendingCreations.map(\.libraryID) == [nil, nil])
         #expect(fixture.presenter.problems.isEmpty)
+
+        // サブメニューでライブラリを選んだときは、積んだ全部がそのライブラリ宛てになる。
+        fixture.welcome.pendingCreations = []
+        let second = try #require(fixture.library.collections.createLibrary(name: "Second"))
+        await fixture.actions.createCollection(from: [fixture.entry(loose), fixture.entry(shelf)], libraryID: second.id)?.value
+        #expect(fixture.welcome.pendingCreations.map(\.libraryID) == [second.id, second.id])
 
         fixture.welcome.pendingCreations = []
         let empty = try fixture.temporary.directory("empty")

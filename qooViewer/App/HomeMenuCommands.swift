@@ -153,11 +153,26 @@ struct HomeMenuItems: View {
         Divider()
 
         // ファイルブラウザで選んだ項目から(右クリックの「コレクションを作成」「コレクションに登録」と同じ)。
-        Button("Create Collection") { [weak appState] in
-            guard let actions = appState?.fileBrowserActions, let entries = actions.state?.selectedEntries else { return }
-            actions.createCollection(from: entries)
+        // ライブラリが複数あるときは、作る先のライブラリを選ぶサブメニュー(右クリックと同じ。2026-09-21)。
+        if directory.libraries.count > 1 {
+            Menu("Create Collection") {
+                ForEach(directory.libraries) { [appState] library in
+                    Button { [weak appState] in
+                        guard let actions = appState?.fileBrowserActions, let entries = actions.state?.selectedEntries else { return }
+                        actions.createCollection(from: entries, libraryID: library.id)
+                    } label: {
+                        Text(verbatim: library.displayName(language: locale))
+                    }
+                }
+            }
+            .disabled(selection?.canUseAsBooks != true)
+        } else {
+            Button("Create Collection") { [weak appState] in
+                guard let actions = appState?.fileBrowserActions, let entries = actions.state?.selectedEntries else { return }
+                actions.createCollection(from: entries)
+            }
+            .disabled(selection?.canUseAsBooks != true)
         }
-        .disabled(selection?.canUseAsBooks != true)
         Menu("Add to Collection") {
             if let actions = appState?.fileBrowserActions, let selection, selection.canUseAsBooks {
                 FileBrowserMenuNodeItems(nodes: FileBrowserMenuCommand.addToCollection.dynamicChildren(

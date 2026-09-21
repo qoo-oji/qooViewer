@@ -31,18 +31,19 @@ extension FileBrowserActions {
 
     /// 「コレクションを作成」。ウェルカム画面(編集モード)へのドロップと同じ振り分けで、名前を訊くシートを積む
     /// (ばらの本はまとめて 1 つ、棚はフォルダ名で 1 つずつ。WelcomeDropHandling.queueCreations)。
-    /// 作る先は本棚で選んでいるライブラリ。
     ///
+    /// - Parameter libraryID: 作る先のライブラリ。ライブラリが複数あるときは「コレクションを作成」がサブメニューになり、そこで選ぶ
+    ///   (2026-09-21、ユーザー要望。「コレクションに登録」と同じ形)。nil(ライブラリが 1 つ)なら本棚で選んでいるライブラリ。
     /// - Returns: 振り分けの Task(**テストのための口**。待ち合わせに使う)。
     @discardableResult
-    func createCollection(from entries: [FileBrowserEntry]) -> Task<Void, Never>? {
+    func createCollection(from entries: [FileBrowserEntry], libraryID: UUID? = nil) -> Task<Void, Never>? {
         guard allowsSaving, canUseAsBooks(entries) else { return nil }
         let urls = entries.map(\.url)
         let order = preferences?.siblingBookOrder ?? .byName
         return Task { [weak self] in
             let classified = await FileIO.perform { CollectionDropClassifier.classify(urls, order: order) }
             guard let self, let welcomeLibrary = self.appState?.welcomeLibrary else { return }
-            if !WelcomeDropHandling.queueCreations(from: classified, into: welcomeLibrary) {
+            if !WelcomeDropHandling.queueCreations(from: classified, into: welcomeLibrary, libraryID: libraryID) {
                 self.reportNoBooks(in: entries, forCollection: true)
             }
         }
@@ -52,19 +53,23 @@ extension FileBrowserActions {
     ///
     /// アイコン表示の右クリックメニューはセルの本体評価のたびに組み立てられる(OpenWithApplications の型コメント)ので、
     /// ストアの通し番号と並び順が変わらない間は同じものを返す。
-    func collectionMenuLibraries() -> [CollectionMenuLibrary] {
+    func collectionMenuLibraries(locale: Locale) -> [CollectionMenuLibrary] {
         guard let collectionStore else { return [] }
         let sort = appState?.welcomeLibrary?.collectionSort ?? .nameAscending
-        if let cached = collectionMenuCache, cached.revision == collectionStore.revision, cached.sort == sort {
+        if let cached = collectionMenuCache, cached.revision == collectionStore.revision, cached.sort == sort,
+           cached.localeIdentifier == locale.identifier {
             return cached.libraries
         }
         let libraries = collectionStore.libraries.map { library in
             CollectionMenuLibrary(
-                id: library.id, name: library.name,
+                // 本棚の帯と同じ名前(既定のライブラリは表示言語の訳)。
+                id: library.id, name: library.displayName(language: locale),
                 collections: collectionStore.collections(in: library, sort: sort).map { ($0.id, $0.name) }
             )
         }
-        collectionMenuCache = CollectionMenuCache(revision: collectionStore.revision, sort: sort, libraries: libraries)
+        collectionMenuCache = CollectionMenuCache(
+            revision: collectionStore.revision, sort: sort, localeIdentifier: locale.identifier, libraries: libraries
+        )
         return libraries
     }
 
@@ -343,6 +348,8 @@ struct CollectionMenuLibrary: Equatable {
 struct CollectionMenuCache {
     let revision: UInt64
     let sort: FavoritesSortOption
+    /// ライブラリの名前を引いた表示言語(既定のライブラリの名前は言語で変わる)。
+    let localeIdentifier: String
     let libraries: [CollectionMenuLibrary]
 }
 
@@ -367,7 +374,8 @@ enum FileBrowserMenuNode {
 }
 
 extension FileBrowserMenuCommand {
-    /// 中身が場面で変わるサブメニュー(このアプリケーションで開く・常にこのアプリケーションで開く・コレクションに登録・本の書き出し)。
+    /// 中身が場面で変わるサブメニュー(コレクションを作成〈ライブラリが複数のとき〉・このアプリケーションで開く・
+    /// 常にこのアプリケーションで開く・コレクションに登録・本の書き出し)。
     /// それ以外は nil。
     @MainActor
     func dynamicChildren(
@@ -387,8 +395,18 @@ extension FileBrowserMenuCommand {
                 open: { [weak actions] application in actions?.alwaysOpen(entries, withApplicationAt: application) },
                 chooseOther: { [weak actions] in actions?.chooseApplicationAndAlwaysOpen(entries) }
             )
+        case .createCollection:
+            // ライブラリが 1 つなら選ぶものが無いので、サブメニューにしない(押すとそのまま名前を訊く)。
+            let libraries = actions.collectionMenuLibraries(locale: locale)
+            guard libraries.count > 1 else { return nil }
+            return libraries.map { library in
+                .item(
+                    title: library.name, image: nil, isEnabled: true,
+                    action: { [weak actions] in actions?.createCollection(from: entries, libraryID: library.id) }
+                )
+            }
         case .addToCollection:
-            let libraries = actions.collectionMenuLibraries()
+            let libraries = actions.collectionMenuLibraries(locale: locale)
             func collectionItems(_ library: CollectionMenuLibrary) -> [FileBrowserMenuNode] {
                 guard !library.collections.isEmpty else {
                     return [.item(

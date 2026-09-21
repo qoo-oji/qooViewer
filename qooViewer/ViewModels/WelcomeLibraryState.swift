@@ -282,6 +282,10 @@ final class WelcomeLibraryState: ObservableObject {
         /// (サンドボックス。CLAUDE.md)。パスは初期値として出すが、実際に自動登録が動き出す
         /// のはユーザーがアクセスを許可してから(CollectionAutoFolderRow参照)。
         var autoFolder: URL?
+        /// 作る先のライブラリ。nil なら本棚で選んでいるライブラリ(「＋」・ドロップ)。ファイルブラウザの「コレクションを作成」▸
+        /// ライブラリ で選んだときだけ入る(2026-09-21、ユーザー要望 ―― ファイルブラウザの間は本棚のライブラリの選択が見えず、
+        /// 選び直す手段も無かった)。idで持つのは、名前を訊いている間に別のウインドウが消しうるため(消えていれば選んでいるライブラリへ)。
+        var libraryID: UUID?
     }
 
     /// 保存先。通常はアプリの`UserDefaults.standard`で、テストだけが専用のsuiteを渡す
