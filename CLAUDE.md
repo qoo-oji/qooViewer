@@ -255,6 +255,17 @@ fixed 2026-09-13). Same rule for `NSViewRepresentable` callbacks (clear them in 
 `NSTrackingArea(owner: self)`. Leaks here are silent — verify with `heap`/`footprint` as in
 `docs/12-verification-and-debugging.md`. Details in `docs/09-ui-and-windows.md`.
 
+**Appearance settings come in two sets** (2026-09-22): everything on Settings ▸ Appearance lives in
+`AppearanceSettings` (ViewModels/AppearanceSettings.swift), not `AppPreferences` — `preferences.appearance` (normal
+windows, the original keys) and `preferences.privateAppearance` (private windows, same keys + `.privateWindow`), switched by
+`privateWindowsUseOwnAppearance` (default OFF). Views read `@EnvironmentObject var appearance: AppearanceSettings`: every
+scene injects the normal set next to `preferences`, and `ContentView.body` overrides it with the window's own set, so a new
+scene that injects `preferences` must inject `preferences.appearance` too (a missing environment object crashes). A new
+appearance setting goes into `AppearanceSettings` (`allKeys` + `copyValues`; `AppearanceSettingsTests` names what you
+missed). Per-window light/dark and the title-bar color go through SwiftUI (`.preferredColorScheme`,
+`.toolbarBackgroundVisibility(.hidden, for: .windowToolbar)` in Views/WindowChrome.swift): setting `NSWindow.appearance` or
+`titlebarAppearsTransparent` from AppKit is written back by SwiftUI on the next update (measured with KVO).
+
 **EPUB/PDF layout is a seed, not an authority**: when a book carries `MangaBook.sourceLayoutHint` (page
 progression direction / forced spread) or per-page spread hints, those are imported into the database
 **once**, the first time the book is opened (`LayoutStore.importSourceLayoutIfNeeded(for:)`, guarded by

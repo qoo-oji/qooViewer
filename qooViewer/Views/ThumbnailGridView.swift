@@ -45,6 +45,8 @@ struct ThumbnailGridView: View {
     /// (ViewerView.thumbnailGridEventMonitor参照)。
     @Binding var eventMonitor: Any?
     @EnvironmentObject private var preferences: AppPreferences
+    /// 外観タブの設定。本のウインドウではそのウインドウの揃い(ノーマル/シークレット。ContentView が渡す)。
+    @EnvironmentObject private var appearance: AppearanceSettings
 
     private static let contentPadding: CGFloat = 16
 
@@ -121,22 +123,22 @@ struct ThumbnailGridView: View {
     /// (レイアウトが崩れるだけでは済まない)。RecentFilesStore.maxCountが保存件数を
     /// 同じように読み出し時にクランプしているのと同じ考え方。
     private var cellSize: CGFloat {
-        Self.cellSize(from: preferences)
+        Self.cellSize(from: appearance)
     }
 
     /// 上と同じ計算を、Viewのインスタンスを介さずに行う版。ホイールのスクロール量を決める
     /// NSEventモニタから使う(makeWheelMonitorのコメント参照。あのクロージャは`self`を
     /// 捕まえてはいけない)。
-    private static func cellSize(from preferences: AppPreferences) -> CGFloat {
-        let range = AppPreferences.thumbnailGridCellSizeRange
-        return CGFloat(min(max(preferences.thumbnailGridCellSize, range.lowerBound), range.upperBound))
+    private static func cellSize(from appearance: AppearanceSettings) -> CGFloat {
+        let range = AppearanceSettings.thumbnailGridCellSizeRange
+        return CGFloat(min(max(appearance.thumbnailGridCellSize, range.lowerBound), range.upperBound))
     }
 
     /// サムネイル同士の横の間隔(pt)。負の値を弾くためにクランプする(理由はcellSizeと同じ)。
     private var horizontalSpacing: CGFloat {
-        let range = AppPreferences.thumbnailGridSpacingRange
+        let range = AppearanceSettings.thumbnailGridSpacingRange
         return CGFloat(
-            min(max(preferences.thumbnailGridHorizontalSpacing, range.lowerBound), range.upperBound)
+            min(max(appearance.thumbnailGridHorizontalSpacing, range.lowerBound), range.upperBound)
         )
     }
 
@@ -151,8 +153,8 @@ struct ThumbnailGridView: View {
         // 引いた残り」。列数はその幅から自動で決まる(columnCount(forPanelWidth:))。
         // このビュー自身は画像表示領域いっぱいに広がり、パネル本体をその中央に置く。
         GeometryReader { geometry in
-            let hMargin = geometry.size.width * CGFloat(preferences.thumbnailGridHorizontalMarginPercent) / 100
-            let vMargin = geometry.size.height * CGFloat(preferences.thumbnailGridVerticalMarginPercent) / 100
+            let hMargin = geometry.size.width * CGFloat(appearance.thumbnailGridHorizontalMarginPercent) / 100
+            let vMargin = geometry.size.height * CGFloat(appearance.thumbnailGridVerticalMarginPercent) / 100
             let panelWidth = max(geometry.size.width - hMargin * 2, 120)
             let panelHeight = max(geometry.size.height - vMargin * 2, 120)
             let cellHeight = cellSize
@@ -184,8 +186,8 @@ struct ThumbnailGridView: View {
                         .foregroundStyle(.secondary)
                         .panelOutlinedContent()
                     Slider(
-                        value: $preferences.thumbnailGridCellSize,
-                        in: AppPreferences.thumbnailGridCellSizeRange
+                        value: $appearance.thumbnailGridCellSize,
+                        in: AppearanceSettings.thumbnailGridCellSizeRange
                     )
                     .frame(width: 140)
                     .controlSize(.small)
@@ -217,7 +219,7 @@ struct ThumbnailGridView: View {
                     // 掛けられない(つまみの落ち影までシルエットに含まれてにじむ)。
                     // 隣のスライダーとまったく同じ理由・同じ対処になる
                     // (panelControlWellのコメント参照)。
-                    Toggle(isOn: $preferences.showThumbnailHoverPreview) {
+                    Toggle(isOn: $appearance.showThumbnailHoverPreview) {
                         Text("Show Preview")
                     }
                     .labelsHidden()
@@ -238,10 +240,10 @@ struct ThumbnailGridView: View {
                     // 帳簿の下限セル数: 画面内に収まりうるセル数(列数×見えている行数+先読み分)の
                     // 3倍。これ未満で作り直すと、画面内ぶんの読み直しだけで再び予算へ達して
                     // 作り直しがループしかねない(LazyCellImageBudgetの型コメント参照)。
-                    let rowHeight = Self.gridRowHeight(from: preferences)
+                    let rowHeight = Self.gridRowHeight(from: appearance)
                     let visibleCellEstimate = count * (Int((panelHeight / max(rowHeight, 1)).rounded(.up)) + 2)
                     let minimumCellCount = max(visibleCellEstimate * 3, 64)
-                    LazyVGrid(columns: columns, spacing: CGFloat(preferences.thumbnailGridVerticalSpacing)) {
+                    LazyVGrid(columns: columns, spacing: CGFloat(appearance.thumbnailGridVerticalSpacing)) {
                         ForEach(0..<viewModel.pageCount, id: \.self) { index in
                             Button {
                                 viewModel.jump(toPageIndex: index)
@@ -301,7 +303,7 @@ struct ThumbnailGridView: View {
             // パネルの背景の濃さと重ね色は環境設定「外観」に従う(ユーザー要望)。
             // 既定値では従来の .background(.regularMaterial, in:) と同じ描画になる。
             .panelSurfaceBackground(
-                preferences.pageListSurfaceStyle,
+                appearance.pageListSurfaceStyle,
                 material: .regularMaterial,
                 in: RoundedRectangle(cornerRadius: 12, style: .continuous)
             )
@@ -340,12 +342,12 @@ struct ThumbnailGridView: View {
     /// **ユーザーが感覚で決める量**だからで、数pxの誤差はそのまま設定値の微差に埋もれる。
     /// キャプションの高さは、SwiftUIの標準的な行間(フォントサイズの約1.3倍)と、
     /// セル内VStackのspacing(4pt)から求めている。
-    private static func gridRowHeight(from preferences: AppPreferences) -> CGFloat {
-        let captionHeight: CGFloat = preferences.thumbnailGridCaptionStyle == .none
+    private static func gridRowHeight(from appearance: AppearanceSettings) -> CGFloat {
+        let captionHeight: CGFloat = appearance.thumbnailGridCaptionStyle == .none
             ? 0
-            : (preferences.thumbnailGridCaptionFontSize * 1.3).rounded(.up) + 4
-        return cellSize(from: preferences) + captionHeight
-            + CGFloat(preferences.thumbnailGridVerticalSpacing)
+            : (appearance.thumbnailGridCaptionFontSize * 1.3).rounded(.up) + 4
+        return cellSize(from: appearance) + captionHeight
+            + CGFloat(appearance.thumbnailGridVerticalSpacing)
     }
 
     /// このスクロールイベントが、トラックパッド(や Magic Mouse の指でなぞる操作)ではなく
@@ -411,10 +413,10 @@ struct ThumbnailGridView: View {
     /// (このリポジトリで実際に確認されている挙動。ViewerViewが各モニタの取り外しを
     /// `handleOnDisappear`にも二重に置いているのはそのため)。
     /// そこで、クロージャが触るのは`scrollGeometryBox`(小さな入れ物)と
-    /// `preferences`(アプリ全体で1つ)だけに限り、寸法の計算も`static`にしてある。
+    /// `appearance`(外観の揃い。アプリ全体で2つだけ)だけに限り、寸法の計算も`static`にしてある。
     private func makeGridEventMonitor() -> Any? {
         let scrollGeometryBox = self.scrollGeometryBox
-        let preferences = self.preferences
+        let appearance = self.appearance
         return NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify]) { event in
             guard let scrollView = scrollGeometryBox.scrollView,
                   let window = scrollView.window, event.window === window,
@@ -429,9 +431,9 @@ struct ThumbnailGridView: View {
 
             switch event.type {
             case .magnify:
-                return Self.handleMagnify(event, preferences: preferences)
+                return Self.handleMagnify(event, appearance: appearance)
             default:
-                return Self.handleWheel(event, preferences: preferences, scrollGeometryBox: scrollGeometryBox)
+                return Self.handleWheel(event, appearance: appearance, scrollGeometryBox: scrollGeometryBox)
             }
         }
     }
@@ -450,15 +452,15 @@ struct ThumbnailGridView: View {
     /// (次にスライダーを掴んだときに刻みへ吸着するだけ)。
     ///
     /// `self`を捕まえないこと(makeGridEventMonitorのコメント参照)。そのためstaticにしてある。
-    private static func handleMagnify(_ event: NSEvent, preferences: AppPreferences) -> NSEvent? {
+    private static func handleMagnify(_ event: NSEvent, appearance: AppearanceSettings) -> NSEvent? {
         guard event.magnification != 0 else { return event }
-        let range = AppPreferences.thumbnailGridCellSizeRange
-        let next = Double(cellSize(from: preferences) * (1 + CGFloat(event.magnification)))
+        let range = AppearanceSettings.thumbnailGridCellSizeRange
+        let next = Double(cellSize(from: appearance) * (1 + CGFloat(event.magnification)))
         let clamped = min(max(next, range.lowerBound), range.upperBound)
         // 上限・下限に張り付いている間、同じ値を書き込み続けない(@Publishedの通知と
         // UserDefaultsへの書き込みが、指を動かしている間ずっと空振りで走るのを避ける)。
-        if clamped != preferences.thumbnailGridCellSize {
-            preferences.thumbnailGridCellSize = clamped
+        if clamped != appearance.thumbnailGridCellSize {
+            appearance.thumbnailGridCellSize = clamped
         }
         // 既定の処理(SwiftUIのScrollViewは既定でmagnificationを受け付けないが、将来にわたって
         // 二重に処理されないことを保証するため)へは渡さない。
@@ -468,13 +470,13 @@ struct ThumbnailGridView: View {
     /// 物理マウスホイール1ノッチぶんのスクロール量を、環境設定に従わせる
     /// (makeGridEventMonitorのコメント参照)。`self`を捕まえないことが要るためstatic。
     private static func handleWheel(
-        _ event: NSEvent, preferences: AppPreferences, scrollGeometryBox: ScrollGeometryBox
+        _ event: NSEvent, appearance: AppearanceSettings, scrollGeometryBox: ScrollGeometryBox
     ) -> NSEvent? {
         guard isWheelOriginated(event), event.deltaY != 0 else { return event }
         guard let bounds = ScrollViewBounds(scrollGeometryBox.scrollView) else { return event }
 
-        let rows = preferences.thumbnailGridWheelScrollRows
-        let distance = gridRowHeight(from: preferences) * CGFloat(rows)
+        let rows = appearance.thumbnailGridWheelScrollRows
+        let distance = gridRowHeight(from: appearance) * CGFloat(rows)
         var position = bounds.position
         // ■ ノッチ数は`scrollingDeltaY`ではなく`deltaY`から取る
         // `scrollingDeltaY`の単位は機器によって変わる ―― 従来のホイールは「行」だが、
@@ -548,6 +550,8 @@ private struct ThumbnailCell: View {
     /// (LazyVGridは画面外セルの保持物を解放しないため。詳細は同型コメント参照)。
     var onRetainedImage: (CGImage) -> Void = { _ in }
     @EnvironmentObject private var preferences: AppPreferences
+    /// 外観タブの設定。本のウインドウではそのウインドウの揃い(ノーマル/シークレット。ContentView が渡す)。
+    @EnvironmentObject private var appearance: AppearanceSettings
     @State private var image: CGImage?
 
     /// カーソルが小さいサムネイルの上にあるかどうか。拡大プレビュー用のpopoverの表示制御に使う
@@ -587,7 +591,7 @@ private struct ThumbnailCell: View {
                     // 枠の色は環境設定「外観」で選べる(ユーザー要望)。既定の「アクセントカラー」は
                     // 従来と同じ Color.accentColor に解決される(AppPreferences.
                     // effectiveCurrentPageBorderColor参照)。
-                    .stroke(isCurrent ? preferences.effectiveCurrentPageBorderColor : Color.clear, lineWidth: 3)
+                    .stroke(isCurrent ? appearance.effectiveCurrentPageBorderColor : Color.clear, lineWidth: 3)
             )
             // カーソルをホバーしている間、大きなプレビューとファイル名を表示する(ユーザー要望)。
             // BookmarkListView.PageRowViewと同じく、ホバーした瞬間に即座にpopoverを出さず、
@@ -596,7 +600,7 @@ private struct ThumbnailCell: View {
                 hoverPreviewTask?.cancel()
                 // ON/OFF(showThumbnailHoverPreview)はページ一覧だけに効く設定。遅延
                 // (thumbnailHoverPreviewDelay)はサイドパネル等の同種のプレビューと共通。
-                if hovering, preferences.showThumbnailHoverPreview {
+                if hovering, appearance.showThumbnailHoverPreview {
                     hoverPreviewTask = Task {
                         try? await Task.sleep(nanoseconds: preferences.thumbnailHoverPreviewDelayNanoseconds)
                         guard !Task.isCancelled else { return }
@@ -621,14 +625,14 @@ private struct ThumbnailCell: View {
                     // ページ番号表示のときと、本の直下にある画像のときはnilで、従来どおり1行。
                     if let captionFolderPath {
                         Text(captionFolderPath)
-                            .font(.system(size: preferences.thumbnailGridCaptionFontSize * 0.85))
+                            .font(.system(size: appearance.thumbnailGridCaptionFontSize * 0.85))
                             .foregroundStyle(.white.opacity(0.7))
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
                     Text(caption)
                         // 大きさも環境設定から(既定の11ptは、従来使っていた.caption2の実寸と同じ)。
-                        .font(.system(size: preferences.thumbnailGridCaptionFontSize))
+                        .font(.system(size: appearance.thumbnailGridCaptionFontSize))
                         // ユーザー報告: .secondary(グレー)だと、サムネイル一覧パネルの背景
                         // (.regularMaterial)上では視認性が悪い。白固定にして見やすくする。
                         .foregroundStyle(.white)
@@ -662,7 +666,7 @@ private struct ThumbnailCell: View {
             // 環境設定「表示中のサムネイルの拡大画像を先読み」: 見えているセルのプレビュー画像を
             // 先にデコードしておく(PageLoaderのメモリキャッシュに載るので、プレビューが即座に
             // 出る)。LazyVGridは画面内のセルしか作らないため「表示中」に自然と限定される。
-            if preferences.preloadThumbnailGridPreviews, preferences.showThumbnailHoverPreview,
+            if preferences.preloadThumbnailGridPreviews, appearance.showThumbnailHoverPreview,
                !Task.isCancelled {
                 await loadPreviewImageIfNeeded()
             }
@@ -731,7 +735,7 @@ private struct ThumbnailCell: View {
 
     /// サムネイルの下に書く文字。環境設定が「表示なし」ならnil(呼び出し側はTextごと省く)。
     private var caption: String? {
-        switch preferences.thumbnailGridCaptionStyle {
+        switch appearance.thumbnailGridCaptionStyle {
         case .pageNumber: return "\(index + 1)"
         case .fileName: return location.fileName
         case .none: return nil
@@ -740,7 +744,7 @@ private struct ThumbnailCell: View {
 
     /// キャプションのファイル名の上に添える相対パス。ページ番号表示のときは出さない。
     private var captionFolderPath: String? {
-        guard preferences.thumbnailGridCaptionStyle == .fileName else { return nil }
+        guard appearance.thumbnailGridCaptionStyle == .fileName else { return nil }
         return location.folderPath
     }
 

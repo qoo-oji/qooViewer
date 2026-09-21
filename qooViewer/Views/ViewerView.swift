@@ -8,6 +8,8 @@ import UniformTypeIdentifiers
 struct ViewerView: View {
     @StateObject private var viewModel: ViewerViewModel
     @ObservedObject private var preferences: AppPreferences
+    /// 外観タブの設定。本のウインドウではそのウインドウの揃い(ノーマル/シークレット。ContentView が渡す)。
+    @EnvironmentObject private var appearance: AppearanceSettings
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var keyBindingStore: KeyBindingStore
     /// お気に入りに追加/削除トグルボタン(ツールバー・コンテキストメニュー・「Favorites List」
@@ -1235,8 +1237,8 @@ struct ViewerView: View {
                     // マテリアルで、タイトルバーから帯まで質感が途切れずつながって見える。
                     toolbar
                         .panelSurfaceBackground(
-                            preferences.toolbarSurfaceStyle,
-                            behindWindowMaterial: preferences.toolbarDockedGlass ? .titlebar : nil,
+                            appearance.toolbarSurfaceStyle,
+                            behindWindowMaterial: appearance.toolbarDockedGlass ? .titlebar : nil,
                             in: Rectangle()
                         )
                         // 帯を右クリックしたら「ツールバーを隠す」(ユーザー要望)。背景を敷いた
@@ -1253,8 +1255,8 @@ struct ViewerView: View {
                     ProgressBarView(viewModel: viewModel)
                         .measuringHeight(into: $progressBarHeight)
                         .panelSurfaceBackground(
-                            preferences.progressBarSurfaceStyle,
-                            behindWindowMaterial: preferences.progressBarDockedGlass ? .titlebar : nil,
+                            appearance.progressBarSurfaceStyle,
+                            behindWindowMaterial: appearance.progressBarDockedGlass ? .titlebar : nil,
                             in: Rectangle()
                         )
                         // ツールバーと同じ(すぐ上のコメント参照)。こちらは「プログレスバーを隠す」。
@@ -1268,7 +1270,7 @@ struct ViewerView: View {
                         // 背景の濃さと重ね色は環境設定「外観」に従う(ユーザー要望)。
                         // 既定値では従来の .background(.ultraThinMaterial) と同じ描画になる。
                         .panelSurfaceBackground(
-                            preferences.toolbarSurfaceStyle, material: .ultraThinMaterial, in: Rectangle()
+                            appearance.toolbarSurfaceStyle, material: .ultraThinMaterial, in: Rectangle()
                         )
                         // 常時表示のときと同じ(すぐ上の分岐のコメント参照)。
                         .panelPartContextMenu(for: .toolbar)
@@ -1296,7 +1298,7 @@ struct ViewerView: View {
                         .measuringHeight(into: $progressBarHeight)
                         // ツールバー側と同じ(すぐ上のコメント参照)。
                         .panelSurfaceBackground(
-                            preferences.progressBarSurfaceStyle, material: .ultraThinMaterial, in: Rectangle()
+                            appearance.progressBarSurfaceStyle, material: .ultraThinMaterial, in: Rectangle()
                         )
                         // 常時表示のときと同じ(すぐ上の分岐のコメント参照)。
                         .panelPartContextMenu(for: .progressBar)
@@ -1336,7 +1338,7 @@ struct ViewerView: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
                         .panelSurfaceBackground(
-                            preferences.overlaySurfaceStyle, material: .ultraThinMaterial, in: Capsule()
+                            appearance.overlaySurfaceStyle, material: .ultraThinMaterial, in: Capsule()
                         )
                         .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
                         .padding(.top, 56)
@@ -1408,7 +1410,7 @@ struct ViewerView: View {
                         }
                     }
                     .panelSurfaceBackground(
-                        preferences.overlaySurfaceStyle,
+                        appearance.overlaySurfaceStyle,
                         material: .regularMaterial,
                         in: RoundedRectangle(cornerRadius: 12, style: .continuous)
                     )
@@ -1424,7 +1426,7 @@ struct ViewerView: View {
         .animation(.easeInOut(duration: 0.15), value: zoomIndicatorPercent == nil)
         .animation(.easeInOut(duration: 0.15), value: showThumbnailGrid)
         .animation(.easeInOut(duration: 0.15), value: isShowingPageInfoPanel)
-        .background(preferences.effectiveBackgroundColor)
+        .background(appearance.effectiveBackgroundColor)
         .background(WindowAccessor { window in
             guard hostWindow !== window else { return }
             hostWindowBox.window = window
@@ -3905,7 +3907,7 @@ struct ViewerView: View {
     /// 隠している部分が反応してしまうのを避けるため)。
     private func scheduleToolbarReveal() {
         guard !isToolbarAutoRevealed else { return }
-        let delay = preferences.toolbarRevealDelayNanoseconds
+        let delay = appearance.toolbarRevealDelayNanoseconds
         guard delay > 0 else {
             cancelToolbarRevealTask()
             revealToolbarNow()
@@ -3928,7 +3930,7 @@ struct ViewerView: View {
     /// プログレスバー側の同じもの(scheduleToolbarReveal参照)。待ち時間だけが別の設定値になる。
     private func scheduleProgressBarReveal() {
         guard !isProgressBarAutoRevealed else { return }
-        let delay = preferences.progressBarRevealDelayNanoseconds
+        let delay = appearance.progressBarRevealDelayNanoseconds
         guard delay > 0 else {
             cancelProgressBarRevealTask()
             revealProgressBarNow()
@@ -4413,7 +4415,7 @@ struct ViewerView: View {
             defer: false
         )
         window.contentView = NSHostingView(
-            rootView: ActualSizePageView(image: image, backgroundColor: preferences.effectiveBackgroundColor)
+            rootView: ActualSizePageView(image: image, backgroundColor: appearance.effectiveBackgroundColor)
         )
         // バグ修正(ビルド時の警告): window.titleはStringを受け取るため、以前はここに
         // "Actual Size"という生のリテラルを直接代入していた。これだとXcodeの文字列カタログの
@@ -4423,6 +4425,8 @@ struct ViewerView: View {
         // String(localized:language:)を明示的に使うことで、カタログから正しく参照が見つかる
         // ようになり、表示言語設定(preferences.effectiveLocale)にも従うようになる。
         window.title = String(localized: "Actual Size", language: preferences.effectiveLocale)
+        // 本のウインドウのライト/ダークを継ぐ(シークレットウインドウが自分の外観を使っているとき。WindowAppearance参照)。
+        window.appearance = appState.hostWindow?.appearance
         window.center()
         // このウインドウを閉じるとアプリ全体が強制終了してしまう不具合の原因はここ。
         // isReleasedWhenClosed(既定でtrue)がtrueのままだと、close()が呼ばれた瞬間に

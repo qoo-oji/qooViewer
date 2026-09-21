@@ -28,6 +28,8 @@ import SwiftUI
 /// 「文言は全画面で同じ」の方針と噛み合わない)。
 struct PanelSurfaceSettingsView: View {
     let surface: PanelSurface
+    /// 編集している外観の揃い(ノーマル/シークレット。AppearanceSettingsView が選んで渡す)。
+    @ObservedObject var appearance: AppearanceSettings
 
     @EnvironmentObject private var preferences: AppPreferences
     /// 環境設定「表示言語」。ウインドウのタイトル(面の名前)を引くのに使う。
@@ -93,7 +95,7 @@ struct PanelSurfaceSettingsView: View {
     // MARK: - 背景(すりガラス)
 
     private var backgroundSection: some View {
-        let style = preferences.surfaceStyleBinding(for: surface)
+        let style = appearance.surfaceStyleBinding(for: surface)
         return Section {
             SettingsSlider(
                 "Frosted Glass",
@@ -151,7 +153,7 @@ struct PanelSurfaceSettingsView: View {
                 SettingsSlider(
                     "Delay Before Showing",
                     value: revealDelay,
-                    in: AppPreferences.autoRevealDelayRange,
+                    in: AppearanceSettings.autoRevealDelayRange,
                     step: 0.1,
                     help: "How long the pointer has to stay near the window edge before this part appears while it is hidden. In full screen the toolbar and progress bar are always hidden, so it applies there too."
                 ) { value in
@@ -168,9 +170,9 @@ struct PanelSurfaceSettingsView: View {
     /// ものなので、どちらもカーソルを端へ近づけて出す仕組みを持たない)。
     private func revealDelayBinding(for surface: PanelSurface) -> Binding<Double>? {
         switch surface {
-        case .toolbar: $preferences.toolbarRevealDelay
-        case .progressBar: $preferences.progressBarRevealDelay
-        case .sidePanel: $preferences.sidePanelRevealDelay
+        case .toolbar: $appearance.toolbarRevealDelay
+        case .progressBar: $appearance.progressBarRevealDelay
+        case .sidePanel: $appearance.sidePanelRevealDelay
         case .pageList, .welcome, .overlays: nil
         }
     }
@@ -180,10 +182,10 @@ struct PanelSurfaceSettingsView: View {
     /// 内容(ページ画像)の上に重なる面なので、背後のウインドウを透かす形は持たない。
     private func behindWindowGlassBinding(for surface: PanelSurface) -> Binding<Bool>? {
         switch surface {
-        case .toolbar: $preferences.toolbarDockedGlass
-        case .progressBar: $preferences.progressBarDockedGlass
-        case .sidePanel: $preferences.sidePanelDockedGlass
-        case .welcome: $preferences.welcomeGlass
+        case .toolbar: $appearance.toolbarDockedGlass
+        case .progressBar: $appearance.progressBarDockedGlass
+        case .sidePanel: $appearance.sidePanelDockedGlass
+        case .welcome: $appearance.welcomeGlass
         case .pageList, .overlays: nil
         }
     }
@@ -203,32 +205,32 @@ struct PanelSurfaceSettingsView: View {
         Section {
             SettingsSlider(
                 "Thumbnail Size",
-                value: $preferences.thumbnailGridCellSize,
-                in: AppPreferences.thumbnailGridCellSizeRange,
+                value: $appearance.thumbnailGridCellSize,
+                in: AppearanceSettings.thumbnailGridCellSizeRange,
                 step: 10
             ) { value in
                 "\(Int(value)) pt"
             }
             SettingsSlider(
                 "Horizontal Spacing",
-                value: $preferences.thumbnailGridHorizontalSpacing,
-                in: AppPreferences.thumbnailGridSpacingRange,
+                value: $appearance.thumbnailGridHorizontalSpacing,
+                in: AppearanceSettings.thumbnailGridSpacingRange,
                 step: 2
             ) { value in
                 "\(Int(value)) pt"
             }
             SettingsSlider(
                 "Vertical Spacing",
-                value: $preferences.thumbnailGridVerticalSpacing,
-                in: AppPreferences.thumbnailGridSpacingRange,
+                value: $appearance.thumbnailGridVerticalSpacing,
+                in: AppearanceSettings.thumbnailGridSpacingRange,
                 step: 2
             ) { value in
                 "\(Int(value)) pt"
             }
             SettingsSlider(
                 "Side Margins",
-                value: $preferences.thumbnailGridHorizontalMarginPercent,
-                in: AppPreferences.thumbnailGridMarginPercentRange,
+                value: $appearance.thumbnailGridHorizontalMarginPercent,
+                in: AppearanceSettings.thumbnailGridMarginPercentRange,
                 step: 1,
                 help: "Percentage of the viewer area left empty on each side of the page list. The number of columns is calculated from the remaining width, the thumbnail size, and the spacing."
             ) { value in
@@ -236,24 +238,24 @@ struct PanelSurfaceSettingsView: View {
             }
             SettingsSlider(
                 "Top and Bottom Margins",
-                value: $preferences.thumbnailGridVerticalMarginPercent,
-                in: AppPreferences.thumbnailGridMarginPercentRange,
+                value: $appearance.thumbnailGridVerticalMarginPercent,
+                in: AppearanceSettings.thumbnailGridMarginPercentRange,
                 step: 1
             ) { value in
                 "\(Int(value))%"
             }
             // ここから下がユーザー要望による追加分。
-            SettingsPicker("Caption Under Each Thumbnail", selection: $preferences.thumbnailGridCaptionStyle)
+            SettingsPicker("Caption Under Each Thumbnail", selection: $appearance.thumbnailGridCaptionStyle)
             SettingsSlider(
                 "Caption Size",
-                value: $preferences.thumbnailGridCaptionFontSize,
-                in: AppPreferences.thumbnailGridCaptionFontSizeRange,
+                value: $appearance.thumbnailGridCaptionFontSize,
+                in: AppearanceSettings.thumbnailGridCaptionFontSizeRange,
                 step: 1
             ) { value in
                 "\(Int(value)) pt"
             }
             // キャプションを出さない設定のときは、大きさを決めても何も起きない。
-            .disabled(preferences.thumbnailGridCaptionStyle == .none)
+            .disabled(appearance.thumbnailGridCaptionStyle == .none)
             SettingsPicker("Current Page Highlight", selection: borderColorSelection)
             // サムネイルにカーソルを合わせたときの拡大プレビュー。**この2つはページ一覧に
             // しか効かない**ため、環境設定「閲覧中の動作」の「サムネイルプレビュー」から
@@ -265,7 +267,7 @@ struct PanelSurfaceSettingsView: View {
             // サイズ調整が無く、拡大が無いと何のページか分からなくなるため)。
             SettingsToggle(
                 "Show a Larger Preview on Hover",
-                isOn: $preferences.showThumbnailHoverPreview,
+                isOn: $appearance.showThumbnailHoverPreview,
                 help: "Applies to the page list only."
             )
             // 「表示中のサムネイルの拡大画像を先読み」は、メモリの使用量に直結する設定を
@@ -276,8 +278,8 @@ struct PanelSurfaceSettingsView: View {
             // 「ページ一覧」という別のセクションとして置かれていた)。
             SettingsSlider(
                 "Rows per Wheel Notch",
-                value: $preferences.thumbnailGridWheelScrollRows,
-                in: AppPreferences.thumbnailGridWheelScrollRowsRange,
+                value: $appearance.thumbnailGridWheelScrollRows,
+                in: AppearanceSettings.thumbnailGridWheelScrollRowsRange,
                 step: 0.1,
                 help: "Applies to a physical mouse wheel only. Trackpad scrolling is unchanged.",
                 showsStepper: true
@@ -321,23 +323,23 @@ struct PanelSurfaceSettingsView: View {
         Section {
             SettingsSlider(
                 "Collection Name Size",
-                value: $preferences.collectionTileNameFontSize,
-                in: AppPreferences.collectionTileNameFontSizeRange,
+                value: $appearance.collectionTileNameFontSize,
+                in: AppearanceSettings.collectionTileNameFontSizeRange,
                 step: 1
             ) { value in
                 "\(Int(value)) pt"
             }
             // 札の右下の冊数バッジの大きさ(ユーザー要望 2026-09-13。3段。
             // CollectionTileBadgeSize参照)。
-            SettingsPicker("Book Count Badge Size", selection: $preferences.collectionTileBadgeSize)
+            SettingsPicker("Book Count Badge Size", selection: $appearance.collectionTileBadgeSize)
             SettingsColorRow(
                 "Tile Background Color",
-                color: preferences.effectiveCollectionTileBackground,
+                color: appearance.effectiveCollectionTileBackground,
                 help: "The backdrop each collection's covers are laid out on. Until you pick a color it follows the Light/Dark appearance.",
                 // 色を決めてあるときだけ、既定(外観に追従する薄い地)へ戻す道を出す。
-                reset: preferences.collectionTileBackgroundColor == nil
+                reset: appearance.collectionTileBackgroundColor == nil
                     ? nil
-                    : { preferences.collectionTileBackgroundColor = nil }
+                    : { appearance.collectionTileBackgroundColor = nil }
             ) {
                 colorTarget = .collectionTileBackground
             }
@@ -361,19 +363,19 @@ struct PanelSurfaceSettingsView: View {
     private var collectionSection: some View {
         Section {
             SettingsPicker(
-                "Caption Under Each Cover", selection: $preferences.collectionCoverCaptionStyle
+                "Caption Under Each Cover", selection: $appearance.collectionCoverCaptionStyle
             )
             SettingsSlider(
                 "Caption Size",
-                value: $preferences.collectionCoverCaptionFontSize,
-                in: AppPreferences.collectionCoverCaptionFontSizeRange,
+                value: $appearance.collectionCoverCaptionFontSize,
+                in: AppearanceSettings.collectionCoverCaptionFontSizeRange,
                 step: 1
             ) { value in
                 "\(Int(value)) pt"
             }
             // 文字を出さない設定のときは、大きさを決めても何も起きない
             // (ページ一覧の「文字の大きさ」と同じ扱い)。
-            .disabled(preferences.collectionCoverCaptionStyle == .none)
+            .disabled(appearance.collectionCoverCaptionStyle == .none)
         } header: {
             Text("Collections")
         }
@@ -398,14 +400,14 @@ struct PanelSurfaceSettingsView: View {
         Section {
             SettingsToggle(
                 "Preview the Page Under the Pointer",
-                isOn: $preferences.showProgressBarThumbnailPreview,
+                isOn: $appearance.showProgressBarThumbnailPreview,
                 help: "When off, hovering over the progress bar shows just the page number under the pointer, and no thumbnails are loaded."
             )
             Group {
                 SettingsSlider(
                     "Number of Thumbnails",
-                    value: $preferences.filmstripThumbnailCount,
-                    in: AppPreferences.filmstripThumbnailCountRange,
+                    value: $appearance.filmstripThumbnailCount,
+                    in: AppearanceSettings.filmstripThumbnailCountRange,
                     step: 1,
                     help: "The thumbnails always fill the width of the bar, so showing fewer of them makes each one larger."
                 ) { value in
@@ -416,15 +418,15 @@ struct PanelSurfaceSettingsView: View {
                 // (FilmstripCaptionStyle参照)。
                 SettingsPicker(
                     "Caption Under Each Thumbnail",
-                    selection: $preferences.filmstripCaptionStyle,
+                    selection: $appearance.filmstripCaptionStyle,
                     help: "The page number under the pointer is always shown. When file names are hidden, so is the location line above thumbnails that live in a folder inside the book."
                 )
                 // ページ一覧の同名の設定とまったく同じ意味(サムネイルに添える文字の大きさ)なので、
                 // 同じ名前にしてある。効く先はこちらがフィルムストリップ、あちらがページ一覧。
                 SettingsSlider(
                     "Caption Size",
-                    value: $preferences.filmstripFontSize,
-                    in: AppPreferences.filmstripFontSizeRange,
+                    value: $appearance.filmstripFontSize,
+                    in: AppearanceSettings.filmstripFontSizeRange,
                     step: 1,
                     help: "Applies to the file name, the page number, and the location shown above thumbnails that live in a folder inside the book."
                 ) { value in
@@ -432,21 +434,21 @@ struct PanelSurfaceSettingsView: View {
                 }
                 SettingsToggle(
                     "Dim the Other Pages",
-                    isOn: $preferences.filmstripDimsOtherPages,
+                    isOn: $appearance.filmstripDimsOtherPages,
                     help: "Dimming every thumbnail except the one under the pointer makes that one stand out. Turn this off to see them all at full brightness — the one under the pointer is still marked by its border and page number."
                 )
                 SettingsPicker("Highlight Color", selection: filmstripHighlightColorSelection)
                 SettingsSlider(
                     "Highlight Thickness",
-                    value: $preferences.filmstripHighlightBorderWidth,
-                    in: AppPreferences.filmstripHighlightBorderWidthRange,
+                    value: $appearance.filmstripHighlightBorderWidth,
+                    in: AppearanceSettings.filmstripHighlightBorderWidthRange,
                     step: 1,
                     help: "The thickness of the border around the thumbnail under the pointer."
                 ) { value in
                     "\(Int(value)) pt"
                 }
             }
-            .disabled(!preferences.showProgressBarThumbnailPreview)
+            .disabled(!appearance.showProgressBarThumbnailPreview)
         } header: {
             // 見出しに「フィルムストリップ」は使わない ―― この機能を指す言葉として
             // ユーザーには通じない(ユーザーの指摘)。コード内のコメント・型名は開発者向けなので
@@ -468,10 +470,10 @@ struct PanelSurfaceSettingsView: View {
     /// 逃げてから戻る以外に色を編集し直す方法が無くなってしまう。
     private var borderColorSelection: Binding<PageBorderColorOption> {
         Binding(
-            get: { preferences.thumbnailGridBorderColorOption },
+            get: { appearance.thumbnailGridBorderColorOption },
             set: { newValue in
-                let previous = preferences.thumbnailGridBorderColorOption
-                preferences.thumbnailGridBorderColorOption = newValue
+                let previous = appearance.thumbnailGridBorderColorOption
+                appearance.thumbnailGridBorderColorOption = newValue
                 guard newValue == .custom else { return }
                 borderOptionBeforeCustomizing = previous
                 colorTarget = .pageBorder
@@ -482,10 +484,10 @@ struct PanelSurfaceSettingsView: View {
     /// フィルムストリップの「カーソル位置の強調色」ポップアップ用のBinding(同上)。
     private var filmstripHighlightColorSelection: Binding<PageBorderColorOption> {
         Binding(
-            get: { preferences.filmstripHighlightColorOption },
+            get: { appearance.filmstripHighlightColorOption },
             set: { newValue in
-                let previous = preferences.filmstripHighlightColorOption
-                preferences.filmstripHighlightColorOption = newValue
+                let previous = appearance.filmstripHighlightColorOption
+                appearance.filmstripHighlightColorOption = newValue
                 guard newValue == .custom else { return }
                 filmstripHighlightOptionBeforeCustomizing = previous
                 colorTarget = .filmstripHighlight
@@ -497,13 +499,13 @@ struct PanelSurfaceSettingsView: View {
 
     private func currentColor(for target: ColorTarget) -> RGBColorValue {
         switch target {
-        case .surfaceTint: preferences.surfaceStyle(for: surface).tintColor
-        case .pageBorder: preferences.thumbnailGridBorderCustomColor
-        case .filmstripHighlight: preferences.filmstripHighlightCustomColor
+        case .surfaceTint: appearance.surfaceStyle(for: surface).tintColor
+        case .pageBorder: appearance.thumbnailGridBorderCustomColor
+        case .filmstripHighlight: appearance.filmstripHighlightCustomColor
         // 未指定のまま開いたときは、既定の見た目に近い中間のグレーから始める(真っ黒から
         // 始めると、少し変えたいだけの人が毎回遠回りになる)。
         case .collectionTileBackground:
-            preferences.collectionTileBackgroundColor
+            appearance.collectionTileBackgroundColor
                 ?? RGBColorValue(red: 128, green: 128, blue: 128)
         }
     }
@@ -511,7 +513,7 @@ struct PanelSurfaceSettingsView: View {
     private func commit(_ color: RGBColorValue, for target: ColorTarget) {
         switch target {
         case .surfaceTint:
-            var style = preferences.surfaceStyle(for: surface)
+            var style = appearance.surfaceStyle(for: surface)
             style.tintColor = color
             // ユーザー報告: 色を変えても見た目が変わらない。
             //
@@ -526,13 +528,13 @@ struct PanelSurfaceSettingsView: View {
             if style.tintOpacity == 0 {
                 style.tintOpacity = Self.tintOpacityWhenFirstColored
             }
-            preferences.setSurfaceStyle(style, for: surface)
+            appearance.setSurfaceStyle(style, for: surface)
         case .pageBorder:
-            preferences.thumbnailGridBorderCustomColor = color
+            appearance.thumbnailGridBorderCustomColor = color
         case .filmstripHighlight:
-            preferences.filmstripHighlightCustomColor = color
+            appearance.filmstripHighlightCustomColor = color
         case .collectionTileBackground:
-            preferences.collectionTileBackgroundColor = color
+            appearance.collectionTileBackgroundColor = color
         }
     }
 
@@ -548,12 +550,12 @@ struct PanelSurfaceSettingsView: View {
             break
         case .pageBorder:
             if let previous = borderOptionBeforeCustomizing {
-                preferences.thumbnailGridBorderColorOption = previous
+                appearance.thumbnailGridBorderColorOption = previous
             }
             borderOptionBeforeCustomizing = nil
         case .filmstripHighlight:
             if let previous = filmstripHighlightOptionBeforeCustomizing {
-                preferences.filmstripHighlightColorOption = previous
+                appearance.filmstripHighlightColorOption = previous
             }
             filmstripHighlightOptionBeforeCustomizing = nil
         // 札の地の色もプリセットを持たない(ダイアログを開くだけでは何も変わらない)。

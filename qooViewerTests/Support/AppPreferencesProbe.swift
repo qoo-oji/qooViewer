@@ -5,14 +5,14 @@ import SwiftUI
 
 // MARK: - すべての設定を総なめにする
 
-/// `AppPreferences` のすべての `@Published` プロパティを「プロパティ名 → 文字列」に写し取る。
+/// `AppPreferences`(または `AppearanceSettings`)のすべての `@Published` プロパティを「プロパティ名 → 文字列」に写し取る。
 ///
 /// **Mirror で総なめにしているのが要**。設定を 1 つ足したときに、テスト側の書き写しが古いまま
 /// 静かに素通りする(その項目だけ確認されない)のを防ぐため ―― 新しい設定はここに自動で載り、
 /// 下の `mutateEverySetting` へ足し忘れていれば
 /// `AppPreferencesTests.mutationTouchesEverySetting` がその名前を挙げて落ちる。
 @MainActor
-func settingsSnapshot(of preferences: AppPreferences) -> [String: String] {
+func settingsSnapshot(of preferences: some AnyObject) -> [String: String] {
     var result: [String: String] = [:]
     for child in Mirror(reflecting: preferences).children {
         // `@Published var x` の実体は `_x: Published<T>`。それ以外の格納プロパティ
@@ -83,46 +83,9 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.fileBrowserReadOnly.toggle()
     p.fileBrowserImageFolderOpenAction = otherCase(p.fileBrowserImageFolderOpenAction)
 
-    // MARK: 外観
-    p.appAppearance = otherCase(p.appAppearance)
-    p.backgroundColorOption = otherCase(p.backgroundColorOption)
-    p.customBackgroundColor = otherColor(p.customBackgroundColor)
-    p.thumbnailGridCellSize += 1
-    p.thumbnailGridHorizontalSpacing += 1
-    p.thumbnailGridVerticalSpacing += 1
-    p.thumbnailGridHorizontalMarginPercent += 1
-    p.thumbnailGridVerticalMarginPercent += 1
-    p.thumbnailGridCaptionStyle = otherCase(p.thumbnailGridCaptionStyle)
-    p.thumbnailGridCaptionFontSize += 1
-    p.thumbnailGridBorderColorOption = otherCase(p.thumbnailGridBorderColorOption)
-    p.thumbnailGridBorderCustomColor = otherColor(p.thumbnailGridBorderCustomColor)
-    p.thumbnailGridWheelScrollRows += 1
-    p.showThumbnailHoverPreview.toggle()
-    p.showProgressBarThumbnailPreview.toggle()
-    p.filmstripThumbnailCount += 1
-    p.filmstripCaptionStyle = otherCase(p.filmstripCaptionStyle)
-    p.filmstripFontSize += 1
-    p.filmstripDimsOtherPages.toggle()
-    p.filmstripHighlightColorOption = otherCase(p.filmstripHighlightColorOption)
-    p.filmstripHighlightCustomColor = otherColor(p.filmstripHighlightCustomColor)
-    p.filmstripHighlightBorderWidth += 1
-    p.toolbarRevealDelay += 1
-    p.progressBarRevealDelay += 1
-    p.sidePanelRevealDelay += 1
-    p.toolbarDockedGlass.toggle()
-    p.progressBarDockedGlass.toggle()
-    p.sidePanelDockedGlass.toggle()
-    p.welcomeGlass.toggle()
-    p.collectionCoverCaptionStyle = otherCase(p.collectionCoverCaptionStyle)
-    p.collectionCoverCaptionFontSize += 1
-    p.collectionTileNameFontSize += 1
-    p.collectionTileBadgeSize = otherCase(p.collectionTileBadgeSize)
-    // 既定は nil(= 外観に追従する薄い地)なので、色を1つ入れれば動いたことになる。
-    p.collectionTileBackgroundColor = p.collectionTileBackgroundColor.map(otherColor)
-        ?? RGBColorValue(red: 20, green: 30, blue: 60)
-    for surface in PanelSurface.allCases {
-        p.setSurfaceStyle(otherStyle(p.surfaceStyle(for: surface)), for: surface)
-    }
+    // MARK: 外観(揃いごとの設定は mutateEveryAppearanceSetting。シークレットの揃いは AppearanceSettingsTests が見る)
+    mutateEveryAppearanceSetting(p.appearance)
+    p.privateWindowsUseOwnAppearance.toggle()
 
     // MARK: 本を開く
     p.reopenBehavior = otherCase(p.reopenBehavior)
@@ -183,6 +146,53 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.folderBrowserSortKey = otherCase(p.folderBrowserSortKey)
     p.folderBrowserSortDirection = otherCase(p.folderBrowserSortDirection)
     p.defaultReadingDirection = otherCase(p.defaultReadingDirection)
+}
+
+/// 外観の揃い(AppearanceSettings)のすべての設定を、出荷時の既定値とは違う値へ動かす。
+/// **設定を 1 つ足したらここにも足すこと** ―― 足し忘れは AppearanceSettingsTests が名前を挙げて教える。
+@MainActor
+func mutateEveryAppearanceSetting(_ a: AppearanceSettings) {
+    a.appAppearance = otherCase(a.appAppearance)
+    a.backgroundColorOption = otherCase(a.backgroundColorOption)
+    a.customBackgroundColor = otherColor(a.customBackgroundColor)
+    a.thumbnailGridCellSize += 1
+    a.thumbnailGridHorizontalSpacing += 1
+    a.thumbnailGridVerticalSpacing += 1
+    a.thumbnailGridHorizontalMarginPercent += 1
+    a.thumbnailGridVerticalMarginPercent += 1
+    a.thumbnailGridCaptionStyle = otherCase(a.thumbnailGridCaptionStyle)
+    a.thumbnailGridCaptionFontSize += 1
+    a.thumbnailGridBorderColorOption = otherCase(a.thumbnailGridBorderColorOption)
+    a.thumbnailGridBorderCustomColor = otherColor(a.thumbnailGridBorderCustomColor)
+    a.thumbnailGridWheelScrollRows += 1
+    a.showThumbnailHoverPreview.toggle()
+    a.showProgressBarThumbnailPreview.toggle()
+    a.filmstripThumbnailCount += 1
+    a.filmstripCaptionStyle = otherCase(a.filmstripCaptionStyle)
+    a.filmstripFontSize += 1
+    a.filmstripDimsOtherPages.toggle()
+    a.filmstripHighlightColorOption = otherCase(a.filmstripHighlightColorOption)
+    a.filmstripHighlightCustomColor = otherColor(a.filmstripHighlightCustomColor)
+    a.filmstripHighlightBorderWidth += 1
+    a.toolbarRevealDelay += 1
+    a.progressBarRevealDelay += 1
+    a.sidePanelRevealDelay += 1
+    a.toolbarDockedGlass.toggle()
+    a.progressBarDockedGlass.toggle()
+    a.sidePanelDockedGlass.toggle()
+    a.welcomeGlass.toggle()
+    a.collectionCoverCaptionStyle = otherCase(a.collectionCoverCaptionStyle)
+    a.collectionCoverCaptionFontSize += 1
+    a.collectionTileNameFontSize += 1
+    a.collectionTileBadgeSize = otherCase(a.collectionTileBadgeSize)
+    // 既定は nil(= 外観に追従する薄い地)なので、色を1つ入れれば動いたことになる。
+    a.collectionTileBackgroundColor = a.collectionTileBackgroundColor.map(otherColor)
+        ?? RGBColorValue(red: 20, green: 30, blue: 60)
+    // 既定は nil(= システムの標準のタイトルバー)。札の地の色と同じ。
+    a.titleBarColor = a.titleBarColor.map(otherColor) ?? RGBColorValue(red: 60, green: 20, blue: 30)
+    for surface in PanelSurface.allCases {
+        a.setSurfaceStyle(otherStyle(a.surfaceStyle(for: surface)), for: surface)
+    }
 }
 
 /// いまの値とは違う case。

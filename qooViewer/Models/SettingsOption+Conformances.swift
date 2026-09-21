@@ -49,6 +49,16 @@ extension AppAppearance: SettingsOption {
     var shortTitleKey: LocalizedStringKey { titleKey }
 }
 
+extension AppearanceProfile: SettingsOption {
+    var id: String { rawValue }
+    var shortTitleKey: LocalizedStringKey {
+        switch self {
+        case .normal: return "Normal Windows"
+        case .privateWindow: return "Private Windows"
+        }
+    }
+}
+
 extension SidePanelPosition: SettingsOption {
     var shortTitleKey: LocalizedStringKey {
         switch self {

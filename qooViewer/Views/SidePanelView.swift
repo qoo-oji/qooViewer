@@ -35,6 +35,8 @@ struct SidePanelView: View {
     private static let widthRange: ClosedRange<CGFloat> = 220...480
 
     @EnvironmentObject private var preferences: AppPreferences
+    /// 外観タブの設定。本のウインドウではそのウインドウの揃い(ノーマル/シークレット。ContentView が渡す)。
+    @EnvironmentObject private var appearance: AppearanceSettings
     /// ブックマークモード上段(お気に入りツリー)の表示元。アプリ全体で1つのインスタンスを
     /// 共有しているため(QooViewerApp参照)、@EnvironmentObjectとして受け取れば整理ウインドウ・
     /// メニューバー側での変更もそのまま反映される。
@@ -221,8 +223,8 @@ struct SidePanelView: View {
                 // 同じ描画になる(SidePanelSurfaceBackground参照)。ぼかしの基準
                 // (blendingMode)の使い分けはisDockedのコメント参照。
                 SidePanelSurfaceBackground(
-                    style: preferences.sidePanelSurfaceStyle,
-                    blendingMode: isDocked && preferences.sidePanelDockedGlass
+                    style: appearance.sidePanelSurfaceStyle,
+                    blendingMode: isDocked && appearance.sidePanelDockedGlass
                         ? .behindWindow : .withinWindow
                 )
                     .frame(width: effectiveWidth)
@@ -239,7 +241,7 @@ struct SidePanelView: View {
                     // overlayの兄弟なので、ここで直接配る(panelContentOutlineのコメント参照)。
                     .panelContentOutline(
                         width: PanelContentShadow.outlineWidth(
-                            forLevel: preferences.sidePanelSurfaceStyle.contentShadowLevel
+                            forLevel: appearance.sidePanelSurfaceStyle.contentShadowLevel
                         )
                     )
                     // パネルの空きスペースを右クリックしたら「サイドパネルを隠す」

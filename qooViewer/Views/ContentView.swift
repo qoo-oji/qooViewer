@@ -502,7 +502,20 @@ struct ContentView: View {
         )
     }
 
+    /// このウインドウが使う外観の揃い(ノーマル/シークレット。AppearanceSettings の型コメント)。シークレットウインドウでも、
+    /// 環境設定「シークレットウインドウに別の外観を使う」が OFF ならノーマルの揃い。
+    private var effectiveAppearance: AppearanceSettings {
+        preferences.appearance(forPrivateWindow: appState.isPrivateWindow)
+    }
+
     var body: some View {
+        // 中身のすべて(ビューア・ホーム・サイドパネル・このウインドウのシートやポップオーバー)が、このウインドウの揃いを
+        // `@EnvironmentObject var appearance` で読む。シーン側(QooViewerApp.contentWindow)が渡すのはノーマルの揃いで、
+        // ここで上書きする。
+        windowBody.environmentObject(effectiveAppearance)
+    }
+
+    private var windowBody: some View {
         applyPreferenceChangeHandlers(to: applyFileDropTarget(to: windowContent))
         .animation(.easeInOut(duration: 0.15), value: appState.isSidePanelRevealed)
         .animation(.easeInOut(duration: 0.15), value: appState.hideSidePanel)
@@ -652,6 +665,8 @@ struct ContentView: View {
         // モニタにもイベントが届かないため、AppKitのNSTrackingAreaによる検知で補う
         // (WindowMouseExitAccessorのコメント参照)。誤検知の可能性があるため、実際に閉じるか
         // どうかはdismissAutoRevealedChromeIfCursorLeftWindow側でカーソル位置を見て判断する。
+        // 環境設定「外観」のライト/ダークとタイトルバーの色、内容領域の地(WindowChrome.swift参照)。
+        .windowChrome(window: appState.hostWindow)
         .background(WindowMouseExitAccessor {
             guard let window = appState.hostWindow else { return }
             dismissAutoRevealedChromeIfCursorLeftWindow(window)
@@ -685,6 +700,11 @@ struct ContentView: View {
             // (Appleのドキュメントどおり、このスタイルではタイトルバーが下の内容を透かす
             // 描画になる: https://developer.apple.com/documentation/appkit/nswindow/stylemask-swift.struct/fullsizecontentview )
             window?.styleMask.remove(.fullSizeContentView)
+            // 環境設定「外観」の「タイトルバーの色」(WindowTitleBarColor参照)。ウインドウが決まった時点で一度塗り、
+            // 以後の変更は windowChrome(window:) が塗り直す(ライト/ダークはそちらが SwiftUI に渡す)。
+            if let window {
+                WindowTitleBarColor.apply(effectiveAppearance.titleBarColor, to: window)
+            }
             // このウインドウがキーウインドウになるたびに、「前回終了時にアクティブだった
             // 画面/タブの本を復元する」機能のために、今表示している本のURLを記録しておく
             // (すべてのウインドウ/タブが対象。「main」「book」どちらのウインドウグループでも
@@ -1541,7 +1561,7 @@ struct ContentView: View {
     /// パネルは出てこないまま終わる(ユーザー要望: 別のウインドウやメニューバーへカーソルを
     /// 動かしたいだけのときに、通りすがりで隠している部分が反応するのを避けるため)。
     private func scheduleSidePanelReveal() {
-        let delay = preferences.sidePanelRevealDelayNanoseconds
+        let delay = effectiveAppearance.sidePanelRevealDelayNanoseconds
         guard delay > 0 else {
             cancelPendingSidePanelReveal()
             appState.isSidePanelRevealed = true

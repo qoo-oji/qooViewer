@@ -22,6 +22,8 @@ struct CollectionGridView: View {
     @EnvironmentObject private var appState: AppState
     /// 札の下の名前の文字の大きさだけのために読む(nameLineHeight参照)。
     @EnvironmentObject private var preferences: AppPreferences
+    /// 外観タブの設定。本のウインドウではそのウインドウの揃い(ノーマル/シークレット。ContentView が渡す)。
+    @EnvironmentObject private var appearance: AppearanceSettings
     @Environment(\.locale) private var locale
     @ObservedObject var state: WelcomeLibraryState
     let library: BookLibrary
@@ -240,7 +242,7 @@ struct CollectionGridView: View {
     /// 既定の13ptでは23ptで、この見積もりが定数24だった頃とほぼ同じ
     /// (CollectionDetailView.captionHeightと同じ式)。
     private var nameLineHeight: CGFloat {
-        (preferences.collectionTileNameFontSize * 1.3).rounded(.up) + 6
+        (appearance.collectionTileNameFontSize * 1.3).rounded(.up) + 6
     }
 
     /// グリッドの作り直しの鍵(下の`.id`とマーキーの控えの捨て方の両方が使う)。
@@ -322,10 +324,10 @@ struct CollectionGridView: View {
             coverStore: collectionStore.coverStore,
             tileStore: collectionStore.tileStore,
             aspectRatio: library.coverAspectRatio,
-            backgroundColor: preferences.effectiveCollectionTileBackground,
+            backgroundColor: appearance.effectiveCollectionTileBackground,
             size: state.tileSize,
-            nameFontSize: preferences.collectionTileNameFontSize,
-            badgeSize: preferences.collectionTileBadgeSize,
+            nameFontSize: appearance.collectionTileNameFontSize,
+            badgeSize: appearance.collectionTileBadgeSize,
             onImageRetained: { image, cellCount in
                 cellImageBudget.note(
                     retaining: image, cellCount: cellCount, minimumCellCount: minimumCellCount

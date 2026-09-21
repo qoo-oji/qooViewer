@@ -549,6 +549,7 @@ struct QooViewerApp: App {
             // ウインドウはOSの言語のまま残っていた(監査で発覚)。
             .environment(\.locale, currentLocale)
             .environmentObject(preferences)
+            .environmentObject(preferences.appearance)
             .environmentObject(keyBindingStore)
             .environmentObject(recentFiles)
             .environmentObject(folderAccess)
@@ -593,6 +594,7 @@ struct QooViewerApp: App {
             FavoritesOrganizerView(favoritesStore: favoritesStore)
                 .environmentObject(launchCoordinator)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
         .handlesExternalEvents(matching: [])
@@ -620,6 +622,7 @@ struct QooViewerApp: App {
                 .environmentObject(favoriteLocations)
                 .environmentObject(folderAccess)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
         .handlesExternalEvents(matching: [])
@@ -1547,6 +1550,7 @@ struct QooViewerApp: App {
         Settings {
             SettingsView()
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environmentObject(keyBindingStore)
                 .environmentObject(folderAccess)
                 // 環境設定「ファイルブラウザ」の起動時のフォルダで、よく使う項目から選ばせる。
@@ -1616,6 +1620,7 @@ struct QooViewerApp: App {
                 .environmentObject(layoutStore)
                 .environmentObject(launchCoordinator)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
         .handlesExternalEvents(matching: [])
@@ -1637,6 +1642,7 @@ struct QooViewerApp: App {
                 .environmentObject(collectionStore)
                 .environmentObject(metadataFormatStore)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
         .handlesExternalEvents(matching: [])
@@ -1650,6 +1656,7 @@ struct QooViewerApp: App {
             ShelfCoverExportWindow()
                 .environmentObject(layoutStore)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
         .handlesExternalEvents(matching: [])
@@ -1668,6 +1675,7 @@ struct QooViewerApp: App {
                 .environmentObject(favoritesStore)
                 .environmentObject(collectionStore)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
                 .modelContext(QooViewerApp.modelContainer.mainContext)
         }
@@ -1684,6 +1692,7 @@ struct QooViewerApp: App {
                 .environmentObject(collectionCoverExtractor)
                 .environmentObject(metadataFormatStore)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
         .handlesExternalEvents(matching: [])
@@ -1697,6 +1706,7 @@ struct QooViewerApp: App {
                 .environmentObject(metadataStore)
                 .environmentObject(collectionStore)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
         .handlesExternalEvents(matching: [])
@@ -1759,6 +1769,7 @@ struct QooViewerApp: App {
                 .environmentObject(favoritesStore)
                 .environmentObject(collectionStore)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .modelContainer(QooViewerApp.modelContainer)
                 .environment(\.locale, locale)
         }
@@ -1776,6 +1787,7 @@ struct QooViewerApp: App {
                 .environmentObject(metadataStore)
                 .environmentObject(collectionStore)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
         .handlesExternalEvents(matching: [])
@@ -1792,6 +1804,7 @@ struct QooViewerApp: App {
                 .environmentObject(metadataStore)
                 .environmentObject(collectionStore)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
         .handlesExternalEvents(matching: [])

@@ -11,6 +11,8 @@ import SwiftUI
 /// (`panelSurfaceBackground` が配る太さを、その内側の文字が読む)。
 struct OverlayToast: View {
     @EnvironmentObject private var preferences: AppPreferences
+    /// 外観タブの設定。本のウインドウではそのウインドウの揃い(ノーマル/シークレット。ContentView が渡す)。
+    @EnvironmentObject private var appearance: AppearanceSettings
 
     let message: String
 
@@ -23,7 +25,7 @@ struct OverlayToast: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .panelSurfaceBackground(
-                preferences.overlaySurfaceStyle, material: .ultraThinMaterial, in: Capsule()
+                appearance.overlaySurfaceStyle, material: .ultraThinMaterial, in: Capsule()
             )
             .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
     }

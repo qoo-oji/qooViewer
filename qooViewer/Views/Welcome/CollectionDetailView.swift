@@ -29,6 +29,8 @@ struct CollectionDetailView: View {
     @EnvironmentObject private var metadataStore: BookMetadataStore
     @EnvironmentObject private var formatStore: MetadataFormatStore
     @EnvironmentObject private var preferences: AppPreferences
+    /// 外観タブの設定。本のウインドウではそのウインドウの揃い(ノーマル/シークレット。ContentView が渡す)。
+    @EnvironmentObject private var appearance: AppearanceSettings
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
     @Environment(\.openWindow) private var openWindow
@@ -448,8 +450,8 @@ struct CollectionDetailView: View {
     /// 見えている行数の見積もり(上のminimumCellCount)にだけ使う
     /// (ThumbnailGridViewがキャプションのぶんを見込むのとまったく同じ式)。
     private var captionHeight: CGFloat {
-        guard preferences.collectionCoverCaptionStyle != .none else { return 0 }
-        return (preferences.collectionCoverCaptionFontSize * 1.3).rounded(.up) + 4
+        guard appearance.collectionCoverCaptionStyle != .none else { return 0 }
+        return (appearance.collectionCoverCaptionFontSize * 1.3).rounded(.up) + 4
     }
 
     /// グリッドの作り直しの鍵(下の`.id`とマーキーの控えの捨て方の両方が使う)。
@@ -549,7 +551,7 @@ struct CollectionDetailView: View {
             // 直接置く文字なので輪郭が要る(CLAUDE.mdの表)。
             if let caption = caption(for: item) {
                 Text(caption)
-                    .font(.system(size: preferences.collectionCoverCaptionFontSize))
+                    .font(.system(size: appearance.collectionCoverCaptionFontSize))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .panelOutlinedContent()
@@ -725,7 +727,7 @@ struct CollectionDetailView: View {
 
     /// カバーの下に出す文字。設定が「表示しない」(既定)ならnilで、行そのものを出さない。
     private func caption(for item: CollectionItem) -> String? {
-        switch preferences.collectionCoverCaptionStyle {
+        switch appearance.collectionCoverCaptionStyle {
         case .none: return nil
         case .fileName: return item.title
         case .title: return metadataTitle(for: item)

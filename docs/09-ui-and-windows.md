@@ -415,4 +415,28 @@ AppState を参照しない作り(参照するとページ送りのたびに本�
   `Menu` はコードから開けない)。メニューバー版は SwiftUI の `Menu` のネスト。
 - 外観(ライト/ダーク)は `NSApp.appearance`(`.preferredColorScheme` は AppKit のダイアログや
   Dock メニューに届かない)。「コントラストを上げる」に追従する。
+- **ノーマルウインドウとシークレットウインドウで別の外観**(2026-09-22、ユーザー要望)。外観タブの設定は**全部**
+  `AppearanceSettings`(`AppPreferences` から切り出した)にあり、ノーマル用(`preferences.appearance`、従来のキー)と
+  シークレット用(`preferences.privateAppearance`、キーの末尾に `.privateWindow`)の 2 揃いが同時に生きている。
+  「シークレットウインドウに別の外観を使う」(`privateWindowsUseOwnAppearance`、既定 OFF、どの「初期設定に戻す」でも戻さない)が
+  OFF ならシークレットもノーマルの揃い。初めて ON にしたときだけシークレットの揃いをノーマルの写しから始め、OFF にしても消さない。
+  - 読む側は `@EnvironmentObject var appearance: AppearanceSettings` だけを見る。どのシーンにもノーマルの揃いを渡し
+    (`QooViewerApp` の `.environmentObject(preferences.appearance)`)、本のウインドウだけ `ContentView.body` がそのウインドウの揃い
+    (`preferences.appearance(forPrivateWindow:)`)で上書きする。環境設定・補助ウインドウ・メニューバーはノーマルのまま(ユーザーの決定)。
+  - シークレットの揃いのライト/ダークは、そのウインドウに `.preferredColorScheme` で掛ける(`WindowAppearance`)。
+    `NSWindow.appearance` を AppKit で入れても、SwiftUI が更新のたびに(`AppKitWindowController.hostingView(_:willUpdate:)`)nil へ
+    書き戻す(KVO で実測)。揃いが「システムに従う」でアプリ全体が決め打ちのときは、`AppleInterfaceStyle` と分散通知
+    `AppleInterfaceThemeChangedNotification` でシステムの外観を引く(`SystemAppearanceObserver`)。ColorScheme では高コントラスト版を
+    指定できないので、その揃いを明示指定にしたシークレットウインドウは「コントラストを上げる」に追従しない。原寸表示のウインドウは
+    元のウインドウの `appearance` を継ぐ。
+  - 環境設定「外観」は、スイッチが ON の間だけ「編集する外観」(`SettingsNavigator.editingAppearanceProfile`、外観の画面を離れると
+    ノーマルへ戻る)で編集する揃いを選び、子ページも含めて全部がその揃いを編集する。「初期設定に戻す」は編集中の揃いだけを戻す
+    (`AppearanceSettings.resetToDefaults()`。`AppPreferences.keys(for: .appearance)` は空)。
+- **タイトルバーの色**(環境設定「外観」→「アプリ全体」、`AppearanceSettings.titleBarColor`。nil = 標準。2026-09-22)は本のウインドウ
+  (ContentView)だけに効く。塗り方は `WindowTitleBarColor`: タイトルバーを透明にして `NSWindow.backgroundColor` を見せる。
+  透明にするのは SwiftUI の `.toolbarBackgroundVisibility(.hidden, for: .windowToolbar)` ―― AppKit で `titlebarAppearsTransparent`
+  を立てても、SwiftUI が更新のたびに(`BarAppearanceBridge.updateWindowToolbar`)false へ書き戻す(KVO で呼び出し元まで実測)。
+  地の色は内容が塗っていない場所(すりガラス無しのホーム)にも透けるので、色を指定している間は内容の最下層に
+  `windowBackgroundColor` を敷く。`.fullSizeContentView` を外してある(ツールバーを隠したときの不具合対策。ContentView の WindowAccessor のコメント)ので、SwiftUI の中身で
+  タイトルバーの下を塗る方法は採れない。タブバーの帯も同じ色になる。文字の色は外観モードに従い、公開 API では変えられない。
 - トースト(`showToast`)、拡大率表示、「情報を見る」は面 `overlays` に属する。

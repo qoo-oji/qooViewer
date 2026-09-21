@@ -148,6 +148,22 @@
         }
       }
     },
+    "Appearance to Edit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appearance to Edit"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "編集する外観"
+          }
+        }
+      }
+    },
     "Applied from top to bottom" : {
       "localizations" : {
         "en" : {
@@ -336,6 +352,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "コレクションの設定…"
+          }
+        }
+      }
+    },
+    "Colors the title bar of Home and book windows. The title text follows the appearance mode, so pick a color it stays readable on. Until you pick a color, the standard title bar is used." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Colors the title bar of Home and book windows. The title text follows the appearance mode, so pick a color it stays readable on. Until you pick a color, the standard title bar is used."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホームと本のウインドウのタイトルバーを塗る色です。タイトルの文字の色は外観モードに従うので、文字が読める色を選んでください。色を選ぶまでは標準のタイトルバーのままです。"
           }
         }
       }
@@ -660,6 +692,22 @@
         }
       }
     },
+    "Every setting on this page and on the panel pages below applies to the windows chosen here. Settings, other auxiliary windows and the menu bar always use the normal windows’ appearance." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every setting on this page and on the panel pages below applies to the windows chosen here. Settings, other auxiliary windows and the menu bar always use the normal windows’ appearance."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この画面と、下の各面のページのすべての設定が、ここで選んだウインドウに効きます。環境設定・そのほかの補助ウインドウ・メニューバーは、常にノーマルウインドウの外観です。"
+          }
+        }
+      }
+    },
     "Extension" : {
       "localizations" : {
         "en" : {
@@ -980,6 +1028,22 @@
         }
       }
     },
+    "Normal Windows" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Normal Windows"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ノーマルウインドウ"
+          }
+        }
+      }
+    },
     "Not found" : {
       "localizations" : {
         "en" : {
@@ -1156,6 +1220,22 @@
         }
       }
     },
+    "Private Windows" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Private Windows"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットウインドウ"
+          }
+        }
+      }
+    },
     "Puts the selected renamed items back to their original names. The rules won’t rename them again." : {
       "localizations" : {
         "en" : {
@@ -1312,6 +1392,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「%@」から元に戻しました"
+          }
+        }
+      }
+    },
+    "Restores every setting on this page and on every panel’s page for the windows you are editing, including the color of every frosted surface. The other windows’ appearance and other pages are not affected." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores every setting on this page and on every panel’s page for the windows you are editing, including the color of every frosted surface. The other windows’ appearance and other pages are not affected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "編集しているウインドウの外観について、この画面と各面のページのすべての設定を初期設定に戻します(すりガラスの各面の色を含む)。\nもう一方のウインドウの外観と、ほかの画面の設定には影響しません。"
           }
         }
       }
@@ -1700,6 +1796,22 @@
         }
       }
     },
+    "Title Bar Color" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Title Bar Color"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タイトルバーの色"
+          }
+        }
+      }
+    },
     "To rename items in this folder automatically, please select and grant access to it." : {
       "localizations" : {
         "en" : {
@@ -1764,6 +1876,22 @@
         }
       }
     },
+    "Use a Separate Appearance for Private Windows" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use a Separate Appearance for Private Windows"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットウインドウに別の外観を使う"
+          }
+        }
+      }
+    },
     "Waiting for you to check the changes" : {
       "localizations" : {
         "en" : {
@@ -1792,6 +1920,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "リスト表示・アイコン表示で、画像フォルダをダブルクリックしたとき、または選んでリターンキーを押したときにすることです。右クリックの「開く」はもう一方をするので、どちらの開き方もすぐ使えます。本ではないフォルダは常にフォルダとして開き、左のツリーには影響しません。"
+          }
+        }
+      }
+    },
+    "When off, private windows look the same as normal windows. When you first turn it on, private windows start from a copy of the normal windows’ appearance." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When off, private windows look the same as normal windows. When you first turn it on, private windows start from a copy of the normal windows’ appearance."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オフの間は、シークレットウインドウもノーマルウインドウと同じ外観になります。初めてオンにしたときは、ノーマルウインドウの外観を写したところから始まります。"
+          }
+        }
+      }
+    },
+    "Windows" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Windows"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ウインドウ"
           }
         }
       }

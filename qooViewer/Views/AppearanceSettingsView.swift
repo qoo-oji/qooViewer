@@ -47,7 +47,28 @@ import SwiftUI
 /// 一覧の面は、上から「ビューアの中で目に入る面積が大きい順」(ページ一覧 → 帯や側面の3面 →
 /// ウェルカム画面 → 小さな浮かぶ表示)で、`PanelSurface.allCases`の順をそのまま使っている
 /// (面を足してもこのファイルは触らなくてよい)。
+///
+/// ■ ノーマルウインドウとシークレットウインドウ(2026-09-22、ユーザー要望)
+/// 「シークレットウインドウに別の外観を使う」を ON にすると、いちばん上の「編集する外観」で、この画面と子ページの全部が
+/// どちらの揃い(AppearanceSettings)を編集するかを選べる。この型は編集する揃いを選んで中身(AppearanceSettingsContent)へ
+/// 渡すだけ ―― 中身は渡された揃いを `@ObservedObject` で持つので、揃いを切り替えても、同じ揃いの値が変わっても描き直される。
+/// 「初期設定に戻す」は編集中の揃いだけを戻し、このスイッチ自体は戻さない(AppPreferences.privateWindowsUseOwnAppearance)。
 struct AppearanceSettingsView: View {
+    @EnvironmentObject private var preferences: AppPreferences
+    @ObservedObject private var navigator = SettingsNavigator.shared
+
+    var body: some View {
+        AppearanceSettingsContent(
+            appearance: preferences.privateWindowsUseOwnAppearance && navigator.editingAppearanceProfile == .privateWindow
+                ? preferences.privateAppearance
+                : preferences.appearance
+        )
+    }
+}
+
+private struct AppearanceSettingsContent: View {
+    /// 編集している外観の揃い(AppearanceSettingsView が選ぶ)。
+    @ObservedObject var appearance: AppearanceSettings
     @EnvironmentObject private var preferences: AppPreferences
     /// 「調整…」(PanelPartContextMenu)から預けられた行き先と、いま開いている子ページ
     /// (SettingsNavigator.openedAppearanceSurface参照)。
@@ -58,12 +79,14 @@ struct AppearanceSettingsView: View {
     @Environment(\.locale) private var locale
 
 
-    /// 色の指定ダイアログの編集対象。この画面が持つのはビューアの背景色だけ
+    /// 色の指定ダイアログの編集対象。この画面が持つのはタイトルバーの色とビューアの背景色だけ
     /// (面ごとの色は子ページが持つ。PanelSurfaceSettingsView参照)。
     /// `.sheet(isPresented:)`ではなく`.sheet(item:)`にしてあるのは、子ページと形を揃えるため。
     private enum ColorTarget: Identifiable, Hashable {
         /// ビューアの背景色(「カスタム」を選んだとき)。
         case background
+        /// 本のウインドウのタイトルバーの色(AppPreferences.titleBarColor)。
+        case titleBar
 
         var id: Self { self }
     }
@@ -86,7 +109,7 @@ struct AppearanceSettingsView: View {
         // それなら`NavigationStack`を挟む意味が無いので、状態1つと`if`で切り替えている。
         Group {
             if let surface = navigator.openedAppearanceSurface {
-                PanelSurfaceSettingsView(surface: surface)
+                PanelSurfaceSettingsView(surface: surface, appearance: appearance)
             } else {
                 rootPage
             }
@@ -106,27 +129,33 @@ struct AppearanceSettingsView: View {
         .onChange(of: navigator.appearanceTarget) { _, _ in
             openPendingTarget()
         }
-        .onDisappear { navigator.openedAppearanceSurface = nil }
+        .onDisappear {
+            navigator.openedAppearanceSurface = nil
+            navigator.editingAppearanceProfile = .normal
+        }
     }
 
     /// 一覧のページ(アプリ・ビューア・面の一覧・初期設定に戻す)。
     private var rootPage: some View {
         SettingsPaneContainer {
+            privateWindowSection
             appSection
             viewerSection
             panelsSection
 
             SettingsResetSection(
-                help: "Restores every setting on this page and on every panel’s page, including the color of every frosted surface. Other pages are not affected."
+                help: preferences.privateWindowsUseOwnAppearance
+                    ? "Restores every setting on this page and on every panel’s page for the windows you are editing, including the color of every frosted surface. The other windows’ appearance and other pages are not affected."
+                    : "Restores every setting on this page and on every panel’s page, including the color of every frosted surface. Other pages are not affected."
             ) {
-                preferences.resetToDefaults(.appearance)
+                appearance.resetToDefaults()
             }
         }
         // シートは行ではなく画面の土台側に付ける(理由はSettingsColorRowのコメント参照)。
         .sheet(item: $colorTarget) { target in
             CustomColorPickerSheet(
-                titleKey: "Custom Background Color",
-                initialColor: preferences.customBackgroundColor,
+                titleKey: target == .titleBar ? "Title Bar Color" : "Custom Background Color",
+                initialColor: currentColor(for: target),
                 onCommit: { commit($0, for: target) },
                 onCancel: { revert(target) }
             )
@@ -144,6 +173,29 @@ struct AppearanceSettingsView: View {
         navigator.appearanceTarget = nil
     }
 
+    // MARK: - ノーマル/シークレット
+
+    /// シークレットウインドウに別の外観を使うかどうかと、この画面でどちらを編集するか(2026-09-22、ユーザー要望)。
+    /// いちばん上に置くのは、この選択が下の全部(子ページを含む)の意味を決めるため。
+    private var privateWindowSection: some View {
+        Section {
+            SettingsToggle(
+                "Use a Separate Appearance for Private Windows",
+                isOn: $preferences.privateWindowsUseOwnAppearance,
+                help: "When off, private windows look the same as normal windows. When you first turn it on, private windows start from a copy of the normal windows’ appearance."
+            )
+            if preferences.privateWindowsUseOwnAppearance {
+                SettingsPicker(
+                    "Appearance to Edit",
+                    selection: $navigator.editingAppearanceProfile,
+                    help: "Every setting on this page and on the panel pages below applies to the windows chosen here. Settings, other auxiliary windows and the menu bar always use the normal windows’ appearance."
+                )
+            }
+        } header: {
+            Text("Windows")
+        }
+    }
+
     // MARK: - アプリ全体
 
     /// アプリ全体のライト/ダーク(ユーザー要望: システム設定とは独立して選びたい)。
@@ -159,9 +211,21 @@ struct AppearanceSettingsView: View {
         Section {
             SettingsPicker(
                 "Appearance Mode",
-                selection: $preferences.appAppearance,
+                selection: $appearance.appAppearance,
                 help: "Applies to qooViewer only, whatever the system Light/Dark setting is. The viewer's background color is a separate setting."
             )
+            // 本のウインドウ(ホーム・ビューア)のタイトルバーの色(2026-09-22、ユーザー要望。WindowTitleBarColor参照)。
+            // 「アプリ」に置くのは、ホームとビューアのどちらにも効き、外観モードと組み合わせて決める設定だから
+            // (文字の色は外観モードに従い、色そのものは指定できない)。
+            SettingsColorRow(
+                "Title Bar Color",
+                color: appearance.titleBarColor?.color ?? Color(nsColor: .windowBackgroundColor),
+                help: "Colors the title bar of Home and book windows. The title text follows the appearance mode, so pick a color it stays readable on. Until you pick a color, the standard title bar is used.",
+                // 色を決めてあるときだけ、標準のタイトルバーへ戻す道を出す(札の地の色と同じ)。
+                reset: appearance.titleBarColor == nil ? nil : { appearance.titleBarColor = nil }
+            ) {
+                colorTarget = .titleBar
+            }
         } header: {
             Text("App")
         }
@@ -185,7 +249,7 @@ struct AppearanceSettingsView: View {
     private var panelsSection: some View {
         Section {
             ForEach(PanelSurface.allCases) { surface in
-                PanelSurfaceRow(surface: surface, style: preferences.surfaceStyle(for: surface)) {
+                PanelSurfaceRow(surface: surface, style: appearance.surfaceStyle(for: surface)) {
                     navigator.openedAppearanceSurface = surface
                 }
             }
@@ -205,10 +269,10 @@ struct AppearanceSettingsView: View {
     /// 逃げてから戻る以外に色を編集し直す方法が無くなってしまう。
     private var backgroundColorSelection: Binding<BackgroundColorOption> {
         Binding(
-            get: { preferences.backgroundColorOption },
+            get: { appearance.backgroundColorOption },
             set: { newValue in
-                let previous = preferences.backgroundColorOption
-                preferences.backgroundColorOption = newValue
+                let previous = appearance.backgroundColorOption
+                appearance.backgroundColorOption = newValue
                 guard newValue == .custom else { return }
                 backgroundOptionBeforeCustomizing = previous
                 colorTarget = .background
@@ -218,12 +282,22 @@ struct AppearanceSettingsView: View {
 
     // MARK: - ダイアログの読み書き
 
+    private func currentColor(for target: ColorTarget) -> RGBColorValue {
+        switch target {
+        case .background: appearance.customBackgroundColor
+        // 未指定のまま開いたときは中間のグレーから始める(札の地の色と同じ。PanelSurfaceSettingsView.currentColor参照)。
+        case .titleBar: appearance.titleBarColor ?? RGBColorValue(red: 128, green: 128, blue: 128)
+        }
+    }
+
     private func commit(_ color: RGBColorValue, for target: ColorTarget) {
         switch target {
+        case .titleBar:
+            appearance.titleBarColor = color
         case .background:
             // 背景色そのものは「カスタム」を選んだ時点で既に切り替わっている
             // (backgroundColorSelection参照)ので、ここでは色だけを保存する。
-            preferences.customBackgroundColor = color
+            appearance.customBackgroundColor = color
         }
     }
 
@@ -232,9 +306,12 @@ struct AppearanceSettingsView: View {
     /// 変わってしまった」を防ぐため)。直前も「カスタム」だったなら、色だけが元のまま残る。
     private func revert(_ target: ColorTarget) {
         switch target {
+        // プリセットが無く、ダイアログを開くこと自体が設定を変えないので、戻すものが無い。
+        case .titleBar:
+            break
         case .background:
             if let previous = backgroundOptionBeforeCustomizing {
-                preferences.backgroundColorOption = previous
+                appearance.backgroundColorOption = previous
             }
             backgroundOptionBeforeCustomizing = nil
         }
