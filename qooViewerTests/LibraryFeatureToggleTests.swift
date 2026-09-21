@@ -228,12 +228,17 @@ struct LibraryFeatureToggleTests {
     @Test("OFFの間、右クリックの並びから「コレクションを作成」「コレクションに登録」の群が消える(空の群も残さない)")
     func collectionItemsLeaveTheContextMenu() {
         for kind in [FileBrowserMenuKind.folder, .file, .tree, .background] {
-            let all = FileBrowserMenuCommand.groups(for: kind)
-            let without = FileBrowserMenuCommand.groups(for: kind, includesLibrary: false)
-            let flattened = without.flatMap { $0 }
-            #expect(!flattened.contains(.createCollection) && !flattened.contains(.addToCollection))
-            #expect(!without.contains { $0.isEmpty })
-            #expect(flattened == all.flatMap { $0 }.filter { $0 != .createCollection && $0 != .addToCollection })
+            // 式を小分けにして型を書く(1 つの `#expect` に詰めると、CI の Xcode 26.6 が「時間内に型チェックできない」で落とす)。
+            let all: [FileBrowserMenuCommand] = FileBrowserMenuCommand.groups(for: kind).flatMap { $0 }
+            let without: [[FileBrowserMenuCommand]] = FileBrowserMenuCommand.groups(for: kind, includesLibrary: false)
+            let flattened: [FileBrowserMenuCommand] = without.flatMap { $0 }
+            let library: Set<FileBrowserMenuCommand> = [.createCollection, .addToCollection]
+            let expected: [FileBrowserMenuCommand] = all.filter { !library.contains($0) }
+            let hasLibraryItem: Bool = flattened.contains { library.contains($0) }
+            let hasEmptyGroup: Bool = without.contains { $0.isEmpty }
+            #expect(!hasLibraryItem)
+            #expect(!hasEmptyGroup)
+            #expect(flattened == expected)
         }
         #expect(FileBrowserMenuCommand.groups(for: .file).flatMap { $0 }.contains(.createCollection))
     }
