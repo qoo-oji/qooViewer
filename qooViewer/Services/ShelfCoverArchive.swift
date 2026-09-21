@@ -19,7 +19,7 @@ import ZIPFoundation
 ///
 /// ■ ファイル名
 /// 本の名前(フォルダはフォルダ名、ファイルは拡張子を落としたもの。
-/// `MetadataEditorViewModel.baseName(forBookID:)`)に`.jpg`を付ける。同じ名前の本が複数あれば
+/// `MetadataRulesStore.baseName(forBookID:)`)に`.jpg`を付ける。同じ名前の本が複数あれば
 /// ` (2)`と番号を足す。名前は本を指し示すための**照合の手がかり**でもあるので、
 /// `manifest.json`にエントリ名とbookIDの対応も一緒に入れておく ―― 読み込み側は、名前を
 /// 付け替えられていなければmanifestで正確に、付け替えられていれば名前で照合する。

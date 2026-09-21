@@ -74,6 +74,11 @@ struct LibraryFeatureToggleTests {
         }
         // `.classic` は選べるモードではない(両方ONへ戻ったら本棚)。
         #expect(WelcomeLibraryState.constrained(.classic, library: true, fileBrowser: true) == .shelf)
+        // スマートライブラリはライブラリ機能の一部: ライブラリが ON ならファイルブラウザの設定に関わらず選べる。
+        #expect(WelcomeLibraryState.constrained(.smart, library: true, fileBrowser: true) == .smart)
+        #expect(WelcomeLibraryState.constrained(.smart, library: true, fileBrowser: false) == .smart)
+        #expect(WelcomeLibraryState.constrained(.smart, library: false, fileBrowser: true) == .browser)
+        #expect(WelcomeLibraryState.constrained(.smart, library: false, fileBrowser: false) == .classic)
 
         let suite = PreferencesSuite(label: "home-feature-flags")
         defer { withExtendedLifetime(suite) {} }

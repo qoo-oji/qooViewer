@@ -16,7 +16,7 @@ struct LibraryImportWindow: View {
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var metadataStore: BookMetadataStore
-    @EnvironmentObject private var metadataFormatStore: MetadataFormatStore
+    @Environment(MetadataRulesStore.self) private var metadataRulesStore
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var collectionCoverExtractor: CollectionCoverExtractor
     @EnvironmentObject private var preferences: AppPreferences
@@ -33,9 +33,9 @@ struct LibraryImportWindow: View {
     @State private var bookmarksPolicy: LibraryImportExportService.ImportPolicy = .merge
     @State private var layoutsPolicy: LibraryImportExportService.ImportPolicy = .merge
     @State private var metadataPolicy: LibraryImportExportService.ImportPolicy = .merge
-    /// フォーマット定義は「取り込む=自分の設定を丸ごと置き換える」操作になるため、既定は無視。
-    /// マージという選択肢自体が無い(ImportPolicies.metadataFormatsのコメント参照)。
-    @State private var metadataFormatsPolicy: LibraryImportExportService.ImportPolicy = .ignore
+    /// 規則(qooMeta。以前はフォーマット定義)は「取り込む=自分の設定を丸ごと置き換える」操作になるため、既定は無視。
+    /// マージという選択肢自体が無い(ImportPolicies.metadataRulesのコメント参照)。
+    @State private var metadataRulesPolicy: LibraryImportExportService.ImportPolicy = .ignore
     @State private var isImporting = false
     @State private var summary: LibraryImportExportService.ImportSummary?
     @State private var loadErrorMessage: String?
@@ -49,7 +49,8 @@ struct LibraryImportWindow: View {
     private var hasBookmarks: Bool { loadedFile?.bookmarks?.isEmpty == false }
     private var hasLayouts: Bool { loadedFile?.layouts?.isEmpty == false }
     private var hasMetadata: Bool { loadedFile?.metadata?.isEmpty == false }
-    private var hasMetadataFormats: Bool { loadedFile?.metadataFormats != nil }
+    /// 規則(新しい形の `metadataRules` か、以前の形の `metadataFormats`)を含むか。
+    private var hasMetadataRules: Bool { loadedFile?.metadataRules != nil || loadedFile?.metadataFormats != nil }
 
     // バグ修正(ユーザー報告): LibraryExportWindowと同じ理由(コメント参照)で、ボタン行を
     // Form(スクロール領域)の外側、VStack(spacing: 0)の中でDivider()の下に独立させ、
@@ -110,14 +111,14 @@ struct LibraryImportWindow: View {
                     // フォーマット定義は本ごとのデータではなくアプリ全体の設定のため、
                     // 「マージ」を選べるようにしても意味のある結果にならない。
                     // 置き換えるか取り込まないかの2択だけを出す。
-                    Picker("Metadata Formats", selection: $metadataFormatsPolicy) {
+                    Picker("Metadata Rules", selection: $metadataRulesPolicy) {
                         Text(LibraryImportExportService.ImportPolicy.overwrite.titleKey)
                             .tag(LibraryImportExportService.ImportPolicy.overwrite)
                         Text(LibraryImportExportService.ImportPolicy.ignore.titleKey)
                             .tag(LibraryImportExportService.ImportPolicy.ignore)
                     }
                     .pickerStyle(.segmented)
-                    .disabled(!hasMetadataFormats)
+                    .disabled(!hasMetadataRules)
                 } footer: {
                     Text("Overwrite replaces existing data for the books mentioned in the file. Merge only adds what's missing, without changing anything that already exists. Ignore skips that category entirely.")
                         .font(.caption)
@@ -207,9 +208,16 @@ struct LibraryImportWindow: View {
             )
             .font(.caption)
         }
-        if summary.didImportMetadataFormats {
-            Text("Metadata formats were replaced with the ones in the file.")
+        if summary.didImportMetadataRules {
+            Text("Metadata rules were replaced with the ones in the file.")
                 .font(.caption)
+        }
+        if !summary.metadataRuleErrors.isEmpty {
+            Text(String(format: String(localized: "The metadata rules in the file could not be read, so they were not imported: %@",
+                                       language: preferences.effectiveLocale),
+                        summary.metadataRuleErrors.joined(separator: " / ")))
+                .font(.caption)
+                .foregroundStyle(.orange)
         }
     }
 
@@ -331,13 +339,13 @@ struct LibraryImportWindow: View {
         Task {
             let policies = LibraryImportExportService.ImportPolicies(
                 favorites: favoritesPolicy, bookmarks: bookmarksPolicy, layouts: layoutsPolicy,
-                metadata: metadataPolicy, metadataFormats: metadataFormatsPolicy,
+                metadata: metadataPolicy, metadataRules: metadataRulesPolicy,
                 collections: collectionsPolicy
             )
             summary = await LibraryImportExportService.apply(
                 loadedFile, policies: policies,
                 favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-                metadataStore: metadataStore, metadataFormatStore: metadataFormatStore,
+                metadataStore: metadataStore, metadataRulesStore: metadataRulesStore,
                 collectionStore: collectionStore
             )
             // 取り込んだ本のカバーはpendingのまま置いてある(applyCollections参照)。

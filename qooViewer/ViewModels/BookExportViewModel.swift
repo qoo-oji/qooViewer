@@ -1,3 +1,5 @@
+import Synchronization
+import QooMetaKit
 import Foundation
 import SwiftUI
 import Combine
@@ -108,6 +110,14 @@ class BookExportViewModel: ObservableObject {
         let author: String?
         /// メタデータDBの登録内容(シリーズ名・巻数を読むために渡す)。未登録ならnil。
         let metadata: BookMetadata?
+
+        /// 2 人目以降の著者(qooMeta の欄)。**この画面の著者欄が DB の先頭の著者のままのときだけ**続ける
+        /// ―― 著者を書き換えたなら、それは別の人なので、DB の 2 人目以降を付けると混ざる。
+        var additionalAuthors: [String] {
+            guard let metadata, let author = author?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !author.isEmpty, author == metadata.author else { return [] }
+            return Array(metadata.authors.dropFirst())
+        }
     }
 
     /// 対象になりうる本のすべて(絞り込み前)。書き出しの対象になるのはこの中の
@@ -160,7 +170,7 @@ class BookExportViewModel: ObservableObject {
     // この画面で変更できるようにしたい)
 
     /// bookID -> タイトル(編集可能)。reload()で新しく現れた本にだけ、メタデータDBの登録内容、
-    /// 無ければファイル名/フォルダ名からTitleAuthorFilenameParserで推測した値を初期値として
+    /// 無ければファイル名/フォルダ名を qooMeta で読んだ値を初期値として
     /// 設定する(既存の編集内容は保持する)。
     @Published var titleOverrides: [String: String] = [:]
     /// bookID -> 著者名(編集可能)。titleOverridesと同じ考え方。
@@ -434,9 +444,12 @@ class BookExportViewModel: ObservableObject {
             authorOverrides[row.bookID] = metadata.author
             return
         }
-        let parsed = TitleAuthorFilenameParser.parse(baseName: row.displayName)
+        // ファイル名を qooMeta で読む(メタデータの編集と同じ規則・同じルールセットの選び方。2026-09-21 までは
+        // 書き出しだけの別の推測 TitleAuthorFilenameParser を使っていた)。
+        let rules = MetadataRulesStore.appWideRules.withLock { $0 }
+        let parsed = MetadataRulesStore.reading(forBookID: row.bookID, rules: rules).metadata
         titleOverrides[row.bookID] = parsed.title.isEmpty ? row.displayName : parsed.title
-        authorOverrides[row.bookID] = parsed.author
+        authorOverrides[row.bookID] = parsed.authors.first ?? ""
     }
 
     // MARK: - 一括選択

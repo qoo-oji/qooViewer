@@ -97,7 +97,7 @@ struct LibraryJSONSchemaTests {
         let decoded = try JSONDecoder().decode(
             QooLibraryExportFile.self, from: try JSONEncoder().encode(file)
         )
-        #expect(decoded.formatVersion == 4)
+        #expect(decoded.formatVersion == 5)
         #expect(decoded.favorites?.folders.map(\.id) == ["f1", "f2"])
         #expect(decoded.favorites?.folders.last?.parentId == "f1")
         #expect(decoded.favorites?.books.first?.folderId == "f2")
@@ -116,9 +116,9 @@ struct LibraryJSONSchemaTests {
             == FileNodeIdentifier(inodeNumber: 12345, volumeDeviceNumber: 16777220))
     }
 
-    @Test("既定の formatVersion は 4")
-    func theDefaultFormatVersionIsFour() {
-        #expect(QooLibraryExportFile().formatVersion == 4)
+    @Test("既定の formatVersion は 5")
+    func theDefaultFormatVersionIsFive() {
+        #expect(QooLibraryExportFile().formatVersion == 5)
     }
 
     // MARK: - 旧版のファイル

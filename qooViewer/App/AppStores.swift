@@ -36,9 +36,9 @@ final class AppStores: ObservableObject {
     /// サイドパネルのリソースモニタの計測役。CPU・メモリ・ディスクI/Oはプロセスの値なので
     /// アプリで1つ(ProcessResourceSamplerのコメント参照)。
     let resourceSampler: ProcessResourceSampler
-    /// メタデータをファイル名から推測するための3種類のルール(ファイル名フォーマット・
-    /// 巻数フォーマット・除外文字列)。UserDefaultsに保存するためModelContextは不要。
-    let metadataFormatStore: MetadataFormatStore
+    /// ファイル名からメタデータを作る規則(qooMeta)の設定。2026-09-21 に `MetadataFormatStore`(3 種の正規表現の規則)
+    /// から置き換えた。`@Observable` なので `allObjectWillChangePublishers` には入らない(メニューは規則を読まない)。
+    let metadataRulesStore: MetadataRulesStore
     /// 複数ウインドウ/タブに対応するための調整役。詳細はLaunchCoordinator.swiftのコメント参照。
     let launchCoordinator: LaunchCoordinator
     /// お気に入り(階層フォルダ + 登録した本)。RecentFilesStore等と違いSwiftDataで永続化するため、
@@ -84,6 +84,11 @@ final class AppStores: ObservableObject {
     /// ファイルブラウザの「よく使う項目」(改善要望7 段階3)。メニューバーに現れないので
     /// allObjectWillChangePublishersには足さない(CollectionStoreと同じ理由)。
     let favoriteLocations: FavoriteLocationStore
+    /// スマートライブラリで保存するもの(スマートシェルフ・対象フォルダ。2026-09-21)。メニューバーは読まないので
+    /// allObjectWillChangePublishers には足さない。
+    let smartLibraryStore: SmartLibraryStore
+    /// スマートライブラリに並べる本を集める役(画面が出ている間だけ働く)。同じく allObjectWillChangePublishers には足さない。
+    let smartLibraryCatalog: SmartLibraryCatalog
     /// ファイルブラウザのアイコン表示の絵(改善要望7 段階 7a)。メモリの絵と作る仕事の待ち行列をウインドウをまたいで
     /// 1 つにする。メニューバーに現れないので allObjectWillChangePublishers には足さない。
     let fileBrowserThumbnails: FileBrowserThumbnailProvider
@@ -122,7 +127,15 @@ final class AppStores: ObservableObject {
         recentFiles = RecentFilesStore()
         folderAccess = FolderAccessStore()
         resourceSampler = ProcessResourceSampler()
-        metadataFormatStore = MetadataFormatStore()
+        // テストの中で走る実物のアプリでは、利用者の規則のファイルを読み書きせず、以前の規則の引き継ぎもしない
+        // (共有の状態に触らない。CLAUDE.md)。テストは自分の MetadataRulesStore を使い捨ての場所に作る。
+        metadataRulesStore = RuntimeEnvironment.isRunningTests
+            ? MetadataRulesStore(url: FileManager.default.temporaryDirectory
+                .appendingPathComponent("qooViewerTestHost.rules.\(UUID().uuidString)/settings.json"),
+                legacyDefaults: nil, isAppWide: true)
+            : MetadataRulesStore(isAppWide: true)
+        // 英単語の辞書(約 24 万語)を画面の外で読んでおく(メタデータの編集ウインドウを初めて開いたときに待たない)。
+        MetadataRulesStore.warmUp()
         launchCoordinator = LaunchCoordinator()
         favoriteLocations = FavoriteLocationStore()
         let context = QooViewerApp.modelContainer.mainContext
@@ -131,7 +144,7 @@ final class AppStores: ObservableObject {
         layoutStore = LayoutStore(modelContext: context)
         metadataStore = BookMetadataStore(modelContext: context)
         bookTitleResolver = BookTitleResolver(
-            metadataStore: metadataStore, formatStore: metadataFormatStore
+            metadataStore: metadataStore, rulesStore: metadataRulesStore
         )
         collectionCoverStore = CollectionCoverStore()
         collectionTileImageStore = CollectionTileImageStore(coverStore: collectionCoverStore)
@@ -177,6 +190,12 @@ final class AppStores: ObservableObject {
         if !RuntimeEnvironment.isRunningTests, preferences.fileBrowserFeatureEnabled {
             autoRenameService.start(folderAccessChanges: folderAccess.objectWillChange.map { _ in () }.eraseToAnyPublisher())
         }
+        smartLibraryStore = SmartLibraryStore()
+        smartLibraryCatalog = SmartLibraryCatalog(
+            collectionStore: collectionStore, metadataStore: metadataStore, favoritesStore: favoritesStore,
+            favoriteLocations: favoriteLocations, store: smartLibraryStore, rulesStore: metadataRulesStore,
+            preferences: preferences, modelContext: context
+        )
         collectionAutoFolderScanner = CollectionAutoFolderScanner(
             collectionStore: collectionStore, coverExtractor: collectionCoverExtractor,
             folderAccess: folderAccess, preferences: preferences
@@ -293,6 +312,9 @@ final class AppStores: ObservableObject {
     /// (以前の契機は起動・アクティブ化・ボリュームの着脱だけで、アプリの中で本を移しても消しても表示が変わらなかった)。
     private func handleFileSystemChange(_ change: FileSystemChange) {
         favoriteLocations.relocate(using: change)
+        smartLibraryStore.relocate(using: change)
+        metadataRulesStore.relocateExcludedFolders(using: change)
+        smartLibraryCatalog.handleFileSystemChange(change)
         let relocation = bookRecordRelocator.apply(change)
         Task { @MainActor [weak self] in
             await relocation.value
@@ -313,7 +335,6 @@ final class AppStores: ObservableObject {
             recentFiles.objectWillChange,
             folderAccess.objectWillChange,
             resourceSampler.objectWillChange,
-            metadataFormatStore.objectWillChange,
             launchCoordinator.objectWillChange,
             favoritesStore.objectWillChange,
             bookmarkStore.objectWillChange,

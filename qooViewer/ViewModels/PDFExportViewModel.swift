@@ -24,7 +24,9 @@ final class PDFExportViewModel: BookExportViewModel {
             // 解釈できる場合だけ書き出す(BookMetadata.exportableSeriesIndex参照)。
             seriesIndex: prepared.metadata?.exportableSeriesIndex,
             readingDirection: prepared.readingDirection,
-            forcedDisplayMode: prepared.forcedDisplayMode
+            forcedDisplayMode: prepared.forcedDisplayMode,
+            additionalAuthors: prepared.additionalAuthors,
+            genre: prepared.metadata?.genre
         )
         let options = PDFExportOptions(includeExcludedPages: includeExcludedPages)
         try await PDFExporter.export(input, options: options, to: destinationURL)

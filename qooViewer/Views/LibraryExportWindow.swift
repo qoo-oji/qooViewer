@@ -11,7 +11,7 @@ struct LibraryExportWindow: View {
     @EnvironmentObject private var bookmarkStore: BookmarkStore
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var metadataStore: BookMetadataStore
-    @EnvironmentObject private var metadataFormatStore: MetadataFormatStore
+    @Environment(MetadataRulesStore.self) private var metadataRulesStore
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var preferences: AppPreferences
     @Environment(\.dismiss) private var dismiss
@@ -23,9 +23,9 @@ struct LibraryExportWindow: View {
     @State private var includeBookmarks = true
     @State private var includeLayouts = true
     @State private var includeMetadata = true
-    /// フォーマット定義(アプリ全体の設定)は、本ごとのデータとは性質が違ううえ、取り込み側の
-    /// 設定を丸ごと置き換えるものになるため、既定ではチェックを外しておく。
-    @State private var includeMetadataFormats = false
+    /// メタデータの規則(qooMeta。アプリ全体の設定。2026-09-21 までは「フォーマット定義」)は、本ごとのデータとは
+    /// 性質が違ううえ、取り込み側の設定を丸ごと置き換えるものになるため、既定ではチェックを外しておく。
+    @State private var includeMetadataRules = false
     /// コレクション(改善要望5)。本ごとのデータと同じく既定でチェックを入れておく。
     @State private var includeCollections = true
     @State private var isExporting = false
@@ -39,7 +39,7 @@ struct LibraryExportWindow: View {
 
     private var hasSelection: Bool {
         includeFavorites || includeBookmarks || includeLayouts || includeMetadata
-            || includeMetadataFormats || includeCollections
+            || includeMetadataRules || includeCollections
     }
 
     // バグ修正(ユーザー報告): 以前はボタン行もFormの1Sectionとして中に含めていたが、
@@ -61,7 +61,7 @@ struct LibraryExportWindow: View {
                     Toggle("Bookmarks", isOn: $includeBookmarks)
                     Toggle("Page Layout Settings", isOn: $includeLayouts)
                     Toggle("Metadata", isOn: $includeMetadata)
-                    Toggle("Metadata Formats", isOn: $includeMetadataFormats)
+                    Toggle("Metadata Rules", isOn: $includeMetadataRules)
                 } footer: {
                     Text("This creates a single JSON file that only qooViewer can read back in. ComicInfo.xml is not supported.")
                         .font(.caption)
@@ -177,13 +177,13 @@ struct LibraryExportWindow: View {
             let selection = LibraryImportExportService.ExportSelection(
                 includeFavorites: includeFavorites, includeBookmarks: includeBookmarks,
                 includeLayouts: includeLayouts, includeMetadata: includeMetadata,
-                includeMetadataFormats: includeMetadataFormats,
+                includeMetadataRules: includeMetadataRules,
                 includeCollections: includeCollections
             )
             let (file, result) = await LibraryImportExportService.buildExportFile(
                 selection: selection, favoritesStore: favoritesStore, bookmarkStore: bookmarkStore,
                 layoutStore: layoutStore, metadataStore: metadataStore,
-                metadataFormatStore: metadataFormatStore, collectionStore: collectionStore
+                metadataRulesStore: metadataRulesStore, collectionStore: collectionStore
             )
             do {
                 try LibraryImportExportService.write(file, to: url)

@@ -209,15 +209,8 @@ final class LibraryCleanupViewModel: ObservableObject {
 
     // MARK: - 実在判定(非同期)
 
-    /// メインアクターの外へ渡す判定材料。SwiftDataのモデルはそのまま渡せないため、
-    /// メインアクターにいるうちにSendableな値へ写し取る。
-    private struct ExistenceProbe: Sendable {
-        let bookID: String
-        /// この本を指すセキュリティスコープ付きブックマークの候補(各ストアから集めた順)。
-        let bookmarkCandidates: [Data]
-        /// 環境設定「フォルダのアクセス権」で許可済みのフォルダ配下かどうか。
-        let isPathCovered: Bool
-    }
+    /// メインアクターの外へ渡す判定材料(BookExistenceProbe へ切り出した。メタデータの編集ウインドウも同じ判定を使う)。
+    private typealias ExistenceProbe = BookExistenceProbe
 
     /// bookIDごとの実在判定の結果。まだ判定できていないものは入っていない。
     private var existenceByBookID: [String: FileExistence] = [:]
@@ -243,16 +236,9 @@ final class LibraryCleanupViewModel: ObservableObject {
             return
         }
         let probes = pending.map { bookID in
-            ExistenceProbe(
-                bookID: bookID,
-                bookmarkCandidates: [
-                    metadataStore.metadata(forBookID: bookID)?.bookmarkData,
-                    layoutStore.bookLayoutSettings(forBookID: bookID)?.bookmarkData,
-                    bookmarkStore.anyBookmarkData(forBookID: bookID),
-                    favoritesStore.anyBookmarkData(forBookID: bookID),
-                    collectionStore.anyBookmarkData(forBookID: bookID)
-                ].compactMap { $0 },
-                isPathCovered: folderAccess.isPathCovered(URL(fileURLWithPath: bookID))
+            BookExistenceProbe.make(
+                bookID: bookID, metadataStore: metadataStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore,
+                favoritesStore: favoritesStore, collectionStore: collectionStore, folderAccess: folderAccess
             )
         }
         existenceScanGeneration &+= 1
@@ -295,41 +281,13 @@ final class LibraryCleanupViewModel: ObservableObject {
     private nonisolated static func evaluateAll(_ probes: [ExistenceProbe]) -> [String: FileExistence] {
         var result: [String: FileExistence] = [:]
         for probe in probes {
-            result[probe.bookID] = evaluate(probe)
+            switch probe.evaluate() {
+            case .exists: result[probe.bookID] = .exists
+            case .missing: result[probe.bookID] = .missing
+            case .unknown: result[probe.bookID] = .unknown
+            }
         }
         return result
-    }
-
-    /// 元のファイル/フォルダが今も存在するかどうかを判定する。
-    ///
-    /// 判定の順序:
-    /// 1. いずれかのストアが持つセキュリティスコープ付きブックマークからURLを解決できるなら、
-    ///    それを開いて確認する(最も確実。環境設定「フォルダのアクセス権」でフォルダを許可していなくても
-    ///    判定できる)。
-    /// 2. 解決できない場合でも、環境設定「フォルダのアクセス権」で許可済みのフォルダ配下のパスなら、
-    ///    素のパスに対する存在確認の結果をそのまま信用してよい。
-    /// 3. どちらでもない場合、存在確認が成功すれば存在する(見えている以上は確実)。
-    ///    失敗した場合は「無い」のか「アクセス権が無くて見えない」のか区別できないため、
-    ///    .unknownとして扱う(誤って「消えた」と表示して削除を促さないため)。
-    ///
-    /// `nonisolated`にしてあるのは、この判定をメインアクターの外(scheduleExistenceScanの
-    /// Task.detached)で走らせるため。このプロジェクトの既定のアクター隔離はMainActorなので、
-    /// 明示しないとメインアクター限定になってしまう
-    /// (Services/ArchiveReading.swift冒頭のコメント参照)。
-    private nonisolated static func evaluate(_ probe: ExistenceProbe) -> FileExistence {
-        for data in probe.bookmarkCandidates {
-            var isStale = false
-            guard let url = try? URL(
-                resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            ) else { continue }
-            let didAccess = url.startAccessingSecurityScopedResource()
-            defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
-            return FileManager.default.fileExists(atPath: url.path) ? .exists : .missing
-        }
-        let url = URL(fileURLWithPath: probe.bookID)
-        if FileManager.default.fileExists(atPath: url.path) { return .exists }
-        return probe.isPathCovered ? .missing : .unknown
     }
 
     // MARK: - 削除
@@ -343,49 +301,15 @@ final class LibraryCleanupViewModel: ObservableObject {
     /// お気に入りも対象に含めており、一覧のインジケータで登録の有無が分かるようにしてある
     /// (削除前に確認ダイアログで何が消えるのかを明示する。LibraryCleanupWindow参照)。
     func deleteAllData(forBookIDs bookIDs: [String]) {
-        for bookID in bookIDs {
-            favoritesStore.removeFavorites(forBookID: bookID)
-            collectionStore.removeItems(forBookID: bookID)
-            bookmarkStore.deleteAllBookmarks(forBookID: bookID)
-            layoutStore.discardLayoutData(forBookID: bookID)
-            metadataStore.delete(forBookID: bookID)
-        }
-        // 読書履歴だけは、本ごとではなく最後にまとめて消す(deleteReadingStates参照)。
-        deleteReadingStates(forBookIDs: Set(bookIDs))
+        BookSavedDataEraser(
+            favoritesStore: favoritesStore, collectionStore: collectionStore, bookmarkStore: bookmarkStore,
+            layoutStore: layoutStore, metadataStore: metadataStore, modelContext: modelContext
+        ).deleteAllData(forBookIDs: bookIDs)
         // 消した本の実在判定の結果は用済み。残しておくと、同じパスの本が後からまた
         // 現れたときに古い判定を引き継いでしまう。
         for bookID in bookIDs {
             existenceByBookID.removeValue(forKey: bookID)
         }
         reload()
-    }
-
-    /// 読書履歴の削除。BookReadingStateは専用のストアクラスを持たず(ViewerViewModelが直接
-    /// ModelContextを操作している)、ここでも同じくModelContext経由で削除する。
-    ///
-    /// #Predicateによる絞り込みフェッチは使わず、全件フェッチしてSwift側で選別する
-    /// (LayoutStore.bookLayoutSettings(forBookID:)のコメントと同じ理由: 絞り込みフェッチが
-    /// 誤って0件を返す事象を踏んでいるため、このプロジェクトでは一貫して避けている)。
-    ///
-    /// 全件フェッチが必要という制約があるからこそ、本1冊ごとではなく**まとめて**受け取る。
-    /// 以前は1冊ごとにこのメソッドを呼んでいたため、「表示中をすべて削除」でN冊消すと
-    /// 全件フェッチとsave()がN回ずつ走り、メインアクター上でN×(履歴の件数)の比較が発生していた
-    /// (FavoritesStore.removeFavorites(forBookID:)が1件ずつのsave()を避けているのと同じ理由)。
-    private func deleteReadingStates(forBookIDs bookIDs: Set<String>) {
-        guard !bookIDs.isEmpty else { return }
-        let states = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
-        let matched = states.filter { bookIDs.contains($0.bookID) }
-        guard !matched.isEmpty else { return }
-        for state in matched {
-            modelContext.delete(state)
-        }
-        try? modelContext.save()
-        // 消した本を今開いているウインドウがあれば、そのViewerViewModelは削除済みの行を
-        // 握ったまま(同じModelContextなので同じオブジェクト)。以後そこへ書かせない
-        // (Notification.Name.bookReadingStatesDidDeleteのコメント参照。監査で指摘)。
-        NotificationCenter.default.post(
-            name: .bookReadingStatesDidDelete, object: self,
-            userInfo: [BookReadingStateDeletionNotification.bookIDsUserInfoKey: Set(matched.map(\.bookID))]
-        )
     }
 }

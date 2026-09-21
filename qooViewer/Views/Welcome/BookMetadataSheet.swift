@@ -65,16 +65,21 @@ struct BookMetadataSheet: View {
     }
 
     @EnvironmentObject private var metadataStore: BookMetadataStore
-    @EnvironmentObject private var formatStore: MetadataFormatStore
+    @Environment(MetadataRulesStore.self) private var rulesStore
     @EnvironmentObject private var layoutStore: LayoutStore
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var preferences: AppPreferences
     @Environment(\.locale) private var locale
     @Environment(\.dismiss) private var dismiss
 
-    /// 編集中の4欄。「メタデータの編集」ウインドウと同じ初期値の決め方
-    /// (登録済みならDBの値、未登録ならファイル名からの推測値)。
-    @State private var draft = MetadataEditorViewModel.Draft()
+    /// 編集中の欄。「メタデータの編集」ウインドウと同じ初期値の決め方
+    /// (登録済みならDBの値、未登録ならファイル名を qooMeta で読んだ提案)。2026-09-21 から qooMeta の欄
+    /// (複数の著者・ジャンル・イベント・原作・情報)も持つ。
+    @State private var draft = BookMetadataValues()
+    /// 著者の欄の文字(「、」で区切って複数。qooMeta の一覧のセルと同じ書き方)。
+    @State private var authorsText = ""
+    /// 開いたときの巻の表記(手で変えたら、qooMeta が導いた並べ替え用の数を捨てる)。
+    @State private var openedVolume = ""
     /// カバーの指定。環境オブジェクトが要るのでinitでは作れず、onAppearで組み立てる
     /// (MetadataEditorWindowが@StateのViewModelを組み立てるのと同じ形)。
     @State private var coverController: CoverOverrideController?
@@ -111,7 +116,7 @@ struct BookMetadataSheet: View {
                     .compactMap { item in item.collection?.library.map { (item, $0) } }
                     .first
             content(
-                bookID: bookID, title: MetadataEditorViewModel.baseName(forBookID: bookID),
+                bookID: bookID, title: MetadataRulesStore.baseName(forBookID: bookID),
                 item: registered?.0, library: registered?.1
             )
         } else if let item {
@@ -192,6 +197,11 @@ struct BookMetadataSheet: View {
             }
 
             HStack(spacing: 12) {
+                if rulesStore.isExcluded(bookID: bookID) {
+                    Label("This book is in a folder excluded from metadata registration.", systemImage: "folder.badge.minus")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer(minLength: 0)
                 Button(role: .cancel) { dismiss() } label: {
                     Text("Cancel").frame(width: labelWidth)
@@ -201,6 +211,8 @@ struct BookMetadataSheet: View {
                     Text("Register").frame(width: labelWidth)
                 }
                 .keyboardShortcut(.defaultAction)
+                // ロックした本は変えない(メタデータの編集ウインドウの鍵。2026-09-21)。
+                .disabled(rulesStore.isExcluded(bookID: bookID))
             }
         }
         .padding(20)
@@ -212,11 +224,12 @@ struct BookMetadataSheet: View {
             coverController?.noteCoverDidChange()
         }
         .onAppear {
-            draft = MetadataEditorViewModel.initialDraft(
-                forBookID: bookID,
-                baseName: MetadataEditorViewModel.baseName(forBookID: bookID),
-                metadataStore: metadataStore, formatStore: formatStore
-            )
+            // 登録済みならDBの値、未登録なら qooMeta で 1 冊だけ読んだ提案(同じ書き手のほかの本とは見比べないので、
+            // 番号の無いシリーズは見つからない。一覧の窓なら見つかる)。
+            draft = metadataStore.metadata(forBookID: bookID)?.values
+                ?? BookMetadataValues(MetadataRulesStore.singleProposal(forBookID: bookID, rules: rulesStore.rules))
+            authorsText = draft.authors.joined(separator: "、")
+            openedVolume = draft.volume
             // カバーの面を出さない版では、カバーの指定の口も作らない。
             guard item != nil || fileBrowserEntry != nil, coverController == nil else { return }
             coverController = CoverOverrideController(
@@ -227,35 +240,36 @@ struct BookMetadataSheet: View {
         }
     }
 
-    // MARK: - メタデータの4欄
+    // MARK: - メタデータの欄
 
     private var fields: some View {
         Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 8, verticalSpacing: 8) {
+            // 欄そのものにラベルは持たせない(左の見出しが名前になる)。読み上げのために
+            // アクセシビリティ用の名前だけ同じ文字列で与える。
+            row("Title", text: $draft.title)
             GridRow {
-                Text("Author")
+                Text("Authors")
                     .gridColumnAlignment(.trailing)
-                // 欄そのものにラベルは持たせない(左の見出しが名前になる)。読み上げのために
-                // アクセシビリティ用の名前だけ同じ文字列で与える。
-                TextField("", text: $draft.author)
-                    .accessibilityLabel(Text("Author"))
+                TextField("", text: $authorsText, prompt: Text("Separate several authors with 、"))
+                    .accessibilityLabel(Text("Authors"))
             }
-            GridRow {
-                Text("Title")
-                TextField("", text: $draft.title)
-                    .accessibilityLabel(Text("Title"))
-            }
-            GridRow {
-                Text("Series")
-                TextField("", text: $draft.series)
-                    .accessibilityLabel(Text("Series"))
-            }
-            GridRow {
-                Text("Volume")
-                TextField("", text: $draft.seriesIndex)
-                    .accessibilityLabel(Text("Volume"))
-            }
+            row("Genre", text: $draft.genre)
+            row("Source work", text: $draft.source)
+            row("Event", text: $draft.event)
+            row("Info", text: $draft.info)
+            row("Series", text: $draft.series)
+            row("Volume", text: $draft.volume)
         }
         .textFieldStyle(.roundedBorder)
+    }
+
+    private func row(_ label: LocalizedStringKey, text: Binding<String>) -> some View {
+        GridRow {
+            Text(label)
+                .gridColumnAlignment(.trailing)
+            TextField("", text: text)
+                .accessibilityLabel(Text(label))
+        }
     }
 
     // MARK: - カバー画像
@@ -282,16 +296,15 @@ struct BookMetadataSheet: View {
 
     // MARK: - 登録
 
-    /// 4欄をDBへ登録する(登録済みなら上書き)。4欄すべてが空のまま押すと、既存仕様どおり
+    /// 欄をDBへ登録する(登録済みなら上書き)。すべての欄が空のまま押すと、既存仕様どおり
     /// `upsert`が行そのものを消す ―― 「解除」を兼ねるのでボタン名は「Register」のままにする。
     private func register(bookID: String) {
-        metadataStore.upsert(
-            bookID: bookID,
-            author: draft.author, title: draft.title,
-            series: draft.series, seriesIndex: draft.seriesIndex,
-            // ウインドウ版と違い、この画面は本のURLを持てている(ブックマークとinodeも入る)。
-            sourceURL: sourceURL
-        )
+        var values = draft
+        values.authors = authorsText.split(whereSeparator: { "、,，".contains($0) }).map(String.init)
+        // 巻の表記を手で変えたら、qooMeta が導いた並べ替え用の数は捨てる(表記から数として読み直される)。
+        if values.volume.trimmingCharacters(in: .whitespaces) != openedVolume { values.volumeSort = nil }
+        // ウインドウ版と違い、この画面は本のURLを持てている(ブックマークとinodeも入る)。
+        metadataStore.upsert(bookID: bookID, values: values, sourceURL: sourceURL)
         dismiss()
     }
 }

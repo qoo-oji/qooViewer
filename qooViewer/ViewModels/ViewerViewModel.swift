@@ -1682,6 +1682,8 @@ final class ViewerViewModel: ObservableObject {
     /// (autoImportEpubTableOfContentsAsBookmarksIfNeededと同じ方針)。
     private func importSourceMetadataIfNeeded(isEpub: Bool) async {
         guard metadataStore.metadata(forBookID: book.id) == nil else { return }
+        // メタデータの登録の対象外のフォルダの本は取り込まない(2026-09-21。MetadataRulesStore.excludedFolders)。
+        guard !MetadataRulesStore.isExcludedAppWide(bookID: book.id) else { return }
         let sourceURL = book.sourceURL
         let metadata = await Task.detached(priority: .utility) { () -> SourceBookMetadata in
             if isEpub {
@@ -1728,6 +1730,7 @@ final class ViewerViewModel: ObservableObject {
     /// (EPUBの目次取り込みがbookmarks.isEmptyで早期に抜けるのと同じ考え方)。
     private func importComicInfoIfNeeded() async {
         let needsMetadata = metadataStore.metadata(forBookID: book.id) == nil
+            && !MetadataRulesStore.isExcludedAppWide(bookID: book.id)
         let needsBookmarks = bookmarks.isEmpty
         // 読み方向の取り込み済みフラグは、EPUB/PDFのレイアウト取り込みと同じものを使う
         // (LayoutStore.importSourceLayoutIfNeeded / BookLayoutSettings.didImportSourceLayout)。

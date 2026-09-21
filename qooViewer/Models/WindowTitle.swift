@@ -26,11 +26,14 @@ nonisolated enum WindowTitle {
 
     /// 本を開いていないウインドウのタイトル。名前が引けない(ライブラリがまだ無い一瞬など)ときはアプリ名。
     static func welcome(
-        mode: WelcomeMode, folderName: String, libraryName: String?, collectionName: String?
+        mode: WelcomeMode, folderName: String, libraryName: String?, collectionName: String?,
+        smartLibraryName: String? = nil
     ) -> String {
         switch mode {
         case .browser:
             return folderName
+        case .smart:
+            return smartLibraryName ?? String(localized: "Smart Library", language: AppLanguage.currentLocale)
         case .shelf:
             let name = collectionName ?? libraryName
             guard let name, !name.isEmpty else { return appName }

@@ -33,13 +33,15 @@ struct QooViewerApp: App {
     private var recentFiles: RecentFilesStore { stores.recentFiles }
     private var folderAccess: FolderAccessStore { stores.folderAccess }
     private var favoriteLocations: FavoriteLocationStore { stores.favoriteLocations }
+    private var smartLibraryStore: SmartLibraryStore { stores.smartLibraryStore }
+    private var smartLibraryCatalog: SmartLibraryCatalog { stores.smartLibraryCatalog }
     private var fileBrowserThumbnails: FileBrowserThumbnailProvider { stores.fileBrowserThumbnails }
     private var resourceSampler: ProcessResourceSampler { stores.resourceSampler }
     private var favoritesStore: FavoritesStore { stores.favoritesStore }
     private var bookmarkStore: BookmarkStore { stores.bookmarkStore }
     private var layoutStore: LayoutStore { stores.layoutStore }
     private var metadataStore: BookMetadataStore { stores.metadataStore }
-    private var metadataFormatStore: MetadataFormatStore { stores.metadataFormatStore }
+    private var metadataRulesStore: MetadataRulesStore { stores.metadataRulesStore }
     private var collectionStore: CollectionStore { stores.collectionStore }
     private var collectionCoverExtractor: CollectionCoverExtractor { stores.collectionCoverExtractor }
     private var collectionAutoFolderScanner: CollectionAutoFolderScanner {
@@ -541,6 +543,9 @@ struct QooViewerApp: App {
             .environmentObject(recentFiles)
             .environmentObject(folderAccess)
             .environmentObject(favoriteLocations)
+            // ホームのスマートライブラリ(2026-09-21)。
+            .environmentObject(smartLibraryStore)
+            .environmentObject(smartLibraryCatalog)
             .environmentObject(favoritesStore)
             .environmentObject(bookmarkStore)
             .environmentObject(layoutStore)
@@ -553,7 +558,7 @@ struct QooViewerApp: App {
             .environmentObject(autoRenameStore)
             .environmentObject(autoRenameService)
             // メタデータ編集シート(BookMetadataSheet)がファイル名からの推測に使う。
-            .environmentObject(metadataFormatStore)
+            .environment(metadataRulesStore)
             .environmentObject(launchCoordinator)
             .environmentObject(resourceSampler)
     }
@@ -1202,14 +1207,18 @@ struct QooViewerApp: App {
             // (2026-09-19 の総点検。以前は淡色の条件がファイル操作の履歴だけで、読み取り専用モード・本の表示中・補助ウインドウでは
             // 欄の ⌘Z が効かなかった ―― TextEditingMenuState の型コメント)。
             CommandGroup(replacing: .undoRedo) {
-                let undoTitle = menuCheckmarkState?.fileBrowserUndoTitle
-                let redoTitle = menuCheckmarkState?.fileBrowserRedoTitle
+                // メタデータの編集ウインドウが前にあれば、その窓の取り消し(2026-09-21。MetadataEditorUndoRouter)。
+                let metadataWorkspace = MetadataEditorUndoRouter.shared.workspace
+                let undoTitle = metadataWorkspace.map { $0.undoName } ?? menuCheckmarkState?.fileBrowserUndoTitle
+                let redoTitle = metadataWorkspace.map { $0.redoName } ?? menuCheckmarkState?.fileBrowserRedoTitle
                 let isEditingText = stores.textEditingMenuState.isEditingText
                 // 欄を編集中は欄の取り消しなので、ファイル操作の名前を題に出さない。
                 Button((isEditingText ? nil : undoTitle).map { String(format: String(localized: "Undo %@"), $0) }
                        ?? String(localized: "Undo")) {
                     if Self.isEditingText {
                         NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
+                    } else if let metadataWorkspace = MetadataEditorUndoRouter.shared.workspace {
+                        metadataWorkspace.undo()
                     } else {
                         focusedAppState?.fileBrowser?.operations.undo(shownTitle: undoTitle)
                     }
@@ -1221,6 +1230,8 @@ struct QooViewerApp: App {
                        ?? String(localized: "Redo")) {
                     if Self.isEditingText {
                         NSApp.sendAction(Selector(("redo:")), to: nil, from: nil)
+                    } else if let metadataWorkspace = MetadataEditorUndoRouter.shared.workspace {
+                        metadataWorkspace.redo()
                     } else {
                         focusedAppState?.fileBrowser?.operations.redo(shownTitle: redoTitle)
                     }
@@ -1625,7 +1636,7 @@ struct QooViewerApp: App {
                 .environmentObject(layoutStore)
                 .environmentObject(metadataStore)
                 .environmentObject(collectionStore)
-                .environmentObject(metadataFormatStore)
+                .environment(metadataRulesStore)
                 .environmentObject(preferences)
                 .environment(\.locale, locale)
         }
@@ -1672,7 +1683,7 @@ struct QooViewerApp: App {
                 .environmentObject(metadataStore)
                 .environmentObject(collectionStore)
                 .environmentObject(collectionCoverExtractor)
-                .environmentObject(metadataFormatStore)
+                .environment(metadataRulesStore)
                 .environmentObject(preferences)
                 .environment(\.locale, locale)
         }
@@ -1743,7 +1754,9 @@ struct QooViewerApp: App {
         Window(String(localized: "Edit Metadata", language: locale), id: "editMetadata") {
             MetadataEditorWindow()
                 .environmentObject(metadataStore)
-                .environmentObject(metadataFormatStore)
+                // 実体の確かめ(フォルダのアクセス権)と、実体の無い本の保存データの削除(2026-09-21)。
+                .environmentObject(folderAccess)
+                .environment(metadataRulesStore)
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 .environmentObject(favoritesStore)
@@ -1754,9 +1767,29 @@ struct QooViewerApp: App {
         }
         .handlesExternalEvents(matching: [])
         .windowResizability(.contentSize)
-        // 検索欄と「フォーマットの編集」をツールバーに載せているため、タイトルとツールバーを
+        .defaultSize(width: 1280, height: 780)
+        // 検索欄と「解析の設定」「抽出の設定」をツールバーに載せているため、タイトルとツールバーを
         // 1行にまとめた純正アプリと同じ見た目にする(MetadataEditorWindow参照)。
         .windowToolbarStyle(.unified)
+
+        // qooMeta の規則の窓(2026-09-21、ファイル名の解析を qooMeta へ置き換えたときに移植)。**当たる処理の段ごとに窓を分ける**
+        // (qooMeta と同じ)。メタデータの編集ウインドウのツールバーと、一覧の右クリックから開く。
+        Window(String(localized: "File Name Parsing", language: locale), id: FileNameRulesView.windowID) {
+            FileNameRulesView(settings: metadataRulesStore)
+                .environment(metadataRulesStore)
+                .environment(\.locale, locale)
+        }
+        .handlesExternalEvents(matching: [])
+        // 3 ペインが最初から収まる幅(ルールセットの一覧 + 組の一覧 + 型 1 行が切れない幅)。
+        .defaultSize(width: 1240, height: 820)
+
+        Window(String(localized: "Series and Volume Extraction", language: locale), id: SeriesRulesView.windowID) {
+            SeriesRulesView(settings: metadataRulesStore)
+                .environment(metadataRulesStore)
+                .environment(\.locale, locale)
+        }
+        .handlesExternalEvents(matching: [])
+        .defaultSize(width: 1080, height: 760)
 
         // PDF出力専用ウインドウ。EPUB出力ウインドウと同じ構成(favoritesStoreは不要)。
         Window(String(localized: "Export as PDF", language: locale), id: "pdfExport") {

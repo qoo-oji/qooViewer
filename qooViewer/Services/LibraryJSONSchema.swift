@@ -21,7 +21,13 @@ struct QooLibraryExportFile: Codable {
     /// formatVersion 4で、コレクション(libraries)を追加した(改善要望5)。これもOptionalなので、
     /// 2・3で書き出したファイルは`libraries == nil`= 「このファイルにコレクションは含まれて
     /// いない」として今までどおり読める。
-    var formatVersion: Int = 4
+    ///
+    /// formatVersion 5(2026-09-21)で、ファイル名からメタデータを作る処理を qooMeta へ置き換えた。
+    /// - メタデータの行に qooMeta の欄(著者の並び・ジャンル・イベント・原作・情報・並べ替え用の巻数)を足した
+    ///   (どれも Optional。4 以前のファイルと qooMeta の書き出し(formatVersion 4 の形)はそのまま読める)。
+    /// - 規則は `metadataRules`(qooMeta の rules-bundle)で書く。`metadataFormats`(以前の 3 種の正規表現)は
+    ///   **読むだけ**: ファイル名フォーマットを利用者のルールセット「qooViewer(以前の設定)」として取り込む。
+    var formatVersion: Int = 5
     var favorites: ExportedFavorites?
     var bookmarks: [ExportedBookmarkEntry]?
     var layouts: [ExportedBookLayoutEntry]?
@@ -30,7 +36,12 @@ struct QooLibraryExportFile: Codable {
     /// メタデータをファイル名から推測するためのフォーマット定義(本ごとではなくアプリ全体の設定)。
     /// ユーザー選択により、別のマシンへ移行する際に自分で育てたフォーマットも一緒に運べるよう、
     /// レコードとは別のカテゴリとしてこのファイルに含められるようにしてある。
+    ///
+    /// 2026-09-21 から書かない(formatVersion 5 の説明)。以前のファイルを読むためだけに残してある。
     var metadataFormats: ExportedMetadataFormats?
+    /// ファイル名からメタデータを作る規則(qooMeta の rules-bundle。同梱の既定値との差分)を、JSON の文字列のまま持つ。
+    /// 規則を既定から変えていなければ書かない(アプリ全体の設定。`metadataFormats` の後継)。
+    var metadataRules: String?
     /// ライブラリ → コレクション → 本(改善要望5)。カバー画像は含めない
     /// (取り込んだ先で抽出し直す。CollectionCoverExtractor.refill参照)。
     var libraries: [ExportedLibrary]?
@@ -129,10 +140,20 @@ struct ExportedBookMetadataEntry: Codable {
     /// ExportedLibrary.coverAspectRatioと同じ扱い)。取り込み側は、UUIDが無ければ従来どおり
     /// デバイス番号で照合する。
     var volumeUUID: String?
+    /// 先頭の著者(2026-09-21 までは著者はこの 1 人だけだった。先頭だけを読む古い版・qooMeta の書き出しと同じ形)。
     var author: String
     var title: String
     var series: String
     var seriesIndex: String
+    /// 著者の並び(先頭は `author` と同じ)。1 人以下なら書かない。以下の欄はどれも formatVersion 5 で足した
+    /// Optional(無ければ空)。
+    var authors: [String]?
+    var genre: String?
+    var event: String?
+    var source: String?
+    var info: String?
+    /// 巻数の並べ替え用の数(qooMeta の `volumeSort`)。
+    var volumeSort: Double?
 
     var fileNodeIdentifier: FileNodeIdentifier? {
         guard let inodeNumber, let volumeDeviceNumber else { return nil }
@@ -140,10 +161,39 @@ struct ExportedBookMetadataEntry: Codable {
             inodeNumber: inodeNumber, volumeDeviceNumber: volumeDeviceNumber, volumeUUID: volumeUUID
         )
     }
+
+    /// qooMeta の欄を 1 つでも書いてある行か(formatVersion 5 で書いた行)。
+    var hasQooMetaFields: Bool {
+        authors != nil || genre != nil || event != nil || source != nil || info != nil || volumeSort != nil
+    }
+
+    /// 行の値(空の欄は空)。
+    var values: BookMetadataValues {
+        let allAuthors = (authors?.isEmpty == false ? authors! : [author]).filter { !$0.isEmpty }
+        return BookMetadataValues(title: title, authors: allAuthors, genre: genre ?? "", event: event ?? "",
+                                  source: source ?? "", info: info ?? "", series: series, volume: seriesIndex,
+                                  volumeSort: volumeSort)
+    }
 }
 
-/// メタデータ推測用の3種類のフォーマット定義。アプリ全体で1組の設定のため、本ごとの配列では
-/// なく単一のオブジェクトとして持つ。
+extension ExportedBookMetadataEntry {
+    /// DB の行から書き出す形を作る。空の欄は書かない(ファイルを読みやすく、古い版と同じ形に保つ)。
+    init(_ metadata: BookMetadata) {
+        let values = metadata.values
+        func nonEmpty(_ s: String) -> String? { s.isEmpty ? nil : s }
+        self.init(
+            bookID: metadata.bookID, inodeNumber: metadata.inodeNumber,
+            volumeDeviceNumber: metadata.volumeDeviceNumber, volumeUUID: metadata.volumeUUID,
+            author: values.author, title: values.title, series: values.series, seriesIndex: values.volume,
+            authors: values.authors.count > 1 ? values.authors : nil,
+            genre: nonEmpty(values.genre), event: nonEmpty(values.event), source: nonEmpty(values.source),
+            info: nonEmpty(values.info), volumeSort: values.volumeSort
+        )
+    }
+}
+
+/// メタデータ推測用の3種類のフォーマット定義(2026-09-21 まで)。アプリ全体で1組の設定のため、本ごとの配列では
+/// なく単一のオブジェクトとして持つ。**今は読むだけ**(`QooLibraryExportFile.metadataFormats`)。
 ///
 /// 各ルールの`id`(UUID)は書き出さない。IDはアプリ内で行を識別するためだけのもので、
 /// 取り込み側では新しく振り直せばよく、JSONに残すとファイルが無駄に読みにくくなるため

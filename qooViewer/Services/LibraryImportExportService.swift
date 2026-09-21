@@ -22,8 +22,8 @@ enum LibraryImportExportService {
         var includeBookmarks: Bool
         var includeLayouts: Bool
         var includeMetadata: Bool
-        /// メタデータ推測用のフォーマット定義(アプリ全体の設定)を含めるかどうか。
-        var includeMetadataFormats: Bool
+        /// ファイル名からメタデータを作る規則(qooMeta。アプリ全体の設定)を含めるかどうか。
+        var includeMetadataRules: Bool
         /// ライブラリ・コレクション・その中の本(改善要望5)を含めるかどうか。
         var includeCollections: Bool
     }
@@ -60,7 +60,7 @@ enum LibraryImportExportService {
         bookmarkStore: BookmarkStore,
         layoutStore: LayoutStore,
         metadataStore: BookMetadataStore,
-        metadataFormatStore: MetadataFormatStore,
+        metadataRulesStore: MetadataRulesStore,
         collectionStore: CollectionStore,
         cachesPageList: Bool = true
     ) async -> (QooLibraryExportFile, ExportResult) {
@@ -88,8 +88,8 @@ enum LibraryImportExportService {
         if selection.includeMetadata {
             file.metadata = exportMetadata(metadataStore: metadataStore)
         }
-        if selection.includeMetadataFormats {
-            file.metadataFormats = exportMetadataFormats(metadataFormatStore: metadataFormatStore)
+        if selection.includeMetadataRules {
+            file.metadataRules = metadataRulesStore.exportableRulesBundle
         }
         if selection.includeCollections {
             file.libraries = exportCollections(collectionStore: collectionStore)
@@ -106,34 +106,10 @@ enum LibraryImportExportService {
     /// 開く必要が無く、ファイルが今そこにあるかどうかは書き出せるかどうかに影響しないため。
     private static func exportMetadata(metadataStore: BookMetadataStore) -> [ExportedBookMetadataEntry] {
         metadataStore.allMetadata()
-            .map { metadata in
-                ExportedBookMetadataEntry(
-                    bookID: metadata.bookID,
-                    inodeNumber: metadata.inodeNumber,
-                    volumeDeviceNumber: metadata.volumeDeviceNumber,
-                    volumeUUID: metadata.volumeUUID,
-                    author: metadata.author,
-                    title: metadata.title,
-                    series: metadata.series,
-                    seriesIndex: metadata.seriesIndex
-                )
-            }
+            .map(ExportedBookMetadataEntry.init)
             // 出力の並びを安定させる(allMetadata()は辞書の値のため順不同)。同じ内容の
             // ライブラリから書き出したJSONが毎回同じ並びになり、差分を取りやすい。
             .sorted { $0.bookID < $1.bookID }
-    }
-
-    private static func exportMetadataFormats(
-        metadataFormatStore: MetadataFormatStore
-    ) -> ExportedMetadataFormats {
-        ExportedMetadataFormats(
-            filenameFormats: metadataFormatStore.filenameFormats.map(\.pattern),
-            volumeNumberPatterns: metadataFormatStore.volumeRules
-                .filter { $0.kind == .volumeNumber }.map(\.pattern),
-            seriesSeparatorPatterns: metadataFormatStore.volumeRules
-                .filter { $0.kind == .seriesSeparatorOnly }.map(\.pattern),
-            exclusionPatterns: metadataFormatStore.exclusionRules.map(\.pattern)
-        )
     }
 
     /// フォルダ階層をルートから再帰的にたどり、フラットな配列2つ(folders/books)に展開する。
@@ -454,12 +430,12 @@ enum LibraryImportExportService {
         var bookmarks: ImportPolicy = .merge
         var layouts: ImportPolicy = .merge
         var metadata: ImportPolicy = .merge
-        /// フォーマット定義は「アプリ全体で1組の設定」であって本ごとのデータではないため、
-        /// mergeという概念が無い(2つのリストを混ぜても意味のある結果にならない)。
+        /// 規則(qooMeta。以前はフォーマット定義)は「アプリ全体で1組の設定」であって本ごとのデータではないため、
+        /// mergeという概念が無い(2つの差分を混ぜても意味のある結果にならない)。
         /// overwrite(丸ごと差し替え)かignore(取り込まない)の2択として扱い、UIでもそのように
-        /// 出し分ける(LibraryImportWindow参照)。既定はignore = 相手のフォーマット定義で
+        /// 出し分ける(LibraryImportWindow参照)。既定はignore = 相手の規則で
         /// 自分の設定を勝手に置き換えない、という安全側。
-        var metadataFormats: ImportPolicy = .ignore
+        var metadataRules: ImportPolicy = .ignore
         /// コレクション(改善要望5)。overwriteはライブラリ・コレクション・登録した本を
         /// すべて消してから取り込む(カバー画像も消える)。
         var collections: ImportPolicy = .merge
@@ -475,7 +451,9 @@ enum LibraryImportExportService {
         var layoutsImportedBooks = 0
         var layoutsSkippedBookIDs: [String] = []
         var metadataImportedBooks = 0
-        var didImportMetadataFormats = false
+        var didImportMetadataRules = false
+        /// 規則を読めずに取り込まなかったときの理由(なければ空)。
+        var metadataRuleErrors: [String] = []
         var collectionsImportedLibraries = 0
         var collectionsImportedCollections = 0
         var collectionsImportedBooks = 0
@@ -495,7 +473,7 @@ enum LibraryImportExportService {
         bookmarkStore: BookmarkStore,
         layoutStore: LayoutStore,
         metadataStore: BookMetadataStore,
-        metadataFormatStore: MetadataFormatStore,
+        metadataRulesStore: MetadataRulesStore,
         collectionStore: CollectionStore,
         cachesPageList: Bool = true
     ) async -> ImportSummary {
@@ -548,9 +526,16 @@ enum LibraryImportExportService {
                 metadataStore: metadataStore, summary: &summary
             )
         }
-        if let formats = file.metadataFormats, policies.metadataFormats != .ignore {
-            applyMetadataFormats(formats, metadataFormatStore: metadataFormatStore)
-            summary.didImportMetadataFormats = true
+        if policies.metadataRules != .ignore {
+            if let bundle = file.metadataRules {
+                summary.metadataRuleErrors = metadataRulesStore.replaceRules(withBundle: bundle)
+                summary.didImportMetadataRules = summary.metadataRuleErrors.isEmpty
+            } else if let formats = file.metadataFormats {
+                // 以前の形(formatVersion 3・4)。ファイル名フォーマットだけを利用者のルールセットとして取り込む
+                // (QooLibraryExportFile.formatVersion のコメント)。
+                summary.metadataRuleErrors = metadataRulesStore.importLegacyFilenameFormats(formats.filenameFormats)
+                summary.didImportMetadataRules = summary.metadataRuleErrors.isEmpty
+            }
         }
         return summary
     }
@@ -584,36 +569,12 @@ enum LibraryImportExportService {
             )
             let bookID = resolvedURL?.path ?? entry.bookID
             if policy == .merge, metadataStore.metadata(forBookID: bookID) != nil { continue }
-            batch.append(
-                BookMetadataStore.BatchEntry(
-                    bookID: bookID,
-                    author: entry.author,
-                    title: entry.title,
-                    series: entry.series,
-                    seriesIndex: entry.seriesIndex,
-                    sourceURL: resolvedURL
-                )
-            )
+            // 以前の版(formatVersion 4 以前・qooMeta の書き出し)の行は、以前の版の欄の登録として入れる(空の欄を埋めるかを尋ねる)。
+            batch.append(BookMetadataStore.BatchEntry(bookID: bookID, values: entry.values, sourceURL: resolvedURL,
+                                                      fieldsVersion: entry.hasQooMetaFields ? BookMetadata.currentFieldsVersion : 0))
         }
         summary.metadataImportedBooks += metadataStore.upsertAll(batch)
-    }
 
-    /// フォーマット定義を丸ごと差し替える(ImportPolicies.metadataFormatsのコメント参照)。
-    /// 各ルールのidはここで新規に振り直す(JSONにはパターン文字列しか含まれていないため)。
-    private static func applyMetadataFormats(
-        _ formats: ExportedMetadataFormats, metadataFormatStore: MetadataFormatStore
-    ) {
-        metadataFormatStore.replaceAll(
-            filenameFormats: formats.filenameFormats.map { MetadataFilenameFormat(pattern: $0) },
-            // 巻数フォーマットは「巻数を取り出すもの → シリーズ名の分離だけのもの」という
-            // 並びで1本の配列に保つ(この並びがそのまま照合の優先順位になる。
-            // VolumeFormatEditorSheet.binding(for:)と同じ不変条件)。
-            volumeRules: formats.volumeNumberPatterns.map { VolumeFormatRule(pattern: $0, kind: .volumeNumber) }
-                + formats.seriesSeparatorPatterns.map {
-                    VolumeFormatRule(pattern: $0, kind: .seriesSeparatorOnly)
-                },
-            exclusionRules: formats.exclusionPatterns.map { MetadataExclusionRule(pattern: $0) }
-        )
     }
 
     // MARK: - コレクションの取り込み

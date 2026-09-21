@@ -46,4 +46,15 @@ else
     fail "zipfoundation が version で固定されていない"
 fi
 
+# qooMeta(ファイル名からメタデータを作る。作者の別リポジトリ)はリリースのタグで固定する(docs/11)。
+qoometa_location=$(jq -r '.pins[] | select(.identity == "qoometa") | .location // ""' "$file")
+qoometa_version=$(jq -r '.pins[] | select(.identity == "qoometa") | .state.version // ""' "$file")
+if [ "$qoometa_location" != "https://github.com/qoo-oji/qooMeta" ]; then
+    fail "qoometa の location が '$qoometa_location'(期待: https://github.com/qoo-oji/qooMeta)"
+elif [ -z "$qoometa_version" ]; then
+    fail "qoometa がリリースの version で固定されていない"
+else
+    ok "qoometa: version $qoometa_version"
+fi
+
 finish

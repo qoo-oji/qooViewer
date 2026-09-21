@@ -85,7 +85,8 @@ final class WelcomeLibraryState: ObservableObject {
     static func constrained(_ wanted: WelcomeMode, library: Bool, fileBrowser: Bool) -> WelcomeMode {
         switch (library, fileBrowser) {
         case (true, true): wanted == .classic ? .shelf : wanted
-        case (true, false): .shelf
+        // スマートライブラリはライブラリ機能の一部(帯に出る)なので、ファイルブラウザが OFF でも選べる。
+        case (true, false): wanted == .smart ? .smart : .shelf
         case (false, true): .browser
         case (false, false): .classic
         }

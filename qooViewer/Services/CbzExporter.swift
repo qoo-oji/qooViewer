@@ -45,6 +45,13 @@ struct CbzExportInput {
     let seriesIndex: String?
     /// `LanguageISO`に書き出すBCP 47の言語タグ。空文字/nilなら要素自体を出力しない。
     let language: String?
+    /// 2 人目以降の著者(qooMeta の欄。2026-09-21)。`author` に続けて `Writer`/`Penciller` へ「, 」でつなぐ。
+    var additionalAuthors: [String] = []
+    /// ジャンル(`Genre`)。空なら引き継いだ値に触れない。
+    var genre: String? = nil
+    /// 情報(名前の中の付記。`Notes`)。空なら引き継いだ値に触れない。原作とイベントは ComicInfo v2.0 に
+    /// 合う要素が無い(`Tags` は v2.1 草案)ので書かない。
+    var notes: String? = nil
 }
 
 enum CbzExportError: LocalizedError {
@@ -433,10 +440,15 @@ nonisolated enum CbzExporter {
         // 著者は原作(Writer)と作画(Penciller)の両方へ入れる(ユーザー選択)。日本の漫画は
         // 同一人物であることが多く、Komga/Kavitaはどちらも役割ごとに著者を表示するため、
         // 片方だけだと「作画者不明」のように見えてしまう。
+        // 2 人目以降の著者(qooMeta の欄)は「, 」でつなぐ(ComicInfo の人名の欄はカンマ区切りの並び)。
         if let author = trimmedOrNil(input.author).map(nfcNormalizedForExport) {
-            info.writer = author
-            info.penciller = author
+            let authors = ([author] + input.additionalAuthors.compactMap { trimmedOrNil($0).map(nfcNormalizedForExport) })
+                .joined(separator: ", ")
+            info.writer = authors
+            info.penciller = authors
         }
+        if let genre = trimmedOrNil(input.genre).map(nfcNormalizedForExport) { info.genre = genre }
+        if let notes = trimmedOrNil(input.notes).map(nfcNormalizedForExport) { info.notes = notes }
 
         info.pageCount = pages.count
         // 言語は、本の内容ではなくアプリの表示言語設定から決めた推定値にすぎない

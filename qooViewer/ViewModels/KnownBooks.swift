@@ -58,7 +58,7 @@ enum KnownBooks {
     static func index(of bookIDs: Set<String>) -> [String: [String]] {
         var result: [String: [String]] = [:]
         for bookID in bookIDs.sorted() {
-            let key = matchKey(MetadataEditorViewModel.baseName(forBookID: bookID))
+            let key = matchKey(MetadataRulesStore.baseName(forBookID: bookID))
             result[key, default: []].append(bookID)
         }
         return result

@@ -1,3 +1,4 @@
+import QooMetaKit
 import Combine
 import CoreGraphics
 import SwiftUI
@@ -27,7 +28,8 @@ struct CollectionDetailView: View {
     /// メタデータ/フォーマットが変わったときに描き直すための購読としてここに残す
     /// (外すと、別のウインドウでタイトルを登録してもこの画面の文字と並びが古いまま残る)。
     @EnvironmentObject private var metadataStore: BookMetadataStore
-    @EnvironmentObject private var formatStore: MetadataFormatStore
+    /// 規則(qooMeta)も同じ理由で読む(`body` で中身の印を読んで、変わったら描き直させる)。
+    @Environment(MetadataRulesStore.self) private var rulesStore
     @EnvironmentObject private var preferences: AppPreferences
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
@@ -159,6 +161,8 @@ struct CollectionDetailView: View {
     }
 
     var body: some View {
+        // 規則が変わったら描き直す(未登録の本のタイトルは規則で決まる。上の rulesStore のコメント)。
+        let _ = rulesStore.rules.contentHash
         VStack(spacing: 0) {
             header
             if items.isEmpty {

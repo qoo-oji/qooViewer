@@ -99,6 +99,15 @@ struct HomeMenuItems: View {
             ))
             .disabled(!home.isShown)
         }
+        // スマートライブラリ(帯のボタンと同じ。2026-09-21)。
+        Toggle("Smart Library", isOn: Binding(
+            get: { [home] in home.isShown && home.mode == .smart },
+            set: { [weak appState] _ in
+                guard let welcome = appState?.welcomeLibrary else { return }
+                welcome.mode = welcome.mode == .smart ? .shelf : .smart
+            }
+        ))
+        .disabled(!home.isShown)
 
         Menu("Libraries") {
             // 外側の閉包でも`appState`を**明示的に**捕まえる(中の`[weak appState]`と揃えるため)。
@@ -237,7 +246,7 @@ struct HomeMenuItems: View {
     /// 帯のライブラリのチップを押したときと同じ(WelcomeTopBar.chip)。
     private static func selectLibrary(_ id: UUID, appState: AppState?, home: HomeMenuState) {
         guard let welcome = appState?.welcomeLibrary else { return }
-        if welcome.mode == .browser {
+        if welcome.mode != .shelf {
             welcome.mode = .shelf
             // 見ていたライブラリなら、開いていたコレクションもそのまま(離れたときの棚へ戻る)。
             if id == home.libraryID { return }
@@ -467,7 +476,8 @@ struct HomeViewMenuItems: View {
                 }
             }
         }
-        .disabled(!home.isShown)
+        // スマートライブラリの並べ替えは画面の中のメニューだけ(ここの項目は本棚とファイルブラウザのもの)。
+        .disabled(!home.isShown || home.mode == .smart)
 
         Divider()
 

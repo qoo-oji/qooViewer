@@ -63,6 +63,8 @@ struct WelcomeView: View {
                 ClassicWelcomeView()
             } else if state.mode == .browser {
                 FileBrowserPane(state: fileBrowser)
+            } else if state.mode == .smart, state.isLibraryFeatureEnabled {
+                SmartLibraryPane(home: state, allowsEditing: allowsEditing)
             } else if let library {
                 WelcomeLibraryPane(state: state, library: library, allowsEditing: allowsEditing)
             } else {

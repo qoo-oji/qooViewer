@@ -1,6 +1,15 @@
 {
-  "originHash" : "69c8acc16c23067b78f257c4d11335d20dace9b8151fb56f35574199c159fbbb",
+  "originHash" : "17c9ebe000289aedea2ef9969356818e56262632696c36b74cb99290a8d5f2ff",
   "pins" : [
+    {
+      "identity" : "qoometa",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/qoo-oji/qooMeta",
+      "state" : {
+        "revision" : "fc1ccbf8171950c3ab3024208f54b7722c816926",
+        "version" : "0.1.0"
+      }
+    },
     {
       "identity" : "sevenzip.swift",
       "kind" : "remoteSourceControl",

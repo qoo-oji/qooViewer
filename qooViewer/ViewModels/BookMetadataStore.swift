@@ -88,18 +88,9 @@ final class BookMetadataStore: ObservableObject {
     ///   持っている、という前提。LayoutStore.existingOrNewSettingsと同じ考え方)。
     ///   一覧から登録する場合など、URLが手元に無い場合はnilでよい。
     @discardableResult
-    func upsert(
-        bookID: String,
-        author: String,
-        title: String,
-        series: String,
-        seriesIndex: String,
-        sourceURL: URL? = nil
-    ) -> BookMetadata? {
-        switch applyUpsert(
-            bookID: bookID, author: author, title: title,
-            series: series, seriesIndex: seriesIndex, sourceURL: sourceURL
-        ) {
+    func upsert(bookID: String, values: BookMetadataValues, sourceURL: URL? = nil,
+                fieldsVersion: Int = BookMetadata.currentFieldsVersion) -> BookMetadata? {
+        switch applyUpsert(bookID: bookID, values: values, sourceURL: sourceURL, fieldsVersion: fieldsVersion) {
         case .updated(let metadata):
             saveAndNotify(bookID: bookID)
             return metadata
@@ -111,6 +102,43 @@ final class BookMetadataStore: ObservableObject {
         }
     }
 
+    /// 従来の 4 つの欄だけを登録する入り口(EPUB/PDF/ComicInfo からの取り込みなど、4 つの欄しか持たない経路)。
+    /// **ほかの欄(ジャンル・原作・2 人目以降の著者など)は、既にある行の値を保つ**(4 つの欄の取り込みで消さない)。
+    @discardableResult
+    func upsert(
+        bookID: String,
+        author: String,
+        title: String,
+        series: String,
+        seriesIndex: String,
+        sourceURL: URL? = nil
+    ) -> BookMetadata? {
+        // 4 つの欄だけの登録は、以前の版の欄の登録と同じ扱い(空の欄を埋めるかを、メタデータの編集ウインドウで尋ねる)。
+        // 既にいまの版の行なら、その版のまま。
+        upsert(bookID: bookID, values: mergedLegacyValues(bookID: bookID, author: author, title: title,
+                                                         series: series, seriesIndex: seriesIndex),
+               sourceURL: sourceURL, fieldsVersion: metadata(forBookID: bookID)?.fieldsVersion ?? 0)
+    }
+
+    /// 4 つの欄を、既にある行のほかの欄に重ねたもの。
+    private func mergedLegacyValues(bookID: String, author: String, title: String, series: String,
+                                    seriesIndex: String) -> BookMetadataValues {
+        var values = metadata(forBookID: bookID)?.values ?? BookMetadataValues()
+        var authors = values.authors
+        let trimmedAuthor = author.trimmingCharacters(in: .whitespaces)
+        if trimmedAuthor.isEmpty {
+            authors = []
+        } else if authors.first != trimmedAuthor {
+            authors = [trimmedAuthor] + authors.dropFirst()
+        }
+        values.authors = authors
+        values.title = title
+        values.series = series
+        if values.volume != seriesIndex.trimmingCharacters(in: .whitespaces) { values.volumeSort = nil }
+        values.volume = seriesIndex
+        return values
+    }
+
     /// まとめて登録するための入り口(JSONインポート用)。取り込んだ件数を返す。
     ///
     /// upsert(...)を1件ずつ呼ぶと、そのたびにsave()とbookMetadataDidChange通知が出る。
@@ -119,15 +147,25 @@ final class BookMetadataStore: ObservableObject {
     /// セキュリティスコープ付きブックマークの解決まで行うため、件数の二乗に比例したディスクI/Oに
     /// なっていた。save()も通知もそれぞれ1回にまとめる
     /// (FavoritesStore.removeFavorites(forBookID:)が1件ずつのsave()を避けているのと同じ考え方)。
+    ///
+    /// `values` が nil の件は登録を外す(メタデータの編集ウインドウの「登録を外す」と取り消し)。
     @discardableResult
     func upsertAll(_ entries: [BatchEntry]) -> Int {
         var changedBookIDs: [String] = []
         var importedCount = 0
         for entry in entries {
-            switch applyUpsert(
-                bookID: entry.bookID, author: entry.author, title: entry.title,
-                series: entry.series, seriesIndex: entry.seriesIndex, sourceURL: entry.sourceURL
-            ) {
+            let outcome: UpsertOutcome
+            if let values = entry.values {
+                outcome = applyUpsert(bookID: entry.bookID, values: values, sourceURL: entry.sourceURL,
+                                      fieldsVersion: entry.fieldsVersion)
+            } else if let existing = metadata(forBookID: entry.bookID) {
+                modelContext.delete(existing)
+                cachedByBookID?[entry.bookID] = nil
+                outcome = .removed
+            } else {
+                outcome = .noChange
+            }
+            switch outcome {
             case .updated:
                 importedCount += 1
                 changedBookIDs.append(entry.bookID)
@@ -156,44 +194,45 @@ final class BookMetadataStore: ObservableObject {
         revision &+= 1
         // どの本かを特定しない通知として1回だけ投げる(全件リセットと同じ形。
         // 購読側は"bookID"が無い通知を「本を問わず対象」として扱う。BookMetadata.swift参照)。
-        NotificationCenter.default.post(name: .bookMetadataDidChange, object: self, userInfo: nil)
+        // 1 冊だけのときは、その本の通知にする(開いている本のビューアが、自分の本かどうかを見分けられるように)。
+        let userInfo: [String: Any]? = changedBookIDs.count == 1 ? ["bookID": changedBookIDs[0]] : nil
+        NotificationCenter.default.post(name: .bookMetadataDidChange, object: self, userInfo: userInfo)
         return importedCount
     }
 
     /// upsertAll(_:)へ渡す1件分。
     struct BatchEntry {
         let bookID: String
-        let author: String
-        let title: String
-        let series: String
-        let seriesIndex: String
+        /// 登録する値。nil なら登録を外す。
+        let values: BookMetadataValues?
         /// 分かる場合は本の実URL(upsert(...)のsourceURLと同じ意味)。
         let sourceURL: URL?
+        /// 欄の版(BookMetadata.fieldsVersion)。以前の保存データの JSON から読んだ行は 0。
+        let fieldsVersion: Int
+
+        init(bookID: String, values: BookMetadataValues?, sourceURL: URL? = nil,
+             fieldsVersion: Int = BookMetadata.currentFieldsVersion) {
+            self.bookID = bookID
+            self.values = values
+            self.sourceURL = sourceURL
+            self.fieldsVersion = fieldsVersion
+        }
     }
 
     /// 1件ぶんの登録内容を反映する。**save()も通知も行わない**(呼び出し側がまとめて行う)。
     private enum UpsertOutcome {
         case updated(BookMetadata)
-        /// 4項目すべてが空だったため、既存の行を削除した。
+        /// すべての欄が空だったため、既存の行を削除した。
         case removed
-        /// 4項目すべてが空で、かつ元から行が無かった(DBに触れていない)。
+        /// すべての欄が空で、かつ元から行が無かった(DBに触れていない)。値が同じだった場合も。
         case noChange
     }
 
-    private func applyUpsert(
-        bookID: String,
-        author: String,
-        title: String,
-        series: String,
-        seriesIndex: String,
-        sourceURL: URL?
-    ) -> UpsertOutcome {
-        let author = author.trimmingCharacters(in: .whitespaces)
-        let title = title.trimmingCharacters(in: .whitespaces)
-        let series = series.trimmingCharacters(in: .whitespaces)
-        let seriesIndex = seriesIndex.trimmingCharacters(in: .whitespaces)
+    private func applyUpsert(bookID: String, values: BookMetadataValues, sourceURL: URL?,
+                             fieldsVersion: Int) -> UpsertOutcome {
+        let values = values.trimmed
 
-        guard !(author.isEmpty && title.isEmpty && series.isEmpty && seriesIndex.isEmpty) else {
+        guard !values.isEmpty else {
             guard let existing = metadata(forBookID: bookID) else { return .noChange }
             modelContext.delete(existing)
             cachedByBookID?[bookID] = nil
@@ -201,39 +240,81 @@ final class BookMetadataStore: ObservableObject {
         }
 
         if let existing = metadata(forBookID: bookID) {
-            existing.author = author
-            existing.title = title
-            existing.series = series
-            existing.seriesIndex = seriesIndex
-            existing.updatedAt = Date()
+            // 同じ値なら書かない(メタデータの編集ウインドウは、行が変わるたびに登録済みの本を書き直す)。
+            let unchanged = existing.values == values && existing.fieldsVersion == fieldsVersion
+            if !unchanged {
+                existing.values = values
+                existing.fieldsVersion = fieldsVersion
+                existing.updatedAt = Date()
+            }
             // 識別子・ブックマークは、これまで取れていなかった場合にだけ補完する
             // (既存の値を、解決できないかもしれない新しい値で上書きしない)。
+            var filled = false
             if let sourceURL {
                 if existing.bookmarkData == nil {
                     existing.bookmarkData = Self.makeBookmarkData(for: sourceURL)
+                    filled = existing.bookmarkData != nil
                 }
                 if FileNodeIdentifier.needsBackfill(existing.fileNodeIdentifier),
                    let identifier = FileNodeIdentifier.current(for: sourceURL) {
                     existing.inodeNumber = identifier.inodeNumber
                     existing.volumeDeviceNumber = identifier.volumeDeviceNumber
                     existing.volumeUUID = identifier.volumeUUID
+                    filled = true
                 }
             }
-            return .updated(existing)
+            return unchanged && !filled ? .noChange : .updated(existing)
         }
 
         let created = BookMetadata(
             bookID: bookID,
-            author: author,
-            title: title,
-            series: series,
-            seriesIndex: seriesIndex,
             bookmarkData: sourceURL.flatMap(Self.makeBookmarkData(for:)),
             fileNodeIdentifier: sourceURL.flatMap(FileNodeIdentifier.current(for:))
         )
+        created.values = values
+        created.fieldsVersion = fieldsVersion
         modelContext.insert(created)
         cachedByBookID?[bookID] = created
         return .updated(created)
+    }
+
+    /// 以前の版の欄で登録した行(`fieldsVersion` がいまより古い)の bookID。
+    var outdatedFieldBookIDs: Set<String> {
+        Set(metadataByBookID().values.filter { $0.fieldsVersion < BookMetadata.currentFieldsVersion }.map(\.bookID))
+    }
+
+    /// 以前の版の欄で登録した行の、**空の欄だけ**をファイル名から読んだ値で埋める(登録した値はそのまま)。
+    /// 埋める欄: ジャンル・イベント・原作・情報と、2 人目以降の著者(先頭の著者が同じときだけ)。埋めたら今の版にする。
+    /// - Returns: 版を上げた行の数。
+    @discardableResult
+    func fillMissingFields(of bookIDs: some Sequence<String>, reading: (String) -> BookMetadataValues) -> Int {
+        var count = 0
+        for bookID in bookIDs {
+            guard let row = metadata(forBookID: bookID), row.fieldsVersion < BookMetadata.currentFieldsVersion else { continue }
+            let read = reading(bookID)
+            var values = row.values
+            if values.genre.isEmpty { values.genre = read.genre }
+            if values.event.isEmpty { values.event = read.event }
+            if values.source.isEmpty { values.source = read.source }
+            if values.info.isEmpty { values.info = read.info }
+            if values.authors.count <= 1, read.authors.count > 1, read.authors.first == values.authors.first ?? read.authors.first {
+                values.authors = read.authors
+            }
+            row.values = values
+            row.fieldsVersion = BookMetadata.currentFieldsVersion
+            row.updatedAt = Date()
+            count += 1
+        }
+        guard count > 0 else { return 0 }
+        do {
+            try modelContext.save()
+            lastSaveErrorMessage = nil
+        } catch {
+            logSaveFailure("fillMissingFields() failed for \(count) book(s): \(error)")
+        }
+        revision &+= 1
+        NotificationCenter.default.post(name: .bookMetadataDidChange, object: self, userInfo: nil)
+        return count
     }
 
     /// 登録を解除する(未登録なら何もしない)。

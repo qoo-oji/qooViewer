@@ -9,6 +9,8 @@ nonisolated enum WelcomeMode: String, CaseIterable, Codable, Hashable, Sendable 
     case shelf
     /// ファイルブラウザ。
     case browser
+    /// スマートライブラリ(2026-09-21。条件で本を集める。SmartLibraryPane)。ライブラリ機能が ON のときだけ選べる。
+    case smart
     /// 本棚を足す前のウェルカム画面(ClassicWelcomeView)。**選べるモードではない** ―― 環境設定でライブラリとファイルブラウザの
     /// 両方をOFFにしている間だけ、WelcomeLibraryState がこの値にする(保存もしない)。`mode == .shelf` / `.browser` を見ている
     /// 場所が、どちらも出ていないときに自然に偽になるように、独立した値にしてある。

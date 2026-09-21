@@ -1,4 +1,5 @@
 import Foundation
+import QooMetaKit
 import Testing
 
 @testable import qooViewer
@@ -426,29 +427,61 @@ struct LibraryImportTests {
         #expect(library.metadata.metadata(forBookID: bookID)?.author == "あとの著者")
     }
 
-    @Test("フォーマット定義は丸ごと差し替え、巻数ルールは「巻数 → シリーズ名の分離」の順に並ぶ")
-    func metadataFormatsAreReplacedInOrder() async throws {
+    @Test("以前の形のフォーマット定義は、ファイル名フォーマットだけが利用者のルールセットとして入る")
+    func legacyMetadataFormatsBecomeARuleSet() async throws {
         let library = try InMemoryLibrary()
         defer { library.close() }
 
         let summary = await library.apply(
             QooLibraryExportFile(
                 metadataFormats: ExportedMetadataFormats(
-                    filenameFormats: ["(著者) 題名"],
+                    filenameFormats: ["(@author) @title"],
                     volumeNumberPatterns: ["第(\\d+)巻"],
                     seriesSeparatorPatterns: [" 上巻"],
                     exclusionPatterns: ["\\(同人\\)"]
                 )
             ),
-            policies: LibraryImportExportService.ImportPolicies(metadataFormats: .overwrite)
+            policies: LibraryImportExportService.ImportPolicies(metadataRules: .overwrite)
         )
 
-        #expect(summary.didImportMetadataFormats)
-        #expect(library.metadataFormats.filenameFormats.map(\.pattern) == ["(著者) 題名"])
-        // 1 本の配列に、この並びで入る(照合の優先順位そのもの)。
-        #expect(library.metadataFormats.volumeRules.map(\.pattern) == ["第(\\d+)巻", " 上巻"])
-        #expect(library.metadataFormats.volumeRules.map(\.kind) == [.volumeNumber, .seriesSeparatorOnly])
-        #expect(library.metadataFormats.exclusionRules.map(\.pattern) == ["\\(同人\\)"])
+        #expect(summary.didImportMetadataRules)
+        let entry = try #require(library.metadataRules.rules.presetCatalog.entries
+            .first { $0.id == MetadataRulesStore.legacyPresetName })
+        #expect(entry.preset.formats.map(\.text) == ["(@author) @title"])
+    }
+
+    @Test("規則(qooMeta の差分)は書き出して読み込むと、そのまま入れ替わる")
+    func metadataRulesRoundTrip() async throws {
+        let origin = try InMemoryLibrary(label: "rules-origin")
+        let destination = try InMemoryLibrary(label: "rules-destination")
+        defer { origin.close(); destination.close() }
+        let errors = origin.metadataRules.update { $0.setPolicy("ownSeries", for: "compilations") }
+        #expect(errors.isEmpty)
+
+        let (file, _) = await origin.buildExportFile(.everything)
+        #expect(file.metadataRules != nil)
+        let summary = await destination.apply(file, policies: .all(.overwrite))
+
+        #expect(summary.didImportMetadataRules)
+        #expect(destination.metadataRules.rules.contentHash == origin.metadataRules.rules.contentHash)
+    }
+
+    @Test("qooMeta の欄(著者の並び・ジャンルなど)は保存データの JSON を往復する")
+    func qooMetaFieldsRoundTrip() async throws {
+        let origin = try InMemoryLibrary(label: "fields-origin")
+        let destination = try InMemoryLibrary(label: "fields-destination")
+        defer { origin.close(); destination.close() }
+        let values = BookMetadataValues(title: "題名", authors: ["著者1", "著者2"], genre: "ジャンル", event: "催し",
+                                        source: "原作", info: "付記", series: "題名", volume: "2", volumeSort: 2)
+        origin.metadata.upsert(bookID: "/nowhere/fields.cbz", values: values)
+
+        let (file, _) = await origin.buildExportFile(.everything)
+        let entry = try #require(file.metadata?.first)
+        #expect(entry.author == "著者1")
+        #expect(entry.authors == ["著者1", "著者2"])
+        await destination.apply(file, policies: .all(.merge))
+
+        #expect(destination.metadata.metadata(forBookID: "/nowhere/fields.cbz")?.values == values)
     }
 
     // MARK: - ignore
@@ -533,7 +566,7 @@ struct LibraryImportTests {
         #expect(encoded(again.bookmarks) == encoded(file.bookmarks))
         #expect(encoded(again.layouts) == encoded(file.layouts))
         #expect(encoded(again.metadata) == encoded(file.metadata))
-        #expect(encoded(again.metadataFormats) == encoded(file.metadataFormats))
+        #expect(again.metadataRules == file.metadataRules)
         #expect(again.favorites?.books.map(\.bookID) == file.favorites?.books.map(\.bookID))
         #expect(again.favorites?.folders.map(\.name) == file.favorites?.folders.map(\.name))
     }

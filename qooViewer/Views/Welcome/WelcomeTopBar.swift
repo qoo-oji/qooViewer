@@ -92,6 +92,8 @@ struct WelcomeTopBar: View {
             } else {
                 openButtons
             }
+            // スマートライブラリ(2026-09-21、利用者の指示: ファイルブラウザとライブラリの間)。
+            smartLibraryToggle
             // 左端(モードの切り替え、または本を開く2つの入り口)とライブラリの並び(本棚の中の選択)は別の役割なので区切る
             // (ユーザー要望 2026-09-13)。
             WelcomeSeparator(axis: .vertical, length: 20)
@@ -184,6 +186,28 @@ struct WelcomeTopBar: View {
                 .background(shape.fill(isBrowsing ? SelectionEmphasis.fill(isActive: appearsActive) : Color.primary.opacity(0.07)))
                 .panelOutlinedAccent(in: shape, isEnabled: isBrowsing)
                 .foregroundStyle(isBrowsing ? SelectionEmphasis.foreground(isActive: appearsActive) : Color.primary)
+                .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 本棚 ⇄ スマートライブラリ(2026-09-21)。形はファイルブラウザの切り替えと同じ(文字 + アイコン、幅は文字に合わせる)。
+    private var smartLibraryToggle: some View {
+        let isShowing = state.mode == .smart
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        return Button {
+            state.mode = isShowing ? .shelf : .smart
+        } label: {
+            Label("Smart Library", systemImage: "line.3.horizontal.decrease.circle")
+                .labelStyle(.titleAndIcon)
+                .lineLimit(1)
+                .fixedSize()
+                .panelOutlinedContent(isEnabled: !isShowing)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(shape.fill(isShowing ? SelectionEmphasis.fill(isActive: appearsActive) : Color.primary.opacity(0.07)))
+                .panelOutlinedAccent(in: shape, isEnabled: isShowing)
+                .foregroundStyle(isShowing ? SelectionEmphasis.foreground(isActive: appearsActive) : Color.primary)
                 .contentShape(shape)
         }
         .buttonStyle(.plain)
@@ -288,7 +312,8 @@ struct WelcomeTopBar: View {
             // (WelcomeLibraryState.searchTextのコメント参照)。
             // ファイルブラウザの間にチップを押したら本棚へ戻る。見ていたライブラリのチップなら、
             // 開いていたコレクションもそのまま(離れたときの棚へ戻る)。
-            if state.mode == .browser {
+            // スマートライブラリの間も同じ(本棚へ戻る)。
+            if state.mode != .shelf {
                 state.mode = .shelf
                 if library.id == selectedLibraryID { return }
             }

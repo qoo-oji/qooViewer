@@ -51,6 +51,10 @@ struct PDFExportInput {
     /// 本ごとの見開き/単ページの強制指定。`/PageLayout`として埋め込む。
     /// 指定が無ければnil(その場合は`/PageLayout`自体を書かない)。
     let forcedDisplayMode: DisplayMode?
+    /// 2 人目以降の著者(qooMeta の欄。2026-09-21)。`Author` に「, 」でつなぐ。
+    var additionalAuthors: [String] = []
+    /// ジャンル。Document Info の `Subject` に書く。
+    var genre: String? = nil
 }
 
 enum PDFExportError: LocalizedError {
@@ -118,7 +122,12 @@ nonisolated enum PDFExporter {
 
         var auxiliaryInfo: [String: Any] = [kCGPDFContextTitle as String: bookTitle]
         if let author {
-            auxiliaryInfo[kCGPDFContextAuthor as String] = author
+            let extras = input.additionalAuthors.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }.map(nfcNormalizedForExport)
+            auxiliaryInfo[kCGPDFContextAuthor as String] = ([author] + extras).joined(separator: ", ")
+        }
+        if let genre = input.genre?.trimmingCharacters(in: .whitespacesAndNewlines), !genre.isEmpty {
+            auxiliaryInfo[kCGPDFContextSubject as String] = nfcNormalizedForExport(genre)
         }
         // シリーズ名・巻数はここ(Document Info辞書)には書かない。以前はKeywordsへ
         // `series:シリーズ名, series_index:巻数番号`という独自形式で埋めていたが、

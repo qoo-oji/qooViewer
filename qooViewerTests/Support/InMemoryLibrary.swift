@@ -46,11 +46,12 @@ final class InMemoryLibrary {
     /// テスト用の札が残る。
     let collectionTileImages: CollectionTileImageStore
     private let collectionTileImagesDirectory: URL
-    /// メタデータ推測のルールだけは SwiftData ではなく `UserDefaults` に載っているため、
-    /// このライブラリ専用の領域(suite)を渡す。`UserDefaults.standard` に書くと利用者の
-    /// ルールを書き換えてしまう。
-    let metadataFormats: MetadataFormatStore
-    private let metadataFormatsSuiteName: String
+    /// ファイル名からメタデータを作る規則(qooMeta)は SwiftData ではなくファイル(settings.json)に載っているため、
+    /// このライブラリ専用の一時フォルダを渡す。既定の場所に書くと利用者の規則を書き換えてしまう。
+    /// 以前の規則の引き継ぎ(`legacyDefaults`)も、このライブラリ専用の領域(suite)から読む。
+    let metadataRules: MetadataRulesStore
+    private let metadataRulesDirectory: URL
+    private let metadataRulesSuiteName: String
     /// 本のタイトルを求める役(コレクションの並び順「タイトル」が使う)。
     let bookTitles: BookTitleResolver
 
@@ -82,11 +83,14 @@ final class InMemoryLibrary {
         )
         // フォーマットのルールは**コレクションより先に**作る ―― 並び順「タイトル」の鍵を
         // 作る BookTitleResolver が、メタデータのストアとルールの両方を要るため。
-        metadataFormatsSuiteName = "qooViewerTests.\(label).\(UUID().uuidString)"
-        metadataFormats = MetadataFormatStore(
-            defaults: UserDefaults(suiteName: metadataFormatsSuiteName) ?? .standard
+        metadataRulesSuiteName = "qooViewerTests.\(label).\(UUID().uuidString)"
+        metadataRulesDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("qooViewerTests.\(label).rules.\(UUID().uuidString)", isDirectory: true)
+        metadataRules = MetadataRulesStore(
+            url: metadataRulesDirectory.appendingPathComponent("settings.json"),
+            legacyDefaults: UserDefaults(suiteName: metadataRulesSuiteName)
         )
-        bookTitles = BookTitleResolver(metadataStore: metadata, formatStore: metadataFormats)
+        bookTitles = BookTitleResolver(metadataStore: metadata, rulesStore: metadataRules)
         collections = CollectionStore(
             modelContext: context, coverStore: collectionCovers, tileStore: collectionTileImages,
             titleResolver: bookTitles
@@ -104,7 +108,8 @@ final class InMemoryLibrary {
         bookmarks.releaseResources()
         favorites.releaseResources()
         collections.releaseResources()
-        UserDefaults().removePersistentDomain(forName: metadataFormatsSuiteName)
+        UserDefaults().removePersistentDomain(forName: metadataRulesSuiteName)
+        try? FileManager.default.removeItem(at: metadataRulesDirectory)
         try? FileManager.default.removeItem(at: collectionCoversDirectory)
         try? FileManager.default.removeItem(at: collectionTileImagesDirectory)
         try? FileManager.default.removeItem(at: coverSourcesDirectory)
@@ -113,7 +118,8 @@ final class InMemoryLibrary {
     deinit {
         // `close()` を呼び忘れた場合の保険。`UserDefaults` の領域とカバー画像のフォルダは
         // ファイルとして残るので明示的に消す(メモリ内のコンテナはここで手放されて消える)。
-        UserDefaults().removePersistentDomain(forName: metadataFormatsSuiteName)
+        UserDefaults().removePersistentDomain(forName: metadataRulesSuiteName)
+        try? FileManager.default.removeItem(at: metadataRulesDirectory)
         try? FileManager.default.removeItem(at: collectionCoversDirectory)
         try? FileManager.default.removeItem(at: collectionTileImagesDirectory)
         try? FileManager.default.removeItem(at: coverSourcesDirectory)
@@ -140,7 +146,7 @@ final class InMemoryLibrary {
         await LibraryImportExportService.apply(
             file, policies: policies,
             favoritesStore: favorites, bookmarkStore: bookmarks, layoutStore: layouts,
-            metadataStore: metadata, metadataFormatStore: metadataFormats,
+            metadataStore: metadata, metadataRulesStore: metadataRules,
             collectionStore: collections, cachesPageList: false
         )
     }
@@ -157,7 +163,7 @@ final class InMemoryLibrary {
         await LibraryImportExportService.buildExportFile(
             selection: selection,
             favoritesStore: favorites, bookmarkStore: bookmarks, layoutStore: layouts,
-            metadataStore: metadata, metadataFormatStore: metadataFormats,
+            metadataStore: metadata, metadataRulesStore: metadataRules,
             collectionStore: collections, cachesPageList: false
         )
     }
@@ -200,18 +206,18 @@ extension LibraryImportExportService.ExportSelection {
     /// 5 カテゴリすべてを書き出す選択。
     static let everything = Self(
         includeFavorites: true, includeBookmarks: true, includeLayouts: true,
-        includeMetadata: true, includeMetadataFormats: true, includeCollections: true
+        includeMetadata: true, includeMetadataRules: true, includeCollections: true
     )
 }
 
 extension LibraryImportExportService.ImportPolicies {
-    /// 5 カテゴリすべてを同じ方針で取り込む(フォーマット定義は overwrite / ignore の 2 択なので、
-    /// merge を渡した場合はそのまま渡す ―― `applyMetadataFormats` は方針の値を見ずに
+    /// 5 カテゴリすべてを同じ方針で取り込む(規則は overwrite / ignore の 2 択なので、
+    /// merge を渡した場合はそのまま渡す ―― 規則の取り込みは方針の値を見ずに
     /// 丸ごと差し替えるため、ignore 以外は同じ意味になる)。
     static func all(_ policy: LibraryImportExportService.ImportPolicy) -> Self {
         Self(
             favorites: policy, bookmarks: policy, layouts: policy, metadata: policy,
-            metadataFormats: policy, collections: policy
+            metadataRules: policy, collections: policy
         )
     }
 }

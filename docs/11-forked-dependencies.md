@@ -251,6 +251,22 @@ unrar の公開 API(`RAROpenArchiveEx`)は書庫を**ファイルパスでしか
 
 ---
 
+## qooMeta(2026-09-21)
+
+フォークではなく、作者の別リポジトリ(`https://github.com/qoo-oji/qooMeta`)を**リリースのタグで**使う依存です
+(`upToNextMajorVersion` from 0.1.0。`Package.resolved` が版と revision を固定し、`scripts/ci/check-package-pins.sh` が確かめる)。
+使う製品は `QooMetaKit`(ファイル名の解析・シリーズと巻の導出の中核。Foundation だけに依存し、ファイルを読まない)と
+`QooMetaRules`(同梱の既定値の JSON ―― ルールセットの `filename-formats.json`、シリーズの規則の `series-rules.json` ―― と
+システムの辞書の読み込み口)。
+
+- **qooMeta を更新すれば、中核と同梱のプリセットの JSON はそのまま入る**(利用者の指示 2026-09-21)。qooViewer が持つのは利用者の
+  差分だけ(`MetadataRulesStore`)で、既定値は毎回 `BuiltInRules.bundled()` から読む。更新は Xcode の
+  「Update to Latest Package Versions」か `xcodebuild -resolvePackageDependencies` の後、`Package.resolved` の版を確かめる。
+- 画面(`Views/MetadataEditor/`・`Views/MetadataRules/`)は qooMeta のアプリのコードを**移植したもの**で、自動では追従しない。
+  言葉の鍵(英語)と訳は `Localizable.xcstrings` に合流させてある(`"…".ui` は表示言語の `.lproj` から引く。QooMetaLocalization.swift)。
+- 英単語の辞書(`/usr/share/dict/words`)はサンドボックスの中からも読める。起動直後に画面の外で読んでおく(`MetadataRulesStore.warmUp`)。
+- qooMeta の型 `BookMetadata` は qooViewer の同名の @Model と重なるので、`QMBookMetadata` と呼ぶ。
+
 ## 削除した依存: UniversalCharsetDetection
 
 2026-09-01(コミット `5eaca7f`)まで、zip のファイル名の文字コード判定に uchardet の Swift

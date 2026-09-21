@@ -97,4 +97,42 @@ struct StorePersistenceTests {
         #expect(items.map(\.bookID) == ["/books/external"])
         #expect(items.first?.collection?.library?.name == "Shelf")
     }
+
+    @Test("メタデータの qooMeta の欄(著者の並び・ジャンルなど)は、開き直しても残る")
+    func metadataColumnsSurviveReopening() throws {
+        let store = try DisposableStore("metadata-columns")
+        let values = BookMetadataValues(title: "題名", authors: ["著者1", "著者2", "著者3"], genre: "ジャンル",
+                                        event: "催し", source: "原作", info: "付記", series: "題名",
+                                        volume: "総集編1", volumeSort: 101)
+        do {
+            let container = try store.openCurrent()
+            let metadata = BookMetadataStore(modelContext: container.mainContext)
+            metadata.upsert(bookID: "/books/meta", values: values)
+        }
+        let container = try store.openCurrent()
+        let metadata = BookMetadataStore(modelContext: container.mainContext)
+        let row = try #require(metadata.metadata(forBookID: "/books/meta"))
+        #expect(row.values == values)
+        // 先頭の著者は従来の列にも入っている(先頭だけを読む書き出し・古い版のため)。
+        #expect(row.author == "著者1")
+    }
+
+    @Test("1.54のストアのメタデータは、欄を足した後も同じ値で読め、足した欄は空")
+    func metadataFrom1_54KeepsItsValues() throws {
+        let store = try DisposableStore("metadata-1.54")
+        do {
+            let container = try store.open(SchemaSnapshot_1_54.types)
+            let old = SchemaSnapshot_1_54.BookMetadata(bookID: "/books/old")
+            old.author = "著者"
+            old.title = "題名"
+            old.series = "シリーズ"
+            old.seriesIndex = "3"
+            container.mainContext.insert(old)
+            try container.mainContext.save()
+        }
+        let container = try store.openCurrent()
+        let metadata = BookMetadataStore(modelContext: container.mainContext)
+        let row = try #require(metadata.metadata(forBookID: "/books/old"))
+        #expect(row.values == BookMetadataValues(title: "題名", authors: ["著者"], series: "シリーズ", volume: "3"))
+    }
 }

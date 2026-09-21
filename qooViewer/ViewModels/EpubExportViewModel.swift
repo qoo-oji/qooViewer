@@ -32,7 +32,9 @@ final class EpubExportViewModel: BookExportViewModel {
             // (BookMetadata.exportableSeriesIndex参照)。
             series: prepared.metadata?.series,
             seriesIndex: prepared.metadata?.exportableSeriesIndex,
-            language: exportLanguageCode
+            language: exportLanguageCode,
+            additionalAuthors: prepared.additionalAuthors,
+            genre: prepared.metadata?.genre
         )
         let options = EpubExportOptions(
             renumberImagesSequentially: renumberImagesSequentially, includeExcludedPages: includeExcludedPages

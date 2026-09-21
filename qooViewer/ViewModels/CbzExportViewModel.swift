@@ -47,7 +47,10 @@ final class CbzExportViewModel: BookExportViewModel {
             // ComicInfoのNumberはxs:stringのため、EPUB/PDFと違い数値へ丸めずに
             // 生のseriesIndexをそのまま渡す(「上」「下」もそのまま書ける)。
             seriesIndex: prepared.metadata?.seriesIndex,
-            language: exportLanguageCode
+            language: exportLanguageCode,
+            additionalAuthors: prepared.additionalAuthors,
+            genre: prepared.metadata?.genre,
+            notes: prepared.metadata?.info
         )
         let options = CbzExportOptions(
             renumberImagesSequentially: renumberImagesSequentially,

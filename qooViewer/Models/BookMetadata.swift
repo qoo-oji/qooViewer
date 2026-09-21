@@ -42,6 +42,33 @@ final class BookMetadata {
     /// (EPUB/PDFへ書き出す際にのみ、numericSeriesIndexで数値へ変換を試みる)。
     var seriesIndex: String = ""
 
+    // MARK: qooMeta から来た欄(2026-09-21 追加)
+    //
+    // ファイル名からメタデータを作る処理を qooMeta へ置き換えたときに、qooMeta の欄(`QooMetaKit.BookMetadata`)に
+    // 合わせて足した。**すべて既定値つき**(SwiftData の軽量マイグレーション)。欄の意味は qooMeta の docs/metadata.md。
+
+    /// 2 人目以降の著者(改行でつなぐ)。**先頭の著者は `author` のまま** ―― 先頭だけを読む書き出し・表示・古い版は、
+    /// そのまま正しい著者を読める。並びとして扱うときは `authors` を使う。
+    var additionalAuthorsRaw: String = ""
+    /// ジャンル(qooMeta の `@genre`)。
+    var genre: String = ""
+    /// 頒布会の名前(qooMeta の `@event`)。
+    var event: String = ""
+    /// 原作(qooMeta の `@source`)。
+    var source: String = ""
+    /// 情報(名前の中の付記。qooMeta の `@info`)。
+    var info: String = ""
+    /// 巻数の並べ替え用の数(qooMeta の `volumeSort`。総集編のオフセットを足した数)。`seriesIndex` が表示用。
+    /// 手で入れた巻・古い行は nil(並べ替えは `numericSeriesIndex` へ落ちる。`sortableVolume`)。
+    var volumeSort: Double?
+    /// どの版の欄で登録したか。0 = qooMeta へ置き換える前(著者・タイトル・シリーズ・巻数の 4 つだけ)。1 = qooMeta の欄
+    /// (2026-09-21)。0 の行は、ジャンル・原作などの欄を持たないまま登録されているので、メタデータの編集ウインドウを開いたときに
+    /// 「空の欄だけファイル名から埋める / ロックを外して解析し直す」を尋ねる(利用者の指示 2026-09-21)。
+    var fieldsVersion: Int = 0
+
+    /// いまの欄の版。
+    static let currentFieldsVersion = 1
+
     /// この本を指すセキュリティスコープ付きブックマーク(Bookmark.bookmarkDataと同じもの)。
     /// 「メタデータの編集」ウインドウ、およびEPUB/PDF出力が、今開いていない本の実ファイルへ
     /// アクセスする必要がある場合に使う。取得できなかった場合はnil。
@@ -85,6 +112,42 @@ final class BookMetadata {
         self.updatedAt = now
     }
 
+    /// 著者の並び(先頭が `author`、続きが `additionalAuthorsRaw`)。空の著者は含めない。
+    var authors: [String] {
+        get {
+            let rest = additionalAuthorsRaw.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+            return author.isEmpty ? rest : [author] + rest
+        }
+        set {
+            let cleaned = newValue.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            author = cleaned.first ?? ""
+            additionalAuthorsRaw = cleaned.dropFirst().joined(separator: "\n")
+        }
+    }
+
+    /// すべての欄を値の形で読む・書く(qooMeta との受け渡し、JSON、編集の画面)。書くときは空白を落とす。
+    var values: BookMetadataValues {
+        get {
+            BookMetadataValues(title: title, authors: authors, genre: genre, event: event, source: source, info: info,
+                               series: series, volume: seriesIndex, volumeSort: volumeSort)
+        }
+        set {
+            let v = newValue.trimmed
+            title = v.title
+            authors = v.authors
+            genre = v.genre
+            event = v.event
+            source = v.source
+            info = v.info
+            series = v.series
+            seriesIndex = v.volume
+            volumeSort = v.volumeSort
+        }
+    }
+
+    /// 並べ替えに使う巻の数(qooMeta の並べ替え用の数、無ければ表示用の巻を数として読んだもの)。
+    var sortableVolume: Double? { volumeSort ?? numericSeriesIndex }
+
     /// inodeNumber/volumeDeviceNumberが両方揃っている場合のみFileNodeIdentifierとして返す。
     var fileNodeIdentifier: FileNodeIdentifier? {
         guard let inodeNumber, let volumeDeviceNumber else { return nil }
@@ -93,12 +156,10 @@ final class BookMetadata {
         )
     }
 
-    /// 4つの欄がすべて空かどうか。「登録はされているが中身が何も無い」行を作らないための
+    /// すべての欄が空かどうか。「登録はされているが中身が何も無い」行を作らないための
     /// 判定に使う(BookMetadataStore.upsertは、すべて空の内容で登録しようとした場合は
     /// 行そのものを削除する)。
-    var isEmpty: Bool {
-        author.isEmpty && title.isEmpty && series.isEmpty && seriesIndex.isEmpty
-    }
+    var isEmpty: Bool { values.isEmpty }
 
     /// EPUBのgroup-position / calibre:series_index、PDFのXMPの
     /// calibreSI:series_indexへ書き出すための数値表現。
@@ -133,6 +194,48 @@ final class BookMetadata {
         guard abs(value) < 1e15 else { return nil }
         if value == value.rounded() { return String(Int(value)) }
         return String(value)
+    }
+}
+
+/// 書誌メタデータの全欄を値で持つもの(`BookMetadata` の行と、qooMeta の欄 `QooMetaKit.BookMetadata` の仲立ち)。
+///
+/// qooMeta の欄とは名前を合わせてある(`volume` = qooViewer の `seriesIndex`)。**空の欄は空の文字列・空の並び**で表す
+/// (「無い」と「空」を分けない。qooMeta と同じ)。
+nonisolated struct BookMetadataValues: Hashable, Sendable, Codable {
+    var title: String = ""
+    var authors: [String] = []
+    var genre: String = ""
+    var event: String = ""
+    var source: String = ""
+    var info: String = ""
+    var series: String = ""
+    /// 巻数(表示用。名前のとおりの表記)。
+    var volume: String = ""
+    /// 巻数(並べ替え用)。
+    var volumeSort: Double?
+
+    /// 先頭の著者(1 人だけを書く所 ―― 表示・PDF の Author の既定・古い保存データ)。
+    var author: String { authors.first ?? "" }
+
+    var isEmpty: Bool {
+        title.isEmpty && authors.isEmpty && genre.isEmpty && event.isEmpty && source.isEmpty && info.isEmpty
+            && series.isEmpty && volume.isEmpty
+    }
+
+    /// 前後の空白を落とし、空の著者を除いたもの。
+    var trimmed: BookMetadataValues {
+        func t(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines) }
+        var v = self
+        v.title = t(title)
+        v.authors = authors.map(t).filter { !$0.isEmpty }
+        v.genre = t(genre)
+        v.event = t(event)
+        v.source = t(source)
+        v.info = t(info)
+        v.series = t(series)
+        v.volume = t(volume)
+        if v.volume.isEmpty { v.volumeSort = nil }
+        return v
     }
 }
 

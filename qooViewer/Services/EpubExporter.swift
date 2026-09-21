@@ -50,6 +50,10 @@ struct EpubExportInput {
     /// 空文字/nilの場合は"en"にフォールバックする(dc:languageはEPUB3の必須要素のため、
     /// 省略という選択肢は取れない)。
     let language: String?
+    /// 2 人目以降の著者(qooMeta の欄。2026-09-21)。`author` に続く `dc:creator` として書く。
+    var additionalAuthors: [String] = []
+    /// ジャンル。`dc:subject` として書く。
+    var genre: String? = nil
 }
 
 enum EpubExportError: LocalizedError {
@@ -370,8 +374,13 @@ nonisolated enum EpubExporter {
 
             // package.opfは、上のページ書き出しループで集めたピクセルサイズが要るため最後に書く
             // (ループ冒頭のコメント参照)。
+            let extraAuthors = author == nil ? [] : input.additionalAuthors
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.map(nfcNormalizedForExport)
+            let trimmedGenre = input.genre?.trimmingCharacters(in: .whitespacesAndNewlines)
             let opfXML = makePackageDocument(
-                title: bookTitle, author: author, language: language,
+                title: bookTitle, author: author, additionalAuthors: extraAuthors,
+                subject: (trimmedGenre?.isEmpty == false) ? trimmedGenre.map(nfcNormalizedForExport) : nil,
+                language: language,
                 series: series, seriesIndex: (seriesIndex?.isEmpty == false) ? seriesIndex : nil,
                 identifier: identifier, pages: prepared,
                 readingDirection: input.readingDirectionOverride, forcedDisplayMode: input.forcedDisplayMode,
@@ -611,7 +620,8 @@ nonisolated enum EpubExporter {
     }
 
     private static func makePackageDocument(
-        title: String, author: String?, language: String, series: String?, seriesIndex: String?,
+        title: String, author: String?, additionalAuthors: [String] = [], subject: String? = nil,
+        language: String, series: String?, seriesIndex: String?,
         identifier: String, pages: [PreparedPage],
         readingDirection: ReadingDirection?, forcedDisplayMode: DisplayMode?, cover: ResolvedCover?,
         coverGuideHref: String?, originalResolution: PixelSize?
@@ -670,6 +680,18 @@ nonisolated enum EpubExporter {
             metadataLines.append(
                 "    <meta refines=\"#creator\" property=\"role\" scheme=\"marc:relators\">aut</meta>"
             )
+            // 2 人目以降の著者(qooMeta の欄)。1 人ずつ dc:creator にする(EPUB3 の書き方)。
+            for (offset, extra) in additionalAuthors.enumerated() {
+                let id = "creator\(offset + 2)"
+                metadataLines.append("    <dc:creator id=\"\(id)\">\(xmlEscape(extra))</dc:creator>")
+                metadataLines.append(
+                    "    <meta refines=\"#\(id)\" property=\"role\" scheme=\"marc:relators\">aut</meta>"
+                )
+            }
+        }
+        // ジャンル(qooMeta の欄)。
+        if let subject {
+            metadataLines.append("    <dc:subject>\(xmlEscape(subject))</dc:subject>")
         }
 
         // ユーザー要望: メタデータのシリーズ名と巻数を、2種類の形式の両方で埋め込む。

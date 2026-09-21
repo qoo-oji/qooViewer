@@ -863,7 +863,7 @@ final class LayoutStore: ObservableObject {
                   let sourceURL = coverSourceStore.url(forFileName: storedName)
             else { continue }
             let fileName = ShelfCoverArchive.uniqueFileName(
-                forBaseName: MetadataEditorViewModel.baseName(forBookID: settings.bookID),
+                forBaseName: MetadataRulesStore.baseName(forBookID: settings.bookID),
                 extension: sourceURL.pathExtension.isEmpty ? "jpg" : sourceURL.pathExtension,
                 used: &used
             )
