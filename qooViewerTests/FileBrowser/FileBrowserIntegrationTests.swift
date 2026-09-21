@@ -213,6 +213,20 @@ struct FileBrowserIntegrationTests {
         #expect(fixture.state.selection == [FileBrowserState.id(for: book)])
     }
 
+    @Test("環境設定「ファイルブラウザを有効にする」がOFFなら、「ファイルブラウザで開く」は何もしない(ホームは本棚のまま)")
+    func revealDoesNothingWhileTheFileBrowserIsOff() throws {
+        let fixture = try Fixture("fb-reveal-feature-off")
+        defer { fixture.close() }
+        let book = try fixture.archive("shelf/book.cbz")
+        fixture.preferences.fileBrowserFeatureEnabled = false
+        fixture.welcome.isFileBrowserFeatureEnabled = false
+        fixture.welcome.isEditing = true
+
+        fixture.appState.showInFileBrowser(book, isDirectory: false, openWindow: nil)
+        #expect(fixture.welcome.mode == .shelf)
+        #expect(fixture.welcome.isEditing)
+    }
+
     // MARK: - 右クリックの判定
 
     @Test("コレクション・メタデータはシークレットウインドウで淡色、書き出しは使える。画像1枚・複数選択は1冊用の項目が淡色")

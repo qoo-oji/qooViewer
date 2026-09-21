@@ -79,11 +79,15 @@ struct WelcomeTopBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            fileBrowserToggle
+            // 環境設定「ファイルブラウザを有効にする」がOFFの間は、切り替えのボタンと区切りを出さない
+            // (ファイルブラウザを足す前の帯の形。2026-09-21、ユーザー要望)。
+            if state.isFileBrowserFeatureEnabled {
+                fileBrowserToggle
 
-            // ファイルブラウザ(モードの切り替え)とライブラリの並び(本棚の中の選択)は別の役割なので区切る
-            // (ユーザー要望 2026-09-13)。
-            WelcomeSeparator(axis: .vertical, length: 20)
+                // ファイルブラウザ(モードの切り替え)とライブラリの並び(本棚の中の選択)は別の役割なので区切る
+                // (ユーザー要望 2026-09-13)。
+                WelcomeSeparator(axis: .vertical, length: 20)
+            }
 
             libraryChips
 

@@ -59,6 +59,53 @@ struct LibraryFeatureToggleTests {
         #expect(state.mode == .shelf)
     }
 
+    @Test("ホームの形は2つの設定の組で決まる: 両方ONなら選んだほう、片方なら残ったほう、両方OFFなら本棚を足す前のウェルカム画面")
+    func theHomeModeFollowsBothFeatureFlags() {
+        for wanted in [WelcomeMode.shelf, .browser] {
+            #expect(WelcomeLibraryState.constrained(wanted, library: true, fileBrowser: true) == wanted)
+            #expect(WelcomeLibraryState.constrained(wanted, library: true, fileBrowser: false) == .shelf)
+            #expect(WelcomeLibraryState.constrained(wanted, library: false, fileBrowser: true) == .browser)
+            #expect(WelcomeLibraryState.constrained(wanted, library: false, fileBrowser: false) == .classic)
+        }
+        // `.classic` は選べるモードではない(両方ONへ戻ったら本棚)。
+        #expect(WelcomeLibraryState.constrained(.classic, library: true, fileBrowser: true) == .shelf)
+
+        let suite = PreferencesSuite(label: "home-feature-flags")
+        defer { withExtendedLifetime(suite) {} }
+        let state = WelcomeLibraryState(defaults: suite.defaults)
+        state.mode = .browser
+        #expect(suite.defaults.string(forKey: "qooViewer.welcome.mode") == "browser")
+
+        // ファイルブラウザをOFF: 本棚に固定され、ファイルブラウザへは切り替えられない。
+        state.isFileBrowserFeatureEnabled = false
+        #expect(state.mode == .shelf)
+        state.mode = .browser
+        #expect(state.mode == .shelf)
+        // 両方OFF: 本棚を足す前のウェルカム画面。
+        state.isLibraryFeatureEnabled = false
+        #expect(state.mode == .classic)
+        // ファイルブラウザだけON。
+        state.isFileBrowserFeatureEnabled = true
+        #expect(state.mode == .browser)
+        // 押し込まれたモードは保存していないので、両方ONへ戻すと前に見ていたほう(ファイルブラウザ)へ戻る。
+        state.isFileBrowserFeatureEnabled = false
+        state.isLibraryFeatureEnabled = true
+        #expect(state.mode == .shelf)
+        #expect(suite.defaults.string(forKey: "qooViewer.welcome.mode") == "browser")
+        state.isFileBrowserFeatureEnabled = true
+        #expect(state.mode == .browser)
+
+        // 次に開くウインドウは、保存先の設定から最初の形を決める。
+        let preferences = suite.makePreferences()
+        preferences.libraryFeatureEnabled = false
+        preferences.fileBrowserFeatureEnabled = false
+        #expect(WelcomeLibraryState(defaults: suite.defaults).mode == .classic)
+        preferences.libraryFeatureEnabled = true
+        #expect(WelcomeLibraryState(defaults: suite.defaults).mode == .shelf)
+        #expect(WindowTitle.welcome(mode: .classic, folderName: "Folder", libraryName: "Library", collectionName: nil)
+                == WindowTitle.appName)
+    }
+
     // MARK: - 裏の仕事
 
     @Test("OFFの間は登録した本の存在確認をしない。ONへ戻すとその場で確かめる")

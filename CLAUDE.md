@@ -214,7 +214,14 @@ menu directory, collection reconciliation on book open. What stops and what deli
 saved-data import/export/cleanup) is listed on `AppStores.applyLibraryFeature`; **new library-only work must check the
 flag there too**, and must not fetch `CollectionItem`s while it is off. Data is never deleted; books whose layout changed
 while off are remembered in UserDefaults and get their covers redone when it is turned back on (docs/14
-「ライブラリ機能の ON/OFF」). The favorites feature is hidden behind
+「ライブラリ機能の ON/OFF」). **The file browser has the same kind of switch** ("Enable File Browser",
+`AppPreferences.fileBrowserFeatureEnabled`): its items leave Home, the menu bar and every context menu — including all
+"Show in File Browser" items, which read `RevealInFileBrowserAction.isFeatureEnabled` — and `AutoRenameService` and the
+video thumbnail warmer stop (`AppStores.applyFileBrowserFeature`). The two flags together pick the Home layout in one
+place, `WelcomeLibraryState.constrained`: both on = as before, library only = the pre-file-browser shelf, file browser
+only = the pane with no top bar, both off = `WelcomeMode.classic`, the pre-bookshelf welcome screen restored as
+`ClassicWelcomeView` (and no Home menu). `.classic` is never a user choice and forced modes are never saved. New file
+browser entry points must check the flag (docs/15「ファイルブラウザ機能の ON/OFF」). The favorites feature is hidden behind
 `FavoritesFeature.isEnabled == false` — models, stores, window and JSON schema are kept so the data
 survives. Design and the reasons are in `docs/14-library-collections.md`.
 

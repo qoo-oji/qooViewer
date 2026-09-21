@@ -2396,9 +2396,12 @@ struct ViewerView: View {
             }
         }
         // 「ファイルブラウザで開く」(改善要望7 段階 8)。行き先は環境設定「ファイルブラウザ」(FileBrowserReveal)。
-        Button("Show in File Browser") {
-            relay.send { view in
-                view.appState.revealCurrentBookInFileBrowser(openWindow: view.openWindow)
+        // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない。
+        if preferences.fileBrowserFeatureEnabled {
+            Button("Show in File Browser") {
+                relay.send { view in
+                    view.appState.revealCurrentBookInFileBrowser(openWindow: view.openWindow)
+                }
             }
         }
 

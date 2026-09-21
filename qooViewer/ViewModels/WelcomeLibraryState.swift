@@ -37,31 +37,57 @@ final class WelcomeLibraryState: ObservableObject {
     /// 戻った瞬間にクリックの意味が変わっている理由が画面から読めない。isEditingのコメント参照)。
     @Published var mode: WelcomeMode {
         didSet {
-            // ライブラリ機能がOFFの間はファイルブラウザだけ(isLibraryFeatureEnabledのコメント)。
-            if !isLibraryFeatureEnabled, mode != .browser {
-                mode = .browser
+            // 環境設定で片方(または両方)の機能をOFFにしている間は、出せるモードが1つに決まる(isLibraryFeatureEnabledのコメント)。
+            let allowed = Self.constrained(
+                mode, library: isLibraryFeatureEnabled, fileBrowser: isFileBrowserFeatureEnabled
+            )
+            if mode != allowed {
+                mode = allowed
                 return
             }
             guard mode != oldValue else { return }
-            // OFFで押し込まれたぶんは保存しない(ONへ戻したときに、前に見ていたほうへ戻れるように)。
-            if isLibraryFeatureEnabled { defaults.set(mode.rawValue, forKey: Keys.mode) }
+            // 押し込まれたぶんは保存しない(両方ONへ戻したときに、前に見ていたほうへ戻れるように)。
+            if isLibraryFeatureEnabled, isFileBrowserFeatureEnabled { defaults.set(mode.rawValue, forKey: Keys.mode) }
             isEditing = false
         }
     }
 
-    /// ホームのライブラリ機能が有効か(環境設定「ライブラリを有効にする」。2026-09-21、ユーザー要望)。値の持ち主は AppPreferences で、
-    /// ContentView が写す ―― ただし**最初の値は init で保存先から読む**(写しが届くのは最初の1コマの後で、その1コマを本棚で描かない)。
+    /// ホームのライブラリ機能・ファイルブラウザ機能が有効か(環境設定「ライブラリを有効にする」「ファイルブラウザを有効にする」。
+    /// 2026-09-21、ユーザー要望)。値の持ち主は AppPreferences で、ContentView が写す ―― ただし**最初の値は init で保存先から読む**
+    /// (写しが届くのは最初の1コマの後で、その1コマを別のモードで描かない)。
     ///
-    /// OFFの間は `mode` が常に `.browser`(本棚へ切り替える手段 ―― 帯・「ホーム」メニュー ―― も画面から消える)。
-    /// ONへ戻したら、保存してあるモード(OFFにする前に見ていたほう)へ戻る。
+    /// 片方でもOFFの間は `mode` が1つに決まる(`constrained`): ライブラリだけなら `.shelf`、ファイルブラウザだけなら `.browser`、
+    /// 両方OFFなら `.classic`(本棚を足す前のウェルカム画面)。切り替える手段(帯のボタン・「ホーム」メニュー)も画面から消える。
+    /// 両方ONへ戻したら、保存してあるモード(OFFにする前に見ていたほう)へ戻る。
     @Published var isLibraryFeatureEnabled: Bool {
         didSet {
             guard isLibraryFeatureEnabled != oldValue else { return }
-            if isLibraryFeatureEnabled {
-                mode = WelcomeMode(rawValue: defaults.string(forKey: Keys.mode) ?? "") ?? .shelf
-            } else {
-                mode = .browser
-            }
+            applyFeatureChange()
+        }
+    }
+
+    @Published var isFileBrowserFeatureEnabled: Bool {
+        didSet {
+            guard isFileBrowserFeatureEnabled != oldValue else { return }
+            applyFeatureChange()
+        }
+    }
+
+    /// 機能のON/OFFが変わった。保存してあるモードを、いま出せるモードへ読み替えて当てる。
+    private func applyFeatureChange() {
+        mode = Self.constrained(
+            WelcomeMode(rawValue: defaults.string(forKey: Keys.mode) ?? "") ?? .shelf,
+            library: isLibraryFeatureEnabled, fileBrowser: isFileBrowserFeatureEnabled
+        )
+    }
+
+    /// `wanted` を、機能のON/OFFの組で出せるモードへ読み替える(`isLibraryFeatureEnabled` のコメント)。
+    static func constrained(_ wanted: WelcomeMode, library: Bool, fileBrowser: Bool) -> WelcomeMode {
+        switch (library, fileBrowser) {
+        case (true, true): wanted == .classic ? .shelf : wanted
+        case (true, false): .shelf
+        case (false, true): .browser
+        case (false, false): .classic
         }
     }
 
@@ -323,9 +349,13 @@ final class WelcomeLibraryState: ObservableObject {
         selectedLibraryID = (defaults.string(forKey: Keys.selectedLibraryID)).flatMap(UUID.init(uuidString:))
         // テストホストのウインドウ(restoresMode == false)は、設定に関わらず本棚で始める(下の引数のコメント)。
         let isLibraryEnabled = restoresMode ? AppPreferences.storedLibraryFeatureEnabled(in: defaults) : true
+        let isFileBrowserEnabled = restoresMode ? AppPreferences.storedFileBrowserFeatureEnabled(in: defaults) : true
         isLibraryFeatureEnabled = isLibraryEnabled
-        mode = !isLibraryEnabled ? .browser
-            : restoresMode ? (WelcomeMode(rawValue: defaults.string(forKey: Keys.mode) ?? "") ?? .shelf) : .shelf
+        isFileBrowserFeatureEnabled = isFileBrowserEnabled
+        mode = Self.constrained(
+            restoresMode ? (WelcomeMode(rawValue: defaults.string(forKey: Keys.mode) ?? "") ?? .shelf) : .shelf,
+            library: isLibraryEnabled, fileBrowser: isFileBrowserEnabled
+        )
         collectionSort = FavoritesSortOption(
             rawValue: defaults.string(forKey: Keys.collectionSort) ?? ""
         ) ?? .nameAscending

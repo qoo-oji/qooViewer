@@ -608,17 +608,20 @@ struct CollectionDetailView: View {
                 FinderReveal.reveal(url)
             }
             .disabled(!isSingle)
-            Button("Show in File Browser") {
-                guard let url = collectionStore.resolvedExistingURL(for: item) else {
-                    missingBook = MissingBook(
-                        id: item.id, title: item.title,
-                        reason: collectionStore.location(for: item)
-                    )
-                    return
+            // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
+            if revealInFileBrowser.isFeatureEnabled {
+                Button("Show in File Browser") {
+                    guard let url = collectionStore.resolvedExistingURL(for: item) else {
+                        missingBook = MissingBook(
+                            id: item.id, title: item.title,
+                            reason: collectionStore.location(for: item)
+                        )
+                        return
+                    }
+                    revealInFileBrowser(url)
                 }
-                revealInFileBrowser(url)
+                .disabled(!isSingle)
             }
-            .disabled(!isSingle)
 
             // 「メタデータの編集」は**編集モードを条件にしない**(ユーザー指摘 2026-09-09)。
             // 棚から本を出し入れする操作ではなく、その1冊の中身を整える操作なので、モードの

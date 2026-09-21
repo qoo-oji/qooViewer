@@ -101,7 +101,14 @@ struct GeneralSettingsView: View {
                 SettingsToggle(
                     "Enable Libraries",
                     isOn: $preferences.libraryFeatureEnabled,
-                    help: "Shows the bookshelf — libraries and collections — on the Home screen. When off, Home shows only the file browser, the library and collection items disappear from the menus, context menus and the side panel, and the background work that exists only for libraries stops: checking that registered books are still there, making covers, and watching auto-add folders. Your libraries and collections are kept and come back when you turn this on again."
+                    help: "Shows the bookshelf — libraries and collections — on the Home screen. When off, Home shows only the file browser (or, with File Browser also off, the original welcome screen), the library and collection items disappear from the menus, context menus and the side panel, and the background work that exists only for libraries stops: checking that registered books are still there, making covers, and watching auto-add folders. Your libraries and collections are kept and come back when you turn this on again."
+                )
+                // ユーザー要望 2026-09-21。ライブラリと対の設定。両方OFFにすると、ホームは本棚を足す前のウェルカム画面に戻る
+                // (AppPreferences.fileBrowserFeatureEnabled)。
+                SettingsToggle(
+                    "Enable File Browser",
+                    isOn: $preferences.fileBrowserFeatureEnabled,
+                    help: "Shows the file browser on the Home screen. When off, the file browser and its items — including Show in File Browser — disappear from Home, the menus and context menus, and the background work that exists only for it stops: Auto Rename and making video thumbnails ahead of time. Your favorite locations, Auto Rename rules and thumbnail cache are kept. With Libraries also off, Home shows the original welcome screen: an Open button and your recent books."
                 )
                 // ユーザー要望 2026-09-10。勝手に消す設定ではなく「起動時に一覧を出して尋ねる」
                 // 設定なので、ラベルも Offer(尋ねる)にしてある。何を対象にするか

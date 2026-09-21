@@ -102,6 +102,8 @@ final class AppStores: ObservableObject {
     private var fileSystemChangeSubscription: AnyCancellable?
     /// 環境設定「ライブラリを有効にする」の購読(`applyLibraryFeature`)。
     private var libraryFeatureSubscription: AnyCancellable?
+    /// 環境設定「ファイルブラウザを有効にする」の購読(`applyFileBrowserFeature`)。
+    private var fileBrowserFeatureSubscription: AnyCancellable?
     /// 起動時の掃除(行の無い表紙・元画像・札の絵)を済ませたか。ライブラリ機能がOFFで起動したら、最初にONになるまで先送りする。
     private var didSweepLibraryOrphans = false
 
@@ -170,7 +172,9 @@ final class AppStores: ObservableObject {
             locale: { [weak preferences] in preferences?.effectiveLocale ?? AppLanguage.currentLocale }
         )
         // テストの中で走る実物のアプリでは動かさない(開発機の本物のよく使う項目の中の名前を変えてしまう)。
-        if !RuntimeEnvironment.isRunningTests {
+        // ファイルブラウザ機能がOFFなら始めない(applyFileBrowserFeature のコメント)。
+        // (init の途中なので `startAutoRename()` は呼べない ―― 同じ中身を直に書く。)
+        if !RuntimeEnvironment.isRunningTests, preferences.fileBrowserFeatureEnabled {
             autoRenameService.start(folderAccessChanges: folderAccess.objectWillChange.map { _ in () }.eraseToAnyPublisher())
         }
         collectionAutoFolderScanner = CollectionAutoFolderScanner(
@@ -192,6 +196,12 @@ final class AppStores: ObservableObject {
         // 起動時の掃除(CollectionCoverExtractorのinitの移行の**後**であること。sweepLibraryOrphansIfNeeded のコメント)。
         if isLibraryEnabled { sweepLibraryOrphansIfNeeded() }
         // `@Published`の投影はwillSetで飛ぶので、届いた値のほうを使う。起動時の値は上で渡し済み。
+        fileBrowserFeatureSubscription = preferences.$fileBrowserFeatureEnabled
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] isEnabled in
+                MainActor.assumeIsolated { self?.applyFileBrowserFeature(isEnabled) }
+            }
         libraryFeatureSubscription = preferences.$libraryFeatureEnabled
             .dropFirst()
             .removeDuplicates()
@@ -228,6 +238,29 @@ final class AppStores: ObservableObject {
         collectionAutoFolderScanner.setLibraryFeatureEnabled(isEnabled)
         fileBrowserThumbnails.setLibraryFeatureEnabled(isEnabled)
         if isEnabled { sweepLibraryOrphansIfNeeded() }
+    }
+
+    /// 環境設定「ファイルブラウザを有効にする」(AppPreferences.fileBrowserFeatureEnabled。2026-09-21、ユーザー要望)を、アプリで 1 つの仕事へ伝える。
+    ///
+    /// ■ OFFの間に止まるもの(ファイルブラウザのためだけの仕事)
+    /// - **自動リネーム**(`AutoRenameService`): よく使う項目の下の監視(FSEvents)・走査・名前の変更。規則を作る・止める画面
+    ///   (右クリックの「自動リネーム」・「自動リネームの設定…」)がファイルブラウザにしか無いので、画面が消えている間に裏で名前を
+    ///   変え続けない。規則とログは残り、ONへ戻すとその時点の中身を読み直して動き出す(`start` が全部を走査する)
+    /// - よく使う項目の中の動画のサムネイルの先回り(`FileBrowserVideoThumbnailWarmer`。設定を自分で購読している)
+    /// - ウインドウごとの一覧の読み込み・監視・サムネイル作り: ペインが画面に出ないので始まらない(`FileBrowserState.activate` は
+    ///   ペインの onAppear、`FileBrowserThumbnailProvider` は頼まれたぶんだけ作る)。ここから伝えるものは無い
+    ///
+    /// ■ 止めないもの
+    /// - 置き換えの退避の復旧(`ReplaceBackupRecovery`。起動時)―― 前回の操作が途中で落ちていたら、利用者のファイルを元へ戻す
+    /// - アプリ自身がファイルを動かした知らせ(`FileSystemChangeCenter`)とよく使う項目の付け替え ―― サイドパネルのフォルダブラウザも使う
+    /// - サムネイルのディスクキャッシュ・よく使う項目・規則などの保存したものは消さない
+    private func applyFileBrowserFeature(_ isEnabled: Bool) {
+        guard !RuntimeEnvironment.isRunningTests else { return }
+        if isEnabled { startAutoRename() } else { autoRenameService.stop() }
+    }
+
+    private func startAutoRename() {
+        autoRenameService.start(folderAccessChanges: folderAccess.objectWillChange.map { _ in () }.eraseToAnyPublisher())
     }
 
     /// 起動時の掃除(1回だけ。`didSweepLibraryOrphans`のコメント)。

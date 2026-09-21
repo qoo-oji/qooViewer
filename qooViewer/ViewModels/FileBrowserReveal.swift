@@ -93,6 +93,8 @@ extension AppState {
 
     /// フォルダかどうかが決まった後半(テストはここを直に呼ぶ。`OpenWindowAction` はテストで作れないので nil を許す)。
     func showInFileBrowser(_ url: URL, isDirectory: Bool, openWindow: OpenWindowAction?) {
+        // ファイルブラウザ機能がOFFなら何もしない(入り口の項目は出していない。RevealInFileBrowserAction.isFeatureEnabled)。
+        guard preferences?.fileBrowserFeatureEnabled ?? true else { return }
         let placement = FileBrowserReveal.placement(
             hasOpenBook: currentBook != nil,
             preference: preferences?.fileBrowserRevealDestination ?? .newTab
@@ -126,6 +128,9 @@ extension AppState {
 struct RevealInFileBrowserAction {
     weak var appState: AppState?
     var openWindow: OpenWindowAction?
+    /// 環境設定「ファイルブラウザを有効にする」。false の間、呼び出し側は「ファイルブラウザで開く」の項目を**出さない**
+    /// (淡色で残さない ―― 機能そのものが無い。2026-09-21)。
+    var isFeatureEnabled = true
 
     /// 呼べる相手がいるか(ContentView の外 ―― 補助ウインドウ ―― では無い)。
     var isAvailable: Bool { appState != nil }

@@ -50,8 +50,11 @@ struct PageContextMenuItems: View {
         Button("Show in Finder") {
             FinderReveal.reveal(PageFileAccess.revealTargetURL(for: page, bookSourceURL: bookSourceURL))
         }
-        Button("Show in File Browser") {
-            revealInFileBrowser(PageFileAccess.revealTargetURL(for: page, bookSourceURL: bookSourceURL))
+        // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
+        if revealInFileBrowser.isFeatureEnabled {
+            Button("Show in File Browser") {
+                revealInFileBrowser(PageFileAccess.revealTargetURL(for: page, bookSourceURL: bookSourceURL))
+            }
         }
         // 書庫やPDFの中の画像は、Finderで示せるのが入れ物のファイルだけなので、
         // 代わりに1枚を取り出す導線を置く(逆に、フォルダの本の画像はFinderで実物を

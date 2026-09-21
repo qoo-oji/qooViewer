@@ -770,8 +770,11 @@ struct SidePanelView: View {
                 FinderReveal.reveal(entry.url)
             }
             // 一覧を読んだ時点でフォルダかどうかは分かっている(ここでディスクを触らない。上のコメント)。
-            Button("Show in File Browser") {
-                revealInFileBrowser(entry.url, isDirectory: entry.isDirectory)
+            // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
+            if revealInFileBrowser.isFeatureEnabled {
+                Button("Show in File Browser") {
+                    revealInFileBrowser(entry.url, isDirectory: entry.isDirectory)
+                }
             }
         }
     }
@@ -1101,8 +1104,11 @@ private struct BookContentsSectionView: View {
             Button("Show in Finder") {
                 FinderReveal.reveal(url)
             }
-            Button("Show in File Browser") {
-                revealInFileBrowser(url)
+            // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
+            if revealInFileBrowser.isFeatureEnabled {
+                Button("Show in File Browser") {
+                    revealInFileBrowser(url)
+                }
             }
         }
     }
@@ -1463,9 +1469,12 @@ private struct SidePanelFavoriteRow: View {
                 guard let url = favoritesStore.resolvedExistingURL(for: book) else { return }
                 FinderReveal.reveal(url)
             }
-            Button("Show in File Browser") {
-                guard let url = favoritesStore.resolvedExistingURL(for: book) else { return }
-                revealInFileBrowser(url)
+            // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
+            if revealInFileBrowser.isFeatureEnabled {
+                Button("Show in File Browser") {
+                    guard let url = favoritesStore.resolvedExistingURL(for: book) else { return }
+                    revealInFileBrowser(url)
+                }
             }
             Divider()
             // 編集系は最後にまとめ、取り消しの効かない削除をいちばん下に置く(macOSの作法)。
@@ -1749,8 +1758,11 @@ private struct SidePanelHistorySectionView: View {
             }
             // 同じ理由でフォルダかどうかはキャッシュ済みの値を渡す。一覧を読むのはファイルブラウザ側で、
             // そのフォルダに許可が無ければ「アクセスを許可…」が出る。
-            Button("Show in File Browser") {
-                revealInFileBrowser(entry.displayURL, isDirectory: entry.isDirectory)
+            // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
+            if revealInFileBrowser.isFeatureEnabled {
+                Button("Show in File Browser") {
+                    revealInFileBrowser(entry.displayURL, isDirectory: entry.isDirectory)
+                }
             }
 
             Divider()

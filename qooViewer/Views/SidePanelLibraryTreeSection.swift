@@ -212,9 +212,12 @@ struct SidePanelLibraryTreeSection: View {
                 guard let url = resolvedURL(item) else { return }
                 FinderReveal.reveal(url)
             }
-            Button("Show in File Browser") {
-                guard let url = resolvedURL(item) else { return }
-                revealInFileBrowser(url)
+            // 環境設定「ファイルブラウザを有効にする」がOFFの間は出さない(RevealInFileBrowserAction.isFeatureEnabled)。
+            if revealInFileBrowser.isFeatureEnabled {
+                Button("Show in File Browser") {
+                    guard let url = resolvedURL(item) else { return }
+                    revealInFileBrowser(url)
+                }
             }
         }
     }

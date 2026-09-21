@@ -564,6 +564,22 @@
         }
       }
     },
+    "Enable File Browser" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable File Browser"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルブラウザを有効にする"
+          }
+        }
+      }
+    },
     "Enable Libraries" : {
       "localizations" : {
         "en" : {
@@ -1348,18 +1364,34 @@
         }
       }
     },
-    "Shows the bookshelf — libraries and collections — on the Home screen. When off, Home shows only the file browser, the library and collection items disappear from the menus, context menus and the side panel, and the background work that exists only for libraries stops: checking that registered books are still there, making covers, and watching auto-add folders. Your libraries and collections are kept and come back when you turn this on again." : {
+    "Shows the bookshelf — libraries and collections — on the Home screen. When off, Home shows only the file browser (or, with File Browser also off, the original welcome screen), the library and collection items disappear from the menus, context menus and the side panel, and the background work that exists only for libraries stops: checking that registered books are still there, making covers, and watching auto-add folders. Your libraries and collections are kept and come back when you turn this on again." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Shows the bookshelf — libraries and collections — on the Home screen. When off, Home shows only the file browser, the library and collection items disappear from the menus, context menus and the side panel, and the background work that exists only for libraries stops: checking that registered books are still there, making covers, and watching auto-add folders. Your libraries and collections are kept and come back when you turn this on again."
+            "value" : "Shows the bookshelf — libraries and collections — on the Home screen. When off, Home shows only the file browser (or, with File Browser also off, the original welcome screen), the library and collection items disappear from the menus, context menus and the side panel, and the background work that exists only for libraries stops: checking that registered books are still there, making covers, and watching auto-add folders. Your libraries and collections are kept and come back when you turn this on again."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ホームに本棚(ライブラリとコレクション)を表示します。オフにすると、ホームはファイルブラウザだけになり、メニュー・右クリックメニュー・サイドパネルからライブラリとコレクションの項目が消え、ライブラリのためだけの裏の処理(登録した本があるかの確認・表紙の作成・自動登録フォルダの監視)が止まります。ライブラリとコレクションは消えず、オンに戻せば元どおり表示されます。"
+            "value" : "ホームに本棚(ライブラリとコレクション)を表示します。オフにすると、ホームはファイルブラウザだけになり(ファイルブラウザもオフなら以前のウェルカム画面)、メニュー・右クリックメニュー・サイドパネルからライブラリとコレクションの項目が消え、ライブラリのためだけの裏の処理(登録した本があるかの確認・表紙の作成・自動登録フォルダの監視)が止まります。ライブラリとコレクションは消えず、オンに戻せば元どおり表示されます。"
+          }
+        }
+      }
+    },
+    "Shows the file browser on the Home screen. When off, the file browser and its items — including Show in File Browser — disappear from Home, the menus and context menus, and the background work that exists only for it stops: Auto Rename and making video thumbnails ahead of time. Your favorite locations, Auto Rename rules and thumbnail cache are kept. With Libraries also off, Home shows the original welcome screen: an Open button and your recent books." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows the file browser on the Home screen. When off, the file browser and its items — including Show in File Browser — disappear from Home, the menus and context menus, and the background work that exists only for it stops: Auto Rename and making video thumbnails ahead of time. Your favorite locations, Auto Rename rules and thumbnail cache are kept. With Libraries also off, Home shows the original welcome screen: an Open button and your recent books."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホームにファイルブラウザを表示します。オフにすると、ホーム・メニュー・右クリックメニューからファイルブラウザとその項目(「ファイルブラウザで開く」を含む)が消え、ファイルブラウザのためだけの裏の処理(自動リネーム・動画のサムネイルの先回り作成)が止まります。よく使う項目・自動リネームの規則・サムネイルのキャッシュは消えません。ライブラリもオフにすると、ホームは「開く…」ボタンと最近開いた本だけの、以前のウェルカム画面になります。"
           }
         }
       }
@@ -14552,7 +14584,6 @@
       }
     },
     "Open a manga folder, or a\nzip/cbz, rar/cbr, 7z/cb7, PDF, or EPUB file" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -16425,7 +16456,6 @@
       }
     },
     "Recent Favorites" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -16442,7 +16472,6 @@
       }
     },
     "Recent Files" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

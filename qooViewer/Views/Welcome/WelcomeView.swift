@@ -56,7 +56,12 @@ struct WelcomeView: View {
                 // 標準の Divider はすりガラスの上で薄く、帯と中身の境目が読みにくい(WelcomeSeparator参照)。
                 WelcomeSeparator(axis: .horizontal)
             }
-            if state.mode == .browser {
+            // 中身は `mode` で決まる。環境設定で機能をOFFにしている間は、出せるモードが1つに決まっている
+            // (WelcomeLibraryState.constrained): ファイルブラウザOFFなら本棚だけ(ファイルブラウザを足す前の形)、
+            // 両方OFFなら本棚を足す前のウェルカム画面。
+            if state.mode == .classic {
+                ClassicWelcomeView()
+            } else if state.mode == .browser {
                 FileBrowserPane(state: fileBrowser)
             } else if let library {
                 WelcomeLibraryPane(state: state, library: library, allowsEditing: allowsEditing)

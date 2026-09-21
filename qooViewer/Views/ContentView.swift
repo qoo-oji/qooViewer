@@ -358,6 +358,10 @@ struct ContentView: View {
                 if !isEnabled, welcomeLibrary.isLibraryFeatureEnabled { welcomeLibrary.endEditing() }
                 welcomeLibrary.isLibraryFeatureEnabled = isEnabled
             }
+            // 「ファイルブラウザを有効にする」も同じ。
+            .onChange(of: preferences.fileBrowserFeatureEnabled, initial: true) { _, isEnabled in
+                welcomeLibrary.isFileBrowserFeatureEnabled = isEnabled || RuntimeEnvironment.isRunningTests
+            }
             // 「同じフォルダのファイルを開く」の一覧を、並び順に関わる設定が変わったその場で
             // 並べ直す(ユーザー要望: フォルダブラウザの並べ替えに合わせる)。siblingBookOrderは
             // 関係する4つの設定を束ねた値なので、パネル上部の並べ替えメニュー・環境設定の
@@ -501,7 +505,9 @@ struct ContentView: View {
         // @EnvironmentObjectとして参照する。
         .environmentObject(appState)
         // 右クリックの「ファイルブラウザで開く」(段階 8。RevealInFileBrowserActionの型コメント)。
-        .environment(\.revealInFileBrowser, RevealInFileBrowserAction(appState: appState, openWindow: openWindow))
+        .environment(\.revealInFileBrowser, RevealInFileBrowserAction(
+            appState: appState, openWindow: openWindow, isFeatureEnabled: preferences.fileBrowserFeatureEnabled
+        ))
         // メニューバー(アプリ全体で1つ)から「今アクティブなウインドウ」のAppStateを
         // 参照できるようにする(詳細はAppState.swiftのFocusedValues拡張のコメント参照)。
         .focusedSceneValue(\.qooViewerAppState, appState)

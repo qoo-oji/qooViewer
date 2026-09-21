@@ -58,6 +58,9 @@ enum HomeMenuKeyRouting {
 struct HomeMenuItems: View {
     /// 環境設定「ライブラリを有効にする」。false なら、ライブラリとコレクションの項目(本棚 ⇄ ファイルブラウザの切り替えを含む)を出さない。
     let isLibraryFeatureEnabled: Bool
+    /// 環境設定「ファイルブラウザを有効にする」。false なら、本棚 ⇄ ファイルブラウザの切り替え・ファイルブラウザで選んだ本からの
+    /// コレクションの作成/登録・「自動リネームの設定…」を出さない。両方 false のときはメニューごと出さない(QooViewerApp)。
+    let isFileBrowserFeatureEnabled: Bool
     let home: HomeMenuState
     let selection: FileBrowserMenuSelection?
     let directory: HomeMenuDirectory
@@ -71,25 +74,31 @@ struct HomeMenuItems: View {
     var body: some View {
         if isLibraryFeatureEnabled {
             libraryItems
+        }
+        if isLibraryFeatureEnabled, isFileBrowserFeatureEnabled {
             Divider()
         }
-
-        // ほかの項目と同じく、本を読んでいるウインドウでは淡色(型コメント「項目の数を状態で変えない」)。規則は保存を伴うので、
-        // シークレットウインドウでも淡色(右クリックの「自動リネーム」と同じ。決定事項 Q8)。
-        Button("Auto Rename Settings…") { openAutoRenameSettings() }
-            .disabled(!home.isShown || !home.allowsEditing)
+        if isFileBrowserFeatureEnabled {
+            // ほかの項目と同じく、本を読んでいるウインドウでは淡色(型コメント「項目の数を状態で変えない」)。規則は保存を伴うので、
+            // シークレットウインドウでも淡色(右クリックの「自動リネーム」と同じ。決定事項 Q8)。
+            Button("Auto Rename Settings…") { openAutoRenameSettings() }
+                .disabled(!home.isShown || !home.allowsEditing)
+        }
     }
 
     @ViewBuilder
     private var libraryItems: some View {
-        Toggle("File Browser", isOn: Binding(
-            get: { [home] in home.isShown && home.mode == .browser },
-            set: { [weak appState] _ in
-                guard let welcome = appState?.welcomeLibrary else { return }
-                welcome.mode = welcome.mode == .browser ? .shelf : .browser
-            }
-        ))
-        .disabled(!home.isShown)
+        // 切り替える相手(ファイルブラウザ)が無ければ出さない。
+        if isFileBrowserFeatureEnabled {
+            Toggle("File Browser", isOn: Binding(
+                get: { [home] in home.isShown && home.mode == .browser },
+                set: { [weak appState] _ in
+                    guard let welcome = appState?.welcomeLibrary else { return }
+                    welcome.mode = welcome.mode == .browser ? .shelf : .browser
+                }
+            ))
+            .disabled(!home.isShown)
+        }
 
         Menu("Libraries") {
             // 外側の閉包でも`appState`を**明示的に**捕まえる(中の`[weak appState]`と揃えるため)。
@@ -165,9 +174,27 @@ struct HomeMenuItems: View {
         }
         .disabled(!home.canRemoveItems)
 
+        if isFileBrowserFeatureEnabled {
+            Divider()
+            fileBrowserSelectionItems
+        }
+
         Divider()
 
-        // ファイルブラウザで選んだ項目から(右クリックの「コレクションを作成」「コレクションに登録」と同じ)。
+        Toggle("Edit Mode", isOn: Binding(
+            get: { [home] in home.isShelfShown && home.isEditing },
+            set: { [weak appState] _ in appState?.welcomeLibrary?.isEditing.toggle() }
+        ))
+        .disabled(!home.canToggleEditing)
+        Button("Library Settings…") { [weak appState] in Self.request(.showSettings, appState) }
+            .disabled(!home.canShowLibrarySettings)
+        Button("Collection Settings…") { [weak appState] in Self.request(.showSettings, appState) }
+            .disabled(!home.canShowCollectionSettings)
+    }
+
+    /// ファイルブラウザで選んだ項目から(右クリックの「コレクションを作成」「コレクションに登録」と同じ)。
+    @ViewBuilder
+    private var fileBrowserSelectionItems: some View {
         // ライブラリが複数あるときは、作る先のライブラリを選ぶサブメニュー(右クリックと同じ。2026-09-21)。
         if directory.libraries.count > 1 {
             Menu("Create Collection") {
@@ -201,18 +228,6 @@ struct HomeMenuItems: View {
             }
         }
         .disabled(selection?.canUseAsBooks != true)
-
-        Divider()
-
-        Toggle("Edit Mode", isOn: Binding(
-            get: { [home] in home.isShelfShown && home.isEditing },
-            set: { [weak appState] _ in appState?.welcomeLibrary?.isEditing.toggle() }
-        ))
-        .disabled(!home.canToggleEditing)
-        Button("Library Settings…") { [weak appState] in Self.request(.showSettings, appState) }
-            .disabled(!home.canShowLibrarySettings)
-        Button("Collection Settings…") { [weak appState] in Self.request(.showSettings, appState) }
-            .disabled(!home.canShowCollectionSettings)
     }
 
     private static func request(_ kind: WelcomeLibraryState.HomeMenuRequest.Kind, _ appState: AppState?) {
@@ -382,23 +397,36 @@ struct FileBrowserFileMenuItems: View {
 
 /// ホーム画面を出している間の表示メニューの中身。本棚とファイルブラウザで**同じ並び**にし、その場で意味の無い項目は淡色。
 struct HomeViewMenuItems: View {
+    /// 環境設定「ライブラリを有効にする」「ファイルブラウザを有効にする」。ファイルブラウザがOFFなら表示形式と列(ファイルブラウザだけの項目)を
+    /// 出さず、両方OFF(本棚を足す前のウェルカム画面)なら何も出さない。
+    let isLibraryFeatureEnabled: Bool
+    let isFileBrowserFeatureEnabled: Bool
     let home: HomeMenuState
     let appState: AppState?
 
     private var isBrowser: Bool { home.isShown && home.mode == .browser }
 
     var body: some View {
-        // 外側の閉包でも`appState`を明示的に捕まえる理由は HomeMenuItems の「ライブラリ」と同じ
-        // (Swift 6.4 の #ImplicitStrongCapture。捕まえ方そのものは変えていない)。
-        ForEach(FileBrowserViewMode.allCases, id: \.self) { [appState] mode in
-            Toggle(String(localized: mode.menuTitle), isOn: Binding(
-                get: { [home, isBrowser] in isBrowser && home.browserViewMode == mode },
-                set: { [weak appState] _ in appState?.fileBrowser?.viewMode = mode }
-            ))
-            .disabled(!isBrowser)
+        if isLibraryFeatureEnabled || isFileBrowserFeatureEnabled {
+            items
         }
+    }
 
-        Divider()
+    @ViewBuilder
+    private var items: some View {
+        if isFileBrowserFeatureEnabled {
+            // 外側の閉包でも`appState`を明示的に捕まえる理由は HomeMenuItems の「ライブラリ」と同じ
+            // (Swift 6.4 の #ImplicitStrongCapture。捕まえ方そのものは変えていない)。
+            ForEach(FileBrowserViewMode.allCases, id: \.self) { [appState] mode in
+                Toggle(String(localized: mode.menuTitle), isOn: Binding(
+                    get: { [home, isBrowser] in isBrowser && home.browserViewMode == mode },
+                    set: { [weak appState] _ in appState?.fileBrowser?.viewMode = mode }
+                ))
+                .disabled(!isBrowser)
+            }
+
+            Divider()
+        }
 
         Menu("Sort By") {
             if isBrowser {
@@ -451,9 +479,18 @@ struct HomeViewMenuItems: View {
             .keyboardShortcut("-", modifiers: .command)
             .disabled(!canResize)
 
-        Divider()
+        if isFileBrowserFeatureEnabled {
+            Divider()
 
-        // リストの列(見出しの右クリックと同じ。名前の列は隠せない)。
+            // リストの列(見出しの右クリックと同じ。名前の列は隠せない)。
+            columnsMenu
+        }
+
+        // フルスクリーンの項目(AppKit が足す)との区切り。本を読んでいるときの中身と同じ理由(QooViewerApp の表示メニュー)。
+        Divider()
+    }
+
+    private var columnsMenu: some View {
         Menu("Columns") {
             ForEach(FileBrowserListView.Column.allCases.filter(\.isHideable), id: \.self) { [appState] column in
                 Toggle(String(localized: column.title), isOn: Binding(
@@ -470,9 +507,6 @@ struct HomeViewMenuItems: View {
             }
         }
         .disabled(!(isBrowser && home.browserViewMode == .list))
-
-        // フルスクリーンの項目(AppKit が足す)との区切り。本を読んでいるときの中身と同じ理由(QooViewerApp の表示メニュー)。
-        Divider()
     }
 
     private var canResize: Bool {

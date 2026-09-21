@@ -722,25 +722,29 @@ struct QooViewerApp: App {
                 }
                 .keyboardShortcut("n", modifiers: [.command, .option])
 
-                // ファイルブラウザの新規フォルダ(改善要望7 段階4)。Finderと同じ⇧⌘N。表示中のフォルダに作り、
-                // そのまま名前の編集が始まる。ファイルブラウザが出ていない・コンピュータ(ボリュームの一覧)を
-                // 表示中は淡色(項目の数は変えない ―― MenuBarMenuGate参照)。
-                Button("New Folder") {
-                    guard let browser = focusedAppState?.fileBrowser, let folder = browser.currentFolder else { return }
-                    browser.operations.newFolder(in: folder)
+                // 環境設定「ファイルブラウザを有効にする」がOFFの間は、ファイルブラウザの項目を丸ごと省く(2026-09-21。
+                // 「サイドパネルを隠す」と同じ省き方。設定は環境設定ウインドウでしか変わらないので、メニューを開いている最中には変わらない)。
+                if preferences.fileBrowserFeatureEnabled {
+                    // ファイルブラウザの新規フォルダ(改善要望7 段階4)。Finderと同じ⇧⌘N。表示中のフォルダに作り、
+                    // そのまま名前の編集が始まる。ファイルブラウザが出ていない・コンピュータ(ボリュームの一覧)を
+                    // 表示中は淡色(項目の数は変えない ―― MenuBarMenuGate参照)。
+                    Button("New Folder") {
+                        guard let browser = focusedAppState?.fileBrowser, let folder = browser.currentFolder else { return }
+                        browser.operations.newFolder(in: folder)
+                    }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                    .disabled(menuCheckmarkState?.canCreateFolderInFileBrowser != true)
+
+                    Divider()
+
+                    // ファイルブラウザで選んだ項目への操作(2026-09-15。Finder のファイルメニューと同じく、ファイルそのものへの
+                    // 操作をここに置く。HomeMenuCommands.swift の冒頭のコメント)。ファイルブラウザが出ていなければ淡色。
+                    FileBrowserFileMenuItems(
+                        selection: menuCheckmarkState?.fileBrowserSelection,
+                        appState: focusedAppState,
+                        locale: preferences.effectiveLocale
+                    )
                 }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
-                .disabled(menuCheckmarkState?.canCreateFolderInFileBrowser != true)
-
-                Divider()
-
-                // ファイルブラウザで選んだ項目への操作(2026-09-15。Finder のファイルメニューと同じく、ファイルそのものへの
-                // 操作をここに置く。HomeMenuCommands.swift の冒頭のコメント)。ファイルブラウザが出ていなければ淡色。
-                FileBrowserFileMenuItems(
-                    selection: menuCheckmarkState?.fileBrowserSelection,
-                    appState: focusedAppState,
-                    locale: preferences.effectiveLocale
-                )
 
                 Divider()
 
@@ -811,15 +815,17 @@ struct QooViewerApp: App {
                 // 「ファイルブラウザで開く」(改善要望7 段階 8)。本を開いているウインドウからは、行き先は常に
                 // 環境設定「ファイルブラウザ」の新規タブ/ウインドウ(FileBrowserReveal)。コレクションの中で選んだ本は、
                 // 右クリックと同じくこのウインドウのファイルブラウザへ。
-                Button("Show in File Browser") { [weak focusedAppState] in
-                    guard let appState = focusedAppState else { return }
-                    if appState.currentBook != nil {
-                        appState.revealCurrentBookInFileBrowser(openWindow: openWindow)
-                    } else if let item = appState.homeMenu.singleItemTarget {
-                        appState.welcomeLibrary?.request(.showItemInFileBrowser(item))
+                if preferences.fileBrowserFeatureEnabled {
+                    Button("Show in File Browser") { [weak focusedAppState] in
+                        guard let appState = focusedAppState else { return }
+                        if appState.currentBook != nil {
+                            appState.revealCurrentBookInFileBrowser(openWindow: openWindow)
+                        } else if let item = appState.homeMenu.singleItemTarget {
+                            appState.welcomeLibrary?.request(.showItemInFileBrowser(item))
+                        }
                     }
+                    .disabled(focusedAppState?.currentBook == nil && menuCheckmarkState?.homeMenu.singleItemTarget == nil)
                 }
-                .disabled(focusedAppState?.currentBook == nil && menuCheckmarkState?.homeMenu.singleItemTarget == nil)
 
                 Divider()
 
@@ -940,7 +946,11 @@ struct QooViewerApp: App {
                 // ホーム画面を出している間は、ホーム画面の見せ方の項目に入れ替える(2026-09-15。HomeViewMenuItems)。
                 // 入れ替わるのは本を開く・閉じるときだけで、メニューを開いている最中には起きない(「移動」メニューと同じ)。
                 if menuCheckmarkState?.homeMenu.isShown == true {
-                    HomeViewMenuItems(home: menuCheckmarkState?.homeMenu ?? HomeMenuState(), appState: focusedAppState)
+                    HomeViewMenuItems(
+                        isLibraryFeatureEnabled: preferences.libraryFeatureEnabled,
+                        isFileBrowserFeatureEnabled: preferences.fileBrowserFeatureEnabled,
+                        home: menuCheckmarkState?.homeMenu ?? HomeMenuState(), appState: focusedAppState
+                    )
                 } else {
                     let hasBook = focusedAppState?.currentBook != nil
 
@@ -1114,17 +1124,21 @@ struct QooViewerApp: App {
             // 項目は常に同じ並びで、本を読んでいるウインドウでは全部淡色。ショートカットは付けない。
             // 環境設定「ライブラリを有効にする」がOFFの間は、ライブラリとコレクションの項目を丸ごと省く(「サイドパネルを隠す」と同じ省き方。
             // 残るのは「自動リネームの設定…」だけ)。設定の切り替えは環境設定ウインドウで起きるので、メニューを開いている最中には変わらない。
-            CommandMenu("Home") {
-                HomeMenuItems(
-                    isLibraryFeatureEnabled: preferences.libraryFeatureEnabled,
-                    home: menuCheckmarkState?.homeMenu ?? HomeMenuState(),
-                    selection: menuCheckmarkState?.fileBrowserSelection,
-                    directory: stores.homeMenuDirectory.directory,
-                    appState: focusedAppState,
-                    collectionStore: collectionStore,
-                    locale: preferences.effectiveLocale,
-                    openAutoRenameSettings: { [openWindow] in openWindow(id: AutoRenameSettingsWindow.windowID) }
-                )
+            // ライブラリもファイルブラウザもOFF(本棚を足す前のウェルカム画面)なら、載せる項目が無いのでメニューごと出さない。
+            if preferences.libraryFeatureEnabled || preferences.fileBrowserFeatureEnabled {
+                CommandMenu("Home") {
+                    HomeMenuItems(
+                        isLibraryFeatureEnabled: preferences.libraryFeatureEnabled,
+                        isFileBrowserFeatureEnabled: preferences.fileBrowserFeatureEnabled,
+                        home: menuCheckmarkState?.homeMenu ?? HomeMenuState(),
+                        selection: menuCheckmarkState?.fileBrowserSelection,
+                        directory: stores.homeMenuDirectory.directory,
+                        appState: focusedAppState,
+                        collectionStore: collectionStore,
+                        locale: preferences.effectiveLocale,
+                        openAutoRenameSettings: { [openWindow] in openWindow(id: AutoRenameSettingsWindow.windowID) }
+                    )
+                }
             }
 
             // 標準の「ウインドウ」(Window)メニューに「ウインドウを閉じる」を追加する。
@@ -1207,6 +1221,8 @@ struct QooViewerApp: App {
             // 同様に変更済み)。
             CommandGroup(after: .pasteboard) {
                 // ファイルブラウザの「ここに項目を移動」(⌥⌘V。Finder と同じキー。2026-09-15 までは一覧のキー操作だけだった)。
+                // ファイルブラウザ機能がOFFの間は出さない。
+                if preferences.fileBrowserFeatureEnabled {
                 Button("Move Item Here") { [weak focusedAppState] in
                     guard HomeMenuKeyRouting.shouldPerformOnSelection(forwardingTextAction: nil),
                           let actions = focusedAppState?.fileBrowserActions
@@ -1224,8 +1240,11 @@ struct QooViewerApp: App {
                 .disabled(menuCheckmarkState?.fileBrowserSelection?.canMoveItemHere != true)
 
                 Divider()
+                }
 
                 // ホーム画面の検索欄へ(⌘F。本棚はコレクション/本の検索、ファイルブラウザはフォルダの中の検索)。
+                // ライブラリもファイルブラウザもOFF(本棚を足す前のウェルカム画面)なら、検索する相手が無いので出さない。
+                if preferences.libraryFeatureEnabled || preferences.fileBrowserFeatureEnabled {
                 Button("Search") { [weak focusedAppState] in
                     guard let appState = focusedAppState, appState.currentBook == nil else { return }
                     if appState.homeMenu.mode == .browser {
@@ -1236,6 +1255,7 @@ struct QooViewerApp: App {
                 }
                 .homeMenuShortcut("f", modifiers: .command, isActive: menuCheckmarkState?.homeMenu.isShown == true)
                 .disabled(menuCheckmarkState?.homeMenu.isShown != true)
+                }
 
                 let hasBook = focusedAppState?.currentBook != nil
                 // シークレットウインドウがフォーカス中か、その場限りの本(直接渡された画像から

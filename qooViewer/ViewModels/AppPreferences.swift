@@ -90,6 +90,7 @@ final class AppPreferences: ObservableObject {
         static let offersRemovingMissingCollectionBooks =
             "qooViewer.pref.offersRemovingMissingCollectionBooks"
         static let libraryFeatureEnabled = "qooViewer.pref.libraryFeatureEnabled"
+        static let fileBrowserFeatureEnabled = "qooViewer.pref.fileBrowserFeatureEnabled"
         static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
         static let thumbnailGridCellSize = "qooViewer.pref.thumbnailGridCellSize"
         static let thumbnailGridHorizontalSpacing = "qooViewer.pref.thumbnailGridHorizontalSpacing"
@@ -1072,6 +1073,24 @@ final class AppPreferences: ObservableObject {
     static func storedLibraryFeatureEnabled(in defaults: UserDefaults) -> Bool {
         defaults.object(forKey: Keys.libraryFeatureEnabled) as? Bool ?? true
     }
+    /// ホームのファイルブラウザ機能を使うか(ユーザー要望 2026-09-21。既定ON)。`libraryFeatureEnabled` と対の設定。
+    ///
+    /// OFFにすると、ホームからファイルブラウザが消え(帯の切り替えボタンも)、メニュー・右クリックのファイルブラウザの項目
+    /// (「ファイルブラウザで開く」を含む)が消え、**ファイルブラウザのためだけの仕事が止まる**(自動リネーム・よく使う項目の中の
+    /// 動画のサムネイルの先回り)。ホームの形は2つの設定の組で決まる:
+    /// - ライブラリON・ファイルブラウザON: 帯(切り替え + ライブラリ)と、本棚かファイルブラウザ
+    /// - ライブラリON・ファイルブラウザOFF: ファイルブラウザを足す前の形(帯はライブラリだけ、中身は本棚)
+    /// - ライブラリOFF・ファイルブラウザON: ファイルブラウザだけ(帯なし)
+    /// - 両方OFF: 本棚を足す前のウェルカム画面(「開く…」と最近開いた本。ClassicWelcomeView)
+    /// 規則・よく使う項目・サムネイルのキャッシュなどの**保存したものは消さない**。何が止まり何が止まらないかの一覧は
+    /// `AppStores.applyFileBrowserFeature` のコメント。
+    @Published var fileBrowserFeatureEnabled: Bool {
+        didSet { defaults.set(fileBrowserFeatureEnabled, forKey: Keys.fileBrowserFeatureEnabled) }
+    }
+    /// 保存されている値(無ければON)。`storedLibraryFeatureEnabled` と同じ理由の口。
+    static func storedFileBrowserFeatureEnabled(in defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: Keys.fileBrowserFeatureEnabled) as? Bool ?? true
+    }
     /// ウェルカム画面に「最近お気に入りに追加したファイル」一覧(最大10件)を表示するかどうか(既定ON)。
     @Published var showRecentFavoritesOnWelcome: Bool {
         didSet {
@@ -1739,6 +1758,7 @@ final class AppPreferences: ObservableObject {
         self.offersRemovingMissingCollectionBooks =
             defaults.object(forKey: Keys.offersRemovingMissingCollectionBooks) as? Bool ?? false
         self.libraryFeatureEnabled = Self.storedLibraryFeatureEnabled(in: defaults)
+        self.fileBrowserFeatureEnabled = Self.storedFileBrowserFeatureEnabled(in: defaults)
         self.showRecentFavoritesOnWelcome =
             defaults.object(forKey: Keys.showRecentFavoritesOnWelcome) as? Bool ?? true
         self.thumbnailGridCellSize = defaults.object(forKey: Keys.thumbnailGridCellSize) as? Double ?? 120
@@ -1936,6 +1956,7 @@ extension AppPreferences {
                 Keys.showRecentFavoritesOnWelcome,
                 Keys.offersRemovingMissingCollectionBooks,
                 Keys.libraryFeatureEnabled,
+                Keys.fileBrowserFeatureEnabled,
                 Keys.sidePanelFeatureEnabled,
                 Keys.sidePanelPosition,
                 Keys.sidePanelUsesDoubleClick,
@@ -2110,6 +2131,7 @@ extension AppPreferences {
             showRecentFavoritesOnWelcome = source.showRecentFavoritesOnWelcome
             offersRemovingMissingCollectionBooks = source.offersRemovingMissingCollectionBooks
             libraryFeatureEnabled = source.libraryFeatureEnabled
+            fileBrowserFeatureEnabled = source.fileBrowserFeatureEnabled
             sidePanelFeatureEnabled = source.sidePanelFeatureEnabled
             sidePanelPosition = source.sidePanelPosition
             sidePanelUsesDoubleClick = source.sidePanelUsesDoubleClick

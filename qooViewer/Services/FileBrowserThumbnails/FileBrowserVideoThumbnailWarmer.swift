@@ -105,11 +105,15 @@ final class FileBrowserVideoThumbnailWarmer {
     /// よく使う項目と環境設定の変化を受け取って動かす(AppStores が 1 度だけ呼ぶ)。
     /// **テストの中の実物のアプリでは呼ばない**(開発機の本物のよく使う項目を読み、本物のキャッシュに書いてしまう)。
     func connect(favorites: FavoriteLocationStore, preferences: AppPreferences) {
+        // ファイルブラウザ機能そのものがOFF(環境設定「ファイルブラウザを有効にする」)なら作らない ―― 見せる画面が無い。
         subscription = favorites.$items
-            .combineLatest(preferences.$fileBrowserVideoThumbnailsEnabled, preferences.$fileBrowserThumbnailCacheEnabled)
-            .sink { [weak self] items, videoEnabled, cacheEnabled in
+            .combineLatest(
+                preferences.$fileBrowserVideoThumbnailsEnabled, preferences.$fileBrowserThumbnailCacheEnabled,
+                preferences.$fileBrowserFeatureEnabled
+            )
+            .sink { [weak self] items, videoEnabled, cacheEnabled, featureEnabled in
                 MainActor.assumeIsolated {
-                    self?.update(roots: items.map(\.url), isEnabled: videoEnabled && cacheEnabled)
+                    self?.update(roots: items.map(\.url), isEnabled: videoEnabled && cacheEnabled && featureEnabled)
                 }
             }
     }

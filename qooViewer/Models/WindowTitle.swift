@@ -35,6 +35,8 @@ nonisolated enum WindowTitle {
             let name = collectionName ?? libraryName
             guard let name, !name.isEmpty else { return appName }
             return name
+        case .classic:
+            return appName
         }
     }
 
