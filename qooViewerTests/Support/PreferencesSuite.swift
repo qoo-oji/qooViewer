@@ -13,18 +13,20 @@ import Foundation
 /// (`AppPreferences.sharesGlobalState` のコメント参照)。
 @MainActor
 final class PreferencesSuite {
-    let name: String
-    let defaults: UserDefaults
+    private let lease: TestDefaultsPool.Lease
+    var name: String { lease.name }
+    var defaults: UserDefaults { lease.defaults }
 
+    /// - Parameter label: 以前は領域の名前に入れていた(いまは TestDefaultsPool が決まった名前を使い回すので使わない。
+    ///   呼び出し側の読みやすさのために残してある)。
     init(label: String = "preferences") {
-        name = "qooViewerTests.\(label).\(UUID().uuidString)"
-        // suiteName が既存のドメイン名と衝突しない限り nil にはならない(UUID 付き)。
-        defaults = UserDefaults(suiteName: name) ?? .standard
+        // 決まった名前を使い回す(テストのたびに新しい設定ファイルを作らない。TestDefaultsPool の型コメント)。
+        lease = TestDefaultsPool.checkout()
     }
 
     deinit {
-        // `InMemoryLibrary` と同じ後始末。suite はファイルとして残るので明示的に消す。
-        UserDefaults().removePersistentDomain(forName: name)
+        // 中身を消して返す。
+        lease.release()
     }
 
     /// この保存先から作った環境設定。何も書かれていなければ出荷時の既定値になる。

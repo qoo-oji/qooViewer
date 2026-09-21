@@ -78,9 +78,9 @@ struct AppLanguageTests {
     @Test("言語を選ぶと AppleLanguages に書き、システムに戻すと自分が書いたぶんだけ消す")
     func appleLanguagesOverrideIsWrittenAndRemoved() throws {
         // **共有の保存先には触れない** ―― その場限りの suite を作って使い、最後に消す。
-        let suiteName = "qooViewerTests.applelanguages.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { UserDefaults().removePersistentDomain(forName: suiteName) }
+        let suite = TestDefaultsPool.checkout()
+        let suiteName = suite.name, defaults = suite.defaults
+        defer { suite.release() }
 
         AppLanguage.applyAppleLanguagesOverride(for: .japanese, defaults: defaults)
         #expect(defaults.stringArray(forKey: "AppleLanguages") == ["ja"])
@@ -99,9 +99,9 @@ struct AppLanguageTests {
     func aUserSuppliedAppleLanguagesValueIsKept() throws {
         // 「システム設定 › 一般 › 言語と地域 › アプリケーション」で指定された値と同じキーなので、
         // 自分が書いた印(overrideMarker)が無いときは触らない。
-        let suiteName = "qooViewerTests.applelanguages.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { UserDefaults().removePersistentDomain(forName: suiteName) }
+        let suite = TestDefaultsPool.checkout()
+        let defaults = suite.defaults
+        defer { suite.release() }
 
         defaults.set(["fr"], forKey: "AppleLanguages")
         AppLanguage.applyAppleLanguagesOverride(for: .system, defaults: defaults)

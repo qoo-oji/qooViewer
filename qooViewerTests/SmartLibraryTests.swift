@@ -96,9 +96,9 @@ struct SmartLibraryTests {
 
     @Test("ブラウザ列は値ごとの冊数と「(空)」を返し、左の列で選んだ値で右の列の候補が絞られる")
     func facetsCascade() async throws {
-        let suite = "qooViewerTests.smartState.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let suite = TestDefaultsPool.checkout()
+        let defaults = suite.defaults
+        defer { suite.release() }
         let state = SmartLibraryViewState(defaults: defaults)
         state.facetFields = [.genre, .authors, .series]
         state.update(books: [
@@ -139,9 +139,9 @@ struct SmartLibraryTests {
 
     @Test("スマートシェルフ・対象フォルダ・対象の設定は保存され、フォルダはアプリ自身の移動に付いていく")
     func storePersistsAndRelocates() throws {
-        let suite = "qooViewerTests.smartStore.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let suite = TestDefaultsPool.checkout()
+        let defaults = suite.defaults
+        defer { suite.release() }
         let store = SmartLibraryStore(defaults: defaults)
         let shelf = store.add(SmartShelf(name: "架空の棚", conditions: SmartShelfConditions()))
         store.addFolder(URL(fileURLWithPath: "/架空/本棚"))

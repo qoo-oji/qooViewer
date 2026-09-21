@@ -51,7 +51,7 @@ final class InMemoryLibrary {
     /// 以前の規則の引き継ぎ(`legacyDefaults`)も、このライブラリ専用の領域(suite)から読む。
     let metadataRules: MetadataRulesStore
     private let metadataRulesDirectory: URL
-    private let metadataRulesSuiteName: String
+    private let metadataRulesSuite: TestDefaultsPool.Lease
     /// 本のタイトルを求める役(コレクションの並び順「タイトル」が使う)。
     let bookTitles: BookTitleResolver
 
@@ -83,12 +83,13 @@ final class InMemoryLibrary {
         )
         // フォーマットのルールは**コレクションより先に**作る ―― 並び順「タイトル」の鍵を
         // 作る BookTitleResolver が、メタデータのストアとルールの両方を要るため。
-        metadataRulesSuiteName = "qooViewerTests.\(label).\(UUID().uuidString)"
+        let rulesSuite = TestDefaultsPool.checkout()
+        metadataRulesSuite = rulesSuite
         metadataRulesDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("qooViewerTests.\(label).rules.\(UUID().uuidString)", isDirectory: true)
         metadataRules = MetadataRulesStore(
             url: metadataRulesDirectory.appendingPathComponent("settings.json"),
-            legacyDefaults: UserDefaults(suiteName: metadataRulesSuiteName)
+            legacyDefaults: rulesSuite.defaults
         )
         bookTitles = BookTitleResolver(metadataStore: metadata, rulesStore: metadataRules)
         collections = CollectionStore(
@@ -108,7 +109,7 @@ final class InMemoryLibrary {
         bookmarks.releaseResources()
         favorites.releaseResources()
         collections.releaseResources()
-        UserDefaults().removePersistentDomain(forName: metadataRulesSuiteName)
+        metadataRulesSuite.release()
         try? FileManager.default.removeItem(at: metadataRulesDirectory)
         try? FileManager.default.removeItem(at: collectionCoversDirectory)
         try? FileManager.default.removeItem(at: collectionTileImagesDirectory)
@@ -118,7 +119,7 @@ final class InMemoryLibrary {
     deinit {
         // `close()` を呼び忘れた場合の保険。`UserDefaults` の領域とカバー画像のフォルダは
         // ファイルとして残るので明示的に消す(メモリ内のコンテナはここで手放されて消える)。
-        UserDefaults().removePersistentDomain(forName: metadataRulesSuiteName)
+        metadataRulesSuite.release()
         try? FileManager.default.removeItem(at: metadataRulesDirectory)
         try? FileManager.default.removeItem(at: collectionCoversDirectory)
         try? FileManager.default.removeItem(at: collectionTileImagesDirectory)

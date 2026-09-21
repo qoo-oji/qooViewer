@@ -184,9 +184,9 @@ struct MetadataRulesStoreTests {
 
     @Test("以前の既定から変えていたファイル名フォーマットは、利用者のルールセットとして 1 度だけ引き継ぐ")
     func legacyFormatsAreMigratedOnce() throws {
-        let suite = "qooViewerTests.rulesLegacy.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let suite = TestDefaultsPool.checkout()
+        let defaults = suite.defaults
+        defer { suite.release() }
         let url = temporaryURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         struct Legacy: Encodable { var id = UUID(); var pattern: String }
@@ -206,9 +206,9 @@ struct MetadataRulesStoreTests {
 
     @Test("以前の既定のままだったら何も引き継がない")
     func untouchedLegacyFormatsAreNotMigrated() throws {
-        let suite = "qooViewerTests.rulesLegacyDefault.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        let suite = TestDefaultsPool.checkout()
+        let defaults = suite.defaults
+        defer { suite.release() }
         let url = temporaryURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
