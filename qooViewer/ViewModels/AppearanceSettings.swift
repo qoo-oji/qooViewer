@@ -7,7 +7,10 @@ import SwiftUI
 /// ノーマルウインドウ用(`.normal`)が従来からの設定で、保存キーも従来のまま。シークレットウインドウ用(`.privateWindow`)は
 /// 環境設定「外観」の「シークレットウインドウに別の外観を使う」を ON にしたときだけ使われ、同じキーの末尾に
 /// `.privateWindow` を付けた別のキーへ保存する(AppPreferences.privateWindowsUseOwnAppearance参照)。
-nonisolated enum AppearanceProfile: String, CaseIterable, Hashable, Sendable {
+///
+/// `nonisolated` にはしない ―― 環境設定のポップアップ(SettingsOption。メインアクター)に適合させるので、ほかの選択肢の型
+/// (AppAppearance など)と同じくメインアクターに置く(nonisolated にすると、CI の Xcode 26.6 が適合を警告 = エラーにする)。
+enum AppearanceProfile: String, CaseIterable, Hashable, Sendable {
     case normal
     case privateWindow
 
