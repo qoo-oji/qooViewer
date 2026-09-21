@@ -80,10 +80,19 @@ final class CollectionStore: ObservableObject {
     /// 走っている存在確認(settleExistenceRefreshが待つためだけに持つ)。
     private var existenceRefreshTask: Task<Void, Never>?
 
+    /// ライブラリ機能が有効か(環境設定「ライブラリを有効にする」。AppStores.applyLibraryFeature)。OFFの間は**実体の存在確認を走らせない**
+    /// ―― 登録した全冊のブックマーク解決と stat で、契機(起動・アクティブ化・ボリュームの着脱)のたびに走る、このストアでいちばん
+    /// 重い仕事。全件フェッチ(`allItems`)もここが最初に引くので、OFFで起動すれば登録した本の行はメモリに載らない。
+    /// 読み書きの口はそのまま働く(保存データの読み込み・削除、アプリ自身が移した本の付け替えは、機能がOFFでもデータを正しく保つ)。
+    private(set) var isLibraryFeatureEnabled: Bool
+
+    /// - Parameter isLibraryFeatureEnabled: 起動時の値。false なら init での存在確認もしない(`setLibraryFeatureEnabled(true)` で動き出す)。
     init(
         modelContext: ModelContext, coverStore: CollectionCoverStore,
-        tileStore: CollectionTileImageStore, titleResolver: BookTitleResolver
+        tileStore: CollectionTileImageStore, titleResolver: BookTitleResolver,
+        isLibraryFeatureEnabled: Bool = true
     ) {
+        self.isLibraryFeatureEnabled = isLibraryFeatureEnabled
         self.modelContext = modelContext
         self.coverStore = coverStore
         self.tileStore = tileStore
@@ -1154,8 +1163,17 @@ final class CollectionStore: ObservableObject {
         )
     }
 
+    /// ライブラリ機能のON/OFF(`isLibraryFeatureEnabled`のコメント)。ONへ戻ったら、止めていた存在確認をその場で1回走らせる。
+    func setLibraryFeatureEnabled(_ isEnabled: Bool) {
+        guard isEnabled != isLibraryFeatureEnabled else { return }
+        isLibraryFeatureEnabled = isEnabled
+        if isEnabled { scheduleExistenceRefresh() }
+    }
+
     /// 全登録の実体確認を非同期に予約する(FavoritesStore.scheduleExistenceRefreshと同じ作り)。
     func scheduleExistenceRefresh() {
+        // ライブラリ機能がOFFの間は確かめない(結果を見る画面がどこにも無い。isLibraryFeatureEnabledのコメント)。
+        guard isLibraryFeatureEnabled else { return }
         guard !isRefreshingExistence else {
             needsAnotherExistenceRefresh = true
             return

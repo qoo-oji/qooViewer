@@ -244,7 +244,7 @@ struct AppPreferencesTests {
             "displayLanguage", "launchOpensLastBook", "launchFullScreen", "launchInPrivateMode",
             "quitWhenLastWindowClosed", "confirmBeforeClosingMultipleTabsWindow",
             "showRecentFavoritesOnWelcome",
-            "offersRemovingMissingCollectionBooks", "sidePanelFeatureEnabled",
+            "offersRemovingMissingCollectionBooks", "libraryFeatureEnabled", "sidePanelFeatureEnabled",
             "sidePanelPosition", "sidePanelUsesDoubleClick",
             "sidePanelSortOrder",
             "siblingNavigationFollowsBrowserSort",

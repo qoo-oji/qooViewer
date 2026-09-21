@@ -388,6 +388,12 @@ struct SidePanelView: View {
                     bookmarksSection
                         .frame(maxHeight: .infinity)
                         .clipped()
+                } else if !preferences.libraryFeatureEnabled {
+                    // 環境設定「ライブラリを有効にする」がOFFの間は、ライブラリのツリーを出さず、ブックマーク一覧が全高を使う
+                    // (2026-09-13 までの1列構成と同じ形)。
+                    bookmarksSection
+                        .frame(maxHeight: .infinity)
+                        .clipped()
                 } else {
                     bookmarksSection
                         .frame(height: max(80, geometry.size.height * fraction - 4))

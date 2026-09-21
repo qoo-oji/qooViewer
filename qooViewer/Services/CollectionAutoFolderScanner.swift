@@ -64,6 +64,25 @@ final class CollectionAutoFolderScanner: ObservableObject {
     private var watcher: FolderChangeWatcher?
     /// `releaseResources()`を通ったか(**テストのための口**)。通ったあとは監視を作り直さない。
     private var didRelease = false
+    /// ライブラリ機能が有効か(環境設定「ライブラリを有効にする」。AppStores.applyLibraryFeature)。OFFの間は走査も監視もしない。
+    private(set) var isLibraryFeatureEnabled = true
+
+    /// ライブラリ機能のON/OFF。OFFにしたら**監視(FSEvents)を下ろし**、見直しの予約も捨てる(走っている走査は終わらせる ――
+    /// 途中で止めても得が無く、結果を足すのは登録済みの自動登録フォルダの中身だけ)。ONへ戻ったらその場で1回走査する。
+    func setLibraryFeatureEnabled(_ isEnabled: Bool) {
+        guard isEnabled != isLibraryFeatureEnabled else { return }
+        isLibraryFeatureEnabled = isEnabled
+        if isEnabled {
+            scheduleScan()
+        } else {
+            recheckTask?.cancel()
+            recheckTask = nil
+            needsAnotherScan = false
+            if let watcher {
+                Task { await watcher.watch([]) }
+            }
+        }
+    }
 
     init(
         collectionStore: CollectionStore,
@@ -129,6 +148,8 @@ final class CollectionAutoFolderScanner: ObservableObject {
         // 何もしない。ストアの側が先に片付いていることがある(テストで実測: 解放済みの
         // ModelContext の行に触って落ちた)。
         guard !didRelease else { return }
+        // ライブラリ機能がOFFの間は何もしない(アクティブ化・ボリュームの着脱・監視の知らせ、どの契機でも)。
+        guard isLibraryFeatureEnabled else { return }
         // 権限が無いフォルダはここで落とす(走査も監視も始めない)。
         let targets = collectionStore.autoFolderTargets()
             .filter { folderAccess.isPathCovered($0.folder) }
@@ -308,7 +329,7 @@ final class CollectionAutoFolderScanner: ObservableObject {
     /// 消えたファイル(コピーを取り消した等)と、自動登録フォルダが外された/権限を失った
     /// コレクションのぶんは、ここで落とす。
     private func recheckPendingFiles() {
-        guard !didRelease else { return }
+        guard !didRelease, isLibraryFeatureEnabled else { return }
         // 走査中なら、その走査が見送ったファイルを見直す(終わった直後にもう一度だけ走らせる)。
         guard !isScanning else {
             needsAnotherScan = true

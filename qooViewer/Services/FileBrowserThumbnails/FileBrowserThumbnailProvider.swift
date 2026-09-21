@@ -140,6 +140,16 @@ final class FileBrowserThumbnailProvider: ObservableObject {
 
     /// 実際に絵を作った回数(**テストのための口**。キャッシュに当たったら数えない)。
     private(set) var generatedCount = 0
+    /// ライブラリ機能が有効か(環境設定「ライブラリを有効にする」。AppStores.applyLibraryFeature)。OFFの間は**コレクションの表紙を照会しない**
+    /// ―― 照会は登録した本の全件フェッチを引き起こす。本に指定したコレクション表紙(LayoutStore の側)はそのまま使う。
+    private var isLibraryFeatureEnabled = true
+
+    /// 切り替えたら頼み直させる(鍵が「表紙」と「項目」で変わる)。
+    func setLibraryFeatureEnabled(_ isEnabled: Bool) {
+        guard isEnabled != isLibraryFeatureEnabled else { return }
+        isLibraryFeatureEnabled = isEnabled
+        revision &+= 1
+    }
 
     /// - Parameters:
     ///   - diskCache: 既定は実物のキャッシュ。**テストは一時フォルダのものを渡す。**
@@ -287,7 +297,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         let modified = entry.modificationDate?.timeIntervalSinceReferenceDate ?? 0
         let itemKey = "item|\(entry.id)|\(modified)|\(entry.fileSize ?? -1)"
         guard kind != .image, kind != .video, kind != .application else { return (itemKey, .item(entry.url, kind)) }
-        let items = collectionStore?.items(forBookID: entry.id) ?? []
+        let items = isLibraryFeatureEnabled ? (collectionStore?.items(forBookID: entry.id) ?? []) : []
         if let collectionStore, let coverStore, let item = items.first(where: { $0.coverState == .ready }) {
             let revision = collectionStore.coverRevision(for: item)
             return ("cover|\(item.id.uuidString)|\(revision)", .cover(coverStore.url(for: item.id)))

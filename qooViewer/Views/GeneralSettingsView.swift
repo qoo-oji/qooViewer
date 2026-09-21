@@ -96,14 +96,23 @@ struct GeneralSettingsView: View {
             }
 
             Section {
+                // ユーザー要望 2026-09-21。サイドパネルのON/OFF(下の欄)と同じ位置づけ ―― ファイルビューアとしてだけ使う人が、
+                // 本棚とそのための裏の仕事を丸ごと止められる。保存データは消さない(AppPreferences.libraryFeatureEnabled)。
+                SettingsToggle(
+                    "Enable Libraries",
+                    isOn: $preferences.libraryFeatureEnabled,
+                    help: "Shows the bookshelf — libraries and collections — on the Home screen. When off, Home shows only the file browser, the library and collection items disappear from the menus, context menus and the side panel, and the background work that exists only for libraries stops: checking that registered books are still there, making covers, and watching auto-add folders. Your libraries and collections are kept and come back when you turn this on again."
+                )
                 // ユーザー要望 2026-09-10。勝手に消す設定ではなく「起動時に一覧を出して尋ねる」
                 // 設定なので、ラベルも Offer(尋ねる)にしてある。何を対象にするか
                 // (外付けを外しているだけの本は対象外)は吹き出しへ。
+                // ライブラリ機能がOFFの間は効かない設定なので無効にする(サイドパネルの欄と同じ理由)。
                 SettingsToggle(
                     "Offer to Remove Books That Are No Longer There",
                     isOn: $preferences.offersRemovingMissingCollectionBooks,
                     help: "At launch, lists the books in your collections whose file is gone even though the volume it was on is connected, and asks whether to remove them. Books on a volume you have disconnected are never listed, and nothing is removed until you choose Remove. A collection whose every book is gone is removed along with them."
                 )
+                .disabled(!preferences.libraryFeatureEnabled)
                 // 改善要望5でお気に入りを無効化したため、この設定は出さない(FavoritesFeature参照)。
                 // 設定値(showRecentFavoritesOnWelcome)自体は残してあるので、復活させれば
                 // 以前のON/OFFがそのまま戻る。

@@ -105,9 +105,11 @@ struct BookMetadataSheet: View {
             // ファイルブラウザから開いた版。DBの行はパス(= BookLoader が付ける本の id)で引く。コレクションに入っている本なら、
             // その行とライブラリでカバーの面を出す(型コメント)。
             let bookID = sourceURL.path
-            let registered = collectionStore.items(forBookID: bookID).lazy
-                .compactMap { item in item.collection?.library.map { (item, $0) } }
-                .first
+            // ライブラリ機能がOFFの間はコレクションの行を引かず(全件フェッチを伴う)、入っていない本と同じ面を出す。
+            let registered = !preferences.libraryFeatureEnabled ? nil
+                : collectionStore.items(forBookID: bookID).lazy
+                    .compactMap { item in item.collection?.library.map { (item, $0) } }
+                    .first
             content(
                 bookID: bookID, title: MetadataEditorViewModel.baseName(forBookID: bookID),
                 item: registered?.0, library: registered?.1

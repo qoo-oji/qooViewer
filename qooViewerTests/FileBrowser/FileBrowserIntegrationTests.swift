@@ -563,6 +563,35 @@ struct FileBrowserIntegrationTests {
         #expect(always.submenu?.items.last?.title == "Other…")
     }
 
+    @Test("環境設定「ライブラリを有効にする」がOFFなら、右クリックにコレクションの項目が無く、操作の入り口でも断る")
+    func libraryFeatureOffRemovesCollectionItems() async throws {
+        let fixture = try Fixture("fb-menu-library-off")
+        defer { fixture.close() }
+        let book = fixture.entry(try fixture.archive("book.cbz"))
+        let context = FileBrowserMenuContext(kind: .file, entries: [book], folder: nil)
+        let english = Locale(identifier: "en")
+        func titles() -> [String] {
+            let menu = NSMenu()
+            FileBrowserMenuBuilder().rebuild(menu, for: context, actions: fixture.actions, locale: english)
+            return menu.items.map(\.title)
+        }
+        #expect(titles().contains("Create Collection") && titles().contains("Add to Collection"))
+
+        fixture.preferences.libraryFeatureEnabled = false
+        #expect(!titles().contains("Create Collection") && !titles().contains("Add to Collection"))
+        // 区切り線が 2 本続かない(空になった群を残さない)。
+        let menu = NSMenu()
+        FileBrowserMenuBuilder().rebuild(menu, for: context, actions: fixture.actions, locale: english)
+        for (index, item) in menu.items.enumerated() where item.isSeparatorItem {
+            #expect(index > 0 && !menu.items[index - 1].isSeparatorItem)
+        }
+        #expect(!FileBrowserMenuCommand.createCollection.isEnabled(in: context, actions: fixture.actions))
+        #expect(fixture.actions.createCollection(from: [book]) == nil)
+        let shelf = try #require(fixture.library.collections.libraries.first)
+        #expect(fixture.actions.addToCollection([book], collectionID: shelf.id) == nil)
+        #expect(fixture.welcome.pendingCreations.isEmpty)
+    }
+
     @Test("「パス名をコピー」はパスを文字列で載せる(複数なら 1 行に 1 つ)。読み取り専用でも使え、ペーストは淡色になる")
     func copyPathnames() throws {
         let fixture = try Fixture("fb-copy-pathname")

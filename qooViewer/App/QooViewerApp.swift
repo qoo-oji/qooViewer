@@ -1112,8 +1112,11 @@ struct QooViewerApp: App {
 
             // 「ホーム」メニュー(2026-09-15、ユーザー決定。名前は画面の名前「ホーム」から。HomeMenuCommands.swift の冒頭のコメント)。
             // 項目は常に同じ並びで、本を読んでいるウインドウでは全部淡色。ショートカットは付けない。
+            // 環境設定「ライブラリを有効にする」がOFFの間は、ライブラリとコレクションの項目を丸ごと省く(「サイドパネルを隠す」と同じ省き方。
+            // 残るのは「自動リネームの設定…」だけ)。設定の切り替えは環境設定ウインドウで起きるので、メニューを開いている最中には変わらない。
             CommandMenu("Home") {
                 HomeMenuItems(
+                    isLibraryFeatureEnabled: preferences.libraryFeatureEnabled,
                     home: menuCheckmarkState?.homeMenu ?? HomeMenuState(),
                     selection: menuCheckmarkState?.fileBrowserSelection,
                     directory: stores.homeMenuDirectory.directory,

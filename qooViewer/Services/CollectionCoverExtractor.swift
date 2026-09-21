@@ -110,6 +110,22 @@ final class CollectionCoverExtractor: ObservableObject {
     /// 「いまは積まない」とし、アクティブ化(利用者が何かをしに戻ってきた)で解く。
     private var deferredItemIDs: Set<UUID> = []
 
+    /// ライブラリ機能が有効か(環境設定「ライブラリを有効にする」。AppStores.applyLibraryFeature)。OFFの間は**何も抽出せず、待ち行列にも
+    /// 積まない**。起動時の下ごしらえ(移行・登録済みの全冊の控え取り ―― 全件フェッチを伴う)も、最初にONになるまで先送りする
+    /// (`prepareIfNeeded`)。
+    ///
+    /// ■ OFFの間に表紙の指定が変わった本(`booksChangedWhileDisabled`)
+    /// コレクション表紙の指定は、ライブラリ機能がOFFでも変えられる(ファイルブラウザの「メタデータの編集…」・表紙の読み込み。
+    /// 指定はファイルブラウザのアイコンにも使う)。OFFの間は控え(`signatures`)が無く、届いた通知が表紙に関わる変更かどうかを
+    /// 判定できないので、**レイアウトが変わった本のパスだけ**を覚えておき、ONへ戻ったときにその本の表紙を作り直す(関係ない
+    /// 変更のぶんも作り直すが、やらずに古い表紙を残すよりよい)。アプリを終えても失わないよう UserDefaults に置く。
+    /// 多すぎるとき(`maxBooksChangedWhileDisabled` 超)は覚えるのをやめ、ONへ戻ったときに全冊を作り直す。
+    private(set) var isLibraryFeatureEnabled: Bool
+    private var didPrepare = false
+    static let booksChangedWhileDisabledKey = "qooViewer.collections.booksChangedWhileLibraryDisabled"
+    static let changedTooManyWhileDisabledKey = "qooViewer.collections.changedTooManyWhileLibraryDisabled"
+    static let maxBooksChangedWhileDisabled = 500
+
     private var observers: [NSObjectProtocol] = []
     /// 存在確認の結果が変わったら待ち行列を組み直す(型コメント「実体が見つからない本」参照)。
     private var existenceCancellable: AnyCancellable?
@@ -122,8 +138,10 @@ final class CollectionCoverExtractor: ObservableObject {
         defaults: UserDefaults = .standard,
         cachedPageList: @escaping @Sendable (String) async -> [BookPageListCache.Entry.Page]? = {
             await BookPageListCache.shared.pageList(forBookID: $0)?.pages
-        }
+        },
+        isLibraryFeatureEnabled: Bool = true
     ) {
+        self.isLibraryFeatureEnabled = isLibraryFeatureEnabled
         self.collectionStore = collectionStore
         self.coverStore = coverStore
         self.layoutStore = layoutStore
@@ -153,7 +171,7 @@ final class CollectionCoverExtractor: ObservableObject {
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, !self.deferredItemIDs.isEmpty else { return }
+                guard let self, self.isLibraryFeatureEnabled, !self.deferredItemIDs.isEmpty else { return }
                 self.deferredItemIDs.removeAll()
                 self.refill()
             }
@@ -170,6 +188,14 @@ final class CollectionCoverExtractor: ObservableObject {
                 MainActor.assumeIsolated { self?.refill(locations: locations) }
             }
 
+        // ライブラリ機能がOFFなら、下ごしらえは最初にONになるまで先送り(isLibraryFeatureEnabledのコメント)。
+        if isLibraryFeatureEnabled { prepareIfNeeded() }
+    }
+
+    /// 起動時の下ごしらえ(1回だけ)。
+    private func prepareIfNeeded() {
+        guard !didPrepare else { return }
+        didPrepare = true
         // **控えを取る前に**分離の移行を済ませる ―― 移行はshelfCover*の列を書き換えるので、
         // 先に控えを取ると「移行によって変わった」ことを変更と見なして全件抽出し直してしまう。
         migrateShelfCoverSeparationIfNeeded()
@@ -180,6 +206,50 @@ final class CollectionCoverExtractor: ObservableObject {
 
         migrateCoverStorageIfNeeded()
         refreshCoversForRetiredOrderSettingIfNeeded()
+        redoCoversChangedWhileDisabled()
+    }
+
+    /// ライブラリ機能のON/OFF(`isLibraryFeatureEnabled`のコメント)。OFFにしたら走っている抽出も含めて全部やめる
+    /// (やめた本は`.pending`のまま残り、ONへ戻ったときの`refill()`が拾う)。
+    func setLibraryFeatureEnabled(_ isEnabled: Bool) {
+        guard isEnabled != isLibraryFeatureEnabled else { return }
+        isLibraryFeatureEnabled = isEnabled
+        if isEnabled {
+            if didPrepare { redoCoversChangedWhileDisabled() } else { prepareIfNeeded() }
+            refill()
+        } else {
+            cancelAll()
+        }
+    }
+
+    /// OFFの間にレイアウトが変わった本の表紙を作り直す(`isLibraryFeatureEnabled`のコメント)。表紙は出したまま積む
+    /// (refreshCoversForRetiredOrderSettingIfNeeded と同じ ―― `.pending`へ戻すと順番を待つ間ずっと下地になる)。
+    private func redoCoversChangedWhileDisabled() {
+        let changedAll = defaults.bool(forKey: Self.changedTooManyWhileDisabledKey)
+        let bookIDs = defaults.stringArray(forKey: Self.booksChangedWhileDisabledKey) ?? []
+        guard changedAll || !bookIDs.isEmpty else { return }
+        defaults.removeObject(forKey: Self.booksChangedWhileDisabledKey)
+        defaults.removeObject(forKey: Self.changedTooManyWhileDisabledKey)
+        let targets = changedAll ? Array(collectionStore.allRegisteredBookIDs()) : bookIDs
+        for bookID in targets { signatures[bookID] = signature(forBookID: bookID) }
+        refreshCovers(forBookIDs: targets)
+    }
+
+    /// OFFの間に届いたレイアウトの変更を覚える(`isLibraryFeatureEnabled`のコメント)。
+    private func rememberChangeWhileDisabled(bookID: String) {
+        // テストの中で走る実物のアプリの抽出役には、テストのストアが出す通知も届く(通知はアプリ全体に飛ぶ)。
+        // 開発機の本物の保存先へテストの本を書かない。
+        guard !(RuntimeEnvironment.isRunningTests && defaults === UserDefaults.standard) else { return }
+        guard !defaults.bool(forKey: Self.changedTooManyWhileDisabledKey) else { return }
+        var bookIDs = defaults.stringArray(forKey: Self.booksChangedWhileDisabledKey) ?? []
+        guard !bookIDs.contains(bookID) else { return }
+        guard bookIDs.count < Self.maxBooksChangedWhileDisabled else {
+            defaults.removeObject(forKey: Self.booksChangedWhileDisabledKey)
+            defaults.set(true, forKey: Self.changedTooManyWhileDisabledKey)
+            return
+        }
+        bookIDs.append(bookID)
+        defaults.set(bookIDs, forKey: Self.booksChangedWhileDisabledKey)
     }
 
     deinit {
@@ -203,6 +273,8 @@ final class CollectionCoverExtractor: ObservableObject {
 
     /// 抽出を予約する。既に並んでいる/抽出中のものは無視する。
     func enqueue(_ items: [CollectionItem]) {
+        // ライブラリ機能がOFFの間は積まない(本は`.pending`のまま残り、ONへ戻ったときのrefill()が拾う)。
+        guard isLibraryFeatureEnabled else { return }
         var didAppend = false
         for item in items where !queuedIDs.contains(item.id) && !inFlightItemIDs.contains(item.id) {
             queue.append(item.id)
@@ -222,6 +294,7 @@ final class CollectionCoverExtractor: ObservableObject {
     /// 一度は試みる ―― 見つからなければ`.pending`のまま戻り、通知も出ないので、次に組み直す
     /// 契機まで積み直されない。
     func refill() {
+        guard isLibraryFeatureEnabled else { return }
         refill(locations: collectionStore.locationByItemID)
     }
 
@@ -229,6 +302,7 @@ final class CollectionCoverExtractor: ObservableObject {
     ///   またはその投影から届いた新しい値)。まだ確認していない本は「ある」として扱う
     ///   (cachedFileExistsと同じ)。
     private func refill(locations: [UUID: BookLocation]) {
+        guard isLibraryFeatureEnabled else { return }
         seedSignatures(for: collectionStore.allRegisteredBookIDs())
         enqueue(collectionStore.itemsAwaitingCover().filter { item in
             // 一時的な理由で見送ったものは、アクティブ化まで積まない(deferredItemIDsのコメント)。
@@ -386,6 +460,10 @@ final class CollectionCoverExtractor: ObservableObject {
     /// レイアウトの変更通知。カバーに関わる値が実際に変わっている本だけをやり直す。
     private func handleLayoutChange(bookID: String?) {
         guard let bookID else { return }
+        guard isLibraryFeatureEnabled else {
+            rememberChangeWhileDisabled(bookID: bookID)
+            return
+        }
         let items = collectionStore.items(forBookID: bookID)
         guard !items.isEmpty else { return }
         let current = signature(forBookID: bookID)

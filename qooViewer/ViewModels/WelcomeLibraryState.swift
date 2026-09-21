@@ -37,9 +37,31 @@ final class WelcomeLibraryState: ObservableObject {
     /// 戻った瞬間にクリックの意味が変わっている理由が画面から読めない。isEditingのコメント参照)。
     @Published var mode: WelcomeMode {
         didSet {
+            // ライブラリ機能がOFFの間はファイルブラウザだけ(isLibraryFeatureEnabledのコメント)。
+            if !isLibraryFeatureEnabled, mode != .browser {
+                mode = .browser
+                return
+            }
             guard mode != oldValue else { return }
-            defaults.set(mode.rawValue, forKey: Keys.mode)
+            // OFFで押し込まれたぶんは保存しない(ONへ戻したときに、前に見ていたほうへ戻れるように)。
+            if isLibraryFeatureEnabled { defaults.set(mode.rawValue, forKey: Keys.mode) }
             isEditing = false
+        }
+    }
+
+    /// ホームのライブラリ機能が有効か(環境設定「ライブラリを有効にする」。2026-09-21、ユーザー要望)。値の持ち主は AppPreferences で、
+    /// ContentView が写す ―― ただし**最初の値は init で保存先から読む**(写しが届くのは最初の1コマの後で、その1コマを本棚で描かない)。
+    ///
+    /// OFFの間は `mode` が常に `.browser`(本棚へ切り替える手段 ―― 帯・「ホーム」メニュー ―― も画面から消える)。
+    /// ONへ戻したら、保存してあるモード(OFFにする前に見ていたほう)へ戻る。
+    @Published var isLibraryFeatureEnabled: Bool {
+        didSet {
+            guard isLibraryFeatureEnabled != oldValue else { return }
+            if isLibraryFeatureEnabled {
+                mode = WelcomeMode(rawValue: defaults.string(forKey: Keys.mode) ?? "") ?? .shelf
+            } else {
+                mode = .browser
+            }
         }
     }
 
@@ -299,7 +321,11 @@ final class WelcomeLibraryState: ObservableObject {
     init(defaults: UserDefaults = .standard, restoresMode: Bool = true) {
         self.defaults = defaults
         selectedLibraryID = (defaults.string(forKey: Keys.selectedLibraryID)).flatMap(UUID.init(uuidString:))
-        mode = restoresMode ? (WelcomeMode(rawValue: defaults.string(forKey: Keys.mode) ?? "") ?? .shelf) : .shelf
+        // テストホストのウインドウ(restoresMode == false)は、設定に関わらず本棚で始める(下の引数のコメント)。
+        let isLibraryEnabled = restoresMode ? AppPreferences.storedLibraryFeatureEnabled(in: defaults) : true
+        isLibraryFeatureEnabled = isLibraryEnabled
+        mode = !isLibraryEnabled ? .browser
+            : restoresMode ? (WelcomeMode(rawValue: defaults.string(forKey: Keys.mode) ?? "") ?? .shelf) : .shelf
         collectionSort = FavoritesSortOption(
             rawValue: defaults.string(forKey: Keys.collectionSort) ?? ""
         ) ?? .nameAscending

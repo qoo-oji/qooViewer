@@ -350,6 +350,14 @@ struct ContentView: View {
                 cancelPendingSidePanelReveal()
                 appState.isSidePanelRevealed = false
             }
+            // 環境設定「ライブラリを有効にする」をこのウインドウのホームへ写す(WelcomeLibraryState.isLibraryFeatureEnabled)。OFFにしたら
+            // 本棚の出しかけのシート・編集モードも畳む。テストホストのウインドウは設定に関わらず本棚のまま
+            // (ファイルブラウザにすると実際のホームフォルダを読みに行く。WelcomeLibraryState.init のコメント)。
+            .onChange(of: preferences.libraryFeatureEnabled, initial: true) { _, isEnabled in
+                let isEnabled = isEnabled || RuntimeEnvironment.isRunningTests
+                if !isEnabled, welcomeLibrary.isLibraryFeatureEnabled { welcomeLibrary.endEditing() }
+                welcomeLibrary.isLibraryFeatureEnabled = isEnabled
+            }
             // 「同じフォルダのファイルを開く」の一覧を、並び順に関わる設定が変わったその場で
             // 並べ直す(ユーザー要望: フォルダブラウザの並べ替えに合わせる)。siblingBookOrderは
             // 関係する4つの設定を束ねた値なので、パネル上部の並べ替えメニュー・環境設定の
@@ -921,7 +929,8 @@ struct ContentView: View {
     /// 必ず0件になる。シークレットウインドウでは行わない ―― 削除はDBへの書き込みなので
     /// (AppState.isPrivateWindowのコメント参照)。
     private func offerRemovingMissingCollectionBooksIfNeeded() {
-        guard preferences.offersRemovingMissingCollectionBooks, !isPrivateWindow else { return }
+        // ライブラリ機能がOFFなら尋ねない(存在確認そのものが走らない)。
+        guard preferences.libraryFeatureEnabled, preferences.offersRemovingMissingCollectionBooks, !isPrivateWindow else { return }
         Task { @MainActor in
             await collectionStore.settleExistenceRefresh()
             let sweep = collectionStore.missingBookSweep()

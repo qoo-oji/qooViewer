@@ -100,6 +100,10 @@ final class AppStores: ObservableObject {
     let textEditingMenuState = TextEditingMenuState()
     /// アプリ自身がファイルを動かした知らせの購読(`handleFileSystemChange`)。
     private var fileSystemChangeSubscription: AnyCancellable?
+    /// 環境設定「ライブラリを有効にする」の購読(`applyLibraryFeature`)。
+    private var libraryFeatureSubscription: AnyCancellable?
+    /// 起動時の掃除(行の無い表紙・元画像・札の絵)を済ませたか。ライブラリ機能がOFFで起動したら、最初にONになるまで先送りする。
+    private var didSweepLibraryOrphans = false
 
     init() {
         // 予約された「すべてのデータを削除」の残り(終了前に落ちた場合)は、**どのストアよりも
@@ -129,19 +133,23 @@ final class AppStores: ObservableObject {
         )
         collectionCoverStore = CollectionCoverStore()
         collectionTileImageStore = CollectionTileImageStore(coverStore: collectionCoverStore)
+        // ライブラリ機能がOFFなら、ライブラリのためだけの仕事を**起動の時点から**始めない(applyLibraryFeature のコメント)。
+        let isLibraryEnabled = preferences.libraryFeatureEnabled
         collectionStore = CollectionStore(
             modelContext: context, coverStore: collectionCoverStore,
-            tileStore: collectionTileImageStore, titleResolver: bookTitleResolver
+            tileStore: collectionTileImageStore, titleResolver: bookTitleResolver,
+            isLibraryFeatureEnabled: isLibraryEnabled
         )
-        homeMenuDirectory = HomeMenuDirectoryStore(collectionStore: collectionStore)
+        homeMenuDirectory = HomeMenuDirectoryStore(collectionStore: collectionStore, isLibraryFeatureEnabled: isLibraryEnabled)
         collectionCoverExtractor = CollectionCoverExtractor(
             collectionStore: collectionStore, coverStore: collectionCoverStore,
-            layoutStore: layoutStore
+            layoutStore: layoutStore, isLibraryFeatureEnabled: isLibraryEnabled
         )
         fileBrowserThumbnails = FileBrowserThumbnailProvider(
             collectionStore: collectionStore, coverStore: collectionCoverStore, layoutStore: layoutStore
         )
         fileBrowserThumbnails.connect(preferences: preferences)
+        fileBrowserThumbnails.setLibraryFeatureEnabled(isLibraryEnabled)
         fileBrowserVideoThumbnailWarmer = FileBrowserVideoThumbnailWarmer(dependencies: .live())
         // テストの中で走る実物のアプリでは動かさない(開発機の本物のよく使う項目を読み、本物のキャッシュに書くため)。
         if !RuntimeEnvironment.isRunningTests {
@@ -169,13 +177,7 @@ final class AppStores: ObservableObject {
             collectionStore: collectionStore, coverExtractor: collectionCoverExtractor,
             folderAccess: folderAccess, preferences: preferences
         )
-        // 行の無いカバー画像(前回の起動が落ちた・ストアを作り直した等)を起動時に1度だけ掃除する。
-        collectionStore.sweepOrphanedCovers()
-        // コレクション表紙の元画像も同じく(CollectionCoverExtractorのinitが分離の移行で
-        // 複製を作るので、**その後で**掃除すること)。
-        layoutStore.sweepOrphanedShelfCoverImages()
-        // 焼いた札の絵も同じく(こちらは容量の刈り込みも兼ねる)。
-        collectionStore.sweepOrphanedTileImages()
+        collectionAutoFolderScanner.setLibraryFeatureEnabled(isLibraryEnabled)
 
         bookRecordRelocator = BookRecordRelocator(
             favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
@@ -187,6 +189,58 @@ final class AppStores: ObservableObject {
                 MainActor.assumeIsolated { self?.handleFileSystemChange(change) }
             }
         }
+        // 起動時の掃除(CollectionCoverExtractorのinitの移行の**後**であること。sweepLibraryOrphansIfNeeded のコメント)。
+        if isLibraryEnabled { sweepLibraryOrphansIfNeeded() }
+        // `@Published`の投影はwillSetで飛ぶので、届いた値のほうを使う。起動時の値は上で渡し済み。
+        libraryFeatureSubscription = preferences.$libraryFeatureEnabled
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] isEnabled in
+                MainActor.assumeIsolated { self?.applyLibraryFeature(isEnabled) }
+            }
+    }
+
+    /// 環境設定「ライブラリを有効にする」(AppPreferences.libraryFeatureEnabled。2026-09-21、ユーザー要望)を、アプリで 1 つの仕事へ伝える。
+    ///
+    /// ■ OFFの間に止まるもの(ライブラリのためだけの仕事)
+    /// - 登録した本の実体の存在確認(`CollectionStore.scheduleExistenceRefresh` ―― 起動・アクティブ化・ボリュームの着脱・アプリ自身の
+    ///   ファイル操作のたびに、全冊のブックマーク解決と stat)
+    /// - 表紙の抽出と、その起動時の下ごしらえ(`CollectionCoverExtractor`)
+    /// - 自動登録フォルダの走査と FSEvents の監視(`CollectionAutoFolderScanner`)
+    /// - 起動時の掃除(行の無い表紙・元画像・札の絵。`sweepLibraryOrphansIfNeeded`)
+    /// - 「ホーム」メニューの名前の写し(`HomeMenuDirectoryStore`)
+    /// - 本を開いたときのコレクションの行の追従・識別子の補完(AppState.open)、ファイルブラウザのアイコンの表紙の照会
+    ///   (FileBrowserThumbnailProvider)、起動時の「見つからない本」の確認(ContentView)
+    /// どれも登録した本の全件フェッチを伴うので、OFFで起動すればその行はメモリに載らない。
+    ///
+    /// ■ 止めないもの(保存データを正しく保つための仕事)
+    /// - アプリ自身が移した・名前を変えた本の付け替え(`BookRecordRelocator`)。別のボリュームへ移した本は、ここで付け替えないと
+    ///   ONへ戻したときに「見つからない本」になる(同じボリュームの中ならブックマークが追うが、ボリュームをまたぐと追えない)
+    /// - 保存データの書き出し・読み込み・削除(コレクションも対象のまま)
+    ///
+    /// ■ データは消さない
+    /// ONへ戻せば棚は元のまま。止めていた仕事はその場で動き出す(存在確認 → 表紙の待ち行列の組み直し → 自動登録フォルダの走査)。
+    /// OFFの間に表紙の指定が変わった本は、ONへ戻ったときに作り直す(CollectionCoverExtractor.isLibraryFeatureEnabled のコメント)。
+    private func applyLibraryFeature(_ isEnabled: Bool) {
+        collectionStore.setLibraryFeatureEnabled(isEnabled)
+        homeMenuDirectory.setLibraryFeatureEnabled(isEnabled)
+        collectionCoverExtractor.setLibraryFeatureEnabled(isEnabled)
+        collectionAutoFolderScanner.setLibraryFeatureEnabled(isEnabled)
+        fileBrowserThumbnails.setLibraryFeatureEnabled(isEnabled)
+        if isEnabled { sweepLibraryOrphansIfNeeded() }
+    }
+
+    /// 起動時の掃除(1回だけ。`didSweepLibraryOrphans`のコメント)。
+    private func sweepLibraryOrphansIfNeeded() {
+        guard !didSweepLibraryOrphans else { return }
+        didSweepLibraryOrphans = true
+        // 行の無いカバー画像(前回の起動が落ちた・ストアを作り直した等)を起動時に1度だけ掃除する。
+        collectionStore.sweepOrphanedCovers()
+        // コレクション表紙の元画像も同じく(CollectionCoverExtractorのinitが分離の移行で
+        // 複製を作るので、**その後で**掃除すること)。
+        layoutStore.sweepOrphanedShelfCoverImages()
+        // 焼いた札の絵も同じく(こちらは容量の刈り込みも兼ねる)。
+        collectionStore.sweepOrphanedTileImages()
     }
 
     /// アプリ自身がファイルを動かした(ファイルブラウザの操作・取り消し・やり直し・自動リネーム。`FileSystemChange` の型コメント)。
@@ -199,6 +253,7 @@ final class AppStores: ObservableObject {
         Task { @MainActor [weak self] in
             await relocation.value
             guard let self else { return }
+            // ライブラリ機能がOFFの間は、ストアの側で何もしない(CollectionStore.isLibraryFeatureEnabled)。
             self.collectionStore.scheduleExistenceRefresh()
             self.recentFiles.scheduleRefresh()
             self.favoritesStore.scheduleExistenceRefresh()

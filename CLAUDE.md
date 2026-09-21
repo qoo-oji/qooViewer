@@ -205,7 +205,16 @@ cover extraction/existence check); the menu bar's **Home** menu (2026-09-15) rea
 `HomeMenuDirectoryStore`, a value copy that publishes only when names, order or membership change. Home-screen menu
 items (Home menu; file-browser items in File/Edit; View menu swapped while Home is shown) read per-window values from
 `MenuCheckmarkState.homeMenu` / `.fileBrowserSelection`, and anything that needs a sheet/alert owned by a view goes
-through `WelcomeLibraryState.menuRequest` (docs/09「メニューバーのホーム画面の項目」). The favorites feature is hidden behind
+through `WelcomeLibraryState.menuRequest` (docs/09「メニューバーのホーム画面の項目」). **The whole library feature can be
+switched off at run time** (Settings ▸ General ▸ "Enable Libraries", `AppPreferences.libraryFeatureEnabled`, default ON;
+2026-09-21): Home shows only the file browser (no top bar, `WelcomeLibraryState.mode` pinned to `.browser`), the library
+items leave the Home menu, the file browser context menu and the side panel, and the library-only background work stops —
+existence refresh, cover extraction and its launch preparation, auto-folder scanning and FSEvents, launch sweeps, the Home
+menu directory, collection reconciliation on book open. What stops and what deliberately does not (`BookRecordRelocator`,
+saved-data import/export/cleanup) is listed on `AppStores.applyLibraryFeature`; **new library-only work must check the
+flag there too**, and must not fetch `CollectionItem`s while it is off. Data is never deleted; books whose layout changed
+while off are remembered in UserDefaults and get their covers redone when it is turned back on (docs/14
+「ライブラリ機能の ON/OFF」). The favorites feature is hidden behind
 `FavoritesFeature.isEnabled == false` — models, stores, window and JSON schema are kept so the data
 survives. Design and the reasons are in `docs/14-library-collections.md`.
 

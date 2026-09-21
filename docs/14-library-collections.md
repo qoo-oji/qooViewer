@@ -667,6 +667,65 @@ FSEvents のコールバックが解放済みの `ModelContext` に触った ―
   数え直しはしない ―― 確認した一覧と違うものを消さないため。
 - シークレットウインドウでは尋ねない(削除はDBへの書き込みのため)。
 
+## ライブラリ機能の ON/OFF(2026-09-21、ユーザー要望)
+
+環境設定「一般」▸「ホーム」の **「ライブラリを有効にする」**(`AppPreferences.libraryFeatureEnabled`、既定 ON)。サイドパネル機能の ON/OFF と
+同じ位置づけで、ファイルビューアとしてだけ使う人が、本棚と**そのためだけの裏の仕事**を丸ごと止められる。**保存データは消さない** ――
+ON へ戻せば棚は元のまま見える。お気に入りの `FavoritesFeature`(コンパイル時の定数で入り口を隠すだけ)とは別物で、こちらは実行時に切り替わる。
+
+### OFF の間の画面
+
+| 場所 | OFF の間 |
+|---|---|
+| ホーム | **帯(`WelcomeTopBar`)ごと出さない**。中身はファイルブラウザだけ(`WelcomeLibraryState.mode` が常に `.browser`。本棚へ切り替える口も無い) |
+| メニューバー「ホーム」 | ライブラリ・コレクションの項目(本棚 ⇄ ファイルブラウザの切り替えを含む)を丸ごと省く。残るのは「自動リネームの設定…」だけ(`HomeMenuItems.isLibraryFeatureEnabled`。「サイドパネルを隠す」と同じ省き方) |
+| ファイルブラウザの右クリック | 「コレクションを作成」「コレクションに登録」の群を出さない(`FileBrowserMenuCommand.groups(for:includesLibrary:)`。空になった群も残さない)。入り口でも断る(`FileBrowserActions.isLibraryFeatureEnabled`) |
+| サイドパネルのブックマークモード | ライブラリのツリーを出さず、ブックマーク一覧が全高を使う |
+| 「メタデータの編集…」のシート(ファイルブラウザから) | コレクションの行を引かず、入っていない本と同じ面を出す |
+| 環境設定 | 「見つからない本の削除を尋ねる」は無効。外観の「ホーム」・キャッシュ・保存データの書き出し/読み込み/削除は**そのまま**(データは残っているので、設定も掃除もできる) |
+
+- **項目の数を状態で変えない決まりとは別の話**: あちらは「選択や場面で淡色にする」決まりで、メニューを開いている最中に項目が増減しないためのもの。
+  この設定は環境設定ウインドウでしか変わらない(メニューを開いている最中には変わらない)うえ、機能そのものが無いので、淡色で残さずに消す。
+- モードの保存(`qooViewer.welcome.mode`)は OFF で押し込まれたぶんを書かない。ON へ戻すと、OFF にする前に見ていたほうへ戻る。
+- **最初の 1 コマを本棚で描かない**: `WelcomeLibraryState` は init で保存先から設定を直に読む(`AppPreferences.storedLibraryFeatureEnabled`)。
+  その後は `ContentView` が `preferences.libraryFeatureEnabled` を写す。テストホストのウインドウ(`restoresMode == false`)は設定に関わらず
+  本棚のまま(ファイルブラウザにすると実際のホームフォルダを読みに行く)。
+
+### OFF の間に止まる仕事・止めない仕事(`AppStores.applyLibraryFeature`)
+
+起動時の値は各オブジェクトの init に渡し(`isLibraryFeatureEnabled:`)、実行中の切り替えは `AppStores` が `preferences.$libraryFeatureEnabled` を
+購読して伝える。
+
+| 止まる | どこで |
+|---|---|
+| 登録した本の実体の存在確認(起動・アクティブ化・ボリュームの着脱・アプリ自身のファイル操作のたびの、全冊のブックマーク解決と stat) | `CollectionStore.scheduleExistenceRefresh` の入り口 |
+| 表紙の抽出と、その起動時の下ごしらえ(移行・全冊の控え取り) | `CollectionCoverExtractor`(`enqueue` / `refill` / `prepareIfNeeded`)。OFF にした時点で走っている抽出もやめる |
+| 自動登録フォルダの走査と FSEvents の監視 | `CollectionAutoFolderScanner.scheduleScan` の入り口。OFF にした時点で監視を下ろす |
+| 起動時の掃除(行の無い表紙・元画像・札の絵) | `AppStores.sweepLibraryOrphansIfNeeded`(最初に ON になるまで先送り) |
+| 「ホーム」メニューの名前の写し | `HomeMenuDirectoryStore`(写しは空) |
+| 本を開いたときのコレクションの行の追従・識別子の補完 | `AppState.open` |
+| ファイルブラウザのアイコンの、コレクションの表紙の照会 | `FileBrowserThumbnailProvider.resolveSource`(本に指定したコレクション表紙は LayoutStore の側なのでそのまま使う) |
+| 起動時の「見つからない本」の確認 | `ContentView.offerRemovingMissingCollectionBooksIfNeeded` |
+
+どれも `CollectionItem` の全件フェッチを伴う。OFF で起動すれば、その行(ブックマークの Data を含む)はメモリに載らない。`CollectionStore` の
+init が引くのはライブラリの行だけ。
+
+**止めないもの**(保存データを正しく保つため):
+- アプリ自身が移した・名前を変えた本の付け替え(`BookRecordRelocator`)。同じボリュームの中の移動は ON へ戻したときの存在確認がブックマークで
+  追えるが、**別のボリュームへ移した本は追えない** ―― ここで付け替えないと「見つからない本」になる。走るのはファイル操作のときだけ。
+- 保存データの書き出し・読み込み・削除(コレクションも対象のまま)。
+
+### ON へ戻したとき
+
+止めていた仕事がその場で動き出す: 存在確認 → (結果を受けて)表紙の待ち行列の組み直し → 自動登録フォルダの走査 → 先送りしていた掃除と下ごしらえ。
+
+**OFF の間に表紙の指定が変わった本**: コレクション表紙の指定(`BookLayoutSettings.shelfCover*`)は OFF でも変えられる(ファイルブラウザの
+「メタデータの編集…」・表紙の読み込み。指定はファイルブラウザのアイコンにも使う)。OFF の間は抽出役に控え(`signatures`)が無く、届いた
+`.layoutDataDidChange` が表紙に関わる変更かを判定できないので、**レイアウトが変わった本のパスだけ**を UserDefaults に覚えておき
+(`booksChangedWhileDisabledKey`。アプリを終えても失わない)、ON へ戻ったときにその本の表紙を**出したまま**作り直す。関係ない変更のぶんも
+作り直すが、古い表紙を残すよりよい。500 冊を超えたら覚えるのをやめ、ON へ戻ったときに全冊を作り直す。テストホストの実物の抽出役は
+本物の保存先へ書かない(通知はアプリ全体に飛ぶので、テストのストアの通知も届く)。
+
 ## 環境設定・JSON・削除
 
 - **環境設定「外観」→「ホーム」**(`PanelSurfaceSettingsView.welcomeSections`):
@@ -717,6 +776,8 @@ FSEvents のコールバックが解放済みの `ModelContext` に触った ―
 文言を触るときは両方を見比べること。
 
 ## テスト
+
+`LibraryFeatureToggleTests`: 「ライブラリを有効にする」が OFF の間、ホームがファイルブラウザに固定されること(保存したモードは書き換えない)、存在確認・表紙の抽出・「ホーム」メニューの写しが走らないこと、ON へ戻すと動き出すこと、OFF の間に表紙の指定を変えた本が起動し直した後でも作り直されること、右クリックの並びからコレクションの群が消えること。右クリックの実物のメニューと入り口で断ることは `FileBrowserIntegrationTests`。
 
 `CollectionStoreTests` / `CollectionCoverStoreTests` / `CoverImageResolverTests` /
 `CollectionCoverExtractorTests` / `CollectionAutoFolderScanTests` / `FolderChangeWatcherTests` /

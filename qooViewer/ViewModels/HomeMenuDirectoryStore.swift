@@ -22,10 +22,17 @@ final class HomeMenuDirectoryStore: ObservableObject {
     /// 写しを作り直した回数(**テストのための口**。名前に関わらない変化で並べ替えないことを確かめる)。
     private(set) var rebuildCount = 0
 
-    init(collectionStore: CollectionStore) {
+    /// ライブラリ機能が有効か(環境設定「ライブラリを有効にする」。AppStores.applyLibraryFeature)。OFFの間は写しを作らない ―― 「ホーム」メニューに
+    /// ライブラリの項目が出ないので読む相手が居ない(写しを作るにはコレクションの行を全部引く)。写しは空にしておく。
+    private var isLibraryFeatureEnabled: Bool
+
+    init(collectionStore: CollectionStore, isLibraryFeatureEnabled: Bool = true) {
         self.collectionStore = collectionStore
-        directory = Self.makeDirectory(from: collectionStore)
-        lastFingerprint = Fingerprint(collectionStore)
+        self.isLibraryFeatureEnabled = isLibraryFeatureEnabled
+        if isLibraryFeatureEnabled {
+            directory = Self.makeDirectory(from: collectionStore)
+            lastFingerprint = Fingerprint(collectionStore)
+        }
         // `revision` はライブラリ・コレクション・本のどれかを保存するたびに進む(CollectionStore.saveAndNotify)。
         // `libraries` は読み直し(reload)で差し替わる。どちらも「変わる前」に飛ぶので、1 ランループ待ってから読む。
         collectionStore.$revision
@@ -36,14 +43,30 @@ final class HomeMenuDirectoryStore: ObservableObject {
             .store(in: &subscriptions)
     }
 
+    /// ライブラリ機能のON/OFF(`isLibraryFeatureEnabled`のコメント)。ONへ戻ったら写しを作り直す。
+    func setLibraryFeatureEnabled(_ isEnabled: Bool) {
+        guard isEnabled != isLibraryFeatureEnabled else { return }
+        isLibraryFeatureEnabled = isEnabled
+        if isEnabled {
+            scheduleRefresh()
+        } else {
+            lastFingerprint = nil
+            MenuBarMenuGate.shared.run("HomeMenuDirectoryStore.directory") { [weak self] in
+                guard let self, self.directory != HomeMenuDirectory() else { return }
+                self.directory = HomeMenuDirectory()
+            }
+        }
+    }
+
     private func scheduleRefresh() {
+        guard isLibraryFeatureEnabled else { return }
         guard !isRefreshScheduled else { return }
         isRefreshScheduled = true
         DispatchQueue.main.async { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.isRefreshScheduled = false
-                guard let collectionStore = self.collectionStore else { return }
+                guard self.isLibraryFeatureEnabled, let collectionStore = self.collectionStore else { return }
                 // **並べ替える前に、並びと名前を決める材料が変わったかを見る**(2026-09-15 の 4 回目の監査)。`revision` は表紙の抽出
                 // 1 枚ごとにも進むので、以前はそのたびに全ライブラリのコレクションを `localizedStandardCompare` で並べ替えていた。
                 let fingerprint = Fingerprint(collectionStore)

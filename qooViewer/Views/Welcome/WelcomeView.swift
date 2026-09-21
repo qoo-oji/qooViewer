@@ -40,16 +40,22 @@ struct WelcomeView: View {
     /// (別のウインドウで削除された場合。ライブラリは必ず1つ以上ある ――
     /// CollectionStore.ensureDefaultLibrary)。
     private var library: BookLibrary? {
-        WelcomeDropHandling.resolvedLibrary(state: state, collectionStore: collectionStore)
+        // ライブラリ機能がOFFの間は引かない(名前を訊くシートも出さない)。
+        guard state.isLibraryFeatureEnabled else { return nil }
+        return WelcomeDropHandling.resolvedLibrary(state: state, collectionStore: collectionStore)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            WelcomeTopBar(
-                state: state, allowsEditing: allowsEditing, selectedLibraryID: library?.id
-            )
-            // 標準の Divider はすりガラスの上で薄く、帯と中身の境目が読みにくい(WelcomeSeparator参照)。
-            WelcomeSeparator(axis: .horizontal)
+            // ライブラリ機能がOFFの間は帯ごと出さない(環境設定「ライブラリを有効にする」。2026-09-21、ユーザー要望) ―― 帯に並ぶのは
+            // ライブラリと、本棚 ⇄ ファイルブラウザの切り替えだけで、ファイルブラウザしか無いなら置く意味が無い。
+            if state.isLibraryFeatureEnabled {
+                WelcomeTopBar(
+                    state: state, allowsEditing: allowsEditing, selectedLibraryID: library?.id
+                )
+                // 標準の Divider はすりガラスの上で薄く、帯と中身の境目が読みにくい(WelcomeSeparator参照)。
+                WelcomeSeparator(axis: .horizontal)
+            }
             if state.mode == .browser {
                 FileBrowserPane(state: fileBrowser)
             } else if let library {
@@ -102,6 +108,8 @@ struct WelcomeView: View {
         // 「中で`weak`なのに外側が暗黙に強く捕まえている」形を警告する(#ImplicitStrongCapture)。
         // 捕まえ方は今までと同じで、AppStateに預ける閉包が弱いまま、という下のコメントの肝は変わらない。
         .onAppear { [state, collectionStore, coverExtractor, preferences] in
+            // ライブラリ機能がOFFの間は、下の2つは呼んでも何もしない(それぞれの isLibraryFeatureEnabled)。ドロップの受け口は
+            // 編集モードのときだけ引き受けるので、編集モードに入れないOFFの間は常に「本を開く」へ回る。
             coverExtractor.refill()
             // 自動登録フォルダを見に行く契機のひとつ(CollectionAutoFolderScannerの型コメント
             // 参照。監視の取りこぼしを、この画面を見にきた時点で回収する)。

@@ -1062,7 +1062,10 @@ final class AppState: ObservableObject {
                         self.layoutStore?.reconcileBookIDIfMoved(book: book)
                         self.bookmarkStore?.reconcileBookIDIfMoved(book: book)
                         self.metadataStore?.reconcileBookIDIfMoved(book: book)
-                        self.collectionStore?.reconcileBookIDIfMoved(book: book)
+                        // ライブラリ機能がOFFの間は、コレクションの行には触らない(登録した本の全件フェッチを伴う。
+                        // 同じボリュームの中の移動は、ONへ戻したときの存在確認がブックマークで追う。AppStores.applyLibraryFeature)。
+                        let tracksCollections = self.preferences?.libraryFeatureEnabled ?? true
+                        if tracksCollections { self.collectionStore?.reconcileBookIDIfMoved(book: book) }
                         // 識別子の補完(backfill)は5つのストアすべてに対して行う。
                         // 識別子を持たない古い行に足すのが元々の役目だったが、**ボリュームUUIDを
                         // 持たない行をUUIDでの照合へ昇格させる唯一の経路**でもある
@@ -1080,9 +1083,11 @@ final class AppState: ObservableObject {
                             self.bookmarkStore?.backfillFileNodeIdentifier(
                                 forBookID: book.id, identifier: identifier
                             )
-                            self.collectionStore?.backfillFileNodeIdentifier(
-                                forBookID: book.id, identifier: identifier
-                            )
+                            if tracksCollections {
+                                self.collectionStore?.backfillFileNodeIdentifier(
+                                    forBookID: book.id, identifier: identifier
+                                )
+                            }
                         }
                     }
                     // メタデータを登録した時点ではこの本を開いていない(「メタデータの編集」

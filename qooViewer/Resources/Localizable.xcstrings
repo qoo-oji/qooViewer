@@ -564,6 +564,22 @@
         }
       }
     },
+    "Enable Libraries" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable Libraries"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブラリを有効にする"
+          }
+        }
+      }
+    },
     "Enter both extensions. This rule renames nothing until then." : {
       "localizations" : {
         "en" : {
@@ -1328,6 +1344,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "規則"
+          }
+        }
+      }
+    },
+    "Shows the bookshelf — libraries and collections — on the Home screen. When off, Home shows only the file browser, the library and collection items disappear from the menus, context menus and the side panel, and the background work that exists only for libraries stops: checking that registered books are still there, making covers, and watching auto-add folders. Your libraries and collections are kept and come back when you turn this on again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows the bookshelf — libraries and collections — on the Home screen. When off, Home shows only the file browser, the library and collection items disappear from the menus, context menus and the side panel, and the background work that exists only for libraries stops: checking that registered books are still there, making covers, and watching auto-add folders. Your libraries and collections are kept and come back when you turn this on again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホームに本棚(ライブラリとコレクション)を表示します。オフにすると、ホームはファイルブラウザだけになり、メニュー・右クリックメニュー・サイドパネルからライブラリとコレクションの項目が消え、ライブラリのためだけの裏の処理(登録した本があるかの確認・表紙の作成・自動登録フォルダの監視)が止まります。ライブラリとコレクションは消えず、オンに戻せば元どおり表示されます。"
           }
         }
       }

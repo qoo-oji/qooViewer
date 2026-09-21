@@ -171,6 +171,12 @@ final class FileBrowserActions {
 
     // MARK: - 書く操作(段階4。実体は FileBrowserOperations)
 
+    /// ホームのライブラリ機能が有効か(環境設定「ライブラリを有効にする」)。OFFなら右クリックにコレクションの項目を出さず、
+    /// 操作の入り口でも断る(`allowsSaving`と並べて確かめる)。
+    var isLibraryFeatureEnabled: Bool {
+        preferences?.libraryFeatureEnabled ?? true
+    }
+
     /// ファイルを変える操作ができるか(読み取り専用モードでない。段階 8.5)。項目を淡色にするための読み出しで、
     /// 断るのは `FileBrowserOperations` の入り口(ここで淡色にし忘れても、そこで止まる)。
     var allowsFileChanges: Bool {
@@ -533,7 +539,18 @@ enum FileBrowserMenuCommand {
     case getInfo
 
     /// 種類ごとの並び。内側の配列が区切り線で分かれる 1 群。
-    static func groups(for kind: FileBrowserMenuKind) -> [[FileBrowserMenuCommand]] {
+    ///
+    /// - Parameter includesLibrary: false なら「コレクションを作成」「コレクションに登録」の群を省く(環境設定「ライブラリを有効にする」がOFF。
+    ///   2026-09-21)。選択の状態で項目の数を変えない決まりとは別の話 ―― 機能そのものが無いので、淡色で残さずに消す。
+    static func groups(for kind: FileBrowserMenuKind, includesLibrary: Bool = true) -> [[FileBrowserMenuCommand]] {
+        let groups = allGroups(for: kind)
+        guard !includesLibrary else { return groups }
+        return groups
+            .map { $0.filter { $0 != .createCollection && $0 != .addToCollection } }
+            .filter { !$0.isEmpty }
+    }
+
+    private static func allGroups(for kind: FileBrowserMenuKind) -> [[FileBrowserMenuCommand]] {
         switch kind {
         case .folder:
             [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow],
@@ -647,8 +664,8 @@ enum FileBrowserMenuCommand {
         case .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow:
             return actions.canOpenInNewWindow(entries)
         case .createCollection, .addToCollection:
-            // 保存データへの書き込みなので、シークレットウインドウでは淡色(決定事項 Q8)。
-            return actions.allowsSaving && actions.canUseAsBooks(entries)
+            // 保存データへの書き込みなので、シークレットウインドウでは淡色(決定事項 Q8)。ライブラリ機能がOFFなら項目ごと出ない。
+            return actions.isLibraryFeatureEnabled && actions.allowsSaving && actions.canUseAsBooks(entries)
         case .openWith:
             return !entries.isEmpty && !entries.contains(where: \.isVolume)
         case .alwaysOpenWith:
@@ -728,7 +745,7 @@ final class FileBrowserMenuBuilder: NSObject {
         self.context = context
         self.actions = actions
         guard let actions else { return }
-        for group in FileBrowserMenuCommand.groups(for: context.kind) {
+        for group in FileBrowserMenuCommand.groups(for: context.kind, includesLibrary: actions.isLibraryFeatureEnabled) {
             if !menu.items.isEmpty { menu.addItem(.separator()) }
             for command in group {
                 menu.addItem(fullMenuItem(for: command, locale: locale, actions: actions))

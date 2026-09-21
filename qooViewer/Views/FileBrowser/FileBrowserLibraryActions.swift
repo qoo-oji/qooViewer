@@ -37,7 +37,7 @@ extension FileBrowserActions {
     /// - Returns: 振り分けの Task(**テストのための口**。待ち合わせに使う)。
     @discardableResult
     func createCollection(from entries: [FileBrowserEntry], libraryID: UUID? = nil) -> Task<Void, Never>? {
-        guard allowsSaving, canUseAsBooks(entries) else { return nil }
+        guard isLibraryFeatureEnabled, allowsSaving, canUseAsBooks(entries) else { return nil }
         let urls = entries.map(\.url)
         let order = preferences?.siblingBookOrder ?? .byName
         return Task { [weak self] in
@@ -79,7 +79,7 @@ extension FileBrowserActions {
     /// - Returns: 登録の Task(**テストのための口**)。
     @discardableResult
     func addToCollection(_ entries: [FileBrowserEntry], collectionID: UUID) -> Task<Void, Never>? {
-        guard allowsSaving, canUseAsBooks(entries) else { return nil }
+        guard isLibraryFeatureEnabled, allowsSaving, canUseAsBooks(entries) else { return nil }
         let urls = entries.map(\.url)
         let order = preferences?.siblingBookOrder ?? .byName
         return Task { [weak self] in

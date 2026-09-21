@@ -89,6 +89,7 @@ final class AppPreferences: ObservableObject {
         static let filmstripHighlightBorderWidth = "qooViewer.pref.filmstripHighlightBorderWidth"
         static let offersRemovingMissingCollectionBooks =
             "qooViewer.pref.offersRemovingMissingCollectionBooks"
+        static let libraryFeatureEnabled = "qooViewer.pref.libraryFeatureEnabled"
         static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
         static let thumbnailGridCellSize = "qooViewer.pref.thumbnailGridCellSize"
         static let thumbnailGridHorizontalSpacing = "qooViewer.pref.thumbnailGridHorizontalSpacing"
@@ -1056,6 +1057,21 @@ final class AppPreferences: ObservableObject {
             )
         }
     }
+    /// ホームのライブラリ機能(本棚: ライブラリ・コレクション)を使うか(ユーザー要望 2026-09-21。既定ON)。
+    ///
+    /// OFFにすると、ホームはファイルブラウザだけになり(帯ごと消える)、メニュー・右クリック・サイドパネルのライブラリの項目が
+    /// 消え、**ライブラリのためだけの仕事が止まる**(登録した本の実体確認・表紙の抽出・自動登録フォルダの監視と走査・起動時の掃除)。
+    /// サイドパネル機能のON/OFF(sidePanelFeatureEnabled)と同じ位置づけで、ファイルビューアとしてだけ使う人向け。
+    /// **保存データは消さない** ―― ONへ戻せば棚は元のまま見える(止めていた仕事はその時点で動き出す)。何が止まり何が
+    /// 止まらないかの一覧は `AppStores.applyLibraryFeature` のコメント。
+    @Published var libraryFeatureEnabled: Bool {
+        didSet { defaults.set(libraryFeatureEnabled, forKey: Keys.libraryFeatureEnabled) }
+    }
+    /// 保存されている値(無ければON)。環境設定のオブジェクトが届く前に要る場所のための口 ―― ウインドウの最初の1コマを
+    /// 本棚で描かないために、WelcomeLibraryState が init で読む。
+    static func storedLibraryFeatureEnabled(in defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: Keys.libraryFeatureEnabled) as? Bool ?? true
+    }
     /// ウェルカム画面に「最近お気に入りに追加したファイル」一覧(最大10件)を表示するかどうか(既定ON)。
     @Published var showRecentFavoritesOnWelcome: Bool {
         didSet {
@@ -1722,6 +1738,7 @@ final class AppPreferences: ObservableObject {
             ?? Self.defaultRecentFilesLimit
         self.offersRemovingMissingCollectionBooks =
             defaults.object(forKey: Keys.offersRemovingMissingCollectionBooks) as? Bool ?? false
+        self.libraryFeatureEnabled = Self.storedLibraryFeatureEnabled(in: defaults)
         self.showRecentFavoritesOnWelcome =
             defaults.object(forKey: Keys.showRecentFavoritesOnWelcome) as? Bool ?? true
         self.thumbnailGridCellSize = defaults.object(forKey: Keys.thumbnailGridCellSize) as? Double ?? 120
@@ -1918,6 +1935,7 @@ extension AppPreferences {
                 // maxTrackedBooksCount / recentFilesLimit は意図的に含めない(上のコメント参照)。
                 Keys.showRecentFavoritesOnWelcome,
                 Keys.offersRemovingMissingCollectionBooks,
+                Keys.libraryFeatureEnabled,
                 Keys.sidePanelFeatureEnabled,
                 Keys.sidePanelPosition,
                 Keys.sidePanelUsesDoubleClick,
@@ -2091,6 +2109,7 @@ extension AppPreferences {
             // maxTrackedBooksCount / recentFilesLimit は意図的に戻さない(keys(for:)のコメント参照)。
             showRecentFavoritesOnWelcome = source.showRecentFavoritesOnWelcome
             offersRemovingMissingCollectionBooks = source.offersRemovingMissingCollectionBooks
+            libraryFeatureEnabled = source.libraryFeatureEnabled
             sidePanelFeatureEnabled = source.sidePanelFeatureEnabled
             sidePanelPosition = source.sidePanelPosition
             sidePanelUsesDoubleClick = source.sidePanelUsesDoubleClick

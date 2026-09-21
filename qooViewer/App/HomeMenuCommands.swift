@@ -56,6 +56,8 @@ enum HomeMenuKeyRouting {
 /// いまの値に対して作る。メニューの値(`get`)は MenuBarMenuGate の保留で古いことがあり、AX で続けて押したとき
 /// 「編集モード」が 1 回目に効かず 2 回目に入った。「スライドショー」などの既存の Toggle と同じ書き方。
 struct HomeMenuItems: View {
+    /// 環境設定「ライブラリを有効にする」。false なら、ライブラリとコレクションの項目(本棚 ⇄ ファイルブラウザの切り替えを含む)を出さない。
+    let isLibraryFeatureEnabled: Bool
     let home: HomeMenuState
     let selection: FileBrowserMenuSelection?
     let directory: HomeMenuDirectory
@@ -67,6 +69,19 @@ struct HomeMenuItems: View {
     let openAutoRenameSettings: @MainActor () -> Void
 
     var body: some View {
+        if isLibraryFeatureEnabled {
+            libraryItems
+            Divider()
+        }
+
+        // ほかの項目と同じく、本を読んでいるウインドウでは淡色(型コメント「項目の数を状態で変えない」)。規則は保存を伴うので、
+        // シークレットウインドウでも淡色(右クリックの「自動リネーム」と同じ。決定事項 Q8)。
+        Button("Auto Rename Settings…") { openAutoRenameSettings() }
+            .disabled(!home.isShown || !home.allowsEditing)
+    }
+
+    @ViewBuilder
+    private var libraryItems: some View {
         Toggle("File Browser", isOn: Binding(
             get: { [home] in home.isShown && home.mode == .browser },
             set: { [weak appState] _ in
@@ -198,13 +213,6 @@ struct HomeMenuItems: View {
             .disabled(!home.canShowLibrarySettings)
         Button("Collection Settings…") { [weak appState] in Self.request(.showSettings, appState) }
             .disabled(!home.canShowCollectionSettings)
-
-        Divider()
-
-        // ほかの項目と同じく、本を読んでいるウインドウでは淡色(型コメント「項目の数を状態で変えない」)。規則は保存を伴うので、
-        // シークレットウインドウでも淡色(右クリックの「自動リネーム」と同じ。決定事項 Q8)。
-        Button("Auto Rename Settings…") { openAutoRenameSettings() }
-            .disabled(!home.isShown || !home.allowsEditing)
     }
 
     private static func request(_ kind: WelcomeLibraryState.HomeMenuRequest.Kind, _ appState: AppState?) {
