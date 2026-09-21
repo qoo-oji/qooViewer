@@ -176,7 +176,8 @@ struct ContentView: View {
     private let isMainWindowGroup: Bool
 
     /// ウインドウ/タブのタイトル(bodyの.navigationTitle参照)。シークレットウインドウは、
-    /// 通常ウインドウと見分けがつくよう先頭に「(シークレット)」を付ける。
+    /// 通常ウインドウと見分けがつくよう先頭に「(シークレット)」を付ける(文字は環境設定「外観」で変えられ、空なら付けない。
+    /// AppPreferences.privateWindowTitlePrefix)。
     ///
     /// 本を開いていなければ、ファイルブラウザはいまのフォルダ、本棚はライブラリ/コレクションの名前
     /// (2026-09-14、ユーザー要望。一律「qooViewer」だとタブを見分けられなかった。WindowTitleの型コメント)。
@@ -189,7 +190,7 @@ struct ContentView: View {
             )
         } ?? welcomeTitle
         guard isPrivateWindow else { return base }
-        return String(localized: "(Private) \(base)", language: preferences.effectiveLocale)
+        return preferences.privateWindowTitle(for: base)
     }
 
     /// 本を開いていないときのタイトル。`collectionStore` は環境オブジェクトなので、名前の変更でも作り直される。
@@ -503,7 +504,7 @@ struct ContentView: View {
     }
 
     /// このウインドウが使う外観の揃い(ノーマル/シークレット。AppearanceSettings の型コメント)。シークレットウインドウでも、
-    /// 環境設定「シークレットウインドウに別の外観を使う」が OFF ならノーマルの揃い。
+    /// 環境設定「シークレットウインドウに固有の外観を適用」が OFF ならノーマルの揃い。
     private var effectiveAppearance: AppearanceSettings {
         preferences.appearance(forPrivateWindow: appState.isPrivateWindow)
     }

@@ -33,6 +33,7 @@ final class AppPreferences: ObservableObject {
         static let prefetchPageCount = "qooViewer.pref.prefetchPageCount"
         static let displayLanguage = AppLanguage.defaultsKey
         static let privateWindowsUseOwnAppearance = "qooViewer.pref.privateWindowsUseOwnAppearance"
+        static let privateWindowTitlePrefix = "qooViewer.pref.privateWindowTitlePrefix"
         /// シークレットの揃いをノーマルの値から始めたかどうか(設定ではなく記録。privateWindowsUseOwnAppearance参照)。
         static let privateAppearanceInitialized = "qooViewer.pref.privateAppearanceInitialized"
         static let reopenBehavior = "qooViewer.pref.reopenBehavior"
@@ -257,7 +258,42 @@ final class AppPreferences: ObservableObject {
         }
     }
 
-    /// そのウインドウが使う外観の揃い。シークレットウインドウでも、別の外観を使う設定がOFFならノーマルの揃い。
+    /// シークレットウインドウのタイトルの先頭に付ける文字(環境設定「外観」→「ウインドウ」。2026-09-22、ユーザー要望)。
+    ///
+    /// **nil = 既定**の「(シークレット)」(表示言語に合わせて訳す。文字列カタログの "(Private) %@")。ユーザーが書き換えたら
+    /// その文字列をそのまま使い(絵文字も可)、**空なら何も付けない** ―― タイトルバーの色でシークレットウインドウを見分けられる
+    /// ようになったので、文字は要らないという人のため(ユーザー要望)。既定を「未指定」として別に持つのは、表示言語を切り替えたときに
+    /// 既定の文字も追従させるため(タイトルバーの色の nil と同じ考え方)。
+    ///
+    /// 外観の揃いではなくアプリ全体で1つ(タイトルの文字はノーマル/シークレットの外観の切り替えとは関係なく、シークレットウインドウ
+    /// にだけ付くもの)。「ウインドウ」セクションのスイッチと同じく、外観の画面の「初期設定に戻す」では戻さない(行の右の矢印で既定へ戻す)。
+    @Published var privateWindowTitlePrefix: String? {
+        didSet {
+            if let privateWindowTitlePrefix {
+                defaults.set(privateWindowTitlePrefix, forKey: Keys.privateWindowTitlePrefix)
+            } else {
+                defaults.removeObject(forKey: Keys.privateWindowTitlePrefix)
+            }
+        }
+    }
+
+    /// 既定の「(シークレット)」(いまの表示言語で)。環境設定の入力欄に、未指定のときに出す文字でもある。
+    var defaultPrivateWindowTitlePrefix: String {
+        // カタログのキーは "(Private) %@"(ウインドウのタイトルの組み立てにずっと使ってきたもの)。訳語の側で語順が
+        // 変わっていても崩れないよう、本題を空にした形から前置きだけを取り出す。
+        String(localized: "(Private) \("")", language: effectiveLocale).trimmingCharacters(in: .whitespaces)
+    }
+
+    /// シークレットウインドウのタイトル。`base` は本の名前やフォルダ名など、ノーマルウインドウならそのまま出すもの。
+    func privateWindowTitle(for base: String) -> String {
+        guard let privateWindowTitlePrefix else {
+            return String(localized: "(Private) \(base)", language: effectiveLocale)
+        }
+        let prefix = privateWindowTitlePrefix.trimmingCharacters(in: .whitespacesAndNewlines)
+        return prefix.isEmpty ? base : "\(prefix) \(base)"
+    }
+
+    /// そのウインドウが使う外観の揃い。シークレットウインドウでも、「シークレットウインドウに固有の外観を適用」がOFFならノーマルの揃い。
     func appearance(forPrivateWindow isPrivateWindow: Bool) -> AppearanceSettings {
         isPrivateWindow && privateWindowsUseOwnAppearance ? privateAppearance : appearance
     }
@@ -1137,6 +1173,7 @@ final class AppPreferences: ObservableObject {
         self.privateAppearance = AppearanceSettings(profile: .privateWindow, defaults: defaults)
         self.privateWindowsUseOwnAppearance =
             defaults.object(forKey: Keys.privateWindowsUseOwnAppearance) as? Bool ?? false
+        self.privateWindowTitlePrefix = defaults.string(forKey: Keys.privateWindowTitlePrefix)
         self.launchOpensLastBook = defaults.object(forKey: Keys.launchOpensLastBook) as? Bool ?? false
         self.launchFullScreen = defaults.object(forKey: Keys.launchFullScreen) as? Bool ?? false
         // 旧設定の読み替えは、下の2つを読む**前に**済ませる(新しいキーへ書き込むため)。

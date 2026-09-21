@@ -46,7 +46,7 @@ final class SettingsNavigator: ObservableObject {
     @Published var openedAppearanceSurface: PanelSurface?
 
     /// 環境設定「外観」で編集している揃い(ノーマルウインドウ用/シークレットウインドウ用。2026-09-22)。
-    /// 「シークレットウインドウに別の外観を使う」が OFF の間は意味を持たない(ノーマルだけを編集する)。
+    /// 「シークレットウインドウに固有の外観を適用」が OFF の間は意味を持たない(ノーマルだけを編集する)。
     /// 子ページと同じく次回に持ち越さない ―― 外観の画面を閉じるたびにノーマルへ戻す(AppearanceSettingsView.body の onDisappear)。
     @Published var editingAppearanceProfile: AppearanceProfile = .normal
 

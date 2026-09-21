@@ -86,6 +86,8 @@ func mutateEverySetting(_ p: AppPreferences) {
     // MARK: 外観(揃いごとの設定は mutateEveryAppearanceSetting。シークレットの揃いは AppearanceSettingsTests が見る)
     mutateEveryAppearanceSetting(p.appearance)
     p.privateWindowsUseOwnAppearance.toggle()
+    // 既定は nil(= 表示言語に合わせた「(シークレット)」)。文字を入れれば動いたことになる。
+    p.privateWindowTitlePrefix = (p.privateWindowTitlePrefix ?? "") + "🕶️"
 
     // MARK: 本を開く
     p.reopenBehavior = otherCase(p.reopenBehavior)

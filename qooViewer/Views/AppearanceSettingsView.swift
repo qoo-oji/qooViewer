@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// 環境設定ウインドウの「外観」画面。
@@ -49,7 +50,7 @@ import SwiftUI
 /// (面を足してもこのファイルは触らなくてよい)。
 ///
 /// ■ ノーマルウインドウとシークレットウインドウ(2026-09-22、ユーザー要望)
-/// 「シークレットウインドウに別の外観を使う」を ON にすると、いちばん上の「編集する外観」で、この画面と子ページの全部が
+/// 「シークレットウインドウに固有の外観を適用」を ON にすると、いちばん上の「編集する外観」で、この画面と子ページの全部が
 /// どちらの揃い(AppearanceSettings)を編集するかを選べる。この型は編集する揃いを選んで中身(AppearanceSettingsContent)へ
 /// 渡すだけ ―― 中身は渡された揃いを `@ObservedObject` で持つので、揃いを切り替えても、同じ揃いの値が変わっても描き直される。
 /// 「初期設定に戻す」は編集中の揃いだけを戻し、このスイッチ自体は戻さない(AppPreferences.privateWindowsUseOwnAppearance)。
@@ -175,7 +176,7 @@ private struct AppearanceSettingsContent: View {
 
     // MARK: - ノーマル/シークレット
 
-    /// シークレットウインドウに別の外観を使うかどうかと、この画面でどちらを編集するか(2026-09-22、ユーザー要望)。
+    /// シークレットウインドウに固有の外観を適用かどうかと、この画面でどちらを編集するか(2026-09-22、ユーザー要望)。
     /// いちばん上に置くのは、この選択が下の全部(子ページを含む)の意味を決めるため。
     private var privateWindowSection: some View {
         Section {
@@ -184,6 +185,7 @@ private struct AppearanceSettingsContent: View {
                 isOn: $preferences.privateWindowsUseOwnAppearance,
                 help: "When off, private windows look the same as normal windows. When you first turn it on, private windows start from a copy of the normal windows’ appearance."
             )
+            PrivateWindowTitlePrefixRow()
             if preferences.privateWindowsUseOwnAppearance {
                 SettingsPicker(
                     "Appearance to Edit",
@@ -314,6 +316,65 @@ private struct AppearanceSettingsContent: View {
                 appearance.backgroundColorOption = previous
             }
             backgroundOptionBeforeCustomizing = nil
+        }
+    }
+}
+
+// MARK: - シークレットウインドウのタイトルの先頭
+
+/// シークレットウインドウのタイトルの先頭に付ける文字の入力欄(AppPreferences.privateWindowTitlePrefix。2026-09-22、ユーザー要望)。
+///
+/// 未指定(nil)の間は既定の「(シークレット)」をそのまま欄に出す ―― 何が付くのかが見え、消せば「付けない」になる。
+/// 既定へ戻す矢印は、書き換えてあるときだけ出す(タイトルバーの色の行と同じ。SettingsColorRow の `reset`)。
+/// 絵文字は macOS の文字ビューア(⌃⌘Space)でそのまま入る。その入口を知らない人のために、欄の右に文字ビューアを開くボタンを置く
+/// (欄に入力を移してから開かないと、選んだ文字の入る先が無い)。
+private struct PrivateWindowTitlePrefixRow: View {
+    @EnvironmentObject private var preferences: AppPreferences
+    @FocusState private var isFieldFocused: Bool
+
+    var body: some View {
+        SettingRow(
+            "Private Window Title Prefix",
+            help: "Shown before the title of private windows. Leave it empty to show nothing, for example when a title bar color already tells them apart. You can use emoji."
+        ) {
+            HStack(spacing: 8) {
+                TextField(
+                    "",
+                    text: Binding(
+                        get: { preferences.privateWindowTitlePrefix ?? preferences.defaultPrivateWindowTitlePrefix },
+                        set: { preferences.privateWindowTitlePrefix = $0 }
+                    ),
+                    prompt: Text("None")
+                )
+                .textFieldStyle(.roundedBorder)
+                .labelsHidden()
+                .frame(width: 150)
+                .focused($isFieldFocused)
+                .accessibilityLabel(Text("Private Window Title Prefix"))
+                Button {
+                    isFieldFocused = true
+                    // 入力の移り先が決まってから開く(同じ周回で開くと、選んだ絵文字が欄に入らないことがある)。
+                    DispatchQueue.main.async { NSApp.orderFrontCharacterPalette(nil) }
+                } label: {
+                    Image(systemName: "face.smiling")
+                }
+                .help("Emoji & Symbols")
+                .accessibilityLabel(Text("Emoji & Symbols"))
+                // 矢印は出し入れせず、未指定の間は見えなくするだけにする(場所は取っておく)。出し入れすると行の幅が変わり、
+                // SettingRow が「左ラベル / 右コントロール」と「上ラベル / 下コントロール」を切り替えて欄が作り直される ――
+                // 1文字目を打った瞬間に既定から書き換えた扱いになって矢印が現れるので、入力中の欄から焦点が外れていた(実機で確認)。
+                let isCustomized = preferences.privateWindowTitlePrefix != nil
+                Button {
+                    preferences.privateWindowTitlePrefix = nil
+                } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                }
+                .help("Reset")
+                .accessibilityLabel(Text("Reset"))
+                .opacity(isCustomized ? 1 : 0)
+                .disabled(!isCustomized)
+                .accessibilityHidden(!isCustomized)
+            }
         }
     }
 }

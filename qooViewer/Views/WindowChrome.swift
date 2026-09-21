@@ -140,7 +140,7 @@ private struct WindowChromeModifier: ViewModifier {
                 // didSet より前(willSet)に届くので、NSApp.appearance が掛け替わってから引き直す。
                 Task { @MainActor in appAppearanceRevision += 1 }
             }
-            // ウインドウが決まった時点の一度目は ContentView の WindowAccessor が塗る。揃いが入れ替わった(「別の外観を使う」を
+            // ウインドウが決まった時点の一度目は ContentView の WindowAccessor が塗る。揃いが入れ替わった(「固有の外観を適用」を
             // 切り替えた)ときも色が変わる。
             .onChange(of: color) { _, newColor in
                 guard let window else { return }

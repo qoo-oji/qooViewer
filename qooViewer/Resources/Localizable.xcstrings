@@ -596,6 +596,22 @@
         }
       }
     },
+    "Emoji & Symbols" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Emoji & Symbols"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "絵文字と記号"
+          }
+        }
+      }
+    },
     "Enable File Browser" : {
       "localizations" : {
         "en" : {
@@ -1220,6 +1236,22 @@
         }
       }
     },
+    "Private Window Title Prefix" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Private Window Title Prefix"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットウインドウの目印"
+          }
+        }
+      }
+    },
     "Private Windows" : {
       "localizations" : {
         "en" : {
@@ -1472,6 +1504,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "規則"
+          }
+        }
+      }
+    },
+    "Shown before the title of private windows. Leave it empty to show nothing, for example when a title bar color already tells them apart. You can use emoji." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shown before the title of private windows. Leave it empty to show nothing, for example when a title bar color already tells them apart. You can use emoji."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットウインドウのタイトルの前に付ける文字です。空にすると何も付けません(タイトルバーの色で見分けられる場合など)。絵文字も使えます。"
           }
         }
       }
@@ -1887,7 +1935,7 @@
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "シークレットウインドウに別の外観を使う"
+            "value" : "シークレットウインドウに固有の外観を適用"
           }
         }
       }

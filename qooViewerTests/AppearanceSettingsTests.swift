@@ -102,7 +102,7 @@ struct AppearanceSettingsTests {
         #expect(settingsSnapshot(of: other) == otherMutated)
     }
 
-    // MARK: - 「シークレットウインドウに別の外観を使う」
+    // MARK: - 「シークレットウインドウに固有の外観を適用」
 
     @Test("OFF の間は、シークレットウインドウもノーマルの揃いを使う")
     func privateWindowsFollowNormalWhileOff() {
@@ -165,5 +165,47 @@ struct AppearanceSettingsTests {
         case .normal: p.appearance
         case .privateWindow: p.privateAppearance
         }
+    }
+}
+
+/// シークレットウインドウのタイトルの先頭に付ける文字(AppPreferences.privateWindowTitlePrefix。2026-09-22)。
+@MainActor
+struct PrivateWindowTitlePrefixTests {
+    @Test("未指定なら表示言語の「(シークレット)」を付ける")
+    func unsetUsesTheLocalizedDefault() {
+        let p = PreferencesSuite(label: "titlePrefix").makePreferences()
+        p.displayLanguage = .japanese
+        #expect(p.privateWindowTitle(for: "本") == "(シークレット) 本")
+        #expect(p.defaultPrivateWindowTitlePrefix == "(シークレット)")
+        p.displayLanguage = .english
+        #expect(p.privateWindowTitle(for: "Book") == "(Private) Book")
+        #expect(p.defaultPrivateWindowTitlePrefix == "(Private)")
+    }
+
+    @Test("空(空白だけも)なら何も付けない")
+    func emptyShowsNothing() {
+        let p = PreferencesSuite(label: "titlePrefix").makePreferences()
+        p.privateWindowTitlePrefix = ""
+        #expect(p.privateWindowTitle(for: "本") == "本")
+        p.privateWindowTitlePrefix = "  "
+        #expect(p.privateWindowTitle(for: "本") == "本")
+    }
+
+    @Test("書き換えた文字(絵文字も)をそのまま付け、保存して開き直しても同じ")
+    func customPrefixIsUsedAndPersisted() {
+        let suite = PreferencesSuite(label: "titlePrefix")
+        let p = suite.makePreferences()
+        p.privateWindowTitlePrefix = " 🕶️ 秘密 "
+        #expect(p.privateWindowTitle(for: "本") == "🕶️ 秘密 本")
+
+        let reopened = suite.makePreferences()
+        #expect(reopened.privateWindowTitlePrefix == " 🕶️ 秘密 ")
+        // 空も「付けない」として保存される(未指定 = 既定、とは区別する)。
+        reopened.privateWindowTitlePrefix = ""
+        #expect(suite.makePreferences().privateWindowTitlePrefix == "")
+        // 未指定へ戻すとキーごと消え、既定の文字に戻る。
+        reopened.privateWindowTitlePrefix = nil
+        #expect(suite.storedDomain["qooViewer.pref.privateWindowTitlePrefix"] == nil)
+        #expect(suite.makePreferences().privateWindowTitlePrefix == nil)
     }
 }

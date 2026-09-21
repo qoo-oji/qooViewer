@@ -53,6 +53,7 @@ struct AppPreferencesTests {
         // シークレットウインドウは、既定ではノーマルウインドウの外観に従う(ユーザーの指定)。
         #expect(p.privateWindowsUseOwnAppearance == false)
         #expect(p.appearance(forPrivateWindow: true) === p.appearance)
+        #expect(p.privateWindowTitlePrefix == nil)
     }
 
     @Test("保存された MB の値が NaN・巨大・範囲外・数でなくても、起動で落ちずに範囲へ収まる")
@@ -301,9 +302,12 @@ struct AppPreferencesTests {
         "folderBrowserSortKey", "folderBrowserSortDirection",
         // 初回起動でシステムの言語から一度だけ決める値(環境設定の画面には無い)。
         "defaultReadingDirection",
-        // 外観タブの「シークレットウインドウに別の外観を使う」。タブの「初期設定に戻す」は編集中の揃いを戻すもので、
+        // 外観タブの「シークレットウインドウに固有の外観を適用」。タブの「初期設定に戻す」は編集中の揃いを戻すもので、
         // このスイッチは揃いではないので戻さない(AppPreferences.privateWindowsUseOwnAppearance)。
         "privateWindowsUseOwnAppearance",
+        // シークレットウインドウのタイトルの先頭の文字。上のスイッチと同じ「ウインドウ」セクションにあり、同じ理由で戻さない
+        // (行の右の矢印で既定へ戻す。AppPreferences.privateWindowTitlePrefix)。
+        "privateWindowTitlePrefix",
     ]
 
     @Test("すべての設定が、いずれかの画面か「戻さない」のどちらかに割り当てられている")
