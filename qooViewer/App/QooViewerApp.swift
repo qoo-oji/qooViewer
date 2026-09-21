@@ -598,6 +598,7 @@ struct QooViewerApp: App {
     /// 環境設定「ファイルブラウザを有効にする」が OFF の間、上の 3 つの入り口はどれも消える・淡色になるが、この自動の項目だけは設定を
     /// 見ないので、そこから開けてしまう(2026-09-21 の監査 docs/plans/feature-toggle-audit.md の F1)。`SceneBuilder` は条件分岐できないので、
     /// ON の間も「ウインドウ」メニューには並べない。OFF にした時点で開いていたウインドウは、自分で閉じる(AutoRenameSettingsWindow)。
+    /// 開いている間だけメニュー下端のウインドウの一覧に載せる指定も、あちらにある(`.commandsRemoved()` は一覧からも外してしまう)。
     private func autoRenameSettingsScene(locale: Locale) -> some Scene {
         Window(String(localized: "Auto Rename Settings", language: locale), id: AutoRenameSettingsWindow.windowID) {
             AutoRenameSettingsWindow()

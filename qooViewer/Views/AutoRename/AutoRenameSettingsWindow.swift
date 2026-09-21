@@ -79,6 +79,13 @@ struct AutoRenameSettingsWindow: View {
         .onChange(of: preferences.fileBrowserFeatureEnabled, initial: true) { _, isEnabled in
             if !isEnabled { dismissWindow(id: Self.windowID) }
         }
+        // シーンの `.commandsRemoved()`(QooViewerApp.autoRenameSettingsScene ―― 「ウインドウ」メニューに常に並ぶ「開く」項目を落とす)は、
+        // **開いている間の、メニュー下端の「開いているウインドウの一覧」からもこのウインドウを外してしまう**(2026-09-21 の実機。シーンの
+        // 項目がその一覧の行を兼ねていた)。一覧に載るかどうかは NSWindow の側の指定なので、自分の載っているウインドウへ直に戻す。
+        // 載るのは開いている間だけで、閉じれば消える(実機で確認)ので、ファイルブラウザ機能が OFF の間の入り口にはならない。
+        .background(WindowAccessor { window in
+            window?.isExcludedFromWindowsMenu = false
+        })
         .onChange(of: store.rules.map(\.id)) { _, ids in
             if let selected = selection, !ids.contains(selected) { selection = ids.first }
         }
