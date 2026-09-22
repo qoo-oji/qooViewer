@@ -211,7 +211,17 @@ remaining stages and the handoff in `docs/plans/file-browser-plan.md`.
 (`reconcileBookIDIfMoved`, `applyBookRelocation`, `BookRecordRelocator`) must also rewrite the page keys stored with it —
 `PageLayoutOverride.pageKey`, `coverPageKey` / `shelfCoverPageKey`, `Bookmark.pageKey`, `BookReadingState.lastPageKey` — through
 `PageKeyRelocation` (2026-09-21; before that only `bookID` moved and per-page layout and cover choices silently fell off). New
-page-keyed persisted data must join that list (docs/06「移動・リネームへの追従」). File-operation progress is shown by
+page-keyed persisted data must join that list (docs/06「移動・リネームへの追従」). **Moves made outside the app are followed too**
+(2026-09-22): the collection existence check (`CollectionStore.onBooksFoundAtNewPaths`), a post-launch `ExternalMoveSweeper` and the Edit
+Metadata window feed books whose bookmark resolves elsewhere into `BookRecordRelocator` (skipping books open in a viewer and the Trash);
+opening a moved book relocates all five stores *and* the reading position from whatever old path any store found; path-only folder settings
+(excluded folders, smart library folders, auto-add folders) follow through `FolderSettingBookmarks`. Which rows move is decided after the
+move (`BookRelocationPlan.moves`), a "Replace" destination's rows are erased first (`FileSystemChange.replaced`), and "is it there *at this
+path*" is `BookExistenceProbe.locateAtRecordedPath` — plain `evaluate()` follows the bookmark and says "exists" for an old path. **What
+counts as a book** is one rule (`ShelfFolderResolver.isBookEntry`: rule 1 images inside, rule 2 chapter folders; packages never) shared by
+shelves, siblings and `SmartLibraryScanner`; non-book folders' saved data is erased at launch (`NonBookFolderSweeper`). When a feature
+consumes another's data, check that the provider actually guarantees what the consumer assumes (identity across renames, only real books,
+freshness) — the 2026-09-22 audit found ~40 such gaps. File-operation progress is shown by
 `FileBrowserProgressBar` in the pane, and by `WelcomeView` while the pane is not on screen (shelf mode, or the feature turned off mid-copy).
 `CollectionStore` is deliberately *not* in `AppStores.allObjectWillChangePublishers` (it publishes on every
 cover extraction/existence check); the menu bar's **Home** menu (2026-09-15) reads library/collection names from
