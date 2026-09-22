@@ -395,6 +395,7 @@ final class AppStores: ObservableObject {
         favoriteLocations.relocate(using: change)
         smartLibraryStore.relocate(using: change)
         metadataRulesStore.relocate(using: change)
+        autoRenameStore.relocateExcludedPaths(using: change)
         smartLibraryCatalog.handleFileSystemChange(change)
         let relocation = bookRecordRelocator.apply(change)
         Task { @MainActor [weak self] in

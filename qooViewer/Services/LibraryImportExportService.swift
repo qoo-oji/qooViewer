@@ -1022,11 +1022,15 @@ enum LibraryImportExportService {
             // addBookmarkのループ呼び出しと変わらない)。
             var pendingEntries: [(pageIndex: Int, pageKey: String?, name: String)] = []
             for bookmarkEntry in entry.bookmarks {
-                guard let pageIndex = keyToIndex[bookmarkEntry.page] else { continue }
+                // フォルダの本の鍵は絶対パスなので、書き出した後に本が動いていれば鍵の頭も付け替える(2026-09-22 の監査。
+                // 以前はそのまま引いて見つからず、ブックマークが数えられもせずに黙って落ちた。PageKeyRelocation)。
+                let pageKey = PageKeyRelocation.relocated(bookmarkEntry.page, fromBookID: entry.bookID, toBookID: bookID)
+                    ?? bookmarkEntry.page
+                guard let pageIndex = keyToIndex[pageKey] else { continue }
                 // JSONは元から鍵で持っているので、そのまま鍵として保存する
                 // (番号だけの行にしない。Bookmark.pageKeyのコメント参照)。
                 pendingEntries.append(
-                    (pageIndex: pageIndex, pageKey: bookmarkEntry.page, name: bookmarkEntry.name)
+                    (pageIndex: pageIndex, pageKey: pageKey, name: bookmarkEntry.name)
                 )
             }
             let addedCount = bookmarkStore.addBookmarks(
@@ -1079,8 +1083,13 @@ enum LibraryImportExportService {
                 ? nil : layout.readingDirection.flatMap(ReadingDirection.init(stableID:))
             let forcedDisplayMode = hasExistingBookLevelSettings
                 ? nil : layout.forcedDisplayMode.flatMap(DisplayMode.init(stableID:))
+            // フォルダの本の鍵は絶対パスなので、書き出した後に本が動いていれば鍵の頭も付け替える(ブックマークと同じ。
+            // 2026-09-22 の監査。PageKeyRelocation)。
+            let relocatedKey = { (key: String) in
+                PageKeyRelocation.relocated(key, fromBookID: entry.bookID, toBookID: bookID) ?? key
+            }
             let pageOrder = hasExistingBookLevelSettings
-                ? nil : layout.pageOrder.flatMap { $0.isEmpty ? nil : $0 }
+                ? nil : layout.pageOrder.flatMap { $0.isEmpty ? nil : $0.map(relocatedKey) }
 
             // 経緯(ユーザー報告): JSONインポートが非常に遅い。Xcodeのコンソールを見る限りJSONを
             // 1行読むたびにSQLiteへの書き込みが起きているように見える、との指摘。実際、以前は
@@ -1095,7 +1104,8 @@ enum LibraryImportExportService {
                 let existingKeys = policy == .merge
                     ? Set(layoutStore.pageOverrides(forBookID: bookID).map(\.pageKey))
                     : []
-                for (pageKey, pageState) in pages {
+                for (exportedKey, pageState) in pages {
+                    let pageKey = relocatedKey(exportedKey)
                     if policy == .merge, existingKeys.contains(pageKey) { continue }
                     guard let state = PageLayoutState(rawValue: pageState.state) else { continue }
                     pageChanges[pageKey] = state

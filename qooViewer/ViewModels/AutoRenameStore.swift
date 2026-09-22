@@ -47,6 +47,30 @@ final class AutoRenameStore: ObservableObject {
         defaults.set(excludedPaths, forKey: Self.excludedPathsKey)
     }
 
+    /// アプリの中での移動・名前の変更に、除外したパスを付いていかせる(2026-09-22 の監査)。**名前がそのままのもの**だけ ――
+    /// 親のフォルダの名前を変えた・その項目を別のフォルダへ移した。以前は付いていかず、利用者が明示的に戻した項目が、親の名前を
+    /// 変えただけでまた自動で改名された。項目自身の名前が変わったもの(利用者が名前を変えた)は、今までどおり自然に外れる。
+    /// - Returns: 書き換えたか。
+    @discardableResult
+    func relocateExcludedPaths(using change: FileSystemChange) -> Bool {
+        guard !change.relocations.isEmpty, !excludedPaths.isEmpty else { return false }
+        var changed = false
+        var relocated: [String] = []
+        for path in excludedPaths {
+            guard let moved = change.relocatedPath(for: path).map(AutoRename.canonicalPath), moved != path,
+                  (moved as NSString).lastPathComponent == (path as NSString).lastPathComponent else {
+                relocated.append(path)
+                continue
+            }
+            changed = true
+            if !relocated.contains(moved) { relocated.append(moved) }
+        }
+        guard changed else { return false }
+        excludedPaths = relocated
+        defaults.set(excludedPaths, forKey: Self.excludedPathsKey)
+        return true
+    }
+
     var canAddRule: Bool { rules.count < AutoRename.maxRules }
 
     func rule(withID id: UUID) -> AutoRenameRule? {

@@ -561,6 +561,24 @@ struct AutoRenameServiceTests {
 
     // MARK: - 保存
 
+    @Test("元の名前に戻した除外は、親の名前の変更・移動に付いていき、項目自身の名前の変更では外れる(2026-09-22 の監査)")
+    func excludedPathsFollowAncestorsButNotOwnRenames() {
+        let suite = PreferencesSuite(label: "auto-rename-excluded")
+        let store = AutoRenameStore(defaults: suite.defaults)
+        store.exclude(path: "/Volumes/X/shelf/kept.cbz")
+        store.exclude(path: "/Volumes/X/shelf/renamed.cbz")
+        store.exclude(path: "/Volumes/X/other/moved.cbz")
+
+        store.relocateExcludedPaths(using: FileSystemChange(relocations: [
+            .init(from: URL(fileURLWithPath: "/Volumes/X/shelf"), to: URL(fileURLWithPath: "/Volumes/X/shelf-2")),
+            .init(from: URL(fileURLWithPath: "/Volumes/X/shelf-2/renamed.cbz"), to: URL(fileURLWithPath: "/Volumes/X/shelf-2/new-name.cbz")),
+            .init(from: URL(fileURLWithPath: "/Volumes/X/other/moved.cbz"), to: URL(fileURLWithPath: "/Volumes/X/elsewhere/moved.cbz")),
+        ]))
+
+        #expect(store.excludedPaths == ["/Volumes/X/shelf-2/kept.cbz", "/Volumes/X/shelf/renamed.cbz", "/Volumes/X/elsewhere/moved.cbz"])
+        #expect(AutoRenameStore(defaults: suite.defaults).excludedPaths == store.excludedPaths)
+    }
+
     @Test("規則を OFF にすると確認の印が消える。保存して読み直せば同じ")
     func storePersistsAndClearsConfirmation() throws {
         let suite = PreferencesSuite(label: "auto-rename-store")

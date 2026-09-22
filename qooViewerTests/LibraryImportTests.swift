@@ -187,6 +187,35 @@ struct LibraryImportTests {
         #expect(rows.map(\.name) == ["二枚目", "最後"])
     }
 
+    @Test("書き出した後に名前を変えたフォルダの本も、ブックマークとページ単位の設定の鍵を新しいパスへ付け替えて取り込む(2026-09-22 の監査)")
+    func keysOfARenamedFolderBookAreRelocated() async throws {
+        let source = try await ExportSource.folder(pages: 3, label: "import-renamed")
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let identifier = try #require(FileNodeIdentifier.current(for: source.book.sourceURL))
+        let renamed = source.temp.file("book-renamed")
+        try FileManager.default.moveItem(at: source.book.sourceURL, to: renamed)
+        // 取り込み先には、名前を変えた後のパスでこの本を知っている行がある(識別子で照合される)。
+        let renamedBook = try await FixtureBook.load(renamed)
+        library.layouts.setForcedDisplayMode(for: renamedBook, .single)
+        var bookmarks = bookmarkEntry(source, [(source.key(2), "二枚目")])
+        bookmarks.inodeNumber = identifier.inodeNumber
+        bookmarks.volumeDeviceNumber = identifier.volumeDeviceNumber
+        bookmarks.volumeUUID = identifier.volumeUUID
+        var layout = layoutEntry(source, pages: [source.key(3): .excluded])
+        layout.inodeNumber = identifier.inodeNumber
+        layout.volumeDeviceNumber = identifier.volumeDeviceNumber
+        layout.volumeUUID = identifier.volumeUUID
+
+        let summary = await library.apply(QooLibraryExportFile(bookmarks: [bookmarks], layouts: [layout]), policies: .all(.merge))
+
+        #expect(summary.bookmarksImportedEntries == 1, "鍵が古いパスのままで、ブックマークが黙って落ちた")
+        let newKey = try #require(PageKeyRelocation.relocated(source.key(2), fromBookID: source.book.id, toBookID: renamedBook.id))
+        #expect(library.bookmarkRows(forBookID: renamedBook.id).map(\.pageKey) == [newKey])
+        let excludedKey = try #require(PageKeyRelocation.relocated(source.key(3), fromBookID: source.book.id, toBookID: renamedBook.id))
+        #expect(library.pageStates(forBookID: renamedBook.id) == [excludedKey: .excluded])
+    }
+
     @Test("同じ JSON のレイアウトが先に効くので、除外があってもブックマークは同じページを指す")
     func layoutsAreImportedBeforeBookmarks() async throws {
         // 利用者報告の回帰テスト(apply のコメント参照)。3 ページ目を除外すると、
