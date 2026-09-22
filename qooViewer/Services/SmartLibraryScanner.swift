@@ -22,6 +22,9 @@ nonisolated enum SmartLibraryScanner {
         let fileSize: Int64?
         /// そのフォルダへ入った日(Finder の「追加日」)。取れないボリュームでは nil。
         var addedDate: Date? = nil
+        /// 表紙のディスクキャッシュの鍵(FileBrowserThumbnailKey。探したときの lstat から)。保存した一覧と一緒に持ち、
+        /// 表紙を引くときに項目を読みに行かないために使う(SmartLibraryCatalog の型コメント「速さ」)。
+        var thumbnailKey: FileBrowserThumbnailKey? = nil
     }
 
     struct Result: Sendable {
@@ -43,6 +46,7 @@ nonisolated enum SmartLibraryScanner {
         var result = Result()
         var seen = Set<String>()
         var visited = 0
+        let mountTable = MountTable.current()
         // 起点どうしが入れ子なら、外側だけを歩く。
         let normalizedRoots = Array(Set(roots.map(MountTable.normalized))).sorted()
         let outermost = normalizedRoots.filter { root in
@@ -52,13 +56,13 @@ nonisolated enum SmartLibraryScanner {
             if Cancellation.isRequestedInCurrentScope { break }
             // 起点がすでに保護下なら、その中は許す(利用者が選んだ)。
             let skips = protectedPrefixes.filter { !MountTable.path(root, isAtOrUnder: $0) }
-            scan(root: root, skipping: skips, visited: &visited, seen: &seen, into: &result)
+            scan(root: root, skipping: skips, mountTable: mountTable, visited: &visited, seen: &seen, into: &result)
             if result.isTruncated { break }
         }
         return result
     }
 
-    private static func scan(root: String, skipping protectedPrefixes: [String], visited: inout Int,
+    private static func scan(root: String, skipping protectedPrefixes: [String], mountTable: MountTable, visited: inout Int,
                              seen: inout Set<String>, into result: inout Result) {
         let rootURL = URL(fileURLWithPath: root, isDirectory: true)
         guard let enumerator = FileManager.default.enumerator(
@@ -106,12 +110,16 @@ nonisolated enum SmartLibraryScanner {
         for folder in sortedImageFolders where !bookFolders.contains(where: { MountTable.path(folder, isAtOrUnder: $0) }) {
             bookFolders.append(folder)
         }
+        // 本にしたものだけ、表紙の鍵を作る(1 冊に 1 回の lstat。ネットワークでもフォルダを列挙した直後は属性のキャッシュに載っている)。
         for folder in bookFolders where seen.insert(folder).inserted {
-            result.books.append(folderFacts[folder] ?? ScannedBook(path: folder, isFolder: true, creationDate: nil,
-                                                                  modificationDate: nil, fileSize: nil))
+            var book = folderFacts[folder] ?? ScannedBook(path: folder, isFolder: true, creationDate: nil,
+                                                         modificationDate: nil, fileSize: nil)
+            book.thumbnailKey = FileBrowserThumbnailKey.of(URL(fileURLWithPath: folder, isDirectory: true), mountTable: mountTable)
+            result.books.append(book)
         }
-        for file in files where seen.insert(file.path).inserted {
+        for var file in files where seen.insert(file.path).inserted {
             // 画像フォルダの本の中にある書庫も、1 冊として数える(フォルダの本は画像だけを読むので、重ならない)。
+            file.thumbnailKey = FileBrowserThumbnailKey.of(URL(fileURLWithPath: file.path), mountTable: mountTable)
             result.books.append(file)
         }
     }

@@ -266,6 +266,27 @@ struct FileBrowserThumbnailTests {
         #expect(abs((PageColorReader.number(in: try #require(fromDisk.makeImage())) ?? 0) - 1) <= 2)
     }
 
+    @Test("提供役: 鍵を渡せば項目を読みに行かずにディスクの絵を返す(スマートライブラリの保存した一覧。項目が見えなくても出る)")
+    func providerUsesAKnownKeyWithoutTouchingTheItem() async throws {
+        let temporary = try TemporaryDirectory("thumb-known-key")
+        let folder = try temporary.directory("shelf")
+        var zip = ZipFixtureBuilder()
+        zip.add("001.png", PageImageFactory.png(number: 1))
+        let url = folder.appendingPathComponent("book.cbz")
+        try zip.write(to: url)
+        let bookEntry = try entry(url, in: folder)
+        let key = try #require(FileBrowserThumbnailKey.of(url, mountTable: MountTable.current()))
+        let disk = FileBrowserThumbnailDiskCache(directory: temporary.file("cache"))
+        _ = try #require(await FileBrowserThumbnailProvider(diskCache: disk).thumbnail(for: bookEntry, kind: .archive, pixelSize: 128))
+
+        // 本が見えなくなっても(ネットワークが切れた・外した)、鍵があればディスクの絵が出る。鍵が無ければ作れない。
+        try FileManager.default.removeItem(at: url)
+        let withKey = FileBrowserThumbnailProvider(diskCache: disk)
+        #expect(await withKey.thumbnail(for: bookEntry, kind: .archive, pixelSize: 128, knownKey: key) != nil)
+        #expect(withKey.generatedCount == 0)
+        #expect(await FileBrowserThumbnailProvider(diskCache: disk).thumbnail(for: bookEntry, kind: .archive, pixelSize: 128) == nil)
+    }
+
     @Test("提供役: コレクションに入っていない本でも、コレクション表紙の指定(ページ・画像)を絵に使い、指定を変えたら頼み直させる")
     func providerUsesShelfCoverOverrideForUnregisteredBooks() async throws {
         let library = try InMemoryLibrary(label: "thumb-shelf-cover")

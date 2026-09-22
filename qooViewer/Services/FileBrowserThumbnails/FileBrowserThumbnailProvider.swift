@@ -113,6 +113,9 @@ final class FileBrowserThumbnailProvider: ObservableObject {
         /// 作った絵をディスクキャッシュへ書くか。待つセルのどれか 1 つでも通常ウインドウなら書く(型コメント「シークレットウインドウ」)。
         /// 書く直前に読むので、作っている最中に加わったセルの分も効く。
         var savesToDisk = false
+        /// 呼び出し側が知っている、項目のディスクキャッシュの鍵(`thumbnail(for:...knownKey:)`)。あれば項目の今の状態を
+        /// 読みに行かない。
+        var knownKey: FileBrowserThumbnailKey?
 
         init(baseKey: String, memoryKey: String, source: Source, pixelSize: CGFloat, isRemote: Bool) {
             self.baseKey = baseKey
@@ -253,8 +256,13 @@ final class FileBrowserThumbnailProvider: ObservableObject {
     /// - Parameters:
     ///   - pixelSize: `pixelTier(forDisplaySize:)` の段。
     ///   - savesToDisk: 作った絵をディスクキャッシュへ書くか。**シークレットウインドウは false**(型コメント)。
+    ///   - knownKey: 項目のディスクキャッシュの鍵を呼び出し側が知っているなら渡す(スマートライブラリ。フォルダを探したときに
+    ///     記録した鍵 ―― 2026-09-22)。渡せば、キャッシュを引く前に項目を lstat しない。**ネットワークの本では 1 冊ごとに
+    ///     サーバーとの往復だった**ので、保存した一覧を出した直後に表紙が 1 枚ずつ遅れて出た(つながっていなければ出なかった)。
+    ///     古い鍵なら古い絵が出るだけで、呼び出し側が探し直して鍵を新しくすれば描き直される。
     func thumbnail(
-        for entry: FileBrowserEntry, kind: BookThumbnailer.Kind, pixelSize: CGFloat, savesToDisk: Bool = true
+        for entry: FileBrowserEntry, kind: BookThumbnailer.Kind, pixelSize: CGFloat, savesToDisk: Bool = true,
+        knownKey: FileBrowserThumbnailKey? = nil
     ) async -> PagePixelBuffer? {
         let (baseKey, source) = resolveSource(for: entry, kind: kind)
         guard !failedKeys.contains(baseKey) else { return nil }
@@ -276,6 +284,7 @@ final class FileBrowserThumbnailProvider: ObservableObject {
             queue.append(job)
         }
         if savesToDisk { job.savesToDisk = true }
+        if let knownKey, job.knownKey == nil { job.knownKey = knownKey }
         let waiterID = UUID()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<PagePixelBuffer?, Never>) in
@@ -444,8 +453,13 @@ final class FileBrowserThumbnailProvider: ObservableObject {
             return pixels
 
         case .item(let url, let kind):
-            let mountTable = MountTable.current()
-            let key = await FileIO.perform { FileBrowserThumbnailKey.of(url, mountTable: mountTable) }
+            let key: FileBrowserThumbnailKey?
+            if let knownKey = job.knownKey {
+                key = knownKey
+            } else {
+                let mountTable = MountTable.current()
+                key = await FileIO.perform { FileBrowserThumbnailKey.of(url, mountTable: mountTable) }
+            }
             if let key, let data = await diskCache.data(for: key) {
                 if let pixels = await Self.decode(data, maxPixelSize: pixelSize) { return pixels }
             }

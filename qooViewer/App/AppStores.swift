@@ -192,8 +192,11 @@ final class AppStores: ObservableObject {
         }
         smartLibraryStore = SmartLibraryStore()
         smartLibraryCatalog = SmartLibraryCatalog(
-            metadataStore: metadataStore, store: smartLibraryStore, rulesStore: metadataRulesStore, modelContext: context
+            metadataStore: metadataStore, store: smartLibraryStore, rulesStore: metadataRulesStore, modelContext: context,
+            // 前回の一覧を保存して次の起動で先に出す。テストの中では保存しない(共有の状態に触らない)。
+            cacheURL: RuntimeEnvironment.isRunningTests ? nil : SmartLibraryCatalog.defaultCacheURL
         )
+        if !RuntimeEnvironment.isRunningTests { SmartLibraryCatalog.removeLegacyCache() }
         collectionAutoFolderScanner = CollectionAutoFolderScanner(
             collectionStore: collectionStore, coverExtractor: collectionCoverExtractor,
             folderAccess: folderAccess, preferences: preferences

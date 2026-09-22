@@ -10,7 +10,7 @@ import Foundation
 
 /// スマートライブラリに並ぶ 1 冊。集めた時点の値を全部持ち、絞り込み・並べ替えの間はディスクに触れない
 /// (ファイルブラウザの一覧の行と同じ考え方。FileBrowserEntry の型コメント)。
-nonisolated struct SmartBook: Identifiable, Hashable, Sendable {
+nonisolated struct SmartBook: Identifiable, Hashable, Sendable, Codable {
     /// bookID(フルパス)。
     let id: String
     /// ファイル名(拡張子つき。フォルダの本はフォルダ名)。
@@ -31,6 +31,8 @@ nonisolated struct SmartBook: Identifiable, Hashable, Sendable {
     var lastRead: Date?
     /// 読み進めた割合(0...1)。ページ数を記録していない本は nil。
     var progress: Double?
+    /// 表紙のディスクキャッシュの鍵(フォルダを探したときに記録。SmartLibraryScanner.ScannedBook.thumbnailKey)。
+    var thumbnailKey: FileBrowserThumbnailKey?
     /// 最後に表示していた画面に最後のページが写っていたか(BookReadingState.isAtLastPage)。
     var isAtLastPage = false
 

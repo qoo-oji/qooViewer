@@ -1209,7 +1209,10 @@ private struct SmartBookThumbnail: View {
             }
         }
         .frame(width: width, height: height, alignment: .bottom)
-        .task(id: "\(book.id)|\(Int(width))|\(thumbnails.revision)") { await load() }
+        // 鍵(更新日時・サイズ・inode)も入れる: 探し直してファイルが差し替わっていたと分かったら、新しい表紙を引き直す。
+        .task(id: "\(book.id)|\(Int(width))|\(thumbnails.revision)|\(book.thumbnailKey.map { "\($0.inode)-\($0.modified)-\($0.size)" } ?? "")") {
+            await load()
+        }
     }
 
     /// 枠(`box`)に縦横比を保って収めた大きさ。
@@ -1268,7 +1271,8 @@ private struct SmartBookThumbnail: View {
             return
         }
         let pixelSize = FileBrowserThumbnailProvider.pixelTier(forDisplaySize: max(width, height), scale: displayScale)
-        let buffer = await thumbnails.thumbnail(for: entry, kind: kind, pixelSize: pixelSize)
+        // 探したときに記録した鍵で引く(ネットワークの本でもファイルを読みに行かずに、保存してある表紙が出る)。
+        let buffer = await thumbnails.thumbnail(for: entry, kind: kind, pixelSize: pixelSize, knownKey: book.thumbnailKey)
         guard !Task.isCancelled else { return }
         guard let made = buffer?.makeImage() else {
             didFail = image == nil

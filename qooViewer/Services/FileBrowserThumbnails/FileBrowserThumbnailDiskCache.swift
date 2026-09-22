@@ -7,7 +7,7 @@ import Foundation
 /// 外で中身を差し替えたファイルに古い絵が出続けるのと、消した項目の inode が別の項目に使い回されて無関係な絵が
 /// 出るのを避けるため(qooLibrary はこれで誤った絵が残った)。ボリュームは `MountTable.volumeIdentifier`
 /// (マウント順で変わらない UUID。`st_dev` は他のボリュームを先に挿すだけで変わる)。
-nonisolated struct FileBrowserThumbnailKey: Hashable, Sendable {
+nonisolated struct FileBrowserThumbnailKey: Hashable, Sendable, Codable {
     let volume: String
     let inode: UInt64
     /// 更新日時(ナノ秒)。

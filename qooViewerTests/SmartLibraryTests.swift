@@ -264,6 +264,13 @@ struct SmartLibraryTests {
         let names = Set(result.books.map { ($0.path as NSString).lastPathComponent })
         #expect(names == ["本1.cbz", "本2.pdf", "画像の本"])
         #expect(result.books.first { $0.path.hasSuffix("画像の本") }?.isFolder == true)
+        // 表紙の鍵は、ファイルブラウザが項目から作る鍵と同じ(保存した一覧から引いても同じキャッシュに当たる)。
+        let mountTable = MountTable.current()
+        for book in result.books {
+            let url = URL(fileURLWithPath: book.path, isDirectory: book.isFolder)
+            #expect(book.thumbnailKey == FileBrowserThumbnailKey.of(url, mountTable: mountTable))
+            #expect(book.thumbnailKey != nil)
+        }
     }
 
     // MARK: 本の組み立て
@@ -292,5 +299,57 @@ struct SmartLibraryTests {
         let registered = books.first { $0.id == "/棚/手で直した本.zip" }
         #expect(registered?.isRegistered == true)
         #expect(registered?.metadata.genre == "登録したジャンル")
+    }
+
+    // MARK: 速さ(前回の一覧・変わった本だけ読む)
+
+    @Test("qooMeta へ渡す本の差: 足した・登録を変えた本は upsert、無くなった本は remove、同じ本は渡さない")
+    func changesOnlyCarryWhatChanged() {
+        let rules = CompiledRules.builtin
+        let before = SmartLibraryCatalog.inputs(for: ["/棚/a.zip", "/棚/b.zip", "/棚/c.zip"], registered: [:],
+                                                reusing: [:], rules: rules)
+        let after = SmartLibraryCatalog.inputs(
+            for: ["/棚/a.zip", "/棚/b.zip", "/棚/d.zip"],
+            registered: ["/棚/b.zip": BookMetadataValues(title: "登録した題")],
+            reusing: before.byID, rules: rules)
+        let changes = SmartLibraryCatalog.changes(from: before.byID, to: after)
+        let upserted = changes.compactMap { if case .upsert(let input) = $0 { input.id } else { nil } }
+        let removed = changes.compactMap { if case .remove(let id) = $0 { id } else { nil } }
+        #expect(upserted == ["/棚/b.zip", "/棚/d.zip"])
+        #expect(removed == ["/棚/c.zip"])
+        #expect(SmartLibraryCatalog.changes(from: after.byID, to: after).isEmpty)
+    }
+
+    @Test("索引に変わった本だけ渡した結果は、全冊を読み直した結果と同じ")
+    func incrementalProposalsMatchAFullRead() async throws {
+        let rules = CompiledRules.builtin
+        let first = SmartLibraryCatalog.inputs(
+            for: ["/棚/[架空工房] 月の庭 1.zip", "/棚/[架空工房] 月の庭 2.zip", "/棚/星の本.zip"],
+            registered: [:], reusing: [:], rules: rules)
+        let index = ProposalIndex(rules: rules, dictionaries: MetadataRulesStore.dictionaries)
+        try await index.load(first.ordered)
+        var proposals = Dictionary(await index.snapshot().proposals.map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
+        let second = SmartLibraryCatalog.inputs(
+            for: ["/棚/[架空工房] 月の庭 1.zip", "/棚/[架空工房] 月の庭 2.zip", "/棚/[架空工房] 月の庭 3.zip"],
+            registered: [:], reusing: first.byID, rules: rules)
+        let delta = try await index.apply(SmartLibraryCatalog.changes(from: first.byID, to: second))
+        for proposal in delta.changed { proposals[proposal.id] = proposal }
+        for id in delta.removedBooks { proposals[id] = nil }
+        let full = proposeSync(second.ordered, rules: rules, dictionaries: MetadataRulesStore.dictionaries)
+        #expect(Set(proposals.keys) == Set(full.proposals.map(\.id)))
+        for proposal in full.proposals {
+            #expect(proposals[proposal.id]?.metadata == proposal.metadata)
+        }
+    }
+
+    @Test("保存した前回の一覧は JSON を往復する")
+    func cachedCatalogRoundTrips() throws {
+        var sample = book("/棚/本.zip", title: "題", authors: ["著者"], series: "月の庭", volume: "1", read: 1, progress: 0.5)
+        sample.isAtLastPage = true
+        sample.thumbnailKey = FileBrowserThumbnailKey(volume: "vol", inode: 42, modified: 1_000_000_123, size: 99)
+        let cached = SmartLibraryCatalog.CachedCatalog(roots: ["/棚"], books: [sample], isTruncated: false)
+        let decoded = try JSONDecoder().decode(SmartLibraryCatalog.CachedCatalog.self, from: JSONEncoder().encode(cached))
+        #expect(decoded.books == [sample])
+        #expect(decoded.roots == ["/棚"])
     }
 }

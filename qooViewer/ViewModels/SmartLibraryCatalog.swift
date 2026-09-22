@@ -16,6 +16,13 @@ import SwiftData
 ///
 /// 対象フォルダの本は、メタデータの編集ウインドウの対象にもなる(`folderBookIDs()`。2026-09-22、利用者の指示)。
 ///
+/// ■ 速さ(2026-09-22、利用者の要望。2,439 冊を実測: フォルダを探す 0.16 秒、qooMeta で読む 1.3 秒)
+/// 1. **前回の一覧を保存しておき、画面を出したらまずそれを出す**(`cacheURL`。起動直後は読み直しが終わるまで前回の中身が
+///    見え、終わったら差し替わる)。対象フォルダが変わっていれば使わない。
+/// 2. **qooMeta の読みは変わった本だけ**(`ProposalIndex` を持ち続ける。メタデータの編集ウインドウと同じ)。最初の 1 回は
+///    `load` で並列に読み、以後は足した・消した・登録を変えた本だけを `apply` で渡す。規則が変わったら索引ごと作り直す。
+///    ルールセットの自動の選択(`autoPreset`)も、規則が同じ間は本ごとに前の結果を使う。
+///
 /// ■ いつ集め直すか
 /// 画面(スマートライブラリのペイン)が出ている間だけ(`activate` / `deactivate`)。出ている間は、メタデータ・対象フォルダ・
 /// 規則が変わったら少し待ってから集め直す。フォルダの中を探すのは、対象フォルダが変わったとき・アプリ自身がその中の
@@ -38,6 +45,17 @@ final class SmartLibraryCatalog: ObservableObject {
     private let store: SmartLibraryStore
     private let rulesStore: MetadataRulesStore
     private let modelContext: ModelContext
+    /// 前回の一覧の保存先(型コメント「速さ」の 1)。nil なら保存しない(テスト)。
+    private let cacheURL: URL?
+
+    /// qooMeta の索引と、それに最後に渡した本(型コメント「速さ」の 2)。集め直しは 1 本ずつ順に走らせる
+    /// (`rebuild` が前の集め直しの終わりを待つ)ので、ここを触るのはいつも 1 つだけ。
+    private var index: ProposalIndex?
+    private var indexRulesHash: String?
+    private var indexedInputs: [String: BookInput] = [:]
+    private var proposalsByID: [String: BookProposal] = [:]
+    /// 保存した前回の一覧を読んでいる最中か(2 度読まない)。
+    private var isRestoringCache = false
 
     /// 画面に出ている数(ウインドウごと)。0 なら何もしない。
     private var activeCount = 0
@@ -49,11 +67,27 @@ final class SmartLibraryCatalog: ObservableObject {
     private var generation = 0
 
     init(metadataStore: BookMetadataStore, store: SmartLibraryStore, rulesStore: MetadataRulesStore,
-         modelContext: ModelContext) {
+         modelContext: ModelContext, cacheURL: URL? = nil) {
         self.metadataStore = metadataStore
         self.store = store
         self.rulesStore = rulesStore
         self.modelContext = modelContext
+        self.cacheURL = cacheURL
+    }
+
+    /// 既定の保存先(Application Support の中)。**Caches には置かない** ―― 空きが足りないと macOS が消し、その回は保存した
+    /// 一覧が無いまま探すことになる(ネットワークの対象フォルダでは長く待たされる)。消えても次に集めれば作り直される写し。
+    static var defaultCacheURL: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("SmartLibrary", isDirectory: true)
+            .appendingPathComponent("catalog.json")
+    }
+
+    /// 以前の保存先(Caches。2026-09-22 の 1 日だけ)。残っていれば消す。
+    static func removeLegacyCache() {
+        guard let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("SmartLibrary", isDirectory: true) else { return }
+        try? FileManager.default.removeItem(at: url)
     }
 
     /// 対象フォルダの中の本(bookID)。メタデータの編集ウインドウの母体に足す。前に探した結果があればそれを使い、
@@ -76,6 +110,7 @@ final class SmartLibraryCatalog: ObservableObject {
         subscribe()
         // 集め直しは次のコマで始まるので、「集めている最中」はここで立てておく(その間を空の一覧として描かない)。
         isLoading = true
+        restoreCacheIfNeeded()
         scheduleRebuild(rescan: false, delay: .zero)
     }
 
@@ -135,28 +170,65 @@ final class SmartLibraryCatalog: ObservableObject {
         store.folders.map(\.path)
     }
 
-    /// 本を集め直す(メインで集められるもの → 画面の外でフォルダを探す → qooMeta で読む → 入れ替える)。
+    /// 本を集め直す(メインで集められるもの → 画面の外でフォルダを探す → qooMeta で変わった本だけ読む → 入れ替える)。
+    ///
+    /// **1 本ずつ順に**: 前の集め直しは取り消したうえで終わりを待つ(索引と「最後に渡した本」をいつも揃えておくため。
+    /// 取り消された `apply` は索引を呼ぶ前のまま残すので、待つのは一瞬)。
     private func rebuild() {
         generation += 1
         let generation = generation
-        building?.cancel()
+        let previous = building
+        previous?.cancel()
         isLoading = true
         let snapshot = gatherOnMain()
         let roots = scanRoots()
         let cachedScan = scanned.flatMap { $0.roots == roots ? $0.result : nil }
         let rules = rulesStore.rules
         building = Task { [weak self] in
+            await previous?.value
+            guard !Task.isCancelled else { return }
             // 1. フォルダの中の本(同じ場所なら前の結果を使う)。
             var scan = cachedScan ?? SmartLibraryScanner.Result()
             if cachedScan == nil, !roots.isEmpty {
                 scan = await FileIO.perform { SmartLibraryScanner.scan(roots: roots) }
             }
-            guard !Task.isCancelled else { return }
-            // 2. 組み立てて、未登録の本を qooMeta で読む(画面の外で)。
-            let books = await Task.detached(priority: .userInitiated) {
-                Self.assemble(snapshot: snapshot, scan: scan, rules: rules)
+            guard let self, !Task.isCancelled else { return }
+            // 2. qooMeta へ渡す本(規則が同じなら、前に渡した本の名前とルールセットを使い回す)。
+            let sameRules = self.indexRulesHash == rules.contentHash
+            let previousInputs = sameRules ? self.indexedInputs : [:]
+            let paths = scan.books.map(\.path)
+            let inputs = await Task.detached(priority: .userInitiated) {
+                Self.inputs(for: paths, registered: snapshot.registered, reusing: previousInputs, rules: rules)
             }.value
-            guard let self, !Task.isCancelled, generation == self.generation else { return }
+            guard !Task.isCancelled else { return }
+            // 3. 変わった本だけ読む(索引が無い・規則が変わったら作り直して並列に読む)。
+            var proposals = sameRules ? self.proposalsByID : [:]
+            do {
+                if let index = self.index, sameRules {
+                    let changes = Self.changes(from: previousInputs, to: inputs)
+                    if !changes.isEmpty {
+                        let delta = try await index.apply(changes)
+                        for proposal in delta.changed { proposals[proposal.id] = proposal }
+                        for id in delta.removedBooks { proposals[id] = nil }
+                    }
+                } else {
+                    let index = ProposalIndex(rules: rules, dictionaries: MetadataRulesStore.dictionaries)
+                    try await index.load(inputs.ordered)
+                    proposals = Dictionary(await index.snapshot().proposals.map { ($0.id, $0) },
+                                           uniquingKeysWith: { _, b in b })
+                    self.index = index
+                }
+            } catch {
+                return // 取り消された(索引は呼ぶ前のまま)。
+            }
+            self.indexedInputs = inputs.byID
+            self.indexRulesHash = rules.contentHash
+            self.proposalsByID = proposals
+            // 4. 組み立てる(画面の外で)。
+            let books = await Task.detached(priority: .userInitiated) {
+                Self.assemble(snapshot: snapshot, scan: scan, proposals: proposals)
+            }.value
+            guard !Task.isCancelled, generation == self.generation else { return }
             self.scanned = (roots, scan)
             self.books = books
             self.isTruncated = scan.isTruncated
@@ -164,6 +236,106 @@ final class SmartLibraryCatalog: ObservableObject {
             self.hasLoaded = true
             self.building = nil
             self.revision += 1
+            self.saveCache(roots: roots, books: books, isTruncated: scan.isTruncated)
+        }
+    }
+
+    // MARK: - qooMeta へ渡す本
+
+    /// 渡す本の一覧(入れる順 = パスの順)と、id からの引き。
+    nonisolated struct Inputs: Sendable {
+        var ordered: [BookInput] = []
+        var byID: [String: BookInput] = [:]
+    }
+
+    /// 本ごとの入力。登録済みの本は DB の値をすべて確定した内容として渡す(錨として、未登録の本のシリーズも決める)。
+    /// 名前とルールセットの自動の選択は、`reusing` に同じ本があればそれを使う(規則が同じ間だけ渡される)。
+    nonisolated static func inputs(for paths: [String], registered: [String: BookMetadataValues],
+                                   reusing previous: [String: BookInput], rules: CompiledRules) -> Inputs {
+        let ids = Set(paths).sorted()
+        // 新しい本の名前とルールセットの自動の選択は並列に(2,439 冊を順に選ぶと 0.7 秒かかった。どちらも本ごとに独立した計算)。
+        let fresh = ids.filter { previous[$0] == nil }
+        var readings = [(name: String, preset: String?)](repeating: ("", nil), count: fresh.count)
+        readings.withUnsafeMutableBufferPointer { buffer in
+            // 各反復は自分の添字にだけ書く(重ならない)ので、同時に書いても安全。
+            nonisolated(unsafe) let buffer = buffer
+            DispatchQueue.concurrentPerform(iterations: fresh.count) { i in
+                let name = MetadataRulesStore.parsingName(forBookID: fresh[i])
+                buffer[i] = (name, MetadataRulesStore.autoPreset(forBookID: fresh[i], name: name, rules: rules))
+            }
+        }
+        let freshByID = Dictionary(uniqueKeysWithValues: zip(fresh, readings))
+        var result = Inputs()
+        for id in ids {
+            let confirmation = registered[id]?.confirmation ?? .none
+            let input: BookInput
+            if let old = previous[id] {
+                input = BookInput(id: id, name: old.name, preset: old.preset, confirmation: confirmation)
+            } else {
+                let reading = freshByID[id] ?? (MetadataRulesStore.parsingName(forBookID: id), nil)
+                input = BookInput(id: id, name: reading.name, preset: reading.preset, confirmation: confirmation)
+            }
+            result.ordered.append(input)
+            result.byID[id] = input
+        }
+        return result
+    }
+
+    /// 前に渡した本と今の本の差(足した・変わった本は upsert、無くなった本は remove)。
+    nonisolated static func changes(from previous: [String: BookInput], to current: Inputs) -> [BookChange] {
+        var changes: [BookChange] = []
+        for input in current.ordered where previous[input.id] != input { changes.append(.upsert(input)) }
+        for id in previous.keys.sorted() where current.byID[id] == nil { changes.append(.remove(id: id)) }
+        return changes
+    }
+
+    // MARK: - 前回の一覧(型コメント「速さ」の 1)
+
+    nonisolated struct CachedCatalog: Codable, Sendable {
+        var version = CachedCatalog.currentVersion
+        var roots: [String]
+        var books: [SmartBook]
+        var isTruncated: Bool
+
+        /// 形を変えたら上げる(古い形は読まずに捨てる)。2: 表紙の鍵を足した。
+        static let currentVersion = 2
+    }
+
+    /// まだ何も並んでいなければ、保存した前回の一覧を読んで先に出す。対象フォルダが変わっていれば使わない。
+    /// 本当の集め直しが先に終わっていたら何もしない。
+    private func restoreCacheIfNeeded() {
+        guard let cacheURL, !hasLoaded, books.isEmpty, !isRestoringCache else { return }
+        isRestoringCache = true
+        let roots = scanRoots()
+        Task { [weak self] in
+            let cached = await Task.detached(priority: .userInitiated) { () -> CachedCatalog? in
+                guard let data = try? Data(contentsOf: cacheURL),
+                      let cached = try? JSONDecoder().decode(CachedCatalog.self, from: data),
+                      cached.version == CachedCatalog.currentVersion, cached.roots == roots
+                else { return nil }
+                return cached
+            }.value
+            guard let self else { return }
+            self.isRestoringCache = false
+            guard let cached, !self.hasLoaded, self.books.isEmpty else { return }
+            self.books = cached.books
+            self.isTruncated = cached.isTruncated
+            self.revision += 1
+        }
+    }
+
+    /// 集め終えた一覧を保存する(画面の外で。対象フォルダが無ければ消す)。
+    private func saveCache(roots: [String], books: [SmartBook], isTruncated: Bool) {
+        guard let cacheURL else { return }
+        let cached = CachedCatalog(roots: roots, books: books, isTruncated: isTruncated)
+        Task.detached(priority: .utility) {
+            if roots.isEmpty {
+                try? FileManager.default.removeItem(at: cacheURL)
+                return
+            }
+            guard let data = try? JSONEncoder().encode(cached) else { return }
+            try? FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.write(to: cacheURL, options: .atomic)
         }
     }
 
@@ -193,8 +365,9 @@ final class SmartLibraryCatalog: ObservableObject {
         return snapshot
     }
 
-    /// 集めた値から本の一覧を作る(画面の外で。qooMeta の読み取りもここ)。
-    nonisolated static func assemble(snapshot: Snapshot, scan: SmartLibraryScanner.Result, rules: CompiledRules) -> [SmartBook] {
+    /// 集めた値と qooMeta の提案から本の一覧を作る(画面の外で)。
+    nonisolated static func assemble(snapshot: Snapshot, scan: SmartLibraryScanner.Result,
+                                     proposals: [String: BookProposal]) -> [SmartBook] {
         var byID: [String: SmartBook] = [:]
         for scanned in scan.books where byID[scanned.path] == nil {
             let name = (scanned.path as NSString).lastPathComponent
@@ -205,25 +378,15 @@ final class SmartLibraryCatalog: ObservableObject {
             current.modificationDate = scanned.modificationDate
             current.fileSize = scanned.fileSize
             current.dateAdded = scanned.addedDate ?? scanned.creationDate
+            current.thumbnailKey = scanned.thumbnailKey
             byID[scanned.path] = current
         }
-
-        // メタデータ: 登録済みは DB の値(すべて確定した内容として渡すので、錨として未登録の本のシリーズも決める)、
-        // 未登録は qooMeta の提案。
         let ids = byID.keys.sorted()
-        var inputs: [BookInput] = []
-        inputs.reserveCapacity(ids.count)
-        for id in ids {
-            let name = MetadataRulesStore.parsingName(forBookID: id)
-            inputs.append(BookInput(id: id, name: name,
-                                    preset: MetadataRulesStore.autoPreset(forBookID: id, name: name, rules: rules),
-                                    confirmation: snapshot.registered[id]?.confirmation ?? .none))
-        }
-        let proposals = proposeSync(inputs, rules: rules, dictionaries: MetadataRulesStore.dictionaries)
         var result: [SmartBook] = []
         result.reserveCapacity(ids.count)
         for id in ids {
             guard var current = byID[id] else { continue }
+            // メタデータ: 登録済みは DB の値、未登録は qooMeta の提案。
             if let values = snapshot.registered[id] {
                 current.metadata = values
                 current.isRegistered = true
@@ -239,5 +402,13 @@ final class SmartLibraryCatalog: ObservableObject {
             result.append(current)
         }
         return result
+    }
+
+    /// 索引を使わずに全冊を読んで組み立てる(テストの口。結果は `rebuild` と同じ)。
+    nonisolated static func assemble(snapshot: Snapshot, scan: SmartLibraryScanner.Result, rules: CompiledRules) -> [SmartBook] {
+        let inputs = inputs(for: scan.books.map(\.path), registered: snapshot.registered, reusing: [:], rules: rules)
+        let set = proposeSync(inputs.ordered, rules: rules, dictionaries: MetadataRulesStore.dictionaries)
+        let proposals = Dictionary(set.proposals.map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
+        return assemble(snapshot: snapshot, scan: scan, proposals: proposals)
     }
 }
