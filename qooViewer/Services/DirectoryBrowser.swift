@@ -72,6 +72,7 @@ nonisolated enum DirectoryBrowser {
     /// typeDescription(for:isDirectory:cache:)側で拡張子単位にキャッシュして取得する。
     private static let entryResourceKeys: Set<URLResourceKey> = [
         .isDirectoryKey,
+        .isPackageKey,
         .localizedNameKey,
         .totalFileSizeKey,
         .fileSizeKey,
@@ -139,6 +140,9 @@ nonisolated enum DirectoryBrowser {
     /// (フォルダは中身に関わらず常に残す。この型の冒頭のコメント参照)。
     private static func makeEntry(for url: URL, in directory: URL, kindCache: inout [String: String]) -> Entry? {
         let values = try? url.resourceValues(forKeys: entryResourceKeys)
+        // パッケージ(.app・.rtfd など)は本でも本棚でもないので並べない(2026-09-22 の監査。フォルダとして並べていたので、棚を開くと
+        // 中へ降りて .app の中の画像を本として開くことがあった ―― ShelfFolderResolver.firstBook)。
+        if values?.isPackage == true { return nil }
         let isDirectory = values?.isDirectory ?? false
         // ファイルは中身を持たないので調べない。フォルダは1件につき1回の列挙が増える
         // (directContentsのコメント参照)。この関数はもともとlistingAsync/entriesAsync/

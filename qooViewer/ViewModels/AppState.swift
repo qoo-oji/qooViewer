@@ -1033,12 +1033,27 @@ final class AppState: ObservableObject {
                         self.cancelOpen()
                         return
                     }
-                    book = try await BookLoader.load(
-                        from: target,
-                        cachesPageList: cachesPageList,
-                        nestedArchiveMemoryLimitBytes: nestedArchiveMemoryLimitBytes,
-                        onProgress: onProgress
-                    )
+                    // 棚の先頭が画像の本ではない EPUB(小説など)なら、同じ棚の次の本へ進む(2026-09-22 の監査。本の数え方は
+                    // 拡張子で決めるので、棚の先頭が小説だと棚そのものが開けなかった)。進むのは棚を開いたとき(読み替えたとき)だけ。
+                    var candidate = target
+                    var skipped = 0
+                    while true {
+                        do {
+                            book = try await BookLoader.load(
+                                from: candidate,
+                                cachesPageList: cachesPageList,
+                                nestedArchiveMemoryLimitBytes: nestedArchiveMemoryLimitBytes,
+                                onProgress: onProgress
+                            )
+                            break
+                        } catch BookLoaderError.epubNotPictureBook where candidate != url && skipped < 50 && !Task.isCancelled {
+                            guard let next = await SiblingFinder.url(after: candidate, order: shelfOrder) else {
+                                throw BookLoaderError.epubNotPictureBook
+                            }
+                            candidate = next
+                            skipped += 1
+                        }
+                    }
                 } else {
                     throw BookLoaderError.notFound
                 }

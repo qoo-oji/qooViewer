@@ -214,6 +214,21 @@ struct SiblingFinderTests {
         #expect(urls.map(\.lastPathComponent) == ["a.cbz", "b.cbz", "c.cbz", "folder1"])
     }
 
+    @Test("章ごとに画像フォルダを分けた本も並べ、パッケージ(.app)は並べない(2026-09-22 の監査)")
+    func chapterBooksAreSiblingsAndPackagesAreNot() throws {
+        let workspace = try makeWorkspace()
+        try FixtureFolder.make(at: workspace.file("shelf/d-chapters/ch1"), pages: [.init("001.jpg", number: 1)])
+        try FixtureFolder.make(at: workspace.file("shelf/e.app/Contents/Resources"), pages: [.init("icon.png", number: 1)])
+        let urls = SiblingFinder.siblingBookURLs(of: workspace.file("shelf/a.cbz"), order: .byName)
+        #expect(urls.map(\.lastPathComponent) == ["a.cbz", "b.cbz", "c.cbz", "d-chapters", "folder1"])
+        guard case .shelf(let books) = ShelfFolderResolver.role(of: workspace.file("shelf"), order: .byName) else {
+            Issue.record("棚にならなかった")
+            return
+        }
+        #expect(books.map(\.lastPathComponent).contains("d-chapters"))
+        #expect(!books.map(\.lastPathComponent).contains("e.app"))
+    }
+
     @Test("次の本・前の本")
     func steppingThroughTheShelf() async throws {
         let workspace = try makeWorkspace()

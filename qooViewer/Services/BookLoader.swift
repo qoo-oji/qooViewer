@@ -295,7 +295,9 @@ nonisolated enum BookLoader {
         guard let enumerator = FileManager.default.enumerator(
             at: url,
             includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
+            // パッケージ(.app・.rtfd など)の中へは降りない(2026-09-22 の監査。中の画像がページに混ざり、スマートライブラリや
+            // ファイルブラウザ ―― どちらもパッケージを 1 つのファイルとして扱う ―― と食い違った)。
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else { return pages }
 
         for case let fileURL as URL in enumerator {

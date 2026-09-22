@@ -425,6 +425,26 @@ struct SmartLibraryTests {
         }
     }
 
+    @Test("章ごとに画像フォルダを分けた本は 1 冊、本のフォルダの中の書庫は別の本にしない(ほかの所と同じ決まり。2026-09-22 の監査)")
+    func scannerFollowsTheAppWideBookRules() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("qooViewerTests.smartScanRules.\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fm = FileManager.default
+        for folder in ["棚/章の本/章1", "棚/章の本/章2", "棚/混ざった本"] {
+            try fm.createDirectory(at: root.appendingPathComponent(folder), withIntermediateDirectories: true)
+        }
+        try Data().write(to: root.appendingPathComponent("棚/章の本/章1/001.jpg"))
+        try Data().write(to: root.appendingPathComponent("棚/章の本/章2/001.jpg"))
+        try Data().write(to: root.appendingPathComponent("棚/混ざった本/000.jpg"))
+        try Data().write(to: root.appendingPathComponent("棚/混ざった本/01.cbz"))
+        try Data().write(to: root.appendingPathComponent("棚/単独.cbz"))
+
+        let result = SmartLibraryScanner.scan(roots: [root.path], protectedPrefixes: [])
+        let names = Set(result.books.map { ($0.path as NSString).lastPathComponent })
+        #expect(names == ["章の本", "混ざった本", "単独.cbz"])
+    }
+
     // MARK: 本の組み立て
 
     @Test("ロックしていない本は qooMeta の読み、ロックした本は DB の値で並び、読書位置と追加日を持つ")

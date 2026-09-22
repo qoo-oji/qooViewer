@@ -72,6 +72,8 @@ nonisolated enum SmartLibraryScanner {
         /// フォルダ → そのフォルダの属性(直下に画像があれば本になる)。
         var folderFacts: [String: ScannedBook] = [:]
         var imageFolders = Set<String>()
+        /// 書庫・PDF・EPUB を直下に持つフォルダ(規則 2 の「本のファイルが無い」を確かめる)。
+        var bookFileFolders = Set<String>()
         var files: [ScannedBook] = []
         for case let url as URL in enumerator {
             if Cancellation.isRequestedInCurrentScope { return }
@@ -97,6 +99,7 @@ nonisolated enum SmartLibraryScanner {
             if isImageFile(name) {
                 imageFolders.insert((path as NSString).deletingLastPathComponent)
             } else if isArchiveFile(name) || isPDFFile(name) || isEpubFile(name) {
+                bookFileFolders.insert((path as NSString).deletingLastPathComponent)
                 files.append(ScannedBook(path: path, isFolder: false, creationDate: values?.creationDate,
                                          modificationDate: values?.contentModificationDate,
                                          fileSize: values?.fileSize.map(Int64.init),
@@ -105,7 +108,19 @@ nonisolated enum SmartLibraryScanner {
         }
         // 画像フォルダの本。その中のフォルダ(章ごとのフォルダなど)は同じ本の一部なので外す。起点そのものは本にしない
         // (登録したフォルダ = 本棚。フォルダ 1 つを 1 冊として登録したいなら、その親を登録する)。
-        let sortedImageFolders = imageFolders.filter { $0 != MountTable.normalized(root) }.sorted()
+        //
+        // 本のフォルダの決まりはアプリのほかの所と同じ(ShelfFolderResolver の規則 1・2。2026-09-22 の監査 ―― 以前は直下に画像のある
+        // フォルダだけを本にし、章ごとに画像フォルダを分けた本を章ごとの別の本として並べていた): 直下に画像がある(規則 1)か、
+        // 直下に画像も本のファイルも無く、直下に画像フォルダがある(規則 2)。いちばん外側のものが本。
+        let normalizedRoot = MountTable.normalized(root)
+        var candidates = imageFolders
+        for folder in imageFolders {
+            let parent = MountTable.normalized((folder as NSString).deletingLastPathComponent)
+            guard parent != normalizedRoot, MountTable.path(parent, isAtOrUnder: normalizedRoot),
+                  !imageFolders.contains(parent), !bookFileFolders.contains(parent) else { continue }
+            candidates.insert(parent)
+        }
+        let sortedImageFolders = candidates.filter { $0 != normalizedRoot }.sorted()
         var bookFolders: [String] = []
         for folder in sortedImageFolders where !bookFolders.contains(where: { MountTable.path(folder, isAtOrUnder: $0) }) {
             bookFolders.append(folder)
@@ -117,8 +132,10 @@ nonisolated enum SmartLibraryScanner {
             book.thumbnailKey = FileBrowserThumbnailKey.of(URL(fileURLWithPath: folder, isDirectory: true), mountTable: mountTable)
             result.books.append(book)
         }
-        for var file in files where seen.insert(file.path).inserted {
-            // 画像フォルダの本の中にある書庫も、1 冊として数える(フォルダの本は画像だけを読むので、重ならない)。
+        // 本のフォルダの中にある書庫・PDF・EPUB は、そのフォルダの本のページ(BookLoader はフォルダの本の中の書庫も読み込む)なので、
+        // 別の本として重ねて並べない(2026-09-22 の監査。以前は「フォルダの本は画像だけを読む」として 1 冊ずつ数えていたが、誤り)。
+        for var file in files where !bookFolders.contains(where: { MountTable.path(file.path, isAtOrUnder: $0) })
+            && seen.insert(file.path).inserted {
             file.thumbnailKey = FileBrowserThumbnailKey.of(URL(fileURLWithPath: file.path), mountTable: mountTable)
             result.books.append(file)
         }

@@ -94,7 +94,7 @@ nonisolated enum ShelfFolderResolver {
         // 規則3: 直下に本のファイルがあるフォルダが棚。
         guard listing.entries.contains(where: { !$0.isDirectory }) else { return .neither }
         let books = listing.entries
-            .filter { !$0.isDirectory || $0.containsImageFile }
+            .filter(isBookEntry)
             .map(\.url)
         return .shelf(books: books)
     }
@@ -115,7 +115,8 @@ nonisolated enum ShelfFolderResolver {
         while let child = enumerator.nextObject() as? URL {
             // 列挙器はフォルダを末尾の / 付きで返す(1 件ごとの stat が要らない。DirectoryBrowser.directContents と同じ)。
             if child.hasDirectoryPath {
-                subfolders.append(child)
+                // パッケージ(.app など)は章のフォルダにしない(中を読まない。2026-09-22 の監査)。
+                if (try? child.resourceValues(forKeys: [.isPackageKey]))?.isPackage != true { subfolders.append(child) }
                 continue
             }
             let name = child.lastPathComponent
@@ -127,6 +128,16 @@ nonisolated enum ShelfFolderResolver {
             DirectoryProbe.mayReadChild(subfolder, of: url, prefixes: protectedPrefixes)
                 && DirectoryBrowser.directlyContainsImageFile(subfolder)
         }
+    }
+
+    /// 一覧の 1 行が 1 冊の本か(ファイルは一覧に残っている時点で本。フォルダは規則 1・2)。棚に並ぶ本(`role`)と、次の本・前の本
+    /// (`SiblingFinder`)が同じこれを使う(2026-09-22 の監査。以前はどちらも「直下に画像があるフォルダ」だけを本として、章ごとに
+    /// 画像フォルダを分けた本(規則 2)をコレクションへの追加や次の本から黙って落としていた)。規則 2 は子フォルダの中を見るので、
+    /// 直下に画像の無いフォルダでだけ確かめる。
+    static func isBookEntry(_ entry: DirectoryBrowser.Entry) -> Bool {
+        guard entry.isDirectory else { return true }
+        if entry.containsImageFile { return true }
+        return entry.containsSubdirectory && isSingleBookFolder(entry.url)
     }
 
     /// `folder`が棚なら、その直下に並んでいる本。棚でなければnil。

@@ -29,9 +29,10 @@ nonisolated enum SiblingFinder {
     private static func siblingBooks(of url: URL, order: SiblingBookOrder) -> [DirectoryBrowser.Entry] {
         let parent = url.deletingLastPathComponent()
         guard let entries = try? DirectoryBrowser.entries(in: parent, sort: order.sort) else { return [] }
-        // フォルダは「直下に画像がある = それ自体が1冊の本」のものだけを残す。ファイルは
+        // フォルダはそれ自体が 1 冊の本(直下に画像がある、または章ごとに画像フォルダを分けた本)のものだけを残す。棚に並ぶ本と
+        // 同じ判定(ShelfFolderResolver.isBookEntry。2026-09-22 の監査 ―― 以前は章ごとの本を飛ばした)。ファイルは
         // DirectoryBrowserの時点で開ける形式に絞られているため、そのまま通す。
-        return entries.filter { $0.isDirectory ? $0.containsImageFile : true }
+        return entries.filter(ShelfFolderResolver.isBookEntry)
     }
 
     /// 上記のURLだけを取り出した版。
