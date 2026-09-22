@@ -102,7 +102,7 @@ nonisolated enum MetadataParsing {
         single(.info, old.info, new.info)
         // 巻数(並べ替え用)を変えたら、その数を確定する(無しにしたら確定を外し、表記から読んだ数に戻す)。変えずに巻の表記を
         // 変えたら、確定した数は外す(新しい表記と食い違った数を残さない)。
-        if old.volumeSort != new.volumeSort, !new.volume.isEmpty {
+        if old.volumeSort != new.volumeSort, !new.series.isEmpty {
             fields.volumeSort = new.volumeSort
         } else if old.volume != new.volume {
             fields.volumeSort = nil

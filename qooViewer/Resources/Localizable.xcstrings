@@ -14017,23 +14017,6 @@
         }
       }
     },
-    "Give the book a series name and a volume first" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Give the book a series name and a volume first"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "先にシリーズ名と巻数を決めてください"
-          }
-        }
-      }
-    },
     "Give the book a series name first" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -14047,23 +14030,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "先にシリーズ名を決めてください"
-          }
-        }
-      }
-    },
-    "Give the book a volume first" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Give the book a volume first"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "先に巻数を決めてください"
           }
         }
       }

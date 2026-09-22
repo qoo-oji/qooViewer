@@ -263,7 +263,10 @@ nonisolated struct BookMetadataValues: Hashable, Sendable, Codable {
         v.info = t(info)
         v.series = t(series)
         v.volume = t(volume)
-        if v.volume.isEmpty { v.volumeSort = nil }
+        // 並べ替え用の数はシリーズの中の位置なので、シリーズも巻の表記も無い本には持たせない。巻の表記が空でもシリーズが
+        // あれば残す(2026-09-22、利用者の要望: 巻数(表示)が空の本にも並べ替え用の巻数を入れたい。以前は表記が空なら
+        // 捨てていた。qooMeta は表記の無い本に数を導かないので、ここに来る数は利用者が確定したもの)。
+        if v.volume.isEmpty && v.series.isEmpty { v.volumeSort = nil }
         return v
     }
 }

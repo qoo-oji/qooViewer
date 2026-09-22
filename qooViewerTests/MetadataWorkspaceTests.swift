@@ -209,6 +209,29 @@ struct MetadataWorkspaceTests {
         #expect(MetadataParsing.edits(changing: changed, to: retitled, in: confirmed).fields.volumeSort == 1.5)
     }
 
+    @Test("巻数(表示)が空でもシリーズのある本なら巻数(並べ替え用)を入れられ、DB に残る(2026-09-22、利用者の報告)")
+    func volumeSortWithoutVolumeText() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        var workspace = await open(library, [first, second])
+        workspace.clearVolumes([second])
+        workspace.setVolumeSort(1.5, for: [second])
+        await workspace.settle()
+        #expect(workspace.row(second)?.metadata.volume == "")
+        #expect(workspace.row(second)?.metadata.volumeSort == 1.5)
+        #expect(library.metadata.record(forBookID: second)?.values.volumeSort == 1.5)
+
+        workspace.setLocked([second], true)
+        await workspace.settle()
+        workspace = await open(library, [first, second])
+        #expect(workspace.row(second)?.metadata.volumeSort == 1.5)
+        #expect(library.metadata.record(forBookID: second)?.values.volumeSort == 1.5)
+
+        // シリーズも巻の表記も無い値は、数を持たない。
+        #expect(BookMetadataValues(title: "架空", volumeSort: 2).trimmed.volumeSort == nil)
+        #expect(BookMetadataValues(series: "月の庭", volumeSort: 2).trimmed.volumeSort == 2)
+    }
+
     @Test("入れた巻数(並べ替え用)は全角でも数として読み、数でなければ受け付けない")
     func volumeSortNumberParsing() {
         #expect(MetadataWorkspace.volumeSortNumber("2.5") == 2.5)
@@ -217,6 +240,34 @@ struct MetadataWorkspaceTests {
         #expect(MetadataWorkspace.volumeSortNumber("上") == nil)
         #expect(MetadataWorkspace.volumeSortNumber("nan") == nil)
         #expect(MetadataWorkspace.volumeSortNumber("inf") == nil)
+    }
+
+    @Test("鍵を外しても、ファイル名の読みと同じ欄は直した欄にならない(青く出ない)。違う欄だけが直した欄に残る(2026-09-22、利用者の報告)")
+    func unlockingKeepsOnlyRealEdits() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let workspace = await open(library, [first, second])
+        // 直してすぐ(行に届く前に)鍵を掛けても、直した値でロックされる。
+        workspace.set(.info, to: ["架空の付記"], for: [first])
+        workspace.setLocked([first, second], true)
+        await workspace.settle()
+        #expect(library.metadata.record(forBookID: first)?.values.info == "架空の付記")
+        #expect(library.metadata.record(forBookID: first)?.isLocked == true)
+        await workspace.settle()
+        workspace.setLocked([first, second], false)
+        await workspace.settle()
+
+        #expect(!workspace.isLocked(second))
+        #expect(workspace.row(second)?.hasUnlockedEdits == false)
+        #expect(workspace.row(second)?.confirmation == QooMetaKit.Confirmation.none)
+        #expect(workspace.row(second)?.metadata.series == "月の庭")
+        #expect(library.metadata.record(forBookID: second)?.edits == QooMetaKit.Confirmation.none)
+        #expect(library.metadata.record(forBookID: second)?.isLocked == false)
+
+        #expect(workspace.row(first)?.edited == [.info])
+        #expect(workspace.row(first)?.hasConfirmedSeries == false)
+        #expect(workspace.row(first)?.metadata.info == "架空の付記")
+        #expect(library.metadata.record(forBookID: first)?.edits.fields[.info] == ["架空の付記"])
     }
 
     @Test("ロックした本は、すべての欄が確定した内容として読まれる")

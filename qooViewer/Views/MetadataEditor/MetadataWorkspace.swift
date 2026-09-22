@@ -636,12 +636,11 @@ final class MetadataWorkspace {
         }
     }
 
-    /// 巻数(並べ替え用)を確定する(nil なら確定を外し、巻の表記から読んだ数に戻す)。シリーズ名と巻の表記のある本だけ
+    /// 巻数(並べ替え用)を確定する(nil なら確定を外し、巻の表記から読んだ数に戻す)。シリーズ名のある本だけ
     /// (2026-09-22、利用者の要望: 並べ替え用の巻数を直したい)。巻の表記とシリーズは確定しない ―― 並びの位置だけを直す。
     func setVolumeSort(_ value: Double?, for ids: Set<MetadataBookRow.ID>) {
         edit("Set the volume for sorting".ui, ids) { input in
-            guard value == nil || self.row(input.id).map({ !Self.currentSeriesName($0).isEmpty && !$0.metadata.volume.isEmpty }) == true
-            else { return }
+            guard value == nil || self.row(input.id).map({ !Self.currentSeriesName($0).isEmpty }) == true else { return }
             var fields = input.confirmation.fields
             fields.volumeSort = value
             input.confirmation = input.confirmation.withFields(fields)
@@ -772,8 +771,9 @@ final class MetadataWorkspace {
 
     /// ロックする / 外す。
     /// - 掛ける: いま見えている値のまま、すべての欄を確定した内容にする(規則を変えても変わらない)。
-    /// - 外す: 見えていた値は、すべて直した欄として残す(外しただけで値が変わらないように)。変えたい欄は直すか、
-    ///   「メタデータを再生成」でファイル名の読みに戻す。
+    /// - 外す: 見えていた値のうち、**ファイル名の読みと違う欄だけ**を直した欄として残す(外しただけで値が変わらないように。
+    ///   読みと同じ欄まで直した欄にすると、何も変えていないのに全部の欄が青く出た ―― 2026-09-22、利用者の報告)。
+    ///   変えたい欄は直すか、「メタデータを再生成」でファイル名の読みに戻す。
     /// 取り消しの歩みには入れない。その本の前の歩みも捨てる。
     ///
     /// **欄がすべて空の本には掛けない**(2026-09-22 の監査で指摘)。DB は空の値の行を作らない(`BookMetadataStore.applyUpsert`)
@@ -784,18 +784,76 @@ final class MetadataWorkspace {
             return !lock || row(id)?.values.isEmpty == false
         }
         guard !targets.isEmpty else { return }
+        guard lock else { return unlock(targets) }
+        // 鍵の印はその場で付け(以後は直させない)、確定する値は計算の列(`tail`)で、先に並んだ直しが行に届いてから読む
+        // (2026-09-22。欄を書き換えている途中で鍵を押すと、書き換えの確定と鍵が同じ操作で届き、以前はまだ届いていない
+        // 古い行の値でロックして、直した値が消えた)。
+        for id in targets { locked.insert(id) }
+        forgetUndo(for: targets)
+        refreshRegistration(targets)
+        let previous = tail
+        working += 1
+        tail = Task {
+            await previous?.value
+            var fixed = Set<String>()
+            for id in targets where self.locked.contains(id) {
+                guard let row = self.row(id) else { continue }
+                self.inputs[id]?.confirmation = row.values.confirmation
+                fixed.insert(id)
+            }
+            self.working -= 1
+            self.refreshRegistration(fixed)
+            self.push(Array(fixed), alsoWrite: fixed, lockChanged: fixed)
+        }
+    }
+
+    /// 鍵を外す。**その場で外し**、見えていた値をいったんすべて直した欄にする(外しただけで値が変わらないように。すぐに
+    /// 直せるように)。続けて計算の列(`tail`)で、直した欄を「見えていた値」と「確定を外して読んだ提案」
+    /// (`ProposalIndex.preview`。ほかの本を錨にした読みも含む)の違いだけに絞る ―― 同じ欄は提案のまま(青く出ない)。
+    /// 絞る前に利用者がその本を直していたら(直した欄が外したときのものと違えば)、絞らない。
+    private func unlock(_ targets: Set<String>) {
+        var full: [String: Confirmation] = [:]
         for id in targets {
             guard let row = row(id) else { continue }
-            inputs[id]?.confirmation = row.values.confirmation
-            if lock {
-                locked.insert(id)
-            } else {
-                locked.remove(id)
-            }
+            let confirmation = row.values.confirmation
+            inputs[id]?.confirmation = confirmation
+            full[id] = confirmation
+            locked.remove(id)
         }
         forgetUndo(for: targets)
         refreshRegistration(targets)
         push(Array(targets), alsoWrite: targets, lockChanged: targets)
+
+        let previous = tail
+        working += 1
+        tail = Task { [index] in
+            await previous?.value
+            let changes = full.keys.sorted().compactMap { id -> BookChange? in
+                guard var input = self.inputs[id], input.confirmation == full[id] else { return nil }
+                input.confirmation = .none
+                return .upsert(input)
+            }
+            let delta = changes.isEmpty ? nil : await Task.detached { try? await index.preview(changes) }.value
+            // 提案が変わらなかった本は delta に入らない(見えている値がそのまま読みと同じ)。
+            let proposed = Dictionary((delta?.changed ?? []).map { ($0.id, BookMetadataValues($0.metadata)) },
+                                      uniquingKeysWith: { a, _ in a })
+            var narrowed: [String] = []
+            for case .upsert(let input) in changes {
+                let id = input.id
+                guard delta != nil, !self.locked.contains(id), self.inputs[id]?.confirmation == full[id],
+                      let row = self.row(id) else { continue }
+                let shown = row.values.trimmed
+                let edits = MetadataParsing.edits(changing: proposed[id]?.trimmed ?? shown, to: shown, in: .none)
+                guard edits != full[id] else { continue }
+                self.inputs[id]?.confirmation = edits
+                narrowed.append(id)
+            }
+            self.working -= 1
+            guard !narrowed.isEmpty else { return }
+            self.refreshRegistration(narrowed)
+            // 自分の後ろに並べる(この Task は待たないので詰まらない)。
+            self.push(narrowed, alsoWrite: Set(narrowed))
+        }
     }
 
     /// 実体が見つからなかった本を知らせる(窓の持ち主が画面の外で確かめた結果)。

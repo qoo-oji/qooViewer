@@ -651,13 +651,12 @@ struct MetadataBookTableView: View {
     }
 
     /// 巻数(表記・並べ替え用とも)は、シリーズ名の決まっている本にしか入らない(シリーズの中の番号なので)。
-    /// 巻数(並べ替え用)は、さらに巻の表記のある本だけ(表記の無い本の数は保存しない ―― `BookMetadataValues.trimmed`)。
+    /// 巻数(並べ替え用)は巻の表記が空の本でも入る(2026-09-22、利用者の要望)。
     /// ロック(登録)した本は直せない。
     private func canEdit(_ column: MetadataBookTable.Column, _ book: MetadataBookRow) -> Bool {
         guard !book.isLocked else { return false }
         switch column {
-        case .field(.volume): return !MetadataWorkspace.currentSeriesName(book).isEmpty
-        case .volumeSort: return !MetadataWorkspace.currentSeriesName(book).isEmpty && !book.metadata.volume.isEmpty
+        case .field(.volume), .volumeSort: return !MetadataWorkspace.currentSeriesName(book).isEmpty
         case .field: return true
         case .lock, .fileName, .cover: return false
         }
@@ -676,10 +675,7 @@ struct MetadataBookTableView: View {
 
     private func help(_ column: MetadataBookTable.Column, _ book: MetadataBookRow) -> String {
         if book.isLocked { return "This book is locked. Unlock it to edit".ui }
-        guard canEdit(column, book) else {
-            return column == .volumeSort && !MetadataWorkspace.currentSeriesName(book).isEmpty
-                ? "Give the book a volume first".ui : "Give the book a series name first".ui
-        }
+        guard canEdit(column, book) else { return "Give the book a series name first".ui }
         guard case .field(let field) = column else {
             return "Double-click to set this book’s position in the series. Empty goes back to the number read from the volume".ui
         }

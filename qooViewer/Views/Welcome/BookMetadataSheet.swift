@@ -287,8 +287,8 @@ struct BookMetadataSheet: View {
                     .disabled(!hasSeries)
                     .help(hasSeries ? "" : "Give the book a series name first".ui)
             }
-            // 巻数(並べ替え用)は、シリーズ名と巻の表記のある本だけ(メタデータの編集ウインドウの列と同じ条件。表記の無い本の
-            // 数は保存しない ―― `BookMetadataValues.trimmed`)。空にすると、巻の表記から読んだ数に戻る。
+            // 巻数(並べ替え用)は、シリーズ名のある本だけ(メタデータの編集ウインドウの列と同じ条件。巻の表記は空でもよい)。
+            // 空にすると、巻の表記から読んだ数に戻る。
             GridRow {
                 Text("Volume (for sorting)")
                     .gridColumnAlignment(.trailing)
@@ -296,7 +296,7 @@ struct BookMetadataSheet: View {
                     .accessibilityLabel(Text("Volume (for sorting)"))
                     .disabled(!canEditVolumeSort)
                     .help(canEditVolumeSort ? "Empty goes back to the number read from the volume".ui
-                          : "Give the book a series name and a volume first".ui)
+                          : "Give the book a series name first".ui)
             }
             if isVolumeSortInvalid {
                 GridRow {
@@ -313,9 +313,8 @@ struct BookMetadataSheet: View {
 
     private var hasSeries: Bool { !draft.series.trimmingCharacters(in: .whitespaces).isEmpty }
 
-    private var canEditVolumeSort: Bool {
-        hasSeries && !draft.volume.trimmingCharacters(in: .whitespaces).isEmpty
-    }
+    /// 巻数(並べ替え用)はシリーズの中の位置なので、シリーズ名のある本だけ(巻数(表示)は空でもよい)。
+    private var canEditVolumeSort: Bool { hasSeries }
 
     /// 直した巻数(並べ替え用)が数に読めない(保存させない)。
     private var isVolumeSortInvalid: Bool {
