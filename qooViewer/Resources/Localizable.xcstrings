@@ -23317,6 +23317,7 @@
       }
     },
     "Register" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -30142,22 +30143,6 @@
         }
       }
     },
-    "This book's metadata is locked. Unlock it in the Edit Metadata window to change it." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This book's metadata is locked. Unlock it in the Edit Metadata window to change it."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "この本のメタデータはロックされています。変えるときは「メタデータの編集」ウインドウでロックを外してください。"
-          }
-        }
-      }
-    },
     "This book is locked. Unlock it in the Edit Metadata window to change it." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -30204,6 +30189,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "この本の内容が変わっている可能性があります"
+          }
+        }
+      }
+    },
+    "This book's metadata is locked. Unlock it in the Edit Metadata window to change it." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This book's metadata is locked. Unlock it in the Edit Metadata window to change it."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この本のメタデータはロックされています。変えるときは「メタデータの編集」ウインドウでロックを外してください。"
           }
         }
       }

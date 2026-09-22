@@ -230,6 +230,8 @@ struct MetadataEditorContent: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.controlActiveState) private var controlActiveState
     @State private var showsExcludedFolders = false
+    /// 対象外のフォルダのシートの中で一覧が変わった(閉じたら一覧を作り直す)。
+    @State private var reopensAfterExcludedFoldersSheet = false
     @State private var confirmsReparseAll = false
 
     var body: some View {
@@ -323,12 +325,22 @@ struct MetadataEditorContent: View {
         } message: {
             Text(verbatim: "%lld unlocked books are parsed and extracted again from their file names, and the values you edited are thrown away. Locked books are left alone. You can undo this with Undo.".ui(workspace.regenerationTargets.count))
         }
-        .sheet(isPresented: $showsExcludedFolders) {
+        .sheet(isPresented: $showsExcludedFolders, onDismiss: {
+            guard reopensAfterExcludedFoldersSheet else { return }
+            reopensAfterExcludedFoldersSheet = false
+            Task { await model.reopen() }
+        }) {
             MetadataExcludedFoldersSheet(rulesStore: rulesStore)
         }
-        // 対象外のフォルダが変わったら一覧を作り直す。
+        // 対象外のフォルダが変わったら一覧を作り直す。ただし対象外のフォルダのシートが出ている間は、閉じるまで待つ:
+        // reopen は workspace をいったん nil にするので、このビュー(と @State のシート)が作り直され、フォルダを
+        // 1 つ足すたびにシートが閉じていた(2026-09-22)。
         .onChange(of: rulesStore.excludedFolders) {
-            Task { await model.reopen() }
+            if showsExcludedFolders {
+                reopensAfterExcludedFoldersSheet = true
+            } else {
+                Task { await model.reopen() }
+            }
         }
         // 規則の窓で変えた内容を一覧へ届ける(打っている途中の変更をまとめるため、少し待つ)。
         .task(id: rulesStore.rules.contentHash) {
