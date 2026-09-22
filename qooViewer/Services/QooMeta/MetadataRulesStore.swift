@@ -72,6 +72,8 @@ final class MetadataRulesStore {
     /// アプリの規則の写し。ストアを受け取れない所(書き出しのウインドウの ViewModel が、題と著者の初期値をファイル名から
     /// 読むとき)が読む。テストの中で作ったストアは書かない(`isAppWide`)。
     nonisolated static let appWideRules = Mutex<CompiledRules>(.builtin)
+    /// アプリの規則の写しの、いまの値。
+    nonisolated static var currentAppWideRules: CompiledRules { appWideRules.withLock { $0 } }
     /// 対象外のフォルダの写し(本を開いたときの取り込みが読む。ストアを受け取れないため)。
     nonisolated static let appWideExcludedFolders = Mutex<[String]>([])
 
@@ -102,7 +104,7 @@ final class MetadataRulesStore {
     }
 
     /// アプリ自身が名前を変えた・移したフォルダの登録を付け替える(FavoriteLocationStore.relocate と同じ規則)。
-    func relocateExcludedFolders(using change: FileSystemChange) {
+    func relocate(using change: FileSystemChange) {
         guard !change.relocations.isEmpty else { return }
         var seen = Set<String>()
         let relocated = excludedFolders.compactMap { path -> String? in

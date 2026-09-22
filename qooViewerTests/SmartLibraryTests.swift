@@ -427,10 +427,15 @@ struct SmartLibraryTests {
 
     // MARK: 本の組み立て
 
-    @Test("未登録の本は qooMeta の提案、登録済みの本は DB の値で並び、読書位置と追加日を持つ")
+    @Test("ロックしていない本は qooMeta の読み、ロックした本は DB の値で並び、読書位置と追加日を持つ")
     func assembleUsesMetadataAndReading() {
         var snapshot = SmartLibraryCatalog.Snapshot()
-        snapshot.registered = ["/棚/手で直した本.zip": BookMetadataValues(title: "手で直した題", genre: "登録したジャンル")]
+        snapshot.records = [
+            "/棚/手で直した本.zip": BookMetadataRecord(
+                values: BookMetadataValues(title: "手で直した題", genre: "登録したジャンル"), isLocked: true),
+            // ロックしていない行は、DB の値ではなく読み直した値(DB へもこの値を書く)。
+            "/棚/[架空工房] 月の庭 2.zip": BookMetadataRecord(values: BookMetadataValues(title: "古い読み"), isLocked: false),
+        ]
         snapshot.readings = ["/棚/[架空工房] 月の庭 1.zip": .init(updatedAt: now, progress: 0.5)]
         var scan = SmartLibraryScanner.Result()
         scan.books = [
@@ -448,6 +453,7 @@ struct SmartLibraryTests {
         #expect(first?.dateAdded == now)
         // 追加日が取れないボリュームでは作成日。
         #expect(books.first { $0.id == "/棚/[架空工房] 月の庭 2.zip" }?.dateAdded == now)
+        #expect(books.first { $0.id == "/棚/[架空工房] 月の庭 2.zip" }?.metadata.title == "月の庭 2")
         let registered = books.first { $0.id == "/棚/手で直した本.zip" }
         #expect(registered?.isRegistered == true)
         #expect(registered?.metadata.genre == "登録したジャンル")
@@ -458,11 +464,11 @@ struct SmartLibraryTests {
     @Test("qooMeta へ渡す本の差: 足した・登録を変えた本は upsert、無くなった本は remove、同じ本は渡さない")
     func changesOnlyCarryWhatChanged() {
         let rules = CompiledRules.builtin
-        let before = SmartLibraryCatalog.inputs(for: ["/棚/a.zip", "/棚/b.zip", "/棚/c.zip"], registered: [:],
+        let before = SmartLibraryCatalog.inputs(for: ["/棚/a.zip", "/棚/b.zip", "/棚/c.zip"], records: [:],
                                                 reusing: [:], rules: rules)
         let after = SmartLibraryCatalog.inputs(
             for: ["/棚/a.zip", "/棚/b.zip", "/棚/d.zip"],
-            registered: ["/棚/b.zip": BookMetadataValues(title: "登録した題")],
+            records: ["/棚/b.zip": BookMetadataRecord(values: BookMetadataValues(title: "登録した題"), isLocked: true)],
             reusing: before.byID, rules: rules)
         let changes = SmartLibraryCatalog.changes(from: before.byID, to: after)
         let upserted = changes.compactMap { if case .upsert(let input) = $0 { input.id } else { nil } }
@@ -477,13 +483,13 @@ struct SmartLibraryTests {
         let rules = CompiledRules.builtin
         let first = SmartLibraryCatalog.inputs(
             for: ["/棚/[架空工房] 月の庭 1.zip", "/棚/[架空工房] 月の庭 2.zip", "/棚/星の本.zip"],
-            registered: [:], reusing: [:], rules: rules)
+            records: [:], reusing: [:], rules: rules)
         let index = ProposalIndex(rules: rules, dictionaries: MetadataRulesStore.dictionaries)
         try await index.load(first.ordered)
         var proposals = Dictionary(await index.snapshot().proposals.map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
         let second = SmartLibraryCatalog.inputs(
             for: ["/棚/[架空工房] 月の庭 1.zip", "/棚/[架空工房] 月の庭 2.zip", "/棚/[架空工房] 月の庭 3.zip"],
-            registered: [:], reusing: first.byID, rules: rules)
+            records: [:], reusing: first.byID, rules: rules)
         let delta = try await index.apply(SmartLibraryCatalog.changes(from: first.byID, to: second))
         for proposal in delta.changed { proposals[proposal.id] = proposal }
         for id in delta.removedBooks { proposals[id] = nil }

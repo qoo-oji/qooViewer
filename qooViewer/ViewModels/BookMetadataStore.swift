@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import Combine
+import QooMetaKit
 
 /// 書誌メタデータ(BookMetadata)の永続化・操作を、特定の本に限らず横断的に担当する。
 /// LayoutStore/BookmarkStoreと同じ設計(SwiftDataを直接操作し、変更を
@@ -68,6 +69,16 @@ final class BookMetadataStore: ObservableObject {
     /// 登録済みのメタデータ全件(順不同)。JSONエクスポートなど、横断的に扱う経路でのみ使う。
     func allMetadata() -> [BookMetadata] {
         Array(metadataByBookID().values)
+    }
+
+    /// その本の行を、qooMeta との受け渡しの形で(ロックと直した欄つき)。
+    func record(forBookID bookID: String) -> BookMetadataRecord? {
+        metadata(forBookID: bookID)?.record
+    }
+
+    /// すべての行を、qooMeta との受け渡しの形で。
+    func allRecords() -> [String: BookMetadataRecord] {
+        metadataByBookID().mapValues(\.record)
     }
 
     /// この本にメタデータが登録されているか。
@@ -165,7 +176,8 @@ final class BookMetadataStore: ObservableObject {
             let outcome: UpsertOutcome
             if let values = entry.values {
                 outcome = applyUpsert(bookID: entry.bookID, values: values, sourceURL: entry.sourceURL,
-                                      fieldsVersion: entry.fieldsVersion)
+                                      fieldsVersion: entry.fieldsVersion, state: entry.state,
+                                      onlyIfUnlocked: entry.onlyIfUnlocked)
             } else if let existing = metadata(forBookID: entry.bookID) {
                 modelContext.delete(existing)
                 cachedByBookID?[entry.bookID] = nil
@@ -217,13 +229,22 @@ final class BookMetadataStore: ObservableObject {
         let sourceURL: URL?
         /// 欄の版(BookMetadata.fieldsVersion)。以前の保存データの JSON から読んだ行は 0。
         let fieldsVersion: Int
+        /// ロックと直した欄。nil なら今の行のまま(新しい行は、`onlyIfUnlocked` でなければロックして作る ―― 保存データの
+        /// 読み込みのように、利用者が登録した値を入れる経路)。
+        var state: BookMetadataRowState?
+        /// ファイル名から読み直した値を書く経路(規則の変更・スマートライブラリ)。**ロックした行には書かない**。
+        /// 新しい行はロックせずに作る。
+        var onlyIfUnlocked = false
 
         init(bookID: String, values: BookMetadataValues?, sourceURL: URL? = nil,
-             fieldsVersion: Int = BookMetadata.currentFieldsVersion) {
+             fieldsVersion: Int = BookMetadata.currentFieldsVersion, state: BookMetadataRowState? = nil,
+             onlyIfUnlocked: Bool = false) {
             self.bookID = bookID
             self.values = values
             self.sourceURL = sourceURL
             self.fieldsVersion = fieldsVersion
+            self.state = state
+            self.onlyIfUnlocked = onlyIfUnlocked
         }
     }
 
@@ -237,8 +258,10 @@ final class BookMetadataStore: ObservableObject {
     }
 
     private func applyUpsert(bookID: String, values: BookMetadataValues, sourceURL: URL?,
-                             fieldsVersion: Int) -> UpsertOutcome {
+                             fieldsVersion: Int, state: BookMetadataRowState? = nil,
+                             onlyIfUnlocked: Bool = false) -> UpsertOutcome {
         let values = values.trimmed
+        if onlyIfUnlocked, metadata(forBookID: bookID)?.isLocked == true { return .noChange }
 
         guard !values.isEmpty else {
             guard let existing = metadata(forBookID: bookID) else { return .noChange }
@@ -250,9 +273,11 @@ final class BookMetadataStore: ObservableObject {
         if let existing = metadata(forBookID: bookID) {
             // 同じ値なら書かない(メタデータの編集ウインドウは、行が変わるたびに登録済みの本を書き直す)。
             let unchanged = existing.values == values && existing.fieldsVersion == fieldsVersion
+                && (state == nil || existing.rowState == state)
             if !unchanged {
                 existing.values = values
                 existing.fieldsVersion = fieldsVersion
+                if let state { existing.apply(state) }
                 existing.updatedAt = Date()
             }
             // 識別子・ブックマークは、これまで取れていなかった場合にだけ補完する
@@ -281,9 +306,61 @@ final class BookMetadataStore: ObservableObject {
         )
         created.values = values
         created.fieldsVersion = fieldsVersion
+        created.apply(state ?? (onlyIfUnlocked ? BookMetadataRowState(isLocked: false) : .locked))
         modelContext.insert(created)
         cachedByBookID?[bookID] = created
         return .updated(created)
+    }
+
+    // MARK: - ファイル名の解析・ファイルの書誌情報の登録(2026-09-22)
+
+    /// 行の無い本を、ファイル名から読んだ値で登録する(ロックせずに。本を開いたとき)。行があれば何もしない。
+    func registerParsed(bookID: String, rules: CompiledRules, sourceURL: URL? = nil) {
+        guard metadata(forBookID: bookID) == nil else { return }
+        let values = MetadataParsing.values(forBookID: bookID, rules: rules)
+        upsertAll([BatchEntry(bookID: bookID, values: values, sourceURL: sourceURL,
+                              state: BookMetadataRowState(isLocked: false))])
+    }
+
+    /// ファイル(EPUB/PDF/ComicInfo.xml)の書誌情報を取り込む。**1 冊につき 1 度だけ、ロックしていない行にだけ**。
+    /// 利用者が直した欄は変えず、それ以外をファイルの値にする(利用者の指示 2026-09-22)。取り込んだ値は直した欄として持つ
+    /// (規則を変えてもファイル名の読みに戻らない。「メタデータを再生成」ではファイル名の読みに戻る)。
+    /// - Returns: 取り込んだか。
+    @discardableResult
+    func importSourceMetadata(bookID: String, source: SourceBookMetadata, rules: CompiledRules,
+                              sourceURL: URL? = nil) -> Bool {
+        let row = metadata(forBookID: bookID)
+        guard row?.isLocked != true, row?.didImportSourceMetadata != true else { return false }
+        let current = row?.rowState ?? BookMetadataRowState(isLocked: false)
+        var state = current
+        state.edits = MetadataParsing.merging(source, into: current.edits)
+        let values = MetadataParsing.values(forBookID: bookID, edits: state.edits, ruleSet: state.ruleSet, rules: rules)
+        let outcome = applyUpsert(bookID: bookID, values: values, sourceURL: sourceURL,
+                                  fieldsVersion: BookMetadata.currentFieldsVersion, state: state)
+        guard let imported = metadata(forBookID: bookID) else {
+            if case .removed = outcome { saveAndNotify(bookID: bookID) }
+            return false
+        }
+        imported.didImportSourceMetadata = true
+        saveAndNotify(bookID: bookID)
+        return true
+    }
+
+    /// ロックしていない行を、いまの規則で読み直して書く(規則を変えたとき。全行を互いの錨にして読む)。
+    /// - Returns: 書き直した行の数。
+    @discardableResult
+    func reparseUnlockedRows(rules: CompiledRules) async -> Int {
+        let records = allRecords()
+        guard records.values.contains(where: { !$0.isLocked }) else { return 0 }
+        let parsed = await MetadataParsing.values(for: records, rules: rules)
+        let entries = records.keys.sorted().compactMap { id -> BatchEntry? in
+            // 読み直している間に消えた・ロックされた行は書かない(`onlyIfUnlocked` と行の有無で確かめる)。
+            guard let values = parsed[id], let record = self.record(forBookID: id), !record.isLocked,
+                  record.values != values.trimmed else { return nil }
+            return BatchEntry(bookID: id, values: values, onlyIfUnlocked: true)
+        }
+        guard !entries.isEmpty else { return 0 }
+        return upsertAll(entries)
     }
 
     /// 以前の版の欄で登録した行(`fieldsVersion` がいまより古い)の bookID。

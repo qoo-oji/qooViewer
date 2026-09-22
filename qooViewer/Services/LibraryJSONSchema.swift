@@ -160,6 +160,18 @@ struct ExportedBookMetadataEntry: Codable {
     /// (よくある)今の版の行が往復で版 0 に落ち、メタデータの編集ウインドウが「以前の版の欄で登録した」と尋ね直した ――
     /// そこで「ロックを外して解析し直す」を選ぶと、登録した値が捨てられる(監査で指摘)。無いときだけ推す(`importedFieldsVersion`)。
     var fieldsVersion: Int?
+    /// ロックしているか(2026-09-22 に足した。formatVersion は据え置き)。**無ければロック** ―― それより前の書き出しの行は、
+    /// どれも利用者が登録したもの(ロック・1 冊ぶんのシート・ファイルからの取り込み)。
+    var locked: Bool?
+    /// ロックしていない行の、利用者が直した欄(qooMeta の `Confirmation`)と、利用者が選んだルールセット(ロックした行も)。
+    var edits: MetadataEdits?
+    var ruleSet: String?
+
+    /// 取り込む行のロックと直した欄。
+    var importedState: BookMetadataRowState {
+        guard locked == false else { return BookMetadataRowState(isLocked: true, ruleSet: ruleSet) }
+        return .unlocked(edits: edits, ruleSet: ruleSet)
+    }
 
     var fileNodeIdentifier: FileNodeIdentifier? {
         guard let inodeNumber, let volumeDeviceNumber else { return nil }
@@ -200,7 +212,10 @@ extension ExportedBookMetadataEntry {
             author: values.author, title: values.title, series: values.series, seriesIndex: values.volume,
             authors: values.authors.count > 1 ? values.authors : nil,
             genre: nonEmpty(values.genre), event: nonEmpty(values.event), source: nonEmpty(values.source),
-            info: nonEmpty(values.info), volumeSort: values.volumeSort, fieldsVersion: metadata.fieldsVersion
+            info: nonEmpty(values.info), volumeSort: values.volumeSort, fieldsVersion: metadata.fieldsVersion,
+            locked: metadata.isLocked,
+            edits: .exporting(metadata),
+            ruleSet: metadata.ruleSet
         )
     }
 }

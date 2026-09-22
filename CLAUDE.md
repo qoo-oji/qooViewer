@@ -257,8 +257,11 @@ rest), genre, event, source, info, series, volume (as written) and `volumeSort`,
 these fields existed; the Edit Metadata window offers to fill the empty fields). Values travel as `BookMetadataValues`.
 Rules and excluded folders live in `MetadataRulesStore` (Application Support/qooMeta/settings.json, a diff against the
 bundled rules). The Edit Metadata window (`Views/MetadataEditor/`, `MetadataWorkspace` + AppKit `MetadataBookTable`) is qooMeta's
-page 3: **lock = register** — edits are drafts (`MetadataDraftStore`, kept across closes), locking writes the visible values
-as a full confirmation, unlocking deletes the row and keeps the values as a draft; undo covers drafts only. Books listed =
+page 3: **every parsed book is registered** (2026-09-22; the user found "shown but not saved" meaningless) — the window,
+the smart library and opening a book (not in a private window) write a row for each book they parse; `isLocked` freezes a
+row, unlocked rows keep the user's edited fields (`editsData`) and rule set and are re-derived when the rules change
+(`BookMetadataStore.reparseUnlockedRows`); Delete Metadata removes the row and does not remember it. The old drafts file
+(`MetadataDraftStore`) is migrated into the DB once at launch; undo covers unlocked edits only. Books listed =
 `KnownBooks` (opened / library) + the smart library's target folders (not Favorite Locations). Books under an excluded
 folder are never registered (window, sheet, or EPUB/PDF/ComicInfo import). Titles elsewhere (`BookTitleResolver`, export
 defaults, the one-book sheet) read through the same rules. Details in docs/07「書誌メタデータ」.

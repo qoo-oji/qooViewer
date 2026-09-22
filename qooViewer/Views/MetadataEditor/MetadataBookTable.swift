@@ -273,7 +273,7 @@ struct MetadataBookTable: NSViewRepresentable {
             button.image = NSImage(systemSymbolName: locked ? "lock.fill" : "lock.open",
                                    accessibilityDescription: locked ? "Locked".ui : "Unlocked".ui)
             button.contentTintColor = locked ? .labelColor : .tertiaryLabelColor
-            button.toolTip = locked ? "Locked (registered). Click to unlock".ui : "Click to lock and register the metadata of this book".ui
+            button.toolTip = locked ? "Locked. Click to unlock".ui : "Click to lock the metadata of this book".ui
         }
     }
 
@@ -392,7 +392,7 @@ struct MetadataBookTable: NSViewRepresentable {
                     made.button.action = #selector(lockClicked(_:))
                     return made
                 }()
-                cell.show(locked: book.isRegistered)
+                cell.show(locked: book.isLocked)
                 cell.button.identifier = NSUserInterfaceItemIdentifier(book.id)
                 return cell
             case .cover:

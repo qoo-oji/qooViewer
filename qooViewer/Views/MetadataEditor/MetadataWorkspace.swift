@@ -6,7 +6,7 @@ import QooMetaRules
 /// 一覧の 1 冊(提案 + 利用者の修正)。画面はこれだけを見る。
 ///
 /// qooMeta のアプリの `MetadataBookRow`(App/qooMeta/MetadataWorkspace.swift)を移したもの。違いは、本の ID がフルパス(qooViewer の
-/// bookID)であることと、登録済みか(`isRegistered`)を持つこと。
+/// bookID)であることと、ロックしているか(`isLocked`)を持つこと。
 nonisolated struct MetadataBookRow: Identifiable, Hashable, Sendable {
     /// 本の ID(bookID = フルパス)。
     let id: String
@@ -21,9 +21,8 @@ nonisolated struct MetadataBookRow: Identifiable, Hashable, Sendable {
     var confirmation: Confirmation
     var seriesID: SeriesID?
     var flags: Set<BookProposal.Flag>
-    /// DB に登録してあるか(qooViewer のメタデータの行があるか)。**登録 = ロック**(利用者の決定 2026-09-21、案 A):
-    /// 鍵を掛けた時点の値で登録し、鍵が掛かっている間は直せない。
-    let isRegistered: Bool
+    /// ロックしているか。鍵が掛かっている間は直せず、規則を変えても値が変わらない。
+    let isLocked: Bool
     /// 本の実体が見つからない(灰色で出し、右クリックから保存データを削除できる)。
     let isMissing: Bool
 
@@ -40,7 +39,7 @@ nonisolated struct MetadataBookRow: Identifiable, Hashable, Sendable {
     static func == (a: MetadataBookRow, b: MetadataBookRow) -> Bool { a.id == b.id && a.contentID == b.contentID }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
-    init(_ proposal: BookProposal, confirmation: Confirmation, isRegistered: Bool, isMissing: Bool = false,
+    init(_ proposal: BookProposal, confirmation: Confirmation, isLocked: Bool, isMissing: Bool = false,
          fileRank: Int = 0) {
         self.fileRank = fileRank
         id = proposal.id
@@ -50,7 +49,7 @@ nonisolated struct MetadataBookRow: Identifiable, Hashable, Sendable {
         self.confirmation = confirmation
         seriesID = proposal.seriesID
         flags = proposal.flags
-        self.isRegistered = isRegistered
+        self.isLocked = isLocked
         self.isMissing = isMissing
         authorsKey = proposal.metadata.authors.count == 1 ? proposal.metadata.authors[0]
             : proposal.metadata.authors.joined(separator: "、")
@@ -69,17 +68,17 @@ nonisolated struct MetadataBookRow: Identifiable, Hashable, Sendable {
         hasher.combine(proposal.seriesID)
         hasher.combine(proposal.flags)
         hasher.combine(proposal.name)
-        hasher.combine(isRegistered)
+        hasher.combine(isLocked)
         hasher.combine(isMissing)
         contentID = hasher.finalize()
     }
 
     /// 提案はそのまま、確定した内容と登録の有無だけを替えた行。
-    func with(confirmation: Confirmation, isRegistered: Bool, isMissing: Bool) -> MetadataBookRow {
-        MetadataBookRow(copying: self, confirmation: confirmation, isRegistered: isRegistered, isMissing: isMissing)
+    func with(confirmation: Confirmation, isLocked: Bool, isMissing: Bool) -> MetadataBookRow {
+        MetadataBookRow(copying: self, confirmation: confirmation, isLocked: isLocked, isMissing: isMissing)
     }
 
-    private init(copying row: MetadataBookRow, confirmation: Confirmation, isRegistered: Bool, isMissing: Bool) {
+    private init(copying row: MetadataBookRow, confirmation: Confirmation, isLocked: Bool, isMissing: Bool) {
         id = row.id
         fileName = row.fileName
         matchedFormat = row.matchedFormat
@@ -87,7 +86,7 @@ nonisolated struct MetadataBookRow: Identifiable, Hashable, Sendable {
         self.confirmation = confirmation
         seriesID = row.seriesID
         flags = row.flags
-        self.isRegistered = isRegistered
+        self.isLocked = isLocked
         self.isMissing = isMissing
         authorsKey = row.authorsKey
         volumeKey = row.volumeKey
@@ -97,7 +96,7 @@ nonisolated struct MetadataBookRow: Identifiable, Hashable, Sendable {
         var hasher = Hasher()
         hasher.combine(row.contentID)
         hasher.combine(confirmation)
-        hasher.combine(isRegistered)
+        hasher.combine(isLocked)
         hasher.combine(isMissing)
         contentID = hasher.finalize()
     }
@@ -107,8 +106,8 @@ nonisolated struct MetadataBookRow: Identifiable, Hashable, Sendable {
     /// 利用者が直した(確定した)欄。
     var edited: Set<QMBookMetadata.Field> { Set(confirmation.fields.values.keys) }
 
-    /// 直したが、まだロック(登録)していない欄があるか(一覧で青く出す)。
-    var hasUnregisteredEdits: Bool { !isRegistered && (!edited.isEmpty || hasConfirmedSeries) }
+    /// 直した欄がある、ロックしていない本か(一覧で青く出す)。
+    var hasUnlockedEdits: Bool { !isLocked && (!edited.isEmpty || hasConfirmedSeries) }
 
     /// シリーズか巻を利用者が確定しているか(一覧と詳細の印)。
     var hasConfirmedSeries: Bool {
@@ -159,13 +158,14 @@ nonisolated enum MetadataValueKey: Hashable, Comparable {
 /// 直すたびに全冊を計算し直さず、変更の索引(`ProposalIndex`)に変わった本だけを渡す。
 ///
 /// ■ qooViewer での違い
-/// - **ロック = 登録**(利用者の決定 2026-09-21、案 A。最初は「直したらすぐ登録」だったが、ロックと登録が別の考えに見えて
-///   分かりにくかった)。直した値は DB へは書かず下書き(`MetadataDraftStore`。窓を閉じても残る)として持ち、鍵を掛けた時点の
-///   値で登録する。登録した本は**すべての欄を確定した内容**として渡す(`BookMetadataValues.confirmation`)ので、規則を変えても
-///   値は変わらず、鍵を外すまで直せない。鍵を外すと DB の行を消し、見えていた値は下書きに残る。
-/// - 取り消し(⌘Z)は下書きの直しだけ。ロックと削除は DB へ書く操作なので歩みに入れない。
+/// - **一覧の本はすべて DB に登録する**(利用者の指示 2026-09-22: 「表示されているが保存されていない」は意味が分からない)。
+///   ロックしていない本は、直した欄(`BookMetadata.edits`)とルールセットも行に持ち、値は計算し直すたびに書き直す。
+///   ロックした本は**すべての欄を確定した内容**として渡す(`BookMetadataValues.confirmation`)ので、規則を変えても
+///   値は変わらず、鍵を外すまで直せない。**ロックした行の値は、ロックした時にしか書かない**。
+///   (2026-09-21〜22 は「ロック = 登録」で、ロックしていない本の値は drafts.json の下書きにしか無かった。)
+/// - 取り消し(⌘Z)はロックしていない本の直しだけ。ロックと削除は歩みに入れない。
 /// - ルールセットは本ごとに自動で選ぶ(qooMeta の段 2 の「自動」と同じ条件。決まらない本は既定のルールセット)。
-///   右クリックの「読み直す」で本ごとに替えられる(替えたルールセットも下書きに残る)。
+///   右クリックの「ファイル名の解析ルール」で本ごとに替えられる(替えたルールセットも行に残る)。
 @MainActor @Observable
 final class MetadataWorkspace {
     private(set) var books: [MetadataBookRow] = []
@@ -182,7 +182,7 @@ final class MetadataWorkspace {
     /// 利用者が右クリックで選んだルールセット(自動より優先)。
     private var presetOverrides: [String: String] = [:]
     /// 登録済みの本。
-    private var registered: Set<String>
+    private var locked: Set<String>
     /// 実体が見つからない本(窓を開いたあとに、画面の外で確かめた結果)。
     private var missing: Set<String> = []
     /// 入れた順。
@@ -196,10 +196,8 @@ final class MetadataWorkspace {
     private let index: ProposalIndex
     /// 索引への変更は入れた順に流す。
     private var tail: Task<Void, Never>?
-    /// DB へ書く口(登録・登録を外す)。書いた結果として届く変更の知らせを、自分の変更として無視するための印も持つ。
+    /// DB へ書く口。書いた結果として届く変更の知らせを、自分の変更として無視するための印も持つ。
     @ObservationIgnored var writeBack: (([BookMetadataStore.BatchEntry]) -> Void)?
-    /// 直したが登録していない値(下書き)が変わった本を知らせる口(持ち主がファイルへ残す。MetadataDraftStore)。
-    @ObservationIgnored var draftsChanged: (([String: MetadataDraftStore.Draft?]) -> Void)?
     /// いま DB へ書いている最中(その知らせで、自分の行を読み直さない)。
     @ObservationIgnored private(set) var isWritingBack = false
 
@@ -223,15 +221,15 @@ final class MetadataWorkspace {
     /// 右クリックからも外した。利用者の指示 2026-09-21)。qooViewer では「型に合わなかった」(2 ページ目を持たない代わりの入口。利用者の指示
     /// 2026-09-21)と、登録の有無を足した。
     enum StateFilter: String, CaseIterable, Identifiable {
-        case all, unmatched, missing, notRegistered, registered, notInSeries, noVolume, edited
+        case all, unmatched, missing, notLocked, locked, notInSeries, noVolume, edited
         var id: Self { self }
         var label: String {
             switch self {
             case .all: "All".ui
             case .unmatched: "Matched no file name format".ui
             case .missing: "Book not found".ui
-            case .notRegistered: "Not locked".ui
-            case .registered: "Locked".ui
+            case .notLocked: "Not locked".ui
+            case .locked: "Locked".ui
             case .notInSeries: "Not in a series".ui
             case .noVolume: "No volume".ui
             case .edited: "Edited but not locked".ui
@@ -242,11 +240,11 @@ final class MetadataWorkspace {
             case .all: true
             case .unmatched: !book.matchedFormat
             case .missing: book.isMissing
-            case .notRegistered: !book.isRegistered
-            case .registered: book.isRegistered
+            case .notLocked: !book.isLocked
+            case .locked: book.isLocked
             case .notInSeries: book.seriesID == nil && book.metadata.series.isEmpty
             case .noVolume: book.metadata.volume.isEmpty
-            case .edited: book.hasUnregisteredEdits
+            case .edited: book.hasUnlockedEdits
             }
         }
     }
@@ -256,20 +254,18 @@ final class MetadataWorkspace {
     /// 1 冊ぶんの入口。
     struct Entry: Sendable {
         let bookID: String
-        /// 登録済みならその値(すべて確定した内容として渡す)。
-        let registeredValues: BookMetadataValues?
-        /// 直したが登録していない値(下書き)。
-        var draft: MetadataDraftStore.Draft?
+        /// DB の行(無ければ nil。開いたあとに登録する)。
+        var record: BookMetadataRecord?
     }
 
-    private init(inputs: [BookInput], autoPresets: [String: String], registered: Set<String>,
+    private init(inputs: [BookInput], autoPresets: [String: String], locked: Set<String>,
                  overrides: [String: String], rules: CompiledRules) {
         presetOverrides = overrides
         self.rules = rules
         formats = rules.formats
         self.inputs = Dictionary(inputs.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         self.autoPresets = autoPresets
-        self.registered = registered
+        self.locked = locked
         var seen = Set<String>()
         order = inputs.map(\.id).filter { seen.insert($0).inserted }
         index = ProposalIndex(rules: rules, dictionaries: MetadataRulesStore.dictionaries)
@@ -280,29 +276,34 @@ final class MetadataWorkspace {
         let prepared = await Task.detached(priority: .userInitiated) { () -> ([BookInput], [String: String], Set<String>) in
             var inputs: [BookInput] = []
             var autos: [String: String] = [:]
-            var registered = Set<String>()
+            var locked = Set<String>()
             inputs.reserveCapacity(entries.count)
             let autoRules = MetadataRulesStore.autoPresetRules(of: rules)
             for entry in entries {
                 let name = MetadataRulesStore.parsingName(forBookID: entry.bookID)
                 let auto = MetadataRulesStore.autoPreset(forBookID: entry.bookID, name: name, autoRules: autoRules)
                 if let auto { autos[entry.bookID] = auto }
-                if entry.registeredValues != nil { registered.insert(entry.bookID) }
-                // 登録済み(ロック)ならその値、そうでなければ下書き(直したが登録していない値)。
-                let draft = entry.registeredValues == nil ? entry.draft : nil
-                inputs.append(BookInput(id: entry.bookID, name: name, preset: draft?.preset ?? auto,
-                                        confirmation: entry.registeredValues?.confirmation ?? draft?.confirmation ?? .none))
+                if entry.record?.isLocked == true { locked.insert(entry.bookID) }
+                // ロックした行はすべての欄、していない行は直した欄(BookMetadataRecord.confirmation)。
+                inputs.append(BookInput(id: entry.bookID, name: name, preset: entry.record?.ruleSet ?? auto,
+                                        confirmation: entry.record?.confirmation ?? .none))
             }
-            return (inputs, autos, registered)
+            return (inputs, autos, locked)
         }.value
         var overrides: [String: String] = [:]
-        for entry in entries where entry.registeredValues == nil {
-            if let preset = entry.draft?.preset { overrides[entry.bookID] = preset }
+        for entry in entries {
+            if let preset = entry.record?.ruleSet { overrides[entry.bookID] = preset }
         }
-        let workspace = MetadataWorkspace(inputs: prepared.0, autoPresets: prepared.1, registered: prepared.2,
+        let workspace = MetadataWorkspace(inputs: prepared.0, autoPresets: prepared.1, locked: prepared.2,
                                           overrides: overrides, rules: rules)
         await workspace.recomputeAll()
         return workspace
+    }
+
+    /// 一覧の本をすべて DB へ書く(開いた直後。行の無い本を登録し、ロックしていない本の値をいまの読みに揃える)。
+    /// `writeBack` を付けてから呼ぶ。
+    func registerAll() {
+        writeRows(Set(order))
     }
 
     /// 規則を替える(規則の窓で方針や型を変えたとき)。すべての本を読み直し、ルールセットの自動の選択もやり直す。
@@ -341,7 +342,7 @@ final class MetadataWorkspace {
                 updated[id] = input
                 changed.append(.upsert(input))
             }
-            let confirmations = self.inputs.mapValues(\.confirmation), ranks = self.fileRanks, registered = self.registered
+            let confirmations = self.inputs.mapValues(\.confirmation), ranks = self.fileRanks, locked = self.locked
             let missing = self.missing
             let work = Task.detached { () -> [MetadataBookRow]? in
                 do {
@@ -350,7 +351,7 @@ final class MetadataWorkspace {
                 } catch { return nil }
                 return await index.snapshot().proposals.map {
                     MetadataBookRow($0, confirmation: confirmations[$0.id] ?? .none,
-                                    isRegistered: registered.contains($0.id),
+                                    isLocked: locked.contains($0.id),
                                     isMissing: missing.contains($0.id), fileRank: ranks[$0.id] ?? 0)
                 }
             }
@@ -358,7 +359,8 @@ final class MetadataWorkspace {
             if let rows = await work.value {
                 for (id, input) in updated { self.inputs[id] = input }
                 self.replaceBooks(rows)
-
+                // ロックしていない本の値は、規則に合わせて DB も書き直す(利用者の指示 2026-09-22)。
+                self.writeRows(Set(self.order))
             }
             self.working -= 1
         }
@@ -371,7 +373,7 @@ final class MetadataWorkspace {
     private func recomputeAll() async {
         working += 1
         let all = order.compactMap { inputs[$0] }
-        let confirmations = inputs.mapValues(\.confirmation), registered = self.registered
+        let confirmations = inputs.mapValues(\.confirmation), locked = self.locked
         let missing = self.missing
         let (rows, ranks) = await Task.detached { [index] in
             try? await index.load(all)
@@ -379,7 +381,7 @@ final class MetadataWorkspace {
             let ranks = Dictionary(byName.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { a, _ in a })
             let rows = await index.snapshot().proposals.map {
                 MetadataBookRow($0, confirmation: confirmations[$0.id] ?? .none,
-                                isRegistered: registered.contains($0.id),
+                                isLocked: locked.contains($0.id),
                                 isMissing: missing.contains($0.id), fileRank: ranks[$0.id] ?? 0)
             }
             return (rows, ranks)
@@ -389,9 +391,9 @@ final class MetadataWorkspace {
         working -= 1
     }
 
-    /// 変わった本だけを索引へ渡す。着いたら、登録済みの本の DB を行に合わせる(`alsoWrite` は、提案が変わらなくても
-    /// 書き直す本 ―― 登録を外した本・登録した本)。
-    private func push(_ changedIDs: [String], alsoWrite: Set<String> = []) {
+    /// 変わった本だけを索引へ渡す。着いたら、変わった本の DB を行に合わせる(`alsoWrite` は、提案が変わらなくても
+    /// 書き直す本 ―― 直した本・ロックを掛けた/外した本)。
+    private func push(_ changedIDs: [String], alsoWrite: Set<String> = [], lockChanged: Set<String> = []) {
         let changes = changedIDs.compactMap { inputs[$0] }.map { BookChange.upsert($0) }
         guard !changes.isEmpty || !alsoWrite.isEmpty else { return }
         let previous = tail
@@ -400,21 +402,26 @@ final class MetadataWorkspace {
             await previous?.value
             let delta = changes.isEmpty ? nil : await Task.detached { try? await index.apply(changes) }.value
             if let delta { self.absorb(delta) }
-            // 錨の効果で、選んでいない本の提案も変わる。登録済みの本なら、その値も DB へ。
+            // 錨の効果で、選んでいない本の提案も変わる。その値も DB へ(ロックした本は `writeRows` が書かない)。
             var toWrite = alsoWrite
-            for proposal in delta?.changed ?? [] where self.registered.contains(proposal.id) { toWrite.insert(proposal.id) }
-            self.writeRows(toWrite)
+            for proposal in delta?.changed ?? [] { toWrite.insert(proposal.id) }
+            self.writeRows(toWrite, lockChanged: lockChanged)
             self.working -= 1
         }
     }
 
-    /// 登録の有無と行の値を DB へ書く(登録済みなら行の値、そうでなければ行を消す)。
-    private func writeRows(_ ids: Set<String>) {
+    /// 行の値とロック・直した欄を DB へ書く。**ロックした本は `lockChanged` の本だけ書く**(ロックした行の値は、
+    /// ロックした時にしか変えない。利用者の指示 2026-09-22「ロックされたら DB を変更不可」)。
+    private func writeRows(_ ids: Set<String>, lockChanged: Set<String> = []) {
         guard let writeBack, !ids.isEmpty else { return }
         let entries = ids.sorted().compactMap { id -> BookMetadataStore.BatchEntry? in
-            guard let row = row(id) else { return nil }
-            return BookMetadataStore.BatchEntry(bookID: id, values: registered.contains(id) ? row.values : nil)
+            guard let row = row(id), let input = inputs[id] else { return nil }
+            let isLocked = locked.contains(id)
+            guard !isLocked || lockChanged.contains(id) else { return nil }
+            let state = BookMetadataRowState(isLocked: isLocked, edits: input.confirmation, ruleSet: presetOverrides[id])
+            return BookMetadataStore.BatchEntry(bookID: id, values: row.values, state: state)
         }
+        guard !entries.isEmpty else { return }
         isWritingBack = true
         writeBack(entries)
         isWritingBack = false
@@ -427,7 +434,7 @@ final class MetadataWorkspace {
         for proposal in delta.changed {
             guard let position = positionByID[proposal.id] else { continue }
             books[position] = MetadataBookRow(proposal, confirmation: inputs[proposal.id]?.confirmation ?? .none,
-                                              isRegistered: registered.contains(proposal.id),
+                                              isLocked: locked.contains(proposal.id),
                                               isMissing: missing.contains(proposal.id),
                                               fileRank: fileRanks[proposal.id] ?? 0)
             changed.append(position)
@@ -443,10 +450,10 @@ final class MetadataWorkspace {
         for id in ids {
             guard let position = positionByID[id] else { continue }
             let old = books[position]
-            guard old.isRegistered != registered.contains(id) || old.confirmation != inputs[id]?.confirmation
+            guard old.isLocked != locked.contains(id) || old.confirmation != inputs[id]?.confirmation
                     || old.isMissing != missing.contains(id) else { continue }
             // 提案そのものは変わっていないので、行の中の提案の値から作り直す。
-            books[position] = old.with(confirmation: inputs[id]?.confirmation ?? .none, isRegistered: registered.contains(id),
+            books[position] = old.with(confirmation: inputs[id]?.confirmation ?? .none, isLocked: locked.contains(id),
                                        isMissing: missing.contains(id))
             changed.append(position)
         }
@@ -477,29 +484,35 @@ final class MetadataWorkspace {
     // MARK: - ほかの画面が DB を変えたとき
 
     /// 1 冊ぶんのシート・保存データの読み込み・ビューアの取り込みなど、この窓の外で DB が変わったとき、その本の
-    /// 入力を DB に合わせる(`values` が nil なら登録が外れた)。取り消しの歩みには入れない。
-    func applyExternalChanges(_ changes: [String: BookMetadataValues?]) {
+    /// 入力を DB に合わせる(nil なら行が消えた ―― 一覧から外す)。取り消しの歩みには入れない。
+    /// **ロックしていない行の値の違いは見ない**(値は解析から作るもので、スマートライブラリなどが同じ本を別の錨で読んで
+    /// 書くことがある。見るのはロックと直した欄とルールセット)。
+    func applyExternalChanges(_ changes: [String: BookMetadataRecord?]) {
         var changedIDs: [String] = []
-        for (id, values) in changes {
+        var gone = Set<String>()
+        for (id, record) in changes {
             guard var input = inputs[id] else { continue }
-            let wasRegistered = registered.contains(id)
-            if let values {
-                registered.insert(id)
-                let confirmation = values.confirmation
-                // 同じ値なら何もしない(この窓が書いた値が知らせとして戻ってきただけ)。
-                if wasRegistered, row(id)?.values == values.trimmed { continue }
-                input.confirmation = confirmation
-            } else {
-                guard wasRegistered else { continue }
-                registered.remove(id)
-                input.confirmation = .none
-                presetOverrides[id] = nil
-                input.preset = autoPresets[id]
+            guard let record else {
+                gone.insert(id)
+                continue
             }
+            let wasLocked = locked.contains(id)
+            if record.isLocked {
+                if wasLocked, row(id)?.values == record.values.trimmed { continue }
+                locked.insert(id)
+            } else {
+                if !wasLocked, input.confirmation == record.edits, presetOverrides[id] == record.ruleSet { continue }
+                locked.remove(id)
+            }
+            presetOverrides[id] = record.ruleSet
+            input.preset = record.ruleSet ?? autoPresets[id]
+            input.confirmation = record.confirmation
             inputs[id] = input
             changedIDs.append(id)
         }
+        if !gone.isEmpty { removeBooks(gone) }
         guard !changedIDs.isEmpty else { return }
+        forgetUndo(for: Set(changedIDs))
         refreshRegistration(changedIDs)
         push(changedIDs)
     }
@@ -595,8 +608,8 @@ final class MetadataWorkspace {
         }
     }
 
-    /// ファイル名から解析・抽出し直す: 直した値(下書き)を捨てて、qooMeta の提案に戻す(ルールセットの選び直しは残す)。
-    /// **ロックした本は触らない**。取り消せる 1 歩(下書きの直しなので)。
+    /// ファイル名から解析・抽出し直す: 直した欄を捨てて、qooMeta の提案に戻す(ルールセットの選び直しは残す)。
+    /// **ロックした本は触らない**。取り消せる 1 歩。
     /// 鍵を外した元の登録の値(以前のアプリで登録した、ジャンルなどが空の値)を、新しい解析でやり直すための口
     /// (利用者の指示 2026-09-21)。
     func reparseFromFileNames(_ ids: Set<MetadataBookRow.ID>) {
@@ -605,15 +618,15 @@ final class MetadataWorkspace {
         }
     }
 
-    /// 直した値(下書き)を持つ、ロックしていない本。
+    /// 直した欄を持つ、ロックしていない本。
     var unlockedEditedIDs: Set<String> {
-        Set(books.lazy.filter(\.hasUnregisteredEdits).map(\.id))
+        Set(books.lazy.filter(\.hasUnlockedEdits).map(\.id))
     }
 
     /// ツールバーの「メタデータを再生成」の相手: **選んだ本のうち**ロックしていない本(選んでいなければ無し。一覧の全部に
     /// かけたいときは「すべて選択」してから。利用者の理解に合わせた 2026-09-21)。
     var regenerationTargets: Set<String> {
-        Set(selectedBooks.lazy.filter { !$0.isRegistered }.map(\.id))
+        Set(selectedBooks.lazy.filter { !$0.isLocked }.map(\.id))
     }
 
     /// 一覧に出ている本がすべて選ばれているか(ツールバーの全選択 / 全選択解除)。
@@ -625,25 +638,6 @@ final class MetadataWorkspace {
     /// 一覧に出ている本をすべて選ぶ。すでに全部選ばれていれば、選択を外す。
     func toggleSelectAll() {
         selection = isEveryVisibleBookSelected ? [] : Set(visiblePositions.map { books[$0].id })
-    }
-
-    /// メタデータを削除する: DB の行を消し、確定をすべて捨てて提案に戻す(右クリックの「メタデータを削除…」)。
-    /// **ロック(登録)していても消す**(削除は利用者が確かめてから行う)。取り消しの歩みには入れない。
-    func unregister(_ ids: Set<MetadataBookRow.ID>) {
-        let targets = ids.filter { inputs[$0] != nil }
-        guard !targets.isEmpty else { return }
-        var drafts: [String: MetadataDraftStore.Draft?] = [:]
-        for id in targets {
-            registered.remove(id)
-            presetOverrides[id] = nil
-            inputs[id]?.confirmation = .none
-            inputs[id]?.preset = autoPresets[id]
-            drafts[id] = .some(nil)
-        }
-        forgetUndo(for: targets)
-        draftsChanged?(drafts)
-        refreshRegistration(targets)
-        push(Array(targets), alsoWrite: targets)
     }
 
     func previewSetSeries(_ name: String, for ids: Set<MetadataBookRow.ID>) async -> SeriesChangePreview {
@@ -707,39 +701,35 @@ final class MetadataWorkspace {
 
     // MARK: - ロック・実体・削除
 
-    /// ロック(= 登録)してあるか。
-    func isLocked(_ id: String) -> Bool { registered.contains(id) }
+    /// ロックしてあるか。
+    func isLocked(_ id: String) -> Bool { locked.contains(id) }
 
-    /// ロックする / 外す(**ロック = 登録**。利用者の決定 2026-09-21、案 A)。
-    /// - 掛ける: いま見えている値で DB に登録し、すべての欄を確定した内容にする(規則を変えても変わらない)。下書きは消す。
-    /// - 外す: DB の行を消す。**見えていた値は下書きとして残す**(直してからまた掛けられるように)。
-    /// 取り消しの歩みには入れない(DB へ書く操作なので)。その本の前の歩みも捨てる。
+    /// ロックする / 外す。
+    /// - 掛ける: いま見えている値のまま、すべての欄を確定した内容にする(規則を変えても変わらない)。
+    /// - 外す: 見えていた値は、すべて直した欄として残す(外しただけで値が変わらないように)。変えたい欄は直すか、
+    ///   「メタデータを再生成」でファイル名の読みに戻す。
+    /// 取り消しの歩みには入れない。その本の前の歩みも捨てる。
     ///
     /// **欄がすべて空の本には掛けない**(2026-09-22 の監査で指摘)。DB は空の値の行を作らない(`BookMetadataStore.applyUpsert`)
-    /// ので、掛けると鍵の印だけが付いて何も登録されず、開き直すと外れていた。
+    /// ので、掛けると鍵の印だけが付いて何も残らず、開き直すと外れていた。
     func setLocked(_ ids: Set<String>, _ lock: Bool) {
         let targets = ids.filter { id in
-            guard inputs[id] != nil, registered.contains(id) != lock else { return false }
+            guard inputs[id] != nil, locked.contains(id) != lock else { return false }
             return !lock || row(id)?.values.isEmpty == false
         }
         guard !targets.isEmpty else { return }
-        var drafts: [String: MetadataDraftStore.Draft?] = [:]
         for id in targets {
             guard let row = row(id) else { continue }
-            let confirmation = row.values.confirmation
-            inputs[id]?.confirmation = confirmation
+            inputs[id]?.confirmation = row.values.confirmation
             if lock {
-                registered.insert(id)
-                drafts[id] = .some(nil)
+                locked.insert(id)
             } else {
-                registered.remove(id)
-                drafts[id] = MetadataDraftStore.Draft(confirmation: confirmation, preset: presetOverrides[id])
+                locked.remove(id)
             }
         }
         forgetUndo(for: targets)
-        draftsChanged?(drafts)
         refreshRegistration(targets)
-        push(Array(targets), alsoWrite: targets)
+        push(Array(targets), alsoWrite: targets, lockChanged: targets)
     }
 
     /// 実体が見つからなかった本を知らせる(窓の持ち主が画面の外で確かめた結果)。
@@ -750,13 +740,28 @@ final class MetadataWorkspace {
         refreshRegistration(changed)
     }
 
+    /// 本のメタデータを削除して一覧から外す(右クリックの「メタデータを削除…」。利用者の指示 2026-09-22: 削除したら
+    /// 一覧から消え、DB からも消える)。**覚えてはおかない** ―― 本を開き直す・窓を開き直すなどで解析されれば、また登録される
+    /// (除外フォルダへ入れる前にそのフォルダの本のメタデータを消す、などが想定の使い方。利用者の指示 2026-09-22)。
+    /// **DB へは先に直接書く** ―― 計算の列(`tail`)の後で書くと、そのときには一覧から外れた行を引けず、何も消えない。
+    func deleteBooks(_ ids: Set<String>) {
+        let targets = ids.filter { inputs[$0] != nil }
+        guard !targets.isEmpty else { return }
+        if let writeBack {
+            isWritingBack = true
+            writeBack(targets.sorted().map { BookMetadataStore.BatchEntry(bookID: $0, values: nil) })
+            isWritingBack = false
+        }
+        removeBooks(targets)
+    }
+
     /// 一覧から本を外す(保存データを削除した本)。取り消しの歩みからも除く。
     func removeBooks(_ ids: Set<String>) {
         let targets = ids.filter { inputs[$0] != nil }
         guard !targets.isEmpty else { return }
         for id in targets {
             inputs[id] = nil
-            registered.remove(id)
+            locked.remove(id)
             missing.remove(id)
             presetOverrides[id] = nil
             autoPresets[id] = nil
@@ -897,8 +902,8 @@ final class MetadataWorkspace {
     // MARK: - 取り消し
 
     /// 取り消せる操作。**持つのは、その操作で変わった本の、前の入力と選んだルールセットだけ**
-    /// (qooMeta の Workspace.Step のコメント)。取り消せるのは下書き(ロックしていない本の直し)だけ ―― ロックと削除は DB へ
-    /// 書く操作なので歩みに入れず、その本の歩みは捨てる(`forgetUndo`)。
+    /// (qooMeta の Workspace.Step のコメント)。取り消せるのはロックしていない本の直しだけ ―― ロックと削除は歩みに入れず、
+    /// その本の歩みは捨てる(`forgetUndo`)。
     private struct Step {
         let name: String
         let inputs: [String: BookInput]
@@ -927,8 +932,7 @@ final class MetadataWorkspace {
         redoSteps = redoSteps.compactMap { $0.removing(ids) }
     }
 
-    /// 本ごとの入力を書き換える操作を、取り消せる 1 歩として行う。**ロック(登録)した本は変えない**。
-    /// 直した値は DB へは書かず、下書きとして持ち主へ知らせる(鍵を掛けるまで登録しない。案 A)。
+    /// 本ごとの入力を書き換える操作を、取り消せる 1 歩として行う。**ロックした本は変えない**。直した欄も DB へ書く。
     /// `presetChange` は、その本のルールセットの選び直し(nil を返せば選択を外す)。
     private func edit(_ name: String, _ ids: some Sequence<String>,
                       presetChange: ((String) -> String?)? = nil, _ change: (inout BookInput) -> Void) {
@@ -936,7 +940,7 @@ final class MetadataWorkspace {
         var previousOverrides: [String: String?] = [:]
         var changed: [String] = []
         for id in ids {
-            guard let before = inputs[id], !registered.contains(id) else { continue }
+            guard let before = inputs[id], !locked.contains(id) else { continue }
             var input = before
             change(&input)
             let override = presetChange.map { $0(id) } ?? presetOverrides[id]
@@ -950,21 +954,8 @@ final class MetadataWorkspace {
         }
         guard !changed.isEmpty else { return }
         pushUndo(Step(name: name, inputs: previous, overrides: previousOverrides))
-        reportDrafts(changed)
         refreshRegistration(changed)
-        push(changed)
-    }
-
-    /// 下書き(直したが登録していない値)を持ち主へ知らせる。
-    private func reportDrafts(_ ids: some Sequence<String>) {
-        var drafts: [String: MetadataDraftStore.Draft?] = [:]
-        for id in ids where !registered.contains(id) {
-            guard let input = inputs[id] else { continue }
-            let override = presetOverrides[id]
-            drafts[id] = input.confirmation == .none && override == nil
-                ? .some(nil) : MetadataDraftStore.Draft(confirmation: input.confirmation, preset: override)
-        }
-        if !drafts.isEmpty { draftsChanged?(drafts) }
+        push(changed, alsoWrite: Set(changed))
     }
 
     private func pushUndo(_ step: Step) {
@@ -987,7 +978,7 @@ final class MetadataWorkspace {
     private func restore(_ step: Step) -> Step {
         var currentInputs: [String: BookInput] = [:]
         var currentOverrides: [String: String?] = [:]
-        for (id, input) in step.inputs where !registered.contains(id) {
+        for (id, input) in step.inputs where !locked.contains(id) {
             currentInputs[id] = inputs[id]
             currentOverrides[id] = presetOverrides[id]
             inputs[id] = input
@@ -995,14 +986,13 @@ final class MetadataWorkspace {
         }
         let reverse = Step(name: step.name, inputs: currentInputs, overrides: currentOverrides)
         let ids = order.filter { currentInputs[$0] != nil }
-        reportDrafts(ids)
         refreshRegistration(ids)
-        push(ids)
+        push(ids, alsoWrite: Set(ids))
         return reverse
     }
 }
 
-extension Confirmation {
+nonisolated extension Confirmation {
     /// 欄の値だけを入れ替える(シリーズと巻の確定はそのまま)。
     func withFields(_ fields: ConfirmedFields) -> Confirmation {
         switch self {

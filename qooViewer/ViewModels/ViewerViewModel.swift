@@ -698,6 +698,13 @@ final class ViewerViewModel: ObservableObject {
         // DBへ書かない本(skipsPersistence)でもこれらの取り込みは走らせる。ただし各メソッドの
         // 中で、DBへ書く代わりにメモリ上(ephemeralBookmarks/ephemeralMetadata/readingDirection)へ
         // 反映する(ファイルに入っている情報自体は使えてよい、というユーザー要望)。
+        // 解析した本はすべて DB に登録する(利用者の指示 2026-09-22。BookMetadataRecord の型コメント)。行の無い本は、
+        // ファイル名から読んだ値でロックせずに登録する(ファイルの書誌情報は、このあと下の取り込みが重ねる)。
+        // シークレットウインドウの本・除外フォルダの本は登録しない。
+        if !skipsPersistence, !MetadataRulesStore.isExcludedAppWide(bookID: book.id) {
+            metadataStore.registerParsed(bookID: book.id, rules: MetadataRulesStore.currentAppWideRules,
+                                         sourceURL: book.sourceURL)
+        }
         let sourceFileName = book.sourceURL.lastPathComponent
         if isEpubFile(sourceFileName) {
             if bookmarks.isEmpty {
@@ -1670,20 +1677,17 @@ final class ViewerViewModel: ObservableObject {
 
     // MARK: - 書誌メタデータの自動取り込み(ユーザー要望)
 
-    /// EPUB/PDFのファイル自身が持つ書誌メタデータを、その本を初めて開いたときにDBへ登録する。
+    /// EPUB/PDFのファイル自身が持つ書誌メタデータを、その本を初めて開いたときにDBへ取り込む。
     ///
-    /// 既にこの本のメタデータがDBにある場合は何もしない(ファイル側の情報はDBの初期値としてのみ
-    /// 扱い、ユーザーが編集した内容を本を開くたびに上書きし直さないため)。ファイル側に
-    /// 意味のある値が1つも無い場合も何もしない(BookMetadataStore.upsertが、4項目すべてが空の
-    /// 内容では行を作らないため、結果として「未登録」のまま「メタデータの編集」ウインドウで
-    /// ファイル名からの推測値が表示される)。
+    /// 取り込むのは**ロックしていない行に 1 冊につき 1 度だけ**で、利用者が直した欄は変えない(利用者の指示 2026-09-22:
+    /// ロックしていない本はファイル内の値で上書きし、手で直した欄は残す。`BookMetadataStore.importSourceMetadata`)。
+    /// 以前は「行が無い本だけ」に取り込んでいたが、解析した本はすべて行を持つようになったので、取り込んだかどうかを
+    /// 行の印(`BookMetadata.didImportSourceMetadata`)で覚える。ファイル側に意味のある値が1つも無い場合は何もしない。
     ///
     /// 読み込み・解析は本を開く処理をブロックしないようTask.detachedで行う
     /// (autoImportEpubTableOfContentsAsBookmarksIfNeededと同じ方針)。
     private func importSourceMetadataIfNeeded(isEpub: Bool) async {
-        guard metadataStore.metadata(forBookID: book.id) == nil else { return }
-        // メタデータの登録の対象外のフォルダの本は取り込まない(2026-09-21。MetadataRulesStore.excludedFolders)。
-        guard !MetadataRulesStore.isExcludedAppWide(bookID: book.id) else { return }
+        guard needsSourceMetadataImport else { return }
         let sourceURL = book.sourceURL
         let metadata = await Task.detached(priority: .utility) { () -> SourceBookMetadata in
             if isEpub {
@@ -1694,25 +1698,30 @@ final class ViewerViewModel: ObservableObject {
         }.value
 
         guard !metadata.isEmpty else { return }
-        // 解析中に他の経路(「メタデータの編集」ウインドウなど)で登録された可能性があるため、
-        // 書き込む直前にもう一度確認する。
-        guard metadataStore.metadata(forBookID: book.id) == nil else { return }
-        // シークレットウインドウ: DBには書かず、表示用にメモリへ置くだけ。
+        storeSourceMetadata(metadata)
+    }
+
+    /// ファイルの書誌情報を取り込む必要があるか(除外フォルダの本・ロックした本・取り込み済みの本は要らない)。
+    /// シークレットウインドウでは、DB に行が無ければ(メモリに置くために)要る。
+    private var needsSourceMetadataImport: Bool {
+        // メタデータの登録の対象外のフォルダの本は取り込まない(2026-09-21。MetadataRulesStore.excludedFolders)。
+        guard !MetadataRulesStore.isExcludedAppWide(bookID: book.id) else { return false }
+        guard let row = metadataStore.metadata(forBookID: book.id) else { return true }
+        return !row.isLocked && !row.didImportSourceMetadata && !skipsPersistence
+    }
+
+    /// 読んだ書誌情報を DB へ(シークレットウインドウならメモリへ)。解析中に他の経路でロックされた・取り込まれた
+    /// 可能性があるので、書く側(`importSourceMetadata`)がもう一度確かめる。
+    private func storeSourceMetadata(_ metadata: SourceBookMetadata) {
         if skipsPersistence {
+            // シークレットウインドウ: DBには書かず、表示用にメモリへ置くだけ。
+            guard metadataStore.metadata(forBookID: book.id) == nil else { return }
             ephemeralMetadata = metadata
-            refreshDisplayTitle()
-            return
+        } else {
+            metadataStore.importSourceMetadata(bookID: book.id, source: metadata,
+                                               rules: MetadataRulesStore.currentAppWideRules,
+                                               sourceURL: book.sourceURL)
         }
-        metadataStore.upsert(
-            bookID: book.id,
-            author: metadata.author,
-            title: metadata.title,
-            series: metadata.series,
-            seriesIndex: metadata.seriesIndex,
-            // ファイルに書かれた巻数は「シリーズの中の位置」の数(EPUBのgroup-position、PDFのcalibreSI:series_index)。
-            volumeSort: BookMetadata.numericVolume(metadata.seriesIndex),
-            sourceURL: sourceURL
-        )
         refreshDisplayTitle()
     }
 
@@ -1731,8 +1740,7 @@ final class ViewerViewModel: ObservableObject {
     /// 行わない — この判定が無いと、同じ本を開くたびに毎回ComicInfo.xmlを読み直すことになる
     /// (EPUBの目次取り込みがbookmarks.isEmptyで早期に抜けるのと同じ考え方)。
     private func importComicInfoIfNeeded() async {
-        let needsMetadata = metadataStore.metadata(forBookID: book.id) == nil
-            && !MetadataRulesStore.isExcludedAppWide(bookID: book.id)
+        let needsMetadata = needsSourceMetadataImport
         let needsBookmarks = bookmarks.isEmpty
         // 読み方向の取り込み済みフラグは、EPUB/PDFのレイアウト取り込みと同じものを使う
         // (LayoutStore.importSourceLayoutIfNeeded / BookLayoutSettings.didImportSourceLayout)。
@@ -1744,26 +1752,11 @@ final class ViewerViewModel: ObservableObject {
             ComicInfoResolver.resolve(bookAt: sourceURL)
         }).value else { return }
 
-        // 解析中に他の経路(「メタデータの編集」ウインドウなど)で登録された可能性があるため、
-        // 書き込む直前にもう一度確認する(importSourceMetadataIfNeededと同じ)。
+        // 解析中に他の経路(「メタデータの編集」ウインドウなど)でロックされた可能性があるため、
+        // 書く側がもう一度確かめる(importSourceMetadataIfNeededと同じ)。
         let metadata = comicInfo.sourceBookMetadata
-        if needsMetadata, !metadata.isEmpty, metadataStore.metadata(forBookID: book.id) == nil {
-            if skipsPersistence {
-                // シークレットウインドウ: DBには書かず、表示用にメモリへ置くだけ。
-                ephemeralMetadata = metadata
-            } else {
-                metadataStore.upsert(
-                    bookID: book.id,
-                    author: metadata.author,
-                    title: metadata.title,
-                    series: metadata.series,
-                    seriesIndex: metadata.seriesIndex,
-                    // ComicInfo の Number(書き出しは並べ替え用の数を書く)。数に読めれば並べ替え用にも入れる。
-                    volumeSort: BookMetadata.numericVolume(metadata.seriesIndex),
-                    sourceURL: sourceURL
-                )
-            }
-            refreshDisplayTitle()
+        if needsMetadata, !metadata.isEmpty {
+            storeSourceMetadata(metadata)
         }
 
         // 読み方向。EPUB/PDFのヒントと同じ経路(LayoutStore.importSourceLayoutIfNeeded)へ

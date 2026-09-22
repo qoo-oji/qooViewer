@@ -427,6 +427,39 @@ struct LibraryImportTests {
         #expect(library.metadata.metadata(forBookID: bookID)?.author == "あとの著者")
     }
 
+    @Test("ロックと直した欄は書き出して取り込むと戻り、merge はロックしていない行を置き換える(2026-09-22)")
+    func metadataLockRoundTrips() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let edits = Confirmation.fields(ConfirmedFields([.title: ["直した題"]]))
+        library.metadata.upsertAll([
+            .init(bookID: "/nowhere/unlocked.cbz", values: BookMetadataValues(title: "直した題"),
+                  state: BookMetadataRowState(isLocked: false, edits: edits, ruleSet: "doujinshi")),
+            .init(bookID: "/nowhere/locked.cbz", values: BookMetadataValues(title: "ロックした題"), state: .locked),
+        ])
+        let exported = library.metadata.allMetadata().map(ExportedBookMetadataEntry.init)
+        let data = try JSONEncoder().encode(QooLibraryExportFile(metadata: exported))
+        let file = try JSONDecoder().decode(QooLibraryExportFile.self, from: data)
+
+        let other = try InMemoryLibrary()
+        defer { other.close() }
+        // 取り込む前に、ファイル名の読みで(ロックせずに)登録されていた行は merge でも置き換わる。
+        other.metadata.registerParsed(bookID: "/nowhere/unlocked.cbz", rules: other.metadataRules.rules)
+        await other.apply(file, policies: .all(.merge))
+        let unlocked = try #require(other.metadata.record(forBookID: "/nowhere/unlocked.cbz"))
+        #expect(!unlocked.isLocked)
+        #expect(unlocked.edits == edits)
+        #expect(unlocked.ruleSet == "doujinshi")
+        #expect(unlocked.values.title == "直した題")
+        #expect(other.metadata.record(forBookID: "/nowhere/locked.cbz")?.isLocked == true)
+
+        // 以前の書き出し(ロックの印が無い)の行は、ロックした行として入る。
+        let legacy = ExportedBookMetadataEntry(bookID: "/nowhere/legacy.cbz", author: "", title: "以前の題",
+                                               series: "", seriesIndex: "")
+        await other.apply(QooLibraryExportFile(metadata: [legacy]), policies: .all(.merge))
+        #expect(other.metadata.record(forBookID: "/nowhere/legacy.cbz")?.isLocked == true)
+    }
+
     @Test("以前の形のフォーマット定義は、ファイル名フォーマットだけが利用者のルールセットとして入る")
     func legacyMetadataFormatsBecomeARuleSet() async throws {
         let library = try InMemoryLibrary()

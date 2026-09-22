@@ -568,11 +568,14 @@ enum LibraryImportExportService {
                 favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
             )
             let bookID = resolvedURL?.path ?? entry.bookID
-            if policy == .merge, metadataStore.metadata(forBookID: bookID) != nil { continue }
+            // 「足す」はロックした行を変えない(ロックしていない行はファイル名の読みから作ったものなので、取り込む値で置き換える。
+            // 2026-09-22 から、解析した本はすべて行を持つ)。
+            if policy == .merge, metadataStore.metadata(forBookID: bookID)?.isLocked == true { continue }
             // 書き出した版の欄の版のまま入れる。版の無い以前のファイル(formatVersion 4 以前・qooMeta の書き出し)の行は、
             // qooMeta の欄が無ければ以前の版の欄の登録として入れる(空の欄を埋めるかを尋ねる。importedFieldsVersion)。
             batch.append(BookMetadataStore.BatchEntry(bookID: bookID, values: entry.values, sourceURL: resolvedURL,
-                                                      fieldsVersion: entry.importedFieldsVersion))
+                                                      fieldsVersion: entry.importedFieldsVersion,
+                                                      state: entry.importedState))
         }
         summary.metadataImportedBooks += metadataStore.upsertAll(batch)
 

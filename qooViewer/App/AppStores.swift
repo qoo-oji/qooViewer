@@ -110,6 +110,9 @@ final class AppStores: ObservableObject {
     /// 環境設定「ファイルブラウザを有効にする」の購読(`applyFileBrowserFeature`)。
     private var fileBrowserFeatureSubscription: AnyCancellable?
     private var smartLibraryFeatureSubscription: AnyCancellable?
+    /// 規則の変更の購読(ロックしていないメタデータの行を読み直す。`reparseUnlockedMetadata`)。
+    private var metadataRulesSubscription: AnyCancellable?
+    private var metadataReparseTask: Task<Void, Never>?
     /// 起動時の掃除(行の無い表紙・元画像・札の絵)を済ませたか。ライブラリ機能がOFFで起動したら、最初にONになるまで先送りする。
     private var didSweepLibraryOrphans = false
 
@@ -216,6 +219,16 @@ final class AppStores: ObservableObject {
                 MainActor.assumeIsolated { self?.handleFileSystemChange(change) }
             }
         }
+        // 解析した本はすべて DB に登録する(利用者の指示 2026-09-22。BookMetadataRecord の型コメント)。以前の下書き
+        // (drafts.json)を DB へ移し、規則が変わったらロックしていない行を読み直す。テストの中では動かさない(本物の
+        // drafts.json を読んで消すため。テストは自分のストアで確かめる)。
+        if !RuntimeEnvironment.isRunningTests {
+            MetadataDraftStore().migrate(into: metadataStore, rules: metadataRulesStore.rules)
+            metadataRulesSubscription = NotificationCenter.default
+                .publisher(for: MetadataRulesStore.rulesDidChange, object: metadataRulesStore)
+                .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+                .sink { [weak self] _ in MainActor.assumeIsolated { self?.reparseUnlockedMetadata() } }
+        }
         // 起動時の掃除(CollectionCoverExtractorのinitの移行の**後**であること。sweepLibraryOrphansIfNeeded のコメント)。
         if isLibraryEnabled { sweepLibraryOrphansIfNeeded() }
         // `@Published`の投影はwillSetで飛ぶので、届いた値のほうを使う。起動時の値は上で渡し済み。
@@ -317,6 +330,17 @@ final class AppStores: ObservableObject {
         collectionStore.sweepOrphanedTileImages()
     }
 
+    /// ロックしていないメタデータの行を、いまの規則で読み直す(前の読み直しは取り消す)。
+    private func reparseUnlockedMetadata() {
+        metadataReparseTask?.cancel()
+        let previous = metadataReparseTask
+        metadataReparseTask = Task { [metadataStore, metadataRulesStore] in
+            await previous?.value
+            guard !Task.isCancelled else { return }
+            await metadataStore.reparseUnlockedRows(rules: metadataRulesStore.rules)
+        }
+    }
+
     /// アプリ自身がファイルを動かした(ファイルブラウザの操作・取り消し・やり直し・自動リネーム。`FileSystemChange` の型コメント)。
     /// ウインドウごとの一覧(ファイルブラウザ・サイドパネル)は自分で受ける。ここはアプリで 1 つのもの:
     /// よく使う項目と保存データを新しいパスへ付け替え、それが済んでから棚・履歴・お気に入りの「実体があるか」を確かめ直す
@@ -324,7 +348,7 @@ final class AppStores: ObservableObject {
     private func handleFileSystemChange(_ change: FileSystemChange) {
         favoriteLocations.relocate(using: change)
         smartLibraryStore.relocate(using: change)
-        metadataRulesStore.relocateExcludedFolders(using: change)
+        metadataRulesStore.relocate(using: change)
         smartLibraryCatalog.handleFileSystemChange(change)
         let relocation = bookRecordRelocator.apply(change)
         Task { @MainActor [weak self] in

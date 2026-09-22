@@ -5,26 +5,28 @@ import Testing
 @testable import qooViewer
 
 /// メタデータの編集ウインドウの中身(`MetadataWorkspace`)を、メモリ内の SwiftData の上で通す(2026-09-21、
-/// qooMeta への置き換え)。見るのは qooViewer で足した約束 ―― **直したらすぐ登録**・取り消しも DB へ届く・
-/// 登録済みの本は規則を変えても変わらない・読み直しと登録の解除。qooMeta の計算そのものは qooMeta のテストが見ている。
+/// qooMeta への置き換え)。見るのは qooViewer で足した約束 ―― **並べた本はすべて登録**・直した欄もすぐ DB へ・
+/// 取り消しも DB へ届く・ロックした本は規則を変えても変わらない・読み直しと削除(2026-09-22 の作り直し)。
+/// qooMeta の計算そのものは qooMeta のテストが見ている。
 ///
 /// 本の名前はすべて架空(docs/02「個人情報の流出防止」)。
 @MainActor
 struct MetadataWorkspaceTests {
     private func open(_ library: InMemoryLibrary, _ bookIDs: [String]) async -> MetadataWorkspace {
         let entries = bookIDs.map {
-            MetadataWorkspace.Entry(bookID: $0, registeredValues: library.metadata.metadata(forBookID: $0)?.values)
+            MetadataWorkspace.Entry(bookID: $0, record: library.metadata.record(forBookID: $0))
         }
         let workspace = await MetadataWorkspace.open(entries, rules: library.metadataRules.rules)
         workspace.writeBack = { [metadata = library.metadata] in metadata.upsertAll($0) }
+        workspace.registerAll()
         return workspace
     }
 
     private let first = "/書庫/[架空工房] 月の庭 1.zip"
     private let second = "/書庫/[架空工房] 月の庭 2.zip"
 
-    @Test("未登録の本は、ファイル名を qooMeta で読んだ提案(シリーズと巻つき)で並ぶ")
-    func unregisteredBooksShowTheProposal() async throws {
+    @Test("行の無い本は、ファイル名を qooMeta で読んだ値(シリーズと巻つき)で、ロックせずに DB へ登録される")
+    func booksWithoutRowsAreRegisteredUnlocked() async throws {
         let library = try InMemoryLibrary()
         defer { library.close() }
         let workspace = await open(library, [first, second])
@@ -33,8 +35,13 @@ struct MetadataWorkspaceTests {
         #expect(row.metadata.authors == ["架空工房"])
         #expect(row.metadata.series == "月の庭")
         #expect(row.metadata.volume == "2")
-        #expect(!row.isRegistered)
-        #expect(library.metadata.registeredBookIDs.isEmpty)
+        #expect(!row.isLocked)
+        #expect(library.metadata.registeredBookIDs == [first, second])
+        let stored = try #require(library.metadata.record(forBookID: second))
+        #expect(!stored.isLocked)
+        #expect(stored.values.series == "月の庭")
+        #expect(stored.values.volume == "2")
+        #expect(stored.edits == .none)
     }
 
     @Test("シリーズの無い巻だけを持つ登録済みの本は、巻が見え、鍵を外して掛け直しても巻が残る(2026-09-22 の監査)")
@@ -53,66 +60,66 @@ struct MetadataWorkspaceTests {
         #expect(library.metadata.metadata(forBookID: bookID)?.series == "")
     }
 
-    @Test("直しても登録はされず(下書き)、鍵を掛けると見えている値で登録され、外すと行は消えて値は下書きに残る")
-    func lockingIsRegistering() async throws {
+    @Test("直した欄はすぐ DB に書かれ(取り消しも届く)、鍵を掛けると変わらなくなり、外しても値は残る")
+    func editsAreStoredAndLockingFreezes() async throws {
         let library = try InMemoryLibrary()
         defer { library.close() }
         let workspace = await open(library, [first, second])
-        var drafts: [String: MetadataDraftStore.Draft?] = [:]
-        workspace.draftsChanged = { drafts.merge($0) { _, new in new } }
 
         // 情報の欄は比べる単位(先頭の著者 + ジャンル)に入らないので、直してもシリーズの組は変わらない。
         workspace.set(.info, to: ["架空の付記"], for: [first])
         await workspace.settle()
-        #expect(library.metadata.metadata(forBookID: first) == nil)
-        #expect(workspace.row(first)?.hasUnregisteredEdits == true)
-        #expect(drafts[first] != nil)
+        var stored = try #require(library.metadata.record(forBookID: first))
+        #expect(stored.values.info == "架空の付記")
+        #expect(!stored.isLocked)
+        #expect(stored.edits.fields[.info] == ["架空の付記"])
+        #expect(workspace.row(first)?.hasUnlockedEdits == true)
 
         workspace.undo()
         await workspace.settle()
         #expect(workspace.row(first)?.metadata.info == "")
+        #expect(library.metadata.record(forBookID: first)?.values.info == "")
         workspace.redo()
         await workspace.settle()
 
         workspace.setLocked([first], true)
         await workspace.settle()
-        let stored = try #require(library.metadata.metadata(forBookID: first))
-        #expect(stored.info == "架空の付記")
-        #expect(stored.series == "月の庭")
-        #expect(stored.seriesIndex == "1")
+        stored = try #require(library.metadata.record(forBookID: first))
+        #expect(stored.isLocked)
+        #expect(stored.values.info == "架空の付記")
+        #expect(stored.values.series == "月の庭")
+        #expect(stored.values.volume == "1")
         #expect(workspace.isLocked(first))
 
         // 鍵が掛かっている間は直せない。
         workspace.set(.info, to: ["別の付記"], for: [first])
         await workspace.settle()
-        #expect(library.metadata.metadata(forBookID: first)?.info == "架空の付記")
+        #expect(library.metadata.record(forBookID: first)?.values.info == "架空の付記")
 
         workspace.setLocked([first], false)
         await workspace.settle()
-        #expect(library.metadata.metadata(forBookID: first) == nil)
+        stored = try #require(library.metadata.record(forBookID: first))
+        #expect(!stored.isLocked)
+        #expect(stored.values.info == "架空の付記")
         #expect(workspace.row(first)?.metadata.info == "架空の付記")
-        #expect(drafts[first] != nil)
     }
 
-    @Test("登録済みの本は、すべての欄が確定した内容として読まれ、登録を外すと提案に戻って行も消える")
-    func registeredBooksAreFullyConfirmed() async throws {
+    @Test("ロックした本は、すべての欄が確定した内容として読まれる")
+    func lockedBooksAreFullyConfirmed() async throws {
         let library = try InMemoryLibrary()
         defer { library.close() }
         library.metadata.upsert(bookID: first, values: BookMetadataValues(title: "手で直した題", authors: ["別の著者"]))
         let workspace = await open(library, [first, second])
 
         let row = try #require(workspace.row(first))
-        #expect(row.isRegistered)
+        #expect(row.isLocked)
         #expect(row.metadata.title == "手で直した題")
         #expect(row.metadata.authors == ["別の著者"])
         // シリーズが空の登録は「シリーズではない」(qooMeta が組にしても入れない)。
         #expect(row.metadata.series.isEmpty)
 
         #expect(workspace.isLocked(first))
-        workspace.unregister([first])
-        await workspace.settle()
-        #expect(library.metadata.metadata(forBookID: first) == nil)
-        #expect(workspace.row(first)?.metadata.authors == ["架空工房"])
+        #expect(library.metadata.record(forBookID: first)?.values.title == "手で直した題")
     }
 
     @Test("ファイル名の解析ルールを切り替えても変更した値は残り、変更していない欄はそのルールセットで読んだ値になる")
@@ -126,7 +133,8 @@ struct MetadataWorkspaceTests {
         workspace.setRuleSet([book], to: "doujinshi")
         await workspace.settle()
         #expect(workspace.row(book)?.metadata.info == "架空の付記")
-        #expect(library.metadata.metadata(forBookID: book) == nil)
+        #expect(library.metadata.record(forBookID: book)?.ruleSet == "doujinshi")
+        #expect(library.metadata.record(forBookID: book)?.isLocked == false)
         workspace.setLocked([book], true)
         await workspace.settle()
         #expect(workspace.presetName(for: book) == "doujinshi")
@@ -141,11 +149,17 @@ struct MetadataWorkspaceTests {
         defer { library.close() }
         let workspace = await open(library, [first, second])
 
-        library.metadata.upsert(bookID: second, values: BookMetadataValues(title: "外で直した題"))
-        workspace.applyExternalChanges([second: library.metadata.metadata(forBookID: second)?.values])
+        library.metadata.upsertAll([.init(bookID: second, values: BookMetadataValues(title: "外で直した題"), state: .locked)])
+        workspace.applyExternalChanges([second: library.metadata.record(forBookID: second)])
         await workspace.settle()
         #expect(workspace.row(second)?.metadata.title == "外で直した題")
-        #expect(workspace.row(second)?.isRegistered == true)
+        #expect(workspace.row(second)?.isLocked == true)
+
+        // 外で行が消えたら、一覧から外す。
+        library.metadata.delete(forBookID: first)
+        workspace.applyExternalChanges([first: BookMetadataRecord?.none])
+        await workspace.settle()
+        #expect(workspace.row(first) == nil)
     }
 
     @Test("型に合わなかった本は「型に合わなかった」で絞り込める")
@@ -186,6 +200,29 @@ extension MetadataWorkspaceTests {
         await workspace.settle()
         #expect(workspace.rows.map(\.id) == [second])
         #expect(workspace.undoName == nil)
+    }
+
+    @Test("メタデータを削除すると、ロックした本でも直していない本でも一覧から消え、DB の行も消える")
+    func deletingMetadataRemovesTheBooks() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let first = "/書庫/[架空工房] 月の庭 1.zip"
+        let second = "/書庫/[架空工房] 月の庭 2.zip"
+        let third = "/書庫/[架空工房] 月の庭 3.zip"
+        library.metadata.upsert(bookID: first, values: BookMetadataValues(title: "登録した題", authors: ["架空工房"]))
+        let workspace = await open(library, [first, second, third])
+        workspace.set(.info, to: ["架空の付記"], for: [second])
+        await workspace.settle()
+
+        workspace.deleteBooks([first, second, third])
+        await workspace.settle()
+        #expect(workspace.rows.isEmpty)
+        #expect(library.metadata.registeredBookIDs.isEmpty)
+
+        // 覚えてはおかない: 開き直せば、また登録される(利用者の指示 2026-09-22)。
+        let reopened = await open(library, [third])
+        #expect(reopened.row(third) != nil)
+        #expect(library.metadata.record(forBookID: third)?.isLocked == false)
     }
 }
 
@@ -323,15 +360,15 @@ extension MetadataRulesStoreTests {
 
         var change = FileSystemChange()
         change.relocations = [.init(from: URL(fileURLWithPath: "/架空/除外"), to: URL(fileURLWithPath: "/架空/移した"))]
-        store.relocateExcludedFolders(using: change)
+        store.relocate(using: change)
         let reopened = MetadataRulesStore(url: url, legacyDefaults: nil)
         #expect(reopened.excludedFolders == ["/架空/移した"])
     }
 }
 
 extension MetadataWorkspaceTests {
-    @Test("鍵を外した元の登録は、「解析・抽出し直す」で下書きを捨てて提案に戻る(ロックした本は触らない)")
-    func reparsingThrowsAwayDrafts() async throws {
+    @Test("鍵を外した元の登録は、「メタデータを再生成」で直した欄を捨てて DB もファイル名の読みに戻る(ロックした本は触らない)")
+    func reparsingThrowsAwayEdits() async throws {
         let library = try InMemoryLibrary()
         defer { library.close() }
         let first = "/書庫/[架空工房] 月の庭 1.zip"
@@ -346,8 +383,11 @@ extension MetadataWorkspaceTests {
         workspace.reparseFromFileNames([first, second])
         await workspace.settle()
         #expect(workspace.row(first)?.metadata.title == "月の庭 1")
-        #expect(workspace.row(first)?.hasUnregisteredEdits == false)
+        #expect(workspace.row(first)?.hasUnlockedEdits == false)
         #expect(workspace.row(second)?.metadata.title == "残す題")
+        #expect(library.metadata.record(forBookID: first)?.values.title == "月の庭 1")
+        #expect(library.metadata.record(forBookID: first)?.edits == Confirmation.none)
+        #expect(library.metadata.record(forBookID: second)?.values.title == "残す題")
     }
 }
 
@@ -369,5 +409,78 @@ extension MetadataWorkspaceTests {
         #expect(row.genre == "架空ジャンル")
         #expect(!row.info.isEmpty)
         #expect(library.metadata.outdatedFieldBookIDs.isEmpty)
+    }
+}
+
+/// 画面を持たない登録の口(`BookMetadataStore` の registerParsed / importSourceMetadata / reparseUnlockedRows、2026-09-22)。
+@MainActor
+struct MetadataRegistrationTests {
+    private let first = "/書庫/[架空工房] 月の庭 1.zip"
+    private let second = "/書庫/[架空工房] 月の庭 2.zip"
+
+    @Test("本を開いたときは、行の無い本だけをファイル名の読みでロックせずに登録する")
+    func registerParsedCreatesOnlyMissingRows() throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let rules = library.metadataRules.rules
+        library.metadata.upsert(bookID: second, values: BookMetadataValues(title: "登録した題"))
+
+        library.metadata.registerParsed(bookID: first, rules: rules)
+        library.metadata.registerParsed(bookID: second, rules: rules)
+        let created = try #require(library.metadata.record(forBookID: first))
+        #expect(!created.isLocked)
+        #expect(created.values.authors == ["架空工房"])
+        #expect(library.metadata.record(forBookID: second)?.values.title == "登録した題")
+        #expect(library.metadata.record(forBookID: second)?.isLocked == true)
+    }
+
+    @Test("ファイルの書誌情報は、ロックしていない行へ 1 度だけ入り、直した欄は変えない。ロックした行は変えない")
+    func sourceMetadataRespectsEditsAndLocks() throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let rules = library.metadataRules.rules
+        let edits = Confirmation.fields(ConfirmedFields([.title: ["手で直した題"]]))
+        library.metadata.upsertAll([.init(bookID: first, values: BookMetadataValues(title: "手で直した題"),
+                                          state: BookMetadataRowState(isLocked: false, edits: edits))])
+        library.metadata.upsert(bookID: second, values: BookMetadataValues(title: "ロックした題"))
+        var source = SourceBookMetadata()
+        source.title = "ファイルの題"
+        source.author = "ファイルの著者"
+        source.series = "ファイルのシリーズ"
+        source.seriesIndex = "7"
+
+        #expect(library.metadata.importSourceMetadata(bookID: first, source: source, rules: rules))
+        let imported = try #require(library.metadata.record(forBookID: first))
+        #expect(imported.values.title == "手で直した題")
+        #expect(imported.values.authors == ["ファイルの著者"])
+        #expect(imported.values.series == "ファイルのシリーズ")
+        #expect(imported.values.volume == "7")
+        #expect(!imported.isLocked)
+        // 2 度目は取り込まない。
+        source.author = "別の著者"
+        #expect(!library.metadata.importSourceMetadata(bookID: first, source: source, rules: rules))
+        #expect(library.metadata.record(forBookID: first)?.values.authors == ["ファイルの著者"])
+
+        #expect(!library.metadata.importSourceMetadata(bookID: second, source: source, rules: rules))
+        #expect(library.metadata.record(forBookID: second)?.values.title == "ロックした題")
+    }
+
+    @Test("規則を変えたときの読み直しは、ロックしていない行だけを書き直し、直した欄は残す")
+    func reparseRewritesOnlyUnlockedRows() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let rules = library.metadataRules.rules
+        let edits = Confirmation.fields(ConfirmedFields([.info: ["残す付記"]]))
+        library.metadata.upsertAll([
+            .init(bookID: first, values: BookMetadataValues(title: "古い読み", info: "残す付記"),
+                  state: BookMetadataRowState(isLocked: false, edits: edits)),
+            .init(bookID: second, values: BookMetadataValues(title: "ロックした題"), state: .locked),
+        ])
+
+        await library.metadata.reparseUnlockedRows(rules: rules)
+        let reparsed = try #require(library.metadata.record(forBookID: first))
+        #expect(reparsed.values.title == "月の庭 1")
+        #expect(reparsed.values.info == "残す付記")
+        #expect(library.metadata.record(forBookID: second)?.values.title == "ロックした題")
     }
 }

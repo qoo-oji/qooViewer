@@ -80,6 +80,10 @@ struct BookMetadataSheet: View {
     @State private var authorsText = ""
     /// 開いたときの巻の表記(手で変えたら、qooMeta が導いた並べ替え用の数を捨てる)。
     @State private var openedVolume = ""
+    /// 開いたときの値(変えた欄だけを「直した欄」にする)。
+    @State private var openedValues = BookMetadataValues()
+    /// ロックしている本か(欄を変えさせない。利用者の指示 2026-09-22「ロックされたら DB を変更不可」)。
+    @State private var isLocked = false
     /// カバーの指定。環境オブジェクトが要るのでinitでは作れず、onAppearで組み立てる
     /// (MetadataEditorWindowが@StateのViewModelを組み立てるのと同じ形)。
     @State private var coverController: CoverOverrideController?
@@ -139,7 +143,7 @@ struct BookMetadataSheet: View {
         let labelWidth = MetadataButtonWidthEstimator.equalWidth(
             for: [
                 String(localized: "Cancel", language: locale),
-                String(localized: "Register", language: locale),
+                String(localized: "Save", language: locale),
             ],
             minWidth: 60,
             chrome: 0
@@ -201,6 +205,12 @@ struct BookMetadataSheet: View {
                     Label("This book is in a folder excluded from metadata registration.", systemImage: "folder.badge.minus")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                } else if isLocked {
+                    Label("This book's metadata is locked. Unlock it in the Edit Metadata window to change it.",
+                          systemImage: "lock.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
                 Button(role: .cancel) { dismiss() } label: {
@@ -208,11 +218,11 @@ struct BookMetadataSheet: View {
                 }
                 .keyboardShortcut(.cancelAction)
                 Button { register(bookID: bookID) } label: {
-                    Text("Register").frame(width: labelWidth)
+                    Text("Save").frame(width: labelWidth)
                 }
                 .keyboardShortcut(.defaultAction)
                 // ロックした本は変えない(メタデータの編集ウインドウの鍵。2026-09-21)。
-                .disabled(rulesStore.isExcluded(bookID: bookID))
+                .disabled(rulesStore.isExcluded(bookID: bookID) || isLocked)
             }
         }
         .padding(20)
@@ -226,8 +236,11 @@ struct BookMetadataSheet: View {
         .onAppear {
             // 登録済みならDBの値、未登録なら qooMeta で 1 冊だけ読んだ提案(同じ書き手のほかの本とは見比べないので、
             // 番号の無いシリーズは見つからない。一覧の窓なら見つかる)。
-            draft = metadataStore.metadata(forBookID: bookID)?.values
+            let row = metadataStore.metadata(forBookID: bookID)
+            draft = row?.values
                 ?? BookMetadataValues(MetadataRulesStore.singleProposal(forBookID: bookID, rules: rulesStore.rules))
+            openedValues = draft
+            isLocked = row?.isLocked == true
             authorsText = draft.authors.joined(separator: "、")
             openedVolume = draft.volume
             // カバーの面を出さない版では、カバーの指定の口も作らない。
@@ -261,6 +274,7 @@ struct BookMetadataSheet: View {
             row("Volume", text: $draft.volume)
         }
         .textFieldStyle(.roundedBorder)
+        .disabled(isLocked)
     }
 
     private func row(_ label: LocalizedStringKey, text: Binding<String>) -> some View {
@@ -294,17 +308,24 @@ struct BookMetadataSheet: View {
         }
     }
 
-    // MARK: - 登録
+    // MARK: - 保存
 
-    /// 欄をDBへ登録する(登録済みなら上書き)。すべての欄が空のまま押すと、既存仕様どおり
-    /// `upsert`が行そのものを消す ―― 「解除」を兼ねるのでボタン名は「Register」のままにする。
+    /// 欄を DB へ書く。**変えた欄だけを「直した欄」にする**(ほかの欄はファイル名の読みに付いていく。メタデータの編集
+    /// ウインドウで直したときと同じ。利用者の指示 2026-09-22)。ロックは変えない(行が無ければロックせずに作る)。
+    /// すべての欄が空のまま押すと、既存仕様どおり行そのものを消す。
     private func register(bookID: String) {
+        guard metadataStore.metadata(forBookID: bookID)?.isLocked != true else { return }
         var values = draft
         values.authors = authorsText.split(whereSeparator: { "、,，".contains($0) }).map(String.init)
         // 巻の表記を手で変えたら、qooMeta が導いた並べ替え用の数は捨てる(表記から数として読み直される)。
         if values.volume.trimmingCharacters(in: .whitespaces) != openedVolume { values.volumeSort = nil }
+        values = values.trimmed
+        let current = metadataStore.metadata(forBookID: bookID)?.rowState ?? BookMetadataRowState(isLocked: false)
+        var state = current
+        state.edits = MetadataParsing.edits(changing: openedValues.trimmed, to: values, in: current.edits)
         // ウインドウ版と違い、この画面は本のURLを持てている(ブックマークとinodeも入る)。
-        metadataStore.upsert(bookID: bookID, values: values, sourceURL: sourceURL)
+        metadataStore.upsertAll([BookMetadataStore.BatchEntry(bookID: bookID, values: values, sourceURL: sourceURL,
+                                                              state: state)])
         dismiss()
     }
 }

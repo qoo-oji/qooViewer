@@ -239,7 +239,7 @@ final class SmartLibraryCatalog: ObservableObject {
             let previousInputs = sameRules ? self.indexedInputs : [:]
             let paths = scan.books.map(\.path)
             let inputs = await Task.detached(priority: .userInitiated) {
-                Self.inputs(for: paths, registered: snapshot.registered, reusing: previousInputs, rules: rules)
+                Self.inputs(for: paths, records: snapshot.records, reusing: previousInputs, rules: rules)
             }.value
             guard !Task.isCancelled, generation == self.generation else { return }
             // 3. 変わった本だけ読む(索引が無い・規則が変わったら作り直して並列に読む)。
@@ -288,7 +288,22 @@ final class SmartLibraryCatalog: ObservableObject {
             self.building = nil
             self.revision += 1
             self.saveCache(roots: roots, books: books, isTruncated: scan.isTruncated)
+            self.registerParsed(books, snapshot: snapshot)
         }
+    }
+
+    /// 並べた本を DB に登録する(利用者の指示 2026-09-22: 解析した本はすべて登録する)。行の無い本はロックせずに作り、
+    /// ロックしていない行は今の読みに揃える。**ロックした行・除外フォルダの本には書かない**。
+    /// 書くと `metadataStore.revision` が進んで集め直しがもう 1 度走るが、そのときは揃っているので何も書かない。
+    private func registerParsed(_ books: [SmartBook], snapshot: Snapshot) {
+        let entries = books.compactMap { book -> BookMetadataStore.BatchEntry? in
+            let record = snapshot.records[book.id]
+            guard record?.isLocked != true, record?.values != book.metadata.trimmed,
+                  !book.metadata.isEmpty, !rulesStore.isExcluded(bookID: book.id) else { return nil }
+            return BookMetadataStore.BatchEntry(bookID: book.id, values: book.metadata, onlyIfUnlocked: true)
+        }
+        guard !entries.isEmpty else { return }
+        metadataStore.upsertAll(entries)
     }
 
     // MARK: - qooMeta へ渡す本
@@ -299,9 +314,11 @@ final class SmartLibraryCatalog: ObservableObject {
         var byID: [String: BookInput] = [:]
     }
 
-    /// 本ごとの入力。登録済みの本は DB の値をすべて確定した内容として渡す(錨として、未登録の本のシリーズも決める)。
+    /// 本ごとの入力。ロックした本は DB の値をすべて確定した内容として渡し(錨として、ほかの本のシリーズも決める)、
+    /// ロックしていない本は直した欄とルールセットを渡す(`BookMetadataRecord.confirmation`)。
     /// 名前とルールセットの自動の選択は、`reusing` に同じ本があればそれを使う(規則が同じ間だけ渡される)。
-    nonisolated static func inputs(for paths: [String], registered: [String: BookMetadataValues],
+    /// (利用者が選んだルールセットを自動に戻した本は、使い回すと前のルールセットのまま ―― 規則が変わるまで。まれなので許す。)
+    nonisolated static func inputs(for paths: [String], records: [String: BookMetadataRecord],
                                    reusing previous: [String: BookInput], rules: CompiledRules) -> Inputs {
         let ids = Set(paths).sorted()
         // 新しい本の名前とルールセットの自動の選択は並列に(2,439 冊を順に選ぶと 0.7 秒かかった。どちらも本ごとに独立した計算)。
@@ -319,13 +336,15 @@ final class SmartLibraryCatalog: ObservableObject {
         let freshByID = Dictionary(uniqueKeysWithValues: zip(fresh, readings))
         var result = Inputs()
         for id in ids {
-            let confirmation = registered[id]?.confirmation ?? .none
+            let record = records[id]
+            let confirmation = record?.confirmation ?? .none
             let input: BookInput
             if let old = previous[id] {
-                input = BookInput(id: id, name: old.name, preset: old.preset, confirmation: confirmation)
+                input = BookInput(id: id, name: old.name, preset: record?.ruleSet ?? old.preset, confirmation: confirmation)
             } else {
                 let reading = freshByID[id] ?? (MetadataRulesStore.parsingName(forBookID: id), nil)
-                input = BookInput(id: id, name: reading.name, preset: reading.preset, confirmation: confirmation)
+                input = BookInput(id: id, name: reading.name, preset: record?.ruleSet ?? reading.preset,
+                                  confirmation: confirmation)
             }
             result.ordered.append(input)
             result.byID[id] = input
@@ -409,13 +428,14 @@ final class SmartLibraryCatalog: ObservableObject {
             let progress: Double?
             var isAtLastPage = false
         }
-        var registered: [String: BookMetadataValues] = [:]
+        /// DB のメタデータの行。
+        var records: [String: BookMetadataRecord] = [:]
         var readings: [String: Reading] = [:]
     }
 
     private func gatherOnMain() -> Snapshot {
         var snapshot = Snapshot()
-        for metadata in metadataStore.allMetadata() { snapshot.registered[metadata.bookID] = metadata.values }
+        snapshot.records = metadataStore.allRecords()
         let states = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
         for state in states {
             let progress = state.recordedPageCount.flatMap { count -> Double? in
@@ -449,9 +469,9 @@ final class SmartLibraryCatalog: ObservableObject {
         result.reserveCapacity(ids.count)
         for id in ids {
             guard var current = byID[id] else { continue }
-            // メタデータ: 登録済みは DB の値、未登録は qooMeta の提案。
-            if let values = snapshot.registered[id] {
-                current.metadata = values
+            // メタデータ: ロックした本は DB の値、ほかは qooMeta の提案(直した欄を重ねたもの。DB へもこの値を書く)。
+            if let record = snapshot.records[id], record.isLocked {
+                current.metadata = record.values
                 current.isRegistered = true
             } else if let proposal = proposals[id] {
                 current.metadata = BookMetadataValues(proposal.metadata)
@@ -469,7 +489,7 @@ final class SmartLibraryCatalog: ObservableObject {
 
     /// 索引を使わずに全冊を読んで組み立てる(テストの口。結果は `rebuild` と同じ)。
     nonisolated static func assemble(snapshot: Snapshot, scan: SmartLibraryScanner.Result, rules: CompiledRules) -> [SmartBook] {
-        let inputs = inputs(for: scan.books.map(\.path), registered: snapshot.registered, reusing: [:], rules: rules)
+        let inputs = inputs(for: scan.books.map(\.path), records: snapshot.records, reusing: [:], rules: rules)
         let set = proposeSync(inputs.ordered, rules: rules, dictionaries: MetadataRulesStore.dictionaries)
         let proposals = Dictionary(set.proposals.map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
         return assemble(snapshot: snapshot, scan: scan, proposals: proposals)

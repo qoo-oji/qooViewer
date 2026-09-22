@@ -93,17 +93,13 @@ final class MetadataEditorModel {
     private let stores: Stores
     /// コレクションの表紙の指定(改善要望5 §5.4。一覧の「コレクションの表紙」の列)。
     let coverController: CoverOverrideController
-    /// 直したがロック(登録)していない値(窓を閉じても残す)。
-    private let drafts: MetadataDraftStore
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var existenceTask: Task<Void, Never>?
     /// スマートライブラリの対象フォルダの本も一覧に入れるか(開くたびに読む)。
     @ObservationIgnored private let includesSmartLibraryFolders: () -> Bool
 
     init(metadataStore: BookMetadataStore, rulesStore: MetadataRulesStore, stores: Stores,
-         preferences: AppPreferences, drafts: MetadataDraftStore? = nil,
-         resolveURL: @escaping (String) -> URL?) {
-        self.drafts = drafts ?? MetadataDraftStore()
+         preferences: AppPreferences, resolveURL: @escaping (String) -> URL?) {
         self.metadataStore = metadataStore
         self.rulesStore = rulesStore
         self.stores = stores
@@ -123,17 +119,13 @@ final class MetadataEditorModel {
             known.formUnion(await stores.smartLibraryCatalog.folderBookIDs())
         }
         let bookIDs = known.filter { !rulesStore.isExcluded(bookID: $0) }
-        // 一覧に無い本の下書きは捨てない(MetadataDraftStore の型コメント「知らない本の分も捨てない」)。
         let entries = bookIDs.map { bookID in
-            MetadataWorkspace.Entry(bookID: bookID, registeredValues: metadataStore.metadata(forBookID: bookID)?.values,
-                                    draft: drafts.drafts[bookID])
+            MetadataWorkspace.Entry(bookID: bookID, record: metadataStore.record(forBookID: bookID))
         }
         let workspace = await MetadataWorkspace.open(entries, rules: rulesStore.rules)
         workspace.writeBack = { [weak metadataStore] entries in metadataStore?.upsertAll(entries) }
-        workspace.draftsChanged = { [drafts] changes in
-            for (id, draft) in changes { drafts.set(draft, for: id) }
-            drafts.save()
-        }
+        // 並べた本はすべて DB に登録する(利用者の指示 2026-09-22。行の無い本を登録し、ロックしていない本の値を揃える)。
+        workspace.registerAll()
         // 規則の窓(解析の設定・抽出の設定)に、この一覧の名前を渡す(規則を直しながら、この一覧の名前で読めぐあいを見る)。
         MetadataRulesPicked.shared.set(workspace.books.map(\.fileName))
         self.workspace = workspace
@@ -194,8 +186,8 @@ final class MetadataEditorModel {
                 } else {
                     ids = workspace.bookIDs
                 }
-                var changes: [String: BookMetadataValues?] = [:]
-                for id in ids { changes[id] = .some(self.metadataStore.metadata(forBookID: id)?.values) }
+                var changes: [String: BookMetadataRecord?] = [:]
+                for id in ids { changes[id] = .some(self.metadataStore.record(forBookID: id)) }
                 workspace.applyExternalChanges(changes)
             }
         }
@@ -279,18 +271,18 @@ struct MetadataEditorContent: View {
                     }
                     .labelStyle(.titleAndIcon)
                     .disabled(workspace.regenerationTargets.isEmpty)
-                    .help("Parses and extracts the selected unlocked books again from their file names, throwing away the values edited but not locked")
+                    .help("Parses and extracts the selected unlocked books again from their file names, throwing away the values you edited")
                 }
                 ToolbarItem {
-                    // 選んだ本のロック(= 登録)。全部ロック済みなら外す、そうでなければ掛ける(右クリックと同じ)。
+                    // 選んだ本のロック。全部ロック済みなら外す、そうでなければ掛ける(右クリックと同じ)。
                     let selected = workspace.selectedBooks
-                    let allLocked = !selected.isEmpty && selected.allSatisfy(\.isRegistered)
+                    let allLocked = !selected.isEmpty && selected.allSatisfy(\.isLocked)
                     Button { workspace.setLocked(Set(selected.map(\.id)), !allLocked) } label: {
                         Label(allLocked ? "Unlock" : "Lock", systemImage: allLocked ? "lock.open" : "lock")
                     }
                     .labelStyle(.titleAndIcon)
                     .disabled(selected.isEmpty)
-                    .help("Locks the selected books and registers their metadata, or unlocks them")
+                    .help("Locks the metadata of the selected books, or unlocks it")
                 }
                 ToolbarItem {
                     Button { openParsingSettings() } label: {
@@ -323,13 +315,13 @@ struct MetadataEditorContent: View {
             Button("Unlock and Parse Again", role: .destructive) { model.reparseOutdatedBooks() }
             Button("Later", role: .cancel) { model.outdatedBookIDs = [] }
         } message: {
-            Text(verbatim: "%lld books were registered with only the author, title, series and volume, so their genre, event, source work and info are empty. Fill only the empty fields from the file names (the registered values stay locked), or unlock them and parse and extract them again from the file names (the registered values are thrown away; lock them again to register).".ui(model.outdatedBookIDs.count))
+            Text(verbatim: "%lld books were registered with only the author, title, series and volume, so their genre, event, source work and info are empty. Fill only the empty fields from the file names (the registered values stay locked), or unlock them and parse and extract them again from the file names (the locked values are thrown away).".ui(model.outdatedBookIDs.count))
         }
         .alert("Regenerate the metadata?", isPresented: $confirmsReparseAll) {
             Button("Cancel", role: .cancel) {}
             Button("Regenerate", role: .destructive) { workspace.reparseFromFileNames(workspace.regenerationTargets) }
         } message: {
-            Text(verbatim: "%lld unlocked books are parsed and extracted again from their file names, and the values edited but not locked are thrown away. Locked books are left alone. You can undo this with Undo.".ui(workspace.regenerationTargets.count))
+            Text(verbatim: "%lld unlocked books are parsed and extracted again from their file names, and the values you edited are thrown away. Locked books are left alone. You can undo this with Undo.".ui(workspace.regenerationTargets.count))
         }
         .sheet(isPresented: $showsExcludedFolders) {
             MetadataExcludedFoldersSheet(rulesStore: rulesStore)
@@ -530,28 +522,28 @@ struct MetadataBookTableView: View {
         ) {
             Button("Cancel", role: .cancel) { deletingMetadata = nil }
             Button("Delete", role: .destructive) {
-                if let deletingMetadata { workspace.unregister(deletingMetadata) }
+                if let deletingMetadata { workspace.deleteBooks(deletingMetadata) }
                 deletingMetadata = nil
             }
         } message: {
-            Text(verbatim: "The metadata of %lld books, locked or edited, is deleted and they go back to the values read from the file names. This can't be undone.".ui(deletingMetadata?.count ?? 0))
+            Text(verbatim: "The metadata of %lld books is deleted and they are removed from this list. The books themselves are not deleted. This can't be undone.".ui(deletingMetadata?.count ?? 0))
         }
     }
 
     /// 巻数は、シリーズ名の決まっている本にしか入らない(シリーズの中の番号なので)。ロック(登録)した本は直せない。
     private func canEdit(_ field: QMBookMetadata.Field, _ book: MetadataBookRow) -> Bool {
-        guard !book.isRegistered else { return false }
+        guard !book.isLocked else { return false }
         return field != .volume || !MetadataWorkspace.currentSeriesName(book).isEmpty
     }
 
     /// 青く出す欄: 直したが、まだロック(登録)していない値(案 A。ロックした本の値はふつうの色)。
     private func isEdited(_ field: QMBookMetadata.Field, _ book: MetadataBookRow) -> Bool {
-        guard !book.isRegistered else { return false }
+        guard !book.isLocked else { return false }
         return field == .series || field == .volume ? book.hasConfirmedSeries : book.edited.contains(field)
     }
 
     private func help(_ field: QMBookMetadata.Field, _ book: MetadataBookRow) -> String {
-        if book.isRegistered { return "This book is locked. Unlock it to edit".ui }
+        if book.isLocked { return "This book is locked. Unlock it to edit".ui }
         guard canEdit(field, book) else { return "Give the book a series name first".ui }
         switch field {
         case .series: return "Double-click to settle the series for this book. Empty puts it in no series".ui
@@ -595,9 +587,8 @@ struct MetadataBookTableView: View {
     private func contextMenu(_ ids: Set<String>) -> [MetadataBookTable.MenuItem] {
         typealias Item = MetadataBookTable.MenuItem
         let books = ids.compactMap { workspace.row($0) }
-        let editable = Set(books.filter { !$0.isRegistered }.map(\.id))
-        let lockedIDs = Set(books.filter(\.isRegistered).map(\.id))
-        let deletable = Set(books.filter { $0.isRegistered || $0.hasUnregisteredEdits }.map(\.id))
+        let editable = Set(books.filter { !$0.isLocked }.map(\.id))
+        let lockedIDs = Set(books.filter(\.isLocked).map(\.id))
 
         let hasEditable = !editable.isEmpty
         // 一覧の順(連番はこの順に振る)。
@@ -654,15 +645,12 @@ struct MetadataBookTableView: View {
         }
         items.append(Item(title: "File Name Parsing Rules".ui, isEnabled: hasEditable, children: ruleSetItems))
         items.append(.separator)
-        // 実体の有無にかかわらず削除できる(利用者の指示 2026-09-21)。
-        items.append(Item(title: "Delete Metadata…".ui, isEnabled: !deletable.isEmpty) {
-            deletingMetadata = deletable
-        })
-        // 本のあるフォルダを、メタデータの登録の対象外にする。
-        let folders = Set(ids.map { ($0 as NSString).deletingLastPathComponent })
-        items.append(Item(title: folders.count == 1 ? "Exclude This Folder from Metadata".ui
-                                                    : "Exclude These Folders from Metadata".ui) { [rulesStore] in
-            for folder in folders.sorted() { rulesStore.addExcludedFolder(URL(fileURLWithPath: folder, isDirectory: true)) }
+        // どの本でも削除できる: 一覧から消え、DB の登録と下書きも消える(利用者の指示 2026-09-22。以前は「登録か下書きが
+        // ある本だけ」で、提案のままの本では淡色だった ―― 削除したいのに押せず、押せない理由も見えなかった)。
+        // 「このフォルダを対象外にする」は、一覧に並ぶのは本なのにフォルダを指す項目で分かりにくい、と外した(同日)。
+        // 対象外のフォルダは、ツールバーの対象外のフォルダのシートで足す。
+        items.append(Item(title: "Delete Metadata…".ui) {
+            deletingMetadata = ids
         })
         items.append(.separator)
         items.append(Item(title: "Copy File Name".ui) {

@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import QooMetaKit
 import Testing
 
 @testable import qooViewer
@@ -151,5 +152,33 @@ struct StorePersistenceTests {
         let metadata = BookMetadataStore(modelContext: container.mainContext)
         let row = try #require(metadata.metadata(forBookID: "/books/old"))
         #expect(row.values == BookMetadataValues(title: "題名", authors: ["著者"], series: "シリーズ", volume: "3"))
+        // それまでの行はどれも利用者が登録したもの。ロックした行として入る(2026-09-22)。
+        #expect(row.isLocked)
+        #expect(!row.didImportSourceMetadata)
+    }
+
+    @Test("メタデータのロック・直した欄・ルールセット・取り込み済みの印は、開き直しても残る")
+    func metadataLockAndEditsSurviveReopening() throws {
+        let store = try DisposableStore("metadata-lock")
+        let edits = Confirmation.series(name: "直したシリーズ", volume: "2", fields: ConfirmedFields([.title: ["直した題"]]))
+        do {
+            let container = try store.openCurrent()
+            let metadata = BookMetadataStore(modelContext: container.mainContext)
+            metadata.upsertAll([
+                .init(bookID: "/books/unlocked", values: BookMetadataValues(title: "直した題"),
+                      state: BookMetadataRowState(isLocked: false, edits: edits, ruleSet: "doujinshi")),
+                .init(bookID: "/books/locked", values: BookMetadataValues(title: "ロックした題"), state: .locked),
+            ])
+            metadata.metadata(forBookID: "/books/unlocked")?.didImportSourceMetadata = true
+            try container.mainContext.save()
+        }
+        let container = try store.openCurrent()
+        let metadata = BookMetadataStore(modelContext: container.mainContext)
+        let unlocked = try #require(metadata.metadata(forBookID: "/books/unlocked"))
+        #expect(!unlocked.isLocked)
+        #expect(unlocked.edits == edits)
+        #expect(unlocked.ruleSet == "doujinshi")
+        #expect(unlocked.didImportSourceMetadata)
+        #expect(metadata.metadata(forBookID: "/books/locked")?.isLocked == true)
     }
 }

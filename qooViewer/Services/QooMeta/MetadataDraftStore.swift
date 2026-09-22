@@ -1,25 +1,15 @@
 import Foundation
 import QooMetaKit
 
-/// メタデータの編集ウインドウで**直したが、まだロック(登録)していない**値の置き場(2026-09-21)。
+/// メタデータの編集ウインドウで**直したが、まだロック(登録)していなかった**値の置き場(2026-09-21〜22)。**今は引き継ぐだけ**。
 ///
-/// 利用者の決定(2026-09-21、案 A)で「ロック = 登録」になった: 欄を直しても DB には書かず、鍵を掛けた時点の値で登録する。
-/// 直しただけの値を窓の中にだけ持つと、窓を閉じたとき(アプリを終えたとき)に黙って消えるので、ここにファイルで残す
-/// (qooMeta のアプリの作業ファイルに当たるもの)。鍵を掛けた本・提案に戻した本の分は消す。
+/// 2026-09-21〜22 は「ロック = 登録」で、ロックしていない本の直した値は DB に書かず、ここ(コンテナの
+/// Application Support/qooMeta/drafts.json。**蔵書の名前が入る**)に持っていた。利用者の指示(2026-09-22)で、解析した本は
+/// すべて DB に登録し、直した欄も行に持つようになった(`BookMetadata.edits`)ので、起動時に 1 度だけ DB へ移して
+/// ファイルを消す(`migrate(into:rules:)`)。
 ///
-/// 中身は本ごとの qooMeta の確定した内容(`Confirmation`)と、右クリックで選んだルールセット。保存先はコンテナの
-/// Application Support/qooMeta/drafts.json(**蔵書の名前が入る** ―― 規則の設定と同じくコンテナの外へは書かない)。
-/// 本は bookID(パス)で指すので、Finder で移した本の分は残ったまま使われない。
-///
-/// ■ 知らない本の分も捨てない(2026-09-22 の監査で指摘)
-/// 以前は窓を開くたびに、一覧に無い本の下書きを捨てていた(`keepOnly`)。ところが一覧の母体のうちスマートライブラリの
-/// 対象フォルダの本は、スマートライブラリを OFF にした・対象フォルダのボリュームが繋がっていない・対象から外した、の
-/// どれでも一覧から消える ―― そのまま窓を開くだけで、その本の下書きが戻せない形で消えた。下書きは利用者が直した本の分
-/// しか無く小さいので、捨てずに持ち続ける(一覧に戻ってくれば、また出る)。
-///
-/// ■ 読めないファイルは上書きしない
-/// 読めなかった drafts.json(qooMeta の版が上がって `Confirmation` の形が変わった、など)は、空として読んだうえで次の
-/// 保存で黙って上書きしていた。隣に写しを残してから使い始め、残せなければ保存しない(`MetadataRulesStore.keepCopy` と同じ)。
+/// ■ 読めないファイルは消さない
+/// 読めなかった drafts.json(qooMeta の版が上がって `Confirmation` の形が変わった、など)は、隣へ写しを残す(`drafts.unreadable-<日時>.json`)。
 @MainActor
 final class MetadataDraftStore {
     struct Draft: Codable, Hashable {
@@ -62,24 +52,24 @@ final class MetadataDraftStore {
         }
     }
 
-    /// その本の下書きを置き換える(nil なら消す)。
-    func set(_ draft: Draft?, for bookID: String) {
-        drafts[bookID] = draft
-    }
-
-    func save() {
-        guard !holdsSaving else { return }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        do {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if drafts.isEmpty {
-                try? FileManager.default.removeItem(at: url)
-            } else {
-                try encoder.encode(drafts).write(to: url, options: .atomic)
-            }
-        } catch {
-            NSLog("qooViewer: saving the metadata drafts failed: %@", error.localizedDescription)
+    /// 下書きを DB へ移し、ファイルを消す。行の無い本はロックせずに登録し(直した欄とルールセットつき)、ロックしていない
+    /// 行には直した欄とルールセットを入れる。**ロックした行は変えない**(以前から、登録した値が下書きより優先だった)。
+    /// - Returns: 移した本の数。
+    @discardableResult
+    func migrate(into metadataStore: BookMetadataStore, rules: CompiledRules) -> Int {
+        guard !drafts.isEmpty else { return 0 }
+        var entries: [BookMetadataStore.BatchEntry] = []
+        for (bookID, draft) in drafts.sorted(by: { $0.key < $1.key }) {
+            guard metadataStore.metadata(forBookID: bookID)?.isLocked != true else { continue }
+            let values = MetadataParsing.values(forBookID: bookID, edits: draft.confirmation, ruleSet: draft.preset,
+                                                rules: rules)
+            entries.append(BookMetadataStore.BatchEntry(
+                bookID: bookID, values: values,
+                state: BookMetadataRowState(isLocked: false, edits: draft.confirmation, ruleSet: draft.preset)))
         }
+        let count = metadataStore.upsertAll(entries)
+        drafts = [:]
+        try? FileManager.default.removeItem(at: url)
+        return count
     }
 }
