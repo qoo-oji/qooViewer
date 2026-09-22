@@ -91,6 +91,11 @@ final class CollectionCoverExtractor: ObservableObject {
     private struct CoverSignature: Equatable {
         var shelfCoverPageKey: String?
         var shelfCoverImageFileName: String?
+        /// 表紙を指定していない本(1 ページ目が表紙)だけ: ページの並べ替えと除外。1 ページ目を除外・並べ替えると表紙が変わる
+        /// (2026-09-22 の監査。以前は見ておらず、除外した広告のページが棚の表紙に残り続けた)。指定のある本では空のまま
+        /// (並べ替えても表紙は変わらないので、作り直さない)。
+        var pageOrderOverride: [String]? = nil
+        var excludedKeys: Set<String> = []
     }
     private var signatures: [String: CoverSignature] = [:]
 
@@ -555,10 +560,17 @@ final class CollectionCoverExtractor: ObservableObject {
     /// 変えても棚の絵は変わらないので、あちらの変更でここが反応してはいけない。
     private func signature(forBookID bookID: String) -> CoverSignature {
         let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
-        return CoverSignature(
+        var signature = CoverSignature(
             shelfCoverPageKey: settings?.shelfCoverPageKey,
             shelfCoverImageFileName: settings?.shelfCoverImageFileName
         )
+        if signature.shelfCoverPageKey == nil, signature.shelfCoverImageFileName == nil {
+            signature.pageOrderOverride = settings?.pageOrderOverride
+            signature.excludedKeys = Set(
+                layoutStore.pageOverrides(forBookID: bookID).filter { $0.state == .excluded }.map(\.pageKey)
+            )
+        }
+        return signature
     }
 
     // MARK: - やり直しの契機

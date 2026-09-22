@@ -230,6 +230,28 @@ struct CollectionCoverExtractorTests {
         #expect(await coverNumber(of: item, in: library) == 2)
     }
 
+    @Test("表紙を指定していない本で 1 ページ目を除外すると、表紙を作り直す(2026-09-22 の監査)")
+    func excludingTheFirstPageRedoesTheCover() async throws {
+        let library = try InMemoryLibrary(label: "cover-extractor-excluded")
+        defer { library.close() }
+        let suite = PreferencesSuite(label: "cover-extractor-excluded")
+        defer { withExtendedLifetime(suite) {} }
+        let temporary = try TemporaryDirectory("cover-extractor-excluded")
+        let url = try makeFolderBook(temporary)
+        let item = try register(url, in: library)
+        let extractor = makeExtractor(library, suite: suite)
+        defer { extractor.releaseResources() }
+        extractor.enqueue([item])
+        await extractor.waitUntilIdle()
+        #expect(await coverNumber(of: item, in: library) == 1)
+
+        let book = MangaBook(id: url.path, title: "book", sourceURL: url, pages: [])
+        library.layouts.setPageLayoutState(for: book, pageKey: url.appendingPathComponent("001.png").path, state: .excluded)
+        await extractor.waitUntilIdle()
+        #expect(item.coverState == .ready)
+        #expect(await coverNumber(of: item, in: library) == 2)
+    }
+
     @Test("撤去した「並び順を Finder に揃える」を OFF で使っていた人だけ、起動時に一度、先頭が変わりうる本を表紙を出したまま作り直す")
     func theRetiredFinderOrderSettingRefreshesCoversOnceWhenItWasOff() async throws {
         let library = try InMemoryLibrary(label: "cover-extractor-retired-order")
