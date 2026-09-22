@@ -107,10 +107,12 @@ final class BookRecordRelocator {
     static func relocateReadingStates(_ bookIDs: [String: String], in modelContext: ModelContext) {
         guard !bookIDs.isEmpty else { return }
         let states = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
-        let occupied = Set(states.map(\.bookID))
+        // 実際に動かす組は、付け替えの後の姿で決める(BookRelocationPlan.moves。連なる改名・入れ替えで取り残さない)。
+        let moves = BookRelocationPlan(bookIDs: bookIDs, locators: [:], directoryBookIDs: [])
+            .moves(present: Set(states.map(\.bookID)))
         var changed = false
         for state in states {
-            guard let new = bookIDs[state.bookID], !occupied.contains(new) else { continue }
+            guard let new = moves[state.bookID] else { continue }
             // フォルダの本はページの鍵も付け替える(PageKeyRelocation の型コメント)。
             if let key = state.lastPageKey.flatMap({ PageKeyRelocation.relocated($0, fromBookID: state.bookID, toBookID: new) }) {
                 state.lastPageKey = key

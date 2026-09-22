@@ -304,10 +304,10 @@ final class LayoutStore: ObservableObject {
     func applyBookRelocation(_ plan: BookRelocationPlan) -> Int {
         let settings = settingsByBookID()
         let overrides = overridesByBookID()
+        // 実際に動かす組は、付け替えの後の姿で決める(BookRelocationPlan.moves。連なる改名・入れ替えで取り残さない)。
+        let moves = plan.moves(present: Set(settings.keys).union(overrides.filter { !$0.value.isEmpty }.keys))
         var relocated = 0
-        for (old, new) in plan.bookIDs {
-            guard settings[old] != nil || !(overrides[old] ?? []).isEmpty else { continue }
-            guard settings[new] == nil, (overrides[new] ?? []).isEmpty else { continue }
+        for (old, new) in moves {
             if let row = settings[old] {
                 row.bookID = new
                 // フォルダの本はページの鍵も付け替える(PageKeyRelocation の型コメント)。

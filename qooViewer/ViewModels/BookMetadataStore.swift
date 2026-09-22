@@ -574,13 +574,18 @@ final class BookMetadataStore: ObservableObject {
         let byBookID = metadataByBookID()
         var relocated = 0
         var relocatedUnlocked = false
+        // 新しいパスに読みだけの行があり、その行がこの付け替えで出ていかないなら、古い行(ロック・直した欄のあるもの)で置き換える
+        // (reconcileBookIDIfMoved と同じ決まり)。先に消してから、動かす組を決める。
+        var present = Set(byBookID.keys)
         for (old, new) in plan.bookIDs {
+            guard let row = byBookID[old], let existing = byBookID[new], plan.bookIDs[new] == nil,
+                  existing.isParsedOnly, !row.isParsedOnly, present.contains(new) else { continue }
+            modelContext.delete(existing)
+            present.remove(new)
+        }
+        // 実際に動かす組は、付け替えの後の姿で決める(BookRelocationPlan.moves。連なる改名・入れ替えで取り残さない)。
+        for (old, new) in plan.moves(present: present) {
             guard let row = byBookID[old] else { continue }
-            // 新しいパスに読みだけの行があれば、古い行(ロック・直した欄のあるもの)で置き換える(reconcileBookIDIfMoved と同じ決まり)。
-            if let existing = byBookID[new] {
-                guard existing.isParsedOnly, !row.isParsedOnly else { continue }
-                modelContext.delete(existing)
-            }
             row.bookID = new
             if !row.isLocked { relocatedUnlocked = true }
             if let locator = plan.locators[new] {

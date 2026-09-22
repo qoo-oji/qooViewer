@@ -33,6 +33,31 @@ nonisolated struct BookRelocationPlan: Sendable {
 
     var isEmpty: Bool { bookIDs.isEmpty }
 
+    /// あるストアで実際に動かす組(古い → 新しい)。`present` はそのストアに行のある bookID。
+    ///
+    /// 「移った先に行があるなら付け替えない」の決まりを、**付け替えの後の姿で**当てる(2026-09-22 の監査): 移った先の行自身も
+    /// この付け替えで出ていくなら、その先は空く(A → B と C → A が続けて届いた・A と B を入れ替えた)。以前は付け替える前の行で
+    /// 「埋まっている」と見て、C の保存データを実在しないパスに取り残した。出ていくはずの行が自分の行き先で止められたら、その行は
+    /// 動かず、そこへ入るはずだった組も止める(同じパスに行が 2 つできないように、止まる組が無くなるまで繰り返す)。
+    /// 同じ行き先へ 2 つ来たら、古いパスの名前順で先のほうだけ。
+    func moves(present: Set<String>) -> [String: String] {
+        var moves: [String: String] = [:]
+        var claimed = Set<String>()
+        for old in bookIDs.keys.sorted() where present.contains(old) {
+            guard let new = bookIDs[old], new != old, claimed.insert(new).inserted else { continue }
+            moves[old] = new
+        }
+        var changed = true
+        while changed {
+            changed = false
+            for (old, new) in moves where present.contains(new) && moves[new] == nil {
+                moves[old] = nil
+                changed = true
+            }
+        }
+        return moves
+    }
+
     /// `knownBookIDs`(どれかのストアに行のある本)のうち、`change` で移ったものの付け替えを組む。
     /// 手がかりの取り直しはファイルに触るので、**メインアクターの外で呼ぶ**。
     static func make(knownBookIDs: Set<String>, change: FileSystemChange, mounts: MountTable = .current()) -> BookRelocationPlan {

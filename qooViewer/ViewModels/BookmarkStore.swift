@@ -394,9 +394,11 @@ final class BookmarkStore: ObservableObject {
     @discardableResult
     func applyBookRelocation(_ plan: BookRelocationPlan) -> Int {
         let byBookID = bookmarksByBookID()
+        // 実際に動かす組は、付け替えの後の姿で決める(BookRelocationPlan.moves。連なる改名・入れ替えで取り残さない)。
+        let moves = plan.moves(present: Set(byBookID.filter { !$0.value.isEmpty }.keys))
         var relocated = 0
-        for (old, new) in plan.bookIDs {
-            guard let rows = byBookID[old], !rows.isEmpty, (byBookID[new] ?? []).isEmpty else { continue }
+        for (old, new) in moves {
+            guard let rows = byBookID[old], !rows.isEmpty else { continue }
             for row in rows {
                 row.bookID = new
                 // フォルダの本はページの鍵も付け替える(PageKeyRelocation の型コメント)。

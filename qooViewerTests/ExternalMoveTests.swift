@@ -105,6 +105,21 @@ struct ExternalMoveTests {
         #expect(library.metadata.record(forBookID: new)?.values.title == "星の海")
     }
 
+    @Test("動かす組は付け替えの後の姿で決める: 出ていく行の先は空く・止まった行の先へは入らない・入れ替えもできる(2026-09-22 の監査)")
+    func movesAreDecidedAfterTheRelocation() {
+        func plan(_ pairs: [String: String]) -> BookRelocationPlan {
+            BookRelocationPlan(bookIDs: pairs, locators: [:], directoryBookIDs: [])
+        }
+        // A → B、C → A が続けて届いた。A は出ていくので C は A へ入れる。
+        #expect(plan(["/A": "/B", "/C": "/A"]).moves(present: ["/A", "/C"]) == ["/A": "/B", "/C": "/A"])
+        // 入れ替え。
+        #expect(plan(["/A": "/B", "/B": "/A"]).moves(present: ["/A", "/B"]) == ["/A": "/B", "/B": "/A"])
+        // B は埋まっていて出ていかない → A は止まる → A へ入るはずの C も止まる(同じパスに 2 つ作らない)。
+        #expect(plan(["/A": "/B", "/C": "/A"]).moves(present: ["/A", "/B", "/C"]).isEmpty)
+        // 行の無いパスは動かさない。
+        #expect(plan(["/X": "/Y"]).moves(present: []).isEmpty)
+    }
+
     @Test("本の名前と形式は、書庫・PDF・EPUB の拡張子だけを外す(フォルダの名前の「.3」は名前のうち。2026-09-22 の監査)")
     func bookNamesKeepDotsInFolderNames() {
         #expect(BookFileName.displayName(forBookID: "/x/Title vol.3") == "Title vol.3")

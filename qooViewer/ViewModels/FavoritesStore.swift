@@ -766,10 +766,11 @@ final class FavoritesStore: ObservableObject {
     @discardableResult
     func applyBookRelocation(_ plan: BookRelocationPlan) -> Int {
         let books = allFavoriteBooks()
-        let occupied = Set(books.map(\.bookID))
+        // 実際に動かす組は、付け替えの後の姿で決める(BookRelocationPlan.moves。連なる改名・入れ替えで取り残さない)。
+        let moves = plan.moves(present: Set(books.map(\.bookID)))
         var relocated = 0
         for book in books {
-            guard let new = plan.bookIDs[book.bookID], !occupied.contains(new) else { continue }
+            guard let new = moves[book.bookID] else { continue }
             book.bookID = new
             if let locator = plan.locators[new] {
                 book.inodeNumber = locator.identifier?.inodeNumber

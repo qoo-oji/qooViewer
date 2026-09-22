@@ -1103,10 +1103,11 @@ final class CollectionStore: ObservableObject {
     @discardableResult
     func applyBookRelocation(_ plan: BookRelocationPlan) -> Int {
         let items = allItems()
-        let occupied = Set(items.map(\.bookID))
+        // 実際に動かす組は、付け替えの後の姿で決める(BookRelocationPlan.moves。連なる改名・入れ替えで取り残さない)。
+        let moves = plan.moves(present: Set(items.map(\.bookID)))
         var relocated = 0
         for item in items {
-            guard let new = plan.bookIDs[item.bookID], !occupied.contains(new) else { continue }
+            guard let new = moves[item.bookID] else { continue }
             let old = item.bookID
             item.bookID = new
             for isDirectory in [false, true] where item.title == BookRelocationPlan.derivedTitle(forBookID: old, isDirectory: isDirectory) {
