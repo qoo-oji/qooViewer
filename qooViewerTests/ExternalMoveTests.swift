@@ -122,6 +122,18 @@ struct ExternalMoveTests {
         #expect(moved.first.map { BookExistenceProbe.comparablePath($0.to.path) } == BookExistenceProbe.comparablePath(new.path))
     }
 
+    @Test("ビューアで開いている本(その中・その上のフォルダも)の付け替えは見送る")
+    func openBooksAreNotRelocated() {
+        let relocations: [FileSystemChange.Relocation] = [
+            .init(from: URL(fileURLWithPath: "/x/open.cbz"), to: URL(fileURLWithPath: "/x/open-renamed.cbz")),
+            .init(from: URL(fileURLWithPath: "/y/shelf"), to: URL(fileURLWithPath: "/y/shelf-renamed")),
+            .init(from: URL(fileURLWithPath: "/z/closed.cbz"), to: URL(fileURLWithPath: "/z/closed-renamed.cbz")),
+        ]
+        let kept = ExternalMoveSweeper.excludingOpenBooks(relocations, openBookIDs: ["/x/open.cbz", "/y/shelf/book-a"])
+        #expect(kept.map(\.from.path) == ["/z/closed.cbz"])
+        #expect(ExternalMoveSweeper.excludingOpenBooks(relocations, openBookIDs: []).count == 3)
+    }
+
     @Test("繋がっていないボリュームの本は見ない")
     func unmountedVolumesAreSkipped() {
         let mounts = MountTable.current()

@@ -45,6 +45,23 @@ enum ExternalMoveSweeper {
         }.value
     }
 
+    /// ビューアで開いている本(とその中・その上のフォルダ)に当たる付け替えを外す(2026-09-22 の監査)。
+    ///
+    /// ビューアは「開いている間は `bookID` が変わらない」前提で、レイアウト・ブックマークを `bookID` で読み直し・書き込む。
+    /// アプリの中の操作は開いている本を動かすこと自体を断る(`FileBrowserOperations.refusesBecauseOpenInViewer`)が、アプリの外での
+    /// 移動は止められないので、付け替えのほうを見送る。開いたまま付け替えると、読んでいる途中でレイアウトとブックマークが外れ、
+    /// その後の書き込みが古いパスに行を作って保存データが 2 か所に割れた。見送った本は、閉じた後の実在確認・次の起動・次に
+    /// 開いたときの追従(`reconcileBookIDIfMoved`)で付け替わる。
+    nonisolated static func excludingOpenBooks(
+        _ relocations: [FileSystemChange.Relocation], openBookIDs: Set<String>
+    ) -> [FileSystemChange.Relocation] {
+        guard !openBookIDs.isEmpty else { return relocations }
+        let openPaths = openBookIDs.map { URL(fileURLWithPath: $0) }
+        return relocations.filter { relocation in
+            FileBrowserOperations.openBookConflict(among: [relocation.from, relocation.to], openBookPaths: openPaths.map(\.path)) == nil
+        }
+    }
+
     /// いま繋がっていて、ネットワーク越しでないボリュームの上の本か。マウントの表(`MountTable`)だけで決め、パスには触らない
     /// (`URL.standardizedFileURL` もパスの実在を見るので使わない)。
     nonisolated static func isLocallyReachable(_ path: String, mounts: MountTable) -> Bool {

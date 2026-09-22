@@ -11,6 +11,7 @@ import SwiftData
 ///   だけ(`BookExistenceProbe.isNonBookFolderAtRecordedPath`)。無い・読めない・繋がっていないボリュームのものは消さない
 ///   (本かどうか分からない)。繋がっていないボリュームとネットワークのボリュームのフォルダは調べもしない
 ///   (`ExternalMoveSweeper.isLocallyReachable`。ブックマークの解決が止まる・ディスクイメージを勝手にマウントしうる。2026-09-22 の監査)。
+///   外付けのフォルダは、記録したボリュームの UUID が今のボリュームと一致するものだけ(UUID を記録していない記録は消さない)。
 /// - 消すのは保存データ一式(`BookSavedDataEraser.deleteAllData`: お気に入り・コレクションの項目・ブックマーク・レイアウト・
 ///   メタデータ・読書位置)。本ではないので、どれも意味を持たない。
 /// - ライブラリ機能が OFF でも走る(保存データを正しく保つ仕事。`AppStores.applyLibraryFeature` の型コメントの決まり)。
@@ -26,17 +27,37 @@ enum NonBookFolderSweeper {
         let known = KnownBooks.collect(from: KnownBooks.Sources(
             metadataStore: metadataStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
             favoritesStore: favoritesStore, collectionStore: collectionStore, modelContext: modelContext))
-        let probes = candidates(in: known).map { bookID in
+        let bookIDs = candidates(in: known)
+        let probes = bookIDs.map { bookID in
             BookExistenceProbe.make(
                 bookID: bookID, metadataStore: metadataStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore,
                 favoritesStore: favoritesStore, collectionStore: collectionStore, folderAccess: folderAccess)
         }
         guard !probes.isEmpty else { return 0 }
+        // 外付けの本は、記録したボリュームの UUID と今そこにあるボリュームの UUID が同じときだけ消す(2026-09-22 の監査。
+        // `/Volumes/<名前>` の名前は別のディスクでも同じになりうるので、同じ名前の別のディスクのフォルダを見て消しかねない)。
+        var recordedVolumes: [String: Set<String>] = [:]
+        for bookID in bookIDs where MountTable.volumeRoot(of: bookID) != nil {
+            let identifiers = [metadataStore.metadata(forBookID: bookID)?.fileNodeIdentifier,
+                               layoutStore.bookLayoutSettings(forBookID: bookID)?.fileNodeIdentifier]
+                + collectionStore.items(forBookID: bookID).map(\.fileNodeIdentifier)
+                + favoritesStore.existingFavorites(forBookID: bookID).map(\.fileNodeIdentifier)
+            recordedVolumes[bookID] = Set(identifiers.compactMap { $0?.volumeUUID })
+        }
         // ファイルに触る(ブックマークの解決は繋がっていないボリュームで秒単位止まる)ので、メインの外で。
         let targets = await Task.detached(priority: .utility) {
             let mounts = MountTable.current()
-            return probes.filter {
-                ExternalMoveSweeper.isLocallyReachable($0.bookID, mounts: mounts) && $0.isNonBookFolderAtRecordedPath()
+            var currentVolumes: [String: String?] = [:]
+            return probes.filter { probe in
+                guard ExternalMoveSweeper.isLocallyReachable(probe.bookID, mounts: mounts) else { return false }
+                if let root = MountTable.volumeRoot(of: probe.bookID) {
+                    if currentVolumes[root] == nil {
+                        currentVolumes[root] = .some(mounts.volumeIdentifier(URL(fileURLWithPath: root, isDirectory: true)))
+                    }
+                    guard let current = currentVolumes[root] ?? nil,
+                          recordedVolumes[probe.bookID]?.contains(current) == true else { return false }
+                }
+                return probe.isNonBookFolderAtRecordedPath()
             }.map(\.bookID)
         }.value
         guard !targets.isEmpty else { return 0 }

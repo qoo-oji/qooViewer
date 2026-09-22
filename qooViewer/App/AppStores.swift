@@ -357,7 +357,9 @@ final class AppStores: ObservableObject {
     /// 繰り返すため)。
     @discardableResult
     private func relocateBooksMovedOutsideTheApp(_ relocations: [FileSystemChange.Relocation]) -> Task<Void, Never>? {
-        let fresh = relocations.filter { outsideMoveAttempted.insert($0.from.path).inserted }
+        // 開いている本は見送る(試したことにもしない。閉じた後の実在確認で付け替える。ExternalMoveSweeper.excludingOpenBooks)。
+        let allowed = ExternalMoveSweeper.excludingOpenBooks(relocations, openBookIDs: ViewerViewModel.openBookIDs)
+        let fresh = allowed.filter { outsideMoveAttempted.insert($0.from.path).inserted }
         guard !fresh.isEmpty else { return nil }
         return bookRecordRelocator.apply(FileSystemChange(relocations: fresh))
     }

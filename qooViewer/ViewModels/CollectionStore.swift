@@ -1251,7 +1251,8 @@ final class CollectionStore: ObservableObject {
                 await self.abandonExistenceRefresh()
                 return
             }
-            await self.finishExistenceRefresh(result, fileDates: dates)
+            let recordedPaths = Dictionary(probes.map { ($0.itemID, $0.recordedPath) }, uniquingKeysWith: { first, _ in first })
+            await self.finishExistenceRefresh(result, fileDates: dates, recordedPaths: recordedPaths)
         }
     }
 
@@ -1279,12 +1280,17 @@ final class CollectionStore: ObservableObject {
     /// テストでは nil(付け替えを起こさない)。
     var onBooksFoundAtNewPaths: (([FileSystemChange.Relocation]) -> Void)?
 
-    private func reportBooksFoundAtNewPaths(_ result: [UUID: BookLocation]) {
+    ///
+    /// **確かめ始めた時点のパス(`recordedPaths`)と今の `bookID` が違う項目は知らせない**(2026-09-22 の監査): 確かめている
+    /// 数秒の間にアプリの中で名前を変えると、行は既に新しいパスへ移っている。そこへ「確かめ始めた時点の場所に見つかった」を
+    /// 知らせると、付け替えを逆向きに戻してしまう。
+    private func reportBooksFoundAtNewPaths(_ result: [UUID: BookLocation], recordedPaths: [UUID: String]) {
         guard let onBooksFoundAtNewPaths else { return }
         var relocations: [FileSystemChange.Relocation] = []
         var seen = Set<String>()
         for item in allItems() {
-            guard let url = result[item.id]?.url,
+            guard recordedPaths[item.id] == item.bookID,
+                  let url = result[item.id]?.url,
                   BookExistenceProbe.comparablePath(url.path) != BookExistenceProbe.comparablePath(item.bookID),
                   seen.insert(item.bookID).inserted
             else { continue }
@@ -1294,7 +1300,7 @@ final class CollectionStore: ObservableObject {
     }
 
     private func finishExistenceRefresh(
-        _ result: [UUID: BookLocation], fileDates: [UUID: BookFileDates]
+        _ result: [UUID: BookLocation], fileDates: [UUID: BookFileDates], recordedPaths: [UUID: String]
     ) {
         isRefreshingExistence = false
         existenceRefreshTask = nil
@@ -1304,7 +1310,7 @@ final class CollectionStore: ObservableObject {
                 scheduleExistenceRefresh()
             }
         }
-        reportBooksFoundAtNewPaths(result)
+        reportBooksFoundAtNewPaths(result, recordedPaths: recordedPaths)
         // @Publishedは値が同じでも代入のたびに発火するため、変化したときだけ代入する。
         // 日付を先に入れる ―― locationByItemIDの購読者(抽出の待ち行列)より、並びに使う値が
         // 先に揃っているほうが、描き直しが1回で済む。

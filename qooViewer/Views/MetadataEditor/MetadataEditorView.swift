@@ -210,10 +210,13 @@ final class MetadataEditorModel {
     /// - Returns: 付け替えたか(呼び出し側は一覧を作り直す)。
     private func relocateMovedBooks(_ located: [(String, (result: BookExistenceProbe.Result, movedTo: String?))]) async -> Bool {
         guard let relocator else { return false }
-        let relocations = located.compactMap { bookID, location -> FileSystemChange.Relocation? in
-            guard let movedTo = location.movedTo, relocationAttempted.insert(bookID).inserted else { return nil }
+        let moved = located.compactMap { bookID, location -> FileSystemChange.Relocation? in
+            guard let movedTo = location.movedTo else { return nil }
             return FileSystemChange.Relocation(from: URL(fileURLWithPath: bookID), to: URL(fileURLWithPath: movedTo))
         }
+        // ビューアで開いている本は見送る(ExternalMoveSweeper.excludingOpenBooks)。
+        let relocations = ExternalMoveSweeper.excludingOpenBooks(moved, openBookIDs: ViewerViewModel.openBookIDs)
+            .filter { relocationAttempted.insert($0.from.path).inserted }
         guard !relocations.isEmpty else { return false }
         await relocator.apply(FileSystemChange(relocations: relocations)).value
         return true

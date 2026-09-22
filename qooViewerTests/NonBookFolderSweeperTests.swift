@@ -53,6 +53,34 @@ struct NonBookFolderSweeperTests {
         #expect(try readingStateIDs(library) == kept)
     }
 
+    @Test("外付けのフォルダは、記録したボリュームの UUID が今のボリュームと一致するときだけ消す")
+    func externalFoldersNeedAMatchingVolumeUUID() async throws {
+        guard let volume = DisposableVolume.make(.apfs, "non-book-volume") else { return }
+        let library = try InMemoryLibrary(label: "non-book-volume")
+        defer { library.close() }
+        let suite = PreferencesSuite(label: "non-book-volume")
+        let identified = volume.url.appendingPathComponent("identified", isDirectory: true)
+        let pathOnly = volume.url.appendingPathComponent("path-only", isDirectory: true)
+        for folder in [identified, pathOnly] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data("a".utf8).write(to: folder.appendingPathComponent("01.cbz"))
+        }
+        // 識別子(ボリュームの UUID を含む)つきの行と、パスだけの行(読書位置だけ)。
+        _ = library.metadata.upsert(bookID: identified.path, author: "A", title: "T", series: "", seriesIndex: "",
+                                    sourceURL: identified)
+        library.context.insert(BookReadingState(bookID: pathOnly.path))
+        try library.context.save()
+
+        let swept = await NonBookFolderSweeper.sweep(
+            favoritesStore: library.favorites, collectionStore: library.collections, bookmarkStore: library.bookmarks,
+            layoutStore: library.layouts, metadataStore: library.metadata,
+            folderAccess: FolderAccessStore(defaults: suite.defaults), modelContext: library.context)
+
+        #expect(swept == 1)
+        #expect(library.metadata.registeredBookIDs.isEmpty)
+        #expect(try readingStateIDs(library) == [pathOnly.path], "UUID を記録していない外付けの記録は、同じ名前の別のディスクかもしれないので消さない")
+    }
+
     @Test("書庫・PDF・EPUB の名前の本は調べない")
     func bookFilesAreNotCandidates() {
         let ids: Set = ["/a/b.cbz", "/a/c.pdf", "/a/d.epub", "/a/e.rar", "/a/folder"]
