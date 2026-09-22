@@ -581,13 +581,17 @@ struct SettingsSlider: View {
     ///     ドラッグでは狙った値に止められなくなるため(スライダーの実効幅はおよそ300pt
     ///     しかないので、`(range幅 / step)`が300を超えたら添えると考えてよい)。
     ///     刻みが粗い設定にまで付けると、押す必要のないボタンが全画面に並ぶことになる。
-    ///   - sliderStep: **スライダー本体だけ**の刻み。省略すると`step`と同じ。
+    ///   - sliderStep: **スライダーをドラッグしたときだけ**の刻み。省略すると`step`と同じ。
     ///
-    ///     `Slider`は刻みの数だけ目盛りを描くため、細かい刻みをそのまま渡すと
-    ///     **目盛りが潰れて1本の直線に見える**(ユーザー報告: スライドショーの間隔の目盛りが
-    ///     細かすぎる。0.5〜30秒を0.1秒刻みにしていたため295本あった)。
-    ///     ドラッグで狙えない細かさの刻みはそもそもステッパーの担当なので、そういう設定では
-    ///     こちらに読み取れる粗さを渡し、細かい調整はステッパーへ任せる。
+    ///     ドラッグで狙えない細かさの刻み(スライダーの実効幅はおよそ300ptしかない)を
+    ///     そのまま渡すと、つまみが値の間をさまよって狙った値に止められない。そういう設定では
+    ///     こちらに止まりやすい粗さを渡し、細かい調整はステッパーへ任せる。
+    ///
+    ///     **目盛りの本数はここでは決まらない**。以前はSwiftUIの`Slider`が刻みの数だけ
+    ///     目盛りを描いていたため、粗くする理由の半分は目盛りが潰れて1本の直線に見えることだった
+    ///     (ユーザー報告: スライドショーの間隔。0.5〜30秒を0.1秒刻みにしていたため296本あった)。
+    ///     いまは`TickMarkSlider`が刻みとは別に読み取れる本数を決めるので、
+    ///     刻みを粗くするかどうかは「ドラッグで止まれるか」だけで判断してよい。
     init(
         _ title: LocalizedStringKey,
         value: Binding<Double>,
@@ -629,35 +633,38 @@ struct SettingsSlider: View {
                 }
             }
 
-            Slider(value: $value, in: range, step: sliderStep) {
-                EmptyView()
-            } minimumValueLabel: {
-                // 両端の数値は「いまどのくらいの位置にいるのか」を読み取るための目盛りで、
-                // 飾りではない。当初の .caption2 + .tertiary では暗い下地に埋もれて読めず、
-                // .caption + .secondary へ上げてもまだ見づらいという再指摘を受けた。
-                //
-                // 色を薄くして順位を付けるのをやめ、**3つの数値すべてを地の文と同じ濃さで描く**。
-                // 順位は色ではなく大きさと太さで示す ―― 現在値は本文サイズの太字、
-                // 両端は一段小さい通常の太さ。薄い文字は「読めるが目立たない」ではなく
-                // 単に「読めない」になりやすく、目盛りとしては役に立たない。
-                //
-                // `.foregroundStyle(.primary)` は**省略できない**。指定しないと
-                // `Slider` が両端のラベルに独自の淡い色を当ててしまい、
-                // 親から地の文の色を受け継いでくれない(実機で確認済み。
-                // 濃さを2度上げても直らなかった原因はこれだった)。
+            // 両端の数値は「いまどのくらいの位置にいるのか」を読み取るための目盛りで、
+            // 飾りではない。当初の .caption2 + .tertiary では暗い下地に埋もれて読めず、
+            // .caption + .secondary へ上げてもまだ見づらいという再指摘を受けた。
+            //
+            // 色を薄くして順位を付けるのをやめ、**3つの数値すべてを地の文と同じ濃さで描く**。
+            // 順位は色ではなく大きさと太さで示す ―― 現在値は本文サイズの太字、
+            // 両端は一段小さい通常の太さ。薄い文字は「読めるが目立たない」ではなく
+            // 単に「読めない」になりやすく、目盛りとしては役に立たない。
+            //
+            // `.foregroundStyle(.primary)` は**省略できない**。SwiftUIの`Slider`の
+            // `minimumValueLabel`/`maximumValueLabel`に載せていた頃は`Slider`が独自の淡い色を
+            // 当ててしまうのが理由だった(実機で確認済み。濃さを2度上げても直らなかった原因は
+            // これ)。両端のラベルを自前のHStackへ移した今も、上の現在値と濃さを揃える意思表示
+            // として残してある。
+            HStack(spacing: 8) {
                 Text(format(range.lowerBound))
                     .font(.callout)
                     .monospacedDigit()
                     .foregroundStyle(.primary)
-            } maximumValueLabel: {
+
+                // 目盛りの本数は刻みとは別に決める(TickMarkSlider参照)。
+                // SwiftUIの`Slider`は刻みの数だけ目盛りを描くため、細かい刻みの設定では
+                // 目盛りが潰れて1本の直線に見えていた。
+                TickMarkSlider(value: $value, in: range, step: sliderStep)
+                    .accessibilityLabel(Text(title))
+                    .accessibilityValue(Text(format(value)))
+
                 Text(format(range.upperBound))
                     .font(.callout)
                     .monospacedDigit()
                     .foregroundStyle(.primary)
             }
-            .labelsHidden()
-            .accessibilityLabel(Text(title))
-            .accessibilityValue(Text(format(value)))
         }
         .padding(.vertical, 2)
     }
