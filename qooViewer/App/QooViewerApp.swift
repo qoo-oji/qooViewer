@@ -236,7 +236,7 @@ struct QooViewerApp: App {
         }
     }()
 
-    /// 表示メニューの「サイドパネルを隠す」。本を開いている間の項目と、両方OFFのホームの項目で共用する(呼ぶ側が
+    /// 表示メニューの「サイドパネルを隠す」。本を開いている間の項目と、3つともOFF(ライブラリ・ファイルブラウザ・スマートライブラリ)のホームの項目で共用する(呼ぶ側が
     /// 環境設定「サイドパネルを有効にする」を見て、OFFなら丸ごと省く)。
     private var hideSidePanelToggle: some View {
         Toggle(
@@ -997,7 +997,7 @@ struct QooViewerApp: App {
                         isSmartLibraryFeatureEnabled: preferences.smartLibraryFeatureEnabled,
                         home: menuCheckmarkState?.homeMenu ?? HomeMenuState(), appState: focusedAppState
                     )
-                    // ライブラリとファイルブラウザが両方OFFのホーム(本棚を足す前のウェルカム画面)ではサイドパネルが出る
+                    // ライブラリ・ファイルブラウザ・スマートライブラリが3つともOFFのホーム(本棚を足す前のウェルカム画面)ではサイドパネルが出る
                     // (ContentView.isSidePanelSuppressedForWelcome)ので、v1.42 までと同じく「サイドパネルを隠す」を置く。
                     if preferences.sidePanelFeatureEnabled && menuCheckmarkState?.homeMenu.mode == .classic {
                         hideSidePanelToggle

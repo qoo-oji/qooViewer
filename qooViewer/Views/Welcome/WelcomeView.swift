@@ -58,9 +58,9 @@ struct WelcomeView: View {
                 // 標準の Divider はすりガラスの上で薄く、帯と中身の境目が読みにくい(WelcomeSeparator参照)。
                 WelcomeSeparator(axis: .horizontal)
             }
-            // 中身は `mode` で決まる。環境設定で機能をOFFにしている間は、出せるモードが1つに決まっている
-            // (WelcomeLibraryState.constrained): ファイルブラウザOFFなら本棚だけ(ファイルブラウザを足す前の形)、
-            // 両方OFFなら本棚を足す前のウェルカム画面。
+            // 中身は `mode` で決まる。環境設定で機能をOFFにしている間は、そのモードを出さない
+            // (WelcomeLibraryState.constrained): 出せないモードは、本棚 → ファイルブラウザ → スマートライブラリの順で最初に出せるものへ読み替え、
+            // 3つともOFFなら本棚を足す前のウェルカム画面。
             if state.mode == .classic {
                 ClassicWelcomeView()
             } else if state.mode == .browser {

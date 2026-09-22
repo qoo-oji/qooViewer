@@ -372,7 +372,7 @@ struct ContentView: View {
             .onChange(of: preferences.smartLibraryFeatureEnabled, initial: true) { _, isEnabled in
                 welcomeLibrary.isSmartLibraryFeatureEnabled = isEnabled || RuntimeEnvironment.isRunningTests
             }
-            // ホームのモードが変わって、本を開いていないのにサイドパネルを出さない側へ移ったら(両方OFFの画面から、どちらかの機能を
+            // ホームのモードが変わって、本を開いていないのにサイドパネルを出さない側へ移ったら(3つともOFFの画面から、どれかの機能を
             // ONにした)、ホバーで浮いていたパネルを下ろす(isSidePanelSuppressedForWelcome参照。本を閉じたときの後始末と同じ理由)。
             .onChange(of: welcomeLibrary.mode) { _, _ in
                 if isSidePanelSuppressedForWelcome {
@@ -1252,7 +1252,7 @@ struct ContentView: View {
     /// ファイルブラウザが入るので、フォルダブラウザ(サイドパネル)と同時に見せないよう、設定ごと
     /// 撤去して常に出さないことにした。
     ///
-    /// ただし**ライブラリとファイルブラウザを両方OFFにしている間**(`WelcomeMode.classic`、本棚を足す前のウェルカム画面)は、
+    /// ただし**ライブラリ・ファイルブラウザ・スマートライブラリを3つともOFFにしている間**(`WelcomeMode.classic`、本棚を足す前のウェルカム画面)は、
     /// v1.42 までと同じく本を開いていなくても出す(2026-09-22、ユーザー要望)。その画面には本を探す口が「開く…」と
     /// 最近開いた本しか無く、ファイルブラウザと二重になる心配も無いため。モードが切り替わったときの後始末は
     /// onChange(of: welcomeLibrary.mode) が持つ。

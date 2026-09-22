@@ -407,8 +407,8 @@ final class AppPreferences: ObservableObject {
     // 撤去した設定(改善要望7、2026-09-13)。**UserDefaultsの値は消さない** ―― 古い版を起動した
     // 人の設定を壊さないため。キーの一覧はdocs/06「環境設定」。
     // - 「ウェルカム画面でも表示する」(qooViewer.pref.showSidePanelOnWelcome) … 本を開いていない
-    //   間はサイドパネルを常に出さなくなった(ContentView.isSidePanelSuppressedForWelcome。ライブラリとファイルブラウザが
-    //   両方OFFのホームだけは例外で出す ―― 設定は戻していない)
+    //   間はサイドパネルを常に出さなくなった(ContentView.isSidePanelSuppressedForWelcome。ライブラリ・ファイルブラウザ・
+    //   スマートライブラリが3つともOFFのホームだけは例外で出す ―― 設定は戻していない)
     // - 「並び順をFinderに揃える」(PageOrder.retiredSettingKey) … 表示順は常に正準順
     //   (PageOrder.swift冒頭)
     // - 「最近開いたファイルを表示」(qooViewer.pref.showRecentFilesOnWelcome) … ウェルカム画面の
@@ -805,11 +805,12 @@ final class AppPreferences: ObservableObject {
     ///
     /// OFFにすると、ホームからファイルブラウザが消え(帯の切り替えボタンも)、メニュー・右クリックのファイルブラウザの項目
     /// (「ファイルブラウザで開く」を含む)が消え、**ファイルブラウザのためだけの仕事が止まる**(自動リネーム・よく使う項目の中の
-    /// 動画のサムネイルの先回り)。ホームの形は2つの設定の組で決まる:
+    /// 動画のサムネイルの先回り)。ホームの形はスマートライブラリを含む3つの設定の組で決まる(8通りの表は
+    /// docs/plans/feature-toggle-audit.md、決める場所は `WelcomeLibraryState.constrained`)。スマートライブラリOFFのときは:
     /// - ライブラリON・ファイルブラウザON: 帯(切り替え + ライブラリ)と、本棚かファイルブラウザ
     /// - ライブラリON・ファイルブラウザOFF: ファイルブラウザを足す前の形(帯はライブラリだけ、中身は本棚)
     /// - ライブラリOFF・ファイルブラウザON: ファイルブラウザだけ(帯なし)
-    /// - 両方OFF: 本棚を足す前のウェルカム画面(「開く…」と最近開いた本。ClassicWelcomeView)
+    /// - 3つともOFF: 本棚を足す前のウェルカム画面(「開く…」と最近開いた本。ClassicWelcomeView)
     /// 規則・よく使う項目・サムネイルのキャッシュなどの**保存したものは消さない**。何が止まり何が止まらないかの一覧は
     /// `AppStores.applyFileBrowserFeature` のコメント。
     @Published var fileBrowserFeatureEnabled: Bool {

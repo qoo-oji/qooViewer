@@ -412,8 +412,8 @@ struct FileBrowserFileMenuItems: View {
 
 /// ホーム画面を出している間の表示メニューの中身。本棚とファイルブラウザで**同じ並び**にし、その場で意味の無い項目は淡色。
 struct HomeViewMenuItems: View {
-    /// 環境設定「ライブラリを有効にする」「ファイルブラウザを有効にする」。ファイルブラウザがOFFなら表示形式と列(ファイルブラウザだけの項目)を
-    /// 出さず、両方OFF(本棚を足す前のウェルカム画面)なら何も出さない。
+    /// 環境設定「ライブラリを有効にする」「ファイルブラウザを有効にする」「スマートライブラリを有効にする」。ファイルブラウザがOFFなら
+    /// 表示形式と列(ファイルブラウザだけの項目)を出さず、3つともOFF(本棚を足す前のウェルカム画面)なら何も出さない。
     let isLibraryFeatureEnabled: Bool
     let isFileBrowserFeatureEnabled: Bool
     let isSmartLibraryFeatureEnabled: Bool
