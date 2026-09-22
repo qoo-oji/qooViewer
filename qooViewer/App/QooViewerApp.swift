@@ -1757,6 +1757,8 @@ struct QooViewerApp: App {
                 // 実体の確かめ(フォルダのアクセス権)と、実体の無い本の保存データの削除(2026-09-21)。
                 .environmentObject(folderAccess)
                 .environment(metadataRulesStore)
+                // スマートライブラリの対象フォルダの本も一覧の母体(2026-09-22)。
+                .environmentObject(smartLibraryCatalog)
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 .environmentObject(favoritesStore)

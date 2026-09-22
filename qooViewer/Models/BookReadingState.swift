@@ -35,6 +35,13 @@ final class BookReadingState {
     var recordedSourceModificationDate: Date?
     /// 前回この本を開いたときの、元のファイルのサイズ(バイト)。フォルダの場合はnil。
     var recordedSourceFileSize: Int64?
+    /// 最後に表示していた画面に**本の最後のページが写っていたか**(2026-09-22。スマートライブラリの「読み終えた」の判定)。
+    ///
+    /// 読んだ割合(lastPageIndex ÷ ページ数)だけで決めると、見開きの最後の画面で閉じた本が「読書中」になった ――
+    /// 記録されるのは見開きの**先の**ページなので、10 ページの本の最後の見開き(9–10)は 9/10 = 90% にしかならない。
+    /// 実際に表示した範囲(ViewerViewModel.lastDisplayedPageRange)から決めて持っておく。これを足す前の行は false
+    /// (その本は割合で判定する。SmartBook.readState)。
+    var isAtLastPage: Bool = false
 
     init(
         bookID: String,

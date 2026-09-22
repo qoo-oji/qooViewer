@@ -34,11 +34,11 @@ struct SmartShelfEditorSheet: View {
             minWidth: 60, chrome: 0
         )
         VStack(alignment: .leading, spacing: 14) {
-            Text(target.isNew ? "New Smart Library" : "Edit Smart Library")
+            Text(target.isNew ? "New Smart Collection" : "Edit Smart Collection")
                 .font(.headline)
             HStack {
                 Text("Name:")
-                TextField("", text: $name, prompt: Text("Smart Library"))
+                TextField("", text: $name, prompt: Text("Smart Collection"))
                     .textFieldStyle(.roundedBorder)
             }
             HStack(spacing: 6) {
@@ -177,8 +177,6 @@ private struct SmartRuleRow: View {
                     rule.text = rule.field.choices.first?.value ?? ""
                 }
             }
-        case .flag:
-            EmptyView()
         }
     }
 }

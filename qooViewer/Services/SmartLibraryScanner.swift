@@ -1,6 +1,6 @@
 import Foundation
 
-/// スマートライブラリの対象フォルダ(よく使う項目・スマートライブラリに登録したフォルダ)の中の本を探す
+/// スマートライブラリの対象フォルダの中の本を探す
 /// (2026-09-21)。**ブロッキングするので必ず `FileIO.perform` の上から呼ぶ**(FileIO の型コメント)。
 ///
 /// 何を 1 冊と数えるかは qooViewer が開けるものと同じ: 書庫(zip・cbz・rar・cbr・7z・cb7)・PDF・EPUB と、
@@ -10,7 +10,7 @@ import Foundation
 /// ■ 入らない所
 /// - 隠しファイル・パッケージの中(Finder と同じ)
 /// - TCC の保護下の場所(`DirectoryProbe.protectedPrefixes`)。**起点がその中にあるときだけは入る**(利用者が選んだ場所)。
-///   よく使う項目にホームフォルダを入れていても、デスクトップ・書類などを読みに行って確認のダイアログを次々に出さない
+///   対象フォルダにホームフォルダを入れていても、デスクトップ・書類などを読みに行って確認のダイアログを次々に出さない
 ///   (docs/15「サンドボックスと TCC の約束」)
 /// - 深さ `maxDepth` より下、見た項目の数が `maxEntries` を超えた先(ボリュームのルートを登録しても止まるように)
 nonisolated enum SmartLibraryScanner {
@@ -20,6 +20,8 @@ nonisolated enum SmartLibraryScanner {
         let creationDate: Date?
         let modificationDate: Date?
         let fileSize: Int64?
+        /// そのフォルダへ入った日(Finder の「追加日」)。取れないボリュームでは nil。
+        var addedDate: Date? = nil
     }
 
     struct Result: Sendable {
@@ -33,6 +35,7 @@ nonisolated enum SmartLibraryScanner {
 
     private static let keys: [URLResourceKey] = [
         .isDirectoryKey, .isPackageKey, .isSymbolicLinkKey, .creationDateKey, .contentModificationDateKey, .fileSizeKey,
+        .addedToDirectoryDateKey,
     ]
 
     /// 起点のフォルダ(重なっていてよい。同じ本は 1 度だけ返す)を探す。
@@ -81,7 +84,8 @@ nonisolated enum SmartLibraryScanner {
                     continue
                 }
                 folderFacts[path] = ScannedBook(path: path, isFolder: true, creationDate: values?.creationDate,
-                                                modificationDate: values?.contentModificationDate, fileSize: nil)
+                                                modificationDate: values?.contentModificationDate, fileSize: nil,
+                                                addedDate: values?.addedToDirectoryDate)
                 continue
             }
             guard values?.isSymbolicLink != true else { continue }
@@ -91,7 +95,8 @@ nonisolated enum SmartLibraryScanner {
             } else if isArchiveFile(name) || isPDFFile(name) || isEpubFile(name) {
                 files.append(ScannedBook(path: path, isFolder: false, creationDate: values?.creationDate,
                                          modificationDate: values?.contentModificationDate,
-                                         fileSize: values?.fileSize.map(Int64.init)))
+                                         fileSize: values?.fileSize.map(Int64.init),
+                                         addedDate: values?.addedToDirectoryDate))
             }
         }
         // 画像フォルダの本。その中のフォルダ(章ごとのフォルダなど)は同じ本の一部なので外す。起点そのものは本にしない

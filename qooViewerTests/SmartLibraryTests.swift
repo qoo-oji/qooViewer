@@ -16,7 +16,6 @@ struct SmartLibraryTests {
                       progress: Double? = nil, registered: Bool = false) -> SmartBook {
         let name = (path as NSString).lastPathComponent
         var book = SmartBook(id: path, fileName: name, kind: kind ?? SmartBookKind(fileName: name, isFolder: false),
-                             sources: [.library],
                              metadata: BookMetadataValues(title: title, authors: authors, genre: genre, series: series,
                                                           volume: volume),
                              isRegistered: registered)
@@ -77,9 +76,12 @@ struct SmartLibraryTests {
         #expect(rule.matches(finished, now: now))
         #expect(!rule.matches(reading, now: now))
         #expect(unread.readState == .unread)
+        // 見開きの最後の画面(先のページは 90%)で閉じても、最後のページが写っていれば読み終えた。
+        var lastSpread = book("/b/4.zip", read: 1, progress: 0.9)
+        #expect(lastSpread.readState == .reading)
+        lastSpread.isAtLastPage = true
+        #expect(lastSpread.readState == .finished)
         #expect(SmartShelfRule(field: .kind, op: .is, text: SmartBookKind.rar.rawValue).matches(unread, now: now))
-        #expect(SmartShelfRule(field: .registered, op: .is).matches(reading, now: now))
-        #expect(SmartShelfRule(field: .registered, op: .isNot).matches(unread, now: now))
     }
 
     @Test("条件は JSON を往復する")
@@ -94,13 +96,13 @@ struct SmartLibraryTests {
 
     // MARK: 絞り込み・ブラウザ列・並べ替え
 
-    @Test("ブラウザ列は値ごとの冊数と「(空)」を返し、左の列で選んだ値で右の列の候補が絞られる")
-    func facetsCascade() async throws {
+    @Test("ブラウザは値ごとの冊数と「(空)」を返し、候補はほかの欄の選択で絞られる(自分の欄の選択では減らない)")
+    func facetsCountFromOtherSelections() async throws {
         let suite = TestDefaultsPool.checkout()
         let defaults = suite.defaults
         defer { suite.release() }
         let state = SmartLibraryViewState(defaults: defaults)
-        state.facetFields = [.genre, .authors, .series]
+        #expect(state.facetFields == [.genre, .authors, .series])
         state.update(books: [
             book("/b/1.zip", authors: ["著者A"], genre: "ジャンル1"),
             book("/b/2.zip", authors: ["著者B"], genre: "ジャンル1"),
@@ -108,13 +110,68 @@ struct SmartLibraryTests {
             book("/b/4.zip", authors: ["著者C"]),
         ], shelves: [])
         state.recompute(now: now)
-        #expect(state.facetValues[0].map(\.count) == [2, 1, 1])
-        #expect(state.facetValues[0].last?.value == .empty)
+        #expect(state.facetValues[.genre]?.map(\.count) == [2, 1, 1])
+        #expect(state.facetValues[.genre]?.last?.value == .empty)
 
-        state.selectFacet(.value("ジャンル1"), at: 0)
+        state.toggleFacet(.value("ジャンル1"), in: .genre)
         state.recompute(now: now)
-        #expect(state.facetValues[1].map(\.value) == [.value("著者A"), .value("著者B")])
+        #expect(state.facetValues[.authors]?.map(\.value) == [.value("著者A"), .value("著者B")])
+        // 自分の欄の候補は、自分の選択では減らない(2 つ目を選べる)。
+        #expect(state.facetValues[.genre]?.count == 3)
         #expect(state.visibleBooks.map(\.id) == ["/b/1.zip", "/b/2.zip"])
+    }
+
+    @Test("同じ欄の中は「いずれか」、欄どうしは「すべて」")
+    func facetSelectionsCombine() {
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let state = SmartLibraryViewState(defaults: suite.defaults)
+        state.update(books: [
+            book("/b/1.zip", authors: ["著者A"], genre: "ジャンル1"),
+            book("/b/2.zip", authors: ["著者B"], genre: "ジャンル2"),
+            book("/b/3.zip", authors: ["著者A"], genre: "ジャンル3"),
+        ], shelves: [])
+        state.toggleFacet(.value("ジャンル1"), in: .genre)
+        state.toggleFacet(.value("ジャンル2"), in: .genre)
+        state.recompute(now: now)
+        #expect(state.visibleBooks.map(\.id) == ["/b/1.zip", "/b/2.zip"])
+        state.toggleFacet(.value("著者A"), in: .authors)
+        state.recompute(now: now)
+        #expect(state.visibleBooks.map(\.id) == ["/b/1.zip"])
+        // ボタンを外すと、その欄の選択も外れる。
+        state.removeFacetField(.authors)
+        #expect(state.facetSelection[.authors].isEmpty)
+        #expect(SmartLibraryViewState(defaults: suite.defaults).facetFields == [.genre, .series])
+    }
+
+    @Test("シリーズでまとめると、2 冊以上のシリーズは最初に出てきた位置で束になり、束の中は巻の順。開くとその中の本だけ")
+    func groupsBySeries() {
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let state = SmartLibraryViewState(defaults: suite.defaults)
+        state.sortKey = .fileName
+        state.update(books: [
+            book("/b/a.zip", series: "月の庭", volume: "2"),
+            book("/b/b.zip", title: "星の庭"),
+            book("/b/c.zip", series: "月の庭", volume: "1"),
+            book("/b/d.zip", series: "一冊だけ", volume: "1"),
+        ], shelves: [])
+        state.groupsBySeries = true
+        state.recompute(now: now)
+        #expect(state.gridItems.map(\.id) == ["series|月の庭", "book|/b/b.zip", "book|/b/d.zip"])
+        if case .series(_, let books) = state.gridItems.first {
+            #expect(books.map(\.id) == ["/b/c.zip", "/b/a.zip"])
+        } else {
+            Issue.record("先頭が束になっていない")
+        }
+        state.openedSeries = "月の庭"
+        state.recompute(now: now)
+        #expect(state.gridItems.map(\.id) == ["book|/b/c.zip", "book|/b/a.zip"])
+        // まとめるのをやめると、開いていたシリーズからも出る。設定は保存される。
+        state.groupsBySeries = false
+        #expect(state.openedSeries == nil)
+        state.groupsBySeries = true
+        #expect(SmartLibraryViewState(defaults: suite.defaults).groupsBySeries)
     }
 
     @Test("シリーズで並べると シリーズ名 → 巻 の順")
@@ -137,7 +194,7 @@ struct SmartLibraryTests {
 
     // MARK: 保存
 
-    @Test("スマートシェルフ・対象フォルダ・対象の設定は保存され、フォルダはアプリ自身の移動に付いていく")
+    @Test("スマートシェルフ・対象フォルダ・ピン留めは保存され、フォルダはアプリ自身の移動に付いていく")
     func storePersistsAndRelocates() throws {
         let suite = TestDefaultsPool.checkout()
         let defaults = suite.defaults
@@ -145,7 +202,9 @@ struct SmartLibraryTests {
         let store = SmartLibraryStore(defaults: defaults)
         let shelf = store.add(SmartShelf(name: "架空の棚", conditions: SmartShelfConditions()))
         store.addFolder(URL(fileURLWithPath: "/架空/本棚"))
-        store.sources.favoriteLocations = false
+        store.togglePin(.value("架空ジャンル"), in: .genre)
+        store.togglePin(.empty, in: .authors)
+        store.togglePin(.empty, in: .authors)
 
         var change = FileSystemChange()
         change.relocations = [.init(from: URL(fileURLWithPath: "/架空"), to: URL(fileURLWithPath: "/別の架空"))]
@@ -154,7 +213,7 @@ struct SmartLibraryTests {
         let reopened = SmartLibraryStore(defaults: defaults)
         #expect(reopened.shelves.map(\.id) == [shelf.id])
         #expect(reopened.folders.map(\.path) == ["/別の架空/本棚"])
-        #expect(!reopened.sources.favoriteLocations)
+        #expect(reopened.pins == [.genre: [.value("架空ジャンル")]])
     }
 
     // MARK: フォルダを探す
@@ -180,29 +239,27 @@ struct SmartLibraryTests {
 
     // MARK: 本の組み立て
 
-    @Test("未登録の本は qooMeta の提案、登録済みの本は DB の値で並び、ライブラリとフォルダの同じ本は 1 冊になる")
-    func assembleMergesSourcesAndMetadata() {
+    @Test("未登録の本は qooMeta の提案、登録済みの本は DB の値で並び、読書位置と追加日を持つ")
+    func assembleUsesMetadataAndReading() {
         var snapshot = SmartLibraryCatalog.Snapshot()
-        let itemID = UUID()
-        snapshot.libraryBooks = [.init(bookID: "/棚/[架空工房] 月の庭 1.zip", itemID: itemID, addedAt: now,
-                                       libraryName: "架空ライブラリ", collectionName: "架空コレクション",
-                                       created: nil, modified: nil)]
         snapshot.registered = ["/棚/手で直した本.zip": BookMetadataValues(title: "手で直した題", genre: "登録したジャンル")]
         snapshot.readings = ["/棚/[架空工房] 月の庭 1.zip": .init(updatedAt: now, progress: 0.5)]
         var scan = SmartLibraryScanner.Result()
         scan.books = [
-            .init(path: "/棚/[架空工房] 月の庭 1.zip", isFolder: false, creationDate: nil, modificationDate: nil, fileSize: 1),
-            .init(path: "/棚/[架空工房] 月の庭 2.zip", isFolder: false, creationDate: nil, modificationDate: nil, fileSize: 1),
+            .init(path: "/棚/[架空工房] 月の庭 1.zip", isFolder: false, creationDate: nil, modificationDate: nil, fileSize: 1,
+                  addedDate: now),
+            .init(path: "/棚/[架空工房] 月の庭 2.zip", isFolder: false, creationDate: now, modificationDate: nil, fileSize: 1),
             .init(path: "/棚/手で直した本.zip", isFolder: false, creationDate: nil, modificationDate: nil, fileSize: 1),
         ]
 
         let books = SmartLibraryCatalog.assemble(snapshot: snapshot, scan: scan, rules: .builtin)
         #expect(books.count == 3)
         let first = books.first { $0.id == "/棚/[架空工房] 月の庭 1.zip" }
-        #expect(first?.sources == [.library, .folders])
-        #expect(first?.collectionItemID == itemID)
         #expect(first?.metadata.series == "月の庭")
         #expect(first?.readState == .reading)
+        #expect(first?.dateAdded == now)
+        // 追加日が取れないボリュームでは作成日。
+        #expect(books.first { $0.id == "/棚/[架空工房] 月の庭 2.zip" }?.dateAdded == now)
         let registered = books.first { $0.id == "/棚/手で直した本.zip" }
         #expect(registered?.isRegistered == true)
         #expect(registered?.metadata.genre == "登録したジャンル")

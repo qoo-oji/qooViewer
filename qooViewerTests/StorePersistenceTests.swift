@@ -117,6 +117,23 @@ struct StorePersistenceTests {
         #expect(row.author == "著者1")
     }
 
+    @Test("読書位置の「最後のページが写っていた」は、開き直しても残る")
+    func readingStateLastPageSurvivesReopening() throws {
+        let store = try DisposableStore("reading-last-page")
+        do {
+            let container = try store.openCurrent()
+            let state = BookReadingState(bookID: "/books/finished", lastPageIndex: 8)
+            state.isAtLastPage = true
+            container.mainContext.insert(state)
+            container.mainContext.insert(BookReadingState(bookID: "/books/reading", lastPageIndex: 2))
+            try container.mainContext.save()
+        }
+        let container = try store.openCurrent()
+        let states = try container.mainContext.fetch(FetchDescriptor<BookReadingState>())
+        #expect(Dictionary(uniqueKeysWithValues: states.map { ($0.bookID, $0.isAtLastPage) })
+            == ["/books/finished": true, "/books/reading": false])
+    }
+
     @Test("1.54のストアのメタデータは、欄を足した後も同じ値で読め、足した欄は空")
     func metadataFrom1_54KeepsItsValues() throws {
         let store = try DisposableStore("metadata-1.54")

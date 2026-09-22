@@ -5,20 +5,21 @@ import SwiftData
 
 /// スマートライブラリに並べる本の一覧を集める役(アプリで 1 つ。AppStores)。2026-09-21。
 ///
-/// 対象(利用者の指示 2026-09-21)は 3 つの和:
-/// 1. **ライブラリに登録されている本**(コレクションの行。同じ本が複数のコレクションにあっても 1 冊)
-/// 2. **ファイルブラウザの「よく使う項目」のフォルダに含まれる本**
-/// 3. **スマートライブラリに登録した対象フォルダに含まれる本**
-/// どれを含めるかは `SmartLibraryStore.sources` で選べる。2 と 3 は `SmartLibraryScanner` でフォルダの中を探す(FileIO の上)。
+/// 対象は**スマートライブラリに登録した対象フォルダ(`SmartLibraryStore.folders`)の中の本だけ**(2026-09-22、利用者の指示)。
+/// 最初はライブラリの本とファイルブラウザの「よく使う項目」の中の本も混ぜていたが、ライブラリとファイルブラウザは環境設定で
+/// 個別に OFF にできるので、その中身がここへ漏れ出さないように切り分けた。フォルダの中は `SmartLibraryScanner` で探す
+/// (FileIO の上)。
 ///
 /// 本ごとのメタデータは、登録済みなら DB の値、未登録なら **qooMeta の提案**(全冊をまとめて読むので、番号の無いシリーズも
-/// 同じ書き手の本と見比べて見つかる。メタデータの編集ウインドウと同じ規則・同じルールセットの選び方)。読書位置・お気に入りも
+/// 同じ書き手の本と見比べて見つかる。メタデータの編集ウインドウと同じ規則・同じルールセットの選び方)。読書位置も
 /// 集めた時点の値を持つ(並べ替え・絞り込みの間はディスクにも DB にも触れない)。
 ///
+/// 対象フォルダの本は、メタデータの編集ウインドウの対象にもなる(`folderBookIDs()`。2026-09-22、利用者の指示)。
+///
 /// ■ いつ集め直すか
-/// 画面(スマートライブラリのペイン)が出ている間だけ(`activate` / `deactivate`)。出ている間は、ライブラリ・メタデータ・
-/// よく使う項目・対象フォルダ・規則が変わったら少し待ってから集め直す。フォルダの中を探すのは、探す場所が変わったとき・
-/// アプリ自身がその中のファイルを動かしたとき・利用者が「読み直す」を押したときだけ(ネットワークのボリュームでは遅いので、
+/// 画面(スマートライブラリのペイン)が出ている間だけ(`activate` / `deactivate`)。出ている間は、メタデータ・対象フォルダ・
+/// 規則が変わったら少し待ってから集め直す。フォルダの中を探すのは、対象フォルダが変わったとき・アプリ自身がその中の
+/// ファイルを動かしたとき・利用者が「本を探し直す」を押したときだけ(ネットワークのボリュームでは遅いので、
 /// メタデータが変わっただけで探し直さない)。
 @MainActor
 final class SmartLibraryCatalog: ObservableObject {
@@ -30,13 +31,9 @@ final class SmartLibraryCatalog: ObservableObject {
     /// 中身が変わるたびに進む番号(画面の作り置きを作り直す鍵)。
     @Published private(set) var revision = 0
 
-    private let collectionStore: CollectionStore
     private let metadataStore: BookMetadataStore
-    private let favoritesStore: FavoritesStore
-    private let favoriteLocations: FavoriteLocationStore
     private let store: SmartLibraryStore
     private let rulesStore: MetadataRulesStore
-    private let preferences: AppPreferences
     private let modelContext: ModelContext
 
     /// 画面に出ている数(ウインドウごと)。0 なら何もしない。
@@ -48,17 +45,24 @@ final class SmartLibraryCatalog: ObservableObject {
     private var scanned: (roots: [String], result: SmartLibraryScanner.Result)?
     private var generation = 0
 
-    init(collectionStore: CollectionStore, metadataStore: BookMetadataStore, favoritesStore: FavoritesStore,
-         favoriteLocations: FavoriteLocationStore, store: SmartLibraryStore, rulesStore: MetadataRulesStore,
-         preferences: AppPreferences, modelContext: ModelContext) {
-        self.collectionStore = collectionStore
+    init(metadataStore: BookMetadataStore, store: SmartLibraryStore, rulesStore: MetadataRulesStore,
+         modelContext: ModelContext) {
         self.metadataStore = metadataStore
-        self.favoritesStore = favoritesStore
-        self.favoriteLocations = favoriteLocations
         self.store = store
         self.rulesStore = rulesStore
-        self.preferences = preferences
         self.modelContext = modelContext
+    }
+
+    /// 対象フォルダの中の本(bookID)。メタデータの編集ウインドウの母体に足す。前に探した結果があればそれを使い、
+    /// 無ければ探す(画面が出ていなくても)。
+    func folderBookIDs() async -> [String] {
+        let roots = scanRoots()
+        guard !roots.isEmpty else { return [] }
+        if let scanned, scanned.roots == roots { return scanned.result.books.map(\.path) }
+        let result = await FileIO.perform { SmartLibraryScanner.scan(roots: roots) }
+        // 探している間に対象フォルダが変わっていなければ、結果を覚えておく(画面を開いたときに探し直さない)。
+        if scanRoots() == roots { scanned = (roots, result) }
+        return result.books.map(\.path)
     }
 
     // MARK: - 画面が出ている間だけ
@@ -100,11 +104,8 @@ final class SmartLibraryCatalog: ObservableObject {
         let rebuild: (Bool) -> Void = { [weak self] rescan in
             self?.scheduleRebuild(rescan: rescan, delay: .milliseconds(400))
         }
-        collectionStore.$revision.dropFirst().sink { _ in rebuild(false) }.store(in: &subscriptions)
         metadataStore.$revision.dropFirst().sink { _ in rebuild(false) }.store(in: &subscriptions)
-        favoriteLocations.$items.dropFirst().removeDuplicates().sink { _ in rebuild(true) }.store(in: &subscriptions)
         store.$folders.dropFirst().removeDuplicates().sink { _ in rebuild(true) }.store(in: &subscriptions)
-        store.$sources.dropFirst().removeDuplicates().sink { _ in rebuild(true) }.store(in: &subscriptions)
         NotificationCenter.default.publisher(for: MetadataRulesStore.rulesDidChange)
             .sink { _ in rebuild(false) }.store(in: &subscriptions)
         // 読書位置は通知が無い。本を開くとホームのペインは消え(deactivate)、戻ると出る(activate)ので、そこで読み直される。
@@ -122,14 +123,9 @@ final class SmartLibraryCatalog: ObservableObject {
 
     // MARK: - 集める
 
-    /// フォルダを探す起点(よく使う項目と対象フォルダ。含めない設定のものは除く)。
+    /// フォルダを探す起点(対象フォルダ)。
     private func scanRoots() -> [String] {
-        var roots: [String] = []
-        if store.sources.favoriteLocations, preferences.fileBrowserFeatureEnabled {
-            roots += favoriteLocations.items.map(\.path)
-        }
-        if store.sources.folders { roots += store.folders.map(\.path) }
-        return roots
+        store.folders.map(\.path)
     }
 
     /// 本を集め直す(メインで集められるもの → 画面の外でフォルダを探す → qooMeta で読む → 入れ替える)。
@@ -164,39 +160,17 @@ final class SmartLibraryCatalog: ObservableObject {
 
     /// メインで集める値(SwiftData の行とストアの中身)。画面の外へ渡せる値にしておく。
     nonisolated struct Snapshot: Sendable {
-        struct LibraryBook: Sendable {
-            let bookID: String
-            let itemID: UUID
-            let addedAt: Date
-            let libraryName: String?
-            let collectionName: String?
-            let created: Date?
-            let modified: Date?
-        }
         struct Reading: Sendable {
             let updatedAt: Date
             let progress: Double?
+            var isAtLastPage = false
         }
-        var includesLibrary = true
-        var libraryBooks: [LibraryBook] = []
         var registered: [String: BookMetadataValues] = [:]
         var readings: [String: Reading] = [:]
-        var favorites: Set<String> = []
     }
 
     private func gatherOnMain() -> Snapshot {
         var snapshot = Snapshot()
-        snapshot.includesLibrary = store.sources.library && preferences.libraryFeatureEnabled
-        if snapshot.includesLibrary {
-            let locale = preferences.effectiveLocale
-            for item in collectionStore.allItems() {
-                let dates = collectionStore.fileDatesByItemID[item.id]
-                snapshot.libraryBooks.append(.init(
-                    bookID: item.bookID, itemID: item.id, addedAt: item.addedAt,
-                    libraryName: item.collection?.library?.displayName(language: locale),
-                    collectionName: item.collection?.name, created: dates?.created, modified: dates?.modified))
-            }
-        }
         for metadata in metadataStore.allMetadata() { snapshot.registered[metadata.bookID] = metadata.values }
         let states = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
         for state in states {
@@ -204,43 +178,24 @@ final class SmartLibraryCatalog: ObservableObject {
                 count > 0 ? min(1, Double(state.lastPageIndex + 1) / Double(count)) : nil
             }
             if let existing = snapshot.readings[state.bookID], existing.updatedAt >= state.updatedAt { continue }
-            snapshot.readings[state.bookID] = .init(updatedAt: state.updatedAt, progress: progress)
+            snapshot.readings[state.bookID] = .init(updatedAt: state.updatedAt, progress: progress,
+                                                    isAtLastPage: state.isAtLastPage)
         }
-        snapshot.favorites = favoritesStore.allRegisteredBookIDs()
         return snapshot
     }
 
     /// 集めた値から本の一覧を作る(画面の外で。qooMeta の読み取りもここ)。
     nonisolated static func assemble(snapshot: Snapshot, scan: SmartLibraryScanner.Result, rules: CompiledRules) -> [SmartBook] {
         var byID: [String: SmartBook] = [:]
-        func book(for path: String, isFolder: Bool) -> SmartBook {
-            let name = (path as NSString).lastPathComponent
-            return SmartBook(id: path, fileName: name, kind: SmartBookKind(fileName: name, isFolder: isFolder),
-                             sources: [], metadata: BookMetadataValues(), isRegistered: false)
-        }
-        for entry in snapshot.libraryBooks {
-            let name = (entry.bookID as NSString).lastPathComponent
-            let isFolder = !(isArchiveFile(name) || isPDFFile(name) || isEpubFile(name))
-            var current = byID[entry.bookID] ?? book(for: entry.bookID, isFolder: isFolder)
-            current.sources.insert(.library)
-            if let name = entry.libraryName, !current.libraryNames.contains(name) { current.libraryNames.append(name) }
-            if let name = entry.collectionName, !current.collectionNames.contains(name) { current.collectionNames.append(name) }
-            // 表紙と追加日は、最初に入れたコレクションのもの。
-            if current.dateAdded.map({ entry.addedAt < $0 }) ?? true {
-                current.dateAdded = entry.addedAt
-                current.collectionItemID = entry.itemID
-            }
-            current.creationDate = current.creationDate ?? entry.created
-            current.modificationDate = current.modificationDate ?? entry.modified
-            byID[entry.bookID] = current
-        }
-        for scanned in scan.books {
-            var current = byID[scanned.path] ?? book(for: scanned.path, isFolder: scanned.isFolder)
-            current.sources.insert(.folders)
-            current.creationDate = current.creationDate ?? scanned.creationDate
-            current.modificationDate = scanned.modificationDate ?? current.modificationDate
-            current.fileSize = current.fileSize ?? scanned.fileSize
-            if current.dateAdded == nil { current.dateAdded = scanned.creationDate }
+        for scanned in scan.books where byID[scanned.path] == nil {
+            let name = (scanned.path as NSString).lastPathComponent
+            var current = SmartBook(id: scanned.path, fileName: name,
+                                    kind: SmartBookKind(fileName: name, isFolder: scanned.isFolder),
+                                    metadata: BookMetadataValues(), isRegistered: false)
+            current.creationDate = scanned.creationDate
+            current.modificationDate = scanned.modificationDate
+            current.fileSize = scanned.fileSize
+            current.dateAdded = scanned.addedDate ?? scanned.creationDate
             byID[scanned.path] = current
         }
 
@@ -270,8 +225,8 @@ final class SmartLibraryCatalog: ObservableObject {
             if let reading = snapshot.readings[id] {
                 current.lastRead = reading.updatedAt
                 current.progress = reading.progress
+                current.isAtLastPage = reading.isAtLastPage
             }
-            current.isFavorite = snapshot.favorites.contains(id)
             result.append(current)
         }
         return result

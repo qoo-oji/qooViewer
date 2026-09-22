@@ -231,7 +231,9 @@ PDF(`/ViewerPreferences/Direction`、`/PageLayout`)、ComicInfo.xml(`Manga`)が�
 
 「メタデータの編集」ウインドウは qooMeta のアプリの 3 ページ目(確認・編集)を移植したもの
 (`Views/MetadataEditor/`: `MetadataWorkspace` + NSTableView の `MetadataBookTable` + 詳細 `MetadataDetailView`)。
-「このアプリが知っている本」(`KnownBooks`)を全部並べ、未登録の本は qooMeta の提案を出します。ルールセットは本ごとに
+対象(= メタデータを自動で作る本)は、開いた本・ライブラリの本(「このアプリが知っている本」、`KnownBooks`)と、
+スマートライブラリの対象フォルダの中の本(`SmartLibraryCatalog.folderBookIDs()`)。ファイルブラウザの「よく使う項目」のフォルダの
+中の本は、開くまで対象にしません(2026-09-22、利用者の指示)。未登録の本は qooMeta の提案を出します。ルールセットは本ごとに
 自動で選び(qooMeta の段 2 の「自動」と同じ条件。決まらない本は既定のルールセット)、ファイル名フォーマットと合致しなかった本は
 一覧の上にまとめ(ファイル名をオレンジ)、帯の「表示」で絞り込めます。ツールバーから「解析の設定」「抽出の設定」(qooMeta の
 規則の窓を移植した `Views/MetadataRules/`)を開きます。

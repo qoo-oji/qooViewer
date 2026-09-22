@@ -4,7 +4,12 @@ import SwiftUI
 /// ホームの「スマートライブラリ」(2026-09-21、利用者の指示。StackNest のスマートシェルフが土台)。
 ///
 /// 2 ペイン: **左に絞り込みのすべて**(StackNest では画面の上にあるフィルタ・ブラウザ列と、サイドバーのスマートシェルフの一覧を
-/// ここへ集めた)、右に表紙のグリッド。対象の本・メタデータの決め方は `SmartLibraryCatalog` の型コメント、
+/// ここへ集めた)、右に表紙のグリッド。左ペインは上から 対象フォルダ / スマートコレクション / メタデータ(ブラウザ) / 絞り込み
+/// (2026-09-22、利用者の指示)。
+///
+/// **UI の名前**: 保存した条件(コードでは `SmartShelf`、StackNest のスマートシェルフ)は「スマートコレクション」と呼ぶ
+/// (2026-09-22、利用者の決定。画面そのものの「スマートライブラリ」と同じ名前で呼んでいて、どちらの話か読めなかった。
+/// ライブラリの中にコレクション、と同じ並び)。対象の本・メタデータの決め方は `SmartLibraryCatalog` の型コメント、
 /// 絞り込みの重なり方は `SmartLibraryViewState` の型コメント。
 ///
 /// ■ すりガラス面の決まりごと
@@ -68,7 +73,7 @@ struct SmartLibraryPane: View {
 
 // MARK: - 左ペイン
 
-/// 左ペイン: スマートシェルフの一覧 / 対象 / 絞り込み / ブラウザ列。
+/// 左ペイン: 対象フォルダ / スマートコレクション / メタデータ(ブラウザ) / 絞り込み(2026-09-22、利用者の指示)。
 struct SmartLibrarySidebar: View {
     @ObservedObject var state: SmartLibraryViewState
     let allowsEditing: Bool
@@ -76,7 +81,6 @@ struct SmartLibrarySidebar: View {
     @EnvironmentObject private var store: SmartLibraryStore
     @EnvironmentObject private var catalog: SmartLibraryCatalog
     @EnvironmentObject private var folderAccess: FolderAccessStore
-    @EnvironmentObject private var preferences: AppPreferences
     @Environment(\.locale) private var locale
 
     /// 編集中のスマートシェルフ(新しく作るときは id の無いもの)。
@@ -86,10 +90,10 @@ struct SmartLibrarySidebar: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                foldersSection
                 shelvesSection
-                sourcesSection
-                filterSection
                 browseSection
+                filterSection
             }
             .padding(12)
         }
@@ -105,7 +109,7 @@ struct SmartLibrarySidebar: View {
             }
         }
         .alert(
-            "Delete Smart Library?",
+            "Delete Smart Collection?",
             isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })
         ) {
             Button("Cancel", role: .cancel) { deleting = nil }
@@ -122,7 +126,7 @@ struct SmartLibrarySidebar: View {
 
     private var shelvesSection: some View {
         VStack(alignment: .leading, spacing: 2) {
-            SmartSidebarHeader(titleKey: "Smart Libraries") {
+            SmartSidebarHeader(titleKey: "Smart Collections") {
                 Button {
                     editing = SmartShelfEditorTarget(shelf: SmartShelf(
                         name: "", conditions: SmartShelfConditions(rules: [SmartShelfRule(field: .genre)])), isNew: true)
@@ -131,7 +135,7 @@ struct SmartLibrarySidebar: View {
                 }
                 .buttonStyle(.borderless)
                 .disabled(!allowsEditing)
-                .help("New Smart Library…")
+                .help("New Smart Collection…")
             }
             SmartSidebarRow(
                 systemImage: "books.vertical", title: String(localized: "All Books", language: locale),
@@ -161,11 +165,12 @@ struct SmartLibrarySidebar: View {
         }
     }
 
-    // MARK: 対象
+    // MARK: 対象フォルダ
 
-    private var sourcesSection: some View {
+    /// 並ぶ本はここに登録したフォルダの中の本だけ(SmartLibraryCatalog の型コメント)。
+    private var foldersSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            SmartSidebarHeader(titleKey: "Books to Include") {
+            SmartSidebarHeader(titleKey: "Target Folders") {
                 Button {
                     catalog.reload()
                 } label: {
@@ -174,14 +179,6 @@ struct SmartLibrarySidebar: View {
                 .buttonStyle(.borderless)
                 .help("Look for Books Again")
             }
-            Toggle("Books in the libraries", isOn: $store.sources.library)
-                .panelOutlinedContent()
-            if preferences.fileBrowserFeatureEnabled {
-                Toggle("Books in Favorite Locations", isOn: $store.sources.favoriteLocations)
-                    .panelOutlinedContent()
-            }
-            Toggle("Books in these folders", isOn: $store.sources.folders)
-                .panelOutlinedContent()
             ForEach(store.folders) { folder in
                 HStack(spacing: 6) {
                     Image(systemName: folderAccess.isPathCovered(folder.url) ? "folder" : "folder.badge.questionmark")
@@ -201,9 +198,7 @@ struct SmartLibrarySidebar: View {
                     .help("Remove This Folder")
                 }
                 .font(.callout)
-                .padding(.leading, 20)
                 .panelOutlinedContent()
-                .opacity(store.sources.folders ? 1 : 0.5)
             }
             Button {
                 addFolder()
@@ -211,7 +206,6 @@ struct SmartLibrarySidebar: View {
                 Label("Add Folder…", systemImage: "plus")
             }
             .buttonStyle(.link)
-            .padding(.leading, 20)
             .disabled(!allowsEditing)
             .panelOutlinedContent()
             if catalog.isTruncated {
@@ -239,6 +233,35 @@ struct SmartLibrarySidebar: View {
         }
     }
 
+    // MARK: ブラウザ
+
+    /// 欄ごとのボタン(左ペインの幅いっぱい)。押すと選択パネルが出て、選んだ値(複数)はボタンの下に並ぶ
+    /// (2026-09-22、利用者の指示。StackNest の上ペインのブラウザ列の代わり)。
+    private var browseSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // 見出しは「メタデータ」(「ブラウザ」では何を選ぶ所か読めなかった。2026-09-22、利用者の指示)。
+            SmartSidebarHeader(titleKey: "Metadata") {
+                let addable = SmartFacetField.allCases.filter { !state.facetFields.contains($0) }
+                Menu {
+                    ForEach(addable, id: \.self) { field in
+                        Button(LocalizedStringKey(field.titleKey)) { state.addFacetField(field) }
+                    }
+                } label: {
+                    Image(systemName: "plus").panelIconButtonLabel()
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .panelOutlinedContent()
+                .disabled(addable.isEmpty)
+                .help("Add Browser Button")
+            }
+            ForEach(state.facetFields, id: \.self) { field in
+                SmartFacetButton(state: state, field: field)
+            }
+        }
+    }
+
     // MARK: 絞り込み
 
     private var filterSection: some View {
@@ -251,15 +274,13 @@ struct SmartLibrarySidebar: View {
                         .panelOutlinedContent()
                 }
             }
-            SmartKindChips(selection: $state.quickFilter.kinds)
+            SmartKindPicker(selection: $state.quickFilter.kinds)
             SmartFilterPicker(titleKey: "Reading Status", selection: $state.quickFilter.readState,
                               options: SmartReadState.allCases.map { ($0, $0.titleKey) })
             SmartFilterPicker(titleKey: "Added", selection: $state.quickFilter.addedWithinDays,
                               options: Self.dayOptions)
             SmartFilterPicker(titleKey: "Last Read", selection: $state.quickFilter.readWithinDays,
                               options: Self.dayOptions)
-            SmartFilterPicker(titleKey: "Metadata", selection: $state.quickFilter.registered,
-                              options: [(true, "Registered"), (false, "Not registered")])
         }
     }
 
@@ -267,17 +288,6 @@ struct SmartLibrarySidebar: View {
         (1, "Today"), (7, "In the last 7 days"), (30, "In the last 30 days"), (90, "In the last 90 days"),
         (365, "In the last year"),
     ]
-
-    // MARK: ブラウザ列
-
-    private var browseSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SmartSidebarHeader(titleKey: "Browse") { EmptyView() }
-            ForEach(0..<SmartLibraryViewState.facetCount, id: \.self) { index in
-                SmartFacetColumn(state: state, index: index)
-            }
-        }
-    }
 }
 
 /// 節の見出し(小さな灰色の文字と、右端の操作)。
@@ -334,63 +344,378 @@ private struct SmartSidebarRow: View {
     }
 }
 
-/// 種類で絞るチップ(何も選ばなければ全部)。
-private struct SmartKindChips: View {
-    @Binding var selection: Set<SmartBookKind>
-    @Environment(\.appearsActive) private var appearsActive
-
-    var body: some View {
-        FlowLayout(spacing: 4) {
-            ForEach(SmartBookKind.allCases, id: \.self) { kind in
-                let isOn = selection.contains(kind)
-                let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
-                Button {
-                    if isOn { selection.remove(kind) } else { selection.insert(kind) }
-                } label: {
-                    Text(LocalizedStringKey(kind.titleKey))
-                        .font(.caption)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .panelOutlinedContent(isEnabled: !isOn)
-                        .foregroundStyle(isOn ? SelectionEmphasis.foreground(isActive: appearsActive) : Color.primary)
-                        .background(shape.fill(isOn ? SelectionEmphasis.fill(isActive: appearsActive) : Color.primary.opacity(0.07)))
-                        .panelOutlinedAccent(in: shape, isEnabled: isOn)
-                        .contentShape(shape)
-                }
-                .buttonStyle(.plain)
-            }
+/// 値の見出し(「(空)」と、形式の欄の値は訳す)。
+private func smartFacetLabel(_ value: SmartFacetValue, field: SmartFacetField, locale: Locale) -> String {
+    switch value {
+    case .empty: return String(localized: "(empty)", language: locale)
+    case .value(let v):
+        if field == .kind, let kind = SmartBookKind(rawValue: v) {
+            return String(localized: String.LocalizationValue(kind.titleKey), language: locale)
         }
-        .help("Show only these kinds of books. With none chosen, every kind is shown")
+        return v
     }
 }
 
-/// 絞り込みの 1 行(見出しと、選んだ値のメニュー)。**Menu の label は Text 1 つだけ**(CLAUDE.md)。
-private struct SmartFilterPicker<Value: Hashable>: View {
-    let titleKey: LocalizedStringKey
-    @Binding var selection: Value?
-    let options: [(Value, String)]
+/// ブラウザの欄のボタン 1 つ(左ペインの幅いっぱい)と、その下の選んだ値。
+///
+/// ボタンの地は薄い(`Color.primary.opacity(0.07)`)ので、文字には輪郭を掛ける(CLAUDE.md の表)。選んだ値のチップも同じ。
+/// 右クリックで欄を替える・ボタンを外す。
+private struct SmartFacetButton: View {
+    @ObservedObject var state: SmartLibraryViewState
+    let field: SmartFacetField
     @Environment(\.locale) private var locale
+    @State private var isShowingPanel = false
+
+    var body: some View {
+        let selected = state.facetSelection[field].sorted(by: SmartFacetValue.precedes)
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        VStack(alignment: .leading, spacing: 5) {
+            Button {
+                isShowingPanel.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    Text(LocalizedStringKey(field.titleKey))
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    if !selected.isEmpty {
+                        Text(verbatim: "\(selected.count)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                    Image(systemName: "chevron.down")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .panelOutlinedContent()
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .frame(maxWidth: .infinity)
+                .background(shape.fill(Color.primary.opacity(0.07)))
+                .panelOutlinedFrame(in: shape)
+                .contentShape(shape)
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $isShowingPanel, arrowEdge: .trailing) {
+                SmartFacetPanel(state: state, field: field)
+            }
+            .contextMenu {
+                Menu("Change Field") {
+                    ForEach(SmartFacetField.allCases, id: \.self) { candidate in
+                        Button(LocalizedStringKey(candidate.titleKey)) {
+                            state.replaceFacetField(field, with: candidate)
+                        }
+                        .disabled(candidate == field)
+                    }
+                }
+                Button("Clear Selection") { state.clearFacet(field) }
+                    .disabled(selected.isEmpty)
+                Divider()
+                Button("Remove Button") { state.removeFacetField(field) }
+            }
+            if !selected.isEmpty {
+                FlowLayout(spacing: 4) {
+                    ForEach(selected, id: \.self) { value in
+                        SmartSelectedValueChip(title: smartFacetLabel(value, field: field, locale: locale)) {
+                            state.toggleFacet(value, in: field)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 選んだ値のチップ(× で外す)。地は薄いので輪郭を掛ける。
+private struct SmartSelectedValueChip: View {
+    let title: String
+    let onRemove: () -> Void
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
+        HStack(spacing: 3) {
+            Text(verbatim: title)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Button(action: onRemove) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .buttonStyle(.borderless)
+            .help("Remove")
+        }
+        .font(.caption)
+        .panelOutlinedContent()
+        .padding(.leading, 7)
+        .padding(.trailing, 5)
+        .padding(.vertical, 3)
+        .background(shape.fill(Color.accentColor.opacity(0.18)))
+        .panelOutlinedFrame(in: shape)
+        .help(title)
+    }
+}
+
+/// ボタンを押すと出る選択パネル(ポップオーバー。中身は macOS が不透明に描くので輪郭は要らない)。
+///
+/// 上に検索欄、その下に**ピン留めした値**(よく使う値。アプリで共有して保存、`SmartLibraryStore.pins`)、続けてすべての値
+/// (ピン留めした値もこちらに残す ―― 2026-09-22、利用者の指示)。行を押すと選ぶ / 外す(複数選べる)。
+/// ピンは行の右端に**いつも出し**、ピン留めしているかは色で見せる(ポインタを乗せたときだけ出していたら、ピン留めが
+/// できること自体に気づけなかった。2026-09-22、利用者の指摘)。
+private struct SmartFacetPanel: View {
+    @ObservedObject var state: SmartLibraryViewState
+    let field: SmartFacetField
+    @EnvironmentObject private var store: SmartLibraryStore
+    @Environment(\.locale) private var locale
+    @State private var query = ""
+
+    private struct Row: Identifiable {
+        let value: SmartFacetValue
+        let title: String
+        let count: Int
+        let isPinned: Bool
+        var id: SmartFacetValue { value }
+    }
+
+    var body: some View {
+        let selected = state.facetSelection[field]
+        let (pinned, others) = rows(selected: selected)
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                TextField("", text: $query, prompt: Text("Search"))
+                    .textFieldStyle(.roundedBorder)
+                Button("Clear Selection") { state.clearFacet(field) }
+                    .disabled(selected.isEmpty)
+            }
+            .padding(8)
+            Divider()
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                    if !pinned.isEmpty {
+                        Section {
+                            ForEach(pinned) { row in rowView(row, isSelected: selected.contains(row.value), isPinned: true) }
+                        } header: {
+                            sectionHeader("Pinned")
+                        }
+                    }
+                    Section {
+                        ForEach(others) { row in
+                            rowView(row, isSelected: selected.contains(row.value), isPinned: row.isPinned)
+                        }
+                    } header: {
+                        if !pinned.isEmpty { sectionHeader("All") }
+                    }
+                    if pinned.isEmpty, others.isEmpty {
+                        Text("No Matches")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 20)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
+        .frame(width: 300, height: 380)
+    }
+
+    /// ピン留めした値(冊数が 0 でも出す ―― 覚えておいた場所が消えないように)と、すべての値(ピン留めした値も含む)。
+    /// どちらも検索で絞る。
+    private func rows(selected: Set<SmartFacetValue>) -> (pinned: [Row], others: [Row]) {
+        let counts = state.facetValues[field] ?? []
+        var countByValue: [SmartFacetValue: Int] = [:]
+        for entry in counts { countByValue[entry.value] = entry.count }
+        let pinnedValues = Set(store.pins[field] ?? [])
+        // 候補に無くなっても、選んでいる値とピン留めした値は出す(外せるように)。
+        var all = counts.map(\.value)
+        for value in pinnedValues.union(selected) where countByValue[value] == nil { all.append(value) }
+        all.sort(by: SmartFacetValue.precedes)
+        let needle = LibrarySearchQuery.normalized(query.trimmingCharacters(in: .whitespaces))
+        var pinned: [Row] = []
+        var others: [Row] = []
+        for value in all {
+            let title = smartFacetLabel(value, field: field, locale: locale)
+            if !needle.isEmpty, !LibrarySearchQuery.normalized(title).contains(needle) { continue }
+            let isPinned = pinnedValues.contains(value)
+            let row = Row(value: value, title: title, count: countByValue[value] ?? 0, isPinned: isPinned)
+            if isPinned { pinned.append(row) }
+            // ピン留めした値でも、冊数が 0 のもの(候補に無いもの)は上にだけ出す。
+            if !isPinned || countByValue[value] != nil || selected.contains(value) { others.append(row) }
+        }
+        return (pinned, others)
+    }
+
+    private func sectionHeader(_ key: LocalizedStringKey) -> some View {
+        Text(key)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 3)
+            .background(.bar)
+    }
+
+    private func rowView(_ row: Row, isSelected: Bool, isPinned: Bool) -> some View {
+        SmartFacetPanelRow(
+            title: row.title, count: row.count, isSelected: isSelected, isPinned: isPinned,
+            onToggle: { state.toggleFacet(row.value, in: field) },
+            onPin: { store.togglePin(row.value, in: field) }
+        )
+    }
+}
+
+private struct SmartFacetPanelRow: View {
+    let title: String
+    let count: Int
+    let isSelected: Bool
+    let isPinned: Bool
+    let onToggle: () -> Void
+    let onPin: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+            Text(verbatim: title)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 4)
+            Text(verbatim: "\(count)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            Button(action: onPin) {
+                Image(systemName: "pin.fill")
+                    .foregroundStyle(isPinned ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary))
+            }
+            .buttonStyle(.borderless)
+            .help(isPinned ? "Unpin" : "Pin")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 3)
+        .opacity(count == 0 && !isSelected ? 0.5 : 1)
+        .background(isHovering ? Color.primary.opacity(0.06) : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onToggle)
+        .onHover { isHovering = $0 }
+        .help(title)
+    }
+}
+
+/// 絞り込みのドロップダウンのボタンの、文字の幅(5 つとも同じ幅に揃える ―― 2026-09-22、利用者の指摘)。
+private let smartFilterLabelWidth: CGFloat = 112
+
+/// 絞り込みの 1 行: 見出しと、ドロップダウンのボタン(押すとポップオーバーで選択肢が出る)。
+///
+/// **Menu ではなく Button + ポップオーバー**。Menu は(1)項目を 1 つ押すたびに閉じるので、形式を続けて何個も選べない
+/// (利用者の指摘)、(2)ラベルに付けた幅を OS の版によって無視する(SettingsPicker.widthProbe のコメント)ので幅が揃わない。
+/// Button はラベルの幅でベゼルが決まるので、ラベルを同じ幅にすれば 5 つとも揃う(WelcomeTopBar.openButtons と同じ)。
+/// ポップオーバーは外をクリックすると閉じる。
+private struct SmartFilterDropdown<Content: View>: View {
+    let titleKey: LocalizedStringKey
+    let currentTitle: String
+    @Binding var isOpen: Bool
+    @ViewBuilder var content: Content
 
     var body: some View {
         HStack(spacing: 6) {
             Text(titleKey)
                 .font(.callout)
+                .lineLimit(1)
                 .panelOutlinedContent()
             Spacer(minLength: 4)
-            Menu {
-                Button("Any") { selection = nil }
-                Divider()
-                ForEach(options, id: \.0) { option in
-                    Button(LocalizedStringKey(option.1)) { selection = option.0 }
-                }
+            Button {
+                isOpen.toggle()
             } label: {
-                Text(verbatim: currentTitle)
+                HStack(spacing: 4) {
+                    Text(verbatim: currentTitle)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
+                }
+                .frame(width: smartFilterLabelWidth)
             }
-            .menuStyle(.button)
             .buttonStyle(.bordered)
             .controlSize(.small)
-            .fixedSize()
+            .help(currentTitle)
+            .popover(isPresented: $isOpen, arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 6) { content }
+                    .padding(12)
+                    .fixedSize()
+            }
         }
+    }
+}
+
+/// 形式の絞り込み(複数選べる ―― 2026-09-22、利用者の指示)。何も選ばなければ全部。開いたまま何個でも付け外しでき、
+/// 外をクリックするか「指定なし」を押すと閉じる(「指定なし」は全部外す)。
+private struct SmartKindPicker: View {
+    @Binding var selection: Set<SmartBookKind>
+    @Environment(\.locale) private var locale
+    @State private var isOpen = false
+
+    var body: some View {
+        SmartFilterDropdown(titleKey: "Book Format", currentTitle: currentTitle, isOpen: $isOpen) {
+            Button("Any") {
+                selection = []
+                isOpen = false
+            }
+            .buttonStyle(.link)
+            Divider()
+            ForEach(SmartBookKind.allCases, id: \.self) { kind in
+                Toggle(LocalizedStringKey(kind.titleKey), isOn: Binding(
+                    get: { selection.contains(kind) },
+                    set: { isOn in
+                        if isOn { selection.insert(kind) } else { selection.remove(kind) }
+                    }
+                ))
+                .toggleStyle(.checkbox)
+            }
+        }
+    }
+
+    private var currentTitle: String {
+        let chosen = SmartBookKind.allCases.filter(selection.contains)
+        guard !chosen.isEmpty else { return String(localized: "Any", language: locale) }
+        return chosen.map { String(localized: String.LocalizationValue($0.titleKey), language: locale) }
+            .joined(separator: ", ")
+    }
+}
+
+/// 1 つだけ選ぶ絞り込み(読書の状態・追加日・最後に読んだ日・登録の有無)。選ぶと閉じる。
+private struct SmartFilterPicker<Value: Hashable>: View {
+    let titleKey: LocalizedStringKey
+    @Binding var selection: Value?
+    let options: [(Value, String)]
+    @Environment(\.locale) private var locale
+    @State private var isOpen = false
+
+    var body: some View {
+        SmartFilterDropdown(titleKey: titleKey, currentTitle: currentTitle, isOpen: $isOpen) {
+            choice(title: String(localized: "Any", language: locale), isSelected: selection == nil) { selection = nil }
+            Divider()
+            ForEach(options, id: \.0) { option in
+                choice(title: String(localized: String.LocalizationValue(option.1), language: locale),
+                       isSelected: selection == option.0) { selection = option.0 }
+            }
+        }
+    }
+
+    /// 選択肢 1 行(選んでいるものに印)。
+    private func choice(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            isOpen = false
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark")
+                    .font(.caption.weight(.semibold))
+                    .opacity(isSelected ? 1 : 0)
+                Text(verbatim: title)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private var currentTitle: String {
@@ -398,94 +723,6 @@ private struct SmartFilterPicker<Value: Hashable>: View {
             return String(localized: "Any", language: locale)
         }
         return String(localized: String.LocalizationValue(option.1), language: locale)
-    }
-}
-
-/// ブラウザ列 1 つ(StackNest の上ペインの列)。見出しのメニューで欄を替え、先頭の「すべて」と値(冊数つき)を並べる。
-private struct SmartFacetColumn: View {
-    @ObservedObject var state: SmartLibraryViewState
-    let index: Int
-    @Environment(\.locale) private var locale
-    @Environment(\.appearsActive) private var appearsActive
-
-    static let height: CGFloat = 150
-
-    var body: some View {
-        let field = state.facetFields[index]
-        let values = index < state.facetValues.count ? state.facetValues[index] : []
-        let selection = state.facetSelections[index]
-        VStack(alignment: .leading, spacing: 4) {
-            Menu {
-                ForEach(SmartFacetField.allCases, id: \.self) { candidate in
-                    Button {
-                        var fields = state.facetFields
-                        // 同じ欄を 2 つの列に置かない(入れ替える)。
-                        if let other = fields.firstIndex(of: candidate), other != index { fields[other] = fields[index] }
-                        fields[index] = candidate
-                        state.facetFields = fields
-                    } label: {
-                        if candidate == field {
-                            Label(LocalizedStringKey(candidate.titleKey), systemImage: "checkmark")
-                        } else {
-                            Text(LocalizedStringKey(candidate.titleKey))
-                        }
-                    }
-                }
-            } label: {
-                Text(verbatim: String(localized: String.LocalizationValue(field.titleKey), language: locale))
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .font(.callout.weight(.medium))
-            .panelOutlinedContent()
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    row(title: String(format: String(localized: "All (%lld)", language: locale), values.count),
-                        count: nil, isSelected: selection == nil) { state.selectFacet(nil, at: index) }
-                    ForEach(values, id: \.value) { entry in
-                        row(title: label(for: entry.value, field: field), count: entry.count,
-                            isSelected: selection == entry.value) { state.selectFacet(entry.value, at: index) }
-                    }
-                }
-            }
-            .frame(height: Self.height)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color(nsColor: .textBackgroundColor)))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color(nsColor: .separatorColor)))
-        }
-    }
-
-    private func label(for value: SmartFacetValue, field: SmartFacetField) -> String {
-        switch value {
-        case .empty: return String(localized: "(empty)", language: locale)
-        case .value(let v):
-            if field == .kind, let kind = SmartBookKind(rawValue: v) {
-                return String(localized: String.LocalizationValue(kind.titleKey), language: locale)
-            }
-            return v
-        }
-    }
-
-    /// 1 行。地は不透明なリストの地(textBackgroundColor)なので、輪郭は掛けない。
-    private func row(title: String, count: Int?, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        HStack(spacing: 4) {
-            Text(verbatim: title)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 4)
-            if let count {
-                Text(verbatim: "\(count)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(isSelected ? AnyShapeStyle(SelectionEmphasis.foreground(isActive: appearsActive)) : AnyShapeStyle(.secondary))
-            }
-        }
-        .font(.callout)
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .foregroundStyle(isSelected ? SelectionEmphasis.foreground(isActive: appearsActive) : Color.primary)
-        .background(isSelected ? SelectionEmphasis.fill(isActive: appearsActive) : Color.clear)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: action)
-        .help(title)
     }
 }
 
@@ -498,7 +735,6 @@ struct SmartLibraryContent: View {
     let allowsEditing: Bool
 
     @EnvironmentObject private var catalog: SmartLibraryCatalog
-    @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
     @Environment(\.openWindow) private var openWindow
@@ -521,7 +757,7 @@ struct SmartLibraryContent: View {
             if catalog.isLoading, catalog.books.isEmpty {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if state.visibleBooks.isEmpty {
+            } else if state.gridItems.isEmpty {
                 emptyMessage
             } else {
                 grid
@@ -549,10 +785,28 @@ struct SmartLibraryContent: View {
     private var header: some View {
         WelcomePaneHeaderLayout {
             HStack(spacing: 8) {
-                Text(verbatim: state.selectedShelf?.name ?? String(localized: "All Books", language: locale))
-                    .font(.title3.weight(.semibold))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                // シリーズの束を開いている間は、戻るボタンとシリーズ名(束の一覧へ戻る)。
+                if let series = state.openedSeries {
+                    Button {
+                        state.openedSeries = nil
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .panelIconButtonLabel()
+                    }
+                    .buttonStyle(.borderless)
+                    .keyboardShortcut(.cancelAction)
+                    .help(String(format: String(localized: "Back to %@", language: locale),
+                                 state.selectedShelf?.name ?? String(localized: "All Books", language: locale)))
+                    Text(verbatim: series)
+                        .font(.title3.weight(.semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                } else {
+                    Text(verbatim: state.selectedShelf?.name ?? String(localized: "All Books", language: locale))
+                        .font(.title3.weight(.semibold))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
                 Text(verbatim: countText)
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(.secondary)
@@ -566,6 +820,7 @@ struct SmartLibraryContent: View {
             WelcomeSearchField(text: $state.searchText, prompt: "Search Books", focus: $isSearchFocused)
 
             HStack(spacing: 6) {
+                seriesToggle
                 sortMenu
                 Slider(value: $state.coverSize, in: SmartLibraryViewState.coverSizeRange)
                     .frame(width: 110)
@@ -575,7 +830,24 @@ struct SmartLibraryContent: View {
         }
     }
 
+    /// シリーズでまとめる / まとめない。まとめている間はアイコンが塗りつぶしになる。
+    private var seriesToggle: some View {
+        Button {
+            state.groupsBySeries.toggle()
+        } label: {
+            Image(systemName: state.groupsBySeries ? "square.stack.fill" : "square.stack")
+                .panelIconButtonLabel()
+        }
+        .buttonStyle(.borderless)
+        .panelOutlinedContent()
+        .help(state.groupsBySeries ? "Don’t Group by Series" : "Group by Series")
+        .accessibilityValue(Text(state.groupsBySeries ? "On" : "Off"))
+    }
+
     private var countText: String {
+        if state.openedSeries != nil {
+            return String(format: String(localized: "%lld books", language: locale), state.gridItems.count)
+        }
         let visible = state.visibleBooks.count
         let total = state.shelfBookCount
         if visible == total {
@@ -620,7 +892,7 @@ struct SmartLibraryContent: View {
                 .foregroundStyle(.secondary)
                 .panelOutlinedContent()
             Text(catalog.books.isEmpty
-                 ? "Books in your libraries, in Favorite Locations and in the folders you add on the left appear here."
+                 ? "Books in the target folders you add on the left appear here."
                  : "Change the conditions or the filters on the left.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
@@ -643,10 +915,22 @@ struct SmartLibraryContent: View {
             )
             ScrollView {
                 LazyVGrid(columns: columns.gridItems(alignment: .top), spacing: Self.spacing) {
-                    ForEach(state.visibleBooks) { book in
-                        SmartBookCell(book: book, width: state.coverSize)
-                            .onTapGesture { open(book) }
-                            .contextMenu { contextMenu(for: book) }
+                    ForEach(state.gridItems) { item in
+                        switch item {
+                        case .book(let book):
+                            SmartBookCell(book: book, width: state.coverSize)
+                                .onTapGesture { open(book) }
+                                .contextMenu { contextMenu(for: book) }
+                        case .series(let name, let books):
+                            SmartSeriesCell(name: name, books: books, width: state.coverSize)
+                                .onTapGesture { state.openedSeries = name }
+                                .contextMenu {
+                                    Button("Show Books in Series") { state.openedSeries = name }
+                                    if let first = books.first {
+                                        Button("Open First Volume") { open(first) }
+                                    }
+                                }
+                        }
                     }
                 }
                 .frame(width: columns.contentWidth)
@@ -691,13 +975,8 @@ struct SmartLibraryContent: View {
         }
     }
 
-    /// 本の実体の URL。ライブラリの本はコレクションのブックマークから(権限もそこにある)、フォルダの本はパスそのもの
-    /// (FolderAccessStore が許可した場所の中)。見つからなければ「本が見つかりません」。
+    /// 本の実体の URL(パスそのもの。FolderAccessStore が許可した対象フォルダの中)。見つからなければ「本が見つかりません」。
     private func resolvedURL(for book: SmartBook) -> URL? {
-        if let itemID = book.collectionItemID, let item = collectionStore.item(withID: itemID),
-           let url = collectionStore.resolvedExistingURL(for: item) {
-            return url
-        }
         let url = URL(fileURLWithPath: book.id, isDirectory: book.kind == .folder)
         if FileManager.default.fileExists(atPath: url.path) { return url }
         missingBook = book.id
@@ -721,17 +1000,12 @@ private struct SmartBookCell: View {
     let book: SmartBook
     let width: CGFloat
 
-    @EnvironmentObject private var collectionStore: CollectionStore
-    @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
-    @EnvironmentObject private var layoutStore: LayoutStore
-
-    /// 表紙の枠の比(2:3)。コレクションの表紙もこの枠の中に収める(ライブラリごとの比の違いで行の高さが揃わないため)。
+    /// 表紙の枠の比(2:3)。
     static let heightRatio: CGFloat = 1.5
 
     var body: some View {
         VStack(spacing: 4) {
-            cover
-                .frame(width: width, height: width * Self.heightRatio, alignment: .bottom)
+            SmartBookThumbnail(book: book, width: width, height: width * Self.heightRatio)
             VStack(spacing: 1) {
                 Text(verbatim: book.displayTitle)
                     .font(.caption)
@@ -758,30 +1032,64 @@ private struct SmartBookCell: View {
         }
         return lines.joined(separator: "\n")
     }
+}
 
-    @ViewBuilder
-    private var cover: some View {
-        if let itemID = book.collectionItemID, let item = collectionStore.item(withID: itemID),
-           let library = item.collection?.library {
-            CollectionCoverThumbnail(
-                item: item, coverStore: collectionStore.coverStore, aspectRatio: library.coverAspectRatio,
-                anchor: layoutStore.bookLayoutSettings(forBookID: item.bookID)?.coverCropAnchor ?? library.coverCropAnchor,
-                displayWidth: min(width, width * Self.heightRatio * library.coverAspectRatio.value),
-                exists: collectionStore.cachedFileExists(for: item),
-                isExtracting: coverExtractor.inFlightItemIDs.contains(item.id),
-                coverRevision: collectionStore.coverRevision(for: item)
-            )
-        } else {
-            SmartBookThumbnail(book: book, width: width, height: width * Self.heightRatio)
+/// シリーズの束(2026-09-22、利用者の指示)。**束だと見て分かるように**、1 巻目の表紙の後ろに紙を 2 枚ずらして重ね、
+/// 右下に冊数のバッジを付ける(コレクションの札の冊数バッジと同じ形 ―― 地が不透明なので輪郭は掛けない)。
+/// 紙とバッジは**表紙の絵の実際の大きさ**に合わせる(枠に合わせると、細長い表紙の左右から紙がはみ出した。利用者の指摘)
+/// ので、描くのは表紙と同じ `SmartBookThumbnail`(`stack`)。下の文字はシリーズ名と冊数。押すと束の中の本が並ぶ
+/// (SmartLibraryViewState.openedSeries)。
+private struct SmartSeriesCell: View {
+    let name: String
+    let books: [SmartBook]
+    let width: CGFloat
+    @Environment(\.locale) private var locale
+
+    /// 後ろの紙のずらし幅。
+    private var offset: CGFloat { max(3, width * 0.035) }
+
+    var body: some View {
+        let height = width * SmartBookCell.heightRatio
+        VStack(spacing: 4) {
+            if let first = books.first {
+                // 紙をずらすぶん(右と上に 2 枚ぶん)を空けて、表紙はその内側に描く。
+                SmartBookThumbnail(
+                    book: first, width: width - offset * 2, height: height - offset * 2,
+                    stack: .init(layers: 2, offset: offset, count: books.count)
+                )
+                .frame(width: width, height: height, alignment: .bottomLeading)
+            }
+            VStack(spacing: 1) {
+                Text(verbatim: name)
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(verbatim: String(format: String(localized: "%lld books", language: locale), books.count))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(width: width)
+            .panelOutlinedContent()
         }
+        .contentShape(Rectangle())
+        .help(name)
     }
 }
 
-/// ライブラリに無い本の表紙(ファイルブラウザのアイコン表示と同じ提供役から引く。FileBrowserCoverArea と同じ)。
+/// 本の表紙(ファイルブラウザのアイコン表示と同じ提供役から引く。FileBrowserCoverArea と同じ)。
 private struct SmartBookThumbnail: View {
+    /// シリーズの束として描くときの、後ろの紙と冊数バッジ(SmartSeriesCell)。
+    struct Stack {
+        let layers: Int
+        let offset: CGFloat
+        let count: Int
+    }
+
     let book: SmartBook
     let width: CGFloat
     let height: CGFloat
+    var stack: Stack?
 
     @EnvironmentObject private var thumbnails: FileBrowserThumbnailProvider
     @Environment(\.displayScale) private var displayScale
@@ -801,15 +1109,21 @@ private struct SmartBookThumbnail: View {
         let shape = RoundedRectangle(cornerRadius: CollectionCoverThumbnail.cornerRadius(forWidth: width), style: .continuous)
         ZStack(alignment: .bottom) {
             if let image {
+                // 絵を枠に収めた大きさ(紙とバッジをこの大きさに合わせる)。
+                let size = Self.fittedSize(of: image, in: CGSize(width: width, height: height))
                 Image(decorative: image, scale: 1)
                     .resizable()
                     .interpolation(.high)
-                    .aspectRatio(contentMode: .fit)
+                    .frame(width: size.width, height: size.height)
                     .clipShape(shape)
                     .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
+                    .background(alignment: .bottomLeading) { stackedSheets(shape: shape) }
+                    .overlay(alignment: .bottomTrailing) { countBadge }
             } else {
                 shape.fill(Color.secondary.opacity(0.15))
                     .panelOutlinedFrame(in: shape)
+                    .background(alignment: .bottomLeading) { stackedSheets(shape: shape) }
+                    .overlay(alignment: .bottomTrailing) { countBadge }
                     .overlay {
                         if didFail {
                             Image(systemName: book.kind == .folder ? "folder" : "book.closed")
@@ -823,6 +1137,49 @@ private struct SmartBookThumbnail: View {
         }
         .frame(width: width, height: height, alignment: .bottom)
         .task(id: "\(book.id)|\(Int(width))|\(thumbnails.revision)") { await load() }
+    }
+
+    /// 枠(`box`)に縦横比を保って収めた大きさ。
+    static func fittedSize(of image: CGImage, in box: CGSize) -> CGSize {
+        guard image.width > 0, image.height > 0 else { return box }
+        let aspect = CGFloat(image.width) / CGFloat(image.height)
+        if aspect > box.width / box.height {
+            return CGSize(width: box.width, height: box.width / aspect)
+        }
+        return CGSize(width: box.height * aspect, height: box.height)
+    }
+
+    /// 束の後ろの紙(奥ほど薄く、右上へずらす)。表紙と同じ大きさ(`.background` なので前の面の大きさで描かれる)。
+    /// 絵の無い面なので、すりガラス面を文字色で塗っても在りかが分かるよう縁を引く。
+    @ViewBuilder
+    private func stackedSheets(shape: RoundedRectangle) -> some View {
+        if let stack {
+            ZStack {
+                ForEach((1...max(1, stack.layers)).reversed(), id: \.self) { layer in
+                    shape.fill(Color(nsColor: .controlBackgroundColor).opacity(layer == stack.layers ? 0.7 : 0.9))
+                        .overlay(shape.strokeBorder(Color.primary.opacity(0.18), lineWidth: 0.5))
+                        .panelOutlinedFrame(in: shape)
+                        .shadow(color: .black.opacity(0.15), radius: 1, y: 0.5)
+                        .offset(x: stack.offset * CGFloat(layer), y: -stack.offset * CGFloat(layer))
+                }
+            }
+        }
+    }
+
+    /// 束の冊数バッジ(表紙の右下。コレクションの札の冊数バッジと同じ形)。
+    @ViewBuilder
+    private var countBadge: some View {
+        if let stack {
+            Text(verbatim: "\(stack.count)")
+                .font(.system(size: 11))
+                .monospacedDigit()
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(Color.black.opacity(0.55)))
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.9), lineWidth: 1))
+                .foregroundStyle(Color.white)
+                .padding(4)
+        }
     }
 
     private func load() async {

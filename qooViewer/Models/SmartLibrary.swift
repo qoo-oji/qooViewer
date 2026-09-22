@@ -16,19 +16,13 @@ nonisolated struct SmartBook: Identifiable, Hashable, Sendable {
     /// ファイル名(拡張子つき。フォルダの本はフォルダ名)。
     let fileName: String
     let kind: SmartBookKind
-    /// どこから来た本か(ライブラリ・よく使う項目・スマートライブラリの対象フォルダ)。
-    var sources: SmartBookSources
-    /// 入っているライブラリとコレクションの名前(ライブラリの本だけ)。
-    var libraryNames: [String] = []
-    var collectionNames: [String] = []
-    /// 表紙に使うコレクションの行(ライブラリの本だけ)。
-    var collectionItemID: UUID?
     /// メタデータ(登録済みなら DB の値、未登録なら qooMeta の提案)。
     var metadata: BookMetadataValues
     var isRegistered: Bool
     /// ファイル名がルールセットの型に合ったか(未登録の本の提案の確かさの目安)。
     var matchedFormat: Bool = true
-    /// 追加日(ライブラリへ入れた日。ライブラリに無い本はファイルの作成日)。
+    /// 追加日(そのフォルダへ入った日。Finder の「追加日」と同じ値 ―― `URLResourceKey.addedToDirectoryDateKey`。
+    /// 取れないボリュームではファイルの作成日)。
     var dateAdded: Date?
     var creationDate: Date?
     var modificationDate: Date?
@@ -37,10 +31,14 @@ nonisolated struct SmartBook: Identifiable, Hashable, Sendable {
     var lastRead: Date?
     /// 読み進めた割合(0...1)。ページ数を記録していない本は nil。
     var progress: Double?
-    var isFavorite = false
+    /// 最後に表示していた画面に最後のページが写っていたか(BookReadingState.isAtLastPage)。
+    var isAtLastPage = false
 
     var readState: SmartReadState {
         guard lastRead != nil else { return .unread }
+        // 最後のページを表示して閉じたら読み終えた(見開きの最後の画面も。BookReadingState.isAtLastPage のコメント)。
+        if isAtLastPage { return .finished }
+        // 最後のページの記録を足す前の読書位置は、割合で判定する。
         if let progress, progress >= SmartReadState.finishedThreshold { return .finished }
         return .reading
     }
@@ -49,13 +47,6 @@ nonisolated struct SmartBook: Identifiable, Hashable, Sendable {
     var displayTitle: String {
         metadata.title.isEmpty ? MetadataRulesStore.baseName(forBookID: id) : metadata.title
     }
-}
-
-nonisolated struct SmartBookSources: OptionSet, Hashable, Sendable, Codable {
-    let rawValue: Int
-    static let library = SmartBookSources(rawValue: 1 << 0)
-    static let favoriteLocations = SmartBookSources(rawValue: 1 << 1)
-    static let folders = SmartBookSources(rawValue: 1 << 2)
 }
 
 /// 本の種類。
@@ -76,9 +67,10 @@ nonisolated enum SmartBookKind: String, CaseIterable, Codable, Hashable, Sendabl
 
     var titleKey: String {
         switch self {
-        case .zip: "ZIP"
-        case .rar: "RAR"
-        case .sevenZip: "7z"
+        // 拡張子の組で見せる(2026-09-22、利用者の指示。cbz などの漫画用の名前も同じ形式だと読めるように)。
+        case .zip: "ZIP / CBZ"
+        case .rar: "RAR / CBR"
+        case .sevenZip: "7z / CB7"
         case .pdf: "PDF"
         case .epub: "EPUB"
         case .folder: "Folder"
@@ -153,7 +145,7 @@ nonisolated struct SmartShelfRule: Codable, Hashable, Identifiable, Sendable {
             return op == .isEmpty || op == .isNotEmpty || !text.trimmingCharacters(in: .whitespaces).isEmpty
         case .choice:
             return !text.isEmpty
-        case .number, .days, .flag:
+        case .number, .days:
             return true
         }
     }
@@ -199,32 +191,26 @@ nonisolated struct SmartShelfRule: Codable, Hashable, Identifiable, Sendable {
             case .isNot: return current != text
             default: return false
             }
-        case .flag:
-            let value = field.flagValue(of: book)
-            switch op {
-            case .is: return value
-            case .isNot: return !value
-            default: return false
-            }
         }
     }
 }
 
 /// 条件に使える欄。
 nonisolated enum SmartField: String, Codable, CaseIterable, Hashable, Sendable {
-    case title, authors, genre, series, source, event, info, fileName, library, collection
+    case title, authors, genre, series, source, event, info, fileName
     case volume, progress
     case dateAdded, lastRead
     case kind, readState
-    case registered, favorite
 
-    enum ValueType { case text, number, days, choice, flag
+    // 「メタデータ登録済み」(登録 = メタデータの編集でロックしたか)は外した(2026-09-22、利用者の決定)。対象フォルダの本には
+    // どれも自動でメタデータが入るので、本を探す条件にはならない(ロックの管理はメタデータの編集ウインドウの絞り込みで)。
+    enum ValueType { case text, number, days, choice
         var operators: [SmartOperator] {
             switch self {
             case .text: [.contains, .notContains, .equals, .notEquals, .beginsWith, .endsWith, .isEmpty, .isNotEmpty]
             case .number: [.atLeast, .atMost, .equalTo]
             case .days: [.within, .olderThan]
-            case .choice, .flag: [.is, .isNot]
+            case .choice: [.is, .isNot]
             }
         }
         var defaultNumber: Int {
@@ -238,11 +224,10 @@ nonisolated enum SmartField: String, Codable, CaseIterable, Hashable, Sendable {
 
     var valueType: ValueType {
         switch self {
-        case .title, .authors, .genre, .series, .source, .event, .info, .fileName, .library, .collection: .text
+        case .title, .authors, .genre, .series, .source, .event, .info, .fileName: .text
         case .volume, .progress: .number
         case .dateAdded, .lastRead: .days
         case .kind, .readState: .choice
-        case .registered, .favorite: .flag
         }
     }
 
@@ -256,16 +241,12 @@ nonisolated enum SmartField: String, Codable, CaseIterable, Hashable, Sendable {
         case .event: "Event"
         case .info: "Info"
         case .fileName: "File name"
-        case .library: "Library"
-        case .collection: "Collection"
         case .volume: "Volume"
         case .progress: "Progress (%)"
         case .dateAdded: "Date Added"
         case .lastRead: "Last Read"
-        case .kind: "Kind"
+        case .kind: "Book Format"
         case .readState: "Reading Status"
-        case .registered: "Metadata registered"
-        case .favorite: "Favorite"
         }
     }
 
@@ -289,8 +270,6 @@ nonisolated enum SmartField: String, Codable, CaseIterable, Hashable, Sendable {
         case .event: return [m.event]
         case .info: return [m.info]
         case .fileName: return [book.fileName]
-        case .library: return book.libraryNames
-        case .collection: return book.collectionNames
         default: return []
         }
     }
@@ -319,13 +298,6 @@ nonisolated enum SmartField: String, Codable, CaseIterable, Hashable, Sendable {
         }
     }
 
-    func flagValue(of book: SmartBook) -> Bool {
-        switch self {
-        case .registered: return book.isRegistered
-        case .favorite: return book.isFavorite
-        default: return false
-        }
-    }
 }
 
 nonisolated enum SmartOperator: String, Codable, CaseIterable, Hashable, Sendable {
@@ -370,11 +342,9 @@ nonisolated struct SmartQuickFilter: Codable, Hashable, Sendable {
     var addedWithinDays: Int?
     /// 最後に読んだのが N 日以内。
     var readWithinDays: Int?
-    /// メタデータを登録した本だけ / 登録していない本だけ。
-    var registered: Bool?
 
     var isActive: Bool {
-        !kinds.isEmpty || readState != nil || addedWithinDays != nil || readWithinDays != nil || registered != nil
+        !kinds.isEmpty || readState != nil || addedWithinDays != nil || readWithinDays != nil
     }
 
     func matches(_ book: SmartBook, now: Date = Date()) -> Bool {
@@ -386,16 +356,15 @@ nonisolated struct SmartQuickFilter: Codable, Hashable, Sendable {
         if let days = readWithinDays {
             guard let date = book.lastRead, date >= now.addingTimeInterval(-Double(days) * 86_400) else { return false }
         }
-        if let registered, book.isRegistered != registered { return false }
         return true
     }
 }
 
-// MARK: - ブラウザ列(値と冊数で絞る)
+// MARK: - ブラウザ(値と冊数で絞る)
 
-/// 左ペインの「ブラウザ」の列に使える欄(StackNest の上ペインのブラウザ列)。
+/// 左ペインの「ブラウザ」のボタンに使える欄(StackNest の上ペインのブラウザ列に当たるもの)。
 nonisolated enum SmartFacetField: String, Codable, CaseIterable, Hashable, Sendable {
-    case genre, authors, series, source, event, library, collection, kind
+    case genre, authors, series, source, event, kind
 
     var titleKey: String {
         switch self {
@@ -404,9 +373,7 @@ nonisolated enum SmartFacetField: String, Codable, CaseIterable, Hashable, Senda
         case .series: "Series"
         case .source: "Source work"
         case .event: "Event"
-        case .library: "Library"
-        case .collection: "Collection"
-        case .kind: "Kind"
+        case .kind: "Book Format"
         }
     }
 
@@ -419,21 +386,56 @@ nonisolated enum SmartFacetField: String, Codable, CaseIterable, Hashable, Senda
         case .series: return m.series.isEmpty ? [] : [m.series]
         case .source: return m.source.isEmpty ? [] : [m.source]
         case .event: return m.event.isEmpty ? [] : [m.event]
-        case .library: return Array(Set(book.libraryNames)).sorted()
-        case .collection: return Array(Set(book.collectionNames)).sorted()
         case .kind: return [book.kind.rawValue]
         }
     }
 }
 
-/// ブラウザ列で選んだ値: 値か「(空)」。
+/// ブラウザで選んだ値: 値か「(空)」。
 nonisolated enum SmartFacetValue: Hashable, Codable, Sendable {
     case empty
     case value(String)
+
+    /// 並べる順(値の自然順、「(空)」は最後)。
+    static func precedes(_ a: SmartFacetValue, _ b: SmartFacetValue) -> Bool {
+        switch (a, b) {
+        case let (.value(x), .value(y)): x.localizedStandardCompare(y) == .orderedAscending
+        case (.value, .empty): true
+        case (.empty, _): false
+        }
+    }
+}
+
+/// ブラウザの 1 つの欄で選んだ値(複数)。**同じ欄の中は「いずれか」、欄どうしは「すべて」**(ジャンルで 2 つ選べば
+/// どちらかのジャンルの本、そこへ著者を選べばその著者の本だけ)。
+nonisolated struct SmartFacetSelection: Hashable, Sendable {
+    private(set) var values: [SmartFacetField: Set<SmartFacetValue>] = [:]
+
+    subscript(field: SmartFacetField) -> Set<SmartFacetValue> {
+        get { values[field] ?? [] }
+        set { values[field] = newValue.isEmpty ? nil : newValue }
+    }
+
+    var isActive: Bool { values.values.contains { !$0.isEmpty } }
+
+    mutating func toggle(_ value: SmartFacetValue, in field: SmartFacetField) {
+        var current = self[field]
+        if current.remove(value) == nil { current.insert(value) }
+        self[field] = current
+    }
+
+    /// その本が、`except` 以外の欄の選択すべてに合うか(`except` は候補の冊数を数える欄 ―― 自分の欄の選択で
+    /// 自分の候補を減らさない。よくある絞り込み検索と同じ数え方)。
+    func matches(_ book: SmartBook, except: SmartFacetField? = nil) -> Bool {
+        for (field, selected) in values where field != except && !selected.isEmpty {
+            guard selected.contains(where: { SmartFacets.matches(book, field: field, value: $0) }) else { return false }
+        }
+        return true
+    }
 }
 
 nonisolated enum SmartFacets {
-    /// 列の値ごとの冊数(値の順。「(空)」は最後)。
+    /// 欄の値ごとの冊数(値の順。「(空)」は最後)。
     static func counts(_ books: [SmartBook], field: SmartFacetField) -> [(value: SmartFacetValue, count: Int)] {
         var counts: [String: Int] = [:]
         var empty = 0
@@ -454,6 +456,51 @@ nonisolated enum SmartFacets {
         case .empty: return values.isEmpty
         case .value(let v): return values.contains(v)
         }
+    }
+}
+
+// MARK: - シリーズでまとめる
+
+/// 右のグリッドに並べる 1 枠: 1 冊か、シリーズの束(2026-09-22、利用者の指示「同じシリーズを束ねて表示する」)。
+nonisolated enum SmartGridItem: Identifiable, Hashable, Sendable {
+    case book(SmartBook)
+    /// シリーズ名と、その中の本(巻の順)。
+    case series(name: String, books: [SmartBook])
+
+    var id: String {
+        switch self {
+        case .book(let book): "book|\(book.id)"
+        case .series(let name, _): "series|\(name)"
+        }
+    }
+}
+
+nonisolated enum SmartSeriesGrouping {
+    /// 束ねるときの鍵(シリーズ名。前後の空白は落とす。空ならシリーズに入っていない)。
+    static func key(of book: SmartBook) -> String? {
+        let name = book.metadata.series.trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? nil : name
+    }
+
+    /// 並べた本を束ねる。**束の位置は、その束の本がいちばん最初に出てきた所**(並べ替えの結果を崩さない ―― 題の順なら
+    /// シリーズの 1 冊目の題の位置、最後に読んだ日の順なら最近読んだ巻の位置)。2 冊以上あるシリーズだけを束にし、
+    /// 1 冊だけのシリーズはそのまま 1 冊として置く(束を開いても 1 冊しか無いのは手間なだけ)。束の中は巻の順。
+    static func grouped(_ books: [SmartBook]) -> [SmartGridItem] {
+        var membersByKey: [String: [SmartBook]] = [:]
+        for book in books {
+            if let key = key(of: book) { membersByKey[key, default: []].append(book) }
+        }
+        var emitted = Set<String>()
+        var result: [SmartGridItem] = []
+        for book in books {
+            guard let key = key(of: book), let members = membersByKey[key], members.count >= 2 else {
+                result.append(.book(book))
+                continue
+            }
+            guard emitted.insert(key).inserted else { continue }
+            result.append(.series(name: key, books: SmartSort.sorted(members, by: .series, ascending: true)))
+        }
+        return result
     }
 }
 

@@ -5,8 +5,9 @@ import Foundation
 ///
 /// - 保存したスマートシェルフ(名前と条件)
 /// - スマートライブラリの対象フォルダ(**パスだけ**。読む権限は `FolderAccessStore` に一本化 ―― よく使う項目と同じ判断。
-///   FavoriteLocationStore の型コメント)
-/// - どこの本を対象にするか(ライブラリ・よく使う項目・対象フォルダ。それぞれ ON/OFF)
+///   FavoriteLocationStore の型コメント)。**並ぶ本はこの中の本だけ**(2026-09-22、利用者の指示。ライブラリ・ファイルブラウザは
+///   環境設定で個別に OFF にできるので、その本を混ぜると OFF にした機能の中身がここに出てしまう。切り分けておく)
+/// - ブラウザの選択パネルでピン留めした値(欄ごと。パネルの一番上に並ぶ)
 ///
 /// 保存先は UserDefaults(`qooViewer.smartLibrary.store`、JSON)。**`qooViewer.pref.*` ではない** ―― 環境設定のリセットで
 /// 利用者が作ったスマートシェルフが消えないように(ホームの状態 `qooViewer.welcome.*` と同じ扱い)。
@@ -24,22 +25,16 @@ final class SmartLibraryStore: ObservableObject {
         var url: URL { URL(fileURLWithPath: path, isDirectory: true) }
     }
 
-    /// どこの本を対象にするか。
-    struct SourceToggles: Codable, Hashable, Sendable {
-        var library = true
-        var favoriteLocations = true
-        var folders = true
-    }
-
     private struct Stored: Codable {
         var shelves: [SmartShelf] = []
         var folders: [Folder] = []
-        var sources = SourceToggles()
+        /// 欄(`SmartFacetField.rawValue`)→ ピン留めした値。
+        var pins: [String: [SmartFacetValue]] = [:]
 
-        init(shelves: [SmartShelf], folders: [Folder], sources: SourceToggles) {
+        init(shelves: [SmartShelf], folders: [Folder], pins: [String: [SmartFacetValue]]) {
             self.shelves = shelves
             self.folders = folders
-            self.sources = sources
+            self.pins = pins
         }
 
         /// 鍵が無い・一部が読めない保存値でも、読める所だけ読む(版を上げて欄を足したときに全部を失わない)。
@@ -47,10 +42,10 @@ final class SmartLibraryStore: ObservableObject {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             shelves = (try? c.decode([Lossy<SmartShelf>].self, forKey: .shelves))?.compactMap(\.value) ?? []
             folders = (try? c.decode([Folder].self, forKey: .folders)) ?? []
-            sources = (try? c.decode(SourceToggles.self, forKey: .sources)) ?? SourceToggles()
+            pins = (try? c.decode([String: [SmartFacetValue]].self, forKey: .pins)) ?? [:]
         }
 
-        enum CodingKeys: String, CodingKey { case shelves, folders, sources }
+        enum CodingKeys: String, CodingKey { case shelves, folders, pins }
     }
 
     private struct Lossy<Value: Decodable>: Decodable {
@@ -62,7 +57,7 @@ final class SmartLibraryStore: ObservableObject {
 
     @Published private(set) var shelves: [SmartShelf] = []
     @Published private(set) var folders: [Folder] = []
-    @Published var sources = SourceToggles() { didSet { if sources != oldValue { save() } } }
+    @Published private(set) var pins: [SmartFacetField: [SmartFacetValue]] = [:]
 
     private let defaults: UserDefaults
 
@@ -72,7 +67,9 @@ final class SmartLibraryStore: ObservableObject {
            let stored = try? JSONDecoder().decode(Stored.self, from: data) {
             shelves = stored.shelves
             folders = stored.folders
-            sources = stored.sources
+            for (key, values) in stored.pins {
+                if let field = SmartFacetField(rawValue: key) { pins[field] = values }
+            }
         }
     }
 
@@ -114,6 +111,19 @@ final class SmartLibraryStore: ObservableObject {
         return copy
     }
 
+    // MARK: - ピン留め
+
+    func isPinned(_ value: SmartFacetValue, in field: SmartFacetField) -> Bool {
+        pins[field]?.contains(value) ?? false
+    }
+
+    func togglePin(_ value: SmartFacetValue, in field: SmartFacetField) {
+        var values = pins[field] ?? []
+        if let index = values.firstIndex(of: value) { values.remove(at: index) } else { values.append(value) }
+        pins[field] = values.isEmpty ? nil : values
+        save()
+    }
+
     // MARK: - 対象フォルダ
 
     @discardableResult
@@ -151,7 +161,10 @@ final class SmartLibraryStore: ObservableObject {
     }
 
     private func save() {
-        guard let data = try? JSONEncoder().encode(Stored(shelves: shelves, folders: folders, sources: sources)) else { return }
+        guard let data = try? JSONEncoder().encode(Stored(
+            shelves: shelves, folders: folders,
+            pins: Dictionary(uniqueKeysWithValues: pins.map { ($0.key.rawValue, $0.value) })
+        )) else { return }
         defaults.set(data, forKey: Self.defaultsKey)
     }
 }

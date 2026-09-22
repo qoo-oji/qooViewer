@@ -3,57 +3,61 @@ import Foundation
 
 /// スマートライブラリの画面の状態(ウインドウごと。画面が持つ)。2026-09-21。
 ///
-/// 選んだスマートシェルフ・左ペインの絞り込み・ブラウザ列・検索・並べ替えを持ち、それらと本の一覧から
+/// 選んだスマートシェルフ・左ペインのブラウザと絞り込み・検索・並べ替えを持ち、それらと本の一覧から
 /// **並べる本を作り置きする**(`visibleBooks`)。描き直しのたびに数千冊を絞り込み直さないため(メタデータの編集ウインドウの
 /// 一覧と同じ考え方)。作り直すのは中身が変わったときだけで、同じランループの中の変更は 1 回にまとめる。
 ///
-/// 絞り込みの重なり方は StackNest と同じ: **スマートシェルフ → 絞り込み → ブラウザ列(左から順に) → 検索**。すべて AND。
-/// ブラウザ列の値の候補は、それより上(左)の列で選んだ値で絞られる。
+/// 絞り込みの重なり方: **スマートシェルフ → 絞り込み → ブラウザ → 検索**。すべて AND。ブラウザは欄ごとに複数の値を選べ、
+/// 同じ欄の中は「いずれか」(`SmartFacetSelection`)。ブラウザの欄の候補と冊数は、**ほかの欄**の選択で絞った本から数える
+/// (自分の欄で 2 つ目を選ぼうとしたら候補が消えていた、とならないように)。
 ///
-/// 保存するもの(次に開いたときも同じ所から): 選んだスマートシェルフ・ブラウザ列の欄・並べ替え・表紙の大きさ・左ペインの幅。
-/// 絞り込み・ブラウザ列で選んだ値・検索は保存しない(StackNest のフィルタと同じく、いまの作業のための一時的なもの)。
+/// 保存するもの(次に開いたときも同じ所から): 選んだスマートシェルフ・ブラウザのボタンの並び・並べ替え・表紙の大きさ・
+/// 左ペインの幅。絞り込み・ブラウザで選んだ値・検索は保存しない(StackNest のフィルタと同じく、いまの作業のための一時的なもの)。
+/// ピン留めはアプリで共有(`SmartLibraryStore.pins`)。
 @MainActor
 final class SmartLibraryViewState: ObservableObject {
     private enum Keys {
         static let selectedShelf = "qooViewer.smartLibrary.selectedShelf"
-        static let facetFields = "qooViewer.smartLibrary.facetFields"
+        /// ブラウザのボタンの並び(2026-09-22 から数が変えられる。以前の 3 列固定の鍵とは別)。
+        static let facetFields = "qooViewer.smartLibrary.browserFields"
         static let sortKey = "qooViewer.smartLibrary.sortKey"
         static let sortAscending = "qooViewer.smartLibrary.sortAscending"
         static let coverSize = "qooViewer.smartLibrary.coverSize"
         static let sidebarWidth = "qooViewer.smartLibrary.sidebarWidth"
+        static let groupsBySeries = "qooViewer.smartLibrary.groupsBySeries"
     }
 
     static let coverSizeRange: ClosedRange<CGFloat> = 80...300
     static let defaultCoverSize: CGFloat = 130
     static let sidebarWidthRange: ClosedRange<CGFloat> = 200...460
     static let defaultSidebarWidth: CGFloat = 270
-    /// ブラウザ列の数。
-    static let facetCount = 3
+    /// ブラウザのボタンの最初の並び(利用者の指示 2026-09-22: ジャンル・著者・シリーズ)。
+    static let defaultFacetFields: [SmartFacetField] = [.genre, .authors, .series]
 
     /// 選んだスマートシェルフ(nil は「すべての本」)。
     @Published var selectedShelfID: UUID? {
         didSet {
             guard selectedShelfID != oldValue else { return }
             defaults.set(selectedShelfID?.uuidString, forKey: Keys.selectedShelf)
-            // 棚が変わったら、ブラウザ列で選んだ値は外す(前の棚に無い値で空になるため)。
-            facetSelections = Array(repeating: nil, count: Self.facetCount)
+            // 棚が変わったら、ブラウザで選んだ値は外す(前の棚に無い値で空になるため)。開いていたシリーズからも出る。
+            facetSelection = SmartFacetSelection()
+            openedSeries = nil
             setNeedsRecompute()
         }
     }
     @Published var quickFilter = SmartQuickFilter() { didSet { if quickFilter != oldValue { setNeedsRecompute() } } }
+    /// ブラウザのボタンの並び(同じ欄は 1 度だけ)。
     @Published var facetFields: [SmartFacetField] {
         didSet {
             guard facetFields != oldValue else { return }
             defaults.set(facetFields.map(\.rawValue), forKey: Keys.facetFields)
-            // 欄を替えた列と、それより右の列の選択は外す(StackNest と同じ)。
-            if let changed = zip(facetFields, oldValue).enumerated().first(where: { $0.element.0 != $0.element.1 })?.offset {
-                for index in changed..<facetSelections.count { facetSelections[index] = nil }
-            }
+            // 並びから消えた欄の選択は外す(見えない所で絞り込みが残らないように)。
+            for field in SmartFacetField.allCases where !facetFields.contains(field) { facetSelection[field] = [] }
             setNeedsRecompute()
         }
     }
-    @Published var facetSelections: [SmartFacetValue?] {
-        didSet { if facetSelections != oldValue { setNeedsRecompute() } }
+    @Published var facetSelection = SmartFacetSelection() {
+        didSet { if facetSelection != oldValue { setNeedsRecompute() } }
     }
     @Published var searchText = "" { didSet { if searchText != oldValue { setNeedsRecompute() } } }
     @Published var sortKey: SmartSortKey {
@@ -70,17 +74,30 @@ final class SmartLibraryViewState: ObservableObject {
             setNeedsRecompute()
         }
     }
+    /// 同じシリーズの本を 1 つの束にまとめて並べるか(2026-09-22、利用者の指示。`SmartSeriesGrouping`)。保存する。
+    @Published var groupsBySeries: Bool {
+        didSet {
+            guard groupsBySeries != oldValue else { return }
+            defaults.set(groupsBySeries, forKey: Keys.groupsBySeries)
+            if !groupsBySeries { openedSeries = nil }
+            setNeedsRecompute()
+        }
+    }
+    /// 開いているシリーズの束(nil なら束の一覧)。束を押すと入り、見出しの戻るで出る。保存しない。
+    @Published var openedSeries: String? { didSet { if openedSeries != oldValue { setNeedsRecompute() } } }
     @Published var coverSize: CGFloat { didSet { defaults.set(Double(coverSize), forKey: Keys.coverSize) } }
     @Published var sidebarWidth: CGFloat { didSet { defaults.set(Double(sidebarWidth), forKey: Keys.sidebarWidth) } }
 
     // MARK: 作り置き
 
-    /// 棚の条件に合う本(絞り込み・ブラウザ列・検索の前)。
+    /// 棚の条件に合う本(絞り込み・ブラウザ・検索の前)。
     @Published private(set) var shelfBookCount = 0
     /// 並べる本(すべての絞り込みと並べ替えの後)。
     @Published private(set) var visibleBooks: [SmartBook] = []
-    /// ブラウザ列ごとの、値と冊数。
-    @Published private(set) var facetValues: [[(value: SmartFacetValue, count: Int)]] = []
+    /// グリッドの枠(束ねていなければ 1 冊ずつ、束ねていれば束と 1 冊、シリーズを開いていればその中の本)。
+    @Published private(set) var gridItems: [SmartGridItem] = []
+    /// ブラウザの欄ごとの、値と冊数(ほかの欄の選択で絞った本から数える)。
+    @Published private(set) var facetValues: [SmartFacetField: [(value: SmartFacetValue, count: Int)]] = [:]
     /// スマートシェルフごとの冊数(左ペインに出す)。nil のキーは「すべての本」。
     @Published private(set) var shelfCounts: [UUID?: Int] = [:]
 
@@ -92,11 +109,16 @@ final class SmartLibraryViewState: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         selectedShelfID = defaults.string(forKey: Keys.selectedShelf).flatMap(UUID.init(uuidString:))
-        let storedFields = (defaults.stringArray(forKey: Keys.facetFields) ?? []).compactMap(SmartFacetField.init(rawValue:))
-        facetFields = storedFields.count == Self.facetCount ? storedFields : [.genre, .authors, .series]
-        facetSelections = Array(repeating: nil, count: Self.facetCount)
+        if let stored = defaults.stringArray(forKey: Keys.facetFields) {
+            var fields: [SmartFacetField] = []
+            for field in stored.compactMap(SmartFacetField.init(rawValue:)) where !fields.contains(field) { fields.append(field) }
+            facetFields = fields
+        } else {
+            facetFields = Self.defaultFacetFields
+        }
         sortKey = SmartSortKey(rawValue: defaults.string(forKey: Keys.sortKey) ?? "") ?? .title
         sortAscending = defaults.object(forKey: Keys.sortAscending) as? Bool ?? true
+        groupsBySeries = defaults.bool(forKey: Keys.groupsBySeries)
         coverSize = (defaults.object(forKey: Keys.coverSize) as? Double)
             .map { Self.coverSizeRange.clamping(CGFloat($0)) } ?? Self.defaultCoverSize
         sidebarWidth = (defaults.object(forKey: Keys.sidebarWidth) as? Double)
@@ -114,23 +136,46 @@ final class SmartLibraryViewState: ObservableObject {
 
     var selectedShelf: SmartShelf? { selectedShelfID.flatMap { id in shelves.first { $0.id == id } } }
 
-    /// 絞り込み・ブラウザ列・検索のどれかが効いているか(「すべて外す」を出すか)。
+    /// 絞り込み・ブラウザ・検索のどれかが効いているか(「すべて解除」を出すか)。
     var isNarrowing: Bool {
-        quickFilter.isActive || facetSelections.contains { $0 != nil } || !searchText.trimmingCharacters(in: .whitespaces).isEmpty
+        quickFilter.isActive || facetSelection.isActive || !searchText.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     func clearNarrowing() {
         quickFilter = SmartQuickFilter()
-        facetSelections = Array(repeating: nil, count: Self.facetCount)
+        facetSelection = SmartFacetSelection()
         searchText = ""
     }
 
-    /// ブラウザ列の値を選ぶ(nil は「すべて」)。右の列の選択は外す(左の選び直しで候補が変わるため)。
-    func selectFacet(_ value: SmartFacetValue?, at index: Int) {
-        var next = facetSelections
-        next[index] = value
-        for right in (index + 1)..<Self.facetCount { next[right] = nil }
-        facetSelections = next
+    // MARK: ブラウザのボタン
+
+    func toggleFacet(_ value: SmartFacetValue, in field: SmartFacetField) {
+        facetSelection.toggle(value, in: field)
+    }
+
+    func clearFacet(_ field: SmartFacetField) {
+        facetSelection[field] = []
+    }
+
+    /// ボタンを足す(並びの最後へ)。
+    func addFacetField(_ field: SmartFacetField) {
+        guard !facetFields.contains(field) else { return }
+        facetFields.append(field)
+    }
+
+    func removeFacetField(_ field: SmartFacetField) {
+        facetFields.removeAll { $0 == field }
+    }
+
+    /// ボタンの欄を替える(替えた先の欄が別のボタンにあれば、2 つを入れ替える)。
+    func replaceFacetField(_ old: SmartFacetField, with new: SmartFacetField) {
+        guard old != new, let index = facetFields.firstIndex(of: old) else { return }
+        var fields = facetFields
+        if let other = fields.firstIndex(of: new) { fields[other] = old }
+        fields[index] = new
+        facetSelection[old] = []
+        facetSelection[new] = []
+        facetFields = fields
     }
 
     func resizeCovers(byMagnification magnification: CGFloat) {
@@ -154,30 +199,34 @@ final class SmartLibraryViewState: ObservableObject {
         var current = selectedShelf.map { shelf in books.filter { shelf.conditions.matches($0, now: now) } } ?? books
         shelfBookCount = current.count
         if quickFilter.isActive { current = current.filter { quickFilter.matches($0, now: now) } }
-        var columns: [[(value: SmartFacetValue, count: Int)]] = []
-        for (index, field) in facetFields.enumerated() {
-            columns.append(SmartFacets.counts(current, field: field))
-            if let selection = facetSelections[safe: index] ?? nil {
-                current = current.filter { SmartFacets.matches($0, field: field, value: selection) }
-            }
+        let selection = facetSelection
+        var values: [SmartFacetField: [(value: SmartFacetValue, count: Int)]] = [:]
+        for field in facetFields {
+            values[field] = SmartFacets.counts(current.filter { selection.matches($0, except: field) }, field: field)
         }
-        facetValues = columns
+        facetValues = values
+        if selection.isActive { current = current.filter { selection.matches($0) } }
         if let query = LibrarySearchQuery(searchText) {
             current = current.filter { book in
                 let haystack = LibrarySearchQuery.normalized(
                     ([book.fileName, book.metadata.title] + book.metadata.authors
                         + [book.metadata.series, book.metadata.genre, book.metadata.source, book.metadata.event,
-                           book.metadata.info] + book.collectionNames)
+                           book.metadata.info])
                         .filter { !$0.isEmpty }.joined(separator: "\n"))
                 return query.matches(normalized: haystack)
             }
         }
         visibleBooks = SmartSort.sorted(current, by: sortKey, ascending: sortAscending)
+        if let openedSeries {
+            // 束の中は巻の順(束の並びと同じ)。絞り込みで 1 冊も残らなければ空のまま(戻れば束の一覧)。
+            gridItems = SmartSort.sorted(visibleBooks.filter { SmartSeriesGrouping.key(of: $0) == openedSeries },
+                                         by: .series, ascending: true).map(SmartGridItem.book)
+        } else if groupsBySeries {
+            gridItems = SmartSeriesGrouping.grouped(visibleBooks)
+        } else {
+            gridItems = visibleBooks.map(SmartGridItem.book)
+        }
     }
-}
-
-private extension Array {
-    subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
 }
 
 private extension ClosedRange where Bound == CGFloat {

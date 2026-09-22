@@ -15,7 +15,9 @@ import SwiftUI
 ///
 /// **ロック = 登録**(利用者の決定 2026-09-21、案 A)。直した値は青く出る下書きで、鍵を掛けると登録される(MetadataWorkspace)。
 ///
-/// 一覧に並べる本は「このアプリが何らかの形で知っている本」すべて(`KnownBooks`。以前の窓と同じ)。
+/// 一覧に並べる本(= メタデータを自動で作る対象)は、**開いた本・ライブラリの本**(このアプリが保存データを持っている本。
+/// `KnownBooks`、以前の窓と同じ)と、**スマートライブラリの対象フォルダの中の本**(`SmartLibraryCatalog.folderBookIDs()`)。
+/// ファイルブラウザの「よく使う項目」のフォルダの中の本は、開くまで対象にしない(2026-09-22、利用者の指示)。
 ///
 /// 中身(`MetadataWorkspace`)は窓を開くたびに作り、閉じたら捨てる(閉じている間に DB が変わっても、次に開いたときは
 /// DB から読み直すだけで済む)。
@@ -26,6 +28,7 @@ struct MetadataEditorWindow: View {
     @EnvironmentObject private var favoritesStore: FavoritesStore
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var folderAccess: FolderAccessStore
+    @EnvironmentObject private var smartLibraryCatalog: SmartLibraryCatalog
     @EnvironmentObject private var preferences: AppPreferences
     @Environment(MetadataRulesStore.self) private var rulesStore
     @Environment(\.modelContext) private var modelContext
@@ -42,12 +45,12 @@ struct MetadataEditorWindow: View {
             }
         }
         .frame(minWidth: 900, minHeight: 480)
-        .task { [metadataStore, bookmarkStore, layoutStore, favoritesStore, collectionStore, folderAccess] in
+        .task { [metadataStore, bookmarkStore, layoutStore, favoritesStore, collectionStore, folderAccess, smartLibraryCatalog] in
             let model = MetadataEditorModel(
                 metadataStore: metadataStore, rulesStore: rulesStore,
                 stores: .init(favoritesStore: favoritesStore, collectionStore: collectionStore, bookmarkStore: bookmarkStore,
                               layoutStore: layoutStore, metadataStore: metadataStore, folderAccess: folderAccess,
-                              modelContext: modelContext),
+                              smartLibraryCatalog: smartLibraryCatalog, modelContext: modelContext),
                 preferences: preferences,
                 resolveURL: { [weak metadataStore, weak bookmarkStore, weak layoutStore, weak collectionStore] bookID in
                     bookmarkStore?.resolvedURLFromBookmarkData(forBookID: bookID)
@@ -77,6 +80,8 @@ final class MetadataEditorModel {
         let layoutStore: LayoutStore
         let metadataStore: BookMetadataStore
         let folderAccess: FolderAccessStore
+        /// スマートライブラリの対象フォルダの中の本(一覧の母体に足す)。
+        let smartLibraryCatalog: SmartLibraryCatalog
         let modelContext: ModelContext
     }
 
@@ -107,10 +112,11 @@ final class MetadataEditorModel {
     /// 対象の本を集め、qooMeta で読む。
     func open() async {
         // 対象外のフォルダの本は並べない(MetadataRulesStore.excludedFolders。登録済みのメタデータは消さない)。
-        let bookIDs = KnownBooks.collect(from: KnownBooks.Sources(
+        var known = KnownBooks.collect(from: KnownBooks.Sources(
             metadataStore: stores.metadataStore, bookmarkStore: stores.bookmarkStore, layoutStore: stores.layoutStore,
             favoritesStore: stores.favoritesStore, collectionStore: stores.collectionStore, modelContext: stores.modelContext))
-            .filter { !rulesStore.isExcluded(bookID: $0) }
+        known.formUnion(await stores.smartLibraryCatalog.folderBookIDs())
+        let bookIDs = known.filter { !rulesStore.isExcluded(bookID: $0) }
         drafts.keepOnly(Set(bookIDs))
         let entries = bookIDs.map { bookID in
             MetadataWorkspace.Entry(bookID: bookID, registeredValues: metadataStore.metadata(forBookID: bookID)?.values,

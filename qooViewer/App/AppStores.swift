@@ -192,9 +192,7 @@ final class AppStores: ObservableObject {
         }
         smartLibraryStore = SmartLibraryStore()
         smartLibraryCatalog = SmartLibraryCatalog(
-            collectionStore: collectionStore, metadataStore: metadataStore, favoritesStore: favoritesStore,
-            favoriteLocations: favoriteLocations, store: smartLibraryStore, rulesStore: metadataRulesStore,
-            preferences: preferences, modelContext: context
+            metadataStore: metadataStore, store: smartLibraryStore, rulesStore: metadataRulesStore, modelContext: context
         )
         collectionAutoFolderScanner = CollectionAutoFolderScanner(
             collectionStore: collectionStore, coverExtractor: collectionCoverExtractor,

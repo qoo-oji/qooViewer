@@ -2303,6 +2303,12 @@ final class ViewerViewModel: ObservableObject {
         // 次にloadCurrentSpreadが呼ばれたときに参照できるよう、今回実際に表示した範囲を
         // 記録しておく(lastDisplayedPageRangeのコメント参照)。
         lastDisplayedPageRange = targetIndex..<(targetIndex + images.count)
+        // 最後のページが写っているかを読書位置と一緒に残す(BookReadingState.isAtLastPage のコメント)。
+        let isAtLastPage = !book.pages.isEmpty && targetIndex + images.count >= book.pages.count
+        if readingState.isAtLastPage != isAtLastPage, !readingStateDiscarded {
+            readingState.isAtLastPage = isAtLastPage
+            persistState()
+        }
 
         // コンテキストメニュー「情報を見る」(ユーザー要望)向けに、実際に表示するページの
         // 画像ファイル情報をバックグラウンドで取得しておく(pageImageInfoCacheのコメント参照)。

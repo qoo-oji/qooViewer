@@ -52,6 +52,22 @@
         }
       }
     },
+    "7z / CB7" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7z / CB7"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7z / CB7"
+          }
+        }
+      }
+    },
     "Activity Log" : {
       "localizations" : {
         "en" : {
@@ -80,6 +96,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "「+」ボタンで規則を追加するか、左で規則を選んでください。"
+          }
+        }
+      }
+    },
+    "Add Browser Button" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add Browser Button"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ブラウザのボタンを追加"
           }
         }
       }
@@ -260,6 +292,22 @@
         }
       }
     },
+    "Back to %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Back to %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「%@」へ戻る"
+          }
+        }
+      }
+    },
     "Before Name" : {
       "localizations" : {
         "en" : {
@@ -272,6 +320,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "名前の前"
+          }
+        }
+      }
+    },
+    "Book Format" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Book Format"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "形式"
+          }
+        }
+      }
+    },
+    "Books in the target folders you add on the left appear here." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Books in the target folders you add on the left appear here."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "左で追加した対象フォルダの中の本がここに並びます。"
+          }
+        }
+      }
+    },
+    "Change Field" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Change Field"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "欄を変更"
           }
         }
       }
@@ -304,6 +400,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "よく使う項目またはその中のフォルダを選んでください。"
+          }
+        }
+      }
+    },
+    "Clear Selection" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear Selection"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択を解除"
           }
         }
       }
@@ -500,6 +612,22 @@
         }
       }
     },
+    "Delete Smart Collection?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete Smart Collection?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スマートコレクションを削除しますか?"
+          }
+        }
+      }
+    },
     "Delete the activity log?" : {
       "localizations" : {
         "en" : {
@@ -512,6 +640,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "実行ログを削除しますか?"
+          }
+        }
+      }
+    },
+    "Don’t Group by Series" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Don’t Group by Series"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シリーズでまとめない"
           }
         }
       }
@@ -560,6 +704,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "編集モード"
+          }
+        }
+      }
+    },
+    "Edit Smart Collection" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Smart Collection"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スマートコレクションの編集"
           }
         }
       }
@@ -720,6 +880,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "見つかった場所"
+          }
+        }
+      }
+    },
+    "Group by Series" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Group by Series"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シリーズでまとめる"
           }
         }
       }
@@ -932,6 +1108,38 @@
         }
       }
     },
+    "New Smart Collection" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Smart Collection"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規スマートコレクション"
+          }
+        }
+      }
+    },
+    "New Smart Collection…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Smart Collection…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新規スマートコレクション…"
+          }
+        }
+      }
+    },
     "No access" : {
       "localizations" : {
         "en" : {
@@ -944,6 +1152,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "アクセス権がありません"
+          }
+        }
+      }
+    },
+    "No Matches" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Matches"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "該当なし"
           }
         }
       }
@@ -1076,6 +1300,22 @@
         }
       }
     },
+    "Open First Volume" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open First Volume"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "1 巻目を開く"
+          }
+        }
+      }
+    },
     "Opening Image Folders" : {
       "localizations" : {
         "en" : {
@@ -1156,6 +1396,38 @@
         }
       }
     },
+    "Pin" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pin"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ピン留め"
+          }
+        }
+      }
+    },
+    "Pinned" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pinned"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ピン留め"
+          }
+        }
+      }
+    },
     "Puts the selected renamed items back to their original names. The rules won’t rename them again." : {
       "localizations" : {
         "en" : {
@@ -1168,6 +1440,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "選択した項目の名前を元に戻します。戻した項目の名前は、規則で再び変更されません。"
+          }
+        }
+      }
+    },
+    "RAR / CBR" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RAR / CBR"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RAR / CBR"
+          }
+        }
+      }
+    },
+    "Remove Button" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove Button"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ボタンを外す"
           }
         }
       }
@@ -1380,6 +1684,22 @@
         }
       }
     },
+    "Show Books in Series" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Books in Series"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シリーズの本を表示"
+          }
+        }
+      }
+    },
     "Shows the bookshelf — libraries and collections — on the Home screen. When off, Home shows only the file browser (or, with File Browser also off, the original welcome screen), the library and collection items disappear from the menus, context menus and the side panel, and the background work that exists only for libraries stops: checking that registered books are still there, making covers, and watching auto-add folders. Your libraries and collections are kept and come back when you turn this on again." : {
       "localizations" : {
         "en" : {
@@ -1408,6 +1728,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ホームにファイルブラウザを表示します。オフにすると、ホーム・メニュー・右クリックメニューからファイルブラウザとその項目(「ファイルブラウザで開く」を含む)が消え、ファイルブラウザのためだけの裏の処理(自動リネーム・動画のサムネイルの先回り作成)が止まります。よく使う項目・自動リネームの規則・サムネイルのキャッシュは消えません。ライブラリもオフにすると、ホームは「開く…」ボタンと最近開いた本だけの、以前のウェルカム画面になります。"
+          }
+        }
+      }
+    },
+    "Smart Collection" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Smart Collection"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スマートコレクション"
+          }
+        }
+      }
+    },
+    "Smart Collections" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Smart Collections"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スマートコレクション"
           }
         }
       }
@@ -1732,6 +2084,22 @@
         }
       }
     },
+    "Unpin" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unpin"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ピン留めを外す"
+          }
+        }
+      }
+    },
     "Untitled Rule" : {
       "localizations" : {
         "en" : {
@@ -1792,6 +2160,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "リスト表示・アイコン表示で、画像フォルダをダブルクリックしたとき、または選んでリターンキーを押したときにすることです。右クリックの「開く」はもう一方をするので、どちらの開き方もすぐ使えます。本ではないフォルダは常にフォルダとして開き、左のツリーには影響しません。"
+          }
+        }
+      }
+    },
+    "ZIP / CBZ" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ZIP / CBZ"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ZIP / CBZ"
           }
         }
       }
@@ -31006,23 +31390,6 @@
         }
       }
     },
-    "All (%lld)" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "All (%lld)"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "すべて(%lld 種類)"
-          }
-        }
-      }
-    },
     "Any" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -31036,108 +31403,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "指定なし"
-          }
-        }
-      }
-    },
-    "Books in Favorite Locations" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Books in Favorite Locations"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "よく使う項目の中の本"
-          }
-        }
-      }
-    },
-    "Books in the libraries" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Books in the libraries"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ライブラリの本"
-          }
-        }
-      }
-    },
-    "Books in these folders" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Books in these folders"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "次のフォルダの中の本"
-          }
-        }
-      }
-    },
-    "Books in your libraries, in Favorite Locations and in the folders you add on the left appear here." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Books in your libraries, in Favorite Locations and in the folders you add on the left appear here."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ライブラリの本、よく使う項目の中の本、左で追加したフォルダの中の本がここに並びます。"
-          }
-        }
-      }
-    },
-    "Books to Include" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Books to Include"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "対象の本"
-          }
-        }
-      }
-    },
-    "Browse" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Browse"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ブラウザ"
           }
         }
       }
@@ -31210,40 +31475,6 @@
         }
       }
     },
-    "Collection" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Collection"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "コレクション"
-          }
-        }
-      }
-    },
-    "Delete Smart Library?" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Delete Smart Library?"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スマートライブラリを削除しますか?"
-          }
-        }
-      }
-    },
     "Deletes the registered metadata and goes back to the values read from the file name" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -31308,23 +31539,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "条件を編集…"
-          }
-        }
-      }
-    },
-    "Edit Smart Library" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Edit Smart Library"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スマートライブラリの編集"
           }
         }
       }
@@ -31515,23 +31729,6 @@
         }
       }
     },
-    "Metadata registered" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Metadata registered"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "メタデータを登録済み"
-          }
-        }
-      }
-    },
     "Metadata rules were replaced with the ones in the file." : {
       "extractionState" : "manual",
       "localizations" : {
@@ -31566,38 +31763,6 @@
         }
       }
     },
-    "New Smart Library" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "New Smart Library"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新規スマートライブラリ"
-          }
-        }
-      }
-    },
-    "New Smart Library…" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "New Smart Library…"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "新規スマートライブラリ…"
-          }
-        }
-      }
-    },
     "No books match" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -31628,23 +31793,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "並べる本がありません"
-          }
-        }
-      }
-    },
-    "Not registered" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Not registered"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "未登録"
           }
         }
       }
@@ -31749,23 +31897,6 @@
         }
       }
     },
-    "RAR" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "RAR"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "RAR"
-          }
-        }
-      }
-    },
     "Reading" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -31796,23 +31927,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "読書の状態"
-          }
-        }
-      }
-    },
-    "Registered" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Registered"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "登録済み"
           }
         }
       }
@@ -31948,23 +32062,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ファイル名がルールセットのどの型にも合わなかった本だけを表示します。右クリックで別のルールセットで読み直せます"
-          }
-        }
-      }
-    },
-    "Smart Libraries" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Smart Libraries"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スマートライブラリ"
           }
         }
       }
@@ -32169,23 +32266,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "登録を外して提案に戻す"
-          }
-        }
-      }
-    },
-    "ZIP" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ZIP"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ZIP"
           }
         }
       }
