@@ -232,7 +232,64 @@ ModelContext 1 つ・`upsertAll` の削除範囲)、書き出し(項目の追加
 注入、AppStores の OFF 経路。要求の外の付記: シークレットウインドウでもスマートライブラリの表紙が `savesToDisk` 既定 true でディスクに
 書かれる(ファイルブラウザは `!state.isPrivate`)。
 
+### 2026-09-22(2 回目のコード監査 ―― 監査と修正 `e4e65d5` 以降の 7 コミット)
+
+利用者の指示で、前回の監査の修正(`e4e65d5`)以降の 7 コミット(`74683c4`〜`ad71d4f`: 巻数の並べ替え用の数の書き出し、
+グリッドの選択とキー操作、リスト表示と type-select と一覧たどり、解析した本の全登録とロック)を、同じ観点(リソースリーク・
+クラッシュ・ハング・ファイル破損・ファイル消失・メモリとディスクの過大消費)で監査した。Swift の差分 4,321 行(アプリ側 55 ファイル +
+テスト 8 ファイル)を全部読み、疑った所は現行ファイル(`BookMetadataStore` / `SmartLibraryCatalog` / `MetadataWorkspace` / `AppState` /
+`CollectionStore` / `FileIO` / `PanelListScrollTracker` / `FileBrowserOutlineView`)と qooMeta のソース(checkout `fc1ccbf`)で裏を取った。
+Debug ビルドは通り警告 0。**テストは走らせていない**(テストホストがウインドウを出すので、利用者の作業中は避けた)。
+**クラッシュ・ファイル破損・ファイル消失に直結する欠陥は無し。** ハングとディスク増加の観点で直したいものが 1〜3、安価な防波堤を勧める
+ものが 4〜9。**どれもまだ直していない**(2026-09-22 時点)。
+
+1. **【中・ハング】一覧たどりの「次の本へ」「前の本へ」が、コレクションの本をメインで解決・存在確認し、見つからない本を飛ばして端まで
+   繰り返す**(`AppState.openInSequence` / `resolvedURL(for:)`)。`.collectionItem` は `CollectionStore.resolvedExistingURL`
+   (ブックマーク解決 + `fileExists`、メインで同期)。1 クリック 1 冊だった `CollectionDetailView.open` と違い、ここは**残りの候補すべて**を
+   ループするので、対象ボリュームが切断中だと「候補 N 冊 × ネットワークのタイムアウト」ぶんメインが止まる。`.file`(スマートライブラリ)は
+   `FileIO` の上だが候補を順に await するので N × タイムアウト(取り消しは候補の合間だけ)。直し方: 解決を FileIO へ(ブックマーク解決は
+   nonisolated)、かつ同じボリュームの本が連続で無いなら打ち切る、または `item.volumeUUID` を `BookLocationResolver.mountedVolumeUUIDs()`
+   で先に見る。
+2. **【中〜低・UI 停止(初回)】一括登録がメインで同期に走る。** 編集ウインドウを開くと `MetadataWorkspace.registerAll()` が一覧の全冊、
+   スマートライブラリの初回の集め直しが `SmartLibraryCatalog.registerParsed` で対象フォルダの全冊を、`upsertAll` 1 回で挿入・保存する
+   (Debug の写しなら 2,439 冊 + KnownBooks)。SwiftData の挿入数千件 + save 1 回 + `registeredBookIDs`(`@Published`)への 1 件ずつの
+   `insert`(そのたびに publish)で数秒固まりうる。2 回目以降は同値で書かないので一度だけ。**リリース前に写しのデータで実測する**
+   (遅ければ数百件ずつ区切る。`registeredBookIDs` はループの外で 1 度に差し替える)。
+3. **【低〜中・ディスク/一覧の肥大】自動登録の行は間引かれない。** 開いた本すべて(`ViewerViewModel` の `registerParsed`、ブックマーク +
+   inode 付き)とスマートライブラリの全冊に行ができるが、`LibraryDataPruner` は `BookMetadata` を見ない。読書位置は「データを保持する本の数」
+   で間引かれるのに行は永久に残り、`KnownBooks`(= 編集ウインドウの一覧 → 2 の `registerAll` の量と `ProposalIndex` のメモリ)と
+   「保存データの削除」の一覧が単調に増える。ロックも直した欄も無い行は再生成できるので、読書位置と一緒に間引いてよい。
+4. **【低・無限ループの防波堤】`registerParsed` の「揃っているので書かない」は、値が DB を往復して同じであることが前提**
+   (`record.values != book.metadata.trimmed` で判定し、書けば `revision` → 集め直し → 再判定)。著者名の中に改行がある(`authors` は
+   `"\n"` 区切りで保存)・`volumeSort` が NaN、のように往復で同じにならない値が 1 冊でもあると、ペインを出している間 400 ms ごとに
+   集め直しと DB 書き込みが止まらない。実際のファイル名では起きにくいが、直前に書いた値を控えて同じものは書かない、が 1 行で入る。
+5. 【低・見え方】編集ウインドウの `applyExternalChanges` は行の無い本を一覧から外す(`gone` → `removeBooks`)。(a) 全欄が空の本は DB に
+   行を作れない(`applyUpsert`)ので、bookID 無しの一括通知(スマートライブラリの登録・規則変更の読み直し)が届くたびに一覧から消える。
+   (b) 「メタデータを削除」の直後にスマートライブラリのペインが出ていると、次の集め直しで行が作り直され、削除が 0.5 秒で元に戻る
+   (一覧からは消えたまま)。設計どおり「覚えない」なら、少なくとも (a) は「行が無い = 消えた」ではなく「消された」を見分ける必要がある。
+6. 【低・下書き消失】`MetadataDraftStore.migrate` は `upsertAll` の save が失敗しても drafts.json を消す。`lastSaveErrorMessage` が nil の
+   ときだけ消す、で足りる。
+7. 【低・保存データの往復】`didImportSourceMetadata` が JSON に出ない(`ExportedBookMetadataEntry` は locked / edits / ruleSet のみ)。上書き
+   読み込み後、ロックしていない本は次に開いたときファイル内の書誌をもう一度重ねる(直した欄は残るので、「再生成」でファイル名の読みに戻した
+   欄だけが戻される)。また `MetadataEdits` が読めない形なら黙って直した欄を落として取り込む(コメントどおりの仕様だが警告は無い)。
+8. 【低・仕様のずれ】シークレットウインドウに出したスマートライブラリからも DB に行が書かれる。ビューアは `skipsPersistence` で登録を
+   止めるが、`SmartLibraryCatalog.registerParsed` はどのウインドウが出しているかを知らない(表紙のディスクキャッシュは
+   `savesToDisk: !isPrivateWindow` で分けている)。
+9. 【要実測】`BookSequence` 付きの `BookOpenRequest` が `openWindow(id:value:)` を通る。2,000 冊超の一覧から「新しいタブ/ウインドウで開く」
+   と、パス 2,000 件(≈ 300 KB)の JSON がシーンの値になる。上限は見つけていないが、実機で 1 度確かめる。
+
+問題なしと確かめたもの: `SmartLibraryListView`(`dismantleNSView` で閉包・delegate・メニューを切る。`Node` の同一性は束が筆頭著者だけで
+作られるので 1 冊が 2 束に入らない。`isApplying` で選択/並べ替えの往復を止め、`reloadData` 後の展開の復元も整合。アイコンは UTType 経由で
+ファイルに触れない)。編集ウインドウ ↔ スマートライブラリ ↔ 規則変更の書き合い(通知は `upsertAll` の中で同期に post され `isWritingBack`
+で弾ける。ロックしていない行の値の差は見ないので往復は有限。`onlyIfUnlocked` と行の再確認は await の後にも行う。`reparseUnlockedRows` の
+取り消しは `CancellationError` → 空 → 何も書かない)。qooMeta は知らないルールセット名を既定へ落とす(`presets[name] ?? presets[default]`。
+DB/JSON 由来の任意の文字列で落ちない)。`FileIO.perform` は呼び出しごとに別キューで、1 つの `fileExists` の詰まりが他を塞がない。
+`StoreSchemaGuard` の世代・開き直しのテスト・`BookMetadataValues.trimmed` の往復・書き出しの `exportableVolumeSort`(NaN/巨大値を弾く)・
+`Int("4.5")` → Volume 省略。`PanelListScrollTracker` の `reveal` は「0.5 pt 以内なら動かさない」で収束し、`onScrollGeometryChange` との
+循環は無い。
+
 ### 残り(次の人へ)
 
-- スマートライブラリ: 表紙の大きさのピンチ、選択と複数冊の右クリック、左ペインの折りたたみは未実装。
+- **2 回目の監査(上)の 1〜9 を直す。1・2・3 を先に。** 2 と 9 は写しのデータで実測してから。
+- スマートライブラリ: 表紙の大きさのピンチ、左ペインの折りたたみは未実装(選択と複数冊の右クリックは 2026-09-22 に入った)。
 - README / MANUAL / CHANGELOG([Unreleased]) / CLAUDE.md は 2026-09-22 に一式更新した(利用者の指示)。以後の変更も同じ組で直す。
