@@ -197,7 +197,14 @@ final class FileBrowserThumbnailProvider: ObservableObject {
 
     /// 絵にしたことのある本の表紙の指定が変わったら頼み直させる(`shelfSignatures`)。
     private func handleLayoutChange(bookID: String?) {
-        guard let bookID, let previous = shelfSignatures[bookID] else { return }
+        // bookID の無い知らせ(全削除・付け替え・読み込み)では、控えのある本を全部比べる(2026-09-22 の監査。以前は捨てていた)。
+        guard let bookID else {
+            for id in shelfSignatures.keys.sorted() where shelfSignatures[id] != shelfSignature(forBookID: id) {
+                handleLayoutChange(bookID: id)
+            }
+            return
+        }
+        guard let previous = shelfSignatures[bookID] else { return }
         let current = shelfSignature(forBookID: bookID)
         guard current != previous else { return }
         shelfSignatures[bookID] = current

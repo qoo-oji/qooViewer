@@ -126,7 +126,10 @@ nonisolated struct BookExistenceProbe: Sendable {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue,
               // 読めないフォルダ(アクセス権が無い)は、本かどうか分からない。isSingleBookFolder はそこでも false を返すので先に弾く。
-              (try? FileManager.default.contentsOfDirectory(atPath: path)) != nil
+              let contents = try? FileManager.default.contentsOfDirectory(atPath: path),
+              // 空のフォルダも本ではないと言い切らない(2026-09-22 の監査。画像を並べ替えるためにいったん外へ出した・同期の途中、の
+              // 本のフォルダの保存データ一式を消しかねない)。隠しファイルだけのフォルダも空とみなす。
+              contents.contains(where: { !$0.hasPrefix(".") })
         else { return false }
         return !ShelfFolderResolver.isSingleBookFolder(URL(fileURLWithPath: path, isDirectory: true))
     }
@@ -174,6 +177,10 @@ struct BookSavedDataEraser {
         }
         // 読書履歴だけは、本ごとではなく最後にまとめて消す(deleteReadingStates 参照)。
         deleteReadingStates(forBookIDs: Set(bookIDs))
+        // ページ一覧のキャッシュ(本のパスとページ名を持つ)も消す(2026-09-22 の監査)。テストの中では共有のキャッシュに触らない。
+        if !RuntimeEnvironment.isRunningTests {
+            Task { await BookPageListCache.shared.remove(forBookIDs: bookIDs) }
+        }
     }
 
     /// 読書履歴の削除。BookReadingStateは専用のストアクラスを持たず(ViewerViewModelが直接

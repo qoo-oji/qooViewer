@@ -19,7 +19,7 @@ struct NonBookFolderSweeperTests {
         Set(try library.context.fetch(FetchDescriptor<BookReadingState>()).map(\.bookID))
     }
 
-    @Test("棚・空のフォルダの保存データは消え、画像フォルダ・章ごとの画像フォルダ・見つからないフォルダ・書庫は残る")
+    @Test("棚の保存データは消え、空のフォルダ・画像フォルダ・章ごとの画像フォルダ・見つからないフォルダ・書庫は残る")
     func onlyFoldersConfirmedNotToBeBooksAreSwept() async throws {
         let library = try InMemoryLibrary(label: "non-book-sweep")
         defer { library.close() }
@@ -47,8 +47,9 @@ struct NonBookFolderSweeperTests {
             layoutStore: library.layouts, metadataStore: library.metadata,
             folderAccess: FolderAccessStore(defaults: suite.defaults), modelContext: library.context)
 
-        #expect(swept == 2)
-        let kept: Set = [imageFolder.path, chapters.path, gone, archive]
+        // 空のフォルダは、画像をいったん外へ出しただけの本かもしれないので消さない(2026-09-22 の監査)。
+        #expect(swept == 1)
+        let kept: Set = [empty.path, imageFolder.path, chapters.path, gone, archive]
         #expect(library.metadata.registeredBookIDs == kept)
         #expect(try readingStateIDs(library) == kept)
     }

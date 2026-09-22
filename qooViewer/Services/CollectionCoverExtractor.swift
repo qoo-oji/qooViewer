@@ -577,7 +577,14 @@ final class CollectionCoverExtractor: ObservableObject {
 
     /// レイアウトの変更通知。カバーに関わる値が実際に変わっている本だけをやり直す。
     private func handleLayoutChange(bookID: String?) {
-        guard let bookID else { return }
+        // bookID の無い知らせ(レイアウトの全削除・付け替え・読み込み)では、控えのある本を全部比べる(2026-09-22 の監査。以前は
+        // 捨てていて、表紙の指定を全部消しても棚の表紙が古いままだった)。比べるのは DB の値だけで、ファイルには触らない。
+        guard let bookID else {
+            for id in signatures.keys.sorted() where signatures[id] != signature(forBookID: id) {
+                handleLayoutChange(bookID: id)
+            }
+            return
+        }
         guard isLibraryFeatureEnabled else {
             rememberChangeWhileDisabled(bookID: bookID)
             return

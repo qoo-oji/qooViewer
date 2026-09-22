@@ -326,6 +326,15 @@ actor BookPageListCache {
         }
     }
 
+    /// 1 冊ぶんを捨てる(本ごとの保存データの削除。中身は本のパスとページ名なので、保存データを消したのに残すと消え残りになる。
+    /// 2026-09-22 の監査)。
+    @concurrent nonisolated func remove(forBookIDs bookIDs: [String]) async {
+        for bookID in bookIDs {
+            guard let url = fileURL(forBookID: bookID) else { continue }
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
     /// キャッシュを丸ごと捨てる(環境設定「リセット」タブの一括削除、および「キャッシュ」タブの
     /// 「ページ一覧のキャッシュを今すぐ削除」から呼ばれる)。
     func removeAll() {
