@@ -38,6 +38,8 @@ struct ProgressBarView: View {
     /// フィルムストリップの代わりにカーソル位置に対応するページ番号だけを表示するシンプルな
     /// 表示にする(hoverPageNumberBadge参照。サムネイルの読み込み自体も行わなくなる)。
     @EnvironmentObject private var preferences: AppPreferences
+    /// 外観タブの設定。本のウインドウではそのウインドウの揃い(ノーマル/シークレット。ContentView が渡す)。
+    @EnvironmentObject private var appearance: AppearanceSettings
 
     /// ホバー中のページ番号(0-indexed)。ホバーしていないときはnil。
     @State private var hoverIndex: Int?
@@ -139,14 +141,14 @@ struct ProgressBarView: View {
     /// フィルムストリップに一度に並べる枚数(環境設定。既定9枚)。
     /// UserDefaultsを直接書き換えられていた場合に備えて、ここでも範囲へ丸める。
     private var filmstripVisibleCount: Int {
-        let range = AppPreferences.filmstripThumbnailCountRange
-        let clamped = min(max(preferences.filmstripThumbnailCount, range.lowerBound), range.upperBound)
+        let range = AppearanceSettings.filmstripThumbnailCountRange
+        let clamped = min(max(appearance.filmstripThumbnailCount, range.lowerBound), range.upperBound)
         return Int(clamped.rounded())
     }
 
     /// カーソル直下のセルの強調に使う色(環境設定。既定はアクセントカラー)。
     /// 枠線・光彩・ページ番号バッジの3つに同じ色を使う。
-    private var highlightColor: Color { preferences.effectiveFilmstripHighlightColor }
+    private var highlightColor: Color { appearance.effectiveFilmstripHighlightColor }
 
     /// 強調色で塗ったページ番号バッジに載せる文字の色。
     ///
@@ -163,10 +165,10 @@ struct ProgressBarView: View {
     /// サムネイルに添える文字(ファイル名・ページ番号・書庫内の相対パス)の大きさ(環境設定)。
     /// 既定の10ptは、設定にする前に使っていた`.caption`/`.caption2`の実寸そのもの
     /// (macOSではこの2つはどちらも10ptなので、既定値のままなら見た目は変わらない)。
-    private var labelFont: Font { .system(size: preferences.filmstripFontSize) }
+    private var labelFont: Font { .system(size: appearance.filmstripFontSize) }
 
     /// カーソル直下のセル**以外**を暗くするか(環境設定。既定ON=従来どおり)。
-    private var dimsOtherPages: Bool { preferences.filmstripDimsOtherPages }
+    private var dimsOtherPages: Bool { appearance.filmstripDimsOtherPages }
 
     /// 右開きのときは、本のページ順と同様にバーも右から左へ進むようにする
     private var isRightToLeft: Bool { viewModel.readingDirection == .rightToLeft }
@@ -258,7 +260,7 @@ struct ProgressBarView: View {
                             // デコードもフィルムストリップの再描画コストも伴わないため、上記の
                             // 「1pxごとには更新しない」制約を適用する必要がない
                             // (詳細はhoverXPositionのコメント参照)。
-                            if !preferences.showProgressBarThumbnailPreview {
+                            if !appearance.showProgressBarThumbnailPreview {
                                 hoverXPosition = location.x
                             }
                         case .ended:
@@ -278,14 +280,14 @@ struct ProgressBarView: View {
                                     hoverIndex = index
                                     hoverSlot = slot
                                 }
-                                if !preferences.showProgressBarThumbnailPreview {
+                                if !appearance.showProgressBarThumbnailPreview {
                                     hoverXPosition = value.location.x
                                 }
                             }
                     )
 
                 if let hoverIndex {
-                    if preferences.showProgressBarThumbnailPreview {
+                    if appearance.showProgressBarThumbnailPreview {
                         filmstrip(centeredOn: hoverIndex, slot: hoverSlot, totalWidth: geo.size.width)
                             .position(x: geo.size.width / 2, y: -(filmstripHeight(for: geo.size.width) / 2 + filmstripBottomGap))
                             .allowsHitTesting(false)
@@ -353,7 +355,7 @@ struct ProgressBarView: View {
         // 文字の大きさを設定で変えられるので、1行ぶんの高さもそれに追随させる
         // (固定の20ptのままだと、大きくしたときにラベルがバーへ重なる)。
         // +10ptは上下のpadding(1pt×2)と行間の余裕で、既定の10ptのときに従来と同じ20ptになる。
-        let labelHeight = preferences.filmstripFontSize + 10
+        let labelHeight = appearance.filmstripFontSize + 10
         let labelSpacing: CGFloat = 3
         let safetyMargin: CGFloat = 24
         // ファイル名ラベル1行 + ページ番号ラベル1行の、合計2行分の高さを確保する。
@@ -467,7 +469,7 @@ struct ProgressBarView: View {
         let height = cellHeight(forCellWidth: cellWidth)
 
         let location = pageLocation(at: index)
-        let captionStyle = preferences.filmstripCaptionStyle
+        let captionStyle = appearance.filmstripCaptionStyle
         // 「カーソル位置以外を暗くする」がOFFのときは、暗くする側の値を一切使わない
         // (=すべてのセルがカーソル直下と同じ明るさで並ぶ)。強調は枠・光彩・
         // ページ番号バッジの色だけが担う。
@@ -524,7 +526,7 @@ struct ProgressBarView: View {
                 RoundedRectangle(cornerRadius: 5)
                     .strokeBorder(
                         isHighlighted ? highlightColor : Color.white.opacity(0.25),
-                        lineWidth: isHighlighted ? preferences.filmstripHighlightBorderWidth : 1
+                        lineWidth: isHighlighted ? appearance.filmstripHighlightBorderWidth : 1
                     )
             )
             // いま開いているページ(ビューアに表示中のページ)の印。フィルムストリップには
@@ -546,7 +548,7 @@ struct ProgressBarView: View {
                         .strokeBorder(Color.white, style: StrokeStyle(lineWidth: 2, dash: [5, 3]))
                         // 白いページの上でも破線が消えないように、輪郭代わりの薄い影を敷く。
                         .shadow(color: .black.opacity(0.8), radius: 1)
-                        .padding(isHighlighted ? preferences.filmstripHighlightBorderWidth : 1)
+                        .padding(isHighlighted ? appearance.filmstripHighlightBorderWidth : 1)
                 }
             }
             .shadow(

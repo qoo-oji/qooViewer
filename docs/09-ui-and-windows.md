@@ -274,7 +274,10 @@ AppState を参照しない作り(参照するとページ送りのたびに本�
   すりガラス面の輪郭をどう描いているかは [15](15-file-browser.md)。
 - 本を開いていない間はサイドパネルを出さない(`ContentView.isSidePanelSuppressedForWelcome`)。
   以前は「ウェルカム画面でも表示する」で選べたが、ファイルブラウザと同時に見せないため設定ごと撤去した。
-  「View」→「Hide Side Panel」も本を開いていない間はグレーアウト。
+  「View」→「Hide Side Panel」も本を開いていない間はグレーアウト。例外は**ライブラリとファイルブラウザを両方 OFF にしている間**
+  (`WelcomeMode.classic`)で、v1.42 までと同じく本を開いていなくても出し、ホームの「View」メニューにも「Hide Side Panel」を置く
+  (2026-09-22、ユーザー要望。ファイルブラウザと二重にならず、その画面には本を探す口が「開く…」と最近開いた本しか無い)。
+  モードが切り替わってホバー表示のパネルが浮いたまま残らないよう、`onChange(of: welcomeLibrary.mode)` で下ろす。
 - 旧 `WelcomeView.swift`(`WelcomeQuickOpen*` の列幅計算)は削除した。
 
 ### メニューバーのホーム画面の項目
@@ -412,4 +415,34 @@ AppState を参照しない作り(参照するとページ送りのたびに本�
   `Menu` はコードから開けない)。メニューバー版は SwiftUI の `Menu` のネスト。
 - 外観(ライト/ダーク)は `NSApp.appearance`(`.preferredColorScheme` は AppKit のダイアログや
   Dock メニューに届かない)。「コントラストを上げる」に追従する。
+- **ノーマルウインドウとシークレットウインドウで別の外観**(2026-09-22、ユーザー要望)。外観タブの設定は**全部**
+  `AppearanceSettings`(`AppPreferences` から切り出した)にあり、ノーマル用(`preferences.appearance`、従来のキー)と
+  シークレット用(`preferences.privateAppearance`、キーの末尾に `.privateWindow`)の 2 揃いが同時に生きている。
+  「シークレットウインドウに固有の外観を適用」(`privateWindowsUseOwnAppearance`、既定 OFF、どの「初期設定に戻す」でも戻さない)が
+  OFF ならシークレットもノーマルの揃い。初めて ON にしたときだけシークレットの揃いをノーマルの写しから始め、OFF にしても消さない。
+  - 読む側は `@EnvironmentObject var appearance: AppearanceSettings` だけを見る。どのシーンにもノーマルの揃いを渡し
+    (`QooViewerApp` の `.environmentObject(preferences.appearance)`)、本のウインドウだけ `ContentView.body` がそのウインドウの揃い
+    (`preferences.appearance(forPrivateWindow:)`)で上書きする。環境設定・補助ウインドウ・メニューバーはノーマルのまま(ユーザーの決定)。
+  - シークレットの揃いのライト/ダークは、そのウインドウに `.preferredColorScheme` で掛ける(`WindowAppearance`)。
+    `NSWindow.appearance` を AppKit で入れても、SwiftUI が更新のたびに(`AppKitWindowController.hostingView(_:willUpdate:)`)nil へ
+    書き戻す(KVO で実測)。揃いが「システムに従う」でアプリ全体が決め打ちのときは、`AppleInterfaceStyle` と分散通知
+    `AppleInterfaceThemeChangedNotification` でシステムの外観を引く(`SystemAppearanceObserver`)。ColorScheme では高コントラスト版を
+    指定できないので、その揃いを明示指定にしたシークレットウインドウは「コントラストを上げる」に追従しない。原寸表示のウインドウは
+    元のウインドウの `appearance` を継ぐ。
+  - 環境設定「外観」は、スイッチが ON の間だけ「編集する外観」(`SettingsNavigator.editingAppearanceProfile`、外観の画面を離れると
+    ノーマルへ戻る)で編集する揃いを選び、子ページも含めて全部がその揃いを編集する。「初期設定に戻す」は編集中の揃いだけを戻す
+    (`AppearanceSettings.resetToDefaults()`。`AppPreferences.keys(for: .appearance)` は空)。
+- **シークレットウインドウの目印**(環境設定「外観」→「ウインドウ」、`AppPreferences.privateWindowTitlePrefix`。2026-09-22、ユーザー要望)は
+  シークレットウインドウのタイトルの先頭の文字。nil = 既定の「(シークレット)」(表示言語に従う。カタログの `"(Private) %@"`)、
+  空 = 何も付けない(タイトルバーの色で見分けられるようになったため)、それ以外はそのまま(絵文字も可。欄の右のボタンは
+  欄へ焦点を移してから文字ビューアを開く)。外観の揃いではなくアプリ全体で1つで、「初期設定に戻す」では戻さず行の矢印で既定へ戻す。
+  矢印は出し入れせず透明にして場所を取っておく ―― 出し入れで行の幅が変わると `SettingRow` の `ViewThatFits` が段組みを切り替えて
+  欄を作り直し、1文字目で焦点が外れた(実機で確認)。
+- **タイトルバーの色**(環境設定「外観」→「アプリ全体」、`AppearanceSettings.titleBarColor`。nil = 標準。2026-09-22)は本のウインドウ
+  (ContentView)だけに効く。塗り方は `WindowTitleBarColor`: タイトルバーを透明にして `NSWindow.backgroundColor` を見せる。
+  透明にするのは SwiftUI の `.toolbarBackgroundVisibility(.hidden, for: .windowToolbar)` ―― AppKit で `titlebarAppearsTransparent`
+  を立てても、SwiftUI が更新のたびに(`BarAppearanceBridge.updateWindowToolbar`)false へ書き戻す(KVO で呼び出し元まで実測)。
+  地の色は内容が塗っていない場所(すりガラス無しのホーム)にも透けるので、色を指定している間は内容の最下層に
+  `windowBackgroundColor` を敷く。`.fullSizeContentView` を外してある(ツールバーを隠したときの不具合対策。ContentView の WindowAccessor のコメント)ので、SwiftUI の中身で
+  タイトルバーの下を塗る方法は採れない。タブバーの帯も同じ色になる。文字の色は外観モードに従い、公開 API では変えられない。
 - トースト(`showToast`)、拡大率表示、「情報を見る」は面 `overlays` に属する。

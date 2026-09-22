@@ -233,7 +233,7 @@ while off are remembered in UserDefaults and get their covers redone when it is 
 video thumbnail warmer stop (`AppStores.applyFileBrowserFeature`). The two flags together pick the Home layout in one
 place, `WelcomeLibraryState.constrained`: both on = as before, library only = the pre-file-browser shelf (v1.50–v1.56: the top bar gets its Open Book… / Open from History buttons back), file browser
 only = the pane with no top bar, both off = `WelcomeMode.classic`, the pre-bookshelf welcome screen restored as
-`ClassicWelcomeView` (and no Home menu). `.classic` is never a user choice and forced modes are never saved. New file
+`ClassicWelcomeView` (and no Home menu; the side panel is shown there without a book, as in v1.42 — `ContentView.isSidePanelSuppressedForWelcome`, 2026-09-22). `.classic` is never a user choice and forced modes are never saved. New file
 browser entry points must check the flag (docs/15「ファイルブラウザ機能の ON/OFF」) — including `Window` scenes, which add
 themselves to the Window menu unless `.commandsRemoved()` (the Auto Rename Settings window also closes itself when the
 flag goes off). The favorites feature is hidden behind
@@ -254,6 +254,17 @@ kept each closed book window's AppState/ViewerViewModel/PageLoader/NSWindow aliv
 fixed 2026-09-13). Same rule for `NSViewRepresentable` callbacks (clear them in `dismantleNSView`) and
 `NSTrackingArea(owner: self)`. Leaks here are silent — verify with `heap`/`footprint` as in
 `docs/12-verification-and-debugging.md`. Details in `docs/09-ui-and-windows.md`.
+
+**Appearance settings come in two sets** (2026-09-22): everything on Settings ▸ Appearance lives in
+`AppearanceSettings` (ViewModels/AppearanceSettings.swift), not `AppPreferences` — `preferences.appearance` (normal
+windows, the original keys) and `preferences.privateAppearance` (private windows, same keys + `.privateWindow`), switched by
+`privateWindowsUseOwnAppearance` (default OFF). Views read `@EnvironmentObject var appearance: AppearanceSettings`: every
+scene injects the normal set next to `preferences`, and `ContentView.body` overrides it with the window's own set, so a new
+scene that injects `preferences` must inject `preferences.appearance` too (a missing environment object crashes). A new
+appearance setting goes into `AppearanceSettings` (`allKeys` + `copyValues`; `AppearanceSettingsTests` names what you
+missed). Per-window light/dark and the title-bar color go through SwiftUI (`.preferredColorScheme`,
+`.toolbarBackgroundVisibility(.hidden, for: .windowToolbar)` in Views/WindowChrome.swift): setting `NSWindow.appearance` or
+`titlebarAppearsTransparent` from AppKit is written back by SwiftUI on the next update (measured with KVO).
 
 **EPUB/PDF layout is a seed, not an authority**: when a book carries `MangaBook.sourceLayoutHint` (page
 progression direction / forced spread) or per-page spread hints, those are imported into the database

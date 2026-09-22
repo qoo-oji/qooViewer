@@ -236,6 +236,18 @@ struct QooViewerApp: App {
         }
     }()
 
+    /// 表示メニューの「サイドパネルを隠す」。本を開いている間の項目と、両方OFFのホームの項目で共用する(呼ぶ側が
+    /// 環境設定「サイドパネルを有効にする」を見て、OFFなら丸ごと省く)。
+    private var hideSidePanelToggle: some View {
+        Toggle(
+            "Hide Side Panel",
+            isOn: Binding(
+                get: { menuCheckmarkState?.hideSidePanel ?? false },
+                set: { focusedAppState?.hideSidePanel = $0 }
+            )
+        )
+    }
+
     /// 本を表示しているとき(と本棚)の「移動」メニューの中身。ファイルブラウザの間は FileBrowserGoMenuItems に入れ替わる。
     @ViewBuilder
     private var viewerMoveMenuItems: some View {
@@ -539,6 +551,7 @@ struct QooViewerApp: App {
             // ウインドウはOSの言語のまま残っていた(監査で発覚)。
             .environment(\.locale, currentLocale)
             .environmentObject(preferences)
+            .environmentObject(preferences.appearance)
             .environmentObject(keyBindingStore)
             .environmentObject(recentFiles)
             .environmentObject(folderAccess)
@@ -586,6 +599,7 @@ struct QooViewerApp: App {
             FavoritesOrganizerView(favoritesStore: favoritesStore)
                 .environmentObject(launchCoordinator)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
         .handlesExternalEvents(matching: [])
@@ -613,6 +627,7 @@ struct QooViewerApp: App {
                 .environmentObject(favoriteLocations)
                 .environmentObject(folderAccess)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
         .handlesExternalEvents(matching: [])
@@ -981,6 +996,11 @@ struct QooViewerApp: App {
                         isFileBrowserFeatureEnabled: preferences.fileBrowserFeatureEnabled,
                         home: menuCheckmarkState?.homeMenu ?? HomeMenuState(), appState: focusedAppState
                     )
+                    // ライブラリとファイルブラウザが両方OFFのホーム(本棚を足す前のウェルカム画面)ではサイドパネルが出る
+                    // (ContentView.isSidePanelSuppressedForWelcome)ので、v1.42 までと同じく「サイドパネルを隠す」を置く。
+                    if preferences.sidePanelFeatureEnabled && menuCheckmarkState?.homeMenu.mode == .classic {
+                        hideSidePanelToggle
+                    }
                 } else {
                     let hasBook = focusedAppState?.currentBook != nil
 
@@ -1020,17 +1040,10 @@ struct QooViewerApp: App {
                     // 状態でこの項目だけ残しても意味が無いため(ユーザー要望)。Commandsも
                     // ViewBuilderと同様に結果ビルダーのため、if で丸ごと省ける。
                     if preferences.sidePanelFeatureEnabled {
-                        Toggle(
-                            "Hide Side Panel",
-                            isOn: Binding(
-                                get: { menuCheckmarkState?.hideSidePanel ?? false },
-                                set: { focusedAppState?.hideSidePanel = $0 }
-                            )
-                        )
                         // 本を開いていない間はどちらに倒してもパネルは出てこないため
                         // (ContentView.isSidePanelSuppressedForWelcome)、hideToolbar/hideProgressBarと
                         // 同じくグレーアウトする(効かない設定を触れるままにしない)。
-                        .disabled(!hasBook)
+                        hideSidePanelToggle.disabled(!hasBook)
                     }
 
                     Divider()
@@ -1548,6 +1561,7 @@ struct QooViewerApp: App {
         Settings {
             SettingsView()
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environmentObject(keyBindingStore)
                 .environmentObject(folderAccess)
                 // 環境設定「ファイルブラウザ」の起動時のフォルダで、よく使う項目から選ばせる。
@@ -1617,6 +1631,7 @@ struct QooViewerApp: App {
                 .environmentObject(layoutStore)
                 .environmentObject(launchCoordinator)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
         .handlesExternalEvents(matching: [])
@@ -1638,6 +1653,7 @@ struct QooViewerApp: App {
                 .environmentObject(collectionStore)
                 .environment(metadataRulesStore)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
         .handlesExternalEvents(matching: [])
@@ -1651,6 +1667,7 @@ struct QooViewerApp: App {
             ShelfCoverExportWindow()
                 .environmentObject(layoutStore)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
         .handlesExternalEvents(matching: [])
@@ -1669,6 +1686,7 @@ struct QooViewerApp: App {
                 .environmentObject(favoritesStore)
                 .environmentObject(collectionStore)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
                 .modelContext(QooViewerApp.modelContainer.mainContext)
         }
@@ -1685,6 +1703,7 @@ struct QooViewerApp: App {
                 .environmentObject(collectionCoverExtractor)
                 .environment(metadataRulesStore)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
         .handlesExternalEvents(matching: [])
@@ -1698,6 +1717,7 @@ struct QooViewerApp: App {
                 .environmentObject(metadataStore)
                 .environmentObject(collectionStore)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
         .handlesExternalEvents(matching: [])
@@ -1764,6 +1784,7 @@ struct QooViewerApp: App {
                 .environmentObject(favoritesStore)
                 .environmentObject(collectionStore)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .modelContainer(QooViewerApp.modelContainer)
                 .environment(\.locale, locale)
         }
@@ -1801,6 +1822,7 @@ struct QooViewerApp: App {
                 .environmentObject(metadataStore)
                 .environmentObject(collectionStore)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
         .handlesExternalEvents(matching: [])
@@ -1817,6 +1839,7 @@ struct QooViewerApp: App {
                 .environmentObject(metadataStore)
                 .environmentObject(collectionStore)
                 .environmentObject(preferences)
+                .environmentObject(preferences.appearance)
                 .environment(\.locale, locale)
         }
         .handlesExternalEvents(matching: [])

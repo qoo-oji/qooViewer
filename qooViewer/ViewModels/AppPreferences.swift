@@ -29,24 +29,13 @@ final class AppPreferences: ObservableObject {
         static let invertTwoFingerScrolling = "qooViewer.pref.invertTwoFingerScrolling"
         static let quitWhenLastWindowClosed = "qooViewer.pref.quitWhenLastWindowClosed"
         static let singlePageAspectRatioThreshold = "qooViewer.pref.singlePageAspectRatioThreshold"
-        static let backgroundColorOption = "qooViewer.pref.backgroundColorOption"
-        static let customBackgroundColor = "qooViewer.pref.customBackgroundColor"
         static let cursorAutoHideDelay = "qooViewer.pref.cursorAutoHideDelay"
-        static let toolbarRevealDelay = "qooViewer.pref.toolbarRevealDelay"
-        static let progressBarRevealDelay = "qooViewer.pref.progressBarRevealDelay"
-        static let sidePanelRevealDelay = "qooViewer.pref.sidePanelRevealDelay"
-        static let toolbarDockedGlass = "qooViewer.pref.toolbarDockedGlass"
-        static let progressBarDockedGlass = "qooViewer.pref.progressBarDockedGlass"
-        static let sidePanelDockedGlass = "qooViewer.pref.sidePanelDockedGlass"
-        static let welcomeGlass = "qooViewer.pref.welcomeGlass"
-        static let collectionCoverCaptionStyle = "qooViewer.pref.collectionCoverCaptionStyle"
-        static let collectionCoverCaptionFontSize = "qooViewer.pref.collectionCoverCaptionFontSize"
-        static let collectionTileNameFontSize = "qooViewer.pref.collectionTileNameFontSize"
-        static let collectionTileBadgeSize = "qooViewer.pref.collectionTileBadgeSize"
-        static let collectionTileBackgroundColor = "qooViewer.pref.collectionTileBackgroundColor"
         static let prefetchPageCount = "qooViewer.pref.prefetchPageCount"
         static let displayLanguage = AppLanguage.defaultsKey
-        static let appAppearance = "qooViewer.pref.appAppearance"
+        static let privateWindowsUseOwnAppearance = "qooViewer.pref.privateWindowsUseOwnAppearance"
+        static let privateWindowTitlePrefix = "qooViewer.pref.privateWindowTitlePrefix"
+        /// シークレットの揃いをノーマルの値から始めたかどうか(設定ではなく記録。privateWindowsUseOwnAppearance参照)。
+        static let privateAppearanceInitialized = "qooViewer.pref.privateAppearanceInitialized"
         static let reopenBehavior = "qooViewer.pref.reopenBehavior"
         static let confirmBeforeClosingMultipleTabsWindow =
             "qooViewer.pref.confirmBeforeClosingMultipleTabsWindow"
@@ -77,37 +66,16 @@ final class AppPreferences: ObservableObject {
         static let fileBrowserImageFolderOpenAction = "qooViewer.pref.fileBrowser.imageFolderOpenAction"
         static let sidePanelPosition = "qooViewer.pref.sidePanelPosition"
         static let sidePanelMode = "qooViewer.pref.sidePanelMode"
-        static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
-        /// プログレスバーのフィルムストリップの見た目(ユーザー要望)。上のON/OFFと同じく
-        /// 環境設定「外観」の「プログレスバーのフィルムストリップ」セクションに並ぶ。
-        static let filmstripThumbnailCount = "qooViewer.pref.filmstripThumbnailCount"
-        static let filmstripFontSize = "qooViewer.pref.filmstripFontSize"
-        static let filmstripCaptionStyle = "qooViewer.pref.filmstripCaptionStyle"
-        static let filmstripDimsOtherPages = "qooViewer.pref.filmstripDimsOtherPages"
-        static let filmstripHighlightColorOption = "qooViewer.pref.filmstripHighlightColorOption"
-        static let filmstripHighlightCustomColor = "qooViewer.pref.filmstripHighlightCustomColor"
-        static let filmstripHighlightBorderWidth = "qooViewer.pref.filmstripHighlightBorderWidth"
         static let offersRemovingMissingCollectionBooks =
             "qooViewer.pref.offersRemovingMissingCollectionBooks"
         static let libraryFeatureEnabled = "qooViewer.pref.libraryFeatureEnabled"
         static let fileBrowserFeatureEnabled = "qooViewer.pref.fileBrowserFeatureEnabled"
         static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
-        static let thumbnailGridCellSize = "qooViewer.pref.thumbnailGridCellSize"
-        static let thumbnailGridHorizontalSpacing = "qooViewer.pref.thumbnailGridHorizontalSpacing"
-        static let thumbnailGridVerticalSpacing = "qooViewer.pref.thumbnailGridVerticalSpacing"
-        static let thumbnailGridHorizontalMarginPercent = "qooViewer.pref.thumbnailGridHorizontalMarginPercent"
-        static let thumbnailGridVerticalMarginPercent = "qooViewer.pref.thumbnailGridVerticalMarginPercent"
-        static let showThumbnailHoverPreview = "qooViewer.pref.showThumbnailHoverPreview"
         static let thumbnailHoverPreviewDelay = "qooViewer.pref.thumbnailHoverPreviewDelay"
         static let thumbnailHoverPreviewSize = "qooViewer.pref.thumbnailHoverPreviewSize"
         static let preloadThumbnailGridPreviews = "qooViewer.pref.preloadThumbnailGridPreviews"
         static let defaultReadingDirection = "qooViewer.pref.defaultReadingDirection"
         static let spreadBookmarkTargetBehavior = "qooViewer.pref.spreadBookmarkTargetBehavior"
-        static let thumbnailGridCaptionStyle = "qooViewer.pref.thumbnailGridCaptionStyle"
-        static let thumbnailGridCaptionFontSize = "qooViewer.pref.thumbnailGridCaptionFontSize"
-        static let thumbnailGridBorderColorOption = "qooViewer.pref.thumbnailGridBorderColorOption"
-        static let thumbnailGridBorderCustomColor = "qooViewer.pref.thumbnailGridBorderCustomColor"
-        static let thumbnailGridWheelScrollRows = "qooViewer.pref.thumbnailGridWheelScrollRows"
         static let launchInPrivateMode = "qooViewer.pref.launchInPrivateMode"
         static let thumbnailDiskCacheEnabled = "qooViewer.pref.thumbnailDiskCacheEnabled"
         static let thumbnailDiskCacheLimitMB = "qooViewer.pref.thumbnailDiskCacheLimitMB"
@@ -141,20 +109,6 @@ final class AppPreferences: ObservableObject {
         /// EPUB/PDFには対応する概念が無い。CbzExportOptions.writesVolumeElement参照)。
         static let bookExportWritesVolumeElement = "qooViewer.pref.bookExport.cbz.writesVolumeElement"
 
-        /// すりガラスの面ごとの設定(PanelSurface参照)。面の識別子ごとに3つのキーへ分かれる。
-        /// 面を1つ増やしてもここは触らなくてよい(PanelSurface.allCasesから導出される)。
-        static func panelSurfaceMaterialOpacity(_ surface: PanelSurface) -> String {
-            "qooViewer.pref.surface.\(surface.rawValue).materialOpacity"
-        }
-        static func panelSurfaceTintColor(_ surface: PanelSurface) -> String {
-            "qooViewer.pref.surface.\(surface.rawValue).tintColor"
-        }
-        static func panelSurfaceTintOpacity(_ surface: PanelSurface) -> String {
-            "qooViewer.pref.surface.\(surface.rawValue).tintOpacity"
-        }
-        static func panelSurfaceContentShadowLevel(_ surface: PanelSurface) -> String {
-            "qooViewer.pref.surface.\(surface.rawValue).contentShadowLevel"
-        }
     }
 
     /// 設定の保存先。通常はアプリの`UserDefaults.standard`で、テストだけが専用の
@@ -272,177 +226,78 @@ final class AppPreferences: ObservableObject {
             defaults.set(singlePageAspectRatioThreshold, forKey: Keys.singlePageAspectRatioThreshold)
         }
     }
-    /// ビューワーの背景色(プリセット、または「カスタム」)
-    @Published var backgroundColorOption: BackgroundColorOption {
-        didSet { defaults.set(backgroundColorOption.rawValue, forKey: Keys.backgroundColorOption) }
-    }
-    /// `backgroundColorOption`が`.custom`のときに使う、ユーザーが自分で指定した背景色。
-    /// 環境設定「外観」の「ビューア」→「背景色」で「カスタム」を選ぶと開くダイアログ
-    /// (CustomColorPickerSheet)で編集する。
-    ///
-    /// プリセット側(`backgroundColorOption`)とは独立に保存しているので、いったんプリセットの
-    /// 黒に戻してから再び「カスタム」を選び直しても、作った色はそのまま残る。
-    @Published var customBackgroundColor: RGBColorValue {
-        didSet {
-            defaults.set(customBackgroundColor.hexString, forKey: Keys.customBackgroundColor)
-        }
-    }
-    /// カスタム背景色をまだ一度も指定していないときの初期値(暗めのグレー)。
-    /// 既定のプリセットである黒と近すぎず、かつ長時間の閲覧で目に痛くない明るさを選んである。
-    static let defaultCustomBackgroundColor = RGBColorValue(red: 64, green: 64, blue: 64)
-
-    /// 実際にビューワーの背景を塗るのに使う色。プリセットとカスタムの解決をここ1箇所に集約し、
-    /// 表示側(ViewerView・実寸表示ウインドウ)が`.custom`の扱いを個別に持たなくて済むようにしている。
-    var effectiveBackgroundColor: Color {
-        backgroundColorOption.presetColor ?? customBackgroundColor.color
-    }
     /// しばらく操作がないと判定してマウスカーソルを自動的に隠すまでの時間(秒)
     @Published var cursorAutoHideDelay: Double {
         didSet { defaults.set(cursorAutoHideDelay, forKey: Keys.cursorAutoHideDelay) }
-    }
-    /// 自動隠し中のツールバーを、カーソルをウインドウの端へ近づけてから実際に表示するまでの
-    /// 待ち時間(秒)。既定は0=これまでどおり即座に表示する。
-    ///
-    /// ユーザー要望: 別のウインドウやメニューバーへカーソルを動かしたいだけなのに、通りすがりで
-    /// 隠していた部分が反応するのが鬱陶しいことがある。待っている間にカーソルを端から離せば
-    /// 表示されないままになる(ViewerView.scheduleToolbarReveal参照)。
-    ///
-    /// 待ち時間はツールバー・プログレスバー・サイドパネルで**別々に**持つ(ユーザー要望)。
-    /// ツールバーとプログレスバーは従来どおり「上端/下端どちらの帯でも両方が対象」という
-    /// 同じきっかけで表示されるが、そこから何秒待つかだけがこの3つの値で決まる。
-    ///
-    /// 環境設定の画面上は「外観」の面ごとのセクション(ツールバー/プログレスバー/サイドパネル)に
-    /// あり、リセットの担当もそちらの画面になる(keys(for:)の.appearance参照。**画面の置き場所と
-    /// keys(for:)は必ず揃えること**)。
-    @Published var toolbarRevealDelay: Double {
-        didSet { defaults.set(toolbarRevealDelay, forKey: Keys.toolbarRevealDelay) }
-    }
-    /// プログレスバー側の同じもの(toolbarRevealDelay参照)。
-    @Published var progressBarRevealDelay: Double {
-        didSet { defaults.set(progressBarRevealDelay, forKey: Keys.progressBarRevealDelay) }
-    }
-    /// サイドパネル側の同じもの(toolbarRevealDelay参照)。こちらのきっかけは左右どちらかの
-    /// 端の帯(ContentView.updateSidePanelReveal参照)。
-    @Published var sidePanelRevealDelay: Double {
-        didSet { defaults.set(sidePanelRevealDelay, forKey: Keys.sidePanelRevealDelay) }
-    }
-    /// 隠していない(常に表示の)状態のツールバーにも、ウインドウの背後(デスクトップ/
-    /// 他のウインドウ)がうっすら透けるすりガラスを敷くかどうか。
-    ///
-    /// **既定はOFF** ―― 従来からのユーザーが設定を変更しなければ、見た目が1ピクセルも
-    /// 変わらないようにするため(ユーザーの指定。面ごとの設定の既定値と同じ方針)。
-    /// OFFのときの常時表示側は従来どおりの見た目 ―― ツールバー/プログレスバーは
-    /// 色の層だけ(重ね色の設定は従来から常時表示にも効いていたので、それはOFFでも効く)、
-    /// サイドパネルはウインドウ内をぼかすサイドバーのすりガラス。
-    /// 自動的に隠す設定で画像の上に浮かべる帯/パネルには、この設定は関係しない。
-    @Published var toolbarDockedGlass: Bool {
-        didSet { defaults.set(toolbarDockedGlass, forKey: Keys.toolbarDockedGlass) }
-    }
-    /// プログレスバー側の同じもの(toolbarDockedGlass参照)。
-    @Published var progressBarDockedGlass: Bool {
-        didSet { defaults.set(progressBarDockedGlass, forKey: Keys.progressBarDockedGlass) }
-    }
-    /// サイドパネル側の同じもの(toolbarDockedGlass参照)。
-    @Published var sidePanelDockedGlass: Bool {
-        didSet { defaults.set(sidePanelDockedGlass, forKey: Keys.sidePanelDockedGlass) }
-    }
-    /// ウェルカム画面版の同じもの(toolbarDockedGlass参照。既定OFFの理由も同じ)。
-    /// ウェルカム画面には「隠す」状態が無いので、これは画面全体のすりガラス
-    /// (と面の設定一式)を使うかどうかのスイッチになる。OFFなら従来どおり、
-    /// ウインドウの地の色のまま何も敷かない(WelcomeView参照)。
-    @Published var welcomeGlass: Bool {
-        didSet { defaults.set(welcomeGlass, forKey: Keys.welcomeGlass) }
-    }
-    /// コレクションの中で、本のカバーの下に何を書くか(CollectionCoverCaptionStyle参照)。
-    /// 既定は「表示しない」= 従来どおりカバーだけが並ぶ。
-    ///
-    /// すりガラスの設定ではないが、**ウェルカム画面の見え方を決める設定はウェルカム画面の
-    /// ページに揃える**という「外観」の方針(AppearanceSettingsView冒頭)に従って、
-    /// 環境設定「外観」→「ウェルカム画面」に置いてある。
-    @Published var collectionCoverCaptionStyle: CollectionCoverCaptionStyle {
-        didSet {
-            defaults.set(collectionCoverCaptionStyle.rawValue, forKey: Keys.collectionCoverCaptionStyle)
-        }
-    }
-    /// カバーの下の文字の大きさ(pt)。
-    ///
-    /// 既定の10ptは、設定にする前に使っていた`.caption`の実寸そのもの ―― 既定値のままなら
-    /// 見た目は1ピクセルも変わらない(filmstripFontSize / thumbnailGridCaptionFontSizeと
-    /// 同じ考え方)。**範囲もページ一覧の「文字の大きさ」と揃えてある**(片方だけ別の範囲にしない)。
-    @Published var collectionCoverCaptionFontSize: Double {
-        didSet {
-            defaults.set(collectionCoverCaptionFontSize, forKey: Keys.collectionCoverCaptionFontSize)
-        }
-    }
-    static let collectionCoverCaptionFontSizeRange: ClosedRange<Double> = 8...20
-
-    /// コレクションの一覧(札)で、札の下に出るコレクション名の文字の大きさ(pt)。
-    ///
-    /// 既定の13ptは、設定にする前の`Text`の既定(macOSの`.body` = システムのフォントサイズ)
-    /// そのもの ―― 既定値のままなら見た目は1ピクセルも変わらない。範囲は上の2つと揃える。
-    @Published var collectionTileNameFontSize: Double {
-        didSet {
-            defaults.set(collectionTileNameFontSize, forKey: Keys.collectionTileNameFontSize)
-        }
-    }
-    static let collectionTileNameFontSizeRange: ClosedRange<Double> = 8...20
-
-    /// コレクションの札の右下に出す冊数バッジの大きさ(ユーザー要望 2026-09-13。
-    /// CollectionTileBadgeSize参照)。既定の`.small`は設定にする前の大きさ。
-    @Published var collectionTileBadgeSize: CollectionTileBadgeSize {
-        didSet {
-            defaults.set(collectionTileBadgeSize.rawValue, forKey: Keys.collectionTileBadgeSize)
-        }
-    }
-
-    /// コレクションの一覧(札)の地の色。**nil = 既定**(`defaultCollectionTileBackground`)。
-    ///
-    /// ■ ライブラリごとの設定から、アプリ全体で1つの設定へ移した(ユーザー指示 2026-09-09)
-    /// 最初はライブラリ1つ分の設定(ウェルカム画面の歯車 → LibrarySettingsPopover)として
-    /// `BookLibrary.coverBackgroundColorRaw`に持たせていたが、棚の地の色はライブラリを
-    /// 切り替えるたびに変わってよいものではない ―― 帯でライブラリを選び直すたびに一覧の
-    /// 地の色が入れ替わると、同じアプリの同じ画面には見えなくなる。カバーの形と切り取る
-    /// 位置(こちらはライブラリごとのまま)と違って、これは「アプリの外観」の設定なので、
-    /// 環境設定「外観」→「パネル」→「ウェルカム画面」の「ライブラリ」へ移した。
-    ///
-    /// ■ nilを残してあるのは、既定の地が明暗の外観に追従するため
-    /// 既定は`Color.primary.opacity(0.07)`= ライト/ダークのどちらにも馴染む薄い地で、
-    /// 色を1つ決め打ちで保存するとこの追従が失われる。「未指定」を別の状態として持ち、
-    /// 「初期設定に戻す」とは別に、行の右の矢印ボタンでいつでもここへ戻せる。
-    @Published var collectionTileBackgroundColor: RGBColorValue? {
-        didSet {
-            // nilは「キーごと消す」。空文字などの番人を書くと、既定値の判定が
-            // 「無い or 空」の2通りになってしまう。
-            if let hexString = collectionTileBackgroundColor?.hexString {
-                defaults.set(hexString, forKey: Keys.collectionTileBackgroundColor)
-            } else {
-                defaults.removeObject(forKey: Keys.collectionTileBackgroundColor)
-            }
-        }
-    }
-
-    /// 色を指定していないときの札の地(明暗どちらの外観にも馴染む薄い地)。
-    static let defaultCollectionTileBackground = Color.primary.opacity(0.07)
-
-    /// 実際に札の地を塗るのに使う色。既定とカスタムの解決をここ1箇所に集約し、
-    /// 表示側(CollectionGridView)がnilの扱いを持たなくて済むようにしている
-    /// (`effectiveBackgroundColor`と同じ形)。
-    var effectiveCollectionTileBackground: Color {
-        collectionTileBackgroundColor?.color ?? Self.defaultCollectionTileBackground
-    }
-    /// 上の3つに共通の、指定できる範囲。0.1秒刻みで最大2秒まで(ユーザーの指定)。
-    static let autoRevealDelayRange: ClosedRange<Double> = 0...2
-    /// 3つの遅延をTask.sleep用のナノ秒で返す。保存値が負でも0として扱う。
-    var toolbarRevealDelayNanoseconds: UInt64 { Self.revealDelayNanoseconds(toolbarRevealDelay) }
-    var progressBarRevealDelayNanoseconds: UInt64 { Self.revealDelayNanoseconds(progressBarRevealDelay) }
-    var sidePanelRevealDelayNanoseconds: UInt64 { Self.revealDelayNanoseconds(sidePanelRevealDelay) }
-    private static func revealDelayNanoseconds(_ seconds: Double) -> UInt64 {
-        UInt64(max(seconds, 0) * 1_000_000_000)
     }
     /// 現在のページの前後何ページ分を先読みするか
     @Published var prefetchPageCount: Double {
         didSet { defaults.set(prefetchPageCount, forKey: Keys.prefetchPageCount) }
     }
+    // MARK: - 外観(ノーマルウインドウ用・シークレットウインドウ用。2026-09-22)
+
+    /// 環境設定「外観」タブの設定一式。ノーマルウインドウ用(従来の設定そのもの)と、シークレットウインドウ用の2揃い。
+    /// 型コメントは AppearanceSettings。どちらを使うかは appearance(forPrivateWindow:)。
+    let appearance: AppearanceSettings
+    let privateAppearance: AppearanceSettings
+
+    /// シークレットウインドウに、ノーマルウインドウとは別の外観を使うか(既定OFF = シークレットもノーマルの外観に従う。ユーザー要望)。
+    ///
+    /// 初めてONにした時点で、シークレットの揃いをノーマルの揃いの写しから始める(「初めから別の見た目」ではなく
+    /// 「今の見た目から変えていく」ため)。2回目以降は写さない ―― OFFにしてもシークレットの揃いは消さずに残し、
+    /// ONに戻せば前に作った見た目で戻る。
+    ///
+    /// どの画面の「初期設定に戻す」でも戻さない(外観タブのボタンは編集中の揃いを戻すもので、このスイッチは揃いではないため)。
+    @Published var privateWindowsUseOwnAppearance: Bool {
+        didSet {
+            defaults.set(privateWindowsUseOwnAppearance, forKey: Keys.privateWindowsUseOwnAppearance)
+            if privateWindowsUseOwnAppearance, !defaults.bool(forKey: Keys.privateAppearanceInitialized) {
+                privateAppearance.copyValues(from: appearance)
+                defaults.set(true, forKey: Keys.privateAppearanceInitialized)
+            }
+        }
+    }
+
+    /// シークレットウインドウのタイトルの先頭に付ける文字(環境設定「外観」→「ウインドウ」。2026-09-22、ユーザー要望)。
+    ///
+    /// **nil = 既定**の「(シークレット)」(表示言語に合わせて訳す。文字列カタログの "(Private) %@")。ユーザーが書き換えたら
+    /// その文字列をそのまま使い(絵文字も可)、**空なら何も付けない** ―― タイトルバーの色でシークレットウインドウを見分けられる
+    /// ようになったので、文字は要らないという人のため(ユーザー要望)。既定を「未指定」として別に持つのは、表示言語を切り替えたときに
+    /// 既定の文字も追従させるため(タイトルバーの色の nil と同じ考え方)。
+    ///
+    /// 外観の揃いではなくアプリ全体で1つ(タイトルの文字はノーマル/シークレットの外観の切り替えとは関係なく、シークレットウインドウ
+    /// にだけ付くもの)。「ウインドウ」セクションのスイッチと同じく、外観の画面の「初期設定に戻す」では戻さない(行の右の矢印で既定へ戻す)。
+    @Published var privateWindowTitlePrefix: String? {
+        didSet {
+            if let privateWindowTitlePrefix {
+                defaults.set(privateWindowTitlePrefix, forKey: Keys.privateWindowTitlePrefix)
+            } else {
+                defaults.removeObject(forKey: Keys.privateWindowTitlePrefix)
+            }
+        }
+    }
+
+    /// 既定の「(シークレット)」(いまの表示言語で)。環境設定の入力欄に、未指定のときに出す文字でもある。
+    var defaultPrivateWindowTitlePrefix: String {
+        // カタログのキーは "(Private) %@"(ウインドウのタイトルの組み立てにずっと使ってきたもの)。訳語の側で語順が
+        // 変わっていても崩れないよう、本題を空にした形から前置きだけを取り出す。
+        String(localized: "(Private) \("")", language: effectiveLocale).trimmingCharacters(in: .whitespaces)
+    }
+
+    /// シークレットウインドウのタイトル。`base` は本の名前やフォルダ名など、ノーマルウインドウならそのまま出すもの。
+    func privateWindowTitle(for base: String) -> String {
+        guard let privateWindowTitlePrefix else {
+            return String(localized: "(Private) \(base)", language: effectiveLocale)
+        }
+        let prefix = privateWindowTitlePrefix.trimmingCharacters(in: .whitespacesAndNewlines)
+        return prefix.isEmpty ? base : "\(prefix) \(base)"
+    }
+
+    /// そのウインドウが使う外観の揃い。シークレットウインドウでも、「シークレットウインドウに固有の外観を適用」がOFFならノーマルの揃い。
+    func appearance(forPrivateWindow isPrivateWindow: Bool) -> AppearanceSettings {
+        isPrivateWindow && privateWindowsUseOwnAppearance ? privateAppearance : appearance
+    }
+
     /// アプリの表示言語(既定は「システムに従う」)
     @Published var displayLanguage: AppLanguage {
         didSet {
@@ -450,17 +305,6 @@ final class AppPreferences: ObservableObject {
             // メニューバーなど起動中には切り替えられない部分を、次回起動から揃える
             // (AppLanguage.applyAppleLanguagesOverrideのコメント参照)。
             AppLanguage.applyAppleLanguagesOverride(for: displayLanguage, defaults: defaults)
-        }
-    }
-    /// アプリの外観(ライト/ダーク。既定は「システムに従う」)。
-    /// 表示言語と同じく、macOSのシステム設定とは独立して選べる(ユーザー要望)。
-    /// 表示言語はSceneごとの`.environment(\.locale, ...)`で効かせるが、こちらはウインドウの外の
-    /// AppKitのUI(ダイアログ・カラーパネル・Dockメニュー)にも効かせる必要があるため、
-    /// SwiftUIではなくNSApp.appearanceで反映する(AppAppearanceApplierの型コメント参照)。
-    @Published var appAppearance: AppAppearance {
-        didSet {
-            defaults.set(appAppearance.rawValue, forKey: Keys.appAppearance)
-            if sharesGlobalState { AppAppearanceApplier.shared.apply(appAppearance) }
         }
     }
     /// 以前開いたことのある本を再度開いたときの挙動(既定は「前回のページから再開する」)
@@ -562,7 +406,8 @@ final class AppPreferences: ObservableObject {
     // 撤去した設定(改善要望7、2026-09-13)。**UserDefaultsの値は消さない** ―― 古い版を起動した
     // 人の設定を壊さないため。キーの一覧はdocs/06「環境設定」。
     // - 「ウェルカム画面でも表示する」(qooViewer.pref.showSidePanelOnWelcome) … 本を開いていない
-    //   間はサイドパネルを常に出さなくなった(ContentView.isSidePanelSuppressedForWelcome)
+    //   間はサイドパネルを常に出さなくなった(ContentView.isSidePanelSuppressedForWelcome。ライブラリとファイルブラウザが
+    //   両方OFFのホームだけは例外で出す ―― 設定は戻していない)
     // - 「並び順をFinderに揃える」(PageOrder.retiredSettingKey) … 表示順は常に正準順
     //   (PageOrder.swift冒頭)
     // - 「最近開いたファイルを表示」(qooViewer.pref.showRecentFilesOnWelcome) … ウェルカム画面の
@@ -718,124 +563,6 @@ final class AppPreferences: ObservableObject {
     @Published var sidePanelMode: SidePanelMode {
         didSet { defaults.set(sidePanelMode.rawValue, forKey: Keys.sidePanelMode) }
     }
-    /// プログレスバーにカーソルを合わせたときに、フィルムストリップ(サムネイル・ファイル名・
-    /// ページ番号を含むプレビュー)を表示するかどうか(既定ON)。OFFにすると、サムネイルの
-    /// 読み込みは一切行わず、カーソル位置に対応するページ番号だけを表示するシンプルな表示になる
-    /// (ProgressBarView.swift参照)。
-    ///
-    /// 画面上の置き場所は、環境設定「閲覧中の動作」から「外観」の
-    /// 「プログレスバーのフィルムストリップ」セクションへ移してある。以下のフィルムストリップの
-    /// 見た目の設定(枚数・文字の大きさ・強調)を足すにあたって、**この1つだけ別の画面に残すと
-    /// 「どれがどこに効くのか分からない」**からで、ページ一覧の拡大プレビューを「外観」へ
-    /// 移したときとまったく同じ理由(AppearanceSettingsView.pageListSectionのコメント参照)。
-    /// keys(for:)/apply(_:for:)での担当も`.reading`から`.appearance`へ移してある。
-    @Published var showProgressBarThumbnailPreview: Bool {
-        didSet {
-            defaults.set(
-                showProgressBarThumbnailPreview,
-                forKey: Keys.showProgressBarThumbnailPreview
-            )
-        }
-    }
-
-    // MARK: - プログレスバーのフィルムストリップの見た目(ユーザー要望)
-
-    /// フィルムストリップに一度に並べるサムネイルの枚数(既定9枚)。
-    ///
-    /// **枚数を減らすと1枚が大きくなる**(バーの幅を均等割りするため。ProgressBarViewの
-    /// cellWidth(for:)参照)ので、「サムネイルの大きさ」の設定を別に持たせてはいない ――
-    /// 幅いっぱいに並べる仕組みでは、両方を独立に決めさせると必ず矛盾する
-    /// (大きさを指定できても、結局は幅に収まる枚数しか置けない)。
-    ///
-    /// 上限15枚は、これ以上並べても1枚が数十ptになってページを見分けられなくなるため。
-    /// 下限3枚は、カーソル位置の前後が1枚ずつは見えるという最低限。なお枚数を減らしすぎた
-    /// ときに1枚が画面を突き抜けるほど大きくならないよう、1枚の幅には上限がある
-    /// (ProgressBarView.maxCellWidth参照)。
-    /// SettingsSliderがDoubleを扱うため、枚数もDoubleとして持つ(recentFilesLimitと同じ)。
-    @Published var filmstripThumbnailCount: Double {
-        didSet { defaults.set(filmstripThumbnailCount, forKey: Keys.filmstripThumbnailCount) }
-    }
-    static let filmstripThumbnailCountRange: ClosedRange<Double> = 3...15
-
-    /// フィルムストリップのサムネイルに添える文字として何を出すか(FilmstripCaptionStyle参照)。
-    /// 既定はこれまでどおりファイル名とページ番号の2行。
-    ///
-    /// 枚数を増やすとファイル名は潰れて読めなくなり、ただの帯になってしまうため、
-    /// 出す情報を選べるようにした(ユーザー要望)。カーソル位置のページ番号だけは
-    /// この設定に関わらず常に出す(理由はFilmstripCaptionStyleのコメント参照)。
-    @Published var filmstripCaptionStyle: FilmstripCaptionStyle {
-        didSet {
-            defaults.set(filmstripCaptionStyle.rawValue, forKey: Keys.filmstripCaptionStyle)
-        }
-    }
-
-    /// フィルムストリップのサムネイルに添える文字(ファイル名・ページ番号・書庫内の相対パス)の
-    /// 大きさ(pt、既定10)。
-    ///
-    /// 既定の10ptは、設定にする前に使っていた`.caption`/`.caption2`の実寸そのもの ――
-    /// macOSではこの2つはどちらも10ptなので、既定値のままなら見た目は1ピクセルも変わらない
-    /// (thumbnailGridCaptionFontSizeの既定11ptと同じ考え方)。
-    /// 範囲もページ一覧の「文字の大きさ」と揃えてある(片方だけ別の範囲にしない)。
-    @Published var filmstripFontSize: Double {
-        didSet { defaults.set(filmstripFontSize, forKey: Keys.filmstripFontSize) }
-    }
-    static let filmstripFontSizeRange: ClosedRange<Double> = 8...20
-
-    /// カーソル位置以外のサムネイルを暗くするか(既定ON=従来どおり)。
-    ///
-    /// ONのときは、カーソル直下のセル**以外**の画像と文字を少し暗くして、直下のセルが
-    /// 相対的に目立つようにする。暗くされたページの中身を読み取りたい場合に邪魔になる
-    /// (画像そのものが暗いページでは特に)ため、OFFにできるようにした。OFFでも、
-    /// カーソル直下のセルは枠・光彩・ページ番号バッジの色で区別が付く。
-    @Published var filmstripDimsOtherPages: Bool {
-        didSet { defaults.set(filmstripDimsOtherPages, forKey: Keys.filmstripDimsOtherPages) }
-    }
-
-    /// カーソル位置のサムネイルを強調する色(プリセット、または「カスタム」)。
-    /// 枠線・光彩(shadow)・ページ番号バッジの3つに同じ色を使う(ProgressBarView参照)。
-    ///
-    /// 選択肢はページ一覧の「表示中のページの枠の色」と同じ`PageBorderColorOption`を使い回す ――
-    /// 「サムネイルの中の1枚を色で示す」というまったく同じ用途で、同じ選択肢が要るため
-    /// (同じ意味の列挙を2つ持つと、片方にだけ色を足したときに食い違う)。
-    /// 既定の`.accent`は従来どおりシステムの強調表示の色(多くの環境では青)。
-    @Published var filmstripHighlightColorOption: PageBorderColorOption {
-        didSet {
-            defaults.set(
-                filmstripHighlightColorOption.rawValue, forKey: Keys.filmstripHighlightColorOption
-            )
-        }
-    }
-    /// 上が`.custom`のときに使うRGB値(thumbnailGridBorderCustomColorとまったく同じ考え方)。
-    @Published var filmstripHighlightCustomColor: RGBColorValue {
-        didSet {
-            defaults.set(
-                filmstripHighlightCustomColor.hexString, forKey: Keys.filmstripHighlightCustomColor
-            )
-        }
-    }
-    /// カスタムの強調色をまだ一度も指定していないときの初期値。ページ一覧の枠と同じ橙
-    /// (既定の`.accent`から遠く、暗いサムネイルの上でも埋もれない色)。
-    static let defaultFilmstripHighlightCustomColor = RGBColorValue(red: 255, green: 149, blue: 0)
-
-    /// 実際に強調に使う色。プリセット・カスタム・アクセントカラーの解決をここへ集約する
-    /// (effectiveCurrentPageBorderColorとまったく同じ)。
-    var effectiveFilmstripHighlightColor: Color {
-        if let preset = filmstripHighlightColorOption.presetColor { return preset }
-        if filmstripHighlightColorOption == .accent { return .accentColor }
-        return filmstripHighlightCustomColor.color
-    }
-
-    /// カーソル位置のサムネイルの枠線の太さ(pt、既定3)。強調していないセルの枠は1ptのまま。
-    /// 上限8ptは、サムネイルを小さくしている(=枚数を多くしている)ときに枠だけで
-    /// セルが埋まってしまわない範囲。
-    @Published var filmstripHighlightBorderWidth: Double {
-        didSet {
-            defaults.set(
-                filmstripHighlightBorderWidth, forKey: Keys.filmstripHighlightBorderWidth
-            )
-        }
-    }
-    static let filmstripHighlightBorderWidthRange: ClosedRange<Double> = 1...8
     /// 「最近開いたファイル」の履歴として保持する件数(既定30件)。
     ///
     /// 以前はRecentFilesStore側に10件固定で埋め込まれていたが、サイドパネルの「履歴」モードで
@@ -1098,186 +825,6 @@ final class AppPreferences: ObservableObject {
         }
     }
 
-    // MARK: - ページ一覧(サムネイルグリッド)。ユーザー要望: サイズ・間隔・余白を調整したい
-
-    /// ページ一覧のサムネイル1枚の大きさ(pt、正方形の一辺)。パネル上部のスライダーと
-    /// 環境設定「閲覧中の動作」の両方から同じ値を変える。以前は120pt固定だった。
-    @Published var thumbnailGridCellSize: Double {
-        didSet { defaults.set(thumbnailGridCellSize, forKey: Keys.thumbnailGridCellSize) }
-    }
-    static let thumbnailGridCellSizeRange: ClosedRange<Double> = 80...320
-    /// サムネイル同士の横の間隔(pt)。
-    @Published var thumbnailGridHorizontalSpacing: Double {
-        didSet { defaults.set(thumbnailGridHorizontalSpacing, forKey: Keys.thumbnailGridHorizontalSpacing) }
-    }
-    /// サムネイル同士の縦の間隔(pt)。
-    @Published var thumbnailGridVerticalSpacing: Double {
-        didSet { defaults.set(thumbnailGridVerticalSpacing, forKey: Keys.thumbnailGridVerticalSpacing) }
-    }
-    static let thumbnailGridSpacingRange: ClosedRange<Double> = 0...40
-    /// パネルの左右に残す余白(画像表示領域の幅に対する片側の%)。列数は残りの幅から自動で決まる。
-    @Published var thumbnailGridHorizontalMarginPercent: Double {
-        didSet { defaults.set(thumbnailGridHorizontalMarginPercent, forKey: Keys.thumbnailGridHorizontalMarginPercent) }
-    }
-    /// パネルの上下に残す余白(画像表示領域の高さに対する片側の%)。
-    @Published var thumbnailGridVerticalMarginPercent: Double {
-        didSet { defaults.set(thumbnailGridVerticalMarginPercent, forKey: Keys.thumbnailGridVerticalMarginPercent) }
-    }
-    static let thumbnailGridMarginPercentRange: ClosedRange<Double> = 0...40
-
-    /// サムネイルの下に何を書くか(ThumbnailCaptionStyle参照)。既定はこれまでどおりページ番号。
-    @Published var thumbnailGridCaptionStyle: ThumbnailCaptionStyle {
-        didSet {
-            defaults.set(thumbnailGridCaptionStyle.rawValue, forKey: Keys.thumbnailGridCaptionStyle)
-        }
-    }
-    /// サムネイルの下の文字の大きさ(pt)。既定の11ptは、従来使っていた`.caption2`の実寸に
-    /// 合わせたもの(値を変えていない人の見た目が変わらないようにするため)。
-    @Published var thumbnailGridCaptionFontSize: Double {
-        didSet {
-            defaults.set(thumbnailGridCaptionFontSize, forKey: Keys.thumbnailGridCaptionFontSize)
-        }
-    }
-    /// 下限8ptは、Retinaでもぎりぎり字形が潰れない大きさ。上限20ptは、サムネイルの最小サイズ
-    /// (80pt)に対して文字が主役になってしまわない範囲。
-    static let thumbnailGridCaptionFontSizeRange: ClosedRange<Double> = 8...20
-
-    /// 表示中のページを示す枠の色(プリセット、または「カスタム」)。ユーザー要望。
-    @Published var thumbnailGridBorderColorOption: PageBorderColorOption {
-        didSet {
-            defaults.set(thumbnailGridBorderColorOption.rawValue, forKey: Keys.thumbnailGridBorderColorOption)
-        }
-    }
-    /// 上が`.custom`のときに使うRGB値。`customBackgroundColor`とまったく同じ考え方で、
-    /// プリセットへ戻してからカスタムを選び直しても、作った色はそのまま残る。
-    @Published var thumbnailGridBorderCustomColor: RGBColorValue {
-        didSet {
-            defaults.set(thumbnailGridBorderCustomColor.hexString, forKey: Keys.thumbnailGridBorderCustomColor)
-        }
-    }
-    /// カスタムの枠色をまだ一度も指定していないときの初期値。既定の`.accent`(多くの環境では青)
-    /// から遠く、暗いサムネイルの上でも埋もれない橙にしてある。
-    static let defaultThumbnailGridBorderCustomColor = RGBColorValue(red: 255, green: 149, blue: 0)
-
-    /// 実際に枠を描くのに使う色。プリセット・カスタム・アクセントカラーの解決をここ1箇所に
-    /// 集約し、表示側が場合分けを持たなくて済むようにしている(effectiveBackgroundColorと同じ考え方)。
-    var effectiveCurrentPageBorderColor: Color {
-        if let preset = thumbnailGridBorderColorOption.presetColor { return preset }
-        // `.accent`は固定値を持たない(システム設定に追従する)ため、ここで初めてColorに解決する。
-        if thumbnailGridBorderColorOption == .accent { return .accentColor }
-        return thumbnailGridBorderCustomColor.color
-    }
-
-    /// ページ一覧の上でマウスホイールを1ノッチ回したときに、何行ぶんスクロールするか
-    /// (ユーザー要望)。
-    ///
-    /// 対象は**物理マウスのホイールだけ**で、トラックパッドやMagic Mouseの滑らかな
-    /// スクロールには効かせない。理由は`invertTwoFingerScrolling`が逆にトラックパッド
-    /// だけを対象にしているのと同じで、両者は操作の質が違い、片方に合う値がもう片方では
-    /// 極端になるため(そちらのコメント参照)。
-    @Published var thumbnailGridWheelScrollRows: Double {
-        didSet {
-            defaults.set(thumbnailGridWheelScrollRows, forKey: Keys.thumbnailGridWheelScrollRows)
-        }
-    }
-    /// 下限0.5行は「1ノッチで半行ぶんだけ動かして、行の途中を覗く」用途。上限5行は、
-    /// それ以上にすると1ノッチで画面が丸ごと入れ替わり、どこを見ていたか分からなくなるため。
-    ///
-    /// 刻みは0.1行(ユーザー要望)。スライダーの1ステップが1pt未満になるため、
-    /// 環境設定側ではスライダーにステッパーを添えてある(SettingsSlider.showsStepper参照)。
-    static let thumbnailGridWheelScrollRowsRange: ClosedRange<Double> = 0.5...5
-
-    // MARK: - すりガラスの面ごとの見た目(ユーザー要望)
-
-    /// ページ一覧パネルの背景。
-    @Published var pageListSurfaceStyle: PanelSurfaceStyle {
-        didSet { Self.save(pageListSurfaceStyle, for: .pageList, defaults: defaults) }
-    }
-    /// ツールバーの背景(自動的に隠す設定のときに重ねて表示される帯)。
-    @Published var toolbarSurfaceStyle: PanelSurfaceStyle {
-        didSet { Self.save(toolbarSurfaceStyle, for: .toolbar, defaults: defaults) }
-    }
-    /// プログレスバーの背景(同上)。
-    @Published var progressBarSurfaceStyle: PanelSurfaceStyle {
-        didSet { Self.save(progressBarSurfaceStyle, for: .progressBar, defaults: defaults) }
-    }
-    /// サイドパネルの背景。
-    @Published var sidePanelSurfaceStyle: PanelSurfaceStyle {
-        didSet { Self.save(sidePanelSurfaceStyle, for: .sidePanel, defaults: defaults) }
-    }
-    /// 上記以外の浮かぶ表示(「情報を見る」パネル・トースト・拡大率表示)の背景。
-    @Published var welcomeSurfaceStyle: PanelSurfaceStyle {
-        didSet { Self.save(welcomeSurfaceStyle, for: .welcome, defaults: defaults) }
-    }
-    @Published var overlaySurfaceStyle: PanelSurfaceStyle {
-        didSet { Self.save(overlaySurfaceStyle, for: .overlays, defaults: defaults) }
-    }
-
-    /// 面を指定して現在の設定を読む。環境設定「外観」画面が`PanelSurface.allCases`を
-    /// そのまま並べられるようにするための窓口(4面ぶんの`if`を画面側に書かせないため)。
-    func surfaceStyle(for surface: PanelSurface) -> PanelSurfaceStyle {
-        switch surface {
-        case .pageList: return pageListSurfaceStyle
-        case .toolbar: return toolbarSurfaceStyle
-        case .progressBar: return progressBarSurfaceStyle
-        case .sidePanel: return sidePanelSurfaceStyle
-        case .welcome: return welcomeSurfaceStyle
-        case .overlays: return overlaySurfaceStyle
-        }
-    }
-
-    /// 面を指定して設定を書く(上の対)。
-    func setSurfaceStyle(_ style: PanelSurfaceStyle, for surface: PanelSurface) {
-        switch surface {
-        case .pageList: pageListSurfaceStyle = style
-        case .toolbar: toolbarSurfaceStyle = style
-        case .progressBar: progressBarSurfaceStyle = style
-        case .sidePanel: sidePanelSurfaceStyle = style
-        case .welcome: welcomeSurfaceStyle = style
-        case .overlays: overlaySurfaceStyle = style
-        }
-    }
-
-    /// 面を指定したBinding。`ForEach(PanelSurface.allCases)`の中からスライダー等へ直接渡せる。
-    func surfaceStyleBinding(for surface: PanelSurface) -> Binding<PanelSurfaceStyle> {
-        Binding(
-            get: { self.surfaceStyle(for: surface) },
-            set: { self.setSurfaceStyle($0, for: surface) }
-        )
-    }
-
-    private static func save(
-        _ style: PanelSurfaceStyle, for surface: PanelSurface, defaults: UserDefaults
-    ) {
-        defaults.set(style.materialOpacity, forKey: Keys.panelSurfaceMaterialOpacity(surface))
-        defaults.set(style.tintColor.hexString, forKey: Keys.panelSurfaceTintColor(surface))
-        defaults.set(style.tintOpacity, forKey: Keys.panelSurfaceTintOpacity(surface))
-        defaults.set(style.contentShadowLevel, forKey: Keys.panelSurfaceContentShadowLevel(surface))
-    }
-
-    /// 保存済みの設定を読む。1つでも欠けていればその項目だけ既定値で補う
-    /// (面を後から増やしたときに、既存ユーザーの環境で既定値が使われるようにするため)。
-    private static func loadSurfaceStyle(
-        for surface: PanelSurface, defaults: UserDefaults
-    ) -> PanelSurfaceStyle {
-        let fallback = surface.defaultStyle
-        let materialOpacity =
-            defaults.object(forKey: Keys.panelSurfaceMaterialOpacity(surface)) as? Double
-            ?? fallback.materialOpacity
-        let tintColor =
-            (defaults.string(forKey: Keys.panelSurfaceTintColor(surface)).flatMap(RGBColorValue.init(hexString:)))
-            ?? fallback.tintColor
-        let tintOpacity =
-            defaults.object(forKey: Keys.panelSurfaceTintOpacity(surface)) as? Double
-            ?? fallback.tintOpacity
-        let contentShadowLevel =
-            defaults.object(forKey: Keys.panelSurfaceContentShadowLevel(surface)) as? Int
-            ?? fallback.contentShadowLevel
-        return PanelSurfaceStyle(
-            materialOpacity: materialOpacity, tintColor: tintColor, tintOpacity: tintOpacity,
-            contentShadowLevel: contentShadowLevel
-        )
-    }
 
     // MARK: - レイアウト(環境設定「レイアウト」画面。ユーザー要望)
 
@@ -1507,13 +1054,6 @@ final class AppPreferences: ObservableObject {
 
     // MARK: - サムネイルのホバー拡大プレビュー(ページ一覧・サイドパネル・ブックマーク編集・書き出し共通)
 
-    /// ページ一覧のサムネイルにカーソルを合わせたとき拡大プレビュー(ポップオーバー)を出すか。
-    /// OFFにしたい、というユーザー要望。**ページ一覧だけ**に効く。サイドパネルのページモード・
-    /// ブックマーク編集・書き出しウインドウの同種のプレビューには効かせない(それらのサムネイルは
-    /// サイズ調整が無く、拡大が無いと何のページか分からなくなるため。ユーザー指示)。
-    @Published var showThumbnailHoverPreview: Bool {
-        didSet { defaults.set(showThumbnailHoverPreview, forKey: Keys.showThumbnailHoverPreview) }
-    }
     /// ホバー開始からプレビューを出すまでの時間(秒)。こちらはページ一覧・サイドパネル・
     /// ブックマーク編集・書き出しウインドウのすべてで共通。以前は各所で350msの定数をコピー
     /// していた(通り抜けるだけの動きで次々開くのを避けるための遅延。0でも可)。
@@ -1628,6 +1168,12 @@ final class AppPreferences: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.sharesGlobalState = defaults === UserDefaults.standard
+        // ノーマルの揃いは、ライト/ダークをアプリ全体へ掛ける(AppearanceSettings.appliesToApp)。
+        self.appearance = AppearanceSettings(profile: .normal, defaults: defaults)
+        self.privateAppearance = AppearanceSettings(profile: .privateWindow, defaults: defaults)
+        self.privateWindowsUseOwnAppearance =
+            defaults.object(forKey: Keys.privateWindowsUseOwnAppearance) as? Bool ?? false
+        self.privateWindowTitlePrefix = defaults.string(forKey: Keys.privateWindowTitlePrefix)
         self.launchOpensLastBook = defaults.object(forKey: Keys.launchOpensLastBook) as? Bool ?? false
         self.launchFullScreen = defaults.object(forKey: Keys.launchFullScreen) as? Bool ?? false
         // 旧設定の読み替えは、下の2つを読む**前に**済ませる(新しいキーへ書き込むため)。
@@ -1652,16 +1198,7 @@ final class AppPreferences: ObservableObject {
         self.quitWhenLastWindowClosed = defaults.object(forKey: Keys.quitWhenLastWindowClosed) as? Bool ?? false
         self.singlePageAspectRatioThreshold =
             defaults.object(forKey: Keys.singlePageAspectRatioThreshold) as? Double ?? 1.0
-        self.backgroundColorOption =
-            BackgroundColorOption(rawValue: defaults.string(forKey: Keys.backgroundColorOption) ?? "") ?? .black
-        self.customBackgroundColor =
-            RGBColorValue(hexString: defaults.string(forKey: Keys.customBackgroundColor) ?? "")
-            ?? Self.defaultCustomBackgroundColor
         self.cursorAutoHideDelay = defaults.object(forKey: Keys.cursorAutoHideDelay) as? Double ?? 2.0
-        // 既定は0(待たずに表示)。この設定を入れる前と同じ挙動にしておく。
-        self.toolbarRevealDelay = defaults.object(forKey: Keys.toolbarRevealDelay) as? Double ?? 0
-        self.progressBarRevealDelay = defaults.object(forKey: Keys.progressBarRevealDelay) as? Double ?? 0
-        self.sidePanelRevealDelay = defaults.object(forKey: Keys.sidePanelRevealDelay) as? Double ?? 0
         self.prefetchPageCount = defaults.object(forKey: Keys.prefetchPageCount) as? Double ?? 3
         let displayLanguage = AppLanguage(rawValue: defaults.string(forKey: Keys.displayLanguage) ?? "") ?? .system
         self.displayLanguage = displayLanguage
@@ -1672,7 +1209,6 @@ final class AppPreferences: ObservableObject {
         if displayLanguage != .system {
             AppLanguage.applyAppleLanguagesOverride(for: displayLanguage, defaults: defaults)
         }
-        self.appAppearance = AppAppearance(rawValue: defaults.string(forKey: Keys.appAppearance) ?? "") ?? .system
         self.reopenBehavior = ReopenBehavior(rawValue: defaults.string(forKey: Keys.reopenBehavior) ?? "") ?? .resume
         self.confirmBeforeClosingMultipleTabsWindow =
             defaults.object(forKey: Keys.confirmBeforeClosingMultipleTabsWindow) as? Bool ?? true
@@ -1732,26 +1268,6 @@ final class AppPreferences: ObservableObject {
             SidePanelPosition(rawValue: defaults.string(forKey: Keys.sidePanelPosition) ?? "") ?? .left
         self.sidePanelMode =
             SidePanelMode(rawValue: defaults.string(forKey: Keys.sidePanelMode) ?? "") ?? .browser
-        self.showProgressBarThumbnailPreview =
-            defaults.object(forKey: Keys.showProgressBarThumbnailPreview) as? Bool ?? true
-        // フィルムストリップの見た目。既定値はどれも「これまでの見た目と1ピクセルも変わらない」値
-        // (9枚・10pt・暗くする・アクセントカラー・3pt)。
-        self.filmstripThumbnailCount =
-            defaults.object(forKey: Keys.filmstripThumbnailCount) as? Double ?? 9
-        self.filmstripFontSize = defaults.object(forKey: Keys.filmstripFontSize) as? Double ?? 10
-        self.filmstripCaptionStyle =
-            FilmstripCaptionStyle(rawValue: defaults.string(forKey: Keys.filmstripCaptionStyle) ?? "")
-            ?? .fileNameAndPageNumber
-        self.filmstripDimsOtherPages =
-            defaults.object(forKey: Keys.filmstripDimsOtherPages) as? Bool ?? true
-        self.filmstripHighlightColorOption =
-            PageBorderColorOption(rawValue: defaults.string(forKey: Keys.filmstripHighlightColorOption) ?? "")
-            ?? .accent
-        self.filmstripHighlightCustomColor =
-            defaults.string(forKey: Keys.filmstripHighlightCustomColor).flatMap(RGBColorValue.init(hexString:))
-            ?? Self.defaultFilmstripHighlightCustomColor
-        self.filmstripHighlightBorderWidth =
-            defaults.object(forKey: Keys.filmstripHighlightBorderWidth) as? Double ?? 3
         self.recentFilesLimit =
             defaults.object(forKey: Self.recentFilesLimitDefaultsKey) as? Double
             ?? Self.defaultRecentFilesLimit
@@ -1761,62 +1277,11 @@ final class AppPreferences: ObservableObject {
         self.fileBrowserFeatureEnabled = Self.storedFileBrowserFeatureEnabled(in: defaults)
         self.showRecentFavoritesOnWelcome =
             defaults.object(forKey: Keys.showRecentFavoritesOnWelcome) as? Bool ?? true
-        self.thumbnailGridCellSize = defaults.object(forKey: Keys.thumbnailGridCellSize) as? Double ?? 120
-        self.thumbnailGridHorizontalSpacing =
-            defaults.object(forKey: Keys.thumbnailGridHorizontalSpacing) as? Double ?? 10
-        self.thumbnailGridVerticalSpacing =
-            defaults.object(forKey: Keys.thumbnailGridVerticalSpacing) as? Double ?? 10
-        self.thumbnailGridHorizontalMarginPercent =
-            defaults.object(forKey: Keys.thumbnailGridHorizontalMarginPercent) as? Double ?? 10
-        self.thumbnailGridVerticalMarginPercent =
-            defaults.object(forKey: Keys.thumbnailGridVerticalMarginPercent) as? Double ?? 5
-        self.showThumbnailHoverPreview = defaults.object(forKey: Keys.showThumbnailHoverPreview) as? Bool ?? true
         self.thumbnailHoverPreviewDelay = defaults.object(forKey: Keys.thumbnailHoverPreviewDelay) as? Double ?? 0.35
         // 既定値440は、設定にする前に各所へ直接書かれていた値そのもの(見た目を変えないため)。
         self.thumbnailHoverPreviewSize = defaults.object(forKey: Keys.thumbnailHoverPreviewSize) as? Double ?? 440
         self.preloadThumbnailGridPreviews =
             defaults.object(forKey: Keys.preloadThumbnailGridPreviews) as? Bool ?? false
-        self.thumbnailGridCaptionStyle =
-            ThumbnailCaptionStyle(rawValue: defaults.string(forKey: Keys.thumbnailGridCaptionStyle) ?? "")
-            ?? .pageNumber
-        self.thumbnailGridCaptionFontSize =
-            defaults.object(forKey: Keys.thumbnailGridCaptionFontSize) as? Double ?? 11
-        self.thumbnailGridBorderColorOption =
-            PageBorderColorOption(rawValue: defaults.string(forKey: Keys.thumbnailGridBorderColorOption) ?? "")
-            ?? .accent
-        self.thumbnailGridBorderCustomColor =
-            defaults.string(forKey: Keys.thumbnailGridBorderCustomColor).flatMap(RGBColorValue.init(hexString:))
-            ?? Self.defaultThumbnailGridBorderCustomColor
-        self.thumbnailGridWheelScrollRows =
-            defaults.object(forKey: Keys.thumbnailGridWheelScrollRows) as? Double ?? 1
-        self.pageListSurfaceStyle = Self.loadSurfaceStyle(for: .pageList, defaults: defaults)
-        self.toolbarSurfaceStyle = Self.loadSurfaceStyle(for: .toolbar, defaults: defaults)
-        self.progressBarSurfaceStyle = Self.loadSurfaceStyle(for: .progressBar, defaults: defaults)
-        self.sidePanelSurfaceStyle = Self.loadSurfaceStyle(for: .sidePanel, defaults: defaults)
-        self.welcomeSurfaceStyle = Self.loadSurfaceStyle(for: .welcome, defaults: defaults)
-        self.overlaySurfaceStyle = Self.loadSurfaceStyle(for: .overlays, defaults: defaults)
-        // 背後を透かすすりガラスの4スイッチ。既定OFF(toolbarDockedGlassのコメント参照)。
-        self.toolbarDockedGlass = defaults.object(forKey: Keys.toolbarDockedGlass) as? Bool ?? false
-        self.progressBarDockedGlass =
-            defaults.object(forKey: Keys.progressBarDockedGlass) as? Bool ?? false
-        self.sidePanelDockedGlass =
-            defaults.object(forKey: Keys.sidePanelDockedGlass) as? Bool ?? false
-        self.welcomeGlass = defaults.object(forKey: Keys.welcomeGlass) as? Bool ?? false
-        self.collectionCoverCaptionStyle =
-            CollectionCoverCaptionStyle(
-                rawValue: defaults.string(forKey: Keys.collectionCoverCaptionStyle) ?? ""
-            ) ?? .none
-        self.collectionCoverCaptionFontSize =
-            defaults.object(forKey: Keys.collectionCoverCaptionFontSize) as? Double ?? 10
-        self.collectionTileNameFontSize =
-            defaults.object(forKey: Keys.collectionTileNameFontSize) as? Double ?? 13
-        self.collectionTileBadgeSize =
-            CollectionTileBadgeSize(
-                rawValue: defaults.string(forKey: Keys.collectionTileBadgeSize) ?? ""
-            ) ?? .small
-        self.collectionTileBackgroundColor =
-            defaults.string(forKey: Keys.collectionTileBackgroundColor)
-            .flatMap(RGBColorValue.init(hexString:))
         self.launchInPrivateMode = defaults.object(forKey: Keys.launchInPrivateMode) as? Bool ?? false
         self.thumbnailDiskCacheEnabled =
             defaults.object(forKey: Keys.thumbnailDiskCacheEnabled) as? Bool ?? false
@@ -1883,10 +1348,6 @@ final class AppPreferences: ObservableObject {
         // OFF(既定)ならこの呼び出しが、溜まっているキャッシュの削除の合図にもなる。
         applyThumbnailDiskCacheSettings()
         applyFileBrowserThumbnailCacheSettings()
-        // 外観も同じ理由でここから1回。最初のウインドウが作られるより前(このinitは
-        // AppStores経由でQooViewerApp.init()から呼ばれる)なので、既定の外観が一瞬見えて
-        // から切り替わる、ということにはならない。
-        if sharesGlobalState { AppAppearanceApplier.shared.apply(appAppearance) }
     }
 }
 
@@ -1964,72 +1425,9 @@ extension AppPreferences {
                 Keys.siblingNavigationFollowsBrowserSort,
             ]
         case .appearance:
-            return [
-                // アプリ全体のライト/ダーク。画面上もこの画面のいちばん上にある
-                // (AppearanceSettingsView.appSection参照)。
-                Keys.appAppearance,
-                Keys.backgroundColorOption,
-                Keys.customBackgroundColor,
-                Keys.thumbnailGridCellSize,
-                Keys.thumbnailGridHorizontalSpacing,
-                Keys.thumbnailGridVerticalSpacing,
-                Keys.thumbnailGridHorizontalMarginPercent,
-                Keys.thumbnailGridVerticalMarginPercent,
-                Keys.thumbnailGridCaptionStyle,
-                Keys.thumbnailGridCaptionFontSize,
-                Keys.thumbnailGridBorderColorOption,
-                Keys.thumbnailGridBorderCustomColor,
-                // 拡大プレビューのON/OFFは、画面上も「外観」→「ページ一覧」にある
-                // (ページ一覧にしか効かないため)。**画面の置き場所とここは必ず揃えること** ――
-                // 食い違うと、その画面の「初期設定に戻す」で戻らない項目や、別の画面のボタンで
-                // 勝手に戻る項目が生まれる。先読み(preloadThumbnailGridPreviews)は
-                // 「キャッシュ」画面へ移した(下のcase .cache参照)。
-                Keys.showThumbnailHoverPreview,
-                // ホイールのスクロール行数もページ一覧パネル専用なので、画面ごと
-                // こちらへ移してある(ユーザーの指示)。
-                Keys.thumbnailGridWheelScrollRows,
-                // プログレスバーのフィルムストリップ一式。ON/OFFも見た目の設定も画面上は
-                // 同じセクションに並んでいるので、担当もまとめてこの画面
-                // (AppearanceSettingsView.filmstripSection参照)。
-                Keys.showProgressBarThumbnailPreview,
-                Keys.filmstripThumbnailCount,
-                Keys.filmstripCaptionStyle,
-                Keys.filmstripFontSize,
-                Keys.filmstripDimsOtherPages,
-                Keys.filmstripHighlightColorOption,
-                Keys.filmstripHighlightCustomColor,
-                Keys.filmstripHighlightBorderWidth,
-                // 「表示までの時間」は、面ごとのセクション(ツールバー/プログレスバー/
-                // サイドパネル)の中にあるので、この画面の担当
-                // (AppearanceSettingsView.revealDelayBinding(for:)参照)。
-                Keys.toolbarRevealDelay,
-                Keys.progressBarRevealDelay,
-                Keys.sidePanelRevealDelay,
-                // 背後を透かすすりガラスの4スイッチも、面ごとのセクションに並ぶ設定なので
-                // この画面の担当(AppearanceSettingsView.behindWindowGlassBinding(for:)参照)。
-                Keys.toolbarDockedGlass,
-                Keys.progressBarDockedGlass,
-                Keys.sidePanelDockedGlass,
-                Keys.welcomeGlass,
-                // コレクションのカバーの下の表示も、画面上は「外観」→「ウェルカム画面」に
-                // ある(PanelSurfaceSettingsView.welcomeSection参照)。
-                Keys.collectionCoverCaptionStyle,
-                Keys.collectionCoverCaptionFontSize,
-                Keys.collectionTileNameFontSize,
-                Keys.collectionTileBadgeSize,
-                Keys.collectionTileBackgroundColor,
-            ] + PanelSurface.allCases.flatMap {
-                // 面ごとの設定を1つ増やしたら**ここにも足すこと**。`apply`が渡す
-                // `AppPreferences()`はUserDefaultsから読み直すので、キーを消し忘れると
-                // 古い値がそのまま戻ってきて「初期設定に戻す」が効かない
-                // (ユーザー報告: 「文字の影」だけリセットされない)。
-                [
-                    Keys.panelSurfaceMaterialOpacity($0),
-                    Keys.panelSurfaceTintColor($0),
-                    Keys.panelSurfaceTintOpacity($0),
-                    Keys.panelSurfaceContentShadowLevel($0),
-                ]
-            }
+            // 外観タブの設定は AppearanceSettings が揃いごとに持ち、「初期設定に戻す」も編集中の揃いに対して
+            // AppearanceSettings.resetToDefaults() で行う(AppearanceSettingsView.rootPage)。ここで戻すものは無い。
+            return []
         case .opening:
             return [
                 Keys.reopenBehavior,
@@ -2138,43 +1536,8 @@ extension AppPreferences {
             sidePanelSortOrder = source.sidePanelSortOrder
             siblingNavigationFollowsBrowserSort = source.siblingNavigationFollowsBrowserSort
         case .appearance:
-            appAppearance = source.appAppearance
-            backgroundColorOption = source.backgroundColorOption
-            customBackgroundColor = source.customBackgroundColor
-            thumbnailGridCellSize = source.thumbnailGridCellSize
-            thumbnailGridHorizontalSpacing = source.thumbnailGridHorizontalSpacing
-            thumbnailGridVerticalSpacing = source.thumbnailGridVerticalSpacing
-            thumbnailGridHorizontalMarginPercent = source.thumbnailGridHorizontalMarginPercent
-            thumbnailGridVerticalMarginPercent = source.thumbnailGridVerticalMarginPercent
-            thumbnailGridCaptionStyle = source.thumbnailGridCaptionStyle
-            thumbnailGridCaptionFontSize = source.thumbnailGridCaptionFontSize
-            thumbnailGridBorderColorOption = source.thumbnailGridBorderColorOption
-            thumbnailGridBorderCustomColor = source.thumbnailGridBorderCustomColor
-            showThumbnailHoverPreview = source.showThumbnailHoverPreview
-            thumbnailGridWheelScrollRows = source.thumbnailGridWheelScrollRows
-            showProgressBarThumbnailPreview = source.showProgressBarThumbnailPreview
-            filmstripThumbnailCount = source.filmstripThumbnailCount
-            filmstripCaptionStyle = source.filmstripCaptionStyle
-            filmstripFontSize = source.filmstripFontSize
-            filmstripDimsOtherPages = source.filmstripDimsOtherPages
-            filmstripHighlightColorOption = source.filmstripHighlightColorOption
-            filmstripHighlightCustomColor = source.filmstripHighlightCustomColor
-            filmstripHighlightBorderWidth = source.filmstripHighlightBorderWidth
-            toolbarRevealDelay = source.toolbarRevealDelay
-            progressBarRevealDelay = source.progressBarRevealDelay
-            sidePanelRevealDelay = source.sidePanelRevealDelay
-            toolbarDockedGlass = source.toolbarDockedGlass
-            progressBarDockedGlass = source.progressBarDockedGlass
-            sidePanelDockedGlass = source.sidePanelDockedGlass
-            welcomeGlass = source.welcomeGlass
-            collectionCoverCaptionStyle = source.collectionCoverCaptionStyle
-            collectionCoverCaptionFontSize = source.collectionCoverCaptionFontSize
-            collectionTileNameFontSize = source.collectionTileNameFontSize
-            collectionTileBadgeSize = source.collectionTileBadgeSize
-            collectionTileBackgroundColor = source.collectionTileBackgroundColor
-            for surface in PanelSurface.allCases {
-                setSurfaceStyle(source.surfaceStyle(for: surface), for: surface)
-            }
+            // keys(for:)の.appearance参照(外観は AppearanceSettings が戻す)。
+            break
         case .opening:
             reopenBehavior = source.reopenBehavior
             finderOpenBehavior = source.finderOpenBehavior

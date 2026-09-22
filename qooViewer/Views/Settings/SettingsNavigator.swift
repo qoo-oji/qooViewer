@@ -45,6 +45,11 @@ final class SettingsNavigator: ObservableObject {
     /// (SettingsView.backButton参照)。環境設定ウインドウはアプリに1つなので、状態も1つでよい。
     @Published var openedAppearanceSurface: PanelSurface?
 
+    /// 環境設定「外観」で編集している揃い(ノーマルウインドウ用/シークレットウインドウ用。2026-09-22)。
+    /// 「シークレットウインドウに固有の外観を適用」が OFF の間は意味を持たない(ノーマルだけを編集する)。
+    /// 子ページと同じく次回に持ち越さない ―― 外観の画面を閉じるたびにノーマルへ戻す(AppearanceSettingsView.body の onDisappear)。
+    @Published var editingAppearanceProfile: AppearanceProfile = .normal
+
     /// 「レイアウト」画面で**いま開いている**形式の子ページ。nilなら一覧。
     ///
     /// 「外観」の面と同じ二階層(LayoutSettingsView参照)。こちらには「これから開く行き先」に

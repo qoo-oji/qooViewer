@@ -25,6 +25,8 @@ import SwiftUI
 struct WelcomeView: View {
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var preferences: AppPreferences
+    /// 外観タブの設定。本のウインドウではそのウインドウの揃い(ノーマル/シークレット。ContentView が渡す)。
+    @EnvironmentObject private var appearance: AppearanceSettings
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
     @EnvironmentObject private var autoFolderScanner: CollectionAutoFolderScanner
@@ -88,18 +90,18 @@ struct WelcomeView: View {
         // マテリアルで、メモ.appの本文背景などと同じもの。2層の構成の意味は
         // panelSurfaceBackgroundと同じだが、画面全体に敷くため安全領域も無視して広げる。
         .panelContentOutline(
-            width: preferences.welcomeGlass
+            width: appearance.welcomeGlass
                 ? PanelContentShadow.outlineWidth(
-                    forLevel: preferences.welcomeSurfaceStyle.contentShadowLevel
+                    forLevel: appearance.welcomeSurfaceStyle.contentShadowLevel
                 )
                 : 0
         )
         .background {
-            if preferences.welcomeGlass {
+            if appearance.welcomeGlass {
                 ZStack {
                     BehindWindowVisualEffectView(material: .underWindowBackground)
-                        .opacity(preferences.welcomeSurfaceStyle.materialOpacity)
-                    preferences.welcomeSurfaceStyle.resolvedTint
+                        .opacity(appearance.welcomeSurfaceStyle.materialOpacity)
+                    appearance.welcomeSurfaceStyle.resolvedTint
                 }
                 .ignoresSafeArea()
             }

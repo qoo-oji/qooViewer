@@ -931,6 +931,7 @@ struct BookmarkEditorView: View {
                     .environmentObject(bookmarkStore)
                     .environmentObject(layoutStore)
                     .environmentObject(preferences)
+                    .environmentObject(preferences.appearance)
             }
             // ユーザー要望: 左ペインでファイル名をダブルクリックしたら、その本を開く(openBook参照)。
             // BookmarkDetailPaneの同種のWindowAccessor/アラートと同じ仕組み。

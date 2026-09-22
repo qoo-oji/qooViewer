@@ -218,6 +218,11 @@ JSON 読み込みの重複判定も同じ識別子を使います。
   両方へ足す(足し忘れるとその項目だけ戻らない。「文字の影」だけ戻らない、という報告があった)。
   画面の置き場所と `keys(for:)` は必ず揃える。
 - **値を下げるとデータが消える設定(保持件数2つ)は「初期設定に戻す」の対象外**。
+- 外観タブの設定は `AppearanceSettings` が持つ(2026-09-22。ノーマルウインドウ用とシークレットウインドウ用の 2 揃い)。
+  ノーマルの揃いは従来のキーのまま、シークレットの揃いは同じキーの末尾に `.privateWindow`。「初期設定に戻す」は揃いごと
+  (`AppearanceSettings.resetToDefaults()` と `allKeys`。足し忘れは `AppearanceSettingsTests` が名前を挙げて落とす)。
+  シークレットの揃いを初めて使うときにノーマルから写したかは `qooViewer.pref.privateAppearanceInitialized` に記録する
+  (→ [09](09-ui-and-windows.md)「その他の小さな約束」)。
 - 旧キー(`loopBehavior` → `firstPageBehavior` / `lastPageBehavior`、`interpolationQuality` の
   `"low"`)は init で読み替え、**旧キーはその場で削除**する(残すと「初期設定に戻す」のたびに
   復活する)。読み替えた値は UserDefaults へ直接書く(init 内の代入では保存されない)。

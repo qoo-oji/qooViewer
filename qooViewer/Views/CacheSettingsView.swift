@@ -21,6 +21,8 @@ import SwiftUI
 /// そのため「リセット」画面のような重い確認は挟まない(あちらは取り消せない**データ**の削除)。
 struct CacheSettingsView: View {
     @EnvironmentObject private var preferences: AppPreferences
+    /// 外観タブの設定。本のウインドウではそのウインドウの揃い(ノーマル/シークレット。ContentView が渡す)。
+    @EnvironmentObject private var appearance: AppearanceSettings
     /// 環境設定ウインドウが前面にあるか。使用量を測り直すきっかけの1つとして見ている
     /// (usageTaskID参照)。
     @Environment(\.controlActiveState) private var controlActiveState
@@ -89,7 +91,7 @@ struct CacheSettingsView: View {
                 )
                 // プレビューを出さない設定のときは、先読みしても何も起きない(その設定は
                 // 「外観」に残っている。理由は吹き出しに書いてある)。
-                .disabled(!preferences.showThumbnailHoverPreview)
+                .disabled(!appearance.showThumbnailHoverPreview)
             } header: {
                 Text("Preloading")
             }

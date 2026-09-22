@@ -164,6 +164,8 @@ FileBrowserOperations(ウインドウごと。1 本ずつ直列・確認の受�
 - `ClassicWelcomeView` の当時との違い: 「最近開いた本」の列を出すかの設定は 2026-09-13 に撤去済みなので常に出す(シークレットウインドウでは出さない)。
   「開く…」のボタンに ⌘O を付けない(ファイルメニューが持つ)。背景とすりガラス面は `WelcomeView` が敷く。列幅の計算
   (`WelcomeQuickOpenWidth`)とそのテストも一緒に戻した。
+- `.classic` の間は、本を開いていなくてもサイドパネルを出す(v1.42 までと同じ。2026-09-22、ユーザー要望)。ほかのモードでは出さない
+  (`ContentView.isSidePanelSuppressedForWelcome`、[09](09-ui-and-windows.md))。
 
 ### OFF の間に消える項目
 

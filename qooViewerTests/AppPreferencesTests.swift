@@ -29,25 +29,31 @@ struct AppPreferencesTests {
         #expect(p.maxUpscalePercent == 200)
         #expect(p.interpolationQuality == .high)
         #expect(p.defaultScalingMode == .fitToScreen)
-        #expect(p.backgroundColorOption == .black)
+        #expect(p.appearance.backgroundColorOption == .black)
         #expect(p.reopenBehavior == .resume)
         #expect(p.finderOpenBehavior == .replaceCurrentBook)
         #expect(p.displayLanguage == .system)
-        #expect(p.appAppearance == .system)
+        #expect(p.appearance.appAppearance == .system)
         #expect(p.prefetchPageCount == 3)
         #expect(p.pageImageCacheLimitMB == AppPreferences.defaultPageImageCacheLimitMB)
         // ユーザー報告(黙って数百MB溜まる)を受けて既定 OFF にしたもの。
         #expect(p.thumbnailDiskCacheEnabled == false)
         #expect(p.missingLayoutAutoLayout == .none)
         // コレクションのカバーの下は、従来どおり何も書かない(CollectionCoverCaptionStyle参照)。
-        #expect(p.collectionCoverCaptionStyle == .none)
-        #expect(p.collectionCoverCaptionFontSize == 10)
-        #expect(p.collectionTileNameFontSize == 13)
+        #expect(p.appearance.collectionCoverCaptionStyle == .none)
+        #expect(p.appearance.collectionCoverCaptionFontSize == 10)
+        #expect(p.appearance.collectionTileNameFontSize == 13)
         // 札の冊数バッジは、設定にする前と同じ小さい段(CollectionTileBadgeSize参照)。
-        #expect(p.collectionTileBadgeSize == .small)
+        #expect(p.appearance.collectionTileBadgeSize == .small)
         // 札の地の色は「未指定」から始める ―― 既定の薄い地は明暗の外観に追従する
-        // (AppPreferences.collectionTileBackgroundColor参照)。
-        #expect(p.collectionTileBackgroundColor == nil)
+        // (AppearanceSettings.collectionTileBackgroundColor参照)。
+        #expect(p.appearance.collectionTileBackgroundColor == nil)
+        // タイトルバーの色も「未指定」(= システムの標準)から始める(AppearanceSettings.titleBarColor参照)。
+        #expect(p.appearance.titleBarColor == nil)
+        // シークレットウインドウは、既定ではノーマルウインドウの外観に従う(ユーザーの指定)。
+        #expect(p.privateWindowsUseOwnAppearance == false)
+        #expect(p.appearance(forPrivateWindow: true) === p.appearance)
+        #expect(p.privateWindowTitlePrefix == nil)
     }
 
     @Test("保存された MB の値が NaN・巨大・範囲外・数でなくても、起動で落ちずに範囲へ収まる")
@@ -89,7 +95,7 @@ struct AppPreferencesTests {
         let suite = PreferencesSuite()
         let p = suite.makePreferences()
         p.maxUpscalePercent = 321
-        p.appAppearance = .dark
+        p.appearance.appAppearance = .dark
         p.thumbnailDiskCacheEnabled = true
         p.displayLanguage = .japanese
 
@@ -250,23 +256,8 @@ struct AppPreferencesTests {
             "sidePanelSortOrder",
             "siblingNavigationFollowsBrowserSort",
         ],
-        .appearance: [
-            "appAppearance", "backgroundColorOption", "customBackgroundColor",
-            "thumbnailGridCellSize", "thumbnailGridHorizontalSpacing", "thumbnailGridVerticalSpacing",
-            "thumbnailGridHorizontalMarginPercent", "thumbnailGridVerticalMarginPercent",
-            "thumbnailGridCaptionStyle", "thumbnailGridCaptionFontSize",
-            "thumbnailGridBorderColorOption", "thumbnailGridBorderCustomColor",
-            "showThumbnailHoverPreview", "thumbnailGridWheelScrollRows",
-            "showProgressBarThumbnailPreview", "filmstripThumbnailCount", "filmstripCaptionStyle",
-            "filmstripFontSize", "filmstripDimsOtherPages", "filmstripHighlightColorOption",
-            "filmstripHighlightCustomColor", "filmstripHighlightBorderWidth",
-            "toolbarRevealDelay", "progressBarRevealDelay", "sidePanelRevealDelay",
-            "toolbarDockedGlass", "progressBarDockedGlass", "sidePanelDockedGlass", "welcomeGlass",
-            "collectionCoverCaptionStyle", "collectionCoverCaptionFontSize",
-            "collectionTileNameFontSize", "collectionTileBadgeSize", "collectionTileBackgroundColor",
-            "pageListSurfaceStyle", "toolbarSurfaceStyle", "progressBarSurfaceStyle",
-            "sidePanelSurfaceStyle", "welcomeSurfaceStyle", "overlaySurfaceStyle",
-        ],
+        // 外観タブの設定は AppearanceSettings が揃いごとに持ち、戻すのも揃いごと(AppearanceSettingsTests)。
+        .appearance: [],
         .opening: [
             "reopenBehavior", "finderOpenBehavior", "favoriteOpenBehavior",
             "spreadBookmarkTargetBehavior",
@@ -311,6 +302,12 @@ struct AppPreferencesTests {
         "folderBrowserSortKey", "folderBrowserSortDirection",
         // 初回起動でシステムの言語から一度だけ決める値(環境設定の画面には無い)。
         "defaultReadingDirection",
+        // 外観タブの「シークレットウインドウに固有の外観を適用」。タブの「初期設定に戻す」は編集中の揃いを戻すもので、
+        // このスイッチは揃いではないので戻さない(AppPreferences.privateWindowsUseOwnAppearance)。
+        "privateWindowsUseOwnAppearance",
+        // シークレットウインドウのタイトルの先頭の文字。上のスイッチと同じ「ウインドウ」セクションにあり、同じ理由で戻さない
+        // (行の右の矢印で既定へ戻す。AppPreferences.privateWindowTitlePrefix)。
+        "privateWindowTitlePrefix",
     ]
 
     @Test("すべての設定が、いずれかの画面か「戻さない」のどちらかに割り当てられている")
@@ -385,6 +382,7 @@ struct AppPreferencesTests {
         let p = suite.makePreferences()
         mutateEverySetting(p)
         let mutated = settingsSnapshot(of: p)
+        let mutatedAppearance = settingsSnapshot(of: p.appearance)
 
         p.resetToDefaults(.rendering)
 
@@ -393,7 +391,7 @@ struct AppPreferencesTests {
         #expect(after["maxUpscalePercent"] != mutated["maxUpscalePercent"])
         #expect(after["interpolationQuality"] != mutated["interpolationQuality"])
         #expect(after["slideshowInterval"] == mutated["slideshowInterval"])
-        #expect(after["appAppearance"] == mutated["appAppearance"])
+        #expect(settingsSnapshot(of: p.appearance) == mutatedAppearance)
         #expect(after["thumbnailDiskCacheEnabled"] == mutated["thumbnailDiskCacheEnabled"])
         #expect(after["bookExportWritesVolumeElement"] == mutated["bookExportWritesVolumeElement"])
     }
@@ -406,19 +404,19 @@ struct AppPreferencesTests {
             materialOpacity: 0.25, tintColor: RGBColorValue(red: 12, green: 34, blue: 56),
             tintOpacity: 0.75, contentShadowLevel: 4
         )
-        for surface in PanelSurface.allCases { p.setSurfaceStyle(style, for: surface) }
+        for surface in PanelSurface.allCases { p.appearance.setSurfaceStyle(style, for: surface) }
 
         let reopened = suite.makePreferences()
         for surface in PanelSurface.allCases {
             // ユーザー報告: 「文字の影」(contentShadowLevel)だけリセットされなかった。
-            // 面ごとの設定を足したら keys(for:) にも足すこと。
-            #expect(reopened.surfaceStyle(for: surface) == style)
+            // 面ごとの設定を足したら AppearanceSettings.allKeys にも足すこと。
+            #expect(reopened.appearance.surfaceStyle(for: surface) == style)
         }
 
-        p.resetToDefaults(.appearance)
+        p.appearance.resetToDefaults()
         for surface in PanelSurface.allCases {
-            #expect(p.surfaceStyle(for: surface) == surface.defaultStyle)
-            #expect(suite.makePreferences().surfaceStyle(for: surface) == surface.defaultStyle)
+            #expect(p.appearance.surfaceStyle(for: surface) == surface.defaultStyle)
+            #expect(suite.makePreferences().appearance.surfaceStyle(for: surface) == surface.defaultStyle)
         }
     }
 }

@@ -180,6 +180,22 @@
         }
       }
     },
+    "Appearance to Edit" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Appearance to Edit"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "編集する外観"
+          }
+        }
+      }
+    },
     "Applied from top to bottom" : {
       "localizations" : {
         "en" : {
@@ -448,6 +464,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "コレクションの設定…"
+          }
+        }
+      }
+    },
+    "Colors the title bar of Home and book windows. The title text follows the appearance mode, so pick a color it stays readable on. Until you pick a color, the standard title bar is used." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Colors the title bar of Home and book windows. The title text follows the appearance mode, so pick a color it stays readable on. Until you pick a color, the standard title bar is used."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホームと本のウインドウのタイトルバーを塗る色です。タイトルの文字の色は外観モードに従うので、文字が読める色を選んでください。色を選ぶまでは標準のタイトルバーのままです。"
           }
         }
       }
@@ -724,6 +756,22 @@
         }
       }
     },
+    "Emoji & Symbols" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Emoji & Symbols"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "絵文字と記号"
+          }
+        }
+      }
+    },
     "Enable File Browser" : {
       "localizations" : {
         "en" : {
@@ -816,6 +864,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "名前の中で一致した部分をすべて置き換えます。拡張子は変更しません。"
+          }
+        }
+      }
+    },
+    "Every setting on this page and on the panel pages below applies to the windows chosen here. Settings, other auxiliary windows and the menu bar always use the normal windows’ appearance." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every setting on this page and on the panel pages below applies to the windows chosen here. Settings, other auxiliary windows and the menu bar always use the normal windows’ appearance."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この画面と、下の各面のページのすべての設定が、ここで選んだウインドウに効きます。環境設定・そのほかの補助ウインドウ・メニューバーは、常にノーマルウインドウの外観です。"
           }
         }
       }
@@ -1204,6 +1268,22 @@
         }
       }
     },
+    "Normal Windows" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Normal Windows"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ノーマルウインドウ"
+          }
+        }
+      }
+    },
     "Not found" : {
       "localizations" : {
         "en" : {
@@ -1428,6 +1508,38 @@
         }
       }
     },
+    "Private Window Title Prefix" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Private Window Title Prefix"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットウインドウの目印"
+          }
+        }
+      }
+    },
+    "Private Windows" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Private Windows"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットウインドウ"
+          }
+        }
+      }
+    },
     "Puts the selected renamed items back to their original names. The rules won’t rename them again." : {
       "localizations" : {
         "en" : {
@@ -1620,6 +1732,22 @@
         }
       }
     },
+    "Restores every setting on this page and on every panel’s page for the windows you are editing, including the color of every frosted surface. The other windows’ appearance and other pages are not affected." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Restores every setting on this page and on every panel’s page for the windows you are editing, including the color of every frosted surface. The other windows’ appearance and other pages are not affected."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "編集しているウインドウの外観について、この画面と各面のページのすべての設定を初期設定に戻します(すりガラスの各面の色を含む)。\nもう一方のウインドウの外観と、ほかの画面の設定には影響しません。"
+          }
+        }
+      }
+    },
     "Review Changes…" : {
       "localizations" : {
         "en" : {
@@ -1696,6 +1824,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "シリーズの本を表示"
+          }
+        }
+      }
+    },
+    "Shown before the title of private windows. Leave it empty to show nothing, for example when a title bar color already tells them apart. You can use emoji." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shown before the title of private windows. Leave it empty to show nothing, for example when a title bar color already tells them apart. You can use emoji."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットウインドウのタイトルの前に付ける文字です。空にすると何も付けません(タイトルバーの色で見分けられる場合など)。絵文字も使えます。"
           }
         }
       }
@@ -2052,6 +2196,22 @@
         }
       }
     },
+    "Title Bar Color" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Title Bar Color"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タイトルバーの色"
+          }
+        }
+      }
+    },
     "To rename items in this folder automatically, please select and grant access to it." : {
       "localizations" : {
         "en" : {
@@ -2132,6 +2292,22 @@
         }
       }
     },
+    "Use a Separate Appearance for Private Windows" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use a Separate Appearance for Private Windows"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シークレットウインドウに固有の外観を適用"
+          }
+        }
+      }
+    },
     "Waiting for you to check the changes" : {
       "localizations" : {
         "en" : {
@@ -2160,6 +2336,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "リスト表示・アイコン表示で、画像フォルダをダブルクリックしたとき、または選んでリターンキーを押したときにすることです。右クリックの「開く」はもう一方をするので、どちらの開き方もすぐ使えます。本ではないフォルダは常にフォルダとして開き、左のツリーには影響しません。"
+          }
+        }
+      }
+    },
+    "When off, private windows look the same as normal windows. When you first turn it on, private windows start from a copy of the normal windows’ appearance." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When off, private windows look the same as normal windows. When you first turn it on, private windows start from a copy of the normal windows’ appearance."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オフの間は、シークレットウインドウもノーマルウインドウと同じ外観になります。初めてオンにしたときは、ノーマルウインドウの外観を写したところから始まります。"
+          }
+        }
+      }
+    },
+    "Windows" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Windows"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ウインドウ"
           }
         }
       }
