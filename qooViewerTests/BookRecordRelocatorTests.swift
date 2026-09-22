@@ -96,6 +96,27 @@ struct BookRecordRelocatorTests {
         #expect(library.bookmarks.bookmarks(forBookID: to.path).map(\.name) == ["to"])
     }
 
+    @Test("「置き換える」で移した本は、置き換えられた本の保存データを消してから付け替える(2026-09-22 の監査)")
+    func aReplacedDestinationGivesWayToTheMovedBook() async throws {
+        let library = try InMemoryLibrary(label: "relocator-replace")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("relocator-replace")
+        let from = temporary.file("from"), to = temporary.file("to")
+        try makeBookFolder(at: from)
+        try makeBookFolder(at: to)
+        #expect(library.bookmarks.addBookmark(bookID: from.path, pageIndex: 0, name: "moved"))
+        #expect(library.bookmarks.addBookmark(bookID: to.path, pageIndex: 0, name: "replaced"))
+        library.context.insert(BookReadingState(bookID: to.path, lastPageIndex: 9))
+        try library.context.save()
+
+        await makeRelocator(library).apply(FileSystemChange(relocations: [.init(from: from, to: to)], replaced: [to])).value
+
+        #expect(library.bookmarks.bookmarks(forBookID: to.path).map(\.name) == ["moved"])
+        #expect(library.bookmarks.bookmarks(forBookID: from.path).isEmpty)
+        let states = try library.context.fetch(FetchDescriptor<BookReadingState>())
+        #expect(states.isEmpty, "置き換えられた本の読書位置は消える(移した本は読書位置を持っていなかった)")
+    }
+
     @Test("別ボリュームへ移した本も付いていく: inode とブックマークを新しい場所で取り直し、棚で「見つからない」にならない")
     func recordsFollowAMoveToAnotherVolume() async throws {
         // 以前は inode が変わるので追えず(docs/06「ボリュームをまたぐ移動は諦める」)、棚では見つからない本になり、次の起動の掃除の候補に挙がった。

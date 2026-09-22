@@ -158,6 +158,9 @@ nonisolated struct TransferReceipt: Sendable, Equatable {
     var identity: FileIdentity?
     /// ゴミ箱へ送った直後の、置き換えた項目の実体(`TrashReceipt.identity` と同じ役目)。
     var replacedItemIdentity: FileIdentity?
+    /// `.replace` で既存の項目を置き換えたか(ゴミ箱へ送れず消した場合も true)。保存データの付け替え役が、置き換えられた本の
+    /// 保存データを新しい項目に残さないために使う(`FileSystemChange.replaced`)。
+    var didReplace = false
 
     init(
         source: URL, destination: URL, replacedItemInTrash: URL?, identity: FileIdentity? = nil,

@@ -26,13 +26,17 @@ nonisolated struct FileSystemChange: Sendable, Equatable {
     var removed: [URL] = []
     /// その場所にできた項目(コピー・新規フォルダ・圧縮・展開・ゴミ箱から戻した)。
     var created: [URL] = []
+    /// 「置き換える」で、そこにあった項目を置き換えた場所(移動・コピーの行き先。`relocations`/`created` にも入っている)。
+    /// そこにあった本の保存データは、新しい項目のものではない(2026-09-22 の監査。`BookRecordRelocator` が付け替えの前に消す)。
+    var replaced: [URL] = []
 
-    var isEmpty: Bool { relocations.isEmpty && removed.isEmpty && created.isEmpty }
+    var isEmpty: Bool { relocations.isEmpty && removed.isEmpty && created.isEmpty && replaced.isEmpty }
 
     mutating func merge(_ other: FileSystemChange) {
         relocations += other.relocations
         removed += other.removed
         created += other.created
+        replaced += other.replaced
     }
 
     /// 中身が変わったフォルダ(変わった項目の親)のパス。末尾の `/` は持たない(`FileBrowserState.id(for:)` と同じ規則)。

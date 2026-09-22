@@ -90,6 +90,28 @@ struct FileSystemChangeTests {
         #expect(received.relocations.count == 2)
     }
 
+    @Test("「置き換える」で移した・写した行き先は、replaced として知らせる(保存データの付け替え役が古い本の分を消すため)")
+    func serviceReportsReplacedDestinations() async throws {
+        let temporary = try TemporaryDirectory("fs-change-replace")
+        let source = try temporary.directory("source")
+        let destination = try temporary.directory("destination")
+        let trash = try temporary.directory("PseudoTrash")
+        for folder in [source, destination] { try Data("a".utf8).write(to: folder.appendingPathComponent("a.txt")) }
+        try Data("b".utf8).write(to: source.appendingPathComponent("b.txt"))
+        let center = FileSystemChangeCenter()
+        var received = FileSystemChange()
+        let subscription = center.changes.sink { received.merge($0) }
+        defer { subscription.cancel() }
+        let service = FileOperationService(environment: .pseudoTrash(at: trash), changeObserver: { center.report($0) })
+
+        _ = try await service.move([source.appendingPathComponent("a.txt"), source.appendingPathComponent("b.txt")],
+                                   to: destination, options: FileOperationOptions(conflictPolicy: .replace))
+        center.flush()
+
+        #expect(received.replaced.map(\.lastPathComponent) == ["a.txt"], "置き換えなかった b.txt まで replaced に入った")
+        #expect(received.relocations.count == 2)
+    }
+
     // MARK: ファイルブラウザの状態
 
     @Test("別のウインドウの操作で、同じフォルダを表示している一覧も読み直す(FSEvents が無くても)")

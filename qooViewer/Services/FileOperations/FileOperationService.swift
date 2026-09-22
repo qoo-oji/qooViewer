@@ -75,7 +75,8 @@ actor FileOperationService {
         let outcome = try await transfer(items, to: folder, options: options, isMove: false) { source, target, onBytes in
             try FileCopyEngine.copy(from: source, to: target, allowsCloning: allowsCloning, onBytesCopied: onBytes)
         }
-        changeObserver?(FileSystemChange(created: outcome.receipts.map(\.destination)))
+        changeObserver?(FileSystemChange(created: outcome.receipts.map(\.destination),
+                                         replaced: outcome.receipts.filter(\.didReplace).map(\.destination)))
         return outcome
     }
 
@@ -88,7 +89,8 @@ actor FileOperationService {
                 try Self.moveItem(from: source, to: target, allowsCloning: allowsCloning, onBytesCopied: onBytes)
             }
         }
-        changeObserver?(FileSystemChange(relocations: outcome.receipts.map { .init(from: $0.source, to: $0.destination) }))
+        changeObserver?(FileSystemChange(relocations: outcome.receipts.map { .init(from: $0.source, to: $0.destination) },
+                                         replaced: outcome.receipts.filter(\.didReplace).map(\.destination)))
         return outcome
     }
 
@@ -721,10 +723,11 @@ actor FileOperationService {
             if !itemExists(at: backup) { environment.replaceJournal.forget(backup: backup) }
             rmdir(backup.deletingLastPathComponent().path)
         }
-        let receipt = TransferReceipt(
+        var receipt = TransferReceipt(
             source: item, destination: resolved.target, replacedItemInTrash: replacedInTrash, identity: FileIdentity.of(resolved.target),
             replacedItemIdentity: replacedInTrash.flatMap(FileIdentity.of)
         )
+        receipt.didReplace = resolved.backupOfReplaced != nil
         if case let .copiedButSourceRemains(_, reason) = outcome {
             return Carried(receipt: receipt, problem: [reason, replacedItemKept].compactMap(\.self).joined(separator: " "))
         }

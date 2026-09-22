@@ -39,6 +39,11 @@ final class BookRecordRelocator {
         // 付け替えが済むまで自分を持っておく(途中で手放されると、知らせを受けたのに付け替えが消える)。
         let task = Task { @MainActor [self] in
             await previous?.value
+            // 「置き換える」で置き換えられた本の保存データは、先に消す(2026-09-22 の監査)。残すと、置き換えた新しい本がそのパスで
+            // 古い本の読書位置・ブックマーク・メタデータを引き継ぎ、移してきた本の保存データは「移った先に行がある」で付け替わらず
+            // 実在しないパスに取り残された。置き換えられた本はゴミ箱へ行っている(ゴミ箱の中の本は「無い」扱い ――
+            // BookLocationResolver.isInTrash)ので、その保存データを持ち続ける先が無い。
+            self.eraseReplaced(change.replaced)
             guard !change.relocations.isEmpty else { return }
             let known = self.knownBookIDs()
             guard !known.isEmpty else { return }
@@ -57,6 +62,21 @@ final class BookRecordRelocator {
         }
         tail = task
         return task
+    }
+
+    private func eraseReplaced(_ replaced: [URL]) {
+        guard !replaced.isEmpty, let favoritesStore, let collectionStore, let bookmarkStore, let layoutStore, let metadataStore
+        else { return }
+        let paths = replaced.map { MountTable.normalized($0.path) }
+        let targets = knownBookIDs().filter { bookID in
+            let path = MountTable.normalized(bookID)
+            return paths.contains { MountTable.path(path, isAtOrUnder: $0) }
+        }
+        guard !targets.isEmpty else { return }
+        BookSavedDataEraser(
+            favoritesStore: favoritesStore, collectionStore: collectionStore, bookmarkStore: bookmarkStore,
+            layoutStore: layoutStore, metadataStore: metadataStore, modelContext: modelContext
+        ).deleteAllData(forBookIDs: targets.sorted())
     }
 
     private func knownBookIDs() -> Set<String> {
