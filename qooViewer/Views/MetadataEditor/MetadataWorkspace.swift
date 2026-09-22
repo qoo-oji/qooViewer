@@ -471,9 +471,23 @@ final class MetadataWorkspace {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
         edit("Set the series to “%@”".ui(trimmed), ids) { input in
-            let volume = self.row(input.id).flatMap(Self.confirmedVolume)
-            input.confirmation = .series(name: trimmed, volume: volume, fields: input.confirmation.fields)
+            guard let row = self.row(input.id) else { return }
+            input.confirmation = Self.seriesConfirmation(trimmed, for: row, edits: input.confirmation)
         }
+    }
+
+    /// シリーズ名を `name` にしたときの直した欄。**シリーズが変わる本は、巻を新しいシリーズ名で読み直す**(巻数(表示)も
+    /// 並べ替え用の巻数も確定を外し、qooMeta の提案に任せる ―― タイトルの新しいシリーズ名の後ろから読んだ巻、読めなければ推定。
+    /// 2026-09-22、利用者の指示。巻はシリーズの中の番号なので、前のシリーズの巻をそのまま持ち越さない。いったんは巻を消していたが、
+    /// 提案に戻すほうが望まれた)。名前が今のシリーズ名と同じ本(1 つのシリーズにまとめるとき、もとからそのシリーズの本)と、
+    /// 表記だけを直した本(空白・記号・全角半角・大文字小文字の違いだけ。`sameSeriesName`)は、巻をそのまま残す。
+    static func seriesConfirmation(_ name: String, for row: MetadataBookRow, edits: Confirmation) -> Confirmation {
+        guard !sameSeriesName(name, currentSeriesName(row)) else {
+            return .series(name: name, volume: confirmedVolume(row), fields: edits.fields)
+        }
+        var fields = fieldsForNewVolume(edits)
+        fields[.volume] = nil
+        return .series(name: name, volume: nil, fields: fields)
     }
 
     func removeFromSeries(_ ids: Set<MetadataBookRow.ID>) {
@@ -585,7 +599,8 @@ final class MetadataWorkspace {
         guard !trimmed.isEmpty else { return SeriesChangePreview() }
         let changes = ids.sorted().compactMap { id -> BookChange? in
             guard var input = generator.input(for: id), let state = states[id], !state.isLocked else { return nil }
-            input.confirmation = .series(name: trimmed, volume: row(id).flatMap(Self.confirmedVolume), fields: state.edits.fields)
+            guard let row = row(id) else { return nil }
+            input.confirmation = Self.seriesConfirmation(trimmed, for: row, edits: state.edits)
             return .upsert(input)
         }
         let delta = await generator.preview(changes)
@@ -608,6 +623,17 @@ final class MetadataWorkspace {
     }
 
     func row(_ id: String) -> MetadataBookRow? { positionByID[id].map { books[$0] } }
+
+    /// 同じシリーズ名か(表記の違い ―― 空白・記号・全角半角・大文字小文字 ―― を除いて比べる)。空の名前はどれとも同じでない。
+    nonisolated static func sameSeriesName(_ a: String, _ b: String) -> Bool {
+        func key(_ s: String) -> String {
+            String(String.UnicodeScalarView(s.precomposedStringWithCompatibilityMapping.lowercased().unicodeScalars.filter {
+                CharacterSet.letters.contains($0) || CharacterSet.decimalDigits.contains($0)
+            }))
+        }
+        let (x, y) = (key(a), key(b))
+        return !x.isEmpty && x == y
+    }
 
     static func currentSeriesName(_ book: MetadataBookRow) -> String {
         if case .series(let name, _, _) = book.confirmation { return name }

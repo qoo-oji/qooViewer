@@ -257,7 +257,7 @@ unrar の公開 API(`RAROpenArchiveEx`)は書庫を**ファイルパスでしか
 (`upToNextMajorVersion` from 0.2.0。`Package.resolved` が版と revision を固定し、`scripts/ci/check-package-pins.sh` が確かめる)。
 0.2.0(2026-09-22)で入った、qooViewer が頼っている約束: 名前を確定した本の `metadata.series` は確定した表記のまま
 (表記だけを直したシリーズ名が、比べる形の同じほかの本の表記に戻らない)、巻数(並べ替え用)を確定できる(`ConfirmedFields.volumeSort`。
-メタデータの編集ウインドウの「並べ替え用の巻数」の列。docs/07)。
+メタデータの編集ウインドウの「並べ替え用の巻数」の列。docs/07)。0.2.1 で、巻数(表示用)の後ろの「〜」「-」は、表記の中に対があれば残るようになった。
 使う製品は `QooMetaKit`(ファイル名の解析・シリーズと巻の導出の中核。Foundation だけに依存し、ファイルを読まない)と
 `QooMetaRules`(同梱の既定値の JSON ―― ルールセットの `filename-formats.json`、シリーズの規則の `series-rules.json` ―― と
 システムの辞書の読み込み口)。

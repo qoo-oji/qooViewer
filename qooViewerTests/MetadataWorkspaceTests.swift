@@ -291,6 +291,57 @@ struct MetadataWorkspaceTests {
         #expect(workspace.row(first)?.metadata.info == "外で書いた付記")
     }
 
+    @Test("シリーズ名を別の名前に変えると巻を新しい名前で読み直し、表記だけの直し・同じシリーズへのまとめでは巻を残す(2026-09-22、利用者の指示)")
+    func renamingTheSeriesReproposesTheVolume() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let other = "/書庫/[架空工房] 星の海 7.zip"
+        let gaiden = "/書庫/[架空工房] 月の庭 外伝 3.zip"
+        let workspace = await open(library, [first, second, other, gaiden])
+        // 新しいシリーズ名がタイトルの前にあれば、その後ろから巻を読み直す。
+        workspace.setVolumes("9", for: [gaiden])
+        workspace.setSeries("月の庭 外伝", for: [gaiden])
+        await workspace.settle()
+        #expect(workspace.row(gaiden)?.metadata.series == "月の庭 外伝")
+        #expect(workspace.row(gaiden)?.metadata.volume == "3")
+        // 巻を 5 に直し、並べ替え用の巻数も確定してから、別のシリーズ名にする。
+        workspace.setVolumes("5", for: [second])
+        workspace.setVolumeSort(1.5, for: [second])
+        workspace.setSeries("月の庭", for: [other])
+        await workspace.settle()
+        #expect(workspace.row(other)?.metadata.series == "月の庭")
+        #expect(workspace.row(other)?.hasConfirmedVolumeSort == false)
+        #expect(workspace.row(other)?.hasConfirmedSeries == true)
+        // 確定を外した巻は、qooMeta の提案(新しい名前がタイトルに当たらないので推定、または無し)。直した「5」は持ち越さない。
+        workspace.setSeries("星の庭", for: [second])
+        await workspace.settle()
+        #expect(workspace.row(second)?.metadata.series == "星の庭")
+        #expect(workspace.row(second)?.metadata.volume != "5")
+        #expect(workspace.row(second)?.hasConfirmedVolumeSort == false)
+        if case .series(_, let volume, let fields) = workspace.row(second)?.confirmation {
+            #expect(volume == nil)
+            #expect(fields.volumeSort == nil)
+        } else {
+            Issue.record("シリーズが確定していない")
+        }
+
+        // 表記だけの直しは巻を残す。
+        workspace.setVolumes("5", for: [second])
+        workspace.setSeries("星の 庭!", for: [second])
+        await workspace.settle()
+        #expect(workspace.row(second)?.metadata.volume == "5")
+        // もとからそのシリーズの本は、まとめても巻を残す。
+        workspace.setSeries("星の 庭!", for: [first, second])
+        await workspace.settle()
+        #expect(workspace.row(second)?.metadata.volume == "5")
+        #expect(workspace.row(first)?.metadata.series == "星の 庭!")
+
+        #expect(MetadataWorkspace.sameSeriesName("月の庭", "月の 庭!"))
+        #expect(MetadataWorkspace.sameSeriesName("ＡＢＣ", "abc"))
+        #expect(!MetadataWorkspace.sameSeriesName("月の庭", "星の庭"))
+        #expect(!MetadataWorkspace.sameSeriesName("", "!"))
+    }
+
     @Test("ロックした本は、すべての欄が確定した内容として読まれる")
     func lockedBooksAreFullyConfirmed() async throws {
         let library = try InMemoryLibrary()

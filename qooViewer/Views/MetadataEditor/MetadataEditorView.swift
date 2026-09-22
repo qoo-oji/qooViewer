@@ -519,16 +519,27 @@ struct MetadataBookTableView: View {
     var openParsingSettings: () -> Void
 
     @EnvironmentObject private var preferences: AppPreferences
-    @State private var pendingSeries: PendingSeries?
-    @State private var sheet: MetadataEditorSheet?
-    @State private var deletingMetadata: Set<String>?
+    /// 出している確かめの窓(1 つの `.alert` で出す。body のコメント)。
+    @State private var tableAlert: TableAlert?
 
-    struct PendingSeries: Identifiable {
-        let ids: Set<String>
-        let name: String
-        let preview: MetadataWorkspace.SeriesChangePreview
-        var id: String { name + ids.sorted().joined() }
+    enum TableAlert: Identifiable {
+        /// メタデータを削除する。
+        case delete(Set<String>)
+
+        var id: String {
+            switch self {
+            case .delete(let ids): "delete-\(ids.sorted().joined())"
+            }
+        }
     }
+
+    private var alertTitle: String {
+        switch tableAlert {
+        case .delete?: "Delete the metadata of these books?".ui
+        case nil: ""
+        }
+    }
+    @State private var sheet: MetadataEditorSheet?
 
     nonisolated static let columns: [QMBookMetadata.Field] = [.genre, .authors, .title, .series, .volume]
     nonisolated static let columnsAfterVolume: [QMBookMetadata.Field] = [.source, .event, .info]
@@ -557,31 +568,24 @@ struct MetadataBookTableView: View {
                               AnyView(ExportCoverCell(bookID: id, controller: controller, showsCropAnchor: true)
                                   .environmentObject(preferences))
                           })
-        .alert(item: $pendingSeries) { pending in
-            Alert(title: Text(verbatim: "Make “%@” the series?".ui(pending.name)),
-                  message: Text(verbatim: "This also changes %1$lld books you did not pick: %2$lld gain a series and %3$lld lose one."
-                      .ui(pending.preview.others, pending.preview.gained, pending.preview.lost)),
-                  primaryButton: .default(Text("Apply anyway")) {
-                      workspace.setSeries(pending.name, for: pending.ids)
-                  },
-                  secondaryButton: .cancel())
-        }
         .sheet(item: $sheet) { sheet in
             MetadataEditorSheetView(sheet: sheet, workspace: workspace, rulesStore: rulesStore) { name, ids in
                 applySeriesName(name, to: ids)
             }
         }
-        .alert(
-            "Delete the metadata of these books?",
-            isPresented: Binding(get: { deletingMetadata != nil }, set: { if !$0 { deletingMetadata = nil } })
-        ) {
-            Button("Cancel", role: .cancel) { deletingMetadata = nil }
-            Button("Delete", role: .destructive) {
-                if let deletingMetadata { workspace.deleteBooks(deletingMetadata) }
-                deletingMetadata = nil
+        // 確かめの窓は 1 つの `.alert` にまとめる(シリーズ名の確かめは AppKit で出す ―― `applySeriesName` のコメント)。
+        .alert(alertTitle, isPresented: Binding(get: { tableAlert != nil }, set: { if !$0 { tableAlert = nil } }),
+               presenting: tableAlert) { alert in
+            switch alert {
+            case .delete(let ids):
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) { workspace.deleteBooks(ids) }
             }
-        } message: {
-            Text(verbatim: "The metadata of %lld books is deleted and they are removed from this list. The books themselves are not deleted. This can't be undone.".ui(deletingMetadata?.count ?? 0))
+        } message: { alert in
+            switch alert {
+            case .delete(let ids):
+                Text(verbatim: "The metadata of %lld books is deleted and they are removed from this list. The books themselves are not deleted. This can't be undone.".ui(ids.count))
+            }
         }
     }
 
@@ -646,13 +650,28 @@ struct MetadataBookTableView: View {
 
     /// シリーズ名を入れる。**選んでいない本が巻き込まれるときだけ**、入れる前に数を見せて確かめる
     /// (確定した名前は錨なので、同じ単位のほかの本もそのシリーズへ寄る)。
+    ///
+    /// 確かめは **AppKit の `NSAlert` をこの窓のシートとして出す**(2026-09-22、利用者の報告: 巻のある本のシリーズ名をセルで
+    /// 書き換えて Return を押しても、確かめが出ずに元の名前のままだった。巻を消してから書き換えると、ほかの本を巻き込まず
+    /// 確かめを通らないので書き換わった)。以前は SwiftUI の `.alert(item:)` で出していたが、実物では出なかった(同じ組み立ての
+    /// 小さな再現では出たので、何が止めているかは分かっていない)。表の書き換え(AppKit)から続く確かめなので、AppKit で出す。
     private func applySeriesName(_ name: String, to ids: Set<String>) {
-        Task {
+        Task { @MainActor in
             let preview = await workspace.previewSetSeries(name, for: ids)
-            if preview.others > 0 {
-                pendingSeries = PendingSeries(ids: ids, name: name, preview: preview)
-            } else {
-                workspace.setSeries(name, for: ids)
+            guard preview.others > 0 else { return workspace.setSeries(name, for: ids) }
+            let alert = NSAlert()
+            alert.messageText = "Make “%@” the series?".ui(name)
+            alert.informativeText = "This also changes %1$lld books you did not pick: %2$lld gain a series and %3$lld lose one."
+                .ui(preview.others, preview.gained, preview.lost)
+            alert.addButton(withTitle: "Apply anyway".ui)
+            alert.addButton(withTitle: "Cancel".ui)
+            let apply = { [workspace] in workspace.setSeries(name, for: ids) }
+            if let window = NSApp.keyWindow, window.attachedSheet == nil {
+                alert.beginSheetModal(for: window) { response in
+                    if response == .alertFirstButtonReturn { apply() }
+                }
+            } else if alert.runModal() == .alertFirstButtonReturn {
+                apply()
             }
         }
     }
@@ -727,7 +746,7 @@ struct MetadataBookTableView: View {
         // 「このフォルダを対象外にする」は、一覧に並ぶのは本なのにフォルダを指す項目で分かりにくい、と外した(同日)。
         // 対象外のフォルダは、ツールバーの対象外のフォルダのシートで足す。
         items.append(Item(title: "Delete Metadata…".ui) {
-            deletingMetadata = ids
+            tableAlert = .delete(ids)
         })
         items.append(.separator)
         // どこにある本かを辿れるように(2026-09-22、利用者の要望)。見つからない本は、残っているいちばん近いフォルダを開く。

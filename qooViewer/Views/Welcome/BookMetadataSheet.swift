@@ -385,11 +385,15 @@ struct BookMetadataSheet: View {
         var values = draft
         values.authors = authorsText.split(whereSeparator: { "、,，".contains($0) }).map(String.init)
         // シリーズ名を空にしたら、巻も外す(シリーズの無い巻は持たせない。欄は入れられなくなっているが値は残っているので)。
-        if values.series.trimmingCharacters(in: .whitespaces).isEmpty,
-           !openedValues.series.trimmingCharacters(in: .whitespaces).isEmpty {
-            values.volume = ""
-            values.volumeSort = nil
-        }
+        // シリーズ名を別の名前に変えたら、巻は新しいシリーズ名で読み直す(巻はシリーズの中の番号。2026-09-22、利用者の指示。
+        // 表記だけを直したときは残す ―― `MetadataWorkspace.sameSeriesName`)。同じ保存で巻も入れ直していたら、入れた巻を使う。
+        // 読み直しはメタデータ生成が行う(直した欄の巻の確定を外す。下の `reproposingVolume`)。
+        let newSeries = values.series.trimmingCharacters(in: .whitespaces)
+        let oldSeries = openedValues.series.trimmingCharacters(in: .whitespaces)
+        let reproposesVolume = !newSeries.isEmpty && !oldSeries.isEmpty
+            && !MetadataWorkspace.sameSeriesName(newSeries, oldSeries)
+            && values.volume.trimmingCharacters(in: .whitespaces) == openedVolume
+            && volumeSortText == openedVolumeSortText
         // 巻数(並べ替え用)を手で変えたら、その数(空なら無し ―― 表記から数として読み直される)。変えずに巻の表記だけを
         // 変えたら、qooMeta が導いた並べ替え用の数は捨てる(表記と食い違った数を残さない)。
         if volumeSortText != openedVolumeSortText, canEditVolumeSort {
@@ -410,6 +414,15 @@ struct BookMetadataSheet: View {
                                          ruleSet: current.ruleSet)
         } else {
             state.edits = MetadataParsing.edits(changing: openedValues.trimmed, to: values, in: current.edits)
+        }
+        if reproposesVolume, !state.isLocked {
+            state.edits = MetadataParsing.reproposingVolume(state.edits)
+            // 書く値の巻は、この本だけを読んだ提案で埋めておく(ほかの本と見比べた読みは、メタデータ生成がすぐ書き直す)。
+            let proposed = MetadataParsing.values(forBookID: bookID, edits: state.edits, ruleSet: state.ruleSet,
+                                                  rules: rulesStore.rules)
+            values.volume = proposed.volume
+            values.volumeSort = proposed.volumeSort
+            values = values.trimmed
         }
         // ウインドウ版と違い、この画面は本のURLを持てている(ブックマークとinodeも入る)。
         metadataStore.upsertAll([BookMetadataStore.BatchEntry(bookID: bookID, values: values, sourceURL: sourceURL,

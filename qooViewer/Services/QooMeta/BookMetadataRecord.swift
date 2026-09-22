@@ -104,7 +104,18 @@ nonisolated enum MetadataParsing {
             single(.volume, old.volume, new.volume)
             return .notInSeries(fields: fields)
         }
+        // シリーズの巻は `.series` の巻で持つ(シリーズではなかった頃の欄の巻が残ると、そちらが出てしまう)。
+        fields[.volume] = nil
         return .series(name: new.series, volume: new.volume, fields: fields)
+    }
+
+    /// 巻の確定を外した直した欄(シリーズ名は確定したまま。巻数(表示)・並べ替え用の巻数とも qooMeta の提案に戻す ――
+    /// シリーズ名を別の名前に変えたとき。1 冊ぶんのシート)。
+    static func reproposingVolume(_ edits: Confirmation) -> Confirmation {
+        guard case .series(let name, _, var fields) = edits else { return edits }
+        fields.volumeSort = nil
+        fields[.volume] = nil
+        return .series(name: name, volume: nil, fields: fields)
     }
 
     /// 読み(`parsed`)と違う欄だけを直した欄にしたもの(鍵を外したとき。`MetadataWorkspace.unlock`・1 冊ぶんのシート)。
