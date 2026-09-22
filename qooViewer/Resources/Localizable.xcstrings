@@ -17193,23 +17193,6 @@
         }
       }
     },
-    "Locked. Click to unlock" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Locked. Click to unlock"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ロック中。押すとロックを外します"
-          }
-        }
-      }
-    },
     "Locked: the fields can’t be changed. Unlock to edit them. The change is saved with Save" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -17223,6 +17206,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ロック中: 欄は変えられません。変えるにはロックを外してください。ロックの変更は「保存」で書き込まれます"
+          }
+        }
+      }
+    },
+    "Locked. Click to unlock" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Locked. Click to unlock"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ロック中。押すとロックを外します"
           }
         }
       }
@@ -30347,6 +30347,7 @@
       }
     },
     "This book's metadata is locked. Unlock it in the Edit Metadata window to change it." : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
