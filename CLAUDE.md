@@ -274,7 +274,10 @@ cache without touching the (possibly network) file (`FileBrowserThumbnailProvide
 feature off (`setFeatureEnabled(false)`) cancels an in-flight rebuild, releases the list/index/scan and makes every entry
 point a no-op; only `SmartLibraryStore.relocate` keeps running. `SmartLibraryViewState` (per window) holds smart collections
 (`SmartShelf` in code), facet buttons with multi-select and pins, filters, sort and grouping by author/series
-(`SmartGrouping`). Appearance: `AppearanceSettings.smartLibrary*`. Design in docs/14「スマートライブラリ」.
+(`SmartGrouping`). Appearance: `AppearanceSettings.smartLibrary*`. The cover grid has Finder-style selection and keys
+(2026-09-22; click selects, double-click / Return opens, rules in `SmartGridSelection`, keys taken on the grid's outer frame
+outside `.id(gridID)`); scrolling a selection into view computes the row from measured geometry (`PanelListScrollTracker`), so
+**every cell must keep the same height** — captions always reserve two lines (`SmartCaptionLines`). Design in docs/14「スマートライブラリ」.
 
 **Menu bar ↔ viewer bridging**: `AppState` (ViewModels/AppState.swift) is one-per-window and is exposed to
 the menu bar via `FocusedValue` (see the `qooViewerAppState`/`qooViewerMenuCheckmarkState` extension in

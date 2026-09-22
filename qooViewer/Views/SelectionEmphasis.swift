@@ -45,10 +45,13 @@ enum SelectionEmphasis {
 struct SelectionEmphasisBorder<S: InsettableShape>: View {
     let shape: S
     var lineWidth: CGFloat = 3
+    /// 一覧がキーの行き先か(スマートライブラリのグリッド、2026-09-22)。false なら前のウインドウでも灰色
+    /// (AppKit の一覧の `isEmphasized` と同じ。検索欄へ移ると選択が灰色になる)。
+    var isFocused = true
     @Environment(\.appearsActive) private var appearsActive
 
     var body: some View {
-        shape.strokeBorder(SelectionEmphasis.tint(isActive: appearsActive), lineWidth: lineWidth)
+        shape.strokeBorder(SelectionEmphasis.tint(isActive: appearsActive && isFocused), lineWidth: lineWidth)
     }
 }
 

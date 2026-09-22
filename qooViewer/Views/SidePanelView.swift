@@ -2077,6 +2077,15 @@ private struct SidePanelPagesSectionView: View {
         guard abs(target - metrics.offsetY) > 0.5 else { return nil }
         return target
     }
+
+    /// 1 画面に収まる行の数(PageUp / PageDown で動く行数。スマートライブラリのグリッド、2026-09-22)。寸法をまだ
+    /// 観測していない/控えが古ければ nil。
+    func rowsPerPage(rowCount: Int) -> Int? {
+        guard let metrics, metrics.contentHeight > 0, rowCount > 0, self.rowCount == rowCount else { return nil }
+        let pitch = (metrics.contentHeight - verticalPadding * 2 + rowSpacing) / CGFloat(rowCount)
+        guard pitch > 0 else { return nil }
+        return max(1, Int(((metrics.visibleRect.height + rowSpacing) / pitch).rounded(.down)))
+    }
 }
 
 /// ページモードの1行。左からページ番号・サムネイル・ファイル名の順に並べる(ユーザー要望)。

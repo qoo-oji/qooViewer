@@ -221,6 +221,84 @@ struct SmartLibraryTests {
         #expect(SmartSort.sorted(books, by: .lastRead, ascending: true).map(\.id) == ["/b/old.zip", "/b/new.zip", "/b/none.zip"])
     }
 
+    // MARK: 選択(2026-09-22)
+
+    @Test("クリックは 1 つ、⌘ で足す/外す、⇧ で起点からの範囲(前の範囲は置き換える)")
+    func gridSelectionClicks() {
+        let order = ["a", "b", "c", "d", "e"]
+        var selection = SmartGridSelection()
+        selection.click("b", .plain, order: order)
+        #expect(selection.ids == ["b"])
+        selection.click("d", .extend, order: order)
+        #expect(selection.ids == ["b", "c", "d"])
+        selection.click("a", .extend, order: order)
+        #expect(selection.ids == ["a", "b"])
+        selection.click("e", .toggle, order: order)
+        #expect(selection.ids == ["a", "b", "e"])
+        selection.click("e", .toggle, order: order)
+        #expect(selection.ids == ["a", "b"])
+        // 起点を外した後の ⇧ はふつうのクリック。
+        selection.click("c", .plain, order: order)
+        selection.click("c", .toggle, order: order)
+        selection.click("d", .extend, order: order)
+        #expect(selection.ids == ["d"])
+    }
+
+    @Test("矢印キーは未選択なら先頭、⇧ で起点からの範囲。Home / End / PageUp / PageDown")
+    func gridSelectionKeys() {
+        let order = (0..<10).map { "i\($0)" }
+        var selection = SmartGridSelection()
+        #expect(selection.move(.down, extending: false, order: order, columns: 3) == "i0")
+        #expect(selection.move(.down, extending: false, order: order, columns: 3) == "i3")
+        #expect(selection.move(.right, extending: true, order: order, columns: 3) == "i4")
+        #expect(selection.move(.down, extending: true, order: order, columns: 3) == "i7")
+        #expect(selection.ids == Set(["i3", "i4", "i5", "i6", "i7"]))
+        // ⇧ を離して動くと、動いた先だけ。
+        #expect(selection.move(.left, extending: false, order: order, columns: 3) == "i6")
+        #expect(selection.ids == ["i6"])
+        #expect(selection.jump(.pageDown(6), extending: false, order: order) == "i9")
+        #expect(selection.jump(.pageUp(6), extending: true, order: order) == "i3")
+        #expect(selection.ids == Set(["i3", "i4", "i5", "i6", "i7", "i8", "i9"]))
+        #expect(selection.jump(.first, extending: false, order: order) == "i0")
+        #expect(selection.jump(.last, extending: false, order: order) == "i9")
+        var empty = SmartGridSelection()
+        #expect(empty.move(.up, extending: false, order: [], columns: 3) == nil)
+        var all = SmartGridSelection()
+        all.selectAll(order: order)
+        #expect(all.ids.count == 10)
+        #expect(all.move(.right, extending: false, order: order, columns: 3) == "i1")
+    }
+
+    @Test("並びが変わると消えた枠を選択から外す。束から出るとその束を選ぶ。右クリックの相手は選択に入っているときだけ全部")
+    func gridSelectionFollowsTheGrid() {
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let state = SmartLibraryViewState(defaults: suite.defaults)
+        state.sortKey = .fileName
+        state.update(books: [
+            book("/b/a.zip", series: "月の庭", volume: "1"),
+            book("/b/b.zip", title: "星の庭"),
+            book("/b/c.zip", series: "月の庭", volume: "2"),
+        ], shelves: [])
+        state.click("book|/b/a.zip", .plain)
+        state.click("book|/b/b.zip", .toggle)
+        #expect(state.selectedItems.map(\.id) == ["book|/b/a.zip", "book|/b/b.zip"])
+        let unselected = state.gridItems[2]
+        #expect(state.contextTargets(for: unselected).map(\.id) == [unselected.id])
+        #expect(state.contextTargets(for: state.gridItems[0]).count == 2)
+
+        state.grouping = .series
+        state.recompute(now: now)
+        #expect(state.selectedItems.map(\.id) == ["book|/b/b.zip"])
+        state.openedGroup = "月の庭"
+        state.recompute(now: now)
+        #expect(state.selectedItems.isEmpty)
+        state.openedGroup = nil
+        state.recompute(now: now)
+        #expect(state.selectedItems.map(\.id) == ["series|月の庭"])
+        #expect(state.revealRequest?.id == "series|月の庭")
+    }
+
     // MARK: 保存
 
     @Test("スマートシェルフ・対象フォルダ・ピン留めは保存され、フォルダはアプリ自身の移動に付いていく")

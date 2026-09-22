@@ -149,24 +149,9 @@ final class FileBrowserActions {
         NSWorkspace.shared.activateFileViewerSelecting(entries.map(\.url))
     }
 
-    /// Finder の「情報を見る」ウインドウを開く(2026-09-18)。
-    ///
-    /// 情報ウインドウは Finder の一部で、開く公開 API は無い。Finder が公開しているサービス
-    /// 「Finder/Show Info」(Finder の Info.plist の NSServices。サービスメニューの「Finder で情報を見る」と同じ経路)へ、
-    /// URL を載せたペーストボードを渡して頼む。Apple Events ではないので、Finder を操作する許可のダイアログも
-    /// エンタイトルメントの例外も要らない。**サンドボックスの中からでも開き、読む権限の無いファイルでも開く**
-    /// (ファイルを読むのは Finder。qooViewer と同じエンタイトルメントの検証アプリで実測)。
-    /// ペーストボードは一般のものを汚さないよう専用の名前のものを使い回す。
+    /// Finder の「情報を見る」ウインドウを開く(2026-09-18。実体と経路の説明は `FinderReveal.showInfo`)。
     func showInfo(_ entries: [FileBrowserEntry]) {
-        guard !entries.isEmpty else { return }
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("com.qooProject.qooViewer.showInfo"))
-        pasteboard.clearContents()
-        guard pasteboard.writeObjects(entries.map { $0.url as NSURL }),
-              NSPerformService("Finder/Show Info", pasteboard) else {
-            // Finder が応じなかったとき(実測では起きていない)。黙っていると押しても何も起きないように見えるので鳴らす。
-            NSSound.beep()
-            return
-        }
+        FinderReveal.showInfo(entries.map(\.url))
     }
 
     // MARK: - 書く操作(段階4。実体は FileBrowserOperations)

@@ -56,6 +56,28 @@ nonisolated enum FinderReveal {
             NSWorkspace.shared.activateFileViewerSelecting([url])
         }
     }
+
+    /// Finder の「情報を見る」ウインドウを開く(2026-09-18。ファイルブラウザの右クリックから、2026-09-22 にスマート
+    /// ライブラリの右クリックからも使うのでここへ移した)。
+    ///
+    /// 情報ウインドウは Finder の一部で、開く公開 API は無い。Finder が公開しているサービス
+    /// 「Finder/Show Info」(Finder の Info.plist の NSServices。サービスメニューの「Finder で情報を見る」と同じ経路)へ、
+    /// URL を載せたペーストボードを渡して頼む。Apple Events ではないので、Finder を操作する許可のダイアログも
+    /// エンタイトルメントの例外も要らない。**サンドボックスの中からでも開き、読む権限の無いファイルでも開く**
+    /// (ファイルを読むのは Finder。qooViewer と同じエンタイトルメントの検証アプリで実測)。
+    /// ペーストボードは一般のものを汚さないよう専用の名前のものを使い回す。
+    @MainActor
+    static func showInfo(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("com.qooProject.qooViewer.showInfo"))
+        pasteboard.clearContents()
+        guard pasteboard.writeObjects(urls.map { $0 as NSURL }),
+              NSPerformService("Finder/Show Info", pasteboard) else {
+            // Finder が応じなかったとき(実測では起きていない)。黙っていると押しても何も起きないように見えるので鳴らす。
+            NSSound.beep()
+            return
+        }
+    }
 }
 
 /// 1ページ(`PageRef`)を右クリックしたときに、Finder上で何を指し、書き出しの導線が要るのか。

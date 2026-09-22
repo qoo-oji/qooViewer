@@ -522,8 +522,13 @@ nonisolated enum SmartGridItem: Identifiable, Hashable, Sendable {
     var id: String {
         switch self {
         case .book(let book): "book|\(book.id)"
-        case .group(let grouping, let name, _): "\(grouping.rawValue)|\(name)"
+        case .group(let grouping, let name, _): Self.groupID(grouping, name: name)
         }
+    }
+
+    /// 束の識別子(束から出たときに、その束を選び直すため)。
+    static func groupID(_ grouping: SmartGrouping, name: String) -> String {
+        "\(grouping.rawValue)|\(name)"
     }
 }
 

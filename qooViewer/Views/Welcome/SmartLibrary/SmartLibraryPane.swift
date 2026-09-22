@@ -746,8 +746,16 @@ struct SmartLibraryContent: View {
     @Environment(\.revealInFileBrowser) private var revealInFileBrowser
     @Environment(\.locale) private var locale
     @FocusState private var isSearchFocused: Bool
+    /// グリッドがキーの行き先か(矢印キー・Return を受ける。選択の枠の色もこれで決まる ―― `SelectionEmphasisBorder`)。
+    @FocusState private var isGridFocused: Bool
 
     @State private var missingBook: String?
+    /// グリッドのスクロール位置。選んだ枠を見える位置へ動かすときは、行の位置を実測から割り出して pt で渡す
+    /// (`PanelListScrollTracker` の型コメント: Lazy コンテナの `scrollTo(id:anchor:)` は遠い行へ届かない)。
+    @State private var scrollPosition = ScrollPosition()
+    @State private var scrollTracker = PanelListScrollTracker(verticalPadding: Self.gridPadding, rowSpacing: Self.spacing)
+    /// 寸法を実測する前に頼まれた「見せる」相手(実測が届いたらやり直す)。
+    @State private var pendingRevealID: String?
     @State private var metadataTarget: SmartMetadataTarget?
     /// 画面外の表紙を手放すための帳簿(型コメントは CollectionGridView「画面外のカバーを手放す」)。2026-09-22 の監査で指摘:
     /// ここだけ帳簿が無く、表紙の CGImage はセルの `@State` に残る ―― 絵は提供役の mmap 領域を共有するので、提供役の
@@ -949,6 +957,27 @@ struct SmartLibraryContent: View {
         "\(cellImageBudget.epoch)|\(state.selectedShelfID?.uuidString ?? "")|\(state.openedGroup ?? "")"
     }
 
+    /// 列の数(グリッドの割り付けと同じ式)。矢印キーの上下の移動量と、行の位置の割り出しに使う。
+    private var columnCount: Int {
+        WelcomeGridColumns(
+            availableWidth: gridSize.width, itemWidth: state.coverSize, spacing: Self.spacing, padding: Self.gridPadding
+        ).count
+    }
+
+    private func rowCount(columns: Int) -> Int {
+        (state.gridItems.count + columns - 1) / max(1, columns)
+    }
+
+    /// ■ 選択とキー操作(2026-09-22、利用者の指示。StackNest / ShelfRow の調査から)
+    /// - クリックで選ぶ、⌘ で足す/外す、⇧ で範囲、余白のクリックで外す。**ダブルクリックで開く**(本は開き、束は中へ。
+    ///   Finder・ファイルブラウザのアイコン表示と同じ。それまでは 1 回のクリックで開いていた)
+    /// - 矢印キー(⇧ で範囲)・Home / End・PageUp / PageDown・⌘A。Return / Enter / ⌘↓ で開く、⌘↑ で束から出る
+    ///   (Esc の「戻る」と同じ)
+    /// - **キーは動かないグリッドの外枠で受ける**(ShelfRow が踏んだ罠: 使い回されるセルに焦点を持たせると、セルが
+    ///   手放された時点でキーの行き先が消え、矢印キーを押し続けると止まる)。外枠は `.id(gridID)` の外なので作り直されない
+    /// - スクロールは選択から一方向だけ(`reveal`)。見えていれば動かさず、はみ出したぶんだけ動かす
+    ///
+    /// 行の位置を割り出せるよう、セルの高さは揃えてある(`SmartCaptionLines`。下の文字は常に 2 行ぶん)。
     private var grid: some View {
         GeometryReader { proxy in
             let columns = WelcomeGridColumns(
@@ -958,20 +987,23 @@ struct SmartLibraryContent: View {
             ScrollView {
                 LazyVGrid(columns: columns.gridItems(alignment: .top), spacing: Self.spacing) {
                     ForEach(state.gridItems) { item in
+                        let isSelected = state.selection.contains(item.id)
                         switch item {
                         case .book(let book):
                             SmartBookCell(
                                 book: book, width: state.coverSize,
                                 // 著者でまとめている一覧では、束と同じく著者名だけを出す(2026-09-22、利用者の指示)。
                                 showsAuthorOnly: state.grouping == .author && state.openedGroup == nil,
+                                isSelected: isSelected, isFocused: isGridFocused,
                                 savesToDisk: !appState.isPrivateWindow, onImageRetained: noteRetained
                             )
-                                .onTapGesture { open(book) }
-                                .contextMenu { contextMenu(for: book) }
+                                .onTapGesture { clicked(item) }
+                                .contextMenu { contextMenu(for: item) }
                         case .group(let grouping, let name, let books):
                             SmartGroupCell(grouping: grouping, name: name, books: books, width: state.coverSize,
+                                           isSelected: isSelected, isFocused: isGridFocused,
                                            savesToDisk: !appState.isPrivateWindow, onImageRetained: noteRetained)
-                                .onTapGesture { state.openedGroup = name }
+                                .onTapGesture { clicked(item) }
                                 .contextMenu {
                                     Button(grouping == .author ? "Show Books by This Author" : "Show Books in Series") {
                                         state.openedGroup = name
@@ -989,6 +1021,37 @@ struct SmartLibraryContent: View {
                 // 画面外の表紙をまとめて手放す(`cellImageBudget`)。ScrollView の内側なのでスクロール位置は変わらない。
                 .id(gridID)
             }
+            .scrollPosition($scrollPosition)
+            // 一覧の寸法とスクロール量を実測して控える(PanelListScrollTracker)。
+            .onScrollGeometryChange(for: PanelListScrollTracker.Metrics.self) { geometry in
+                PanelListScrollTracker.Metrics(
+                    offsetY: geometry.contentOffset.y,
+                    visibleRect: geometry.visibleRect,
+                    contentHeight: geometry.contentSize.height
+                )
+            } action: { _, newValue in
+                if scrollTracker.update(newValue, rowCount: rowCount(columns: columns.count)), let pendingRevealID {
+                    reveal(pendingRevealID)
+                }
+            }
+        }
+        // 余白のクリックで選択を外す(セルのクリックはセルの側が先に受ける)。
+        .contentShape(Rectangle())
+        .onTapGesture {
+            state.clearSelection()
+            isGridFocused = true
+        }
+        .focusable()
+        .focused($isGridFocused)
+        .onKeyPress(phases: [.down, .repeat]) { press in
+            handleKey(press)
+        }
+        // 「編集」▸「すべてを選択」(⌘A)。グリッドがキーの行き先のときだけ効く。
+        .onCommand(#selector(NSResponder.selectAll(_:))) {
+            state.selectAll()
+        }
+        .onChange(of: state.revealRequest) { _, request in
+            if let request { reveal(request.id) }
         }
         .onGeometryChange(for: CGSize.self) { proxy in
             proxy.size
@@ -997,37 +1060,152 @@ struct SmartLibraryContent: View {
         }
     }
 
+    /// セルのクリック。2 回目のクリック(ダブルクリック)なら開く。修飾キーはクリックの出来事から読む
+    /// (SwiftUI の `TapGesture` は修飾キーもクリックの回数も渡さない。回数ごとに別の `TapGesture` を重ねると、
+    /// 1 回のクリックがダブルクリックの間隔ぶん待たされる)。
+    private func clicked(_ item: SmartGridItem) {
+        isGridFocused = true
+        let event = NSApp.currentEvent
+        if let event, event.clickCount >= 2 {
+            activate(item)
+            return
+        }
+        let flags = event?.modifierFlags.intersection(.deviceIndependentFlagsMask) ?? []
+        let click: SmartGridSelection.Click = flags.contains(.command) ? .toggle : (flags.contains(.shift) ? .extend : .plain)
+        state.click(item.id, click)
+    }
+
+    /// 枠を開く: 本は開き、束はその中へ。
+    private func activate(_ item: SmartGridItem) {
+        switch item {
+        case .book(let book): open(book)
+        case .group(_, let name, _): state.openedGroup = name
+        }
+    }
+
+    /// Return / ⌘↓。開けるのは 1 つだけ選んでいるとき(複数のときに 1 つだけ開くと、どれが開いたのか読めない)。
+    private func openSelection() {
+        let items = state.selectedItems
+        guard !items.isEmpty else { return }
+        guard items.count == 1, let item = items.first else {
+            NSSound.beep()
+            return
+        }
+        activate(item)
+    }
+
+    private func handleKey(_ press: KeyPress) -> KeyPress.Result {
+        let modifiers = press.modifiers
+        guard modifiers.isDisjoint(with: [.option, .control]) else { return .ignored }
+        let command = modifiers.contains(.command)
+        let extending = modifiers.contains(.shift)
+        let columns = columnCount
+        var target: String?
+        switch press.key {
+        case .return, KeyEquivalent("\u{03}"):
+            // Return とテンキーの Enter。
+            guard !command else { return .ignored }
+            openSelection()
+            return .handled
+        case .upArrow where command:
+            guard state.openedGroup != nil else { return .ignored }
+            state.openedGroup = nil
+            return .handled
+        case .downArrow where command:
+            openSelection()
+            return .handled
+        case _ where command:
+            return .ignored
+        case .upArrow: target = state.moveSelection(.up, extending: extending, columns: columns)
+        case .downArrow: target = state.moveSelection(.down, extending: extending, columns: columns)
+        case .leftArrow: target = state.moveSelection(.left, extending: extending, columns: columns)
+        case .rightArrow: target = state.moveSelection(.right, extending: extending, columns: columns)
+        case .home: target = state.jumpSelection(.first, extending: extending)
+        case .end: target = state.jumpSelection(.last, extending: extending)
+        case .pageUp: target = state.jumpSelection(.pageUp(pageStep(columns: columns)), extending: extending)
+        case .pageDown: target = state.jumpSelection(.pageDown(pageStep(columns: columns)), extending: extending)
+        default:
+            return .ignored
+        }
+        if let target { reveal(target) }
+        return .handled
+    }
+
+    /// PageUp / PageDown で動く件数(1 画面の行数 × 列数)。
+    private func pageStep(columns: Int) -> Int {
+        (scrollTracker.rowsPerPage(rowCount: rowCount(columns: columns)) ?? 1) * columns
+    }
+
+    /// 枠を見える位置へ(見えていれば動かさない。はみ出していればそのぶんだけ。アニメーションはしない ―― 矢印キーを
+    /// 押し続けたときに追いつかない)。寸法をまだ実測していなければ、届いたときにやり直す。
+    private func reveal(_ id: String) {
+        guard let index = state.gridItems.firstIndex(where: { $0.id == id }) else {
+            pendingRevealID = nil
+            return
+        }
+        let columns = columnCount
+        let row = index / columns
+        if let offset = scrollTracker.offsetToReveal(rows: row...row, rowCount: rowCount(columns: columns)) {
+            scrollPosition.scrollTo(y: offset)
+        }
+        let pending = scrollTracker.hasPendingReveal ? id : nil
+        if pendingRevealID != pending { pendingRevealID = pending }
+    }
+
+    /// 本の右クリック。**右クリックした本が選択に入っていれば選んだ本の全部が相手**(`SmartLibraryViewState.contextTargets`)。
+    /// 1 冊を相手にする操作(開く・ファイルブラウザで表示・メタデータの編集)は、複数が相手のあいだ淡色にする
+    /// (コレクションの中のカバーと同じ。押せてしまうと、どの 1 冊に効くのか画面から読めない)。
+    /// 「情報を見る」はファイルブラウザの右クリックと同じ Finder の情報ウインドウ(2026-09-22、利用者の指示)。
     @ViewBuilder
-    private func contextMenu(for book: SmartBook) -> some View {
-        BookOpenContextMenuItems(
-            onOpen: { open(book) },
-            onOpenIn: { destination in
-                withResolvedURL(for: book) { url in
-                    BookWindowOpener.open(
-                        BookOpenRequest(url), to: destination, from: appState,
-                        launchCoordinator: launchCoordinator, openWindow: openWindow
-                    )
+    private func contextMenu(for item: SmartGridItem) -> some View {
+        let targets = state.contextTargets(for: item).compactMap { target -> SmartBook? in
+            if case .book(let book) = target { return book }
+            return nil
+        }
+        let isSingle = targets.count == 1
+        if let book = targets.first {
+            BookOpenContextMenuItems(
+                onOpen: { open(book) },
+                onOpenIn: { destination in
+                    withResolvedURL(for: book) { url in
+                        BookWindowOpener.open(
+                            BookOpenRequest(url), to: destination, from: appState,
+                            launchCoordinator: launchCoordinator, openWindow: openWindow
+                        )
+                    }
                 }
-            }
-        )
-        Divider()
-        Button("Show in Finder") {
-            withResolvedURL(for: book) { FinderReveal.reveal($0) }
-        }
-        if revealInFileBrowser.isFeatureEnabled {
-            Button("Show in File Browser") {
-                withResolvedURL(for: book) { revealInFileBrowser($0) }
-            }
-        }
-        if allowsEditing {
+            )
+            .disabled(!isSingle)
             Divider()
-            Button("Edit Metadata…") {
-                withResolvedURL(for: book) { url in
-                    metadataTarget = SmartMetadataTarget(entry: FileBrowserEntry(
-                        url: url, displayName: book.fileName, isDirectory: book.kind == .folder, isPackage: false,
-                        isSymbolicLink: false, isVolume: false, fileSize: book.fileSize, typeDescription: nil,
-                        creationDate: book.creationDate, modificationDate: book.modificationDate))
+            Button("Show in Finder") {
+                withResolvedURLs(for: targets) { urls in
+                    if urls.count == 1, let url = urls.first {
+                        FinderReveal.reveal(url)
+                    } else {
+                        NSWorkspace.shared.activateFileViewerSelecting(urls)
+                    }
                 }
+            }
+            if revealInFileBrowser.isFeatureEnabled {
+                Button("Show in File Browser") {
+                    withResolvedURL(for: book) { revealInFileBrowser($0) }
+                }
+                .disabled(!isSingle)
+            }
+            Button("Get Info") {
+                withResolvedURLs(for: targets) { FinderReveal.showInfo($0) }
+            }
+            if allowsEditing {
+                Divider()
+                Button("Edit Metadata…") {
+                    withResolvedURL(for: book) { url in
+                        metadataTarget = SmartMetadataTarget(entry: FileBrowserEntry(
+                            url: url, displayName: book.fileName, isDirectory: book.kind == .folder, isPackage: false,
+                            isSymbolicLink: false, isVolume: false, fileSize: book.fileSize, typeDescription: nil,
+                            creationDate: book.creationDate, modificationDate: book.modificationDate))
+                    }
+                }
+                .disabled(!isSingle)
             }
         }
     }
@@ -1051,6 +1229,22 @@ struct SmartLibraryContent: View {
         }
     }
 
+    /// 何冊か(右クリックの相手)の URL を確かめてから `body` を呼ぶ。見つかった本だけを渡し、1 冊も見つからなければ
+    /// 「本が見つかりません」。確かめは FileIO の上で(`withResolvedURL` と同じ理由)。
+    private func withResolvedURLs(for books: [SmartBook], _ body: @escaping @MainActor ([URL]) -> Void) {
+        let urls = books.map { URL(fileURLWithPath: $0.id, isDirectory: $0.kind == .folder) }
+        let paths = urls.map(\.path)
+        Task { @MainActor in
+            let exists = await FileIO.perform { paths.map { FileManager.default.fileExists(atPath: $0) } }
+            let found = zip(urls, exists).filter(\.1).map(\.0)
+            if found.isEmpty {
+                missingBook = books.first?.id
+            } else {
+                body(found)
+            }
+        }
+    }
+
     private func open(_ book: SmartBook) {
         withResolvedURL(for: book) { appState.open(url: $0) }
     }
@@ -1069,6 +1263,9 @@ private struct SmartBookCell: View {
     /// 著者名だけを出す(著者でまとめた一覧の、1 冊だけの著者の本。束の下と揃える)。著者の無い本は題を出す
     /// (出せる名前が無いので)。
     var showsAuthorOnly = false
+    /// 選んでいるか・グリッドがキーの行き先か(選択の枠の色。`SmartBookThumbnail`)。
+    var isSelected = false
+    var isFocused = true
     /// 作った表紙をディスクキャッシュへ書くか(シークレットウインドウは false。FileBrowserThumbnailProvider の型コメント)。
     var savesToDisk = true
     /// 表紙の絵をセルが持ったときに呼ぶ(グリッドの帳簿。SmartLibraryContent.cellImageBudget)。
@@ -1084,37 +1281,30 @@ private struct SmartBookCell: View {
         let fontSize = appearance.smartLibraryCaptionFontSize
         VStack(spacing: 4) {
             SmartBookThumbnail(book: book, width: width, height: width * Self.heightRatio,
+                               isSelected: isSelected, isFocused: isFocused,
                                savesToDisk: savesToDisk, onImageRetained: onImageRetained)
-            if showsAuthorOnly, let author = book.metadata.authors.first, !author.isEmpty {
-                Text(verbatim: author)
-                    .font(.system(size: fontSize, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(width: width)
-                    .panelOutlinedContent()
-            } else {
-                caption(fontSize: fontSize)
+            SmartCaptionLines(fontSize: fontSize, width: width) {
+                if showsAuthorOnly, let author = book.metadata.authors.first, !author.isEmpty {
+                    Text(verbatim: author)
+                        .font(.system(size: fontSize, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                } else {
+                    Text(verbatim: book.displayTitle)
+                        .font(.system(size: fontSize))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if let author = book.metadata.authors.first {
+                        Text(verbatim: author)
+                            .font(.system(size: fontSize))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
             }
         }
         .contentShape(Rectangle())
         .help(helpText)
-    }
-
-    private func caption(fontSize: CGFloat) -> some View {
-        VStack(spacing: 1) {
-            Text(verbatim: book.displayTitle)
-                .font(.system(size: fontSize))
-                .lineLimit(1)
-                .truncationMode(.middle)
-            if let author = book.metadata.authors.first {
-                Text(verbatim: author)
-                    .font(.system(size: fontSize))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
-        .frame(width: width)
-        .panelOutlinedContent()
     }
 
     private var helpText: String {
@@ -1123,6 +1313,30 @@ private struct SmartBookCell: View {
             lines.append(book.metadata.volume.isEmpty ? book.metadata.series : "\(book.metadata.series) \(book.metadata.volume)")
         }
         return lines.joined(separator: "\n")
+    }
+}
+
+/// 表紙の下の文字。**いつも 2 行ぶんの高さを取る**(2026-09-22): グリッドの行の高さが揃っていないと、キー操作で選んだ枠の
+/// 行の位置を実測から割り出せない(`SmartLibraryContent.reveal`)。StackNest も同じ理由で文字の高さを固定している。
+/// 中身が 1 行なら上に寄せる。
+private struct SmartCaptionLines<Content: View>: View {
+    let fontSize: CGFloat
+    let width: CGFloat
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            // 高さを取るためだけの 2 行(見せない)。
+            VStack(spacing: 1) {
+                Text(verbatim: " ")
+                Text(verbatim: " ")
+            }
+            .font(.system(size: fontSize))
+            .hidden()
+            VStack(spacing: 1) { content }
+        }
+        .frame(width: width)
+        .panelOutlinedContent()
     }
 }
 
@@ -1139,6 +1353,8 @@ private struct SmartGroupCell: View {
     let name: String
     let books: [SmartBook]
     let width: CGFloat
+    var isSelected = false
+    var isFocused = true
     var savesToDisk = true
     var onImageRetained: (CGImage) -> Void = { _ in }
     @EnvironmentObject private var appearance: AppearanceSettings
@@ -1185,11 +1401,12 @@ private struct SmartGroupCell: View {
                 SmartBookThumbnail(
                     book: first, width: width - offset * 2, height: height - offset * 2,
                     stack: .init(layers: 2, offset: offset, count: books.count),
+                    isSelected: isSelected, isFocused: isFocused,
                     savesToDisk: savesToDisk, onImageRetained: onImageRetained
                 )
                 .frame(width: width, height: height, alignment: .bottomLeading)
             }
-            VStack(spacing: 1) {
+            SmartCaptionLines(fontSize: appearance.smartLibraryCaptionFontSize, width: width) {
                 Text(verbatim: name)
                     .font(.system(size: appearance.smartLibraryCaptionFontSize, weight: .medium))
                     .lineLimit(1)
@@ -1201,8 +1418,6 @@ private struct SmartGroupCell: View {
                         .lineLimit(1)
                 }
             }
-            .frame(width: width)
-            .panelOutlinedContent()
         }
         .contentShape(Rectangle())
         .help(name)
@@ -1222,6 +1437,9 @@ private struct SmartBookThumbnail: View {
     let width: CGFloat
     let height: CGFloat
     var stack: Stack?
+    /// 選択の枠(表紙の絵の実際の大きさに掛ける ―― 枠に掛けると細長い表紙の左右が空く。紙と同じ理由)。
+    var isSelected = false
+    var isFocused = true
     var savesToDisk = true
     var onImageRetained: (CGImage) -> Void = { _ in }
     @EnvironmentObject private var appearance: AppearanceSettings
@@ -1252,11 +1470,14 @@ private struct SmartBookThumbnail: View {
                     .frame(width: size.width, height: size.height)
                     .clipShape(shape)
                     .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
+                    .overlay { selectionBorder(shape: shape) }
+                    .panelOutlinedAccent(in: shape, isEnabled: isSelected)
                     .background(alignment: .bottomLeading) { stackedSheets(shape: shape) }
                     .overlay(alignment: .bottomTrailing) { countBadge }
             } else {
                 shape.fill(Color.secondary.opacity(0.15))
                     .panelOutlinedFrame(in: shape)
+                    .overlay { selectionBorder(shape: shape) }
                     .background(alignment: .bottomLeading) { stackedSheets(shape: shape) }
                     .overlay(alignment: .bottomTrailing) { countBadge }
                     .overlay {
@@ -1285,6 +1506,14 @@ private struct SmartBookThumbnail: View {
             return CGSize(width: box.width, height: box.width / aspect)
         }
         return CGSize(width: box.height * aspect, height: box.height)
+    }
+
+    /// 選択の枠(コレクションの中のカバーと同じ形。すりガラス面の色に溶けないよう、呼ぶ側で反対色の縁も掛ける)。
+    @ViewBuilder
+    private func selectionBorder(shape: RoundedRectangle) -> some View {
+        if isSelected {
+            SelectionEmphasisBorder(shape: shape, isFocused: isFocused)
+        }
     }
 
     /// 束の後ろの紙(奥ほど薄く、右上へずらす)。表紙と同じ大きさ(`.background` なので前の面の大きさで描かれる)。

@@ -81,13 +81,23 @@ final class SmartLibraryViewState: ObservableObject {
         didSet {
             guard grouping != oldValue else { return }
             defaults.set(grouping.rawValue, forKey: Keys.grouping)
-            // 束ね方を変えたら、開いていた束からは出る(その束はもう無い)。
+            // 束ね方を変えたら、開いていた束からは出る(その束はもう無い。出た束を選び直すこともしない)。
             openedGroup = nil
+            pendingSelectionID = nil
             setNeedsRecompute()
         }
     }
     /// 開いている束の名前(シリーズ名 / 著者名。nil なら束の一覧)。束を押すと入り、見出しの戻るで出る。保存しない。
-    @Published var openedGroup: String? { didSet { if openedGroup != oldValue { setNeedsRecompute() } } }
+    @Published var openedGroup: String? {
+        didSet {
+            guard openedGroup != oldValue else { return }
+            // 束から出たら、出てきた束を選んでおく(Finder で上のフォルダへ戻ったときと同じ。矢印キーの続きがそこから)。
+            if let oldValue, openedGroup == nil {
+                pendingSelectionID = SmartGridItem.groupID(grouping, name: oldValue)
+            }
+            setNeedsRecompute()
+        }
+    }
     @Published var coverSize: CGFloat { didSet { defaults.set(Double(coverSize), forKey: Keys.coverSize) } }
     @Published var sidebarWidth: CGFloat { didSet { defaults.set(Double(sidebarWidth), forKey: Keys.sidebarWidth) } }
 
@@ -103,6 +113,21 @@ final class SmartLibraryViewState: ObservableObject {
     @Published private(set) var facetValues: [SmartFacetField: [(value: SmartFacetValue, count: Int)]] = [:]
     /// スマートシェルフごとの冊数(左ペインに出す)。nil のキーは「すべての本」。
     @Published private(set) var shelfCounts: [UUID?: Int] = [:]
+
+    // MARK: 選択(2026-09-22。`SmartGridSelection`。保存しない)
+
+    /// グリッドで選んでいる枠。並びが変わるたびに、並びから消えたものを外す(`recompute`)。
+    @Published private(set) var selection = SmartGridSelection()
+    /// 「この枠を見える位置へ」の頼み(画面が受けてスクロールする)。キー操作の移動は画面がその場でスクロールするので、
+    /// これは画面の外から選び直したとき(束から出た)だけ。同じ枠へ 2 度頼めるよう通し番号を持つ。
+    @Published private(set) var revealRequest: RevealRequest?
+    struct RevealRequest: Equatable {
+        let id: String
+        let serial: Int
+    }
+    /// 次に並べ直したときに選ぶ枠(束から出たときの、その束)。
+    private var pendingSelectionID: String?
+    private var revealSerial = 0
 
     private let defaults: UserDefaults
     private var books: [SmartBook] = []
@@ -184,6 +209,46 @@ final class SmartLibraryViewState: ObservableObject {
         facetFields = fields
     }
 
+    // MARK: 選択
+
+    /// 並びの識別子(選択の計算に渡す順)。
+    var gridItemIDs: [String] { gridItems.map(\.id) }
+
+    /// 選んでいる枠(並びの順)。
+    var selectedItems: [SmartGridItem] {
+        selection.isEmpty ? [] : gridItems.filter { selection.contains($0.id) }
+    }
+
+    func click(_ id: String, _ click: SmartGridSelection.Click) {
+        selection.click(id, click, order: gridItemIDs)
+    }
+
+    /// 矢印キー。動いた先(画面がスクロールする相手)を返す。
+    func moveSelection(_ direction: GridKeyboardNavigation.Direction, extending: Bool, columns: Int) -> String? {
+        selection.move(direction, extending: extending, order: gridItemIDs, columns: columns)
+    }
+
+    /// Home / End / PageUp / PageDown。動いた先を返す。
+    func jumpSelection(_ jump: SmartGridSelection.Jump, extending: Bool) -> String? {
+        selection.jump(jump, extending: extending, order: gridItemIDs)
+    }
+
+    func selectAll() {
+        selection.selectAll(order: gridItemIDs)
+    }
+
+    func clearSelection() {
+        guard !selection.isEmpty else { return }
+        selection.clear()
+    }
+
+    /// 右クリックした枠を相手にする操作の対象。**右クリックした枠が選択に入っていれば選択の全部、入っていなければ
+    /// その枠だけ**(Finder と同じ。コレクションの中のカバーの `contextTargets` とも同じ)。
+    func contextTargets(for item: SmartGridItem) -> [SmartGridItem] {
+        guard selection.contains(item.id), selection.ids.count > 1 else { return [item] }
+        return selectedItems
+    }
+
     func resizeCovers(byMagnification magnification: CGFloat) {
         coverSize = Self.coverSizeRange.clamping(coverSize * magnification)
     }
@@ -229,6 +294,17 @@ final class SmartLibraryViewState: ObservableObject {
                                          by: .series, ascending: true).map(SmartGridItem.book)
         } else {
             gridItems = grouping.grouped(visibleBooks)
+        }
+        let order = gridItemIDs
+        // 上の `selection` は絞り込みの写し(ローカル)。グリッドの選択は self の。
+        self.selection.prune(to: order)
+        if let pending = pendingSelectionID {
+            pendingSelectionID = nil
+            if order.contains(pending) {
+                self.selection.select(pending)
+                revealSerial += 1
+                revealRequest = RevealRequest(id: pending, serial: revealSerial)
+            }
         }
     }
 }
