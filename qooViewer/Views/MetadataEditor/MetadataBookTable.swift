@@ -216,6 +216,15 @@ struct MetadataBookTable: NSViewRepresentable {
         var isMissing = false { didSet { updateColor() } }
         /// ファイル名フォーマットと合致しなかった本のファイル名(オレンジにする)。
         var isUnmatchedName = false { didSet { updateColor() } }
+        /// ロックした本の行(文字を黄色にする。2026-09-22、利用者の要望 ―― 鍵の列だけでは、ロックした本が一覧のどこに
+        /// あるか見分けにくい。最初は行の地を黄色にしたが、望まれていたのは文字の色だった)。
+        var isLockedRow = false { didSet { updateColor() } }
+
+        /// ロックした行の文字の色。明るい外観の systemYellow は白い地の上で読めないので、明るい外観では暗めの黄色にする。
+        static let lockedTextColor = NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                ? .systemYellow : NSColor(srgbRed: 0.66, green: 0.49, blue: 0.0, alpha: 1)
+        }
 
         override init(frame: NSRect) {
             super.init(frame: frame)
@@ -245,6 +254,7 @@ struct MetadataBookTable: NSViewRepresentable {
             label.textColor = backgroundStyle == .emphasized ? .alternateSelectedControlTextColor
                 : isMissing ? .tertiaryLabelColor
                 : isUnmatchedName ? .systemOrange
+                : isLockedRow ? Self.lockedTextColor
                 : isEditedValue ? .controlAccentColor : .labelColor
         }
 
@@ -255,21 +265,6 @@ struct MetadataBookTable: NSViewRepresentable {
             label.drawsBackground = editing
             label.backgroundColor = editing ? .textBackgroundColor : .clear
             if editing { label.textColor = .textColor } else { updateColor() }
-        }
-    }
-
-    /// 行(ロックした本の行は地を薄い黄色にする。2026-09-22、利用者の要望 ―― 鍵の列だけでは、ロックした本が一覧のどこに
-    /// あるか見分けにくい)。選んだ行の強調は、この地の上に描かれる。
-    final class BookRowView: NSTableRowView {
-        var isLockedRow = false {
-            didSet { if isLockedRow != oldValue { needsDisplay = true } }
-        }
-
-        override func drawBackground(in dirtyRect: NSRect) {
-            super.drawBackground(in: dirtyRect)
-            guard isLockedRow else { return }
-            NSColor.systemYellow.withAlphaComponent(0.2).setFill()
-            dirtyRect.intersection(bounds).fill(using: .sourceOver)
         }
     }
 
@@ -404,17 +399,9 @@ struct MetadataBookTable: NSViewRepresentable {
 
         func numberOfRows(in tableView: NSTableView) -> Int { rowCount }
 
-        func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-            let view = BookRowView()
-            if row >= 0, row < rowCount { view.isLockedRow = book(row).isLocked }
-            return view
-        }
-
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
             guard let parent, let tableColumn, let column = Column(tableColumn.identifier), row >= 0, row < rowCount else { return nil }
             let book = book(row)
-            // 行の見た目は行を作ったときにしか決まらない(`reloadData(forRowIndexes:)` はセルだけを作り直す)ので、ここで合わせる。
-            (tableView.rowView(atRow: row, makeIfNecessary: false) as? BookRowView)?.isLockedRow = book.isLocked
             switch column {
             case .lock:
                 let cell = (tableView.makeView(withIdentifier: tableColumn.identifier, owner: nil) as? LockCellView) ?? {
@@ -447,6 +434,7 @@ struct MetadataBookTable: NSViewRepresentable {
             }
             cell.isMissing = book.isMissing
             cell.isUnmatchedName = column == .fileName && !book.matchedFormat
+            cell.isLockedRow = book.isLocked
             cell.setEditing(false)
             cell.label.stringValue = column.text(of: book)
             switch column {
