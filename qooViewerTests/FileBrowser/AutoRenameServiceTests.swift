@@ -579,6 +579,28 @@ struct AutoRenameServiceTests {
         #expect(AutoRenameStore(defaults: suite.defaults).excludedPaths == store.excludedPaths)
     }
 
+    @Test("対象フォルダはアプリの中での名前の変更に付いていき、確認済みなら確認の印も付け直す(2026-09-22 の監査)")
+    func targetsFollowInAppRenames() throws {
+        let suite = PreferencesSuite(label: "auto-rename-relocate")
+        let store = AutoRenameStore(defaults: suite.defaults)
+        let temporary = try TemporaryDirectory("auto-rename-relocate")
+        let folder = try temporary.directory("target")
+        var rule = try #require(store.addRule())
+        rule.find = "a"
+        store.update(rule: rule)
+        let current = try #require(store.rule(withID: rule.id))
+        var target = AutoRenameTarget(path: folder.path)
+        target.confirmedSignature = target.signature(for: current)
+        #expect(store.add(target: target, toRule: rule.id))
+        let renamed = temporary.file("target-renamed")
+
+        #expect(store.relocateTargets(using: FileSystemChange(relocations: [.init(from: folder, to: renamed)])))
+
+        let relocated = try #require(store.rules.first?.targets.first)
+        #expect(relocated.path == AutoRename.canonicalPath(renamed.path))
+        #expect(relocated.confirmedSignature == relocated.signature(for: try #require(store.rule(withID: rule.id))))
+    }
+
     @Test("規則を OFF にすると確認の印が消える。保存して読み直せば同じ")
     func storePersistsAndClearsConfirmation() throws {
         let suite = PreferencesSuite(label: "auto-rename-store")

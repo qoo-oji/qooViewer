@@ -396,6 +396,9 @@ final class AppStores: ObservableObject {
         smartLibraryStore.relocate(using: change)
         metadataRulesStore.relocate(using: change)
         autoRenameStore.relocateExcludedPaths(using: change)
+        autoRenameStore.relocateTargets(using: change)
+        // 監視するフォルダは走査のときに張り直すので、付け替えたら走査を頼む。
+        if collectionStore.relocateAutoFolders(using: change) { collectionAutoFolderScanner.scheduleScan() }
         smartLibraryCatalog.handleFileSystemChange(change)
         let relocation = bookRecordRelocator.apply(change)
         Task { @MainActor [weak self] in

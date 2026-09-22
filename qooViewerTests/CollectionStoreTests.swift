@@ -433,6 +433,11 @@ struct CollectionStoreTests {
         #expect(targets.first?.id == collection.id)
         #expect(targets.first?.folder.path == shelf.path)
 
+        // アプリの中で名前を変えたら付いていく(2026-09-22 の監査)。
+        let renamed = temporary.file("shelf-renamed")
+        #expect(library.collections.relocateAutoFolders(using: FileSystemChange(relocations: [.init(from: shelf, to: renamed)])))
+        #expect(collection.autoFolderURL?.path == renamed.path)
+
         library.collections.setAutoFolder(nil, for: collection)
 
         #expect(collection.autoFolderURL == nil)

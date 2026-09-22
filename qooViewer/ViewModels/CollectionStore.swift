@@ -1019,6 +1019,26 @@ final class CollectionStore: ObservableObject {
         reload()
     }
 
+    /// アプリの中での移動・名前の変更に、自動登録フォルダを付いていかせる(2026-09-22 の監査。以前は付け替える先が無く、
+    /// ファイルブラウザで自動登録フォルダの名前を変えると、自動登録が黙って止まった ―― docs/plans/fs-ui-consistency-audit.md の M4)。
+    /// ライブラリ機能が OFF でも付け替える(設定を正しく保つ仕事。AppStores.applyLibraryFeature の決まり)。
+    /// - Returns: 書き換えたか。
+    @discardableResult
+    func relocateAutoFolders(using change: FileSystemChange) -> Bool {
+        guard !change.relocations.isEmpty else { return false }
+        var changed = false
+        for collection in allCollections() {
+            guard let path = collection.autoFolderPath,
+                  let moved = change.relocatedPath(for: path).map(MountTable.normalized), moved != path else { continue }
+            collection.autoFolderPath = moved
+            changed = true
+        }
+        guard changed else { return false }
+        saveAndNotify()
+        reload()
+        return true
+    }
+
     /// 自動登録フォルダが設定されているコレクション(走査役が使う)。
     ///
     /// SwiftDataのモデルはメインアクターの外へ渡せないので、**idとURLの組**にして返す

@@ -71,6 +71,36 @@ final class AutoRenameStore: ObservableObject {
         return true
     }
 
+    /// アプリの中での移動・名前の変更に、対象フォルダを付いていかせる(2026-09-22 の監査。以前はファイルブラウザで対象フォルダの
+    /// 名前を変えると、対象が「見つからない」→ OFF → 移動の提案 →「更新」待ちになった。よく使う項目のほうは自動で付いていく)。
+    /// 同じボリュームの中での移動だけ(ボリュームをまたぐと記録したボリュームの UUID が合わなくなるので、今までどおり移動の提案に任せる)。
+    /// 確認の印は、付け替える前に確認済みだったなら新しいパスで付け直す(中身は同じなので、確認し直させない)。
+    /// - Returns: 書き換えたか。
+    @discardableResult
+    func relocateTargets(using change: FileSystemChange, mounts: MountTable = .current()) -> Bool {
+        guard !change.relocations.isEmpty else { return false }
+        var changed = false
+        for ruleIndex in rules.indices {
+            let rule = rules[ruleIndex]
+            var targets = rule.targets
+            for targetIndex in targets.indices {
+                let old = targets[targetIndex]
+                guard let moved = change.relocatedPath(for: old.path).map(AutoRename.canonicalPath), moved != old.path,
+                      mounts.areOnSameVolume(URL(fileURLWithPath: old.path), URL(fileURLWithPath: moved)),
+                      !targets.contains(where: { $0.id != old.id && $0.path == moved }) else { continue }
+                let wasConfirmed = old.confirmedSignature == old.signature(for: rule)
+                targets[targetIndex].path = moved
+                targets[targetIndex].confirmedSignature = wasConfirmed ? targets[targetIndex].signature(for: rule) : nil
+            }
+            if targets != rule.targets {
+                rules[ruleIndex].targets = targets
+                changed = true
+            }
+        }
+        if changed { save() }
+        return changed
+    }
+
     var canAddRule: Bool { rules.count < AutoRename.maxRules }
 
     func rule(withID id: UUID) -> AutoRenameRule? {
