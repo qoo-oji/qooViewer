@@ -52,7 +52,8 @@ enum BookExportSourceFormat: String, CaseIterable, Identifiable {
 
     func matches(bookID: String) -> Bool {
         guard self != .all else { return true }
-        let fileExtension = URL(fileURLWithPath: bookID).pathExtension.lowercased()
+        // 書庫・PDF・EPUB の拡張子だけ(「作品名 vol.3」のフォルダをフォルダとして数える。BookFileName)。
+        let fileExtension = BookFileName.bookExtension(forBookID: bookID)
         guard self != .folder else { return fileExtension.isEmpty }
         return fileExtensions.contains(fileExtension)
     }

@@ -44,7 +44,8 @@ final class RecentFilesStore: ObservableObject {
 
         var id: String { path }
         var displayName: String {
-            URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+            // フォルダの本の名前の「.」を拡張子と取り違えない(BookFileName)。
+            isDirectory ? (path as NSString).lastPathComponent : BookFileName.displayName(forBookID: path)
         }
         /// 表示専用のURL(ファイル名・拡張子の取り出し用)。セキュリティスコープが付いていない
         /// ため、これを使って本を開いてはいけない(開くときは必ずresolveForOpening(_:)を通す)。

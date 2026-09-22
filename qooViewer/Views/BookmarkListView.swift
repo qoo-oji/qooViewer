@@ -160,7 +160,7 @@ private struct EditorBookRow: Identifiable {
         self.hasLayoutData = hasLayoutData
         self.earliestDate = earliestDate
         self.latestDate = latestDate
-        self.displayName = URL(fileURLWithPath: bookID).deletingPathExtension().lastPathComponent
+        self.displayName = BookFileName.displayName(forBookID: bookID)
     }
 }
 
@@ -1041,7 +1041,7 @@ struct BookmarkEditorView: View {
         guard let url = bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID)
             ?? layoutStore.resolvedURL(forBookID: bookID)
         else {
-            openErrorBookName = URL(fileURLWithPath: bookID).deletingPathExtension().lastPathComponent
+            openErrorBookName = BookFileName.displayName(forBookID: bookID)
             return
         }
         SecurityScopedHandoff.begin(url)
@@ -1067,7 +1067,7 @@ struct BookmarkEditorView: View {
         guard let url = bookmarkStore.resolvedURLFromBookmarkData(forBookID: bookID)
             ?? layoutStore.resolvedURL(forBookID: bookID)
         else {
-            openErrorBookName = URL(fileURLWithPath: bookID).deletingPathExtension().lastPathComponent
+            openErrorBookName = BookFileName.displayName(forBookID: bookID)
             return
         }
         BookWindowOpener.open(
@@ -2131,7 +2131,7 @@ private struct BookmarkDetailPane: View {
         }
 
         guard let url = layoutStore.resolvedURL(forBookID: bookID) else {
-            openErrorBookName = URL(fileURLWithPath: bookID).deletingPathExtension().lastPathComponent
+            openErrorBookName = BookFileName.displayName(forBookID: bookID)
             return
         }
         SecurityScopedHandoff.begin(url)

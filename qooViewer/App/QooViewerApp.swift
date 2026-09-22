@@ -803,7 +803,7 @@ struct QooViewerApp: App {
                             // 同様に、拡張子バッジのプレーンテキスト版を末尾に付けて区別できるようにする。
                             Button(
                                 FormatBadgeView.plainTextTitle(
-                                    baseName: url.deletingPathExtension().lastPathComponent, bookID: url.path
+                                    baseName: BookFileName.displayName(forBookID: url.path), bookID: url.path
                                 )
                             ) {
                                 focusedAppState.open(url: url)

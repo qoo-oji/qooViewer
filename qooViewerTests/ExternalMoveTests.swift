@@ -105,6 +105,15 @@ struct ExternalMoveTests {
         #expect(library.metadata.record(forBookID: new)?.values.title == "星の海")
     }
 
+    @Test("本の名前と形式は、書庫・PDF・EPUB の拡張子だけを外す(フォルダの名前の「.3」は名前のうち。2026-09-22 の監査)")
+    func bookNamesKeepDotsInFolderNames() {
+        #expect(BookFileName.displayName(forBookID: "/x/Title vol.3") == "Title vol.3")
+        #expect(BookFileName.bookExtension(forBookID: "/x/Title vol.3") == "")
+        #expect(BookFileName.displayName(forBookID: "/x/Title vol.3.CBZ") == "Title vol.3")
+        #expect(BookFileName.bookExtension(forBookID: "/x/Title vol.3.CBZ") == "cbz")
+        #expect(BookExportSourceFormat.folder.matches(bookID: "/x/Title vol.3"))
+    }
+
     @Test("一時フォルダへ書き出した入れ子の書庫の本は、保存データに何も残さない本として扱う(2026-09-22 の監査)")
     func temporaryCopiesLeaveNoRecord() {
         let temporary = TemporaryFileStore.makeFileURL(extension: "cbz")

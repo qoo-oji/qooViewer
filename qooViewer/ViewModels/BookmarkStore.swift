@@ -38,7 +38,7 @@ struct BookmarkBookGroup: Identifiable, Equatable {
         self.count = count
         self.earliestCreatedAt = earliestCreatedAt
         self.latestUpdatedAt = latestUpdatedAt
-        self.displayName = URL(fileURLWithPath: bookID).deletingPathExtension().lastPathComponent
+        self.displayName = BookFileName.displayName(forBookID: bookID)
     }
 }
 

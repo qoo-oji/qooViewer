@@ -31,13 +31,13 @@ struct BookExportRowFilterTests {
         #expect(BookExportSourceFormat.sevenZip.matches(bookID: "/books/A.Cb7"))
     }
 
-    @Test("フォルダは「拡張子が無い」で判定する")
-    func aFolderIsIdentifiedByHavingNoExtension() {
+    @Test("フォルダは「書庫・PDF・EPUB の拡張子が無い」で判定する")
+    func aFolderIsIdentifiedByHavingNoBookExtension() {
         #expect(BookExportSourceFormat.folder.matches(bookID: "/books/シリーズ 第1巻"))
         #expect(!BookExportSourceFormat.folder.matches(bookID: "/books/a.zip"))
-        // ドットを含む「フォルダ名」は拡張子ありと見なされる ―― 一覧の行が持つのはパスだけで、
-        // FormatBadgeView のバッジも同じ拡張子から出しているので、見た目とは食い違わない。
-        #expect(!BookExportSourceFormat.folder.matches(bookID: "/books/vol.1"))
+        // ドットを含むフォルダ名(「作品名 vol.1」)もフォルダ(2026-09-22 の監査。以前は拡張子ありと見なして
+        // フォルダの絞り込みから落としていた)。FormatBadgeView のバッジも同じ判定(BookFileName)なので、見た目と食い違わない。
+        #expect(BookExportSourceFormat.folder.matches(bookID: "/books/vol.1"))
     }
 
     @Test("「すべて」はフォルダを含めて必ず通す",
@@ -56,10 +56,10 @@ struct BookExportRowFilterTests {
         }
     }
 
-    @Test("一覧に載らない拡張子は「すべて」以外どれにも当てはまらない")
-    func anUnknownExtensionMatchesNothingButAll() {
+    @Test("書庫・PDF・EPUB でない拡張子は、名前の一部としてフォルダに数える(一覧の行は本だけなので、そういう名前はフォルダの本)")
+    func anUnknownExtensionCountsAsAFolderName() {
         let options = BookExportSourceFormat.allCases.filter { $0 != .all }
-        #expect(options.allSatisfy { !$0.matches(bookID: "/books/a.txt") })
+        #expect(options.filter { $0.matches(bookID: "/books/a.txt") } == [.folder])
     }
 
     @Test("rawValue は選択肢の識別子(id と一致する)")

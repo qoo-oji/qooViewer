@@ -13,8 +13,9 @@ import SwiftUI
 struct FormatBadgeView: View {
     let bookID: String
 
+    /// 書庫・PDF・EPUB の拡張子だけ(フォルダの名前の「.3」を形式と取り違えない。BookFileName)。
     private var pathExtension: String {
-        URL(fileURLWithPath: bookID).pathExtension
+        BookFileName.bookExtension(forBookID: bookID)
     }
 
     var body: some View {
@@ -52,7 +53,7 @@ struct FormatBadgeView: View {
     ///   OSのロケールとは独立しているため(CLAUDE.md参照)、呼び出し側が
     ///   @Environment(\.locale)を渡すこと。
     static func estimatedWidth(bookID: String, locale: Locale) -> CGFloat {
-        let pathExtension = URL(fileURLWithPath: bookID).pathExtension
+        let pathExtension = BookFileName.bookExtension(forBookID: bookID)
         let label = pathExtension.isEmpty
             ? String(localized: "Folder", language: locale)
             : pathExtension.uppercased()
@@ -74,7 +75,7 @@ struct FormatBadgeView: View {
     /// (FavoritesMenuContent/FavoritesNSMenuBridgeのお気に入り一覧・FavoritesOrganizerView
     /// 以外の、メニュー項目としてタイトルを表示する箇所で使う)。
     static func plainTextTitle(baseName: String, bookID: String) -> String {
-        let pathExtension = URL(fileURLWithPath: bookID).pathExtension
+        let pathExtension = BookFileName.bookExtension(forBookID: bookID)
         guard !pathExtension.isEmpty else { return baseName }
         return "\(baseName).\(pathExtension.lowercased())"
     }

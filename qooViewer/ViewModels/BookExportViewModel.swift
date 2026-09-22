@@ -33,7 +33,7 @@ class BookExportViewModel: ObservableObject {
         let hasMetadata: Bool
         var id: String { bookID }
         var displayName: String {
-            URL(fileURLWithPath: bookID).deletingPathExtension().lastPathComponent
+            BookFileName.displayName(forBookID: bookID)
         }
     }
 

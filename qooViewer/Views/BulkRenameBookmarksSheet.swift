@@ -138,7 +138,7 @@ struct BulkRenameBookmarksSheet: View {
     @ViewBuilder
     private func content(for bookID: String) -> some View {
         let bookmarks = bookmarkStore.bookmarks(forBookID: bookID).sorted { $0.pageIndex < $1.pageIndex }
-        let displayName = URL(fileURLWithPath: bookID).deletingPathExtension().lastPathComponent
+        let displayName = BookFileName.displayName(forBookID: bookID)
 
         Form {
             Section {
