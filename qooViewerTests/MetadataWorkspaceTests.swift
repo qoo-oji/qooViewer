@@ -44,6 +44,25 @@ struct MetadataWorkspaceTests {
         #expect(stored.edits == .none)
     }
 
+    @Test("ロックした本の行は、実在する本なら識別子とブックマークを持つ(アプリの外で名前を変えても追えるように。2026-09-22 の監査)")
+    func lockedRowsCarryTheBooksIdentity() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("workspace-identity")
+        let book = temporary.file("[架空工房] 月の庭 1.zip")
+        try Data("a".utf8).write(to: book)
+        let workspace = await open(library, [book.path])
+        // 読みだけの行は手がかりを持たなくてよい(作り直せる)。
+        #expect(library.metadata.metadata(forBookID: book.path)?.fileNodeIdentifier == nil)
+
+        workspace.setLocked([book.path], true)
+        await workspace.settle()
+
+        let row = try #require(library.metadata.metadata(forBookID: book.path))
+        #expect(row.fileNodeIdentifier == FileNodeIdentifier.current(for: book))
+        #expect(row.bookmarkData != nil)
+    }
+
     @Test("シリーズの無い巻だけを持つ登録済みの本は、巻が見え、鍵を外して掛け直しても巻が残る(2026-09-22 の監査)")
     func volumeWithoutSeriesSurvives() async throws {
         let library = try InMemoryLibrary()

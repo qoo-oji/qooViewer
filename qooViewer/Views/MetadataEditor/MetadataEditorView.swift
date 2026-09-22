@@ -146,13 +146,20 @@ final class MetadataEditorModel {
         }
         let workspace = await MetadataWorkspace.open(entries, rules: rulesStore.rules)
         workspace.writeBack = { [weak metadataStore] entries in metadataStore?.upsertAll(entries) }
+        // **登録する前に**、ほかの書き手の変更を受け始め、読み込んでいた間の変更を取り込む(2026-09-22 の監査)。行を読んでから
+        // `open` が終わるまで(数千冊で秒単位)に、EPUB の書誌の取り込み・1 冊ぶんのシート・保存データの読み込みが書いた直した欄や
+        // ロックを、以前は下の `registerAll` が読んだ時点の状態で上書きしていた(取り込み済みの印だけが残り、二度と取り込まれない)。
+        observeStoreChanges(of: workspace)
+        var changes: [String: BookMetadataRecord?] = [:]
+        for id in workspace.bookIDs { changes[id] = .some(metadataStore.record(forBookID: id)) }
+        workspace.applyExternalChanges(changes)
+        await workspace.settle()
         // 並べた本はすべて DB に登録する(利用者の指示 2026-09-22。行の無い本を登録し、ロックしていない本の値を揃える)。
         await workspace.registerAll()
         // 規則の窓(解析の設定・抽出の設定)に、この一覧の名前を渡す(規則を直しながら、この一覧の名前で読めぐあいを見る)。
         MetadataRulesPicked.shared.set(workspace.books.map(\.fileName))
         self.workspace = workspace
         outdatedBookIDs = metadataStore.outdatedFieldBookIDs.intersection(workspace.bookIDs)
-        observeStoreChanges(of: workspace)
         checkExistence(of: workspace)
     }
 

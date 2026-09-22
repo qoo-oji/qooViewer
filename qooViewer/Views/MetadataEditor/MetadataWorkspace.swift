@@ -427,12 +427,23 @@ final class MetadataWorkspace {
     /// ロックした時にしか変えない。利用者の指示 2026-09-22「ロックされたら DB を変更不可」)。
     private func writeRows(_ ids: Set<String>, lockChanged: Set<String> = []) {
         guard let writeBack, !ids.isEmpty else { return }
+        var mounts: MountTable?
         let entries = ids.sorted().compactMap { id -> BookMetadataStore.BatchEntry? in
             guard let row = row(id), let input = inputs[id] else { return nil }
             let isLocked = locked.contains(id)
             guard !isLocked || lockChanged.contains(id) else { return nil }
             let state = BookMetadataRowState(isLocked: isLocked, edits: input.confirmation, ruleSet: presetOverrides[id])
-            return BookMetadataStore.BatchEntry(bookID: id, values: row.values, state: state)
+            // 利用者が手を入れた行(ロック・直した欄・ルールセット)には、本の場所の手がかり(識別子とブックマーク)を持たせる。
+            // 無いと、アプリの外で名前を変えたときに行が古いパスに取り残される(開いたときの追従は識別子、起動後の追従は
+            // ブックマークで探す。2026-09-22 の監査)。手がかりはストアが「まだ無いときだけ」書く。見つからない本とネットワークの
+            // 本には触らない(メインで stat するため)。
+            var sourceURL: URL?
+            if state != BookMetadataRowState(isLocked: false), !missing.contains(id) {
+                let url = URL(fileURLWithPath: id)
+                if mounts == nil { mounts = MountTable.current() }
+                if let mounts, !mounts.isOnAnUnmountedVolume(url), !mounts.isRemote(url) { sourceURL = url }
+            }
+            return BookMetadataStore.BatchEntry(bookID: id, values: row.values, sourceURL: sourceURL, state: state)
         }
         guard !entries.isEmpty else { return }
         isWritingBack = true

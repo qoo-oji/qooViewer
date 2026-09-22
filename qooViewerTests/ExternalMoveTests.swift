@@ -57,6 +57,31 @@ struct ExternalMoveTests {
         #expect(library.metadata.metadata(forBookID: new.path)?.author == "A")
     }
 
+    @Test("本を開いたときの追従: 識別子を持たないメタデータの行も、ほかのストアが見つけた元のパスで付いてくる")
+    func openingFollowsRowsWithoutIdentity() throws {
+        // AppState.open と同じ手順(5 つの reconcile → 元のパスで applyBookRelocation)を、ストアの上で通す。
+        let library = try InMemoryLibrary(label: "outside-move-open-all")
+        defer { library.close() }
+        let temporary = try TemporaryDirectory("outside-move-open-all")
+        let old = temporary.file("before.cbz")
+        try Data("a".utf8).write(to: old)
+        // レイアウトは識別子つき、メタデータは識別子無し(メタデータの編集ウインドウが作った形)。
+        library.layouts.setForcedDisplayMode(for: MangaBook(id: old.path, title: "before", sourceURL: old, pages: []), .single)
+        library.metadata.upsertAll([.init(bookID: old.path, values: BookMetadataValues(title: "直した題"), state: .locked)])
+        let new = temporary.file("after.cbz")
+        try FileManager.default.moveItem(at: old, to: new)
+        let book = MangaBook(id: new.path, title: "after", sourceURL: new, pages: [])
+
+        let movedFrom = library.layouts.reconcileBookIDIfMoved(book: book)
+        #expect(movedFrom == old.path)
+        #expect(library.metadata.reconcileBookIDIfMoved(book: book) == nil, "識別子が無いので自分では見つけられない")
+        let plan = BookRelocationPlan(bookIDs: [old.path: new.path], locators: [:], directoryBookIDs: [])
+        library.metadata.applyBookRelocation(plan)
+
+        #expect(library.metadata.metadata(forBookID: new.path)?.title == "直した題")
+        #expect(library.metadata.metadata(forBookID: old.path) == nil)
+    }
+
     @Test("読書位置も付け替える(新しいパスに既にあれば触らない)")
     func readingStatesFollow() throws {
         let library = try InMemoryLibrary(label: "outside-move-reading")

@@ -1076,11 +1076,24 @@ final class AppState: ObservableObject {
                         // 上の4つだけを付け替えると、コレクションの行だけが古いパスに残り、その行から`bookID`で引くもの(表紙の指定・
                         // メタデータ)が、ONへ戻してその本をもう一度開くまで外れたままになった。5つは必ず揃えて付け替える。
                         movedFrom.append(self.collectionStore?.reconcileBookIDIfMoved(book: book))
-                        // 読書位置は識別子を持たないので、上の 5 つが見つけた元のパスから付け替える(読書位置が無いと 1 ページ目から
-                        // 始まり、古い読書位置が残り続けた。2026-09-22、利用者の報告。BookRecordRelocator.relocateReadingStates)。
-                        if let oldBookID = movedFrom.compactMap({ $0 }).first,
-                           let context = self.metadataStore?.modelContext {
-                            BookRecordRelocator.relocateReadingStates([oldBookID: book.id], in: context)
+                        // 上の 5 つのどれかが元のパスを見つけたら、その元のパスで**5 つと読書位置をまとめて**付け替える(2026-09-22)。
+                        // 識別子で探せるのは識別子を持つ行だけで、読書位置は識別子を持たず、メタデータの編集ウインドウ・スマートライブラリ
+                        // が作った行も持たないことがある ―― 1 つずつだと、そういう行が古いパスに取り残された(読書位置が無いと 1 ページ目
+                        // から始まり、直したメタデータが付いてこなかった。2026-09-22 の利用者の報告と監査)。付け替えの決まり(移った先に
+                        // 行があるストアは付け替えない、メタデータの読みだけの行は置き換える)は BookRecordRelocator と同じ。
+                        if let oldBookID = movedFrom.compactMap({ $0 }).first {
+                            // フォルダの本は棚のキャプションの決め方が違う(BookRelocationPlan.derivedTitle)。
+                            let isDirectory = (try? book.sourceURL.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+                            let plan = BookRelocationPlan(bookIDs: [oldBookID: book.id], locators: [:],
+                                                          directoryBookIDs: isDirectory ? [book.id] : [])
+                            self.favoritesStore?.applyBookRelocation(plan)
+                            self.layoutStore?.applyBookRelocation(plan)
+                            self.bookmarkStore?.applyBookRelocation(plan)
+                            self.metadataStore?.applyBookRelocation(plan)
+                            self.collectionStore?.applyBookRelocation(plan)
+                            if let context = self.metadataStore?.modelContext {
+                                BookRecordRelocator.relocateReadingStates([oldBookID: book.id], in: context)
+                            }
                         }
                         // 付け替え漏れのページの鍵(2026-09-21 より前に移したフォルダの本)を、ページが分かったいま直す
                         // (PageKeyRelocation.repairs。フォルダの本でなければ何もしない)。

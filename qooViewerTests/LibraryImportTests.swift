@@ -464,6 +464,26 @@ struct LibraryImportTests {
         #expect(other.metadata.record(forBookID: "/nowhere/legacy.cbz")?.isLocked == true)
     }
 
+    @Test("merge は、ロックしていなくても直した欄のある行を変えない(読みだけの行だけを置き換える。2026-09-22 の監査)")
+    func mergeKeepsAnUnlockedEditedRow() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let bookID = "/nowhere/edited.cbz"
+        let edits = Confirmation.fields(ConfirmedFields([.title: ["直した題"]]))
+        library.metadata.upsertAll([
+            .init(bookID: bookID, values: BookMetadataValues(title: "直した題"),
+                  state: BookMetadataRowState(isLocked: false, edits: edits, ruleSet: "doujinshi")),
+        ])
+        let incoming = ExportedBookMetadataEntry(bookID: bookID, author: "", title: "古い題", series: "", seriesIndex: "")
+
+        await library.apply(QooLibraryExportFile(metadata: [incoming]), policies: .all(.merge))
+
+        let record = try #require(library.metadata.record(forBookID: bookID))
+        #expect(record.values.title == "直した題")
+        #expect(record.edits == edits)
+        #expect(record.ruleSet == "doujinshi")
+    }
+
     @Test("以前の形のフォーマット定義は、ファイル名フォーマットだけが利用者のルールセットとして入る")
     func legacyMetadataFormatsBecomeARuleSet() async throws {
         let library = try InMemoryLibrary()

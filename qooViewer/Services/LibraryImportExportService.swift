@@ -569,9 +569,10 @@ enum LibraryImportExportService {
                 favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
             )
             let bookID = resolvedURL?.path ?? entry.bookID
-            // 「足す」はロックした行を変えない(ロックしていない行はファイル名の読みから作ったものなので、取り込む値で置き換える。
-            // 2026-09-22 から、解析した本はすべて行を持つ)。
-            if policy == .merge, metadataStore.metadata(forBookID: bookID)?.isLocked == true { continue }
+            // 「足す」は、利用者が手を入れた行を変えない ―― 画面の約束は「既存のものは変えない」。置き換えるのはファイル名の読み
+            // だけの行(`isParsedOnly`。2026-09-22 から解析した本はすべて行を持つので、それを「まだ無い」とみなす)。以前はロックした
+            // 行だけを除いていて、ロックしていない行の直した欄・ルールセットが、読み込んだ値で黙って置き換わった(2026-09-22 の監査)。
+            if policy == .merge, let existing = metadataStore.metadata(forBookID: bookID), !existing.isParsedOnly { continue }
             // 書き出した版の欄の版のまま入れる。版の無い以前のファイル(formatVersion 4 以前・qooMeta の書き出し)の行は、
             // qooMeta の欄が無ければ以前の版の欄の登録として入れる(空の欄を埋めるかを尋ねる。importedFieldsVersion)。
             batch.append(BookMetadataStore.BatchEntry(bookID: bookID, values: entry.values, sourceURL: resolvedURL,

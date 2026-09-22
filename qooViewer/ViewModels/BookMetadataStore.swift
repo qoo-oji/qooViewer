@@ -437,8 +437,11 @@ final class BookMetadataStore: ObservableObject {
         guard records.values.contains(where: { !$0.isLocked }) else { return 0 }
         let parsed = await MetadataParsing.values(for: records, rules: rules)
         let entries = records.keys.sorted().compactMap { id -> BatchEntry? in
-            // 読み直している間に消えた・ロックされた行は書かない(`onlyIfUnlocked` と行の有無で確かめる)。
+            // 読み直している間に消えた・ロックされた行は書かない(`onlyIfUnlocked` と行の有無で確かめる)。直した欄・ルールセットが
+            // 変わった行も書かない(2026-09-22 の監査): 値は読み始めの直した欄から作ったものなので、書くと、その間に直した欄が
+            // DB の値にだけ反映されない(直した欄は新しく、値は古い)まま残った。変えた書き手が新しい値を書いている。
             guard let values = parsed[id], let record = self.record(forBookID: id), !record.isLocked,
+                  let original = records[id], record.edits == original.edits, record.ruleSet == original.ruleSet,
                   record.values != values.trimmed else { return nil }
             return BatchEntry(bookID: id, values: values, onlyIfUnlocked: true)
         }
