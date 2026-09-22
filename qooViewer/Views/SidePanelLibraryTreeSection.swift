@@ -37,8 +37,10 @@ struct SidePanelLibraryTreeSection: View {
     let itemSort: FavoritesSortOption
     /// 今開いている本(MangaBook.id = パス)。その本の行を強調する。
     let currentBookPath: String?
-    var onOpen: (URL) -> Void
-    var onOpenInNewWindow: (URL, BookOpenDestination) -> Void
+    /// 本を開く。要求にはそのコレクションの本の並び(`BookSequence`)が載る ―― 「次の本へ」「前の本へ」がコレクションの
+    /// 並びをたどる(2026-09-22、利用者の指示)。
+    var onOpen: (BookOpenRequest) -> Void
+    var onOpenInNewWindow: (BookOpenRequest, BookOpenDestination) -> Void
 
     /// ツリーを平らにした1行。
     private enum Row: Identifiable {
@@ -204,7 +206,7 @@ struct SidePanelLibraryTreeSection: View {
                 onOpen: { open(item) },
                 onOpenIn: { destination in
                     guard let url = resolvedURL(item) else { return }
-                    onOpenInNewWindow(url, destination)
+                    onOpenInNewWindow(request(url, opening: item), destination)
                 }
             )
             Divider()
@@ -224,7 +226,13 @@ struct SidePanelLibraryTreeSection: View {
 
     private func open(_ item: CollectionItem) {
         guard let url = resolvedURL(item) else { return }
-        onOpen(url)
+        onOpen(request(url, opening: item))
+    }
+
+    /// そのコレクションの本の並び(ツリーに見えている並び。ホームのコレクションと同じ並べ替え)を載せた要求。
+    private func request(_ url: URL, opening item: CollectionItem) -> BookOpenRequest {
+        let items = item.collection.map { collectionStore.items(in: $0, sort: itemSort) } ?? []
+        return BookOpenRequest(url, sequence: BookSequence.collection(items, opening: item))
     }
 
     /// 開く直前にブックマークを解決する。見つからなければ警告音だけ鳴らす ―― 理由を書き分けた

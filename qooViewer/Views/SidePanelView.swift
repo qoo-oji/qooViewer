@@ -101,6 +101,10 @@ struct SidePanelView: View {
     /// このウインドウのパネルは出したままのほうが「一覧から次々に開く」という使い方に合う
     /// (ユーザー要望の趣旨)。
     var onOpenInNewWindow: (URL, BookOpenDestination) -> Void
+    /// ライブラリのツリーから本を開く(`onOpen` / `onOpenInNewWindow` の要求版。要求にコレクションの本の並び
+    /// ―― `BookSequence` ―― が載る。2026-09-22)。パネルを閉じるかどうかは `onOpen` / `onOpenInNewWindow` と同じ。
+    var onOpenRequest: (BookOpenRequest) -> Void
+    var onOpenRequestInNewWindow: (BookOpenRequest, BookOpenDestination) -> Void
 
     // MARK: - ブックマークモード用
 
@@ -407,8 +411,8 @@ struct SidePanelView: View {
                         collectionSort: librarySort,
                         itemSort: libraryItemSort,
                         currentBookPath: currentBookPath,
-                        onOpen: onOpen,
-                        onOpenInNewWindow: onOpenInNewWindow
+                        onOpen: onOpenRequest,
+                        onOpenInNewWindow: onOpenRequestInNewWindow
                     )
                     .frame(maxHeight: .infinity)
                     .clipped()

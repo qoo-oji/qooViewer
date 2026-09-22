@@ -588,7 +588,8 @@ struct CollectionDetailView: View {
                         return
                     }
                     BookWindowOpener.open(
-                        BookOpenRequest(url), to: destination, from: appState,
+                        BookOpenRequest(url, sequence: BookSequence.collection(items, opening: item)),
+                        to: destination, from: appState,
                         launchCoordinator: launchCoordinator, openWindow: openWindow
                     )
                 }
@@ -791,7 +792,8 @@ struct CollectionDetailView: View {
                     )
             return
         }
-        appState.open(url: url)
+        // 見えている並び(検索・並べ替えの後)を渡す ―― 「次の本へ」「前の本へ」がこの並びをたどる(BookSequence)。
+        appState.open(request: BookOpenRequest(url, sequence: BookSequence.collection(items, opening: item)))
     }
 }
 

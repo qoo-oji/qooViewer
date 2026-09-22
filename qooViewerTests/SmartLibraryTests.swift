@@ -269,7 +269,7 @@ struct SmartLibraryTests {
         #expect(all.move(.right, extending: false, order: order, columns: 3) == "i1")
     }
 
-    @Test("並びが変わると消えた枠を選択から外す。束から出るとその束を選ぶ。右クリックの相手は選択に入っているときだけ全部")
+    @Test("並びから消えた枠を選択から外す(束の中の本は残す)。束から出るとその束を選ぶ。右クリックの相手は選択に入っているときだけ全部")
     func gridSelectionFollowsTheGrid() {
         let suite = TestDefaultsPool.checkout()
         defer { suite.release() }
@@ -290,13 +290,87 @@ struct SmartLibraryTests {
         state.grouping = .series
         state.recompute(now: now)
         #expect(state.selectedItems.map(\.id) == ["book|/b/b.zip"])
+        // 束の中の本は、束に入っても選ばれたまま(リスト表示では束の中の行も選べるので、束へ隠れただけでは外さない)。
         state.openedGroup = "月の庭"
         state.recompute(now: now)
-        #expect(state.selectedItems.isEmpty)
+        #expect(state.selectedItems.map(\.id) == ["book|/b/a.zip"])
+        state.clearSelection()
         state.openedGroup = nil
         state.recompute(now: now)
         #expect(state.selectedItems.map(\.id) == ["series|月の庭"])
         #expect(state.revealRequest?.id == "series|月の庭")
+    }
+
+    @Test("type-select: 1 文字は今の選択の次から一巡、2 文字以上は先頭から。束は名前で当たる")
+    func typeSelectFindsByDisplayName() {
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let state = SmartLibraryViewState(defaults: suite.defaults)
+        state.sortKey = .fileName
+        state.update(books: [
+            book("/b/1.zip", title: "Alpha"),
+            book("/b/2.zip", title: "Beta"),
+            book("/b/3.zip", title: "Alps"),
+        ], shelves: [])
+        let t0 = Date(timeIntervalSinceReferenceDate: 1_000)
+        #expect(state.typeSelect("a", now: t0) == "book|/b/1.zip")
+        #expect(state.typeSelect("a", now: t0.addingTimeInterval(2)) == "book|/b/3.zip")
+        #expect(state.typeSelect("a", now: t0.addingTimeInterval(4)) == "book|/b/1.zip")
+        // 続けて打った 2 文字は先頭から探す。
+        #expect(state.typeSelect("b", now: t0.addingTimeInterval(6)) == "book|/b/2.zip")
+        #expect(state.typeSelect("ALP", now: t0.addingTimeInterval(8)) == "book|/b/1.zip")
+        #expect(state.typeSelect("s", now: t0.addingTimeInterval(8.2)) == "book|/b/3.zip")
+        #expect(state.typeSelect("zz", now: t0.addingTimeInterval(10)) == nil)
+        #expect(state.selectedItems.map(\.id) == ["book|/b/3.zip"])
+    }
+
+    @Test("絞り込み・並べ替えを変えると先頭へ戻す合図が進み、本の一覧が届いただけでは進まない")
+    func narrowingResetsTheScroll() {
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let state = SmartLibraryViewState(defaults: suite.defaults)
+        let books = [book("/b/1.zip", title: "月の庭"), book("/b/2.zip", title: "星の庭")]
+        state.update(books: books, shelves: [])
+        let start = state.scrollResetSerial
+        state.update(books: books, shelves: [])
+        #expect(state.scrollResetSerial == start)
+        state.searchText = "星"
+        state.recompute(now: now)
+        #expect(state.scrollResetSerial == start + 1)
+        state.sortAscending.toggle()
+        state.recompute(now: now)
+        #expect(state.scrollResetSerial == start + 2)
+    }
+
+    @Test("本を開くときの並びは見えている並びで、束はその位置に中の本を巻の順に展開する")
+    func sequenceFlattensGroups() throws {
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let state = SmartLibraryViewState(defaults: suite.defaults)
+        state.sortKey = .fileName
+        let second = book("/b/b.zip", title: "星の庭")
+        state.update(books: [
+            book("/b/a.zip", series: "月の庭", volume: "2"),
+            second,
+            book("/b/c.zip", series: "月の庭", volume: "1"),
+        ], shelves: [])
+        state.grouping = .series
+        state.recompute(now: now)
+        let sequence = try #require(state.sequence(opening: second))
+        #expect(sequence.entries.map(\.path) == ["/b/c.zip", "/b/a.zip", "/b/b.zip"])
+        #expect(sequence.position == 2)
+        #expect(sequence.candidatePositions(forward: false) == [1, 0])
+        #expect(sequence.candidatePositions(forward: true).isEmpty)
+    }
+
+    @Test("一覧の並びは開く要求に載って JSON を往復する(新しいウインドウへ渡る)")
+    func sequenceTravelsWithTheRequest() throws {
+        let entries: [BookSequence.Entry] = [.file(path: "/b/1.zip"), .collectionItem(id: UUID(), path: "/b/2.zip")]
+        let request = BookOpenRequest(URL(fileURLWithPath: "/b/2.zip"),
+                                      sequence: BookSequence(entries: entries, position: 1))
+        let decoded = try JSONDecoder().decode(BookOpenRequest.self, from: JSONEncoder().encode(request))
+        #expect(decoded == request)
+        #expect(BookSequence(entries: entries, position: 2) == nil)
     }
 
     // MARK: 保存

@@ -146,6 +146,11 @@ final class AppState: ObservableObject {
     /// 「Fileメニュー」→「同じフォルダのファイルを開く」の一覧に使う。
     @Published private(set) var siblingBooks: [URL] = []
 
+    /// 本を開いた一覧の並び(ライブラリのコレクション・スマートライブラリから開いたとき。`BookSequence`)。
+    /// あれば「次の本へ」「前の本へ」はこの並びをたどり、無ければ同じフォルダの本をたどる。本を開くたびに要求の値で
+    /// 置き換える(一覧の外から開けば消える)。本を閉じても消える。
+    private(set) var bookSequence: BookSequence?
+
     /// 現在表示中のビューワー(ViewerView)へ、メニューバーからの操作を橋渡しするためのクロージャ。
     /// ViewerViewが表示されている間だけ自分自身を登録し、閉じるときにnilへ戻す。
     /// (見開き切替・ブックマーク・スライドショーなど、ツールバーにある操作をメニューバーからも
@@ -963,6 +968,8 @@ final class AppState: ObservableObject {
         // (pendingInitialEdgeのコメント参照)。上の早期returnを抜けた後でしか書かないので、
         // 別のウインドウを前面に出して終わった場合はこのウインドウの指定に触れない。
         pendingInitialEdge = initialEdge
+        // 一覧の並びも、実際に読み込みを始めるここで置き換える(別のウインドウを前面に出して終えた場合は触れない)。
+        bookSequence = request.sequence
         // 先に新しい本のぶんを開いてから、直前の本のぶんを閉じる(securityScopedBookURLsの
         // コメント参照)。この順序なのは、同じ本をもう一度開いた場合に、閉じる→開くの順だと
         // アクセスが一瞬途切れてしまうため(startAccessingSecurityScopedResourceは参照
@@ -1165,6 +1172,10 @@ final class AppState: ObservableObject {
     /// - Parameter landsOnFirstPage: 環境設定「最後のページで」が「次の本の最初のページへ」の
     ///   場合にtrue。その本の読書位置の記憶や「開始ページ」の設定より優先して先頭へ着地させる。
     func openSibling(after currentURL: URL, landsOnFirstPage: Bool = false) {
+        if let bookSequence {
+            openInSequence(bookSequence, forward: true, initialEdge: landsOnFirstPage ? .first : nil)
+            return
+        }
         // 並び順は**Taskの外で**取り出しておく(MainActor隔離のpreferencesを非同期の文脈から
         // 読み直さずに済ませるため。この直前まで有効だった設定でそのまま動く)。
         let order = siblingBookOrder
@@ -1183,6 +1194,10 @@ final class AppState: ObservableObject {
     /// - Parameter landsOnLastPage: 環境設定「最初のページで」が「前の本の最後のページへ」の
     ///   場合にtrue(openSibling(after:landsOnFirstPage:)の逆向き)。
     func openSibling(before currentURL: URL, landsOnLastPage: Bool = false) {
+        if let bookSequence {
+            openInSequence(bookSequence, forward: false, initialEdge: landsOnLastPage ? .last : nil)
+            return
+        }
         let order = siblingBookOrder
         Task { [weak self] in
             guard let previous = await SiblingFinder.url(before: currentURL, order: order) else { return }
@@ -1194,8 +1209,47 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// 一覧の並び(`bookSequence`)の次/前の本を開く。**見つからない本は飛ばして**その先を試し、端まで無ければ何もしない
+    /// (同じフォルダの本へは戻らない ―― 一覧で絞り込んだ範囲の外へ出ないため。利用者の指示 2026-09-22)。
+    /// 開く本の URL の決め方は一覧から開いたときと同じ(コレクションの本は項目のブックマークから、スマートライブラリの本は
+    /// パスから。こちらの在るかの確かめは FileIO の上で ―― SmartLibraryPane.withResolvedURL と同じ)。
+    private func openInSequence(_ sequence: BookSequence, forward: Bool, initialEdge: InitialPageEdge?) {
+        let candidates = sequence.candidatePositions(forward: forward)
+        guard !candidates.isEmpty else { return }
+        sequenceTask?.cancel()
+        sequenceTask = Task { [weak self] in
+            for position in candidates {
+                guard !Task.isCancelled, let self, self.bookSequence == sequence else { return }
+                guard let url = await self.resolvedURL(for: sequence.entries[position]) else { continue }
+                guard self.bookSequence == sequence else { return }
+                // ページ送りの延長なので、別のウインドウへ譲らない(openSibling と同じ)。
+                self.open(
+                    request: BookOpenRequest(url, sequence: sequence.moved(to: position)),
+                    reusesExistingWindow: false, initialEdge: initialEdge
+                )
+                return
+            }
+        }
+    }
+
+    /// 一覧の並びをたどって次の本を探している最中の仕事(テストが終わりを待つ。続けて押されたら前のものは取り消す)。
+    private(set) var sequenceTask: Task<Void, Never>?
+
+    /// 一覧の並びの 1 冊を開く URL。見つからなければ nil。
+    private func resolvedURL(for entry: BookSequence.Entry) async -> URL? {
+        if case .collectionItem(let id, _) = entry, let collectionStore, let item = collectionStore.item(withID: id) {
+            // コレクションの本は項目のブックマークから(一覧から開くときの CollectionDetailView.open と同じ)。
+            // パスだけで在るかを確かめると、許可の無い場所の本はサンドボックスで「無い」になるので、先には見ない。
+            return collectionStore.resolvedExistingURL(for: item)
+        }
+        let path = entry.path
+        let exists = await FileIO.perform { FileManager.default.fileExists(atPath: path) }
+        return exists ? URL(fileURLWithPath: path) : nil
+    }
+
     func closeBook() {
         openTask?.cancel()
+        bookSequence = nil
         currentBook = nil
         clearSiblingBooks()
         // 開いていた本のセキュリティスコープ付きアクセスを閉じる(securityScopedBookURLsの

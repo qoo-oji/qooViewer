@@ -277,7 +277,12 @@ point a no-op; only `SmartLibraryStore.relocate` keeps running. `SmartLibraryVie
 (`SmartGrouping`). Appearance: `AppearanceSettings.smartLibrary*`. The cover grid has Finder-style selection and keys
 (2026-09-22; click selects, double-click / Return opens, rules in `SmartGridSelection`, keys taken on the grid's outer frame
 outside `.id(gridID)`); scrolling a selection into view computes the row from measured geometry (`PanelListScrollTracker`), so
-**every cell must keep the same height** — captions always reserve two lines (`SmartCaptionLines`). Design in docs/14「スマートライブラリ」.
+**every cell must keep the same height** — captions always reserve two lines (`SmartCaptionLines`). The list view
+(`SmartLibraryListView`) is an AppKit `NSOutlineView` built from the file browser's parts, with groups as folder-like
+expandable rows; it shares the grid's selection/sort state. Design in docs/14「スマートライブラリ」.
+**Books opened from a collection or the smart library carry the list they came from** (`BookSequence` on
+`BookOpenRequest.sequence` → `AppState.bookSequence`, 2026-09-22): next/previous book walks that snapshot (skipping missing
+books, stopping at the ends) instead of the folder siblings; opening a book any other way clears it (docs/04「隣の本」).
 
 **Menu bar ↔ viewer bridging**: `AppState` (ViewModels/AppState.swift) is one-per-window and is exposed to
 the menu bar via `FocusedValue` (see the `qooViewerAppState`/`qooViewerMenuCheckmarkState` extension in

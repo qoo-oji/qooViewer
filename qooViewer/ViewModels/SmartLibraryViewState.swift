@@ -25,6 +25,7 @@ final class SmartLibraryViewState: ObservableObject {
         static let coverSize = "qooViewer.smartLibrary.coverSize"
         static let sidebarWidth = "qooViewer.smartLibrary.sidebarWidth"
         static let grouping = "qooViewer.smartLibrary.grouping"
+        static let viewMode = "qooViewer.smartLibrary.viewMode"
         /// 束ねる設定が「シリーズでまとめる」の ON/OFF だった頃の鍵(読むだけ。`grouping` が無いときの初期値に使う)。
         static let legacyGroupsBySeries = "qooViewer.smartLibrary.groupsBySeries"
     }
@@ -44,10 +45,10 @@ final class SmartLibraryViewState: ObservableObject {
             // 棚が変わったら、ブラウザで選んだ値は外す(前の棚に無い値で空になるため)。開いていたシリーズからも出る。
             facetSelection = SmartFacetSelection()
             openedGroup = nil
-            setNeedsRecompute()
+            narrowingChanged()
         }
     }
-    @Published var quickFilter = SmartQuickFilter() { didSet { if quickFilter != oldValue { setNeedsRecompute() } } }
+    @Published var quickFilter = SmartQuickFilter() { didSet { if quickFilter != oldValue { narrowingChanged() } } }
     /// ブラウザのボタンの並び(同じ欄は 1 度だけ)。
     @Published var facetFields: [SmartFacetField] {
         didSet {
@@ -55,25 +56,25 @@ final class SmartLibraryViewState: ObservableObject {
             defaults.set(facetFields.map(\.rawValue), forKey: Keys.facetFields)
             // 並びから消えた欄の選択は外す(見えない所で絞り込みが残らないように)。
             for field in SmartFacetField.allCases where !facetFields.contains(field) { facetSelection[field] = [] }
-            setNeedsRecompute()
+            narrowingChanged()
         }
     }
     @Published var facetSelection = SmartFacetSelection() {
-        didSet { if facetSelection != oldValue { setNeedsRecompute() } }
+        didSet { if facetSelection != oldValue { narrowingChanged() } }
     }
-    @Published var searchText = "" { didSet { if searchText != oldValue { setNeedsRecompute() } } }
+    @Published var searchText = "" { didSet { if searchText != oldValue { narrowingChanged() } } }
     @Published var sortKey: SmartSortKey {
         didSet {
             guard sortKey != oldValue else { return }
             defaults.set(sortKey.rawValue, forKey: Keys.sortKey)
-            setNeedsRecompute()
+            narrowingChanged()
         }
     }
     @Published var sortAscending: Bool {
         didSet {
             guard sortAscending != oldValue else { return }
             defaults.set(sortAscending, forKey: Keys.sortAscending)
-            setNeedsRecompute()
+            narrowingChanged()
         }
     }
     /// 同じシリーズ / 同じ著者の本を 1 つの束にまとめて並べるか(2026-09-22、利用者の指示。`SmartGrouping`)。保存する。
@@ -84,7 +85,7 @@ final class SmartLibraryViewState: ObservableObject {
             // 束ね方を変えたら、開いていた束からは出る(その束はもう無い。出た束を選び直すこともしない)。
             openedGroup = nil
             pendingSelectionID = nil
-            setNeedsRecompute()
+            narrowingChanged()
         }
     }
     /// 開いている束の名前(シリーズ名 / 著者名。nil なら束の一覧)。束を押すと入り、見出しの戻るで出る。保存しない。
@@ -94,8 +95,18 @@ final class SmartLibraryViewState: ObservableObject {
             // 束から出たら、出てきた束を選んでおく(Finder で上のフォルダへ戻ったときと同じ。矢印キーの続きがそこから)。
             if let oldValue, openedGroup == nil {
                 pendingSelectionID = SmartGridItem.groupID(grouping, name: oldValue)
+                setNeedsRecompute()
+            } else {
+                // 束へ入ったら先頭から(出たときは、出てきた束が見える位置へ ―― `revealRequest`)。
+                narrowingChanged()
             }
-            setNeedsRecompute()
+        }
+    }
+    /// 表紙のグリッドかリストか(2026-09-22、利用者の指示)。保存する。選択・絞り込み・束はどちらでも同じものを使う。
+    @Published var viewMode: SmartLibraryViewMode {
+        didSet {
+            guard viewMode != oldValue else { return }
+            defaults.set(viewMode.rawValue, forKey: Keys.viewMode)
         }
     }
     @Published var coverSize: CGFloat { didSet { defaults.set(Double(coverSize), forKey: Keys.coverSize) } }
@@ -127,6 +138,15 @@ final class SmartLibraryViewState: ObservableObject {
     }
     /// 次に並べ直したときに選ぶ枠(束から出たときの、その束)。
     private var pendingSelectionID: String?
+    /// 「一覧を先頭へ戻して」の合図(通し番号。画面が受けてスクロールする)。**絞り込み・検索・並べ替え・棚・束ね方を
+    /// 利用者が変えたときだけ**進め、裏で集め直した結果が届いただけのとき(`update(books:shelves:)`)は進めない
+    /// (StackNest と同じ区別。深く流した所で検索すると結果の途中から見える・空に見える、を防ぎ、読み込み直しで
+    /// 位置が飛ぶのは防ぐ)。
+    @Published private(set) var scrollResetSerial = 0
+    private var pendingScrollReset = false
+    /// type-select の溜めた文字と、最後に打った時刻(ファイルブラウザのアイコン表示と同じ規則。`typeSelect`)。
+    private var typeSelectBuffer = ""
+    private var typeSelectLastInput: Date?
     private var revealSerial = 0
 
     private let defaults: UserDefaults
@@ -148,6 +168,7 @@ final class SmartLibraryViewState: ObservableObject {
         sortAscending = defaults.object(forKey: Keys.sortAscending) as? Bool ?? true
         grouping = SmartGrouping(rawValue: defaults.string(forKey: Keys.grouping) ?? "")
             ?? (defaults.bool(forKey: Keys.legacyGroupsBySeries) ? .series : .none)
+        viewMode = SmartLibraryViewMode(rawValue: defaults.string(forKey: Keys.viewMode) ?? "") ?? .grid
         coverSize = (defaults.object(forKey: Keys.coverSize) as? Double)
             .map { Self.coverSizeRange.clamping(CGFloat($0)) } ?? Self.defaultCoverSize
         sidebarWidth = (defaults.object(forKey: Keys.sidebarWidth) as? Double)
@@ -237,9 +258,73 @@ final class SmartLibraryViewState: ObservableObject {
         selection.selectAll(order: gridItemIDs)
     }
 
+    /// リスト表示が選んだもの(束の中の本の行も入る ―― その識別子は並び `gridItems` には無いので、並びが変わると外れる)。
+    func setSelection(_ ids: Set<String>, cursor: String?) {
+        guard ids != selection.ids || cursor != selection.cursor else { return }
+        selection.set(ids, cursor: cursor)
+    }
+
     func clearSelection() {
         guard !selection.isEmpty else { return }
         selection.clear()
+    }
+
+    /// type-select(2026-09-22)。打った文字を表示名の先頭に持つ枠を 1 つだけ選び、その枠を返す(画面がスクロールする)。
+    /// 見つからなければ選択は変えず nil。規則はファイルブラウザのアイコン表示と同じ(`FileBrowserState.typeSelect`):
+    /// 前の入力から `FileBrowserState.typeSelectResetInterval` 過ぎたら打ち直し、1 文字(同じ文字の連打を含む)は今の選択の
+    /// 次から一巡、2 文字以上は先頭から。大小文字・濁点の有無・全角半角は区別しない。表示名は表紙の下の 1 行目
+    /// (本は題 ―― 著者でまとめた一覧では著者名、束は束の名前)。
+    func typeSelect(_ characters: String, now: Date = Date()) -> String? {
+        guard !characters.isEmpty else { return nil }
+        if let last = typeSelectLastInput, now.timeIntervalSince(last) < FileBrowserState.typeSelectResetInterval {
+            typeSelectBuffer += characters
+        } else {
+            typeSelectBuffer = characters
+        }
+        typeSelectLastInput = now
+        guard !gridItems.isEmpty else { return nil }
+        let buffer = typeSelectBuffer
+        let isSingleCharacter = Set(buffer.lowercased()).count == 1
+        let needle = isSingleCharacter ? String(buffer.prefix(1)) : buffer
+        let current = selection.cursor.flatMap { cursor in
+            selection.contains(cursor) ? gridItems.firstIndex(where: { $0.id == cursor }) : nil
+        } ?? gridItems.firstIndex(where: { selection.contains($0.id) })
+        let start = isSingleCharacter ? ((current ?? -1) + 1) : 0
+        let options: String.CompareOptions = [.anchored, .caseInsensitive, .diacriticInsensitive, .widthInsensitive]
+        let authorOnly = grouping == .author && openedGroup == nil
+        for offset in 0..<gridItems.count {
+            let item = gridItems[(start + offset) % gridItems.count]
+            guard displayName(of: item, authorOnly: authorOnly).range(of: needle, options: options) != nil else { continue }
+            selection.select(item.id)
+            return item.id
+        }
+        return nil
+    }
+
+    /// 表紙の下の 1 行目(`SmartBookCell` / `SmartGroupCell` と同じ決め方)。
+    private func displayName(of item: SmartGridItem, authorOnly: Bool) -> String {
+        switch item {
+        case .book(let book):
+            if authorOnly, let author = book.metadata.authors.first, !author.isEmpty { return author }
+            return book.displayTitle
+        case .group(_, let name, _):
+            return name
+        }
+    }
+
+    /// 本を開くときに渡す一覧の並び(`BookSequence`。2026-09-22、利用者の指示)。**いま見えている並び**(絞り込み・検索・
+    /// 並べ替えの後)で、束はその位置に中の本を巻の順に並べて展開する(束の中を開いているときはその中の本だけ)。
+    /// 「次の本へ」「前の本へ」がこの並びをたどる。`book` が並びに無ければ nil(同じフォルダの本をたどる従来の動き)。
+    func sequence(opening book: SmartBook) -> BookSequence? {
+        var paths: [String] = []
+        for item in gridItems {
+            switch item {
+            case .book(let book): paths.append(book.id)
+            case .group(_, _, let books): paths.append(contentsOf: books.map(\.id))
+            }
+        }
+        guard let position = paths.firstIndex(of: book.id) else { return nil }
+        return BookSequence(entries: paths.map { .file(path: $0) }, position: position)
     }
 
     /// 右クリックした枠を相手にする操作の対象。**右クリックした枠が選択に入っていれば選択の全部、入っていなければ
@@ -251,6 +336,12 @@ final class SmartLibraryViewState: ObservableObject {
 
     func resizeCovers(byMagnification magnification: CGFloat) {
         coverSize = Self.coverSizeRange.clamping(coverSize * magnification)
+    }
+
+    /// 利用者が絞り込み・並べ方を変えた(並べ直しと、一覧を先頭へ戻す合図)。
+    private func narrowingChanged() {
+        pendingScrollReset = true
+        setNeedsRecompute()
     }
 
     private func setNeedsRecompute() {
@@ -295,9 +386,16 @@ final class SmartLibraryViewState: ObservableObject {
         } else {
             gridItems = grouping.grouped(visibleBooks)
         }
+        if pendingScrollReset {
+            pendingScrollReset = false
+            scrollResetSerial += 1
+        }
         let order = gridItemIDs
-        // 上の `selection` は絞り込みの写し(ローカル)。グリッドの選択は self の。
-        self.selection.prune(to: order)
+        // 上の `selection` は絞り込みの写し(ローカル)。グリッドの選択は self の。リスト表示では束の中の本の行も選べるので、
+        // その識別子も残す。
+        var known = order
+        for case .group(_, _, let books) in gridItems { known.append(contentsOf: books.map { SmartGridItem.book($0).id }) }
+        self.selection.prune(to: known)
         if let pending = pendingSelectionID {
             pendingSelectionID = nil
             if order.contains(pending) {

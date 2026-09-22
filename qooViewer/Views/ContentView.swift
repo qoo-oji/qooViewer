@@ -1339,6 +1339,17 @@ struct ContentView: View {
                     openWindow: openWindow
                 )
             },
+            // ライブラリのツリーから(要求にコレクションの本の並びが載る。SidePanelView.onOpenRequest)。
+            onOpenRequest: { request in
+                if dismissesOnAction { appState.isSidePanelRevealed = false }
+                appState.open(request: request)
+            },
+            onOpenRequestInNewWindow: { request, destination in
+                BookWindowOpener.open(
+                    request, to: destination, from: appState,
+                    launchCoordinator: launchCoordinator, openWindow: openWindow
+                )
+            },
             bookmarks: appState.currentBookmarks,
             currentPageIndex: appState.currentPageIndex,
             partnerPageIndex: appState.currentPartnerPageIndex,

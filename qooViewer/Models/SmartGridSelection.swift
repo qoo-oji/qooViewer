@@ -43,6 +43,14 @@ nonisolated struct SmartGridSelection: Equatable, Sendable {
         cursor = id
     }
 
+    /// 選択をそのまま置き換える(リスト表示の `NSOutlineView` が選んだもの。起点と位置は `cursor`、無ければどれか 1 つ)。
+    mutating func set(_ ids: Set<String>, cursor: String?) {
+        self.ids = ids
+        let cursor = cursor.flatMap { ids.contains($0) ? $0 : nil } ?? ids.first
+        self.cursor = cursor
+        anchor = cursor
+    }
+
     mutating func clear() {
         ids = []
         anchor = nil

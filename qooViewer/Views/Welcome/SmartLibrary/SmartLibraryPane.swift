@@ -745,6 +745,8 @@ struct SmartLibraryContent: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.revealInFileBrowser) private var revealInFileBrowser
     @Environment(\.locale) private var locale
+    /// 文字の輪郭の太さ(リスト表示の AppKit のセルへ渡す。すりガラス面の決まりごと)。
+    @Environment(\.panelContentOutlineWidth) private var outlineWidth
     @FocusState private var isSearchFocused: Bool
     /// グリッドがキーの行き先か(矢印キー・Return を受ける。選択の枠の色もこれで決まる ―― `SelectionEmphasisBorder`)。
     @FocusState private var isGridFocused: Bool
@@ -782,6 +784,8 @@ struct SmartLibraryContent: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if state.gridItems.isEmpty {
                 emptyMessage
+            } else if state.viewMode == .list {
+                list
             } else {
                 grid
             }
@@ -843,12 +847,20 @@ struct SmartLibraryContent: View {
             WelcomeSearchField(text: $state.searchText, prompt: "Search Books", focus: $isSearchFocused)
 
             HStack(spacing: 6) {
+                // 表紙の大きさはグリッドのときだけ(ファイルブラウザのアイコンの大きさと同じ置き方。左へ伸びるので、出し入れしても
+                // 右のボタンは動かない)。
+                if state.viewMode == .grid {
+                    Slider(value: $state.coverSize, in: SmartLibraryViewState.coverSizeRange)
+                        .frame(width: 110)
+                        .panelControlWell()
+                        .help("Cover Size")
+                }
+                PanelViewModeButton(systemImage: "square.grid.2x2", helpKey: "as Icons",
+                                    isSelected: state.viewMode == .grid) { state.viewMode = .grid }
+                PanelViewModeButton(systemImage: "list.bullet", helpKey: "as List",
+                                    isSelected: state.viewMode == .list) { state.viewMode = .list }
                 groupingMenu
                 sortMenu
-                Slider(value: $state.coverSize, in: SmartLibraryViewState.coverSizeRange)
-                    .frame(width: 110)
-                    .panelControlWell()
-                    .help("Cover Size")
             }
         }
     }
@@ -971,8 +983,9 @@ struct SmartLibraryContent: View {
     /// ■ 選択とキー操作(2026-09-22、利用者の指示。StackNest / ShelfRow の調査から)
     /// - クリックで選ぶ、⌘ で足す/外す、⇧ で範囲、余白のクリックで外す。**ダブルクリックで開く**(本は開き、束は中へ。
     ///   Finder・ファイルブラウザのアイコン表示と同じ。それまでは 1 回のクリックで開いていた)
-    /// - 矢印キー(⇧ で範囲)・Home / End・PageUp / PageDown・⌘A。Return / Enter / ⌘↓ で開く、⌘↑ で束から出る
-    ///   (Esc の「戻る」と同じ)
+    /// - 矢印キー(⇧ で範囲)・Home / End・PageUp / PageDown・⌘A・文字のキーで頭文字の枠へ(type-select)。Return / Enter /
+    ///   ⌘↓ で開く、⌘↑ で束から出る(Esc の「戻る」と同じ)
+    /// - 絞り込み・検索・並べ替えを変えたら先頭へ戻す(`scrollResetSerial`。裏での集め直しでは戻さない)
     /// - **キーは動かないグリッドの外枠で受ける**(ShelfRow が踏んだ罠: 使い回されるセルに焦点を持たせると、セルが
     ///   手放された時点でキーの行き先が消え、矢印キーを押し続けると止まる)。外枠は `.id(gridID)` の外なので作り直されない
     /// - スクロールは選択から一方向だけ(`reveal`)。見えていれば動かさず、はみ出したぶんだけ動かす
@@ -1053,6 +1066,11 @@ struct SmartLibraryContent: View {
         .onChange(of: state.revealRequest) { _, request in
             if let request { reveal(request.id) }
         }
+        // 絞り込み・検索・並べ替え・棚・束ね方を変えたら先頭から(`SmartLibraryViewState.scrollResetSerial`)。
+        .onChange(of: state.scrollResetSerial) { _, _ in
+            pendingRevealID = nil
+            scrollPosition.scrollTo(edge: .top)
+        }
         .onGeometryChange(for: CGSize.self) { proxy in
             proxy.size
         } action: { size in
@@ -1125,7 +1143,15 @@ struct SmartLibraryContent: View {
         case .pageUp: target = state.jumpSelection(.pageUp(pageStep(columns: columns)), extending: extending)
         case .pageDown: target = state.jumpSelection(.pageDown(pageStep(columns: columns)), extending: extending)
         default:
-            return .ignored
+            // 文字のキーは type-select(`SmartLibraryViewState.typeSelect`)。制御文字・矢印などの機能キー(U+F700〜)は受けない。
+            let characters = press.characters
+            guard !characters.isEmpty,
+                  characters.unicodeScalars.allSatisfy({ scalar in
+                      !CharacterSet.controlCharacters.contains(scalar) && !(0xF700...0xF8FF).contains(scalar.value)
+                          && scalar.value != 0x7F
+                  })
+            else { return .ignored }
+            target = state.typeSelect(characters)
         }
         if let target { reveal(target) }
         return .handled
@@ -1156,58 +1182,135 @@ struct SmartLibraryContent: View {
     /// 1 冊を相手にする操作(開く・ファイルブラウザで表示・メタデータの編集)は、複数が相手のあいだ淡色にする
     /// (コレクションの中のカバーと同じ。押せてしまうと、どの 1 冊に効くのか画面から読めない)。
     /// 「情報を見る」はファイルブラウザの右クリックと同じ Finder の情報ウインドウ(2026-09-22、利用者の指示)。
+    /// リスト表示の右クリック(`listMenu`)も同じ項目・同じ動き。
     @ViewBuilder
     private func contextMenu(for item: SmartGridItem) -> some View {
-        let targets = state.contextTargets(for: item).compactMap { target -> SmartBook? in
-            if case .book(let book) = target { return book }
-            return nil
-        }
+        let targets = Self.books(in: state.contextTargets(for: item))
         let isSingle = targets.count == 1
         if let book = targets.first {
             BookOpenContextMenuItems(
                 onOpen: { open(book) },
-                onOpenIn: { destination in
-                    withResolvedURL(for: book) { url in
-                        BookWindowOpener.open(
-                            BookOpenRequest(url), to: destination, from: appState,
-                            launchCoordinator: launchCoordinator, openWindow: openWindow
-                        )
-                    }
-                }
+                onOpenIn: { openIn(book, $0) }
             )
             .disabled(!isSingle)
             Divider()
-            Button("Show in Finder") {
-                withResolvedURLs(for: targets) { urls in
-                    if urls.count == 1, let url = urls.first {
-                        FinderReveal.reveal(url)
-                    } else {
-                        NSWorkspace.shared.activateFileViewerSelecting(urls)
-                    }
-                }
-            }
+            Button("Show in Finder") { showInFinder(targets) }
             if revealInFileBrowser.isFeatureEnabled {
-                Button("Show in File Browser") {
-                    withResolvedURL(for: book) { revealInFileBrowser($0) }
-                }
-                .disabled(!isSingle)
+                Button("Show in File Browser") { showInFileBrowser(book) }
+                    .disabled(!isSingle)
             }
-            Button("Get Info") {
-                withResolvedURLs(for: targets) { FinderReveal.showInfo($0) }
-            }
+            Button("Get Info") { getInfo(targets) }
             if allowsEditing {
                 Divider()
-                Button("Edit Metadata…") {
-                    withResolvedURL(for: book) { url in
-                        metadataTarget = SmartMetadataTarget(entry: FileBrowserEntry(
-                            url: url, displayName: book.fileName, isDirectory: book.kind == .folder, isPackage: false,
-                            isSymbolicLink: false, isVolume: false, fileSize: book.fileSize, typeDescription: nil,
-                            creationDate: book.creationDate, modificationDate: book.modificationDate))
-                    }
-                }
-                .disabled(!isSingle)
+                Button("Edit Metadata…") { editMetadata(book) }
+                    .disabled(!isSingle)
             }
         }
+    }
+
+    /// リスト表示の右クリック(AppKit のメニュー。中身はグリッドの `contextMenu` / 束の右クリックと同じ)。
+    private func listMenu(clicked: SmartGridItem, targets: [SmartGridItem]) -> [SmartLibraryListView.MenuItem] {
+        func title(_ key: String.LocalizationValue) -> String { String(localized: key, language: locale) }
+        typealias Item = SmartLibraryListView.MenuItem
+        if case .group(let grouping, let name, let books) = clicked {
+            var items = [Item(title: title(grouping == .author ? "Show Books by This Author" : "Show Books in Series"),
+                              action: { state.openedGroup = name })]
+            if grouping == .series, let first = books.first {
+                items.append(Item(title: title("Open First Volume"), action: { open(first) }))
+            }
+            return items
+        }
+        let books = Self.books(in: targets)
+        guard let book = books.first else { return [] }
+        let isSingle = books.count == 1
+        var items: [Item] = [
+            Item(title: title("Open"), isEnabled: isSingle, action: { open(book) }),
+            .separator,
+            Item(title: title("Open in New Normal Window"), isEnabled: isSingle, action: { openIn(book, .newNormalWindow) }),
+            Item(title: title("Open in New Private Window"), isEnabled: isSingle, action: { openIn(book, .newPrivateWindow) }),
+            Item(title: title("Open in New Tab"), isEnabled: isSingle, action: { openIn(book, .newTab) }),
+            .separator,
+            Item(title: title("Show in Finder"), action: { showInFinder(books) }),
+        ]
+        if revealInFileBrowser.isFeatureEnabled {
+            items.append(Item(title: title("Show in File Browser"), isEnabled: isSingle, action: { showInFileBrowser(book) }))
+        }
+        items.append(Item(title: title("Get Info"), action: { getInfo(books) }))
+        if allowsEditing {
+            items.append(.separator)
+            items.append(Item(title: title("Edit Metadata…"), isEnabled: isSingle, action: { editMetadata(book) }))
+        }
+        return items
+    }
+
+    private static func books(in items: [SmartGridItem]) -> [SmartBook] {
+        items.compactMap { item in
+            if case .book(let book) = item { return book }
+            return nil
+        }
+    }
+
+    private func openIn(_ book: SmartBook, _ destination: BookOpenDestination) {
+        let sequence = state.sequence(opening: book)
+        withResolvedURL(for: book) { url in
+            BookWindowOpener.open(
+                BookOpenRequest(url, sequence: sequence), to: destination, from: appState,
+                launchCoordinator: launchCoordinator, openWindow: openWindow
+            )
+        }
+    }
+
+    private func showInFinder(_ books: [SmartBook]) {
+        withResolvedURLs(for: books) { urls in
+            if urls.count == 1, let url = urls.first {
+                FinderReveal.reveal(url)
+            } else {
+                NSWorkspace.shared.activateFileViewerSelecting(urls)
+            }
+        }
+    }
+
+    private func showInFileBrowser(_ book: SmartBook) {
+        withResolvedURL(for: book) { revealInFileBrowser($0) }
+    }
+
+    private func getInfo(_ books: [SmartBook]) {
+        withResolvedURLs(for: books) { FinderReveal.showInfo($0) }
+    }
+
+    private func editMetadata(_ book: SmartBook) {
+        withResolvedURL(for: book) { url in
+            metadataTarget = SmartMetadataTarget(entry: FileBrowserEntry(
+                url: url, displayName: book.fileName, isDirectory: book.kind == .folder, isPackage: false,
+                isSymbolicLink: false, isVolume: false, fileSize: book.fileSize, typeDescription: nil,
+                creationDate: book.creationDate, modificationDate: book.modificationDate))
+        }
+    }
+
+    /// リスト表示(`SmartLibraryListView`。束は疑似的なフォルダ)。選択・並べ替え・束の出入りはグリッドと同じ状態を使う。
+    private var list: some View {
+        SmartLibraryListView(
+            items: state.gridItems,
+            selection: state.selection,
+            sortKey: state.sortKey,
+            sortAscending: state.sortAscending,
+            revealRequest: state.revealRequest,
+            scrollResetSerial: state.scrollResetSerial,
+            outlineWidth: outlineWidth,
+            locale: locale,
+            onSelectionChange: { [state] ids, cursor in state.setSelection(ids, cursor: cursor) },
+            onSort: { [state] key, ascending in
+                state.sortKey = key
+                state.sortAscending = ascending
+            },
+            onActivate: { item in activate(item) },
+            onLeaveGroup: { [state] in
+                guard state.openedGroup != nil else { return false }
+                state.openedGroup = nil
+                return true
+            },
+            menu: { clicked, targets in listMenu(clicked: clicked, targets: targets) }
+        )
     }
 
     /// 本の実体の URL(パスそのもの。FolderAccessStore が許可した対象フォルダの中)を確かめてから `body` を呼ぶ。
@@ -1246,7 +1349,9 @@ struct SmartLibraryContent: View {
     }
 
     private func open(_ book: SmartBook) {
-        withResolvedURL(for: book) { appState.open(url: $0) }
+        // 見えている並びを渡す ―― 「次の本へ」「前の本へ」がこの並びをたどる(BookSequence)。
+        let sequence = state.sequence(opening: book)
+        withResolvedURL(for: book) { appState.open(request: BookOpenRequest($0, sequence: sequence)) }
     }
 }
 

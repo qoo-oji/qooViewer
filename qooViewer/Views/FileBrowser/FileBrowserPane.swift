@@ -395,20 +395,36 @@ struct FileBrowserMessage: View {
     }
 }
 
-/// 表示切替の1つ(リスト / アイコン)。選択中の見た目は本棚の編集トグル(WelcomeEditToggle)と同じ。
+/// 表示切替の1つ(リスト / アイコン)。見た目は `PanelViewModeButton`。
 private struct FileBrowserViewModeButton: View {
     let mode: FileBrowserViewMode
     @Binding var selection: FileBrowserViewMode
+
+    var body: some View {
+        PanelViewModeButton(
+            systemImage: mode == .list ? "list.bullet" : "square.grid.2x2",
+            helpKey: mode == .list ? "as List" : "as Icons",
+            isSelected: selection == mode
+        ) {
+            selection = mode
+        }
+    }
+}
+
+/// 表示切替のボタン 1 つ(ファイルブラウザ・スマートライブラリの右上。2026-09-22 にスマートライブラリと共有するため切り出した)。
+/// 選択中の見た目は本棚の編集トグル(WelcomeEditToggle)と同じ。
+struct PanelViewModeButton: View {
+    let systemImage: String
+    let helpKey: LocalizedStringKey
+    let isSelected: Bool
+    let action: () -> Void
     /// 選択中の地の色(ウインドウが後ろなら灰色。`SelectionEmphasis`)。
     @Environment(\.appearsActive) private var appearsActive
 
     var body: some View {
-        let isSelected = selection == mode
         let shape = RoundedRectangle(cornerRadius: PanelIconButtonLabel.cornerRadius, style: .continuous)
-        Button {
-            selection = mode
-        } label: {
-            Image(systemName: mode == .list ? "list.bullet" : "square.grid.2x2")
+        Button(action: action) {
+            Image(systemName: systemImage)
                 .font(.system(size: 15, weight: .medium))
                 // 選ばれていないときは地がほぼ無いので輪郭を掛ける。選択中は不透明な地(アクセント色 / 後ろでは灰色)。
                 .panelOutlinedContent(isEnabled: !isSelected)
@@ -419,7 +435,7 @@ private struct FileBrowserViewModeButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(mode == .list ? "as List" : "as Icons")
+        .help(helpKey)
     }
 }
 

@@ -514,6 +514,11 @@ nonisolated enum SmartGrouping: String, Codable, CaseIterable, Hashable, Sendabl
 }
 
 /// 右のグリッドに並べる 1 枠: 1 冊か、束(シリーズ・著者)。
+/// スマートライブラリの右側の見せ方(2026-09-22)。
+nonisolated enum SmartLibraryViewMode: String, CaseIterable, Sendable {
+    case grid, list
+}
+
 nonisolated enum SmartGridItem: Identifiable, Hashable, Sendable {
     case book(SmartBook)
     /// 何で束ねたか・束の名前(シリーズ名 / 著者名)・その中の本(シリーズ → 巻 の順)。

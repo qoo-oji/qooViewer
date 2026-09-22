@@ -67,10 +67,15 @@ nonisolated struct BookOpenRequest: Codable, Hashable, Sendable {
     /// (MangaBook.isTransient)の役目で、そちらとは別の話。
     var recordsInHistory = true
 
+    /// 本を開いた一覧の並び(ライブラリのコレクション・スマートライブラリから開いたときだけ。`BookSequence`)。
+    /// 「次の本へ」「前の本へ」がこの並びをたどる。nil なら同じフォルダの本をたどる(従来どおり)。
+    var sequence: BookSequence?
+
     /// 従来どおり、1つのURLをそのまま開く。
-    init(_ url: URL, recordsInHistory: Bool = true) {
+    init(_ url: URL, recordsInHistory: Bool = true, sequence: BookSequence? = nil) {
         self.urls = [url]
         self.recordsInHistory = recordsInHistory
+        self.sequence = sequence
     }
 
     /// Finder / Dock / ドラッグ&ドロップ / NSOpenPanel から渡された複数のURLを分類し、

@@ -279,7 +279,8 @@ final class FileBrowserTableHeaderView: NSTableHeaderView {
 /// 三角はAppKitが作るボタン(`disclosureButtonIdentifier`)で、灰色の線画。面を文字色で塗ると
 /// (ダーク+白100%)**選ばれていない行の三角が跡形もなく消えた**(実測 2026-09-13)。作られた
 /// ボタンの絵を、反対色の輪郭を焼き込んだ絵に差し替える。
-final class FileBrowserOutlineView: NSOutlineView {
+/// スマートライブラリのリスト表示(`SmartLibraryOutlineView`)も、この三角と当たり判定を受け継ぐ(2026-09-22)。
+class FileBrowserOutlineView: NSOutlineView {
     var outlineWidth: CGFloat = 0
     /// 出し口が移動を許すかを尋ねる相手(読み取り専用モード。`fileBrowserDragSourceMask`)。
     weak var editResponder: (any FileBrowserEditResponding)?
