@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// 任意の色を指定するためのダイアログ。
@@ -144,9 +145,9 @@ struct CustomColorPickerSheet: View {
     private var adjustmentSection: some View {
         HStack(alignment: .top, spacing: 20) {
             VStack(spacing: 10) {
-                channelRow("Red", value: $workingColor.red, tint: .red)
-                channelRow("Green", value: $workingColor.green, tint: .green)
-                channelRow("Blue", value: $workingColor.blue, tint: .blue)
+                channelRow("Red", value: $workingColor.red, tint: .systemRed)
+                channelRow("Green", value: $workingColor.green, tint: .systemGreen)
+                channelRow("Blue", value: $workingColor.blue, tint: .systemBlue)
             }
             .frame(maxWidth: .infinity)
 
@@ -159,23 +160,26 @@ struct CustomColorPickerSheet: View {
     private func channelRow(
         _ title: LocalizedStringKey,
         value: Binding<Int>,
-        tint: Color
+        tint: NSColor
     ) -> some View {
         HStack(spacing: 10) {
             Text(title)
                 .frame(width: 44, alignment: .leading)
                 .lineLimit(1)
 
-            Slider(
+            // 目盛りは`TickMarkSlider`が間引く。SwiftUIの`Slider`は刻みの数だけ目盛りを描くため、
+            // 0〜255を1刻みで動かすこのスライダーでは目盛りが256本になり、潰れて1本の直線に
+            // 見えていた(ユーザー報告)。**1刻みで動かせること自体は譲れない** ―― 色は
+            // 1だけずらしたいことがあるので、目盛りに合わせて刻みを粗くするわけにはいかない。
+            TickMarkSlider(
                 value: Binding(
                     get: { Double(value.wrappedValue) },
                     set: { value.wrappedValue = Int($0.rounded()) }
                 ),
                 in: 0...255,
-                step: 1
+                step: 1,
+                trackFillColor: tint
             )
-            .tint(tint)
-            .labelsHidden()
             .accessibilityLabel(Text(title))
             .accessibilityValue(Text(verbatim: "\(value.wrappedValue)"))
 
