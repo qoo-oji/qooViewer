@@ -184,6 +184,31 @@ struct MetadataWorkspaceTests {
         #expect(workspace.row(second)?.metadata.volumeSort == 3)
     }
 
+    @Test("1 冊ぶんのシートで巻数(並べ替え用)を変えると確定し、無しにすると外れ、巻の表記だけを変えると外れる(2026-09-22)")
+    func sheetEditsOfTheSortVolume() {
+        let opened = BookMetadataValues(title: "月の庭 番外編", authors: ["架空工房"], series: "月の庭", volume: "番外編", volumeSort: nil)
+        var changed = opened
+        changed.volumeSort = 1.5
+        let confirmed = MetadataParsing.edits(changing: opened, to: changed, in: .none)
+        #expect(confirmed.fields.volumeSort == 1.5)
+        #expect(confirmed.fields.values.isEmpty)
+
+        var cleared = changed
+        cleared.volumeSort = nil
+        #expect(MetadataParsing.edits(changing: changed, to: cleared, in: confirmed).fields.volumeSort == nil)
+
+        var renamed = changed
+        renamed.volume = "外伝"
+        renamed.volumeSort = nil
+        let afterVolume = MetadataParsing.edits(changing: changed, to: renamed, in: confirmed)
+        #expect(afterVolume == .series(name: "月の庭", volume: "外伝"))
+
+        // 数を変えずにほかの欄だけを変えたら、確定した数はそのまま。
+        var retitled = changed
+        retitled.info = "架空の付記"
+        #expect(MetadataParsing.edits(changing: changed, to: retitled, in: confirmed).fields.volumeSort == 1.5)
+    }
+
     @Test("入れた巻数(並べ替え用)は全角でも数として読み、数でなければ受け付けない")
     func volumeSortNumberParsing() {
         #expect(MetadataWorkspace.volumeSortNumber("2.5") == 2.5)

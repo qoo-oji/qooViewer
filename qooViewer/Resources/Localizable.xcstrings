@@ -11228,6 +11228,23 @@
         }
       }
     },
+    "Empty goes back to the number read from the volume" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Empty goes back to the number read from the volume"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "空にすると巻数(表記)から読んだ数に戻ります"
+          }
+        }
+      }
+    },
     "Enable File Browser" : {
       "localizations" : {
         "en" : {
@@ -11447,6 +11464,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "名前を入力してください。"
+          }
+        }
+      }
+    },
+    "Enter a number for the volume for sorting." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter a number for the volume for sorting."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "並べ替え用の巻数には数を入れてください。"
           }
         }
       }
@@ -13979,6 +14013,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "情報を見る"
+          }
+        }
+      }
+    },
+    "Give the book a series name and a volume first" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Give the book a series name and a volume first"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "先にシリーズ名と巻数を決めてください"
           }
         }
       }

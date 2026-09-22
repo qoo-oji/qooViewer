@@ -655,6 +655,9 @@ final class MetadataWorkspace {
         return number
     }
 
+    /// 巻数(並べ替え用)を欄に出す文字(一覧の列と同じ。整数なら小数点を付けない)。
+    nonisolated static func volumeSortText(_ value: Double) -> String { QMBookMetadata.volumeSortText(value) }
+
     /// 巻の表記を変えるときの直した欄: 確定した巻数(並べ替え用)は外す(新しい表記と食い違った数を残さない。
     /// qooMeta の `BulkEdit` と同じ)。
     private static func fieldsForNewVolume(_ confirmation: Confirmation) -> ConfirmedFields {

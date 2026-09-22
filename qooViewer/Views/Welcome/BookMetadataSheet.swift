@@ -80,6 +80,9 @@ struct BookMetadataSheet: View {
     @State private var authorsText = ""
     /// 開いたときの巻の表記(手で変えたら、qooMeta が導いた並べ替え用の数を捨てる)。
     @State private var openedVolume = ""
+    /// 巻数(並べ替え用)の欄の文字と、開いたときのその文字(2026-09-22、利用者の要望でシートでも直せるようにした)。
+    @State private var volumeSortText = ""
+    @State private var openedVolumeSortText = ""
     /// 開いたときの値(変えた欄だけを「直した欄」にする)。
     @State private var openedValues = BookMetadataValues()
     /// ロックしている本か(欄を変えさせない。利用者の指示 2026-09-22「ロックされたら DB を変更不可」)。
@@ -222,7 +225,7 @@ struct BookMetadataSheet: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 // ロックした本は変えない(メタデータの編集ウインドウの鍵。2026-09-21)。
-                .disabled(rulesStore.isExcluded(bookID: bookID) || isLocked)
+                .disabled(rulesStore.isExcluded(bookID: bookID) || isLocked || isVolumeSortInvalid)
             }
         }
         .padding(20)
@@ -243,6 +246,8 @@ struct BookMetadataSheet: View {
             isLocked = row?.isLocked == true
             authorsText = draft.authors.joined(separator: "、")
             openedVolume = draft.volume
+            volumeSortText = draft.volumeSort.map(MetadataWorkspace.volumeSortText) ?? ""
+            openedVolumeSortText = volumeSortText
             // カバーの面を出さない版では、カバーの指定の口も作らない。
             guard item != nil || fileBrowserEntry != nil, coverController == nil else { return }
             coverController = CoverOverrideController(
@@ -271,10 +276,52 @@ struct BookMetadataSheet: View {
             row("Event", text: $draft.event)
             row("Info", text: $draft.info)
             row("Series", text: $draft.series)
-            row("Volume", text: $draft.volume)
+            // 巻はシリーズの中の番号なので、シリーズ名の無い間は入れさせない(メタデータの編集ウインドウの列と同じ。
+            // 利用者の指示 2026-09-22: シリーズの無い本の巻は概念としておかしい)。以前に登録した「シリーズの無い巻」は、
+            // シリーズを空にしない限り消さずに残す。
+            GridRow {
+                Text("Volume")
+                    .gridColumnAlignment(.trailing)
+                TextField("", text: $draft.volume)
+                    .accessibilityLabel(Text("Volume"))
+                    .disabled(!hasSeries)
+                    .help(hasSeries ? "" : "Give the book a series name first".ui)
+            }
+            // 巻数(並べ替え用)は、シリーズ名と巻の表記のある本だけ(メタデータの編集ウインドウの列と同じ条件。表記の無い本の
+            // 数は保存しない ―― `BookMetadataValues.trimmed`)。空にすると、巻の表記から読んだ数に戻る。
+            GridRow {
+                Text("Volume (for sorting)")
+                    .gridColumnAlignment(.trailing)
+                TextField("", text: $volumeSortText, prompt: Text(verbatim: "1.5"))
+                    .accessibilityLabel(Text("Volume (for sorting)"))
+                    .disabled(!canEditVolumeSort)
+                    .help(canEditVolumeSort ? "Empty goes back to the number read from the volume".ui
+                          : "Give the book a series name and a volume first".ui)
+            }
+            if isVolumeSortInvalid {
+                GridRow {
+                    Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                    Text("Enter a number for the volume for sorting.")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
         }
         .textFieldStyle(.roundedBorder)
         .disabled(isLocked)
+    }
+
+    private var hasSeries: Bool { !draft.series.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    private var canEditVolumeSort: Bool {
+        hasSeries && !draft.volume.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// 直した巻数(並べ替え用)が数に読めない(保存させない)。
+    private var isVolumeSortInvalid: Bool {
+        canEditVolumeSort && volumeSortText != openedVolumeSortText
+            && !volumeSortText.trimmingCharacters(in: .whitespaces).isEmpty
+            && MetadataWorkspace.volumeSortNumber(volumeSortText) == nil
     }
 
     private func row(_ label: LocalizedStringKey, text: Binding<String>) -> some View {
@@ -317,8 +364,19 @@ struct BookMetadataSheet: View {
         guard metadataStore.metadata(forBookID: bookID)?.isLocked != true else { return }
         var values = draft
         values.authors = authorsText.split(whereSeparator: { "、,，".contains($0) }).map(String.init)
-        // 巻の表記を手で変えたら、qooMeta が導いた並べ替え用の数は捨てる(表記から数として読み直される)。
-        if values.volume.trimmingCharacters(in: .whitespaces) != openedVolume { values.volumeSort = nil }
+        // シリーズ名を空にしたら、巻も外す(シリーズの無い巻は持たせない。欄は入れられなくなっているが値は残っているので)。
+        if values.series.trimmingCharacters(in: .whitespaces).isEmpty,
+           !openedValues.series.trimmingCharacters(in: .whitespaces).isEmpty {
+            values.volume = ""
+            values.volumeSort = nil
+        }
+        // 巻数(並べ替え用)を手で変えたら、その数(空なら無し ―― 表記から数として読み直される)。変えずに巻の表記だけを
+        // 変えたら、qooMeta が導いた並べ替え用の数は捨てる(表記と食い違った数を残さない)。
+        if volumeSortText != openedVolumeSortText, canEditVolumeSort {
+            values.volumeSort = MetadataWorkspace.volumeSortNumber(volumeSortText)
+        } else if values.volume.trimmingCharacters(in: .whitespaces) != openedVolume {
+            values.volumeSort = nil
+        }
         values = values.trimmed
         let current = metadataStore.metadata(forBookID: bookID)?.rowState ?? BookMetadataRowState(isLocked: false)
         var state = current
