@@ -1466,20 +1466,13 @@ private struct SmartGroupCell: View {
     var onImageRetained: (CGImage) -> Void = { _ in }
     @EnvironmentObject private var appearance: AppearanceSettings
 
-    @Environment(\.locale) private var locale
-
-    /// 名前の下の 2 行目。シリーズの束は著者、著者の束はシリーズ。
+    /// 名前の下の 2 行目。シリーズの束は著者。**著者の束は何も出さない**(2026-09-22、利用者の指示: 著者でまとめたら、
+    /// 著者名の下に作品名は出さない。以前は束の本が 1 つのシリーズならその名前、複数なら「N シリーズ」を出していた ――
+    /// 1 冊だけの著者の本も著者名だけなので、束によって作品名が出たり出なかったりした)。
     private var subtitle: String? {
         switch grouping {
         case .series: return author
-        case .author:
-            let series = Set(books.compactMap { SmartGrouping.series.key(of: $0) })
-            if series.count == 1 { return series.first }
-            if series.count > 1 {
-                return String(format: String(localized: "%lld series", language: locale), series.count)
-            }
-            return nil
-        case .none: return nil
+        case .author, .none: return nil
         }
     }
 
