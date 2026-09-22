@@ -426,7 +426,11 @@ final class AppStores: ObservableObject {
         let allowed = ExternalMoveSweeper.excludingOpenBooks(relocations, openBookIDs: ViewerViewModel.openBookIDs)
         let fresh = allowed.filter { outsideMoveAttempted.insert($0.from.path).inserted }
         guard !fresh.isEmpty else { return nil }
-        return bookRecordRelocator.apply(FileSystemChange(relocations: fresh))
+        let change = FileSystemChange(relocations: fresh)
+        // スマートライブラリの前の走査結果も捨てる(古いパスのまま組み直して、付け替えた本の古いパスへ行を書き直さないように。
+        // 2026-09-22 の監査)。
+        smartLibraryCatalog.handleFileSystemChange(change)
+        return bookRecordRelocator.apply(change)
     }
 
     /// 起動時に、ほかに覚えている理由の無いファイル名の読みだけのメタデータの行を消す(`BookMetadataStore.pruneParsedOnlyRows`)。
@@ -438,7 +442,15 @@ final class AppStores: ObservableObject {
             favoritesStore: favoritesStore, collectionStore: collectionStore,
             modelContext: QooViewerApp.modelContainer.mainContext
         ), includingMetadata: false)
-        metadataStore.pruneParsedOnlyRows(keeping: known, keepingFolders: smartLibraryStore.folders.map(\.path))
+        let folders = smartLibraryStore.folders.map(\.path)
+        // 対象フォルダの中は、スマートライブラリが最後に探した一覧に無い本の行も消す(探しきれた一覧があり、どの対象フォルダの
+        // ボリュームも繋がっているときだけ ―― 繋がっていなければ、そこに無いのではなく見えないだけ)。
+        let mounts = MountTable.current()
+        let folderBooks = SmartLibraryCatalog.defaultCacheURL.flatMap { url -> Set<String>? in
+            guard !folders.contains(where: { mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: $0)) }) else { return nil }
+            return SmartLibraryCatalog.savedBookIDs(cacheURL: url, roots: folders)
+        }
+        metadataStore.pruneParsedOnlyRows(keeping: known, keepingFolders: folders, folderBooks: folderBooks)
     }
 
     /// ロックしていないメタデータの行を、いまの規則で読み直す(前の読み直しは取り消す)。

@@ -62,6 +62,8 @@ final class SmartLibraryCatalog: ObservableObject {
     private var index: ProposalIndex?
     private var indexRulesHash: String?
     private var indexedInputs: [String: BookInput] = [:]
+    /// `indexedInputs` のうち、ルールセットを利用者が選んでいた本(自動に戻されたら、自動の選択を選び直す。`inputs`)。
+    private var indexedOverrides: Set<String> = []
     private var proposalsByID: [String: BookProposal] = [:]
     /// 保存した前回の一覧を読んでいる最中か(2 度読まない)。
     private var isRestoringCache = false
@@ -153,6 +155,7 @@ final class SmartLibraryCatalog: ObservableObject {
         index = nil
         indexRulesHash = nil
         indexedInputs = [:]
+        indexedOverrides = []
         proposalsByID = [:]
         lastRegistered = [:]
         lastSavedCache = nil
@@ -263,9 +266,11 @@ final class SmartLibraryCatalog: ObservableObject {
             // 2. qooMeta へ渡す本(規則が同じなら、前に渡した本の名前とルールセットを使い回す)。
             let sameRules = self.indexRulesHash == rules.contentHash
             let previousInputs = sameRules ? self.indexedInputs : [:]
+            let previousOverrides = sameRules ? self.indexedOverrides : []
             let paths = scan.books.map(\.path)
             let inputs = await Task.detached(priority: .userInitiated) {
-                Self.inputs(for: paths, records: snapshot.records, reusing: previousInputs, rules: rules)
+                Self.inputs(for: paths, records: snapshot.records, reusing: previousInputs,
+                            previouslyOverridden: previousOverrides, rules: rules)
             }.value
             guard !Task.isCancelled, generation == self.generation else { return }
             // 3. 変わった本だけ読む(索引が無い・規則が変わったら作り直して並列に読む)。
@@ -297,6 +302,7 @@ final class SmartLibraryCatalog: ObservableObject {
             guard self.isFeatureEnabled else { return }
             if let newIndex { self.index = newIndex }
             self.indexedInputs = inputs.byID
+            self.indexedOverrides = Set(inputs.byID.keys.filter { snapshot.records[$0]?.ruleSet != nil })
             self.indexRulesHash = rules.contentHash
             self.proposalsByID = proposals
             // 一覧を出すのは、いちばん新しい集め直しだけ。
@@ -368,12 +374,14 @@ final class SmartLibraryCatalog: ObservableObject {
     /// 本ごとの入力。ロックした本は DB の値をすべて確定した内容として渡し(錨として、ほかの本のシリーズも決める)、
     /// ロックしていない本は直した欄とルールセットを渡す(`BookMetadataRecord.confirmation`)。
     /// 名前とルールセットの自動の選択は、`reusing` に同じ本があればそれを使う(規則が同じ間だけ渡される)。
-    /// (利用者が選んだルールセットを自動に戻した本は、使い回すと前のルールセットのまま ―― 規則が変わるまで。まれなので許す。)
+    /// 利用者が選んだルールセットを自動に戻した本(`previouslyOverridden` にあり、今は選んでいない)は、使い回さずに自動の選択を
+    /// 選び直す(2026-09-22 の監査。以前は前のルールセットのまま読み、その値を DB へ書いた ―― 規則が変わるか起動し直すまで)。
     nonisolated static func inputs(for paths: [String], records: [String: BookMetadataRecord],
-                                   reusing previous: [String: BookInput], rules: CompiledRules) -> Inputs {
+                                   reusing previous: [String: BookInput], previouslyOverridden: Set<String> = [],
+                                   rules: CompiledRules) -> Inputs {
         let ids = Set(paths).sorted()
         // 新しい本の名前とルールセットの自動の選択は並列に(2,439 冊を順に選ぶと 0.7 秒かかった。どちらも本ごとに独立した計算)。
-        let fresh = ids.filter { previous[$0] == nil }
+        let fresh = ids.filter { previous[$0] == nil || (previouslyOverridden.contains($0) && records[$0]?.ruleSet == nil) }
         var readings = [(name: String, preset: String?)](repeating: ("", nil), count: fresh.count)
         let autoRules = MetadataRulesStore.autoPresetRules(of: rules)
         readings.withUnsafeMutableBufferPointer { buffer in
@@ -390,7 +398,7 @@ final class SmartLibraryCatalog: ObservableObject {
             let record = records[id]
             let confirmation = record?.confirmation ?? .none
             let input: BookInput
-            if let old = previous[id] {
+            if let old = previous[id], freshByID[id] == nil {
                 input = BookInput(id: id, name: old.name, preset: record?.ruleSet ?? old.preset, confirmation: confirmation)
             } else {
                 let reading = freshByID[id] ?? (MetadataRulesStore.parsingName(forBookID: id), nil)
@@ -421,6 +429,16 @@ final class SmartLibraryCatalog: ObservableObject {
 
         /// 形を変えたら上げる(古い形は読まずに捨てる)。2: 表紙の鍵を足した。
         static let currentVersion = 2
+    }
+
+    /// 保存した前回の一覧の本(bookID)。対象フォルダが同じで、探しきれていて(打ち切っていない)、読めたときだけ。
+    /// 起動時の刈り込み(AppStores.pruneParsedOnlyMetadata)が、対象フォルダの中の消えた本の読みだけの行を見分けるのに使う。
+    nonisolated static func savedBookIDs(cacheURL: URL, roots: [String]) -> Set<String>? {
+        guard let data = try? Data(contentsOf: cacheURL),
+              let cached = try? JSONDecoder().decode(CachedCatalog.self, from: data),
+              cached.version == CachedCatalog.currentVersion, cached.roots == roots, !cached.isTruncated
+        else { return nil }
+        return Set(cached.books.map(\.id))
     }
 
     /// まだ何も並んでいなければ、保存した前回の一覧を読んで先に出す。対象フォルダが変わっていれば使わない。

@@ -416,10 +416,15 @@ final class BookMetadataStore: ObservableObject {
     /// いても残す)の中にも無い本の行だけ。
     /// - Returns: 消した行の数。
     @discardableResult
-    func pruneParsedOnlyRows(keeping known: Set<String>, keepingFolders folders: [String]) -> Int {
+    /// - Parameter folderBooks: 対象フォルダの中に今ある本(スマートライブラリが最後に探した一覧)。渡したときは、対象フォルダの中でも
+    ///   ここに無い本の行は消す(2026-09-22 の監査。以前は対象フォルダの中の行を無条件に残し、Finder で消した・名前を変えた本の
+    ///   古いパスの行がメタデータの編集ウインドウに灰色で残り続けた)。nil(一覧が無い・探しきれていない)なら今までどおり残す。
+    func pruneParsedOnlyRows(keeping known: Set<String>, keepingFolders folders: [String],
+                             folderBooks: Set<String>? = nil) -> Int {
         let targets = metadataByBookID().values.filter { row in
-            row.isParsedOnly && !known.contains(row.bookID)
-                && !folders.contains { MountTable.path(row.bookID, isAtOrUnder: $0) }
+            guard row.isParsedOnly, !known.contains(row.bookID) else { return false }
+            guard folders.contains(where: { MountTable.path(row.bookID, isAtOrUnder: $0) }) else { return true }
+            return folderBooks.map { !$0.contains(row.bookID) } ?? false
         }
         guard !targets.isEmpty else { return 0 }
         for row in targets {

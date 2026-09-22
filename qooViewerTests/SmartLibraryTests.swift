@@ -481,6 +481,20 @@ struct SmartLibraryTests {
 
     // MARK: 速さ(前回の一覧・変わった本だけ読む)
 
+    @Test("選んでいたルールセットを自動に戻した本は、前の入力を使い回さずに自動の選択を選び直す(2026-09-22 の監査)")
+    func resettingARuleSetToAutomaticRechoosesIt() {
+        let rules = CompiledRules.builtin
+        let id = "/棚/[架空工房] 月の庭 1.zip"
+        let automatic = SmartLibraryCatalog.inputs(for: [id], records: [:], reusing: [:], rules: rules)
+        let chosen = SmartLibraryCatalog.inputs(
+            for: [id], records: [id: BookMetadataRecord(values: BookMetadataValues(), isLocked: false, ruleSet: "選んだ規則")],
+            reusing: automatic.byID, rules: rules)
+        #expect(chosen.byID[id]?.preset == "選んだ規則")
+        let reset = SmartLibraryCatalog.inputs(for: [id], records: [:], reusing: chosen.byID,
+                                               previouslyOverridden: [id], rules: rules)
+        #expect(reset.byID[id]?.preset == automatic.byID[id]?.preset)
+    }
+
     @Test("qooMeta へ渡す本の差: 足した・登録を変えた本は upsert、無くなった本は remove、同じ本は渡さない")
     func changesOnlyCarryWhatChanged() {
         let rules = CompiledRules.builtin

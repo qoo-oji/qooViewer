@@ -277,10 +277,29 @@ final class MetadataEditorModel {
                 }
                 var changes: [String: BookMetadataRecord?] = [:]
                 for id in ids { changes[id] = .some(self.metadataStore.record(forBookID: id)) }
+                // 知らせが「全部」(bookID 無し)で、行が消えた本があれば一覧を作り直す(2026-09-22 の監査): 移動・名前の変更の
+                // 付け替えでは、古いパスの行が消えて新しいパスに移る。一覧から外すだけだと、新しいパスの本が出ないまま残った。
+                if notification.userInfo?["bookID"] == nil,
+                   changes.contains(where: { $0.value == nil && workspace.row($0.key) != nil && self.metadataStore.deletedThisSession.contains($0.key) == false }) {
+                    self.scheduleReopen()
+                    return
+                }
                 workspace.applyExternalChanges(changes)
             }
         }
         observers.append(observer)
+    }
+
+    @ObservationIgnored private var reopenTask: Task<Void, Never>?
+
+    /// 一覧の作り直しを頼む(続けて頼まれても 1 回)。
+    private func scheduleReopen() {
+        guard reopenTask == nil else { return }
+        reopenTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            await self?.reopen()
+            self?.reopenTask = nil
+        }
     }
 
     /// 対象外のフォルダが変わったら、一覧を作り直す(対象に戻った本を並べ直すため。取り消しの歩みは捨てる)。

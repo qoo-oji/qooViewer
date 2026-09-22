@@ -523,6 +523,14 @@ struct MetadataRegistrationTests {
             "/架空/覚えている.zip", "/架空/棚/対象の中.zip", "/架空/直した.zip", "/架空/ロックした.zip",
         ])
         #expect(library.metadata.pruneParsedOnlyRows(keeping: ["/架空/覚えている.zip"], keepingFolders: ["/架空/棚"]) == 0)
+
+        // 対象フォルダの中でも、最後に探した一覧に無い本の読みだけの行は消える(2026-09-22 の監査)。
+        library.metadata.upsertAll([
+            .init(bookID: "/架空/棚/消えた本.zip", values: BookMetadataValues(title: "消えた本"), state: parsedOnly),
+        ])
+        #expect(library.metadata.pruneParsedOnlyRows(keeping: [], keepingFolders: ["/架空/棚"],
+                                                     folderBooks: ["/架空/棚/対象の中.zip"]) == 2)
+        #expect(library.metadata.registeredBookIDs == ["/架空/棚/対象の中.zip", "/架空/直した.zip", "/架空/ロックした.zip"])
     }
 
     @Test("区切って登録すると、区切りごとに書いて知らせ、すべての行ができる")
