@@ -90,7 +90,7 @@ bookID を書き換える `reconcileBookIDIfMoved` でも捨てる)から引く 
     食い違わないため)。**キャッシュを持つ**: 並べるにはコレクションの全冊ぶんのタイトルが要り、
     `items(in:sort:)` は描き直しのたびに呼ばれるが、推測はルールの数だけ `NSRegularExpression` を
     回すため。捨てる契機は通知ではなく**読むその場での通し番号の照合**
-    (`BookMetadataStore.revision` / `MetadataFormatStore.revision`) ―― メインキューへ積まれる
+    (`BookMetadataStore.revision` / `MetadataRulesStore.rules.contentHash`) ―― メインキューへ積まれる
     `.bookMetadataDidChange` では描き直しとの前後が保証されず、このクラスは何も publish しないので
     古いまま残りうる。
   - タイトルが同じ本はファイル名で決める(`sorted(by:)` は安定ではないので、描き直すたびに

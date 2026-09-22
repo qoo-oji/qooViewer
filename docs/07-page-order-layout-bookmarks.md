@@ -230,7 +230,7 @@ PDF(`/ViewerPreferences/Direction`、`/PageLayout`)、ComicInfo.xml(`Manga`)が�
 2 人目以降は `additionalAuthorsRaw`。値の受け渡しは `BookMetadataValues`)。
 
 「メタデータの編集」ウインドウは qooMeta のアプリの 3 ページ目(確認・編集)を移植したもの
-(`Views/MetadataEditor/`: `MetadataWorkspace` + NSTableView の `MetadataBookTable` + 詳細 `MetadataDetailView`)。
+(`Views/MetadataEditor/`: `MetadataWorkspace` + NSTableView の `MetadataBookTable`。右の詳細は持たない ―― 下記)。
 対象(= メタデータを自動で作る本)は、開いた本・ライブラリの本(「このアプリが知っている本」、`KnownBooks`)と、
 スマートライブラリの対象フォルダの中の本(`SmartLibraryCatalog.folderBookIDs()`)。ファイルブラウザの「よく使う項目」のフォルダの
 中の本は、開くまで対象にしません(2026-09-22、利用者の指示)。未登録の本は qooMeta の提案を出します。ルールセットは本ごとに
@@ -258,7 +258,8 @@ PDF(`/ViewerPreferences/Direction`、`/PageLayout`)、ComicInfo.xml(`Manga`)が�
 - **除外フォルダ**(UI 名「除外フォルダ設定」)(`MetadataRulesStore.excludedFolders`。ツールバーと右クリックから): その中とサブフォルダの本はこの窓に
   並ばず、1 冊ぶんのシートで登録できず、本を開いたときの EPUB/PDF/ComicInfo からの取り込みもしません。登録済みのメタデータは
   消さず、除外フォルダ設定の窓の「…のメタデータを削除…」で消せます。
-- 規則は `MetadataRulesStore`(コンテナの Application Support/qooMeta/settings.json。同梱の既定値との差分とスタンプ)。
+- 規則は `MetadataRulesStore`(コンテナの Application Support/qooMeta/settings.json。同梱の既定値との差分。スタンプの欄は
+  UI を外したがデータは残してある)。
   以前の `MetadataFormatStore`(UserDefaults の 3 種の正規表現)は廃止し、既定から変えていたファイル名フォーマットだけを
   利用者のルールセット「qooViewer(以前の設定)」として 1 度だけ引き継ぎます。
 - 1 冊ぶんのシート(`BookMetadataSheet`)の初期値は、DB か、qooMeta で 1 冊だけ読んだ提案。題の解決(`BookTitleResolver`)と

@@ -23,7 +23,10 @@
 | フォルダのアクセス権 | UserDefaults(`qooViewer.grantedFolderBookmarks`) | `FolderAccessStore` | 全削除でも残す |
 | 最後に開いていた本 | UserDefaults | `LastActiveBookStore` | 1件 |
 | キー・マウスの割り当て | UserDefaults(JSON、`*.v1` キー) | `KeyBindingStore` | ― |
-| メタデータ推測ルール | UserDefaults(JSON) | `MetadataFormatStore` | ― |
+| メタデータの規則・除外フォルダ | Application Support/qooMeta/settings.json | `MetadataRulesStore` | ― |
+| メタデータの下書き(ロックしていない値) | Application Support/qooMeta/drafts.json | `MetadataDraftStore` | ― |
+| スマートライブラリ(対象フォルダ・スマートコレクション・ピン留め) | UserDefaults(JSON、`qooViewer.smartLibrary.store`) | `SmartLibraryStore` | ― |
+| スマートライブラリの前回の一覧(写し。消えても集め直せる) | Application Support/SmartLibrary/catalog.json | `SmartLibraryCatalog` | ― |
 | フォルダ選択パネルの前回位置・固定の保存先 | UserDefaults(ブックマーク) | `LastUsedFolderMemory` | ― |
 | 環境設定で最後に開いていた画面 | UserDefaults | `SettingsNavigator.selectedPaneDefaultsKey` | ― |
 | コレクションのタイル | `~/Library/Caches/<bundle id>/CollectionTiles/<collectionID>-<署名>.jpg` | `CollectionTileImageStore` | **カバーから作り直せるキャッシュ**。上限 128MB、超えたら古いものから。1コレクションにつき新しい2枚まで。起動時に孤児を掃除 |
@@ -266,7 +269,7 @@ JSON 読み込みの重複判定も同じ識別子を使います。
   その操作に割り当てが1つも無い」ときだけ補う。表示モード別の上書きには適用しない
   (項目が無いこと自体が「基本へフォールバック」の意味)。
 
-### LastActiveBookStore / LastUsedFolderMemory / MetadataFormatStore
+### LastActiveBookStore / LastUsedFolderMemory
 
 いずれもセキュリティスコープ付きブックマークや JSON を保存する小さな仕組みで、
 `AppPreferences` の「単純な値を1キーに」というパターンに合わないため分離してあります。

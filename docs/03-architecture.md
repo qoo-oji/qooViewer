@@ -53,7 +53,9 @@ publish すると、その1回の発火で **body 全体(全 Scene + `.commands`
 | `BookmarkStore` | SwiftData | すべての本を横断したブックマーク(「ブックマーク・レイアウトの編集」用) |
 | `LayoutStore` | SwiftData | すべての本のレイアウト設定 |
 | `BookMetadataStore` | SwiftData | 書誌メタデータ |
-| `MetadataFormatStore` | UserDefaults(JSON) | ファイル名からメタデータを推測する3種のルール |
+| `MetadataRulesStore` | Application Support/qooMeta/settings.json | ファイル名からメタデータを読む規則(qooMeta の同梱の規則との差分)と除外フォルダ |
+| `MetadataDraftStore` | Application Support/qooMeta/drafts.json | メタデータの編集ウインドウで直したがロックしていない値 |
+| `SmartLibraryStore` | UserDefaults(JSON) | スマートライブラリの対象フォルダ・スマートコレクション・ピン留め |
 | `KeyBindingStore` | UserDefaults(JSON) | キー・マウスの割り当て(基本+表示モード別) |
 | `LaunchCoordinator` | メモリ | 最初のウインドウ、開いている全 AppState の弱参照一覧、編集ウインドウへの値渡し |
 | `ProcessResourceSampler` | メモリ | リソースモニタの CPU/メモリ/ディスクの計測 |
@@ -218,7 +220,7 @@ SwiftData のモデルの変更は SwiftUI の再描画を自動では起こし�
 - 既定隔離が `MainActor` なので、**メインアクターの外で使うものには `nonisolated` を明示する**
   (型・関数・static プロパティ・enum の計算プロパティ)。対象は `PageLoader`(actor)、
   `BookLoader` の `Task.detached`、各 Exporter、`DirectoryBrowser`、`SiblingFinder`、
-  `BookMetadataDeriver`、`BookURLResolver`、`LibraryCleanupViewModel.evaluate` など。
+  `MetadataRulesStore` の static な読み取り(qooMeta)、`SmartLibraryScanner`、`BookURLResolver`、`LibraryCleanupViewModel.evaluate` など。
   正典は `Services/ArchiveReading.swift` 冒頭のコメント。
 - 書庫の reader(`ArchiveReading`)は `Sendable` ではなく、スレッドセーフでもない。
   **`PageLoader`(actor)の中でだけ触る。** デコード(CPU 負荷)は actor の外の `Task` で行い、

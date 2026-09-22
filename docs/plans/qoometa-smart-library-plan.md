@@ -121,4 +121,4 @@
 ### 残り(次の人へ)
 
 - スマートライブラリ: 表紙の大きさのピンチ、選択と複数冊の右クリック、左ペインの折りたたみは未実装。
-- README / MANUAL / CHANGELOG / CLAUDE.md は、利用者の指示があってから更新する(このブランチでは docs/ だけ)。
+- README / MANUAL / CHANGELOG([Unreleased]) / CLAUDE.md は 2026-09-22 に一式更新した(利用者の指示)。以後の変更も同じ組で直す。

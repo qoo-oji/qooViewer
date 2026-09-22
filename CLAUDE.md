@@ -82,6 +82,11 @@ forward, push the fork, hand-edit the `revision` in `Package.resolved`, then run
 `xcodebuild -resolvePackageDependencies`. What the forks change and why is in `docs/11-forked-dependencies.md`.
 `UniversalCharsetDetection` was removed on 2026-09-01 (commit `5eaca7f`); zip filename encoding is now
 detected archive-wide with Foundation (`EntryNameDecoder` in Services/ZipArchiveReader.swift).
+**qooMeta** (`qoo-oji/qooMeta`, the author's own library, `upToNextMajorVersion` from 0.1.0; products QooMetaKit and
+QooMetaRules) reads metadata from file names. Its core and bundled preset JSON are used **as shipped** so a qooMeta release
+can be taken in unchanged — qooViewer keeps only the user's diff (`MetadataRulesStore`). Its `BookMetadata` clashes with the
+app's `@Model BookMetadata`: use `typealias QMBookMetadata = QooMetaKit.BookMetadata`. `scripts/ci/check-package-pins.sh`
+checks the pin (docs/11).
 
 ## Architecture
 
@@ -230,15 +235,46 @@ while off are remembered in UserDefaults and get their covers redone when it is 
 「ライブラリ機能の ON/OFF」). **The file browser has the same kind of switch** ("Enable File Browser",
 `AppPreferences.fileBrowserFeatureEnabled`): its items leave Home, the menu bar and every context menu — including all
 "Show in File Browser" items, which read `RevealInFileBrowserAction.isFeatureEnabled` — and `AutoRenameService` and the
-video thumbnail warmer stop (`AppStores.applyFileBrowserFeature`). The two flags together pick the Home layout in one
-place, `WelcomeLibraryState.constrained`: both on = as before, library only = the pre-file-browser shelf (v1.50–v1.56: the top bar gets its Open Book… / Open from History buttons back), file browser
-only = the pane with no top bar, both off = `WelcomeMode.classic`, the pre-bookshelf welcome screen restored as
-`ClassicWelcomeView` (and no Home menu; the side panel is shown there without a book, as in v1.42 — `ContentView.isSidePanelSuppressedForWelcome`, 2026-09-22). `.classic` is never a user choice and forced modes are never saved. New file
+video thumbnail warmer stop (`AppStores.applyFileBrowserFeature`). **The smart library is the third switch** ("Enable
+Smart Library", `AppPreferences.smartLibraryFeatureEnabled`, 2026-09-22; see the smart library paragraph below). The three flags
+together pick the Home layout in one place, `WelcomeLibraryState.constrained(_:library:fileBrowser:smart:)`: a disabled
+feature's mode is never shown (fallback order shelf → browser → smart), all three off = `WelcomeMode.classic`, the
+pre-bookshelf welcome screen restored as `ClassicWelcomeView` (and no Home menu; the side panel is shown there without a
+book, as in v1.42 — `ContentView.isSidePanelSuppressedForWelcome`). The top bar shows only with the library or the smart
+library on (`showsTopBar`); with the file browser off its left end is Open Book… / Open from History (v1.50–v1.56), with the
+library off the chips and ＋ go. Top-bar buttons and Home-menu toggles go through `toggleMode` (pressing the current mode's
+button goes to another enabled mode). `.classic` is never a user choice; a mode forced by a flag change is not saved, one
+the user picks is (even while some feature is off). The 8 combinations are tabled in docs/plans/feature-toggle-audit.md and
+run by `LibraryFeatureToggleTests.everyCombinationOfTheThreeFlags`. New file
 browser entry points must check the flag (docs/15「ファイルブラウザ機能の ON/OFF」) — including `Window` scenes, which add
 themselves to the Window menu unless `.commandsRemoved()` (the Auto Rename Settings window also closes itself when the
 flag goes off). The favorites feature is hidden behind
 `FavoritesFeature.isEnabled == false` — models, stores, window and JSON schema are kept so the data
 survives. Design and the reasons are in `docs/14-library-collections.md`.
+
+**Metadata (qooMeta, 2026-09-21)**: `BookMetadata` holds title, authors (`author` = first, `additionalAuthorsRaw` = the
+rest), genre, event, source, info, series, volume (as written) and `volumeSort`, plus `fieldsVersion` (0 = registered before
+these fields existed; the Edit Metadata window offers to fill the empty fields). Values travel as `BookMetadataValues`.
+Rules and excluded folders live in `MetadataRulesStore` (Application Support/qooMeta/settings.json, a diff against the
+bundled rules). The Edit Metadata window (`Views/MetadataEditor/`, `MetadataWorkspace` + AppKit `MetadataBookTable`) is qooMeta's
+page 3: **lock = register** — edits are drafts (`MetadataDraftStore`, kept across closes), locking writes the visible values
+as a full confirmation, unlocking deletes the row and keeps the values as a draft; undo covers drafts only. Books listed =
+`KnownBooks` (opened / library) + the smart library's target folders (not Favorite Locations). Books under an excluded
+folder are never registered (window, sheet, or EPUB/PDF/ComicInfo import). Titles elsewhere (`BookTitleResolver`, export
+defaults, the one-book sheet) read through the same rules. Details in docs/07「書誌メタデータ」.
+
+**Smart library (2026-09-21/22)**: the Home's third mode (`WelcomeMode.smart`, `Views/Welcome/SmartLibrary/`). It shows **only
+books under its own target folders** (`SmartLibraryStore.folders`, path only; permission stays with `FolderAccessStore`) —
+never library or Favorite Locations books, since those features can be switched off independently. `SmartLibraryCatalog`
+(one app-wide) gathers only while a pane is on screen (`activate`/`deactivate`): scan on `FileIO` (`SmartLibraryScanner`) →
+qooMeta through a persistent `ProposalIndex` (`load` once in parallel, then `apply` only the changed books) → assemble;
+rebuilds run one at a time (the next cancels and awaits the previous). The last list is saved to Application
+Support/SmartLibrary/catalog.json and shown first, **with each book's thumbnail cache key** so covers come from the disk
+cache without touching the (possibly network) file (`FileBrowserThumbnailProvider.thumbnail(…knownKey:)`). Switching the
+feature off (`setFeatureEnabled(false)`) cancels an in-flight rebuild, releases the list/index/scan and makes every entry
+point a no-op; only `SmartLibraryStore.relocate` keeps running. `SmartLibraryViewState` (per window) holds smart collections
+(`SmartShelf` in code), facet buttons with multi-select and pins, filters, sort and grouping by author/series
+(`SmartGrouping`). Appearance: `AppearanceSettings.smartLibrary*`. Design in docs/14「スマートライブラリ」.
 
 **Menu bar ↔ viewer bridging**: `AppState` (ViewModels/AppState.swift) is one-per-window and is exposed to
 the menu bar via `FocusedValue` (see the `qooViewerAppState`/`qooViewerMenuCheckmarkState` extension in

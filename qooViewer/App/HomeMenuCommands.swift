@@ -100,7 +100,9 @@ struct HomeMenuItems: View {
         if isLibraryFeatureEnabled {
             libraryItems
         }
-        if isLibraryFeatureEnabled, isFileBrowserFeatureEnabled {
+        // 「自動リネームの設定…」の前の区切り。ライブラリが OFF でも、切り替えの項目が上にあれば区切る
+        // (2026-09-22 の組み合わせの監査: ライブラリ OFF・ファイルブラウザ ON・スマートライブラリ ON で、切り替えの直下に続いていた)。
+        if isFileBrowserFeatureEnabled, isLibraryFeatureEnabled || showsFileBrowserToggle || showsSmartLibraryToggle {
             Divider()
         }
         if isFileBrowserFeatureEnabled {

@@ -104,7 +104,8 @@ EPUB / PDF の構造解決、書き出しのラウンドトリップ、そして
 | `LayoutAutoCalculatorTests` / `PageLayoutStateTests` | 自動レイアウトのパリティ計算、EPUB の見開き配置との相互変換 |
 | `BookOpenRequestTests` | 「開く対象」の分類と正規化(重複除去・自然順・上限) |
 | `ComicInfoXMLTests` / `ComicInfoResolverTests` | ComicInfo.xml の生成・解析・往復・XXE の遮断、探し方 |
-| `BookMetadataDeriverTests` | ファイル名からの推測(既定のルール表) |
+| `MetadataWorkspaceTests` / `MetadataRulesStoreTests` | メタデータの編集ウインドウの中身(ロック = 登録・下書き・再生成・ルールセットの切り替え・取り消し)、規則の保存と以前の規則の引き継ぎ・除外フォルダ(qooMeta。2026-09-21) |
+| `SmartLibraryTests` | スマートライブラリの条件・絞り込み・ブラウザ・並べ替え・束ね方・保存・フォルダの探し方・qooMeta の差分の読み・保存した一覧・ON/OFF(2026-09-21/22) |
 | `PagePixelCacheTests` | 厳密な LRU、`peek` が昇格しないこと、上限を瞬間的にも超えないこと |
 | `CacheHousekeepingTests` | 構造キャッシュの JSON(旧版含む)、刈り込みの境目、一時ファイルの残骸の判定 |
 | `ImageDecoderTests` / `ContrastCorrectorTests` | 対応形式・EXIF の回転・壊れた入力、カラー判定とオートレベル |
@@ -188,7 +189,6 @@ deinit に任せられないのは、解放がメインスレッド以外で始�
 | `StorageUsageScannerTests` | コンテナの容量の内訳 ―― 「無い」と「空」の区別、シンボリックリンクを数えないこと、他セッションの残骸の判定、DB(本体 + WAL/SHM)、その他の算出 |
 | `ImageExporterTests` | 画像の書き出し ―― 既定のファイル名と形式(元の拡張子・PDF は jpg・NFC 正規化)、見開きの結合(低い方の高さに合わせて縮小、歪めない)、**ImageIO が書けない形式(webp)を PNG へ倒すこと**(名前・保存パネルの形式・中身が揃うこと。ページとして開ける 10 形式すべてで結合できること) |
 | `PagePixelBufferTests` | ページ画像の入れ物 ―― カラー 4 バイト / 白黒 1 バイトと 16 バイト境界の行、画素の往復、`CGImage` を何枚作ってもバイト列は 1 つ、縮小(切り捨て・最低 1 画素・白黒のまま) |
-| `TitleAuthorFilenameParserTests` | EPUB 書き出しのタイトル / 著者名の推測(doc コメントの 6 パターン) |
 | `ContentFingerprintTests` | 中身の差し替え検知の指紋 ―― 3 点のいずれかが違えば疑う、記録が無い / 古いときは疑わない、フォルダの本にはファイルサイズが無いこと |
 | `RGBColorValueTests` / `BookExportRowFilterTests` / `LayoutPropagationScopeTests` | 色の保存形式(`#RRGGBB` の往復・壊れた値・HSB・明るさ判定)、書き出し一覧の絞り込み(保存データは AND、形式は単一選択)、伝播範囲の選択肢(先頭 / 末尾で前後を出さない)。`WelcomeQuickOpenWidthTests`(旧ウェルカム画面の列幅)は、画面をライブラリ / コレクションへ作り直した 2026-09-09 に対象ごと消えた |
 
@@ -290,7 +290,7 @@ attach の最初に外します)。テストは `qooViewerTests/Support/Disposab
 書きもしません(並び順の設定は 2026-09-13 に撤去したので、`EffectivePageOrder` は環境設定を読みません)。
 保存データの取り込みも同じで、`LibraryImportExportService.apply` /
 `buildExportFile` の `cachesPageList:`(取り込みは本を読み直すため)を `false` にし、
-`MetadataFormatStore` にはこのテスト専用の `UserDefaults(suiteName:)` を渡します
+`MetadataRulesStore` にはこのテスト専用の置き場所(一時ファイル・`legacyDefaults: nil`)を渡します
 (どちらもテストのための口で、アプリからは既定のまま呼びます)。
 
 手元でテストを回すときは通常の署名のままで(`CODE_SIGNING_ALLOWED=NO` を付けない)。署名の無い

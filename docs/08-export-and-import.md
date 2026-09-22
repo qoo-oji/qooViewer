@@ -18,7 +18,9 @@
 2. **絞り込み**(`BookExportRowFilter`): 保存データの3種は AND のチェックボックス、ファイル形式は
    単一選択。**絞り込みは見え方だけを変え、チェック(選択)には触れない**。「すべて選択」は
    表示中の行だけ。
-3. **タイトル・著者**: メタデータ DB > `TitleAuthorFilenameParser` の推測、を初期値にして編集可。
+3. **タイトル・著者**: メタデータ DB > qooMeta でファイル名から読んだ値(`MetadataRulesStore.reading`)、を初期値にして編集可
+   (2026-09-21 に `TitleAuthorFilenameParser` を廃止)。2 人目以降の著者とジャンルも書く(EPUB は `dc:creator` を並べ `dc:subject`、
+   PDF は Author を「, 」でつなぎ Subject、CBZ は Writer/Penciller を「, 」でつなぎ Genre、情報は Notes)。
 4. **カバー**(EPUB/CBZ): 既定は実質的な先頭ページ(構造キャッシュがあれば読み込みなしで解決)。
    本の中のページか、本に含まれない外部ファイルを指定できる(外部ファイルは本の一部として
    扱わず、ビューアには現れない)。

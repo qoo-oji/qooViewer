@@ -64,6 +64,45 @@ struct LibraryFeatureToggleTests {
         #expect(state.mode == .shelf)
     }
 
+    @Test("3 つの設定の 8 通りすべてで、出せるモード・帯の有無・切り替えの行き先が揃う")
+    func everyCombinationOfTheThreeFlags() {
+        for library in [false, true] {
+            for fileBrowser in [false, true] {
+                for smart in [false, true] {
+                    let allowed = [library ? WelcomeMode.shelf : nil, fileBrowser ? .browser : nil, smart ? .smart : nil]
+                        .compactMap { $0 }
+                    let label = "L=\(library) F=\(fileBrowser) S=\(smart)"
+                    // 出せるモードはそのまま、出せないモードは出せるものへ(何も無ければ本棚を足す前の画面)。
+                    for wanted in WelcomeMode.allCases {
+                        let result = WelcomeLibraryState.constrained(wanted, library: library, fileBrowser: fileBrowser, smart: smart)
+                        if allowed.isEmpty {
+                            #expect(result == .classic, "\(label)")
+                        } else {
+                            #expect(allowed.contains(result), "\(label)")
+                            if allowed.contains(wanted) { #expect(result == wanted, "\(label)") }
+                        }
+                    }
+                    // 実際の状態でも同じ(ON/OFF を変えるたびに押し込まれ、帯はライブラリかスマートライブラリがあるときだけ)。
+                    let suite = TestDefaultsPool.checkout()
+                    let state = WelcomeLibraryState(defaults: suite.defaults)
+                    state.isLibraryFeatureEnabled = library
+                    state.isFileBrowserFeatureEnabled = fileBrowser
+                    state.isSmartLibraryFeatureEnabled = smart
+                    #expect(allowed.isEmpty ? state.mode == .classic : allowed.contains(state.mode), "\(label)")
+                    #expect(state.showsTopBar == (library || smart), "\(label)")
+                    // 帯・メニューの切り替え: 出せないモードへは行かない。いまのモードをもう一度押すと、ほかに出せるものがあればそちらへ。
+                    for target in [WelcomeMode.shelf, .browser, .smart] {
+                        let before = state.mode
+                        state.toggleMode(target)
+                        #expect(allowed.isEmpty ? state.mode == .classic : allowed.contains(state.mode), "\(label) → \(target)")
+                        if before == target, allowed.count >= 2 { #expect(state.mode != target, "\(label) → \(target)") }
+                    }
+                    suite.release()
+                }
+            }
+        }
+    }
+
     @Test("スマートライブラリの設定も別に効き、帯のボタンでいまのモードをもう一度押すと出せるほかのモードへ戻る")
     func smartLibraryFlagAndToggle() {
         let suite = TestDefaultsPool.checkout()
