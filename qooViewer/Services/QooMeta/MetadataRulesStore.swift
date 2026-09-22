@@ -401,11 +401,14 @@ final class MetadataRulesStore {
     }
 
     /// 以前の書式から作るルールセット。読めなかった書式は説明に書き残す。
+    ///
+    /// **読めなかった書式を説明の先頭に置く**: 解析の設定の窓の説明欄は 3 行までしか見せないので、後ろに付けると
+    /// 欄の中を送らないと見えなかった(2026-09-22 の実機検証)。由来の 1 行はルールセットの名前からも分かる。
     private static func legacyPreset(formats: [String], unusable: [String]) -> PresetCatalog.Preset {
         var note = "The file name formats you used before qooViewer switched to qooMeta".ui
         if !unusable.isEmpty {
-            note += "\n" + "These formats could not be carried over because qooMeta cannot read them: %@".ui(
-                unusable.joined(separator: "  /  "))
+            note = "These formats could not be carried over because qooMeta cannot read them: %@".ui(
+                unusable.joined(separator: "  /  ")) + "\n" + note
         }
         return PresetCatalog.Preset(
             name: legacyPresetName, label: "qooViewer (previous settings)".ui, note: note,
