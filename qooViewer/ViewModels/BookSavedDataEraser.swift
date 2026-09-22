@@ -23,7 +23,7 @@ nonisolated struct BookExistenceProbe: Sendable {
     @MainActor
     static func make(
         bookID: String, metadataStore: BookMetadataStore, layoutStore: LayoutStore, bookmarkStore: BookmarkStore,
-        favoritesStore: FavoritesStore, collectionStore: CollectionStore, folderAccess: FolderAccessStore
+        favoritesStore: FavoritesStore, collectionStore: CollectionStore?, folderAccess: FolderAccessStore
     ) -> BookExistenceProbe {
         BookExistenceProbe(
             bookID: bookID,
@@ -32,7 +32,8 @@ nonisolated struct BookExistenceProbe: Sendable {
                 layoutStore.bookLayoutSettings(forBookID: bookID)?.bookmarkData,
                 bookmarkStore.anyBookmarkData(forBookID: bookID),
                 favoritesStore.anyBookmarkData(forBookID: bookID),
-                collectionStore.anyBookmarkData(forBookID: bookID),
+                // nil = コレクションの行を読まない(ライブラリ機能が OFF の間の、裏の仕事。MetadataGenerator)。
+                collectionStore?.anyBookmarkData(forBookID: bookID),
             ].compactMap { $0 },
             isPathCovered: folderAccess.isPathCovered(URL(fileURLWithPath: bookID))
         )

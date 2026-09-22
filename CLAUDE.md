@@ -267,15 +267,19 @@ rest), genre, event, source, info, series, volume (as written) and `volumeSort`,
 these fields existed; the Edit Metadata window offers to fill the empty fields). Values travel as `BookMetadataValues`.
 Rules and excluded folders live in `MetadataRulesStore` (Application Support/qooMeta/settings.json, a diff against the
 bundled rules). The Edit Metadata window (`Views/MetadataEditor/`, `MetadataWorkspace` + AppKit `MetadataBookTable`) is qooMeta's
-page 3: **every parsed book is registered** (2026-09-22; the user found "shown but not saved" meaningless) — the window,
-the smart library and opening a book (not in a private window) write a row for each book they parse; `isLocked` freezes a
-row, unlocked rows keep the user's edited fields (`editsData`) and rule set and are re-derived when the rules change
-(`BookMetadataStore.reparseUnlockedRows`); Delete Metadata removes the row and does not remember it. Parsed-only rows (`BookMetadata.isParsedOnly`) that nothing else
-remembers are pruned at launch (`pruneParsedOnlyRows` — `KnownBooks` must be collected without metadata rows there, or the rows
-keep themselves alive); the first bulk registration is written in batches (`upsertAllInBatches`), and the smart library writes a
-value once per session and only while a non-private window shows it. The old drafts file
-(`MetadataDraftStore`) is migrated into the DB once at launch; undo covers unlocked edits only. Books listed =
-`KnownBooks` (opened / library) + the smart library's target folders (not Favorite Locations). Books under an excluded
+page 3: **every parsed book is registered** (2026-09-22; the user found "shown but not saved" meaningless). **Only
+`MetadataGenerator` (one app-wide) derives values from file names and writes them** (2026-09-22, docs/plans/metadata-generator-plan.md —
+five writers with different anchor sets had disagreed and reverted edits): one `ProposalIndex` over the corpus = known books
+(reading states, bookmarks, layouts, favorites) + metadata rows + the book lists features *record* in `MetadataCorpusStore`
+(collection books, smart-library target-folder books — kept while a feature is off, so metadata never depends on a feature
+flag) + books opened this session; rowless books are listed only once probed at their recorded path. It creates unlocked rows
+and rewrites unlocked values; it never writes locks, edits or rule sets. The window, the one-book sheet, source-metadata import
+and saved-data import write only the row state (`BookMetadataRowState`) and let it re-derive; the smart library only records
+its scan and reads the DB; opening a book only calls `noteBookOpened`. `isLocked` freezes a row, unlocked rows keep the user's
+edited fields (`editsData`) and rule set; Delete Metadata removes the row and does not remember it (re-registered when the
+book or the window is opened again). Parsed-only rows (`BookMetadata.isParsedOnly`) outside the corpus are pruned at launch
+(`pruneParsedOnlyRows` — `KnownBooks` must be collected without metadata rows there, or the rows keep themselves alive). The
+old drafts file (`MetadataDraftStore`) is migrated into the DB once at launch; undo covers unlocked edits only. Books under an excluded
 folder are never registered (window, sheet, or EPUB/PDF/ComicInfo import). Titles elsewhere (`BookTitleResolver`, export
 defaults, the one-book sheet) read through the same rules. Details in docs/07「書誌メタデータ」.
 
@@ -283,11 +287,11 @@ defaults, the one-book sheet) read through the same rules. Details in docs/07「
 books under its own target folders** (`SmartLibraryStore.folders`, path only; permission stays with `FolderAccessStore`) —
 never library or Favorite Locations books, since those features can be switched off independently. `SmartLibraryCatalog`
 (one app-wide) gathers only while a pane is on screen (`activate`/`deactivate`): scan on `FileIO` (`SmartLibraryScanner`) →
-qooMeta through a persistent `ProposalIndex` (`load` once in parallel, then `apply` only the changed books) → assemble;
-rebuilds run one at a time (the next cancels and awaits the previous). The last list is saved to Application
+record the found books in `MetadataCorpusStore` → assemble from DB values (it never writes metadata; rowless books borrow
+`MetadataGenerator`'s proposal until the row exists); rebuilds run one at a time (the next cancels and awaits the previous). The last list is saved to Application
 Support/SmartLibrary/catalog.json and shown first, **with each book's thumbnail cache key** so covers come from the disk
 cache without touching the (possibly network) file (`FileBrowserThumbnailProvider.thumbnail(…knownKey:)`). Switching the
-feature off (`setFeatureEnabled(false)`) cancels an in-flight rebuild, releases the list/index/scan and makes every entry
+feature off (`setFeatureEnabled(false)`) cancels an in-flight rebuild, releases the list/scan and makes every entry
 point a no-op; only `SmartLibraryStore.relocate` keeps running. `SmartLibraryViewState` (per window) holds smart collections
 (`SmartShelf` in code), facet buttons with multi-select and pins, filters, sort and grouping by author/series
 (`SmartGrouping`). Appearance: `AppearanceSettings.smartLibrary*`. The cover grid has Finder-style selection and keys

@@ -89,6 +89,11 @@ final class AppStores: ObservableObject {
     let smartLibraryStore: SmartLibraryStore
     /// スマートライブラリに並べる本を集める役(画面が出ている間だけ働く)。同じく allObjectWillChangePublishers には足さない。
     let smartLibraryCatalog: SmartLibraryCatalog
+    /// メタデータ生成の母体のうち、機能が記録する本の一覧(コレクション・スマートライブラリの対象フォルダ。MetadataCorpusStore)。
+    let metadataCorpusStore: MetadataCorpusStore
+    /// ファイル名からメタデータを作って DB へ書く、ただ 1 つの役(MetadataGenerator。2026-09-22)。何も publish しない
+    /// (知らせは `updates`)ので allObjectWillChangePublishers には足さない。
+    let metadataGenerator: MetadataGenerator
     /// ファイルブラウザのアイコン表示の絵(改善要望7 段階 7a)。メモリの絵と作る仕事の待ち行列をウインドウをまたいで
     /// 1 つにする。メニューバーに現れないので allObjectWillChangePublishers には足さない。
     let fileBrowserThumbnails: FileBrowserThumbnailProvider
@@ -115,10 +120,8 @@ final class AppStores: ObservableObject {
     /// 環境設定「ファイルブラウザを有効にする」の購読(`applyFileBrowserFeature`)。
     private var fileBrowserFeatureSubscription: AnyCancellable?
     private var smartLibraryFeatureSubscription: AnyCancellable?
-    /// 規則の変更の購読(ロックしていないメタデータの行を読み直す。`reparseUnlockedMetadata`)。
-    private var metadataRulesSubscription: AnyCancellable?
-    private var metadataRelocationSubscription: AnyCancellable?
-    private var metadataReparseTask: Task<Void, Never>?
+    /// コレクションの本の一覧・対象フォルダの変化の購読(`metadataCorpusStore` へ記録する)。
+    private var metadataCorpusSubscriptions: Set<AnyCancellable> = []
     /// 起動時の掃除(行の無い表紙・元画像・札の絵)を済ませたか。ライブラリ機能がOFFで起動したら、最初にONになるまで先送りする。
     private var didSweepLibraryOrphans = false
 
@@ -201,10 +204,35 @@ final class AppStores: ObservableObject {
             autoRenameService.start(folderAccessChanges: folderAccess.objectWillChange.map { _ in () }.eraseToAnyPublisher())
         }
         smartLibraryStore = SmartLibraryStore()
+        // テストの中では記録を保存しない(共有の状態に触らない)。
+        metadataCorpusStore = MetadataCorpusStore(url: RuntimeEnvironment.isRunningTests ? nil : MetadataCorpusStore.defaultURL)
+        let probeStores = (metadataStore, layoutStore, bookmarkStore, favoritesStore, collectionStore, folderAccess, preferences)
+        metadataGenerator = MetadataGenerator(
+            metadataStore: metadataStore, rulesStore: metadataRulesStore, corpusStore: metadataCorpusStore,
+            knownBooks: { [bookmarkStore, layoutStore, favoritesStore] in
+                KnownBooks.collectWithoutFeatures(bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+                                                  favoritesStore: favoritesStore, modelContext: context)
+            },
+            probe: { bookIDs in
+                let (metadata, layouts, bookmarks, favorites, collections, access, preferences) = probeStores
+                // ライブラリ機能が OFF の間はコレクションの行を読まない(裏の仕事。CLAUDE.md)。
+                let collectionStore = preferences.libraryFeatureEnabled ? collections : nil
+                // 繋がっていないボリュームの本は確かめない(ブックマークの解決が秒単位で止まる)。付けたら確かめ直す
+                // (MetadataGenerator がボリュームを付けた知らせで「無かった本」を忘れる)。
+                let mounts = MountTable.current()
+                let probes = bookIDs.filter { !mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: $0)) }.map {
+                    BookExistenceProbe.make(bookID: $0, metadataStore: metadata, layoutStore: layouts, bookmarkStore: bookmarks,
+                                            favoritesStore: favorites, collectionStore: collectionStore, folderAccess: access)
+                }
+                return await Task.detached(priority: .utility) {
+                    Set(probes.filter { $0.locateAtRecordedPath().result == .exists }.map(\.bookID))
+                }.value
+            })
         smartLibraryCatalog = SmartLibraryCatalog(
             metadataStore: metadataStore, store: smartLibraryStore, rulesStore: metadataRulesStore, modelContext: context,
             // 前回の一覧を保存して次の起動で先に出す。テストの中では保存しない(共有の状態に触らない)。
-            cacheURL: RuntimeEnvironment.isRunningTests ? nil : SmartLibraryCatalog.defaultCacheURL
+            cacheURL: RuntimeEnvironment.isRunningTests ? nil : SmartLibraryCatalog.defaultCacheURL,
+            corpusStore: metadataCorpusStore, generator: metadataGenerator
         )
         if !RuntimeEnvironment.isRunningTests { SmartLibraryCatalog.removeLegacyCache() }
         smartLibraryCatalog.setFeatureEnabled(preferences.smartLibraryFeatureEnabled)
@@ -271,15 +299,9 @@ final class AppStores: ObservableObject {
                     Task { await bookmarks.sync(paths: paths) }
                 }
             })
-            metadataRulesSubscription = NotificationCenter.default
-                .publisher(for: MetadataRulesStore.rulesDidChange, object: metadataRulesStore)
-                .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-                .sink { [weak self] _ in MainActor.assumeIsolated { self?.reparseUnlockedMetadata() } }
-            // 付け替えたロックしていない行は、新しいファイル名で読み直す(Notification.Name.bookMetadataUnlockedRowsRelocated)。
-            metadataRelocationSubscription = NotificationCenter.default
-                .publisher(for: .bookMetadataUnlockedRowsRelocated, object: metadataStore)
-                .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
-                .sink { [weak self] _ in MainActor.assumeIsolated { self?.reparseUnlockedMetadata() } }
+            // メタデータ生成の母体の記録(コレクションの本・対象フォルダ)を保ち、メタデータ生成を動かす。規則の変更・付け替えた
+            // ロックしていない行の読み直しは、メタデータ生成が自分で受ける(以前はここで `reparseUnlockedRows` を呼んでいた)。
+            startMetadataGeneration()
         }
         // 起動時の掃除(CollectionCoverExtractorのinitの移行の**後**であること。sweepLibraryOrphansIfNeeded のコメント)。
         if isLibraryEnabled { sweepLibraryOrphansIfNeeded() }
@@ -340,7 +362,12 @@ final class AppStores: ObservableObject {
         collectionCoverExtractor.setLibraryFeatureEnabled(isEnabled)
         collectionAutoFolderScanner.setLibraryFeatureEnabled(isEnabled)
         fileBrowserThumbnails.setLibraryFeatureEnabled(isEnabled)
-        if isEnabled { sweepLibraryOrphansIfNeeded() }
+        if isEnabled {
+            sweepLibraryOrphansIfNeeded()
+            // OFF の間に変わっていたかもしれない(保存データの読み込みなど)。メタデータ生成は ON/OFF に関わらず動き続け、
+            // OFF の間は最後に記録したコレクションの本の一覧を使う(MetadataCorpusStore)。
+            recordCollectionBooks()
+        }
     }
 
     /// 環境設定「ファイルブラウザを有効にする」(AppPreferences.fileBrowserFeatureEnabled。2026-09-21、ユーザー要望)を、アプリで 1 つの仕事へ伝える。
@@ -430,38 +457,55 @@ final class AppStores: ObservableObject {
         // スマートライブラリの前の走査結果も捨てる(古いパスのまま組み直して、付け替えた本の古いパスへ行を書き直さないように。
         // 2026-09-22 の監査)。
         smartLibraryCatalog.handleFileSystemChange(change)
+        metadataCorpusStore.relocate(using: change)
         return bookRecordRelocator.apply(change)
     }
 
     /// 起動時に、ほかに覚えている理由の無いファイル名の読みだけのメタデータの行を消す(`BookMetadataStore.pruneParsedOnlyRows`)。
+    /// 覚えている理由 = メタデータ生成の母体(このアプリが知っている本と、機能が記録した本の一覧 ―― MetadataCorpusStore)。
+    /// 記録がまだ無い対象フォルダ(一度も探していない)の中の行は残す(無いのではなく、まだ数えていないだけ)。
     /// ライブラリ機能が OFF の間もコレクションの本は数える(「このアプリが知っている本」の一覧は止めない仕事。
     /// `applyLibraryFeature` のコメント)。
     private func pruneParsedOnlyMetadata() {
-        let known = KnownBooks.collect(from: KnownBooks.Sources(
+        var known = KnownBooks.collect(from: KnownBooks.Sources(
             metadataStore: metadataStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
             favoritesStore: favoritesStore, collectionStore: collectionStore,
             modelContext: QooViewerApp.modelContainer.mainContext
         ), includingMetadata: false)
-        let folders = smartLibraryStore.folders.map(\.path)
-        // 対象フォルダの中は、スマートライブラリが最後に探した一覧に無い本の行も消す(探しきれた一覧があり、どの対象フォルダの
-        // ボリュームも繋がっているときだけ ―― 繋がっていなければ、そこに無いのではなく見えないだけ)。
-        let mounts = MountTable.current()
-        let folderBooks = SmartLibraryCatalog.defaultCacheURL.flatMap { url -> Set<String>? in
-            guard !folders.contains(where: { mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: $0)) }) else { return nil }
-            return SmartLibraryCatalog.savedBookIDs(cacheURL: url, roots: folders)
-        }
-        metadataStore.pruneParsedOnlyRows(keeping: known, keepingFolders: folders, folderBooks: folderBooks)
+        known.formUnion(metadataCorpusStore.collectionBookIDs)
+        known.formUnion(metadataCorpusStore.smartLibraryBookIDs)
+        let recordedRoots = Set(metadataCorpusStore.record.smartLibrary.keys)
+        let unrecorded = smartLibraryStore.folders.map(\.path).filter { !recordedRoots.contains($0) }
+        metadataStore.pruneParsedOnlyRows(keeping: known, keepingFolders: unrecorded)
     }
 
-    /// ロックしていないメタデータの行を、いまの規則で読み直す(前の読み直しは取り消す)。
-    private func reparseUnlockedMetadata() {
-        metadataReparseTask?.cancel()
-        let previous = metadataReparseTask
-        metadataReparseTask = Task { [metadataStore, metadataRulesStore] in
-            await previous?.value
-            guard !Task.isCancelled else { return }
-            await metadataStore.reparseUnlockedRows(rules: metadataRulesStore.rules)
-        }
+    /// メタデータ生成を始める(起動時。テストの中では動かさない ―― テストは自分の MetadataGenerator を作る)。
+    ///
+    /// 機能が記録する本の一覧(`MetadataCorpusStore`)をここで保つ:
+    /// - コレクションの本: ライブラリ機能が ON の間、コレクションが変わるたびに写す(OFF の間は `CollectionItem` を読まない。
+    ///   最後に写した一覧がそのまま母体に残る)。
+    /// - 対象フォルダ: 外した対象フォルダの本を記録から外す(機能の ON/OFF に関わらず。設定の変化なので)。
+    ///   中の本はスマートライブラリが探したときに記録する(SmartLibraryCatalog.rebuild)。
+    private func startMetadataGeneration() {
+        MetadataGenerator.appWide = metadataGenerator
+        collectionStore.$revision
+            .debounce(for: .seconds(1), scheduler: RunLoop.main)
+            .sink { [weak self] _ in MainActor.assumeIsolated { self?.recordCollectionBooks() } }
+            .store(in: &metadataCorpusSubscriptions)
+        smartLibraryStore.$folders
+            .sink { [weak self] folders in
+                MainActor.assumeIsolated { self?.metadataCorpusStore.keepSmartLibraryRoots(folders.map(\.path)) }
+            }
+            .store(in: &metadataCorpusSubscriptions)
+        recordCollectionBooks()
+        // 画面を出すのを先に(起動直後の数秒は、母体を集めて索引を読むのに使わない)。
+        metadataGenerator.start(initialDelay: .seconds(2))
+    }
+
+    /// コレクションの本の一覧を記録する(ライブラリ機能が ON の間だけ)。
+    private func recordCollectionBooks() {
+        guard preferences.libraryFeatureEnabled else { return }
+        metadataCorpusStore.recordCollectionBooks(collectionStore.allRegisteredBookIDs())
     }
 
     /// アプリ自身がファイルを動かした(ファイルブラウザの操作・取り消し・やり直し・自動リネーム。`FileSystemChange` の型コメント)。
@@ -469,6 +513,7 @@ final class AppStores: ObservableObject {
     /// よく使う項目と保存データを新しいパスへ付け替え、それが済んでから棚・履歴・お気に入りの「実体があるか」を確かめ直す
     /// (以前の契機は起動・アクティブ化・ボリュームの着脱だけで、アプリの中で本を移しても消しても表示が変わらなかった)。
     private func handleFileSystemChange(_ change: FileSystemChange) {
+        metadataCorpusStore.relocate(using: change)
         favoriteLocations.relocate(using: change)
         smartLibraryStore.relocate(using: change)
         metadataRulesStore.relocate(using: change)

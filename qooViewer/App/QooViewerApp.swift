@@ -1790,8 +1790,8 @@ struct QooViewerApp: App {
                 // 実体の確かめ(フォルダのアクセス権)と、実体の無い本の保存データの削除(2026-09-21)。
                 .environmentObject(folderAccess)
                 .environment(metadataRulesStore)
-                // スマートライブラリの対象フォルダの本も一覧の母体(2026-09-22)。
-                .environmentObject(smartLibraryCatalog)
+                // 並べる本と値はメタデータ生成から受け取る(2026-09-22。MetadataGenerator)。
+                .environment(\.metadataGenerator, stores.metadataGenerator)
                 // アプリの外で名前を変えた本の保存データの付け替え(2026-09-22)。
                 .environment(\.bookRecordRelocator, stores.bookRecordRelocator)
                 .environmentObject(bookmarkStore)

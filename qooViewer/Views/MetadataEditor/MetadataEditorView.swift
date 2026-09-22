@@ -15,9 +15,10 @@ import SwiftUI
 ///
 /// **ロック = 登録**(利用者の決定 2026-09-21、案 A)。直した値は青く出る下書きで、鍵を掛けると登録される(MetadataWorkspace)。
 ///
-/// 一覧に並べる本(= メタデータを自動で作る対象)は、**開いた本・ライブラリの本**(このアプリが保存データを持っている本。
-/// `KnownBooks`、以前の窓と同じ)と、**スマートライブラリの対象フォルダの中の本**(`SmartLibraryCatalog.folderBookIDs()`)。
-/// ファイルブラウザの「よく使う項目」のフォルダの中の本は、開くまで対象にしない(2026-09-22、利用者の指示)。
+/// 一覧に並べる本と値は、メタデータ生成(`MetadataGenerator`。ファイル名からメタデータを作って DB へ書くただ 1 つの役)から
+/// 受け取る。並ぶのは、このアプリが知っている本・ライブラリの本・スマートライブラリの対象フォルダの中の本(機能の ON/OFF に
+/// 関わらず、最後に記録した一覧。MetadataCorpusStore)。ファイルブラウザの「よく使う項目」のフォルダの中の本は、開くまで対象に
+/// しない(2026-09-22、利用者の指示)。
 ///
 /// 中身(`MetadataWorkspace`)は窓を開くたびに作り、閉じたら捨てる(閉じている間に DB が変わっても、次に開いたときは
 /// DB から読み直すだけで済む)。
@@ -28,8 +29,8 @@ struct MetadataEditorWindow: View {
     @EnvironmentObject private var favoritesStore: FavoritesStore
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var folderAccess: FolderAccessStore
-    @EnvironmentObject private var smartLibraryCatalog: SmartLibraryCatalog
     @EnvironmentObject private var preferences: AppPreferences
+    @Environment(\.metadataGenerator) private var metadataGenerator
     @Environment(MetadataRulesStore.self) private var rulesStore
     @Environment(\.modelContext) private var modelContext
     @Environment(\.bookRecordRelocator) private var bookRecordRelocator
@@ -46,12 +47,12 @@ struct MetadataEditorWindow: View {
             }
         }
         .frame(minWidth: 900, minHeight: 480)
-        .task { [metadataStore, bookmarkStore, layoutStore, favoritesStore, collectionStore, folderAccess, smartLibraryCatalog] in
+        .task { [metadataStore, bookmarkStore, layoutStore, favoritesStore, collectionStore, folderAccess, metadataGenerator] in
             let model = MetadataEditorModel(
                 metadataStore: metadataStore, rulesStore: rulesStore,
                 stores: .init(favoritesStore: favoritesStore, collectionStore: collectionStore, bookmarkStore: bookmarkStore,
                               layoutStore: layoutStore, metadataStore: metadataStore, folderAccess: folderAccess,
-                              smartLibraryCatalog: smartLibraryCatalog, modelContext: modelContext),
+                              generator: metadataGenerator, modelContext: modelContext),
                 preferences: preferences,
                 relocator: bookRecordRelocator,
                 resolveURL: { [weak metadataStore, weak bookmarkStore, weak layoutStore, weak collectionStore] bookID in
@@ -74,6 +75,8 @@ struct MetadataEditorWindow: View {
 extension EnvironmentValues {
     /// アプリの外で名前を変えた本の保存データを付け替える役(AppStores.bookRecordRelocator。メタデータの編集ウインドウが使う)。
     @Entry var bookRecordRelocator: BookRecordRelocator?
+    /// ファイル名からメタデータを作る役(AppStores.metadataGenerator。メタデータの編集ウインドウが使う)。
+    @Entry var metadataGenerator: MetadataGenerator?
 }
 
 /// 窓の持ちもの: 中身(`MetadataWorkspace`)と、それを DB・規則・ほかの窓へつなぐ所。
@@ -87,8 +90,8 @@ final class MetadataEditorModel {
         let layoutStore: LayoutStore
         let metadataStore: BookMetadataStore
         let folderAccess: FolderAccessStore
-        /// スマートライブラリの対象フォルダの中の本(一覧の母体に足す)。
-        let smartLibraryCatalog: SmartLibraryCatalog
+        /// 並べる本と値の出どころ(メタデータ生成)。
+        let generator: MetadataGenerator?
         let modelContext: ModelContext
     }
 
@@ -106,8 +109,6 @@ final class MetadataEditorModel {
     @ObservationIgnored private let relocator: BookRecordRelocator?
     /// 付け替えを一度試した本(古いパス)。新しいパスに行があって付け替わらなかった本を、何度も試さない。
     @ObservationIgnored private var relocationAttempted: Set<String> = []
-    /// スマートライブラリの対象フォルダの本も一覧に入れるか(開くたびに読む)。
-    @ObservationIgnored private let includesSmartLibraryFolders: () -> Bool
 
     init(metadataStore: BookMetadataStore, rulesStore: MetadataRulesStore, stores: Stores,
          preferences: AppPreferences, relocator: BookRecordRelocator?, resolveURL: @escaping (String) -> URL?) {
@@ -115,47 +116,16 @@ final class MetadataEditorModel {
         self.metadataStore = metadataStore
         self.rulesStore = rulesStore
         self.stores = stores
-        includesSmartLibraryFolders = { [weak preferences] in preferences?.smartLibraryFeatureEnabled ?? true }
         coverController = CoverOverrideController(target: .collectionCover, layoutStore: stores.layoutStore,
                                                   preferences: preferences, resolveURL: resolveURL)
     }
 
-    /// 対象の本を集め、qooMeta で読む。
+    /// メタデータ生成が読み終えるのを待って並べる。
     func open() async {
-        // 対象外のフォルダの本は並べない(MetadataRulesStore.excludedFolders。登録済みのメタデータは消さない)。
-        var known = KnownBooks.collect(from: KnownBooks.Sources(
-            metadataStore: stores.metadataStore, bookmarkStore: stores.bookmarkStore, layoutStore: stores.layoutStore,
-            favoritesStore: stores.favoritesStore, collectionStore: stores.collectionStore, modelContext: stores.modelContext))
-        // スマートライブラリが OFF の間は、その対象フォルダを探しに行かない(AppPreferences.smartLibraryFeatureEnabled)。
-        if includesSmartLibraryFolders() {
-            known.formUnion(await stores.smartLibraryCatalog.folderBookIDs())
-        }
-        var bookIDs = known.filter { !rulesStore.isExcluded(bookID: $0) }
-        // まだ登録していない本は、実体があると確かめられたものだけ並べる(= 登録する)。読書位置やコレクションは、
-        // アプリの外で名前を変えた・消した本の古いパスを覚えていることがあり、それも並べて登録していたので、
-        // メタデータを削除しても窓を開くたびに実在しない本が戻ってきた(2026-09-22、利用者の報告)。
-        // 登録済みの本は、見つからなくても並べる(未接続のボリュームの本の値を消えたように見せない。薄い字になる)。
-        guard let listed = await existingOrRegistered(bookIDs) else {
-            // 名前を変えた本の保存データを付け替えた。数え直す(付け替えた本は二度と試さないので、繰り返しは 1 度で止まる)。
-            await open()
-            return
-        }
-        bookIDs = listed
-        let entries = bookIDs.map { bookID in
-            MetadataWorkspace.Entry(bookID: bookID, record: metadataStore.record(forBookID: bookID))
-        }
-        let workspace = await MetadataWorkspace.open(entries, rules: rulesStore.rules)
-        workspace.writeBack = { [weak metadataStore] entries in metadataStore?.upsertAll(entries) }
-        // **登録する前に**、ほかの書き手の変更を受け始め、読み込んでいた間の変更を取り込む(2026-09-22 の監査)。行を読んでから
-        // `open` が終わるまで(数千冊で秒単位)に、EPUB の書誌の取り込み・1 冊ぶんのシート・保存データの読み込みが書いた直した欄や
-        // ロックを、以前は下の `registerAll` が読んだ時点の状態で上書きしていた(取り込み済みの印だけが残り、二度と取り込まれない)。
+        guard let generator = stores.generator else { return }
+        let workspace = await MetadataWorkspace.open(generator: generator, store: metadataStore)
+        // ほかの書き手(1 冊ぶんのシート・保存データの読み込み・書誌の取り込み)が変えた行の形を受ける。
         observeStoreChanges(of: workspace)
-        var changes: [String: BookMetadataRecord?] = [:]
-        for id in workspace.bookIDs { changes[id] = .some(metadataStore.record(forBookID: id)) }
-        workspace.applyExternalChanges(changes)
-        await workspace.settle()
-        // 並べた本はすべて DB に登録する(利用者の指示 2026-09-22。行の無い本を登録し、ロックしていない本の値を揃える)。
-        await workspace.registerAll()
         // 規則の窓(解析の設定・抽出の設定)に、この一覧の名前を渡す(規則を直しながら、この一覧の名前で読めぐあいを見る)。
         MetadataRulesPicked.shared.set(workspace.books.map(\.fileName))
         self.workspace = workspace
@@ -179,32 +149,6 @@ final class MetadataEditorModel {
         outdatedBookIDs = []
         workspace.setLocked(ids, false)
         workspace.reparseFromFileNames(ids)
-    }
-
-    /// まだ登録していない本のうち、**記録どおりの場所に今ある本**だけを残す(登録済みの本はそのまま)。
-    ///
-    /// 読書位置やコレクションは、アプリの外で名前を変えた・消した本の古いパスを覚えていることがあり、それも並べて登録して
-    /// いたので、メタデータを削除しても窓を開くたびに実在しない本が戻ってきた(2026-09-22、利用者の報告)。同じく、棚
-    /// (本が並んでいるだけのフォルダ)を 1 冊として開いた古い読書位置(棚を先頭の本へ読み替える前、2026-09-06 より前のもの)
-    /// から、本ではないフォルダも登録していた。
-    /// - 判定は `BookExistenceProbe.evaluateAtRecordedPath` ―― 素の `evaluate` はブックマークが移動・改名を追って
-    ///   「ある」と答えるので、古いパスの本が通ってしまう。
-    /// - 確かめられない本(未接続のボリューム・アクセス権が無い)も外す。繋いでから窓を開けば並ぶ。
-    /// - 登録済みの本は、見つからなくても並べる(未接続のボリュームの本の値を消えたように見せない。薄い字になる)。
-    ///   削除すれば、もう戻らない。
-    ///
-    /// アプリの外で名前を変えた・移した本(ブックマークが追える本)は、ここで保存データを新しいパスへ付け替えてから数え直す
-    /// (`relocateMovedBooks`)。
-    private func existingOrRegistered(_ bookIDs: Set<String>) async -> Set<String>? {
-        let registered = metadataStore.registeredBookIDs
-        let probes = makeProbes(bookIDs.subtracting(registered))
-        guard !probes.isEmpty else { return bookIDs }
-        let located = await Task.detached(priority: .userInitiated) {
-            probes.map { ($0.bookID, $0.locateAtRecordedPath()) }
-        }.value
-        if await relocateMovedBooks(located) { return nil }
-        let existing = Set(located.filter { $0.1.result == .exists }.map(\.0))
-        return bookIDs.intersection(registered).union(existing)
     }
 
     /// アプリの外で名前を変えた・移した本の保存データ(5 つのストアと読書位置)を、ブックマークが指す新しいパスへ付け替える。
@@ -308,10 +252,6 @@ final class MetadataEditorModel {
         await open()
     }
 
-    /// 規則が変わったら読み直す(規則の窓で直したとき)。
-    func rulesChanged() async {
-        await workspace?.setRules(rulesStore.rules)
-    }
 
     func close() {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
@@ -450,12 +390,7 @@ struct MetadataEditorContent: View {
                 Task { await model.reopen() }
             }
         }
-        // 規則の窓で変えた内容を一覧へ届ける(打っている途中の変更をまとめるため、少し待つ)。
-        .task(id: rulesStore.rules.contentHash) {
-            try? await Task.sleep(for: .milliseconds(200))
-            guard !Task.isCancelled else { return }
-            await model.rulesChanged()
-        }
+        // 規則の窓で変えた内容は、メタデータ生成が読み直して届ける(MetadataWorkspace.generatorDidUpdate)。
         .onChange(of: controlActiveState, initial: true) { _, state in
             let router = MetadataEditorUndoRouter.shared
             if state == .key {

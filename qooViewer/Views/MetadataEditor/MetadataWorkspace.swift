@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Observation
 import QooMetaKit
@@ -154,18 +155,21 @@ nonisolated enum MetadataValueKey: Hashable, Comparable {
     }
 }
 
-/// 「メタデータの編集」ウインドウの中身: このアプリが知っている本の一覧と、それへの修正。
+/// 「メタデータの編集」ウインドウの中身: メタデータ生成が並べている本の一覧と、それへの修正。
 ///
 /// qooMeta のアプリの 3 ページ目(確認・編集)の `MetadataWorkspace` を移したもの(docs/plans/qoometa-smart-library-plan.md)。
-/// 本当の持ちものは「本ごとの入力(名前・ルールセット・確定した内容)」で、画面に出す提案は qooMeta が導いたもの。
-/// 直すたびに全冊を計算し直さず、変更の索引(`ProposalIndex`)に変わった本だけを渡す。
+///
+/// ■ メタデータ生成の上で(2026-09-22、docs/plans/metadata-generator-plan.md)
+/// 値を作って DB へ書くのは `MetadataGenerator` だけ。この窓が持つのは**行の形**(ロック・直した欄・ルールセット ――
+/// `BookMetadataRowState`)で、直したら**その場で** DB へ書き、メタデータ生成に読み直してもらう(`update()`)。
+/// 提案(値・型に合ったか・推定した巻・シリーズの組)はメタデータ生成の索引から受け取る(`updates`)。
+/// 以前はこの窓が自分の索引で読んで値も書いていたので、スマートライブラリや本を開いたときの読みと食い違い、直しが DB へ
+/// 届く前の知らせで直しが戻ることもあった(利用者の報告)。行の形はその場で書くので、その隙間はもう無い。
 ///
 /// ■ qooViewer での違い
-/// - **一覧の本はすべて DB に登録する**(利用者の指示 2026-09-22: 「表示されているが保存されていない」は意味が分からない)。
-///   ロックしていない本は、直した欄(`BookMetadata.edits`)とルールセットも行に持ち、値は計算し直すたびに書き直す。
-///   ロックした本は**すべての欄を確定した内容**として渡す(`BookMetadataValues.confirmation`)ので、規則を変えても
-///   値は変わらず、鍵を外すまで直せない。**ロックした行の値は、ロックした時にしか書かない**。
-///   (2026-09-21〜22 は「ロック = 登録」で、ロックしていない本の値は drafts.json の下書きにしか無かった。)
+/// - 並ぶ本 = メタデータ生成が並べている本(すべて DB に登録されている。利用者の指示 2026-09-22)。
+/// - ロックした本は**すべての欄を確定した内容**としてメタデータ生成に渡る(`BookMetadataValues.confirmation`)ので、規則を
+///   変えても値は変わらず、鍵を外すまで直せない。**ロックした行の値は、ロックした時にしか書かない**。
 /// - 取り消し(⌘Z)はロックしていない本の直しだけ。ロックと削除は歩みに入れない。
 /// - ルールセットは本ごとに自動で選ぶ(qooMeta の段 2 の「自動」と同じ条件。決まらない本は既定のルールセット)。
 ///   右クリックの「ファイル名の解析ルール」で本ごとに替えられる(替えたルールセットも行に残る)。
@@ -178,41 +182,22 @@ final class MetadataWorkspace {
 
     private(set) var rules: CompiledRules
     private(set) var formats: FormatPresets
-    /// 本ごとの入力(ID → 名前・ルールセット・確定した内容)。これが持ちもの。
-    private var inputs: [String: BookInput]
-    /// 自動で選んだルールセット(決まらなければ nil)。規則を替えたら選び直す。
-    private var autoPresets: [String: String]
-    /// 利用者が右クリックで選んだルールセット(自動より優先)。
-    private var presetOverrides: [String: String] = [:]
-    /// 登録済みの本。
-    private var locked: Set<String>
-    /// DB に行があると分かっている本(開いたときに行があった・この窓が空でない値を書いた・外から行が届いた)。
-    /// 外で行が消えたときに一覧から外すのは、この本だけ(`applyExternalChanges`)。
-    private var persisted: Set<String>
-    /// DB の行のロック・直した欄・ルールセットとして、この窓が知っている最後の形(開いたときに読んだ・この窓が書いた・外から
-    /// 届いた)。外の知らせで本を合わせるのは、DB の形がこれと違う本だけ(`applyExternalChanges`)。
-    ///
-    /// 2026-09-22、利用者の報告(「シリーズ名を直しても、ときどきほかの本に引っ張られて元に戻る」)。以前は DB の形を**今の入力**
-    /// と比べていた。直しは入力を先に変え、DB へは計算(`tail`)が済んでから書くので、その間に届いたほかの書き手の知らせ
-    /// (スマートライブラリの登録・規則の変更の読み直しなど。bookID の無い知らせは一覧の全冊を確かめる)では、DB はまだ直す前の
-    /// 形 ―― 入力と違うので「外で変わった」と読み、直しを DB の古い形へ戻していた(DB にも古い形が書かれた)。計算が長い
-    /// (同じ書き手の本が多い)ほど、また窓の外で書き手が動いているほど起きやすかった。
-    private var knownStates: [String: BookMetadataRowState] = [:]
+    /// 本ごとの DB の行の形(ロック・直した欄・ルールセット)。この窓が書いた・DB から読んだもの。**これが持ちもの。**
+    private var states: [String: BookMetadataRowState] = [:]
     /// 実体が見つからない本(窓を開いたあとに、画面の外で確かめた結果)。
     private var missing: Set<String> = []
-    /// 入れた順。
-    private var order: [String]
+    /// 並べている本(メタデータ生成の並び)。
+    private var order: [String] = []
     private var positionByID: [String: Int] = [:]
     private var sortedPositions: [Int] = []
     private var fileRanks: [String: Int] = [:]
     private var isBatching = false
     private var pendingSearch: Task<Void, Never>?
-    private var reloading: Task<[MetadataBookRow]?, Never>?
-    private let index: ProposalIndex
-    /// 索引への変更は入れた順に流す。
+    /// ロック・鍵を外したあとの絞り込みなど、順に流す仕事。
     private var tail: Task<Void, Never>?
-    /// DB へ書く口。書いた結果として届く変更の知らせを、自分の変更として無視するための印も持つ。
-    @ObservationIgnored var writeBack: (([BookMetadataStore.BatchEntry]) -> Void)?
+    @ObservationIgnored private let generator: MetadataGenerator
+    @ObservationIgnored private let store: BookMetadataStore
+    @ObservationIgnored private var subscription: AnyCancellable?
     /// いま DB へ書いている最中(その知らせで、自分の行を読み直さない)。
     @ObservationIgnored private(set) var isWritingBack = false
 
@@ -266,227 +251,55 @@ final class MetadataWorkspace {
 
     // MARK: - 開く
 
-    /// 1 冊ぶんの入口。
-    struct Entry: Sendable {
-        let bookID: String
-        /// DB の行(無ければ nil。開いたあとに登録する)。
-        var record: BookMetadataRecord?
+    private init(generator: MetadataGenerator, store: BookMetadataStore) {
+        self.generator = generator
+        self.store = store
+        rules = generator.rules
+        formats = generator.rules.formats
     }
 
-    private init(inputs: [BookInput], autoPresets: [String: String], locked: Set<String>, persisted: Set<String>,
-                 states: [String: BookMetadataRowState],
-                 overrides: [String: String], rules: CompiledRules) {
-        self.persisted = persisted
-        knownStates = states
-        presetOverrides = overrides
-        self.rules = rules
-        formats = rules.formats
-        self.inputs = Dictionary(inputs.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        self.autoPresets = autoPresets
-        self.locked = locked
-        var seen = Set<String>()
-        order = inputs.map(\.id).filter { seen.insert($0).inserted }
-        index = ProposalIndex(rules: rules, dictionaries: MetadataRulesStore.dictionaries)
-    }
-
-    /// 開く(最初の計算まで待つ)。名前の正規化とルールセットの自動の選択も main の外で行う。
-    static func open(_ entries: [Entry], rules: CompiledRules) async -> MetadataWorkspace {
-        let prepared = await Task.detached(priority: .userInitiated) { () -> ([BookInput], [String: String], Set<String>) in
-            var inputs: [BookInput] = []
-            var autos: [String: String] = [:]
-            var locked = Set<String>()
-            inputs.reserveCapacity(entries.count)
-            let autoRules = MetadataRulesStore.autoPresetRules(of: rules)
-            for entry in entries {
-                let name = MetadataRulesStore.parsingName(forBookID: entry.bookID)
-                let auto = MetadataRulesStore.autoPreset(forBookID: entry.bookID, name: name, autoRules: autoRules)
-                if let auto { autos[entry.bookID] = auto }
-                if entry.record?.isLocked == true { locked.insert(entry.bookID) }
-                // ロックした行はすべての欄、していない行は直した欄(BookMetadataRecord.confirmation)。
-                inputs.append(BookInput(id: entry.bookID, name: name, preset: entry.record?.ruleSet ?? auto,
-                                        confirmation: entry.record?.confirmation ?? .none))
-            }
-            return (inputs, autos, locked)
-        }.value
-        var overrides: [String: String] = [:]
-        for entry in entries {
-            if let preset = entry.record?.ruleSet { overrides[entry.bookID] = preset }
+    /// 開く(メタデータ生成が読み終えるのを待ってから並べる)。
+    static func open(generator: MetadataGenerator, store: BookMetadataStore) async -> MetadataWorkspace {
+        // メタデータを削除した本も、窓を開き直せばまた並べて登録する(利用者の指示 2026-09-22: 覚えてはおかない)。
+        generator.reregisterDeletedBooks()
+        await generator.update()
+        let workspace = MetadataWorkspace(generator: generator, store: store)
+        workspace.reloadAll()
+        workspace.subscription = generator.updates.sink { [weak workspace] update in
+            MainActor.assumeIsolated { workspace?.generatorDidUpdate(update) }
         }
-        let persisted = Set(entries.lazy.filter { $0.record != nil }.map(\.bookID))
-        var states: [String: BookMetadataRowState] = [:]
-        for entry in entries { if let record = entry.record { states[entry.bookID] = record.rowState } }
-        let workspace = MetadataWorkspace(inputs: prepared.0, autoPresets: prepared.1, locked: prepared.2,
-                                          persisted: persisted, states: states, overrides: overrides, rules: rules)
-        await workspace.recomputeAll()
         return workspace
     }
 
-    /// 一覧の本をすべて DB へ書く(開いた直後。行の無い本を登録し、ロックしていない本の値をいまの読みに揃える)。
-    /// `writeBack` を付けてから呼ぶ。初めて開いたときは数千冊を登録するので、区切って書き、合間にメインを譲る
-    /// (`BookMetadataStore.upsertAllInBatches` のコメント)。
-    func registerAll() async {
-        let ids = order
-        var start = 0
-        while start < ids.count {
-            let end = min(start + BookMetadataStore.registrationBatchSize, ids.count)
-            writeRows(Set(ids[start..<end]))
-            start = end
-            if start < ids.count { try? await Task.sleep(for: .milliseconds(1)) }
-        }
+    /// 並びと行の形を読み直し、行をすべて作り直す(開いたとき・規則が変わったとき・並ぶ本が変わったとき)。
+    private func reloadAll() {
+        rules = generator.rules
+        formats = generator.rules.formats
+        order = generator.listedBookIDs
+        var states: [String: BookMetadataRowState] = [:]
+        for id in order { if let record = store.record(forBookID: id) { states[id] = record.rowState } }
+        self.states = states
+        let names = order.map { (id: $0, name: generator.input(for: $0)?.name ?? MetadataRulesStore.baseName(forBookID: $0)) }
+        let byName = names.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        fileRanks = Dictionary(byName.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { a, _ in a })
+        let listed = Set(order)
+        missing.formIntersection(listed)
+        selection.formIntersection(listed)
+        replaceBooks(order.compactMap { id in generator.proposal(for: id).map(makeRow) })
     }
 
-    /// 規則を替える(規則の窓で方針や型を変えたとき)。すべての本を読み直し、ルールセットの自動の選択もやり直す。
-    ///
-    /// **本の修正と同じ列(`tail`)に並べる**(qooMeta の MetadataWorkspace.setRules のコメント)。
-    func setRules(_ rules: CompiledRules) async {
-        guard rules.contentHash != self.rules.contentHash else { return }
-        self.rules = rules
-        formats = rules.formats
-        reloading?.cancel()
-        let previous = tail
-        working += 1
-        let task = Task { [index] in
-            await previous?.value
-            // ルールセットの自動の選択をやり直し、変わった本の入力を替えてから読み直す(読み直しは 1 回で済む)。
-            let names = self.inputs.mapValues(\.name)
-            let autos = await Task.detached { () -> [String: String] in
-                var autos: [String: String] = [:]
-                let autoRules = MetadataRulesStore.autoPresetRules(of: rules)
-                for (id, name) in names {
-                    if let auto = MetadataRulesStore.autoPreset(forBookID: id, name: name, autoRules: autoRules) { autos[id] = auto }
-                }
-                return autos
-            }.value
-            self.autoPresets = autos
-            // ルールセットが変わった本の入力。**`inputs` へ書くのは読み直しが通ってから**(2026-09-22 の監査で指摘): 先に
-            // 書いてから次の規則の変更で取り消されると、索引は前のルールセットのまま `inputs` だけ新しくなり、次の
-            // `setRules` は「変わっていない」と見て渡さなかった(その本は前のルールセットで読まれ続け、鍵を掛けるとその
-            // 読みで登録された)。書かずに取り消されても、次の `setRules` がもう一度渡す(同じ入力の upsert は何度でもよい)。
-            var updated: [String: BookInput] = [:]
-            var changed: [BookChange] = []
-            for id in self.order {
-                let preset = self.presetOverrides[id] ?? autos[id]
-                guard var input = self.inputs[id], input.preset != preset else { continue }
-                input.preset = preset
-                updated[id] = input
-                changed.append(.upsert(input))
-            }
-            let confirmations = self.inputs.mapValues(\.confirmation), ranks = self.fileRanks, locked = self.locked
-            let missing = self.missing
-            let work = Task.detached { () -> [MetadataBookRow]? in
-                do {
-                    if !changed.isEmpty { try await index.apply(changed) }
-                    try await index.reload(rules: rules, dictionaries: MetadataRulesStore.dictionaries)
-                } catch { return nil }
-                return await index.snapshot().proposals.map {
-                    MetadataBookRow($0, confirmation: confirmations[$0.id] ?? .none,
-                                    isLocked: locked.contains($0.id),
-                                    isMissing: missing.contains($0.id), fileRank: ranks[$0.id] ?? 0)
-                }
-            }
-            self.reloading = work
-            if let rows = await work.value {
-                for (id, input) in updated { self.inputs[id] = input }
-                self.replaceBooks(rows)
-                // ロックしていない本の値は、規則に合わせて DB も書き直す(利用者の指示 2026-09-22)。
-                self.writeRows(Set(self.order))
-            }
-            self.working -= 1
+    private func generatorDidUpdate(_ update: MetadataGenerator.Update) {
+        if update.isFull || Set(generator.listedBookIDs) != Set(order) {
+            forgetUndo(for: Set(order).subtracting(generator.listedBookIDs))
+            reloadAll()
+            return
         }
-        tail = task
-        await task.value
-    }
-
-    // MARK: - 計算
-
-    private func recomputeAll() async {
-        working += 1
-        let all = order.compactMap { inputs[$0] }
-        let confirmations = inputs.mapValues(\.confirmation), locked = self.locked
-        let missing = self.missing
-        let (rows, ranks) = await Task.detached { [index] in
-            try? await index.load(all)
-            let byName = all.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-            let ranks = Dictionary(byName.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { a, _ in a })
-            let rows = await index.snapshot().proposals.map {
-                MetadataBookRow($0, confirmation: confirmations[$0.id] ?? .none,
-                                isLocked: locked.contains($0.id),
-                                isMissing: missing.contains($0.id), fileRank: ranks[$0.id] ?? 0)
-            }
-            return (rows, ranks)
-        }.value
-        fileRanks = ranks
-        replaceBooks(rows)
-        working -= 1
-    }
-
-    /// 変わった本だけを索引へ渡す。着いたら、変わった本の DB を行に合わせる(`alsoWrite` は、提案が変わらなくても
-    /// 書き直す本 ―― 直した本・ロックを掛けた/外した本)。
-    private func push(_ changedIDs: [String], alsoWrite: Set<String> = [], lockChanged: Set<String> = []) {
-        let changes = changedIDs.compactMap { inputs[$0] }.map { BookChange.upsert($0) }
-        guard !changes.isEmpty || !alsoWrite.isEmpty else { return }
-        let previous = tail
-        working += 1
-        tail = Task { [index] in
-            await previous?.value
-            let delta = changes.isEmpty ? nil : await Task.detached { try? await index.apply(changes) }.value
-            if let delta { self.absorb(delta) }
-            // 錨の効果で、選んでいない本の提案も変わる。その値も DB へ(ロックした本は `writeRows` が書かない)。
-            var toWrite = alsoWrite
-            for proposal in delta?.changed ?? [] { toWrite.insert(proposal.id) }
-            self.writeRows(toWrite, lockChanged: lockChanged)
-            self.working -= 1
-        }
-    }
-
-    /// 行の値とロック・直した欄を DB へ書く。**ロックした本は `lockChanged` の本だけ書く**(ロックした行の値は、
-    /// ロックした時にしか変えない。利用者の指示 2026-09-22「ロックされたら DB を変更不可」)。
-    private func writeRows(_ ids: Set<String>, lockChanged: Set<String> = []) {
-        guard let writeBack, !ids.isEmpty else { return }
-        var mounts: MountTable?
-        let entries = ids.sorted().compactMap { id -> BookMetadataStore.BatchEntry? in
-            guard let row = row(id), let input = inputs[id] else { return nil }
-            let isLocked = locked.contains(id)
-            guard !isLocked || lockChanged.contains(id) else { return nil }
-            let state = BookMetadataRowState(isLocked: isLocked, edits: input.confirmation, ruleSet: presetOverrides[id])
-            // 利用者が手を入れた行(ロック・直した欄・ルールセット)には、本の場所の手がかり(識別子とブックマーク)を持たせる。
-            // 無いと、アプリの外で名前を変えたときに行が古いパスに取り残される(開いたときの追従は識別子、起動後の追従は
-            // ブックマークで探す。2026-09-22 の監査)。手がかりはストアが「まだ無いときだけ」書く。見つからない本とネットワークの
-            // 本には触らない(メインで stat するため)。
-            var sourceURL: URL?
-            if state != BookMetadataRowState(isLocked: false), !missing.contains(id) {
-                let url = URL(fileURLWithPath: id)
-                if mounts == nil { mounts = MountTable.current() }
-                if let mounts, !mounts.isOnAnUnmountedVolume(url), !mounts.isRemote(url) { sourceURL = url }
-            }
-            return BookMetadataStore.BatchEntry(bookID: id, values: row.values, sourceURL: sourceURL, state: state)
-        }
-        guard !entries.isEmpty else { return }
-        isWritingBack = true
-        writeBack(entries)
-        isWritingBack = false
-        // 空の値は行を作らない(消す)ので、行があるのは空でない値を書いた本だけ(`BookMetadataStore.applyUpsert`)。
-        for entry in entries {
-            if entry.values?.trimmed.isEmpty == false {
-                persisted.insert(entry.bookID)
-                if let state = entry.state { knownStates[entry.bookID] = state.normalized }
-            } else {
-                persisted.remove(entry.bookID)
-                knownStates[entry.bookID] = nil
-            }
-        }
-    }
-
-    private func absorb(_ delta: ProposalDelta) {
         var changed: [Int] = []
         var books = self.books
         self.books = []
-        for proposal in delta.changed {
-            guard let position = positionByID[proposal.id] else { continue }
-            books[position] = MetadataBookRow(proposal, confirmation: inputs[proposal.id]?.confirmation ?? .none,
-                                              isLocked: locked.contains(proposal.id),
-                                              isMissing: missing.contains(proposal.id),
-                                              fileRank: fileRanks[proposal.id] ?? 0)
+        for id in update.changedIDs {
+            guard let position = positionByID[id], let proposal = generator.proposal(for: id) else { continue }
+            books[position] = makeRow(proposal)
             changed.append(position)
         }
         self.books = books
@@ -494,17 +307,28 @@ final class MetadataWorkspace {
         booksChanged()
     }
 
-    /// 提案は変わらず、登録の有無だけが変わった本の行を作り直す。
+    private func makeRow(_ proposal: BookProposal) -> MetadataBookRow {
+        let id = proposal.id
+        return MetadataBookRow(proposal, confirmation: displayConfirmation(id, values: BookMetadataValues(proposal.metadata)),
+                               isLocked: isLocked(id), isMissing: missing.contains(id), fileRank: fileRanks[id] ?? 0)
+    }
+
+    /// 行に持たせる確定した内容(直した欄の青い字・確定したシリーズの印に使う)。ロックした本はすべての欄。
+    private func displayConfirmation(_ id: String, values: BookMetadataValues) -> Confirmation {
+        guard let state = states[id] else { return .none }
+        return state.isLocked ? values.confirmation : state.edits
+    }
+
+    /// 提案は変わらず、行の形(ロック・直した欄)や実体の有無だけが変わった本の行を作り直す。
     private func refreshRegistration(_ ids: some Sequence<String>) {
         var changed: [Int] = []
         for id in ids {
             guard let position = positionByID[id] else { continue }
             let old = books[position]
-            guard old.isLocked != locked.contains(id) || old.confirmation != inputs[id]?.confirmation
-                    || old.isMissing != missing.contains(id) else { continue }
-            // 提案そのものは変わっていないので、行の中の提案の値から作り直す。
-            books[position] = old.with(confirmation: inputs[id]?.confirmation ?? .none, isLocked: locked.contains(id),
-                                       isMissing: missing.contains(id))
+            let confirmation = displayConfirmation(id, values: old.values)
+            guard old.isLocked != isLocked(id) || old.confirmation != confirmation || old.isMissing != missing.contains(id)
+            else { continue }
+            books[position] = old.with(confirmation: confirmation, isLocked: isLocked(id), isMissing: missing.contains(id))
             changed.append(position)
         }
         guard !changed.isEmpty else { return }
@@ -531,61 +355,88 @@ final class MetadataWorkspace {
         applyFilters()
     }
 
+    // MARK: - DB へ書く
+
+    /// 行の形を DB へ書き、メタデータ生成に読み直してもらう。値は、ロックを掛けた本(`lockValues`)なら見えている値、
+    /// ほかは DB の今の値のまま(ロックしていない本の値はメタデータ生成が書く)。
+    private func commit(_ ids: some Sequence<String>, lockValues: [String: BookMetadataValues] = [:]) {
+        var mounts: MountTable?
+        let entries = Set(ids).sorted().compactMap { id -> BookMetadataStore.BatchEntry? in
+            guard let state = states[id], let values = lockValues[id] ?? store.record(forBookID: id)?.values ?? row(id)?.values
+            else { return nil }
+            // 利用者が手を入れた行(ロック・直した欄・ルールセット)には、本の場所の手がかり(識別子とブックマーク)を持たせる。
+            // 無いと、アプリの外で名前を変えたときに行が古いパスに取り残される(開いたときの追従は識別子、起動後の追従は
+            // ブックマークで探す。2026-09-22 の監査)。手がかりはストアが「まだ無いときだけ」書く。見つからない本とネットワークの
+            // 本には触らない(メインで stat するため)。
+            var sourceURL: URL?
+            if state != BookMetadataRowState(isLocked: false), !missing.contains(id) {
+                let url = URL(fileURLWithPath: id)
+                if mounts == nil { mounts = MountTable.current() }
+                if let mounts, !mounts.isOnAnUnmountedVolume(url), !mounts.isRemote(url) { sourceURL = url }
+            }
+            return BookMetadataStore.BatchEntry(bookID: id, values: values, sourceURL: sourceURL, state: state)
+        }
+        guard !entries.isEmpty else { return }
+        isWritingBack = true
+        store.upsertAll(entries)
+        isWritingBack = false
+        refreshFromGenerator()
+    }
+
+    /// メタデータ生成に読み直してもらう(変わった本の提案は `updates` で届く)。
+    private func refreshFromGenerator() {
+        committed &+= 1
+        let count = committed
+        let previous = tail
+        working += 1
+        tail = Task { [generator] in
+            await previous?.value
+            await generator.update()
+            self.reflected = max(self.reflected, count)
+            self.working -= 1
+        }
+    }
+
+    /// DB へ書いた回数と、そのうちメタデータ生成の読みが届いた回数(`setLocked` が、まだ届いていない直しを待つかを決める)。
+    @ObservationIgnored private var committed = 0
+    @ObservationIgnored private var reflected = 0
+
     // MARK: - ほかの画面が DB を変えたとき
 
-    /// 1 冊ぶんのシート・保存データの読み込み・ビューアの取り込みなど、この窓の外で DB が変わったとき、その本の
-    /// 入力を DB に合わせる(nil なら行が消えた ―― 一覧から外す)。取り消しの歩みには入れない。
-    /// **ロックしていない行の値の違いは見ない**(値は解析から作るもので、スマートライブラリなどが同じ本を別の錨で読んで
-    /// 書くことがある。見るのはロックと直した欄とルールセット)。
+    /// 1 冊ぶんのシート・保存データの読み込み・ビューアの取り込みなど、この窓の外で DB が変わったとき、その本の行の形を
+    /// DB に合わせる(nil なら行が消えた ―― 一覧から外す)。取り消しの歩みには入れない。値はメタデータ生成が読み直して届ける。
     func applyExternalChanges(_ changes: [String: BookMetadataRecord?]) {
         var changedIDs: [String] = []
         var gone = Set<String>()
         for (id, record) in changes {
-            guard var input = inputs[id] else { continue }
+            guard positionByID[id] != nil else { continue }
             guard let record else {
-                // 行があったと分かっている本だけを外す(2026-09-22 の 2 回目の監査の 5)。以前はどの本でも外していたので、
-                // 全欄が空の本(行を作れない)が、bookID の無い知らせ(スマートライブラリの登録・規則の変更の読み直し)の
-                // たびに一覧から消えた。
-                if persisted.contains(id) { gone.insert(id) }
+                if states[id] != nil { gone.insert(id) }
                 continue
             }
-            persisted.insert(id)
-            // DB の形が、この窓の知っている最後の形のままなら、外では何も変わっていない(この窓の直しがまだ DB へ届いていない
-            // だけかもしれない ―― `knownStates` のコメント)。ロックした行は値も見る(保存データの読み込みは値だけを変えうる)。
             let state = record.rowState
-            if knownStates[id] == state, !record.isLocked || row(id)?.values == record.values.trimmed { continue }
-            knownStates[id] = state
-            let wasLocked = locked.contains(id)
-            if record.isLocked {
-                if wasLocked, row(id)?.values == record.values.trimmed { continue }
-                locked.insert(id)
-            } else {
-                if !wasLocked, input.confirmation == record.edits, presetOverrides[id] == record.ruleSet { continue }
-                locked.remove(id)
-            }
-            presetOverrides[id] = record.ruleSet
-            input.preset = record.ruleSet ?? autoPresets[id]
-            input.confirmation = record.confirmation
-            inputs[id] = input
+            if states[id] == state, !record.isLocked || row(id)?.values == record.values.trimmed { continue }
+            states[id] = state
             changedIDs.append(id)
         }
         if !gone.isEmpty { removeBooks(gone) }
         guard !changedIDs.isEmpty else { return }
         forgetUndo(for: Set(changedIDs))
         refreshRegistration(changedIDs)
-        push(changedIDs)
     }
 
-    /// 流している変更(索引への反映と DB への書き戻し)がすべて終わるまで待つ(テストと、書き出す前の確かめ用)。
+    /// 流している変更(DB への書き込みとメタデータ生成の読み直し)がすべて終わるまで待つ(テストと、書き出す前の確かめ用)。
     func settle() async {
         while let current = tail {
             await current.value
             if tail == current { break }
         }
+        // 外の書き込みでメタデータ生成が待っている回(少し待ってから読む)も、ここで読ませる。
+        await generator.update()
     }
 
     /// その本が一覧にあるか。
-    func contains(_ id: String) -> Bool { inputs[id] != nil }
+    func contains(_ id: String) -> Bool { positionByID[id] != nil }
 
     /// 一覧にある本の ID(外の変更を確かめるとき)。
     var bookIDs: [String] { order }
@@ -733,11 +584,11 @@ final class MetadataWorkspace {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return SeriesChangePreview() }
         let changes = ids.sorted().compactMap { id -> BookChange? in
-            guard var input = inputs[id] else { return nil }
-            input.confirmation = .series(name: trimmed, volume: row(id).flatMap(Self.confirmedVolume), fields: input.confirmation.fields)
+            guard var input = generator.input(for: id), let state = states[id], !state.isLocked else { return nil }
+            input.confirmation = .series(name: trimmed, volume: row(id).flatMap(Self.confirmedVolume), fields: state.edits.fields)
             return .upsert(input)
         }
-        let delta = await Task.detached { [index] in try? await index.preview(changes) }.value
+        let delta = await generator.preview(changes)
         var preview = SeriesChangePreview()
         for proposal in delta?.changed ?? [] {
             let old = row(proposal.id)?.metadata.series ?? ""
@@ -772,13 +623,13 @@ final class MetadataWorkspace {
     // MARK: - ルールセット
 
     /// その本の名前を読んだ型の並び。
-    func formats(for id: String) -> FilenameFormats { formats[inputs[id]?.preset] }
+    func formats(for id: String) -> FilenameFormats { formats[generator.input(for: id)?.preset] }
 
     /// その本を読んでいるルールセットの名前(割り当てが無ければ既定のもの)。
-    func presetName(for id: String) -> String { inputs[id]?.preset ?? formats.defaultName }
+    func presetName(for id: String) -> String { generator.input(for: id)?.preset ?? formats.defaultName }
 
     /// その本のルールセットを利用者が選んだか(自動ではなく)。
-    func hasPresetOverride(_ id: String) -> Bool { presetOverrides[id] != nil }
+    func hasPresetOverride(_ id: String) -> Bool { states[id]?.ruleSet != nil }
 
     /// 選んだ本に使うルールセット(ファイル名の解析ルール)を切り替える(一覧の右クリック)。nil なら自動に戻す。
     /// **変更した値は捨てない** ―― 切り替えで変わるのは、変更していない欄の提案だけ。変更した値ごと読み直すのは
@@ -791,7 +642,7 @@ final class MetadataWorkspace {
     // MARK: - ロック・実体・削除
 
     /// ロックしてあるか。
-    func isLocked(_ id: String) -> Bool { locked.contains(id) }
+    func isLocked(_ id: String) -> Bool { states[id]?.isLocked == true }
 
     /// ロックする / 外す。
     /// - 掛ける: いま見えている値のまま、すべての欄を確定した内容にする(規則を変えても変わらない)。
@@ -804,79 +655,88 @@ final class MetadataWorkspace {
     /// ので、掛けると鍵の印だけが付いて何も残らず、開き直すと外れていた。
     func setLocked(_ ids: Set<String>, _ lock: Bool) {
         let targets = ids.filter { id in
-            guard inputs[id] != nil, locked.contains(id) != lock else { return false }
+            guard states[id] != nil, isLocked(id) != lock else { return false }
             return !lock || row(id)?.values.isEmpty == false
         }
         guard !targets.isEmpty else { return }
         guard lock else { return unlock(targets) }
-        // 鍵の印はその場で付け(以後は直させない)、確定する値は計算の列(`tail`)で、先に並んだ直しが行に届いてから読む
+        // 鍵の印はその場で付け(以後は直させない)、確定する値は、先に書いた直しをメタデータ生成が読み終えてから行の値を読む
         // (2026-09-22。欄を書き換えている途中で鍵を押すと、書き換えの確定と鍵が同じ操作で届き、以前はまだ届いていない
-        // 古い行の値でロックして、直した値が消えた)。
-        for id in targets { locked.insert(id) }
+        // 古い行の値でロックして、直した値が消えた)。DB へは値と一緒に書く(ロックした行は直した欄を持たない)。
+        // まだ読みの届いていない直しが無ければ、見えている値でその場でロックする(待つと、その間にほかの本を直した影響
+        // ―― 錨でシリーズが変わるなど ―― まで入ってしまう)。
+        if committed == reflected {
+            var values: [String: BookMetadataValues] = [:]
+            for id in targets { if let row = row(id) { values[id] = row.values } }
+            for id in targets { states[id] = BookMetadataRowState(isLocked: true, ruleSet: states[id]?.ruleSet) }
+            forgetUndo(for: targets)
+            refreshRegistration(targets)
+            commit(values.keys, lockValues: values)
+            return
+        }
+        for id in targets { states[id] = BookMetadataRowState(isLocked: true, ruleSet: states[id]?.ruleSet) }
         forgetUndo(for: targets)
         refreshRegistration(targets)
         let previous = tail
         working += 1
-        tail = Task {
+        tail = Task { [generator] in
             await previous?.value
-            var fixed = Set<String>()
-            for id in targets where self.locked.contains(id) {
-                guard let row = self.row(id) else { continue }
-                self.inputs[id]?.confirmation = row.values.confirmation
-                fixed.insert(id)
+            await generator.update()
+            var values: [String: BookMetadataValues] = [:]
+            for id in targets where self.isLocked(id) {
+                if let row = self.row(id) { values[id] = row.values }
             }
             self.working -= 1
-            self.refreshRegistration(fixed)
-            self.push(Array(fixed), alsoWrite: fixed, lockChanged: fixed)
+            self.refreshRegistration(values.keys)
+            self.commit(values.keys, lockValues: values)
         }
     }
 
     /// 鍵を外す。**その場で外し**、見えていた値をいったんすべて直した欄にする(外しただけで値が変わらないように。すぐに
-    /// 直せるように)。続けて計算の列(`tail`)で、直した欄を「見えていた値」と「確定を外して読んだ提案」
-    /// (`ProposalIndex.preview`。ほかの本を錨にした読みも含む)の違いだけに絞る ―― 同じ欄は提案のまま(青く出ない)。
-    /// 絞る前に利用者がその本を直していたら(直した欄が外したときのものと違えば)、絞らない。
+    /// 直せるように)。続けて、直した欄を「見えていた値」と「確定を外して読んだ提案」(メタデータ生成の `preview`。ほかの本を
+    /// 錨にした読みも含む)の違いだけに絞る ―― 同じ欄は提案のまま(青く出ない。2026-09-22、利用者の報告: 何も変えていないのに
+    /// 全部の欄が青く出た)。絞る前に利用者がその本を直していたら(直した欄が外したときのものと違えば)、絞らない。
     private func unlock(_ targets: Set<String>) {
         var full: [String: Confirmation] = [:]
         for id in targets {
             guard let row = row(id) else { continue }
             let confirmation = row.values.confirmation
-            inputs[id]?.confirmation = confirmation
+            states[id] = BookMetadataRowState(isLocked: false, edits: confirmation, ruleSet: states[id]?.ruleSet)
             full[id] = confirmation
-            locked.remove(id)
         }
         forgetUndo(for: targets)
         refreshRegistration(targets)
-        push(Array(targets), alsoWrite: targets, lockChanged: targets)
+        commit(full.keys)
 
         let previous = tail
         working += 1
-        tail = Task { [index] in
+        tail = Task { [generator] in
             await previous?.value
+            await generator.settle()
             let changes = full.keys.sorted().compactMap { id -> BookChange? in
-                guard var input = self.inputs[id], input.confirmation == full[id] else { return nil }
+                guard var input = generator.input(for: id), self.states[id]?.edits == full[id] else { return nil }
                 input.confirmation = .none
                 return .upsert(input)
             }
-            let delta = changes.isEmpty ? nil : await Task.detached { try? await index.preview(changes) }.value
+            let delta = changes.isEmpty ? nil : await generator.preview(changes)
             // 提案が変わらなかった本は delta に入らない(見えている値がそのまま読みと同じ)。
             let proposed = Dictionary((delta?.changed ?? []).map { ($0.id, BookMetadataValues($0.metadata)) },
                                       uniquingKeysWith: { a, _ in a })
             var narrowed: [String] = []
             for case .upsert(let input) in changes {
                 let id = input.id
-                guard delta != nil, !self.locked.contains(id), self.inputs[id]?.confirmation == full[id],
+                guard delta != nil, let state = self.states[id], !state.isLocked, state.edits == full[id],
                       let row = self.row(id) else { continue }
                 let shown = row.values.trimmed
                 let edits = MetadataParsing.edits(from: proposed[id]?.trimmed ?? shown, to: shown)
                 guard edits != full[id] else { continue }
-                self.inputs[id]?.confirmation = edits
+                self.states[id]?.edits = edits
                 narrowed.append(id)
             }
             self.working -= 1
             guard !narrowed.isEmpty else { return }
             self.refreshRegistration(narrowed)
-            // 自分の後ろに並べる(この Task は待たないので詰まらない)。
-            self.push(narrowed, alsoWrite: Set(narrowed))
+            self.commit(narrowed)
         }
     }
 
@@ -893,43 +753,29 @@ final class MetadataWorkspace {
     /// (除外フォルダへ入れる前にそのフォルダの本のメタデータを消す、などが想定の使い方。利用者の指示 2026-09-22)。
     /// **DB へは先に直接書く** ―― 計算の列(`tail`)の後で書くと、そのときには一覧から外れた行を引けず、何も消えない。
     func deleteBooks(_ ids: Set<String>) {
-        let targets = ids.filter { inputs[$0] != nil }
+        let targets = ids.filter { positionByID[$0] != nil }
         guard !targets.isEmpty else { return }
-        if let writeBack {
-            isWritingBack = true
-            writeBack(targets.sorted().map { BookMetadataStore.BatchEntry(bookID: $0, values: nil) })
-            isWritingBack = false
-        }
+        isWritingBack = true
+        store.upsertAll(targets.sorted().map { BookMetadataStore.BatchEntry(bookID: $0, values: nil) })
+        isWritingBack = false
         removeBooks(targets)
+        refreshFromGenerator()
     }
 
     /// 一覧から本を外す(保存データを削除した本)。取り消しの歩みからも除く。
     func removeBooks(_ ids: Set<String>) {
-        let targets = ids.filter { inputs[$0] != nil }
+        let targets = ids.filter { positionByID[$0] != nil }
         guard !targets.isEmpty else { return }
         for id in targets {
-            inputs[id] = nil
-            locked.remove(id)
-            persisted.remove(id)
-            knownStates[id] = nil
+            states[id] = nil
             missing.remove(id)
-            presetOverrides[id] = nil
-            autoPresets[id] = nil
         }
         order.removeAll { targets.contains($0) }
         selection.subtract(targets)
         forgetUndo(for: targets)
         replaceBooks(books.filter { !targets.contains($0.id) })
-        let changes = targets.map { BookChange.remove(id: $0) }
-        let previous = tail
-        working += 1
-        tail = Task { [index] in
-            await previous?.value
-            let delta = await Task.detached { try? await index.apply(changes) }.value
-            if let delta { self.absorb(delta) }
-            self.working -= 1
-        }
     }
+
 
     // MARK: - 絞り込みと一覧
 
@@ -1048,22 +894,20 @@ final class MetadataWorkspace {
         if picked.map(\.id) != selectedBooks.map(\.id) { selectionToken += 1 }
         if picked != selectedBooks { selectedBooks = picked }
     }
-
     // MARK: - 取り消し
 
-    /// 取り消せる操作。**持つのは、その操作で変わった本の、前の入力と選んだルールセットだけ**
+    /// 取り消せる操作。**持つのは、その操作で変わった本の、前の行の形(直した欄とルールセット)だけ**
     /// (qooMeta の Workspace.Step のコメント)。取り消せるのはロックしていない本の直しだけ ―― ロックと削除は歩みに入れず、
     /// その本の歩みは捨てる(`forgetUndo`)。
     private struct Step {
         let name: String
-        let inputs: [String: BookInput]
-        let overrides: [String: String?]
+        let states: [String: BookMetadataRowState]
 
         /// その本を除いた歩み(残りが無ければ nil)。
         func removing(_ ids: Set<String>) -> Step? {
-            let kept = inputs.filter { !ids.contains($0.key) }
+            let kept = states.filter { !ids.contains($0.key) }
             guard !kept.isEmpty else { return nil }
-            return Step(name: name, inputs: kept, overrides: overrides.filter { !ids.contains($0.key) })
+            return Step(name: name, states: kept)
         }
     }
 
@@ -1082,30 +926,36 @@ final class MetadataWorkspace {
         redoSteps = redoSteps.compactMap { $0.removing(ids) }
     }
 
-    /// 本ごとの入力を書き換える操作を、取り消せる 1 歩として行う。**ロックした本は変えない**。直した欄も DB へ書く。
+    /// 直す操作の相手(本と、その直した欄)。
+    struct Draft {
+        let id: String
+        var confirmation: Confirmation
+    }
+
+    /// 本ごとの直した欄を書き換える操作を、取り消せる 1 歩として行う。**ロックした本は変えない**。書き換えたらその場で DB へ書く。
     /// `presetChange` は、その本のルールセットの選び直し(nil を返せば選択を外す)。
     private func edit(_ name: String, _ ids: some Sequence<String>,
-                      presetChange: ((String) -> String?)? = nil, _ change: (inout BookInput) -> Void) {
-        var previous: [String: BookInput] = [:]
-        var previousOverrides: [String: String?] = [:]
+                      presetChange: ((String) -> String?)? = nil, _ change: (inout Draft) -> Void) {
+        var previous: [String: BookMetadataRowState] = [:]
         var changed: [String] = []
         for id in ids {
-            guard let before = inputs[id], !locked.contains(id) else { continue }
-            var input = before
-            change(&input)
-            let override = presetChange.map { $0(id) } ?? presetOverrides[id]
-            input.preset = override ?? autoPresets[id]
-            guard input != before || override != presetOverrides[id] else { continue }
+            guard positionByID[id] != nil else { continue }
+            let before = states[id] ?? BookMetadataRowState(isLocked: false)
+            guard !before.isLocked else { continue }
+            var draft = Draft(id: id, confirmation: before.edits)
+            change(&draft)
+            var after = before
+            after.edits = draft.confirmation
+            after.ruleSet = presetChange.map { $0(id) } ?? before.ruleSet
+            guard after != before else { continue }
             previous[id] = before
-            previousOverrides[id] = presetOverrides[id]
-            inputs[id] = input
-            presetOverrides[id] = override
+            states[id] = after
             changed.append(id)
         }
         guard !changed.isEmpty else { return }
-        pushUndo(Step(name: name, inputs: previous, overrides: previousOverrides))
+        pushUndo(Step(name: name, states: previous))
         refreshRegistration(changed)
-        push(changed, alsoWrite: Set(changed))
+        commit(changed)
     }
 
     private func pushUndo(_ step: Step) {
@@ -1124,21 +974,17 @@ final class MetadataWorkspace {
         undoSteps.append(restore(step))
     }
 
-    /// その操作の前へ戻し、逆向きの 1 歩(戻す前の値)を返す。
+    /// その操作の前へ戻し、逆向きの 1 歩(戻す前の形)を返す。
     private func restore(_ step: Step) -> Step {
-        var currentInputs: [String: BookInput] = [:]
-        var currentOverrides: [String: String?] = [:]
-        for (id, input) in step.inputs where !locked.contains(id) {
-            currentInputs[id] = inputs[id]
-            currentOverrides[id] = presetOverrides[id]
-            inputs[id] = input
-            presetOverrides[id] = step.overrides[id] ?? nil
+        var current: [String: BookMetadataRowState] = [:]
+        for (id, state) in step.states where !isLocked(id) && positionByID[id] != nil {
+            current[id] = states[id] ?? BookMetadataRowState(isLocked: false)
+            states[id] = state
         }
-        let reverse = Step(name: step.name, inputs: currentInputs, overrides: currentOverrides)
-        let ids = order.filter { currentInputs[$0] != nil }
+        let ids = order.filter { current[$0] != nil }
         refreshRegistration(ids)
-        push(ids, alsoWrite: Set(ids))
-        return reverse
+        commit(ids)
+        return Step(name: step.name, states: current)
     }
 }
 

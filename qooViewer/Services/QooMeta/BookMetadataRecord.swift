@@ -79,23 +79,6 @@ nonisolated enum MetadataParsing {
             to: parseName(name, rules: rules, preset: preset).metadata))
     }
 
-    /// 行のある本をまとめて読み直した値(互いを錨にしてシリーズを見つける)。ロックした行は確定した内容として渡すので
-    /// 値は変わらない(呼ぶ側はロックしていない行の値だけを使う)。
-    @concurrent static func values(for records: [String: BookMetadataRecord], rules: CompiledRules) async -> [String: BookMetadataValues] {
-        let autoRules = MetadataRulesStore.autoPresetRules(of: rules)
-        let inputs = records.keys.sorted().map { id -> BookInput in
-            let record = records[id]!
-            let name = MetadataRulesStore.parsingName(forBookID: id)
-            let preset = record.ruleSet ?? MetadataRulesStore.autoPreset(forBookID: id, name: name, autoRules: autoRules)
-            return BookInput(id: id, name: name, preset: preset, confirmation: record.confirmation)
-        }
-        let index = ProposalIndex(rules: rules, dictionaries: MetadataRulesStore.dictionaries)
-        guard (try? await index.load(inputs)) != nil else { return [:] }
-        var result: [String: BookMetadataValues] = [:]
-        for proposal in await index.snapshot().proposals { result[proposal.id] = BookMetadataValues(proposal.metadata) }
-        return result
-    }
-
     /// 1 冊ぶんのシートで変えた欄を、直した欄に足す(変えていない欄は今の直した欄のまま)。
     static func edits(changing old: BookMetadataValues, to new: BookMetadataValues, in edits: Confirmation) -> Confirmation {
         var fields = edits.fields

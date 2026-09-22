@@ -698,12 +698,12 @@ final class ViewerViewModel: ObservableObject {
         // DBへ書かない本(skipsPersistence)でもこれらの取り込みは走らせる。ただし各メソッドの
         // 中で、DBへ書く代わりにメモリ上(ephemeralBookmarks/ephemeralMetadata/readingDirection)へ
         // 反映する(ファイルに入っている情報自体は使えてよい、というユーザー要望)。
-        // 解析した本はすべて DB に登録する(利用者の指示 2026-09-22。BookMetadataRecord の型コメント)。行の無い本は、
-        // ファイル名から読んだ値でロックせずに登録する(ファイルの書誌情報は、このあと下の取り込みが重ねる)。
-        // シークレットウインドウの本・除外フォルダの本は登録しない。
-        if !skipsPersistence, !MetadataRulesStore.isExcludedAppWide(bookID: book.id) {
-            metadataStore.registerParsed(bookID: book.id, rules: MetadataRulesStore.currentAppWideRules,
-                                         sourceURL: book.sourceURL)
+        // 解析した本はすべて DB に登録する(利用者の指示 2026-09-22。BookMetadataRecord の型コメント)。値を作って書くのは
+        // メタデータ生成だけ(MetadataGenerator)で、ここは「この本を開いた」を知らせるだけ(以前はここで 1 冊だけ読んで
+        // 行を作っていた ―― ほかの本と見比べないので、メタデータ生成の読みと食い違った)。
+        // シークレットウインドウの本は知らせない。除外フォルダの本はメタデータ生成が外す。
+        if !skipsPersistence {
+            MetadataGenerator.appWide?.noteBookOpened(book.id, sourceURL: book.sourceURL)
         }
         let sourceFileName = book.sourceURL.lastPathComponent
         if isEpubFile(sourceFileName) {

@@ -282,6 +282,6 @@ nonisolated struct BookMetadataValues: Hashable, Sendable, Codable {
 extension Notification.Name {
     static let bookMetadataDidChange = Notification.Name("qooViewer.bookMetadataDidChange")
     /// ロックしていない行を新しいパスへ付け替えた(移動・名前の変更への追従)。その行の値は古いファイル名の読みなので、
-    /// 受け手(AppStores)が今の規則で読み直す(2026-09-22 の監査。以前は読み直さず、名前を直しても題・巻数が古いままだった)。
+    /// 受け手(MetadataGenerator)が今の規則で読み直す(2026-09-22 の監査。以前は読み直さず、名前を直しても題・巻数が古いままだった)。
     static let bookMetadataUnlockedRowsRelocated = Notification.Name("qooViewer.bookMetadataUnlockedRowsRelocated")
 }

@@ -357,14 +357,6 @@ final class BookMetadataStore: ObservableObject {
 
     // MARK: - ファイル名の解析・ファイルの書誌情報の登録(2026-09-22)
 
-    /// 行の無い本を、ファイル名から読んだ値で登録する(ロックせずに。本を開いたとき)。行があれば何もしない。
-    func registerParsed(bookID: String, rules: CompiledRules, sourceURL: URL? = nil) {
-        guard metadata(forBookID: bookID) == nil else { return }
-        let values = MetadataParsing.values(forBookID: bookID, rules: rules)
-        upsertAll([BatchEntry(bookID: bookID, values: values, sourceURL: sourceURL,
-                              state: BookMetadataRowState(isLocked: false))])
-    }
-
     /// ファイル(EPUB/PDF/ComicInfo.xml)の書誌情報を取り込む。**1 冊につき 1 度だけ、ロックしていない行にだけ**。
     /// 利用者が直した欄は変えず、それ以外をファイルの値にする(利用者の指示 2026-09-22)。取り込んだ値は直した欄として持つ
     /// (規則を変えてもファイル名の読みに戻らない。「メタデータを再生成」ではファイル名の読みに戻る)。
@@ -441,26 +433,6 @@ final class BookMetadataStore: ObservableObject {
         revision &+= 1
         NotificationCenter.default.post(name: .bookMetadataDidChange, object: self, userInfo: nil)
         return targets.count
-    }
-
-    /// ロックしていない行を、いまの規則で読み直して書く(規則を変えたとき。全行を互いの錨にして読む)。
-    /// - Returns: 書き直した行の数。
-    @discardableResult
-    func reparseUnlockedRows(rules: CompiledRules) async -> Int {
-        let records = allRecords()
-        guard records.values.contains(where: { !$0.isLocked }) else { return 0 }
-        let parsed = await MetadataParsing.values(for: records, rules: rules)
-        let entries = records.keys.sorted().compactMap { id -> BatchEntry? in
-            // 読み直している間に消えた・ロックされた行は書かない(`onlyIfUnlocked` と行の有無で確かめる)。直した欄・ルールセットが
-            // 変わった行も書かない(2026-09-22 の監査): 値は読み始めの直した欄から作ったものなので、書くと、その間に直した欄が
-            // DB の値にだけ反映されない(直した欄は新しく、値は古い)まま残った。変えた書き手が新しい値を書いている。
-            guard let values = parsed[id], let record = self.record(forBookID: id), !record.isLocked,
-                  let original = records[id], record.edits == original.edits, record.ruleSet == original.ruleSet,
-                  record.values != values.trimmed else { return nil }
-            return BatchEntry(bookID: id, values: values, onlyIfUnlocked: true)
-        }
-        guard !entries.isEmpty else { return 0 }
-        return upsertAll(entries)
     }
 
     /// 以前の版の欄で登録した行(`fieldsVersion` がいまより古い)の bookID。

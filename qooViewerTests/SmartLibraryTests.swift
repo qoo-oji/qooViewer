@@ -447,14 +447,14 @@ struct SmartLibraryTests {
 
     // MARK: 本の組み立て
 
-    @Test("ロックしていない本は qooMeta の読み、ロックした本は DB の値で並び、読書位置と追加日を持つ")
+    @Test("行のある本は DB の値(メタデータ生成が書いたもの)、行の無い本はメタデータ生成の読みで並び、読書位置と追加日を持つ")
     func assembleUsesMetadataAndReading() {
         var snapshot = SmartLibraryCatalog.Snapshot()
         snapshot.records = [
             "/棚/手で直した本.zip": BookMetadataRecord(
                 values: BookMetadataValues(title: "手で直した題", genre: "登録したジャンル"), isLocked: true),
-            // ロックしていない行は、DB の値ではなく読み直した値(DB へもこの値を書く)。
-            "/棚/[架空工房] 月の庭 2.zip": BookMetadataRecord(values: BookMetadataValues(title: "古い読み"), isLocked: false),
+            // ロックしていない行も DB の値(スマートライブラリは読むだけ。値を作って書くのはメタデータ生成。2026-09-22)。
+            "/棚/[架空工房] 月の庭 2.zip": BookMetadataRecord(values: BookMetadataValues(title: "DB の題"), isLocked: false),
         ]
         snapshot.readings = ["/棚/[架空工房] 月の庭 1.zip": .init(updatedAt: now, progress: 0.5)]
         var scan = SmartLibraryScanner.Result()
@@ -473,7 +473,8 @@ struct SmartLibraryTests {
         #expect(first?.dateAdded == now)
         // 追加日が取れないボリュームでは作成日。
         #expect(books.first { $0.id == "/棚/[架空工房] 月の庭 2.zip" }?.dateAdded == now)
-        #expect(books.first { $0.id == "/棚/[架空工房] 月の庭 2.zip" }?.metadata.title == "月の庭 2")
+        #expect(books.first { $0.id == "/棚/[架空工房] 月の庭 2.zip" }?.metadata.title == "DB の題")
+        #expect(books.first { $0.id == "/棚/[架空工房] 月の庭 2.zip" }?.isRegistered == false)
         let registered = books.first { $0.id == "/棚/手で直した本.zip" }
         #expect(registered?.isRegistered == true)
         #expect(registered?.metadata.genre == "登録したジャンル")
@@ -485,12 +486,12 @@ struct SmartLibraryTests {
     func resettingARuleSetToAutomaticRechoosesIt() {
         let rules = CompiledRules.builtin
         let id = "/棚/[架空工房] 月の庭 1.zip"
-        let automatic = SmartLibraryCatalog.inputs(for: [id], records: [:], reusing: [:], rules: rules)
-        let chosen = SmartLibraryCatalog.inputs(
+        let automatic = MetadataGenerator.inputs(for: [id], records: [:], reusing: [:], rules: rules)
+        let chosen = MetadataGenerator.inputs(
             for: [id], records: [id: BookMetadataRecord(values: BookMetadataValues(), isLocked: false, ruleSet: "選んだ規則")],
             reusing: automatic.byID, rules: rules)
         #expect(chosen.byID[id]?.preset == "選んだ規則")
-        let reset = SmartLibraryCatalog.inputs(for: [id], records: [:], reusing: chosen.byID,
+        let reset = MetadataGenerator.inputs(for: [id], records: [:], reusing: chosen.byID,
                                                previouslyOverridden: [id], rules: rules)
         #expect(reset.byID[id]?.preset == automatic.byID[id]?.preset)
     }
@@ -498,33 +499,33 @@ struct SmartLibraryTests {
     @Test("qooMeta へ渡す本の差: 足した・登録を変えた本は upsert、無くなった本は remove、同じ本は渡さない")
     func changesOnlyCarryWhatChanged() {
         let rules = CompiledRules.builtin
-        let before = SmartLibraryCatalog.inputs(for: ["/棚/a.zip", "/棚/b.zip", "/棚/c.zip"], records: [:],
+        let before = MetadataGenerator.inputs(for: ["/棚/a.zip", "/棚/b.zip", "/棚/c.zip"], records: [:],
                                                 reusing: [:], rules: rules)
-        let after = SmartLibraryCatalog.inputs(
+        let after = MetadataGenerator.inputs(
             for: ["/棚/a.zip", "/棚/b.zip", "/棚/d.zip"],
             records: ["/棚/b.zip": BookMetadataRecord(values: BookMetadataValues(title: "登録した題"), isLocked: true)],
             reusing: before.byID, rules: rules)
-        let changes = SmartLibraryCatalog.changes(from: before.byID, to: after)
+        let changes = MetadataGenerator.changes(from: before.byID, to: after)
         let upserted = changes.compactMap { if case .upsert(let input) = $0 { input.id } else { nil } }
         let removed = changes.compactMap { if case .remove(let id) = $0 { id } else { nil } }
         #expect(upserted == ["/棚/b.zip", "/棚/d.zip"])
         #expect(removed == ["/棚/c.zip"])
-        #expect(SmartLibraryCatalog.changes(from: after.byID, to: after).isEmpty)
+        #expect(MetadataGenerator.changes(from: after.byID, to: after).isEmpty)
     }
 
     @Test("索引に変わった本だけ渡した結果は、全冊を読み直した結果と同じ")
     func incrementalProposalsMatchAFullRead() async throws {
         let rules = CompiledRules.builtin
-        let first = SmartLibraryCatalog.inputs(
+        let first = MetadataGenerator.inputs(
             for: ["/棚/[架空工房] 月の庭 1.zip", "/棚/[架空工房] 月の庭 2.zip", "/棚/星の本.zip"],
             records: [:], reusing: [:], rules: rules)
         let index = ProposalIndex(rules: rules, dictionaries: MetadataRulesStore.dictionaries)
         try await index.load(first.ordered)
         var proposals = Dictionary(await index.snapshot().proposals.map { ($0.id, $0) }, uniquingKeysWith: { _, b in b })
-        let second = SmartLibraryCatalog.inputs(
+        let second = MetadataGenerator.inputs(
             for: ["/棚/[架空工房] 月の庭 1.zip", "/棚/[架空工房] 月の庭 2.zip", "/棚/[架空工房] 月の庭 3.zip"],
             records: [:], reusing: first.byID, rules: rules)
-        let delta = try await index.apply(SmartLibraryCatalog.changes(from: first.byID, to: second))
+        let delta = try await index.apply(MetadataGenerator.changes(from: first.byID, to: second))
         for proposal in delta.changed { proposals[proposal.id] = proposal }
         for id in delta.removedBooks { proposals[id] = nil }
         let full = proposeSync(second.ordered, rules: rules, dictionaries: MetadataRulesStore.dictionaries)
@@ -580,12 +581,10 @@ struct SmartLibraryTests {
         catalog.activate()
         #expect(await wait { catalog.hasLoaded })
         #expect(catalog.books.count == 3)
-        #expect(await catalog.folderBookIDs().count == 3)
 
         catalog.setFeatureEnabled(false)
         #expect(catalog.books.isEmpty)
         #expect(!catalog.hasLoaded && !catalog.isLoading)
-        #expect(await catalog.folderBookIDs().isEmpty)
         // 画面が消える(deactivate)・出ようとしても(activate)、何も始まらない。
         catalog.deactivate()
         catalog.activate()

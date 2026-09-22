@@ -44,6 +44,8 @@ final class MetadataRulesStore {
 
     /// 規則が変わった知らせ(`BookTitleResolver` などの作り置きを捨てる合図)。
     static let rulesDidChange = Notification.Name("qooViewer.metadataRulesDidChange")
+    /// 対象外のフォルダが変わった(`MetadataGenerator` が母体を集め直す)。
+    static let excludedFoldersDidChange = Notification.Name("qooViewer.metadataExcludedFoldersDidChange")
 
     /// 既定の保存先(コンテナの Application Support)。
     nonisolated static var defaultURL: URL {
@@ -118,6 +120,8 @@ final class MetadataRulesStore {
         excludedFolders = folders
         if isAppWide { Self.appWideExcludedFolders.withLock { $0 = folders } }
         save()
+        // メタデータ生成が母体を集め直す(対象外になった本を外し、対象に戻った本を加える)。
+        NotificationCenter.default.post(name: Self.excludedFoldersDidChange, object: self)
     }
 
     /// 辞書(英単語)。規則が名前で指す。初めて読むときに /usr/share/dict/words を読む(約 24 万語)ので、

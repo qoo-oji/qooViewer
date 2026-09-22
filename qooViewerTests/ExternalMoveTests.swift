@@ -31,7 +31,7 @@ struct ExternalMoveTests {
         registerLocked(old, in: library)
         let new = temporary.file("after.cbz")
         try FileManager.default.moveItem(at: old, to: new)
-        library.metadata.registerParsed(bookID: new.path, rules: library.metadataRules.rules)
+        library.metadata.registerParsedForTesting(bookID: new.path, rules: library.metadataRules.rules)
         #expect(library.metadata.metadata(forBookID: new.path)?.isParsedOnly == true)
 
         await makeRelocator(library).apply(FileSystemChange(relocations: [.init(from: old, to: new)])).value
@@ -50,7 +50,7 @@ struct ExternalMoveTests {
         registerLocked(old, in: library)
         let new = temporary.file("after.cbz")
         try FileManager.default.moveItem(at: old, to: new)
-        library.metadata.registerParsed(bookID: new.path, rules: library.metadataRules.rules)
+        library.metadata.registerParsedForTesting(bookID: new.path, rules: library.metadataRules.rules)
 
         let book = MangaBook(id: new.path, title: "after", sourceURL: new, pages: [])
         #expect(library.metadata.reconcileBookIDIfMoved(book: book) == old.path)
@@ -83,12 +83,12 @@ struct ExternalMoveTests {
         #expect(library.metadata.metadata(forBookID: old.path) == nil)
     }
 
-    @Test("ロックしていない行を付け替えたら知らせ、読み直すと新しいファイル名の値になる(2026-09-22 の監査)")
+    @Test("ロックしていない行を付け替えたら知らせ、メタデータ生成が読み直すと新しいファイル名の値になる(2026-09-22 の監査)")
     func relocatedUnlockedRowsAreReparsed() async throws {
         let library = try InMemoryLibrary(label: "outside-move-reparse")
         defer { library.close() }
         let old = "/書庫/[架空工房] 月の庭.zip", new = "/書庫/[架空工房] 星の海.zip"
-        library.metadata.registerParsed(bookID: old, rules: library.metadataRules.rules)
+        library.metadata.registerParsedForTesting(bookID: old, rules: library.metadataRules.rules)
         #expect(library.metadata.record(forBookID: old)?.values.title == "月の庭")
         // Sendable な閉包から捕まえた変数を書き換えると CI(古いコンパイラ)だけ落ちるので、鍵つきの箱に入れる。
         let notified = OSAllocatedUnfairLock(initialState: false)
@@ -101,7 +101,9 @@ struct ExternalMoveTests {
         #expect(notified.withLock { $0 })
         #expect(library.metadata.record(forBookID: new)?.values.title == "月の庭", "付け替えだけでは古い読みのまま")
 
-        await library.metadata.reparseUnlockedRows(rules: library.metadataRules.rules)
+        // 読み直すのはメタデータ生成(2026-09-22。以前は AppStores が `reparseUnlockedRows` を呼んだ)。
+        let generator = library.makeMetadataGenerator()
+        await generator.update()
         #expect(library.metadata.record(forBookID: new)?.values.title == "星の海")
     }
 
@@ -169,7 +171,7 @@ struct ExternalMoveTests {
         let library = try InMemoryLibrary(label: "metadata-deleted")
         defer { library.close() }
         let bookID = "/nowhere/deleted.cbz"
-        library.metadata.registerParsed(bookID: bookID, rules: library.metadataRules.rules)
+        library.metadata.registerParsedForTesting(bookID: bookID, rules: library.metadataRules.rules)
         library.metadata.upsertAll([.init(bookID: bookID, values: nil)])
         #expect(library.metadata.deletedThisSession == [bookID])
 
@@ -178,7 +180,7 @@ struct ExternalMoveTests {
         #expect(library.metadata.deletedThisSession == [bookID])
         // 本を開いた・窓が登録した(読みだけではない書き手)なら外れる。
         library.metadata.upsertAll([.init(bookID: bookID, values: nil)])
-        library.metadata.registerParsed(bookID: bookID, rules: library.metadataRules.rules)
+        library.metadata.registerParsedForTesting(bookID: bookID, rules: library.metadataRules.rules)
         #expect(library.metadata.deletedThisSession.isEmpty)
     }
 

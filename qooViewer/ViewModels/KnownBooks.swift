@@ -41,6 +41,21 @@ enum KnownBooks {
         return bookIDs
     }
 
+    /// 機能に属さない保存データを持つ本(レイアウト・カバーの指定・ブックマーク・お気に入り・読書位置)。メタデータの行と
+    /// コレクションは入れない ―― メタデータ生成(`MetadataGenerator`)の母体の一部で、コレクションの本は記録した一覧
+    /// (`MetadataCorpusStore`)から足す(ライブラリ機能が OFF の間も `CollectionItem` を読まないため)。
+    static func collectWithoutFeatures(bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
+                                       favoritesStore: FavoritesStore, modelContext: ModelContext) -> Set<String> {
+        var bookIDs = layoutStore.layoutBookIDs
+        bookIDs.formUnion(layoutStore.coverOverrideBookIDs())
+        bookIDs.formUnion(layoutStore.shelfCoverBookIDs())
+        bookIDs.formUnion(bookmarkStore.groups.map(\.bookID))
+        bookIDs.formUnion(favoritesStore.allRegisteredBookIDs())
+        let readingStates = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
+        bookIDs.formUnion(readingStates.map(\.bookID))
+        return bookIDs
+    }
+
     /// 照合用の鍵 → その名前を持つ本(複数ありうる)。
     ///
     /// 鍵は本の名前(フォルダはフォルダ名、ファイルは拡張子を落としたもの)を

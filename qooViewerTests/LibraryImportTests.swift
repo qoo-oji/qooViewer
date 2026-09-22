@@ -474,7 +474,7 @@ struct LibraryImportTests {
         let other = try InMemoryLibrary()
         defer { other.close() }
         // 取り込む前に、ファイル名の読みで(ロックせずに)登録されていた行は merge でも置き換わる。
-        other.metadata.registerParsed(bookID: "/nowhere/unlocked.cbz", rules: other.metadataRules.rules)
+        other.metadata.registerParsedForTesting(bookID: "/nowhere/unlocked.cbz", rules: other.metadataRules.rules)
         await other.apply(file, policies: .all(.merge))
         let unlocked = try #require(other.metadata.record(forBookID: "/nowhere/unlocked.cbz"))
         #expect(!unlocked.isLocked)

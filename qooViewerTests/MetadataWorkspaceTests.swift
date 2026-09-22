@@ -12,14 +12,11 @@ import Testing
 /// 本の名前はすべて架空(docs/02「個人情報の流出防止」)。
 @MainActor
 struct MetadataWorkspaceTests {
+    /// 窓を開く。並ぶ本と値はメタデータ生成(`MetadataGenerator`)から(2026-09-22)。`bookIDs` は開いた本として渡す。
     private func open(_ library: InMemoryLibrary, _ bookIDs: [String]) async -> MetadataWorkspace {
-        let entries = bookIDs.map {
-            MetadataWorkspace.Entry(bookID: $0, record: library.metadata.record(forBookID: $0))
-        }
-        let workspace = await MetadataWorkspace.open(entries, rules: library.metadataRules.rules)
-        workspace.writeBack = { [metadata = library.metadata] in metadata.upsertAll($0) }
-        await workspace.registerAll()
-        return workspace
+        let generator = library.makeMetadataGenerator(books: bookIDs)
+        generator.start()
+        return await MetadataWorkspace.open(generator: generator, store: library.metadata)
     }
 
     private let first = "/書庫/[架空工房] 月の庭 1.zip"
@@ -602,21 +599,22 @@ extension MetadataWorkspaceTests {
     }
 }
 
-/// 画面を持たない登録の口(`BookMetadataStore` の registerParsed / importSourceMetadata / reparseUnlockedRows、2026-09-22)。
+/// 画面を持たない登録の口(メタデータ生成・`BookMetadataStore.importSourceMetadata`、2026-09-22)。
 @MainActor
 struct MetadataRegistrationTests {
     private let first = "/書庫/[架空工房] 月の庭 1.zip"
     private let second = "/書庫/[架空工房] 月の庭 2.zip"
 
-    @Test("本を開いたときは、行の無い本だけをファイル名の読みでロックせずに登録する")
-    func registerParsedCreatesOnlyMissingRows() throws {
+    @Test("本を開いたら、メタデータ生成が行の無い本だけをファイル名の読みでロックせずに登録する")
+    func openedBooksAreRegisteredByTheGenerator() async throws {
         let library = try InMemoryLibrary()
         defer { library.close() }
-        let rules = library.metadataRules.rules
         library.metadata.upsert(bookID: second, values: BookMetadataValues(title: "登録した題"))
 
-        library.metadata.registerParsed(bookID: first, rules: rules)
-        library.metadata.registerParsed(bookID: second, rules: rules)
+        let generator = library.makeMetadataGenerator()
+        generator.noteBookOpened(first)
+        generator.noteBookOpened(second)
+        await generator.update()
         let created = try #require(library.metadata.record(forBookID: first))
         #expect(!created.isLocked)
         #expect(created.values.authors == ["架空工房"])
@@ -655,11 +653,10 @@ struct MetadataRegistrationTests {
         #expect(library.metadata.record(forBookID: second)?.values.title == "ロックした題")
     }
 
-    @Test("規則を変えたときの読み直しは、ロックしていない行だけを書き直し、直した欄は残す")
-    func reparseRewritesOnlyUnlockedRows() async throws {
+    @Test("メタデータ生成は、ロックしていない行だけを書き直し、直した欄は残す(規則を変えたときの読み直しも同じ)")
+    func generatorRewritesOnlyUnlockedRows() async throws {
         let library = try InMemoryLibrary()
         defer { library.close() }
-        let rules = library.metadataRules.rules
         let edits = Confirmation.fields(ConfirmedFields([.info: ["残す付記"]]))
         library.metadata.upsertAll([
             .init(bookID: first, values: BookMetadataValues(title: "古い読み", info: "残す付記"),
@@ -667,7 +664,7 @@ struct MetadataRegistrationTests {
             .init(bookID: second, values: BookMetadataValues(title: "ロックした題"), state: .locked),
         ])
 
-        await library.metadata.reparseUnlockedRows(rules: rules)
+        await library.makeMetadataGenerator().update()
         let reparsed = try #require(library.metadata.record(forBookID: first))
         #expect(reparsed.values.title == "月の庭 1")
         #expect(reparsed.values.info == "残す付記")
@@ -724,24 +721,32 @@ struct MetadataRegistrationTests {
 }
 
 extension MetadataWorkspaceTests {
-    @Test("外で行が消えた知らせで一覧から外すのは、行があったと分かっている本だけ")
+    @Test("外で行が消えたら一覧から外し、行の無い本の知らせでは外さない")
     func onlyBooksWithRowsLeaveTheList() async throws {
         let library = try InMemoryLibrary()
         defer { library.close() }
         library.metadata.upsert(bookID: first, values: BookMetadataValues(title: "登録した題"))
-        // 登録(registerAll)をしない窓: second は DB に行が無いまま並ぶ(全欄が空で行を作れない本と同じ立場)。
-        let entries = [first, second].map {
-            MetadataWorkspace.Entry(bookID: $0, record: library.metadata.record(forBookID: $0))
-        }
-        let workspace = await MetadataWorkspace.open(entries, rules: library.metadataRules.rules)
-
-        workspace.applyExternalChanges([second: BookMetadataRecord?.none])
-        await workspace.settle()
+        let workspace = await open(library, [first, second])
+        // 窓の知らない本の知らせは何もしない。
+        workspace.applyExternalChanges(["/架空/知らない本.zip": BookMetadataRecord?.none])
         #expect(workspace.row(second) != nil)
 
         library.metadata.delete(forBookID: first)
         workspace.applyExternalChanges([first: BookMetadataRecord?.none])
         await workspace.settle()
         #expect(workspace.row(first) == nil)
+    }
+
+    @Test("メタデータ生成は全冊を 1 つの索引で読み、直した本の変化をほかの本の提案にも届ける。行の形はその場で DB に書く")
+    func workspaceWritesRowStateImmediately() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let workspace = await open(library, [first, second])
+        workspace.set(.info, to: ["付記"], for: [first])
+        // 直した欄はその場で DB に書かれる(値はメタデータ生成が読み直して書く)。
+        #expect(library.metadata.record(forBookID: first)?.edits.fields[.info] == ["付記"])
+        await workspace.settle()
+        #expect(library.metadata.record(forBookID: first)?.values.info == "付記")
+        #expect(workspace.row(first)?.metadata.info == "付記")
     }
 }
