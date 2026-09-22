@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SwiftData
 import Testing
 
@@ -80,6 +81,28 @@ struct ExternalMoveTests {
 
         #expect(library.metadata.metadata(forBookID: new.path)?.title == "直した題")
         #expect(library.metadata.metadata(forBookID: old.path) == nil)
+    }
+
+    @Test("ロックしていない行を付け替えたら知らせ、読み直すと新しいファイル名の値になる(2026-09-22 の監査)")
+    func relocatedUnlockedRowsAreReparsed() async throws {
+        let library = try InMemoryLibrary(label: "outside-move-reparse")
+        defer { library.close() }
+        let old = "/書庫/[架空工房] 月の庭.zip", new = "/書庫/[架空工房] 星の海.zip"
+        library.metadata.registerParsed(bookID: old, rules: library.metadataRules.rules)
+        #expect(library.metadata.record(forBookID: old)?.values.title == "月の庭")
+        // Sendable な閉包から捕まえた変数を書き換えると CI(古いコンパイラ)だけ落ちるので、鍵つきの箱に入れる。
+        let notified = OSAllocatedUnfairLock(initialState: false)
+        let observer = NotificationCenter.default.addObserver(
+            forName: .bookMetadataUnlockedRowsRelocated, object: library.metadata, queue: nil
+        ) { _ in notified.withLock { $0 = true } }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        library.metadata.applyBookRelocation(BookRelocationPlan(bookIDs: [old: new], locators: [:], directoryBookIDs: []))
+        #expect(notified.withLock { $0 })
+        #expect(library.metadata.record(forBookID: new)?.values.title == "月の庭", "付け替えだけでは古い読みのまま")
+
+        await library.metadata.reparseUnlockedRows(rules: library.metadataRules.rules)
+        #expect(library.metadata.record(forBookID: new)?.values.title == "星の海")
     }
 
     @Test("一時フォルダへ書き出した入れ子の書庫の本は、保存データに何も残さない本として扱う(2026-09-22 の監査)")

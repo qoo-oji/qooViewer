@@ -114,6 +114,7 @@ final class AppStores: ObservableObject {
     private var smartLibraryFeatureSubscription: AnyCancellable?
     /// 規則の変更の購読(ロックしていないメタデータの行を読み直す。`reparseUnlockedMetadata`)。
     private var metadataRulesSubscription: AnyCancellable?
+    private var metadataRelocationSubscription: AnyCancellable?
     private var metadataReparseTask: Task<Void, Never>?
     /// 起動時の掃除(行の無い表紙・元画像・札の絵)を済ませたか。ライブラリ機能がOFFで起動したら、最初にONになるまで先送りする。
     private var didSweepLibraryOrphans = false
@@ -248,6 +249,11 @@ final class AppStores: ObservableObject {
             }
             metadataRulesSubscription = NotificationCenter.default
                 .publisher(for: MetadataRulesStore.rulesDidChange, object: metadataRulesStore)
+                .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
+                .sink { [weak self] _ in MainActor.assumeIsolated { self?.reparseUnlockedMetadata() } }
+            // 付け替えたロックしていない行は、新しいファイル名で読み直す(Notification.Name.bookMetadataUnlockedRowsRelocated)。
+            metadataRelocationSubscription = NotificationCenter.default
+                .publisher(for: .bookMetadataUnlockedRowsRelocated, object: metadataStore)
                 .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
                 .sink { [weak self] _ in MainActor.assumeIsolated { self?.reparseUnlockedMetadata() } }
         }

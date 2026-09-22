@@ -551,6 +551,9 @@ final class BookMetadataStore: ObservableObject {
             cachedByBookID?[book.id] = nil
         }
         let oldBookID = matched.bookID
+        if !matched.isLocked {
+            NotificationCenter.default.post(name: .bookMetadataUnlockedRowsRelocated, object: self)
+        }
         matched.bookID = book.id
         matched.updatedAt = Date()
         // bookIDはキャッシュ辞書のキーそのものなので、旧キーから新キーへ移す。
@@ -570,6 +573,7 @@ final class BookMetadataStore: ObservableObject {
     func applyBookRelocation(_ plan: BookRelocationPlan) -> Int {
         let byBookID = metadataByBookID()
         var relocated = 0
+        var relocatedUnlocked = false
         for (old, new) in plan.bookIDs {
             guard let row = byBookID[old] else { continue }
             // 新しいパスに読みだけの行があれば、古い行(ロック・直した欄のあるもの)で置き換える(reconcileBookIDIfMoved と同じ決まり)。
@@ -578,6 +582,7 @@ final class BookMetadataStore: ObservableObject {
                 modelContext.delete(existing)
             }
             row.bookID = new
+            if !row.isLocked { relocatedUnlocked = true }
             if let locator = plan.locators[new] {
                 row.inodeNumber = locator.identifier?.inodeNumber
                 row.volumeDeviceNumber = locator.identifier?.volumeDeviceNumber
@@ -598,6 +603,7 @@ final class BookMetadataStore: ObservableObject {
         registeredBookIDs = Set(metadataByBookID().keys)
         revision &+= 1
         NotificationCenter.default.post(name: .bookMetadataDidChange, object: self, userInfo: nil)
+        if relocatedUnlocked { NotificationCenter.default.post(name: .bookMetadataUnlockedRowsRelocated, object: self) }
         return relocated
     }
 
