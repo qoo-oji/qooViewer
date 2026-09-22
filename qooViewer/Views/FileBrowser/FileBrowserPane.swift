@@ -34,6 +34,9 @@ struct FileBrowserPane: View {
     @EnvironmentObject private var thumbnails: FileBrowserThumbnailProvider
     @EnvironmentObject private var autoRenameStore: AutoRenameStore
     @EnvironmentObject private var autoRenameService: AutoRenameService
+    /// ホイール1ノッチのスクロール量(環境設定「外観」→「ホーム」→「スクロール」。HomeWheelScroll参照)。
+    /// ウインドウごとの揃い(ノーマル/シークレット)を ContentView が入れ替えている(CLAUDE.md)。
+    @EnvironmentObject private var appearance: AppearanceSettings
     @Environment(\.openWindow) private var openWindow
     @Environment(\.locale) private var locale
     @Environment(\.panelContentOutlineWidth) private var outlineWidth
@@ -64,7 +67,8 @@ struct FileBrowserPane: View {
                 outlineWidth: outlineWidth, locale: locale,
                 allowsEditingFavorites: !appState.isPrivateWindow,
                 expandsToCurrentFolder: preferences.fileBrowserExpandsTreeToCurrentFolder,
-                childSort: preferences.fileBrowserTreeFollowsListSort ? state.sort : FileBrowserTreeView.nameSort
+                childSort: preferences.fileBrowserTreeFollowsListSort ? state.sort : FileBrowserTreeView.nameSort,
+                wheelScrollRows: appearance.homeListWheelScrollRows
             )
             .frame(width: treeWidth)
 
@@ -299,6 +303,7 @@ struct FileBrowserPane: View {
                 case .list:
                     FileBrowserListView(
                         state: state, actions: actions, outlineWidth: outlineWidth, locale: locale,
+                        wheelScrollRows: appearance.homeListWheelScrollRows,
                         onWholeListDropTargetChange: { isListDropTargeted = $0 }
                     )
                 case .icons:
@@ -306,6 +311,7 @@ struct FileBrowserPane: View {
                         state: state, actions: actions, thumbnails: thumbnails,
                         thumbnailRevision: thumbnails.revision, includesVideo: thumbnails.includesVideo,
                         outlineWidth: outlineWidth, locale: locale,
+                        wheelScrollRows: appearance.homeGridWheelScrollRows,
                         onWholeViewDropTargetChange: { isListDropTargeted = $0 }
                     )
                 }

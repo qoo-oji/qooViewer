@@ -14372,6 +14372,22 @@
         }
       }
     },
+    "Grid Rows per Wheel Notch in Icon Views" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grid Rows per Wheel Notch in Icon Views"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アイコン表示のスクロール行数"
+          }
+        }
+      }
+    },
     "Group by Author" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -25414,6 +25430,22 @@
         }
       }
     },
+    "Rows per Wheel Notch in Lists" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rows per Wheel Notch in Lists"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "リスト表示のスクロール行数"
+          }
+        }
+      }
+    },
     "Rule" : {
       "localizations" : {
         "en" : {
@@ -28798,6 +28830,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ファイルが大きすぎて、移動先のボリュームに置けません。"
+          }
+        }
+      }
+    },
+    "The file browser's icon view, the collection list, the covers inside a collection, and the smart library's grid. Applies to a physical mouse wheel only; trackpad scrolling is unchanged." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The file browser's icon view, the collection list, the covers inside a collection, and the smart library's grid. Applies to a physical mouse wheel only; trackpad scrolling is unchanged."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルブラウザのアイコン表示、コレクションの一覧、コレクションの中のカバー、スマートライブラリのグリッドに適用されます。物理マウスのホイールにのみ適用され、トラックパッドのスクロールは変わりません。"
+          }
+        }
+      }
+    },
+    "The file browser's list and folder tree, and the smart library's list. Applies to a physical mouse wheel only; trackpad scrolling is unchanged." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The file browser's list and folder tree, and the smart library's list. Applies to a physical mouse wheel only; trackpad scrolling is unchanged."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルブラウザのリスト表示とフォルダツリー、スマートライブラリのリスト表示に適用されます。物理マウスのホイールにのみ適用され、トラックパッドのスクロールは変わりません。"
           }
         }
       }

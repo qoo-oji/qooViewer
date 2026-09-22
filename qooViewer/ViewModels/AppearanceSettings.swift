@@ -61,6 +61,8 @@ final class AppearanceSettings: ObservableObject {
         static let smartLibraryCaptionFontSize = "qooViewer.pref.smartLibraryCaptionFontSize"
         static let smartLibrarySeriesSheetColor = "qooViewer.pref.smartLibrarySeriesSheetColor"
         static let smartLibraryBadgeSize = "qooViewer.pref.smartLibraryBadgeSize"
+        static let homeListWheelScrollRows = "qooViewer.pref.homeListWheelScrollRows"
+        static let homeGridWheelScrollRows = "qooViewer.pref.homeGridWheelScrollRows"
         static let appAppearance = "qooViewer.pref.appAppearance"
         static let titleBarColor = "qooViewer.pref.titleBarColor"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
@@ -281,6 +283,43 @@ final class AppearanceSettings: ObservableObject {
             }
         }
     }
+
+    // MARK: - ホーム画面のホイールのスクロール量(ユーザー要望 2026-09-23)
+
+    /// ホーム画面の**リスト**の上でマウスホイールを1ノッチ回したときに、何行ぶんスクロールするか。
+    /// 効く先はファイルブラウザのリスト表示・左のフォルダツリー・スマートライブラリのリスト表示。
+    ///
+    /// ページ一覧の`thumbnailGridWheelScrollRows`と同じ考え方で、対象は**物理マウスのホイールだけ**
+    /// (トラックパッドやMagic Mouseの滑らかなスクロールには効かせない。理由はあちらのコメント)。
+    ///
+    /// 既定の3行は、macOSの一般的なホイールの感覚に合わせた値(ユーザーの判断)。設定にする前は、
+    /// 高解像度ホイールのマウスだと行の高さに関わらず1ノッチ13ptしか動かなかった
+    /// (`HomeWheelScroll`の型コメント。実測値はThumbnailGridView.isWheelOriginated)。
+    @Published var homeListWheelScrollRows: Double {
+        didSet {
+            defaults.set(homeListWheelScrollRows, forKey: profile.key(Keys.homeListWheelScrollRows))
+        }
+    }
+    /// 下限0.5行はページ一覧と揃える。上限は10行 ―― リストの行は22ptと低く、5行では一度に動く量が
+    /// 110ptにしかならないため(グリッドと違って1行が画面を占めない)。
+    ///
+    /// **刻みは0.5行**(ユーザーの指示 2026-09-23: ページ一覧と同じ0.1刻みでは細かすぎる)。ステッパーも
+    /// 添えない ―― スライダーの実効幅およそ300ptに対して刻みは19段しかなく、ドラッグで狙って止まれる
+    /// (`SettingsSlider.showsStepper`の目安「range幅 / step が300を超えたら」に掛からない)。
+    static let homeListWheelScrollRowsRange: ClosedRange<Double> = 0.5...10
+
+    /// ホーム画面の**アイコン/グリッド**の上でマウスホイールを1ノッチ回したときに、何行ぶん
+    /// スクロールするか。効く先はファイルブラウザのアイコン表示・ライブラリのコレクション一覧(札)・
+    /// コレクションの中のカバー・スマートライブラリのグリッド。
+    ///
+    /// 上限が5行なのはページ一覧と同じ理由(それ以上だと1ノッチで画面が丸ごと入れ替わる)。
+    @Published var homeGridWheelScrollRows: Double {
+        didSet {
+            defaults.set(homeGridWheelScrollRows, forKey: profile.key(Keys.homeGridWheelScrollRows))
+        }
+    }
+    /// 刻みは0.5行(リスト側と同じ)。
+    static let homeGridWheelScrollRowsRange: ClosedRange<Double> = 0.5...5
 
     /// 本のウインドウ(ホーム・ビューア)のタイトルバーの色(環境設定「外観」→「アプリ」。2026-09-22、ユーザー要望)。
     ///
@@ -744,6 +783,10 @@ final class AppearanceSettings: ObservableObject {
             ?? .small
         self.smartLibrarySeriesSheetColor =
             defaults.string(forKey: profile.key(Keys.smartLibrarySeriesSheetColor)).flatMap(RGBColorValue.init(hexString:))
+        self.homeListWheelScrollRows =
+            defaults.object(forKey: profile.key(Keys.homeListWheelScrollRows)) as? Double ?? 3
+        self.homeGridWheelScrollRows =
+            defaults.object(forKey: profile.key(Keys.homeGridWheelScrollRows)) as? Double ?? 1
         // didSet は初期化では走らないので、ライト/ダークはここから1回。最初のウインドウが作られるより前
         // (AppStores 経由で QooViewerApp.init() から呼ばれる)なので、既定の外観が一瞬見えてから切り替わる、ということにはならない。
         if appliesToApp { AppAppearanceApplier.shared.apply(appAppearance) }
@@ -813,6 +856,10 @@ final class AppearanceSettings: ObservableObject {
             Keys.smartLibraryCaptionFontSize,
             Keys.smartLibrarySeriesSheetColor,
             Keys.smartLibraryBadgeSize,
+            // ホーム画面のホイールのスクロール量も、画面上は「外観」→「ホーム」にある
+            // (PanelSurfaceSettingsView.homeScrollingSection。ページ一覧のものと同じ扱い)。
+            Keys.homeListWheelScrollRows,
+            Keys.homeGridWheelScrollRows,
         ]
         // 面ごとの設定を1つ増やしたら**ここにも足すこと**。resetToDefaults() は保存先から読み直すので、キーを消し忘れると
         // 古い値がそのまま戻ってきて「初期設定に戻す」が効かない(ユーザー報告: 「文字の影」だけリセットされない)。
@@ -848,6 +895,8 @@ final class AppearanceSettings: ObservableObject {
         smartLibraryCaptionFontSize = source.smartLibraryCaptionFontSize
         smartLibrarySeriesSheetColor = source.smartLibrarySeriesSheetColor
         smartLibraryBadgeSize = source.smartLibraryBadgeSize
+        homeListWheelScrollRows = source.homeListWheelScrollRows
+        homeGridWheelScrollRows = source.homeGridWheelScrollRows
         titleBarColor = source.titleBarColor
         appAppearance = source.appAppearance
         showProgressBarThumbnailPreview = source.showProgressBarThumbnailPreview

@@ -31,7 +31,8 @@ struct FileBrowserListEditingTests {
         let actions = FileBrowserActions()
         actions.state = state
         let view = FileBrowserListView(
-            state: state, actions: actions, outlineWidth: 0, locale: Locale(identifier: "en"), onWholeListDropTargetChange: { _ in }
+            state: state, actions: actions, outlineWidth: 0, locale: Locale(identifier: "en"),
+            wheelScrollRows: 3, onWholeListDropTargetChange: { _ in }
         )
         let coordinator = FileBrowserListView.Coordinator()
         let table = FileBrowserTableView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))

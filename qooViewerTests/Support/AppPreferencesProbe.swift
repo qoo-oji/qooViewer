@@ -193,6 +193,8 @@ func mutateEveryAppearanceSetting(_ a: AppearanceSettings) {
         ?? RGBColorValue(red: 20, green: 30, blue: 60)
     a.smartLibraryCaptionFontSize += 1
     a.smartLibraryBadgeSize = otherCase(a.smartLibraryBadgeSize)
+    a.homeListWheelScrollRows += 1
+    a.homeGridWheelScrollRows += 1
     a.smartLibrarySeriesSheetColor = a.smartLibrarySeriesSheetColor.map(otherColor)
         ?? RGBColorValue(red: 30, green: 60, blue: 20)
     // 既定は nil(= システムの標準のタイトルバー)。札の地の色と同じ。

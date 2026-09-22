@@ -233,7 +233,7 @@ struct FileBrowserNameEditingTests {
         init(fixture: Fixture) throws {
             view = FileBrowserListView(
                 state: fixture.state, actions: fixture.actions, outlineWidth: 0, locale: Locale(identifier: "en"),
-                onWholeListDropTargetChange: { _ in }
+                wheelScrollRows: 3, onWholeListDropTargetChange: { _ in }
             )
             let column = NSTableColumn(identifier: FileBrowserListView.Column.name.identifier)
             column.width = 380
@@ -276,7 +276,8 @@ struct FileBrowserNameEditingTests {
             )
             view = FileBrowserIconView(
                 state: fixture.state, actions: fixture.actions, thumbnails: provider, thumbnailRevision: 0, includesVideo: false,
-                outlineWidth: 0, locale: Locale(identifier: "en"), onWholeViewDropTargetChange: { _ in }
+                outlineWidth: 0, locale: Locale(identifier: "en"), wheelScrollRows: 1,
+                onWholeViewDropTargetChange: { _ in }
             )
             let layout = FileBrowserIconLayout()
             layout.spacing = FileBrowserIconView.spacing

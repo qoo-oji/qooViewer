@@ -70,6 +70,10 @@ struct FileBrowserTreeView: NSViewRepresentable {
     /// 開いた行の子を並べる順(型コメント「子の並び」)。
     let childSort: FolderBrowserSort
 
+    /// ホイール1ノッチで動かす行数(リスト表示と共通の設定。HomeWheelScroll参照)。
+    /// **値で受け取ること** ―― 設定が変わったときに`updateNSView`が呼ばれるようにするため。
+    let wheelScrollRows: Double
+
     /// 「右と同じ順」が OFF のときの子の並び(従来の名前の昇順と同じ)。
     static let nameSort = FolderBrowserSort(grouping: .mixedByName, key: .name, direction: .ascending)
 
@@ -77,7 +81,7 @@ struct FileBrowserTreeView: NSViewRepresentable {
         Coordinator()
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> HomeWheelScrollView {
         let coordinator = context.coordinator
         let outline = FileBrowserOutlineView()
         outline.style = .sourceList
@@ -103,7 +107,8 @@ struct FileBrowserTreeView: NSViewRepresentable {
         menu.delegate = coordinator
         outline.menu = menu
 
-        let scroll = NSScrollView()
+        // ホイール1ノッチのスクロール量を設定に従わせる(HomeWheelScroll)。
+        let scroll = HomeWheelScrollView()
         scroll.documentView = outline
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
@@ -116,11 +121,15 @@ struct FileBrowserTreeView: NSViewRepresentable {
         return scroll
     }
 
-    func updateNSView(_ scroll: NSScrollView, context: Context) {
+    func updateNSView(_ scroll: HomeWheelScrollView, context: Context) {
+        // 1ノッチ = 設定の行数ぶん(行の高さ + 行間)。行の高さは`rowSizeStyle`に従ってAppKitが決める。
+        if let outline = context.coordinator.outline {
+            scroll.wheelStepDistance = (outline.rowHeight + outline.intercellSpacing.height) * CGFloat(wheelScrollRows)
+        }
         context.coordinator.update(from: self)
     }
 
-    static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
+    static func dismantleNSView(_ scroll: HomeWheelScrollView, coordinator: Coordinator) {
         coordinator.stop()
         if let outline = coordinator.outline {
             outline.dataSource = nil

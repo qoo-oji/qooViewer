@@ -312,6 +312,44 @@ struct PanelSurfaceSettingsView: View {
         librarySection
         collectionSection
         smartLibrarySection
+        homeScrollingSection
+    }
+
+    /// ホーム画面の一覧を物理マウスホイールで転がしたときの、1ノッチぶんのスクロール量
+    /// (ユーザー要望 2026-09-23。`HomeWheelScroll`)。
+    ///
+    /// ページ一覧の「ホイール1ノッチあたりの行数」(thumbnailGridSection の末尾)と同じ扱いで、
+    /// 見た目の設定ではないが**ホーム画面にしか効かない**のでこの画面に置いてある。
+    /// 上の3つ(ライブラリ・コレクション・スマートライブラリ)は画面の一部ごとの設定だが、
+    /// これはホーム画面のどの一覧にも効くので、末尾に別のセクションとして分けてある。
+    ///
+    /// 2つに分けてあるのは、リストは行が22ptと低く、アイコン/グリッドは1行が画面を占めるほど
+    /// 高いため ―― 片方に合う行数がもう片方では極端になる(ユーザーの指示)。
+    private var homeScrollingSection: some View {
+        Section {
+            SettingsSlider(
+                "Rows per Wheel Notch in Lists",
+                value: $appearance.homeListWheelScrollRows,
+                in: AppearanceSettings.homeListWheelScrollRowsRange,
+                step: 0.5,
+                help: "The file browser's list and folder tree, and the smart library's list. Applies to a physical mouse wheel only; trackpad scrolling is unchanged."
+            ) { value in
+                // 0.5刻みなので、整数のときも「3.0」と書いて桁数を揃える
+                // (ドラッグ中に小数点が出たり消えたりして行が揺れるのを防ぐ。ページ一覧と同じ)。
+                String(format: "%.1f", value)
+            }
+            SettingsSlider(
+                "Grid Rows per Wheel Notch in Icon Views",
+                value: $appearance.homeGridWheelScrollRows,
+                in: AppearanceSettings.homeGridWheelScrollRowsRange,
+                step: 0.5,
+                help: "The file browser's icon view, the collection list, the covers inside a collection, and the smart library's grid. Applies to a physical mouse wheel only; trackpad scrolling is unchanged."
+            ) { value in
+                String(format: "%.1f", value)
+            }
+        } header: {
+            Text("Scrolling")
+        }
     }
 
     /// スマートライブラリの表紙の下の文字の大きさ、束の後ろの紙の色、束の冊数バッジの大きさ(2026-09-22、利用者の要望)。

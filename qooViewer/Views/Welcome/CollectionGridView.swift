@@ -298,6 +298,14 @@ struct CollectionGridView: View {
         .welcomeGridPinch(scrollBox: marquee.scrollBox) { [weak state] magnification in
             state?.resizeTiles(byMagnification: magnification)
         }
+        // 物理マウスホイール1ノッチで「設定したグリッドの行数」ぶん動かす(ユーザー要望 2026-09-23。
+        // HomeWheelScroll)。裏の NSScrollView はマーキーが控えているものをそのまま使う。
+        // 1行ぶん = 札の高さ(絵 + 名前1行)+ 行間(高さの式は minimumCellCount と同じ)。
+        .homeGridWheelScroll(
+            scrollBox: marquee.scrollBox,
+            distancePerNotch: (state.tileSize + nameLineHeight + Self.spacing)
+                * CGFloat(appearance.homeGridWheelScrollRows)
+        )
         .onGeometryChange(for: CGSize.self) { proxy in
             proxy.size
         } action: { size in

@@ -744,6 +744,8 @@ struct SmartLibraryContent: View {
     @EnvironmentObject private var catalog: SmartLibraryCatalog
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
+    /// 表紙の下の文字の大きさ(行の高さの見積もり)と、ホイール1ノッチのスクロール量。
+    @EnvironmentObject private var appearance: AppearanceSettings
     @Environment(\.openWindow) private var openWindow
     @Environment(\.revealInFileBrowser) private var revealInFileBrowser
     @Environment(\.locale) private var locale
@@ -767,6 +769,8 @@ struct SmartLibraryContent: View {
     @State private var cellImageBudget = LazyCellImageBudget(byteBudget: Self.coverByteBudget)
     /// グリッドの見えている大きさ(帳簿の下限セル数を見積もるためだけ)。
     @State private var gridSize: CGSize = .zero
+    /// グリッドを描いている `NSScrollView` の入れ物(ホイール1ノッチのスクロール量。`HomeWheelScroll`)。
+    @State private var scrollBox = ScrollGeometryBox()
 
     private static let spacing: CGFloat = 16
     private static let gridPadding: CGFloat = 16
@@ -982,6 +986,18 @@ struct SmartLibraryContent: View {
         (state.gridItems.count + columns - 1) / max(1, columns)
     }
 
+    /// グリッド1行ぶんの間隔(表紙の高さ + 下の文字2行 + 行間)。ホイール1ノッチのスクロール量が使う。
+    ///
+    /// 実測ではなく見積もりである(`ThumbnailGridView.gridRowHeight` と同じ理由: 行の高さは LazyVGrid が
+    /// 決めたあとでしか分からず、そのときにはホイールのイベントを処理し終えている)。下の文字は常に2行ぶん
+    /// (`SmartCaptionLines`)で、行間1pt + 表紙との間 4pt。既定の10ptでは 31pt ―― `minimumCellCount` が
+    /// 使っている概算の 30 とほぼ同じ。
+    static func gridRowPitch(coverSize: CGFloat, appearance: AppearanceSettings) -> CGFloat {
+        let fontSize = appearance.smartLibraryCaptionFontSize
+        let caption = (fontSize * 1.3).rounded(.up) * 2 + 1 + 4
+        return coverSize * SmartBookCell.heightRatio + caption + Self.spacing
+    }
+
     /// ■ 選択とキー操作(2026-09-22、利用者の指示。StackNest / ShelfRow の調査から)
     /// - クリックで選ぶ、⌘ で足す/外す、⇧ で範囲、余白のクリックで外す。**ダブルクリックで開く**(本は開き、束は中へ。
     ///   Finder・ファイルブラウザのアイコン表示と同じ。それまでは 1 回のクリックで開いていた)
@@ -1035,6 +1051,9 @@ struct SmartLibraryContent: View {
                 .padding(Self.gridPadding)
                 // 画面外の表紙をまとめて手放す(`cellImageBudget`)。ScrollView の内側なのでスクロール位置は変わらない。
                 .id(gridID)
+                // ホイール1ノッチのスクロール量のために、裏の NSScrollView を控える(ScrollViewAccessor の
+                // コメント: **ScrollView の内側**に置くこと)。
+                .background(ScrollViewAccessor(onResolve: { scrollBox.scrollView = $0 }))
             }
             .scrollPosition($scrollPosition)
             // 一覧の寸法とスクロール量を実測して控える(PanelListScrollTracker)。
@@ -1050,6 +1069,12 @@ struct SmartLibraryContent: View {
                 }
             }
         }
+        // 物理マウスホイール1ノッチで「設定したグリッドの行数」ぶん動かす(HomeWheelScroll)。
+        .homeGridWheelScroll(
+            scrollBox: scrollBox,
+            distancePerNotch: Self.gridRowPitch(coverSize: state.coverSize, appearance: appearance)
+                * CGFloat(appearance.homeGridWheelScrollRows)
+        )
         // 余白のクリックで選択を外す(セルのクリックはセルの側が先に受ける)。
         .contentShape(Rectangle())
         .onTapGesture {
@@ -1300,6 +1325,7 @@ struct SmartLibraryContent: View {
             scrollResetSerial: state.scrollResetSerial,
             outlineWidth: outlineWidth,
             locale: locale,
+            wheelScrollRows: appearance.homeListWheelScrollRows,
             onSelectionChange: { [state] ids, cursor in state.setSelection(ids, cursor: cursor) },
             onSort: { [state] key, ascending in
                 state.sortKey = key

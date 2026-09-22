@@ -53,6 +53,9 @@ struct FileBrowserIconView: NSViewRepresentable {
     let includesVideo: Bool
     let outlineWidth: CGFloat
     let locale: Locale
+    /// ホイール1ノッチで動かすグリッドの行数(環境設定「外観」→「ホーム」→「スクロール」。HomeWheelScroll参照)。
+    /// **値で受け取ること** ―― 設定が変わったときに`updateNSView`が呼ばれるようにするため。
+    let wheelScrollRows: Double
     /// 一覧全体(表示中のフォルダ)がドロップの受け口になった・外れた(ペインがリストと同じ枠を出す)。
     let onWholeViewDropTargetChange: (Bool) -> Void
 
@@ -64,7 +67,7 @@ struct FileBrowserIconView: NSViewRepresentable {
         Coordinator()
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> HomeWheelScrollView {
         let coordinator = context.coordinator
         let layout = FileBrowserIconLayout()
         layout.spacing = Self.spacing
@@ -87,7 +90,8 @@ struct FileBrowserIconView: NSViewRepresentable {
         menu.delegate = coordinator
         collection.menu = menu
 
-        let scroll = NSScrollView()
+        // ホイール1ノッチのスクロール量を設定に従わせる(HomeWheelScroll)。
+        let scroll = HomeWheelScrollView()
         scroll.documentView = collection
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
@@ -101,11 +105,14 @@ struct FileBrowserIconView: NSViewRepresentable {
         return scroll
     }
 
-    func updateNSView(_ scroll: NSScrollView, context: Context) {
+    func updateNSView(_ scroll: HomeWheelScrollView, context: Context) {
+        // 1ノッチ = 設定のグリッド行数ぶん(セルの高さ + セルの間隔)。
+        scroll.wheelStepDistance =
+            (Self.cellSize(iconSize: state.iconSize).height + Self.spacing) * CGFloat(wheelScrollRows)
         context.coordinator.update(from: self)
     }
 
-    static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
+    static func dismantleNSView(_ scroll: HomeWheelScrollView, coordinator: Coordinator) {
         // 捨てる直前に一覧を取り込み直さない(取り込むと、捨てるビューが絵を頼み直す)。
         coordinator.finishEditing(commit: true, syncsAfterward: false)
         coordinator.nameClickRename.cancel()

@@ -139,6 +139,38 @@ FileBrowserOperations(ウインドウごと。1 本ずつ直列・確認の受�
 - 実機で確かめたこと(2026-09-21): マウスのサイドボタンでの戻る / 進む(ユーザー確認)。フリックの向きとしきい値は実機の報告待ち
   (合成イベントでは送れない。判定の規則はテストで固定してある)。
 
+## ホイールのスクロール量(2026-09-23、ユーザー要望)
+
+**物理マウスホイール 1 ノッチで動く量**を、リスト表示は「行数」、アイコン表示は「グリッドの行数」で決める
+(環境設定「外観」▸「ホーム」▸「スクロール」。設定そのものは
+[14](14-library-collections.md#環境設定json削除) と `AppearanceSettings.homeListWheelScrollRows` /
+`homeGridWheelScrollRows`)。実装は `Views/Welcome/HomeWheelScroll.swift` で、ホーム画面の一覧すべてが共有する。
+
+- **なぜ要るか**: 高解像度スクロールに対応したマウス(いまどきのものはたいていそう)は、物理ホイールでも
+  `hasPreciseScrollingDeltas == true`・`scrollingDeltaY = ±13.0` で届く。AppKit はその 13pt をそのまま動かすので、
+  **行の高さやセルの大きさに関わらず 1 ノッチ 13pt** にしかならず、アイコンを大きくしても手応えが変わらなかった。
+- **対象は物理ホイールだけ**。判定はアプリの他の箇所と同じ `phase` / `momentumPhase` が空か
+  (`HomeWheelScroll.isWheelOriginated`。実測値と、以前 `hasPreciseScrollingDeltas` で見ていた誤りの経緯は
+  `ThumbnailGridView.isWheelOriginated` のコメント)。トラックパッドは 1 回の操作が細かいイベントの連なりで届くので
+  「1 回ぶん」に意味が無く、素通しする。**`deltaX` が載っているイベント(⇧+ホイール・チルト)も素通し**(横を取りこぼさないため)。
+- **ノッチ数は `deltaY`**(機器によらず 1 ノッチ = ±1 に正規化されている)。速く回したときに AppKit がまとめてくる
+  複数ノッチぶん(実測 -3〜-6)はそのまま掛けて加速を活かす。アニメーションは付けない。
+- **受け方は 2 通り**。
+  - AppKit の一覧(リスト・ツリー・アイコン表示、スマートライブラリのリスト)は `HomeWheelScrollView`
+    ―― `scrollWheel` を上書きした `NSScrollView`。1 ノッチぶんの距離は**値**で持ち、`updateNSView` が毎回入れ直す
+    (閉包にしないので、`dismantleNSView` で切り忘れてリークする口が無い)。
+  - SwiftUI のグリッド(コレクションの一覧・コレクションの中・スマートライブラリのグリッド)は `.homeGridWheelScroll`
+    ―― `NSEvent` のローカルモニタ(`welcomeGridPinch` と同じ作り)。ポインタの下にあるのがそのグリッドかは
+    **矩形ではなくヒットテスト**で見る(重なっているものを横取りしないため)。自前で動かしたイベントは流さない
+    (流すと AppKit の標準の処理と二重になり、設定した量の何倍も動く)。距離は**値**で渡し、モディファイアの `body` が
+    小さな箱へ入れ直す ―― 閉包で渡すと、取り付けが 1 回きりなので大きさを変えても古い値のままになり、
+    閉包が `View`(とその先の SwiftData のモデル)を捕まえる危険もある。
+- 行の高さは、AppKit 側は実寸(`rowHeight + intercellSpacing.height`、アイコンは `cellSize(iconSize:).height + spacing`)、
+  SwiftUI のグリッド側は**見積もり**(`ThumbnailGridView.gridRowHeight` と同じ理由 ―― 行の高さは `LazyVGrid` が決めた
+  あとでしか分からず、そのときにはイベントを処理し終えている。用途が「感覚で決める量」なので数 pt の誤差は埋もれる)。
+- `FileBrowserNavigationGestureMonitor`(左右フリック)とは衝突しない ―― あちらが受けるのは `phase` のあるイベントだけで、
+  ホイールのイベントはそのまま通す。
+
 ## ファイルブラウザ機能の ON/OFF(2026-09-21、ユーザー要望)
 
 環境設定「一般」▸「ホーム」の **「ファイルブラウザを有効にする」**(`AppPreferences.fileBrowserFeatureEnabled`、既定 ON)。

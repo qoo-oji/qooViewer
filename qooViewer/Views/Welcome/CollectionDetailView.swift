@@ -501,6 +501,13 @@ struct CollectionDetailView: View {
         .welcomeGridPinch(scrollBox: marquee.scrollBox) { [weak state] magnification in
             state?.resizeCovers(byMagnification: magnification)
         }
+        // 物理マウスホイール1ノッチで「設定したグリッドの行数」ぶん動かす(ユーザー要望 2026-09-23。
+        // HomeWheelScroll)。1行ぶん = カバーの高さ + 下の文字 + 行間(高さの式は minimumCellCount と同じ)。
+        .homeGridWheelScroll(
+            scrollBox: marquee.scrollBox,
+            distancePerNotch: (state.coverSize / library.coverAspectRatio.value + captionHeight + Self.spacing)
+                * CGFloat(appearance.homeGridWheelScrollRows)
+        )
         .onGeometryChange(for: CGSize.self) { proxy in
             proxy.size
         } action: { size in

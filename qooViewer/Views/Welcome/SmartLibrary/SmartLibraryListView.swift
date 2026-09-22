@@ -46,6 +46,9 @@ struct SmartLibraryListView: NSViewRepresentable {
     /// 文字の輪郭の太さ(すりガラス面の決まりごと。画面が環境値から渡す)。
     let outlineWidth: CGFloat
     let locale: Locale
+    /// ホイール1ノッチで動かす行数(ファイルブラウザのリストと共通の設定。HomeWheelScroll参照)。
+    /// **値で受け取ること** ―― 設定が変わったときに`updateNSView`が呼ばれるようにするため。
+    let wheelScrollRows: Double
     var onSelectionChange: (Set<String>, String?) -> Void
     var onSort: (SmartSortKey, Bool) -> Void
     /// 行を開く(本は開き、束は中へ)。
@@ -60,7 +63,7 @@ struct SmartLibraryListView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> HomeWheelScrollView {
         let coordinator = context.coordinator
         let outline = SmartLibraryOutlineView()
         outline.style = .plain
@@ -116,7 +119,8 @@ struct SmartLibraryListView: NSViewRepresentable {
         outline.headerView?.menu = headerMenu
         coordinator.headerMenu = headerMenu
 
-        let scroll = NSScrollView()
+        // ホイール1ノッチのスクロール量を設定に従わせる(HomeWheelScroll)。
+        let scroll = HomeWheelScrollView()
         scroll.documentView = outline
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
@@ -129,11 +133,15 @@ struct SmartLibraryListView: NSViewRepresentable {
         return scroll
     }
 
-    func updateNSView(_ scroll: NSScrollView, context: Context) {
+    func updateNSView(_ scroll: HomeWheelScrollView, context: Context) {
+        // 1ノッチ = 設定の行数ぶん(行の高さ + 行間)。
+        if let outline = context.coordinator.outline {
+            scroll.wheelStepDistance = (outline.rowHeight + outline.intercellSpacing.height) * CGFloat(wheelScrollRows)
+        }
         context.coordinator.apply(self, initial: false)
     }
 
-    static func dismantleNSView(_ scroll: NSScrollView, coordinator: Coordinator) {
+    static func dismantleNSView(_ scroll: HomeWheelScrollView, coordinator: Coordinator) {
         if let outline = coordinator.outline {
             outline.dataSource = nil
             outline.delegate = nil
