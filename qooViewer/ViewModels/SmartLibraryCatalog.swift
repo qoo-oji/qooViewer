@@ -321,8 +321,10 @@ final class SmartLibraryCatalog: ObservableObject {
         let entries = books.compactMap { book -> BookMetadataStore.BatchEntry? in
             let record = snapshot.records[book.id]
             let values = book.metadata.trimmed
+            // この起動中に利用者が消した行は作り直さない(BookMetadataStore.deletedThisSession)。
             guard record?.isLocked != true, record?.values != values, lastRegistered[book.id] != values,
-                  !values.isEmpty, !rulesStore.isExcluded(bookID: book.id) else { return nil }
+                  !values.isEmpty, !rulesStore.isExcluded(bookID: book.id),
+                  record != nil || !metadataStore.deletedThisSession.contains(book.id) else { return nil }
             written[book.id] = values
             return BookMetadataStore.BatchEntry(bookID: book.id, values: book.metadata, onlyIfUnlocked: true)
         }

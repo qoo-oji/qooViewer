@@ -1055,7 +1055,7 @@ final class AppState: ObservableObject {
                     // 通すと、iノードが一致した既存のお気に入り/レイアウト/ブックマークのbookIDが
                     // その場限りのIDへ恒久的に書き換わり、復旧不能になる
                     // (詳細はMangaBook.BookOriginのコメント参照)。
-                    let skipsPersistence = self.isPrivateWindow || book.isTransient
+                    let skipsPersistence = self.isPrivateWindow || book.leavesNoRecord
                     // ユーザー要望: お気に入り・レイアウト・ブックマークが、同一ボリューム内での
                     // ファイルの移動・リネームを引き継げるようにしたい。この本を開くたびに、現在の
                     // bookID(パス)でまだ見つからない登録済みデータがあれば、ファイルノード識別子

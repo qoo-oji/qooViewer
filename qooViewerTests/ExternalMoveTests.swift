@@ -82,6 +82,32 @@ struct ExternalMoveTests {
         #expect(library.metadata.metadata(forBookID: old.path) == nil)
     }
 
+    @Test("一時フォルダへ書き出した入れ子の書庫の本は、保存データに何も残さない本として扱う(2026-09-22 の監査)")
+    func temporaryCopiesLeaveNoRecord() {
+        let temporary = TemporaryFileStore.makeFileURL(extension: "cbz")
+        #expect(MangaBook(id: temporary.path, title: "x", sourceURL: temporary, pages: []).leavesNoRecord)
+        let ordinary = URL(fileURLWithPath: "/Users/someone/book-a.cbz")
+        #expect(!MangaBook(id: ordinary.path, title: "x", sourceURL: ordinary, pages: []).leavesNoRecord)
+    }
+
+    @Test("消したメタデータは、この起動の間だけ「消した」と覚える(ファイル名の読みだけの書き手には外させない)")
+    func deletedRowsAreRememberedForTheSession() throws {
+        let library = try InMemoryLibrary(label: "metadata-deleted")
+        defer { library.close() }
+        let bookID = "/nowhere/deleted.cbz"
+        library.metadata.registerParsed(bookID: bookID, rules: library.metadataRules.rules)
+        library.metadata.upsertAll([.init(bookID: bookID, values: nil)])
+        #expect(library.metadata.deletedThisSession == [bookID])
+
+        // スマートライブラリ・規則の読み直しと同じ書き方(onlyIfUnlocked)では外れない。
+        library.metadata.upsertAll([.init(bookID: bookID, values: BookMetadataValues(title: "T"), onlyIfUnlocked: true)])
+        #expect(library.metadata.deletedThisSession == [bookID])
+        // 本を開いた・窓が登録した(読みだけではない書き手)なら外れる。
+        library.metadata.upsertAll([.init(bookID: bookID, values: nil)])
+        library.metadata.registerParsed(bookID: bookID, rules: library.metadataRules.rules)
+        #expect(library.metadata.deletedThisSession.isEmpty)
+    }
+
     @Test("読書位置も付け替える(新しいパスに既にあれば触らない)")
     func readingStatesFollow() throws {
         let library = try InMemoryLibrary(label: "outside-move-reading")

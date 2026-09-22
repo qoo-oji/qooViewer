@@ -20,6 +20,12 @@ final class BookMetadataStore: ObservableObject {
     /// 共有の 1 つ(CLAUDE.md「SwiftData persistence」)。AppState が本を開いたときの読書位置の付け替えにも使う。
     let modelContext: ModelContext
 
+    /// この起動の間に利用者が消した行(「メタデータを削除」・保存データの削除)。スマートライブラリはこれを作り直さない
+    /// (docs/07 の約束。2026-09-22 の監査: 以前は自分がこの起動中に書いた本しか覚えておらず、削除の知らせで走った集め直しが
+    /// 消した行をすぐ作り直した)。窓を開き直す・本を開くなど、ファイル名の読みだけではない書き手が書けば外れる(`applyUpsert`)。
+    /// 起動し直せば空に戻る(消したことは覚えておかない ―― 利用者の指示 2026-09-22)。
+    private(set) var deletedThisSession: Set<String> = []
+
     /// メタデータが登録されている本のbookID一覧。「メタデータの編集」ウインドウの行の
     /// 色分け、およびEPUB/PDF出力ウインドウの対象判定・インジケータ表示に使う。
     ///
@@ -182,6 +188,7 @@ final class BookMetadataStore: ObservableObject {
             } else if let existing = metadata(forBookID: entry.bookID) {
                 modelContext.delete(existing)
                 cachedByBookID?[entry.bookID] = nil
+                deletedThisSession.insert(entry.bookID)
                 outcome = .removed
             } else {
                 outcome = .noChange
@@ -343,6 +350,8 @@ final class BookMetadataStore: ObservableObject {
         created.apply(state ?? (onlyIfUnlocked ? BookMetadataRowState(isLocked: false) : .locked))
         modelContext.insert(created)
         cachedByBookID?[bookID] = created
+        // ファイル名の読みだけの書き手(スマートライブラリ・規則の読み直し)以外が作ったら、消した印を外す。
+        if !onlyIfUnlocked { deletedThisSession.remove(bookID) }
         return .updated(created)
     }
 
@@ -493,6 +502,7 @@ final class BookMetadataStore: ObservableObject {
         guard let existing = metadata(forBookID: bookID) else { return }
         modelContext.delete(existing)
         cachedByBookID?[bookID] = nil
+        deletedThisSession.insert(bookID)
         saveAndNotify(bookID: bookID)
     }
 

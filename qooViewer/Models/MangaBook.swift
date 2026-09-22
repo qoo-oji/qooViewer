@@ -129,6 +129,18 @@ struct MangaBook: Identifiable, Hashable {
     /// ViewerViewModel.skipsPersistence / AppState.open内のローカル変数が担う。
     var isTransient: Bool { origin == .imageFiles }
 
+    /// 入れ子の書庫を一時フォルダへ書き出したものを開いた本か(サイドパネルの中身ブラウザの「新しい本として開く」。
+    /// `BookContentsBrowserState.materializedURL`)。パスはこの起動の間しか無いので、保存データ・履歴・前回の本・メタデータに
+    /// 残してはいけない(2026-09-22 の監査: 以前は普通の本として記録し、UUID の名前のメタデータの行や開けない履歴が残った)。
+    var isTemporaryCopy: Bool {
+        MountTable.path(MountTable.normalized(sourceURL.path),
+                        isAtOrUnder: MountTable.normalized(TemporaryFileStore.sessionDirectory.path))
+    }
+
+    /// 保存データに何も残さない本(その場限りの本と、一時フォルダに書き出した入れ子の書庫)。シークレットウインドウと
+    /// ORして使う(`isTransient` は「画像を直接開いた本」の意味でメニューの可否にも使うので、そちらは広げない)。
+    var leavesNoRecord: Bool { isTransient || isTemporaryCopy }
+
     /// `sourceURL`がこの本そのものを指しているかどうか。
     ///
     /// 複数枚の画像をまとめた本だけfalseになる。あの本のsourceURLは「先頭1ページの画像」で

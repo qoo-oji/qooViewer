@@ -246,7 +246,7 @@ struct ContentView: View {
                             // シークレットウインドウか、その場限りの本(直接渡された画像から
                             // 組み立てた本)のどちらかなら、DBへは一切書かない。
                             // 詳細はViewerViewModel.skipsPersistence / MangaBook.BookOrigin参照。
-                            skipsPersistence: isPrivateWindow || book.isTransient,
+                            skipsPersistence: isPrivateWindow || book.leavesNoRecord,
                             // 「同じフォルダの画像をすべて開く」で着地したいページ。
                             // この本向けの指定でなければ渡さない(AppState.pendingInitialPage参照)。
                             // 実際に消費したかどうかに関わらず、ViewerViewのonAppearが
@@ -1186,7 +1186,7 @@ struct ContentView: View {
         // しまうと、そのsourceURL(複数枚のときは先頭の1枚)が「最後に開いていた本」として残り、
         // 次回起動時にその画像が勝手に開いてしまう(クリアもしない。直前まで開いていた
         // 通常の本の記録を消さないため)。
-        guard appState.currentBook?.isTransient != true else { return }
+        guard appState.currentBook?.leavesNoRecord != true else { return }
         guard isConfirmedLegitimateWindow,
               let hostWindow = appState.hostWindow, NSApp.keyWindow === hostWindow else { return }
         if let url = appState.currentBook?.sourceURL {
@@ -1360,7 +1360,7 @@ struct ContentView: View {
             // ＋/鉛筆(お気に入り・ブックマークの追加/編集)は、履歴の非表示とは別条件。
             // その場限りの本でも無効にする必要があるが、履歴そのものは通常どおり見せる
             // (SidePanelViewのallowsLibraryEditingのコメント参照)。
-            allowsLibraryEditing: !isPrivateWindow && appState.currentBook?.isTransient != true,
+            allowsLibraryEditing: !isPrivateWindow && appState.currentBook?.leavesNoRecord != true,
             loadPageImage: appState.loadPageImage,
             pageThumbnailGeneration: appState.pageThumbnailGeneration,
             // モード切替の左の「ウェルカム画面へ戻る」(改善要望5)。本を開いていなければnil
