@@ -560,6 +560,7 @@ enum LibraryImportExportService {
         // ディスクI/Oになる(BookMetadataStore.upsertAll(_:)のコメント参照)。
         var batch: [BookMetadataStore.BatchEntry] = []
         batch.reserveCapacity(entries.count)
+        var sourceImported = Set<String>()
         for entry in entries {
             // 他のカテゴリと同じく、ファイルノード識別子による照合を優先し、解決できた場合は
             // 現在のパスをbookIDとして使う(別マシン/移動後でパスが変わっていても引き継げる)。
@@ -576,8 +577,11 @@ enum LibraryImportExportService {
             batch.append(BookMetadataStore.BatchEntry(bookID: bookID, values: entry.values, sourceURL: resolvedURL,
                                                       fieldsVersion: entry.importedFieldsVersion,
                                                       state: entry.importedState))
+            if entry.importedSourceMetadata == true { sourceImported.insert(bookID) }
         }
         summary.metadataImportedBooks += metadataStore.upsertAll(batch)
+        // ファイルの書誌を取り込み済みの印(行の値とは別に持つので、upsertAll の後で立てる)。
+        metadataStore.markSourceMetadataImported(sourceImported)
 
     }
 

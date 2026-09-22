@@ -1144,8 +1144,14 @@ final class CollectionStore: ObservableObject {
     /// 開く直前に使う。解決と存在確認の両方に成功したときだけURLを返す(見つからない場合、
     /// 呼び出し側は「本が見つかりません」のアラートを出す)。
     func resolvedExistingURL(for item: CollectionItem) -> URL? {
+        Self.existingURL(fromBookmark: item.bookmarkData)
+    }
+
+    /// `resolvedExistingURL(for:)` の本体。ブックマークの解決と存在確認はボリュームへの問い合わせなので、多くを続けて
+    /// 確かめる所(一覧の並びをたどる「次の本へ」。`AppState.openInSequence`)は `FileIO` の上から呼ぶ。
+    nonisolated static func existingURL(fromBookmark data: Data) -> URL? {
         // ゴミ箱の中まで追ったものは開かない(一覧で「見つからない」と出している本。BookLocationResolver.resolve のコメント)。
-        guard let url = resolvedURL(for: item), !BookLocationResolver.isInTrash(url) else { return nil }
+        guard let url = FavoritesStore.resolvedURL(fromBookmark: data), !BookLocationResolver.isInTrash(url) else { return nil }
         let didStartAccessing = url.startAccessingSecurityScopedResource()
         defer { if didStartAccessing { url.stopAccessingSecurityScopedResource() } }
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }

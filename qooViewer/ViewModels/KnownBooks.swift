@@ -21,8 +21,12 @@ enum KnownBooks {
     }
 
     /// bookID(本のパス)を重複なく集める。
-    static func collect(from sources: Sources) -> Set<String> {
-        var bookIDs = sources.metadataStore.registeredBookIDs
+    ///
+    /// - Parameter includingMetadata: メタデータの行を持つ本も入れるか。**false は、メタデータの行のほかに本を覚えている
+    ///   理由があるかを見るとき**(`AppStores.pruneParsedOnlyMetadata`)。2026-09-22 から解析した本はすべて行を持つので、
+    ///   行を入れると、行があるから一覧に出て、一覧に出るから行が残る、の輪になる。
+    static func collect(from sources: Sources, includingMetadata: Bool = true) -> Set<String> {
+        var bookIDs = includingMetadata ? sources.metadataStore.registeredBookIDs : []
         bookIDs.formUnion(sources.layoutStore.layoutBookIDs)
         bookIDs.formUnion(sources.layoutStore.coverOverrideBookIDs())
         bookIDs.formUnion(sources.layoutStore.shelfCoverBookIDs())

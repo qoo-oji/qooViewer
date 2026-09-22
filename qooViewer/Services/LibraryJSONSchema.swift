@@ -166,6 +166,10 @@ struct ExportedBookMetadataEntry: Codable {
     /// ロックしていない行の、利用者が直した欄(qooMeta の `Confirmation`)と、利用者が選んだルールセット(ロックした行も)。
     var edits: MetadataEdits?
     var ruleSet: String?
+    /// ファイル(EPUB/PDF/ComicInfo.xml)の書誌情報を取り込み済みか(`BookMetadata.didImportSourceMetadata`。済みのときだけ
+    /// true を書く)。2026-09-22 の 2 回目の監査の 7: 書き出していなかったので、読み込んだあと、ロックしていない本は次に開いた
+    /// ときにファイルの書誌をもう一度重ね、「メタデータを再生成」でファイル名の読みに戻した欄が戻された。
+    var importedSourceMetadata: Bool?
 
     /// 取り込む行のロックと直した欄。
     var importedState: BookMetadataRowState {
@@ -215,7 +219,8 @@ extension ExportedBookMetadataEntry {
             info: nonEmpty(values.info), volumeSort: values.volumeSort, fieldsVersion: metadata.fieldsVersion,
             locked: metadata.isLocked,
             edits: .exporting(metadata),
-            ruleSet: metadata.ruleSet
+            ruleSet: metadata.ruleSet,
+            importedSourceMetadata: metadata.didImportSourceMetadata ? true : nil
         )
     }
 }

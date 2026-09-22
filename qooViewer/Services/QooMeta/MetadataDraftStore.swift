@@ -68,6 +68,8 @@ final class MetadataDraftStore {
                 state: BookMetadataRowState(isLocked: false, edits: draft.confirmation, ruleSet: draft.preset)))
         }
         let count = metadataStore.upsertAll(entries)
+        // DB への保存が失敗したら、ファイルは消さない(次の起動でもう一度移す。2026-09-22 の 2 回目の監査の 6)。
+        guard metadataStore.lastSaveErrorMessage == nil else { return 0 }
         drafts = [:]
         try? FileManager.default.removeItem(at: url)
         return count

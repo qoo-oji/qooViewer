@@ -203,14 +203,18 @@ final class BookMetadataStore: ObservableObject {
         } catch {
             logSaveFailure("upsertAll() failed for \(changedBookIDs.count) book(s): \(error)")
         }
+        // `registeredBookIDs` は写しの上で直してから 1 度だけ差し替える(`@Published` の集合へ 1 件ずつ入れると、そのたびに
+        // 知らせが飛ぶ。2,207 件の初回登録でここだけ 76 ms だった ―― 2026-09-22 の 2 回目の監査の実測)。
         let byBookID = metadataByBookID()
+        var registered = registeredBookIDs
         for bookID in changedBookIDs {
             if byBookID[bookID] != nil {
-                registeredBookIDs.insert(bookID)
+                registered.insert(bookID)
             } else {
-                registeredBookIDs.remove(bookID)
+                registered.remove(bookID)
             }
         }
+        if registered != registeredBookIDs { registeredBookIDs = registered }
         revision &+= 1
         // どの本かを特定しない通知として1回だけ投げる(全件リセットと同じ形。
         // 購読側は"bookID"が無い通知を「本を問わず対象」として扱う。BookMetadata.swift参照)。
@@ -218,6 +222,35 @@ final class BookMetadataStore: ObservableObject {
         let userInfo: [String: Any]? = changedBookIDs.count == 1 ? ["bookID": changedBookIDs[0]] : nil
         NotificationCenter.default.post(name: .bookMetadataDidChange, object: self, userInfo: userInfo)
         return importedCount
+    }
+
+    /// 画面を持たない自動の登録(スマートライブラリ・メタデータの編集ウインドウを開いたとき)を区切る件数
+    /// (`upsertAllInBatches`)。
+    nonisolated static let registrationBatchSize = 500
+
+    /// `upsertAll` を `batchSize` 件ずつ、合間にメインを譲りながら書く(2026-09-22 の 2 回目の監査の 2)。
+    ///
+    /// 解析した本はすべて行を持つので、スマートライブラリを初めて出したとき・メタデータの編集ウインドウを初めて開いたときに、
+    /// 数千冊を一度に登録する。実測(本番の写し、2,207 行): 1 回の `upsertAll` で 362 ms(適用 88 / save 191 /
+    /// `registeredBookIDs` 76)、その間メインが止まった(最大 506 ms)。区切れば 1 回の止まりは 1 区切りぶんになる。
+    /// 知らせは区切りごとに出る(受け手は bookID の無い知らせとして読み直す)。取り消されたら残りは書かない(次に解析された
+    /// ときに書かれる ―― 登録は何度やっても同じ結果になる)。
+    /// - Parameter didWrite: 1 区切りを書き終えるたびに、その区切りの件を渡す(どこまで書けたかを控える側のため)。
+    @discardableResult
+    func upsertAllInBatches(_ entries: [BatchEntry], batchSize: Int = registrationBatchSize,
+                            didWrite: ([BatchEntry]) -> Void = { _ in }) async -> Int {
+        var total = 0
+        var start = 0
+        while start < entries.count, !Task.isCancelled {
+            let end = min(start + max(1, batchSize), entries.count)
+            let batch = Array(entries[start..<end])
+            total += upsertAll(batch)
+            didWrite(batch)
+            start = end
+            // `Task.yield()` ではなく眠る: 譲った先がメインキューの同じ汲み出しの中で戻ってくると、入力の処理が挟まらない。
+            if start < entries.count { try? await Task.sleep(for: .milliseconds(1)) }
+        }
+        return total
     }
 
     /// upsertAll(_:)へ渡す1件分。
@@ -344,6 +377,55 @@ final class BookMetadataStore: ObservableObject {
         imported.didImportSourceMetadata = true
         saveAndNotify(bookID: bookID)
         return true
+    }
+
+    /// ファイルの書誌情報を取り込み済みの印を立てる(保存データの JSON の読み込み。`ExportedBookMetadataEntry.importedSourceMetadata`)。
+    /// ロックした行にも立てる(外したときに取り込み直さないように)。
+    func markSourceMetadataImported(_ bookIDs: Set<String>) {
+        let rows = bookIDs.compactMap { metadata(forBookID: $0) }.filter { !$0.didImportSourceMetadata }
+        guard !rows.isEmpty else { return }
+        for row in rows { row.didImportSourceMetadata = true }
+        do {
+            try modelContext.save()
+            lastSaveErrorMessage = nil
+        } catch {
+            logSaveFailure("markSourceMetadataImported() failed for \(rows.count) book(s): \(error)")
+        }
+    }
+
+    /// ほかに覚えている理由の無い、ファイル名の読みだけの行を消す(`BookMetadata.isParsedOnly`。2026-09-22 の 2 回目の監査の 3)。
+    ///
+    /// 解析した本はすべて行を持つ(本を開いた・スマートライブラリに並んだ・メタデータの編集ウインドウに並んだ)が、読書位置
+    /// (「データを保持する本の数」で間引かれる)と違い、行は間引かれなかった。メタデータの編集ウインドウの一覧は「このアプリが
+    /// 知っている本」(`KnownBooks`)で、そこには行を持つ本も入るので、**行があるから一覧に出て、一覧に出るから行が残る** ――
+    /// 読書位置を間引かれた本・スマートライブラリの対象から外したフォルダの本・消した本の行が一覧に並び続け、窓を開くたびの
+    /// 読み直し(`ProposalIndex`)と登録の量も増え続けた。
+    ///
+    /// 消すのは、ロックも直した欄も無く(消しても同じ行がまたできる)、`known`(行のほかに本を覚えている理由 ―― 読書位置・
+    /// ブックマーク・レイアウト・お気に入り・コレクション)にも無く、`folders`(スマートライブラリの対象フォルダ。機能を OFF にして
+    /// いても残す)の中にも無い本の行だけ。
+    /// - Returns: 消した行の数。
+    @discardableResult
+    func pruneParsedOnlyRows(keeping known: Set<String>, keepingFolders folders: [String]) -> Int {
+        let targets = metadataByBookID().values.filter { row in
+            row.isParsedOnly && !known.contains(row.bookID)
+                && !folders.contains { MountTable.path(row.bookID, isAtOrUnder: $0) }
+        }
+        guard !targets.isEmpty else { return 0 }
+        for row in targets {
+            cachedByBookID?[row.bookID] = nil
+            modelContext.delete(row)
+        }
+        do {
+            try modelContext.save()
+            lastSaveErrorMessage = nil
+        } catch {
+            logSaveFailure("pruneParsedOnlyRows() failed for \(targets.count) book(s): \(error)")
+        }
+        registeredBookIDs.subtract(targets.map(\.bookID))
+        revision &+= 1
+        NotificationCenter.default.post(name: .bookMetadataDidChange, object: self, userInfo: nil)
+        return targets.count
     }
 
     /// ロックしていない行を、いまの規則で読み直して書く(規則を変えたとき。全行を互いの錨にして読む)。

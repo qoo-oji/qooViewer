@@ -241,7 +241,7 @@ ModelContext 1 つ・`upsertAll` の削除範囲)、書き出し(項目の追加
 `CollectionStore` / `FileIO` / `PanelListScrollTracker` / `FileBrowserOutlineView`)と qooMeta のソース(checkout `fc1ccbf`)で裏を取った。
 Debug ビルドは通り警告 0。**テストは走らせていない**(テストホストがウインドウを出すので、利用者の作業中は避けた)。
 **クラッシュ・ファイル破損・ファイル消失に直結する欠陥は無し。** ハングとディスク増加の観点で直したいものが 1〜3、安価な防波堤を勧める
-ものが 4〜9。**どれもまだ直していない**(2026-09-22 時点)。
+ものが 4〜9。同じ日に実測し(下の「実測」)、1〜8 を直した(下の「直したもの」)。9 は実測して問題が無かった。
 
 1. **【中・ハング】一覧たどりの「次の本へ」「前の本へ」が、コレクションの本をメインで解決・存在確認し、見つからない本を飛ばして端まで
    繰り返す**(`AppState.openInSequence` / `resolvedURL(for:)`)。`.collectionItem` は `CollectionStore.resolvedExistingURL`
@@ -288,8 +288,56 @@ DB/JSON 由来の任意の文字列で落ちない)。`FileIO.perform` は呼び
 `Int("4.5")` → Volume 省略。`PanelListScrollTracker` の `reveal` は「0.5 pt 以内なら動かさない」で収束し、`onScrollGeometryChange` との
 循環は無い。
 
+実測(同じ日。Debug の本番の写し ―― メタデータ 234 行がすべてロックで、ちょうど「初回」の状態。一時的な `#if DEBUG` の計測
+(所要時間と、20 ms ごとのタイマーの遅れでメインの詰まりを測る)をコンテナの Logs へ書き、操作はメニューだけ。画面は撮っていない。
+終わってからストア・qooMeta / SmartLibrary フォルダ・defaults を控えから戻し、ハッシュ・差分ゼロを確かめ、計測コードは外した):
+
+| 場面 | 登録した行 | `upsertAll` | メインの詰まり |
+|---|---|---|---|
+| スマートライブラリの初回(対象 2,439 冊) | 2,207 | 362 ms(適用 88 / save 191 / `registeredBookIDs` 76) | 最大 506 ms |
+| メタデータの編集の初回(一覧 2,500 冊) | 2,266 | 318 ms(`registerAll` 357 ms) | 1,170 ms |
+| 同じ窓の 2 回目 / 3 回目 | 5 / 0 | 60 / 23 ms | 793 / 726 ms(一覧を組む時間。登録の前からある) |
+
+- 2: 登録の分は 1 度だけ約 0.4 秒。4 の「止まらない」は起きなかった(登録で走った 2 回目の集め直しは 15.5 ms で何も書かなかった)。
+  編集ウインドウの 2 回目に 5 行が書き直され、3 回目は 0 行(揺れは 2 回で収まる)。
+- 3: 2,266 行でストアは 14.92 → 15.90 MB(1 行 ≈ 430 バイト)。自動登録の行にブックマークは付かない(付くのはビューアで開いた本の
+  行だけ、≈ 1.2 KB)。問題はディスクより、編集ウインドウの一覧が増え続けること。
+- 9: 一時的な起動時フックで、架空のパスの並びを載せてシークレットウインドウで開いた(DB に書かない経路。ストアはハッシュ一致)。
+  2,500 件 = JSON 282 KB で受け取りまで 25.7 ms・呼び出し全体 91.6 ms、25,000 件 = 2.8 MB で 19.8 ms・103.6 ms。直す必要なし。
+- 1 は測っていない(繋がっていないボリュームを指すコレクションの項目が要る)。
+- 失敗: 途中でウインドウの名前の一覧を取ったら、メインウインドウの題(ファイルブラウザの現在のフォルダ = 実在の名前)がツールの
+  出力に写った。どこにも書き写していない。ウインドウは名前でなく数で数えること。
+
+直したもの(同じ日。上の番号と同じ):
+
+1. `AppState.openInSequence`: 確かめはすべて `FileIO` の上で(`BookSequence.Probe`。コレクションの本は
+   `CollectionStore.existingURL(fromBookmark:)` ―― `resolvedExistingURL` の本体を nonisolated にして分けた)、1 冊ごとに
+   `FileIO.withDeadline(sequenceProbeLimit = 5 秒)`。期限を過ぎたら**先へ進まずに止めて鳴らす**(飛ばすと、眠っていたディスクが
+   起きれば開けた本を黙って越える)。繋がっていないボリューム上のパス(スマートライブラリの本)はマウント表だけで飛ばす。
+2. `BookMetadataStore.upsertAllInBatches`(500 件ずつ、合間に 1 ms 眠ってメインを譲る。`Task.yield` はメインキューの同じ汲み出しで
+   戻りうるので使わない)。編集ウインドウの `registerAll` は async にして同じ件数で区切り、スマートライブラリの `registerParsed` はこれを
+   使う。登録の間も集め直しの Task を `building` に残す(次の集め直し・OFF が取り消せる)。`upsertAll` の `registeredBookIDs` は写しを
+   直して 1 度だけ差し替える。
+3. 起動時に `BookMetadataStore.pruneParsedOnlyRows`(`AppStores.pruneParsedOnlyMetadata`): ロックも直した欄もルールセットも取り込みの
+   印も無い行(`BookMetadata.isParsedOnly` ―― 消しても同じ行がまたできる)のうち、行のほかに本を覚えている理由(`KnownBooks.collect(…,
+   includingMetadata: false)` ―― 読書位置・ブックマーク・レイアウト・お気に入り・コレクション)が無く、スマートライブラリの対象フォルダの
+   外の本を消す。`KnownBooks` に行を持つ本を入れると「行があるから一覧に出て、一覧に出るから行が残る」の輪になるので外した。
+4・5(b). `SmartLibraryCatalog.registerParsed` は、この起動の間に同じ本へ同じ値を書くのは 1 度だけ(`lastRegistered`。書き終えた区切りの
+   ぶんだけ控える)。往復で変わる値でも書き続けない。消した本も、その削除の知らせで走った集め直しでは作り直さない(起動し直す・
+   編集ウインドウを開き直すと、また登録される ―― 利用者の指示どおり覚えてはおかない)。
+5(a). `MetadataWorkspace.persisted`(DB に行があると分かっている本)。外で行が消えた知らせで一覧から外すのは、その本だけ。
+6. `MetadataDraftStore.migrate`: DB への保存が失敗したら drafts.json を消さない。
+7. `ExportedBookMetadataEntry.importedSourceMetadata`(済みのときだけ true を書く。Optional なので formatVersion 据え置き)と
+   `BookMetadataStore.markSourceMetadataImported`。docs/08 に記載。`MetadataEdits` が読めないときに黙って落とすのは仕様のまま。
+8. `SmartLibraryCatalog.activate/deactivate(persistsMetadata:)` と `persistingCount`: 記録の残るウインドウに出ていない間は登録しない。
+
+テスト: `MetadataRegistrationTests` に 2 件(読みだけの行の間引き・区切った登録)、`MetadataWorkspaceTests` に 1 件(行があった本だけ
+外す)、`LibraryImportTests.metadataLockRoundTrips` に取り込みの印。1・4・8 はテストを足していない(1 は応答しないボリュームが要る、
+4・8 はカタログを実際のフォルダで動かす必要がある)。**直した後の実機での確かめはまだ**(次の人へ)。
+
 ### 残り(次の人へ)
 
-- **2 回目の監査(上)の 1〜9 を直す。1・2・3 を先に。** 2 と 9 は写しのデータで実測してから。
+- 2 回目の監査の修正(上)を実機で確かめる: 写しのデータで初回登録の詰まりが区切りぶん(〜100 ms)になるか、起動時の間引きで
+  編集ウインドウの一覧が減るか、1 を応答しないボリューム(使い捨ての SMB など)で。
 - スマートライブラリ: 表紙の大きさのピンチ、左ペインの折りたたみは未実装(選択と複数冊の右クリックは 2026-09-22 に入った)。
 - README / MANUAL / CHANGELOG([Unreleased]) / CLAUDE.md は 2026-09-22 に一式更新した(利用者の指示)。以後の変更も同じ組で直す。

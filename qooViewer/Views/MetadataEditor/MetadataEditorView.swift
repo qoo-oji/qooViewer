@@ -125,7 +125,7 @@ final class MetadataEditorModel {
         let workspace = await MetadataWorkspace.open(entries, rules: rulesStore.rules)
         workspace.writeBack = { [weak metadataStore] entries in metadataStore?.upsertAll(entries) }
         // 並べた本はすべて DB に登録する(利用者の指示 2026-09-22。行の無い本を登録し、ロックしていない本の値を揃える)。
-        workspace.registerAll()
+        await workspace.registerAll()
         // 規則の窓(解析の設定・抽出の設定)に、この一覧の名前を渡す(規則を直しながら、この一覧の名前で読めぐあいを見る)。
         MetadataRulesPicked.shared.set(workspace.books.map(\.fileName))
         self.workspace = workspace

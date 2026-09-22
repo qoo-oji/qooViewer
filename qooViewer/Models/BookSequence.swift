@@ -51,6 +51,25 @@ nonisolated struct BookSequence: Codable, Hashable, Sendable {
 }
 
 extension BookSequence {
+    /// 並びの 1 冊を開けるかを確かめる材料。メインで集め(コレクションの項目は SwiftData の行)、**確かめ(`resolve`)は
+    /// `FileIO` の上で**行う(`AppState.openInSequence`)。
+    nonisolated struct Probe: Sendable {
+        /// 記録してあるパス(スマートライブラリの本、項目が見つからなくなったコレクションの本はこれで確かめる)。
+        let path: String
+        /// コレクションの項目のブックマーク(開く権限でもある)。nil ならパスで確かめる。
+        let bookmark: Data?
+
+        /// 開く URL。見つからなければ nil。ボリュームへ問い合わせるので、メインから呼ばない。
+        func resolve() -> URL? {
+            // コレクションの本は項目のブックマークから(一覧から開くときの CollectionDetailView.open と同じ)。
+            // パスだけで在るかを確かめると、許可の無い場所の本はサンドボックスで「無い」になるので、先には見ない。
+            if let bookmark { return CollectionStore.existingURL(fromBookmark: bookmark) }
+            return FileManager.default.fileExists(atPath: path) ? URL(fileURLWithPath: path) : nil
+        }
+    }
+}
+
+extension BookSequence {
     /// コレクションの本の並び(`opening` の位置つき)。見えている並び(検索・並べ替えの後)を渡すこと。
     @MainActor
     static func collection(_ items: [CollectionItem], opening item: CollectionItem) -> BookSequence? {

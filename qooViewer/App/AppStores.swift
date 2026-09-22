@@ -224,6 +224,7 @@ final class AppStores: ObservableObject {
         // drafts.json を読んで消すため。テストは自分のストアで確かめる)。
         if !RuntimeEnvironment.isRunningTests {
             MetadataDraftStore().migrate(into: metadataStore, rules: metadataRulesStore.rules)
+            pruneParsedOnlyMetadata()
             metadataRulesSubscription = NotificationCenter.default
                 .publisher(for: MetadataRulesStore.rulesDidChange, object: metadataRulesStore)
                 .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
@@ -328,6 +329,18 @@ final class AppStores: ObservableObject {
         layoutStore.sweepOrphanedShelfCoverImages()
         // 焼いた札の絵も同じく(こちらは容量の刈り込みも兼ねる)。
         collectionStore.sweepOrphanedTileImages()
+    }
+
+    /// 起動時に、ほかに覚えている理由の無いファイル名の読みだけのメタデータの行を消す(`BookMetadataStore.pruneParsedOnlyRows`)。
+    /// ライブラリ機能が OFF の間もコレクションの本は数える(「このアプリが知っている本」の一覧は止めない仕事。
+    /// `applyLibraryFeature` のコメント)。
+    private func pruneParsedOnlyMetadata() {
+        let known = KnownBooks.collect(from: KnownBooks.Sources(
+            metadataStore: metadataStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+            favoritesStore: favoritesStore, collectionStore: collectionStore,
+            modelContext: QooViewerApp.modelContainer.mainContext
+        ), includingMetadata: false)
+        metadataStore.pruneParsedOnlyRows(keeping: known, keepingFolders: smartLibraryStore.folders.map(\.path))
     }
 
     /// ロックしていないメタデータの行を、いまの規則で読み直す(前の読み直しは取り消す)。

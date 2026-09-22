@@ -1212,16 +1212,39 @@ final class AppState: ObservableObject {
     /// 一覧の並び(`bookSequence`)の次/前の本を開く。**見つからない本は飛ばして**その先を試し、端まで無ければ何もしない
     /// (同じフォルダの本へは戻らない ―― 一覧で絞り込んだ範囲の外へ出ないため。利用者の指示 2026-09-22)。
     /// 開く本の URL の決め方は一覧から開いたときと同じ(コレクションの本は項目のブックマークから、スマートライブラリの本は
-    /// パスから。こちらの在るかの確かめは FileIO の上で ―― SmartLibraryPane.withResolvedURL と同じ)。
+    /// パスから。`BookSequence.Probe`)。
+    ///
+    /// ■ 確かめはすべてメインの外で、1 冊ごとに期限つき(2026-09-22 の 2 回目の監査で指摘)
+    /// 以前はコレクションの本をメインで解決・存在確認し(`CollectionStore.resolvedExistingURL`)、見つからない本を飛ばして
+    /// **残りの候補すべて**を順に試していた。1 クリックで 1 冊を確かめる一覧と違い、ボリュームが応答しないと「候補の数 ×
+    /// ネットワークの待ち(SMB で 30 秒)」ぶんメインが止まる。いまは `FileIO` の上で確かめ、`sequenceProbeLimit` を過ぎたら
+    /// **先へ進まずに止める**(鳴らす)。飛ばして先へ進むと、眠っていたディスクが起きるのを待てば開けた本を、黙って越えて
+    /// しまう ―― 止めておけば、もう一度押したときにはディスクが起きている。繋がっていないボリューム上のパス(スマート
+    /// ライブラリの本)は、マウント表の綴りだけで分かるので触らずに飛ばす。
     private func openInSequence(_ sequence: BookSequence, forward: Bool, initialEdge: InitialPageEdge?) {
         let candidates = sequence.candidatePositions(forward: forward)
         guard !candidates.isEmpty else { return }
         sequenceTask?.cancel()
         sequenceTask = Task { [weak self] in
+            let mounts = MountTable.current()
             for position in candidates {
                 guard !Task.isCancelled, let self, self.bookSequence == sequence else { return }
-                guard let url = await self.resolvedURL(for: sequence.entries[position]) else { continue }
-                guard self.bookSequence == sequence else { return }
+                let entry = sequence.entries[position]
+                if case .file(let path) = entry, mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: path)) { continue }
+                let probe = self.sequenceProbe(for: entry)
+                let url: URL?
+                do {
+                    url = try await FileIO.withDeadline(Self.sequenceProbeLimit) {
+                        await FileIO.perform { probe.resolve() }
+                    }
+                } catch {
+                    // 期限切れ(応答しないボリューム・眠っていたディスク)。上の「先へ進まずに止める」。
+                    guard !Task.isCancelled, self.bookSequence == sequence else { return }
+                    NSSound.beep()
+                    return
+                }
+                guard let url else { continue }
+                guard !Task.isCancelled, self.bookSequence == sequence else { return }
                 // ページ送りの延長なので、別のウインドウへ譲らない(openSibling と同じ)。
                 self.open(
                     request: BookOpenRequest(url, sequence: sequence.moved(to: position)),
@@ -1235,16 +1258,16 @@ final class AppState: ObservableObject {
     /// 一覧の並びをたどって次の本を探している最中の仕事(テストが終わりを待つ。続けて押されたら前のものは取り消す)。
     private(set) var sequenceTask: Task<Void, Never>?
 
-    /// 一覧の並びの 1 冊を開く URL。見つからなければ nil。
-    private func resolvedURL(for entry: BookSequence.Entry) async -> URL? {
-        if case .collectionItem(let id, _) = entry, let collectionStore, let item = collectionStore.item(withID: id) {
-            // コレクションの本は項目のブックマークから(一覧から開くときの CollectionDetailView.open と同じ)。
-            // パスだけで在るかを確かめると、許可の無い場所の本はサンドボックスで「無い」になるので、先には見ない。
-            return collectionStore.resolvedExistingURL(for: item)
+    /// 一覧の並びをたどるとき、1 冊の確かめを待つ上限(`openInSequence` のコメント)。眠っていた外付けディスクが回り出す
+    /// 数秒は待ち、応答しない SMB の 30 秒は待たない。
+    nonisolated static let sequenceProbeLimit: Duration = .seconds(5)
+
+    /// 一覧の並びの 1 冊を確かめる材料(コレクションの項目が見つからなくなっていれば、パスで確かめる)。
+    private func sequenceProbe(for entry: BookSequence.Entry) -> BookSequence.Probe {
+        if case .collectionItem(let id, _) = entry, let item = collectionStore?.item(withID: id) {
+            return BookSequence.Probe(path: item.bookID, bookmark: item.bookmarkData)
         }
-        let path = entry.path
-        let exists = await FileIO.perform { FileManager.default.fileExists(atPath: path) }
-        return exists ? URL(fileURLWithPath: path) : nil
+        return BookSequence.Probe(path: entry.path, bookmark: nil)
     }
 
     func closeBook() {

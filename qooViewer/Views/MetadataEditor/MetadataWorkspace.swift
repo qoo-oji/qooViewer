@@ -183,6 +183,9 @@ final class MetadataWorkspace {
     private var presetOverrides: [String: String] = [:]
     /// 登録済みの本。
     private var locked: Set<String>
+    /// DB に行があると分かっている本(開いたときに行があった・この窓が空でない値を書いた・外から行が届いた)。
+    /// 外で行が消えたときに一覧から外すのは、この本だけ(`applyExternalChanges`)。
+    private var persisted: Set<String>
     /// 実体が見つからない本(窓を開いたあとに、画面の外で確かめた結果)。
     private var missing: Set<String> = []
     /// 入れた順。
@@ -258,8 +261,9 @@ final class MetadataWorkspace {
         var record: BookMetadataRecord?
     }
 
-    private init(inputs: [BookInput], autoPresets: [String: String], locked: Set<String>,
+    private init(inputs: [BookInput], autoPresets: [String: String], locked: Set<String>, persisted: Set<String>,
                  overrides: [String: String], rules: CompiledRules) {
+        self.persisted = persisted
         presetOverrides = overrides
         self.rules = rules
         formats = rules.formats
@@ -294,16 +298,25 @@ final class MetadataWorkspace {
         for entry in entries {
             if let preset = entry.record?.ruleSet { overrides[entry.bookID] = preset }
         }
+        let persisted = Set(entries.lazy.filter { $0.record != nil }.map(\.bookID))
         let workspace = MetadataWorkspace(inputs: prepared.0, autoPresets: prepared.1, locked: prepared.2,
-                                          overrides: overrides, rules: rules)
+                                          persisted: persisted, overrides: overrides, rules: rules)
         await workspace.recomputeAll()
         return workspace
     }
 
     /// 一覧の本をすべて DB へ書く(開いた直後。行の無い本を登録し、ロックしていない本の値をいまの読みに揃える)。
-    /// `writeBack` を付けてから呼ぶ。
-    func registerAll() {
-        writeRows(Set(order))
+    /// `writeBack` を付けてから呼ぶ。初めて開いたときは数千冊を登録するので、区切って書き、合間にメインを譲る
+    /// (`BookMetadataStore.upsertAllInBatches` のコメント)。
+    func registerAll() async {
+        let ids = order
+        var start = 0
+        while start < ids.count {
+            let end = min(start + BookMetadataStore.registrationBatchSize, ids.count)
+            writeRows(Set(ids[start..<end]))
+            start = end
+            if start < ids.count { try? await Task.sleep(for: .milliseconds(1)) }
+        }
     }
 
     /// 規則を替える(規則の窓で方針や型を変えたとき)。すべての本を読み直し、ルールセットの自動の選択もやり直す。
@@ -425,6 +438,10 @@ final class MetadataWorkspace {
         isWritingBack = true
         writeBack(entries)
         isWritingBack = false
+        // 空の値は行を作らない(消す)ので、行があるのは空でない値を書いた本だけ(`BookMetadataStore.applyUpsert`)。
+        for entry in entries {
+            if entry.values?.trimmed.isEmpty == false { persisted.insert(entry.bookID) } else { persisted.remove(entry.bookID) }
+        }
     }
 
     private func absorb(_ delta: ProposalDelta) {
@@ -493,9 +510,13 @@ final class MetadataWorkspace {
         for (id, record) in changes {
             guard var input = inputs[id] else { continue }
             guard let record else {
-                gone.insert(id)
+                // 行があったと分かっている本だけを外す(2026-09-22 の 2 回目の監査の 5)。以前はどの本でも外していたので、
+                // 全欄が空の本(行を作れない)が、bookID の無い知らせ(スマートライブラリの登録・規則の変更の読み直し)の
+                // たびに一覧から消えた。
+                if persisted.contains(id) { gone.insert(id) }
                 continue
             }
+            persisted.insert(id)
             let wasLocked = locked.contains(id)
             if record.isLocked {
                 if wasLocked, row(id)?.values == record.values.trimmed { continue }
@@ -762,6 +783,7 @@ final class MetadataWorkspace {
         for id in targets {
             inputs[id] = nil
             locked.remove(id)
+            persisted.remove(id)
             missing.remove(id)
             presetOverrides[id] = nil
             autoPresets[id] = nil

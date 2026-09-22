@@ -22,6 +22,7 @@ struct SmartLibraryPane: View {
 
     @EnvironmentObject private var catalog: SmartLibraryCatalog
     @EnvironmentObject private var store: SmartLibraryStore
+    @EnvironmentObject private var appState: AppState
     @StateObject private var state = SmartLibraryViewState()
     @State private var liveSidebarWidth: CGFloat?
     @State private var dragStartWidth: CGFloat = 0
@@ -38,11 +39,12 @@ struct SmartLibraryPane: View {
             SmartLibraryContent(home: home, state: state, allowsEditing: allowsEditing)
         }
         .coordinateSpace(.named(Self.coordinateSpace))
+        // シークレットウインドウに出している間は、並べた本を DB へ登録しない(SmartLibraryCatalog.persistingCount)。
         .onAppear {
-            catalog.activate()
+            catalog.activate(persistsMetadata: !appState.isPrivateWindow)
             state.update(books: catalog.books, shelves: store.shelves)
         }
-        .onDisappear { catalog.deactivate() }
+        .onDisappear { catalog.deactivate(persistsMetadata: !appState.isPrivateWindow) }
         .onChange(of: catalog.revision) { state.update(books: catalog.books, shelves: store.shelves) }
         .onChange(of: store.shelves) { state.update(books: catalog.books, shelves: store.shelves) }
     }

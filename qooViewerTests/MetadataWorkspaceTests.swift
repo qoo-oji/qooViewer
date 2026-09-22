@@ -18,7 +18,7 @@ struct MetadataWorkspaceTests {
         }
         let workspace = await MetadataWorkspace.open(entries, rules: library.metadataRules.rules)
         workspace.writeBack = { [metadata = library.metadata] in metadata.upsertAll($0) }
-        workspace.registerAll()
+        await workspace.registerAll()
         return workspace
     }
 
@@ -482,5 +482,68 @@ struct MetadataRegistrationTests {
         #expect(reparsed.values.title == "月の庭 1")
         #expect(reparsed.values.info == "残す付記")
         #expect(library.metadata.record(forBookID: second)?.values.title == "ロックした題")
+    }
+
+    @Test("ほかに覚えている理由の無い、ファイル名の読みだけの行は消え、ロック・直した欄・覚えている本・対象フォルダの本の行は残る")
+    func parsedOnlyRowsArePruned() throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let parsedOnly = BookMetadataRowState(isLocked: false)
+        let edited = BookMetadataRowState(isLocked: false, edits: .fields(ConfirmedFields([.info: ["付記"]])))
+        library.metadata.upsertAll([
+            .init(bookID: "/架空/消える.zip", values: BookMetadataValues(title: "消える"), state: parsedOnly),
+            .init(bookID: "/架空/覚えている.zip", values: BookMetadataValues(title: "覚えている"), state: parsedOnly),
+            .init(bookID: "/架空/棚/対象の中.zip", values: BookMetadataValues(title: "対象の中"), state: parsedOnly),
+            .init(bookID: "/架空/直した.zip", values: BookMetadataValues(title: "直した"), state: edited),
+            .init(bookID: "/架空/ロックした.zip", values: BookMetadataValues(title: "ロックした"), state: .locked),
+        ])
+
+        let pruned = library.metadata.pruneParsedOnlyRows(keeping: ["/架空/覚えている.zip"], keepingFolders: ["/架空/棚"])
+        #expect(pruned == 1)
+        #expect(library.metadata.registeredBookIDs == [
+            "/架空/覚えている.zip", "/架空/棚/対象の中.zip", "/架空/直した.zip", "/架空/ロックした.zip",
+        ])
+        #expect(library.metadata.pruneParsedOnlyRows(keeping: ["/架空/覚えている.zip"], keepingFolders: ["/架空/棚"]) == 0)
+    }
+
+    @Test("区切って登録すると、区切りごとに書いて知らせ、すべての行ができる")
+    func batchedRegistrationWritesEveryBatch() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let entries = (1...5).map { index in
+            BookMetadataStore.BatchEntry(bookID: "/架空/本\(index).zip", values: BookMetadataValues(title: "題\(index)"),
+                                         onlyIfUnlocked: true)
+        }
+        var batches: [[String]] = []
+        let written = await library.metadata.upsertAllInBatches(entries, batchSize: 2) { batch in
+            batches.append(batch.map(\.bookID))
+        }
+        #expect(written == 5)
+        #expect(batches.map(\.count) == [2, 2, 1])
+        #expect(library.metadata.registeredBookIDs.count == 5)
+        #expect(library.metadata.record(forBookID: "/架空/本3.zip")?.isLocked == false)
+    }
+}
+
+extension MetadataWorkspaceTests {
+    @Test("外で行が消えた知らせで一覧から外すのは、行があったと分かっている本だけ")
+    func onlyBooksWithRowsLeaveTheList() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        library.metadata.upsert(bookID: first, values: BookMetadataValues(title: "登録した題"))
+        // 登録(registerAll)をしない窓: second は DB に行が無いまま並ぶ(全欄が空で行を作れない本と同じ立場)。
+        let entries = [first, second].map {
+            MetadataWorkspace.Entry(bookID: $0, record: library.metadata.record(forBookID: $0))
+        }
+        let workspace = await MetadataWorkspace.open(entries, rules: library.metadataRules.rules)
+
+        workspace.applyExternalChanges([second: BookMetadataRecord?.none])
+        await workspace.settle()
+        #expect(workspace.row(second) != nil)
+
+        library.metadata.delete(forBookID: first)
+        workspace.applyExternalChanges([first: BookMetadataRecord?.none])
+        await workspace.settle()
+        #expect(workspace.row(first) == nil)
     }
 }

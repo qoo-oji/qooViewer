@@ -260,7 +260,10 @@ bundled rules). The Edit Metadata window (`Views/MetadataEditor/`, `MetadataWork
 page 3: **every parsed book is registered** (2026-09-22; the user found "shown but not saved" meaningless) — the window,
 the smart library and opening a book (not in a private window) write a row for each book they parse; `isLocked` freezes a
 row, unlocked rows keep the user's edited fields (`editsData`) and rule set and are re-derived when the rules change
-(`BookMetadataStore.reparseUnlockedRows`); Delete Metadata removes the row and does not remember it. The old drafts file
+(`BookMetadataStore.reparseUnlockedRows`); Delete Metadata removes the row and does not remember it. Parsed-only rows (`BookMetadata.isParsedOnly`) that nothing else
+remembers are pruned at launch (`pruneParsedOnlyRows` — `KnownBooks` must be collected without metadata rows there, or the rows
+keep themselves alive); the first bulk registration is written in batches (`upsertAllInBatches`), and the smart library writes a
+value once per session and only while a non-private window shows it. The old drafts file
 (`MetadataDraftStore`) is migrated into the DB once at launch; undo covers unlocked edits only. Books listed =
 `KnownBooks` (opened / library) + the smart library's target folders (not Favorite Locations). Books under an excluded
 folder are never registered (window, sheet, or EPUB/PDF/ComicInfo import). Titles elsewhere (`BookTitleResolver`, export
@@ -285,7 +288,7 @@ outside `.id(gridID)`); scrolling a selection into view computes the row from me
 expandable rows; it shares the grid's selection/sort state. Design in docs/14「スマートライブラリ」.
 **Books opened from a collection or the smart library carry the list they came from** (`BookSequence` on
 `BookOpenRequest.sequence` → `AppState.bookSequence`, 2026-09-22): next/previous book walks that snapshot (skipping missing
-books, stopping at the ends) instead of the folder siblings; opening a book any other way clears it (docs/04「隣の本」).
+books, stopping at the ends; every check runs on `FileIO` with a per-book deadline and a timeout stops the walk) instead of the folder siblings; opening a book any other way clears it (docs/04「隣の本」).
 
 **Menu bar ↔ viewer bridging**: `AppState` (ViewModels/AppState.swift) is one-per-window and is exposed to
 the menu bar via `FocusedValue` (see the `qooViewerAppState`/`qooViewerMenuCheckmarkState` extension in

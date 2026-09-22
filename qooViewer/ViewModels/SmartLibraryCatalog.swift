@@ -69,6 +69,11 @@ final class SmartLibraryCatalog: ObservableObject {
 
     /// 画面に出ている数(ウインドウごと)。0 なら何もしない。
     private var activeCount = 0
+    /// そのうち、記録の残るウインドウ(シークレットウインドウでない)の数。0 の間は並べた本を DB へ登録しない
+    /// (ビューアの登録が `skipsPersistence` で止まるのと同じ。2026-09-22 の 2 回目の監査の 8)。
+    private var persistingCount = 0
+    /// この起動の間に登録した値(本ごと)。同じ値はもう書かない(`registerParsed`)。
+    private var lastRegistered: [String: BookMetadataValues] = [:]
     private var subscriptions: Set<AnyCancellable> = []
     private var pending: Task<Void, Never>?
     private var building: Task<Void, Never>?
@@ -132,6 +137,7 @@ final class SmartLibraryCatalog: ObservableObject {
         indexRulesHash = nil
         indexedInputs = [:]
         proposalsByID = [:]
+        lastRegistered = [:]
         lastSavedCache = nil
         books = []
         isTruncated = false
@@ -142,8 +148,10 @@ final class SmartLibraryCatalog: ObservableObject {
 
     // MARK: - 画面が出ている間だけ
 
-    func activate() {
+    /// - Parameter persistsMetadata: 記録の残るウインドウか(シークレットウインドウなら false。`persistingCount`)。
+    func activate(persistsMetadata: Bool = true) {
         guard isFeatureEnabled else { return }
+        if persistsMetadata { persistingCount += 1 }
         activeCount += 1
         guard activeCount == 1 else { return }
         subscribe()
@@ -153,7 +161,8 @@ final class SmartLibraryCatalog: ObservableObject {
         scheduleRebuild(rescan: false, delay: .zero)
     }
 
-    func deactivate() {
+    func deactivate(persistsMetadata: Bool = true) {
+        if persistsMetadata { persistingCount = max(0, persistingCount - 1) }
         activeCount = max(0, activeCount - 1)
         guard activeCount == 0 else { return }
         subscriptions.removeAll()
@@ -285,25 +294,43 @@ final class SmartLibraryCatalog: ObservableObject {
             self.isTruncated = scan.isTruncated
             self.isLoading = false
             self.hasLoaded = true
-            self.building = nil
             self.revision += 1
             self.saveCache(roots: roots, books: books, isTruncated: scan.isTruncated)
-            self.registerParsed(books, snapshot: snapshot)
+            // 登録は区切って書くので時間がかかる。その間も `building` に残しておき、次の集め直し・OFF(`setFeatureEnabled`)が
+            // 取り消せるようにする(取り消されたら残りは次の集め直しが書く)。
+            await self.registerParsed(books, snapshot: snapshot)
+            if generation == self.generation { self.building = nil }
         }
     }
 
     /// 並べた本を DB に登録する(利用者の指示 2026-09-22: 解析した本はすべて登録する)。行の無い本はロックせずに作り、
     /// ロックしていない行は今の読みに揃える。**ロックした行・除外フォルダの本には書かない**。
     /// 書くと `metadataStore.revision` が進んで集め直しがもう 1 度走るが、そのときは揃っているので何も書かない。
-    private func registerParsed(_ books: [SmartBook], snapshot: Snapshot) {
+    /// 数千冊を初めて並べたときは多いので、区切って書く(`BookMetadataStore.upsertAllInBatches`)。
+    ///
+    /// ■ この起動の間に書いた値は、もう書かない(2026-09-22 の 2 回目の監査の 4・5)
+    /// 「揃っているので何も書かない」は、書いた値が DB を往復して同じに戻ることが前提だった。著者名の中の改行(著者は改行で
+    /// つないで保存する)のように往復で変わる値が 1 冊でもあると、書く → 集め直し → また違う、が止まらない。また、メタデータの
+    /// 編集ウインドウで「メタデータを削除」した本は、その削除の知らせで走った集め直しが 0.5 秒で行を作り直していた(一覧からは
+    /// 消えたまま)。同じ本に同じ値を書くのは、この起動の間は 1 度だけにする(値が変われば ―― 規則を変えた・名前を変えた ――
+    /// また書く)。消した本は、アプリを起動し直す・メタデータの編集ウインドウを開き直すと、また登録される(利用者の指示どおり
+    /// 覚えてはおかない)。
+    private func registerParsed(_ books: [SmartBook], snapshot: Snapshot) async {
+        guard isFeatureEnabled, persistingCount > 0 else { return }
+        var written: [String: BookMetadataValues] = [:]
         let entries = books.compactMap { book -> BookMetadataStore.BatchEntry? in
             let record = snapshot.records[book.id]
-            guard record?.isLocked != true, record?.values != book.metadata.trimmed,
-                  !book.metadata.isEmpty, !rulesStore.isExcluded(bookID: book.id) else { return nil }
+            let values = book.metadata.trimmed
+            guard record?.isLocked != true, record?.values != values, lastRegistered[book.id] != values,
+                  !values.isEmpty, !rulesStore.isExcluded(bookID: book.id) else { return nil }
+            written[book.id] = values
             return BookMetadataStore.BatchEntry(bookID: book.id, values: book.metadata, onlyIfUnlocked: true)
         }
         guard !entries.isEmpty else { return }
-        metadataStore.upsertAll(entries)
+        // 控えは書き終えた区切りのぶんだけ(取り消されて書けなかった本は、次の集め直しで書く)。
+        await metadataStore.upsertAllInBatches(entries) { [weak self] batch in
+            for entry in batch { if let values = written[entry.bookID] { self?.lastRegistered[entry.bookID] = values } }
+        }
     }
 
     // MARK: - qooMeta へ渡す本

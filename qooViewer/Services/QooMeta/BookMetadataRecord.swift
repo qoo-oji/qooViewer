@@ -39,6 +39,12 @@ extension BookMetadata {
         set { editsData = newValue == .none ? nil : try? JSONEncoder().encode(newValue) }
     }
 
+    /// ファイル名の読みだけから作った行か(ロックも直した欄も利用者のルールセットも無く、ファイルの書誌も取り込んでいない)。
+    /// 消しても、その本がまた解析されれば同じ行ができる(`BookMetadataStore.pruneParsedOnlyRows`)。
+    var isParsedOnly: Bool {
+        !isLocked && editsData == nil && ruleSet == nil && !didImportSourceMetadata
+    }
+
     var rowState: BookMetadataRowState {
         BookMetadataRowState(isLocked: isLocked, edits: isLocked ? .none : edits, ruleSet: ruleSet)
     }

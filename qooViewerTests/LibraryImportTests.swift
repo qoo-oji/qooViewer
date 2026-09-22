@@ -437,6 +437,7 @@ struct LibraryImportTests {
                   state: BookMetadataRowState(isLocked: false, edits: edits, ruleSet: "doujinshi")),
             .init(bookID: "/nowhere/locked.cbz", values: BookMetadataValues(title: "ロックした題"), state: .locked),
         ])
+        library.metadata.markSourceMetadataImported(["/nowhere/unlocked.cbz"])
         let exported = library.metadata.allMetadata().map(ExportedBookMetadataEntry.init)
         let data = try JSONEncoder().encode(QooLibraryExportFile(metadata: exported))
         let file = try JSONDecoder().decode(QooLibraryExportFile.self, from: data)
@@ -451,6 +452,9 @@ struct LibraryImportTests {
         #expect(unlocked.edits == edits)
         #expect(unlocked.ruleSet == "doujinshi")
         #expect(unlocked.values.title == "直した題")
+        // ファイルの書誌を取り込み済みの印も戻る(次に開いたとき取り込み直さない)。
+        #expect(other.metadata.metadata(forBookID: "/nowhere/unlocked.cbz")?.didImportSourceMetadata == true)
+        #expect(other.metadata.metadata(forBookID: "/nowhere/locked.cbz")?.didImportSourceMetadata == false)
         #expect(other.metadata.record(forBookID: "/nowhere/locked.cbz")?.isLocked == true)
 
         // 以前の書き出し(ロックの印が無い)の行は、ロックした行として入る。
