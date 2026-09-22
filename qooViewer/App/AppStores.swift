@@ -103,6 +103,9 @@ final class AppStores: ObservableObject {
     let bookRecordRelocator: BookRecordRelocator
     /// アプリの外で移った本のうち、この起動の間に付け替えを試したもの(古いパス。relocateBooksMovedOutsideTheApp)。
     private var outsideMoveAttempted: Set<String> = []
+    /// フォルダの設定の、アプリの外での移動に付いていくための控え(FolderSettingBookmarks)。テストの中では持たない。
+    private var folderSettingBookmarks: FolderSettingBookmarks?
+    private var folderSettingObservers: [NSObjectProtocol] = []
     /// テキストの欄を編集しているか(編集メニューの「取り消す」「やり直す」の淡色。TextEditingMenuState の型コメント)。
     let textEditingMenuState = TextEditingMenuState()
     /// アプリ自身がファイルを動かした知らせの購読(`handleFileSystemChange`)。
@@ -236,6 +239,8 @@ final class AppStores: ObservableObject {
             // 開いていた頃の記録)の保存データを消す(NonBookFolderSweeper)。どちらも 2026-09-22、利用者の指示。
             Task { [weak self] in
                 guard let self else { return }
+                // フォルダの設定が先(フォルダごと動いた本は、フォルダの付け替えでまとめて付いていく)。
+                await self.followFolderSettingsMovedOutsideTheApp()
                 let moved = await ExternalMoveSweeper.movedBooks(
                     favoritesStore: self.favoritesStore, collectionStore: self.collectionStore,
                     bookmarkStore: self.bookmarkStore, layoutStore: self.layoutStore, metadataStore: self.metadataStore,
@@ -247,6 +252,25 @@ final class AppStores: ObservableObject {
                     bookmarkStore: self.bookmarkStore, layoutStore: self.layoutStore, metadataStore: self.metadataStore,
                     folderAccess: self.folderAccess, modelContext: context)
             }
+            // フォルダの設定をアプリの外での移動に付いていかせる(FolderSettingBookmarks の型コメント)。戻ったとき・ボリュームを
+            // 付けたときに確かめ、離れるときに控えを作る(設定を足してから Finder で名前を変えるまでの間に)。
+            folderSettingBookmarks = FolderSettingBookmarks(defaults: .standard)
+            let center = NotificationCenter.default
+            folderSettingObservers.append(center.addObserver(
+                forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+            ) { [weak self] _ in MainActor.assumeIsolated { self?.scheduleFolderSettingFollow() } })
+            folderSettingObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didMountNotification, object: nil, queue: .main
+            ) { [weak self] _ in MainActor.assumeIsolated { self?.scheduleFolderSettingFollow() } })
+            folderSettingObservers.append(center.addObserver(
+                forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let bookmarks = self.folderSettingBookmarks else { return }
+                    let paths = self.folderSettingPaths()
+                    Task { await bookmarks.sync(paths: paths) }
+                }
+            })
             metadataRulesSubscription = NotificationCenter.default
                 .publisher(for: MetadataRulesStore.rulesDidChange, object: metadataRulesStore)
                 .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
@@ -358,6 +382,41 @@ final class AppStores: ObservableObject {
         collectionStore.sweepOrphanedTileImages()
     }
 
+    /// パスだけで覚えているフォルダの設定(FolderSettingBookmarks の型コメント)。
+    private func folderSettingPaths() -> Set<String> {
+        var paths = Set(metadataRulesStore.excludedFolders.map(MountTable.normalized))
+        paths.formUnion(smartLibraryStore.folders.map(\.path))
+        paths.formUnion(collectionStore.autoFolderTargets().map { MountTable.normalized($0.folder.path) })
+        return paths
+    }
+
+    private var folderSettingFollowTask: Task<Void, Never>?
+
+    private func scheduleFolderSettingFollow() {
+        guard folderSettingBookmarks != nil, folderSettingFollowTask == nil else { return }
+        folderSettingFollowTask = Task { [weak self] in
+            await self?.followFolderSettingsMovedOutsideTheApp()
+            self?.folderSettingFollowTask = nil
+        }
+    }
+
+    /// アプリの外で動いたフォルダの設定を、アプリの中での移動と同じ付け替えに通す。その中の本の保存データも同じ組で付け替える
+    /// (開いている本は見送る。relocateBooksMovedOutsideTheApp)。最後に控えを今の設定に合わせる。
+    private func followFolderSettingsMovedOutsideTheApp() async {
+        guard let bookmarks = folderSettingBookmarks else { return }
+        let moved = await bookmarks.movedFolders()
+        if !moved.isEmpty {
+            let change = FileSystemChange(relocations: moved)
+            metadataRulesStore.relocate(using: change)
+            smartLibraryStore.relocate(using: change)
+            smartLibraryCatalog.handleFileSystemChange(change)
+            if collectionStore.relocateAutoFolders(using: change) { collectionAutoFolderScanner.scheduleScan() }
+            bookmarks.relocate(using: change)
+            await relocateBooksMovedOutsideTheApp(moved)?.value
+        }
+        await bookmarks.sync(paths: folderSettingPaths())
+    }
+
     /// アプリの外で名前を変えた・移した本(ExternalMoveSweeper・コレクションの実在確認が見つけたもの)の保存データを付け替える。
     /// 同じ本はこの起動の間に 1 度だけ試す(新しいパスに行があって付け替わらないストアがあると、実在確認のたびに同じ付け替えを
     /// 繰り返すため)。
@@ -403,6 +462,7 @@ final class AppStores: ObservableObject {
         metadataRulesStore.relocate(using: change)
         autoRenameStore.relocateExcludedPaths(using: change)
         folderAccess.handleFileSystemChange(change)
+        folderSettingBookmarks?.relocate(using: change)
         autoRenameStore.relocateTargets(using: change)
         // 監視するフォルダは走査のときに張り直すので、付け替えたら走査を頼む。
         if collectionStore.relocateAutoFolders(using: change) { collectionAutoFolderScanner.scheduleScan() }

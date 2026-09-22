@@ -105,6 +105,33 @@ struct ExternalMoveTests {
         #expect(library.metadata.record(forBookID: new)?.values.title == "星の海")
     }
 
+    @Test("フォルダの設定の控え: 作る・アプリの外での名前の変更を見つける・付け替えた先へ鍵を移す・要らなくなった控えを捨てる")
+    func folderSettingBookmarksFollowOutsideRenames() async throws {
+        let suite = PreferencesSuite(label: "folder-setting-bookmarks")
+        let temporary = try TemporaryDirectory("folder-setting-bookmarks")
+        let folder = try temporary.directory("excluded")
+        let path = MountTable.normalized(folder.path)
+        let bookmarks = FolderSettingBookmarks(defaults: suite.defaults)
+
+        await bookmarks.sync(paths: [path])
+        #expect(Array(bookmarks.bookmarks.keys) == [path])
+        #expect(await bookmarks.movedFolders().isEmpty)
+
+        let renamed = temporary.file("excluded-renamed")
+        try FileManager.default.moveItem(at: folder, to: renamed)
+        let moved = await bookmarks.movedFolders()
+        #expect(moved.map(\.from.path) == [path])
+        #expect(moved.map { BookExistenceProbe.comparablePath($0.to.path) } == [BookExistenceProbe.comparablePath(renamed.path)])
+
+        bookmarks.relocate(using: FileSystemChange(relocations: moved))
+        let newPath = try #require(moved.first?.to.path)
+        #expect(Array(bookmarks.bookmarks.keys) == [newPath])
+        #expect(FolderSettingBookmarks(defaults: suite.defaults).bookmarks.keys.first == newPath, "保存されていない")
+
+        await bookmarks.sync(paths: [])
+        #expect(bookmarks.bookmarks.isEmpty)
+    }
+
     @Test("動かす組は付け替えの後の姿で決める: 出ていく行の先は空く・止まった行の先へは入らない・入れ替えもできる(2026-09-22 の監査)")
     func movesAreDecidedAfterTheRelocation() {
         func plan(_ pairs: [String: String]) -> BookRelocationPlan {
