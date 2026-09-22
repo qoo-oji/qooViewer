@@ -63,6 +63,88 @@ nonisolated struct BookExistenceProbe: Sendable {
         if FileManager.default.fileExists(atPath: bookID) { return .exists }
         return isPathCovered ? .missing : .unknown
     }
+
+    /// **記録したパス(`bookID`)に今**、本があるか。メタデータの編集ウインドウが使う(本をパスで並べ、パスで登録するため)。
+    ///
+    /// `evaluate()` との違いは 2 つ:
+    /// - ブックマークはアプリの外での移動・改名を追うので、解決した場所が `bookID` と違えば「無い」(古いパスには無い)。
+    ///   `evaluate()` はここで「ある」と答え、改名した本の古いパスがメタデータの編集に並び続けた(2026-09-22、利用者の報告)。
+    /// - フォルダは、それ自体で 1 冊のとき(画像フォルダ。`ShelfFolderResolver.isSingleBookFolder`)だけ「ある」。棚(本が
+    ///   並んでいるだけのフォルダ)や中間フォルダは本ではないので「無い」にする(棚を 1 冊として開いていた頃の古い読書位置が残っている)。
+    func evaluateAtRecordedPath() -> Result {
+        locateAtRecordedPath().result
+    }
+
+    /// `evaluateAtRecordedPath` に加えて、ブックマークが別の場所(アプリの外での移動・改名の先)を指し、そこに本があれば
+    /// そのパス(`movedTo`)。呼び出し側は保存データをそこへ付け替える(`BookRecordRelocator`)。
+    func locateAtRecordedPath() -> (result: Result, movedTo: String?) {
+        let recorded = Self.comparablePath(bookID)
+        for data in bookmarkCandidates {
+            var isStale = false
+            guard let url = try? URL(
+                resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            ) else { continue }
+            let didAccess = url.startAccessingSecurityScopedResource()
+            defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+            let result = Self.bookResult(at: url.path)
+            guard Self.comparablePath(url.path) == recorded else {
+                return (.missing, result == .exists ? url.path : nil)
+            }
+            return (result, nil)
+        }
+        let result = Self.bookResult(at: bookID)
+        if result != .missing { return (result, nil) }
+        // 見えないのが「無い」からか「アクセス権が無い」からかは、許可済みのフォルダの中でしか区別できない(evaluate と同じ)。
+        return (FileManager.default.fileExists(atPath: bookID) || isPathCovered ? .missing : .unknown, nil)
+    }
+
+    /// 記録したパスにあるのが**本ではないフォルダ**(棚・中間のフォルダ・空のフォルダ)だと確かめられたか。起動時の掃除
+    /// (`NonBookFolderSweeper`)が、これが true の本の保存データを消す。**確かめられないとき(無い・読めない・ブックマークが
+    /// 別の場所を指す)は false** ―― 消すのは、その場所にあって中を読めて、本ではないと分かったフォルダだけ。
+    func isNonBookFolderAtRecordedPath() -> Bool {
+        let recorded = Self.comparablePath(bookID)
+        for data in bookmarkCandidates {
+            var isStale = false
+            guard let url = try? URL(
+                resolvingBookmarkData: data, options: .withSecurityScope, relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            ) else { continue }
+            guard Self.comparablePath(url.path) == recorded else { return false }
+            let didAccess = url.startAccessingSecurityScopedResource()
+            defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+            return Self.isNonBookFolder(at: url.path)
+        }
+        return Self.isNonBookFolder(at: bookID)
+    }
+
+    /// `path` が、中を読めるフォルダで、それ自体で 1 冊ではない(`ShelfFolderResolver.isSingleBookFolder` が false)か。
+    static func isNonBookFolder(at path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue,
+              // 読めないフォルダ(アクセス権が無い)は、本かどうか分からない。isSingleBookFolder はそこでも false を返すので先に弾く。
+              (try? FileManager.default.contentsOfDirectory(atPath: path)) != nil
+        else { return false }
+        return !ShelfFolderResolver.isSingleBookFolder(URL(fileURLWithPath: path, isDirectory: true))
+    }
+
+    /// `path` にあるものが本か。無ければ `.missing`、本でないフォルダも `.missing`、中を読めないフォルダは `.unknown`。
+    private static func bookResult(at path: String) -> Result {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else { return .missing }
+        guard isDirectory.boolValue else { return .exists }
+        if isNonBookFolder(at: path) { return .missing }
+        return ShelfFolderResolver.isSingleBookFolder(URL(fileURLWithPath: path, isDirectory: true)) ? .exists : .unknown
+    }
+
+    /// パスの比べ方を揃える(`/private` の有無と Unicode の正規化。standardizedFileURL の `/private` は実在に左右される)。
+    /// 「ブックマークが記録と別の場所を指しているか」の判定に使う(ここと CollectionStore の実在確認)。
+    static func comparablePath(_ path: String) -> String {
+        var path = path.precomposedStringWithCanonicalMapping
+        if path.hasPrefix("/private/") { path.removeFirst("/private".count) }
+        while path.count > 1 && path.hasSuffix("/") { path.removeLast() }
+        return path
+    }
 }
 
 /// 本に関する保存データを、種類を問わずすべて削除する(お気に入り・コレクション・ブックマーク・レイアウト・メタデータ・

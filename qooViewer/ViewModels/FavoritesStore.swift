@@ -740,17 +740,21 @@ final class FavoritesStore: ObservableObject {
     /// (iノード番号+デバイス番号)と一致するお気に入りを探し、見つかればそのbookIDを現在のパスへ
     /// 書き換える(表示名(title)はユーザーが独自にリネームしている可能性があるため触れない)。
     /// AppState.open(url:)から、本を開くたびに呼ばれる想定。
-    func reconcileBookIDIfMoved(book: MangaBook) {
-        guard existingFavorites(forBookID: book.id).isEmpty else { return }
-        guard let identifier = FileNodeIdentifier.current(for: book.sourceURL) else { return }
+    /// - Returns: 付け替えた元の `bookID`(複数あれば 1 つ)。付け替えなかったら nil。AppState が読書位置を同じ先へ付け替えるのに使う。
+    @discardableResult
+    func reconcileBookIDIfMoved(book: MangaBook) -> String? {
+        guard existingFavorites(forBookID: book.id).isEmpty else { return nil }
+        guard let identifier = FileNodeIdentifier.current(for: book.sourceURL) else { return nil }
         let candidates = allFavoriteBooks().filter { $0.bookID != book.id && $0.fileNodeIdentifier == identifier }
-        guard !candidates.isEmpty else { return }
+        guard !candidates.isEmpty else { return nil }
+        let oldBookID = candidates.map(\.bookID).sorted().first
         for candidate in candidates {
             candidate.bookID = book.id
             candidate.updatedAt = Date()
         }
         try? modelContext.save()
         reload()
+        return oldBookID
     }
 
     /// 行のある本の `bookID`(アプリ自身が移した本の付け替えの材料。BookRelocationPlan)。

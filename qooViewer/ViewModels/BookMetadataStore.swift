@@ -17,7 +17,8 @@ import QooMetaKit
 /// もう一方に反映されず静かに失敗する)。
 @MainActor
 final class BookMetadataStore: ObservableObject {
-    private let modelContext: ModelContext
+    /// 共有の 1 つ(CLAUDE.md「SwiftData persistence」)。AppState が本を開いたときの読書位置の付け替えにも使う。
+    let modelContext: ModelContext
 
     /// メタデータが登録されている本のbookID一覧。「メタデータの編集」ウインドウの行の
     /// 色分け、およびEPUB/PDF出力ウインドウの対象判定・インジケータ表示に使う。
@@ -515,16 +516,27 @@ final class BookMetadataStore: ObservableObject {
     /// リネームされた場合でも登録内容を引き継げるようにする(ボリュームを跨いだ移動は諦める)。
     /// LayoutStore.reconcileBookIDIfMoved(book:)と同じ考え方。AppState.open(url:)から、本を
     /// 開くたびに呼ばれる想定。
-    func reconcileBookIDIfMoved(book: MangaBook) {
-        guard metadata(forBookID: book.id) == nil else { return }
-        guard let identifier = FileNodeIdentifier.current(for: book.sourceURL) else { return }
+    /// - Returns: 付け替えた元の `bookID`(複数あれば 1 つ)。付け替えなかったら nil。AppState が読書位置を同じ先へ付け替えるのに使う。
+    @discardableResult
+    ///
+    /// 新しいパスに**ファイル名の読みだけの行**(`isParsedOnly`)があれば、古い行(ロック・直した欄のあるもの)で置き換える
+    /// (2026-09-22、利用者の報告。解析した本はすべて登録するので、スマートライブラリやメタデータの編集ウインドウが先に新しい
+    /// 名前の行を作っていると、以前は「新しいパスに行がある」で付け替えをやめ、直した値とロックが古い名前に取り残された)。
+    func reconcileBookIDIfMoved(book: MangaBook) -> String? {
+        let current = metadata(forBookID: book.id)
+        if let current, !current.isParsedOnly { return nil }
+        guard let identifier = FileNodeIdentifier.current(for: book.sourceURL) else { return nil }
         // 同じiノードを指す行が過去のパスぶん複数残っている場合に備えて、最後に更新された
-        // 行を選ぶ(LayoutStoreと同じ基準)。
+        // 行を選ぶ(LayoutStoreと同じ基準)。新しいパスに読みだけの行があるときは、読みだけではない行だけを候補にする。
         guard let matched = allMetadata()
-            .filter({ $0.bookID != book.id && $0.fileNodeIdentifier == identifier })
+            .filter({ $0.bookID != book.id && $0.fileNodeIdentifier == identifier && (current == nil || !$0.isParsedOnly) })
             .max(by: { $0.updatedAt < $1.updatedAt })
-        else { return }
+        else { return nil }
 
+        if let current {
+            modelContext.delete(current)
+            cachedByBookID?[book.id] = nil
+        }
         let oldBookID = matched.bookID
         matched.bookID = book.id
         matched.updatedAt = Date()
@@ -533,6 +545,7 @@ final class BookMetadataStore: ObservableObject {
         cachedByBookID?[book.id] = matched
         registeredBookIDs.remove(oldBookID)
         saveAndNotify(bookID: book.id)
+        return oldBookID
     }
 
     /// 行のある本の `bookID`(アプリ自身が移した本の付け替えの材料。BookRelocationPlan)。
@@ -545,7 +558,12 @@ final class BookMetadataStore: ObservableObject {
         let byBookID = metadataByBookID()
         var relocated = 0
         for (old, new) in plan.bookIDs {
-            guard let row = byBookID[old], byBookID[new] == nil else { continue }
+            guard let row = byBookID[old] else { continue }
+            // 新しいパスに読みだけの行があれば、古い行(ロック・直した欄のあるもの)で置き換える(reconcileBookIDIfMoved と同じ決まり)。
+            if let existing = byBookID[new] {
+                guard existing.isParsedOnly, !row.isParsedOnly else { continue }
+                modelContext.delete(existing)
+            }
             row.bookID = new
             if let locator = plan.locators[new] {
                 row.inodeNumber = locator.identifier?.inodeNumber

@@ -1053,13 +1053,16 @@ final class CollectionStore: ObservableObject {
     ///
     /// collection.updatedAtは**進めない**。あれは棚の並び「更新順」の基準で、ユーザーが本を
     /// 1冊開いただけで棚全体の順番が入れ替わるのは操作と結果が噛み合わない。
-    func reconcileBookIDIfMoved(book: MangaBook) {
-        guard items(forBookID: book.id).isEmpty else { return }
-        guard let identifier = FileNodeIdentifier.current(for: book.sourceURL) else { return }
+    /// - Returns: 付け替えた元の `bookID`(複数あれば 1 つ)。付け替えなかったら nil。AppState が読書位置を同じ先へ付け替えるのに使う。
+    @discardableResult
+    func reconcileBookIDIfMoved(book: MangaBook) -> String? {
+        guard items(forBookID: book.id).isEmpty else { return nil }
+        guard let identifier = FileNodeIdentifier.current(for: book.sourceURL) else { return nil }
         let candidates = allItems().filter {
             $0.bookID != book.id && $0.fileNodeIdentifier == identifier
         }
-        guard !candidates.isEmpty else { return }
+        guard !candidates.isEmpty else { return nil }
+        let oldBookID = candidates.map(\.bookID).sorted().first
         for candidate in candidates {
             candidate.bookID = book.id
             candidate.title = book.title
@@ -1067,6 +1070,7 @@ final class CollectionStore: ObservableObject {
         // 索引の鍵(bookID)を書き換えたので捨てる(cachedItemsByBookIDのコメント参照)。
         cachedItemsByBookID = nil
         saveAndNotify(bookID: book.id)
+        return oldBookID
     }
 
     /// 行のある本の `bookID`(アプリ自身が移した本の付け替えの材料。BookRelocationPlan)。
@@ -1269,6 +1273,26 @@ final class CollectionStore: ObservableObject {
         }
     }
 
+    /// 実在確認で、記録したパスとは別の場所に見つかった本(アプリの外で名前を変えた・移した本)。保存データ一式の付け替え役
+    /// (AppStores → BookRecordRelocator)へ渡す(2026-09-22、利用者の指示。以前は場所の辞書だけが新しい場所を知り、`bookID` は
+    /// その本を開くまで古いままだった ―― キャプション・タイトル・並べ替え・検索が古い名前・古いメタデータで出た)。
+    /// テストでは nil(付け替えを起こさない)。
+    var onBooksFoundAtNewPaths: (([FileSystemChange.Relocation]) -> Void)?
+
+    private func reportBooksFoundAtNewPaths(_ result: [UUID: BookLocation]) {
+        guard let onBooksFoundAtNewPaths else { return }
+        var relocations: [FileSystemChange.Relocation] = []
+        var seen = Set<String>()
+        for item in allItems() {
+            guard let url = result[item.id]?.url,
+                  BookExistenceProbe.comparablePath(url.path) != BookExistenceProbe.comparablePath(item.bookID),
+                  seen.insert(item.bookID).inserted
+            else { continue }
+            relocations.append(.init(from: URL(fileURLWithPath: item.bookID), to: url))
+        }
+        if !relocations.isEmpty { onBooksFoundAtNewPaths(relocations) }
+    }
+
     private func finishExistenceRefresh(
         _ result: [UUID: BookLocation], fileDates: [UUID: BookFileDates]
     ) {
@@ -1280,6 +1304,7 @@ final class CollectionStore: ObservableObject {
                 scheduleExistenceRefresh()
             }
         }
+        reportBooksFoundAtNewPaths(result)
         // @Publishedは値が同じでも代入のたびに発火するため、変化したときだけ代入する。
         // 日付を先に入れる ―― locationByItemIDの購読者(抽出の待ち行列)より、並びに使う値が
         // 先に揃っているほうが、描き直しが1回で済む。

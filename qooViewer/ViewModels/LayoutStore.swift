@@ -192,9 +192,11 @@ final class LayoutStore: ObservableObject {
     /// 一致するBookLayoutSettingsを探し、見つかればそのbookIDと、同じ旧bookIDを持つ
     /// PageLayoutOverride(ページ単位設定)のbookIDをまとめて現在のパスへ書き換える。
     /// AppState.open(url:)から、本を開くたびに呼ばれる想定。
-    func reconcileBookIDIfMoved(book: MangaBook) {
-        guard bookLayoutSettings(forBookID: book.id) == nil else { return }
-        guard let identifier = FileNodeIdentifier.current(for: book.sourceURL) else { return }
+    /// - Returns: 付け替えた元の `bookID`(複数あれば 1 つ)。付け替えなかったら nil。AppState が読書位置を同じ先へ付け替えるのに使う。
+    @discardableResult
+    func reconcileBookIDIfMoved(book: MangaBook) -> String? {
+        guard bookLayoutSettings(forBookID: book.id) == nil else { return nil }
+        guard let identifier = FileNodeIdentifier.current(for: book.sourceURL) else { return nil }
         // 候補が複数ある(同じiノードを指す行が、過去のパスぶん複数残っている)場合に備えて、
         // 最後に使われた行(updatedAtが最新のもの)を選ぶ。以前は全件フェッチ結果の先頭を
         // 採っていたが、キャッシュを辞書にした結果この順序が不定になったため、明示的な基準に
@@ -202,7 +204,7 @@ final class LayoutStore: ObservableObject {
         guard let matched = allBookLayoutSettings()
             .filter({ $0.bookID != book.id && $0.fileNodeIdentifier == identifier })
             .max(by: { $0.updatedAt < $1.updatedAt })
-        else { return }
+        else { return nil }
 
         let oldBookID = matched.bookID
         let movedOverrides = overridesByBookID()[oldBookID] ?? []
@@ -229,6 +231,7 @@ final class LayoutStore: ObservableObject {
         // 新bookIDとは別に明示的に更新する。
         refreshLayoutBookID(oldBookID)
         saveAndNotify(bookID: book.id)
+        return oldBookID
     }
 
     /// 本ごとの設定が持つページの鍵(書き出し用のカバー・コレクション表紙・ページの並べ替え)を付け替える。

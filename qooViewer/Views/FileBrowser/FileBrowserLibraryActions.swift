@@ -235,11 +235,14 @@ extension FileBrowserActions {
 
     /// 「メタデータの編集…」。コレクションの外の本でも編集できる(カバーの面は出さない。BookMetadataSheet の型コメント)。
     ///
+    /// - Parameter notABook: 選んだフォルダが 1 冊の本でなかったときにすること。nil なら「本ではない」と伝える(右クリック)。
+    ///   編集メニューからは「メタデータの編集」ウインドウを開く ―― 本でないフォルダを選んでいるだけでメニューの項目が
+    ///   ウインドウを開かなくなっていた(2026-09-22、利用者の報告)。
     /// - Returns: フォルダを調べる Task(**テストのための口**。ファイルならその場でシートを出して nil)。
     @discardableResult
-    func editMetadata(_ entries: [FileBrowserEntry]) -> Task<Void, Never>? {
+    func editMetadata(_ entries: [FileBrowserEntry], notABook: (@MainActor () -> Void)? = nil) -> Task<Void, Never>? {
         guard allowsSaving, canUseAsSingleBook(entries), let entry = entries.first else { return nil }
-        return resolveBook(entry) { [weak self] _ in
+        return resolveBook(entry, notABook: notABook) { [weak self] _ in
             self?.state?.bookSheet = FileBrowserBookSheet(kind: .metadata(entry))
         }
     }
@@ -289,7 +292,8 @@ extension FileBrowserActions {
 
     /// 1 冊として扱える場所を渡す。ファイルはそのまま、フォルダは画像フォルダのときだけ(棚・中間のフォルダは伝えて終わる)。
     @discardableResult
-    private func resolveBook(_ entry: FileBrowserEntry, then perform: @escaping @MainActor (URL) -> Void) -> Task<Void, Never>? {
+    private func resolveBook(_ entry: FileBrowserEntry, notABook: (@MainActor () -> Void)? = nil,
+                             then perform: @escaping @MainActor (URL) -> Void) -> Task<Void, Never>? {
         guard entry.isNavigableFolder else {
             perform(entry.url)
             return nil
@@ -300,6 +304,8 @@ extension FileBrowserActions {
             let isBook = await FileIO.perform { ShelfFolderResolver.isSingleBookFolder(url) }
             if isBook {
                 perform(url)
+            } else if let notABook {
+                notABook()
             } else {
                 self?.reportNoBooks(in: [entry], forCollection: false)
             }

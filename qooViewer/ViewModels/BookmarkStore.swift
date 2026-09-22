@@ -335,11 +335,13 @@ final class BookmarkStore: ObservableObject {
     /// (登録済みのBookmark.inodeNumber/volumeDeviceNumber)と一致するブックマークを探し、
     /// 見つかればそれらすべてのbookIDを現在のパスへ書き換える。AppState.open(url:)から、
     /// 本を開くたびに呼ばれる想定。
-    func reconcileBookIDIfMoved(book: MangaBook) {
-        guard (bookmarksByBookID()[book.id] ?? []).isEmpty else { return }
-        guard let identifier = FileNodeIdentifier.current(for: book.sourceURL) else { return }
+    /// - Returns: 付け替えた元の `bookID`(複数あれば 1 つ)。付け替えなかったら nil。AppState が読書位置を同じ先へ付け替えるのに使う。
+    @discardableResult
+    func reconcileBookIDIfMoved(book: MangaBook) -> String? {
+        guard (bookmarksByBookID()[book.id] ?? []).isEmpty else { return nil }
+        guard let identifier = FileNodeIdentifier.current(for: book.sourceURL) else { return nil }
         let candidates = allBookmarks().filter { $0.bookID != book.id && $0.fileNodeIdentifier == identifier }
-        guard !candidates.isEmpty else { return }
+        guard !candidates.isEmpty else { return nil }
         // 同じiノードを指すブックマークが、過去の複数のパスに分かれて残っていることもありうる。
         // 書き換えでbookIDを失う前に、現在のbookIDごとに仕分けておく(キャッシュ辞書のキーは
         // bookIDそのものなので、旧キーから正しく取り除くために必要)。
@@ -367,6 +369,7 @@ final class BookmarkStore: ObservableObject {
         NotificationCenter.default.post(
             name: .bookmarksDidChange, object: self, userInfo: ["bookID": book.id, "oldBookID": oldBookID]
         )
+        return oldBookID
     }
 
     /// 付け替え漏れのページの鍵を直す(`PageKeyRelocation.repairs`。LayoutStore.repairStalePageKeys と対)。

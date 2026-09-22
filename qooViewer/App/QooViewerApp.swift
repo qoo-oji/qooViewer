@@ -1463,7 +1463,8 @@ struct QooViewerApp: App {
                 Button("Edit Metadata…") { [weak focusedAppState] in
                     if let appState = focusedAppState, appState.currentBook == nil {
                         if appState.fileBrowserMenu.selection?.canEditMetadata == true, let actions = appState.fileBrowserActions {
-                            actions.editMetadata(actions.state?.selectedEntries ?? [])
+                            // 選んだフォルダが本でなければ(棚・ふつうのフォルダ)、ウインドウを開く。
+                            actions.editMetadata(actions.state?.selectedEntries ?? []) { openWindow(id: "editMetadata") }
                             return
                         }
                         if let item = appState.homeMenu.singleItemTarget {
@@ -1782,6 +1783,8 @@ struct QooViewerApp: App {
                 .environment(metadataRulesStore)
                 // スマートライブラリの対象フォルダの本も一覧の母体(2026-09-22)。
                 .environmentObject(smartLibraryCatalog)
+                // アプリの外で名前を変えた本の保存データの付け替え(2026-09-22)。
+                .environment(\.bookRecordRelocator, stores.bookRecordRelocator)
                 .environmentObject(bookmarkStore)
                 .environmentObject(layoutStore)
                 .environmentObject(favoritesStore)

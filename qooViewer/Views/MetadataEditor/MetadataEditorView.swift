@@ -32,6 +32,7 @@ struct MetadataEditorWindow: View {
     @EnvironmentObject private var preferences: AppPreferences
     @Environment(MetadataRulesStore.self) private var rulesStore
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.bookRecordRelocator) private var bookRecordRelocator
 
     @State private var model: MetadataEditorModel?
 
@@ -52,6 +53,7 @@ struct MetadataEditorWindow: View {
                               layoutStore: layoutStore, metadataStore: metadataStore, folderAccess: folderAccess,
                               smartLibraryCatalog: smartLibraryCatalog, modelContext: modelContext),
                 preferences: preferences,
+                relocator: bookRecordRelocator,
                 resolveURL: { [weak metadataStore, weak bookmarkStore, weak layoutStore, weak collectionStore] bookID in
                     bookmarkStore?.resolvedURLFromBookmarkData(forBookID: bookID)
                         ?? layoutStore?.resolvedURL(forBookID: bookID)
@@ -67,6 +69,11 @@ struct MetadataEditorWindow: View {
             model = nil
         }
     }
+}
+
+extension EnvironmentValues {
+    /// アプリの外で名前を変えた本の保存データを付け替える役(AppStores.bookRecordRelocator。メタデータの編集ウインドウが使う)。
+    @Entry var bookRecordRelocator: BookRecordRelocator?
 }
 
 /// 窓の持ちもの: 中身(`MetadataWorkspace`)と、それを DB・規則・ほかの窓へつなぐ所。
@@ -95,11 +102,16 @@ final class MetadataEditorModel {
     let coverController: CoverOverrideController
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var existenceTask: Task<Void, Never>?
+    /// アプリの外で名前を変えた本の保存データの付け替え役(AppStores に 1 つ。`relocateMovedBooks`)。
+    @ObservationIgnored private let relocator: BookRecordRelocator?
+    /// 付け替えを一度試した本(古いパス)。新しいパスに行があって付け替わらなかった本を、何度も試さない。
+    @ObservationIgnored private var relocationAttempted: Set<String> = []
     /// スマートライブラリの対象フォルダの本も一覧に入れるか(開くたびに読む)。
     @ObservationIgnored private let includesSmartLibraryFolders: () -> Bool
 
     init(metadataStore: BookMetadataStore, rulesStore: MetadataRulesStore, stores: Stores,
-         preferences: AppPreferences, resolveURL: @escaping (String) -> URL?) {
+         preferences: AppPreferences, relocator: BookRecordRelocator?, resolveURL: @escaping (String) -> URL?) {
+        self.relocator = relocator
         self.metadataStore = metadataStore
         self.rulesStore = rulesStore
         self.stores = stores
@@ -118,7 +130,17 @@ final class MetadataEditorModel {
         if includesSmartLibraryFolders() {
             known.formUnion(await stores.smartLibraryCatalog.folderBookIDs())
         }
-        let bookIDs = known.filter { !rulesStore.isExcluded(bookID: $0) }
+        var bookIDs = known.filter { !rulesStore.isExcluded(bookID: $0) }
+        // まだ登録していない本は、実体があると確かめられたものだけ並べる(= 登録する)。読書位置やコレクションは、
+        // アプリの外で名前を変えた・消した本の古いパスを覚えていることがあり、それも並べて登録していたので、
+        // メタデータを削除しても窓を開くたびに実在しない本が戻ってきた(2026-09-22、利用者の報告)。
+        // 登録済みの本は、見つからなくても並べる(未接続のボリュームの本の値を消えたように見せない。薄い字になる)。
+        guard let listed = await existingOrRegistered(bookIDs) else {
+            // 名前を変えた本の保存データを付け替えた。数え直す(付け替えた本は二度と試さないので、繰り返しは 1 度で止まる)。
+            await open()
+            return
+        }
+        bookIDs = listed
         let entries = bookIDs.map { bookID in
             MetadataWorkspace.Entry(bookID: bookID, record: metadataStore.record(forBookID: bookID))
         }
@@ -152,23 +174,80 @@ final class MetadataEditorModel {
         workspace.reparseFromFileNames(ids)
     }
 
-    /// 本の実体があるかを、画面の外で確かめる(「本ごとの保存データを削除」ウインドウと同じ判定。BookExistenceProbe)。
-    /// **確かめられなかった本(アクセス権が無い・ボリュームが繋がっていない)は「無い」にしない** ―― 灰色で出して
-    /// 削除を促すのは、確かに無いと分かった本だけ。
-    private func checkExistence(of workspace: MetadataWorkspace) {
-        let probes = workspace.bookIDs.map { bookID in
+    /// まだ登録していない本のうち、**記録どおりの場所に今ある本**だけを残す(登録済みの本はそのまま)。
+    ///
+    /// 読書位置やコレクションは、アプリの外で名前を変えた・消した本の古いパスを覚えていることがあり、それも並べて登録して
+    /// いたので、メタデータを削除しても窓を開くたびに実在しない本が戻ってきた(2026-09-22、利用者の報告)。同じく、棚
+    /// (本が並んでいるだけのフォルダ)を 1 冊として開いた古い読書位置(棚を先頭の本へ読み替える前、2026-09-06 より前のもの)
+    /// から、本ではないフォルダも登録していた。
+    /// - 判定は `BookExistenceProbe.evaluateAtRecordedPath` ―― 素の `evaluate` はブックマークが移動・改名を追って
+    ///   「ある」と答えるので、古いパスの本が通ってしまう。
+    /// - 確かめられない本(未接続のボリューム・アクセス権が無い)も外す。繋いでから窓を開けば並ぶ。
+    /// - 登録済みの本は、見つからなくても並べる(未接続のボリュームの本の値を消えたように見せない。薄い字になる)。
+    ///   削除すれば、もう戻らない。
+    ///
+    /// アプリの外で名前を変えた・移した本(ブックマークが追える本)は、ここで保存データを新しいパスへ付け替えてから数え直す
+    /// (`relocateMovedBooks`)。
+    private func existingOrRegistered(_ bookIDs: Set<String>) async -> Set<String>? {
+        let registered = metadataStore.registeredBookIDs
+        let probes = makeProbes(bookIDs.subtracting(registered))
+        guard !probes.isEmpty else { return bookIDs }
+        let located = await Task.detached(priority: .userInitiated) {
+            probes.map { ($0.bookID, $0.locateAtRecordedPath()) }
+        }.value
+        if await relocateMovedBooks(located) { return nil }
+        let existing = Set(located.filter { $0.1.result == .exists }.map(\.0))
+        return bookIDs.intersection(registered).union(existing)
+    }
+
+    /// アプリの外で名前を変えた・移した本の保存データ(5 つのストアと読書位置)を、ブックマークが指す新しいパスへ付け替える。
+    /// アプリの中での移動・改名と同じ `BookRecordRelocator` を通す(2026-09-22、利用者の報告: 改名したファイルが古い名前のまま
+    /// 保存データに残り続け、メタデータの編集に古い名前で並んでいた。以前は本を開いたときにしか付け替えなかった ――
+    /// `reconcileBookIDIfMoved`)。
+    ///
+    /// 新しいパスに既に行があるストアでは付け替えない(`applyBookRelocation` の決まり)ので、古い行が残ることがある。同じ本を
+    /// 窓を開いている間に何度も付け替えに行かないよう、一度試した本は覚えておく(`relocationAttempted`)。
+    /// - Returns: 付け替えたか(呼び出し側は一覧を作り直す)。
+    private func relocateMovedBooks(_ located: [(String, (result: BookExistenceProbe.Result, movedTo: String?))]) async -> Bool {
+        guard let relocator else { return false }
+        let relocations = located.compactMap { bookID, location -> FileSystemChange.Relocation? in
+            guard let movedTo = location.movedTo, relocationAttempted.insert(bookID).inserted else { return nil }
+            return FileSystemChange.Relocation(from: URL(fileURLWithPath: bookID), to: URL(fileURLWithPath: movedTo))
+        }
+        guard !relocations.isEmpty else { return false }
+        await relocator.apply(FileSystemChange(relocations: relocations)).value
+        return true
+    }
+
+    private func makeProbes(_ bookIDs: some Sequence<String>) -> [BookExistenceProbe] {
+        bookIDs.map { bookID in
             BookExistenceProbe.make(
                 bookID: bookID, metadataStore: stores.metadataStore, layoutStore: stores.layoutStore,
                 bookmarkStore: stores.bookmarkStore, favoritesStore: stores.favoritesStore,
                 collectionStore: stores.collectionStore, folderAccess: stores.folderAccess)
         }
+    }
+
+    /// 本の実体があるかを、画面の外で確かめる(`BookExistenceProbe.evaluateAtRecordedPath`。この窓は本をパスで並べるので、
+    /// 名前を変えた本の古いパスも「無い」にする)。
+    /// **確かめられなかった本(アクセス権が無い・ボリュームが繋がっていない)は「無い」にしない** ―― 灰色で出して
+    /// 削除を促すのは、確かに無いと分かった本だけ。
+    private func checkExistence(of workspace: MetadataWorkspace) {
+        let probes = makeProbes(workspace.bookIDs)
         existenceTask?.cancel()
-        existenceTask = Task { [weak workspace] in
-            let missing = await Task.detached(priority: .utility) {
-                Set(probes.filter { $0.evaluate() == .missing }.map(\.bookID))
+        existenceTask = Task { [weak self, weak workspace] in
+            let located = await Task.detached(priority: .utility) {
+                probes.map { ($0.bookID, $0.locateAtRecordedPath()) }
             }.value
-            guard !Task.isCancelled else { return }
-            workspace?.setMissing(missing)
+            guard !Task.isCancelled, let self else { return }
+            // 登録済みの本のうち、アプリの外で名前を変えた本。付け替えたら一覧を作り直す(existingOrRegistered と同じ)。
+            if await self.relocateMovedBooks(located) {
+                guard !Task.isCancelled else { return }
+                // reopen は close でこの Task を取り消すので、別の Task で走らせる(取り消された中で開き直さない)。
+                Task { await self.reopen() }
+                return
+            }
+            workspace?.setMissing(Set(located.filter { $0.1.result == .missing }.map(\.0)))
         }
     }
 
@@ -665,12 +744,39 @@ struct MetadataBookTableView: View {
             deletingMetadata = ids
         })
         items.append(.separator)
+        // どこにある本かを辿れるように(2026-09-22、利用者の要望)。見つからない本は、残っているいちばん近いフォルダを開く。
+        items.append(Item(title: "Show in Finder".ui) { showInFinder(books) })
         items.append(Item(title: "Copy File Name".ui) {
             let names = ids.sorted().map { URL(fileURLWithPath: $0).lastPathComponent }
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(names.joined(separator: "\n"), forType: .string)
         })
         return items
+    }
+}
+
+extension MetadataBookTableView {
+    /// 「Finder で表示」。実在する本は Finder で選び(`activateFileViewerSelecting` はこのアプリの読む権限を要らない)、
+    /// 見つからない本(名前を変えた・消した・未接続のボリューム)は、残っているいちばん近いフォルダを開く。
+    fileprivate func showInFinder(_ books: [MetadataBookRow]) {
+        let found = books.filter { !$0.isMissing }.map { URL(fileURLWithPath: $0.id) }
+        if !found.isEmpty {
+            NSWorkspace.shared.activateFileViewerSelecting(found)
+            return
+        }
+        var folders: [URL] = []
+        for book in books {
+            var folder = URL(fileURLWithPath: book.id).deletingLastPathComponent()
+            while folder.path != "/" && !FileManager.default.fileExists(atPath: folder.path) {
+                folder = folder.deletingLastPathComponent()
+            }
+            if folder.path != "/", !folders.contains(folder) { folders.append(folder) }
+        }
+        guard !folders.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        for folder in folders { NSWorkspace.shared.open(folder) }
     }
 }
 

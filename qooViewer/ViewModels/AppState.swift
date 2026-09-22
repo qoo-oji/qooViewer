@@ -1065,16 +1065,23 @@ final class AppState: ObservableObject {
                     // シークレットウインドウでは、追従(bookIDの書き換え)も識別子の補完も既存行への
                     // 書き込みなので行わない(isPrivateWindowのコメント参照)。
                     if !skipsPersistence {
-                        self.favoritesStore?.reconcileBookIDIfMoved(book: book)
-                        self.layoutStore?.reconcileBookIDIfMoved(book: book)
-                        self.bookmarkStore?.reconcileBookIDIfMoved(book: book)
-                        self.metadataStore?.reconcileBookIDIfMoved(book: book)
+                        var movedFrom: [String?] = []
+                        movedFrom.append(self.favoritesStore?.reconcileBookIDIfMoved(book: book))
+                        movedFrom.append(self.layoutStore?.reconcileBookIDIfMoved(book: book))
+                        movedFrom.append(self.bookmarkStore?.reconcileBookIDIfMoved(book: book))
+                        movedFrom.append(self.metadataStore?.reconcileBookIDIfMoved(book: book))
                         // **ライブラリ機能がOFFの間もコレクションの行を追従させる**(2026-09-21 の監査 docs/plans/feature-toggle-audit.md の D2。
                         // 「止めないもの」の側 ―― AppStores.applyLibraryFeature)。いったんは「登録した本の全件フェッチを伴うので触らない。
                         // ONへ戻したときの存在確認がブックマークで追う」としたが、存在確認が埋めるのは場所の辞書だけで`bookID`は直さない。
                         // 上の4つだけを付け替えると、コレクションの行だけが古いパスに残り、その行から`bookID`で引くもの(表紙の指定・
                         // メタデータ)が、ONへ戻してその本をもう一度開くまで外れたままになった。5つは必ず揃えて付け替える。
-                        self.collectionStore?.reconcileBookIDIfMoved(book: book)
+                        movedFrom.append(self.collectionStore?.reconcileBookIDIfMoved(book: book))
+                        // 読書位置は識別子を持たないので、上の 5 つが見つけた元のパスから付け替える(読書位置が無いと 1 ページ目から
+                        // 始まり、古い読書位置が残り続けた。2026-09-22、利用者の報告。BookRecordRelocator.relocateReadingStates)。
+                        if let oldBookID = movedFrom.compactMap({ $0 }).first,
+                           let context = self.metadataStore?.modelContext {
+                            BookRecordRelocator.relocateReadingStates([oldBookID: book.id], in: context)
+                        }
                         // 付け替え漏れのページの鍵(2026-09-21 より前に移したフォルダの本)を、ページが分かったいま直す
                         // (PageKeyRelocation.repairs。フォルダの本でなければ何もしない)。
                         let pageKeys = book.pages.map(\.sortKey)

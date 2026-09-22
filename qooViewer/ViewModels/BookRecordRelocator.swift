@@ -77,11 +77,20 @@ final class BookRecordRelocator {
     }
 
     private func relocateReadingStates(_ plan: BookRelocationPlan) {
-        let states = allReadingStates()
+        Self.relocateReadingStates(plan.bookIDs, in: modelContext)
+    }
+
+    /// 読書位置を `bookIDs`(古い → 新しい)のとおり付け替える。新しいパスに読書位置が既にあれば付け替えない。
+    /// 本を開いたときの付け替え(AppState。ほかの 5 つのストアの `reconcileBookIDIfMoved` が見つけた元のパスから)も使う ――
+    /// 以前は開いたときに読書位置だけ付け替えず、アプリの外で名前を変えた本は 1 ページ目から始まり、古い読書位置が残り続けた
+    /// (2026-09-22、利用者の報告)。
+    static func relocateReadingStates(_ bookIDs: [String: String], in modelContext: ModelContext) {
+        guard !bookIDs.isEmpty else { return }
+        let states = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
         let occupied = Set(states.map(\.bookID))
         var changed = false
         for state in states {
-            guard let new = plan.bookIDs[state.bookID], !occupied.contains(new) else { continue }
+            guard let new = bookIDs[state.bookID], !occupied.contains(new) else { continue }
             // フォルダの本はページの鍵も付け替える(PageKeyRelocation の型コメント)。
             if let key = state.lastPageKey.flatMap({ PageKeyRelocation.relocated($0, fromBookID: state.bookID, toBookID: new) }) {
                 state.lastPageKey = key

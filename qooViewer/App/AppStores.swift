@@ -101,6 +101,8 @@ final class AppStores: ObservableObject {
     let autoRenameService: AutoRenameService
     /// アプリ自身が移した本の保存データの付け替え役(BookRecordRelocator)。
     let bookRecordRelocator: BookRecordRelocator
+    /// アプリの外で移った本のうち、この起動の間に付け替えを試したもの(古いパス。relocateBooksMovedOutsideTheApp)。
+    private var outsideMoveAttempted: Set<String> = []
     /// テキストの欄を編集しているか(編集メニューの「取り消す」「やり直す」の淡色。TextEditingMenuState の型コメント)。
     let textEditingMenuState = TextEditingMenuState()
     /// アプリ自身がファイルを動かした知らせの購読(`handleFileSystemChange`)。
@@ -215,6 +217,10 @@ final class AppStores: ObservableObject {
         )
         // テストの中で走る実物のアプリでは繋がない(テストの操作で、開発機の本物の保存データとよく使う項目を書き換えない)。
         if !RuntimeEnvironment.isRunningTests {
+            // コレクションの実在確認が、アプリの外で名前を変えた本を見つけたら付け替える(ExternalMoveSweeper の型コメント)。
+            collectionStore.onBooksFoundAtNewPaths = { [weak self] relocations in
+                self?.relocateBooksMovedOutsideTheApp(relocations)
+            }
             fileSystemChangeSubscription = FileSystemChangeCenter.shared.changes.sink { [weak self] change in
                 MainActor.assumeIsolated { self?.handleFileSystemChange(change) }
             }
@@ -225,6 +231,21 @@ final class AppStores: ObservableObject {
         if !RuntimeEnvironment.isRunningTests {
             MetadataDraftStore().migrate(into: metadataStore, rules: metadataRulesStore.rules)
             pruneParsedOnlyMetadata()
+            // アプリの外で名前を変えた本の保存データを付け替え(ExternalMoveSweeper)、本ではないフォルダ(棚を 1 冊として
+            // 開いていた頃の記録)の保存データを消す(NonBookFolderSweeper)。どちらも 2026-09-22、利用者の指示。
+            Task { [weak self] in
+                guard let self else { return }
+                let moved = await ExternalMoveSweeper.movedBooks(
+                    favoritesStore: self.favoritesStore, collectionStore: self.collectionStore,
+                    bookmarkStore: self.bookmarkStore, layoutStore: self.layoutStore, metadataStore: self.metadataStore,
+                    folderAccess: self.folderAccess, modelContext: context,
+                    skipsCollectionBooks: self.preferences.libraryFeatureEnabled)
+                await self.relocateBooksMovedOutsideTheApp(moved)?.value
+                await NonBookFolderSweeper.sweep(
+                    favoritesStore: self.favoritesStore, collectionStore: self.collectionStore,
+                    bookmarkStore: self.bookmarkStore, layoutStore: self.layoutStore, metadataStore: self.metadataStore,
+                    folderAccess: self.folderAccess, modelContext: context)
+            }
             metadataRulesSubscription = NotificationCenter.default
                 .publisher(for: MetadataRulesStore.rulesDidChange, object: metadataRulesStore)
                 .debounce(for: .milliseconds(500), scheduler: RunLoop.main)
@@ -329,6 +350,16 @@ final class AppStores: ObservableObject {
         layoutStore.sweepOrphanedShelfCoverImages()
         // 焼いた札の絵も同じく(こちらは容量の刈り込みも兼ねる)。
         collectionStore.sweepOrphanedTileImages()
+    }
+
+    /// アプリの外で名前を変えた・移した本(ExternalMoveSweeper・コレクションの実在確認が見つけたもの)の保存データを付け替える。
+    /// 同じ本はこの起動の間に 1 度だけ試す(新しいパスに行があって付け替わらないストアがあると、実在確認のたびに同じ付け替えを
+    /// 繰り返すため)。
+    @discardableResult
+    private func relocateBooksMovedOutsideTheApp(_ relocations: [FileSystemChange.Relocation]) -> Task<Void, Never>? {
+        let fresh = relocations.filter { outsideMoveAttempted.insert($0.from.path).inserted }
+        guard !fresh.isEmpty else { return nil }
+        return bookRecordRelocator.apply(FileSystemChange(relocations: fresh))
     }
 
     /// 起動時に、ほかに覚えている理由の無いファイル名の読みだけのメタデータの行を消す(`BookMetadataStore.pruneParsedOnlyRows`)。
