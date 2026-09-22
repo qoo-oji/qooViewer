@@ -472,7 +472,10 @@ private struct SmartFacetPanel: View {
         let title: String
         let count: Int
         let isPinned: Bool
-        var id: SmartFacetValue { value }
+        /// 行の識別子。**ピン留めの節とすべての節で別にする** ―― ピン留めした値は両方の節に出るので、値だけを識別子にすると
+        /// 同じ LazyVStack の中で重なり、すべての節の行が空白で描かれた(2026-09-22 の実機検証)。
+        let section: String
+        var id: String { "\(section)|\(value)" }
     }
 
     var body: some View {
@@ -534,10 +537,12 @@ private struct SmartFacetPanel: View {
             let title = smartFacetLabel(value, field: field, locale: locale)
             if !needle.isEmpty, !LibrarySearchQuery.normalized(title).contains(needle) { continue }
             let isPinned = pinnedValues.contains(value)
-            let row = Row(value: value, title: title, count: countByValue[value] ?? 0, isPinned: isPinned)
-            if isPinned { pinned.append(row) }
+            let count = countByValue[value] ?? 0
+            if isPinned { pinned.append(Row(value: value, title: title, count: count, isPinned: true, section: "pinned")) }
             // ピン留めした値でも、冊数が 0 のもの(候補に無いもの)は上にだけ出す。
-            if !isPinned || countByValue[value] != nil || selected.contains(value) { others.append(row) }
+            if !isPinned || countByValue[value] != nil || selected.contains(value) {
+                others.append(Row(value: value, title: title, count: count, isPinned: isPinned, section: "all"))
+            }
         }
         return (pinned, others)
     }

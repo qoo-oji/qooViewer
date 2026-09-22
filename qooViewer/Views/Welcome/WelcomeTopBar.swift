@@ -117,6 +117,7 @@ struct WelcomeTopBar: View {
                 .buttonStyle(.borderless)
                 .disabled(!canEditLibraries)
                 .help("New Library")
+                .accessibilityLabel(Text("New Library"))
             }
         }
         .padding(.horizontal, 12)
@@ -196,6 +197,10 @@ struct WelcomeTopBar: View {
                 .contentShape(shape)
         }
         .buttonStyle(.plain)
+        // 輪郭(panelOutlinedContent)が文字を重ねて描くので、読み上げの名前は明示する(付けないと「ボタン」としか読まれなかった。
+        // 2026-09-22 の実機検証)。
+        .accessibilityLabel(Text("File Browser"))
+        .accessibilityAddTraits(isBrowsing ? .isSelected : [])
     }
 
     /// 本棚 ⇄ スマートライブラリ(2026-09-21)。形はファイルブラウザの切り替えと同じ(文字 + アイコン、幅は文字に合わせる)。
@@ -218,6 +223,8 @@ struct WelcomeTopBar: View {
                 .contentShape(shape)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(Text("Smart Library"))
+        .accessibilityAddTraits(isShowing ? .isSelected : [])
     }
 
     /// 「本を開く…」「履歴から開く」(型コメント「左端の2つのボタン」)。
@@ -233,12 +240,14 @@ struct WelcomeTopBar: View {
             Text("Open Book…").panelOutlinedContent().frame(width: chipLabelWidth)
         }
         .panelControlWell()
+        .accessibilityLabel(Text("Open Book…"))
         Button {
             isShowingRecentBooks = true
         } label: {
             Text("Open from History").panelOutlinedContent().frame(width: chipLabelWidth)
         }
         .panelControlWell()
+        .accessibilityLabel(Text("Open from History"))
         // シークレットウインドウでは履歴を一切見せない(AppState.isPrivateWindowのコメント参照)。
         .disabled(appState.isPrivateWindow)
         .popover(isPresented: $isShowingRecentBooks, arrowEdge: .bottom) {
@@ -351,6 +360,8 @@ struct WelcomeTopBar: View {
         }
         .buttonStyle(.plain)
         .help(library.displayName(language: locale))
+        .accessibilityLabel(Text(verbatim: library.displayName(language: locale)))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .opacity(draggingLibraryID == library.id ? 0.35 : 1)
         // 落とし先の印。**チップを丸ごと縁取る。**
         // 最初は左端に細い挿入線を出していたが、ドラッグ中は指の下にドラッグの絵が乗るので、

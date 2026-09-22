@@ -309,7 +309,13 @@ final class AppearanceSettings: ObservableObject {
     }
 
     /// 色を指定していないときのシリーズの束の紙の色。
-    static let defaultSmartLibrarySeriesSheet = Color(nsColor: .controlBackgroundColor)
+    ///
+    /// 明るい外観ではほぼ白、暗い外観では**明るめの灰色**。コントロールの地の色(controlBackgroundColor)にしていたら、暗い外観では
+    /// ホームの地とほとんど同じ濃さになり、束の紙が見えなかった(2026-09-22 の実機検証)。
+    static let defaultSmartLibrarySeriesSheet = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(white: 0.46, alpha: 1) : NSColor(white: 0.97, alpha: 1)
+    })
 
     /// 実際に束の紙を塗るのに使う色(effectiveCollectionTileBackground と同じ形)。
     var effectiveSmartLibrarySeriesSheet: Color {
