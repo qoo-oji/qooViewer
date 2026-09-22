@@ -375,7 +375,9 @@ class BookExportViewModel: ObservableObject {
         if supportsCoverSelection {
             bookIDs.formUnion(layoutStore.coverOverrideBookIDs())
         }
-        bookIDs.formUnion(metadataStore.registeredBookIDs)
+        // メタデータは、利用者が手を入れた行の本だけ(2026-09-22 の監査。解析した本はすべてファイル名の読みの行を持つので、
+        // 全部数えるとスマートライブラリの全冊が並び、メタデータの知らせのたびに全冊のブックマークを解決し直した)。
+        bookIDs.formUnion(metadataStore.registeredBookIDs.filter { metadataStore.metadata(forBookID: $0).map { !$0.isParsedOnly } ?? false })
 
         let candidates = bookIDs.map { bookID in
             BookURLResolver.Candidates(
@@ -420,7 +422,7 @@ class BookExportViewModel: ObservableObject {
                     bookID: bookID,
                     hasLayout: layoutStore.layoutBookIDs.contains(bookID),
                     hasBookmarks: bookIDsWithBookmarks.contains(bookID),
-                    hasMetadata: metadataStore.isRegistered(bookID: bookID)
+                    hasMetadata: metadataStore.metadata(forBookID: bookID).map { !$0.isParsedOnly } ?? false
                 )
             }
             .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }

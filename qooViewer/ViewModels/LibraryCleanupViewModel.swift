@@ -127,15 +127,16 @@ final class LibraryCleanupViewModel: ObservableObject {
     /// 削除のたびに自分でreload()するため。ウインドウを開いたまま他のウインドウで本を開いた
     /// 場合に一覧へ即座に反映されないが、掃除のための画面であり、開き直せば最新になる
     /// (逆に、削除操作の最中に一覧が勝手に組み変わるほうが扱いにくい)。
+    ///
+    /// 母体は `KnownBooks`(メタデータの編集ウインドウと同じ数え方。以前は自前で集め、コレクション表紙の指定だけの本が漏れた)。
+    /// ただし**ファイル名の読みだけのメタデータの行**(`isParsedOnly`)は「保存データ」に数えない(2026-09-22 の監査。解析した本は
+    /// すべて行を持つので、数えるとスマートライブラリの対象フォルダの全冊が並んだ)。
     func reload() {
-        var bookIDs = metadataStore.registeredBookIDs
-        bookIDs.formUnion(layoutStore.layoutBookIDs)
-        bookIDs.formUnion(layoutStore.coverOverrideBookIDs())
-        bookIDs.formUnion(bookmarkStore.groups.map(\.bookID))
-        bookIDs.formUnion(favoritesStore.allRegisteredBookIDs())
-        bookIDs.formUnion(collectionStore.allRegisteredBookIDs())
-        let readingStates = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
-        bookIDs.formUnion(readingStates.map(\.bookID))
+        var bookIDs = KnownBooks.collect(from: KnownBooks.Sources(
+            metadataStore: metadataStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+            favoritesStore: favoritesStore, collectionStore: collectionStore, modelContext: modelContext
+        ), includingMetadata: false)
+        bookIDs.formUnion(metadataStore.registeredBookIDs.filter(hasUserMetadata))
 
         allRows = bookIDs
             .map { bookID in
@@ -151,7 +152,7 @@ final class LibraryCleanupViewModel: ObservableObject {
                     bookmarkCount: bookmarkStore.bookmarks(forBookID: bookID).count,
                     hasLayout: layoutStore.bookLayoutSettings(forBookID: bookID) != nil
                         || !layoutStore.pageOverrides(forBookID: bookID).isEmpty,
-                    hasMetadata: metadataStore.isRegistered(bookID: bookID)
+                    hasMetadata: hasUserMetadata(bookID)
                 )
             }
             // 一覧に出すのはフルパス1列だけになったため、並び順もパス基準にする
@@ -278,10 +279,18 @@ final class LibraryCleanupViewModel: ObservableObject {
         rebuildRows()
     }
 
+    /// 利用者が手を入れたメタデータの行があるか(ロック・直した欄・ルールセット・ファイルの書誌の取り込み)。
+    private func hasUserMetadata(_ bookID: String) -> Bool {
+        metadataStore.metadata(forBookID: bookID).map { !$0.isParsedOnly } ?? false
+    }
+
+    /// 判定は**記録したパスに今あるか**(`evaluateAtRecordedPath`。メタデータの編集ウインドウと同じ。2026-09-22 の監査)。
+    /// 素の `evaluate` はブックマークが改名・ゴミ箱を追って「ある」と答え、アプリの外で名前を変えた本の古いパス・ゴミ箱の本・
+    /// 本ではないフォルダを「ある」と出していた ―― 「見つからない本だけ」の絞り込みで掃除したい行そのもの。
     private nonisolated static func evaluateAll(_ probes: [ExistenceProbe]) -> [String: FileExistence] {
         var result: [String: FileExistence] = [:]
         for probe in probes {
-            switch probe.evaluate() {
+            switch probe.evaluateAtRecordedPath() {
             case .exists: result[probe.bookID] = .exists
             case .missing: result[probe.bookID] = .missing
             case .unknown: result[probe.bookID] = .unknown
