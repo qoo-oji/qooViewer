@@ -126,6 +126,22 @@ struct RecentFilesAndAccessTests {
 
     // MARK: - フォルダのアクセス権
 
+    @Test("許可したフォルダの名前をアプリの中で変えると、新しいパスも許可の中と答える(2026-09-22 の監査)")
+    func grantedFoldersFollowInAppRenames() throws {
+        let suite = PreferencesSuite(label: "access-rename")
+        let temporary = try TemporaryDirectory("access-rename")
+        let folder = try temporary.directory("granted")
+        let store = FolderAccessStore(defaults: suite.defaults)
+        #expect(store.add(url: folder))
+        let renamed = temporary.file("granted-renamed")
+        try FileManager.default.moveItem(at: folder, to: renamed)
+        #expect(!store.isPathCovered(renamed.appendingPathComponent("book.cbz")))
+
+        store.handleFileSystemChange(FileSystemChange(relocations: [.init(from: folder, to: renamed)]))
+
+        #expect(store.isPathCovered(renamed.appendingPathComponent("book.cbz")))
+    }
+
     @Test("許可したフォルダは保存され、開き直しても残る")
     func grantedFoldersArePersisted() throws {
         let suite = PreferencesSuite(label: "access")

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Combine
 
@@ -64,12 +65,30 @@ final class FolderAccessStore: ObservableObject {
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         reload()
+        // ボリュームを付けた・外したら解決し直す(2026-09-22 の監査。以前は起動時・追加・削除のときしか解決せず、外付けを挿さずに
+        // 起動すると、挿した後も次の起動まで「許可が無い」扱いで、自動登録・自動リネーム・スマートライブラリ・隣の本が黙って止まった)。
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
+            volumeObservers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.reload() }
+            })
+        }
+    }
+
+    private var volumeObservers: [NSObjectProtocol] = []
+
+    /// アプリの中で、許可したフォルダ(またはその親)の名前を変えた・移した(AppStores.handleFileSystemChange から)。
+    /// 一覧のパスが古いままだと `isPathCovered` が新しいパスを「許可なし」と答えるので、解決し直す(ブックマークは移動を追う)。
+    func handleFileSystemChange(_ change: FileSystemChange) {
+        guard entries.contains(where: { change.relocatedPath(for: $0.url.path) != nil }) else { return }
+        reload()
     }
 
     deinit {
         for url in accessedURLsByPath.values {
             url.stopAccessingSecurityScopedResource()
         }
+        for observer in volumeObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
     }
 
     /// フォルダへのアクセスを新たに許可する(既に同じパスがあれば入れ替える)。
@@ -164,7 +183,15 @@ final class FolderAccessStore: ObservableObject {
     }
 
     private func reload() {
+        // 繋がっていないボリュームを指すブックマークは解決しない(解決はディスクイメージを勝手にマウントし直す・秒単位で止まる
+        // ことがある。BookLocationResolver のコメント)。パスはブックマークに書かれた値を読むだけで、ファイルには触らない。
+        // 保存したブックマーク自体は残す(繋げば、上のボリュームの知らせでまた解決する)。
+        let mounts = MountTable.current()
         let newEntries = rawBookmarks()
+            .filter { data in
+                guard let path = URL.resourceValues(forKeys: [.pathKey], fromBookmarkData: data)?.path else { return true }
+                return !mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: path))
+            }
             .compactMap { resolvedURL(from: $0).map(Entry.init) }
             .sorted { $0.url.path < $1.url.path }
 
