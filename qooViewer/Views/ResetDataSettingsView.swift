@@ -239,6 +239,10 @@ struct ResetDataSettingsView: View {
         // 焼いた札の絵(CollectionTileImageStore)はカバーから作り直せるキャッシュだが、
         // 消し残すと「削除したはずのコレクションの絵」がディスクに残る。
         CollectionTileImageStore.removeDefaultDirectory()
+        // qooMeta の設定とスマートライブラリの一覧(QooViewerApp.metadataAndSmartLibraryDirectories のコメント)。
+        for directory in QooViewerApp.metadataAndSmartLibraryDirectories {
+            try? FileManager.default.removeItem(at: directory)
+        }
         // 履歴と「前回開いていた本」は終了時のUserDefaultsの削除で消えるが、その場でも消しておく
         // (「Quit Now」までの間に画面に残っていると、消えていないように見えるため)。
         recentFiles.removeAll()

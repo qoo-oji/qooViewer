@@ -411,6 +411,14 @@ struct QooViewerApp: App {
         UserDefaults.standard.set(true, forKey: pendingFullResetDefaultsKey)
     }
 
+    /// 全削除で消す、qooMeta の設定(読み方の規則・除外フォルダ・以前の下書き)とスマートライブラリの一覧のフォルダ
+    /// (2026-09-22 の監査。画面は「フォルダのアクセス権を除き、保存したすべてのデータを削除」と約束しているのに、以前は残っていた ――
+    /// スマートライブラリの一覧は全冊のパス・書誌・読書の進みを持つ)。
+    static var metadataAndSmartLibraryDirectories: [URL] {
+        [MetadataRulesStore.defaultURL.deletingLastPathComponent(),
+         SmartLibraryCatalog.defaultCacheURL?.deletingLastPathComponent()].compactMap { $0 }
+    }
+
     /// 予約があればストアの実ファイル(全削除の予約ならキャッシュとUserDefaultsも)を消し、
     /// 予約を取り下げる。接続が無い時点でだけ呼ぶこと(pendingStoreResetDefaultsKeyのコメント参照)。
     /// - Parameters:
@@ -443,7 +451,8 @@ struct QooViewerApp: App {
             ?? ([ThumbnailDiskCache.shared.directory, BookPageListCache.shared.directoryURL,
                  CollectionTileImageStore.defaultDirectory(), FileBrowserThumbnailDiskCache.shared.directory]
                 .compactMap { $0 }
-                + [CollectionCoverStore.defaultDirectory(), CollectionCoverSourceStore.defaultDirectory()])
+                + [CollectionCoverStore.defaultDirectory(), CollectionCoverSourceStore.defaultDirectory()]
+                + Self.metadataAndSmartLibraryDirectories)
         for directory in directories {
             try? FileManager.default.removeItem(at: directory)
         }
