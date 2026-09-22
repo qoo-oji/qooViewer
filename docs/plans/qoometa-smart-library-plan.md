@@ -131,7 +131,62 @@
 - 見ていないもの: メタデータの編集ウインドウの一覧(実名が並ぶ。対象フォルダの本が並ぶことはテストで確かめてある)、明るい外観、
   ネットワークの対象フォルダ。
 
+### 2026-09-22(コード監査。まだ直していない)
+
+利用者の指示で、このブランチの差分全体(main...HEAD、Swift 74 ファイル)を「リソースリーク・クラッシュ・ハング・ファイル破損・
+ファイル消失・メモリとディスクの過大消費」の観点で監査した。核心部(SmartLibraryCatalog / Scanner / Store、MetadataRulesStore、
+DraftStore、BookSavedDataEraser、BookMetadataStore、App 配線)と qooMeta の ProposalIndex は直接読み、ビュー群・規則画面・永続化/
+書き出しは 4 つの観点に分けて並行で調べ、指摘はすべて該当箇所と qooMeta のソース(checkout `fc1ccbf`)で裏を取った。
+**クラッシュ・ハング・ファイル破損に直結する欠陥は無し。** 下の番号順に直す(1〜4 が先)。
+
+1. **【高・メモリ】スマートライブラリの表紙グリッドが訪れたセル分の CGImage を無制限に抱える。** `SmartBookThumbnail` が `@State` に
+   `buffer?.makeImage()` を持ち(SmartLibraryPane.swift、`image = made`)、`LazyVGrid` に `LazyCellImageBudget` の `.id(epoch)` が無い。
+   `makeImage()` は `PagePixelBuffer` の mmap 領域を CGDataProvider で共有するので、provider の 96 MB LRU が追い出しても本体は解放されない
+   (`LazyCellImageBudget` の型コメントの実測)。既定の表紙は 512 段(1 枚 ≈ 0.7 MB)で、2,439 冊を端まで流すと ≈ 1.7 GB がペインを壊す
+   まで残る。本棚が 2026-09-09 に直したのと同じ欠陥。直し方: `CollectionGridView` と同じく予算を持ち、`image = made` の所で
+   `note(retaining:)`、グリッドに `.id(epoch)`。
+2. **【中・設定消失】旧「ファイル名フォーマット」の引き継ぎが、失敗しても旧設定を消す**(`MetadataRulesStore.migrateLegacyFormatsIfNeeded`)。
+   `defer` が旧 3 キーを無条件に消し、全書式を 1 つのルールセットとして `update` に渡して失敗しても NSLog だけ。qooMeta の型は旧
+   `MetadataFormatCompiler` より厳しい(`@title`/`@series` 必須、欄の隣接不可)ので、旧一覧に 1 つでも通らない書式があると初回起動で
+   全部失われる。テスト `legacyFormatsAreMigratedOnce` は正しい書式だけ。直し方: `FilenameFormat(text)` が通るものだけ引き継いで残りを
+   知らせる、または errors が空でないときは旧キーを消さない。
+3. **【中・保存データ】保存データ JSON の往復で `fieldsVersion` が 0 に落ちる。** 書き出しは `fieldsVersion` を書かず qooMeta の欄が空なら
+   省き(`ExportedBookMetadataEntry`)、読み込みは `hasQooMetaFields ? 1 : 0`(`LibraryImportExportService`)。タイトル + 著者 1 人だけの
+   版 1 の行が往復で版 0 になり、メタデータの編集ウインドウの「新しい欄が無い頃に登録された」ダイアログが全冊分出て、「ロックを外して
+   解析し直す」を選ぶと登録値が捨てられる。直し方: `fieldsVersion` を JSON に(省略可能な Int で)出し入れし、無いときだけ今の推定。
+4. **【中・下書き消失】メタデータの編集ウインドウを開くたびに、一覧に無い本の下書きを消す**(`MetadataEditorModel.open` →
+   `MetadataDraftStore.keepOnly`)。一覧の `folderBookIDs()` はスマートライブラリ OFF・対象フォルダ未接続・対象から外した、のどれでも `[]`
+   なので、対象フォルダの本を直して(ロックせず)閉じ、その状態で開くと下書きが回復不能に消える。型コメントの想定「Finder で動かした本」
+   より条件がずっと広い。直し方: 消すのは「知らない本 かつ 実体が無いと確かめた本」に限るか、消さない。
+5. 【中〜低・設定消失】保存済みの規則の差分が `RuleChanges(data:)` で読めない(外側の settings.json は正常)と `changes` が `.none` に
+   なり、次の `update` が `.none` + 1 変更で組み立てた差分を保存して、`keepingUnreadable` で持ち続けるはずの差分が写しも無く消える
+   (`keepCopy` は外側が壊れたときしか走らない)。起きるのは手で編集・将来の qooMeta で `kind`/`base` が変わる場合。
+6. 【中〜低・値の消失】シリーズ無しで巻だけを持つ登録済みの行(旧 4 欄シート・ComicInfo/EPUB/PDF 取り込みで作れる)は、
+   `BookMetadataValues.confirmation` が `.notInSeries(fields:)` を返し(巻の置き場が無い)、行の値は提案から作るので編集ウインドウで巻が
+   見えない。ロックを外して掛け直す、または錨の効果で `push` が書き直すと `applyUpsert` の `trimmed` が `volumeSort` も nil にして永続化。
+7. 【低】索引と控えの競合(同じ型が 2 か所): `SmartLibraryCatalog.rebuild` は `index.apply` が成功した後に世代の検査で抜けると索引だけ
+   進んで `indexedInputs`/`proposalsByID` が古いままになり、その本の提案が規則変更まで古いまま出る(直し方: apply/load が成功したら
+   索引の控えは世代に関わらず書き戻し、`books` の公開だけ止める)。`MetadataWorkspace.setRules` は `inputs[id]` を `apply` の前に書き
+   換え、次の `setRules` の `reloading?.cancel()` が `apply` の途中で当たると索引だけ古いプリセットのまま。
+8. 【低】`SmartLibraryPane.resolvedURL` がメインで `fileExists`(切断中のネットワークの本をクリックするとタイムアウトまで固まる)。
+   全欄が空の本をロックすると `applyUpsert` が `.noChange` で何も登録しないのに鍵の表示だけ付く。drafts.json のデコード失敗は `try?` で
+   空になり次の保存で上書き(規則ストアのような写しが無い)。`saveCache` は集め直しのたびに全冊の JSON を書く(有界)。`autoPreset` が
+   `rules.presetCatalog` を本ごとに組み立て直す(安全だが無駄)。
+9. **【未検証・要実測】メタデータの編集ウインドウのツールバー/alert/sheet の閉包が workspace を捕まえる**(`MetadataEditorContent` の
+   `.toolbar`・`.alert`、`MetadataBookTableView` の `.alert`/`.sheet`)。`ViewerView` で 118 MB/回のリークを起こしたのと同じ形で、捕まる
+   のは `model → workspace → books + ProposalIndex(全冊の PreparedBook)`。右クリックメニュー側は `Coordinator.release()` で切ってある。
+   docs/12 の手順(`heap -q --noContent --addresses=MetadataWorkspace <pid>` を 開く→閉じる→開く の後に)で測ってから判断する
+   (監査時は Xcode からアプリが動いていたので操作しなかった)。
+
+問題なしと確かめたもの: SmartLibraryCatalog の購読/Task の解除と世代の検査(ProposalIndex は `CancellationError` しか投げない)、
+Scanner の上限と TCC/隠し/パッケージの回避、表紙の取得(取り消し・同時数・LIFO・`knownKey:`)、規則の正規表現(組み立て時の検査と 20 ms の
+予算)と静的状態のスレッド安全性、settings.json の原子的な書き込みと写し、SwiftData(既定値付きの列・`StoreSchemaGuard`・開き直しのテスト・
+ModelContext 1 つ・`upsertAll` の削除範囲)、書き出し(項目の追加のみ)、NSTableView の行/列対応と weak な delegate/target、環境オブジェクトの
+注入、AppStores の OFF 経路。要求の外の付記: シークレットウインドウでもスマートライブラリの表紙が `savesToDisk` 既定 true でディスクに
+書かれる(ファイルブラウザは `!state.isPrivate`)。
+
 ### 残り(次の人へ)
 
+- **まず上の「コード監査」の 1〜4 を直す**(9 は実測してから)。直したら監査の節に「直した」と書く。
 - スマートライブラリ: 表紙の大きさのピンチ、選択と複数冊の右クリック、左ペインの折りたたみは未実装。
 - README / MANUAL / CHANGELOG([Unreleased]) / CLAUDE.md は 2026-09-22 に一式更新した(利用者の指示)。以後の変更も同じ組で直す。
