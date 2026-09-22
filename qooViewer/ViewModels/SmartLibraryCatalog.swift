@@ -23,6 +23,14 @@ import SwiftData
 ///    `load` で並列に読み、以後は足した・消した・登録を変えた本だけを `apply` で渡す。規則が変わったら索引ごと作り直す。
 ///    ルールセットの自動の選択(`autoPreset`)も、規則が同じ間は本ごとに前の結果を使う。
 ///
+/// ■ 環境設定でスマートライブラリを OFF にしたとき(`setFeatureEnabled`。2026-09-22 の監査)
+/// 画面が消えるので新しい集め直しは始まらないが、それだけでは足りなかった: 走っている最中の集め直し(フォルダの探索・
+/// qooMeta・保存)が最後まで走り、集めた一覧・qooMeta の索引・探した結果がメモリに残り、保存した一覧の読み込みも後から
+/// 一覧を出した。OFF にしたら**全部取り消して手放す**(世代を進め、await の後で世代を見る)。入り口(`activate`・
+/// `folderBookIDs`・アプリ自身のファイル操作の知らせ)も OFF の間は何もしない。保存した一覧・対象フォルダ・スマートコレクションは
+/// 消さない(ON へ戻せば、画面を出したときに今までどおり集める)。止めないのは対象フォルダの付け替え
+/// (`SmartLibraryStore.relocate` ―― 保存したパスを正しく保つ仕事)だけ。
+///
 /// ■ いつ集め直すか
 /// 画面(スマートライブラリのペイン)が出ている間だけ(`activate` / `deactivate`)。出ている間は、メタデータ・対象フォルダ・
 /// 規則が変わったら少し待ってから集め直す。フォルダの中を探すのは、対象フォルダが変わったとき・アプリ自身がその中の
@@ -56,6 +64,8 @@ final class SmartLibraryCatalog: ObservableObject {
     private var proposalsByID: [String: BookProposal] = [:]
     /// 保存した前回の一覧を読んでいる最中か(2 度読まない)。
     private var isRestoringCache = false
+    /// 環境設定「スマートライブラリを有効にする」(型コメント)。
+    private(set) var isFeatureEnabled = true
 
     /// 画面に出ている数(ウインドウごと)。0 なら何もしない。
     private var activeCount = 0
@@ -93,18 +103,46 @@ final class SmartLibraryCatalog: ObservableObject {
     /// 対象フォルダの中の本(bookID)。メタデータの編集ウインドウの母体に足す。前に探した結果があればそれを使い、
     /// 無ければ探す(画面が出ていなくても)。
     func folderBookIDs() async -> [String] {
+        guard isFeatureEnabled else { return [] }
         let roots = scanRoots()
         guard !roots.isEmpty else { return [] }
         if let scanned, scanned.roots == roots { return scanned.result.books.map(\.path) }
+        let generation = generation
         let result = await FileIO.perform { SmartLibraryScanner.scan(roots: roots) }
         // 探している間に対象フォルダが変わっていなければ、結果を覚えておく(画面を開いたときに探し直さない)。
+        // 探している間に OFF にされていたら覚えない(手放したものを戻さない)。
+        guard isFeatureEnabled, generation == self.generation else { return [] }
         if scanRoots() == roots { scanned = (roots, result) }
         return result.books.map(\.path)
+    }
+
+    /// 環境設定「スマートライブラリを有効にする」(型コメント「OFF にしたとき」)。
+    func setFeatureEnabled(_ isEnabled: Bool) {
+        guard isEnabled != isFeatureEnabled else { return }
+        isFeatureEnabled = isEnabled
+        guard !isEnabled else { return }
+        generation += 1
+        subscriptions.removeAll()
+        pending?.cancel()
+        pending = nil
+        building?.cancel()
+        building = nil
+        scanned = nil
+        index = nil
+        indexRulesHash = nil
+        indexedInputs = [:]
+        proposalsByID = [:]
+        books = []
+        isTruncated = false
+        isLoading = false
+        hasLoaded = false
+        revision += 1
     }
 
     // MARK: - 画面が出ている間だけ
 
     func activate() {
+        guard isFeatureEnabled else { return }
         activeCount += 1
         guard activeCount == 1 else { return }
         subscribe()
@@ -132,7 +170,7 @@ final class SmartLibraryCatalog: ObservableObject {
 
     /// アプリ自身がファイルを動かした(AppStores.handleFileSystemChange から)。探している場所の中なら探し直す。
     func handleFileSystemChange(_ change: FileSystemChange) {
-        guard activeCount > 0 || scanned != nil else { return }
+        guard isFeatureEnabled, activeCount > 0 || scanned != nil else { return }
         let roots = scanRoots()
         let touched = change.affectedFolderPaths.contains { folder in
             roots.contains { MountTable.path(folder, isAtOrUnder: $0) }
@@ -148,12 +186,14 @@ final class SmartLibraryCatalog: ObservableObject {
         }
         metadataStore.$revision.dropFirst().sink { _ in rebuild(false) }.store(in: &subscriptions)
         store.$folders.dropFirst().removeDuplicates().sink { _ in rebuild(true) }.store(in: &subscriptions)
-        NotificationCenter.default.publisher(for: MetadataRulesStore.rulesDidChange)
+        // 自分の規則のストアの知らせだけ(テストでは別のストアが同じ名前で次々に知らせ、そのたびに集め直しが先へ延びた)。
+        NotificationCenter.default.publisher(for: MetadataRulesStore.rulesDidChange, object: rulesStore)
             .sink { _ in rebuild(false) }.store(in: &subscriptions)
         // 読書位置は通知が無い。本を開くとホームのペインは消え(deactivate)、戻ると出る(activate)ので、そこで読み直される。
     }
 
     private func scheduleRebuild(rescan: Bool, delay: Duration) {
+        guard isFeatureEnabled else { return }
         if rescan { scanned = nil }
         pending?.cancel()
         pending = Task { [weak self] in
@@ -200,9 +240,10 @@ final class SmartLibraryCatalog: ObservableObject {
             let inputs = await Task.detached(priority: .userInitiated) {
                 Self.inputs(for: paths, registered: snapshot.registered, reusing: previousInputs, rules: rules)
             }.value
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, generation == self.generation else { return }
             // 3. 変わった本だけ読む(索引が無い・規則が変わったら作り直して並列に読む)。
             var proposals = sameRules ? self.proposalsByID : [:]
+            var newIndex: ProposalIndex?
             do {
                 if let index = self.index, sameRules {
                     let changes = Self.changes(from: previousInputs, to: inputs)
@@ -216,11 +257,14 @@ final class SmartLibraryCatalog: ObservableObject {
                     try await index.load(inputs.ordered)
                     proposals = Dictionary(await index.snapshot().proposals.map { ($0.id, $0) },
                                            uniquingKeysWith: { _, b in b })
-                    self.index = index
+                    newIndex = index
                 }
             } catch {
                 return // 取り消された(索引は呼ぶ前のまま)。
             }
+            // 読んでいる間に OFF にされた・新しい集め直しが始まったら、索引の控えを書き戻さない(OFF では手放したものを戻さない)。
+            guard !Task.isCancelled, generation == self.generation else { return }
+            if let newIndex { self.index = newIndex }
             self.indexedInputs = inputs.byID
             self.indexRulesHash = rules.contentHash
             self.proposalsByID = proposals
@@ -304,9 +348,10 @@ final class SmartLibraryCatalog: ObservableObject {
     /// まだ何も並んでいなければ、保存した前回の一覧を読んで先に出す。対象フォルダが変わっていれば使わない。
     /// 本当の集め直しが先に終わっていたら何もしない。
     private func restoreCacheIfNeeded() {
-        guard let cacheURL, !hasLoaded, books.isEmpty, !isRestoringCache else { return }
+        guard let cacheURL, isFeatureEnabled, !hasLoaded, books.isEmpty, !isRestoringCache else { return }
         isRestoringCache = true
         let roots = scanRoots()
+        let generation = generation
         Task { [weak self] in
             let cached = await Task.detached(priority: .userInitiated) { () -> CachedCatalog? in
                 guard let data = try? Data(contentsOf: cacheURL),
@@ -317,7 +362,8 @@ final class SmartLibraryCatalog: ObservableObject {
             }.value
             guard let self else { return }
             self.isRestoringCache = false
-            guard let cached, !self.hasLoaded, self.books.isEmpty else { return }
+            guard let cached, self.isFeatureEnabled, generation == self.generation, !self.hasLoaded, self.books.isEmpty
+            else { return }
             self.books = cached.books
             self.isTruncated = cached.isTruncated
             self.revision += 1

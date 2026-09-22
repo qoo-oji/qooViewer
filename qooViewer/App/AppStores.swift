@@ -109,6 +109,7 @@ final class AppStores: ObservableObject {
     private var libraryFeatureSubscription: AnyCancellable?
     /// 環境設定「ファイルブラウザを有効にする」の購読(`applyFileBrowserFeature`)。
     private var fileBrowserFeatureSubscription: AnyCancellable?
+    private var smartLibraryFeatureSubscription: AnyCancellable?
     /// 起動時の掃除(行の無い表紙・元画像・札の絵)を済ませたか。ライブラリ機能がOFFで起動したら、最初にONになるまで先送りする。
     private var didSweepLibraryOrphans = false
 
@@ -197,6 +198,7 @@ final class AppStores: ObservableObject {
             cacheURL: RuntimeEnvironment.isRunningTests ? nil : SmartLibraryCatalog.defaultCacheURL
         )
         if !RuntimeEnvironment.isRunningTests { SmartLibraryCatalog.removeLegacyCache() }
+        smartLibraryCatalog.setFeatureEnabled(preferences.smartLibraryFeatureEnabled)
         collectionAutoFolderScanner = CollectionAutoFolderScanner(
             collectionStore: collectionStore, coverExtractor: collectionCoverExtractor,
             folderAccess: folderAccess, preferences: preferences
@@ -222,6 +224,14 @@ final class AppStores: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] isEnabled in
                 MainActor.assumeIsolated { self?.applyFileBrowserFeature(isEnabled) }
+            }
+        // 「スマートライブラリを有効にする」(2026-09-22)。OFF で止まるものと止まらないものは SmartLibraryCatalog の型コメント
+        // 「OFF にしたとき」。画面・「ホーム」メニューの項目・メタデータの編集ウインドウの対象フォルダは、それぞれが設定を読む。
+        smartLibraryFeatureSubscription = preferences.$smartLibraryFeatureEnabled
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] isEnabled in
+                MainActor.assumeIsolated { self?.smartLibraryCatalog.setFeatureEnabled(isEnabled) }
             }
         libraryFeatureSubscription = preferences.$libraryFeatureEnabled
             .dropFirst()

@@ -352,4 +352,81 @@ struct SmartLibraryTests {
         #expect(decoded.books == [sample])
         #expect(decoded.roots == ["/棚"])
     }
+
+    // MARK: 環境設定で OFF にしたとき
+
+    /// 条件が満たされるまで待つ(本当の集め直しは FileIO と qooMeta を通るので、回数ではなく状態で待つ)。
+    /// 上限を長めにしてあるのは、全体を流すと同じテストホストで並列に走るほかのテストに押されて、単独では 1 秒の集め直しが
+    /// 12 秒ほどかかったため(止まってはいない。2026-09-22 に実測)。
+    private func wait(_ timeout: Duration = .seconds(60), until condition: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while !condition() {
+            guard ContinuousClock.now < deadline else { return false }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return true
+    }
+
+    @Test("OFF にすると集めた一覧・索引を手放し、入り口は何もしない。ON へ戻して画面を出せば集め直す")
+    func featureSwitchStopsAndRestarts() async throws {
+        let library = try InMemoryLibrary(label: "smart-switch")
+        defer { library.close() }
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("qooViewerTests.smartSwitch.\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for name in ["[架空工房] 月の庭 1.zip", "[架空工房] 月の庭 2.zip", "星の本.pdf"] {
+            try Data().write(to: root.appendingPathComponent(name))
+        }
+        let store = SmartLibraryStore(defaults: suite.defaults)
+        store.addFolder(root)
+        let catalog = SmartLibraryCatalog(metadataStore: library.metadata, store: store, rulesStore: library.metadataRules,
+                                          modelContext: library.context)
+
+        catalog.activate()
+        #expect(await wait { catalog.hasLoaded })
+        #expect(catalog.books.count == 3)
+        #expect(await catalog.folderBookIDs().count == 3)
+
+        catalog.setFeatureEnabled(false)
+        #expect(catalog.books.isEmpty)
+        #expect(!catalog.hasLoaded && !catalog.isLoading)
+        #expect(await catalog.folderBookIDs().isEmpty)
+        // 画面が消える(deactivate)・出ようとしても(activate)、何も始まらない。
+        catalog.deactivate()
+        catalog.activate()
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(catalog.books.isEmpty && !catalog.isLoading)
+
+        catalog.setFeatureEnabled(true)
+        catalog.activate()
+        #expect(await wait { catalog.hasLoaded })
+        #expect(catalog.books.count == 3)
+        catalog.deactivate()
+    }
+
+    @Test("集め直しの最中に OFF にすると、その集め直しは一覧を出さない")
+    func switchingOffMidRebuildPublishesNothing() async throws {
+        let library = try InMemoryLibrary(label: "smart-switch-mid")
+        defer { library.close() }
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("qooViewerTests.smartSwitchMid.\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for index in 0..<200 { try Data().write(to: root.appendingPathComponent("架空の本 \(index).zip")) }
+        let store = SmartLibraryStore(defaults: suite.defaults)
+        store.addFolder(root)
+        let catalog = SmartLibraryCatalog(metadataStore: library.metadata, store: store, rulesStore: library.metadataRules,
+                                          modelContext: library.context)
+        catalog.activate()
+        #expect(catalog.isLoading)
+        catalog.setFeatureEnabled(false)
+        try await Task.sleep(for: .seconds(1))
+        #expect(catalog.books.isEmpty)
+        #expect(!catalog.hasLoaded)
+    }
 }
