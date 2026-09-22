@@ -39,7 +39,7 @@ final class BookMetadata {
     /// 巻数。数値ではなく文字列で保持する。Calibreのseries_indexが"10.5"のような小数を
     /// 許容すること、ユーザーが「上」「下」のような非数値を手入力する余地を残したいこと、
     /// および入力途中の状態(空文字)をそのまま持てることが理由
-    /// (EPUB/PDFへ書き出す際にのみ、numericSeriesIndexで数値へ変換を試みる)。
+    /// (EPUB/PDFの数の欄へは、並べ替え用の数`volumeSort`か、これを数として読んだものを書く。exportableVolumeSort)。
     var seriesIndex: String = ""
 
     // MARK: qooMeta から来た欄(2026-09-21 追加)
@@ -161,14 +161,18 @@ final class BookMetadata {
     /// 行そのものを削除する)。
     var isEmpty: Bool { values.isEmpty }
 
-    /// EPUBのgroup-position / calibre:series_index、PDFのXMPの
-    /// calibreSI:series_indexへ書き出すための数値表現。
-    /// 数値として解釈できない場合はnil(その場合、書き出し側はseries_indexを省略する)。
+    /// 表示用の巻数(`seriesIndex`)を数として読んだもの。数値として解釈できない場合はnil。
+    ///
+    /// **書き出しの数の欄には使わない**(`exportableVolumeSort` を使う)。並べ替え用の数(`volumeSort`)を持たない
+    /// 行 ―― 手で入れた巻・qooMeta へ置き換える前の行 ―― の代わりの数として `sortableVolume` から使う。
+    var numericSeriesIndex: Double? { Self.numericVolume(seriesIndex) }
+
+    /// 巻数の文字列を数として読む。数値として解釈できない場合はnil。
     ///
     /// NaN・無限大を弾いているのは、Double(_: String)が"nan"/"inf"という綴りを受け付けるため
     /// (seriesIndexはユーザーが自由に入力できる欄なので、実際に書かれうる)。
-    var numericSeriesIndex: Double? {
-        let trimmed = seriesIndex.trimmingCharacters(in: .whitespaces)
+    static func numericVolume(_ text: String) -> Double? {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return nil }
         // 小数点はロケールに依らず"."のみを受け付ける(Calibre/EPUBの仕様に合わせるため、
         // ユーザーのロケールで","が小数点になっている環境でも解釈を変えない)。
@@ -176,19 +180,28 @@ final class BookMetadata {
         return value
     }
 
-    /// EPUB/PDFへ実際に書き出す巻数の文字列。数値として解釈できない場合はnil。
+    /// EPUBのgroup-position / calibre:series_index、PDFのXMPのcalibreSI:series_indexへ書き出す巻数
+    /// (**シリーズの中の位置**)。並べ替え用の数(`volumeSort`)があればそれ、無ければ表示用の巻数を数として
+    /// 読んだもの(`sortableVolume`)。どちらも無ければnil(書き出し側はseries_indexを省略する)。
     ///
-    /// バグ修正: 以前は書き出し側がseriesIndexを生のまま埋めていた。seriesIndexは「上」「下」
-    /// のような非数値の手入力を許す欄(上のコメント参照)なので、次の2つの問題が起きていた。
+    /// バグ修正(2026-09-22): 以前は表示用の巻数だけを数として読んでいた(`exportableSeriesIndex`)。qooMeta が
+    /// 表示用に入れる「上」「総集編2」のような表記は数に読めないので、並べ替え用の数(1、4.5)があっても
+    /// group-position も series_index も書かれなかった。これらの欄は「シリーズの中の位置」なので、並べ替え用の
+    /// 数と意味が一致する。
+    ///
+    /// さらに前のバグ修正: 以前は書き出し側がseriesIndexを生のまま埋めていた。非数値を書くと次の2つの問題が起きていた。
     /// - EPUB3のgroup-positionは数値でなければならず、非数値を書くとepubcheckが弾く
     ///   (dc:languageを"und"で出していてKindle Previewerに弾かれたのと同じ種類の問題)。
     /// - PDFのXMPのcalibreSI:series_indexはCalibreがfloatとして読むため、非数値を書くと
     ///   往復できない(当時はPDFのKeywordsへ独自形式で書いており、事情は同じだった)。
+    var exportableVolumeSort: String? { sortableVolume.flatMap(Self.exportableVolumeText) }
+
+    /// 巻数の数を、書き出す文字列にする。書き出せない値ならnil。
     ///
     /// 整数で表せる値は整数の文字列にする(Calibreが書き出す"3.0"を"3"として読み込む
     /// EpubStructureResolver.normalizedSeriesIndexと表記を合わせるため)。
-    var exportableSeriesIndex: String? {
-        guard let value = numericSeriesIndex else { return nil }
+    static func exportableVolumeText(_ value: Double) -> String? {
+        guard value.isFinite else { return nil }
         // Intへ変換して安全な範囲かどうか。1e15を超える巻数は現実に存在しないため、
         // ここに来る時点で入力が壊れているとみなし、書き出さない側に倒す。
         guard abs(value) < 1e15 else { return nil }

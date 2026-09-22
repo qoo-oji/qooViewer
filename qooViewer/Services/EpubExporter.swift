@@ -37,7 +37,7 @@ struct EpubExportInput {
     ///
     /// **数値として解釈できる文字列(または空文字/nil)だけを渡すこと。** EPUB3の
     /// group-positionは数値必須で、非数値を書くとepubcheckがエラーにする。呼び出し側は
-    /// BookMetadata.exportableSeriesIndexを通してから渡す(値を決める責任は呼び出し側に
+    /// BookMetadata.exportableVolumeSortを通してから渡す(値を決める責任は呼び出し側に
     /// 寄せてある。languageと同じ方針)。
     let seriesIndex: String?
     /// dc:languageに書き出すBCP 47の言語タグ("ja"/"en"など)。

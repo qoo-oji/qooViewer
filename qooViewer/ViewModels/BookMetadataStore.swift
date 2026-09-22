@@ -104,6 +104,11 @@ final class BookMetadataStore: ObservableObject {
 
     /// 従来の 4 つの欄だけを登録する入り口(EPUB/PDF/ComicInfo からの取り込みなど、4 つの欄しか持たない経路)。
     /// **ほかの欄(ジャンル・原作・2 人目以降の著者など)は、既にある行の値を保つ**(4 つの欄の取り込みで消さない)。
+    ///
+    /// `volumeSort` は巻数(並べ替え用)。EPUB/PDF/ComicInfo からの取り込みは、ファイルに書かれた巻数が
+    /// 「シリーズの中の位置」の数なので、それを渡す(書き出しは並べ替え用の数を書くため、書き出したファイルを
+    /// 読み込み直したときに並べ替え用の数として戻す。BookMetadata.exportableVolumeSort)。nil なら、巻数が
+    /// 変わったときに捨てるだけ。
     @discardableResult
     func upsert(
         bookID: String,
@@ -111,18 +116,20 @@ final class BookMetadataStore: ObservableObject {
         title: String,
         series: String,
         seriesIndex: String,
+        volumeSort: Double? = nil,
         sourceURL: URL? = nil
     ) -> BookMetadata? {
         // 4 つの欄だけの登録は、以前の版の欄の登録と同じ扱い(空の欄を埋めるかを、メタデータの編集ウインドウで尋ねる)。
         // 既にいまの版の行なら、その版のまま。
         upsert(bookID: bookID, values: mergedLegacyValues(bookID: bookID, author: author, title: title,
-                                                         series: series, seriesIndex: seriesIndex),
+                                                         series: series, seriesIndex: seriesIndex,
+                                                         volumeSort: volumeSort),
                sourceURL: sourceURL, fieldsVersion: metadata(forBookID: bookID)?.fieldsVersion ?? 0)
     }
 
     /// 4 つの欄を、既にある行のほかの欄に重ねたもの。
     private func mergedLegacyValues(bookID: String, author: String, title: String, series: String,
-                                    seriesIndex: String) -> BookMetadataValues {
+                                    seriesIndex: String, volumeSort: Double?) -> BookMetadataValues {
         var values = metadata(forBookID: bookID)?.values ?? BookMetadataValues()
         var authors = values.authors
         let trimmedAuthor = author.trimmingCharacters(in: .whitespaces)
@@ -136,6 +143,7 @@ final class BookMetadataStore: ObservableObject {
         values.series = series
         if values.volume != seriesIndex.trimmingCharacters(in: .whitespaces) { values.volumeSort = nil }
         values.volume = seriesIndex
+        if let volumeSort { values.volumeSort = volumeSort }
         return values
     }
 

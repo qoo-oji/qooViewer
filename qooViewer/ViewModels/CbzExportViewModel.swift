@@ -50,7 +50,9 @@ final class CbzExportViewModel: BookExportViewModel {
             language: exportLanguageCode,
             additionalAuthors: prepared.additionalAuthors,
             genre: prepared.metadata?.genre,
-            notes: prepared.metadata?.info
+            notes: prepared.metadata?.info,
+            // 並べ替え用の数があれば、表示用の巻数に代わって Number へ入る(CbzExporter.applyMetadata参照)。
+            volumeSort: prepared.metadata?.volumeSort.flatMap(BookMetadata.exportableVolumeText)
         )
         let options = CbzExportOptions(
             renumberImagesSequentially: renumberImagesSequentially,

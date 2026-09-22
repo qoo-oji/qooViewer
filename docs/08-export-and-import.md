@@ -20,7 +20,14 @@
    表示中の行だけ。
 3. **タイトル・著者**: メタデータ DB > qooMeta でファイル名から読んだ値(`MetadataRulesStore.reading`)、を初期値にして編集可
    (2026-09-21 に `TitleAuthorFilenameParser` を廃止)。2 人目以降の著者とジャンルも書く(EPUB は `dc:creator` を並べ `dc:subject`、
-   PDF は Author を「, 」でつなぎ Subject、CBZ は Writer/Penciller を「, 」でつなぎ Genre、情報は Notes)。
+   PDF は Author を「, 」でつなぎ Subject(XMP にも `dc:creator` の並びと `dc:subject`)、CBZ は Writer/Penciller を「, 」でつなぎ
+   Genre、情報は Notes)。イベント・原作は書かない(合う欄が無い。CBZ の `Tags` は v2.1 草案で、v2.0 の XSD 検証を外すことに
+   なるため見送り、2026-09-22)。
+   **巻数の数の欄は並べ替え用の数から作る**(2026-09-22、`BookMetadata.exportableVolumeSort`)。EPUB の `group-position`・PDF の
+   `series_index` は「シリーズの中の位置」なので、qooMeta の巻数(並べ替え用)と意味が同じ。並べ替え用が無い行は表示用を数に
+   読んだもの。以前は表示用だけを数に読んでいたので、「上」「総集編2」のように表記が数に読めない本の巻が消えていた。
+   書き出したファイルを本として初めて開いたときの取り込みでは、ファイルの巻数を表示用と並べ替え用の両方に入れる
+   (`BookMetadataStore.upsert(…volumeSort:)`)。
 4. **カバー**(EPUB/CBZ): 既定は実質的な先頭ページ(構造キャッシュがあれば読み込みなしで解決)。
    本の中のページか、本に含まれない外部ファイルを指定できる(外部ファイルは本の一部として
    扱わず、ビューアには現れない)。
@@ -67,8 +74,8 @@
 - Kindle 向けの meta(`fixed-layout` / `original-resolution` / `primary-writing-mode` など)と
   `cover` の guide。
 - シリーズは calibre(`calibre:series` / `calibre:series_index`)と EPUB3(`belongs-to-collection`
-  / `group-position`)の両方。`group-position` は数値必須なので `exportableSeriesIndex`
-  (数値に解釈できるときだけ。整数なら整数表記)。
+  / `group-position`)の両方。`group-position` は数値必須なので `exportableVolumeSort`
+  (並べ替え用の数、無ければ表示用を数に読めたときだけ。整数なら整数表記)。
 - ファイル名は NFC 正規化(`BookExportShared.nfcNormalizedForExport`)。フォルダの本の NFD 名が
   そのまま zip に入ると読めないリーダーがあるため。
 - JPEG/PNG/GIF 以外(WebP など)は PNG へ変換する(EPUB のコア画像形式に合わせる)。
@@ -80,7 +87,9 @@
 - `CGPDFContext` で作る。JPEG は再圧縮せず `passthrough` で埋め込む。
 - CoreGraphics には `/ViewerPreferences`(読み方向)・`/PageLayout`(見開き)・XMP を書く API が
   無いため、**書き終えたあとに `PDFCatalogAugmenter` が増分更新で Catalog へ書き加える**。
-  XMP には dc:title/creator と calibre の `series` / `series_index`(`PDFXMPMetadata`)。
+  XMP には dc:title/creator(著者の全員)/subject(ジャンル)と calibre の `series` / `series_index`(`PDFXMPMetadata`)。
+  XMP は Info 辞書より優先されるので、Info 辞書と同じ値を書く(2026-09-22 までは先頭の著者だけで、XMP を読む Calibre では
+  2 人目以降が消えていた)。シリーズ名が無ければ XMP 自体を書かない(`PDFXMPMetadata.packet`)。
 - ページ単位のレイアウト(このページだけ単独/左右)は PDF に対応する概念が無く、失われる
   (以前の「見開き情報は失われる」バナーは、本全体の読み方向と見開き強制が入るようになった時点で外した)。
 - カバーの概念が無いのでカバー列は出さない。
@@ -93,8 +102,11 @@
   (Komga は空文字を「値がある」と解釈する)。中身が1つも無ければ同梱しない。
 - `Manga` = `YesAndRightToLeft` で右開き(Komga が右開き表示に切り替える唯一の項目)。
   読むときは `Yes` を左開きと解釈しない(方向未指定の意味)。
-- `Number` は文字列(「上」「下」もそのまま)。`Volume` は**巻数ではない**(Komga はシリーズ名へ
-  連結、Kavita は巻として扱う)ので、オプション「Volume にも書き出す」(既定 OFF)。
+- `Number` は**並べ替え用の数があればそれ**(2026-09-22、利用者の判断)。無ければ表示用の巻数を文字列のまま
+  (「上」「下」もそのまま)。v2.0 には表示用と並べ替え用を分ける要素が無く、Komga は `Number` を数に読んで並び順を作る
+  (`numberSort = number.toFloatOrNull()`)ので、並び順のほうを取った。表記はタイトルに残る。
+  `Volume` は**巻数ではない**(Komga はシリーズ名へ連結、Kavita は巻として扱う)ので、オプション「Volume にも書き出す」
+  (既定 OFF)。書くのは `Number` が整数のときだけ(xs:int。並べ替え用の 4.5 は書かない)。
 - `<Pages>`: `Type="FrontCover"`(カバー)、`Bookmark`(ブックマーク名をそのまま往復)、
   `DoublePage`(「1枚に見開き2ページ分」の意味なので、qooViewer の `single` から変換)。
   ページ番号は **0 始まりで正準順**。

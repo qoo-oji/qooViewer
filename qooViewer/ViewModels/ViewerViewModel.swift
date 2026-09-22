@@ -1709,6 +1709,8 @@ final class ViewerViewModel: ObservableObject {
             title: metadata.title,
             series: metadata.series,
             seriesIndex: metadata.seriesIndex,
+            // ファイルに書かれた巻数は「シリーズの中の位置」の数(EPUBのgroup-position、PDFのcalibreSI:series_index)。
+            volumeSort: BookMetadata.numericVolume(metadata.seriesIndex),
             sourceURL: sourceURL
         )
         refreshDisplayTitle()
@@ -1756,6 +1758,8 @@ final class ViewerViewModel: ObservableObject {
                     title: metadata.title,
                     series: metadata.series,
                     seriesIndex: metadata.seriesIndex,
+                    // ComicInfo の Number(書き出しは並べ替え用の数を書く)。数に読めれば並べ替え用にも入れる。
+                    volumeSort: BookMetadata.numericVolume(metadata.seriesIndex),
                     sourceURL: sourceURL
                 )
             }

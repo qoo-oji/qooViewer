@@ -20,9 +20,9 @@ final class PDFExportViewModel: BookExportViewModel {
             titleOverride: prepared.title,
             author: prepared.author,
             series: prepared.metadata?.series,
-            // 巻数は、Calibreのcalibre:series_indexが数値として読まれるため、数値として
-            // 解釈できる場合だけ書き出す(BookMetadata.exportableSeriesIndex参照)。
-            seriesIndex: prepared.metadata?.exportableSeriesIndex,
+            // 巻数は、Calibreのcalibre:series_indexが数値(シリーズの中の位置)として読まれるため、
+            // 並べ替え用の数を書く(BookMetadata.exportableVolumeSort参照)。
+            seriesIndex: prepared.metadata?.exportableVolumeSort,
             readingDirection: prepared.readingDirection,
             forcedDisplayMode: prepared.forcedDisplayMode,
             additionalAuthors: prepared.additionalAuthors,

@@ -28,10 +28,10 @@ final class EpubExportViewModel: BookExportViewModel {
             author: prepared.author,
             // シリーズ名・巻数はこの画面に入力欄が無く、メタデータDBの登録内容をそのまま使う
             // (ユーザー要望: 登録がある場合はそちらを優先する)。巻数はEPUBのgroup-positionが
-            // 数値必須のため、数値として解釈できる場合だけ書き出す
-            // (BookMetadata.exportableSeriesIndex参照)。
+            // 数値必須のうえ「シリーズの中の位置」なので、並べ替え用の数を書く
+            // (BookMetadata.exportableVolumeSort参照)。
             series: prepared.metadata?.series,
-            seriesIndex: prepared.metadata?.exportableSeriesIndex,
+            seriesIndex: prepared.metadata?.exportableVolumeSort,
             language: exportLanguageCode,
             additionalAuthors: prepared.additionalAuthors,
             genre: prepared.metadata?.genre

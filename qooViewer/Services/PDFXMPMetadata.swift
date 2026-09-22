@@ -60,11 +60,16 @@ nonisolated enum PDFXMPMetadata {
     /// 動かすことになる**。この機能の目的そのものが無い場合は、素のQuartz製PDFのままにしておく。
     ///
     /// - Parameters:
-    ///   - seriesIndex: 数値として解釈できる文字列(BookMetadata.exportableSeriesIndexの戻り値)。
+    ///   - authors: 著者の並び(Info辞書の`Author`は「, 」でつないだ1つの文字列、こちらは1人ずつ)。**全員を書く** ――
+    ///     XMPはInfo辞書より優先されるので、先頭の1人だけを書くと、XMPを読む側(Calibreなど)では2人目以降が消える
+    ///     (2026-09-22 まではそうなっていた)。
+    ///   - subject: ジャンル。Info辞書の`Subject`と同じ値を`dc:subject`にも書く(同じ理由。Calibreはどちらもタグとして読む)。
+    ///   - seriesIndex: 数値として解釈できる文字列(BookMetadata.exportableVolumeSortの戻り値)。
     ///     解釈できない場合はseries_indexを省略する(Calibre側の既定値1.0として読まれる)。
     ///   - date: `xmp:MetadataDate`へ書く時刻。テスト以外では省略する(現在時刻)。
     static func packet(
-        title: String, author: String?, series: String, seriesIndex: String?, date: Date = Date()
+        title: String, authors: [String], subject: String? = nil, series: String, seriesIndex: String?,
+        date: Date = Date()
     ) -> Data? {
         let series = series.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !series.isEmpty else { return nil }
@@ -72,8 +77,15 @@ nonisolated enum PDFXMPMetadata {
         var descriptions: [String] = []
 
         var dublinCore = ["   <dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">\(escape(title))</rdf:li></rdf:Alt></dc:title>"]
-        if let author = author?.trimmingCharacters(in: .whitespacesAndNewlines), !author.isEmpty {
-            dublinCore.append("   <dc:creator><rdf:Seq><rdf:li>\(escape(author))</rdf:li></rdf:Seq></dc:creator>")
+        let authors = authors.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        if !authors.isEmpty {
+            // dc:creatorは順序つきの並び(rdf:Seq)。1人ずつrdf:liにする(Calibreのcreate_sequence_propertyと同じ形)。
+            let items = authors.map { "<rdf:li>\(escape($0))</rdf:li>" }.joined()
+            dublinCore.append("   <dc:creator><rdf:Seq>\(items)</rdf:Seq></dc:creator>")
+        }
+        if let subject = subject?.trimmingCharacters(in: .whitespacesAndNewlines), !subject.isEmpty {
+            // dc:subjectは順序の無い集まり(rdf:Bag)。
+            dublinCore.append("   <dc:subject><rdf:Bag><rdf:li>\(escape(subject))</rdf:li></rdf:Bag></dc:subject>")
         }
         descriptions.append("""
               <rdf:Description rdf:about="" xmlns:dc="\(Namespace.dc)">

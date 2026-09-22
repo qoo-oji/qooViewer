@@ -43,7 +43,7 @@ struct PDFExportInput {
     /// **数値として解釈できる文字列(または空文字/nil)だけを渡すこと。** Calibreの
     /// `calibreSI:series_index`は数値(float)として読まれるため、非数値を書くと往復できない
     /// (EpubExportInput.seriesIndexと同じ制約。呼び出し側は
-    /// BookMetadata.exportableSeriesIndexを通してから渡す)。
+    /// BookMetadata.exportableVolumeSortを通してから渡す)。
     let seriesIndex: String?
     /// 本全体の読み方向。`/ViewerPreferences`の`/Direction`として埋め込む。
     /// PreparedBook.readingDirectionと同じく常に確定した値で、環境設定の既定値まで解決済み。
@@ -120,14 +120,20 @@ nonisolated enum PDFExporter {
         let trimmedAuthor = input.author?.trimmingCharacters(in: .whitespacesAndNewlines)
         let author = (trimmedAuthor?.isEmpty == false) ? trimmedAuthor.map(nfcNormalizedForExport) : nil
 
-        var auxiliaryInfo: [String: Any] = [kCGPDFContextTitle as String: bookTitle]
-        if let author {
-            let extras = input.additionalAuthors.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        // 著者の並び。Info辞書へは「, 」でつないで、XMPへは1人ずつ書く(同じ並びから作る)。
+        let authors: [String] = author.map { author in
+            [author] + input.additionalAuthors.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
                 .filter { !$0.isEmpty }.map(nfcNormalizedForExport)
-            auxiliaryInfo[kCGPDFContextAuthor as String] = ([author] + extras).joined(separator: ", ")
+        } ?? []
+        let trimmedGenre = input.genre?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let genre = (trimmedGenre?.isEmpty == false) ? trimmedGenre.map(nfcNormalizedForExport) : nil
+
+        var auxiliaryInfo: [String: Any] = [kCGPDFContextTitle as String: bookTitle]
+        if !authors.isEmpty {
+            auxiliaryInfo[kCGPDFContextAuthor as String] = authors.joined(separator: ", ")
         }
-        if let genre = input.genre?.trimmingCharacters(in: .whitespacesAndNewlines), !genre.isEmpty {
-            auxiliaryInfo[kCGPDFContextSubject as String] = nfcNormalizedForExport(genre)
+        if let genre {
+            auxiliaryInfo[kCGPDFContextSubject as String] = genre
         }
         // シリーズ名・巻数はここ(Document Info辞書)には書かない。以前はKeywordsへ
         // `series:シリーズ名, series_index:巻数番号`という独自形式で埋めていたが、
@@ -269,7 +275,7 @@ nonisolated enum PDFExporter {
         try PDFCatalogAugmenter.apply(
             PDFCatalogAugmenter.Augmentation(
                 xmpPacket: PDFXMPMetadata.packet(
-                    title: bookTitle, author: author,
+                    title: bookTitle, authors: authors, subject: genre,
                     series: input.series ?? "", seriesIndex: input.seriesIndex
                 ),
                 // 読み方向は常に書く。本ごとの上書きが無い場合でも環境設定の既定値まで

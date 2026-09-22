@@ -40,8 +40,9 @@ struct CbzExportInput {
     /// メタデータDBに登録されているシリーズ名。空の場合はタイトルを`Series`に入れる
     /// (Kavitaはシリーズ名を重視するため、単巻の本でも1つのシリーズとして認識させたい)。
     let series: String?
-    /// 巻数。**EPUB/PDFと違い、数値へ変換せず生の文字列のまま渡してよい** —
+    /// 巻数(表示用)。**EPUB/PDFと違い、数値へ変換せず生の文字列のまま渡してよい** —
     /// ComicInfoの`Number`はxs:stringで、「上」「下」のような値もそのまま書けるため。
+    /// `volumeSort`があるときは使わない。
     let seriesIndex: String?
     /// `LanguageISO`に書き出すBCP 47の言語タグ。空文字/nilなら要素自体を出力しない。
     let language: String?
@@ -52,6 +53,9 @@ struct CbzExportInput {
     /// 情報(名前の中の付記。`Notes`)。空なら引き継いだ値に触れない。原作とイベントは ComicInfo v2.0 に
     /// 合う要素が無い(`Tags` は v2.1 草案)ので書かない。
     var notes: String? = nil
+    /// 巻数(並べ替え用。qooMeta の `volumeSort`)を書き出す文字列にしたもの(BookMetadata.exportableVolumeText)。
+    /// あれば `seriesIndex` の代わりに `Number` へ書く(applyMetadataのコメント参照)。
+    var volumeSort: String? = nil
 }
 
 enum CbzExportError: LocalizedError {
@@ -427,12 +431,18 @@ nonisolated enum CbzExporter {
         // ファイル名のパースに戻ってしまうため、単巻の本が意図せず分裂することがある。
         info.series = trimmedOrNil(input.series).map(nfcNormalizedForExport) ?? title
 
-        // 巻数。ComicInfoのNumberはxs:stringのため、「上」「下」のような値もそのまま書ける
-        // (EPUBのgroup-positionやPDFのcalibreSI:series_indexと違い、数値へ丸める必要が無い)。
-        if let seriesIndex = trimmedOrNil(input.seriesIndex).map(nfcNormalizedForExport) {
-            info.number = seriesIndex
-            // Volumeはxs:intのため、整数として解釈できる場合だけ書ける。
-            if options.writesVolumeElement, let volume = Int(seriesIndex) {
+        // 巻数。**並べ替え用の数があればそれを書く**(2026-09-22、利用者の判断)。ComicInfo v2.0 には表示用と
+        // 並べ替え用を分けて持つ要素が無く、読み手は Number から並び順を作る(Komga は
+        // `numberSort = number.toFloatOrNull()` ―― 「上」「総集編2」は並び順を持たない本になる)。表記は
+        // タイトルに残るので、並び順のほうを取る。
+        // 並べ替え用の数が無ければ、これまでどおり表示用の巻数をそのまま書く。Number は xs:string のため、
+        // 「上」「下」のような値もそのまま書ける(EPUBのgroup-positionやPDFのcalibreSI:series_indexと違い、
+        // 数値へ丸める必要が無い)。
+        let number = trimmedOrNil(input.volumeSort) ?? trimmedOrNil(input.seriesIndex).map(nfcNormalizedForExport)
+        if let number {
+            info.number = number
+            // Volumeはxs:intのため、整数として解釈できる場合だけ書ける(並べ替え用の 4.5 も書かない)。
+            if options.writesVolumeElement, let volume = Int(number) {
                 info.volume = volume
             }
         }

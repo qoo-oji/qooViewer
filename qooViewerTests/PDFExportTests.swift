@@ -128,6 +128,24 @@ struct PDFExportTests {
         #expect(info.author == "作者")
     }
 
+    /// XMP は Info 辞書より優先されるので、Info 辞書に書いた著者の並びとジャンルを XMP にも同じく書く
+    /// (先頭の著者だけだと、XMP を読む側では 2 人目以降が消える。`PDFXMPMetadata.packet` のコメント)。
+    @Test("著者の全員とジャンルは、XMP にも Info 辞書と同じく入る")
+    func xmpCarriesAllAuthorsAndTheGenre() async throws {
+        let source = try await ExportSource.folder(pages: 1, label: "pdf-xmp-authors")
+        var input = ExportInputs.pdf(source, title: "テスト本", author: "作者甲", series: "テストシリーズ")
+        input.additionalAuthors = ["作者乙"]
+        input.genre = "テストジャンル"
+        let url = try await export(source, input, name: "authors")
+
+        let document = try #require(CGPDFDocument(url as CFURL))
+        let packet = try #require(PDFXMPMetadata.readPacket(from: document))
+        let text = String(decoding: packet, as: UTF8.self)
+        #expect(text.contains("<rdf:Seq><rdf:li>作者甲</rdf:li><rdf:li>作者乙</rdf:li></rdf:Seq>"))
+        #expect(text.contains("<dc:subject><rdf:Bag><rdf:li>テストジャンル</rdf:li></rdf:Bag></dc:subject>"))
+        #expect(PDFXMPMetadata.parse(packet).author == "作者甲")
+    }
+
     /// シリーズ名が無いときは XMP を足さない ―― パケットを置くと Info 辞書より優先されるように
     /// なるため、「XMP でしか表せないもの」が無いなら素の Quartz 製 PDF のままにする
     /// (`PDFXMPMetadata.packet` のコメント)。
@@ -162,7 +180,7 @@ struct PDFExportTests {
             try PDFCatalogAugmenter.apply(
                 PDFCatalogAugmenter.Augmentation(
                     xmpPacket: PDFXMPMetadata.packet(
-                        title: "テスト本", author: nil, series: "あとのシリーズ", seriesIndex: "2"
+                        title: "テスト本", authors: [], series: "あとのシリーズ", seriesIndex: "2"
                     ),
                     viewerPreferencesDirection: PDFStructureResolver.catalogDirectionName(for: .leftToRight),
                     pageLayout: PDFStructureResolver.catalogPageLayoutName(for: .single, direction: .leftToRight)

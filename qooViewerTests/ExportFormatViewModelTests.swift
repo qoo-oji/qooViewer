@@ -90,6 +90,14 @@ struct ExportFormatViewModelTests {
                 bookID: book.id, author: "", title: "", series: series, seriesIndex: index
             )
         }
+
+        /// 表示用と並べ替え用の巻数を分けて登録する(qooMeta の欄。メタデータの編集ウインドウのロックと同じ入り口)。
+        func setSeries(_ series: String, volume: String, volumeSort: Double) {
+            library.metadata.upsert(
+                bookID: book.id,
+                values: BookMetadataValues(series: series, volume: volume, volumeSort: volumeSort)
+            )
+        }
     }
 
     /// 書き出した cbz の ComicInfo.xml。
@@ -224,6 +232,67 @@ struct ExportFormatViewModelTests {
         environment.setSeries("シリーズ", index: "3")
         let kept = try xmp(in: try await environment.write(environment.pdf(), name: "numeric"))
         #expect(kept.seriesIndex == "3")
+    }
+
+    // MARK: - 巻数(並べ替え用)
+
+    /// qooMeta は「上」「総集編2」のような表記を表示用に、シリーズの中の位置を並べ替え用の数に入れる。
+    /// 数の欄(EPUB の group-position・PDF の series_index)は並べ替え用の数から作る ―― 表示用だけを数に
+    /// 読んでいたころは、表記が数に読めない本の巻が消えていた(BookMetadata.exportableVolumeSort)。
+    @Test("EPUB と PDF の巻数は、並べ替え用の数から書かれる(表示用が数に読めなくても)")
+    func epubAndPDFWriteTheSortVolume() async throws {
+        let environment = try await Environment.make(label: "volume-sort-numeric")
+        defer { environment.close() }
+        environment.setSeries("シリーズ", volume: "上", volumeSort: 1)
+
+        let opfText = try opf(in: try await environment.write(environment.epub(), name: "epub"))
+        #expect(opfText.contains("<meta refines=\"#series\" property=\"group-position\">1</meta>"))
+        #expect(opfText.contains("<meta name=\"calibre:series_index\" content=\"1\"/>"))
+
+        let pdfMetadata = try xmp(in: try await environment.write(environment.pdf(), name: "pdf"))
+        #expect(pdfMetadata.seriesIndex == "1")
+    }
+
+    @Test("CBZ の Number は、並べ替え用の数があればそれ(Volume は整数のときだけ)")
+    func cbzWritesTheSortVolumeAsNumber() async throws {
+        let environment = try await Environment.make(label: "volume-sort-cbz")
+        defer { environment.close() }
+        let viewModel = environment.cbz()
+        viewModel.writesVolumeElement = true
+
+        environment.setSeries("シリーズ", volume: "上", volumeSort: 1)
+        let whole = try comicInfo(in: try await environment.write(viewModel, name: "whole"))
+        #expect(whole.number == "1")
+        #expect(whole.volume == 1)
+
+        // 総集編を収録範囲の後ろに置いた 4.5。Volume は xs:int なので書かない。
+        environment.setSeries("シリーズ", volume: "総集編1", volumeSort: 4.5)
+        let fraction = try comicInfo(in: try await environment.write(viewModel, name: "fraction"))
+        #expect(fraction.number == "4.5")
+        #expect(fraction.volume == nil)
+    }
+
+    /// 書き出しは並べ替え用の数を書くので、読み込み直すときも数を並べ替え用に戻す
+    /// (ViewerViewModel の取り込みと同じく、`BookMetadata.numericVolume` を `volumeSort` として渡す)。
+    @Test("書き出した巻数は、読み込み直すと並べ替え用の数としても戻る")
+    func theSortVolumeSurvivesReimport() async throws {
+        let environment = try await Environment.make(label: "volume-sort-reimport")
+        defer { environment.close() }
+        environment.setSeries("シリーズ", volume: "総集編1", volumeSort: 4.5)
+        let url = try await environment.write(environment.epub())
+
+        let source = EpubStructureResolver.resolveMetadata(reader: try ZipArchiveReader(url: url))
+        #expect(source.seriesIndex == "4.5")
+
+        let other = try InMemoryLibrary(label: "volume-sort-reimport-target")
+        defer { other.close() }
+        let imported = try #require(other.metadata.upsert(
+            bookID: environment.book.id, author: source.author, title: source.title, series: source.series,
+            seriesIndex: source.seriesIndex, volumeSort: BookMetadata.numericVolume(source.seriesIndex)
+        ))
+        #expect(imported.series == "シリーズ")
+        #expect(imported.seriesIndex == "4.5")
+        #expect(imported.volumeSort == 4.5)
     }
 
     // MARK: - カバーの選択を持つ形式・持たない形式
