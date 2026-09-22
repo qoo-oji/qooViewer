@@ -9,7 +9,8 @@ import SwiftData
 ///
 /// - 対象は、書庫・PDF・EPUB の名前ではない `bookID` のうち、**その場所にあって中を読めて、本ではないと確かめられたフォルダ**
 ///   だけ(`BookExistenceProbe.isNonBookFolderAtRecordedPath`)。無い・読めない・繋がっていないボリュームのものは消さない
-///   (本かどうか分からない)。
+///   (本かどうか分からない)。繋がっていないボリュームとネットワークのボリュームのフォルダは調べもしない
+///   (`ExternalMoveSweeper.isLocallyReachable`。ブックマークの解決が止まる・ディスクイメージを勝手にマウントしうる。2026-09-22 の監査)。
 /// - 消すのは保存データ一式(`BookSavedDataEraser.deleteAllData`: お気に入り・コレクションの項目・ブックマーク・レイアウト・
 ///   メタデータ・読書位置)。本ではないので、どれも意味を持たない。
 /// - ライブラリ機能が OFF でも走る(保存データを正しく保つ仕事。`AppStores.applyLibraryFeature` の型コメントの決まり)。
@@ -33,7 +34,10 @@ enum NonBookFolderSweeper {
         guard !probes.isEmpty else { return 0 }
         // ファイルに触る(ブックマークの解決は繋がっていないボリュームで秒単位止まる)ので、メインの外で。
         let targets = await Task.detached(priority: .utility) {
-            probes.filter { $0.isNonBookFolderAtRecordedPath() }.map(\.bookID)
+            let mounts = MountTable.current()
+            return probes.filter {
+                ExternalMoveSweeper.isLocallyReachable($0.bookID, mounts: mounts) && $0.isNonBookFolderAtRecordedPath()
+            }.map(\.bookID)
         }.value
         guard !targets.isEmpty else { return 0 }
         BookSavedDataEraser(

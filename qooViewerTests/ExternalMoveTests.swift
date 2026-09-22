@@ -124,7 +124,25 @@ struct ExternalMoveTests {
 
     @Test("繋がっていないボリュームの本は見ない")
     func unmountedVolumesAreSkipped() {
-        #expect(ExternalMoveSweeper.isOnMountedVolume("/Users/someone/book.cbz"))
-        #expect(!ExternalMoveSweeper.isOnMountedVolume("/Volumes/qooViewer-no-such-volume-\(UUID().uuidString)/book.cbz"))
+        let mounts = MountTable.current()
+        #expect(ExternalMoveSweeper.isLocallyReachable("/Users/someone/book.cbz", mounts: mounts))
+        #expect(!ExternalMoveSweeper.isLocallyReachable(
+            "/Volumes/qooViewer-no-such-volume-\(UUID().uuidString)/book.cbz", mounts: mounts))
+    }
+
+    @Test("ゴミ箱へ移した本は付け替え先にしない(「無い」になる)")
+    func aBookMovedToTheTrashIsNotARelocation() throws {
+        let temporary = try TemporaryDirectory("outside-move-trash")
+        let old = temporary.file("before.cbz")
+        try Data("a".utf8).write(to: old)
+        let bookmark = try old.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+        // 本物のゴミ箱には触らない(CLAUDE.md)。ブックマークは移動を追うので、`.Trash` という名前のフォルダへ移せば同じ形になる。
+        let trash = try temporary.directory(".Trash")
+        try FileManager.default.moveItem(at: old, to: trash.appendingPathComponent("before.cbz"))
+
+        let located = BookExistenceProbe(bookID: old.path, bookmarkCandidates: [bookmark], isPathCovered: true)
+            .locateAtRecordedPath()
+        #expect(located.result == .missing)
+        #expect(located.movedTo == nil)
     }
 }

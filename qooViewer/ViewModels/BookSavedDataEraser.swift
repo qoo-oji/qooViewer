@@ -87,6 +87,9 @@ nonisolated struct BookExistenceProbe: Sendable {
             ) else { continue }
             let didAccess = url.startAccessingSecurityScopedResource()
             defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+            // ゴミ箱へ移った本は「無い」(BookLocationResolver と同じ決まり)。ブックマークはゴミ箱の中まで追うので、ここで
+            // 弾かないと保存データがゴミ箱の中のパスへ付け替えられた(2026-09-22 の監査)。
+            if BookLocationResolver.isInTrash(url) { return (.missing, nil) }
             let result = Self.bookResult(at: url.path)
             guard Self.comparablePath(url.path) == recorded else {
                 return (.missing, result == .exists ? url.path : nil)

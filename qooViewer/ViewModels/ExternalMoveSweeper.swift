@@ -12,7 +12,10 @@ import SwiftData
 ///   ブックマークを持たない記録(読書位置だけの本)は追えない。
 /// - コレクションの本は、ライブラリ機能が ON ならコレクションの実在確認(`CollectionStore.onBooksFoundAtNewPaths`)が同じことを
 ///   するので、ここでは見ない(全冊のブックマークを 2 度解決しない)。
-/// - 繋がっていないボリュームの本は見ない(ブックマークの解決が秒単位で止まる)。
+/// - 繋がっていないボリュームとネットワークのボリュームの本は見ない(ブックマークの解決が秒単位で止まる)。判定は `MountTable`
+///   だけで、ファイルシステムには触らない(`isLocallyReachable`)。以前は `/Volumes/<名前>` の `fileExists` をメインで本ごとに
+///   呼んでいて、切れたネットワークの共有があると起動が固まりえた(2026-09-22 の監査)。
+/// - ゴミ箱の中へ移った本は付け替えない(`locateAtRecordedPath` が「無い」にする)。
 /// - 付け替えはアプリの中での移動・改名と同じ `BookRecordRelocator`。
 @MainActor
 enum ExternalMoveSweeper {
@@ -26,24 +29,26 @@ enum ExternalMoveSweeper {
             metadataStore: metadataStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
             favoritesStore: favoritesStore, collectionStore: collectionStore, modelContext: modelContext))
         if skipsCollectionBooks { known.subtract(collectionStore.allRegisteredBookIDs()) }
-        let probes = known.filter(isOnMountedVolume).sorted().map { bookID in
+        let probes = known.sorted().map { bookID in
             BookExistenceProbe.make(
                 bookID: bookID, metadataStore: metadataStore, layoutStore: layoutStore, bookmarkStore: bookmarkStore,
                 favoritesStore: favoritesStore, collectionStore: collectionStore, folderAccess: folderAccess)
         }.filter { !$0.bookmarkCandidates.isEmpty }
         guard !probes.isEmpty else { return [] }
         return await Task.detached(priority: .utility) {
-            probes.compactMap { probe -> FileSystemChange.Relocation? in
-                guard let movedTo = probe.locateAtRecordedPath().movedTo else { return nil }
+            let mounts = MountTable.current()
+            return probes.compactMap { probe -> FileSystemChange.Relocation? in
+                guard isLocallyReachable(probe.bookID, mounts: mounts),
+                      let movedTo = probe.locateAtRecordedPath().movedTo else { return nil }
                 return .init(from: URL(fileURLWithPath: probe.bookID), to: URL(fileURLWithPath: movedTo))
             }
         }.value
     }
 
-    /// `/Volumes/<名前>/…` の本は、そのボリュームが今あるときだけ(起動ディスクの本は常に)。
-    nonisolated static func isOnMountedVolume(_ path: String) -> Bool {
-        let components = (path as NSString).pathComponents
-        guard components.count > 2, components[1] == "Volumes" else { return true }
-        return FileManager.default.fileExists(atPath: "/Volumes/" + components[2])
+    /// いま繋がっていて、ネットワーク越しでないボリュームの上の本か。マウントの表(`MountTable`)だけで決め、パスには触らない
+    /// (`URL.standardizedFileURL` もパスの実在を見るので使わない)。
+    nonisolated static func isLocallyReachable(_ path: String, mounts: MountTable) -> Bool {
+        let url = URL(fileURLWithPath: path)
+        return !mounts.isOnAnUnmountedVolume(url) && !mounts.isRemote(url)
     }
 }
