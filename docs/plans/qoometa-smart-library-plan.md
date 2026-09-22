@@ -172,11 +172,13 @@ DraftStore、BookSavedDataEraser、BookMetadataStore、App 配線)と qooMeta �
    全欄が空の本をロックすると `applyUpsert` が `.noChange` で何も登録しないのに鍵の表示だけ付く。drafts.json のデコード失敗は `try?` で
    空になり次の保存で上書き(規則ストアのような写しが無い)。`saveCache` は集め直しのたびに全冊の JSON を書く(有界)。`autoPreset` が
    `rules.presetCatalog` を本ごとに組み立て直す(安全だが無駄)。
-9. **【未検証・要実測】メタデータの編集ウインドウのツールバー/alert/sheet の閉包が workspace を捕まえる**(`MetadataEditorContent` の
-   `.toolbar`・`.alert`、`MetadataBookTableView` の `.alert`/`.sheet`)。`ViewerView` で 118 MB/回のリークを起こしたのと同じ形で、捕まる
-   のは `model → workspace → books + ProposalIndex(全冊の PreparedBook)`。右クリックメニュー側は `Coordinator.release()` で切ってある。
-   docs/12 の手順(`heap -q --noContent --addresses=MetadataWorkspace <pid>` を 開く→閉じる→開く の後に)で測ってから判断する
-   (監査時は Xcode からアプリが動いていたので操作しなかった)。
+9. ~~【未検証・要実測】メタデータの編集ウインドウのツールバー/alert/sheet の閉包が workspace を捕まえる~~ → **実測して、漏れていない**
+   (2026-09-22)。HEAD の Debug(本番の写しのデータ)で「編集 ▸ メタデータの編集…」→ 確認に「あとで」→ 閉じるボタン、を 3 回、閉じたら
+   カーソルを動かして 5 秒待ってから `heap` で数えた。`MetadataWorkspace`・`MetadataBookTable.Coordinator`・セル(170)・ウインドウの
+   `ProposalIndex` は開くたびに 1 組でき、閉じるたびに 0 へ戻る(スマートライブラリの索引の 1 つは開く前からある)。閉じた後も残るのは
+   `MetadataEditorModel`・`MetadataDraftStore`・`CoverOverrideController` とウインドウ(`AppKitWindow`/`AppKitWindowController`)の
+   各 1 つで、回を重ねても増えない(`Window` のシーンが使い回す 1 組。`close()` で workspace を手放している)。phys_footprint は
+   起動 155 MB → 開く 218 MB → 閉じる 189・196・197 MB。直す必要なし。
 
 問題なしと確かめたもの: SmartLibraryCatalog の購読/Task の解除と世代の検査(ProposalIndex は `CancellationError` しか投げない)、
 Scanner の上限と TCC/隠し/パッケージの回避、表紙の取得(取り消し・同時数・LIFO・`knownKey:`)、規則の正規表現(組み立て時の検査と 20 ms の
@@ -187,6 +189,6 @@ ModelContext 1 つ・`upsertAll` の削除範囲)、書き出し(項目の追加
 
 ### 残り(次の人へ)
 
-- **まず上の「コード監査」の 1〜4 を直す**(9 は実測してから)。直したら監査の節に「直した」と書く。
+- **まず上の「コード監査」の 1〜4 を直す**(9 は実測して漏れていなかった)。直したら監査の節に「直した」と書く。
 - スマートライブラリ: 表紙の大きさのピンチ、選択と複数冊の右クリック、左ペインの折りたたみは未実装。
 - README / MANUAL / CHANGELOG([Unreleased]) / CLAUDE.md は 2026-09-22 に一式更新した(利用者の指示)。以後の変更も同じ組で直す。
