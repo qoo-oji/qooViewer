@@ -52,6 +52,8 @@ enum LastActiveBookStore {
             relativeTo: nil,
             bookmarkDataIsStale: &isStale
         ) else { return nil }
+        // ゴミ箱へ移した本は開き直さない(BookLocationResolver.isInTrash。ブックマークはゴミ箱の中まで追う。2026-09-22 の監査)。
+        guard !BookLocationResolver.isInTrash(url) else { return nil }
 
         let didStartAccessing = url.startAccessingSecurityScopedResource()
         defer {

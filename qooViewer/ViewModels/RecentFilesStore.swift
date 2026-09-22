@@ -209,8 +209,12 @@ final class RecentFilesStore: ObservableObject {
     /// ブックマークの解決自体は対象が削除されていても成功する場合があるためで、
     /// 「解決はできる → 開こうとして失敗 → 履歴には残ったまま」という状態になっていた。
     /// 解決に加えて実際の存在確認まで行い、どちらで落ちても取り除く。
+    ///
+    /// 繋がっていないボリュームの本は取り除かない(開けないだけで、繋げばまた開ける。2026-09-22 の監査)。ゴミ箱の中まで追った
+    /// ものは「無い」として取り除く(BookLocationResolver.isInTrash と同じ決まり)。
     func resolveForOpening(_ entry: Entry) -> URL? {
-        guard let url = Self.resolvedURL(from: entry.bookmark), Self.fileExists(at: url) else {
+        if MountTable.current().isOnAnUnmountedVolume(URL(fileURLWithPath: entry.path)) { return nil }
+        guard let url = Self.resolvedURL(from: entry.bookmark), !BookLocationResolver.isInTrash(url), Self.fileExists(at: url) else {
             remove(entry)
             return nil
         }
@@ -418,10 +422,19 @@ final class RecentFilesStore: ObservableObject {
     /// しうる。メインアクターの外(scheduleRefresh()のTask.detached)から呼べるよう`nonisolated`を
     /// 明示している(このプロジェクトの既定のアクター隔離はMainActorのため、明示しないと
     /// メインアクター限定になってしまう。Services/ArchiveReading.swift冒頭のコメント参照)。
+    ///
+    /// **繋がっていないボリュームの本は確かめずに残す**(2026-09-22 の監査。以前は解決に失敗して落とし、外付けを外すと ――
+    /// 外した知らせでもこの確認が走る ―― その上の本の履歴が永久に消えた。「確かめられない」は「無い」ではない。
+    /// 判定は MountTable だけで、パスには触らない)。ゴミ箱の中まで追ったものは落とす(BookLocationResolver.isInTrash)。
     private nonisolated static func revalidate(_ stored: [StoredEntry]) -> [StoredEntry] {
         var result: [StoredEntry] = []
+        let mounts = MountTable.current()
         for item in stored {
-            guard let url = resolvedURL(from: item.bookmark) else { continue }
+            if !item.path.isEmpty, mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: item.path)) {
+                result.append(item)
+                continue
+            }
+            guard let url = resolvedURL(from: item.bookmark), !BookLocationResolver.isInTrash(url) else { continue }
             let didStartAccessing = url.startAccessingSecurityScopedResource()
             defer {
                 if didStartAccessing {

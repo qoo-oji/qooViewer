@@ -82,6 +82,29 @@ struct RecentFilesAndAccessTests {
         #expect(suite.storedDomain["recentBookEntries"] == nil)
     }
 
+    @Test("繋がっていないボリュームの本は、確かめ直しで消さない(消えたファイルは消す。2026-09-22 の監査)")
+    func revalidationKeepsBooksOnUnmountedVolumes() async throws {
+        let suite = PreferencesSuite(label: "recent-unmounted")
+        let temporary = try TemporaryDirectory("recent-unmounted")
+        let gone = temporary.file("gone.cbz")
+        try Data().write(to: gone)
+        let bookmark = try gone.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)
+        try FileManager.default.removeItem(at: gone)
+        let offline = "/Volumes/qooViewer-no-such-volume-\(UUID().uuidString)/book.cbz"
+        struct Stored: Codable { let bookmark: Data; let path: String; let isDirectory: Bool }
+        let stored = [Stored(bookmark: Data([0x01]), path: offline, isDirectory: false),
+                      Stored(bookmark: bookmark, path: gone.path, isDirectory: false)]
+        suite.defaults.set(try JSONEncoder().encode(stored), forKey: "recentBookEntries")
+        let store = RecentFilesStore(defaults: suite.defaults)
+
+        store.scheduleRefresh()
+        // 消えたファイルが落ちたら確かめ直しは済んでいる(待ち合わせの口が無いので、結果で待つ)。
+        for _ in 0..<200 where store.entries.contains(where: { $0.path == gone.path }) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(store.entries.map(\.path) == [offline])
+    }
+
     @Test("1件だけの削除は、保存済みのデータからも消える")
     func removingOneEntryClearsItFromStorage() throws {
         let suite = PreferencesSuite(label: "recent")
