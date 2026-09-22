@@ -565,6 +565,27 @@ struct SmartLibraryTests {
         catalog.deactivate()
     }
 
+    @Test("対象フォルダのボリュームが繋がっていない回は、保存した一覧を空で上書きしない(2026-09-22 の監査)")
+    func anUnmountedRootDoesNotOverwriteTheSavedList() async throws {
+        let library = try InMemoryLibrary(label: "smart-unmounted")
+        defer { library.close() }
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let temporary = try TemporaryDirectory("smart-unmounted")
+        let cacheURL = temporary.file("catalog.json")
+        try Data("saved".utf8).write(to: cacheURL)
+        let store = SmartLibraryStore(defaults: suite.defaults)
+        store.addFolder(URL(fileURLWithPath: "/Volumes/qooViewer-no-such-volume-\(UUID().uuidString)", isDirectory: true))
+        let catalog = SmartLibraryCatalog(metadataStore: library.metadata, store: store, rulesStore: library.metadataRules,
+                                          modelContext: library.context, cacheURL: cacheURL)
+
+        catalog.activate()
+        #expect(await wait { catalog.hasLoaded })
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(try Data(contentsOf: cacheURL) == Data("saved".utf8))
+        catalog.deactivate()
+    }
+
     @Test("集め直しの最中に OFF にすると、その集め直しは一覧を出さない")
     func switchingOffMidRebuildPublishesNothing() async throws {
         let library = try InMemoryLibrary(label: "smart-switch-mid")

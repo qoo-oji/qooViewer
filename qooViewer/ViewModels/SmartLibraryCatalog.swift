@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 import QooMetaKit
@@ -88,6 +89,22 @@ final class SmartLibraryCatalog: ObservableObject {
         self.rulesStore = rulesStore
         self.modelContext = modelContext
         self.cacheURL = cacheURL
+        // ボリュームを付けた・外したら、前に探した結果は捨てる(2026-09-22 の監査。以前は捨てず、外付けが無いときに探した空の結果が
+        // 付けた後も残った ―― メタデータの編集ウインドウの `folderBookIDs()` も同じ)。画面が出ていなくても捨てる。
+        let workspace = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
+            workspace.publisher(for: name)
+                .sink { [weak self] _ in MainActor.assumeIsolated { self?.handleVolumeChange() } }
+                .store(in: &volumeSubscriptions)
+        }
+    }
+
+    private var volumeSubscriptions: Set<AnyCancellable> = []
+
+    private func handleVolumeChange() {
+        guard isFeatureEnabled else { return }
+        scanned = nil
+        if activeCount > 0 { scheduleRebuild(rescan: true, delay: .milliseconds(400)) }
     }
 
     /// 既定の保存先(Application Support の中)。**Caches には置かない** ―― 空きが足りないと macOS が消し、その回は保存した
@@ -295,7 +312,12 @@ final class SmartLibraryCatalog: ObservableObject {
             self.isLoading = false
             self.hasLoaded = true
             self.revision += 1
-            self.saveCache(roots: roots, books: books, isTruncated: scan.isTruncated)
+            // 対象フォルダのボリュームが繋がっていない回は保存しない(2026-09-22 の監査。以前は空の一覧で上書きし、次の起動の
+            // 先出しも失った)。判定は MountTable だけで、パスには触らない。
+            let mounts = MountTable.current()
+            if !roots.contains(where: { mounts.isOnAnUnmountedVolume(URL(fileURLWithPath: $0)) }) {
+                self.saveCache(roots: roots, books: books, isTruncated: scan.isTruncated)
+            }
             // 登録は区切って書くので時間がかかる。その間も `building` に残しておき、次の集め直し・OFF(`setFeatureEnabled`)が
             // 取り消せるようにする(取り消されたら残りは次の集め直しが書く)。
             await self.registerParsed(books, snapshot: snapshot)
