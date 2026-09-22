@@ -994,6 +994,7 @@ struct QooViewerApp: App {
                     HomeViewMenuItems(
                         isLibraryFeatureEnabled: preferences.libraryFeatureEnabled,
                         isFileBrowserFeatureEnabled: preferences.fileBrowserFeatureEnabled,
+                        isSmartLibraryFeatureEnabled: preferences.smartLibraryFeatureEnabled,
                         home: menuCheckmarkState?.homeMenu ?? HomeMenuState(), appState: focusedAppState
                     )
                     // ライブラリとファイルブラウザが両方OFFのホーム(本棚を足す前のウェルカム画面)ではサイドパネルが出る
@@ -1173,6 +1174,7 @@ struct QooViewerApp: App {
                     HomeMenuItems(
                         isLibraryFeatureEnabled: preferences.libraryFeatureEnabled,
                         isFileBrowserFeatureEnabled: preferences.fileBrowserFeatureEnabled,
+                        isSmartLibraryFeatureEnabled: preferences.smartLibraryFeatureEnabled,
                         home: menuCheckmarkState?.homeMenu ?? HomeMenuState(),
                         selection: menuCheckmarkState?.fileBrowserSelection,
                         directory: stores.homeMenuDirectory.directory,
@@ -1292,8 +1294,9 @@ struct QooViewerApp: App {
                 }
 
                 // ホーム画面の検索欄へ(⌘F。本棚はコレクション/本の検索、ファイルブラウザはフォルダの中の検索)。
-                // ライブラリもファイルブラウザもOFF(本棚を足す前のウェルカム画面)なら、検索する相手が無いので出さない。
-                if preferences.libraryFeatureEnabled || preferences.fileBrowserFeatureEnabled {
+                // ライブラリもファイルブラウザもスマートライブラリもOFF(本棚を足す前のウェルカム画面)なら、検索する相手が無いので出さない。
+                if preferences.libraryFeatureEnabled || preferences.fileBrowserFeatureEnabled
+                    || preferences.smartLibraryFeatureEnabled {
                 Button("Search") { [weak focusedAppState] in
                     guard let appState = focusedAppState, appState.currentBook == nil else { return }
                     if appState.homeMenu.mode == .browser {

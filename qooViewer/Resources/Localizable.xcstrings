@@ -52,6 +52,22 @@
         }
       }
     },
+    "%lld series" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld series"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld シリーズ"
+          }
+        }
+      }
+    },
     "7z / CB7" : {
       "localizations" : {
         "en" : {
@@ -564,6 +580,22 @@
         }
       }
     },
+    "Custom Series Stack Color" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom Series Stack Color"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シリーズの束のカスタム色"
+          }
+        }
+      }
+    },
     "Date" : {
       "localizations" : {
         "en" : {
@@ -676,18 +708,18 @@
         }
       }
     },
-    "Don’t Group by Series" : {
+    "Don’t Group" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Don’t Group by Series"
+            "value" : "Don’t Group"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "シリーズでまとめない"
+            "value" : "まとめない"
           }
         }
       }
@@ -800,6 +832,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ライブラリを有効にする"
+          }
+        }
+      }
+    },
+    "Enable Smart Library" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable Smart Library"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スマートライブラリを有効にする"
           }
         }
       }
@@ -944,6 +992,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "見つかった場所"
+          }
+        }
+      }
+    },
+    "Group by Author" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Group by Author"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "著者でまとめる"
           }
         }
       }
@@ -1812,6 +1876,38 @@
         }
       }
     },
+    "Series Stack Color" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Series Stack Color"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シリーズの束の色"
+          }
+        }
+      }
+    },
+    "Show Books by This Author" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Books by This Author"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この著者の本を表示"
+          }
+        }
+      }
+    },
     "Show Books in Series" : {
       "localizations" : {
         "en" : {
@@ -1844,34 +1940,50 @@
         }
       }
     },
-    "Shows the bookshelf — libraries and collections — on the Home screen. When off, Home shows only the file browser (or, with File Browser also off, the original welcome screen), the library and collection items disappear from the menus, context menus and the side panel, and the background work that exists only for libraries stops: checking that registered books are still there, making covers, and watching auto-add folders. Your libraries and collections are kept and come back when you turn this on again." : {
+    "Shows the bookshelf — libraries and collections — on the Home screen. When off, Home shows only the other features you have on (or, with all of them off, the original welcome screen), the library and collection items disappear from the menus, context menus and the side panel, and the background work that exists only for libraries stops: checking that registered books are still there, making covers, and watching auto-add folders. Your libraries and collections are kept and come back when you turn this on again." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Shows the bookshelf — libraries and collections — on the Home screen. When off, Home shows only the file browser (or, with File Browser also off, the original welcome screen), the library and collection items disappear from the menus, context menus and the side panel, and the background work that exists only for libraries stops: checking that registered books are still there, making covers, and watching auto-add folders. Your libraries and collections are kept and come back when you turn this on again."
+            "value" : "Shows the bookshelf — libraries and collections — on the Home screen. When off, Home shows only the other features you have on (or, with all of them off, the original welcome screen), the library and collection items disappear from the menus, context menus and the side panel, and the background work that exists only for libraries stops: checking that registered books are still there, making covers, and watching auto-add folders. Your libraries and collections are kept and come back when you turn this on again."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ホームに本棚(ライブラリとコレクション)を表示します。オフにすると、ホームはファイルブラウザだけになり(ファイルブラウザもオフなら以前のウェルカム画面)、メニュー・右クリックメニュー・サイドパネルからライブラリとコレクションの項目が消え、ライブラリのためだけの裏の処理(登録した本があるかの確認・表紙の作成・自動登録フォルダの監視)が止まります。ライブラリとコレクションは消えず、オンに戻せば元どおり表示されます。"
+            "value" : "ホームに本棚(ライブラリとコレクション)を表示します。オフにすると、ホームはほかにオンにしている機能だけになり(すべてオフなら以前のウェルカム画面)、メニュー・右クリックメニュー・サイドパネルからライブラリとコレクションの項目が消え、ライブラリのためだけの裏の処理(登録した本があるかの確認・表紙の作成・自動登録フォルダの監視)が止まります。ライブラリとコレクションは消えず、オンに戻せば元どおり表示されます。"
           }
         }
       }
     },
-    "Shows the file browser on the Home screen. When off, the file browser and its items — including Show in File Browser — disappear from Home, the menus and context menus, and the background work that exists only for it stops: Auto Rename and making video thumbnails ahead of time. Your favorite locations, Auto Rename rules and thumbnail cache are kept. With Libraries also off, Home shows the original welcome screen: an Open button and your recent books." : {
+    "Shows the file browser on the Home screen. When off, the file browser and its items — including Show in File Browser — disappear from Home, the menus and context menus, and the background work that exists only for it stops: Auto Rename and making video thumbnails ahead of time. The top bar shows Open Book… and Open from History in its place. Your favorite locations, Auto Rename rules and thumbnail cache are kept. With Smart Library and Libraries also off, Home shows the original welcome screen: an Open button and your recent books." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Shows the file browser on the Home screen. When off, the file browser and its items — including Show in File Browser — disappear from Home, the menus and context menus, and the background work that exists only for it stops: Auto Rename and making video thumbnails ahead of time. Your favorite locations, Auto Rename rules and thumbnail cache are kept. With Libraries also off, Home shows the original welcome screen: an Open button and your recent books."
+            "value" : "Shows the file browser on the Home screen. When off, the file browser and its items — including Show in File Browser — disappear from Home, the menus and context menus, and the background work that exists only for it stops: Auto Rename and making video thumbnails ahead of time. The top bar shows Open Book… and Open from History in its place. Your favorite locations, Auto Rename rules and thumbnail cache are kept. With Smart Library and Libraries also off, Home shows the original welcome screen: an Open button and your recent books."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ホームにファイルブラウザを表示します。オフにすると、ホーム・メニュー・右クリックメニューからファイルブラウザとその項目(「ファイルブラウザで開く」を含む)が消え、ファイルブラウザのためだけの裏の処理(自動リネーム・動画のサムネイルの先回り作成)が止まります。よく使う項目・自動リネームの規則・サムネイルのキャッシュは消えません。ライブラリもオフにすると、ホームは「開く…」ボタンと最近開いた本だけの、以前のウェルカム画面になります。"
+            "value" : "ホームにファイルブラウザを表示します。オフにすると、ホーム・メニュー・右クリックメニューからファイルブラウザとその項目(「ファイルブラウザで開く」を含む)が消え、ファイルブラウザのためだけの裏の処理(自動リネーム・動画のサムネイルの先回り作成)が止まります。帯の左端には代わりに「本を開く…」と「履歴から開く」が出ます。よく使う項目・自動リネームの規則・サムネイルのキャッシュは消えません。スマートライブラリとライブラリもオフにすると、ホームは「開く…」ボタンと最近開いた本だけの、以前のウェルカム画面になります。"
+          }
+        }
+      }
+    },
+    "Shows the smart library on the Home screen: the books in the folders you choose, gathered by conditions and grouped by series or author. When off, it disappears from Home and the Home menu, and Edit Metadata no longer looks through its target folders. Your target folders and smart collections are kept." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows the smart library on the Home screen: the books in the folders you choose, gathered by conditions and grouped by series or author. When off, it disappears from Home and the Home menu, and Edit Metadata no longer looks through its target folders. Your target folders and smart collections are kept."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ホーム画面にスマートライブラリを表示します。選んだフォルダの中の本を、条件で集めたり、シリーズや著者でまとめたりできます。オフにすると、ホーム画面と「ホーム」メニューから消え、「メタデータの編集」も対象フォルダの中を探さなくなります。対象フォルダとスマートコレクションは残ります。"
           }
         }
       }
@@ -2096,6 +2208,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "新しい名前が「.」(ドット)で始まってしまいます。"
+          }
+        }
+      }
+    },
+    "The sheets drawn behind the first cover when books are grouped by series. Until you pick a color it follows the Light/Dark appearance." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The sheets drawn behind the first cover when books are grouped by series. Until you pick a color it follows the Light/Dark appearance."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "シリーズでまとめたときに、1 巻目の表紙の後ろに重ねて描く紙の色です。色を選ぶまでは、ライト/ダークの外観に合わせます。"
           }
         }
       }

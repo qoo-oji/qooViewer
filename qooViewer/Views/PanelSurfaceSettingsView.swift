@@ -45,6 +45,8 @@ struct PanelSurfaceSettingsView: View {
         case filmstripHighlight
         /// コレクションの一覧(札)の地の色(「未指定 = 既定」から離れるとき)。
         case collectionTileBackground
+        /// スマートライブラリのシリーズの束の、後ろの紙の色(「未指定 = 既定」から離れるとき)。
+        case smartLibrarySeriesSheet
 
         var id: Self { self }
 
@@ -55,6 +57,7 @@ struct PanelSurfaceSettingsView: View {
             // 「サムネイル1枚を色で示す」ためのカスタム色なので、同じ見出しでよい。
             case .pageBorder, .filmstripHighlight: "Custom Highlight Color"
             case .collectionTileBackground: "Custom Tile Background Color"
+            case .smartLibrarySeriesSheet: "Custom Series Stack Color"
             }
         }
     }
@@ -308,6 +311,35 @@ struct PanelSurfaceSettingsView: View {
     private var welcomeSections: some View {
         librarySection
         collectionSection
+        smartLibrarySection
+    }
+
+    /// スマートライブラリの表紙の下の文字の大きさ、束の後ろの紙の色、束の冊数バッジの大きさ(2026-09-22、利用者の要望)。
+    private var smartLibrarySection: some View {
+        Section {
+            SettingsSlider(
+                "Caption Size",
+                value: $appearance.smartLibraryCaptionFontSize,
+                in: AppearanceSettings.smartLibraryCaptionFontSizeRange,
+                step: 1
+            ) { value in
+                "\(Int(value)) pt"
+            }
+            SettingsColorRow(
+                "Series Stack Color",
+                color: appearance.effectiveSmartLibrarySeriesSheet,
+                help: "The sheets drawn behind the first cover when books are grouped by series. Until you pick a color it follows the Light/Dark appearance.",
+                reset: appearance.smartLibrarySeriesSheetColor == nil
+                    ? nil
+                    : { appearance.smartLibrarySeriesSheetColor = nil }
+            ) {
+                colorTarget = .smartLibrarySeriesSheet
+            }
+            // 束の冊数バッジ(ライブラリの札のものと同じ 3 段。2026-09-22、利用者の要望)。
+            SettingsPicker("Book Count Badge Size", selection: $appearance.smartLibraryBadgeSize)
+        } header: {
+            Text("Smart Library")
+        }
     }
 
     /// コレクションの一覧(札)の見え方。札の下の名前の大きさ(`CollectionTile`。既定13pt =
@@ -507,6 +539,9 @@ struct PanelSurfaceSettingsView: View {
         case .collectionTileBackground:
             appearance.collectionTileBackgroundColor
                 ?? RGBColorValue(red: 128, green: 128, blue: 128)
+        case .smartLibrarySeriesSheet:
+            appearance.smartLibrarySeriesSheetColor
+                ?? RGBColorValue(red: 200, green: 200, blue: 200)
         }
     }
 
@@ -535,6 +570,8 @@ struct PanelSurfaceSettingsView: View {
             appearance.filmstripHighlightCustomColor = color
         case .collectionTileBackground:
             appearance.collectionTileBackgroundColor = color
+        case .smartLibrarySeriesSheet:
+            appearance.smartLibrarySeriesSheetColor = color
         }
     }
 
@@ -559,7 +596,7 @@ struct PanelSurfaceSettingsView: View {
             }
             filmstripHighlightOptionBeforeCustomizing = nil
         // 札の地の色もプリセットを持たない(ダイアログを開くだけでは何も変わらない)。
-        case .collectionTileBackground:
+        case .collectionTileBackground, .smartLibrarySeriesSheet:
             break
         }
     }

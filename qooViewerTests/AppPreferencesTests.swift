@@ -251,6 +251,7 @@ struct AppPreferencesTests {
             "quitWhenLastWindowClosed", "confirmBeforeClosingMultipleTabsWindow",
             "showRecentFavoritesOnWelcome",
             "offersRemovingMissingCollectionBooks", "libraryFeatureEnabled", "fileBrowserFeatureEnabled",
+            "smartLibraryFeatureEnabled",
             "sidePanelFeatureEnabled",
             "sidePanelPosition", "sidePanelUsesDoubleClick",
             "sidePanelSortOrder",

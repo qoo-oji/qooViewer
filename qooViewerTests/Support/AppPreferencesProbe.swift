@@ -62,6 +62,7 @@ func mutateEverySetting(_ p: AppPreferences) {
     p.recentFilesLimit += 1
     p.offersRemovingMissingCollectionBooks.toggle()
     p.libraryFeatureEnabled.toggle()
+    p.smartLibraryFeatureEnabled.toggle()
     p.fileBrowserFeatureEnabled.toggle()
     p.showRecentFavoritesOnWelcome.toggle()
     p.sidePanelFeatureEnabled.toggle()
@@ -190,6 +191,10 @@ func mutateEveryAppearanceSetting(_ a: AppearanceSettings) {
     // 既定は nil(= 外観に追従する薄い地)なので、色を1つ入れれば動いたことになる。
     a.collectionTileBackgroundColor = a.collectionTileBackgroundColor.map(otherColor)
         ?? RGBColorValue(red: 20, green: 30, blue: 60)
+    a.smartLibraryCaptionFontSize += 1
+    a.smartLibraryBadgeSize = otherCase(a.smartLibraryBadgeSize)
+    a.smartLibrarySeriesSheetColor = a.smartLibrarySeriesSheetColor.map(otherColor)
+        ?? RGBColorValue(red: 30, green: 60, blue: 20)
     // 既定は nil(= システムの標準のタイトルバー)。札の地の色と同じ。
     a.titleBarColor = a.titleBarColor.map(otherColor) ?? RGBColorValue(red: 60, green: 20, blue: 30)
     for surface in PanelSurface.allCases {

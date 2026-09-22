@@ -64,21 +64,47 @@ struct LibraryFeatureToggleTests {
         #expect(state.mode == .shelf)
     }
 
+    @Test("スマートライブラリの設定も別に効き、帯のボタンでいまのモードをもう一度押すと出せるほかのモードへ戻る")
+    func smartLibraryFlagAndToggle() {
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let state = WelcomeLibraryState(defaults: suite.defaults)
+        state.mode = .smart
+        #expect(state.mode == .smart)
+        // ライブラリを OFF にしてもスマートライブラリのまま(帯は残る)。
+        state.isLibraryFeatureEnabled = false
+        #expect(state.mode == .smart)
+        #expect(state.showsTopBar)
+        // もう一度押すと、本棚が無いのでファイルブラウザへ。
+        state.toggleMode(.smart)
+        #expect(state.mode == .browser)
+        state.toggleMode(.smart)
+        // スマートライブラリを OFF にすると押し出され、ON へ戻すと保存してあったスマートライブラリへ戻る。
+        state.isSmartLibraryFeatureEnabled = false
+        #expect(state.mode == .browser)
+        #expect(!state.showsTopBar)
+        state.isSmartLibraryFeatureEnabled = true
+        #expect(state.mode == .smart)
+    }
+
     @Test("ホームの形は2つの設定の組で決まる: 両方ONなら選んだほう、片方なら残ったほう、両方OFFなら本棚を足す前のウェルカム画面")
     func theHomeModeFollowsBothFeatureFlags() {
         for wanted in [WelcomeMode.shelf, .browser] {
-            #expect(WelcomeLibraryState.constrained(wanted, library: true, fileBrowser: true) == wanted)
-            #expect(WelcomeLibraryState.constrained(wanted, library: true, fileBrowser: false) == .shelf)
-            #expect(WelcomeLibraryState.constrained(wanted, library: false, fileBrowser: true) == .browser)
-            #expect(WelcomeLibraryState.constrained(wanted, library: false, fileBrowser: false) == .classic)
+            #expect(WelcomeLibraryState.constrained(wanted, library: true, fileBrowser: true, smart: false) == wanted)
+            #expect(WelcomeLibraryState.constrained(wanted, library: true, fileBrowser: false, smart: false) == .shelf)
+            #expect(WelcomeLibraryState.constrained(wanted, library: false, fileBrowser: true, smart: false) == .browser)
+            #expect(WelcomeLibraryState.constrained(wanted, library: false, fileBrowser: false, smart: false) == .classic)
         }
         // `.classic` は選べるモードではない(両方ONへ戻ったら本棚)。
-        #expect(WelcomeLibraryState.constrained(.classic, library: true, fileBrowser: true) == .shelf)
-        // スマートライブラリはライブラリ機能の一部: ライブラリが ON ならファイルブラウザの設定に関わらず選べる。
-        #expect(WelcomeLibraryState.constrained(.smart, library: true, fileBrowser: true) == .smart)
-        #expect(WelcomeLibraryState.constrained(.smart, library: true, fileBrowser: false) == .smart)
-        #expect(WelcomeLibraryState.constrained(.smart, library: false, fileBrowser: true) == .browser)
-        #expect(WelcomeLibraryState.constrained(.smart, library: false, fileBrowser: false) == .classic)
+        #expect(WelcomeLibraryState.constrained(.classic, library: true, fileBrowser: true, smart: true) == .shelf)
+        // スマートライブラリは自分の設定だけで決まる(2026-09-22 からライブラリとは別。ライブラリが OFF でも選べる)。
+        #expect(WelcomeLibraryState.constrained(.smart, library: true, fileBrowser: true, smart: true) == .smart)
+        #expect(WelcomeLibraryState.constrained(.smart, library: false, fileBrowser: false, smart: true) == .smart)
+        #expect(WelcomeLibraryState.constrained(.smart, library: true, fileBrowser: true, smart: false) == .shelf)
+        #expect(WelcomeLibraryState.constrained(.smart, library: false, fileBrowser: true, smart: false) == .browser)
+        // 出せないモードは 本棚 → ファイルブラウザ → スマートライブラリ の順で読み替える。
+        #expect(WelcomeLibraryState.constrained(.shelf, library: false, fileBrowser: false, smart: true) == .smart)
+        #expect(WelcomeLibraryState.constrained(.browser, library: false, fileBrowser: true, smart: true) == .browser)
 
         let suite = PreferencesSuite(label: "home-feature-flags")
         defer { withExtendedLifetime(suite) {} }
@@ -91,7 +117,8 @@ struct LibraryFeatureToggleTests {
         #expect(state.mode == .shelf)
         state.mode = .browser
         #expect(state.mode == .shelf)
-        // 両方OFF: 本棚を足す前のウェルカム画面。
+        // 両方OFF(スマートライブラリも OFF): 本棚を足す前のウェルカム画面。
+        state.isSmartLibraryFeatureEnabled = false
         state.isLibraryFeatureEnabled = false
         #expect(state.mode == .classic)
         // ファイルブラウザだけON。
@@ -109,6 +136,7 @@ struct LibraryFeatureToggleTests {
         let preferences = suite.makePreferences()
         preferences.libraryFeatureEnabled = false
         preferences.fileBrowserFeatureEnabled = false
+        preferences.smartLibraryFeatureEnabled = false
         #expect(WelcomeLibraryState(defaults: suite.defaults).mode == .classic)
         preferences.libraryFeatureEnabled = true
         #expect(WelcomeLibraryState(defaults: suite.defaults).mode == .shelf)

@@ -754,7 +754,9 @@ struct SmartLibraryContent: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             WelcomeSeparator(axis: .horizontal)
-            if catalog.isLoading, catalog.books.isEmpty {
+            // まだ一度も集め終えていない・集めている最中で並べる本がまだ無い間は、「本がありません」ではなく読み込み中
+            // (SmartLibraryCatalog.hasLoaded のコメント)。
+            if (!catalog.hasLoaded || catalog.isLoading), state.gridItems.isEmpty {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if state.gridItems.isEmpty {
@@ -786,9 +788,9 @@ struct SmartLibraryContent: View {
         WelcomePaneHeaderLayout {
             HStack(spacing: 8) {
                 // シリーズの束を開いている間は、戻るボタンとシリーズ名(束の一覧へ戻る)。
-                if let series = state.openedSeries {
+                if let series = state.openedGroup {
                     Button {
-                        state.openedSeries = nil
+                        state.openedGroup = nil
                     } label: {
                         Image(systemName: "chevron.left")
                             .panelIconButtonLabel()
@@ -820,7 +822,7 @@ struct SmartLibraryContent: View {
             WelcomeSearchField(text: $state.searchText, prompt: "Search Books", focus: $isSearchFocused)
 
             HStack(spacing: 6) {
-                seriesToggle
+                groupingMenu
                 sortMenu
                 Slider(value: $state.coverSize, in: SmartLibraryViewState.coverSizeRange)
                     .frame(width: 110)
@@ -830,22 +832,29 @@ struct SmartLibraryContent: View {
         }
     }
 
-    /// シリーズでまとめる / まとめない。まとめている間はアイコンが塗りつぶしになる。
-    private var seriesToggle: some View {
-        Button {
-            state.groupsBySeries.toggle()
+    /// 束ねない / シリーズで束ねる / 著者で束ねる。束ねている間はアイコンが塗りつぶしになる。
+    /// 形は並べ替えのメニューと同じ(WelcomeSortMenu の決まり事: fixedSize と、Menu 自体への輪郭)。
+    private var groupingMenu: some View {
+        Menu {
+            Picker(selection: $state.grouping) {
+                ForEach(SmartGrouping.allCases, id: \.self) { grouping in
+                    Text(LocalizedStringKey(grouping.titleKey)).tag(grouping)
+                }
+            } label: { EmptyView() }
+            .pickerStyle(.inline)
         } label: {
-            Image(systemName: state.groupsBySeries ? "square.stack.fill" : "square.stack")
+            Image(systemName: state.grouping == .none ? "square.stack" : "square.stack.fill")
                 .panelIconButtonLabel()
         }
-        .buttonStyle(.borderless)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
         .panelOutlinedContent()
-        .help(state.groupsBySeries ? "Don’t Group by Series" : "Group by Series")
-        .accessibilityValue(Text(state.groupsBySeries ? "On" : "Off"))
+        .help(String(localized: String.LocalizationValue(state.grouping.titleKey), language: locale))
     }
 
     private var countText: String {
-        if state.openedSeries != nil {
+        if state.openedGroup != nil {
             return String(format: String(localized: "%lld books", language: locale), state.gridItems.count)
         }
         let visible = state.visibleBooks.count
@@ -918,15 +927,21 @@ struct SmartLibraryContent: View {
                     ForEach(state.gridItems) { item in
                         switch item {
                         case .book(let book):
-                            SmartBookCell(book: book, width: state.coverSize)
+                            SmartBookCell(
+                                book: book, width: state.coverSize,
+                                // 著者でまとめている一覧では、束と同じく著者名だけを出す(2026-09-22、利用者の指示)。
+                                showsAuthorOnly: state.grouping == .author && state.openedGroup == nil
+                            )
                                 .onTapGesture { open(book) }
                                 .contextMenu { contextMenu(for: book) }
-                        case .series(let name, let books):
-                            SmartSeriesCell(name: name, books: books, width: state.coverSize)
-                                .onTapGesture { state.openedSeries = name }
+                        case .group(let grouping, let name, let books):
+                            SmartGroupCell(grouping: grouping, name: name, books: books, width: state.coverSize)
+                                .onTapGesture { state.openedGroup = name }
                                 .contextMenu {
-                                    Button("Show Books in Series") { state.openedSeries = name }
-                                    if let first = books.first {
+                                    Button(grouping == .author ? "Show Books by This Author" : "Show Books in Series") {
+                                        state.openedGroup = name
+                                    }
+                                    if grouping == .series, let first = books.first {
                                         Button("Open First Volume") { open(first) }
                                     }
                                 }
@@ -999,30 +1014,50 @@ private struct SmartMetadataTarget: Identifiable {
 private struct SmartBookCell: View {
     let book: SmartBook
     let width: CGFloat
+    /// 著者名だけを出す(著者でまとめた一覧の、1 冊だけの著者の本。束の下と揃える)。著者の無い本は題を出す
+    /// (出せる名前が無いので)。
+    var showsAuthorOnly = false
+    @EnvironmentObject private var appearance: AppearanceSettings
 
     /// 表紙の枠の比(2:3)。
     static let heightRatio: CGFloat = 1.5
 
     var body: some View {
+        // 文字の大きさは環境設定「外観」→「ホーム」→「スマートライブラリ」(2026-09-22)。2 行とも同じ大きさ
+        // (設定にする前の .caption / .caption2 は macOS ではどちらも 10pt)。
+        let fontSize = appearance.smartLibraryCaptionFontSize
         VStack(spacing: 4) {
             SmartBookThumbnail(book: book, width: width, height: width * Self.heightRatio)
-            VStack(spacing: 1) {
-                Text(verbatim: book.displayTitle)
-                    .font(.caption)
+            if showsAuthorOnly, let author = book.metadata.authors.first, !author.isEmpty {
+                Text(verbatim: author)
+                    .font(.system(size: fontSize, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if let author = book.metadata.authors.first {
-                    Text(verbatim: author)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+                    .frame(width: width)
+                    .panelOutlinedContent()
+            } else {
+                caption(fontSize: fontSize)
             }
-            .frame(width: width)
-            .panelOutlinedContent()
         }
         .contentShape(Rectangle())
         .help(helpText)
+    }
+
+    private func caption(fontSize: CGFloat) -> some View {
+        VStack(spacing: 1) {
+            Text(verbatim: book.displayTitle)
+                .font(.system(size: fontSize))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if let author = book.metadata.authors.first {
+                Text(verbatim: author)
+                    .font(.system(size: fontSize))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(width: width)
+        .panelOutlinedContent()
     }
 
     private var helpText: String {
@@ -1037,13 +1072,48 @@ private struct SmartBookCell: View {
 /// シリーズの束(2026-09-22、利用者の指示)。**束だと見て分かるように**、1 巻目の表紙の後ろに紙を 2 枚ずらして重ね、
 /// 右下に冊数のバッジを付ける(コレクションの札の冊数バッジと同じ形 ―― 地が不透明なので輪郭は掛けない)。
 /// 紙とバッジは**表紙の絵の実際の大きさ**に合わせる(枠に合わせると、細長い表紙の左右から紙がはみ出した。利用者の指摘)
-/// ので、描くのは表紙と同じ `SmartBookThumbnail`(`stack`)。下の文字はシリーズ名と冊数。押すと束の中の本が並ぶ
-/// (SmartLibraryViewState.openedSeries)。
-private struct SmartSeriesCell: View {
+/// ので、描くのは表紙と同じ `SmartBookThumbnail`(`stack`)。下の文字はシリーズ名と著者(冊数はバッジにあるので書かない。
+/// 2026-09-22、利用者の指示)。押すと束の中の本が並ぶ(SmartLibraryViewState.openedGroup)。
+///
+/// 著者の束(2026-09-22)も同じ形。下の文字は著者名と、2 行目にその著者のシリーズ(1 つならその名前、複数なら
+/// 「N シリーズ」、シリーズの無い本だけなら出さない)。
+private struct SmartGroupCell: View {
+    let grouping: SmartGrouping
     let name: String
     let books: [SmartBook]
     let width: CGFloat
+    @EnvironmentObject private var appearance: AppearanceSettings
+
     @Environment(\.locale) private var locale
+
+    /// 名前の下の 2 行目。シリーズの束は著者、著者の束はシリーズ。
+    private var subtitle: String? {
+        switch grouping {
+        case .series: return author
+        case .author:
+            let series = Set(books.compactMap { SmartGrouping.series.key(of: $0) })
+            if series.count == 1 { return series.first }
+            if series.count > 1 {
+                return String(format: String(localized: "%lld series", language: locale), series.count)
+            }
+            return nil
+        case .none: return nil
+        }
+    }
+
+    /// シリーズの著者: 束の本の先頭の著者のうち、いちばん多く出てくるもの(同数なら巻の早いほう)。
+    /// 巻ごとに作画担当が違うシリーズでも 1 人に決まり、束の下が長くならない。
+    private var author: String? {
+        var counts: [String: Int] = [:]
+        var order: [String] = []
+        for book in books {
+            guard let first = book.metadata.authors.first, !first.isEmpty else { continue }
+            if counts[first] == nil { order.append(first) }
+            counts[first, default: 0] += 1
+        }
+        return order.max { (counts[$0] ?? 0) < (counts[$1] ?? 0) || ((counts[$0] ?? 0) == (counts[$1] ?? 0)
+            && (order.firstIndex(of: $0) ?? 0) > (order.firstIndex(of: $1) ?? 0)) }
+    }
 
     /// 後ろの紙のずらし幅。
     private var offset: CGFloat { max(3, width * 0.035) }
@@ -1061,13 +1131,15 @@ private struct SmartSeriesCell: View {
             }
             VStack(spacing: 1) {
                 Text(verbatim: name)
-                    .font(.caption.weight(.medium))
+                    .font(.system(size: appearance.smartLibraryCaptionFontSize, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text(verbatim: String(format: String(localized: "%lld books", language: locale), books.count))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if let subtitle {
+                    Text(verbatim: subtitle)
+                        .font(.system(size: appearance.smartLibraryCaptionFontSize))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             .frame(width: width)
             .panelOutlinedContent()
@@ -1079,7 +1151,7 @@ private struct SmartSeriesCell: View {
 
 /// 本の表紙(ファイルブラウザのアイコン表示と同じ提供役から引く。FileBrowserCoverArea と同じ)。
 private struct SmartBookThumbnail: View {
-    /// シリーズの束として描くときの、後ろの紙と冊数バッジ(SmartSeriesCell)。
+    /// 束として描くときの、後ろの紙と冊数バッジ(SmartGroupCell)。
     struct Stack {
         let layers: Int
         let offset: CGFloat
@@ -1090,6 +1162,7 @@ private struct SmartBookThumbnail: View {
     let width: CGFloat
     let height: CGFloat
     var stack: Stack?
+    @EnvironmentObject private var appearance: AppearanceSettings
 
     @EnvironmentObject private var thumbnails: FileBrowserThumbnailProvider
     @Environment(\.displayScale) private var displayScale
@@ -1156,7 +1229,8 @@ private struct SmartBookThumbnail: View {
         if let stack {
             ZStack {
                 ForEach((1...max(1, stack.layers)).reversed(), id: \.self) { layer in
-                    shape.fill(Color(nsColor: .controlBackgroundColor).opacity(layer == stack.layers ? 0.7 : 0.9))
+                    // 色は環境設定「外観」→「ホーム」→「スマートライブラリ」(既定は明暗に追従するコントロールの地)。
+                    shape.fill(appearance.effectiveSmartLibrarySeriesSheet.opacity(layer == stack.layers ? 0.7 : 0.9))
                         .overlay(shape.strokeBorder(Color.primary.opacity(0.18), lineWidth: 0.5))
                         .panelOutlinedFrame(in: shape)
                         .shadow(color: .black.opacity(0.15), radius: 1, y: 0.5)
@@ -1166,17 +1240,19 @@ private struct SmartBookThumbnail: View {
         }
     }
 
-    /// 束の冊数バッジ(表紙の右下。コレクションの札の冊数バッジと同じ形)。
+    /// 束の冊数バッジ(表紙の右下。コレクションの札の冊数バッジと同じ形。大きさは環境設定「外観」→「ホーム」→
+    /// 「スマートライブラリ」の「冊数バッジの大きさ」)。
     @ViewBuilder
     private var countBadge: some View {
         if let stack {
+            let size = appearance.smartLibraryBadgeSize
             Text(verbatim: "\(stack.count)")
-                .font(.system(size: 11))
+                .font(.system(size: size.fontSize))
                 .monospacedDigit()
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
+                .padding(.horizontal, size.horizontalPadding)
+                .padding(.vertical, size.verticalPadding)
                 .background(Capsule().fill(Color.black.opacity(0.55)))
-                .overlay(Capsule().strokeBorder(Color.white.opacity(0.9), lineWidth: 1))
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.9), lineWidth: size.borderWidth))
                 .foregroundStyle(Color.white)
                 .padding(4)
         }

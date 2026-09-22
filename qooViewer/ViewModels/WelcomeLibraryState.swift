@@ -37,28 +37,36 @@ final class WelcomeLibraryState: ObservableObject {
     /// 戻った瞬間にクリックの意味が変わっている理由が画面から読めない。isEditingのコメント参照)。
     @Published var mode: WelcomeMode {
         didSet {
-            // 環境設定で片方(または両方)の機能をOFFにしている間は、出せるモードが1つに決まる(isLibraryFeatureEnabledのコメント)。
+            // 環境設定で機能をOFFにしている間は、出せるモードが限られる(isLibraryFeatureEnabledのコメント)。
             let allowed = Self.constrained(
-                mode, library: isLibraryFeatureEnabled, fileBrowser: isFileBrowserFeatureEnabled
+                mode, library: isLibraryFeatureEnabled, fileBrowser: isFileBrowserFeatureEnabled,
+                smart: isSmartLibraryFeatureEnabled
             )
             if mode != allowed {
+                isForcingMode = true
                 mode = allowed
+                isForcingMode = false
                 return
             }
             guard mode != oldValue else { return }
-            // 押し込まれたぶんは保存しない(両方ONへ戻したときに、前に見ていたほうへ戻れるように)。
-            if isLibraryFeatureEnabled, isFileBrowserFeatureEnabled { defaults.set(mode.rawValue, forKey: Keys.mode) }
+            // 押し込まれたぶん(機能の ON/OFF に合わせた読み替え)は保存しない(機能を ON へ戻したときに、前に見ていたほうへ
+            // 戻れるように)。利用者が選んだモードは、ほかの機能が OFF の間でも保存する(3 つに増えて、全部 ON のときだけ
+            // 保存するのでは、どれか 1 つを OFF にしている人の選択がずっと残らなくなった)。
+            if !isForcingMode { defaults.set(mode.rawValue, forKey: Keys.mode) }
             isEditing = false
         }
     }
 
-    /// ホームのライブラリ機能・ファイルブラウザ機能が有効か(環境設定「ライブラリを有効にする」「ファイルブラウザを有効にする」。
-    /// 2026-09-21、ユーザー要望)。値の持ち主は AppPreferences で、ContentView が写す ―― ただし**最初の値は init で保存先から読む**
-    /// (写しが届くのは最初の1コマの後で、その1コマを別のモードで描かない)。
+    /// 機能の ON/OFF に合わせてモードを読み替えている最中か(その間の `mode` の変更は保存しない)。
+    private var isForcingMode = false
+
+    /// ホームのライブラリ機能・ファイルブラウザ機能・スマートライブラリが有効か(環境設定「一般」→「ホーム」。2026-09-21、
+    /// スマートライブラリは 2026-09-22、ユーザー要望)。値の持ち主は AppPreferences で、ContentView が写す ―― ただし
+    /// **最初の値は init で保存先から読む**(写しが届くのは最初の1コマの後で、その1コマを別のモードで描かない)。
     ///
-    /// 片方でもOFFの間は `mode` が1つに決まる(`constrained`): ライブラリだけなら `.shelf`、ファイルブラウザだけなら `.browser`、
-    /// 両方OFFなら `.classic`(本棚を足す前のウェルカム画面)。切り替える手段(帯のボタン・「ホーム」メニュー)も画面から消える。
-    /// 両方ONへ戻したら、保存してあるモード(OFFにする前に見ていたほう)へ戻る。
+    /// OFF の機能のモードは出せない(`constrained`)。3 つとも OFF なら `.classic`(本棚を足す前のウェルカム画面)。
+    /// 切り替える手段(帯のボタン・「ホーム」メニュー)も OFF の機能のぶんは画面から消える。ON へ戻したら、保存してあるモード
+    /// (OFFにする前に見ていたほう)へ戻る。
     @Published var isLibraryFeatureEnabled: Bool {
         didSet {
             guard isLibraryFeatureEnabled != oldValue else { return }
@@ -73,23 +81,46 @@ final class WelcomeLibraryState: ObservableObject {
         }
     }
 
+    @Published var isSmartLibraryFeatureEnabled: Bool {
+        didSet {
+            guard isSmartLibraryFeatureEnabled != oldValue else { return }
+            applyFeatureChange()
+        }
+    }
+
+    /// 帯を出すか。ライブラリかスマートライブラリがあるときだけ(ファイルブラウザだけのホームは帯なし ―― 切り替える相手が無い)。
+    var showsTopBar: Bool { isLibraryFeatureEnabled || isSmartLibraryFeatureEnabled }
+
     /// 機能のON/OFFが変わった。保存してあるモードを、いま出せるモードへ読み替えて当てる。
     private func applyFeatureChange() {
+        isForcingMode = true
         mode = Self.constrained(
             WelcomeMode(rawValue: defaults.string(forKey: Keys.mode) ?? "") ?? .shelf,
-            library: isLibraryFeatureEnabled, fileBrowser: isFileBrowserFeatureEnabled
+            library: isLibraryFeatureEnabled, fileBrowser: isFileBrowserFeatureEnabled, smart: isSmartLibraryFeatureEnabled
         )
+        isForcingMode = false
+    }
+
+    /// 帯のボタン・「ホーム」メニューの切り替え。いま出ているモードをもう一度押したら、ほかの出せるモードへ戻る
+    /// (本棚があれば本棚、無ければ残りのもう 1 つ。どれも無ければそのまま)。
+    func toggleMode(_ target: WelcomeMode) {
+        guard mode == target else {
+            mode = target
+            return
+        }
+        let others: [(WelcomeMode, Bool)] = [
+            (.shelf, isLibraryFeatureEnabled), (.browser, isFileBrowserFeatureEnabled), (.smart, isSmartLibraryFeatureEnabled),
+        ]
+        if let next = others.first(where: { $0.0 != target && $0.1 })?.0 { mode = next }
     }
 
     /// `wanted` を、機能のON/OFFの組で出せるモードへ読み替える(`isLibraryFeatureEnabled` のコメント)。
-    static func constrained(_ wanted: WelcomeMode, library: Bool, fileBrowser: Bool) -> WelcomeMode {
-        switch (library, fileBrowser) {
-        case (true, true): wanted == .classic ? .shelf : wanted
-        // スマートライブラリはライブラリ機能の一部(帯に出る)なので、ファイルブラウザが OFF でも選べる。
-        case (true, false): wanted == .smart ? .smart : .shelf
-        case (false, true): .browser
-        case (false, false): .classic
-        }
+    /// 出せなければ 本棚 → ファイルブラウザ → スマートライブラリ の順で出せるもの、どれも出せなければ `.classic`。
+    static func constrained(_ wanted: WelcomeMode, library: Bool, fileBrowser: Bool, smart: Bool) -> WelcomeMode {
+        let allowed: [WelcomeMode] = [library ? .shelf : nil, fileBrowser ? .browser : nil, smart ? .smart : nil]
+            .compactMap { $0 }
+        guard let fallback = allowed.first else { return .classic }
+        return allowed.contains(wanted) ? wanted : fallback
     }
 
     /// コレクションのタイルの大きさ。**札はこの幅ちょうどで並ぶ**(2026-09-13まではLazyVGridの
@@ -351,11 +382,13 @@ final class WelcomeLibraryState: ObservableObject {
         // テストホストのウインドウ(restoresMode == false)は、設定に関わらず本棚で始める(下の引数のコメント)。
         let isLibraryEnabled = restoresMode ? AppPreferences.storedLibraryFeatureEnabled(in: defaults) : true
         let isFileBrowserEnabled = restoresMode ? AppPreferences.storedFileBrowserFeatureEnabled(in: defaults) : true
+        let isSmartEnabled = restoresMode ? AppPreferences.storedSmartLibraryFeatureEnabled(in: defaults) : true
         isLibraryFeatureEnabled = isLibraryEnabled
         isFileBrowserFeatureEnabled = isFileBrowserEnabled
+        isSmartLibraryFeatureEnabled = isSmartEnabled
         mode = Self.constrained(
             restoresMode ? (WelcomeMode(rawValue: defaults.string(forKey: Keys.mode) ?? "") ?? .shelf) : .shelf,
-            library: isLibraryEnabled, fileBrowser: isFileBrowserEnabled
+            library: isLibraryEnabled, fileBrowser: isFileBrowserEnabled, smart: isSmartEnabled
         )
         collectionSort = FavoritesSortOption(
             rawValue: defaults.string(forKey: Keys.collectionSort) ?? ""

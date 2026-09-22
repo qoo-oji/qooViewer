@@ -2217,7 +2217,12 @@ final class ViewerViewModel: ObservableObject {
         // シークレットウインドウ: readingStateはコンテキスト外のインスタンスなので上の代入は
         // どこにも残らないが、save()自体も呼ばない(他の保留中の変更まで巻き込んで書かないため)。
         guard !skipsPersistence else { return }
+        scheduleSave()
+    }
 
+    /// 読書位置の行をディスクへ書く(少し待ってまとめて)。シークレットウインドウでは書かない。
+    private func scheduleSave() {
+        guard !skipsPersistence else { return }
         // 実際のディスクへの保存(modelContext.save())は、ホイール操作などで素早く連続して
         // ページ送りされるたびに毎回行うとメインスレッドの処理が詰まり、画像の更新が
         // 遅れる原因になる。そのため保存だけは少し間隔を空けてまとめて行う(デバウンス)。
@@ -2304,10 +2309,13 @@ final class ViewerViewModel: ObservableObject {
         // 記録しておく(lastDisplayedPageRangeのコメント参照)。
         lastDisplayedPageRange = targetIndex..<(targetIndex + images.count)
         // 最後のページが写っているかを読書位置と一緒に残す(BookReadingState.isAtLastPage のコメント)。
+        // **保存してある位置がこの画面のときだけ**書く。位置そのもの(lastPageIndex)は persistState の持ち物で、ここでは
+        // 触らない ―― 「いつも最初から」で開いた最初の画面は保存した位置と違うので、ここで位置ごと書くと、残しておくはずの
+        // 読書位置を先頭で上書きしてしまう(ViewerViewModelTests「いつも最初から」が捕まえた。2026-09-22)。
         let isAtLastPage = !book.pages.isEmpty && targetIndex + images.count >= book.pages.count
-        if readingState.isAtLastPage != isAtLastPage, !readingStateDiscarded {
+        if readingState.lastPageIndex == targetIndex, readingState.isAtLastPage != isAtLastPage, !readingStateDiscarded {
             readingState.isAtLastPage = isAtLastPage
-            persistState()
+            scheduleSave()
         }
 
         // コンテキストメニュー「情報を見る」(ユーザー要望)向けに、実際に表示するページの

@@ -49,9 +49,9 @@ struct WelcomeView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // ライブラリ機能がOFFの間は帯ごと出さない(環境設定「ライブラリを有効にする」。2026-09-21、ユーザー要望) ―― 帯に並ぶのは
-            // ライブラリと、本棚 ⇄ ファイルブラウザの切り替えだけで、ファイルブラウザしか無いなら置く意味が無い。
-            if state.isLibraryFeatureEnabled {
+            // ライブラリもスマートライブラリも OFF の間は帯ごと出さない(環境設定「一般」→「ホーム」。2026-09-21、ユーザー要望) ――
+            // 帯に並ぶのはモードの切り替えとライブラリで、ファイルブラウザしか無いなら置く意味が無い(WelcomeLibraryState.showsTopBar)。
+            if state.showsTopBar {
                 WelcomeTopBar(
                     state: state, allowsEditing: allowsEditing, selectedLibraryID: library?.id
                 )
@@ -65,7 +65,7 @@ struct WelcomeView: View {
                 ClassicWelcomeView()
             } else if state.mode == .browser {
                 FileBrowserPane(state: fileBrowser)
-            } else if state.mode == .smart, state.isLibraryFeatureEnabled {
+            } else if state.mode == .smart, state.isSmartLibraryFeatureEnabled {
                 SmartLibraryPane(home: state, allowsEditing: allowsEditing)
             } else if let library {
                 WelcomeLibraryPane(state: state, library: library, allowsEditing: allowsEditing)

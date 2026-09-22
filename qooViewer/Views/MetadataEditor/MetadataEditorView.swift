@@ -97,6 +97,8 @@ final class MetadataEditorModel {
     private let drafts: MetadataDraftStore
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var existenceTask: Task<Void, Never>?
+    /// スマートライブラリの対象フォルダの本も一覧に入れるか(開くたびに読む)。
+    @ObservationIgnored private let includesSmartLibraryFolders: () -> Bool
 
     init(metadataStore: BookMetadataStore, rulesStore: MetadataRulesStore, stores: Stores,
          preferences: AppPreferences, drafts: MetadataDraftStore? = nil,
@@ -105,6 +107,7 @@ final class MetadataEditorModel {
         self.metadataStore = metadataStore
         self.rulesStore = rulesStore
         self.stores = stores
+        includesSmartLibraryFolders = { [weak preferences] in preferences?.smartLibraryFeatureEnabled ?? true }
         coverController = CoverOverrideController(target: .collectionCover, layoutStore: stores.layoutStore,
                                                   preferences: preferences, resolveURL: resolveURL)
     }
@@ -115,7 +118,10 @@ final class MetadataEditorModel {
         var known = KnownBooks.collect(from: KnownBooks.Sources(
             metadataStore: stores.metadataStore, bookmarkStore: stores.bookmarkStore, layoutStore: stores.layoutStore,
             favoritesStore: stores.favoritesStore, collectionStore: stores.collectionStore, modelContext: stores.modelContext))
-        known.formUnion(await stores.smartLibraryCatalog.folderBookIDs())
+        // スマートライブラリが OFF の間は、その対象フォルダを探しに行かない(AppPreferences.smartLibraryFeatureEnabled)。
+        if includesSmartLibraryFolders() {
+            known.formUnion(await stores.smartLibraryCatalog.folderBookIDs())
+        }
         let bookIDs = known.filter { !rulesStore.isExcluded(bookID: $0) }
         drafts.keepOnly(Set(bookIDs))
         let entries = bookIDs.map { bookID in

@@ -459,33 +459,40 @@ nonisolated enum SmartFacets {
     }
 }
 
-// MARK: - シリーズでまとめる
+// MARK: - 束ねる(シリーズ・著者)
 
-/// 右のグリッドに並べる 1 枠: 1 冊か、シリーズの束(2026-09-22、利用者の指示「同じシリーズを束ねて表示する」)。
-nonisolated enum SmartGridItem: Identifiable, Hashable, Sendable {
-    case book(SmartBook)
-    /// シリーズ名と、その中の本(巻の順)。
-    case series(name: String, books: [SmartBook])
+/// 何で束ねるか(2026-09-22、利用者の指示。シリーズ、続けて著者)。
+nonisolated enum SmartGrouping: String, Codable, CaseIterable, Hashable, Sendable {
+    // メニューの並び順(まとめない / 著者 / シリーズ。2026-09-22、利用者の指示)。保存は rawValue なので並べ替えてよい。
+    case none, author, series
 
-    var id: String {
+    var titleKey: String {
         switch self {
-        case .book(let book): "book|\(book.id)"
-        case .series(let name, _): "series|\(name)"
+        case .none: "Don’t Group"
+        case .series: "Group by Series"
+        case .author: "Group by Author"
         }
     }
-}
 
-nonisolated enum SmartSeriesGrouping {
-    /// 束ねるときの鍵(シリーズ名。前後の空白は落とす。空ならシリーズに入っていない)。
-    static func key(of book: SmartBook) -> String? {
-        let name = book.metadata.series.trimmingCharacters(in: .whitespaces)
+    /// 束ねるときの鍵(空なら束に入らない)。シリーズはシリーズ名、著者は**筆頭の著者**(1 冊が 2 つの束に
+    /// 入らないように。合作の本は先頭の名義の束へ)。前後の空白は落とす。
+    func key(of book: SmartBook) -> String? {
+        let raw: String
+        switch self {
+        case .none: return nil
+        case .series: raw = book.metadata.series
+        case .author: raw = book.metadata.authors.first ?? ""
+        }
+        let name = raw.trimmingCharacters(in: .whitespaces)
         return name.isEmpty ? nil : name
     }
 
     /// 並べた本を束ねる。**束の位置は、その束の本がいちばん最初に出てきた所**(並べ替えの結果を崩さない ―― 題の順なら
-    /// シリーズの 1 冊目の題の位置、最後に読んだ日の順なら最近読んだ巻の位置)。2 冊以上あるシリーズだけを束にし、
-    /// 1 冊だけのシリーズはそのまま 1 冊として置く(束を開いても 1 冊しか無いのは手間なだけ)。束の中は巻の順。
-    static func grouped(_ books: [SmartBook]) -> [SmartGridItem] {
+    /// 束の 1 冊目の題の位置、最後に読んだ日の順なら最近読んだ本の位置)。2 冊以上ある束だけを作り、1 冊だけなら
+    /// そのまま 1 冊として置く(束を開いても 1 冊しか無いのは手間なだけ)。束の中は シリーズ → 巻 の順
+    /// (著者の束でも、同じシリーズの巻が並ぶように)。
+    func grouped(_ books: [SmartBook]) -> [SmartGridItem] {
+        guard self != .none else { return books.map(SmartGridItem.book) }
         var membersByKey: [String: [SmartBook]] = [:]
         for book in books {
             if let key = key(of: book) { membersByKey[key, default: []].append(book) }
@@ -498,9 +505,23 @@ nonisolated enum SmartSeriesGrouping {
                 continue
             }
             guard emitted.insert(key).inserted else { continue }
-            result.append(.series(name: key, books: SmartSort.sorted(members, by: .series, ascending: true)))
+            result.append(.group(self, name: key, books: SmartSort.sorted(members, by: .series, ascending: true)))
         }
         return result
+    }
+}
+
+/// 右のグリッドに並べる 1 枠: 1 冊か、束(シリーズ・著者)。
+nonisolated enum SmartGridItem: Identifiable, Hashable, Sendable {
+    case book(SmartBook)
+    /// 何で束ねたか・束の名前(シリーズ名 / 著者名)・その中の本(シリーズ → 巻 の順)。
+    case group(SmartGrouping, name: String, books: [SmartBook])
+
+    var id: String {
+        switch self {
+        case .book(let book): "book|\(book.id)"
+        case .group(let grouping, let name, _): "\(grouping.rawValue)|\(name)"
+        }
     }
 }
 

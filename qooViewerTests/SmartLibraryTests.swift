@@ -156,22 +156,51 @@ struct SmartLibraryTests {
             book("/b/c.zip", series: "月の庭", volume: "1"),
             book("/b/d.zip", series: "一冊だけ", volume: "1"),
         ], shelves: [])
-        state.groupsBySeries = true
+        state.grouping = .series
         state.recompute(now: now)
         #expect(state.gridItems.map(\.id) == ["series|月の庭", "book|/b/b.zip", "book|/b/d.zip"])
-        if case .series(_, let books) = state.gridItems.first {
+        if case .group(_, _, let books) = state.gridItems.first {
             #expect(books.map(\.id) == ["/b/c.zip", "/b/a.zip"])
         } else {
             Issue.record("先頭が束になっていない")
         }
-        state.openedSeries = "月の庭"
+        state.openedGroup = "月の庭"
         state.recompute(now: now)
         #expect(state.gridItems.map(\.id) == ["book|/b/c.zip", "book|/b/a.zip"])
         // まとめるのをやめると、開いていたシリーズからも出る。設定は保存される。
-        state.groupsBySeries = false
-        #expect(state.openedSeries == nil)
-        state.groupsBySeries = true
-        #expect(SmartLibraryViewState(defaults: suite.defaults).groupsBySeries)
+        state.grouping = .none
+        #expect(state.openedGroup == nil)
+        state.grouping = .series
+        #expect(SmartLibraryViewState(defaults: suite.defaults).grouping == .series)
+    }
+
+    @Test("著者でまとめると筆頭の著者で束になり、束の中はシリーズ → 巻の順")
+    func groupsByAuthor() {
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        let state = SmartLibraryViewState(defaults: suite.defaults)
+        state.sortKey = .fileName
+        state.update(books: [
+            book("/b/a.zip", authors: ["著者A", "著者B"], series: "星の庭", volume: "1"),
+            book("/b/b.zip", authors: ["著者B"]),
+            book("/b/c.zip", authors: ["著者A"], series: "月の庭", volume: "2"),
+            book("/b/d.zip", authors: ["著者A"], series: "月の庭", volume: "1"),
+        ], shelves: [])
+        state.grouping = .author
+        state.recompute(now: now)
+        // 著者B は筆頭では 1 冊だけなので束にならない(合作の本は筆頭の著者の束へ)。
+        #expect(state.gridItems.map(\.id) == ["author|著者A", "book|/b/b.zip"])
+        state.openedGroup = "著者A"
+        state.recompute(now: now)
+        #expect(state.gridItems.map(\.id) == ["book|/b/d.zip", "book|/b/c.zip", "book|/b/a.zip"])
+    }
+
+    @Test("「シリーズでまとめる」の ON/OFF だった頃の保存値は、シリーズで束ねる設定として読む")
+    func legacyGroupingIsRead() {
+        let suite = TestDefaultsPool.checkout()
+        defer { suite.release() }
+        suite.defaults.set(true, forKey: "qooViewer.smartLibrary.groupsBySeries")
+        #expect(SmartLibraryViewState(defaults: suite.defaults).grouping == .series)
     }
 
     @Test("シリーズで並べると シリーズ名 → 巻 の順")

@@ -368,6 +368,10 @@ struct ContentView: View {
             .onChange(of: preferences.fileBrowserFeatureEnabled, initial: true) { _, isEnabled in
                 welcomeLibrary.isFileBrowserFeatureEnabled = isEnabled || RuntimeEnvironment.isRunningTests
             }
+            // 「スマートライブラリを有効にする」も同じ(2026-09-22)。
+            .onChange(of: preferences.smartLibraryFeatureEnabled, initial: true) { _, isEnabled in
+                welcomeLibrary.isSmartLibraryFeatureEnabled = isEnabled || RuntimeEnvironment.isRunningTests
+            }
             // ホームのモードが変わって、本を開いていないのにサイドパネルを出さない側へ移ったら(両方OFFの画面から、どちらかの機能を
             // ONにした)、ホバーで浮いていたパネルを下ろす(isSidePanelSuppressedForWelcome参照。本を閉じたときの後始末と同じ理由)。
             .onChange(of: welcomeLibrary.mode) { _, _ in

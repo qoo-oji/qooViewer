@@ -26,6 +26,9 @@ final class SmartLibraryCatalog: ObservableObject {
     @Published private(set) var books: [SmartBook] = []
     /// 集めている最中か。
     @Published private(set) var isLoading = false
+    /// 一度でも集め終えたか。**まだ集めていない(空)と、集めたが 1 冊も無い(空)を画面が見分けるため**(2026-09-22、
+    /// 利用者の指摘: 起動直後に「表示する本がありません」が一瞬出た。集め始める前のコマでは isLoading もまだ false だった)。
+    @Published private(set) var hasLoaded = false
     /// フォルダを探すのを上限で打ち切ったか。
     @Published private(set) var isTruncated = false
     /// 中身が変わるたびに進む番号(画面の作り置きを作り直す鍵)。
@@ -71,6 +74,8 @@ final class SmartLibraryCatalog: ObservableObject {
         activeCount += 1
         guard activeCount == 1 else { return }
         subscribe()
+        // 集め直しは次のコマで始まるので、「集めている最中」はここで立てておく(その間を空の一覧として描かない)。
+        isLoading = true
         scheduleRebuild(rescan: false, delay: .zero)
     }
 
@@ -80,6 +85,8 @@ final class SmartLibraryCatalog: ObservableObject {
         subscriptions.removeAll()
         pending?.cancel()
         pending = nil
+        // 始まる前に取り消した集め直しは「最中」を下ろす人がいない。
+        if building == nil { isLoading = false }
     }
 
     /// 「読み直す」(フォルダの中も探し直す)。
@@ -154,6 +161,8 @@ final class SmartLibraryCatalog: ObservableObject {
             self.books = books
             self.isTruncated = scan.isTruncated
             self.isLoading = false
+            self.hasLoaded = true
+            self.building = nil
             self.revision += 1
         }
     }

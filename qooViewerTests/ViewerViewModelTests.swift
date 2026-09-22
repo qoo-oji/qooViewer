@@ -51,6 +51,21 @@ struct ViewerViewModelTests {
         #expect(harness.readingState(for: book)?.lastPageKey == book.pages[4].sortKey)
     }
 
+    @Test("最後のページが写った画面で閉じると「最後のページまで表示した」が残り、戻れば外れる")
+    func recordsWhetherTheLastPageWasOnScreen() async throws {
+        let harness = try ViewerHarness()
+        defer { harness.close() }
+        let book = try await harness.makeBook(pageCount: 6)
+
+        let viewer = await harness.open(book)
+        viewer.jump(toPageIndex: 4)
+        await viewer.settle()
+        #expect(harness.readingState(for: book)?.isAtLastPage == true)
+        viewer.jump(toPageIndex: 1)
+        await viewer.settle()
+        #expect(harness.readingState(for: book)?.isAtLastPage == false)
+    }
+
     @Test("「最後まで読んでいたら最初から」は、最終ページのときだけ先頭へ戻す")
     func fromStartIfFinishedLastTimeLooksAtTheLastPage() async throws {
         let harness = try ViewerHarness()

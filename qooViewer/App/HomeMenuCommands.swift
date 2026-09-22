@@ -61,6 +61,8 @@ struct HomeMenuItems: View {
     /// 環境設定「ファイルブラウザを有効にする」。false なら、本棚 ⇄ ファイルブラウザの切り替え・ファイルブラウザで選んだ本からの
     /// コレクションの作成/登録・「自動リネームの設定…」を出さない。両方 false のときはメニューごと出さない(QooViewerApp)。
     let isFileBrowserFeatureEnabled: Bool
+    /// 環境設定「スマートライブラリを有効にする」(2026-09-22)。false なら切り替えの項目を出さない。
+    let isSmartLibraryFeatureEnabled: Bool
     let home: HomeMenuState
     let selection: FileBrowserMenuSelection?
     let directory: HomeMenuDirectory
@@ -71,7 +73,30 @@ struct HomeMenuItems: View {
     /// 「自動リネームの設定…」(2026-09-15)。ウインドウを開く口は App が持つ(値の OpenWindowAction)。
     let openAutoRenameSettings: @MainActor () -> Void
 
+    /// モードの切り替え(帯のボタンと同じ)。切り替える相手が居る機能だけ(出せるモードが 2 つ以上のとき)。
+    private var showsFileBrowserToggle: Bool {
+        isFileBrowserFeatureEnabled && (isLibraryFeatureEnabled || isSmartLibraryFeatureEnabled)
+    }
+    private var showsSmartLibraryToggle: Bool {
+        isSmartLibraryFeatureEnabled && (isLibraryFeatureEnabled || isFileBrowserFeatureEnabled)
+    }
+
     var body: some View {
+        if showsFileBrowserToggle {
+            Toggle("File Browser", isOn: Binding(
+                get: { [home] in home.isShown && home.mode == .browser },
+                set: { [weak appState] _ in appState?.welcomeLibrary?.toggleMode(.browser) }
+            ))
+            .disabled(!home.isShown)
+        }
+        // スマートライブラリ(帯のボタンと同じ。2026-09-21)。
+        if showsSmartLibraryToggle {
+            Toggle("Smart Library", isOn: Binding(
+                get: { [home] in home.isShown && home.mode == .smart },
+                set: { [weak appState] _ in appState?.welcomeLibrary?.toggleMode(.smart) }
+            ))
+            .disabled(!home.isShown)
+        }
         if isLibraryFeatureEnabled {
             libraryItems
         }
@@ -88,27 +113,6 @@ struct HomeMenuItems: View {
 
     @ViewBuilder
     private var libraryItems: some View {
-        // 切り替える相手(ファイルブラウザ)が無ければ出さない。
-        if isFileBrowserFeatureEnabled {
-            Toggle("File Browser", isOn: Binding(
-                get: { [home] in home.isShown && home.mode == .browser },
-                set: { [weak appState] _ in
-                    guard let welcome = appState?.welcomeLibrary else { return }
-                    welcome.mode = welcome.mode == .browser ? .shelf : .browser
-                }
-            ))
-            .disabled(!home.isShown)
-        }
-        // スマートライブラリ(帯のボタンと同じ。2026-09-21)。
-        Toggle("Smart Library", isOn: Binding(
-            get: { [home] in home.isShown && home.mode == .smart },
-            set: { [weak appState] _ in
-                guard let welcome = appState?.welcomeLibrary else { return }
-                welcome.mode = welcome.mode == .smart ? .shelf : .smart
-            }
-        ))
-        .disabled(!home.isShown)
-
         Menu("Libraries") {
             // 外側の閉包でも`appState`を**明示的に**捕まえる(中の`[weak appState]`と揃えるため)。
             // Swift 6.4(Xcode 27)は「中で弱く捕まえているのに、外側が暗黙に強く捕まえている」形を
@@ -410,13 +414,14 @@ struct HomeViewMenuItems: View {
     /// 出さず、両方OFF(本棚を足す前のウェルカム画面)なら何も出さない。
     let isLibraryFeatureEnabled: Bool
     let isFileBrowserFeatureEnabled: Bool
+    let isSmartLibraryFeatureEnabled: Bool
     let home: HomeMenuState
     let appState: AppState?
 
     private var isBrowser: Bool { home.isShown && home.mode == .browser }
 
     var body: some View {
-        if isLibraryFeatureEnabled || isFileBrowserFeatureEnabled {
+        if isLibraryFeatureEnabled || isFileBrowserFeatureEnabled || isSmartLibraryFeatureEnabled {
             items
         }
     }

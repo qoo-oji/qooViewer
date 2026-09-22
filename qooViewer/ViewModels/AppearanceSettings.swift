@@ -58,6 +58,9 @@ final class AppearanceSettings: ObservableObject {
         static let collectionTileNameFontSize = "qooViewer.pref.collectionTileNameFontSize"
         static let collectionTileBadgeSize = "qooViewer.pref.collectionTileBadgeSize"
         static let collectionTileBackgroundColor = "qooViewer.pref.collectionTileBackgroundColor"
+        static let smartLibraryCaptionFontSize = "qooViewer.pref.smartLibraryCaptionFontSize"
+        static let smartLibrarySeriesSheetColor = "qooViewer.pref.smartLibrarySeriesSheetColor"
+        static let smartLibraryBadgeSize = "qooViewer.pref.smartLibraryBadgeSize"
         static let appAppearance = "qooViewer.pref.appAppearance"
         static let titleBarColor = "qooViewer.pref.titleBarColor"
         static let showProgressBarThumbnailPreview = "qooViewer.pref.showProgressBarThumbnailPreview"
@@ -249,6 +252,36 @@ final class AppearanceSettings: ObservableObject {
         }
     }
 
+    /// スマートライブラリの表紙の下の文字(題・著者、シリーズの束ならシリーズ名・著者)の大きさ(pt。2026-09-22、利用者の要望)。
+    /// 既定の10ptは設定にする前の`.caption`の実寸。範囲はコレクションの「カバーの下の文字」と揃える。
+    @Published var smartLibraryCaptionFontSize: Double {
+        didSet {
+            defaults.set(smartLibraryCaptionFontSize, forKey: profile.key(Keys.smartLibraryCaptionFontSize))
+        }
+    }
+    static let smartLibraryCaptionFontSizeRange: ClosedRange<Double> = 8...20
+
+    /// スマートライブラリの束の右下に出す冊数バッジの大きさ(2026-09-22、利用者の要望。コレクションの札の
+    /// `collectionTileBadgeSize` と同じ 3 段で、別に持つ)。
+    @Published var smartLibraryBadgeSize: CollectionTileBadgeSize {
+        didSet {
+            defaults.set(smartLibraryBadgeSize.rawValue, forKey: profile.key(Keys.smartLibraryBadgeSize))
+        }
+    }
+
+    /// スマートライブラリのシリーズの束で、表紙の後ろに重ねる紙の色(2026-09-22、利用者の要望)。**nil = 既定**
+    /// (`defaultSmartLibrarySeriesSheet`。明暗の外観に追従するコントロールの地の色)。札の地の色と同じく「未指定」を別の状態で持つ。
+    @Published var smartLibrarySeriesSheetColor: RGBColorValue? {
+        didSet {
+            // nilは「キーごと消す」(collectionTileBackgroundColorと同じ理由)。
+            if let hexString = smartLibrarySeriesSheetColor?.hexString {
+                defaults.set(hexString, forKey: profile.key(Keys.smartLibrarySeriesSheetColor))
+            } else {
+                defaults.removeObject(forKey: profile.key(Keys.smartLibrarySeriesSheetColor))
+            }
+        }
+    }
+
     /// 本のウインドウ(ホーム・ビューア)のタイトルバーの色(環境設定「外観」→「アプリ」。2026-09-22、ユーザー要望)。
     ///
     /// nil(既定)は「システムの標準のタイトルバー」。札の地の色(collectionTileBackgroundColor)と同じく「未指定」を
@@ -273,6 +306,14 @@ final class AppearanceSettings: ObservableObject {
     /// (`effectiveBackgroundColor`と同じ形)。
     var effectiveCollectionTileBackground: Color {
         collectionTileBackgroundColor?.color ?? Self.defaultCollectionTileBackground
+    }
+
+    /// 色を指定していないときのシリーズの束の紙の色。
+    static let defaultSmartLibrarySeriesSheet = Color(nsColor: .controlBackgroundColor)
+
+    /// 実際に束の紙を塗るのに使う色(effectiveCollectionTileBackground と同じ形)。
+    var effectiveSmartLibrarySeriesSheet: Color {
+        smartLibrarySeriesSheetColor?.color ?? Self.defaultSmartLibrarySeriesSheet
     }
     /// 上の3つに共通の、指定できる範囲。0.1秒刻みで最大2秒まで(ユーザーの指定)。
     static let autoRevealDelayRange: ClosedRange<Double> = 0...2
@@ -690,6 +731,13 @@ final class AppearanceSettings: ObservableObject {
             defaults.string(forKey: profile.key(Keys.collectionTileBackgroundColor))
             .flatMap(RGBColorValue.init(hexString:))
         self.titleBarColor = defaults.string(forKey: profile.key(Keys.titleBarColor)).flatMap(RGBColorValue.init(hexString:))
+        self.smartLibraryCaptionFontSize =
+            defaults.object(forKey: profile.key(Keys.smartLibraryCaptionFontSize)) as? Double ?? 10
+        self.smartLibraryBadgeSize =
+            CollectionTileBadgeSize(rawValue: defaults.string(forKey: profile.key(Keys.smartLibraryBadgeSize)) ?? "")
+            ?? .small
+        self.smartLibrarySeriesSheetColor =
+            defaults.string(forKey: profile.key(Keys.smartLibrarySeriesSheetColor)).flatMap(RGBColorValue.init(hexString:))
         // didSet は初期化では走らないので、ライト/ダークはここから1回。最初のウインドウが作られるより前
         // (AppStores 経由で QooViewerApp.init() から呼ばれる)なので、既定の外観が一瞬見えてから切り替わる、ということにはならない。
         if appliesToApp { AppAppearanceApplier.shared.apply(appAppearance) }
@@ -755,6 +803,10 @@ final class AppearanceSettings: ObservableObject {
             Keys.collectionTileNameFontSize,
             Keys.collectionTileBadgeSize,
             Keys.collectionTileBackgroundColor,
+            // スマートライブラリも画面上は「外観」→「ホーム」にある(PanelSurfaceSettingsView.smartLibrarySection)。
+            Keys.smartLibraryCaptionFontSize,
+            Keys.smartLibrarySeriesSheetColor,
+            Keys.smartLibraryBadgeSize,
         ]
         // 面ごとの設定を1つ増やしたら**ここにも足すこと**。resetToDefaults() は保存先から読み直すので、キーを消し忘れると
         // 古い値がそのまま戻ってきて「初期設定に戻す」が効かない(ユーザー報告: 「文字の影」だけリセットされない)。
@@ -787,6 +839,9 @@ final class AppearanceSettings: ObservableObject {
         collectionTileNameFontSize = source.collectionTileNameFontSize
         collectionTileBadgeSize = source.collectionTileBadgeSize
         collectionTileBackgroundColor = source.collectionTileBackgroundColor
+        smartLibraryCaptionFontSize = source.smartLibraryCaptionFontSize
+        smartLibrarySeriesSheetColor = source.smartLibrarySeriesSheetColor
+        smartLibraryBadgeSize = source.smartLibraryBadgeSize
         titleBarColor = source.titleBarColor
         appAppearance = source.appAppearance
         showProgressBarThumbnailPreview = source.showProgressBarThumbnailPreview

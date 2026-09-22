@@ -24,7 +24,9 @@ final class SmartLibraryViewState: ObservableObject {
         static let sortAscending = "qooViewer.smartLibrary.sortAscending"
         static let coverSize = "qooViewer.smartLibrary.coverSize"
         static let sidebarWidth = "qooViewer.smartLibrary.sidebarWidth"
-        static let groupsBySeries = "qooViewer.smartLibrary.groupsBySeries"
+        static let grouping = "qooViewer.smartLibrary.grouping"
+        /// 束ねる設定が「シリーズでまとめる」の ON/OFF だった頃の鍵(読むだけ。`grouping` が無いときの初期値に使う)。
+        static let legacyGroupsBySeries = "qooViewer.smartLibrary.groupsBySeries"
     }
 
     static let coverSizeRange: ClosedRange<CGFloat> = 80...300
@@ -41,7 +43,7 @@ final class SmartLibraryViewState: ObservableObject {
             defaults.set(selectedShelfID?.uuidString, forKey: Keys.selectedShelf)
             // 棚が変わったら、ブラウザで選んだ値は外す(前の棚に無い値で空になるため)。開いていたシリーズからも出る。
             facetSelection = SmartFacetSelection()
-            openedSeries = nil
+            openedGroup = nil
             setNeedsRecompute()
         }
     }
@@ -74,17 +76,18 @@ final class SmartLibraryViewState: ObservableObject {
             setNeedsRecompute()
         }
     }
-    /// 同じシリーズの本を 1 つの束にまとめて並べるか(2026-09-22、利用者の指示。`SmartSeriesGrouping`)。保存する。
-    @Published var groupsBySeries: Bool {
+    /// 同じシリーズ / 同じ著者の本を 1 つの束にまとめて並べるか(2026-09-22、利用者の指示。`SmartGrouping`)。保存する。
+    @Published var grouping: SmartGrouping {
         didSet {
-            guard groupsBySeries != oldValue else { return }
-            defaults.set(groupsBySeries, forKey: Keys.groupsBySeries)
-            if !groupsBySeries { openedSeries = nil }
+            guard grouping != oldValue else { return }
+            defaults.set(grouping.rawValue, forKey: Keys.grouping)
+            // 束ね方を変えたら、開いていた束からは出る(その束はもう無い)。
+            openedGroup = nil
             setNeedsRecompute()
         }
     }
-    /// 開いているシリーズの束(nil なら束の一覧)。束を押すと入り、見出しの戻るで出る。保存しない。
-    @Published var openedSeries: String? { didSet { if openedSeries != oldValue { setNeedsRecompute() } } }
+    /// 開いている束の名前(シリーズ名 / 著者名。nil なら束の一覧)。束を押すと入り、見出しの戻るで出る。保存しない。
+    @Published var openedGroup: String? { didSet { if openedGroup != oldValue { setNeedsRecompute() } } }
     @Published var coverSize: CGFloat { didSet { defaults.set(Double(coverSize), forKey: Keys.coverSize) } }
     @Published var sidebarWidth: CGFloat { didSet { defaults.set(Double(sidebarWidth), forKey: Keys.sidebarWidth) } }
 
@@ -118,7 +121,8 @@ final class SmartLibraryViewState: ObservableObject {
         }
         sortKey = SmartSortKey(rawValue: defaults.string(forKey: Keys.sortKey) ?? "") ?? .title
         sortAscending = defaults.object(forKey: Keys.sortAscending) as? Bool ?? true
-        groupsBySeries = defaults.bool(forKey: Keys.groupsBySeries)
+        grouping = SmartGrouping(rawValue: defaults.string(forKey: Keys.grouping) ?? "")
+            ?? (defaults.bool(forKey: Keys.legacyGroupsBySeries) ? .series : .none)
         coverSize = (defaults.object(forKey: Keys.coverSize) as? Double)
             .map { Self.coverSizeRange.clamping(CGFloat($0)) } ?? Self.defaultCoverSize
         sidebarWidth = (defaults.object(forKey: Keys.sidebarWidth) as? Double)
@@ -131,7 +135,9 @@ final class SmartLibraryViewState: ObservableObject {
         self.shelves = shelves
         // 消されたスマートシェルフを選んでいたら「すべての本」へ。
         if let id = selectedShelfID, !shelves.contains(where: { $0.id == id }) { selectedShelfID = nil }
-        setNeedsRecompute()
+        // 本の一覧が届いたら**その場で**作り直す(次のコマへ回すと、本はあるのに並べる本がまだ空のコマができ、
+        // 「条件に合う本がありません」が一瞬出る)。絞り込みの操作のほうは今までどおり 1 コマにまとめる。
+        recompute()
     }
 
     var selectedShelf: SmartShelf? { selectedShelfID.flatMap { id in shelves.first { $0.id == id } } }
@@ -217,14 +223,12 @@ final class SmartLibraryViewState: ObservableObject {
             }
         }
         visibleBooks = SmartSort.sorted(current, by: sortKey, ascending: sortAscending)
-        if let openedSeries {
-            // 束の中は巻の順(束の並びと同じ)。絞り込みで 1 冊も残らなければ空のまま(戻れば束の一覧)。
-            gridItems = SmartSort.sorted(visibleBooks.filter { SmartSeriesGrouping.key(of: $0) == openedSeries },
+        if let openedGroup {
+            // 束の中は シリーズ → 巻 の順(束の並びと同じ)。絞り込みで 1 冊も残らなければ空のまま(戻れば束の一覧)。
+            gridItems = SmartSort.sorted(visibleBooks.filter { grouping.key(of: $0) == openedGroup },
                                          by: .series, ascending: true).map(SmartGridItem.book)
-        } else if groupsBySeries {
-            gridItems = SmartSeriesGrouping.grouped(visibleBooks)
         } else {
-            gridItems = visibleBooks.map(SmartGridItem.book)
+            gridItems = grouping.grouped(visibleBooks)
         }
     }
 }

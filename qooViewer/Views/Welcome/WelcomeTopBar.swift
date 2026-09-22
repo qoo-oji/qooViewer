@@ -93,26 +93,31 @@ struct WelcomeTopBar: View {
                 openButtons
             }
             // スマートライブラリ(2026-09-21、利用者の指示: ファイルブラウザとライブラリの間)。ファイルブラウザ(または本を開く
-            // 2 つの入り口)とも役割が違うので区切る(2026-09-22、利用者の指示)。
-            WelcomeSeparator(axis: .vertical, length: 20)
-            smartLibraryToggle
+            // 2 つの入り口)とも役割が違うので区切る(2026-09-22、利用者の指示)。環境設定で OFF なら出さない(2026-09-22)。
+            if state.isSmartLibraryFeatureEnabled {
+                WelcomeSeparator(axis: .vertical, length: 20)
+                smartLibraryToggle
+            }
             // 左端(モードの切り替え、または本を開く2つの入り口)とライブラリの並び(本棚の中の選択)は別の役割なので区切る
-            // (ユーザー要望 2026-09-13)。
-            WelcomeSeparator(axis: .vertical, length: 20)
-
-            libraryChips
+            // (ユーザー要望 2026-09-13)。ライブラリ機能が OFF なら並びも「＋」も出さない(帯はスマートライブラリのために出ている)。
+            if state.isLibraryFeatureEnabled {
+                WelcomeSeparator(axis: .vertical, length: 20)
+                libraryChips
+            }
 
             Spacer(minLength: 0)
 
-            Button {
-                librarySheet = .create
-            } label: {
-                Image(systemName: "plus")
-                    .panelIconButtonLabel()
+            if state.isLibraryFeatureEnabled {
+                Button {
+                    librarySheet = .create
+                } label: {
+                    Image(systemName: "plus")
+                        .panelIconButtonLabel()
+                }
+                .buttonStyle(.borderless)
+                .disabled(!canEditLibraries)
+                .help("New Library")
             }
-            .buttonStyle(.borderless)
-            .disabled(!canEditLibraries)
-            .help("New Library")
         }
         .padding(.horizontal, 12)
         .frame(height: Self.height)
@@ -175,7 +180,7 @@ struct WelcomeTopBar: View {
         let isBrowsing = state.mode == .browser
         let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         return Button {
-            state.mode = isBrowsing ? .shelf : .browser
+            state.toggleMode(.browser)
         } label: {
             Label("File Browser", systemImage: "folder")
                 .labelStyle(.titleAndIcon)
@@ -198,7 +203,7 @@ struct WelcomeTopBar: View {
         let isShowing = state.mode == .smart
         let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         return Button {
-            state.mode = isShowing ? .shelf : .smart
+            state.toggleMode(.smart)
         } label: {
             Label("Smart Library", systemImage: "line.3.horizontal.decrease.circle")
                 .labelStyle(.titleAndIcon)

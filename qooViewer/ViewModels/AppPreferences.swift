@@ -70,6 +70,7 @@ final class AppPreferences: ObservableObject {
             "qooViewer.pref.offersRemovingMissingCollectionBooks"
         static let libraryFeatureEnabled = "qooViewer.pref.libraryFeatureEnabled"
         static let fileBrowserFeatureEnabled = "qooViewer.pref.fileBrowserFeatureEnabled"
+        static let smartLibraryFeatureEnabled = "qooViewer.pref.smartLibraryFeatureEnabled"
         static let showRecentFavoritesOnWelcome = "qooViewer.pref.showRecentFavoritesOnWelcome"
         static let thumbnailHoverPreviewDelay = "qooViewer.pref.thumbnailHoverPreviewDelay"
         static let thumbnailHoverPreviewSize = "qooViewer.pref.thumbnailHoverPreviewSize"
@@ -818,6 +819,18 @@ final class AppPreferences: ObservableObject {
     static func storedFileBrowserFeatureEnabled(in defaults: UserDefaults) -> Bool {
         defaults.object(forKey: Keys.fileBrowserFeatureEnabled) as? Bool ?? true
     }
+    /// ホームのスマートライブラリを使うか(2026-09-22、利用者の要望。既定ON)。ライブラリ・ファイルブラウザと並ぶ 3 つ目の設定で、
+    /// 3 つとも個別に切り替えられる(スマートライブラリの本は自分の対象フォルダの中だけなので、ほかの 2 つに頼らない)。
+    /// OFF にすると帯・「ホーム」メニューからスマートライブラリが消え、メタデータの編集ウインドウの対象から対象フォルダの本が外れる
+    /// (フォルダを探しに行かない)。対象フォルダ・スマートコレクション・ピン留めは**消さない**。ホームの形は 3 つの組で決まる
+    /// (WelcomeLibraryState.constrained)。
+    @Published var smartLibraryFeatureEnabled: Bool {
+        didSet { defaults.set(smartLibraryFeatureEnabled, forKey: Keys.smartLibraryFeatureEnabled) }
+    }
+    /// 保存されている値(無ければON)。`storedLibraryFeatureEnabled` と同じ理由の口。
+    static func storedSmartLibraryFeatureEnabled(in defaults: UserDefaults) -> Bool {
+        defaults.object(forKey: Keys.smartLibraryFeatureEnabled) as? Bool ?? true
+    }
     /// ウェルカム画面に「最近お気に入りに追加したファイル」一覧(最大10件)を表示するかどうか(既定ON)。
     @Published var showRecentFavoritesOnWelcome: Bool {
         didSet {
@@ -1275,6 +1288,7 @@ final class AppPreferences: ObservableObject {
             defaults.object(forKey: Keys.offersRemovingMissingCollectionBooks) as? Bool ?? false
         self.libraryFeatureEnabled = Self.storedLibraryFeatureEnabled(in: defaults)
         self.fileBrowserFeatureEnabled = Self.storedFileBrowserFeatureEnabled(in: defaults)
+        self.smartLibraryFeatureEnabled = Self.storedSmartLibraryFeatureEnabled(in: defaults)
         self.showRecentFavoritesOnWelcome =
             defaults.object(forKey: Keys.showRecentFavoritesOnWelcome) as? Bool ?? true
         self.thumbnailHoverPreviewDelay = defaults.object(forKey: Keys.thumbnailHoverPreviewDelay) as? Double ?? 0.35
@@ -1418,6 +1432,7 @@ extension AppPreferences {
                 Keys.offersRemovingMissingCollectionBooks,
                 Keys.libraryFeatureEnabled,
                 Keys.fileBrowserFeatureEnabled,
+                Keys.smartLibraryFeatureEnabled,
                 Keys.sidePanelFeatureEnabled,
                 Keys.sidePanelPosition,
                 Keys.sidePanelUsesDoubleClick,
@@ -1530,6 +1545,7 @@ extension AppPreferences {
             offersRemovingMissingCollectionBooks = source.offersRemovingMissingCollectionBooks
             libraryFeatureEnabled = source.libraryFeatureEnabled
             fileBrowserFeatureEnabled = source.fileBrowserFeatureEnabled
+            smartLibraryFeatureEnabled = source.smartLibraryFeatureEnabled
             sidePanelFeatureEnabled = source.sidePanelFeatureEnabled
             sidePanelPosition = source.sidePanelPosition
             sidePanelUsesDoubleClick = source.sidePanelUsesDoubleClick
