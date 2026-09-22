@@ -258,6 +258,21 @@ struct MetadataBookTable: NSViewRepresentable {
         }
     }
 
+    /// 行(ロックした本の行は地を薄い黄色にする。2026-09-22、利用者の要望 ―― 鍵の列だけでは、ロックした本が一覧のどこに
+    /// あるか見分けにくい)。選んだ行の強調は、この地の上に描かれる。
+    final class BookRowView: NSTableRowView {
+        var isLockedRow = false {
+            didSet { if isLockedRow != oldValue { needsDisplay = true } }
+        }
+
+        override func drawBackground(in dirtyRect: NSRect) {
+            super.drawBackground(in: dirtyRect)
+            guard isLockedRow else { return }
+            NSColor.systemYellow.withAlphaComponent(0.2).setFill()
+            dirtyRect.intersection(bounds).fill(using: .sourceOver)
+        }
+    }
+
     /// 鍵の列のセル(押すとその本のロックが切り替わる)。
     final class LockCellView: NSTableCellView {
         let button = NSButton()
@@ -389,9 +404,17 @@ struct MetadataBookTable: NSViewRepresentable {
 
         func numberOfRows(in tableView: NSTableView) -> Int { rowCount }
 
+        func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+            let view = BookRowView()
+            if row >= 0, row < rowCount { view.isLockedRow = book(row).isLocked }
+            return view
+        }
+
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
             guard let parent, let tableColumn, let column = Column(tableColumn.identifier), row >= 0, row < rowCount else { return nil }
             let book = book(row)
+            // 行の見た目は行を作ったときにしか決まらない(`reloadData(forRowIndexes:)` はセルだけを作り直す)ので、ここで合わせる。
+            (tableView.rowView(atRow: row, makeIfNecessary: false) as? BookRowView)?.isLockedRow = book.isLocked
             switch column {
             case .lock:
                 let cell = (tableView.makeView(withIdentifier: tableColumn.identifier, owner: nil) as? LockCellView) ?? {

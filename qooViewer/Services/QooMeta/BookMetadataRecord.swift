@@ -17,6 +17,9 @@ nonisolated struct BookMetadataRecord: Hashable, Sendable {
 
     /// qooMeta へ渡す確定した内容。ロックした行はすべての欄(`BookMetadataValues.confirmation`)、していない行は直した欄だけ。
     var confirmation: Confirmation { isLocked ? values.confirmation : edits }
+
+    /// ロック・直した欄・ルールセット(DB の行の形。`BookMetadata.rowState` と同じ)。
+    var rowState: BookMetadataRowState { BookMetadataRowState(isLocked: isLocked, edits: edits, ruleSet: ruleSet) }
 }
 
 /// 行のロックと直した欄(`BookMetadataStore.BatchEntry.state`)。
@@ -26,6 +29,11 @@ nonisolated struct BookMetadataRowState: Hashable, Sendable {
     var ruleSet: String?
 
     static let locked = BookMetadataRowState(isLocked: true)
+
+    /// DB に書いたあとの形(ロックした行は直した欄を持たない ―― `BookMetadata.apply(_:)`)。
+    var normalized: BookMetadataRowState {
+        isLocked ? BookMetadataRowState(isLocked: true, ruleSet: ruleSet) : self
+    }
 }
 
 extension BookMetadata {
@@ -114,6 +122,11 @@ nonisolated enum MetadataParsing {
             return .notInSeries(fields: fields)
         }
         return .series(name: new.series, volume: new.volume, fields: fields)
+    }
+
+    /// 読み(`parsed`)と違う欄だけを直した欄にしたもの(鍵を外したとき。`MetadataWorkspace.unlock`・1 冊ぶんのシート)。
+    static func edits(from parsed: BookMetadataValues, to values: BookMetadataValues) -> Confirmation {
+        edits(changing: parsed, to: values, in: .none)
     }
 
     /// ファイル(EPUB/PDF/ComicInfo.xml)の書誌情報を、直した欄へ重ねる。**利用者が直した欄は変えない**

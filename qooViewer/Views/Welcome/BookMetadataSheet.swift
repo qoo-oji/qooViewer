@@ -87,6 +87,9 @@ struct BookMetadataSheet: View {
     @State private var openedValues = BookMetadataValues()
     /// ロックしている本か(欄を変えさせない。利用者の指示 2026-09-22「ロックされたら DB を変更不可」)。
     @State private var isLocked = false
+    /// 開いたときにロックしていたか。シートの鍵のボタンは `isLocked` だけを変え、「保存」で DB へ書く(「キャンセル」なら
+    /// 変わらない。2026-09-22、利用者の要望でシートからもロック・解除できるようにした)。
+    @State private var openedIsLocked = false
     /// カバーの指定。環境オブジェクトが要るのでinitでは作れず、onAppearで組み立てる
     /// (MetadataEditorWindowが@StateのViewModelを組み立てるのと同じ形)。
     @State private var coverController: CoverOverrideController?
@@ -208,12 +211,15 @@ struct BookMetadataSheet: View {
                     Label("This book is in a folder excluded from metadata registration.", systemImage: "folder.badge.minus")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                } else if isLocked {
-                    Label("This book's metadata is locked. Unlock it in the Edit Metadata window to change it.",
-                          systemImage: "lock.fill")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    // 鍵(メタデータの編集ウインドウの鍵の列と同じ意味)。押しただけでは書かず、「保存」で書く。
+                    Button { isLocked.toggle() } label: {
+                        Label(isLocked ? "Unlock" : "Lock", systemImage: isLocked ? "lock.fill" : "lock.open")
+                    }
+                    .disabled(!isLocked && !canLock)
+                    .help(isLocked ? "Locked: the fields can’t be changed. Unlock to edit them. The change is saved with Save".ui
+                          : canLock ? "Lock the values in the fields. The change is saved with Save".ui
+                          : "There is nothing to lock".ui)
                 }
                 Spacer(minLength: 0)
                 Button(role: .cancel) { dismiss() } label: {
@@ -224,8 +230,8 @@ struct BookMetadataSheet: View {
                     Text("Save").frame(width: labelWidth)
                 }
                 .keyboardShortcut(.defaultAction)
-                // ロックした本は変えない(メタデータの編集ウインドウの鍵。2026-09-21)。
-                .disabled(rulesStore.isExcluded(bookID: bookID) || isLocked || isVolumeSortInvalid)
+                // ロックしたままの本は変えない(メタデータの編集ウインドウの鍵。2026-09-21)。鍵を掛け外ししたときは押せる。
+                .disabled(rulesStore.isExcluded(bookID: bookID) || (isLocked && openedIsLocked) || isVolumeSortInvalid)
             }
         }
         .padding(20)
@@ -244,6 +250,7 @@ struct BookMetadataSheet: View {
                 ?? BookMetadataValues(MetadataRulesStore.singleProposal(forBookID: bookID, rules: rulesStore.rules))
             openedValues = draft
             isLocked = row?.isLocked == true
+            openedIsLocked = isLocked
             authorsText = draft.authors.joined(separator: "、")
             openedVolume = draft.volume
             volumeSortText = draft.volumeSort.map(MetadataWorkspace.volumeSortText) ?? ""
@@ -311,6 +318,14 @@ struct BookMetadataSheet: View {
         .disabled(isLocked)
     }
 
+    /// 鍵を掛けられるか(全欄が空なら行を作れないので掛けられない ―― `BookMetadataStore.applyUpsert`。メタデータの編集
+    /// ウインドウの `setLocked` と同じ)。
+    private var canLock: Bool {
+        var values = draft
+        values.authors = authorsText.split(whereSeparator: { "、,，".contains($0) }).map(String.init)
+        return !values.trimmed.isEmpty && !isVolumeSortInvalid
+    }
+
     private var hasSeries: Bool { !draft.series.trimmingCharacters(in: .whitespaces).isEmpty }
 
     /// 巻数(並べ替え用)はシリーズの中の位置なので、シリーズ名のある本だけ(巻数(表示)は空でもよい)。
@@ -357,10 +372,16 @@ struct BookMetadataSheet: View {
     // MARK: - 保存
 
     /// 欄を DB へ書く。**変えた欄だけを「直した欄」にする**(ほかの欄はファイル名の読みに付いていく。メタデータの編集
-    /// ウインドウで直したときと同じ。利用者の指示 2026-09-22)。ロックは変えない(行が無ければロックせずに作る)。
+    /// ウインドウで直したときと同じ。利用者の指示 2026-09-22)。行が無ければロックせずに作る。
+    /// 鍵: 掛けたら欄の値をすべて確定してロックする。外したら、ファイル名の読みと違う欄だけを直した欄にする(ウインドウの
+    /// `MetadataWorkspace.unlock` と同じ考え。ただしこのシートは 1 冊だけを読むので、ほかの本を錨にしたシリーズは見つからず、
+    /// そのシリーズ名は直した欄に残る)。
     /// すべての欄が空のまま押すと、既存仕様どおり行そのものを消す。
     private func register(bookID: String) {
-        guard metadataStore.metadata(forBookID: bookID)?.isLocked != true else { return }
+        let storedLocked = metadataStore.metadata(forBookID: bookID)?.isLocked == true
+        // 開いたあとにほかの画面で鍵が変わっていたら書かない(その画面の操作を上書きしない)。
+        guard storedLocked == openedIsLocked else { return dismiss() }
+        guard !(storedLocked && isLocked) else { return dismiss() }
         var values = draft
         values.authors = authorsText.split(whereSeparator: { "、,，".contains($0) }).map(String.init)
         // シリーズ名を空にしたら、巻も外す(シリーズの無い巻は持たせない。欄は入れられなくなっているが値は残っているので)。
@@ -379,7 +400,17 @@ struct BookMetadataSheet: View {
         values = values.trimmed
         let current = metadataStore.metadata(forBookID: bookID)?.rowState ?? BookMetadataRowState(isLocked: false)
         var state = current
-        state.edits = MetadataParsing.edits(changing: openedValues.trimmed, to: values, in: current.edits)
+        if isLocked {
+            // 掛ける: 値そのものが確定する(ロックした行は直した欄を持たない)。
+            state = BookMetadataRowState(isLocked: true, ruleSet: current.ruleSet)
+        } else if storedLocked {
+            // 外す: ファイル名の読み(その本のルールセットで)と違う欄だけを直した欄に。
+            let parsed = MetadataParsing.values(forBookID: bookID, ruleSet: current.ruleSet, rules: rulesStore.rules)
+            state = BookMetadataRowState(isLocked: false, edits: MetadataParsing.edits(from: parsed.trimmed, to: values),
+                                         ruleSet: current.ruleSet)
+        } else {
+            state.edits = MetadataParsing.edits(changing: openedValues.trimmed, to: values, in: current.edits)
+        }
         // ウインドウ版と違い、この画面は本のURLを持てている(ブックマークとinodeも入る)。
         metadataStore.upsertAll([BookMetadataStore.BatchEntry(bookID: bookID, values: values, sourceURL: sourceURL,
                                                               state: state)])

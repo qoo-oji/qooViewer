@@ -270,6 +270,30 @@ struct MetadataWorkspaceTests {
         #expect(library.metadata.record(forBookID: first)?.edits.fields[.info] == ["架空の付記"])
     }
 
+    @Test("直しが DB に届く前にほかの書き手の知らせが来ても、直しは戻らない。外で本当に変わった本だけを合わせる(2026-09-22、利用者の報告)")
+    func pendingEditSurvivesUnrelatedNotifications() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let workspace = await open(library, [first, second])
+        workspace.setSeries("別の名前", for: [second])
+        // bookID の無い知らせ(スマートライブラリの登録など)を受けたときと同じ呼び出し。この時点で DB はまだ直す前。
+        workspace.applyExternalChanges([first: library.metadata.record(forBookID: first),
+                                        second: library.metadata.record(forBookID: second)])
+        await workspace.settle()
+        #expect(workspace.row(second)?.metadata.series == "別の名前")
+        #expect(library.metadata.record(forBookID: second)?.values.series == "別の名前")
+        #expect(workspace.canUndo)
+
+        // 外で本当に変わった(ロックされた)本は合わせる。
+        var values = try #require(library.metadata.record(forBookID: first)).values
+        values.info = "外で書いた付記"
+        library.metadata.upsertAll([BookMetadataStore.BatchEntry(bookID: first, values: values, state: .locked)])
+        workspace.applyExternalChanges([first: library.metadata.record(forBookID: first)])
+        await workspace.settle()
+        #expect(workspace.isLocked(first))
+        #expect(workspace.row(first)?.metadata.info == "外で書いた付記")
+    }
+
     @Test("ロックした本は、すべての欄が確定した内容として読まれる")
     func lockedBooksAreFullyConfirmed() async throws {
         let library = try InMemoryLibrary()

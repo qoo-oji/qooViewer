@@ -189,6 +189,15 @@ final class MetadataWorkspace {
     /// DB に行があると分かっている本(開いたときに行があった・この窓が空でない値を書いた・外から行が届いた)。
     /// 外で行が消えたときに一覧から外すのは、この本だけ(`applyExternalChanges`)。
     private var persisted: Set<String>
+    /// DB の行のロック・直した欄・ルールセットとして、この窓が知っている最後の形(開いたときに読んだ・この窓が書いた・外から
+    /// 届いた)。外の知らせで本を合わせるのは、DB の形がこれと違う本だけ(`applyExternalChanges`)。
+    ///
+    /// 2026-09-22、利用者の報告(「シリーズ名を直しても、ときどきほかの本に引っ張られて元に戻る」)。以前は DB の形を**今の入力**
+    /// と比べていた。直しは入力を先に変え、DB へは計算(`tail`)が済んでから書くので、その間に届いたほかの書き手の知らせ
+    /// (スマートライブラリの登録・規則の変更の読み直しなど。bookID の無い知らせは一覧の全冊を確かめる)では、DB はまだ直す前の
+    /// 形 ―― 入力と違うので「外で変わった」と読み、直しを DB の古い形へ戻していた(DB にも古い形が書かれた)。計算が長い
+    /// (同じ書き手の本が多い)ほど、また窓の外で書き手が動いているほど起きやすかった。
+    private var knownStates: [String: BookMetadataRowState] = [:]
     /// 実体が見つからない本(窓を開いたあとに、画面の外で確かめた結果)。
     private var missing: Set<String> = []
     /// 入れた順。
@@ -265,8 +274,10 @@ final class MetadataWorkspace {
     }
 
     private init(inputs: [BookInput], autoPresets: [String: String], locked: Set<String>, persisted: Set<String>,
+                 states: [String: BookMetadataRowState],
                  overrides: [String: String], rules: CompiledRules) {
         self.persisted = persisted
+        knownStates = states
         presetOverrides = overrides
         self.rules = rules
         formats = rules.formats
@@ -302,8 +313,10 @@ final class MetadataWorkspace {
             if let preset = entry.record?.ruleSet { overrides[entry.bookID] = preset }
         }
         let persisted = Set(entries.lazy.filter { $0.record != nil }.map(\.bookID))
+        var states: [String: BookMetadataRowState] = [:]
+        for entry in entries { if let record = entry.record { states[entry.bookID] = record.rowState } }
         let workspace = MetadataWorkspace(inputs: prepared.0, autoPresets: prepared.1, locked: prepared.2,
-                                          persisted: persisted, overrides: overrides, rules: rules)
+                                          persisted: persisted, states: states, overrides: overrides, rules: rules)
         await workspace.recomputeAll()
         return workspace
     }
@@ -454,7 +467,13 @@ final class MetadataWorkspace {
         isWritingBack = false
         // 空の値は行を作らない(消す)ので、行があるのは空でない値を書いた本だけ(`BookMetadataStore.applyUpsert`)。
         for entry in entries {
-            if entry.values?.trimmed.isEmpty == false { persisted.insert(entry.bookID) } else { persisted.remove(entry.bookID) }
+            if entry.values?.trimmed.isEmpty == false {
+                persisted.insert(entry.bookID)
+                if let state = entry.state { knownStates[entry.bookID] = state.normalized }
+            } else {
+                persisted.remove(entry.bookID)
+                knownStates[entry.bookID] = nil
+            }
         }
     }
 
@@ -531,6 +550,11 @@ final class MetadataWorkspace {
                 continue
             }
             persisted.insert(id)
+            // DB の形が、この窓の知っている最後の形のままなら、外では何も変わっていない(この窓の直しがまだ DB へ届いていない
+            // だけかもしれない ―― `knownStates` のコメント)。ロックした行は値も見る(保存データの読み込みは値だけを変えうる)。
+            let state = record.rowState
+            if knownStates[id] == state, !record.isLocked || row(id)?.values == record.values.trimmed { continue }
+            knownStates[id] = state
             let wasLocked = locked.contains(id)
             if record.isLocked {
                 if wasLocked, row(id)?.values == record.values.trimmed { continue }
@@ -843,7 +867,7 @@ final class MetadataWorkspace {
                 guard delta != nil, !self.locked.contains(id), self.inputs[id]?.confirmation == full[id],
                       let row = self.row(id) else { continue }
                 let shown = row.values.trimmed
-                let edits = MetadataParsing.edits(changing: proposed[id]?.trimmed ?? shown, to: shown, in: .none)
+                let edits = MetadataParsing.edits(from: proposed[id]?.trimmed ?? shown, to: shown)
                 guard edits != full[id] else { continue }
                 self.inputs[id]?.confirmation = edits
                 narrowed.append(id)
@@ -887,6 +911,7 @@ final class MetadataWorkspace {
             inputs[id] = nil
             locked.remove(id)
             persisted.remove(id)
+            knownStates[id] = nil
             missing.remove(id)
             presetOverrides[id] = nil
             autoPresets[id] = nil

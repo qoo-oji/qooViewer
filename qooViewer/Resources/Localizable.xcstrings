@@ -17095,6 +17095,23 @@
         }
       }
     },
+    "Lock the values in the fields. The change is saved with Save" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lock the values in the fields. The change is saved with Save"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "欄の値をロックします。ロックの変更は「保存」で書き込まれます"
+          }
+        }
+      }
+    },
     "Locked" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -17189,6 +17206,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ロック中。押すとロックを外します"
+          }
+        }
+      }
+    },
+    "Locked: the fields can’t be changed. Unlock to edit them. The change is saved with Save" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Locked: the fields can’t be changed. Unlock to edit them. The change is saved with Save"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ロック中: 欄は変えられません。変えるにはロックを外してください。ロックの変更は「保存」で書き込まれます"
           }
         }
       }
@@ -29963,6 +29997,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "区切りがありません"
+          }
+        }
+      }
+    },
+    "There is nothing to lock" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "There is nothing to lock"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ロックする値がありません"
           }
         }
       }
