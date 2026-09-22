@@ -992,6 +992,7 @@ final class AppState: ObservableObject {
         let nestedArchiveMemoryLimitBytes =
             preferences?.nestedArchiveMemoryLimitBytes ?? AppPreferences.defaultNestedArchiveMemoryLimitBytes
         let shelfOrder = siblingBookOrder
+        let isPrivate = isPrivateWindow
 
         let token = UUID()
         openToken = token
@@ -1020,6 +1021,18 @@ final class AppState: ObservableObject {
                     // **フォルダのほうで**開いてあるので(上のnewlyAccessedURLs)、その中の
                     // ファイルへはそのまま到達できる。
                     let target = await ShelfFolderResolver.resolvedBookURLAsync(for: url, order: shelfOrder)
+                    // 棚を先頭の本に読み替えたら、その本が別のウインドウで開いていないかをもう一度見る(2026-09-22 の監査。
+                    // 上の判定は読み替える前のパス ―― 棚のフォルダ ―― で見るので、同じ本が 2 つのウインドウで開き、
+                    // 読書位置を取り合った)。開いていれば、そのウインドウを前へ出して読み込みをやめる。
+                    if reusesExistingWindow, MountTable.normalized(target.path) != MountTable.normalized(url.path),
+                       let self, !Task.isCancelled, self.openToken == token,
+                       let existingAppState = self.launchCoordinator?.openAppState(forBookAt: target, isPrivate: isPrivate),
+                       existingAppState !== self, let existingWindow = existingAppState.hostWindow {
+                        existingWindow.makeKeyAndOrderFront(nil)
+                        NSApp.activate(ignoringOtherApps: true)
+                        self.cancelOpen()
+                        return
+                    }
                     book = try await BookLoader.load(
                         from: target,
                         cachesPageList: cachesPageList,
