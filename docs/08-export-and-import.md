@@ -116,7 +116,7 @@
 
 ## 保存データの JSON 書き出し・読み込み
 
-`LibraryImportExportService` と `LibraryJSONSchema`(`formatVersion` 4)。qooViewer 専用の
+`LibraryImportExportService` と `LibraryJSONSchema`(`formatVersion` 5)。qooViewer 専用の
 1ファイルで、コレクション(ライブラリ → コレクション → 本)・ブックマーク・レイアウト・メタデータ・
 メタデータの推測ルール・お気に入り(無効化中)を選んで出し入れします。3 で書き出したファイルは
 `libraries == nil`(= コレクションを含まない)として今までどおり読めます。
@@ -128,6 +128,10 @@
 - 書き込みは一括(`forceAddFavorites`、`BookmarkStore.addBookmarks`、`upsertAll`、
   `setPageLayoutStates`)。1件ずつだと SQLite への書き込みが行数ぶん走って非常に遅かった。
 - 書き出し時にファイルが見つからなかった本は、カテゴリをまたいで重複なく1つのリストで見せる。
+- メタデータの行は**欄の版(`fieldsVersion`)も書く**(2026-09-22。Optional なので formatVersion は据え置き)。書かないと
+  取り込み側は「qooMeta の欄が 1 つでもあるか」で推すしかなく、空の欄は書かないので、題と著者 1 人だけの今の版の行が往復で
+  以前の版に落ち、メタデータの編集ウインドウが尋ね直した(「ロックを外して解析し直す」を選ぶと登録値が捨てられる)。
+  書いていない以前のファイルだけ推す(`ExportedBookMetadataEntry.importedFieldsVersion`)。
 - 書き出し側は、書き出す本の URL を解決できたタイミングで識別子の補完(`backfill*`)も行う。
 - 読み込み画面は、ファイルを選ぶ前後で部品を増減させない(選んだ瞬間にレイアウトが跳ねるため。
   無効化だけで対応)。

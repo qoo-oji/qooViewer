@@ -569,9 +569,10 @@ enum LibraryImportExportService {
             )
             let bookID = resolvedURL?.path ?? entry.bookID
             if policy == .merge, metadataStore.metadata(forBookID: bookID) != nil { continue }
-            // 以前の版(formatVersion 4 以前・qooMeta の書き出し)の行は、以前の版の欄の登録として入れる(空の欄を埋めるかを尋ねる)。
+            // 書き出した版の欄の版のまま入れる。版の無い以前のファイル(formatVersion 4 以前・qooMeta の書き出し)の行は、
+            // qooMeta の欄が無ければ以前の版の欄の登録として入れる(空の欄を埋めるかを尋ねる。importedFieldsVersion)。
             batch.append(BookMetadataStore.BatchEntry(bookID: bookID, values: entry.values, sourceURL: resolvedURL,
-                                                      fieldsVersion: entry.hasQooMetaFields ? BookMetadata.currentFieldsVersion : 0))
+                                                      fieldsVersion: entry.importedFieldsVersion))
         }
         summary.metadataImportedBooks += metadataStore.upsertAll(batch)
 

@@ -282,9 +282,10 @@ final class MetadataWorkspace {
             var autos: [String: String] = [:]
             var registered = Set<String>()
             inputs.reserveCapacity(entries.count)
+            let autoRules = MetadataRulesStore.autoPresetRules(of: rules)
             for entry in entries {
                 let name = MetadataRulesStore.parsingName(forBookID: entry.bookID)
-                let auto = MetadataRulesStore.autoPreset(forBookID: entry.bookID, name: name, rules: rules)
+                let auto = MetadataRulesStore.autoPreset(forBookID: entry.bookID, name: name, autoRules: autoRules)
                 if let auto { autos[entry.bookID] = auto }
                 if entry.registeredValues != nil { registered.insert(entry.bookID) }
                 // 登録済み(ロック)ならその値、そうでなければ下書き(直したが登録していない値)。
@@ -320,18 +321,24 @@ final class MetadataWorkspace {
             let names = self.inputs.mapValues(\.name)
             let autos = await Task.detached { () -> [String: String] in
                 var autos: [String: String] = [:]
+                let autoRules = MetadataRulesStore.autoPresetRules(of: rules)
                 for (id, name) in names {
-                    if let auto = MetadataRulesStore.autoPreset(forBookID: id, name: name, rules: rules) { autos[id] = auto }
+                    if let auto = MetadataRulesStore.autoPreset(forBookID: id, name: name, autoRules: autoRules) { autos[id] = auto }
                 }
                 return autos
             }.value
             self.autoPresets = autos
+            // ルールセットが変わった本の入力。**`inputs` へ書くのは読み直しが通ってから**(2026-09-22 の監査で指摘): 先に
+            // 書いてから次の規則の変更で取り消されると、索引は前のルールセットのまま `inputs` だけ新しくなり、次の
+            // `setRules` は「変わっていない」と見て渡さなかった(その本は前のルールセットで読まれ続け、鍵を掛けるとその
+            // 読みで登録された)。書かずに取り消されても、次の `setRules` がもう一度渡す(同じ入力の upsert は何度でもよい)。
+            var updated: [String: BookInput] = [:]
             var changed: [BookChange] = []
             for id in self.order {
                 let preset = self.presetOverrides[id] ?? autos[id]
                 guard var input = self.inputs[id], input.preset != preset else { continue }
                 input.preset = preset
-                self.inputs[id] = input
+                updated[id] = input
                 changed.append(.upsert(input))
             }
             let confirmations = self.inputs.mapValues(\.confirmation), ranks = self.fileRanks, registered = self.registered
@@ -349,6 +356,7 @@ final class MetadataWorkspace {
             }
             self.reloading = work
             if let rows = await work.value {
+                for (id, input) in updated { self.inputs[id] = input }
                 self.replaceBooks(rows)
 
             }
@@ -706,8 +714,14 @@ final class MetadataWorkspace {
     /// - 掛ける: いま見えている値で DB に登録し、すべての欄を確定した内容にする(規則を変えても変わらない)。下書きは消す。
     /// - 外す: DB の行を消す。**見えていた値は下書きとして残す**(直してからまた掛けられるように)。
     /// 取り消しの歩みには入れない(DB へ書く操作なので)。その本の前の歩みも捨てる。
+    ///
+    /// **欄がすべて空の本には掛けない**(2026-09-22 の監査で指摘)。DB は空の値の行を作らない(`BookMetadataStore.applyUpsert`)
+    /// ので、掛けると鍵の印だけが付いて何も登録されず、開き直すと外れていた。
     func setLocked(_ ids: Set<String>, _ lock: Bool) {
-        let targets = ids.filter { inputs[$0] != nil && registered.contains($0) != lock }
+        let targets = ids.filter { id in
+            guard inputs[id] != nil, registered.contains(id) != lock else { return false }
+            return !lock || row(id)?.values.isEmpty == false
+        }
         guard !targets.isEmpty else { return }
         var drafts: [String: MetadataDraftStore.Draft?] = [:]
         for id in targets {

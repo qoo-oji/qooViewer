@@ -123,7 +123,7 @@ final class MetadataEditorModel {
             known.formUnion(await stores.smartLibraryCatalog.folderBookIDs())
         }
         let bookIDs = known.filter { !rulesStore.isExcluded(bookID: $0) }
-        drafts.keepOnly(Set(bookIDs))
+        // 一覧に無い本の下書きは捨てない(MetadataDraftStore の型コメント「知らない本の分も捨てない」)。
         let entries = bookIDs.map { bookID in
             MetadataWorkspace.Entry(bookID: bookID, registeredValues: metadataStore.metadata(forBookID: bookID)?.values,
                                     draft: drafts.drafts[bookID])

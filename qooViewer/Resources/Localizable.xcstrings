@@ -2212,6 +2212,23 @@
         }
       }
     },
+    "The saved rules could not be read, so they cannot be changed one by one. Correct them in the JSON pane, or reset all the rules: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The saved rules could not be read, so they cannot be changed one by one. Correct them in the JSON pane, or reset all the rules: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存してある規則を読めないため、1 か所ずつは変えられません。JSON の欄で直すか、すべての規則を既定に戻してください: %@"
+          }
+        }
+      }
+    },
     "The sheets drawn behind the first cover when books are grouped by series. Until you pick a color it follows the Light/Dark appearance." : {
       "localizations" : {
         "en" : {
@@ -2256,6 +2273,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "ボリュームが接続されていません"
+          }
+        }
+      }
+    },
+    "These formats could not be carried over because qooMeta cannot read them: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "These formats could not be carried over because qooMeta cannot read them: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "qooMeta が読めないため、次のフォーマットは引き継げませんでした: %@"
           }
         }
       }

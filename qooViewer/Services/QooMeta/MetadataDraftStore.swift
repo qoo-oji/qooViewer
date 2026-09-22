@@ -9,7 +9,17 @@ import QooMetaKit
 ///
 /// 中身は本ごとの qooMeta の確定した内容(`Confirmation`)と、右クリックで選んだルールセット。保存先はコンテナの
 /// Application Support/qooMeta/drafts.json(**蔵書の名前が入る** ―― 規則の設定と同じくコンテナの外へは書かない)。
-/// 本は bookID(パス)で指すので、Finder で移した本の分は残ったまま使われない(窓を開いたときに、知らない本の分は捨てる)。
+/// 本は bookID(パス)で指すので、Finder で移した本の分は残ったまま使われない。
+///
+/// ■ 知らない本の分も捨てない(2026-09-22 の監査で指摘)
+/// 以前は窓を開くたびに、一覧に無い本の下書きを捨てていた(`keepOnly`)。ところが一覧の母体のうちスマートライブラリの
+/// 対象フォルダの本は、スマートライブラリを OFF にした・対象フォルダのボリュームが繋がっていない・対象から外した、の
+/// どれでも一覧から消える ―― そのまま窓を開くだけで、その本の下書きが戻せない形で消えた。下書きは利用者が直した本の分
+/// しか無く小さいので、捨てずに持ち続ける(一覧に戻ってくれば、また出る)。
+///
+/// ■ 読めないファイルは上書きしない
+/// 読めなかった drafts.json(qooMeta の版が上がって `Confirmation` の形が変わった、など)は、空として読んだうえで次の
+/// 保存で黙って上書きしていた。隣に写しを残してから使い始め、残せなければ保存しない(`MetadataRulesStore.keepCopy` と同じ)。
 @MainActor
 final class MetadataDraftStore {
     struct Draft: Codable, Hashable {
@@ -25,11 +35,30 @@ final class MetadataDraftStore {
         MetadataRulesStore.defaultURL.deletingLastPathComponent().appendingPathComponent("drafts.json")
     }
 
+    /// 読めなかったファイルの写しを残せなかった。このあいだは上書きしない(型コメント「読めないファイル」)。
+    private(set) var holdsSaving = false
+
     init(url: URL = MetadataDraftStore.defaultURL) {
         self.url = url
-        if let data = try? Data(contentsOf: url),
-           let decoded = try? JSONDecoder().decode([String: Draft].self, from: data) {
+        guard let data = try? Data(contentsOf: url) else { return }
+        if let decoded = try? JSONDecoder().decode([String: Draft].self, from: data) {
             drafts = decoded
+        } else {
+            keepUnreadableCopy()
+        }
+    }
+
+    /// 読めなかったファイルを隣へ移しておく(drafts.unreadable-<日時>.json)。移せなければ保存を止める。
+    private func keepUnreadableCopy() {
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
+        let copy = url.deletingLastPathComponent().appendingPathComponent("drafts.unreadable-\(stamp).json")
+        do {
+            try FileManager.default.moveItem(at: url, to: copy)
+            NSLog("qooViewer: the metadata drafts could not be read and were kept as %@", copy.lastPathComponent)
+        } catch {
+            holdsSaving = true
+            NSLog("qooViewer: the metadata drafts could not be read or kept aside; drafts are not saved: %@",
+                  error.localizedDescription)
         }
     }
 
@@ -38,14 +67,8 @@ final class MetadataDraftStore {
         drafts[bookID] = draft
     }
 
-    /// 知らない本の分を捨てる(窓を開いたとき)。
-    func keepOnly(_ bookIDs: Set<String>) {
-        let before = drafts.count
-        drafts = drafts.filter { bookIDs.contains($0.key) }
-        if drafts.count != before { save() }
-    }
-
     func save() {
+        guard !holdsSaving else { return }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         do {

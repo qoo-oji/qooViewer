@@ -141,9 +141,35 @@ final class MetadataRulesStore {
 
     @ObservationIgnored private var parsedChanges: (text: String, changes: RuleChanges)?
 
+    /// 保存してある差分が、差分としても読めない(JSON が壊れている・`base`/`kind` が違う)ときの理由。読めれば nil。
+    ///
+    /// **このあいだは 1 か所ずつの変更を断る**(2026-09-22 の監査で指摘)。`changes` は読めない差分を「変更なし」として返すので、
+    /// そのまま 1 か所変えると「変更なし + その 1 か所」で組み立てた差分が保存され、設定ファイルから文字のまま持ち続けていた
+    /// 差分(型コメント)が写しも無く消えた。直すのは JSON の欄(差分を丸ごと書き直す)か、すべてを既定に戻すことだけにする。
+    private var unparsableDiffIssue: String? {
+        guard !rulesDiff.isEmpty else { return nil }
+        do {
+            _ = try RuleChanges(data: Data(rulesDiff.utf8))
+            return nil
+        } catch {
+            return error.description
+        }
+    }
+
+    /// 差分としても読めない保存済みの差分(文字のまま)。読めれば nil。JSON の欄はこれを丸ごと見せ、丸ごと書き直させる。
+    var unreadableRulesDiff: String? { unparsableDiffIssue == nil ? nil : rulesDiff }
+
+    /// 1 か所ずつの変更を断る理由(`unparsableDiffIssue`)。
+    private var refusalForUnparsableDiff: [String]? {
+        unparsableDiffIssue.map {
+            ["The saved rules could not be read, so they cannot be changed one by one. Correct them in the JSON pane, or reset all the rules: %@".ui($0)]
+        }
+    }
+
     /// 規則の半分(ファイル名の解析 / シリーズと巻数)だけを、書いた JSON で差し替える。
     @discardableResult
     func setRulesDiff(_ text: String, for half: RuleChanges.Half) -> [String] {
+        if let refusal = refusalForUnparsableDiff { return refusal }
         var next = changes
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
@@ -167,6 +193,9 @@ final class MetadataRulesStore {
     /// 規則の半分だけを既定に戻す。
     @discardableResult
     func resetRules(_ half: RuleChanges.Half) -> [String] {
+        // 読めない差分は半分だけ戻せない(どこが半分か分からない)ので、丸ごと既定に戻す。元の設定ファイルの写しは
+        // 読んだときに残してある(load)。
+        if unparsableDiffIssue != nil { return setRulesDiff("") }
         var next = changes
         next.reset(half)
         return setRulesDiff(next.isEmpty ? "" : String(decoding: next.data(), as: UTF8.self))
@@ -175,6 +204,7 @@ final class MetadataRulesStore {
     /// 規則を 1 か所変える。組み立ててみて誤りがあれば、変えずに理由を返す(画面がその場で示す)。
     @discardableResult
     func update(_ body: (inout RuleChanges) -> Void) -> [String] {
+        if let refusal = refusalForUnparsableDiff { return refusal }
         var next = changes
         body(&next)
         return setRulesDiff(next.isEmpty ? "" : String(decoding: next.data(), as: UTF8.self))
@@ -249,7 +279,19 @@ final class MetadataRulesStore {
     /// (既定のルールセットで読む)。qooMeta のアプリは全冊が決まるときだけ「自動」を選ばせるが、qooViewer には段 2 が
     /// 無いので、決まらない本は既定で読み、型に合わなかった本を絞り込んで直してもらう(利用者の指示 2026-09-21)。
     nonisolated static func autoPreset(forBookID bookID: String, name: String, rules: CompiledRules) -> String? {
-        let autoRules = rules.presetCatalog.autoRules
+        autoPreset(forBookID: bookID, name: name, autoRules: autoPresetRules(of: rules))
+    }
+
+    /// ルールセットの自動の選択の条件(`rules.presetCatalog.autoRules`)。**多くの本を続けて選ぶときは 1 度だけ作って渡す** ――
+    /// `presetCatalog` は読むたびに全ルールセットを JSON から組み立て直すので、本ごとに読むと冊数ぶん組み立てていた
+    /// (2026-09-22 の監査)。
+    nonisolated static func autoPresetRules(of rules: CompiledRules) -> AutoPresetRules {
+        rules.presetCatalog.autoRules
+    }
+
+    typealias AutoPresetRules = [(name: String, rule: PresetAutoRule)]
+
+    nonisolated static func autoPreset(forBookID bookID: String, name: String, autoRules: AutoPresetRules) -> String? {
         guard autoRules.contains(where: { $0.rule.isActive }) else { return nil }
         if case .one(let preset) = PresetAutoChoice.decide(path: bookID, name: name, rules: autoRules) { return preset }
         return nil
@@ -304,29 +346,70 @@ final class MetadataRulesStore {
     ///
     /// 巻数フォーマットと除外文字列の正規表現は引き継がない ―― qooMeta はシリーズと巻をタイトルから別の規則で
     /// 導くので、同じ意味の置き場が無い(抽出の設定の窓で、語の規則として足し直してもらう)。
+    ///
+    /// **引き継げたと確かめるまで以前の値を消さない**(2026-09-22 の監査で指摘)。以前は `defer` で必ず消していたので、
+    /// 組み立てに失敗すると以前の規則が黙って全部失われた。qooMeta の型は以前の書式より厳しい(`@title` か `@series` が
+    /// 要る・欄と欄のあいだに区切りの文字が要る)ので、以前は通った書式が 1 つ混じるだけでルールセットごと断られる。
+    /// - qooMeta が読めない書式は外して、残りを引き継ぐ。外したものはルールセットの説明に書き残す(解析の設定の窓で見える)。
+    /// - 以前の値を消すのは、全部を引き継げたときだけ。1 つでも外したら残す(引き継ぎ済みの旗は立てる ―― 同じ書式で
+    ///   毎回やり直さない)。
+    /// - 組み立てに失敗したら旗も立てない(次の起動でやり直す。qooMeta の版が上がれば通るかもしれない)。
     private func migrateLegacyFormatsIfNeeded(from defaults: UserDefaults) {
         guard !defaults.bool(forKey: Self.legacyMigratedKey) else { return }
-        defer {
-            defaults.set(true, forKey: Self.legacyMigratedKey)
-            defaults.removeObject(forKey: Self.legacyFilenameFormatsKey)
-            defaults.removeObject(forKey: Self.legacyVolumeRulesKey)
-            defaults.removeObject(forKey: Self.legacyExclusionRulesKey)
-        }
         guard let data = defaults.data(forKey: Self.legacyFilenameFormatsKey),
               let formats = try? JSONDecoder().decode([LegacyFormat].self, from: data).map(\.pattern),
               !formats.isEmpty, formats != Self.legacyDefaultFormats,
-              !rules.presetCatalog.names.contains(Self.legacyPresetName) else { return }
-        let preset = PresetCatalog.Preset(
-            name: Self.legacyPresetName, label: "qooViewer (previous settings)".ui,
-            note: "The file name formats you used before qooViewer switched to qooMeta".ui,
-            formats: formats.map { PresetCatalog.Format(text: $0) })
+              !rules.presetCatalog.names.contains(Self.legacyPresetName) else {
+            finishLegacyMigration(in: defaults, removingLegacyValues: true)
+            return
+        }
+        let (usable, unusable) = Self.partitionLegacyFormats(formats)
+        guard !usable.isEmpty else {
+            // 1 つも読めない: 引き継ぐ先が無い。以前の値は残す(手で書き直せるように)。
+            NSLog("qooViewer: none of the %ld legacy file name formats can be read by qooMeta; they are kept", formats.count)
+            finishLegacyMigration(in: defaults, removingLegacyValues: false)
+            return
+        }
         let builtInDefault = rules.presetCatalog.builtInDefaultPreset
         let errors = update { changes in
-            changes.setPreset(preset, original: nil)
+            changes.setPreset(Self.legacyPreset(formats: usable, unusable: unusable), original: nil)
             // 自動で決まらない本は、これまでの読み方で読む。
             changes.setDefaultPreset(Self.legacyPresetName, builtIn: builtInDefault)
         }
-        if !errors.isEmpty { NSLog("qooViewer: migrating the legacy file name formats failed: %@", errors.joined(separator: " / ")) }
+        guard errors.isEmpty else {
+            NSLog("qooViewer: migrating the legacy file name formats failed: %@", errors.joined(separator: " / "))
+            return
+        }
+        finishLegacyMigration(in: defaults, removingLegacyValues: unusable.isEmpty)
+    }
+
+    private func finishLegacyMigration(in defaults: UserDefaults, removingLegacyValues: Bool) {
+        defaults.set(true, forKey: Self.legacyMigratedKey)
+        guard removingLegacyValues else { return }
+        defaults.removeObject(forKey: Self.legacyFilenameFormatsKey)
+        defaults.removeObject(forKey: Self.legacyVolumeRulesKey)
+        defaults.removeObject(forKey: Self.legacyExclusionRulesKey)
+    }
+
+    /// 以前の書式を、qooMeta が型として読めるもの・読めないものに分ける(順は保つ)。
+    nonisolated static func partitionLegacyFormats(_ formats: [String]) -> (usable: [String], unusable: [String]) {
+        var usable: [String] = [], unusable: [String] = []
+        for format in formats {
+            if (try? FilenameFormat(format)) != nil { usable.append(format) } else { unusable.append(format) }
+        }
+        return (usable, unusable)
+    }
+
+    /// 以前の書式から作るルールセット。読めなかった書式は説明に書き残す。
+    private static func legacyPreset(formats: [String], unusable: [String]) -> PresetCatalog.Preset {
+        var note = "The file name formats you used before qooViewer switched to qooMeta".ui
+        if !unusable.isEmpty {
+            note += "\n" + "These formats could not be carried over because qooMeta cannot read them: %@".ui(
+                unusable.joined(separator: "  /  "))
+        }
+        return PresetCatalog.Preset(
+            name: legacyPresetName, label: "qooViewer (previous settings)".ui, note: note,
+            formats: formats.map { PresetCatalog.Format(text: $0) })
     }
 
     // MARK: - 保存
@@ -405,6 +488,8 @@ final class MetadataRulesStore {
             stamps = stored.stamps
             excludedFolders = stored.excludedFolders
             setRulesDiff(stored.rulesDiff, keepingUnreadable: true, saving: false)
+            // 差分としても読めない差分を持ち続けるなら、書き直される前に写しを残す(`unparsableDiffIssue`)。
+            if !stored.skippedSomething, unparsableDiffIssue != nil { keepCopy(partly: true) }
         } catch {
             keepCopy(partly: false)
         }
@@ -463,16 +548,18 @@ final class MetadataRulesStore {
 
     /// 以前の保存データ(formatVersion 3・4 の `metadataFormats`)のファイル名フォーマットを、
     /// 利用者のルールセット「qooViewer(以前の設定)」として取り込む(すでにあれば置き換える)。
+    /// qooMeta が読めない書式は外し、説明に書き残す(`migrateLegacyFormatsIfNeeded` と同じ扱い)。
     @discardableResult
     func importLegacyFilenameFormats(_ formats: [String]) -> [String] {
         let cleaned = formats.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         guard !cleaned.isEmpty else { return [] }
-        let preset = PresetCatalog.Preset(
-            name: Self.legacyPresetName, label: "qooViewer (previous settings)".ui,
-            note: "The file name formats you used before qooViewer switched to qooMeta".ui,
-            formats: cleaned.map { PresetCatalog.Format(text: $0) })
+        let (usable, unusable) = Self.partitionLegacyFormats(cleaned)
+        guard !usable.isEmpty else {
+            return ["These formats could not be carried over because qooMeta cannot read them: %@".ui(
+                unusable.joined(separator: "  /  "))]
+        }
         let original = rules.presetCatalog.entries.first { $0.id == Self.legacyPresetName }?.original
-        return update { $0.setPreset(preset, original: original) }
+        return update { $0.setPreset(Self.legacyPreset(formats: usable, unusable: unusable), original: original) }
     }
 }
 
@@ -533,6 +620,11 @@ nonisolated extension BookMetadataValues {
     /// 登録済みの本を qooMeta へ渡すときの確定した内容。**登録済み = すべての欄が確定**
     /// (従来の約束「登録したメタデータは、規則を変えても変わらない」を保つ)。
     /// シリーズがあれば `.series`(巻が空なら「巻は無い」と確定)、無ければ「シリーズではない」。
+    ///
+    /// **シリーズの無い巻は、確定した欄の巻として渡す**(2026-09-22 の監査で指摘)。`.notInSeries` には巻の置き場が無く、
+    /// 以前はここで巻を落としていた ―― 行の値は提案から作るので、以前の 4 つの欄のシートや ComicInfo/EPUB/PDF の取り込みで
+    /// 登録した「シリーズ名は無いが巻はある」本(「上」「下」など)は、メタデータの編集ウインドウで巻が見えず、鍵を掛け直すと
+    /// 巻の無い値で書き直された。qooMeta は確定した欄を名前の読みに重ね、シリーズに入らない本の巻はそのまま残す。
     var confirmation: Confirmation {
         var fields = ConfirmedFields()
         fields[.title] = title.isEmpty ? [] : [title]
@@ -541,6 +633,10 @@ nonisolated extension BookMetadataValues {
         fields[.event] = event.isEmpty ? [] : [event]
         fields[.source] = source.isEmpty ? [] : [source]
         fields[.info] = info.isEmpty ? [] : [info]
-        return series.isEmpty ? .notInSeries(fields: fields) : .series(name: series, volume: volume, fields: fields)
+        guard !series.isEmpty else {
+            fields[.volume] = volume.isEmpty ? [] : [volume]
+            return .notInSeries(fields: fields)
+        }
+        return .series(name: series, volume: volume, fields: fields)
     }
 }

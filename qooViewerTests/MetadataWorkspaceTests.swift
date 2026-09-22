@@ -37,6 +37,22 @@ struct MetadataWorkspaceTests {
         #expect(library.metadata.registeredBookIDs.isEmpty)
     }
 
+    @Test("シリーズの無い巻だけを持つ登録済みの本は、巻が見え、鍵を外して掛け直しても巻が残る(2026-09-22 の監査)")
+    func volumeWithoutSeriesSurvives() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let bookID = "/書庫/架空の物語 前篇.zip"
+        library.metadata.upsert(bookID: bookID, author: "架空工房", title: "架空の物語", series: "", seriesIndex: "上")
+        let workspace = await open(library, [bookID])
+
+        #expect(workspace.row(bookID)?.metadata.volume == "上")
+        workspace.setLocked([bookID], false)
+        workspace.setLocked([bookID], true)
+        await workspace.settle()
+        #expect(library.metadata.metadata(forBookID: bookID)?.seriesIndex == "上")
+        #expect(library.metadata.metadata(forBookID: bookID)?.series == "")
+    }
+
     @Test("直しても登録はされず(下書き)、鍵を掛けると見えている値で登録され、外すと行は消えて値は下書きに残る")
     func lockingIsRegistering() async throws {
         let library = try InMemoryLibrary()
@@ -204,6 +220,47 @@ struct MetadataRulesStoreTests {
         #expect(reopened.rules.contentHash == store.rules.contentHash)
     }
 
+    @Test("qooMeta が読めない書式は外して残りを引き継ぎ、以前の値は消さずに残す(2026-09-22 の監査)")
+    func legacyFormatsQooMetaCannotReadAreKept() throws {
+        let suite = TestDefaultsPool.checkout()
+        let defaults = suite.defaults
+        defer { suite.release() }
+        let url = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        struct Legacy: Encodable { var id = UUID(); var pattern: String }
+        // 2 つ目は @title も @series も無い、3 つ目は欄が区切り無しで隣り合う ―― どちらも以前の書式では通った。
+        let patterns = ["@title - @author", "[@author] @ignore", "@author@title"]
+        let stored = try JSONEncoder().encode(patterns.map { Legacy(pattern: $0) })
+        defaults.set(stored, forKey: "qooViewer.metadata.filenameFormats")
+
+        let store = MetadataRulesStore(url: url, legacyDefaults: defaults)
+        let entry = try #require(store.rules.presetCatalog.entries.first { $0.id == MetadataRulesStore.legacyPresetName })
+        #expect(entry.preset.formats.map(\.text) == ["@title - @author"])
+        #expect(entry.preset.note.contains("[@author] @ignore"))
+        #expect(entry.preset.note.contains("@author@title"))
+        // 外した書式があるので、以前の値は残す。旗は立つので、次の起動でもう一度引き継がない。
+        #expect(defaults.data(forKey: "qooViewer.metadata.filenameFormats") == stored)
+        #expect(defaults.bool(forKey: "qooViewer.metadata.migratedToQooMeta"))
+        let reopened = MetadataRulesStore(url: url, legacyDefaults: defaults)
+        #expect(reopened.rules.contentHash == store.rules.contentHash)
+    }
+
+    @Test("1 つも読めない書式だけなら、何も足さずに以前の値を残す")
+    func legacyFormatsNoneReadableAreKept() throws {
+        let suite = TestDefaultsPool.checkout()
+        let defaults = suite.defaults
+        defer { suite.release() }
+        let url = temporaryURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        struct Legacy: Encodable { var id = UUID(); var pattern: String }
+        let stored = try JSONEncoder().encode([Legacy(pattern: "[@author] @ignore")])
+        defaults.set(stored, forKey: "qooViewer.metadata.filenameFormats")
+
+        let store = MetadataRulesStore(url: url, legacyDefaults: defaults)
+        #expect(store.rulesDiff.isEmpty)
+        #expect(defaults.data(forKey: "qooViewer.metadata.filenameFormats") == stored)
+    }
+
     @Test("以前の既定のままだったら何も引き継がない")
     func untouchedLegacyFormatsAreNotMigrated() throws {
         let suite = TestDefaultsPool.checkout()
@@ -224,6 +281,34 @@ struct MetadataRulesStoreTests {
 }
 
 extension MetadataRulesStoreTests {
+    @Test("差分として読めない保存済みの差分は、1 か所ずつの変更で上書きされず、写しも残る(2026-09-22 の監査)")
+    func unparsableDiffIsNotOverwrittenByAnEdit() throws {
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("qooViewerTests.unparsable.\(UUID().uuidString)", isDirectory: true)
+        let url = folder.appendingPathComponent("settings.json")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        // 外側の settings.json は読めるが、中の差分は壊れている(手で直しかけた、など)。
+        let broken = #"{"base": "builtin", "kind": "未来の種類"}"#
+        let settings = try JSONSerialization.data(withJSONObject: ["rulesDiff": broken])
+        try settings.write(to: url)
+
+        let store = MetadataRulesStore(url: url, legacyDefaults: nil)
+        #expect(store.unreadableRulesDiff == broken)
+        let kept = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { $0.hasPrefix("settings.unreadable-") }
+        #expect(kept.count == 1)
+
+        // 以前はここで「変更なし + 何もしない変更」の空の差分が保存され、壊れた差分が消えた。
+        #expect(!store.update { _ in }.isEmpty)
+        #expect(store.rulesDiff == broken)
+        #expect(MetadataRulesStore(url: url, legacyDefaults: nil).rulesDiff == broken)
+
+        // すべてを既定に戻すのは通る(写しは残してある)。
+        #expect(store.resetRules(.fileNames).isEmpty)
+        #expect(store.rulesDiff.isEmpty)
+        #expect(store.unreadableRulesDiff == nil)
+    }
+
     @Test("対象外のフォルダの中とサブフォルダの本は対象外、保存して読み直しても残る")
     func excludedFolders() throws {
         let url = FileManager.default.temporaryDirectory

@@ -131,13 +131,13 @@
 - 見ていないもの: メタデータの編集ウインドウの一覧(実名が並ぶ。対象フォルダの本が並ぶことはテストで確かめてある)、明るい外観、
   ネットワークの対象フォルダ。
 
-### 2026-09-22(コード監査。まだ直していない)
+### 2026-09-22(コード監査と修正)
 
 利用者の指示で、このブランチの差分全体(main...HEAD、Swift 74 ファイル)を「リソースリーク・クラッシュ・ハング・ファイル破損・
 ファイル消失・メモリとディスクの過大消費」の観点で監査した。核心部(SmartLibraryCatalog / Scanner / Store、MetadataRulesStore、
 DraftStore、BookSavedDataEraser、BookMetadataStore、App 配線)と qooMeta の ProposalIndex は直接読み、ビュー群・規則画面・永続化/
 書き出しは 4 つの観点に分けて並行で調べ、指摘はすべて該当箇所と qooMeta のソース(checkout `fc1ccbf`)で裏を取った。
-**クラッシュ・ハング・ファイル破損に直結する欠陥は無し。** 下の番号順に直す(1〜4 が先)。
+**クラッシュ・ハング・ファイル破損に直結する欠陥は無し。** 1〜8 は同じ日に直した(下の「直したもの」)。9 は実測して漏れていなかった。
 
 1. **【高・メモリ】スマートライブラリの表紙グリッドが訪れたセル分の CGImage を無制限に抱える。** `SmartBookThumbnail` が `@State` に
    `buffer?.makeImage()` を持ち(SmartLibraryPane.swift、`image = made`)、`LazyVGrid` に `LazyCellImageBudget` の `.id(epoch)` が無い。
@@ -180,6 +180,27 @@ DraftStore、BookSavedDataEraser、BookMetadataStore、App 配線)と qooMeta �
    各 1 つで、回を重ねても増えない(`Window` のシーンが使い回す 1 組。`close()` で workspace を手放している)。phys_footprint は
    起動 155 MB → 開く 218 MB → 閉じる 189・196・197 MB。直す必要なし。
 
+直したもの(2026-09-22、上の番号と同じ。テストは全 1486 件が通った):
+
+1. `SmartLibraryContent` に `LazyCellImageBudget`(64 MB。下限セル数は `CollectionGridView` と同じ見積もり)を持たせ、表紙を
+   `@State` に入れたときに `note(retaining:)`、グリッドに `.id(帳簿の世代|棚|開いた束)`。**画面での実測はまだ**(数千冊を端まで
+   流して footprint が頭打ちになるか)。ついでに付記のシークレットウインドウの件も直した(`savesToDisk: !appState.isPrivateWindow`)。
+2. `migrateLegacyFormatsIfNeeded`: qooMeta が読めない書式(`FilenameFormat(text)` が通らないもの)は外して残りを引き継ぎ、外した
+   ものはルールセットの説明に書き残す。以前の値を消すのは全部を引き継げたときだけ、組み立てに失敗したら旗も立てない。保存データの
+   JSON の `importLegacyFilenameFormats` も同じ扱い。テスト 2 件(`MetadataRulesStoreTests`)。
+3. `ExportedBookMetadataEntry.fieldsVersion`(Optional)を書き出し、取り込みは `importedFieldsVersion`(無いときだけ推す)。
+   テスト 2 件(`LibraryImportTests`)。docs/08 に記載。
+4. `MetadataDraftStore.keepOnly` を無くした(一覧に無い本の下書きも持ち続ける)。8 の「読めない drafts.json」も同じ型で直した
+   (隣へ `drafts.unreadable-<日時>.json` として移し、移せなければ保存しない)。テスト 2 件(`MetadataDraftStoreTests`)。
+5. `MetadataRulesStore.unparsableDiffIssue`: 保存してある差分が差分としても読めない間は `update`・半分の差し替えを断る。
+   読んだときに設定ファイルの写しを残し、JSON の欄は文字のまま見せて丸ごと書き直させ、「すべてを既定に戻す」は差分ごと戻す。テスト 1 件。
+6. `BookMetadataValues.confirmation`: シリーズの無い巻は `.notInSeries(fields:)` の確定した欄の巻として渡す(qooMeta は確定した欄を
+   読みに重ね、シリーズに入らない本の巻を残す)。テスト 1 件(`MetadataWorkspaceTests`)。
+7. `SmartLibraryCatalog.rebuild`: 索引に当て終えたら、控え(`indexedInputs` など)は世代に関わらず書き戻し、一覧を出すのだけを
+   世代で止める。`MetadataWorkspace.setRules`: ルールセットの変わった本の `inputs` は読み直しが通ってから書く。
+8. `withResolvedURL`(在るかの確かめを `FileIO` の上で)、全欄が空の本には鍵を掛けない、`saveCache` は前と同じ中身なら書かない
+   (OFF にしたら控えも手放す)、`autoPresetRules(of:)` を 1 度だけ作って本ごとの選択に渡す。
+
 問題なしと確かめたもの: SmartLibraryCatalog の購読/Task の解除と世代の検査(ProposalIndex は `CancellationError` しか投げない)、
 Scanner の上限と TCC/隠し/パッケージの回避、表紙の取得(取り消し・同時数・LIFO・`knownKey:`)、規則の正規表現(組み立て時の検査と 20 ms の
 予算)と静的状態のスレッド安全性、settings.json の原子的な書き込みと写し、SwiftData(既定値付きの列・`StoreSchemaGuard`・開き直しのテスト・
@@ -189,6 +210,6 @@ ModelContext 1 つ・`upsertAll` の削除範囲)、書き出し(項目の追加
 
 ### 残り(次の人へ)
 
-- **まず上の「コード監査」の 1〜4 を直す**(9 は実測して漏れていなかった)。直したら監査の節に「直した」と書く。
+- 監査の 1(表紙のグリッドの帳簿)の画面での実測: 対象フォルダに数千冊ある状態で端まで流し、footprint が頭打ちになるか。
 - スマートライブラリ: 表紙の大きさのピンチ、選択と複数冊の右クリック、左ペインの折りたたみは未実装。
 - README / MANUAL / CHANGELOG([Unreleased]) / CLAUDE.md は 2026-09-22 に一式更新した(利用者の指示)。以後の変更も同じ組で直す。

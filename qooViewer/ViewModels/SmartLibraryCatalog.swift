@@ -132,6 +132,7 @@ final class SmartLibraryCatalog: ObservableObject {
         indexRulesHash = nil
         indexedInputs = [:]
         proposalsByID = [:]
+        lastSavedCache = nil
         books = []
         isTruncated = false
         isLoading = false
@@ -262,12 +263,18 @@ final class SmartLibraryCatalog: ObservableObject {
             } catch {
                 return // 取り消された(索引は呼ぶ前のまま)。
             }
-            // 読んでいる間に OFF にされた・新しい集め直しが始まったら、索引の控えを書き戻さない(OFF では手放したものを戻さない)。
-            guard !Task.isCancelled, generation == self.generation else { return }
+            // 索引は渡した変更を当て終えている(取り消されたら上で抜けている ―― 全か無か)。**控えは世代に関わらず揃える**
+            // (2026-09-22 の監査で指摘): 以前はここで世代を見てから書き戻していたので、当て終えた直後に新しい集め直しが
+            // 始まると、索引だけ進んで「最後に渡した本」が古いまま残り、次の集め直しはその差を「変わっていない」と見て
+            // 渡さなかった(その本の提案が、規則が変わるまで古いまま出た)。次の集め直しはこの Task の終わりを待ってから
+            // 控えを読むので、ここで書けば必ず間に合う。OFF にされていたら手放したまま(書き戻さない)。
+            guard self.isFeatureEnabled else { return }
             if let newIndex { self.index = newIndex }
             self.indexedInputs = inputs.byID
             self.indexRulesHash = rules.contentHash
             self.proposalsByID = proposals
+            // 一覧を出すのは、いちばん新しい集め直しだけ。
+            guard !Task.isCancelled, generation == self.generation else { return }
             // 4. 組み立てる(画面の外で)。
             let books = await Task.detached(priority: .userInitiated) {
                 Self.assemble(snapshot: snapshot, scan: scan, proposals: proposals)
@@ -300,12 +307,13 @@ final class SmartLibraryCatalog: ObservableObject {
         // 新しい本の名前とルールセットの自動の選択は並列に(2,439 冊を順に選ぶと 0.7 秒かかった。どちらも本ごとに独立した計算)。
         let fresh = ids.filter { previous[$0] == nil }
         var readings = [(name: String, preset: String?)](repeating: ("", nil), count: fresh.count)
+        let autoRules = MetadataRulesStore.autoPresetRules(of: rules)
         readings.withUnsafeMutableBufferPointer { buffer in
             // 各反復は自分の添字にだけ書く(重ならない)ので、同時に書いても安全。
             nonisolated(unsafe) let buffer = buffer
             DispatchQueue.concurrentPerform(iterations: fresh.count) { i in
                 let name = MetadataRulesStore.parsingName(forBookID: fresh[i])
-                buffer[i] = (name, MetadataRulesStore.autoPreset(forBookID: fresh[i], name: name, rules: rules))
+                buffer[i] = (name, MetadataRulesStore.autoPreset(forBookID: fresh[i], name: name, autoRules: autoRules))
             }
         }
         let freshByID = Dictionary(uniqueKeysWithValues: zip(fresh, readings))
@@ -370,10 +378,19 @@ final class SmartLibraryCatalog: ObservableObject {
         }
     }
 
+    /// 最後に保存した一覧(同じなら書き直さない)。`books` と同じ配列を指すので、持っていても写しは増えない。
+    private var lastSavedCache: CachedCatalog?
+
     /// 集め終えた一覧を保存する(画面の外で。対象フォルダが無ければ消す)。
+    ///
+    /// **中身が前に保存したものと同じなら書かない**(2026-09-22 の監査)。集め直しは、メタデータの編集中なら 400 ms 待つごとに
+    /// 走り、そのたびに全冊ぶんの JSON(数千冊で数 MB)を書き直していた。
     private func saveCache(roots: [String], books: [SmartBook], isTruncated: Bool) {
         guard let cacheURL else { return }
         let cached = CachedCatalog(roots: roots, books: books, isTruncated: isTruncated)
+        if let lastSavedCache, lastSavedCache.roots == roots, lastSavedCache.isTruncated == isTruncated,
+           lastSavedCache.books == books { return }
+        lastSavedCache = cached
         Task.detached(priority: .utility) {
             if roots.isEmpty {
                 try? FileManager.default.removeItem(at: cacheURL)

@@ -154,6 +154,12 @@ struct ExportedBookMetadataEntry: Codable {
     var info: String?
     /// 巻数の並べ替え用の数(qooMeta の `volumeSort`)。
     var volumeSort: Double?
+    /// 欄の版(`BookMetadata.fieldsVersion`)。2026-09-22 に足した(formatVersion は据え置き。Optional なので前のファイルも読める)。
+    ///
+    /// 足す前は取り込み側が「qooMeta の欄を 1 つでも書いてあるか」で版を推していたが、空の欄は書かないので、題と著者 1 人だけの
+    /// (よくある)今の版の行が往復で版 0 に落ち、メタデータの編集ウインドウが「以前の版の欄で登録した」と尋ね直した ――
+    /// そこで「ロックを外して解析し直す」を選ぶと、登録した値が捨てられる(監査で指摘)。無いときだけ推す(`importedFieldsVersion`)。
+    var fieldsVersion: Int?
 
     var fileNodeIdentifier: FileNodeIdentifier? {
         guard let inodeNumber, let volumeDeviceNumber else { return nil }
@@ -165,6 +171,13 @@ struct ExportedBookMetadataEntry: Codable {
     /// qooMeta の欄を 1 つでも書いてある行か(formatVersion 5 で書いた行)。
     var hasQooMetaFields: Bool {
         authors != nil || genre != nil || event != nil || source != nil || info != nil || volumeSort != nil
+    }
+
+    /// 取り込んだ行の欄の版。書いてあればそれ、無ければ(2026-09-22 より前の書き出し・qooMeta の書き出し)qooMeta の欄が
+    /// あるかで推す。
+    var importedFieldsVersion: Int {
+        if let fieldsVersion { return max(0, fieldsVersion) }
+        return hasQooMetaFields ? BookMetadata.currentFieldsVersion : 0
     }
 
     /// 行の値(空の欄は空)。
@@ -187,7 +200,7 @@ extension ExportedBookMetadataEntry {
             author: values.author, title: values.title, series: values.series, seriesIndex: values.volume,
             authors: values.authors.count > 1 ? values.authors : nil,
             genre: nonEmpty(values.genre), event: nonEmpty(values.event), source: nonEmpty(values.source),
-            info: nonEmpty(values.info), volumeSort: values.volumeSort
+            info: nonEmpty(values.info), volumeSort: values.volumeSort, fieldsVersion: metadata.fieldsVersion
         )
     }
 }

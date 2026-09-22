@@ -484,6 +484,34 @@ struct LibraryImportTests {
         #expect(destination.metadata.metadata(forBookID: "/nowhere/fields.cbz")?.values == values)
     }
 
+    @Test("題と著者 1 人だけの今の版の行は、往復しても今の版のまま(以前の版の欄と尋ね直さない。2026-09-22 の監査)")
+    func fieldsVersionSurvivesTheRoundTrip() async throws {
+        let origin = try InMemoryLibrary(label: "version-origin")
+        let destination = try InMemoryLibrary(label: "version-destination")
+        defer { origin.close(); destination.close() }
+        origin.metadata.upsert(bookID: "/nowhere/current.cbz", values: BookMetadataValues(title: "題名", authors: ["著者"]))
+        origin.metadata.upsert(bookID: "/nowhere/old.cbz", values: BookMetadataValues(title: "古い", authors: ["著者"]),
+                               fieldsVersion: 0)
+
+        let (file, _) = await origin.buildExportFile(.everything)
+        await destination.apply(file, policies: .all(.merge))
+
+        #expect(destination.metadata.metadata(forBookID: "/nowhere/current.cbz")?.fieldsVersion
+            == BookMetadata.currentFieldsVersion)
+        #expect(destination.metadata.metadata(forBookID: "/nowhere/old.cbz")?.fieldsVersion == 0)
+        #expect(destination.metadata.outdatedFieldBookIDs == ["/nowhere/old.cbz"])
+    }
+
+    @Test("版の無い以前のファイルの行は、qooMeta の欄があるかで版を推す")
+    func fieldsVersionIsGuessedForOlderFiles() {
+        func entry(authors: [String]?) -> ExportedBookMetadataEntry {
+            ExportedBookMetadataEntry(bookID: "/nowhere/a.cbz", author: "著者", title: "題名", series: "", seriesIndex: "",
+                                      authors: authors)
+        }
+        #expect(entry(authors: nil).importedFieldsVersion == 0)
+        #expect(entry(authors: ["著者", "二人目"]).importedFieldsVersion == BookMetadata.currentFieldsVersion)
+    }
+
     // MARK: - ignore
 
     @Test("ignore の指定があるカテゴリは、キーがあっても何も変えない")
