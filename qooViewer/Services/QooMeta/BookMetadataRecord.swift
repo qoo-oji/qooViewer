@@ -100,6 +100,8 @@ nonisolated enum MetadataParsing {
         single(.event, old.event, new.event)
         single(.source, old.source, new.source)
         single(.info, old.info, new.info)
+        // 巻の表記を変えたら、確定した巻数(並べ替え用)は外す(新しい表記と食い違った数を残さない)。
+        if old.volume != new.volume { fields.volumeSort = nil }
         guard old.series != new.series || old.volume != new.volume else { return edits.withFields(fields) }
         guard !new.series.isEmpty else {
             // シリーズではない本の巻は、欄として持つ(`BookMetadataValues.confirmation` と同じ)。

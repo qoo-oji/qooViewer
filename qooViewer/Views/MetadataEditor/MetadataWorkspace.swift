@@ -107,7 +107,10 @@ nonisolated struct MetadataBookRow: Identifiable, Hashable, Sendable {
     var edited: Set<QMBookMetadata.Field> { Set(confirmation.fields.values.keys) }
 
     /// 直した欄がある、ロックしていない本か(一覧で青く出す)。
-    var hasUnlockedEdits: Bool { !isLocked && (!edited.isEmpty || hasConfirmedSeries) }
+    var hasUnlockedEdits: Bool { !isLocked && (!edited.isEmpty || hasConfirmedSeries || hasConfirmedVolumeSort) }
+
+    /// 巻数(並べ替え用)を利用者が確定しているか。
+    var hasConfirmedVolumeSort: Bool { confirmation.fields.volumeSort != nil }
 
     /// シリーズか巻を利用者が確定しているか(一覧と詳細の印)。
     var hasConfirmedSeries: Bool {
@@ -615,28 +618,56 @@ final class MetadataWorkspace {
         }
         edit("Number the volumes again".ui, numbers.keys) { input in
             guard let (name, volume) = numbers[input.id] else { return }
-            input.confirmation = .series(name: name, volume: volume, fields: input.confirmation.fields)
+            input.confirmation = .series(name: name, volume: volume, fields: Self.fieldsForNewVolume(input.confirmation))
         }
     }
 
     func setVolumes(_ volume: String, for ids: Set<MetadataBookRow.ID>) {
         edit("Set the volume".ui, ids) { input in
             guard let name = self.row(input.id).map(Self.currentSeriesName), !name.isEmpty else { return }
-            input.confirmation = .series(name: name, volume: volume, fields: input.confirmation.fields)
+            input.confirmation = .series(name: name, volume: volume, fields: Self.fieldsForNewVolume(input.confirmation))
         }
     }
 
     func clearVolumes(_ ids: Set<MetadataBookRow.ID>) {
         edit("Clear the volume".ui, ids) { input in
             guard let name = self.row(input.id).map(Self.currentSeriesName), !name.isEmpty else { return }
-            input.confirmation = .series(name: name, volume: "", fields: input.confirmation.fields)
+            input.confirmation = .series(name: name, volume: "", fields: Self.fieldsForNewVolume(input.confirmation))
         }
+    }
+
+    /// 巻数(並べ替え用)を確定する(nil なら確定を外し、巻の表記から読んだ数に戻す)。シリーズ名と巻の表記のある本だけ
+    /// (2026-09-22、利用者の要望: 並べ替え用の巻数を直したい)。巻の表記とシリーズは確定しない ―― 並びの位置だけを直す。
+    func setVolumeSort(_ value: Double?, for ids: Set<MetadataBookRow.ID>) {
+        edit("Set the volume for sorting".ui, ids) { input in
+            guard value == nil || self.row(input.id).map({ !Self.currentSeriesName($0).isEmpty && !$0.metadata.volume.isEmpty }) == true
+            else { return }
+            var fields = input.confirmation.fields
+            fields.volumeSort = value
+            input.confirmation = input.confirmation.withFields(fields)
+        }
+    }
+
+    /// 入れた文字を巻数(並べ替え用)の数として読む(全角の数字・小数点も)。数でなければ nil。
+    nonisolated static func volumeSortNumber(_ text: String) -> Double? {
+        let folded = text.precomposedStringWithCompatibilityMapping.trimmingCharacters(in: .whitespaces)
+        guard let number = Double(folded), number.isFinite else { return nil }
+        return number
+    }
+
+    /// 巻の表記を変えるときの直した欄: 確定した巻数(並べ替え用)は外す(新しい表記と食い違った数を残さない。
+    /// qooMeta の `BulkEdit` と同じ)。
+    private static func fieldsForNewVolume(_ confirmation: Confirmation) -> ConfirmedFields {
+        var fields = confirmation.fields
+        fields.volumeSort = nil
+        return fields
     }
 
     func revertSeries(_ ids: Set<MetadataBookRow.ID>) {
         edit("Revert the series to the proposal".ui, ids) { input in
-            let fields = input.confirmation.fields
-            input.confirmation = fields.values.isEmpty ? .none : .fields(fields)
+            // 巻数(並べ替え用)もシリーズの中の位置なので、一緒に提案へ戻す。
+            let fields = Self.fieldsForNewVolume(input.confirmation)
+            input.confirmation = fields.isEmpty ? .none : .fields(fields)
         }
     }
 
@@ -1029,7 +1060,7 @@ nonisolated extension Confirmation {
     /// 欄の値だけを入れ替える(シリーズと巻の確定はそのまま)。
     func withFields(_ fields: ConfirmedFields) -> Confirmation {
         switch self {
-        case .none, .fields: fields.values.isEmpty ? .none : .fields(fields)
+        case .none, .fields: fields.isEmpty ? .none : .fields(fields)
         case .series(let name, let volume, _): .series(name: name, volume: volume, fields: fields)
         case .notInSeries: .notInSeries(fields: fields)
         }

@@ -631,7 +631,8 @@ nonisolated extension BookMetadataValues {
     /// 登録した「シリーズ名は無いが巻はある」本(「上」「下」など)は、メタデータの編集ウインドウで巻が見えず、鍵を掛け直すと
     /// 巻の無い値で書き直された。qooMeta は確定した欄を名前の読みに重ね、シリーズに入らない本の巻はそのまま残す。
     var confirmation: Confirmation {
-        var fields = ConfirmedFields()
+        // 巻数(並べ替え用)も確定する(ロックした本の数が、表記から読み直した数に変わらないように。2026-09-22)。
+        var fields = ConfirmedFields(volumeSort: volumeSort)
         fields[.title] = title.isEmpty ? [] : [title]
         fields[.authors] = authors
         fields[.genre] = genre.isEmpty ? [] : [genre]

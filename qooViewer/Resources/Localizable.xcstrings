@@ -10455,6 +10455,23 @@
         }
       }
     },
+    "Double-click to set this book’s position in the series. Empty goes back to the number read from the volume" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Double-click to set this book’s position in the series. Empty goes back to the number read from the volume"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ダブルクリックでシリーズの中の位置を決めます。空にすると巻数(表記)から読んだ数に戻ります"
+          }
+        }
+      }
+    },
     "Double-click to settle the series for this book. Empty puts it in no series" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -11593,6 +11610,40 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "選んだ本すべてがこの値になります。空にすると欄を空にします。"
+          }
+        }
+      }
+    },
+    "Every book you picked gets this volume. Books with no series name are left alone. Empty clears the volume." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every book you picked gets this volume. Books with no series name are left alone. Empty clears the volume."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選んだ本すべてがこの巻になります。シリーズ名の無い本は変わりません。空にすると巻を消します。"
+          }
+        }
+      }
+    },
+    "Every book you picked is put in this series. Empty removes them from their series." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every book you picked is put in this series. Empty removes them from their series."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選んだ本すべてをこのシリーズに入れます。空にするとシリーズから外します。"
           }
         }
       }
@@ -13945,6 +13996,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "先にシリーズ名を決めてください"
+          }
+        }
+      }
+    },
+    "Give the book a volume first" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Give the book a volume first"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "先に巻数を決めてください"
           }
         }
       }
@@ -26294,6 +26362,23 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "巻数を設定"
+          }
+        }
+      }
+    },
+    "Set the volume for sorting" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set the volume for sorting"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "並べ替え用の巻数を設定"
           }
         }
       }

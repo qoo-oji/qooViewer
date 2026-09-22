@@ -123,6 +123,77 @@ struct MetadataWorkspaceTests {
         #expect(workspace.row(first)?.metadata.info == "架空の付記")
     }
 
+    @Test("シリーズ名の表記だけを直しても、同じ単位のほかの本の表記に戻らない(2026-09-22、利用者の報告)")
+    func seriesSpellingEditIsKept() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let workspace = await open(library, [first, second])
+        // 前の本が「月の庭」で確定している(ロック)。後ろの本だけを、比べる形が同じ別の表記に直す。
+        workspace.setLocked([first], true)
+        workspace.setSeries("月の 庭!", for: [second])
+        await workspace.settle()
+
+        #expect(workspace.row(second)?.metadata.series == "月の 庭!")
+        #expect(workspace.row(first)?.metadata.series == "月の庭")
+        #expect(library.metadata.record(forBookID: second)?.values.series == "月の 庭!")
+    }
+
+    @Test("巻数(並べ替え用)は直せて DB に残り、取り消せ、ロックしても変わらず、巻の表記を変えると外れる(2026-09-22)")
+    func volumeSortCanBeEdited() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        var workspace = await open(library, [first, second])
+        #expect(workspace.row(second)?.metadata.volumeSort == 2)
+
+        workspace.setVolumeSort(1.5, for: [second])
+        await workspace.settle()
+        #expect(workspace.row(second)?.metadata.volumeSort == 1.5)
+        #expect(workspace.row(second)?.metadata.volume == "2")
+        #expect(workspace.row(second)?.hasConfirmedVolumeSort == true)
+        #expect(workspace.row(second)?.hasUnlockedEdits == true)
+        #expect(library.metadata.record(forBookID: second)?.values.volumeSort == 1.5)
+        #expect(library.metadata.record(forBookID: second)?.edits.fields.volumeSort == 1.5)
+
+        workspace.undo()
+        await workspace.settle()
+        #expect(workspace.row(second)?.metadata.volumeSort == 2)
+        #expect(library.metadata.record(forBookID: second)?.values.volumeSort == 2)
+        // `== .none` は Optional の nil と比べてしまうので、型を書く。
+        #expect(library.metadata.record(forBookID: second)?.edits == QooMetaKit.Confirmation.none)
+        workspace.redo()
+        await workspace.settle()
+
+        // ロックした本は、開き直しても直した数のまま。
+        workspace.setLocked([second], true)
+        await workspace.settle()
+        workspace = await open(library, [first, second])
+        #expect(workspace.row(second)?.metadata.volumeSort == 1.5)
+        #expect(library.metadata.record(forBookID: second)?.values.volumeSort == 1.5)
+
+        // 巻の表記を変えると、直した数は外れて表記から読み直す。
+        workspace.setLocked([second], false)
+        workspace.setVolumes("3", for: [second])
+        await workspace.settle()
+        #expect(workspace.row(second)?.metadata.volumeSort == 3)
+        #expect(library.metadata.record(forBookID: second)?.edits.fields.volumeSort == nil)
+
+        // 確定を外すと、表記から読んだ数に戻る。
+        workspace.setVolumeSort(0.5, for: [second])
+        workspace.setVolumeSort(nil, for: [second])
+        await workspace.settle()
+        #expect(workspace.row(second)?.metadata.volumeSort == 3)
+    }
+
+    @Test("入れた巻数(並べ替え用)は全角でも数として読み、数でなければ受け付けない")
+    func volumeSortNumberParsing() {
+        #expect(MetadataWorkspace.volumeSortNumber("2.5") == 2.5)
+        #expect(MetadataWorkspace.volumeSortNumber("２．５") == 2.5)
+        #expect(MetadataWorkspace.volumeSortNumber(" 10 ") == 10)
+        #expect(MetadataWorkspace.volumeSortNumber("上") == nil)
+        #expect(MetadataWorkspace.volumeSortNumber("nan") == nil)
+        #expect(MetadataWorkspace.volumeSortNumber("inf") == nil)
+    }
+
     @Test("ロックした本は、すべての欄が確定した内容として読まれる")
     func lockedBooksAreFullyConfirmed() async throws {
         let library = try InMemoryLibrary()

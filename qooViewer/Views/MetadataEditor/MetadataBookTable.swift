@@ -71,6 +71,14 @@ struct MetadataBookTable: NSViewRepresentable {
             }
         }
 
+        /// ダブルクリックで直せる列(直せるかどうかは本ごとに `canEdit` で決める)。
+        var isEditable: Bool {
+            switch self {
+            case .field, .volumeSort: true
+            case .lock, .fileName, .cover: false
+            }
+        }
+
         /// 隠せない列(どの本の行か分からなくなる・ロックの切り替えが無くなる)。
         var isHideable: Bool { self != .fileName && self != .lock }
 
@@ -113,11 +121,12 @@ struct MetadataBookTable: NSViewRepresentable {
     var positions: [Int]
     @Binding var selection: Set<MetadataBookRow.ID>
     @Binding var sortOrder: [KeyPathComparator<MetadataBookRow>]
-    var canEdit: (QMBookMetadata.Field, MetadataBookRow) -> Bool
+    /// 直せる列は欄の列と巻数(並べ替え用)の列(2026-09-22、利用者の要望で巻数(並べ替え用)も直せるようにした)。
+    var canEdit: (Column, MetadataBookRow) -> Bool
     /// 利用者が直した(確定した)欄か。提案のままの値と色で見分ける。
-    var isEdited: (QMBookMetadata.Field, MetadataBookRow) -> Bool
-    var help: (QMBookMetadata.Field, MetadataBookRow) -> String
-    var commit: (QMBookMetadata.Field, String, MetadataBookRow) -> Void
+    var isEdited: (Column, MetadataBookRow) -> Bool
+    var help: (Column, MetadataBookRow) -> String
+    var commit: (Column, String, MetadataBookRow) -> Void
     /// 右クリックのメニュー(右クリックした本、または選んだ本すべてについて)。
     var contextMenu: (Set<MetadataBookRow.ID>) -> [MenuItem]
     /// 鍵の列を押した(その本のロックを切り替える)。
@@ -309,7 +318,7 @@ struct MetadataBookTable: NSViewRepresentable {
         /// 表のほうを書き換えている最中(その結果として届く知らせで、持ちものを書き戻さない)。
         private var isApplying = false
         /// 書き換えの最中のセル。
-        private(set) var editing: (bookID: String, field: QMBookMetadata.Field, original: String, cell: CellView)?
+        private(set) var editing: (bookID: String, column: Column, original: String, cell: CellView)?
         /// 書き換えの最中に届いた中身(入力を途中で消さないよう、終わってから入れる)。
         private var pendingRows: (books: [MetadataBookRow], positions: [Int])?
 
@@ -425,12 +434,9 @@ struct MetadataBookTable: NSViewRepresentable {
                 if !book.matchedFormat { tip += "\n" + "This file name matched no file name format of its rule set".ui }
                 if book.isMissing { tip += "\n" + "The book itself can't be found".ui }
                 cell.toolTip = tip
-            case .volumeSort:
-                cell.isEditedValue = false
-                cell.toolTip = "Derived from the volume as written, by the rules for reading a volume".ui
-            case .field(let field):
-                cell.isEditedValue = parent.isEdited(field, book)
-                cell.toolTip = parent.help(field, book)
+            case .volumeSort, .field:
+                cell.isEditedValue = parent.isEdited(column, book)
+                cell.toolTip = parent.help(column, book)
             case .lock, .cover:
                 break
             }
@@ -466,14 +472,14 @@ struct MetadataBookTable: NSViewRepresentable {
             beginEditing(row: table.clickedRow, column: table.clickedColumn)
         }
 
-        /// そのセルの書き換えに入る。読むだけの列(ファイル名・巻数の並べ替え用)と、いまは直せない欄では何もしない。
+        /// そのセルの書き換えに入る。読むだけの列(ファイル名・鍵・表紙)と、いまは直せない欄では何もしない。
         @discardableResult
         func beginEditing(row: Int, column: Int) -> Bool {
             guard let parent, let table, editing == nil, row >= 0, row < rowCount, table.tableColumns.indices.contains(column),
-                  case .field(let field)? = Column(table.tableColumns[column].identifier),
-                  parent.canEdit(field, book(row)),
+                  let target = Column(table.tableColumns[column].identifier), target.isEditable,
+                  parent.canEdit(target, book(row)),
                   let cell = table.view(atColumn: column, row: row, makeIfNecessary: true) as? CellView else { return false }
-            editing = (book(row).id, field, cell.label.stringValue, cell)
+            editing = (book(row).id, target, cell.label.stringValue, cell)
             cell.setEditing(true)
             cell.label.delegate = self
             guard table.window?.makeFirstResponder(cell.label) == true else {
@@ -509,7 +515,7 @@ struct MetadataBookTable: NSViewRepresentable {
             edit.cell.label.stringValue = edit.original
             if keeping, value.trimmingCharacters(in: .whitespaces) != edit.original,
                let row = index(of: edit.bookID) {
-                parent?.commit(edit.field, value, book(row))
+                parent?.commit(edit.column, value, book(row))
             }
             if let pending = pendingRows, let table {
                 pendingRows = nil

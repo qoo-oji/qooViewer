@@ -82,7 +82,7 @@ forward, push the fork, hand-edit the `revision` in `Package.resolved`, then run
 `xcodebuild -resolvePackageDependencies`. What the forks change and why is in `docs/11-forked-dependencies.md`.
 `UniversalCharsetDetection` was removed on 2026-09-01 (commit `5eaca7f`); zip filename encoding is now
 detected archive-wide with Foundation (`EntryNameDecoder` in Services/ZipArchiveReader.swift).
-**qooMeta** (`qoo-oji/qooMeta`, the author's own library, `upToNextMajorVersion` from 0.1.0; products QooMetaKit and
+**qooMeta** (`qoo-oji/qooMeta`, the author's own library, `upToNextMajorVersion` from 0.2.0; products QooMetaKit and
 QooMetaRules) reads metadata from file names. Its core and bundled preset JSON are used **as shipped** so a qooMeta release
 can be taken in unchanged — qooViewer keeps only the user's diff (`MetadataRulesStore`). Its `BookMetadata` clashes with the
 app's `@Model BookMetadata`: use `typealias QMBookMetadata = QooMetaKit.BookMetadata`. `scripts/ci/check-package-pins.sh`

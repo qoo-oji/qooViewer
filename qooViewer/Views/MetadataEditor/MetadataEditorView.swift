@@ -650,21 +650,39 @@ struct MetadataBookTableView: View {
         }
     }
 
-    /// 巻数は、シリーズ名の決まっている本にしか入らない(シリーズの中の番号なので)。ロック(登録)した本は直せない。
-    private func canEdit(_ field: QMBookMetadata.Field, _ book: MetadataBookRow) -> Bool {
+    /// 巻数(表記・並べ替え用とも)は、シリーズ名の決まっている本にしか入らない(シリーズの中の番号なので)。
+    /// 巻数(並べ替え用)は、さらに巻の表記のある本だけ(表記の無い本の数は保存しない ―― `BookMetadataValues.trimmed`)。
+    /// ロック(登録)した本は直せない。
+    private func canEdit(_ column: MetadataBookTable.Column, _ book: MetadataBookRow) -> Bool {
         guard !book.isLocked else { return false }
-        return field != .volume || !MetadataWorkspace.currentSeriesName(book).isEmpty
+        switch column {
+        case .field(.volume): return !MetadataWorkspace.currentSeriesName(book).isEmpty
+        case .volumeSort: return !MetadataWorkspace.currentSeriesName(book).isEmpty && !book.metadata.volume.isEmpty
+        case .field: return true
+        case .lock, .fileName, .cover: return false
+        }
     }
 
     /// 青く出す欄: 直したが、まだロック(登録)していない値(案 A。ロックした本の値はふつうの色)。
-    private func isEdited(_ field: QMBookMetadata.Field, _ book: MetadataBookRow) -> Bool {
+    private func isEdited(_ column: MetadataBookTable.Column, _ book: MetadataBookRow) -> Bool {
         guard !book.isLocked else { return false }
-        return field == .series || field == .volume ? book.hasConfirmedSeries : book.edited.contains(field)
+        switch column {
+        case .field(.series), .field(.volume): return book.hasConfirmedSeries
+        case .field(let field): return book.edited.contains(field)
+        case .volumeSort: return book.hasConfirmedVolumeSort
+        case .lock, .fileName, .cover: return false
+        }
     }
 
-    private func help(_ field: QMBookMetadata.Field, _ book: MetadataBookRow) -> String {
+    private func help(_ column: MetadataBookTable.Column, _ book: MetadataBookRow) -> String {
         if book.isLocked { return "This book is locked. Unlock it to edit".ui }
-        guard canEdit(field, book) else { return "Give the book a series name first".ui }
+        guard canEdit(column, book) else {
+            return column == .volumeSort && !MetadataWorkspace.currentSeriesName(book).isEmpty
+                ? "Give the book a volume first".ui : "Give the book a series name first".ui
+        }
+        guard case .field(let field) = column else {
+            return "Double-click to set this book’s position in the series. Empty goes back to the number read from the volume".ui
+        }
         switch field {
         case .series: return "Double-click to settle the series for this book. Empty puts it in no series".ui
         case .volume: return "Double-click to settle the volume for this book. Empty clears it".ui
@@ -673,8 +691,15 @@ struct MetadataBookTableView: View {
         }
     }
 
-    private func commit(_ field: QMBookMetadata.Field, _ value: String, for book: MetadataBookRow) {
+    private func commit(_ column: MetadataBookTable.Column, _ value: String, for book: MetadataBookRow) {
         let text = value.trimmingCharacters(in: .whitespaces)
+        guard case .field(let field) = column else {
+            guard column == .volumeSort else { return }
+            guard !text.isEmpty else { return workspace.setVolumeSort(nil, for: [book.id]) }
+            // 全角の数字・小数点でも入るように、揃えてから読む。数に読めなければ何もしない(元の値のまま)。
+            guard let number = MetadataWorkspace.volumeSortNumber(text) else { return NSSound.beep() }
+            return workspace.setVolumeSort(number, for: [book.id])
+        }
         switch field {
         case .series:
             guard !text.isEmpty else { return workspace.removeFromSeries([book.id]) }
@@ -736,8 +761,9 @@ struct MetadataBookTableView: View {
             workspace.revertSeries(editable)
         })
         items.append(.separator)
-        // 欄
-        let fields: [QMBookMetadata.Field] = [.title, .authors, .genre, .event, .source, .info]
+        // 欄。シリーズと巻も並べる(2026-09-22、利用者の指摘: まとめて変える所にシリーズが無い)。中身は一覧の欄を
+        // 直接直したときと同じ(`commit`): シリーズは確定した名前、空ならシリーズから外す。巻はシリーズ名のある本だけ。
+        let fields: [QMBookMetadata.Field] = [.title, .authors, .series, .volume, .genre, .event, .source, .info]
         items.append(Item(title: "Change a Field".ui, isEnabled: hasEditable, children: fields.map { field in
             Item(title: field.labelKey.ui + "…") { sheet = .field(field, editable) }
         }))
@@ -871,10 +897,20 @@ struct MetadataEditorSheetView: View {
         case .field(let field, _):
             TextField("", text: $text)
                 .textFieldStyle(.roundedBorder)
-            if field == .authors {
-                Text("Separate several authors with 、").font(.caption).foregroundStyle(.secondary)
+            switch field {
+            case .series:
+                Text("Every book you picked is put in this series. Empty removes them from their series.")
+                    .font(.caption).foregroundStyle(.secondary)
+            case .volume:
+                Text("Every book you picked gets this volume. Books with no series name are left alone. Empty clears the volume.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            default:
+                if field == .authors {
+                    Text("Separate several authors with 、").font(.caption).foregroundStyle(.secondary)
+                }
+                Text("Every book you picked gets this value. Empty clears the field.").font(.caption).foregroundStyle(.secondary)
             }
-            Text("Every book you picked gets this value. Empty clears the field.").font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -900,6 +936,11 @@ struct MetadataEditorSheetView: View {
             if !name.isEmpty { applySeries(name, ids) }
         case .numbering(let ids):
             workspace.numberSequentially(ids, start: start, width: width)
+        case .field(.series, let ids):
+            // 選んでいない本が巻き込まれるときの確かめは、シリーズにまとめるときと同じ(`applySeries`)。
+            if trimmed.isEmpty { workspace.removeFromSeries(ids) } else { applySeries(trimmed, ids) }
+        case .field(.volume, let ids):
+            if trimmed.isEmpty { workspace.clearVolumes(ids) } else { workspace.setVolumes(trimmed, for: ids) }
         case .field(let field, let ids):
             let values = field == .authors
                 ? trimmed.split(whereSeparator: { "、,，".contains($0) }).map(String.init) : [trimmed]

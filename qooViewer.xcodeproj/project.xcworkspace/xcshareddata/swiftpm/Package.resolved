@@ -6,8 +6,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/qoo-oji/qooMeta",
       "state" : {
-        "revision" : "fc1ccbf8171950c3ab3024208f54b7722c816926",
-        "version" : "0.1.0"
+        "revision" : "b86e9fcad144b471529bdcdfb7c1fa8bad548867",
+        "version" : "0.2.0"
       }
     },
     {
