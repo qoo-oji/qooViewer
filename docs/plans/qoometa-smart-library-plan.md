@@ -183,8 +183,12 @@ DraftStore、BookSavedDataEraser、BookMetadataStore、App 配線)と qooMeta �
 直したもの(2026-09-22、上の番号と同じ。テストは全 1486 件が通った):
 
 1. `SmartLibraryContent` に `LazyCellImageBudget`(64 MB。下限セル数は `CollectionGridView` と同じ見積もり)を持たせ、表紙を
-   `@State` に入れたときに `note(retaining:)`、グリッドに `.id(帳簿の世代|棚|開いた束)`。**画面での実測はまだ**(数千冊を端まで
-   流して footprint が頭打ちになるか)。ついでに付記のシークレットウインドウの件も直した(`savesToDisk: !appState.isPrivateWindow`)。
+   `@State` に入れたときに `note(retaining:)`、グリッドに `.id(帳簿の世代|棚|開いた束)`。**実測して頭打ちになった**(同じ日。
+   Debug の写しの対象フォルダ 2,439 冊、まとめない・表紙 130 pt、ホイールのイベントで 400 pt ずつ端まで送って先頭へ戻した):
+   footprint は先頭 144 MB → 送る途中 330〜361 MB → 端 340 MB → 戻して 329〜351 MB、生きている `PagePixelBuffer` は 29 → 135〜139 で
+   止まった(提供役のメモリの上限 96 MB ぶん ≒ 512 段の表紙 140 枚)。直す前はセルの CGImage が訪れた冊数ぶん(≒ 2,400 枚、1.7 GB)を
+   掴む計算。スクロールバーの位置は作り直しをまたいで連続していた。作り直しの瞬間の見た目(表紙がちらつかないか)は撮っていないので
+   見ていない。ついでに付記のシークレットウインドウの件も直した(`savesToDisk: !appState.isPrivateWindow`)。
 2. `migrateLegacyFormatsIfNeeded`: qooMeta が読めない書式(`FilenameFormat(text)` が通らないもの)は外して残りを引き継ぎ、外した
    ものはルールセットの説明に書き残す。以前の値を消すのは全部を引き継げたときだけ、組み立てに失敗したら旗も立てない。保存データの
    JSON の `importLegacyFilenameFormats` も同じ扱い。テスト 2 件(`MetadataRulesStoreTests`)。
@@ -210,6 +214,6 @@ ModelContext 1 つ・`upsertAll` の削除範囲)、書き出し(項目の追加
 
 ### 残り(次の人へ)
 
-- 監査の 1(表紙のグリッドの帳簿)の画面での実測: 対象フォルダに数千冊ある状態で端まで流し、footprint が頭打ちになるか。
+- 監査の 1 の見た目: グリッドを作り直す瞬間に表紙がちらつかないか(メモリは実測済み。撮るなら合成名の本で)。
 - スマートライブラリ: 表紙の大きさのピンチ、選択と複数冊の右クリック、左ペインの折りたたみは未実装。
 - README / MANUAL / CHANGELOG([Unreleased]) / CLAUDE.md は 2026-09-22 に一式更新した(利用者の指示)。以後の変更も同じ組で直す。
