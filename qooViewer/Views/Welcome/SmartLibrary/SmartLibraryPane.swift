@@ -744,6 +744,9 @@ struct SmartLibraryContent: View {
     @EnvironmentObject private var catalog: SmartLibraryCatalog
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var launchCoordinator: LaunchCoordinator
+    /// 右クリックの「コレクションを作成」「コレクションに登録」(2026-09-23、利用者の指示。ファイルブラウザの右クリックと同じ)。
+    @EnvironmentObject private var collectionStore: CollectionStore
+    @EnvironmentObject private var coverExtractor: CollectionCoverExtractor
     /// 表紙の下の文字の大きさ(行の高さの見積もり)と、ホイール1ノッチのスクロール量。
     @EnvironmentObject private var appearance: AppearanceSettings
     @Environment(\.openWindow) private var openWindow
@@ -771,6 +774,12 @@ struct SmartLibraryContent: View {
     @State private var gridSize: CGSize = .zero
     /// グリッドを描いている `NSScrollView` の入れ物(ホイール1ノッチのスクロール量。`HomeWheelScroll`)。
     @State private var scrollBox = ScrollGeometryBox()
+    /// 「コレクションに登録」のサブメニューの中身の控え(右クリックのメニューはセルの本体評価のたびに組まれる。
+    /// CollectionMenuLibrary.libraries)。本体評価の中で書き換えるので `@State` の値ではなく入れ物に持つ。
+    @State private var collectionMenuCache = CollectionMenuCacheBox()
+    /// 操作の結果の知らせ(「コレクションに登録」。ファイルブラウザの FileBrowserState.showToast と同じ見た目・長さ)。
+    @State private var toastMessage: String?
+    @State private var toastDismissTask: Task<Void, Never>?
 
     private static let spacing: CGFloat = 16
     private static let gridPadding: CGFloat = 16
@@ -813,6 +822,20 @@ struct SmartLibraryContent: View {
         .sheet(item: $metadataTarget) { target in
             BookMetadataSheet(fileBrowserEntry: target.entry)
         }
+        // 操作の結果の知らせ。一覧の下に浮かべ、クリックは一覧へ通す(FileBrowserPane と同じ作り。文字の輪郭は OverlayToast が掛ける)。
+        .overlay(alignment: .bottom) {
+            ZStack {
+                if let toastMessage {
+                    OverlayToast(message: toastMessage)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 20)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+            }
+            .allowsHitTesting(false)
+            .animation(.easeInOut(duration: 0.2), value: toastMessage)
+        }
+        .onDisappear { toastDismissTask?.cancel() }
     }
 
     private var header: some View {
@@ -1029,6 +1052,8 @@ struct SmartLibraryContent: View {
                                 savesToDisk: !appState.isPrivateWindow, onImageRetained: noteRetained
                             )
                                 .onTapGesture { clicked(item) }
+                                // Finder などへ運ぶと本がコピーされる(2026-09-23。HomeBookTransfer.swift の冒頭)。
+                                .homeBookDragSource { beginDrag(from: item) }
                                 .contextMenu { contextMenu(for: item) }
                         case .group(let grouping, let name, let books):
                             SmartGroupCell(grouping: grouping, name: name, books: books, width: state.coverSize,
@@ -1089,6 +1114,10 @@ struct SmartLibraryContent: View {
         // 「編集」▸「すべてを選択」(⌘A)。グリッドがキーの行き先のときだけ効く。
         .onCommand(#selector(NSResponder.selectAll(_:))) {
             state.selectAll()
+        }
+        // 「編集」▸「コピー」(⌘C)。選んでいる本をコピーする(束は運ばない。右クリックと同じ)。
+        .onCommand(#selector(NSText.copy(_:))) {
+            copy(state.selectedItems)
         }
         .onChange(of: state.revealRequest) { _, request in
             if let request { reveal(request.id) }
@@ -1220,6 +1249,12 @@ struct SmartLibraryContent: View {
                 onOpenIn: { openIn(book, $0) }
             )
             .disabled(!isSingle)
+            if allowsCollections {
+                Divider()
+                collectionMenuItems(for: targets)
+            }
+            Divider()
+            Button("Copy") { copy(targets) }
             Divider()
             Button("Show in Finder") { showInFinder(targets) }
             if revealInFileBrowser.isFeatureEnabled {
@@ -1256,6 +1291,23 @@ struct SmartLibraryContent: View {
             Item(title: title("Open in New Normal Window"), isEnabled: isSingle, action: { openIn(book, .newNormalWindow) }),
             Item(title: title("Open in New Private Window"), isEnabled: isSingle, action: { openIn(book, .newPrivateWindow) }),
             Item(title: title("Open in New Tab"), isEnabled: isSingle, action: { openIn(book, .newTab) }),
+        ]
+        if allowsCollections {
+            let libraries = collectionMenuLibraries()
+            items.append(.separator)
+            if let nodes = CollectionMenuLibrary.createMenuNodes(for: libraries, create: { createCollection(from: books, libraryID: $0) }) {
+                items.append(Item(title: title("Create Collection"), submenu: nodes))
+            } else {
+                items.append(Item(title: title("Create Collection"), action: { createCollection(from: books, libraryID: nil) }))
+            }
+            items.append(Item(
+                title: title("Add to Collection"),
+                submenu: CollectionMenuLibrary.addMenuNodes(for: libraries, locale: locale) { addToCollection(books, collectionID: $0) }
+            ))
+        }
+        items += [
+            .separator,
+            Item(title: title("Copy"), action: { copy(books) }),
             .separator,
             Item(title: title("Show in Finder"), action: { showInFinder(books) }),
         ]
@@ -1268,6 +1320,104 @@ struct SmartLibraryContent: View {
             items.append(Item(title: title("Edit Metadata…"), isEnabled: isSingle, action: { editMetadata(book) }))
         }
         return items
+    }
+
+    // MARK: コレクション・コピー・ドラッグ(2026-09-23、利用者の指示)
+
+    /// 右クリックに「コレクションを作成」「コレクションに登録」を出すか。ファイルブラウザの右クリックと同じ条件: ライブラリ機能が ON で、
+    /// シークレットウインドウでない(コレクションは保存データへの書き込み)。
+    private var allowsCollections: Bool {
+        allowsEditing && home.isLibraryFeatureEnabled
+    }
+
+    private func collectionMenuLibraries() -> [CollectionMenuLibrary] {
+        CollectionMenuLibrary.libraries(
+            in: collectionStore, sort: home.collectionSort, locale: locale, cache: &collectionMenuCache.cache
+        )
+    }
+
+    /// 「コレクションを作成」「コレクションに登録」(グリッドの右クリック)。ライブラリが複数なら作る先はサブメニューで選ぶ
+    /// (ファイルブラウザと同じ形。FileBrowserMenuCommand.dynamicChildren)。
+    @ViewBuilder
+    private func collectionMenuItems(for books: [SmartBook]) -> some View {
+        let libraries = collectionMenuLibraries()
+        if let nodes = CollectionMenuLibrary.createMenuNodes(for: libraries, create: { createCollection(from: books, libraryID: $0) }) {
+            Menu("Create Collection") { FileBrowserMenuNodeItems(nodes: nodes) }
+        } else {
+            Button("Create Collection") { createCollection(from: books, libraryID: nil) }
+        }
+        Menu("Add to Collection") {
+            FileBrowserMenuNodeItems(nodes: CollectionMenuLibrary.addMenuNodes(for: libraries, locale: locale) {
+                addToCollection(books, collectionID: $0)
+            })
+        }
+    }
+
+    /// 「コレクションを作成」。名前を訊くシート(ホームが持つ。WelcomeView.creationSheet)を積む。ここに並ぶのは 1 冊ずつの本なので、
+    /// 選んだ本をまとめて 1 つのコレクションにする(ファイルブラウザでばらの本を選んだときと同じ。WelcomeDropHandling.queueCreations)。
+    private func createCollection(from books: [SmartBook], libraryID: UUID?) {
+        guard allowsCollections else { return }
+        withResolvedURLs(for: books) { [home] urls in
+            // 本を確かめているあいだにライブラリ機能を OFF にされていたら、シートを積まない(FileBrowserActions.createCollection と同じ)。
+            guard home.isLibraryFeatureEnabled else { return }
+            WelcomeDropHandling.queueCreations(from: urls.map { .book($0) }, into: home, libraryID: libraryID)
+        }
+    }
+
+    /// 「コレクションに登録」▸ コレクション。同じ本が既に入っていれば足さない(CollectionStore.add)。何が入ったかを短く知らせる。
+    private func addToCollection(_ books: [SmartBook], collectionID: UUID) {
+        guard allowsCollections else { return }
+        let locale = locale
+        withResolvedURLs(for: books) { [home, collectionStore, coverExtractor] urls in
+            // 本を確かめているあいだにライブラリ機能を OFF にされていたら登録しない(OFF の間はコレクションの行に触らない)。
+            guard home.isLibraryFeatureEnabled else { return }
+            Task { @MainActor in
+                guard let result = await CollectionBookAdding.add(
+                    urls, to: collectionID, collectionStore: collectionStore, coverExtractor: coverExtractor
+                ) else { return }
+                showToast(FileBrowserActions.addedToCollectionMessage(
+                    addedTitles: result.addedTitles, requestedCount: result.requestedCount,
+                    collectionName: result.collectionName, locale: locale
+                ))
+            }
+        }
+    }
+
+    private func showToast(_ message: String) {
+        toastDismissTask?.cancel()
+        toastMessage = message
+        toastDismissTask = Task { @MainActor in
+            try? await Task.sleep(for: FileBrowserState.toastDuration)
+            guard !Task.isCancelled else { return }
+            toastMessage = nil
+        }
+    }
+
+    /// 右クリックの「コピー」・⌘C。本の実体をペーストボードへ(Finder へ貼るとコピーになる。HomeBookTransfer.swift の冒頭)。
+    /// 束は運ばない(ファイルとしての実体が無い)。本が無ければ鳴らす。
+    private func copy(_ items: [SmartGridItem]) {
+        let books = Self.books(in: items)
+        guard !books.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        copy(books)
+    }
+
+    private func copy(_ books: [SmartBook]) {
+        withResolvedURLs(for: books) { [weak appState] urls in
+            HomeBookPasteboard.copy(urls, fileBrowser: appState?.fileBrowser)
+        }
+    }
+
+    /// 表紙を引きずり始めた。右クリックと同じく、選んでいる本を掴んだなら選んだ本の全部を運ぶ(束は運ばない)。
+    /// 在るかは確かめない ―― ドラッグは出来事の中で始めるので待てない(無ければ落とした先が断る)。
+    private func beginDrag(from item: SmartGridItem) {
+        let books = Self.books(in: state.contextTargets(for: item))
+        HomeBookDragSource.begin(
+            books: books.map { (URL(fileURLWithPath: $0.id, isDirectory: $0.kind == .folder), $0.kind == .folder) },
+            appState: appState
+        )
     }
 
     private static func books(in items: [SmartGridItem]) -> [SmartBook] {
@@ -1337,7 +1487,9 @@ struct SmartLibraryContent: View {
                 state.openedGroup = nil
                 return true
             },
-            menu: { clicked, targets in listMenu(clicked: clicked, targets: targets) }
+            menu: { clicked, targets in listMenu(clicked: clicked, targets: targets) },
+            onCopy: { items in copy(items) },
+            onDragBegan: { [weak appState] urls in HomeBookDragTracker.begin(urls, from: appState) }
         )
     }
 

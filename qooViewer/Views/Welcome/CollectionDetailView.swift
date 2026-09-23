@@ -86,6 +86,8 @@ struct CollectionDetailView: View {
     @State private var marquee = MarqueeSelection()
     /// 検索欄の焦点(メニューバーの「検索」⌘Fで入れる)。
     @FocusState private var isSearchFocused: Bool
+    /// グリッドがキーの行き先か(「編集」▸「コピー」⌘C を受ける。2026-09-23)。カバーを押す・選び直すと入る。
+    @FocusState private var isGridFocused: Bool
     /// このコレクションそのものの削除の確認を出しているか(メニューバーの「ホーム」▸「コレクションを削除…」。
     /// 一覧の右クリックと違い、中にいるときは開いているコレクションが相手)。
     @State private var isDeletingCollection = false
@@ -511,6 +513,18 @@ struct CollectionDetailView: View {
         } action: { size in
             gridSize = size
         }
+        // 「編集」▸「コピー」(⌘C。2026-09-23、利用者の指示)。選んでいる本(編集モードの選択)をコピーする。
+        // 焦点の枠は描かない(選択の枠がある。スマートライブラリのグリッドと同じ)。
+        .focusable()
+        .focusEffectDisabled()
+        .focused($isGridFocused)
+        .onCommand(#selector(NSText.copy(_:))) {
+            copySelectedItems()
+        }
+        // 選び直したら(帯でまとめて選ぶ・「すべてを選択」のボタンも)、そのまま ⌘C が効くようにグリッドへ焦点を移す。
+        .onChange(of: state.selectedItemIDs) { _, selection in
+            if !selection.isEmpty { isGridFocused = true }
+        }
         // 並ぶものが総入れ替えになったら、帯が覚えている矩形を捨てる(コレクションの
         // 切り替え・グリッドの作り直し)。`.id`より外に付ける理由はCollectionGridView参照。
         .onChange(of: gridID) { marquee.forgetFrames() }
@@ -571,11 +585,14 @@ struct CollectionDetailView: View {
         // 編集モード中は「開く」ではなく「選ぶ/選び直す」。
         .onTapGesture {
             if isEditing {
+                isGridFocused = true
                 state.toggleItemSelection(item.id)
             } else {
                 open(item)
             }
         }
+        // Finder などへ運ぶと本がコピーされる(2026-09-23、利用者の指示。HomeBookTransfer.swift の冒頭)。
+        .homeBookDragSource { beginDrag(from: item) }
         .contextMenu {
             let targets = contextTargets(for: item)
             // 1冊を相手にする操作は、複数選んでいる間は**選べないようにする**(ユーザー指摘
@@ -601,6 +618,10 @@ struct CollectionDetailView: View {
             )
             .disabled(!isSingle)
             openWithMenu(for: item, isEnabled: isSingle)
+            Divider()
+            // 「コピー」(2026-09-23、利用者の指示)。選んだ本をまとめてコピーできる(Finder へ貼るとコピーになる)。
+            // 編集モードを条件にしない(棚をいじる操作ではない)。シークレットウインドウでも使える(何も記録しない)。
+            Button("Copy") { copy(targets) }
             Divider()
             // 「Finderで開く」(ユーザー要望 2026-09-09)。**編集モードを条件にしない** ――
             // 棚をいじる操作ではなく、その本がどこにあるかを見るだけの操作なので。
@@ -733,6 +754,54 @@ struct CollectionDetailView: View {
                 }
             }
         }
+    }
+
+    // MARK: - コピー・ドラッグ(2026-09-23)
+
+    /// 「編集」▸「コピー」(⌘C)。選んでいる本(いま出ているぶん)。選んでいなければ鳴らす。
+    private func copySelectedItems() {
+        let targets = items.filter { state.selectedItemIDs.contains($0.id) }
+        guard !targets.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        copy(targets)
+    }
+
+    /// 本の実体をペーストボードへ(HomeBookPasteboard)。ブックマークの解決と在るかの確かめは FileIO の上で(何冊もあり、
+    /// ボリュームへの問い合わせになる。CollectionStore.existingURL のコメント)。見つかった本だけを載せ、1冊も無ければ
+    /// 「本が見つかりません」。
+    private func copy(_ targets: [CollectionItem]) {
+        let requests = targets.map { (id: $0.id, bookmark: $0.bookmarkData) }
+        Task { @MainActor in
+            let resolved = await FileIO.perform {
+                requests.map { (id: $0.id, url: CollectionStore.existingURL(fromBookmark: $0.bookmark)) }
+            }
+            let urls = resolved.compactMap(\.url)
+            guard !urls.isEmpty else {
+                if let item = requests.first.flatMap({ collectionStore.item(withID: $0.id) }) {
+                    missingBook = MissingBook(id: item.id, title: item.title, reason: collectionStore.location(for: item))
+                }
+                return
+            }
+            // コレクションの本の許可はブックマークが持つので、書くあいだスコープを開けておく。
+            HomeBookPasteboard.copy(urls, scopedURLs: urls, fileBrowser: appState.fileBrowser)
+        }
+    }
+
+    /// カバーを引きずり始めた。右クリックと同じく、選んでいる本を掴んだなら選んだ本の全部を運ぶ(contextTargets)。
+    /// ブックマークはここで解決する(ドラッグは出来事の中で始めるので待てない。開くときと同じくメインアクターの上)。
+    /// 見つからない本は運ばない。
+    private func beginDrag(from item: CollectionItem) {
+        guard !HomeBookDragSource.isDragging else { return }
+        let urls = contextTargets(for: item).compactMap { collectionStore.resolvedExistingURL(for: $0) }
+        HomeBookDragSource.begin(
+            books: urls.map { url in
+                let name = url.lastPathComponent
+                return (url, !(isArchiveFile(name) || isPDFFile(name) || isEpubFile(name)))
+            },
+            scopedURLs: urls, appState: appState
+        )
     }
 
     /// カバーの下に出す文字。設定が「表示しない」(既定)ならnilで、行そのものを出さない。

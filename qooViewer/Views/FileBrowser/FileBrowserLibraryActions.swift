@@ -3,6 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// ファイルブラウザの右クリックと既存機能をつなぐ(改善要望7 段階 8、2026-09-14): コレクションを作成 / コレクションに登録 /
+/// スマートライブラリの対象に追加(2026-09-23) /
 /// このアプリケーションで開く / メタデータの編集… / 本の書き出し。
 ///
 /// ■ 画像フォルダかどうかは選んだときに調べる
@@ -56,22 +57,10 @@ extension FileBrowserActions {
     /// ストアの通し番号と並び順が変わらない間は同じものを返す。
     func collectionMenuLibraries(locale: Locale) -> [CollectionMenuLibrary] {
         guard let collectionStore else { return [] }
-        let sort = appState?.welcomeLibrary?.collectionSort ?? .nameAscending
-        if let cached = collectionMenuCache, cached.revision == collectionStore.revision, cached.sort == sort,
-           cached.localeIdentifier == locale.identifier {
-            return cached.libraries
-        }
-        let libraries = collectionStore.libraries.map { library in
-            CollectionMenuLibrary(
-                // 本棚の帯と同じ名前(既定のライブラリは表示言語の訳)。
-                id: library.id, name: library.displayName(language: locale),
-                collections: collectionStore.collections(in: library, sort: sort).map { ($0.id, $0.name) }
-            )
-        }
-        collectionMenuCache = CollectionMenuCache(
-            revision: collectionStore.revision, sort: sort, localeIdentifier: locale.identifier, libraries: libraries
+        return CollectionMenuLibrary.libraries(
+            in: collectionStore, sort: appState?.welcomeLibrary?.collectionSort ?? .nameAscending, locale: locale,
+            cache: &collectionMenuCache
         )
-        return libraries
     }
 
     /// 「コレクションに登録」▸ コレクション。棚はその中の本を展開して入れる(開いているコレクションへのドロップと同じ。
@@ -85,24 +74,21 @@ extension FileBrowserActions {
         let order = preferences?.siblingBookOrder ?? .byName
         return Task { [weak self] in
             let classified = await FileIO.perform { CollectionDropClassifier.classify(urls, order: order) }
+            // 分類を待っているあいだにライブラリ機能を OFF にされていたら登録しない(OFF の間はコレクションの行に触らない。
+            // AppStores.applyLibraryFeature。「コレクションを作成」と同じ)。
+            guard self?.isLibraryFeatureEnabled == true else { return }
             let books = CollectionDropClassifier.booksToAdd(from: classified)
             guard !books.isEmpty else {
                 self?.reportNoBooks(in: entries, forCollection: true)
                 return
             }
-            // ブックマークの生成はメインアクターの外で(CollectionStore.makePendingItemsのコメント)。
-            let pending = await CollectionStore.makePendingItems(for: books)
-            // 待っている間に消されたコレクションには足さない(idで引き直す。WelcomeDropHandling.handle と同じ)。
-            guard let self, let collectionStore = self.collectionStore,
-                  let collection = collectionStore.collection(withID: collectionID), !pending.isEmpty
-            else { return }
-            // 足してから表紙の抽出を頼む。`coverExtractor?.enqueue(store.add(...))` と 1 行で書くと、抽出役が居ないときに
-            // 引数ごと評価されず、本が足されない(テストで踏んだ)。
-            let added = collectionStore.add(pending, to: collection)
-            self.coverExtractor?.enqueue(added)
+            guard let result = await CollectionBookAdding.add(
+                books, to: collectionID, collectionStore: self?.collectionStore, coverExtractor: self?.coverExtractor
+            ), let self else { return }
             // 本棚ではないので登録しても画面に変化が無い。何が入ったかを短く知らせる(ユーザー要望 2026-09-14)。
             self.state?.showToast(Self.addedToCollectionMessage(
-                addedTitles: added.map(\.title), requestedCount: pending.count, collectionName: collection.name,
+                addedTitles: result.addedTitles, requestedCount: result.requestedCount,
+                collectionName: result.collectionName,
                 locale: self.preferences?.effectiveLocale ?? .autoupdatingCurrent
             ))
         }
@@ -135,6 +121,66 @@ extension FileBrowserActions {
         return String(
             format: String(localized: "Added %1$lld books to the collection “%2$@”", language: locale),
             addedCount, collectionName
+        )
+    }
+
+    // MARK: - スマートライブラリの対象に追加(2026-09-23、利用者の指示)
+
+    /// 「スマートライブラリの対象に追加」を押せるか。フォルダだけ(ファイル・ボリュームが混ざったら淡色)で、まだ対象でないものが
+    /// あるとき。対象フォルダは保存データなので、シークレットウインドウでは淡色(「よく使う項目に登録」と同じ)。
+    /// **画像フォルダ(1 冊の本)かどうかはここでは調べない**(一覧はフォルダの中を読まない。型コメント「画像フォルダかどうかは
+    /// 選んだときに調べる」)。
+    func canAddToSmartLibrary(_ entries: [FileBrowserEntry]) -> Bool {
+        guard isSmartLibraryFeatureEnabled, allowsSaving, let smartLibraryStore, !entries.isEmpty,
+              entries.allSatisfy({ $0.isNavigableFolder && !$0.isVolume })
+        else { return false }
+        return entries.contains { !smartLibraryStore.containsFolder($0.url) }
+    }
+
+    /// 選んだフォルダをスマートライブラリの対象フォルダに足す。1 冊の本になるフォルダ(画像フォルダ・章のフォルダ)は足さない ――
+    /// 対象フォルダは「本が並んでいる場所」で、本そのものを足すとその本 1 冊だけの対象になる(ShelfFolderResolver.isSingleBookFolder)。
+    /// 全部が本だったら、そう伝える。足したら短く知らせる(ファイルブラウザからはスマートライブラリの画面が見えないので)。
+    ///
+    /// 読む権限は FolderAccessStore に一本化(スマートライブラリの「フォルダを追加…」と同じ。一覧に見えている時点で読めている)。
+    ///
+    /// - Returns: 本かどうかを調べて足すまでの Task(**テストのための口**)。
+    @discardableResult
+    func addToSmartLibrary(_ entries: [FileBrowserEntry]) -> Task<Void, Never>? {
+        guard canAddToSmartLibrary(entries) else { return nil }
+        let candidates = entries.filter { !(smartLibraryStore?.containsFolder($0.url) ?? true) }
+        let urls = candidates.map(\.url)
+        let locale = preferences?.effectiveLocale ?? .autoupdatingCurrent
+        return Task { [weak self] in
+            let isBook = await FileIO.perform { urls.map { ShelfFolderResolver.isSingleBookFolder($0) } }
+            // 調べているあいだにスマートライブラリ機能を OFF にされていたら足さない。
+            guard let self, self.isSmartLibraryFeatureEnabled, self.allowsSaving, let store = self.smartLibraryStore else { return }
+            let folders = zip(candidates, isBook).filter { !$0.1 }.map(\.0)
+            guard !folders.isEmpty else {
+                self.state?.operations.presenter?.showProblem(
+                    Self.bookFolderCannotBeSmartTarget(names: candidates.map(\.displayName), locale: locale)
+                )
+                return
+            }
+            for folder in folders {
+                self.folderAccess?.add(url: folder.url)
+                store.addFolder(folder.url)
+            }
+            self.state?.showToast(folders.count == 1
+                ? String(format: String(localized: "Added “%@” to the smart library’s target folders", language: locale),
+                         folders[0].displayName)
+                : String(format: String(localized: "Added %lld folders to the smart library’s target folders", language: locale),
+                         folders.count))
+        }
+    }
+
+    static func bookFolderCannotBeSmartTarget(names: [String], locale: Locale) -> FileBrowserProblem {
+        let title = names.count == 1
+            ? String(format: String(localized: "“%@” is a book, so it can’t be a target folder.", language: locale), names[0])
+            : String(localized: "The selected folders are books, so they can’t be target folders.", language: locale)
+        return FileBrowserProblem(
+            title: title,
+            message: String(localized: "Add the folder that holds the books. Every book in it appears in the smart library.",
+                            language: locale)
         )
     }
 
@@ -404,33 +450,12 @@ extension FileBrowserMenuCommand {
             )
         case .createCollection:
             // ライブラリが 1 つなら選ぶものが無いので、サブメニューにしない(押すとそのまま名前を訊く)。
-            let libraries = actions.collectionMenuLibraries(locale: locale)
-            guard libraries.count > 1 else { return nil }
-            return libraries.map { library in
-                .item(
-                    title: library.name, image: nil, isEnabled: true,
-                    action: { [weak actions] in actions?.createCollection(from: entries, libraryID: library.id) }
-                )
+            return CollectionMenuLibrary.createMenuNodes(for: actions.collectionMenuLibraries(locale: locale)) {
+                [weak actions] libraryID in actions?.createCollection(from: entries, libraryID: libraryID)
             }
         case .addToCollection:
-            let libraries = actions.collectionMenuLibraries(locale: locale)
-            func collectionItems(_ library: CollectionMenuLibrary) -> [FileBrowserMenuNode] {
-                guard !library.collections.isEmpty else {
-                    return [.item(
-                        title: String(localized: "No Collections", language: locale), image: nil, isEnabled: false, action: {}
-                    )]
-                }
-                return library.collections.map { collection in
-                    .item(
-                        title: collection.name, image: nil, isEnabled: true,
-                        action: { [weak actions] in actions?.addToCollection(entries, collectionID: collection.id) }
-                    )
-                }
-            }
-            // ライブラリが 1 つなら 1 段で並べる(ライブラリの名前を見せる意味が無い)。
-            if libraries.count == 1, let only = libraries.first { return collectionItems(only) }
-            return libraries.map { library in
-                .submenu(title: library.name, isEnabled: true, children: collectionItems(library))
+            return CollectionMenuLibrary.addMenuNodes(for: actions.collectionMenuLibraries(locale: locale), locale: locale) {
+                [weak actions] collectionID in actions?.addToCollection(entries, collectionID: collectionID)
             }
         case .autoRename:
             return actions.autoRenameMenuNodes(for: entries, locale: locale)

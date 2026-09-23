@@ -31,6 +31,8 @@ final class FileBrowserActions {
     /// 自動リネーム(2026-09-15。FileBrowserAutoRenameActions.swift)。
     weak var autoRenameStore: AutoRenameStore?
     weak var autoRenameService: AutoRenameService?
+    /// 「スマートライブラリの対象に追加」(2026-09-23。FileBrowserLibraryActions.swift)。
+    weak var smartLibraryStore: SmartLibraryStore?
 
     /// シークレットウインドウでは保存を伴う操作(よく使う項目の登録・削除)を塞ぐ(決定事項 Q8)。
     var allowsSaving: Bool { !(appState?.isPrivateWindow ?? true) }
@@ -160,6 +162,12 @@ final class FileBrowserActions {
     /// 操作の入り口でも断る(`allowsSaving`と並べて確かめる)。
     var isLibraryFeatureEnabled: Bool {
         preferences?.libraryFeatureEnabled ?? true
+    }
+
+    /// スマートライブラリ機能が有効か(環境設定「スマートライブラリを有効にする」)。OFFなら右クリックに「スマートライブラリの対象に追加」を
+    /// 出さず、操作の入り口でも断る(`isLibraryFeatureEnabled` と同じ扱い)。
+    var isSmartLibraryFeatureEnabled: Bool {
+        preferences?.smartLibraryFeatureEnabled ?? true
     }
 
     /// ファイルを変える操作ができるか(読み取り専用モードでない。段階 8.5)。項目を淡色にするための読み出しで、
@@ -517,6 +525,9 @@ enum FileBrowserMenuCommand {
     case editMetadata
     case exportBook
     case addToFavoriteLocations
+    /// 「スマートライブラリの対象に追加」(2026-09-23、利用者の指示)。本(画像フォルダ)でないフォルダだけ ―― 本かどうかは
+    /// 選んだときに調べる(FileBrowserActions.addToSmartLibrary)。
+    case addToSmartLibrary
     /// サブメニュー「自動リネーム」(規則ごとのチェック・このフォルダの規則を作る・設定を開く。2026-09-15)。
     case autoRename
     case showInFinder
@@ -525,13 +536,25 @@ enum FileBrowserMenuCommand {
 
     /// 種類ごとの並び。内側の配列が区切り線で分かれる 1 群。
     ///
-    /// - Parameter includesLibrary: false なら「コレクションを作成」「コレクションに登録」の群を省く(環境設定「ライブラリを有効にする」がOFF。
-    ///   2026-09-21)。選択の状態で項目の数を変えない決まりとは別の話 ―― 機能そのものが無いので、淡色で残さずに消す。
-    static func groups(for kind: FileBrowserMenuKind, includesLibrary: Bool = true) -> [[FileBrowserMenuCommand]] {
+    /// - Parameters:
+    ///   - includesLibrary: false なら「コレクションを作成」「コレクションに登録」の群を省く(環境設定「ライブラリを有効にする」がOFF。
+    ///     2026-09-21)。選択の状態で項目の数を変えない決まりとは別の話 ―― 機能そのものが無いので、淡色で残さずに消す。
+    ///   - includesSmartLibrary: false なら「スマートライブラリの対象に追加」を省く(「スマートライブラリを有効にする」がOFF。同じ理由)。
+    static func groups(
+        for kind: FileBrowserMenuKind, includesLibrary: Bool = true, includesSmartLibrary: Bool = true
+    ) -> [[FileBrowserMenuCommand]] {
         let groups = allGroups(for: kind)
-        guard !includesLibrary else { return groups }
+        guard !includesLibrary || !includesSmartLibrary else { return groups }
         return groups
-            .map { $0.filter { $0 != .createCollection && $0 != .addToCollection } }
+            .map { group in
+                group.filter { command in
+                    switch command {
+                    case .createCollection, .addToCollection: includesLibrary
+                    case .addToSmartLibrary: includesSmartLibrary
+                    default: true
+                    }
+                }
+            }
             .filter { !$0.isEmpty }
     }
 
@@ -545,7 +568,7 @@ enum FileBrowserMenuCommand {
              [.moveToTrash],
              [.compress],
              [.editMetadata, .exportBook],
-             [.addToFavoriteLocations, .autoRename, .showInFinder, .getInfo]]
+             [.addToFavoriteLocations, .addToSmartLibrary, .autoRename, .showInFinder, .getInfo]]
         case .file:
             [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow],
              [.createCollection, .addToCollection],
@@ -559,7 +582,7 @@ enum FileBrowserMenuCommand {
             [[.open, .openInNewTab, .openInNewNormalWindow, .openInNewPrivateWindow],
              [.openWith],
              [.newFolder, .paste],
-             [.addToFavoriteLocations, .autoRename, .showInFinder, .getInfo]]
+             [.addToFavoriteLocations, .addToSmartLibrary, .autoRename, .showInFinder, .getInfo]]
         case .background:
             // 「表示」「表示順序」のサブメニューは組む側が足す(FileBrowserMenuBuilder)。
             [[.paste, .newFolder]]
@@ -604,6 +627,7 @@ enum FileBrowserMenuCommand {
         case .editMetadata: "Edit Metadata…"
         case .exportBook: "Export Book"
         case .addToFavoriteLocations: "Add to Favorite Locations"
+        case .addToSmartLibrary: "Add to Smart Library Targets"
         case .autoRename: "Auto Rename"
         case .showInFinder: "Show in Finder"
         case .getInfo: "Get Info"
@@ -676,6 +700,8 @@ enum FileBrowserMenuCommand {
             return actions.canCreateFolder(in: context.folder)
         case .addToFavoriteLocations:
             return actions.canAddToFavoriteLocations(entries)
+        case .addToSmartLibrary:
+            return actions.canAddToSmartLibrary(entries)
         case .autoRename:
             // 親はフォルダ 1 つ・保存できるウインドウなら開ける。中の項目は autoRenameMenuNodes が 1 つずつ決める(2026-09-19)。
             return actions.canShowAutoRenameMenu(entries)
@@ -709,6 +735,7 @@ enum FileBrowserMenuCommand {
         case .newFolder: actions.newFolder(in: context.folder)
         case .moveToTrash: actions.moveToTrash(entries)
         case .addToFavoriteLocations: actions.addToFavoriteLocations(entries)
+        case .addToSmartLibrary: actions.addToSmartLibrary(entries)
         case .showInFinder: actions.showInFinder(entries)
         case .getInfo: actions.showInfo(entries)
         }
@@ -730,7 +757,10 @@ final class FileBrowserMenuBuilder: NSObject {
         self.context = context
         self.actions = actions
         guard let actions else { return }
-        for group in FileBrowserMenuCommand.groups(for: context.kind, includesLibrary: actions.isLibraryFeatureEnabled) {
+        for group in FileBrowserMenuCommand.groups(
+            for: context.kind, includesLibrary: actions.isLibraryFeatureEnabled,
+            includesSmartLibrary: actions.isSmartLibraryFeatureEnabled
+        ) {
             if !menu.items.isEmpty { menu.addItem(.separator()) }
             for command in group {
                 menu.addItem(fullMenuItem(for: command, locale: locale, actions: actions))
@@ -811,8 +841,8 @@ final class FileBrowserMenuBuilder: NSObject {
         return item
     }
 
-    /// 場面で変わるサブメニュー(FileBrowserMenuNode)を NSMenu に。
-    private static func menu(from nodes: [FileBrowserMenuNode]) -> NSMenu {
+    /// 場面で変わるサブメニュー(FileBrowserMenuNode)を NSMenu に。スマートライブラリのリストの右クリックも使う。
+    static func menu(from nodes: [FileBrowserMenuNode]) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
         for node in nodes {

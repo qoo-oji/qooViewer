@@ -174,6 +174,12 @@ final class SmartLibraryStore: ObservableObject {
 
     // MARK: - 対象フォルダ
 
+    /// そのフォルダがもう対象フォルダか(パスの比べ方は `addFolder` と同じ)。
+    func containsFolder(_ url: URL) -> Bool {
+        let path = MountTable.normalized(url.standardizedFileURL.path)
+        return folders.contains { $0.path == path }
+    }
+
     @discardableResult
     func addFolder(_ url: URL) -> Folder {
         let path = MountTable.normalized(url.standardizedFileURL.path)

@@ -34,6 +34,7 @@ struct FileBrowserPane: View {
     @EnvironmentObject private var thumbnails: FileBrowserThumbnailProvider
     @EnvironmentObject private var autoRenameStore: AutoRenameStore
     @EnvironmentObject private var autoRenameService: AutoRenameService
+    @EnvironmentObject private var smartLibraryStore: SmartLibraryStore
     /// ホイール1ノッチのスクロール量(環境設定「外観」→「ホーム」→「スクロール」。HomeWheelScroll参照)。
     /// ウインドウごとの揃い(ノーマル/シークレット)を ContentView が入れ替えている(CLAUDE.md)。
     @EnvironmentObject private var appearance: AppearanceSettings
@@ -194,6 +195,7 @@ struct FileBrowserPane: View {
         actions.metadataStore = metadataStore
         actions.autoRenameStore = autoRenameStore
         actions.autoRenameService = autoRenameService
+        actions.smartLibraryStore = smartLibraryStore
         // メニューバーのファイルブラウザの項目(ファイル・編集・表示・ホーム)が、右クリックと同じ口を使えるように。
         appState.fileBrowserActions = actions
         // ビューアで開いている本は動かさせない(FileBrowserOperations.refusesBecauseOpenInViewer)。

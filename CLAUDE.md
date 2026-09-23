@@ -314,6 +314,15 @@ expandable rows; it shares the grid's selection/sort state. Design in docs/14「
 **Books opened from a collection or the smart library carry the list they came from** (`BookSequence` on
 `BookOpenRequest.sequence` → `AppState.bookSequence`, 2026-09-22): next/previous book walks that snapshot (skipping missing
 books, stopping at the ends; every check runs on `FileIO` with a per-book deadline and a timeout stops the walk) instead of the folder siblings; opening a book any other way clears it (docs/04「隣の本」).
+**Books leave Home by copy and drag** (collections and the smart library, 2026-09-23; `Views/Welcome/HomeBookTransfer.swift`):
+the pasteboard gets the real file URLs; drags allow **copy only** (unlike the file browser, dropping on the same volume in Finder
+must not move a shelved book). SwiftUI grids start an AppKit `beginDraggingSession` from a cell's `DragGesture` (`.onDrag`
+carries one provider and cannot set the operation mask); collection books keep their bookmark's security scope open while
+writing/dragging. A drop back onto the source window is refused (`HomeBookDragTracker`, asked through
+`bookFileDropTarget(refusesDrop:)` at drop time — the URLs load asynchronously, after the source has ended). Items in one
+feature that operate another (collections from the smart library/file browser, "Add to Smart Library Targets", "Show in File
+Browser") disappear when the target feature is off and re-check the flag after every await (docs/plans/feature-toggle-audit.md,
+2026-09-23 table).
 
 **Menu bar ↔ viewer bridging**: `AppState` (ViewModels/AppState.swift) is one-per-window and is exposed to
 the menu bar via `FocusedValue` (see the `qooViewerAppState`/`qooViewerMenuCheckmarkState` extension in

@@ -17,11 +17,13 @@ extension View {
     ///
     /// - Parameters:
     ///   - isTargeted: ドロップ先として反応している間trueになる(呼び出し側が見た目の強調に使う)。
+    ///   - refusesDrop: ドロップの瞬間に訊く「受け取らないか」(ホームから運び出している本を同じウインドウへ落とした。
+    ///     HomeBookDragTracker)。URLの取り出しは非同期で、終わる頃にはドラッグ元の記録が下りているので、ここで先に訊く。
     ///   - openURLs: 取り出せたURLをまとめて渡す。1つも取り出せなかった場合は空配列で呼ぶ。
     func bookFileDropTarget(
-        isTargeted: Binding<Bool>, openURLs: @escaping ([URL]) -> Void
+        isTargeted: Binding<Bool>, refusesDrop: @escaping () -> Bool = { false }, openURLs: @escaping ([URL]) -> Void
     ) -> some View {
-        fileURLDropTarget(isTargeted: isTargeted, receiveURLs: openURLs)
+        fileURLDropTarget(isTargeted: isTargeted, refusesDrop: refusesDrop, receiveURLs: openURLs)
     }
 
     /// 落とされたファイル/フォルダのURLを受け取るだけのドロップ先(本を開くとは限らない版)。
@@ -36,10 +38,11 @@ extension View {
     /// (ContentView.applyFileDropTarget)がドロップを拾えないため、自前で受ける必要がある。
     /// NSItemProviderからURLを取り出すところはこうして1か所に残してある。
     func fileURLDropTarget(
-        isTargeted: Binding<Bool>, receiveURLs: @escaping ([URL]) -> Void
+        isTargeted: Binding<Bool>, refusesDrop: @escaping () -> Bool = { false },
+        receiveURLs: @escaping ([URL]) -> Void
     ) -> some View {
         onDrop(of: [.fileURL], isTargeted: isTargeted) { providers in
-            guard !providers.isEmpty else { return false }
+            guard !providers.isEmpty, !refusesDrop() else { return false }
             // providersを1つも捨てずに全部からURLを取り出してからまとめて開く
             // (ユーザー要望: Finderで複数選択した画像をまとめて開く)。
             //

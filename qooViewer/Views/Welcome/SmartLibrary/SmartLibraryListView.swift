@@ -18,6 +18,8 @@ import SwiftUI
 /// - 選択は画面の選択(`SmartLibraryViewState.selection`)と同じもの ―― グリッドとリストを切り替えても残る
 /// - 文字を打つと頭文字の行へ(`NSOutlineView` の type-select)、⌘A ですべて
 /// - 右クリック: 右クリックした行が選択に入っていれば選択の全部が相手(グリッドと同じ。中身は画面が組む `menu`)
+/// - ⌘C(編集 ▸ コピー)で選んだ本をコピー、行を Finder などへドラッグすると本をコピー(2026-09-23。束の行は運ばない。
+///   許すのはコピーだけ ―― HomeBookTransfer.swift の冒頭)
 ///
 /// ■ すりガラス面の決まりごと
 /// ファイルブラウザのリストと同じ部品: 文字は `FileBrowserCellView`(輪郭を焼く)、行の地と選択は `FileBrowserRowView`
@@ -33,6 +35,8 @@ struct SmartLibraryListView: NSViewRepresentable {
         var isEnabled = true
         var action: (() -> Void)?
         var isSeparator = false
+        /// サブメニュー(「コレクションを作成」〈ライブラリが複数のとき〉・「コレクションに登録」)。あれば `action` は使わない。
+        var submenu: [FileBrowserMenuNode]?
 
         static var separator: MenuItem { MenuItem(title: "", isSeparator: true) }
     }
@@ -57,6 +61,11 @@ struct SmartLibraryListView: NSViewRepresentable {
     var onLeaveGroup: () -> Bool
     /// 右クリックした行と、相手にする行(選択に入っていれば選択の全部)。
     var menu: (_ clicked: SmartGridItem, _ targets: [SmartGridItem]) -> [MenuItem]
+    /// ⌘C(選んでいる行。束の行も含む ―― 何を運ぶかは画面が決める)。
+    var onCopy: ([SmartGridItem]) -> Void
+    /// 行のドラッグが始まった(運ぶ本の URL)。同じウインドウの「本を開く」受け口が断るための記録を付ける(HomeBookDragTracker。
+    /// 下ろすのは終わりの知らせで、ここが直に行う)。
+    var onDragBegan: ([URL]) -> Void
 
     /// 列の並び・幅・表示を覚えておく名前。
     static let autosaveName = "qooViewer.smartLibrary.list"
@@ -108,6 +117,8 @@ struct SmartLibraryListView: NSViewRepresentable {
         outline.target = coordinator
         outline.doubleAction = #selector(Coordinator.doubleClicked(_:))
         outline.onOpenSelection = { [weak coordinator] in coordinator?.openSelection() }
+        outline.onCopy = { [weak coordinator] in coordinator?.copySelection() }
+        outline.canCopy = { [weak coordinator] in coordinator?.hasSelectedBooks ?? false }
         outline.onLeaveGroup = { [weak coordinator] in coordinator?.parent?.onLeaveGroup() ?? false }
 
         let rowMenu = NSMenu()
@@ -149,6 +160,8 @@ struct SmartLibraryListView: NSViewRepresentable {
             outline.doubleAction = nil
             outline.onOpenSelection = nil
             outline.onLeaveGroup = nil
+            outline.onCopy = nil
+            outline.canCopy = nil
             outline.menu?.delegate = nil
             outline.menu = nil
             outline.headerView?.menu?.delegate = nil
@@ -522,6 +535,43 @@ struct SmartLibraryListView: NSViewRepresentable {
             parent?.onActivate(node.item)
         }
 
+        // MARK: コピー・ドラッグ(2026-09-23)
+
+        /// 選んでいる行に本があるか(編集 ▸ コピーの淡色)。
+        var hasSelectedBooks: Bool {
+            guard let outline else { return false }
+            return outline.selectedRowIndexes.contains { !(node(atRow: $0)?.isGroup ?? true) }
+        }
+
+        func copySelection() {
+            guard let outline, let parent else { return }
+            parent.onCopy(outline.selectedRowIndexes.compactMap { node(atRow: $0)?.item })
+        }
+
+        /// 本の行だけを運ぶ(束は疑似的なフォルダで、ファイルとしての実体が無い)。
+        func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> NSPasteboardWriting? {
+            guard let node = item as? Node, case .book(let book) = node.item else { return nil }
+            return URL(fileURLWithPath: book.id, isDirectory: book.kind == .folder) as NSURL
+        }
+
+        func outlineView(
+            _ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint,
+            forItems draggedItems: [Any]
+        ) {
+            parent?.onDragBegan(draggedItems.compactMap { item in
+                guard let node = item as? Node, case .book(let book) = node.item else { return nil }
+                return URL(fileURLWithPath: book.id, isDirectory: book.kind == .folder)
+            })
+        }
+
+        func outlineView(
+            _ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint,
+            operation: NSDragOperation
+        ) {
+            // 画面が消えた後に終わっても記録を下ろせるよう、閉包を通さず直に下ろす。
+            HomeBookDragTracker.end()
+        }
+
         // MARK: メニュー
 
         func menuNeedsUpdate(_ menu: NSMenu) {
@@ -551,6 +601,10 @@ struct SmartLibraryListView: NSViewRepresentable {
             if item.isSeparator { return .separator() }
             let menuItem = NSMenuItem(title: item.title, action: nil, keyEquivalent: "")
             menuItem.isEnabled = item.isEnabled
+            if let submenu = item.submenu {
+                menuItem.submenu = FileBrowserMenuBuilder.menu(from: submenu)
+                return menuItem
+            }
             if let action = item.action {
                 menuItem.target = self
                 menuItem.action = #selector(runMenuItem(_:))
@@ -578,9 +632,29 @@ struct SmartLibraryListView: NSViewRepresentable {
 
 /// スマートライブラリのリストの `NSOutlineView`。三角の輪郭と当たり判定はファイルブラウザのツリーのもの
 /// (`FileBrowserOutlineView`)を受け継ぎ、開く・束から出るキーを足す。
-final class SmartLibraryOutlineView: FileBrowserOutlineView {
+final class SmartLibraryOutlineView: FileBrowserOutlineView, NSMenuItemValidation {
     var onOpenSelection: (() -> Void)?
     var onLeaveGroup: (() -> Bool)?
+    var onCopy: (() -> Void)?
+    var canCopy: (() -> Bool)?
+
+    /// 行をアプリの外へ運ぶときはコピーだけ(HomeBookTransfer.swift の冒頭。Finder の同じボリュームへ落としても本は動かない)。
+    override func draggingSession(
+        _ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext
+    ) -> NSDragOperation {
+        .copy
+    }
+
+    /// 編集 ▸ コピー(⌘C)。
+    @objc func copy(_ sender: Any?) { onCopy?() }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        switch menuItem.action {
+        case #selector(copy(_:)): canCopy?() ?? false
+        case #selector(selectAll(_:)): numberOfRows > 0
+        default: true
+        }
+    }
 
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)

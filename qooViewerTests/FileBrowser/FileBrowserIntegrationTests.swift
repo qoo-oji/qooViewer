@@ -606,6 +606,89 @@ struct FileBrowserIntegrationTests {
         #expect(fixture.welcome.pendingCreations.isEmpty)
     }
 
+    @Test("「スマートライブラリの対象に追加」はフォルダだけ。登録済み・シークレットウインドウでは淡色、機能がOFFなら項目ごと出ず入り口でも断る")
+    func addToSmartLibraryAvailability() throws {
+        let fixture = try Fixture("fb-menu-smart-availability")
+        defer { fixture.close() }
+        let store = SmartLibraryStore(defaults: fixture.suite.defaults)
+        fixture.actions.smartLibraryStore = store
+        let folder = fixture.entry(try fixture.temporary.directory("shelf"))
+        let book = fixture.entry(try fixture.archive("book.cbz"))
+        let english = Locale(identifier: "en")
+        func enabled(_ entries: [FileBrowserEntry], kind: FileBrowserMenuKind = .folder) -> Bool {
+            FileBrowserMenuCommand.addToSmartLibrary.isEnabled(
+                in: FileBrowserMenuContext(kind: kind, entries: entries, folder: nil), actions: fixture.actions
+            )
+        }
+        func titles(_ kind: FileBrowserMenuKind, _ entries: [FileBrowserEntry]) -> [String] {
+            let menu = NSMenu()
+            FileBrowserMenuBuilder().rebuild(
+                menu, for: FileBrowserMenuContext(kind: kind, entries: entries, folder: nil), actions: fixture.actions,
+                locale: english
+            )
+            return menu.items.map(\.title)
+        }
+
+        #expect(titles(.folder, [folder]).contains("Add to Smart Library Targets"))
+        #expect(titles(.tree, [folder]).contains("Add to Smart Library Targets"))
+        #expect(!titles(.file, [book]).contains("Add to Smart Library Targets"))
+        // 読み取り専用モードでも押せる(ファイルは変わらない)。ファイルが混ざったら・登録済みなら淡色。
+        fixture.preferences.fileBrowserReadOnly = true
+        #expect(enabled([folder]))
+        #expect(!enabled([folder, book]))
+        store.addFolder(folder.url)
+        #expect(!enabled([folder]))
+        store.removeFolder(id: try #require(store.folders.first).id)
+
+        fixture.preferences.smartLibraryFeatureEnabled = false
+        #expect(!titles(.folder, [folder]).contains("Add to Smart Library Targets"))
+        #expect(!titles(.tree, [folder]).contains("Add to Smart Library Targets"))
+        #expect(!enabled([folder]))
+        #expect(fixture.actions.addToSmartLibrary([folder]) == nil)
+        // 区切り線が 2 本続かない(空になった群を残さない)。
+        let menu = NSMenu()
+        FileBrowserMenuBuilder().rebuild(
+            menu, for: FileBrowserMenuContext(kind: .folder, entries: [folder], folder: nil), actions: fixture.actions,
+            locale: english
+        )
+        for (index, item) in menu.items.enumerated() where item.isSeparatorItem {
+            #expect(index > 0 && !menu.items[index - 1].isSeparatorItem)
+        }
+        #expect(store.folders.isEmpty)
+
+        let privateFixture = try Fixture("fb-menu-smart-private", isPrivate: true)
+        defer { privateFixture.close() }
+        privateFixture.actions.smartLibraryStore = SmartLibraryStore(defaults: privateFixture.suite.defaults)
+        let privateFolder = privateFixture.entry(try privateFixture.temporary.directory("shelf"))
+        #expect(!FileBrowserMenuCommand.addToSmartLibrary.isEnabled(
+            in: FileBrowserMenuContext(kind: .folder, entries: [privateFolder], folder: nil), actions: privateFixture.actions
+        ))
+        #expect(privateFixture.actions.addToSmartLibrary([privateFolder]) == nil)
+    }
+
+    @Test("「スマートライブラリの対象に追加」は本が並ぶフォルダを足して知らせ、画像フォルダ(1 冊の本)は足さずに伝える")
+    func addToSmartLibraryAddsOnlyNonBookFolders() async throws {
+        let fixture = try Fixture("fb-menu-smart-add")
+        defer { fixture.close() }
+        let store = SmartLibraryStore(defaults: fixture.suite.defaults)
+        fixture.actions.smartLibraryStore = store
+        let shelfURL = try fixture.temporary.directory("shelf")
+        _ = try fixture.archive("shelf/book.cbz")
+        let shelf = fixture.entry(shelfURL)
+        let imageFolder = fixture.entry(try fixture.imageFolder("pages"))
+
+        await fixture.actions.addToSmartLibrary([imageFolder])?.value
+        #expect(store.folders.isEmpty)
+        #expect(fixture.presenter.problems.count == 1)
+
+        await fixture.actions.addToSmartLibrary([shelf, imageFolder])?.value
+        #expect(store.folders.map(\.path) == [MountTable.normalized(shelfURL.standardizedFileURL.path)])
+        #expect(fixture.presenter.problems.count == 1)
+        #expect(fixture.state.toastMessage != nil)
+        // 足したフォルダは登録済み ―― 画像フォルダは残っているので、2 つを選べばまだ押せる。
+        #expect(!fixture.actions.canAddToSmartLibrary([shelf]))
+    }
+
     @Test("「パス名をコピー」はパスを文字列で載せる(複数なら 1 行に 1 つ)。読み取り専用でも使え、ペーストは淡色になる")
     func copyPathnames() throws {
         let fixture = try Fixture("fb-copy-pathname")

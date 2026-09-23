@@ -312,7 +312,12 @@ struct ContentView: View {
     /// 対策(windowContentのコメント参照)。
     private func applyFileDropTarget<Content: View>(to content: Content) -> some View {
         content
-            .bookFileDropTarget(isTargeted: $isFileDropTargeted) { urls in
+            // ホーム(コレクション・スマートライブラリ)から運び出している本を同じウインドウへ落としたときは受け取らない
+            // (少し引きずって離しただけで本が開かないように。HomeBookTransfer.swift の冒頭)。
+            .bookFileDropTarget(
+                isTargeted: $isFileDropTargeted,
+                refusesDrop: { [weak appState] in appState.map { HomeBookDragTracker.isDragging(from: $0) } ?? false }
+            ) { urls in
                 // ウェルカム画面が編集モードで出ている間は、ドロップは「開く」ではなく
                 // 「コレクションを作る/本を追加する」になる(AppState.welcomeDropHandler参照)。
                 // 引き受けられなければ従来どおり開く。
@@ -322,7 +327,7 @@ struct ContentView: View {
             // 表示中の画像やパネルの見え方を変えたくないので、背景を染めるのではなく縁だけを
             // 強調する。
             .overlay {
-                if isFileDropTargeted {
+                if isFileDropTargeted, !HomeBookDragTracker.isDragging(from: appState) {
                     RoundedRectangle(cornerRadius: 8)
                         .strokeBorder(Color.accentColor, lineWidth: 4)
                         .allowsHitTesting(false)
