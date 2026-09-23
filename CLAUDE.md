@@ -267,8 +267,8 @@ feature's mode is never shown (fallback order shelf → browser → smart), all 
 pre-bookshelf welcome screen restored as `ClassicWelcomeView` (and no Home menu; the side panel is shown there without a
 book, as in v1.42 — `ContentView.isSidePanelSuppressedForWelcome`). The top bar shows only with the library or the smart
 library on (`showsTopBar`); with the file browser off its left end is Open Book… / Open from History (v1.50–v1.56), with the
-library off the chips and ＋ go. Top-bar buttons and Home-menu toggles go through `toggleMode` (pressing the current mode's
-button goes to another enabled mode). `.classic` is never a user choice; a mode forced by a flag change is not saved, one
+library off the chips and ＋ go. Top-bar buttons and Home-menu toggles go through `selectMode` (pressing the current mode's
+button keeps it — until 2026-09-23 it went to another enabled mode, which the user found wrong; the shelf is reached by a library chip). `.classic` is never a user choice; a mode forced by a flag change is not saved, one
 the user picks is (even while some feature is off). The 8 combinations are tabled in docs/plans/feature-toggle-audit.md and
 run by `LibraryFeatureToggleTests.everyCombinationOfTheThreeFlags`. New file
 browser entry points must check the flag (docs/15「ファイルブラウザ機能の ON/OFF」) — including `Window` scenes, which add

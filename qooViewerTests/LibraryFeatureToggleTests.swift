@@ -90,12 +90,13 @@ struct LibraryFeatureToggleTests {
                     state.isSmartLibraryFeatureEnabled = smart
                     #expect(allowed.isEmpty ? state.mode == .classic : allowed.contains(state.mode), "\(label)")
                     #expect(state.showsTopBar == (library || smart), "\(label)")
-                    // 帯・メニューの切り替え: 出せないモードへは行かない。いまのモードをもう一度押すと、ほかに出せるものがあればそちらへ。
-                    for target in [WelcomeMode.shelf, .browser, .smart] {
-                        let before = state.mode
-                        state.toggleMode(target)
-                        #expect(allowed.isEmpty ? state.mode == .classic : allowed.contains(state.mode), "\(label) → \(target)")
-                        if before == target, allowed.count >= 2 { #expect(state.mode != target, "\(label) → \(target)") }
+                    // 帯・メニューの切り替え: 出せるモードを押せばそのモード、いまのモードをもう一度押してもそのまま
+                    // (2026-09-23、利用者の指示。以前はほかのモードへ戻っていた)。
+                    for target in allowed {
+                        state.selectMode(target)
+                        #expect(state.mode == target, "\(label) → \(target)")
+                        state.selectMode(target)
+                        #expect(state.mode == target, "\(label) → \(target) again")
                     }
                     suite.release()
                 }
@@ -103,7 +104,7 @@ struct LibraryFeatureToggleTests {
         }
     }
 
-    @Test("スマートライブラリの設定も別に効き、帯のボタンでいまのモードをもう一度押すと出せるほかのモードへ戻る")
+    @Test("スマートライブラリの設定も別に効き、帯のボタンでいまのモードをもう一度押してもそのまま")
     func smartLibraryFlagAndToggle() {
         let suite = TestDefaultsPool.checkout()
         defer { suite.release() }
@@ -114,10 +115,13 @@ struct LibraryFeatureToggleTests {
         state.isLibraryFeatureEnabled = false
         #expect(state.mode == .smart)
         #expect(state.showsTopBar)
-        // もう一度押すと、本棚が無いのでファイルブラウザへ。
-        state.toggleMode(.smart)
+        // もう一度押してもスマートライブラリのまま(2026-09-23 まではほかのモードへ戻っていた)。ファイルブラウザのボタンでも同じ。
+        state.selectMode(.smart)
+        #expect(state.mode == .smart)
+        state.selectMode(.browser)
+        state.selectMode(.browser)
         #expect(state.mode == .browser)
-        state.toggleMode(.smart)
+        state.selectMode(.smart)
         // スマートライブラリを OFF にすると押し出され、ON へ戻すと保存してあったスマートライブラリへ戻る。
         state.isSmartLibraryFeatureEnabled = false
         #expect(state.mode == .browser)

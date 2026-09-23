@@ -306,7 +306,7 @@ v1.64(`4b912b1`)から `43ffad0` までの差分を、リソースリーク・�
 スマートライブラリを個別に ON/OFF できるようにした(`AppPreferences.smartLibraryFeatureEnabled`)ので、8 通りの組み合わせで
 「要る仕事が止まっていないか」「要らない仕事が動き続けていないか」を見直した。設定を読む箇所をすべて洗い出して読んだ。
 
-### ホームの形(`WelcomeLibraryState.constrained` / `showsTopBar` / `toggleMode`。LibraryFeatureToggleTests が 8 通りを流す)
+### ホームの形(`WelcomeLibraryState.constrained` / `showsTopBar` / `toggleMode` ―― 2026-09-23 に `selectMode` へ改め、いまのモードをもう一度押してもそのまま。LibraryFeatureToggleTests が 8 通りを流す)
 
 | L | F | S | 出せるモード | 帯 | 「ホーム」メニュー |
 |---|---|---|---|---|---|

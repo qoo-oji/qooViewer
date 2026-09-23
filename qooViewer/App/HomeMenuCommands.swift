@@ -58,7 +58,7 @@ enum HomeMenuKeyRouting {
 struct HomeMenuItems: View {
     /// 環境設定「ライブラリを有効にする」。false なら、ライブラリとコレクションの項目(本棚 ⇄ ファイルブラウザの切り替えを含む)を出さない。
     let isLibraryFeatureEnabled: Bool
-    /// 環境設定「ファイルブラウザを有効にする」。false なら、本棚 ⇄ ファイルブラウザの切り替え・ファイルブラウザで選んだ本からの
+    /// 環境設定「ファイルブラウザを有効にする」。false なら、ファイルブラウザへの切り替え・ファイルブラウザで選んだ本からの
     /// コレクションの作成/登録・「自動リネームの設定…」を出さない。両方 false のときはメニューごと出さない(QooViewerApp)。
     let isFileBrowserFeatureEnabled: Bool
     /// 環境設定「スマートライブラリを有効にする」(2026-09-22)。false なら切り替えの項目を出さない。
@@ -85,7 +85,7 @@ struct HomeMenuItems: View {
         if showsFileBrowserToggle {
             Toggle("File Browser", isOn: Binding(
                 get: { [home] in home.isShown && home.mode == .browser },
-                set: { [weak appState] _ in appState?.welcomeLibrary?.toggleMode(.browser) }
+                set: { [weak appState] _ in appState?.welcomeLibrary?.selectMode(.browser) }
             ))
             .disabled(!home.isShown)
         }
@@ -93,7 +93,7 @@ struct HomeMenuItems: View {
         if showsSmartLibraryToggle {
             Toggle("Smart Library", isOn: Binding(
                 get: { [home] in home.isShown && home.mode == .smart },
-                set: { [weak appState] _ in appState?.welcomeLibrary?.toggleMode(.smart) }
+                set: { [weak appState] _ in appState?.welcomeLibrary?.selectMode(.smart) }
             ))
             .disabled(!home.isShown)
         }

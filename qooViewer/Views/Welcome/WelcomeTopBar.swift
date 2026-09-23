@@ -3,8 +3,9 @@ import SwiftUI
 /// ウェルカム画面いちばん上の帯(改善要望5)。左にライブラリの並び、右端にライブラリを増やす「＋」。
 ///
 /// ■ 左端の「ファイルブラウザ」(改善要望7 段階3、2026-09-13)
-/// 押すたびに本棚 ⇄ ファイルブラウザを切り替える(WelcomeLibraryState.mode)。ファイルブラウザの
-/// 間はどのライブラリのチップも選ばれていない見た目にし、チップを押すと本棚へ戻る。
+/// 押すとファイルブラウザを出す(WelcomeLibraryState.selectMode。出ている間にもう一度押してもそのまま ―― 以前は本棚へ
+/// 戻っていた。2026-09-23、利用者の指示)。ファイルブラウザの間はどのライブラリのチップも選ばれていない見た目にし、
+/// チップを押すと本棚へ戻る。
 ///
 /// ■ 左端の2つのボタン「本を開く…」「履歴から開く」(v1.50〜v1.56 の形)
 /// 2026-09-13 に撤去した(改善要望7 ―― 左端をファイルブラウザへの切り替えに譲った。本を開くのはファイルメニューの
@@ -171,7 +172,7 @@ struct WelcomeTopBar: View {
         }
     }
 
-    /// 本棚 ⇄ ファイルブラウザ。
+    /// ファイルブラウザを出す(出ている間に押してもそのまま。`WelcomeLibraryState.selectMode`)。
     ///
     /// **アイコンではなく「ファイルブラウザ」と文字で出す**(ユーザー指示 2026-09-13)。フォルダの絵だけでは
     /// 何に切り替わるボタンなのか読めなかった。見た目はライブラリのチップと同じ形(地・角丸・余白)に揃え、
@@ -181,7 +182,7 @@ struct WelcomeTopBar: View {
         let isBrowsing = state.mode == .browser
         let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         return Button {
-            state.toggleMode(.browser)
+            state.selectMode(.browser)
         } label: {
             Label("File Browser", systemImage: "folder")
                 .labelStyle(.titleAndIcon)
@@ -203,12 +204,12 @@ struct WelcomeTopBar: View {
         .accessibilityAddTraits(isBrowsing ? .isSelected : [])
     }
 
-    /// 本棚 ⇄ スマートライブラリ(2026-09-21)。形はファイルブラウザの切り替えと同じ(文字 + アイコン、幅は文字に合わせる)。
+    /// スマートライブラリを出す(2026-09-21。出ている間に押してもそのまま)。形はファイルブラウザの切り替えと同じ(文字 + アイコン、幅は文字に合わせる)。
     private var smartLibraryToggle: some View {
         let isShowing = state.mode == .smart
         let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         return Button {
-            state.toggleMode(.smart)
+            state.selectMode(.smart)
         } label: {
             Label("Smart Library", systemImage: "line.3.horizontal.decrease.circle")
                 .labelStyle(.titleAndIcon)

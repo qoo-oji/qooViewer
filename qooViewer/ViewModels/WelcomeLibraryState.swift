@@ -101,17 +101,14 @@ final class WelcomeLibraryState: ObservableObject {
         isForcingMode = false
     }
 
-    /// 帯のボタン・「ホーム」メニューの切り替え。いま出ているモードをもう一度押したら、ほかの出せるモードへ戻る
-    /// (本棚があれば本棚、無ければ残りのもう 1 つ。どれも無ければそのまま)。
-    func toggleMode(_ target: WelcomeMode) {
-        guard mode == target else {
-            mode = target
-            return
-        }
-        let others: [(WelcomeMode, Bool)] = [
-            (.shelf, isLibraryFeatureEnabled), (.browser, isFileBrowserFeatureEnabled), (.smart, isSmartLibraryFeatureEnabled),
-        ]
-        if let next = others.first(where: { $0.0 != target && $0.1 })?.0 { mode = next }
+    /// 帯のボタン・「ホーム」メニューの切り替え。**いま出ているモードをもう一度押しても、そのまま**(2026-09-23、利用者の指示)。
+    ///
+    /// 以前は `toggleMode` で、もう一度押すとほかの出せるモード(本棚があれば本棚)へ戻っていた。ファイルブラウザ・
+    /// スマートライブラリを見ているときに同じボタンを押すと最後に使ったライブラリへ飛ぶのは、選んだ画面が勝手に替わるだけで
+    /// 期待と逆だった(ボタンは「その画面を出す」もの。本棚へはライブラリのチップ、ほかの画面へはそのボタンで行ける)。
+    func selectMode(_ target: WelcomeMode) {
+        guard mode != target else { return }
+        mode = target
     }
 
     /// `wanted` を、機能のON/OFFの組で出せるモードへ読み替える(`isLibraryFeatureEnabled` のコメント)。
