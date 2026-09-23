@@ -19576,6 +19576,16 @@
         }
       }
     },
+    "No Preview" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "プレビューできません"
+          }
+        }
+      }
+    },
     "No Rule Selected" : {
       "localizations" : {
         "en" : {

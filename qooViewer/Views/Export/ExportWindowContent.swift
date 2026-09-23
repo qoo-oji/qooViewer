@@ -618,9 +618,17 @@ struct ExportCoverCell: View {
     var isCropAnchorEnabled = true
 
     @State private var isCoverPickerPresented = false
+    /// カバーの名前にカーソルを乗せている間に出す、いまのカバーの吹き出し(2026-09-23、ユーザー要望)。
+    /// ページを選ぶ画面の行のサムネイルと同じく、環境設定の遅延の後にだけ出す。
+    @State private var isHoverPreviewPresented = false
+    @State private var hoverPreviewTask: Task<Void, Never>?
+    @EnvironmentObject private var preferences: AppPreferences
 
     var body: some View {
         Button {
+            hoverPreviewTask?.cancel()
+            hoverPreviewTask = nil
+            isHoverPreviewPresented = false
             isCoverPickerPresented = true
         } label: {
             HStack(spacing: 4) {
@@ -637,6 +645,27 @@ struct ExportCoverCell: View {
         .buttonStyle(.plain)
         .help(controller.target == .coverImage
             ? Text("Change Cover Image") : Text("Change Collection Cover"))
+        .onHover { hovering in
+            hoverPreviewTask?.cancel()
+            guard hovering, !isCoverPickerPresented else {
+                hoverPreviewTask = nil
+                isHoverPreviewPresented = false
+                return
+            }
+            hoverPreviewTask = Task {
+                try? await Task.sleep(nanoseconds: preferences.thumbnailHoverPreviewDelayNanoseconds)
+                guard !Task.isCancelled, !isCoverPickerPresented else { return }
+                isHoverPreviewPresented = true
+            }
+        }
+        // 同じビューに.popoverを2つ重ねると片方しか出ないことがあるので、吹き出しは背景の透明なビューに付ける。
+        // 列は一覧の右端なので、左へ出す。
+        .background {
+            Color.clear
+                .popover(isPresented: $isHoverPreviewPresented, arrowEdge: .leading) {
+                    CoverHoverPreview(bookID: bookID, controller: controller)
+                }
+        }
         .popover(isPresented: $isCoverPickerPresented) {
             ExportCoverPickerContent(
                 bookID: bookID, controller: controller, showsCropAnchor: showsCropAnchor,
@@ -648,6 +677,78 @@ struct ExportCoverCell: View {
         // 同じ考え方)。
         .task(id: bookID) {
             await controller.refreshCoverName(forBookID: bookID)
+        }
+    }
+}
+
+/// カバー列の名前にカーソルを乗せたときの吹き出しの中身(2026-09-23、ユーザー要望)。いまのカバーの絵と名前を
+/// 縦に並べる。大きさはページを選ぶ画面の行のサムネイルの吹き出しと同じ(環境設定のサムネイルのプレビューの大きさ)。
+///
+/// 絵は`CoverOverrideController.coverPreviewImage`(棚の表紙の抽出と同じ道筋)から引く。コレクション表紙でも
+/// **切らずに**出す ―― 切り方(比・残す位置)はライブラリごとに違い、この一覧はライブラリを持たない。
+private struct CoverHoverPreview: View {
+    let bookID: String
+    @ObservedObject var controller: CoverOverrideController
+    @EnvironmentObject private var preferences: AppPreferences
+
+    var body: some View {
+        let side = preferences.thumbnailHoverPreviewSideLength
+        VStack(spacing: 8) {
+            CoverPreviewImage(
+                bookID: bookID, controller: controller,
+                pixelSize: preferences.thumbnailHoverPreviewPixelSize
+            )
+            .frame(width: side, height: side)
+
+            Text(controller.coverDisplayName(forBookID: bookID))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: side)
+        }
+        .padding(12)
+    }
+}
+
+/// いまのカバーの絵(読み込み中は回る印、読めなければその旨)。枠いっぱいに、切らずに収める。
+///
+/// 読み直すのは本・カバーの指定(`controller.revision`)・解像度のどれかが変わったときだけ。鍵を`@State`に持つのは、
+/// 一覧のセル(NSTableViewが使い回すNSHostingView)で別の本の絵が一瞬でも残らないようにするため。
+private struct CoverPreviewImage: View {
+    let bookID: String
+    @ObservedObject var controller: CoverOverrideController
+    let pixelSize: CGFloat
+
+    @State private var loaded: (key: String, image: CGImage?)?
+
+    private var key: String { "\(bookID)|\(controller.revision)|\(Int(pixelSize))" }
+
+    var body: some View {
+        let key = key
+        Group {
+            if let loaded, loaded.key == key {
+                if let image = loaded.image {
+                    Image(decorative: image, scale: 1)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fit)
+                } else {
+                    Text("No Preview")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: key) {
+            let image = await controller.coverPreviewImage(forBookID: bookID, maxPixelSize: pixelSize)
+            guard !Task.isCancelled else { return }
+            loaded = (key, image)
         }
     }
 }
@@ -688,6 +789,9 @@ struct ExportCoverPickerContent: View {
     /// いま選んでいるページ(まだ確定していない)。開いた時点では、既に指定されているページ。
     @State private var selectedPageKey: String?
 
+    /// 左の絵の幅。高さは一覧に合わせて伸びる(一覧を読み込む前も縮みすぎないよう、最小の高さを別に付ける)。
+    private static let previewWidth: CGFloat = 170
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
@@ -701,30 +805,21 @@ struct ExportCoverPickerContent: View {
 
             Divider()
 
-            Group {
-                if let loadedBook {
-                    List(Array(loadedBook.pages.enumerated()), id: \.element.id) { index, page in
-                        ExportCoverPickerPageRow(
-                            page: page,
-                            bookSourceURL: loadedBook.sourceURL,
-                            index: index,
-                            pageLoader: pageLoader,
-                            thumbnails: $thumbnails,
-                            isSelected: selectedPageKey == page.sortKey,
-                            onSelect: { selectedPageKey = page.sortKey }
-                        )
-                    }
-                    .frame(minWidth: 260, minHeight: 260)
-                } else if loadFailed {
-                    Text("Could not open this book.")
-                        .foregroundStyle(.secondary)
-                        .padding()
-                        .frame(minWidth: 260, minHeight: 120)
-                } else {
-                    ProgressView()
-                        .padding()
-                        .frame(minWidth: 260, minHeight: 120)
-                }
+            HStack(spacing: 0) {
+                // 選んでいるページの絵(2026-09-23、ユーザー要望: メタデータ編集シートのように、カバーを大きく見ながら選びたい)。
+                // 行のサムネイルは小さく、ホバーの吹き出しは1枚ずつしか出ないので、「選択」を押す前に何が表紙になるかを
+                // ここで確かめる。
+                CoverPickerPreviewPane(
+                    bookID: bookID, controller: controller, book: loadedBook, pageLoader: pageLoader,
+                    selectedPageKey: selectedPageKey
+                )
+                .frame(width: Self.previewWidth)
+                .frame(minHeight: 240)
+                .padding(10)
+
+                Divider()
+
+                pageList
             }
 
             Divider()
@@ -798,6 +893,34 @@ struct ExportCoverPickerContent: View {
         }
     }
 
+    /// 本のページの一覧(読み込み中・読めなかったときはその旨)。
+    @ViewBuilder
+    private var pageList: some View {
+        if let loadedBook {
+            List(Array(loadedBook.pages.enumerated()), id: \.element.id) { index, page in
+                ExportCoverPickerPageRow(
+                    page: page,
+                    bookSourceURL: loadedBook.sourceURL,
+                    index: index,
+                    pageLoader: pageLoader,
+                    thumbnails: $thumbnails,
+                    isSelected: selectedPageKey == page.sortKey,
+                    onSelect: { selectedPageKey = page.sortKey }
+                )
+            }
+            .frame(minWidth: 260, minHeight: 260)
+        } else if loadFailed {
+            Text("Could not open this book.")
+                .foregroundStyle(.secondary)
+                .padding()
+                .frame(minWidth: 260, minHeight: 120)
+        } else {
+            ProgressView()
+                .padding()
+                .frame(minWidth: 260, minHeight: 120)
+        }
+    }
+
     /// カバーの切り出し位置の選択。DBが唯一の持ち主なので、@Stateには写さず毎回読む。
     private var cropAnchorSelection: Binding<CoverCropAnchor?> {
         Binding(
@@ -816,6 +939,78 @@ struct ExportCoverPickerContent: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task { await controller.setCoverFile(forBookID: bookID, fileURL: url) }
         dismiss()
+    }
+}
+
+/// カバーを選ぶ画面の左の絵(2026-09-23、ユーザー要望)。
+///
+/// - ページを選んでいれば、**そのページ**(まだ確定していない。「選択」を押すとこれがカバーになる)
+/// - 選んでいなければ(既定の先頭ページ・画像を指定している)、**いまのカバー**(`CoverPreviewImage`)
+///
+/// コレクション表紙でも切らずに出す(CoverHoverPreviewのコメントと同じ理由)。
+private struct CoverPickerPreviewPane: View {
+    let bookID: String
+    @ObservedObject var controller: CoverOverrideController
+    let book: MangaBook?
+    let pageLoader: PageLoader?
+    let selectedPageKey: String?
+
+    /// 選んだページの絵(鍵 = ページのキー)。
+    @State private var pageImage: (key: String, image: CGImage?)?
+
+    /// 絵の解像度。枠の幅170ptの Retina ぶんに、縦長のページの高さの余裕を見た値。
+    private static let pixelSize: CGFloat = 640
+
+    private var selectedPage: (index: Int, page: PageRef)? {
+        guard let book, let selectedPageKey,
+              let index = book.pages.firstIndex(where: { $0.sortKey == selectedPageKey })
+        else { return nil }
+        return (index, book.pages[index])
+    }
+
+    var body: some View {
+        let selected = selectedPage
+        VStack(spacing: 6) {
+            Group {
+                if let selected {
+                    if let pageImage, pageImage.key == selected.page.sortKey {
+                        if let image = pageImage.image {
+                            Image(decorative: image, scale: 1)
+                                .resizable()
+                                .interpolation(.high)
+                                .aspectRatio(contentMode: .fit)
+                        } else {
+                            Text("No Preview")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                } else {
+                    CoverPreviewImage(bookID: bookID, controller: controller, pixelSize: Self.pixelSize)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
+
+            Text(verbatim: selected.map { $0.page.location(inBookAt: book?.sourceURL ?? URL(fileURLWithPath: bookID)).fullPath }
+                ?? controller.coverDisplayName(forBookID: bookID))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .multilineTextAlignment(.center)
+        }
+        .task(id: "\(selected?.page.sortKey ?? "")|\(pageLoader == nil)") {
+            guard let selected, let pageLoader else { return }
+            let image = await pageLoader.gridThumbnail(
+                at: selected.index, maxPixelSize: Self.pixelSize, usesDiskCache: false
+            )
+            guard !Task.isCancelled else { return }
+            pageImage = (selected.page.sortKey, image)
+        }
     }
 }
 

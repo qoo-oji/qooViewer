@@ -217,6 +217,51 @@ final class CoverOverrideController: ObservableObject {
         resolvedCoverNames[bookID] = first.location(inBookAt: book.sourceURL).fullPath
     }
 
+    // MARK: - カバーの絵(プレビュー)
+
+    /// いまカバーになる絵を、最大`maxPixelSize`で復号する(2026-09-23、ユーザー要望)。読めなければnil。
+    ///
+    /// 使うのは2か所: カバー列の名前にカーソルを乗せたときの吹き出しと、ページを選ぶ画面で
+    /// まだページを選んでいない(既定・画像を指定している)ときの「いまのカバー」。
+    ///
+    /// 道筋は棚の表紙の抽出と同じ`CoverImageResolver.coverImage`(指定した画像 → 指定したページ →
+    /// 実効1ページ目)。**別の式で「どれがカバーか」を決め直さない** ―― 名前の列と絵が食い違うのを避ける。
+    /// 行き先(`target`)で読む列だけを替える。指定した画像を使う本は本体を開かない(未接続のボリュームでも出る)。
+    ///
+    /// アクセスはこの呼び出しの間だけ開く(表示名の読み込みと同じ。`pickerScopedURLByBookID`のコメント参照)。
+    /// 呼び出し元が取り消されても`coverImage`が戻るまでは閉じない(awaitが戻ってからdeferが走る)。
+    func coverPreviewImage(forBookID bookID: String, maxPixelSize: CGFloat) async -> CGImage? {
+        let snapshot: CoverImageResolver.OverrideSnapshot
+        switch target {
+        case .collectionCover:
+            // 保管庫の画像はアプリ自身の領域なので、アクセスの開始は要らない(OverrideSnapshotのコメント)。
+            snapshot = layoutStore.shelfCoverSnapshot(forBookID: bookID)
+        case .coverImage:
+            let settings = layoutStore.bookLayoutSettings(forBookID: bookID)
+            let excludedKeys = Set(
+                layoutStore.pageOverrides(forBookID: bookID).filter { $0.state == .excluded }.map(\.pageKey)
+            )
+            snapshot = CoverImageResolver.OverrideSnapshot(
+                coverPageKey: settings?.coverPageKey,
+                imageFileURL: layoutStore.resolvedExternalCoverURL(forBookID: bookID),
+                pageOrderOverride: settings?.pageOrderOverride,
+                excludedKeys: excludedKeys
+            )
+        }
+        var scopedURLs: [URL] = []
+        defer { scopedURLs.forEach { $0.stopAccessingSecurityScopedResource() } }
+        // 書き出し用の外部カバーはブックマークで指している利用者のファイルなので、読む間だけ開く。
+        if target == .coverImage, let imageURL = snapshot.imageFileURL, imageURL.startAccessingSecurityScopedResource() {
+            scopedURLs.append(imageURL)
+        }
+        let bookURL = snapshot.imageFileURL == nil ? resolveURL(bookID) : nil
+        if let bookURL, bookURL.startAccessingSecurityScopedResource() {
+            scopedURLs.append(bookURL)
+        }
+        guard snapshot.imageFileURL != nil || bookURL != nil else { return nil }
+        return await CoverImageResolver.coverImage(bookAt: bookURL, snapshot: snapshot, maxPixelSize: maxPixelSize)
+    }
+
     // MARK: - 本の読み込み
 
     /// カバーピッカー(本のページ一覧を表示する画面)から呼ばれる。この本を読み込んで返す。
