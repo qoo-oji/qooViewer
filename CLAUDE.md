@@ -319,7 +319,9 @@ sort and the list column all agree; the DB and `catalog.json` are never touched.
 (`AppPreferences.smartLibraryCoverShape` / `SmartLibraryCoverShape`: match the image — the default, uncropped in a 2:3 frame —
 or 2:3 / 1:1 / 3:2 cropped when drawn) is one app-wide value; every cell keeps `coverShape.heightRatio`. "Keep When Cropping"
 (`AppPreferences.smartLibraryCoverCropAnchor`) is only the default, as the library's is: a book's own
-`BookLayoutSettings.coverCropAnchor` (shared with the library, set from the smart library's Edit Metadata sheet) wins. The cover grid has Finder-style selection and keys
+`BookLayoutSettings.coverCropAnchor` wins. That per-book value is shared by the library and the smart library: every place
+that sets it offers the same four choices, "No Setting" (nil — follow whichever view's own setting) / Top-Left / Center /
+Bottom-Right, always enabled (`coverCropAnchorMenuItems` in BookMetadataSheet, the Edit Metadata window's cover picker). The cover grid has Finder-style selection and keys
 (2026-09-22; click selects, double-click / Return opens, rules in `SmartGridSelection`, keys taken on the grid's outer frame
 outside `.id(gridID)`); scrolling a selection into view computes the row from measured geometry (`PanelListScrollTracker`), so
 **every cell must keep the same height** — captions always reserve two lines (`SmartCaptionLines`). The list view

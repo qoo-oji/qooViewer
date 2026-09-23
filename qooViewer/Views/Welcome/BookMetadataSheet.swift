@@ -25,15 +25,16 @@ import UniformTypeIdentifiers
 /// - その本がどこかのコレクションに入っていれば、その行とライブラリで**コレクションから開いたときと同じ面**
 /// - 入っていなければ、ライブラリの比が無いので**切らずに**出す(`FileBrowserCoverArea`)。絵はアイコン表示と同じ提供役
 ///   (FileBrowserThumbnailProvider)から引く ―― 指定したコレクション表紙がアイコン表示にもそのまま出る。
-///   「切り取るときに残す位置」は枠の比が決まらないので出さない
+///   表紙は切らないが、右クリックの「切り取るときに残す位置」は出す(2026-09-23 から。本ごとの指定はライブラリとスマートライブラリで
+///   共有で、どちらかに並べたときに効く。`coverCropAnchorMenuItems`)
 /// 指定の保存先はどちらも同じ(BookLayoutSettings の shelfCover* の列。本ごと)なので、後からコレクションに入れると
 /// 指定した表紙で抽出される。
 ///
 /// ■ スマートライブラリから開く版(2026-09-23、利用者の要望)
 /// スマートライブラリの右クリックからは `fromSmartLibrary: true` で開く。コレクションに入っている本でも、表紙の面は
 /// **スマートライブラリに並んでいるとおり**(環境設定「スマートライブラリ」のカバーの形・切り取るときに残す位置)に出し、
-/// 右クリックに「切り取るときに残す位置」を足す(一番上は「スマートライブラリの設定に従う」= 本ごとの指定を持たない)。
-/// 本ごとの指定の列(BookLayoutSettings.coverCropAnchor)はライブラリと共有なので、ここで選べばコレクションの表紙も同じ所を残す。
+/// 右クリックの「切り取るときに残す位置」で選んだ所がすぐに見える。本ごとの指定の列(BookLayoutSettings.coverCropAnchor)は
+/// ライブラリと共有なので、ここで選べばコレクションの表紙も同じ所を残す(「設定なし」ならそれぞれの設定に従う)。
 ///
 /// シートの中身はmacOSが不透明に描くので、すりガラス面の輪郭は要らない(CLAUDE.md参照)。
 struct BookMetadataSheet: View {
@@ -112,17 +113,6 @@ struct BookMetadataSheet: View {
     /// 対象の行。別のウインドウが外していればnil(itemIDのコメント参照)。
     private var item: CollectionItem? {
         itemID.flatMap { collectionStore.item(withID: $0) }
-    }
-
-    /// 「残す位置」の指定が効くか。カバーの比が枠の比と違って**実際に切ることになる**ときだけ
-    /// ―― ぴったり合っているカバーに位置を指定させても何も起きない。まだ抽出できていない
-    /// (比が分からない)本では、選ばせておいて後から効かせる。
-    private func isCropAnchorEffective(for item: CollectionItem, in library: BookLibrary) -> Bool {
-        guard item.coverState == .ready, item.coverAspect > 0 else { return true }
-        return CoverImageResolver.cropsAnyEdge(
-            imageAspect: CGFloat(item.coverAspect),
-            targetAspect: library.coverAspectRatio.value
-        )
     }
 
     var body: some View {
@@ -378,7 +368,7 @@ struct BookMetadataSheet: View {
         if let coverController {
             CoverArea(
                 controller: coverController, item: item, library: library,
-                width: Self.coverWidth, isCropAnchorEnabled: isCropAnchorEffective(for: item, in: library),
+                width: Self.coverWidth,
                 coverStore: collectionStore.coverStore, locale: locale
             )
         } else {
@@ -478,8 +468,6 @@ private struct CoverArea: View {
     let item: CollectionItem
     let library: BookLibrary
     let width: CGFloat
-    /// 「残す位置」を選ばせてよいか(BookMetadataSheet.isCropAnchorEffective)。
-    let isCropAnchorEnabled: Bool
     let coverStore: CollectionCoverStore
     let locale: Locale
 
@@ -500,7 +488,7 @@ private struct CoverArea: View {
             .popover(isPresented: $isPickingPage) {
                 ExportCoverPickerContent(
                     bookID: item.bookID, controller: controller,
-                    showsCropAnchor: true, isCropAnchorEnabled: isCropAnchorEnabled
+                    showsCropAnchor: true
                 )
             }
             .accessibilityLabel(Text("Collection Cover"))
@@ -544,30 +532,12 @@ private struct CoverArea: View {
         Divider()
 
         // カバーの比が枠の比と違うぶんを、どこで切るか(ユーザー要望 2026-09-09)。切る軸は
-        // 画像ごとに決まるのでラベルは両方の軸を併記する(CoverCropAnchor参照)。
-        // 「ライブラリの設定に従う」= 本ごとの上書きを持たない状態(nil)。
+        // 画像ごとに決まるのでラベルは両方の軸を併記する(CoverCropAnchor参照)。4 択は `coverCropAnchorMenuItems`。
         Menu("Keep When Cropping") {
-            cropAnchorItem("Use Library Setting", nil)
-            cropAnchorItem("Top / Left", .start)
-            cropAnchorItem("Center", .center)
-            cropAnchorItem("Bottom / Right", .end)
+            coverCropAnchorMenuItems(controller: controller, bookID: item.bookID)
         }
-        .disabled(!isCropAnchorEnabled)
     }
 
-    private func cropAnchorItem(_ titleKey: LocalizedStringKey, _ anchor: CoverCropAnchor?) -> some View {
-        Button {
-            controller.setCropAnchor(forBookID: item.bookID, anchor)
-        } label: {
-            // コンテキストメニューのButtonにはチェックマークが付かないため、選択中の項目には
-            // 自分で印を添える(メニューバーのToggleと違い、ここは1つを選ぶ4択)。
-            if controller.cropAnchor(forBookID: item.bookID) == anchor {
-                Label(titleKey, systemImage: "checkmark")
-            } else {
-                Text(titleKey)
-            }
-        }
-    }
 
     private func chooseExternalFile() {
         let panel = NSOpenPanel()
@@ -583,6 +553,37 @@ private struct CoverArea: View {
     }
 }
 
+/// 表紙の右クリックの「切り取るときに残す位置」の 4 択(CoverArea と FileBrowserCoverArea が使う)。
+///
+/// **「設定なし」+ 3 つの位置**(2026-09-23、利用者の指示)。本ごとの指定(`BookLayoutSettings.coverCropAnchor`)は
+/// ライブラリとスマートライブラリで**共有**で、「設定なし」(nil)ならそれぞれの設定(ライブラリの歯車 / 環境設定
+/// 「スマートライブラリ」)に従う。以前は開いた場所に合わせて「ライブラリの設定に従う」「スマートライブラリの設定に従う」と
+/// 書き分けていたが、同じ値がもう一方にも効くので、どちらか一方の名前で呼ぶと意味を取り違える。
+/// 「メタデータの編集」ウインドウのカバー列の同じ選択(ExportCoverPickerContent)も同じ文言。
+///
+/// **いつでも選べる**(以前はライブラリの版で、比が枠とぴったりのカバーには押せなかった)。この画面で切らなくても、
+/// もう一方の画面では切ることがあるため。
+///
+/// **Toggle で描く**(2026-09-23 の実機検証)。以前は Button のラベルを `Label(…, systemImage: "checkmark")` にして自分で印を
+/// 添えていたが、macOS 27 SDK でリンクするとメニューの項目の画像は既定で出なくなり(CLAUDE.md「Build & run」)、印が消えて
+/// どれを選んでいるか分からなかった。メニューの中の Toggle は AppKit のチェックマーク(画像ではない)で描かれる。
+/// 選んでいる項目をもう一度選んでも同じ値を書くだけ(外す操作にはならない ―― 4 択の 1 つを選ぶもの)。
+@ViewBuilder
+private func coverCropAnchorMenuItems(controller: CoverOverrideController, bookID: String) -> some View {
+    let options: [(LocalizedStringKey, CoverCropAnchor?)] = [
+        ("No Setting", nil), ("Top / Left", .start), ("Center", .center), ("Bottom / Right", .end),
+    ]
+    ForEach(options.indices, id: \.self) { index in
+        let (titleKey, anchor) = options[index]
+        Toggle(isOn: Binding(
+            get: { controller.cropAnchor(forBookID: bookID) == anchor },
+            set: { _ in controller.setCropAnchor(forBookID: bookID, anchor) }
+        )) {
+            Text(titleKey)
+        }
+    }
+}
+
 /// ファイルブラウザから開いた、コレクションに入っていない本のカバーの面(BookMetadataSheet の型コメント)。
 ///
 /// 絵は**アイコン表示と同じ提供役**(FileBrowserThumbnailProvider)から引く。指定を変えると、提供役がその本の指定の変化を
@@ -590,7 +591,7 @@ private struct CoverArea: View {
 /// (指定の書き込みと同じ流れで進むので、通知の順番に頼らない)。ライブラリの比が無いので**切らずに**枠へ収める。
 ///
 /// スマートライブラリから開いた版(`smartLibraryCrop`)は、スマートライブラリのカバーの形の枠に、本ごとの指定 ?? 環境設定の
-/// 所を残して切って出し、右クリックに「切り取るときに残す位置」を足す(BookMetadataSheet の型コメント)。
+/// 所を残して切って出す(BookMetadataSheet の型コメント)。右クリックの「切り取るときに残す位置」はどちらの版にも出す。
 private struct FileBrowserCoverArea: View {
     /// スマートライブラリの表紙の見せ方(環境設定「スマートライブラリ」の値)。
     struct SmartLibraryCrop {
@@ -672,22 +673,11 @@ private struct FileBrowserCoverArea: View {
             Button("Choose Page in This Book…") { isPickingPage = true }
             Button("Choose File…") { chooseExternalFile() }
             Button("Reset to Default (First Page)") { controller.resetCover(forBookID: bookID) }
-            if smartLibraryCrop != nil {
-                Divider()
-                // ライブラリの版(CoverArea)と同じ 4 択。一番上は本ごとの指定を持たない状態(nil)。切らない形の間は効かないので
-                // 押せない ―― `.contextMenu` の中の Menu は `.disabled` が効かないので、押せない Button で描く
-                // (CLAUDE.md。SwiftUI の既知の挙動)。
-                if cropAspect != nil {
-                    Menu("Keep When Cropping") {
-                        cropAnchorItem("Use Smart Library Setting", nil)
-                        cropAnchorItem("Top / Left", .start)
-                        cropAnchorItem("Center", .center)
-                        cropAnchorItem("Bottom / Right", .end)
-                    }
-                } else {
-                    Button("Keep When Cropping") {}
-                        .disabled(true)
-                }
+            Divider()
+            // ライブラリの版(CoverArea)と同じ 4 択(`coverCropAnchorMenuItems`)。ファイルブラウザから開いた版でも出す ―― 本ごとの
+            // 指定はライブラリとスマートライブラリの両方に効くので、この面が切らずに出していても選ぶ意味がある。
+            Menu("Keep When Cropping") {
+                coverCropAnchorMenuItems(controller: controller, bookID: bookID)
             }
         }
         // 選んだ位置のチェックマークを確実に付け直す(`.contextMenu` は描き直しだけでは組み直されないことがある。CoverArea の
@@ -699,18 +689,6 @@ private struct FileBrowserCoverArea: View {
         .accessibilityLabel(Text("Collection Cover"))
     }
 
-    private func cropAnchorItem(_ titleKey: LocalizedStringKey, _ anchor: CoverCropAnchor?) -> some View {
-        Button {
-            controller.setCropAnchor(forBookID: bookID, anchor)
-        } label: {
-            // コンテキストメニューの Button にはチェックマークが付かないので、選択中の項目には自分で印を添える(CoverArea と同じ)。
-            if controller.cropAnchor(forBookID: bookID) == anchor {
-                Label(titleKey, systemImage: "checkmark")
-            } else {
-                Text(titleKey)
-            }
-        }
-    }
 
     private func load() async {
         guard let kind else {

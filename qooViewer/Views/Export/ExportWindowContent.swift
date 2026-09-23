@@ -851,11 +851,12 @@ struct ExportCoverPickerContent: View {
 
                 // カバーの比が枠の比と違うぶんを、どこで切るか(ユーザー要望 2026-09-09)。
                 // 切る軸(左右か上下か)は画像ごとに決まるので、ラベルは両方の軸を併記する
-                // (CoverCropAnchor参照)。未指定はそのライブラリの設定に従う。
+                // (CoverCropAnchor参照)。「設定なし」(未指定)なら、ライブラリ・スマートライブラリそれぞれの設定に従う
+                // (本ごとの指定は両方で共有。BookMetadataSheet の coverCropAnchorMenuItems と同じ文言)。
                 // Pickerにしているのは、いまどれが選ばれているかをチェックマークで示すのを
                 // 自前で書かずに済ませるため。
                 Picker("Keep When Cropping", selection: cropAnchorSelection) {
-                    Text("Use Library Setting").tag(CoverCropAnchor?.none)
+                    Text("No Setting").tag(CoverCropAnchor?.none)
                     Text("Top / Left").tag(CoverCropAnchor?.some(.start))
                     Text("Center").tag(CoverCropAnchor?.some(.center))
                     Text("Bottom / Right").tag(CoverCropAnchor?.some(.end))

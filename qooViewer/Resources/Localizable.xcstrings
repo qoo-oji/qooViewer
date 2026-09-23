@@ -19842,6 +19842,22 @@
         }
       }
     },
+    "No Setting" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Setting"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定なし"
+          }
+        }
+      }
+    },
     "No supported images were found. (Supports image folders, zip/cbz, rar/cbr, 7z/cb7, PDF, and EPUB.)" : {
       "localizations" : {
         "en" : {
@@ -32536,22 +32552,6 @@
         }
       }
     },
-    "Use Library Setting" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Use Library Setting"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ライブラリの設定に従う"
-          }
-        }
-      }
-    },
     "Use Only the First Author" : {
       "localizations" : {
         "en" : {
@@ -32564,22 +32564,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "先頭の著者だけを使う"
-          }
-        }
-      }
-    },
-    "Use Smart Library Setting" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Use Smart Library Setting"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スマートライブラリの設定に従う"
           }
         }
       }

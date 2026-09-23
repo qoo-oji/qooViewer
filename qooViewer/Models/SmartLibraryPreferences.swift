@@ -38,7 +38,11 @@ enum SmartLibraryCoverShape: String, CaseIterable, Identifiable, Hashable {
 
 /// 環境設定「スマートライブラリ」の「切り取るときに残す位置」のポップアップ。文言はライブラリの設定と同じ
 /// (LibrarySettingsPopover)。
-extension CoverCropAnchor: SettingsOption {
+///
+/// `CoverCropAnchor` は nonisolated(カバーの抽出がメインの外で使う)で、`SettingsOption` はメインアクターの側なので、
+/// 準拠はメインアクターに閉じたもの(isolated conformance)にする。付けないと、Xcode 26.6(CI)の Swift 6.2 は
+/// 「main actor の側へ跨ぐ」警告を出す(CI は警告をエラーにする。2026-09-23 に Build が落ちた。手元の Xcode 27 は黙っていた)。
+extension CoverCropAnchor: @MainActor SettingsOption {
     var id: String { rawValue }
 
     var shortTitleKey: LocalizedStringKey {
