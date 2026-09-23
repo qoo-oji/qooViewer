@@ -91,13 +91,39 @@ struct LibraryJSONSchemaTests {
                         title: "本 A", addedAt: Date(timeIntervalSinceReferenceDate: 700_000_001)
                     )]
                 )]
-            )]
+            )],
+            // 2026-09-23 に足した 4 カテゴリ。
+            readingStates: [ExportedBookReadingState(
+                bookID: "/books/a.cbz", inodeNumber: 12345, volumeDeviceNumber: 16777220,
+                volumeUUID: nil, lastPageIndex: 7, lastPageKey: "007.jpg",
+                displayMode: DisplayMode.spread.rawValue,
+                readingDirection: ReadingDirection.rightToLeft.rawValue,
+                scalingMode: ScalingMode.fitWidth.rawValue,
+                updatedAt: Date(timeIntervalSinceReferenceDate: 700_000_000),
+                recordedPageCount: 20, recordedSourceModificationDate: nil,
+                recordedSourceFileSize: 4096, isAtLastPage: true
+            )],
+            smartLibrary: ExportedSmartLibrary(
+                shelves: [SmartShelf(name: "未読", conditions: SmartShelfConditions())],
+                folderPaths: ["/books"], pins: ["genre": [.value("SF")]]
+            ),
+            fileBrowser: ExportedFileBrowser(
+                favoriteLocationPaths: ["/books"],
+                autoRenameRules: [ExportedAutoRenameRule(AutoRenameRule(name: "規則"))]
+            ),
+            settings: ExportedSettings(values: [
+                "qooViewer.pref.launchFullScreen": .bool(true),
+                "qooViewer.pref.slideshowInterval": .double(4.5),
+                "qooViewer.pref.recentFilesLimit": .int(30),
+                "qooViewer.pref.displayLanguage": .string("ja"),
+                "qooViewer.keyBindings.v1": .data(Data([0x7b, 0x7d]))
+            ])
         )
 
         let decoded = try JSONDecoder().decode(
             QooLibraryExportFile.self, from: try JSONEncoder().encode(file)
         )
-        #expect(decoded.formatVersion == 5)
+        #expect(decoded.formatVersion == 6)
         #expect(decoded.favorites?.folders.map(\.id) == ["f1", "f2"])
         #expect(decoded.favorites?.folders.last?.parentId == "f1")
         #expect(decoded.favorites?.books.first?.folderId == "f2")
@@ -114,11 +140,25 @@ struct LibraryJSONSchemaTests {
             == Date(timeIntervalSinceReferenceDate: 700_000_000))
         #expect(decoded.libraries?.first?.collections.first?.books.first?.fileNodeIdentifier
             == FileNodeIdentifier(inodeNumber: 12345, volumeDeviceNumber: 16777220))
+        #expect(decoded.readingStates?.first?.lastPageKey == "007.jpg")
+        #expect(decoded.readingStates?.first?.isAtLastPage == true)
+        #expect(decoded.readingStates?.first?.scalingMode == ScalingMode.fitWidth.rawValue)
+        #expect(decoded.smartLibrary?.shelves.first?.name == "未読")
+        #expect(decoded.smartLibrary?.folderPaths == ["/books"])
+        #expect(decoded.smartLibrary?.pins["genre"] == [.value("SF")])
+        #expect(decoded.fileBrowser?.favoriteLocationPaths == ["/books"])
+        #expect(decoded.fileBrowser?.autoRenameRules.first?.rule.name == "規則")
+        // 値の型が往復すること(JSON の数値では Bool と Int と Double が区別できない)。
+        #expect(decoded.settings?.values["qooViewer.pref.launchFullScreen"] == .bool(true))
+        #expect(decoded.settings?.values["qooViewer.pref.slideshowInterval"] == .double(4.5))
+        #expect(decoded.settings?.values["qooViewer.pref.recentFilesLimit"] == .int(30))
+        #expect(decoded.settings?.values["qooViewer.pref.displayLanguage"] == .string("ja"))
+        #expect(decoded.settings?.values["qooViewer.keyBindings.v1"] == .data(Data([0x7b, 0x7d])))
     }
 
-    @Test("既定の formatVersion は 5")
-    func theDefaultFormatVersionIsFive() {
-        #expect(QooLibraryExportFile().formatVersion == 5)
+    @Test("既定の formatVersion は 6")
+    func theDefaultFormatVersionIsSix() {
+        #expect(QooLibraryExportFile().formatVersion == 6)
     }
 
     // MARK: - 旧版のファイル

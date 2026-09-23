@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import SwiftData
 
 /// JSON入出力(設計コンセプト6節)。お気に入り・ブックマーク・ページレイアウト設定を1つの
 /// JSONファイルにまとめて書き出し/読み込みする。
@@ -26,6 +27,34 @@ enum LibraryImportExportService {
         var includeMetadataRules: Bool
         /// ライブラリ・コレクション・その中の本(改善要望5)を含めるかどうか。
         var includeCollections: Bool
+        // ここから下は 2026-09-23(利用者の運用: この JSON とコレクション表紙の組をバックアップとして
+        // 持ち、フォルダのアクセス権以外は JSON を読めば環境が戻るようにしたい)。
+        /// 本ごとの読書位置と表示の状態(`BookReadingState`)。
+        var includeReadingStates: Bool = true
+        /// スマートライブラリのスマートコレクション・対象フォルダ・ピン留め。
+        var includeSmartLibrary: Bool = true
+        /// ファイルブラウザのよく使う項目と自動リネームの規則。
+        var includeFileBrowser: Bool = true
+        /// 環境設定(`AppPreferences` / `AppearanceSettings` / キー・マウスの割り当て)。
+        var includeSettings: Bool = false
+    }
+
+    /// 本ごとのデータ以外を読み書きするための持ち主(2026-09-23 に足した 4 カテゴリだけが使う)。
+    ///
+    /// **省略できる**(nil ならその 4 カテゴリは書き出さない・取り込まない)。「ブックマーク・
+    /// レイアウトの編集」など、これらに用の無い画面の呼び出しをそのままにしておくため。
+    @MainActor
+    struct BackupStores {
+        /// 読書位置(`BookReadingState`)は専用のストアを持たず、共有の `ModelContext` から直に読む
+        /// (`QooViewerApp.modelContainer.mainContext`。CLAUDE.md: 別の `ModelContext` を作らないこと)。
+        var modelContext: ModelContext
+        var smartLibrary: SmartLibraryStore
+        var favoriteLocations: FavoriteLocationStore
+        var autoRename: AutoRenameStore
+        var preferences: AppPreferences
+        var keyBindings: KeyBindingStore
+        /// 環境設定の保存先。テストは専用の suite を渡す。
+        var defaults: UserDefaults = .standard
     }
 
     struct ExportResult {
@@ -62,6 +91,7 @@ enum LibraryImportExportService {
         metadataStore: BookMetadataStore,
         metadataRulesStore: MetadataRulesStore,
         collectionStore: CollectionStore,
+        backupStores: BackupStores? = nil,
         cachesPageList: Bool = true
     ) async -> (QooLibraryExportFile, ExportResult) {
         var file = QooLibraryExportFile()
@@ -94,7 +124,81 @@ enum LibraryImportExportService {
         if selection.includeCollections {
             file.libraries = exportCollections(collectionStore: collectionStore)
         }
+        if let backupStores {
+            if selection.includeReadingStates {
+                file.readingStates = exportReadingStates(
+                    modelContext: backupStores.modelContext, favoritesStore: favoritesStore,
+                    bookmarkStore: bookmarkStore, layoutStore: layoutStore
+                )
+            }
+            if selection.includeSmartLibrary {
+                file.smartLibrary = exportSmartLibrary(store: backupStores.smartLibrary)
+            }
+            if selection.includeFileBrowser {
+                file.fileBrowser = ExportedFileBrowser(
+                    favoriteLocationPaths: backupStores.favoriteLocations.items.map(\.path),
+                    autoRenameRules: backupStores.autoRename.rules.map(ExportedAutoRenameRule.init)
+                )
+            }
+            if selection.includeSettings {
+                file.settings = SettingsBackup.export(from: backupStores.defaults)
+            }
+        }
         return (file, result)
+    }
+
+    // MARK: - 読書位置の書き出し(2026-09-23)
+
+    /// 読書位置をすべて書き出す。`BookReadingState` はファイルノード識別子を持たないので、
+    /// 同じ本のレイアウト設定が覚えているものを使い、無ければその場で実ファイルから取る
+    /// (`exportLayouts` と同じ手順)。識別子が取れなくても bookID(パス)で書き出す ――
+    /// メタデータと同じで、実ファイルが今そこに無くても書き出せることに意味がある。
+    private static func exportReadingStates(
+        modelContext: ModelContext, favoritesStore: FavoritesStore,
+        bookmarkStore: BookmarkStore, layoutStore: LayoutStore
+    ) -> [ExportedBookReadingState] {
+        let states = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
+        return states.map { state in
+            var identifier = layoutStore.bookLayoutSettings(forBookID: state.bookID)?.fileNodeIdentifier
+            if identifier == nil,
+               let url = resolveURL(
+                   bookID: state.bookID, fileNodeIdentifier: nil,
+                   favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+               ) {
+                let didAccess = url.startAccessingSecurityScopedResource()
+                identifier = FileNodeIdentifier.current(for: url)
+                if didAccess { url.stopAccessingSecurityScopedResource() }
+            }
+            return ExportedBookReadingState(
+                bookID: state.bookID,
+                inodeNumber: identifier?.inodeNumber,
+                volumeDeviceNumber: identifier?.volumeDeviceNumber,
+                volumeUUID: identifier?.volumeUUID,
+                lastPageIndex: state.lastPageIndex,
+                lastPageKey: state.lastPageKey,
+                displayMode: state.displayModeRaw,
+                readingDirection: state.readingDirectionRaw,
+                scalingMode: state.scalingModeRaw,
+                updatedAt: state.updatedAt,
+                recordedPageCount: state.recordedPageCount,
+                recordedSourceModificationDate: state.recordedSourceModificationDate,
+                recordedSourceFileSize: state.recordedSourceFileSize,
+                isAtLastPage: state.isAtLastPage ? true : nil
+            )
+        }
+        .sorted { $0.bookID < $1.bookID }
+    }
+
+    // MARK: - スマートライブラリの書き出し(2026-09-23)
+
+    private static func exportSmartLibrary(store: SmartLibraryStore) -> ExportedSmartLibrary {
+        var pins: [String: [SmartFacetValue]] = [:]
+        for (field, values) in store.pins where !values.isEmpty {
+            pins[field.rawValue] = values
+        }
+        return ExportedSmartLibrary(
+            shelves: store.shelves, folderPaths: store.folders.map(\.path), pins: pins
+        )
     }
 
     // MARK: - 書誌メタデータの書き出し
@@ -439,6 +543,17 @@ enum LibraryImportExportService {
         /// コレクション(改善要望5)。overwriteはライブラリ・コレクション・登録した本を
         /// すべて消してから取り込む(カバー画像も消える)。
         var collections: ImportPolicy = .merge
+        /// 読書位置(2026-09-23)。merge は読書位置をまだ持っていない本にだけ入れる。
+        var readingStates: ImportPolicy = .merge
+        /// スマートライブラリ(2026-09-23)。overwrite は手元のスマートコレクション・対象フォルダ・
+        /// ピン留めを捨ててから入れる。
+        var smartLibrary: ImportPolicy = .merge
+        /// ファイルブラウザのよく使う項目と自動リネームの規則(2026-09-23)。
+        var fileBrowser: ImportPolicy = .merge
+        /// 環境設定(2026-09-23)。規則(metadataRules)と同じく「アプリ全体で1組の設定」なので
+        /// merge という概念が無く、overwrite(書いてあるキーだけ上書き)か ignore の2択。
+        /// 既定は ignore ―― 相手の設定で自分の設定を勝手に置き換えない、という安全側。
+        var settings: ImportPolicy = .ignore
     }
 
     struct ImportSummary {
@@ -459,6 +574,14 @@ enum LibraryImportExportService {
         var collectionsImportedBooks = 0
         /// 実体が見つからず、コレクションへ入れられなかった本のbookID(=JSON上のパス)。
         var collectionsSkippedBookIDs: [String] = []
+        // 2026-09-23 に足したカテゴリ。
+        var readingStatesImportedBooks = 0
+        var smartLibraryImportedShelves = 0
+        var smartLibraryImportedFolders = 0
+        var fileBrowserImportedLocations = 0
+        var fileBrowserImportedAutoRenameRules = 0
+        /// 取り込んだ環境設定の数(`UserDefaults` のキーの数)。
+        var importedSettingsCount = 0
     }
 
     /// - Parameter cachesPageList: 取り込み/書き出しの途中で読み直す本を、ページ一覧の
@@ -475,6 +598,7 @@ enum LibraryImportExportService {
         metadataStore: BookMetadataStore,
         metadataRulesStore: MetadataRulesStore,
         collectionStore: CollectionStore,
+        backupStores: BackupStores? = nil,
         cachesPageList: Bool = true
     ) async -> ImportSummary {
         var summary = ImportSummary()
@@ -537,7 +661,108 @@ enum LibraryImportExportService {
                 summary.didImportMetadataRules = summary.metadataRuleErrors.isEmpty
             }
         }
+        if let backupStores {
+            if let states = file.readingStates, policies.readingStates != .ignore {
+                applyReadingStates(
+                    states, policy: policies.readingStates, modelContext: backupStores.modelContext,
+                    favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
+                    summary: &summary
+                )
+            }
+            if let smart = file.smartLibrary, policies.smartLibrary != .ignore {
+                let added = backupStores.smartLibrary.importBackup(
+                    shelves: smart.shelves, folderPaths: smart.folderPaths,
+                    pins: decodePins(smart.pins), replacingExisting: policies.smartLibrary == .overwrite
+                )
+                summary.smartLibraryImportedShelves += added.shelves
+                summary.smartLibraryImportedFolders += added.folders
+            }
+            if let browser = file.fileBrowser, policies.fileBrowser != .ignore {
+                let replacing = policies.fileBrowser == .overwrite
+                summary.fileBrowserImportedLocations += backupStores.favoriteLocations.importBackup(
+                    paths: browser.favoriteLocationPaths, replacingExisting: replacing
+                )
+                summary.fileBrowserImportedAutoRenameRules += backupStores.autoRename.importBackup(
+                    rules: browser.autoRenameRules.map(\.rule), replacingExisting: replacing
+                )
+            }
+            if let settings = file.settings, policies.settings != .ignore {
+                summary.importedSettingsCount = SettingsBackup.apply(settings, to: backupStores.defaults)
+                // 保存先を書き替えただけでは、画面が握っている値は変わらない。3 つの持ち主へ読み直させる。
+                backupStores.preferences.reloadFromDefaults()
+                for profile in AppearanceProfile.allCases {
+                    let live = profile == .normal
+                        ? backupStores.preferences.appearance : backupStores.preferences.privateAppearance
+                    live.copyValues(from: AppearanceSettings(profile: profile, defaults: backupStores.defaults))
+                }
+                backupStores.keyBindings.reloadFromDefaults()
+            }
+        }
         return summary
+    }
+
+    /// 書き出した形(欄の `rawValue` → 値)を、ストアの形へ。知らない欄は捨てる。
+    private static func decodePins(_ pins: [String: [SmartFacetValue]]) -> [SmartFacetField: [SmartFacetValue]] {
+        var result: [SmartFacetField: [SmartFacetValue]] = [:]
+        for (key, values) in pins {
+            guard let field = SmartFacetField(rawValue: key) else { continue }
+            result[field] = values
+        }
+        return result
+    }
+
+    // MARK: - 読書位置の取り込み(2026-09-23)
+
+    /// 読書位置を取り込む。メタデータと同じく、本を読み直す必要が無い(ページ番号も鍵もそのまま
+    /// 写すだけ)ので、実ファイルが今そこに無い本の読書位置もそのまま取り込める。
+    ///
+    /// - overwrite: 同じ本の既存の行を書き替える。
+    /// - merge: まだ読書位置を持っていない本にだけ入れる。
+    private static func applyReadingStates(
+        _ entries: [ExportedBookReadingState], policy: ImportPolicy, modelContext: ModelContext,
+        favoritesStore: FavoritesStore, bookmarkStore: BookmarkStore, layoutStore: LayoutStore,
+        summary: inout ImportSummary
+    ) {
+        let existing = (try? modelContext.fetch(FetchDescriptor<BookReadingState>())) ?? []
+        var byBookID = Dictionary(existing.map { ($0.bookID, $0) }, uniquingKeysWith: { first, _ in first })
+        for entry in entries {
+            // 他のカテゴリと同じく、ファイルノード識別子での照合を優先する(別の端末・移動後で
+            // パスが変わっていても引き継げる)。
+            let resolvedURL = resolveURL(
+                bookID: entry.bookID, fileNodeIdentifier: entry.fileNodeIdentifier,
+                favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore
+            )
+            let bookID = resolvedURL?.path ?? entry.bookID
+            if let row = byBookID[bookID] {
+                guard policy == .overwrite else { continue }
+                row.lastPageIndex = entry.lastPageIndex
+                row.lastPageKey = entry.lastPageKey
+                row.displayModeRaw = entry.displayMode
+                row.readingDirectionRaw = entry.readingDirection
+                row.scalingModeRaw = entry.scalingMode
+                row.updatedAt = entry.updatedAt
+                row.recordedPageCount = entry.recordedPageCount
+                row.recordedSourceModificationDate = entry.recordedSourceModificationDate
+                row.recordedSourceFileSize = entry.recordedSourceFileSize
+                row.isAtLastPage = entry.isAtLastPage ?? false
+            } else {
+                let row = BookReadingState(bookID: bookID, lastPageIndex: entry.lastPageIndex,
+                                           lastPageKey: entry.lastPageKey)
+                // 生の rawValue で写す(知らない値でも落とさない。読む側が既定へ落とす)。
+                row.displayModeRaw = entry.displayMode
+                row.readingDirectionRaw = entry.readingDirection
+                row.scalingModeRaw = entry.scalingMode
+                row.updatedAt = entry.updatedAt
+                row.recordedPageCount = entry.recordedPageCount
+                row.recordedSourceModificationDate = entry.recordedSourceModificationDate
+                row.recordedSourceFileSize = entry.recordedSourceFileSize
+                row.isAtLastPage = entry.isAtLastPage ?? false
+                modelContext.insert(row)
+                byBookID[bookID] = row
+            }
+            summary.readingStatesImportedBooks += 1
+        }
+        try? modelContext.save()
     }
 
     // MARK: - 書誌メタデータの取り込み

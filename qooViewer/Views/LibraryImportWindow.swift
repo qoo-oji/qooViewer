@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 import AppKit
 import UniformTypeIdentifiers
 
@@ -20,6 +21,12 @@ struct LibraryImportWindow: View {
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var collectionCoverExtractor: CollectionCoverExtractor
     @EnvironmentObject private var preferences: AppPreferences
+    // 2026-09-23: 本ごとのデータ以外(読書位置・スマートライブラリ・ファイルブラウザ・環境設定)。
+    @EnvironmentObject private var smartLibraryStore: SmartLibraryStore
+    @EnvironmentObject private var favoriteLocations: FavoriteLocationStore
+    @EnvironmentObject private var autoRenameStore: AutoRenameStore
+    @EnvironmentObject private var keyBindingStore: KeyBindingStore
+    @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
     @State private var loadedFile: QooLibraryExportFile?
@@ -36,6 +43,11 @@ struct LibraryImportWindow: View {
     /// 規則(qooMeta。以前はフォーマット定義)は「取り込む=自分の設定を丸ごと置き換える」操作になるため、既定は無視。
     /// マージという選択肢自体が無い(ImportPolicies.metadataRulesのコメント参照)。
     @State private var metadataRulesPolicy: LibraryImportExportService.ImportPolicy = .ignore
+    /// 2026-09-23 に足したカテゴリ。環境設定は規則と同じく「置き換えるか取り込まないか」の2択で、既定は無視。
+    @State private var readingStatesPolicy: LibraryImportExportService.ImportPolicy = .merge
+    @State private var smartLibraryPolicy: LibraryImportExportService.ImportPolicy = .merge
+    @State private var fileBrowserPolicy: LibraryImportExportService.ImportPolicy = .merge
+    @State private var settingsPolicy: LibraryImportExportService.ImportPolicy = .ignore
     @State private var isImporting = false
     @State private var summary: LibraryImportExportService.ImportSummary?
     @State private var loadErrorMessage: String?
@@ -51,6 +63,10 @@ struct LibraryImportWindow: View {
     private var hasMetadata: Bool { loadedFile?.metadata?.isEmpty == false }
     /// 規則(新しい形の `metadataRules` か、以前の形の `metadataFormats`)を含むか。
     private var hasMetadataRules: Bool { loadedFile?.metadataRules != nil || loadedFile?.metadataFormats != nil }
+    private var hasReadingStates: Bool { loadedFile?.readingStates?.isEmpty == false }
+    private var hasSmartLibrary: Bool { loadedFile?.smartLibrary != nil }
+    private var hasFileBrowser: Bool { loadedFile?.fileBrowser != nil }
+    private var hasSettings: Bool { loadedFile?.settings?.values.isEmpty == false }
 
     // バグ修正(ユーザー報告): LibraryExportWindowと同じ理由(コメント参照)で、ボタン行を
     // Form(スクロール領域)の外側、VStack(spacing: 0)の中でDivider()の下に独立させ、
@@ -119,6 +135,22 @@ struct LibraryImportWindow: View {
                     }
                     .pickerStyle(.segmented)
                     .disabled(!hasMetadataRules)
+                    // 2026-09-23 に足したカテゴリ。
+                    policyPicker("Reading Positions", selection: $readingStatesPolicy)
+                        .disabled(!hasReadingStates)
+                    policyPicker("Smart Library", selection: $smartLibraryPolicy)
+                        .disabled(!hasSmartLibrary)
+                    policyPicker("File Browser", selection: $fileBrowserPolicy)
+                        .disabled(!hasFileBrowser)
+                    // 環境設定もアプリ全体の設定なので、規則と同じく2択(ImportPolicies.settings)。
+                    Picker("Settings", selection: $settingsPolicy) {
+                        Text(LibraryImportExportService.ImportPolicy.overwrite.titleKey)
+                            .tag(LibraryImportExportService.ImportPolicy.overwrite)
+                        Text(LibraryImportExportService.ImportPolicy.ignore.titleKey)
+                            .tag(LibraryImportExportService.ImportPolicy.ignore)
+                    }
+                    .pickerStyle(.segmented)
+                    .disabled(!hasSettings)
                 } footer: {
                     Text("Overwrite replaces existing data for the books mentioned in the file. Merge only adds what's missing, without changing anything that already exists. Ignore skips that category entirely.")
                         .font(.caption)
@@ -303,6 +335,46 @@ struct LibraryImportWindow: View {
         // メタデータ関連の行は、ViewBuilderが1つのビュー本体で扱える子の数の上限
         // (10個)を超えないよう、別のメソッドへ切り出してある。
         metadataSummaryRows(summary)
+        backupSummaryRows(summary)
+    }
+
+    /// 2026-09-23 に足したカテゴリの結果(同じく子の数の上限のため別のメソッド)。
+    @ViewBuilder
+    private func backupSummaryRows(_ summary: LibraryImportExportService.ImportSummary) -> some View {
+        let locale = preferences.effectiveLocale
+        if hasReadingStates, readingStatesPolicy != .ignore {
+            Text(String(format: String(localized: "Reading Positions: %d book(s) imported.", language: locale),
+                        summary.readingStatesImportedBooks))
+                .font(.caption)
+        }
+        if hasSmartLibrary, smartLibraryPolicy != .ignore {
+            Text(String(format: String(localized: "Smart Library: %d smart collection(s), %d target folder(s) imported.",
+                                       language: locale),
+                        summary.smartLibraryImportedShelves, summary.smartLibraryImportedFolders))
+                .font(.caption)
+        }
+        if hasFileBrowser, fileBrowserPolicy != .ignore {
+            Text(String(format: String(localized: "File Browser: %d favorite location(s), %d auto rename rule(s) imported.",
+                                       language: locale),
+                        summary.fileBrowserImportedLocations, summary.fileBrowserImportedAutoRenameRules))
+                .font(.caption)
+            // 対象フォルダの確認の印は持ち込まない(AutoRenameStore.importBackup)。黙って何も
+            // 起きないと「壊れている」と見えるので、そのことを書いておく。
+            if summary.fileBrowserImportedAutoRenameRules > 0 {
+                Text("Auto rename won't touch the imported folders until you confirm their contents again.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        if hasSettings, settingsPolicy != .ignore {
+            Text(String(format: String(localized: "Settings: %d setting(s) imported.", language: locale),
+                        summary.importedSettingsCount))
+                .font(.caption)
+            // メニューバーと表示言語は起動し直すまで切り替わらない(AppLanguage の型コメント)。
+            Text("The menu bar follows the imported display language from the next launch.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func chooseFileButtonTapped() {
@@ -340,13 +412,20 @@ struct LibraryImportWindow: View {
             let policies = LibraryImportExportService.ImportPolicies(
                 favorites: favoritesPolicy, bookmarks: bookmarksPolicy, layouts: layoutsPolicy,
                 metadata: metadataPolicy, metadataRules: metadataRulesPolicy,
-                collections: collectionsPolicy
+                collections: collectionsPolicy, readingStates: readingStatesPolicy,
+                smartLibrary: smartLibraryPolicy, fileBrowser: fileBrowserPolicy,
+                settings: settingsPolicy
             )
             summary = await LibraryImportExportService.apply(
                 loadedFile, policies: policies,
                 favoritesStore: favoritesStore, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
                 metadataStore: metadataStore, metadataRulesStore: metadataRulesStore,
-                collectionStore: collectionStore
+                collectionStore: collectionStore,
+                backupStores: LibraryImportExportService.BackupStores(
+                    modelContext: modelContext, smartLibrary: smartLibraryStore,
+                    favoriteLocations: favoriteLocations, autoRename: autoRenameStore,
+                    preferences: preferences, keyBindings: keyBindingStore
+                )
             )
             // 取り込んだ本のカバーはpendingのまま置いてある(applyCollections参照)。
             // ここで待ち行列へ入れておくと、ウェルカム画面を開いた時点で埋まり始める。

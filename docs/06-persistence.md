@@ -4,7 +4,7 @@
 
 | 何 | どこ | 担当 | 寿命・上限 |
 |---|---|---|---|
-| 読書位置(最後のページ・見開き/単ページ・読み方向・表示モード)+指紋 | SwiftData `BookReadingState` | `ViewerViewModel` が直接 | 環境設定「データを保持する本の数」(既定 500 冊)を超えたら古い順に自動削除 |
+| 読書位置(最後のページ・見開き/単ページ・読み方向・表示モード)+指紋 | SwiftData `BookReadingState` | `ViewerViewModel` が直接 | 環境設定「データを保持する本の数」(既定 500 冊)を超えたら古い順に自動削除。保存データの書き出しに入る(2026-09-23 → [08](08-export-and-import.md#2026-09-23-に足した-4-カテゴリ)) |
 | ブックマーク | SwiftData `Bookmark` | `BookmarkStore` / `ViewerViewModel` | 無制限(自動削除しない) |
 | レイアウト(本全体) | SwiftData `BookLayoutSettings` | `LayoutStore` | 無制限 |
 | レイアウト(ページ単位) | SwiftData `PageLayoutOverride` | `LayoutStore` | 無制限 |
@@ -15,17 +15,17 @@
 | コレクション表紙(元画像) | `~/Library/Application Support/<bundle id>/CollectionCoverSources/<uuid>.jpg` | `CollectionCoverSourceStore` | 利用者が「ファイルを選ぶ…」で指定した画像の複製(長辺1536px)。**作り直せない**(元ファイルは捨てられているかもしれない)。`BookLayoutSettings.shelfCoverImageFileName` から参照し、起動時に孤児を掃除 |
 | ホームの表示の状態 | UserDefaults(`qooViewer.welcome.*`) | `WelcomeLibraryState` | 選択中のライブラリ・並び順2つ・大きさ2つ・本棚/ファイルブラウザのモード。`qooViewer.pref.*` ではないので「初期設定に戻す」の対象外、全削除では消える |
 | ファイルブラウザの表示の状態 | UserDefaults(`qooViewer.fileBrowser.*`、リストの列の幅と並びは `NSTableView … qooViewer.fileBrowser.list`) | `FileBrowserState` | 表示形式・アイコンの大きさ・左の幅・隠したリストの列・最後に表示したフォルダ(パスだけ)・一括リネームの前回の入力(JSON)。後ろの 2 つはシークレットウインドウでは書かない。「初期設定に戻す」の対象外。並べ替えの基準と向きはサイドパネルのフォルダブラウザと共通の `qooViewer.pref.folderBrowserSortKey` / `…Direction`。→ [15](15-file-browser.md#保存するもの) |
-| よく使う項目 | UserDefaults(`qooViewer.fileBrowser.favoriteLocations`、JSON) | `FavoriteLocationStore` | パスだけ(読む権限は `FolderAccessStore`)。上限なし |
-| 自動リネームの規則・除外・実行ログ | UserDefaults(`qooViewer.fileBrowser.autoRename.rules` JSON / `.excludedPaths` 配列 / `.activityLog` JSON) | `AutoRenameStore` / `AutoRenameActivityLog` | 規則 20・規則ごとの対象 20・除外 2000・ログ 500。対象はパス・ボリュームの UUID・**セキュリティスコープの無い**ブックマーク(移動の提案用)を持ち、読む権限は `FolderAccessStore`。SwiftData ではないので世代は増えない。「初期設定に戻す」の対象外、全削除では消える。保存データの書き出しには含めない。→ [15](15-file-browser.md#自動リネーム2026-09-15ユーザー要望) |
+| よく使う項目 | UserDefaults(`qooViewer.fileBrowser.favoriteLocations`、JSON) | `FavoriteLocationStore` | パスだけ(読む権限は `FolderAccessStore`)。上限なし。保存データの書き出しに入る(2026-09-23 → [08](08-export-and-import.md#2026-09-23-に足した-4-カテゴリ)) |
+| 自動リネームの規則・除外・実行ログ | UserDefaults(`qooViewer.fileBrowser.autoRename.rules` JSON / `.excludedPaths` 配列 / `.activityLog` JSON) | `AutoRenameStore` / `AutoRenameActivityLog` | 規則 20・規則ごとの対象 20・除外 2000・ログ 500。対象はパス・ボリュームの UUID・**セキュリティスコープの無い**ブックマーク(移動の提案用)を持ち、読む権限は `FolderAccessStore`。SwiftData ではないので世代は増えない。「初期設定に戻す」の対象外、全削除では消える。**保存データの書き出しには規則と対象が入る**(2026-09-23。ボリュームの UUID・ブックマーク・確認の印は落とす → [08](08-export-and-import.md#2026-09-23-に足した-4-カテゴリ))。→ [15](15-file-browser.md#自動リネーム2026-09-15ユーザー要望) |
 | 「置き換える」の退避の記録 | コンテナの `Application Support/FileOperations/replace-backups.json` | `ReplaceBackupJournal` | 置き換えの最中だけ 1 件ずつあり、片付けたら消す(空ならファイルごと)。落ちて残ったものは次の起動で `ReplaceBackupRecovery` が戻す。「すべてのデータを削除」で消える(終了時。→ [15](15-file-browser.md#保存するもの)) |
-| 環境設定 | UserDefaults(`qooViewer.pref.*`) | `AppPreferences` | ― |
-| 履歴 | UserDefaults(`recentBookEntries` + 旧 `recentBookBookmarks`) | `RecentFilesStore` | 環境設定「履歴の保存件数」(既定 30) |
-| フォルダのアクセス権 | UserDefaults(`qooViewer.grantedFolderBookmarks`) | `FolderAccessStore` | 全削除でも残す |
+| 環境設定 | UserDefaults(`qooViewer.pref.*`) | `AppPreferences` | 保存データの書き出しに入る(2026-09-23。キーは接頭辞で拾う → [08](08-export-and-import.md#2026-09-23-に足した-4-カテゴリ)) |
+| 履歴 | UserDefaults(`recentBookEntries` + 旧 `recentBookBookmarks`) | `RecentFilesStore` | 環境設定「履歴の保存件数」(既定 30)。**保存データの書き出しには入らない**(アクセス権と同じ理由) |
+| フォルダのアクセス権 | UserDefaults(`qooViewer.grantedFolderBookmarks`) | `FolderAccessStore` | 全削除でも残す。**保存データの書き出しには入らない**(書き出した端末でしか意味を持たないブックマーク) |
 | 最後に開いていた本 | UserDefaults | `LastActiveBookStore` | 1件 |
-| キー・マウスの割り当て | UserDefaults(JSON、`*.v1` キー) | `KeyBindingStore` | ― |
+| キー・マウスの割り当て | UserDefaults(JSON、`*.v1` キー) | `KeyBindingStore` | 保存データの書き出しに入る(2026-09-23。環境設定と同じカテゴリ) |
 | メタデータの規則・除外フォルダ | Application Support/qooMeta/settings.json | `MetadataRulesStore` | ― |
 | メタデータの下書き(ロックしていない値) | Application Support/qooMeta/drafts.json | `MetadataDraftStore` | ― |
-| スマートライブラリ(対象フォルダ・スマートコレクション・ピン留め) | UserDefaults(JSON、`qooViewer.smartLibrary.store`) | `SmartLibraryStore` | ― |
+| スマートライブラリ(対象フォルダ・スマートコレクション・ピン留め) | UserDefaults(JSON、`qooViewer.smartLibrary.store`) | `SmartLibraryStore` | 保存データの書き出しに入る(2026-09-23。対象フォルダはパスだけ) |
 | スマートライブラリの前回の一覧(写し。消えても集め直せる) | Application Support/SmartLibrary/catalog.json | `SmartLibraryCatalog` | ― |
 | フォルダ選択パネルの前回位置・固定の保存先 | UserDefaults(ブックマーク) | `LastUsedFolderMemory` | ― |
 | 環境設定で最後に開いていた画面 | UserDefaults | `SettingsNavigator.selectedPaneDefaultsKey` | ― |

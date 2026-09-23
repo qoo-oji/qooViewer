@@ -34199,6 +34199,150 @@
           }
         }
       }
+    },
+    "Reading Positions" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading Positions"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読書位置"
+          }
+        }
+      }
+    },
+    "Settings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "環境設定"
+          }
+        }
+      }
+    },
+    "Together with the collection covers, a file that includes everything restores this Mac's setup, apart from folder access permissions. This creates a single JSON file that only qooViewer can read back in. ComicInfo.xml is not supported." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Together with the collection covers, a file that includes everything restores this Mac's setup, apart from folder access permissions. This creates a single JSON file that only qooViewer can read back in. ComicInfo.xml is not supported."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "すべてを含めて書き出したファイルは、コレクション表紙と合わせれば、フォルダのアクセス権を除いてこのMacの環境を復元できます。書き出されるのは、qooViewerだけが読み込める1つのJSONファイルです(ComicInfo.xmlには対応していません)。"
+          }
+        }
+      }
+    },
+    "Reading Positions: %d book(s) imported." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reading Positions: %d book(s) imported."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読書位置: %d冊を読み込みました。"
+          }
+        }
+      }
+    },
+    "Smart Library: %d smart collection(s), %d target folder(s) imported." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Smart Library: %d smart collection(s), %d target folder(s) imported."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スマートライブラリ: スマートコレクション%d件、対象フォルダ%d件を読み込みました。"
+          }
+        }
+      }
+    },
+    "File Browser: %d favorite location(s), %d auto rename rule(s) imported." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File Browser: %d favorite location(s), %d auto rename rule(s) imported."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ファイルブラウザ: よく使う項目%d件、自動リネームの規則%d件を読み込みました。"
+          }
+        }
+      }
+    },
+    "Auto rename won't touch the imported folders until you confirm their contents again." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto rename won't touch the imported folders until you confirm their contents again."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動リネームは、読み込んだ対象フォルダの中身をもう一度確認するまで名前を変えません。"
+          }
+        }
+      }
+    },
+    "Settings: %d setting(s) imported." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Settings: %d setting(s) imported."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "環境設定: %d件を読み込みました。"
+          }
+        }
+      }
+    },
+    "The menu bar follows the imported display language from the next launch." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The menu bar follows the imported display language from the next launch."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "メニューバーは、次回の起動から読み込んだ表示言語に従います。"
+          }
+        }
+      }
     }
   },
   "version" : "1.1"

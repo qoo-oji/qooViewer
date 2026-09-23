@@ -55,6 +55,20 @@ final class InMemoryLibrary {
     /// 本のタイトルを求める役(コレクションの並び順「タイトル」が使う)。
     let bookTitles: BookTitleResolver
 
+    // MARK: - 本ごとのデータ以外(2026-09-23 に保存データへ足したカテゴリ)
+    //
+    // どれも `UserDefaults` に載っているので、**このライブラリ専用の領域(suite)**を渡す。
+    // 既定(`.standard`)のままだと、テストが利用者のスマートコレクション・よく使う項目・
+    // 自動リネームの規則・環境設定を書き換えてしまう(CLAUDE.md: テストは共有の状態に触らない)。
+    let smartLibrary: SmartLibraryStore
+    let favoriteLocations: FavoriteLocationStore
+    let autoRename: AutoRenameStore
+    let preferences: AppPreferences
+    let keyBindings: KeyBindingStore
+    /// 上の 5 つの保存先。
+    let backupDefaults: UserDefaults
+    private let backupSuite: TestDefaultsPool.Lease
+
     init(label: String = "library") throws {
         let configuration = ModelConfiguration(
             schema: QooViewerApp.modelSchema, isStoredInMemoryOnly: true
@@ -96,6 +110,23 @@ final class InMemoryLibrary {
             modelContext: context, coverStore: collectionCovers, tileStore: collectionTileImages,
             titleResolver: bookTitles
         )
+        let backup = TestDefaultsPool.checkout()
+        backupSuite = backup
+        backupDefaults = backup.defaults
+        smartLibrary = SmartLibraryStore(defaults: backup.defaults)
+        favoriteLocations = FavoriteLocationStore(defaults: backup.defaults)
+        autoRename = AutoRenameStore(defaults: backup.defaults)
+        preferences = AppPreferences(defaults: backup.defaults)
+        keyBindings = KeyBindingStore(defaults: backup.defaults)
+    }
+
+    /// `LibraryImportExportService` の 2026-09-23 に足したカテゴリの持ち主。
+    var backupStores: LibraryImportExportService.BackupStores {
+        LibraryImportExportService.BackupStores(
+            modelContext: context, smartLibrary: smartLibrary, favoriteLocations: favoriteLocations,
+            autoRename: autoRename, preferences: preferences, keyBindings: keyBindings,
+            defaults: backupDefaults
+        )
     }
 
     /// このライブラリを閉じる。**テストの最後に必ず呼ぶこと**(`defer { library.close() }`)。
@@ -110,6 +141,7 @@ final class InMemoryLibrary {
         favorites.releaseResources()
         collections.releaseResources()
         metadataRulesSuite.release()
+        backupSuite.release()
         try? FileManager.default.removeItem(at: metadataRulesDirectory)
         try? FileManager.default.removeItem(at: collectionCoversDirectory)
         try? FileManager.default.removeItem(at: collectionTileImagesDirectory)
@@ -120,6 +152,7 @@ final class InMemoryLibrary {
         // `close()` を呼び忘れた場合の保険。`UserDefaults` の領域とカバー画像のフォルダは
         // ファイルとして残るので明示的に消す(メモリ内のコンテナはここで手放されて消える)。
         metadataRulesSuite.release()
+        backupSuite.release()
         try? FileManager.default.removeItem(at: metadataRulesDirectory)
         try? FileManager.default.removeItem(at: collectionCoversDirectory)
         try? FileManager.default.removeItem(at: collectionTileImagesDirectory)
@@ -148,7 +181,7 @@ final class InMemoryLibrary {
             file, policies: policies,
             favoritesStore: favorites, bookmarkStore: bookmarks, layoutStore: layouts,
             metadataStore: metadata, metadataRulesStore: metadataRules,
-            collectionStore: collections, cachesPageList: false
+            collectionStore: collections, backupStores: backupStores, cachesPageList: false
         )
     }
 
@@ -165,7 +198,7 @@ final class InMemoryLibrary {
             selection: selection,
             favoritesStore: favorites, bookmarkStore: bookmarks, layoutStore: layouts,
             metadataStore: metadata, metadataRulesStore: metadataRules,
-            collectionStore: collections, cachesPageList: false
+            collectionStore: collections, backupStores: backupStores, cachesPageList: false
         )
     }
 
@@ -204,21 +237,24 @@ final class InMemoryLibrary {
 }
 
 extension LibraryImportExportService.ExportSelection {
-    /// 5 カテゴリすべてを書き出す選択。
+    /// すべてのカテゴリを書き出す選択。
     static let everything = Self(
         includeFavorites: true, includeBookmarks: true, includeLayouts: true,
-        includeMetadata: true, includeMetadataRules: true, includeCollections: true
+        includeMetadata: true, includeMetadataRules: true, includeCollections: true,
+        includeReadingStates: true, includeSmartLibrary: true, includeFileBrowser: true,
+        includeSettings: true
     )
 }
 
 extension LibraryImportExportService.ImportPolicies {
-    /// 5 カテゴリすべてを同じ方針で取り込む(規則は overwrite / ignore の 2 択なので、
+    /// すべてのカテゴリを同じ方針で取り込む(規則は overwrite / ignore の 2 択なので、
     /// merge を渡した場合はそのまま渡す ―― 規則の取り込みは方針の値を見ずに
     /// 丸ごと差し替えるため、ignore 以外は同じ意味になる)。
     static func all(_ policy: LibraryImportExportService.ImportPolicy) -> Self {
         Self(
             favorites: policy, bookmarks: policy, layouts: policy, metadata: policy,
-            metadataRules: policy, collections: policy
+            metadataRules: policy, collections: policy, readingStates: policy,
+            smartLibrary: policy, fileBrowser: policy, settings: policy
         )
     }
 }

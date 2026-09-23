@@ -241,6 +241,20 @@ final class KeyBindingStore: ObservableObject {
         load()
     }
 
+    /// 保存先を読み直して、いまの割り当てを入れ替える(保存データの取り込みが環境設定を
+    /// 書き替えたあとに呼ぶ。2026-09-23)。**保存先に何も無いキーは出荷時の割り当てへ戻す** ――
+    /// `init` とまったく同じ順に組み立てることで、「取り込んだファイルに無かった割り当てだけ
+    /// 古いまま残る」という中途半端な状態を作らない。
+    func reloadFromDefaults() {
+        keyBindings = Self.defaultKeyBindings
+        mouseBindings = Self.defaultMouseBindings
+        modeKeyBindings = Self.defaultModeKeyBindings
+        modeMouseBindings = Self.defaultModeMouseBindings
+        modeWheelBehaviors = Self.defaultModeWheelBehaviors
+        modeScrollSteps = Self.defaultModeScrollSteps
+        load()
+    }
+
     // MARK: - ビューアからの参照(フォールバックあり)
 
     /// 表示モードを踏まえて、実際に実行すべき操作を解決する。

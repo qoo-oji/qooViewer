@@ -1530,6 +1530,34 @@ extension AppPreferences {
         }
     }
 
+    /// 保存先を読み直して、いまの設定をまるごと入れ替える(保存データの取り込みが `UserDefaults` を
+    /// 書き替えたあとに呼ぶ。2026-09-23)。
+    ///
+    /// 画面ごとの `apply(_:for:)` を全画面ぶん回したうえで、**どの画面にも並んでいない設定**を
+    /// 足している。`keys(for:)` は「その画面に実際に並んでいる項目だけ」を対象にしていて
+    /// (あちらのコメント)、「表示」メニューやパネル自身が変える値・保管件数の 2 つは外れている ――
+    /// 「初期設定に戻す」では外して正しいが、**バックアップから戻すときは全部戻す**のが正しい。
+    ///
+    /// キー/マウスの割り当ては `KeyBindingStore` が持つので、呼び出し側がそちらの
+    /// `reloadFromDefaults()` も呼ぶこと(外観は `AppearanceSettings.copyValues(from:)`)。
+    func reloadFromDefaults() {
+        let fresh = AppPreferences(defaults: defaults)
+        for pane in SettingsPane.allCases {
+            apply(fresh, for: pane)
+        }
+        // 画面ごとの担当から外してある設定(keys(for:) のコメント)。
+        maxTrackedBooksCount = fresh.maxTrackedBooksCount
+        recentFilesLimit = fresh.recentFilesLimit
+        hideToolbar = fresh.hideToolbar
+        hideProgressBar = fresh.hideProgressBar
+        hideSidePanel = fresh.hideSidePanel
+        sidePanelWidth = fresh.sidePanelWidth
+        sidePanelMode = fresh.sidePanelMode
+        folderBrowserSortKey = fresh.folderBrowserSortKey
+        folderBrowserSortDirection = fresh.folderBrowserSortDirection
+        defaultReadingDirection = fresh.defaultReadingDirection
+    }
+
     /// 既定値だけを持つインスタンス(`source`)から、その画面ぶんのプロパティを取り込む。
     /// 代入によって各プロパティの`didSet`が走り、既定値がUserDefaultsへ書き戻される。
     private func apply(_ source: AppPreferences, for pane: SettingsPane) {

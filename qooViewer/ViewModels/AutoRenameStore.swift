@@ -107,6 +107,44 @@ final class AutoRenameStore: ObservableObject {
         rules.first { $0.id == id }
     }
 
+    // MARK: - 保存データの取り込み(2026-09-23)
+
+    /// バックアップ(保存データの JSON)から規則を取り込む。
+    ///
+    /// **対象フォルダは、その場所に実際にフォルダがあるものだけを入れ、確認の印
+    /// (`confirmedSignature`)は必ず落とす** ―― 別の端末で「いまその中に何があるかを確認した」
+    /// 印を持ち込むと、取り込んだ直後から中身を見ずに名前を変え始めることになる(§8 の 2)。
+    /// 印が無ければ、利用者が確認し直すまで自動リネームは何もしない。ボリューム UUID と
+    /// ブックマークも端末ごとの値なので落とす(その端末で登録し直されたときに入る)。
+    ///
+    /// - Returns: 取り込んだ規則の数。
+    @discardableResult
+    func importBackup(rules importedRules: [AutoRenameRule], replacingExisting: Bool) -> Int {
+        if replacingExisting { rules = [] }
+        var added = 0
+        for imported in importedRules {
+            guard canAddRule else { break }
+            guard !rules.contains(where: { $0.id == imported.id }) else { continue }
+            var rule = imported
+            rule.targets = imported.targets.compactMap { target in
+                var isDirectory: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: target.path, isDirectory: &isDirectory),
+                      isDirectory.boolValue
+                else { return nil }
+                var target = target
+                target.bookmark = nil
+                target.volumeUUID = nil
+                target.confirmedSignature = nil
+                return target
+            }
+            rule.targets = Array(rule.targets.prefix(AutoRename.maxTargetsPerRule))
+            rules.append(rule)
+            added += 1
+        }
+        if added > 0 || replacingExisting { save() }
+        return added
+    }
+
     // MARK: - 規則
 
     /// 規則を末尾に足す。上限なら nil。

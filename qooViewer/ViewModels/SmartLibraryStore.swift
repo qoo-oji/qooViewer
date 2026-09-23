@@ -73,6 +73,54 @@ final class SmartLibraryStore: ObservableObject {
         }
     }
 
+    // MARK: - 保存データの取り込み(2026-09-23)
+
+    /// バックアップ(保存データの JSON)から取り込む。
+    ///
+    /// - Parameters:
+    ///   - folderPaths: 対象フォルダの**パス**。権限は持ち出せないので、**その場所に実際に
+    ///     フォルダがあるときだけ**登録する(コレクションの自動登録フォルダと同じ規則。
+    ///     フォルダがあっても読むには別途「アクセスを許可」が要る)。
+    ///   - replacingExisting: overwrite なら手元のスマートコレクション・対象フォルダ・ピン留めを
+    ///     捨ててから入れる。merge なら、スマートコレクションは id が同じものを飛ばし、
+    ///     対象フォルダは同じパスを飛ばし、ピン留めは足し合わせる。
+    /// - Returns: 取り込んだスマートコレクションと対象フォルダの数。
+    @discardableResult
+    func importBackup(
+        shelves importedShelves: [SmartShelf], folderPaths: [String],
+        pins importedPins: [SmartFacetField: [SmartFacetValue]], replacingExisting: Bool
+    ) -> (shelves: Int, folders: Int) {
+        if replacingExisting {
+            shelves = []
+            folders = []
+            pins = [:]
+        }
+        var addedShelves = 0
+        for shelf in importedShelves where !shelves.contains(where: { $0.id == shelf.id }) {
+            shelves.append(shelf)
+            addedShelves += 1
+        }
+        var addedFolders = 0
+        for path in folderPaths {
+            let normalized = MountTable.normalized(path)
+            guard !folders.contains(where: { $0.path == normalized }) else { continue }
+            // 実在するフォルダだけ(自動登録フォルダと同じ規則)。
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: normalized, isDirectory: &isDirectory),
+                  isDirectory.boolValue
+            else { continue }
+            folders.append(Folder(id: UUID(), path: normalized))
+            addedFolders += 1
+        }
+        for (field, values) in importedPins {
+            var merged = pins[field] ?? []
+            for value in values where !merged.contains(value) { merged.append(value) }
+            pins[field] = merged.isEmpty ? nil : merged
+        }
+        save()
+        return (addedShelves, addedFolders)
+    }
+
     // MARK: - スマートシェルフ
 
     func shelf(withID id: UUID) -> SmartShelf? { shelves.first { $0.id == id } }

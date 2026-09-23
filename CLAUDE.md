@@ -133,8 +133,16 @@ lives on `BookLayoutSettings`, also decide whether the saved-data JSON exports i
 silently drops it (this is how collection covers were lost on overwrite imports until 2026-09-13). SwiftData silently
 "migrates" a newer store down to an older model and drops the columns that model doesn't know; on
 2026-09-11 launching the previous release did exactly that to 131 collection covers. Never run an older
-build of the app (including a test host built from an old tag) against real data. Details in
-`docs/06-persistence.md`.
+build of the app (including a test host built from an old tag) against real data.
+**The saved-data JSON is a backup** (2026-09-23, the user's own workflow: that file plus the collection-cover
+zip restores the environment, folder access permissions aside). So anything new the user creates that is
+persisted — a SwiftData model, a `UserDefaults`-backed store, a settings file — must decide whether it joins
+the export, and normally does (`QooLibraryExportFile`, `formatVersion` 6). Settings need no work: `SettingsBackup`
+picks up every `qooViewer.pref.*` key by prefix, so a new preference is exported automatically; anything with
+a different prefix must be added there. What is deliberately left out is security-scoped bookmarks (folder
+permissions, the recent-books history — they mean nothing on another Mac) and whatever the app can rebuild by
+itself (covers, thumbnails, the smart-library catalog). Details in `docs/06-persistence.md` and
+`docs/08-export-and-import.md`.
 
 **Welcome screen (UI name: 「ホーム」 / "Home" since 2026-09-15; code keeps `Welcome*`, and the file browser's home directory is "Home Folder" / 「ホームフォルダ」) = the bookshelf (libraries / collections)**: `Views/Welcome/` plus `CollectionStore`,
 `CollectionCoverStore` (covers on disk under Application Support — not a cache, never evicted),

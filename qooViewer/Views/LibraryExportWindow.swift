@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 import AppKit
 import UniformTypeIdentifiers
 
@@ -14,6 +15,13 @@ struct LibraryExportWindow: View {
     @Environment(MetadataRulesStore.self) private var metadataRulesStore
     @EnvironmentObject private var collectionStore: CollectionStore
     @EnvironmentObject private var preferences: AppPreferences
+    // 2026-09-23: 本ごとのデータ以外(読書位置・スマートライブラリ・ファイルブラウザ・環境設定)。
+    @EnvironmentObject private var smartLibraryStore: SmartLibraryStore
+    @EnvironmentObject private var favoriteLocations: FavoriteLocationStore
+    @EnvironmentObject private var autoRenameStore: AutoRenameStore
+    @EnvironmentObject private var keyBindingStore: KeyBindingStore
+    /// 読書位置(`BookReadingState`)を読むための、アプリ全体で 1 つの `ModelContext`。
+    @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
     // 改善要望5でお気に入りを無効化した間は、既定でも書き出しに含めない(FavoritesFeature参照)。
@@ -28,6 +36,13 @@ struct LibraryExportWindow: View {
     @State private var includeMetadataRules = false
     /// コレクション(改善要望5)。本ごとのデータと同じく既定でチェックを入れておく。
     @State private var includeCollections = true
+    /// 読書位置(2026-09-23)。本ごとのデータなので既定でチェックを入れておく。
+    @State private var includeReadingStates = true
+    @State private var includeSmartLibrary = true
+    @State private var includeFileBrowser = true
+    /// 環境設定は、取り込み側のアプリ全体の設定を置き換えるものなので、規則と同じく既定では外しておく
+    /// (バックアップとして丸ごと取っておくときは「すべて」で入れる)。
+    @State private var includeSettings = false
     @State private var isExporting = false
     @State private var resultMessage: String?
     @State private var didSucceed = false
@@ -40,6 +55,29 @@ struct LibraryExportWindow: View {
     private var hasSelection: Bool {
         includeFavorites || includeBookmarks || includeLayouts || includeMetadata
             || includeMetadataRules || includeCollections
+            || includeReadingStates || includeSmartLibrary || includeFileBrowser || includeSettings
+    }
+
+    /// 「すべて」を押したところか(押すと全部にチェックが入る)。バックアップとして取っておく
+    /// 使い方(利用者の運用 2026-09-23: この JSON とコレクション表紙の組で環境を戻す)では、
+    /// 10 個のチェックを毎回入れ直すことになるため。
+    private var isEverythingSelected: Bool {
+        (includeFavorites || !FavoritesFeature.isEnabled) && includeBookmarks && includeLayouts
+            && includeMetadata && includeMetadataRules && includeCollections
+            && includeReadingStates && includeSmartLibrary && includeFileBrowser && includeSettings
+    }
+
+    private func selectEverything() {
+        includeFavorites = FavoritesFeature.isEnabled
+        includeBookmarks = true
+        includeLayouts = true
+        includeMetadata = true
+        includeMetadataRules = true
+        includeCollections = true
+        includeReadingStates = true
+        includeSmartLibrary = true
+        includeFileBrowser = true
+        includeSettings = true
     }
 
     // バグ修正(ユーザー報告): 以前はボタン行もFormの1Sectionとして中に含めていたが、
@@ -62,8 +100,14 @@ struct LibraryExportWindow: View {
                     Toggle("Page Layout Settings", isOn: $includeLayouts)
                     Toggle("Metadata", isOn: $includeMetadata)
                     Toggle("Metadata Rules", isOn: $includeMetadataRules)
+                    Toggle("Reading Positions", isOn: $includeReadingStates)
+                    Toggle("Smart Library", isOn: $includeSmartLibrary)
+                    Toggle("File Browser", isOn: $includeFileBrowser)
+                    Toggle("Settings", isOn: $includeSettings)
+                    Button("Select All") { selectEverything() }
+                        .disabled(isEverythingSelected)
                 } footer: {
-                    Text("This creates a single JSON file that only qooViewer can read back in. ComicInfo.xml is not supported.")
+                    Text("Together with the collection covers, a file that includes everything restores this Mac's setup, apart from folder access permissions. This creates a single JSON file that only qooViewer can read back in. ComicInfo.xml is not supported.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -158,6 +202,15 @@ struct LibraryExportWindow: View {
         .padding()
     }
 
+    /// 本ごとのデータ以外の持ち主(2026-09-23 に足した 4 カテゴリが使う)。
+    private var backupStores: LibraryImportExportService.BackupStores {
+        LibraryImportExportService.BackupStores(
+            modelContext: modelContext, smartLibrary: smartLibraryStore,
+            favoriteLocations: favoriteLocations, autoRename: autoRenameStore,
+            preferences: preferences, keyBindings: keyBindingStore
+        )
+    }
+
     private func exportButtonTapped() {
         let locale = preferences.effectiveLocale
         let panel = NSSavePanel()
@@ -178,12 +231,17 @@ struct LibraryExportWindow: View {
                 includeFavorites: includeFavorites, includeBookmarks: includeBookmarks,
                 includeLayouts: includeLayouts, includeMetadata: includeMetadata,
                 includeMetadataRules: includeMetadataRules,
-                includeCollections: includeCollections
+                includeCollections: includeCollections,
+                includeReadingStates: includeReadingStates,
+                includeSmartLibrary: includeSmartLibrary,
+                includeFileBrowser: includeFileBrowser,
+                includeSettings: includeSettings
             )
             let (file, result) = await LibraryImportExportService.buildExportFile(
                 selection: selection, favoritesStore: favoritesStore, bookmarkStore: bookmarkStore,
                 layoutStore: layoutStore, metadataStore: metadataStore,
-                metadataRulesStore: metadataRulesStore, collectionStore: collectionStore
+                metadataRulesStore: metadataRulesStore, collectionStore: collectionStore,
+                backupStores: backupStores
             )
             do {
                 try LibraryImportExportService.write(file, to: url)
