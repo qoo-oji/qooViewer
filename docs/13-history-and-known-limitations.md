@@ -250,6 +250,13 @@
   サンドボックス無しで走る CI では `/var/folders/…` を返し、`FileManager` の列挙が返す
   `/private/var/folders/…` と食い違う。テストの作業フォルダは `canonicalPathKey` で実体にする
   (`qooViewerTests/Support/TemporaryDirectory.swift`)。
+  - 2026-09-23 の追記: **macOS 27 の `FileManager.enumerator` は、起点の途中のシンボリックリンクを解決したパスを返す**
+    (`/var/…` を起点にすると `/private/var/…`。最後の成分がリンクなら中へ入らない)。スマートライブラリの走査は起点と
+    「配下か」を比べるので、列挙のパスを起点の綴りへ戻す(`SmartLibraryScanner.pathRespeller`)。main へ入れた最初の CI で、
+    サンドボックス無しのテストホストが `temporaryDirectory`(`/var/…`)を起点にして落ちて分かった。手元はコンテナの `tmp/` で
+    素通りするので、テストは作業フォルダの中にリンクを作って確かめる(`scannerKeepsTheRootSpellingThroughSymlinks`)。
+    同じ日に、よく使う項目(`standardizedFileURL`)・自動リネーム(`AutoRename.canonicalPath`)が `/private` を外して持つのに
+    テストが実体のパスで比べていた所、並び順の期待が日本語の並べ方に頼っていた所(「月」と「星」は英語では逆)も直した。
 - `dataPrefix` の打ち切りは伸長のチャンク単位なので、小さなフィクスチャでは「頼んだバイト数ちょうど」
   にはならない(効き目は実物の本での実測の話)。
 

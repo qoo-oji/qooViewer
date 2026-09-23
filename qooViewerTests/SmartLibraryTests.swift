@@ -181,7 +181,9 @@ struct SmartLibraryTests {
         let state = SmartLibraryViewState(defaults: suite.defaults)
         state.sortKey = .fileName
         state.update(books: [
-            book("/b/a.zip", authors: ["著者A", "著者B"], series: "星の庭", volume: "1"),
+            // シリーズ名は、日本語と英語のどちらの並べ方でも「月の庭」が先になる組にする(「星」は英語の環境では「月」より前。
+            // CI のテストホストは英語で動く ―― 2026-09-23 に CI でだけ落ちた)。
+            book("/b/a.zip", authors: ["著者A", "著者B"], series: "雪の庭", volume: "1"),
             book("/b/b.zip", authors: ["著者B"]),
             book("/b/c.zip", authors: ["著者A"], series: "月の庭", volume: "2"),
             book("/b/d.zip", authors: ["著者A"], series: "月の庭", volume: "1"),
@@ -208,7 +210,8 @@ struct SmartLibraryTests {
         let books = [
             book("/b/c.zip", series: "月の庭", volume: "10"),
             book("/b/a.zip", series: "月の庭", volume: "2"),
-            book("/b/b.zip", title: "星の庭"),
+            // 日本語と英語のどちらの並べ方でも「月の庭」の後になる題(groupsByAuthor と同じ理由で「星」は使わない)。
+            book("/b/b.zip", title: "雪の庭"),
         ]
         let sorted = SmartSort.sorted(books, by: .series, ascending: true)
         #expect(sorted.map(\.id) == ["/b/a.zip", "/b/c.zip", "/b/b.zip"])
@@ -443,6 +446,27 @@ struct SmartLibraryTests {
         let result = SmartLibraryScanner.scan(roots: [root.path], protectedPrefixes: [])
         let names = Set(result.books.map { ($0.path as NSString).lastPathComponent })
         #expect(names == ["章の本", "混ざった本", "単独.cbz"])
+    }
+
+    /// macOS 27 の列挙は、起点の途中のシンボリックリンクを解決したパスを返す(`/var` → `/private/var` も同じ)。以前は起点と
+    /// 比べ損ねて、章ごとのフォルダの本が章ごとの別の本になった(2026-09-23、サンドボックスの無い CI でだけ落ちて分かった)。
+    @Test("起点の途中にシンボリックリンクがあっても、本の数え方は変わらず、パスは起点の綴りのまま")
+    func scannerKeepsTheRootSpellingThroughSymlinks() throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("qooViewerTests.smartScanLink.\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let fm = FileManager.default
+        for folder in ["real/棚/章の本/章1", "real/棚/章の本/章2"] {
+            try fm.createDirectory(at: base.appendingPathComponent(folder), withIntermediateDirectories: true)
+        }
+        try Data().write(to: base.appendingPathComponent("real/棚/章の本/章1/001.jpg"))
+        try Data().write(to: base.appendingPathComponent("real/棚/章の本/章2/001.jpg"))
+        try Data().write(to: base.appendingPathComponent("real/棚/単独.cbz"))
+        try fm.createSymbolicLink(at: base.appendingPathComponent("link"), withDestinationURL: base.appendingPathComponent("real"))
+        let root = base.appendingPathComponent("link/棚").path
+
+        let result = SmartLibraryScanner.scan(roots: [root], protectedPrefixes: [])
+        #expect(Set(result.books.map(\.path)) == [root + "/章の本", root + "/単独.cbz"])
     }
 
     // MARK: 本の組み立て

@@ -41,6 +41,24 @@ nonisolated enum SmartLibraryScanner {
         .addedToDirectoryDateKey,
     ]
 
+    /// 列挙が返したパスを、起点の綴りへ戻す閉包。
+    ///
+    /// **macOS 27 の `FileManager.enumerator` は、起点の途中にあるシンボリックリンクを解決したパスを返す**(2026-09-23 に実測。
+    /// `/var/folders/…` を起点にすると `/private/var/folders/…` が返る)。そのままでは起点との「配下か」の比べ方がすべて外れ、章ごとの
+    /// フォルダの本が章ごとの別の本になった(CI のサンドボックス無しのテストホストで落ちて分かった。手元はコンテナの `tmp/` で素通り)。
+    /// 本の id は利用者が登録した綴りのほうに揃える(保存データ・ほかの画面のパスと一致させる)。起点が解決できなければ何もしない。
+    static func pathRespeller(root: String) -> (String) -> String {
+        let spelled = MountTable.normalized(root)
+        guard let resolved = realpath(spelled, nil) else { return { $0 } }
+        let enumerated = MountTable.normalized(String(cString: resolved))
+        free(resolved)
+        guard enumerated != spelled else { return { $0 } }
+        return { path in
+            guard MountTable.path(path, isAtOrUnder: enumerated) else { return path }
+            return spelled + path.dropFirst(enumerated.count)
+        }
+    }
+
     /// 起点のフォルダ(重なっていてよい。同じ本は 1 度だけ返す)を探す。
     static func scan(roots: [String], protectedPrefixes: [String] = DirectoryProbe.protectedPrefixes) -> Result {
         var result = Result()
@@ -75,6 +93,7 @@ nonisolated enum SmartLibraryScanner {
         /// 書庫・PDF・EPUB を直下に持つフォルダ(規則 2 の「本のファイルが無い」を確かめる)。
         var bookFileFolders = Set<String>()
         var files: [ScannedBook] = []
+        let respell = pathRespeller(root: root)
         for case let url as URL in enumerator {
             if Cancellation.isRequestedInCurrentScope { return }
             visited += 1
@@ -83,7 +102,7 @@ nonisolated enum SmartLibraryScanner {
                 break
             }
             let values = try? url.resourceValues(forKeys: Set(keys))
-            let path = MountTable.normalized(url.path)
+            let path = respell(MountTable.normalized(url.path))
             if values?.isDirectory == true, values?.isPackage != true {
                 if enumerator.level > maxDepth || protectedPrefixes.contains(where: { MountTable.path(path, isAtOrUnder: $0) }) {
                     enumerator.skipDescendants()

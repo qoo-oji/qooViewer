@@ -52,7 +52,10 @@ struct HomeBookTransferTests {
 
         var created: UUID?
         let two = one + [CollectionMenuLibrary(id: second, name: "Other", collections: [])]
-        let nodes = try #require(CollectionMenuLibrary.createMenuNodes(for: two, create: { created = $0 }))
+        // 閉包は `#require` の外で作る。マクロの中に置くと、外の変数を書き換える閉包が @Sendable の引数に渡る形になり、Xcode 26.6 では
+        // エラーになった(Xcode 27 では警告。CI の Debug ジョブが 2026-09-23 に落ちた)。
+        let made = CollectionMenuLibrary.createMenuNodes(for: two, create: { created = $0 })
+        let nodes = try #require(made)
         #expect(nodes.count == 2)
         guard case .item(let title, _, let isEnabled, let action) = nodes[1] else {
             Issue.record("item expected")

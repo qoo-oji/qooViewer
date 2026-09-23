@@ -617,8 +617,12 @@ struct AutoRenameServiceTests {
         target.confirmedSignature = target.signature(for: current)
         #expect(store.add(target: target, toRule: rule.id))
         let renamed = temporary.file("target-renamed")
+        // 知らせは対象を登録したときと同じ綴りで届く(アプリの中では、よく使う項目の中のフォルダに `/private` は付かない)。
+        // TemporaryDirectory は実体の `/private/var/…` を返すが、対象は `AutoRename.canonicalPath` で `/var/…` に揃えて持つので、
+        // `/private/var/…` のまま知らせると当たらなかった(サンドボックスの無い CI でだけ落ちた。2026-09-23)。
+        let spelledFolder = URL(fileURLWithPath: AutoRename.canonicalPath(folder.path), isDirectory: true)
 
-        #expect(store.relocateTargets(using: FileSystemChange(relocations: [.init(from: folder, to: renamed)])))
+        #expect(store.relocateTargets(using: FileSystemChange(relocations: [.init(from: spelledFolder, to: renamed)])))
 
         let relocated = try #require(store.rules.first?.targets.first)
         #expect(relocated.path == AutoRename.canonicalPath(renamed.path))

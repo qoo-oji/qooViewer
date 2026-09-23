@@ -137,9 +137,12 @@ struct LibraryBackupTests {
         let summary = await target.apply(file, policies: .all(.merge))
         #expect(summary.fileBrowserImportedLocations == 1)
         #expect(summary.fileBrowserImportedAutoRenameRules == 1)
-        #expect(target.favoriteLocations.items.first?.path == folder.path)
+        // どちらも登録するときにパスを揃える(よく使う項目は standardizedFileURL、自動リネームは canonicalPath)。TemporaryDirectory は
+        // 実体の `/private/var/…` を返し、揃えると `/var/…` になるので、期待値も同じ規則で揃える(サンドボックスの無い CI でだけ
+        // 食い違った。手元はコンテナの tmp/ で `/private` が付かない。2026-09-23)。
+        #expect(target.favoriteLocations.items.first?.path == folder.standardizedFileURL.path)
         let importedTarget = try #require(target.autoRename.rules.first?.targets.first)
-        #expect(importedTarget.path == folder.path)
+        #expect(importedTarget.path == AutoRename.canonicalPath(of: folder))
         #expect(importedTarget.confirmedSignature == nil)
     }
 
