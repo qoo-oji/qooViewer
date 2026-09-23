@@ -674,6 +674,13 @@ private struct SmartFacetPanelRow: View {
             }
             .buttonStyle(.borderless)
             .disabled(!allowsPinning)
+            // 淡色のボタンは押しても何もしないが、押したところが行の onTapGesture に落ちて**値を選んでしまった**(実機 2026-09-23、
+            // シークレットウインドウ)。淡色の間はピンの上の押下を受け止めて捨てる。
+            .overlay {
+                if !allowsPinning {
+                    Color.clear.contentShape(Rectangle()).onTapGesture {}
+                }
+            }
             .help(isPinned ? "Unpin" : "Pin")
         }
         .padding(.horizontal, 10)
