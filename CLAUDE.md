@@ -317,7 +317,9 @@ point a no-op; only `SmartLibraryStore.relocate` keeps running. `SmartLibraryVie
 is applied by `SmartLibraryViewState.update(books:shelves:)` making first-author-only copies, so facets, conditions, search,
 sort and the list column all agree; the DB and `catalog.json` are never touched. "Cover Shape"
 (`AppPreferences.smartLibraryCoverShape` / `SmartLibraryCoverShape`: match the image — the default, uncropped in a 2:3 frame —
-or 2:3 / 1:1 / 3:2 cropped at the center when drawn) is one app-wide value; every cell keeps `coverShape.heightRatio`. The cover grid has Finder-style selection and keys
+or 2:3 / 1:1 / 3:2 cropped when drawn) is one app-wide value; every cell keeps `coverShape.heightRatio`. "Keep When Cropping"
+(`AppPreferences.smartLibraryCoverCropAnchor`) is only the default, as the library's is: a book's own
+`BookLayoutSettings.coverCropAnchor` (shared with the library, set from the smart library's Edit Metadata sheet) wins. The cover grid has Finder-style selection and keys
 (2026-09-22; click selects, double-click / Return opens, rules in `SmartGridSelection`, keys taken on the grid's outer frame
 outside `.id(gridID)`); scrolling a selection into view computes the row from measured geometry (`PanelListScrollTracker`), so
 **every cell must keep the same height** — captions always reserve two lines (`SmartCaptionLines`). The list view

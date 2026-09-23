@@ -29,6 +29,12 @@ import UniformTypeIdentifiers
 /// 指定の保存先はどちらも同じ(BookLayoutSettings の shelfCover* の列。本ごと)なので、後からコレクションに入れると
 /// 指定した表紙で抽出される。
 ///
+/// ■ スマートライブラリから開く版(2026-09-23、利用者の要望)
+/// スマートライブラリの右クリックからは `fromSmartLibrary: true` で開く。コレクションに入っている本でも、表紙の面は
+/// **スマートライブラリに並んでいるとおり**(環境設定「スマートライブラリ」のカバーの形・切り取るときに残す位置)に出し、
+/// 右クリックに「切り取るときに残す位置」を足す(一番上は「スマートライブラリの設定に従う」= 本ごとの指定を持たない)。
+/// 本ごとの指定の列(BookLayoutSettings.coverCropAnchor)はライブラリと共有なので、ここで選べばコレクションの表紙も同じ所を残す。
+///
 /// シートの中身はmacOSが不透明に描くので、すりガラス面の輪郭は要らない(CLAUDE.md参照)。
 struct BookMetadataSheet: View {
     /// 対象の本(コレクションの行)のid。カバーの状態(抽出済みか・横長を切ったか)も行から読む。
@@ -48,20 +54,24 @@ struct BookMetadataSheet: View {
     let library: BookLibrary?
     /// ファイルブラウザから開いた版の項目(型コメント)。コレクションから開いた版では nil。
     let fileBrowserEntry: FileBrowserEntry?
+    /// スマートライブラリから開いた版か(型コメント「スマートライブラリから開く版」)。
+    let fromSmartLibrary: Bool
 
     init(itemID: UUID, sourceURL: URL, library: BookLibrary) {
         self.itemID = itemID
         self.sourceURL = sourceURL
         self.library = library
         fileBrowserEntry = nil
+        fromSmartLibrary = false
     }
 
-    /// ファイルブラウザの右クリック。コレクションの外の本でも開ける(型コメント)。
-    init(fileBrowserEntry entry: FileBrowserEntry) {
+    /// ファイルブラウザ・スマートライブラリの右クリック。コレクションの外の本でも開ける(型コメント)。
+    init(fileBrowserEntry entry: FileBrowserEntry, fromSmartLibrary: Bool = false) {
         itemID = nil
         sourceURL = entry.url
         library = nil
         fileBrowserEntry = entry
+        self.fromSmartLibrary = fromSmartLibrary
     }
 
     @EnvironmentObject private var metadataStore: BookMetadataStore
@@ -121,7 +131,8 @@ struct BookMetadataSheet: View {
             // その行とライブラリでカバーの面を出す(型コメント)。
             let bookID = sourceURL.path
             // ライブラリ機能がOFFの間はコレクションの行を引かず(全件フェッチを伴う)、入っていない本と同じ面を出す。
-            let registered = !preferences.libraryFeatureEnabled ? nil
+            // スマートライブラリから開いた版も引かない(スマートライブラリに並ぶとおりの面を出す。型コメント)。
+            let registered = !preferences.libraryFeatureEnabled || fromSmartLibrary ? nil
                 : collectionStore.items(forBookID: bookID).lazy
                     .compactMap { item in item.collection?.library.map { (item, $0) } }
                     .first
@@ -188,10 +199,18 @@ struct BookMetadataSheet: View {
                     if let coverController {
                         FileBrowserCoverArea(
                             controller: coverController, entry: fileBrowserEntry, bookID: bookID,
-                            width: Self.coverWidth, locale: locale
+                            width: Self.coverWidth, locale: locale,
+                            smartLibraryCrop: fromSmartLibrary
+                                ? .init(shape: preferences.smartLibraryCoverShape,
+                                        defaultAnchor: preferences.smartLibraryCoverCropAnchor)
+                                : nil
                         )
                     } else {
-                        Color.clear.frame(width: Self.coverWidth, height: Self.coverWidth * FileBrowserCoverArea.heightRatio)
+                        Color.clear.frame(
+                            width: Self.coverWidth,
+                            height: Self.coverWidth * (fromSmartLibrary ? preferences.smartLibraryCoverShape.heightRatio
+                                                                        : FileBrowserCoverArea.heightRatio)
+                        )
                     }
                     VStack(alignment: .leading, spacing: 10) {
                         fields
@@ -569,12 +588,23 @@ private struct CoverArea: View {
 /// 絵は**アイコン表示と同じ提供役**(FileBrowserThumbnailProvider)から引く。指定を変えると、提供役がその本の指定の変化を
 /// 見て `revision` を進め、アイコン表示のセルとこの面が同じ絵に描き直される。コントローラの `revision` も鍵に入れる
 /// (指定の書き込みと同じ流れで進むので、通知の順番に頼らない)。ライブラリの比が無いので**切らずに**枠へ収める。
+///
+/// スマートライブラリから開いた版(`smartLibraryCrop`)は、スマートライブラリのカバーの形の枠に、本ごとの指定 ?? 環境設定の
+/// 所を残して切って出し、右クリックに「切り取るときに残す位置」を足す(BookMetadataSheet の型コメント)。
 private struct FileBrowserCoverArea: View {
+    /// スマートライブラリの表紙の見せ方(環境設定「スマートライブラリ」の値)。
+    struct SmartLibraryCrop {
+        let shape: SmartLibraryCoverShape
+        /// 本ごとの指定が無いときに残す位置。
+        let defaultAnchor: CoverCropAnchor
+    }
+
     @ObservedObject var controller: CoverOverrideController
     let entry: FileBrowserEntry
     let bookID: String
     let width: CGFloat
     let locale: Locale
+    var smartLibraryCrop: SmartLibraryCrop?
 
     @EnvironmentObject private var thumbnails: FileBrowserThumbnailProvider
     @State private var image: CGImage?
@@ -593,21 +623,39 @@ private struct FileBrowserCoverArea: View {
         )
     }
 
+    /// 切る比(スマートライブラリの版で、形が切る形のときだけ)。
+    private var cropAspect: CGFloat? { smartLibraryCrop?.shape.cropAspect }
+
+    /// 枠の高さ(幅に対する比)。スマートライブラリの版はその形の比。
+    private var frameHeightRatio: CGFloat { smartLibraryCrop?.shape.heightRatio ?? Self.heightRatio }
+
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
         ZStack {
             if let image {
-                Image(decorative: image, scale: 1)
-                    .resizable()
-                    .interpolation(.high)
-                    .aspectRatio(contentMode: .fit)
-                    .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
+                if let cropAspect, let smartLibraryCrop {
+                    // 本ごとの指定 ?? 環境設定の所を残して切る(スマートライブラリのグリッドと同じ。SmartLibraryContent.cropAnchor)。
+                    let anchor = controller.cropAnchor(forBookID: bookID) ?? smartLibraryCrop.defaultAnchor
+                    Image(decorative: CoverImageResolver.cropped(image, to: cropAspect, anchor: anchor), scale: 1)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: width, height: width * frameHeightRatio)
+                        .clipShape(shape)
+                        .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
+                } else {
+                    Image(decorative: image, scale: 1)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fit)
+                        .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
+                }
             } else {
                 shape.fill(Color.secondary.opacity(0.15))
                 if !didFail { ProgressView().controlSize(.small) }
             }
         }
-        .frame(width: width, height: width * Self.heightRatio)
+        .frame(width: width, height: width * frameHeightRatio)
         .overlay {
             if isCoverDropTargeted {
                 shape.strokeBorder(Color.accentColor, lineWidth: 3)
@@ -624,11 +672,44 @@ private struct FileBrowserCoverArea: View {
             Button("Choose Page in This Book…") { isPickingPage = true }
             Button("Choose File…") { chooseExternalFile() }
             Button("Reset to Default (First Page)") { controller.resetCover(forBookID: bookID) }
+            if smartLibraryCrop != nil {
+                Divider()
+                // ライブラリの版(CoverArea)と同じ 4 択。一番上は本ごとの指定を持たない状態(nil)。切らない形の間は効かないので
+                // 押せない ―― `.contextMenu` の中の Menu は `.disabled` が効かないので、押せない Button で描く
+                // (CLAUDE.md。SwiftUI の既知の挙動)。
+                if cropAspect != nil {
+                    Menu("Keep When Cropping") {
+                        cropAnchorItem("Use Smart Library Setting", nil)
+                        cropAnchorItem("Top / Left", .start)
+                        cropAnchorItem("Center", .center)
+                        cropAnchorItem("Bottom / Right", .end)
+                    }
+                } else {
+                    Button("Keep When Cropping") {}
+                        .disabled(true)
+                }
+            }
         }
+        // 選んだ位置のチェックマークを確実に付け直す(`.contextMenu` は描き直しだけでは組み直されないことがある。CoverArea の
+        // `.id(controller.revision)` と同じ手)。`@State`(絵・ページを選ぶ画面)はこのビュー自身が持つので消えない。
+        .id(controller.revision)
         .popover(isPresented: $isPickingPage) {
             ExportCoverPickerContent(bookID: bookID, controller: controller)
         }
         .accessibilityLabel(Text("Collection Cover"))
+    }
+
+    private func cropAnchorItem(_ titleKey: LocalizedStringKey, _ anchor: CoverCropAnchor?) -> some View {
+        Button {
+            controller.setCropAnchor(forBookID: bookID, anchor)
+        } label: {
+            // コンテキストメニューの Button にはチェックマークが付かないので、選択中の項目には自分で印を添える(CoverArea と同じ)。
+            if controller.cropAnchor(forBookID: bookID) == anchor {
+                Label(titleKey, systemImage: "checkmark")
+            } else {
+                Text(titleKey)
+            }
+        }
     }
 
     private func load() async {

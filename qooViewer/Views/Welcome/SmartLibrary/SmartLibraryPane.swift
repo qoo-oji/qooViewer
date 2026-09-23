@@ -880,6 +880,9 @@ struct SmartLibraryContent: View {
     @State private var toastDismissTask: Task<Void, Never>?
     /// 出している「本の書き出し」のシート。
     @State private var exportRequest: HomeBookExportRequest?
+    /// レイアウトの DB が変わった回数(本ごとの「切り取るときに残す位置」を読み直す契機。`cropAnchor(for:)`)。
+    /// LayoutStore はこの種の変更で publish しない(CoverOverrideController.revision のコメント)ので、知らせを数える。
+    @State private var layoutRevision = 0
 
     private static let spacing: CGFloat = 16
     private static let gridPadding: CGFloat = 16
@@ -920,7 +923,11 @@ struct SmartLibraryContent: View {
             Text(verbatim: missingBook ?? "")
         }
         .sheet(item: $metadataTarget) { target in
-            BookMetadataSheet(fileBrowserEntry: target.entry)
+            // 表紙の面はスマートライブラリの形・残す位置で出す(本ごとの「切り取るときに残す位置」をここで選ぶ。2026-09-23)。
+            BookMetadataSheet(fileBrowserEntry: target.entry, fromSmartLibrary: true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .layoutDataDidChange)) { _ in
+            layoutRevision &+= 1
         }
         .homeBookExportSheet($exportRequest, allowsCoverSelection: !appState.isPrivateWindow)
         // メニューバーの「Finder で表示」「ファイルブラウザで表示」(2026-09-23。選んでいる 1 冊。HomeMenuState.singleSmartBookTarget)。
@@ -1083,6 +1090,15 @@ struct SmartLibraryContent: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// その本の表紙を切るときに残す位置(2026-09-23、利用者の要望)。ライブラリと同じく**本ごとの指定
+    /// (`BookLayoutSettings.coverCropAnchor`)があればそれ、無ければ環境設定の既定**(ライブラリでは既定がライブラリの設定)。
+    /// 本ごとの指定の列はライブラリと共有 ―― 1 冊の表紙の見せ方は、どこに並べても同じ所を残す。
+    /// `layoutRevision` を読んで、指定が変わったら描き直させる。
+    private func cropAnchor(for book: SmartBook) -> CoverCropAnchor {
+        _ = layoutRevision
+        return layoutStore.bookLayoutSettings(forBookID: book.id)?.coverCropAnchor ?? preferences.smartLibraryCoverCropAnchor
+    }
+
     /// 帳簿の下限セル数(CollectionGridView.minimumCellCount と同じ見積もり。表紙 + 下の 2 行)。
     private var minimumCellCount: Int {
         LazyCellImageBudget.minimumCellCount(
@@ -1151,6 +1167,7 @@ struct SmartLibraryContent: View {
                         case .book(let book):
                             SmartBookCell(
                                 book: book, width: state.coverSize, coverShape: preferences.smartLibraryCoverShape,
+                                cropAnchor: cropAnchor(for: book),
                                 // 著者でまとめている一覧では、束と同じく著者名だけを出す(2026-09-22、利用者の指示)。
                                 showsAuthorOnly: state.grouping == .author && state.openedGroup == nil,
                                 isSelected: isSelected, isFocused: isGridFocused,
@@ -1163,6 +1180,7 @@ struct SmartLibraryContent: View {
                         case .group(let grouping, let name, let books):
                             SmartGroupCell(grouping: grouping, name: name, books: books, width: state.coverSize,
                                            coverShape: preferences.smartLibraryCoverShape,
+                                           cropAnchor: books.first.map(cropAnchor(for:)) ?? .center,
                                            isSelected: isSelected, isFocused: isGridFocused,
                                            savesToDisk: !appState.isPrivateWindow, onImageRetained: noteRetained)
                                 .onTapGesture { clicked(item) }
@@ -1743,6 +1761,8 @@ private struct SmartBookCell: View {
     let width: CGFloat
     /// 表紙の形(環境設定「スマートライブラリ」。枠の高さと、切るかどうか)。
     var coverShape: SmartLibraryCoverShape = .matchImage
+    /// 切るときに残す位置(本ごとの指定 ?? 環境設定。`SmartLibraryContent.cropAnchor(for:)`)。
+    var cropAnchor: CoverCropAnchor = .center
     /// 著者名だけを出す(著者でまとめた一覧の、1 冊だけの著者の本。束の下と揃える)。著者の無い本は題を出す
     /// (出せる名前が無いので)。
     var showsAuthorOnly = false
@@ -1761,7 +1781,7 @@ private struct SmartBookCell: View {
         let fontSize = appearance.smartLibraryCaptionFontSize
         VStack(spacing: 4) {
             SmartBookThumbnail(book: book, width: width, height: width * coverShape.heightRatio,
-                               cropAspect: coverShape.cropAspect, isSelected: isSelected, isFocused: isFocused,
+                               cropAspect: coverShape.cropAspect, cropAnchor: cropAnchor, isSelected: isSelected, isFocused: isFocused,
                                savesToDisk: savesToDisk, onImageRetained: onImageRetained)
             SmartCaptionLines(fontSize: fontSize, width: width) {
                 if showsAuthorOnly, let author = book.metadata.authors.first, !author.isEmpty {
@@ -1834,6 +1854,8 @@ private struct SmartGroupCell: View {
     let books: [SmartBook]
     let width: CGFloat
     var coverShape: SmartLibraryCoverShape = .matchImage
+    /// 前に出す 1 冊目の表紙を切るときに残す位置。
+    var cropAnchor: CoverCropAnchor = .center
     var isSelected = false
     var isFocused = true
     var savesToDisk = true
@@ -1874,7 +1896,7 @@ private struct SmartGroupCell: View {
                 // 紙をずらすぶん(右と上に 2 枚ぶん)を空けて、表紙はその内側に描く。
                 SmartBookThumbnail(
                     book: first, width: width - offset * 2, height: height - offset * 2,
-                    cropAspect: coverShape.cropAspect,
+                    cropAspect: coverShape.cropAspect, cropAnchor: cropAnchor,
                     stack: .init(layers: 2, offset: offset, count: books.count),
                     isSelected: isSelected, isFocused: isFocused,
                     savesToDisk: savesToDisk, onImageRetained: onImageRetained
@@ -1913,8 +1935,10 @@ private struct SmartBookThumbnail: View {
     let height: CGFloat
     /// 切り取る枠の比(幅 ÷ 高さ。`SmartLibraryCoverShape.cropAspect`)。nil なら切らずに枠へ収める。
     /// 切るときは、その比の枠を `width`×`height` に収めた大きさで描く(束は紙のずらし幅を引いた箱なので、箱の比と
-    /// 少し違う)。絵を枠いっぱいに合わせ、中央を残す。
+    /// 少し違う)。絵をその比に切って(`cropAnchor` の所を残す)枠いっぱいに描く。
     var cropAspect: CGFloat?
+    /// 切るときに残す位置(切らないときは使わない)。
+    var cropAnchor: CoverCropAnchor = .center
     var stack: Stack?
     /// 選択の枠(表紙の絵の実際の大きさに掛ける ―― 枠に掛けると細長い表紙の左右が空く。紙と同じ理由)。
     var isSelected = false
@@ -1944,7 +1968,10 @@ private struct SmartBookThumbnail: View {
                 // 絵を描く大きさ(紙とバッジをこの大きさに合わせる)。切らないなら絵を枠に収めた大きさ、切るならその比の枠。
                 let box = CGSize(width: width, height: height)
                 let size = cropAspect.map { Self.fittedSize(aspect: $0, in: box) } ?? Self.fittedSize(of: image, in: box)
-                Image(decorative: image, scale: 1)
+                // 切るのは表示のたび(ライブラリのカバーと同じ。CoverImageResolver.cropped のコメント)。CGImage の切り出しは
+                // 画素を写さないので軽い。切った後の端数は下の .fill と枠で吸収する。
+                let drawn = cropAspect.map { CoverImageResolver.cropped(image, to: $0, anchor: cropAnchor) } ?? image
+                Image(decorative: drawn, scale: 1)
                     .resizable()
                     .interpolation(.high)
                     .aspectRatio(contentMode: cropAspect == nil ? .fit : .fill)

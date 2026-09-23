@@ -28752,18 +28752,18 @@
         }
       }
     },
-    "The shape of the covers in the smart library’s icon view. Match the Image shows each cover whole, in its own shape, inside a portrait (2:3) frame. The other shapes fill the frame with the cover and crop what doesn’t fit, keeping the center." : {
+    "The shape of the covers in the smart library’s icon view. Match the Image shows each cover whole, in its own shape, inside a portrait (2:3) frame. The other shapes fill the frame with the cover and crop what doesn’t fit." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The shape of the covers in the smart library’s icon view. Match the Image shows each cover whole, in its own shape, inside a portrait (2:3) frame. The other shapes fill the frame with the cover and crop what doesn’t fit, keeping the center."
+            "value" : "The shape of the covers in the smart library’s icon view. Match the Image shows each cover whole, in its own shape, inside a portrait (2:3) frame. The other shapes fill the frame with the cover and crop what doesn’t fit."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "スマートライブラリのアイコン表示に並ぶ表紙の形。「実際の画像に合わせる」は、縦長(2:3)の枠の中に表紙を切らずにそのままの形で表示します。ほかの形では、表紙を枠いっぱいに合わせ、はみ出した部分は中央を残して切り取ります。"
+            "value" : "スマートライブラリのアイコン表示に並ぶ表紙の形。「実際の画像に合わせる」は、縦長(2:3)の枠の中に表紙を切らずにそのままの形で表示します。ほかの形では、表紙を枠いっぱいに合わせ、はみ出した部分を切り取ります。"
           }
         }
       }
@@ -32568,6 +32568,22 @@
         }
       }
     },
+    "Use Smart Library Setting" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Use Smart Library Setting"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "スマートライブラリの設定に従う"
+          }
+        }
+      }
+    },
     "Use the rule set “%@”" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -33526,6 +33542,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "どちらのページをブックマークに追加しますか?"
+          }
+        }
+      }
+    },
+    "Which part of a cover to keep when it’s cropped to the shape above. A book can have its own setting: right-click its cover in Edit Metadata. Has no effect with Match the Image." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Which part of a cover to keep when it’s cropped to the shape above. A book can have its own setting: right-click its cover in Edit Metadata. Has no effect with Match the Image."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上の形に合わせて表紙を切り取るとき、どこを残すか。本ごとに指定することもできます(メタデータの編集で表紙を右クリック)。「実際の画像に合わせる」のときは効きません。"
           }
         }
       }
