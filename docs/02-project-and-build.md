@@ -274,6 +274,31 @@ attach の最初に外します)。テストは `qooViewerTests/Support/Disposab
 触れません。テスト用の保存先を渡したインスタンスは、**保存先の外へ出ていく副作用**
 ――サムネイルのディスクキャッシュの設定・`NSApp.appearance`・2 つの通知――を行いません。
 
+### テストと cfprefsd
+
+テスト用の suite は `TestDefaultsPool` が決まった名前(`qooViewerTests.pool.<n>`)で貸し出し、使い回します。
+`removePersistentDomain` は中身を消すだけで設定ファイルは残るので、テストごとに新しい名前を作ると
+Debug 版のコンテナにファイルがたまり続けます(約 4 万個たまっていた)。
+
+**テストの並行数はスキームで 8 に絞ってあります**(Test アクションの環境変数
+`SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH = 8`)。2026-09-21 夜と 09-23 朝に、テストの後で macOS の
+cfprefsd がすべてのアプリの設定の読み書きを断る状態になり(再起動まで戻らない)、Release 版が空の設定で
+起動しました。再起動後に測った事実:
+
+- ユーザーごとの cfprefsd が開けるファイルは 512 まで(`/System/Library/LaunchAgents/com.apple.cfprefsd.xpc.agent.plist`)。
+- Swift Testing は既定で並行数に上限が無く、開始 2 秒で 127 のテストが走り出し、同時に借りている suite が約 490 に
+  なりました。そのとき cfprefsd は Debug 版の `Library/Preferences` を約 485 個開いていて、テストホストを止めると
+  元に戻りました。上限に当たると「Too many open files」で断られ、テストが終わっても戻りませんでした。
+- 並行数 8 では、全テスト(1570 件)が同じ所要時間(約 30 秒)で通り、cfprefsd が開いたのは最大 39 でした。
+
+suite 1 つにつき cfprefsd がフォルダを 1 つ開く仕組み自体は、公開資料では確かめられていません(数の一致という
+実測だけ)。この環境変数は Swift Testing の「実験的・サポート外」の設定(Swift 6.3 から TEST_HOST でも効く)なので、
+効かなくなったときの安全装置として、`TestDefaultsPool` は同時に 64 個より多く借りようとすると、新しい suite を
+作らずにそのテストを失敗として記録します(共用の suite を 1 つ渡すので、cfprefsd が開く数は増えません。
+テストホストを止める形はクラッシュ記録とダイアログが出るので使いません)。CI の Xcode 26.6 で効くかは、このときに分かります。発生中かどうかは `lsof -p <cfprefsd agent の pid> | wc -l` が
+512 近いか、`defaults read -g` が「Domain not found」になるかで見分けられます。発生したら再起動するまで、
+Release 版を起動しないでください(空の設定で動きます)。
+
 網羅の 2 つ(`mutationTouchesEverySetting` と各画面の「初期設定に戻す」)は **Mirror で
 `@Published` を総なめ**にします(`qooViewerTests/Support/AppPreferencesProbe.swift`)。設定を 1 つ
 足したときに、テスト側の書き写しが古いまま静かに素通りするのを防ぐためです ―― 新しい設定は
