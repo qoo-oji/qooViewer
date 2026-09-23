@@ -298,7 +298,9 @@ struct FileBrowserDropDelegate: DropDelegate {
             allowsMove: isExternal ? FileDropPlan.externalSourceAllowsMoveForSwiftUIDrop : FileBrowserDragTracker.allowsMove
         )
         // 中身が読めなかった他のアプリからのドラッグは、断らずに「+」で受ける(決め直しはドロップの瞬間)。
-        if decision == .refuse, isExternal, urls.isEmpty, destination != nil {
+        // ただし読み取り専用の間は受けない ―― ここへ来るのは「ビューアで開く」の設定でないときだけ(そちらなら上の判定が受ける)で、
+        // 落とした瞬間の判定も必ず断るため、「+」を出すと押せるのに何も起きない形になった(2026-09-23 の監査)。
+        if decision == .refuse, isExternal, urls.isEmpty, destination != nil, actions.allowsFileChanges {
             return (DropProposal(operation: .copy), true)
         }
         return (decision.dropProposal, decision.isAccepted)

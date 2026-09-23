@@ -459,4 +459,63 @@ struct FileBrowserStateTests {
         next.preferences = fixture.preferences
         #expect(next.startupFolder()?.path == FileBrowserListing.realHomeDirectory().path)
     }
+
+    /// タブバーの「＋」のタブは、正当なタブと分かってから ContentView が環境設定をつなぐ。それより先にペインが出ると、以前は起動時の
+    /// フォルダの設定を読めずにホームから始まり、それを最後に表示したフォルダとして書いた(シークレットでも ―― 2026-09-23 の監査)。
+    @Test("環境設定がつながる前に画面に出たら、つながるまで待ってから起動時のフォルダで始める")
+    func activationWaitsForThePreferences() async throws {
+        let fixture = try Fixture("fb-await-connection")
+        fixture.preferences.fileBrowserStartupLocation = .lastFolder
+        fixture.state.navigate(to: fixture.aFolder)
+        await fixture.state.settle()
+
+        let state = FileBrowserState(defaults: fixture.suite.defaults)
+        state.activate()
+        await state.settle()
+        #expect(state.currentFolder == nil)
+        #expect(!state.isVisible)
+        // 待っている間の記録は変わらない。
+        let probe = FileBrowserState(defaults: fixture.suite.defaults)
+        probe.preferences = fixture.preferences
+        #expect(probe.startupFolder()?.path == fixture.aFolder.path)
+
+        state.preferences = fixture.preferences
+        await state.settle()
+        #expect(state.isVisible)
+        #expect(state.currentFolder?.path == fixture.aFolder.path)
+    }
+
+    /// 名前の編集中に読み取り専用を ON にしたら、編集の欄を残さない(2026-09-23、利用者の決定)。一覧はこの通し番号の変化で取りやめる。
+    @Test("ファイルを変えられなくなった瞬間だけ、名前の編集の取りやめを頼む")
+    func turningReadOnlyOnAsksToCancelNameEditing() throws {
+        let fixture = try Fixture("fb-cancel-rename")
+        let preferences = fixture.preferences
+        let state = fixture.state
+        preferences.fileBrowserReadOnly = false
+        let start = state.nameEditingCancelSerial
+
+        preferences.fileBrowserReadOnly = true
+        #expect(state.nameEditingCancelSerial == start + 1)
+        // 変えられるようになる向きでは頼まない。
+        preferences.fileBrowserReadOnly = false
+        #expect(state.nameEditingCancelSerial == start + 1)
+        // ファイルブラウザ機能を OFF にしたときも同じ(FileBrowserOperations.isReadOnly と同じ条件)。
+        preferences.fileBrowserFeatureEnabled = false
+        #expect(state.nameEditingCancelSerial == start + 2)
+        // すでに変えられない間の切り替えでは頼まない。
+        preferences.fileBrowserReadOnly = true
+        #expect(state.nameEditingCancelSerial == start + 2)
+    }
+
+    @Test("つながる前に画面から外れたら、つながっても始めない")
+    func deactivationCancelsTheAwaitedActivation() async throws {
+        let fixture = try Fixture("fb-await-deactivate")
+        let state = FileBrowserState(defaults: fixture.suite.defaults)
+        state.activate()
+        state.deactivate()
+        state.preferences = fixture.preferences
+        await state.settle()
+        #expect(!state.isVisible)
+        #expect(state.currentFolder == nil)
+    }
 }

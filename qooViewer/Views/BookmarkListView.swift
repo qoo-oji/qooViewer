@@ -264,7 +264,7 @@ struct BookmarkEditorView: View {
     /// bookmarkStore.groups(ブックマークを持つ本)とlayoutStore.layoutBookIDs(レイアウト情報を
     /// 持つ本)をbookIDでマージした一覧。どちらか一方にしか無い本もここに含まれる。
     ///
-    /// 加えて、今読んでいる本(launchCoordinator.activeBookAppState)がブックマーク・
+    /// 加えて、今読んでいる本(launchCoordinator.activeRecordableBookAppState。シークレットウインドウの本は含めない)がブックマーク・
     /// レイアウトのどちらも1件も持たない場合でも、その本自体はここに含める。以前は
     /// ブックマーク・レイアウトいずれかのデータを持つ本だけがこの一覧に載る仕組みだったため、
     /// 「今開いている本にまだ何も設定していない状態で編集ウインドウを呼び出す」と、その本が
@@ -291,7 +291,7 @@ struct BookmarkEditorView: View {
                 latestDate: updatedAt
             )
         }
-        if let activeBook = launchCoordinator.activeBookAppState?.currentBook, byID[activeBook.id] == nil {
+        if let activeBook = launchCoordinator.activeRecordableBookAppState?.currentBook, byID[activeBook.id] == nil {
             let now = Date()
             byID[activeBook.id] = EditorBookRow(
                 bookID: activeBook.id,
@@ -445,7 +445,7 @@ struct BookmarkEditorView: View {
 
     /// 実際に使う選択中のbookID。selectedBookIDが未選択(nil)、またはフィルタ/削除で一覧から
     /// 消えてしまった場合は、以下の優先順でフォールバックする。
-    /// 1. 今読んでいる本(launchCoordinator.activeBookAppState)が一覧にあれば、それを自動選択する。
+    /// 1. 今読んでいる本(launchCoordinator.activeRecordableBookAppState)が一覧にあれば、それを自動選択する。
     /// 2. 無ければ、一覧の先頭の本(現在の並び順で先頭)。
     /// rowsは呼び出し側(body)が既に計算済みのfilteredSortedRowsをそのまま渡す。
     /// 以前はこのメソッドが計算プロパティ(filteredSortedRowsを自前で呼び直す)だったため、
@@ -457,7 +457,7 @@ struct BookmarkEditorView: View {
         if let selectedBookID, rows.contains(where: { $0.bookID == selectedBookID }) {
             return selectedBookID
         }
-        if let activeBookID = launchCoordinator.activeBookAppState?.currentBook?.id,
+        if let activeBookID = launchCoordinator.activeRecordableBookAppState?.currentBook?.id,
            rows.contains(where: { $0.bookID == activeBookID }) {
             return activeBookID
         }
@@ -473,9 +473,9 @@ struct BookmarkEditorView: View {
                 Text("Bookmarks you add to any book will appear here.")
             } actions: {
                 Button("Add This Page to Bookmarks") {
-                    launchCoordinator.activeBookAppState?.addBookmarkAction?()
+                    launchCoordinator.activeRecordableBookAppState?.addBookmarkAction?()
                 }
-                .disabled(launchCoordinator.activeBookAppState?.currentBook == nil)
+                .disabled(launchCoordinator.activeRecordableBookAppState?.currentBook == nil)
             }
             .frame(minWidth: 640, minHeight: 420)
         } else {
@@ -975,7 +975,7 @@ struct BookmarkEditorView: View {
         // BookmarkDetailPaneを確実に作り直させ、右ペインのpageFilter(@State)を
         // 新しいinitialPageFilterで初期化し直させるため(initialFocusGenerationのコメント参照)。
         initialFocusGeneration += 1
-        if let activeBookID = launchCoordinator.activeBookAppState?.currentBook?.id {
+        if let activeBookID = launchCoordinator.activeRecordableBookAppState?.currentBook?.id {
             let hasBookmarks = !bookmarkStore.bookmarks(forBookID: activeBookID).isEmpty
             let hasLayout = layoutStore.layoutBookIDs.contains(activeBookID)
             // 呼び出し元のフォーカス種別ごとの絞り込みをそのまま適用すると、今開いている本が
@@ -1004,7 +1004,7 @@ struct BookmarkEditorView: View {
             // 編集」を呼び出しても、開いている本が選択された状態にならなかった。selectedBookIDは
             // このウインドウを閉じても(単一インスタンスのWindowシーンのため)保持され続けるため、
             // 以前別の本を選んでいた場合はそのまま残ってしまっていた。呼び出しのたびに、今
-            // 読んでいる本へ選択を明示的に合わせ直す(mergedRowsはactiveBookAppStateの本を
+            // 読んでいる本へ選択を明示的に合わせ直す(mergedRowsはactiveRecordableBookAppStateの本を
             // 常に含めるため、フィルタが.hasBookmarks/.hasLayoutのどちらであっても行は必ず存在する)。
             selectedBookID = activeBookID
         } else {

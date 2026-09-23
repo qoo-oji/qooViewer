@@ -214,6 +214,32 @@ struct LaunchCoordinatorTests {
         #expect(env.coordinator.activeBookAppState === second)
     }
 
+    /// 「ブックマーク・レイアウトの編集」は「ウインドウ」メニューからも開けるので、シークレットウインドウの本を「今読んでいる本」として
+    /// 渡すと、そのまま保存データを書けた(2026-09-23 の監査)。記録を残さない本も同じ。
+    @Test("編集ウインドウへ渡す「今読んでいる本」は、シークレットウインドウと記録を残さない本を除く")
+    func theRecordableActiveBookExcludesPrivateWindowsAndTransientBooks() async throws {
+        let env = try Environment()
+        defer { env.close() }
+        let folder = try env.makeFolder("recordable")
+        let regular = await env.openWindow(BookOpenRequest(folder))
+        let secret = await env.openWindow(BookOpenRequest(folder), isPrivate: true)
+        let images = try env.makeImages("recordable-images", count: 2)
+        let imageRequest = try #require(BookOpenRequest(openingCandidates: images))
+        let transient = await env.openWindow(imageRequest)
+        #expect(regular.currentBook != nil)
+        #expect(secret.currentBook != nil)
+        #expect(transient.currentBook?.leavesNoRecord == true)
+
+        env.coordinator.setActiveBookAppState(regular)
+        #expect(env.coordinator.activeRecordableBookAppState === regular)
+        env.coordinator.setActiveBookAppState(secret)
+        // 読むだけの用途(activeBookAppState)は変わらない。
+        #expect(env.coordinator.activeBookAppState === secret)
+        #expect(env.coordinator.activeRecordableBookAppState == nil)
+        env.coordinator.setActiveBookAppState(transient)
+        #expect(env.coordinator.activeRecordableBookAppState == nil)
+    }
+
     @Test("起動時の初期化は既定で「まだ」、編集ウインドウの呼び出し元は既定で無指定")
     func theInitialStateIsUntouched() throws {
         let env = try Environment()

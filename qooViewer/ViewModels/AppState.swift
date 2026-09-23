@@ -38,7 +38,10 @@ final class AppState: ObservableObject {
     ///   アイコン表示の絵のディスクキャッシュ(FileBrowserThumbnailProvider の savesToDisk。読むのは許す)。ファイル操作そのものは許す
     /// 既存データの**読み取り**(登録済みブックマークへのジャンプ、保存済みレイアウトでの表示、
     /// 環境設定)は通常どおり行う。書き込みを伴う操作のUI(メニュー・ツールバー・コンテキスト
-    /// メニュー・サイドパネルの＋/鉛筆ボタン)は、このウインドウがフォーカス中はグレーアウトする。
+    /// メニュー・サイドパネルの＋/鉛筆ボタン)は、このウインドウがフォーカス中はグレーアウトする。**項目ごと消すのは相手の機能が
+    /// OFF のときだけ**(利用者の決定 2026-09-23)。どのウインドウにも属さない編集ウインドウ(「ブックマーク・レイアウトの編集」など。
+    /// 「ウインドウ」メニューからも開ける)は、「今読んでいる本」を LaunchCoordinator.activeRecordableBookAppState から取り、
+    /// このウインドウの本を対象にしない。本の書き出しはページ一覧キャッシュを使わない(BookExportViewModel.usesPageListCache)。
     /// 各書き込み箇所のガードはこのフラグを直接参照している(grep "isPrivateWindow" /
     /// "skipsPersistence")。新しい永続化経路を足すときは、ここに列挙したうえで同じガードを入れること。
     ///
@@ -984,6 +987,8 @@ final class AppState: ObservableObject {
         // シークレットウインドウではページ一覧のディスクキャッシュも書かない
         // (isPrivateWindowのコメント参照)。画像ファイルを直接開く場合も同じで、こちらは
         // 本が出来上がる前からその場限りの本になると分かっている(BookOpenRequest.opensImageFiles)。
+        // 一時フォルダに書き出した入れ子の書庫(MangaBook.isTemporaryCopy)も同じ ―― パスはこの起動の間しか無いので、
+        // その鍵で書いても誰も読まない(2026-09-23 の監査まで書いていた)。
         //
         // この値はTaskの**外で**取り出しておくこと。中で`!isPrivateWindow`と書くと、
         // `[weak self]`があっても暗黙のselfとして**強参照でも**捕捉され、下の
@@ -991,6 +996,7 @@ final class AppState: ObservableObject {
         // 伴い、未接続の外付け/ネットワークボリューム上の本では長く待つ。その間ずっと
         // このAppStateが解放できなくなる)。Swift 6言語モードではエラーにもなる。
         let cachesPageList = usesPageListCache && !isPrivateWindow && !request.opensImageFiles
+            && !request.urls.contains(where: MangaBook.isTemporaryCopy)
         // 同じ理由(Taskの中で`preferences`を読むと暗黙のselfを強参照で捕まえる)で、
         // 入れ子書庫のメモリ上限と、棚の解決に使う並び順もここで取り出しておく。
         let nestedArchiveMemoryLimitBytes =
@@ -1564,6 +1570,11 @@ struct MenuCheckmarkState: Equatable {
     /// 有効/無効にも使う(その本が画像を直接開いた本のときだけ意味のある操作のため。
     /// AppState.openAllImagesInCurrentFolder参照)。
     var isTransientBook = false
+    /// フォーカス中のウインドウの本が、保存データに何も残さない本か(`MangaBook.leavesNoRecord` ―― その場限りの本と、
+    /// 一時フォルダに書き出した入れ子の書庫)。書き込みを伴う項目のグレーアウトはこちらと`isPrivateWindow`をORする。
+    /// 2026-09-23 の監査まではグレーアウトも`isTransientBook`で見ていて、一時フォルダの本では項目が押せるのに
+    /// 何も起きなかった(実際に断るのは`ViewerViewModel.skipsPersistence` = `leavesNoRecord`)。
+    var currentBookLeavesNoRecord = false
     var hideToolbar = false
     var hideProgressBar = false
     var hideSidePanel = false

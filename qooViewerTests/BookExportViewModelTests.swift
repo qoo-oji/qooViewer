@@ -76,6 +76,28 @@ struct BookExportViewModelTests {
         }
     }
 
+    // MARK: - シークレットウインドウ
+
+    /// シークレットウインドウからの 1 冊書き出しは、書き出し本体もカバー欄もページ一覧のディスクキャッシュを読み書きしない
+    /// (2026-09-23 の監査まではどちらも既定のまま使っていた)。作った側が決めた値が、あとから作られるカバー欄にも届くこと。
+    @Test("ページ一覧キャッシュを使わない指定は、カバー欄にも届く")
+    func theNoPageListCacheSettingReachesTheCoverColumn() throws {
+        let env = try Environment()
+        defer { env.close() }
+        let viewModel = env.makeViewModel()
+        #expect(viewModel.usesPageListCache)
+        #expect(viewModel.coverController.usesPageListCache)
+
+        viewModel.usesPageListCache = false
+        #expect(!viewModel.coverController.usesPageListCache)
+
+        // カバー欄を先に作ってから決めても届く。
+        let other = env.makeViewModel()
+        _ = other.coverController
+        other.usesPageListCache = false
+        #expect(!other.coverController.usesPageListCache)
+    }
+
     // MARK: - 読み方向の優先順位(DB > 開いている本 > 既定)
 
     @Test("読み方向は、本ごとの上書き → 開いている本の表示 → 環境設定の既定 の順に決まる")

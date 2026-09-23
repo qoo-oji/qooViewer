@@ -1371,13 +1371,13 @@ struct QooViewerApp: App {
                 }
 
                 let hasBook = focusedAppState?.currentBook != nil
-                // シークレットウインドウがフォーカス中か、その場限りの本(直接渡された画像から
-                // 作った本)を表示中は、書き込みを伴う項目(お気に入り/ブックマークの
+                // シークレットウインドウがフォーカス中か、記録を残さない本(直接渡された画像から
+                // 作った本・一時フォルダに書き出した入れ子の書庫。MangaBook.leavesNoRecord)を表示中は、書き込みを伴う項目(お気に入り/ブックマークの
                 // 追加・各編集ウインドウ・レイアウト変更)をすべて無効にする。
                 // 一覧(Favorites List / Bookmark List)は読み取りだけなので使える。
                 // 変数名がisPrivateのままなのは以前からの経緯だが、判定条件は
                 // ViewerViewModel.skipsPersistenceと同じものになっている。
-                let isPrivate = menuCheckmarkState.map { $0.isPrivateWindow || $0.isTransientBook } ?? false
+                let isPrivate = menuCheckmarkState.map { $0.isPrivateWindow || $0.currentBookLeavesNoRecord } ?? false
                 // 以前はここに、EPUB/PDFのファイル側がレイアウトを規定している本で
                 // レイアウト操作をまとめて無効化するためのisLayoutLockedがあった。
                 // ユーザー要望によりそのロック自体を廃止したため、レイアウト関連の項目は

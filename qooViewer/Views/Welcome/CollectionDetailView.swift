@@ -667,22 +667,23 @@ struct CollectionDetailView: View {
             // 「メタデータの編集」は**編集モードを条件にしない**(ユーザー指摘 2026-09-09)。
             // 棚から本を出し入れする操作ではなく、その1冊の中身を整える操作なので、モードの
             // 奥に置く理由が無い(帯のリネームと同じ判断。WelcomeTopBar.canEditLibraries参照)。
-            if allowsEditing {
-                Divider()
-                Button("Edit Metadata…") {
-                    guard let url = collectionStore.resolvedExistingURL(for: item) else {
-                        missingBook = MissingBook(
+            // シークレットウインドウでは淡色(保存データへの書き込み。項目ごと消すのは機能が OFF のときだけ ―― 利用者の決定 2026-09-23。
+            // 以前はシークレットウインドウでは消していた)。
+            Divider()
+            Button("Edit Metadata…") {
+                guard allowsEditing else { return }
+                guard let url = collectionStore.resolvedExistingURL(for: item) else {
+                    missingBook = MissingBook(
                         id: item.id, title: item.title,
                         reason: collectionStore.location(for: item)
                     )
-                        return
-                    }
-                    metadataTarget = MetadataTarget(id: item.id, url: url)
+                    return
                 }
-                .disabled(!isSingle)
+                metadataTarget = MetadataTarget(id: item.id, url: url)
             }
-            // 「本の書き出し」(2026-09-23、ファイルブラウザ・ビューアの右クリックと同じ)。書き出し自体は何も記録しないので、
-            // シークレットウインドウでも使える(カバーの選択だけ出さない)。
+            .disabled(!allowsEditing || !isSingle)
+            // 「本の書き出し」(2026-09-23、ファイルブラウザ・ビューアの右クリックと同じ)。書き出し自体は保存データを書かないので、
+            // シークレットウインドウでも使える(カバーの選択は淡色、ページ一覧のディスクキャッシュも読み書きしない)。
             BookExportMenu(isEnabled: isSingle && exportRequest == nil) { format in startExport(item.id, format: format) }
             // コレクションから外すのは取り消せない削除なので、ゴミ箱と同じく編集モードの中に置く。
             //
@@ -760,7 +761,7 @@ struct CollectionDetailView: View {
         guard let export = FileBrowserBookSheet.Export.make(
             url: url, bookID: item.bookID, isDirectory: !(isArchiveFile(name) || isPDFFile(name) || isEpubFile(name)),
             format: format, preferences: preferences, bookmarkStore: bookmarkStore, layoutStore: layoutStore,
-            metadataStore: metadataStore, collectionStore: collectionStore
+            metadataStore: metadataStore, collectionStore: collectionStore, usesPageListCache: allowsEditing
         ) else { return }
         exportRequest = HomeBookExportRequest(export: export)
     }

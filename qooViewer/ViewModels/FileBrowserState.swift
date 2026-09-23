@@ -172,6 +172,10 @@ final class FileBrowserState: ObservableObject {
     /// 名前の編集を始めてほしい項目(新規フォルダの直後・右クリックの「名前を変更」)。
     /// 一覧はこの項目が見えるようになった時点で編集を始める。
     @Published private(set) var renameRequest: ScrollRequest?
+    /// 名前の編集を取りやめてほしい(読み取り専用モードを ON にした・ファイルブラウザ機能を OFF にした)。値は増えるだけの通し番号で、
+    /// リストとアイコン表示が変化を拾って、編集中なら打った名前を捨てて終える(2026-09-23、利用者の決定。以前は編集の欄が残り、Return で
+    /// 確定すると入口が黙って断って元の名前に戻った)。
+    @Published private(set) var nameEditingCancelSerial = 0
     /// 「移動」メニューの「フォルダへ移動…」のシートを出しているか。
     @Published var isShowingGoToFolder = false
     /// 右クリックの「メタデータの編集…」「本の書き出し」のシート(段階 8)。nil なら出していない。
@@ -211,12 +215,19 @@ final class FileBrowserState: ObservableObject {
         didSet {
             guard preferences !== oldValue else { return }
             observePreferences()
+            // 画面に出たのがつながる前だった(activate のコメント)。ここで始める。
+            if isAwaitingConnection, preferences != nil { activate() }
         }
     }
     /// 起動時のフォルダが「よく使う項目」のときに引く。
     weak var favoriteLocations: FavoriteLocationStore?
-    /// シークレットウインドウか(最後に表示したフォルダを書かない)。ContentViewが渡す。
+    /// シークレットウインドウか(最後に表示したフォルダ・一括リネームの前回の入力を書かない。アイコン表示の絵をディスクへ書かない)。
+    /// **ContentView が `@StateObject` を作る時点で渡す**(2026-09-23 の監査): ContentView が店や環境設定をつなぐより先に
+    /// ペインが出て動き始めることがあり(タブバーの「＋」のタブは、つなぐのが正当なタブと分かった後)、つないだ時点で
+    /// 渡すのでは、それまでの記録をシークレットウインドウでも書いていた。テストは作った後で書き換える。
     var isPrivate = false
+    /// 画面に出た(`activate`)のが、ContentView が環境設定をつなぐより前だった。つながった時点(`preferences` の didSet)で始める。
+    private var isAwaitingConnection = false
 
     var sort: FolderBrowserSort {
         FolderBrowserSort(
@@ -242,7 +253,7 @@ final class FileBrowserState: ObservableObject {
     private var hasStarted = false
     /// 次に画面に出たときの行き先(prepare / show)。
     private var pendingDestination: Destination?
-    private var isVisible = false
+    private(set) var isVisible = false
     /// 読み込みが終わったら選んでスクロールする項目(上へ・戻る・reveal)。
     private var pendingReveal: String?
     /// 読み込みが終わったら選ぶ項目(ペーストで運んだもの)。
@@ -266,6 +277,8 @@ final class FileBrowserState: ObservableObject {
     /// 読み込みの最中に FSEvents が変更を知らせた。読み終えたらもう一度読む(`handleChangedPaths` のコメント)。
     private var needsReloadAfterLoad = false
     private var preferenceObservation: AnyCancellable?
+    /// 読み取り専用モード・ファイルブラウザ機能の切り替えの購読(`nameEditingCancelSerial`)。
+    private var fileChangePermissionObservation: AnyCancellable?
     private var systemObservations: [AnyCancellable] = []
     /// ペーストボードにファイルがあるか(メニューバーの「ここに項目を移動」⌥⌘V を淡色にするための写し。2026-09-19 の総点検)。
     ///
@@ -324,6 +337,15 @@ final class FileBrowserState: ObservableObject {
     ///
     /// - Parameter folder: 「新規タブで開く」などで渡されたフォルダ。あれば起動時のフォルダより優先。
     func activate(showing folder: URL? = nil) {
+        // 環境設定がまだ届いていない(タブバーの「＋」のタブは、正当なタブと分かるまでつながない ―― ContentView.resolveAmbiguousNewMainWindow)。
+        // この時点で始めると、起動時のフォルダの設定を読めずにホームから始まり、それを「最後に表示したフォルダ」として書いていた
+        // (2026-09-23 の監査)。画面に出ていない扱いのまま待つ(その間の「ファイルブラウザで表示」は予約に回る)。
+        guard preferences != nil else {
+            if let folder { pendingDestination = .folder(folder) }
+            isAwaitingConnection = true
+            return
+        }
+        isAwaitingConnection = false
         isVisible = true
         if let folder {
             pendingDestination = nil
@@ -395,6 +417,7 @@ final class FileBrowserState: ObservableObject {
     }
 
     func deactivate() {
+        isAwaitingConnection = false
         isVisible = false
         updateWatcher()
     }
@@ -410,6 +433,7 @@ final class FileBrowserState: ObservableObject {
         changeObservation = nil
         cutObservation = nil
         preferenceObservation = nil
+        fileChangePermissionObservation = nil
         stackObservation = nil
         // 走っている操作の報告は捨てない(確認は断る側で答える。FileBrowserOperations.detachFromWindow)。
         operations.detachFromWindow()
@@ -1013,7 +1037,19 @@ final class FileBrowserState: ObservableObject {
     private func observePreferences() {
         guard let preferences else {
             preferenceObservation = nil
+            fileChangePermissionObservation = nil
             return
+        }
+        // ファイルを変えられなくなった瞬間(`FileBrowserOperations.isReadOnly` と同じ条件)に、名前の編集を取りやめてもらう。
+        fileChangePermissionObservation = Publishers.CombineLatest(
+            preferences.$fileBrowserReadOnly, preferences.$fileBrowserFeatureEnabled
+        )
+        .map { readOnly, enabled in readOnly || !enabled }
+        .removeDuplicates()
+        .dropFirst()
+        .filter { $0 }
+        .sink { [weak self] _ in
+            MainActor.assumeIsolated { self?.nameEditingCancelSerial &+= 1 }
         }
         preferenceObservation = Publishers.Merge3(
             preferences.$fileBrowserFoldersFirst.dropFirst().removeDuplicates().map { _ in () },

@@ -27,7 +27,8 @@ import Foundation
 /// ■ 読み取り専用モード(決定事項 Q12、段階 8.5)
 /// ON の間、ファイルを変える操作は**ここの入り口で断る**(`isReadOnly`)。メニュー・キー・D&D の経路ごとに判定を散らさない
 /// ―― 画面の側は項目を淡色にするために同じ値を読むだけで、淡色にし忘れた経路があってもここで止まる。
-/// 判定は**呼ばれた時点**で行う。走っている操作・すでに順番を待っている操作は止めない(次の操作から効く)。
+/// 判定は**呼ばれた時点**と、**順番が来て始める時点**(`enqueue`)で行う。走っている操作は止めないが、順番を待っている操作は
+/// ON にした時点で取りやめる(2026-09-23、利用者の決定。以前は並んでいた「すぐに削除…」が ON にした後に確認を出し、承諾すれば消した)。
 /// 取り消しの履歴は消さず、ON の間は取り消し/やり直しを断るだけ。⌘C(ペーストボードへ載せるだけ)は断らない。
 @MainActor
 final class FileBrowserOperations: ObservableObject {
@@ -75,8 +76,8 @@ final class FileBrowserOperations: ObservableObject {
     /// ファイルを変える操作を断るか(環境設定「読み取り専用」、**または「ファイルブラウザを有効にする」が OFF**)。環境設定が届いていなければ
     /// 断る側に倒す。
     ///
-    /// 見るのは操作の入口(受け付けた操作は、その後で切り替わっても最後までやる ―― 走っている操作を途中で止めない)と、
-    /// **確認・シートを出している間に切り替わったとき**(`asking`)。
+    /// 見るのは操作の入口、順番が来て始めるとき(`enqueue`。並んでいる間に切り替わったら始めない)、確認・シートを出す前と
+    /// **出している間に切り替わったとき**(`asking`)。ファイルに触り始めた操作は、途中で切り替わっても最後までやる。
     var isReadOnly: Bool {
         guard let preferences = state?.preferences else { return true }
         return preferences.fileBrowserReadOnly || !preferences.fileBrowserFeatureEnabled
@@ -88,7 +89,8 @@ final class FileBrowserOperations: ObservableObject {
     /// 2026-09-21 の実機: 一括リネームのシートを出したままファイルブラウザを OFF にし、シートの「名前を変更」を押すと名前が変わった
     /// (入口が見ていたのはシートを出す前の読み取り専用だけ。シートはウインドウの持ち物なので、ペインが消えても残る)。シートを出したまま
     /// 読み取り専用へ切り替えた場合も同じ穴だった。利用者が設定を切り替えたのは答えるより後なので、新しいほうの意思を採る。
-    /// 出す**前から**断る状態だった操作(切り替えの前に受け付けて、並んでいた操作)は、これまでどおり最後までやる。
+    /// 出す**前から**断る状態だったら、確認を出さずに断る(2026-09-23、利用者の決定。以前は「切り替えの前に受け付けて並んでいた操作」を
+    /// 最後までやるために通していた。確認はどれもファイルに触る前なので、断っても半端な状態は残らない)。
     /// コピー・移動の途中の衝突の確認(`resolveConflict`)はここを通さない ―― 半分だけ済んだ状態で止めない。
     ///
     /// - Parameter openBookCheck: 変える項目。答えが返った時点で、どれかが**ビューアで開いている本**になっていたら断る
@@ -97,10 +99,9 @@ final class FileBrowserOperations: ObservableObject {
     private func asking<Answer>(
         openBookCheck: [URL] = [], _ ask: (any FileBrowserOperationPresenting) async -> Answer
     ) async -> Answer? {
-        guard let presenter else { return nil }
-        let refusedBefore = isReadOnly
+        guard let presenter, !isReadOnly else { return nil }
         let answer = await ask(presenter)
-        if !refusedBefore, isReadOnly { return nil }
+        if isReadOnly { return nil }
         if !openBookCheck.isEmpty, refusesBecauseOpenInViewer(openBookCheck) { return nil }
         return answer
     }
@@ -687,10 +688,14 @@ final class FileBrowserOperations: ObservableObject {
         // 走っている操作の途中でウインドウを閉じると、後ろに並んでいた操作(ペースト・取り消し)が確認も報告も無く捨てられていた
         // (`detachFromWindow` の「並んでいる操作は止めない」と食い違う)。持つのは並んだ仕事が終わるまでだけ。
         let state = state
+        // 前の操作を待つか。待たないなら受け付けた時点で始まっている(Task へ移るのは実装の都合)。
+        let waitsForPrevious = pendingWorkCount > 0
         pendingWorkCount += 1
         let task = Task { @MainActor [self] in
             await previous?.value
-            await work()
+            // 並んでいる間に読み取り専用を ON にした(ファイルブラウザ機能を OFF にした)なら始めない(型コメント「読み取り専用モード」)。
+            // ここに並ぶのはどれもファイルを変える操作。
+            if !waitsForPrevious || !isReadOnly { await work() }
             pendingWorkCount -= 1
             _ = (self, state)
         }

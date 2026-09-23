@@ -286,7 +286,7 @@ struct FileBrowserIntegrationTests {
             )
         }
         let changing: [FileBrowserMenuCommand] = [
-            .rename, .cut, .paste, .moveToTrash, .compress, .compressHere, .compressTo,
+            .rename, .cut, .paste, .moveToTrash, .deleteImmediately, .compress, .compressHere, .compressTo,
             .extract, .extractHere, .extractToFolder, .extractTo, .alwaysOpenWith,
         ]
         let keeping: [FileBrowserMenuCommand] = [
@@ -311,6 +311,7 @@ struct FileBrowserIntegrationTests {
         #expect(!fixture.actions.canPerform(.paste))
         #expect(!fixture.actions.canPerform(.moveItemHere))
         #expect(!fixture.actions.canPerform(.moveToTrash))
+        #expect(!fixture.actions.canPerform(.deleteImmediately))
     }
 
     @Test("「開く」は開いて何かが起きるときだけ押せる: 1 件なら何でも、複数ならフォルダ・リンクを含まないときだけ(2026-09-19)")

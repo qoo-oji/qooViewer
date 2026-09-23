@@ -235,6 +235,14 @@ class BookExportViewModel: ObservableObject {
     let metadataStore: BookMetadataStore
     let preferences: AppPreferences
 
+    /// 本を読むときにページ一覧のディスクキャッシュ(`BookPageListCache`)を読み書きするか。**シークレットウインドウ・記録を
+    /// 残さない本からの 1 冊書き出しでは false**(`AppState.isPrivateWindow` のコメント ―― ページ一覧キャッシュは読みもしない)。
+    /// 書き出し本体(`exportOne`)とカバー欄(`coverController`)の両方に効く。2026-09-23 の監査まではどちらも既定のまま読み書きしていた。
+    /// 作った側がシートを出す前に決める(カバー欄の `.task` は出た瞬間に走る)。
+    var usesPageListCache = true {
+        didSet { coverController.usesPageListCache = usesPageListCache }
+    }
+
     /// これらの画面はWindow(id:)という単一インスタンスのシーンで開くため、一度表示された
     /// ViewModelはウインドウを閉じても(BookmarkListView.BookmarkEditorViewの
     /// BookmarkStore/LayoutStoreと違い)アプリを終了するまで使い回される。そのため、初期化時の
@@ -751,7 +759,7 @@ class BookExportViewModel: ObservableObject {
         let didAccess = sourceURL.startAccessingSecurityScopedResource()
         defer { if didAccess { sourceURL.stopAccessingSecurityScopedResource() } }
 
-        let book = try await BookLoader.load(from: sourceURL)
+        let book = try await BookLoader.load(from: sourceURL, cachesPageList: usesPageListCache)
         try await write(prepare(row: row, book: book, displayState: openBookDisplayState), to: destinationFolder)
     }
 

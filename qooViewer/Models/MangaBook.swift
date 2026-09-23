@@ -132,8 +132,12 @@ struct MangaBook: Identifiable, Hashable {
     /// 入れ子の書庫を一時フォルダへ書き出したものを開いた本か(サイドパネルの中身ブラウザの「新しい本として開く」。
     /// `BookContentsBrowserState.materializedURL`)。パスはこの起動の間しか無いので、保存データ・履歴・前回の本・メタデータに
     /// 残してはいけない(2026-09-22 の監査: 以前は普通の本として記録し、UUID の名前のメタデータの行や開けない履歴が残った)。
-    var isTemporaryCopy: Bool {
-        MountTable.path(MountTable.normalized(sourceURL.path),
+    var isTemporaryCopy: Bool { Self.isTemporaryCopy(sourceURL) }
+
+    /// `url` が一時フォルダに書き出した入れ子の書庫(またはその中)か。本が出来上がる前(開く要求の URL)にも使う
+    /// (`AppState.open` のページ一覧キャッシュの判定)。
+    static func isTemporaryCopy(_ url: URL) -> Bool {
+        MountTable.path(MountTable.normalized(url.path),
                         isAtOrUnder: MountTable.normalized(TemporaryFileStore.sessionDirectory.path))
     }
 

@@ -134,7 +134,7 @@ struct ContentView: View {
     @StateObject private var welcomeLibrary = WelcomeLibraryState(restoresMode: !RuntimeEnvironment.isRunningTests)
     /// ウェルカム画面のファイルブラウザの閲覧状態(改善要望7 段階3)。本を開いている間もこの
     /// ウインドウの中に残り、戻ってきたときは離れたときのフォルダのまま(FileBrowserState参照)。
-    @StateObject private var fileBrowser = FileBrowserState()
+    @StateObject private var fileBrowser: FileBrowserState
     /// メニューバーへ出す「選んだ項目で押せるか」の覚え書き(`fileBrowserMenuSelection`)。
     @State private var fileBrowserMenuSelectionMemo = FileBrowserMenuSelectionMemo()
 
@@ -154,9 +154,16 @@ struct ContentView: View {
         self.initialRequest = initialRequest
         // 値を渡してこないのは"main" WindowGroupだけ(isMainWindowGroupのコメント参照)。
         self.isMainWindowGroup = (isPrivateWindow == nil)
+        let resolvedIsPrivate = isPrivateWindow ?? AppPreferences.isPrivateModeDefault
+        // ファイルブラウザにもここで渡す(FileBrowserState.isPrivateのコメント ―― つなぐより先に動き始めることがある)。
+        _fileBrowser = StateObject(wrappedValue: {
+            let state = FileBrowserState()
+            state.isPrivate = resolvedIsPrivate
+            return state
+        }())
         _appState = StateObject(
             wrappedValue: AppState(
-                isPrivateWindow: isPrivateWindow ?? AppPreferences.isPrivateModeDefault,
+                isPrivateWindow: resolvedIsPrivate,
                 // 「隠す」3つは**ここで渡す**。onAppearで写していた頃は、隠してあるはずの
                 // パーツが最初のフレームにだけ現れて直後に閉じる様子が見えていた
                 // (AppPreferences.HiddenChromeのコメント参照)。
@@ -559,6 +566,7 @@ struct ContentView: View {
             MenuCheckmarkState(
                 isPrivateWindow: appState.isPrivateWindow,
                 isTransientBook: appState.currentBook?.isTransient == true,
+                currentBookLeavesNoRecord: appState.currentBook?.leavesNoRecord == true,
                 hideToolbar: appState.hideToolbar,
                 hideProgressBar: appState.hideProgressBar,
                 hideSidePanel: appState.hideSidePanel,
@@ -805,32 +813,7 @@ struct ContentView: View {
                 return
             }
             isConfirmedLegitimateWindow = true
-            appState.preferences = preferences
-            appState.recentFiles = recentFiles
-            appState.folderAccess = folderAccess
-            appState.favoritesStore = favoritesStore
-            appState.bookmarkStore = bookmarkStore
-            appState.layoutStore = layoutStore
-            appState.metadataStore = metadataStore
-            appState.collectionStore = collectionStore
-            // 「同じ本を二重に開かない」判定のため
-            // (AppState.open(request:reusesExistingWindow:)参照)。
-            appState.launchCoordinator = launchCoordinator
-            sidePanelBrowser.folderAccess = folderAccess
-            sidePanelBrowser.preferences = preferences
-            fileBrowser.preferences = preferences
-            fileBrowser.favoriteLocations = favoriteLocations
-            fileBrowser.isPrivate = isPrivateWindow
-            appState.fileBrowser = fileBrowser
-            appState.welcomeLibrary = welcomeLibrary
-            // 「ツールバーを隠す」「プログレスバーを隠す」「サイドパネルを隠す」は、前回終了時
-            // (またはこのセッション中に他のウインドウで変更された時点)の値をpreferencesから
-            // 引き継ぐ。これにより、新しいウインドウ/タブや次回起動時にも同じ表示状態で始まる。
-            appState.hideToolbar = preferences.hideToolbar
-            appState.hideProgressBar = preferences.hideProgressBar
-            appState.hideSidePanel = preferences.hideSidePanel
-            // サイドパネルの幅も同様に、前回ユーザーがドラッグで調整した値を引き継ぐ。
-            sidePanelWidth = CGFloat(preferences.sidePanelWidth)
+            connectWindowState()
             // シークレットウインドウは主ウインドウにはならない(主ウインドウは位置・サイズの記憶や
             // 「最後に開いていた本」の記録など、永続化と結びついた役割を持つため)。
             // ただし「シークレットモードで起動」がONのときは、主ウインドウ自身がシークレット
@@ -1004,6 +987,44 @@ struct ContentView: View {
     /// 判定が終わるまでウインドウを一瞬隠しておき(orderOut)、正当と分かればすぐに
     /// 表示し直す(makeKeyAndOrderFront)ことで、不正な場合に「一瞬だけ表示されてすぐ
     /// 消える空ウインドウ」がユーザーの目にできるだけ見えないようにする。
+    /// ウインドウ/タブの状態へ、アプリで共有するストアと環境設定をつなぐ(正当なウインドウと確かめた時点で 1 回)。
+    ///
+    /// **通常の経路(onAppear)とタブバーの「＋」の経路(resolveAmbiguousNewMainWindow)の両方がここを呼ぶ。** 以前は 2 か所に
+    /// 同じ代入を並べていて、「＋」の側にファイルブラウザの 5 行(環境設定・よく使う項目・シークレットか・`appState.fileBrowser`・
+    /// `appState.welcomeLibrary`)が足されていなかった(2026-09-23 の監査)。「シークレットモードで起動」が ON だと「＋」の
+    /// タブもシークレットなのに、最後に表示したフォルダ・一括リネームの入力・アイコン表示の絵のディスクキャッシュを書き、
+    /// 環境設定が届かないのでファイル操作もすべて断られ、「ホーム」メニューの依頼も届かなかった。
+    private func connectWindowState() {
+        appState.preferences = preferences
+        appState.recentFiles = recentFiles
+        appState.folderAccess = folderAccess
+        appState.favoritesStore = favoritesStore
+        appState.bookmarkStore = bookmarkStore
+        appState.layoutStore = layoutStore
+        appState.metadataStore = metadataStore
+        appState.collectionStore = collectionStore
+        // 「同じ本を二重に開かない」判定のため
+        // (AppState.open(request:reusesExistingWindow:)参照)。
+        appState.launchCoordinator = launchCoordinator
+        sidePanelBrowser.folderAccess = folderAccess
+        sidePanelBrowser.preferences = preferences
+        // 環境設定は最後に渡す: 先にペインが出ていれば、渡した時点で動き始める(FileBrowserState.activate)ので、
+        // よく使う項目(起動時のフォルダ)はそれより前に要る。シークレットかどうかは作るときに渡してある(init)。
+        fileBrowser.favoriteLocations = favoriteLocations
+        fileBrowser.isPrivate = isPrivateWindow
+        fileBrowser.preferences = preferences
+        appState.fileBrowser = fileBrowser
+        appState.welcomeLibrary = welcomeLibrary
+        // 「ツールバーを隠す」「プログレスバーを隠す」「サイドパネルを隠す」は、前回終了時
+        // (またはこのセッション中に他のウインドウで変更された時点)の値をpreferencesから
+        // 引き継ぐ。これにより、新しいウインドウ/タブや次回起動時にも同じ表示状態で始まる。
+        appState.hideToolbar = preferences.hideToolbar
+        appState.hideProgressBar = preferences.hideProgressBar
+        appState.hideSidePanel = preferences.hideSidePanel
+        // サイドパネルの幅も同様に、前回ユーザーがドラッグで調整した値を引き継ぐ。
+        sidePanelWidth = CGFloat(preferences.sidePanelWidth)
+    }
+
     private func resolveAmbiguousNewMainWindow() {
         Task { @MainActor in
             // appState.hostWindowはWindowAccessor経由で設定されるため、間に合っていない
@@ -1029,21 +1050,7 @@ struct ContentView: View {
                     // を行ったりはせず、通常のウインドウ/タブと同様に最低限のセットアップだけ
                     // 行う(すでに表示されているので、あらためて表示し直す必要はない)。
                     isConfirmedLegitimateWindow = true
-                    appState.preferences = preferences
-                    appState.recentFiles = recentFiles
-                    appState.folderAccess = folderAccess
-                    appState.favoritesStore = favoritesStore
-                    appState.bookmarkStore = bookmarkStore
-                    appState.layoutStore = layoutStore
-                    appState.metadataStore = metadataStore
-                    appState.collectionStore = collectionStore
-                    appState.launchCoordinator = launchCoordinator
-                    sidePanelBrowser.folderAccess = folderAccess
-                    sidePanelBrowser.preferences = preferences
-                    appState.hideToolbar = preferences.hideToolbar
-                    appState.hideProgressBar = preferences.hideProgressBar
-                    appState.hideSidePanel = preferences.hideSidePanel
-                    sidePanelWidth = CGFloat(preferences.sidePanelWidth)
+                    connectWindowState()
                     launchCoordinator.registerOpenAppState(appState)
                     return
                 }

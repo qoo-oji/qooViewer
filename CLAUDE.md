@@ -157,8 +157,9 @@ gated on it. The welcome screen has a second mode, the **file browser** (`Welcom
 `WindowContentRequest.browse` (the value type of the book `WindowGroup`s). Every write operation (copy/cut/paste, trash, compress/extract,
 new folder, rename, bulk rename, undo/redo) goes through `FileBrowserOperations` (one per `FileBrowserState`, serial, confirmations via
 `FileBrowserOperationPresenting`), which is also the one place that refuses them while read-only mode is on — or the file browser feature is off —
-(`isReadOnly`; checked at each entrance, and again by `asking` when a confirmation or sheet returns, so a sheet left up
-across the switch does nothing; operations accepted before the switch still finish)
+(`isReadOnly`; checked at each entrance, when a queued operation's turn comes (`enqueue` — queued ones are dropped, only a running one
+finishes), and by `asking` before and after a confirmation or sheet, so a sheet left up across the switch does nothing; an inline rename
+being typed is cancelled at the switch via `FileBrowserState.nameEditingCancelSerial` — user decisions 2026-09-23)
 (`AppPreferences.fileBrowserReadOnly`, **default ON**; the UI only dims items via `FileBrowserActions.allowsFileChanges`, and drags out
 become copy-only); tests inject a pseudo trash, a uniquely named pasteboard and a scripted presenter. An item is
 greyed out by the same predicate the action uses to refuse (`FileBrowserActions.canOpen` / `canChange` — which also
@@ -424,6 +425,13 @@ The menu bar and system dialogs cannot be switched at runtime; the setting is al
 - **CHANGELOG.md entries**: Keep a Changelog format, written in Japanese, and limited strictly to
   user-visible impact (what changed for someone using the app) — not implementation detail. Match the
   tone/granularity already in the file (short bullet per change, nested bullets for multi-part changes).
+- **Private windows record nothing; their write items are dimmed, never removed** (user decision 2026-09-23 — an item
+  disappears only when the feature it uses is switched off). What a private window must not write is listed on
+  `AppState.isPrivateWindow` (canonical; docs/06「シークレットウインドウとその場限りの本」); the guard is `skipsPersistence`
+  (`isPrivateWindow || book.leavesNoRecord`) and the menu bar dims with the same condition. Windows that belong to no
+  window (Edit Bookmarks & Layout, the Window menu can open it) take "the book being read" from
+  `LaunchCoordinator.activeRecordableBookAppState`, never `activeBookAppState`; anything that loads a book on a private
+  window's behalf (export, cover column) passes `cachesPageList: false`. A new persistence path joins that list and its guard.
 - **Anything drawn on a frosted-glass surface must handle the text outline.** The five surfaces
   (`PanelSurface`) let the user fill them with an arbitrary colour, so text and icons can end up the
   same colour as the panel and vanish. When you **add or change any UI on one of those surfaces**,

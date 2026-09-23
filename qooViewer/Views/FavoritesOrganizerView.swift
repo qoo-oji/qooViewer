@@ -501,7 +501,7 @@ struct FavoritesOrganizerView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.plain)
-                .disabled(launchCoordinator.activeBookAppState?.currentBook == nil)
+                .disabled(launchCoordinator.activeRecordableBookAppState?.currentBook == nil)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(.bar)
@@ -733,7 +733,7 @@ struct FavoritesOrganizerView: View {
     /// 登録する。結果の分岐(重複確認・上限エラー)はhandle(_:)で行う
     /// (FavoriteFolderPickerView.performRegistration/handleと同じ構造)。
     private func addCurrentBook() {
-        guard let book = launchCoordinator.activeBookAppState?.currentBook else { return }
+        guard let book = launchCoordinator.activeRecordableBookAppState?.currentBook else { return }
         pendingBookForDuplicateConfirmation = book
         handle(favoritesStore.addFavorite(book: book, to: selectedFolder))
     }

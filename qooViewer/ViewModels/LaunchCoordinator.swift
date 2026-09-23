@@ -72,6 +72,20 @@ final class LaunchCoordinator: ObservableObject {
         activeBookAppState = appState
     }
 
+    /// 「今読んでいる本」のうち、**記録を残してよいもの**(シークレットウインドウと、記録を残さない本 ―― その場限りの本・
+    /// 一時フォルダに書き出した入れ子の書庫 ―― を除く)。保存データを書く独立ウインドウ(「ブックマーク・レイアウトの編集」・
+    /// 「お気に入りの編集」)は、`activeBookAppState` ではなくこちらを見る。
+    ///
+    /// 2026-09-23 の監査: 「ブックマーク・レイアウトの編集」は「ウインドウ」メニューからも開けるので、編集メニューの項目を淡色にしても
+    /// 入り口は塞がらない。以前はシークレットウインドウで読んでいる本を一覧に足して選び、右ペインからブックマークの追加・レイアウトの
+    /// 変更をそのまま DB へ書けた(ページ一覧・サムネイルのディスクキャッシュも書いた)。シークレットウインドウの本でも、通常の
+    /// ウインドウで作った保存データがあれば一覧には元から載る ―― それを編集するのは保存データの編集で、読んだ痕跡ではない。
+    var activeRecordableBookAppState: AppState? {
+        guard let appState = activeBookAppState, !appState.isPrivateWindow,
+              appState.currentBook?.leavesNoRecord != true else { return nil }
+        return appState
+    }
+
     /// このウインドウ/タブのAppStateを、開いているウインドウの一覧に登録する。
     /// ContentView.onAppearで、このウインドウ/タブが正当なものと確認できた時点
     /// (isConfirmedLegitimateWindow参照)で呼ぶ。

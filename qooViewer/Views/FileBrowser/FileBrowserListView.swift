@@ -231,6 +231,8 @@ struct FileBrowserListView: NSViewRepresentable {
         private let menuBuilder = FileBrowserMenuBuilder()
         /// 名前のクリックから編集を始める予約(型コメント「名前の変更」)。
         let nameClickRename = FileBrowserNameClickRename()
+        /// 取り込んだ「名前の編集を取りやめて」の通し番号(`FileBrowserState.nameEditingCancelSerial`)。
+        private var appliedNameEditingCancelSerial = 0
         private lazy var dateFormatter: DateFormatter = makeDateFormatter()
         private let sizeFormatter: ByteCountFormatter = {
             let formatter = ByteCountFormatter()
@@ -259,6 +261,17 @@ struct FileBrowserListView: NSViewRepresentable {
             }
             applySortDescriptors(from: view.state)
             applyHiddenColumns(from: view.state)
+            // 読み取り専用モードを ON にした(ファイルブラウザ機能を OFF にした)。編集中なら打った名前を捨てて終える
+            // (確定しても入口が断るだけなので、欄を残さない。2026-09-23、利用者の決定)。状態を変えるので SwiftUI の更新の外で。
+            if view.state.nameEditingCancelSerial != appliedNameEditingCancelSerial {
+                appliedNameEditingCancelSerial = view.state.nameEditingCancelSerial
+                if let field = editingNameField {
+                    DispatchQueue.main.async { [weak self, weak field] in
+                        guard let self, let field, self.editingNameField === field else { return }
+                        self.cancelEditing(field)
+                    }
+                }
+            }
             // **名前の編集中は一覧を取り込まない**(2026-09-14 の監査の 5)。以前は描き直しだけを待たせて `entries` は
             // 差し替えていたので、編集中に一覧が読み直される(FSEvents・アプリの再アクティブ化・ボリュームの着脱・他の
             // ウインドウの操作)と、確定の `table.row(for:)`(表に出ている古い行番号)で新しい `entries` を引き、**別の

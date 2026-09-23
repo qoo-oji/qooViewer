@@ -215,11 +215,13 @@ extension FileBrowserBookSheet.Export {
     /// - Parameters:
     ///   - url: 本の実体(コレクションの本ならブックマークから解決した URL ―― 書き出しがスコープを開けて読む)。
     ///   - bookID: 保存データの鍵(本のパス)。
+    ///   - usesPageListCache: ページ一覧のディスクキャッシュを読み書きするか。**シークレットウインドウでは false**
+    ///     (BookExportViewModel.usesPageListCache)。既定値を置かない ―― 呼ぶ側に必ず決めさせる。
     @MainActor
     static func make(
         url: URL, bookID: String, isDirectory: Bool, format: BookExportFormat, preferences: AppPreferences,
         bookmarkStore: BookmarkStore, layoutStore: LayoutStore, metadataStore: BookMetadataStore,
-        collectionStore: CollectionStore? = nil
+        collectionStore: CollectionStore? = nil, usesPageListCache: Bool
     ) -> FileBrowserBookSheet.Export? {
         let destination: OpenBookExportSheet.Destination
         let asks: Bool
@@ -237,6 +239,7 @@ extension FileBrowserBookSheet.Export {
             bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore,
             preferences: preferences, collectionStore: collectionStore, loadsEligibleRows: false
         )
+        viewModel.usesPageListCache = usesPageListCache
         let book = MangaBook(
             id: bookID, title: CollectionStore.itemTitle(for: url, isDirectory: isDirectory), sourceURL: url, pages: []
         )

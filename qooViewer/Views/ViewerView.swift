@@ -1044,6 +1044,8 @@ struct ViewerView: View {
             bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore,
             preferences: preferences, loadsEligibleRows: false
         )
+        // シークレットウインドウ・記録を残さない本では、ページ一覧のディスクキャッシュを読み書きしない(BookExportViewModel.usesPageListCache)。
+        exportViewModel.usesPageListCache = !viewModel.skipsPersistence
 
         // 保存先を決めてあっても、そのブックマークがもう解決できない(フォルダが消された・
         // 外付けが外れている)ことはある。その場合は下のパネルへ落として、その場で選び直せる
@@ -2359,7 +2361,8 @@ struct ViewerView: View {
         // ファイルが黙って出来上がってしまう(idも実在するパスではない)。項目を消さずに
         // グレーアウトするのは、このアプリで「その場限りの本・シークレットウインドウでは
         // 使えない操作」を示す共通の作法(AppState.isPrivateWindowのコメント参照)。
-        // シークレットウインドウの普通の本は書き出せる ―― 書き出し自体は何も記録しないため。
+        // シークレットウインドウの普通の本は書き出せる ―― 書き出し自体は保存データを書かないため(カバーの選択は淡色、
+        // ページ一覧のディスクキャッシュも読み書きしない。BookExportViewModel.usesPageListCache)。
         // `.contextMenu` の中の `Menu` に `.disabled` は効かないので、押せない Button で描く(上の「レイアウト」と同じ)。
         if openBookExport != nil || viewModel.book.isTransient {
             Button("Export Book") {}
@@ -2410,12 +2413,13 @@ struct ViewerView: View {
                 }
             }
         }
-        // 「コレクションに登録」(2026-09-23、利用者の指示)。読んでいる本をそのままコレクションへ。ライブラリ機能が OFF・シークレット
-        // ウインドウでは出さない(保存データへの書き込み)。その場限りの本(画像を直接開いた本・一時的な写し)は淡色。
+        // 「コレクションに登録」(2026-09-23、利用者の指示)。読んでいる本をそのままコレクションへ。ライブラリ機能が OFF なら出さない。
+        // シークレットウインドウ・その場限りの本(画像を直接開いた本・一時的な写し)は淡色(保存データへの書き込み。項目ごと消すのは
+        // 機能が OFF のときだけ ―― 利用者の決定 2026-09-23。以前はシークレットウインドウでも消していた)。
         // 閉包は本の URL と AppState(weak)だけを持つ(ViewerView を捕まえない。ViewerActionRelay の件)。
-        if preferences.libraryFeatureEnabled && !appState.isPrivateWindow {
+        if preferences.libraryFeatureEnabled {
             AddToCollectionMenu(
-                books: [viewModel.book.sourceURL], isEnabled: !viewModel.book.leavesNoRecord,
+                books: [viewModel.book.sourceURL], isEnabled: !viewModel.skipsPersistence,
                 report: { [weak appState] message in appState?.postViewerNotice(message) }
             )
         }

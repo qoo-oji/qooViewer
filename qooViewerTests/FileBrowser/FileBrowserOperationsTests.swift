@@ -1144,6 +1144,40 @@ struct FileBrowserOperationsTests {
         #expect(fixture.names(in: fixture.sub).isEmpty)
     }
 
+    /// 2026-09-23、利用者の決定: ON にするのは「ここから先はファイルを変えない」なので、並んでいた操作が後から確認を出したり
+    /// 変えたりしない。以前は「受け付けた操作は最後までやる」で、並んでいた「すぐに削除…」が ON の後に確認を出し、承諾すれば消した。
+    @Test("読み取り専用を ON にしたら、順番を待っている操作は始めない", arguments: [true, false])
+    func readOnlyDropsQueuedOperations(turnsFeatureOff: Bool) async throws {
+        let fixture = try Fixture("fbops-readonly-queued")
+        // 確認が出てしまえば「削除」と答える(出ないことを確かめる)。
+        fixture.presenter.confirmsDeletion = true
+        await fixture.showRoot()
+        let file = fixture.root.appendingPathComponent("a.txt")
+        fixture.state.operations.copy([fixture.entry(file)])
+        fixture.state.operations.paste(into: fixture.other)
+        // 前のペーストの後ろに並ぶ。
+        fixture.state.operations.deleteImmediately([fixture.entry(file)])
+        if turnsFeatureOff { fixture.preferences.fileBrowserFeatureEnabled = false } else { fixture.preferences.fileBrowserReadOnly = true }
+        await fixture.finish()
+        #expect(fixture.names(in: fixture.other) == ["a.txt"])
+        #expect(fixture.exists(file))
+        #expect(fixture.presenter.deletionPrompts.isEmpty)
+    }
+
+    /// 確認はどれもファイルに触る前なので、出す前に ON になっていたら出さずに断る(以前は「出す前から断る状態」なら通していた)。
+    @Test("確認を出す前に読み取り専用になっていたら、確認を出さずに断る")
+    func readOnlyRefusesBeforeAskingConfirmation() async throws {
+        let fixture = try Fixture("fbops-readonly-before-ask")
+        fixture.presenter.confirmsDeletion = true
+        await fixture.showRoot()
+        let file = fixture.root.appendingPathComponent("a.txt")
+        fixture.state.operations.deleteImmediately([fixture.entry(file)])
+        fixture.preferences.fileBrowserReadOnly = true
+        await fixture.finish()
+        #expect(fixture.exists(file))
+        #expect(fixture.presenter.deletionPrompts.isEmpty)
+    }
+
     // MARK: - 圧縮・展開(段階 6)
 
     @Test("ここに圧縮: 環境設定の拡張子で同じフォルダに作り、選ぶ。取り消すと zip だけがゴミ箱へ")

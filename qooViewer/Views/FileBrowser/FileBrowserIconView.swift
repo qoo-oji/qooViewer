@@ -258,6 +258,8 @@ struct FileBrowserIconView: NSViewRepresentable {
         private var appliedCutPaths: Set<String> = []
         private var appliedScroll: FileBrowserState.ScrollRequest?
         private var appliedRename: FileBrowserState.ScrollRequest?
+        /// 取り込んだ「名前の編集を取りやめて」の通し番号(`FileBrowserState.nameEditingCancelSerial`)。
+        private var appliedNameEditingCancelSerial = 0
         private var iconSize: CGFloat = 0
         private var outlineWidth: CGFloat = -1
         private var thumbnailRevision: UInt64 = 0
@@ -305,6 +307,17 @@ struct FileBrowserIconView: NSViewRepresentable {
                 thumbnailRevision = view.thumbnailRevision
                 includesVideo = view.includesVideo
                 needsReconfigure = true
+            }
+            // 読み取り専用モードを ON にした(ファイルブラウザ機能を OFF にした)。編集中なら打った名前を捨てて終える
+            // (リストの update と同じ。2026-09-23、利用者の決定)。状態を変えるので SwiftUI の更新の外で。
+            if view.state.nameEditingCancelSerial != appliedNameEditingCancelSerial {
+                appliedNameEditingCancelSerial = view.state.nameEditingCancelSerial
+                if let cell = editing?.cell {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, self.editing?.cell === cell else { return }
+                        self.finishEditing(commit: false)
+                    }
+                }
             }
             // **名前の編集中は一覧を取り込まない**(型コメント)。
             if let editing {

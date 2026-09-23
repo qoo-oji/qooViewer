@@ -13,7 +13,8 @@ import UniformTypeIdentifiers
 ///
 /// ■ シークレットウインドウ
 /// コレクション・メタデータは保存データへの書き込みなので淡色(決定事項 Q8 の「保存だけしない」)。
-/// 本の書き出しはできる(ビューアの右クリックと同じ ―― 書き出し自体は何も記録しない。カバーの選択だけ出さない)。
+/// 本の書き出しはできる(ビューアの右クリックと同じ ―― 書き出し自体は保存データを書かない。カバーの選択は淡色、ページ一覧の
+/// ディスクキャッシュも読み書きしない)。
 extension FileBrowserActions {
     // MARK: - 対象
 
@@ -304,7 +305,8 @@ extension FileBrowserActions {
         guard let state, state.bookSheet == nil, let preferences, let bookmarkStore, let layoutStore, let metadataStore,
               let export = FileBrowserBookSheet.Export.make(
                 url: url, bookID: url.path, isDirectory: isDirectory, format: format, preferences: preferences,
-                bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore
+                bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore,
+                usesPageListCache: allowsSaving
               )
         else { return }
         state.bookSheet = FileBrowserBookSheet(kind: .export(export))

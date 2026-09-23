@@ -926,7 +926,8 @@ ON なら、ツリーで開いた行の子を右ペインと同じ `FileBrowserS
 
 - **断るのは `FileBrowserOperations` の入り口 1 か所**(`isReadOnly`。環境設定が届いていなければ断る側)。ペースト・⌥⌘V・カット・移動/コピー・
   ドロップ・ゴミ箱/完全削除・新規フォルダ・名前の変更・一括リネーム・圧縮・展開・取り消し/やり直しが、呼ばれた時点で何もしない
-  (確認のシートも出さない)。**走っている操作・順番を待っている操作は止めない**(次の操作から効く)。取り消しの履歴は消さない。
+  (確認のシートも出さない)。**走っている操作は止めない**が、**順番を待っている操作は始めない**(2026-09-23、利用者の決定。以前は並んでいた
+  「すぐに削除…」が ON の後に確認を出し、承諾すれば消した)。確認・シートは出す前にも見て、ON なら出さずに断る(どれもファイルに触る前)。取り消しの履歴は消さない。
 - 画面の側は**淡色にするだけ**(項目の数を変えない): `FileBrowserActions.allowsFileChanges` / `canChange` / `canPaste` / `canCreateFolder` を
   右クリック(リスト・アイコン・ツリー)と `canPerform`(キー・編集メニューのコピー/カット/ペースト)が読む。ファイルメニューの「新規フォルダ」と
   編集メニューの取り消し/やり直しは `MenuCheckmarkState` の値で淡色(`ContentView`)。
@@ -934,13 +935,16 @@ ON なら、ツリーで開いた行の子を右ペインと同じ `FileBrowserS
   コレクションの作成/登録・メタデータの編集・本の書き出し(保存データや書き出し先であって、表示中のファイルを変えない)・⌘C・パス名をコピー・
   外からのドロップの「ビューアで開く」。
 - 名前の編集: リスト・アイコン表示とも `FileBrowserNameEditing.canBegin` で断る(2026-09-19 まではリストが
-  `FileBrowserTableView.validateProposedFirstResponder` で名前の欄に焦点を渡さなかった)。アイコン表示は `isReadOnly` を値で受け取る ―― `state` と `actions` の参照が変わらないので、
-  値で受け取らないと環境設定を切り替えても本体が評価し直されず、右クリックの淡色が古いまま残る。
+  `FileBrowserTableView.validateProposedFirstResponder` で名前の欄に焦点を渡さなかった)。アイコン表示も 2026-09-15 から AppKit
+  (`NSCollectionView`)で、右クリックのメニューは開くたびに組み直す(SwiftUI だった頃は `isReadOnly` を値で受け取らないと淡色が古いまま残った)。
+  **編集中に読み取り専用を ON にした(機能を OFF にした)ら、その場で打った名前を捨てて編集を終える**(`FileBrowserState.nameEditingCancelSerial`。
+  2026-09-23、利用者の決定。以前は欄が残り、Return で確定すると入口が黙って断って元の名前に戻った)。
 - ドロップ: `FileBrowserDropDecision.make(allowsFileChanges:)` が運ぶ判定を `.refuse` にする(受け口としては断る ―― 型コメントの
   「ウインドウ全体のドロップ先との関係」)。他のアプリからの「ビューアで開く」はそのまま。
 - **出し口はコピーだけを許す**(`fileBrowserDragSourceMask`。計画は「アプリ外への D&D は元を変えない」としてそのままだったが、移動を許すと
   Finder へ落としたときに Finder が元を動かす)。リスト・ツリーは `draggingSession(_:sourceOperationMaskFor:)` を上書きしてドラッグのたびに引く
-  (`setDraggingSourceOperationMask` は作ったときの 1 回で、あとから切り替えた設定が効かない)。アイコン表示は始めるときに決める。
+  (`setDraggingSourceOperationMask` は作ったときの 1 回で、あとから切り替えた設定が効かない)。アイコン表示も同じくドラッグのたびに引く。
+  右ペインの SwiftUI の受け口は、中身が読めない他のアプリからのドラッグでも読み取り専用の間は「+」を出さない(2026-09-23 の監査まで出していた)。
 
 ### 実機で見つけて直したもの(段階 8.5、2026-09-14)
 

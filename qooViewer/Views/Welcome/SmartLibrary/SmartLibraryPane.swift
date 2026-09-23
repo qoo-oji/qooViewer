@@ -329,7 +329,7 @@ struct SmartLibrarySidebar: View {
                 .help("Add Browser Button")
             }
             ForEach(state.facetFields, id: \.self) { field in
-                SmartFacetButton(state: state, field: field)
+                SmartFacetButton(state: state, field: field, allowsPinning: allowsEditing)
             }
         }
     }
@@ -435,6 +435,8 @@ private func smartFacetLabel(_ value: SmartFacetValue, field: SmartFacetField, l
 private struct SmartFacetButton: View {
     @ObservedObject var state: SmartLibraryViewState
     let field: SmartFacetField
+    /// ピン留めを変えられるか(`SmartFacetPanel.allowsPinning`)。
+    let allowsPinning: Bool
     @Environment(\.locale) private var locale
     @State private var isShowingPanel = false
 
@@ -468,7 +470,7 @@ private struct SmartFacetButton: View {
             }
             .buttonStyle(.plain)
             .popover(isPresented: $isShowingPanel, arrowEdge: .trailing) {
-                SmartFacetPanel(state: state, field: field)
+                SmartFacetPanel(state: state, field: field, allowsPinning: allowsPinning)
             }
             .contextMenu {
                 Menu("Change Field") {
@@ -535,6 +537,9 @@ private struct SmartSelectedValueChip: View {
 private struct SmartFacetPanel: View {
     @ObservedObject var state: SmartLibraryViewState
     let field: SmartFacetField
+    /// ピン留めを変えられるか。**シークレットウインドウでは淡色**(ピンは `SmartLibraryStore` に保存され、保存データの書き出しにも入る。
+    /// 2026-09-23 の監査まではシークレットウインドウでも書けた)。ピン留めした値を上に出すこと(読むだけ)は変わらない。
+    let allowsPinning: Bool
     @EnvironmentObject private var store: SmartLibraryStore
     @Environment(\.locale) private var locale
     @State private var query = ""
@@ -632,8 +637,12 @@ private struct SmartFacetPanel: View {
     private func rowView(_ row: Row, isSelected: Bool, isPinned: Bool) -> some View {
         SmartFacetPanelRow(
             title: row.title, count: row.count, isSelected: isSelected, isPinned: isPinned,
+            allowsPinning: allowsPinning,
             onToggle: { state.toggleFacet(row.value, in: field) },
-            onPin: { store.togglePin(row.value, in: field) }
+            onPin: { [allowsPinning] in
+                guard allowsPinning else { return }
+                store.togglePin(row.value, in: field)
+            }
         )
     }
 }
@@ -643,6 +652,7 @@ private struct SmartFacetPanelRow: View {
     let count: Int
     let isSelected: Bool
     let isPinned: Bool
+    let allowsPinning: Bool
     let onToggle: () -> Void
     let onPin: () -> Void
     @State private var isHovering = false
@@ -663,6 +673,7 @@ private struct SmartFacetPanelRow: View {
                     .foregroundStyle(isPinned ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary))
             }
             .buttonStyle(.borderless)
+            .disabled(!allowsPinning)
             .help(isPinned ? "Unpin" : "Pin")
         }
         .padding(.horizontal, 10)
@@ -1332,7 +1343,7 @@ struct SmartLibraryContent: View {
             )
             .disabled(!isSingle)
             openWithMenu(for: book, isEnabled: isSingle)
-            if allowsCollections {
+            if showsCollections {
                 Divider()
                 collectionMenuItems(for: targets)
             }
@@ -1346,12 +1357,11 @@ struct SmartLibraryContent: View {
             }
             Button("Get Info") { getInfo(targets) }
             Divider()
-            if allowsEditing {
-                Button("Edit Metadata…") { editMetadata(book) }
-                    .disabled(!isSingle)
-            }
-            // 「本の書き出し」(2026-09-23。ファイルブラウザの右クリックと同じ。書き出し自体は何も記録しないので、シークレット
-            // ウインドウでも使える ―― カバーの選択だけ出さない)。
+            // シークレットウインドウでは淡色(保存データへの書き込み。項目ごと消すのは機能が OFF のときだけ ―― 利用者の決定 2026-09-23)。
+            Button("Edit Metadata…") { editMetadata(book) }
+                .disabled(!allowsEditing || !isSingle)
+            // 「本の書き出し」(2026-09-23。ファイルブラウザの右クリックと同じ。書き出し自体は保存データを書かないので、シークレット
+            // ウインドウでも使える ―― カバーの選択は淡色、ページ一覧のディスクキャッシュも読み書きしない)。
             BookExportMenu(isEnabled: isSingle && exportRequest == nil) { format in startExport(book, format: format) }
         }
     }
@@ -1392,7 +1402,8 @@ struct SmartLibraryContent: View {
         withResolvedURL(for: book) { url in
             guard let export = FileBrowserBookSheet.Export.make(
                 url: url, bookID: book.id, isDirectory: book.kind == .folder, format: format, preferences: preferences,
-                bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore
+                bookmarkStore: bookmarkStore, layoutStore: layoutStore, metadataStore: metadataStore,
+                usesPageListCache: !appState.isPrivateWindow
             ) else { return }
             exportRequest = HomeBookExportRequest(export: export)
         }
@@ -1421,16 +1432,19 @@ struct SmartLibraryContent: View {
             Item(title: title("Open in New Tab"), isEnabled: isSingle, action: { openIn(book, .newTab) }),
             Item(title: title("Open With"), isEnabled: isSingle, submenu: isSingle ? openWithNodes(for: book) : []),
         ]
-        if allowsCollections {
+        if showsCollections {
             let libraries = collectionMenuLibraries()
+            let isEnabled = allowsCollections
             items.append(.separator)
             if let nodes = CollectionMenuLibrary.createMenuNodes(for: libraries, create: { createCollection(from: books, libraryID: $0) }) {
-                items.append(Item(title: title("Create Collection"), submenu: nodes))
+                items.append(Item(title: title("Create Collection"), isEnabled: isEnabled, submenu: nodes))
             } else {
-                items.append(Item(title: title("Create Collection"), action: { createCollection(from: books, libraryID: nil) }))
+                items.append(Item(
+                    title: title("Create Collection"), isEnabled: isEnabled, action: { createCollection(from: books, libraryID: nil) }
+                ))
             }
             items.append(Item(
-                title: title("Add to Collection"),
+                title: title("Add to Collection"), isEnabled: isEnabled,
                 submenu: CollectionMenuLibrary.addMenuNodes(for: libraries, locale: locale) { addToCollection(books, collectionID: $0) }
             ))
         }
@@ -1445,9 +1459,7 @@ struct SmartLibraryContent: View {
         }
         items.append(Item(title: title("Get Info"), action: { getInfo(books) }))
         items.append(.separator)
-        if allowsEditing {
-            items.append(Item(title: title("Edit Metadata…"), isEnabled: isSingle, action: { editMetadata(book) }))
-        }
+        items.append(Item(title: title("Edit Metadata…"), isEnabled: allowsEditing && isSingle, action: { editMetadata(book) }))
         items.append(Item(
             title: title("Export Book"), isEnabled: isSingle && exportRequest == nil,
             submenu: BookExportFormat.menuNodes(locale: locale) { format in startExport(book, format: format) }
@@ -1477,8 +1489,11 @@ struct SmartLibraryContent: View {
 
     // MARK: コレクション・コピー・ドラッグ(2026-09-23、利用者の指示)
 
-    /// 右クリックに「コレクションを作成」「コレクションに登録」を出すか。ファイルブラウザの右クリックと同じ条件: ライブラリ機能が ON で、
-    /// シークレットウインドウでない(コレクションは保存データへの書き込み)。
+    /// 右クリックに「コレクションを作成」「コレクションに登録」を出すか。ライブラリ機能が ON なら出す(ファイルブラウザの右クリックと同じ)。
+    private var showsCollections: Bool { home.isLibraryFeatureEnabled }
+
+    /// それらを押せるか。シークレットウインドウでは淡色(コレクションは保存データへの書き込み。項目ごと消すのは機能が OFF のときだけ ――
+    /// 利用者の決定 2026-09-23。以前はシークレットウインドウでも消していた)。操作の入口もこれで断る。
     private var allowsCollections: Bool {
         allowsEditing && home.isLibraryFeatureEnabled
     }
@@ -1493,6 +1508,17 @@ struct SmartLibraryContent: View {
     /// (ファイルブラウザと同じ形。FileBrowserMenuCommand.dynamicChildren)。
     @ViewBuilder
     private func collectionMenuItems(for books: [SmartBook]) -> some View {
+        if allowsCollections {
+            enabledCollectionMenuItems(for: books)
+        } else {
+            // `.contextMenu` の中の `Menu` には `.disabled` が効かない(FileBrowserDisabledSubmenu の型コメント)。
+            FileBrowserDisabledSubmenu(title: String(localized: "Create Collection", language: locale))
+            FileBrowserDisabledSubmenu(title: String(localized: "Add to Collection", language: locale))
+        }
+    }
+
+    @ViewBuilder
+    private func enabledCollectionMenuItems(for books: [SmartBook]) -> some View {
         let libraries = collectionMenuLibraries()
         if let nodes = CollectionMenuLibrary.createMenuNodes(for: libraries, create: { createCollection(from: books, libraryID: $0) }) {
             Menu("Create Collection") { FileBrowserMenuNodeItems(nodes: nodes) }
@@ -1610,6 +1636,8 @@ struct SmartLibraryContent: View {
     }
 
     private func editMetadata(_ book: SmartBook) {
+        // シークレットウインドウでは淡色(右クリック)。入口でも断る。
+        guard allowsEditing else { return }
         withResolvedURL(for: book) { url in
             metadataTarget = SmartMetadataTarget(entry: FileBrowserEntry(
                 url: url, displayName: book.fileName, isDirectory: book.kind == .folder, isPackage: false,
