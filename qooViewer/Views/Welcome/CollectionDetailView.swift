@@ -229,7 +229,7 @@ struct CollectionDetailView: View {
             switch $0 {
             case .renameCollection(let id): id == collection.id
             case .deleteCollections(let ids): ids == [collection.id]
-            case .removeItems, .focusSearch, .showSettings, .showItemInFinder, .showItemInFileBrowser, .editItemMetadata: true
+            case .removeItems, .focusSearch, .showSettings, .showItemInFinder, .showItemInFileBrowser: true
             default: false
             }
         }) else { return }
@@ -248,8 +248,6 @@ struct CollectionDetailView: View {
             withExistingURL(ofItemWithID: id) { FinderReveal.reveal($0) }
         case .showItemInFileBrowser(let id):
             withExistingURL(ofItemWithID: id) { revealInFileBrowser($0) }
-        case .editItemMetadata(let id) where allowsEditing:
-            withExistingURL(ofItemWithID: id) { metadataTarget = MetadataTarget(id: id, url: $0) }
         default:
             break
         }

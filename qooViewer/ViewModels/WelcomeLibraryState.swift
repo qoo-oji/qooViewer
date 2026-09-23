@@ -300,7 +300,6 @@ final class WelcomeLibraryState: ObservableObject {
             case focusSearch
             case showItemInFinder(UUID)
             case showItemInFileBrowser(UUID)
-            case editItemMetadata(UUID)
         }
     }
 

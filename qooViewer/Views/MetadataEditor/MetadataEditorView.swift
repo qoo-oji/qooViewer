@@ -68,6 +68,8 @@ struct MetadataEditorWindow: View {
         .onDisappear {
             model?.close()
             model = nil
+            // 開かないまま残った頼みを次に持ち越さない(MetadataEditorReveal)。
+            MetadataEditorReveal.shared.take()
         }
     }
 }
@@ -270,6 +272,32 @@ final class MetadataEditorUndoRouter {
     weak var workspace: MetadataWorkspace?
 }
 
+/// 編集メニューの「メタデータの編集…」から、窓を開くときに「この本を選んで見せて」と頼むための置き場
+/// (2026-09-23、利用者の指示)。メニューはいつもこの窓を開き、ホーム画面で本を 1 冊選んでいれば、その本を渡す。
+///
+/// 窓がまだ開いていないとき(頼んでから中身ができる)にも、もう開いているとき(中身が `token` の変化で気づく)にも
+/// 同じ経路で渡るよう、値と通し番号を持つ ―― 同じ本を 2 度頼めるようにするため(MetadataRulesPicked と同じ形)。
+/// 受け取った側は `take()` で 1 度だけ引き取る(窓を開き直したときに前の頼みが蘇らない)。
+@MainActor @Observable
+final class MetadataEditorReveal {
+    static let shared = MetadataEditorReveal()
+    private(set) var bookID: String?
+    private(set) var token = 0
+
+    /// 窓を開く直前に呼ぶ(`bookID` が nil なら、ただ開くだけ)。
+    func request(bookID: String?) {
+        self.bookID = bookID
+        token += 1
+    }
+
+    /// 頼みを 1 度だけ引き取る。
+    @discardableResult
+    func take() -> String? {
+        defer { bookID = nil }
+        return bookID
+    }
+}
+
 /// 窓の中身。
 struct MetadataEditorContent: View {
     let model: MetadataEditorModel
@@ -389,6 +417,12 @@ struct MetadataEditorContent: View {
             } else {
                 Task { await model.reopen() }
             }
+        }
+        // 編集メニューの「メタデータの編集…」が指した本を、選んで見える位置まで運ぶ(2026-09-23、利用者の指示。
+        // MetadataEditorReveal)。窓を開いたところ(initial)と、もう開いている窓に頼まれたとき(token の変化)の両方。
+        .onChange(of: MetadataEditorReveal.shared.token, initial: true) { _, _ in
+            guard let bookID = MetadataEditorReveal.shared.take() else { return }
+            workspace.reveal(bookID)
         }
         // 規則の窓で変えた内容は、メタデータ生成が読み直して届ける(MetadataWorkspace.generatorDidUpdate)。
         .onChange(of: controlActiveState, initial: true) { _, state in
@@ -560,7 +594,7 @@ struct MetadataBookTableView: View {
     var body: some View {
         let controller = model.coverController
         MetadataBookTable(books: workspace.books, positions: workspace.visiblePositions, selection: $workspace.selection,
-                          sortOrder: $workspace.sortOrder,
+                          sortOrder: $workspace.sortOrder, revealRequest: workspace.revealRequest,
                           canEdit: canEdit, isEdited: isEdited, help: help, commit: commit,
                           contextMenu: contextMenu,
                           toggleLock: { [workspace] id in workspace.setLocked([id], !workspace.isLocked(id)) },

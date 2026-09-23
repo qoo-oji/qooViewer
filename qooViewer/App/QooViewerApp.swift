@@ -324,6 +324,24 @@ struct QooViewerApp: App {
         }
     }
 
+    /// 編集メニューの「メタデータの編集…」で、ウインドウの一覧から選び出してもらう本(2026-09-23、利用者の指示)。
+    ///
+    /// ホーム画面で本を 1 冊だけ選んでいるときのその本 ―― ファイルブラウザの選択か、コレクションの中で選んだ 1 冊。
+    /// 本の id はパス(`BookLoader` が付ける id。ファイルブラウザから開くシートと同じ引き方)。本を読んでいるウインドウ・
+    /// 複数選択・選んでいないときは nil(窓を開くだけ)。**DB に登録があるかはここでは見ない** ―― 一覧に無い本なら
+    /// `MetadataWorkspace.reveal` が何もしない。
+    private func metadataRevealTarget(_ appState: AppState?) -> String? {
+        guard let appState, appState.currentBook == nil else { return nil }
+        if appState.fileBrowserMenu.selection?.canEditMetadata == true,
+           let entries = appState.fileBrowserActions?.state?.selectedEntries, entries.count == 1 {
+            return entries[0].url.path
+        }
+        if let itemID = appState.homeMenu.singleItemTarget {
+            return collectionStore.item(withID: itemID)?.bookID
+        }
+        return nil
+    }
+
     /// キーウインドウでテキストを編集中か(編集メニューの「取り消す」をその欄へ流す。改善要望7 段階4)。
     static var isEditingText: Bool {
         (NSApp.keyWindow?.firstResponder as? NSTextView)?.isEditable == true
@@ -1467,20 +1485,12 @@ struct QooViewerApp: App {
                 Divider()
 
                 //
-                // ホーム画面で本を 1 冊選んでいるときは、メタデータの編集のウインドウではなくその本のシートを出す
-                // (2026-09-15。右クリックの「メタデータの編集…」と同じ)。
+                // **この項目はいつも「メタデータの編集」ウインドウを開く**(2026-09-23、利用者の指示)。以前は、ホーム画面で
+                // 本を 1 冊選んでいるとその本のシートを出していた(2026-09-15)が、シートは右クリックの「メタデータの編集…」に
+                // 残し、メニューからは一覧を開く。選んでいる本が DB に登録してあれば、その行を選んで見える位置まで運ぶ
+                // (`MetadataEditorReveal`。登録の無い本 ―― 棚やふつうのフォルダを選んでいるときも ―― なら、ただ開くだけ)。
                 Button("Edit Metadata…") { [weak focusedAppState] in
-                    if let appState = focusedAppState, appState.currentBook == nil {
-                        if appState.fileBrowserMenu.selection?.canEditMetadata == true, let actions = appState.fileBrowserActions {
-                            // 選んだフォルダが本でなければ(棚・ふつうのフォルダ)、ウインドウを開く。
-                            actions.editMetadata(actions.state?.selectedEntries ?? []) { openWindow(id: "editMetadata") }
-                            return
-                        }
-                        if let item = appState.homeMenu.singleItemTarget {
-                            appState.welcomeLibrary?.request(.editItemMetadata(item))
-                            return
-                        }
-                    }
+                    MetadataEditorReveal.shared.request(bookID: metadataRevealTarget(focusedAppState))
                     openWindow(id: "editMetadata")
                 }
                 .disabled(isPrivate)

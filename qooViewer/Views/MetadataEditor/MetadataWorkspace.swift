@@ -212,6 +212,14 @@ final class MetadataWorkspace {
 
     private(set) var selectedBooks: [MetadataBookRow] = []
     private(set) var selectionToken = 0
+    /// 「この本を見える位置へ」の頼み(画面が受けて一覧をスクロールする。`reveal`)。同じ本へ 2 度頼めるよう通し番号を持つ
+    /// (スマートライブラリの `SmartLibraryViewState.RevealRequest` と同じ形)。
+    private(set) var revealRequest: RevealRequest?
+    struct RevealRequest: Equatable {
+        let id: String
+        let serial: Int
+    }
+    private var revealSerial = 0
     private(set) var visiblePositions: [Int] = []
     var rows: [MetadataBookRow] { visiblePositions.map { books[$0] } }
     private(set) var genreValues: [(key: MetadataValueKey, count: Int)] = []
@@ -587,6 +595,30 @@ final class MetadataWorkspace {
     var isEveryVisibleBookSelected: Bool {
         !visiblePositions.isEmpty && selection.count >= visiblePositions.count
             && visiblePositions.allSatisfy { selection.contains(books[$0].id) }
+    }
+
+    /// その本だけを選び、一覧の見える位置まで運ぶ(編集メニューの「メタデータの編集…」で本を選んでいたとき。
+    /// 2026-09-23、利用者の指示)。
+    ///
+    /// 一覧に無い本(DB に登録の無い本)なら何もしない ―― 窓はふつうに開くだけ。**絞り込み・検索で隠れているだけなら、
+    /// それらを外してから選ぶ**(選んだ本が一覧に出ないまま、選択だけが変わるのを避ける)。
+    @discardableResult
+    func reveal(_ id: String) -> Bool {
+        guard positionByID[id] != nil else { return false }
+        if !visiblePositions.contains(where: { books[$0].id == id }) {
+            searchText = ""
+            isBatching = true
+            genreFilter = nil
+            authorFilter = nil
+            stateFilter = .all
+            isBatching = false
+            rebuildCounts()
+            applyFilters()
+        }
+        selection = [id]
+        revealSerial += 1
+        revealRequest = RevealRequest(id: id, serial: revealSerial)
+        return true
     }
 
     /// 一覧に出ている本をすべて選ぶ。すでに全部選ばれていれば、選択を外す。

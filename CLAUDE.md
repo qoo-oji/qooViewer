@@ -275,7 +275,10 @@ rest), genre, event, source, info, series, volume (as written) and `volumeSort`,
 these fields existed; the Edit Metadata window offers to fill the empty fields). Values travel as `BookMetadataValues`.
 Rules and excluded folders live in `MetadataRulesStore` (Application Support/qooMeta/settings.json, a diff against the
 bundled rules). The Edit Metadata window (`Views/MetadataEditor/`, `MetadataWorkspace` + AppKit `MetadataBookTable`) is qooMeta's
-page 3: **every parsed book is registered** (2026-09-22; the user found "shown but not saved" meaningless). **Only
+page 3. The Edit menu's "Edit Metadata…" **always opens that window** (2026-09-23; the one-book sheet stays on the
+context menus): the book selected on Home travels through `MetadataEditorReveal.shared` (value + token, taken once) to
+`MetadataWorkspace.reveal`, which selects the row, clears the filters that hide it and asks the table to scroll to it —
+a book with no row is left alone. In the window, **every parsed book is registered** (2026-09-22; the user found "shown but not saved" meaningless). **Only
 `MetadataGenerator` (one app-wide) derives values from file names and writes them** (2026-09-22, docs/plans/metadata-generator-plan.md —
 five writers with different anchor sets had disagreed and reverted edits): one `ProposalIndex` over the corpus = known books
 (reading states, bookmarks, layouts, favorites) + metadata rows + the book lists features *record* in `MetadataCorpusStore`

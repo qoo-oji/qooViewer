@@ -121,6 +121,9 @@ struct MetadataBookTable: NSViewRepresentable {
     var positions: [Int]
     @Binding var selection: Set<MetadataBookRow.ID>
     @Binding var sortOrder: [KeyPathComparator<MetadataBookRow>]
+    /// 「この本を見える位置へ」の頼み(編集メニューから本を指して窓を開いたとき。`MetadataWorkspace.reveal`)。
+    /// 通し番号が前と変わったときだけスクロールする。
+    var revealRequest: MetadataWorkspace.RevealRequest?
     /// 直せる列は欄の列と巻数(並べ替え用)の列(2026-09-22、利用者の要望で巻数(並べ替え用)も直せるようにした)。
     var canEdit: (Column, MetadataBookRow) -> Bool
     /// 利用者が直した(確定した)欄か。提案のままの値と色で見分ける。
@@ -362,7 +365,20 @@ struct MetadataBookTable: NSViewRepresentable {
                 setRows(parent.books, parent.positions, in: table)
             }
             select(parent.selection, in: table)
+            if let request = parent.revealRequest, request.serial != lastRevealSerial {
+                lastRevealSerial = request.serial
+                // 運ぶのは次の回しで。窓を開いた直後は、表の大きさがまだ決まっていないことがあり、
+                // 行の位置は「見えている範囲」から計るので、その場で運ぶと外れる。
+                let id = request.id
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, let table = self.table, let row = self.index(of: id) else { return }
+                    table.scrollRowToVisible(row)
+                }
+            }
         }
+
+        /// 最後に応えた「見える位置へ」の通し番号(`MetadataBookTable.revealRequest`)。
+        private var lastRevealSerial = 0
 
         /// 行を入れ替える。**並びが同じなら、変わった行だけを描き直す**(1 冊直すたびに 1 万行を読み直さない)。
         private func setRows(_ newBooks: [MetadataBookRow], _ newPositions: [Int], in table: NSTableView) {

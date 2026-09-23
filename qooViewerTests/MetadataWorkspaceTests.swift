@@ -801,3 +801,40 @@ extension MetadataWorkspaceTests {
         #expect(workspace.row(first)?.metadata.info == "付記")
     }
 }
+
+// MARK: - 編集メニューから指した本(2026-09-23)
+
+extension MetadataWorkspaceTests {
+    @Test("編集メニューから指した本は、選ばれて「見える位置へ」の頼みが出る。絞り込みで隠れていれば絞り込みを外す")
+    func revealSelectsTheBookAndClearsFilters() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let workspace = await open(library, [first, second])
+
+        #expect(workspace.reveal(second))
+        #expect(workspace.selection == [second])
+        #expect(workspace.revealRequest?.id == second)
+        let firstSerial = try #require(workspace.revealRequest?.serial)
+
+        // ロック済みだけの絞り込みで隠れている本も、絞り込みを外して選ぶ(同じ本へ 2 度目の頼みも通る)。
+        workspace.stateFilter = .locked
+        #expect(!workspace.rows.contains { $0.id == second })
+        #expect(workspace.reveal(second))
+        #expect(workspace.stateFilter == .all)
+        #expect(workspace.rows.contains { $0.id == second })
+        #expect(workspace.selection == [second])
+        #expect(workspace.revealRequest?.serial != firstSerial)
+    }
+
+    @Test("一覧に無い本(DB に登録の無い本)を指しても、選択は変わらない")
+    func revealIgnoresBooksThatAreNotListed() async throws {
+        let library = try InMemoryLibrary()
+        defer { library.close() }
+        let workspace = await open(library, [first])
+        workspace.selection = [first]
+
+        #expect(!workspace.reveal("/書庫/知らない本.zip"))
+        #expect(workspace.selection == [first])
+        #expect(workspace.revealRequest == nil)
+    }
+}
